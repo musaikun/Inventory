@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#2563eb">
+  <title>棚卸入力</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ヘッダー -->
+  <header>
+    <h1>棚卸入力</h1>
+    <div id="date-display"></div>
+  </header>
+
+  <!-- 音声入力エリア -->
+  <section id="voice-section">
+    <button id="voice-btn" class="voice-button">
+      <span class="mic-icon">🎤</span>
+      <span id="voice-btn-label">タップして話す</span>
+    </button>
+    <div id="transcript" class="transcript-box">
+      例：「ブラジル 3袋」「牛乳 5」
+    </div>
+  </section>
+
+  <!-- 確認モーダル -->
+  <div id="confirm-modal" class="modal-overlay hidden">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">内容を確認</div>
+
+      <div id="confirm-name" class="confirm-name"></div>
+
+      <div id="dup-warning" class="dup-warning hidden">
+        ⚠️ すでに入力済みです。<span id="dup-current"></span>
+      </div>
+
+      <div class="confirm-qty-row">
+        <label>数量</label>
+        <input type="number" id="confirm-qty" min="0" step="0.5" inputmode="decimal">
+        <input type="text"   id="confirm-unit" maxlength="6" placeholder="単位">
+      </div>
+
+      <div id="confirm-actions" class="confirm-actions">
+        <button id="btn-cancel"    class="btn btn-secondary">キャンセル</button>
+        <button id="btn-add"       class="btn btn-primary hidden">追加</button>
+        <button id="btn-overwrite" class="btn btn-success">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 候補選択モーダル -->
+  <div id="candidate-modal" class="modal-overlay hidden">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">どれですか？</div>
+      <div id="candidate-list"></div>
+      <button id="candidate-cancel" class="btn btn-secondary" style="width:100%;margin-top:14px">
+        キャンセル
+      </button>
+    </div>
+  </div>
+
+  <!-- 棚卸一覧 -->
+  <section id="inventory-section">
+    <div class="section-header">
+      <h2>棚卸一覧</h2>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="progress-text" class="progress-text"><span>0</span> / 0 件入力済み</span>
+        <button id="reset-btn" class="btn-danger-sm">リセット</button>
+      </div>
+    </div>
+
+    <table id="inventory-table">
+      <thead>
+        <tr>
+          <th>品目</th>
+          <th class="col-qty">数量</th>
+        </tr>
+      </thead>
+      <tbody id="inventory-body"></tbody>
+    </table>
+  </section>
+
+</div>
+
+<!-- フッター：CSV出力 -->
+<div id="footer">
+  <button id="export-btn" class="btn-export">📋 CSVをコピー</button>
+</div>
+
+<!-- トースト通知 -->
+<div id="toast" class="hidden"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
