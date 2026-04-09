@@ -10,7 +10,7 @@ import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config } = useConfig()
+const { config, dictionary, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const { inventory, filledCount, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
@@ -66,8 +66,8 @@ function findCandidates(name) {
   const nInput = normalize(name)
   const seen   = new Map()
 
-  // ① 辞書エイリアスとのマッチ
-  for (const [alias, canonical] of Object.entries(config.dictionary)) {
+  // ① 辞書エイリアスとのマッチ（CSV定義 + 自動学習済み）
+  for (const [alias, canonical] of Object.entries(dictionary.value)) {
     const score = scoreMatch(normalize(alias), nInput)
     if (score > 0 && score > (seen.get(canonical) ?? 0)) seen.set(canonical, score)
   }
@@ -119,7 +119,7 @@ function openConfirm(ingredient, qty, unit) {
   confirmState.value = {
     ingredient,
     qty,
-    unit,
+    unit: unit || config.units?.[ingredient] || '',
     existing: inventory[ingredient] ?? null,
   }
 }
@@ -136,8 +136,9 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 
 // ── Candidate modal ────────────────────────────────────────────────────────────
 function onCandidateSelect(canonical) {
-  const { qty, unit } = candidateState.value
+  const { qty, unit, searchTerm } = candidateState.value
   candidateState.value = null
+  registerAlias(searchTerm, canonical)
   openConfirm(canonical, qty, unit)
 }
 
