@@ -22,13 +22,13 @@ const showSettings = ref(false)
 const confirmState   = ref(null) // { ingredient, qty, unit, existing }
 const candidateState = ref(null) // { candidates, qty, unit }
 
-// ── Transcript ─────────────────────────────────────────────────────────────────
-const transcriptMsg    = ref('例：「ブラジル 3袋」「牛乳 5」')
-const transcriptStatus = ref('')
+// ── Transcript / テキスト検索 ──────────────────────────────────────────────────
+const searchText   = ref('')
+const searchStatus = ref('') // '' | 'active' | 'confirmed'
 
-function setTranscript(msg, status = '') {
-  transcriptMsg.value    = msg
-  transcriptStatus.value = status
+function setConfirmedMsg(msg) {
+  searchText.value   = msg
+  searchStatus.value = 'confirmed'
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -52,40 +52,67 @@ function normalize(str) {
     .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))
 }
 
+function scoreMatch(nTarget, nInput) {
+  if (nTarget === nInput)              return 1000
+  if (nTarget.startsWith(nInput))     return 500 + nInput.length
+  if (nInput.startsWith(nTarget))     return 400 + nTarget.length
+  if (nTarget.includes(nInput))       return 300 + nInput.length
+  if (nInput.includes(nTarget))       return 200 + nTarget.length
+  return 0
+}
+
 function findCandidates(name) {
   if (!name) return []
   const nInput = normalize(name)
   const seen   = new Map()
 
+  // ① 辞書エイリアスとのマッチ
   for (const [alias, canonical] of Object.entries(config.dictionary)) {
-    const nAlias = normalize(alias)
-    let score = 0
-    if      (nAlias === nInput)              score = 1000
-    else if (nAlias.startsWith(nInput))      score = 500 + nInput.length
-    else if (nInput.startsWith(nAlias))      score = 400 + nAlias.length
-    else if (nAlias.includes(nInput))        score = 300 + nInput.length
-    else if (nInput.includes(nAlias))        score = 200 + nAlias.length
+    const score = scoreMatch(normalize(alias), nInput)
     if (score > 0 && score > (seen.get(canonical) ?? 0)) seen.set(canonical, score)
+  }
+
+  // ② 正式品目名そのものともマッチ（"コーヒー豆" → "コーヒー豆 ブラジル..." を拾う）
+  for (const canonical of config.order) {
+    const score = scoreMatch(normalize(canonical), nInput)
+    // エイリアス経由より若干低いスコアで登録（エイリアスを優先）
+    const adjusted = score > 0 ? Math.max(score - 50, 1) : 0
+    if (adjusted > 0 && adjusted > (seen.get(canonical) ?? 0)) seen.set(canonical, adjusted)
   }
 
   return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
 }
 
+// ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
+function runSearch(raw) {
+  const { name, qty, unit } = parseText(raw)
+  const matched = name ? findCandidates(name) : []
+  candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
+}
+
 // ── Voice ──────────────────────────────────────────────────────────────────────
 function onVoiceResult(raw) {
-  setTranscript(`"${raw}"`)
-  const { name, qty, unit } = parseText(raw)
-
-  // 常に候補選択画面へ（品目を目視確認してから確定する）
-  const matched = name ? findCandidates(name) : []
-  candidateState.value = { searchTerm: name ?? '', matched, qty, unit }
+  searchText.value   = raw
+  searchStatus.value = ''
+  runSearch(raw)
 }
 
 const { isListening, liveText, toggle } = useVoice(onVoiceResult)
 
 watch(liveText, v => {
-  if (isListening.value) setTranscript(v, 'active')
+  if (isListening.value) {
+    searchText.value   = v
+    searchStatus.value = 'active'
+  }
 })
+
+// ── テキスト検索 ───────────────────────────────────────────────────────────────
+function onTextSearch() {
+  const raw = searchText.value.trim()
+  if (!raw) return
+  searchStatus.value = ''
+  runSearch(raw)
+}
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────
 function openConfirm(ingredient, qty, unit) {
@@ -102,7 +129,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const finalQty  = isAdd && existing ? existing.qty + qty : qty
   setItem(ingredient, qty, unit, isAdd)
   const label = isAdd ? `追加 → 合計 ${finalQty}${unit}` : `${finalQty}${unit}`
-  setTranscript(`✓ ${ingredient}　${label}`, 'confirmed')
+  setConfirmedMsg(`✓ ${ingredient}　${label}`)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   confirmState.value = null
 }
@@ -168,11 +195,19 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       </div>
     </header>
 
-    <!-- 音声入力 -->
+    <!-- 音声入力 / テキスト検索 -->
     <section class="voice-section">
       <VoiceButton :is-listening="isListening" @toggle="toggle" />
-      <div class="transcript-box" :class="transcriptStatus">
-        {{ transcriptMsg }}
+      <div class="search-row">
+        <input
+          type="text"
+          v-model="searchText"
+          :class="['search-input', searchStatus]"
+          placeholder="例：ブラジル 3袋　（音声 or 入力）"
+          @keyup.enter="onTextSearch"
+          @focus="searchStatus = ''"
+        />
+        <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
       </div>
     </section>
 

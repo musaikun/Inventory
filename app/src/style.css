@@ -83,30 +83,47 @@ body {
   gap: 16px;
 }
 
-/* ── Transcript box ── */
-.transcript-box {
+/* ── 検索行 ── */
+.search-row {
+  display: flex;
+  gap: 8px;
   width: 100%;
+}
+
+.search-input {
+  flex: 1;
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: 12px;
   padding: 12px 16px;
-  min-height: 48px;
-  text-align: center;
-  color: var(--text-muted);
   font-size: 15px;
-  line-height: 1.5;
-  transition: border-color 0.2s, color 0.2s;
-}
-
-.transcript-box.active {
-  border-color: var(--primary);
   color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, color 0.2s;
+  font-family: inherit;
 }
 
-.transcript-box.confirmed {
-  border-color: var(--success);
-  color: var(--success);
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus         { border-color: var(--primary); }
+.search-input.active        { border-color: var(--primary); color: var(--text); }
+.search-input.confirmed     { border-color: var(--success); color: var(--success); }
+
+.search-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
+
+.search-btn:active { opacity: 0.8; }
 
 /* ── Modal overlay ── */
 .modal-overlay {
