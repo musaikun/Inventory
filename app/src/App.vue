@@ -75,16 +75,10 @@ function findCandidates(name) {
 function onVoiceResult(raw) {
   setTranscript(`"${raw}"`)
   const { name, qty, unit } = parseText(raw)
-  if (!name) { showToast('食材名が聞き取れませんでした'); return }
 
-  const candidates = findCandidates(name)
-  if (candidates.length === 0) {
-    openConfirm(name, qty, unit)
-  } else if (candidates.length === 1) {
-    openConfirm(candidates[0], qty, unit)
-  } else {
-    candidateState.value = { candidates, qty, unit }
-  }
+  // 常に候補選択画面へ（品目を目視確認してから確定する）
+  const matched = name ? findCandidates(name) : []
+  candidateState.value = { searchTerm: name ?? '', matched, qty, unit }
 }
 
 const { isListening, liveText, toggle } = useVoice(onVoiceResult)
@@ -118,6 +112,11 @@ function onCandidateSelect(canonical) {
   const { qty, unit } = candidateState.value
   candidateState.value = null
   openConfirm(canonical, qty, unit)
+}
+
+// マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
+function onTableTap(item) {
+  openConfirm(item, null, '')
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
@@ -200,7 +199,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- 候補選択モーダル -->
     <CandidateModal
       v-if="candidateState"
-      :candidates="candidateState.candidates"
+      :search-term="candidateState.searchTerm"
+      :matched="candidateState.matched"
+      :qty="candidateState.qty"
+      :unit="candidateState.unit"
       @select="onCandidateSelect"
       @cancel="candidateState = null"
     />
