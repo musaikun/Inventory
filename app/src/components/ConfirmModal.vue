@@ -82,7 +82,7 @@ function submit(isAdd) {
           type="number"
           v-model="qty"
           min="0"
-          step="0.5"
+          step="0.1"
           inputmode="decimal"
           :class="['qty-input', { error: hasError }]"
         />

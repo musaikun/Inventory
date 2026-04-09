@@ -77,7 +77,7 @@ function onQtyChange(item, event) {
             <input
               type="number"
               min="0"
-              step="0.5"
+              step="0.1"
               placeholder="—"
               :value="row.entry?.qty ?? ''"
               :class="['qty-input', { filled: row.entry !== null }]"
