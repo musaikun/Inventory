@@ -1,15 +1,22 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { DICTIONARY } from './config.js'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory } from './composables/useInventory.js'
+import { useConfig } from './composables/useConfig.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
+import SettingsModal from './components/SettingsModal.vue'
+
+// ── Config（動的品目リスト）────────────────────────────────────────────────────
+const { config } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const { inventory, filledCount, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
+
+// ── Settings modal ─────────────────────────────────────────────────────────────
+const showSettings = ref(false)
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState   = ref(null) // { ingredient, qty, unit, existing }
@@ -50,7 +57,7 @@ function findCandidates(name) {
   const nInput = normalize(name)
   const seen   = new Map()
 
-  for (const [alias, canonical] of Object.entries(DICTIONARY)) {
+  for (const [alias, canonical] of Object.entries(config.dictionary)) {
     const nAlias = normalize(alias)
     let score = 0
     if      (nAlias === nInput)              score = 1000
@@ -156,7 +163,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ヘッダー -->
     <header class="app-header">
       <h1>棚卸入力</h1>
-      <div class="date">{{ dateStr }}</div>
+      <div class="header-right">
+        <div class="date">{{ dateStr }}</div>
+        <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
+      </div>
     </header>
 
     <!-- 音声入力 -->
@@ -199,6 +209,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <div class="app-footer">
       <button class="btn-export" @click="onExport">📋 CSVをコピー</button>
     </div>
+
+    <!-- 設定モーダル -->
+    <SettingsModal v-if="showSettings" @close="showSettings = false" />
 
     <!-- トースト -->
     <Transition name="toast">

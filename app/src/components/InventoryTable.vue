@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from 'vue'
-import { INVENTORY_ORDER } from '../config.js'
+import { useConfig } from '../composables/useConfig.js'
+
+const { config } = useConfig()
 
 const props = defineProps({
   inventory: { type: Object, required: true },
@@ -11,7 +13,7 @@ const emit = defineEmits(['update', 'remove', 'reset'])
 
 // 定義順の行 + カスタム品目（末尾）
 const rows = computed(() => {
-  const ordered = INVENTORY_ORDER.map((item, i) => ({
+  const ordered = config.order.map((item, i) => ({
     item,
     index: i + 1,
     entry: props.inventory[item] ?? null,
@@ -19,7 +21,7 @@ const rows = computed(() => {
   }))
 
   const customs = Object.keys(props.inventory)
-    .filter(k => !INVENTORY_ORDER.includes(k))
+    .filter(k => !config.order.includes(k))
     .map(item => ({ item, index: '*', entry: props.inventory[item], custom: true }))
 
   return [...ordered, ...customs]
@@ -46,7 +48,7 @@ function onQtyChange(item, event) {
       <h2>棚卸一覧</h2>
       <div class="header-right">
         <span class="progress">
-          <strong>{{ filledCount }}</strong> / {{ INVENTORY_ORDER.length }} 件入力済み
+          <strong>{{ filledCount }}</strong> / {{ config.order.length }} 件入力済み
         </span>
         <button class="btn-danger-sm" @click="$emit('reset')">リセット</button>
       </div>
