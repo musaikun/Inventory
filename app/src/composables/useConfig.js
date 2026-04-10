@@ -7,6 +7,7 @@ import {
 
 const CONFIG_KEY  = 'inventory_config_v1'
 const ALIASES_KEY = 'inventory_aliases_v1'
+const MASTER_KEY  = 'inventory_master_v1'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const config = reactive({
@@ -18,10 +19,13 @@ const config = reactive({
   isCustom:   false,
 })
 
-// 自動学習エイリアス（別ストレージ・CSV再アップロードでリセットしない）
+// 自動学習エイリアス（別ストレージ）
 const learnedAliases = reactive({})
 
-// マージ済み辞書: CSV定義エイリアス + 自動学習エイリアス
+// マスター辞書: { keyword: canonical[] }（1対多・永続）
+const masterDict = reactive({})
+
+// マージ済み辞書: CSV定義 + 自動学習エイリアス
 const dictionary = computed(() => ({
   ...config.dictionary,
   ...learnedAliases,
@@ -41,7 +45,7 @@ function parseCSVLine(line) {
   return result
 }
 
-// ── ロード / セーブ ───────────────────────────────────────────────────────────
+// ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
 function _load() {
   try {
     const raw = localStorage.getItem(CONFIG_KEY)
@@ -71,6 +75,7 @@ function _save() {
   } catch (_) {}
 }
 
+// ── 自動学習エイリアス ────────────────────────────────────────────────────────
 function _loadAliases() {
   try {
     const raw = localStorage.getItem(ALIASES_KEY)
@@ -86,7 +91,6 @@ function _saveAliases() {
   } catch (_) {}
 }
 
-// CSV再アップロード時: 新リストにない品目を指すエイリアスを削除
 function _validateLearnedAliases(newOrder) {
   const orderSet = new Set(newOrder)
   for (const alias of Object.keys(learnedAliases)) {
@@ -95,8 +99,25 @@ function _validateLearnedAliases(newOrder) {
   _saveAliases()
 }
 
+// ── マスター辞書 ロード / セーブ ─────────────────────────────────────────────
+function _loadMaster() {
+  try {
+    const raw = localStorage.getItem(MASTER_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    if (saved && typeof saved === 'object') Object.assign(masterDict, saved)
+  } catch (_) {}
+}
+
+function _saveMaster() {
+  try {
+    localStorage.setItem(MASTER_KEY, JSON.stringify({ ...masterDict }))
+  } catch (_) {}
+}
+
 _load()
 _loadAliases()
+_loadMaster()
 
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useConfig() {
@@ -112,12 +133,8 @@ export function useConfig() {
   }
 
   /**
-   * CSVテキストを読み込んで config を更新
-   * 対応フォーマット:
-   *   旧:   品目名,エイリアス
-   *   中:   品目名,単位,エイリアス
-   *   旧新: 品目名,単位,単価,エイリアス
-   *   最新: 品目名,単位,単価,カテゴリ,エイリアス  ← 推奨
+   * 棚卸品目 CSV 読み込み（品目名,単位,単価,カテゴリ,エイリアス）
+   * 旧フォーマット（2/3/4列）も互換
    */
   function loadFromCSV(csvText) {
     const text  = csvText.replace(/^\uFEFF/, '').trim()
@@ -127,11 +144,9 @@ export function useConfig() {
 
     const header = parseCSVLine(lines[0]).map(h => h.trim())
 
-    // フォーマット判定（ヘッダー名で識別）
-    const isOldFormat    = header[1] === 'エイリアス'                          // 2-col
-    const hasPriceCol    = !isOldFormat && header[2] === '単価'                // 4-col or 5-col
-    const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'            // 5-col
-    // それ以外: 品目名,単位,エイリアス（3-col）
+    const isOldFormat    = header[1] === 'エイリアス'
+    const hasPriceCol    = !isOldFormat && header[2] === '単価'
+    const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'
 
     const newOrder      = []
     const newUnits      = {}
@@ -147,25 +162,22 @@ export function useConfig() {
       newOrder.push(name)
 
       if (isOldFormat) {
-        // 2-col: col1=エイリアス
         if (cols[1]) {
           cols[1].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
         }
       } else if (hasCategoryCol) {
-        // 5-col: col1=単位, col2=単価, col3=カテゴリ, col4=エイリアス
         const unit     = cols[1]?.trim()
         const price    = parseFloat(cols[2])
         const category = cols[3]?.trim()
-        if (unit)                        newUnits[name]      = unit
-        if (!isNaN(price) && price > 0)  newPrices[name]     = price
-        if (category)                    newCategories[name] = category
+        if (unit)                       newUnits[name]      = unit
+        if (!isNaN(price) && price > 0) newPrices[name]     = price
+        if (category)                   newCategories[name] = category
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
         }
       } else if (hasPriceCol) {
-        // 4-col: col1=単位, col2=単価, col3=エイリアス
         const unit  = cols[1]?.trim()
         const price = parseFloat(cols[2])
         if (unit)                       newUnits[name]  = unit
@@ -175,7 +187,6 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = name })
         }
       } else {
-        // 3-col: col1=単位, col2=エイリアス
         const unit = cols[1]?.trim()
         if (unit) newUnits[name] = unit
         if (cols[2]) {
@@ -197,13 +208,13 @@ export function useConfig() {
     _save()
 
     return {
-      count:      newOrder.length,
-      hasPrices:  Object.keys(newPrices).length > 0,
+      count:         newOrder.length,
+      hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
   }
 
-  /** 現在の設定をCSV文字列として返す（品目名,単位,単価,カテゴリ,エイリアス） */
+  /** 棚卸品目 CSV エクスポート */
   function exportConfigCSV() {
     const rows = ['品目名,単位,単価,カテゴリ,エイリアス']
     config.order.forEach(item => {
@@ -219,10 +230,10 @@ export function useConfig() {
       const aliasCell = aliases.length ? `"${aliases.join(',')}"` : ''
       rows.push(`"${item}",${unitCell},${priceCell},${catCell},${aliasCell}`)
     })
-    return rows.join('\n')
+    return rows.join('\r\n')
   }
 
-  /** デフォルト（config.js）に戻す（learnedAliases は保持） */
+  /** デフォルトに戻す */
   function resetToDefault() {
     config.order      = [...DEFAULT_ORDER]
     config.units      = { ...DEFAULT_UNITS }
@@ -233,17 +244,68 @@ export function useConfig() {
     localStorage.removeItem(CONFIG_KEY)
   }
 
-  const itemCount         = computed(() => config.order.length)
-  const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
+  // ── マスター辞書 API ──────────────────────────────────────────────────────────
+
+  /**
+   * マスター辞書 CSV 読み込み（キーワード,品目名）
+   * 1つのキーワードが複数品目を指せる（1対多）
+   */
+  function loadMasterFromCSV(csvText) {
+    const text  = csvText.replace(/^\uFEFF/, '').trim()
+    const lines = text.split(/\r?\n/).filter(l => l.trim())
+
+    if (lines.length < 2) throw new Error('データ行がありません')
+
+    // 全削除して再構築
+    Object.keys(masterDict).forEach(k => delete masterDict[k])
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols    = parseCSVLine(lines[i])
+      const keyword = cols[0]?.trim()
+      const item    = cols[1]?.trim()
+      if (!keyword || !item) continue
+      if (!masterDict[keyword]) masterDict[keyword] = []
+      if (!masterDict[keyword].includes(item)) masterDict[keyword].push(item)
+    }
+
+    _saveMaster()
+    return { keywordCount: Object.keys(masterDict).length }
+  }
+
+  /** マスター辞書 CSV エクスポート */
+  function exportMasterCSV() {
+    const rows = ['キーワード,品目名']
+    for (const [keyword, items] of Object.entries(masterDict)) {
+      for (const item of items) {
+        rows.push(`"${keyword}","${item}"`)
+      }
+    }
+    return rows.join('\r\n')
+  }
+
+  /** マスター辞書をすべて削除 */
+  function resetMaster() {
+    Object.keys(masterDict).forEach(k => delete masterDict[k])
+    localStorage.removeItem(MASTER_KEY)
+  }
+
+  const itemCount          = computed(() => config.order.length)
+  const learnedAliasCount  = computed(() => Object.keys(learnedAliases).length)
+  const masterKeywordCount = computed(() => Object.keys(masterDict).length)
 
   return {
     config,
     dictionary,
+    masterDict,
     itemCount,
     learnedAliasCount,
+    masterKeywordCount,
     loadFromCSV,
     exportConfigCSV,
     resetToDefault,
     registerAlias,
+    loadMasterFromCSV,
+    exportMasterCSV,
+    resetMaster,
   }
 }
