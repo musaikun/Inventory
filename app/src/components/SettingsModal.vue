@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import PdfImporterModal from './PdfImporterModal.vue'
 
 const emit = defineEmits(['close'])
 const {
@@ -9,7 +10,8 @@ const {
   masterKeywordCount, exportMasterCSV, resetMaster,
 } = useConfig()
 
-const status    = ref(null)  // { type: 'success'|'error', msg: String }
+const status       = ref(null)  // { type: 'success'|'error', msg: String }
+const showImporter = ref(false)
 const dragging  = ref(false)
 const fileInput = ref(null)
 
@@ -123,6 +125,11 @@ function onResetMaster() {
         </div>
       </details>
 
+      <!-- 棚卸記入表変換ボタン -->
+      <button class="btn btn-primary import-btn" @click="showImporter = true">
+        📊 棚卸記入表Excelから変換
+      </button>
+
       <!-- アクションボタン -->
       <div class="actions">
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
@@ -162,6 +169,13 @@ function onResetMaster() {
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
     </div>
   </div>
+
+  <!-- 棚卸記入表 変換モーダル -->
+  <PdfImporterModal
+    v-if="showImporter"
+    @close="showImporter = false"
+    @imported="result => { showImporter = false; status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+  />
 </template>
 
 <style scoped>
@@ -262,5 +276,6 @@ function onResetMaster() {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.close-btn { width: 100%; margin-top: 4px; }
+.import-btn { width: 100%; margin-bottom: 12px; }
+.close-btn  { width: 100%; margin-top: 4px; }
 </style>
