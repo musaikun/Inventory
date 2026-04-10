@@ -12,7 +12,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import HistoryModal from './components/HistoryModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, registerAlias } = useConfig()
+const { config, dictionary, masterDict, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
@@ -91,6 +91,17 @@ function findCandidates(name) {
     // エイリアス経由より若干低いスコアで登録（エイリアスを優先）
     const adjusted = score > 0 ? Math.max(score - 50, 1) : 0
     if (adjusted > 0 && adjusted > (seen.get(canonical) ?? 0)) seen.set(canonical, adjusted)
+  }
+
+  // ③ マスター辞書（1キーワード→複数品目）
+  for (const [keyword, canonicals] of Object.entries(masterDict)) {
+    const score = scoreMatch(normalize(keyword), nInput)
+    if (score > 0) {
+      for (const canonical of canonicals) {
+        if (!config.order.includes(canonical)) continue
+        if (score > (seen.get(canonical) ?? 0)) seen.set(canonical, score)
+      }
+    }
   }
 
   return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)

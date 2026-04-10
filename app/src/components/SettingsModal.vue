@@ -3,13 +3,22 @@ import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 
 const emit = defineEmits(['close'])
-const { config, itemCount, loadFromCSV, exportConfigCSV, resetToDefault } = useConfig()
+const {
+  config, itemCount,
+  loadFromCSV, exportConfigCSV, resetToDefault,
+  masterDict, masterKeywordCount,
+  loadMasterFromCSV, exportMasterCSV, resetMaster,
+} = useConfig()
 
-const status   = ref(null)  // { type: 'success'|'error', msg: String }
-const dragging = ref(false)
-const fileInput = ref(null)
+const status       = ref(null)  // { type: 'success'|'error', msg: String }
+const dragging     = ref(false)
+const fileInput    = ref(null)
 
-// ── ファイル読み込み ───────────────────────────────────────────────────────────
+const masterStatus  = ref(null)
+const masterDragging = ref(false)
+const masterInput   = ref(null)
+
+// ── 品目リスト ファイル読み込み ────────────────────────────────────────────────
 function handleFile(file) {
   if (!file) return
   if (!file.name.match(/\.csv$/i)) {
@@ -32,7 +41,7 @@ function handleFile(file) {
 function onFileChange(e)   { handleFile(e.target.files[0]) }
 function onDrop(e)         { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
 
-// ── CSVダウンロード ────────────────────────────────────────────────────────────
+// ── 品目リスト CSVダウンロード ─────────────────────────────────────────────────
 function downloadCSV() {
   const csv  = exportConfigCSV()
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
@@ -44,11 +53,53 @@ function downloadCSV() {
   URL.revokeObjectURL(url)
 }
 
-// ── リセット ──────────────────────────────────────────────────────────────────
+// ── 品目リスト リセット ────────────────────────────────────────────────────────
 function onReset() {
   if (!confirm('デフォルトの品目リストに戻しますか？\nアップロードした設定は削除されます。')) return
   resetToDefault()
   status.value = { type: 'success', msg: 'デフォルトに戻しました' }
+}
+
+// ── マスター辞書 ファイル読み込み ──────────────────────────────────────────────
+function handleMasterFile(file) {
+  if (!file) return
+  if (!file.name.match(/\.csv$/i)) {
+    masterStatus.value = { type: 'error', msg: 'CSVファイルを選択してください' }
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const result = loadMasterFromCSV(e.target.result)
+      masterStatus.value = { type: 'success', msg: `${result.keywordCount}件のキーワードを読み込みました` }
+    } catch (err) {
+      masterStatus.value = { type: 'error', msg: err.message }
+    }
+  }
+  reader.readAsText(file, 'UTF-8')
+}
+
+function onMasterFileChange(e) { handleMasterFile(e.target.files[0]) }
+function onMasterDrop(e)       { masterDragging.value = false; handleMasterFile(e.dataTransfer.files[0]) }
+
+// ── マスター辞書 CSVダウンロード ───────────────────────────────────────────────
+function downloadMasterCSV() {
+  const csv  = exportMasterCSV()
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = 'マスター辞書.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── マスター辞書 リセット ──────────────────────────────────────────────────────
+function onResetMaster() {
+  if (!confirm('マスター辞書をすべて削除しますか？')) return
+  resetMaster()
+  masterStatus.value = { type: 'success', msg: 'マスター辞書を削除しました' }
 }
 </script>
 
@@ -109,12 +160,74 @@ function onReset() {
         </button>
       </div>
 
+      <!-- ── マスター辞書 セクション ── -->
+      <div class="section-divider"></div>
+      <div class="sheet-title" style="margin-top:4px">マスター辞書</div>
+
+      <!-- マスター辞書 現在の状態 -->
+      <div class="status-bar" :class="masterKeywordCount > 0 ? 'custom' : 'default'">
+        <span class="status-icon">{{ masterKeywordCount > 0 ? '🗂️' : '📭' }}</span>
+        <span>
+          {{ masterKeywordCount > 0 ? `${masterKeywordCount}件のキーワード登録済み` : '未登録' }}
+        </span>
+      </div>
+
+      <!-- マスター辞書 ドロップゾーン -->
+      <div
+        class="drop-zone"
+        :class="{ over: masterDragging }"
+        @dragover.prevent="masterDragging = true"
+        @dragleave="masterDragging = false"
+        @drop.prevent="onMasterDrop"
+        @click="masterInput.click()"
+      >
+        <div class="drop-icon">🗂️</div>
+        <div class="drop-label">マスター辞書CSVをアップロード</div>
+        <div class="drop-hint">（既存データは上書きされます）</div>
+        <input ref="masterInput" type="file" accept=".csv" class="hidden-input" @change="onMasterFileChange" />
+      </div>
+
+      <!-- マスター辞書 ステータスメッセージ -->
+      <div v-if="masterStatus" class="msg" :class="masterStatus.type">
+        {{ masterStatus.type === 'success' ? '✓' : '✗' }} {{ masterStatus.msg }}
+      </div>
+
+      <!-- マスター辞書 フォーマット説明 -->
+      <details class="format-help">
+        <summary>マスター辞書フォーマットを確認</summary>
+        <div class="format-body">
+          <p>1行目はヘッダー行（スキップされます）</p>
+          <pre>キーワード,品目名
+ミルク,牛乳　成分無調整　1Lパック
+ミルク,豆乳　成分無調整　1Lパック
+ミルク,オーツミルク　1Lパック
+牛乳,牛乳　成分無調整　1Lパック</pre>
+          <p>1つのキーワードを複数品目に対応させられます。</p>
+          <p>品目リストCSVが変わっても、このマスター辞書は保持されます。</p>
+        </div>
+      </details>
+
+      <!-- マスター辞書 アクションボタン -->
+      <div class="actions">
+        <button class="btn btn-secondary" @click="downloadMasterCSV" :disabled="masterKeywordCount === 0">
+          📤 CSV出力
+        </button>
+        <button class="btn btn-secondary reset" @click="onResetMaster" :disabled="masterKeywordCount === 0">
+          🗑️ 全削除
+        </button>
+      </div>
+
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.modal-sheet {
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
 .status-bar {
   display: flex;
   align-items: center;
@@ -182,6 +295,11 @@ function onReset() {
   white-space: pre;
 }
 .format-body p { margin: 4px 0; line-height: 1.5; }
+
+.section-divider {
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
 
 .actions {
   display: flex;
