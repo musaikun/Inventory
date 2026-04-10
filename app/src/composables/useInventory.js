@@ -83,9 +83,9 @@ export function useInventory() {
       : '日付,品目名,単位,数量'
     const rows = [header]
 
-    // 定義順 → カスタム品目の順に出力
+    // 定義順（未入力も含む）→ カスタム品目の順に出力
     const orderedItems = [
-      ...config.order.filter(k => inventory[k]),
+      ...config.order,
       ...Object.keys(inventory).filter(k => !config.order.includes(k)),
     ]
 
@@ -93,15 +93,17 @@ export function useInventory() {
     let hasAnyPrice = false
 
     orderedItems.forEach(item => {
-      const e = inventory[item]
-      if (!e) return
+      const e        = inventory[item] ?? null
+      const unit     = e?.unit ?? config.units?.[item] ?? ''
       if (hasPrices) {
         const unitPrice = config.prices[item]
-        const subtotal  = unitPrice != null ? Math.round(e.qty * unitPrice) : ''
+        const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
         if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
-        rows.push(`${date},"${item}","${e.unit}",${e.qty},${unitPrice ?? ''},${subtotal}`)
+        const qty = e != null ? e.qty : ''
+        rows.push(`${date},"${item}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
       } else {
-        rows.push(`${date},"${item}","${e.unit}",${e.qty}`)
+        const qty = e != null ? e.qty : ''
+        rows.push(`${date},"${item}","${unit}",${qty}`)
       }
     })
 

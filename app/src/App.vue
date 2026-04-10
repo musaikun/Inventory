@@ -302,7 +302,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <!-- 未入力品目 -->
         <template v-if="unfilledItems.length">
           <div class="zero-confirm-msg">
-            以下の品目が<strong>未入力</strong>のためCSVに含まれません。
+            以下の品目が<strong>未入力</strong>のため数量空欄でCSVに含まれます。
           </div>
           <ul class="zero-list">
             <li v-for="item in unfilledItems" :key="item" class="unfilled-item">{{ item }}</li>
