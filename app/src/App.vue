@@ -185,23 +185,27 @@ function onReset() {
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
-const zeroItems = ref([])  // 数量0品目の確認モーダル用
+const zeroItems     = ref([])  // 数量0品目
+const unfilledItems = ref([])  // 未入力品目
 
 function onExport() {
-  // 数量0の品目があれば確認モーダルを表示
-  const zeros = Object.entries(inventory)
+  const zeros    = Object.entries(inventory)
     .filter(([, e]) => e.qty === 0)
     .map(([item]) => item)
+  const unfilled = config.order
+    .filter(item => !(item in inventory))
 
-  if (zeros.length > 0) {
-    zeroItems.value = zeros
+  if (zeros.length > 0 || unfilled.length > 0) {
+    zeroItems.value     = zeros
+    unfilledItems.value = unfilled
     return
   }
   doExport()
 }
 
 function doExport() {
-  zeroItems.value = []
+  zeroItems.value     = []
+  unfilledItems.value = []
   const csv  = exportCSV()
   const date = new Date().toISOString().slice(0, 10)
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
@@ -289,19 +293,34 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <button class="btn-export" @click="onExport">💾 CSVを保存</button>
     </div>
 
-    <!-- 数量0品目の確認モーダル -->
-    <div v-if="zeroItems.length" class="modal-overlay" @click.self="zeroItems = []">
+    <!-- 未入力・数量0品目の確認モーダル -->
+    <div v-if="zeroItems.length || unfilledItems.length" class="modal-overlay" @click.self="zeroItems = []; unfilledItems = []">
       <div class="modal-sheet">
         <div class="sheet-handle"></div>
-        <div class="sheet-title">数量0の品目があります</div>
-        <div class="zero-confirm-msg">
-          以下の品目が<strong>在庫0</strong>として記録されます。<br>このままCSVに保存しますか？
-        </div>
-        <ul class="zero-list">
-          <li v-for="item in zeroItems" :key="item">{{ item }}</li>
-        </ul>
+        <div class="sheet-title">確認してください</div>
+
+        <!-- 未入力品目 -->
+        <template v-if="unfilledItems.length">
+          <div class="zero-confirm-msg">
+            以下の品目が<strong>未入力</strong>のためCSVに含まれません。
+          </div>
+          <ul class="zero-list">
+            <li v-for="item in unfilledItems" :key="item" class="unfilled-item">{{ item }}</li>
+          </ul>
+        </template>
+
+        <!-- 数量0品目 -->
+        <template v-if="zeroItems.length">
+          <div class="zero-confirm-msg" :style="unfilledItems.length ? 'margin-top:12px' : ''">
+            以下の品目が<strong>在庫0</strong>として記録されます。
+          </div>
+          <ul class="zero-list">
+            <li v-for="item in zeroItems" :key="item">{{ item }}</li>
+          </ul>
+        </template>
+
         <div class="actions">
-          <button class="btn btn-secondary" @click="zeroItems = []">戻る</button>
+          <button class="btn btn-secondary" @click="zeroItems = []; unfilledItems = []">戻る</button>
           <button class="btn btn-success" @click="doExport">このまま保存</button>
         </div>
       </div>

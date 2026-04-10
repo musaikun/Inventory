@@ -269,6 +269,8 @@ body {
 
 .zero-list li:last-child { border-bottom: none; }
 
+.unfilled-item { color: var(--text-muted); }
+
 .actions {
   display: flex;
   gap: 10px;
