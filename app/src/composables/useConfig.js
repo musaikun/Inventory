@@ -122,14 +122,24 @@ _loadMaster()
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useConfig() {
 
-  /** 品目選択時にサイレント自動登録 */
+  /** 品目選択時にサイレント自動登録（learnedAliases + masterDict の両方に書く）*/
   function registerAlias(searchTerm, canonical) {
     if (!searchTerm || !canonical) return
     const term = searchTerm.trim()
     if (!term || term === canonical) return
-    if (learnedAliases[term] === canonical) return
-    learnedAliases[term] = canonical
-    _saveAliases()
+
+    // learnedAliases: 1対1・CSV差替で無効分削除
+    if (learnedAliases[term] !== canonical) {
+      learnedAliases[term] = canonical
+      _saveAliases()
+    }
+
+    // masterDict: 1対多・永続
+    if (!masterDict[term]) masterDict[term] = []
+    if (!masterDict[term].includes(canonical)) {
+      masterDict[term].push(canonical)
+      _saveMaster()
+    }
   }
 
   /**

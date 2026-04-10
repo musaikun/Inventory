@@ -6,17 +6,12 @@ const emit = defineEmits(['close'])
 const {
   config, itemCount,
   loadFromCSV, exportConfigCSV, resetToDefault,
-  masterDict, masterKeywordCount,
-  loadMasterFromCSV, exportMasterCSV, resetMaster,
+  masterKeywordCount, exportMasterCSV, resetMaster,
 } = useConfig()
 
-const status       = ref(null)  // { type: 'success'|'error', msg: String }
-const dragging     = ref(false)
-const fileInput    = ref(null)
-
-const masterStatus  = ref(null)
-const masterDragging = ref(false)
-const masterInput   = ref(null)
+const status    = ref(null)  // { type: 'success'|'error', msg: String }
+const dragging  = ref(false)
+const fileInput = ref(null)
 
 // ── 品目リスト ファイル読み込み ────────────────────────────────────────────────
 function handleFile(file) {
@@ -60,29 +55,6 @@ function onReset() {
   status.value = { type: 'success', msg: 'デフォルトに戻しました' }
 }
 
-// ── マスター辞書 ファイル読み込み ──────────────────────────────────────────────
-function handleMasterFile(file) {
-  if (!file) return
-  if (!file.name.match(/\.csv$/i)) {
-    masterStatus.value = { type: 'error', msg: 'CSVファイルを選択してください' }
-    return
-  }
-
-  const reader = new FileReader()
-  reader.onload = e => {
-    try {
-      const result = loadMasterFromCSV(e.target.result)
-      masterStatus.value = { type: 'success', msg: `${result.keywordCount}件のキーワードを読み込みました` }
-    } catch (err) {
-      masterStatus.value = { type: 'error', msg: err.message }
-    }
-  }
-  reader.readAsText(file, 'UTF-8')
-}
-
-function onMasterFileChange(e) { handleMasterFile(e.target.files[0]) }
-function onMasterDrop(e)       { masterDragging.value = false; handleMasterFile(e.dataTransfer.files[0]) }
-
 // ── マスター辞書 CSVダウンロード ───────────────────────────────────────────────
 function downloadMasterCSV() {
   const csv  = exportMasterCSV()
@@ -97,9 +69,8 @@ function downloadMasterCSV() {
 
 // ── マスター辞書 リセット ──────────────────────────────────────────────────────
 function onResetMaster() {
-  if (!confirm('マスター辞書をすべて削除しますか？')) return
+  if (!confirm('マスター辞書をすべて削除しますか？\n蓄積した学習データがリセットされます。')) return
   resetMaster()
-  masterStatus.value = { type: 'success', msg: 'マスター辞書を削除しました' }
 }
 </script>
 
@@ -162,58 +133,29 @@ function onResetMaster() {
 
       <!-- ── マスター辞書 セクション ── -->
       <div class="section-divider"></div>
-      <div class="sheet-title" style="margin-top:4px">マスター辞書</div>
+      <div class="sheet-title" style="margin-top:4px">検索学習</div>
 
-      <!-- マスター辞書 現在の状態 -->
+      <!-- 説明 -->
+      <div class="master-desc">
+        検索して品目を選ぶたびに、そのキーワードが自動的に学習されます。<br>
+        品目リストCSVが差し替わっても学習データは保持されます。
+      </div>
+
+      <!-- 現在の状態 -->
       <div class="status-bar" :class="masterKeywordCount > 0 ? 'custom' : 'default'">
-        <span class="status-icon">{{ masterKeywordCount > 0 ? '🗂️' : '📭' }}</span>
+        <span class="status-icon">{{ masterKeywordCount > 0 ? '🧠' : '📭' }}</span>
         <span>
-          {{ masterKeywordCount > 0 ? `${masterKeywordCount}件のキーワード登録済み` : '未登録' }}
+          {{ masterKeywordCount > 0 ? `${masterKeywordCount}件のキーワードを学習済み` : '未学習' }}
         </span>
       </div>
 
-      <!-- マスター辞書 ドロップゾーン -->
-      <div
-        class="drop-zone"
-        :class="{ over: masterDragging }"
-        @dragover.prevent="masterDragging = true"
-        @dragleave="masterDragging = false"
-        @drop.prevent="onMasterDrop"
-        @click="masterInput.click()"
-      >
-        <div class="drop-icon">🗂️</div>
-        <div class="drop-label">マスター辞書CSVをアップロード</div>
-        <div class="drop-hint">（既存データは上書きされます）</div>
-        <input ref="masterInput" type="file" accept=".csv" class="hidden-input" @change="onMasterFileChange" />
-      </div>
-
-      <!-- マスター辞書 ステータスメッセージ -->
-      <div v-if="masterStatus" class="msg" :class="masterStatus.type">
-        {{ masterStatus.type === 'success' ? '✓' : '✗' }} {{ masterStatus.msg }}
-      </div>
-
-      <!-- マスター辞書 フォーマット説明 -->
-      <details class="format-help">
-        <summary>マスター辞書フォーマットを確認</summary>
-        <div class="format-body">
-          <p>1行目はヘッダー行（スキップされます）</p>
-          <pre>キーワード,品目名
-ミルク,牛乳　成分無調整　1Lパック
-ミルク,豆乳　成分無調整　1Lパック
-ミルク,オーツミルク　1Lパック
-牛乳,牛乳　成分無調整　1Lパック</pre>
-          <p>1つのキーワードを複数品目に対応させられます。</p>
-          <p>品目リストCSVが変わっても、このマスター辞書は保持されます。</p>
-        </div>
-      </details>
-
-      <!-- マスター辞書 アクションボタン -->
+      <!-- アクションボタン -->
       <div class="actions">
         <button class="btn btn-secondary" @click="downloadMasterCSV" :disabled="masterKeywordCount === 0">
           📤 CSV出力
         </button>
         <button class="btn btn-secondary reset" @click="onResetMaster" :disabled="masterKeywordCount === 0">
-          🗑️ 全削除
+          🗑️ 学習リセット
         </button>
       </div>
 
@@ -299,6 +241,16 @@ function onResetMaster() {
 .section-divider {
   border-top: 1px solid var(--border);
   margin: 16px 0;
+}
+
+.master-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-radius: 10px;
 }
 
 .actions {
