@@ -7,18 +7,16 @@ const emit = defineEmits(['close', 'imported'])
 
 const { loadFromCSV } = useConfig()
 
-const dragging  = ref(false)
-const fileInput = ref(null)
-const status    = ref(null)   // { type, msg }
-const loading   = ref(false)
-const preview   = ref([])     // [{ name, unit, category }]
-const groupMap  = ref({})     // { カテゴリ: count }
+const dragging    = ref(false)
+const fileInput   = ref(null)
+const status      = ref(null)   // { type, msg }
+const loading     = ref(false)
+const preview     = ref([])     // [{ name, unit, category }]
+const groupMap    = ref({})     // { カテゴリ: count }
+const debugLines  = ref([])     // PDF解析失敗時のraw行
 
 function applyItems(items) {
-  if (items.length === 0) {
-    status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
-    return
-  }
+  if (items.length === 0) return false
   preview.value = items
   const gm = {}
   for (const { category } of items) {
@@ -27,6 +25,7 @@ function applyItems(items) {
   }
   groupMap.value = gm
   status.value = { type: 'success', msg: `${items.length}件の品目を検出（${Object.keys(gm).length}カテゴリ）` }
+  return true
 }
 
 async function handleFile(file) {
@@ -39,12 +38,23 @@ async function handleFile(file) {
   }
   status.value  = null
   preview.value = []
+  debugLines.value = []
   loading.value = true
 
   try {
     const buf = await file.arrayBuffer()
-    const items = isPdf ? await parsePdfFile(buf) : parseExcelFile(buf)
-    applyItems(items)
+    if (isPdf) {
+      const { items, debugLines: dl } = await parsePdfFile(buf)
+      if (!applyItems(items)) {
+        debugLines.value = dl
+        status.value = { type: 'error', msg: '品目が見つかりませんでした。下記の解析結果を確認してください' }
+      }
+    } else {
+      const items = parseExcelFile(buf)
+      if (!applyItems(items)) {
+        status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
+      }
+    }
   } catch (err) {
     status.value = { type: 'error', msg: `読み込みエラー: ${err.message}` }
   } finally {
@@ -109,6 +119,12 @@ function onImport() {
           </li>
         </ul>
       </div>
+
+      <!-- デバッグ: 解析失敗時に1ページ目のraw行を表示 -->
+      <details v-if="debugLines.length > 0" class="debug-section">
+        <summary>解析結果（1ページ目 先頭15行）</summary>
+        <pre class="debug-pre">{{ debugLines.join('\n') }}</pre>
+      </details>
 
       <!-- アクション -->
       <div class="actions">
@@ -195,4 +211,24 @@ function onImport() {
   gap: 10px;
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.debug-section {
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.debug-section summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.debug-pre {
+  margin-top: 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
 </style>
