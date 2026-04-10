@@ -138,7 +138,9 @@ function onQtyChange(item, event) {
     const q = parseFloat(val)
     if (!isNaN(q) && q >= 0) {
       const existing = props.inventory[item]
-      emit('update', { item, qty: q, unit: existing?.unit ?? '' })
+      // 既存エントリの単位 → config のデフォルト単位 → 空文字 の順にフォールバック
+      const unit = existing?.unit || config.units?.[item] || ''
+      emit('update', { item, qty: q, unit })
     }
   }
 }

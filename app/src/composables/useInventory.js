@@ -52,11 +52,15 @@ export function useInventory() {
     _save()
   }
 
-  function updateQty(ingredient, qty) {
+  function updateQty(ingredient, qty, unit) {
     if (inventory[ingredient]) {
       inventory[ingredient].qty = qty
-      _save()
+      // 既存エントリの単位はそのまま保持
+    } else {
+      // テーブルから直接入力された新規品目
+      inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '' }
     }
+    _save()
   }
 
   function removeItem(ingredient) {
@@ -103,7 +107,7 @@ export function useInventory() {
       rows.push(`${date},"【合計】","",,,${grandTotal}`)
     }
 
-    return rows.join('\n')
+    return rows.join('\r\n')
   }
 
   return { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV }

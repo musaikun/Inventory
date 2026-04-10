@@ -162,7 +162,7 @@ function onTableTap(item) {
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
-  updateQty(item, qty)
+  updateQty(item, qty, unit)
 }
 
 // ── Reset ──────────────────────────────────────────────────────────────────────
@@ -174,22 +174,18 @@ function onReset() {
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
 function onExport() {
-  const csv = exportCSV()
-  navigator.clipboard?.writeText(csv)
-    .then(() => showToast('CSVをコピーしました'))
-    .catch(() => fallbackCopy(csv))
-    ?? fallbackCopy(csv)
-}
-
-function fallbackCopy(text) {
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.cssText = 'position:fixed;top:-9999px'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
-  showToast('CSVをコピーしました')
+  const csv  = exportCSV()
+  const date = new Date().toISOString().slice(0, 10)
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `棚卸_${date}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  showToast('CSVを保存しました')
 }
 
 // ── Date ───────────────────────────────────────────────────────────────────────
@@ -262,7 +258,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div v-if="totalValue != null" class="footer-total">
         在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
       </div>
-      <button class="btn-export" @click="onExport">📋 CSVをコピー</button>
+      <button class="btn-export" @click="onExport">💾 CSVを保存</button>
     </div>
 
     <!-- 設定モーダル -->
