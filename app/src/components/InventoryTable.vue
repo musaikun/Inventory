@@ -1,51 +1,120 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 
 const { config } = useConfig()
 
 const props = defineProps({
-  inventory:  { type: Object, required: true },
+  inventory:   { type: Object, required: true },
   filledCount: { type: Number, required: true },
 })
 
 const emit = defineEmits(['update', 'remove', 'reset'])
 
-// 定義順の行 + カスタム品目（末尾）
+// ── 並べ替え / フィルター ─────────────────────────────────────────────────────
+const sortMode   = ref('default')  // 'default' | 'alpha' | 'category'
+const filterMode = ref('all')      // 'all' | 'filled' | 'empty'
+
+const sortOpts = [
+  { value: 'default',  label: 'デフォルト' },
+  { value: 'alpha',    label: '五十音' },
+  { value: 'category', label: 'ジャンル' },
+]
+
+const filterOpts = [
+  { value: 'all',    label: 'すべて' },
+  { value: 'filled', label: '入力済み' },
+  { value: 'empty',  label: '未入力' },
+]
+
+// ── 行データ生成 ──────────────────────────────────────────────────────────────
 const rows = computed(() => {
+  // 1. config.order 順の行（すべて、entry=null もあり）
   const ordered = config.order.map((item, i) => ({
+    type:      'item',
     item,
     index:     i + 1,
     entry:     props.inventory[item] ?? null,
     custom:    false,
-    unitPrice: config.prices?.[item] ?? null,
+    unitPrice: config.prices?.[item]     ?? null,
+    category:  config.categories?.[item] ?? null,
   }))
 
+  // 2. config.order に含まれないカスタム品目
   const customs = Object.keys(props.inventory)
     .filter(k => !config.order.includes(k))
     .map(item => ({
+      type:      'item',
       item,
       index:     '*',
       entry:     props.inventory[item],
       custom:    true,
-      unitPrice: config.prices?.[item] ?? null,
+      unitPrice: config.prices?.[item]     ?? null,
+      category:  config.categories?.[item] ?? null,
     }))
 
-  return [...ordered, ...customs]
+  // 3. フィルター適用
+  let items
+  if (filterMode.value === 'filled') {
+    items = [...ordered, ...customs].filter(r => r.entry !== null)
+  } else if (filterMode.value === 'empty') {
+    // 未入力は config.order 内のみ（カスタム品目は常に入力済みなので対象外）
+    items = ordered.filter(r => r.entry === null)
+  } else {
+    items = [...ordered, ...customs]
+  }
+
+  // 4. 並べ替え適用
+  if (sortMode.value === 'alpha') {
+    return [...items].sort((a, b) => a.item.localeCompare(b.item, 'ja'))
+  }
+
+  if (sortMode.value === 'category') {
+    // カテゴリ別グループ化
+    const groupMap = new Map()
+    for (const row of items) {
+      const cat = row.category ?? 'その他'
+      if (!groupMap.has(cat)) groupMap.set(cat, [])
+      groupMap.get(cat).push(row)
+    }
+    // カテゴリ名で五十音順ソート（その他は末尾）
+    const sorted = [...groupMap.entries()].sort(([a], [b]) => {
+      if (a === 'その他') return 1
+      if (b === 'その他') return -1
+      return a.localeCompare(b, 'ja')
+    })
+    // グループヘッダー行を挿入してフラット化
+    const result = []
+    for (const [cat, groupRows] of sorted) {
+      result.push({ type: 'group-header', label: cat })
+      result.push(...groupRows)
+    }
+    return result
+  }
+
+  // デフォルト: config.order 順のまま
+  return items
 })
 
-// 価格が1件でも設定されていれば金額列を表示
+// フィルター後の実際の品目数（グループヘッダーを除く）
+const visibleItemCount = computed(() =>
+  rows.value.filter(r => r.type === 'item').length
+)
+
+// ── 価格・金額 ────────────────────────────────────────────────────────────────
 const hasPrices = computed(() =>
   config.prices && Object.keys(config.prices).length > 0
 )
 
+// 合計は常に全在庫ベース（フィルターに関係なく表示）
 const grandTotal = computed(() => {
   if (!hasPrices.value) return null
   let total = 0
   let has   = false
-  for (const row of rows.value) {
-    if (!row.entry || row.unitPrice == null) continue
-    total += row.entry.qty * row.unitPrice
+  for (const [item, entry] of Object.entries(props.inventory)) {
+    const price = config.prices?.[item]
+    if (price == null) continue
+    total += entry.qty * price
     has = true
   }
   return has ? Math.round(total) : null
@@ -60,6 +129,7 @@ function fmtYen(n) {
   return '¥' + Math.round(n).toLocaleString('ja-JP')
 }
 
+// ── 数量変更 ──────────────────────────────────────────────────────────────────
 function onQtyChange(item, event) {
   const val = event.target.value
   if (val === '') {
@@ -87,6 +157,26 @@ function onQtyChange(item, event) {
       </div>
     </div>
 
+    <!-- 並べ替え / フィルター ツールバー -->
+    <div class="toolbar">
+      <div class="seg-group">
+        <button
+          v-for="opt in sortOpts"
+          :key="opt.value"
+          :class="['seg-btn', { active: sortMode === opt.value }]"
+          @click="sortMode = opt.value"
+        >{{ opt.label }}</button>
+      </div>
+      <div class="seg-group">
+        <button
+          v-for="opt in filterOpts"
+          :key="opt.value"
+          :class="['seg-btn', { active: filterMode === opt.value }]"
+          @click="filterMode = opt.value"
+        >{{ opt.label }}</button>
+      </div>
+    </div>
+
     <!-- テーブル -->
     <table class="inv-table">
       <thead>
@@ -97,38 +187,55 @@ function onQtyChange(item, event) {
         </tr>
       </thead>
       <tbody>
-        <tr
-          v-for="row in rows"
-          :key="row.item"
-          :class="{ filled: row.entry !== null }"
-        >
-          <td class="td-name">
-            <span class="row-num">{{ row.index }}.</span>
-            {{ row.item }}
-            <span v-if="row.custom" class="badge">追加</span>
-          </td>
-          <td class="td-qty">
-            <input
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="—"
-              :value="row.entry?.qty ?? ''"
-              :class="['qty-input', { filled: row.entry !== null }]"
-              @change="onQtyChange(row.item, $event)"
-            />
-          </td>
-          <td v-if="hasPrices" class="td-amount">
-            <span v-if="subtotal(row) != null" class="amount-value">
-              {{ fmtYen(subtotal(row)) }}
-            </span>
-            <span v-else class="amount-na">—</span>
+        <template v-for="row in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : row.item">
+
+          <!-- ジャンルヘッダー行 -->
+          <tr v-if="row.type === 'group-header'" class="group-header-row">
+            <td :colspan="hasPrices ? 3 : 2" class="group-header-cell">
+              {{ row.label }}
+            </td>
+          </tr>
+
+          <!-- 品目行 -->
+          <tr v-else :class="{ filled: row.entry !== null }">
+            <td class="td-name">
+              <span class="row-num">{{ row.index }}.</span>
+              {{ row.item }}
+              <span v-if="row.custom" class="badge">追加</span>
+            </td>
+            <td class="td-qty">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="—"
+                :value="row.entry?.qty ?? ''"
+                :class="['qty-input', { filled: row.entry !== null }]"
+                @change="onQtyChange(row.item, $event)"
+              />
+            </td>
+            <td v-if="hasPrices" class="td-amount">
+              <span v-if="subtotal(row) != null" class="amount-value">
+                {{ fmtYen(subtotal(row)) }}
+              </span>
+              <span v-else class="amount-na">—</span>
+            </td>
+          </tr>
+
+        </template>
+
+        <!-- フィルター結果が0件のとき -->
+        <tr v-if="visibleItemCount === 0" class="empty-row">
+          <td :colspan="hasPrices ? 3 : 2" class="empty-cell">
+            {{ filterMode === 'filled' ? '入力済みの品目がありません' : 'すべての品目が入力済みです 🎉' }}
           </td>
         </tr>
       </tbody>
+
+      <!-- 合計行（価格設定済みかつ在庫あり） -->
       <tfoot v-if="grandTotal != null">
         <tr class="total-row">
-          <td colspan="2" class="td-total-label">合計</td>
+          <td colspan="2" class="td-total-label">在庫合計</td>
           <td class="td-total-value">{{ fmtYen(grandTotal) }}</td>
         </tr>
       </tfoot>
@@ -139,6 +246,7 @@ function onQtyChange(item, event) {
 <style scoped>
 .inventory-section { padding: 0 16px; }
 
+/* ── セクションヘッダー ── */
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -170,6 +278,44 @@ function onQtyChange(item, event) {
   font-weight: 700;
 }
 
+/* ── ツールバー ── */
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.seg-group {
+  display: flex;
+  flex: 1;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 6px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.seg-btn.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+/* ── テーブル ── */
 .inv-table {
   width: 100%;
   border-collapse: collapse;
@@ -203,6 +349,20 @@ function onQtyChange(item, event) {
 .inv-table tbody tr:last-child { border-bottom: none; }
 .inv-table tbody tr.filled     { background: #f0fdf4; }
 
+/* ── ジャンルヘッダー行 ── */
+.group-header-row { background: #f8fafc !important; }
+
+.group-header-cell {
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-left: 3px solid var(--primary);
+}
+
+/* ── 品目セル ── */
 .td-name {
   padding: 11px 14px;
   font-size: 13px;
@@ -227,6 +387,7 @@ function onQtyChange(item, event) {
   vertical-align: middle;
 }
 
+/* ── 数量セル ── */
 .td-qty {
   padding: 7px 10px;
   text-align: center;
@@ -260,7 +421,7 @@ function onQtyChange(item, event) {
   background: #f0fdf4;
 }
 
-/* 金額列 */
+/* ── 金額セル ── */
 .td-amount {
   padding: 7px 12px 7px 4px;
   text-align: right;
@@ -278,7 +439,17 @@ function onQtyChange(item, event) {
   color: var(--text-muted);
 }
 
-/* 合計行 */
+/* ── 空メッセージ ── */
+.empty-row { background: white !important; }
+
+.empty-cell {
+  padding: 28px 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ── 合計行 ── */
 .total-row {
   background: #f0fdf4;
   border-top: 2px solid #86efac;

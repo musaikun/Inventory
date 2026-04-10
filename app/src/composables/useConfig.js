@@ -13,6 +13,7 @@ const config = reactive({
   order:      [...DEFAULT_ORDER],
   units:      { ...DEFAULT_UNITS },
   prices:     {},
+  categories: {},
   dictionary: { ...DEFAULT_DICT },
   isCustom:   false,
 })
@@ -50,6 +51,7 @@ function _load() {
       config.order      = saved.order
       config.units      = saved.units      ?? {}
       config.prices     = saved.prices     ?? {}
+      config.categories = saved.categories ?? {}
       config.dictionary = saved.dictionary ?? {}
       config.isCustom   = true
     }
@@ -62,6 +64,7 @@ function _save() {
       order:      config.order,
       units:      config.units,
       prices:     config.prices,
+      categories: config.categories,
       dictionary: config.dictionary,
     }))
     config.isCustom = true
@@ -111,9 +114,10 @@ export function useConfig() {
   /**
    * CSVテキストを読み込んで config を更新
    * 対応フォーマット:
-   *   旧: 品目名,エイリアス
-   *   中: 品目名,単位,エイリアス
-   *   新: 品目名,単位,単価,エイリアス  ← 推奨
+   *   旧:   品目名,エイリアス
+   *   中:   品目名,単位,エイリアス
+   *   旧新: 品目名,単位,単価,エイリアス
+   *   最新: 品目名,単位,単価,カテゴリ,エイリアス  ← 推奨
    */
   function loadFromCSV(csvText) {
     const text  = csvText.replace(/^\uFEFF/, '').trim()
@@ -123,15 +127,17 @@ export function useConfig() {
 
     const header = parseCSVLine(lines[0]).map(h => h.trim())
 
-    // フォーマット判定
-    const isOldFormat  = header[1] === 'エイリアス'                    // 旧: 品目名,エイリアス
-    const hasPriceCol  = !isOldFormat && header[2] === '単価'          // 新: 品目名,単位,単価,エイリアス
-    // それ以外: 品目名,単位,エイリアス（現行）
+    // フォーマット判定（ヘッダー名で識別）
+    const isOldFormat    = header[1] === 'エイリアス'                          // 2-col
+    const hasPriceCol    = !isOldFormat && header[2] === '単価'                // 4-col or 5-col
+    const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'            // 5-col
+    // それ以外: 品目名,単位,エイリアス（3-col）
 
-    const newOrder  = []
-    const newUnits  = {}
-    const newPrices = {}
-    const newDict   = {}
+    const newOrder      = []
+    const newUnits      = {}
+    const newPrices     = {}
+    const newCategories = {}
+    const newDict       = {}
 
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
@@ -141,23 +147,35 @@ export function useConfig() {
       newOrder.push(name)
 
       if (isOldFormat) {
-        // 旧: col1 = カンマ区切りエイリアス
+        // 2-col: col1=エイリアス
         if (cols[1]) {
           cols[1].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
         }
+      } else if (hasCategoryCol) {
+        // 5-col: col1=単位, col2=単価, col3=カテゴリ, col4=エイリアス
+        const unit     = cols[1]?.trim()
+        const price    = parseFloat(cols[2])
+        const category = cols[3]?.trim()
+        if (unit)                        newUnits[name]      = unit
+        if (!isNaN(price) && price > 0)  newPrices[name]     = price
+        if (category)                    newCategories[name] = category
+        if (cols[4]) {
+          cols[4].split(',').map(a => a.trim()).filter(Boolean)
+            .forEach(alias => { newDict[alias] = name })
+        }
       } else if (hasPriceCol) {
-        // 新: col1=単位, col2=単価, col3=エイリアス
+        // 4-col: col1=単位, col2=単価, col3=エイリアス
         const unit  = cols[1]?.trim()
         const price = parseFloat(cols[2])
-        if (unit)      newUnits[name]  = unit
+        if (unit)                       newUnits[name]  = unit
         if (!isNaN(price) && price > 0) newPrices[name] = price
         if (cols[3]) {
           cols[3].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
         }
       } else {
-        // 現行: col1=単位, col2=エイリアス
+        // 3-col: col1=単位, col2=エイリアス
         const unit = cols[1]?.trim()
         if (unit) newUnits[name] = unit
         if (cols[2]) {
@@ -174,25 +192,32 @@ export function useConfig() {
     config.order      = newOrder
     config.units      = newUnits
     config.prices     = newPrices
+    config.categories = newCategories
     config.dictionary = newDict
     _save()
 
-    return { count: newOrder.length, hasPrices: Object.keys(newPrices).length > 0 }
+    return {
+      count:      newOrder.length,
+      hasPrices:  Object.keys(newPrices).length > 0,
+      hasCategories: Object.keys(newCategories).length > 0,
+    }
   }
 
-  /** 現在の設定をCSV文字列として返す（品目名,単位,単価,エイリアス） */
+  /** 現在の設定をCSV文字列として返す（品目名,単位,単価,カテゴリ,エイリアス） */
   function exportConfigCSV() {
-    const rows = ['品目名,単位,単価,エイリアス']
+    const rows = ['品目名,単位,単価,カテゴリ,エイリアス']
     config.order.forEach(item => {
-      const unit    = config.units[item]  ?? ''
-      const price   = config.prices[item] ?? ''
-      const aliases = Object.entries(config.dictionary)
+      const unit     = config.units[item]      ?? ''
+      const price    = config.prices[item]     ?? ''
+      const category = config.categories[item] ?? ''
+      const aliases  = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
         .map(([k]) => k)
       const unitCell  = unit           ? `"${unit}"`              : ''
       const priceCell = price !== ''   ? price                    : ''
+      const catCell   = category       ? `"${category}"`          : ''
       const aliasCell = aliases.length ? `"${aliases.join(',')}"` : ''
-      rows.push(`"${item}",${unitCell},${priceCell},${aliasCell}`)
+      rows.push(`"${item}",${unitCell},${priceCell},${catCell},${aliasCell}`)
     })
     return rows.join('\n')
   }
@@ -202,6 +227,7 @@ export function useConfig() {
     config.order      = [...DEFAULT_ORDER]
     config.units      = { ...DEFAULT_UNITS }
     config.prices     = {}
+    config.categories = {}
     config.dictionary = { ...DEFAULT_DICT }
     config.isCustom   = false
     localStorage.removeItem(CONFIG_KEY)
