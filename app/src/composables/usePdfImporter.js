@@ -156,21 +156,26 @@ function parsePdfPageRows(rows) {
 export async function parsePdfFile(arrayBuffer) {
   const pdf   = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
   const items = []
-  const debugLines = []  // 1ページ目のraw行を記録
+  const debugLines = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p)
-    const rows = await getPdfPageRows(page)
 
-    // 1ページ目だけデバッグ用に記録
+    // 1ページ目: 生座標をデバッグ出力
     if (p === 1) {
-      for (const { left, right } of rows.slice(0, 15)) {
-        const l = left.join(' | ')
-        const r = right.join(' | ')
-        if (l || r) debugLines.push(`L:[${l}]  R:[${r}]`)
+      const tc = await page.getTextContent()
+      const vp = page.getViewport({ scale: 1 })
+      debugLines.push(`pageW=${Math.round(vp.width)} pageH=${Math.round(vp.height)} rotate=${page.rotate}`)
+      const rawItems = tc.items
+        .map(i => ({ text: (i.str ?? '').trim(), x: Math.round(i.transform[4]), y: Math.round(i.transform[5]) }))
+        .filter(i => i.text)
+        .sort((a, b) => b.y - a.y || a.x - b.x)
+      for (const i of rawItems.slice(0, 60)) {
+        debugLines.push(`x=${String(i.x).padStart(4)}  y=${String(i.y).padStart(4)}  "${i.text}"`)
       }
     }
 
+    const rows = await getPdfPageRows(page)
     items.push(...parsePdfPageRows(rows))
   }
 
