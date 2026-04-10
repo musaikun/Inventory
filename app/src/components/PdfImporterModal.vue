@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { parseExcelFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
+import { parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { useConfig } from '../composables/useConfig.js'
 
 const emit = defineEmits(['close', 'imported'])
@@ -10,41 +10,46 @@ const { loadFromCSV } = useConfig()
 const dragging  = ref(false)
 const fileInput = ref(null)
 const status    = ref(null)   // { type, msg }
+const loading   = ref(false)
 const preview   = ref([])     // [{ name, unit, category }]
 const groupMap  = ref({})     // { カテゴリ: count }
 
-function handleFile(file) {
+function applyItems(items) {
+  if (items.length === 0) {
+    status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
+    return
+  }
+  preview.value = items
+  const gm = {}
+  for (const { category } of items) {
+    const key = category || '（カテゴリなし）'
+    gm[key] = (gm[key] ?? 0) + 1
+  }
+  groupMap.value = gm
+  status.value = { type: 'success', msg: `${items.length}件の品目を検出（${Object.keys(gm).length}カテゴリ）` }
+}
+
+async function handleFile(file) {
   if (!file) return
-  if (!file.name.match(/\.(xlsx|xls)$/i)) {
-    status.value = { type: 'error', msg: 'Excelファイル（.xlsx / .xls）を選択してください' }
+  const isPdf   = file.name.match(/\.pdf$/i)
+  const isExcel = file.name.match(/\.(xlsx|xls)$/i)
+  if (!isPdf && !isExcel) {
+    status.value = { type: 'error', msg: 'PDFまたはExcelファイル（.pdf / .xlsx）を選択してください' }
     return
   }
   status.value  = null
   preview.value = []
+  loading.value = true
 
-  const reader = new FileReader()
-  reader.onload = e => {
-    try {
-      const items = parseExcelFile(e.target.result)
-      if (items.length === 0) {
-        status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
-        return
-      }
-      preview.value = items
-
-      // カテゴリ別集計
-      const gm = {}
-      for (const { category } of items) {
-        const key = category || '（カテゴリなし）'
-        gm[key] = (gm[key] ?? 0) + 1
-      }
-      groupMap.value = gm
-      status.value = { type: 'success', msg: `${items.length}件の品目を検出（${Object.keys(gm).length}カテゴリ）` }
-    } catch (err) {
-      status.value = { type: 'error', msg: `読み込みエラー: ${err.message}` }
-    }
+  try {
+    const buf = await file.arrayBuffer()
+    const items = isPdf ? await parsePdfFile(buf) : parseExcelFile(buf)
+    applyItems(items)
+  } catch (err) {
+    status.value = { type: 'error', msg: `読み込みエラー: ${err.message}` }
+  } finally {
+    loading.value = false
   }
-  reader.readAsArrayBuffer(file)
 }
 
 function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
@@ -66,21 +71,27 @@ function onImport() {
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-sheet importer-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">棚卸記入表 Excel → 品目リスト変換</div>
+      <div class="sheet-title">棚卸記入表 → 品目リスト変換</div>
 
       <!-- ドロップゾーン -->
       <div
         class="drop-zone"
-        :class="{ over: dragging }"
+        :class="{ over: dragging, loading }"
         @dragover.prevent="dragging = true"
         @dragleave="dragging = false"
         @drop.prevent="onDrop"
-        @click="fileInput.click()"
+        @click="!loading && fileInput.click()"
       >
-        <div class="drop-icon">📊</div>
-        <div class="drop-label">Excelファイルをドラッグ or タップして選択</div>
-        <div class="drop-hint">.xlsx / .xls（30ページ一括対応）</div>
-        <input ref="fileInput" type="file" accept=".xlsx,.xls" class="hidden-input" @change="onFileChange" />
+        <template v-if="loading">
+          <div class="drop-icon">⏳</div>
+          <div class="drop-label">解析中...</div>
+        </template>
+        <template v-else>
+          <div class="drop-icon">📄</div>
+          <div class="drop-label">PDFまたはExcelをドラッグ or タップして選択</div>
+          <div class="drop-hint">.pdf / .xlsx（30ページ一括対応）</div>
+        </template>
+        <input ref="fileInput" type="file" accept=".pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
       </div>
 
       <!-- ステータス -->
@@ -130,7 +141,8 @@ function onImport() {
   margin-bottom: 14px;
 }
 .drop-zone.over,
-.drop-zone:hover { border-color: var(--primary); background: #eff6ff; }
+.drop-zone:hover  { border-color: var(--primary); background: #eff6ff; }
+.drop-zone.loading { cursor: default; opacity: 0.7; }
 
 .drop-icon  { font-size: 36px; margin-bottom: 8px; }
 .drop-label { font-size: 15px; font-weight: 600; color: var(--text); }
