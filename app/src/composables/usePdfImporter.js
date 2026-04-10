@@ -7,28 +7,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).href
 
-// ── 共通: 行トークンから商品名・単位を抽出 ──────────────────────────────────
+// ── 共通ユーティリティ ────────────────────────────────────────────────────────
 function isCjk(s) {
   return /[\u3000-\u9FFF\uFF00-\uFFEF]/.test(s)
-}
-
-function extractProduct(tokens) {
-  // パターン: [行番号] [商品コード?] [商品名(CJK)] [入数?] [単位(短文)] [実績?]
-  let name = ''
-  let unit = ''
-
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i]
-    if (!name) {
-      if (isCjk(t) && t.length > 1) name = t
-    } else {
-      // 数字(入数・実績)はスキップ、短い非数値テキスト → 単位
-      if (/^\d+(\.\d+)?$/.test(t)) continue
-      if (t.length >= 1 && t.length <= 6) { unit = t; break }
-      break
-    }
-  }
-  return name ? { name, unit } : null
 }
 
 // ── カテゴリ検出（「分類」を含むトークンの右側にある日本語テキスト）────────
@@ -58,12 +39,10 @@ function parseExcelSheet(rows) {
     const rowNum = parseInt(String(row[0] ?? '').trim(), 10)
     if (isNaN(rowNum) || rowNum < 1 || rowNum > 60) continue
 
-    // 左側: col3=商品名, col5=単位
     const nameL = String(row[3]  ?? '').trim()
     const unitL = String(row[5]  ?? '').trim()
     if (nameL) items.push({ name: nameL, unit: unitL, category })
 
-    // 右側: col11=商品名, col15=単位
     const nameR = String(row[11] ?? '').trim()
     const unitR = String(row[15] ?? '').trim()
     if (nameR) items.push({ name: nameR, unit: unitR, category })
@@ -77,13 +56,11 @@ export function parseExcelFile(arrayBuffer) {
   const items = []
 
   if (wb.SheetNames.length > 1) {
-    // パターンA: 複数シート（1シート＝1カテゴリ）
     for (const name of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' })
       items.push(...parseExcelSheet(rows))
     }
   } else {
-    // パターンB: 1シートに複数ページが縦に続く
     const rows  = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })
     let   block = []
     for (const row of rows) {
@@ -99,84 +76,103 @@ export function parseExcelFile(arrayBuffer) {
   return items
 }
 
-// ── PDF パーサー ──────────────────────────────────────────────────────────────
-async function getPdfPageRows(page) {
-  const viewport    = page.getViewport({ scale: 1 })
-  const midX        = viewport.width / 2
-  const YTOL        = 5   // y座標の許容誤差(pt)
-  const textContent = await page.getTextContent()
-
-  const rowMap = new Map()
-  for (const item of textContent.items) {
-    const text = (item.str ?? '').trim()
-    if (!text) continue
-    const y = Math.round(item.transform[5] / YTOL) * YTOL
-    if (!rowMap.has(y)) rowMap.set(y, [])
-    rowMap.get(y).push({ text, x: item.transform[4], isRight: item.transform[4] > midX })
-  }
-
-  // y の大きい順（ページ上部から）に並べて返す
-  return [...rowMap.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([, cells]) => ({
-      left:  cells.filter(c => !c.isRight).sort((a, b) => a.x - b.x).map(c => c.text),
-      right: cells.filter(c =>  c.isRight).sort((a, b) => a.x - b.x).map(c => c.text),
-    }))
+// ── PDF テキスト抽出 ──────────────────────────────────────────────────────────
+async function getPdfPageItems(page) {
+  const tc = await page.getTextContent()
+  return tc.items
+    .map(i => ({ text: (i.str ?? '').trim(), x: i.transform[4], y: i.transform[5] }))
+    .filter(i => i.text)
 }
 
-function parsePdfPageRows(rows) {
+// ── rotate=90 対応パーサー ────────────────────────────────────────────────────
+// 座標の意味（rotate=90 の場合）:
+//   y座標 → 列の種類（商品名・単位など、各列ヘッダーのy≒データのy）
+//   x座標 → 行（左セクションと右セクションで共通のx位置）
+// 構造:
+//   左セクション (y > 440): 商品名y≈539, 単位y≈647
+//   右セクション (y < 440): 商品名y≈141, 単位y≈249
+function parsePdfPageRotated(items) {
+  const KNOWN_HEADERS = new Set([
+    '商品名', '商品ｺｰﾄﾞ', '商品コード', '単位', '入数', '在庫数', '前月実績',
+    '棚卸記入表', '棚 卸 記 入 表', '業態名', '店舗名', '棚卸月', '店舗番号',
+  ])
+
+  // ── カテゴリ検出 ─────────────────────────────────────────────────────────
+  // 「分類コード」と同じx座標に並ぶ非数値テキストがカテゴリ名
   let category = ''
-  const items  = []
+  const bunrui = items.find(i => i.text.includes('分類'))
+  if (bunrui) {
+    const sameX = items.filter(i =>
+      Math.abs(i.x - bunrui.x) < 15 &&
+      i !== bunrui &&
+      i.text.length > 1 &&
+      !/^\d+$/.test(i.text) &&
+      !KNOWN_HEADERS.has(i.text) &&
+      !i.text.includes('ｺｰﾄﾞ') &&
+      !i.text.includes('コード') &&
+      !i.text.includes('分類')
+    )
+    if (sameX.length > 0) category = sameX[0].text
+  }
 
-  for (const { left, right } of rows) {
-    // カテゴリ検出
-    if (!category) {
-      const cat = findCategory([...left, ...right])
-      if (cat) category = cat
-    }
+  // ── 「商品名」「単位」列のy座標を全て検出 ────────────────────────────────
+  const nameHeaderYs = items.filter(i => i.text === '商品名').map(i => i.y)
+  const unitHeaderYs = items.filter(i => i.text === '単位').map(i => i.y)
+  if (nameHeaderYs.length === 0) return []
 
-    // 左側データ行（行番号 1–30）
-    const leftNum = parseInt(left[0], 10)
-    if (!isNaN(leftNum) && leftNum >= 1 && leftNum <= 30) {
-      const prod = extractProduct(left.slice(1))
-      if (prod) items.push({ ...prod, category })
-    }
+  const Y_TOL = 40  // ヘッダーy座標からの許容差
+  const X_TOL = 8   // 行x座標のマッチング許容差
+  const MIN_X = 130 // x<130 はメタデータ列（店舗名・日付等）なので除外
 
-    // 右側データ行（行番号 31–60）
-    const rightNum = parseInt(right[0], 10)
-    if (!isNaN(rightNum) && rightNum >= 31 && rightNum <= 60) {
-      const prod = extractProduct(right.slice(1))
-      if (prod) items.push({ ...prod, category })
+  function dataAt(targetY) {
+    return items.filter(i =>
+      Math.abs(i.y - targetY) <= Y_TOL &&
+      i.x >= MIN_X &&
+      !KNOWN_HEADERS.has(i.text)
+    )
+  }
+
+  function nearestY(ys, target) {
+    return ys.reduce((b, y) => Math.abs(y - target) < Math.abs(b - target) ? y : b, ys[0])
+  }
+
+  const products = []
+
+  for (const nameY of nameHeaderYs) {
+    const nameItems = dataAt(nameY).filter(i => isCjk(i.text))
+    if (nameItems.length === 0) continue
+
+    const unitY    = unitHeaderYs.length > 0 ? nearestY(unitHeaderYs, nameY) : null
+    const unitData = unitY != null ? dataAt(unitY) : []
+
+    for (const ni of nameItems) {
+      const ui = unitData.find(u => Math.abs(u.x - ni.x) <= X_TOL)
+      products.push({ name: ni.text, unit: ui?.text ?? '', category })
     }
   }
 
-  return items
+  return products
 }
 
 export async function parsePdfFile(arrayBuffer) {
-  const pdf   = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
-  const items = []
+  const pdf        = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+  const items      = []
   const debugLines = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p)
+    const page      = await pdf.getPage(p)
+    const pageItems = await getPdfPageItems(page)
 
-    // 1ページ目: 生座標をデバッグ出力
     if (p === 1) {
-      const tc = await page.getTextContent()
       const vp = page.getViewport({ scale: 1 })
       debugLines.push(`pageW=${Math.round(vp.width)} pageH=${Math.round(vp.height)} rotate=${page.rotate}`)
-      const rawItems = tc.items
-        .map(i => ({ text: (i.str ?? '').trim(), x: Math.round(i.transform[4]), y: Math.round(i.transform[5]) }))
-        .filter(i => i.text)
-        .sort((a, b) => b.y - a.y || a.x - b.x)
-      for (const i of rawItems.slice(0, 60)) {
-        debugLines.push(`x=${String(i.x).padStart(4)}  y=${String(i.y).padStart(4)}  "${i.text}"`)
+      const sorted = [...pageItems].sort((a, b) => b.y - a.y || a.x - b.x)
+      for (const i of sorted.slice(0, 60)) {
+        debugLines.push(`x=${String(Math.round(i.x)).padStart(4)}  y=${String(Math.round(i.y)).padStart(4)}  "${i.text}"`)
       }
     }
 
-    const rows = await getPdfPageRows(page)
-    items.push(...parsePdfPageRows(rows))
+    items.push(...parsePdfPageRotated(pageItems))
   }
 
   return { items, debugLines }
