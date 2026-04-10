@@ -238,6 +238,42 @@ body {
 
 .btn-export:active { opacity: 0.85; }
 
+/* ── 数量0確認モーダル ── */
+.zero-confirm-msg {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.7;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #fefce8;
+  border: 1.5px solid #fde047;
+  border-radius: 10px;
+}
+
+.zero-list {
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.zero-list li {
+  padding: 9px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.zero-list li:last-child { border-bottom: none; }
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
 /* ── Toast ── */
 .toast {
   position: fixed;

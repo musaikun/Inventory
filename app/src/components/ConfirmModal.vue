@@ -58,7 +58,8 @@ const addLabel = computed(() => {
   if (!hasDuplicate.value) return ''
   const q = parseFloat(qty.value)
   if (isNaN(q)) return '追加'
-  return `追加 (→${props.existing.qty + q}${unit.value})`
+  const sum = Math.round((props.existing.qty + q) * 10000) / 10000
+  return `追加 (→${sum}${unit.value})`
 })
 
 onMounted(() => setTimeout(() => qtyInput.value?.focus(), 80))

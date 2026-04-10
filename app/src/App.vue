@@ -139,7 +139,8 @@ function openConfirm(ingredient, qty, unit) {
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
   const existing  = confirmState.value.existing
-  const finalQty  = isAdd && existing ? existing.qty + qty : qty
+  const rawFinal  = isAdd && existing ? existing.qty + qty : qty
+  const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd)
   const label = isAdd ? `追加 → 合計 ${finalQty}${unit}` : `${finalQty}${unit}`
   setConfirmedMsg(`✓ ${ingredient}　${label}`)
@@ -173,7 +174,23 @@ function onReset() {
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
+const zeroItems = ref([])  // 数量0品目の確認モーダル用
+
 function onExport() {
+  // 数量0の品目があれば確認モーダルを表示
+  const zeros = Object.entries(inventory)
+    .filter(([, e]) => e.qty === 0)
+    .map(([item]) => item)
+
+  if (zeros.length > 0) {
+    zeroItems.value = zeros
+    return
+  }
+  doExport()
+}
+
+function doExport() {
+  zeroItems.value = []
   const csv  = exportCSV()
   const date = new Date().toISOString().slice(0, 10)
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
@@ -259,6 +276,24 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
       </div>
       <button class="btn-export" @click="onExport">💾 CSVを保存</button>
+    </div>
+
+    <!-- 数量0品目の確認モーダル -->
+    <div v-if="zeroItems.length" class="modal-overlay" @click.self="zeroItems = []">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title">数量0の品目があります</div>
+        <div class="zero-confirm-msg">
+          以下の品目が<strong>在庫0</strong>として記録されます。<br>このままCSVに保存しますか？
+        </div>
+        <ul class="zero-list">
+          <li v-for="item in zeroItems" :key="item">{{ item }}</li>
+        </ul>
+        <div class="actions">
+          <button class="btn btn-secondary" @click="zeroItems = []">戻る</button>
+          <button class="btn btn-success" @click="doExport">このまま保存</button>
+        </div>
+      </div>
     </div>
 
     <!-- 設定モーダル -->

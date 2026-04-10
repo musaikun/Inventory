@@ -47,7 +47,9 @@ export function useInventory() {
 
   function setItem(ingredient, qty, unit, add = false) {
     const existing = inventory[ingredient]
-    const finalQty = add && existing ? existing.qty + qty : qty
+    const rawQty   = add && existing ? existing.qty + qty : qty
+    // 浮動小数点誤差を除去（0.1+0.1... → 1.7999...998 などを防ぐ）
+    const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit }
     _save()
   }
