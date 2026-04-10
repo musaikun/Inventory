@@ -35,6 +35,22 @@ const { isListening: qtyListening, toggle: toggleQtyVoice } = useVoice(onQtyVoic
 // モーダルを閉じる時に音声停止
 onUnmounted(() => { if (qtyListening.value) toggleQtyVoice() })
 
+// ── 単位警告（ml/g 等で極端に小さい or 大きい数量）───────────────────────────────
+const unitWarning = computed(() => {
+  const u = unit.value.trim().toLowerCase()
+  const q = parseFloat(qty.value)
+  if (isNaN(q) || q <= 0) return null
+  if (u === 'ml' && q < 10)
+    return `${q}ml は少なすぎませんか？ 本・パックなど「数える単位」の使用を推奨します`
+  if (u === 'g' && q < 10)
+    return `${q}g は少なすぎませんか？ 袋・パックなど「数える単位」の使用を推奨します`
+  if (u === 'l' && q > 50)
+    return `${q}L は多すぎませんか？ 確認してください`
+  if (u === 'kg' && q > 300)
+    return `${q}kg は多すぎませんか？ 確認してください`
+  return null
+})
+
 // ── Duplicate ──────────────────────────────────────────────────────────────────
 const hasDuplicate = computed(() => props.existing !== null)
 
@@ -106,6 +122,11 @@ function submit(isAdd) {
       <!-- 音声フィードバック -->
       <div v-if="voiceMsg || qtyListening" class="voice-feedback" :class="{ listening: qtyListening }">
         {{ qtyListening ? '数量を話してください…（例：3袋、ご本）' : voiceMsg }}
+      </div>
+
+      <!-- 単位警告 -->
+      <div v-if="unitWarning" class="unit-warning">
+        ⚠️ {{ unitWarning }}
       </div>
 
       <!-- アクションボタン -->
@@ -232,6 +253,18 @@ function submit(isAdd) {
 .voice-feedback.listening {
   color: var(--danger);
   background: #fef2f2;
+}
+
+/* 単位警告 */
+.unit-warning {
+  font-size: 12px;
+  color: #92400e;
+  background: #fefce8;
+  border: 1.5px solid #fde047;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  line-height: 1.5;
 }
 
 .actions {

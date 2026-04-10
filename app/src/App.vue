@@ -3,20 +3,33 @@ import { ref, watch } from 'vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory } from './composables/useInventory.js'
 import { useConfig } from './composables/useConfig.js'
+import { useHistory } from './composables/useHistory.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import HistoryModal from './components/HistoryModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
-const { inventory, filledCount, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
+const { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
 
-// ── Settings modal ─────────────────────────────────────────────────────────────
+// ── History ────────────────────────────────────────────────────────────────────
+const { saveSnapshot } = useHistory()
+
+// 在庫が変わるたびに自動保存（空のときはスキップ）
+watch(inventory, () => {
+  if (Object.keys(inventory).length > 0) {
+    saveSnapshot(inventory, config.prices, config.order)
+  }
+}, { deep: true })
+
+// ── Settings / History modal ───────────────────────────────────────────────────
 const showSettings = ref(false)
+const showHistory  = ref(false)
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState   = ref(null) // { ingredient, qty, unit, existing }
@@ -192,6 +205,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <h1>棚卸入力</h1>
       <div class="header-right">
         <div class="date">{{ dateStr }}</div>
+        <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
         <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
       </div>
     </header>
@@ -245,11 +259,17 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- フッター -->
     <div class="app-footer">
+      <div v-if="totalValue != null" class="footer-total">
+        在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
+      </div>
       <button class="btn-export" @click="onExport">📋 CSVをコピー</button>
     </div>
 
     <!-- 設定モーダル -->
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
+
+    <!-- 履歴モーダル -->
+    <HistoryModal v-if="showHistory" @close="showHistory = false" />
 
     <!-- トースト -->
     <Transition name="toast">

@@ -5,7 +5,7 @@ import { useConfig } from '../composables/useConfig.js'
 const { config } = useConfig()
 
 const props = defineProps({
-  inventory: { type: Object, required: true },
+  inventory:  { type: Object, required: true },
   filledCount: { type: Number, required: true },
 })
 
@@ -15,17 +15,50 @@ const emit = defineEmits(['update', 'remove', 'reset'])
 const rows = computed(() => {
   const ordered = config.order.map((item, i) => ({
     item,
-    index: i + 1,
-    entry: props.inventory[item] ?? null,
-    custom: false,
+    index:     i + 1,
+    entry:     props.inventory[item] ?? null,
+    custom:    false,
+    unitPrice: config.prices?.[item] ?? null,
   }))
 
   const customs = Object.keys(props.inventory)
     .filter(k => !config.order.includes(k))
-    .map(item => ({ item, index: '*', entry: props.inventory[item], custom: true }))
+    .map(item => ({
+      item,
+      index:     '*',
+      entry:     props.inventory[item],
+      custom:    true,
+      unitPrice: config.prices?.[item] ?? null,
+    }))
 
   return [...ordered, ...customs]
 })
+
+// 価格が1件でも設定されていれば金額列を表示
+const hasPrices = computed(() =>
+  config.prices && Object.keys(config.prices).length > 0
+)
+
+const grandTotal = computed(() => {
+  if (!hasPrices.value) return null
+  let total = 0
+  let has   = false
+  for (const row of rows.value) {
+    if (!row.entry || row.unitPrice == null) continue
+    total += row.entry.qty * row.unitPrice
+    has = true
+  }
+  return has ? Math.round(total) : null
+})
+
+function subtotal(row) {
+  if (!row.entry || row.unitPrice == null) return null
+  return Math.round(row.entry.qty * row.unitPrice)
+}
+
+function fmtYen(n) {
+  return '¥' + Math.round(n).toLocaleString('ja-JP')
+}
 
 function onQtyChange(item, event) {
   const val = event.target.value
@@ -60,6 +93,7 @@ function onQtyChange(item, event) {
         <tr>
           <th>品目</th>
           <th class="th-qty">数量</th>
+          <th v-if="hasPrices" class="th-amount">金額</th>
         </tr>
       </thead>
       <tbody>
@@ -84,8 +118,20 @@ function onQtyChange(item, event) {
               @change="onQtyChange(row.item, $event)"
             />
           </td>
+          <td v-if="hasPrices" class="td-amount">
+            <span v-if="subtotal(row) != null" class="amount-value">
+              {{ fmtYen(subtotal(row)) }}
+            </span>
+            <span v-else class="amount-na">—</span>
+          </td>
         </tr>
       </tbody>
+      <tfoot v-if="grandTotal != null">
+        <tr class="total-row">
+          <td colspan="2" class="td-total-label">合計</td>
+          <td class="td-total-value">{{ fmtYen(grandTotal) }}</td>
+        </tr>
+      </tfoot>
     </table>
   </section>
 </template>
@@ -146,7 +192,8 @@ function onQtyChange(item, event) {
   letter-spacing: 0.04em;
 }
 
-.th-qty { text-align: center; width: 86px; }
+.th-qty    { text-align: center; width: 86px; }
+.th-amount { text-align: right;  width: 76px; padding-right: 12px; }
 
 .inv-table tbody tr {
   border-bottom: 1px solid var(--border);
@@ -211,5 +258,44 @@ function onQtyChange(item, event) {
   color: var(--success);
   border-color: #86efac;
   background: #f0fdf4;
+}
+
+/* 金額列 */
+.td-amount {
+  padding: 7px 12px 7px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.amount-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.amount-na {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 合計行 */
+.total-row {
+  background: #f0fdf4;
+  border-top: 2px solid #86efac;
+}
+
+.td-total-label {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.td-total-value {
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--success);
+  text-align: right;
 }
 </style>

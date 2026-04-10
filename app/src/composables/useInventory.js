@@ -1,5 +1,5 @@
 import { reactive, computed } from 'vue'
-import { INVENTORY_ORDER } from '../config.js'
+import { useConfig } from './useConfig.js'
 
 // モジュールスコープのシングルトン state
 const inventory = reactive({})
@@ -27,7 +27,23 @@ function _load() {
 _load()
 
 export function useInventory() {
+  const { config } = useConfig()
+
   const filledCount = computed(() => Object.keys(inventory).length)
+
+  const totalValue = computed(() => {
+    if (!config.prices || Object.keys(config.prices).length === 0) return null
+    let total = 0
+    let hasPrices = false
+    for (const [item, entry] of Object.entries(inventory)) {
+      const price = config.prices[item]
+      if (price != null) {
+        total += entry.qty * price
+        hasPrices = true
+      }
+    }
+    return hasPrices ? Math.round(total) : null
+  })
 
   function setItem(ingredient, qty, unit, add = false) {
     const existing = inventory[ingredient]
@@ -54,22 +70,41 @@ export function useInventory() {
   }
 
   function exportCSV() {
-    const date = new Date().toISOString().slice(0, 10)
-    const rows = ['date,ingredient,quantity,unit']
+    const date       = new Date().toISOString().slice(0, 10)
+    const hasPrices  = Object.keys(config.prices ?? {}).length > 0
+    const header     = hasPrices
+      ? '日付,品目名,単位,数量,単価,在庫金額'
+      : '日付,品目名,単位,数量'
+    const rows = [header]
 
-    INVENTORY_ORDER.forEach(item => {
+    // 定義順 → カスタム品目の順に出力
+    const orderedItems = [
+      ...config.order.filter(k => inventory[k]),
+      ...Object.keys(inventory).filter(k => !config.order.includes(k)),
+    ]
+
+    let grandTotal  = 0
+    let hasAnyPrice = false
+
+    orderedItems.forEach(item => {
       const e = inventory[item]
-      if (e) rows.push(`${date},"${item}",${e.qty},"${e.unit}"`)
-    })
-
-    Object.entries(inventory).forEach(([item, e]) => {
-      if (!INVENTORY_ORDER.includes(item)) {
-        rows.push(`${date},"${item}",${e.qty},"${e.unit}"`)
+      if (!e) return
+      if (hasPrices) {
+        const unitPrice = config.prices[item]
+        const subtotal  = unitPrice != null ? Math.round(e.qty * unitPrice) : ''
+        if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
+        rows.push(`${date},"${item}","${e.unit}",${e.qty},${unitPrice ?? ''},${subtotal}`)
+      } else {
+        rows.push(`${date},"${item}","${e.unit}",${e.qty}`)
       }
     })
+
+    if (hasAnyPrice) {
+      rows.push(`${date},"【合計】","",,,${grandTotal}`)
+    }
 
     return rows.join('\n')
   }
 
-  return { inventory, filledCount, setItem, updateQty, removeItem, reset, exportCSV }
+  return { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV }
 }

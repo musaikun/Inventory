@@ -209,6 +209,18 @@ body {
   z-index: 10;
 }
 
+.footer-total {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.footer-total strong {
+  color: var(--success);
+  font-size: 15px;
+}
+
 .btn-export {
   width: 100%;
   max-width: 600px;
