@@ -142,12 +142,12 @@ function parsePdfPageRotated(items) {
 
   // ── カテゴリ検出 ─────────────────────────────────────────────────────────
   // 「分類」を含む行のうち、同じx座標に並ぶ日本語テキストがカテゴリ名
-  // isCjk() で "page" "No." などの英数字を除外する
+  // x閾値を5に絞り、隣のヘッダー行（店舗名等）を誤検出しない
   let category = ''
   const bunrui = items.find(i => i.text.includes('分類'))
   if (bunrui) {
     const sameX = items.filter(i =>
-      Math.abs(i.x - bunrui.x) < 15 &&
+      Math.abs(i.x - bunrui.x) < 5 &&
       i !== bunrui &&
       i.text.length > 1 &&
       isCjk(i.text) &&
@@ -168,7 +168,7 @@ function parsePdfPageRotated(items) {
   const prevHeaderYs = items.filter(i => i.text === '前月実績').map(i => i.y)
   if (nameHeaderYs.length === 0) return []
 
-  const Y_TOL = 40  // ヘッダーy座標からの許容差
+  const Y_TOL = 40  // ヘッダーy座標からの許容差（広めに取って候補を収集）
   const X_TOL = 8   // 行x座標のマッチング許容差
   const MIN_X = 130 // x<130 はページ下端のメタデータなので除外
 
@@ -197,11 +197,33 @@ function parsePdfPageRotated(items) {
     return ys.reduce((b, y) => Math.abs(y - target) < Math.abs(b - target) ? y : b, ys[0])
   }
 
+  // ── 特定列のデータを x位置マッチ＋y距離優先で1件返す ─────────────────────
+  // find()（最初の一致）ではなく、ヘッダーyに最も近い候補を優先することで
+  // 隣接列への溢れ込みを防ぐ
+  function pickNearest(pool, refX, headerY) {
+    return pool
+      .filter(d => Math.abs(d.x - refX) <= X_TOL)
+      .sort((a, b) => Math.abs(a.y - headerY) - Math.abs(b.y - headerY))[0]
+  }
+
   const products = []
 
   for (const nameY of nameHeaderYs) {
-    const nameItems = dataAt(nameY).filter(i => isCjk(i.text))
-    if (nameItems.length === 0) continue
+    const rawNameItems = dataAt(nameY).filter(i => isCjk(i.text))
+    if (rawNameItems.length === 0) continue
+
+    // ── 同一行（同じx）のテキストをマージ（分割された品目名を結合）─────────
+    // 例: "豆乳" と "２００ｍｌ" → "豆乳 ２００ｍｌ"
+    rawNameItems.sort((a, b) => a.x - b.x || a.y - b.y)
+    const nameItems = []
+    for (const ni of rawNameItems) {
+      const last = nameItems[nameItems.length - 1]
+      if (last && Math.abs(last.x - ni.x) <= X_TOL) {
+        last.text += ' ' + ni.text  // 同一行なのでテキストを連結
+      } else {
+        nameItems.push({ ...ni })
+      }
+    }
 
     const unitY = unitHeaderYs.length > 0 ? nearestY(unitHeaderYs, nameY) : null
     const codeY = codeHeaderYs.length > 0 ? nearestY(codeHeaderYs, nameY) : null
@@ -214,10 +236,10 @@ function parsePdfPageRotated(items) {
     const prevData = prevY != null ? dataAt(prevY) : []
 
     for (const ni of nameItems) {
-      const ui = unitData.find(u => Math.abs(u.x - ni.x) <= X_TOL)
-      const ci = codeData.find(c => Math.abs(c.x - ni.x) <= X_TOL)
-      const qi = packData.find(q => Math.abs(q.x - ni.x) <= X_TOL)
-      const pi = prevData.find(p => Math.abs(p.x - ni.x) <= X_TOL)
+      const ui = pickNearest(unitData, ni.x, unitY ?? nameY)
+      const ci = pickNearest(codeData, ni.x, codeY ?? nameY)
+      const qi = pickNearest(packData, ni.x, packY ?? nameY)
+      const pi = pickNearest(prevData, ni.x, prevY ?? nameY)
       products.push({
         name:      ni.text,
         unit:      ui?.text ?? '',
