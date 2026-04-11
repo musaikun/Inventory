@@ -170,12 +170,25 @@ function parsePdfPageRotated(items) {
 
   const Y_TOL = 40  // ヘッダーy座標からの許容差
   const X_TOL = 8   // 行x座標のマッチング許容差
-  const MIN_X = 130 // x<130 はメタデータ列（店舗名・日付等）なので除外
+  const MIN_X = 130 // x<130 はページ下端のメタデータなので除外
+
+  // ── テーブルのx上限を行番号から動的検出 ───────────────────────────────────
+  // rotate=90では x = ページ縦方向位置（行位置）
+  // ページヘッダー（業態名・店舗名）は表の行より上（x が大きい）ため、
+  // 行番号 1-60 が存在するx範囲の最大値を上限として使う
+  const rowNumXs = items
+    .filter(i => {
+      const n = parseInt(i.text, 10)
+      return !isNaN(n) && n >= 1 && n <= 60 && i.text.trim() === String(n)
+    })
+    .map(i => i.x)
+  const DATA_X_MAX = rowNumXs.length >= 3 ? Math.max(...rowNumXs) + 20 : Infinity
 
   function dataAt(targetY) {
     return items.filter(i =>
       Math.abs(i.y - targetY) <= Y_TOL &&
       i.x >= MIN_X &&
+      i.x <= DATA_X_MAX &&
       !KNOWN_HEADERS.has(i.text)
     )
   }
