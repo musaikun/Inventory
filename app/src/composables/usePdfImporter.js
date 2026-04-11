@@ -152,6 +152,7 @@ function parsePdfPageRotated(items) {
       i.text.length > 1 &&
       isCjk(i.text) &&
       !/^\d+$/.test(i.text) &&
+      !/\d+[年月日]/.test(i.text) &&   // 日付（2026年4月など）を除外
       !KNOWN_HEADERS.has(i.text) &&
       !i.text.includes('ｺｰﾄﾞ') &&
       !i.text.includes('コード') &&
