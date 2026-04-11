@@ -38,6 +38,7 @@ const rows = computed(() => {
     custom:    false,
     unitPrice: config.prices?.[item]     ?? null,
     category:  config.categories?.[item] ?? null,
+    code:      config.codes?.[item]      ?? null,
   }))
 
   // 2. config.order に含まれないカスタム品目
@@ -51,6 +52,7 @@ const rows = computed(() => {
       custom:    true,
       unitPrice: config.prices?.[item]     ?? null,
       category:  config.categories?.[item] ?? null,
+      code:      config.codes?.[item]      ?? null,
     }))
 
   // 3. フィルター適用
@@ -204,6 +206,7 @@ function onQtyChange(item, event) {
               <span class="row-num">{{ row.index }}.</span>
               {{ row.item }}
               <span v-if="row.custom" class="badge">追加</span>
+              <span v-if="row.code" class="item-code">{{ row.code }}</span>
             </td>
             <td class="td-qty">
               <input
@@ -387,6 +390,15 @@ function onQtyChange(item, event) {
   padding: 1px 5px;
   margin-left: 4px;
   vertical-align: middle;
+}
+
+.item-code {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: monospace;
+  letter-spacing: 0.03em;
 }
 
 /* ── 数量セル ── */

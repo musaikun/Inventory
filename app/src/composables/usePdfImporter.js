@@ -281,13 +281,14 @@ export async function parsePdfFile(arrayBuffer) {
 
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
 export function itemsToConfigCSV(items) {
-  const rows = ['品目名,単位,単価,カテゴリ,エイリアス']
-  for (const { name, unit, category } of items) {
+  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード']
+  for (const { name, unit, category, code } of items) {
     const u = unit     ? `"${unit}"`     : ''
     const c = category ? `"${category}"` : ''
     // カテゴリ名をエイリアスにも登録（「備品」「資材」などで音声検索できるように）
     const a = category ? `"${category}"` : ''
-    rows.push(`"${name}",${u},,${c},${a}`)
+    const d = code     ? `"${code}"`     : ''
+    rows.push(`"${name}",${u},,${c},${a},${d}`)
   }
   return rows.join('\r\n')
 }

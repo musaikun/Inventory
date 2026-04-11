@@ -15,6 +15,7 @@ const config = reactive({
   units:      { ...DEFAULT_UNITS },
   prices:     {},
   categories: {},
+  codes:      {},
   dictionary: { ...DEFAULT_DICT },
   isCustom:   false,
 })
@@ -56,6 +57,7 @@ function _load() {
       config.units      = saved.units      ?? {}
       config.prices     = saved.prices     ?? {}
       config.categories = saved.categories ?? {}
+      config.codes      = saved.codes      ?? {}
       config.dictionary = saved.dictionary ?? {}
       config.isCustom   = true
     }
@@ -69,6 +71,7 @@ function _save() {
       units:      config.units,
       prices:     config.prices,
       categories: config.categories,
+      codes:      config.codes,
       dictionary: config.dictionary,
     }))
     config.isCustom = true
@@ -162,6 +165,7 @@ export function useConfig() {
     const newUnits      = {}
     const newPrices     = {}
     const newCategories = {}
+    const newCodes      = {}
     const newDict       = {}
 
     for (let i = 1; i < lines.length; i++) {
@@ -180,9 +184,11 @@ export function useConfig() {
         const unit     = cols[1]?.trim()
         const price    = parseFloat(cols[2])
         const category = cols[3]?.trim()
+        const code     = cols[5]?.trim()
         if (unit)                       newUnits[name]      = unit
         if (!isNaN(price) && price > 0) newPrices[name]     = price
         if (category)                   newCategories[name] = category
+        if (code)                       newCodes[name]      = code
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
@@ -214,6 +220,7 @@ export function useConfig() {
     config.units      = newUnits
     config.prices     = newPrices
     config.categories = newCategories
+    config.codes      = newCodes
     config.dictionary = newDict
     _save()
 
@@ -249,6 +256,7 @@ export function useConfig() {
     config.units      = { ...DEFAULT_UNITS }
     config.prices     = {}
     config.categories = {}
+    config.codes      = {}
     config.dictionary = { ...DEFAULT_DICT }
     config.isCustom   = false
     localStorage.removeItem(CONFIG_KEY)
