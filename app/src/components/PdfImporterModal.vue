@@ -11,9 +11,10 @@ const dragging    = ref(false)
 const fileInput   = ref(null)
 const status      = ref(null)   // { type, msg }
 const loading     = ref(false)
-const preview     = ref([])     // [{ name, unit, category }]
+const preview     = ref([])     // [{ name, unit, category, code, packQty, prevMonth }]
 const groupMap    = ref({})     // { カテゴリ: count }
 const debugLines  = ref([])     // PDF解析失敗時のraw行
+const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
 
 function applyItems(items) {
   if (items.length === 0) return false
@@ -36,10 +37,11 @@ async function handleFile(file) {
     status.value = { type: 'error', msg: 'PDFまたはExcelファイル（.pdf / .xlsx）を選択してください' }
     return
   }
-  status.value  = null
-  preview.value = []
+  status.value     = null
+  preview.value    = []
   debugLines.value = []
-  loading.value = true
+  showDetail.value = false
+  loading.value    = true
 
   try {
     const buf = await file.arrayBuffer()
@@ -109,20 +111,53 @@ function onImport() {
         {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
       </div>
 
-      <!-- プレビュー：カテゴリ別集計 -->
+      <!-- プレビュー -->
       <div v-if="preview.length > 0" class="preview-section">
-        <div class="preview-title">カテゴリ別件数</div>
-        <ul class="preview-list">
+        <div class="preview-title-row">
+          <span class="preview-title">品目一覧</span>
+          <button class="toggle-btn" @click="showDetail = !showDetail">
+            {{ showDetail ? 'カテゴリ集計' : '詳細一覧' }}
+          </button>
+        </div>
+
+        <!-- カテゴリ集計ビュー -->
+        <ul v-if="!showDetail" class="preview-list">
           <li v-for="(count, cat) in groupMap" :key="cat">
             <span class="cat-name">{{ cat }}</span>
             <span class="cat-count">{{ count }}件</span>
           </li>
         </ul>
+
+        <!-- 詳細一覧ビュー -->
+        <div v-else class="detail-table-wrap">
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>商品名</th>
+                <th>単位</th>
+                <th>商品コード</th>
+                <th>入数</th>
+                <th>前月実績</th>
+                <th>カテゴリ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in preview" :key="idx">
+                <td class="col-name">{{ item.name }}</td>
+                <td class="col-unit">{{ item.unit }}</td>
+                <td class="col-code">{{ item.code }}</td>
+                <td class="col-num">{{ item.packQty }}</td>
+                <td class="col-num">{{ item.prevMonth }}</td>
+                <td class="col-cat">{{ item.category }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- デバッグ: 解析失敗時に1ページ目のraw行を表示 -->
       <details v-if="debugLines.length > 0" class="debug-section">
-        <summary>解析結果（1ページ目 先頭15行）</summary>
+        <summary>解析結果（1ページ目）</summary>
         <pre class="debug-pre">{{ debugLines.join('\n') }}</pre>
       </details>
 
@@ -178,14 +213,31 @@ function onImport() {
 .preview-section {
   margin-bottom: 16px;
 }
+.preview-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
 .preview-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 8px;
 }
+.toggle-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 600;
+}
+.toggle-btn:hover { background: #eff6ff; }
+
 .preview-list {
   list-style: none;
   border: 1px solid var(--border);
@@ -205,6 +257,45 @@ function onImport() {
 .preview-list li:last-child { border-bottom: none; }
 .cat-name  { color: var(--text); font-weight: 500; }
 .cat-count { color: var(--text-muted); font-size: 12px; }
+
+.detail-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 300px;
+  overflow: auto;
+  background: var(--surface);
+}
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.detail-table thead {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  z-index: 1;
+}
+.detail-table th {
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.detail-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.detail-table tr:last-child td { border-bottom: none; }
+.col-name { min-width: 120px; white-space: normal; word-break: break-all; font-weight: 500; }
+.col-unit { color: var(--text-muted); }
+.col-code { color: var(--text-muted); font-size: 11px; }
+.col-num  { text-align: right; color: var(--text-muted); }
+.col-cat  { color: var(--primary); font-size: 11px; }
 
 .actions {
   display: flex;

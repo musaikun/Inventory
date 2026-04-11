@@ -18,17 +18,50 @@ function findCategory(tokens) {
     if (String(tokens[i]).includes('分類')) {
       for (let j = i + 1; j <= Math.min(i + 6, tokens.length - 1); j++) {
         const v = String(tokens[j]).trim()
-        if (v && !/^\d+$/.test(v)) return v
+        if (v && isCjk(v) && !/^\d+$/.test(v)) return v
       }
     }
   }
   return ''
 }
 
+// ── Excelヘッダー行から追加列のインデックスを検出（商品名列は固定） ─────────
+// nameL=3, unitL=5, nameR=11, unitR=15 は既知固定値として維持し、
+// 商品コード・入数・前月実績のみ動的に検出する
+function detectExtraExcelCols(rows) {
+  const NAME_L = 3
+  const NAME_R = 11
+  for (const row of rows) {
+    const strs = row.map(c => String(c ?? '').trim())
+    if (strs[NAME_L] !== '商品名') continue
+
+    const findIn = (arr, baseOffset, names) => {
+      const i = arr.findIndex(s => names.includes(s))
+      return i >= 0 ? baseOffset + i : null
+    }
+
+    const leftStrs  = strs.slice(0, NAME_R)
+    const rightStrs = strs.slice(NAME_R)
+
+    return {
+      codeL: findIn(leftStrs,  0,      ['商品コード', '商品ｺｰﾄﾞ']),
+      packL: findIn(leftStrs,  0,      ['入数']),
+      prevL: findIn(leftStrs,  0,      ['前月実績']),
+      codeR: findIn(rightStrs, NAME_R, ['商品コード', '商品ｺｰﾄﾞ']),
+      packR: findIn(rightStrs, NAME_R, ['入数']),
+      prevR: findIn(rightStrs, NAME_R, ['前月実績']),
+    }
+  }
+  // ヘッダー行が見つからない場合は全て null（追加フィールドは空）
+  return { codeL: null, packL: null, prevL: null, codeR: null, packR: null, prevR: null }
+}
+
 // ── Excel パーサー ────────────────────────────────────────────────────────────
 function parseExcelSheet(rows) {
   let category = ''
   const items  = []
+  const extra  = detectExtraExcelCols(rows)
+  const xcol   = (row, idx) => idx != null ? String(row[idx] ?? '').trim() : ''
 
   for (const row of rows) {
     if (!category) {
@@ -41,11 +74,21 @@ function parseExcelSheet(rows) {
 
     const nameL = String(row[3]  ?? '').trim()
     const unitL = String(row[5]  ?? '').trim()
-    if (nameL) items.push({ name: nameL, unit: unitL, category })
+    if (nameL) items.push({
+      name: nameL, unit: unitL, category,
+      code:      xcol(row, extra.codeL),
+      packQty:   xcol(row, extra.packL),
+      prevMonth: xcol(row, extra.prevL),
+    })
 
     const nameR = String(row[11] ?? '').trim()
     const unitR = String(row[15] ?? '').trim()
-    if (nameR) items.push({ name: nameR, unit: unitR, category })
+    if (nameR) items.push({
+      name: nameR, unit: unitR, category,
+      code:      xcol(row, extra.codeR),
+      packQty:   xcol(row, extra.packR),
+      prevMonth: xcol(row, extra.prevR),
+    })
   }
 
   return items
@@ -98,7 +141,8 @@ function parsePdfPageRotated(items) {
   ])
 
   // ── カテゴリ検出 ─────────────────────────────────────────────────────────
-  // 「分類コード」と同じx座標に並ぶ非数値テキストがカテゴリ名
+  // 「分類」を含む行のうち、同じx座標に並ぶ日本語テキストがカテゴリ名
+  // isCjk() で "page" "No." などの英数字を除外する
   let category = ''
   const bunrui = items.find(i => i.text.includes('分類'))
   if (bunrui) {
@@ -106,6 +150,7 @@ function parsePdfPageRotated(items) {
       Math.abs(i.x - bunrui.x) < 15 &&
       i !== bunrui &&
       i.text.length > 1 &&
+      isCjk(i.text) &&
       !/^\d+$/.test(i.text) &&
       !KNOWN_HEADERS.has(i.text) &&
       !i.text.includes('ｺｰﾄﾞ') &&
@@ -115,9 +160,12 @@ function parsePdfPageRotated(items) {
     if (sameX.length > 0) category = sameX[0].text
   }
 
-  // ── 「商品名」「単位」列のy座標を全て検出 ────────────────────────────────
+  // ── 各列ヘッダーのy座標を検出 ─────────────────────────────────────────────
   const nameHeaderYs = items.filter(i => i.text === '商品名').map(i => i.y)
   const unitHeaderYs = items.filter(i => i.text === '単位').map(i => i.y)
+  const codeHeaderYs = items.filter(i => i.text === '商品ｺｰﾄﾞ' || i.text === '商品コード').map(i => i.y)
+  const packHeaderYs = items.filter(i => i.text === '入数').map(i => i.y)
+  const prevHeaderYs = items.filter(i => i.text === '前月実績').map(i => i.y)
   if (nameHeaderYs.length === 0) return []
 
   const Y_TOL = 40  // ヘッダーy座標からの許容差
@@ -142,12 +190,29 @@ function parsePdfPageRotated(items) {
     const nameItems = dataAt(nameY).filter(i => isCjk(i.text))
     if (nameItems.length === 0) continue
 
-    const unitY    = unitHeaderYs.length > 0 ? nearestY(unitHeaderYs, nameY) : null
+    const unitY = unitHeaderYs.length > 0 ? nearestY(unitHeaderYs, nameY) : null
+    const codeY = codeHeaderYs.length > 0 ? nearestY(codeHeaderYs, nameY) : null
+    const packY = packHeaderYs.length > 0 ? nearestY(packHeaderYs, nameY) : null
+    const prevY = prevHeaderYs.length > 0 ? nearestY(prevHeaderYs, nameY) : null
+
     const unitData = unitY != null ? dataAt(unitY) : []
+    const codeData = codeY != null ? dataAt(codeY) : []
+    const packData = packY != null ? dataAt(packY) : []
+    const prevData = prevY != null ? dataAt(prevY) : []
 
     for (const ni of nameItems) {
       const ui = unitData.find(u => Math.abs(u.x - ni.x) <= X_TOL)
-      products.push({ name: ni.text, unit: ui?.text ?? '', category })
+      const ci = codeData.find(c => Math.abs(c.x - ni.x) <= X_TOL)
+      const qi = packData.find(q => Math.abs(q.x - ni.x) <= X_TOL)
+      const pi = prevData.find(p => Math.abs(p.x - ni.x) <= X_TOL)
+      products.push({
+        name:      ni.text,
+        unit:      ui?.text ?? '',
+        category,
+        code:      ci?.text ?? '',
+        packQty:   qi?.text ?? '',
+        prevMonth: pi?.text ?? '',
+      })
     }
   }
 
@@ -184,7 +249,9 @@ export function itemsToConfigCSV(items) {
   for (const { name, unit, category } of items) {
     const u = unit     ? `"${unit}"`     : ''
     const c = category ? `"${category}"` : ''
-    rows.push(`"${name}",${u},,${c},`)
+    // カテゴリ名をエイリアスにも登録（「備品」「資材」などで音声検索できるように）
+    const a = category ? `"${category}"` : ''
+    rows.push(`"${name}",${u},,${c},${a}`)
   }
   return rows.join('\r\n')
 }

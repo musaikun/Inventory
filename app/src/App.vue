@@ -59,10 +59,10 @@ function showToast(msg) {
 // ── Dictionary matching ────────────────────────────────────────────────────────
 function normalize(str) {
   return str
+    .normalize('NFKC')  // 半角カタカナ→全角カタカナ、全角英数→半角英数
     .toLowerCase()
     .replace(/\s/g, '')
-    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-    .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))  // カタカナ→ひらがな
 }
 
 function scoreMatch(nTarget, nInput) {
