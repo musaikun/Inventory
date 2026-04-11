@@ -214,9 +214,17 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    _validateLearnedAliases(newOrder)
+    // 重複品目名を除去（先頭出現を優先）
+    const seen = new Set()
+    const dedupedOrder = newOrder.filter(name => {
+      if (seen.has(name)) return false
+      seen.add(name)
+      return true
+    })
 
-    config.order      = newOrder
+    _validateLearnedAliases(dedupedOrder)
+
+    config.order      = dedupedOrder
     config.units      = newUnits
     config.prices     = newPrices
     config.categories = newCategories
@@ -225,7 +233,7 @@ export function useConfig() {
     _save()
 
     return {
-      count:         newOrder.length,
+      count:         dedupedOrder.length,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
