@@ -24,6 +24,10 @@ function toggleCat(label) {
   else expandedCats[label] = true
 }
 
+function collapseAll() {
+  Object.keys(expandedCats).forEach(k => delete expandedCats[k])
+}
+
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
   { value: 'alpha',    label: '五十音' },
@@ -259,6 +263,11 @@ function fmtYen(n) {
         <span class="progress">
           <strong>{{ filledCount }}</strong> / {{ config.order.length }} 件入力済み
         </span>
+        <button
+          v-if="sortMode === 'category' && Object.keys(expandedCats).length > 0"
+          class="btn-collapse-all"
+          @click="collapseAll"
+        >すべて閉じる</button>
         <button class="btn-danger-sm" @click="$emit('reset')">リセット</button>
       </div>
     </div>

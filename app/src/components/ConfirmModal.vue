@@ -9,6 +9,7 @@ const props = defineProps({
   initialUnit: { type: String,  default: '' },
   existing:    { type: Object,  default: null }, // { qty, unit } | null
   prevMonth:   { type: String,  default: '' },   // 前月実績ヒント
+  unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
@@ -129,7 +130,12 @@ function submit(isAdd) {
         <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
           {{ qty !== '' ? qty : '—' }}
         </div>
+        <!-- 単位：PDFロック時は変更不可バッジ、それ以外は入力欄 -->
+        <div v-if="unitLocked" class="unit-locked-badge">
+          {{ unit }}<span class="unit-lock-icon">🔒</span>
+        </div>
         <input
+          v-else
           type="text"
           v-model="unit"
           maxlength="6"
@@ -153,8 +159,8 @@ function submit(isAdd) {
       <!-- 単位警告 -->
       <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
 
-      <!-- 単位クイック選択 -->
-      <div class="unit-chips">
+      <!-- 単位クイック選択（ロックされていない場合のみ） -->
+      <div v-if="!unitLocked" class="unit-chips">
         <button
           v-for="u in unitSuggestions"
           :key="u"
@@ -274,6 +280,28 @@ function submit(isAdd) {
 }
 
 .unit-input:focus { border-color: var(--primary); }
+
+/* PDF単位ロック表示 */
+.unit-locked-badge {
+  width: 64px;
+  border: 2px solid #d1fae5;
+  border-radius: 10px;
+  padding: 10px 4px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  background: #f0fdf4;
+  color: var(--success);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.unit-lock-icon {
+  font-size: 10px;
+  opacity: 0.7;
+}
 
 /* 音声ボタン */
 .voice-qty-btn {

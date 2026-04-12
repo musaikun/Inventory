@@ -114,7 +114,22 @@ body {
   font-size: 13px;
   font-weight: 600;
   color: #991b1b;
+  flex: 1;
 }
+
+.continuous-stop-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--danger);
+  border-radius: 8px;
+  background: white;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.continuous-stop-btn:active { background: #fef2f2; }
 
 /* ── 検索行 ── */
 .search-row {
@@ -265,6 +280,19 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
+
+.btn-collapse-all {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-collapse-all:active { background: #f1f5f9; }
 
 /* ── Footer ── */
 .app-footer {

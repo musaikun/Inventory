@@ -32,7 +32,7 @@ const showSettings = ref(false)
 const showHistory  = ref(false)
 
 // ── Modal state ────────────────────────────────────────────────────────────────
-const confirmState   = ref(null) // { ingredient, qty, unit, existing }
+const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existing }
 const candidateState = ref(null) // { candidates, qty, unit }
 
 // ── Transcript / テキスト検索 ──────────────────────────────────────────────────
@@ -154,15 +154,28 @@ watch(liveText, v => {
   }
 })
 
-/** ボタン1つで開始/停止 */
+/** ボタンタップの挙動:
+ *  - 停止中（非連続）     → 連続モード開始＋認識開始
+ *  - 連続モード＋認識中   → 連続モード停止＋認識停止
+ *  - 連続モード＋待機中   → 認識を再開（連続モードは継続）
+ */
 function onVoiceButtonTap() {
-  if (continuousMode.value) {
-    continuousMode.value = false
-    if (isListening.value) stopVoice()
-  } else {
+  if (!continuousMode.value) {
     continuousMode.value = true
-    if (!isListening.value) startVoice()
+    startVoice()
+  } else if (isListening.value) {
+    continuousMode.value = false
+    stopVoice()
+  } else {
+    // 待機中 → 再開
+    startVoice()
   }
+}
+
+/** バナーの停止ボタン用（どの状態でも即停止） */
+function onForceStop() {
+  continuousMode.value = false
+  stopVoice()
 }
 
 /** 確定 or キャンセル後に自動で次の音声認識を開始 */
@@ -183,11 +196,14 @@ function onTextSearch() {
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────
 function openConfirm(ingredient, qty, unit) {
+  // PDF登録済みの単位を優先し、ロック状態にする
+  const configUnit = config.units?.[ingredient]
   confirmState.value = {
     ingredient,
     qty,
-    unit: unit || config.units?.[ingredient] || '',
-    existing: inventory[ingredient] ?? null,
+    unit:       configUnit || unit || '',
+    unitLocked: !!configUnit,          // PDF単位は変更不可
+    existing:   inventory[ingredient] ?? null,
   }
 }
 
@@ -297,7 +313,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <!-- 入力中ステータスバナー -->
       <div v-if="continuousMode" class="continuous-banner">
         <span class="continuous-pulse"></span>
-        <span class="continuous-status">{{ isListening ? '聞いています…' : '次の発話を待っています' }}</span>
+        <span class="continuous-status">{{ isListening ? '聞いています…' : '認識停止中' }}</span>
+        <button class="continuous-stop-btn" @click="onForceStop">■ 停止</button>
       </div>
 
       <VoiceButton
@@ -348,6 +365,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :ingredient="confirmState.ingredient"
       :initial-qty="confirmState.qty"
       :initial-unit="confirmState.unit"
+      :unit-locked="confirmState.unitLocked"
       :existing="confirmState.existing"
       :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
       @confirm="onConfirm"

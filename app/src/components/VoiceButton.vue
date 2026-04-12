@@ -19,9 +19,9 @@ defineEmits(['toggle'])
     <span class="label">
       <template v-if="!continuousMode">タップして開始</template>
       <template v-else-if="isListening">聞いています…</template>
-      <template v-else>待機中…</template>
+      <template v-else>再開する</template>
     </span>
-    <span v-if="continuousMode" class="stop-hint">タップで停止</span>
+    <span v-if="continuousMode && isListening" class="stop-hint">タップで停止</span>
   </button>
 </template>
 
