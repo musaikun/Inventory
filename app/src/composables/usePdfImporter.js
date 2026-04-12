@@ -294,15 +294,16 @@ export async function parsePdfFile(arrayBuffer) {
 
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
 export function itemsToConfigCSV(items) {
-  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード']
-  for (const { name, unit, category, categoryCode, code } of items) {
-    const u = unit         ? `"${unit}"`         : ''
-    const c = category     ? `"${category}"`     : ''
+  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績']
+  for (const { name, unit, category, categoryCode, code, prevMonth } of items) {
+    const u  = unit         ? `"${unit}"`       : ''
+    const c  = category     ? `"${category}"`   : ''
     // カテゴリ名をエイリアスにも登録（「備品」「資材」などで音声検索できるように）
-    const a = category     ? `"${category}"`     : ''
-    const d = code         ? `"${code}"`         : ''
-    const e = categoryCode ? `${categoryCode}`   : ''
-    rows.push(`"${name}",${u},,${c},${a},${d},${e}`)
+    const a  = category     ? `"${category}"`   : ''
+    const d  = code         ? `"${code}"`       : ''
+    const e  = categoryCode ? `${categoryCode}` : ''
+    const pm = prevMonth    ? `"${prevMonth}"`  : ''
+    rows.push(`"${name}",${u},,${c},${a},${d},${e},${pm}`)
   }
   return rows.join('\r\n')
 }

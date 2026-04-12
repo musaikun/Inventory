@@ -17,6 +17,7 @@ const config = reactive({
   categories:     {},
   codes:          {},
   categoryCodes:  {},  // { カテゴリ名: 分類コード数値 }
+  prevMonths:     {},  // { 品目名: 前月実績 }
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
 })
@@ -60,6 +61,7 @@ function _load() {
       config.categories    = saved.categories    ?? {}
       config.codes         = saved.codes         ?? {}
       config.categoryCodes = saved.categoryCodes ?? {}
+      config.prevMonths    = saved.prevMonths    ?? {}
       config.dictionary    = saved.dictionary    ?? {}
       config.isCustom      = true
     }
@@ -75,6 +77,7 @@ function _save() {
       categories:    config.categories,
       codes:         config.codes,
       categoryCodes: config.categoryCodes,
+      prevMonths:    config.prevMonths,
       dictionary:    config.dictionary,
     }))
     config.isCustom = true
@@ -170,6 +173,7 @@ export function useConfig() {
     const newCategories    = {}
     const newCodes         = {}
     const newCategoryCodes = {}
+    const newPrevMonths    = {}
     const newDict          = {}
 
     // ── パス1: 複数回出現する品目名を特定（同名品目のカテゴリ付与に使用）────
@@ -206,12 +210,14 @@ export function useConfig() {
         }
         newOrder.push(storeName)
 
-        const catCode = parseInt(cols[6]?.trim(), 10)
+        const catCode  = parseInt(cols[6]?.trim(), 10)
+        const prevMonth = cols[7]?.trim() ?? ''
         if (unit)                        newUnits[storeName]         = unit
         if (!isNaN(price) && price > 0)  newPrices[storeName]        = price
         if (category)                    newCategories[storeName]    = category
         if (code)                        newCodes[storeName]         = code
         if (category && !isNaN(catCode)) newCategoryCodes[category]  = catCode
+        if (prevMonth)                   newPrevMonths[storeName]    = prevMonth
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = storeName })
@@ -247,6 +253,7 @@ export function useConfig() {
     config.categories    = newCategories
     config.codes         = newCodes
     config.categoryCodes = newCategoryCodes
+    config.prevMonths    = newPrevMonths
     config.dictionary    = newDict
     _save()
 
@@ -284,6 +291,7 @@ export function useConfig() {
     config.categories    = {}
     config.codes         = {}
     config.categoryCodes = {}
+    config.prevMonths    = {}
     config.dictionary    = { ...DEFAULT_DICT }
     config.isCustom      = false
     localStorage.removeItem(CONFIG_KEY)

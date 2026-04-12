@@ -9,7 +9,7 @@ const props = defineProps({
   filledCount: { type: Number, required: true },
 })
 
-const emit = defineEmits(['update', 'remove', 'reset'])
+const emit = defineEmits(['update', 'remove', 'reset', 'tap'])
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
 const sortMode      = ref('category')  // 'default' | 'alpha' | 'category'
@@ -42,9 +42,10 @@ const rows = computed(() => {
     index:     i + 1,
     entry:     props.inventory[item] ?? null,
     custom:    false,
-    unitPrice: config.prices?.[item]     ?? null,
-    category:  config.categories?.[item] ?? null,
-    code:      config.codes?.[item]      ?? null,
+    unitPrice: config.prices?.[item]      ?? null,
+    category:  config.categories?.[item]  ?? null,
+    code:      config.codes?.[item]       ?? null,
+    prevMonth: config.prevMonths?.[item]  ?? null,
   }))
 
   // 2. config.order に含まれないカスタム品目
@@ -56,9 +57,10 @@ const rows = computed(() => {
       index:     '*',
       entry:     props.inventory[item],
       custom:    true,
-      unitPrice: config.prices?.[item]     ?? null,
-      category:  config.categories?.[item] ?? null,
-      code:      config.codes?.[item]      ?? null,
+      unitPrice: config.prices?.[item]      ?? null,
+      category:  config.categories?.[item]  ?? null,
+      code:      config.codes?.[item]       ?? null,
+      prevMonth: config.prevMonths?.[item]  ?? null,
     }))
 
   // 3. フィルター適用
@@ -155,21 +157,6 @@ function fmtYen(n) {
   return '¥' + Math.round(n).toLocaleString('ja-JP')
 }
 
-// ── 数量変更 ──────────────────────────────────────────────────────────────────
-function onQtyChange(item, event) {
-  const val = event.target.value
-  if (val === '') {
-    emit('remove', item)
-  } else {
-    const q = parseFloat(val)
-    if (!isNaN(q) && q >= 0) {
-      const existing = props.inventory[item]
-      // 既存エントリの単位 → config のデフォルト単位 → 空文字 の順にフォールバック
-      const unit = existing?.unit || config.units?.[item] || ''
-      emit('update', { item, qty: q, unit })
-    }
-  }
-}
 </script>
 
 <template>
@@ -221,33 +208,44 @@ function onQtyChange(item, event) {
           <!-- ジャンルヘッダー行（クリックでアコーディオン開閉） -->
           <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleCat(row.label)">
             <td :colspan="totalCols" class="group-header-cell">
-              <span class="cat-arrow">{{ expandedCats[row.label] ? '▼' : '▶' }}</span>
-              <span class="cat-label">{{ row.label }}</span>
-              <span class="cat-badge">
-                {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
-              </span>
+              <div class="cat-info-row">
+                <span class="cat-arrow">{{ expandedCats[row.label] ? '▼' : '▶' }}</span>
+                <span class="cat-label">{{ row.label }}</span>
+                <span class="cat-badge">
+                  {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
+                </span>
+              </div>
+              <div class="cat-progress-track">
+                <div
+                  class="cat-progress-fill"
+                  :style="{ width: (row.count > 0 ? row.filled / row.count * 100 : 0) + '%' }"
+                  :class="{ complete: row.filled === row.count && row.count > 0 }"
+                ></div>
+              </div>
             </td>
           </tr>
 
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="sortMode !== 'category' || expandedCats[row.category ?? 'その他']"
-              :class="{ filled: row.entry !== null }">
+              :class="{ filled: row.entry !== null }"
+              class="item-row"
+              @click="$emit('tap', row.item)">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
-              {{ row.item }}
-              <span v-if="row.custom" class="badge">追加</span>
+              <div class="name-main">
+                {{ row.item }}
+                <span v-if="row.custom" class="badge">追加</span>
+              </div>
+              <div v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</div>
             </td>
             <td class="td-qty">
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="—"
-                :value="row.entry?.qty ?? ''"
-                :class="['qty-input', { filled: row.entry !== null }]"
-                @change="onQtyChange(row.item, $event)"
-              />
+              <div :class="['qty-display', { filled: row.entry !== null }]">
+                <template v-if="row.entry !== null">
+                  {{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span>
+                </template>
+                <template v-else>—</template>
+              </div>
             </td>
             <td v-if="hasPrices" class="td-amount">
               <span v-if="subtotal(row) != null" class="amount-value">
@@ -394,17 +392,21 @@ function onQtyChange(item, event) {
 .group-header-row:hover { background: #eff6ff !important; }
 
 .group-header-cell {
-  padding: 10px 14px;
+  padding: 8px 14px 0;
+  border-left: 3px solid var(--primary);
+}
+
+.cat-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 700;
   color: var(--primary);
   letter-spacing: 0.04em;
-  border-left: 3px solid var(--primary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
   white-space: nowrap;
   overflow: hidden;
+  padding-bottom: 6px;
 }
 
 .cat-arrow {
@@ -432,19 +434,51 @@ function onQtyChange(item, event) {
 }
 .cat-badge-sep { opacity: 0.5; margin: 0 1px; }
 
+/* プログレスバー */
+.cat-progress-track {
+  height: 4px;
+  background: #dbeafe;
+  border-radius: 0 0 2px 2px;
+  overflow: hidden;
+  margin: 0 -14px;
+}
+
+.cat-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.cat-progress-fill.complete { background: var(--success); }
+
+/* ── 品目行タップ ── */
+.item-row {
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(59,130,246,0.1);
+}
+.item-row:active { background: #eff6ff !important; }
+
 /* ── 品目セル ── */
 .td-name {
-  padding: 11px 14px;
+  padding: 9px 14px;
   font-size: 13px;
   line-height: 1.4;
   word-break: keep-all;
   overflow-wrap: break-word;
 }
 
-.row-num {
-  color: var(--text-muted);
+.name-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.prev-hint {
   font-size: 11px;
-  margin-right: 3px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
 .badge {
@@ -453,7 +487,6 @@ function onQtyChange(item, event) {
   color: var(--primary);
   border-radius: 4px;
   padding: 1px 5px;
-  margin-left: 4px;
   vertical-align: middle;
 }
 
@@ -472,34 +505,35 @@ function onQtyChange(item, event) {
 .td-qty {
   padding: 7px 10px;
   text-align: center;
+  white-space: nowrap;
 }
 
-.qty-input {
-  width: 66px;
+.qty-display {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 54px;
   border: 1.5px solid var(--border);
   border-radius: 8px;
-  padding: 7px 4px;
+  padding: 6px 8px;
   font-size: 16px;
   font-weight: 700;
-  text-align: center;
-  background: transparent;
-  color: var(--text);
-  outline: none;
-  -moz-appearance: textfield;
+  color: var(--text-muted);
+  background: #f8fafc;
+  justify-content: center;
 }
 
-.qty-input::-webkit-inner-spin-button,
-.qty-input::-webkit-outer-spin-button { opacity: 1; }
-
-.qty-input:focus {
-  border-color: var(--primary);
-  background: white;
-}
-
-.qty-input.filled {
+.qty-display.filled {
   color: var(--success);
   border-color: #86efac;
   background: #f0fdf4;
+}
+
+.qty-unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 1px;
 }
 
 /* ── 金額セル ── */

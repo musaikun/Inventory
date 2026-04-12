@@ -169,7 +169,7 @@ function onCandidateSelect(canonical) {
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
 function onTableTap(item) {
-  openConfirm(item, null, '')
+  openConfirm(item, null, config.units?.[item] || '')
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
@@ -261,6 +261,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @update="onTableUpdate"
       @remove="removeItem"
       @reset="onReset"
+      @tap="onTableTap"
     />
 
     <!-- 確認モーダル -->
@@ -270,6 +271,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :initial-qty="confirmState.qty"
       :initial-unit="confirmState.unit"
       :existing="confirmState.existing"
+      :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
       @confirm="onConfirm"
       @cancel="confirmState = null"
     />

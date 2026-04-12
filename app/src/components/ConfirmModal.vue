@@ -1,57 +1,81 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useVoice, parseText } from '../composables/useVoice.js'
+import NumPad from './NumPad.vue'
 
 const props = defineProps({
-  ingredient:  { type: String, required: true },
-  initialQty:  { type: Number, default: null },
-  initialUnit: { type: String, default: '' },
-  existing:    { type: Object, default: null }, // { qty, unit } | null
+  ingredient:  { type: String,  required: true },
+  initialQty:  { type: Number,  default: null },
+  initialUnit: { type: String,  default: '' },
+  existing:    { type: Object,  default: null }, // { qty, unit } | null
+  prevMonth:   { type: String,  default: '' },   // 前月実績ヒント
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
 
-const qty      = ref(props.initialQty ?? '')
+const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
 const hasError = ref(false)
-const qtyInput = ref(null)
-const voiceMsg = ref('')  // 音声認識のフィードバック
+const voiceMsg = ref('')
 
-// ── 数量音声入力 ───────────────────────────────────────────────────────────────
+// ── テンキー入力 ───────────────────────────────────────────────────────────────
+function numpadDigit(d) {
+  const s = String(qty.value)
+  if (s === '0') qty.value = d
+  else           qty.value = s + d
+  hasError.value = false
+}
+
+function numpadDot() {
+  const s = String(qty.value)
+  if (!s.includes('.')) qty.value = (s || '0') + '.'
+}
+
+function numpadBack() {
+  const s = String(qty.value)
+  qty.value = s.length <= 1 ? '' : s.slice(0, -1)
+}
+
+// ── プリセット数量ボタン ───────────────────────────────────────────────────────
+const PRESETS = [0.5, 1, 5, 10]
+
+function addPreset(n) {
+  const current  = parseFloat(qty.value) || 0
+  const result   = Math.round((current + n) * 10000) / 10000
+  qty.value      = String(result)
+  hasError.value = false
+}
+
+// ── 音声入力 ───────────────────────────────────────────────────────────────────
 function onQtyVoiceResult(raw) {
   const { qty: q, unit: u } = parseText(raw)
   if (q !== null) {
-    qty.value  = q
-    unit.value = u || unit.value
+    qty.value      = String(q)
+    unit.value     = u || unit.value
     voiceMsg.value = `「${raw}」→ ${q}${u || unit.value}`
     hasError.value = false
   } else {
-    voiceMsg.value = `数量を認識できませんでした`
+    voiceMsg.value = '数量を認識できませんでした'
   }
 }
 
 const { isListening: qtyListening, toggle: toggleQtyVoice } = useVoice(onQtyVoiceResult)
 
-// モーダルを閉じる時に音声停止
 onUnmounted(() => { if (qtyListening.value) toggleQtyVoice() })
 
-// ── 単位警告（ml/g 等で極端に小さい or 大きい数量）───────────────────────────────
+// ── 単位警告 ───────────────────────────────────────────────────────────────────
 const unitWarning = computed(() => {
   const u = unit.value.trim().toLowerCase()
   const q = parseFloat(qty.value)
   if (isNaN(q) || q <= 0) return null
-  if (u === 'ml' && q < 10)
-    return `${q}ml は少なすぎませんか？ 本・パックなど「数える単位」の使用を推奨します`
-  if (u === 'g' && q < 10)
-    return `${q}g は少なすぎませんか？ 袋・パックなど「数える単位」の使用を推奨します`
-  if (u === 'l' && q > 50)
-    return `${q}L は多すぎませんか？ 確認してください`
-  if (u === 'kg' && q > 300)
-    return `${q}kg は多すぎませんか？ 確認してください`
+  if (u === 'ml' && q < 10)  return `${q}ml は少なすぎませんか？`
+  if (u === 'g'  && q < 10)  return `${q}g は少なすぎませんか？`
+  if (u === 'l'  && q > 50)  return `${q}L は多すぎませんか？`
+  if (u === 'kg' && q > 300) return `${q}kg は多すぎませんか？`
   return null
 })
 
-// ── Duplicate ──────────────────────────────────────────────────────────────────
+// ── 重複 ───────────────────────────────────────────────────────────────────────
 const hasDuplicate = computed(() => props.existing !== null)
 
 const addLabel = computed(() => {
@@ -62,14 +86,11 @@ const addLabel = computed(() => {
   return `追加 (→${sum}${unit.value})`
 })
 
-onMounted(() => setTimeout(() => qtyInput.value?.focus(), 80))
-
-// ── Submit ─────────────────────────────────────────────────────────────────────
+// ── 送信 ───────────────────────────────────────────────────────────────────────
 function submit(isAdd) {
   const q = parseFloat(qty.value)
   if (isNaN(q) || q < 0) {
     hasError.value = true
-    qtyInput.value?.focus()
     return
   }
   hasError.value = false
@@ -84,25 +105,21 @@ function submit(isAdd) {
       <div class="sheet-title">数量を入力</div>
 
       <!-- 品目名 -->
-      <div class="name-box">{{ ingredient }}</div>
+      <div class="name-box">
+        {{ ingredient }}
+        <div v-if="prevMonth" class="prev-hint-modal">前月実績: {{ prevMonth }}</div>
+      </div>
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate" class="dup-warn">
         ⚠️ 入力済み：{{ existing.qty }}{{ existing.unit }}
       </div>
 
-      <!-- 数量入力行 -->
+      <!-- 数量表示 + 単位 + 音声 -->
       <div class="qty-row">
-        <label>数量</label>
-        <input
-          ref="qtyInput"
-          type="number"
-          v-model="qty"
-          min="0"
-          step="0.1"
-          inputmode="decimal"
-          :class="['qty-input', { error: hasError }]"
-        />
+        <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
+          {{ qty !== '' ? qty : '—' }}
+        </div>
         <input
           type="text"
           v-model="unit"
@@ -110,7 +127,6 @@ function submit(isAdd) {
           placeholder="単位"
           class="unit-input"
         />
-        <!-- 音声ボタン -->
         <button
           class="voice-qty-btn"
           :class="{ listening: qtyListening }"
@@ -122,13 +138,25 @@ function submit(isAdd) {
 
       <!-- 音声フィードバック -->
       <div v-if="voiceMsg || qtyListening" class="voice-feedback" :class="{ listening: qtyListening }">
-        {{ qtyListening ? '数量を話してください…（例：3袋、ご本）' : voiceMsg }}
+        {{ qtyListening ? '数量を話してください…（例：3袋、5本）' : voiceMsg }}
       </div>
 
       <!-- 単位警告 -->
-      <div v-if="unitWarning" class="unit-warning">
-        ⚠️ {{ unitWarning }}
+      <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
+
+      <!-- プリセットボタン -->
+      <div class="preset-row">
+        <button
+          v-for="n in PRESETS"
+          :key="n"
+          class="preset-btn"
+          @click="addPreset(n)"
+          type="button"
+        >+{{ n }}</button>
       </div>
+
+      <!-- テンキー -->
+      <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" />
 
       <!-- アクションボタン -->
       <div class="actions" :class="{ 'three-col': hasDuplicate }">
@@ -146,66 +174,80 @@ function submit(isAdd) {
 
 <style scoped>
 .name-box {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   text-align: center;
-  padding: 14px 16px;
+  padding: 12px 16px;
   background: #eff6ff;
   border-radius: 10px;
   color: var(--primary);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   line-height: 1.5;
+}
+
+.prev-hint-modal {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  background: white;
+  border-radius: 6px;
+  padding: 2px 8px;
+  display: inline-block;
 }
 
 .dup-warn {
   background: #fefce8;
   border: 1.5px solid #fde047;
   border-radius: 10px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   font-size: 13px;
   color: #713f12;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
+/* 数量表示エリア */
 .qty-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
-.qty-row label {
-  font-weight: 600;
-  color: var(--text-muted);
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.qty-input {
+.qty-display {
   flex: 1;
   border: 2px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
-  font-size: 28px;
+  padding: 10px 12px;
+  font-size: 32px;
   font-weight: 700;
   text-align: center;
-  outline: none;
-  color: var(--text);
-  -moz-appearance: textfield;
+  color: var(--text-muted);
+  background: #f8fafc;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.02em;
 }
 
-.qty-input::-webkit-inner-spin-button,
-.qty-input::-webkit-outer-spin-button { opacity: 1; }
+.qty-display.filled {
+  color: var(--text);
+  border-color: var(--primary);
+  background: white;
+}
 
-.qty-input:focus { border-color: var(--primary); }
-.qty-input.error { border-color: var(--danger); }
+.qty-display.error {
+  border-color: var(--danger);
+  background: #fef2f2;
+}
 
 .unit-input {
-  width: 70px;
+  width: 64px;
   border: 2px solid var(--border);
   border-radius: 10px;
-  padding: 12px 6px;
-  font-size: 16px;
+  padding: 10px 4px;
+  font-size: 15px;
   font-weight: 600;
   text-align: center;
   outline: none;
@@ -215,8 +257,8 @@ function submit(isAdd) {
 
 /* 音声ボタン */
 .voice-qty-btn {
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--primary);
   color: white;
@@ -227,7 +269,6 @@ function submit(isAdd) {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.2s;
 }
 
 .voice-qty-btn.listening {
@@ -240,37 +281,60 @@ function submit(isAdd) {
   50%       { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
 }
 
-/* 音声フィードバック */
 .voice-feedback {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   background: #f8fafc;
   border-radius: 8px;
-  padding: 8px 12px;
-  margin-bottom: 14px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
   text-align: center;
 }
 
-.voice-feedback.listening {
-  color: var(--danger);
-  background: #fef2f2;
-}
+.voice-feedback.listening { color: var(--danger); background: #fef2f2; }
 
-/* 単位警告 */
 .unit-warning {
   font-size: 12px;
   color: #92400e;
   background: #fefce8;
   border: 1.5px solid #fde047;
   border-radius: 8px;
-  padding: 8px 12px;
-  margin-bottom: 14px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
   line-height: 1.5;
 }
 
+/* プリセットボタン */
+.preset-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.preset-btn {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1.5px solid var(--primary);
+  border-radius: 10px;
+  background: #eff6ff;
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.1s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.preset-btn:active {
+  background: #dbeafe;
+  transform: scale(0.96);
+}
+
+/* アクション */
 .actions {
   display: flex;
   gap: 10px;
+  margin-top: 10px;
 }
 
 .actions.three-col {
