@@ -83,5 +83,5 @@ export function useVoice(onResult) {
     isListening.value ? stop() : start()
   }
 
-  return { isListening, liveText, toggle }
+  return { isListening, liveText, toggle, start, stop }
 }

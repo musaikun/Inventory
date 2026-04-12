@@ -114,6 +114,9 @@ function runSearch(raw) {
   candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
 }
 
+// ── 連続音声モード ─────────────────────────────────────────────────────────────
+const continuousMode = ref(false)
+
 // ── Voice ──────────────────────────────────────────────────────────────────────
 function onVoiceResult(raw) {
   searchText.value   = raw
@@ -121,7 +124,7 @@ function onVoiceResult(raw) {
   runSearch(raw)
 }
 
-const { isListening, liveText, toggle } = useVoice(onVoiceResult)
+const { isListening, liveText, toggle, start: startVoice, stop: stopVoice } = useVoice(onVoiceResult)
 
 watch(liveText, v => {
   if (isListening.value) {
@@ -129,6 +132,26 @@ watch(liveText, v => {
     searchStatus.value = 'active'
   }
 })
+
+/** 連続モード開始 */
+function onStartContinuous() {
+  continuousMode.value = true
+  if (!isListening.value) startVoice()
+}
+
+/** 連続モード停止 */
+function onStopContinuous() {
+  continuousMode.value = false
+  if (isListening.value) stopVoice()
+}
+
+/** 確定 or キャンセル後に連続モードなら次の音声認識を開始 */
+function _restartIfContinuous() {
+  if (!continuousMode.value) return
+  setTimeout(() => {
+    if (continuousMode.value && !isListening.value) startVoice()
+  }, 400)
+}
 
 // ── テキスト検索 ───────────────────────────────────────────────────────────────
 function onTextSearch() {
@@ -157,6 +180,12 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   setConfirmedMsg(`✓ ${ingredient}　${label}`)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   confirmState.value = null
+  _restartIfContinuous()
+}
+
+function onCancelConfirm() {
+  confirmState.value = null
+  _restartIfContinuous()
 }
 
 // ── Candidate modal ────────────────────────────────────────────────────────────
@@ -165,6 +194,11 @@ function onCandidateSelect(canonical) {
   candidateState.value = null
   registerAlias(searchTerm, canonical)
   openConfirm(canonical, qty, unit)
+}
+
+function onCancelCandidate() {
+  candidateState.value = null
+  _restartIfContinuous()
 }
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
@@ -240,7 +274,27 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- 音声入力 / テキスト検索 -->
     <section class="voice-section">
-      <VoiceButton :is-listening="isListening" @toggle="toggle" />
+      <!-- 連続入力モード バナー -->
+      <div v-if="continuousMode" class="continuous-banner">
+        <span class="continuous-pulse"></span>
+        <span class="continuous-label">連続入力モード</span>
+        <span class="continuous-status">{{ isListening ? '聞いています…' : '次の発話を待っています' }}</span>
+        <button class="continuous-stop-btn" @click="onStopContinuous">■ 停止</button>
+      </div>
+
+      <div class="voice-row">
+        <VoiceButton
+          :is-listening="isListening"
+          :continuous-mode="continuousMode"
+          @toggle="continuousMode ? onStopContinuous() : toggle()"
+        />
+        <!-- 連続入力モード開始ボタン（通常時のみ表示） -->
+        <button v-if="!continuousMode" class="continuous-start-btn" @click="onStartContinuous">
+          <span class="cs-icon">🔁</span>
+          <span class="cs-label">連続<br>入力</span>
+        </button>
+      </div>
+
       <div class="search-row">
         <input
           type="text"
@@ -273,7 +327,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :existing="confirmState.existing"
       :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
       @confirm="onConfirm"
-      @cancel="confirmState = null"
+      @cancel="onCancelConfirm"
     />
 
     <!-- 候補選択モーダル -->
@@ -284,7 +338,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :qty="candidateState.qty"
       :unit="candidateState.unit"
       @select="onCandidateSelect"
-      @cancel="candidateState = null"
+      @cancel="onCancelCandidate"
     />
 
     <!-- フッター -->
