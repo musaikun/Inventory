@@ -136,17 +136,16 @@ function runSearch(raw) {
   candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
 }
 
-// ── 連続音声モード ─────────────────────────────────────────────────────────────
+// ── Voice（連続入力がデフォルト動作）─────────────────────────────────────────
 const continuousMode = ref(false)
 
-// ── Voice ──────────────────────────────────────────────────────────────────────
 function onVoiceResult(raw) {
   searchText.value   = raw
   searchStatus.value = ''
   runSearch(raw)
 }
 
-const { isListening, liveText, toggle, start: startVoice, stop: stopVoice } = useVoice(onVoiceResult)
+const { isListening, liveText, start: startVoice, stop: stopVoice } = useVoice(onVoiceResult)
 
 watch(liveText, v => {
   if (isListening.value) {
@@ -155,19 +154,18 @@ watch(liveText, v => {
   }
 })
 
-/** 連続モード開始 */
-function onStartContinuous() {
-  continuousMode.value = true
-  if (!isListening.value) startVoice()
+/** ボタン1つで開始/停止 */
+function onVoiceButtonTap() {
+  if (continuousMode.value) {
+    continuousMode.value = false
+    if (isListening.value) stopVoice()
+  } else {
+    continuousMode.value = true
+    if (!isListening.value) startVoice()
+  }
 }
 
-/** 連続モード停止 */
-function onStopContinuous() {
-  continuousMode.value = false
-  if (isListening.value) stopVoice()
-}
-
-/** 確定 or キャンセル後に連続モードなら次の音声認識を開始 */
+/** 確定 or キャンセル後に自動で次の音声認識を開始 */
 function _restartIfContinuous() {
   if (!continuousMode.value) return
   setTimeout(() => {
@@ -296,26 +294,17 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- 音声入力 / テキスト検索 -->
     <section class="voice-section">
-      <!-- 連続入力モード バナー -->
+      <!-- 入力中ステータスバナー -->
       <div v-if="continuousMode" class="continuous-banner">
         <span class="continuous-pulse"></span>
-        <span class="continuous-label">連続入力モード</span>
         <span class="continuous-status">{{ isListening ? '聞いています…' : '次の発話を待っています' }}</span>
-        <button class="continuous-stop-btn" @click="onStopContinuous">■ 停止</button>
       </div>
 
-      <div class="voice-row">
-        <VoiceButton
-          :is-listening="isListening"
-          :continuous-mode="continuousMode"
-          @toggle="continuousMode ? onStopContinuous() : toggle()"
-        />
-        <!-- 連続入力モード開始ボタン（通常時のみ表示） -->
-        <button v-if="!continuousMode" class="continuous-start-btn" @click="onStartContinuous">
-          <span class="cs-icon">🔁</span>
-          <span class="cs-label">連続<br>入力</span>
-        </button>
-      </div>
+      <VoiceButton
+        :is-listening="isListening"
+        :continuous-mode="continuousMode"
+        @toggle="onVoiceButtonTap"
+      />
 
       <div class="search-row">
         <input

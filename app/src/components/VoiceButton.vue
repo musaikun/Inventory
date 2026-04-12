@@ -9,19 +9,19 @@ defineEmits(['toggle'])
 <template>
   <button
     class="voice-btn"
-    :class="{ listening: isListening, continuous: continuousMode }"
+    :class="{
+      listening:  isListening,
+      waiting:    continuousMode && !isListening,
+    }"
     @click="$emit('toggle')"
   >
     <span class="mic">🎤</span>
     <span class="label">
-      <template v-if="continuousMode">
-        {{ isListening ? '聞いています…' : '待機中' }}<br>
-        <span class="sub-label">タップで停止</span>
-      </template>
-      <template v-else>
-        {{ isListening ? '聞いています…' : 'タップして話す' }}
-      </template>
+      <template v-if="!continuousMode">タップして開始</template>
+      <template v-else-if="isListening">聞いています…</template>
+      <template v-else>待機中…</template>
     </span>
+    <span v-if="continuousMode" class="stop-hint">タップで停止</span>
   </button>
 </template>
 
@@ -38,11 +38,9 @@ defineEmits(['toggle'])
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 4px;
   box-shadow: 0 6px 24px rgba(37,99,235,0.35);
-  transition: transform 0.15s;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -50,17 +48,18 @@ defineEmits(['toggle'])
 
 .voice-btn:active { transform: scale(0.95); }
 
+/* 音声認識中: 赤パルス */
 .voice-btn.listening {
   background: var(--danger);
   animation: pulse 1.4s ease-in-out infinite;
   box-shadow: 0 6px 24px rgba(220,38,38,0.4);
 }
 
-/* 連続モード: 待機中（赤系でやや暗め） */
-.voice-btn.continuous:not(.listening) {
-  background: #dc2626cc;
-  box-shadow: 0 6px 24px rgba(220,38,38,0.25);
+/* 連続モード待機中: やや暗めの赤 */
+.voice-btn.waiting {
+  background: #b91c1c;
   animation: pulse-idle 2s ease-in-out infinite;
+  box-shadow: 0 6px 24px rgba(185,28,28,0.3);
 }
 
 @keyframes pulse {
@@ -70,10 +69,10 @@ defineEmits(['toggle'])
 
 @keyframes pulse-idle {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.7; }
+  50%       { opacity: 0.65; }
 }
 
-.mic   { font-size: 42px; line-height: 1; }
-.label { font-size: 12px; text-align: center; padding: 0 8px; line-height: 1.4; }
-.sub-label { font-size: 10px; opacity: 0.8; }
+.mic       { font-size: 42px; line-height: 1; }
+.label     { font-size: 12px; font-weight: 600; text-align: center; padding: 0 8px; }
+.stop-hint { font-size: 10px; opacity: 0.75; }
 </style>

@@ -23,9 +23,8 @@ function toggleCat(label) {
 }
 
 const sortOpts = [
-  { value: 'default',  label: 'デフォルト' },
-  { value: 'alpha',    label: '五十音' },
   { value: 'category', label: 'ジャンル' },
+  { value: 'alpha',    label: '五十音' },
 ]
 
 const filterOpts = [
@@ -484,8 +483,8 @@ function fmtYen(n) {
 
 /* プログレスバー */
 .cat-progress-track {
-  height: 4px;
-  background: #dbeafe;
+  height: 5px;
+  background: #dcfce7;
   border-radius: 0 0 2px 2px;
   overflow: hidden;
   margin: 0 -14px;
@@ -493,12 +492,15 @@ function fmtYen(n) {
 
 .cat-progress-fill {
   height: 100%;
-  background: var(--primary);
+  background: var(--success);
   border-radius: 2px;
   transition: width 0.4s ease;
 }
 
-.cat-progress-fill.complete { background: var(--success); }
+.cat-progress-fill.complete {
+  background: #16a34a;
+  box-shadow: 0 0 4px rgba(22,163,74,0.5);
+}
 
 /* ── 品目行タップ ── */
 .item-row {
