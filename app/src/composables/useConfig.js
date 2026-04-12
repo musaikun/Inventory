@@ -167,33 +167,54 @@ export function useConfig() {
     const newCategories = {}
     const newCodes      = {}
     const newDict       = {}
+    const seenKeys      = new Set()  // 追加済みのストレージキー
 
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
       const name = cols[0]?.trim()
       if (!name) continue
 
-      newOrder.push(name)
-
       if (isOldFormat) {
+        // ── 旧フォーマット ─────────────────────────────────────────────────
+        if (seenKeys.has(name)) continue
+        seenKeys.add(name)
+        newOrder.push(name)
         if (cols[1]) {
           cols[1].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
         }
       } else if (hasCategoryCol) {
+        // ── カテゴリ付きフォーマット（品目名,単位,単価,カテゴリ,エイリアス,商品コード）──
         const unit     = cols[1]?.trim()
         const price    = parseFloat(cols[2])
         const category = cols[3]?.trim()
-        const code     = cols[5]?.trim()
-        if (unit)                       newUnits[name]      = unit
-        if (!isNaN(price) && price > 0) newPrices[name]     = price
-        if (category)                   newCategories[name] = category
-        if (code)                       newCodes[name]      = code
+        const code     = cols[5]?.trim() ?? ''
+
+        // 同名品目の重複処理:
+        //   コードが異なる → 別商品として「品目名（コード）」をキーに追加
+        //   コードが同じ or コードなし → 真の重複 → スキップ
+        let storeName = name
+        if (seenKeys.has(storeName)) {
+          if (!code) continue
+          storeName = `${name}（${code}）`
+          if (seenKeys.has(storeName)) continue
+        }
+        seenKeys.add(storeName)
+        newOrder.push(storeName)
+
+        if (unit)                       newUnits[storeName]      = unit
+        if (!isNaN(price) && price > 0) newPrices[storeName]     = price
+        if (category)                   newCategories[storeName] = category
+        if (code)                       newCodes[storeName]      = code
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = name })
+            .forEach(alias => { newDict[alias] = storeName })
         }
       } else if (hasPriceCol) {
+        // ── 価格付きフォーマット ───────────────────────────────────────────
+        if (seenKeys.has(name)) continue
+        seenKeys.add(name)
+        newOrder.push(name)
         const unit  = cols[1]?.trim()
         const price = parseFloat(cols[2])
         if (unit)                       newUnits[name]  = unit
@@ -203,6 +224,10 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = name })
         }
       } else {
+        // ── ベーシックフォーマット ─────────────────────────────────────────
+        if (seenKeys.has(name)) continue
+        seenKeys.add(name)
+        newOrder.push(name)
         const unit = cols[1]?.trim()
         if (unit) newUnits[name] = unit
         if (cols[2]) {
@@ -214,17 +239,9 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    // 重複品目名を除去（先頭出現を優先）
-    const seen = new Set()
-    const dedupedOrder = newOrder.filter(name => {
-      if (seen.has(name)) return false
-      seen.add(name)
-      return true
-    })
+    _validateLearnedAliases(newOrder)
 
-    _validateLearnedAliases(dedupedOrder)
-
-    config.order      = dedupedOrder
+    config.order      = newOrder
     config.units      = newUnits
     config.prices     = newPrices
     config.categories = newCategories
@@ -233,7 +250,7 @@ export function useConfig() {
     _save()
 
     return {
-      count:         dedupedOrder.length,
+      count:         newOrder.length,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
