@@ -115,13 +115,36 @@ function onResetMaster() {
       <details class="format-help">
         <summary>CSVフォーマットを確認</summary>
         <div class="format-body">
-          <p>1行目はヘッダー行（スキップされます）</p>
-          <pre>品目名,単位,単価,カテゴリ,エイリアス
-"コーヒー豆　ブラジルNo.2　中煎り　1kg袋",袋,2500,コーヒー豆,"ブラジル,中煎り"
-"牛乳　成分無調整　1Lパック",パック,180,乳製品,"牛乳,ミルク"
-"レタス　1玉",玉,120,野菜,</pre>
-          <p>単位・単価・カテゴリ・エイリアスはすべて省略可。カテゴリを設定するとジャンル別並び替えが使えます。</p>
-          <p style="margin-top:6px;color:#d97706">単位は「ml」「g」より「パック」「本」など数える単位を推奨します。</p>
+          <p class="format-intro">1行目はヘッダー行（スキップされます）</p>
+
+          <div class="col-table">
+            <div class="col-row col-head">
+              <span>列</span><span>項目名</span><span>説明</span>
+            </div>
+            <div class="col-row"><span>1</span><span>品目名</span><span>正式名称（必須）</span></div>
+            <div class="col-row"><span>2</span><span>単位</span><span>袋・本・個・パックなど</span></div>
+            <div class="col-row"><span>3</span><span>単価</span><span>省略可</span></div>
+            <div class="col-row"><span>4</span><span>カテゴリ</span><span>ジャンル別表示に使用</span></div>
+            <div class="col-row"><span>5</span><span>エイリアス</span><span>音声で呼ぶ別名・略称（カンマ区切り）</span></div>
+          </div>
+
+          <p class="format-intro" style="margin-top:10px">記入例：</p>
+          <div class="example-table">
+            <div class="ex-row ex-head">
+              <span>品目名</span><span>単位</span><span>カテゴリ</span><span>エイリアス</span>
+            </div>
+            <div class="ex-row">
+              <span>ビール（プレモル生樽）</span><span>本</span><span>酒類</span><span>生,ビール,プレモル</span>
+            </div>
+            <div class="ex-row">
+              <span>牛乳　成分無調整　1Lパック</span><span>パック</span><span>乳製品</span><span>牛乳,ミルク</span>
+            </div>
+            <div class="ex-row">
+              <span>レタス　1玉</span><span>玉</span><span>野菜</span><span>（省略可）</span>
+            </div>
+          </div>
+
+          <p class="format-note">エイリアスを設定すると、音声で短縮名を言っても認識されます。<br>PDFから取込むと、品目名に応じてエイリアスが自動設定されます。</p>
         </div>
       </details>
 
@@ -240,17 +263,65 @@ function onResetMaster() {
   background: #f8fafc;
   border-radius: 8px;
 }
-.format-body pre {
-  font-size: 11px;
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 10px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 8px 0;
-  white-space: pre;
-}
 .format-body p { margin: 4px 0; line-height: 1.5; }
+.format-intro { font-size: 12px; color: var(--text-muted); }
+.format-note  { font-size: 12px; color: var(--text-muted); margin-top: 8px !important; line-height: 1.6; }
+
+/* 列説明テーブル */
+.col-table {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.col-row {
+  display: grid;
+  grid-template-columns: 24px 72px 1fr;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.col-row:last-child { border-bottom: none; }
+.col-row > span {
+  padding: 5px 8px;
+  border-right: 1px solid var(--border);
+}
+.col-row > span:last-child { border-right: none; }
+.col-head { background: #f1f5f9; font-weight: 700; color: var(--text); }
+.col-row:not(.col-head) > span:first-child { color: var(--text-muted); text-align: center; }
+.col-row:not(.col-head) > span:nth-child(2) { font-weight: 700; color: var(--primary); }
+
+/* 記入例テーブル */
+.example-table {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 11px;
+}
+.ex-row {
+  display: grid;
+  grid-template-columns: 2fr 48px 64px 1fr;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.ex-row:last-child { border-bottom: none; }
+.ex-row > span {
+  padding: 5px 7px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ex-row > span:last-child { border-right: none; }
+.ex-head { background: #f1f5f9; font-weight: 700; color: var(--text); }
+.ex-row:not(.ex-head) > span:nth-child(2),
+.ex-row:not(.ex-head) > span:nth-child(3) {
+  color: var(--success);
+  font-weight: 600;
+}
+.ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
 
 .section-divider {
   border-top: 1px solid var(--border);
