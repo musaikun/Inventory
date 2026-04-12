@@ -1,15 +1,16 @@
 <script setup>
-const emit = defineEmits(['digit', 'dot', 'backspace'])
+const emit = defineEmits(['digit', 'dot', 'backspace', 'clear'])
 
 const rows = [
   ['7', '8', '9'],
   ['4', '5', '6'],
   ['1', '2', '3'],
-  ['.', '0', '⌫'],
+  ['C', '.', '0', '⌫'],
 ]
 
 function press(key) {
-  if (key === '⌫')      emit('backspace')
+  if      (key === '⌫') emit('backspace')
+  else if (key === 'C') emit('clear')
   else if (key === '.') emit('dot')
   else                  emit('digit', key)
 }
@@ -21,7 +22,7 @@ function press(key) {
       <button
         v-for="key in row"
         :key="key"
-        :class="['numpad-btn', { 'is-del': key === '⌫', 'is-dot': key === '.' }]"
+        :class="['numpad-btn', { 'is-del': key === '⌫', 'is-dot': key === '.', 'is-clear': key === 'C' }]"
         @click="press(key)"
         type="button"
       >{{ key }}</button>
@@ -70,6 +71,15 @@ function press(key) {
   color: var(--danger);
   border-color: #fecaca;
   font-size: 20px;
+}
+
+.is-clear {
+  background: #fff7ed;
+  color: #d97706;
+  border-color: #fed7aa;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .is-dot {

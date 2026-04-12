@@ -37,6 +37,33 @@ function numpadBack() {
   qty.value = s.length <= 1 ? '' : s.slice(0, -1)
 }
 
+function numpadClear() {
+  qty.value      = ''
+  hasError.value = false
+}
+
+// ── PCキーボード対応 ───────────────────────────────────────────────────────────
+function handleKeydown(e) {
+  // 単位入力欄にフォーカス中は Enter / Escape のみ処理して他は通常通り
+  if (e.target.tagName === 'INPUT') {
+    if (e.key === 'Enter')  { e.preventDefault(); submit(false) }
+    if (e.key === 'Escape') { e.preventDefault(); emit('cancel') }
+    return
+  }
+  if (e.key === 'Enter')     { e.preventDefault(); submit(false) }
+  else if (e.key === 'Escape')    { e.preventDefault(); emit('cancel') }
+  else if (e.key === 'Backspace') { e.preventDefault(); numpadBack() }
+  else if (e.key === 'Delete')    { e.preventDefault(); numpadClear() }
+  else if (/^[0-9]$/.test(e.key)) numpadDigit(e.key)
+  else if (e.key === '.')         numpadDot()
+}
+
+onMounted(()   => document.addEventListener('keydown', handleKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+  if (qtyListening.value) toggleQtyVoice()
+})
+
 // ── プリセット数量ボタン ───────────────────────────────────────────────────────
 const PRESETS = [0.1, 0.5, 1, 5, 10]
 
@@ -70,8 +97,6 @@ function onQtyVoiceResult(raw) {
 }
 
 const { isListening: qtyListening, toggle: toggleQtyVoice } = useVoice(onQtyVoiceResult)
-
-onUnmounted(() => { if (qtyListening.value) toggleQtyVoice() })
 
 // ── 単位警告 ───────────────────────────────────────────────────────────────────
 const unitWarning = computed(() => {
@@ -182,7 +207,7 @@ function submit(isAdd) {
       </div>
 
       <!-- テンキー -->
-      <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" />
+      <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
       <!-- アクションボタン -->
       <div class="actions" :class="{ 'three-col': hasDuplicate }">
