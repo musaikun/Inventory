@@ -11,13 +11,14 @@ const MASTER_KEY  = 'inventory_master_v1'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const config = reactive({
-  order:      [...DEFAULT_ORDER],
-  units:      { ...DEFAULT_UNITS },
-  prices:     {},
-  categories: {},
-  codes:      {},
-  dictionary: { ...DEFAULT_DICT },
-  isCustom:   false,
+  order:          [...DEFAULT_ORDER],
+  units:          { ...DEFAULT_UNITS },
+  prices:         {},
+  categories:     {},
+  codes:          {},
+  categoryCodes:  {},  // { カテゴリ名: 分類コード数値 }
+  dictionary:     { ...DEFAULT_DICT },
+  isCustom:       false,
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -53,13 +54,14 @@ function _load() {
     if (!raw) return
     const saved = JSON.parse(raw)
     if (Array.isArray(saved.order) && saved.order.length > 0) {
-      config.order      = saved.order
-      config.units      = saved.units      ?? {}
-      config.prices     = saved.prices     ?? {}
-      config.categories = saved.categories ?? {}
-      config.codes      = saved.codes      ?? {}
-      config.dictionary = saved.dictionary ?? {}
-      config.isCustom   = true
+      config.order         = saved.order
+      config.units         = saved.units         ?? {}
+      config.prices        = saved.prices        ?? {}
+      config.categories    = saved.categories    ?? {}
+      config.codes         = saved.codes         ?? {}
+      config.categoryCodes = saved.categoryCodes ?? {}
+      config.dictionary    = saved.dictionary    ?? {}
+      config.isCustom      = true
     }
   } catch (_) {}
 }
@@ -67,12 +69,13 @@ function _load() {
 function _save() {
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
-      order:      config.order,
-      units:      config.units,
-      prices:     config.prices,
-      categories: config.categories,
-      codes:      config.codes,
-      dictionary: config.dictionary,
+      order:         config.order,
+      units:         config.units,
+      prices:        config.prices,
+      categories:    config.categories,
+      codes:         config.codes,
+      categoryCodes: config.categoryCodes,
+      dictionary:    config.dictionary,
     }))
     config.isCustom = true
   } catch (_) {}
@@ -161,12 +164,13 @@ export function useConfig() {
     const hasPriceCol    = !isOldFormat && header[2] === '単価'
     const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'
 
-    const newOrder      = []
-    const newUnits      = {}
-    const newPrices     = {}
-    const newCategories = {}
-    const newCodes      = {}
-    const newDict       = {}
+    const newOrder         = []
+    const newUnits         = {}
+    const newPrices        = {}
+    const newCategories    = {}
+    const newCodes         = {}
+    const newCategoryCodes = {}  // { カテゴリ名: 分類コード数値 }
+    const newDict          = {}
     const seenKeys      = new Set()
 
     // ── パス1: 複数回出現する品目名を特定 ───────────────────────────────────
@@ -208,10 +212,12 @@ export function useConfig() {
         seenKeys.add(storeName)
         newOrder.push(storeName)
 
-        if (unit)                       newUnits[storeName]      = unit
-        if (!isNaN(price) && price > 0) newPrices[storeName]     = price
-        if (category)                   newCategories[storeName] = category
-        if (code)                       newCodes[storeName]      = code
+        const catCode = parseInt(cols[6]?.trim(), 10)
+        if (unit)                       newUnits[storeName]         = unit
+        if (!isNaN(price) && price > 0) newPrices[storeName]        = price
+        if (category)                   newCategories[storeName]    = category
+        if (code)                       newCodes[storeName]         = code
+        if (category && !isNaN(catCode)) newCategoryCodes[category] = catCode
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = storeName })
@@ -245,12 +251,13 @@ export function useConfig() {
 
     _validateLearnedAliases(newOrder)
 
-    config.order      = newOrder
-    config.units      = newUnits
-    config.prices     = newPrices
-    config.categories = newCategories
-    config.codes      = newCodes
-    config.dictionary = newDict
+    config.order         = newOrder
+    config.units         = newUnits
+    config.prices        = newPrices
+    config.categories    = newCategories
+    config.codes         = newCodes
+    config.categoryCodes = newCategoryCodes
+    config.dictionary    = newDict
     _save()
 
     return {
@@ -281,13 +288,14 @@ export function useConfig() {
 
   /** デフォルトに戻す */
   function resetToDefault() {
-    config.order      = [...DEFAULT_ORDER]
-    config.units      = { ...DEFAULT_UNITS }
-    config.prices     = {}
-    config.categories = {}
-    config.codes      = {}
-    config.dictionary = { ...DEFAULT_DICT }
-    config.isCustom   = false
+    config.order         = [...DEFAULT_ORDER]
+    config.units         = { ...DEFAULT_UNITS }
+    config.prices        = {}
+    config.categories    = {}
+    config.codes         = {}
+    config.categoryCodes = {}
+    config.dictionary    = { ...DEFAULT_DICT }
+    config.isCustom      = false
     localStorage.removeItem(CONFIG_KEY)
   }
 

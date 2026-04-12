@@ -143,9 +143,11 @@ function parsePdfPageRotated(items) {
   // ── カテゴリ検出 ─────────────────────────────────────────────────────────
   // 「分類」を含む行のうち、同じx座標に並ぶ日本語テキストがカテゴリ名
   // x閾値を5に絞り、隣のヘッダー行（店舗名等）を誤検出しない
-  let category = ''
+  let category     = ''
+  let categoryCode = ''
   const bunrui = items.find(i => i.text.includes('分類'))
   if (bunrui) {
+    // カテゴリ名（CJK文字列）
     const sameX = items.filter(i =>
       Math.abs(i.x - bunrui.x) < 5 &&
       i !== bunrui &&
@@ -159,6 +161,15 @@ function parsePdfPageRotated(items) {
       !i.text.includes('分類')
     )
     if (sameX.length > 0) category = sameX[0].text
+
+    // 分類コード（bunruiと同じx付近にある小整数）
+    const codeNums = items.filter(i =>
+      Math.abs(i.x - bunrui.x) < 5 &&
+      /^\d+$/.test(i.text) &&
+      parseInt(i.text, 10) >= 1 &&
+      parseInt(i.text, 10) <= 999
+    )
+    if (codeNums.length > 0) categoryCode = codeNums[0].text
   }
 
   // ── 各列ヘッダーのy座標を検出 ─────────────────────────────────────────────
@@ -243,12 +254,13 @@ function parsePdfPageRotated(items) {
       const qi = pickNearest(packData, ni.x, packY ?? nameY)
       const pi = pickNearest(prevData, ni.x, prevY ?? nameY)
       products.push({
-        name:      ni.text,
-        unit:      ui?.text ?? '',
+        name:         ni.text,
+        unit:         ui?.text ?? '',
         category,
-        code:      ci?.text ?? '',
-        packQty:   qi?.text ?? '',
-        prevMonth: pi?.text ?? '',
+        categoryCode,
+        code:         ci?.text ?? '',
+        packQty:      qi?.text ?? '',
+        prevMonth:    pi?.text ?? '',
       })
     }
   }
@@ -282,14 +294,15 @@ export async function parsePdfFile(arrayBuffer) {
 
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
 export function itemsToConfigCSV(items) {
-  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード']
-  for (const { name, unit, category, code } of items) {
-    const u = unit     ? `"${unit}"`     : ''
-    const c = category ? `"${category}"` : ''
+  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード']
+  for (const { name, unit, category, categoryCode, code } of items) {
+    const u = unit         ? `"${unit}"`         : ''
+    const c = category     ? `"${category}"`     : ''
     // カテゴリ名をエイリアスにも登録（「備品」「資材」などで音声検索できるように）
-    const a = category ? `"${category}"` : ''
-    const d = code     ? `"${code}"`     : ''
-    rows.push(`"${name}",${u},,${c},${a},${d}`)
+    const a = category     ? `"${category}"`     : ''
+    const d = code         ? `"${code}"`         : ''
+    const e = categoryCode ? `${categoryCode}`   : ''
+    rows.push(`"${name}",${u},,${c},${a},${d},${e}`)
   }
   return rows.join('\r\n')
 }

@@ -79,10 +79,15 @@ const rows = computed(() => {
       if (!groupMap.has(cat)) groupMap.set(cat, [])
       groupMap.get(cat).push(row)
     }
-    // カテゴリ名で五十音順ソート（その他は末尾）
+    // 分類コード順ソート（コード未設定は五十音順で末尾）
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
       if (a === 'その他') return 1
       if (b === 'その他') return -1
+      const codeA = config.categoryCodes?.[a]
+      const codeB = config.categoryCodes?.[b]
+      if (codeA != null && codeB != null) return codeA - codeB
+      if (codeA != null) return -1
+      if (codeB != null) return  1
       return a.localeCompare(b, 'ja')
     })
     // グループヘッダー行を挿入してフラット化
