@@ -342,6 +342,28 @@ export function useConfig() {
     localStorage.removeItem(MASTER_KEY)
   }
 
+  /** キーワード→品目の1ペアを追加 */
+  function addMasterEntry(keyword, item) {
+    const k = keyword.trim()
+    const i = item.trim()
+    if (!k || !i) return
+    if (!masterDict[k]) masterDict[k] = []
+    if (!masterDict[k].includes(i)) {
+      masterDict[k].push(i)
+      _saveMaster()
+    }
+  }
+
+  /** キーワード→品目の1ペアを削除（そのキーワードの最後の品目なら行ごと削除）*/
+  function deleteMasterEntry(keyword, item) {
+    if (!masterDict[keyword]) return
+    const idx = masterDict[keyword].indexOf(item)
+    if (idx < 0) return
+    masterDict[keyword].splice(idx, 1)
+    if (masterDict[keyword].length === 0) delete masterDict[keyword]
+    _saveMaster()
+  }
+
   const itemCount          = computed(() => config.order.length)
   const learnedAliasCount  = computed(() => Object.keys(learnedAliases).length)
   const masterKeywordCount = computed(() => Object.keys(masterDict).length)
@@ -360,5 +382,7 @@ export function useConfig() {
     loadMasterFromCSV,
     exportMasterCSV,
     resetMaster,
+    addMasterEntry,
+    deleteMasterEntry,
   }
 }

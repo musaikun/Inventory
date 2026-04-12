@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import PdfImporterModal from './PdfImporterModal.vue'
+import MasterDictModal from './MasterDictModal.vue'
 
 const emit = defineEmits(['close'])
 const {
@@ -10,8 +11,9 @@ const {
   masterKeywordCount, exportMasterCSV, resetMaster,
 } = useConfig()
 
-const status       = ref(null)  // { type: 'success'|'error', msg: String }
-const showImporter = ref(false)
+const status         = ref(null)  // { type: 'success'|'error', msg: String }
+const showImporter   = ref(false)
+const showMasterEdit = ref(false)
 const dragging  = ref(false)
 const fileInput = ref(null)
 
@@ -181,11 +183,14 @@ function onResetMaster() {
 
       <!-- アクションボタン -->
       <div class="actions">
+        <button class="btn btn-secondary" @click="showMasterEdit = true">
+          ✏️ 編集
+        </button>
         <button class="btn btn-secondary" @click="downloadMasterCSV" :disabled="masterKeywordCount === 0">
           📤 CSV出力
         </button>
         <button class="btn btn-secondary reset" @click="onResetMaster" :disabled="masterKeywordCount === 0">
-          🗑️ 学習リセット
+          🗑️ リセット
         </button>
       </div>
 
@@ -198,6 +203,12 @@ function onResetMaster() {
     v-if="showImporter"
     @close="showImporter = false"
     @imported="result => { showImporter = false; status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+  />
+
+  <!-- マスター辞書 編集モーダル -->
+  <MasterDictModal
+    v-if="showMasterEdit"
+    @close="showMasterEdit = false"
   />
 </template>
 
