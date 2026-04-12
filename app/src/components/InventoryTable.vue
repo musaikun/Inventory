@@ -14,11 +14,11 @@ const emit = defineEmits(['update', 'remove', 'reset'])
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
 const sortMode      = ref('category')  // 'default' | 'alpha' | 'category'
 const filterMode    = ref('all')       // 'all' | 'filled' | 'empty'
-const collapsedCats = reactive({})     // { カテゴリ名: true } = 折りたたみ中
+const expandedCats = reactive({})      // { カテゴリ名: true } = 展開中（デフォルト閉じ）
 
 function toggleCat(label) {
-  if (collapsedCats[label]) delete collapsedCats[label]
-  else collapsedCats[label] = true
+  if (expandedCats[label]) delete expandedCats[label]
+  else expandedCats[label] = true
 }
 
 const sortOpts = [
@@ -221,17 +221,17 @@ function onQtyChange(item, event) {
           <!-- ジャンルヘッダー行（クリックでアコーディオン開閉） -->
           <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleCat(row.label)">
             <td :colspan="totalCols" class="group-header-cell">
-              <span class="cat-arrow">{{ collapsedCats[row.label] ? '▶' : '▼' }}</span>
-              {{ row.label }}
+              <span class="cat-arrow">{{ expandedCats[row.label] ? '▼' : '▶' }}</span>
+              <span class="cat-label">{{ row.label }}</span>
               <span class="cat-badge">
                 {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
               </span>
             </td>
           </tr>
 
-          <!-- 品目行（折りたたみ中は非表示） -->
+          <!-- 品目行（展開中のみ表示） -->
           <tr v-else
-              v-show="sortMode !== 'category' || !collapsedCats[row.category ?? 'その他']"
+              v-show="sortMode !== 'category' || expandedCats[row.category ?? 'その他']"
               :class="{ filled: row.entry !== null }">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
@@ -403,12 +403,21 @@ function onQtyChange(item, event) {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .cat-arrow {
   font-size: 10px;
   width: 12px;
   flex-shrink: 0;
+}
+
+.cat-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .cat-badge {
