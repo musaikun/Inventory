@@ -191,12 +191,14 @@ export function useConfig() {
         const code     = cols[5]?.trim() ?? ''
 
         // 同名品目の重複処理:
-        //   コードが異なる → 別商品として「品目名（コード）」をキーに追加
-        //   コードが同じ or コードなし → 真の重複 → スキップ
+        //   カテゴリが異なる → 別商品として「品目名（カテゴリ）」をキーに追加
+        //   カテゴリなし → コードで代替
+        //   どちらもなし or 既存 → スキップ
         let storeName = name
         if (seenKeys.has(storeName)) {
-          if (!code) continue
-          storeName = `${name}（${code}）`
+          const disambig = category || code
+          if (!disambig) continue
+          storeName = `${name}（${disambig}）`
           if (seenKeys.has(storeName)) continue
         }
         seenKeys.add(storeName)
