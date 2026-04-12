@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 
 const { config } = useConfig()
@@ -12,8 +12,14 @@ const props = defineProps({
 const emit = defineEmits(['update', 'remove', 'reset'])
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode   = ref('default')  // 'default' | 'alpha' | 'category'
-const filterMode = ref('all')      // 'all' | 'filled' | 'empty'
+const sortMode      = ref('category')  // 'default' | 'alpha' | 'category'
+const filterMode    = ref('all')       // 'all' | 'filled' | 'empty'
+const collapsedCats = reactive({})     // { カテゴリ名: true } = 折りたたみ中
+
+function toggleCat(label) {
+  if (collapsedCats[label]) delete collapsedCats[label]
+  else collapsedCats[label] = true
+}
 
 const sortOpts = [
   { value: 'default',  label: 'デフォルト' },
@@ -93,7 +99,8 @@ const rows = computed(() => {
     // グループヘッダー行を挿入してフラット化
     const result = []
     for (const [cat, groupRows] of sorted) {
-      result.push({ type: 'group-header', label: cat })
+      const filledInGroup = groupRows.filter(r => r.entry !== null).length
+      result.push({ type: 'group-header', label: cat, count: groupRows.length, filled: filledInGroup })
       result.push(...groupRows)
     }
     return result
@@ -211,15 +218,21 @@ function onQtyChange(item, event) {
       <tbody>
         <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
-          <!-- ジャンルヘッダー行 -->
-          <tr v-if="row.type === 'group-header'" class="group-header-row">
+          <!-- ジャンルヘッダー行（クリックでアコーディオン開閉） -->
+          <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleCat(row.label)">
             <td :colspan="totalCols" class="group-header-cell">
+              <span class="cat-arrow">{{ collapsedCats[row.label] ? '▶' : '▼' }}</span>
               {{ row.label }}
+              <span class="cat-badge">
+                {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
+              </span>
             </td>
           </tr>
 
-          <!-- 品目行 -->
-          <tr v-else :class="{ filled: row.entry !== null }">
+          <!-- 品目行（折りたたみ中は非表示） -->
+          <tr v-else
+              v-show="sortMode !== 'category' || !collapsedCats[row.category ?? 'その他']"
+              :class="{ filled: row.entry !== null }">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
               {{ row.item }}
@@ -373,17 +386,42 @@ function onQtyChange(item, event) {
 .inv-table tbody tr.filled     { background: #f0fdf4; }
 
 /* ── ジャンルヘッダー行 ── */
-.group-header-row { background: #f8fafc !important; }
+.group-header-row {
+  background: #f8fafc !important;
+  cursor: pointer;
+  user-select: none;
+}
+.group-header-row:hover { background: #eff6ff !important; }
 
 .group-header-cell {
-  padding: 7px 14px;
-  font-size: 11px;
+  padding: 10px 14px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--primary);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   border-left: 3px solid var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+
+.cat-arrow {
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.cat-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  background: #dbeafe;
+  color: var(--primary);
+  border-radius: 20px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.cat-badge-sep { opacity: 0.5; margin: 0 1px; }
 
 /* ── 品目セル ── */
 .td-name {
