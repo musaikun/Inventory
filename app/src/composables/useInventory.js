@@ -1,14 +1,37 @@
 import { reactive, computed } from 'vue'
 import { useConfig } from './useConfig.js'
 
-// モジュールスコープのシングルトン state
-const inventory = reactive({})
+const ENTRY_LOGS_KEY = 'inventory_entry_logs_v1'
 
+// ── モジュールスコープ シングルトン ────────────────────────────────────────────
+const inventory = reactive({})
+const entryLog  = reactive([])   // 今日の入力順（初入力の順番を記録）
+
+// ── 入力順ログ（過去3回分）ロード / セーブ ──────────────────────────────────
+function _loadHistoricalLogs() {
+  try {
+    const raw = localStorage.getItem(ENTRY_LOGS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch (_) { return [] }
+}
+
+function _appendHistoricalLog(date, log) {
+  if (!log || log.length === 0) return
+  const logs     = _loadHistoricalLogs()
+  const filtered = logs.filter(l => l.date !== date)
+  filtered.unshift({ date, log: [...log] })
+  try {
+    localStorage.setItem(ENTRY_LOGS_KEY, JSON.stringify(filtered.slice(0, 3)))
+  } catch (_) {}
+}
+
+// ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
   try {
     localStorage.setItem('inventory_v1', JSON.stringify({
-      date: new Date().toISOString().slice(0, 10),
-      data: { ...inventory },
+      date:     new Date().toISOString().slice(0, 10),
+      data:     { ...inventory },
+      entryLog: [...entryLog],
     }))
   } catch (_) {}
 }
@@ -19,13 +42,23 @@ function _load() {
     if (!raw) return
     const saved = JSON.parse(raw)
     const today = new Date().toISOString().slice(0, 10)
-    if (saved.date !== today) return
+    if (saved.date !== today) {
+      // 日付変更 → 昨日の入力順を履歴に保存してから破棄
+      if (saved.entryLog?.length > 0) {
+        _appendHistoricalLog(saved.date, saved.entryLog)
+      }
+      return
+    }
     Object.assign(inventory, saved.data ?? {})
+    if (saved.entryLog?.length > 0) {
+      entryLog.splice(0, entryLog.length, ...saved.entryLog)
+    }
   } catch (_) {}
 }
 
 _load()
 
+// ── Public API ────────────────────────────────────────────────────────────────
 export function useInventory() {
   const { config } = useConfig()
 
@@ -46,21 +79,22 @@ export function useInventory() {
   })
 
   function setItem(ingredient, qty, unit, add = false) {
+    const isNew  = !(ingredient in inventory)
     const existing = inventory[ingredient]
     const rawQty   = add && existing ? existing.qty + qty : qty
-    // 浮動小数点誤差を除去（0.1+0.1... → 1.7999...998 などを防ぐ）
     const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit }
+    // 初入力時のみ順番を記録（上書き・追加は順番を変えない）
+    if (isNew) entryLog.push(ingredient)
     _save()
   }
 
   function updateQty(ingredient, qty, unit) {
     if (inventory[ingredient]) {
       inventory[ingredient].qty = qty
-      // 既存エントリの単位はそのまま保持
     } else {
-      // テーブルから直接入力された新規品目
       inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '' }
+      entryLog.push(ingredient)
     }
     _save()
   }
@@ -71,8 +105,17 @@ export function useInventory() {
   }
 
   function reset() {
+    // リセット前に今日の入力順を履歴へ保存
+    const today = new Date().toISOString().slice(0, 10)
+    _appendHistoricalLog(today, [...entryLog])
     Object.keys(inventory).forEach(k => delete inventory[k])
+    entryLog.splice(0, entryLog.length)
     _save()
+  }
+
+  /** 過去3回分の入力順ログを返す（学習ソート用） */
+  function getHistoricalLogs() {
+    return _loadHistoricalLogs()
   }
 
   function exportCSV() {
@@ -83,7 +126,6 @@ export function useInventory() {
       : '日付,商品コード,品目名,単位,数量'
     const rows = [header]
 
-    // 定義順（未入力も含む）→ カスタム品目の順に出力
     const orderedItems = [
       ...config.order,
       ...Object.keys(inventory).filter(k => !config.order.includes(k)),
@@ -115,5 +157,9 @@ export function useInventory() {
     return rows.join('\r\n')
   }
 
-  return { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV }
+  return {
+    inventory, filledCount, totalValue,
+    entryLog, getHistoricalLogs,
+    setItem, updateQty, removeItem, reset, exportCSV,
+  }
 }

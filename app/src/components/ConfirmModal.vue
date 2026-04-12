@@ -37,7 +37,7 @@ function numpadBack() {
 }
 
 // ── プリセット数量ボタン ───────────────────────────────────────────────────────
-const PRESETS = [0.5, 1, 5, 10]
+const PRESETS = [0.1, 0.5, 1, 5, 10]
 
 function addPreset(n) {
   const current  = parseFloat(qty.value) || 0
@@ -45,6 +45,15 @@ function addPreset(n) {
   qty.value      = String(result)
   hasError.value = false
 }
+
+// ── 単位クイック選択 ───────────────────────────────────────────────────────────
+const COMMON_UNITS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L']
+
+const unitSuggestions = computed(() => {
+  const configured = props.initialUnit?.trim()
+  if (!configured) return COMMON_UNITS.slice(0, 8)
+  return [configured, ...COMMON_UNITS.filter(u => u !== configured)].slice(0, 8)
+})
 
 // ── 音声入力 ───────────────────────────────────────────────────────────────────
 function onQtyVoiceResult(raw) {
@@ -143,6 +152,17 @@ function submit(isAdd) {
 
       <!-- 単位警告 -->
       <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
+
+      <!-- 単位クイック選択 -->
+      <div class="unit-chips">
+        <button
+          v-for="u in unitSuggestions"
+          :key="u"
+          :class="['unit-chip', { active: unit === u }]"
+          @click="unit = u"
+          type="button"
+        >{{ u }}</button>
+      </div>
 
       <!-- プリセットボタン -->
       <div class="preset-row">
@@ -303,6 +323,36 @@ function submit(isAdd) {
   margin-bottom: 8px;
   line-height: 1.5;
 }
+
+/* 単位クイック選択 */
+.unit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.unit-chip {
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  background: #f8fafc;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.unit-chip.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.unit-chip:active { opacity: 0.7; }
 
 /* プリセットボタン */
 .preset-row {

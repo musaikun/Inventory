@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { useInventory } from '../composables/useInventory.js'
 
 const { config } = useConfig()
+const { entryLog, getHistoricalLogs } = useInventory()
 
 const props = defineProps({
   inventory:   { type: Object, required: true },
@@ -25,7 +27,56 @@ function toggleCat(label) {
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
   { value: 'alpha',    label: '五十音' },
+  { value: 'learned',  label: '学習順' },
 ]
+
+// ── 学習順スコア（過去3回の入力順から算出）──────────────────────────────────
+// 現在セッションも含め重み付けでスコアを計算
+// weights: 最新0.6, 1回前0.3, 2回前0.1
+const LOG_WEIGHTS = [0.6, 0.3, 0.1]
+
+const learnedScores = computed(() => {
+  // 現在セッション（entryLog）+ 過去履歴を結合
+  const historical = getHistoricalLogs()
+  const today      = new Date().toISOString().slice(0, 10)
+  const allLogs    = [
+    ...(entryLog.length > 0 ? [{ date: today, log: [...entryLog] }] : []),
+    ...historical,
+  ].slice(0, 3)
+
+  const scores = {}
+  for (let i = 0; i < allLogs.length; i++) {
+    const { log } = allLogs[i]
+    const n = log.length
+    if (n === 0) continue
+    const weight = LOG_WEIGHTS[i]
+    log.forEach((item, pos) => {
+      const posScore = n > 1 ? 1 - pos / (n - 1) : 1.0
+      scores[item] = (scores[item] ?? 0) + posScore * weight
+    })
+  }
+  return scores
+})
+
+// ── カテゴリごとの実際の進捗（フィルターに依存しない）──────────────────────
+const catRealStats = computed(() => {
+  const map = {}
+  for (const item of config.order) {
+    const cat = config.categories?.[item] ?? 'その他'
+    if (!map[cat]) map[cat] = { total: 0, filled: 0 }
+    map[cat].total++
+    if (props.inventory[item] != null) map[cat].filled++
+  }
+  for (const item of Object.keys(props.inventory)) {
+    if (!config.order.includes(item)) {
+      const cat = config.categories?.[item] ?? 'その他'
+      if (!map[cat]) map[cat] = { total: 0, filled: 0 }
+      map[cat].total++
+      map[cat].filled++
+    }
+  }
+  return map
+})
 
 const filterOpts = [
   { value: 'all',    label: 'すべて' },
@@ -106,6 +157,19 @@ const rows = computed(() => {
     return [...items].sort((a, b) => a.item.localeCompare(b.item, 'ja'))
   }
 
+  if (sortMode.value === 'learned') {
+    const scores = learnedScores.value
+    return [...items].sort((a, b) => {
+      const sa = scores[a.item] ?? -1
+      const sb = scores[b.item] ?? -1
+      if (sa !== sb) return sb - sa  // スコア高い順（早く入力した品目が上）
+      // スコア同点は元の config.order 順
+      const ia = a.index === '*' ? Infinity : a.index
+      const ib = b.index === '*' ? Infinity : b.index
+      return ia - ib
+    })
+  }
+
   if (sortMode.value === 'category') {
     // カテゴリ別グループ化
     const groupMap = new Map()
@@ -125,17 +189,17 @@ const rows = computed(() => {
       if (codeB != null) return  1
       return a.localeCompare(b, 'ja')
     })
-    // グループヘッダー行を挿入してフラット化
+    // グループヘッダー行を挿入（進捗はフィルター非依存の実数値を使用）
     const result = []
     for (const [cat, groupRows] of sorted) {
-      const filledInGroup = groupRows.filter(r => r.entry !== null).length
-      result.push({ type: 'group-header', label: cat, count: groupRows.length, filled: filledInGroup })
+      const real = catRealStats.value[cat] ?? { total: groupRows.length, filled: 0 }
+      result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled })
       result.push(...groupRows)
     }
     return result
   }
 
-  // デフォルト: config.order 順のまま
+  // その他（フォールバック）: config.order 順のまま
   return items
 })
 
@@ -229,6 +293,11 @@ function fmtYen(n) {
           @click="typeFilter = opt.value"
         >{{ opt.label }}</button>
       </div>
+    </div>
+
+    <!-- 学習順：データなし案内 -->
+    <div v-if="sortMode === 'learned' && Object.keys(learnedScores).length === 0" class="learned-empty">
+      📊 棚卸を数回完了するとここに学習した順番で並びます
     </div>
 
     <!-- テーブル -->
@@ -605,6 +674,18 @@ function fmtYen(n) {
 }
 
 /* ── 空メッセージ ── */
+/* ── 学習順：データなし案内 ── */
+.learned-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #f8fafc;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
 .empty-row { background: white !important; }
 
 .empty-cell {
