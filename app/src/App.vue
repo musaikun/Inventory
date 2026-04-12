@@ -15,7 +15,7 @@ import HistoryModal from './components/HistoryModal.vue'
 const { config, dictionary, masterDict, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
-const { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV } = useInventory()
+const { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV, undoLast } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot } = useHistory()
@@ -42,6 +42,19 @@ const searchStatus = ref('') // '' | 'active' | 'confirmed'
 function setConfirmedMsg(msg) {
   searchText.value   = msg
   searchStatus.value = 'confirmed'
+}
+
+// ── Undo（直前の確定を1件戻す）────────────────────────────────────────────────
+const undoItem = ref(null)  // 戻す対象の品目名、null なら非表示
+
+function onUndo() {
+  const restored = undoLast()
+  if (restored) {
+    showToast(`↩ 「${restored}」を取り消しました`)
+    searchText.value   = ''
+    searchStatus.value = ''
+  }
+  undoItem.value = null
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -212,6 +225,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd)
+  undoItem.value = ingredient  // ↩ 戻すボタンを表示
   const label = isAdd ? `追加 → 合計 ${finalQty}${unit}` : `${finalQty}${unit}`
   setConfirmedMsg(`✓ ${ingredient}　${label}`)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
@@ -244,6 +258,7 @@ function onTableTap(item) {
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
+  undoItem.value = null  // 手動編集したら戻すボタンは消す
   updateQty(item, qty, unit)
 }
 
@@ -333,6 +348,12 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           @focus="searchStatus = ''"
         />
         <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
+      </div>
+
+      <!-- ↩ 戻すバー（直前の確定を取り消す） -->
+      <div v-if="undoItem" class="undo-bar">
+        <span class="undo-label">確定: {{ undoItem }}</span>
+        <button class="undo-btn" @click="onUndo">↩ 戻す</button>
       </div>
 
       <!-- 資材・備品除外チップ（該当品目が存在する場合のみ表示） -->

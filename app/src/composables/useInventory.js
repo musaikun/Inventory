@@ -7,6 +7,9 @@ const ENTRY_LOGS_KEY = 'inventory_entry_logs_v1'
 const inventory = reactive({})
 const entryLog  = reactive([])   // 今日の入力順（初入力の順番を記録）
 
+// 直前の setItem 操作を1件分保持（↩ 戻す用）
+let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, addedToLog: boolean }
+
 // ── 入力順ログ（過去3回分）ロード / セーブ ──────────────────────────────────
 function _loadHistoricalLogs() {
   try {
@@ -79,14 +82,40 @@ export function useInventory() {
   })
 
   function setItem(ingredient, qty, unit, add = false) {
-    const isNew  = !(ingredient in inventory)
     const existing = inventory[ingredient]
+    const isNew    = !existing
+    // undo用に変更前の状態を保存
+    _lastEntry = {
+      ingredient,
+      prevState:    existing ? { qty: existing.qty, unit: existing.unit } : null,
+      addedToLog:   isNew,
+    }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit }
     // 初入力時のみ順番を記録（上書き・追加は順番を変えない）
     if (isNew) entryLog.push(ingredient)
     _save()
+  }
+
+  /** 直前の setItem を1件元に戻す。戻した品目名を返す（undoがない場合は null）。 */
+  function undoLast() {
+    if (!_lastEntry) return null
+    const { ingredient, prevState, addedToLog } = _lastEntry
+    _lastEntry = null
+    if (prevState === null) {
+      // 新規追加だった → 削除
+      delete inventory[ingredient]
+      if (addedToLog) {
+        const idx = entryLog.indexOf(ingredient)
+        if (idx >= 0) entryLog.splice(idx, 1)
+      }
+    } else {
+      // 上書き / 追加だった → 元の値に戻す
+      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit }
+    }
+    _save()
+    return ingredient
   }
 
   function updateQty(ingredient, qty, unit) {
@@ -160,6 +189,6 @@ export function useInventory() {
   return {
     inventory, filledCount, totalValue,
     entryLog, getHistoricalLogs,
-    setItem, updateQty, removeItem, reset, exportCSV,
+    setItem, updateQty, removeItem, reset, exportCSV, undoLast,
   }
 }
