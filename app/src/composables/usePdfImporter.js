@@ -232,7 +232,8 @@ function parsePdfPageRotated(items) {
     const prevY = prevHeaderYs.length > 0 ? nearestY(prevHeaderYs, nameY) : null
 
     const unitData = unitY != null ? dataAt(unitY) : []
-    const codeData = codeY != null ? dataAt(codeY) : []
+    // 商品コードは純粋な数値（行番号61以上）のみ対象とし、単位名等の誤混入を防ぐ
+    const codeData = codeY != null ? dataAt(codeY).filter(i => /^\d+$/.test(i.text) && parseInt(i.text, 10) > 60) : []
     const packData = packY != null ? dataAt(packY) : []
     const prevData = prevY != null ? dataAt(prevY) : []
 
