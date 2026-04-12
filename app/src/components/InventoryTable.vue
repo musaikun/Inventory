@@ -108,18 +108,6 @@ const hasPrices = computed(() =>
   config.prices && Object.keys(config.prices).length > 0
 )
 
-const hasCodes = computed(() =>
-  config.codes && Object.keys(config.codes).length > 0
-)
-
-// colspan 計算（商品コード列 + 品目列 + 数量列 [+ 金額列]）
-const totalCols = computed(() => {
-  let n = 2 // 品目 + 数量
-  if (hasCodes.value)  n++
-  if (hasPrices.value) n++
-  return n
-})
-
 // 合計は常に全在庫ベース（フィルターに関係なく表示）
 const grandTotal = computed(() => {
   if (!hasPrices.value) return null
@@ -197,7 +185,6 @@ function onQtyChange(item, event) {
     <table class="inv-table">
       <thead>
         <tr>
-          <th v-if="hasCodes" class="th-code">商品コード</th>
           <th>品目</th>
           <th class="th-qty">数量</th>
           <th v-if="hasPrices" class="th-amount">金額</th>
@@ -208,16 +195,15 @@ function onQtyChange(item, event) {
 
           <!-- ジャンルヘッダー行 -->
           <tr v-if="row.type === 'group-header'" class="group-header-row">
-            <td :colspan="totalCols" class="group-header-cell">
+            <td :colspan="hasPrices ? 3 : 2" class="group-header-cell">
               {{ row.label }}
             </td>
           </tr>
 
           <!-- 品目行 -->
           <tr v-else :class="{ filled: row.entry !== null }">
-            <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
-              <span class="row-num">{{ row.index }}.</span>
+              <span class="row-num">{{ row.code || row.index }}.</span>
               {{ row.item }}
               <span v-if="row.custom" class="badge">追加</span>
             </td>
@@ -244,7 +230,7 @@ function onQtyChange(item, event) {
 
         <!-- フィルター結果が0件のとき -->
         <tr v-if="visibleItemCount === 0" class="empty-row">
-          <td :colspan="totalCols" class="empty-cell">
+          <td :colspan="hasPrices ? 3 : 2" class="empty-cell">
             {{ filterMode === 'filled' ? '入力済みの品目がありません' : 'すべての品目が入力済みです 🎉' }}
           </td>
         </tr>
@@ -253,7 +239,7 @@ function onQtyChange(item, event) {
       <!-- 合計行（価格設定済みかつ在庫あり） -->
       <tfoot v-if="grandTotal != null">
         <tr class="total-row">
-          <td :colspan="totalCols - 1" class="td-total-label">在庫合計</td>
+          <td colspan="2" class="td-total-label">在庫合計</td>
           <td class="td-total-value">{{ fmtYen(grandTotal) }}</td>
         </tr>
       </tfoot>
@@ -356,7 +342,6 @@ function onQtyChange(item, event) {
   letter-spacing: 0.04em;
 }
 
-.th-code   { width: 72px; white-space: nowrap; }
 .th-qty    { text-align: center; width: 86px; }
 .th-amount { text-align: right;  width: 76px; padding-right: 12px; }
 
@@ -406,15 +391,6 @@ function onQtyChange(item, event) {
   vertical-align: middle;
 }
 
-/* ── 商品コードセル ── */
-.td-code {
-  padding: 11px 8px 11px 14px;
-  font-size: 11px;
-  font-family: monospace;
-  color: var(--text-muted);
-  white-space: nowrap;
-  vertical-align: middle;
-}
 
 /* ── 数量セル ── */
 .td-qty {

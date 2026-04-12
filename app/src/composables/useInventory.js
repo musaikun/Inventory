@@ -79,8 +79,8 @@ export function useInventory() {
     const date       = new Date().toISOString().slice(0, 10)
     const hasPrices  = Object.keys(config.prices ?? {}).length > 0
     const header     = hasPrices
-      ? '日付,品目名,単位,数量,単価,在庫金額'
-      : '日付,品目名,単位,数量'
+      ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
+      : '日付,商品コード,品目名,単位,数量'
     const rows = [header]
 
     // 定義順（未入力も含む）→ カスタム品目の順に出力
@@ -95,15 +95,16 @@ export function useInventory() {
     orderedItems.forEach(item => {
       const e        = inventory[item] ?? null
       const unit     = e?.unit ?? config.units?.[item] ?? ''
+      const code     = config.codes?.[item] ?? ''
       if (hasPrices) {
         const unitPrice = config.prices[item]
         const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
         if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${item}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
+        rows.push(`${date},"${code}","${item}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
       } else {
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${item}","${unit}",${qty}`)
+        rows.push(`${date},"${code}","${item}","${unit}",${qty}`)
       }
     })
 
