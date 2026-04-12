@@ -169,11 +169,10 @@ export function useConfig() {
     const newPrices        = {}
     const newCategories    = {}
     const newCodes         = {}
-    const newCategoryCodes = {}  // { カテゴリ名: 分類コード数値 }
+    const newCategoryCodes = {}
     const newDict          = {}
-    const seenKeys      = new Set()
 
-    // ── パス1: 複数回出現する品目名を特定 ───────────────────────────────────
+    // ── パス1: 複数回出現する品目名を特定（同名品目のカテゴリ付与に使用）────
     const nameCounts = new Map()
     for (let i = 1; i < lines.length; i++) {
       const n = parseCSVLine(lines[i])[0]?.trim()
@@ -181,15 +180,13 @@ export function useConfig() {
     }
     const dupNames = new Set([...nameCounts.entries()].filter(([, c]) => c > 1).map(([n]) => n))
 
-    // ── パス2: パース & 重複品目は全出現にカテゴリを付与 ─────────────────────
+    // ── パス2: パース（重複削除なし・全件保持）────────────────────────────────
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
       const name = cols[0]?.trim()
       if (!name) continue
 
       if (isOldFormat) {
-        if (seenKeys.has(name)) continue
-        seenKeys.add(name)
         newOrder.push(name)
         if (cols[1]) {
           cols[1].split(',').map(a => a.trim()).filter(Boolean)
@@ -201,30 +198,25 @@ export function useConfig() {
         const category = cols[3]?.trim()
         const code     = cols[5]?.trim() ?? ''
 
-        // 重複品目名の場合は全出現に「（カテゴリ）」を付与して区別
-        // カテゴリ未設定ならコードで代替
+        // 同名品目にはカテゴリを付与して識別しやすくする（削除はしない）
         let storeName = name
         if (dupNames.has(name)) {
           const disambig = category || code
-          storeName = disambig ? `${name}（${disambig}）` : name
+          if (disambig) storeName = `${name}（${disambig}）`
         }
-        if (seenKeys.has(storeName)) continue
-        seenKeys.add(storeName)
         newOrder.push(storeName)
 
         const catCode = parseInt(cols[6]?.trim(), 10)
-        if (unit)                       newUnits[storeName]         = unit
-        if (!isNaN(price) && price > 0) newPrices[storeName]        = price
-        if (category)                   newCategories[storeName]    = category
-        if (code)                       newCodes[storeName]         = code
-        if (category && !isNaN(catCode)) newCategoryCodes[category] = catCode
+        if (unit)                        newUnits[storeName]         = unit
+        if (!isNaN(price) && price > 0)  newPrices[storeName]        = price
+        if (category)                    newCategories[storeName]    = category
+        if (code)                        newCodes[storeName]         = code
+        if (category && !isNaN(catCode)) newCategoryCodes[category]  = catCode
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = storeName })
         }
       } else if (hasPriceCol) {
-        if (seenKeys.has(name)) continue
-        seenKeys.add(name)
         newOrder.push(name)
         const unit  = cols[1]?.trim()
         const price = parseFloat(cols[2])
@@ -235,8 +227,6 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = name })
         }
       } else {
-        if (seenKeys.has(name)) continue
-        seenKeys.add(name)
         newOrder.push(name)
         const unit = cols[1]?.trim()
         if (unit) newUnits[name] = unit
