@@ -7,14 +7,42 @@ const emit = defineEmits(['close', 'imported'])
 
 const { loadFromCSV } = useConfig()
 
-const dragging    = ref(false)
-const fileInput   = ref(null)
-const status      = ref(null)   // { type, msg }
-const loading     = ref(false)
-const preview     = ref([])     // [{ name, unit, category, code, packQty, prevMonth }]
-const groupMap    = ref({})     // { カテゴリ: count }
-const debugLines  = ref([])     // PDF解析失敗時のraw行
-const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
+const dragging      = ref(false)
+const fileInput     = ref(null)
+const status        = ref(null)   // { type, msg }
+const loading       = ref(false)
+const preview       = ref([])     // [{ name, unit, category, code, packQty, prevMonth }]
+const groupMap      = ref({})     // { カテゴリ: count }
+const debugLines    = ref([])     // PDF解析失敗時のraw行
+const showDetail    = ref(false)  // true=詳細一覧, false=カテゴリ集計
+const droppedItems  = ref([])     // 重複削除される品目
+
+// loadFromCSV と同じ重複排除ロジックをシミュレートして削除対象を特定
+function simulateDeduplicate(items) {
+  const nameCounts = new Map()
+  for (const { name } of items) {
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+  }
+  const dupNames = new Set(
+    [...nameCounts.entries()].filter(([, c]) => c > 1).map(([n]) => n)
+  )
+
+  const seenKeys = new Set()
+  const dropped  = []
+  for (const item of items) {
+    let storeName = item.name
+    if (dupNames.has(item.name)) {
+      const disambig = item.category || item.code
+      storeName = disambig ? `${item.name}（${disambig}）` : item.name
+    }
+    if (seenKeys.has(storeName)) {
+      dropped.push(item)
+    } else {
+      seenKeys.add(storeName)
+    }
+  }
+  return dropped
+}
 
 function applyItems(items) {
   if (items.length === 0) return false
@@ -25,7 +53,11 @@ function applyItems(items) {
     gm[key] = (gm[key] ?? 0) + 1
   }
   groupMap.value = gm
-  status.value = { type: 'success', msg: `${items.length}件の品目を検出（${Object.keys(gm).length}カテゴリ）` }
+
+  const dropped = simulateDeduplicate(items)
+  droppedItems.value = dropped
+  const dropNote = dropped.length > 0 ? `、${dropped.length}件を重複削除` : ''
+  status.value = { type: 'success', msg: `${items.length}件の品目を検出（${Object.keys(gm).length}カテゴリ）${dropNote}` }
   return true
 }
 
@@ -37,11 +69,12 @@ async function handleFile(file) {
     status.value = { type: 'error', msg: 'PDFまたはExcelファイル（.pdf / .xlsx）を選択してください' }
     return
   }
-  status.value     = null
-  preview.value    = []
-  debugLines.value = []
-  showDetail.value = false
-  loading.value    = true
+  status.value        = null
+  preview.value       = []
+  debugLines.value    = []
+  droppedItems.value  = []
+  showDetail.value    = false
+  loading.value       = true
 
   try {
     const buf = await file.arrayBuffer()
@@ -154,6 +187,29 @@ function onImport() {
           </table>
         </div>
       </div>
+
+      <!-- 重複削除された品目 -->
+      <details v-if="droppedItems.length > 0" class="debug-section dropped-section">
+        <summary>重複削除される品目（{{ droppedItems.length }}件）▶ タップして確認</summary>
+        <div class="detail-table-wrap" style="max-height:200px">
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>商品名</th>
+                <th>商品コード</th>
+                <th>カテゴリ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in droppedItems" :key="idx">
+                <td class="col-name">{{ item.name }}</td>
+                <td class="col-code">{{ item.code }}</td>
+                <td class="col-cat">{{ item.category }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
 
       <!-- デバッグ: 解析失敗時に1ページ目のraw行を表示 -->
       <details v-if="debugLines.length > 0" class="debug-section">
@@ -309,6 +365,7 @@ function onImport() {
   color: var(--text-muted);
 }
 .debug-section summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.dropped-section summary { color: #b45309; }
 .debug-pre {
   margin-top: 8px;
   background: #1e293b;
