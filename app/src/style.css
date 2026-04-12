@@ -176,6 +176,42 @@ body {
   width: 100%;
 }
 
+/* ── 検索フィルターチップ行 ── */
+.search-filter-row {
+  width: 100%;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: white;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filter-chip.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+  color: var(--primary);
+}
+
+.filter-chip:active { opacity: 0.75; }
+
+.chip-check {
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--primary);
+}
+
 .search-input {
   flex: 1;
   background: var(--surface);

@@ -74,6 +74,21 @@ function scoreMatch(nTarget, nInput) {
   return 0
 }
 
+// ── 資材・備品判定（検索フィルター共用）──────────────────────────────────────
+function isSupplyItem(canonical) {
+  const cat = config.categories?.[canonical]
+  if (!cat) return false
+  return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
+}
+
+// 資材・備品系品目が存在する場合のみ絞り込みチップを表示
+const hasSupplyItems = computed(() =>
+  config.order.some(item => isSupplyItem(item))
+)
+
+// 検索から資材・備品を除外するか（デフォルトOFF）
+const excludeSupplies = ref(false)
+
 function findCandidates(name) {
   if (!name) return []
   const nInput = normalize(name)
@@ -104,7 +119,14 @@ function findCandidates(name) {
     }
   }
 
-  return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+  let results = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+
+  // 資材・備品除外フィルター
+  if (excludeSupplies.value) {
+    results = results.filter(c => !isSupplyItem(c))
+  }
+
+  return results
 }
 
 // ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
@@ -305,6 +327,19 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           @focus="searchStatus = ''"
         />
         <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
+      </div>
+
+      <!-- 資材・備品除外チップ（該当品目が存在する場合のみ表示） -->
+      <div v-if="hasSupplyItems" class="search-filter-row">
+        <button
+          class="filter-chip"
+          :class="{ active: excludeSupplies }"
+          @click="excludeSupplies = !excludeSupplies"
+          type="button"
+        >
+          <span class="chip-check">{{ excludeSupplies ? '✓' : '' }}</span>
+          資材・備品を検索から除外
+        </button>
       </div>
     </section>
 
