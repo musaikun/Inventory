@@ -167,15 +167,23 @@ export function useConfig() {
     const newCategories = {}
     const newCodes      = {}
     const newDict       = {}
-    const seenKeys      = new Set()  // 追加済みのストレージキー
+    const seenKeys      = new Set()
 
+    // ── パス1: 複数回出現する品目名を特定 ───────────────────────────────────
+    const nameCounts = new Map()
+    for (let i = 1; i < lines.length; i++) {
+      const n = parseCSVLine(lines[i])[0]?.trim()
+      if (n) nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1)
+    }
+    const dupNames = new Set([...nameCounts.entries()].filter(([, c]) => c > 1).map(([n]) => n))
+
+    // ── パス2: パース & 重複品目は全出現にカテゴリを付与 ─────────────────────
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
       const name = cols[0]?.trim()
       if (!name) continue
 
       if (isOldFormat) {
-        // ── 旧フォーマット ─────────────────────────────────────────────────
         if (seenKeys.has(name)) continue
         seenKeys.add(name)
         newOrder.push(name)
@@ -184,23 +192,19 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = name })
         }
       } else if (hasCategoryCol) {
-        // ── カテゴリ付きフォーマット（品目名,単位,単価,カテゴリ,エイリアス,商品コード）──
         const unit     = cols[1]?.trim()
         const price    = parseFloat(cols[2])
         const category = cols[3]?.trim()
         const code     = cols[5]?.trim() ?? ''
 
-        // 同名品目の重複処理:
-        //   カテゴリが異なる → 別商品として「品目名（カテゴリ）」をキーに追加
-        //   カテゴリなし → コードで代替
-        //   どちらもなし or 既存 → スキップ
+        // 重複品目名の場合は全出現に「（カテゴリ）」を付与して区別
+        // カテゴリ未設定ならコードで代替
         let storeName = name
-        if (seenKeys.has(storeName)) {
+        if (dupNames.has(name)) {
           const disambig = category || code
-          if (!disambig) continue
-          storeName = `${name}（${disambig}）`
-          if (seenKeys.has(storeName)) continue
+          storeName = disambig ? `${name}（${disambig}）` : name
         }
+        if (seenKeys.has(storeName)) continue
         seenKeys.add(storeName)
         newOrder.push(storeName)
 
@@ -213,7 +217,6 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = storeName })
         }
       } else if (hasPriceCol) {
-        // ── 価格付きフォーマット ───────────────────────────────────────────
         if (seenKeys.has(name)) continue
         seenKeys.add(name)
         newOrder.push(name)
@@ -226,7 +229,6 @@ export function useConfig() {
             .forEach(alias => { newDict[alias] = name })
         }
       } else {
-        // ── ベーシックフォーマット ─────────────────────────────────────────
         if (seenKeys.has(name)) continue
         seenKeys.add(name)
         newOrder.push(name)
