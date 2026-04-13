@@ -169,6 +169,14 @@ export function useInventory() {
   }
 
   function exportCSV() {
+    // CSVフォーミュラインジェクション対策
+    // =, +, -, @, | で始まるセルはスプレッドシートで数式実行される危険があるため
+    // シングルクォートを前置してテキストとして扱わせる
+    function csvSafe(val) {
+      if (typeof val !== 'string' || val === '') return val
+      return /^[=+\-@|]/.test(val) ? `'${val}` : val
+    }
+
     const date      = new Date().toISOString().slice(0, 10)
     const hasPrices = Object.keys(config.prices ?? {}).length > 0
     const header    = hasPrices
@@ -186,17 +194,18 @@ export function useInventory() {
 
     orderedItems.forEach(item => {
       const e         = inventory[item] ?? null
-      const unit      = e?.unit ?? config.units?.[item] ?? ''
-      const code      = config.codes?.[item] ?? ''
+      const unit      = csvSafe(e?.unit ?? config.units?.[item] ?? '')
+      const code      = csvSafe(config.codes?.[item] ?? '')
+      const safeItem  = csvSafe(item)
       if (hasPrices) {
         const unitPrice = config.prices[item]
         const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
         if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${code}","${item}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
+        rows.push(`${date},"${code}","${safeItem}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
       } else {
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${code}","${item}","${unit}",${qty}`)
+        rows.push(`${date},"${code}","${safeItem}","${unit}",${qty}`)
       }
     })
 

@@ -266,19 +266,21 @@ export function useConfig() {
 
   /** 棚卸品目 CSV エクスポート */
   function exportConfigCSV() {
+    // フォーミュラインジェクション対策
+    const cs = v => (typeof v === 'string' && /^[=+\-@|]/.test(v)) ? `'${v}` : v
     const rows = ['品目名,単位,単価,カテゴリ,エイリアス']
     config.order.forEach(item => {
-      const unit     = config.units[item]      ?? ''
+      const unit     = cs(config.units[item]      ?? '')
       const price    = config.prices[item]     ?? ''
-      const category = config.categories[item] ?? ''
+      const category = cs(config.categories[item] ?? '')
       const aliases  = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
-        .map(([k]) => k)
+        .map(([k]) => cs(k))
       const unitCell  = unit           ? `"${unit}"`              : ''
       const priceCell = price !== ''   ? price                    : ''
       const catCell   = category       ? `"${category}"`          : ''
       const aliasCell = aliases.length ? `"${aliases.join(',')}"` : ''
-      rows.push(`"${item}",${unitCell},${priceCell},${catCell},${aliasCell}`)
+      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell}`)
     })
     return rows.join('\r\n')
   }
