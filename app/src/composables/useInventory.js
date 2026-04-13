@@ -1,11 +1,12 @@
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref } from 'vue'
 import { useConfig } from './useConfig.js'
 
 const ENTRY_LOGS_KEY = 'inventory_entry_logs_v1'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
-const inventory = reactive({})
-const entryLog  = reactive([])   // 今日の入力順（初入力の順番を記録）
+const inventory   = reactive({})
+const entryLog    = reactive([])   // 今日の入力順（初入力の順番を記録）
+const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 
 // 直前の setItem 操作を1件分保持（↩ 戻す用）
 let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, addedToLog: boolean }
@@ -32,9 +33,10 @@ function _appendHistoricalLog(date, log) {
 function _save() {
   try {
     localStorage.setItem('inventory_v1', JSON.stringify({
-      date:     new Date().toISOString().slice(0, 10),
-      data:     { ...inventory },
-      entryLog: [...entryLog],
+      date:        new Date().toISOString().slice(0, 10),
+      data:        { ...inventory },
+      entryLog:    [...entryLog],
+      completedAt: completedAt.value,
     }))
   } catch (_) {}
 }
@@ -45,8 +47,10 @@ function _load() {
     if (!raw) return
     const saved = JSON.parse(raw)
     const today = new Date().toISOString().slice(0, 10)
-    if (saved.date !== today) {
-      // 日付変更 → 昨日の入力順を履歴に保存してから破棄
+
+    // 完了済みセッションは日付をまたいでも保持
+    if (!saved.completedAt && saved.date !== today) {
+      // 未完了かつ日付変更 → 昨日の入力順を履歴に保存してから破棄
       if (saved.entryLog?.length > 0) {
         _appendHistoricalLog(saved.date, saved.entryLog)
       }
@@ -56,6 +60,7 @@ function _load() {
     if (saved.entryLog?.length > 0) {
       entryLog.splice(0, entryLog.length, ...saved.entryLog)
     }
+    completedAt.value = saved.completedAt ?? null
   } catch (_) {}
 }
 
@@ -65,6 +70,7 @@ _load()
 export function useInventory() {
   const { config } = useConfig()
 
+  const isCompleted = computed(() => completedAt.value !== null)
   const filledCount = computed(() => Object.keys(inventory).length)
 
   const totalValue = computed(() => {
@@ -84,16 +90,14 @@ export function useInventory() {
   function setItem(ingredient, qty, unit, add = false) {
     const existing = inventory[ingredient]
     const isNew    = !existing
-    // undo用に変更前の状態を保存
     _lastEntry = {
       ingredient,
-      prevState:    existing ? { qty: existing.qty, unit: existing.unit } : null,
-      addedToLog:   isNew,
+      prevState:  existing ? { qty: existing.qty, unit: existing.unit } : null,
+      addedToLog: isNew,
     }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit }
-    // 初入力時のみ順番を記録（上書き・追加は順番を変えない）
     if (isNew) entryLog.push(ingredient)
     _save()
   }
@@ -104,14 +108,12 @@ export function useInventory() {
     const { ingredient, prevState, addedToLog } = _lastEntry
     _lastEntry = null
     if (prevState === null) {
-      // 新規追加だった → 削除
       delete inventory[ingredient]
       if (addedToLog) {
         const idx = entryLog.indexOf(ingredient)
         if (idx >= 0) entryLog.splice(idx, 1)
       }
     } else {
-      // 上書き / 追加だった → 元の値に戻す
       inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit }
     }
     _save()
@@ -133,12 +135,31 @@ export function useInventory() {
     _save()
   }
 
-  function reset() {
-    // リセット前に今日の入力順を履歴へ保存
+  /** 棚卸を完了としてマーク。入力順を学習履歴に保存し、読み取り専用になる。 */
+  function completeSession() {
     const today = new Date().toISOString().slice(0, 10)
-    _appendHistoricalLog(today, [...entryLog])
+    _appendHistoricalLog(today, [...entryLog])  // 学習ソート用ログを保存
+    completedAt.value = new Date().toISOString()
+    _save()
+  }
+
+  /** 完了済みセッションを再び編集可能に戻す */
+  function reopenSession() {
+    completedAt.value = null
+    _save()
+  }
+
+  /** 新規棚卸を開始（現セッションをクリア）*/
+  function reset() {
+    // 未完了セッションのみ履歴保存（完了済みは completeSession 時に保存済み）
+    if (!completedAt.value && entryLog.length > 0) {
+      const today = new Date().toISOString().slice(0, 10)
+      _appendHistoricalLog(today, [...entryLog])
+    }
     Object.keys(inventory).forEach(k => delete inventory[k])
     entryLog.splice(0, entryLog.length)
+    completedAt.value = null
+    _lastEntry = null
     _save()
   }
 
@@ -148,9 +169,9 @@ export function useInventory() {
   }
 
   function exportCSV() {
-    const date       = new Date().toISOString().slice(0, 10)
-    const hasPrices  = Object.keys(config.prices ?? {}).length > 0
-    const header     = hasPrices
+    const date      = new Date().toISOString().slice(0, 10)
+    const hasPrices = Object.keys(config.prices ?? {}).length > 0
+    const header    = hasPrices
       ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
       : '日付,商品コード,品目名,単位,数量'
     const rows = [header]
@@ -164,9 +185,9 @@ export function useInventory() {
     let hasAnyPrice = false
 
     orderedItems.forEach(item => {
-      const e        = inventory[item] ?? null
-      const unit     = e?.unit ?? config.units?.[item] ?? ''
-      const code     = config.codes?.[item] ?? ''
+      const e         = inventory[item] ?? null
+      const unit      = e?.unit ?? config.units?.[item] ?? ''
+      const code      = config.codes?.[item] ?? ''
       if (hasPrices) {
         const unitPrice = config.prices[item]
         const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
@@ -188,7 +209,9 @@ export function useInventory() {
 
   return {
     inventory, filledCount, totalValue,
+    isCompleted, completedAt,
     entryLog, getHistoricalLogs,
     setItem, updateQty, removeItem, reset, exportCSV, undoLast,
+    completeSession, reopenSession,
   }
 }

@@ -15,7 +15,12 @@ import HistoryModal from './components/HistoryModal.vue'
 const { config, dictionary, masterDict, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
-const { inventory, filledCount, totalValue, setItem, updateQty, removeItem, reset, exportCSV, undoLast } = useInventory()
+const {
+  inventory, filledCount, totalValue,
+  isCompleted, completedAt,
+  setItem, updateQty, removeItem, reset, exportCSV, undoLast,
+  completeSession, reopenSession,
+} = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot } = useHistory()
@@ -42,6 +47,40 @@ const searchStatus = ref('') // '' | 'active' | 'confirmed'
 function setConfirmedMsg(msg) {
   searchText.value   = msg
   searchStatus.value = 'confirmed'
+}
+
+// ── セッション管理 ─────────────────────────────────────────────────────────────
+const completedAtDisplay = computed(() => {
+  if (!completedAt.value) return ''
+  const d = new Date(completedAt.value)
+  return d.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+})
+
+function onComplete() {
+  if (filledCount.value === 0) {
+    showToast('1件以上入力してから完了してください')
+    return
+  }
+  if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
+  completeSession()
+  saveSnapshot(inventory, config.prices, config.order)
+  undoItem.value = null
+  if (continuousMode.value) onForceStop()
+  showToast('棚卸を完了しました ✓')
+}
+
+function onReopen() {
+  if (!confirm('完了した棚卸を再編集しますか？')) return
+  reopenSession()
+  showToast('編集モードに戻しました')
+}
+
+function onStartNew() {
+  if (!confirm('新規棚卸を開始しますか？\n現在のデータはクリアされます（CSVは保存済みか確認してください）。')) return
+  reset()
+  undoItem.value = null
+  showToast('新規棚卸を開始しました')
 }
 
 // ── Undo（直前の確定を1件戻す）────────────────────────────────────────────────
@@ -253,7 +292,17 @@ function onCancelCandidate() {
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
 function onTableTap(item) {
+  if (isCompleted.value) return   // 完了済みは編集不可
   openConfirm(item, null, config.units?.[item] || '')
+}
+
+// スワイプ左: 在庫0で即確定
+function onTableZero(item) {
+  if (isCompleted.value) return
+  const unit = inventory[item]?.unit ?? config.units?.[item] ?? ''
+  setItem(item, 0, unit, false)
+  undoItem.value = item
+  showToast(`${item} → 0 で確定`)
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
@@ -264,8 +313,9 @@ function onTableUpdate({ item, qty, unit }) {
 
 // ── Reset ──────────────────────────────────────────────────────────────────────
 function onReset() {
-  if (!confirm('棚卸データをすべてリセットしますか？')) return
+  if (!confirm('入力データをすべてリセットしますか？')) return
   reset()
+  undoItem.value = null
   showToast('リセットしました')
 }
 
@@ -323,8 +373,15 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       </div>
     </header>
 
-    <!-- 音声入力 / テキスト検索 -->
-    <section class="voice-section">
+    <!-- 棚卸完了バナー -->
+    <div v-if="isCompleted" class="complete-banner">
+      <span class="complete-icon">✓</span>
+      <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
+      <button class="reopen-btn" @click="onReopen">✏️ 編集に戻す</button>
+    </div>
+
+    <!-- 音声入力 / テキスト検索（完了時は非表示） -->
+    <section v-if="!isCompleted" class="voice-section">
       <!-- 入力中ステータスバナー -->
       <div v-if="continuousMode" class="continuous-banner">
         <span class="continuous-pulse"></span>
@@ -374,10 +431,12 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <InventoryTable
       :inventory="inventory"
       :filled-count="filledCount"
+      :read-only="isCompleted"
       @update="onTableUpdate"
       @remove="removeItem"
       @reset="onReset"
       @tap="onTableTap"
+      @zero="onTableZero"
     />
 
     <!-- 確認モーダル -->
@@ -409,7 +468,18 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div v-if="totalValue != null" class="footer-total">
         在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
       </div>
-      <button class="btn-export" @click="onExport">💾 CSVを保存</button>
+      <div class="footer-actions">
+        <!-- 進行中 -->
+        <template v-if="!isCompleted">
+          <button class="btn-complete" @click="onComplete">✓ 棚卸完了</button>
+          <button class="btn-export" @click="onExport">💾 CSV</button>
+        </template>
+        <!-- 完了済み -->
+        <template v-else>
+          <button class="btn-new-session" @click="onStartNew">＋ 新規棚卸</button>
+          <button class="btn-export" @click="onExport">💾 CSV</button>
+        </template>
+      </div>
     </div>
 
     <!-- 未入力・数量0品目の確認モーダル -->

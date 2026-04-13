@@ -7,11 +7,12 @@ const { config } = useConfig()
 const { entryLog, getHistoricalLogs } = useInventory()
 
 const props = defineProps({
-  inventory:   { type: Object, required: true },
-  filledCount: { type: Number, required: true },
+  inventory:   { type: Object,  required: true },
+  filledCount: { type: Number,  required: true },
+  readOnly:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'reset', 'tap'])
+const emit = defineEmits(['update', 'remove', 'reset', 'tap', 'zero'])
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
 const sortMode      = ref('category')  // 'default' | 'alpha' | 'category'
@@ -243,6 +244,60 @@ const grandTotal = computed(() => {
   return has ? Math.round(total) : null
 })
 
+// ── スワイプジェスチャー ──────────────────────────────────────────────────────
+// 左スワイプ → 0で確定（amber）  右スワイプ → 削除（red）
+const swipe = reactive({ item: null, dx: 0, live: false })
+const SWIPE_TRIGGER = 80   // アクション発火までの最小距離(px)
+const SWIPE_MAX     = 110  // 最大スライド量(px)
+let _sx = 0, _sy = 0
+
+function swipeStart(e, item) {
+  if (props.readOnly) return
+  _sx = e.touches[0].clientX
+  _sy = e.touches[0].clientY
+  swipe.item = item
+  swipe.dx   = 0
+  swipe.live = false
+}
+
+function swipeMove(e, item) {
+  if (swipe.item !== item) return
+  const dx = e.touches[0].clientX - _sx
+  const dy = e.touches[0].clientY - _sy
+  // 縦スクロールが支配的なら無視
+  if (!swipe.live && Math.abs(dy) > Math.abs(dx) + 4) { swipe.item = null; return }
+  if (Math.abs(dx) > 8) swipe.live = true
+  if (swipe.live) swipe.dx = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, dx))
+}
+
+function swipeEnd(e, item) {
+  if (swipe.item !== item || !swipe.live) { _resetSwipe(); return }
+  const dx = swipe.dx
+  _resetSwipe()
+  if      (dx < -SWIPE_TRIGGER) emit('zero',   item)
+  else if (dx >  SWIPE_TRIGGER) emit('remove', item)
+}
+
+function _resetSwipe() {
+  swipe.item = null
+  swipe.dx   = 0
+  swipe.live = false
+}
+
+function swipeStyle(item) {
+  if (swipe.item !== item || !swipe.live) return {}
+  const t = Math.min(Math.abs(swipe.dx) / SWIPE_TRIGGER, 1)
+  const bg = swipe.dx < 0
+    ? `rgba(251,146,60,${t * 0.45})`   // 左: amber (0確定)
+    : `rgba(239,68,68,${t * 0.38})`    // 右: red   (削除)
+  return { background: bg, transform: `translateX(${swipe.dx * 0.25}px)`, transition: 'none' }
+}
+
+function rowClick(item) {
+  if (swipe.live) return   // スワイプ中はタップ無効
+  emit('tap', item)
+}
+
 function subtotal(row) {
   if (!row.entry || row.unitPrice == null) return null
   return Math.round(row.entry.qty * row.unitPrice)
@@ -268,7 +323,7 @@ function fmtYen(n) {
           class="btn-collapse-all"
           @click="collapseAll"
         >すべて閉じる</button>
-        <button class="btn-danger-sm" @click="$emit('reset')">リセット</button>
+        <button v-if="!readOnly" class="btn-danger-sm" @click="$emit('reset')">リセット</button>
       </div>
     </div>
 
@@ -345,9 +400,13 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="sortMode !== 'category' || expandedCats[row.category ?? 'その他']"
-              :class="{ filled: row.entry !== null }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly }"
+              :style="swipeStyle(row.item)"
               class="item-row"
-              @click="$emit('tap', row.item)">
+              @click="rowClick(row.item)"
+              @touchstart.passive="swipeStart($event, row.item)"
+              @touchmove.passive="swipeMove($event, row.item)"
+              @touchend.passive="swipeEnd($event, row.item)">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
               <div class="name-main">
@@ -357,7 +416,12 @@ function fmtYen(n) {
               <div v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</div>
             </td>
             <td class="td-qty">
-              <div :class="['qty-display', { filled: row.entry !== null }]">
+              <!-- スワイプ中のアクションヒント -->
+              <template v-if="swipe.item === row.item && swipe.live">
+                <div v-if="swipe.dx < -20" class="swipe-hint swipe-hint-zero">← 0</div>
+                <div v-else-if="swipe.dx > 20" class="swipe-hint swipe-hint-del">削除 →</div>
+              </template>
+              <div v-else :class="['qty-display', { filled: row.entry !== null }]">
                 <template v-if="row.entry !== null">
                   {{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span>
                 </template>
@@ -586,6 +650,20 @@ function fmtYen(n) {
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
 }
 .item-row:active { background: #eff6ff !important; }
+.item-row.read-only { cursor: default; }
+.item-row.read-only:active { background: inherit !important; }
+
+/* ── スワイプヒント ── */
+.swipe-hint {
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 8px;
+  padding: 5px 8px;
+  white-space: nowrap;
+  display: inline-block;
+}
+.swipe-hint-zero { color: #c2410c; background: #fff7ed; }
+.swipe-hint-del  { color: #b91c1c; background: #fef2f2; }
 
 /* ── 品目セル ── */
 .td-name {

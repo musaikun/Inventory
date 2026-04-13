@@ -294,6 +294,47 @@ body {
 
 .btn-collapse-all:active { background: #f1f5f9; }
 
+/* ── 棚卸完了バナー ── */
+.complete-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0fdf4;
+  border-bottom: 2px solid #86efac;
+  padding: 10px 20px;
+  font-size: 13px;
+  position: sticky;
+  top: 52px;
+  z-index: 9;
+}
+
+.complete-icon {
+  font-size: 16px;
+  color: var(--success);
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.complete-text {
+  font-weight: 600;
+  color: var(--success);
+  flex: 1;
+}
+
+.reopen-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--success);
+  border-radius: 8px;
+  background: white;
+  color: var(--success);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.reopen-btn:active { background: #f0fdf4; }
+
 /* ── Footer ── */
 .app-footer {
   position: fixed;
@@ -318,22 +359,51 @@ body {
   font-size: 15px;
 }
 
-.btn-export {
-  width: 100%;
+.footer-actions {
+  display: flex;
+  gap: 10px;
   max-width: 600px;
-  display: block;
   margin: 0 auto;
+}
+
+.btn-export {
+  flex: 1;
   background: var(--success);
   color: white;
   border: none;
   border-radius: 12px;
-  padding: 15px;
-  font-size: 16px;
+  padding: 14px;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
 }
-
 .btn-export:active { opacity: 0.85; }
+
+.btn-complete {
+  flex: 2;
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-complete:active { opacity: 0.85; }
+
+.btn-new-session {
+  flex: 2;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-new-session:active { opacity: 0.85; }
 
 /* ── 数量0確認モーダル ── */
 .zero-confirm-msg {
