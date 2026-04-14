@@ -246,6 +246,9 @@ function onTextSearch() {
 // ── Confirm modal ──────────────────────────────────────────────────────────────
 // source: 'search'（テキスト/音声）| 'table'（棚卸表タップ）
 function openConfirm(ingredient, qty, unit, source = 'search') {
+  // TR行がfocusを持ったままだとEnterキーがTRの@keydownとModalのhandleKeydown
+  // 両方に発火し、確定と同時に openConfirm(A) が再度呼ばれるバグを防ぐ
+  document.activeElement?.blur()
   // PDF登録済みの単位を優先し、ロック状態にする
   const configUnit = config.units?.[ingredient]
   confirmState.value = {
