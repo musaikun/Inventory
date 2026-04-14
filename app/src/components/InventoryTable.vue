@@ -298,6 +298,70 @@ function rowClick(item) {
   emit('tap', item)
 }
 
+// ── キーボードナビゲーション ──────────────────────────────────────────────────
+function _isRowVisible(row) {
+  if (sortMode.value !== 'category') return true
+  return !!expandedCats[row.category ?? 'その他']
+}
+
+function _getVisibleItems() {
+  return rows.value
+    .filter(r => r.type === 'item' && _isRowVisible(r))
+    .map(r => r.item)
+}
+
+function getNextVisibleItem(currentItem) {
+  const list = _getVisibleItems()
+  const idx  = list.indexOf(currentItem)
+  return (idx >= 0 && idx < list.length - 1) ? list[idx + 1] : null
+}
+
+function getPrevVisibleItem(currentItem) {
+  const list = _getVisibleItems()
+  const idx  = list.indexOf(currentItem)
+  return (idx > 0) ? list[idx - 1] : null
+}
+
+function _focusRow(item) {
+  const els = document.querySelectorAll('.item-row[tabindex="0"]')
+  for (const el of els) {
+    if (el.dataset.item === item) {
+      el.focus()
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      return
+    }
+  }
+}
+
+function onRowKeydown(e, item) {
+  if (props.readOnly) return
+  switch (e.key) {
+    case 'Enter':
+    case ' ':
+      e.preventDefault()
+      rowClick(item)
+      break
+    case 'ArrowDown':
+      e.preventDefault()
+      { const next = getNextVisibleItem(item); if (next) _focusRow(next) }
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      { const prev = getPrevVisibleItem(item); if (prev) _focusRow(prev) }
+      break
+    case 'Tab':
+      e.preventDefault()
+      if (e.shiftKey) {
+        const prev = getPrevVisibleItem(item); if (prev) _focusRow(prev)
+      } else {
+        const next = getNextVisibleItem(item); if (next) _focusRow(next)
+      }
+      break
+  }
+}
+
+defineExpose({ getNextVisibleItem })
+
 function subtotal(row) {
   if (!row.entry || row.unitPrice == null) return null
   return Math.round(row.entry.qty * row.unitPrice)
@@ -402,8 +466,11 @@ function fmtYen(n) {
               v-show="sortMode !== 'category' || expandedCats[row.category ?? 'その他']"
               :class="{ filled: row.entry !== null, 'read-only': readOnly }"
               :style="swipeStyle(row.item)"
+              :tabindex="readOnly ? undefined : 0"
+              :data-item="row.item"
               class="item-row"
               @click="rowClick(row.item)"
+              @keydown="onRowKeydown($event, row.item)"
               @touchstart.passive="swipeStart($event, row.item)"
               @touchmove.passive="swipeMove($event, row.item)"
               @touchend.passive="swipeEnd($event, row.item)">
@@ -649,9 +716,11 @@ function fmtYen(n) {
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
 }
-.item-row:active { background: #eff6ff !important; }
-.item-row.read-only { cursor: default; }
-.item-row.read-only:active { background: inherit !important; }
+.item-row:active             { background: #eff6ff !important; }
+.item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: #eff6ff !important; }
+.item-row:focus:not(:focus-visible) { outline: none; }
+.item-row.read-only          { cursor: default; }
+.item-row.read-only:active   { background: inherit !important; }
 
 /* ── スワイプヒント ── */
 .swipe-hint {

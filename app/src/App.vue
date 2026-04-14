@@ -33,8 +33,9 @@ watch(inventory, () => {
 }, { deep: true })
 
 // ── Settings / History modal ───────────────────────────────────────────────────
-const showSettings = ref(false)
-const showHistory  = ref(false)
+const showSettings     = ref(false)
+const showHistory      = ref(false)
+const inventoryTableRef = ref(null)
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existing }
@@ -268,8 +269,14 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   confirmState.value = null
   searchText.value   = ''
   searchStatus.value = ''
-  // テーブルタップ時はスクロール位置を維持（検索入力へのフォーカス移動なし）
-  if (source !== 'table') {
+
+  if (source === 'table') {
+    // テーブルタップ確定後 → 次の品目を自動オープン（Escapeでキャンセル可）
+    const nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
+    if (nextItem) {
+      nextTick(() => openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table'))
+    }
+  } else {
     nextTick(() => searchInputRef.value?.focus())
   }
   _restartIfContinuous()
@@ -433,6 +440,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- 棚卸テーブル -->
     <InventoryTable
+      ref="inventoryTableRef"
       :inventory="inventory"
       :filled-count="filledCount"
       :read-only="isCompleted"
