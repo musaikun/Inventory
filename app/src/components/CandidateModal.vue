@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 
 const props = defineProps({
@@ -10,6 +10,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'cancel'])
+
+function handleKeydown(e) {
+  if (e.key === 'Escape') { e.preventDefault(); emit('cancel') }
+}
+
+onMounted(()   => document.addEventListener('keydown', handleKeydown))
+onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 
 const { config } = useConfig()
 
