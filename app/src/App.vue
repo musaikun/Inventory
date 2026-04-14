@@ -181,13 +181,14 @@ function findCandidates(name) {
 // ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
 function runSearch(raw) {
   const { name, qty, unit } = parseText(raw)
-  const trimmed = (name ?? raw).trim()
 
-  // 商品コード完全一致 → 候補モーダルをスキップして直接入力モーダルへ
-  if (trimmed && config.codes) {
+  // 商品コード完全一致: parseText は数字を qty に抜き取るため
+  // "A001" → name="A" のように壊れる。raw をそのまま照合する
+  const rawTrimmed = raw.trim()
+  if (rawTrimmed && config.codes) {
     for (const [item, code] of Object.entries(config.codes)) {
-      if (code && code.trim() === trimmed) {
-        openConfirm(item, qty, config.units?.[item] || unit || '', 'search')
+      if (code && code.trim() === rawTrimmed) {
+        openConfirm(item, null, config.units?.[item] || '', 'search')
         return
       }
     }
