@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory } from './composables/useInventory.js'
 import { useConfig } from './composables/useConfig.js'
@@ -41,13 +41,9 @@ const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existin
 const candidateState = ref(null) // { candidates, qty, unit }
 
 // ── Transcript / テキスト検索 ──────────────────────────────────────────────────
-const searchText   = ref('')
-const searchStatus = ref('') // '' | 'active' | 'confirmed'
-
-function setConfirmedMsg(msg) {
-  searchText.value   = msg
-  searchStatus.value = 'confirmed'
-}
+const searchText     = ref('')
+const searchStatus   = ref('') // '' | 'active'
+const searchInputRef = ref(null)
 
 // ── セッション管理 ─────────────────────────────────────────────────────────────
 const completedAtDisplay = computed(() => {
@@ -84,7 +80,7 @@ function onStartNew() {
 }
 
 // ── Undo（直前の確定を1件戻す）────────────────────────────────────────────────
-const undoItem = ref(null)  // 戻す対象の品目名、null なら非表示
+const undoItem = ref(null)  // { name, qty, unit } | null
 
 function onUndo() {
   const restored = undoLast()
@@ -264,11 +260,13 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd)
-  undoItem.value = ingredient  // ↩ 戻すボタンを表示
-  const label = isAdd ? `追加 → 合計 ${finalQty}${unit}` : `${finalQty}${unit}`
-  setConfirmedMsg(`✓ ${ingredient}　${label}`)
+  undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   confirmState.value = null
+  // 入力欄をクリアして次の入力をすぐ受け付ける
+  searchText.value   = ''
+  searchStatus.value = ''
+  nextTick(() => searchInputRef.value?.focus())
   _restartIfContinuous()
 }
 
@@ -301,7 +299,7 @@ function onTableZero(item) {
   if (isCompleted.value) return
   const unit = inventory[item]?.unit ?? config.units?.[item] ?? ''
   setItem(item, 0, unit, false)
-  undoItem.value = item
+  undoItem.value = { name: item, qty: 0, unit }
   showToast(`${item} → 0 で確定`)
 }
 
@@ -397,6 +395,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <div class="search-row">
         <input
+          ref="searchInputRef"
           type="text"
           v-model="searchText"
           :class="['search-input', searchStatus]"
@@ -409,7 +408,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <!-- ↩ 戻すバー（直前の確定を取り消す） -->
       <div v-if="undoItem" class="undo-bar">
-        <span class="undo-label">確定: {{ undoItem }}</span>
+        <span class="undo-label">確定: {{ undoItem.name }}　{{ undoItem.qty }}{{ undoItem.unit }}</span>
         <button class="undo-btn" @click="onUndo">↩ 戻す</button>
       </div>
 
