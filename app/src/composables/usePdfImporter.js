@@ -425,17 +425,18 @@ function autoAliases(name, base) {
 
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
 export function itemsToConfigCSV(items) {
-  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績']
-  for (const { name, unit, category, categoryCode, code, prevMonth } of items) {
+  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績,入数']
+  for (const { name, unit, category, categoryCode, code, prevMonth, packQty } of items) {
     const u  = unit         ? `"${unit}"`       : ''
     const c  = category     ? `"${category}"`   : ''
     const d  = code         ? `"${code}"`       : ''
     const e  = categoryCode ? `${categoryCode}` : ''
     const pm = prevMonth    ? `"${prevMonth}"`  : ''
+    const pk = packQty      ? `"${packQty}"`    : ''
     // カテゴリ名をベースにエイリアスを自動付与
     const aliases = autoAliases(name, category ? [category] : [])
     const a = aliases.length > 0 ? `"${aliases.join(',')}"` : ''
-    rows.push(`"${name}",${u},,${c},${a},${d},${e},${pm}`)
+    rows.push(`"${name}",${u},,${c},${a},${d},${e},${pm},${pk}`)
   }
   return rows.join('\r\n')
 }
