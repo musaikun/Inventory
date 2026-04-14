@@ -243,7 +243,8 @@ function onTextSearch() {
 }
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────
-function openConfirm(ingredient, qty, unit) {
+// source: 'search'（テキスト/音声）| 'table'（棚卸表タップ）
+function openConfirm(ingredient, qty, unit, source = 'search') {
   // PDF登録済みの単位を優先し、ロック状態にする
   const configUnit = config.units?.[ingredient]
   confirmState.value = {
@@ -252,21 +253,25 @@ function openConfirm(ingredient, qty, unit) {
     unit:       configUnit || unit || '',
     unitLocked: !!configUnit,          // PDF単位は変更不可
     existing:   inventory[ingredient] ?? null,
+    source,
   }
 }
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
   const existing  = confirmState.value.existing
+  const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd)
   undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   confirmState.value = null
-  // 入力欄をクリアして次の入力をすぐ受け付ける
   searchText.value   = ''
   searchStatus.value = ''
-  nextTick(() => searchInputRef.value?.focus())
+  // テーブルタップ時はスクロール位置を維持（検索入力へのフォーカス移動なし）
+  if (source !== 'table') {
+    nextTick(() => searchInputRef.value?.focus())
+  }
   _restartIfContinuous()
 }
 
@@ -291,7 +296,7 @@ function onCancelCandidate() {
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
 function onTableTap(item) {
   if (isCompleted.value) return   // 完了済みは編集不可
-  openConfirm(item, null, config.units?.[item] || '')
+  openConfirm(item, null, config.units?.[item] || '', 'table')
 }
 
 // スワイプ左: 在庫0で即確定
