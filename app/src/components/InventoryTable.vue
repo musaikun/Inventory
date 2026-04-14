@@ -122,6 +122,7 @@ const rows = computed(() => {
     category:  config.categories?.[item]  ?? null,
     code:      config.codes?.[item]       ?? null,
     prevMonth: config.prevMonths?.[item]  ?? null,
+    lotSize:   config.lotSizes?.[item]    ?? null,
   }))
 
   // 2. config.order に含まれないカスタム品目
@@ -137,6 +138,7 @@ const rows = computed(() => {
       category:  config.categories?.[item]  ?? null,
       code:      config.codes?.[item]       ?? null,
       prevMonth: config.prevMonths?.[item]  ?? null,
+      lotSize:   config.lotSizes?.[item]    ?? null,
     }))
 
   // 3. フィルター適用
@@ -480,6 +482,7 @@ function fmtYen(n) {
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
               </div>
+              <div v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</div>
               <div v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</div>
             </td>
             <td class="td-qty">
@@ -754,6 +757,10 @@ function fmtYen(n) {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+.lot-hint {
+  color: #7c3aed;  /* 紫: 入数は前月と区別 */
 }
 
 .badge {

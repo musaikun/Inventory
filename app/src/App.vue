@@ -181,6 +181,18 @@ function findCandidates(name) {
 // ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
 function runSearch(raw) {
   const { name, qty, unit } = parseText(raw)
+  const trimmed = (name ?? raw).trim()
+
+  // 商品コード完全一致 → 候補モーダルをスキップして直接入力モーダルへ
+  if (trimmed && config.codes) {
+    for (const [item, code] of Object.entries(config.codes)) {
+      if (code && code.trim() === trimmed) {
+        openConfirm(item, qty, config.units?.[item] || unit || '', 'search')
+        return
+      }
+    }
+  }
+
   const matched = name ? findCandidates(name) : []
   candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
 }
@@ -258,6 +270,7 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     unitLocked: !!configUnit,          // PDF単位は変更不可
     existing:   inventory[ingredient] ?? null,
     source,
+    lotSize:    config.lotSizes?.[ingredient] ?? '',
   }
 }
 
@@ -467,6 +480,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :unit-locked="confirmState.unitLocked"
       :existing="confirmState.existing"
       :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
+      :lot-size="confirmState.lotSize"
       @confirm="onConfirm"
       @cancel="onCancelConfirm"
     />

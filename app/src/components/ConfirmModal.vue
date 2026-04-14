@@ -9,6 +9,7 @@ const props = defineProps({
   initialUnit: { type: String,  default: '' },
   existing:    { type: Object,  default: null }, // { qty, unit } | null
   prevMonth:   { type: String,  default: '' },   // 前月実績ヒント
+  lotSize:     { type: String,  default: '' },   // 入数ヒント e.g. "24本"
   unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
 })
 
@@ -142,7 +143,10 @@ function submit(isAdd) {
       <!-- 品目名 -->
       <div class="name-box">
         {{ ingredient }}
-        <div v-if="prevMonth" class="prev-hint-modal">前月実績: {{ prevMonth }}</div>
+        <div class="name-hints">
+          <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
+          <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
+        </div>
       </div>
 
       <!-- 重複警告 -->
@@ -236,16 +240,23 @@ function submit(isAdd) {
   line-height: 1.5;
 }
 
-.prev-hint-modal {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #64748b;
-  background: white;
-  border-radius: 6px;
-  padding: 2px 8px;
-  display: inline-block;
+.name-hints {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
+
+.hint-chip {
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+
+.hint-lot  { background: #ede9fe; color: #6d28d9; }  /* 紫: 入数 */
+.hint-prev { background: #f1f5f9; color: #64748b; }  /* グレー: 前月 */
 
 .dup-warn {
   background: #fefce8;

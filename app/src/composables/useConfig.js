@@ -18,6 +18,7 @@ const config = reactive({
   codes:          {},
   categoryCodes:  {},  // { カテゴリ名: 分類コード数値 }
   prevMonths:     {},  // { 品目名: 前月実績 }
+  lotSizes:       {},  // { 品目名: 入数文字列 } e.g. "24本", "1kg"
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
 })
@@ -62,6 +63,7 @@ function _load() {
       config.codes         = saved.codes         ?? {}
       config.categoryCodes = saved.categoryCodes ?? {}
       config.prevMonths    = saved.prevMonths    ?? {}
+      config.lotSizes      = saved.lotSizes      ?? {}
       config.dictionary    = saved.dictionary    ?? {}
       config.isCustom      = true
     }
@@ -78,6 +80,7 @@ function _save() {
       codes:         config.codes,
       categoryCodes: config.categoryCodes,
       prevMonths:    config.prevMonths,
+      lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
     }))
     config.isCustom = true
@@ -174,6 +177,7 @@ export function useConfig() {
     const newCodes         = {}
     const newCategoryCodes = {}
     const newPrevMonths    = {}
+    const newLotSizes      = {}
     const newDict          = {}
 
     // ── パス1: 複数回出現する品目名を特定（同名品目のカテゴリ付与に使用）────
@@ -210,14 +214,16 @@ export function useConfig() {
         }
         newOrder.push(storeName)
 
-        const catCode  = parseInt(cols[6]?.trim(), 10)
+        const catCode   = parseInt(cols[6]?.trim(), 10)
         const prevMonth = cols[7]?.trim() ?? ''
+        const lotSize   = cols[8]?.trim() ?? ''
         if (unit)                        newUnits[storeName]         = unit
         if (!isNaN(price) && price > 0)  newPrices[storeName]        = price
         if (category)                    newCategories[storeName]    = category
         if (code)                        newCodes[storeName]         = code
         if (category && !isNaN(catCode)) newCategoryCodes[category]  = catCode
         if (prevMonth)                   newPrevMonths[storeName]    = prevMonth
+        if (lotSize)                     newLotSizes[storeName]      = lotSize
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = storeName })
@@ -254,6 +260,7 @@ export function useConfig() {
     config.codes         = newCodes
     config.categoryCodes = newCategoryCodes
     config.prevMonths    = newPrevMonths
+    config.lotSizes      = newLotSizes
     config.dictionary    = newDict
     _save()
 
@@ -268,19 +275,27 @@ export function useConfig() {
   function exportConfigCSV() {
     // フォーミュラインジェクション対策
     const cs = v => (typeof v === 'string' && /^[=+\-@|]/.test(v)) ? `'${v}` : v
-    const rows = ['品目名,単位,単価,カテゴリ,エイリアス']
+    const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数']
     config.order.forEach(item => {
       const unit     = cs(config.units[item]      ?? '')
-      const price    = config.prices[item]     ?? ''
+      const price    = config.prices[item]        ?? ''
       const category = cs(config.categories[item] ?? '')
+      const code     = cs(config.codes[item]      ?? '')
+      const catCode  = config.categoryCodes[config.categories[item]] ?? ''
+      const prevMonth = cs(config.prevMonths[item] ?? '')
+      const lotSize  = cs(config.lotSizes[item]   ?? '')
       const aliases  = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
         .map(([k]) => cs(k))
-      const unitCell  = unit           ? `"${unit}"`              : ''
-      const priceCell = price !== ''   ? price                    : ''
-      const catCell   = category       ? `"${category}"`          : ''
-      const aliasCell = aliases.length ? `"${aliases.join(',')}"` : ''
-      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell}`)
+      const unitCell    = unit           ? `"${unit}"`              : ''
+      const priceCell   = price !== ''   ? price                    : ''
+      const catCell     = category       ? `"${category}"`          : ''
+      const aliasCell   = aliases.length ? `"${aliases.join(',')}"` : ''
+      const codeCell    = code           ? `"${code}"`              : ''
+      const catCodeCell = catCode !== '' ? catCode                  : ''
+      const prevCell    = prevMonth      ? `"${prevMonth}"`         : ''
+      const lotCell     = lotSize        ? `"${lotSize}"`           : ''
+      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell}`)
     })
     return rows.join('\r\n')
   }
@@ -294,6 +309,7 @@ export function useConfig() {
     config.codes         = {}
     config.categoryCodes = {}
     config.prevMonths    = {}
+    config.lotSizes      = {}
     config.dictionary    = { ...DEFAULT_DICT }
     config.isCustom      = false
     localStorage.removeItem(CONFIG_KEY)
