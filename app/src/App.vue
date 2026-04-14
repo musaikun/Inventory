@@ -266,17 +266,20 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   setItem(ingredient, qty, unit, isAdd)
   undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
-  confirmState.value = null
   searchText.value   = ''
   searchStatus.value = ''
 
   if (source === 'table') {
-    // テーブルタップ確定後 → 次の品目を自動オープン（Escapeでキャンセル可）
+    // テーブルタップ確定後 → 次の品目を自動オープン
+    // :key="confirmState.ingredient" により ingredient 変化時に ConfirmModal を強制再マウント
     const nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
     if (nextItem) {
-      nextTick(() => openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table'))
+      openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table')
+    } else {
+      confirmState.value = null  // リスト末尾: モーダルを閉じる
     }
   } else {
+    confirmState.value = null
     nextTick(() => searchInputRef.value?.focus())
   }
   _restartIfContinuous()
@@ -451,9 +454,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @zero="onTableZero"
     />
 
-    <!-- 確認モーダル -->
+    <!-- 確認モーダル（:key で ingredient 変化時に強制再マウント） -->
     <ConfirmModal
       v-if="confirmState"
+      :key="confirmState.ingredient"
       :ingredient="confirmState.ingredient"
       :initial-qty="confirmState.qty"
       :initial-unit="confirmState.unit"
