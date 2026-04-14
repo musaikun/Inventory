@@ -482,8 +482,10 @@ function fmtYen(n) {
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
               </div>
-              <div v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</div>
-              <div v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</div>
+              <div v-if="row.lotSize || row.prevMonth" class="hints-row">
+                <span v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</span>
+                <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
+              </div>
             </td>
             <td class="td-qty">
               <!-- スワイプ中のアクションヒント -->
@@ -753,10 +755,16 @@ function fmtYen(n) {
   gap: 4px;
 }
 
+.hints-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .prev-hint {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
 }
 
 .lot-hint {
