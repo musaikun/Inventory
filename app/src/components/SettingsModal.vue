@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 
 const emit = defineEmits(['close'])
@@ -13,6 +14,13 @@ const status       = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter = ref(false)
 const dragging     = ref(false)
 const fileInput    = ref(null)
+
+// ── 端末名 ───────────────────────────────────────────────────────────────────
+const deviceNameInput = ref(deviceName.value)
+
+function saveDeviceName() {
+  setDeviceName(deviceNameInput.value)
+}
 
 // ── 品目リスト ファイル読み込み ────────────────────────────────────────────────
 function handleFile(file) {
@@ -132,6 +140,27 @@ function onReset() {
           <p class="format-note">エイリアスを設定すると、音声で短縮名を言っても認識されます。<br>PDFから取込むと、品目名に応じてエイリアスが自動設定されます。</p>
         </div>
       </details>
+
+      <!-- 端末名設定 -->
+      <div class="device-section">
+        <div class="device-label">端末名（マルチデバイス同期の準備）</div>
+        <div class="device-row">
+          <input
+            v-model="deviceNameInput"
+            type="text"
+            class="device-input"
+            placeholder="例: Aさん・厨房・ホール"
+            maxlength="20"
+            @blur="saveDeviceName"
+            @keyup.enter="saveDeviceName"
+          />
+          <button class="device-save-btn" @click="saveDeviceName">保存</button>
+        </div>
+        <div class="device-id-row">
+          <span class="device-id-label">端末ID：</span>
+          <span class="device-id-value">{{ deviceId.slice(0, 8) }}…</span>
+        </div>
+      </div>
 
       <!-- 棚卸記入表変換ボタン -->
       <button class="btn btn-primary import-btn" @click="showImporter = true">
@@ -279,6 +308,62 @@ function onReset() {
   font-weight: 600;
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
+
+/* 端末名設定 */
+.device-section {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+}
+
+.device-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.device-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.device-input {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: white;
+  outline: none;
+  font-family: inherit;
+}
+.device-input:focus { border-color: var(--primary); }
+
+.device-save-btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.device-save-btn:active { opacity: 0.8; }
+
+.device-id-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.device-id-label { font-size: 11px; color: var(--text-muted); }
+.device-id-value  { font-size: 11px; color: var(--text-muted); font-family: monospace; }
 
 .actions {
   display: flex;

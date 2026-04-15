@@ -1,5 +1,6 @@
 import { reactive, computed, ref } from 'vue'
 import { useConfig } from './useConfig.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const inventory   = reactive({})
@@ -12,7 +13,7 @@ let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, added
 // ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
   try {
-    localStorage.setItem('inventory_v1', JSON.stringify({
+    localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
       date:        new Date().toISOString().slice(0, 10),
       data:        { ...inventory },
       entryLog:    [...entryLog],
@@ -23,7 +24,7 @@ function _save() {
 
 function _load() {
   try {
-    const raw = localStorage.getItem('inventory_v1')
+    const raw = localStorage.getItem(STORAGE_KEYS.inventory)
     if (!raw) return
     const saved = JSON.parse(raw)
     const today = new Date().toISOString().slice(0, 10)

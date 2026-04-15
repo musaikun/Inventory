@@ -4,10 +4,11 @@ import {
   INVENTORY_ORDER as DEFAULT_ORDER,
   ITEM_UNITS as DEFAULT_UNITS,
 } from '../config.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
-const CONFIG_KEY  = 'inventory_config_v1'
-const ALIASES_KEY = 'inventory_aliases_v1'
-const MASTER_KEY  = 'inventory_master_v1'
+const CONFIG_KEY  = STORAGE_KEYS.config
+const ALIASES_KEY = STORAGE_KEYS.aliases
+const MASTER_KEY  = STORAGE_KEYS.master
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const config = reactive({

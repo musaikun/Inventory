@@ -4,6 +4,7 @@ import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory } from './composables/useInventory.js'
 import { useConfig } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
+import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -389,6 +390,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <header class="app-header">
       <h1>棚卸入力</h1>
       <div class="header-right">
+        <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
         <div class="date">{{ dateStr }}</div>
         <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
         <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>

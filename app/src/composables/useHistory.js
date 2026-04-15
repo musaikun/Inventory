@@ -1,6 +1,5 @@
 import { reactive } from 'vue'
-
-const HISTORY_KEY = 'inventory_history_v1'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // reactive にすることで getSnapshots/getEntryLogs を参照する computed が
 // 保存・削除のたびに自動再計算される
@@ -8,14 +7,14 @@ const _data = reactive({})
 
 function _load() {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
+    const raw = localStorage.getItem(STORAGE_KEYS.history)
     if (raw) Object.assign(_data, JSON.parse(raw))
   } catch (_) {}
 }
 
 function _persist() {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify({ ..._data }))
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({ ..._data }))
   } catch (_) {}
 }
 
