@@ -43,6 +43,24 @@ function _load() {
 
 _load()
 
+// ── リモート同期用（useSync から呼ばれる）────────────────────────────────────
+/**
+ * 他デバイスからの品目更新を適用（ブロードキャストしない・entryLog に追加しない）
+ * useSync.js が setInventoryCallbacks 経由で登録し呼び出す
+ */
+export function applyRemoteUpdate(ingredient, qty, unit) {
+  inventory[ingredient] = { qty, unit: unit ?? '' }
+  _save()
+}
+
+/**
+ * 他デバイスからの品目削除を適用（ブロードキャストしない）
+ */
+export function applyRemoteRemove(ingredient) {
+  delete inventory[ingredient]
+  _save()
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useInventory() {
   const { config } = useConfig()

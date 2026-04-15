@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove } from './composables/useInventory.js'
 import { useConfig } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
-import { useSync } from './composables/useSync.js'
+import { useSync, setInventoryCallbacks, registerInventoryGetter, broadcastUpdate, broadcastRemove } from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -37,7 +37,27 @@ const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
-const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList } = useSync()
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom } = useSync()
+
+// 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
+setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
+registerInventoryGetter(() => ({ ...inventory }))
+
+// URL パラメータ ?room=CODE があれば自動参加
+onMounted(() => {
+  const params = new URLSearchParams(window.location.search)
+  const roomCode = params.get('room')
+  if (roomCode) {
+    // URL から room パラメータを除去（リフレッシュで再参加しないよう）
+    const url = new URL(window.location.href)
+    url.searchParams.delete('room')
+    history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
+
+    joinRoom(roomCode)
+      .then(() => showToast(`ルーム ${roomCode} に参加しました`))
+      .catch(() => showToast(`ルーム ${roomCode} への参加に失敗しました`))
+  }
+})
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existing }
@@ -88,6 +108,14 @@ const undoItem = ref(null)  // { name, qty, unit } | null
 function onUndo() {
   const restored = undoLast()
   if (restored) {
+    // 取り消し後の状態をブロードキャスト（削除 or 以前の値に戻す）
+    if (syncActive.value) {
+      if (inventory[restored]) {
+        broadcastUpdate(restored, inventory[restored].qty, inventory[restored].unit)
+      } else {
+        broadcastRemove(restored)
+      }
+    }
     showToast(`↩ 「${restored}」を取り消しました`)
     searchText.value   = ''
     searchStatus.value = ''
@@ -280,6 +308,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd)
+  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit)
   undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   searchText.value   = ''
@@ -338,6 +367,7 @@ function onTableZero(item) {
 function onTableUpdate({ item, qty, unit }) {
   undoItem.value = null  // 手動編集したら戻すボタンは消す
   updateQty(item, qty, unit)
+  if (syncActive.value) broadcastUpdate(item, qty, unit)
 }
 
 // ── Reset ──────────────────────────────────────────────────────────────────────
@@ -497,7 +527,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :filled-count="filledCount"
       :read-only="isCompleted"
       @update="onTableUpdate"
-      @remove="removeItem"
+      @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
       @reset="onReset"
       @tap="onTableTap"
       @zero="onTableZero"
