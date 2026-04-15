@@ -125,8 +125,9 @@ function isSupplyItem(canonical) {
   return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
 }
 
-const hasSupplyItems  = computed(() => config.order.some(item => isSupplyItem(item)))
-const excludeSupplies = ref(false)
+const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(item)))
+// 'all' | 'exclude'（食材のみ） | 'only'（資材・備品のみ）
+const searchFilter   = ref('all')
 
 function findCandidates(name) {
   if (!name) return []
@@ -160,8 +161,10 @@ function findCandidates(name) {
 
   let results = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
 
-  if (excludeSupplies.value) {
+  if (searchFilter.value === 'exclude') {
     results = results.filter(c => !isSupplyItem(c))
+  } else if (searchFilter.value === 'only') {
+    results = results.filter(c => isSupplyItem(c))
   }
 
   return results
@@ -433,17 +436,20 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <button class="undo-btn" @click="onUndo">↩ 戻す</button>
       </div>
 
-      <!-- 資材・備品除外チップ（該当品目が存在する場合のみ表示） -->
+      <!-- 検索フィルターチップ（資材・備品系品目がある場合のみ表示） -->
       <div v-if="hasSupplyItems" class="search-filter-row">
         <button
           class="filter-chip"
-          :class="{ active: excludeSupplies }"
-          @click="excludeSupplies = !excludeSupplies"
+          :class="{ active: searchFilter === 'exclude' }"
+          @click="searchFilter = searchFilter === 'exclude' ? 'all' : 'exclude'"
           type="button"
-        >
-          <span class="chip-check">{{ excludeSupplies ? '✓' : '' }}</span>
-          資材・備品を検索から除外
-        </button>
+        >食材のみ</button>
+        <button
+          class="filter-chip"
+          :class="{ active: searchFilter === 'only' }"
+          @click="searchFilter = searchFilter === 'only' ? 'all' : 'only'"
+          type="button"
+        >資材・備品のみ</button>
       </div>
     </section>
 

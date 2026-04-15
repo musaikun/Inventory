@@ -43,13 +43,18 @@ const learnedScores = computed(() => {
   // 完了済み棚卸の入力順ログ（最新3回分、新しい順）
   const allLogs = getEntryLogs()
 
+  // 現在の品目リストに含まれる品目だけを対象にスコア計算。
+  // 別業態（資材のみ等）のセッションログが混入しても影響を受けない。
+  const currentSet = new Set(config.order)
+
   const scores = {}
   for (let i = 0; i < allLogs.length; i++) {
     const { log } = allLogs[i]
-    const n = log.length
+    const relevant = log.filter(item => currentSet.has(item))
+    const n = relevant.length
     if (n === 0) continue
     const weight = LOG_WEIGHTS[i]
-    log.forEach((item, pos) => {
+    relevant.forEach((item, pos) => {
       const posScore = n > 1 ? 1 - pos / (n - 1) : 1.0
       scores[item] = (scores[item] ?? 0) + posScore * weight
     })
