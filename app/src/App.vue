@@ -4,6 +4,7 @@ import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory } from './composables/useInventory.js'
 import { useConfig } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
+import { useSync } from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -11,6 +12,7 @@ import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import HistoryModal from './components/HistoryModal.vue'
+import SyncModal from './components/SyncModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias } = useConfig()
@@ -28,10 +30,14 @@ const {
 const { saveSnapshot } = useHistory()
 
 
-// ── Settings / History modal ───────────────────────────────────────────────────
+// ── Settings / History / Sync modal ────────────────────────────────────────────
 const showSettings     = ref(false)
 const showHistory      = ref(false)
+const showSync         = ref(false)
 const inventoryTableRef = ref(null)
+
+// ── Sync ───────────────────────────────────────────────────────────────────────
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList } = useSync()
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existing }
@@ -392,10 +398,32 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div class="header-right">
         <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
         <div class="date">{{ dateStr }}</div>
+        <button
+          class="settings-btn sync-btn"
+          :class="{ active: syncActive }"
+          @click="showSync = true"
+          :title="syncActive ? `ルーム ${syncState.roomCode}（${participantList.length}名）` : '複数デバイス同期'"
+        >
+          <span v-if="syncActive" class="sync-badge">
+            🔗<span class="sync-count">{{ participantList.length }}</span>
+          </span>
+          <span v-else>🔗</span>
+        </button>
         <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
         <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
       </div>
     </header>
+
+    <!-- 同期中バナー -->
+    <div v-if="syncActive" class="sync-banner">
+      <span class="sync-banner-dot"></span>
+      <span class="sync-banner-text">
+        <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
+        ・ルーム {{ syncState.roomCode }}
+        ・{{ participantList.length }}名が接続
+      </span>
+      <button class="sync-banner-btn" @click="showSync = true">詳細</button>
+    </div>
 
     <!-- 棚卸完了バナー -->
     <div v-if="isCompleted" class="complete-banner">
@@ -558,6 +586,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- 履歴モーダル -->
     <HistoryModal v-if="showHistory" @close="showHistory = false" />
+
+    <!-- 同期モーダル -->
+    <SyncModal v-if="showSync" @close="showSync = false" />
 
     <!-- トースト -->
     <Transition name="toast">

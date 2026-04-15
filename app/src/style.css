@@ -75,6 +75,75 @@ body {
   text-overflow: ellipsis;
 }
 
+/* ── 同期ボタン（アクティブ時の光る表示）── */
+.sync-btn.active {
+  background: rgba(255,255,255,0.3);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+}
+
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 14px;
+  position: relative;
+}
+
+.sync-count {
+  font-size: 10px;
+  font-weight: 800;
+  background: white;
+  color: var(--primary);
+  border-radius: 8px;
+  padding: 1px 5px;
+  min-width: 14px;
+  text-align: center;
+  margin-left: 2px;
+}
+
+/* ── 同期中バナー ── */
+.sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #eff6ff;
+  border-bottom: 2px solid #93c5fd;
+  padding: 8px 20px;
+  font-size: 12px;
+  position: sticky;
+  top: 52px;
+  z-index: 9;
+}
+
+.sync-banner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: cpulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.sync-banner-text {
+  flex: 1;
+  color: var(--primary);
+  line-height: 1.4;
+}
+
+.sync-banner-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  background: white;
+  color: var(--primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sync-banner-btn:active { background: #eff6ff; }
+
 .settings-btn {
   background: rgba(255,255,255,0.15);
   border: none;
