@@ -1,18 +1,21 @@
+import { reactive } from 'vue'
+
 const HISTORY_KEY = 'inventory_history_v1'
 
-// モジュールスコープ（シングルトン）
-let _data = {}
+// reactive にすることで getSnapshots/getEntryLogs を参照する computed が
+// 保存・削除のたびに自動再計算される
+const _data = reactive({})
 
 function _load() {
   try {
     const raw = localStorage.getItem(HISTORY_KEY)
-    if (raw) _data = JSON.parse(raw)
-  } catch (_) { _data = {} }
+    if (raw) Object.assign(_data, JSON.parse(raw))
+  } catch (_) {}
 }
 
 function _persist() {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(_data))
+    localStorage.setItem(HISTORY_KEY, JSON.stringify({ ..._data }))
   } catch (_) {}
 }
 
