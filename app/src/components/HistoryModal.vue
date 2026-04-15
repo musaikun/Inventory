@@ -8,8 +8,6 @@ const { getSnapshots, deleteSnapshot, exportSnapshotCSV } = useHistory()
 
 const snapshots    = computed(() => getSnapshots())
 const expandedDate = ref(null)
-const copyMsg      = ref('')
-let   copyTimer    = null
 
 function toggle(date) {
   expandedDate.value = expandedDate.value === date ? null : date
@@ -24,20 +22,17 @@ function fmtYen(n) {
   return '¥' + Math.round(n).toLocaleString('ja-JP')
 }
 
-async function onCopy(snapshot) {
-  const csv = exportSnapshotCSV(snapshot)
-  try {
-    await navigator.clipboard.writeText(csv)
-  } catch (_) {
-    const ta = document.createElement('textarea')
-    ta.value = csv
-    ta.style.cssText = 'position:fixed;top:-9999px'
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy')
-    document.body.removeChild(ta)
-  }
-  copyMsg.value = `${snapshot.date} をコピーしました`
-  clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => (copyMsg.value = ''), 2200)
+function onDownload(snapshot) {
+  const csv  = exportSnapshotCSV(snapshot)
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `棚卸_${snapshot.date}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 function onDelete(date) {
@@ -53,12 +48,9 @@ function onDelete(date) {
       <div class="sheet-handle"></div>
       <div class="sheet-title">棚卸履歴</div>
 
-      <!-- コピー完了トースト -->
-      <div v-if="copyMsg" class="copy-toast">✓ {{ copyMsg }}</div>
-
       <!-- 履歴なし -->
       <div v-if="!snapshots.length" class="empty-msg">
-        まだ履歴がありません。<br>棚卸を入力すると自動保存されます。
+        まだ履歴がありません。<br>棚卸完了後に記録が残ります。
       </div>
 
       <!-- 履歴リスト -->
@@ -77,7 +69,7 @@ function onDelete(date) {
               </div>
             </div>
             <div class="card-actions">
-              <button class="icon-btn" @click.stop="onCopy(snap)" title="CSVコピー">📋</button>
+              <button class="icon-btn" @click.stop="onDownload(snap)" title="CSVダウンロード">💾</button>
               <button class="icon-btn danger" @click.stop="onDelete(snap.date)" title="削除">🗑</button>
               <span class="chevron">{{ expandedDate === snap.date ? '▲' : '▼' }}</span>
             </div>
@@ -125,17 +117,6 @@ function onDelete(date) {
   display: flex;
   flex-direction: column;
   padding-bottom: 20px;
-}
-
-.copy-toast {
-  font-size: 13px;
-  color: var(--success);
-  background: #f0fdf4;
-  border-radius: 8px;
-  padding: 8px 12px;
-  text-align: center;
-  margin-bottom: 10px;
-  font-weight: 600;
 }
 
 .empty-msg {

@@ -18,6 +18,7 @@ const { config, dictionary, masterDict, registerAlias } = useConfig()
 const {
   inventory, filledCount, totalValue,
   isCompleted, completedAt,
+  entryLog,
   setItem, updateQty, removeItem, reset, exportCSV, undoLast,
   completeSession, reopenSession,
 } = useInventory()
@@ -25,12 +26,6 @@ const {
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot } = useHistory()
 
-// 在庫が変わるたびに自動保存（空のときはスキップ）
-watch(inventory, () => {
-  if (Object.keys(inventory).length > 0) {
-    saveSnapshot(inventory, config.prices, config.order)
-  }
-}, { deep: true })
 
 // ── Settings / History modal ───────────────────────────────────────────────────
 const showSettings     = ref(false)
@@ -61,7 +56,7 @@ function onComplete() {
   }
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  saveSnapshot(inventory, config.prices, config.order)
+  saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog)
   undoItem.value = null
   if (continuousMode.value) onForceStop()
   showToast('棚卸を完了しました ✓')

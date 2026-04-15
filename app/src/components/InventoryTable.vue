@@ -1,10 +1,10 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
-import { useInventory } from '../composables/useInventory.js'
+import { useHistory } from '../composables/useHistory.js'
 
 const { config } = useConfig()
-const { entryLog, getHistoricalLogs } = useInventory()
+const { getEntryLogs } = useHistory()
 
 const props = defineProps({
   inventory:   { type: Object,  required: true },
@@ -41,13 +41,8 @@ const sortOpts = [
 const LOG_WEIGHTS = [0.6, 0.3, 0.1]
 
 const learnedScores = computed(() => {
-  // 現在セッション（entryLog）+ 過去履歴を結合
-  const historical = getHistoricalLogs()
-  const today      = new Date().toISOString().slice(0, 10)
-  const allLogs    = [
-    ...(entryLog.length > 0 ? [{ date: today, log: [...entryLog] }] : []),
-    ...historical,
-  ].slice(0, 3)
+  // 完了済み棚卸の入力順ログ（最新3回分、新しい順）
+  const allLogs = getEntryLogs()
 
   const scores = {}
   for (let i = 0; i < allLogs.length; i++) {

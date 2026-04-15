@@ -1,8 +1,6 @@
 import { reactive, computed, ref } from 'vue'
 import { useConfig } from './useConfig.js'
 
-const ENTRY_LOGS_KEY = 'inventory_entry_logs_v1'
-
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const inventory   = reactive({})
 const entryLog    = reactive([])   // 今日の入力順（初入力の順番を記録）
@@ -10,24 +8,6 @@ const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 
 // 直前の setItem 操作を1件分保持（↩ 戻す用）
 let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, addedToLog: boolean }
-
-// ── 入力順ログ（過去3回分）ロード / セーブ ──────────────────────────────────
-function _loadHistoricalLogs() {
-  try {
-    const raw = localStorage.getItem(ENTRY_LOGS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch (_) { return [] }
-}
-
-function _appendHistoricalLog(date, log) {
-  if (!log || log.length === 0) return
-  const logs     = _loadHistoricalLogs()
-  const filtered = logs.filter(l => l.date !== date)
-  filtered.unshift({ date, log: [...log] })
-  try {
-    localStorage.setItem(ENTRY_LOGS_KEY, JSON.stringify(filtered.slice(0, 3)))
-  } catch (_) {}
-}
 
 // ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
@@ -49,13 +29,9 @@ function _load() {
     const today = new Date().toISOString().slice(0, 10)
 
     // 完了済みセッションは日付をまたいでも保持
-    if (!saved.completedAt && saved.date !== today) {
-      // 未完了かつ日付変更 → 昨日の入力順を履歴に保存してから破棄
-      if (saved.entryLog?.length > 0) {
-        _appendHistoricalLog(saved.date, saved.entryLog)
-      }
-      return
-    }
+    // 未完了かつ日付変更 → 当日分として再開しない（破棄）
+    if (!saved.completedAt && saved.date !== today) return
+
     Object.assign(inventory, saved.data ?? {})
     if (saved.entryLog?.length > 0) {
       entryLog.splice(0, entryLog.length, ...saved.entryLog)
@@ -135,10 +111,8 @@ export function useInventory() {
     _save()
   }
 
-  /** 棚卸を完了としてマーク。入力順を学習履歴に保存し、読み取り専用になる。 */
+  /** 棚卸を完了としてマーク。読み取り専用になる。スナップショット保存は呼び出し元（App.vue）で行う。 */
   function completeSession() {
-    const today = new Date().toISOString().slice(0, 10)
-    _appendHistoricalLog(today, [...entryLog])  // 学習ソート用ログを保存
     completedAt.value = new Date().toISOString()
     _save()
   }
@@ -149,13 +123,8 @@ export function useInventory() {
     _save()
   }
 
-  /** 新規棚卸を開始（現セッションをクリア）*/
+  /** 新規棚卸を開始（現セッションをクリア） */
   function reset() {
-    // 未完了セッションのみ履歴保存（完了済みは completeSession 時に保存済み）
-    if (!completedAt.value && entryLog.length > 0) {
-      const today = new Date().toISOString().slice(0, 10)
-      _appendHistoricalLog(today, [...entryLog])
-    }
     Object.keys(inventory).forEach(k => delete inventory[k])
     entryLog.splice(0, entryLog.length)
     completedAt.value = null
@@ -163,15 +132,8 @@ export function useInventory() {
     _save()
   }
 
-  /** 過去3回分の入力順ログを返す（学習ソート用） */
-  function getHistoricalLogs() {
-    return _loadHistoricalLogs()
-  }
-
   function exportCSV() {
     // CSVフォーミュラインジェクション対策
-    // =, +, -, @, | で始まるセルはスプレッドシートで数式実行される危険があるため
-    // シングルクォートを前置してテキストとして扱わせる
     function csvSafe(val) {
       if (typeof val !== 'string' || val === '') return val
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
@@ -202,15 +164,15 @@ export function useInventory() {
         const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
         if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${code}","${safeItem}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
+        rows.push(`"${date}","${code}","${safeItem}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
       } else {
         const qty = e != null ? e.qty : ''
-        rows.push(`${date},"${code}","${safeItem}","${unit}",${qty}`)
+        rows.push(`"${date}","${code}","${safeItem}","${unit}",${qty}`)
       }
     })
 
     if (hasAnyPrice) {
-      rows.push(`${date},"【合計】","",,,${grandTotal}`)
+      rows.push(`"${date}","","【合計】","",,,${grandTotal}`)
     }
 
     return rows.join('\r\n')
@@ -219,7 +181,7 @@ export function useInventory() {
   return {
     inventory, filledCount, totalValue,
     isCompleted, completedAt,
-    entryLog, getHistoricalLogs,
+    entryLog,
     setItem, updateQty, removeItem, reset, exportCSV, undoLast,
     completeSession, reopenSession,
   }

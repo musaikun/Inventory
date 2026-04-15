@@ -117,17 +117,21 @@ function onResetMaster() {
       <details class="format-help">
         <summary>CSVフォーマットを確認</summary>
         <div class="format-body">
-          <p class="format-intro">1行目はヘッダー行（スキップされます）</p>
+          <p class="format-intro">1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
 
           <div class="col-table">
             <div class="col-row col-head">
               <span>列</span><span>項目名</span><span>説明</span>
             </div>
             <div class="col-row"><span>1</span><span>品目名</span><span>正式名称（必須）</span></div>
-            <div class="col-row"><span>2</span><span>単位</span><span>袋・本・個・パックなど</span></div>
-            <div class="col-row"><span>3</span><span>単価</span><span>省略可</span></div>
-            <div class="col-row"><span>4</span><span>カテゴリ</span><span>ジャンル別表示に使用</span></div>
-            <div class="col-row"><span>5</span><span>エイリアス</span><span>音声で呼ぶ別名・略称（カンマ区切り）</span></div>
+            <div class="col-row"><span>2</span><span>単位</span><span>袋・本・個・パックなど（省略可）</span></div>
+            <div class="col-row"><span>3</span><span>単価</span><span>在庫金額の計算に使用（省略可）</span></div>
+            <div class="col-row"><span>4</span><span>カテゴリ</span><span>ジャンル別表示に使用（省略可）</span></div>
+            <div class="col-row"><span>5</span><span>エイリアス</span><span>音声・検索で使う別名・略称、カンマ区切り（省略可）</span></div>
+            <div class="col-row"><span>6</span><span>商品コード</span><span>コード入力で直接検索できる（省略可）</span></div>
+            <div class="col-row"><span>7</span><span>分類コード</span><span>カテゴリの並び順を数値で制御（省略可）</span></div>
+            <div class="col-row"><span>8</span><span>前月実績</span><span>入力画面にヒント表示（省略可）</span></div>
+            <div class="col-row"><span>9</span><span>入数</span><span>仕入れ単位をヒント表示・入力ミス防止（省略可）</span></div>
           </div>
 
           <p class="format-intro" style="margin-top:10px">記入例：</p>
