@@ -141,13 +141,28 @@ body {
 /* ── 検索フィルターチップ行 ── */
 .search-filter-row {
   width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
+  gap: 4px;
+  padding: 5px 12px;
   border-radius: 20px;
   border: 1.5px solid var(--border);
   background: white;
@@ -166,6 +181,12 @@ body {
 }
 
 .filter-chip:active { opacity: 0.75; }
+
+.chip-indicator {
+  width: 12px;
+  font-size: 11px;
+  text-align: center;
+}
 
 .chip-check {
   width: 14px;

@@ -438,18 +438,25 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <!-- 検索フィルターチップ（資材・備品系品目がある場合のみ表示） -->
       <div v-if="hasSupplyItems" class="search-filter-row">
+        <span class="filter-label">🔍 検索対象：</span>
         <button
           class="filter-chip"
           :class="{ active: searchFilter === 'exclude' }"
           @click="searchFilter = searchFilter === 'exclude' ? 'all' : 'exclude'"
           type="button"
-        >食材のみ</button>
+        >
+          <span class="chip-indicator">{{ searchFilter === 'exclude' ? '✓' : '' }}</span>
+          食材のみ
+        </button>
         <button
           class="filter-chip"
           :class="{ active: searchFilter === 'only' }"
           @click="searchFilter = searchFilter === 'only' ? 'all' : 'only'"
           type="button"
-        >資材・備品のみ</button>
+        >
+          <span class="chip-indicator">{{ searchFilter === 'only' ? '✓' : '' }}</span>
+          資材・備品のみ
+        </button>
       </div>
     </section>
 
