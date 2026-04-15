@@ -15,10 +15,9 @@ const props = defineProps({
 const emit = defineEmits(['update', 'remove', 'reset', 'tap', 'zero'])
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode      = ref('category')  // 'default' | 'alpha' | 'category'
-const filterMode    = ref('all')       // 'all' | 'filled' | 'empty'
-const typeFilter    = ref('all')       // 'all' | 'supplies' | 'food'
-const expandedCats = reactive({})      // { カテゴリ名: true } = 展開中（デフォルト閉じ）
+const sortMode     = ref('category')  // 'default' | 'alpha' | 'category'
+const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
+const expandedCats = reactive({})     // { カテゴリ名: true } = 展開中（デフォルト閉じ）
 
 function toggleCat(label) {
   if (expandedCats[label]) delete expandedCats[label]
@@ -84,26 +83,6 @@ const filterOpts = [
   { value: 'empty',  label: '未入力' },
 ]
 
-const typeOpts = [
-  { value: 'all',      label: '全品目' },
-  { value: 'supplies', label: '資材・備品' },
-  { value: 'food',     label: '食材のみ' },
-]
-
-/** カテゴリが「資材・備品・その他」系かを判定 */
-function isSupplyCategory(cat) {
-  if (!cat || cat === 'その他') return true
-  return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
-}
-
-/** 資材・備品系品目が存在する場合のみタイプフィルターを表示 */
-const hasSupplyItems = computed(() =>
-  config.order.some(item => {
-    const cat = config.categories?.[item] ?? null
-    return cat && (cat.includes('資材') || cat.includes('備品') || cat.includes('その他'))
-  })
-)
-
 // ── 行データ生成 ──────────────────────────────────────────────────────────────
 const rows = computed(() => {
   // 1. config.order 順の行（すべて、entry=null もあり）
@@ -145,13 +124,6 @@ const rows = computed(() => {
     items = ordered.filter(r => r.entry === null)
   } else {
     items = [...ordered, ...customs]
-  }
-
-  // 3b. タイプフィルター（資材・備品 / 食材）適用
-  if (typeFilter.value === 'supplies') {
-    items = items.filter(r => isSupplyCategory(r.category))
-  } else if (typeFilter.value === 'food') {
-    items = items.filter(r => !isSupplyCategory(r.category))
   }
 
   // 4. 並べ替え適用
@@ -408,18 +380,6 @@ function fmtYen(n) {
       </div>
     </div>
 
-    <!-- タイプフィルター（資材・備品系品目がある場合のみ表示） -->
-    <div v-if="hasSupplyItems" class="toolbar toolbar-type">
-      <div class="seg-group seg-full">
-        <button
-          v-for="opt in typeOpts"
-          :key="opt.value"
-          :class="['seg-btn', { active: typeFilter === opt.value }]"
-          @click="typeFilter = opt.value"
-        >{{ opt.label }}</button>
-      </div>
-    </div>
-
     <!-- 学習順：データなし案内 -->
     <div v-if="sortMode === 'learned' && Object.keys(learnedScores).length === 0" class="learned-empty">
       📊 棚卸を1回完了すると、入力した順番で並びます
@@ -564,10 +524,6 @@ function fmtYen(n) {
   display: flex;
   gap: 8px;
   margin-bottom: 6px;
-}
-
-.toolbar-type {
-  margin-bottom: 10px;
 }
 
 .seg-full {

@@ -2,20 +2,17 @@
 import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import PdfImporterModal from './PdfImporterModal.vue'
-import MasterDictModal from './MasterDictModal.vue'
 
 const emit = defineEmits(['close'])
 const {
   config, itemCount,
   loadFromCSV, exportConfigCSV, resetToDefault,
-  masterKeywordCount, exportMasterCSV, resetMaster,
 } = useConfig()
 
-const status         = ref(null)  // { type: 'success'|'error', msg: String }
-const showImporter   = ref(false)
-const showMasterEdit = ref(false)
-const dragging  = ref(false)
-const fileInput = ref(null)
+const status       = ref(null)  // { type: 'success'|'error', msg: String }
+const showImporter = ref(false)
+const dragging     = ref(false)
+const fileInput    = ref(null)
 
 // ── 品目リスト ファイル読み込み ────────────────────────────────────────────────
 function handleFile(file) {
@@ -57,24 +54,6 @@ function onReset() {
   if (!confirm('デフォルトの品目リストに戻しますか？\nアップロードした設定は削除されます。')) return
   resetToDefault()
   status.value = { type: 'success', msg: 'デフォルトに戻しました' }
-}
-
-// ── マスター辞書 CSVダウンロード ───────────────────────────────────────────────
-function downloadMasterCSV() {
-  const csv  = exportMasterCSV()
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href     = url
-  a.download = 'マスター辞書.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-// ── マスター辞書 リセット ──────────────────────────────────────────────────────
-function onResetMaster() {
-  if (!confirm('マスター辞書をすべて削除しますか？\n蓄積した学習データがリセットされます。')) return
-  resetMaster()
 }
 </script>
 
@@ -167,37 +146,6 @@ function onResetMaster() {
         </button>
       </div>
 
-      <!-- ── マスター辞書 セクション ── -->
-      <div class="section-divider"></div>
-      <div class="sheet-title" style="margin-top:4px">検索学習</div>
-
-      <!-- 説明 -->
-      <div class="master-desc">
-        検索して品目を選ぶたびに、そのキーワードが自動的に学習されます。<br>
-        品目リストCSVが差し替わっても学習データは保持されます。
-      </div>
-
-      <!-- 現在の状態 -->
-      <div class="status-bar" :class="masterKeywordCount > 0 ? 'custom' : 'default'">
-        <span class="status-icon">{{ masterKeywordCount > 0 ? '🧠' : '📭' }}</span>
-        <span>
-          {{ masterKeywordCount > 0 ? `${masterKeywordCount}件のキーワードを学習済み` : '未学習' }}
-        </span>
-      </div>
-
-      <!-- アクションボタン -->
-      <div class="actions">
-        <button class="btn btn-secondary" @click="showMasterEdit = true">
-          ✏️ 編集
-        </button>
-        <button class="btn btn-secondary" @click="downloadMasterCSV" :disabled="masterKeywordCount === 0">
-          📤 CSV出力
-        </button>
-        <button class="btn btn-secondary reset" @click="onResetMaster" :disabled="masterKeywordCount === 0">
-          🗑️ リセット
-        </button>
-      </div>
-
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
     </div>
   </div>
@@ -207,12 +155,6 @@ function onResetMaster() {
     v-if="showImporter"
     @close="showImporter = false"
     @imported="result => { showImporter = false; status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
-  />
-
-  <!-- マスター辞書 編集モーダル -->
-  <MasterDictModal
-    v-if="showMasterEdit"
-    @close="showMasterEdit = false"
   />
 </template>
 
@@ -337,21 +279,6 @@ function onResetMaster() {
   font-weight: 600;
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
-
-.section-divider {
-  border-top: 1px solid var(--border);
-  margin: 16px 0;
-}
-
-.master-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  margin-bottom: 14px;
-  padding: 10px 14px;
-  background: #f8fafc;
-  border-radius: 10px;
-}
 
 .actions {
   display: flex;

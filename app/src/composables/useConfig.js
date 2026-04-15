@@ -382,9 +382,8 @@ export function useConfig() {
     _saveMaster()
   }
 
-  const itemCount          = computed(() => config.order.length)
-  const learnedAliasCount  = computed(() => Object.keys(learnedAliases).length)
-  const masterKeywordCount = computed(() => Object.keys(masterDict).length)
+  const itemCount         = computed(() => config.order.length)
+  const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
   return {
     config,
@@ -392,15 +391,9 @@ export function useConfig() {
     masterDict,
     itemCount,
     learnedAliasCount,
-    masterKeywordCount,
     loadFromCSV,
     exportConfigCSV,
     resetToDefault,
     registerAlias,
-    loadMasterFromCSV,
-    exportMasterCSV,
-    resetMaster,
-    addMasterEntry,
-    deleteMasterEntry,
   }
 }
