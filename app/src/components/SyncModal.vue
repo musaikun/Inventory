@@ -3,8 +3,10 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
 import { deviceName } from '../composables/useDeviceId.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const emit = defineEmits(['close'])
+useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, getShareUrl,

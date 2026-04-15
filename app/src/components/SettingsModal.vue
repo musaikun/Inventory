@@ -2,18 +2,22 @@
 import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 
 const emit = defineEmits(['close'])
+useEscapeKey(() => emit('close'))
+
 const {
   config, itemCount,
   loadFromCSV, exportConfigCSV, resetToDefault,
 } = useConfig()
 
-const status       = ref(null)  // { type: 'success'|'error', msg: String }
-const showImporter = ref(false)
-const dragging     = ref(false)
-const fileInput    = ref(null)
+const status         = ref(null)  // { type: 'success'|'error', msg: String }
+const showImporter   = ref(false)
+const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイル
+const dragging       = ref(false)
+const fileInput      = ref(null)
 
 // ── 端末名 ───────────────────────────────────────────────────────────────────
 const deviceNameInput = ref(deviceName.value)
@@ -22,14 +26,28 @@ function saveDeviceName() {
   setDeviceName(deviceNameInput.value)
 }
 
-// ── 品目リスト ファイル読み込み ────────────────────────────────────────────────
+// ── ファイル読み込み（CSV / PDF / Excel 自動判別）─────────────────────────────
 function handleFile(file) {
   if (!file) return
-  if (!file.name.match(/\.csv$/i)) {
-    status.value = { type: 'error', msg: 'CSVファイルを選択してください' }
+
+  const isCsv   = /\.csv$/i.test(file.name)
+  const isPdf   = /\.pdf$/i.test(file.name)
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
+
+  if (!isCsv && !isPdf && !isExcel) {
+    status.value = { type: 'error', msg: 'CSV / PDF / Excel ファイルを選択してください' }
     return
   }
 
+  // PDF / Excel → プレビューモーダルで確認
+  if (isPdf || isExcel) {
+    status.value       = null
+    importerFile.value = file
+    showImporter.value = true
+    return
+  }
+
+  // CSV → その場で直接読み込み
   const reader = new FileReader()
   reader.onload = e => {
     try {
@@ -42,8 +60,13 @@ function handleFile(file) {
   reader.readAsText(file, 'UTF-8')
 }
 
-function onFileChange(e)   { handleFile(e.target.files[0]) }
-function onDrop(e)         { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
+function onFileChange(e) { handleFile(e.target.files[0]) }
+function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
+
+function onImporterClose() {
+  showImporter.value = false
+  importerFile.value = null
+}
 
 // ── 品目リスト CSVダウンロード ─────────────────────────────────────────────────
 function downloadCSV() {
@@ -80,7 +103,7 @@ function onReset() {
         </span>
       </div>
 
-      <!-- ドロップゾーン -->
+      <!-- ドロップゾーン（CSV / PDF / Excel 全対応） -->
       <div
         class="drop-zone"
         :class="{ over: dragging }"
@@ -90,9 +113,9 @@ function onReset() {
         @click="fileInput.click()"
       >
         <div class="drop-icon">📂</div>
-        <div class="drop-label">CSVをドラッグ or タップしてアップロード</div>
-        <div class="drop-hint">（UTF-8形式推奨）</div>
-        <input ref="fileInput" type="file" accept=".csv" class="hidden-input" @change="onFileChange" />
+        <div class="drop-label">ドラッグ or タップしてアップロード</div>
+        <div class="drop-hint">CSV / PDF / Excel（.csv / .pdf / .xlsx）</div>
+        <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
       </div>
 
       <!-- ステータスメッセージ -->
@@ -102,9 +125,9 @@ function onReset() {
 
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
-        <summary>CSVフォーマットを確認</summary>
+        <summary>CSVフォーマットを確認（自作する場合）</summary>
         <div class="format-body">
-          <p class="format-intro">1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
+          <p class="format-intro">PDF / Excel から変換する場合はこの項目は不要です。<br>CSVを自作する場合、1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
 
           <div class="col-table">
             <div class="col-row col-head">
@@ -162,11 +185,6 @@ function onReset() {
         </div>
       </div>
 
-      <!-- 棚卸記入表変換ボタン -->
-      <button class="btn btn-primary import-btn" @click="showImporter = true">
-        📊 棚卸記入表Excelから変換
-      </button>
-
       <!-- アクションボタン -->
       <div class="actions">
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
@@ -179,11 +197,12 @@ function onReset() {
     </div>
   </div>
 
-  <!-- 棚卸記入表 変換モーダル -->
+  <!-- 棚卸記入表 変換モーダル（PDF/Excel時に自動表示） -->
   <PdfImporterModal
     v-if="showImporter"
-    @close="showImporter = false"
-    @imported="result => { showImporter = false; status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+    :initial-file="importerFile"
+    @close="onImporterClose"
+    @imported="result => { onImporterClose(); status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
   />
 </template>
 

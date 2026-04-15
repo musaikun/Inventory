@@ -1,9 +1,15 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { useConfig } from '../composables/useConfig.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
+
+const props = defineProps({
+  initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
+})
 
 const emit = defineEmits(['close', 'imported'])
+useEscapeKey(() => emit('close'))
 
 const { loadFromCSV } = useConfig()
 
@@ -66,6 +72,11 @@ async function handleFile(file) {
 
 function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
 function onFileChange(e) { handleFile(e.target.files[0]) }
+
+// 起動時に事前ファイルが渡されていれば自動で処理開始
+onMounted(() => {
+  if (props.initialFile) handleFile(props.initialFile)
+})
 
 function onImport() {
   try {

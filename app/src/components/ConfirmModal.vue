@@ -124,6 +124,11 @@ const addLabel = computed(() => {
 
 // ── 送信 ───────────────────────────────────────────────────────────────────────
 function submit(isAdd) {
+  // 空入力のままEnter → スキップ（未入力のまま次へ / モーダルを閉じる）
+  if (qty.value === '' || qty.value == null) {
+    emit('cancel')
+    return
+  }
   const q = parseFloat(qty.value)
   if (isNaN(q) || q < 0) {
     hasError.value = true

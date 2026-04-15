@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+useEscapeKey(() => emit('close'))
 
 const { getSnapshots, deleteSnapshot, exportSnapshotCSV } = useHistory()
 
