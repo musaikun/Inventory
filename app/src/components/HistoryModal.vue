@@ -62,7 +62,9 @@ function onDelete(date) {
             <div class="card-info">
               <div class="card-date">{{ fmtDate(snap.date) }}</div>
               <div class="card-meta">
-                <span class="meta-count">{{ snap.items.length }}品目</span>
+                <span class="meta-count">
+                  {{ snap.items.filter(it => it.qty !== null).length }} / {{ snap.items.length }}品目入力済み
+                </span>
                 <span v-if="snap.totalValue != null" class="meta-total">
                   {{ fmtYen(snap.totalValue) }}
                 </span>

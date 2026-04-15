@@ -32,9 +32,9 @@ export function useHistory() {
 
     const today = new Date().toISOString().slice(0, 10)
 
-    // 定義順 → カスタム品目の順
-    const orderedKeys = [
-      ...order.filter(k => inventory[k]),
+    // config.order 順全件 → カスタム品目（config.orderに含まれないもの）
+    const allKeys = [
+      ...order,
       ...Object.keys(inventory).filter(k => !order.includes(k)),
     ]
 
@@ -42,14 +42,20 @@ export function useHistory() {
     let totalValue = 0
     let hasPrices  = false
 
-    for (const item of orderedKeys) {
-      const entry     = inventory[item]
-      if (!entry) continue
+    for (const item of allKeys) {
+      const entry     = inventory[item] ?? null   // null = 未入力
       const unitPrice = prices?.[item] ?? null
-      const subtotal  = unitPrice != null ? Math.round(entry.qty * unitPrice) : null
+      const subtotal  = (entry && unitPrice != null) ? Math.round(entry.qty * unitPrice) : null
       const code      = codes?.[item] ?? ''
       if (subtotal != null) { totalValue += subtotal; hasPrices = true }
-      items.push({ item, qty: entry.qty, unit: entry.unit, unitPrice, subtotal, code })
+      items.push({
+        item,
+        qty:       entry != null ? entry.qty : null,  // null = 未入力
+        unit:      entry?.unit ?? '',
+        unitPrice,
+        subtotal,
+        code,
+      })
     }
 
     _data[today] = {
@@ -107,10 +113,11 @@ export function useHistory() {
       const code     = csvSafe(it.code ?? '')
       const safeItem = csvSafe(it.item)
       const unit     = csvSafe(it.unit ?? '')
+      const qty      = it.qty !== null && it.qty !== undefined ? it.qty : ''
       if (hasPrice) {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${it.qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
+        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
       } else {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${it.qty}`)
+        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty}`)
       }
     }
 

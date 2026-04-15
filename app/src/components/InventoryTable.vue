@@ -422,7 +422,7 @@ function fmtYen(n) {
 
     <!-- 学習順：データなし案内 -->
     <div v-if="sortMode === 'learned' && Object.keys(learnedScores).length === 0" class="learned-empty">
-      📊 棚卸を数回完了するとここに学習した順番で並びます
+      📊 棚卸を1回完了すると、入力した順番で並びます
     </div>
 
     <!-- テーブル -->
