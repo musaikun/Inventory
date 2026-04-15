@@ -29,11 +29,18 @@ onMounted(() => {
 })
 
 // ── ホスト作成 ────────────────────────────────────────────────────────────────
+const createError = ref('')
+
 async function onCreateRoom() {
-  await createRoom()
-  view.value = 'host'
-  await nextTick()
-  await _generateQR()
+  createError.value = ''
+  try {
+    await createRoom()
+    view.value = 'host'
+    await nextTick()
+    await _generateQR()
+  } catch (e) {
+    createError.value = state.error || 'ルームを作成できませんでした'
+  }
 }
 
 // ── ゲスト参加 ────────────────────────────────────────────────────────────────
@@ -108,6 +115,10 @@ function onCodeInput(e) {
         <button class="btn btn-primary sync-main-btn" @click="onCreateRoom">
           🔗 新しいルームを作成
         </button>
+
+        <div v-if="createError" class="msg error" style="margin-top:10px">
+          ✗ {{ createError }}
+        </div>
 
         <div class="sync-divider"><span>または</span></div>
 
