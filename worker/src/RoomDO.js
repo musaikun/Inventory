@@ -32,6 +32,20 @@ export class RoomDO {
   async _handleMessage(ws, msg) {
     await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
 
+    // レート制限: ping/join 以外は 2秒ウィンドウで最大 20件
+    if (msg.type !== 'ping' && msg.type !== 'join') {
+      const att   = ws.deserializeAttachment() ?? {}
+      const now   = Date.now()
+      const start = att._rlTime ?? 0
+      const count = att._rlCount ?? 0
+      if (now - start <= 2000) {
+        if (count >= 20) return
+        ws.serializeAttachment({ ...att, _rlCount: count + 1 })
+      } else {
+        ws.serializeAttachment({ ...att, _rlTime: now, _rlCount: 1 })
+      }
+    }
+
     switch (msg.type) {
       case 'join': {
         const deviceId   = String(msg.deviceId   ?? '').slice(0, 64)
