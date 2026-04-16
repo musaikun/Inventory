@@ -157,6 +157,7 @@ function submit(isAdd) {
       <!-- 重複警告 -->
       <div v-if="hasDuplicate" class="dup-warn">
         ⚠️ 入力済み：{{ existing.qty }}{{ existing.unit }}
+        <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
       </div>
 
       <!-- 数量表示 + 単位 + 音声 -->
@@ -271,6 +272,11 @@ function submit(isAdd) {
   font-size: 13px;
   color: #713f12;
   margin-bottom: 10px;
+}
+
+.dup-entered-by {
+  font-weight: 700;
+  color: var(--primary);
 }
 
 /* 数量表示エリア */

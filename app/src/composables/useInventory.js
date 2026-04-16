@@ -48,8 +48,8 @@ _load()
  * 他デバイスからの品目更新を適用（ブロードキャストしない・entryLog に追加しない）
  * useSync.js が setInventoryCallbacks 経由で登録し呼び出す
  */
-export function applyRemoteUpdate(ingredient, qty, unit) {
-  inventory[ingredient] = { qty, unit: unit ?? '' }
+export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '') {
+  inventory[ingredient] = { qty, unit: unit ?? '', enteredBy }
   _save()
 }
 
@@ -82,17 +82,19 @@ export function useInventory() {
     return hasPrices ? Math.round(total) : null
   })
 
-  function setItem(ingredient, qty, unit, add = false) {
+  function setItem(ingredient, qty, unit, add = false, enteredBy = '') {
     const existing = inventory[ingredient]
     const isNew    = !existing
     _lastEntry = {
       ingredient,
-      prevState:  existing ? { qty: existing.qty, unit: existing.unit } : null,
+      prevState:  existing
+        ? { qty: existing.qty, unit: existing.unit, enteredBy: existing.enteredBy ?? '' }
+        : null,
       addedToLog: isNew,
     }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
-    inventory[ingredient] = { qty: finalQty, unit }
+    inventory[ingredient] = { qty: finalQty, unit, enteredBy }
     if (isNew) entryLog.push(ingredient)
     _save()
   }
@@ -109,17 +111,18 @@ export function useInventory() {
         if (idx >= 0) entryLog.splice(idx, 1)
       }
     } else {
-      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit }
+      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit, enteredBy: prevState.enteredBy ?? '' }
     }
     _save()
     return ingredient
   }
 
-  function updateQty(ingredient, qty, unit) {
+  function updateQty(ingredient, qty, unit, enteredBy = '') {
     if (inventory[ingredient]) {
       inventory[ingredient].qty = qty
+      if (enteredBy) inventory[ingredient].enteredBy = enteredBy
     } else {
-      inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '' }
+      inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '', enteredBy }
       entryLog.push(ingredient)
     }
     _save()

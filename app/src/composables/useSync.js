@@ -1,58 +1,53 @@
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref } from 'vue'
 import { deviceId, deviceName } from './useDeviceId.js'
 
-// ── Worker URL（環境変数） ────────────────────────────────────────────────────
 const WORKER_URL = (() => {
   const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
   if (!raw) return ''
   return raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
 })()
 
-// ── モジュールスコープ state（シングルトン）──────────────────────────────────
+// ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({
-  mode:        'idle',   // 'idle' | 'hosting' | 'joining'
+  mode:        'idle',
   roomCode:    null,
   isConnected: false,
   error:       null,
 })
 
-const participants = reactive({})
+const participants  = reactive({})
+const messages      = reactive([])
+const unreadCount   = ref(0)
 
-// チャットメッセージ履歴
-const messages = reactive([])
-
-// ── 内部変数 ─────────────────────────────────────────────────────────────────
-let _ws               = null
-let _reconnectTimer   = null
-let _heartbeatTimer   = null
-let _reconnectCount   = 0
+let _ws             = null
+let _reconnectTimer = null
+let _heartbeatTimer = null
+let _reconnectCount = 0
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
-// ── コールバック登録（App.vue がつなぎ役）────────────────────────────────────
-let _onItemUpdate     = null   // (ingredient, qty, unit) => void
-let _onItemRemove     = null   // (ingredient) => void
-let _getInventory     = null   // () => { [ingredient]: {qty, unit} }
-let _getConfig        = null   // () => { order, units, ... }
-let _onConfigReceived = null   // (config) => void
-let _onDone           = null   // (deviceName) => void
-let _onMessage        = null   // (msgObj) => void
-let _onDissolved      = null   // () => void
+// ── コールバック ──────────────────────────────────────────────────────────────
+let _onItemUpdate     = null
+let _onItemRemove     = null
+let _getInventory     = null
+let _getConfig        = null
+let _onConfigReceived = null
+let _onDone           = null
+let _onMessage        = null
+let _onDissolved      = null
 
-export function setInventoryCallbacks(onUpdate, onRemove) {
-  _onItemUpdate = onUpdate
-  _onItemRemove = onRemove
-}
-export function registerInventoryGetter(fn) { _getInventory = fn }
-export function registerConfigGetter(fn)    { _getConfig = fn }
-export function setConfigCallback(fn)       { _onConfigReceived = fn }
-export function setDoneCallback(fn)         { _onDone = fn }
-export function setMessageCallback(fn)      { _onMessage = fn }
-export function setDissolvedCallback(fn)    { _onDissolved = fn }
+export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
+export function registerInventoryGetter(fn)  { _getInventory = fn }
+export function registerConfigGetter(fn)     { _getConfig = fn }
+export function setConfigCallback(fn)        { _onConfigReceived = fn }
+export function setDoneCallback(fn)          { _onDone = fn }
+export function setMessageCallback(fn)       { _onMessage = fn }
+export function setDissolvedCallback(fn)     { _onDissolved = fn }
+export function markMessagesRead()           { unreadCount.value = 0 }
 
-// ── 送信 API ────────────────────────────────────────────────────────────────
-export function broadcastUpdate(ingredient, qty, unit) {
+// ── 送信 API ──────────────────────────────────────────────────────────────────
+export function broadcastUpdate(ingredient, qty, unit, enteredBy = '') {
   if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '' }))
+  _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy }))
 }
 
 export function broadcastRemove(ingredient) {
@@ -65,26 +60,21 @@ export function broadcastDone() {
   _ws.send(JSON.stringify({ type: 'done' }))
 }
 
-/** replyTo: { id, text, senderName } | null */
 export function broadcastMessage(text, replyTo = null) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
-function _generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)]
-  return code
+function _genCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 4 }, () => c[Math.floor(Math.random() * c.length)]).join('')
 }
 
 function _startHeartbeat() {
   _stopHeartbeat()
   _heartbeatTimer = setInterval(() => {
-    if (_ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'ping' }))
-    }
+    if (_ws?.readyState === WebSocket.OPEN) _ws.send(JSON.stringify({ type: 'ping' }))
   }, 25000)
 }
 
@@ -106,6 +96,17 @@ function _updateParticipants(list) {
   }
 }
 
+function _addSysMsg(text) {
+  messages.push({
+    id:        `sys-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    text,
+    isSystem:  true,
+    timestamp: Date.now(),
+    senderId:  'system',
+    senderName: 'system',
+  })
+}
+
 function _resetClientState() {
   _clearReconnectTimer()
   _stopHeartbeat()
@@ -115,23 +116,21 @@ function _resetClientState() {
   state.error       = null
   Object.keys(participants).forEach(k => delete participants[k])
   messages.splice(0, messages.length)
+  unreadCount.value = 0
 }
 
 function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
       for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
-        _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '')
+        _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
       }
       _updateParticipants(msg.participants ?? [])
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
 
-      // ゲストがホストの品目設定を受け取る
       if (state.mode === 'joining' && msg.config?.isCustom) {
         _onConfigReceived?.(msg.config)
       }
-
-      // チャット履歴を反映
       if (Array.isArray(msg.messages)) {
         messages.splice(0, messages.length, ...msg.messages)
       }
@@ -140,7 +139,7 @@ function _handleMessage(msg) {
 
     case 'update':
       if (msg.fromDeviceId !== deviceId) {
-        _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '')
+        _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
       }
       break
 
@@ -155,24 +154,34 @@ function _handleMessage(msg) {
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
       break
 
-    case 'done':
-      _onDone?.(msg.deviceName)
+    case 'done': {
+      // システムメッセージとしてチャットに追加（全員）
+      _addSysMsg(`${msg.deviceName} が棚卸を完了しました ✓`)
+      // 他者の完了のみポップアップ通知（自分の完了はtoastで通知済み）
+      if (msg.fromDeviceId !== deviceId) {
+        _onDone?.(msg.deviceName)
+      }
       break
+    }
 
     case 'message': {
-      // メッセージ履歴に追加（重複チェック）
       if (!messages.some(m => m.id === msg.id)) {
         messages.push(msg)
+        unreadCount.value++
       }
       _onMessage?.(msg)
       break
     }
 
     case 'dissolved':
-      // ルーム解散: クライアント状態をリセット（WSは閉じずサーバー側から閉じられる）
+      _addSysMsg('ルームが解散されました')
       _ws = null
       _resetClientState()
       _onDissolved?.()
+      break
+
+    case 'error':
+      // room_not_found: _connect の onmessage で処理済み
       break
 
     case 'pong':
@@ -188,10 +197,12 @@ function _connect(code) {
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false
+    const isHostMode = state.mode === 'hosting'
+
     const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws`)
     const timer = setTimeout(() => {
-      ws.close()
-      reject(new Error('接続タイムアウト（10秒）'))
+      if (!settled) { settled = true; ws.close(); reject(new Error('接続タイムアウト（10秒）')) }
     }, 10000)
 
     ws.onopen = () => {
@@ -205,10 +216,12 @@ function _connect(code) {
         type:       'join',
         deviceId,
         deviceName: deviceName.value || '名前未設定',
+        role:       isHostMode ? 'host' : 'guest',
       }))
 
-      // ホスト: 品目設定とインベントリをサーバーへ送信
-      if (state.mode === 'hosting') {
+      if (isHostMode) {
+        // ホスト: 接続確立時点で resolve、品目設定とインベントリを送信
+        settled = true
         setTimeout(() => {
           if (_getConfig) {
             const cfg = _getConfig()
@@ -217,23 +230,46 @@ function _connect(code) {
           if (_getInventory) {
             const inv = _getInventory() ?? {}
             for (const [ingredient, entry] of Object.entries(inv)) {
-              broadcastUpdate(ingredient, entry.qty, entry.unit ?? '')
+              broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
             }
           }
         }, 200)
+        _startHeartbeat()
+        resolve()
       }
-
-      _startHeartbeat()
-      resolve()
+      // ゲスト: 'joined' または 'error' メッセージを待つ
     }
 
     ws.onmessage = (e) => {
-      try { _handleMessage(JSON.parse(e.data)) } catch (_) {}
+      try {
+        const data = JSON.parse(e.data)
+        if (!settled) {
+          if (data.type === 'joined') {
+            settled = true
+            _startHeartbeat()
+            _handleMessage(data)
+            resolve()
+            return
+          } else if (data.type === 'error') {
+            settled = true
+            const errMsg = data.code === 'room_not_found'
+              ? 'ルームが存在しません'
+              : 'エラーが発生しました'
+            state.error    = errMsg
+            state.mode     = 'idle'
+            state.roomCode = null
+            reject(new Error(errMsg))
+            return
+          }
+        }
+        _handleMessage(data)
+      } catch (_) {}
     }
 
     ws.onerror = () => {
       clearTimeout(timer)
-      if (!state.isConnected) {
+      if (!settled && !state.isConnected) {
+        settled     = true
         state.error = 'サーバーへの接続に失敗しました'
         state.mode  = 'idle'
         reject(new Error('WebSocket error'))
@@ -244,6 +280,11 @@ function _connect(code) {
       _ws = null
       _stopHeartbeat()
       state.isConnected = false
+
+      if (!settled) {
+        settled = true
+        reject(new Error('接続が切れました'))
+      }
 
       if (state.mode === 'idle') return
 
@@ -275,13 +316,13 @@ export function useSync() {
 
   async function createRoom() {
     state.error    = null
-    const code     = _generateRoomCode()
+    const code     = _genCode()
     state.roomCode = code
     state.mode     = 'hosting'
     try {
       await _connect(code)
     } catch (e) {
-      state.mode    = 'idle'
+      state.mode     = 'idle'
       state.roomCode = null
       throw e
     }
@@ -300,7 +341,7 @@ export function useSync() {
     try {
       await _connect(normalized)
     } catch (e) {
-      state.mode    = 'idle'
+      state.mode     = 'idle'
       state.roomCode = null
       throw e
     }
@@ -312,11 +353,9 @@ export function useSync() {
     _resetClientState()
   }
 
-  /** ホストがルームを解散する: 全参加者に通知してから退出 */
   async function dissolveRoom() {
     if (_ws?.readyState === WebSocket.OPEN) {
       _ws.send(JSON.stringify({ type: 'dissolve' }))
-      // サーバーへの送信を待つ
       await new Promise(r => setTimeout(r, 150))
     }
     leaveRoom()
@@ -329,7 +368,7 @@ export function useSync() {
   }
 
   return {
-    state, participants, participantList, messages,
+    state, participants, participantList, messages, unreadCount,
     isActive, isHost, isGuest,
     createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
   }

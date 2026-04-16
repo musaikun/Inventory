@@ -10,6 +10,7 @@ import {
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback,
   broadcastUpdate, broadcastRemove, broadcastDone,
+  markMessagesRead,
 } from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -44,7 +45,7 @@ const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
-const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom } = useSync()
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount } = useSync()
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
@@ -142,7 +143,7 @@ function onUndo() {
     // 取り消し後の状態をブロードキャスト（削除 or 以前の値に戻す）
     if (syncActive.value) {
       if (inventory[restored]) {
-        broadcastUpdate(restored, inventory[restored].qty, inventory[restored].unit)
+        broadcastUpdate(restored, inventory[restored].qty, inventory[restored].unit, inventory[restored].enteredBy ?? '')
       } else {
         broadcastRemove(restored)
       }
@@ -178,6 +179,7 @@ function showNotification(type, text, senderName = '') {
 
 // ── チャットモーダル ───────────────────────────────────────────────────────────
 const showChat = ref(false)
+watch(showChat, (val) => { if (val) markMessagesRead() })
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
 function normalize(str) {
@@ -351,8 +353,8 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
-  setItem(ingredient, qty, unit, isAdd)
-  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit)
+  setItem(ingredient, qty, unit, isAdd, deviceName.value || '自分')
+  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '自分')
   undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   searchText.value   = ''
@@ -402,16 +404,16 @@ function onTableTap(item) {
 function onTableZero(item) {
   if (isCompleted.value) return
   const unit = inventory[item]?.unit ?? config.units?.[item] ?? ''
-  setItem(item, 0, unit, false)
+  setItem(item, 0, unit, false, deviceName.value || '自分')
   undoItem.value = { name: item, qty: 0, unit }
   showToast(`${item} → 0 で確定`)
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
-  undoItem.value = null  // 手動編集したら戻すボタンは消す
-  updateQty(item, qty, unit)
-  if (syncActive.value) broadcastUpdate(item, qty, unit)
+  undoItem.value = null
+  updateQty(item, qty, unit, deviceName.value || '自分')
+  if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '自分')
 }
 
 // ── Reset ──────────────────────────────────────────────────────────────────────
@@ -496,7 +498,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         ・ルーム {{ syncState.roomCode }}
         ・{{ participantList.length }}名が接続
       </span>
-      <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">💬</button>
+      <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
+        💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
+      </button>
       <button class="sync-banner-btn" @click="showSync = true">詳細</button>
     </div>
 
@@ -758,7 +762,26 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
 /* ── バナー内メッセージボタン ── */
 .sync-msg-btn {
+  position: relative;
   font-size: 16px;
   padding: 4px 8px;
+}
+
+.unread-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 50%;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
 }
 </style>

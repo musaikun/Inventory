@@ -1,10 +1,5 @@
 /**
  * RoomDO — Cloudflare Durable Object（WebSocketルーム管理）
- *
- * 1ルーム = 1インスタンス。WebSocket Hibernation API を使用。
- * - セッションデータ（deviceId/deviceName）は WS attachment に保存
- * - 棚卸データ・チャット履歴・品目設定は DO Storage に永続化
- * - 最終アクティビティから24時間後に自動削除（Alarm API）
  */
 export class RoomDO {
   constructor(state, env) {
@@ -12,34 +7,40 @@ export class RoomDO {
     this.env   = env
   }
 
-  // ── WebSocket アップグレード ────────────────────────────────────────────────
   async fetch(request) {
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('WebSocket upgrade required', { status: 426 })
     }
-
     const { 0: client, 1: server } = new WebSocketPair()
     this.state.acceptWebSocket(server)
-
     const alarm = await this.state.storage.getAlarm()
-    if (!alarm) {
-      await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
-    }
-
+    if (!alarm) await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  // ── メッセージ受信（Hibernation lifecycle） ───────────────────────────────
   async webSocketMessage(ws, message) {
     let msg
     try { msg = JSON.parse(message) } catch { return }
-
     await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
 
     switch (msg.type) {
       case 'join': {
         const deviceId   = String(msg.deviceId   ?? '').slice(0, 64)
         const deviceName = String(msg.deviceName ?? '').slice(0, 30)
+        const role       = msg.role === 'host' ? 'host' : 'guest'
+
+        // ゲストのみ: ルーム存在チェック
+        if (role === 'guest') {
+          const initialized = await this.state.storage.get('initialized')
+          if (!initialized) {
+            ws.send(JSON.stringify({ type: 'error', code: 'room_not_found' }))
+            ws.close(1008, 'Room not found')
+            return
+          }
+        } else {
+          // ホスト: ルームを初期化済みとしてマーク
+          await this.state.storage.put('initialized', true)
+        }
 
         // セッション復帰: 同じ deviceId の既存 WS を閉じる
         for (const existingWs of this.state.getWebSockets()) {
@@ -70,29 +71,28 @@ export class RoomDO {
         if (!Array.isArray(order)) return
         await this.state.storage.put('config', {
           order, isCustom: !!isCustom,
-          units:         units         ?? {},
-          prices:        prices        ?? {},
-          categories:    categories    ?? {},
-          codes:         codes         ?? {},
-          categoryCodes: categoryCodes ?? {},
-          prevMonths:    prevMonths    ?? {},
-          lotSizes:      lotSizes      ?? {},
-          dictionary:    dictionary    ?? {},
+          units: units ?? {}, prices: prices ?? {}, categories: categories ?? {},
+          codes: codes ?? {}, categoryCodes: categoryCodes ?? {},
+          prevMonths: prevMonths ?? {}, lotSizes: lotSizes ?? {}, dictionary: dictionary ?? {},
         })
         break
       }
 
       case 'update': {
-        const { ingredient, qty, unit } = msg
+        const { ingredient, qty, unit, enteredBy } = msg
         if (!ingredient || typeof qty !== 'number') return
 
         const inventory = (await this.state.storage.get('inventory')) ?? {}
-        inventory[ingredient] = { qty, unit: unit ?? '' }
+        inventory[ingredient] = {
+          qty,
+          unit:      unit      ?? '',
+          enteredBy: String(enteredBy ?? '').slice(0, 30),
+        }
         await this.state.storage.put('inventory', inventory)
 
         const { deviceId } = ws.deserializeAttachment() ?? {}
         this._broadcast(
-          { type: 'update', ingredient, qty, unit: unit ?? '', fromDeviceId: deviceId },
+          { type: 'update', ingredient, qty, unit: unit ?? '', enteredBy: enteredBy ?? '', fromDeviceId: deviceId },
           ws,
         )
         break
@@ -112,11 +112,13 @@ export class RoomDO {
       }
 
       case 'done': {
+        // 全参加者へ（送信者含む）: 自端末でもシステムメッセージとして表示
         const att = ws.deserializeAttachment() ?? {}
-        this._broadcast(
-          { type: 'done', deviceName: att.deviceName ?? '名前未設定' },
-          ws,
-        )
+        this._broadcast({
+          type:         'done',
+          deviceName:   att.deviceName ?? '名前未設定',
+          fromDeviceId: att.deviceId   ?? '',
+        })
         break
       }
 
@@ -140,19 +142,16 @@ export class RoomDO {
           replyTo,
         }
 
-        // 履歴を永続化（最大200件）
         const messages = (await this.state.storage.get('messages')) ?? []
         messages.push(msgObj)
         if (messages.length > 200) messages.splice(0, messages.length - 200)
         await this.state.storage.put('messages', messages)
 
-        // 全参加者へ（送信者含む）
         this._broadcast({ type: 'message', ...msgObj })
         break
       }
 
       case 'dissolve': {
-        // ホストによるルーム解散: ゲストへ通知 → 全WS閉鎖 → ストレージ削除
         this._broadcast({ type: 'dissolved' }, ws)
         await this.state.storage.deleteAll()
         for (const w of this.state.getWebSockets()) {
@@ -167,12 +166,10 @@ export class RoomDO {
     }
   }
 
-  // ── 切断（Hibernation lifecycle） ────────────────────────────────────────
   async webSocketClose(ws) {
     this._broadcast({ type: 'participants', list: this._getParticipants() })
   }
 
-  // ── アラーム（24h 後にルーム削除） ────────────────────────────────────────
   async alarm() {
     for (const ws of this.state.getWebSockets()) {
       try { ws.close(1001, 'Room expired') } catch (_) {}
@@ -180,7 +177,6 @@ export class RoomDO {
     await this.state.storage.deleteAll()
   }
 
-  // ── 内部ヘルパー ──────────────────────────────────────────────────────────
   _broadcast(msg, exclude = null) {
     const data = JSON.stringify(msg)
     for (const ws of this.state.getWebSockets()) {

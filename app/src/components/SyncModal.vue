@@ -20,7 +20,7 @@ const joinError = ref('')
 const copied = ref(false)
 
 const qrDataUrl = ref('')
-const qrCanvas = ref(null)
+const showQR    = ref(false)
 
 // ── ルーム状態が既にアクティブなら該当ビューへ ─────────────────────────────
 onMounted(() => {
@@ -38,8 +38,17 @@ async function onCreateRoom() {
     view.value = 'host'
     await nextTick()
     await _generateQR()
+    showQR.value = true  // 作成直後はQRを表示
   } catch (e) {
     createError.value = state.error || 'ルームを作成できませんでした'
+  }
+}
+
+async function toggleQR() {
+  showQR.value = !showQR.value
+  // まだ生成されていない場合は生成する
+  if (showQR.value && !qrDataUrl.value) {
+    await _generateQR()
   }
 }
 
@@ -145,7 +154,11 @@ function onCodeInput(e) {
           </div>
         </div>
 
-        <div v-if="qrDataUrl" class="qr-wrap">
+        <button class="btn btn-secondary qr-toggle-btn" @click="toggleQR">
+          {{ showQR ? '🔼 QRコードを閉じる' : '📷 QRコードを表示' }}
+        </button>
+
+        <div v-if="showQR && qrDataUrl" class="qr-wrap">
           <img :src="qrDataUrl" alt="ルーム参加QR" class="qr-img" />
           <div class="qr-hint">同じWi-Fi内の他の端末でQRを読み取るとすぐに参加できます</div>
         </div>
@@ -471,4 +484,10 @@ function onCodeInput(e) {
   flex: 1;
 }
 .btn-danger-block:active { background: #fef2f2; }
+
+.qr-toggle-btn {
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
 </style>

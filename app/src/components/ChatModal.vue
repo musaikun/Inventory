@@ -175,8 +175,12 @@ function needsDateSep(idx) {
             <span>{{ fmtDate(msg.timestamp) }}</span>
           </div>
 
-          <!-- メッセージ行 -->
+          <!-- システムメッセージ -->
+          <div v-if="msg.isSystem" class="msg-system">{{ msg.text }}</div>
+
+          <!-- 通常メッセージ行 -->
           <div
+            v-else
             :id="`msg-${msg.id}`"
             class="msg-row"
             :class="{ mine: msg.senderId === deviceId }"
@@ -337,6 +341,19 @@ function needsDateSep(idx) {
 }
 .chat-empty-icon { font-size: 40px; }
 .chat-empty-hint { font-size: 12px; line-height: 1.7; margin-top: 4px; }
+
+/* ── システムメッセージ ── */
+.msg-system {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #f1f5f9;
+  padding: 4px 14px;
+  border-radius: 20px;
+  margin: 6px auto;
+  max-width: 85%;
+  font-weight: 600;
+}
 
 /* ── 日付区切り ── */
 .date-sep {
