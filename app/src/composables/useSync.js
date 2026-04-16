@@ -1,4 +1,4 @@
-import { reactive, computed, ref } from 'vue'
+import { reactive, computed, ref, watch } from 'vue'
 import { deviceId, deviceName } from './useDeviceId.js'
 
 const WORKER_URL = (() => {
@@ -24,6 +24,17 @@ let _reconnectTimer = null
 let _heartbeatTimer = null
 let _reconnectCount = 0
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
+
+// ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
+watch(deviceName, (newName) => {
+  const name = newName || '名前未設定'
+  if (participants[deviceId]) {
+    participants[deviceId].name = name
+  }
+  if (_ws?.readyState === WebSocket.OPEN) {
+    _ws.send(JSON.stringify({ type: 'rename', deviceName: name }))
+  }
+})
 
 // ── コールバック ──────────────────────────────────────────────────────────────
 let _onItemUpdate     = null

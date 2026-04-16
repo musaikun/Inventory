@@ -160,6 +160,14 @@ export class RoomDO {
         break
       }
 
+      case 'rename': {
+        const newName = String(msg.deviceName ?? '').slice(0, 30)
+        const att = ws.deserializeAttachment() ?? {}
+        ws.serializeAttachment({ ...att, deviceName: newName })
+        this._broadcast({ type: 'participants', list: this._getParticipants() })
+        break
+      }
+
       case 'ping':
         ws.send(JSON.stringify({ type: 'pong' }))
         break

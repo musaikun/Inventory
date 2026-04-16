@@ -26,6 +26,11 @@ function saveDeviceName() {
   setDeviceName(deviceNameInput.value)
 }
 
+function saveAndClose() {
+  setDeviceName(deviceNameInput.value)
+  emit('close')
+}
+
 // ── ファイル読み込み（CSV / PDF / Excel 自動判別）─────────────────────────────
 function handleFile(file) {
   if (!file) return
@@ -175,9 +180,9 @@ function onReset() {
             placeholder="例: Aさん・厨房・ホール"
             maxlength="20"
             @blur="saveDeviceName"
-            @keyup.enter="saveDeviceName"
+            @keyup.enter="saveAndClose"
           />
-          <button class="device-save-btn" @click="saveDeviceName">保存</button>
+          <button class="device-save-btn" @click="saveAndClose">保存</button>
         </div>
         <div class="device-id-row">
           <span class="device-id-label">端末ID：</span>
