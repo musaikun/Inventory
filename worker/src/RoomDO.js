@@ -69,12 +69,15 @@ export class RoomDO {
         const { order, units, prices, categories, codes, categoryCodes,
                 prevMonths, lotSizes, dictionary, isCustom } = msg
         if (!Array.isArray(order)) return
-        await this.state.storage.put('config', {
+        const stored = {
           order, isCustom: !!isCustom,
           units: units ?? {}, prices: prices ?? {}, categories: categories ?? {},
           codes: codes ?? {}, categoryCodes: categoryCodes ?? {},
           prevMonths: prevMonths ?? {}, lotSizes: lotSizes ?? {}, dictionary: dictionary ?? {},
-        })
+        }
+        await this.state.storage.put('config', stored)
+        // ゲスト全員に品目リスト更新を通知
+        this._broadcast({ type: 'config_update', ...stored }, ws)
         break
       }
 

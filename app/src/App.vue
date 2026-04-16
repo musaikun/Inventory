@@ -9,7 +9,7 @@ import {
   setInventoryCallbacks, registerInventoryGetter,
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback,
-  broadcastUpdate, broadcastRemove, broadcastDone,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead,
 } from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
@@ -180,6 +180,24 @@ function showNotification(type, text, senderName = '') {
 // ── チャットモーダル ───────────────────────────────────────────────────────────
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
+
+// ── ホスト: 品目リスト変更をルーム全員に同期 ─────────────────────────────────
+watch(config, () => {
+  if (syncIsHost.value && syncActive.value) {
+    broadcastConfig({
+      order:         config.order,
+      units:         config.units,
+      prices:        config.prices,
+      categories:    config.categories,
+      codes:         config.codes,
+      categoryCodes: config.categoryCodes,
+      prevMonths:    config.prevMonths,
+      lotSizes:      config.lotSizes,
+      dictionary:    config.dictionary,
+      isCustom:      config.isCustom,
+    })
+  }
+}, { deep: true })
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
 function normalize(str) {
@@ -553,19 +571,13 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           :class="{ active: searchFilter === 'exclude' }"
           @click="searchFilter = searchFilter === 'exclude' ? 'all' : 'exclude'"
           type="button"
-        >
-          <span class="chip-indicator">{{ searchFilter === 'exclude' ? '✓' : '' }}</span>
-          食材のみ
-        </button>
+        >食材のみ</button>
         <button
           class="filter-chip"
           :class="{ active: searchFilter === 'only' }"
           @click="searchFilter = searchFilter === 'only' ? 'all' : 'only'"
           type="button"
-        >
-          <span class="chip-indicator">{{ searchFilter === 'only' ? '✓' : '' }}</span>
-          資材・備品のみ
-        </button>
+        >資材・備品のみ</button>
       </div>
     </section>
 

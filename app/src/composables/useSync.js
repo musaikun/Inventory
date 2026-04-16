@@ -56,6 +56,11 @@ export function setDissolvedCallback(fn)     { _onDissolved = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 // ── 送信 API ──────────────────────────────────────────────────────────────────
+export function broadcastConfig(cfg) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'config', ...cfg }))
+}
+
 export function broadcastUpdate(ingredient, qty, unit, enteredBy = '') {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy }))
@@ -183,6 +188,10 @@ function _handleMessage(msg) {
       _onMessage?.(msg)
       break
     }
+
+    case 'config_update':
+      _onConfigReceived?.(msg)
+      break
 
     case 'dissolved':
       _addSysMsg('ルームが解散されました')
