@@ -95,8 +95,13 @@ onMounted(() => {
 })
 
 // ── Modal state ────────────────────────────────────────────────────────────────
-const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, existing }
+const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, source, lotSize }
 const candidateState = ref(null) // { candidates, qty, unit }
+
+// モーダルが開いている間も inventory のライブ値を参照（リモート更新を即時反映）
+const confirmExisting = computed(() =>
+  confirmState.value ? (inventory[confirmState.value.ingredient] ?? null) : null
+)
 
 // ── Transcript / テキスト検索 ──────────────────────────────────────────────────
 const searchText     = ref('')
@@ -363,15 +368,14 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     ingredient,
     qty,
     unit:       configUnit || unit || '',
-    unitLocked: !!configUnit,          // PDF単位は変更不可
-    existing:   inventory[ingredient] ?? null,
+    unitLocked: !!configUnit,
     source,
     lotSize:    config.lotSizes?.[ingredient] ?? '',
   }
 }
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
-  const existing  = confirmState.value.existing
+  const existing  = confirmExisting.value
   const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
@@ -596,7 +600,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :initial-qty="confirmState.qty"
       :initial-unit="confirmState.unit"
       :unit-locked="confirmState.unitLocked"
-      :existing="confirmState.existing"
+      :existing="confirmExisting"
       :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
       :lot-size="confirmState.lotSize"
       @confirm="onConfirm"
