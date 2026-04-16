@@ -8,7 +8,7 @@ import {
   useSync,
   setInventoryCallbacks, registerInventoryGetter,
   registerConfigGetter, setConfigCallback,
-  setDoneCallback, setMessageCallback, setDissolvedCallback,
+  setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead,
 } from './composables/useSync.js'
@@ -72,6 +72,10 @@ setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
   showNotification('dissolved', 'ルームが解散されました')
+})
+setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
+  const who = remoteBy || '他のメンバー'
+  showToast(`⚠ 「${ingredient}」${who}が${remoteQty}${remoteUnit}に更新（あなた: ${local.qty}${local.unit}）`, 5000)
 })
 
 // URL パラメータ ?room=CODE があれば自動参加
@@ -160,11 +164,11 @@ const toastMsg  = ref('')
 const toastShow = ref(false)
 let   toastTimer = null
 
-function showToast(msg) {
+function showToast(msg, duration = 2600) {
   toastMsg.value  = msg
   toastShow.value = true
   clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => (toastShow.value = false), 2600)
+  toastTimer = setTimeout(() => (toastShow.value = false), duration)
 }
 
 // ── 通知ポップアップ（完了通知・メッセージ・解散通知）──────────────────────────
@@ -418,15 +422,6 @@ function onTableTap(item) {
   openConfirm(item, null, config.units?.[item] || '', 'table')
 }
 
-// スワイプ左: 在庫0で即確定
-function onTableZero(item) {
-  if (isCompleted.value) return
-  const unit = inventory[item]?.unit ?? config.units?.[item] ?? ''
-  setItem(item, 0, unit, false, deviceName.value || '自分')
-  undoItem.value = { name: item, qty: 0, unit }
-  showToast(`${item} → 0 で確定`)
-}
-
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
   undoItem.value = null
@@ -591,7 +586,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
       @reset="onReset"
       @tap="onTableTap"
-      @zero="onTableZero"
     />
 
     <!-- 確認モーダル（:key で ingredient 変化時に強制再マウント） -->

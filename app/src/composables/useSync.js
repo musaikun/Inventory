@@ -45,6 +45,7 @@ let _onConfigReceived = null
 let _onDone           = null
 let _onMessage        = null
 let _onDissolved      = null
+let _onConflict       = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -53,6 +54,7 @@ export function setConfigCallback(fn)        { _onConfigReceived = fn }
 export function setDoneCallback(fn)          { _onDone = fn }
 export function setMessageCallback(fn)       { _onMessage = fn }
 export function setDissolvedCallback(fn)     { _onDissolved = fn }
+export function setConflictCallback(fn)      { _onConflict = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 // ── 送信 API ──────────────────────────────────────────────────────────────────
@@ -155,6 +157,11 @@ function _handleMessage(msg) {
 
     case 'update':
       if (msg.fromDeviceId !== deviceId) {
+        // 競合検出: すでに自分が入力している品目を相手が更新した場合
+        const currentInv = _getInventory?.()
+        if (currentInv?.[msg.ingredient]) {
+          _onConflict?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '', currentInv[msg.ingredient])
+        }
         _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
       }
       break
