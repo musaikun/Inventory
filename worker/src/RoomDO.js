@@ -21,6 +21,15 @@ export class RoomDO {
   async webSocketMessage(ws, message) {
     let msg
     try { msg = JSON.parse(message) } catch { return }
+
+    try {
+      await this._handleMessage(ws, msg)
+    } catch (err) {
+      console.error('[RoomDO] error:', msg?.type, err)
+    }
+  }
+
+  async _handleMessage(ws, msg) {
     await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
 
     switch (msg.type) {
@@ -40,6 +49,20 @@ export class RoomDO {
         } else {
           // ホスト: ルームを初期化済みとしてマーク
           await this.state.storage.put('initialized', true)
+        }
+
+        // 参加者上限チェック（同じ deviceId のセッション復帰は除外）
+        const MAX_PARTICIPANTS = 20
+        const existingIds = new Set(
+          this.state.getWebSockets()
+            .filter(w => w !== ws)
+            .map(w => w.deserializeAttachment()?.deviceId)
+            .filter(Boolean)
+        )
+        if (!existingIds.has(deviceId) && existingIds.size >= MAX_PARTICIPANTS) {
+          ws.send(JSON.stringify({ type: 'error', code: 'room_full' }))
+          ws.close(1008, 'Room full')
+          return
         }
 
         // セッション復帰: 同じ deviceId の既存 WS を閉じる

@@ -190,9 +190,12 @@ function showNotification(type, text, senderName = '') {
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
 
-// ── ホスト: 品目リスト変更をルーム全員に同期 ─────────────────────────────────
+// ── ホスト: 品目リスト変更をルーム全員に同期（debounce 300ms）─────────────────
+let _configBroadcastTimer = null
 watch(config, () => {
-  if (syncIsHost.value && syncActive.value) {
+  if (!syncIsHost.value || !syncActive.value) return
+  clearTimeout(_configBroadcastTimer)
+  _configBroadcastTimer = setTimeout(() => {
     broadcastConfig({
       order:         config.order,
       units:         config.units,
@@ -205,7 +208,7 @@ watch(config, () => {
       dictionary:    config.dictionary,
       isCustom:      config.isCustom,
     })
-  }
+  }, 300)
 }, { deep: true })
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
