@@ -27,11 +27,13 @@ let _reconnectCount   = 0
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
 // ── コールバック登録（App.vue がつなぎ役）────────────────────────────────────
-// 受信: サーバーから届いた更新をインベントリに適用
-let _onItemUpdate = null   // (ingredient, qty, unit) => void
-let _onItemRemove = null   // (ingredient) => void
-// 取得: 再接続時に現在のインベントリを全送信するための getter
-let _getInventory  = null  // () => { [ingredient]: {qty, unit} }
+let _onItemUpdate     = null   // (ingredient, qty, unit) => void
+let _onItemRemove     = null   // (ingredient) => void
+let _getInventory     = null   // () => { [ingredient]: {qty, unit} }
+let _getConfig        = null   // () => { order, units, ... }
+let _onConfigReceived = null   // (config) => void
+let _onDone           = null   // (deviceName) => void
+let _onMessage        = null   // ({ text, senderName }) => void
 
 /** サーバーからの受信イベントを処理するハンドラを登録（App.vue が呼ぶ） */
 export function setInventoryCallbacks(onUpdate, onRemove) {
@@ -42,6 +44,26 @@ export function setInventoryCallbacks(onUpdate, onRemove) {
 /** 現在のインベントリ取得関数を登録（再接続時の全量送信に使用） */
 export function registerInventoryGetter(fn) {
   _getInventory = fn
+}
+
+/** 現在の品目設定取得関数を登録（ゲスト参加時の共有に使用） */
+export function registerConfigGetter(fn) {
+  _getConfig = fn
+}
+
+/** ゲストがホストの品目設定を受け取ったときのコールバックを登録 */
+export function setConfigCallback(fn) {
+  _onConfigReceived = fn
+}
+
+/** 棚卸完了通知を受け取ったときのコールバックを登録 */
+export function setDoneCallback(fn) {
+  _onDone = fn
+}
+
+/** チャットメッセージを受け取ったときのコールバックを登録 */
+export function setMessageCallback(fn) {
+  _onMessage = fn
 }
 
 // ── 送信 API（App.vue が各 mutation の後に呼ぶ）────────────────────────────
@@ -55,6 +77,18 @@ export function broadcastUpdate(ingredient, qty, unit) {
 export function broadcastRemove(ingredient) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
+}
+
+/** 棚卸完了を他デバイスへ通知 */
+export function broadcastDone() {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'done' }))
+}
+
+/** チャットメッセージを全参加者へ送信（自分含む） */
+export function broadcastMessage(text) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'message', text }))
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
@@ -95,18 +129,22 @@ function _updateParticipants(list) {
 function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
-      // 参加時: サーバーの全量をローカルに反映（遅れて参加したときに既存データを受け取る）
+      // 参加時: サーバーの全量をローカルに反映
       for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
         _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '')
       }
       _updateParticipants(msg.participants ?? [])
-      // 自分を参加者リストに追加（attachment が付く前に送られる場合があるため）
+      // 自分を参加者リストに追加
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
+
+      // ゲストの場合: ホストの品目設定を適用（カスタム設定がある場合のみ）
+      if (state.mode === 'joining' && msg.config?.isCustom) {
+        _onConfigReceived?.(msg.config)
+      }
       break
     }
 
     case 'update':
-      // 自分のブロードキャストの折り返しは無視
       if (msg.fromDeviceId !== deviceId) {
         _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '')
       }
@@ -121,6 +159,14 @@ function _handleMessage(msg) {
     case 'participants':
       _updateParticipants(msg.list ?? [])
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
+      break
+
+    case 'done':
+      _onDone?.(msg.deviceName)
+      break
+
+    case 'message':
+      _onMessage?.({ text: msg.text, senderName: msg.senderName })
       break
 
     case 'pong':
@@ -156,14 +202,22 @@ function _connect(code) {
         deviceName: deviceName.value || '名前未設定',
       }))
 
-      // ホストの場合、既存インベントリをサーバーへ全送信
-      // （接続後に _getInventory が呼べるよう、joined 受信後に処理される）
-      if (state.mode === 'hosting' && _getInventory) {
-        // 少し遅延させて joined 受信後に送る
+      // ホストの場合: 品目設定とインベントリをサーバーへ送信
+      if (state.mode === 'hosting') {
         setTimeout(() => {
-          const inv = _getInventory() ?? {}
-          for (const [ingredient, entry] of Object.entries(inv)) {
-            broadcastUpdate(ingredient, entry.qty, entry.unit ?? '')
+          // 品目設定を送信（ゲストが参加したときに共有される）
+          if (_getConfig) {
+            const cfg = _getConfig()
+            if (cfg) {
+              ws.send(JSON.stringify({ type: 'config', ...cfg }))
+            }
+          }
+          // 既存インベントリを全送信
+          if (_getInventory) {
+            const inv = _getInventory() ?? {}
+            for (const [ingredient, entry] of Object.entries(inv)) {
+              broadcastUpdate(ingredient, entry.qty, entry.unit ?? '')
+            }
           }
         }, 200)
       }

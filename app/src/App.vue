@@ -2,9 +2,15 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove } from './composables/useInventory.js'
-import { useConfig } from './composables/useConfig.js'
+import { useConfig, applyRemoteConfig } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
-import { useSync, setInventoryCallbacks, registerInventoryGetter, broadcastUpdate, broadcastRemove } from './composables/useSync.js'
+import {
+  useSync,
+  setInventoryCallbacks, registerInventoryGetter,
+  registerConfigGetter, setConfigCallback,
+  setDoneCallback, setMessageCallback,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastMessage,
+} from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -42,6 +48,21 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
 registerInventoryGetter(() => ({ ...inventory }))
+registerConfigGetter(() => ({
+  order:         config.order,
+  units:         config.units,
+  prices:        config.prices,
+  categories:    config.categories,
+  codes:         config.codes,
+  categoryCodes: config.categoryCodes,
+  prevMonths:    config.prevMonths,
+  lotSizes:      config.lotSizes,
+  dictionary:    config.dictionary,
+  isCustom:      config.isCustom,
+}))
+setConfigCallback(applyRemoteConfig)
+setDoneCallback((name) => showNotification('done', `${name} が棚卸を完了しました ✓`))
+setMessageCallback(({ text, senderName }) => showNotification('message', text, senderName))
 
 // URL パラメータ ?room=CODE があれば自動参加
 onMounted(() => {
@@ -87,6 +108,7 @@ function onComplete() {
   undoItem.value = null
   if (continuousMode.value) onForceStop()
   showToast('棚卸を完了しました ✓')
+  if (syncActive.value) broadcastDone()
 }
 
 function onReopen() {
@@ -133,6 +155,35 @@ function showToast(msg) {
   toastShow.value = true
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (toastShow.value = false), 2600)
+}
+
+// ── 通知ポップアップ（完了通知・メッセージ）────────────────────────────────────
+const notification     = ref(null)  // { type: 'done'|'message', text, senderName }
+let   notificationTimer = null
+
+function showNotification(type, text, senderName = '') {
+  notification.value = { type, text, senderName }
+  clearTimeout(notificationTimer)
+  notificationTimer = setTimeout(() => { notification.value = null }, 6000)
+}
+
+// ── メッセージ入力 ─────────────────────────────────────────────────────────────
+const showMessageInput = ref(false)
+const messageText      = ref('')
+const messageInputRef  = ref(null)
+
+async function openMessageInput() {
+  showMessageInput.value = true
+  await nextTick()
+  messageInputRef.value?.focus()
+}
+
+function onSendMessage() {
+  const text = messageText.value.trim()
+  if (!text) return
+  broadcastMessage(text)
+  messageText.value      = ''
+  showMessageInput.value = false
 }
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
@@ -452,6 +503,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         ・ルーム {{ syncState.roomCode }}
         ・{{ participantList.length }}名が接続
       </span>
+      <button class="sync-banner-btn sync-msg-btn" @click="openMessageInput" title="メッセージを送る">💬</button>
       <button class="sync-banner-btn" @click="showSync = true">詳細</button>
     </div>
 
@@ -620,9 +672,150 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- 同期モーダル -->
     <SyncModal v-if="showSync" @close="showSync = false" />
 
+    <!-- メッセージ入力シート -->
+    <div v-if="showMessageInput" class="modal-overlay" @click.self="showMessageInput = false">
+      <div class="modal-sheet msg-input-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title">💬 メッセージを送る</div>
+        <p class="msg-input-hint">送ったメッセージは全参加者の画面に表示されます</p>
+        <div class="msg-input-row">
+          <input
+            ref="messageInputRef"
+            type="text"
+            class="msg-input"
+            v-model="messageText"
+            placeholder="例：牛乳の数あってますか？"
+            maxlength="200"
+            @keyup.enter="onSendMessage"
+          />
+          <button class="btn btn-primary" :disabled="!messageText.trim()" @click="onSendMessage">送信</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通知ポップアップ（完了通知・チャットメッセージ） -->
+    <Transition name="notif-popup">
+      <div v-if="notification" class="notif-overlay" @click="notification = null">
+        <div class="notif-card" :class="notification.type">
+          <div v-if="notification.type === 'message'" class="notif-sender">{{ notification.senderName }}</div>
+          <div v-else class="notif-done-icon">✓</div>
+          <div class="notif-text">{{ notification.text }}</div>
+          <div class="notif-dismiss">タップで閉じる</div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- トースト -->
     <Transition name="toast">
       <div v-if="toastShow" class="toast">{{ toastMsg }}</div>
     </Transition>
   </div>
 </template>
+
+<style scoped>
+/* ── 通知ポップアップ ── */
+.notif-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.notif-card {
+  background: #fff;
+  border-radius: 24px;
+  padding: 32px 28px 24px;
+  max-width: 340px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.28);
+}
+
+.notif-sender {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+.notif-done-icon {
+  font-size: 40px;
+  color: var(--success);
+  margin-bottom: 10px;
+  line-height: 1;
+}
+
+.notif-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notif-card.done .notif-text {
+  color: var(--success);
+}
+
+.notif-dismiss {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.notif-popup-enter-active,
+.notif-popup-leave-active {
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+.notif-popup-enter-from,
+.notif-popup-leave-to {
+  opacity: 0;
+  transform: scale(0.88);
+}
+
+/* ── メッセージ入力シート ── */
+.msg-input-sheet {
+  padding-bottom: 32px;
+}
+
+.msg-input-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.msg-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.msg-input {
+  flex: 1;
+  padding: 14px 16px;
+  font-size: 16px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  outline: none;
+  min-width: 0;
+}
+.msg-input:focus {
+  border-color: var(--primary);
+}
+
+/* ── バナー内メッセージボタン ── */
+.sync-msg-btn {
+  font-size: 16px;
+  padding: 4px 8px;
+}
+</style>

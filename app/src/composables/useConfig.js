@@ -132,6 +132,22 @@ _load()
 _loadAliases()
 _loadMaster()
 
+// ── リモート設定の適用（同期ゲスト参加時にホストの品目リストを受け取る） ───────
+export function applyRemoteConfig(cfg) {
+  if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
+  _validateLearnedAliases(cfg.order)
+  config.order         = cfg.order
+  config.units         = cfg.units         ?? {}
+  config.prices        = cfg.prices        ?? {}
+  config.categories    = cfg.categories    ?? {}
+  config.codes         = cfg.codes         ?? {}
+  config.categoryCodes = cfg.categoryCodes ?? {}
+  config.prevMonths    = cfg.prevMonths    ?? {}
+  config.lotSizes      = cfg.lotSizes      ?? {}
+  config.dictionary    = cfg.dictionary    ?? {}
+  _save()
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useConfig() {
 
