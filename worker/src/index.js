@@ -9,6 +9,15 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
 
+    // Origin 検証（ALLOWED_ORIGIN が設定されている場合のみ強制）
+    const allowedOrigin = env.ALLOWED_ORIGIN || ''
+    if (allowedOrigin) {
+      const origin = request.headers.get('Origin') || ''
+      if (origin !== allowedOrigin) {
+        return new Response('Forbidden', { status: 403 })
+      }
+    }
+
     // WebSocket エンドポイント
     const match = url.pathname.match(/^\/room\/([A-Z0-9]{4,6})\/ws$/i)
     if (match) {

@@ -2,6 +2,11 @@ name = "inventory-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+[vars]
+# 本番環境でフロントエンドのURLを設定: wrangler secret put ALLOWED_ORIGIN
+# 空のままだと全Originを許可（開発時）
+ALLOWED_ORIGIN = ""
+
 [durable_objects]
 bindings = [
   { name = "ROOMS", class_name = "RoomDO" }

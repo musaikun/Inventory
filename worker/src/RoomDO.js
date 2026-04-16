@@ -84,6 +84,7 @@ export class RoomDO {
       case 'update': {
         const { ingredient, qty, unit, enteredBy } = msg
         if (!ingredient || typeof qty !== 'number') return
+        if (String(ingredient).length > 200) return
 
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         inventory[ingredient] = {
@@ -103,7 +104,7 @@ export class RoomDO {
 
       case 'remove': {
         const { ingredient } = msg
-        if (!ingredient) return
+        if (!ingredient || String(ingredient).length > 200) return
 
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         delete inventory[ingredient]

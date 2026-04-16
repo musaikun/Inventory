@@ -86,7 +86,7 @@ export function broadcastMessage(text, replyTo = null) {
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
 function _genCode() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  return Array.from({ length: 4 }, () => c[Math.floor(Math.random() * c.length)]).join('')
+  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('')
 }
 
 function _startHeartbeat() {

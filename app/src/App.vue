@@ -170,9 +170,9 @@ const toastShow = ref(false)
 let   toastTimer = null
 
 function showToast(msg, duration = 2600) {
+  clearTimeout(toastTimer)
   toastMsg.value  = msg
   toastShow.value = true
-  clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (toastShow.value = false), duration)
 }
 
@@ -181,8 +181,8 @@ const notification     = ref(null)  // { type, text, senderName }
 let   notificationTimer = null
 
 function showNotification(type, text, senderName = '') {
-  notification.value = { type, text, senderName }
   clearTimeout(notificationTimer)
+  notification.value = { type, text, senderName }
   notificationTimer = setTimeout(() => { notification.value = null }, 6000)
 }
 

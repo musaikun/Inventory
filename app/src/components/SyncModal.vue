@@ -185,13 +185,13 @@ function onCodeInput(e) {
         <div class="sheet-title">ルームに参加</div>
 
         <div class="sync-intro">
-          ホストの端末に表示されている4文字のコードを入力してください。
+          ホストの端末に表示されている6文字のコードを入力してください。
         </div>
 
         <input
           type="text"
           class="code-input"
-          placeholder="例: AB12"
+          placeholder="例: AB3X7Q"
           :value="joinCode"
           @input="onCodeInput"
           @keyup.enter="onJoin"
@@ -204,7 +204,7 @@ function onCodeInput(e) {
 
         <div class="actions">
           <button class="btn btn-secondary" @click="view = 'home'">戻る</button>
-          <button class="btn btn-primary" :disabled="joinCode.length < 4" @click="onJoin">
+          <button class="btn btn-primary" :disabled="joinCode.length < 6" @click="onJoin">
             参加する
           </button>
         </div>
