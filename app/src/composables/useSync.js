@@ -5,7 +5,6 @@ import { deviceId, deviceName } from './useDeviceId.js'
 const WORKER_URL = (() => {
   const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
   if (!raw) return ''
-  // https:// → wss://, http:// → ws:// へ正規化
   return raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
 })()
 
@@ -18,6 +17,9 @@ const state = reactive({
 })
 
 const participants = reactive({})
+
+// チャットメッセージ履歴
+const messages = reactive([])
 
 // ── 内部変数 ─────────────────────────────────────────────────────────────────
 let _ws               = null
@@ -33,67 +35,45 @@ let _getInventory     = null   // () => { [ingredient]: {qty, unit} }
 let _getConfig        = null   // () => { order, units, ... }
 let _onConfigReceived = null   // (config) => void
 let _onDone           = null   // (deviceName) => void
-let _onMessage        = null   // ({ text, senderName }) => void
+let _onMessage        = null   // (msgObj) => void
+let _onDissolved      = null   // () => void
 
-/** サーバーからの受信イベントを処理するハンドラを登録（App.vue が呼ぶ） */
 export function setInventoryCallbacks(onUpdate, onRemove) {
   _onItemUpdate = onUpdate
   _onItemRemove = onRemove
 }
+export function registerInventoryGetter(fn) { _getInventory = fn }
+export function registerConfigGetter(fn)    { _getConfig = fn }
+export function setConfigCallback(fn)       { _onConfigReceived = fn }
+export function setDoneCallback(fn)         { _onDone = fn }
+export function setMessageCallback(fn)      { _onMessage = fn }
+export function setDissolvedCallback(fn)    { _onDissolved = fn }
 
-/** 現在のインベントリ取得関数を登録（再接続時の全量送信に使用） */
-export function registerInventoryGetter(fn) {
-  _getInventory = fn
-}
-
-/** 現在の品目設定取得関数を登録（ゲスト参加時の共有に使用） */
-export function registerConfigGetter(fn) {
-  _getConfig = fn
-}
-
-/** ゲストがホストの品目設定を受け取ったときのコールバックを登録 */
-export function setConfigCallback(fn) {
-  _onConfigReceived = fn
-}
-
-/** 棚卸完了通知を受け取ったときのコールバックを登録 */
-export function setDoneCallback(fn) {
-  _onDone = fn
-}
-
-/** チャットメッセージを受け取ったときのコールバックを登録 */
-export function setMessageCallback(fn) {
-  _onMessage = fn
-}
-
-// ── 送信 API（App.vue が各 mutation の後に呼ぶ）────────────────────────────
-/** 品目追加/更新を他デバイスへブロードキャスト */
+// ── 送信 API ────────────────────────────────────────────────────────────────
 export function broadcastUpdate(ingredient, qty, unit) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '' }))
 }
 
-/** 品目削除を他デバイスへブロードキャスト */
 export function broadcastRemove(ingredient) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
 }
 
-/** 棚卸完了を他デバイスへ通知 */
 export function broadcastDone() {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'done' }))
 }
 
-/** チャットメッセージを全参加者へ送信（自分含む） */
-export function broadcastMessage(text) {
+/** replyTo: { id, text, senderName } | null */
+export function broadcastMessage(text, replyTo = null) {
   if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'message', text }))
+  _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
 function _generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  // I/O/0/1 除外
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
   for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)]
   return code
@@ -126,20 +106,34 @@ function _updateParticipants(list) {
   }
 }
 
+function _resetClientState() {
+  _clearReconnectTimer()
+  _stopHeartbeat()
+  state.mode        = 'idle'
+  state.roomCode    = null
+  state.isConnected = false
+  state.error       = null
+  Object.keys(participants).forEach(k => delete participants[k])
+  messages.splice(0, messages.length)
+}
+
 function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
-      // 参加時: サーバーの全量をローカルに反映
       for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
         _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '')
       }
       _updateParticipants(msg.participants ?? [])
-      // 自分を参加者リストに追加
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
 
-      // ゲストの場合: ホストの品目設定を適用（カスタム設定がある場合のみ）
+      // ゲストがホストの品目設定を受け取る
       if (state.mode === 'joining' && msg.config?.isCustom) {
         _onConfigReceived?.(msg.config)
+      }
+
+      // チャット履歴を反映
+      if (Array.isArray(msg.messages)) {
+        messages.splice(0, messages.length, ...msg.messages)
       }
       break
     }
@@ -165,8 +159,20 @@ function _handleMessage(msg) {
       _onDone?.(msg.deviceName)
       break
 
-    case 'message':
-      _onMessage?.({ text: msg.text, senderName: msg.senderName })
+    case 'message': {
+      // メッセージ履歴に追加（重複チェック）
+      if (!messages.some(m => m.id === msg.id)) {
+        messages.push(msg)
+      }
+      _onMessage?.(msg)
+      break
+    }
+
+    case 'dissolved':
+      // ルーム解散: クライアント状態をリセット（WSは閉じずサーバー側から閉じられる）
+      _ws = null
+      _resetClientState()
+      _onDissolved?.()
       break
 
     case 'pong':
@@ -182,7 +188,7 @@ function _connect(code) {
   }
 
   return new Promise((resolve, reject) => {
-    const ws  = new WebSocket(`${WORKER_URL}/room/${code}/ws`)
+    const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws`)
     const timer = setTimeout(() => {
       ws.close()
       reject(new Error('接続タイムアウト（10秒）'))
@@ -195,24 +201,19 @@ function _connect(code) {
       state.isConnected = true
       state.error       = null
 
-      // join メッセージを送信
       ws.send(JSON.stringify({
         type:       'join',
         deviceId,
         deviceName: deviceName.value || '名前未設定',
       }))
 
-      // ホストの場合: 品目設定とインベントリをサーバーへ送信
+      // ホスト: 品目設定とインベントリをサーバーへ送信
       if (state.mode === 'hosting') {
         setTimeout(() => {
-          // 品目設定を送信（ゲストが参加したときに共有される）
           if (_getConfig) {
             const cfg = _getConfig()
-            if (cfg) {
-              ws.send(JSON.stringify({ type: 'config', ...cfg }))
-            }
+            if (cfg) ws.send(JSON.stringify({ type: 'config', ...cfg }))
           }
-          // 既存インベントリを全送信
           if (_getInventory) {
             const inv = _getInventory() ?? {}
             for (const [ingredient, entry] of Object.entries(inv)) {
@@ -244,9 +245,8 @@ function _connect(code) {
       _stopHeartbeat()
       state.isConnected = false
 
-      if (state.mode === 'idle') return  // ユーザーが意図的に切断
+      if (state.mode === 'idle') return
 
-      // 自動再接続（指数バックオフ）
       if (_reconnectCount < RECONNECT_DELAYS.length) {
         const delay = RECONNECT_DELAYS[_reconnectCount++]
         _reconnectTimer = setTimeout(() => {
@@ -278,7 +278,6 @@ export function useSync() {
     const code     = _generateRoomCode()
     state.roomCode = code
     state.mode     = 'hosting'
-
     try {
       await _connect(code)
     } catch (e) {
@@ -292,15 +291,12 @@ export function useSync() {
   async function joinRoom(code) {
     state.error = null
     const normalized = code.trim().toUpperCase()
-
     if (!/^[A-Z0-9]{4,6}$/.test(normalized)) {
       state.error = '正しいコード形式ではありません（4〜6文字の英数字）'
       throw new Error('invalid code')
     }
-
     state.roomCode = normalized
     state.mode     = 'joining'
-
     try {
       await _connect(normalized)
     } catch (e) {
@@ -312,14 +308,18 @@ export function useSync() {
   }
 
   function leaveRoom() {
-    _clearReconnectTimer()
-    _stopHeartbeat()
     if (_ws) { try { _ws.close(1000, 'User left') } catch (_) {} ; _ws = null }
-    state.mode        = 'idle'
-    state.roomCode    = null
-    state.isConnected = false
-    state.error       = null
-    Object.keys(participants).forEach(k => delete participants[k])
+    _resetClientState()
+  }
+
+  /** ホストがルームを解散する: 全参加者に通知してから退出 */
+  async function dissolveRoom() {
+    if (_ws?.readyState === WebSocket.OPEN) {
+      _ws.send(JSON.stringify({ type: 'dissolve' }))
+      // サーバーへの送信を待つ
+      await new Promise(r => setTimeout(r, 150))
+    }
+    leaveRoom()
   }
 
   function getShareUrl() {
@@ -329,8 +329,8 @@ export function useSync() {
   }
 
   return {
-    state, participants, participantList,
+    state, participants, participantList, messages,
     isActive, isHost, isGuest,
-    createRoom, joinRoom, leaveRoom, getShareUrl,
+    createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
   }
 }

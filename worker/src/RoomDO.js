@@ -3,7 +3,7 @@
  *
  * 1ルーム = 1インスタンス。WebSocket Hibernation API を使用。
  * - セッションデータ（deviceId/deviceName）は WS attachment に保存
- * - 棚卸データは DO Storage に永続化（DO 再起動後も保持）
+ * - 棚卸データ・チャット履歴・品目設定は DO Storage に永続化
  * - 最終アクティビティから24時間後に自動削除（Alarm API）
  */
 export class RoomDO {
@@ -19,10 +19,8 @@ export class RoomDO {
     }
 
     const { 0: client, 1: server } = new WebSocketPair()
-    // Hibernation API: DO はメッセージがない間スリープ可能
     this.state.acceptWebSocket(server)
 
-    // 最初のアクティビティから24時間でルーム削除
     const alarm = await this.state.storage.getAlarm()
     if (!alarm) {
       await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
@@ -36,7 +34,6 @@ export class RoomDO {
     let msg
     try { msg = JSON.parse(message) } catch { return }
 
-    // アクティビティがあるたびにアラームを延長（24h）
     await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
 
     switch (msg.type) {
@@ -45,7 +42,6 @@ export class RoomDO {
         const deviceName = String(msg.deviceName ?? '').slice(0, 30)
 
         // セッション復帰: 同じ deviceId の既存 WS を閉じる
-        // （タブを閉じて再アクセスした場合の参加者重複を防ぐ）
         for (const existingWs of this.state.getWebSockets()) {
           if (existingWs === ws) continue
           const att = existingWs.deserializeAttachment()
@@ -54,23 +50,21 @@ export class RoomDO {
           }
         }
 
-        // WS に deviceId/deviceName を紐付け（Hibernation 対応）
         ws.serializeAttachment({ deviceId, deviceName })
 
-        // 現在の棚卸データ・品目設定を新参加者に送信
-        const inventory    = (await this.state.storage.get('inventory')) ?? {}
-        const config       = (await this.state.storage.get('config'))    ?? null
+        const [inventory, config, messages] = await Promise.all([
+          this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('config').then(v => v ?? null),
+          this.state.storage.get('messages').then(v => v ?? []),
+        ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants }))
-
-        // 他の参加者に参加通知
+        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages }))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
 
       case 'config': {
-        // ホストが品目リストをサーバーへ保存（ゲスト参加時に共有するため）
         const { order, units, prices, categories, codes, categoryCodes,
                 prevMonths, lotSizes, dictionary, isCustom } = msg
         if (!Array.isArray(order)) return
@@ -118,7 +112,6 @@ export class RoomDO {
       }
 
       case 'done': {
-        // 棚卸完了通知: 送信者以外の全参加者へ通知
         const att = ws.deserializeAttachment() ?? {}
         this._broadcast(
           { type: 'done', deviceName: att.deviceName ?? '名前未設定' },
@@ -128,12 +121,43 @@ export class RoomDO {
       }
 
       case 'message': {
-        // チャットメッセージ: 全参加者へ（送信者含む）
-        const text = String(msg.text ?? '').trim().slice(0, 200)
+        const text = String(msg.text ?? '').trim().slice(0, 500)
         if (!text) return
         const att = ws.deserializeAttachment() ?? {}
-        // exclude なし → 送信者自身にも届く
-        this._broadcast({ type: 'message', text, senderName: att.deviceName ?? '名前未設定' })
+
+        const replyTo = msg.replyTo ? {
+          id:         String(msg.replyTo.id         ?? '').slice(0, 50),
+          text:       String(msg.replyTo.text       ?? '').slice(0, 100),
+          senderName: String(msg.replyTo.senderName ?? '').slice(0, 30),
+        } : null
+
+        const msgObj = {
+          id:        `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          text,
+          senderName: att.deviceName ?? '名前未設定',
+          senderId:   att.deviceId   ?? '',
+          timestamp:  Date.now(),
+          replyTo,
+        }
+
+        // 履歴を永続化（最大200件）
+        const messages = (await this.state.storage.get('messages')) ?? []
+        messages.push(msgObj)
+        if (messages.length > 200) messages.splice(0, messages.length - 200)
+        await this.state.storage.put('messages', messages)
+
+        // 全参加者へ（送信者含む）
+        this._broadcast({ type: 'message', ...msgObj })
+        break
+      }
+
+      case 'dissolve': {
+        // ホストによるルーム解散: ゲストへ通知 → 全WS閉鎖 → ストレージ削除
+        this._broadcast({ type: 'dissolved' }, ws)
+        await this.state.storage.deleteAll()
+        for (const w of this.state.getWebSockets()) {
+          try { w.close(1000, 'Room dissolved') } catch (_) {}
+        }
         break
       }
 

@@ -8,8 +8,8 @@ import {
   useSync,
   setInventoryCallbacks, registerInventoryGetter,
   registerConfigGetter, setConfigCallback,
-  setDoneCallback, setMessageCallback,
-  broadcastUpdate, broadcastRemove, broadcastDone, broadcastMessage,
+  setDoneCallback, setMessageCallback, setDissolvedCallback,
+  broadcastUpdate, broadcastRemove, broadcastDone,
 } from './composables/useSync.js'
 import { deviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -19,6 +19,7 @@ import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
+import ChatModal from './components/ChatModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias } = useConfig()
@@ -62,7 +63,15 @@ registerConfigGetter(() => ({
 }))
 setConfigCallback(applyRemoteConfig)
 setDoneCallback((name) => showNotification('done', `${name} が棚卸を完了しました ✓`))
-setMessageCallback(({ text, senderName }) => showNotification('message', text, senderName))
+setMessageCallback((msgObj) => {
+  // チャット画面が開いていないときだけポップアップ通知
+  if (!showChat.value) showNotification('message', msgObj.text, msgObj.senderName)
+})
+setDissolvedCallback(() => {
+  showChat.value = false
+  showSync.value = false
+  showNotification('dissolved', 'ルームが解散されました')
+})
 
 // URL パラメータ ?room=CODE があれば自動参加
 onMounted(() => {
@@ -157,8 +166,8 @@ function showToast(msg) {
   toastTimer = setTimeout(() => (toastShow.value = false), 2600)
 }
 
-// ── 通知ポップアップ（完了通知・メッセージ）────────────────────────────────────
-const notification     = ref(null)  // { type: 'done'|'message', text, senderName }
+// ── 通知ポップアップ（完了通知・メッセージ・解散通知）──────────────────────────
+const notification     = ref(null)  // { type, text, senderName }
 let   notificationTimer = null
 
 function showNotification(type, text, senderName = '') {
@@ -167,24 +176,8 @@ function showNotification(type, text, senderName = '') {
   notificationTimer = setTimeout(() => { notification.value = null }, 6000)
 }
 
-// ── メッセージ入力 ─────────────────────────────────────────────────────────────
-const showMessageInput = ref(false)
-const messageText      = ref('')
-const messageInputRef  = ref(null)
-
-async function openMessageInput() {
-  showMessageInput.value = true
-  await nextTick()
-  messageInputRef.value?.focus()
-}
-
-function onSendMessage() {
-  const text = messageText.value.trim()
-  if (!text) return
-  broadcastMessage(text)
-  messageText.value      = ''
-  showMessageInput.value = false
-}
+// ── チャットモーダル ───────────────────────────────────────────────────────────
+const showChat = ref(false)
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
 function normalize(str) {
@@ -503,7 +496,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         ・ルーム {{ syncState.roomCode }}
         ・{{ participantList.length }}名が接続
       </span>
-      <button class="sync-banner-btn sync-msg-btn" @click="openMessageInput" title="メッセージを送る">💬</button>
+      <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">💬</button>
       <button class="sync-banner-btn" @click="showSync = true">詳細</button>
     </div>
 
@@ -672,33 +665,16 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- 同期モーダル -->
     <SyncModal v-if="showSync" @close="showSync = false" />
 
-    <!-- メッセージ入力シート -->
-    <div v-if="showMessageInput" class="modal-overlay" @click.self="showMessageInput = false">
-      <div class="modal-sheet msg-input-sheet">
-        <div class="sheet-handle"></div>
-        <div class="sheet-title">💬 メッセージを送る</div>
-        <p class="msg-input-hint">送ったメッセージは全参加者の画面に表示されます</p>
-        <div class="msg-input-row">
-          <input
-            ref="messageInputRef"
-            type="text"
-            class="msg-input"
-            v-model="messageText"
-            placeholder="例：牛乳の数あってますか？"
-            maxlength="200"
-            @keyup.enter="onSendMessage"
-          />
-          <button class="btn btn-primary" :disabled="!messageText.trim()" @click="onSendMessage">送信</button>
-        </div>
-      </div>
-    </div>
+    <!-- チャットモーダル -->
+    <ChatModal v-if="showChat" @close="showChat = false" />
 
-    <!-- 通知ポップアップ（完了通知・チャットメッセージ） -->
+    <!-- 通知ポップアップ（完了通知・メッセージ・解散通知） -->
     <Transition name="notif-popup">
       <div v-if="notification" class="notif-overlay" @click="notification = null">
         <div class="notif-card" :class="notification.type">
           <div v-if="notification.type === 'message'" class="notif-sender">{{ notification.senderName }}</div>
-          <div v-else class="notif-done-icon">✓</div>
+          <div v-else-if="notification.type === 'done'" class="notif-done-icon">✓</div>
+          <div v-else class="notif-done-icon">🔔</div>
           <div class="notif-text">{{ notification.text }}</div>
           <div class="notif-dismiss">タップで閉じる</div>
         </div>
@@ -778,39 +754,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 .notif-popup-leave-to {
   opacity: 0;
   transform: scale(0.88);
-}
-
-/* ── メッセージ入力シート ── */
-.msg-input-sheet {
-  padding-bottom: 32px;
-}
-
-.msg-input-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-  margin: 0 0 16px;
-  line-height: 1.5;
-}
-
-.msg-input-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.msg-input {
-  flex: 1;
-  padding: 14px 16px;
-  font-size: 16px;
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  outline: none;
-  min-width: 0;
-}
-.msg-input:focus {
-  border-color: var(--primary);
 }
 
 /* ── バナー内メッセージボタン ── */

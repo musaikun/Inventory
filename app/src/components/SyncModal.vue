@@ -9,7 +9,7 @@ const emit = defineEmits(['close'])
 useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
-  createRoom, joinRoom, leaveRoom, getShareUrl,
+  createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
 
 // ── UI state ─────────────────────────────────────────────────────────────────
@@ -55,11 +55,13 @@ async function onJoin() {
 }
 
 // ── ルーム退出 ────────────────────────────────────────────────────────────────
-function onLeave() {
+async function onLeave() {
   if (isHost.value) {
     if (!confirm('ルームを解散しますか？\n他のメンバーは切断されます。')) return
+    await dissolveRoom()
+  } else {
+    leaveRoom()
   }
-  leaveRoom()
   view.value = 'home'
 }
 
