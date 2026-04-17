@@ -14,7 +14,7 @@ const props = defineProps({
   auditLog:    { type: Array,   default: () => [] },
 })
 
-const emit = defineEmits(['confirm', 'cancel', 'remove'])
+const emit = defineEmits(['confirm', 'cancel', 'revert'])
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
@@ -130,6 +130,24 @@ function formatAction(action) {
   if (action === 'overwrite') return '上書'
   if (action === 'remove')    return '削除'
   return action
+}
+
+// ひとつ前の状態（auditLog の2番目から最後のエントリ）
+const prevState = computed(() => {
+  const h = itemHistory.value
+  if (h.length < 2) return null
+  const prev = h[h.length - 2]
+  return { qty: prev.totalQty, unit: prev.unit }
+})
+
+const undoLabel = computed(() => {
+  if (!hasDuplicate.value) return ''
+  if (!prevState.value) return '↩ 未入力に戻す'
+  return `↩ ${prevState.value.qty}${prevState.value.unit} に戻す`
+})
+
+function handleRevert() {
+  emit('revert', prevState.value)
 }
 
 // ── 重複 ───────────────────────────────────────────────────────────────────────
@@ -272,13 +290,13 @@ function submit(isAdd) {
         </button>
       </div>
 
-      <!-- 未入力に戻す（入力済みの場合のみ） -->
+      <!-- ひとつ前の状態に戻す（入力済みの場合のみ） -->
       <button
         v-if="hasDuplicate"
         class="btn-undo-entry"
-        @click="$emit('remove', ingredient)"
+        @click="handleRevert"
         type="button"
-      >↩ 未入力に戻す</button>
+      >{{ undoLabel }}</button>
     </div>
   </div>
 </template>

@@ -65,6 +65,16 @@ export function setConflictCallback(fn)      { _onConflict = fn }
 export function setNameTakenCallback(fn)     { _onNameTaken = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
+export function addLocalAuditEntry(entry) {
+  if (!entry?.id || auditLog.some(e => e.id === entry.id)) return
+  auditLog.push(entry)
+  if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+}
+
+export function clearAuditLog() {
+  auditLog.splice(0, auditLog.length)
+}
+
 // ── 送信 API ──────────────────────────────────────────────────────────────────
 export function broadcastConfig(cfg) {
   if (_ws?.readyState !== WebSocket.OPEN) return

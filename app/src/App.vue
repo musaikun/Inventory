@@ -11,9 +11,9 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
-  markMessagesRead,
+  markMessagesRead, addLocalAuditEntry, clearAuditLog,
 } from './composables/useSync.js'
-import { deviceName, setDeviceName } from './composables/useDeviceId.js'
+import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -31,7 +31,7 @@ const {
   inventory, filledCount, totalValue,
   isCompleted, completedAt,
   entryLog,
-  setItem, updateQty, removeItem, reset, exportCSV, undoLast,
+  setItem, updateQty, removeItem, reset, exportCSV,
   completeSession, reopenSession,
 } = useInventory()
 
@@ -47,6 +47,21 @@ const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount, auditLog } = useSync()
+
+// ── オフライン時のローカル auditLog 追記 ───────────────────────────────────────
+function _localAudit(ingredient, action, delta, totalQty, unit) {
+  addLocalAuditEntry({
+    id:          `local-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    ingredient,
+    action,
+    delta,
+    totalQty,
+    unit,
+    enteredBy:   deviceName.value || '名前未設定',
+    enteredById: deviceId,
+    timestamp:   Date.now(),
+  })
+}
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
@@ -130,7 +145,6 @@ function onComplete() {
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
   saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog)
-  undoItem.value = null
   if (continuousMode.value) onForceStop()
   showToast('棚卸を完了しました ✓')
   if (syncActive.value) broadcastDone()
@@ -145,29 +159,8 @@ function onReopen() {
 function onStartNew() {
   if (!confirm('新規棚卸を開始しますか？\n現在のデータはクリアされます（CSVは保存済みか確認してください）。')) return
   reset()
-  undoItem.value = null
+  clearAuditLog()
   showToast('新規棚卸を開始しました')
-}
-
-// ── Undo（直前の確定を1件戻す）────────────────────────────────────────────────
-const undoItem = ref(null)  // { name, qty, unit } | null
-
-function onUndo() {
-  const restored = undoLast()
-  if (restored) {
-    // 取り消し後の状態をブロードキャスト（削除 or 以前の値に戻す）
-    if (syncActive.value) {
-      if (inventory[restored]) {
-        broadcastUpdate(restored, inventory[restored].qty, inventory[restored].unit, inventory[restored].enteredBy ?? '')
-      } else {
-        broadcastRemove(restored)
-      }
-    }
-    showToast(`↩ 「${restored}」を取り消しました`)
-    searchText.value   = ''
-    searchStatus.value = ''
-  }
-  undoItem.value = null
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -410,9 +403,12 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
-  setItem(ingredient, qty, unit, isAdd, deviceName.value || '自分')
-  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '自分', isAdd && !!existing)
-  undoItem.value = { name: ingredient, qty: finalQty, unit }
+  setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
+  if (!syncActive.value) {
+    const action = !existing ? 'new' : isAdd ? 'add' : 'overwrite'
+    _localAudit(ingredient, action, isAdd ? qty : finalQty, finalQty, unit)
+  }
+  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '名前未設定', isAdd && !!existing)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   searchText.value   = ''
   searchStatus.value = ''
@@ -443,12 +439,21 @@ function onCancelConfirm() {
   _restartIfContinuous()
 }
 
-function onConfirmRemove(ingredient) {
-  removeItem(ingredient)
-  if (syncActive.value) broadcastRemove(ingredient)
+function onConfirmRevert(prevState) {
+  const ingredient = confirmState.value.ingredient
+  const cur = confirmExisting.value
+  if (!prevState) {
+    removeItem(ingredient)
+    if (syncActive.value) broadcastRemove(ingredient)
+    else _localAudit(ingredient, 'remove', -(cur?.qty ?? 0), 0, cur?.unit ?? '')
+    showToast(`「${ingredient}」を未入力に戻しました`)
+  } else {
+    setItem(ingredient, prevState.qty, prevState.unit, false, deviceName.value || '名前未設定')
+    if (syncActive.value) broadcastUpdate(ingredient, prevState.qty, prevState.unit, deviceName.value || '名前未設定', false)
+    else _localAudit(ingredient, 'overwrite', prevState.qty, prevState.qty, prevState.unit)
+    showToast(`「${ingredient}」を ${prevState.qty}${prevState.unit} に戻しました`)
+  }
   confirmState.value = null
-  undoItem.value = null
-  showToast(`「${ingredient}」を未入力に戻しました`)
   _restartIfContinuous()
 }
 
@@ -478,9 +483,8 @@ function onTableTap(item) {
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
-  undoItem.value = null
-  updateQty(item, qty, unit, deviceName.value || '自分')
-  if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '自分')
+  updateQty(item, qty, unit, deviceName.value || '名前未設定')
+  if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
@@ -598,12 +602,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
       </div>
 
-      <!-- ↩ 戻すバー（直前の確定を取り消す） -->
-      <div v-if="undoItem" class="undo-bar">
-        <span class="undo-label">確定: {{ undoItem.name }}　{{ undoItem.qty }}{{ undoItem.unit }}</span>
-        <button class="undo-btn" @click="onUndo">↩ 戻す</button>
-      </div>
-
       <!-- 検索フィルターチップ（資材・備品系品目がある場合のみ表示） -->
       <div v-if="hasSupplyItems" class="search-filter-row">
         <span class="filter-label">🔍 検索対象：</span>
@@ -667,7 +665,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :audit-log="auditLog"
       @confirm="onConfirm"
       @cancel="onCancelConfirm"
-      @remove="onConfirmRemove"
+      @revert="onConfirmRevert"
     />
 
     <!-- 候補選択モーダル -->
