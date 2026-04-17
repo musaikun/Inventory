@@ -14,7 +14,7 @@ const props = defineProps({
   auditLog:    { type: Array,   default: () => [] },
 })
 
-const emit = defineEmits(['confirm', 'cancel'])
+const emit = defineEmits(['confirm', 'cancel', 'remove'])
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
@@ -271,6 +271,14 @@ function submit(isAdd) {
           {{ hasDuplicate ? '上書き' : '確定' }}
         </button>
       </div>
+
+      <!-- 未入力に戻す（入力済みの場合のみ） -->
+      <button
+        v-if="hasDuplicate"
+        class="btn-undo-entry"
+        @click="$emit('remove', ingredient)"
+        type="button"
+      >↩ 未入力に戻す</button>
     </div>
   </div>
 </template>
@@ -508,6 +516,22 @@ function submit(isAdd) {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
 }
+
+.btn-undo-entry {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.75;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-undo-entry:active { opacity: 1; }
 
 /* 変更履歴アコーディオン */
 .history-accordion {

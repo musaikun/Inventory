@@ -100,8 +100,9 @@ onMounted(() => {
 })
 
 // ── Modal state ────────────────────────────────────────────────────────────────
-const confirmState   = ref(null) // { ingredient, qty, unit, unitLocked, source, lotSize }
-const candidateState = ref(null) // { candidates, qty, unit }
+const confirmState      = ref(null) // { ingredient, qty, unit, unitLocked, source, lotSize }
+const candidateState    = ref(null) // { candidates, qty, unit }
+const pendingCandidates = ref(null) // { matched, searchTerm, qty, unit } — 候補リスト残り
 
 // モーダルが開いている間も inventory のライブ値を参照（リモート更新を即時反映）
 const confirmExisting = computed(() =>
@@ -418,13 +419,17 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 
   if (source === 'table') {
     // テーブルタップ確定後 → 次の品目を自動オープン
-    // :key="confirmState.ingredient" により ingredient 変化時に ConfirmModal を強制再マウント
     const nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
     if (nextItem) {
       openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table')
     } else {
-      confirmState.value = null  // リスト末尾: モーダルを閉じる
+      confirmState.value = null
     }
+  } else if (pendingCandidates.value) {
+    // 検索候補から選んで確定 → 残りの候補を再表示
+    candidateState.value = { ...pendingCandidates.value }
+    pendingCandidates.value = null
+    confirmState.value = null
   } else {
     confirmState.value = null
     nextTick(() => searchInputRef.value?.focus())
@@ -434,12 +439,26 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 
 function onCancelConfirm() {
   confirmState.value = null
+  pendingCandidates.value = null
+  _restartIfContinuous()
+}
+
+function onConfirmRemove(ingredient) {
+  removeItem(ingredient)
+  if (syncActive.value) broadcastRemove(ingredient)
+  confirmState.value = null
+  undoItem.value = null
+  showToast(`「${ingredient}」を未入力に戻しました`)
   _restartIfContinuous()
 }
 
 // ── Candidate modal ────────────────────────────────────────────────────────────
 function onCandidateSelect(canonical) {
-  const { qty, unit, searchTerm } = candidateState.value
+  const { qty, unit, searchTerm, matched } = candidateState.value
+  const remaining = matched.filter(c => c !== canonical)
+  pendingCandidates.value = remaining.length > 0
+    ? { matched: remaining, searchTerm, qty, unit }
+    : null
   candidateState.value = null
   registerAlias(searchTerm, canonical)
   openConfirm(canonical, qty, unit)
@@ -447,6 +466,7 @@ function onCandidateSelect(canonical) {
 
 function onCancelCandidate() {
   candidateState.value = null
+  pendingCandidates.value = null
   _restartIfContinuous()
 }
 
@@ -647,6 +667,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :audit-log="auditLog"
       @confirm="onConfirm"
       @cancel="onCancelConfirm"
+      @remove="onConfirmRemove"
     />
 
     <!-- 候補選択モーダル -->
