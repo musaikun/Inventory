@@ -90,14 +90,15 @@ export class RoomDO {
 
         ws.serializeAttachment({ deviceId, deviceName })
 
-        const [inventory, config, messages] = await Promise.all([
+        const [inventory, config, messages, auditLog] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
+          this.state.storage.get('auditLog').then(v => v ?? []),
         ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages }))
+        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages, auditLog }))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
@@ -119,19 +120,53 @@ export class RoomDO {
       }
 
       case 'update': {
-        const { ingredient, qty, unit, enteredBy } = msg
+        const { ingredient, qty, unit, enteredBy, isAdd } = msg
         if (!ingredient || typeof qty !== 'number') return
         if (String(ingredient).length > 200) return
 
-        const inventory = (await this.state.storage.get('inventory')) ?? {}
+        const [inventory, auditLog] = await Promise.all([
+          this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const prev = inventory[ingredient]
+        const prevQty = prev?.qty ?? null
+        let action
+        if (prevQty === null) {
+          action = 'new'
+        } else if (isAdd) {
+          action = 'add'
+        } else {
+          action = 'overwrite'
+        }
+        const delta = action === 'add' ? qty - (prevQty ?? 0) : qty
+
         inventory[ingredient] = {
           qty,
           unit:      unit      ?? '',
           enteredBy: String(enteredBy ?? '').slice(0, 30),
         }
-        await this.state.storage.put('inventory', inventory)
+
+        const entry = {
+          id:         `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          ingredient,
+          action,
+          delta,
+          totalQty:   qty,
+          unit:       unit ?? '',
+          enteredBy:  String(enteredBy ?? '').slice(0, 30),
+          timestamp:  Date.now(),
+        }
+        auditLog.push(entry)
+        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+
+        await Promise.all([
+          this.state.storage.put('inventory', inventory),
+          this.state.storage.put('auditLog', auditLog),
+        ])
 
         const { deviceId } = ws.deserializeAttachment() ?? {}
+        this._broadcast({ type: 'audit_entry', entry })
         this._broadcast(
           { type: 'update', ingredient, qty, unit: unit ?? '', enteredBy: enteredBy ?? '', fromDeviceId: deviceId },
           ws,
@@ -143,7 +178,30 @@ export class RoomDO {
         const { ingredient } = msg
         if (!ingredient || String(ingredient).length > 200) return
 
-        const inventory = (await this.state.storage.get('inventory')) ?? {}
+        const [inventory, auditLog] = await Promise.all([
+          this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const prev = inventory[ingredient]
+        if (prev) {
+          const att = ws.deserializeAttachment() ?? {}
+          const entry = {
+            id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            ingredient,
+            action:    'remove',
+            delta:     -(prev.qty ?? 0),
+            totalQty:  0,
+            unit:      prev.unit ?? '',
+            enteredBy: att.deviceName ?? '',
+            timestamp: Date.now(),
+          }
+          auditLog.push(entry)
+          if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+          this._broadcast({ type: 'audit_entry', entry })
+          await this.state.storage.put('auditLog', auditLog)
+        }
+
         delete inventory[ingredient]
         await this.state.storage.put('inventory', inventory)
 

@@ -11,6 +11,7 @@ const props = defineProps({
   prevMonth:   { type: String,  default: '' },   // 前月実績ヒント
   lotSize:     { type: String,  default: '' },   // 入数ヒント e.g. "24本"
   unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
+  auditLog:    { type: Array,   default: () => [] },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
@@ -111,6 +112,26 @@ const unitWarning = computed(() => {
   return null
 })
 
+// ── 変更履歴 ───────────────────────────────────────────────────────────────────
+const historyOpen = ref(false)
+
+const itemHistory = computed(() =>
+  props.auditLog.filter(e => e.ingredient === props.ingredient)
+)
+
+function formatHistoryTime(ts) {
+  const d = new Date(ts)
+  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatAction(action) {
+  if (action === 'new')       return '登録'
+  if (action === 'add')       return '追加'
+  if (action === 'overwrite') return '上書'
+  if (action === 'remove')    return '削除'
+  return action
+}
+
 // ── 重複 ───────────────────────────────────────────────────────────────────────
 const hasDuplicate = computed(() => props.existing !== null)
 
@@ -158,6 +179,27 @@ function submit(isAdd) {
       <div v-if="hasDuplicate" class="dup-warn">
         ⚠️ 入力済み：{{ existing.qty }}{{ existing.unit }}
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
+      </div>
+
+      <!-- 変更履歴アコーディオン -->
+      <div v-if="itemHistory.length > 0" class="history-accordion">
+        <button class="history-toggle" @click="historyOpen = !historyOpen" type="button">
+          <span class="history-toggle-label">変更履歴 ({{ itemHistory.length }}件)</span>
+          <span class="history-toggle-arrow">{{ historyOpen ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="historyOpen" class="history-list">
+          <div
+            v-for="entry in [...itemHistory].reverse()"
+            :key="entry.id"
+            class="history-row"
+          >
+            <span class="h-name">{{ entry.enteredBy || '—' }}</span>
+            <span class="h-time">{{ formatHistoryTime(entry.timestamp) }}</span>
+            <span class="h-qty">{{ entry.action === 'remove' ? '—' : `${entry.delta}${entry.unit}` }}</span>
+            <span class="h-action" :class="`action-${entry.action}`">{{ formatAction(entry.action) }}</span>
+            <span class="h-total">計{{ entry.totalQty }}{{ entry.unit }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- 数量表示 + 単位 + 音声 -->
@@ -466,4 +508,62 @@ function submit(isAdd) {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
 }
+
+/* 変更履歴アコーディオン */
+.history-accordion {
+  margin-bottom: 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.history-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.history-toggle:active { background: #f1f5f9; }
+
+.history-toggle-label { flex: 1; text-align: left; }
+.history-toggle-arrow { font-size: 10px; }
+
+.history-list {
+  background: #fff;
+  max-height: 160px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 4em 3em 4em 2em 4em;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.history-row:first-child { border-top: none; }
+
+.h-name  { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-time  { color: var(--text-muted); }
+.h-qty   { text-align: right; font-weight: 600; color: var(--text); }
+.h-action { text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 4px; }
+.h-total { color: var(--text-muted); font-size: 11px; }
+
+.action-new       { background: #d1fae5; color: #065f46; }
+.action-add       { background: #dbeafe; color: #1e40af; }
+.action-overwrite { background: #fef9c3; color: #854d0e; }
+.action-remove    { background: #fee2e2; color: #991b1b; }
 </style>

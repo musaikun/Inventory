@@ -45,7 +45,7 @@ const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
-const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount } = useSync()
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount, auditLog } = useSync()
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
@@ -383,7 +383,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '自分')
-  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '自分')
+  if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '自分', isAdd && !!existing)
   undoItem.value = { name: ingredient, qty: finalQty, unit }
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
   searchText.value   = ''
@@ -606,6 +606,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :existing="confirmExisting"
       :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
       :lot-size="confirmState.lotSize"
+      :audit-log="auditLog"
       @confirm="onConfirm"
       @cancel="onCancelConfirm"
     />
@@ -680,7 +681,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <HistoryModal v-if="showHistory" @close="showHistory = false" />
 
     <!-- 同期モーダル -->
-    <SyncModal v-if="showSync" @close="showSync = false" />
+    <SyncModal v-if="showSync" :audit-log="auditLog" @close="showSync = false" />
 
     <!-- チャットモーダル -->
     <ChatModal v-if="showChat" @close="showChat = false" />

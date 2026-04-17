@@ -17,6 +17,7 @@ const state = reactive({
 
 const participants  = reactive({})
 const messages      = reactive([])
+const auditLog      = reactive([])
 const unreadCount   = ref(0)
 
 let _ws             = null
@@ -63,9 +64,9 @@ export function broadcastConfig(cfg) {
   _ws.send(JSON.stringify({ type: 'config', ...cfg }))
 }
 
-export function broadcastUpdate(ingredient, qty, unit, enteredBy = '') {
+export function broadcastUpdate(ingredient, qty, unit, enteredBy = '', isAdd = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy }))
+  _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy, isAdd }))
 }
 
 export function broadcastRemove(ingredient) {
@@ -134,6 +135,7 @@ function _resetClientState() {
   state.error       = null
   Object.keys(participants).forEach(k => delete participants[k])
   messages.splice(0, messages.length)
+  auditLog.splice(0, auditLog.length)
   unreadCount.value = 0
 }
 
@@ -151,6 +153,9 @@ function _handleMessage(msg) {
       }
       if (Array.isArray(msg.messages)) {
         messages.splice(0, messages.length, ...msg.messages)
+      }
+      if (Array.isArray(msg.auditLog)) {
+        auditLog.splice(0, auditLog.length, ...msg.auditLog)
       }
       break
     }
@@ -193,6 +198,15 @@ function _handleMessage(msg) {
         unreadCount.value++
       }
       _onMessage?.(msg)
+      break
+    }
+
+    case 'audit_entry': {
+      const entry = msg.entry
+      if (entry?.id && !auditLog.some(e => e.id === entry.id)) {
+        auditLog.push(entry)
+        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+      }
       break
     }
 
@@ -397,7 +411,7 @@ export function useSync() {
   }
 
   return {
-    state, participants, participantList, messages, unreadCount,
+    state, participants, participantList, messages, auditLog, unreadCount,
     isActive, isHost, isGuest,
     createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
   }
