@@ -9,10 +9,11 @@ import {
   setInventoryCallbacks, registerInventoryGetter,
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
+  setNameTakenCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead,
 } from './composables/useSync.js'
-import { deviceName } from './composables/useDeviceId.js'
+import { deviceName, setDeviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -76,6 +77,10 @@ setDissolvedCallback(() => {
 setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
   const who = remoteBy || '他のメンバー'
   showToast(`⚠ 「${ingredient}」${who}が${remoteQty}${remoteUnit}に更新（あなた: ${local.qty}${local.unit}）`, 5000)
+})
+setNameTakenCallback((prevName) => {
+  setDeviceName(prevName)
+  showToast('⚠ この端末名は既に使用されています。別の名前を設定してください。', 4000)
 })
 
 // URL パラメータ ?room=CODE があれば自動参加
@@ -189,6 +194,28 @@ function showNotification(type, text, senderName = '') {
 // ── チャットモーダル ───────────────────────────────────────────────────────────
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
+
+// ── 複数人編集品目（同期中のみ）──────────────────────────────────────────────
+const conflictOpen = ref(false)
+const conflictItems = computed(() => {
+  if (!syncActive.value || auditLog.length === 0) return []
+  const byIngredient = new Map()
+  for (const entry of auditLog) {
+    if (!byIngredient.has(entry.ingredient)) {
+      byIngredient.set(entry.ingredient, { entries: [], editors: new Set() })
+    }
+    const g = byIngredient.get(entry.ingredient)
+    g.entries.push(entry)
+    if (entry.enteredBy) g.editors.add(entry.enteredBy)
+  }
+  const result = []
+  for (const [ingredient, { entries, editors }] of byIngredient) {
+    if (editors.size >= 2) {
+      result.push({ ingredient, editors: [...editors], recentQty: entries[entries.length - 1]?.totalQty, recentUnit: entries[entries.length - 1]?.unit })
+    }
+  }
+  return result
+})
 
 // ── ホスト: 品目リスト変更をルーム全員に同期（debounce 300ms）─────────────────
 let _configBroadcastTimer = null
@@ -436,14 +463,6 @@ function onTableUpdate({ item, qty, unit }) {
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '自分')
 }
 
-// ── Reset ──────────────────────────────────────────────────────────────────────
-function onReset() {
-  if (!confirm('入力データをすべてリセットしますか？')) return
-  reset()
-  undoItem.value = null
-  showToast('リセットしました')
-}
-
 // ── CSV export ─────────────────────────────────────────────────────────────────
 const zeroItems     = ref([])  // 数量0品目
 const unfilledItems = ref([])  // 未入力品目
@@ -584,6 +603,26 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </section>
 
     <!-- 棚卸テーブル -->
+    <!-- 複数人が編集した品目バナー（同期中かつ競合あり） -->
+    <div v-if="conflictItems.length > 0" class="conflict-notice">
+      <button class="conflict-notice-toggle" @click="conflictOpen = !conflictOpen" type="button">
+        <span class="conflict-notice-icon">⚡</span>
+        <span class="conflict-notice-label">複数人が入力した品目が {{ conflictItems.length }}件あります</span>
+        <span class="conflict-notice-arrow">{{ conflictOpen ? '▲' : '▼' }}</span>
+      </button>
+      <div v-if="conflictOpen" class="conflict-notice-body">
+        <div
+          v-for="ci in conflictItems"
+          :key="ci.ingredient"
+          class="conflict-notice-item"
+          @click="onTableTap(ci.ingredient)"
+        >
+          <span class="conflict-notice-name">{{ ci.ingredient }}</span>
+          <span class="conflict-notice-meta">{{ ci.editors.join('・') }} / 現在 {{ ci.recentQty }}{{ ci.recentUnit }}</span>
+        </div>
+      </div>
+    </div>
+
     <InventoryTable
       ref="inventoryTableRef"
       :inventory="inventory"
@@ -591,7 +630,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :read-only="isCompleted"
       @update="onTableUpdate"
       @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
-      @reset="onReset"
       @tap="onTableTap"
     />
 
@@ -681,7 +719,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <HistoryModal v-if="showHistory" @close="showHistory = false" />
 
     <!-- 同期モーダル -->
-    <SyncModal v-if="showSync" :audit-log="auditLog" @close="showSync = false" />
+    <SyncModal v-if="showSync" @close="showSync = false" />
 
     <!-- チャットモーダル -->
     <ChatModal v-if="showChat" @close="showChat = false" />
@@ -772,6 +810,71 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 .notif-popup-leave-to {
   opacity: 0;
   transform: scale(0.88);
+}
+
+/* ── 複数人編集品目バナー ── */
+.conflict-notice {
+  margin: 0 16px 8px;
+  border: 1.5px solid #fcd34d;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.conflict-notice-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400e;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.conflict-notice-toggle:active { background: #fef3c7; }
+.conflict-notice-icon { flex-shrink: 0; }
+.conflict-notice-label { flex: 1; }
+.conflict-notice-arrow { font-size: 10px; flex-shrink: 0; }
+
+.conflict-notice-body {
+  background: #fff;
+  border-top: 1px solid #fde68a;
+}
+
+.conflict-notice-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  gap: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.conflict-notice-item:last-child { border-bottom: none; }
+.conflict-notice-item:active { background: #fffbeb; }
+
+.conflict-notice-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-notice-meta {
+  font-size: 11px;
+  color: #b45309;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── バナー内メッセージボタン ── */

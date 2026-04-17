@@ -1,13 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-
-const props = defineProps({
-  auditLog: { type: Array, default: () => [] },
-})
 
 const emit = defineEmits(['close'])
 useEscapeKey(() => emit('close'))
@@ -15,42 +11,6 @@ const {
   state, participantList, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
-
-// ── 複数人編集品目 ─────────────────────────────────────────────────────────────
-const conflictsOpen = ref(false)
-
-// 2名以上の異なるメンバーが編集した品目を品目別に集計
-const conflictItems = computed(() => {
-  const byIngredient = new Map()
-  for (const entry of props.auditLog) {
-    if (!byIngredient.has(entry.ingredient)) {
-      byIngredient.set(entry.ingredient, { entries: [], editors: new Set() })
-    }
-    const g = byIngredient.get(entry.ingredient)
-    g.entries.push(entry)
-    if (entry.enteredBy) g.editors.add(entry.enteredBy)
-  }
-  const result = []
-  for (const [ingredient, { entries, editors }] of byIngredient) {
-    if (editors.size >= 2) {
-      result.push({ ingredient, entries: [...entries].reverse(), editors: [...editors] })
-    }
-  }
-  return result
-})
-
-function formatHistoryTime(ts) {
-  const d = new Date(ts)
-  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatAction(action) {
-  if (action === 'new')       return '登録'
-  if (action === 'add')       return '追加'
-  if (action === 'overwrite') return '上書'
-  if (action === 'remove')    return '削除'
-  return action
-}
 
 // ── UI state ─────────────────────────────────────────────────────────────────
 // 'home' | 'host' | 'joinForm' | 'guest'
@@ -214,27 +174,6 @@ function onCodeInput(e) {
           </div>
         </div>
 
-        <!-- 複数人編集品目 -->
-        <div v-if="conflictItems.length > 0" class="conflicts-section">
-          <button class="conflicts-toggle" @click="conflictsOpen = !conflictsOpen" type="button">
-            <span class="conflicts-label">複数人が編集した品目 ({{ conflictItems.length }}件)</span>
-            <span class="conflicts-arrow">{{ conflictsOpen ? '▲' : '▼' }}</span>
-          </button>
-          <div v-if="conflictsOpen" class="conflicts-body">
-            <div v-for="ci in conflictItems" :key="ci.ingredient" class="conflict-item">
-              <div class="conflict-item-name">{{ ci.ingredient }}</div>
-              <div class="conflict-item-editors">{{ ci.editors.join('・') }}</div>
-              <div v-for="entry in ci.entries" :key="entry.id" class="history-row">
-                <span class="h-name">{{ entry.enteredBy || '—' }}</span>
-                <span class="h-time">{{ formatHistoryTime(entry.timestamp) }}</span>
-                <span class="h-qty">{{ entry.action === 'remove' ? '—' : `${entry.delta}${entry.unit}` }}</span>
-                <span class="h-action" :class="`action-${entry.action}`">{{ formatAction(entry.action) }}</span>
-                <span class="h-total">計{{ entry.totalQty }}{{ entry.unit }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div class="actions">
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
           <button class="btn btn-danger-block" @click="onLeave">ルームを解散</button>
@@ -292,27 +231,6 @@ function onCodeInput(e) {
               <span class="participant-dot" :class="{ me: p.isMe }"></span>
               <span class="participant-name">{{ p.name }}</span>
               <span v-if="p.isMe" class="participant-me">あなた</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 複数人編集品目 -->
-        <div v-if="conflictItems.length > 0" class="conflicts-section">
-          <button class="conflicts-toggle" @click="conflictsOpen = !conflictsOpen" type="button">
-            <span class="conflicts-label">複数人が編集した品目 ({{ conflictItems.length }}件)</span>
-            <span class="conflicts-arrow">{{ conflictsOpen ? '▲' : '▼' }}</span>
-          </button>
-          <div v-if="conflictsOpen" class="conflicts-body">
-            <div v-for="ci in conflictItems" :key="ci.ingredient" class="conflict-item">
-              <div class="conflict-item-name">{{ ci.ingredient }}</div>
-              <div class="conflict-item-editors">{{ ci.editors.join('・') }}</div>
-              <div v-for="entry in ci.entries" :key="entry.id" class="history-row">
-                <span class="h-name">{{ entry.enteredBy || '—' }}</span>
-                <span class="h-time">{{ formatHistoryTime(entry.timestamp) }}</span>
-                <span class="h-qty">{{ entry.action === 'remove' ? '—' : `${entry.delta}${entry.unit}` }}</span>
-                <span class="h-action" :class="`action-${entry.action}`">{{ formatAction(entry.action) }}</span>
-                <span class="h-total">計{{ entry.totalQty }}{{ entry.unit }}</span>
-              </div>
             </div>
           </div>
         </div>
@@ -573,84 +491,4 @@ function onCodeInput(e) {
   font-size: 14px;
 }
 
-/* ── 複数人編集品目 ── */
-.conflicts-section {
-  margin-bottom: 14px;
-  border: 1.5px solid #fde68a;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.conflicts-toggle {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  background: #fffbeb;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  color: #92400e;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.conflicts-toggle:active { background: #fef3c7; }
-.conflicts-arrow { font-size: 10px; }
-.conflicts-label { flex: 1; text-align: left; }
-
-.conflicts-body {
-  background: #fff;
-  max-height: 240px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.conflict-item {
-  padding: 8px 12px;
-  border-top: 1px solid #f1f5f9;
-}
-
-.conflict-item:first-child { border-top: none; }
-
-.conflict-item-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.conflict-item-editors {
-  font-size: 11px;
-  color: #d97706;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.history-row {
-  display: grid;
-  grid-template-columns: 4em 3em 4em 2em 4em;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 0;
-  font-size: 12px;
-  border-top: 1px solid #f8fafc;
-}
-
-.history-row:first-of-type { border-top: none; }
-
-.h-name  { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.h-time  { color: var(--text-muted); }
-.h-qty   { text-align: right; font-weight: 600; color: var(--text); }
-.h-action { text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 4px; }
-.h-total { color: var(--text-muted); font-size: 11px; }
-
-.action-new       { background: #d1fae5; color: #065f46; }
-.action-add       { background: #dbeafe; color: #1e40af; }
-.action-overwrite { background: #fef9c3; color: #854d0e; }
-.action-remove    { background: #fee2e2; color: #991b1b; }
 </style>

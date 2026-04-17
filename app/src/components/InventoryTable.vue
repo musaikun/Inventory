@@ -1,10 +1,8 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
-import { useHistory } from '../composables/useHistory.js'
 
 const { config } = useConfig()
-const { getEntryLogs } = useHistory()
 
 const props = defineProps({
   inventory:   { type: Object,  required: true },
@@ -12,7 +10,7 @@ const props = defineProps({
   readOnly:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'reset', 'tap'])
+const emit = defineEmits(['update', 'remove', 'tap'])
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
 const sortMode     = ref('category')  // 'default' | 'alpha' | 'category'
@@ -31,36 +29,7 @@ function collapseAll() {
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
   { value: 'alpha',    label: '五十音' },
-  { value: 'learned',  label: '学習順' },
 ]
-
-// ── 学習順スコア（過去3回の入力順から算出）──────────────────────────────────
-// 現在セッションも含め重み付けでスコアを計算
-// weights: 最新0.6, 1回前0.3, 2回前0.1
-const LOG_WEIGHTS = [0.6, 0.3, 0.1]
-
-const learnedScores = computed(() => {
-  // 完了済み棚卸の入力順ログ（最新3回分、新しい順）
-  const allLogs = getEntryLogs()
-
-  // 現在の品目リストに含まれる品目だけを対象にスコア計算。
-  // 別業態（資材のみ等）のセッションログが混入しても影響を受けない。
-  const currentSet = new Set(config.order)
-
-  const scores = {}
-  for (let i = 0; i < allLogs.length; i++) {
-    const { log } = allLogs[i]
-    const relevant = log.filter(item => currentSet.has(item))
-    const n = relevant.length
-    if (n === 0) continue
-    const weight = LOG_WEIGHTS[i]
-    relevant.forEach((item, pos) => {
-      const posScore = n > 1 ? 1 - pos / (n - 1) : 1.0
-      scores[item] = (scores[item] ?? 0) + posScore * weight
-    })
-  }
-  return scores
-})
 
 // ── カテゴリごとの実際の進捗（フィルターに依存しない）──────────────────────
 const catRealStats = computed(() => {
@@ -134,19 +103,6 @@ const rows = computed(() => {
   // 4. 並べ替え適用
   if (sortMode.value === 'alpha') {
     return [...items].sort((a, b) => a.item.localeCompare(b.item, 'ja'))
-  }
-
-  if (sortMode.value === 'learned') {
-    const scores = learnedScores.value
-    return [...items].sort((a, b) => {
-      const sa = scores[a.item] ?? -1
-      const sb = scores[b.item] ?? -1
-      if (sa !== sb) return sb - sa  // スコア高い順（早く入力した品目が上）
-      // スコア同点は元の config.order 順
-      const ia = a.index === '*' ? Infinity : a.index
-      const ib = b.index === '*' ? Infinity : b.index
-      return ia - ib
-    })
   }
 
   if (sortMode.value === 'category') {
@@ -311,7 +267,6 @@ function fmtYen(n) {
           class="btn-collapse-all"
           @click="collapseAll"
         >すべて閉じる</button>
-        <button v-if="!readOnly" class="btn-danger-sm" @click="$emit('reset')">リセット</button>
       </div>
     </div>
 
@@ -333,11 +288,6 @@ function fmtYen(n) {
           @click="filterMode = opt.value"
         >{{ opt.label }}</button>
       </div>
-    </div>
-
-    <!-- 学習順：データなし案内 -->
-    <div v-if="sortMode === 'learned' && Object.keys(learnedScores).length === 0" class="learned-empty">
-      📊 棚卸を1回完了すると、入力した順番で並びます
     </div>
 
     <!-- テーブル -->
@@ -727,19 +677,6 @@ function fmtYen(n) {
 .amount-na {
   font-size: 12px;
   color: var(--text-muted);
-}
-
-/* ── 空メッセージ ── */
-/* ── 学習順：データなし案内 ── */
-.learned-empty {
-  font-size: 12px;
-  color: var(--text-muted);
-  background: #f8fafc;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 8px;
-  text-align: center;
 }
 
 .empty-row { background: white !important; }

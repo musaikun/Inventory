@@ -79,6 +79,22 @@ export class RoomDO {
           return
         }
 
+        // 端末名重複チェック（同じ deviceId のセッション復帰は除外）
+        if (deviceName) {
+          const existingNames = new Set(
+            this.state.getWebSockets()
+              .filter(w => w !== ws)
+              .filter(w => w.deserializeAttachment()?.deviceId !== deviceId)
+              .map(w => w.deserializeAttachment()?.deviceName)
+              .filter(Boolean)
+          )
+          if (existingNames.has(deviceName)) {
+            ws.send(JSON.stringify({ type: 'error', code: 'name_taken' }))
+            ws.close(1008, 'Name already taken')
+            return
+          }
+        }
+
         // セッション復帰: 同じ deviceId の既存 WS を閉じる
         for (const existingWs of this.state.getWebSockets()) {
           if (existingWs === ws) continue
@@ -147,15 +163,17 @@ export class RoomDO {
           enteredBy: String(enteredBy ?? '').slice(0, 30),
         }
 
+        const att = ws.deserializeAttachment() ?? {}
         const entry = {
-          id:         `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           ingredient,
           action,
           delta,
-          totalQty:   qty,
-          unit:       unit ?? '',
-          enteredBy:  String(enteredBy ?? '').slice(0, 30),
-          timestamp:  Date.now(),
+          totalQty:    qty,
+          unit:        unit ?? '',
+          enteredBy:   String(enteredBy ?? '').slice(0, 30),
+          enteredById: att.deviceId ?? '',
+          timestamp:   Date.now(),
         }
         auditLog.push(entry)
         if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
@@ -165,7 +183,7 @@ export class RoomDO {
           this.state.storage.put('auditLog', auditLog),
         ])
 
-        const { deviceId } = ws.deserializeAttachment() ?? {}
+        const { deviceId } = att
         this._broadcast({ type: 'audit_entry', entry })
         this._broadcast(
           { type: 'update', ingredient, qty, unit: unit ?? '', enteredBy: enteredBy ?? '', fromDeviceId: deviceId },
@@ -187,14 +205,15 @@ export class RoomDO {
         if (prev) {
           const att = ws.deserializeAttachment() ?? {}
           const entry = {
-            id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
             ingredient,
-            action:    'remove',
-            delta:     -(prev.qty ?? 0),
-            totalQty:  0,
-            unit:      prev.unit ?? '',
-            enteredBy: att.deviceName ?? '',
-            timestamp: Date.now(),
+            action:      'remove',
+            delta:       -(prev.qty ?? 0),
+            totalQty:    0,
+            unit:        prev.unit ?? '',
+            enteredBy:   att.deviceName ?? '',
+            enteredById: att.deviceId  ?? '',
+            timestamp:   Date.now(),
           }
           auditLog.push(entry)
           if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
@@ -261,6 +280,18 @@ export class RoomDO {
 
       case 'rename': {
         const newName = String(msg.deviceName ?? '').slice(0, 30)
+        if (newName) {
+          const existingNames = new Set(
+            this.state.getWebSockets()
+              .filter(w => w !== ws)
+              .map(w => w.deserializeAttachment()?.deviceName)
+              .filter(Boolean)
+          )
+          if (existingNames.has(newName)) {
+            ws.send(JSON.stringify({ type: 'error', code: 'name_taken', context: 'rename' }))
+            return
+          }
+        }
         const att = ws.deserializeAttachment() ?? {}
         ws.serializeAttachment({ ...att, deviceName: newName })
         this._broadcast({ type: 'participants', list: this._getParticipants() })

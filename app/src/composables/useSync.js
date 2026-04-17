@@ -27,7 +27,12 @@ let _reconnectCount = 0
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
 // ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
-watch(deviceName, (newName) => {
+let _prevDeviceName = deviceName.value
+let _skipRename = false
+
+watch(deviceName, (newName, oldName) => {
+  if (_skipRename) { _skipRename = false; return }
+  _prevDeviceName = oldName ?? ''
   const name = newName || '名前未設定'
   if (participants[deviceId]) {
     participants[deviceId].name = name
@@ -47,6 +52,7 @@ let _onDone           = null
 let _onMessage        = null
 let _onDissolved      = null
 let _onConflict       = null
+let _onNameTaken      = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -56,6 +62,7 @@ export function setDoneCallback(fn)          { _onDone = fn }
 export function setMessageCallback(fn)       { _onMessage = fn }
 export function setDissolvedCallback(fn)     { _onDissolved = fn }
 export function setConflictCallback(fn)      { _onConflict = fn }
+export function setNameTakenCallback(fn)     { _onNameTaken = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 // ── 送信 API ──────────────────────────────────────────────────────────────────
@@ -111,6 +118,13 @@ function _updateParticipants(list) {
     if (!incoming.has(id)) delete participants[id]
   }
   for (const p of list) {
+    const oldName = participants[p.deviceId]?.name
+    const newName = p.deviceName
+    if (oldName && oldName !== newName) {
+      for (const entry of auditLog) {
+        if (entry.enteredById === p.deviceId) entry.enteredBy = newName
+      }
+    }
     participants[p.deviceId] = { name: p.deviceName, isMe: p.deviceId === deviceId }
   }
 }
@@ -222,7 +236,10 @@ function _handleMessage(msg) {
       break
 
     case 'error':
-      // room_not_found: _connect の onmessage で処理済み
+      if (msg.code === 'name_taken' && msg.context === 'rename') {
+        _skipRename = true
+        _onNameTaken?.(_prevDeviceName)
+      }
       break
 
     case 'pong':
@@ -297,6 +314,8 @@ function _connect(code) {
               ? 'ルームが存在しません'
               : data.code === 'room_full'
               ? 'ルームが満員です（上限20名）'
+              : data.code === 'name_taken'
+              ? 'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。'
               : 'エラーが発生しました'
             state.error    = errMsg
             state.mode     = 'idle'
