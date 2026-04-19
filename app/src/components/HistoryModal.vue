@@ -4,20 +4,54 @@ import { useHistory } from '../composables/useHistory.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const emit = defineEmits(['close'])
-useEscapeKey(() => emit('close'))
+
+useEscapeKey(() => {
+  if (detailView.value) { detailView.value = null }
+  else { emit('close') }
+})
 
 const { getSnapshots, deleteSnapshot, exportSnapshotCSV } = useHistory()
+const snapshots = computed(() => getSnapshots())
 
-const snapshots    = computed(() => getSnapshots())
-const expandedDate = ref(null)
+// ── 詳細ビュー状態 ─────────────────────────────────────────────────────────────
+// null | { snapDate: string, name: string, items: [], totalValue: number|null }
+const detailView = ref(null)
 
-function toggle(date) {
-  expandedDate.value = expandedDate.value === date ? null : date
+function openDetail(snapDate, participantObj) {
+  detailView.value = {
+    snapDate,
+    name:       participantObj.name,
+    items:      participantObj.items,
+    totalValue: participantObj.totalValue,
+  }
 }
 
+function closeDetail() {
+  detailView.value = null
+}
+
+// ── 参加者行リスト構築 ─────────────────────────────────────────────────────────
+function getParticipantRows(snap) {
+  if (snap.participants && snap.participants.length > 0) {
+    return snap.participants.filter(p => p.items.length > 0)
+  }
+  // 旧データ or 参加者情報なし → 入力済みを全品目として1行
+  return [{
+    name:       '全員',
+    items:      snap.items.filter(it => it.qty !== null),
+    totalValue: snap.totalValue,
+  }]
+}
+
+// ── ユーティリティ ─────────────────────────────────────────────────────────────
 function fmtDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
+}
+
+function fmtShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })
 }
 
 function fmtYen(n) {
@@ -40,77 +74,115 @@ function onDownload(snapshot) {
 function onDelete(date) {
   if (!confirm(`${date} の履歴を削除しますか？`)) return
   deleteSnapshot(date)
-  if (expandedDate.value === date) expandedDate.value = null
 }
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
+  <div class="modal-overlay" @click.self="detailView ? closeDetail() : $emit('close')">
     <div class="modal-sheet history-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">棚卸履歴</div>
 
-      <!-- 履歴なし -->
-      <div v-if="!snapshots.length" class="empty-msg">
-        まだ履歴がありません。<br>棚卸完了後に記録が残ります。
-      </div>
-
-      <!-- 履歴リスト -->
-      <div class="history-list">
-        <div v-for="snap in snapshots" :key="snap.date" class="history-card">
-
-          <!-- カードヘッダー -->
-          <div class="card-header" @click="toggle(snap.date)">
-            <div class="card-info">
-              <div class="card-date">{{ fmtDate(snap.date) }}</div>
-              <div class="card-meta">
-                <span class="meta-count">
-                  {{ snap.items.filter(it => it.qty !== null).length }} / {{ snap.items.length }}品目入力済み
-                </span>
-                <span v-if="snap.totalValue != null" class="meta-total">
-                  {{ fmtYen(snap.totalValue) }}
-                </span>
-              </div>
-            </div>
-            <div class="card-actions">
-              <button class="icon-btn" @click.stop="onDownload(snap)" title="CSVダウンロード">💾</button>
-              <button class="icon-btn danger" @click.stop="onDelete(snap.date)" title="削除">🗑</button>
-              <span class="chevron">{{ expandedDate === snap.date ? '▲' : '▼' }}</span>
-            </div>
-          </div>
-
-          <!-- 展開詳細 -->
-          <div v-if="expandedDate === snap.date" class="card-detail">
-            <table class="detail-table">
-              <thead>
-                <tr>
-                  <th class="th-name">品目</th>
-                  <th class="th-num">数量</th>
-                  <th v-if="snap.totalValue != null" class="th-num">金額</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="it in snap.items" :key="it.item">
-                  <td class="td-name">{{ it.item }}</td>
-                  <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
-                  <td v-if="snap.totalValue != null" class="td-num">
-                    {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot v-if="snap.totalValue != null">
-                <tr class="total-row">
-                  <td>合計</td>
-                  <td></td>
-                  <td class="td-num total">{{ fmtYen(snap.totalValue) }}</td>
-                </tr>
-              </tfoot>
-            </table>
+      <!-- ── 詳細ビュー ── -->
+      <template v-if="detailView">
+        <div class="detail-nav">
+          <button class="back-btn" @click="closeDetail">← 戻る</button>
+          <div class="detail-nav-info">
+            <span class="detail-nav-date">{{ fmtShortDate(detailView.snapDate) }}</span>
+            <span class="detail-nav-sep">·</span>
+            <span class="detail-nav-name">{{ detailView.name }}</span>
           </div>
         </div>
-      </div>
 
-      <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
+        <div class="detail-meta">
+          <span class="detail-count">{{ detailView.items.length }}品目</span>
+          <span v-if="detailView.totalValue != null" class="detail-total">
+            {{ fmtYen(detailView.totalValue) }}
+          </span>
+        </div>
+
+        <div class="detail-body">
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th class="th-name">品目</th>
+                <th class="th-num">数量</th>
+                <th v-if="detailView.items.some(it => it.unitPrice != null)" class="th-num">金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="it in detailView.items" :key="it.item">
+                <td class="td-name">{{ it.item }}</td>
+                <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
+                <td v-if="detailView.items.some(it2 => it2.unitPrice != null)" class="td-num">
+                  {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot v-if="detailView.totalValue != null">
+              <tr class="total-row">
+                <td>合計</td>
+                <td></td>
+                <td class="td-num total">{{ fmtYen(detailView.totalValue) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </template>
+
+      <!-- ── 履歴一覧ビュー ── -->
+      <template v-else>
+        <div class="sheet-title">棚卸履歴</div>
+
+        <div v-if="!snapshots.length" class="empty-msg">
+          まだ履歴がありません。<br>棚卸完了後に記録が残ります。
+        </div>
+
+        <div class="history-list">
+          <div v-for="snap in snapshots" :key="snap.date" class="history-card">
+
+            <!-- カードヘッダー -->
+            <div class="card-header">
+              <div class="card-info">
+                <div class="card-date">{{ fmtDate(snap.date) }}</div>
+                <div class="card-meta">
+                  <span class="meta-count">
+                    {{ snap.items.filter(it => it.qty !== null).length }} / {{ snap.items.length }}品目入力済み
+                  </span>
+                  <span v-if="snap.totalValue != null" class="meta-total">
+                    {{ fmtYen(snap.totalValue) }}
+                  </span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="icon-btn" @click="onDownload(snap)" title="CSVダウンロード">💾</button>
+                <button class="icon-btn danger" @click="onDelete(snap.date)" title="削除">🗑</button>
+              </div>
+            </div>
+
+            <!-- 参加者行リスト -->
+            <div class="participant-list">
+              <div
+                v-for="(participant, idx) in getParticipantRows(snap)"
+                :key="idx"
+                class="participant-row"
+                @click="openDetail(snap.date, participant)"
+              >
+                <div class="participant-info">
+                  <span class="participant-name">{{ participant.name }}</span>
+                  <span class="participant-count">{{ participant.items.length }}品目</span>
+                  <span v-if="participant.totalValue != null" class="participant-total">
+                    {{ fmtYen(participant.totalValue) }}
+                  </span>
+                </div>
+                <span class="participant-arrow">▶</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
+      </template>
     </div>
   </div>
 </template>
@@ -131,6 +203,7 @@ function onDelete(date) {
   line-height: 1.8;
 }
 
+/* ── 履歴一覧 ── */
 .history-list {
   flex: 1;
   overflow-y: auto;
@@ -152,11 +225,8 @@ function onDelete(date) {
   justify-content: space-between;
   align-items: center;
   padding: 12px 14px;
-  cursor: pointer;
   background: var(--surface);
-  transition: background 0.15s;
 }
-.card-header:active { background: #f8fafc; }
 
 .card-date {
   font-size: 14px;
@@ -207,39 +277,163 @@ function onDelete(date) {
 .icon-btn.danger { border-color: #fca5a5; }
 .icon-btn:active  { opacity: 0.7; }
 
-.chevron {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 14px;
-  text-align: center;
-}
-
-/* 詳細テーブル */
-.card-detail {
+/* ── 参加者行 ── */
+.participant-list {
   border-top: 1px solid var(--border);
-  overflow-x: auto;
-  background: #fafafa;
 }
 
+.participant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  background: #fafafa;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.participant-row:last-child { border-bottom: none; }
+.participant-row:active      { background: #eff6ff; }
+
+.participant-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.participant-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.participant-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.participant-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 1px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.participant-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── 詳細ビュー ── */
+.detail-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.back-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background: #eff6ff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.back-btn:active { opacity: 0.7; }
+
+.detail-nav-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.detail-nav-date {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.detail-nav-sep {
+  color: var(--border);
+  flex-shrink: 0;
+}
+
+.detail-nav-name {
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.detail-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.detail-total {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 2px 10px;
+  border-radius: 6px;
+}
+
+.detail-body {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+
+/* ── 詳細テーブル ── */
 .detail-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .detail-table th {
-  background: #f1f5f9;
-  padding: 7px 10px;
+  background: #1e3a8a;
+  color: white;
+  padding: 8px 10px;
   text-align: left;
   font-weight: 700;
-  color: var(--text-muted);
   font-size: 11px;
 }
 
 .th-num { text-align: right; width: 70px; }
 
 .detail-table td {
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-top: 1px solid var(--border);
   color: var(--text);
   line-height: 1.4;

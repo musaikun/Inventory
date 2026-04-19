@@ -153,7 +153,7 @@ function onComplete() {
   }
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog)
+  saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()

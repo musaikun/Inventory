@@ -28,8 +28,9 @@ export function useHistory() {
    * @param {string[]} order      config.order
    * @param {object}   codes      config.codes（商品コード）
    * @param {string[]} entryLog   入力順ログ（学習ソート用）
+   * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -60,12 +61,49 @@ export function useHistory() {
       })
     }
 
+    // 参加者別集計: auditLog の最終更新者をオーナーとして品目を割り当て
+    let participants = null
+    if (auditLog && auditLog.length > 0) {
+      const lastAuthor = new Map() // ingredient -> { deviceId, name }
+      for (const entry of auditLog) {
+        if (entry.action && entry.action !== 'remove') {
+          lastAuthor.set(entry.ingredient, {
+            deviceId: entry.enteredById || '__solo__',
+            name:     entry.enteredBy   || '名前未設定',
+          })
+        }
+      }
+
+      const authorMap = new Map() // deviceId -> { name, items[] }
+      for (const it of items) {
+        if (it.qty === null) continue  // 未入力は除外
+        const author = lastAuthor.get(it.item)
+        if (!author) continue
+        if (!authorMap.has(author.deviceId)) {
+          authorMap.set(author.deviceId, { name: author.name, items: [] })
+        }
+        authorMap.get(author.deviceId).items.push({ ...it })
+      }
+
+      if (authorMap.size > 0) {
+        participants = [...authorMap.values()].map(({ name, items: pItems }) => {
+          let pTotal    = 0
+          let pHasPrice = false
+          for (const it of pItems) {
+            if (it.subtotal != null) { pTotal += it.subtotal; pHasPrice = true }
+          }
+          return { name, items: pItems, totalValue: pHasPrice ? pTotal : null }
+        })
+      }
+    }
+
     _data[today] = {
-      date:       today,
-      savedAt:    new Date().toISOString(),
+      date:         today,
+      savedAt:      new Date().toISOString(),
       items,
-      totalValue: hasPrices ? totalValue : null,
-      entryLog:   entryLog ? [...entryLog] : [],
+      totalValue:   hasPrices ? totalValue : null,
+      entryLog:     entryLog ? [...entryLog] : [],
+      participants,
     }
     _persist()
   }
