@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { saveLearningSession, computeLearnedOrder, getLateRecountItems } from './composables/useLearning.js'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig } from './composables/useConfig.js'
@@ -47,6 +48,14 @@ const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount, auditLog } = useSync()
+
+// ── 学習順 ────────────────────────────────────────────────────────────────────
+const learnedOrderVersion = ref(0) // saveLearningSession 後にインクリメント
+const learnedOrder = computed(() => {
+  learnedOrderVersion.value // reactive dependency
+  return computeLearnedOrder(config.order)
+})
+const lateRecountItems = computed(() => getLateRecountItems(auditLog))
 
 // ── オフライン時のローカル auditLog 追記 ───────────────────────────────────────
 function _localAudit(ingredient, action, delta, totalQty, unit) {
@@ -145,6 +154,8 @@ function onComplete() {
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
   saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog)
+  saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
+  learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
   showToast('棚卸を完了しました ✓')
   if (syncActive.value) broadcastDone()
@@ -646,6 +657,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :inventory="inventory"
       :filled-count="filledCount"
       :read-only="isCompleted"
+      :learned-order="learnedOrder"
+      :late-recount-items="lateRecountItems"
       @update="onTableUpdate"
       @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
       @tap="onTableTap"

@@ -5,9 +5,11 @@ import { useConfig } from '../composables/useConfig.js'
 const { config } = useConfig()
 
 const props = defineProps({
-  inventory:   { type: Object,  required: true },
-  filledCount: { type: Number,  required: true },
-  readOnly:    { type: Boolean, default: false },
+  inventory:        { type: Object,  required: true },
+  filledCount:      { type: Number,  required: true },
+  readOnly:         { type: Boolean, default: false },
+  learnedOrder:     { type: Array,   default: null },
+  lateRecountItems: { type: Object,  default: null },  // Set<string>
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
@@ -28,6 +30,7 @@ function collapseAll() {
 
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
+  { value: 'learned',  label: '学習順' },
   { value: 'alpha',    label: '五十音' },
 ]
 
@@ -103,6 +106,20 @@ const rows = computed(() => {
   // 4. 並べ替え適用
   if (sortMode.value === 'alpha') {
     return [...items].sort((a, b) => a.item.localeCompare(b.item, 'ja'))
+  }
+
+  if (sortMode.value === 'learned') {
+    // 学習データがある場合はその順、なければ config.order 順のまま（フラットリスト）
+    if (props.learnedOrder) {
+      const orderMap = new Map(props.learnedOrder.map((item, i) => [item, i]))
+      return [...items].sort((a, b) => {
+        const ia = orderMap.get(a.item) ?? Infinity
+        const ib = orderMap.get(b.item) ?? Infinity
+        return ia - ib
+      })
+    }
+    // まだ履歴なし → config.order 順のフラットリスト
+    return items
   }
 
   if (sortMode.value === 'category') {
@@ -183,6 +200,8 @@ function _isRowVisible(row) {
   if (sortMode.value !== 'category') return true
   return !!expandedCats[row.category ?? 'その他']
 }
+
+const hasLearningData = computed(() => !!props.learnedOrder)
 
 function _getVisibleItems() {
   return rows.value
@@ -290,6 +309,11 @@ function fmtYen(n) {
       </div>
     </div>
 
+    <!-- 学習順：データなし時のヒント -->
+    <div v-if="sortMode === 'learned' && !hasLearningData" class="learned-hint">
+      棚卸を完了すると入力順が記録され、次回から自動で並び替えられます
+    </div>
+
     <!-- テーブル -->
     <table class="inv-table">
       <thead>
@@ -325,7 +349,7 @@ function fmtYen(n) {
 
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
-              v-show="sortMode !== 'category' || expandedCats[row.category ?? 'その他']"
+              v-show="sortMode !== 'category' || !!expandedCats[row.category ?? 'その他']"
               :class="{ filled: row.entry !== null, 'read-only': readOnly }"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
@@ -337,6 +361,11 @@ function fmtYen(n) {
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
+                <span
+                  v-if="sortMode === 'learned' && lateRecountItems?.has(row.item)"
+                  class="late-recount-badge"
+                  title="この品目は最初の入力から15分以上後に再入力されています"
+                >⚠</span>
               </div>
               <div v-if="row.lotSize || row.prevMonth" class="hints-row">
                 <span v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</span>
@@ -707,5 +736,23 @@ function fmtYen(n) {
   font-weight: 700;
   color: var(--success);
   text-align: right;
+}
+
+/* ── 学習順 ── */
+.late-recount-badge {
+  font-size: 11px;
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+.learned-hint {
+  margin: 0 0 6px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: #78350f;
+  background: #fef3c7;
+  border-radius: 8px;
+  border: 1px solid #fde68a;
+  line-height: 1.5;
 }
 </style>

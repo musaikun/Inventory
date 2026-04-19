@@ -14,11 +14,12 @@
  *   _device_name          - 端末名（ユーザー設定）
  */
 export const STORAGE_KEYS = {
-  inventory:  'inventory_v1',
-  history:    'inventory_history_v1',
-  config:     'inventory_config_v1',
-  aliases:    'inventory_aliases_v1',
-  master:     'inventory_master_v1',
-  deviceId:   '_device_id',
-  deviceName: '_device_name',
+  inventory:        'inventory_v1',
+  history:          'inventory_history_v1',
+  config:           'inventory_config_v1',
+  aliases:          'inventory_aliases_v1',
+  master:           'inventory_master_v1',
+  deviceId:         '_device_id',
+  deviceName:       '_device_name',
+  learningSessions: 'inventory_learning_v1',
 }
