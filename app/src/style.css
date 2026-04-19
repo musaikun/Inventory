@@ -413,19 +413,6 @@ body {
   flex: 1;
 }
 
-.reopen-btn {
-  flex-shrink: 0;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  border: 1.5px solid var(--success);
-  border-radius: 8px;
-  background: white;
-  color: var(--success);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.reopen-btn:active { background: #f0fdf4; }
 
 /* ── Footer ── */
 .app-footer {

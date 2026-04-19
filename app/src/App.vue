@@ -33,7 +33,7 @@ const {
   isCompleted, completedAt,
   entryLog,
   setItem, updateQty, removeItem, reset, exportCSV,
-  completeSession, reopenSession,
+  completeSession,
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
@@ -161,11 +161,6 @@ function onComplete() {
   if (syncActive.value) broadcastDone()
 }
 
-function onReopen() {
-  if (!confirm('完了した棚卸を再編集しますか？')) return
-  reopenSession()
-  showToast('編集モードに戻しました')
-}
 
 function onStartNew() {
   if (!confirm('新規棚卸を開始しますか？\n現在のデータはクリアされます（CSVは保存済みか確認してください）。')) return
@@ -582,7 +577,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <div v-if="isCompleted" class="complete-banner">
       <span class="complete-icon">✓</span>
       <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
-      <button class="reopen-btn" @click="onReopen">✏️ 編集に戻す</button>
     </div>
 
     <!-- 音声入力 / テキスト検索（完了時は非表示） -->

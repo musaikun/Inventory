@@ -261,6 +261,57 @@ function onRowKeydown(e, item) {
 
 defineExpose({ getNextVisibleItem })
 
+// ── 五十音インデックスバー ─────────────────────────────────────────────────────
+const KANA_ROWS = [
+  { label: 'あ', chars: 'あいうえお' },
+  { label: 'か', chars: 'かきくけこがぎぐげご' },
+  { label: 'さ', chars: 'さしすせそざじずぜぞ' },
+  { label: 'た', chars: 'たちつてとだぢづでど' },
+  { label: 'な', chars: 'なにぬねの' },
+  { label: 'は', chars: 'はひふへほばびぶべぼぱぴぷぺぽ' },
+  { label: 'ま', chars: 'まみむめも' },
+  { label: 'や', chars: 'やゆよ' },
+  { label: 'ら', chars: 'らりるれろ' },
+  { label: 'わ', chars: 'わをん' },
+]
+
+function _toHira(str) {
+  return str
+    .normalize('NFKC')
+    .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))
+}
+
+// 各行に品目が存在するかどうかのセット（存在しない行はグレーアウト）
+const activeKanaRows = computed(() => {
+  if (sortMode.value !== 'alpha') return new Set()
+  const active = new Set()
+  for (const r of rows.value) {
+    if (r.type !== 'item') continue
+    const first = _toHira(r.item.trim())[0]
+    for (const row of KANA_ROWS) {
+      if (row.chars.includes(first)) { active.add(row.label); break }
+    }
+  }
+  return active
+})
+
+function scrollToKana(label) {
+  const row = KANA_ROWS.find(r => r.label === label)
+  if (!row) return
+  const target = rows.value.find(r => {
+    if (r.type !== 'item') return false
+    return row.chars.includes(_toHira(r.item.trim())[0])
+  })
+  if (!target) return
+  const els = document.querySelectorAll('.item-row')
+  for (const el of els) {
+    if (el.dataset.item === target.item) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+  }
+}
+
 function subtotal(row) {
   if (!row.entry || row.unitPrice == null) return null
   return Math.round(row.entry.qty * row.unitPrice)
@@ -307,6 +358,17 @@ function fmtYen(n) {
           @click="filterMode = opt.value"
         >{{ opt.label }}</button>
       </div>
+    </div>
+
+    <!-- 五十音インデックスバー -->
+    <div v-if="sortMode === 'alpha'" class="kana-index-bar">
+      <button
+        v-for="row in KANA_ROWS"
+        :key="row.label"
+        :class="['kana-btn', { inactive: !activeKanaRows.has(row.label) }]"
+        @click="scrollToKana(row.label)"
+        type="button"
+      >{{ row.label }}</button>
     </div>
 
     <!-- 学習順：データなし時のヒント -->
@@ -737,6 +799,37 @@ function fmtYen(n) {
   color: var(--success);
   text-align: right;
 }
+
+/* ── 五十音インデックスバー ── */
+.kana-index-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.kana-btn {
+  flex: 1;
+  padding: 7px 2px;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s;
+}
+
+.kana-btn:active    { background: #dbeafe; }
+.kana-btn.inactive  { color: #cbd5e1; cursor: default; }
+
+/* スクロール時にスティッキーヘッダーで隠れないよう余白を確保 */
+.item-row { scroll-margin-top: 120px; }
 
 /* ── 学習順 ── */
 .late-recount-badge {
