@@ -321,7 +321,7 @@ const KANA_ROWS = [
   { label: 'ら行', chars: 'らりるれろ' },
   { label: 'わ行', chars: 'わをん' },
 ]
-const KANA_ORDER = [...KANA_ROWS.map(r => r.label), 'その他']
+const KANA_ORDER = [...KANA_ROWS.map(r => r.label), '漢字', '英字', '数字', '記号']
 
 function _toHira(str) {
   return str
@@ -334,7 +334,10 @@ function _kanaGroup(item) {
   for (const row of KANA_ROWS) {
     if (row.chars.includes(first)) return row.label
   }
-  return 'その他'
+  if (/[一-鿿㐀-䶿]/.test(first)) return '漢字'
+  if (/[A-Za-z]/.test(first)) return '英字'
+  if (/[0-9]/.test(first)) return '数字'
+  return '記号'
 }
 
 // 五十音ごとの進捗（フィルターに依存しない実数値・スコープ反映）
