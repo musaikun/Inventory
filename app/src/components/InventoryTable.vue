@@ -10,23 +10,40 @@ const props = defineProps({
   readOnly:         { type: Boolean, default: false },
   learnedOrder:     { type: Array,   default: null },
   lateRecountItems: { type: Object,  default: null },  // Set<string>
+  categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
 
-// ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'default' | 'alpha' | 'category'
-const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
-const expandedCats = reactive({})     // { カテゴリ名: true } = 展開中（デフォルト閉じ）
-
-function toggleCat(label) {
-  if (expandedCats[label]) delete expandedCats[label]
-  else expandedCats[label] = true
+// ── 食材 / 資材・備品 判定 ─────────────────────────────────────────────────────
+function _isSupply(item) {
+  const cat = config.categories?.[item]
+  if (!cat) return false
+  return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
 }
+
+// ── 並べ替え / フィルター ─────────────────────────────────────────────────────
+const sortMode     = ref('category')  // 'category' | 'alpha' | 'learned'
+const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
+const expandedCats = reactive({})     // ジャンル別アコーディオン
+const expandedKana = reactive({})     // 五十音アコーディオン
+
+function toggleCat(label)  { if (expandedCats[label]) delete expandedCats[label]; else expandedCats[label] = true }
+function toggleKana(label) { if (expandedKana[label]) delete expandedKana[label]; else expandedKana[label] = true }
+
+function toggleGroup(row)      { row.isKana ? toggleKana(row.label) : toggleCat(row.label) }
+function isGroupExpanded(row)  { return row.isKana ? !!expandedKana[row.label] : !!expandedCats[row.label] }
 
 function collapseAll() {
   Object.keys(expandedCats).forEach(k => delete expandedCats[k])
+  Object.keys(expandedKana).forEach(k => delete expandedKana[k])
 }
+
+const hasExpanded = computed(() => {
+  if (sortMode.value === 'category') return Object.keys(expandedCats).length > 0
+  if (sortMode.value === 'alpha')    return Object.keys(expandedKana).length > 0
+  return false
+})
 
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
@@ -34,22 +51,20 @@ const sortOpts = [
   { value: 'alpha',    label: '五十音' },
 ]
 
-// ── カテゴリごとの実際の進捗（フィルターに依存しない）──────────────────────
+// ── カテゴリごとの実際の進捗（フィルターに依存しない・スコープ反映）──────────
 const catRealStats = computed(() => {
   const map = {}
-  for (const item of config.order) {
+  const all = [
+    ...config.order,
+    ...Object.keys(props.inventory).filter(k => !config.order.includes(k)),
+  ]
+  for (const item of all) {
+    if (props.categoryScope === 'food'   && _isSupply(item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     const cat = config.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
     if (props.inventory[item] != null) map[cat].filled++
-  }
-  for (const item of Object.keys(props.inventory)) {
-    if (!config.order.includes(item)) {
-      const cat = config.categories?.[item] ?? 'その他'
-      if (!map[cat]) map[cat] = { total: 0, filled: 0 }
-      map[cat].total++
-      map[cat].filled++
-    }
   }
   return map
 })
@@ -92,20 +107,49 @@ const rows = computed(() => {
       lotSize:   config.lotSizes?.[item]    ?? null,
     }))
 
-  // 3. フィルター適用
-  let items
-  if (filterMode.value === 'filled') {
-    items = [...ordered, ...customs].filter(r => r.entry !== null)
-  } else if (filterMode.value === 'empty') {
-    // 未入力は config.order 内のみ（カスタム品目は常に入力済みなので対象外）
-    items = ordered.filter(r => r.entry === null)
-  } else {
-    items = [...ordered, ...customs]
+  // 3. カテゴリスコープフィルター（食材 / 資材・備品）
+  let all = [...ordered, ...customs]
+  if (props.categoryScope === 'food') {
+    all = all.filter(r => !_isSupply(r.item))
+  } else if (props.categoryScope === 'supply') {
+    all = all.filter(r => _isSupply(r.item))
   }
 
-  // 4. 並べ替え適用
+  // 4. 入力済み/未入力フィルター適用
+  let items
+  if (filterMode.value === 'filled') {
+    items = all.filter(r => r.entry !== null)
+  } else if (filterMode.value === 'empty') {
+    // 未入力は config.order 内のみ（カスタム品目は常に入力済みなので対象外）
+    items = all.filter(r => !r.custom && r.entry === null)
+  } else {
+    items = all
+  }
+
+  // 5. 並べ替え適用
   if (sortMode.value === 'alpha') {
-    return [...items].sort((a, b) => a.item.localeCompare(b.item, 'ja'))
+    // 五十音アコーディオン
+    const groupMap = new Map()
+    for (const row of items) {
+      const grp = _kanaGroup(row.item)
+      if (!groupMap.has(grp)) groupMap.set(grp, [])
+      groupMap.get(grp).push(row)
+    }
+    // グループ内は五十音順にソート
+    for (const arr of groupMap.values()) {
+      arr.sort((a, b) => a.item.localeCompare(b.item, 'ja'))
+    }
+    // 行順序でソート
+    const sorted = [...groupMap.entries()].sort(([a], [b]) =>
+      KANA_ORDER.indexOf(a) - KANA_ORDER.indexOf(b)
+    )
+    const result = []
+    for (const [grp, groupRows] of sorted) {
+      const real = kanaRealStats.value[grp] ?? { total: groupRows.length, filled: 0 }
+      result.push({ type: 'group-header', label: grp, count: real.total, filled: real.filled, isKana: true })
+      result.push(...groupRows)
+    }
+    return result
   }
 
   if (sortMode.value === 'learned') {
@@ -145,7 +189,7 @@ const rows = computed(() => {
     const result = []
     for (const [cat, groupRows] of sorted) {
       const real = catRealStats.value[cat] ?? { total: groupRows.length, filled: 0 }
-      result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled })
+      result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled, isKana: false })
       result.push(...groupRows)
     }
     return result
@@ -177,12 +221,14 @@ const totalCols = computed(() => {
   return n
 })
 
-// 合計は常に全在庫ベース（フィルターに関係なく表示）
+// 合計はスコープ対応（食材/資材・備品選択時はその範囲のみ集計）
 const grandTotal = computed(() => {
   if (!hasPrices.value) return null
   let total = 0
   let has   = false
   for (const [item, entry] of Object.entries(props.inventory)) {
+    if (props.categoryScope === 'food'   && _isSupply(item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     const price = config.prices?.[item]
     if (price == null) continue
     total += entry.qty * price
@@ -197,8 +243,9 @@ function rowClick(item) {
 
 // ── キーボードナビゲーション ──────────────────────────────────────────────────
 function _isRowVisible(row) {
-  if (sortMode.value !== 'category') return true
-  return !!expandedCats[row.category ?? 'その他']
+  if (sortMode.value === 'category') return !!expandedCats[row.category ?? 'その他']
+  if (sortMode.value === 'alpha')    return !!expandedKana[_kanaGroup(row.item)]
+  return true
 }
 
 const hasLearningData = computed(() => !!props.learnedOrder)
@@ -261,19 +308,20 @@ function onRowKeydown(e, item) {
 
 defineExpose({ getNextVisibleItem })
 
-// ── 五十音インデックスバー ─────────────────────────────────────────────────────
+// ── 五十音グループ ─────────────────────────────────────────────────────────────
 const KANA_ROWS = [
-  { label: 'あ', chars: 'あいうえお' },
-  { label: 'か', chars: 'かきくけこがぎぐげご' },
-  { label: 'さ', chars: 'さしすせそざじずぜぞ' },
-  { label: 'た', chars: 'たちつてとだぢづでど' },
-  { label: 'な', chars: 'なにぬねの' },
-  { label: 'は', chars: 'はひふへほばびぶべぼぱぴぷぺぽ' },
-  { label: 'ま', chars: 'まみむめも' },
-  { label: 'や', chars: 'やゆよ' },
-  { label: 'ら', chars: 'らりるれろ' },
-  { label: 'わ', chars: 'わをん' },
+  { label: 'あ行', chars: 'あいうえお' },
+  { label: 'か行', chars: 'かきくけこがぎぐげご' },
+  { label: 'さ行', chars: 'さしすせそざじずぜぞ' },
+  { label: 'た行', chars: 'たちつてとだぢづでど' },
+  { label: 'な行', chars: 'なにぬねの' },
+  { label: 'は行', chars: 'はひふへほばびぶべぼぱぴぷぺぽ' },
+  { label: 'ま行', chars: 'まみむめも' },
+  { label: 'や行', chars: 'やゆよ' },
+  { label: 'ら行', chars: 'らりるれろ' },
+  { label: 'わ行', chars: 'わをん' },
 ]
+const KANA_ORDER = [...KANA_ROWS.map(r => r.label), 'その他']
 
 function _toHira(str) {
   return str
@@ -281,36 +329,47 @@ function _toHira(str) {
     .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))
 }
 
-// 各行に品目が存在するかどうかのセット（存在しない行はグレーアウト）
-const activeKanaRows = computed(() => {
-  if (sortMode.value !== 'alpha') return new Set()
-  const active = new Set()
-  for (const r of rows.value) {
-    if (r.type !== 'item') continue
-    const first = _toHira(r.item.trim())[0]
-    for (const row of KANA_ROWS) {
-      if (row.chars.includes(first)) { active.add(row.label); break }
-    }
+function _kanaGroup(item) {
+  const first = _toHira(item.trim())[0] ?? ''
+  for (const row of KANA_ROWS) {
+    if (row.chars.includes(first)) return row.label
   }
-  return active
+  return 'その他'
+}
+
+// 五十音ごとの進捗（フィルターに依存しない実数値・スコープ反映）
+const kanaRealStats = computed(() => {
+  const map = {}
+  const all = [
+    ...config.order,
+    ...Object.keys(props.inventory).filter(k => !config.order.includes(k)),
+  ]
+  for (const item of all) {
+    if (props.categoryScope === 'food'   && _isSupply(item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    const grp = _kanaGroup(item)
+    if (!map[grp]) map[grp] = { total: 0, filled: 0 }
+    map[grp].total++
+    if (props.inventory[item] != null) map[grp].filled++
+  }
+  return map
 })
 
-function scrollToKana(label) {
-  const row = KANA_ROWS.find(r => r.label === label)
-  if (!row) return
-  const target = rows.value.find(r => {
-    if (r.type !== 'item') return false
-    return row.chars.includes(_toHira(r.item.trim())[0])
-  })
-  if (!target) return
-  const els = document.querySelectorAll('.item-row')
-  for (const el of els) {
-    if (el.dataset.item === target.item) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      return
-    }
-  }
-}
+// スコープ対応の品目数（ヘッダー表示用）
+const scopedTotal = computed(() => {
+  if (props.categoryScope === 'all') return config.order.length
+  return config.order.filter(item =>
+    props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item)
+  ).length
+})
+
+const scopedFilled = computed(() => {
+  return Object.entries(props.inventory).filter(([item]) => {
+    if (props.categoryScope === 'food')   return !_isSupply(item)
+    if (props.categoryScope === 'supply') return _isSupply(item)
+    return true
+  }).length
+})
 
 function subtotal(row) {
   if (!row.entry || row.unitPrice == null) return null
@@ -330,10 +389,10 @@ function fmtYen(n) {
       <h2>棚卸一覧</h2>
       <div class="header-right">
         <span class="progress">
-          <strong>{{ filledCount }}</strong> / {{ config.order.length }} 件入力済み
+          <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
         </span>
         <button
-          v-if="sortMode === 'category' && Object.keys(expandedCats).length > 0"
+          v-if="hasExpanded"
           class="btn-collapse-all"
           @click="collapseAll"
         >すべて閉じる</button>
@@ -360,17 +419,6 @@ function fmtYen(n) {
       </div>
     </div>
 
-    <!-- 五十音インデックスバー -->
-    <div v-if="sortMode === 'alpha'" class="kana-index-bar">
-      <button
-        v-for="row in KANA_ROWS"
-        :key="row.label"
-        :class="['kana-btn', { inactive: !activeKanaRows.has(row.label) }]"
-        @click="scrollToKana(row.label)"
-        type="button"
-      >{{ row.label }}</button>
-    </div>
-
     <!-- 学習順：データなし時のヒント -->
     <div v-if="sortMode === 'learned' && !hasLearningData" class="learned-hint">
       棚卸を完了すると入力順が記録され、次回から自動で並び替えられます
@@ -389,11 +437,11 @@ function fmtYen(n) {
       <tbody>
         <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
-          <!-- ジャンルヘッダー行（クリックでアコーディオン開閉） -->
-          <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleCat(row.label)">
+          <!-- グループヘッダー行（クリックでアコーディオン開閉・ジャンル/五十音共通） -->
+          <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleGroup(row)">
             <td :colspan="totalCols" class="group-header-cell">
               <div class="cat-info-row">
-                <span class="cat-arrow">{{ expandedCats[row.label] ? '▼' : '▶' }}</span>
+                <span class="cat-arrow">{{ isGroupExpanded(row) ? '▼' : '▶' }}</span>
                 <span class="cat-label">{{ row.label }}</span>
                 <span class="cat-badge">
                   {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
@@ -411,7 +459,7 @@ function fmtYen(n) {
 
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
-              v-show="sortMode !== 'category' || !!expandedCats[row.category ?? 'その他']"
+              v-show="_isRowVisible(row)"
               :class="{ filled: row.entry !== null, 'read-only': readOnly }"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
@@ -799,37 +847,6 @@ function fmtYen(n) {
   color: var(--success);
   text-align: right;
 }
-
-/* ── 五十音インデックスバー ── */
-.kana-index-bar {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 6px;
-  background: #f1f5f9;
-  border-radius: 10px;
-  padding: 3px;
-}
-
-.kana-btn {
-  flex: 1;
-  padding: 7px 2px;
-  font-size: 12px;
-  font-weight: 700;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--primary);
-  cursor: pointer;
-  line-height: 1;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.1s;
-}
-
-.kana-btn:active    { background: #dbeafe; }
-.kana-btn.inactive  { color: #cbd5e1; cursor: default; }
-
-/* スクロール時にスティッキーヘッダーで隠れないよう余白を確保 */
-.item-row { scroll-margin-top: 120px; }
 
 /* ── 学習順 ── */
 .late-recount-badge {

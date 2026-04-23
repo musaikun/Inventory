@@ -220,49 +220,37 @@ body {
   width: 100%;
 }
 
-/* ── 検索フィルターチップ行 ── */
-.search-filter-row {
-  width: 100%;
+/* ── 棚卸対象スコープバー（食材 / 資材・備品）── */
+.scope-bar {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px 10px;
-  background: #f8fafc;
-  border: 1.5px solid var(--border);
+  margin: 4px 16px 10px;
+  background: #f1f5f9;
   border-radius: 12px;
+  padding: 4px;
+  gap: 3px;
 }
 
-.filter-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  border: 1.5px solid var(--border);
-  background: white;
-  color: var(--text-muted);
+.scope-btn {
+  flex: 1;
+  padding: 10px 4px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
 
-.filter-chip.active {
-  border-color: var(--primary);
-  background: #eff6ff;
+.scope-btn.active {
+  background: white;
   color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
 
-.filter-chip:active { opacity: 0.75; }
+.scope-btn:active { opacity: 0.8; }
 
 
 

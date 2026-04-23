@@ -264,8 +264,9 @@ function isSupplyItem(canonical) {
 }
 
 const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(item)))
-// 'all' | 'exclude'（食材のみ） | 'only'（資材・備品のみ）
-const searchFilter   = ref('all')
+// 棚卸対象スコープ: 'all' | 'food'（食材のみ） | 'supply'（資材・備品のみ）
+// 検索・棚卸一覧の両方を絞り込む
+const categoryScope = ref('all')
 
 function findCandidates(name) {
   if (!name) return []
@@ -299,9 +300,9 @@ function findCandidates(name) {
 
   let results = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
 
-  if (searchFilter.value === 'exclude') {
+  if (categoryScope.value === 'food') {
     results = results.filter(c => !isSupplyItem(c))
-  } else if (searchFilter.value === 'only') {
+  } else if (categoryScope.value === 'supply') {
     results = results.filter(c => isSupplyItem(c))
   }
 
@@ -607,23 +608,26 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
       </div>
 
-      <!-- 検索フィルターチップ（資材・備品系品目がある場合のみ表示） -->
-      <div v-if="hasSupplyItems" class="search-filter-row">
-        <span class="filter-label">🔍 検索対象：</span>
-        <button
-          class="filter-chip"
-          :class="{ active: searchFilter === 'exclude' }"
-          @click="searchFilter = searchFilter === 'exclude' ? 'all' : 'exclude'"
-          type="button"
-        >食材のみ</button>
-        <button
-          class="filter-chip"
-          :class="{ active: searchFilter === 'only' }"
-          @click="searchFilter = searchFilter === 'only' ? 'all' : 'only'"
-          type="button"
-        >資材・備品のみ</button>
-      </div>
     </section>
+
+    <!-- 棚卸対象スコープ切り替え（食材 / 資材・備品）-->
+    <div v-if="hasSupplyItems" class="scope-bar">
+      <button
+        :class="['scope-btn', { active: categoryScope === 'all' }]"
+        @click="categoryScope = 'all'"
+        type="button"
+      >全品目</button>
+      <button
+        :class="['scope-btn', { active: categoryScope === 'food' }]"
+        @click="categoryScope = 'food'"
+        type="button"
+      >食材</button>
+      <button
+        :class="['scope-btn', { active: categoryScope === 'supply' }]"
+        @click="categoryScope = 'supply'"
+        type="button"
+      >資材・備品</button>
+    </div>
 
     <!-- 棚卸テーブル -->
     <!-- 複数人が編集した品目バナー（同期中かつ競合あり） -->
@@ -653,6 +657,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :read-only="isCompleted"
       :learned-order="learnedOrder"
       :late-recount-items="lateRecountItems"
+      :category-scope="categoryScope"
       @update="onTableUpdate"
       @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
       @tap="onTableTap"
