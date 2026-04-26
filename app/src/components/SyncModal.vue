@@ -2,7 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
-import { deviceName } from '../composables/useDeviceId.js'
+import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const emit = defineEmits(['close'])
@@ -13,11 +13,16 @@ const {
 } = useSync()
 
 // ── UI state ─────────────────────────────────────────────────────────────────
-// 'home' | 'host' | 'joinForm' | 'guest'
+// 'home' | 'host' | 'joinForm' | 'guest' | 'namePrompt'
 const view = ref('home')
 const joinCode = ref('')
 const joinError = ref('')
 const copied = ref(false)
+
+// ── 端末名未設定時のプロンプト ─────────────────────────────────────────────────
+const pendingAction = ref(null) // 'create' | 'join'
+const nameInput     = ref('')
+const nameError     = ref('')
 
 const qrDataUrl = ref('')
 const showQR    = ref(false)
@@ -32,6 +37,13 @@ onMounted(() => {
 const createError = ref('')
 
 async function onCreateRoom() {
+  if (!deviceName.value) {
+    pendingAction.value = 'create'
+    nameInput.value = ''
+    nameError.value = ''
+    view.value = 'namePrompt'
+    return
+  }
   createError.value = ''
   try {
     await createRoom()
@@ -54,6 +66,13 @@ async function toggleQR() {
 
 // ── ゲスト参加 ────────────────────────────────────────────────────────────────
 async function onJoin() {
+  if (!deviceName.value) {
+    pendingAction.value = 'join'
+    nameInput.value = ''
+    nameError.value = ''
+    view.value = 'namePrompt'
+    return
+  }
   joinError.value = ''
   try {
     await joinRoom(joinCode.value)
@@ -61,6 +80,30 @@ async function onJoin() {
   } catch (e) {
     joinError.value = state.error || '参加できませんでした'
   }
+}
+
+// ── 端末名確定後に保留アクションを実行 ──────────────────────────────────────
+async function onConfirmName() {
+  const trimmed = nameInput.value.trim()
+  if (!trimmed) {
+    nameError.value = '端末名を入力してください'
+    return
+  }
+  setDeviceName(trimmed)
+  if (pendingAction.value === 'create') {
+    view.value = 'home'
+    await onCreateRoom()
+  } else if (pendingAction.value === 'join') {
+    view.value = 'joinForm'
+    await onJoin()
+  }
+  pendingAction.value = null
+}
+
+function onCancelNamePrompt() {
+  const back = pendingAction.value === 'join' ? 'joinForm' : 'home'
+  pendingAction.value = null
+  view.value = back
 }
 
 // ── ルーム退出 ────────────────────────────────────────────────────────────────
@@ -207,6 +250,33 @@ function onCodeInput(e) {
           <button class="btn btn-primary" :disabled="joinCode.length < 6" @click="onJoin">
             参加する
           </button>
+        </div>
+      </template>
+
+      <!-- ==== 端末名設定プロンプト ==== -->
+      <template v-else-if="view === 'namePrompt'">
+        <div class="sheet-title">端末名を設定</div>
+
+        <div class="sync-intro">
+          ルームに参加するには端末名が必要です。<br>
+          他の参加者にはこの名前が表示されます。
+        </div>
+
+        <input
+          type="text"
+          class="name-input"
+          placeholder="例：Aさん、厨房、ホール"
+          v-model="nameInput"
+          @keyup.enter="onConfirmName"
+          maxlength="20"
+          autofocus
+        />
+
+        <div v-if="nameError" class="msg error">{{ nameError }}</div>
+
+        <div class="actions">
+          <button class="btn btn-secondary" @click="onCancelNamePrompt">キャンセル</button>
+          <button class="btn btn-primary" @click="onConfirmName">設定して続行</button>
         </div>
       </template>
 
@@ -439,6 +509,20 @@ function onCodeInput(e) {
 }
 
 /* ── コード入力 ── */
+.name-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 17px;
+  font-weight: 600;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  outline: none;
+  font-family: inherit;
+  margin-bottom: 14px;
+}
+.name-input:focus { border-color: var(--primary); }
+
 .code-input {
   width: 100%;
   padding: 18px;
