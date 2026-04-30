@@ -12,7 +12,7 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
-  markMessagesRead, addLocalAuditEntry, clearAuditLog,
+  markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -120,6 +120,9 @@ onMounted(() => {
     joinRoom(roomCode)
       .then(() => showToast(`ルーム ${roomCode} に参加しました`))
       .catch(() => showToast(`ルーム ${roomCode} への参加に失敗しました`))
+  } else {
+    // ページ再読み込み後に前回のルームセッションを自動復元
+    restoreSession()
   }
 })
 

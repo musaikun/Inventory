@@ -1,5 +1,15 @@
 import { reactive, computed, ref, watch } from 'vue'
 import { deviceId, deviceName } from './useDeviceId.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
+
+function _saveSession() {
+  if (!state.roomCode || state.mode === 'idle') return
+  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode })) } catch (_) {}
+}
+
+function _clearSession() {
+  try { localStorage.removeItem(STORAGE_KEYS.syncSession) } catch (_) {}
+}
 
 const WORKER_URL = (() => {
   const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
@@ -153,6 +163,7 @@ function _addSysMsg(text) {
 function _resetClientState() {
   _clearReconnectTimer()
   _stopHeartbeat()
+  _clearSession()
   state.mode        = 'idle'
   state.roomCode    = null
   state.isConnected = false
@@ -279,6 +290,7 @@ function _connect(code) {
       _reconnectCount = 0
       state.isConnected = true
       state.error       = null
+      _saveSession()
 
       ws.send(JSON.stringify({
         type:       'join',
@@ -370,6 +382,34 @@ function _connect(code) {
       }
     }
   })
+}
+
+// ── 画面ON時の自動再接続 ──────────────────────────────────────────────────────
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+    if (state.mode === 'idle' || !state.roomCode) return
+    if (_ws?.readyState === WebSocket.OPEN) return
+    _clearReconnectTimer()
+    _reconnectCount = 0
+    _connect(state.roomCode)
+  })
+}
+
+// ── ページ再読み込み後のセッション復元 ───────────────────────────────────────
+export function restoreSession() {
+  if (state.mode !== 'idle') return
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.syncSession) ?? 'null')
+    if (!saved?.roomCode || !saved?.mode) return
+    state.roomCode = saved.roomCode
+    state.mode     = saved.mode
+    _connect(saved.roomCode).catch(() => {
+      _clearSession()
+      state.mode     = 'idle'
+      state.roomCode = null
+    })
+  } catch (_) {}
 }
 
 // ── useSync composable ────────────────────────────────────────────────────────
