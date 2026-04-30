@@ -268,12 +268,32 @@ function parsePdfPageRotated(items) {
   return products
 }
 
-export async function parsePdfFile(arrayBuffer) {
-  const pdf        = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
+  // Worker 初期化タイムアウト（iOS Safari などで Worker が起動しない場合に備える）
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
+  const timeoutId   = setTimeout(() => loadingTask.destroy(), 40000)
+
+  let pdf
+  try {
+    pdf = await loadingTask.promise
+  } catch (e) {
+    clearTimeout(timeoutId)
+    if (e?.name === 'AbortError' || signal?.aborted) throw new DOMException('キャンセルされました', 'AbortError')
+    throw new Error(`PDFの読み込みに失敗しました。ファイルが壊れているか、対応していない形式の可能性があります。(${e.message})`)
+  }
+  clearTimeout(timeoutId)
+
   const items      = []
   const debugLines = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
+    if (signal?.aborted) {
+      pdf.destroy()
+      throw new DOMException('キャンセルされました', 'AbortError')
+    }
+
+    onProgress?.({ current: p, total: pdf.numPages })
+
     const page      = await pdf.getPage(p)
     const pageItems = await getPdfPageItems(page)
 
@@ -289,6 +309,7 @@ export async function parsePdfFile(arrayBuffer) {
     items.push(...parsePdfPageRotated(pageItems))
   }
 
+  pdf.destroy()
   return { items, debugLines }
 }
 

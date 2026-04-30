@@ -17,10 +17,16 @@ const dragging    = ref(false)
 const fileInput   = ref(null)
 const status      = ref(null)   // { type, msg }
 const loading     = ref(false)
+const pdfProgress = ref(null)   // null | { current: number, total: number }
+const abortCtrl   = ref(null)
 const preview     = ref([])     // [{ name, unit, category, code, packQty, prevMonth }]
 const groupMap    = ref({})     // { カテゴリ: count }
 const debugLines  = ref([])     // PDF解析失敗時のraw行
 const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
+
+function cancelPdf() {
+  abortCtrl.value?.abort()
+}
 
 function applyItems(items) {
   if (items.length === 0) return false
@@ -47,12 +53,19 @@ async function handleFile(file) {
   preview.value    = []
   debugLines.value = []
   showDetail.value = false
+  pdfProgress.value = null
   loading.value    = true
+
+  const ctrl = new AbortController()
+  abortCtrl.value = ctrl
 
   try {
     const buf = await file.arrayBuffer()
     if (isPdf) {
-      const { items, debugLines: dl } = await parsePdfFile(buf)
+      const { items, debugLines: dl } = await parsePdfFile(buf, {
+        signal: ctrl.signal,
+        onProgress: (p) => { pdfProgress.value = p },
+      })
       if (!applyItems(items)) {
         debugLines.value = dl
         status.value = { type: 'error', msg: '品目が見つかりませんでした。下記の解析結果を確認してください' }
@@ -64,9 +77,15 @@ async function handleFile(file) {
       }
     }
   } catch (err) {
-    status.value = { type: 'error', msg: `読み込みエラー: ${err.message}` }
+    if (err.name === 'AbortError') {
+      status.value = { type: 'error', msg: 'キャンセルしました' }
+    } else {
+      status.value = { type: 'error', msg: `読み込みエラー: ${err.message}` }
+    }
   } finally {
-    loading.value = false
+    loading.value     = false
+    pdfProgress.value = null
+    abortCtrl.value   = null
   }
 }
 
@@ -107,7 +126,14 @@ function onImport() {
       >
         <template v-if="loading">
           <div class="drop-icon">⏳</div>
-          <div class="drop-label">解析中...</div>
+          <template v-if="pdfProgress">
+            <div class="drop-label">解析中... {{ pdfProgress.current }} / {{ pdfProgress.total }} ページ</div>
+            <div class="pdf-progress-bar">
+              <div class="pdf-progress-fill" :style="{ width: (pdfProgress.current / pdfProgress.total * 100) + '%' }"></div>
+            </div>
+            <button class="pdf-cancel-btn" @click.stop="cancelPdf">キャンセル</button>
+          </template>
+          <div v-else class="drop-label">読み込み中...</div>
         </template>
         <template v-else>
           <div class="drop-icon">📄</div>
@@ -210,6 +236,33 @@ function onImport() {
 .drop-label { font-size: 15px; font-weight: 600; color: var(--text); }
 .drop-hint  { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 .hidden-input { display: none; }
+
+.pdf-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+.pdf-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.pdf-cancel-btn {
+  margin-top: 10px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1.5px solid var(--danger);
+  border-radius: 8px;
+  background: white;
+  color: var(--danger);
+  cursor: pointer;
+}
+.pdf-cancel-btn:active { background: #fef2f2; }
 
 .msg {
   padding: 10px 14px;
