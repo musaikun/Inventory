@@ -126,7 +126,14 @@ function onImport() {
       >
         <template v-if="loading">
           <div class="drop-icon">⏳</div>
-          <template v-if="pdfProgress">
+          <template v-if="pdfProgress?.server">
+            <div class="drop-label">サーバーで処理中...</div>
+            <div class="pdf-progress-bar">
+              <div class="pdf-progress-fill pdf-progress-indeterminate"></div>
+            </div>
+            <button class="pdf-cancel-btn" @click.stop="cancelPdf">キャンセル</button>
+          </template>
+          <template v-else-if="pdfProgress">
             <div class="drop-label">解析中... {{ pdfProgress.current }} / {{ pdfProgress.total }} ページ</div>
             <div class="pdf-progress-bar">
               <div class="pdf-progress-fill" :style="{ width: (pdfProgress.current / pdfProgress.total * 100) + '%' }"></div>
@@ -250,6 +257,14 @@ function onImport() {
   background: var(--primary);
   border-radius: 3px;
   transition: width 0.3s ease;
+}
+.pdf-progress-indeterminate {
+  width: 40%;
+  animation: indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
 }
 .pdf-cancel-btn {
   margin-top: 10px;
