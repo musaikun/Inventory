@@ -2,7 +2,8 @@ name = "inventory-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-account_id = "REPLACE_WITH_YOUR_ACCOUNT_ID"
+account_id = "d27afd2bc7f0a66b1275eb28d7b3d470"
+
 
 [vars]
 ALLOWED_ORIGIN = ""
@@ -20,7 +21,8 @@ bindings = [
 [[d1_databases]]
 binding     = "DB"
 database_name = "inventory-store"
-database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "0bcb5cd0-0c51-44f9-b7b7-65b0ce5862df"
+
 
 [[migrations]]
 tag = "v1"
