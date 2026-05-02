@@ -791,7 +791,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- 設定モーダル -->
-    <SettingsModal v-if="showSettings" @close="showSettings = false" />
+    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="showStoreSetup = true" />
 
     <!-- 履歴モーダル -->
     <HistoryModal v-if="showHistory" @close="showHistory = false" />
