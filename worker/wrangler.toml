@@ -2,6 +2,7 @@ name = "inventory-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
+account_id = "REPLACE_WITH_YOUR_ACCOUNT_ID"
 
 [vars]
 ALLOWED_ORIGIN = ""
