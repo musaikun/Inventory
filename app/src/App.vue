@@ -15,6 +15,11 @@ import {
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
+import {
+  shopCode, activeRoom,
+  loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
+  loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
+} from './composables/useStore.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -23,6 +28,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
+import StoreSetupModal from './components/StoreSetupModal.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias } = useConfig()
@@ -37,8 +43,24 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot } = useHistory()
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 
+
+// ── 店舗コード セットアップ ────────────────────────────────────────────────────
+const showStoreSetup = ref(!shopCode.value)
+const activeRoomJoinCode = ref(null) // 進行中ルームへの誘導用
+
+async function onStoreReady(store) {
+  showStoreSetup.value  = false
+  activeRoomJoinCode.value = store.activeRoom ?? null
+  // D1 から品目リスト・履歴を読み込む
+  const [remoteConfig, remoteHistory] = await Promise.all([
+    loadConfigFromD1(),
+    loadHistoryFromD1(),
+  ])
+  if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+  if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+}
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
 const showSettings     = ref(false)
@@ -108,7 +130,7 @@ setNameTakenCallback((prevName) => {
 })
 
 // URL パラメータ ?room=CODE があれば自動参加
-onMounted(() => {
+onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   const roomCode = params.get('room')
   if (roomCode) {
@@ -123,6 +145,22 @@ onMounted(() => {
   } else {
     // ページ再読み込み後に前回のルームセッションを自動復元
     restoreSession()
+  }
+
+  // 既存の店舗コードがある場合は D1 からデータを読み込む
+  if (shopCode.value) {
+    try {
+      const store = await loadStore(shopCode.value)
+      activeRoomJoinCode.value = store.activeRoom ?? null
+      const [remoteConfig, remoteHistory] = await Promise.all([
+        loadConfigFromD1(),
+        loadHistoryFromD1(),
+      ])
+      if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+      if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+    } catch (_) {
+      // ネットワークエラーは無視してローカルデータで継続
+    }
   }
 })
 
@@ -156,7 +194,8 @@ function onComplete() {
   }
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
+  if (snapshot) saveSnapshotToD1(snapshot)
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
@@ -240,6 +279,11 @@ watch(config, () => {
     })
   }, 300)
 }, { deep: true })
+
+// ── ルームコード変更を D1 に反映（ルーム作成・解散の追跡）──────────────────────
+watch(() => syncState.roomCode, (code) => {
+  if (shopCode.value) updateActiveRoomInD1(code ?? null)
+})
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
 function normalize(str) {
@@ -758,6 +802,21 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- チャットモーダル -->
     <ChatModal v-if="showChat" @close="showChat = false" />
 
+    <!-- 店舗セットアップモーダル -->
+    <StoreSetupModal v-if="showStoreSetup" @ready="onStoreReady" />
+
+    <!-- 進行中ルームへの参加案内 -->
+    <div v-if="activeRoomJoinCode && !syncActive" class="active-room-notice">
+      <div class="active-room-notice-body">
+        <div class="active-room-notice-title">進行中の棚卸があります</div>
+        <div class="active-room-notice-code">ルーム: {{ activeRoomJoinCode }}</div>
+        <div class="active-room-notice-actions">
+          <button class="btn btn-secondary" @click="activeRoomJoinCode = null">閉じる</button>
+          <button class="btn btn-primary" @click="joinRoom(activeRoomJoinCode); activeRoomJoinCode = null">参加する</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 通知ポップアップ（完了通知・メッセージ・解散通知） -->
     <Transition name="notif-popup">
       <div v-if="notification" class="notif-overlay" @click="notification = null">
@@ -909,6 +968,47 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   color: #b45309;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* ── 進行中ルーム案内 ── */
+.active-room-notice {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 24px;
+}
+
+.active-room-notice-body {
+  background: #fff;
+  border-radius: 20px 20px 16px 16px;
+  padding: 24px 20px 20px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 12px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.active-room-notice-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.active-room-notice-code {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  margin-bottom: 18px;
+}
+
+.active-room-notice-actions {
+  display: flex;
+  gap: 10px;
 }
 
 /* ── バナー内メッセージボタン ── */

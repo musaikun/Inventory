@@ -1,11 +1,18 @@
 import { RoomDO } from './RoomDO.js'
 import { parsePdfFile } from './pdfParser.js'
+import {
+  handleStoreCreate, handleStoreGet,
+  handleConfigGet,   handleConfigPut,
+  handleInventoryGet, handleInventoryPut,
+  handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
+  handleRoomUpdate,
+} from './storeHandler.js'
 export { RoomDO }
 
 function corsHeaders(origin, allowedOrigin) {
   return {
     'Access-Control-Allow-Origin':  allowedOrigin || origin || '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   }
 }
@@ -17,37 +24,84 @@ function jsonResponse(body, status, origin, allowedOrigin) {
   })
 }
 
-/**
- * メインエントリ
- * ルート:
- *   /room/{CODE}/ws  → Durable Object（WebSocket）
- *   /pdf             → PDF テキスト抽出（POST）
- *   /health          → ヘルスチェック
- */
 export default {
   async fetch(request, env) {
     const url    = new URL(request.url)
     const origin = request.headers.get('Origin') || ''
-
     const allowedOrigin = env.ALLOWED_ORIGIN || ''
 
-    // CORS プリフライト（/pdf エンドポイント用）
-    if (url.pathname === '/pdf' && request.method === 'OPTIONS') {
+    // CORS プリフライト
+    if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
         headers: { ...corsHeaders(origin, allowedOrigin), 'Access-Control-Max-Age': '86400' },
       })
     }
 
-    // Origin 検証（ALLOWED_ORIGIN が設定されている場合のみ強制）
-    if (allowedOrigin) {
-      if (origin !== allowedOrigin) {
-        return new Response('Forbidden', { status: 403 })
+    // Origin 検証
+    if (allowedOrigin && origin !== allowedOrigin) {
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    const path = url.pathname
+
+    // ── 店舗 API ──────────────────────────────────────────────────────────────
+    if (!env.DB) {
+      // D1 未設定の場合はスキップ（既存機能に影響しない）
+    } else {
+      // POST /store/create
+      if (path === '/store/create' && request.method === 'POST') {
+        const result = await handleStoreCreate(env.DB)
+        return jsonResponse(result, 200, origin, allowedOrigin)
+      }
+
+      // /store/:code/*
+      const storeMatch = path.match(/^\/store\/([A-Z]{4,8})(\/.*)?$/i)
+      if (storeMatch) {
+        const code    = storeMatch[1].toUpperCase()
+        const subpath = storeMatch[2] ?? ''
+
+        // GET /store/:code
+        if (subpath === '' && request.method === 'GET') {
+          const store = await handleStoreGet(env.DB, code)
+          if (!store) return jsonResponse({ error: '店舗が見つかりません' }, 404, origin, allowedOrigin)
+          return jsonResponse(store, 200, origin, allowedOrigin)
+        }
+        // GET/PUT /store/:code/config
+        if (subpath === '/config' && request.method === 'GET') {
+          return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
+        }
+        if (subpath === '/config' && request.method === 'PUT') {
+          return jsonResponse(await handleConfigPut(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+        }
+        // GET/PUT /store/:code/inventory
+        if (subpath === '/inventory' && request.method === 'GET') {
+          return jsonResponse(await handleInventoryGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
+        }
+        if (subpath === '/inventory' && request.method === 'PUT') {
+          return jsonResponse(await handleInventoryPut(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+        }
+        // GET/POST /store/:code/history
+        if (subpath === '/history' && request.method === 'GET') {
+          return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
+        }
+        if (subpath === '/history' && request.method === 'POST') {
+          return jsonResponse(await handleHistoryPost(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+        }
+        // DELETE /store/:code/history/:date
+        const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)
+        if (histDateMatch && request.method === 'DELETE') {
+          return jsonResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), 200, origin, allowedOrigin)
+        }
+        // PUT /store/:code/room
+        if (subpath === '/room' && request.method === 'PUT') {
+          return jsonResponse(await handleRoomUpdate(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+        }
       }
     }
 
-    // PDF テキスト抽出エンドポイント
-    if (url.pathname === '/pdf' && request.method === 'POST') {
+    // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
+    if (path === '/pdf' && request.method === 'POST') {
       try {
         const buf    = await request.arrayBuffer()
         const result = await parsePdfFile(buf)
@@ -57,17 +111,17 @@ export default {
       }
     }
 
-    // WebSocket エンドポイント
-    const match = url.pathname.match(/^\/room\/([A-Z0-9]{4,6})\/ws$/i)
-    if (match) {
-      const code = match[1].toUpperCase()
+    // ── WebSocket（リアルタイム同期）─────────────────────────────────────────
+    const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,6})\/ws$/i)
+    if (wsMatch) {
+      const code = wsMatch[1].toUpperCase()
       const id   = env.ROOMS.idFromName(`room:${code}`)
       const room = env.ROOMS.get(id)
       return room.fetch(request)
     }
 
-    // ヘルスチェック
-    if (url.pathname === '/health') {
+    // ── ヘルスチェック ────────────────────────────────────────────────────────
+    if (path === '/health') {
       return new Response('OK', { headers: { 'Content-Type': 'text/plain' } })
     }
 

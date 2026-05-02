@@ -106,6 +106,7 @@ export function useHistory() {
       participants,
     }
     _persist()
+    return _data[today]
   }
 
   /**
@@ -167,5 +168,19 @@ export function useHistory() {
     return rows.join('\r\n')
   }
 
-  return { saveSnapshot, getSnapshots, getEntryLogs, deleteSnapshot, exportSnapshotCSV }
+  /** D1 から取得したスナップショット配列をローカルに反映（リモートで上書き） */
+  function applyRemoteHistory(snapshots) {
+    if (!Array.isArray(snapshots)) return
+    for (const snap of snapshots) {
+      if (snap?.date) _data[snap.date] = snap
+    }
+    _persist()
+  }
+
+  /** ローカルストレージからスナップショットを削除（D1削除に対応） */
+  function deleteSnapshotLocal(date) {
+    deleteSnapshot(date)
+  }
+
+  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getEntryLogs, deleteSnapshot, exportSnapshotCSV }
 }

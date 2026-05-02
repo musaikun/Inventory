@@ -23,4 +23,5 @@ export const STORAGE_KEYS = {
   deviceName:       '_device_name',
   learningSessions: 'inventory_learning_v1',
   syncSession:      '_sync_session_v1',
+  shopCode:         '_shop_code',
 }
