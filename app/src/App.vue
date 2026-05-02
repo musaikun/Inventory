@@ -29,6 +29,7 @@ import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import StoreSetupModal from './components/StoreSetupModal.vue'
+import HomeScreen from './components/HomeScreen.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias } = useConfig()
@@ -43,15 +44,16 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots } = useHistory()
+const snapshots = computed(() => getSnapshots())
 
-
-// ── 店舗コード セットアップ ────────────────────────────────────────────────────
-const showStoreSetup = ref(!shopCode.value)
-const activeRoomJoinCode = ref(null) // 進行中ルームへの誘導用
+// ── 画面管理 ───────────────────────────────────────────────────────────────────
+// 'setup': 店舗コード未設定  'home': ホーム  'session': 棚卸セッション
+const currentView = ref(shopCode.value ? 'home' : 'setup')
+const activeRoomJoinCode = ref(null)
 
 async function onStoreReady(store) {
-  showStoreSetup.value  = false
+  currentView.value = 'home'
   activeRoomJoinCode.value = store.activeRoom ?? null
   // D1 から品目リスト・履歴を読み込む
   const [remoteConfig, remoteHistory] = await Promise.all([
@@ -129,12 +131,12 @@ setNameTakenCallback((prevName) => {
   showToast('⚠ この端末名は既に使用されています。別の名前を設定してください。', 4000)
 })
 
-// URL パラメータ ?room=CODE があれば自動参加
+// URL パラメータ ?room=CODE があれば自動参加（ホーム画面をスキップ）
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   const roomCode = params.get('room')
   if (roomCode) {
-    // URL から room パラメータを除去（リフレッシュで再参加しないよう）
+    currentView.value = 'session'
     const url = new URL(window.location.href)
     url.searchParams.delete('room')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
@@ -204,11 +206,46 @@ function onComplete() {
 }
 
 
+// 完了後にホームへ戻る（完了済みなのでリセット確認不要）
 function onStartNew() {
-  if (!confirm('新規棚卸を開始しますか？\n現在のデータはクリアされます（CSVは保存済みか確認してください）。')) return
   reset()
   clearAuditLog()
-  showToast('新規棚卸を開始しました')
+  if (continuousMode.value) onForceStop()
+  currentView.value = 'home'
+}
+
+// セッション中断してホームへ
+function onGoHome() {
+  if (!isCompleted.value && filledCount.value > 0) {
+    if (!confirm('棚卸を中断してホームに戻りますか？\nデータは保持されます。')) return
+  }
+  if (continuousMode.value) onForceStop()
+  currentView.value = 'home'
+}
+
+// ホームから新規セッション開始
+function onNewSessionFromHome() {
+  if (filledCount.value > 0 && !isCompleted.value) {
+    if (!confirm('進行中の棚卸があります。新規棚卸を開始しますか？\n現在のデータはクリアされます。')) return
+    reset()
+    clearAuditLog()
+  } else if (isCompleted.value) {
+    reset()
+    clearAuditLog()
+  }
+  currentView.value = 'session'
+}
+
+// ホームから進行中ルームに参加
+async function onJoinActiveRoom(code) {
+  activeRoomJoinCode.value = null
+  currentView.value = 'session'
+  try {
+    await joinRoom(code)
+    showToast(`ルーム ${code} に参加しました`)
+  } catch {
+    showToast('ルームへの参加に失敗しました')
+  }
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -283,6 +320,11 @@ watch(config, () => {
 // ── ルームコード変更を D1 に反映（ルーム作成・解散の追跡）──────────────────────
 watch(() => syncState.roomCode, (code) => {
   if (shopCode.value) updateActiveRoomInD1(code ?? null)
+})
+
+// ── ルーム復元・QR参加でセッション画面へ自動遷移 ─────────────────────────────
+watch(syncActive, (active) => {
+  if (active && currentView.value === 'home') currentView.value = 'session'
 })
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
@@ -585,239 +627,218 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
 <template>
   <div id="app">
-    <!-- ヘッダー -->
-    <header class="app-header">
-      <h1>棚卸入力</h1>
-      <div class="header-right">
-        <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
-        <div class="date">{{ dateStr }}</div>
-        <button
-          class="settings-btn sync-btn"
-          :class="{ active: syncActive }"
-          @click="showSync = true"
-          :title="syncActive ? `ルーム ${syncState.roomCode}（${participantList.length}名）` : '複数デバイス同期'"
-        >
-          <span v-if="syncActive" class="sync-badge">
-            🔗<span class="sync-count">{{ participantList.length }}</span>
-          </span>
-          <span v-else>🔗</span>
+
+    <!-- ── セットアップ ── -->
+    <StoreSetupModal v-if="currentView === 'setup'" @ready="onStoreReady" />
+
+    <!-- ── ホーム ── -->
+    <HomeScreen
+      v-else-if="currentView === 'home'"
+      :has-active-session="filledCount > 0 && !isCompleted"
+      :filled-count="filledCount"
+      :snapshots="snapshots"
+      :active-room-code="activeRoomJoinCode"
+      @new-session="onNewSessionFromHome"
+      @continue-session="currentView = 'session'"
+      @open-history="showHistory = true"
+      @join-active-room="onJoinActiveRoom"
+      @settings="showSettings = true"
+      @sync="showSync = true"
+    />
+
+    <!-- ── セッション ── -->
+    <template v-else-if="currentView === 'session'">
+
+      <!-- ヘッダー -->
+      <header class="app-header">
+        <button v-if="shopCode" class="settings-btn" @click="onGoHome" title="ホームへ">🏠</button>
+        <h1>棚卸入力</h1>
+        <div class="header-right">
+          <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
+          <div class="date">{{ dateStr }}</div>
+          <button
+            class="settings-btn sync-btn"
+            :class="{ active: syncActive }"
+            @click="showSync = true"
+            :title="syncActive ? `ルーム ${syncState.roomCode}（${participantList.length}名）` : '複数デバイス同期'"
+          >
+            <span v-if="syncActive" class="sync-badge">
+              🔗<span class="sync-count">{{ participantList.length }}</span>
+            </span>
+            <span v-else>🔗</span>
+          </button>
+          <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
+          <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
+        </div>
+      </header>
+
+      <!-- 同期中バナー -->
+      <div v-if="syncActive" class="sync-banner">
+        <span class="sync-banner-dot"></span>
+        <span class="sync-banner-text">
+          <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
+          ・ルーム {{ syncState.roomCode }}
+          ・{{ participantList.length }}名が接続
+        </span>
+        <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
+          💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
         </button>
-        <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
-        <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
-      </div>
-    </header>
-
-    <!-- 同期中バナー -->
-    <div v-if="syncActive" class="sync-banner">
-      <span class="sync-banner-dot"></span>
-      <span class="sync-banner-text">
-        <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
-        ・ルーム {{ syncState.roomCode }}
-        ・{{ participantList.length }}名が接続
-      </span>
-      <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
-        💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
-      </button>
-      <button class="sync-banner-btn" @click="showSync = true">詳細</button>
-    </div>
-
-    <!-- 棚卸完了バナー -->
-    <div v-if="isCompleted" class="complete-banner">
-      <span class="complete-icon">✓</span>
-      <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
-    </div>
-
-    <!-- 音声入力 / テキスト検索（完了時は非表示） -->
-    <section v-if="!isCompleted" class="voice-section">
-      <!-- 入力中ステータスバナー -->
-      <div v-if="continuousMode" class="continuous-banner">
-        <span class="continuous-pulse"></span>
-        <span class="continuous-status">{{ isListening ? '聞いています…' : '認識停止中' }}</span>
-        <button class="continuous-stop-btn" @click="onForceStop">■ 停止</button>
+        <button class="sync-banner-btn" @click="showSync = true">詳細</button>
       </div>
 
-      <VoiceButton
-        :is-listening="isListening"
-        :continuous-mode="continuousMode"
-        @toggle="onVoiceButtonTap"
+      <!-- 棚卸完了バナー -->
+      <div v-if="isCompleted" class="complete-banner">
+        <span class="complete-icon">✓</span>
+        <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
+      </div>
+
+      <!-- 音声入力 / テキスト検索（完了時は非表示） -->
+      <section v-if="!isCompleted" class="voice-section">
+        <div v-if="continuousMode" class="continuous-banner">
+          <span class="continuous-pulse"></span>
+          <span class="continuous-status">{{ isListening ? '聞いています…' : '認識停止中' }}</span>
+          <button class="continuous-stop-btn" @click="onForceStop">■ 停止</button>
+        </div>
+
+        <VoiceButton
+          :is-listening="isListening"
+          :continuous-mode="continuousMode"
+          @toggle="onVoiceButtonTap"
+        />
+
+        <div class="search-row">
+          <input
+            ref="searchInputRef"
+            type="text"
+            v-model="searchText"
+            :class="['search-input', searchStatus]"
+            placeholder="例：ブラジル 3袋　（音声 or 入力）"
+            @keyup.enter="onTextSearch"
+            @focus="searchStatus = ''"
+          />
+          <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
+        </div>
+      </section>
+
+      <!-- 棚卸対象スコープ切り替え -->
+      <div v-if="hasSupplyItems" class="scope-bar">
+        <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
+        <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
+        <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
+      </div>
+
+      <!-- 複数人編集品目バナー -->
+      <div v-if="conflictItems.length > 0" class="conflict-notice">
+        <button class="conflict-notice-toggle" @click="conflictOpen = !conflictOpen" type="button">
+          <span class="conflict-notice-icon">⚡</span>
+          <span class="conflict-notice-label">複数人が入力した品目が {{ conflictItems.length }}件あります</span>
+          <span class="conflict-notice-arrow">{{ conflictOpen ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="conflictOpen" class="conflict-notice-body">
+          <div
+            v-for="ci in conflictItems"
+            :key="ci.ingredient"
+            class="conflict-notice-item"
+            @click="onTableTap(ci.ingredient)"
+          >
+            <span class="conflict-notice-name">{{ ci.ingredient }}</span>
+            <span class="conflict-notice-meta">{{ ci.editors.join('・') }} / 現在 {{ ci.recentQty }}{{ ci.recentUnit }}</span>
+          </div>
+        </div>
+      </div>
+
+      <InventoryTable
+        ref="inventoryTableRef"
+        :inventory="inventory"
+        :filled-count="filledCount"
+        :read-only="isCompleted"
+        :learned-order="learnedOrder"
+        :late-recount-items="lateRecountItems"
+        :category-scope="categoryScope"
+        @update="onTableUpdate"
+        @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
+        @tap="onTableTap"
       />
 
-      <div class="search-row">
-        <input
-          ref="searchInputRef"
-          type="text"
-          v-model="searchText"
-          :class="['search-input', searchStatus]"
-          placeholder="例：ブラジル 3袋　（音声 or 入力）"
-          @keyup.enter="onTextSearch"
-          @focus="searchStatus = ''"
-        />
-        <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
-      </div>
+      <!-- 確認モーダル -->
+      <ConfirmModal
+        v-if="confirmState"
+        :key="confirmState.ingredient"
+        :ingredient="confirmState.ingredient"
+        :initial-qty="confirmState.qty"
+        :initial-unit="confirmState.unit"
+        :unit-locked="confirmState.unitLocked"
+        :existing="confirmExisting"
+        :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
+        :lot-size="confirmState.lotSize"
+        :audit-log="auditLog"
+        @confirm="onConfirm"
+        @cancel="onCancelConfirm"
+        @revert="onConfirmRevert"
+      />
 
-    </section>
+      <!-- 候補選択モーダル -->
+      <CandidateModal
+        v-if="candidateState"
+        :search-term="candidateState.searchTerm"
+        :matched="candidateState.matched"
+        :qty="candidateState.qty"
+        :unit="candidateState.unit"
+        @select="onCandidateSelect"
+        @cancel="onCancelCandidate"
+      />
 
-    <!-- 棚卸対象スコープ切り替え（食材 / 資材・備品）-->
-    <div v-if="hasSupplyItems" class="scope-bar">
-      <button
-        :class="['scope-btn', { active: categoryScope === 'all' }]"
-        @click="categoryScope = 'all'"
-        type="button"
-      >全品目</button>
-      <button
-        :class="['scope-btn', { active: categoryScope === 'food' }]"
-        @click="categoryScope = 'food'"
-        type="button"
-      >食材</button>
-      <button
-        :class="['scope-btn', { active: categoryScope === 'supply' }]"
-        @click="categoryScope = 'supply'"
-        type="button"
-      >資材・備品</button>
-    </div>
-
-    <!-- 棚卸テーブル -->
-    <!-- 複数人が編集した品目バナー（同期中かつ競合あり） -->
-    <div v-if="conflictItems.length > 0" class="conflict-notice">
-      <button class="conflict-notice-toggle" @click="conflictOpen = !conflictOpen" type="button">
-        <span class="conflict-notice-icon">⚡</span>
-        <span class="conflict-notice-label">複数人が入力した品目が {{ conflictItems.length }}件あります</span>
-        <span class="conflict-notice-arrow">{{ conflictOpen ? '▲' : '▼' }}</span>
-      </button>
-      <div v-if="conflictOpen" class="conflict-notice-body">
-        <div
-          v-for="ci in conflictItems"
-          :key="ci.ingredient"
-          class="conflict-notice-item"
-          @click="onTableTap(ci.ingredient)"
-        >
-          <span class="conflict-notice-name">{{ ci.ingredient }}</span>
-          <span class="conflict-notice-meta">{{ ci.editors.join('・') }} / 現在 {{ ci.recentQty }}{{ ci.recentUnit }}</span>
+      <!-- フッター -->
+      <div class="app-footer">
+        <div v-if="totalValue != null" class="footer-total">
+          在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
+        </div>
+        <div class="footer-actions">
+          <template v-if="!isCompleted">
+            <button class="btn-complete" @click="onComplete">✓ 棚卸完了</button>
+            <button class="btn-export" @click="onExport">💾 CSV</button>
+          </template>
+          <template v-else>
+            <button class="btn-new-session" @click="onStartNew">🏠 ホームへ</button>
+            <button class="btn-export" @click="onExport">💾 CSV</button>
+          </template>
         </div>
       </div>
-    </div>
 
-    <InventoryTable
-      ref="inventoryTableRef"
-      :inventory="inventory"
-      :filled-count="filledCount"
-      :read-only="isCompleted"
-      :learned-order="learnedOrder"
-      :late-recount-items="lateRecountItems"
-      :category-scope="categoryScope"
-      @update="onTableUpdate"
-      @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
-      @tap="onTableTap"
-    />
-
-    <!-- 確認モーダル（:key で ingredient 変化時に強制再マウント） -->
-    <ConfirmModal
-      v-if="confirmState"
-      :key="confirmState.ingredient"
-      :ingredient="confirmState.ingredient"
-      :initial-qty="confirmState.qty"
-      :initial-unit="confirmState.unit"
-      :unit-locked="confirmState.unitLocked"
-      :existing="confirmExisting"
-      :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
-      :lot-size="confirmState.lotSize"
-      :audit-log="auditLog"
-      @confirm="onConfirm"
-      @cancel="onCancelConfirm"
-      @revert="onConfirmRevert"
-    />
-
-    <!-- 候補選択モーダル -->
-    <CandidateModal
-      v-if="candidateState"
-      :search-term="candidateState.searchTerm"
-      :matched="candidateState.matched"
-      :qty="candidateState.qty"
-      :unit="candidateState.unit"
-      @select="onCandidateSelect"
-      @cancel="onCancelCandidate"
-    />
-
-    <!-- フッター -->
-    <div class="app-footer">
-      <div v-if="totalValue != null" class="footer-total">
-        在庫合計　<strong>¥{{ totalValue.toLocaleString('ja-JP') }}</strong>
-      </div>
-      <div class="footer-actions">
-        <!-- 進行中 -->
-        <template v-if="!isCompleted">
-          <button class="btn-complete" @click="onComplete">✓ 棚卸完了</button>
-          <button class="btn-export" @click="onExport">💾 CSV</button>
-        </template>
-        <!-- 完了済み -->
-        <template v-else>
-          <button class="btn-new-session" @click="onStartNew">＋ 新規棚卸</button>
-          <button class="btn-export" @click="onExport">💾 CSV</button>
-        </template>
-      </div>
-    </div>
-
-    <!-- 未入力・数量0品目の確認モーダル -->
-    <div v-if="zeroItems.length || unfilledItems.length" class="modal-overlay" @click.self="zeroItems = []; unfilledItems = []">
-      <div class="modal-sheet">
-        <div class="sheet-handle"></div>
-        <div class="sheet-title">確認してください</div>
-
-        <!-- 未入力品目 -->
-        <template v-if="unfilledItems.length">
-          <div class="zero-confirm-msg">
-            以下の品目が<strong>未入力</strong>のため数量空欄でCSVに含まれます。
+      <!-- 未入力・数量0品目の確認モーダル -->
+      <div v-if="zeroItems.length || unfilledItems.length" class="modal-overlay" @click.self="zeroItems = []; unfilledItems = []">
+        <div class="modal-sheet">
+          <div class="sheet-handle"></div>
+          <div class="sheet-title">確認してください</div>
+          <template v-if="unfilledItems.length">
+            <div class="zero-confirm-msg">以下の品目が<strong>未入力</strong>のため数量空欄でCSVに含まれます。</div>
+            <ul class="zero-list">
+              <li v-for="item in unfilledItems" :key="item" class="unfilled-item">{{ item }}</li>
+            </ul>
+          </template>
+          <template v-if="zeroItems.length">
+            <div class="zero-confirm-msg" :style="unfilledItems.length ? 'margin-top:12px' : ''">以下の品目が<strong>在庫0</strong>として記録されます。</div>
+            <ul class="zero-list">
+              <li v-for="item in zeroItems" :key="item">{{ item }}</li>
+            </ul>
+          </template>
+          <div class="actions">
+            <button class="btn btn-secondary" @click="zeroItems = []; unfilledItems = []">戻る</button>
+            <button class="btn btn-success" @click="doExport">このまま保存</button>
           </div>
-          <ul class="zero-list">
-            <li v-for="item in unfilledItems" :key="item" class="unfilled-item">{{ item }}</li>
-          </ul>
-        </template>
-
-        <!-- 数量0品目 -->
-        <template v-if="zeroItems.length">
-          <div class="zero-confirm-msg" :style="unfilledItems.length ? 'margin-top:12px' : ''">
-            以下の品目が<strong>在庫0</strong>として記録されます。
-          </div>
-          <ul class="zero-list">
-            <li v-for="item in zeroItems" :key="item">{{ item }}</li>
-          </ul>
-        </template>
-
-        <div class="actions">
-          <button class="btn btn-secondary" @click="zeroItems = []; unfilledItems = []">戻る</button>
-          <button class="btn btn-success" @click="doExport">このまま保存</button>
         </div>
       </div>
-    </div>
 
-    <!-- 設定モーダル -->
-    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="showStoreSetup = true" />
+    </template>
+    <!-- ── /セッション ── -->
 
-    <!-- 履歴モーダル -->
-    <HistoryModal v-if="showHistory" @close="showHistory = false" />
+    <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
+    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="currentView = 'setup'" />
+    <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
+    <SyncModal     v-if="showSync"     @close="showSync = false" />
+    <ChatModal     v-if="showChat"     @close="showChat = false" />
 
-    <!-- 同期モーダル -->
-    <SyncModal v-if="showSync" @close="showSync = false" />
-
-    <!-- チャットモーダル -->
-    <ChatModal v-if="showChat" @close="showChat = false" />
-
-    <!-- 店舗セットアップモーダル -->
-    <StoreSetupModal v-if="showStoreSetup" @ready="onStoreReady" />
-
-    <!-- 進行中ルームへの参加案内 -->
-    <div v-if="activeRoomJoinCode && !syncActive" class="active-room-notice">
-      <div class="active-room-notice-body">
-        <div class="active-room-notice-title">進行中の棚卸があります</div>
-        <div class="active-room-notice-code">ルーム: {{ activeRoomJoinCode }}</div>
-        <div class="active-room-notice-actions">
-          <button class="btn btn-secondary" @click="activeRoomJoinCode = null">閉じる</button>
-          <button class="btn btn-primary" @click="joinRoom(activeRoomJoinCode); activeRoomJoinCode = null">参加する</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 通知ポップアップ（完了通知・メッセージ・解散通知） -->
+    <!-- 通知ポップアップ -->
     <Transition name="notif-popup">
       <div v-if="notification" class="notif-overlay" @click="notification = null">
         <div class="notif-card" :class="notification.type">
@@ -834,6 +855,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <Transition name="toast">
       <div v-if="toastShow" class="toast">{{ toastMsg }}</div>
     </Transition>
+
   </div>
 </template>
 
