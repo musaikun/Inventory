@@ -27,7 +27,8 @@ if (typeof globalThis.ImageData === 'undefined') {
   }
 }
 
-import * as pdfjsLib from 'pdfjs-dist'
+// static import はホイストされスタブより先に実行されるため、動的インポートを使用する
+const pdfjsLib = await import('pdfjs-dist')
 
 // Cloudflare Worker 環境ではWorkerスレッドを使用しない
 pdfjsLib.GlobalWorkerOptions.workerSrc = ''
