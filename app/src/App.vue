@@ -46,8 +46,8 @@ const {
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'landing': 初回・未ログイン  'session': 棚卸セッション
-const currentView = ref(shopCode.value ? 'session' : 'landing')
+// 'landing': トップ  'session': 棚卸セッション
+const currentView = ref('landing')
 
 async function onLandingStarted(payload) {
   if (payload?.joinRoom) {

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { createStore, loadStore } from '../composables/useStore.js'
+import { createStore, loadStore, shopCode } from '../composables/useStore.js'
 
 const emit = defineEmits(['started'])
 
@@ -13,6 +13,11 @@ const restoreCode = ref('')
 
 // ── はじめる ──────────────────────────────────────────────────────────────────
 async function onStart() {
+  if (shopCode.value) {
+    // 既存ユーザー: 新規店舗は作らずそのままセッションへ
+    emit('started')
+    return
+  }
   loading.value = true
   error.value   = ''
   try {
@@ -140,7 +145,7 @@ onUnmounted(() => observer?.disconnect())
         </p>
         <div class="lp-cta">
           <button class="lp-btn-primary" :disabled="loading" @click="onStart">
-            <span>{{ loading ? '準備中...' : 'はじめる' }}</span>
+            <span>{{ loading ? '準備中...' : shopCode ? '続きから' : 'はじめる' }}</span>
             <span v-if="!loading" class="lp-btn-arrow">→</span>
           </button>
           <button class="lp-btn-secondary" @click="toggleJoin">QRで参加</button>
