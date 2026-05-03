@@ -16,7 +16,7 @@ import {
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
-  shopCode, activeRoom,
+  shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
@@ -28,8 +28,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
-import StoreSetupModal from './components/StoreSetupModal.vue'
-import HomeScreen from './components/HomeScreen.vue'
+import LandingPage from './components/LandingPage.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias } = useConfig()
@@ -44,24 +43,34 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots } = useHistory()
-const snapshots = computed(() => getSnapshots())
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'setup': 店舗コード未設定  'home': ホーム  'session': 棚卸セッション
-const currentView = ref(shopCode.value ? 'home' : 'setup')
-const activeRoomJoinCode = ref(null)
+// 'landing': 初回・未ログイン  'session': 棚卸セッション
+const currentView = ref(shopCode.value ? 'session' : 'landing')
 
-async function onStoreReady(store) {
-  currentView.value = 'home'
-  activeRoomJoinCode.value = store.activeRoom ?? null
-  // D1 から品目リスト・履歴を読み込む
-  const [remoteConfig, remoteHistory] = await Promise.all([
-    loadConfigFromD1(),
-    loadHistoryFromD1(),
-  ])
-  if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
-  if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+async function onLandingStarted(payload) {
+  if (payload?.joinRoom) {
+    currentView.value = 'session'
+    try {
+      await joinRoom(payload.joinRoom)
+      showToast(`ルーム ${payload.joinRoom} に参加しました`)
+    } catch {
+      showToast('ルームへの参加に失敗しました')
+    }
+  } else {
+    currentView.value = 'session'
+    try {
+      const [remoteConfig, remoteHistory] = await Promise.all([
+        loadConfigFromD1(),
+        loadHistoryFromD1(),
+      ])
+      if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+      if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+    } catch (_) {
+      // ネットワークエラーは無視してローカルデータで継続
+    }
+  }
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
@@ -152,8 +161,7 @@ onMounted(async () => {
   // 既存の店舗コードがある場合は D1 からデータを読み込む
   if (shopCode.value) {
     try {
-      const store = await loadStore(shopCode.value)
-      activeRoomJoinCode.value = store.activeRoom ?? null
+      await loadStore(shopCode.value)
       const [remoteConfig, remoteHistory] = await Promise.all([
         loadConfigFromD1(),
         loadHistoryFromD1(),
@@ -206,46 +214,11 @@ function onComplete() {
 }
 
 
-// 完了後にホームへ戻る（完了済みなのでリセット確認不要）
+// 完了後に新規棚卸を開始
 function onStartNew() {
   reset()
   clearAuditLog()
   if (continuousMode.value) onForceStop()
-  currentView.value = 'home'
-}
-
-// セッション中断してホームへ
-function onGoHome() {
-  if (!isCompleted.value && filledCount.value > 0) {
-    if (!confirm('棚卸を中断してホームに戻りますか？\nデータは保持されます。')) return
-  }
-  if (continuousMode.value) onForceStop()
-  currentView.value = 'home'
-}
-
-// ホームから新規セッション開始
-function onNewSessionFromHome() {
-  if (filledCount.value > 0 && !isCompleted.value) {
-    if (!confirm('進行中の棚卸があります。新規棚卸を開始しますか？\n現在のデータはクリアされます。')) return
-    reset()
-    clearAuditLog()
-  } else if (isCompleted.value) {
-    reset()
-    clearAuditLog()
-  }
-  currentView.value = 'session'
-}
-
-// ホームから進行中ルームに参加
-async function onJoinActiveRoom(code) {
-  activeRoomJoinCode.value = null
-  currentView.value = 'session'
-  try {
-    await joinRoom(code)
-    showToast(`ルーム ${code} に参加しました`)
-  } catch {
-    showToast('ルームへの参加に失敗しました')
-  }
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -320,11 +293,6 @@ watch(config, () => {
 // ── ルームコード変更を D1 に反映（ルーム作成・解散の追跡）──────────────────────
 watch(() => syncState.roomCode, (code) => {
   if (shopCode.value) updateActiveRoomInD1(code ?? null)
-})
-
-// ── ルーム復元・QR参加でセッション画面へ自動遷移 ─────────────────────────────
-watch(syncActive, (active) => {
-  if (active && currentView.value === 'home') currentView.value = 'session'
 })
 
 // ── Dictionary matching ────────────────────────────────────────────────────────
@@ -628,30 +596,14 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 <template>
   <div id="app">
 
-    <!-- ── セットアップ ── -->
-    <StoreSetupModal v-if="currentView === 'setup'" @ready="onStoreReady" />
-
-    <!-- ── ホーム ── -->
-    <HomeScreen
-      v-else-if="currentView === 'home'"
-      :has-active-session="filledCount > 0 && !isCompleted"
-      :filled-count="filledCount"
-      :snapshots="snapshots"
-      :active-room-code="activeRoomJoinCode"
-      @new-session="onNewSessionFromHome"
-      @continue-session="currentView = 'session'"
-      @open-history="showHistory = true"
-      @join-active-room="onJoinActiveRoom"
-      @settings="showSettings = true"
-      @sync="showSync = true"
-    />
+    <!-- ── ランディング ── -->
+    <LandingPage v-if="currentView === 'landing'" @started="onLandingStarted" />
 
     <!-- ── セッション ── -->
-    <template v-else-if="currentView === 'session'">
+    <template v-else>
 
       <!-- ヘッダー -->
       <header class="app-header">
-        <button v-if="shopCode" class="settings-btn" @click="onGoHome" title="ホームへ">🏠</button>
         <h1>棚卸入力</h1>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
@@ -799,7 +751,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>
-            <button class="btn-new-session" @click="onStartNew">🏠 ホームへ</button>
+            <button class="btn-new-session" @click="onStartNew">＋ 新規棚卸</button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
         </div>
@@ -830,10 +782,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       </div>
 
     </template>
-    <!-- ── /セッション ── -->
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="currentView = 'setup'" />
+    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="currentView = 'landing'" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
     <SyncModal     v-if="showSync"     @close="showSync = false" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
