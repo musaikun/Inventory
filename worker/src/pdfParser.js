@@ -30,8 +30,10 @@ if (typeof globalThis.ImageData === 'undefined') {
 // static import はホイストされスタブより先に実行されるため、動的インポートを使用する
 const pdfjsLib = await import('pdfjs-dist')
 
-// Cloudflare Worker 環境ではWorkerスレッドを使用しない
-pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+// CF Workers には Worker クラスがないため fake worker (in-process) で動作させる
+// workerSrc に空文字を指定すると pdfjs v5 が falsy チェックで例外を投げるため
+// 任意のtruthy値を指定し、Worker生成の try-catch を経由して fake worker に落とす
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'fake'
 
 function isCjk(s) {
   return /[　-鿿＀-￯]/.test(s)
