@@ -63,6 +63,9 @@ let _onMessage        = null
 let _onDissolved      = null
 let _onConflict       = null
 let _onNameTaken      = null
+let _onParticipantJoin  = null
+let _onParticipantLeave = null
+let _onGuestLeave       = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -73,6 +76,9 @@ export function setMessageCallback(fn)       { _onMessage = fn }
 export function setDissolvedCallback(fn)     { _onDissolved = fn }
 export function setConflictCallback(fn)      { _onConflict = fn }
 export function setNameTakenCallback(fn)     { _onNameTaken = fn }
+export function setParticipantJoinCallback(fn)  { _onParticipantJoin  = fn }
+export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
+export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -132,12 +138,25 @@ function _clearReconnectTimer() {
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null }
 }
 
-function _updateParticipants(list) {
+function _updateParticipants(list, notify = false) {
   const incoming = new Set(list.map(p => p.deviceId))
+  // 退出検出
   for (const id of Object.keys(participants)) {
-    if (!incoming.has(id)) delete participants[id]
+    if (!incoming.has(id)) {
+      const info = participants[id]
+      if (notify && info && !info.isMe) {
+        _addSysMsg(`${info.name} が退出しました`)
+        _onParticipantLeave?.(info.name)
+      }
+      delete participants[id]
+    }
   }
+  // 入室検出 & 名前更新
   for (const p of list) {
+    if (notify && !participants[p.deviceId] && p.deviceId !== deviceId) {
+      _addSysMsg(`${p.deviceName} が参加しました`)
+      _onParticipantJoin?.(p.deviceName)
+    }
     const oldName = participants[p.deviceId]?.name
     const newName = p.deviceName
     if (oldName && oldName !== newName) {
@@ -213,7 +232,7 @@ function _handleMessage(msg) {
       break
 
     case 'participants':
-      _updateParticipants(msg.list ?? [])
+      _updateParticipants(msg.list ?? [], true)  // 通知あり
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
       break
 
@@ -461,8 +480,10 @@ export function useSync() {
   }
 
   function leaveRoom() {
+    const wasGuest = state.mode === 'joining'
     if (_ws) { try { _ws.close(1000, 'User left') } catch (_) {} ; _ws = null }
     _resetClientState()
+    if (wasGuest) _onGuestLeave?.()
   }
 
   async function dissolveRoom() {

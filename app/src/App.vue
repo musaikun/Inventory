@@ -10,7 +10,8 @@ import {
   setInventoryCallbacks, registerInventoryGetter,
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
-  setNameTakenCallback,
+  setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
+  setGuestLeaveCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
 } from './composables/useSync.js'
@@ -157,6 +158,22 @@ setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
   showNotification('dissolved', 'ルームが解散されました')
+  // ゲストは棚卸データをリセットしてランディングへ
+  if (!syncIsHost.value) {
+    setTimeout(() => {
+      reset()
+      clearAuditLog()
+      currentView.value = 'landing'
+    }, 3000)
+  }
+})
+setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000))
+setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000))
+setGuestLeaveCallback(() => {
+  showSync.value = false
+  showChat.value = false
+  reset()
+  currentView.value = 'landing'
 })
 setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
   const who = remoteBy || '他のメンバー'
