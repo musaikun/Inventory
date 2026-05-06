@@ -66,6 +66,7 @@ let _onNameTaken      = null
 let _onParticipantJoin  = null
 let _onParticipantLeave = null
 let _onGuestLeave       = null
+let _onRemoteUpdate     = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -79,6 +80,7 @@ export function setNameTakenCallback(fn)     { _onNameTaken = fn }
 export function setParticipantJoinCallback(fn)  { _onParticipantJoin  = fn }
 export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
 export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
+export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -216,10 +218,13 @@ function _handleMessage(msg) {
 
     case 'update':
       if (msg.fromDeviceId !== deviceId) {
-        // 競合検出: すでに自分が入力している品目を相手が更新した場合
         const currentInv = _getInventory?.()
         if (currentInv?.[msg.ingredient]) {
+          // 競合: 自分が入力済みの品目を他者が更新
           _onConflict?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '', currentInv[msg.ingredient])
+        } else {
+          // 通常更新トースト（競合なし）
+          _onRemoteUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
         }
         _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
       }
@@ -227,6 +232,7 @@ function _handleMessage(msg) {
 
     case 'remove':
       if (msg.fromDeviceId !== deviceId) {
+        _onRemoteUpdate?.(msg.ingredient, null, '', msg.enteredBy ?? '')
         _onItemRemove?.(msg.ingredient)
       }
       break

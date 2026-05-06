@@ -11,7 +11,7 @@ import {
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
-  setGuestLeaveCallback,
+  setGuestLeaveCallback, setRemoteUpdateCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
 } from './composables/useSync.js'
@@ -71,9 +71,9 @@ async function onConfirmName() {
   currentView.value     = 'session'
   try {
     await joinRoom(code)
-    showToast(`ルーム ${code} に参加しました`)
+    showToast(`ルーム ${code} に参加しました`, 3000, 'join')
   } catch {
-    showToast('ルームへの参加に失敗しました')
+    showToast('ルームへの参加に失敗しました', 3000, 'error')
     currentView.value = 'landing'
   }
 }
@@ -157,31 +157,38 @@ setMessageCallback((msgObj) => {
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
-  showNotification('dissolved', 'ルームが解散されました')
-  // ゲストは棚卸データをリセットしてランディングへ
+  showToast('ルームが解散されました', 4000, 'error')
   if (!syncIsHost.value) {
     setTimeout(() => {
       reset()
       clearAuditLog()
       currentView.value = 'landing'
-    }, 3000)
+    }, 3500)
   }
 })
-setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000))
-setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000))
+setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
+setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000, 'leave'))
 setGuestLeaveCallback(() => {
   showSync.value = false
   showChat.value = false
   reset()
+  showToast('ルームを退出しました', 2500, 'leave')
   currentView.value = 'landing'
 })
 setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
   const who = remoteBy || '他のメンバー'
-  showToast(`⚠ 「${ingredient}」${who}が${remoteQty}${remoteUnit}に更新（あなた: ${local.qty}${local.unit}）`, 5000)
+  showToast(`${who}: 「${ingredient}」${remoteQty}${remoteUnit}に更新（あなた: ${local.qty}${local.unit}）`, 5000, 'warning')
 })
 setNameTakenCallback((prevName) => {
   setDeviceName(prevName)
-  showToast('⚠ この端末名は既に使用されています。別の名前を設定してください。', 4000)
+  showToast('この端末名は既に使用されています', 4000, 'warning')
+})
+setRemoteUpdateCallback((ingredient, qty, unit, by) => {
+  const who = by || '他のメンバー'
+  const msg  = qty === null
+    ? `${who}: 「${ingredient}」を削除`
+    : `${who}: 「${ingredient}」${qty}${unit}`
+  showToast(msg, 2800, 'update')
 })
 
 // URL パラメータ ?room=CODE があれば自動参加（ホーム画面をスキップ）
@@ -240,7 +247,7 @@ const completedAtDisplay = computed(() => {
 
 function onComplete() {
   if (filledCount.value === 0) {
-    showToast('1件以上入力してから完了してください')
+    showToast('1件以上入力してから完了してください', 2600, 'warning')
     return
   }
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
@@ -250,7 +257,7 @@ function onComplete() {
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
-  showToast('棚卸を完了しました ✓')
+  showToast('棚卸を完了しました ✓', 3000, 'success')
   if (syncActive.value) broadcastDone()
 }
 
@@ -263,13 +270,16 @@ function onStartNew() {
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
+// type: 'default' | 'success' | 'error' | 'warning' | 'join' | 'leave' | 'update'
 const toastMsg  = ref('')
+const toastType = ref('default')
 const toastShow = ref(false)
 let   toastTimer = null
 
-function showToast(msg, duration = 2600) {
+function showToast(msg, duration = 2600, type = 'default') {
   clearTimeout(toastTimer)
   toastMsg.value  = msg
+  toastType.value = type
   toastShow.value = true
   toastTimer = setTimeout(() => (toastShow.value = false), duration)
 }
@@ -625,7 +635,7 @@ function doExport() {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  showToast('CSVを保存しました')
+  showToast('CSVを保存しました', 2600, 'success')
 }
 
 // ── Date ───────────────────────────────────────────────────────────────────────
@@ -868,7 +878,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- トースト -->
     <Transition name="toast">
-      <div v-if="toastShow" class="toast">{{ toastMsg }}</div>
+      <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
   </div>

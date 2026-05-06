@@ -516,17 +516,34 @@ body {
   bottom: 82px;
   left: 50%;
   transform: translateX(-50%);
-  background: #0f172a;
-  color: white;
+  background: #1e293b;
+  color: #fff;
   padding: 10px 22px;
   border-radius: 24px;
   font-size: 14px;
-  font-weight: 500;
-  z-index: 200;
+  font-weight: 600;
+  z-index: 9000;
   white-space: nowrap;
   pointer-events: none;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
 
-.toast-enter-active, .toast-leave-active { transition: opacity 0.3s; }
-.toast-enter-from, .toast-leave-to       { opacity: 0; }
+/* 入室 */
+.toast[data-type="join"]    { background: #16a34a; }
+/* 退室 */
+.toast[data-type="leave"]   { background: #ea580c; }
+/* 解散 */
+.toast[data-type="error"]   { background: #dc2626; }
+/* データ更新 */
+.toast[data-type="update"]  { background: #2563eb; }
+/* 完了・保存 */
+.toast[data-type="success"] { background: #059669; }
+/* 警告・競合 */
+.toast[data-type="warning"] { background: #d97706; }
+
+.toast-enter-active, .toast-leave-active { transition: opacity 0.25s, transform 0.25s; }
+.toast-enter-from, .toast-leave-to       { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
