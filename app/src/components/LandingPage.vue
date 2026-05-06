@@ -6,16 +6,17 @@ const emit = defineEmits(['started'])
 
 const loading     = ref(false)
 const error       = ref('')
-const showJoin    = ref(false)
+const showScanner = ref(false)
+const showManual  = ref(false)  // カメラ失敗時のコード手動入力
 const showRestore = ref(false)
 const joinCode    = ref('')
 const restoreCode = ref('')
-const showScanner = ref(false)
 
 const videoRef  = ref(null)
 const canvasRef = ref(null)
 let   _stream   = null
 let   _scanRaf  = null
+let   _jsQR     = null
 
 // ── はじめる ──────────────────────────────────────────────────────────────────
 async function onStart() {
@@ -34,14 +35,7 @@ async function onStart() {
   }
 }
 
-// ── QRで参加（テキスト入力）────────────────────────────────────────────────────
-function onJoinSubmit() {
-  const code = joinCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
-  emit('started', { joinRoom: code })
-}
-
-// ── QRカメラスキャン ──────────────────────────────────────────────────────────
+// ── QRコード解析 ──────────────────────────────────────────────────────────────
 function _extractRoomCode(data) {
   try {
     const url = new URL(data)
@@ -54,25 +48,30 @@ function _extractRoomCode(data) {
   return null
 }
 
-async function startScanner() {
-  error.value = ''
+// ── カメラスキャン ────────────────────────────────────────────────────────────
+async function openJoin() {
+  error.value       = ''
+  showRestore.value = false
+  showManual.value  = false
   if (!navigator.mediaDevices?.getUserMedia) {
-    error.value = 'このブラウザはカメラに対応していません'
+    // カメラ非対応ならコード入力にフォールバック
+    showManual.value = true
     return
   }
   showScanner.value = true
-  showJoin.value    = true
   try {
     _stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
     await nextTick()
     if (videoRef.value) {
       videoRef.value.srcObject = _stream
       videoRef.value.play()
+      if (!_jsQR) _jsQR = (await import('jsqr')).default
       _tick()
     }
   } catch {
-    error.value = 'カメラへのアクセスを許可してください'
-    stopScanner()
+    error.value       = 'カメラへのアクセスを許可してください'
+    showScanner.value = false
+    showManual.value  = true  // フォールバック表示
   }
 }
 
@@ -89,13 +88,11 @@ async function _tick() {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   ctx.drawImage(video, 0, 0)
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-  // 動的 import で jsQR をロード（初回スキャン時のみ）
-  const jsQR = (await import('jsqr')).default
-  const code  = jsQR(imageData.data, imageData.width, imageData.height)
-  if (code) {
-    const roomCode = _extractRoomCode(code.data)
+  const result = _jsQR(imageData.data, imageData.width, imageData.height)
+  if (result) {
+    const roomCode = _extractRoomCode(result.data)
     if (roomCode) {
-      stopScanner()
+      closeScanner()
       emit('started', { joinRoom: roomCode })
       return
     }
@@ -103,13 +100,31 @@ async function _tick() {
   _scanRaf = requestAnimationFrame(_tick)
 }
 
-function stopScanner() {
+function closeScanner() {
   showScanner.value = false
   cancelAnimationFrame(_scanRaf)
   if (_stream) {
     _stream.getTracks().forEach(t => t.stop())
     _stream = null
   }
+}
+
+function switchToManual() {
+  closeScanner()
+  showManual.value = true
+}
+
+function closeJoin() {
+  closeScanner()
+  showManual.value = false
+  error.value      = ''
+}
+
+// ── コード手動入力 ────────────────────────────────────────────────────────────
+function onJoinSubmit() {
+  const code = joinCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
+  emit('started', { joinRoom: code })
 }
 
 // ── 既存データを引き継ぐ ──────────────────────────────────────────────────────
@@ -127,18 +142,10 @@ async function onRestoreSubmit() {
   }
 }
 
-function toggleJoin() {
-  showJoin.value    = !showJoin.value
-  showRestore.value = false
-  error.value       = ''
-  if (!showJoin.value) stopScanner()
-}
-
 function toggleRestore() {
   showRestore.value = !showRestore.value
-  showJoin.value    = false
-  error.value       = ''
-  stopScanner()
+  closeJoin()
+  error.value = ''
 }
 
 // ── スクロールフェードイン ────────────────────────────────────────────────────
@@ -152,7 +159,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   observer?.disconnect()
-  stopScanner()
+  closeScanner()
 })
 </script>
 
@@ -165,37 +172,38 @@ onUnmounted(() => {
         <span class="lp-logo-icon">📋</span>
         <span class="lp-logo-text">棚卸アプリ</span>
       </div>
-      <button class="lp-header-btn" @click="toggleJoin">QRで参加</button>
+      <button class="lp-header-btn" @click="openJoin">QRで参加</button>
     </header>
 
-    <!-- ── QR参加フォーム ── -->
-    <div v-if="showJoin" class="lp-bar">
-      <!-- カメラビュー -->
-      <div v-if="showScanner" class="lp-scanner-wrap">
-        <video ref="videoRef" class="lp-scanner-video" autoplay playsinline muted></video>
-        <canvas ref="canvasRef" style="display:none"></canvas>
-        <div class="lp-scanner-aim"></div>
-        <button class="lp-scanner-close" @click="stopScanner">✕ 閉じる</button>
+    <!-- ── QRカメラスキャナー（全画面） ── -->
+    <div v-if="showScanner" class="lp-scanner-overlay">
+      <video ref="videoRef" class="lp-scanner-video" autoplay playsinline muted></video>
+      <canvas ref="canvasRef" style="display:none"></canvas>
+      <div class="lp-scanner-aim"></div>
+      <p class="lp-scanner-hint">QRコードをカメラに向けてください</p>
+      <div class="lp-scanner-footer">
+        <button class="lp-scanner-manual-btn" @click="switchToManual">コードで入力する</button>
+        <button class="lp-scanner-close-btn" @click="closeJoin">閉じる</button>
       </div>
+    </div>
 
-      <!-- テキスト入力 -->
-      <template v-else>
-        <button class="lp-camera-btn" @click="startScanner" title="カメラでスキャン">📷</button>
-        <input
-          class="lp-bar-input"
-          type="text"
-          placeholder="ルームコード（例: ABC123）"
-          v-model="joinCode"
-          @keyup.enter="onJoinSubmit"
-          maxlength="8"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="characters"
-          spellcheck="false"
-          autofocus
-        />
-        <button class="lp-bar-btn" @click="onJoinSubmit">参加する</button>
-      </template>
+    <!-- ── コード手動入力バー ── -->
+    <div v-else-if="showManual" class="lp-bar">
+      <input
+        class="lp-bar-input"
+        type="text"
+        placeholder="ルームコード（例: ABC123）"
+        v-model="joinCode"
+        @keyup.enter="onJoinSubmit"
+        maxlength="8"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        autofocus
+      />
+      <button class="lp-bar-btn" @click="onJoinSubmit">参加する</button>
+      <button class="lp-bar-close" @click="closeJoin">✕</button>
     </div>
 
     <!-- ── データ復元フォーム ── -->
@@ -235,7 +243,7 @@ onUnmounted(() => {
             <span>{{ loading ? '準備中...' : shopCode ? '続きから' : 'はじめる' }}</span>
             <span v-if="!loading" class="lp-btn-arrow">→</span>
           </button>
-          <button class="lp-btn-secondary" @click="toggleJoin">QRで参加</button>
+          <button class="lp-btn-secondary" @click="openJoin">QRで参加</button>
         </div>
         <button class="lp-restore-link" @click="toggleRestore">
           既存データを引き継ぐ ›
@@ -396,12 +404,13 @@ onUnmounted(() => {
 .lp-bar-input:focus { border-color: #2563eb; }
 .lp-bar-input::placeholder { font-family: inherit; letter-spacing: 0; font-weight: 400; color: #94a3b8; font-size: 14px; }
 
-.lp-camera-btn {
-  font-size: 22px;
+.lp-bar-close {
+  font-size: 18px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px;
+  padding: 4px 6px;
+  color: #94a3b8;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
 }
@@ -422,46 +431,77 @@ onUnmounted(() => {
 .lp-bar-btn:active  { opacity: 0.8; }
 .lp-bar-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── QRカメラスキャナー ── */
-.lp-scanner-wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4/3;
+/* ── QRカメラスキャナー（全画面） ── */
+.lp-scanner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
   background: #000;
-  border-radius: 12px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .lp-scanner-video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 
 .lp-scanner-aim {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 56%;
-  height: 56%;
+  position: relative;
+  z-index: 1;
+  width: min(72vw, 280px);
+  height: min(72vw, 280px);
   border: 3px solid #2563eb;
-  border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
-  pointer-events: none;
+  border-radius: 16px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
 }
 
-.lp-scanner-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(0,0,0,0.6);
+.lp-scanner-hint {
+  position: relative;
+  z-index: 1;
   color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 20px 0 0;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+
+.lp-scanner-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.lp-scanner-manual-btn {
+  padding: 12px 24px;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 1.5px solid rgba(255,255,255,0.5);
+  border-radius: 12px;
+  font-size: 14px;
   font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lp-scanner-close-btn {
+  padding: 12px 24px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border: 1.5px solid rgba(255,255,255,0.25);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

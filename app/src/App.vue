@@ -49,15 +49,42 @@ const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 // 'landing': トップ  'session': 棚卸セッション
 const currentView = ref('landing')
 
+// ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
+const pendingJoinCode = ref(null)
+const showNameModal   = ref(false)
+const pendingName     = ref('')
+
+function _askNameAndJoin(code) {
+  pendingJoinCode.value = code
+  // 過去に設定した名前があればそのままプリセット
+  pendingName.value = deviceName.value || ''
+  showNameModal.value = true
+}
+
+async function onConfirmName() {
+  const name = pendingName.value.trim() || '名前未設定'
+  setDeviceName(name)
+  showNameModal.value   = false
+  const code            = pendingJoinCode.value
+  pendingJoinCode.value = null
+  currentView.value     = 'session'
+  try {
+    await joinRoom(code)
+    showToast(`ルーム ${code} に参加しました`)
+  } catch {
+    showToast('ルームへの参加に失敗しました')
+    currentView.value = 'landing'
+  }
+}
+
+function onCancelNameModal() {
+  showNameModal.value   = false
+  pendingJoinCode.value = null
+}
+
 async function onLandingStarted(payload) {
   if (payload?.joinRoom) {
-    currentView.value = 'session'
-    try {
-      await joinRoom(payload.joinRoom)
-      showToast(`ルーム ${payload.joinRoom} に参加しました`)
-    } catch {
-      showToast('ルームへの参加に失敗しました')
-    }
+    _askNameAndJoin(payload.joinRoom)
   } else {
     currentView.value = 'session'
     try {
@@ -145,14 +172,11 @@ onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   const roomCode = params.get('room')
   if (roomCode) {
-    currentView.value = 'session'
     const url = new URL(window.location.href)
     url.searchParams.delete('room')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-
-    joinRoom(roomCode)
-      .then(() => showToast(`ルーム ${roomCode} に参加しました`))
-      .catch(() => showToast(`ルーム ${roomCode} への参加に失敗しました`))
+    // 名前を確認してから参加（ランディングページ上にモーダルとして表示）
+    _askNameAndJoin(roomCode)
   } else {
     // ページ再読み込み後に前回のルームセッションを自動復元
     restoreSession()
@@ -783,6 +807,29 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     </template>
 
+    <!-- ── 名前設定モーダル（ルーム参加前） ── -->
+    <div v-if="showNameModal" class="name-modal-overlay" @click.self="onCancelNameModal">
+      <div class="name-modal-sheet">
+        <div class="sheet-handle"></div>
+        <div class="name-modal-title">参加者の名前を入力してください</div>
+        <div v-if="deviceName" class="name-modal-prev">前回: {{ deviceName }}</div>
+        <input
+          class="name-modal-input"
+          type="text"
+          v-model="pendingName"
+          placeholder="名前（例: Aさん、田中）"
+          maxlength="20"
+          autocomplete="off"
+          spellcheck="false"
+          @keyup.enter="onConfirmName"
+        />
+        <div class="name-modal-actions">
+          <button class="btn btn-secondary" @click="onCancelNameModal">キャンセル</button>
+          <button class="btn btn-primary" @click="onConfirmName">参加する</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="currentView = 'landing'" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
@@ -1007,5 +1054,72 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   justify-content: center;
   line-height: 1;
   pointer-events: none;
+}
+
+/* ── 名前設定モーダル ── */
+.name-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 3000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.name-modal-sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px 40px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+  animation: slideUp 0.25s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.name-modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.name-modal-prev {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.name-modal-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  outline: none;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-appearance: none;
+}
+.name-modal-input:focus { border-color: var(--primary); }
+
+.name-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+.name-modal-actions .btn {
+  flex: 1;
+  padding: 14px;
+  font-size: 15px;
 }
 </style>
