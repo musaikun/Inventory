@@ -67,6 +67,7 @@ let _onParticipantJoin  = null
 let _onParticipantLeave = null
 let _onGuestLeave       = null
 let _onRemoteUpdate     = null
+let _onClearInventory   = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -81,6 +82,7 @@ export function setParticipantJoinCallback(fn)  { _onParticipantJoin  = fn }
 export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
 export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
+export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -198,6 +200,11 @@ function _resetClientState() {
 function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
+      // ゲスト参加（再接続含む）: ローカルの古い在庫をクリアしてからルーム在庫を受信
+      // → ホストにない品目や切断中に削除された品目が混入するのを防ぐ
+      if (state.mode === 'joining') {
+        _onClearInventory?.()
+      }
       for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
         _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
       }

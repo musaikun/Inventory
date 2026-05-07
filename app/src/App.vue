@@ -11,7 +11,7 @@ import {
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
-  setGuestLeaveCallback, setRemoteUpdateCallback,
+  setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
 } from './composables/useSync.js'
@@ -32,7 +32,7 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias } = useConfig()
+const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -135,6 +135,7 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
+setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
 registerConfigGetter(() => ({
   order:         config.order,
@@ -161,6 +162,7 @@ setDissolvedCallback(() => {
   if (!syncIsHost.value) {
     setTimeout(() => {
       reset()
+      resetToDefault()
       clearAuditLog()
       currentView.value = 'landing'
     }, 3500)
@@ -172,6 +174,8 @@ setGuestLeaveCallback(() => {
   showSync.value = false
   showChat.value = false
   reset()
+  resetToDefault()
+  clearAuditLog()
   showToast('ルームを退出しました', 2500, 'leave')
   currentView.value = 'landing'
 })
