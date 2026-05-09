@@ -108,7 +108,7 @@ const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
-const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, unreadCount, auditLog } = useSync()
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
 
 // ── 学習順 ────────────────────────────────────────────────────────────────────
 const learnedOrderVersion = ref(0) // saveLearningSession 後にインクリメント
@@ -150,7 +150,12 @@ registerConfigGetter(() => ({
   isCustom:      config.isCustom,
 }))
 setConfigCallback(applyRemoteConfig)
-setDoneCallback((name) => showNotification('done', `${name} が棚卸を完了しました ✓`))
+setDoneCallback((name, isFinal) => {
+  const msg = isFinal
+    ? `棚卸が締められました。入力を終了してください。`
+    : `${name} が担当を完了しました ✓`
+  showNotification('done', msg)
+})
 setMessageCallback((msgObj) => {
   // チャット画面が開いていないときだけポップアップ通知
   if (!showChat.value) showNotification('message', msgObj.text, msgObj.senderName)
@@ -273,15 +278,35 @@ function onComplete() {
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
   showToast('棚卸を完了しました ✓', 3000, 'success')
-  if (syncActive.value) broadcastDone()
+  if (syncActive.value) broadcastDone(true)   // isFinal=true: 棚卸締めを通知
 }
 
 
 // 完了後に新規棚卸を開始
-function onStartNew() {
+async function onStartNew() {
+  // ホスト中はルームを解散してから開始（ゲストと在庫が乖離するのを防ぐ）
+  if (syncIsHost.value && syncActive.value) {
+    if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
+    await dissolveRoom()
+  }
   reset()
   clearAuditLog()
   if (continuousMode.value) onForceStop()
+}
+
+// ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
+async function onLogout() {
+  // ルーム接続中は適切に切断してからログアウト
+  if (syncIsHost.value) {
+    await dissolveRoom()            // ホスト → ルーム解散（ゲストに通知）
+  } else if (syncActive.value) {
+    leaveRoom()                     // ゲスト → 退出（_onGuestLeave が reset/navigate を担当）
+    return                          // コールバック側でランディングへ遷移するため終了
+  }
+  reset()
+  resetToDefault()
+  clearAuditLog()
+  currentView.value = 'landing'
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -875,7 +900,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="currentView = 'landing'" />
+    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
     <SyncModal     v-if="showSync"     @close="showSync = false" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />

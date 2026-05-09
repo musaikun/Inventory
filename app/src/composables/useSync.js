@@ -111,9 +111,9 @@ export function broadcastRemove(ingredient) {
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
 }
 
-export function broadcastDone() {
+export function broadcastDone(isFinal = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'done' }))
+  _ws.send(JSON.stringify({ type: 'done', isFinal }))
 }
 
 export function broadcastMessage(text, replyTo = null) {
@@ -250,11 +250,12 @@ function _handleMessage(msg) {
       break
 
     case 'done': {
-      // システムメッセージとしてチャットに追加（全員）
-      _addSysMsg(`${msg.deviceName} が棚卸を完了しました ✓`)
-      // 他者の完了のみポップアップ通知（自分の完了はtoastで通知済み）
+      const sysLabel = msg.isFinal
+        ? `${msg.deviceName} が棚卸を締めました ✓`
+        : `${msg.deviceName} が担当を完了しました ✓`
+      _addSysMsg(sysLabel)
       if (msg.fromDeviceId !== deviceId) {
-        _onDone?.(msg.deviceName)
+        _onDone?.(msg.deviceName, msg.isFinal ?? false)
       }
       break
     }
