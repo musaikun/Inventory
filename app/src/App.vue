@@ -14,6 +14,7 @@ import {
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
+  getSavedGuestSession, discardSavedSession,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -211,8 +212,10 @@ onMounted(async () => {
     // 名前を確認してから参加（ランディングページ上にモーダルとして表示）
     _askNameAndJoin(roomCode)
   } else {
-    // ページ再読み込み後に前回のルームセッションを自動復元
+    // ホストセッションのみ自動復元（ゲストは再参加バナーで確認）
     restoreSession()
+    const guestSession = getSavedGuestSession()
+    if (guestSession) savedGuestRoomCode.value = guestSession.roomCode
   }
 
   // 既存の店舗コードがある場合は D1 からデータを読み込む
@@ -246,6 +249,27 @@ const searchText     = ref('')
 const searchStatus   = ref('') // '' | 'active'
 const searchInputRef = ref(null)
 
+// ── ゲスト担当完了の報告済み状態 ──────────────────────────────────────────────
+// 報告後は "報告済み" に変化し、品目が追加されるとリセット
+const guestReported = ref(false)
+watch(filledCount, () => { guestReported.value = false })
+watch(syncActive,  (v) => { if (!v) guestReported.value = false })
+
+// ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
+const savedGuestRoomCode = ref(null)
+
+function onRejoinSaved() {
+  const code = savedGuestRoomCode.value
+  savedGuestRoomCode.value = null
+  discardSavedSession()
+  _askNameAndJoin(code)
+}
+
+function onSkipRejoin() {
+  savedGuestRoomCode.value = null
+  discardSavedSession()
+}
+
 // ── セッション管理 ─────────────────────────────────────────────────────────────
 const completedAtDisplay = computed(() => {
   if (!completedAt.value) return ''
@@ -264,6 +288,7 @@ function onComplete() {
   if (syncActive.value && !syncIsHost.value) {
     if (!confirm('担当分の完了をルームに報告しますか？')) return
     broadcastDone()
+    guestReported.value = true   // 報告済み状態にしてボタンを変化させる
     if (continuousMode.value) onForceStop()
     showToast('担当分の完了を報告しました ✓', 3000, 'success')
     return
@@ -690,6 +715,19 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── ランディング ── -->
     <LandingPage v-if="currentView === 'landing'" @started="onLandingStarted" />
 
+    <!-- 前回のゲストセッション再参加バナー -->
+    <Transition name="rejoin-slide">
+      <div v-if="currentView === 'landing' && savedGuestRoomCode" class="rejoin-banner">
+        <div class="rejoin-text">
+          前回ルーム <strong>{{ savedGuestRoomCode }}</strong> に参加していました
+        </div>
+        <div class="rejoin-actions">
+          <button class="rejoin-btn rejoin-skip" @click="onSkipRejoin">スキップ</button>
+          <button class="rejoin-btn rejoin-join" @click="onRejoinSaved">再参加</button>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ── セッション ── -->
     <template v-else>
 
@@ -838,8 +876,16 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="footer-actions">
           <template v-if="!isCompleted">
-            <button class="btn-complete" @click="onComplete">
-              {{ syncActive && !syncIsHost ? '✓ 担当完了' : '✓ 棚卸完了' }}
+            <button
+              class="btn-complete"
+              :class="{ reported: guestReported }"
+              :disabled="guestReported"
+              @click="onComplete"
+            >
+              <template v-if="syncActive && !syncIsHost">
+                {{ guestReported ? '✓ 報告済み' : '✓ 担当完了' }}
+              </template>
+              <template v-else>✓ 棚卸完了</template>
             </button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
@@ -1190,5 +1236,80 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   flex: 1;
   padding: 14px;
   font-size: 15px;
+}
+
+/* ── 担当完了 報告済みボタン ── */
+.btn-complete.reported {
+  background: #6b7280;
+  cursor: default;
+  opacity: 0.75;
+}
+.btn-complete:disabled {
+  pointer-events: none;
+}
+
+/* ── 前回ゲストセッション再参加バナー ── */
+.rejoin-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 14px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.rejoin-text {
+  font-size: 14px;
+  text-align: center;
+}
+
+.rejoin-text strong {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  letter-spacing: 0.08em;
+  color: #93c5fd;
+}
+
+.rejoin-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.rejoin-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rejoin-skip {
+  background: #374151;
+  color: #d1d5db;
+}
+.rejoin-skip:active { background: #4b5563; }
+
+.rejoin-join {
+  background: #2563eb;
+  color: #fff;
+}
+.rejoin-join:active { background: #1d4ed8; }
+
+.rejoin-slide-enter-active,
+.rejoin-slide-leave-active {
+  transition: transform 0.3s ease, opacity 0.25s ease;
+}
+.rejoin-slide-enter-from,
+.rejoin-slide-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
 }
 </style>

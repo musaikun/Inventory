@@ -430,11 +430,27 @@ if (typeof document !== 'undefined') {
 }
 
 // ── ページ再読み込み後のセッション復元 ───────────────────────────────────────
+
+/** 保存されているゲストセッション情報を返す（自動復元はしない） */
+export function getSavedGuestSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.syncSession) ?? 'null')
+    return (saved?.mode === 'joining' && saved?.roomCode) ? saved : null
+  } catch (_) { return null }
+}
+
+/** 保存済みセッション情報を破棄する（再参加スキップ時など） */
+export function discardSavedSession() {
+  _clearSession()
+}
+
 export function restoreSession() {
   if (state.mode !== 'idle') return
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.syncSession) ?? 'null')
     if (!saved?.roomCode || !saved?.mode) return
+    // ゲストセッションは自動復元しない（getSavedGuestSession で確認・再参加を促す）
+    if (saved.mode === 'joining') return
     state.roomCode = saved.roomCode
     state.mode     = saved.mode
     _connect(saved.roomCode).catch(() => {
