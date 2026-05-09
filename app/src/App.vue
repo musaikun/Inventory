@@ -254,6 +254,17 @@ function onComplete() {
     showToast('1件以上入力してから完了してください', 2600, 'warning')
     return
   }
+
+  // ゲスト（ルーム参加中）: 完了報告のみ。画面ロック・スナップショット保存は行わない
+  if (syncActive.value && !syncIsHost.value) {
+    if (!confirm('担当分の完了をルームに報告しますか？')) return
+    broadcastDone()
+    if (continuousMode.value) onForceStop()
+    showToast('担当分の完了を報告しました ✓', 3000, 'success')
+    return
+  }
+
+  // ホスト or ソロ: 棚卸を締める（画面ロック・スナップショット保存）
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
@@ -802,7 +813,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="footer-actions">
           <template v-if="!isCompleted">
-            <button class="btn-complete" @click="onComplete">✓ 棚卸完了</button>
+            <button class="btn-complete" @click="onComplete">
+              {{ syncActive && !syncIsHost ? '✓ 担当完了' : '✓ 棚卸完了' }}
+            </button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>

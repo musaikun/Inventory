@@ -49,6 +49,7 @@ _load()
  * useSync.js が setInventoryCallbacks 経由で登録し呼び出す
  */
 export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '') {
+  if (completedAt.value) return  // 完了済みはリモート更新を受け付けない
   inventory[ingredient] = { qty, unit: unit ?? '', enteredBy }
   _save()
 }
@@ -57,6 +58,7 @@ export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '') {
  * 他デバイスからの品目削除を適用（ブロードキャストしない）
  */
 export function applyRemoteRemove(ingredient) {
+  if (completedAt.value) return  // 完了済みはリモート削除を受け付けない
   delete inventory[ingredient]
   _save()
 }
