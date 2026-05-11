@@ -12,7 +12,8 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig,
+  setScopeCallback,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
 } from './composables/useSync.js'
@@ -52,19 +53,25 @@ const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 const currentView = ref('landing')
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
-const pendingJoinCode = ref(null)
-const showNameModal   = ref(false)
-const pendingName     = ref('')
+const pendingJoinCode  = ref(null)
+const showNameModal    = ref(false)
+const pendingName      = ref('')
+const pendingNameError = ref(false)
 
 function _askNameAndJoin(code) {
-  pendingJoinCode.value = code
-  // 過去に設定した名前があればそのままプリセット
-  pendingName.value = deviceName.value || ''
-  showNameModal.value = true
+  pendingJoinCode.value  = code
+  pendingName.value      = deviceName.value || ''
+  pendingNameError.value = false
+  showNameModal.value    = true
 }
 
 async function onConfirmName() {
-  const name = pendingName.value.trim() || '名前未設定'
+  const name = pendingName.value.trim()
+  if (!name) {
+    pendingNameError.value = true
+    return
+  }
+  pendingNameError.value = false
   setDeviceName(name)
   showNameModal.value   = false
   const code            = pendingJoinCode.value
@@ -204,6 +211,9 @@ setRemoteUpdateCallback((ingredient, qty, unit, by) => {
     ? `${who}: 「${ingredient}」を削除`
     : `${who}: 「${ingredient}」${qty}${unit}`
   showToast(msg, 2800, 'update')
+})
+setScopeCallback((scope) => {
+  if (!syncIsHost.value) categoryScope.value = scope
 })
 
 // URL パラメータ ?room=CODE があれば自動参加（ホーム画面をスキップ）
@@ -410,6 +420,11 @@ watch(config, () => {
     })
   }, 300)
 }, { deep: true })
+
+// ── ホストの絞り込みスコープをゲストに同期 ────────────────────────────────────
+watch(categoryScope, (scope) => {
+  if (syncIsHost.value && syncActive.value) broadcastScope(scope)
+})
 
 // ── ルームコード変更を D1 に反映（ルーム作成・解散の追跡）──────────────────────
 watch(() => syncState.roomCode, (code) => {
@@ -738,7 +753,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <!-- ヘッダー -->
       <header class="app-header">
-        <h1>棚卸入力</h1>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
           <div class="date">{{ dateStr }}</div>
@@ -806,8 +820,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </section>
 
-      <!-- 棚卸対象スコープ切り替え -->
-      <div v-if="hasSupplyItems" class="scope-bar">
+      <!-- 棚卸対象スコープ切り替え（ゲストはホストに追従するため非表示） -->
+      <div v-if="hasSupplyItems && (!syncActive || syncIsHost)" class="scope-bar">
         <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
         <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
         <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
@@ -930,14 +944,17 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <div v-if="deviceName" class="name-modal-prev">前回: {{ deviceName }}</div>
         <input
           class="name-modal-input"
+          :class="{ error: pendingNameError }"
           type="text"
           v-model="pendingName"
           placeholder="名前（例: Aさん、田中）"
           maxlength="20"
           autocomplete="off"
           spellcheck="false"
+          @input="pendingNameError = false"
           @keyup.enter="onConfirmName"
         />
+        <div v-if="pendingNameError" class="name-modal-error">名前を入力してください</div>
         <div class="name-modal-actions">
           <button class="btn btn-secondary" @click="onCancelNameModal">キャンセル</button>
           <button class="btn btn-primary" @click="onConfirmName">参加する</button>
@@ -1227,6 +1244,14 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   -webkit-appearance: none;
 }
 .name-modal-input:focus { border-color: var(--primary); }
+.name-modal-input.error { border-color: var(--danger); }
+
+.name-modal-error {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  margin: -10px 0 12px;
+}
 
 .name-modal-actions {
   display: flex;

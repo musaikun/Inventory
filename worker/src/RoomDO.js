@@ -229,6 +229,12 @@ export class RoomDO {
         break
       }
 
+      case 'scope': {
+        const scope = msg.scope === 'food' || msg.scope === 'supply' ? msg.scope : 'all'
+        this._broadcast({ type: 'scope', scope }, ws)
+        break
+      }
+
       case 'leave': {
         // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
         const remaining = this.state.getWebSockets()

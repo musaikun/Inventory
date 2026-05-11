@@ -68,6 +68,7 @@ let _onParticipantLeave = null
 let _onGuestLeave       = null
 let _onRemoteUpdate     = null
 let _onClearInventory   = null
+let _onScopeReceived    = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -83,6 +84,7 @@ export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
 export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
 export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
+export function setScopeCallback(fn)            { _onScopeReceived    = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -109,6 +111,11 @@ export function broadcastUpdate(ingredient, qty, unit, enteredBy = '', isAdd = f
 export function broadcastRemove(ingredient) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
+}
+
+export function broadcastScope(scope) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'scope', scope }))
 }
 
 export function broadcastDone(isFinal = false) {
@@ -280,6 +287,10 @@ function _handleMessage(msg) {
 
     case 'config_update':
       _onConfigReceived?.(msg)
+      break
+
+    case 'scope':
+      _onScopeReceived?.(msg.scope)
       break
 
     case 'dissolved':
