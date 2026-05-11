@@ -729,7 +729,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </Transition>
 
     <!-- ── セッション ── -->
-    <template v-else>
+    <template v-if="currentView === 'session'">
 
       <!-- ヘッダー -->
       <header class="app-header">
