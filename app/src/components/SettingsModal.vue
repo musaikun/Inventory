@@ -6,6 +6,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { shopCode, clearShopCode } from '../composables/useStore.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 
+const props = defineProps({ isGuest: Boolean })
 const emit = defineEmits(['close', 'logout'])
 useEscapeKey(() => emit('close'))
 
@@ -125,25 +126,32 @@ function onLogout() {
         </span>
       </div>
 
-      <!-- ドロップゾーン（CSV / PDF / Excel 全対応） -->
-      <div
-        class="drop-zone"
-        :class="{ over: dragging }"
-        @dragover.prevent="dragging = true"
-        @dragleave="dragging = false"
-        @drop.prevent="onDrop"
-        @click="fileInput.click()"
-      >
-        <div class="drop-icon">📂</div>
-        <div class="drop-label">ドラッグ or タップしてアップロード</div>
-        <div class="drop-hint">CSV / PDF / Excel（.csv / .pdf / .xlsx）</div>
-        <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
+      <!-- ゲストは品目変更不可 -->
+      <div v-if="props.isGuest" class="guest-notice">
+        参加中はホストが品目リストを管理します。<br>品目の変更はホスト端末から行ってください。
       </div>
 
-      <!-- ステータスメッセージ -->
-      <div v-if="status" class="msg" :class="status.type">
-        {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
-      </div>
+      <!-- ドロップゾーン（CSV / PDF / Excel 全対応）※ゲストには非表示 -->
+      <template v-else>
+        <div
+          class="drop-zone"
+          :class="{ over: dragging }"
+          @dragover.prevent="dragging = true"
+          @dragleave="dragging = false"
+          @drop.prevent="onDrop"
+          @click="fileInput.click()"
+        >
+          <div class="drop-icon">📂</div>
+          <div class="drop-label">ドラッグ or タップしてアップロード</div>
+          <div class="drop-hint">CSV / PDF / Excel（.csv / .pdf / .xlsx）</div>
+          <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
+        </div>
+
+        <!-- ステータスメッセージ -->
+        <div v-if="status" class="msg" :class="status.type">
+          {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
+        </div>
+      </template>
 
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
@@ -220,8 +228,8 @@ function onLogout() {
         </div>
       </div>
 
-      <!-- アクションボタン -->
-      <div class="actions">
+      <!-- アクションボタン（ゲストは非表示） -->
+      <div v-if="!props.isGuest" class="actions">
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
         <button class="btn btn-secondary reset" @click="onReset" :disabled="!config.isCustom">
           🔄 デフォルトに戻す
@@ -498,4 +506,17 @@ function onLogout() {
 }
 .import-btn { width: 100%; margin-bottom: 12px; }
 .close-btn  { width: 100%; margin-top: 4px; }
+
+.guest-notice {
+  padding: 14px 16px;
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0369a1;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  text-align: center;
+}
 </style>

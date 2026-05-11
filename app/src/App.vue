@@ -150,7 +150,12 @@ registerConfigGetter(() => ({
   dictionary:    config.dictionary,
   isCustom:      config.isCustom,
 }))
-setConfigCallback(applyRemoteConfig)
+setConfigCallback((cfg) => {
+  applyRemoteConfig(cfg)
+  if (syncActive.value && !syncIsHost.value) {
+    showToast('品目一覧が更新されました', 3000, 'update')
+  }
+})
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
     ? `棚卸が締められました。入力を終了してください。`
@@ -941,7 +946,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" @close="showSettings = false" @logout="onLogout" />
+    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
     <SyncModal     v-if="showSync"     @close="showSync = false" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />

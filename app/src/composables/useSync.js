@@ -511,6 +511,9 @@ export function useSync() {
 
   function leaveRoom() {
     const wasGuest = state.mode === 'joining'
+    if (_ws?.readyState === WebSocket.OPEN) {
+      try { _ws.send(JSON.stringify({ type: 'leave' })) } catch (_) {}
+    }
     if (_ws) { try { _ws.close(1000, 'User left') } catch (_) {} ; _ws = null }
     _resetClientState()
     if (wasGuest) _onGuestLeave?.()

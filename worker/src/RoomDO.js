@@ -229,6 +229,16 @@ export class RoomDO {
         break
       }
 
+      case 'leave': {
+        // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
+        const remaining = this.state.getWebSockets()
+          .filter(w => w !== ws)
+          .map(w => w.deserializeAttachment())
+          .filter(Boolean)
+        this._broadcast({ type: 'participants', list: remaining }, ws)
+        break
+      }
+
       case 'done': {
         // 全参加者へ（送信者含む）: 自端末でもシステムメッセージとして表示
         const att = ws.deserializeAttachment() ?? {}
@@ -236,6 +246,7 @@ export class RoomDO {
           type:         'done',
           deviceName:   att.deviceName ?? '名前未設定',
           fromDeviceId: att.deviceId   ?? '',
+          isFinal:      msg.isFinal ?? false,
         })
         break
       }
