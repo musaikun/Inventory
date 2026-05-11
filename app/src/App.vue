@@ -881,12 +881,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               :class="{ reported: guestReported }"
               :disabled="guestReported"
               @click="onComplete"
-            >
-              <template v-if="syncActive && !syncIsHost">
-                {{ guestReported ? '✓ 報告済み' : '✓ 担当完了' }}
-              </template>
-              <template v-else>✓ 棚卸完了</template>
-            </button>
+            >{{ syncActive && !syncIsHost ? (guestReported ? '✓ 報告済み' : '✓ 担当完了') : '✓ 棚卸完了' }}</button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>
