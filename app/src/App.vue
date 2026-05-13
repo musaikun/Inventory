@@ -421,11 +421,6 @@ watch(config, () => {
   }, 300)
 }, { deep: true })
 
-// ── ホストの絞り込みスコープをゲストに同期 ────────────────────────────────────
-watch(categoryScope, (scope) => {
-  if (syncIsHost.value && syncActive.value) broadcastScope(scope)
-})
-
 // ── ルームコード変更を D1 に反映（ルーム作成・解散の追跡）──────────────────────
 watch(() => syncState.roomCode, (code) => {
   if (shopCode.value) updateActiveRoomInD1(code ?? null)
@@ -460,6 +455,11 @@ const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(ite
 // 棚卸対象スコープ: 'all' | 'food'（食材のみ） | 'supply'（資材・備品のみ）
 // 検索・棚卸一覧の両方を絞り込む
 const categoryScope = ref('all')
+
+// ホストの絞り込みスコープをゲストに同期（宣言後に配置しないと TDZ エラーになる）
+watch(categoryScope, (scope) => {
+  if (syncIsHost.value && syncActive.value) broadcastScope(scope)
+})
 
 function findCandidates(name) {
   if (!name) return []
