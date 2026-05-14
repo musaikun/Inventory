@@ -39,6 +39,11 @@ export async function loadStore(code) {
   return store
 }
 
+// ── 店舗情報の読み取り専用取得（状態を変更しない） ─────────────────────────────
+export async function fetchStoreInfo(code) {
+  try { return await _api(`/store/${code}`) } catch { return null }
+}
+
 // ── 品目リスト ────────────────────────────────────────────────────────────────
 export async function loadConfigFromD1() {
   if (!shopCode.value) return null

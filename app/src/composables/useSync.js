@@ -1,6 +1,7 @@
 import { reactive, computed, ref, watch } from 'vue'
 import { deviceId, deviceName } from './useDeviceId.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { shopCode } from './useStore.js'
 
 function _saveSession() {
   if (!state.roomCode || state.mode === 'idle') return
@@ -541,6 +542,7 @@ export function useSync() {
   function getShareUrl() {
     if (!state.roomCode) return ''
     const base = window.location.origin + window.location.pathname.replace(/\/$/, '')
+    if (shopCode.value) return `${base}?store=${shopCode.value}`
     return `${base}?room=${state.roomCode}`
   }
 

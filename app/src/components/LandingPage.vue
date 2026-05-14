@@ -1,16 +1,16 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { createStore, loadStore, shopCode } from '../composables/useStore.js'
+import { createStore, loadStore, fetchStoreInfo, shopCode } from '../composables/useStore.js'
 
 const emit = defineEmits(['started'])
 
-const loading     = ref(false)
-const error       = ref('')
-const showScanner = ref(false)
-const showManual  = ref(false)  // カメラ失敗時のコード手動入力
-const showRestore = ref(false)
-const joinCode    = ref('')
-const restoreCode = ref('')
+const loading      = ref(false)
+const error        = ref('')
+const joinExpanded = ref(false)
+const showScanner  = ref(false)
+const showRestore  = ref(false)
+const joinCode     = ref('')
+const restoreCode  = ref('')
 
 const videoRef  = ref(null)
 const canvasRef = ref(null)
@@ -18,7 +18,7 @@ let   _stream   = null
 let   _scanRaf  = null
 let   _jsQR     = null
 
-// ── はじめる ──────────────────────────────────────────────────────────────────
+// ── ホストとして開始 ──────────────────────────────────────────────────────────
 async function onStart() {
   if (shopCode.value) {
     emit('started')
@@ -30,32 +30,57 @@ async function onStart() {
     await createStore()
     emit('started')
   } catch {
-    error.value = '接続できませんでした。もう一度お試しください。'
+    error.value   = '接続できませんでした。もう一度お試しください。'
     loading.value = false
   }
 }
 
+// ── 店舗コードでルームを検索して参加 ────────────────────────────────────────
+async function _joinViaStoreCode(code) {
+  loading.value = true
+  error.value   = ''
+  try {
+    const info = await fetchStoreInfo(code)
+    if (!info?.activeRoom) {
+      error.value   = 'この店舗コードにアクティブなルームがありません'
+      loading.value = false
+      return
+    }
+    emit('started', { joinRoom: info.activeRoom })
+  } catch {
+    error.value   = '店舗情報の取得に失敗しました'
+    loading.value = false
+  }
+}
+
+// ── コード送信 ────────────────────────────────────────────────────────────────
+function onJoinSubmit() {
+  const code = joinCode.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
+  _joinViaStoreCode(code)
+}
+
 // ── QRコード解析 ──────────────────────────────────────────────────────────────
-function _extractRoomCode(data) {
+async function _handleQrData(data) {
+  closeScanner()
   try {
     const url = new URL(data)
-    const code = url.searchParams.get('room')
-    if (code && code.length >= 4) return code.toUpperCase()
-  } catch (_) {
-    const cleaned = data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
-    if (cleaned.length >= 4 && cleaned.length <= 8) return cleaned
-  }
-  return null
+    const storeParam = url.searchParams.get('store')
+    if (storeParam) { _joinViaStoreCode(storeParam); return }
+    // 旧形式 ?room= も引き続きサポート
+    const roomParam = url.searchParams.get('room')
+    if (roomParam) { emit('started', { joinRoom: roomParam.toUpperCase() }); return }
+  } catch (_) {}
+  const cleaned = data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (cleaned.length >= 4) { _joinViaStoreCode(cleaned) }
+  else error.value = 'QRコードを認識できませんでした'
 }
 
 // ── カメラスキャン ────────────────────────────────────────────────────────────
-async function openJoin() {
-  error.value       = ''
-  showRestore.value = false
-  showManual.value  = false
+async function openScanner() {
+  error.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
-    // カメラ非対応ならコード入力にフォールバック
-    showManual.value = true
+    joinExpanded.value = true
     return
   }
   showScanner.value = true
@@ -69,9 +94,9 @@ async function openJoin() {
       _tick()
     }
   } catch {
-    error.value       = 'カメラへのアクセスを許可してください'
-    showScanner.value = false
-    showManual.value  = true  // フォールバック表示
+    error.value        = 'カメラへのアクセスを許可してください'
+    showScanner.value  = false
+    joinExpanded.value = true
   }
 }
 
@@ -89,42 +114,28 @@ async function _tick() {
   ctx.drawImage(video, 0, 0)
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const result = _jsQR(imageData.data, imageData.width, imageData.height)
-  if (result) {
-    const roomCode = _extractRoomCode(result.data)
-    if (roomCode) {
-      closeScanner()
-      emit('started', { joinRoom: roomCode })
-      return
-    }
-  }
+  if (result) { await _handleQrData(result.data); return }
   _scanRaf = requestAnimationFrame(_tick)
 }
 
 function closeScanner() {
   showScanner.value = false
   cancelAnimationFrame(_scanRaf)
-  if (_stream) {
-    _stream.getTracks().forEach(t => t.stop())
-    _stream = null
-  }
+  if (_stream) { _stream.getTracks().forEach(t => t.stop()); _stream = null }
 }
 
-function switchToManual() {
-  closeScanner()
-  showManual.value = true
+// ── 参加フォームを開く ────────────────────────────────────────────────────────
+function openJoin() {
+  joinExpanded.value = true
+  showRestore.value  = false
+  error.value        = ''
 }
 
 function closeJoin() {
-  closeScanner()
-  showManual.value = false
-  error.value      = ''
-}
-
-// ── コード手動入力 ────────────────────────────────────────────────────────────
-function onJoinSubmit() {
-  const code = joinCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
-  emit('started', { joinRoom: code })
+  joinExpanded.value = false
+  showRestore.value  = false
+  error.value        = ''
+  joinCode.value     = ''
 }
 
 // ── 既存データを引き継ぐ ──────────────────────────────────────────────────────
@@ -142,297 +153,357 @@ async function onRestoreSubmit() {
   }
 }
 
-function toggleRestore() {
-  showRestore.value = !showRestore.value
-  closeJoin()
-  error.value = ''
-}
-
-// ── スクロールフェードイン ────────────────────────────────────────────────────
-let observer = null
-onMounted(() => {
-  observer = new IntersectionObserver(
-    entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('is-visible') }),
-    { threshold: 0.12 }
-  )
-  document.querySelectorAll('[data-fade]').forEach(el => observer.observe(el))
-})
-onUnmounted(() => {
-  observer?.disconnect()
-  closeScanner()
-})
+onUnmounted(() => closeScanner())
 </script>
 
 <template>
   <div class="lp">
 
-    <!-- ── ヘッダー ── -->
-    <header class="lp-header">
+    <!-- ── QRカメラスキャナー（全画面） ── -->
+    <div v-if="showScanner" class="scanner-overlay">
+      <video ref="videoRef" class="scanner-video" autoplay playsinline muted></video>
+      <canvas ref="canvasRef" style="display:none"></canvas>
+      <div class="scanner-aim"></div>
+      <p class="scanner-hint">QRコードをカメラに向けてください</p>
+      <div class="scanner-footer">
+        <button class="scanner-btn-manual" @click="closeScanner(); joinExpanded = true">コードで入力</button>
+        <button class="scanner-btn-close"  @click="closeScanner()">閉じる</button>
+      </div>
+    </div>
+
+    <!-- ── メイン ── -->
+    <div class="lp-body">
+      <!-- ロゴ -->
       <div class="lp-logo">
         <span class="lp-logo-icon">📋</span>
-        <span class="lp-logo-text">棚卸アプリ</span>
+        <span class="lp-logo-name">棚卸アプリ</span>
       </div>
-      <button class="lp-header-btn" @click="openJoin">QRで参加</button>
-    </header>
 
-    <!-- ── QRカメラスキャナー（全画面） ── -->
-    <div v-if="showScanner" class="lp-scanner-overlay">
-      <video ref="videoRef" class="lp-scanner-video" autoplay playsinline muted></video>
-      <canvas ref="canvasRef" style="display:none"></canvas>
-      <div class="lp-scanner-aim"></div>
-      <p class="lp-scanner-hint">QRコードをカメラに向けてください</p>
-      <div class="lp-scanner-footer">
-        <button class="lp-scanner-manual-btn" @click="switchToManual">コードで入力する</button>
-        <button class="lp-scanner-close-btn" @click="closeJoin">閉じる</button>
-      </div>
-    </div>
+      <p class="lp-tagline">棚卸作業を開始してください</p>
 
-    <!-- ── コード手動入力バー ── -->
-    <div v-else-if="showManual" class="lp-bar">
-      <input
-        class="lp-bar-input"
-        type="text"
-        placeholder="ルームコード（例: ABC123）"
-        v-model="joinCode"
-        @keyup.enter="onJoinSubmit"
-        maxlength="8"
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="characters"
-        spellcheck="false"
-        autofocus
-      />
-      <button class="lp-bar-btn" @click="onJoinSubmit">参加する</button>
-      <button class="lp-bar-close" @click="closeJoin">✕</button>
-    </div>
+      <!-- エラー -->
+      <div v-if="error" class="lp-error">{{ error }}</div>
 
-    <!-- ── データ復元フォーム ── -->
-    <div v-if="showRestore" class="lp-bar">
-      <input
-        class="lp-bar-input"
-        type="text"
-        placeholder="店舗コード（例: SAKURA）"
-        v-model="restoreCode"
-        @keyup.enter="onRestoreSubmit"
-        maxlength="8"
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="characters"
-        spellcheck="false"
-        autofocus
-      />
-      <button class="lp-bar-btn" :disabled="loading" @click="onRestoreSubmit">
-        {{ loading ? '確認中...' : '引き継ぐ' }}
+      <!-- ── ホストカード ── -->
+      <button
+        class="lp-card lp-card-host"
+        :disabled="loading"
+        @click="onStart"
+      >
+        <span class="lp-card-icon">🏪</span>
+        <span class="lp-card-body">
+          <span class="lp-card-title">ホストとして開始</span>
+          <span class="lp-card-sub">
+            {{ loading ? '準備中...' : shopCode ? `店舗コード: ${shopCode}` : '棚卸作業を主導します' }}
+          </span>
+        </span>
+        <span class="lp-card-arrow">›</span>
       </button>
-    </div>
 
-    <!-- エラー -->
-    <div v-if="error" class="lp-error">{{ error }}</div>
+      <!-- ── ゲストカード ── -->
+      <div class="lp-card-guest-wrap">
+        <button
+          class="lp-card lp-card-guest"
+          :class="{ 'is-open': joinExpanded }"
+          @click="!joinExpanded ? openJoin() : null"
+        >
+          <span class="lp-card-icon">🔑</span>
+          <span class="lp-card-body">
+            <span class="lp-card-title">ルームに参加</span>
+            <span class="lp-card-sub">店舗コードを入力して参加します</span>
+          </span>
+          <span v-if="!joinExpanded" class="lp-card-arrow">›</span>
+          <button v-else class="lp-close-btn" @click.stop="closeJoin()">✕</button>
+        </button>
 
-    <!-- ── ヒーロー ── -->
-    <section class="lp-hero">
-      <div class="lp-hero-inner" data-fade>
-        <div class="lp-badge">飲食店向け 棚卸管理ツール</div>
-        <h1 class="lp-heading">棚卸を、<br>もっとシンプルに。</h1>
-        <p class="lp-sub">
-          音声入力でスピードアップ。チームで同時に作業。<br>
-          月次データで原価管理まで、ひとつのアプリで。
-        </p>
-        <div class="lp-cta">
-          <button class="lp-btn-primary" :disabled="loading" @click="onStart">
-            <span>{{ loading ? '準備中...' : shopCode ? '続きから' : 'はじめる' }}</span>
-            <span v-if="!loading" class="lp-btn-arrow">→</span>
-          </button>
-          <button class="lp-btn-secondary" @click="openJoin">QRで参加</button>
+        <!-- 展開: コード入力フォーム -->
+        <div v-if="joinExpanded" class="lp-join-form">
+          <input
+            class="lp-join-input"
+            type="text"
+            placeholder="店舗コードを入力"
+            v-model="joinCode"
+            @keyup.enter="onJoinSubmit"
+            maxlength="8"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            autofocus
+          />
+          <div class="lp-join-actions">
+            <button class="lp-btn-qr" @click="openScanner">
+              📷 QRスキャン
+            </button>
+            <button
+              class="lp-btn-join"
+              :disabled="loading || joinCode.length < 4"
+              @click="onJoinSubmit"
+            >
+              {{ loading ? '確認中...' : '参加する' }}
+            </button>
+          </div>
         </div>
-        <button class="lp-restore-link" @click="toggleRestore">
-          既存データを引き継ぐ ›
+      </div>
+
+      <!-- ── データ引き継ぎ ── -->
+      <button class="lp-restore-link" @click="showRestore = !showRestore; error = ''">
+        別端末に店舗データを引き継ぐ ›
+      </button>
+
+      <div v-if="showRestore" class="lp-restore-form">
+        <input
+          class="lp-join-input"
+          type="text"
+          placeholder="店舗コード（例: SAKURA）"
+          v-model="restoreCode"
+          @keyup.enter="onRestoreSubmit"
+          maxlength="8"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          autofocus
+        />
+        <button
+          class="lp-btn-join"
+          :disabled="loading"
+          @click="onRestoreSubmit"
+          style="width:100%; margin-top:8px"
+        >
+          {{ loading ? '確認中...' : '引き継ぐ' }}
         </button>
       </div>
-    </section>
-
-    <!-- ── 特徴 ── -->
-    <section class="lp-section">
-      <p class="lp-section-label" data-fade>特徴</p>
-      <div class="lp-features">
-        <div class="lp-feature" data-fade style="transition-delay:0s">
-          <div class="lp-feature-icon">🎤</div>
-          <div class="lp-feature-title">音声で即入力</div>
-          <div class="lp-feature-desc">「ビール 3本」と話すだけ。商品名を自動補正してすばやく登録できます。</div>
-        </div>
-        <div class="lp-feature" data-fade style="transition-delay:0.1s">
-          <div class="lp-feature-icon">👥</div>
-          <div class="lp-feature-title">チームで同時作業</div>
-          <div class="lp-feature-desc">QRコードをスキャンするだけで複数端末が連動。作業が半分の時間で終わります。</div>
-        </div>
-        <div class="lp-feature" data-fade style="transition-delay:0.2s">
-          <div class="lp-feature-icon">📊</div>
-          <div class="lp-feature-title">履歴・原価管理</div>
-          <div class="lp-feature-desc">月次比較で在庫の異常を即発見。CSV出力でPOSデータとの連携も簡単。</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── 使い方 ── -->
-    <section class="lp-section lp-section-gray">
-      <p class="lp-section-label" data-fade>使い方</p>
-      <div class="lp-steps">
-        <div class="lp-step" data-fade style="transition-delay:0s">
-          <div class="lp-step-num">1</div>
-          <div class="lp-step-icon">🏪</div>
-          <div class="lp-step-title">店舗を登録</div>
-          <div class="lp-step-desc">「はじめる」を押すだけ。アカウント不要で即スタート。</div>
-        </div>
-        <div class="lp-step-connector" data-fade>›</div>
-        <div class="lp-step" data-fade style="transition-delay:0.1s">
-          <div class="lp-step-num">2</div>
-          <div class="lp-step-icon">📦</div>
-          <div class="lp-step-title">棚卸を入力</div>
-          <div class="lp-step-desc">音声または検索で商品を選び、数量を確認して登録。</div>
-        </div>
-        <div class="lp-step-connector" data-fade>›</div>
-        <div class="lp-step" data-fade style="transition-delay:0.2s">
-          <div class="lp-step-num">3</div>
-          <div class="lp-step-icon">💾</div>
-          <div class="lp-step-title">データを確認</div>
-          <div class="lp-step-desc">CSVで出力。月次比較で原価の異常を早期発見。</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── フッター ── -->
-    <footer class="lp-footer">
-      <div class="lp-footer-logo">📋 棚卸アプリ</div>
-      <div class="lp-footer-text">飲食店の棚卸作業を効率化する Web アプリです</div>
-    </footer>
+    </div>
 
   </div>
 </template>
 
 <style scoped>
-/* ── ベース ── */
 .lp {
   min-height: 100vh;
-  background: #fff;
-  color: #0f172a;
-  overflow-x: hidden;
-}
-
-/* ── フェードインアニメーション ── */
-[data-fade] {
-  opacity: 0;
-  transform: translateY(22px);
-  transition: opacity 0.55s ease, transform 0.55s ease;
-}
-[data-fade].is-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* ── ヘッダー ── */
-.lp-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  background: #f8fafc;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid #f1f5f9;
+  justify-content: center;
+  padding: 24px 20px;
 }
 
+.lp-body {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+/* ── ロゴ ── */
 .lp-logo {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 4px;
 }
-.lp-logo-icon { font-size: 18px; }
-.lp-logo-text {
-  font-size: 16px;
-  font-weight: 800;
+.lp-logo-icon { font-size: 28px; }
+.lp-logo-name {
+  font-size: 22px;
+  font-weight: 900;
   color: #0f172a;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
-.lp-header-btn {
+.lp-tagline {
+  text-align: center;
   font-size: 13px;
-  font-weight: 700;
-  color: #2563eb;
-  background: none;
-  border: 1.5px solid #2563eb;
-  border-radius: 9px;
-  padding: 7px 16px;
+  color: #64748b;
+  margin: 0 0 8px;
+}
+
+/* ── エラー ── */
+.lp-error {
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #dc2626;
+  text-align: center;
+}
+
+/* ── カード共通 ── */
+.lp-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 2px solid transparent;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  width: 100%;
+  text-align: left;
+  transition: transform 0.15s, box-shadow 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
-.lp-header-btn:hover { background: #2563eb; color: #fff; }
+.lp-card:active { transform: scale(0.98); }
+.lp-card:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
-/* ── インラインフォームバー ── */
-.lp-bar {
-  display: flex;
-  gap: 8px;
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
-  animation: slideDown 0.2s ease;
-  align-items: center;
+.lp-card-host {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(37,99,235,0.28);
 }
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0); }
+.lp-card-host:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(37,99,235,0.36);
 }
 
-.lp-bar-input {
-  flex: 1;
-  padding: 10px 14px;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 9px;
-  outline: none;
-  font-family: 'SF Mono', 'Menlo', monospace;
+.lp-card-guest {
   background: #fff;
+  border-color: #e2e8f0;
   color: #0f172a;
-  -webkit-appearance: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.lp-card-guest:hover:not(.is-open) { border-color: #94a3b8; }
+.lp-card-guest.is-open { border-color: #2563eb; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+
+.lp-card-icon { font-size: 26px; flex-shrink: 0; }
+
+.lp-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
-.lp-bar-input:focus { border-color: #2563eb; }
-.lp-bar-input::placeholder { font-family: inherit; letter-spacing: 0; font-weight: 400; color: #94a3b8; font-size: 14px; }
 
-.lp-bar-close {
-  font-size: 18px;
+.lp-card-title {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.lp-card-sub {
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-card-arrow {
+  font-size: 22px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.lp-close-btn {
   background: none;
   border: none;
-  cursor: pointer;
-  padding: 4px 6px;
+  font-size: 18px;
   color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 4px;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
 }
 
-.lp-bar-btn {
-  padding: 10px 18px;
+/* ── ゲスト展開フォーム ── */
+.lp-card-guest-wrap { display: flex; flex-direction: column; }
+
+.lp-join-form {
+  background: #fff;
+  border: 2px solid #2563eb;
+  border-top: none;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lp-join-input {
+  padding: 12px 14px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  outline: none;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  background: #f8fafc;
+  color: #0f172a;
+  -webkit-appearance: none;
+  width: 100%;
+}
+.lp-join-input:focus { border-color: #2563eb; background: #fff; }
+.lp-join-input::placeholder { font-family: inherit; letter-spacing: 0; font-weight: 400; color: #94a3b8; font-size: 14px; }
+
+.lp-join-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lp-btn-qr {
+  padding: 12px 14px;
+  background: #f1f5f9;
+  color: #374151;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+.lp-btn-qr:active { background: #e2e8f0; }
+
+.lp-btn-join {
+  flex: 1;
+  padding: 12px;
   background: #2563eb;
   color: #fff;
   border: none;
-  border-radius: 9px;
-  font-weight: 700;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 800;
   cursor: pointer;
-  flex-shrink: 0;
-  transition: opacity 0.15s;
   -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
 }
-.lp-bar-btn:active  { opacity: 0.8; }
-.lp-bar-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.lp-btn-join:active  { opacity: 0.8; }
+.lp-btn-join:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── データ引き継ぎ ── */
+.lp-restore-link {
+  font-size: 12px;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+  padding: 4px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  -webkit-tap-highlight-color: transparent;
+  margin-top: 4px;
+}
+.lp-restore-link:hover { color: #475569; }
+
+.lp-restore-form {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+}
 
 /* ── QRカメラスキャナー（全画面） ── */
-.lp-scanner-overlay {
+.scanner-overlay {
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -442,16 +513,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-
-.lp-scanner-video {
+.scanner-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-
-.lp-scanner-aim {
+.scanner-aim {
   position: relative;
   z-index: 1;
   width: min(72vw, 280px);
@@ -460,8 +529,7 @@ onUnmounted(() => {
   border-radius: 16px;
   box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
 }
-
-.lp-scanner-hint {
+.scanner-hint {
   position: relative;
   z-index: 1;
   color: #fff;
@@ -471,16 +539,14 @@ onUnmounted(() => {
   text-align: center;
   text-shadow: 0 1px 4px rgba(0,0,0,0.8);
 }
-
-.lp-scanner-footer {
+.scanner-footer {
   position: relative;
   z-index: 1;
   display: flex;
   gap: 12px;
   margin-top: 28px;
 }
-
-.lp-scanner-manual-btn {
+.scanner-btn-manual {
   padding: 12px 24px;
   background: rgba(255,255,255,0.15);
   color: #fff;
@@ -493,8 +559,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(6px);
   -webkit-tap-highlight-color: transparent;
 }
-
-.lp-scanner-close-btn {
+.scanner-btn-close {
   padding: 12px 24px;
   background: rgba(255,255,255,0.08);
   color: rgba(255,255,255,0.7);
@@ -504,226 +569,5 @@ onUnmounted(() => {
   font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-}
-
-.lp-error {
-  padding: 8px 20px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #dc2626;
-  background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
-}
-
-/* ── ヒーロー ── */
-.lp-hero {
-  padding: 72px 24px 68px;
-  text-align: center;
-  background: linear-gradient(170deg, #ffffff 30%, #eff6ff 100%);
-}
-
-.lp-hero-inner {
-  max-width: 440px;
-  margin: 0 auto;
-}
-
-.lp-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  color: #2563eb;
-  background: #dbeafe;
-  border-radius: 99px;
-  padding: 4px 14px;
-  margin-bottom: 22px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.lp-heading {
-  font-size: 38px;
-  font-weight: 900;
-  line-height: 1.18;
-  color: #0f172a;
-  margin: 0 0 18px;
-  letter-spacing: -0.025em;
-}
-
-.lp-sub {
-  font-size: 14px;
-  color: #475569;
-  line-height: 1.75;
-  margin: 0 0 36px;
-}
-
-.lp-cta {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-
-.lp-btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 34px;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 14px;
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.32);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-.lp-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 28px rgba(37, 99, 235, 0.38);
-}
-.lp-btn-primary:active  { transform: translateY(0); }
-.lp-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
-
-.lp-btn-arrow {
-  font-size: 18px;
-  transition: transform 0.18s;
-}
-.lp-btn-primary:hover .lp-btn-arrow { transform: translateX(3px); }
-
-.lp-btn-secondary {
-  padding: 16px 28px;
-  background: #fff;
-  color: #2563eb;
-  border: 2px solid #2563eb;
-  border-radius: 14px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.lp-btn-secondary:hover { background: #eff6ff; }
-
-.lp-restore-link {
-  font-size: 12px;
-  color: #94a3b8;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  -webkit-tap-highlight-color: transparent;
-}
-.lp-restore-link:hover { color: #475569; }
-
-/* ── セクション共通 ── */
-.lp-section {
-  padding: 64px 20px;
-}
-.lp-section-gray { background: #f8fafc; }
-
-.lp-section-label {
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  margin: 0 0 32px;
-}
-
-/* ── 特徴 ── */
-.lp-features {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-  max-width: 440px;
-  margin: 0 auto;
-}
-@media (min-width: 600px) {
-  .lp-features {
-    grid-template-columns: repeat(3, 1fr);
-    max-width: 760px;
-  }
-}
-
-.lp-feature {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px;
-  padding: 24px 20px;
-  text-align: center;
-}
-
-.lp-feature-icon  { font-size: 30px; margin-bottom: 12px; }
-.lp-feature-title { font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
-.lp-feature-desc  { font-size: 12px; color: #64748b; line-height: 1.65; }
-
-/* ── 使い方 ── */
-.lp-steps {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  max-width: 560px;
-  margin: 0 auto;
-}
-@media (min-width: 600px) {
-  .lp-steps { flex-direction: row; align-items: flex-start; }
-}
-
-.lp-step {
-  text-align: center;
-  flex: 1;
-  padding: 16px 12px;
-}
-
-.lp-step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  background: #2563eb;
-  color: #fff;
-  border-radius: 50%;
-  font-size: 12px;
-  font-weight: 800;
-  margin-bottom: 10px;
-}
-
-.lp-step-icon  { font-size: 26px; margin-bottom: 10px; }
-.lp-step-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
-.lp-step-desc  { font-size: 12px; color: #64748b; line-height: 1.65; }
-
-.lp-step-connector {
-  font-size: 22px;
-  color: #cbd5e1;
-  padding: 8px 0;
-  display: none;
-}
-@media (min-width: 600px) {
-  .lp-step-connector { display: block; padding: 40px 0 0; }
-}
-
-/* ── フッター ── */
-.lp-footer {
-  padding: 28px 20px;
-  text-align: center;
-  border-top: 1px solid #f1f5f9;
-}
-.lp-footer-logo {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 6px;
-}
-.lp-footer-text {
-  font-size: 11px;
-  color: #94a3b8;
 }
 </style>

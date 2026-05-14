@@ -20,7 +20,7 @@ import {
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
   shopCode,
-  loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
+  loadStore, fetchStoreInfo, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -216,16 +216,27 @@ setScopeCallback((scope) => {
   if (!syncIsHost.value) categoryScope.value = scope
 })
 
-// URL パラメータ ?room=CODE があれば自動参加（ホーム画面をスキップ）
+// URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
-  const roomCode = params.get('room')
+  const roomCode   = params.get('room')
+  const storeParam = params.get('store')
+
   if (roomCode) {
     const url = new URL(window.location.href)
     url.searchParams.delete('room')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    // 名前を確認してから参加（ランディングページ上にモーダルとして表示）
     _askNameAndJoin(roomCode)
+  } else if (storeParam) {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('store')
+    history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
+    const info = await fetchStoreInfo(storeParam)
+    if (info?.activeRoom) {
+      _askNameAndJoin(info.activeRoom)
+    } else {
+      showToast('現在アクティブなルームがありません', 3500, 'error')
+    }
   } else {
     // ホストセッションのみ自動復元（ゲストは再参加バナーで確認）
     restoreSession()
