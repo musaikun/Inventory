@@ -1,5 +1,6 @@
-// pdfjs-dist はブラウザ向けのため、CF Workers に存在しない Canvas 系 API を
-// モジュール初期化時のみ使用する。テキスト抽出では実際に呼ばれないためスタブで回避する。
+// pdfjs-dist はブラウザ向けのため、CF Workers に存在しない API をスタブで補完する。
+// ★ モジュールレベルで設定（pdfjs の import より前に確実に適用するため）
+
 if (typeof globalThis.DOMMatrix === 'undefined') {
   globalThis.DOMMatrix = class DOMMatrix {
     constructor() {
@@ -26,17 +27,37 @@ if (typeof globalThis.ImageData === 'undefined') {
     constructor(w, h) { this.width = w; this.height = h; this.data = new Uint8ClampedArray(w * h * 4) }
   }
 }
+// pdfjs v5 の PDFWorker static initializer が Worker クラスを参照するためスタブを追加
+if (typeof globalThis.Worker === 'undefined') {
+  globalThis.Worker = class Worker {
+    constructor() {}
+    terminate() {}
+    postMessage() {}
+    addEventListener() {}
+    removeEventListener() {}
+    dispatchEvent() { return true }
+  }
+}
 
-// static import はホイストされスタブより先に実行されるため、動的インポートを使用する
-// pdfjs worker を先に import しておくことで wrangler がバンドルに含め、
-// fake worker モード時の import(workerSrc) が成功するようにする
-await import('pdfjs-dist/build/pdf.worker.min.mjs')
-const pdfjsLib = await import('pdfjs-dist')
+// ★ トップレベル await で import するとCloudflare の validation (error 10021) が発生するため、
+//    初回 PDF リクエスト時にのみ遅延初期化する。
+let _pdfjsLib = null
 
-// CF Workers には Worker クラスがないため pdfjs v5 の fake worker モードを使用する。
-// pdfjs v5 は Worker が存在しない場合 import(workerSrc) を実行してインプロセスで処理する。
-// 'fake' などの存在しないパッケージ名では失敗するため、実際の worker モジュールパスを指定する。
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.min.mjs'
+async function _initPdfjs() {
+  if (_pdfjsLib) return _pdfjsLib
+
+  // wrangler がバンドルに含めるため、先に worker モジュールを import する
+  // fake worker モード時の import(workerSrc) が成功するようにする
+  await import('pdfjs-dist/build/pdf.worker.min.mjs')
+  _pdfjsLib = await import('pdfjs-dist')
+
+  // CF Workers には Worker クラスがないため pdfjs v5 の fake worker モードを使用する。
+  // pdfjs v5 は Worker が存在しない場合 import(workerSrc) を実行してインプロセスで処理する。
+  // 'fake' などの存在しないパッケージ名では失敗するため、実際の worker モジュールパスを指定する。
+  _pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.min.mjs'
+
+  return _pdfjsLib
+}
 
 function isCjk(s) {
   return /[　-鿿＀-￯]/.test(s)
@@ -168,6 +189,8 @@ function parsePdfPageRotated(items) {
 }
 
 export async function parsePdfFile(arrayBuffer) {
+  const pdfjsLib = await _initPdfjs()
+
   const loadingTask = pdfjsLib.getDocument({
     data:           new Uint8Array(arrayBuffer),
     useSystemFonts: true,
