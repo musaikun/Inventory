@@ -1,6 +1,6 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { createStore, loadStore, fetchStoreInfo, shopCode } from '../composables/useStore.js'
+import { createStore, loadStore, shopCode } from '../composables/useStore.js'
 
 const emit = defineEmits(['started'])
 
@@ -35,27 +35,14 @@ async function onStart() {
   }
 }
 
-// ── 店舗コードでルームを検索して参加 ────────────────────────────────────────
-async function _joinViaStoreCode(code) {
-  loading.value = true
-  error.value   = ''
-  try {
-    const info = await fetchStoreInfo(code)
-    if (!info?.activeRoom) {
-      error.value   = 'この店舗コードにアクティブなルームがありません'
-      loading.value = false
-      return
-    }
-    emit('started', { joinRoom: info.activeRoom })
-  } catch {
-    error.value   = '店舗情報の取得に失敗しました'
-    loading.value = false
-  }
+// ── 店舗コードで直接参加（D1経由不要）────────────────────────────────────────
+function _joinViaStoreCode(code) {
+  emit('started', { joinRoom: code })
 }
 
 // ── コード送信 ────────────────────────────────────────────────────────────────
 function onJoinSubmit() {
-  const code = joinCode.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const code = joinCode.value.trim().toUpperCase().replace(/[^A-Z]/g, '')
   if (code.length < 4) { error.value = '4文字以上入力してください'; return }
   _joinViaStoreCode(code)
 }

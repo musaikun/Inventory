@@ -20,7 +20,7 @@ import {
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
   shopCode,
-  loadStore, fetchStoreInfo, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
+  loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -228,15 +228,11 @@ onMounted(async () => {
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     _askNameAndJoin(roomCode)
   } else if (storeParam) {
+    // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
     const url = new URL(window.location.href)
     url.searchParams.delete('store')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    const info = await fetchStoreInfo(storeParam)
-    if (info?.activeRoom) {
-      _askNameAndJoin(info.activeRoom)
-    } else {
-      showToast('現在アクティブなルームがありません', 3500, 'error')
-    }
+    _askNameAndJoin(storeParam)
   } else {
     // ホストセッションのみ自動復元（ゲストは再参加バナーで確認）
     restoreSession()

@@ -13,10 +13,8 @@ const {
 } = useSync()
 
 // ── UI state ─────────────────────────────────────────────────────────────────
-// 'home' | 'host' | 'joinForm' | 'guest' | 'namePrompt'
+// 'home' | 'host' | 'guest' | 'namePrompt'
 const view = ref('home')
-const joinCode = ref('')
-const joinError = ref('')
 const copied = ref(false)
 
 // ── 端末名未設定時のプロンプト ─────────────────────────────────────────────────
@@ -64,24 +62,6 @@ async function toggleQR() {
   }
 }
 
-// ── ゲスト参加 ────────────────────────────────────────────────────────────────
-async function onJoin() {
-  if (!deviceName.value) {
-    pendingAction.value = 'join'
-    nameInput.value = ''
-    nameError.value = ''
-    view.value = 'namePrompt'
-    return
-  }
-  joinError.value = ''
-  try {
-    await joinRoom(joinCode.value)
-    view.value = 'guest'
-  } catch (e) {
-    joinError.value = state.error || '参加できませんでした'
-  }
-}
-
 // ── 端末名確定後に保留アクションを実行 ──────────────────────────────────────
 async function onConfirmName() {
   const trimmed = nameInput.value.trim()
@@ -93,17 +73,13 @@ async function onConfirmName() {
   if (pendingAction.value === 'create') {
     view.value = 'home'
     await onCreateRoom()
-  } else if (pendingAction.value === 'join') {
-    view.value = 'joinForm'
-    await onJoin()
   }
   pendingAction.value = null
 }
 
 function onCancelNamePrompt() {
-  const back = pendingAction.value === 'join' ? 'joinForm' : 'home'
   pendingAction.value = null
-  view.value = back
+  view.value = 'home'
 }
 
 // ── ルーム退出 ────────────────────────────────────────────────────────────────
@@ -140,13 +116,6 @@ async function onCopyCode() {
   } catch (_) {}
 }
 
-// ── コード入力欄の自動整形 ────────────────────────────────────────────────────
-function onCodeInput(e) {
-  joinError.value = ''
-  const filtered = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
-  joinCode.value = filtered
-  e.target.value = filtered
-}
 </script>
 
 <template>
@@ -167,21 +136,16 @@ function onCodeInput(e) {
         </div>
 
         <button class="btn btn-primary sync-main-btn" @click="onCreateRoom">
-          🔗 新しいルームを作成
+          🔗 棚卸ルームを開始
         </button>
 
         <div v-if="createError" class="msg error" style="margin-top:10px">
           ✗ {{ createError }}
         </div>
 
-        <div class="sync-divider"><span>または</span></div>
-
-        <button class="btn btn-secondary sync-main-btn" @click="view = 'joinForm'">
-          🔑 コードを入力して参加
-        </button>
-
         <div class="sync-note">
-          ※ 完全オフラインで一人で使う場合は、このまま閉じてください。
+          ※ メンバーはトップ画面から店舗コードを入力して参加できます。<br>
+          完全オフラインで一人で使う場合は、このまま閉じてください。
         </div>
       </template>
 
@@ -190,7 +154,7 @@ function onCodeInput(e) {
         <div class="sheet-title">ルームを共有</div>
 
         <div class="room-code-card">
-          <div class="room-code-label">ルームコード</div>
+          <div class="room-code-label">店舗コード（参加用）</div>
           <div class="room-code-value" @click="onCopyCode">
             {{ state.roomCode }}
             <span class="copy-hint">{{ copied ? '✓ コピー済み' : '📋 タップでコピー' }}</span>
@@ -220,36 +184,6 @@ function onCodeInput(e) {
         <div class="actions">
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
           <button class="btn btn-danger-block" @click="onLeave">ルームを解散</button>
-        </div>
-      </template>
-
-      <!-- ==== 参加コード入力 ==== -->
-      <template v-else-if="view === 'joinForm'">
-        <div class="sheet-title">ルームに参加</div>
-
-        <div class="sync-intro">
-          ホストの端末に表示されている6文字のコードを入力してください。
-        </div>
-
-        <input
-          type="text"
-          class="code-input"
-          placeholder="例: AB3X7Q"
-          :value="joinCode"
-          @input="onCodeInput"
-          @keyup.enter="onJoin"
-          autofocus
-        />
-
-        <div v-if="joinError" class="msg error">
-          ✗ {{ joinError }}
-        </div>
-
-        <div class="actions">
-          <button class="btn btn-secondary" @click="view = 'home'">戻る</button>
-          <button class="btn btn-primary" :disabled="joinCode.length < 6" @click="onJoin">
-            参加する
-          </button>
         </div>
       </template>
 
@@ -285,7 +219,7 @@ function onCodeInput(e) {
         <div class="sheet-title">ルーム参加中</div>
 
         <div class="room-code-card">
-          <div class="room-code-label">接続中のルーム</div>
+          <div class="room-code-label">参加中の店舗コード</div>
           <div class="room-code-value">{{ state.roomCode }}</div>
         </div>
 

@@ -130,11 +130,6 @@ export function broadcastMessage(text, replyTo = null) {
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
-function _genCode() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('')
-}
-
 function _startHeartbeat() {
   _stopHeartbeat()
   _heartbeatTimer = setInterval(() => {
@@ -488,8 +483,9 @@ export function useSync() {
   )
 
   async function createRoom() {
-    state.error    = null
-    const code     = _genCode()
+    state.error = null
+    const code  = shopCode.value
+    if (!code) throw new Error('店舗コードが未登録です。先に店舗を登録してください。')
     state.roomCode = code
     state.mode     = 'hosting'
     try {
@@ -504,9 +500,9 @@ export function useSync() {
 
   async function joinRoom(code) {
     state.error = null
-    const normalized = code.trim().toUpperCase()
-    if (!/^[A-Z0-9]{4,6}$/.test(normalized)) {
-      state.error = '正しいコード形式ではありません（4〜6文字の英数字）'
+    const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (normalized.length < 4 || normalized.length > 8) {
+      state.error = '正しいコード形式ではありません（4〜8文字）'
       throw new Error('invalid code')
     }
     state.roomCode = normalized
@@ -540,10 +536,9 @@ export function useSync() {
   }
 
   function getShareUrl() {
-    if (!state.roomCode) return ''
+    if (!shopCode.value) return ''
     const base = window.location.origin + window.location.pathname.replace(/\/$/, '')
-    if (shopCode.value) return `${base}?store=${shopCode.value}`
-    return `${base}?room=${state.roomCode}`
+    return `${base}?store=${shopCode.value}`
   }
 
   return {
