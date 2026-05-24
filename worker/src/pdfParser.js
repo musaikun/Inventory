@@ -28,12 +28,15 @@ if (typeof globalThis.ImageData === 'undefined') {
 }
 
 // static import はホイストされスタブより先に実行されるため、動的インポートを使用する
+// pdfjs worker を先に import しておくことで wrangler がバンドルに含め、
+// fake worker モード時の import(workerSrc) が成功するようにする
+await import('pdfjs-dist/build/pdf.worker.min.mjs')
 const pdfjsLib = await import('pdfjs-dist')
 
-// CF Workers には Worker クラスがないため fake worker (in-process) で動作させる
-// workerSrc に空文字を指定すると pdfjs v5 が falsy チェックで例外を投げるため
-// 任意のtruthy値を指定し、Worker生成の try-catch を経由して fake worker に落とす
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'fake'
+// CF Workers には Worker クラスがないため pdfjs v5 の fake worker モードを使用する。
+// pdfjs v5 は Worker が存在しない場合 import(workerSrc) を実行してインプロセスで処理する。
+// 'fake' などの存在しないパッケージ名では失敗するため、実際の worker モジュールパスを指定する。
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.min.mjs'
 
 function isCjk(s) {
   return /[　-鿿＀-￯]/.test(s)
