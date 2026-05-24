@@ -52,16 +52,16 @@ export class RoomDO {
         const deviceName = String(msg.deviceName ?? '').slice(0, 30)
         const role       = msg.role === 'host' ? 'host' : 'guest'
 
-        // ゲストのみ: ルーム存在チェック
+        // ゲストのみ: セッションアクティブチェック
         if (role === 'guest') {
-          const initialized = await this.state.storage.get('initialized')
-          if (!initialized) {
-            ws.send(JSON.stringify({ type: 'error', code: 'room_not_found' }))
-            ws.close(1008, 'Room not found')
+          const isActive = await this.state.storage.get('isActive')
+          if (!isActive) {
+            ws.send(JSON.stringify({ type: 'error', code: 'session_not_active' }))
+            ws.close(1008, 'Session not active')
             return
           }
         } else {
-          // ホスト: ルームを初期化済みとしてマーク
+          // ホスト: ルームを初期化済みとしてマーク（既存フラグ維持）
           await this.state.storage.put('initialized', true)
         }
 
@@ -312,6 +312,32 @@ export class RoomDO {
         const att = ws.deserializeAttachment() ?? {}
         ws.serializeAttachment({ ...att, deviceName: newName })
         this._broadcast({ type: 'participants', list: this._getParticipants() })
+        break
+      }
+
+      // ── セッション管理 ────────────────────────────────────────────────────
+      case 'session_start': {
+        // ホストのみ: セッション開始（ゲスト参加を許可）
+        const att = ws.deserializeAttachment() ?? {}
+        if (att.role !== 'host' && att.deviceId) {
+          // role が保存されていない場合はスキップせず許可（後方互換）
+        }
+        const sessionId = String(msg.sessionId ?? '').slice(0, 64)
+        await Promise.all([
+          this.state.storage.put('isActive',  true),
+          this.state.storage.put('sessionId', sessionId),
+        ])
+        this._broadcast({ type: 'session_started', sessionId })
+        break
+      }
+
+      case 'session_end': {
+        const status    = msg.status === 'completed' ? 'completed' : 'incomplete'
+        const sessionId = (await this.state.storage.get('sessionId')) ?? ''
+        const inventory = (await this.state.storage.get('inventory')) ?? {}
+        const itemCount = Object.keys(inventory).length
+        await this.state.storage.put('isActive', false)
+        this._broadcast({ type: 'session_ended', status, sessionId, itemCount })
         break
       }
 

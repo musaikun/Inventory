@@ -6,7 +6,9 @@ import {
   handleInventoryGet, handleInventoryPut,
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
+  handleSessionsGet, handleSessionCreate, handleSessionUpdate,
 } from './storeHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth } from './authHandler.js'
 export { RoomDO }
 
 function corsHeaders(origin, allowedOrigin) {
@@ -44,6 +46,23 @@ export default {
     }
 
     const path = url.pathname
+
+    // ── 認証 API ──────────────────────────────────────────────────────────────
+    if (env.DB) {
+      if (path === '/auth/register' && request.method === 'POST') {
+        const result = await handleRegister(env.DB, await request.json())
+        const status = result._status ?? 200; delete result._status
+        return jsonResponse(result, status, origin, allowedOrigin)
+      }
+      if (path === '/auth/login' && request.method === 'POST') {
+        const result = await handleLogin(env.DB, await request.json())
+        const status = result._status ?? 200; delete result._status
+        return jsonResponse(result, status, origin, allowedOrigin)
+      }
+      if (path === '/auth/logout' && request.method === 'POST') {
+        return jsonResponse(await handleLogout(env.DB, request), 200, origin, allowedOrigin)
+      }
+    }
 
     // ── 店舗 API ──────────────────────────────────────────────────────────────
     if (!env.DB) {
@@ -97,6 +116,28 @@ export default {
         if (subpath === '/room' && request.method === 'PUT') {
           return jsonResponse(await handleRoomUpdate(env.DB, code, await request.json()), 200, origin, allowedOrigin)
         }
+
+        // GET/POST /store/:code/sessions （要認証）
+        if (subpath === '/sessions' && request.method === 'GET') {
+          const authCode = await verifyAuth(env.DB, request)
+          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          return jsonResponse(await handleSessionsGet(env.DB, code), 200, origin, allowedOrigin)
+        }
+        if (subpath === '/sessions' && request.method === 'POST') {
+          const authCode = await verifyAuth(env.DB, request)
+          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          return jsonResponse(await handleSessionCreate(env.DB, code), 200, origin, allowedOrigin)
+        }
+
+        // PUT /store/:code/sessions/:id （要認証）
+        const sessMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})$/)
+        if (sessMatch && request.method === 'PUT') {
+          const authCode = await verifyAuth(env.DB, request)
+          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const result = await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
+        }
       }
     }
 
@@ -112,7 +153,7 @@ export default {
     }
 
     // ── WebSocket（リアルタイム同期）─────────────────────────────────────────
-    const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,6})\/ws$/i)
+    const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/ws$/i)
     if (wsMatch) {
       const code = wsMatch[1].toUpperCase()
       const id   = env.ROOMS.idFromName(`room:${code}`)

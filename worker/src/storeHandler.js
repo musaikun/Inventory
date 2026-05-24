@@ -93,3 +93,47 @@ export async function handleRoomUpdate(db, code, body) {
     .bind(body.roomCode ?? null, _now(), code).run()
   return { ok: true }
 }
+
+// ── セッション API ─────────────────────────────────────────────────────────────
+
+// GET /store/:code/sessions
+export async function handleSessionsGet(db, code) {
+  const rows = await db.prepare(`
+    SELECT id, shop_code, started_at, ended_at, status, item_count
+    FROM sessions WHERE shop_code = ? ORDER BY started_at DESC LIMIT 50
+  `).bind(code).all()
+  return rows.results.map(r => ({
+    id:        r.id,
+    shopCode:  r.shop_code,
+    startedAt: r.started_at,
+    endedAt:   r.ended_at   ?? null,
+    status:    r.status,
+    itemCount: r.item_count,
+  }))
+}
+
+// POST /store/:code/sessions
+export async function handleSessionCreate(db, code) {
+  const id  = crypto.randomUUID()
+  const now = _now()
+  await db.prepare(
+    "INSERT INTO sessions (id, shop_code, started_at, status, item_count) VALUES (?, ?, ?, 'active', 0)"
+  ).bind(id, code, now).run()
+  return { id, shopCode: code, startedAt: now, status: 'active', itemCount: 0 }
+}
+
+// PUT /store/:code/sessions/:id  body: { status, itemCount? }
+export async function handleSessionUpdate(db, code, sessionId, body) {
+  const validStatuses = ['active', 'completed', 'incomplete']
+  const status    = validStatuses.includes(body.status) ? body.status : null
+  const itemCount = typeof body.itemCount === 'number' ? Math.max(0, body.itemCount) : 0
+  if (!status) return { _status: 400, error: '無効なステータスです' }
+
+  const now     = _now()
+  const endedAt = status === 'active' ? null : now
+
+  await db.prepare(`
+    UPDATE sessions SET status = ?, ended_at = ?, item_count = ? WHERE id = ? AND shop_code = ?
+  `).bind(status, endedAt, itemCount, sessionId, code).run()
+  return { ok: true }
+}

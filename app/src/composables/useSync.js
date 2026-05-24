@@ -20,10 +20,12 @@ const WORKER_URL = (() => {
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({
-  mode:        'idle',
-  roomCode:    null,
-  isConnected: false,
-  error:       null,
+  mode:            'idle',
+  roomCode:        null,
+  isConnected:     false,
+  error:           null,
+  sessionId:       null,   // 現在のセッションID（D1）
+  isSessionActive: false,  // DO側のセッションアクティブフラグ
 })
 
 const participants  = reactive({})
@@ -70,6 +72,8 @@ let _onGuestLeave       = null
 let _onRemoteUpdate     = null
 let _onClearInventory   = null
 let _onScopeReceived    = null
+let _onSessionStarted   = null
+let _onSessionEnded     = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
@@ -86,6 +90,8 @@ export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
 export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
 export function setScopeCallback(fn)            { _onScopeReceived    = fn }
+export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
+export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -122,6 +128,18 @@ export function broadcastScope(scope) {
 export function broadcastDone(isFinal = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'done', isFinal }))
+}
+
+export function broadcastSessionStart(sessionId) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  state.sessionId       = sessionId
+  state.isSessionActive = true
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId }))
+}
+
+export function broadcastSessionEnd(status = 'completed') {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'session_end', status }))
 }
 
 export function broadcastMessage(text, replyTo = null) {
@@ -190,10 +208,12 @@ function _resetClientState() {
   _clearReconnectTimer()
   _stopHeartbeat()
   _clearSession()
-  state.mode        = 'idle'
-  state.roomCode    = null
-  state.isConnected = false
-  state.error       = null
+  state.mode            = 'idle'
+  state.roomCode        = null
+  state.isConnected     = false
+  state.error           = null
+  state.sessionId       = null
+  state.isSessionActive = false
   Object.keys(participants).forEach(k => delete participants[k])
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
@@ -289,6 +309,19 @@ function _handleMessage(msg) {
       _onScopeReceived?.(msg.scope)
       break
 
+    case 'session_started':
+      state.sessionId       = msg.sessionId ?? null
+      state.isSessionActive = true
+      _addSysMsg('セッションが開始されました。参加者を招待してください。')
+      _onSessionStarted?.(msg.sessionId)
+      break
+
+    case 'session_ended':
+      state.isSessionActive = false
+      _addSysMsg(msg.status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました')
+      _onSessionEnded?.(msg.status, msg.sessionId, msg.itemCount)
+      break
+
     case 'dissolved':
       _addSysMsg('ルームが解散されました')
       _ws = null
@@ -300,6 +333,10 @@ function _handleMessage(msg) {
       if (msg.code === 'name_taken' && msg.context === 'rename') {
         _skipRename = true
         _onNameTaken?.(_prevDeviceName)
+      } else if (msg.code === 'session_not_active') {
+        state.error    = 'セッションがまだ開始されていません。ホストがセッションを開始するまでお待ちください。'
+        state.mode     = 'idle'
+        state.roomCode = null
       }
       break
 

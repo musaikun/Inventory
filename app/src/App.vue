@@ -12,7 +12,7 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  setScopeCallback,
+  setScopeCallback, setSessionEndedCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
@@ -23,6 +23,7 @@ import {
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
+import { isAuthenticated, updateSession } from './composables/useAuth.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -32,6 +33,8 @@ import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
+import AuthPage from './components/AuthPage.vue'
+import SessionListPage from './components/SessionListPage.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
@@ -49,8 +52,10 @@ const {
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'landing': トップ  'session': 棚卸セッション
-const currentView = ref('landing')
+// 'landing' | 'auth' | 'sessions' | 'session'
+const currentView   = ref('landing')
+// セッション開始時に SessionListPage から渡される session オブジェクト
+const pendingSession = ref(null)
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
 const pendingJoinCode  = ref(null)
@@ -93,20 +98,50 @@ function onCancelNameModal() {
 
 async function onLandingStarted(payload) {
   if (payload?.joinRoom) {
+    // ゲスト参加（認証不要）
     _askNameAndJoin(payload.joinRoom)
-  } else {
-    currentView.value = 'session'
-    try {
-      const [remoteConfig, remoteHistory] = await Promise.all([
-        loadConfigFromD1(),
-        loadHistoryFromD1(),
-      ])
-      if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
-      if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
-    } catch (_) {
-      // ネットワークエラーは無視してローカルデータで継続
+  } else if (payload?.hostMode) {
+    // ホスト開始 → 認証済みならセッション一覧へ、未認証なら認証ページへ
+    if (isAuthenticated.value) {
+      currentView.value = 'sessions'
+    } else {
+      currentView.value = 'auth'
     }
+  } else {
+    // 直接セッション開始（認証なし）
+    await _startSessionView()
   }
+}
+
+async function _startSessionView() {
+  currentView.value = 'session'
+  try {
+    const [remoteConfig, remoteHistory] = await Promise.all([
+      loadConfigFromD1(),
+      loadHistoryFromD1(),
+    ])
+    if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+    if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+  } catch (_) {
+    // ネットワークエラーは無視してローカルデータで継続
+  }
+}
+
+// 認証後にセッション一覧へ
+function onAuthDone() {
+  currentView.value = 'sessions'
+}
+
+// セッション一覧から「セッション開始」
+async function onSessionStart(session) {
+  pendingSession.value = session
+  await _startSessionView()
+}
+
+// セッション一覧から「再開」
+async function onSessionResume(session) {
+  pendingSession.value = session
+  await _startSessionView()
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
@@ -214,6 +249,15 @@ setRemoteUpdateCallback((ingredient, qty, unit, by) => {
 })
 setScopeCallback((scope) => {
   if (!syncIsHost.value) categoryScope.value = scope
+})
+setSessionEndedCallback(async (status, sessionId, itemCount) => {
+  // D1 のセッションレコードを更新
+  if (isAuthenticated.value && sessionId) {
+    const count = itemCount ?? filledCount.value ?? 0
+    await updateSession(sessionId, status, count).catch(() => {})
+  }
+  const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
+  showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
@@ -739,8 +783,23 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 <template>
   <div id="app">
 
+    <!-- ── 認証ページ ── -->
+    <AuthPage
+      v-if="currentView === 'auth'"
+      @done="onAuthDone"
+      @skip="currentView = 'landing'"
+    />
+
+    <!-- ── セッション一覧 ── -->
+    <SessionListPage
+      v-else-if="currentView === 'sessions'"
+      @start-session="onSessionStart"
+      @resume-session="onSessionResume"
+      @back="currentView = 'landing'"
+    />
+
     <!-- ── ランディング ── -->
-    <LandingPage v-if="currentView === 'landing'" @started="onLandingStarted" />
+    <LandingPage v-else-if="currentView === 'landing'" @started="onLandingStarted" />
 
     <!-- 前回のゲストセッション再参加バナー -->
     <Transition name="rejoin-slide">

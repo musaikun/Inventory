@@ -18,21 +18,10 @@ let   _stream   = null
 let   _scanRaf  = null
 let   _jsQR     = null
 
-// ── ホストとして開始 ──────────────────────────────────────────────────────────
+// ── ホストとして開始（認証フローへ）─────────────────────────────────────────
 async function onStart() {
-  if (shopCode.value) {
-    emit('started')
-    return
-  }
-  loading.value = true
-  error.value   = ''
-  try {
-    await createStore()
-    emit('started')
-  } catch {
-    error.value   = '接続できませんでした。もう一度お試しください。'
-    loading.value = false
-  }
+  // hostMode フラグを渡すことで App.vue が認証チェックを行う
+  emit('started', { hostMode: true })
 }
 
 // ── 店舗コードで直接参加（D1経由不要）────────────────────────────────────────

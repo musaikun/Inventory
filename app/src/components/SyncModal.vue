@@ -1,16 +1,55 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
-import { useSync } from '../composables/useSync.js'
+import { useSync, broadcastSessionStart, broadcastSessionEnd } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { isAuthenticated, createSession, updateSession } from '../composables/useAuth.js'
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'sessionEnded'])
 useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
+
+// セッション管理
+const sessionStarting = ref(false)
+const sessionEnding   = ref(false)
+const sessionError    = ref('')
+
+async function onStartSession() {
+  sessionError.value = ''
+  sessionStarting.value = true
+  try {
+    let sessionId = ''
+    if (isAuthenticated.value) {
+      const sess = await createSession()
+      sessionId = sess.id
+    }
+    broadcastSessionStart(sessionId)
+  } catch (e) {
+    sessionError.value = e.message
+  } finally {
+    sessionStarting.value = false
+  }
+}
+
+async function onEndSession(status) {
+  if (!confirm(status === 'completed' ? '棚卸を完了しますか？' : 'セッションを中断しますか？')) return
+  sessionEnding.value = true
+  try {
+    broadcastSessionEnd(status)
+    // D1 のセッションレコードを更新
+    if (isAuthenticated.value && state.sessionId) {
+      const itemCount = Object.keys({}).length // 実際の品目数はApp.vueから渡す
+      await updateSession(state.sessionId, status, 0).catch(() => {})
+    }
+    emit('sessionEnded', status)
+  } finally {
+    sessionEnding.value = false
+  }
+}
 
 // ── UI state ─────────────────────────────────────────────────────────────────
 // 'home' | 'host' | 'guest' | 'namePrompt'
@@ -153,6 +192,31 @@ async function onCopyCode() {
       <template v-else-if="view === 'host'">
         <div class="sheet-title">ルームを共有</div>
 
+        <!-- セッション状態バナー -->
+        <div v-if="!state.isSessionActive" class="session-banner not-active">
+          <div class="session-banner-icon">⏸</div>
+          <div class="session-banner-text">
+            <strong>セッション未開始</strong><br>
+            <span>開始ボタンを押すとゲストが参加できます</span>
+          </div>
+          <button
+            class="btn btn-primary session-start-btn"
+            :disabled="sessionStarting"
+            @click="onStartSession"
+          >
+            {{ sessionStarting ? '開始中...' : 'セッション開始' }}
+          </button>
+        </div>
+        <div v-else class="session-banner is-active">
+          <div class="session-banner-icon">🟢</div>
+          <div class="session-banner-text">
+            <strong>セッション進行中</strong><br>
+            <span>ゲストの参加を受け付けています</span>
+          </div>
+        </div>
+
+        <div v-if="sessionError" class="msg error" style="margin-bottom:8px">{{ sessionError }}</div>
+
         <div class="room-code-card">
           <div class="room-code-label">店舗コード（参加用）</div>
           <div class="room-code-value" @click="onCopyCode">
@@ -183,6 +247,18 @@ async function onCopyCode() {
 
         <div class="actions">
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
+          <button
+            v-if="state.isSessionActive"
+            class="btn btn-warning"
+            :disabled="sessionEnding"
+            @click="onEndSession('incomplete')"
+          >中断して終了</button>
+          <button
+            v-if="state.isSessionActive"
+            class="btn btn-success"
+            :disabled="sessionEnding"
+            @click="onEndSession('completed')"
+          >✓ 棚卸完了</button>
           <button class="btn btn-danger-block" @click="onLeave">ルームを解散</button>
         </div>
       </template>
@@ -507,6 +583,69 @@ async function onCopyCode() {
   width: 100%;
   margin-bottom: 12px;
   font-size: 14px;
+}
+
+/* ── セッションバナー ── */
+.session-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.session-banner.not-active {
+  background: #fefce8;
+  border: 1.5px solid #fde047;
+  flex-wrap: wrap;
+}
+.session-banner.is-active {
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+}
+.session-banner-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.session-banner-text {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary, #1e293b);
+}
+.session-banner-text strong {
+  font-size: 13px;
+}
+.session-banner.not-active .session-banner-text { color: #854d0e; }
+.session-banner.is-active  .session-banner-text { color: #166534; }
+.session-start-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* セッション終了ボタン */
+.btn-warning {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  flex: 1;
+}
+.btn-success {
+  background: var(--success, #22c55e);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  flex: 1;
 }
 
 </style>
