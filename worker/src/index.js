@@ -15,7 +15,8 @@ function corsHeaders(origin, allowedOrigin) {
   return {
     'Access-Control-Allow-Origin':  allowedOrigin || origin || '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // Authorization ヘッダーを追加（認証付きAPIで必要）
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }
 }
 
@@ -46,6 +47,9 @@ export default {
     }
 
     const path = url.pathname
+
+    // ── 全ルートを try/catch で包む（例外時も必ずCORSヘッダーを返す）─────────
+    try {
 
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
@@ -166,6 +170,12 @@ export default {
       return new Response('OK', { headers: { 'Content-Type': 'text/plain' } })
     }
 
-    return new Response('Not found', { status: 404 })
+    return jsonResponse({ error: 'Not found' }, 404, origin, allowedOrigin)
+
+    } catch (e) {
+      // 未処理の例外でも必ずCORSヘッダー付きでエラーを返す
+      console.error('[Worker] Unhandled error:', e?.message ?? e)
+      return jsonResponse({ error: e?.message ?? 'Internal server error' }, 500, origin, allowedOrigin)
+    }
   },
 }
