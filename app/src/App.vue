@@ -84,7 +84,11 @@ async function onConfirmName() {
   currentView.value     = 'session'
   try {
     await joinRoom(code)
-    showToast(`ルーム ${code} に参加しました`, 3000, 'join')
+    const isRejoined = syncState.mode === 'hosting'
+    showToast(
+      isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
+      3000, 'join'
+    )
   } catch {
     // state.error に具体的なエラーメッセージがあれば使用する
     showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')

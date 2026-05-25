@@ -64,17 +64,20 @@ async function onCreateRoom() {
   try {
     await createRoom()
 
-    // ルーム作成と同時にセッションを自動開始（ゲスト参加を許可）
-    let sessionId = ''
-    if (isAuthenticated.value) {
-      try {
-        const sess = await createSession()
-        sessionId = sess.id
-      } catch (e) {
-        console.warn('[SyncModal] D1 session create failed:', e.message)
+    // ホスト再接続の場合はセッションが既にアクティブなのでスキップする
+    // 新規作成の場合のみセッションを開始してゲスト参加を許可する
+    if (!state.isSessionActive) {
+      let sessionId = ''
+      if (isAuthenticated.value) {
+        try {
+          const sess = await createSession()
+          sessionId = sess.id
+        } catch (e) {
+          console.warn('[SyncModal] D1 session create failed:', e.message)
+        }
       }
+      broadcastSessionStart(sessionId)
     }
-    broadcastSessionStart(sessionId)
 
     view.value = 'host'
     await nextTick()

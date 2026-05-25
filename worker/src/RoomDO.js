@@ -106,15 +106,17 @@ export class RoomDO {
 
         ws.serializeAttachment({ deviceId, deviceName })
 
-        const [inventory, config, messages, auditLog] = await Promise.all([
+        const [inventory, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
           this.state.storage.get('auditLog').then(v => v ?? []),
+          this.state.storage.get('isActive').then(v => v ?? false),
+          this.state.storage.get('sessionId').then(v => v ?? ''),
         ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages, auditLog }))
+        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages, auditLog, isSessionActive: isActive, sessionId }))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }

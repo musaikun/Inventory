@@ -243,6 +243,9 @@ function _handleMessage(msg) {
       if (Array.isArray(msg.auditLog)) {
         auditLog.splice(0, auditLog.length, ...msg.auditLog)
       }
+      // DO からのセッション状態を同期（ホスト再接続時に既存セッションを維持するため）
+      state.isSessionActive = msg.isSessionActive ?? false
+      state.sessionId       = msg.sessionId ?? null
       break
     }
 
@@ -355,10 +358,16 @@ function _connect(code) {
   return new Promise((resolve, reject) => {
     let settled = false
     const isHostMode = state.mode === 'hosting'
+    let hostFallbackTimer = null
 
     const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws`)
     const timer = setTimeout(() => {
-      if (!settled) { settled = true; ws.close(); reject(new Error('接続タイムアウト（10秒）')) }
+      if (!settled) {
+        settled = true
+        if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
+        ws.close()
+        reject(new Error('接続タイムアウト（10秒）'))
+      }
     }, 10000)
 
     ws.onopen = () => {
@@ -377,8 +386,8 @@ function _connect(code) {
       }))
 
       if (isHostMode) {
-        // ホスト: 接続確立時点で resolve、品目設定とインベントリを送信
-        settled = true
+        // ホスト: config/inventory を送信し、'joined' を待ってセッション状態を取得する
+        // DO が 'joined' を返すまでの最大 3 秒はフォールバックとして即 resolve する
         setTimeout(() => {
           if (_getConfig) {
             const cfg = _getConfig()
@@ -392,7 +401,9 @@ function _connect(code) {
           }
         }, 200)
         _startHeartbeat()
-        resolve()
+        hostFallbackTimer = setTimeout(() => {
+          if (!settled) { settled = true; resolve() }
+        }, 3000)
       }
       // ゲスト: 'joined' または 'error' メッセージを待つ
     }
@@ -403,12 +414,14 @@ function _connect(code) {
         if (!settled) {
           if (data.type === 'joined') {
             settled = true
-            _startHeartbeat()
+            if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
+            if (!isHostMode) _startHeartbeat()
             _handleMessage(data)
             resolve()
             return
           } else if (data.type === 'error') {
             settled = true
+            if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
             const errMsg = data.code === 'room_not_found'
               ? 'ルームが存在しません'
               : data.code === 'session_not_active'
@@ -431,6 +444,7 @@ function _connect(code) {
 
     ws.onerror = () => {
       clearTimeout(timer)
+      if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
       if (!settled && !state.isConnected) {
         settled     = true
         state.error = 'サーバーへの接続に失敗しました'
@@ -446,6 +460,7 @@ function _connect(code) {
 
       if (!settled) {
         settled = true
+        if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
         reject(new Error('接続が切れました'))
       }
 
@@ -544,8 +559,10 @@ export function useSync() {
       state.error = '正しいコード形式ではありません（4〜8文字）'
       throw new Error('invalid code')
     }
+    // 自分の店舗コードが入力された場合はホストとして再接続する
+    const isOwnCode = !!(shopCode.value && normalized === shopCode.value.toUpperCase())
     state.roomCode = normalized
-    state.mode     = 'joining'
+    state.mode     = isOwnCode ? 'hosting' : 'joining'
     try {
       await _connect(normalized)
     } catch (e) {
