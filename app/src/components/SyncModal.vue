@@ -14,35 +14,14 @@ const {
 } = useSync()
 
 // セッション管理
-const sessionStarting = ref(false)
-const sessionEnding   = ref(false)
-const sessionError    = ref('')
-
-async function onStartSession() {
-  sessionError.value = ''
-  sessionStarting.value = true
-  try {
-    let sessionId = ''
-    if (isAuthenticated.value) {
-      const sess = await createSession()
-      sessionId = sess.id
-    }
-    broadcastSessionStart(sessionId)
-  } catch (e) {
-    sessionError.value = e.message
-  } finally {
-    sessionStarting.value = false
-  }
-}
+const sessionEnding = ref(false)
 
 async function onEndSession(status) {
   if (!confirm(status === 'completed' ? '棚卸を完了しますか？' : 'セッションを中断しますか？')) return
   sessionEnding.value = true
   try {
     broadcastSessionEnd(status)
-    // D1 のセッションレコードを更新
     if (isAuthenticated.value && state.sessionId) {
-      const itemCount = Object.keys({}).length // 実際の品目数はApp.vueから渡す
       await updateSession(state.sessionId, status, 0).catch(() => {})
     }
     emit('sessionEnded', status)
@@ -84,10 +63,23 @@ async function onCreateRoom() {
   createError.value = ''
   try {
     await createRoom()
+
+    // ルーム作成と同時にセッションを自動開始（ゲスト参加を許可）
+    let sessionId = ''
+    if (isAuthenticated.value) {
+      try {
+        const sess = await createSession()
+        sessionId = sess.id
+      } catch (e) {
+        console.warn('[SyncModal] D1 session create failed:', e.message)
+      }
+    }
+    broadcastSessionStart(sessionId)
+
     view.value = 'host'
     await nextTick()
     await _generateQR()
-    showQR.value = true  // 作成直後はQRを表示
+    showQR.value = true
   } catch (e) {
     createError.value = state.error || 'ルームを作成できませんでした'
   }
@@ -192,30 +184,14 @@ async function onCopyCode() {
       <template v-else-if="view === 'host'">
         <div class="sheet-title">ルームを共有</div>
 
-        <!-- セッション状態バナー -->
-        <div v-if="!state.isSessionActive" class="session-banner not-active">
-          <div class="session-banner-icon">⏸</div>
-          <div class="session-banner-text">
-            <strong>セッション未開始</strong><br>
-            <span>開始ボタンを押すとゲストが参加できます</span>
-          </div>
-          <button
-            class="btn btn-primary session-start-btn"
-            :disabled="sessionStarting"
-            @click="onStartSession"
-          >
-            {{ sessionStarting ? '開始中...' : 'セッション開始' }}
-          </button>
-        </div>
-        <div v-else class="session-banner is-active">
+        <!-- セッション進行中バナー -->
+        <div class="session-banner is-active">
           <div class="session-banner-icon">🟢</div>
           <div class="session-banner-text">
             <strong>セッション進行中</strong><br>
             <span>ゲストの参加を受け付けています</span>
           </div>
         </div>
-
-        <div v-if="sessionError" class="msg error" style="margin-bottom:8px">{{ sessionError }}</div>
 
         <div class="room-code-card">
           <div class="room-code-label">店舗コード（参加用）</div>

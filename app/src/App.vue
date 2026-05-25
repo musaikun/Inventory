@@ -86,7 +86,8 @@ async function onConfirmName() {
     await joinRoom(code)
     showToast(`ルーム ${code} に参加しました`, 3000, 'join')
   } catch {
-    showToast('ルームへの参加に失敗しました', 3000, 'error')
+    // state.error に具体的なエラーメッセージがあれば使用する
+    showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
     currentView.value = 'landing'
   }
 }

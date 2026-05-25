@@ -411,6 +411,8 @@ function _connect(code) {
             settled = true
             const errMsg = data.code === 'room_not_found'
               ? 'ルームが存在しません'
+              : data.code === 'session_not_active'
+              ? 'ホストがまだセッションを開始していません。ホストが「棚卸ルームを開始」するまでお待ちください。'
               : data.code === 'room_full'
               ? 'ルームが満員です（上限20名）'
               : data.code === 'name_taken'
