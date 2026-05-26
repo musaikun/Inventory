@@ -140,6 +140,9 @@ function onAuthDone() {
 // セッション一覧から「セッション開始」
 async function onSessionStart(session) {
   pendingSession.value = session
+  // 新規セッション: ローカルの在庫・ログをクリアしてからセッション画面へ
+  reset()
+  clearAuditLog()
   await _startSessionView()
 }
 
@@ -388,6 +391,12 @@ async function onStartNew() {
   reset()
   clearAuditLog()
   if (continuousMode.value) onForceStop()
+}
+
+// SyncModal からの「新しいセッションを開始」（ルーム接続中のままセッションをリセット）
+function onSyncStartNew() {
+  reset()
+  clearAuditLog()
 }
 
 // ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
@@ -1036,7 +1045,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
-    <SyncModal     v-if="showSync"     @close="showSync = false" />
+    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @startNewSession="onSyncStartNew" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
     <!-- 通知ポップアップ -->

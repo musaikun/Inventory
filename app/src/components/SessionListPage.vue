@@ -125,6 +125,7 @@ function _statusClass(status) {
             v-for="s in pastSessions"
             :key="s.id"
             class="session-card"
+            :class="{ incomplete: s.status === 'incomplete' }"
           >
             <div class="session-main">
               <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
@@ -134,6 +135,12 @@ function _statusClass(status) {
               <span class="session-count">{{ s.itemCount }}品目</span>
               <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
             </div>
+            <!-- 中断セッションのみ再開可能（完了済みは再開不可） -->
+            <button
+              v-if="s.status === 'incomplete'"
+              class="btn btn-warning session-resume-btn"
+              @click="onResume(s)"
+            >再開する</button>
           </div>
         </template>
 
@@ -228,6 +235,10 @@ function _statusClass(status) {
 
 .session-card.active {
   border-color: #3b82f6;
+}
+
+.session-card.incomplete {
+  border-color: #f59e0b;
 }
 
 .session-main {

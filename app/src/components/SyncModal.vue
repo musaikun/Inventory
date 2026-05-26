@@ -6,7 +6,11 @@ import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { isAuthenticated, createSession, updateSession } from '../composables/useAuth.js'
 
-const emit = defineEmits(['close', 'sessionEnded'])
+const emit = defineEmits(['close', 'sessionEnded', 'startNewSession'])
+
+const props = defineProps({
+  pendingSession: { type: Object, default: null },
+})
 useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
@@ -21,13 +25,26 @@ async function onEndSession(status) {
   sessionEnding.value = true
   try {
     broadcastSessionEnd(status)
-    if (isAuthenticated.value && state.sessionId) {
-      await updateSession(state.sessionId, status, 0).catch(() => {})
-    }
     emit('sessionEnded', status)
   } finally {
     sessionEnding.value = false
   }
+}
+
+// セッション終了後にルームを維持したまま新しいセッションを開始する
+async function onStartNewInRoom() {
+  if (!confirm('現在の棚卸データを消去して、新しいセッションを開始しますか？')) return
+  let sessionId = ''
+  if (isAuthenticated.value) {
+    try {
+      const sess = await createSession()
+      sessionId = sess.id
+    } catch (e) {
+      console.warn('[SyncModal] session create failed:', e.message)
+    }
+  }
+  broadcastSessionStart(sessionId)
+  emit('startNewSession')
 }
 
 // ── UI state ─────────────────────────────────────────────────────────────────
@@ -65,10 +82,19 @@ async function onCreateRoom() {
     await createRoom()
 
     // ホスト再接続の場合はセッションが既にアクティブなのでスキップする
-    // 新規作成の場合のみセッションを開始してゲスト参加を許可する
+    // 新規作成 or 中断セッション再開の場合のみセッションを開始する
     if (!state.isSessionActive) {
       let sessionId = ''
-      if (isAuthenticated.value) {
+      // 中断セッションの再開: DOに同じsessionIdが残っている場合は既存IDを再利用
+      const isIncompleteResume = props.pendingSession?.status === 'incomplete'
+        && !!state.sessionId
+        && state.sessionId === props.pendingSession.id
+
+      if (isIncompleteResume && isAuthenticated.value) {
+        // 中断セッションを再開: D1 ステータスを active に戻す
+        sessionId = props.pendingSession.id
+        await updateSession(sessionId, 'active', props.pendingSession.itemCount ?? 0).catch(() => {})
+      } else if (isAuthenticated.value) {
         try {
           const sess = await createSession()
           sessionId = sess.id
@@ -187,14 +213,25 @@ async function onCopyCode() {
       <template v-else-if="view === 'host'">
         <div class="sheet-title">ルームを共有</div>
 
-        <!-- セッション進行中バナー -->
-        <div class="session-banner is-active">
-          <div class="session-banner-icon">🟢</div>
+        <!-- セッション状態バナー -->
+        <div class="session-banner" :class="state.isSessionActive ? 'is-active' : 'is-ended'">
+          <div class="session-banner-icon">{{ state.isSessionActive ? '🟢' : '⬛' }}</div>
           <div class="session-banner-text">
-            <strong>セッション進行中</strong><br>
-            <span>ゲストの参加を受け付けています</span>
+            <template v-if="state.isSessionActive">
+              <strong>セッション進行中</strong><br>
+              <span>ゲストの参加を受け付けています</span>
+            </template>
+            <template v-else>
+              <strong>セッション終了済み</strong><br>
+              <span>ゲストは現在参加できません</span>
+            </template>
           </div>
         </div>
+
+        <!-- セッション終了後: 新しいセッションを開始 -->
+        <button v-if="!state.isSessionActive" class="btn btn-primary session-new-btn" @click="onStartNewInRoom">
+          ＋ 新しいセッションを開始
+        </button>
 
         <div class="room-code-card">
           <div class="room-code-label">店舗コード（参加用）</div>
@@ -601,6 +638,20 @@ async function onCopyCode() {
   padding: 8px 16px;
   font-size: 13px;
   white-space: nowrap;
+}
+
+.session-banner.is-ended {
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+}
+.session-banner.is-ended .session-banner-icon {
+  color: #94a3b8;
+}
+.session-new-btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  margin-bottom: 4px;
 }
 
 /* セッション終了ボタン */

@@ -312,12 +312,18 @@ function _handleMessage(msg) {
       _onScopeReceived?.(msg.scope)
       break
 
-    case 'session_started':
+    case 'session_started': {
+      const prevSessionId   = state.sessionId
       state.sessionId       = msg.sessionId ?? null
       state.isSessionActive = true
+      // sessionId が変わった新規セッション開始: ゲストの在庫をクリア
+      if (msg.sessionId && msg.sessionId !== prevSessionId && state.mode === 'joining') {
+        _onClearInventory?.()
+      }
       _addSysMsg('セッションが開始されました。参加者を招待してください。')
       _onSessionStarted?.(msg.sessionId)
       break
+    }
 
     case 'session_ended':
       state.isSessionActive = false

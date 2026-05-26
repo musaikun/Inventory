@@ -319,17 +319,21 @@ export class RoomDO {
 
       // ── セッション管理 ────────────────────────────────────────────────────
       case 'session_start': {
-        // ホストのみ: セッション開始（ゲスト参加を許可）
-        const att = ws.deserializeAttachment() ?? {}
-        if (att.role !== 'host' && att.deviceId) {
-          // role が保存されていない場合はスキップせず許可（後方互換）
-        }
-        const sessionId = String(msg.sessionId ?? '').slice(0, 64)
-        await Promise.all([
+        const newId  = String(msg.sessionId ?? '').slice(0, 64)
+        const prevId = (await this.state.storage.get('sessionId')) ?? ''
+        // sessionId が変わった場合は新規セッション → 前回の在庫・ログをクリア
+        const isNew  = !!newId && newId !== prevId
+
+        const puts = [
           this.state.storage.put('isActive',  true),
-          this.state.storage.put('sessionId', sessionId),
-        ])
-        this._broadcast({ type: 'session_started', sessionId })
+          this.state.storage.put('sessionId', newId),
+        ]
+        if (isNew) {
+          puts.push(this.state.storage.put('inventory', {}))
+          puts.push(this.state.storage.put('auditLog',  []))
+        }
+        await Promise.all(puts)
+        this._broadcast({ type: 'session_started', sessionId: newId })
         break
       }
 
