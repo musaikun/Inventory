@@ -48,9 +48,9 @@ _load()
  * 他デバイスからの品目更新を適用（ブロードキャストしない・entryLog に追加しない）
  * useSync.js が setInventoryCallbacks 経由で登録し呼び出す
  */
-export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '') {
+export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '', updatedAt = Date.now()) {
   if (completedAt.value) return  // 完了済みはリモート更新を受け付けない
-  inventory[ingredient] = { qty, unit: unit ?? '', enteredBy }
+  inventory[ingredient] = { qty, unit: unit ?? '', enteredBy, updatedAt }
   _save()
 }
 
@@ -96,7 +96,7 @@ export function useInventory() {
     }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
-    inventory[ingredient] = { qty: finalQty, unit, enteredBy }
+    inventory[ingredient] = { qty: finalQty, unit, enteredBy, updatedAt: Date.now() }
     if (isNew) entryLog.push(ingredient)
     _save()
   }
@@ -113,7 +113,7 @@ export function useInventory() {
         if (idx >= 0) entryLog.splice(idx, 1)
       }
     } else {
-      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit, enteredBy: prevState.enteredBy ?? '' }
+      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit, enteredBy: prevState.enteredBy ?? '', updatedAt: Date.now() }
     }
     _save()
     return ingredient
@@ -121,10 +121,11 @@ export function useInventory() {
 
   function updateQty(ingredient, qty, unit, enteredBy = '') {
     if (inventory[ingredient]) {
-      inventory[ingredient].qty = qty
+      inventory[ingredient].qty       = qty
+      inventory[ingredient].updatedAt = Date.now()
       if (enteredBy) inventory[ingredient].enteredBy = enteredBy
     } else {
-      inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '', enteredBy }
+      inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '', enteredBy, updatedAt: Date.now() }
       entryLog.push(ingredient)
     }
     _save()

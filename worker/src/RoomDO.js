@@ -188,6 +188,7 @@ export class RoomDO {
           qty,
           unit:      unit      ?? '',
           enteredBy: String(enteredBy ?? '').slice(0, 30),
+          updatedAt: Date.now(),
         }
 
         const att = ws.deserializeAttachment() ?? {}

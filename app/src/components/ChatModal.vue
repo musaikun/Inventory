@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import DOMPurify from 'dompurify'
 import { useSync, broadcastMessage } from '../composables/useSync.js'
 import { deviceId } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
@@ -126,9 +127,10 @@ function escHtml(str) {
 }
 
 function renderText(text) {
-  return escHtml(text)
+  const html = escHtml(text)
     .replace(/@(\S+)/g, '<span class="mention">@$1</span>')
     .replace(/\n/g, '<br>')
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['span', 'br'], ALLOWED_ATTR: ['class'] })
 }
 
 // ── 時刻フォーマット ─────────────────────────────────────────────────────────

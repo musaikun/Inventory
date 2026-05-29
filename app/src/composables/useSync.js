@@ -50,10 +50,11 @@ const messages      = reactive([])
 const auditLog      = reactive([])
 const unreadCount   = ref(0)
 
-let _ws             = null
-let _reconnectTimer = null
-let _heartbeatTimer = null
-let _reconnectCount = 0
+let _ws              = null
+let _reconnectTimer  = null
+let _heartbeatTimer  = null
+let _reconnectCount  = 0
+let _disconnectedAt  = 0   // 切断時刻（再接続時マージ判定に使用）
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
 // ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
@@ -225,6 +226,7 @@ function _resetClientState() {
   _clearReconnectTimer()
   _stopHeartbeat()
   _clearSession()
+  _disconnectedAt       = 0
   state.mode            = 'idle'
   state.roomCode        = null
   state.isConnected     = false
@@ -240,14 +242,54 @@ function _resetClientState() {
 function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
-      // ゲスト参加（再接続含む）: ローカルの古い在庫をクリアしてからルーム在庫を受信
-      // → ホストにない品目や切断中に削除された品目が混入するのを防ぐ
-      if (state.mode === 'joining') {
-        _onClearInventory?.()
+      const serverInv = msg.inventory ?? {}
+      const isGuestReconnect = state.mode === 'joining' && _disconnectedAt > 0
+      const sessionChanged   = msg.sessionId && state.sessionId && msg.sessionId !== state.sessionId
+
+      if (isGuestReconnect && !sessionChanged) {
+        // オフライン中に変更した品目をマージ（タイムスタンプで新しい方を優先）
+        const localInv = _getInventory?.() ?? {}
+
+        // サーバー側の品目を適用（ローカルより新しい場合のみ）
+        for (const [ingredient, serverEntry] of Object.entries(serverInv)) {
+          const localEntry = localInv[ingredient]
+          if (!localEntry || (serverEntry.updatedAt ?? 0) >= (localEntry.updatedAt ?? 0)) {
+            _onItemUpdate?.(ingredient, serverEntry.qty, serverEntry.unit ?? '', serverEntry.enteredBy ?? '', serverEntry.updatedAt)
+          }
+        }
+
+        // サーバーにない品目: 切断後に追加したなら保持→再送信、切断前から存在したなら削除
+        for (const [ingredient, localEntry] of Object.entries(localInv)) {
+          if (!serverInv[ingredient]) {
+            if ((localEntry.updatedAt ?? 0) > _disconnectedAt) {
+              // オフライン中に入力した品目 → サーバーに再送信
+              broadcastUpdate(ingredient, localEntry.qty, localEntry.unit ?? '', localEntry.enteredBy ?? '')
+            } else {
+              // 切断中にサーバー側で削除された品目 → ローカルからも削除
+              _onItemRemove?.(ingredient)
+            }
+          }
+        }
+
+        // ローカルの方が新しい品目 → サーバーに再送信して上書き
+        for (const [ingredient, localEntry] of Object.entries(localInv)) {
+          const serverEntry = serverInv[ingredient]
+          if (serverEntry && (localEntry.updatedAt ?? 0) > (serverEntry.updatedAt ?? 0)) {
+            broadcastUpdate(ingredient, localEntry.qty, localEntry.unit ?? '', localEntry.enteredBy ?? '')
+          }
+        }
+      } else {
+        // 初回参加 or セッション切り替え: サーバー状態をそのまま適用
+        if (state.mode === 'joining') {
+          _onClearInventory?.()
+        }
+        for (const [ingredient, entry] of Object.entries(serverInv)) {
+          _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
+        }
       }
-      for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
-        _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
-      }
+
+      _disconnectedAt = 0  // マージ完了、リセット
+
       _updateParticipants(msg.participants ?? [])
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
 
@@ -493,6 +535,9 @@ function _connect(code) {
       }
 
       if (state.mode === 'idle') return
+
+      // 再接続予定: 切断時刻を記録してマージ判定に使う
+      _disconnectedAt = Date.now()
 
       if (_reconnectCount < RECONNECT_DELAYS.length) {
         const delay = RECONNECT_DELAYS[_reconnectCount++]
