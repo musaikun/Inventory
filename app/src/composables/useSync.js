@@ -79,6 +79,7 @@ let _onItemRemove     = null
 let _getInventory     = null
 let _getConfig        = null
 let _onConfigReceived = null
+let _onResetConfig    = null
 let _onDone           = null
 let _onMessage        = null
 let _onDissolved      = null
@@ -97,6 +98,7 @@ export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUp
 export function registerInventoryGetter(fn)  { _getInventory = fn }
 export function registerConfigGetter(fn)     { _getConfig = fn }
 export function setConfigCallback(fn)        { _onConfigReceived = fn }
+export function setResetConfigCallback(fn)   { _onResetConfig = fn }
 export function setDoneCallback(fn)          { _onDone = fn }
 export function setMessageCallback(fn)       { _onMessage = fn }
 export function setDissolvedCallback(fn)     { _onDissolved = fn }
@@ -297,8 +299,15 @@ function _handleMessage(msg) {
       _updateParticipants(msg.participants ?? [])
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
 
-      if (state.mode === 'joining' && msg.config?.isCustom) {
-        _onConfigReceived?.(msg.config)
+      // ゲスト参加: ルーム（ホスト）の品目リストに必ず揃える。
+      // 店舗を切り替えても前店舗の品目が残らないよう、isCustom に関わらず常に適用。
+      // ホストに品目リストが無い場合はデフォルトへ復帰する。
+      if (state.mode === 'joining') {
+        if (msg.config?.order?.length) {
+          _onConfigReceived?.(msg.config)
+        } else {
+          _onResetConfig?.()
+        }
       }
       if (Array.isArray(msg.messages)) {
         messages.splice(0, messages.length, ...msg.messages)

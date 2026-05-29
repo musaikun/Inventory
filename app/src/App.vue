@@ -12,7 +12,7 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  setScopeCallback, setSessionEndedCallback,
+  setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
@@ -206,6 +206,8 @@ setConfigCallback((cfg) => {
     showToast('品目一覧が更新されました', 3000, 'update')
   }
 })
+// ホストに品目リストが無いルームへ参加した場合はデフォルトへ復帰
+setResetConfigCallback(() => resetToDefault())
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
     ? `棚卸が締められました。入力を終了してください。`
