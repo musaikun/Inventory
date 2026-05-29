@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
-import DOMPurify from 'dompurify'
 import { useSync, broadcastMessage } from '../composables/useSync.js'
 import { deviceId } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
@@ -126,11 +125,15 @@ function escHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// 許可タグ以外を除去する最小サニタイザー
+// escHtml でユーザー入力は事前エスケープ済みのため、
+// 残るタグは自分たちが挿入した <br> / <span class="mention"> のみ
+const _ALLOWED_TAG = /^<(br|span class="mention"|\/span)>$/
 function renderText(text) {
-  const html = escHtml(text)
+  return escHtml(text)
     .replace(/@(\S+)/g, '<span class="mention">@$1</span>')
     .replace(/\n/g, '<br>')
-  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['span', 'br'], ALLOWED_ATTR: ['class'] })
+    .replace(/<[^>]*>/g, tag => (_ALLOWED_TAG.test(tag) ? tag : ''))
 }
 
 // ── 時刻フォーマット ─────────────────────────────────────────────────────────
