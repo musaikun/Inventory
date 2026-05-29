@@ -20,6 +20,12 @@ async function _loadSessions() {
   try {
     sessions.value = await getSessions()
   } catch (e) {
+    // トークン無効・期限切れ → 自動ログアウトしてランディングへ
+    if (e.message.includes('401') || e.message.toLowerCase().includes('unauthorized')) {
+      await logout()
+      emit('back')
+      return
+    }
     error.value = e.message
   } finally {
     loading.value = false

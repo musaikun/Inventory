@@ -290,6 +290,11 @@ onMounted(async () => {
     restoreSession()
     const guestSession = getSavedGuestSession()
     if (guestSession) savedGuestRoomCode.value = guestSession.roomCode
+
+    // 認証済みならランディングをスキップしてセッション一覧へ直接遷移
+    if (isAuthenticated.value) {
+      currentView.value = 'sessions'
+    }
   }
 
   // 既存の店舗コードがある場合は D1 からデータを読み込む
