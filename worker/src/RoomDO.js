@@ -356,6 +356,7 @@ export class RoomDO {
           this.state.storage.put('isActive',  true),
           this.state.storage.put('sessionId', newId),
         ]
+        let broadcastCfg = null
         if (!isResume) {
           // 新規セッション: ホストが送った初期在庫をそのまま保存（原子的）
           // → ゲスト参加タイミングに関わらず完全なスナップショットが渡る
@@ -375,9 +376,31 @@ export class RoomDO {
           }
           puts.push(this.state.storage.put('inventory', initialInv))
           puts.push(this.state.storage.put('auditLog',  []))
+
+          // ホストの品目リストも保存し、新規セッションの session_started で配布する
+          // → ゲストが前セッションの古い品目を引き継がず、必ずホストに揃う
+          const c = msg.config
+          if (c && Array.isArray(c.order) && c.order.length > 0) {
+            broadcastCfg = {
+              order:         c.order,
+              isCustom:      !!c.isCustom,
+              units:         c.units         ?? {},
+              prices:        c.prices        ?? {},
+              categories:    c.categories    ?? {},
+              codes:         c.codes         ?? {},
+              categoryCodes: c.categoryCodes ?? {},
+              prevMonths:    c.prevMonths    ?? {},
+              lotSizes:      c.lotSizes      ?? {},
+              dictionary:    c.dictionary    ?? {},
+            }
+            puts.push(this.state.storage.put('config', broadcastCfg))
+          }
         }
         await Promise.all(puts)
-        this._broadcast({ type: 'session_started', sessionId: newId })
+        this._broadcast({
+          type: 'session_started', sessionId: newId,
+          ...(broadcastCfg ? { config: broadcastCfg } : {}),
+        })
         break
       }
 

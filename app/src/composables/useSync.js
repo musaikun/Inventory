@@ -152,10 +152,11 @@ export function broadcastSessionStart(sessionId) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   state.sessionId       = sessionId
   state.isSessionActive = true
-  // 現在のローカル在庫をまとめて送り、DO側で原子的に保存させる
-  // （ゲストが参加するタイミングに関わらず完全な在庫スナップショットを渡すため）
+  // 現在のローカル在庫＋品目リストをまとめて送り、DO側で原子的に保存させる
+  // → ゲストはどのタイミングで参加しても完全なスナップショット（在庫＋品目）を受け取れる
   const inv = _getInventory?.() ?? {}
-  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv }))
+  const cfg = _getConfig?.() ?? null
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg }))
 }
 
 export function broadcastSessionEnd(status = 'completed') {
@@ -378,11 +379,14 @@ function _handleMessage(msg) {
 
     case 'session_started': {
       const prevSessionId   = state.sessionId
+      const isNewSession    = !!(msg.sessionId && msg.sessionId !== prevSessionId)
       state.sessionId       = msg.sessionId ?? null
       state.isSessionActive = true
-      // sessionId が変わった新規セッション開始: ゲストの在庫をクリア
-      if (msg.sessionId && msg.sessionId !== prevSessionId && state.mode === 'joining') {
+      // sessionId が変わった新規セッション開始: ゲストの在庫をクリアし、
+      // ホストの品目リストに揃える（前セッションの古い品目を引き継がない）
+      if (isNewSession && state.mode === 'joining') {
         _onClearInventory?.()
+        if (msg.config?.order?.length) _onConfigReceived?.(msg.config)
       }
       _addSysMsg('セッションが開始されました。参加者を招待してください。')
       _onSessionStarted?.(msg.sessionId)
