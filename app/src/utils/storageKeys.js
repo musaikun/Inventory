@@ -24,4 +24,5 @@ export const STORAGE_KEYS = {
   learningSessions: 'inventory_learning_v1',
   syncSession:      '_sync_session_v1',
   shopCode:         '_shop_code',
+  hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
 }

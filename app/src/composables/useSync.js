@@ -12,6 +12,23 @@ function _clearSession() {
   try { localStorage.removeItem(STORAGE_KEYS.syncSession) } catch (_) {}
 }
 
+// ── ホストトークン管理（店舗コードごとに保持）────────────────────────────────
+function _hostTokenKey() {
+  return shopCode.value ? `${STORAGE_KEYS.hostTokenPrefix}${shopCode.value}` : null
+}
+function _loadHostToken() {
+  const key = _hostTokenKey()
+  return key ? (localStorage.getItem(key) ?? '') : ''
+}
+function _saveHostToken(token) {
+  const key = _hostTokenKey()
+  if (key && token) try { localStorage.setItem(key, token) } catch (_) {}
+}
+export function clearHostToken() {
+  const key = _hostTokenKey()
+  if (key) try { localStorage.removeItem(key) } catch (_) {}
+}
+
 const WORKER_URL = (() => {
   const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
   if (!raw) return ''
@@ -246,6 +263,8 @@ function _handleMessage(msg) {
       // DO からのセッション状態を同期（ホスト再接続時に既存セッションを維持するため）
       state.isSessionActive = msg.isSessionActive ?? false
       state.sessionId       = msg.sessionId ?? null
+      // 新規ホストトークンをローカルに保存
+      if (msg.hostToken) _saveHostToken(msg.hostToken)
       break
     }
 
@@ -389,6 +408,7 @@ function _connect(code) {
         deviceId,
         deviceName: deviceName.value || '名前未設定',
         role:       isHostMode ? 'host' : 'guest',
+        ...(isHostMode ? { hostToken: _loadHostToken() } : {}),
       }))
 
       if (isHostMode) {
@@ -436,6 +456,8 @@ function _connect(code) {
               ? 'ルームが満員です（上限20名）'
               : data.code === 'name_taken'
               ? 'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。'
+              : data.code === 'auth_failed'
+              ? 'ホスト認証に失敗しました。この端末はホスト権限がありません。'
               : 'エラーが発生しました'
             state.error    = errMsg
             state.mode     = 'idle'
@@ -594,6 +616,7 @@ export function useSync() {
       _ws.send(JSON.stringify({ type: 'dissolve' }))
       await new Promise(r => setTimeout(r, 150))
     }
+    clearHostToken()
     leaveRoom()
   }
 

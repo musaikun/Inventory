@@ -52,17 +52,37 @@ export class RoomDO {
         const deviceName = String(msg.deviceName ?? '').slice(0, 30)
         const role       = msg.role === 'host' ? 'host' : 'guest'
 
-        // ゲストのみ: セッションアクティブチェック
-        if (role === 'guest') {
+        let isVerifiedHost = false
+        let newHostToken   = null   // 初回発行時のみ送り返す
+
+        if (role === 'host') {
+          const storedToken   = await this.state.storage.get('hostToken')
+          const providedToken = String(msg.hostToken ?? '').slice(0, 64)
+
+          if (!storedToken) {
+            // 初回ホスト接続: トークンを発行して保存
+            const token = crypto.randomUUID()
+            await this.state.storage.put('hostToken', token)
+            isVerifiedHost = true
+            newHostToken   = token
+          } else if (providedToken === storedToken) {
+            // 再接続: トークン一致 → ホスト承認
+            isVerifiedHost = true
+          } else {
+            // トークン不一致: 不正なホスト接続を拒否
+            ws.send(JSON.stringify({ type: 'error', code: 'auth_failed' }))
+            ws.close(1008, 'Host authentication failed')
+            return
+          }
+          await this.state.storage.put('initialized', true)
+        } else {
+          // ゲストのみ: セッションアクティブチェック
           const isActive = await this.state.storage.get('isActive')
           if (!isActive) {
             ws.send(JSON.stringify({ type: 'error', code: 'session_not_active' }))
             ws.close(1008, 'Session not active')
             return
           }
-        } else {
-          // ホスト: ルームを初期化済みとしてマーク（既存フラグ維持）
-          await this.state.storage.put('initialized', true)
         }
 
         // 参加者上限チェック（同じ deviceId のセッション復帰は除外）
@@ -104,7 +124,7 @@ export class RoomDO {
           }
         }
 
-        ws.serializeAttachment({ deviceId, deviceName })
+        ws.serializeAttachment({ deviceId, deviceName, isHost: isVerifiedHost })
 
         const [inventory, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -116,12 +136,17 @@ export class RoomDO {
         ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({ type: 'joined', inventory, config, participants, messages, auditLog, isSessionActive: isActive, sessionId }))
+        ws.send(JSON.stringify({
+          type: 'joined', inventory, config, participants, messages, auditLog,
+          isSessionActive: isActive, sessionId,
+          ...(newHostToken ? { hostToken: newHostToken } : {}),
+        }))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
 
       case 'config': {
+        if (!this._isHost(ws)) return
         const { order, units, prices, categories, codes, categoryCodes,
                 prevMonths, lotSizes, dictionary, isCustom } = msg
         if (!Array.isArray(order)) return
@@ -289,6 +314,7 @@ export class RoomDO {
       }
 
       case 'dissolve': {
+        if (!this._isHost(ws)) return
         this._broadcast({ type: 'dissolved' }, ws)
         await this.state.storage.deleteAll()
         for (const w of this.state.getWebSockets()) {
@@ -319,6 +345,7 @@ export class RoomDO {
 
       // ── セッション管理 ────────────────────────────────────────────────────
       case 'session_start': {
+        if (!this._isHost(ws)) return
         const newId  = String(msg.sessionId ?? '').slice(0, 64)
         const prevId = (await this.state.storage.get('sessionId')) ?? ''
         // sessionId が変わった場合は新規セッション → 前回の在庫・ログをクリア
@@ -338,6 +365,7 @@ export class RoomDO {
       }
 
       case 'session_end': {
+        if (!this._isHost(ws)) return
         const status    = msg.status === 'completed' ? 'completed' : 'incomplete'
         const sessionId = (await this.state.storage.get('sessionId')) ?? ''
         const inventory = (await this.state.storage.get('inventory')) ?? {}
@@ -371,6 +399,10 @@ export class RoomDO {
         try { ws.send(data) } catch (_) {}
       }
     }
+  }
+
+  _isHost(ws) {
+    return ws.deserializeAttachment()?.isHost === true
   }
 
   _getParticipants() {
