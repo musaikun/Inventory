@@ -349,15 +349,31 @@ export class RoomDO {
         if (!this._isHost(ws)) return
         const newId  = String(msg.sessionId ?? '').slice(0, 64)
         const prevId = (await this.state.storage.get('sessionId')) ?? ''
-        // sessionId が変わった場合は新規セッション → 前回の在庫・ログをクリア
-        const isNew  = !!newId && newId !== prevId
+        // 同じ sessionId は中断セッション再開（再開時は既存在庫を保持）
+        const isResume = !!(newId && newId === prevId)
 
         const puts = [
           this.state.storage.put('isActive',  true),
           this.state.storage.put('sessionId', newId),
         ]
-        if (isNew) {
-          puts.push(this.state.storage.put('inventory', {}))
+        if (!isResume) {
+          // 新規セッション: ホストが送った初期在庫をそのまま保存（原子的）
+          // → ゲスト参加タイミングに関わらず完全なスナップショットが渡る
+          const initialInv = {}
+          if (msg.inventory && typeof msg.inventory === 'object') {
+            const now = Date.now()
+            for (const [k, v] of Object.entries(msg.inventory)) {
+              if (typeof v?.qty === 'number' && String(k).length <= 200) {
+                initialInv[k] = {
+                  qty:       v.qty,
+                  unit:      String(v.unit      ?? '').slice(0, 50),
+                  enteredBy: String(v.enteredBy ?? '').slice(0, 30),
+                  updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : now,
+                }
+              }
+            }
+          }
+          puts.push(this.state.storage.put('inventory', initialInv))
           puts.push(this.state.storage.put('auditLog',  []))
         }
         await Promise.all(puts)

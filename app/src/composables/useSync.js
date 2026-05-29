@@ -152,7 +152,10 @@ export function broadcastSessionStart(sessionId) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   state.sessionId       = sessionId
   state.isSessionActive = true
-  _ws.send(JSON.stringify({ type: 'session_start', sessionId }))
+  // 現在のローカル在庫をまとめて送り、DO側で原子的に保存させる
+  // （ゲストが参加するタイミングに関わらず完全な在庫スナップショットを渡すため）
+  const inv = _getInventory?.() ?? {}
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv }))
 }
 
 export function broadcastSessionEnd(status = 'completed') {
