@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync, broadcastSessionStart, broadcastSessionEnd } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
@@ -13,9 +13,34 @@ const props = defineProps({
 })
 useEscapeKey(() => emit('close'))
 const {
-  state, participantList, isHost, isGuest,
+  state, participantList, auditLog, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
+
+// ── 変更履歴タブ ──────────────────────────────────────────────────────────────
+// 'room' | 'history'
+const activeTab     = ref('room')
+const historyFilter = ref('')
+
+const filteredAuditLog = computed(() => {
+  const kw = historyFilter.value.trim().toLowerCase()
+  const log = kw
+    ? auditLog.filter(e => e.ingredient?.toLowerCase().includes(kw))
+    : auditLog
+  return [...log].sort((a, b) => b.timestamp - a.timestamp).slice(0, 100)
+})
+
+function _formatTime(ts) {
+  const d = new Date(ts)
+  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+}
+
+function _auditLabel(entry) {
+  if (entry.action === 'remove') return `削除`
+  const prev = entry.totalQty - entry.delta
+  if (entry.delta > 0 && prev <= 0) return `新規 ${entry.totalQty}${entry.unit}`
+  return `${prev}${entry.unit} → ${entry.totalQty}${entry.unit}`
+}
 
 // セッション管理
 const sessionEnding = ref(false)
@@ -211,7 +236,47 @@ async function onCopyCode() {
 
       <!-- ==== ホスト画面 ==== -->
       <template v-else-if="view === 'host'">
-        <div class="sheet-title">ルームを共有</div>
+        <div class="sheet-title">{{ activeTab === 'history' ? '変更履歴' : 'ルームを共有' }}</div>
+
+        <!-- タブ切り替え -->
+        <div class="sync-tabs">
+          <button class="sync-tab" :class="{ active: activeTab === 'room' }" @click="activeTab = 'room'">ルーム</button>
+          <button class="sync-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+            変更履歴
+            <span v-if="auditLog.length > 0" class="tab-badge">{{ auditLog.length }}</span>
+          </button>
+        </div>
+
+        <!-- ==== 変更履歴タブ ==== -->
+        <template v-if="activeTab === 'history'">
+          <input
+            v-model="historyFilter"
+            class="history-filter"
+            placeholder="品目名で絞り込み..."
+            type="search"
+          />
+          <div v-if="filteredAuditLog.length === 0" class="history-empty">
+            {{ auditLog.length === 0 ? 'まだ変更はありません' : '該当する品目がありません' }}
+          </div>
+          <div v-else class="history-list">
+            <div v-for="entry in filteredAuditLog" :key="entry.id" class="history-entry" :class="{ 'is-remove': entry.action === 'remove' }">
+              <div class="history-meta">
+                <span class="history-time">{{ _formatTime(entry.timestamp) }}</span>
+                <span class="history-who">{{ entry.enteredBy || '不明' }}</span>
+              </div>
+              <div class="history-item">{{ entry.ingredient }}</div>
+              <div class="history-change" :class="{ 'is-remove': entry.action === 'remove' }">
+                {{ _auditLabel(entry) }}
+              </div>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
+          </div>
+        </template>
+
+        <!-- ==== ルームタブ ==== -->
+        <template v-if="activeTab === 'room'">
 
         <!-- セッション状態バナー -->
         <div class="session-banner" :class="state.isSessionActive ? 'is-active' : 'is-ended'">
@@ -277,6 +342,7 @@ async function onCopyCode() {
           >✓ 棚卸完了</button>
           <button class="btn btn-danger-block" @click="onLeave">ルームを解散</button>
         </div>
+        </template><!-- /activeTab === 'room' -->
       </template>
 
       <!-- ==== 端末名設定プロンプト ==== -->
@@ -308,8 +374,47 @@ async function onCopyCode() {
 
       <!-- ==== ゲスト画面（参加中）==== -->
       <template v-else-if="view === 'guest'">
-        <div class="sheet-title">ルーム参加中</div>
+        <div class="sheet-title">{{ activeTab === 'history' ? '変更履歴' : 'ルーム参加中' }}</div>
 
+        <!-- タブ切り替え -->
+        <div class="sync-tabs">
+          <button class="sync-tab" :class="{ active: activeTab === 'room' }" @click="activeTab = 'room'">ルーム</button>
+          <button class="sync-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+            変更履歴
+            <span v-if="auditLog.length > 0" class="tab-badge">{{ auditLog.length }}</span>
+          </button>
+        </div>
+
+        <!-- ==== 変更履歴タブ ==== -->
+        <template v-if="activeTab === 'history'">
+          <input
+            v-model="historyFilter"
+            class="history-filter"
+            placeholder="品目名で絞り込み..."
+            type="search"
+          />
+          <div v-if="filteredAuditLog.length === 0" class="history-empty">
+            {{ auditLog.length === 0 ? 'まだ変更はありません' : '該当する品目がありません' }}
+          </div>
+          <div v-else class="history-list">
+            <div v-for="entry in filteredAuditLog" :key="entry.id" class="history-entry" :class="{ 'is-remove': entry.action === 'remove' }">
+              <div class="history-meta">
+                <span class="history-time">{{ _formatTime(entry.timestamp) }}</span>
+                <span class="history-who">{{ entry.enteredBy || '不明' }}</span>
+              </div>
+              <div class="history-item">{{ entry.ingredient }}</div>
+              <div class="history-change" :class="{ 'is-remove': entry.action === 'remove' }">
+                {{ _auditLabel(entry) }}
+              </div>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
+          </div>
+        </template>
+
+        <!-- ==== ルームタブ ==== -->
+        <template v-if="activeTab === 'room'">
         <div class="room-code-card">
           <div class="room-code-label">参加中の店舗コード</div>
           <div class="room-code-value">{{ state.roomCode }}</div>
@@ -335,6 +440,7 @@ async function onCopyCode() {
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
           <button class="btn btn-danger-block" @click="onLeave">退出する</button>
         </div>
+        </template><!-- /activeTab === 'room' -->
       </template>
     </div>
   </div>
@@ -652,6 +758,132 @@ async function onCopyCode() {
   padding: 14px;
   font-size: 15px;
   margin-bottom: 4px;
+}
+
+/* ── タブ ── */
+.sync-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.sync-tab {
+  flex: 1;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+.sync-tab.active {
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.tab-badge {
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ── 変更履歴 ── */
+.history-filter {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  outline: none;
+  font-family: inherit;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+.history-filter:focus { border-color: var(--primary); }
+
+.history-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 32px 16px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.history-entry {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border-left: 3px solid var(--primary);
+}
+.history-entry.is-remove {
+  border-left-color: var(--danger, #ef4444);
+  background: #fff5f5;
+}
+
+.history-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.history-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.history-who {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.history-entry.is-remove .history-who {
+  color: var(--danger, #ef4444);
+  background: #fef2f2;
+}
+
+.history-item {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-change {
+  font-size: 12px;
+  color: #15803d;
+  font-weight: 700;
+}
+.history-change.is-remove {
+  color: var(--danger, #ef4444);
 }
 
 /* セッション終了ボタン */
