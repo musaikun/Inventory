@@ -1,75 +1,42 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
-import { useSync, broadcastSessionStart, broadcastSessionEnd } from '../composables/useSync.js'
+import { useSync, broadcastSessionStart } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { isAuthenticated, createSession, updateSession } from '../composables/useAuth.js'
 
-const emit = defineEmits(['close', 'sessionEnded', 'startNewSession'])
+const emit = defineEmits(['close', 'complete'])
 
 const props = defineProps({
   pendingSession: { type: Object, default: null },
 })
 useEscapeKey(() => emit('close'))
 const {
-  state, participantList, auditLog, isHost, isGuest,
+  state, participantList, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
 
-// ── 変更履歴タブ ──────────────────────────────────────────────────────────────
-// 'room' | 'history'
-const activeTab     = ref('room')
-const historyFilter = ref('')
-
-const filteredAuditLog = computed(() => {
-  const kw = historyFilter.value.trim().toLowerCase()
-  const log = kw
-    ? auditLog.filter(e => e.ingredient?.toLowerCase().includes(kw))
-    : auditLog
-  return [...log].sort((a, b) => b.timestamp - a.timestamp).slice(0, 100)
-})
-
-function _formatTime(ts) {
-  const d = new Date(ts)
-  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-}
-
-function _auditLabel(entry) {
-  if (entry.action === 'remove') return `削除`
-  const prev = entry.totalQty - entry.delta
-  if (entry.delta > 0 && prev <= 0) return `新規 ${entry.totalQty}${entry.unit}`
-  return `${prev}${entry.unit} → ${entry.totalQty}${entry.unit}`
-}
-
-// セッション管理
+// ── セッション管理 ──────────────────────────────────────────────────────────────
 const sessionEnding = ref(false)
 
-async function onEndSession(status) {
-  if (!confirm(status === 'completed' ? '棚卸を完了しますか？' : 'セッションを中断しますか？')) return
+// 棚卸を完了（スナップショット保存・ゲスト退室は App.vue 側で実行）
+function onComplete() {
+  if (!confirm('棚卸を完了しますか？\n履歴に保存され、参加者は退室します。')) return
   sessionEnding.value = true
-  try {
-    broadcastSessionEnd(status)
-    emit('sessionEnded', status)
-  } finally {
-    sessionEnding.value = false
-  }
+  emit('complete')
 }
 
-// セッション終了後にルームを維持したまま新しいセッションを開始する
-async function onStartNewInRoom() {
-  if (!confirm('現在の棚卸データを消去して、新しいセッションを開始しますか？')) return
-  let sessionId = ''
-  if (isAuthenticated.value) {
-    try {
-      const sess = await createSession()
-      sessionId = sess.id
-    } catch (e) {
-      console.warn('[SyncModal] session create failed:', e.message)
-    }
-  }
-  broadcastSessionStart(sessionId)
-  emit('startNewSession')
+// 受付終了（保存せずルームを閉じる・ゲスト全員退室）
+async function onCloseRoom() {
+  const guestCount = participantList.value.length - 1
+  const msg = guestCount > 0
+    ? 'ゲストは全員退室します。ルームを閉じますか？'
+    : 'ルームを閉じますか？'
+  if (!confirm(msg)) return
+  await dissolveRoom()
+  view.value = 'home'
+  emit('close')
 }
 
 // ── UI state ─────────────────────────────────────────────────────────────────
@@ -78,7 +45,7 @@ const view = ref('home')
 const copied = ref(false)
 
 // ── 端末名未設定時のプロンプト ─────────────────────────────────────────────────
-const pendingAction = ref(null) // 'create' | 'join'
+const pendingAction = ref(null) // 'create'
 const nameInput     = ref('')
 const nameError     = ref('')
 
@@ -110,13 +77,11 @@ async function onCreateRoom() {
     // 新規作成 or 中断セッション再開の場合のみセッションを開始する
     if (!state.isSessionActive) {
       let sessionId = ''
-      // 中断セッションの再開: DOに同じsessionIdが残っている場合は既存IDを再利用
       const isIncompleteResume = props.pendingSession?.status === 'incomplete'
         && !!state.sessionId
         && state.sessionId === props.pendingSession.id
 
       if (isIncompleteResume && isAuthenticated.value) {
-        // 中断セッションを再開: D1 ステータスを active に戻す
         sessionId = props.pendingSession.id
         await updateSession(sessionId, 'active', props.pendingSession.itemCount ?? 0).catch(() => {})
       } else if (isAuthenticated.value) {
@@ -141,7 +106,6 @@ async function onCreateRoom() {
 
 async function toggleQR() {
   showQR.value = !showQR.value
-  // まだ生成されていない場合は生成する
   if (showQR.value && !qrDataUrl.value) {
     await _generateQR()
   }
@@ -167,14 +131,9 @@ function onCancelNamePrompt() {
   view.value = 'home'
 }
 
-// ── ルーム退出 ────────────────────────────────────────────────────────────────
-async function onLeave() {
-  if (isHost.value) {
-    if (!confirm('ルームを解散しますか？\n他のメンバーは切断されます。')) return
-    await dissolveRoom()
-  } else {
-    leaveRoom()
-  }
+// ── ゲスト退出 ────────────────────────────────────────────────────────────────
+function onLeave() {
+  leaveRoom()
   view.value = 'home'
 }
 
@@ -236,67 +195,19 @@ async function onCopyCode() {
 
       <!-- ==== ホスト画面 ==== -->
       <template v-else-if="view === 'host'">
-        <div class="sheet-title">{{ activeTab === 'history' ? '変更履歴' : 'ルームを共有' }}</div>
+        <div class="sheet-title">ルームを共有</div>
 
-        <!-- タブ切り替え -->
-        <div class="sync-tabs">
-          <button class="sync-tab" :class="{ active: activeTab === 'room' }" @click="activeTab = 'room'">ルーム</button>
-          <button class="sync-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-            変更履歴
-            <span v-if="auditLog.length > 0" class="tab-badge">{{ auditLog.length }}</span>
-          </button>
-        </div>
-
-        <!-- ==== 変更履歴タブ ==== -->
-        <template v-if="activeTab === 'history'">
-          <input
-            v-model="historyFilter"
-            class="history-filter"
-            placeholder="品目名で絞り込み..."
-            type="search"
-          />
-          <div v-if="filteredAuditLog.length === 0" class="history-empty">
-            {{ auditLog.length === 0 ? 'まだ変更はありません' : '該当する品目がありません' }}
-          </div>
-          <div v-else class="history-list">
-            <div v-for="entry in filteredAuditLog" :key="entry.id" class="history-entry" :class="{ 'is-remove': entry.action === 'remove' }">
-              <div class="history-meta">
-                <span class="history-time">{{ _formatTime(entry.timestamp) }}</span>
-                <span class="history-who">{{ entry.enteredBy || '不明' }}</span>
-              </div>
-              <div class="history-item">{{ entry.ingredient }}</div>
-              <div class="history-change" :class="{ 'is-remove': entry.action === 'remove' }">
-                {{ _auditLabel(entry) }}
-              </div>
+        <!-- 参加受付状態 -->
+        <div class="accepting-card">
+          <div class="accepting-info">
+            <span class="accepting-dot"></span>
+            <div>
+              <div class="accepting-status">参加を受け付け中</div>
+              <div class="accepting-sub">店舗コードを知っている人が参加できます</div>
             </div>
           </div>
-          <div class="actions" style="margin-top:16px">
-            <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
-          </div>
-        </template>
-
-        <!-- ==== ルームタブ ==== -->
-        <template v-if="activeTab === 'room'">
-
-        <!-- セッション状態バナー -->
-        <div class="session-banner" :class="state.isSessionActive ? 'is-active' : 'is-ended'">
-          <div class="session-banner-icon">{{ state.isSessionActive ? '🟢' : '⬛' }}</div>
-          <div class="session-banner-text">
-            <template v-if="state.isSessionActive">
-              <strong>セッション進行中</strong><br>
-              <span>ゲストの参加を受け付けています</span>
-            </template>
-            <template v-else>
-              <strong>セッション終了済み</strong><br>
-              <span>ゲストは現在参加できません</span>
-            </template>
-          </div>
+          <button class="accepting-btn" @click="onCloseRoom">受付終了</button>
         </div>
-
-        <!-- セッション終了後: 新しいセッションを開始 -->
-        <button v-if="!state.isSessionActive" class="btn btn-primary session-new-btn" @click="onStartNewInRoom">
-          ＋ 新しいセッションを開始
-        </button>
 
         <div class="room-code-card">
           <div class="room-code-label">店舗コード（参加用）</div>
@@ -329,20 +240,11 @@ async function onCopyCode() {
         <div class="actions">
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
           <button
-            v-if="state.isSessionActive"
-            class="btn btn-warning"
-            :disabled="sessionEnding"
-            @click="onEndSession('incomplete')"
-          >中断して終了</button>
-          <button
-            v-if="state.isSessionActive"
             class="btn btn-success"
             :disabled="sessionEnding"
-            @click="onEndSession('completed')"
-          >✓ 棚卸完了</button>
-          <button class="btn btn-danger-block" @click="onLeave">ルームを解散</button>
+            @click="onComplete"
+          >✓ 棚卸を完了</button>
         </div>
-        </template><!-- /activeTab === 'room' -->
       </template>
 
       <!-- ==== 端末名設定プロンプト ==== -->
@@ -374,47 +276,8 @@ async function onCopyCode() {
 
       <!-- ==== ゲスト画面（参加中）==== -->
       <template v-else-if="view === 'guest'">
-        <div class="sheet-title">{{ activeTab === 'history' ? '変更履歴' : 'ルーム参加中' }}</div>
+        <div class="sheet-title">ルーム参加中</div>
 
-        <!-- タブ切り替え -->
-        <div class="sync-tabs">
-          <button class="sync-tab" :class="{ active: activeTab === 'room' }" @click="activeTab = 'room'">ルーム</button>
-          <button class="sync-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-            変更履歴
-            <span v-if="auditLog.length > 0" class="tab-badge">{{ auditLog.length }}</span>
-          </button>
-        </div>
-
-        <!-- ==== 変更履歴タブ ==== -->
-        <template v-if="activeTab === 'history'">
-          <input
-            v-model="historyFilter"
-            class="history-filter"
-            placeholder="品目名で絞り込み..."
-            type="search"
-          />
-          <div v-if="filteredAuditLog.length === 0" class="history-empty">
-            {{ auditLog.length === 0 ? 'まだ変更はありません' : '該当する品目がありません' }}
-          </div>
-          <div v-else class="history-list">
-            <div v-for="entry in filteredAuditLog" :key="entry.id" class="history-entry" :class="{ 'is-remove': entry.action === 'remove' }">
-              <div class="history-meta">
-                <span class="history-time">{{ _formatTime(entry.timestamp) }}</span>
-                <span class="history-who">{{ entry.enteredBy || '不明' }}</span>
-              </div>
-              <div class="history-item">{{ entry.ingredient }}</div>
-              <div class="history-change" :class="{ 'is-remove': entry.action === 'remove' }">
-                {{ _auditLabel(entry) }}
-              </div>
-            </div>
-          </div>
-          <div class="actions" style="margin-top:16px">
-            <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
-          </div>
-        </template>
-
-        <!-- ==== ルームタブ ==== -->
-        <template v-if="activeTab === 'room'">
         <div class="room-code-card">
           <div class="room-code-label">参加中の店舗コード</div>
           <div class="room-code-value">{{ state.roomCode }}</div>
@@ -440,7 +303,6 @@ async function onCopyCode() {
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
           <button class="btn btn-danger-block" @click="onLeave">退出する</button>
         </div>
-        </template><!-- /activeTab === 'room' -->
       </template>
     </div>
   </div>
@@ -485,26 +347,55 @@ async function onCopyCode() {
   padding: 16px;
   font-size: 15px;
 }
-.sync-main-btn + .sync-main-btn { margin-top: 10px; }
 
-.sync-divider {
-  text-align: center;
-  margin: 16px 0;
-  position: relative;
-  color: var(--text-muted);
-  font-size: 12px;
+/* ── 参加受付カード ── */
+.accepting-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 12px;
+  margin-bottom: 16px;
 }
-.sync-divider::before,
-.sync-divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: calc(50% - 30px);
-  height: 1px;
-  background: var(--border);
+.accepting-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.sync-divider::before { left: 0; }
-.sync-divider::after  { right: 0; }
+.accepting-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--success, #22c55e);
+  flex-shrink: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.accepting-status {
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+}
+.accepting-sub {
+  font-size: 11px;
+  color: #15803d;
+  margin-top: 2px;
+}
+.accepting-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--danger, #ef4444);
+  background: #fff;
+  border: 1.5px solid var(--danger, #ef4444);
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.accepting-btn:active { background: #fef2f2; }
 
 /* ── ルームコードカード ── */
 .room-code-card {
@@ -640,7 +531,7 @@ async function onCopyCode() {
   border-radius: 6px;
 }
 
-/* ── コード入力 ── */
+/* ── 名前入力 ── */
 .name-input {
   width: 100%;
   padding: 14px 16px;
@@ -654,23 +545,6 @@ async function onCopyCode() {
   margin-bottom: 14px;
 }
 .name-input:focus { border-color: var(--primary); }
-
-.code-input {
-  width: 100%;
-  padding: 18px;
-  font-size: 28px;
-  font-weight: 800;
-  text-align: center;
-  letter-spacing: 0.3em;
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  font-family: 'SF Mono', 'Menlo', monospace;
-  outline: none;
-  text-transform: uppercase;
-  margin-bottom: 14px;
-}
-.code-input:focus { border-color: var(--primary); }
 
 .msg {
   padding: 10px 14px;
@@ -707,197 +581,6 @@ async function onCopyCode() {
   font-size: 14px;
 }
 
-/* ── セッションバナー ── */
-.session-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  margin-bottom: 12px;
-}
-.session-banner.not-active {
-  background: #fefce8;
-  border: 1.5px solid #fde047;
-  flex-wrap: wrap;
-}
-.session-banner.is-active {
-  background: #f0fdf4;
-  border: 1.5px solid #86efac;
-}
-.session-banner-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-}
-.session-banner-text {
-  flex: 1;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-primary, #1e293b);
-}
-.session-banner-text strong {
-  font-size: 13px;
-}
-.session-banner.not-active .session-banner-text { color: #854d0e; }
-.session-banner.is-active  .session-banner-text { color: #166534; }
-.session-start-btn {
-  padding: 8px 16px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.session-banner.is-ended {
-  background: #f1f5f9;
-  border: 1.5px solid #cbd5e1;
-}
-.session-banner.is-ended .session-banner-icon {
-  color: #94a3b8;
-}
-.session-new-btn {
-  width: 100%;
-  padding: 14px;
-  font-size: 15px;
-  margin-bottom: 4px;
-}
-
-/* ── タブ ── */
-.sync-tabs {
-  display: flex;
-  gap: 4px;
-  background: #f1f5f9;
-  border-radius: 10px;
-  padding: 4px;
-  margin-bottom: 16px;
-}
-.sync-tab {
-  flex: 1;
-  padding: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  background: transparent;
-  border-radius: 7px;
-  cursor: pointer;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: all 0.15s;
-}
-.sync-tab.active {
-  background: white;
-  color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.tab-badge {
-  background: var(--primary);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
-}
-
-/* ── 変更履歴 ── */
-.history-filter {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 14px;
-  border: 1.5px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  outline: none;
-  font-family: inherit;
-  margin-bottom: 12px;
-  box-sizing: border-box;
-}
-.history-filter:focus { border-color: var(--primary); }
-
-.history-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  padding: 32px 16px;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 52vh;
-  overflow-y: auto;
-}
-
-.history-entry {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border-left: 3px solid var(--primary);
-}
-.history-entry.is-remove {
-  border-left-color: var(--danger, #ef4444);
-  background: #fff5f5;
-}
-
-.history-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 3px;
-}
-.history-time {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.history-who {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--primary);
-  background: #eff6ff;
-  padding: 1px 6px;
-  border-radius: 6px;
-}
-.history-entry.is-remove .history-who {
-  color: var(--danger, #ef4444);
-  background: #fef2f2;
-}
-
-.history-item {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history-change {
-  font-size: 12px;
-  color: #15803d;
-  font-weight: 700;
-}
-.history-change.is-remove {
-  color: var(--danger, #ef4444);
-}
-
-/* セッション終了ボタン */
-.btn-warning {
-  background: #f59e0b;
-  color: white;
-  border: none;
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  flex: 1;
-}
 .btn-success {
   background: var(--success, #22c55e);
   color: white;

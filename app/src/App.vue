@@ -14,6 +14,7 @@ import {
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
+  broadcastSessionEnd,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
 } from './composables/useSync.js'
@@ -221,7 +222,7 @@ setMessageCallback((msgObj) => {
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
-  showToast('ルームが解散されました', 4000, 'error')
+  showToast('ルームが閉鎖されました', 4000, 'error')
   if (!syncIsHost.value) {
     setTimeout(() => {
       reset()
@@ -268,6 +269,10 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   }
   const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
   showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
+  // ゲスト: ホストが棚卸を完了したら退室して TOP へ戻る
+  if (!syncIsHost.value && status === 'completed') {
+    setTimeout(() => leaveRoom(), 2500)
+  }
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
@@ -400,10 +405,18 @@ async function onStartNew() {
   if (continuousMode.value) onForceStop()
 }
 
-// SyncModal からの「新しいセッションを開始」（ルーム接続中のままセッションをリセット）
-function onSyncStartNew() {
-  reset()
-  clearAuditLog()
+// SyncModal からの「✓ 棚卸を完了」
+// ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知（ゲストは退室）
+function onSyncComplete() {
+  completeSession()
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
+  if (snapshot) saveSnapshotToD1(snapshot)
+  saveLearningSession(auditLog, config.order, participantList.length || 1)
+  learnedOrderVersion.value++
+  broadcastSessionEnd('completed')
+  if (continuousMode.value) onForceStop()
+  showSync.value = false
+  showToast('棚卸を完了しました ✓', 3000, 'success')
 }
 
 // ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
@@ -1052,7 +1065,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
-    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @startNewSession="onSyncStartNew" />
+    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @complete="onSyncComplete" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
     <!-- 通知ポップアップ -->
