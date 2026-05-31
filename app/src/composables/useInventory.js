@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const inventory   = reactive({})
+const recountFlags = reactive({})  // { [item]: { by, at } } 「あとで数える」フラグ（未入力品目にも立つ）
 const entryLog    = reactive([])   // 今日の入力順（初入力の順番を記録）
 const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 
@@ -14,10 +15,11 @@ let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, added
 function _save() {
   try {
     localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
-      date:        new Date().toISOString().slice(0, 10),
-      data:        { ...inventory },
-      entryLog:    [...entryLog],
-      completedAt: completedAt.value,
+      date:         new Date().toISOString().slice(0, 10),
+      data:         { ...inventory },
+      recountFlags: { ...recountFlags },
+      entryLog:     [...entryLog],
+      completedAt:  completedAt.value,
     }))
   } catch (_) {}
 }
@@ -34,6 +36,7 @@ function _load() {
     if (!saved.completedAt && saved.date !== today) return
 
     Object.assign(inventory, saved.data ?? {})
+    Object.assign(recountFlags, saved.recountFlags ?? {})
     if (saved.entryLog?.length > 0) {
       entryLog.splice(0, entryLog.length, ...saved.entryLog)
     }
@@ -60,6 +63,16 @@ export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '', updated
 export function applyRemoteRemove(ingredient) {
   if (completedAt.value) return  // 完了済みはリモート削除を受け付けない
   delete inventory[ingredient]
+  _save()
+}
+
+/**
+ * 他デバイスからの「あとで数える」フラグ更新を適用（ブロードキャストしない）
+ */
+export function applyRemoteRecountFlag(item, on, by = '', at = Date.now()) {
+  if (completedAt.value) return
+  if (on) recountFlags[item] = { by, at }
+  else    delete recountFlags[item]
   _save()
 }
 
@@ -136,6 +149,14 @@ export function useInventory() {
     _save()
   }
 
+  /** 「あとで数える」フラグを立てる/外す。未入力品目にも立てられる。 */
+  function setRecountFlag(item, on, by = '') {
+    if (completedAt.value) return
+    if (on) recountFlags[item] = { by, at: Date.now() }
+    else    delete recountFlags[item]
+    _save()
+  }
+
   /** 棚卸を完了としてマーク。読み取り専用になる。スナップショット保存は呼び出し元（App.vue）で行う。 */
   function completeSession() {
     completedAt.value = new Date().toISOString()
@@ -151,6 +172,7 @@ export function useInventory() {
   /** 新規棚卸を開始（現セッションをクリア） */
   function reset() {
     Object.keys(inventory).forEach(k => delete inventory[k])
+    Object.keys(recountFlags).forEach(k => delete recountFlags[k])
     entryLog.splice(0, entryLog.length)
     completedAt.value = null
     _lastEntry = null
@@ -204,10 +226,10 @@ export function useInventory() {
   }
 
   return {
-    inventory, filledCount, totalValue,
+    inventory, recountFlags, filledCount, totalValue,
     isCompleted, completedAt,
     entryLog,
-    setItem, updateQty, removeItem, reset, exportCSV, undoLast,
+    setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV, undoLast,
     completeSession, reopenSession,
   }
 }

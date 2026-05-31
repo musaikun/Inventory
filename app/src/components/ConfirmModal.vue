@@ -12,9 +12,10 @@ const props = defineProps({
   lotSize:     { type: String,  default: '' },   // 入数ヒント e.g. "24本"
   unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
   auditLog:    { type: Array,   default: () => [] },
+  isFlagged:   { type: Boolean, default: false }, // 「あとで数える」フラグ状態
 })
 
-const emit = defineEmits(['confirm', 'cancel', 'revert'])
+const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag'])
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
@@ -129,6 +130,8 @@ function formatAction(action) {
   if (action === 'add')       return '追加'
   if (action === 'overwrite') return '上書'
   if (action === 'remove')    return '削除'
+  if (action === 'flag_recount')   return '🔖付'
+  if (action === 'unflag_recount') return '🔖解'
   return action
 }
 
@@ -192,6 +195,14 @@ function submit(isAdd) {
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
         </div>
       </div>
+
+      <!-- あとで数えるフラグ -->
+      <button
+        class="recount-toggle"
+        :class="{ on: isFlagged }"
+        @click="$emit('toggle-flag', !isFlagged)"
+        type="button"
+      >🔖 {{ isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える' }}</button>
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate" class="dup-warn">
@@ -608,4 +619,27 @@ function submit(isAdd) {
 .action-add       { background: #dbeafe; color: #1e40af; }
 .action-overwrite { background: #fef9c3; color: #854d0e; }
 .action-remove    { background: #fee2e2; color: #991b1b; }
+.action-flag_recount   { background: #ffedd5; color: #9a3412; }
+.action-unflag_recount { background: #f1f5f9; color: #475569; }
+
+/* あとで数える トグル */
+.recount-toggle {
+  width: 100%;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1.5px solid #fdba74;
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.recount-toggle.on {
+  color: #fff;
+  background: #f97316;
+  border-color: #f97316;
+}
+.recount-toggle:active { opacity: 0.8; }
 </style>

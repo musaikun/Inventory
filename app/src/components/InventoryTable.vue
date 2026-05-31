@@ -10,6 +10,7 @@ const props = defineProps({
   readOnly:         { type: Boolean, default: false },
   learnedOrder:     { type: Array,   default: null },
   lateRecountItems: { type: Object,  default: null },  // Set<string>
+  recountFlags:     { type: Object,  default: null },  // { [item]: {by,at} }「あとで数える」
   categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
 })
 
@@ -475,6 +476,11 @@ function fmtYen(n) {
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
                 <span
+                  v-if="recountFlags?.[row.item]"
+                  class="recount-flag-badge"
+                  title="あとで数えるフラグが立っています"
+                >🔖</span>
+                <span
                   v-if="sortMode === 'learned' && lateRecountItems?.has(row.item)"
                   class="late-recount-badge"
                   title="この品目は最初の入力から15分以上後に再入力されています"
@@ -855,6 +861,11 @@ function fmtYen(n) {
 .late-recount-badge {
   font-size: 11px;
   color: #d97706;
+  flex-shrink: 0;
+}
+
+.recount-flag-badge {
+  font-size: 12px;
   flex-shrink: 0;
 }
 

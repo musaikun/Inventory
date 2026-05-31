@@ -30,7 +30,7 @@ export function useHistory() {
    * @param {string[]} entryLog   入力順ログ（学習ソート用）
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -58,6 +58,7 @@ export function useHistory() {
         unitPrice,
         subtotal,
         code,
+        flagged:   !!recountFlags?.[item],            // 「あとで数える」フラグ
       })
     }
 
@@ -65,8 +66,9 @@ export function useHistory() {
     let participants = null
     if (auditLog && auditLog.length > 0) {
       const lastAuthor = new Map() // ingredient -> { deviceId, name }
+      const _qtyAction = (a) => a && a !== 'remove' && a !== 'flag_recount' && a !== 'unflag_recount'
       for (const entry of auditLog) {
-        if (entry.action && entry.action !== 'remove') {
+        if (_qtyAction(entry.action)) {
           lastAuthor.set(entry.ingredient, {
             deviceId: entry.enteredById || '__solo__',
             name:     entry.enteredBy   || '名前未設定',
@@ -104,6 +106,7 @@ export function useHistory() {
       totalValue:   hasPrices ? totalValue : null,
       entryLog:     entryLog ? [...entryLog] : [],
       participants,
+      flaggedItems: recountFlags ? Object.keys(recountFlags) : [],
     }
     _persist()
     return _data[today]

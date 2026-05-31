@@ -113,6 +113,8 @@ export function getLateRecountItems(auditLog) {
   const latest    = new Map()
 
   for (const entry of auditLog) {
+    // 「あとで数える」フラグ操作は数量の再入力ではないため除外
+    if (entry.action === 'flag_recount' || entry.action === 'unflag_recount') continue
     if (entry.action === 'new' && !firstSeen.has(entry.ingredient)) {
       firstSeen.set(entry.ingredient, entry.timestamp)
     }

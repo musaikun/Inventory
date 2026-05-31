@@ -76,7 +76,9 @@ watch(deviceName, (newName, oldName) => {
 // ── コールバック ──────────────────────────────────────────────────────────────
 let _onItemUpdate     = null
 let _onItemRemove     = null
+let _onRecountFlag    = null
 let _getInventory     = null
+let _getRecountFlags  = null
 let _getConfig        = null
 let _onConfigReceived = null
 let _onResetConfig    = null
@@ -95,7 +97,9 @@ let _onSessionStarted   = null
 let _onSessionEnded     = null
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
+export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
+export function registerRecountFlagsGetter(fn) { _getRecountFlags = fn }
 export function registerConfigGetter(fn)     { _getConfig = fn }
 export function setConfigCallback(fn)        { _onConfigReceived = fn }
 export function setResetConfigCallback(fn)   { _onResetConfig = fn }
@@ -145,6 +149,11 @@ export function broadcastScope(scope) {
   _ws.send(JSON.stringify({ type: 'scope', scope }))
 }
 
+export function broadcastRecountFlag(ingredient, on) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'recount_flag', ingredient, on: !!on }))
+}
+
 export function broadcastDone(isFinal = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'done', isFinal }))
@@ -156,9 +165,10 @@ export function broadcastSessionStart(sessionId) {
   state.isSessionActive = true
   // 現在のローカル在庫＋品目リストをまとめて送り、DO側で原子的に保存させる
   // → ゲストはどのタイミングで参加しても完全なスナップショット（在庫＋品目）を受け取れる
-  const inv = _getInventory?.() ?? {}
-  const cfg = _getConfig?.() ?? null
-  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg }))
+  const inv   = _getInventory?.() ?? {}
+  const cfg   = _getConfig?.() ?? null
+  const flags = _getRecountFlags?.() ?? {}
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg, recountFlags: flags }))
 }
 
 export function broadcastSessionEnd(status = 'completed') {
@@ -308,6 +318,15 @@ function _handleMessage(msg) {
         } else {
           _onResetConfig?.()
         }
+        // 「あとで数える」フラグをサーバー状態に揃える（ローカルにしか無いものは外す）
+        const serverFlags = msg.recountFlags ?? {}
+        const localFlags  = _getRecountFlags?.() ?? {}
+        for (const item of Object.keys(localFlags)) {
+          if (!serverFlags[item]) _onRecountFlag?.(item, false)
+        }
+        for (const [item, info] of Object.entries(serverFlags)) {
+          _onRecountFlag?.(item, true, info?.by ?? '', info?.at)
+        }
       }
       if (Array.isArray(msg.messages)) {
         messages.splice(0, messages.length, ...msg.messages)
@@ -384,6 +403,12 @@ function _handleMessage(msg) {
 
     case 'scope':
       _onScopeReceived?.(msg.scope)
+      break
+
+    case 'recount_flag':
+      if (msg.fromDeviceId !== deviceId) {
+        _onRecountFlag?.(msg.ingredient, msg.on, msg.enteredBy ?? '', msg.at)
+      }
       break
 
     case 'session_started': {
@@ -483,6 +508,10 @@ function _connect(code) {
             for (const [ingredient, entry] of Object.entries(inv)) {
               broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
             }
+          }
+          if (_getRecountFlags) {
+            const flags = _getRecountFlags() ?? {}
+            for (const item of Object.keys(flags)) broadcastRecountFlag(item, true)
           }
         }, 200)
         _startHeartbeat()

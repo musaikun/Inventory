@@ -2,19 +2,20 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { saveLearningSession, computeLearnedOrder, getLateRecountItems } from './composables/useLearning.js'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory, applyRemoteUpdate, applyRemoteRemove } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import {
   useSync,
   setInventoryCallbacks, registerInventoryGetter,
+  setRecountFlagCallback, registerRecountFlagsGetter,
   registerConfigGetter, setConfigCallback,
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
-  broadcastSessionEnd, broadcastSessionStart,
+  broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
 } from './composables/useSync.js'
@@ -42,10 +43,10 @@ const { config, dictionary, masterDict, registerAlias, resetToDefault } = useCon
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
-  inventory, filledCount, totalValue,
+  inventory, recountFlags, filledCount, totalValue,
   isCompleted, completedAt,
   entryLog,
-  setItem, updateQty, removeItem, reset, exportCSV,
+  setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
   completeSession,
 } = useInventory()
 
@@ -170,6 +171,10 @@ const learnedOrder = computed(() => {
 })
 const lateRecountItems = computed(() => getLateRecountItems(auditLog))
 
+// ── あとで数える 一覧 ──────────────────────────────────────────────────────────
+const recountItems = computed(() => Object.keys(recountFlags))
+const recountOpen  = ref(false)
+
 // ── オフライン時のローカル auditLog 追記 ───────────────────────────────────────
 function _localAudit(ingredient, action, delta, totalQty, unit) {
   addLocalAuditEntry({
@@ -185,10 +190,25 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
   })
 }
 
+// ── あとで数える フラグの切替（ソロ=ローカル監査 / 同期中=ブロードキャスト）──
+function onToggleRecountFlag(item, on) {
+  if (isCompleted.value) return
+  setRecountFlag(item, on, deviceName.value || '名前未設定')
+  if (syncActive.value) {
+    broadcastRecountFlag(item, on)
+  } else {
+    const cur = inventory[item]
+    _localAudit(item, on ? 'flag_recount' : 'unflag_recount', 0, cur?.qty ?? 0, cur?.unit ?? '')
+  }
+  showToast(on ? `「${item}」を“あとで数える”に追加 🔖` : `「${item}」の“あとで数える”を解除`, 2400, on ? 'warning' : 'default')
+}
+
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
+setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
+registerRecountFlagsGetter(() => ({ ...recountFlags }))
 registerConfigGetter(() => ({
   order:         config.order,
   units:         config.units,
@@ -383,7 +403,7 @@ function onComplete() {
   // ホスト or ソロ: 棚卸を締める（画面ロック・スナップショット保存）
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
   if (snapshot) saveSnapshotToD1(snapshot)
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
@@ -409,7 +429,7 @@ async function onStartNew() {
 // ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知（ゲストは退室）
 function onSyncComplete() {
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
   if (snapshot) saveSnapshotToD1(snapshot)
   saveLearningSession(auditLog, config.order, participantList.length || 1)
   learnedOrderVersion.value++
@@ -478,6 +498,8 @@ const conflictItems = computed(() => {
   if (!syncActive.value || auditLog.length === 0) return []
   const byIngredient = new Map()
   for (const entry of auditLog) {
+    // フラグ操作は数量編集ではないため複数人編集判定から除外
+    if (entry.action === 'flag_recount' || entry.action === 'unflag_recount') continue
     if (!byIngredient.has(entry.ingredient)) {
       byIngredient.set(entry.ingredient, { entries: [], editors: new Set() })
     }
@@ -936,6 +958,34 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
       </div>
 
+      <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
+      <div v-if="recountItems.length > 0" class="recount-notice">
+        <button class="recount-notice-toggle" @click="recountOpen = !recountOpen" type="button">
+          <span class="recount-notice-icon">🔖</span>
+          <span class="recount-notice-label">あとで数える品目が {{ recountItems.length }}件あります</span>
+          <span class="recount-notice-arrow">{{ recountOpen ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="recountOpen" class="recount-notice-body">
+          <div
+            v-for="item in recountItems"
+            :key="item"
+            class="recount-notice-item"
+          >
+            <span class="recount-notice-name" @click="onTableTap(item)">
+              {{ item }}
+              <span v-if="inventory[item]" class="recount-notice-qty">{{ inventory[item].qty }}{{ inventory[item].unit }}</span>
+              <span v-else class="recount-notice-empty">未入力</span>
+            </span>
+            <button
+              v-if="!isCompleted"
+              class="recount-notice-clear"
+              @click="onToggleRecountFlag(item, false)"
+              type="button"
+            >解除</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 複数人編集品目バナー -->
       <div v-if="conflictItems.length > 0" class="conflict-notice">
         <button class="conflict-notice-toggle" @click="conflictOpen = !conflictOpen" type="button">
@@ -963,6 +1013,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :read-only="isCompleted"
         :learned-order="learnedOrder"
         :late-recount-items="lateRecountItems"
+        :recount-flags="recountFlags"
         :category-scope="categoryScope"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
@@ -981,9 +1032,11 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
         :lot-size="confirmState.lotSize"
         :audit-log="auditLog"
+        :is-flagged="!!recountFlags[confirmState.ingredient]"
         @confirm="onConfirm"
         @cancel="onCancelConfirm"
         @revert="onConfirmRevert"
+        @toggle-flag="on => onToggleRecountFlag(confirmState.ingredient, on)"
       />
 
       <!-- 候補選択モーダル -->
@@ -1165,6 +1218,90 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   opacity: 0;
   transform: scale(0.88);
 }
+
+/* ── あとで数える 一覧バナー ── */
+.recount-notice {
+  margin: 0 16px 8px;
+  border: 1.5px solid #fdba74;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.recount-notice-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fff7ed;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a3412;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recount-notice-toggle:active { background: #ffedd5; }
+.recount-notice-icon  { flex-shrink: 0; }
+.recount-notice-label { flex: 1; }
+.recount-notice-arrow { font-size: 10px; flex-shrink: 0; }
+
+.recount-notice-body {
+  background: #fff;
+  border-top: 1px solid #fed7aa;
+}
+
+.recount-notice-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  gap: 8px;
+}
+
+.recount-notice-item:last-child { border-bottom: none; }
+
+.recount-notice-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recount-notice-qty {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-left: 6px;
+}
+
+.recount-notice-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.recount-notice-clear {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1.5px solid #fdba74;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.recount-notice-clear:active { background: #ffedd5; }
 
 /* ── 複数人編集品目バナー ── */
 .conflict-notice {

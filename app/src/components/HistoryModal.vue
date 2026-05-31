@@ -111,7 +111,10 @@ function onDelete(date) {
             </thead>
             <tbody>
               <tr v-for="it in detailView.items" :key="it.item">
-                <td class="td-name">{{ it.item }}</td>
+                <td class="td-name">
+                  {{ it.item }}
+                  <span v-if="it.flagged" class="hist-flag-badge" title="あとで数えるフラグ付き">🔖</span>
+                </td>
                 <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
                 <td v-if="detailView.items.some(it2 => it2.unitPrice != null)" class="td-num">
                   {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
@@ -442,6 +445,7 @@ function onDelete(date) {
 }
 
 .td-num { text-align: right; }
+.hist-flag-badge { font-size: 11px; margin-left: 4px; }
 
 .total-row td {
   font-weight: 700;

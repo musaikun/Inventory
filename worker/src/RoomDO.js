@@ -126,8 +126,9 @@ export class RoomDO {
 
         ws.serializeAttachment({ deviceId, deviceName, isHost: isVerifiedHost })
 
-        const [inventory, config, messages, auditLog, isActive, sessionId] = await Promise.all([
+        const [inventory, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('recountFlags').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
           this.state.storage.get('auditLog').then(v => v ?? []),
@@ -137,7 +138,7 @@ export class RoomDO {
         const participants = this._getParticipants()
 
         ws.send(JSON.stringify({
-          type: 'joined', inventory, config, participants, messages, auditLog,
+          type: 'joined', inventory, recountFlags, config, participants, messages, auditLog,
           isSessionActive: isActive, sessionId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
         }))
@@ -263,6 +264,51 @@ export class RoomDO {
         break
       }
 
+      case 'recount_flag': {
+        const ingredient = String(msg.ingredient ?? '')
+        if (!ingredient || ingredient.length > 200) return
+        const on  = !!msg.on
+        const att = ws.deserializeAttachment() ?? {}
+
+        const flags = (await this.state.storage.get('recountFlags')) ?? {}
+        const was   = !!flags[ingredient]
+        // 状態変化なし（ホスト再接続時の再送など）: 監査ログは増やさず同期のみ
+        if (on === was) {
+          this._broadcast({ type: 'recount_flag', ingredient, on, fromDeviceId: att.deviceId ?? '' }, ws)
+          break
+        }
+
+        const at = Date.now()
+        if (on) flags[ingredient] = { by: String(att.deviceName ?? '').slice(0, 30), at }
+        else    delete flags[ingredient]
+
+        const inventory = (await this.state.storage.get('inventory')) ?? {}
+        const cur       = inventory[ingredient]
+        const auditLog  = (await this.state.storage.get('auditLog')) ?? []
+        const entry = {
+          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          ingredient,
+          action:      on ? 'flag_recount' : 'unflag_recount',
+          delta:       0,
+          totalQty:    cur?.qty ?? 0,
+          unit:        cur?.unit ?? '',
+          enteredBy:   String(att.deviceName ?? '').slice(0, 30),
+          enteredById: att.deviceId ?? '',
+          timestamp:   at,
+        }
+        auditLog.push(entry)
+        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+
+        await Promise.all([
+          this.state.storage.put('recountFlags', flags),
+          this.state.storage.put('auditLog', auditLog),
+        ])
+
+        this._broadcast({ type: 'audit_entry', entry })
+        this._broadcast({ type: 'recount_flag', ingredient, on, enteredBy: entry.enteredBy, at, fromDeviceId: att.deviceId ?? '' }, ws)
+        break
+      }
+
       case 'leave': {
         // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
         const remaining = this.state.getWebSockets()
@@ -376,6 +422,20 @@ export class RoomDO {
           }
           puts.push(this.state.storage.put('inventory', initialInv))
           puts.push(this.state.storage.put('auditLog',  []))
+
+          // 「あとで数える」フラグも新規セッションのスナップショットとして原子的に保存
+          const initialFlags = {}
+          if (msg.recountFlags && typeof msg.recountFlags === 'object') {
+            for (const [k, v] of Object.entries(msg.recountFlags)) {
+              if (String(k).length <= 200) {
+                initialFlags[k] = {
+                  by: String(v?.by ?? '').slice(0, 30),
+                  at: typeof v?.at === 'number' ? v.at : Date.now(),
+                }
+              }
+            }
+          }
+          puts.push(this.state.storage.put('recountFlags', initialFlags))
 
           // ホストの品目リストも保存し、新規セッションの session_started で配布する
           // → ゲストが前セッションの古い品目を引き継がず、必ずホストに揃う
