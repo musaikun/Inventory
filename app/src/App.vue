@@ -14,7 +14,7 @@ import {
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
-  broadcastSessionEnd,
+  broadcastSessionEnd, broadcastSessionStart,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
 } from './composables/useSync.js'
@@ -417,6 +417,15 @@ function onSyncComplete() {
   if (continuousMode.value) onForceStop()
   showSync.value = false
   showToast('棚卸を完了しました ✓', 3000, 'success')
+}
+
+// SyncModal からの新規セッション開始（リセット後に在庫をDOへ送信）
+function onSyncNewSession({ sessionId, isResume }) {
+  if (!isResume) {
+    reset()
+    clearAuditLog()
+  }
+  broadcastSessionStart(sessionId)
 }
 
 // ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
@@ -1065,7 +1074,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
-    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @complete="onSyncComplete" />
+    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
     <!-- 通知ポップアップ -->

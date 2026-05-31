@@ -396,6 +396,7 @@ function _handleMessage(msg) {
       if (isNewSession && state.mode === 'joining') {
         _onClearInventory?.()
         if (msg.config?.order?.length) _onConfigReceived?.(msg.config)
+        else _onResetConfig?.()
       }
       _addSysMsg('セッションが開始されました。参加者を招待してください。')
       _onSessionStarted?.(msg.sessionId)

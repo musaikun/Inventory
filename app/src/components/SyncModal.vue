@@ -1,12 +1,12 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
-import { useSync, broadcastSessionStart } from '../composables/useSync.js'
+import { useSync } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { isAuthenticated, createSession, updateSession } from '../composables/useAuth.js'
 
-const emit = defineEmits(['close', 'complete'])
+const emit = defineEmits(['close', 'complete', 'newSession'])
 
 const props = defineProps({
   pendingSession: { type: Object, default: null },
@@ -92,7 +92,7 @@ async function onCreateRoom() {
           console.warn('[SyncModal] D1 session create failed:', e.message)
         }
       }
-      broadcastSessionStart(sessionId)
+      emit('newSession', { sessionId, isResume: isIncompleteResume })
     }
 
     view.value = 'host'
