@@ -689,6 +689,12 @@ function _restartIfContinuous() {
 }
 
 // ── テキスト検索 ───────────────────────────────────────────────────────────────
+function onSearchFocus() {
+  searchStatus.value = ''
+  // テキスト入力に切り替えたら音声を止める（continuousMode は維持し次の確定後に再開）
+  if (isListening.value) stopVoice()
+}
+
 function onTextSearch() {
   const raw = searchText.value.trim()
   if (!raw) return
@@ -702,6 +708,8 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
   // TR行がfocusを持ったままだとEnterキーがTRの@keydownとModalのhandleKeydown
   // 両方に発火し、確定と同時に openConfirm(A) が再度呼ばれるバグを防ぐ
   document.activeElement?.blur()
+  // 数値入力モーダル中は音声認識を止める（確定/キャンセル後に _restartIfContinuous が再開する）
+  if (isListening.value) stopVoice()
   // PDF登録済みの単位を優先し、ロック状態にする
   const configUnit = config.units?.[ingredient]
   confirmState.value = {
@@ -945,7 +953,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
             :class="['search-input', searchStatus]"
             placeholder="例：ブラジル 3袋　（音声 or 入力）"
             @keyup.enter="onTextSearch"
-            @focus="searchStatus = ''"
+            @focus="onSearchFocus"
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
