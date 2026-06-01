@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { saveLearningSession, computeLearnedOrder, getLateRecountItems } from './composables/useLearning.js'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag } from './composables/useInventory.js'
-import { useConfig, applyRemoteConfig } from './composables/useConfig.js'
+import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import {
   useSync,
@@ -229,6 +229,24 @@ setConfigCallback((cfg) => {
 })
 // ホストに品目リストが無いルームへ参加した場合はデフォルトへ復帰
 setResetConfigCallback(() => resetToDefault())
+
+let _configSaveTimer = null
+setConfigChangedCallback(() => {
+  clearTimeout(_configSaveTimer)
+  _configSaveTimer = setTimeout(() => {
+    saveConfigToD1({
+      order:         config.order,
+      units:         config.units,
+      prices:        config.prices,
+      categories:    config.categories,
+      codes:         config.codes,
+      categoryCodes: config.categoryCodes,
+      prevMonths:    config.prevMonths,
+      lotSizes:      config.lotSizes,
+      dictionary:    config.dictionary,
+    })
+  }, 2000)
+})
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
     ? `棚卸が締められました。入力を終了してください。`

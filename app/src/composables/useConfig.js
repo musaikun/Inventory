@@ -10,6 +10,9 @@ const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
 const MASTER_KEY  = STORAGE_KEYS.master
 
+let _onConfigChanged = null
+export function setConfigChangedCallback(fn) { _onConfigChanged = fn }
+
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const config = reactive({
   order:          [...DEFAULT_ORDER],
@@ -71,7 +74,7 @@ function _load() {
   } catch (_) {}
 }
 
-function _save() {
+function _saveLocalOnly() {
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
       order:         config.order,
@@ -86,6 +89,11 @@ function _save() {
     }))
     config.isCustom = true
   } catch (_) {}
+}
+
+function _save() {
+  _saveLocalOnly()
+  _onConfigChanged?.()
 }
 
 // ── 自動学習エイリアス ────────────────────────────────────────────────────────
@@ -145,7 +153,7 @@ export function applyRemoteConfig(cfg) {
   config.prevMonths    = cfg.prevMonths    ?? {}
   config.lotSizes      = cfg.lotSizes      ?? {}
   config.dictionary    = cfg.dictionary    ?? {}
-  _save()
+  _saveLocalOnly()
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
