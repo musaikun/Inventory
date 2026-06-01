@@ -439,11 +439,15 @@ function onSyncComplete() {
   showToast('棚卸を完了しました ✓', 3000, 'success')
 }
 
-// SyncModal からの新規セッション開始（リセット後に在庫をDOへ送信）
+// SyncModal からの新規セッション開始（在庫をDOへ送信）
 function onSyncNewSession({ sessionId, isResume }) {
   if (!isResume) {
-    reset()
-    clearAuditLog()
+    // 完了済みセッション or 在庫が空（SessionListPage が既に reset() した直後）の場合のみリセット。
+    // ホストが途中入力済みのアクティブな在庫がある場合はそのまま DO に送る。
+    if (isCompleted.value || Object.keys(inventory).length === 0) {
+      reset()
+      clearAuditLog()
+    }
   }
   broadcastSessionStart(sessionId)
 }
