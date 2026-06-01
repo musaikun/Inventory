@@ -395,23 +395,24 @@ export class RoomDO {
         if (!this._isHost(ws)) return
         const newId  = String(msg.sessionId ?? '').slice(0, 64)
         const prevId = (await this.state.storage.get('sessionId')) ?? ''
-        // 同じ sessionId は中断セッション再開（再開時は既存在庫を保持）
         const isResume = !!(newId && newId === prevId)
 
         const puts = [
           this.state.storage.put('isActive',  true),
           this.state.storage.put('sessionId', newId),
         ]
-        let broadcastCfg = null
+
+        let broadcastInv   = {}
+        let broadcastFlags = {}
+        let broadcastCfg   = null
+
         if (!isResume) {
-          // 新規セッション: ホストが送った初期在庫をそのまま保存（原子的）
-          // → ゲスト参加タイミングに関わらず完全なスナップショットが渡る
-          const initialInv = {}
+          // 新規セッション: ホストが送った在庫・フラグ・品目リストを原子的に保存
+          const now = Date.now()
           if (msg.inventory && typeof msg.inventory === 'object') {
-            const now = Date.now()
             for (const [k, v] of Object.entries(msg.inventory)) {
               if (typeof v?.qty === 'number' && String(k).length <= 200) {
-                initialInv[k] = {
+                broadcastInv[k] = {
                   qty:       v.qty,
                   unit:      String(v.unit      ?? '').slice(0, 50),
                   enteredBy: String(v.enteredBy ?? '').slice(0, 30),
@@ -420,25 +421,21 @@ export class RoomDO {
               }
             }
           }
-          puts.push(this.state.storage.put('inventory', initialInv))
+          puts.push(this.state.storage.put('inventory', broadcastInv))
           puts.push(this.state.storage.put('auditLog',  []))
 
-          // 「あとで数える」フラグも新規セッションのスナップショットとして原子的に保存
-          const initialFlags = {}
           if (msg.recountFlags && typeof msg.recountFlags === 'object') {
             for (const [k, v] of Object.entries(msg.recountFlags)) {
               if (String(k).length <= 200) {
-                initialFlags[k] = {
+                broadcastFlags[k] = {
                   by: String(v?.by ?? '').slice(0, 30),
-                  at: typeof v?.at === 'number' ? v.at : Date.now(),
+                  at: typeof v?.at === 'number' ? v.at : now,
                 }
               }
             }
           }
-          puts.push(this.state.storage.put('recountFlags', initialFlags))
+          puts.push(this.state.storage.put('recountFlags', broadcastFlags))
 
-          // ホストの品目リストも保存し、新規セッションの session_started で配布する
-          // → ゲストが前セッションの古い品目を引き継がず、必ずホストに揃う
           const c = msg.config
           if (c && Array.isArray(c.order) && c.order.length > 0) {
             broadcastCfg = {
@@ -455,10 +452,23 @@ export class RoomDO {
             }
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
+        } else {
+          // 再開セッション: 既存の在庫・フラグ・品目リストをブロードキャスト用に読み込む
+          ;[broadcastInv, broadcastFlags, broadcastCfg] = await Promise.all([
+            this.state.storage.get('inventory').then(v => v ?? {}),
+            this.state.storage.get('recountFlags').then(v => v ?? {}),
+            this.state.storage.get('config').then(v => v ?? null),
+          ])
         }
+
         await Promise.all(puts)
+        // session_started に在庫・フラグ・品目リストを同梱する
+        // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる
         this._broadcast({
-          type: 'session_started', sessionId: newId,
+          type:         'session_started',
+          sessionId:    newId,
+          inventory:    broadcastInv,
+          recountFlags: broadcastFlags,
           ...(broadcastCfg ? { config: broadcastCfg } : {}),
         })
         break

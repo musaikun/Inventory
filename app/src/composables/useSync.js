@@ -416,10 +416,17 @@ function _handleMessage(msg) {
       const isNewSession    = !!(msg.sessionId && msg.sessionId !== prevSessionId)
       state.sessionId       = msg.sessionId ?? null
       state.isSessionActive = true
-      // sessionId が変わった新規セッション開始: ゲストの在庫をクリアし、
-      // ホストの品目リストに揃える（前セッションの古い品目を引き継がない）
+      // セッションIDが変わった（新規セッション）かつゲスト接続中: 完全な状態同期を行う
+      // 在庫・フラグ・品目リストをすべて session_started スナップショットで上書き
       if (isNewSession && state.mode === 'joining') {
         _onClearInventory?.()
+        for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
+          _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
+        }
+        const serverFlags = msg.recountFlags ?? {}
+        for (const [item, info] of Object.entries(serverFlags)) {
+          _onRecountFlag?.(item, true, info?.by ?? '', info?.at)
+        }
         if (msg.config?.order?.length) _onConfigReceived?.(msg.config)
         else _onResetConfig?.()
       }
