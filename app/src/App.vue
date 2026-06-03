@@ -126,15 +126,15 @@ async function onLandingStarted(payload) {
   }
 }
 
-async function _startSessionView() {
+async function _startSessionView({ loadConfig = true } = {}) {
   currentView.value = 'session'
   try {
     const [remoteConfig, remoteHistory] = await Promise.all([
-      loadConfigFromD1(),
+      loadConfig ? loadConfigFromD1() : Promise.resolve(null),
       loadHistoryFromD1(),
     ])
-    if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
-    if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+    if (loadConfig && remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
@@ -148,10 +148,10 @@ function onAuthDone() {
 // セッション一覧から「セッション開始」
 async function onSessionStart(session) {
   beginSession(session)
-  // 新規セッション: ローカルの在庫・ログをクリアしてからセッション画面へ
   reset()
   clearAuditLog()
-  await _startSessionView()
+  resetToDefault()   // 新規セッションは毎回 PDF/CSV/Excel からインポートさせる
+  await _startSessionView({ loadConfig: false })
 }
 
 // セッション一覧から「再開」
