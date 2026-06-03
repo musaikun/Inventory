@@ -435,6 +435,9 @@ function onComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
   if (snapshot) saveSnapshotToD1(snapshot)
+  if (isAuthenticated.value && pendingSession.value?.id) {
+    updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
+  }
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
@@ -461,6 +464,9 @@ function onSyncComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
   if (snapshot) saveSnapshotToD1(snapshot)
+  if (isAuthenticated.value && pendingSession.value?.id) {
+    updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
+  }
   saveLearningSession(auditLog, config.order, participantList.length || 1)
   learnedOrderVersion.value++
   broadcastSessionEnd('completed')
