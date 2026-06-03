@@ -74,17 +74,19 @@ async function onCreateRoom() {
     await createRoom()
 
     // ホスト再接続の場合はセッションが既にアクティブなのでスキップする
-    // 新規作成 or 中断セッション再開の場合のみセッションを開始する
     if (!state.isSessionActive) {
+      // セッションは SessionListPage で開始済み。pendingSession.id を再利用し
+      // 重複生成を防ぐ（中断再開時は active に戻す）。
       let sessionId = ''
-      const isIncompleteResume = props.pendingSession?.status === 'incomplete'
-        && !!state.sessionId
-        && state.sessionId === props.pendingSession.id
+      const isResume = props.pendingSession?.status === 'incomplete'
 
-      if (isIncompleteResume && isAuthenticated.value) {
+      if (isAuthenticated.value && props.pendingSession?.id) {
         sessionId = props.pendingSession.id
-        await updateSession(sessionId, 'active', props.pendingSession.itemCount ?? 0).catch(() => {})
+        if (isResume) {
+          await updateSession(sessionId, 'active', props.pendingSession.itemCount ?? 0).catch(() => {})
+        }
       } else if (isAuthenticated.value) {
+        // pendingSession が無い例外時のみ新規作成（フォールバック）
         try {
           const sess = await createSession()
           sessionId = sess.id
@@ -92,7 +94,7 @@ async function onCreateRoom() {
           console.warn('[SyncModal] D1 session create failed:', e.message)
         }
       }
-      emit('newSession', { sessionId, isResume: isIncompleteResume })
+      emit('newSession', { sessionId, isResume })
     }
 
     view.value = 'host'
