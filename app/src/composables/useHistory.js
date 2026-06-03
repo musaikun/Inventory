@@ -29,8 +29,9 @@ export function useHistory() {
    * @param {object}   codes      config.codes（商品コード）
    * @param {string[]} entryLog   入力順ログ（学習ソート用）
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
+   * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -59,6 +60,7 @@ export function useHistory() {
         subtotal,
         code,
         flagged:   !!recountFlags?.[item],            // 「あとで数える」フラグ
+        category:  categories?.[item] ?? null,
       })
     }
 
@@ -147,13 +149,24 @@ export function useHistory() {
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
     }
 
-    const hasPrice = snapshot.totalValue !== null
-    const header   = hasPrice
+    const hasPrice  = snapshot.totalValue !== null
+    const hasCats   = snapshot.items.some(it => it.category != null)
+    const header    = hasPrice
       ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
       : '日付,商品コード,品目名,単位,数量'
     const rows = [header]
 
+    let currentCat = undefined
     for (const it of snapshot.items) {
+      if (hasCats) {
+        const cat = it.category ?? 'その他'
+        if (cat !== currentCat) {
+          currentCat = cat
+          rows.push(hasPrice
+            ? `"","","【${cat}】","","","",""`
+            : `"","","【${cat}】","",""`)
+        }
+      }
       const code     = csvSafe(it.code ?? '')
       const safeItem = csvSafe(it.item)
       const unit     = csvSafe(it.unit ?? '')

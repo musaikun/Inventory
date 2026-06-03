@@ -446,7 +446,7 @@ function onComplete() {
   // ホスト or ソロ: 棚卸を締める（画面ロック・スナップショット保存）
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
   if (snapshot) saveSnapshotToD1(snapshot)
   if (isAuthenticated.value && pendingSession.value?.id) {
     updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
@@ -503,7 +503,7 @@ async function onStartNew() {
 // ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知（ゲストは退室）
 function onSyncComplete() {
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
   if (snapshot) saveSnapshotToD1(snapshot)
   if (isAuthenticated.value && pendingSession.value?.id) {
     updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})

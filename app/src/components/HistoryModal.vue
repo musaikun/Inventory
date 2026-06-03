@@ -16,8 +16,10 @@ const snapshots = computed(() => getSnapshots())
 // ── 詳細ビュー状態 ─────────────────────────────────────────────────────────────
 // null | { snapDate: string, name: string, items: [], totalValue: number|null }
 const detailView = ref(null)
+const expandedCats = ref([])
 
 function openDetail(snapDate, participantObj) {
+  expandedCats.value = []
   detailView.value = {
     snapDate,
     name:       participantObj.name,
@@ -29,6 +31,25 @@ function openDetail(snapDate, participantObj) {
 function closeDetail() {
   detailView.value = null
 }
+
+function toggleCat(cat) {
+  const idx = expandedCats.value.indexOf(cat)
+  if (idx >= 0) expandedCats.value.splice(idx, 1)
+  else          expandedCats.value.push(cat)
+}
+
+const detailGroups = computed(() => {
+  if (!detailView.value) return null
+  const hasCats = detailView.value.items.some(it => it.category != null)
+  if (!hasCats) return null
+  const map = new Map()
+  for (const it of detailView.value.items) {
+    const cat = it.category ?? 'その他'
+    if (!map.has(cat)) map.set(cat, [])
+    map.get(cat).push(it)
+  }
+  return [...map.entries()].map(([cat, items]) => ({ cat, items }))
+})
 
 // ── 参加者行リスト構築 ─────────────────────────────────────────────────────────
 function getParticipantRows(snap) {
@@ -101,34 +122,77 @@ function onDelete(date) {
         </div>
 
         <div class="detail-body">
-          <table class="detail-table">
-            <thead>
-              <tr>
-                <th class="th-name">品目</th>
-                <th class="th-num">数量</th>
-                <th v-if="detailView.items.some(it => it.unitPrice != null)" class="th-num">金額</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="it in detailView.items" :key="it.item">
-                <td class="td-name">
-                  {{ it.item }}
-                  <span v-if="it.flagged" class="hist-flag-badge" title="あとで数えるフラグ付き">🔖</span>
-                </td>
-                <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
-                <td v-if="detailView.items.some(it2 => it2.unitPrice != null)" class="td-num">
-                  {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
-                </td>
-              </tr>
-            </tbody>
-            <tfoot v-if="detailView.totalValue != null">
-              <tr class="total-row">
-                <td>合計</td>
-                <td></td>
-                <td class="td-num total">{{ fmtYen(detailView.totalValue) }}</td>
-              </tr>
-            </tfoot>
-          </table>
+          <!-- カテゴリ別アコーディオン -->
+          <template v-if="detailGroups">
+            <div v-for="group in detailGroups" :key="group.cat" class="cat-group">
+              <button class="cat-group-header" @click="toggleCat(group.cat)">
+                <span class="cat-arrow">{{ expandedCats.includes(group.cat) ? '▼' : '▶' }}</span>
+                <span class="cat-group-name">{{ group.cat }}</span>
+                <span class="cat-group-count">{{ group.items.length }}品目</span>
+                <span v-if="group.items.some(it => it.subtotal != null)" class="cat-group-total">
+                  {{ fmtYen(group.items.reduce((s, it) => s + (it.subtotal ?? 0), 0)) }}
+                </span>
+              </button>
+              <div v-if="expandedCats.includes(group.cat)" class="cat-group-body">
+                <table class="detail-table">
+                  <thead>
+                    <tr>
+                      <th class="th-name">品目</th>
+                      <th class="th-num">数量</th>
+                      <th v-if="group.items.some(it => it.unitPrice != null)" class="th-num">金額</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="it in group.items" :key="it.item">
+                      <td class="td-name">
+                        {{ it.item }}
+                        <span v-if="it.flagged" class="hist-flag-badge">🔖</span>
+                      </td>
+                      <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
+                      <td v-if="group.items.some(it2 => it2.unitPrice != null)" class="td-num">
+                        {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div v-if="detailView.totalValue != null" class="detail-summary-total">
+              合計: <strong>{{ fmtYen(detailView.totalValue) }}</strong>
+            </div>
+          </template>
+
+          <!-- フラットテーブル（カテゴリ情報なし・旧スナップショット） -->
+          <template v-else>
+            <table class="detail-table">
+              <thead>
+                <tr>
+                  <th class="th-name">品目</th>
+                  <th class="th-num">数量</th>
+                  <th v-if="detailView.items.some(it => it.unitPrice != null)" class="th-num">金額</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="it in detailView.items" :key="it.item">
+                  <td class="td-name">
+                    {{ it.item }}
+                    <span v-if="it.flagged" class="hist-flag-badge" title="あとで数えるフラグ付き">🔖</span>
+                  </td>
+                  <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
+                  <td v-if="detailView.items.some(it2 => it2.unitPrice != null)" class="td-num">
+                    {{ it.subtotal != null ? fmtYen(it.subtotal) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="detailView.totalValue != null">
+                <tr class="total-row">
+                  <td>合計</td>
+                  <td></td>
+                  <td class="td-num total">{{ fmtYen(detailView.totalValue) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </template>
         </div>
       </template>
 
@@ -456,4 +520,79 @@ function onDelete(date) {
 .total { color: var(--success); }
 
 .close-btn { width: 100%; margin-top: 4px; }
+
+/* ── カテゴリアコーディオン ── */
+.cat-group {
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.cat-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface, #f8fafc);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cat-group-header:active { background: #eff6ff; }
+
+.cat-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.cat-group-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+
+.cat-group-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cat-group-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 1px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.cat-group-body {
+  border-top: 1px solid var(--border);
+}
+
+.cat-group-body .detail-table {
+  border-radius: 0;
+  border: none;
+}
+
+.detail-summary-total {
+  text-align: right;
+  font-size: 14px;
+  color: var(--text-muted);
+  padding: 10px 4px 4px;
+}
+
+.detail-summary-total strong {
+  color: var(--success);
+  font-size: 16px;
+  margin-left: 4px;
+}
 </style>
