@@ -100,7 +100,7 @@ function _statusClass(status) {
 }
 
 function _itemCount(session) {
-  if (session.id === props.liveSessionId && props.liveItemCount !== null) return props.liveItemCount
+  if (session.id === props.liveSessionId && props.liveItemCount > 0) return props.liveItemCount
   return session.itemCount
 }
 </script>

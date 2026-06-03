@@ -263,6 +263,7 @@ setDissolvedCallback(() => {
   showToast('ルームが閉鎖されました', 4000, 'error')
   if (!syncIsHost.value) {
     setTimeout(() => {
+      pendingSession.value = null
       reset()
       resetToDefault()
       clearAuditLog()
@@ -275,6 +276,7 @@ setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`,
 setGuestLeaveCallback(() => {
   showSync.value = false
   showChat.value = false
+  pendingSession.value = null
   reset()
   resetToDefault()
   clearAuditLog()
@@ -381,10 +383,12 @@ watch(syncActive,  (v) => { if (!v) guestReported.value = false })
 
 let _itemCountSaveTimer = null
 watch(filledCount, (count) => {
-  if (!isAuthenticated.value || !pendingSession.value?.id) return
+  if (!isAuthenticated.value || !pendingSession.value?.id || currentView.value !== 'session') return
   clearTimeout(_itemCountSaveTimer)
   _itemCountSaveTimer = setTimeout(() => {
-    updateSession(pendingSession.value?.id, 'active', count).catch(() => {})
+    if (pendingSession.value?.id && currentView.value === 'session') {
+      updateSession(pendingSession.value.id, 'active', count).catch(() => {})
+    }
   }, 2000)
 })
 
