@@ -25,8 +25,8 @@ import {
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
-import { isAuthenticated, updateSession } from './composables/useAuth.js'
-import { STORAGE_KEYS } from './utils/storageKeys.js'
+import { isAuthenticated } from './composables/useAuth.js'
+import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -57,8 +57,13 @@ const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
 // 'landing' | 'auth' | 'sessions' | 'session'
 const currentView   = ref('landing')
-// セッション開始時に SessionListPage から渡される session オブジェクト
-const pendingSession = ref(null)
+// セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
+const {
+  pendingSession,
+  begin: beginSession, resume: resumeSession, restore: restorePendingSession,
+  touch: touchSession, complete: completeSessionD1, interrupt: interruptSession,
+  clear: clearSession,
+} = useSession()
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
 const pendingJoinCode  = ref(null)
@@ -142,7 +147,7 @@ function onAuthDone() {
 
 // セッション一覧から「セッション開始」
 async function onSessionStart(session) {
-  pendingSession.value = session
+  beginSession(session)
   // 新規セッション: ローカルの在庫・ログをクリアしてからセッション画面へ
   reset()
   clearAuditLog()
@@ -151,7 +156,7 @@ async function onSessionStart(session) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
-  pendingSession.value = session
+  resumeSession(session)
   await _startSessionView()
 }
 
@@ -264,7 +269,7 @@ setDissolvedCallback(() => {
   showToast('ルームが閉鎖されました', 4000, 'error')
   if (!syncIsHost.value) {
     setTimeout(() => {
-      pendingSession.value = null
+      clearSession()
       reset()
       resetToDefault()
       clearAuditLog()
@@ -277,7 +282,7 @@ setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`,
 setGuestLeaveCallback(() => {
   showSync.value = false
   showChat.value = false
-  pendingSession.value = null
+  clearSession()
   reset()
   resetToDefault()
   clearAuditLog()
@@ -303,10 +308,9 @@ setScopeCallback((scope) => {
   if (!syncIsHost.value) categoryScope.value = scope
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
-  if (isAuthenticated.value && pendingSession.value?.id) {
-    const count = itemCount ?? filledCount.value ?? 0
-    await updateSession(pendingSession.value.id, status, count).catch(() => {})
-  }
+  const count = itemCount ?? filledCount.value ?? 0
+  if (status === 'completed') await completeSessionD1(count)
+  else                        await interruptSession(count)
   const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
   showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
   // ゲスト: ホストが棚卸を完了したら退室して TOP へ戻る
@@ -340,10 +344,7 @@ onMounted(async () => {
 
     // 認証済み: 進行中の棚卸があれば棚卸画面へ直接復帰、なければ一覧へ
     if (isAuthenticated.value) {
-      const savedPending = localStorage.getItem(STORAGE_KEYS.pendingSession)
-      if (savedPending && !isCompleted.value) {
-        try { pendingSession.value = JSON.parse(savedPending) } catch (_) {}
-      }
+      if (!isCompleted.value) restorePendingSession()
       currentView.value = (pendingSession.value?.id && !isCompleted.value)
         ? 'session'
         : 'sessions'
@@ -387,21 +388,10 @@ const guestReported = ref(false)
 watch(filledCount, () => { guestReported.value = false })
 watch(syncActive,  (v) => { if (!v) guestReported.value = false })
 
-let _itemCountSaveTimer = null
+// 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
 watch(filledCount, (count) => {
-  if (!isAuthenticated.value || !pendingSession.value?.id || currentView.value !== 'session') return
-  clearTimeout(_itemCountSaveTimer)
-  _itemCountSaveTimer = setTimeout(() => {
-    if (pendingSession.value?.id && currentView.value === 'session' && !isCompleted.value) {
-      updateSession(pendingSession.value.id, 'active', count).catch(() => {})
-    }
-  }, 2000)
-})
-
-// pendingSession を localStorage に永続化（リロード後に棚卸画面へ復帰するため）
-watch(pendingSession, (s) => {
-  if (s?.id) localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(s))
-  else       localStorage.removeItem(STORAGE_KEYS.pendingSession)
+  if (currentView.value !== 'session' || isCompleted.value) return
+  touchSession(count)
 })
 
 // ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
@@ -448,9 +438,7 @@ function onComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
   if (snapshot) saveSnapshotToD1(snapshot)
-  if (isAuthenticated.value && pendingSession.value?.id) {
-    updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
-  }
+  completeSessionD1(filledCount.value)
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
@@ -475,18 +463,12 @@ async function onGoHome() {
   if (syncIsHost.value && syncActive.value)      await dissolveRoom()
   else if (syncActive.value)                     leaveRoom()
 
-  // 未完了でデータがあれば D1 を「中断」に更新
-  if (!isCompleted.value && hasData && isAuthenticated.value && pendingSession.value?.id) {
-    await updateSession(pendingSession.value.id, 'incomplete', filledCount.value).catch(() => {})
-  }
-
-  // 完了済みの場合は確実に completed を書いてから遷移（onComplete の非同期書き込みとの競合対策）
-  if (isCompleted.value && isAuthenticated.value && pendingSession.value?.id) {
-    await updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
-  }
+  // 確定状態を書き込んでから遷移（書き込み完了を待ってから一覧を再取得させる）
+  if (isCompleted.value)         await completeSessionD1(filledCount.value)
+  else if (hasData)              await interruptSession(filledCount.value)
 
   if (continuousMode.value) onForceStop()
-  pendingSession.value = null
+  clearSession()
   showSync.value = false
   showChat.value = false
   currentView.value = 'sessions'
@@ -510,9 +492,7 @@ function onSyncComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
   if (snapshot) saveSnapshotToD1(snapshot)
-  if (isAuthenticated.value && pendingSession.value?.id) {
-    updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
-  }
+  completeSessionD1(filledCount.value)
   saveLearningSession(auditLog, config.order, participantList.length || 1)
   learnedOrderVersion.value++
   broadcastSessionEnd('completed')
@@ -1226,7 +1206,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
-    <SyncModal     v-if="showSync"     :pending-session="pendingSession" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
+    <SyncModal     v-if="showSync"     @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
     <!-- 通知ポップアップ -->

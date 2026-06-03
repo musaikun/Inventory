@@ -4,13 +4,12 @@ import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { isAuthenticated, createSession, updateSession } from '../composables/useAuth.js'
+import { isAuthenticated, createSession } from '../composables/useAuth.js'
+import { useSession } from '../composables/useSession.js'
 
 const emit = defineEmits(['close', 'complete', 'newSession'])
 
-const props = defineProps({
-  pendingSession: { type: Object, default: null },
-})
+const { pendingSession, reactivate, begin } = useSession()
 useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
@@ -78,17 +77,16 @@ async function onCreateRoom() {
       // セッションは SessionListPage で開始済み。pendingSession.id を再利用し
       // 重複生成を防ぐ（中断再開時は active に戻す）。
       let sessionId = ''
-      const isResume = props.pendingSession?.status === 'incomplete'
+      const isResume = pendingSession.value?.status === 'incomplete'
 
-      if (isAuthenticated.value && props.pendingSession?.id) {
-        sessionId = props.pendingSession.id
-        if (isResume) {
-          await updateSession(sessionId, 'active', props.pendingSession.itemCount ?? 0).catch(() => {})
-        }
+      if (isAuthenticated.value && pendingSession.value?.id) {
+        sessionId = pendingSession.value.id
+        if (isResume) await reactivate(pendingSession.value.itemCount ?? 0)
       } else if (isAuthenticated.value) {
         // pendingSession が無い例外時のみ新規作成（フォールバック）
         try {
           const sess = await createSession()
+          begin(sess)
           sessionId = sess.id
         } catch (e) {
           console.warn('[SyncModal] D1 session create failed:', e.message)
