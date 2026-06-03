@@ -10,8 +10,9 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 // 不変条件:
 //   - pendingSession = 現在の D1 セッション { id, shopCode, startedAt, status, itemCount }
 //   - touch() は active の保存（デバウンス）。確定後（_finalized）は無視される
-//   - complete()/interrupt() は確定遷移。保留中の touch を必ずキャンセルする
-//   - begin()/resume()/reactivate()/clear() で _finalized をリセット
+//   - markActive() は active の即時保存（保留 touch をキャンセル）
+//   - complete() は完了確定。保留中の touch を必ずキャンセルする
+//   - begin()/resume()/markActive()/clear() で _finalized をリセット
 
 const pendingSession = ref(null)
 let _touchTimer = null
@@ -67,8 +68,8 @@ export function useSession() {
     }, 2000)
   }
 
-  // 中断セッションを active に戻す（ルーム再開時など。保留 touch はキャンセル）
-  async function reactivate(count) {
+  // active を即時保存（一覧へ戻る前のフラッシュ・中断再開時など）。保留 touch はキャンセル
+  async function markActive(count) {
     _cancelTouch()
     _finalized = false
     if (!_canWrite()) return
@@ -84,14 +85,6 @@ export function useSession() {
     await updateSession(pendingSession.value.id, 'completed', count).catch(() => {})
   }
 
-  // 中断確定
-  async function interrupt(count) {
-    _cancelTouch()
-    _finalized = true
-    if (!_canWrite()) return
-    await updateSession(pendingSession.value.id, 'incomplete', count).catch(() => {})
-  }
-
   // 一覧へ戻る・退出時にセッション参照を破棄
   function clear() {
     _cancelTouch()
@@ -99,5 +92,5 @@ export function useSession() {
     pendingSession.value = null
   }
 
-  return { pendingSession, begin, resume, restore, touch, reactivate, complete, interrupt, clear }
+  return { pendingSession, begin, resume, restore, touch, markActive, complete, clear }
 }

@@ -61,7 +61,7 @@ const currentView   = ref('landing')
 const {
   pendingSession,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
-  touch: touchSession, complete: completeSessionD1, interrupt: interruptSession,
+  touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
   clear: clearSession,
 } = useSession()
 
@@ -310,7 +310,6 @@ setScopeCallback((scope) => {
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
   if (status === 'completed') await completeSessionD1(count)
-  else                        await interruptSession(count)
   const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
   showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
   // ゲスト: ホストが棚卸を完了したら退室して TOP へ戻る
@@ -451,21 +450,17 @@ function onComplete() {
 async function onGoHome() {
   const hasData = filledCount.value > 0
 
-  // 完了済み or 未入力: 確認なしで一覧へ
-  if (!isCompleted.value && hasData) {
-    const msg = (syncIsHost.value && syncActive.value)
-      ? '棚卸を中断して一覧に戻ります。\nルームは解散され、参加者は退出します。\nよろしいですか？'
-      : '棚卸を中断して一覧に戻りますか？\n（あとで一覧から再開できます）'
-    if (!confirm(msg)) return
+  // ホスト中のみ確認（ホストは退出するがルームは残り、ゲストは継続できる）
+  if (!isCompleted.value && syncIsHost.value && syncActive.value) {
+    if (!confirm('セッション一覧に戻ります。\nゲストはそのまま棚卸を続けられます。\nよろしいですか？')) return
   }
 
-  // ルームの後始末（ゲストへ通知）
-  if (syncIsHost.value && syncActive.value)      await dissolveRoom()
-  else if (syncActive.value)                     leaveRoom()
+  // ホストでも解散せず退出するだけ（ルームは残りゲストは継続できる）
+  if (syncActive.value) leaveRoom()
 
-  // 確定状態を書き込んでから遷移（書き込み完了を待ってから一覧を再取得させる）
-  if (isCompleted.value)         await completeSessionD1(filledCount.value)
-  else if (hasData)              await interruptSession(filledCount.value)
+  // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
+  if (isCompleted.value)  await completeSessionD1(filledCount.value)
+  else                    await markSessionActive(filledCount.value)
 
   if (continuousMode.value) onForceStop()
   clearSession()

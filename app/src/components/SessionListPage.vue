@@ -37,12 +37,13 @@ async function _loadSessions() {
   }
 }
 
-const activeSession = computed(() =>
-  sessions.value.find(s => s.status === 'active') ?? null
+// 完了以外はすべて「進行中」扱い（旧 incomplete レコードも含む）
+const inProgressSessions = computed(() =>
+  sessions.value.filter(s => s.status !== 'completed')
 )
 
-const pastSessions = computed(() =>
-  sessions.value.filter(s => s.status !== 'active')
+const completedSessions = computed(() =>
+  sessions.value.filter(s => s.status === 'completed')
 )
 
 async function onStartNew() {
@@ -92,11 +93,11 @@ function _formatDate(iso) {
 }
 
 function _statusLabel(status) {
-  return { active: '進行中', completed: '完了', incomplete: '中断' }[status] ?? status
+  return status === 'completed' ? '完了' : '進行中'
 }
 
 function _statusClass(status) {
-  return { active: 'status-active', completed: 'status-done', incomplete: 'status-pause' }[status] ?? ''
+  return status === 'completed' ? 'status-done' : 'status-active'
 }
 
 function _itemCount(session) {
@@ -126,19 +127,23 @@ function _itemCount(session) {
       <div v-if="loading" class="loading-msg">読み込み中...</div>
 
       <template v-else>
-        <!-- 進行中セッション -->
-        <template v-if="activeSession">
+        <!-- 進行中セッション（複数表示可） -->
+        <template v-if="inProgressSessions.length > 0">
           <div class="section-title">🔄 進行中のセッション</div>
-          <div class="session-card active">
+          <div
+            v-for="s in inProgressSessions"
+            :key="s.id"
+            class="session-card active"
+          >
             <div class="session-main">
-              <span class="session-status" :class="_statusClass('active')">{{ _statusLabel('active') }}</span>
-              <span class="session-date">開始: {{ _formatDate(activeSession.startedAt) }}</span>
-              <button class="btn-delete" :disabled="deletingId === activeSession.id" @click.stop="onDelete(activeSession)" title="削除">🗑</button>
+              <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
+              <span class="session-date">開始: {{ _formatDate(s.startedAt) }}</span>
+              <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
             </div>
             <div class="session-sub">
-              <span class="session-count">{{ _itemCount(activeSession) }}品目入力済み</span>
+              <span class="session-count">{{ _itemCount(s) }}品目入力済み</span>
             </div>
-            <button class="btn btn-primary session-resume-btn" @click="onResume(activeSession)">再開する</button>
+            <button class="btn btn-primary session-resume-btn" @click="onResume(s)">再開する</button>
           </div>
         </template>
 
@@ -149,17 +154,16 @@ function _itemCount(session) {
           @click="onStartNew"
         >
           <span class="btn-new-icon">＋</span>
-          {{ starting ? '開始中...' : activeSession ? '別の新規セッションを開始' : '新しい棚卸セッションを開始' }}
+          {{ starting ? '開始中...' : inProgressSessions.length > 0 ? '別の新規セッションを開始' : '新しい棚卸セッションを開始' }}
         </button>
 
-        <!-- 過去のセッション -->
-        <template v-if="pastSessions.length > 0">
-          <div class="section-title" style="margin-top:24px">📋 過去のセッション</div>
+        <!-- 完了済みセッション -->
+        <template v-if="completedSessions.length > 0">
+          <div class="section-title" style="margin-top:24px">📋 完了済みのセッション</div>
           <div
-            v-for="s in pastSessions"
+            v-for="s in completedSessions"
             :key="s.id"
             class="session-card"
-            :class="{ incomplete: s.status === 'incomplete' }"
           >
             <div class="session-main">
               <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
@@ -170,11 +174,6 @@ function _itemCount(session) {
               <span class="session-count">{{ _itemCount(s) }}品目</span>
               <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
             </div>
-            <button
-              v-if="s.status === 'incomplete'"
-              class="btn btn-warning session-resume-btn"
-              @click="onResume(s)"
-            >再開する</button>
           </div>
         </template>
 
@@ -271,10 +270,6 @@ function _itemCount(session) {
   border-color: #3b82f6;
 }
 
-.session-card.incomplete {
-  border-color: #f59e0b;
-}
-
 .session-main {
   display: flex;
   align-items: center;
@@ -305,7 +300,6 @@ function _itemCount(session) {
 
 .status-active   { background: #dbeafe; color: #1d4ed8; }
 .status-done     { background: #dcfce7; color: #15803d; }
-.status-pause    { background: #fef3c7; color: #d97706; }
 
 .session-date {
   font-size: 12px;
