@@ -26,6 +26,7 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
 } from './composables/useStore.js'
 import { isAuthenticated, updateSession } from './composables/useAuth.js'
+import { STORAGE_KEYS } from './utils/storageKeys.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
@@ -337,9 +338,15 @@ onMounted(async () => {
     const guestSession = getSavedGuestSession()
     if (guestSession) savedGuestRoomCode.value = guestSession.roomCode
 
-    // 認証済みならランディングをスキップしてセッション一覧へ直接遷移
+    // 認証済み: 進行中の棚卸があれば棚卸画面へ直接復帰、なければ一覧へ
     if (isAuthenticated.value) {
-      currentView.value = 'sessions'
+      const savedPending = localStorage.getItem(STORAGE_KEYS.pendingSession)
+      if (savedPending && !isCompleted.value) {
+        try { pendingSession.value = JSON.parse(savedPending) } catch (_) {}
+      }
+      currentView.value = (pendingSession.value?.id && !isCompleted.value)
+        ? 'session'
+        : 'sessions'
     }
   }
 
@@ -389,6 +396,12 @@ watch(filledCount, (count) => {
       updateSession(pendingSession.value.id, 'active', count).catch(() => {})
     }
   }, 2000)
+})
+
+// pendingSession を localStorage に永続化（リロード後に棚卸画面へ復帰するため）
+watch(pendingSession, (s) => {
+  if (s?.id) localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(s))
+  else       localStorage.removeItem(STORAGE_KEYS.pendingSession)
 })
 
 // ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
@@ -445,6 +458,34 @@ function onComplete() {
   if (syncActive.value) broadcastDone(true)   // isFinal=true: 棚卸締めを通知
 }
 
+
+// メイン画面のホームアイコン → セッション一覧へ戻る
+async function onGoHome() {
+  const hasData = filledCount.value > 0
+
+  // 完了済み or 未入力: 確認なしで一覧へ
+  if (!isCompleted.value && hasData) {
+    const msg = (syncIsHost.value && syncActive.value)
+      ? '棚卸を中断して一覧に戻ります。\nルームは解散され、参加者は退出します。\nよろしいですか？'
+      : '棚卸を中断して一覧に戻りますか？\n（あとで一覧から再開できます）'
+    if (!confirm(msg)) return
+  }
+
+  // ルームの後始末（ゲストへ通知）
+  if (syncIsHost.value && syncActive.value)      await dissolveRoom()
+  else if (syncActive.value)                     leaveRoom()
+
+  // 未完了でデータがあれば D1 を「中断」に更新
+  if (!isCompleted.value && hasData && isAuthenticated.value && pendingSession.value?.id) {
+    await updateSession(pendingSession.value.id, 'incomplete', filledCount.value).catch(() => {})
+  }
+
+  if (continuousMode.value) onForceStop()
+  pendingSession.value = null
+  showSync.value = false
+  showChat.value = false
+  currentView.value = 'sessions'
+}
 
 // 完了後に新規棚卸を開始
 async function onStartNew() {
@@ -934,6 +975,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <!-- ヘッダー -->
       <header class="app-header">
+        <div class="header-left">
+          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" title="セッション一覧に戻る">🏠</button>
+        </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
           <div class="date">{{ dateStr }}</div>

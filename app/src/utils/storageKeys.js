@@ -25,4 +25,5 @@ export const STORAGE_KEYS = {
   syncSession:      '_sync_session_v1',
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
+  pendingSession:   '_pending_session_v1',
 }
