@@ -122,6 +122,12 @@ export async function handleSessionCreate(db, code) {
   return { id, shopCode: code, startedAt: now, status: 'active', itemCount: 0 }
 }
 
+// DELETE /store/:code/sessions/:id
+export async function handleSessionDelete(db, code, sessionId) {
+  await db.prepare('DELETE FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).run()
+  return { ok: true }
+}
+
 // PUT /store/:code/sessions/:id  body: { status, itemCount? }
 export async function handleSessionUpdate(db, code, sessionId, body) {
   const validStatuses = ['active', 'completed', 'incomplete']

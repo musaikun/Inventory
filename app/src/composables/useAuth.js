@@ -101,3 +101,10 @@ export async function updateSession(sessionId, status, itemCount = 0) {
     body:   JSON.stringify({ status, itemCount }),
   })
 }
+
+// DELETE /store/:code/sessions/:id
+export async function deleteSession(sessionId) {
+  const code = shopCode.value
+  if (!code || !_token.value || !sessionId) return
+  return _api(`/store/${code}/sessions/${sessionId}`, { method: 'DELETE' })
+}

@@ -6,7 +6,7 @@ import {
   handleInventoryGet, handleInventoryPut,
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
-  handleSessionsGet, handleSessionCreate, handleSessionUpdate,
+  handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth } from './authHandler.js'
 export { RoomDO }
@@ -141,6 +141,11 @@ export default {
           const result = await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json())
           const status = result._status ?? 200; delete result._status
           return jsonResponse(result, status, origin, allowedOrigin)
+        }
+        if (sessMatch && request.method === 'DELETE') {
+          const authCode = await verifyAuth(env.DB, request)
+          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
         }
       }
     }

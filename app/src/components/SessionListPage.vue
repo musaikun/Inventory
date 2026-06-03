@@ -1,14 +1,15 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { getSessions, createSession, updateSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 
 const emit = defineEmits(['startSession', 'resumeSession', 'back'])
 
-const sessions  = ref([])
-const loading   = ref(true)
-const error     = ref('')
-const starting  = ref(false)
+const sessions   = ref([])
+const loading    = ref(true)
+const error      = ref('')
+const starting   = ref(false)
+const deletingId = ref(null)
 
 onMounted(async () => {
   await _loadSessions()
@@ -57,6 +58,23 @@ function onResume(session) {
   emit('resumeSession', session)
 }
 
+async function onDelete(session) {
+  const isActive = session.status === 'active'
+  const msg = isActive
+    ? `進行中のセッションを削除します。\n入力中のデータも失われます。\n\nこの操作は取り消せません。本当に削除しますか？`
+    : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
+  if (!confirm(msg)) return
+  deletingId.value = session.id
+  try {
+    await deleteSession(session.id)
+    sessions.value = sessions.value.filter(s => s.id !== session.id)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    deletingId.value = null
+  }
+}
+
 async function onLogout() {
   if (!confirm('ログアウトしますか？')) return
   await logout()
@@ -102,15 +120,16 @@ function _statusClass(status) {
         <!-- 進行中セッション -->
         <template v-if="activeSession">
           <div class="section-title">🔄 進行中のセッション</div>
-          <div class="session-card active" @click="onResume(activeSession)">
+          <div class="session-card active">
             <div class="session-main">
               <span class="session-status" :class="_statusClass('active')">{{ _statusLabel('active') }}</span>
               <span class="session-date">開始: {{ _formatDate(activeSession.startedAt) }}</span>
+              <button class="btn-delete" :disabled="deletingId === activeSession.id" @click.stop="onDelete(activeSession)" title="削除">🗑</button>
             </div>
             <div class="session-sub">
               <span class="session-count">{{ activeSession.itemCount }}品目入力済み</span>
             </div>
-            <button class="btn btn-primary session-resume-btn">再開する</button>
+            <button class="btn btn-primary session-resume-btn" @click="onResume(activeSession)">再開する</button>
           </div>
         </template>
 
@@ -136,12 +155,12 @@ function _statusClass(status) {
             <div class="session-main">
               <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
               <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+              <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
             </div>
             <div class="session-sub">
               <span class="session-count">{{ s.itemCount }}品目</span>
               <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
             </div>
-            <!-- 中断セッションのみ再開可能（完了済みは再開不可） -->
             <button
               v-if="s.status === 'incomplete'"
               class="btn btn-warning session-resume-btn"
@@ -253,6 +272,20 @@ function _statusClass(status) {
   gap: 8px;
   margin-bottom: 4px;
 }
+
+.btn-delete {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.4;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+.btn-delete:hover { opacity: 0.8; }
+.btn-delete:disabled { opacity: 0.2; cursor: not-allowed; }
 
 .session-status {
   font-size: 11px;
