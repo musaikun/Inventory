@@ -3,6 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 
+const props = defineProps({
+  liveItemCount: { type: Number, default: null },
+  liveSessionId: { type: String, default: null },
+})
 const emit = defineEmits(['startSession', 'resumeSession', 'back'])
 
 const sessions   = ref([])
@@ -94,6 +98,11 @@ function _statusLabel(status) {
 function _statusClass(status) {
   return { active: 'status-active', completed: 'status-done', incomplete: 'status-pause' }[status] ?? ''
 }
+
+function _itemCount(session) {
+  if (session.id === props.liveSessionId && props.liveItemCount !== null) return props.liveItemCount
+  return session.itemCount
+}
 </script>
 
 <template>
@@ -127,7 +136,7 @@ function _statusClass(status) {
               <button class="btn-delete" :disabled="deletingId === activeSession.id" @click.stop="onDelete(activeSession)" title="削除">🗑</button>
             </div>
             <div class="session-sub">
-              <span class="session-count">{{ activeSession.itemCount }}品目入力済み</span>
+              <span class="session-count">{{ _itemCount(activeSession) }}品目入力済み</span>
             </div>
             <button class="btn btn-primary session-resume-btn" @click="onResume(activeSession)">再開する</button>
           </div>
@@ -158,7 +167,7 @@ function _statusClass(status) {
               <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
             </div>
             <div class="session-sub">
-              <span class="session-count">{{ s.itemCount }}品目</span>
+              <span class="session-count">{{ _itemCount(s) }}品目</span>
               <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
             </div>
             <button

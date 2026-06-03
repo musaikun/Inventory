@@ -897,6 +897,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── セッション一覧 ── -->
     <SessionListPage
       v-else-if="currentView === 'sessions'"
+      :live-item-count="filledCount"
+      :live-session-id="pendingSession?.id ?? null"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
       @back="currentView = 'landing'"
