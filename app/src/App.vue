@@ -302,10 +302,9 @@ setScopeCallback((scope) => {
   if (!syncIsHost.value) categoryScope.value = scope
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
-  // D1 のセッションレコードを更新
-  if (isAuthenticated.value && sessionId) {
+  if (isAuthenticated.value && pendingSession.value?.id) {
     const count = itemCount ?? filledCount.value ?? 0
-    await updateSession(sessionId, status, count).catch(() => {})
+    await updateSession(pendingSession.value.id, status, count).catch(() => {})
   }
   const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
   showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
