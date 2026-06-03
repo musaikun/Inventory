@@ -392,7 +392,7 @@ watch(filledCount, (count) => {
   if (!isAuthenticated.value || !pendingSession.value?.id || currentView.value !== 'session') return
   clearTimeout(_itemCountSaveTimer)
   _itemCountSaveTimer = setTimeout(() => {
-    if (pendingSession.value?.id && currentView.value === 'session') {
+    if (pendingSession.value?.id && currentView.value === 'session' && !isCompleted.value) {
       updateSession(pendingSession.value.id, 'active', count).catch(() => {})
     }
   }, 2000)
@@ -478,6 +478,11 @@ async function onGoHome() {
   // 未完了でデータがあれば D1 を「中断」に更新
   if (!isCompleted.value && hasData && isAuthenticated.value && pendingSession.value?.id) {
     await updateSession(pendingSession.value.id, 'incomplete', filledCount.value).catch(() => {})
+  }
+
+  // 完了済みの場合は確実に completed を書いてから遷移（onComplete の非同期書き込みとの競合対策）
+  if (isCompleted.value && isAuthenticated.value && pendingSession.value?.id) {
+    await updateSession(pendingSession.value.id, 'completed', filledCount.value).catch(() => {})
   }
 
   if (continuousMode.value) onForceStop()
