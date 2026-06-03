@@ -379,6 +379,15 @@ const guestReported = ref(false)
 watch(filledCount, () => { guestReported.value = false })
 watch(syncActive,  (v) => { if (!v) guestReported.value = false })
 
+let _itemCountSaveTimer = null
+watch(filledCount, (count) => {
+  if (!isAuthenticated.value || !pendingSession.value?.id) return
+  clearTimeout(_itemCountSaveTimer)
+  _itemCountSaveTimer = setTimeout(() => {
+    updateSession(pendingSession.value?.id, 'active', count).catch(() => {})
+  }, 2000)
+})
+
 // ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
 const savedGuestRoomCode = ref(null)
 
