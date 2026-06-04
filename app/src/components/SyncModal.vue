@@ -76,18 +76,22 @@ async function onCreateRoom() {
   try {
     await createRoom()
 
-    // ホスト再接続の場合はセッションが既にアクティブなのでスキップする
-    if (!state.isSessionActive) {
+    // DO のセッション ID と D1 の pendingSession.id が一致する場合のみ「再接続」扱い。
+    // isSessionActive だけで判断すると、ホストが一覧へ戻って新しいセッションを開始した後も
+    // 旧セッションが非 session_end のまま残っているケースで session_start がスキップされ
+    // 在庫汚染が発生するため、セッション ID での一致確認が必要。
+    const doSessionId = state.sessionId           // joined 処理後に更新済み
+    const d1SessionId = pendingSession.value?.id ?? ''
+    const isReconnect = state.isSessionActive && !!doSessionId && doSessionId === d1SessionId
+
+    if (!isReconnect) {
       let sessionId = ''
-      // 完了済み状態でルームを開始する場合は必ず新規セッションを作成する。
-      // 完了セッション ID を再利用すると DO 側で isResume=true と判定され在庫がリセットされない。
       const useExisting = isAuthenticated.value
         && pendingSession.value?.id
         && !props.isInventoryCompleted
 
       if (useExisting) {
         sessionId = pendingSession.value.id
-        // 'incomplete' 相当のセッションが残っていれば active に戻す
         if (pendingSession.value?.status === 'incomplete') {
           await markActive(pendingSession.value.itemCount ?? 0)
         }
@@ -101,8 +105,6 @@ async function onCreateRoom() {
         }
       }
 
-      // useExisting=true → 既存セッションを再開（在庫を保持）
-      // useExisting=false → 新規セッション（onSyncNewSession で reset される）
       emit('newSession', { sessionId, isResume: useExisting })
     }
 

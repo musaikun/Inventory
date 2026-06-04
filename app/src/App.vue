@@ -175,6 +175,28 @@ function onViewSession(session) {
 async function onSessionResume(session) {
   resumeSession(session)
   await _startSessionView()
+  // 未完了セッションは自動でルームに復帰（ゲストが接続中の場合も含む）
+  if (!isCompleted.value && shopCode.value && !syncActive.value) {
+    _reconnectToRoom(session)
+  }
+}
+
+// ルーム自動復帰（再開時・非同期・失敗は無視）
+async function _reconnectToRoom(session) {
+  try {
+    await createRoom()
+    // joined 処理後に DO のセッション ID と一致するか確認
+    const doSessionId = syncState.sessionId
+    if (syncState.isSessionActive && doSessionId === session.id) {
+      // 同一セッションが有効: ルームに復帰完了、session_start 不要
+      showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
+    } else {
+      // セッション不一致 or 非アクティブ: セッションを再アクティブ化
+      onSyncNewSession({ sessionId: session.id, isResume: true })
+    }
+  } catch (_) {
+    // 接続失敗は無視（オフライン動作継続）
+  }
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
@@ -184,7 +206,7 @@ const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
-const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
+const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
 
 // ── 学習順 ────────────────────────────────────────────────────────────────────
 const learnedOrderVersion = ref(0) // saveLearningSession 後にインクリメント

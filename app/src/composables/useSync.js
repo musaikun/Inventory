@@ -305,9 +305,13 @@ function _handleMessage(msg) {
         if (state.mode === 'joining') {
           _onClearInventory?.()
         }
-        // ホストの初回接続（再接続ではない）はサーバーの古い在庫を適用しない。
-        // どうせ直後の session_start で上書きされるため、汚染を防ぐ。
-        if (state.mode !== 'hosting' || _disconnectedAt > 0) {
+        // ホストの初回接続（_disconnectedAt=0）かつ DO がセッション非アクティブの場合のみ在庫をスキップ。
+        // DO が非アクティブ = 直後の session_start が正しい在庫を設定するため汚染を防ぐ。
+        // DO がアクティブ = 再開接続なのでゲストが入力した最新在庫を取得する必要がある。
+        const skipInventory = state.mode === 'hosting'
+          && _disconnectedAt === 0
+          && !msg.isSessionActive
+        if (!skipInventory) {
           for (const [ingredient, entry] of Object.entries(serverInv)) {
             _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
           }
@@ -448,7 +452,9 @@ function _handleMessage(msg) {
         if (msg.config?.order?.length) _onConfigReceived?.(msg.config)
         else _onResetConfig?.()
       }
-      _addSysMsg('セッションが開始されました。参加者を招待してください。')
+      _addSysMsg(isNewSession
+        ? 'セッションが開始されました。参加者を招待してください。'
+        : 'ホストが再接続しました。')
       _onSessionStarted?.(msg.sessionId)
       break
     }
@@ -521,24 +527,22 @@ function _connect(code) {
       }))
 
       if (isHostMode) {
-        // ホスト: config/inventory を送信し、'joined' を待ってセッション状態を取得する
-        // DO が 'joined' を返すまでの最大 3 秒はフォールバックとして即 resolve する
-        setTimeout(() => {
-          if (_getConfig) {
-            const cfg = _getConfig()
-            if (cfg) ws.send(JSON.stringify({ type: 'config', ...cfg }))
-          }
-          if (_getInventory) {
-            const inv = _getInventory() ?? {}
-            for (const [ingredient, entry] of Object.entries(inv)) {
-              broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
+        // 新規接続時は session_start が在庫・config・flags を一括同期するため不要。
+        // ネットワーク切断からの自動再接続時のみ、オフライン中に変更した品目を再送信する。
+        // 全品目を再送するとゲストに update トーストが大量発生するため差分のみ送る。
+        if (_disconnectedAt > 0) {
+          const disc = _disconnectedAt
+          setTimeout(() => {
+            if (_getInventory) {
+              const inv = _getInventory() ?? {}
+              for (const [ingredient, entry] of Object.entries(inv)) {
+                if ((entry.updatedAt ?? 0) > disc) {
+                  broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
+                }
+              }
             }
-          }
-          if (_getRecountFlags) {
-            const flags = _getRecountFlags() ?? {}
-            for (const item of Object.keys(flags)) broadcastRecountFlag(item, true)
-          }
-        }, 200)
+          }, 200)
+        }
         _startHeartbeat()
         hostFallbackTimer = setTimeout(() => {
           if (!settled) { settled = true; resolve() }
