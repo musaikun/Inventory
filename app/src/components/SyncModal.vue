@@ -9,7 +9,11 @@ import { useSession } from '../composables/useSession.js'
 
 const emit = defineEmits(['close', 'complete', 'newSession'])
 
-const { pendingSession, reactivate, begin } = useSession()
+const props = defineProps({
+  isInventoryCompleted: { type: Boolean, default: false },
+})
+
+const { pendingSession, markActive, begin } = useSession()
 useEscapeKey(() => emit('close'))
 const {
   state, participantList, isHost, isGuest,
@@ -74,16 +78,20 @@ async function onCreateRoom() {
 
     // ホスト再接続の場合はセッションが既にアクティブなのでスキップする
     if (!state.isSessionActive) {
-      // セッションは SessionListPage で開始済み。pendingSession.id を再利用し
-      // 重複生成を防ぐ（中断再開時は active に戻す）。
       let sessionId = ''
-      const isResume = pendingSession.value?.status === 'incomplete'
+      // 完了済み状態でルームを開始する場合は必ず新規セッションを作成する。
+      // 完了セッション ID を再利用すると DO 側で isResume=true と判定され在庫がリセットされない。
+      const useExisting = isAuthenticated.value
+        && pendingSession.value?.id
+        && !props.isInventoryCompleted
 
-      if (isAuthenticated.value && pendingSession.value?.id) {
+      if (useExisting) {
         sessionId = pendingSession.value.id
-        if (isResume) await reactivate(pendingSession.value.itemCount ?? 0)
+        // 'incomplete' 相当のセッションが残っていれば active に戻す
+        if (pendingSession.value?.status === 'incomplete') {
+          await markActive(pendingSession.value.itemCount ?? 0)
+        }
       } else if (isAuthenticated.value) {
-        // pendingSession が無い例外時のみ新規作成（フォールバック）
         try {
           const sess = await createSession()
           begin(sess)
@@ -92,7 +100,10 @@ async function onCreateRoom() {
           console.warn('[SyncModal] D1 session create failed:', e.message)
         }
       }
-      emit('newSession', { sessionId, isResume })
+
+      // useExisting=true → 既存セッションを再開（在庫を保持）
+      // useExisting=false → 新規セッション（onSyncNewSession で reset される）
+      emit('newSession', { sessionId, isResume: useExisting })
     }
 
     view.value = 'host'

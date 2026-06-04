@@ -1226,7 +1226,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
     <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
-    <SyncModal     v-if="showSync"     @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
+    <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
     <!-- 通知ポップアップ -->

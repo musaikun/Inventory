@@ -83,6 +83,7 @@ export function useSession() {
     _finalized = true
     if (!_canWrite()) return
     await updateSession(pendingSession.value.id, 'completed', count).catch(() => {})
+    if (pendingSession.value) pendingSession.value.status = 'completed'
   }
 
   // 一覧へ戻る・退出時にセッション参照を破棄

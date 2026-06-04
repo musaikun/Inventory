@@ -256,6 +256,7 @@ function _resetClientState() {
 }
 
 function _handleMessage(msg) {
+  if (state.mode === 'idle') return
   switch (msg.type) {
     case 'joined': {
       const serverInv = msg.inventory ?? {}
@@ -701,6 +702,9 @@ export function useSync() {
 
   function leaveRoom() {
     const wasGuest = state.mode === 'joining'
+    // mode を先に idle にして _handleMessage が以後のメッセージを無視するようにする
+    state.mode     = 'idle'
+    state.roomCode = null
     if (_ws?.readyState === WebSocket.OPEN) {
       try { _ws.send(JSON.stringify({ type: 'leave' })) } catch (_) {}
     }

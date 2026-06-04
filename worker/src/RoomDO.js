@@ -69,10 +69,19 @@ export class RoomDO {
             // 再接続: トークン一致 → ホスト承認
             isVerifiedHost = true
           } else {
-            // トークン不一致: 不正なホスト接続を拒否
-            ws.send(JSON.stringify({ type: 'error', code: 'auth_failed' }))
-            ws.close(1008, 'Host authentication failed')
-            return
+            // トークン不一致: 他に参加者がいなければ空ルームとして再初期化を許可する
+            // （localStorageクリア後に同じ店舗コードで再接続するシナリオに対応）
+            const others = this.state.getWebSockets().filter(w => w !== ws)
+            if (others.length === 0) {
+              const token = crypto.randomUUID()
+              await this.state.storage.put('hostToken', token)
+              isVerifiedHost = true
+              newHostToken   = token
+            } else {
+              ws.send(JSON.stringify({ type: 'error', code: 'auth_failed' }))
+              ws.close(1008, 'Host authentication failed')
+              return
+            }
           }
           await this.state.storage.put('initialized', true)
         } else {
@@ -310,6 +319,9 @@ export class RoomDO {
       }
 
       case 'leave': {
+        // クリーン退出フラグを立て、webSocketClose での二重ブロードキャストを防ぐ
+        const att = ws.deserializeAttachment() ?? {}
+        ws.serializeAttachment({ ...att, leftCleanly: true })
         // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
         const remaining = this.state.getWebSockets()
           .filter(w => w !== ws)
@@ -492,7 +504,10 @@ export class RoomDO {
   }
 
   async webSocketClose(ws) {
-    this._broadcast({ type: 'participants', list: this._getParticipants() })
+    // 'leave' メッセージで既にブロードキャスト済みの場合は二重送信しない
+    if (!ws.deserializeAttachment()?.leftCleanly) {
+      this._broadcast({ type: 'participants', list: this._getParticipants() })
+    }
   }
 
   async alarm() {
