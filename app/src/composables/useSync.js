@@ -95,6 +95,7 @@ let _onClearInventory   = null
 let _onScopeReceived    = null
 let _onSessionStarted   = null
 let _onSessionEnded     = null
+let _onNewSessionStarted = null  // ゲスト参加中に新規セッションが開始された
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
@@ -116,6 +117,7 @@ export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
 export function setScopeCallback(fn)            { _onScopeReceived    = fn }
 export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
 export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
+export function setNewSessionStartedCallback(fn) { _onNewSessionStarted = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -441,16 +443,8 @@ function _handleMessage(msg) {
       // セッションIDが変わった（新規セッション）かつゲスト接続中: 完全な状態同期を行う
       // 在庫・フラグ・品目リストをすべて session_started スナップショットで上書き
       if (isNewSession && state.mode === 'joining') {
-        _onClearInventory?.()
-        for (const [ingredient, entry] of Object.entries(msg.inventory ?? {})) {
-          _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
-        }
-        const serverFlags = msg.recountFlags ?? {}
-        for (const [item, info] of Object.entries(serverFlags)) {
-          _onRecountFlag?.(item, true, info?.by ?? '', info?.at)
-        }
-        if (msg.config?.order?.length) _onConfigReceived?.(msg.config)
-        else _onResetConfig?.()
+        _onNewSessionStarted?.()
+        break
       }
       _addSysMsg(isNewSession
         ? 'セッションが開始されました。参加者を招待してください。'

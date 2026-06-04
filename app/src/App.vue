@@ -13,7 +13,7 @@ import {
   setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
+  setScopeCallback, setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
@@ -306,7 +306,9 @@ setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
   showToast('ルームが閉鎖されました', 4000, 'error')
-  if (!syncIsHost.value) {
+  const selfDissolved = _hostInitiatedDissolve
+  _hostInitiatedDissolve = false
+  if (!selfDissolved) {
     setTimeout(() => {
       clearSession()
       reset()
@@ -319,6 +321,7 @@ setDissolvedCallback(() => {
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
 setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000, 'leave'))
 let _hostCompletedLeave = false
+let _hostInitiatedDissolve = false
 
 setGuestLeaveCallback(() => {
   showSync.value = false
@@ -365,6 +368,12 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
     const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
     showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
   }
+})
+
+setNewSessionStartedCallback(() => {
+  showToast('ホストが新しい棚卸を開始したため退室します', 4000, 'warning')
+  _hostCompletedLeave = true
+  leaveRoom()
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
@@ -468,7 +477,7 @@ const completedAtDisplay = computed(() => {
     ' ' + d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 })
 
-function onComplete() {
+async function onComplete() {
   if (filledCount.value === 0) {
     showToast('1件以上入力してから完了してください', 2600, 'warning')
     return
@@ -484,8 +493,13 @@ function onComplete() {
     return
   }
 
-  // ホスト or ソロ: 棚卸を締める（画面ロック・スナップショット保存）
-  if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
+  // ホスト or ソロ: 棚卸を締める
+  const isHostInRoom = syncActive.value && syncIsHost.value
+  const confirmMsg = isHostInRoom
+    ? '棚卸を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。'
+    : '棚卸を完了しますか？\n完了後は読み取り専用になります。'
+  if (!confirm(confirmMsg)) return
+
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
@@ -493,8 +507,17 @@ function onComplete() {
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
   learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
+
+  if (isHostInRoom) {
+    broadcastSessionEnd('completed')
+    _hostInitiatedDissolve = true
+    await dissolveRoom()
+    clearSession()
+    currentView.value = 'sessions'
+    return
+  }
+
   showToast('棚卸を完了しました ✓', 3000, 'success')
-  if (syncActive.value) broadcastDone(true)   // isFinal=true: 棚卸締めを通知
 }
 
 
@@ -532,6 +555,7 @@ async function onStartNew() {
   // ホスト中はルームを解散してから開始（ゲストと在庫が乖離するのを防ぐ）
   if (syncIsHost.value && syncActive.value) {
     if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
+    _hostInitiatedDissolve = true
     await dissolveRoom()
   }
   reset()
@@ -540,18 +564,21 @@ async function onStartNew() {
 }
 
 // SyncModal からの「✓ 棚卸を完了」
-// ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知（ゲストは退室）
-function onSyncComplete() {
+// ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知 + ルーム解散 → セッション一覧へ
+async function onSyncComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
-  completeSessionD1(filledCount.value)
+  await completeSessionD1(filledCount.value)
   saveLearningSession(auditLog, config.order, participantList.length || 1)
   learnedOrderVersion.value++
   broadcastSessionEnd('completed')
   if (continuousMode.value) onForceStop()
   showSync.value = false
-  showToast('棚卸を完了しました ✓', 3000, 'success')
+  _hostInitiatedDissolve = true
+  await dissolveRoom()
+  clearSession()
+  currentView.value = 'sessions'
 }
 
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
@@ -570,6 +597,7 @@ function onSyncNewSession({ sessionId, isResume }) {
 async function onLogout() {
   // ルーム接続中は適切に切断してからログアウト
   if (syncIsHost.value) {
+    _hostInitiatedDissolve = true
     await dissolveRoom()            // ホスト → ルーム解散（ゲストに通知）
   } else if (syncActive.value) {
     leaveRoom()                     // ゲスト → 退出（_onGuestLeave が reset/navigate を担当）
