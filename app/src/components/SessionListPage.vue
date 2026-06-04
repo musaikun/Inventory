@@ -7,7 +7,7 @@ const props = defineProps({
   liveItemCount: { type: Number, default: null },
   liveSessionId: { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'back'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'])
 
 const sessions   = ref([])
 const loading    = ref(true)
@@ -163,7 +163,8 @@ function _itemCount(session) {
           <div
             v-for="s in completedSessions"
             :key="s.id"
-            class="session-card"
+            class="session-card session-card-completed"
+            @click="emit('viewSession', s)"
           >
             <div class="session-main">
               <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
@@ -173,6 +174,7 @@ function _itemCount(session) {
             <div class="session-sub">
               <span class="session-count">{{ _itemCount(s) }}品目</span>
               <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
+              <span class="session-detail-arrow">詳細 ›</span>
             </div>
           </div>
         </template>
@@ -363,6 +365,20 @@ function _itemCount(session) {
   border-radius: 10px;
   color: #ef4444;
   font-size: 13px;
+}
+
+.session-card-completed {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.session-card-completed:active { background: #f0f9ff; }
+
+.session-detail-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--primary, #3b82f6);
+  font-weight: 600;
 }
 
 .loading-msg {

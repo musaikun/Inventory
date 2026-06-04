@@ -31,7 +31,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -109,6 +109,8 @@ export function useHistory() {
       entryLog:     entryLog ? [...entryLog] : [],
       participants,
       flaggedItems: recountFlags ? Object.keys(recountFlags) : [],
+      sessionId,
+      auditLog:     auditLog ? [...auditLog] : [],
     }
     _persist()
     return _data[today]
@@ -129,6 +131,12 @@ export function useHistory() {
   /** 全スナップショットを新しい日付順で返す */
   function getSnapshots() {
     return Object.values(_data).sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  /** セッションIDでスナップショットを検索 */
+  function getSnapshotBySessionId(sessionId) {
+    if (!sessionId) return null
+    return Object.values(_data).find(s => s.sessionId === sessionId) ?? null
   }
 
   /** 指定日付のスナップショットを削除 */
@@ -198,5 +206,5 @@ export function useHistory() {
     deleteSnapshot(date)
   }
 
-  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getEntryLogs, deleteSnapshot, exportSnapshotCSV }
+  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV }
 }

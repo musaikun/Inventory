@@ -38,6 +38,7 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage from './components/SessionListPage.vue'
+import SessionDetailPage from './components/SessionDetailPage.vue'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
@@ -52,11 +53,12 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal } = useHistory()
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId } = useHistory()
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'landing' | 'auth' | 'sessions' | 'session'
+// 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail'
 const currentView   = ref('landing')
+const detailSnapshot = ref(null)
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
   pendingSession,
@@ -152,6 +154,21 @@ async function onSessionStart(session) {
   clearAuditLog()
   resetToDefault()   // 新規セッションは毎回 PDF/CSV/Excel からインポートさせる
   await _startSessionView({ loadConfig: false })
+}
+
+// セッション一覧から「完了済みセッション詳細」
+function onViewSession(session) {
+  let snap = getSnapshotBySessionId(session.id)
+  if (!snap) {
+    const dateKey = (session.endedAt ?? session.startedAt ?? '').slice(0, 10)
+    if (dateKey) snap = getSnapshots().find(s => s.date === dateKey) ?? null
+  }
+  if (!snap) {
+    showToast('この端末での棚卸データが見つかりません', 3000, 'warning')
+    return
+  }
+  detailSnapshot.value = snap
+  currentView.value = 'session-detail'
 }
 
 // セッション一覧から「再開」
@@ -435,7 +452,7 @@ function onComplete() {
   // ホスト or ソロ: 棚卸を締める（画面ロック・スナップショット保存）
   if (!confirm('棚卸を完了しますか？\n完了後は読み取り専用になります。')) return
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
   completeSessionD1(filledCount.value)
   saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
@@ -485,7 +502,7 @@ async function onStartNew() {
 // ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知（ゲストは退室）
 function onSyncComplete() {
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
   completeSessionD1(filledCount.value)
   saveLearningSession(auditLog, config.order, participantList.length || 1)
@@ -931,7 +948,15 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :live-session-id="pendingSession?.id ?? null"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
+      @view-session="onViewSession"
       @back="currentView = 'landing'"
+    />
+
+    <!-- ── セッション詳細（完了済み） ── -->
+    <SessionDetailPage
+      v-else-if="currentView === 'session-detail' && detailSnapshot"
+      :snapshot="detailSnapshot"
+      @back="currentView = 'sessions'"
     />
 
     <!-- ── ランディング ── -->
