@@ -305,8 +305,12 @@ function _handleMessage(msg) {
         if (state.mode === 'joining') {
           _onClearInventory?.()
         }
-        for (const [ingredient, entry] of Object.entries(serverInv)) {
-          _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
+        // ホストの初回接続（再接続ではない）はサーバーの古い在庫を適用しない。
+        // どうせ直後の session_start で上書きされるため、汚染を防ぐ。
+        if (state.mode !== 'hosting' || _disconnectedAt > 0) {
+          for (const [ingredient, entry] of Object.entries(serverInv)) {
+            _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
+          }
         }
       }
 
@@ -377,7 +381,7 @@ function _handleMessage(msg) {
     case 'done': {
       const sysLabel = msg.isFinal
         ? `${msg.deviceName} が棚卸を締めました ✓`
-        : `${msg.deviceName} が担当を完了しました ✓`
+        : `${msg.deviceName} が棚卸完了を報告しました ✓`
       _addSysMsg(sysLabel)
       if (!msg.isFinal && msg.fromDeviceId && participants[msg.fromDeviceId]) {
         participants[msg.fromDeviceId].isDone = true

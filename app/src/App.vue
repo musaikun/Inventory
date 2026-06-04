@@ -273,7 +273,7 @@ setConfigChangedCallback(() => {
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
     ? `棚卸が締められました。入力を終了してください。`
-    : `${name} が担当を完了しました ✓`
+    : `${name} が棚卸完了を報告しました ✓`
   showNotification('done', msg)
 })
 setMessageCallback((msgObj) => {
@@ -296,6 +296,8 @@ setDissolvedCallback(() => {
 })
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
 setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000, 'leave'))
+let _hostCompletedLeave = false
+
 setGuestLeaveCallback(() => {
   showSync.value = false
   showChat.value = false
@@ -303,7 +305,11 @@ setGuestLeaveCallback(() => {
   reset()
   resetToDefault()
   clearAuditLog()
-  showToast('ルームを退出しました', 2500, 'leave')
+  guestReported.value = false
+  if (!_hostCompletedLeave) {
+    showToast('ルームを退出しました', 2500, 'leave')
+  }
+  _hostCompletedLeave = false
   currentView.value = 'landing'
 })
 setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
@@ -327,11 +333,15 @@ setScopeCallback((scope) => {
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
   if (status === 'completed') await completeSessionD1(count)
-  const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
-  showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
-  // ゲスト: ホストが棚卸を完了したら退室して TOP へ戻る
+
   if (!syncIsHost.value && status === 'completed') {
-    setTimeout(() => leaveRoom(), 2500)
+    // ゲスト: ホストが完了 → 即座にホームへ遷移
+    showToast('ホストが棚卸を完了したため、ルームを閉鎖します', 4000, 'warning')
+    _hostCompletedLeave = true
+    leaveRoom()
+  } else {
+    const msg = status === 'completed' ? '棚卸セッションが完了しました ✓' : 'セッションが中断されました'
+    showToast(msg, 4000, status === 'completed' ? 'join' : 'warning')
   }
 })
 
@@ -399,10 +409,13 @@ const searchStatus   = ref('') // '' | 'active'
 const searchInputRef = ref(null)
 
 // ── ゲスト担当完了の報告済み状態 ──────────────────────────────────────────────
-// 報告後は "報告済み" に変化し、品目が追加されるとリセット
+// 報告後は入力ロック状態になる。棚卸再開で解除される。
 const guestReported = ref(false)
-watch(filledCount, () => { guestReported.value = false })
-watch(syncActive,  (v) => { if (!v) guestReported.value = false })
+watch(syncActive, (v) => { if (!v) guestReported.value = false })
+
+// ゲストが棚卸完了を報告している間は入力を完全ロック
+const guestLocked  = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
+const inputLocked  = computed(() => isCompleted.value || guestLocked.value)
 
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
 watch(filledCount, (count) => {
@@ -441,11 +454,11 @@ function onComplete() {
 
   // ゲスト（ルーム参加中）: 完了報告のみ。画面ロック・スナップショット保存は行わない
   if (syncActive.value && !syncIsHost.value) {
-    if (!confirm('担当分の完了をルームに報告しますか？')) return
+    if (!confirm('棚卸完了をルームに報告しますか？\n完了後は入力がロックされますが、ホストが棚卸を締めるまで再開できます。')) return
     broadcastDone()
-    guestReported.value = true   // 報告済み状態にしてボタンを変化させる
+    guestReported.value = true
     if (continuousMode.value) onForceStop()
-    showToast('担当分の完了を報告しました ✓', 3000, 'success')
+    showToast('棚卸完了を報告しました ✓', 3000, 'success')
     return
   }
 
@@ -466,7 +479,7 @@ function onComplete() {
 function onUndone() {
   broadcastUndone()
   guestReported.value = false
-  showToast('担当完了を取り消しました', 2500, 'default')
+  showToast('棚卸を再開しました', 2500, 'default')
 }
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
@@ -522,12 +535,11 @@ function onSyncComplete() {
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
 function onSyncNewSession({ sessionId, isResume }) {
   if (!isResume) {
-    // 完了済みセッション or 在庫が空（SessionListPage が既に reset() した直後）の場合のみリセット。
-    // ホストが途中入力済みのアクティブな在庫がある場合はそのまま DO に送る。
-    if (isCompleted.value || Object.keys(inventory).length === 0) {
-      reset()
-      clearAuditLog()
-    }
+    // 新規セッションは必ずリセット。
+    // joined 受信時に DO の古い在庫がローカルに流れ込む場合があるため、
+    // isResume=false では無条件にリセットして汚染を防ぐ。
+    reset()
+    clearAuditLog()
   }
   broadcastSessionStart(sessionId)
 }
@@ -885,7 +897,7 @@ function onCancelCandidate() {
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
 function onTableTap(item) {
-  if (isCompleted.value) return   // 完了済みは編集不可
+  if (inputLocked.value) return
   openConfirm(item, null, config.units?.[item] || '', 'table')
 }
 
@@ -1037,8 +1049,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
       </div>
 
-      <!-- 音声入力 / テキスト検索（完了時は非表示） -->
-      <section v-if="!isCompleted" class="voice-section">
+      <!-- 音声入力 / テキスト検索（完了時・ゲスト棚卸完了後は非表示） -->
+      <section v-if="!inputLocked" class="voice-section">
         <div v-if="continuousMode" class="continuous-banner">
           <span class="continuous-pulse"></span>
           <span class="continuous-status">{{ isListening ? '聞いています…' : '認識停止中' }}</span>
@@ -1091,7 +1103,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               <span v-else class="recount-notice-empty">未入力</span>
             </span>
             <button
-              v-if="!isCompleted"
+              v-if="!inputLocked"
               class="recount-notice-clear"
               @click="onToggleRecountFlag(item, false)"
               type="button"
@@ -1124,7 +1136,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         ref="inventoryTableRef"
         :inventory="inventory"
         :filled-count="filledCount"
-        :read-only="isCompleted"
+        :read-only="inputLocked"
         :learned-order="learnedOrder"
         :late-recount-items="lateRecountItems"
         :recount-flags="recountFlags"
@@ -1175,7 +1187,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               class="btn-complete"
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
-            >{{ syncActive && !syncIsHost ? (guestReported ? '↩ 担当を再開' : '✓ 担当完了') : '✓ 棚卸完了' }}</button>
+            >{{ guestReported ? '↩ 棚卸再開' : '✓ 棚卸完了' }}</button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>
