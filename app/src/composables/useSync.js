@@ -159,6 +159,11 @@ export function broadcastDone(isFinal = false) {
   _ws.send(JSON.stringify({ type: 'done', isFinal }))
 }
 
+export function broadcastUndone() {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'undone' }))
+}
+
 export function broadcastSessionStart(sessionId) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   state.sessionId       = sessionId
@@ -223,7 +228,7 @@ function _updateParticipants(list, notify = false) {
         if (entry.enteredById === p.deviceId) entry.enteredBy = newName
       }
     }
-    participants[p.deviceId] = { name: p.deviceName, isMe: p.deviceId === deviceId }
+    participants[p.deviceId] = { name: p.deviceName, isMe: p.deviceId === deviceId, isDone: !!p.isDone }
   }
 }
 
@@ -374,6 +379,9 @@ function _handleMessage(msg) {
         ? `${msg.deviceName} が棚卸を締めました ✓`
         : `${msg.deviceName} が担当を完了しました ✓`
       _addSysMsg(sysLabel)
+      if (!msg.isFinal && msg.fromDeviceId && participants[msg.fromDeviceId]) {
+        participants[msg.fromDeviceId].isDone = true
+      }
       if (msg.fromDeviceId !== deviceId) {
         _onDone?.(msg.deviceName, msg.isFinal ?? false)
       }
@@ -417,6 +425,11 @@ function _handleMessage(msg) {
       const isNewSession    = !!(msg.sessionId && msg.sessionId !== prevSessionId)
       state.sessionId       = msg.sessionId ?? null
       state.isSessionActive = true
+      if (isNewSession) {
+        for (const id of Object.keys(participants)) {
+          if (participants[id]) participants[id].isDone = false
+        }
+      }
       // セッションIDが変わった（新規セッション）かつゲスト接続中: 完全な状態同期を行う
       // 在庫・フラグ・品目リストをすべて session_started スナップショットで上書き
       if (isNewSession && state.mode === 'joining') {
@@ -660,6 +673,7 @@ export function useSync() {
       id,
       name: info.name || '名前未設定',
       isMe: id === deviceId,
+      isDone: !!info.isDone,
     }))
   )
 

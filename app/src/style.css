@@ -106,15 +106,21 @@ body {
 /* ── 同期中バナー ── */
 .sync-banner {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   background: #eff6ff;
   border-bottom: 2px solid #93c5fd;
-  padding: 8px 20px;
+  padding: 8px 14px 8px 20px;
   font-size: 12px;
   position: sticky;
   top: 52px;
   z-index: 9;
+}
+
+.sync-banner-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .sync-banner-dot {
@@ -145,6 +151,36 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .sync-banner-btn:active { background: #eff6ff; }
+
+.sync-banner-participants {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 18px;
+}
+
+.sync-participant-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  background: #dbeafe;
+  border-radius: 10px;
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.sync-participant-chip.me {
+  background: #bfdbfe;
+}
+
+.sync-participant-chip.done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.chip-check {
+  font-weight: 700;
+}
 
 .settings-btn {
   background: rgba(255,255,255,0.15);

@@ -14,7 +14,7 @@ import {
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setResetConfigCallback,
-  broadcastUpdate, broadcastRemove, broadcastDone, broadcastConfig, broadcastScope,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
@@ -462,6 +462,12 @@ function onComplete() {
   if (syncActive.value) broadcastDone(true)   // isFinal=true: 棚卸締めを通知
 }
 
+
+function onUndone() {
+  broadcastUndone()
+  guestReported.value = false
+  showToast('担当完了を取り消しました', 2500, 'default')
+}
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
@@ -1004,16 +1010,25 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
       <!-- 同期中バナー -->
       <div v-if="syncActive" class="sync-banner">
-        <span class="sync-banner-dot"></span>
-        <span class="sync-banner-text">
-          <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
-          ・ルーム {{ syncState.roomCode }}
-          ・{{ participantList.length }}名が接続
-        </span>
-        <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
-          💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
-        </button>
-        <button class="sync-banner-btn" @click="showSync = true">詳細</button>
+        <div class="sync-banner-top">
+          <span class="sync-banner-dot"></span>
+          <span class="sync-banner-text">
+            <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
+            ・ルーム {{ syncState.roomCode }}
+          </span>
+          <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
+            💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
+          </button>
+          <button class="sync-banner-btn" @click="showSync = true">詳細</button>
+        </div>
+        <div class="sync-banner-participants">
+          <span
+            v-for="p in participantList"
+            :key="p.id"
+            class="sync-participant-chip"
+            :class="{ done: p.isDone, me: p.isMe }"
+          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></span>
+        </div>
       </div>
 
       <!-- 棚卸完了バナー -->
@@ -1159,9 +1174,8 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
             <button
               class="btn-complete"
               :class="{ reported: guestReported }"
-              :disabled="guestReported"
-              @click="onComplete"
-            >{{ syncActive && !syncIsHost ? (guestReported ? '✓ 報告済み' : '✓ 担当完了') : '✓ 棚卸完了' }}</button>
+              @click="guestReported ? onUndone() : onComplete()"
+            >{{ syncActive && !syncIsHost ? (guestReported ? '↩ 担当を再開' : '✓ 担当完了') : '✓ 棚卸完了' }}</button>
             <button class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>

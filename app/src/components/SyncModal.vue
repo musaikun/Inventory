@@ -241,9 +241,11 @@ async function onCopyCode() {
           <div class="participants-title">参加者（{{ participantList.length }}名）</div>
           <div class="participants-list">
             <div v-for="p in participantList" :key="p.id" class="participant-item">
-              <span class="participant-dot" :class="{ me: p.isMe }"></span>
+              <span class="participant-dot" :class="{ me: p.isMe, done: p.isDone }"></span>
               <span class="participant-name">{{ p.name }}</span>
               <span v-if="p.isMe" class="participant-me">あなた</span>
+              <span v-if="p.isDone" class="participant-status done">✓ 完了</span>
+              <span v-else class="participant-status working">作業中</span>
             </div>
           </div>
         </div>
@@ -303,9 +305,11 @@ async function onCopyCode() {
           <div class="participants-title">参加者（{{ participantList.length }}名）</div>
           <div class="participants-list">
             <div v-for="p in participantList" :key="p.id" class="participant-item">
-              <span class="participant-dot" :class="{ me: p.isMe }"></span>
+              <span class="participant-dot" :class="{ me: p.isMe, done: p.isDone }"></span>
               <span class="participant-name">{{ p.name }}</span>
               <span v-if="p.isMe" class="participant-me">あなた</span>
+              <span v-if="p.isDone" class="participant-status done">✓ 完了</span>
+              <span v-else class="participant-status working">作業中</span>
             </div>
           </div>
         </div>
@@ -532,6 +536,7 @@ async function onCopyCode() {
   flex-shrink: 0;
 }
 .participant-dot.me { background: var(--primary); }
+.participant-dot.done { background: var(--success, #22c55e); }
 .participant-name { flex: 1; font-weight: 600; }
 .participant-me {
   font-size: 11px;
@@ -540,6 +545,21 @@ async function onCopyCode() {
   background: #eff6ff;
   padding: 2px 8px;
   border-radius: 6px;
+}
+.participant-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.participant-status.done {
+  color: #166534;
+  background: #dcfce7;
+}
+.participant-status.working {
+  color: var(--text-muted);
+  background: #f1f5f9;
 }
 
 /* ── 名前入力 ── */

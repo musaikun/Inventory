@@ -332,14 +332,28 @@ export class RoomDO {
       }
 
       case 'done': {
-        // 全参加者へ（送信者含む）: 自端末でもシステムメッセージとして表示
         const att = ws.deserializeAttachment() ?? {}
+        const isFinal = !!(msg.isFinal ?? false)
+        if (!isFinal) {
+          ws.serializeAttachment({ ...att, isDone: true })
+        }
         this._broadcast({
           type:         'done',
           deviceName:   att.deviceName ?? '名前未設定',
           fromDeviceId: att.deviceId   ?? '',
-          isFinal:      msg.isFinal ?? false,
+          isFinal,
         })
+        if (!isFinal) {
+          this._broadcast({ type: 'participants', list: this._getParticipants() })
+        }
+        break
+      }
+
+      case 'undone': {
+        const att = ws.deserializeAttachment() ?? {}
+        ws.serializeAttachment({ ...att, isDone: false })
+        this._broadcast({ type: 'participants', list: this._getParticipants() })
+        // undone は participants ブロードキャストで全員の状態が反映されるため追加メッセージ不要
         break
       }
 
@@ -419,7 +433,12 @@ export class RoomDO {
         let broadcastCfg   = null
 
         if (!isResume) {
-          // 新規セッション: ホストが送った在庫・フラグ・品目リストを原子的に保存
+          // 新規セッション: 全員の完了フラグをリセット
+          for (const existingWs of this.state.getWebSockets()) {
+            const a = existingWs.deserializeAttachment()
+            if (a?.isDone) existingWs.serializeAttachment({ ...a, isDone: false })
+          }
+          // ホストが送った在庫・フラグ・品目リストを原子的に保存
           const now = Date.now()
           if (msg.inventory && typeof msg.inventory === 'object') {
             for (const [k, v] of Object.entries(msg.inventory)) {
