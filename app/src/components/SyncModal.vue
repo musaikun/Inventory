@@ -105,7 +105,7 @@ async function onCreateRoom() {
         }
       }
 
-      emit('newSession', { sessionId, isResume: useExisting })
+      emit('newSession', { sessionId, isResume: false })
     }
 
     view.value = 'host'
