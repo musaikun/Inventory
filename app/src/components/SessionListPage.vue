@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
+import { fetchRoomStatus } from '../composables/useSync.js'
 
 const props = defineProps({
   liveItemCount: { type: Number, default: null },
@@ -15,8 +16,24 @@ const error      = ref('')
 const starting   = ref(false)
 const deletingId = ref(null)
 
+// 退室中ホスト向け: DO のアクティブルーム状態をポーリングしてライブ品目数を表示
+const liveRoom = ref(null)   // { sessionId, isActive, itemCount }
+let _statusTimer = null
+
+async function _pollRoomStatus() {
+  if (!shopCode.value) return
+  const status = await fetchRoomStatus(shopCode.value)
+  liveRoom.value = status?.isActive ? status : null
+}
+
 onMounted(async () => {
   await _loadSessions()
+  _pollRoomStatus()
+  _statusTimer = setInterval(_pollRoomStatus, 5000)
+})
+
+onUnmounted(() => {
+  if (_statusTimer) clearInterval(_statusTimer)
 })
 
 async function _loadSessions() {
@@ -103,6 +120,10 @@ function _statusClass(status) {
 
 function _itemCount(session) {
   if (session.id === props.liveSessionId && props.liveItemCount > 0) return props.liveItemCount
+  // 退室中でもゲストが入力中ならDOのライブ品目数を表示
+  if (liveRoom.value && session.id === liveRoom.value.sessionId && liveRoom.value.itemCount > 0) {
+    return liveRoom.value.itemCount
+  }
   return session.itemCount
 }
 </script>

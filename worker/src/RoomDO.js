@@ -13,6 +13,10 @@ export class RoomDO {
     if (url.pathname.endsWith('/dissolve')) {
       return this._handleHttpDissolve(request)
     }
+    // HTTP 経由のルーム状態取得（ホストが退室中もゲストのライブ品目数を一覧に表示する）
+    if (url.pathname.endsWith('/status')) {
+      return this._handleHttpStatus()
+    }
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('WebSocket upgrade required', { status: 426 })
     }
@@ -44,6 +48,19 @@ export class RoomDO {
     }
     await this.state.storage.deleteAll()
     return json({ ok: true }, 200)
+  }
+
+  async _handleHttpStatus() {
+    const [inventory, isActive, sessionId] = await Promise.all([
+      this.state.storage.get('inventory').then(v => v ?? {}),
+      this.state.storage.get('isActive').then(v => v ?? false),
+      this.state.storage.get('sessionId').then(v => v ?? ''),
+    ])
+    return new Response(JSON.stringify({
+      sessionId,
+      isActive,
+      itemCount: Object.keys(inventory).length,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 
   async webSocketMessage(ws, message) {

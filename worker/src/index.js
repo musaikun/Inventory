@@ -172,6 +172,17 @@ export default {
       return jsonResponse(body, res.status, origin, allowedOrigin)
     }
 
+    // ── ルーム状態取得（退室中ホストのライブ品目数表示・HTTP）────────────────
+    const statusMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/status$/i)
+    if (statusMatch && request.method === 'GET') {
+      const code = statusMatch[1].toUpperCase()
+      const id   = env.ROOMS.idFromName(`room:${code}`)
+      const room = env.ROOMS.get(id)
+      const res  = await room.fetch(request)
+      const body = await res.json().catch(() => ({}))
+      return jsonResponse(body, res.status, origin, allowedOrigin)
+    }
+
     // ── WebSocket（リアルタイム同期）─────────────────────────────────────────
     const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/ws$/i)
     if (wsMatch) {

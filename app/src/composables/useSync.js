@@ -59,6 +59,16 @@ export async function dissolveRoomRemote() {
   clearHostToken()
 }
 
+// ルームの現在状態を取得（退室中ホストがゲストのライブ品目数を一覧表示するため）
+export async function fetchRoomStatus(code) {
+  if (!code || !HTTP_BASE) return null
+  try {
+    const r = await fetch(`${HTTP_BASE}/room/${code}/status`)
+    if (!r.ok) return null
+    return await r.json()
+  } catch (_) { return null }
+}
+
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({
   mode:            'idle',
