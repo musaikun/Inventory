@@ -96,6 +96,7 @@ let _onScopeReceived    = null
 let _onSessionStarted   = null
 let _onSessionEnded     = null
 let _onNewSessionStarted = null  // ゲスト参加中に新規セッションが開始された
+let _expectedSessionId   = null  // _reconnectToRoom が設定する期待セッションID
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
@@ -118,6 +119,7 @@ export function setScopeCallback(fn)            { _onScopeReceived    = fn }
 export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
 export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
 export function setNewSessionStartedCallback(fn) { _onNewSessionStarted = fn }
+export function setExpectedSessionId(id)         { _expectedSessionId   = id }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -267,74 +269,37 @@ function _handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
       const serverInv = msg.inventory ?? {}
-      const isGuestReconnect = state.mode === 'joining' && _disconnectedAt > 0
-      const sessionChanged   = msg.sessionId && state.sessionId && msg.sessionId !== state.sessionId
 
-      if (isGuestReconnect && !sessionChanged) {
-        // オフライン中に変更した品目をマージ（タイムスタンプで新しい方を優先）
-        const localInv = _getInventory?.() ?? {}
+      if (state.mode === 'joining') {
+        _onClearInventory?.()
+      }
 
-        // サーバー側の品目を適用（ローカルより新しい場合のみ）
-        for (const [ingredient, serverEntry] of Object.entries(serverInv)) {
-          const localEntry = localInv[ingredient]
-          if (!localEntry || (serverEntry.updatedAt ?? 0) >= (localEntry.updatedAt ?? 0)) {
-            _onItemUpdate?.(ingredient, serverEntry.qty, serverEntry.unit ?? '', serverEntry.enteredBy ?? '', serverEntry.updatedAt)
-          }
-        }
+      // ホスト新規接続（_disconnectedAt=0）の場合、DO在庫を適用するのは
+      // _reconnectToRoom が「同一セッション」と判断して設定した期待IDと一致する時のみ。
+      // 新規セッション作成・別セッション復帰では DO の旧在庫をスキップし、
+      // ローカル在庫（ホストが入力済みのデータ）を正とする。
+      const skipInventory = state.mode === 'hosting'
+        && _disconnectedAt === 0
+        && (!_expectedSessionId || msg.sessionId !== _expectedSessionId)
+      _expectedSessionId = null
 
-        // サーバーにない品目: 切断後に追加したなら保持→再送信、切断前から存在したなら削除
-        for (const [ingredient, localEntry] of Object.entries(localInv)) {
-          if (!serverInv[ingredient]) {
-            if ((localEntry.updatedAt ?? 0) > _disconnectedAt) {
-              // オフライン中に入力した品目 → サーバーに再送信
-              broadcastUpdate(ingredient, localEntry.qty, localEntry.unit ?? '', localEntry.enteredBy ?? '')
-            } else {
-              // 切断中にサーバー側で削除された品目 → ローカルからも削除
-              _onItemRemove?.(ingredient)
-            }
-          }
-        }
-
-        // ローカルの方が新しい品目 → サーバーに再送信して上書き
-        for (const [ingredient, localEntry] of Object.entries(localInv)) {
-          const serverEntry = serverInv[ingredient]
-          if (serverEntry && (localEntry.updatedAt ?? 0) > (serverEntry.updatedAt ?? 0)) {
-            broadcastUpdate(ingredient, localEntry.qty, localEntry.unit ?? '', localEntry.enteredBy ?? '')
-          }
-        }
-      } else {
-        // 初回参加 or セッション切り替え: サーバー状態をそのまま適用
-        if (state.mode === 'joining') {
-          _onClearInventory?.()
-        }
-        // ホストの初回接続（_disconnectedAt=0）かつ DO がセッション非アクティブの場合のみ在庫をスキップ。
-        // DO が非アクティブ = 直後の session_start が正しい在庫を設定するため汚染を防ぐ。
-        // DO がアクティブ = 再開接続なのでゲストが入力した最新在庫を取得する必要がある。
-        const skipInventory = state.mode === 'hosting'
-          && _disconnectedAt === 0
-          && !msg.isSessionActive
-        if (!skipInventory) {
-          for (const [ingredient, entry] of Object.entries(serverInv)) {
-            _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
-          }
+      if (!skipInventory) {
+        for (const [ingredient, entry] of Object.entries(serverInv)) {
+          _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
         }
       }
 
-      _disconnectedAt = 0  // マージ完了、リセット
+      _disconnectedAt = 0
 
       _updateParticipants(msg.participants ?? [])
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
 
-      // ゲスト参加: ルーム（ホスト）の品目リストに必ず揃える。
-      // 店舗を切り替えても前店舗の品目が残らないよう、isCustom に関わらず常に適用。
-      // ホストに品目リストが無い場合はデフォルトへ復帰する。
       if (state.mode === 'joining') {
         if (msg.config?.order?.length) {
           _onConfigReceived?.(msg.config)
         } else {
           _onResetConfig?.()
         }
-        // 「あとで数える」フラグをサーバー状態に揃える（ローカルにしか無いものは外す）
         const serverFlags = msg.recountFlags ?? {}
         const localFlags  = _getRecountFlags?.() ?? {}
         for (const item of Object.keys(localFlags)) {
@@ -347,13 +312,12 @@ function _handleMessage(msg) {
       if (Array.isArray(msg.messages)) {
         messages.splice(0, messages.length, ...msg.messages)
       }
-      if (Array.isArray(msg.auditLog)) {
+      // 在庫をスキップした場合は監査ログもスキップ（ホスト自身のログを保持）
+      if (!skipInventory && Array.isArray(msg.auditLog)) {
         auditLog.splice(0, auditLog.length, ...msg.auditLog)
       }
-      // DO からのセッション状態を同期（ホスト再接続時に既存セッションを維持するため）
       state.isSessionActive = msg.isSessionActive ?? false
       state.sessionId       = msg.sessionId ?? null
-      // 新規ホストトークンをローカルに保存
       if (msg.hostToken) _saveHostToken(msg.hostToken)
       break
     }

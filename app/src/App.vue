@@ -14,6 +14,7 @@ import {
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
+  setExpectedSessionId,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
@@ -184,18 +185,18 @@ async function onSessionResume(session) {
 // ルーム自動復帰（再開時・非同期・失敗は無視）
 async function _reconnectToRoom(session) {
   try {
+    // 期待セッションIDを設定しておくことで、joined ハンドラが同一セッション時のみ
+    // DO の最新在庫（ゲスト入力含む）を適用できるようにする
+    setExpectedSessionId(session.id)
     await createRoom()
-    // joined 処理後に DO のセッション ID と一致するか確認
     const doSessionId = syncState.sessionId
     if (syncState.isSessionActive && doSessionId === session.id) {
-      // 同一セッションが有効: ルームに復帰完了、session_start 不要
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
     } else {
-      // セッション不一致 or 非アクティブ: セッションを再アクティブ化
       onSyncNewSession({ sessionId: session.id, isResume: true })
     }
   } catch (_) {
-    // 接続失敗は無視（オフライン動作継続）
+    setExpectedSessionId(null)
   }
 }
 
@@ -445,8 +446,10 @@ const guestReported = ref(false)
 watch(syncActive, (v) => { if (!v) guestReported.value = false })
 
 // ゲストが棚卸完了を報告している間は入力を完全ロック
-const guestLocked  = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
-const inputLocked  = computed(() => isCompleted.value || guestLocked.value)
+const guestLocked      = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
+// 同期中にオフラインになったら入力を禁止（オフライン在庫マージは行わない）
+const syncOfflineLocked = computed(() => syncActive.value && !syncState.isConnected)
+const inputLocked      = computed(() => isCompleted.value || guestLocked.value || syncOfflineLocked.value)
 
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
 watch(filledCount, (count) => {
@@ -582,14 +585,8 @@ async function onSyncComplete() {
 }
 
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
-function onSyncNewSession({ sessionId, isResume }) {
-  if (!isResume) {
-    // 新規セッションは必ずリセット。
-    // joined 受信時に DO の古い在庫がローカルに流れ込む場合があるため、
-    // isResume=false では無条件にリセットして汚染を防ぐ。
-    reset()
-    clearAuditLog()
-  }
+// ホストがルーム作成前に入力した在庫はそのまま引き継ぐ（joined ハンドラでスキップ済み）
+function onSyncNewSession({ sessionId }) {
   broadcastSessionStart(sessionId)
 }
 
@@ -1071,12 +1068,12 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       </header>
 
       <!-- 同期中バナー -->
-      <div v-if="syncActive" class="sync-banner">
+      <div v-if="syncActive" class="sync-banner" :class="{ offline: syncOfflineLocked }">
         <div class="sync-banner-top">
           <span class="sync-banner-dot"></span>
           <span class="sync-banner-text">
             <strong>{{ syncIsHost ? 'ホスト中' : '参加中' }}</strong>
-            ・ルーム {{ syncState.roomCode }}
+            ・{{ syncState.isConnected ? 'ルーム ' + syncState.roomCode : '再接続中…' }}
           </span>
           <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
             💬<span v-if="unreadCount > 0" class="unread-badge">!</span>

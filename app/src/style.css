@@ -116,6 +116,15 @@ body {
   top: 52px;
   z-index: 9;
 }
+.sync-banner.offline {
+  background: #fafafa;
+  border-bottom-color: #cbd5e1;
+}
+.sync-banner.offline .sync-banner-dot {
+  background: var(--text-muted);
+  animation: none;
+}
+.sync-banner.offline .sync-banner-text { color: var(--text-muted); }
 
 .sync-banner-top {
   display: flex;
