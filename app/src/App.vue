@@ -176,27 +176,34 @@ function onViewSession(session) {
 async function onSessionResume(session) {
   resumeSession(session)
   await _startSessionView()
-  // 未完了セッションは自動でルームに復帰（ゲストが接続中の場合も含む）
   if (!isCompleted.value && shopCode.value && !syncActive.value) {
-    _reconnectToRoom(session)
+    // ルーム復帰を完了待ちしてから下書き復元の要否を判断
+    await _reconnectToRoom(session)
+  } else {
+    // ルームなし（完了済み or 店舗コードなし）: 下書きから在庫を復元
+    _restoreDraft(session.id)
   }
 }
 
-// ルーム自動復帰（再開時・非同期・失敗は無視）
+// ルーム自動復帰（再開時）
 async function _reconnectToRoom(session) {
   try {
-    // 期待セッションIDを設定しておくことで、joined ハンドラが同一セッション時のみ
-    // DO の最新在庫（ゲスト入力含む）を適用できるようにする
+    // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
     setExpectedSessionId(session.id)
     await createRoom()
     const doSessionId = syncState.sessionId
     if (syncState.isSessionActive && doSessionId === session.id) {
+      // 同一セッション復帰: DO の最新在庫（ゲスト入力含む）適用済み、下書き不要
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
     } else {
+      // セッション不一致/非アクティブ: 下書きから在庫を復元してセッション再開
+      _restoreDraft(session.id)
       onSyncNewSession({ sessionId: session.id, isResume: true })
     }
   } catch (_) {
     setExpectedSessionId(null)
+    // 接続失敗（オフライン等）: 下書きから在庫を復元してオフライン継続
+    _restoreDraft(session.id)
   }
 }
 
@@ -451,10 +458,41 @@ const guestLocked      = computed(() => syncActive.value && !syncIsHost.value &&
 const syncOfflineLocked = computed(() => syncActive.value && !syncState.isConnected)
 const inputLocked      = computed(() => isCompleted.value || guestLocked.value || syncOfflineLocked.value)
 
+// ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
+const _DRAFT_PREFIX = 'inv_draft_'
+
+function _saveDraft(sessionId) {
+  if (!sessionId || Object.keys(inventory).length === 0) return
+  try { localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({ ...inventory })) } catch (_) {}
+}
+
+function _restoreDraft(sessionId) {
+  if (!sessionId) return
+  try {
+    const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    for (const [ingredient, entry] of Object.entries(saved)) {
+      applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
+    }
+  } catch (_) {}
+}
+
+function _clearDraft(sessionId) {
+  if (!sessionId) return
+  try { localStorage.removeItem(_DRAFT_PREFIX + sessionId) } catch (_) {}
+}
+
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
+let _draftSaveTimer = null
 watch(filledCount, (count) => {
   if (currentView.value !== 'session' || isCompleted.value) return
   touchSession(count)
+  // 在庫変更のたびに下書きをローカル保存（ブラウザクラッシュ時の保護）
+  clearTimeout(_draftSaveTimer)
+  _draftSaveTimer = setTimeout(() => {
+    if (pendingSession.value?.id) _saveDraft(pendingSession.value.id)
+  }, 2000)
 })
 
 // ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
@@ -515,11 +553,13 @@ async function onComplete() {
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
+    _clearDraft(pendingSession.value?.id)
     clearSession()
     currentView.value = 'sessions'
     return
   }
 
+  _clearDraft(pendingSession.value?.id)
   showToast('棚卸を完了しました ✓', 3000, 'success')
 }
 
@@ -543,8 +583,12 @@ async function onGoHome() {
   if (syncActive.value) leaveRoom()
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
-  if (isCompleted.value)  await completeSessionD1(filledCount.value)
-  else                    await markSessionActive(filledCount.value)
+  if (isCompleted.value) {
+    await completeSessionD1(filledCount.value)
+  } else {
+    _saveDraft(pendingSession.value?.id)
+    await markSessionActive(filledCount.value)
+  }
 
   if (continuousMode.value) onForceStop()
   clearSession()
@@ -580,6 +624,7 @@ async function onSyncComplete() {
   showSync.value = false
   _hostInitiatedDissolve = true
   await dissolveRoom()
+  _clearDraft(pendingSession.value?.id)
   clearSession()
   currentView.value = 'sessions'
 }
