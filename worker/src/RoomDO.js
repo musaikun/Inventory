@@ -569,6 +569,17 @@ export class RoomDO {
         break
       }
 
+      case 'conflict_notify': {
+        // 同時入力競合の発生をルーム全員（主にホスト）へ通知
+        const att = ws.deserializeAttachment() ?? {}
+        this._broadcast({
+          type:        'conflict_notify',
+          ingredient:  String(msg.ingredient ?? '').slice(0, 200),
+          fromName:    String(msg.fromName   ?? att.deviceName ?? '').slice(0, 30),
+        }, ws)
+        break
+      }
+
       case 'ping':
         ws.send(JSON.stringify({ type: 'pong' }))
         break

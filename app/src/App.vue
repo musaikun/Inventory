@@ -10,13 +10,15 @@ import {
   setInventoryCallbacks, registerInventoryGetter,
   setRecountFlagCallback, registerRecountFlagsGetter,
   registerConfigGetter, setConfigCallback,
-  setDoneCallback, setMessageCallback, setDissolvedCallback, setConflictCallback,
+  setDoneCallback, setMessageCallback, setDissolvedCallback,
+  setConflictCallback, setConflictQueueCallback, setConflictNotifyCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setScopeCallback, setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   setExpectedSessionId,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
+  broadcastConflictNotify, dismissConflict,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
@@ -357,6 +359,33 @@ setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
   const who = remoteBy || '他のメンバー'
   showToast(`${who}: 「${ingredient}」${remoteQty}${remoteUnit}に更新（あなた: ${local.qty}${local.unit}）`, 5000, 'warning')
 })
+
+// 同時入力（3秒以内）競合: キューをリアクティブに保持し解決モーダルへ
+const conflictQueue = ref([])
+setConflictQueueCallback((q) => { conflictQueue.value = q })
+
+// ホスト側: ゲストからの競合通知をポップアップで表示
+setConflictNotifyCallback((ingredient, fromName) => {
+  const who = fromName || '他のメンバー'
+  showNotification('done', `${who}: 「${ingredient}」で同時入力が発生しました`)
+})
+
+function onResolveConflict(c, resolution) {
+  const qty  = resolution === 'sum'    ? Math.round((c.local.qty + c.remoteQty) * 10000) / 10000
+             : resolution === 'mine'   ? c.local.qty
+             :                          c.remoteQty
+  const unit = resolution === 'theirs' ? c.remoteUnit : c.local.unit
+  setItem(c.ingredient, qty, unit, false, deviceName.value || '名前未設定')
+  if (!syncActive.value) {
+    _localAudit(c.ingredient, 'overwrite', qty, qty, unit)
+  } else {
+    broadcastUpdate(c.ingredient, qty, unit, deviceName.value || '名前未設定', false)
+    // ホストがゲスト側の競合解決を把握できるよう再通知
+    if (!syncIsHost.value) broadcastConflictNotify(c.ingredient, deviceName.value || '名前未設定')
+  }
+  dismissConflict(c.ingredient)
+  showToast(`「${c.ingredient}」を ${qty}${unit} に確定しました`, 2400, 'success')
+}
 setNameTakenCallback((prevName) => {
   setDeviceName(prevName)
   showToast('この端末名は既に使用されています', 4000, 'warning')
@@ -1279,6 +1308,29 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         @cancel="onCancelCandidate"
       />
 
+      <!-- 同時入力 競合解決バナー -->
+      <div v-if="conflictQueue.length > 0" class="conflict-resolve-wrap">
+        <div v-for="c in conflictQueue" :key="c.ingredient" class="conflict-resolve-card">
+          <div class="conflict-resolve-title">⚡ 「{{ c.ingredient }}」の同時入力</div>
+          <div class="conflict-resolve-vals">
+            <span class="crv-mine">あなた: {{ c.local.qty }}{{ c.local.unit }}</span>
+            <span class="crv-sep">｜</span>
+            <span class="crv-theirs">{{ c.remoteBy }}: {{ c.remoteQty }}{{ c.remoteUnit }}</span>
+          </div>
+          <div class="conflict-resolve-actions">
+            <button class="crv-btn crv-sum"    @click="onResolveConflict(c, 'sum')">
+              合計 {{ Math.round((c.local.qty + c.remoteQty) * 10000) / 10000 }}{{ c.local.unit }}
+            </button>
+            <button class="crv-btn crv-mine"   @click="onResolveConflict(c, 'mine')">
+              自分 ({{ c.local.qty }}{{ c.local.unit }})
+            </button>
+            <button class="crv-btn crv-theirs" @click="onResolveConflict(c, 'theirs')">
+              相手 ({{ c.remoteQty }}{{ c.remoteUnit }})
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- フッター -->
       <div class="app-footer">
         <div v-if="totalValue != null" class="footer-total">
@@ -1811,4 +1863,61 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   transform: translateY(100%);
   opacity: 0;
 }
+
+/* ── 同時入力 競合解決 ── */
+.conflict-resolve-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.conflict-resolve-card {
+  background: #fff;
+  border: 2px solid #f59e0b;
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 2px 12px rgba(245,158,11,0.15);
+}
+
+.conflict-resolve-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #92400e;
+  margin-bottom: 8px;
+}
+
+.conflict-resolve-vals {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crv-mine   { font-weight: 700; color: var(--primary); }
+.crv-sep    { color: var(--text-muted); }
+.crv-theirs { font-weight: 700; color: #dc2626; }
+
+.conflict-resolve-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.crv-btn {
+  flex: 1;
+  padding: 9px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.crv-btn:active { opacity: 0.75; }
+
+.crv-sum    { background: #d1fae5; color: #065f46; }
+.crv-mine   { background: #dbeafe; color: #1e40af; }
+.crv-theirs { background: #fee2e2; color: #991b1b; }
 </style>

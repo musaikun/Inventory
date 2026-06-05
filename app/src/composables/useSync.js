@@ -120,6 +120,8 @@ let _onDone           = null
 let _onMessage        = null
 let _onDissolved      = null
 let _onConflict       = null
+let _onConflictQueue  = null   // 同時入力（3s以内）キュー: ユーザーが解決を選択
+let _onConflictNotify = null   // ホスト向け競合発生通知
 let _onNameTaken      = null
 let _onParticipantJoin  = null
 let _onParticipantLeave = null
@@ -142,7 +144,9 @@ export function setResetConfigCallback(fn)   { _onResetConfig = fn }
 export function setDoneCallback(fn)          { _onDone = fn }
 export function setMessageCallback(fn)       { _onMessage = fn }
 export function setDissolvedCallback(fn)     { _onDissolved = fn }
-export function setConflictCallback(fn)      { _onConflict = fn }
+export function setConflictCallback(fn)        { _onConflict       = fn }
+export function setConflictQueueCallback(fn)   { _onConflictQueue  = fn }
+export function setConflictNotifyCallback(fn)  { _onConflictNotify = fn }
 export function setNameTakenCallback(fn)     { _onNameTaken = fn }
 export function setParticipantJoinCallback(fn)  { _onParticipantJoin  = fn }
 export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
@@ -222,6 +226,18 @@ export function broadcastSessionEnd(status = 'completed') {
 export function broadcastMessage(text, replyTo = null) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
+}
+
+export function broadcastConflictNotify(ingredient, fromName) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName }))
+}
+
+// 解決済み競合をキューから除去
+let _conflictQueue = []
+export function dismissConflict(ingredient) {
+  _conflictQueue = _conflictQueue.filter(c => c.ingredient !== ingredient)
+  _onConflictQueue?.([..._conflictQueue])
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
@@ -359,14 +375,35 @@ function _handleMessage(msg) {
     case 'update':
       if (msg.fromDeviceId !== deviceId) {
         const currentInv = _getInventory?.()
-        if (currentInv?.[msg.ingredient]) {
-          // 競合: 自分が入力済みの品目を他者が更新
-          _onConflict?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '', currentInv[msg.ingredient])
+        const local = currentInv?.[msg.ingredient]
+        if (local) {
+          const msSinceLocalEdit = Date.now() - (local.updatedAt ?? 0)
+          if (msSinceLocalEdit < 3000) {
+            // 同時入力（3秒以内）: 自動適用せずキューに積んでユーザーに解決を委ねる
+            if (!_conflictQueue.some(c => c.ingredient === msg.ingredient)) {
+              _conflictQueue.push({
+                ingredient: msg.ingredient,
+                remoteQty:  msg.qty,
+                remoteUnit: msg.unit ?? '',
+                remoteBy:   msg.enteredBy ?? '',
+                local,
+              })
+              _onConflictQueue?.([..._conflictQueue])
+            }
+            // ホストに競合発生を通知（自分がホストでない場合のみ）
+            if (state.mode === 'joining') {
+              broadcastConflictNotify(msg.ingredient, msg.enteredBy ?? '')
+            }
+          } else {
+            // 時間差あり: 相手が後から上書き → トーストのみ、リモート値を適用
+            _onConflict?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '', local)
+            _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
+          }
         } else {
-          // 通常更新トースト（競合なし）
+          // 自分が未入力の品目: 通常更新
           _onRemoteUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
+          _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
         }
-        _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
       }
       break
 
@@ -473,6 +510,11 @@ function _handleMessage(msg) {
         state.mode     = 'idle'
         state.roomCode = null
       }
+      break
+
+    case 'conflict_notify':
+      // ゲストが送った競合通知: ホスト（自分以外）が受け取って表示する
+      _onConflictNotify?.(msg.ingredient, msg.fromName ?? '')
       break
 
     case 'pong':
