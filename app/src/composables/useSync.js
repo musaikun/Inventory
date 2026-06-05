@@ -28,12 +28,36 @@ export function clearHostToken() {
   const key = _hostTokenKey()
   if (key) try { localStorage.removeItem(key) } catch (_) {}
 }
+export function hasHostToken() {
+  return !!_loadHostToken()
+}
 
 const WORKER_URL = (() => {
   const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
   if (!raw) return ''
   return raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
 })()
+
+const HTTP_BASE = (() => {
+  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
+  return raw.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://').replace(/\/$/, '')
+})()
+
+// 接続有無に関わらず、保存済みホストトークンで残存ルームを解散する（退室済みルームの掃除）
+export async function dissolveRoomRemote() {
+  const code  = shopCode.value
+  const token = _loadHostToken()
+  if (code && token && HTTP_BASE) {
+    try {
+      await fetch(`${HTTP_BASE}/room/${code}/dissolve`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ hostToken: token }),
+      })
+    } catch (_) {}
+  }
+  clearHostToken()
+}
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({

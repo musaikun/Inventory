@@ -161,6 +161,17 @@ export default {
       }
     }
 
+    // ── ルーム解散（退室済み残存ルームの掃除・HTTP）──────────────────────────
+    const dissolveMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/dissolve$/i)
+    if (dissolveMatch && request.method === 'POST') {
+      const code = dissolveMatch[1].toUpperCase()
+      const id   = env.ROOMS.idFromName(`room:${code}`)
+      const room = env.ROOMS.get(id)
+      const res  = await room.fetch(request)
+      const body = await res.json().catch(() => ({}))
+      return jsonResponse(body, res.status, origin, allowedOrigin)
+    }
+
     // ── WebSocket（リアルタイム同期）─────────────────────────────────────────
     const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/ws$/i)
     if (wsMatch) {

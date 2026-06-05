@@ -7,7 +7,7 @@ const props = defineProps({
   liveItemCount: { type: Number, default: null },
   liveSessionId: { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession'])
 
 const sessions   = ref([])
 const loading    = ref(true)
@@ -73,6 +73,7 @@ async function onDelete(session) {
   try {
     await deleteSession(session.id)
     sessions.value = sessions.value.filter(s => s.id !== session.id)
+    emit('deleteSession', session.id)
   } catch (e) {
     error.value = e.message
   } finally {

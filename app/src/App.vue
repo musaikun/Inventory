@@ -19,6 +19,7 @@ import {
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
+  hasHostToken, dissolveRoomRemote,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -150,6 +151,8 @@ function onAuthDone() {
 
 // セッション一覧から「セッション開始」
 async function onSessionStart(session) {
+  // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
+  if (hasHostToken()) await dissolveRoomRemote()
   beginSession(session)
   reset()
   clearAuditLog()
@@ -174,31 +177,36 @@ function onViewSession(session) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
+  // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
+  reset()
+  clearAuditLog()
   resumeSession(session)
   await _startSessionView()
-  if (!isCompleted.value && shopCode.value && !syncActive.value) {
-    // ルーム復帰を完了待ちしてから下書き復元の要否を判断
+  if (shopCode.value && !syncActive.value) {
+    // このセッションがライブなルームを持つ時だけ復帰判定する
     await _reconnectToRoom(session)
   } else {
-    // ルームなし（完了済み or 店舗コードなし）: 下書きから在庫を復元
+    // 店舗コードなし: 下書きから在庫を復元
     _restoreDraft(session.id)
   }
 }
 
 // ルーム自動復帰（再開時）
+// 店舗ルームは shopCode 単位の共有シングルトンのため、DO のアクティブセッションが
+// このセッションと一致する時だけ復帰する。不一致なら乗っ取らず退出しオフライン継続。
 async function _reconnectToRoom(session) {
   try {
     // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
     setExpectedSessionId(session.id)
     await createRoom()
-    const doSessionId = syncState.sessionId
-    if (syncState.isSessionActive && doSessionId === session.id) {
-      // 同一セッション復帰: DO の最新在庫（ゲスト入力含む）適用済み、下書き不要
+    if (syncState.isSessionActive && syncState.sessionId === session.id) {
+      // 本物の再接続: このセッションのライブルームに復帰（ゲスト入力含む在庫を適用済み）
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
     } else {
-      // セッション不一致/非アクティブ: 下書きから在庫を復元してセッション再開
+      // 別セッションのルーム or 非アクティブ: 乗っ取らず即退出し、下書きでオフライン継続
+      setExpectedSessionId(null)
+      leaveRoom()
       _restoreDraft(session.id)
-      onSyncNewSession({ sessionId: session.id, isResume: true })
     }
   } catch (_) {
     setExpectedSessionId(null)
@@ -644,6 +652,8 @@ async function onLogout() {
   } else if (syncActive.value) {
     leaveRoom()                     // ゲスト → 退出（_onGuestLeave が reset/navigate を担当）
     return                          // コールバック側でランディングへ遷移するため終了
+  } else if (hasHostToken()) {
+    await dissolveRoomRemote()      // 退室済みの残存ルームを掃除（ゲストに解散通知）
   }
   reset()
   resetToDefault()
@@ -1059,6 +1069,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
+      @delete-session="_clearDraft"
       @back="currentView = 'landing'"
     />
 

@@ -8,6 +8,11 @@ export class RoomDO {
   }
 
   async fetch(request) {
+    const url = new URL(request.url)
+    // HTTP 経由のルーム解散（ホストが退室済みで WS 未接続の残存ルームを掃除する）
+    if (url.pathname.endsWith('/dissolve')) {
+      return this._handleHttpDissolve(request)
+    }
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('WebSocket upgrade required', { status: 426 })
     }
@@ -16,6 +21,29 @@ export class RoomDO {
     const alarm = await this.state.storage.getAlarm()
     if (!alarm) await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  async _handleHttpDissolve(request) {
+    const json = (body, status) =>
+      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+    let body = {}
+    try { body = await request.json() } catch (_) {}
+
+    const storedToken = await this.state.storage.get('hostToken')
+    // ルームが存在しない（既に解散済み）: 成功扱い
+    if (!storedToken) return json({ ok: true, alreadyGone: true }, 200)
+
+    const providedToken = String(body.hostToken ?? '').slice(0, 64)
+    if (providedToken !== storedToken) return json({ error: 'auth_failed' }, 403)
+
+    // 全クライアントへ解散通知して切断、ストレージを破棄
+    this._broadcast({ type: 'dissolved' })
+    for (const w of this.state.getWebSockets()) {
+      try { w.close(1000, 'Room dissolved') } catch (_) {}
+    }
+    await this.state.storage.deleteAll()
+    return json({ ok: true }, 200)
   }
 
   async webSocketMessage(ws, message) {
@@ -69,10 +97,18 @@ export class RoomDO {
             // 再接続: トークン一致 → ホスト承認
             isVerifiedHost = true
           } else {
-            // トークン不一致: 他に参加者がいなければ空ルームとして再初期化を許可する
-            // （localStorageクリア後に同じ店舗コードで再接続するシナリオに対応）
+            // トークン不一致: 以下のいずれかを満たせばトークンを再発行して復旧する
+            //   ① 他に接続が無い（空ルーム再初期化）
+            //   ② 同一 deviceId のホスト接続が残存（オフライン復帰でトークンを失った本人）
+            //   ③ 他にホスト権限を持つ接続が一つも無い（ホスト不在のルームの引き継ぎ）
+            // ②③により、同時オフライン→復帰時の auth_failed 無限ループを解消する。
             const others = this.state.getWebSockets().filter(w => w !== ws)
-            if (others.length === 0) {
+            const sameDeviceHost  = others.some(w => {
+              const a = w.deserializeAttachment()
+              return a?.deviceId === deviceId && a?.isHost
+            })
+            const anyVerifiedHost = others.some(w => w.deserializeAttachment()?.isHost)
+            if (others.length === 0 || sameDeviceHost || !anyVerifiedHost) {
               const token = crypto.randomUUID()
               await this.state.storage.put('hostToken', token)
               isVerifiedHost = true
