@@ -490,10 +490,10 @@ const guestReported = ref(false)
 watch(syncActive, (v) => { if (!v) guestReported.value = false })
 
 // ゲストが棚卸完了を報告している間は入力を完全ロック
-const guestLocked      = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
-// 同期中にオフラインになったら入力を禁止（オフライン在庫マージは行わない）
-const syncOfflineLocked = computed(() => syncActive.value && !syncState.isConnected)
-const inputLocked      = computed(() => isCompleted.value || guestLocked.value || syncOfflineLocked.value)
+const guestLocked       = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
+// 再接続中は入力を許可（オフライン中の入力は再接続時に差分ブロードキャストで同期する）
+const syncOfflineLocked = computed(() => false)
+const inputLocked       = computed(() => isCompleted.value || guestLocked.value)
 
 // ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
 const _DRAFT_PREFIX = 'inv_draft_'
@@ -1153,7 +1153,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       </header>
 
       <!-- 同期中バナー -->
-      <div v-if="syncActive" class="sync-banner" :class="{ offline: syncOfflineLocked }">
+      <div v-if="syncActive" class="sync-banner" :class="{ offline: !syncState.isConnected }">
         <div class="sync-banner-top">
           <span class="sync-banner-dot"></span>
           <span class="sync-banner-text">

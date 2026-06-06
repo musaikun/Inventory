@@ -529,6 +529,14 @@ function _connect(code) {
     return Promise.reject(new Error('no worker url'))
   }
 
+  // 既存WSが残っていたら先に閉じる（古いoncloseが_ws=nullにしてループを起こすのを防ぐ）
+  _clearReconnectTimer()
+  if (_ws) {
+    const stale = _ws
+    _ws = null
+    try { stale.close(1000, 'reconnect') } catch (_) {}
+  }
+
   return new Promise((resolve, reject) => {
     let settled = false
     const isHostMode = state.mode === 'hosting'
@@ -622,6 +630,7 @@ function _connect(code) {
     }
 
     ws.onerror = () => {
+      if (_ws !== ws && _ws !== null) return  // 旧WSのエラーは無視
       clearTimeout(timer)
       if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
       if (!settled && !state.isConnected) {
@@ -633,6 +642,8 @@ function _connect(code) {
     }
 
     ws.onclose = () => {
+      // 自分が現役WSでない場合（_connectが新しいWSに切り替え済み）は何もしない
+      if (_ws !== ws && _ws !== null) return
       _ws = null
       _stopHeartbeat()
       state.isConnected = false
@@ -723,6 +734,8 @@ export function useSync() {
     state.error = null
     const code  = shopCode.value
     if (!code) throw new Error('店舗コードが未登録です。先に店舗を登録してください。')
+    // 既に同じルームにホストとして接続済みなら再接続しない
+    if (state.mode === 'hosting' && state.roomCode === code && state.isConnected) return code
     state.roomCode = code
     state.mode     = 'hosting'
     try {
