@@ -40,6 +40,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+        // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
+        // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。
+        cleanupOutdatedCaches: true,
+        // 新SWを待機させず即時有効化し、全クライアントを更新後の資産へ揃える。
+        // デプロイのたびに index.html と各ハッシュ資産がアトミックに差し替わる。
+        clientsClaim: true,
+        skipWaiting:  true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\./,
