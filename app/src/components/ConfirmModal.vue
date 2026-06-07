@@ -13,6 +13,7 @@ const props = defineProps({
   unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
   auditLog:    { type: Array,   default: () => [] },
   isFlagged:   { type: Boolean, default: false }, // 「あとで数える」フラグ状態
+  typingUser:  { type: String,  default: null },  // 同一品目を入力中の他ユーザー名
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag'])
@@ -187,6 +188,11 @@ function submit(isAdd) {
       <div class="sheet-handle"></div>
       <div class="sheet-title">数量を入力</div>
 
+      <!-- 他メンバーの入力中インジケータ -->
+      <div v-if="typingUser" class="typing-user-banner">
+        ✏️ {{ typingUser }}が入力中…
+      </div>
+
       <!-- 品目名 -->
       <div class="name-box">
         {{ ingredient }}
@@ -313,6 +319,18 @@ function submit(isAdd) {
 </template>
 
 <style scoped>
+.typing-user-banner {
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  margin: 0 16px 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: #92400e;
+  font-style: italic;
+  text-align: center;
+}
+
 .name-box {
   font-size: 15px;
   font-weight: 700;

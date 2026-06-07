@@ -18,7 +18,7 @@ import {
   setExpectedSessionId,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
-  broadcastConflictNotify, dismissConflict,
+  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
@@ -947,9 +947,11 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     source,
     lotSize:    config.lotSizes?.[ingredient] ?? '',
   }
+  if (syncActive.value) broadcastTyping(ingredient, true)
 }
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
+  if (syncActive.value) broadcastTyping(ingredient, false)
   const existing  = confirmExisting.value
   const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
@@ -985,6 +987,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 }
 
 function onCancelConfirm() {
+  if (syncActive.value && confirmState.value) broadcastTyping(confirmState.value.ingredient, false)
   confirmState.value = null
   pendingCandidates.value = null
   _restartIfContinuous()
@@ -992,6 +995,7 @@ function onCancelConfirm() {
 
 function onConfirmRevert(prevState) {
   const ingredient = confirmState.value.ingredient
+  if (syncActive.value) broadcastTyping(ingredient, false)
   const cur = confirmExisting.value
   if (!prevState) {
     removeItem(ingredient)
@@ -1273,6 +1277,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :late-recount-items="lateRecountItems"
         :recount-flags="recountFlags"
         :category-scope="categoryScope"
+        :typing-map="syncActive ? typingMap : null"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
@@ -1291,6 +1296,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :lot-size="confirmState.lotSize"
         :audit-log="auditLog"
         :is-flagged="!!recountFlags[confirmState.ingredient]"
+        :typing-user="syncActive ? (typingMap[confirmState.ingredient]?.name ?? null) : null"
         @confirm="onConfirm"
         @cancel="onCancelConfirm"
         @revert="onConfirmRevert"

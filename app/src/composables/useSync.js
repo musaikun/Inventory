@@ -83,6 +83,8 @@ const participants  = reactive({})
 const messages      = reactive([])
 const auditLog      = reactive([])
 const unreadCount   = ref(0)
+// { [ingredient]: { name: string, deviceId: string, _timer: number } }
+export const typingMap  = reactive({})
 
 let _ws              = null
 let _reconnectTimer  = null
@@ -228,6 +230,29 @@ export function broadcastMessage(text, replyTo = null) {
   _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
 }
 
+export function broadcastTyping(ingredient, active) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'typing', ingredient, active }))
+}
+
+function _setTyping(ingredient, did, name) {
+  if (typingMap[ingredient]?._timer) clearTimeout(typingMap[ingredient]._timer)
+  // 10秒無通知で自動クリア（WS切断でtyping_stopが来なかった場合の保険）
+  const _timer = setTimeout(() => { if (typingMap[ingredient]?.deviceId === did) delete typingMap[ingredient] }, 10000)
+  typingMap[ingredient] = { name, deviceId: did, _timer }
+}
+
+function _clearTyping(ingredient, did) {
+  if (typingMap[ingredient]?.deviceId === did) {
+    clearTimeout(typingMap[ingredient]._timer)
+    delete typingMap[ingredient]
+  }
+}
+
+function _clearAllTypingByDevice(did) {
+  for (const ing of Object.keys(typingMap)) _clearTyping(ing, did)
+}
+
 export function broadcastConflictNotify(ingredient, fromName) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName }))
@@ -267,6 +292,7 @@ function _updateParticipants(list, notify = false) {
         _onParticipantLeave?.(info.name)
       }
       delete participants[id]
+      _clearAllTypingByDevice(id)  // 退出時に入力中インジケータを消す
     }
   }
   // 入室検出 & 名前更新
@@ -309,6 +335,7 @@ function _resetClientState() {
   state.sessionId       = null
   state.isSessionActive = false
   Object.keys(participants).forEach(k => delete participants[k])
+  Object.keys(typingMap).forEach(k => { clearTimeout(typingMap[k]?._timer); delete typingMap[k] })
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
   unreadCount.value = 0
@@ -378,7 +405,8 @@ function _handleMessage(msg) {
         const local = currentInv?.[msg.ingredient]
         if (local) {
           const msSinceLocalEdit = Date.now() - (local.updatedAt ?? 0)
-          if (msSinceLocalEdit < 3000) {
+          // localEntry フラグが無い場合はリモート同期で入った値 → 競合対象にしない
+          if (local.localEntry && msSinceLocalEdit < 3000) {
             // 同時入力（3秒以内）: 自動適用せずキューに積んでユーザーに解決を委ねる
             if (!_conflictQueue.some(c => c.ingredient === msg.ingredient)) {
               _conflictQueue.push({
@@ -512,8 +540,14 @@ function _handleMessage(msg) {
       }
       break
 
+    case 'typing':
+      if (msg.deviceId && msg.deviceId !== deviceId) {
+        if (msg.active) _setTyping(msg.ingredient, msg.deviceId, msg.deviceName ?? '')
+        else            _clearTyping(msg.ingredient, msg.deviceId)
+      }
+      break
+
     case 'conflict_notify':
-      // ゲストが送った競合通知: ホスト（自分以外）が受け取って表示する
       _onConflictNotify?.(msg.ingredient, msg.fromName ?? '')
       break
 

@@ -569,6 +569,19 @@ export class RoomDO {
         break
       }
 
+      case 'typing': {
+        // 入力中インジケータ: 送信者以外の全員へ転送（deviceId/deviceName を付与）
+        const att = ws.deserializeAttachment() ?? {}
+        this._broadcast({
+          type:       'typing',
+          ingredient: String(msg.ingredient ?? '').slice(0, 200),
+          active:     !!msg.active,
+          deviceId:   att.deviceId   ?? '',
+          deviceName: att.deviceName ?? '',
+        }, ws)
+        break
+      }
+
       case 'conflict_notify': {
         // 同時入力競合の発生をルーム全員（主にホスト）へ通知
         const att = ws.deserializeAttachment() ?? {}

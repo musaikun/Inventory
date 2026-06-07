@@ -109,7 +109,7 @@ export function useInventory() {
     }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
-    inventory[ingredient] = { qty: finalQty, unit, enteredBy, updatedAt: Date.now() }
+    inventory[ingredient] = { qty: finalQty, unit, enteredBy, updatedAt: Date.now(), localEntry: true }
     if (isNew) entryLog.push(ingredient)
     _save()
   }

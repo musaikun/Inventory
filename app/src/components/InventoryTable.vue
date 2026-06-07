@@ -12,6 +12,7 @@ const props = defineProps({
   lateRecountItems: { type: Object,  default: null },  // Set<string>
   recountFlags:     { type: Object,  default: null },  // { [item]: {by,at} }「あとで数える」
   categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
+  typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
@@ -464,7 +465,7 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item] }"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
               class="item-row"
@@ -486,7 +487,10 @@ function fmtYen(n) {
                   title="この品目は最初の入力から15分以上後に再入力されています"
                 >⚠</span>
               </div>
-              <div v-if="row.lotSize || row.prevMonth" class="hints-row">
+              <div v-if="typingMap?.[row.item]" class="typing-indicator">
+                ✏️ {{ typingMap[row.item].name }}が入力中…
+              </div>
+              <div v-else-if="row.lotSize || row.prevMonth" class="hints-row">
                 <span v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</span>
                 <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
               </div>
@@ -721,6 +725,15 @@ function fmtYen(n) {
 .item-row:focus:not(:focus-visible) { outline: none; }
 .item-row.read-only          { cursor: default; }
 .item-row.read-only:active   { background: inherit !important; }
+.item-row.typing             { background: #fefce8 !important; }
+.item-row.typing .td-name    { border-left: 2px solid #f59e0b; }
+
+.typing-indicator {
+  font-size: 10px;
+  color: #92400e;
+  margin-top: 2px;
+  font-style: italic;
+}
 
 /* ── 品目セル ── */
 .td-name {
