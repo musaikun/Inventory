@@ -312,7 +312,7 @@ setDoneCallback((name, isFinal) => {
   const msg = isFinal
     ? `棚卸が締められました。入力を終了してください。`
     : `${name} が棚卸完了を報告しました ✓`
-  showNotification('done', msg)
+  showChatNotif(msg)
 })
 setMessageCallback((msgObj) => {
   if (!showChat.value) showChatNotif(msgObj.text, msgObj.senderName)
@@ -362,9 +362,7 @@ const conflictQueue = ref([])
 setConflictQueueCallback((q) => { conflictQueue.value = q })
 
 // ホスト側: ゲストからの競合通知をポップアップ＋チャットで通知
-setConflictNotifyCallback((ingredient, fromName) => {
-  const who = fromName || '他のメンバー'
-  showNotification('done', `${who}: 「${ingredient}」で同時入力が発生しました`)
+setConflictNotifyCallback((ingredient) => {
   _postConflictToChat(ingredient)
 })
 
@@ -378,8 +376,6 @@ function onResolveConflict(c, resolution) {
     _localAudit(c.ingredient, 'overwrite', qty, qty, unit)
   } else {
     broadcastUpdate(c.ingredient, qty, unit, deviceName.value || '名前未設定', false)
-    // ホストがゲスト側の競合解決を把握できるよう再通知
-    if (!syncIsHost.value) broadcastConflictNotify(c.ingredient, deviceName.value || '名前未設定')
   }
   dismissConflict(c.ingredient)
   showToast(`「${c.ingredient}」を ${qty}${unit} に確定しました`, 2400, 'success')
@@ -497,7 +493,6 @@ function _pushBackSentinel() {
 function _closeTopLayer() {
   if (confirmState.value)    { onCancelConfirm();         return true }
   if (candidateState.value)  { onCancelCandidate();       return true }
-  if (notification.value)    { notification.value = null; return true }
   if (chatNotif.value)       { chatNotif.value = null;    return true }
   if (showNameModal.value)   { showNameModal.value = false; return true }
   if (recountOpen.value)     { recountOpen.value = false; return true }
@@ -739,16 +734,6 @@ function showToast(msg, duration = 2600, type = 'default') {
   toastType.value = type
   toastShow.value = true
   toastTimer = setTimeout(() => (toastShow.value = false), duration)
-}
-
-// ── 通知ポップアップ（完了通知・メッセージ・解散通知）──────────────────────────
-const notification     = ref(null)  // { type, text, senderName }
-let   notificationTimer = null
-
-function showNotification(type, text, senderName = '') {
-  clearTimeout(notificationTimer)
-  notification.value = { type, text, senderName }
-  notificationTimer = setTimeout(() => { notification.value = null }, 6000)
 }
 
 // ── チャットモーダル ───────────────────────────────────────────────────────────
@@ -994,6 +979,17 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
   document.activeElement?.blur()
   // 数値入力モーダル中は音声認識を止める（確定/キャンセル後に _restartIfContinuous が再開する）
   if (isListening.value) stopVoice()
+
+  if (syncActive.value && typingMap[ingredient]) {
+    const who = typingMap[ingredient].name || '他のメンバー'
+    showToast(`「${ingredient}」は${who}が入力中です`, 2500, 'warning')
+    return
+  }
+  if (conflictQueue.value.some(c => c.ingredient === ingredient)) {
+    showToast(`「${ingredient}」の競合を先に解決してください`, 2500, 'warning')
+    return
+  }
+
   // PDF登録済みの単位を優先し、ロック状態にする
   const configUnit = config.units?.[ingredient]
   confirmState.value = {
@@ -1458,19 +1454,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
-    <!-- 通知ポップアップ -->
-    <Transition name="notif-popup">
-      <div v-if="notification" class="notif-overlay" @click="notification = null">
-        <div class="notif-card" :class="notification.type">
-          <div v-if="notification.type === 'message'" class="notif-sender">{{ notification.senderName }}</div>
-          <div v-else-if="notification.type === 'done'" class="notif-done-icon">✓</div>
-          <div v-else class="notif-done-icon">🔔</div>
-          <div class="notif-text">{{ notification.text }}</div>
-          <div class="notif-dismiss">タップで閉じる</div>
-        </div>
-      </div>
-    </Transition>
-
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">
       <div v-if="chatNotif" class="chat-notif-banner" @click="chatNotif = null">
@@ -1488,73 +1471,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 </template>
 
 <style scoped>
-/* ── 通知ポップアップ ── */
-.notif-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.notif-card {
-  background: #fff;
-  border-radius: 24px;
-  padding: 32px 28px 24px;
-  max-width: 340px;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.28);
-}
-
-.notif-sender {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 12px;
-}
-
-.notif-done-icon {
-  font-size: 40px;
-  color: var(--success);
-  margin-bottom: 10px;
-  line-height: 1;
-}
-
-.notif-text {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.5;
-  margin-bottom: 18px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.notif-card.done .notif-text {
-  color: var(--success);
-}
-
-.notif-dismiss {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.notif-popup-enter-active,
-.notif-popup-leave-active {
-  transition: opacity 0.2s ease, transform 0.25s ease;
-}
-.notif-popup-enter-from,
-.notif-popup-leave-to {
-  opacity: 0;
-  transform: scale(0.88);
-}
-
 /* ── あとで数える 一覧バナー ── */
 .recount-notice {
   margin: 0 16px 8px;

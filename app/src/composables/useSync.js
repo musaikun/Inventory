@@ -267,9 +267,9 @@ function _clearAllTypingByDevice(did) {
   for (const ing of Object.keys(typingMap)) _clearTyping(ing, did)
 }
 
-export function broadcastConflictNotify(ingredient, fromName) {
+export function broadcastConflictNotify(ingredient, fromName, guestQty, guestUnit, hostQty, hostUnit) {
   if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName }))
+  _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName, guestQty, guestUnit, hostQty, hostUnit }))
 }
 
 // 解決済み競合をキューから除去
@@ -420,20 +420,17 @@ function _handleMessage(msg) {
         if (local) {
           // localEntry フラグが無い値（リモート同期で入った値）は競合対象にしない
           if (classifyIncomingUpdate(local) === 'conflict') {
-            // 同時入力（3秒以内）: 自動適用せずキューに積んでユーザーに解決を委ねる
-            if (!_conflictQueue.some(c => c.ingredient === msg.ingredient)) {
-              _conflictQueue.push({
-                ingredient: msg.ingredient,
-                remoteQty:  msg.qty,
-                remoteUnit: msg.unit ?? '',
-                remoteBy:   msg.enteredBy ?? '',
-                local,
-              })
+            if (state.mode === 'hosting') {
+              // ホスト: 自分が競合を検知 → キューに積む（既存エントリは上書き）
+              const idx = _conflictQueue.findIndex(c => c.ingredient === msg.ingredient)
+              const entry = { ingredient: msg.ingredient, remoteQty: msg.qty, remoteUnit: msg.unit ?? '', remoteBy: msg.enteredBy ?? '', local }
+              if (idx === -1) _conflictQueue.push(entry)
+              else            _conflictQueue[idx] = entry
               _onConflictQueue?.([..._conflictQueue])
-            }
-            // ホストに競合発生を通知（自分がホストでない場合のみ）
-            if (state.mode === 'joining') {
-              broadcastConflictNotify(msg.ingredient, msg.enteredBy ?? '')
+              _onConflictNotify?.(msg.ingredient, msg.enteredBy ?? '')
+            } else {
+              // ゲスト: ローカルキューには積まずホストへ通知（qty付き）
+              broadcastConflictNotify(msg.ingredient, msg.enteredBy ?? '', local.qty, local.unit ?? '', msg.qty, msg.unit ?? '')
             }
           } else {
             // 時間差あり: 相手が後から上書き → トーストのみ、リモート値を適用
@@ -561,6 +558,20 @@ function _handleMessage(msg) {
       break
 
     case 'conflict_notify':
+      if (state.mode === 'hosting') {
+        // ゲストから届いた競合通知 — ホストのキューにまだ無ければ追加
+        const existingIdx = _conflictQueue.findIndex(c => c.ingredient === msg.ingredient)
+        if (existingIdx === -1) {
+          _conflictQueue.push({
+            ingredient: msg.ingredient,
+            remoteQty:  msg.guestQty ?? 0,
+            remoteUnit: msg.guestUnit ?? '',
+            remoteBy:   msg.fromName ?? '',
+            local: { qty: msg.hostQty ?? 0, unit: msg.hostUnit ?? '' },
+          })
+          _onConflictQueue?.([..._conflictQueue])
+        }
+      }
       _onConflictNotify?.(msg.ingredient, msg.fromName ?? '')
       break
 
