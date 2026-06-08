@@ -443,6 +443,8 @@ function _handleMessage(msg) {
               _onConflictNotify?.(msg.ingredient, msg.enteredBy ?? '')
             } else {
               // ゲスト: ローカルキューには積まずホストへ通知（qty付き）
+              // ホストからの conflict_lock を待たず即座にロックして変更を阻止
+              lockedIngredients.add(msg.ingredient)
               broadcastConflictNotify(msg.ingredient, msg.enteredBy ?? '', local.qty, local.unit ?? '', msg.qty, msg.unit ?? '')
             }
           } else {

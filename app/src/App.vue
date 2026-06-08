@@ -1395,6 +1395,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :recount-flags="recountFlags"
         :category-scope="categoryScope"
         :typing-map="syncActive ? typingMap : null"
+        :conflict-locked="syncActive ? lockedIngredients : null"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"

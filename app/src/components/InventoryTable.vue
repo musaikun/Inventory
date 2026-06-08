@@ -13,6 +13,7 @@ const props = defineProps({
   recountFlags:     { type: Object,  default: null },  // { [item]: {by,at} }「あとで数える」
   categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
   typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
+  conflictLocked:   { type: Object,  default: null },  // Set<string> 競合中品目
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
@@ -240,6 +241,7 @@ const grandTotal = computed(() => {
 })
 
 function rowClick(item) {
+  if (props.conflictLocked?.has(item)) return
   emit('tap', item)
 }
 
@@ -465,7 +467,7 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item] }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item) }"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
               class="item-row"
@@ -487,7 +489,10 @@ function fmtYen(n) {
                   title="この品目は最初の入力から15分以上後に再入力されています"
                 >⚠</span>
               </div>
-              <div v-if="typingMap?.[row.item]" class="typing-indicator">
+              <div v-if="conflictLocked?.has(row.item)" class="conflict-indicator">
+                ⚡ 競合中 — ホストが解決中
+              </div>
+              <div v-else-if="typingMap?.[row.item]" class="typing-indicator">
                 ✏️ {{ typingMap[row.item].name }}が入力中…
               </div>
               <div v-else-if="row.lotSize || row.prevMonth" class="hints-row">
@@ -727,10 +732,19 @@ function fmtYen(n) {
 .item-row.read-only:active   { background: inherit !important; }
 .item-row.typing             { background: #fefce8 !important; }
 .item-row.typing .td-name    { border-left: 2px solid #f59e0b; }
+.item-row.conflict           { background: #fef2f2 !important; cursor: default; }
+.item-row.conflict .td-name  { border-left: 2px solid #ef4444; }
 
 .typing-indicator {
   font-size: 10px;
   color: #92400e;
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.conflict-indicator {
+  font-size: 10px;
+  color: #dc2626;
   margin-top: 2px;
   font-style: italic;
 }
