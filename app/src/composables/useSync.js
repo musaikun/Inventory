@@ -477,7 +477,7 @@ function _handleMessage(msg) {
     case 'message': {
       if (!messages.some(m => m.id === msg.id)) {
         messages.push(msg)
-        unreadCount.value++
+        if (msg.senderId !== deviceId) unreadCount.value++
       }
       _onMessage?.(msg)
       break
