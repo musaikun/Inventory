@@ -18,7 +18,7 @@ import {
   setExpectedSessionId,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
-  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap,
+  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, broadcastMessage,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
@@ -315,8 +315,7 @@ setDoneCallback((name, isFinal) => {
   showNotification('done', msg)
 })
 setMessageCallback((msgObj) => {
-  // チャット画面が開いていないときだけポップアップ通知
-  if (!showChat.value) showNotification('message', msgObj.text, msgObj.senderName)
+  if (!showChat.value) showChatNotif(msgObj.text, msgObj.senderName)
 })
 setDissolvedCallback(() => {
   showChat.value = false
@@ -362,10 +361,11 @@ setConflictCallback((ingredient, remoteQty, remoteUnit, remoteBy, local) => {
 const conflictQueue = ref([])
 setConflictQueueCallback((q) => { conflictQueue.value = q })
 
-// ホスト側: ゲストからの競合通知をポップアップで表示
+// ホスト側: ゲストからの競合通知をポップアップ＋チャットで通知
 setConflictNotifyCallback((ingredient, fromName) => {
   const who = fromName || '他のメンバー'
   showNotification('done', `${who}: 「${ingredient}」で同時入力が発生しました`)
+  _postConflictToChat(ingredient)
 })
 
 function onResolveConflict(c, resolution) {
@@ -383,6 +383,10 @@ function onResolveConflict(c, resolution) {
   }
   dismissConflict(c.ingredient)
   showToast(`「${c.ingredient}」を ${qty}${unit} に確定しました`, 2400, 'success')
+  if (syncActive.value) {
+    const label = resolution === 'sum' ? '合計' : resolution === 'mine' ? '自分の値' : '相手の値'
+    broadcastMessage(`✅ 「${c.ingredient}」: ${label}（${qty}${unit}）で確定 — ${deviceName.value || '名前未設定'}`)
+  }
 }
 setNameTakenCallback((prevName) => {
   setDeviceName(prevName)
@@ -717,6 +721,25 @@ function showNotification(type, text, senderName = '') {
 // ── チャットモーダル ───────────────────────────────────────────────────────────
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
+
+// ── LINE風チャット通知バナー（上部フェードイン）────────────────────────────────
+const chatNotif = ref(null)  // { text, senderName }
+let chatNotifTimer = null
+function showChatNotif(text, senderName = '') {
+  clearTimeout(chatNotifTimer)
+  chatNotif.value = { text, senderName }
+  chatNotifTimer  = setTimeout(() => { chatNotif.value = null }, 3500)
+}
+
+// 競合チャット投稿: ホストのみ・同一品目5秒以内は重複投稿しない
+const _conflictPostedAt = new Map()
+function _postConflictToChat(ingredient) {
+  if (!syncIsHost.value) return
+  const last = _conflictPostedAt.get(ingredient) ?? 0
+  if (Date.now() - last < 5000) return
+  _conflictPostedAt.set(ingredient, Date.now())
+  broadcastMessage(`⚡ 「${ingredient}」で同時入力が発生しました`)
+}
 
 // ── 複数人編集品目（同期中のみ）──────────────────────────────────────────────
 const conflictOpen = ref(false)
@@ -1200,6 +1223,29 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </section>
 
+      <!-- 同時入力 競合解決バナー（入力欄直下） -->
+      <div v-if="conflictQueue.length > 0" class="conflict-resolve-wrap">
+        <div v-for="c in conflictQueue" :key="c.ingredient" class="conflict-resolve-card">
+          <div class="conflict-resolve-title">⚡ 「{{ c.ingredient }}」の同時入力</div>
+          <div class="conflict-resolve-vals">
+            <span class="crv-mine">あなた: {{ c.local.qty }}{{ c.local.unit }}</span>
+            <span class="crv-sep">｜</span>
+            <span class="crv-theirs">{{ c.remoteBy }}: {{ c.remoteQty }}{{ c.remoteUnit }}</span>
+          </div>
+          <div class="conflict-resolve-actions">
+            <button class="crv-btn crv-sum"    @click="onResolveConflict(c, 'sum')">
+              合計 {{ Math.round((c.local.qty + c.remoteQty) * 10000) / 10000 }}{{ c.local.unit }}
+            </button>
+            <button class="crv-btn crv-mine"   @click="onResolveConflict(c, 'mine')">
+              自分 ({{ c.local.qty }}{{ c.local.unit }})
+            </button>
+            <button class="crv-btn crv-theirs" @click="onResolveConflict(c, 'theirs')">
+              相手 ({{ c.remoteQty }}{{ c.remoteUnit }})
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- 棚卸対象スコープ切り替え（ゲストはホストに追従するため非表示） -->
       <div v-if="hasSupplyItems && (!syncActive || syncIsHost)" class="scope-bar">
         <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
@@ -1301,29 +1347,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         @cancel="onCancelCandidate"
       />
 
-      <!-- 同時入力 競合解決バナー -->
-      <div v-if="conflictQueue.length > 0" class="conflict-resolve-wrap">
-        <div v-for="c in conflictQueue" :key="c.ingredient" class="conflict-resolve-card">
-          <div class="conflict-resolve-title">⚡ 「{{ c.ingredient }}」の同時入力</div>
-          <div class="conflict-resolve-vals">
-            <span class="crv-mine">あなた: {{ c.local.qty }}{{ c.local.unit }}</span>
-            <span class="crv-sep">｜</span>
-            <span class="crv-theirs">{{ c.remoteBy }}: {{ c.remoteQty }}{{ c.remoteUnit }}</span>
-          </div>
-          <div class="conflict-resolve-actions">
-            <button class="crv-btn crv-sum"    @click="onResolveConflict(c, 'sum')">
-              合計 {{ Math.round((c.local.qty + c.remoteQty) * 10000) / 10000 }}{{ c.local.unit }}
-            </button>
-            <button class="crv-btn crv-mine"   @click="onResolveConflict(c, 'mine')">
-              自分 ({{ c.local.qty }}{{ c.local.unit }})
-            </button>
-            <button class="crv-btn crv-theirs" @click="onResolveConflict(c, 'theirs')">
-              相手 ({{ c.remoteQty }}{{ c.remoteUnit }})
-            </button>
-          </div>
-        </div>
-      </div>
-
       <!-- フッター -->
       <div class="app-footer">
         <div v-if="totalValue != null" class="footer-total">
@@ -1412,6 +1435,14 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           <div class="notif-text">{{ notification.text }}</div>
           <div class="notif-dismiss">タップで閉じる</div>
         </div>
+      </div>
+    </Transition>
+
+    <!-- LINE風チャット通知バナー（上部スライドイン） -->
+    <Transition name="chat-notif">
+      <div v-if="chatNotif" class="chat-notif-banner" @click="chatNotif = null">
+        <div class="chat-notif-sender">{{ chatNotif.senderName }}</div>
+        <div class="chat-notif-text">{{ chatNotif.text }}</div>
       </div>
     </Transition>
 
@@ -1705,6 +1736,45 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   line-height: 1;
   pointer-events: none;
 }
+
+/* ── LINE風チャット通知バナー ── */
+.chat-notif-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4000;
+  background: rgba(15, 23, 42, 0.93);
+  backdrop-filter: blur(6px);
+  color: #f8fafc;
+  padding: 14px 18px calc(14px + env(safe-area-inset-top, 0px));
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-notif-sender {
+  font-size: 11px;
+  font-weight: 700;
+  color: #93c5fd;
+  letter-spacing: 0.04em;
+}
+
+.chat-notif-text {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.chat-notif-enter-active { transition: transform 0.25s ease, opacity 0.2s ease; }
+.chat-notif-leave-active  { transition: transform 0.3s ease,  opacity 0.25s ease; }
+.chat-notif-enter-from,
+.chat-notif-leave-to      { transform: translateY(-100%); opacity: 0; }
 
 /* ── 名前設定モーダル ── */
 .name-modal-overlay {

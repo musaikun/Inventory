@@ -341,6 +341,9 @@ function submit(isAdd) {
   color: var(--primary);
   margin-bottom: 12px;
   line-height: 1.5;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .name-hints {
