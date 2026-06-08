@@ -178,11 +178,16 @@ export class RoomDO {
         }
 
         // セッション復帰: 同じ deviceId の既存 WS を閉じる
+        // close() の後 webSocketClose コールバックは非同期で発火するため、
+        // その前に attachment を無効化して _getParticipants() からゾンビを即時除外する。
         for (const existingWs of this.state.getWebSockets()) {
           if (existingWs === ws) continue
           const att = existingWs.deserializeAttachment()
           if (att?.deviceId === deviceId) {
-            try { existingWs.close(1000, 'Session recovered') } catch (_) {}
+            try {
+              existingWs.serializeAttachment({ leftCleanly: true })  // deviceId を除去してゾンビを即時非表示
+              existingWs.close(1000, 'Session recovered')
+            } catch (_) {}
           }
         }
 
@@ -629,6 +634,6 @@ export class RoomDO {
   _getParticipants() {
     return this.state.getWebSockets()
       .map(ws => ws.deserializeAttachment())
-      .filter(Boolean)
+      .filter(a => a?.deviceId)  // deviceId が無い = 切断処理中のゾンビ、除外する
   }
 }

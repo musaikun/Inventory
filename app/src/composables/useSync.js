@@ -684,9 +684,14 @@ function _connect(code) {
       clearTimeout(timer)
       if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
       if (!settled && !state.isConnected) {
-        settled     = true
-        state.error = 'サーバーへの接続に失敗しました'
-        state.mode  = 'idle'
+        settled = true
+        // 自動再接続サイクル中（_disconnectedAt > 0）は mode を idle にしない。
+        // onclose が続けて発火して次の再接続タイマーをスケジュールできるよう mode を維持する。
+        if (_disconnectedAt === 0) {
+          state.error = 'サーバーへの接続に失敗しました'
+          state.mode  = 'idle'
+          state.roomCode = null
+        }
         reject(new Error('WebSocket error'))
       }
     }
@@ -712,7 +717,7 @@ function _connect(code) {
       if (_reconnectCount < RECONNECT_DELAYS.length) {
         const delay = RECONNECT_DELAYS[_reconnectCount++]
         _reconnectTimer = setTimeout(() => {
-          if (state.mode !== 'idle') _connect(code)
+          if (state.mode !== 'idle') _connect(code).catch(() => {})
         }, delay)
       } else {
         state.error = '再接続に失敗しました。ネットワーク環境を確認してください。'
@@ -729,7 +734,8 @@ if (typeof document !== 'undefined') {
     if (_ws?.readyState === WebSocket.OPEN) return
     _clearReconnectTimer()
     _reconnectCount = 0
-    _connect(state.roomCode)
+    if (_disconnectedAt === 0) _disconnectedAt = Date.now()  // 再接続扱いにして onerror で idle 落ちしないよう
+    _connect(state.roomCode).catch(() => {})
   })
 }
 
@@ -755,13 +761,10 @@ export function restoreSession() {
     if (!saved?.roomCode || !saved?.mode) return
     // ゲストセッションは自動復元しない（getSavedGuestSession で確認・再参加を促す）
     if (saved.mode === 'joining') return
-    state.roomCode = saved.roomCode
-    state.mode     = saved.mode
-    _connect(saved.roomCode).catch(() => {
-      _clearSession()
-      state.mode     = 'idle'
-      state.roomCode = null
-    })
+    state.roomCode  = saved.roomCode
+    state.mode      = saved.mode
+    _disconnectedAt = Date.now()  // 再接続扱い: onerror で即 idle にせず onclose の再接続チェーンに委ねる
+    _connect(saved.roomCode).catch(() => {})
   } catch (_) {}
 }
 
@@ -781,7 +784,8 @@ export function useSync() {
   )
 
   async function createRoom() {
-    state.error = null
+    state.error     = null
+    _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const code  = shopCode.value
     if (!code) throw new Error('店舗コードが未登録です。先に店舗を登録してください。')
     // 既に同じルームにホストとして接続済みなら再接続しない
@@ -799,7 +803,8 @@ export function useSync() {
   }
 
   async function joinRoom(code) {
-    state.error = null
+    state.error     = null
+    _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
     if (normalized.length < 4 || normalized.length > 8) {
       state.error = '正しいコード形式ではありません（4〜8文字）'
