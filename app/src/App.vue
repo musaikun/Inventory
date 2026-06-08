@@ -36,7 +36,6 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
-import HistoryModal from './components/HistoryModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
@@ -219,7 +218,6 @@ async function _reconnectToRoom(session) {
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
 const showSettings     = ref(false)
-const showHistory      = ref(false)
 const showSync         = ref(false)
 const inventoryTableRef = ref(null)
 
@@ -439,17 +437,33 @@ onMounted(async () => {
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     _askNameAndJoin(storeParam)
   } else {
-    // ホストセッションのみ自動復元（ゲストは再参加バナーで確認）
-    restoreSession()
     const guestSession = getSavedGuestSession()
-    if (guestSession) savedGuestRoomCode.value = guestSession.roomCode
+    if (guestSession) {
+      // ゲスト参加中だったセッションを優先復帰（ホスト登録があっても関係なく戻す）
+      discardSavedSession()
+      currentView.value = 'session'
+      const rejoinCode = guestSession.roomCode
+      if (deviceName.value) {
+        joinRoom(rejoinCode)
+          .then(() => showToast(`ルーム ${rejoinCode} に再参加しました`, 3000, 'join'))
+          .catch(() => {
+            showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
+            currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+          })
+      } else {
+        _askNameAndJoin(rejoinCode)
+      }
+    } else {
+      // ゲストセッションなし: ホストセッションを自動復元
+      restoreSession()
 
-    // 認証済み: 進行中の棚卸があれば棚卸画面へ直接復帰、なければ一覧へ
-    if (isAuthenticated.value) {
-      if (!isCompleted.value) restorePendingSession()
-      currentView.value = (pendingSession.value?.id && !isCompleted.value)
-        ? 'session'
-        : 'sessions'
+      // 認証済み: 進行中の棚卸があれば棚卸画面へ直接復帰、なければ一覧へ
+      if (isAuthenticated.value) {
+        if (!isCompleted.value) restorePendingSession()
+        currentView.value = (pendingSession.value?.id && !isCompleted.value)
+          ? 'session'
+          : 'sessions'
+      }
     }
   }
 
@@ -531,21 +545,6 @@ watch(filledCount, (count) => {
     if (pendingSession.value?.id) _saveDraft(pendingSession.value.id)
   }, 2000)
 })
-
-// ── ゲスト再参加バナー ──────────────────────────────────────────────────────────
-const savedGuestRoomCode = ref(null)
-
-function onRejoinSaved() {
-  const code = savedGuestRoomCode.value
-  savedGuestRoomCode.value = null
-  discardSavedSession()
-  _askNameAndJoin(code)
-}
-
-function onSkipRejoin() {
-  savedGuestRoomCode.value = null
-  discardSavedSession()
-}
 
 // ── セッション管理 ─────────────────────────────────────────────────────────────
 const completedAtDisplay = computed(() => {
@@ -1118,19 +1117,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- ── ランディング ── -->
     <LandingPage v-else-if="currentView === 'landing'" @started="onLandingStarted" />
 
-    <!-- 前回のゲストセッション再参加バナー -->
-    <Transition name="rejoin-slide">
-      <div v-if="currentView === 'landing' && savedGuestRoomCode" class="rejoin-banner">
-        <div class="rejoin-text">
-          前回ルーム <strong>{{ savedGuestRoomCode }}</strong> に参加していました
-        </div>
-        <div class="rejoin-actions">
-          <button class="rejoin-btn rejoin-skip" @click="onSkipRejoin">スキップ</button>
-          <button class="rejoin-btn rejoin-join" @click="onRejoinSaved">再参加</button>
-        </div>
-      </div>
-    </Transition>
-
     <!-- ── セッション ── -->
     <template v-if="currentView === 'session'">
 
@@ -1153,7 +1139,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
             </span>
             <span v-else>🔗</span>
           </button>
-          <button class="settings-btn" @click="showHistory = true" title="棚卸履歴">📅</button>
           <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
         </div>
       </header>
@@ -1414,7 +1399,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
-    <HistoryModal  v-if="showHistory"  @close="showHistory = false" />
     <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 
@@ -1805,71 +1789,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 }
 .btn-complete:disabled {
   pointer-events: none;
-}
-
-/* ── 前回ゲストセッション再参加バナー ── */
-.rejoin-banner {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 1200;
-  background: #1e293b;
-  color: #f1f5f9;
-  padding: 14px 16px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
-}
-
-.rejoin-text {
-  font-size: 14px;
-  text-align: center;
-}
-
-.rejoin-text strong {
-  font-family: 'SF Mono', 'Menlo', monospace;
-  letter-spacing: 0.08em;
-  color: #93c5fd;
-}
-
-.rejoin-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.rejoin-btn {
-  flex: 1;
-  padding: 12px;
-  border-radius: 10px;
-  border: none;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.rejoin-skip {
-  background: #374151;
-  color: #d1d5db;
-}
-.rejoin-skip:active { background: #4b5563; }
-
-.rejoin-join {
-  background: #2563eb;
-  color: #fff;
-}
-.rejoin-join:active { background: #1d4ed8; }
-
-.rejoin-slide-enter-active,
-.rejoin-slide-leave-active {
-  transition: transform 0.3s ease, opacity 0.25s ease;
-}
-.rejoin-slide-enter-from,
-.rejoin-slide-leave-to {
-  transform: translateY(100%);
-  opacity: 0;
 }
 
 /* ── 同時入力 競合解決 ── */
