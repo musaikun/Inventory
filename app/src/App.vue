@@ -1000,7 +1000,32 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     source,
     lotSize:    config.lotSizes?.[ingredient] ?? '',
   }
-  if (syncActive.value) broadcastTyping(ingredient, true)
+  if (syncActive.value) {
+    broadcastTyping(ingredient, true)
+    _startTypingKeepalive(ingredient)
+  }
+}
+
+let _typingKeepaliveTimer = null
+function _startTypingKeepalive(ingredient) {
+  clearInterval(_typingKeepaliveTimer)
+  _typingKeepaliveTimer = setInterval(() => {
+    if (syncActive.value && confirmState.value?.ingredient === ingredient) {
+      broadcastTyping(ingredient, true)
+    } else {
+      clearInterval(_typingKeepaliveTimer)
+      _typingKeepaliveTimer = null
+    }
+  }, 7000)
+}
+function _stopTypingKeepalive() {
+  clearInterval(_typingKeepaliveTimer)
+  _typingKeepaliveTimer = null
+}
+
+function _isItemLocked(ing) {
+  if (!syncActive.value) return false
+  return !!(typingMap[ing] || lockedIngredients.has(ing) || conflictQueue.value.some(c => c.ingredient === ing))
 }
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
@@ -1020,19 +1045,25 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   searchStatus.value = ''
 
   if (source === 'table') {
-    // テーブルタップ確定後 → 次の品目を自動オープン
-    const nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
+    // テーブルタップ確定後 → 次の品目を自動オープン（ロック中はスキップ）
+    let nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
+    while (nextItem && _isItemLocked(nextItem)) {
+      nextItem = inventoryTableRef.value?.getNextVisibleItem(nextItem)
+    }
     if (nextItem) {
       openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table')
     } else {
+      _stopTypingKeepalive()
       confirmState.value = null
     }
   } else if (pendingCandidates.value) {
     // 検索候補から選んで確定 → 残りの候補を再表示
+    _stopTypingKeepalive()
     candidateState.value = { ...pendingCandidates.value }
     pendingCandidates.value = null
     confirmState.value = null
   } else {
+    _stopTypingKeepalive()
     confirmState.value = null
     nextTick(() => searchInputRef.value?.focus())
   }
@@ -1040,6 +1071,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 }
 
 function onCancelConfirm() {
+  _stopTypingKeepalive()
   if (syncActive.value && confirmState.value) broadcastTyping(confirmState.value.ingredient, false)
   confirmState.value = null
   pendingCandidates.value = null
@@ -1047,6 +1079,7 @@ function onCancelConfirm() {
 }
 
 function onConfirmRevert(prevState) {
+  _stopTypingKeepalive()
   const ingredient = confirmState.value.ingredient
   if (syncActive.value) broadcastTyping(ingredient, false)
   const cur = confirmExisting.value

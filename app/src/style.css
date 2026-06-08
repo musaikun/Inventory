@@ -573,11 +573,10 @@ body {
   font-size: 14px;
   font-weight: 600;
   z-index: 9000;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
   pointer-events: none;
   max-width: calc(100vw - 48px);
-  overflow: hidden;
-  text-overflow: ellipsis;
   box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
 
