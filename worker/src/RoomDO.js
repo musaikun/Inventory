@@ -594,6 +594,19 @@ export class RoomDO {
           type:        'conflict_notify',
           ingredient:  String(msg.ingredient ?? '').slice(0, 200),
           fromName:    String(msg.fromName   ?? att.deviceName ?? '').slice(0, 30),
+          guestQty:    msg.guestQty,
+          guestUnit:   msg.guestUnit  != null ? String(msg.guestUnit).slice(0, 20)  : undefined,
+          hostQty:     msg.hostQty,
+          hostUnit:    msg.hostUnit   != null ? String(msg.hostUnit).slice(0, 20)   : undefined,
+        }, ws)
+        break
+      }
+
+      case 'conflict_lock': {
+        // 競合中品目リストをゲストへ転送（ホスト→全員）
+        this._broadcast({
+          type:        'conflict_lock',
+          ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, 200)),
         }, ws)
         break
       }
