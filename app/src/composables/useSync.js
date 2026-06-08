@@ -577,10 +577,13 @@ function _connect(code) {
   }
 
   // 既存WSが残っていたら先に閉じる（古いoncloseが_ws=nullにしてループを起こすのを防ぐ）
+  // ハンドラを外してから閉じる: 意図的なクローズが onclose を発火させ、
+  // _ws===null を素通りして再接続タイマーを無限にスケジュールする増殖ループを防ぐ。
   _clearReconnectTimer()
   if (_ws) {
     const stale = _ws
     _ws = null
+    stale.onopen = stale.onmessage = stale.onerror = stale.onclose = null
     try { stale.close(1000, 'reconnect') } catch (_) {}
   }
 

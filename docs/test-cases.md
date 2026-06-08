@@ -17,6 +17,7 @@ npm run test:watch  # 保存のたび再実行
 | `worker/src/authHandler.test.js` | 認証・トークン | O-01, O-02, O-03 ほか |
 | `app/src/composables/useInventory.test.js` | 在庫CRUD・localEntry・undo | S-01, C-06 の前提ロジック |
 | `app/src/composables/useSync.conflict.test.js` | 競合判定 `classifyIncomingUpdate` | C-01, C-05, C-06 の判定部 |
+| `app/src/composables/useSync.reconnect.test.js` | 再接続の増殖防止（接続張り替え時に古いソケットがループを撒かない） | N-01, N-02 の前提 |
 
 各ケースの末尾ラベル: 🤖=自動テスト済 / 🟡=判定部のみ自動 / 🖐=手動（実機・実WS）
 
