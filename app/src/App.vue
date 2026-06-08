@@ -740,6 +740,18 @@ function showToast(msg, duration = 2600, type = 'default') {
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
 
+// ゲストのモーダルが開いている最中に競合ロックが届いたら自動で閉じる
+watch(
+  () => !syncIsHost.value && confirmState.value ? lockedIngredients.has(confirmState.value.ingredient) : false,
+  (isLocked) => {
+    if (isLocked && confirmState.value) {
+      const ing = confirmState.value.ingredient
+      onCancelConfirm()
+      showToast(`「${ing}」で競合が発生しました。ホストが解決します`, 3000, 'warning')
+    }
+  }
+)
+
 // ── LINE風チャット通知バナー（上部フェードイン）────────────────────────────────
 const chatNotif = ref(null)  // { text, senderName }
 let chatNotifTimer = null
@@ -1029,7 +1041,17 @@ function _isItemLocked(ing) {
 }
 
 function onConfirm({ ingredient, qty, unit, isAdd }) {
+  _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
+
+  if (syncActive.value && (lockedIngredients.has(ingredient) || conflictQueue.value.some(c => c.ingredient === ingredient))) {
+    confirmState.value = null
+    pendingCandidates.value = null
+    showToast(`「${ingredient}」の競合を先に解決してください`, 2500, 'warning')
+    _restartIfContinuous()
+    return
+  }
+
   const existing  = confirmExisting.value
   const source    = confirmState.value.source
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
