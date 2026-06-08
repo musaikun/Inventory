@@ -487,6 +487,39 @@ onMounted(async () => {
   }
 })
 
+// ── Android/PWAの戻るボタン制御 ──────────────────────────────────────────────
+// 画面遷移ではなく「現在開いている最上位レイヤーを閉じる」動作にマップする。
+// 起動時に sentinel を1つプッシュし、何かを閉じたら再プッシュして次の戻るも捕捉。
+function _pushBackSentinel() {
+  history.pushState({ pwaLayer: true }, '')
+}
+
+function _closeTopLayer() {
+  if (confirmState.value)    { onCancelConfirm();         return true }
+  if (candidateState.value)  { onCancelCandidate();       return true }
+  if (notification.value)    { notification.value = null; return true }
+  if (chatNotif.value)       { chatNotif.value = null;    return true }
+  if (showNameModal.value)   { showNameModal.value = false; return true }
+  if (recountOpen.value)     { recountOpen.value = false; return true }
+  if (conflictOpen.value)    { conflictOpen.value = false; return true }
+  if (showChat.value)        { showChat.value = false;    return true }
+  if (showSync.value)        { showSync.value = false;    return true }
+  if (showSettings.value)    { showSettings.value = false; return true }
+  if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
+  if (currentView.value === 'session') { onGoHome();                    return true }
+  if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
+  return false
+}
+
+function _onBrowserBack() {
+  const closed = _closeTopLayer()
+  if (closed) _pushBackSentinel()
+}
+
+onMounted(() => { _pushBackSentinel(); window.addEventListener('popstate', _onBrowserBack) })
+onUnmounted(() => { window.removeEventListener('popstate', _onBrowserBack) })
+
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState      = ref(null) // { ingredient, qty, unit, unitLocked, source, lotSize }
 const candidateState    = ref(null) // { candidates, qty, unit }
