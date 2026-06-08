@@ -178,6 +178,20 @@ export function broadcastConfig(cfg) {
   _ws.send(JSON.stringify({ type: 'config', ...cfg }))
 }
 
+// 同時入力とみなす時間窓（WS往復遅延を考慮）
+export const CONFLICT_WINDOW_MS = 3000
+
+// 受信した update をどう扱うかの純粋判定（テスト容易化のため抽出）
+//   'remote-new' = 自分は未入力          → 通常適用
+//   'conflict'   = 自分の入力(localEntry)から3秒以内 → 競合キューへ
+//   'overwrite'  = 時間差更新            → トースト＋リモート値適用
+export function classifyIncomingUpdate(local, now = Date.now()) {
+  if (!local) return 'remote-new'
+  const msSinceLocalEdit = now - (local.updatedAt ?? 0)
+  if (local.localEntry && msSinceLocalEdit < CONFLICT_WINDOW_MS) return 'conflict'
+  return 'overwrite'
+}
+
 export function broadcastUpdate(ingredient, qty, unit, enteredBy = '', isAdd = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy, isAdd }))
@@ -404,9 +418,8 @@ function _handleMessage(msg) {
         const currentInv = _getInventory?.()
         const local = currentInv?.[msg.ingredient]
         if (local) {
-          const msSinceLocalEdit = Date.now() - (local.updatedAt ?? 0)
-          // localEntry フラグが無い場合はリモート同期で入った値 → 競合対象にしない
-          if (local.localEntry && msSinceLocalEdit < 3000) {
+          // localEntry フラグが無い値（リモート同期で入った値）は競合対象にしない
+          if (classifyIncomingUpdate(local) === 'conflict') {
             // 同時入力（3秒以内）: 自動適用せずキューに積んでユーザーに解決を委ねる
             if (!_conflictQueue.some(c => c.ingredient === msg.ingredient)) {
               _conflictQueue.push({
