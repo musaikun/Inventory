@@ -918,6 +918,8 @@ function _restartIfContinuous() {
 // ── テキスト検索 ───────────────────────────────────────────────────────────────
 function onSearchFocus() {
   searchStatus.value = ''
+  // 「話してください…」が残っている場合はフォーカス時に消す
+  if (searchText.value === '話してください…') searchText.value = ''
   // テキスト入力に切り替えたら音声を止める（continuousMode は維持し次の確定後に再開）
   if (isListening.value) stopVoice()
 }
