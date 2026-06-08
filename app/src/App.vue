@@ -18,7 +18,7 @@ import {
   setExpectedSessionId,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
-  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, broadcastMessage,
+  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
@@ -985,7 +985,7 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     showToast(`「${ingredient}」は${who}が入力中です`, 2500, 'warning')
     return
   }
-  if (conflictQueue.value.some(c => c.ingredient === ingredient)) {
+  if (conflictQueue.value.some(c => c.ingredient === ingredient) || lockedIngredients.has(ingredient)) {
     showToast(`「${ingredient}」の競合を先に解決してください`, 2500, 'warning')
     return
   }

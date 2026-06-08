@@ -84,7 +84,8 @@ const messages      = reactive([])
 const auditLog      = reactive([])
 const unreadCount   = ref(0)
 // { [ingredient]: { name: string, deviceId: string, _timer: number } }
-export const typingMap  = reactive({})
+export const typingMap         = reactive({})
+export const lockedIngredients = reactive(new Set())
 
 let _ws              = null
 let _reconnectTimer  = null
@@ -274,9 +275,19 @@ export function broadcastConflictNotify(ingredient, fromName, guestQty, guestUni
 
 // 解決済み競合をキューから除去
 let _conflictQueue = []
+
+function _syncConflictLock() {
+  lockedIngredients.clear()
+  for (const c of _conflictQueue) lockedIngredients.add(c.ingredient)
+  if (_ws?.readyState === WebSocket.OPEN) {
+    _ws.send(JSON.stringify({ type: 'conflict_lock', ingredients: [...lockedIngredients] }))
+  }
+}
+
 export function dismissConflict(ingredient) {
   _conflictQueue = _conflictQueue.filter(c => c.ingredient !== ingredient)
   _onConflictQueue?.([..._conflictQueue])
+  _syncConflictLock()
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
@@ -314,6 +325,7 @@ function _updateParticipants(list, notify = false) {
     if (notify && !participants[p.deviceId] && p.deviceId !== deviceId) {
       _addSysMsg(`${p.deviceName} が参加しました`)
       _onParticipantJoin?.(p.deviceName)
+      if (state.mode === 'hosting' && _conflictQueue.length > 0) _syncConflictLock()
     }
     const oldName = participants[p.deviceId]?.name
     const newName = p.deviceName
@@ -427,6 +439,7 @@ function _handleMessage(msg) {
               if (idx === -1) _conflictQueue.push(entry)
               else            _conflictQueue[idx] = entry
               _onConflictQueue?.([..._conflictQueue])
+              _syncConflictLock()
               _onConflictNotify?.(msg.ingredient, msg.enteredBy ?? '')
             } else {
               // ゲスト: ローカルキューには積まずホストへ通知（qty付き）
@@ -570,9 +583,15 @@ function _handleMessage(msg) {
             local: { qty: msg.hostQty ?? 0, unit: msg.hostUnit ?? '' },
           })
           _onConflictQueue?.([..._conflictQueue])
+          _syncConflictLock()
         }
       }
       _onConflictNotify?.(msg.ingredient, msg.fromName ?? '')
+      break
+
+    case 'conflict_lock':
+      lockedIngredients.clear()
+      for (const ing of (msg.ingredients ?? [])) lockedIngredients.add(ing)
       break
 
     case 'pong':
