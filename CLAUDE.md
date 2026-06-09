@@ -57,3 +57,4 @@ worker/src/
 - バックログ・優先度 → `docs/backlog.md`
 - 同期アーキテクチャ詳細 → `docs/sync-spec.md`
 - Phase 2 分析機能仕様 → `docs/phase2.md`
+- DB設計v2（スケール・10年運用）→ `docs/db-design-v2.md`
