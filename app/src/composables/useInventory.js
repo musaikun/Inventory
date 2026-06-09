@@ -67,6 +67,20 @@ export function applyRemoteRemove(ingredient) {
 }
 
 /**
+ * D1 に永続化された進行中在庫を一括適用（端末復旧用）。
+ * ローカルを D1 の内容で置き換える。完了済みセッションには適用しない。
+ */
+export function applyPersistedInventory(inv, flags) {
+  if (completedAt.value) return
+  for (const k of Object.keys(inventory))    delete inventory[k]
+  Object.assign(inventory, inv ?? {})
+  for (const k of Object.keys(recountFlags)) delete recountFlags[k]
+  Object.assign(recountFlags, flags ?? {})
+  entryLog.splice(0, entryLog.length, ...Object.keys(inv ?? {}))
+  _save()
+}
+
+/**
  * 他デバイスからの「あとで数える」フラグ更新を適用（ブロードキャストしない）
  */
 export function applyRemoteRecountFlag(item, on, by = '', at = Date.now()) {

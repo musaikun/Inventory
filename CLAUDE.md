@@ -8,9 +8,9 @@
 |---|---|
 | フロントエンド | Vue 3 + Vite（PWA） |
 | 同期 | Cloudflare Durable Objects + WebSocket |
-| DB | Cloudflare D1（SQLite）— セッション・認証 |
+| DB | Cloudflare D1（SQLite）— セッション・認証・店舗データ永続化 |
 | 認証 | Bearer トークン（D1 管理） |
-| ストレージ | localStorage（在庫・設定・学習データ） |
+| ストレージ | localStorage（高速キャッシュ）＋ D1（在庫・設定・履歴の正） |
 
 ## 主要ファイル
 
@@ -38,7 +38,8 @@ worker/src/
 
 - **ブランチ**: `claude/restaurant-inventory-system-0XNHA`
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **Worker デプロイ**: `cd worker && npx wrangler deploy`
+- **フロントデプロイ**: `cd app && npm run build && npx wrangler pages deploy dist`（Vueアプリ本体・Cloudflare Pages）
+- **Worker デプロイ**: `cd worker && npx wrangler deploy`（同期API・DO。`build` は dry-run なので不可）
 - **コメントは書かない**（WHYが非自明な場合のみ1行）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一

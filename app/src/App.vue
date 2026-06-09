@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import {
@@ -27,6 +27,7 @@ import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
+  saveInventoryToD1, loadInventoryFromD1,
 } from './composables/useStore.js'
 import { isAuthenticated } from './composables/useAuth.js'
 import { useSession } from './composables/useSession.js'
@@ -455,6 +456,10 @@ onMounted(async () => {
         currentView.value = (pendingSession.value?.id && !isCompleted.value)
           ? 'session'
           : 'sessions'
+        // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
+        if (pendingSession.value?.id && !isCompleted.value) {
+          _restoreInventoryFromD1().catch(() => {})
+        }
       }
     }
   }
@@ -569,6 +574,44 @@ watch(filledCount, (count) => {
     if (pendingSession.value?.id) _saveDraft(pendingSession.value.id)
   }, 2000)
 })
+
+// ── 進行中在庫の D1 永続化（端末紛失・キャッシュ消去からの復旧用）─────────────────
+// デバウンス保存。同期中はホストのみ書き込み（競合回避）、ソロは本人が書き込む。
+// 数量編集（品目数が変わらない更新）も捕捉するため inventory/recountFlags を deep watch。
+let _invD1Timer    = null
+let _invD1LastSave = 0
+function _flushInventoryToD1() {
+  _invD1LastSave = Date.now()
+  saveInventoryToD1({
+    inventory:    { ...inventory },
+    recountFlags: { ...recountFlags },
+    sessionId:    pendingSession.value?.id ?? null,
+    savedAt:      _invD1LastSave,
+  })
+}
+function _persistInventoryToD1() {
+  if (!shopCode.value || isCompleted.value) return
+  if (currentView.value !== 'session') return
+  if (syncActive.value && !syncIsHost.value) return
+  clearTimeout(_invD1Timer)
+  // 連続入力で3秒デバウンスが永遠にリセットされても、最大30秒で必ず保存
+  if (Date.now() - _invD1LastSave > 30000) { _flushInventoryToD1(); return }
+  _invD1Timer = setTimeout(_flushInventoryToD1, 3000)
+}
+watch([inventory, recountFlags], _persistInventoryToD1, { deep: true })
+
+// 起動・セッション再開時に D1 から進行中在庫を復旧（ローカルが空 or D1 が新しい場合のみ）
+async function _restoreInventoryFromD1() {
+  if (!shopCode.value || isCompleted.value) return
+  const remote = await loadInventoryFromD1()
+  if (!remote?.inventory) return
+  // 別セッションのデータは無視（新規セッション開始後に旧データを読み込まない）
+  if (remote.sessionId && pendingSession.value?.id && remote.sessionId !== pendingSession.value.id) return
+  const localNewest = Object.values(inventory).reduce((m, e) => Math.max(m, e.updatedAt ?? 0), 0)
+  if (Object.keys(inventory).length === 0 || (remote.savedAt ?? 0) > localNewest) {
+    applyPersistedInventory(remote.inventory, remote.recountFlags)
+  }
+}
 
 // ── セッション管理 ─────────────────────────────────────────────────────────────
 const completedAtDisplay = computed(() => {
