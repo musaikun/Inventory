@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { saveLearningSession, computeLearnedOrder, getLateRecountItems } from './composables/useLearning.js'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
@@ -224,13 +223,6 @@ const inventoryTableRef = ref(null)
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
 
-// ── 学習順 ────────────────────────────────────────────────────────────────────
-const learnedOrderVersion = ref(0) // saveLearningSession 後にインクリメント
-const learnedOrder = computed(() => {
-  learnedOrderVersion.value // reactive dependency
-  return computeLearnedOrder(config.order)
-})
-const lateRecountItems = computed(() => getLateRecountItems(auditLog))
 
 // ── あとで数える 一覧 ──────────────────────────────────────────────────────────
 const recountItems = computed(() => Object.keys(recountFlags))
@@ -613,8 +605,6 @@ async function onComplete() {
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
   completeSessionD1(filledCount.value)
-  saveLearningSession(auditLog, config.order, syncActive.value ? participantList.length : 1)
-  learnedOrderVersion.value++
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
@@ -685,8 +675,6 @@ async function onSyncComplete() {
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
   await completeSessionD1(filledCount.value)
-  saveLearningSession(auditLog, config.order, participantList.length || 1)
-  learnedOrderVersion.value++
   broadcastSessionEnd('completed')
   if (continuousMode.value) onForceStop()
   showSync.value = false
@@ -1390,8 +1378,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :inventory="inventory"
         :filled-count="filledCount"
         :read-only="inputLocked"
-        :learned-order="learnedOrder"
-        :late-recount-items="lateRecountItems"
         :recount-flags="recountFlags"
         :category-scope="categoryScope"
         :typing-map="syncActive ? typingMap : null"

@@ -21,7 +21,6 @@ export const STORAGE_KEYS = {
   master:           'inventory_master_v1',
   deviceId:         '_device_id',
   deviceName:       '_device_name',
-  learningSessions: 'inventory_learning_v1',
   syncSession:      '_sync_session_v1',
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用

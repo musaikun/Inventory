@@ -8,8 +8,6 @@ const props = defineProps({
   inventory:        { type: Object,  required: true },
   filledCount:      { type: Number,  required: true },
   readOnly:         { type: Boolean, default: false },
-  learnedOrder:     { type: Array,   default: null },
-  lateRecountItems: { type: Object,  default: null },  // Set<string>
   recountFlags:     { type: Object,  default: null },  // { [item]: {by,at} }「あとで数える」
   categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
   typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
@@ -26,7 +24,7 @@ function _isSupply(item) {
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'category' | 'alpha' | 'learned'
+const sortMode     = ref('category')  // 'category' | 'alpha'
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 const expandedCats = reactive({})     // ジャンル別アコーディオン
 const expandedKana = reactive({})     // 五十音アコーディオン
@@ -50,7 +48,6 @@ const hasExpanded = computed(() => {
 
 const sortOpts = [
   { value: 'category', label: 'ジャンル' },
-  { value: 'learned',  label: '学習順' },
   { value: 'alpha',    label: '五十音' },
 ]
 
@@ -155,20 +152,6 @@ const rows = computed(() => {
     return result
   }
 
-  if (sortMode.value === 'learned') {
-    // 学習データがある場合はその順、なければ config.order 順のまま（フラットリスト）
-    if (props.learnedOrder) {
-      const orderMap = new Map(props.learnedOrder.map((item, i) => [item, i]))
-      return [...items].sort((a, b) => {
-        const ia = orderMap.get(a.item) ?? Infinity
-        const ib = orderMap.get(b.item) ?? Infinity
-        return ia - ib
-      })
-    }
-    // まだ履歴なし → config.order 順のフラットリスト
-    return items
-  }
-
   if (sortMode.value === 'category') {
     // カテゴリ別グループ化
     const groupMap = new Map()
@@ -251,8 +234,6 @@ function _isRowVisible(row) {
   if (sortMode.value === 'alpha')    return !!expandedKana[_kanaGroup(row.item)]
   return true
 }
-
-const hasLearningData = computed(() => !!props.learnedOrder)
 
 function _getVisibleItems() {
   return rows.value
@@ -426,11 +407,6 @@ function fmtYen(n) {
       </div>
     </div>
 
-    <!-- 学習順：データなし時のヒント -->
-    <div v-if="sortMode === 'learned' && !hasLearningData" class="learned-hint">
-      棚卸を完了すると入力順が記録され、次回から自動で並び替えられます
-    </div>
-
     <!-- テーブル -->
     <table class="inv-table">
       <thead>
@@ -483,11 +459,6 @@ function fmtYen(n) {
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
-                <span
-                  v-if="sortMode === 'learned' && lateRecountItems?.has(row.item)"
-                  class="late-recount-badge"
-                  title="この品目は最初の入力から15分以上後に再入力されています"
-                >⚠</span>
               </div>
               <div v-if="conflictLocked?.has(row.item)" class="conflict-indicator">
                 ⚡ 競合中 — ホストが解決中
@@ -884,26 +855,8 @@ function fmtYen(n) {
   text-align: right;
 }
 
-/* ── 学習順 ── */
-.late-recount-badge {
-  font-size: 11px;
-  color: #d97706;
-  flex-shrink: 0;
-}
-
 .recount-flag-badge {
   font-size: 12px;
   flex-shrink: 0;
-}
-
-.learned-hint {
-  margin: 0 0 6px;
-  padding: 7px 12px;
-  font-size: 11px;
-  color: #78350f;
-  background: #fef3c7;
-  border-radius: 8px;
-  border: 1px solid #fde68a;
-  line-height: 1.5;
 }
 </style>
