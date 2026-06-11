@@ -1,0 +1,162 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('./pdfParser.js', () => ({ parsePdfFile: async () => ({}) }))
+
+import worker from './index.js'
+
+// ── ルーティング検証用の統合 D1 モック ──────────────────────────────────────────
+function createMockD1() {
+  const stores  = []
+  const tokens  = []
+  const configs = {}
+
+  function exec(sql, args) {
+    const s = sql.replace(/\s+/g, ' ').trim()
+
+    if (s.startsWith('SELECT') && s.includes('FROM auth_tokens')) {
+      const t = tokens.find(t => t.token === args[0])
+      if (!t || new Date(t.expires_at).getTime() <= Date.now()) return null
+      return { shop_code: t.shop_code }
+    }
+    if (s.startsWith('SELECT pin_hash FROM stores')) {
+      const r = stores.find(r => r.shop_code === args[0])
+      return r ? { pin_hash: r.pin_hash ?? null } : null
+    }
+    if (s.startsWith('SELECT shop_code, active_room, created_at FROM stores')) {
+      const r = stores.find(r => r.shop_code === args[0])
+      return r ? { shop_code: r.shop_code, active_room: null, created_at: r.created_at ?? '' } : null
+    }
+    if (s.startsWith('SELECT shop_code FROM stores')) {
+      return stores.find(r => r.shop_code === args[0]) ?? null
+    }
+    if (s.startsWith('INSERT INTO stores')) {
+      stores.push(args.length >= 5
+        ? { shop_code: args[0], store_name: args[1], pin_hash: args[2] }
+        : { shop_code: args[0] })
+      return { success: true }
+    }
+    if (s.startsWith('INSERT INTO auth_tokens')) {
+      tokens.push({ token: args[0], shop_code: args[1], expires_at: args[2] })
+      return { success: true }
+    }
+    if (s.startsWith('SELECT COUNT(*) AS n FROM login_attempts')) return { n: 0 }
+    if (s.startsWith('INSERT INTO login_attempts'))               return { success: true }
+    if (s.startsWith('DELETE FROM login_attempts'))               return { success: true }
+    if (s.startsWith('INSERT INTO store_configs')) {
+      configs[args[0]] = args[1]
+      return { success: true }
+    }
+    if (s.startsWith('SELECT id, shop_code, started_at')) return []
+    throw new Error('Unhandled SQL in mock: ' + s)
+  }
+
+  function prepare(sql) {
+    let bound = []
+    const stmt = {
+      bind(...a) { bound = a; return stmt },
+      async first() { return exec(sql, bound) },
+      async run()   { return exec(sql, bound) },
+      async all()   { return { results: exec(sql, bound) ?? [] } },
+    }
+    return stmt
+  }
+
+  return { prepare, _stores: stores, _configs: configs }
+}
+
+function makeReq(method, path, { body, token } = {}) {
+  return {
+    method,
+    url: `https://api.test${path}`,
+    headers: { get: (h) => (h === 'Authorization' && token) ? `Bearer ${token}` : null },
+    json: async () => body ?? {},
+  }
+}
+
+describe('Worker ルーティング（特性テスト）', () => {
+  let db, env
+
+  beforeEach(() => {
+    db  = createMockD1()
+    env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+  })
+
+  it('GET /health は 200 OK を返す', async () => {
+    const res = await worker.fetch(makeReq('GET', '/health'), env)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('OK')
+  })
+
+  it('未知のパスは 404 を返す', async () => {
+    const res = await worker.fetch(makeReq('GET', '/no/such/route'), env)
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toBeTruthy()
+  })
+
+  it('POST /auth/register で店舗コードとトークンを発行する', async () => {
+    const res  = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.shopCode).toMatch(/^[A-Z]{6}$/)
+    expect(body.token).toBeTruthy()
+  })
+
+  it('GET /store/:code は存在しない店舗で 404', async () => {
+    const res = await worker.fetch(makeReq('GET', '/store/ZZZZZZ'), env)
+    expect(res.status).toBe(404)
+  })
+
+  it('GET /store/:code は存在する店舗の情報を返す', async () => {
+    const reg  = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res  = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}`), env)
+    expect(res.status).toBe(200)
+    expect((await res.json()).shopCode).toBe(reg.shopCode)
+  })
+
+  it('PIN設定店舗の config PUT はトークン無しだと 401', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, { body: { items: [] } }), env)
+    expect(res.status).toBe(401)
+  })
+
+  it('PIN設定店舗の config PUT はトークン付きなら 200', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, { body: { items: [] }, token: reg.token }), env)
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(true)
+  })
+
+  it('レガシー店舗（PIN未設定）の config PUT はトークン無しでも 200', async () => {
+    const created = await (await worker.fetch(makeReq('POST', '/store/create'), env)).json()
+    const res = await worker.fetch(makeReq('PUT', `/store/${created.shopCode}/config`, { body: { items: [] } }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('巨大な config PUT は 413', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, {
+      body: { blob: 'x'.repeat(1_100_000) }, token: reg.token,
+    }), env)
+    expect(res.status).toBe(413)
+  })
+
+  it('GET /store/:code/sessions はトークン無しだと 401', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions`), env)
+    expect(res.status).toBe(401)
+  })
+
+  it('GET /store/:code/sessions はトークン付きなら 200 で配列を返す', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions`, { token: reg.token }), env)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(await res.json())).toBe(true)
+  })
+
+  it('他店舗のトークンでは sessions にアクセスできない', async () => {
+    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions`, { token: b.token }), env)
+    expect(res.status).toBe(401)
+  })
+})

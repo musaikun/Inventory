@@ -1,10 +1,7 @@
 // ── 認証（店舗アカウント登録・ログイン・トークン検証）────────────────────────
 
-function _now() { return new Date().toISOString() }
-
-// 総当たり対策: 直近 LOGIN_WINDOW_MS に LOGIN_MAX_FAILS 回失敗したらブロック
-const LOGIN_WINDOW_MS = 15 * 60 * 1000
-const LOGIN_MAX_FAILS = 5
+import { _now, _genShopCode } from './workerUtils.js'
+import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN } from './constants.js'
 
 async function _hashPin(shopCode, pin) {
   const data = `${shopCode}:${pin}`
@@ -17,11 +14,6 @@ function _genToken() {
     .map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function _genShopCode() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('')
-}
-
 function _extractToken(request) {
   const auth = request.headers.get('Authorization') ?? ''
   return auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
@@ -30,7 +22,7 @@ function _extractToken(request) {
 // POST /auth/register  body: { storeName?, pin }
 export async function handleRegister(db, body) {
   const pin       = String(body.pin ?? '').replace(/\D/g, '').slice(0, 4)
-  const storeName = String(body.storeName ?? '').trim().slice(0, 50)
+  const storeName = String(body.storeName ?? '').trim().slice(0, MAX_STORE_NAME_LEN)
   if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
 
   // 重複しない店舗コードを発行
@@ -43,7 +35,7 @@ export async function handleRegister(db, body) {
   const pinHash = await _hashPin(code, pin)
   const token   = _genToken()
   const now     = _now()
-  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()
 
   await db.prepare(
     'INSERT INTO stores (shop_code, store_name, pin_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
@@ -89,7 +81,7 @@ export async function handleLogin(db, body) {
 
   const token   = _genToken()
   const now     = _now()
-  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()
 
   await db.prepare(
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'

@@ -1,18 +1,11 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
 import { insertInventoryLines } from './inventoryLines.js'
+import { _now, _genShopCode } from './workerUtils.js'
+import { MAX_PAYLOAD_CHARS } from './constants.js'
 
-function _now() { return new Date().toISOString() }
-
-// 1リクエストあたりの上限（約1MB）。設定/在庫/履歴の肥大化・経済的DoSを防ぐ
-const MAX_PAYLOAD_CHARS = 1_000_000
 function _tooLarge(body) {
   try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
-}
-
-function _genShopCode() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('')
 }
 
 // POST /store/create

@@ -1,6 +1,10 @@
-/**
- * RoomDO — Cloudflare Durable Object（WebSocketルーム管理）
- */
+import {
+  ROOM_TTL_MS, MAX_PARTICIPANTS, MAX_AUDIT_LOG,
+  WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
+  MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
+  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
+} from './constants.js'
+
 export class RoomDO {
   constructor(state, env) {
     this.state = state
@@ -23,7 +27,7 @@ export class RoomDO {
     const { 0: client, 1: server } = new WebSocketPair()
     this.state.acceptWebSocket(server)
     const alarm = await this.state.storage.getAlarm()
-    if (!alarm) await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
+    if (!alarm) await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
     return new Response(null, { status: 101, webSocket: client })
   }
 
@@ -38,7 +42,7 @@ export class RoomDO {
     // ルームが存在しない（既に解散済み）: 成功扱い
     if (!storedToken) return json({ ok: true, alreadyGone: true }, 200)
 
-    const providedToken = String(body.hostToken ?? '').slice(0, 64)
+    const providedToken = String(body.hostToken ?? '').slice(0, MAX_TOKEN_LEN)
     if (providedToken !== storedToken) return json({ error: 'auth_failed' }, 403)
 
     // 全クライアントへ解散通知して切断、ストレージを破棄
@@ -75,16 +79,15 @@ export class RoomDO {
   }
 
   async _handleMessage(ws, msg) {
-    await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
+    await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
 
-    // レート制限: ping/join 以外は 2秒ウィンドウで最大 20件
     if (msg.type !== 'ping' && msg.type !== 'join') {
       const att   = ws.deserializeAttachment() ?? {}
       const now   = Date.now()
       const start = att._rlTime ?? 0
       const count = att._rlCount ?? 0
-      if (now - start <= 2000) {
-        if (count >= 20) return
+      if (now - start <= WS_RATE_WINDOW_MS) {
+        if (count >= WS_RATE_MAX_MSG) return
         ws.serializeAttachment({ ...att, _rlCount: count + 1 })
       } else {
         ws.serializeAttachment({ ...att, _rlTime: now, _rlCount: 1 })
@@ -93,8 +96,8 @@ export class RoomDO {
 
     switch (msg.type) {
       case 'join': {
-        const deviceId   = String(msg.deviceId   ?? '').slice(0, 64)
-        const deviceName = String(msg.deviceName ?? '').slice(0, 30)
+        const deviceId   = String(msg.deviceId   ?? '').slice(0, MAX_DEVICE_ID_LEN)
+        const deviceName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
         const role       = msg.role === 'host' ? 'host' : 'guest'
 
         let isVerifiedHost = false
@@ -102,7 +105,7 @@ export class RoomDO {
 
         if (role === 'host') {
           const storedToken   = await this.state.storage.get('hostToken')
-          const providedToken = String(msg.hostToken ?? '').slice(0, 64)
+          const providedToken = String(msg.hostToken ?? '').slice(0, MAX_TOKEN_LEN)
 
           if (!storedToken) {
             // 初回ホスト接続: トークンを発行して保存
@@ -147,8 +150,6 @@ export class RoomDO {
           }
         }
 
-        // 参加者上限チェック（同じ deviceId のセッション復帰は除外）
-        const MAX_PARTICIPANTS = 20
         const existingIds = new Set(
           this.state.getWebSockets()
             .filter(w => w !== ws)
@@ -233,7 +234,7 @@ export class RoomDO {
       case 'update': {
         const { ingredient, qty, unit, enteredBy, isAdd } = msg
         if (!ingredient || typeof qty !== 'number') return
-        if (String(ingredient).length > 200) return
+        if (String(ingredient).length > MAX_INGREDIENT_LEN) return
 
         const [inventory, auditLog] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -255,7 +256,7 @@ export class RoomDO {
         inventory[ingredient] = {
           qty,
           unit:      unit      ?? '',
-          enteredBy: String(enteredBy ?? '').slice(0, 30),
+          enteredBy: String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           updatedAt: Date.now(),
         }
 
@@ -267,12 +268,12 @@ export class RoomDO {
           delta,
           totalQty:    qty,
           unit:        unit ?? '',
-          enteredBy:   String(enteredBy ?? '').slice(0, 30),
+          enteredBy:   String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
           timestamp:   Date.now(),
         }
         auditLog.push(entry)
-        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
 
         await Promise.all([
           this.state.storage.put('inventory', inventory),
@@ -290,7 +291,7 @@ export class RoomDO {
 
       case 'remove': {
         const { ingredient } = msg
-        if (!ingredient || String(ingredient).length > 200) return
+        if (!ingredient || String(ingredient).length > MAX_INGREDIENT_LEN) return
 
         const [inventory, auditLog] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -312,7 +313,7 @@ export class RoomDO {
             timestamp:   Date.now(),
           }
           auditLog.push(entry)
-          if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+          if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
           this._broadcast({ type: 'audit_entry', entry })
           await this.state.storage.put('auditLog', auditLog)
         }
@@ -333,7 +334,7 @@ export class RoomDO {
 
       case 'recount_flag': {
         const ingredient = String(msg.ingredient ?? '')
-        if (!ingredient || ingredient.length > 200) return
+        if (!ingredient || ingredient.length > MAX_INGREDIENT_LEN) return
         const on  = !!msg.on
         const att = ws.deserializeAttachment() ?? {}
 
@@ -346,7 +347,7 @@ export class RoomDO {
         }
 
         const at = Date.now()
-        if (on) flags[ingredient] = { by: String(att.deviceName ?? '').slice(0, 30), at }
+        if (on) flags[ingredient] = { by: String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN), at }
         else    delete flags[ingredient]
 
         const inventory = (await this.state.storage.get('inventory')) ?? {}
@@ -359,12 +360,12 @@ export class RoomDO {
           delta:       0,
           totalQty:    cur?.qty ?? 0,
           unit:        cur?.unit ?? '',
-          enteredBy:   String(att.deviceName ?? '').slice(0, 30),
+          enteredBy:   String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
           timestamp:   at,
         }
         auditLog.push(entry)
-        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
 
         await Promise.all([
           this.state.storage.put('recountFlags', flags),
@@ -416,14 +417,14 @@ export class RoomDO {
       }
 
       case 'message': {
-        const text = String(msg.text ?? '').trim().slice(0, 500)
+        const text = String(msg.text ?? '').trim().slice(0, MAX_CHAT_TEXT_LEN)
         if (!text) return
         const att = ws.deserializeAttachment() ?? {}
 
         const replyTo = msg.replyTo ? {
-          id:         String(msg.replyTo.id         ?? '').slice(0, 50),
+          id:         String(msg.replyTo.id         ?? '').slice(0, MAX_UNIT_LEN),
           text:       String(msg.replyTo.text       ?? '').slice(0, 100),
-          senderName: String(msg.replyTo.senderName ?? '').slice(0, 30),
+          senderName: String(msg.replyTo.senderName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
         } : null
 
         const msgObj = {
@@ -437,7 +438,7 @@ export class RoomDO {
 
         const messages = (await this.state.storage.get('messages')) ?? []
         messages.push(msgObj)
-        if (messages.length > 200) messages.splice(0, messages.length - 200)
+        if (messages.length > MAX_AUDIT_LOG) messages.splice(0, messages.length - MAX_AUDIT_LOG)
         await this.state.storage.put('messages', messages)
 
         this._broadcast({ type: 'message', ...msgObj })
@@ -455,7 +456,7 @@ export class RoomDO {
       }
 
       case 'rename': {
-        const newName = String(msg.deviceName ?? '').slice(0, 30)
+        const newName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
         if (newName) {
           const existingNames = new Set(
             this.state.getWebSockets()
@@ -477,7 +478,7 @@ export class RoomDO {
       // ── セッション管理 ────────────────────────────────────────────────────
       case 'session_start': {
         if (!this._isHost(ws)) return
-        const newId  = String(msg.sessionId ?? '').slice(0, 64)
+        const newId  = String(msg.sessionId ?? '').slice(0, MAX_TOKEN_LEN)
         const prevId = (await this.state.storage.get('sessionId')) ?? ''
         const isResume = !!(newId && newId === prevId)
 
@@ -503,8 +504,8 @@ export class RoomDO {
               if (typeof v?.qty === 'number' && String(k).length <= 200) {
                 broadcastInv[k] = {
                   qty:       v.qty,
-                  unit:      String(v.unit      ?? '').slice(0, 50),
-                  enteredBy: String(v.enteredBy ?? '').slice(0, 30),
+                  unit:      String(v.unit      ?? '').slice(0, MAX_UNIT_LEN),
+                  enteredBy: String(v.enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
                   updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : now,
                 }
               }
@@ -517,7 +518,7 @@ export class RoomDO {
             for (const [k, v] of Object.entries(msg.recountFlags)) {
               if (String(k).length <= 200) {
                 broadcastFlags[k] = {
-                  by: String(v?.by ?? '').slice(0, 30),
+                  by: String(v?.by ?? '').slice(0, MAX_DEVICE_NAME_LEN),
                   at: typeof v?.at === 'number' ? v.at : now,
                 }
               }
@@ -579,7 +580,7 @@ export class RoomDO {
         const att = ws.deserializeAttachment() ?? {}
         this._broadcast({
           type:       'typing',
-          ingredient: String(msg.ingredient ?? '').slice(0, 200),
+          ingredient: String(msg.ingredient ?? '').slice(0, MAX_INGREDIENT_LEN),
           active:     !!msg.active,
           deviceId:   att.deviceId   ?? '',
           deviceName: att.deviceName ?? '',
@@ -592,8 +593,8 @@ export class RoomDO {
         const att = ws.deserializeAttachment() ?? {}
         this._broadcast({
           type:        'conflict_notify',
-          ingredient:  String(msg.ingredient ?? '').slice(0, 200),
-          fromName:    String(msg.fromName   ?? att.deviceName ?? '').slice(0, 30),
+          ingredient:  String(msg.ingredient ?? '').slice(0, MAX_INGREDIENT_LEN),
+          fromName:    String(msg.fromName   ?? att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           guestQty:    msg.guestQty,
           guestUnit:   msg.guestUnit  != null ? String(msg.guestUnit).slice(0, 20)  : undefined,
           hostQty:     msg.hostQty,
@@ -606,7 +607,7 @@ export class RoomDO {
         // 競合中品目リストをゲストへ転送（ホスト→全員）
         this._broadcast({
           type:        'conflict_lock',
-          ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, 200)),
+          ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, MAX_INGREDIENT_LEN)),
         }, ws)
         break
       }

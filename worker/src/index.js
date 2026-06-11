@@ -16,7 +16,6 @@ function corsHeaders(origin, allowedOrigin) {
   return {
     'Access-Control-Allow-Origin':  allowedOrigin || origin || '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    // Authorization ヘッダーを追加（認証付きAPIで必要）
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }
 }
@@ -26,6 +25,12 @@ function jsonResponse(body, status, origin, allowedOrigin) {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin, allowedOrigin) },
   })
+}
+
+async function _requireAuth(db, request, code, origin, allowedOrigin) {
+  const authCode = await verifyAuth(db, request)
+  if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+  return null
 }
 
 export default {
@@ -138,36 +143,36 @@ export default {
 
         // GET/POST /store/:code/sessions （要認証）
         if (subpath === '/sessions' && request.method === 'GET') {
-          const authCode = await verifyAuth(env.DB, request)
-          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
           return jsonResponse(await handleSessionsGet(env.DB, code), 200, origin, allowedOrigin)
         }
         if (subpath === '/sessions' && request.method === 'POST') {
-          const authCode = await verifyAuth(env.DB, request)
-          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
           return jsonResponse(await handleSessionCreate(env.DB, code), 200, origin, allowedOrigin)
         }
 
         // PUT/DELETE /store/:code/sessions/:id （要認証）
         const sessMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})$/)
         if (sessMatch && request.method === 'PUT') {
-          const authCode = await verifyAuth(env.DB, request)
-          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
           const result = await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json())
           const status = result._status ?? 200; delete result._status
           return jsonResponse(result, status, origin, allowedOrigin)
         }
         if (sessMatch && request.method === 'DELETE') {
-          const authCode = await verifyAuth(env.DB, request)
-          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
           return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
         }
 
         // POST /store/:code/sessions/:id/complete （要認証）
         const sessCompleteMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/complete$/)
         if (sessCompleteMatch && request.method === 'POST') {
-          const authCode = await verifyAuth(env.DB, request)
-          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
           const result = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json())
           const status = result._status ?? 200; delete result._status
           return jsonResponse(result, status, origin, allowedOrigin)
