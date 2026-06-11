@@ -27,7 +27,13 @@ function createMockD1() {
     return stmt
   }
 
-  return { prepare, _lines: lines, _sessions: sessions }
+  async function batch(stmts) {
+    const results = []
+    for (const s of stmts) results.push(await s.run())
+    return results
+  }
+
+  return { prepare, batch, _lines: lines, _sessions: sessions }
 }
 
 describe('storeHandler ペイロードサイズ上限', () => {

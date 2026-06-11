@@ -1,26 +1,10 @@
 import { ref } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
-
-const BASE = (() => {
-  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
-  return raw.replace(/^wss?:\/\//, 'https://').replace(/^http:\/\//, 'http://').replace(/\/$/, '')
-})()
+import { HTTP_BASE as BASE, apiFetch as _api } from '../utils/api.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 export const shopCode  = ref(localStorage.getItem(STORAGE_KEYS.shopCode) ?? '')
 export const activeRoom = ref(null)  // D1 に記録されている進行中ルームコード
-
-function _api(path, options = {}) {
-  if (!BASE) return Promise.reject(new Error('WORKER_URL未設定'))
-  const headers = { 'Content-Type': 'application/json', ...(options.headers ?? {}) }
-  const token = localStorage.getItem('_auth_token')
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  return fetch(`${BASE}${path}`, { ...options, headers }).then(async r => {
-    const body = await r.json().catch(() => ({}))
-    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-    return body
-  })
-}
 
 // ── 店舗コード 発行 ────────────────────────────────────────────────────────────
 export async function createStore() {

@@ -4,6 +4,7 @@ import { insertInventoryLines, queryItemHistory } from './inventoryLines.js'
 // ── D1 モック ──────────────────────────────────────────────────────────────────
 function createMockD1() {
   const lines = []
+  let batchCalls = 0
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -29,7 +30,14 @@ function createMockD1() {
     return stmt
   }
 
-  return { prepare, _lines: lines }
+  async function batch(stmts) {
+    batchCalls++
+    const results = []
+    for (const s of stmts) results.push(await s.run())
+    return results
+  }
+
+  return { prepare, batch, _lines: lines, get _batchCalls() { return batchCalls } }
 }
 
 const SESSION_ID = 'sess-001'
@@ -78,6 +86,13 @@ describe('insertInventoryLines', () => {
     const db = createMockD1()
     await insertInventoryLines(db, { sessionId: SESSION_ID, shopCode: SHOP_CODE, takenAt: TAKEN_AT, inventory: {}, prices: {} })
     expect(db._lines).toHaveLength(0)
+  })
+
+  it('db.batch で一括挿入する（品目ごとの逐次クエリにしない）', async () => {
+    const db = createMockD1()
+    await insertInventoryLines(db, { sessionId: SESSION_ID, shopCode: SHOP_CODE, takenAt: TAKEN_AT, inventory: INVENTORY, prices: PRICES })
+    expect(db._batchCalls).toBe(1)
+    expect(db._lines).toHaveLength(3)
   })
 
   it('session_id と shop_code と taken_at が全行に設定される', async () => {

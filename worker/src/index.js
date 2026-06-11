@@ -226,7 +226,7 @@ export default {
 
     } catch (e) {
       // 未処理の例外でも必ずCORSヘッダー付きでエラーを返す
-      console.error('[Worker] Unhandled error:', e?.message ?? e)
+      console.error('[Worker] Unhandled error:', request.method, path, e?.message ?? e)
       return jsonResponse({ error: e?.message ?? 'Internal server error' }, 500, origin, allowedOrigin)
     }
   },

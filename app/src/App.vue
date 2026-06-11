@@ -533,10 +533,8 @@ const guestReported = ref(false)
 watch(syncActive, (v) => { if (!v) guestReported.value = false })
 
 // ゲストが棚卸完了を報告している間は入力を完全ロック
-const guestLocked       = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
-// 再接続中は入力を許可（オフライン中の入力は再接続時に差分ブロードキャストで同期する）
-const syncOfflineLocked = computed(() => false)
-const inputLocked       = computed(() => isCompleted.value || guestLocked.value)
+const guestLocked = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
+const inputLocked = computed(() => isCompleted.value || guestLocked.value)
 
 // ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
 const _DRAFT_PREFIX = 'inv_draft_'
@@ -1926,9 +1924,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
   align-items: center;
   gap: 8px;
 }
-.crv-mine   { font-weight: 700; color: var(--primary); }
-.crv-sep    { color: var(--text-muted); }
-.crv-theirs { font-weight: 700; color: #dc2626; }
+.conflict-resolve-vals .crv-mine   { font-weight: 700; color: var(--primary); }
+.conflict-resolve-vals .crv-sep    { color: var(--text-muted); }
+.conflict-resolve-vals .crv-theirs { font-weight: 700; color: #dc2626; }
 
 .conflict-resolve-actions {
   display: flex;
@@ -1948,7 +1946,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 }
 .crv-btn:active { opacity: 0.75; }
 
-.crv-sum    { background: #d1fae5; color: #065f46; }
-.crv-mine   { background: #dbeafe; color: #1e40af; }
-.crv-theirs { background: #fee2e2; color: #991b1b; }
+.crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
+.crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
+.crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
 </style>

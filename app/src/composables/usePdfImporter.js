@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import * as pdfjsLib from 'pdfjs-dist'
+import { HTTP_BASE as _WORKER_BASE } from '../utils/api.js'
 
 // ── PDF.js ワーカー設定 ───────────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -267,11 +268,6 @@ function parsePdfPageRotated(items) {
 
   return products
 }
-
-const _WORKER_BASE = (() => {
-  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
-  return raw.replace(/^wss?:\/\//, 'https://').replace(/^http:\/\//, 'http://').replace(/\/$/, '')
-})()
 
 async function _parsePdfViaServer(arrayBuffer, signal) {
   const res = await fetch(`${_WORKER_BASE}/pdf`, {

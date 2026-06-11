@@ -8,9 +8,6 @@ const recountFlags = reactive({})  // { [item]: { by, at } } 「あとで数え�
 const entryLog    = reactive([])   // 今日の入力順（初入力の順番を記録）
 const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 
-// 直前の setItem 操作を1件分保持（↩ 戻す用）
-let _lastEntry = null  // null | { ingredient, prevState: null|{qty,unit}, addedToLog: boolean }
-
 // ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
   try {
@@ -114,36 +111,11 @@ export function useInventory() {
   function setItem(ingredient, qty, unit, add = false, enteredBy = '') {
     const existing = inventory[ingredient]
     const isNew    = !existing
-    _lastEntry = {
-      ingredient,
-      prevState:  existing
-        ? { qty: existing.qty, unit: existing.unit, enteredBy: existing.enteredBy ?? '' }
-        : null,
-      addedToLog: isNew,
-    }
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit, enteredBy, updatedAt: Date.now(), localEntry: true }
     if (isNew) entryLog.push(ingredient)
     _save()
-  }
-
-  /** 直前の setItem を1件元に戻す。戻した品目名を返す（undoがない場合は null）。 */
-  function undoLast() {
-    if (!_lastEntry) return null
-    const { ingredient, prevState, addedToLog } = _lastEntry
-    _lastEntry = null
-    if (prevState === null) {
-      delete inventory[ingredient]
-      if (addedToLog) {
-        const idx = entryLog.indexOf(ingredient)
-        if (idx >= 0) entryLog.splice(idx, 1)
-      }
-    } else {
-      inventory[ingredient] = { qty: prevState.qty, unit: prevState.unit, enteredBy: prevState.enteredBy ?? '', updatedAt: Date.now() }
-    }
-    _save()
-    return ingredient
   }
 
   function updateQty(ingredient, qty, unit, enteredBy = '') {
@@ -177,19 +149,12 @@ export function useInventory() {
     _save()
   }
 
-  /** 完了済みセッションを再び編集可能に戻す */
-  function reopenSession() {
-    completedAt.value = null
-    _save()
-  }
-
   /** 新規棚卸を開始（現セッションをクリア） */
   function reset() {
     Object.keys(inventory).forEach(k => delete inventory[k])
     Object.keys(recountFlags).forEach(k => delete recountFlags[k])
     entryLog.splice(0, entryLog.length)
     completedAt.value = null
-    _lastEntry = null
     _save()
   }
 
@@ -243,7 +208,7 @@ export function useInventory() {
     inventory, recountFlags, filledCount, totalValue,
     isCompleted, completedAt,
     entryLog,
-    setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV, undoLast,
-    completeSession, reopenSession,
+    setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
+    completeSession,
   }
 }

@@ -1,37 +1,22 @@
 import { ref, computed } from 'vue'
 import { shopCode } from './useStore.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
-
-const BASE = (() => {
-  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
-  return raw.replace(/^wss?:\/\//, 'https://').replace(/^http:\/\//, 'http://').replace(/\/$/, '')
-})()
+import { apiFetch as _api } from '../utils/api.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
-const _token     = ref(localStorage.getItem('_auth_token')      ?? null)
-const _storeName = ref(localStorage.getItem('_auth_store_name') ?? null)
+const _token     = ref(localStorage.getItem(STORAGE_KEYS.authToken)     ?? null)
+const _storeName = ref(localStorage.getItem(STORAGE_KEYS.authStoreName) ?? null)
 
 export const authToken       = computed(() => _token.value)
 export const storeName       = computed(() => _storeName.value)
 export const isAuthenticated = computed(() => !!_token.value)
 
-function _api(path, options = {}) {
-  if (!BASE) return Promise.reject(new Error('WORKER_URL未設定'))
-  const headers = { 'Content-Type': 'application/json', ...(options.headers ?? {}) }
-  if (_token.value) headers['Authorization'] = `Bearer ${_token.value}`
-  return fetch(`${BASE}${path}`, { ...options, headers }).then(async r => {
-    const body = await r.json().catch(() => ({}))
-    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-    return body
-  })
-}
-
 function _setAuth(token, code, name) {
   _token.value     = token
   _storeName.value = name ?? null
   shopCode.value   = code
-  localStorage.setItem('_auth_token',      token)
-  localStorage.setItem('_auth_store_name', name ?? '')
+  localStorage.setItem(STORAGE_KEYS.authToken,     token)
+  localStorage.setItem(STORAGE_KEYS.authStoreName, name ?? '')
   localStorage.setItem(STORAGE_KEYS.shopCode, code)
 }
 
@@ -39,8 +24,8 @@ function _clearAuth() {
   _token.value     = null
   _storeName.value = null
   shopCode.value   = ''
-  localStorage.removeItem('_auth_token')
-  localStorage.removeItem('_auth_store_name')
+  localStorage.removeItem(STORAGE_KEYS.authToken)
+  localStorage.removeItem(STORAGE_KEYS.authStoreName)
   localStorage.removeItem(STORAGE_KEYS.shopCode)
 }
 

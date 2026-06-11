@@ -25,4 +25,6 @@ export const STORAGE_KEYS = {
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
   pendingSession:   '_pending_session_v1',
+  authToken:        '_auth_token',
+  authStoreName:    '_auth_store_name',
 }

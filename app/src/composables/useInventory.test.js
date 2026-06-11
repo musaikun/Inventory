@@ -58,24 +58,6 @@ describe('useInventory', () => {
     expect(inv.inventory['油'].qty).toBe(0.3)
   })
 
-  // undo
-  it('undoLast は新規入力を取り消す', () => {
-    inv.setItem('玉ねぎ', 5, '箱')
-    inv.undoLast()
-    expect(inv.inventory['玉ねぎ']).toBeUndefined()
-  })
-
-  it('undoLast は上書き前の数量に戻す', () => {
-    inv.setItem('玉ねぎ', 5, '箱')
-    inv.setItem('玉ねぎ', 9, '箱', false)
-    inv.undoLast()
-    expect(inv.inventory['玉ねぎ'].qty).toBe(5)
-  })
-
-  it('undo対象が無ければ null を返す', () => {
-    expect(inv.undoLast()).toBeNull()
-  })
-
   // filledCount
   it('filledCount は入力済み品目数を表す', () => {
     inv.setItem('A', 1, '個')

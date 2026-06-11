@@ -1,6 +1,7 @@
 import { reactive, computed, ref, watch } from 'vue'
 import { deviceId, deviceName } from './useDeviceId.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { HTTP_BASE, WS_BASE as WORKER_URL } from '../utils/api.js'
 import { shopCode } from './useStore.js'
 
 function _saveSession() {
@@ -31,17 +32,6 @@ export function clearHostToken() {
 export function hasHostToken() {
   return !!_loadHostToken()
 }
-
-const WORKER_URL = (() => {
-  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
-  if (!raw) return ''
-  return raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
-})()
-
-const HTTP_BASE = (() => {
-  const raw = import.meta.env.VITE_SYNC_WORKER_URL ?? ''
-  return raw.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://').replace(/\/$/, '')
-})()
 
 // 接続有無に関わらず、保存済みホストトークンで残存ルームを解散する（退室済みルームの掃除）
 export async function dissolveRoomRemote() {
