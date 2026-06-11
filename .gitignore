@@ -3,3 +3,4 @@ app/dist/
 app/.env
 app/.env.local
 worker/node_modules/
+node_modules/
