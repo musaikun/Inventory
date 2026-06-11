@@ -8,7 +8,7 @@ import {
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
 } from './storeHandler.js'
-import { handleRegister, handleLogin, handleLogout, verifyAuth } from './authHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 export { RoomDO }
 
 function corsHeaders(origin, allowedOrigin) {
@@ -84,6 +84,14 @@ export default {
         const code    = storeMatch[1].toUpperCase()
         const subpath = storeMatch[2] ?? ''
 
+        // データ系API（config/inventory/history/room）は後方互換ソフト認証で保護。
+        // PIN設定済み店舗はトークン必須、レガシー店舗は従来通り許可。
+        if (/^\/(config|inventory|history|room)(\/|$)/.test(subpath)) {
+          if (!(await verifyStoreAccess(env.DB, code, request))) {
+            return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          }
+        }
+
         // GET /store/:code
         if (subpath === '' && request.method === 'GET') {
           const store = await handleStoreGet(env.DB, code)
@@ -95,21 +103,27 @@ export default {
           return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          return jsonResponse(await handleConfigPut(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+          const result = await handleConfigPut(env.DB, code, await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
         }
         // GET/PUT /store/:code/inventory
         if (subpath === '/inventory' && request.method === 'GET') {
           return jsonResponse(await handleInventoryGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/inventory' && request.method === 'PUT') {
-          return jsonResponse(await handleInventoryPut(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+          const result = await handleInventoryPut(env.DB, code, await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
           return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
-          return jsonResponse(await handleHistoryPost(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+          const result = await handleHistoryPost(env.DB, code, await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:date
         const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)

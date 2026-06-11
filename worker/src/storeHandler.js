@@ -2,6 +2,12 @@
 
 function _now() { return new Date().toISOString() }
 
+// 1リクエストあたりの上限（約1MB）。設定/在庫/履歴の肥大化・経済的DoSを防ぐ
+const MAX_PAYLOAD_CHARS = 1_000_000
+function _tooLarge(body) {
+  try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
+}
+
 function _genShopCode() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
   return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('')
@@ -36,6 +42,7 @@ export async function handleConfigGet(db, code) {
 
 // PUT /store/:code/config
 export async function handleConfigPut(db, code, body) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const now = _now()
   await db.prepare(`
     INSERT INTO store_configs (shop_code, config_json, updated_at) VALUES (?, ?, ?)
@@ -52,6 +59,7 @@ export async function handleInventoryGet(db, code) {
 
 // PUT /store/:code/inventory
 export async function handleInventoryPut(db, code, body) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const now = _now()
   await db.prepare(`
     INSERT INTO store_inventory (shop_code, inventory_json, updated_at) VALUES (?, ?, ?)
@@ -71,6 +79,7 @@ export async function handleHistoryGet(db, code) {
 
 // POST /store/:code/history
 export async function handleHistoryPost(db, code, body) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const date = body.date ?? new Date().toISOString().slice(0, 10)
   const now  = _now()
   await db.prepare(`

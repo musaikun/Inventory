@@ -12,10 +12,10 @@ export const activeRoom = ref(null)  // D1 に記録されている進行中ル�
 
 function _api(path, options = {}) {
   if (!BASE) return Promise.reject(new Error('WORKER_URL未設定'))
-  return fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  }).then(async r => {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers ?? {}) }
+  const token = localStorage.getItem('_auth_token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return fetch(`${BASE}${path}`, { ...options, headers }).then(async r => {
     const body = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
     return body

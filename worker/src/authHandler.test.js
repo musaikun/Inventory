@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { handleRegister, handleLogin, handleLogout, verifyAuth } from './authHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 
 // ── 最小限の D1 モック（authHandler が使うクエリだけ解釈する）──────────────────
 function createMockD1() {
-  const stores = []
-  const tokens = []
+  const stores   = []
+  const tokens   = []
+  const attempts = []   // login_attempts
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -18,6 +19,9 @@ function createMockD1() {
       return { success: true }
     }
     if (s.startsWith('SELECT shop_code, store_name, pin_hash FROM stores')) {
+      return stores.find(r => r.shop_code === args[0]) ?? null
+    }
+    if (s.startsWith('SELECT pin_hash FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
     if (s.startsWith('INSERT INTO auth_tokens')) {
@@ -37,6 +41,23 @@ function createMockD1() {
       if (new Date(t.expires_at).getTime() <= Date.now()) return null
       return { shop_code: t.shop_code }
     }
+    // ── login_attempts（総当たり対策）──
+    if (s.startsWith('SELECT COUNT(*) AS n FROM login_attempts')) {
+      const [shop_code, since] = args
+      const n = attempts.filter(a => a.shop_code === shop_code && a.attempted_at > since).length
+      return { n }
+    }
+    if (s.startsWith('INSERT INTO login_attempts')) {
+      const [shop_code, attempted_at] = args
+      attempts.push({ shop_code, attempted_at })
+      return { success: true }
+    }
+    if (s.startsWith('DELETE FROM login_attempts WHERE shop_code')) {
+      for (let i = attempts.length - 1; i >= 0; i--) {
+        if (attempts[i].shop_code === args[0]) attempts.splice(i, 1)
+      }
+      return { success: true }
+    }
     throw new Error('Unhandled SQL in mock: ' + s)
   }
 
@@ -50,7 +71,7 @@ function createMockD1() {
     return stmt
   }
 
-  return { prepare, _stores: stores, _tokens: tokens }
+  return { prepare, _stores: stores, _tokens: tokens, _attempts: attempts }
 }
 
 // Authorization: Bearer <token> を持つ擬似 Request
@@ -137,5 +158,56 @@ describe('authHandler', () => {
     const reg = await handleRegister(db, { pin: '1234' })
     await handleLogout(db, reqWithToken(reg.token))
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
+  })
+
+  // ── 総当たり対策（ログイン回数制限）─────────────────────────────────────────
+  it('PINを5回間違えると6回目は429でブロックされる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    for (let i = 0; i < 5; i++) {
+      const r = await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
+      expect(r._status).toBe(401)
+    }
+    const blocked = await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
+    expect(blocked._status).toBe(429)
+  })
+
+  it('ブロック中は正しいPINでも429（解除は時間経過のみ）', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    for (let i = 0; i < 5; i++) await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
+    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(res._status).toBe(429)
+  })
+
+  it('ログイン成功で失敗履歴がクリアされる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
+    await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
+    const ok = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(ok.token).toBeTruthy()
+    expect(db._attempts.filter(a => a.shop_code === reg.shopCode)).toHaveLength(0)
+  })
+
+  // ── 後方互換ソフト認証（verifyStoreAccess）──────────────────────────────────
+  it('PIN設定店舗は有効トークンがあればアクセス許可', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    expect(await verifyStoreAccess(db, reg.shopCode, reqWithToken(reg.token))).toBe(true)
+  })
+
+  it('PIN設定店舗はトークン無しならアクセス拒否', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, reg.shopCode, noTokenReq)).toBe(false)
+  })
+
+  it('PIN設定店舗は別店舗のトークンではアクセス拒否', async () => {
+    const a = await handleRegister(db, { pin: '1234' })
+    const b = await handleRegister(db, { pin: '5678' })
+    expect(await verifyStoreAccess(db, a.shopCode, reqWithToken(b.token))).toBe(false)
+  })
+
+  it('レガシー店舗（PIN未設定）はトークン無しでもアクセス許可', async () => {
+    db._stores.push({ shop_code: 'LEGACY', store_name: null, pin_hash: null })
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, 'LEGACY', noTokenReq)).toBe(true)
   })
 })
