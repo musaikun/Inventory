@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { isSupplyItem } from '../utils/itemMatcher.js'
 
 const { config } = useConfig()
 
@@ -16,11 +17,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update', 'remove', 'tap'])
 
-// ── 食材 / 資材・備品 判定 ─────────────────────────────────────────────────────
 function _isSupply(item) {
-  const cat = config.categories?.[item]
-  if (!cat) return false
-  return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
+  return isSupplyItem(item, config.categories)
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────

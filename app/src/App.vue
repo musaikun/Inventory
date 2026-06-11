@@ -42,6 +42,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
+import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
@@ -850,31 +851,12 @@ watch(() => syncState.roomCode, (code) => {
   if (shopCode.value) updateActiveRoomInD1(code ?? null)
 })
 
-// ── Dictionary matching ────────────────────────────────────────────────────────
-function normalize(str) {
-  return str
-    .normalize('NFKC')  // 半角カタカナ→全角カタカナ、全角英数→半角英数
-    .toLowerCase()
-    .replace(/\s/g, '')
-    .replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))  // カタカナ→ひらがな
-}
-
-function scoreMatch(nTarget, nInput) {
-  if (nTarget === nInput)              return 1000
-  if (nTarget.startsWith(nInput))     return 500 + nInput.length
-  if (nInput.startsWith(nTarget))     return 400 + nTarget.length
-  if (nTarget.includes(nInput))       return 300 + nInput.length
-  if (nInput.includes(nTarget))       return 200 + nTarget.length
-  return 0
+// ── Dictionary matching（実体は utils/itemMatcher.js・テスト付き）──────────────
+function isSupplyItem(canonical) {
+  return matcherIsSupply(canonical, config.categories)
 }
 
 // 資材・備品系品目が存在する場合のみ除外チップを表示
-function isSupplyItem(canonical) {
-  const cat = config.categories?.[canonical]
-  if (!cat) return false
-  return cat.includes('資材') || cat.includes('備品') || cat.includes('その他')
-}
-
 const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(item)))
 // 棚卸対象スコープ: 'all' | 'food'（食材のみ） | 'supply'（資材・備品のみ）
 // 検索・棚卸一覧の両方を絞り込む
@@ -886,44 +868,13 @@ watch(categoryScope, (scope) => {
 })
 
 function findCandidates(name) {
-  if (!name) return []
-  const nInput = normalize(name)
-  const seen   = new Map()
-
-  // ① 辞書エイリアスとのマッチ（CSV定義 + 自動学習済み）
-  for (const [alias, canonical] of Object.entries(dictionary.value)) {
-    const score = scoreMatch(normalize(alias), nInput)
-    if (score > 0 && score > (seen.get(canonical) ?? 0)) seen.set(canonical, score)
-  }
-
-  // ② 正式品目名そのものともマッチ（"コーヒー豆" → "コーヒー豆 ブラジル..." を拾う）
-  for (const canonical of config.order) {
-    const score = scoreMatch(normalize(canonical), nInput)
-    // エイリアス経由より若干低いスコアで登録（エイリアスを優先）
-    const adjusted = score > 0 ? Math.max(score - 50, 1) : 0
-    if (adjusted > 0 && adjusted > (seen.get(canonical) ?? 0)) seen.set(canonical, adjusted)
-  }
-
-  // ③ マスター辞書（1キーワード→複数品目）
-  for (const [keyword, canonicals] of Object.entries(masterDict)) {
-    const score = scoreMatch(normalize(keyword), nInput)
-    if (score > 0) {
-      for (const canonical of canonicals) {
-        if (!config.order.includes(canonical)) continue
-        if (score > (seen.get(canonical) ?? 0)) seen.set(canonical, score)
-      }
-    }
-  }
-
-  let results = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
-
-  if (categoryScope.value === 'food') {
-    results = results.filter(c => !isSupplyItem(c))
-  } else if (categoryScope.value === 'supply') {
-    results = results.filter(c => isSupplyItem(c))
-  }
-
-  return results
+  return matcherFind(name, {
+    dictionary: dictionary.value,
+    order:      config.order,
+    categories: config.categories,
+    masterDict,
+    scope:      categoryScope.value,
+  })
 }
 
 // ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
