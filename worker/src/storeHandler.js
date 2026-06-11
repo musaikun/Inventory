@@ -1,5 +1,7 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
+import { insertInventoryLines } from './inventoryLines.js'
+
 function _now() { return new Date().toISOString() }
 
 // 1リクエストあたりの上限（約1MB）。設定/在庫/履歴の肥大化・経済的DoSを防ぐ
@@ -151,4 +153,36 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
     UPDATE sessions SET status = ?, ended_at = ?, item_count = ? WHERE id = ? AND shop_code = ?
   `).bind(status, endedAt, itemCount, sessionId, code).run()
   return { ok: true }
+}
+
+// POST /store/:code/sessions/:id/complete
+// 棚卸完了の一括処理: inventory_lines 展開 + sessions 更新（archive_key は R2 実装後に追加）
+export async function handleSessionComplete(db, code, sessionId, body) {
+  const session = await db.prepare(
+    'SELECT id FROM sessions WHERE id = ? AND shop_code = ?'
+  ).bind(sessionId, code).first()
+  if (!session) return { _status: 404, error: 'セッションが見つかりません' }
+
+  const { inventory = {}, prices = {}, takenAt } = body
+  const now       = _now()
+  const taken     = takenAt ?? now.slice(0, 10)
+  const itemCount = Object.keys(inventory).length
+
+  const totalValue = (() => {
+    let total = 0; let has = false
+    for (const [item, entry] of Object.entries(inventory)) {
+      if (prices[item] != null) { total += entry.qty * prices[item]; has = true }
+    }
+    return has ? Math.round(total) : null
+  })()
+
+  await insertInventoryLines(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
+
+  await db.prepare(`
+    UPDATE sessions
+    SET status = 'completed', ended_at = ?, item_count = ?, total_value = ?
+    WHERE id = ? AND shop_code = ?
+  `).bind(now, itemCount, totalValue, sessionId, code).run()
+
+  return { ok: true, sessionId, itemCount, totalValue }
 }

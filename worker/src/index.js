@@ -7,6 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
+  handleSessionComplete,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 export { RoomDO }
@@ -147,7 +148,7 @@ export default {
           return jsonResponse(await handleSessionCreate(env.DB, code), 200, origin, allowedOrigin)
         }
 
-        // PUT /store/:code/sessions/:id （要認証）
+        // PUT/DELETE /store/:code/sessions/:id （要認証）
         const sessMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})$/)
         if (sessMatch && request.method === 'PUT') {
           const authCode = await verifyAuth(env.DB, request)
@@ -160,6 +161,16 @@ export default {
           const authCode = await verifyAuth(env.DB, request)
           if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
           return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
+        }
+
+        // POST /store/:code/sessions/:id/complete （要認証）
+        const sessCompleteMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/complete$/)
+        if (sessCompleteMatch && request.method === 'POST') {
+          const authCode = await verifyAuth(env.DB, request)
+          if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+          const result = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
         }
       }
     }

@@ -108,3 +108,14 @@ export async function deleteSession(sessionId) {
   if (!code || !_token.value || !sessionId) return
   return _api(`/store/${code}/sessions/${sessionId}`, { method: 'DELETE' })
 }
+
+// POST /store/:code/sessions/:id/complete
+// 棚卸完了の一括処理（inventory_lines 展開 + sessions 更新）
+export async function completeSession(sessionId, inventory, prices, takenAt) {
+  const code = shopCode.value
+  if (!code || !_token.value || !sessionId) return
+  return _api(`/store/${code}/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    body:   JSON.stringify({ inventory, prices, takenAt }),
+  })
+}
