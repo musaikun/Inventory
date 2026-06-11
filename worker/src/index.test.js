@@ -9,6 +9,7 @@ function createMockD1() {
   const stores  = []
   const tokens  = []
   const configs = {}
+  const ipRows  = []
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -21,6 +22,10 @@ function createMockD1() {
     if (s.startsWith('SELECT pin_hash FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
       return r ? { pin_hash: r.pin_hash ?? null } : null
+    }
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash FROM stores')) {
+      const r = stores.find(r => r.shop_code === args[0])
+      return r ? { shop_code: r.shop_code, store_name: r.store_name ?? null, pin_hash: r.pin_hash ?? null } : null
     }
     if (s.startsWith('SELECT shop_code, active_room, created_at FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
@@ -42,6 +47,15 @@ function createMockD1() {
     if (s.startsWith('SELECT COUNT(*) AS n FROM login_attempts')) return { n: 0 }
     if (s.startsWith('INSERT INTO login_attempts'))               return { success: true }
     if (s.startsWith('DELETE FROM login_attempts'))               return { success: true }
+    if (s.startsWith('SELECT COUNT(*) AS n FROM ip_attempts')) {
+      const [ip, kind, since] = args
+      return { n: ipRows.filter(r => r.ip === ip && r.kind === kind && r.attempted_at > since).length }
+    }
+    if (s.startsWith('INSERT INTO ip_attempts')) {
+      ipRows.push({ ip: args[0], kind: args[1], attempted_at: args[2] })
+      return { success: true }
+    }
+    if (s.startsWith('DELETE FROM ip_attempts')) return { success: true }
     if (s.startsWith('INSERT INTO store_configs')) {
       configs[args[0]] = args[1]
       return { success: true }
@@ -61,14 +75,20 @@ function createMockD1() {
     return stmt
   }
 
-  return { prepare, _stores: stores, _configs: configs }
+  return { prepare, _stores: stores, _configs: configs, _ipRows: ipRows }
 }
 
-function makeReq(method, path, { body, token } = {}) {
+function makeReq(method, path, { body, token, ip } = {}) {
   return {
     method,
     url: `https://api.test${path}`,
-    headers: { get: (h) => (h === 'Authorization' && token) ? `Bearer ${token}` : null },
+    headers: {
+      get: (h) => {
+        if (h === 'Authorization' && token) return `Bearer ${token}`
+        if (h === 'CF-Connecting-IP')       return ip ?? '198.51.100.1'
+        return null
+      },
+    },
     json: async () => body ?? {},
   }
 }
@@ -158,5 +178,70 @@ describe('Worker ルーティング（特性テスト）', () => {
     const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions`, { token: b.token }), env)
     expect(res.status).toBe(401)
+  })
+})
+
+describe('総当たり対策（ルームプローブ・IPレート制限）', () => {
+  let db, env, roomFetched
+
+  beforeEach(() => {
+    db = createMockD1()
+    roomFetched = 0
+    env = {
+      DB: db,
+      ROOMS: {
+        idFromName: () => 'x',
+        get: () => ({ fetch: async () => { roomFetched++; return new Response('{}', { status: 200 }) } }),
+      },
+      ALLOWED_ORIGIN: '',
+    }
+  })
+
+  it('存在しない店舗コードのルームアクセスは 404 で DO に到達しない', async () => {
+    const res = await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status'), env)
+    expect(res.status).toBe(404)
+    expect(roomFetched).toBe(0)
+  })
+
+  it('存在する店舗コードのルームアクセスは DO に転送される', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
+    expect(res.status).toBe(200)
+    expect(roomFetched).toBe(1)
+  })
+
+  it('ルームプローブ失敗が IP 単位で記録される', async () => {
+    await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
+    expect(db._ipRows.filter(r => r.ip === '203.0.113.9' && r.kind === 'probe')).toHaveLength(1)
+  })
+
+  it('プローブ失敗が上限に達した IP は 429 でブロックされる', async () => {
+    for (let i = 0; i < 30; i++) {
+      await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
+    }
+    const res = await worker.fetch(makeReq('GET', '/room/AAAAAA/status', { ip: '203.0.113.9' }), env)
+    expect(res.status).toBe(429)
+  })
+
+  it('別 IP はブロックされない', async () => {
+    for (let i = 0; i < 30; i++) {
+      await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
+    }
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`, { ip: '198.51.100.2' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('ログイン失敗も IP 単位で記録され、上限超過で 429（店舗コード横断の総当たり対策）', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    for (let i = 0; i < 30; i++) {
+      await worker.fetch(makeReq('POST', '/auth/login', {
+        body: { shopCode: reg.shopCode, pin: '0000' }, ip: '203.0.113.9',
+      }), env)
+    }
+    const res = await worker.fetch(makeReq('POST', '/auth/login', {
+      body: { shopCode: reg.shopCode, pin: '1234' }, ip: '203.0.113.9',
+    }), env)
+    expect(res.status).toBe(429)
   })
 })

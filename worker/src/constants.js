@@ -3,6 +3,10 @@ export const LOGIN_WINDOW_MS   = 15 * 60 * 1000    // brute-force window
 export const LOGIN_MAX_FAILS   = 5                  // max failures per window
 export const TOKEN_EXPIRY_MS   = 30 * 24 * 60 * 60 * 1000  // auth token lifetime
 
+// ── IP rate limit (cross-store brute force / room code probing) ──────────────
+export const IP_RATE_WINDOW_MS = 15 * 60 * 1000
+export const IP_MAX_FAILS      = 30
+
 // ── Payload ───────────────────────────────────────────────────────────────────
 export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard
 

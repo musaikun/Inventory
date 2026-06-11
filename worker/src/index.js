@@ -10,6 +10,7 @@ import {
   handleSessionComplete,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
+import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 export { RoomDO }
 
 function corsHeaders(origin, allowedOrigin) {
@@ -65,7 +66,13 @@ export default {
         return jsonResponse(result, status, origin, allowedOrigin)
       }
       if (path === '/auth/login' && request.method === 'POST') {
+        // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。店舗単位制限は handleLogin 内）
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'login')) {
+          return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
         const result = await handleLogin(env.DB, await request.json())
+        if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
         const status = result._status ?? 200; delete result._status
         return jsonResponse(result, status, origin, allowedOrigin)
       }
@@ -191,35 +198,35 @@ export default {
       }
     }
 
-    // ── ルーム解散（退室済み残存ルームの掃除・HTTP）──────────────────────────
-    const dissolveMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/dissolve$/i)
-    if (dissolveMatch && request.method === 'POST') {
-      const code = dissolveMatch[1].toUpperCase()
-      const id   = env.ROOMS.idFromName(`room:${code}`)
-      const room = env.ROOMS.get(id)
-      const res  = await room.fetch(request)
-      const body = await res.json().catch(() => ({}))
-      return jsonResponse(body, res.status, origin, allowedOrigin)
-    }
+    // ── ルーム API（ルームID = 店舗コード）────────────────────────────────────
+    // 存在しない店舗コードは Worker 層で 404 にして DO を起動させない。
+    // 失敗を IP 単位で記録し、上限超過でブロック（ルームコード総当たり対策）
+    const roomMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/(dissolve|status|ws)$/i)
+    if (roomMatch) {
+      const code   = roomMatch[1].toUpperCase()
+      const action = roomMatch[2].toLowerCase()
 
-    // ── ルーム状態取得（退室中ホストのライブ品目数表示・HTTP）────────────────
-    const statusMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/status$/i)
-    if (statusMatch && request.method === 'GET') {
-      const code = statusMatch[1].toUpperCase()
-      const id   = env.ROOMS.idFromName(`room:${code}`)
-      const room = env.ROOMS.get(id)
-      const res  = await room.fetch(request)
-      const body = await res.json().catch(() => ({}))
-      return jsonResponse(body, res.status, origin, allowedOrigin)
-    }
+      if (env.DB) {
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'probe')) {
+          return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        const store = await env.DB.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
+        if (!store) {
+          await recordIpFail(env.DB, ip, 'probe')
+          return jsonResponse({ error: 'ルームが見つかりません' }, 404, origin, allowedOrigin)
+        }
+      }
 
-    // ── WebSocket（リアルタイム同期）─────────────────────────────────────────
-    const wsMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/ws$/i)
-    if (wsMatch) {
-      const code = wsMatch[1].toUpperCase()
       const id   = env.ROOMS.idFromName(`room:${code}`)
       const room = env.ROOMS.get(id)
-      return room.fetch(request)
+      if (action === 'ws') return room.fetch(request)
+      if ((action === 'dissolve' && request.method === 'POST') ||
+          (action === 'status'   && request.method === 'GET')) {
+        const res  = await room.fetch(request)
+        const body = await res.json().catch(() => ({}))
+        return jsonResponse(body, res.status, origin, allowedOrigin)
+      }
     }
 
     // ── ヘルスチェック ────────────────────────────────────────────────────────

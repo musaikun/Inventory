@@ -25,6 +25,20 @@
 - **実装**: `storeHandler.js` `_tooLarge()` + 各ハンドラの先頭でチェック
 - **テスト**: `storeHandler.test.js` — 5ケース
 
+### S-05 ✅ HTTPレート制限（IPベース）
+- **リスク**: `/auth/login` の店舗単位制限（S-01）は店舗コードを変えながらの総当たりに無力だった
+- **対策**: IP単位の失敗カウント（15分窓・30回）。超過で429。`kind='login'` と `kind='probe'` を独立管理
+- **実装**: `rateLimiter.js`（`clientIp` / `isIpBlocked` / `recordIpFail`）+ `index.js` ログインルート + migration `0005_ip_attempts.sql`
+- **テスト**: `rateLimiter.test.js` 8ケース + `index.test.js` 統合6ケース
+
+### S-06 ✅ ルームコード総当たり対策
+- **リスク**: ルームコード（24^6 ≈ 1.9億通り）をWebSocket接続で総当たりするとゲストとして入室可能。DO起動コストも攻撃者に握られていた
+- **対策**:
+  1. `/room/:code/(ws|status|dissolve)` で店舗コードの存在を Worker 層（D1）で先に確認。存在しなければ404で **DOを起動させない**
+  2. 存在しないコードへのアクセスを IP 単位で記録（`kind='probe'`）。15分窓30回で429
+- **実装**: `index.js` ルームルート共通ゲート + `rateLimiter.js`
+- **テスト**: `index.test.js` — 404/DO非到達・転送・記録・429・別IP非ブロック
+
 ---
 
 ## 残課題（優先度順）
@@ -37,19 +51,6 @@
   - 既存ユーザーは次回ログイン時に再ハッシュ（透過移行）
   - DB設計v2 Step 5 として計画済み
 - **ブロッカー**: 移行UXの確認（強制ログアウトの是非）
-
-### S-05 🟡 HTTPレート制限（IPベース）
-- **リスク**: `/auth/login` 以外のエンドポイント（`/store/create` 等）にはIP単位の制限がない
-- **対策案**: Cloudflare WAFのレートルール（管理画面で設定・コード変更不要）か、Worker側でIPヘッダーを見て制限
-- **備考**: Cloudflare Pro以上ならWAFルールで対応可。Freeプランは Worker実装が必要
-
-### S-06 🟡 ルームコード総当たり対策
-- **リスク**: ルームコード（24^6 ≈ 1.9億通り）をWebSocket接続で総当たりするとゲストとして入室可能
-- **対策案**:
-  1. コード長を8桁に延長（24^8 ≈ 1,100億通り）
-  2. WebSocket接続時にIPベースのレート制限（Workers AI / DO内で管理）
-  3. ゲスト入室時もPIN/トークン確認を要求（UXへの影響あり・要検討）
-- **備考**: S-05（HTTPレート制限）と合わせて対応するのが効率的
 
 ### S-07 🟡 XSS対策（トークン漏洩リスク）
 - **リスク**: `_auth_token` が `localStorage` に平文保存。XSSが起きると盗まれる
@@ -68,12 +69,16 @@
 
 ---
 
-## デプロイチェックリスト（S-01〜S-03 反映時）
+## デプロイチェックリスト（S-01〜S-06 反映時）
 
 ```bash
-# 1. マイグレーション（必ずWorkerデプロイより先）
+# 1. マイグレーション（必ずWorkerデプロイより先・worker/ で実行）
 npx wrangler d1 execute inventory-store --remote \
   --file=./migrations/0003_login_attempts.sql
+npx wrangler d1 execute inventory-store --remote \
+  --file=./migrations/0004_v2_schema.sql
+npx wrangler d1 execute inventory-store --remote \
+  --file=./migrations/0005_ip_attempts.sql
 
 # 2. Workerデプロイ
 cd worker && npx wrangler deploy
@@ -81,6 +86,9 @@ cd worker && npx wrangler deploy
 # 3. フロントエンドデプロイ
 cd app && npm run build && npx wrangler pages deploy dist
 ```
+
+> **注意（S-06）**: ルーム接続は店舗コードの存在チェックを通るようになった。
+> stores テーブルに無いコードのルームは接続不可（ルームID = 店舗コードの統一設計が前提）。
 
 ---
 
