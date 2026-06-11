@@ -394,7 +394,7 @@ setScopeCallback((scope) => {
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
-  if (status === 'completed') await completeSessionD1(count)
+  if (status === 'completed') await completeSessionD1(count, { inventory: { ...inventory }, prices: config.prices ?? {} })
 
   if (!syncIsHost.value && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
@@ -646,7 +646,7 @@ async function onComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
-  completeSessionD1(filledCount.value)
+  completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
@@ -684,7 +684,7 @@ async function onGoHome() {
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
   if (isCompleted.value) {
-    await completeSessionD1(filledCount.value)
+    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   } else {
     _saveDraft(pendingSession.value?.id)
     await markSessionActive(filledCount.value)
@@ -716,7 +716,7 @@ async function onSyncComplete() {
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
   if (snapshot) saveSnapshotToD1(snapshot)
-  await completeSessionD1(filledCount.value)
+  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   broadcastSessionEnd('completed')
   if (continuousMode.value) onForceStop()
   showSync.value = false

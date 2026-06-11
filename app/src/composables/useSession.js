@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { isAuthenticated, updateSession } from './useAuth.js'
+import { isAuthenticated, updateSession, completeSession as completeSessionApi } from './useAuth.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // ── セッションライフサイクル集約（モジュールスコープ シングルトン）─────────────
@@ -78,11 +78,21 @@ export function useSession() {
   }
 
   // 完了確定（保留 touch をキャンセルし、以降の active 書き込みを封じる）
-  async function complete(count) {
+  // payload = { inventory, prices, takenAt } があれば complete API を呼び
+  // inventory_lines（分析用明細）も書き込む。失敗時は従来の状態更新へフォールバック。
+  async function complete(count, payload = null) {
     _cancelTouch()
     _finalized = true
     if (!_canWrite()) return
-    await updateSession(pendingSession.value.id, 'completed', count).catch(() => {})
+    const id = pendingSession.value.id
+    if (payload) {
+      try {
+        await completeSessionApi(id, payload.inventory, payload.prices, payload.takenAt)
+        if (pendingSession.value) pendingSession.value.status = 'completed'
+        return
+      } catch (_) {}
+    }
+    await updateSession(id, 'completed', count).catch(() => {})
     if (pendingSession.value) pendingSession.value.status = 'completed'
   }
 
