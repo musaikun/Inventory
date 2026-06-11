@@ -166,6 +166,57 @@ ORDER BY taken_at;
 
 期限切れは Cron Trigger で定期削除（4.7）。
 
+### 4.5b item_par_levels（将来拡張・アラート/予測の基準値）
+
+「適正在庫」を持つマスタ。**アラート（過剰・不足・発注サイン）の前提**になる。
+これがないと「在庫が多いか少ないか」を判断する基準が存在しない。
+品目名は `inventory_lines` と同じくテキストで持つ（マスタFKにしない＝品目名の変更に強い）。
+
+```sql
+CREATE TABLE item_par_levels (
+  shop_code     TEXT NOT NULL REFERENCES stores(shop_code) ON DELETE CASCADE,
+  item_name     TEXT NOT NULL,
+  min_qty       REAL,      -- 下回ったら不足アラート
+  max_qty       REAL,      -- 超えたら過剰在庫アラート
+  reorder_point REAL,      -- この量で発注サイン
+  reorder_qty   REAL,      -- 標準発注量（予測の初期値）
+  lead_days     INTEGER,   -- 発注から納品までの日数
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (shop_code, item_name)
+);
+```
+
+実現できること：
+- 棚卸完了後の「○○が適正在庫を下回っています」アラート
+- 「あと何日分あるか」表示（平均日次消費量で割る）
+
+### 4.5c deliveries（将来拡張・仕入れ実績＝消費量計算の精度向上）
+
+**消費量を正確に算出するためのテーブル**。棚卸の差分だけだと「期間中の仕入れ」が
+混ざって消費量が狂う。仕入れを記録すると `消費量 = 前回在庫 − 今回在庫 + 仕入れ量` が成立する。
+
+```sql
+CREATE TABLE deliveries (
+  id          TEXT PRIMARY KEY,
+  shop_code   TEXT NOT NULL REFERENCES stores(shop_code) ON DELETE CASCADE,
+  item_name   TEXT NOT NULL,
+  qty         REAL NOT NULL,
+  unit        TEXT,
+  unit_price  REAL,            -- 仕入単価（原価推移の分析にも使える）
+  received_at TEXT NOT NULL,   -- 納品日
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_deliveries_item ON deliveries(shop_code, item_name, received_at);
+```
+
+⚠️ **入力コストが高い**ため優先度は低い。まず仕入れなしの近似値（棚卸差分）で
+始め、予測精度が問題になってから導入する段階的アプローチを推奨。
+
+> 注：`item_par_levels` / `deliveries` は **発注予測・アラート構想**のための拡張。
+> 現行機能（月1棚卸）だけでも ABC分析・在庫金額推移・滞留在庫検出などの
+> 「ストック分析」は `inventory_lines` だけで可能。フロー分析（消費・発注）には
+> これらの追加テーブルが要る、という棲み分け。
+
 ### 4.6 R2 レイアウト（アーカイブ）
 
 ```
@@ -231,6 +282,12 @@ Step 5  PIN ハッシュ強化（PBKDF2/scrypt）
         - 新規登録は新形式、既存はログイン時に再ハッシュ移行
 
 Step 6  store_history を非推奨化（R2移送完了後にD1から撤去）
+
+Step 7  予測・アラート拡張（構想・着手は後日）
+        - item_par_levels テーブル新設 → 過剰/不足アラート
+        - deliveries テーブル新設（任意）→ 消費量の正確な算出
+        ※ ストック分析（ABC・在庫金額推移・滞留検出）は inventory_lines だけで
+          先行実装可能。フロー分析（消費・発注予測）の段階でこの2表を足す。
 ```
 
 ---
@@ -243,6 +300,36 @@ Step 6  store_history を非推奨化（R2移送完了後にD1から撤去）
 | 品目マスタを別テーブルでFK正規化 | 飲食店は品目名が頻繁に変わる。明細にテキスト焼き込みの方が歴史が壊れない |
 | 完全な監査ログDB化 | auditLog は R2 の生JSONに同梱で足りる |
 | マルチリージョン分散 | 単一国・100店舗ではD1の読みレプリカで十分 |
+
+---
+
+## 7.5 現状データで可能な分析 / 不可能な分析
+
+分析を「ストック（状態）」と「フロー（流れ）」で分けると、何が今できて何ができないかが明確になる。
+
+### ✅ 今の機能（月1棚卸＋単価）だけでできる ＝ ストック分析
+
+| 分析 | 必要データ | 備考 |
+|---|---|---|
+| ABC分析（在庫金額のパレート） | 1回の棚卸 ＋ 単価 | **1回分で出せる**。金額が寝ている重点品目を特定 |
+| 在庫金額の推移 | 複数回の棚卸合計額 | 資金繰りの可視化 |
+| 滞留在庫（デッドストック）検出 | 複数回の棚卸 | 数量が動かない品目＝過剰/不使用の疑い |
+| 廃止候補の抽出 | 品目リスト ＋ 棚卸 | 常にゼロ/ほぼ不動の品目 |
+| カテゴリ別・構成比 | 棚卸 ＋ カテゴリ ＋ 単価 | 在庫の偏りの把握 |
+| 棚卸作業分析 | auditLog（時刻・担当者） | 在庫でなく業務改善の分析 |
+
+### ❌ 原理的にできない ＝ フロー分析（追加データが必要）
+
+| 分析 | 足りないデータ |
+|---|---|
+| 消費量・使用量 | 仕入れ記録（`deliveries`） |
+| 発注量予測・需要予測 | 消費量（＝仕入れ記録） |
+| 原価率・粗利 | 売上記録 |
+| 廃棄ロス | 廃棄記録 |
+| 曜日・天候別需要 | 日次データ（月1では粗すぎる） |
+
+> 結論：**フロー分析は月1スナップショットでは不可能**だが、**ストック分析（特にABC分析）は
+> 追加入力ゼロで今すぐ価値を出せる**。分析機能の第一歩はABC分析・滞留在庫検出が現実的。
 
 ---
 
