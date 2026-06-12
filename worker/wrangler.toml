@@ -1,0 +1,29 @@
+name = "inventory-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "d27afd2bc7f0a66b1275eb28d7b3d470"
+
+
+[vars]
+ALLOWED_ORIGIN = ""
+
+[durable_objects]
+bindings = [
+  { name = "ROOMS", class_name = "RoomDO" }
+]
+
+# D1 データベース
+# セットアップ手順:
+#   1. npx wrangler d1 create inventory-store
+#   2. 出力された database_id を下記に貼り付ける
+#   3. npx wrangler d1 execute inventory-store --remote --file=./migrations/0001_init.sql
+[[d1_databases]]
+binding     = "DB"
+database_name = "inventory-store"
+database_id = "0bcb5cd0-0c51-44f9-b7b7-65b0ce5862df"
+
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO"]

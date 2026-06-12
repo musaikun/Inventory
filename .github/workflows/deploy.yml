@@ -1,0 +1,97 @@
+name: CI/CD
+
+# main へ push/merge → 本番デプロイ（テスト → D1 → Worker → Pages 本番）
+# claude/** ブランチへ push → プレビューデプロイ（テスト → Pages プレビューURL）
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+
+# 同一ブランチへの連続 push は古い実行をキャンセル（毎日多数デプロイする運用向け）
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ビルド時に埋め込む Worker URL（公開情報・シークレットではない）
+  VITE_SYNC_WORKER_URL: wss://inventory-sync.yuya-takaki.workers.dev
+  CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
+
+jobs:
+  # ── テスト（全 push 共通のゲート）────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+      - name: worker テスト
+        run: |
+          cd worker
+          npm ci
+          npm test
+      - name: app テスト
+        run: |
+          cd app
+          npm ci
+          npm test
+
+  # ── 本番デプロイ（main のみ）────────────────────────────────────
+  deploy-production:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+      - name: 依存インストール
+        run: |
+          cd worker && npm ci
+          cd ../app && npm ci
+      - name: D1 マイグレーション（未適用のみ）
+        run: ./scripts/migrate.sh
+      - name: Worker デプロイ
+        run: cd worker && npx wrangler deploy
+      - name: フロントビルド
+        run: cd app && npm run build
+      - name: Pages 本番デプロイ
+        run: cd app && npx wrangler pages deploy dist --project-name=inventory-app --branch=main
+
+  # ── プレビューデプロイ（claude/** ブランチ）─────────────────────
+  deploy-preview:
+    needs: test
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: 依存インストール
+        run: cd app && npm ci
+      - name: フロントビルド
+        run: cd app && npm run build
+      - name: Pages プレビューデプロイ
+        # main 以外の --branch はプレビュー扱い。<branch>.inventory-app.pages.dev が払い出される
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          cd app && npx wrangler pages deploy dist --project-name=inventory-app --branch="$BRANCH"

@@ -1,0 +1,17 @@
+{
+  "name": "inventory-sync-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^5.6.205"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8",
+    "wrangler": "^3.114.0"
+  }
+}
