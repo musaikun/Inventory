@@ -39,9 +39,14 @@ worker/src/
 - **ブランチ**: `claude/restaurant-inventory-system-0XNHA`
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
 - **構成**: フロント = Cloudflare Pages ／ バックエンド = Cloudflare Worker + D1（すべて Cloudflare に統一）
-- **デプロイ**: `./scripts/deploy.sh` を使う（テスト → 未適用マイグレーションのみ適用 → Worker → Pages の順を自動化。手動デプロイは migration 漏れ事故の元）
+- **デプロイ（自動・推奨）**: GitHub Actions（`.github/workflows/deploy.yml`）
+  - `main` へ merge → 本番デプロイ（テスト → D1 → Worker → Pages 本番）
+  - `claude/**` へ push → プレビューデプロイ（`<branch>.inventory-app.pages.dev`）
+  - セットアップと仕組み → `docs/ci-cd.md`
+- **デプロイ（手動・フォールバック）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
   - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ
   - `./scripts/deploy.sh frontend` … テスト + ビルド + Pages のみ
+  - マイグレーション適用ロジックは `scripts/migrate.sh`（CI と共用）
 - フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルビルド→`wrangler pages deploy` 方式（Pages 側のビルド設定・環境変数は不要）
 - Netlify → Pages の移行手順は `docs/migrate-to-pages.md`
 - **コメントは書かない**（WHYが非自明な場合のみ1行）
@@ -58,6 +63,7 @@ worker/src/
 
 ## 詳細ドキュメント
 
+- CI/CD パイプライン → `docs/ci-cd.md`
 - バックログ・優先度 → `docs/backlog.md`
 - 同期アーキテクチャ詳細 → `docs/sync-spec.md`
 - Phase 2 分析機能仕様 → `docs/phase2.md`
