@@ -61,23 +61,30 @@ export async function handleLogin(db, body) {
   if (!store.pin_hash)  return { _status: 401, error: 'このアカウントはPINが未設定です。新規登録してください。' }
 
   // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）
-  const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
-  const fails = await db.prepare(
-    'SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?'
-  ).bind(shopCode, since).first()
-  if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) {
-    return { _status: 429, error: 'ログイン試行が多すぎます。15分ほど待ってから再度お試しください' }
+  // フェイルオープン: login_attempts が読めなくてもログイン自体は止めない
+  try {
+    const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
+    const fails = await db.prepare(
+      'SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?'
+    ).bind(shopCode, since).first()
+    if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) {
+      return { _status: 429, error: 'ログイン試行が多すぎます。15分ほど待ってから再度お試しください' }
+    }
+  } catch (e) {
+    console.error('[auth] login_attempts check failed (fail-open):', e?.message ?? e)
   }
 
   const pinHash = await _hashPin(shopCode, pin)
   if (pinHash !== store.pin_hash) {
     await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
-      .bind(shopCode, _now()).run()
+      .bind(shopCode, _now()).run().catch(e =>
+        console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
     return { _status: 401, error: 'PINが正しくありません' }
   }
 
   // 成功: 失敗履歴をクリア
-  await db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run()
+  await db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run().catch(e =>
+    console.error('[auth] login_attempts clear failed (fail-open):', e?.message ?? e))
 
   const token   = _genToken()
   const now     = _now()

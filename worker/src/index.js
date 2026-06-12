@@ -211,8 +211,15 @@ export default {
         if (await isIpBlocked(env.DB, ip, 'probe')) {
           return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
-        const store = await env.DB.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
-        if (!store) {
+        // フェイルオープン: stores が読めない場合はゲートを素通しして DO に委ねる
+        let store = null, gateOk = true
+        try {
+          store = await env.DB.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
+        } catch (e) {
+          console.error('[Worker] room gate store lookup failed (fail-open):', e?.message ?? e)
+          gateOk = false
+        }
+        if (gateOk && !store) {
           await recordIpFail(env.DB, ip, 'probe')
           return jsonResponse({ error: 'ルームが見つかりません' }, 404, origin, allowedOrigin)
         }

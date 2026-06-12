@@ -5,7 +5,7 @@ vi.mock('./pdfParser.js', () => ({ parsePdfFile: async () => ({}) }))
 import worker from './index.js'
 
 // ── ルーティング検証用の統合 D1 モック ──────────────────────────────────────────
-function createMockD1() {
+function createMockD1({ failTables = [] } = {}) {
   const stores  = []
   const tokens  = []
   const configs = {}
@@ -13,6 +13,10 @@ function createMockD1() {
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
+
+    for (const t of failTables) {
+      if (s.includes(t)) throw new Error(`no such table: ${t}`)
+    }
 
     if (s.startsWith('SELECT') && s.includes('FROM auth_tokens')) {
       const t = tokens.find(t => t.token === args[0])
@@ -75,7 +79,7 @@ function createMockD1() {
     return stmt
   }
 
-  return { prepare, _stores: stores, _configs: configs, _ipRows: ipRows }
+  return { prepare, _stores: stores, _configs: configs, _ipRows: ipRows, _failTables: failTables }
 }
 
 function makeReq(method, path, { body, token, ip } = {}) {
@@ -243,5 +247,52 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
       body: { shopCode: reg.shopCode, pin: '1234' }, ip: '203.0.113.9',
     }), env)
     expect(res.status).toBe(429)
+  })
+})
+
+describe('フェイルオープン（レート制限テーブル未作成でも本体機能を殺さない）', () => {
+  function makeEnv(db) {
+    return {
+      DB: db,
+      ROOMS: {
+        idFromName: () => 'x',
+        get: () => ({ fetch: async () => new Response('{}', { status: 200 }) }),
+      },
+      ALLOWED_ORIGIN: '',
+    }
+  }
+
+  it('ip_attempts が無くてもルーム接続は通る（マイグレーション未適用事故の防御）', async () => {
+    const db  = createMockD1({ failTables: ['ip_attempts'] })
+    const env = makeEnv(db)
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('ip_attempts が無くても存在しないコードは 404（記録失敗は無視）', async () => {
+    const db  = createMockD1({ failTables: ['ip_attempts'] })
+    const env = makeEnv(db)
+    const res = await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status'), env)
+    expect(res.status).toBe(404)
+  })
+
+  it('stores 自体が読めない場合はルーム接続を素通しする（DO に委ねる）', async () => {
+    const db  = createMockD1({ failTables: ['ip_attempts', 'stores'] })
+    const env = makeEnv(db)
+    const res = await worker.fetch(makeReq('GET', '/room/ABCDEF/status'), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('login_attempts / ip_attempts が無くても正しい PIN でログインできる', async () => {
+    const db  = createMockD1()
+    const env = makeEnv(db)
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    db._failTables.push('login_attempts', 'ip_attempts')
+    const res = await worker.fetch(makeReq('POST', '/auth/login', {
+      body: { shopCode: reg.shopCode, pin: '1234' },
+    }), env)
+    expect(res.status).toBe(200)
+    expect((await res.json()).token).toBeTruthy()
   })
 })

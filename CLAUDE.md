@@ -38,8 +38,8 @@ worker/src/
 
 - **ブランチ**: `claude/restaurant-inventory-system-0XNHA`
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **フロントデプロイ**: `cd app && npm run build && npx wrangler pages deploy dist`（Vueアプリ本体・Cloudflare Pages）
-- **Worker デプロイ**: `cd worker && npx wrangler deploy`（同期API・DO。`build` は dry-run なので不可）
+- **デプロイ**: `./scripts/deploy.sh` を使う（テスト → 未適用マイグレーションのみ適用 → Worker → Pages の順を自動化。手動デプロイは migration 漏れ事故の元）
+- 個別に行う場合 — フロント: `cd app && npm run build && npx wrangler pages deploy dist` ／ Worker: `cd worker && npx wrangler deploy`（`build` は dry-run なので不可）。**Worker デプロイ前に必ずマイグレーション適用**
 - **コメントは書かない**（WHYが非自明な場合のみ1行）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一

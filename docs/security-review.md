@@ -69,23 +69,17 @@
 
 ---
 
-## デプロイチェックリスト（S-01〜S-06 反映時）
+## デプロイチェックリスト
 
 ```bash
-# 1. マイグレーション（必ずWorkerデプロイより先・worker/ で実行）
-npx wrangler d1 execute inventory-store --remote \
-  --file=./migrations/0003_login_attempts.sql
-npx wrangler d1 execute inventory-store --remote \
-  --file=./migrations/0004_v2_schema.sql
-npx wrangler d1 execute inventory-store --remote \
-  --file=./migrations/0005_ip_attempts.sql
-
-# 2. Workerデプロイ
-cd worker && npx wrangler deploy
-
-# 3. フロントエンドデプロイ
-cd app && npm run build && npx wrangler pages deploy dist
+./scripts/deploy.sh
 ```
+
+スクリプトが「テスト → 未適用マイグレーションのみ適用 → Worker → Pages」の順序を保証する。
+手動デプロイは migration 漏れで /room 全ルートが落ちる事故（2026-06-12 発生）の再発リスクがあるため非推奨。
+
+なお、レート制限（login_attempts / ip_attempts）は**フェイルオープン**実装:
+テーブル未作成・D1障害時は制限を素通しし、ログイン・ルーム接続自体は止めない。
 
 > **注意（S-06）**: ルーム接続は店舗コードの存在チェックを通るようになった。
 > stores テーブルに無いコードのルームは接続不可（ルームID = 店舗コードの統一設計が前提）。
