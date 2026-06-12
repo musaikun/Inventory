@@ -38,8 +38,11 @@ worker/src/
 
 - **ブランチ**: `claude/restaurant-inventory-system-0XNHA`
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **デプロイ**: `./scripts/deploy.sh` を使う（テスト → 未適用マイグレーションのみ適用 → Worker → Pages の順を自動化。手動デプロイは migration 漏れ事故の元）
-- 個別に行う場合 — フロント: `cd app && npm run build && npx wrangler pages deploy dist` ／ Worker: `cd worker && npx wrangler deploy`（`build` は dry-run なので不可）。**Worker デプロイ前に必ずマイグレーション適用**
+- **構成**: フロント = Netlify（`dist` を手動アップロード）／ バックエンド = Cloudflare Worker + D1
+- **デプロイ**: `./scripts/deploy.sh` を使う（テスト → 未適用マイグレーションのみ適用 → Worker → フロントビルドの順を自動化。手動デプロイは migration 漏れ事故の元）
+  - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ
+  - `./scripts/deploy.sh frontend` … テスト + フロントビルドのみ（後は `app/dist` を Netlify にドロップ）
+- フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルでビルドした `dist` をそのまま Netlify に上げる（Netlify 側のビルド設定は不要）
 - **コメントは書かない**（WHYが非自明な場合のみ1行）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一
