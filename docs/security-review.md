@@ -54,13 +54,13 @@
 
 ### S-07 🟡 XSS対策（トークン漏洩リスク）
 - **リスク**: `_auth_token` が `localStorage` に平文保存。XSSが起きると盗まれる
-- **対策案**: Content Security Policy（CSP）ヘッダーを Netlify に設定（`netlify.toml` の `[[headers]]` か `_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ
+- **対策案**: Content Security Policy（CSP）ヘッダーを Cloudflare Pages に設定（`app/public/_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ
 - **備考**: このアプリは外部スクリプトを読み込んでいないため、CSPの設定コストは低い
 
 ### S-08 🟢 CORS フェイルセーフ
 - **リスク**: `env.ALLOWED_ORIGIN` が未設定の場合、全オリジンからのアクセスを許可してしまう
 - **対策案**: 未設定時は `''`（許可なし）をデフォルトにし、明示設定を必須化
-- **備考**: Netlify のオリジンが固定なので、設定漏れは起きにくい。優先度は低
+- **備考**: Cloudflare Pages のオリジンが固定なので、設定漏れは起きにくい。優先度は低
 
 ### S-09 🟢 セッション完了処理のトランザクション化
 - **リスク**: `sessions更新` → `inventory_lines INSERT` → `R2保存` の途中失敗で不整合が残る
@@ -75,7 +75,7 @@
 ./scripts/deploy.sh
 ```
 
-スクリプトが「テスト → 未適用マイグレーションのみ適用 → Worker → フロントビルド」の順序を保証する（フロントは Netlify へ手動アップロード）。
+スクリプトが「テスト → 未適用マイグレーションのみ適用 → Worker → Pages」の順序を保証する（すべて Cloudflare）。
 手動デプロイは migration 漏れで /room 全ルートが落ちる事故（2026-06-12 発生）の再発リスクがあるため非推奨。
 
 なお、レート制限（login_attempts / ip_attempts）は**フェイルオープン**実装:

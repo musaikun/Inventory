@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# 一括デプロイ
-#   フロント = Netlify（dist を手動アップロード）
-#   バックエンド = Cloudflare Worker + D1（wrangler）
+# 一括デプロイ（すべて Cloudflare）
+#   フロント = Cloudflare Pages（wrangler pages deploy）
+#   バックエンド = Cloudflare Worker + D1（wrangler deploy）
 #
 # 使い方:
-#   ./scripts/deploy.sh            # 全部（テスト → D1 → Worker → フロントビルド）
+#   ./scripts/deploy.sh            # 全部（テスト → D1 → Worker → フロント）
 #   ./scripts/deploy.sh backend    # バックエンドのみ（D1 マイグレーション + Worker）
-#   ./scripts/deploy.sh frontend   # フロントのみ（テスト + ビルド）
+#   ./scripts/deploy.sh frontend   # フロントのみ（テスト + ビルド + Pages）
+#
+# 前提: wrangler ログイン済み（npx wrangler login）。
+#       初回のみ Pages プロジェクト作成が必要:
+#         npx wrangler pages project create inventory-app --production-branch=main
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 DB_NAME="inventory-store"
+PAGES_PROJECT="inventory-app"
 TARGET="${1:-all}"
 
 run_tests() {
@@ -47,28 +52,21 @@ deploy_backend() {
   cd "$ROOT"
 }
 
-build_frontend() {
+deploy_frontend() {
   echo "════ フロントエンド ビルド ════"
   cd "$ROOT/app"
   npm run build
-  cd "$ROOT"
 
-  echo ""
-  echo "════ Netlify へ手動アップロード ════"
-  echo "  下記フォルダを Netlify にドラッグ&ドロップしてください:"
-  echo ""
-  echo "    $ROOT/app/dist"
-  echo ""
-  echo "  ・新規/更新ドロップ: https://app.netlify.com/drop"
-  echo "  ・既存サイト更新   : 対象サイトの Deploys タブに dist をドロップ"
-  echo ""
+  echo "════ Cloudflare Pages デプロイ ════"
+  npx wrangler pages deploy dist --project-name="$PAGES_PROJECT"
+  cd "$ROOT"
 }
 
 case "$TARGET" in
   all)
     run_tests
     deploy_backend
-    build_frontend
+    deploy_frontend
     ;;
   backend)
     run_tests
@@ -76,7 +74,7 @@ case "$TARGET" in
     ;;
   frontend)
     run_tests
-    build_frontend
+    deploy_frontend
     ;;
   *)
     echo "usage: ./scripts/deploy.sh [all|backend|frontend]" >&2
