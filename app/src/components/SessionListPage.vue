@@ -248,7 +248,6 @@ function _itemCount(session) {
       </button>
       <button :class="['tab-btn', { active: activeTab === 'dashboard' }]" @click="activeTab = 'dashboard'">
         ダッシュボード
-        <span v-if="completedSessions.length > 0" class="tab-badge tab-badge-gray">{{ completedSessions.length }}</span>
       </button>
     </div>
 
