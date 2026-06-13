@@ -16,7 +16,7 @@ const dragOffset   = ref(0)
 
 const catGroups = computed(() => {
   const map = new Map()
-  for (const it of props.snapshot.items) {
+  for (const it of (props.snapshot.items ?? [])) {
     const cat = it.category ?? 'その他'
     if (!map.has(cat)) map.set(cat, [])
     map.get(cat).push(it)
@@ -73,8 +73,8 @@ const trackStyle = computed(() => {
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
-const filledCount = computed(() => props.snapshot.items.filter(it => it.qty !== null).length)
-const totalCount  = computed(() => props.snapshot.items.length)
+const filledCount = computed(() => (props.snapshot.items ?? []).filter(it => it.qty !== null).length)
+const totalCount  = computed(() => (props.snapshot.items ?? []).length)
 
 function catFilledCount(items) { return items.filter(it => it.qty !== null).length }
 function catTotalValue(items)  { return items.reduce((s, it) => s + (it.subtotal ?? 0), 0) }
