@@ -360,6 +360,7 @@ function onDownload() {
 
 .tab-panel {
   width: 50%;
+  height: 100%;
   overflow-y: auto;
   padding: 12px 12px 24px;
   display: flex;

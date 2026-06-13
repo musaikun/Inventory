@@ -553,6 +553,7 @@ function _itemCount(session) {
 
 .tab-panel {
   width: 50%;
+  height: 100%;
   overflow-y: auto;
   padding: 16px;
   display: flex;
