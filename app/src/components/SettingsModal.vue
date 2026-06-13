@@ -4,6 +4,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { shopCode, clearShopCode } from '../composables/useStore.js'
+import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 
 const props = defineProps({ isGuest: Boolean })
@@ -87,6 +88,16 @@ function downloadCSV() {
   URL.revokeObjectURL(url)
 }
 
+// ── Excelテンプレート ダウンロード ─────────────────────────────────────────────
+function onDownloadTemplate() {
+  try {
+    downloadItemTemplate()
+    status.value = { type: 'success', msg: 'テンプレートをダウンロードしました' }
+  } catch (err) {
+    status.value = { type: 'error', msg: err.message }
+  }
+}
+
 // ── 品目リスト リセット ────────────────────────────────────────────────────────
 function onReset() {
   if (!confirm('デフォルトの品目リストに戻しますか？\nアップロードした設定は削除されます。')) return
@@ -153,11 +164,16 @@ function onLogout() {
         </div>
       </template>
 
+      <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
+      <button v-if="!props.isGuest" class="btn btn-secondary template-btn" @click="onDownloadTemplate">
+        📥 Excelテンプレートをダウンロード
+      </button>
+
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
-        <summary>CSVフォーマットを確認（自作する場合）</summary>
+        <summary>フォーマットを確認（自作する場合）</summary>
         <div class="format-body">
-          <p class="format-intro">PDF / Excel から変換する場合はこの項目は不要です。<br>CSVを自作する場合、1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
+          <p class="format-intro">上の「Excelテンプレート」を使うと、記入してそのまま .xlsx でアップロードできます。<br>1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
 
           <div class="col-table">
             <div class="col-row col-head">
@@ -295,6 +311,10 @@ function onLogout() {
 .msg.success { background: #f0fdf4; color: var(--success); }
 .msg.error   { background: #fef2f2; color: var(--danger); }
 
+.template-btn {
+  width: 100%;
+  margin-bottom: 10px;
+}
 .format-help {
   margin-bottom: 16px;
   font-size: 13px;
