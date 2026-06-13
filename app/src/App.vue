@@ -45,7 +45,7 @@ import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias } = useConfig()
+const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -314,17 +314,18 @@ setMessageCallback((msgObj) => {
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
-  showToast('ルームが閉鎖されました', 4000, 'error')
   const selfDissolved = _hostInitiatedDissolve
   _hostInitiatedDissolve = false
   if (!selfDissolved) {
+    showToast('セッションが破棄されました', 4000, 'error')
     setTimeout(() => {
       clearSession()
       reset()
-      resetToDefault()
       clearAuditLog()
       currentView.value = 'landing'
     }, 3500)
+  } else {
+    showToast('ルームが閉鎖されました', 2500)
   }
 })
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
