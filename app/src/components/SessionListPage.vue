@@ -68,6 +68,7 @@ async function _loadSessions() {
   error.value   = ''
   try {
     sessions.value = await getSessions()
+    _initYearAccordion()
   } catch (e) {
     if (e.message.includes('401') || e.message.toLowerCase().includes('unauthorized')) {
       await logout()
@@ -81,12 +82,48 @@ async function _loadSessions() {
 }
 
 const inProgressSessions = computed(() =>
-  sessions.value.filter(s => s.status !== 'completed')
+  sessions.value
+    .filter(s => s.status !== 'completed')
+    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))
 )
+
+// 1店舗 = 同時に1棚卸。最新の進行中をヒーローに、残りはレガシー整理用に下へ
+const activeSession = computed(() => inProgressSessions.value[0] || null)
+const otherActiveSessions = computed(() => inProgressSessions.value.slice(1))
 
 const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed')
 )
+
+// 完了済みを年ごとにグループ化（新しい年が上）
+const completedByYear = computed(() => {
+  const map = new Map()
+  for (const s of completedSessions.value) {
+    const year = new Date(s.startedAt).getFullYear()
+    if (!map.has(year)) map.set(year, [])
+    map.get(year).push(s)
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([year, items]) => ({
+      year,
+      items: items.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt)),
+    }))
+})
+
+const expandedYears = ref([])
+
+function _initYearAccordion() {
+  if (expandedYears.value.length) return
+  const groups = completedByYear.value
+  if (groups.length) expandedYears.value = [groups[0].year]
+}
+
+function toggleYear(year) {
+  const idx = expandedYears.value.indexOf(year)
+  if (idx >= 0) expandedYears.value.splice(idx, 1)
+  else          expandedYears.value.push(year)
+}
 
 async function onStartNew() {
   if (!confirm('新しい棚卸セッションを開始しますか？')) return
@@ -191,20 +228,40 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <button class="btn-new-session" :disabled="starting" @click="onStartNew">
-            <span class="btn-new-icon">＋</span>
-            {{ starting ? '開始中...' : '新しい棚卸を開始' }}
+          <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
+          <div v-if="activeSession" class="hero-live">
+            <div class="hero-live-head">
+              <span class="live-dot"></span>
+              <span class="live-label">LIVE</span>
+              <span class="hero-live-title">進行中の棚卸</span>
+              <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
+            </div>
+            <div class="hero-live-meta">
+              <span class="hero-live-count">{{ _itemCount(activeSession) }}品目入力済み</span>
+              <span class="hero-live-date">開始: {{ _formatDate(activeSession.startedAt) }}</span>
+            </div>
+            <button class="hero-live-resume" @click="onResume(activeSession)">再開する →</button>
+          </div>
+
+          <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
+            <div class="hero-start-icon">🎙</div>
+            <div class="hero-start-text">
+              <div class="hero-start-title">{{ starting ? '開始中...' : '棚卸を開始' }}</div>
+              <div class="hero-start-sub">音声でサクサク記録</div>
+            </div>
+            <div class="hero-start-arrow">→</div>
           </button>
 
-          <template v-if="inProgressSessions.length > 0">
-            <div class="section-title">🔄 進行中</div>
+          <!-- レガシー: 古い未完了セッション（整理用） -->
+          <template v-if="otherActiveSessions.length > 0">
+            <div class="section-title">その他の未完了（古い）</div>
             <div
-              v-for="s in inProgressSessions"
+              v-for="s in otherActiveSessions"
               :key="s.id"
-              class="session-card active"
+              class="session-card"
             >
               <div class="session-main">
-                <span class="session-status" :class="_statusClass(s.status)">{{ _statusLabel(s.status) }}</span>
+                <span class="session-status status-active">進行中</span>
                 <span class="session-date">開始: {{ _formatDate(s.startedAt) }}</span>
                 <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
               </div>
@@ -215,8 +272,8 @@ function _itemCount(session) {
             </div>
           </template>
 
-          <div v-if="inProgressSessions.length === 0" class="no-sessions">
-            進行中のセッションはありません。<br>上のボタンで棚卸を開始しましょう。
+          <div v-if="!activeSession" class="hero-hint">
+            上のカードから棚卸を始めましょう。<br>複数端末で同時に記録できます。
           </div>
         </div>
 
@@ -225,21 +282,30 @@ function _itemCount(session) {
 
           <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
           <template v-if="completedSessions.length > 0">
-            <div
-              v-for="s in completedSessions"
-              :key="s.id"
-              class="session-card session-card-completed"
-              @click="emit('viewSession', s)"
-            >
-              <div class="session-main">
-                <span class="session-status status-done">完了</span>
-                <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
-              </div>
-              <div class="session-sub">
-                <span class="session-count">{{ _itemCount(s) }}品目</span>
-                <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
-                <span class="session-detail-arrow">詳細 ›</span>
+            <div v-for="grp in completedByYear" :key="grp.year" class="year-group">
+              <button class="year-header" @click="toggleYear(grp.year)">
+                <span class="year-arrow">{{ expandedYears.includes(grp.year) ? '▼' : '▶' }}</span>
+                <span class="year-name">{{ grp.year }}年</span>
+                <span class="year-count">{{ grp.items.length }}件</span>
+              </button>
+              <div v-if="expandedYears.includes(grp.year)" class="year-body">
+                <div
+                  v-for="s in grp.items"
+                  :key="s.id"
+                  class="session-card session-card-completed"
+                  @click="emit('viewSession', s)"
+                >
+                  <div class="session-main">
+                    <span class="session-status status-done">完了</span>
+                    <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+                    <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+                  </div>
+                  <div class="session-sub">
+                    <span class="session-count">{{ _itemCount(s) }}品目</span>
+                    <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
+                    <span class="session-detail-arrow">詳細 ›</span>
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -424,34 +490,221 @@ function _itemCount(session) {
   margin-bottom: 4px;
 }
 
-/* 新規開始ボタン */
-.btn-new-session {
+/* ヒーロー: 開始カード */
+.hero-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 20px 18px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 18px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.32);
+  margin-bottom: 4px;
+  text-align: left;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.hero-start:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(37,99,235,0.28);
+}
+.hero-start:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.hero-start-icon {
+  font-size: 30px;
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+
+.hero-start-text { flex: 1; min-width: 0; }
+
+.hero-start-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.hero-start-sub {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+.hero-start-arrow {
+  font-size: 22px;
+  font-weight: 300;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+/* ヒーロー: LIVE 再開カード */
+.hero-live {
   width: 100%;
-  padding: 16px;
+  padding: 16px 18px;
+  background: white;
+  border: 2px solid #3b82f6;
+  border-radius: 18px;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.16);
+  margin-bottom: 4px;
+}
+
+.hero-live-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(239,68,68,0.55);
+  animation: live-pulse 1.8s infinite;
+}
+
+@keyframes live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+.live-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #ef4444;
+  letter-spacing: 0.08em;
+}
+
+.hero-live-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+
+.hero-live-discard {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 4px 6px;
+  transition: color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.hero-live-discard:active { color: #ef4444; }
+.hero-live-discard:disabled { opacity: 0.4; }
+
+.hero-live-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.hero-live-count {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+
+.hero-live-date {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+
+.hero-live-resume {
+  width: 100%;
+  padding: 13px;
   background: var(--primary, #3b82f6);
   color: white;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(59,130,246,0.3);
-  margin-bottom: 4px;
-  min-height: 56px;
   transition: transform 0.12s ease, opacity 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.btn-new-session:active { transform: scale(0.97); opacity: 0.88; }
-.btn-new-session:disabled { opacity: 0.6; cursor: not-allowed; }
+.hero-live-resume:active { transform: scale(0.97); opacity: 0.9; }
 
-.btn-new-icon {
-  font-size: 20px;
-  font-weight: 300;
-  line-height: 1;
+.hero-hint {
+  text-align: center;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 24px 16px;
+}
+
+/* 年グループ（完了済みアコーディオン） */
+.year-group {
+  background: white;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  margin-bottom: 4px;
+}
+
+.year-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: white;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.year-header:active { background: #f0f9ff; }
+
+.year-arrow {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.year-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  flex: 1;
+}
+
+.year-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  background: #f1f5f9;
+  padding: 2px 9px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.year-body {
+  border-top: 1px solid #f1f5f9;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f8fafc;
 }
 
 /* セッションカード */
