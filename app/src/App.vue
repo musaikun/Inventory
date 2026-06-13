@@ -1192,6 +1192,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @view-session="onViewSession"
       @delete-session="_clearDraft"
       @back="currentView = 'landing'"
+      @open-settings="showSettings = true"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->
