@@ -1,8 +1,15 @@
+<script>
+import { ref } from 'vue'
+// 画面遷移をまたいで保持するタブ状態（モジュールスコープ＝一度だけ生成）
+const _persistedTab = ref('sessions')
+</script>
+
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const props = defineProps({
   liveItemCount: { type: Number, default: null },
@@ -15,7 +22,14 @@ const loading    = ref(true)
 const error      = ref('')
 const starting   = ref(false)
 const deletingId = ref(null)
-const activeTab  = ref('sessions')
+
+// タブ状態は画面遷移をまたいで保持する（ダッシュボードのコンテンツから戻ってもタブを維持）
+const activeTab  = _persistedTab
+
+const swipe = useHorizontalSwipe({
+  onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
+  onRight: () => { if (activeTab.value === 'dashboard') activeTab.value = 'sessions' },
+})
 
 const liveRoom = ref(null)
 let _statusTimer = null
@@ -150,7 +164,7 @@ function _itemCount(session) {
       </button>
     </div>
 
-    <div class="sessions-body">
+    <div class="sessions-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
 
       <!-- エラー -->
       <div v-if="error" class="msg-error">{{ error }}</div>
@@ -368,6 +382,7 @@ function _itemCount(session) {
   flex-direction: column;
   gap: 8px;
   flex: 1;
+  touch-action: pan-y;
 }
 
 .section-title {

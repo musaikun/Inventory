@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
@@ -54,6 +55,11 @@ const sortedLog = computed(() => {
 })
 
 const hasAuditLog = computed(() => sortedLog.value.length > 0)
+
+const swipe = useHorizontalSwipe({
+  onLeft:  () => { if (activeTab.value === 'items' && hasAuditLog.value) activeTab.value = 'history' },
+  onRight: () => { if (activeTab.value === 'history') activeTab.value = 'items' },
+})
 
 // 集計
 const filledCount = computed(() => props.snapshot.items.filter(it => it.qty !== null).length)
@@ -132,7 +138,7 @@ function onDownload() {
     </div>
 
     <!-- ── 品目一覧タブ ── -->
-    <div v-if="activeTab === 'items'" class="tab-body">
+    <div v-if="activeTab === 'items'" class="tab-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
       <div v-for="group in catGroups" :key="group.cat" class="cat-group">
 
         <!-- カテゴリヘッダー -->
@@ -177,7 +183,7 @@ function onDownload() {
     </div>
 
     <!-- ── 変更履歴タブ ── -->
-    <div v-else-if="activeTab === 'history'" class="tab-body">
+    <div v-else-if="activeTab === 'history'" class="tab-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
       <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
 
       <div v-for="entry in sortedLog" :key="entry.id" class="log-entry">
@@ -317,6 +323,7 @@ function onDownload() {
   flex: 1;
   overflow-y: auto;
   padding: 12px 12px 24px;
+  touch-action: pan-y;
   display: flex;
   flex-direction: column;
   gap: 8px;
