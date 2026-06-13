@@ -44,13 +44,44 @@ const trackStyle = computed(() => {
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
-const liveRoom = ref(null)
+const liveRoom = ref(null)   // /status の生レスポンス
+const now      = ref(Date.now())
 let _statusTimer = null
 
 async function _pollRoomStatus() {
-  if (!shopCode.value) return
-  const status = await fetchRoomStatus(shopCode.value)
-  liveRoom.value = status?.isActive ? status : null
+  now.value = Date.now()
+  if (!shopCode.value) { liveRoom.value = null; return }
+  liveRoom.value = await fetchRoomStatus(shopCode.value)
+}
+
+// アクティブセッションに対応するライブルーム状態（別セッションのルームは無視）
+const liveStatus = computed(() => {
+  const r = liveRoom.value
+  if (!r || !activeSession.value) return null
+  if (r.sessionId && r.sessionId !== activeSession.value.id) return null
+  return r
+})
+
+const isRoomConnected = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
+
+const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
+const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? null)
+const liveProgressPct = computed(() => {
+  const total = liveTotalItems.value
+  if (!total) return null
+  return Math.min(100, Math.round((liveItemCount.value / total) * 100))
+})
+
+function _formatElapsed(iso) {
+  if (!iso) return ''
+  const ms = now.value - new Date(iso).getTime()
+  if (ms < 0) return ''
+  const min = Math.floor(ms / 60000)
+  if (min < 1)  return 'まもなく'
+  if (min < 60) return `${min}分`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m > 0 ? `${h}時間${m}分` : `${h}時間`
 }
 
 onMounted(async () => {
@@ -182,7 +213,7 @@ function _statusClass(status) {
 
 function _itemCount(session) {
   if (session.id === props.liveSessionId && props.liveItemCount > 0) return props.liveItemCount
-  if (liveRoom.value && session.id === liveRoom.value.sessionId && liveRoom.value.itemCount > 0) {
+  if (liveRoom.value?.isActive && session.id === liveRoom.value.sessionId && liveRoom.value.itemCount > 0) {
     return liveRoom.value.itemCount
   }
   return session.itemCount
@@ -229,17 +260,62 @@ function _itemCount(session) {
           <div v-if="error" class="msg-error">{{ error }}</div>
 
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
-          <div v-if="activeSession" class="hero-live">
+          <div v-if="activeSession" class="hero-live" :class="{ offline: !isRoomConnected }">
             <div class="hero-live-head">
-              <span class="live-dot"></span>
-              <span class="live-label">LIVE</span>
+              <span class="live-dot" :class="{ offline: !isRoomConnected }"></span>
+              <span class="live-label" :class="{ offline: !isRoomConnected }">{{ isRoomConnected ? 'LIVE' : 'OFFLINE' }}</span>
               <span class="hero-live-title">進行中の棚卸</span>
               <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
             </div>
-            <div class="hero-live-meta">
-              <span class="hero-live-count">{{ _itemCount(activeSession) }}品目入力済み</span>
-              <span class="hero-live-date">開始: {{ _formatDate(activeSession.startedAt) }}</span>
+
+            <!-- 開始時刻・経過 -->
+            <div class="hl-row hl-times">
+              <span class="hl-label">開始</span>
+              <span class="hl-value">{{ _formatDate(activeSession.startedAt) }}</span>
+              <span class="hl-elapsed">経過 {{ _formatElapsed(activeSession.startedAt) }}</span>
             </div>
+
+            <!-- ルーム状態 -->
+            <div class="hl-row hl-room">
+              <template v-if="isRoomConnected">
+                <span class="room-badge online">🟢 ルーム接続中</span>
+                <span class="room-people">{{ liveStatus.clientCount }}人が参加中</span>
+              </template>
+              <template v-else-if="liveStatus && liveStatus.roomExists">
+                <span class="room-badge idle">🟡 ルーム保持中</span>
+                <span class="room-people">接続中の端末はありません</span>
+              </template>
+              <template v-else>
+                <span class="room-badge off">⚪ ルーム未接続</span>
+                <span class="room-people">オフライン（端末内に保存済み）</span>
+              </template>
+            </div>
+
+            <!-- 参加者 -->
+            <div v-if="liveStatus && liveStatus.participants.length" class="hl-people">
+              <span
+                v-for="(p, i) in liveStatus.participants"
+                :key="i"
+                class="person-chip"
+                :class="{ host: p.isHost, done: p.isDone }"
+              >
+                <span v-if="p.isHost" class="person-crown">👑</span>{{ p.name }}<span v-if="p.isDone" class="person-check">✓</span>
+              </span>
+            </div>
+
+            <!-- 品目進捗 -->
+            <div class="hl-progress">
+              <div class="hl-prog-text">
+                <span class="hl-prog-count">{{ liveItemCount }}</span><span
+                  v-if="liveTotalItems" class="hl-prog-total"> / {{ liveTotalItems }} 品目</span><span
+                  v-else class="hl-prog-total"> 品目入力済み</span>
+                <span v-if="liveProgressPct != null" class="hl-prog-pct">{{ liveProgressPct }}%</span>
+              </div>
+              <div v-if="liveProgressPct != null" class="hl-prog-bar">
+                <div class="hl-prog-fill" :style="{ width: liveProgressPct + '%' }"></div>
+              </div>
+            </div>
+
             <button class="hero-live-resume" @click="onResume(activeSession)">再開する →</button>
           </div>
 
@@ -556,13 +632,18 @@ function _itemCount(session) {
   border-radius: 18px;
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
   margin-bottom: 4px;
+  transition: border-color 0.3s;
+}
+.hero-live.offline {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
 }
 
 .hero-live-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .live-dot {
@@ -573,6 +654,10 @@ function _itemCount(session) {
   flex-shrink: 0;
   box-shadow: 0 0 0 0 rgba(239,68,68,0.55);
   animation: live-pulse 1.8s infinite;
+}
+.live-dot.offline {
+  background: #cbd5e1;
+  animation: none;
 }
 
 @keyframes live-pulse {
@@ -587,6 +672,7 @@ function _itemCount(session) {
   color: #ef4444;
   letter-spacing: 0.08em;
 }
+.live-label.offline { color: #94a3b8; }
 
 .hero-live-title {
   font-size: 15px;
@@ -608,22 +694,125 @@ function _itemCount(session) {
 .hero-live-discard:active { color: #ef4444; }
 .hero-live-discard:disabled { opacity: 0.4; }
 
-.hero-live-meta {
+/* 情報行 */
+.hl-row {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 14px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
 }
 
-.hero-live-count {
-  font-size: 20px;
+.hl-label {
+  font-size: 11px;
   font-weight: 700;
+  color: var(--text-muted, #94a3b8);
+  background: #f1f5f9;
+  padding: 1px 7px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.hl-value {
+  font-weight: 600;
   color: var(--text-primary, #1e293b);
 }
 
-.hero-live-date {
-  font-size: 12px;
+.hl-elapsed {
+  margin-left: auto;
   color: var(--text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.room-badge {
+  font-size: 12px;
+  font-weight: 700;
+}
+.room-badge.online { color: #15803d; }
+.room-badge.idle   { color: #b45309; }
+.room-badge.off    { color: #94a3b8; }
+
+.room-people {
+  margin-left: auto;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+}
+
+/* 参加者チップ */
+.hl-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.person-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 3px 9px;
+  border-radius: 14px;
+}
+.person-chip.host {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+.person-chip.done {
+  color: #15803d;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.person-crown { font-size: 11px; }
+.person-check { font-size: 11px; font-weight: 800; }
+
+/* 品目進捗 */
+.hl-progress { margin-bottom: 14px; }
+
+.hl-prog-text {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.hl-prog-count {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary, #1e293b);
+  line-height: 1;
+}
+
+.hl-prog-total {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  margin-left: 2px;
+}
+
+.hl-prog-pct {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary, #3b82f6);
+}
+
+.hl-prog-bar {
+  height: 7px;
+  background: #eef2f7;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.hl-prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  border-radius: 4px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .hero-live-resume {

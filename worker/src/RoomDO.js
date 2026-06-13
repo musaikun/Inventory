@@ -55,15 +55,26 @@ export class RoomDO {
   }
 
   async _handleHttpStatus() {
-    const [inventory, isActive, sessionId] = await Promise.all([
+    const [inventory, isActive, sessionId, config, hostToken] = await Promise.all([
       this.state.storage.get('inventory').then(v => v ?? {}),
       this.state.storage.get('isActive').then(v => v ?? false),
       this.state.storage.get('sessionId').then(v => v ?? ''),
+      this.state.storage.get('config').then(v => v ?? null),
+      this.state.storage.get('hostToken').then(v => v ?? null),
     ])
+    const participants = this._getParticipants().map(p => ({
+      name:   p.deviceName ?? '名前未設定',
+      isHost: !!p.isHost,
+      isDone: !!p.isDone,
+    }))
     return new Response(JSON.stringify({
       sessionId,
       isActive,
-      itemCount: Object.keys(inventory).length,
+      itemCount:   Object.keys(inventory).length,
+      totalItems:  Array.isArray(config?.order) ? config.order.length : null,
+      participants,
+      clientCount: participants.length,
+      roomExists:  !!hostToken || isActive || participants.length > 0,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 
