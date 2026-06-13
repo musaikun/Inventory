@@ -55,11 +55,18 @@ async function _pollRoomStatus() {
 }
 
 // アクティブセッションに対応するライブルーム状態（別セッションのルームは無視）
+// 旧 Worker（participants 未対応）でも壊れないよう正規化する
 const liveStatus = computed(() => {
   const r = liveRoom.value
   if (!r || !activeSession.value) return null
   if (r.sessionId && r.sessionId !== activeSession.value.id) return null
-  return r
+  return {
+    ...r,
+    participants: Array.isArray(r.participants) ? r.participants : [],
+    clientCount:  typeof r.clientCount === 'number' ? r.clientCount : 0,
+    roomExists:   r.roomExists ?? r.isActive ?? false,
+    totalItems:   typeof r.totalItems === 'number' ? r.totalItems : null,
+  }
 })
 
 const isRoomConnected = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
@@ -292,7 +299,7 @@ function _itemCount(session) {
             </div>
 
             <!-- 参加者 -->
-            <div v-if="liveStatus && liveStatus.participants.length" class="hl-people">
+            <div v-if="liveStatus?.participants?.length" class="hl-people">
               <span
                 v-for="(p, i) in liveStatus.participants"
                 :key="i"
