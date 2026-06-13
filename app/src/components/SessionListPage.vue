@@ -9,6 +9,7 @@ import { getSessions, createSession, updateSession, deleteSession, isAuthenticat
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { useConfig } from '../composables/useConfig.js'
 
 const props = defineProps({
   liveItemCount: { type: Number, default: null },
@@ -16,12 +17,22 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings'])
 
-const sessions   = ref([])
-const loading    = ref(true)
-const error      = ref('')
-const starting   = ref(false)
-const deletingId = ref(null)
-const dragOffset = ref(0)
+const { config, itemCount } = useConfig()
+
+const sessions       = ref([])
+const loading        = ref(true)
+const error          = ref('')
+const starting       = ref(false)
+const deletingId     = ref(null)
+const dragOffset     = ref(0)
+const showStartModal = ref(false)
+
+const listSavedLabel = computed(() => {
+  if (!config.savedAt) return ''
+  const d = new Date(config.savedAt)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' })
+})
 
 const activeTab = _persistedTab
 
@@ -163,8 +174,12 @@ function toggleYear(year) {
   else          expandedYears.value.push(year)
 }
 
-async function onStartNew() {
-  if (!confirm('新しい棚卸セッションを開始しますか？')) return
+function onStartNew() {
+  showStartModal.value = true
+}
+
+async function confirmStart() {
+  showStartModal.value = false
   starting.value = true
   try {
     const session = await createSession()
@@ -174,6 +189,11 @@ async function onStartNew() {
   } finally {
     starting.value = false
   }
+}
+
+function onImportList() {
+  showStartModal.value = false
+  emit('openSettings')
 }
 
 function onResume(session) {
@@ -425,6 +445,43 @@ function _itemCount(session) {
 
         </div>
 
+      </div>
+    </div>
+
+    <!-- 開始バナー: 使用する品目リストを確認 -->
+    <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
+      <div class="start-sheet">
+        <div class="start-handle"></div>
+
+        <!-- カスタムリスト: そのまま使う / 更新 -->
+        <template v-if="config.isCustom">
+          <div class="start-icon ok">✓</div>
+          <div class="start-title">この品目リストで開始します</div>
+          <div class="start-listbox">
+            <span class="start-count">{{ itemCount }}件</span>
+            <span v-if="listSavedLabel" class="start-date">最終更新：{{ listSavedLabel }}</span>
+          </div>
+          <button class="start-btn primary" :disabled="starting" @click="confirmStart">このまま開始</button>
+          <button class="start-btn ghost" @click="onImportList">最新リストに更新</button>
+        </template>
+
+        <!-- デフォルト（テスト）リスト: インポートを促す -->
+        <template v-else>
+          <div class="start-icon warn">⚠️</div>
+          <div class="start-title">テスト用の品目リストです</div>
+          <div class="start-desc">
+            これはお試し用の仮データ（品目名に【テスト】付き）です。<br>
+            実際の棚卸では、お店の品目リストをインポートしてください。
+          </div>
+          <div class="start-listbox warn">
+            <span class="start-count">{{ itemCount }}件</span>
+            <span class="start-date">テスト用</span>
+          </div>
+          <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
+          <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままテスト用で開始</button>
+        </template>
+
+        <button class="start-cancel" @click="showStartModal = false">キャンセル</button>
       </div>
     </div>
 
@@ -1070,5 +1127,128 @@ function _itemCount(session) {
   color: var(--text-muted, #64748b);
   padding: 32px;
   font-size: 13px;
+}
+
+/* 開始バナー */
+.start-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  animation: start-fade 0.18s ease;
+}
+@keyframes start-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.start-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: white;
+  border-radius: 20px 20px 0 0;
+  padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: start-up 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes start-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.start-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: #cbd5e1;
+  margin-bottom: 6px;
+}
+
+.start-icon {
+  font-size: 30px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.start-icon.ok   { background: #ecfdf5; }
+.start-icon.warn { background: #fffbeb; }
+
+.start-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  text-align: center;
+}
+
+.start-desc {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.start-listbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin: 2px 0 4px;
+}
+.start-listbox.warn { background: #fef3c7; }
+
+.start-count {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+
+.start-date {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+
+.start-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s, opacity 0.12s;
+}
+.start-btn:active { transform: scale(0.97); }
+.start-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.start-btn.primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+}
+.start-btn.ghost {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.start-btn.ghost-weak {
+  background: none;
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  padding: 10px;
+}
+
+.start-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 13px;
+  padding: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 </style>

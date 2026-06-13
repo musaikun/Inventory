@@ -45,7 +45,7 @@ import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
+const { config, dictionary, masterDict, registerAlias } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -158,7 +158,7 @@ async function onSessionStart(session) {
   beginSession(session)
   reset()
   clearAuditLog()
-  resetToDefault()   // 新規セッションは毎回 PDF/CSV/Excel からインポートさせる
+  // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
 }
 
