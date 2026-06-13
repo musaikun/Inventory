@@ -23,9 +23,9 @@ const catGroups = computed(() => {
   return [...map.entries()].map(([cat, items]) => ({ cat, items }))
 })
 
-// 初期表示: 全カテゴリ展開
+// 初期表示: 全カテゴリ閉じ
 watch(() => props.snapshot, () => {
-  expandedCats.value = catGroups.value.map(g => g.cat)
+  expandedCats.value = []
 }, { immediate: true })
 
 function toggleCat(cat) {
