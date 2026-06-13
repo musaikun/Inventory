@@ -473,7 +473,9 @@ onMounted(async () => {
         loadConfigFromD1(),
         loadHistoryFromD1(),
       ])
-      if (remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+      if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
+        applyRemoteConfig(remoteConfig)
+      }
       if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
     } catch (_) {
       // ネットワークエラーは無視してローカルデータで継続
