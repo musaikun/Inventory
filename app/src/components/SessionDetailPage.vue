@@ -352,6 +352,9 @@ function onDownload() {
 }
 
 .tab-panels-track {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   width: 200%;
   height: 100%;
