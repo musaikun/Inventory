@@ -25,6 +25,7 @@ const config = reactive({
   lotSizes:       {},  // { 品目名: 入数文字列 } e.g. "24本", "1kg"
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
+  savedAt:        null,  // カスタムリストの最終更新時刻（ISO文字列）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -70,12 +71,14 @@ function _load() {
       config.lotSizes      = saved.lotSizes      ?? {}
       config.dictionary    = saved.dictionary    ?? {}
       config.isCustom      = true
+      config.savedAt       = saved.savedAt       ?? null
     }
   } catch (_) {}
 }
 
 function _saveLocalOnly() {
   try {
+    config.savedAt = new Date().toISOString()
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
       order:         config.order,
       units:         config.units,
@@ -86,6 +89,7 @@ function _saveLocalOnly() {
       prevMonths:    config.prevMonths,
       lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
+      savedAt:       config.savedAt,
     }))
     config.isCustom = true
   } catch (_) {}
@@ -337,6 +341,7 @@ export function useConfig() {
     config.lotSizes      = {}
     config.dictionary    = { ...DEFAULT_DICT }
     config.isCustom      = false
+    config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
   }
 

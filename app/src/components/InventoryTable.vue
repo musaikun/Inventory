@@ -38,10 +38,23 @@ function collapseAll() {
   Object.keys(expandedKana).forEach(k => delete expandedKana[k])
 }
 
+function expandAll() {
+  for (const row of rows.value.filter(r => r.type === 'group-header')) {
+    if (row.isKana) expandedKana[row.label] = true
+    else expandedCats[row.label] = true
+  }
+}
+
 const hasExpanded = computed(() => {
   if (sortMode.value === 'category') return Object.keys(expandedCats).length > 0
   if (sortMode.value === 'alpha')    return Object.keys(expandedKana).length > 0
   return false
+})
+
+const hasAllExpanded = computed(() => {
+  const groups = rows.value.filter(r => r.type === 'group-header')
+  if (groups.length === 0) return true
+  return groups.every(r => isGroupExpanded(r))
 })
 
 const sortOpts = [
@@ -377,6 +390,11 @@ function fmtYen(n) {
         <span class="progress">
           <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
         </span>
+        <button
+          v-if="!hasAllExpanded"
+          class="btn-expand-all"
+          @click="expandAll"
+        >全て開く</button>
         <button
           v-if="hasExpanded"
           class="btn-collapse-all"

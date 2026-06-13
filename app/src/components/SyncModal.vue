@@ -236,7 +236,7 @@ async function onCopyCode() {
 
         <div v-if="showQR && qrDataUrl" class="qr-wrap">
           <img :src="qrDataUrl" alt="ルーム参加QR" class="qr-img" />
-          <div class="qr-hint">同じWi-Fi内の他の端末でQRを読み取るとすぐに参加できます</div>
+          <div class="qr-hint">このQRコードを読み取るとルームに参加できます</div>
         </div>
 
         <div class="participants-section">

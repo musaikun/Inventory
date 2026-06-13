@@ -411,9 +411,9 @@ body {
   cursor: pointer;
 }
 
-.btn-collapse-all {
+.btn-collapse-all,
+.btn-expand-all {
   background: transparent;
-  color: var(--text-muted);
   border: 1.5px solid var(--border);
   border-radius: 8px;
   padding: 5px 10px;
@@ -422,7 +422,11 @@ body {
   cursor: pointer;
 }
 
+.btn-collapse-all { color: var(--text-muted); }
+.btn-expand-all   { color: var(--primary); border-color: #bfdbfe; }
+
 .btn-collapse-all:active { background: #f1f5f9; }
+.btn-expand-all:active   { background: #eff6ff; }
 
 /* ── 棚卸完了バナー ── */
 .complete-banner {

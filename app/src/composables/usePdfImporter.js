@@ -95,19 +95,55 @@ function parseExcelSheet(rows) {
   return items
 }
 
+// ユーザー作成テンプレート（9列・1行目が「品目名」ヘッダー）かを判定
+function isTemplateRows(rows) {
+  const first = rows.find(r => r.some(c => String(c ?? '').trim() !== ''))
+  return !!first && String(first[0] ?? '').trim() === '品目名'
+}
+
+// テンプレート行をそのまま品目に変換（列順は exportConfigCSV / itemsToConfigCSV と一致）
+// 品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績,入数
+function parseTemplateRows(rows) {
+  const items = []
+  for (const row of rows) {
+    const name = String(row[0] ?? '').trim()
+    if (!name || name === '品目名') continue
+    const aliasStr = String(row[4] ?? '').trim()
+    items.push({
+      name,
+      unit:         String(row[1] ?? '').trim(),
+      price:        String(row[2] ?? '').trim(),
+      category:     String(row[3] ?? '').trim(),
+      aliases:      aliasStr ? aliasStr.split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [],
+      code:         String(row[5] ?? '').trim(),
+      categoryCode: String(row[6] ?? '').trim(),
+      prevMonth:    String(row[7] ?? '').trim(),
+      packQty:      String(row[8] ?? '').trim(),
+    })
+  }
+  return items
+}
+
 export function parseExcelFile(arrayBuffer) {
   const wb    = XLSX.read(arrayBuffer, { type: 'array' })
   const items = []
 
-  if (wb.SheetNames.length > 1) {
-    for (const name of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' })
-      items.push(...parseExcelSheet(rows))
-    }
+  const allRows = wb.SheetNames.map(
+    name => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' })
+  )
+
+  // ユーザー作成テンプレート（品目名ヘッダー）なら全シートを直接解析
+  if (allRows.length && isTemplateRows(allRows[0])) {
+    for (const rows of allRows) items.push(...parseTemplateRows(rows))
+    return items
+  }
+
+  // 従来の業者フォーマット
+  if (allRows.length > 1) {
+    for (const rows of allRows) items.push(...parseExcelSheet(rows))
   } else {
-    const rows  = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })
-    let   block = []
-    for (const row of rows) {
+    let block = []
+    for (const row of allRows[0] ?? []) {
       if (String(row[0] ?? '').trim() === '業態名' && block.length > 0) {
         items.push(...parseExcelSheet(block))
         block = []
@@ -118,6 +154,21 @@ export function parseExcelFile(arrayBuffer) {
   }
 
   return items
+}
+
+// ── 空テンプレート（.xlsx）をダウンロード ──────────────────────────────────────
+export function downloadItemTemplate() {
+  const header = ['品目名', '単位', '単価', 'カテゴリ', 'エイリアス', '商品コード', 'カテゴリコード', '前月実績', '入数']
+  const examples = [
+    ['ビール（プレモル生樽）', '本',     '', '酒類',   '生,ビール,プレモル', '', '', '', ''],
+    ['牛乳 成分無調整 1Lパック', 'パック', '', '乳製品', '牛乳,ミルク',        '', '', '', ''],
+    ['レタス 1玉',             '玉',     '', '野菜',   '',                   '', '', '', ''],
+  ]
+  const ws = XLSX.utils.aoa_to_sheet([header, ...examples])
+  ws['!cols'] = header.map(() => ({ wch: 16 }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '品目リスト')
+  XLSX.writeFile(wb, '棚卸品目テンプレート.xlsx')
 }
 
 // ── PDF テキスト抽出 ──────────────────────────────────────────────────────────
@@ -473,17 +524,20 @@ function autoAliases(name, base) {
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
 export function itemsToConfigCSV(items) {
   const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績,入数']
-  for (const { name, unit, category, categoryCode, code, prevMonth, packQty } of items) {
+  for (const { name, unit, price, category, categoryCode, code, prevMonth, packQty, aliases } of items) {
     const u  = unit         ? `"${unit}"`       : ''
+    const p  = price        ? String(price).replace(/[^0-9.]/g, '') : ''
     const c  = category     ? `"${category}"`   : ''
     const d  = code         ? `"${code}"`       : ''
     const e  = categoryCode ? `${categoryCode}` : ''
     const pm = prevMonth    ? `"${prevMonth}"`  : ''
     const pk = packQty      ? `"${packQty}"`    : ''
-    // カテゴリ名をベースにエイリアスを自動付与
-    const aliases = autoAliases(name, category ? [category] : [])
-    const a = aliases.length > 0 ? `"${aliases.join(',')}"` : ''
-    rows.push(`"${name}",${u},,${c},${a},${d},${e},${pm},${pk}`)
+    // カテゴリ名＋ユーザー入力エイリアスをベースに自動エイリアスを付与
+    const base = category ? [category] : []
+    if (Array.isArray(aliases)) base.push(...aliases)
+    const merged = autoAliases(name, base)
+    const a = merged.length > 0 ? `"${merged.join(',')}"` : ''
+    rows.push(`"${name}",${u},${p},${c},${a},${d},${e},${pm},${pk}`)
   }
   return rows.join('\r\n')
 }

@@ -166,7 +166,7 @@ onUnmounted(() => closeScanner())
         :disabled="loading"
         @click="onStart"
       >
-        <span class="lp-card-icon">🏪</span>
+        <span class="lp-card-icon">📋</span>
         <span class="lp-card-body">
           <span class="lp-card-title">ホストとして開始</span>
           <span class="lp-card-sub">

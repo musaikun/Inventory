@@ -158,7 +158,7 @@ async function onSessionStart(session) {
   beginSession(session)
   reset()
   clearAuditLog()
-  resetToDefault()   // 新規セッションは毎回 PDF/CSV/Excel からインポートさせる
+  // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
 }
 
@@ -314,17 +314,18 @@ setMessageCallback((msgObj) => {
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
-  showToast('ルームが閉鎖されました', 4000, 'error')
   const selfDissolved = _hostInitiatedDissolve
   _hostInitiatedDissolve = false
   if (!selfDissolved) {
+    showToast('セッションが破棄されました', 4000, 'error')
     setTimeout(() => {
       clearSession()
       reset()
-      resetToDefault()
       clearAuditLog()
       currentView.value = 'landing'
     }, 3500)
+  } else {
+    showToast('ルームが閉鎖されました', 2500)
   }
 })
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
