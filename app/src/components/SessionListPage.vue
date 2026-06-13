@@ -1,6 +1,5 @@
 <script>
 import { ref } from 'vue'
-// 画面遷移をまたいで保持するタブ状態（モジュールスコープ＝一度だけ生成）
 const _persistedTab = ref('sessions')
 </script>
 
@@ -22,13 +21,27 @@ const loading    = ref(true)
 const error      = ref('')
 const starting   = ref(false)
 const deletingId = ref(null)
+const dragOffset = ref(0)
 
-// タブ状態は画面遷移をまたいで保持する（ダッシュボードのコンテンツから戻ってもタブを維持）
-const activeTab  = _persistedTab
+const activeTab = _persistedTab
 
 const swipe = useHorizontalSwipe({
   onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
   onRight: () => { if (activeTab.value === 'dashboard') activeTab.value = 'sessions' },
+  onDrag: (dx) => {
+    if (dx === 0) { dragOffset.value = 0; return }
+    if (activeTab.value === 'sessions'  && dx > 0) return
+    if (activeTab.value === 'dashboard' && dx < 0) return
+    dragOffset.value = dx
+  },
+})
+
+const trackStyle = computed(() => {
+  const base = activeTab.value === 'sessions' ? 0 : -50
+  if (dragOffset.value === 0) {
+    return { transform: `translateX(${base}%)`, transition: 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)' }
+  }
+  return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
 const liveRoom = ref(null)
@@ -164,26 +177,25 @@ function _itemCount(session) {
       </button>
     </div>
 
-    <div class="sessions-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
-
-      <!-- エラー -->
-      <div v-if="error" class="msg-error">{{ error }}</div>
-
-      <!-- ローディング -->
+    <!-- スライドパネル -->
+    <div
+      class="tab-panels-wrapper"
+      @touchstart.passive="swipe.onTouchStart"
+      @touchmove.passive="swipe.onTouchMove"
+      @touchend.passive="swipe.onTouchEnd"
+    >
       <div v-if="loading" class="loading-msg">読み込み中...</div>
+      <div v-else class="tab-panels-track" :style="trackStyle">
 
-      <template v-else>
+        <!-- セッションパネル -->
+        <div class="tab-panel">
+          <div v-if="error" class="msg-error">{{ error }}</div>
 
-        <!-- ── セッションタブ ── -->
-        <template v-if="activeTab === 'sessions'">
-
-          <!-- 新規開始ボタン（常に先頭・固定サイズ） -->
           <button class="btn-new-session" :disabled="starting" @click="onStartNew">
             <span class="btn-new-icon">＋</span>
             {{ starting ? '開始中...' : '新しい棚卸を開始' }}
           </button>
 
-          <!-- 進行中セッション -->
           <template v-if="inProgressSessions.length > 0">
             <div class="section-title">🔄 進行中</div>
             <div
@@ -206,13 +218,11 @@ function _itemCount(session) {
           <div v-if="inProgressSessions.length === 0" class="no-sessions">
             進行中のセッションはありません。<br>上のボタンで棚卸を開始しましょう。
           </div>
+        </div>
 
-        </template>
+        <!-- ダッシュボードパネル -->
+        <div class="tab-panel">
 
-        <!-- ── ダッシュボードタブ ── -->
-        <template v-else-if="activeTab === 'dashboard'">
-
-          <!-- 完了済みセッション -->
           <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
           <template v-if="completedSessions.length > 0">
             <div
@@ -235,7 +245,6 @@ function _itemCount(session) {
           </template>
           <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
-          <!-- データ管理 -->
           <div class="section-title" style="margin-top:24px">📂 データ管理</div>
           <div class="dashboard-card" @click="emit('openSettings')">
             <div class="dashboard-card-icon">⚙️</div>
@@ -246,7 +255,6 @@ function _itemCount(session) {
             <span class="dashboard-card-arrow">›</span>
           </div>
 
-          <!-- 分析（準備中） -->
           <div class="section-title" style="margin-top:16px">📊 分析</div>
           <div class="dashboard-card dashboard-card-disabled">
             <div class="dashboard-card-icon">📊</div>
@@ -257,7 +265,6 @@ function _itemCount(session) {
             <span class="coming-badge">準備中</span>
           </div>
 
-          <!-- ヘルプ（準備中） -->
           <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
           <div class="dashboard-card dashboard-card-disabled">
             <div class="dashboard-card-icon">📖</div>
@@ -268,19 +275,21 @@ function _itemCount(session) {
             <span class="coming-badge">準備中</span>
           </div>
 
-        </template>
+        </div>
 
-      </template>
+      </div>
     </div>
+
   </div>
 </template>
 
 <style scoped>
 .sessions-page {
-  min-height: 100dvh;
+  height: 100dvh;
   background: var(--bg-secondary, #f8fafc);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .sessions-header {
@@ -290,9 +299,7 @@ function _itemCount(session) {
   padding: 16px 16px 12px;
   background: white;
   border-bottom: 1px solid #e2e8f0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
 }
 
 .btn-back {
@@ -302,7 +309,10 @@ function _itemCount(session) {
   color: var(--primary, #3b82f6);
   cursor: pointer;
   padding: 4px 8px;
+  transition: opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.btn-back:active { opacity: 0.5; }
 
 .sessions-title { text-align: center; }
 
@@ -326,16 +336,17 @@ function _itemCount(session) {
   color: #ef4444;
   cursor: pointer;
   padding: 4px 6px;
+  transition: opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.btn-logout:active { opacity: 0.5; }
 
 /* タブバー */
 .tab-bar {
   display: flex;
   background: white;
   border-bottom: 1px solid #e2e8f0;
-  position: sticky;
-  top: 57px;
-  z-index: 9;
+  flex-shrink: 0;
 }
 
 .tab-btn {
@@ -348,11 +359,12 @@ function _itemCount(session) {
   color: var(--text-muted, #64748b);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.2s, border-color 0.2s, transform 0.1s;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tab-btn.active {
@@ -360,6 +372,8 @@ function _itemCount(session) {
   border-bottom-color: var(--primary, #3b82f6);
   font-weight: 600;
 }
+
+.tab-btn:active { transform: scale(0.95); }
 
 .tab-badge {
   background: #3b82f6;
@@ -371,18 +385,33 @@ function _itemCount(session) {
   line-height: 1.6;
 }
 
-.tab-badge-gray {
-  background: #94a3b8;
+.tab-badge-gray { background: #94a3b8; }
+
+/* スライドパネル */
+.tab-panels-wrapper {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
 }
 
-/* ボディ */
-.sessions-body {
+.tab-panels-track {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  will-change: transform;
+}
+
+.tab-panel {
+  width: 50%;
+  overflow-y: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1;
   touch-action: pan-y;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 .section-title {
@@ -395,7 +424,7 @@ function _itemCount(session) {
   margin-bottom: 4px;
 }
 
-/* 新規開始ボタン（固定サイズ） */
+/* 新規開始ボタン */
 .btn-new-session {
   display: flex;
   align-items: center;
@@ -413,12 +442,11 @@ function _itemCount(session) {
   box-shadow: 0 2px 8px rgba(59,130,246,0.3);
   margin-bottom: 4px;
   min-height: 56px;
+  transition: transform 0.12s ease, opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
-
-.btn-new-session:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.btn-new-session:active { transform: scale(0.97); opacity: 0.88; }
+.btn-new-session:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-new-icon {
   font-size: 20px;
@@ -433,11 +461,10 @@ function _itemCount(session) {
   padding: 14px 16px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   border: 1.5px solid transparent;
+  transition: transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
 }
-
-.session-card.active {
-  border-color: #3b82f6;
-}
+.session-card.active { border-color: #3b82f6; }
 
 .session-main {
   display: flex;
@@ -499,9 +526,8 @@ function _itemCount(session) {
 .session-card-completed {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s;
 }
-.session-card-completed:active { background: #f0f9ff; }
+.session-card-completed:active { transform: scale(0.99); background: #f0f9ff; }
 
 .session-detail-arrow {
   margin-left: auto;
@@ -522,15 +548,15 @@ function _itemCount(session) {
   gap: 12px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s;
+  transition: transform 0.12s ease;
 }
-.dashboard-card:active { background: #f0f9ff; }
+.dashboard-card:active { transform: scale(0.98); background: #f0f9ff; }
 
 .dashboard-card-disabled {
   cursor: default;
   opacity: 0.55;
 }
-.dashboard-card-disabled:active { background: white; }
+.dashboard-card-disabled:active { transform: none; background: white; }
 
 .dashboard-card-icon {
   font-size: 24px;
@@ -539,10 +565,7 @@ function _itemCount(session) {
   flex-shrink: 0;
 }
 
-.dashboard-card-body {
-  flex: 1;
-  min-width: 0;
-}
+.dashboard-card-body { flex: 1; min-width: 0; }
 
 .dashboard-card-title {
   font-size: 14px;

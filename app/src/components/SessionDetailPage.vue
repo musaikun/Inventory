@@ -12,8 +12,8 @@ const { exportSnapshotCSV } = useHistory()
 
 const activeTab    = ref('items')
 const expandedCats = ref([])
+const dragOffset   = ref(0)
 
-// カテゴリ別グループ（全品目）
 const catGroups = computed(() => {
   const map = new Map()
   for (const it of props.snapshot.items) {
@@ -24,7 +24,6 @@ const catGroups = computed(() => {
   return [...map.entries()].map(([cat, items]) => ({ cat, items }))
 })
 
-// 初期表示: 全カテゴリ閉じ
 watch(() => props.snapshot, () => {
   expandedCats.value = []
 }, { immediate: true })
@@ -35,7 +34,6 @@ function toggleCat(cat) {
   else          expandedCats.value.push(cat)
 }
 
-// 品目 → 担当者マップ（participants から逆引き）
 const recorderMap = computed(() => {
   const map = new Map()
   if (!props.snapshot.participants) return map
@@ -47,7 +45,6 @@ const recorderMap = computed(() => {
 
 const hasRecorder = computed(() => recorderMap.value.size > 0)
 
-// 変更履歴（新しい順）
 const sortedLog = computed(() => {
   const log = props.snapshot.auditLog
   if (!Array.isArray(log) || !log.length) return []
@@ -59,9 +56,23 @@ const hasAuditLog = computed(() => sortedLog.value.length > 0)
 const swipe = useHorizontalSwipe({
   onLeft:  () => { if (activeTab.value === 'items' && hasAuditLog.value) activeTab.value = 'history' },
   onRight: () => { if (activeTab.value === 'history') activeTab.value = 'items' },
+  onDrag: (dx) => {
+    if (dx === 0) { dragOffset.value = 0; return }
+    if (activeTab.value === 'items'   && dx > 0) return
+    if (activeTab.value === 'history' && dx < 0) return
+    if (activeTab.value === 'items'   && !hasAuditLog.value) return
+    dragOffset.value = dx
+  },
 })
 
-// 集計
+const trackStyle = computed(() => {
+  const base = activeTab.value === 'items' ? 0 : -50
+  if (dragOffset.value === 0) {
+    return { transform: `translateX(${base}%)`, transition: 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)' }
+  }
+  return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
+})
+
 const filledCount = computed(() => props.snapshot.items.filter(it => it.qty !== null).length)
 const totalCount  = computed(() => props.snapshot.items.length)
 
@@ -137,70 +148,80 @@ function onDownload() {
       >変更履歴{{ hasAuditLog ? ` (${sortedLog.length})` : '' }}</button>
     </div>
 
-    <!-- ── 品目一覧タブ ── -->
-    <div v-if="activeTab === 'items'" class="tab-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
-      <div v-for="group in catGroups" :key="group.cat" class="cat-group">
+    <!-- スライドパネル -->
+    <div
+      class="tab-panels-wrapper"
+      @touchstart.passive="swipe.onTouchStart"
+      @touchmove.passive="swipe.onTouchMove"
+      @touchend.passive="swipe.onTouchEnd"
+    >
+      <div class="tab-panels-track" :style="trackStyle">
 
-        <!-- カテゴリヘッダー -->
-        <button class="cat-header" @click="toggleCat(group.cat)">
-          <span class="cat-arrow">{{ expandedCats.includes(group.cat) ? '▼' : '▶' }}</span>
-          <span class="cat-name">{{ group.cat }}</span>
-          <span class="cat-filled">{{ catFilledCount(group.items) }}/{{ group.items.length }}品目</span>
-          <span v-if="catHasPrice(group.items)" class="cat-total">
-            {{ fmtYen(catTotalValue(group.items)) }}
-          </span>
-        </button>
+        <!-- 品目一覧パネル -->
+        <div class="tab-panel">
+          <div v-for="group in catGroups" :key="group.cat" class="cat-group">
 
-        <!-- 品目リスト -->
-        <div v-if="expandedCats.includes(group.cat)" class="cat-body">
-          <div
-            v-for="it in group.items"
-            :key="it.item"
-            class="item-row"
-            :class="{ unfilled: it.qty === null }"
-          >
-            <div class="item-left">
-              <span class="item-name">
-                {{ it.item }}
-                <span v-if="it.flagged" class="flag-badge">🔖</span>
+            <button class="cat-header" @click="toggleCat(group.cat)">
+              <span class="cat-arrow">{{ expandedCats.includes(group.cat) ? '▼' : '▶' }}</span>
+              <span class="cat-name">{{ group.cat }}</span>
+              <span class="cat-filled">{{ catFilledCount(group.items) }}/{{ group.items.length }}品目</span>
+              <span v-if="catHasPrice(group.items)" class="cat-total">
+                {{ fmtYen(catTotalValue(group.items)) }}
               </span>
-              <span v-if="hasRecorder && recorderMap.get(it.item)" class="item-recorder">
-                {{ recorderMap.get(it.item) }}
-              </span>
+            </button>
+
+            <div v-if="expandedCats.includes(group.cat)" class="cat-body">
+              <div
+                v-for="it in group.items"
+                :key="it.item"
+                class="item-row"
+                :class="{ unfilled: it.qty === null }"
+              >
+                <div class="item-left">
+                  <span class="item-name">
+                    {{ it.item }}
+                    <span v-if="it.flagged" class="flag-badge">🔖</span>
+                  </span>
+                  <span v-if="hasRecorder && recorderMap.get(it.item)" class="item-recorder">
+                    {{ recorderMap.get(it.item) }}
+                  </span>
+                </div>
+                <div class="item-right">
+                  <span v-if="it.qty !== null" class="item-qty">{{ it.qty }}{{ it.unit }}</span>
+                  <span v-else class="item-unfilled">未入力</span>
+                  <span v-if="it.subtotal != null" class="item-price">{{ fmtYen(it.subtotal) }}</span>
+                </div>
+              </div>
             </div>
-            <div class="item-right">
-              <span v-if="it.qty !== null" class="item-qty">{{ it.qty }}{{ it.unit }}</span>
-              <span v-else class="item-unfilled">未入力</span>
-              <span v-if="it.subtotal != null" class="item-price">{{ fmtYen(it.subtotal) }}</span>
+          </div>
+
+          <div v-if="snapshot.totalValue != null" class="grand-total">
+            合計金額　<strong>{{ fmtYen(snapshot.totalValue) }}</strong>
+          </div>
+        </div>
+
+        <!-- 変更履歴パネル -->
+        <div class="tab-panel">
+          <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
+
+          <div v-for="entry in sortedLog" :key="entry.id" class="log-entry">
+            <div class="log-left">
+              <span class="log-time">{{ fmtTime(entry.timestamp) }}</span>
+              <span class="log-person">{{ entry.enteredBy || '—' }}</span>
+            </div>
+            <div class="log-right">
+              <div class="log-item">{{ entry.ingredient }}</div>
+              <div class="log-detail">
+                <span :class="['action-badge', actionClass(entry.action)]">{{ actionLabel(entry.action) }}</span>
+                <span v-if="entry.totalQty != null && entry.action !== 'flag_recount' && entry.action !== 'unflag_recount'" class="log-qty">
+                  {{ entry.totalQty }}{{ entry.unit }}
+                </span>
+                <span v-if="entry.delta && entry.action === 'add'" class="log-delta">+{{ entry.delta }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="snapshot.totalValue != null" class="grand-total">
-        合計金額　<strong>{{ fmtYen(snapshot.totalValue) }}</strong>
-      </div>
-    </div>
-
-    <!-- ── 変更履歴タブ ── -->
-    <div v-else-if="activeTab === 'history'" class="tab-body" @touchstart.passive="swipe.onTouchStart" @touchend.passive="swipe.onTouchEnd">
-      <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
-
-      <div v-for="entry in sortedLog" :key="entry.id" class="log-entry">
-        <div class="log-left">
-          <span class="log-time">{{ fmtTime(entry.timestamp) }}</span>
-          <span class="log-person">{{ entry.enteredBy || '—' }}</span>
-        </div>
-        <div class="log-right">
-          <div class="log-item">{{ entry.ingredient }}</div>
-          <div class="log-detail">
-            <span :class="['action-badge', actionClass(entry.action)]">{{ actionLabel(entry.action) }}</span>
-            <span v-if="entry.totalQty != null && entry.action !== 'flag_recount' && entry.action !== 'unflag_recount'" class="log-qty">
-              {{ entry.totalQty }}{{ entry.unit }}
-            </span>
-            <span v-if="entry.delta && entry.action === 'add'" class="log-delta">+{{ entry.delta }}</span>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -209,10 +230,11 @@ function onDownload() {
 
 <style scoped>
 .detail-page {
-  min-height: 100dvh;
+  height: 100dvh;
   background: var(--bg-secondary, #f8fafc);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── ヘッダー ── */
@@ -223,9 +245,7 @@ function onDownload() {
   padding: 14px 16px 12px;
   background: white;
   border-bottom: 1px solid #e2e8f0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
 }
 
 .btn-back {
@@ -236,7 +256,10 @@ function onDownload() {
   cursor: pointer;
   padding: 4px 8px;
   flex-shrink: 0;
+  transition: opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.btn-back:active { opacity: 0.5; }
 
 .header-center {
   flex: 1;
@@ -280,8 +303,10 @@ function onDownload() {
   padding: 4px;
   flex-shrink: 0;
   opacity: 0.7;
+  transition: opacity 0.12s, transform 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
-.btn-icon:active { opacity: 1; }
+.btn-icon:active { opacity: 1; transform: scale(0.9); }
 
 /* ── タブバー ── */
 .tab-bar {
@@ -289,9 +314,7 @@ function onDownload() {
   background: white;
   border-bottom: 1.5px solid #e2e8f0;
   padding: 0 16px;
-  position: sticky;
-  top: 57px;
-  z-index: 9;
+  flex-shrink: 0;
 }
 
 .tab-btn {
@@ -304,7 +327,7 @@ function onDownload() {
   font-weight: 600;
   color: var(--text-muted, #64748b);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.2s, border-color 0.2s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -318,15 +341,33 @@ function onDownload() {
   cursor: not-allowed;
 }
 
-/* ── タブ本体 ── */
-.tab-body {
+.tab-btn:not(:disabled):active { transform: scale(0.95); }
+
+/* ── スライドパネル ── */
+.tab-panels-wrapper {
   flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+
+.tab-panels-track {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  will-change: transform;
+}
+
+.tab-panel {
+  width: 50%;
   overflow-y: auto;
   padding: 12px 12px 24px;
-  touch-action: pan-y;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  touch-action: pan-y;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── カテゴリアコーディオン ── */
@@ -383,9 +424,7 @@ function onDownload() {
 }
 
 /* ── 品目リスト ── */
-.cat-body {
-  border-top: 1px solid #f1f5f9;
-}
+.cat-body { border-top: 1px solid #f1f5f9; }
 
 .item-row {
   display: flex;
@@ -395,12 +434,8 @@ function onDownload() {
   border-bottom: 1px solid #f8fafc;
   gap: 8px;
 }
-
 .item-row:last-child { border-bottom: none; }
-
-.item-row.unfilled {
-  opacity: 0.45;
-}
+.item-row.unfilled   { opacity: 0.45; }
 
 .item-left {
   flex: 1;
@@ -428,7 +463,6 @@ function onDownload() {
   align-items: center;
   gap: 3px;
 }
-
 .item-recorder::before {
   content: '';
   display: inline-block;
@@ -470,7 +504,6 @@ function onDownload() {
   color: var(--text-muted, #64748b);
   padding: 8px 4px 2px;
 }
-
 .grand-total strong {
   font-size: 18px;
   color: #15803d;
@@ -519,10 +552,7 @@ function onDownload() {
   max-width: 64px;
 }
 
-.log-right {
-  flex: 1;
-  min-width: 0;
-}
+.log-right { flex: 1; min-width: 0; }
 
 .log-item {
   font-size: 13px;
