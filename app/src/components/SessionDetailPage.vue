@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { isSupplyItem } from '../utils/itemMatcher.js'
+import InventoryTable from './InventoryTable.vue'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
@@ -10,47 +12,59 @@ const emit = defineEmits(['back'])
 
 const { exportSnapshotCSV } = useHistory()
 
-const activeTab    = ref('items')
-const expandedCats = ref([])
-const dragOffset   = ref(0)
+const activeTab     = ref('items')
+const dragOffset    = ref(0)
+const categoryScope = ref('all')
 
-const catGroups = computed(() => {
-  const map = new Map()
-  for (const it of (props.snapshot.items ?? [])) {
-    const cat = it.category ?? 'その他'
-    if (!map.has(cat)) map.set(cat, [])
-    map.get(cat).push(it)
+// ── スナップショット → InventoryTable 用データへ変換 ───────────────────────────
+const snapItems = computed(() => props.snapshot.items ?? [])
+
+// 入力済みのみ inventory に入れる（未入力は order にだけ残し「—」表示）
+const snapInventory = computed(() => {
+  const inv = {}
+  for (const it of snapItems.value) {
+    if (it.qty !== null && it.qty !== undefined) {
+      inv[it.item] = { qty: it.qty, unit: it.unit ?? '' }
+    }
   }
-  return [...map.entries()].map(([cat, items]) => ({ cat, items }))
+  return inv
 })
 
-watch(() => props.snapshot, () => {
-  expandedCats.value = []
-}, { immediate: true })
-
-function toggleCat(cat) {
-  const idx = expandedCats.value.indexOf(cat)
-  if (idx >= 0) expandedCats.value.splice(idx, 1)
-  else          expandedCats.value.push(cat)
-}
-
-const recorderMap = computed(() => {
-  const map = new Map()
-  if (!props.snapshot.participants) return map
-  for (const p of props.snapshot.participants) {
-    for (const it of (p.items ?? [])) map.set(it.item, p.name)
+// 凍結された config（保存時点の並び順・カテゴリ・価格・コード）
+const snapConfig = computed(() => {
+  const order = []
+  const categories = {}
+  const prices = {}
+  const codes = {}
+  for (const it of snapItems.value) {
+    order.push(it.item)
+    if (it.category != null)  categories[it.item] = it.category
+    if (it.unitPrice != null) prices[it.item]     = it.unitPrice
+    if (it.code)              codes[it.item]       = it.code
   }
-  return map
+  return { order, categories, prices, codes, categoryCodes: {}, prevMonths: {}, lotSizes: {}, units: {} }
 })
 
-const hasRecorder = computed(() => recorderMap.value.size > 0)
+const snapFlags = computed(() => {
+  const f = {}
+  for (const it of snapItems.value) if (it.flagged) f[it.item] = true
+  return Object.keys(f).length ? f : null
+})
 
+const hasSupplyItems = computed(() =>
+  snapItems.value.some(it => isSupplyItem(it.item, snapConfig.value.categories))
+)
+
+// ── ヘッダー集計 ──────────────────────────────────────────────────────────────
+const filledCount = computed(() => snapItems.value.filter(it => it.qty !== null).length)
+const totalCount  = computed(() => snapItems.value.length)
+
+// ── 変更履歴 ──────────────────────────────────────────────────────────────────
 const sortedLog = computed(() => {
   const log = props.snapshot.auditLog
   if (!Array.isArray(log) || !log.length) return []
   return [...log].reverse()
 })
-
 const hasAuditLog = computed(() => sortedLog.value.length > 0)
 
 const swipe = useHorizontalSwipe({
@@ -72,13 +86,6 @@ const trackStyle = computed(() => {
   }
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
-
-const filledCount = computed(() => (props.snapshot.items ?? []).filter(it => it.qty !== null).length)
-const totalCount  = computed(() => (props.snapshot.items ?? []).length)
-
-function catFilledCount(items) { return items.filter(it => it.qty !== null).length }
-function catTotalValue(items)  { return items.reduce((s, it) => s + (it.subtotal ?? 0), 0) }
-function catHasPrice(items)    { return items.some(it => it.unitPrice != null) }
 
 function fmtDate(dateStr) {
   if (!dateStr) return ''
@@ -157,47 +164,22 @@ function onDownload() {
     >
       <div class="tab-panels-track" :style="trackStyle">
 
-        <!-- 品目一覧パネル -->
+        <!-- 品目一覧パネル（メイン画面と同一の InventoryTable を読み取り専用で再利用）-->
         <div class="tab-panel">
-          <div v-for="group in catGroups" :key="group.cat" class="cat-group">
-
-            <button class="cat-header" @click="toggleCat(group.cat)">
-              <span class="cat-arrow">{{ expandedCats.includes(group.cat) ? '▼' : '▶' }}</span>
-              <span class="cat-name">{{ group.cat }}</span>
-              <span class="cat-filled">{{ catFilledCount(group.items) }}/{{ group.items.length }}品目</span>
-              <span v-if="catHasPrice(group.items)" class="cat-total">
-                {{ fmtYen(catTotalValue(group.items)) }}
-              </span>
-            </button>
-
-            <div v-if="expandedCats.includes(group.cat)" class="cat-body">
-              <div
-                v-for="it in group.items"
-                :key="it.item"
-                class="item-row"
-                :class="{ unfilled: it.qty === null }"
-              >
-                <div class="item-left">
-                  <span class="item-name">
-                    {{ it.item }}
-                    <span v-if="it.flagged" class="flag-badge">🔖</span>
-                  </span>
-                  <span v-if="hasRecorder && recorderMap.get(it.item)" class="item-recorder">
-                    {{ recorderMap.get(it.item) }}
-                  </span>
-                </div>
-                <div class="item-right">
-                  <span v-if="it.qty !== null" class="item-qty">{{ it.qty }}{{ it.unit }}</span>
-                  <span v-else class="item-unfilled">未入力</span>
-                  <span v-if="it.subtotal != null" class="item-price">{{ fmtYen(it.subtotal) }}</span>
-                </div>
-              </div>
-            </div>
+          <div v-if="hasSupplyItems" class="scope-bar">
+            <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
+            <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
+            <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
           </div>
 
-          <div v-if="snapshot.totalValue != null" class="grand-total">
-            合計金額　<strong>{{ fmtYen(snapshot.totalValue) }}</strong>
-          </div>
+          <InventoryTable
+            :inventory="snapInventory"
+            :filled-count="filledCount"
+            :read-only="true"
+            :recount-flags="snapFlags"
+            :category-scope="categoryScope"
+            :config-source="snapConfig"
+          />
         </div>
 
         <!-- 変更履歴パネル -->
@@ -365,154 +347,21 @@ function onDownload() {
   width: 50%;
   height: 100%;
   overflow-y: auto;
+  padding: 12px 0 24px;
+  box-sizing: border-box;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 履歴パネルは内側に余白を持たせる */
+.tab-panel:last-child {
   padding: 12px 12px 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  touch-action: pan-y;
-  box-sizing: border-box;
-  -webkit-overflow-scrolling: touch;
 }
 
-/* ── カテゴリアコーディオン ── */
-.cat-group {
-  background: white;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-}
-
-.cat-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  background: white;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s;
-}
-.cat-header:active { background: #f0f9ff; }
-
-.cat-arrow {
-  font-size: 10px;
-  color: var(--text-muted, #64748b);
-  width: 12px;
-  flex-shrink: 0;
-}
-
-.cat-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-  flex: 1;
-}
-
-.cat-filled {
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
-  flex-shrink: 0;
-}
-
-.cat-total {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary, #3b82f6);
-  background: #eff6ff;
-  padding: 2px 8px;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-/* ── 品目リスト ── */
-.cat-body { border-top: 1px solid #f1f5f9; }
-
-.item-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid #f8fafc;
-  gap: 8px;
-}
-.item-row:last-child { border-bottom: none; }
-.item-row.unfilled   { opacity: 0.45; }
-
-.item-left {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.item-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary, #1e293b);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.flag-badge { font-size: 11px; margin-left: 3px; }
-
-.item-recorder {
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-.item-recorder::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #94a3b8;
-  flex-shrink: 0;
-}
-
-.item-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.item-qty {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.item-unfilled {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-}
-
-.item-price {
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
-}
-
-/* ── 合計行 ── */
-.grand-total {
-  text-align: right;
-  font-size: 15px;
-  color: var(--text-muted, #64748b);
-  padding: 8px 4px 2px;
-}
-.grand-total strong {
-  font-size: 18px;
-  color: #15803d;
-  margin-left: 8px;
-}
+.scope-bar { margin-top: 0; }
 
 /* ── 変更履歴 ── */
 .empty-msg {
