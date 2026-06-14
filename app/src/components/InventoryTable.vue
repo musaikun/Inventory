@@ -3,7 +3,7 @@ import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
 
-const { config } = useConfig()
+const { config: liveConfig } = useConfig()
 
 const props = defineProps({
   inventory:        { type: Object,  required: true },
@@ -13,12 +13,16 @@ const props = defineProps({
   categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
   typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
   conflictLocked:   { type: Object,  default: null },  // Set<string> 競合中品目
+  configSource:     { type: Object,  default: null },  // 完了済みスナップショット等の凍結 config（未指定なら live config）
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
 
+// 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
+const config = computed(() => props.configSource ?? liveConfig)
+
 function _isSupply(item) {
-  return isSupplyItem(item, config.categories)
+  return isSupplyItem(item, config.value.categories)
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
@@ -66,13 +70,13 @@ const sortOpts = [
 const catRealStats = computed(() => {
   const map = {}
   const all = [
-    ...config.order,
-    ...Object.keys(props.inventory).filter(k => !config.order.includes(k)),
+    ...config.value.order,
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
-    const cat = config.categories?.[item] ?? 'その他'
+    const cat = config.value.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
     if (props.inventory[item] != null) map[cat].filled++
@@ -88,34 +92,34 @@ const filterOpts = [
 
 // ── 行データ生成 ──────────────────────────────────────────────────────────────
 const rows = computed(() => {
-  // 1. config.order 順の行（すべて、entry=null もあり）
-  const ordered = config.order.map((item, i) => ({
+  // 1. config.value.order 順の行（すべて、entry=null もあり）
+  const ordered = config.value.order.map((item, i) => ({
     type:      'item',
     item,
     index:     i + 1,
     entry:     props.inventory[item] ?? null,
     custom:    false,
-    unitPrice: config.prices?.[item]      ?? null,
-    category:  config.categories?.[item]  ?? null,
-    code:      config.codes?.[item]       ?? null,
-    prevMonth: config.prevMonths?.[item]  ?? null,
-    lotSize:   config.lotSizes?.[item]    ?? null,
+    unitPrice: config.value.prices?.[item]      ?? null,
+    category:  config.value.categories?.[item]  ?? null,
+    code:      config.value.codes?.[item]       ?? null,
+    prevMonth: config.value.prevMonths?.[item]  ?? null,
+    lotSize:   config.value.lotSizes?.[item]    ?? null,
   }))
 
-  // 2. config.order に含まれないカスタム品目
+  // 2. config.value.order に含まれないカスタム品目
   const customs = Object.keys(props.inventory)
-    .filter(k => !config.order.includes(k))
+    .filter(k => !config.value.order.includes(k))
     .map(item => ({
       type:      'item',
       item,
       index:     '*',
       entry:     props.inventory[item],
       custom:    true,
-      unitPrice: config.prices?.[item]      ?? null,
-      category:  config.categories?.[item]  ?? null,
-      code:      config.codes?.[item]       ?? null,
-      prevMonth: config.prevMonths?.[item]  ?? null,
-      lotSize:   config.lotSizes?.[item]    ?? null,
+      unitPrice: config.value.prices?.[item]      ?? null,
+      category:  config.value.categories?.[item]  ?? null,
+      code:      config.value.codes?.[item]       ?? null,
+      prevMonth: config.value.prevMonths?.[item]  ?? null,
+      lotSize:   config.value.lotSizes?.[item]    ?? null,
     }))
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
@@ -131,7 +135,7 @@ const rows = computed(() => {
   if (filterMode.value === 'filled') {
     items = all.filter(r => r.entry !== null)
   } else if (filterMode.value === 'empty') {
-    // 未入力は config.order 内のみ（カスタム品目は常に入力済みなので対象外）
+    // 未入力は config.value.order 内のみ（カスタム品目は常に入力済みなので対象外）
     items = all.filter(r => !r.custom && r.entry === null)
   } else {
     items = all
@@ -175,8 +179,8 @@ const rows = computed(() => {
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
       if (a === 'その他') return 1
       if (b === 'その他') return -1
-      const codeA = config.categoryCodes?.[a]
-      const codeB = config.categoryCodes?.[b]
+      const codeA = config.value.categoryCodes?.[a]
+      const codeB = config.value.categoryCodes?.[b]
       if (codeA != null && codeB != null) return codeA - codeB
       if (codeA != null) return -1
       if (codeB != null) return  1
@@ -192,7 +196,7 @@ const rows = computed(() => {
     return result
   }
 
-  // その他（フォールバック）: config.order 順のまま
+  // その他（フォールバック）: config.value.order 順のまま
   return items
 })
 
@@ -203,11 +207,11 @@ const visibleItemCount = computed(() =>
 
 // ── 価格・金額 ────────────────────────────────────────────────────────────────
 const hasPrices = computed(() =>
-  config.prices && Object.keys(config.prices).length > 0
+  config.value.prices && Object.keys(config.value.prices).length > 0
 )
 
 const hasCodes = computed(() =>
-  config.codes && Object.keys(config.codes).length > 0
+  config.value.codes && Object.keys(config.value.codes).length > 0
 )
 
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
@@ -226,7 +230,7 @@ const grandTotal = computed(() => {
   for (const [item, entry] of Object.entries(props.inventory)) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
-    const price = config.prices?.[item]
+    const price = config.value.prices?.[item]
     if (price == null) continue
     total += entry.qty * price
     has = true
@@ -340,8 +344,8 @@ function _kanaGroup(item) {
 const kanaRealStats = computed(() => {
   const map = {}
   const all = [
-    ...config.order,
-    ...Object.keys(props.inventory).filter(k => !config.order.includes(k)),
+    ...config.value.order,
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
@@ -356,8 +360,8 @@ const kanaRealStats = computed(() => {
 
 // スコープ対応の品目数（ヘッダー表示用）
 const scopedTotal = computed(() => {
-  if (props.categoryScope === 'all') return config.order.length
-  return config.order.filter(item =>
+  if (props.categoryScope === 'all') return config.value.order.length
+  return config.value.order.filter(item =>
     props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item)
   ).length
 })
