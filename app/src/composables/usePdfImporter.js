@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx'
 import * as pdfjsLib from 'pdfjs-dist'
-import { HTTP_BASE as _WORKER_BASE } from '../utils/api.js'
 
 // ── PDF.js ワーカー設定 ───────────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -320,33 +319,8 @@ function parsePdfPageRotated(items) {
   return products
 }
 
-async function _parsePdfViaServer(arrayBuffer, signal) {
-  const res = await fetch(`${_WORKER_BASE}/pdf`, {
-    method: 'POST',
-    body:   arrayBuffer,
-    headers: { 'Content-Type': 'application/octet-stream' },
-    signal,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `サーバーエラー (${res.status})`)
-  }
-  return res.json()
-}
-
 export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
-  // サーバーURL が設定されていればWorkerでパース（スマホCPU負荷ゼロ）
-  if (_WORKER_BASE) {
-    try {
-      onProgress?.({ server: true })
-      return await _parsePdfViaServer(arrayBuffer, signal)
-    } catch (e) {
-      if (e?.name === 'AbortError') throw e
-      console.warn('[PDF] サーバー処理失敗、ローカルにフォールバック:', e.message)
-    }
-  }
-
-  // ─── ローカルフォールバック ───────────────────────────────────────────────
+  // PDF は端末内で解析する（外部送信なし）。仕入情報を外に出さないためサーバー送信は行わない。
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
   const timeoutId   = setTimeout(() => loadingTask.destroy(), 40000)
 
