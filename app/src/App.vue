@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
@@ -43,6 +44,9 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
+
+// ── PWA 更新検知 ───────────────────────────────────────────────────────────────
+const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
@@ -1527,6 +1531,14 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div v-if="chatNotif" class="chat-notif-banner" @click="chatNotif = null">
         <div class="chat-notif-sender">{{ chatNotif.senderName }}</div>
         <div class="chat-notif-text">{{ chatNotif.text }}</div>
+      </div>
+    </Transition>
+
+    <!-- PWA 更新バナー -->
+    <Transition name="pwa-banner">
+      <div v-if="needRefresh" class="pwa-update-banner">
+        <span class="pwa-banner-text">🔄 新しいバージョンがあります</span>
+        <button class="pwa-banner-btn" @click="updateServiceWorker()">今すぐ更新</button>
       </div>
     </Transition>
 
