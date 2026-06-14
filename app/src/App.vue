@@ -40,7 +40,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 
@@ -660,6 +660,7 @@ async function onComplete() {
     await dissolveRoom()
     _clearDraft(pendingSession.value?.id)
     clearSession()
+    sessionsTab.value = 'dashboard'
     currentView.value = 'sessions'
     return
   }
@@ -729,6 +730,7 @@ async function onSyncComplete() {
   await dissolveRoom()
   _clearDraft(pendingSession.value?.id)
   clearSession()
+  sessionsTab.value = 'dashboard'
   currentView.value = 'sessions'
 }
 
