@@ -139,7 +139,9 @@ async function _startSessionView({ loadConfig = true } = {}) {
       loadConfig ? loadConfigFromD1() : Promise.resolve(null),
       loadHistoryFromD1(),
     ])
-    if (loadConfig && remoteConfig?.order?.length) applyRemoteConfig(remoteConfig)
+    if (loadConfig && remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
+      applyRemoteConfig(remoteConfig)
+    }
     if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
