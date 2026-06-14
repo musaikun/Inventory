@@ -11,6 +11,7 @@ import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
+import { useHistory } from '../composables/useHistory.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -20,6 +21,7 @@ const props = defineProps({
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings'])
 
 const { config, itemCount } = useConfig()
+const { getSnapshotBySessionId } = useHistory()
 
 const sessions       = ref([])
 const loading        = ref(true)
@@ -174,6 +176,51 @@ function _yearDateRange(items) {
   const max = Math.max(...months)
   return min === max ? `${min}月` : `${min}月〜${max}月`
 }
+
+function _fmtDuration(ms) {
+  if (ms <= 0) return null
+  const min = Math.round(ms / 60000)
+  if (min < 1)  return '1分未満'
+  if (min < 60) return `${min}分`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m > 0 ? `${h}時間${m}分` : `${h}時間`
+}
+
+// 年詳細ビューの全セッション分を一括計算
+const selectedYearSessionStats = computed(() => {
+  const result = {}
+  for (const s of selectedYearSessions.value) {
+    const duration = (s.startedAt && s.endedAt)
+      ? _fmtDuration(new Date(s.endedAt) - new Date(s.startedAt))
+      : null
+
+    const snap = getSnapshotBySessionId(s.id)
+
+    // auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
+    const timeMap = new Map()
+    for (const entry of (snap?.auditLog ?? [])) {
+      if (!entry.enteredById || !entry.ts) continue
+      const t = new Date(entry.ts).getTime()
+      if (!timeMap.has(entry.enteredById)) {
+        timeMap.set(entry.enteredById, { name: entry.enteredBy || '?', first: t, last: t })
+      } else {
+        const cur = timeMap.get(entry.enteredById)
+        cur.first = Math.min(cur.first, t)
+        cur.last  = Math.max(cur.last, t)
+      }
+    }
+
+    const participants = (snap?.participants ?? []).map(p => {
+      const timeEntry = [...timeMap.values()].find(t => t.name === p.name)
+      const activeDur = timeEntry ? _fmtDuration(timeEntry.last - timeEntry.first) : null
+      return { name: p.name, itemCount: p.items?.length ?? 0, activeDur }
+    })
+
+    result[s.id] = { duration, participants }
+  }
+  return result
+})
 
 function onStartNew() {
   showStartModal.value = true
@@ -402,10 +449,24 @@ function _itemCount(session) {
                 <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
                 <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
               </div>
-              <div class="session-sub">
-                <span class="session-count">{{ _itemCount(s) }}品目</span>
-                <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
+              <!-- 所要時間・参加者数・品目数 -->
+              <div class="session-stats-row">
+                <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
+                  ⏱ {{ selectedYearSessionStats[s.id].duration }}
+                </span>
+                <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
+                  👥 {{ selectedYearSessionStats[s.id].participants.length }}人
+                </span>
+                <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
                 <span class="session-detail-arrow">詳細 ›</span>
+              </div>
+              <!-- 参加者別内訳 -->
+              <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
+                <span
+                  v-for="p in selectedYearSessionStats[s.id].participants"
+                  :key="p.name"
+                  class="part-chip"
+                >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
               </div>
             </div>
             <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
@@ -1101,6 +1162,38 @@ function _itemCount(session) {
   font-size: 12px;
   color: var(--primary, #3b82f6);
   font-weight: 600;
+}
+
+.session-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.sstat {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  font-weight: 500;
+}
+
+.session-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.part-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 3px 10px;
+  border-radius: 14px;
+  white-space: nowrap;
 }
 
 /* ダッシュボードカード */
