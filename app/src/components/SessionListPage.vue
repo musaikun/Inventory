@@ -1,6 +1,7 @@
 <script>
 import { ref } from 'vue'
-export const _persistedTab = ref('sessions')
+export const _persistedTab  = ref('sessions')
+export const _selectedYear  = ref(null)
 </script>
 
 <script setup>
@@ -12,8 +13,9 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
 
 const props = defineProps({
-  liveItemCount: { type: Number, default: null },
-  liveSessionId: { type: String, default: null },
+  liveItemCount:  { type: Number, default: null },
+  liveSessionId:  { type: String, default: null },
+  newSessionId:   { type: String, default: null },
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings'])
 
@@ -34,7 +36,8 @@ const listSavedLabel = computed(() => {
   return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' })
 })
 
-const activeTab = _persistedTab
+const activeTab    = _persistedTab
+const selectedYear = _selectedYear
 
 const swipe = useHorizontalSwipe({
   onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
@@ -117,7 +120,6 @@ async function _loadSessions() {
   error.value   = ''
   try {
     sessions.value = await getSessions()
-    _initYearAccordion()
   } catch (e) {
     if (e.message.includes('401') || e.message.toLowerCase().includes('unauthorized')) {
       await logout()
@@ -160,18 +162,17 @@ const completedByYear = computed(() => {
     }))
 })
 
-const expandedYears = ref([])
+const selectedYearSessions = computed(() => {
+  if (!selectedYear.value) return []
+  return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
+})
 
-function _initYearAccordion() {
-  if (expandedYears.value.length) return
-  const groups = completedByYear.value
-  if (groups.length) expandedYears.value = [groups[0].year]
-}
-
-function toggleYear(year) {
-  const idx = expandedYears.value.indexOf(year)
-  if (idx >= 0) expandedYears.value.splice(idx, 1)
-  else          expandedYears.value.push(year)
+function _yearDateRange(items) {
+  if (!items.length) return ''
+  const months = items.map(s => new Date(s.startedAt).getMonth() + 1)
+  const min = Math.min(...months)
+  const max = Math.max(...months)
+  return min === max ? `${min}月` : `${min}月〜${max}月`
 }
 
 function onStartNew() {
@@ -382,66 +383,84 @@ function _itemCount(session) {
         <!-- ダッシュボードパネル -->
         <div class="tab-panel">
 
-          <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
-          <template v-if="completedSessions.length > 0">
-            <div v-for="grp in completedByYear" :key="grp.year" class="year-group">
-              <button class="year-header" @click="toggleYear(grp.year)">
-                <span class="year-arrow">{{ expandedYears.includes(grp.year) ? '▼' : '▶' }}</span>
-                <span class="year-name">{{ grp.year }}年</span>
-                <span class="year-count">{{ grp.items.length }}件</span>
-              </button>
-              <div v-if="expandedYears.includes(grp.year)" class="year-body">
-                <div
-                  v-for="s in grp.items"
-                  :key="s.id"
-                  class="session-card session-card-completed"
-                  @click="emit('viewSession', s)"
-                >
-                  <div class="session-main">
-                    <span class="session-status status-done">完了</span>
-                    <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                    <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
-                  </div>
-                  <div class="session-sub">
-                    <span class="session-count">{{ _itemCount(s) }}品目</span>
-                    <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
-                    <span class="session-detail-arrow">詳細 ›</span>
-                  </div>
-                </div>
+          <!-- 年詳細ビュー -->
+          <template v-if="selectedYear !== null">
+            <button class="year-back-btn" @click="selectedYear = null">‹ 戻る</button>
+            <div class="year-detail-header">
+              <span class="year-detail-title">{{ selectedYear }}年の棚卸</span>
+              <span class="year-count">{{ selectedYearSessions.length }}件</span>
+            </div>
+            <div
+              v-for="s in selectedYearSessions"
+              :key="s.id"
+              class="session-card session-card-completed"
+              @click="emit('viewSession', s)"
+            >
+              <div class="session-main">
+                <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
+                <span class="session-status status-done">完了</span>
+                <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+                <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+              </div>
+              <div class="session-sub">
+                <span class="session-count">{{ _itemCount(s) }}品目</span>
+                <span v-if="s.endedAt" class="session-ended">終了: {{ _formatDate(s.endedAt) }}</span>
+                <span class="session-detail-arrow">詳細 ›</span>
               </div>
             </div>
+            <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
           </template>
-          <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
-          <div class="section-title" style="margin-top:24px">📂 データ管理</div>
-          <div class="dashboard-card" @click="emit('openSettings')">
-            <div class="dashboard-card-icon">⚙️</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">品目リスト・インポート設定</div>
-              <div class="dashboard-card-desc">CSV / Excel / PDF から品目を読み込む</div>
-            </div>
-            <span class="dashboard-card-arrow">›</span>
-          </div>
+          <!-- 年一覧ビュー -->
+          <template v-else>
+            <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
+            <template v-if="completedSessions.length > 0">
+              <button
+                v-for="grp in completedByYear"
+                :key="grp.year"
+                class="year-card"
+                @click="selectedYear = grp.year"
+              >
+                <div class="year-card-info">
+                  <span class="year-card-year">{{ grp.year }}年</span>
+                  <span class="year-card-range">{{ _yearDateRange(grp.items) }}</span>
+                </div>
+                <span class="year-card-count">{{ grp.items.length }}件</span>
+                <span class="year-card-arrow">›</span>
+              </button>
+            </template>
+            <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
-          <div class="section-title" style="margin-top:16px">📊 分析</div>
-          <div class="dashboard-card dashboard-card-disabled">
-            <div class="dashboard-card-icon">📊</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">棚卸レポート</div>
-              <div class="dashboard-card-desc">差異・傾向レポートを準備中</div>
+            <div class="section-title" style="margin-top:24px">📂 データ管理</div>
+            <div class="dashboard-card" @click="emit('openSettings')">
+              <div class="dashboard-card-icon">⚙️</div>
+              <div class="dashboard-card-body">
+                <div class="dashboard-card-title">品目リスト・インポート設定</div>
+                <div class="dashboard-card-desc">CSV / Excel / PDF から品目を読み込む</div>
+              </div>
+              <span class="dashboard-card-arrow">›</span>
             </div>
-            <span class="coming-badge">準備中</span>
-          </div>
 
-          <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
-          <div class="dashboard-card dashboard-card-disabled">
-            <div class="dashboard-card-icon">📖</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">使い方ガイド</div>
-              <div class="dashboard-card-desc">操作マニュアルを準備中</div>
+            <div class="section-title" style="margin-top:16px">📊 分析</div>
+            <div class="dashboard-card dashboard-card-disabled">
+              <div class="dashboard-card-icon">📊</div>
+              <div class="dashboard-card-body">
+                <div class="dashboard-card-title">棚卸レポート</div>
+                <div class="dashboard-card-desc">差異・傾向レポートを準備中</div>
+              </div>
+              <span class="coming-badge">準備中</span>
             </div>
-            <span class="coming-badge">準備中</span>
-          </div>
+
+            <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
+            <div class="dashboard-card dashboard-card-disabled">
+              <div class="dashboard-card-icon">📖</div>
+              <div class="dashboard-card-body">
+                <div class="dashboard-card-title">使い方ガイド</div>
+                <div class="dashboard-card-desc">操作マニュアルを準備中</div>
+              </div>
+              <span class="coming-badge">準備中</span>
+            </div>
+          </template>
 
         </div>
 
@@ -906,61 +925,100 @@ function _itemCount(session) {
   padding: 24px 16px;
 }
 
-/* 年グループ（完了済みアコーディオン） */
-.year-group {
-  background: white;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: 4px;
-}
-
-.year-header {
+/* 年カード（完了済み一覧） */
+.year-card {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 14px 16px;
   background: white;
-  border: none;
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   cursor: pointer;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s;
+  transition: transform 0.12s ease;
 }
-.year-header:active { background: #f0f9ff; }
+.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: #dbeafe; }
 
-.year-arrow {
-  font-size: 10px;
-  color: var(--text-muted, #64748b);
-  width: 12px;
-  flex-shrink: 0;
-}
+.year-card-info { flex: 1; min-width: 0; }
 
-.year-name {
-  font-size: 15px;
+.year-card-year {
+  display: block;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary, #1e293b);
-  flex: 1;
+}
+
+.year-card-range {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
 }
 
 .year-count {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted, #64748b);
   background: #f1f5f9;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 10px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.year-body {
-  border-top: 1px solid #f1f5f9;
-  padding: 8px;
+.year-card-arrow {
+  font-size: 18px;
+  color: var(--primary, #3b82f6);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* 年詳細ビュー */
+.year-back-btn {
+  background: none;
+  border: none;
+  font-size: 15px;
+  color: var(--primary, #3b82f6);
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  align-self: flex-start;
+}
+.year-back-btn:active { opacity: 0.6; }
+
+.year-detail-header {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: #f8fafc;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 0 4px;
+}
+
+.year-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+
+/* NEW バッジ */
+.badge-new {
+  font-size: 10px;
+  font-weight: 800;
+  color: white;
+  background: #ef4444;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  animation: badge-pulse 2s infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
 }
 
 /* セッションカード */

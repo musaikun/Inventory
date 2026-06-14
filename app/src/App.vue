@@ -40,7 +40,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 
@@ -70,6 +70,15 @@ const {
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
   clear: clearSession,
 } = useSession()
+
+// ── 完了セッションの NEW バッジ ───────────────────────────────────────────────
+const newSessionId = ref(null)
+let _newSessionTimer = null
+function _setNewSession(id) {
+  newSessionId.value = id
+  clearTimeout(_newSessionTimer)
+  _newSessionTimer = setTimeout(() => { newSessionId.value = null }, 60000)
+}
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
 const pendingJoinCode  = ref(null)
@@ -648,25 +657,37 @@ async function onComplete() {
     : '棚卸を完了しますか？\n完了後は読み取り専用になります。'
   if (!confirm(confirmMsg)) return
 
+  const completedId   = pendingSession.value?.id
+  const completedYear = new Date().getFullYear()
+
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
   if (snapshot) saveSnapshotToD1(snapshot)
-  completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
+    completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
-    _clearDraft(pendingSession.value?.id)
+    _clearDraft(completedId)
     clearSession()
-    sessionsTab.value = 'dashboard'
-    currentView.value = 'sessions'
+    sessionsTab.value  = 'dashboard'
+    sessionsYear.value = completedYear
+    _setNewSession(completedId)
+    currentView.value  = 'sessions'
     return
   }
 
-  _clearDraft(pendingSession.value?.id)
+  // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
+  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  _clearDraft(completedId)
+  clearSession()
   showToast('棚卸を完了しました ✓', 3000, 'success')
+  sessionsTab.value  = 'dashboard'
+  sessionsYear.value = completedYear
+  _setNewSession(completedId)
+  currentView.value  = 'sessions'
 }
 
 
@@ -719,8 +740,10 @@ async function onStartNew() {
 // SyncModal からの「✓ 棚卸を完了」
 // ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知 + ルーム解散 → セッション一覧へ
 async function onSyncComplete() {
+  const completedId   = pendingSession.value?.id
+  const completedYear = new Date().getFullYear()
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, pendingSession.value?.id)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
   if (snapshot) saveSnapshotToD1(snapshot)
   await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   broadcastSessionEnd('completed')
@@ -728,10 +751,12 @@ async function onSyncComplete() {
   showSync.value = false
   _hostInitiatedDissolve = true
   await dissolveRoom()
-  _clearDraft(pendingSession.value?.id)
+  _clearDraft(completedId)
   clearSession()
-  sessionsTab.value = 'dashboard'
-  currentView.value = 'sessions'
+  sessionsTab.value  = 'dashboard'
+  sessionsYear.value = completedYear
+  _setNewSession(completedId)
+  currentView.value  = 'sessions'
 }
 
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
@@ -1194,6 +1219,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       v-else-if="currentView === 'sessions'"
       :live-item-count="filledCount"
       :live-session-id="pendingSession?.id ?? null"
+      :new-session-id="newSessionId"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
