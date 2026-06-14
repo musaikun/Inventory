@@ -1,6 +1,6 @@
 <script>
 import { ref } from 'vue'
-const _persistedTab = ref('sessions')
+export const _persistedTab = ref('sessions')
 </script>
 
 <script setup>
