@@ -1236,6 +1236,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <SessionDetailPage
       v-else-if="currentView === 'session-detail' && detailSnapshot"
       :snapshot="detailSnapshot"
+      :is-host="!syncActive || syncIsHost"
       @back="currentView = 'sessions'"
     />
 
@@ -1460,11 +1461,11 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
             >{{ guestReported ? '↩ 棚卸再開' : '✓ 棚卸完了' }}</button>
-            <button class="btn-export" @click="onExport">💾 CSV</button>
+            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>
             <button class="btn-new-session" @click="onStartNew">＋ 新規棚卸</button>
-            <button class="btn-export" @click="onExport">💾 CSV</button>
+            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
         </div>
       </div>
