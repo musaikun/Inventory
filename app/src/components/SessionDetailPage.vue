@@ -7,6 +7,7 @@ import InventoryTable from './InventoryTable.vue'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
+  isHost:   { type: Boolean, default: true },
 })
 const emit = defineEmits(['back'])
 
@@ -19,7 +20,6 @@ const categoryScope = ref('all')
 // ── スナップショット → InventoryTable 用データへ変換 ───────────────────────────
 const snapItems = computed(() => props.snapshot.items ?? [])
 
-// 入力済みのみ inventory に入れる（未入力は order にだけ残し「—」表示）
 const snapInventory = computed(() => {
   const inv = {}
   for (const it of snapItems.value) {
@@ -30,12 +30,8 @@ const snapInventory = computed(() => {
   return inv
 })
 
-// 凍結された config（保存時点の並び順・カテゴリ・価格・コード）
 const snapConfig = computed(() => {
-  const order = []
-  const categories = {}
-  const prices = {}
-  const codes = {}
+  const order = [], categories = {}, prices = {}, codes = {}
   for (const it of snapItems.value) {
     order.push(it.item)
     if (it.category != null)  categories[it.item] = it.category
@@ -65,28 +61,79 @@ const sortedLog = computed(() => {
   if (!Array.isArray(log) || !log.length) return []
   return [...log].reverse()
 })
-const hasAuditLog = computed(() => sortedLog.value.length > 0)
+const hasAuditLog    = computed(() => sortedLog.value.length > 0)
+const hasParticipants = computed(() => (props.snapshot.participants?.length ?? 0) > 0)
+
+// ── タブ制御（3パネル固定: items / participants / history）──────────────────
+// パネルは常に3枚DOMに存在し、スムーズなスライドを実現する
+const TAB_ORDER  = ['items', 'participants', 'history']
+const activeIdx  = computed(() => TAB_ORDER.indexOf(activeTab.value))
 
 const swipe = useHorizontalSwipe({
-  onLeft:  () => { if (activeTab.value === 'items' && hasAuditLog.value) activeTab.value = 'history' },
-  onRight: () => { if (activeTab.value === 'history') activeTab.value = 'items' },
+  onLeft: () => {
+    const idx = activeIdx.value
+    if (idx === 0) {
+      if (hasParticipants.value) activeTab.value = 'participants'
+      else if (hasAuditLog.value) activeTab.value = 'history'
+    } else if (idx === 1 && hasAuditLog.value) {
+      activeTab.value = 'history'
+    }
+  },
+  onRight: () => {
+    const idx = activeIdx.value
+    if (idx === 2) {
+      activeTab.value = hasParticipants.value ? 'participants' : 'items'
+    } else if (idx === 1) {
+      activeTab.value = 'items'
+    }
+  },
   onDrag: (dx) => {
     if (dx === 0) { dragOffset.value = 0; return }
-    if (activeTab.value === 'items'   && dx > 0) return
-    if (activeTab.value === 'history' && dx < 0) return
-    if (activeTab.value === 'items'   && !hasAuditLog.value) return
+    const idx = activeIdx.value
+    if (dx > 0 && idx === 0) return
+    if (dx < 0 && idx === 2) return
+    if (dx < 0 && idx === 1 && !hasAuditLog.value) return
+    if (dx > 0 && idx === 2 && !hasParticipants.value) return
     dragOffset.value = dx
   },
 })
 
 const trackStyle = computed(() => {
-  const base = activeTab.value === 'items' ? 0 : -50
+  const base = -activeIdx.value * (100 / 3)
   if (dragOffset.value === 0) {
     return { transform: `translateX(${base}%)`, transition: 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)' }
   }
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
+// ── 参加者別 ──────────────────────────────────────────────────────────────────
+// auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
+const participantStats = computed(() => {
+  const timeMap = new Map()
+  for (const entry of (props.snapshot.auditLog ?? [])) {
+    if (!entry.enteredById || !entry.ts) continue
+    const t = new Date(entry.ts).getTime()
+    if (!timeMap.has(entry.enteredById)) {
+      timeMap.set(entry.enteredById, { name: entry.enteredBy || '?', first: t, last: t })
+    } else {
+      const cur = timeMap.get(entry.enteredById)
+      cur.first = Math.min(cur.first, t)
+      cur.last  = Math.max(cur.last, t)
+    }
+  }
+
+  return (props.snapshot.participants ?? []).map(p => {
+    const timeEntry = [...timeMap.values()].find(t => t.name === p.name)
+    let activeDur = null
+    if (timeEntry) {
+      const min = Math.max(1, Math.round((timeEntry.last - timeEntry.first) / 60000))
+      activeDur = min < 60 ? `${min}分` : `${Math.floor(min / 60)}時間${min % 60 > 0 ? (min % 60) + '分' : ''}`
+    }
+    return { name: p.name, items: p.items ?? [], totalValue: p.totalValue, activeDur }
+  })
+})
+
+// ── フォーマット ──────────────────────────────────────────────────────────────
 function fmtDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'T00:00:00')
@@ -142,20 +189,26 @@ function onDownload() {
           <span v-if="snapshot.totalValue != null" class="header-total">{{ fmtYen(snapshot.totalValue) }}</span>
         </div>
       </div>
-      <button class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
+      <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
+      <div v-else class="btn-icon-placeholder"></div>
     </div>
 
     <!-- タブバー -->
     <div class="tab-bar">
       <button :class="['tab-btn', { active: activeTab === 'items' }]" @click="activeTab = 'items'">品目一覧</button>
       <button
+        :class="['tab-btn', { active: activeTab === 'participants' }]"
+        :disabled="!hasParticipants"
+        @click="activeTab = 'participants'"
+      >参加者別{{ hasParticipants ? ` (${participantStats.length})` : '' }}</button>
+      <button
         :class="['tab-btn', { active: activeTab === 'history' }]"
-        @click="activeTab = 'history'"
         :disabled="!hasAuditLog"
+        @click="activeTab = 'history'"
       >変更履歴{{ hasAuditLog ? ` (${sortedLog.length})` : '' }}</button>
     </div>
 
-    <!-- スライドパネル -->
+    <!-- スライドパネル（3枚固定） -->
     <div
       class="tab-panels-wrapper"
       @touchstart.passive="swipe.onTouchStart"
@@ -164,14 +217,13 @@ function onDownload() {
     >
       <div class="tab-panels-track" :style="trackStyle">
 
-        <!-- 品目一覧パネル（メイン画面と同一の InventoryTable を読み取り専用で再利用）-->
+        <!-- 品目一覧 -->
         <div class="tab-panel">
           <div v-if="hasSupplyItems" class="scope-bar">
             <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
             <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
             <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
           </div>
-
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
@@ -182,10 +234,30 @@ function onDownload() {
           />
         </div>
 
-        <!-- 変更履歴パネル -->
-        <div class="tab-panel">
-          <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
+        <!-- 参加者別 -->
+        <div class="tab-panel tab-panel-scroll">
+          <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
+          <div v-for="p in participantStats" :key="p.name" class="participant-section">
+            <div class="participant-header">
+              <span class="participant-name">{{ p.name }}</span>
+              <div class="participant-meta">
+                <span class="pmeta-chip">{{ p.items.length }}品目</span>
+                <span v-if="p.activeDur" class="pmeta-chip">⏱ {{ p.activeDur }}</span>
+                <span v-if="p.totalValue != null" class="pmeta-chip pmeta-value">{{ fmtYen(p.totalValue) }}</span>
+              </div>
+            </div>
+            <div class="participant-items">
+              <div v-for="it in p.items" :key="it.item" class="pi-row">
+                <span class="pi-name">{{ it.item }}</span>
+                <span class="pi-qty">{{ it.qty }}{{ it.unit }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
+        <!-- 変更履歴 -->
+        <div class="tab-panel tab-panel-scroll">
+          <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
           <div v-for="entry in sortedLog" :key="entry.id" class="log-entry">
             <div class="log-left">
               <span class="log-time">{{ fmtTime(entry.timestamp) }}</span>
@@ -290,12 +362,17 @@ function onDownload() {
 }
 .btn-icon:active { opacity: 1; transform: scale(0.9); }
 
+.btn-icon-placeholder {
+  width: 28px;
+  flex-shrink: 0;
+}
+
 /* ── タブバー ── */
 .tab-bar {
   display: flex;
   background: white;
   border-bottom: 1.5px solid #e2e8f0;
-  padding: 0 16px;
+  padding: 0 8px;
   flex-shrink: 0;
 }
 
@@ -305,12 +382,13 @@ function onDownload() {
   background: none;
   border: none;
   border-bottom: 2.5px solid transparent;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted, #64748b);
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
 }
 
 .tab-btn.active {
@@ -325,7 +403,7 @@ function onDownload() {
 
 .tab-btn:not(:disabled):active { transform: scale(0.95); }
 
-/* ── スライドパネル ── */
+/* ── スライドパネル（3枚） ── */
 .tab-panels-wrapper {
   flex: 1;
   overflow: hidden;
@@ -338,30 +416,108 @@ function onDownload() {
   top: 0;
   left: 0;
   display: flex;
-  width: 200%;
+  width: 300%;
   height: 100%;
   will-change: transform;
 }
 
 .tab-panel {
-  width: 50%;
+  width: 33.333%;
   height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 12px 0 24px;
   box-sizing: border-box;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
-/* 履歴パネルは内側に余白を持たせる */
-.tab-panel:last-child {
+.tab-panel-scroll {
+  overflow-y: auto;
   padding: 12px 12px 24px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .scope-bar { margin-top: 0; }
+
+/* ── 参加者別 ── */
+.participant-section {
+  background: white;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.participant-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.participant-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  flex-shrink: 0;
+}
+
+.participant-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pmeta-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.pmeta-value {
+  color: var(--primary, #3b82f6);
+  background: #eff6ff;
+}
+
+.participant-items {
+  padding: 4px 0;
+}
+
+.pi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.pi-row:last-child { border-bottom: none; }
+
+.pi-name {
+  color: var(--text-primary, #1e293b);
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+
+.pi-qty {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary, #3b82f6);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 /* ── 変更履歴 ── */
 .empty-msg {
