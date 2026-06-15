@@ -1238,6 +1238,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
       @back="currentView = 'sessions'"
+      @patched="snap => { detailSnapshot = snap }"
     />
 
     <!-- ── ランディング ── -->

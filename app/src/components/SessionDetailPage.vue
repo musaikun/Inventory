@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
@@ -9,9 +9,9 @@ const props = defineProps({
   snapshot: { type: Object, required: true },
   isHost:   { type: Boolean, default: true },
 })
-const emit = defineEmits(['back'])
+const emit = defineEmits(['back', 'patched'])
 
-const { exportSnapshotCSV } = useHistory()
+const { exportSnapshotCSV, getSnapshots, patchSnapshotItems } = useHistory()
 
 const activeTab     = ref('items')
 const dragOffset    = ref(0)
@@ -63,6 +63,64 @@ const sortedLog = computed(() => {
 })
 const hasAuditLog    = computed(() => sortedLog.value.length > 0)
 const hasParticipants = computed(() => (props.snapshot.participants?.length ?? 0) > 0)
+
+// ── 訂正ウィンドウ（3日間 または 次のセッション完了まで）─────────────────────
+const CORRECTION_DAYS = 3
+
+const isLocked = computed(() => {
+  const savedAt = new Date(props.snapshot.savedAt ?? props.snapshot.date)
+  if (Date.now() - savedAt.getTime() > CORRECTION_DAYS * 86400_000) return true
+  return getSnapshots().some(s =>
+    s.sessionId !== props.snapshot.sessionId &&
+    new Date(s.savedAt ?? s.date) > savedAt
+  )
+})
+
+const correctionDaysRemaining = computed(() => {
+  if (isLocked.value) return 0
+  const savedAt   = new Date(props.snapshot.savedAt ?? props.snapshot.date)
+  const remaining = CORRECTION_DAYS * 86400_000 - (Date.now() - savedAt.getTime())
+  return Math.max(0, Math.ceil(remaining / 86400_000))
+})
+
+// ── 訂正モード ────────────────────────────────────────────────────────────────
+const isEditing = ref(false)
+const editQtys  = ref({})
+
+function enterEdit() {
+  const init = {}
+  for (const it of snapItems.value) {
+    init[it.item] = it.qty !== null && it.qty !== undefined ? it.qty : null
+  }
+  editQtys.value = init
+  isEditing.value = true
+}
+
+function cancelEdit() {
+  isEditing.value = false
+}
+
+function saveEdit() {
+  const patches = {}
+  for (const it of snapItems.value) {
+    const orig    = it.qty !== null && it.qty !== undefined ? it.qty : null
+    const edited  = editQtys.value[it.item]
+    if (edited !== orig) patches[it.item] = { qty: edited }
+  }
+  if (Object.keys(patches).length === 0) { isEditing.value = false; return }
+  const updated = patchSnapshotItems(props.snapshot.date, patches)
+  isEditing.value = false
+  if (updated) emit('patched', updated)
+}
+
+function onQtyInput(itemName, e) {
+  const v = e.target.value
+  editQtys.value[it.item] = v === '' ? null : parseFloat(v)
+}
+
+function setEditQty(itemName, rawValue) {
+  editQtys.value[itemName] = rawValue === '' ? null : parseFloat(rawValue)
+}
 
 // ── タブ制御（3パネル固定: items / participants / history）──────────────────
 // パネルは常に3枚DOMに存在し、スムーズなスライドを実現する
@@ -189,8 +247,13 @@ function onDownload() {
           <span v-if="snapshot.totalValue != null" class="header-total">{{ fmtYen(snapshot.totalValue) }}</span>
         </div>
       </div>
-      <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
-      <div v-else class="btn-icon-placeholder"></div>
+      <div class="header-right">
+        <span v-if="!isLocked" class="correction-badge" @click="!isLocked && enterEdit()">
+          ✏️ あと{{ correctionDaysRemaining > 0 ? correctionDaysRemaining + '日' : '今日まで' }}
+        </span>
+        <span v-else class="lock-badge">🔒 確定</span>
+        <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
+      </div>
     </div>
 
     <!-- タブバー -->
@@ -279,6 +342,37 @@ function onDownload() {
       </div>
     </div>
 
+    <!-- 訂正モード オーバーレイ -->
+    <Transition name="edit-slide">
+      <div v-if="isEditing" class="edit-overlay">
+        <div class="edit-header">
+          <button class="edit-header-btn" @click="cancelEdit">キャンセル</button>
+          <span class="edit-header-title">訂正モード</span>
+          <button class="edit-header-btn edit-header-save" @click="saveEdit">保存</button>
+        </div>
+        <div class="edit-notice">数量のみ修正できます。品目の追加・削除はできません。</div>
+        <div class="edit-list">
+          <template v-for="it in snapItems" :key="it.item">
+            <div v-if="it.category && (snapItems.indexOf(it) === 0 || snapItems[snapItems.indexOf(it) - 1]?.category !== it.category)" class="edit-cat-header">
+              {{ it.category }}
+            </div>
+            <div class="edit-row" :class="{ changed: editQtys[it.item] !== (it.qty ?? null) }">
+              <span class="edit-item-name">{{ it.item }}</span>
+              <input
+                type="number"
+                class="edit-qty-input"
+                :value="editQtys[it.item] ?? ''"
+                min="0"
+                step="0.1"
+                @input="setEditQty(it.item, $event.target.value)"
+              />
+              <span class="edit-unit">{{ it.unit }}</span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </Transition>
+
   </div>
 </template>
 
@@ -362,9 +456,162 @@ function onDownload() {
 }
 .btn-icon:active { opacity: 1; transform: scale(0.9); }
 
-.btn-icon-placeholder {
-  width: 28px;
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+.correction-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #d97706;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 3px 9px;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.correction-badge:active { opacity: 0.7; }
+
+.lock-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ── 訂正オーバーレイ ── */
+.edit-overlay {
+  position: absolute;
+  inset: 0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+}
+
+.edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.edit-header-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.edit-header-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--primary, #3b82f6);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.edit-header-save {
+  color: #059669;
+  font-size: 15px;
+}
+
+.edit-notice {
+  font-size: 12px;
+  color: #d97706;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  padding: 8px 16px;
+  flex-shrink: 0;
+}
+
+.edit-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.edit-cat-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  background: #f1f5f9;
+  padding: 6px 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.edit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: white;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s;
+}
+
+.edit-row.changed {
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+}
+
+.edit-item-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-qty-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  color: #1e293b;
+  background: white;
+  -webkit-appearance: none;
+  appearance: none;
+  flex-shrink: 0;
+}
+.edit-qty-input:focus {
+  outline: none;
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.edit-unit {
+  font-size: 12px;
+  color: #64748b;
+  min-width: 28px;
+  flex-shrink: 0;
+}
+
+.edit-slide-enter-active, .edit-slide-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.edit-slide-enter-from, .edit-slide-leave-to {
+  transform: translateX(100%);
 }
 
 /* ── タブバー ── */
