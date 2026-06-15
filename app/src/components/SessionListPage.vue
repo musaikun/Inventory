@@ -169,6 +169,23 @@ const selectedYearSessions = computed(() => {
   return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
 })
 
+const CORRECTION_DAYS = 3
+
+function _isSessionLocked(session) {
+  if (!session.endedAt) return false
+  if (Date.now() - new Date(session.endedAt).getTime() > CORRECTION_DAYS * 86400_000) return true
+  return completedSessions.value.some(s =>
+    s.id !== session.id && new Date(s.startedAt) > new Date(session.endedAt)
+  )
+}
+
+function _correctionLabel(session) {
+  if (_isSessionLocked(session)) return null
+  const remaining = CORRECTION_DAYS * 86400_000 - (Date.now() - new Date(session.endedAt).getTime())
+  const days = Math.max(0, Math.ceil(remaining / 86400_000))
+  return days > 0 ? `あと${days}日` : '今日まで'
+}
+
 function _yearDateRange(items) {
   if (!items.length) return ''
   const months = items.map(s => new Date(s.startedAt).getMonth() + 1)
@@ -217,7 +234,12 @@ const selectedYearSessionStats = computed(() => {
       return { name: p.name, itemCount: p.items?.length ?? 0, activeDur }
     })
 
-    result[s.id] = { duration, participants }
+    result[s.id] = {
+      duration,
+      participants,
+      locked:          _isSessionLocked(s),
+      correctionLabel: _correctionLabel(s),
+    }
   }
   return result
 })
@@ -447,6 +469,10 @@ function _itemCount(session) {
                 <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
                 <span class="session-status status-done">完了</span>
                 <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+                <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
+                  ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
+                </span>
+                <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
                 <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
               </div>
               <!-- 所要時間・参加者数・品目数 -->
@@ -1156,6 +1182,30 @@ function _itemCount(session) {
   -webkit-tap-highlight-color: transparent;
 }
 .session-card-completed:active { transform: scale(0.99); background: #f0f9ff; }
+
+.badge-correction {
+  font-size: 10px;
+  font-weight: 700;
+  color: #d97706;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.badge-locked {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .session-detail-arrow {
   margin-left: auto;

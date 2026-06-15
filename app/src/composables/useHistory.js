@@ -206,5 +206,34 @@ export function useHistory() {
     deleteSnapshot(date)
   }
 
-  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV }
+  /**
+   * 訂正期間内のスナップショットの数量を部分更新
+   * @param {string} date      スナップショットの日付キー（YYYY-MM-DD）
+   * @param {object} patches   { 品目名: { qty: number|null } }
+   */
+  function patchSnapshotItems(date, patches) {
+    const snap = _data[date]
+    if (!snap) return null
+
+    for (const item of snap.items) {
+      if (!(item.item in patches)) continue
+      const newQty = patches[item.item].qty
+      item.qty = newQty
+      item.subtotal = (newQty !== null && item.unitPrice != null)
+        ? Math.round(newQty * item.unitPrice)
+        : null
+    }
+
+    let total = 0, hasPrices = false
+    for (const item of snap.items) {
+      if (item.qty !== null && item.subtotal != null) { total += item.subtotal; hasPrices = true }
+    }
+    snap.totalValue = hasPrices ? total : null
+    snap.updatedAt  = new Date().toISOString()
+
+    _persist()
+    return { ...snap, items: snap.items.map(i => ({ ...i })) }
+  }
+
+  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems }
 }
