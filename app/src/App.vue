@@ -49,7 +49,7 @@ import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from '
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -297,8 +297,8 @@ setConfigCallback((cfg) => {
     showToast('品目一覧が更新されました', 3000, 'update')
   }
 })
-// ホストに品目リストが無いルームへ参加した場合はデフォルトへ復帰
-setResetConfigCallback(() => resetToDefault())
+// ホストに品目リストが無いルームへ参加した場合はローカルを空に揃える
+setResetConfigCallback(() => clearConfig())
 
 let _configSaveTimer = null
 setConfigChangedCallback(() => {
@@ -353,7 +353,7 @@ setGuestLeaveCallback(() => {
   showChat.value = false
   clearSession()
   reset()
-  resetToDefault()
+  clearConfig()
   clearAuditLog()
   guestReported.value = false
   if (!_hostCompletedLeave) {
@@ -646,11 +646,11 @@ async function onComplete() {
 
   // ゲスト（ルーム参加中）: 完了報告のみ。画面ロック・スナップショット保存は行わない
   if (syncActive.value && !syncIsHost.value) {
-    if (!confirm('棚卸完了をルームに報告しますか？\n完了後は入力がロックされますが、ホストが棚卸を締めるまで再開できます。')) return
+    if (!confirm('担当分の入力完了をホストに報告しますか？\n報告後も再開できます。')) return
     broadcastDone()
     guestReported.value = true
     if (continuousMode.value) onForceStop()
-    showToast('棚卸完了を報告しました ✓', 3000, 'success')
+    showToast('入力完了をホストに報告しました ✓', 3000, 'success')
     return
   }
 
@@ -769,23 +769,25 @@ function onSyncNewSession({ sessionId }) {
   broadcastSessionStart(sessionId)
 }
 
-// ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
-async function onLogout() {
-  // ルーム接続中は適切に切断してからログアウト
-  if (syncIsHost.value) {
-    _hostInitiatedDissolve = true
-    await dissolveRoom()            // ホスト → ルーム解散（ゲストに通知）
-  } else if (syncActive.value) {
-    leaveRoom()                     // ゲスト → 退出（_onGuestLeave が reset/navigate を担当）
-    return                          // コールバック側でランディングへ遷移するため終了
-  } else if (hasHostToken()) {
-    await dissolveRoomRemote()      // 退室済みの残存ルームを掃除（ゲストに解散通知）
-  }
-  reset()
-  resetToDefault()
-  clearAuditLog()
-  currentView.value = 'landing'
-}
+
+// ── セッション経過タイマー ──────────────────────────────────────────────────────
+const sessionNow = ref(Date.now())
+let _sessionTimer = null
+watch(() => currentView.value, (v) => {
+  clearInterval(_sessionTimer)
+  if (v === 'inventory') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 30_000)
+}, { immediate: true })
+onUnmounted(() => clearInterval(_sessionTimer))
+
+const sessionElapsed = computed(() => {
+  const st = pendingSession.value?.startedAt
+  if (!st || isCompleted.value) return null
+  const min = Math.floor((sessionNow.value - new Date(st).getTime()) / 60000)
+  if (min < 1) return null
+  if (min < 60) return `${min}分経過`
+  const h = Math.floor(min / 60), m = min % 60
+  return m > 0 ? `${h}時間${m}分経過` : `${h}時間経過`
+})
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
 // type: 'default' | 'success' | 'error' | 'warning' | 'join' | 'leave' | 'update'
@@ -1254,6 +1256,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
+          <div v-if="sessionElapsed" class="session-elapsed">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
           <button
             class="settings-btn sync-btn"
@@ -1325,6 +1328,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
+        <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
       </section>
 
       <!-- 同時入力 競合解決バナー（入力欄直下） -->
@@ -1405,7 +1409,16 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </div>
 
+      <!-- 品目未設定 空状態 -->
+      <div v-if="config.order.length === 0" class="empty-items-state">
+        <div class="empty-items-icon">📋</div>
+        <div class="empty-items-title">品目リストが未設定です</div>
+        <div class="empty-items-desc">設定画面から品目リストをインポートしてください</div>
+        <button class="empty-items-btn" @click="showSettings = true">⚙️ 設定を開く</button>
+      </div>
+
       <InventoryTable
+        v-else
         ref="inventoryTableRef"
         :inventory="inventory"
         :filled-count="filledCount"
@@ -1461,7 +1474,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               class="btn-complete"
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
-            >{{ guestReported ? '↩ 棚卸再開' : '✓ 棚卸完了' }}</button>
+            >{{ guestReported
+                ? (syncActive && !syncIsHost ? '↩ 入力再開' : '↩ 棚卸再開')
+                : (syncActive && !syncIsHost ? '✓ 入力完了' : '✓ 棚卸完了')
+              }}</button>
             <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>
@@ -1524,7 +1540,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
+    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
     <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 

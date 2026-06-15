@@ -3,17 +3,17 @@ import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { shopCode, clearShopCode } from '../composables/useStore.js'
+import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 
 const props = defineProps({ isGuest: Boolean })
-const emit = defineEmits(['close', 'logout'])
+const emit = defineEmits(['close'])
 useEscapeKey(() => emit('close'))
 
 const {
   config, itemCount,
-  loadFromCSV, exportConfigCSV, resetToDefault,
+  loadFromCSV, exportConfigCSV,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
@@ -98,13 +98,6 @@ function onDownloadTemplate() {
   }
 }
 
-// ── 品目リスト リセット ────────────────────────────────────────────────────────
-function onReset() {
-  if (!confirm('デフォルトの品目リストに戻しますか？\nアップロードした設定は削除されます。')) return
-  resetToDefault()
-  status.value = { type: 'success', msg: 'デフォルトに戻しました' }
-}
-
 // ── 店舗コード ─────────────────────────────────────────────────────────────────
 const codeCopied = ref(false)
 function copyCode() {
@@ -112,13 +105,6 @@ function copyCode() {
     codeCopied.value = true
     setTimeout(() => (codeCopied.value = false), 2000)
   })
-}
-
-function onLogout() {
-  if (!confirm('店舗コードをリセットして別の店舗に切り替えますか？\n現在のデータはこの端末に残ります。')) return
-  clearShopCode()
-  emit('logout')
-  emit('close')
 }
 </script>
 
@@ -220,7 +206,6 @@ function onLogout() {
           </button>
         </div>
         <div class="store-hint">このコードで他の端末からも同じデータにアクセスできます</div>
-        <button class="btn store-logout-btn" @click="onLogout">別の店舗コードに切り替える</button>
       </div>
 
       <!-- 端末名設定 -->
@@ -247,9 +232,6 @@ function onLogout() {
       <!-- アクションボタン（ゲストは非表示） -->
       <div v-if="!props.isGuest" class="actions">
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
-        <button class="btn btn-secondary reset" @click="onReset" :disabled="!config.isCustom">
-          🔄 デフォルトに戻す
-        </button>
       </div>
 
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
@@ -443,21 +425,7 @@ function onLogout() {
   font-size: 11px;
   color: #3b82f6;
   line-height: 1.5;
-  margin-bottom: 10px;
 }
-
-.store-logout-btn {
-  width: 100%;
-  padding: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  background: white;
-  color: var(--danger);
-  border: 1.5px solid var(--danger);
-  border-radius: 8px;
-  cursor: pointer;
-}
-.store-logout-btn:active { background: #fef2f2; }
 
 /* 端末名設定 */
 .device-section {
@@ -519,10 +487,6 @@ function onLogout() {
   display: flex;
   gap: 10px;
   margin-bottom: 12px;
-}
-.btn.reset:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 .import-btn { width: 100%; margin-bottom: 12px; }
 .close-btn  { width: 100%; margin-top: 4px; }

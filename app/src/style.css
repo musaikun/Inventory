@@ -640,3 +640,62 @@ body {
 .pwa-banner-enter-active, .pwa-banner-leave-active { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s; }
 .pwa-banner-enter-from, .pwa-banner-leave-to       { transform: translateY(-100%); opacity: 0; }
 
+
+/* ── セッション経過タイマー ── */
+.session-elapsed {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+  background: #eff6ff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* ── 音声ヒント ── */
+.voice-hint {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  text-align: center;
+  padding: 2px 16px 4px;
+}
+
+/* ── 品目未設定 空状態 ── */
+.empty-items-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 24px;
+  flex: 1;
+}
+
+.empty-items-icon { font-size: 48px; }
+
+.empty-items-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #1e293b);
+}
+
+.empty-items-desc {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+
+.empty-items-btn {
+  margin-top: 8px;
+  padding: 12px 28px;
+  background: var(--primary, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.12s;
+}
+.empty-items-btn:active { opacity: 0.8; }

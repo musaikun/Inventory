@@ -3,6 +3,9 @@ import {
   DICTIONARY as DEFAULT_DICT,
   INVENTORY_ORDER as DEFAULT_ORDER,
   ITEM_UNITS as DEFAULT_UNITS,
+  SAMPLE_DICTIONARY,
+  SAMPLE_ORDER,
+  SAMPLE_UNITS,
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
@@ -329,8 +332,28 @@ export function useConfig() {
     return rows.join('\r\n')
   }
 
-  /** デフォルトに戻す */
-  function resetToDefault() {
+  /** サンプルデータを読み込む（動作確認用） */
+  function loadSampleData() {
+    config.order         = [...SAMPLE_ORDER]
+    config.units         = { ...SAMPLE_UNITS }
+    config.prices        = {}
+    config.categories    = {}
+    config.codes         = {}
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = { ...SAMPLE_DICTIONARY }
+    config.isCustom      = false
+    config.savedAt       = null
+    localStorage.removeItem(CONFIG_KEY)
+  }
+
+  /**
+   * ローカルの品目リストを空（初期状態）に掃除する
+   * ゲストのルーム参加/退出時専用 — ホストが正のため、退出端末にデータを残さない（流出対策）
+   * ※「デフォルトに戻す」UIではない。ホストの正データを消す用途には絶対に使わないこと
+   */
+  function clearConfig() {
     config.order         = [...DEFAULT_ORDER]
     config.units         = { ...DEFAULT_UNITS }
     config.prices        = {}
@@ -423,7 +446,8 @@ export function useConfig() {
     learnedAliasCount,
     loadFromCSV,
     exportConfigCSV,
-    resetToDefault,
+    clearConfig,
+    loadSampleData,
     registerAlias,
   }
 }
