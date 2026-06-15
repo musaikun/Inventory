@@ -3,6 +3,9 @@ import {
   DICTIONARY as DEFAULT_DICT,
   INVENTORY_ORDER as DEFAULT_ORDER,
   ITEM_UNITS as DEFAULT_UNITS,
+  SAMPLE_DICTIONARY,
+  SAMPLE_ORDER,
+  SAMPLE_UNITS,
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
@@ -329,6 +332,22 @@ export function useConfig() {
     return rows.join('\r\n')
   }
 
+  /** サンプルデータを読み込む（動作確認用） */
+  function loadSampleData() {
+    config.order         = [...SAMPLE_ORDER]
+    config.units         = { ...SAMPLE_UNITS }
+    config.prices        = {}
+    config.categories    = {}
+    config.codes         = {}
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = { ...SAMPLE_DICTIONARY }
+    config.isCustom      = false
+    config.savedAt       = null
+    localStorage.removeItem(CONFIG_KEY)
+  }
+
   /** デフォルトに戻す */
   function resetToDefault() {
     config.order         = [...DEFAULT_ORDER]
@@ -424,6 +443,7 @@ export function useConfig() {
     loadFromCSV,
     exportConfigCSV,
     resetToDefault,
+    loadSampleData,
     registerAlias,
   }
 }

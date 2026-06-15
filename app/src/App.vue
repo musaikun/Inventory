@@ -646,11 +646,11 @@ async function onComplete() {
 
   // ゲスト（ルーム参加中）: 完了報告のみ。画面ロック・スナップショット保存は行わない
   if (syncActive.value && !syncIsHost.value) {
-    if (!confirm('棚卸完了をルームに報告しますか？\n完了後は入力がロックされますが、ホストが棚卸を締めるまで再開できます。')) return
+    if (!confirm('担当分の入力完了をホストに報告しますか？\n報告後も再開できます。')) return
     broadcastDone()
     guestReported.value = true
     if (continuousMode.value) onForceStop()
-    showToast('棚卸完了を報告しました ✓', 3000, 'success')
+    showToast('入力完了をホストに報告しました ✓', 3000, 'success')
     return
   }
 
@@ -786,6 +786,28 @@ async function onLogout() {
   clearAuditLog()
   currentView.value = 'landing'
 }
+
+// ── セッション経過タイマー ──────────────────────────────────────────────────────
+const sessionNow = ref(Date.now())
+let _sessionTimer = null
+watch(() => currentView.value, (v) => {
+  clearInterval(_sessionTimer)
+  if (v === 'inventory') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 30_000)
+}, { immediate: true })
+onUnmounted(() => clearInterval(_sessionTimer))
+
+const sessionElapsed = computed(() => {
+  const st = pendingSession.value?.startedAt
+  if (!st || isCompleted.value) return null
+  const min = Math.floor((sessionNow.value - new Date(st).getTime()) / 60000)
+  if (min < 1) return null
+  if (min < 60) return `${min}分経過`
+  const h = Math.floor(min / 60), m = min % 60
+  return m > 0 ? `${h}時間${m}分経過` : `${h}時間経過`
+})
+
+// ── 品目絞り込みフィルター ────────────────────────────────────────────────────
+const tableFilter = ref('')
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
 // type: 'default' | 'success' | 'error' | 'warning' | 'join' | 'leave' | 'update'
@@ -1254,6 +1276,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
+          <div v-if="sessionElapsed" class="session-elapsed">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
           <button
             class="settings-btn sync-btn"
@@ -1325,6 +1348,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
+        <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
       </section>
 
       <!-- 同時入力 競合解決バナー（入力欄直下） -->
@@ -1405,19 +1429,41 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </div>
 
-      <InventoryTable
-        ref="inventoryTableRef"
-        :inventory="inventory"
-        :filled-count="filledCount"
-        :read-only="inputLocked"
-        :recount-flags="recountFlags"
-        :category-scope="categoryScope"
-        :typing-map="syncActive ? typingMap : null"
-        :conflict-locked="syncActive ? lockedIngredients : null"
-        @update="onTableUpdate"
-        @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
-        @tap="onTableTap"
-      />
+      <!-- 品目未設定 空状態 -->
+      <div v-if="config.order.length === 0" class="empty-items-state">
+        <div class="empty-items-icon">📋</div>
+        <div class="empty-items-title">品目リストが未設定です</div>
+        <div class="empty-items-desc">設定画面から品目リストをインポートしてください</div>
+        <button class="empty-items-btn" @click="showSettings = true">⚙️ 設定を開く</button>
+      </div>
+
+      <template v-else>
+        <!-- 絞り込みバー -->
+        <div class="table-filter-bar">
+          <input
+            v-model="tableFilter"
+            type="text"
+            class="table-filter-input"
+            placeholder="🔍 品目を絞り込む"
+          />
+          <button v-if="tableFilter" class="table-filter-clear" @click="tableFilter = ''">✕</button>
+        </div>
+
+        <InventoryTable
+          ref="inventoryTableRef"
+          :inventory="inventory"
+          :filled-count="filledCount"
+          :read-only="inputLocked"
+          :recount-flags="recountFlags"
+          :category-scope="categoryScope"
+          :typing-map="syncActive ? typingMap : null"
+          :conflict-locked="syncActive ? lockedIngredients : null"
+          :filter-text="tableFilter"
+          @update="onTableUpdate"
+          @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
+          @tap="onTableTap"
+        />
+      </template>
 
       <!-- 確認モーダル -->
       <ConfirmModal
@@ -1461,7 +1507,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               class="btn-complete"
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
-            >{{ guestReported ? '↩ 棚卸再開' : '✓ 棚卸完了' }}</button>
+            >{{ guestReported
+                ? (syncActive && !syncIsHost ? '↩ 入力再開' : '↩ 棚卸再開')
+                : (syncActive && !syncIsHost ? '✓ 入力完了' : '✓ 棚卸完了')
+              }}</button>
             <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
           <template v-else>

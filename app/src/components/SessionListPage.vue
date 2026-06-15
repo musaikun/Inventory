@@ -20,7 +20,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings'])
 
-const { config, itemCount } = useConfig()
+const { config, itemCount, loadSampleData } = useConfig()
 const { getSnapshotBySessionId } = useHistory()
 
 const sessions       = ref([])
@@ -264,6 +264,11 @@ async function confirmStart() {
 function onImportList() {
   showStartModal.value = false
   emit('openSettings')
+}
+
+async function onStartWithSample() {
+  loadSampleData()
+  await confirmStart()
 }
 
 function onResume(session) {
@@ -559,7 +564,7 @@ function _itemCount(session) {
       <div class="start-sheet">
         <div class="start-handle"></div>
 
-        <!-- カスタムリスト: そのまま使う / 更新 -->
+        <!-- カスタムリスト -->
         <template v-if="config.isCustom">
           <div class="start-icon ok">✓</div>
           <div class="start-title">この品目リストで開始します</div>
@@ -571,20 +576,32 @@ function _itemCount(session) {
           <button class="start-btn ghost" @click="onImportList">最新リストに更新</button>
         </template>
 
-        <!-- デフォルト（テスト）リスト: インポートを促す -->
+        <!-- 未設定（品目ゼロ） -->
+        <template v-else-if="itemCount === 0">
+          <div class="start-icon warn">📋</div>
+          <div class="start-title">品目リストが未設定です</div>
+          <div class="start-desc">
+            実際の棚卸を始める前に、お店の品目リストをインポートしてください。<br>
+            まず動作を確認したい場合はサンプルデータで試せます。
+          </div>
+          <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
+          <button class="start-btn ghost" :disabled="starting" @click="onStartWithSample">サンプルデータで試す</button>
+        </template>
+
+        <!-- サンプルデータ読み込み済み -->
         <template v-else>
           <div class="start-icon warn">⚠️</div>
-          <div class="start-title">テスト用の品目リストです</div>
+          <div class="start-title">サンプルデータで試します</div>
           <div class="start-desc">
-            これはお試し用の仮データ（品目名に【テスト】付き）です。<br>
-            実際の棚卸では、お店の品目リストをインポートしてください。
+            品目名に【テスト】が付いた仮データです。<br>
+            実際の棚卸ではお店の品目リストをインポートしてください。
           </div>
           <div class="start-listbox warn">
             <span class="start-count">{{ itemCount }}件</span>
-            <span class="start-date">テスト用</span>
+            <span class="start-date">サンプル</span>
           </div>
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままテスト用で開始</button>
+          <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままサンプルで開始</button>
         </template>
 
         <button class="start-cancel" @click="showStartModal = false">キャンセル</button>
