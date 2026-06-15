@@ -660,37 +660,6 @@ body {
   padding: 2px 16px 4px;
 }
 
-/* ── 品目絞り込みバー ── */
-.table-filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px 4px;
-}
-
-.table-filter-input {
-  flex: 1;
-  padding: 7px 12px;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 20px;
-  font-size: 13px;
-  color: var(--text, #1e293b);
-  background: white;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.table-filter-input:focus { border-color: var(--primary, #3b82f6); }
-
-.table-filter-clear {
-  background: none;
-  border: none;
-  font-size: 14px;
-  color: var(--text-muted, #94a3b8);
-  cursor: pointer;
-  padding: 4px 6px;
-  -webkit-tap-highlight-color: transparent;
-}
-
 /* ── 品目未設定 空状態 ── */
 .empty-items-state {
   display: flex;

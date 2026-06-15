@@ -769,23 +769,6 @@ function onSyncNewSession({ sessionId }) {
   broadcastSessionStart(sessionId)
 }
 
-// ── ログアウト（店舗切り替え）────────────────────────────────────────────────────
-async function onLogout() {
-  // ルーム接続中は適切に切断してからログアウト
-  if (syncIsHost.value) {
-    _hostInitiatedDissolve = true
-    await dissolveRoom()            // ホスト → ルーム解散（ゲストに通知）
-  } else if (syncActive.value) {
-    leaveRoom()                     // ゲスト → 退出（_onGuestLeave が reset/navigate を担当）
-    return                          // コールバック側でランディングへ遷移するため終了
-  } else if (hasHostToken()) {
-    await dissolveRoomRemote()      // 退室済みの残存ルームを掃除（ゲストに解散通知）
-  }
-  reset()
-  resetToDefault()
-  clearAuditLog()
-  currentView.value = 'landing'
-}
 
 // ── セッション経過タイマー ──────────────────────────────────────────────────────
 const sessionNow = ref(Date.now())
@@ -805,9 +788,6 @@ const sessionElapsed = computed(() => {
   const h = Math.floor(min / 60), m = min % 60
   return m > 0 ? `${h}時間${m}分経過` : `${h}時間経過`
 })
-
-// ── 品目絞り込みフィルター ────────────────────────────────────────────────────
-const tableFilter = ref('')
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
 // type: 'default' | 'success' | 'error' | 'warning' | 'join' | 'leave' | 'update'
@@ -1437,33 +1417,20 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         <button class="empty-items-btn" @click="showSettings = true">⚙️ 設定を開く</button>
       </div>
 
-      <template v-else>
-        <!-- 絞り込みバー -->
-        <div class="table-filter-bar">
-          <input
-            v-model="tableFilter"
-            type="text"
-            class="table-filter-input"
-            placeholder="🔍 品目を絞り込む"
-          />
-          <button v-if="tableFilter" class="table-filter-clear" @click="tableFilter = ''">✕</button>
-        </div>
-
-        <InventoryTable
-          ref="inventoryTableRef"
-          :inventory="inventory"
-          :filled-count="filledCount"
-          :read-only="inputLocked"
-          :recount-flags="recountFlags"
-          :category-scope="categoryScope"
-          :typing-map="syncActive ? typingMap : null"
-          :conflict-locked="syncActive ? lockedIngredients : null"
-          :filter-text="tableFilter"
-          @update="onTableUpdate"
-          @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
-          @tap="onTableTap"
-        />
-      </template>
+      <InventoryTable
+        v-else
+        ref="inventoryTableRef"
+        :inventory="inventory"
+        :filled-count="filledCount"
+        :read-only="inputLocked"
+        :recount-flags="recountFlags"
+        :category-scope="categoryScope"
+        :typing-map="syncActive ? typingMap : null"
+        :conflict-locked="syncActive ? lockedIngredients : null"
+        @update="onTableUpdate"
+        @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
+        @tap="onTableTap"
+      />
 
       <!-- 確認モーダル -->
       <ConfirmModal
@@ -1573,7 +1540,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @logout="onLogout" />
+    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
     <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal     v-if="showChat"     @close="showChat = false" />
 

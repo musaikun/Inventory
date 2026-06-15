@@ -14,7 +14,6 @@ const props = defineProps({
   typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
   conflictLocked:   { type: Object,  default: null },  // Set<string> 競合中品目
   configSource:     { type: Object,  default: null },  // 完了済みスナップショット等の凍結 config（未指定なら live config）
-  filterText:       { type: String,  default: '' },    // テキスト検索フィルター
 })
 
 const emit = defineEmits(['update', 'remove', 'tap'])
@@ -57,7 +56,7 @@ const hasExpanded = computed(() => {
 })
 
 const hasAllExpanded = computed(() => {
-  const groups = displayRows.value.filter(r => r.type === 'group-header')
+  const groups = rows.value.filter(r => r.type === 'group-header')
   if (groups.length === 0) return true
   return groups.every(r => isGroupExpanded(r))
 })
@@ -201,30 +200,9 @@ const rows = computed(() => {
   return items
 })
 
-// テキスト検索フィルター適用済み行リスト
-const displayRows = computed(() => {
-  const f = (props.filterText ?? '').trim().toLowerCase()
-  if (!f) return rows.value
-  const result = []
-  let pendingHeader = null
-  for (const row of rows.value) {
-    if (row.type === 'group-header') {
-      pendingHeader = row
-    } else if (row.type === 'item') {
-      if (row.item.toLowerCase().includes(f)) {
-        if (pendingHeader) { result.push(pendingHeader); pendingHeader = null }
-        result.push(row)
-      }
-    } else {
-      result.push(row)
-    }
-  }
-  return result
-})
-
 // フィルター後の実際の品目数（グループヘッダーを除く）
 const visibleItemCount = computed(() =>
-  displayRows.value.filter(r => r.type === 'item').length
+  rows.value.filter(r => r.type === 'item').length
 )
 
 // ── 価格・金額 ────────────────────────────────────────────────────────────────
@@ -267,7 +245,6 @@ function rowClick(item) {
 
 // ── キーボードナビゲーション ──────────────────────────────────────────────────
 function _isRowVisible(row) {
-  if ((props.filterText ?? '').trim()) return true  // テキスト検索中は常に表示
   if (sortMode.value === 'category') return !!expandedCats[row.category ?? 'その他']
   if (sortMode.value === 'alpha')    return !!expandedKana[_kanaGroup(row.item)]
   return true
@@ -461,7 +438,7 @@ function fmtYen(n) {
         </tr>
       </thead>
       <tbody>
-        <template v-for="(row, rowIdx) in displayRows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
+        <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
           <!-- グループヘッダー行（クリックでアコーディオン開閉・ジャンル/五十音共通） -->
           <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleGroup(row)">
