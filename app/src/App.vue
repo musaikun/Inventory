@@ -49,7 +49,7 @@ import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from '
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, resetToDefault } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -297,8 +297,8 @@ setConfigCallback((cfg) => {
     showToast('品目一覧が更新されました', 3000, 'update')
   }
 })
-// ホストに品目リストが無いルームへ参加した場合はデフォルトへ復帰
-setResetConfigCallback(() => resetToDefault())
+// ホストに品目リストが無いルームへ参加した場合はローカルを空に揃える
+setResetConfigCallback(() => clearConfig())
 
 let _configSaveTimer = null
 setConfigChangedCallback(() => {
@@ -353,7 +353,7 @@ setGuestLeaveCallback(() => {
   showChat.value = false
   clearSession()
   reset()
-  resetToDefault()
+  clearConfig()
   clearAuditLog()
   guestReported.value = false
   if (!_hostCompletedLeave) {

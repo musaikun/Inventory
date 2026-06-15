@@ -348,8 +348,12 @@ export function useConfig() {
     localStorage.removeItem(CONFIG_KEY)
   }
 
-  /** デフォルトに戻す */
-  function resetToDefault() {
+  /**
+   * ローカルの品目リストを空（初期状態）に掃除する
+   * ゲストのルーム参加/退出時専用 — ホストが正のため、退出端末にデータを残さない（流出対策）
+   * ※「デフォルトに戻す」UIではない。ホストの正データを消す用途には絶対に使わないこと
+   */
+  function clearConfig() {
     config.order         = [...DEFAULT_ORDER]
     config.units         = { ...DEFAULT_UNITS }
     config.prices        = {}
@@ -442,7 +446,7 @@ export function useConfig() {
     learnedAliasCount,
     loadFromCSV,
     exportConfigCSV,
-    resetToDefault,
+    clearConfig,
     loadSampleData,
     registerAlias,
   }
