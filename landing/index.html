@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>タナオロ — 棚卸、もっとはやく。</title>
+  <meta name="description" content="飲食店の棚卸をスマホで完結。複数人同時入力・音声対応・即CSV出力。紙とペンから脱却しましょう。" />
+  <meta property="og:title" content="タナオロ — 棚卸、もっとはやく。" />
+  <meta property="og:description" content="飲食店の棚卸をスマホで完結。複数人同時入力・音声対応・即CSV出力。" />
+  <meta property="og:type" content="website" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary:   #2563eb;
+      --primary-d: #1d4ed8;
+      --success:   #16a34a;
+      --text:      #1e293b;
+      --muted:     #64748b;
+      --bg:        #f8fafc;
+      --surface:   #ffffff;
+      --border:    #e2e8f0;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+
+    .nav-logo {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.02em;
+    }
+
+    .nav-cta {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 20px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .nav-cta:hover { background: var(--primary-d); }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+      color: white;
+      text-align: center;
+      padding: 80px 24px 100px;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 20px;
+      padding: 4px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      letter-spacing: 0.04em;
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 8vw, 64px);
+      font-weight: 900;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 span {
+      display: block;
+      font-size: clamp(20px, 4vw, 32px);
+      font-weight: 500;
+      opacity: 0.85;
+      margin-top: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .hero-sub {
+      font-size: clamp(15px, 3vw, 19px);
+      opacity: 0.88;
+      max-width: 520px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+
+    .hero-btns {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      background: white;
+      color: var(--primary);
+      border: none;
+      border-radius: 12px;
+      padding: 16px 36px;
+      font-size: 17px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+
+    .btn-ghost {
+      background: transparent;
+      color: white;
+      border: 2px solid rgba(255,255,255,0.6);
+      border-radius: 12px;
+      padding: 16px 28px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+
+    /* ── Section base ── */
+    section { padding: 80px 24px; }
+
+    .section-inner {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: clamp(24px, 5vw, 38px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+
+    /* ── Pain ── */
+    .pain { background: #fff; }
+
+    .pain-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 40px;
+    }
+
+    .pain-card {
+      background: #fef2f2;
+      border: 1.5px solid #fecaca;
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    .pain-icon { font-size: 28px; margin-bottom: 10px; }
+
+    .pain-card p {
+      font-size: 15px;
+      color: #7f1d1d;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    /* ── Features ── */
+    .features { background: var(--bg); }
+
+    .feature-list {
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+      margin-top: 56px;
+    }
+
+    .feature-item {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: center;
+    }
+
+    .feature-item.reverse { direction: rtl; }
+    .feature-item.reverse > * { direction: ltr; }
+
+    .feature-num {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .feature-title {
+      font-size: clamp(20px, 3vw, 26px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    .feature-desc {
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    .feature-visual {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(37,99,235,0.10);
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .mock-header {
+      background: var(--primary);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .mock-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .mock-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f0fdf4;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #166534;
+    }
+
+    .mock-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+    }
+
+    .mock-row.filled {
+      background: #f0fdf4;
+      border-color: #86efac;
+    }
+
+    .mock-qty {
+      font-weight: 700;
+      color: var(--success);
+      background: #dcfce7;
+      border-radius: 6px;
+      padding: 2px 10px;
+      font-size: 13px;
+    }
+
+    .mock-csv {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #166534;
+    }
+
+    .mock-mic {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .mock-mic-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 12px;
+      box-shadow: 0 0 0 12px rgba(37,99,235,0.12);
+    }
+
+    .mock-wave {
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+    }
+
+    .mock-recognized {
+      margin-top: 10px;
+      padding: 10px 14px;
+      background: #eff6ff;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    @media (max-width: 640px) {
+      .feature-item, .feature-item.reverse {
+        grid-template-columns: 1fr;
+        direction: ltr;
+      }
+    }
+
+    /* ── Pricing ── */
+    .pricing { background: white; }
+
+    .plan-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      margin-top: 48px;
+    }
+
+    .plan-card {
+      border: 2px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 28px;
+      position: relative;
+    }
+
+    .plan-card.featured {
+      border-color: var(--primary);
+      box-shadow: 0 8px 32px rgba(37,99,235,0.12);
+    }
+
+    .plan-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 16px;
+      border-radius: 20px;
+      white-space: nowrap;
+      letter-spacing: 0.04em;
+    }
+
+    .plan-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .plan-price {
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .plan-price span {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .plan-desc {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+
+    .plan-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .plan-features li {
+      font-size: 15px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .plan-features li::before {
+      content: '✓';
+      color: var(--success);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .plan-features li.off { color: var(--muted); }
+    .plan-features li.off::before { content: '—'; color: var(--border); }
+
+    .plan-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      border: 2px solid var(--primary);
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .plan-btn.outline {
+      background: white;
+      color: var(--primary);
+    }
+    .plan-btn.outline:hover { background: #eff6ff; }
+
+    .plan-btn.fill {
+      background: var(--primary);
+      color: white;
+    }
+    .plan-btn.fill:hover { background: var(--primary-d); }
+
+    /* ── FAQ ── */
+    .faq { background: var(--bg); }
+
+    .faq-list {
+      margin-top: 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: white;
+    }
+
+    details {
+      border-bottom: 1px solid var(--border);
+    }
+    details:last-child { border-bottom: none; }
+
+    summary {
+      padding: 20px 24px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    summary::-webkit-details-marker { display: none; }
+
+    summary::after {
+      content: '+';
+      font-size: 22px;
+      color: var(--primary);
+      flex-shrink: 0;
+      transition: transform 0.2s;
+    }
+
+    details[open] summary::after { transform: rotate(45deg); }
+
+    .faq-answer {
+      padding: 0 24px 20px;
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    /* ── Footer CTA ── */
+    .footer-cta {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+      color: white;
+      text-align: center;
+      padding: 80px 24px;
+    }
+
+    .footer-cta h2 {
+      font-size: clamp(26px, 5vw, 42px);
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .footer-cta p {
+      font-size: 18px;
+      opacity: 0.85;
+      margin-bottom: 36px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      background: #0f172a;
+      color: #94a3b8;
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    footer a {
+      color: #94a3b8;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    footer a:hover { color: white; }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="nav-logo">タナオロ</div>
+    <a href="#pricing" class="nav-cta">無料で始める</a>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge">🍽 飲食店向け棚卸アプリ</div>
+    <h1>
+      棚卸、もっとはやく。
+      <span>もっと正確に。</span>
+    </h1>
+    <p class="hero-sub">
+      スマホ一台で、複数人同時に。紙とペンの棚卸から脱却して、現場の時間を取り戻しましょう。
+    </p>
+    <div class="hero-btns">
+      <a href="#pricing" class="btn-primary">無料で始める →</a>
+      <a href="#features" class="btn-ghost">機能を見る</a>
+    </div>
+  </section>
+
+  <!-- Pain -->
+  <section class="pain">
+    <div class="section-inner">
+      <div class="section-label">課題</div>
+      <h2 class="section-title">こんな棚卸、していませんか？</h2>
+      <div class="pain-grid">
+        <div class="pain-card">
+          <div class="pain-icon">📋</div>
+          <p>紙に書いて、あとでExcelに転記している</p>
+        </div>
+        <div class="pain-card">
+          <div class="pain-icon">👀</div>
+          <p>数え間違いに気づくのが翌日になる</p>
+        </div>
+        <div class="pain-card">
+          <div class="pain-icon">🔀</div>
+          <p>複数人でやると集計がバラバラになる</p>
+        </div>
+        <div class="pain-card">
+          <div class="pain-icon">⏱</div>
+          <p>棚卸だけで閉店後1〜2時間かかっている</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features" id="features">
+    <div class="section-inner">
+      <div class="section-label">機能</div>
+      <h2 class="section-title">タナオロが変える、3つのこと</h2>
+
+      <div class="feature-list">
+
+        <!-- Feature 1: 複数人同時 -->
+        <div class="feature-item">
+          <div>
+            <div class="feature-num">01</div>
+            <h3 class="feature-title">複数人で、同時に。<br>その場で合算。</h3>
+            <p class="feature-desc">
+              スタッフそれぞれがスマホで入力すると、リアルタイムで全員の数量が同期されます。
+              「Aさんはドリンク担当、Bさんは食材担当」のように分担して、棚卸時間を大幅に短縮できます。
+            </p>
+          </div>
+          <div class="feature-visual">
+            <div class="mock-header">
+              <span>🔴 同期中</span>
+              <div style="display:flex;gap:6px;align-items:center;font-size:11px;">
+                <div class="mock-dot"></div>
+                <span>3名参加中</span>
+              </div>
+            </div>
+            <div class="mock-user">👤 Aさんが「牛乳」を入力中…</div>
+            <div class="mock-user" style="background:#eff6ff;color:#1e3a8a;">👤 Bさんが「ビール」を入力中…</div>
+            <div class="mock-row filled">
+              <span>コーヒー豆 ブラジル</span>
+              <span class="mock-qty">3 袋</span>
+            </div>
+            <div class="mock-row filled">
+              <span>牛乳 1L</span>
+              <span class="mock-qty">12 パック</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 2: 脱紙 -->
+        <div class="feature-item reverse">
+          <div>
+            <div class="feature-num">02</div>
+            <h3 class="feature-title">紙とペンから脱却。<br>完了即CSV。</h3>
+            <p class="feature-desc">
+              入力が終わったらCSVをワンタップで出力。ExcelやGoogle スプレッドシートにそのまま貼り付けられます。
+              転記ミス・書き直しの手間がゼロになります。
+            </p>
+          </div>
+          <div class="feature-visual">
+            <div class="mock-row filled">
+              <span>エスプレッソブレンド</span>
+              <span class="mock-qty">2 袋</span>
+            </div>
+            <div class="mock-row filled">
+              <span>グラニュー糖 1kg</span>
+              <span class="mock-qty">5 袋</span>
+            </div>
+            <div class="mock-row filled">
+              <span>ガムシロップ</span>
+              <span class="mock-qty">40 個</span>
+            </div>
+            <div class="mock-csv">
+              <span style="font-size:24px;">📊</span>
+              <div>
+                <div>棚卸_2026-07-01.csv</div>
+                <div style="font-size:12px;font-weight:400;color:#4ade80;">✓ ダウンロード完了</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 3: 音声入力 -->
+        <div class="feature-item">
+          <div>
+            <div class="feature-num">03</div>
+            <h3 class="feature-title">声で入力。<br>手が止まらない。</h3>
+            <p class="feature-desc">
+              「牛乳 3パック」と話しかけるだけで記録完了。棚の前でいちいちスマホを操作する必要がありません。
+              連続入力モードなら、次々と声で入力し続けられます。
+            </p>
+          </div>
+          <div class="feature-visual">
+            <div class="mock-mic">
+              <div class="mock-mic-btn">🎙</div>
+              <div class="mock-wave">● 認識中…</div>
+              <div class="mock-recognized">「牛乳　さんパック」→ 牛乳 3パック ✓</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section class="pricing" id="pricing">
+    <div class="section-inner">
+      <div class="section-label">料金</div>
+      <h2 class="section-title">まず無料で、今日から始める</h2>
+      <p class="section-desc">クレジットカード不要。登録してすぐ使えます。</p>
+
+      <div class="plan-grid">
+
+        <div class="plan-card">
+          <div class="plan-name">Free</div>
+          <div class="plan-price">¥0<span> / 月</span></div>
+          <div class="plan-desc">まず試してみたい方に</div>
+          <ul class="plan-features">
+            <li>スマホで棚卸入力</li>
+            <li>音声入力</li>
+            <li>CSV出力</li>
+            <li>履歴閲覧（直近3件）</li>
+            <li class="off">複数人同時入力</li>
+            <li class="off">履歴無制限</li>
+          </ul>
+          <a href="#" class="plan-btn outline">無料で始める</a>
+        </div>
+
+        <div class="plan-card featured">
+          <div class="plan-badge">おすすめ</div>
+          <div class="plan-name">Pro</div>
+          <div class="plan-price">¥<span style="font-size:42px;color:var(--text);">2,980</span><span> / 月</span></div>
+          <div class="plan-desc">本格運用・複数スタッフ対応</div>
+          <ul class="plan-features">
+            <li>スマホで棚卸入力</li>
+            <li>音声入力</li>
+            <li>CSV出力</li>
+            <li>履歴無制限</li>
+            <li>複数人同時入力（人数無制限）</li>
+            <li>参加者別の記録・集計</li>
+          </ul>
+          <a href="#" class="plan-btn fill">14日間無料で試す</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="faq" id="faq">
+    <div class="section-inner">
+      <div class="section-label">よくある質問</div>
+      <h2 class="section-title">FAQ</h2>
+
+      <div class="faq-list">
+
+        <details>
+          <summary>どんなデバイスで使えますか？</summary>
+          <div class="faq-answer">
+            スマートフォン・タブレット・PCのブラウザから利用できます（iOS Safari / Android Chrome 推奨）。アプリをインストールしなくても使えますが、ホーム画面に追加するとアプリのように起動できます。
+          </div>
+        </details>
+
+        <details>
+          <summary>音声入力はオフラインでも使えますか？</summary>
+          <div class="faq-answer">
+            音声認識にはインターネット接続が必要です。ただし、テキスト入力は常に利用できます。棚卸データはローカルにキャッシュされるため、一時的な通信断でもデータは失われません。
+          </div>
+        </details>
+
+        <details>
+          <summary>複数人で同時に使うにはどうすればいいですか？</summary>
+          <div class="faq-answer">
+            Proプランで利用できます。ホスト（リーダー）がセッションを開始し、店舗コードを共有するだけで、他のスタッフがスマホからリアルタイムで参加できます。招待メールなどの手続きは不要です。
+          </div>
+        </details>
+
+        <details>
+          <summary>これまでの棚卸データは移行できますか？</summary>
+          <div class="faq-answer">
+            品目リストはCSV・Excel・PDFからインポートできます。過去の在庫データの移行には対応していませんが、タナオロで棚卸を始めた日から履歴が自動的に蓄積されていきます。
+          </div>
+        </details>
+
+        <details>
+          <summary>データはどこに保存されますか？</summary>
+          <div class="faq-answer">
+            Cloudflare（米国）のデータセンターに保存されます。通信はすべてHTTPS（TLS）で暗号化されています。詳しくはプライバシーポリシーをご確認ください。
+          </div>
+        </details>
+
+        <details>
+          <summary>解約はいつでもできますか？</summary>
+          <div class="faq-answer">
+            はい、いつでも解約できます。解約後は無料プランに自動的に切り替わり、それまでのデータはそのまま閲覧できます。
+          </div>
+        </details>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer CTA -->
+  <section class="footer-cta">
+    <h2>今日から、棚卸を変えよう。</h2>
+    <p>クレジットカード不要。1分で始められます。</p>
+    <a href="#pricing" class="btn-primary">無料で始める →</a>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-links">
+      <a href="./terms.html">利用規約</a>
+      <a href="./privacy.html">プライバシーポリシー</a>
+      <a href="mailto:ss_inventory@outlook.com">お問い合わせ</a>
+    </div>
+    <p>© 2026 musaikun. All rights reserved.</p>
+  </footer>
+
+</body>
+</html>

@@ -519,6 +519,7 @@ function _closeTopLayer() {
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
+  if (currentView.value === 'sessions' && sessionsYear.value !== null) { sessionsYear.value = null; return true }
   if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
   return false
 }
