@@ -1169,10 +1169,36 @@ function onTableUpdate({ item, qty, unit }) {
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
-function onAddItem({ name, qty, price }) {
-  addItem(name, price)
+// ── 品目追加フォーム（音声検索下） ────────────────────────────────────────────
+const newItemName     = ref('')
+const newItemQty      = ref('')
+const newItemPrice    = ref('')
+const newItemCategory = ref('')
+const newItemError    = ref('')
+const newItemNameRef  = ref(null)
+const newItemQtyRef   = ref(null)
+
+const existingCategories = computed(() =>
+  [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+)
+
+function submitNewItem() {
+  const name = newItemName.value.trim()
+  if (!name) { newItemError.value = '品目名を入力してください'; return }
+  const qty = parseFloat(newItemQty.value)
+  if (isNaN(qty) || qty < 0) { newItemError.value = '数量を入力してください'; return }
+  if (config.order.includes(name)) { newItemError.value = 'すでに登録されている品目名です'; return }
+  const price    = parseFloat(newItemPrice.value)
+  const category = newItemCategory.value.trim()
+  addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null)
   updateQty(name, qty, '', deviceName.value || '名前未設定')
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
+  newItemName.value     = ''
+  newItemQty.value      = ''
+  newItemPrice.value    = ''
+  newItemCategory.value = ''
+  newItemError.value    = ''
+  nextTick(() => newItemNameRef.value?.focus())
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
@@ -1336,6 +1362,57 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
         <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
+
+        <!-- 品目追加フォーム -->
+        <div class="add-item-form">
+          <p class="add-item-label">＋ 品目を追加</p>
+          <div class="add-item-row">
+            <input
+              ref="newItemNameRef"
+              v-model="newItemName"
+              class="add-input add-input-name"
+              placeholder="品目名"
+              inputmode="text"
+              @keydown.enter.prevent="newItemQtyRef?.focus()"
+            />
+            <input
+              ref="newItemQtyRef"
+              v-model="newItemQty"
+              type="number"
+              min="0"
+              step="any"
+              class="add-input add-input-sm"
+              placeholder="数量"
+              inputmode="decimal"
+              @keydown.enter.prevent="submitNewItem"
+            />
+            <input
+              v-model="newItemPrice"
+              type="number"
+              min="0"
+              step="1"
+              class="add-input add-input-sm"
+              placeholder="金額（任意）"
+              inputmode="numeric"
+              @keydown.enter.prevent="submitNewItem"
+            />
+          </div>
+          <div class="add-item-row add-item-row2">
+            <input
+              v-model="newItemCategory"
+              list="category-list"
+              class="add-input add-input-cat"
+              placeholder="ジャンル（任意）"
+              inputmode="text"
+              @keydown.enter.prevent="submitNewItem"
+            />
+            <datalist id="category-list">
+              <option v-for="cat in existingCategories" :key="cat" :value="cat" />
+            </datalist>
+            <button class="add-item-btn" @click="submitNewItem">追加</button>
+          </div>
+          <p v-if="newItemError" class="add-item-error">{{ newItemError }}</p>
+        </div>
       </section>
 
       <!-- 同時入力 競合解決バナー（入力欄直下） -->
@@ -1428,7 +1505,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
-        @add-item="onAddItem"
       />
 
       <!-- 確認モーダル -->

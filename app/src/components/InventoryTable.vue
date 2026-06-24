@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, nextTick } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
 
@@ -16,7 +16,7 @@ const props = defineProps({
   configSource:     { type: Object,  default: null },  // 完了済みスナップショット等の凍結 config（未指定なら live config）
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'add-item'])
+const emit = defineEmits(['update', 'remove', 'tap'])
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -308,29 +308,6 @@ function onRowKeydown(e, item) {
 
 defineExpose({ getNextVisibleItem })
 
-// ── 品目追加フォーム ──────────────────────────────────────────────────────────
-const newName      = ref('')
-const newQty       = ref('')
-const newPrice     = ref('')
-const newError     = ref('')
-const nameInputRef = ref(null)
-const qtyInputRef  = ref(null)
-
-function submitNewItem() {
-  const name = newName.value.trim()
-  if (!name) { newError.value = '品目名を入力してください'; return }
-  const qty = parseFloat(newQty.value)
-  if (isNaN(qty) || qty < 0) { newError.value = '数量を入力してください'; return }
-  if (config.value.order.includes(name)) { newError.value = 'すでに登録されている品目名です'; return }
-  const price = parseFloat(newPrice.value)
-  emit('add-item', { name, qty, price: (!isNaN(price) && price > 0) ? price : null })
-  newName.value  = ''
-  newQty.value   = ''
-  newPrice.value = ''
-  newError.value = ''
-  nextTick(() => nameInputRef.value?.focus())
-}
-
 // ── 五十音グループ ─────────────────────────────────────────────────────────────
 const KANA_ROWS = [
   { label: 'あ行', chars: 'あいうえお' },
@@ -551,44 +528,6 @@ function fmtYen(n) {
         </tr>
       </tfoot>
     </table>
-
-    <!-- 品目追加フォーム（進行中セッションのみ） -->
-    <div v-if="!readOnly" class="add-item-form">
-      <p class="add-item-label">＋ 品目を追加</p>
-      <div class="add-item-row">
-        <input
-          ref="nameInputRef"
-          v-model="newName"
-          class="add-input add-input-name"
-          placeholder="品目名"
-          inputmode="text"
-          @keydown.enter.prevent="qtyInputRef?.focus()"
-        />
-        <input
-          ref="qtyInputRef"
-          v-model="newQty"
-          type="number"
-          min="0"
-          step="any"
-          class="add-input add-input-sm"
-          placeholder="数量"
-          inputmode="decimal"
-          @keydown.enter.prevent="submitNewItem"
-        />
-        <input
-          v-model="newPrice"
-          type="number"
-          min="0"
-          step="1"
-          class="add-input add-input-sm"
-          placeholder="金額（任意）"
-          inputmode="numeric"
-          @keydown.enter.prevent="submitNewItem"
-        />
-        <button class="add-item-btn" @click="submitNewItem">追加</button>
-      </div>
-      <p v-if="newError" class="add-item-error">{{ newError }}</p>
-    </div>
   </section>
 </template>
 
@@ -942,78 +881,5 @@ function fmtYen(n) {
 .recount-flag-badge {
   font-size: 12px;
   flex-shrink: 0;
-}
-
-/* ── 品目追加フォーム ── */
-.add-item-form {
-  margin-top: 12px;
-  padding: 12px 14px;
-  background: #f8fafc;
-  border: 1.5px dashed var(--border);
-  border-radius: 12px;
-}
-
-.add-item-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-bottom: 8px;
-  letter-spacing: 0.03em;
-}
-
-.add-item-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.add-input {
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 14px;
-  background: white;
-  color: var(--text);
-  outline: none;
-  min-width: 0;
-}
-
-.add-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
-}
-
-.add-input-name {
-  flex: 2;
-  min-width: 120px;
-}
-
-.add-input-sm {
-  flex: 1;
-  min-width: 72px;
-}
-
-.add-item-btn {
-  padding: 8px 16px;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.add-item-btn:active {
-  background: #1d4ed8;
-}
-
-.add-item-error {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #dc2626;
 }
 </style>
