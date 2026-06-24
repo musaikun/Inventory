@@ -9,14 +9,17 @@ const props = defineProps({
   inventory:        { type: Object,  required: true },
   filledCount:      { type: Number,  required: true },
   readOnly:         { type: Boolean, default: false },
-  recountFlags:     { type: Object,  default: null },  // { [item]: {by,at} }「あとで数える」
-  categoryScope:    { type: String,  default: 'all' }, // 'all' | 'food' | 'supply'
-  typingMap:        { type: Object,  default: null },  // { [ingredient]: { name, deviceId } }
-  conflictLocked:   { type: Object,  default: null },  // Set<string> 競合中品目
-  configSource:     { type: Object,  default: null },  // 完了済みスナップショット等の凍結 config（未指定なら live config）
+  recountFlags:     { type: Object,  default: null },
+  categoryScope:    { type: String,  default: 'all' },
+  typingMap:        { type: Object,  default: null },
+  conflictLocked:   { type: Object,  default: null },
+  configSource:     { type: Object,  default: null },
+  manualItems:      { type: Array,   default: () => [] },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item'])
+
+const manualSet = computed(() => new Set(props.manualItems))
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -308,6 +311,15 @@ function onRowKeydown(e, item) {
 
 defineExpose({ getNextVisibleItem })
 
+const pendingDelete = ref(null)  // 削除確認中の品目名
+
+function requestDelete(item) { pendingDelete.value = item }
+function cancelDelete()      { pendingDelete.value = null }
+function confirmDelete(item) {
+  pendingDelete.value = null
+  emit('delete-item', item)
+}
+
 // ── 五十音グループ ─────────────────────────────────────────────────────────────
 const KANA_ROWS = [
   { label: 'あ行', chars: 'あいうえお' },
@@ -479,8 +491,17 @@ function fmtYen(n) {
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
+                <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
+                  <button class="manual-btn-edit" @click="emit('edit-item', row.item)" title="編集">✏️</button>
+                  <button class="manual-btn-delete" @click="requestDelete(row.item)" title="削除">✕</button>
+                </span>
               </div>
-              <div v-if="conflictLocked?.has(row.item)" class="conflict-indicator">
+              <div v-if="pendingDelete === row.item" class="delete-confirm" @click.stop>
+                <span class="delete-confirm-msg">「{{ row.item }}」を削除しますか？</span>
+                <button class="delete-confirm-yes" @click="confirmDelete(row.item)">削除</button>
+                <button class="delete-confirm-no"  @click="cancelDelete">キャンセル</button>
+              </div>
+              <div v-else-if="conflictLocked?.has(row.item)" class="conflict-indicator">
                 ⚡ 競合中 — ホストが解決中
               </div>
               <div v-else-if="typingMap?.[row.item]" class="typing-indicator">
@@ -880,6 +901,69 @@ function fmtYen(n) {
 
 .recount-flag-badge {
   font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ── 手動品目 編集・削除ボタン ── */
+.manual-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.manual-btn-edit,
+.manual-btn-delete {
+  padding: 2px 5px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+  line-height: 1;
+  color: #94a3b8;
+}
+
+.manual-btn-edit:active   { background: #dbeafe; }
+.manual-btn-delete:active { background: #fee2e2; color: #dc2626; }
+
+/* ── 削除インライン確認 ── */
+.delete-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.delete-confirm-msg { flex: 1; color: #92400e; font-weight: 500; min-width: 0; }
+
+.delete-confirm-yes {
+  padding: 4px 10px;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.delete-confirm-no {
+  padding: 4px 10px;
+  background: #f1f5f9;
+  color: #475569;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
   flex-shrink: 0;
 }
 </style>
