@@ -23,12 +23,13 @@ const config = reactive({
   prices:         {},
   categories:     {},
   codes:          {},
-  categoryCodes:  {},  // { カテゴリ名: 分類コード数値 }
-  prevMonths:     {},  // { 品目名: 前月実績 }
-  lotSizes:       {},  // { 品目名: 入数文字列 } e.g. "24本", "1kg"
+  categoryCodes:  {},
+  prevMonths:     {},
+  lotSizes:       {},
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
-  savedAt:        null,  // カスタムリストの最終更新時刻（ISO文字列）
+  savedAt:        null,
+  manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -73,6 +74,7 @@ function _load() {
       config.prevMonths    = saved.prevMonths    ?? {}
       config.lotSizes      = saved.lotSizes      ?? {}
       config.dictionary    = saved.dictionary    ?? {}
+      config.manualItems   = saved.manualItems   ?? []
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -92,6 +94,7 @@ function _saveLocalOnly() {
       prevMonths:    config.prevMonths,
       lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
+      manualItems:   config.manualItems,
       savedAt:       config.savedAt,
     }))
     config.isCustom = true
@@ -294,6 +297,7 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = newDict
+    config.manualItems   = []
     _save()
 
     return {
@@ -363,6 +367,7 @@ export function useConfig() {
     config.prevMonths    = {}
     config.lotSizes      = {}
     config.dictionary    = { ...DEFAULT_DICT }
+    config.manualItems   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -441,6 +446,45 @@ export function useConfig() {
     config.order.push(n)
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     if (category?.trim()) config.categories[n] = category.trim()
+    if (!config.manualItems.includes(n)) config.manualItems.push(n)
+    _save()
+    return true
+  }
+
+  function updateConfigItem(oldName, newName, price, category) {
+    const idx = config.order.indexOf(oldName)
+    if (idx < 0) return false
+    const n = newName.trim()
+    if (!n) return false
+    if (n !== oldName && config.order.includes(n)) return false
+    if (n !== oldName) {
+      config.order[idx] = n
+      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes]) {
+        if (obj[oldName] !== undefined) { obj[n] = obj[oldName]; delete obj[oldName] }
+      }
+      for (const [alias, target] of Object.entries(config.dictionary)) {
+        if (target === oldName) config.dictionary[alias] = n
+      }
+      const mi = config.manualItems.indexOf(oldName)
+      if (mi >= 0) config.manualItems[mi] = n
+    }
+    if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
+    else delete config.prices[n]
+    if (category?.trim()) config.categories[n] = category.trim()
+    else delete config.categories[n]
+    _save()
+    return n
+  }
+
+  function removeConfigItem(name) {
+    const idx = config.order.indexOf(name)
+    if (idx < 0) return false
+    config.order.splice(idx, 1)
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes]) {
+      delete obj[name]
+    }
+    const mi = config.manualItems.indexOf(name)
+    if (mi >= 0) config.manualItems.splice(mi, 1)
     _save()
     return true
   }
@@ -460,5 +504,7 @@ export function useConfig() {
     loadSampleData,
     registerAlias,
     addItem,
+    updateConfigItem,
+    removeConfigItem,
   }
 }

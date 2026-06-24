@@ -49,7 +49,7 @@ import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from '
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, addItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, addItem, updateConfigItem, removeConfigItem } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -1169,7 +1169,7 @@ function onTableUpdate({ item, qty, unit }) {
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
-// ── 品目追加フォーム（音声検索下） ────────────────────────────────────────────
+// ── 品目追加・編集フォーム（音声検索下） ──────────────────────────────────────
 const newItemName     = ref('')
 const newItemQty      = ref('')
 const newItemPrice    = ref('')
@@ -1177,6 +1177,8 @@ const newItemCategory = ref('')
 const newItemError    = ref('')
 const newItemNameRef  = ref(null)
 const newItemQtyRef   = ref(null)
+const editingItem     = ref(null)   // null=追加モード、文字列=編集中の品目名
+const manualListOpen  = ref(false)
 
 const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
@@ -1185,11 +1187,19 @@ const existingCategories = computed(() =>
 function submitNewItem() {
   const name = newItemName.value.trim()
   if (!name) { newItemError.value = '品目名を入力してください'; return }
+  const price    = parseFloat(newItemPrice.value)
+  const category = newItemCategory.value.trim()
+
+  if (editingItem.value) {
+    const result = updateConfigItem(editingItem.value, name, (!isNaN(price) && price > 0) ? price : null, category || null)
+    if (!result) { newItemError.value = 'その品目名はすでに使われています'; return }
+    cancelEditItem()
+    return
+  }
+
   const qty = parseFloat(newItemQty.value)
   if (isNaN(qty) || qty < 0) { newItemError.value = '数量を入力してください'; return }
   if (config.order.includes(name)) { newItemError.value = 'すでに登録されている品目名です'; return }
-  const price    = parseFloat(newItemPrice.value)
-  const category = newItemCategory.value.trim()
   addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null)
   updateQty(name, qty, '', deviceName.value || '名前未設定')
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
@@ -1199,6 +1209,32 @@ function submitNewItem() {
   newItemCategory.value = ''
   newItemError.value    = ''
   nextTick(() => newItemNameRef.value?.focus())
+}
+
+function startEditItem(name) {
+  editingItem.value     = name
+  newItemName.value     = name
+  newItemQty.value      = ''
+  newItemPrice.value    = config.prices?.[name] ?? ''
+  newItemCategory.value = config.categories?.[name] ?? ''
+  newItemError.value    = ''
+  nextTick(() => newItemNameRef.value?.focus())
+}
+
+function cancelEditItem() {
+  editingItem.value     = null
+  newItemName.value     = ''
+  newItemQty.value      = ''
+  newItemPrice.value    = ''
+  newItemCategory.value = ''
+  newItemError.value    = ''
+}
+
+function onDeleteConfigItem(name) {
+  removeConfigItem(name)
+  removeItem(name)
+  if (syncActive.value) broadcastRemove(name)
+  if (editingItem.value === name) cancelEditItem()
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
@@ -1363,9 +1399,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
 
-        <!-- 品目追加フォーム -->
+        <!-- 品目追加・編集フォーム -->
         <div class="add-item-form">
-          <p class="add-item-label">＋ 品目を追加</p>
+          <p class="add-item-label">{{ editingItem ? `✏️ 品目を編集` : '＋ 品目を追加' }}</p>
           <div class="add-item-row">
             <input
               ref="newItemNameRef"
@@ -1373,9 +1409,10 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
               class="add-input add-input-name"
               placeholder="品目名"
               inputmode="text"
-              @keydown.enter.prevent="newItemQtyRef?.focus()"
+              @keydown.enter.prevent="editingItem ? submitNewItem() : newItemQtyRef?.focus()"
             />
             <input
+              v-if="!editingItem"
               ref="newItemQtyRef"
               v-model="newItemQty"
               type="number"
@@ -1409,9 +1446,32 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
             <datalist id="category-list">
               <option v-for="cat in existingCategories" :key="cat" :value="cat" />
             </datalist>
-            <button class="add-item-btn" @click="submitNewItem">追加</button>
+            <button v-if="editingItem" class="add-item-btn-cancel" @click="cancelEditItem">キャンセル</button>
+            <button class="add-item-btn" @click="submitNewItem">{{ editingItem ? '保存' : '追加' }}</button>
           </div>
           <p v-if="newItemError" class="add-item-error">{{ newItemError }}</p>
+        </div>
+
+        <!-- 手動登録品目一覧 -->
+        <div v-if="config.manualItems.length > 0" class="manual-items-section">
+          <button class="manual-items-toggle" @click="manualListOpen = !manualListOpen" type="button">
+            手動登録品目 {{ config.manualItems.length }}件
+            <span class="manual-items-arrow">{{ manualListOpen ? '▲' : '▼' }}</span>
+          </button>
+          <div v-if="manualListOpen" class="manual-items-list">
+            <div
+              v-for="name in config.manualItems"
+              :key="name"
+              class="manual-item-row"
+              :class="{ editing: editingItem === name }"
+            >
+              <span class="manual-item-name">{{ name }}</span>
+              <span v-if="config.categories?.[name]" class="manual-item-cat">{{ config.categories[name] }}</span>
+              <span v-if="config.prices?.[name]" class="manual-item-price">¥{{ config.prices[name].toLocaleString('ja-JP') }}</span>
+              <button class="manual-item-edit" @click="startEditItem(name)" title="編集">✏️</button>
+              <button class="manual-item-delete" @click="onDeleteConfigItem(name)" title="削除">✕</button>
+            </div>
+          </div>
         </div>
       </section>
 
