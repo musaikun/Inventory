@@ -1178,7 +1178,6 @@ const newItemError    = ref('')
 const newItemNameRef  = ref(null)
 const newItemQtyRef   = ref(null)
 const editingItem     = ref(null)   // null=追加モード、文字列=編集中の品目名
-const manualListOpen  = ref(false)
 
 const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
@@ -1452,27 +1451,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           <p v-if="newItemError" class="add-item-error">{{ newItemError }}</p>
         </div>
 
-        <!-- 手動登録品目一覧 -->
-        <div v-if="config.manualItems.length > 0" class="manual-items-section">
-          <button class="manual-items-toggle" @click="manualListOpen = !manualListOpen" type="button">
-            手動登録品目 {{ config.manualItems.length }}件
-            <span class="manual-items-arrow">{{ manualListOpen ? '▲' : '▼' }}</span>
-          </button>
-          <div v-if="manualListOpen" class="manual-items-list">
-            <div
-              v-for="name in config.manualItems"
-              :key="name"
-              class="manual-item-row"
-              :class="{ editing: editingItem === name }"
-            >
-              <span class="manual-item-name">{{ name }}</span>
-              <span v-if="config.categories?.[name]" class="manual-item-cat">{{ config.categories[name] }}</span>
-              <span v-if="config.prices?.[name]" class="manual-item-price">¥{{ config.prices[name].toLocaleString('ja-JP') }}</span>
-              <button class="manual-item-edit" @click="startEditItem(name)" title="編集">✏️</button>
-              <button class="manual-item-delete" @click="onDeleteConfigItem(name)" title="削除">✕</button>
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- 同時入力 競合解決バナー（入力欄直下） -->
@@ -1562,9 +1540,12 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :category-scope="categoryScope"
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
+        :manual-items="config.manualItems"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
+        @edit-item="startEditItem"
+        @delete-item="onDeleteConfigItem"
       />
 
       <!-- 確認モーダル -->
