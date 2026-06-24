@@ -297,7 +297,9 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = newDict
-    config.manualItems   = []
+    // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
+    const newOrderSet    = new Set(newOrder)
+    config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
     _save()
 
     return {
