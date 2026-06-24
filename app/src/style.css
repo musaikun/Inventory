@@ -729,6 +729,96 @@ body {
   color: #dc2626;
 }
 
+.add-item-btn-cancel {
+  padding: 8px 12px;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── 手動登録品目一覧 ── */
+.manual-items-section {
+  margin: 8px 16px 4px;
+}
+
+.manual-items-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.manual-items-arrow { font-size: 10px; }
+
+.manual-items-list {
+  margin-top: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+}
+
+.manual-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+
+.manual-item-row:last-child { border-bottom: none; }
+.manual-item-row.editing { background: #eff6ff; }
+
+.manual-item-name { flex: 1; font-weight: 600; color: #1e293b; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.manual-item-cat {
+  font-size: 11px;
+  background: #dbeafe;
+  color: #2563eb;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.manual-item-price {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.manual-item-edit,
+.manual-item-delete {
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.manual-item-edit:active  { background: #dbeafe; }
+.manual-item-delete { color: #94a3b8; }
+.manual-item-delete:active { background: #fee2e2; color: #dc2626; }
+
 /* ── 品目未設定 空状態 ── */
 .empty-items-state {
   display: flex;
