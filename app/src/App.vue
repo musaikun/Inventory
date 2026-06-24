@@ -1190,8 +1190,18 @@ function submitNewItem() {
   const category = newItemCategory.value.trim()
 
   if (editingItem.value) {
-    const result = updateConfigItem(editingItem.value, name, (!isNaN(price) && price > 0) ? price : null, category || null)
+    const oldName = editingItem.value
+    const result  = updateConfigItem(oldName, name, (!isNaN(price) && price > 0) ? price : null, category || null)
     if (!result) { newItemError.value = 'その品目名はすでに使われています'; return }
+    if (name !== oldName) {
+      const entry = inventory[oldName]
+      if (entry) {
+        updateQty(name, entry.qty, entry.unit || '', entry.enteredBy || '')
+        if (syncActive.value) broadcastUpdate(name, entry.qty, entry.unit || '', entry.enteredBy || '')
+      }
+      removeItem(oldName)
+      if (syncActive.value) broadcastRemove(oldName)
+    }
     cancelEditItem()
     return
   }
