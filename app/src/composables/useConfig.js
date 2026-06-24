@@ -435,11 +435,12 @@ export function useConfig() {
     _saveMaster()
   }
 
-  function addItem(name, price) {
+  function addItem(name, price, category) {
     const n = name.trim()
     if (!n || config.order.includes(n)) return false
     config.order.push(n)
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
+    if (category?.trim()) config.categories[n] = category.trim()
     _save()
     return true
   }

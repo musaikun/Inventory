@@ -660,6 +660,75 @@ body {
   padding: 2px 16px 4px;
 }
 
+/* ── 品目追加フォーム ── */
+.add-item-form {
+  margin: 10px 16px 4px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 12px;
+}
+
+.add-item-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+  margin-bottom: 8px;
+  letter-spacing: 0.03em;
+}
+
+.add-item-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.add-item-row2 {
+  margin-top: 6px;
+}
+
+.add-input {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: white;
+  color: #1e293b;
+  outline: none;
+  min-width: 0;
+}
+
+.add-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+}
+
+.add-input-name { flex: 2; min-width: 120px; }
+.add-input-sm   { flex: 1; min-width: 72px; }
+.add-input-cat  { flex: 1; min-width: 120px; }
+
+.add-item-btn {
+  padding: 8px 18px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.add-item-btn:active { background: #1d4ed8; }
+
+.add-item-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+}
+
 /* ── 品目未設定 空状態 ── */
 .empty-items-state {
   display: flex;
