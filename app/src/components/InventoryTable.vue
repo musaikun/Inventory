@@ -492,8 +492,8 @@ function fmtYen(n) {
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
                 <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
-                  <button class="manual-btn-edit" @click="emit('edit-item', row.item)" title="編集">✏️</button>
-                  <button class="manual-btn-delete" @click="requestDelete(row.item)" title="削除">✕</button>
+                  <button class="manual-btn-edit" @click="emit('edit-item', row.item)">編集</button>
+                  <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
                 </span>
               </div>
               <div v-if="pendingDelete === row.item" class="delete-confirm" @click.stop>
@@ -914,18 +914,30 @@ function fmtYen(n) {
 
 .manual-btn-edit,
 .manual-btn-delete {
-  padding: 2px 5px;
-  border: none;
-  background: transparent;
+  padding: 2px 7px;
+  border: 1px solid;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
+  font-weight: 600;
   border-radius: 4px;
-  line-height: 1;
-  color: #94a3b8;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.manual-btn-edit {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.manual-btn-delete {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
 }
 
 .manual-btn-edit:active   { background: #dbeafe; }
-.manual-btn-delete:active { background: #fee2e2; color: #dc2626; }
+.manual-btn-delete:active { background: #fee2e2; }
 
 /* ── 削除インライン確認 ── */
 .delete-confirm {
