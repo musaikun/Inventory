@@ -435,6 +435,15 @@ export function useConfig() {
     _saveMaster()
   }
 
+  function addItem(name, price) {
+    const n = name.trim()
+    if (!n || config.order.includes(n)) return false
+    config.order.push(n)
+    if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
+    _save()
+    return true
+  }
+
   const itemCount         = computed(() => config.order.length)
   const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
@@ -449,5 +458,6 @@ export function useConfig() {
     clearConfig,
     loadSampleData,
     registerAlias,
+    addItem,
   }
 }

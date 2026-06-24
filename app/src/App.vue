@@ -49,7 +49,7 @@ import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from '
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, addItem } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -1169,6 +1169,12 @@ function onTableUpdate({ item, qty, unit }) {
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
+function onAddItem({ name, qty, price }) {
+  addItem(name, price)
+  updateQty(name, qty, '', deviceName.value || '名前未設定')
+  if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
+}
+
 // ── CSV export ─────────────────────────────────────────────────────────────────
 const zeroItems     = ref([])  // 数量0品目
 const unfilledItems = ref([])  // 未入力品目
@@ -1410,16 +1416,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </div>
 
-      <!-- 品目未設定 空状態 -->
-      <div v-if="config.order.length === 0" class="empty-items-state">
-        <div class="empty-items-icon">📋</div>
-        <div class="empty-items-title">品目リストが未設定です</div>
-        <div class="empty-items-desc">設定画面から品目リストをインポートしてください</div>
-        <button class="empty-items-btn" @click="showSettings = true">⚙️ 設定を開く</button>
-      </div>
-
       <InventoryTable
-        v-else
         ref="inventoryTableRef"
         :inventory="inventory"
         :filled-count="filledCount"
@@ -1431,6 +1428,7 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
+        @add-item="onAddItem"
       />
 
       <!-- 確認モーダル -->
