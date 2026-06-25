@@ -44,6 +44,7 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
+import { track } from './utils/analytics.js'
 
 // ── PWA 更新検知 ───────────────────────────────────────────────────────────────
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
@@ -173,6 +174,7 @@ async function onSessionStart(session) {
   beginSession(session)
   reset()
   clearAuditLog()
+  track('session_started')
   // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
 }
@@ -510,6 +512,8 @@ function _closeTopLayer() {
   if (confirmState.value)    { onCancelConfirm();         return true }
   if (candidateState.value)  { onCancelCandidate();       return true }
   if (chatNotif.value)       { chatNotif.value = null;    return true }
+  if (showReview.value)      { dismissReview();           return true }
+  if (showFeedback.value)    { showFeedback.value = false; return true }
   if (showNameModal.value)   { showNameModal.value = false; return true }
   if (recountOpen.value)     { recountOpen.value = false; return true }
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
@@ -688,6 +692,8 @@ async function onComplete() {
   await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   _clearDraft(completedId)
   clearSession()
+  track('session_completed', { item_count: filledCount.value, mode: 'solo' })
+  _checkReviewPrompt()
   showToast('棚卸を完了しました ✓', 3000, 'success')
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
@@ -758,6 +764,8 @@ async function onSyncComplete() {
   await dissolveRoom()
   _clearDraft(completedId)
   clearSession()
+  track('session_completed', { item_count: filledCount.value, mode: 'host' })
+  _checkReviewPrompt()
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -942,6 +950,7 @@ const continuousMode = ref(false)
 function onVoiceResult(raw) {
   searchText.value   = raw
   searchStatus.value = ''
+  track('voice_used')
   runSearch(raw)
 }
 
@@ -1212,6 +1221,7 @@ function submitNewItem() {
   addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null)
   updateQty(name, qty, '', deviceName.value || '名前未設定')
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
+  track('item_added_manual')
   newItemName.value     = ''
   newItemQty.value      = ''
   newItemPrice.value    = ''
@@ -1286,6 +1296,72 @@ function doExport() {
 const dateStr = new Date().toLocaleDateString('ja-JP', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
 })
+
+// ── フィードバック ─────────────────────────────────────────────────────────────
+const showFeedback      = ref(false)
+const feedbackText      = ref('')
+const feedbackSent      = ref(false)
+
+function openFeedback() {
+  feedbackText.value = ''
+  feedbackSent.value = false
+  showFeedback.value = true
+  track('feedback_opened')
+}
+
+function submitFeedback() {
+  const text = feedbackText.value.trim()
+  if (!text) return
+  track('feedback_submitted', { text })
+  feedbackSent.value = true
+  setTimeout(() => { showFeedback.value = false }, 2000)
+}
+
+// ── レビュー促進（3回目完了後） ────────────────────────────────────────────────
+const _COMPLETED_KEY = 'tanaoro_completed_count'
+const _REVIEW_KEY    = 'tanaoro_review_prompted'
+const showReview     = ref(false)
+const reviewRating   = ref(0)
+const reviewStep     = ref('rating') // 'rating' | 'thanks' | 'feedback'
+const reviewFeedback = ref('')
+
+function _checkReviewPrompt() {
+  if (localStorage.getItem(_REVIEW_KEY)) return
+  const count = parseInt(localStorage.getItem(_COMPLETED_KEY) || '0', 10) + 1
+  localStorage.setItem(_COMPLETED_KEY, String(count))
+  if (count >= 3) {
+    reviewRating.value   = 0
+    reviewStep.value     = 'rating'
+    reviewFeedback.value = ''
+    showReview.value     = true
+    track('review_prompt_shown', { completed_count: count })
+  }
+}
+
+function onReviewRate(star) {
+  reviewRating.value = star
+  if (star >= 4) {
+    reviewStep.value = 'thanks'
+    track('review_rated', { stars: star, positive: true })
+    localStorage.setItem(_REVIEW_KEY, '1')
+  } else {
+    reviewStep.value = 'feedback'
+    track('review_rated', { stars: star, positive: false })
+  }
+}
+
+function submitReviewFeedback() {
+  const text = reviewFeedback.value.trim()
+  if (text) track('review_feedback_submitted', { stars: reviewRating.value, text })
+  localStorage.setItem(_REVIEW_KEY, '1')
+  showReview.value = false
+}
+
+function dismissReview() {
+  localStorage.setItem(_REVIEW_KEY, '1')
+  showReview.value = false
+  track('review_dismissed')
+}
 </script>
 
 <template>
@@ -1691,6 +1767,91 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
+    <!-- フィードバックボタン（セッション・一覧画面で表示） -->
+    <button
+      v-if="currentView === 'session' || currentView === 'sessions'"
+      class="feedback-fab"
+      @click="openFeedback"
+      title="フィードバックを送る"
+    >💬</button>
+
+    <!-- フィードバックモーダル -->
+    <div v-if="showFeedback" class="feedback-overlay" @click.self="showFeedback = false">
+      <div class="feedback-sheet">
+        <div class="sheet-handle"></div>
+        <div class="feedback-title">フィードバック</div>
+        <template v-if="!feedbackSent">
+          <p class="feedback-desc">ご意見・ご要望・不具合などをお聞かせください</p>
+          <textarea
+            v-model="feedbackText"
+            class="feedback-textarea"
+            placeholder="例：〇〇の操作がわかりにくかった、△△の機能が欲しい"
+            rows="5"
+            autofocus
+          ></textarea>
+          <div class="feedback-actions">
+            <button class="btn btn-secondary" @click="showFeedback = false">キャンセル</button>
+            <button class="btn btn-primary" :disabled="!feedbackText.trim()" @click="submitFeedback">送信</button>
+          </div>
+        </template>
+        <div v-else class="feedback-thanks">
+          <div class="feedback-thanks-icon">✓</div>
+          <div class="feedback-thanks-text">ありがとうございます！</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- レビュー促進モーダル -->
+    <div v-if="showReview" class="feedback-overlay" @click.self="dismissReview">
+      <div class="feedback-sheet">
+        <div class="sheet-handle"></div>
+
+        <!-- 評価ステップ -->
+        <template v-if="reviewStep === 'rating'">
+          <div class="feedback-title">タナオロはいかがですか？</div>
+          <p class="feedback-desc">3回目の棚卸が完了しました。使い心地を教えてください。</p>
+          <div class="review-stars">
+            <button
+              v-for="s in 5"
+              :key="s"
+              class="review-star"
+              :class="{ filled: s <= reviewRating }"
+              @click="onReviewRate(s)"
+            >★</button>
+          </div>
+          <button class="feedback-skip" @click="dismissReview">あとで</button>
+        </template>
+
+        <!-- 高評価 ありがとう -->
+        <template v-else-if="reviewStep === 'thanks'">
+          <div class="feedback-title">ありがとうございます！</div>
+          <div class="review-thanks-stars">
+            <span v-for="s in reviewRating" :key="s" class="review-star-filled">★</span>
+          </div>
+          <p class="feedback-desc">ご愛用いただき、誠にありがとうございます。</p>
+          <div class="feedback-actions">
+            <button class="btn btn-primary" @click="showReview = false">閉じる</button>
+          </div>
+        </template>
+
+        <!-- 低評価 → フィードバック -->
+        <template v-else>
+          <div class="feedback-title">改善点を教えてください</div>
+          <p class="feedback-desc">より良いアプリにするために、ご意見をお聞かせください。</p>
+          <textarea
+            v-model="reviewFeedback"
+            class="feedback-textarea"
+            placeholder="使いにくかった点、欲しい機能など"
+            rows="4"
+          ></textarea>
+          <div class="feedback-actions">
+            <button class="btn btn-secondary" @click="dismissReview">スキップ</button>
+            <button class="btn btn-primary" @click="submitReviewFeedback">送信</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -2090,4 +2251,160 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 .crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
 .crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
 .crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
+
+/* ── フィードバック FAB ── */
+.feedback-fab {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 800;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.feedback-fab:active {
+  transform: scale(0.92);
+  box-shadow: 0 1px 6px rgba(37, 99, 235, 0.25);
+}
+
+/* ── フィードバック / レビュー モーダル ── */
+.feedback-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 3500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.feedback-sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(32px + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+  animation: slideUp 0.25s ease;
+}
+
+.feedback-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.feedback-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.feedback-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg);
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  -webkit-appearance: none;
+  line-height: 1.5;
+}
+.feedback-textarea:focus { border-color: var(--primary); }
+
+.feedback-actions {
+  display: flex;
+  gap: 10px;
+}
+.feedback-actions .btn { flex: 1; padding: 14px; font-size: 15px; }
+
+.feedback-skip {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.feedback-thanks {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0 8px;
+  gap: 10px;
+}
+.feedback-thanks-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 26px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feedback-thanks-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── レビュー星 ── */
+.review-stars {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 8px 0 20px;
+}
+.review-star {
+  font-size: 38px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #d1d5db;
+  transition: color 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+  padding: 4px;
+}
+.review-star.filled { color: #f59e0b; }
+.review-star:active  { transform: scale(1.2); }
+
+.review-thanks-stars {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+.review-star-filled {
+  font-size: 28px;
+  color: #f59e0b;
+}
 </style>
