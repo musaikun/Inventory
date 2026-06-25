@@ -39,6 +39,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
         // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。

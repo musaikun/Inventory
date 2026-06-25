@@ -6,6 +6,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
+import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 
 const props = defineProps({ isGuest: Boolean })
 const emit = defineEmits(['close'])
@@ -232,6 +233,22 @@ function copyCode() {
       <!-- アクションボタン（ゲストは非表示） -->
       <div v-if="!props.isGuest" class="actions">
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
+      </div>
+
+      <!-- プッシュ通知 -->
+      <div v-if="pushSupported" class="notif-section">
+        <div class="device-label">棚卸リマインダー通知</div>
+        <div class="notif-row">
+          <span class="notif-desc">
+            {{ pushSubscribed ? '月末・棚卸リマインダーを受信します' : '棚卸のリマインダーを通知で受け取れます' }}
+          </span>
+          <button
+            class="notif-toggle"
+            :class="{ on: pushSubscribed }"
+            :disabled="pushLoading"
+            @click="pushSubscribed ? unsubscribePush() : subscribePush()"
+          >{{ pushSubscribed ? 'ON' : 'OFF' }}</button>
+        </div>
       </div>
 
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
@@ -503,4 +520,44 @@ function copyCode() {
   margin-bottom: 16px;
   text-align: center;
 }
+
+/* 通知設定 */
+.notif-section {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+}
+.notif-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.notif-desc {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.notif-toggle {
+  flex-shrink: 0;
+  min-width: 52px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 20px;
+  border: 2px solid var(--border);
+  background: #e5e7eb;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.notif-toggle.on {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.notif-toggle:disabled { opacity: 0.6; cursor: default; }
 </style>

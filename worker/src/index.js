@@ -11,6 +11,7 @@ import {
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
+import { savePushSubscription, deletePushSubscription, handleCron } from './pushHandler.js'
 export { RoomDO }
 
 function corsHeaders(origin, allowedOrigin) {
@@ -148,6 +149,18 @@ export default {
           return jsonResponse(await handleRoomUpdate(env.DB, code, await request.json()), 200, origin, allowedOrigin)
         }
 
+        // POST /store/:code/push/subscribe
+        if (subpath === '/push/subscribe' && request.method === 'POST') {
+          await savePushSubscription(env.DB, code, await request.json())
+          return jsonResponse({ ok: true }, 200, origin, allowedOrigin)
+        }
+        // DELETE /store/:code/push/subscribe
+        if (subpath === '/push/subscribe' && request.method === 'DELETE') {
+          const { endpoint } = await request.json()
+          await deletePushSubscription(env.DB, code, endpoint)
+          return jsonResponse({ ok: true }, 200, origin, allowedOrigin)
+        }
+
         // GET/POST /store/:code/sessions （要認証）
         if (subpath === '/sessions' && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
@@ -185,6 +198,11 @@ export default {
           return jsonResponse(result, status, origin, allowedOrigin)
         }
       }
+    }
+
+    // ── プッシュ通知 ───────────────────────────────────────────────────────────
+    if (path === '/api/push/vapid-key' && request.method === 'GET') {
+      return jsonResponse({ key: env.VAPID_PUBLIC_KEY || null }, 200, origin, allowedOrigin)
     }
 
     // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
@@ -248,5 +266,9 @@ export default {
       console.error('[Worker] Unhandled error:', request.method, path, e?.message ?? e)
       return jsonResponse({ error: e?.message ?? 'Internal server error' }, 500, origin, allowedOrigin)
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(handleCron(env))
   },
 }
