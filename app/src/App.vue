@@ -22,6 +22,8 @@ import {
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
+  broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
+  setItemAddRequestCallback, setItemAddResponseCallback, pendingItemRequests,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -247,13 +249,14 @@ async function _reconnectToRoom(session) {
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
-const showSettings     = ref(false)
-const showSync         = ref(false)
-const showUpgrade      = ref(false)
-const upgradeReason    = ref('')
-const showBarcode      = ref(false)
-const showPasteParser  = ref(false)
-const barcodeAddCode   = ref('')  // バーコード未登録時の自動入力コード
+const showSettings      = ref(false)
+const showSync          = ref(false)
+const showUpgrade       = ref(false)
+const upgradeReason     = ref('')
+const showBarcode       = ref(false)
+const showPasteParser   = ref(false)
+const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
+const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
 const inventoryTableRef = ref(null)
 
 function openUpgrade(reason = '') {
@@ -443,6 +446,25 @@ setConflictNotifyCallback((ingredient) => {
   _postConflictToChat(ingredient)
 })
 
+function approveItemAdd(req) {
+  addItem(req.name, null, null, req.unit || null, req.code || null)
+  broadcastConfig({
+    order: config.order, units: config.units, prices: config.prices,
+    categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
+    prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
+    isCustom: config.isCustom,
+  })
+  broadcastItemAddResponse(req.requestId, true, req.name)
+  dismissItemAddRequest(req.requestId)
+  showToast(`「${req.name}」を品目リストに追加しました`, 2500, 'success')
+}
+
+function rejectItemAdd(req) {
+  broadcastItemAddResponse(req.requestId, false, req.name)
+  dismissItemAddRequest(req.requestId)
+  showToast(`「${req.name}」の追加を拒否しました`, 2000, 'default')
+}
+
 function onResolveConflict(c, resolution) {
   const qty  = resolution === 'sum'    ? Math.round((c.local.qty + c.remoteQty) * 10000) / 10000
              : resolution === 'mine'   ? c.local.qty
@@ -494,6 +516,25 @@ setNewSessionStartedCallback(() => {
   showToast('ホストが新しい棚卸を開始したため退室します', 4000, 'warning')
   _hostCompletedLeave = true
   leaveRoom()
+})
+
+// ゲスト→ホスト 品目追加申請フロー
+setItemAddRequestCallback((req) => {
+  // ホスト側: ゲストからの申請を受信（pendingItemRequests に自動追加済み）
+  showToast(`${req.fromDeviceName} が「${req.name}」の追加を申請`, 5000, 'info')
+})
+setItemAddResponseCallback((requestId, approved, name, reason) => {
+  // ゲスト側: ホストの承認/拒否を受信
+  if (pendingGuestRequest.value?.requestId === requestId) {
+    pendingGuestRequest.value = null
+  }
+  if (reason === 'host_offline') {
+    showToast(`ホストがオフラインのため「${name}」の申請が失敗しました`, 4000, 'warning')
+  } else if (approved) {
+    showToast(`「${name}」がホストに承認されました ✓`, 3000, 'success')
+  } else {
+    showToast(`「${name}」の追加がホストに拒否されました`, 3000, 'warning')
+  }
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
@@ -1310,6 +1351,26 @@ function submitNewItem() {
   }
   _pendingItemSubmit.value = null
 
+  // ゲスト接続中: 品目追加はホスト承認が必要
+  if (syncActive.value && !syncIsHost.value) {
+    if (pendingGuestRequest.value) {
+      newItemError.value = '前の申請がホストの承認待ちです。しばらくお待ちください。'
+      return
+    }
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+    pendingGuestRequest.value = { requestId, name }
+    broadcastItemAddRequest(name, '', barcodeAddCode.value || '', requestId)
+    showToast(`「${name}」の追加をホストに申請しました`, 3000, 'info')
+    newItemName.value     = ''
+    newItemQty.value      = ''
+    newItemPrice.value    = ''
+    newItemCategory.value = ''
+    newItemError.value    = ''
+    barcodeAddCode.value  = ''
+    nextTick(() => newItemNameRef.value?.focus())
+    return
+  }
+
   addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null,
     null, barcodeAddCode.value || null)
   barcodeAddCode.value = ''
@@ -1679,6 +1740,30 @@ function dismissReview() {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- ホスト: ゲストからの品目追加申請 -->
+      <div v-if="syncIsHost && pendingItemRequests.length > 0" class="item-req-wrap">
+        <div v-for="req in pendingItemRequests" :key="req.requestId" class="item-req-card">
+          <div class="item-req-info">
+            <span class="item-req-icon">📋</span>
+            <span class="item-req-text">
+              <strong>{{ req.fromDeviceName }}</strong> が
+              「<strong>{{ req.name }}</strong>」の追加を申請
+            </span>
+          </div>
+          <div class="item-req-actions">
+            <button class="item-req-btn item-req-approve" @click="approveItemAdd(req)">承認</button>
+            <button class="item-req-btn item-req-reject"  @click="rejectItemAdd(req)">拒否</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ゲスト: ホスト承認待ち状態 -->
+      <div v-if="pendingGuestRequest" class="item-req-pending-guest">
+        <span class="item-req-pending-icon">⏳</span>
+        「<strong>{{ pendingGuestRequest.name }}</strong>」の追加をホストに申請中…
+        <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
       </div>
 
       <!-- 棚卸対象スコープ切り替え（ゲストはホストに追従するため非表示） -->
@@ -2453,6 +2538,91 @@ function dismissReview() {
 .crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
 .crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
 .crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
+
+/* ── ゲスト品目追加申請 ── */
+.item-req-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.item-req-card {
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 2px 10px rgba(99,102,241,0.12);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.item-req-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-req-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.item-req-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.item-req-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.item-req-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.item-req-btn:active { opacity: 0.75; }
+.item-req-approve { background: #d1fae5; color: #065f46; }
+.item-req-reject  { background: #fee2e2; color: #991b1b; }
+
+.item-req-pending-guest {
+  margin: 0 16px 8px;
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-req-pending-icon { font-size: 16px; }
+
+.item-req-pending-cancel {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #93c5fd;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #3b82f6;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 
 /* ── 初回オンボーディング ── */
 .onboard-overlay {

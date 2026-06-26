@@ -74,8 +74,9 @@ const messages      = reactive([])
 const auditLog      = reactive([])
 const unreadCount   = ref(0)
 // { [ingredient]: { name: string, deviceId: string, _timer: number } }
-export const typingMap         = reactive({})
-export const lockedIngredients = reactive(new Set())
+export const typingMap            = reactive({})
+export const lockedIngredients    = reactive(new Set())
+export const pendingItemRequests  = reactive([])  // ホスト側: ゲストからの品目追加申請キュー
 
 let _ws              = null
 let _reconnectTimer  = null
@@ -103,6 +104,8 @@ watch(deviceName, (newName, oldName) => {
 // ── コールバック ──────────────────────────────────────────────────────────────
 let _onItemUpdate     = null
 let _onItemRemove     = null
+let _onItemAddRequest  = null
+let _onItemAddResponse = null
 let _onRecountFlag    = null
 let _getInventory     = null
 let _getRecountFlags  = null
@@ -128,6 +131,8 @@ let _onNewSessionStarted = null  // ゲスト参加中に新規セッション�
 let _expectedSessionId   = null  // _reconnectToRoom が設定する期待セッションID
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
+export function setItemAddRequestCallback(fn)  { _onItemAddRequest  = fn }
+export function setItemAddResponseCallback(fn) { _onItemAddResponse = fn }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
 export function registerRecountFlagsGetter(fn) { _getRecountFlags = fn }
@@ -263,6 +268,21 @@ export function broadcastConflictNotify(ingredient, fromName, guestQty, guestUni
   _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName, guestQty, guestUnit, hostQty, hostUnit }))
 }
 
+export function broadcastItemAddRequest(name, unit, code, requestId) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_add_request', name, unit: unit ?? '', code: code ?? '', requestId }))
+}
+
+export function broadcastItemAddResponse(requestId, approved, name) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_add_response', requestId, approved, name }))
+}
+
+export function dismissItemAddRequest(requestId) {
+  const idx = pendingItemRequests.findIndex(r => r.requestId === requestId)
+  if (idx !== -1) pendingItemRequests.splice(idx, 1)
+}
+
 // 解決済み競合をキューから除去
 let _conflictQueue = []
 
@@ -354,6 +374,7 @@ function _resetClientState() {
   Object.keys(typingMap).forEach(k => { clearTimeout(typingMap[k]?._timer); delete typingMap[k] })
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
+  pendingItemRequests.splice(0, pendingItemRequests.length)
   unreadCount.value = 0
 }
 
@@ -584,6 +605,26 @@ function _handleMessage(msg) {
     case 'conflict_lock':
       lockedIngredients.clear()
       for (const ing of (msg.ingredients ?? [])) lockedIngredients.add(ing)
+      break
+
+    case 'item_add_request': {
+      // Host receives approval request from a guest (routed by DO)
+      const req = {
+        requestId:      msg.requestId ?? '',
+        name:           msg.name ?? '',
+        unit:           msg.unit ?? '',
+        code:           msg.code ?? '',
+        fromDeviceName: msg.fromDeviceName ?? '',
+        fromDeviceId:   msg.fromDeviceId ?? '',
+      }
+      pendingItemRequests.push(req)
+      _onItemAddRequest?.(req)
+      break
+    }
+
+    case 'item_add_response':
+      // Guest receives approval/rejection from host
+      _onItemAddResponse?.(msg.requestId ?? '', !!msg.approved, msg.name ?? '', msg.reason ?? '')
       break
 
     case 'pong':
