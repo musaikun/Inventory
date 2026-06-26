@@ -10,6 +10,7 @@ import { getSessions, createSession, updateSession, deleteSession, isAuthenticat
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { isHistoryVisible, isPro, FREE_HISTORY_DAYS } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 
@@ -148,10 +149,19 @@ const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed')
 )
 
+// Free プラン: 30日以内のみ表示
+const visibleCompletedSessions = computed(() =>
+  completedSessions.value.filter(s => isHistoryVisible(s.endedAt ?? s.startedAt))
+)
+
+const hiddenByPlanCount = computed(() =>
+  completedSessions.value.length - visibleCompletedSessions.value.length
+)
+
 // 完了済みを年ごとにグループ化（新しい年が上）
 const completedByYear = computed(() => {
   const map = new Map()
-  for (const s of completedSessions.value) {
+  for (const s of visibleCompletedSessions.value) {
     const year = new Date(s.startedAt).getFullYear()
     if (!map.has(year)) map.set(year, [])
     map.get(year).push(s)
@@ -520,6 +530,12 @@ function _itemCount(session) {
                 <span class="year-card-count">{{ grp.items.length }}件</span>
                 <span class="year-card-arrow">›</span>
               </button>
+              <!-- Free プラン: 30日以前の件数をアップグレード誘導として表示 -->
+              <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
+                <span class="plan-limit-icon">🔒</span>
+                <span class="plan-limit-text">{{ hiddenByPlanCount }}件が{{ FREE_HISTORY_DAYS }}日の履歴制限で非表示</span>
+                <a class="plan-limit-link" href="/landing/#pricing" target="_blank">アップグレード</a>
+              </div>
             </template>
             <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
@@ -1330,6 +1346,28 @@ function _itemCount(session) {
   line-height: 1.7;
   padding: 32px 16px;
 }
+
+.plan-limit-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-top: 6px;
+  background: #fefce8;
+  border: 1.5px solid #fde047;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.plan-limit-icon { flex-shrink: 0; }
+.plan-limit-text { flex: 1; color: #854d0e; font-weight: 600; }
+.plan-limit-link {
+  flex-shrink: 0;
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 12px;
+}
+.plan-limit-link:active { opacity: 0.7; }
 
 .msg-error {
   padding: 10px 14px;

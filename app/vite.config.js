@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {
-        name: '棚卸管理',
-        short_name: '棚卸',
-        description: '飲食店棚卸入力アプリ',
+        name: 'タナオロ',
+        short_name: 'タナオロ',
+        description: '飲食店の棚卸を音声でスピード入力。複数端末リアルタイム同期対応。',
         theme_color: '#2563eb',
         background_color: '#f1f5f9',
         display: 'standalone',
