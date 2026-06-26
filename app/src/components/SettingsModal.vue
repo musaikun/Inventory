@@ -7,6 +7,7 @@ import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
+import TextPasteParserModal from './TextPasteParserModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 
 const props = defineProps({ isGuest: Boolean })
@@ -15,7 +16,7 @@ useEscapeKey(() => emit('close'))
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
@@ -24,6 +25,7 @@ const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイ�
 const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
+const showPasteParser = ref(false)
 const dragging       = ref(false)
 const fileInput      = ref(null)
 const mapperInput    = ref(null)
@@ -84,6 +86,15 @@ function openMapper(file) {
     status.value         = null
   }
   reader.readAsText(file, 'UTF-8')
+}
+
+function onPasteParserApply(items) {
+  let count = 0
+  for (const { name, unit } of items) {
+    if (addItem(name, null, null, unit || null, null)) count++
+  }
+  showPasteParser.value = false
+  status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
 }
 
 function onMapperImported({ mapping, csvText }) {
@@ -178,6 +189,13 @@ function copyCode() {
           {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
         </div>
       </template>
+
+      <!-- 納品書テキスト貼り付けで品目追加（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="showPasteParser = true">
+          📋 テキスト貼り付けで品目を追加（納品書・メモなど）
+        </button>
+      </div>
 
       <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
       <div v-if="!props.isGuest" class="mapper-row">
@@ -306,6 +324,15 @@ function copyCode() {
     :filename="mapperFilename"
     @imported="onMapperImported"
     @close="showMapper = false"
+  />
+
+  <!-- テキスト貼り付けパーサー（品目リスト追加モード） -->
+  <TextPasteParserModal
+    v-if="showPasteParser"
+    mode="import"
+    :config-order="config.order"
+    @apply="onPasteParserApply"
+    @close="showPasteParser = false"
   />
 </template>
 

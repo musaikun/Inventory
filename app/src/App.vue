@@ -46,6 +46,7 @@ import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
+import TextPasteParserModal from './components/TextPasteParserModal.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, isHistoryVisible, isPro } from './utils/planLimits.js'
 
@@ -251,6 +252,8 @@ const showSync         = ref(false)
 const showUpgrade      = ref(false)
 const upgradeReason    = ref('')
 const showBarcode      = ref(false)
+const showPasteParser  = ref(false)
+const barcodeAddCode   = ref('')  // バーコード未登録時の自動入力コード
 const inventoryTableRef = ref(null)
 
 function openUpgrade(reason = '') {
@@ -266,8 +269,37 @@ function onBarcodeScanned(text) {
     showToast(`バーコード認識: ${item}`, 2000, 'success')
     openConfirm(item, null, config.units?.[item] || '', 'search')
   } else {
-    showToast(`バーコード「${text}」が品目リストに見つかりません`, 3500, 'warning')
+    // 未登録バーコード → 品目追加フォームをバーコードコード付きで開く
+    barcodeAddCode.value  = text
+    newItemName.value     = ''
+    newItemQty.value      = ''
+    newItemPrice.value    = ''
+    newItemCategory.value = ''
+    newItemError.value    = ''
+    showToast(`バーコード「${text}」が未登録です。品目名を入力して追加してください`, 4000, 'warning')
+    nextTick(() => newItemNameRef.value?.focus())
   }
+}
+
+// テキスト貼り付けパーサー → 在庫記録＋新規品目の追加
+function onPasteParserApply(items) {
+  showPasteParser.value = false
+  let addedCount = 0, recordedCount = 0
+  for (const { name, qty, unit } of items) {
+    if (!config.order.includes(name)) {
+      addItem(name, null, null, unit || null, null)
+      addedCount++
+    }
+    if (qty != null) {
+      updateQty(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
+      if (syncActive.value) broadcastUpdate(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
+      recordedCount++
+    }
+  }
+  const msgs = []
+  if (addedCount)    msgs.push(`${addedCount}件を品目リストに追加`)
+  if (recordedCount) msgs.push(`${recordedCount}件の数量を記録`)
+  showToast(msgs.join('・'), 3500, 'success')
 }
 
 const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length > 0)
@@ -545,8 +577,9 @@ function _closeTopLayer() {
   if (confirmState.value)    { onCancelConfirm();           return true }
   if (candidateState.value)  { onCancelCandidate();         return true }
   if (chatNotif.value)       { chatNotif.value = null;      return true }
-  if (showBarcode.value)     { showBarcode.value = false;   return true }
-  if (showUpgrade.value)     { showUpgrade.value = false;   return true }
+  if (showBarcode.value)      { showBarcode.value = false;      return true }
+  if (showPasteParser.value)  { showPasteParser.value = false;  return true }
+  if (showUpgrade.value)      { showUpgrade.value = false;      return true }
   if (showOnboarding.value)  { dismissOnboarding();         return true }
   if (showReview.value)      { dismissReview();             return true }
   if (showFeedback.value)    { showFeedback.value = false;  return true }
@@ -1228,6 +1261,17 @@ const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 
+// ファジー類似品目: 部分文字列一致で既存品目を検索
+function _findSimilar(name) {
+  const n = name.toLowerCase()
+  return config.order.filter(item => {
+    const i = item.toLowerCase()
+    return i !== n && (i.includes(n) || n.includes(i))
+  })
+}
+
+const _pendingItemSubmit = ref(null)  // 類似警告後に保留中の確定コールバック
+
 function submitNewItem() {
   const name = newItemName.value.trim()
   if (!name) { newItemError.value = '品目名を入力してください'; return }
@@ -1254,7 +1298,21 @@ function submitNewItem() {
   const qty = parseFloat(newItemQty.value)
   if (isNaN(qty) || qty < 0) { newItemError.value = '数量を入力してください'; return }
   if (config.order.includes(name)) { newItemError.value = 'すでに登録されている品目名です'; return }
-  addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null)
+
+  // ファジー類似警告（保留済みなら警告スキップ）
+  if (!_pendingItemSubmit.value) {
+    const similar = _findSimilar(name)
+    if (similar.length) {
+      _pendingItemSubmit.value = () => submitNewItem()
+      newItemError.value = `類似品目「${similar[0]}」が既にあります。別品目として追加しますか？ [もう一度タップで確定]`
+      return
+    }
+  }
+  _pendingItemSubmit.value = null
+
+  addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null,
+    null, barcodeAddCode.value || null)
+  barcodeAddCode.value = ''
   updateQty(name, qty, '', deviceName.value || '名前未設定')
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
   track('item_added_manual')
@@ -1277,12 +1335,14 @@ function startEditItem(name) {
 }
 
 function cancelEditItem() {
-  editingItem.value     = null
-  newItemName.value     = ''
-  newItemQty.value      = ''
-  newItemPrice.value    = ''
-  newItemCategory.value = ''
-  newItemError.value    = ''
+  editingItem.value        = null
+  newItemName.value        = ''
+  newItemQty.value         = ''
+  newItemPrice.value       = ''
+  newItemCategory.value    = ''
+  newItemError.value       = ''
+  _pendingItemSubmit.value = null
+  barcodeAddCode.value     = ''
 }
 
 function onDeleteConfigItem(name) {
@@ -1475,6 +1535,7 @@ function dismissReview() {
             </span>
             <span v-else>🔗</span>
           </button>
+          <button v-if="!inputLocked" class="settings-btn" @click="showPasteParser = true" title="テキストから記録">📋</button>
           <button v-if="hasBarcodedItems && !inputLocked" class="settings-btn" @click="showBarcode = true" title="バーコードスキャン">📷</button>
           <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
         </div>
@@ -1539,6 +1600,11 @@ function dismissReview() {
 
         <!-- 品目追加・編集フォーム -->
         <div class="add-item-form">
+          <div v-if="barcodeAddCode" class="barcode-add-hint">
+            <span class="barcode-add-icon">📷</span>
+            <span>バーコード <code>{{ barcodeAddCode }}</code> を品目名と紐付けて登録します</span>
+            <button class="barcode-add-clear" @click="barcodeAddCode = ''; newItemError = ''; _pendingItemSubmit = null">✕</button>
+          </div>
           <p class="add-item-label">{{ editingItem ? `✏️ 品目を編集` : '＋ 品目を追加' }}</p>
           <div class="add-item-row">
             <input
@@ -1798,8 +1864,15 @@ function dismissReview() {
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
-    <UpgradeModal   v-if="showUpgrade"  :reason="upgradeReason" @close="showUpgrade = false" />
-    <BarcodeScanner v-if="showBarcode"  @scanned="onBarcodeScanned" @close="showBarcode = false" />
+    <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" @close="showUpgrade = false" />
+    <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
+    <TextPasteParserModal
+      v-if="showPasteParser"
+      mode="session"
+      :config-order="config.order"
+      @apply="onPasteParserApply"
+      @close="showPasteParser = false"
+    />
 
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">
@@ -1951,6 +2024,40 @@ function dismissReview() {
 </template>
 
 <style scoped>
+/* ── バーコード未登録ヒント ── */
+.barcode-add-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff7ed;
+  border: 1.5px solid #fcd34d;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #92400e;
+  font-weight: 600;
+}
+.barcode-add-hint code {
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.barcode-add-icon { flex-shrink: 0; }
+.barcode-add-clear {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: #92400e;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
 /* ── あとで数える 一覧バナー ── */
 .recount-notice {
   margin: 0 16px 8px;
