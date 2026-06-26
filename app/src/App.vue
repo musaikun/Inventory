@@ -44,6 +44,8 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
+import UpgradeModal from './components/UpgradeModal.vue'
+import BarcodeScanner from './components/BarcodeScanner.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, isHistoryVisible, isPro } from './utils/planLimits.js'
 
@@ -113,7 +115,7 @@ async function onConfirmName() {
 
   // Free プラン: 2台制限チェック（ルーム参加前に参加者数を確認）
   if (!canJoinRoom(participantList.value.length)) {
-    showToast(`無料プランは${FREE_DEVICE_LIMIT}台まで接続できます`, 4000, 'warning')
+    openUpgrade(`現在${participantList.value.length}台接続中です。無料プランは${FREE_DEVICE_LIMIT}台まで接続できます。`)
     currentView.value = 'landing'
     return
   }
@@ -246,7 +248,29 @@ async function _reconnectToRoom(session) {
 // ── Settings / History / Sync modal ────────────────────────────────────────────
 const showSettings     = ref(false)
 const showSync         = ref(false)
+const showUpgrade      = ref(false)
+const upgradeReason    = ref('')
+const showBarcode      = ref(false)
 const inventoryTableRef = ref(null)
+
+function openUpgrade(reason = '') {
+  upgradeReason.value = reason
+  showUpgrade.value   = true
+}
+
+// バーコードスキャン: 品目コードと照合して確認モーダルを開く
+function onBarcodeScanned(text) {
+  showBarcode.value = false
+  const item = Object.entries(config.codes ?? {}).find(([, code]) => code === text)?.[0]
+  if (item) {
+    showToast(`バーコード認識: ${item}`, 2000, 'success')
+    openConfirm(item, null, config.units?.[item] || '', 'search')
+  } else {
+    showToast(`バーコード「${text}」が品目リストに見つかりません`, 3500, 'warning')
+  }
+}
+
+const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length > 0)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
@@ -518,12 +542,14 @@ function _pushBackSentinel() {
 }
 
 function _closeTopLayer() {
-  if (confirmState.value)    { onCancelConfirm();         return true }
-  if (candidateState.value)  { onCancelCandidate();       return true }
-  if (chatNotif.value)       { chatNotif.value = null;    return true }
-  if (showOnboarding.value)  { dismissOnboarding();        return true }
-  if (showReview.value)      { dismissReview();           return true }
-  if (showFeedback.value)    { showFeedback.value = false; return true }
+  if (confirmState.value)    { onCancelConfirm();           return true }
+  if (candidateState.value)  { onCancelCandidate();         return true }
+  if (chatNotif.value)       { chatNotif.value = null;      return true }
+  if (showBarcode.value)     { showBarcode.value = false;   return true }
+  if (showUpgrade.value)     { showUpgrade.value = false;   return true }
+  if (showOnboarding.value)  { dismissOnboarding();         return true }
+  if (showReview.value)      { dismissReview();             return true }
+  if (showFeedback.value)    { showFeedback.value = false;  return true }
   if (showNameModal.value)   { showNameModal.value = false; return true }
   if (recountOpen.value)     { recountOpen.value = false; return true }
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
@@ -1411,6 +1437,7 @@ function dismissReview() {
       @delete-session="_clearDraft"
       @back="currentView = 'landing'"
       @open-settings="showSettings = true"
+      @open-upgrade="reason => openUpgrade(reason)"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->
@@ -1448,6 +1475,7 @@ function dismissReview() {
             </span>
             <span v-else>🔗</span>
           </button>
+          <button v-if="hasBarcodedItems && !inputLocked" class="settings-btn" @click="showBarcode = true" title="バーコードスキャン">📷</button>
           <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
         </div>
       </header>
@@ -1767,9 +1795,11 @@ function dismissReview() {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
-    <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
-    <ChatModal     v-if="showChat"     @close="showChat = false" />
+    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
+    <ChatModal      v-if="showChat"     @close="showChat = false" />
+    <UpgradeModal   v-if="showUpgrade"  :reason="upgradeReason" @close="showUpgrade = false" />
+    <BarcodeScanner v-if="showBarcode"  @scanned="onBarcodeScanned" @close="showBarcode = false" />
 
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">

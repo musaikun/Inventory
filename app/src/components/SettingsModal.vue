@@ -6,6 +6,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
+import CsvMapperModal from './CsvMapperModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 
 const props = defineProps({ isGuest: Boolean })
@@ -14,14 +15,18 @@ useEscapeKey(() => emit('close'))
 
 const {
   config, itemCount,
-  loadFromCSV, exportConfigCSV,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
 const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイル
+const showMapper     = ref(false)
+const mapperCsvText  = ref('')
+const mapperFilename = ref('')
 const dragging       = ref(false)
 const fileInput      = ref(null)
+const mapperInput    = ref(null)
 
 // ── 端末名 ───────────────────────────────────────────────────────────────────
 const deviceNameInput = ref(deviceName.value)
@@ -59,14 +64,37 @@ function handleFile(file) {
   // CSV → その場で直接読み込み
   const reader = new FileReader()
   reader.onload = e => {
+    const text = e.target.result
     try {
-      const result = loadFromCSV(e.target.result)
+      const result = loadFromCSV(text)
       status.value = { type: 'success', msg: `${result.count}件の品目を読み込みました` }
     } catch (err) {
       status.value = { type: 'error', msg: err.message }
     }
   }
   reader.readAsText(file, 'UTF-8')
+}
+
+function openMapper(file) {
+  const reader = new FileReader()
+  reader.onload = e => {
+    mapperCsvText.value  = e.target.result
+    mapperFilename.value = file.name
+    showMapper.value     = true
+    status.value         = null
+  }
+  reader.readAsText(file, 'UTF-8')
+}
+
+function onMapperImported({ mapping, csvText }) {
+  try {
+    const result = loadFromCSVMapped(csvText, mapping)
+    showMapper.value = false
+    status.value = { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+  } catch (err) {
+    status.value = { type: 'error', msg: err.message }
+    showMapper.value = false
+  }
 }
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
@@ -150,6 +178,14 @@ function copyCode() {
           {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
         </div>
       </template>
+
+      <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="mapperInput.click()">
+          🗂 フォーマット不明のCSVを列指定でインポート
+        </button>
+        <input ref="mapperInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+      </div>
 
       <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
       <button v-if="!props.isGuest" class="btn btn-secondary template-btn" @click="onDownloadTemplate">
@@ -261,6 +297,15 @@ function copyCode() {
     :initial-file="importerFile"
     @close="onImporterClose"
     @imported="result => { onImporterClose(); status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+  />
+
+  <!-- CSVカラムマッピングモーダル -->
+  <CsvMapperModal
+    v-if="showMapper"
+    :csv-text="mapperCsvText"
+    :filename="mapperFilename"
+    @imported="onMapperImported"
+    @close="showMapper = false"
   />
 </template>
 
@@ -507,6 +552,26 @@ function copyCode() {
 }
 .import-btn { width: 100%; margin-bottom: 12px; }
 .close-btn  { width: 100%; margin-top: 4px; }
+
+.mapper-row {
+  margin-bottom: 10px;
+}
+
+.mapper-trigger {
+  width: 100%;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mapper-trigger:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
 
 .guest-notice {
   padding: 14px 16px;

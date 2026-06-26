@@ -19,7 +19,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade'])
 
 const { config, itemCount, loadSampleData } = useConfig()
 const { getSnapshotBySessionId } = useHistory()
@@ -459,7 +459,44 @@ function _itemCount(session) {
             </div>
           </template>
 
-          <div v-if="!activeSession" class="hero-hint">
+          <!-- セットアップガイド: 品目リスト未設定時 -->
+          <div v-if="!activeSession && !config.isCustom" class="setup-banner">
+            <div class="setup-banner-head">
+              <span class="setup-banner-icon">📋</span>
+              <div>
+                <div class="setup-banner-title">まず品目リストを設定しましょう</div>
+                <div class="setup-banner-sub">品目リストがあると音声・バーコードで素早く棚卸できます</div>
+              </div>
+            </div>
+            <div class="setup-paths">
+              <button class="setup-path primary" @click="showStartModal = false; emit('openSettings')">
+                <span class="sp-icon">📂</span>
+                <div class="sp-body">
+                  <span class="sp-title">CSV / Excel / PDF でインポート</span>
+                  <span class="sp-sub">おすすめ・一括登録に最適</span>
+                </div>
+                <span class="sp-arr">›</span>
+              </button>
+              <button class="setup-path" @click="confirmStart">
+                <span class="sp-icon">✏️</span>
+                <div class="sp-body">
+                  <span class="sp-title">品目を登録しながら始める</span>
+                  <span class="sp-sub">棚卸しながら一覧を同時作成</span>
+                </div>
+                <span class="sp-arr">›</span>
+              </button>
+              <button class="setup-path weak" @click="onStartWithSample">
+                <span class="sp-icon">🔬</span>
+                <div class="sp-body">
+                  <span class="sp-title">サンプルデータで試す</span>
+                  <span class="sp-sub">仮データで動作確認</span>
+                </div>
+                <span class="sp-arr">›</span>
+              </button>
+            </div>
+          </div>
+
+          <div v-else-if="!activeSession" class="hero-hint">
             上のカードから棚卸を始めましょう。<br>複数端末で同時に記録できます。
           </div>
         </div>
@@ -534,7 +571,7 @@ function _itemCount(session) {
               <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
                 <span class="plan-limit-icon">🔒</span>
                 <span class="plan-limit-text">{{ hiddenByPlanCount }}件が{{ FREE_HISTORY_DAYS }}日の履歴制限で非表示</span>
-                <a class="plan-limit-link" href="/landing/#pricing" target="_blank">アップグレード</a>
+                <button class="plan-limit-link" @click="emit('openUpgrade', `${FREE_HISTORY_DAYS}日以内の履歴のみ閲覧できます（無料プラン）`)">アップグレード</button>
               </div>
             </template>
             <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
@@ -1045,6 +1082,97 @@ function _itemCount(session) {
   padding: 24px 16px;
 }
 
+/* セットアップバナー */
+.setup-banner {
+  background: white;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 2px 12px rgba(37,99,235,0.10);
+}
+
+.setup-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.setup-banner-icon { font-size: 28px; flex-shrink: 0; }
+
+.setup-banner-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--primary, #2563eb);
+  margin-bottom: 2px;
+}
+
+.setup-banner-sub {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+}
+
+.setup-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-path {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+.setup-path.primary {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+}
+.setup-path.weak {
+  background: #fafafa;
+  border-color: #e5e7eb;
+}
+.setup-path:active { opacity: 0.8; }
+
+.sp-icon { font-size: 20px; flex-shrink: 0; }
+
+.sp-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+
+.setup-path.primary .sp-title { color: var(--primary, #2563eb); }
+.setup-path.weak .sp-title    { color: var(--text-muted, #64748b); }
+
+.sp-sub {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+.setup-path.primary .sp-sub { color: #3b82f6; }
+
+.sp-arr {
+  font-size: 18px;
+  color: var(--text-muted, #94a3b8);
+  flex-shrink: 0;
+}
+
 /* 年カード（完了済み一覧） */
 .year-card {
   width: 100%;
@@ -1364,8 +1492,12 @@ function _itemCount(session) {
   flex-shrink: 0;
   color: var(--primary);
   font-weight: 700;
-  text-decoration: none;
   font-size: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 .plan-limit-link:active { opacity: 0.7; }
 

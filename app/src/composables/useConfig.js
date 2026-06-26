@@ -491,6 +491,71 @@ export function useConfig() {
     return true
   }
 
+  /**
+   * 任意CSVをフィールドマッピング指定でインポート
+   * mapping = { name, unit, price, category, alias, code } — 各フィールドの列インデックス（null=使用しない）
+   */
+  function loadFromCSVMapped(csvText, mapping) {
+    const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol, alias: aliasCol, code: codeCol } = mapping
+    if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
+
+    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) throw new Error('データ行がありません')
+
+    const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
+    const newCodes = {}, newDict = {}
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i])
+      const name = cols[nameCol]?.trim()
+      if (!name) continue
+
+      newOrder.push(name)
+      if (unitCol !== null) {
+        const u = cols[unitCol]?.trim()
+        if (u) newUnits[name] = u
+      }
+      if (priceCol !== null) {
+        const p = parseFloat(cols[priceCol])
+        if (!isNaN(p) && p > 0) newPrices[name] = p
+      }
+      if (categoryCol !== null) {
+        const c = cols[categoryCol]?.trim()
+        if (c) newCategories[name] = c
+      }
+      if (aliasCol !== null) {
+        ;(cols[aliasCol] ?? '').split(',').map(a => a.trim()).filter(Boolean)
+          .forEach(alias => { newDict[alias] = name })
+      }
+      if (codeCol !== null) {
+        const cd = cols[codeCol]?.trim()
+        if (cd) newCodes[name] = cd
+      }
+    }
+
+    if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
+
+    _validateLearnedAliases(newOrder)
+    config.order         = newOrder
+    config.units         = newUnits
+    config.prices        = newPrices
+    config.categories    = newCategories
+    config.codes         = newCodes
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = newDict
+    const newSet         = new Set(newOrder)
+    config.manualItems   = config.manualItems.filter(n => newSet.has(n))
+    _save()
+
+    return {
+      count:         newOrder.length,
+      hasPrices:     Object.keys(newPrices).length > 0,
+      hasCategories: Object.keys(newCategories).length > 0,
+    }
+  }
+
   const itemCount         = computed(() => config.order.length)
   const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
@@ -501,6 +566,7 @@ export function useConfig() {
     itemCount,
     learnedAliasCount,
     loadFromCSV,
+    loadFromCSVMapped,
     exportConfigCSV,
     clearConfig,
     loadSampleData,
