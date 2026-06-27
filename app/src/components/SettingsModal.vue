@@ -9,10 +9,20 @@ import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
 import TextPasteParserModal from './TextPasteParserModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
+import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
 
 const props = defineProps({ isGuest: Boolean })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'openUpgrade'])
 useEscapeKey(() => emit('close'))
+
+// CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
+function _importResultStatus(result) {
+  if (result.truncated > 0) {
+    emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${result.truncated}件が上限を超えたため取り込まれませんでした。`)
+    return { type: 'warning', msg: `${result.count}件を読み込みました（${result.truncated}件は無料プラン上限超過のため未取込）` }
+  }
+  return { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+}
 
 const {
   config, itemCount,
@@ -69,7 +79,7 @@ function handleFile(file) {
     const text = e.target.result
     try {
       const result = loadFromCSV(text)
-      status.value = { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+      status.value = _importResultStatus(result)
     } catch (err) {
       status.value = { type: 'error', msg: err.message }
     }
@@ -89,19 +99,25 @@ function openMapper(file) {
 }
 
 function onPasteParserApply(items) {
-  let count = 0
+  let count = 0, blocked = 0
   for (const { name, unit } of items) {
     if (addItem(name, null, null, unit || null, null)) count++
+    else if (!isPro() && itemCount.value >= FREE_ITEM_LIMIT) blocked++
   }
   showPasteParser.value = false
-  status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
+  if (blocked > 0) {
+    emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${blocked}件が上限を超えたため追加できませんでした。`)
+    status.value = { type: 'warning', msg: `${count}件を追加しました（${blocked}件は無料プラン上限超過のため未追加）` }
+  } else {
+    status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
+  }
 }
 
 function onMapperImported({ mapping, csvText }) {
   try {
     const result = loadFromCSVMapped(csvText, mapping)
     showMapper.value = false
-    status.value = { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+    status.value = _importResultStatus(result)
   } catch (err) {
     status.value = { type: 'error', msg: err.message }
     showMapper.value = false

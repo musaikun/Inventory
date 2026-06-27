@@ -18,9 +18,10 @@ defineEmits(['close'])
       <div v-if="reason" class="upgrade-reason">{{ reason }}</div>
 
       <ul class="upgrade-features">
-        <li><span class="uf-check">✓</span>接続端末数無制限</li>
-        <li><span class="uf-check">✓</span>全期間の棚卸履歴閲覧</li>
-        <li><span class="uf-check">✓</span>高度なレポート・CSV出力</li>
+        <li><span class="uf-check">✓</span>品目登録 無制限（無料は150品目）</li>
+        <li><span class="uf-check">✓</span>全期間の棚卸履歴を閲覧（無料は直近1回）</li>
+        <li><span class="uf-check">✓</span>接続端末 無制限（無料は3台）</li>
+        <li><span class="uf-check">✓</span>分析・レポート・PDF出力</li>
         <li><span class="uf-check">✓</span>優先サポート</li>
       </ul>
 

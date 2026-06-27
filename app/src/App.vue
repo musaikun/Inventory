@@ -50,7 +50,7 @@ import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import TextPasteParserModal from './components/TextPasteParserModal.vue'
 import { track } from './utils/analytics.js'
-import { canJoinRoom, FREE_DEVICE_LIMIT, isHistoryVisible, isPro } from './utils/planLimits.js'
+import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
 
 // ── PWA 更新検知 ───────────────────────────────────────────────────────────────
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
@@ -1340,6 +1340,13 @@ function submitNewItem() {
   if (isNaN(qty) || qty < 0) { newItemError.value = '数量を入力してください'; return }
   if (config.order.includes(name)) { newItemError.value = 'すでに登録されている品目名です'; return }
 
+  // Free プラン: 品目数上限チェック
+  if (!canAddItem(config.order.length)) {
+    newItemError.value = ''
+    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    return
+  }
+
   // ファジー類似警告（保留済みなら警告スキップ）
   if (!_pendingItemSubmit.value) {
     const similar = _findSimilar(name)
@@ -1946,7 +1953,7 @@ function dismissReview() {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
+    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" @close="showUpgrade = false" />

@@ -8,6 +8,7 @@ import {
   SAMPLE_UNITS,
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
@@ -286,9 +287,15 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    _validateLearnedAliases(newOrder)
+    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+    const totalParsed = newOrder.length
+    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
+      ? newOrder.slice(0, FREE_ITEM_LIMIT)
+      : newOrder
 
-    config.order         = newOrder
+    _validateLearnedAliases(cappedOrder)
+
+    config.order         = cappedOrder
     config.units         = newUnits
     config.prices        = newPrices
     config.categories    = newCategories
@@ -298,12 +305,13 @@ export function useConfig() {
     config.lotSizes      = newLotSizes
     config.dictionary    = newDict
     // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
-    const newOrderSet    = new Set(newOrder)
+    const newOrderSet    = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
     _save()
 
     return {
-      count:         newOrder.length,
+      count:         cappedOrder.length,
+      truncated:     totalParsed - cappedOrder.length,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
@@ -445,6 +453,7 @@ export function useConfig() {
   function addItem(name, price, category, unit, code) {
     const n = name.trim()
     if (!n || config.order.includes(n)) return false
+    if (!isPro() && config.order.length >= FREE_ITEM_LIMIT) return false
     config.order.push(n)
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     if (category?.trim()) config.categories[n] = category.trim()
@@ -537,8 +546,14 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    _validateLearnedAliases(newOrder)
-    config.order         = newOrder
+    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+    const totalParsed = newOrder.length
+    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
+      ? newOrder.slice(0, FREE_ITEM_LIMIT)
+      : newOrder
+
+    _validateLearnedAliases(cappedOrder)
+    config.order         = cappedOrder
     config.units         = newUnits
     config.prices        = newPrices
     config.categories    = newCategories
@@ -547,12 +562,13 @@ export function useConfig() {
     config.prevMonths    = {}
     config.lotSizes      = {}
     config.dictionary    = newDict
-    const newSet         = new Set(newOrder)
+    const newSet         = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
 
     return {
-      count:         newOrder.length,
+      count:         cappedOrder.length,
+      truncated:     totalParsed - cappedOrder.length,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }

@@ -10,7 +10,7 @@ import { getSessions, createSession, updateSession, deleteSession, isAuthenticat
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { isHistoryVisible, isPro, FREE_HISTORY_DAYS } from '../utils/planLimits.js'
+import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 
@@ -149,10 +149,13 @@ const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed')
 )
 
-// Free プラン: 30日以内のみ表示
-const visibleCompletedSessions = computed(() =>
-  completedSessions.value.filter(s => isHistoryVisible(s.endedAt ?? s.startedAt))
-)
+// Free プラン: 直近 FREE_HISTORY_COUNT 件のみ表示（新しい順）
+const visibleCompletedSessions = computed(() => {
+  if (isPro()) return completedSessions.value
+  return [...completedSessions.value]
+    .sort((a, b) => new Date(b.endedAt ?? b.startedAt) - new Date(a.endedAt ?? a.startedAt))
+    .slice(0, FREE_HISTORY_COUNT)
+})
 
 const hiddenByPlanCount = computed(() =>
   completedSessions.value.length - visibleCompletedSessions.value.length
@@ -567,11 +570,11 @@ function _itemCount(session) {
                 <span class="year-card-count">{{ grp.items.length }}件</span>
                 <span class="year-card-arrow">›</span>
               </button>
-              <!-- Free プラン: 30日以前の件数をアップグレード誘導として表示 -->
+              <!-- Free プラン: 直近1回より前の履歴件数をアップグレード誘導として表示 -->
               <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
                 <span class="plan-limit-icon">🔒</span>
-                <span class="plan-limit-text">{{ hiddenByPlanCount }}件が{{ FREE_HISTORY_DAYS }}日の履歴制限で非表示</span>
-                <button class="plan-limit-link" @click="emit('openUpgrade', `${FREE_HISTORY_DAYS}日以内の履歴のみ閲覧できます（無料プラン）`)">アップグレード</button>
+                <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
+                <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
               </div>
             </template>
             <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
