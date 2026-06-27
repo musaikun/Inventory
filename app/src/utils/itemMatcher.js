@@ -17,6 +17,17 @@ export function scoreMatch(nTarget, nInput) {
   return 0
 }
 
+// 既存品目から「名前が似ているもの」を部分文字列一致で探す（新規追加時の重複警告用）。
+// 完全一致は除外（それは別経路で「登録済み」エラーになる）。
+export function findSimilarNames(name, order = []) {
+  const n = (name ?? '').trim().toLowerCase()
+  if (!n) return []
+  return order.filter(item => {
+    const i = item.toLowerCase()
+    return i !== n && (i.includes(n) || n.includes(i))
+  })
+}
+
 export function isSupplyItem(canonical, categories) {
   const cat = categories?.[canonical]
   if (!cat) return false

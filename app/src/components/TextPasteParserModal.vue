@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { parseInventoryText } from '../utils/textParser.js'
 
 const props = defineProps({
   // 'session': 在庫に記録（新規品目は追加も行う）
@@ -9,73 +10,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['apply', 'close'])
 
-// ── パーサー ──────────────────────────────────────────────────────────────────
-const UNITS = ['kg', 'g', 'L', 'l', 'ml', 'ML', 'ℓ', '㎖',
-               '本', '個', '袋', 'パック', '枚', '缶', '箱', '瓶',
-               '玉', 'ケース', 'セット', '束', '冊', '皿', '尾', '匹', '羽', '杯']
-const UNIT_LOWER = new Set(UNITS.map(u => u.toLowerCase()))
-
-const NUM_WITH_UNIT = new RegExp(
-  '^(\\d+(?:\\.\\d+)?)(' + UNITS.join('|') + ')?$', 'i'
-)
-
-function _normalizeUnit(u) {
-  if (!u) return ''
-  if (u.toLowerCase() === 'l') return 'L'
-  if (u.toLowerCase() === 'ml') return 'ml'
-  return u
-}
-
-function parseLine(raw) {
-  const text = raw.trim()
-  if (!text) return null
-  if (/^[-=─━_＿─]{2,}/.test(text)) return null  // separator
-
-  // 金額表示を除去
-  const cleaned = text
-    .replace(/[¥￥]\s*[\d,]+/g, '')
-    .replace(/[\d,]+\s*円/g, '')
-    .replace(/合計|小計|税込|税抜|消費税/g, '')
-    .trim()
-  if (!cleaned) return null
-
-  // ヘッダー行スキップ
-  if (/^(品名|品目名?|商品名|数量|単位|単価|No\.|#|合計|備考)/.test(cleaned)) return null
-
-  // 空白・タブで分割
-  const tokens = cleaned.split(/[\s\t　]+/).filter(Boolean)
-  if (!tokens.length) return null
-
-  let qtyIdx = -1
-  let qty = null
-  let unit = ''
-
-  for (let i = 0; i < tokens.length; i++) {
-    const m = tokens[i].match(NUM_WITH_UNIT)
-    if (m) {
-      const v = parseFloat(m[1])
-      if (!isNaN(v)) {
-        qtyIdx = i
-        qty    = v
-        unit   = _normalizeUnit(m[2] || '')
-        // 次のトークンが単位単体なら取り込む
-        if (!unit && i + 1 < tokens.length && UNIT_LOWER.has(tokens[i + 1].toLowerCase())) {
-          unit = _normalizeUnit(tokens[i + 1])
-          qtyIdx = i + 1  // ここまでスキップ
-        }
-        break
-      }
-    }
-  }
-
-  // qtyIdx 前後から品目名を組み立て（数量以降はスキップ）
-  const nameParts = qtyIdx >= 0 ? tokens.slice(0, qtyIdx) : tokens
-  const name = nameParts.join('').trim()  // 日本語品目名はスペース不要
-
-  if (!name) return null
-  return { name, qty, unit, selected: true }
-}
-
 // ── 状態 ─────────────────────────────────────────────────────────────────────
 const rawText = ref('')
 const rows    = ref([])
@@ -84,8 +18,7 @@ const error   = ref('')
 
 function parse() {
   error.value = ''
-  const lines = rawText.value.split(/\r?\n/)
-  const result = lines.map(parseLine).filter(Boolean)
+  const result = parseInventoryText(rawText.value)
   if (!result.length) {
     error.value = '品目が見つかりませんでした。テキストの形式を確認してください。'
     return

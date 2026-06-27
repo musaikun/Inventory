@@ -45,7 +45,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
-import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
+import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import TextPasteParserModal from './components/TextPasteParserModal.vue'
@@ -1305,11 +1305,7 @@ const existingCategories = computed(() =>
 
 // ファジー類似品目: 部分文字列一致で既存品目を検索
 function _findSimilar(name) {
-  const n = name.toLowerCase()
-  return config.order.filter(item => {
-    const i = item.toLowerCase()
-    return i !== n && (i.includes(n) || n.includes(i))
-  })
+  return findSimilarNames(name, config.order)
 }
 
 const _pendingItemSubmit = ref(null)  // 類似警告後に保留中の確定コールバック
