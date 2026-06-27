@@ -51,6 +51,7 @@ import BarcodeScanner from './components/BarcodeScanner.vue'
 import TextPasteParserModal from './components/TextPasteParserModal.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
+import { isTwaApp } from './utils/appMode.js'
 
 // ── PWA 更新検知 ───────────────────────────────────────────────────────────────
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
@@ -1956,7 +1957,7 @@ function dismissReview() {
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
-    <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" @close="showUpgrade = false" />
+    <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
     <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
     <TextPasteParserModal
       v-if="showPasteParser"

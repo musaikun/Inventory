@@ -2,7 +2,9 @@
 import { STRIPE_CHECKOUT_URL } from '../utils/planLimits.js'
 
 defineProps({
-  reason: { type: String, default: '' },
+  reason:  { type: String,  default: '' },
+  // アプリ版（TWA）: Google Play 課金ポリシー対策で価格・外部決済導線を出さない
+  twaMode: { type: Boolean, default: false },
 })
 defineEmits(['close'])
 </script>
@@ -25,25 +27,35 @@ defineEmits(['close'])
         <li><span class="uf-check">✓</span>優先サポート</li>
       </ul>
 
-      <div class="upgrade-price-box">
-        <span class="up-amount">¥1,980</span>
-        <span class="up-period"> / 月</span>
-        <div class="up-trial">最初の3ヶ月無料</div>
-      </div>
+      <!-- アプリ版（TWA）: 価格・決済導線を出さず、契約済み案内のみ -->
+      <template v-if="twaMode">
+        <div class="upgrade-twa-note">
+          これらの機能は<strong>タナオロPRO</strong>でご利用いただけます。<br>
+          すでにご契約済みの場合は、ログインすると有効になります。
+        </div>
+      </template>
 
-      <a
-        v-if="STRIPE_CHECKOUT_URL"
-        :href="STRIPE_CHECKOUT_URL"
-        class="upgrade-cta"
-        target="_blank"
-        rel="noopener noreferrer"
-        @click="$emit('close')"
-      >無料トライアルを開始 →</a>
+      <template v-else>
+        <div class="upgrade-price-box">
+          <span class="up-amount">¥1,980</span>
+          <span class="up-period"> / 月</span>
+          <div class="up-trial">最初の3ヶ月無料</div>
+        </div>
 
-      <div v-else class="upgrade-coming-wrap">
-        <div class="upgrade-coming-badge">近日公開</div>
-        <p class="upgrade-coming-hint">現在β版を無料公開中です。<br>料金プランは近日公開予定。</p>
-      </div>
+        <a
+          v-if="STRIPE_CHECKOUT_URL"
+          :href="STRIPE_CHECKOUT_URL"
+          class="upgrade-cta"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="$emit('close')"
+        >無料トライアルを開始 →</a>
+
+        <div v-else class="upgrade-coming-wrap">
+          <div class="upgrade-coming-badge">近日公開</div>
+          <p class="upgrade-coming-hint">現在β版を無料公開中です。<br>料金プランは近日公開予定。</p>
+        </div>
+      </template>
 
       <button class="upgrade-dismiss" @click="$emit('close')">閉じる</button>
     </div>
@@ -178,6 +190,18 @@ defineEmits(['close'])
   line-height: 1.6;
   margin: 0;
 }
+
+.upgrade-twa-note {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.7;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.upgrade-twa-note strong { color: var(--primary); }
 
 .upgrade-dismiss {
   width: 100%;
