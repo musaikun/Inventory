@@ -1,8 +1,16 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { createStore, loadStore, shopCode } from '../composables/useStore.js'
+import { isTwaApp } from '../utils/appMode.js'
 
 const emit = defineEmits(['started'])
+
+const isTwa = isTwaApp()
+
+// ── 契約済みユーザーのログイン（認証ページのログインタブへ）─────────────────
+function onLogin() {
+  emit('started', { hostMode: true })
+}
 
 const loading      = ref(false)
 const error        = ref('')
@@ -157,6 +165,14 @@ onUnmounted(() => closeScanner())
 
       <p class="lp-tagline">棚卸作業を開始してください</p>
 
+      <!-- アプリ版（TWA）: 無料版の案内＋契約済みログイン入口 -->
+      <div v-if="isTwa" class="lp-twa-banner">
+        <p class="lp-twa-free"><span class="lp-twa-check">✓</span>無料版をご利用いただけます</p>
+        <button class="lp-twa-login" @click="onLogin">
+          PRO契約済みの店舗はこちら<span class="lp-twa-login-strong">ログイン ›</span>
+        </button>
+      </div>
+
       <!-- エラー -->
       <div v-if="error" class="lp-error">{{ error }}</div>
 
@@ -295,6 +311,55 @@ onUnmounted(() => closeScanner())
   font-size: 13px;
   color: #64748b;
   margin: 0 0 8px;
+}
+
+/* ── アプリ版（TWA）バナー ── */
+.lp-twa-banner {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.lp-twa-free {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lp-twa-check {
+  color: #16a34a;
+  font-weight: 900;
+}
+
+.lp-twa-login {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.lp-twa-login:active { background: #f1f5f9; }
+.lp-twa-login-strong {
+  font-weight: 800;
+  color: #2563eb;
+  white-space: nowrap;
 }
 
 /* ── エラー ── */
