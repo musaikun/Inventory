@@ -173,6 +173,47 @@ async function onCopyCode() {
   } catch (_) {}
 }
 
+// ── 招待リンク共有 ────────────────────────────────────────────────────────────
+const urlCopied = ref(false)
+const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+function _inviteText() {
+  return `棚卸ルームへの招待です。下記リンクから参加してください（店舗コード: ${state.roomCode}）`
+}
+
+async function onCopyUrl() {
+  const url = getShareUrl()
+  if (!url) return
+  try {
+    await navigator.clipboard.writeText(url)
+    urlCopied.value = true
+    setTimeout(() => urlCopied.value = false, 1500)
+  } catch (_) {}
+}
+
+async function onNativeShare() {
+  const url = getShareUrl()
+  if (!url) return
+  try {
+    await navigator.share({ title: '棚卸ルーム招待', text: _inviteText(), url })
+  } catch (_) { /* ユーザーがキャンセル */ }
+}
+
+function onShareLine() {
+  const url = getShareUrl()
+  if (!url) return
+  const text = `${_inviteText()}\n${url}`
+  window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank', 'noopener')
+}
+
+function onShareMail() {
+  const url = getShareUrl()
+  if (!url) return
+  const subject = encodeURIComponent('棚卸ルームへの招待')
+  const body    = encodeURIComponent(`${_inviteText()}\n\n${url}`)
+  window.location.href = `mailto:?subject=${subject}&body=${body}`
+}
+
 </script>
 
 <template>
@@ -227,6 +268,26 @@ async function onCopyCode() {
           <div class="room-code-value" @click="onCopyCode">
             {{ state.roomCode }}
             <span class="copy-hint">{{ copied ? '✓ コピー済み' : '📋 タップでコピー' }}</span>
+          </div>
+        </div>
+
+        <!-- 招待リンク共有 -->
+        <div class="share-section">
+          <div class="share-label">招待リンクを送る</div>
+          <button class="share-url-row" @click="onCopyUrl">
+            <span class="share-url-text">{{ getShareUrl() }}</span>
+            <span class="share-url-copy">{{ urlCopied ? '✓' : '📋' }}</span>
+          </button>
+          <div class="share-btns">
+            <button v-if="canNativeShare" class="share-btn share-btn-native" @click="onNativeShare">
+              📤 共有
+            </button>
+            <button class="share-btn share-btn-line" @click="onShareLine">
+              <span class="share-btn-ico">💬</span> LINE
+            </button>
+            <button class="share-btn share-btn-mail" @click="onShareMail">
+              <span class="share-btn-ico">✉️</span> メール
+            </button>
           </div>
         </div>
 
@@ -454,6 +515,77 @@ async function onCopyCode() {
   margin-top: 4px;
   cursor: pointer;
 }
+
+/* ── 招待リンク共有 ── */
+.share-section {
+  margin-bottom: 16px;
+}
+
+.share-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.share-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+}
+.share-url-row:active { background: #f1f5f9; }
+
+.share-url-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-url-copy {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.share-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.share-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 11px 8px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.share-btn:active { opacity: 0.8; }
+
+.share-btn-native { background: #e0e7ff; color: #3730a3; }
+.share-btn-line   { background: #06c755; color: #fff; }
+.share-btn-mail   { background: #f1f5f9; color: #334155; }
+.share-btn-ico    { font-size: 13px; }
 
 /* ── QR ── */
 .qr-wrap {

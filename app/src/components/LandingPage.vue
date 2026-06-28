@@ -5,7 +5,8 @@ import { isTwaApp } from '../utils/appMode.js'
 
 const emit = defineEmits(['started'])
 
-const isTwa = isTwaApp()
+const isTwa   = isTwaApp()
+const version = __APP_VERSION__
 
 // ── 契約済みユーザーのログイン（認証ページのログインタブへ）─────────────────
 function onLogin() {
@@ -161,6 +162,7 @@ onUnmounted(() => closeScanner())
       <div class="lp-logo">
         <span class="lp-logo-icon">📋</span>
         <span class="lp-logo-name">棚卸アプリ</span>
+        <span class="lp-version">v{{ version }}</span>
       </div>
 
       <p class="lp-tagline">棚卸作業を開始してください</p>
@@ -304,6 +306,16 @@ onUnmounted(() => closeScanner())
   font-weight: 900;
   color: #0f172a;
   letter-spacing: -0.02em;
+}
+.lp-version {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 6px;
+  align-self: flex-start;
+  margin-top: 2px;
 }
 
 .lp-tagline {
