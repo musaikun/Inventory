@@ -34,6 +34,12 @@ function createMockD1() {
       if (i >= 0) tokens.splice(i, 1)
       return { success: true }
     }
+    if (s.startsWith('DELETE FROM auth_tokens WHERE shop_code')) {
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i].shop_code === args[0]) tokens.splice(i, 1)
+      }
+      return { success: true }
+    }
     if (s.startsWith('SELECT shop_code FROM auth_tokens WHERE token')) {
       const t = tokens.find(t => t.token === args[0])
       if (!t) return null
@@ -98,13 +104,25 @@ describe('authHandler', () => {
     expect(db._stores).toHaveLength(0)
   })
 
-  // O-02 別端末からのログイン
-  it('正しいPINでログインするとトークンを発行する', async () => {
+  // O-02 別端末からのログイン（単一ホストセッション: 旧トークンは失効）
+  it('正しいPINでログインすると新トークンを発行し、旧トークンを無効化する', async () => {
     const reg = await handleRegister(db, { pin: '1234' })
     const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
     expect(res.token).toBeTruthy()
     expect(res.shopCode).toBe(reg.shopCode)
-    expect(db._tokens).toHaveLength(2) // 登録時 + ログイン時
+    // 単一セッション: 有効トークンは常に最新の1つだけ
+    expect(db._tokens).toHaveLength(1)
+    expect(db._tokens[0].token).toBe(res.token)
+  })
+
+  // 別端末ログインで前の端末のトークンが失効する（ホスト1台制限の核心）
+  it('別端末でログインすると前の端末のトークンは verifyAuth で無効になる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })          // 端末A（登録）
+    expect(await verifyAuth(db, reqWithToken(reg.token))).toBe(reg.shopCode)
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' }) // 端末B
+    // 端末A の旧トークンは失効、端末B の新トークンは有効
+    expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
+    expect(await verifyAuth(db, reqWithToken(login.token))).toBe(reg.shopCode)
   })
 
   // O-03 誤PINの拒否

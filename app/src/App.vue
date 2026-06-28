@@ -32,7 +32,8 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1,
 } from './composables/useStore.js'
-import { isAuthenticated } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
+import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -517,6 +518,17 @@ setNewSessionStartedCallback(() => {
   showToast('ホストが新しい棚卸を開始したため退室します', 4000, 'warning')
   _hostCompletedLeave = true
   leaveRoom()
+})
+
+// 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき
+setAuthInvalidatedHandler(() => {
+  if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
+  clearAuthLocal()
+  clearSession()
+  reset()
+  clearAuditLog()
+  showToast('別の端末でログインされたため、この端末からはログアウトしました', 6000, 'warning')
+  currentView.value = 'landing'
 })
 
 // ゲスト→ホスト 品目追加申請フロー
