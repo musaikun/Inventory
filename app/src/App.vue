@@ -58,7 +58,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, addItem, updateConfigItem, removeConfigItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -187,12 +187,39 @@ function onAuthDone() {
 async function onSessionStart(session) {
   // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
   if (hasHostToken()) await dissolveRoomRemote()
+  practiceMode.value = false
   beginSession(session)
   reset()
   clearAuditLog()
+  // 空リストで開始した場合は品目追加フォームを最初から表示（必須のため）
+  showAddItemForm.value = config.order.length === 0
   track('session_started')
   // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
+}
+
+// セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
+let _prepracticeConfig = null
+async function onStartPractice() {
+  if (hasHostToken()) await dissolveRoomRemote()
+  if (syncActive.value) leaveRoom()
+  practiceMode.value = true
+  reset()
+  clearAuditLog()
+  clearSession()                            // D1 セッションを持たない（履歴に残さない）
+  _prepracticeConfig = snapshotConfig()     // 本来の品目リストを退避（練習で上書きするため）
+  loadSampleData()                          // 初期からあるテスト用リスト
+  showAddItemForm.value = false
+  showToast('練習モードを開始しました（履歴には残りません）', 3500, 'default')
+  currentView.value = 'session'
+}
+
+// 練習モードを抜けるときに本来の品目リストを復元する
+function _exitPractice() {
+  practiceMode.value = false
+  if (_prepracticeConfig) { restoreConfigSnapshot(_prepracticeConfig); _prepracticeConfig = null }
+  reset()
+  clearAuditLog()
 }
 
 // セッション一覧から「完了済みセッション詳細」
@@ -259,6 +286,9 @@ const showBarcode       = ref(false)
 const showPasteParser   = ref(false)
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
+const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
+const showAddItemForm   = ref(false)  // 品目追加フォームの表示/非表示
+const practiceMode      = ref(false)  // 練習モード（履歴に残さない）
 const inventoryTableRef = ref(null)
 
 function openUpgrade(reason = '') {
@@ -628,6 +658,7 @@ function _pushBackSentinel() {
 }
 
 function _closeTopLayer() {
+  if (showMenu.value)        { showMenu.value = false;      return true }
   if (confirmState.value)    { onCancelConfirm();           return true }
   if (candidateState.value)  { onCancelCandidate();         return true }
   if (chatNotif.value)       { chatNotif.value = null;      return true }
@@ -767,6 +798,16 @@ const completedAtDisplay = computed(() => {
 })
 
 async function onComplete() {
+  // 練習モード: 履歴に残さず終了
+  if (practiceMode.value) {
+    if (!confirm('練習を終了しますか？\n（結果は履歴に保存されません）')) return
+    if (continuousMode.value) onForceStop()
+    _exitPractice()
+    showToast('練習を終了しました', 3000, 'success')
+    currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    return
+  }
+
   if (filledCount.value === 0) {
     showToast('1件以上入力してから完了してください', 2600, 'warning')
     return
@@ -833,6 +874,16 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
+  // 練習モード: 保存せず破棄して戻る
+  if (practiceMode.value) {
+    if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
+    if (continuousMode.value) onForceStop()
+    _exitPractice()
+    clearSession()
+    currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    return
+  }
+
   const hasData = filledCount.value > 0
 
   // ホスト中のみ確認（ホストは退出するがルームは残り、ゲストは継続できる）
@@ -1569,6 +1620,7 @@ function dismissReview() {
       :live-session-id="pendingSession?.id ?? null"
       :new-session-id="newSessionId"
       @start-session="onSessionStart"
+      @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
       @delete-session="_clearDraft"
@@ -1595,26 +1647,47 @@ function dismissReview() {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" title="セッション一覧に戻る">🏠</button>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" :title="practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る'">🏠</button>
+          <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
           <div v-if="sessionElapsed" class="session-elapsed">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
+          <!-- 同期中はステータス表示（タップで詳細）。未同期時はメニューから開く -->
           <button
-            class="settings-btn sync-btn"
-            :class="{ active: syncActive }"
+            v-if="syncActive"
+            class="settings-btn sync-btn active"
             @click="showSync = true"
-            :title="syncActive ? `ルーム ${syncState.roomCode}（${participantList.length}名）` : '複数デバイス同期'"
+            :title="`ルーム ${syncState.roomCode}（${participantList.length}名）`"
           >
-            <span v-if="syncActive" class="sync-badge">
-              🔗<span class="sync-count">{{ participantList.length }}</span>
-            </span>
-            <span v-else>🔗</span>
+            <span class="sync-badge">🔗<span class="sync-count">{{ participantList.length }}</span></span>
           </button>
-          <button v-if="!inputLocked" class="settings-btn" @click="showPasteParser = true" title="テキストから記録">📋</button>
-          <button v-if="hasBarcodedItems && !inputLocked" class="settings-btn" @click="showBarcode = true" title="バーコードスキャン">📷</button>
-          <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
+          <!-- ハンバーガーメニュー -->
+          <div class="menu-wrap">
+            <button class="settings-btn menu-btn" @click="showMenu = !showMenu" :class="{ open: showMenu }" title="メニュー">☰</button>
+            <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
+            <div v-if="showMenu" class="menu-dropdown">
+              <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
+                <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
+              </button>
+              <button v-if="!syncActive && !practiceMode" class="menu-item" @click="showMenu = false; showSync = true">
+                <span class="menu-ico">🔗</span> 複数デバイスで同期
+              </button>
+              <button class="menu-item" @click="showMenu = false; showAddItemForm = !showAddItemForm">
+                <span class="menu-ico">➕</span> 品目追加フォームを{{ showAddItemForm ? '隠す' : '表示' }}
+              </button>
+              <button v-if="!inputLocked" class="menu-item" @click="showMenu = false; showPasteParser = true">
+                <span class="menu-ico">📋</span> テキストから記録
+              </button>
+              <button v-if="hasBarcodedItems && !inputLocked" class="menu-item" @click="showMenu = false; showBarcode = true">
+                <span class="menu-ico">📷</span> バーコードスキャン
+              </button>
+              <button class="menu-item" @click="showMenu = false; showSettings = true">
+                <span class="menu-ico">⚙️</span> 品目リスト設定
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -1675,8 +1748,12 @@ function dismissReview() {
         </div>
         <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
 
-        <!-- 品目追加・編集フォーム -->
-        <div class="add-item-form">
+        <!-- 品目追加・編集フォーム（トグルで表示/非表示） -->
+        <button v-if="!editingItem" class="add-item-toggle" @click="showAddItemForm = !showAddItemForm">
+          <span class="add-item-toggle-label">＋ 品目を手動で追加</span>
+          <span class="add-item-toggle-arrow">{{ showAddItemForm ? '▲ 閉じる' : '▼ 開く' }}</span>
+        </button>
+        <div v-if="showAddItemForm || editingItem" class="add-item-form">
           <div v-if="barcodeAddCode" class="barcode-add-hint">
             <span class="barcode-add-icon">📷</span>
             <span>バーコード <code>{{ barcodeAddCode }}</code> を品目名と紐付けて登録します</span>

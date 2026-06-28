@@ -19,9 +19,9 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
-const { config, itemCount, loadSampleData } = useConfig()
+const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId } = useHistory()
 
 const sessions       = ref([])
@@ -282,6 +282,18 @@ function onImportList() {
 async function onStartWithSample() {
   loadSampleData()
   await confirmStart()
+}
+
+// 空のリストで開始（棚卸しながら品目を追加）
+async function onStartEmpty() {
+  setEmptyList()
+  await confirmStart()
+}
+
+// 練習モードで開始（テスト用リスト・履歴に残さない）
+function onStartPractice() {
+  showStartModal.value = false
+  emit('startPractice')
 }
 
 function onResume(session) {
@@ -659,6 +671,25 @@ function _itemCount(session) {
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
           <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままサンプルで開始</button>
         </template>
+
+        <!-- その他の開始方法（常時） -->
+        <div class="start-alt">
+          <div class="start-alt-divider"><span>その他の開始方法</span></div>
+          <button class="start-alt-btn" :disabled="starting" @click="onStartEmpty">
+            <span class="start-alt-ico">➕</span>
+            <span class="start-alt-body">
+              <span class="start-alt-title">空のリストで開始</span>
+              <span class="start-alt-sub">棚卸しながら品目を追加していく</span>
+            </span>
+          </button>
+          <button class="start-alt-btn" @click="onStartPractice">
+            <span class="start-alt-ico">🎯</span>
+            <span class="start-alt-body">
+              <span class="start-alt-title">練習モードで開始</span>
+              <span class="start-alt-sub">テスト用リストで操作を試す（履歴に残りません）</span>
+            </span>
+          </button>
+        </div>
 
         <button class="start-cancel" @click="showStartModal = false">キャンセル</button>
       </div>
@@ -1642,4 +1673,49 @@ function _itemCount(session) {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ── その他の開始方法 ── */
+.start-alt {
+  width: 100%;
+  margin-top: 8px;
+}
+.start-alt-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+  font-weight: 700;
+  margin: 4px 0 10px;
+}
+.start-alt-divider::before,
+.start-alt-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border, #e2e8f0);
+}
+.start-alt-divider span { padding: 0 10px; }
+
+.start-alt-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.start-alt-btn:active { background: #f1f5f9; }
+.start-alt-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.start-alt-ico { font-size: 20px; flex-shrink: 0; }
+.start-alt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.start-alt-title { font-size: 14px; font-weight: 700; color: var(--text, #0f172a); }
+.start-alt-sub { font-size: 11px; color: var(--text-muted, #64748b); }
 </style>

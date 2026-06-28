@@ -346,6 +346,58 @@ export function useConfig() {
     return rows.join('\r\n')
   }
 
+  /** 現在の品目リストをディープコピーで退避する（練習モードの一時切替用） */
+  function snapshotConfig() {
+    return JSON.parse(JSON.stringify({
+      order:         config.order,
+      units:         config.units,
+      prices:        config.prices,
+      categories:    config.categories,
+      codes:         config.codes,
+      categoryCodes: config.categoryCodes,
+      prevMonths:    config.prevMonths,
+      lotSizes:      config.lotSizes,
+      dictionary:    config.dictionary,
+      isCustom:      config.isCustom,
+      manualItems:   config.manualItems,
+    }))
+  }
+
+  /** snapshotConfig で退避した品目リストを復元する */
+  function restoreConfigSnapshot(snap) {
+    if (!snap) return
+    config.order         = snap.order         ?? []
+    config.units         = snap.units         ?? {}
+    config.prices        = snap.prices        ?? {}
+    config.categories    = snap.categories    ?? {}
+    config.codes         = snap.codes         ?? {}
+    config.categoryCodes = snap.categoryCodes ?? {}
+    config.prevMonths    = snap.prevMonths    ?? {}
+    config.lotSizes      = snap.lotSizes      ?? {}
+    config.dictionary    = snap.dictionary    ?? {}
+    config.manualItems   = snap.manualItems   ?? []
+    config.isCustom      = !!snap.isCustom
+    if (snap.isCustom) _saveLocalOnly()
+    else localStorage.removeItem(CONFIG_KEY)
+  }
+
+  /** 空の品目リストで開始（棚卸しながら品目を追加していく用） */
+  function setEmptyList() {
+    config.order         = []
+    config.units         = {}
+    config.prices        = {}
+    config.categories    = {}
+    config.codes         = {}
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = {}
+    config.manualItems   = []
+    config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
+    config.savedAt       = null
+    localStorage.removeItem(CONFIG_KEY)
+  }
+
   /** サンプルデータを読み込む（動作確認用） */
   function loadSampleData() {
     config.order         = [...SAMPLE_ORDER]
@@ -587,6 +639,9 @@ export function useConfig() {
     loadFromCSVMapped,
     exportConfigCSV,
     clearConfig,
+    setEmptyList,
+    snapshotConfig,
+    restoreConfigSnapshot,
     loadSampleData,
     registerAlias,
     addItem,
