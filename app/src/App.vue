@@ -198,7 +198,11 @@ async function onSessionStart(session) {
   clearAuditLog()
   activeTimer.start()
   // 空リストで開始した場合は品目追加フォームを最初から表示（必須のため）
-  showAddItemForm.value = config.order.length === 0
+  const startedEmpty = config.order.length === 0
+  showAddItemForm.value = startedEmpty
+  // 空で開始したら D1 にも空 config を保存する。
+  // これをしないと再開時に D1 の古いリストを読み戻して品目が復活する。
+  if (startedEmpty) _persistConfigToD1()
   track('session_started')
   // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
@@ -413,22 +417,30 @@ setConfigCallback((cfg) => {
 // ホストに品目リストが無いルームへ参加した場合はローカルを空に揃える
 setResetConfigCallback(() => clearConfig())
 
+function _configPayload() {
+  return {
+    order:         config.order,
+    units:         config.units,
+    prices:        config.prices,
+    categories:    config.categories,
+    codes:         config.codes,
+    categoryCodes: config.categoryCodes,
+    prevMonths:    config.prevMonths,
+    lotSizes:      config.lotSizes,
+    dictionary:    config.dictionary,
+  }
+}
+
+// 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）
+function _persistConfigToD1() {
+  clearTimeout(_configSaveTimer)
+  saveConfigToD1(_configPayload())
+}
+
 let _configSaveTimer = null
 setConfigChangedCallback(() => {
   clearTimeout(_configSaveTimer)
-  _configSaveTimer = setTimeout(() => {
-    saveConfigToD1({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-    })
-  }, 2000)
+  _configSaveTimer = setTimeout(() => { saveConfigToD1(_configPayload()) }, 2000)
 })
 setDoneCallback((name, isFinal) => {
   const msg = isFinal

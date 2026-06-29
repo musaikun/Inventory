@@ -533,7 +533,7 @@ function fmtYen(n) {
         <!-- フィルター結果が0件のとき -->
         <tr v-if="visibleItemCount === 0" class="empty-row">
           <td :colspan="totalCols" class="empty-cell">
-            <template v-if="config.order.length === 0">下のフォームから品目を追加してください</template>
+            <template v-if="config.order.length === 0">上のフォームから品目を追加してください</template>
             <template v-else-if="filterMode === 'filled'">入力済みの品目がありません</template>
             <template v-else-if="filterMode === 'empty'">すべての品目が入力済みです 🎉</template>
             <template v-else>品目がありません</template>
