@@ -221,11 +221,14 @@ function _fmtDuration(ms) {
 const selectedYearSessionStats = computed(() => {
   const result = {}
   for (const s of selectedYearSessions.value) {
-    const duration = (s.startedAt && s.endedAt)
-      ? _fmtDuration(new Date(s.endedAt) - new Date(s.startedAt))
-      : null
-
     const snap = getSnapshotBySessionId(s.id)
+
+    // 稼働時間（アイドル除外）が記録されていればそれを優先、無ければ壁時計（開始〜終了）
+    const duration = (snap && typeof snap.activeMs === 'number' && snap.activeMs > 0)
+      ? _fmtDuration(snap.activeMs)
+      : (s.startedAt && s.endedAt)
+        ? _fmtDuration(new Date(s.endedAt) - new Date(s.startedAt))
+        : null
 
     // auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
     const timeMap = new Map()

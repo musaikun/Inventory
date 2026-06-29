@@ -5,6 +5,7 @@ import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
+import { useActiveTimer, computeActive } from './composables/useActiveTimer.js'
 import {
   useSync,
   setInventoryCallbacks, registerInventoryGetter,
@@ -71,6 +72,10 @@ const {
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId } = useHistory()
+
+// ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
+const activeTimer = useActiveTimer()
+function markActivity() { if (currentView.value === 'session') activeTimer.mark() }
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
 // 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail'
@@ -191,6 +196,7 @@ async function onSessionStart(session) {
   beginSession(session)
   reset()
   clearAuditLog()
+  activeTimer.start()
   // 空リストで開始した場合は品目追加フォームを最初から表示（必須のため）
   showAddItemForm.value = config.order.length === 0
   track('session_started')
@@ -207,6 +213,7 @@ async function onStartPractice() {
   reset()
   clearAuditLog()
   clearSession()                            // D1 セッションを持たない（履歴に残さない）
+  activeTimer.start()
   _prepracticeConfig = snapshotConfig()     // 本来の品目リストを退避（練習で上書きするため）
   loadSampleData()                          // 初期からあるテスト用リスト
   showAddItemForm.value = false
@@ -242,6 +249,8 @@ async function onSessionResume(session) {
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
   clearAuditLog()
+  practiceMode.value = false
+  activeTimer.start()   // 下書きに保存済み稼働時間があれば _restoreDraft が resume() で継続する
   resumeSession(session)
   await _startSessionView()
   if (shopCode.value && !syncActive.value) {
@@ -334,6 +343,7 @@ function onPasteParserApply(items) {
   const msgs = []
   if (addedCount)    msgs.push(`${addedCount}件を品目リストに追加`)
   if (recordedCount) msgs.push(`${recordedCount}件の数量を記録`)
+  if (addedCount || recordedCount) markActivity()
   showToast(msgs.join('・'), 3500, 'success')
 }
 
@@ -365,6 +375,7 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
 // ── あとで数える フラグの切替（ソロ=ローカル監査 / 同期中=ブロードキャスト）──
 function onToggleRecountFlag(item, on) {
   if (isCompleted.value) return
+  markActivity()
   setRecountFlag(item, on, deviceName.value || '名前未設定')
   if (syncActive.value) {
     broadcastRecountFlag(item, on)
@@ -503,6 +514,7 @@ function onResolveConflict(c, resolution) {
              :                          c.remoteQty
   const unit = resolution === 'theirs' ? c.remoteUnit : c.local.unit
   setItem(c.ingredient, qty, unit, false, deviceName.value || '名前未設定')
+  markActivity()
   if (!syncActive.value) {
     _localAudit(c.ingredient, 'overwrite', qty, qty, unit)
   } else {
@@ -520,6 +532,7 @@ setNameTakenCallback((prevName) => {
   showToast('この端末名は既に使用されています', 4000, 'warning')
 })
 setRemoteUpdateCallback((ingredient, qty, unit, by) => {
+  markActivity()   // 他端末の操作もルームの稼働とみなす（誰かが動いていれば一時停止しない）
   const who = by || '他のメンバー'
   const msg  = qty === null
     ? `${who}: 「${ingredient}」を削除`
@@ -719,7 +732,12 @@ const _DRAFT_PREFIX = 'inv_draft_'
 
 function _saveDraft(sessionId) {
   if (!sessionId || Object.keys(inventory).length === 0) return
-  try { localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({ ...inventory })) } catch (_) {}
+  try {
+    localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({
+      inv:      { ...inventory },
+      activeMs: activeTimer.activeMs.value,
+    }))
+  } catch (_) {}
 }
 
 function _restoreDraft(sessionId) {
@@ -728,7 +746,11 @@ function _restoreDraft(sessionId) {
     const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
     if (!raw) return
     const saved = JSON.parse(raw)
-    for (const [ingredient, entry] of Object.entries(saved)) {
+    // 新形式 { inv, activeMs } と旧形式（フラットな inventory）の両対応
+    const inv = saved.inv ?? saved
+    if (typeof saved.activeMs === 'number') activeTimer.resume(saved.activeMs)
+    for (const [ingredient, entry] of Object.entries(inv)) {
+      if (!entry || typeof entry.qty === 'undefined') continue
       applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
     }
   } catch (_) {}
@@ -834,7 +856,7 @@ async function onComplete() {
   const completedYear = new Date().getFullYear()
 
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
   if (snapshot) saveSnapshotToD1(snapshot)
   if (continuousMode.value) onForceStop()
 
@@ -928,7 +950,7 @@ async function onSyncComplete() {
   const completedId   = pendingSession.value?.id
   const completedYear = new Date().getFullYear()
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
   if (snapshot) saveSnapshotToD1(snapshot)
   await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   broadcastSessionEnd('completed')
@@ -958,18 +980,28 @@ const sessionNow = ref(Date.now())
 let _sessionTimer = null
 watch(() => currentView.value, (v) => {
   clearInterval(_sessionTimer)
-  if (v === 'inventory') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 30_000)
+  if (v === 'session') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 15_000)
 }, { immediate: true })
 onUnmounted(() => clearInterval(_sessionTimer))
 
+// 稼働時間（アイドル除外）と一時停止状態
+const _activeState = computed(() =>
+  computeActive(
+    { activeMs: activeTimer.activeMs.value, lastActivityAt: activeTimer.lastActivityAt.value },
+    sessionNow.value,
+  )
+)
+const sessionPaused = computed(() =>
+  currentView.value === 'session' && !isCompleted.value && !!activeTimer.lastActivityAt.value && _activeState.value.paused
+)
+
 const sessionElapsed = computed(() => {
-  const st = pendingSession.value?.startedAt
-  if (!st || isCompleted.value) return null
-  const min = Math.floor((sessionNow.value - new Date(st).getTime()) / 60000)
+  if (currentView.value !== 'session' || isCompleted.value || !activeTimer.lastActivityAt.value) return null
+  const min = Math.floor(_activeState.value.elapsedMs / 60000)
   if (min < 1) return null
-  if (min < 60) return `${min}分経過`
+  if (min < 60) return `${min}分`
   const h = Math.floor(min / 60), m = min % 60
-  return m > 0 ? `${h}時間${m}分経過` : `${h}時間経過`
+  return m > 0 ? `${h}時間${m}分` : `${h}時間`
 })
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -1259,6 +1291,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
+  markActivity()
   if (!syncActive.value) {
     const action = !existing ? 'new' : isAdd ? 'add' : 'overwrite'
     _localAudit(ingredient, action, isAdd ? qty : finalQty, finalQty, unit)
@@ -1349,6 +1382,7 @@ function onTableTap(item) {
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
   updateQty(item, qty, unit, deviceName.value || '名前未設定')
+  markActivity()
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
@@ -1442,6 +1476,7 @@ function submitNewItem() {
     null, barcodeAddCode.value || null)
   barcodeAddCode.value = ''
   updateQty(name, qty, '', deviceName.value || '名前未設定')
+  markActivity()
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
   track('item_added_manual')
   newItemName.value     = ''
@@ -1652,7 +1687,8 @@ function dismissReview() {
         </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
-          <div v-if="sessionElapsed" class="session-elapsed">⏱ {{ sessionElapsed }}</div>
+          <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します">⏸ 一時停止中</div>
+          <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
           <!-- 同期中はステータス表示（タップで詳細）。未同期時はメニューから開く -->
           <button

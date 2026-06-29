@@ -727,6 +727,10 @@ body {
   border-radius: 10px;
   white-space: nowrap;
 }
+.session-elapsed.paused {
+  color: #b45309;
+  background: #fef3c7;
+}
 
 /* ── 音声ヒント ── */
 .voice-hint {
