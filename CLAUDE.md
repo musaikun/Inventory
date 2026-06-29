@@ -63,6 +63,7 @@ worker/src/
 
 ## 詳細ドキュメント
 
+- **現況と方向性（全体の索引）→ `docs/project-status.md`**
 - **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
 - 企業導入（多店舗）設計 → `docs/enterprise-design.md`
 - CI/CD パイプライン → `docs/ci-cd.md`
