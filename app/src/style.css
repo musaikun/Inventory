@@ -192,6 +192,69 @@ body {
   top: 52px;
   z-index: 9;
 }
+
+/* ── ルーム作成 CTA（目玉機能）── */
+.room-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 32px);
+  margin: 14px 16px 4px;
+  padding: 16px 18px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 6px 20px rgba(37,99,235,0.32);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s, box-shadow 0.12s;
+  animation: room-cta-in 0.35s ease both;
+}
+.room-cta:active { transform: scale(0.985); box-shadow: 0 3px 12px rgba(37,99,235,0.3); }
+.room-cta:disabled { opacity: 0.7; cursor: default; }
+
+@keyframes room-cta-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.room-cta-icon {
+  font-size: 30px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+}
+
+.room-cta-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.room-cta-title {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.room-cta-sub {
+  font-size: 11.5px;
+  opacity: 0.9;
+  line-height: 1.4;
+}
+
+.room-cta-action {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 800;
+  background: rgba(255,255,255,0.22);
+  border-radius: 999px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
 .sync-banner.offline {
   background: #fafafa;
   border-bottom-color: #cbd5e1;

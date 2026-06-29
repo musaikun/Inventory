@@ -356,6 +356,25 @@ const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length >
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
 
+// メイン画面の目立つ「ルームを作成」CTA から呼ぶ。1タップでルーム作成→共有画面へ。
+const roomCtaBusy = ref(false)
+async function onCreateRoomFromMain() {
+  if (syncActive.value) { showSync.value = true; return }
+  if (!shopCode.value) { showToast('ルーム作成には店舗の登録が必要です', 3500, 'warning'); return }
+  // 端末名が未設定なら同期モーダルで「名前入力→作成」のフローに乗せる
+  if (!deviceName.value) { showSync.value = true; return }
+  roomCtaBusy.value = true
+  try {
+    await createRoom()
+    showSync.value = true   // 作成後は共有画面（ホストビュー：コード・QR・リンク）を開く
+    showToast('ルームを作成しました。コード・QR・リンクで招待できます', 4000, 'join')
+  } catch (e) {
+    showToast(e.message || 'ルームの作成に失敗しました', 4000, 'error')
+  } finally {
+    roomCtaBusy.value = false
+  }
+}
+
 
 // ── あとで数える 一覧 ──────────────────────────────────────────────────────────
 const recountItems = computed(() => Object.keys(recountFlags))
@@ -1761,6 +1780,21 @@ function dismissReview() {
           >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></span>
         </div>
       </div>
+
+      <!-- ルーム作成 CTA（目玉機能・未同期時のみ）-->
+      <button
+        v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
+        class="room-cta"
+        :disabled="roomCtaBusy"
+        @click="onCreateRoomFromMain"
+      >
+        <span class="room-cta-icon">👥</span>
+        <span class="room-cta-body">
+          <span class="room-cta-title">みんなで一緒に棚卸する</span>
+          <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
+        </span>
+        <span class="room-cta-action">{{ roomCtaBusy ? '作成中…' : 'ルームを作成 ＋' }}</span>
+      </button>
 
       <!-- 棚卸完了バナー -->
       <div v-if="isCompleted" class="complete-banner">
