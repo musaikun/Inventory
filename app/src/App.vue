@@ -1298,11 +1298,6 @@ function _stopTypingKeepalive() {
   _typingKeepaliveTimer = null
 }
 
-function _isItemLocked(ing) {
-  if (!syncActive.value) return false
-  return !!(typingMap[ing] || lockedIngredients.has(ing) || conflictQueue.value.some(c => c.ingredient === ing))
-}
-
 function onConfirm({ ingredient, qty, unit, isAdd }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
@@ -1331,17 +1326,9 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   searchStatus.value = ''
 
   if (source === 'table') {
-    // テーブルタップ確定後 → 次の品目を自動オープン（ロック中はスキップ）
-    let nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
-    while (nextItem && _isItemLocked(nextItem)) {
-      nextItem = inventoryTableRef.value?.getNextVisibleItem(nextItem)
-    }
-    if (nextItem) {
-      openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table')
-    } else {
-      _stopTypingKeepalive()
-      confirmState.value = null
-    }
+    // テーブルタップ確定後はモーダルを閉じるだけ（次の品目への自動移動はしない）
+    _stopTypingKeepalive()
+    confirmState.value = null
   } else if (pendingCandidates.value) {
     // 検索候補から選んで確定 → 残りの候補を再表示
     _stopTypingKeepalive()
