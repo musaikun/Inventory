@@ -1741,8 +1741,8 @@ function dismissReview() {
           >
             <span class="sync-badge">🔗<span class="sync-count">{{ participantList.length }}</span></span>
           </button>
-          <!-- ハンバーガーメニュー -->
-          <div class="menu-wrap">
+          <!-- ハンバーガーメニュー（ルーム参加中のゲストには表示しない）-->
+          <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
             <button class="settings-btn menu-btn" @click="showMenu = !showMenu" :class="{ open: showMenu }" title="メニュー">☰</button>
             <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
             <div v-if="showMenu" class="menu-dropdown">
