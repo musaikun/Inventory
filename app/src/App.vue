@@ -1853,6 +1853,9 @@ function dismissReview() {
             <span>バーコード <code>{{ barcodeAddCode }}</code> を品目名と紐付けて登録します</span>
             <button class="barcode-add-clear" @click="barcodeAddCode = ''; newItemError = ''; _pendingItemSubmit = null">✕</button>
           </div>
+          <p v-if="syncActive && !syncIsHost && !editingItem" class="guest-add-hint">
+            ✋ 追加する品目はホストの承認が必要です
+          </p>
           <p class="add-item-label">{{ editingItem ? `✏️ 品目を編集` : '＋ 品目を追加' }}</p>
           <div class="add-item-row">
             <input
@@ -2310,6 +2313,17 @@ function dismissReview() {
   font-size: 12px;
   color: #92400e;
   font-weight: 600;
+}
+
+.guest-add-hint {
+  margin: 0 0 8px;
+  padding: 7px 11px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
 }
 .barcode-add-hint code {
   font-family: monospace;
