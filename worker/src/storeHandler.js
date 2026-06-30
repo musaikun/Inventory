@@ -127,46 +127,47 @@ function _sanitizeForGuest(snap) {
   return { date: snap.date, sessionId: snap.sessionId ?? null, items, participants, auditLog }
 }
 
+// スナップショットの完了時刻（ms）。savedAt 優先、無ければ snapshot_date を 0時として扱う。
+function _snapTs(s) {
+  const raw = s.savedAt ? new Date(s.savedAt).getTime()
+            : s.date    ? new Date(s.date + 'T00:00:00').getTime()
+            : 0
+  return Number.isFinite(raw) ? raw : 0
+}
+
 // GET /room/:code/result?s=<sessionId>
-// 無認証・URL（店舗コード + セッションID）が鍵。完了済みかつ閲覧期間内なら金額抜きの結果を返す。
+// 無認証・URL（店舗コード + セッションID）が鍵。
+// データ源は store_history スナップショット（完了時のみ保存される＝存在＝完了済み）。
+// sessions テーブルには依存しない（未ログイン店舗ではセッション行が無いため）。
 export async function handleRoomResult(db, code, sessionId) {
   if (!sessionId) return { _status: 400, error: 'リンクが無効です' }
 
-  const session = await db.prepare(
-    'SELECT id, status, started_at, ended_at FROM sessions WHERE id = ? AND shop_code = ?'
-  ).bind(sessionId, code).first()
-  if (!session || session.status !== 'completed') {
-    return { _status: 404, error: 'この棚卸は閲覧できません' }
-  }
-
-  // 期間チェック①: 完了から RESULT_WINDOW_DAYS 日以内
-  const endedAt = session.ended_at ? new Date(session.ended_at).getTime() : 0
-  if (!endedAt || Date.now() - endedAt > RESULT_WINDOW_DAYS * 86400_000) {
-    return { _status: 410, error: '閲覧期間が終了しました' }
-  }
-
-  // 期間チェック②: より新しい完了セッションが無いこと
-  const newer = await db.prepare(
-    "SELECT id FROM sessions WHERE shop_code = ? AND status = 'completed' AND started_at > ? LIMIT 1"
-  ).bind(code, session.started_at).first()
-  if (newer) {
-    return { _status: 410, error: '新しい棚卸が完了したため、この結果は閲覧できません' }
-  }
-
-  // スナップショット（store_history）から sessionId 一致のものを探す
   const rows = await db.prepare(
     'SELECT snapshot_json FROM store_history WHERE shop_code = ? ORDER BY snapshot_date DESC LIMIT 50'
   ).bind(code).all()
-  let snap = null
-  for (const r of rows.results ?? []) {
-    try {
-      const s = JSON.parse(r.snapshot_json)
-      if (s.sessionId === sessionId) { snap = s; break }
-    } catch (_) {}
-  }
-  if (!snap) return { _status: 404, error: '棚卸データが見つかりません' }
 
-  return { result: _sanitizeForGuest(snap) }
+  const snaps = []
+  for (const r of rows.results ?? []) {
+    try { snaps.push(JSON.parse(r.snapshot_json)) } catch (_) {}
+  }
+
+  const target = snaps.find(s => s.sessionId === sessionId)
+  if (!target) return { _status: 404, error: 'この棚卸は閲覧できません' }
+
+  const targetTs = _snapTs(target)
+
+  // 期間チェック①: 完了から RESULT_WINDOW_DAYS 日以内
+  if (!targetTs || Date.now() - targetTs > RESULT_WINDOW_DAYS * 86400_000) {
+    return { _status: 410, error: '閲覧期間が終了しました' }
+  }
+
+  // 期間チェック②: より新しい完了スナップショットが無いこと（次の棚卸が完了したら失効）
+  const hasNewer = snaps.some(s => s.sessionId !== sessionId && _snapTs(s) > targetTs)
+  if (hasNewer) {
+    return { _status: 410, error: '新しい棚卸が完了したため、この結果は閲覧できません' }
+  }
+
+  return { result: _sanitizeForGuest(target) }
 }
 
 // ── セッション API ─────────────────────────────────────────────────────────────
