@@ -59,6 +59,17 @@ export async function fetchRoomStatus(code) {
   } catch (_) { return null }
 }
 
+// 完了後ゲスト閲覧: 金額抜きの結果スナップショットを取得（閲覧期間外・未完了なら null）
+export async function fetchRoomResult(code, sessionId) {
+  if (!code || !sessionId || !HTTP_BASE) return null
+  try {
+    const r = await fetch(`${HTTP_BASE}/room/${code}/result?s=${encodeURIComponent(sessionId)}`)
+    if (!r.ok) return null
+    const body = await r.json().catch(() => null)
+    return body?.result ?? null
+  } catch (_) { return null }
+}
+
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({
   mode:            'idle',

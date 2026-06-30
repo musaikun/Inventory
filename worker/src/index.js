@@ -7,7 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleSessionComplete,
+  handleSessionComplete, handleRoomResult,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
@@ -214,6 +214,24 @@ export default {
       } catch (e) {
         return jsonResponse({ error: e.message }, 500, origin, allowedOrigin)
       }
+    }
+
+    // ── 完了後ゲスト閲覧（無認証・URLが鍵）────────────────────────────────────
+    // GET /room/:code/result?s=<sessionId> — D1 スナップショットから金額抜きの結果を返す
+    const resultMatch = path.match(/^\/room\/([A-Z0-9]{4,8})\/result$/i)
+    if (resultMatch && request.method === 'GET') {
+      const code = resultMatch[1].toUpperCase()
+      const sid  = url.searchParams.get('s') ?? ''
+      if (!env.DB) return jsonResponse({ error: 'サービスを利用できません' }, 503, origin, allowedOrigin)
+      const ip = clientIp(request)
+      if (await isIpBlocked(env.DB, ip, 'probe')) {
+        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+      }
+      const result = await handleRoomResult(env.DB, code, sid)
+      const status = result._status ?? 200; delete result._status
+      // 「見つからない・無効」は総当たり探索とみなして記録（期間切れ 410 は除外）
+      if (status === 400 || status === 404) await recordIpFail(env.DB, ip, 'probe')
+      return jsonResponse(result, status, origin, allowedOrigin)
     }
 
     // ── ルーム API（ルームID = 店舗コード）────────────────────────────────────

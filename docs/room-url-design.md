@@ -1,7 +1,7 @@
 # ルーム限定URL ＋ 完了後ゲスト閲覧 設計
 
 最終更新: 2026-06-30
-ステータス: 実装中（第1段→第2段）
+ステータス: 第1段（参加のアクセス制御）・第2段（完了後ゲスト閲覧）ともに実装済み
 
 ## 目的
 - 招待URLを「そのルーム（その回の棚卸）限り」にする。過去のURL/店舗コードで
@@ -31,7 +31,17 @@
 - **店舗コードの手入力参加は廃止**（LandingPage のコード入力欄を削除、QR/リンクのみ）。
 - 再接続（同一アクティブセッション）の間は同じURLが有効。新規セッション開始で旧URL失効。
 
-## 第2段：完了後ゲスト閲覧
+## 第2段：完了後ゲスト閲覧 ✅ 実装済み
+実装メモ:
+- バックエンド: `GET /room/:code/result?s=<sessionId>`（`worker/src/storeHandler.js` の `handleRoomResult`）。
+  無認証・IPレート制限あり。完了済み＋3日以内＋より新しい完了セッションが無い時のみ返す。
+  金額（単価・在庫金額・参加者合計）はサーバー側で除去（`_sanitizeForGuest`）。
+- フロント: `?store=CODE&s=SID` でアクセス → `fetchRoomStatus` でライブ判定 →
+  アクティブなら参加、非アクティブなら `fetchRoomResult` で結果取得 → `GuestResultView.vue`（金額なし・編集不可）。
+- 閲覧期間定数: `worker/src/constants.js` の `RESULT_WINDOW_DAYS = 3`（フロントの `CORRECTION_DAYS` と一致）。
+- 共有URLは第1段の `getShareUrl()` が付与する `&s=<sessionId>` をそのまま利用する。
+
+設計:
 - データ源は D1 スナップショット（store_history）。DOは完了時に解散するため。
 - 読み取り口（無認証・URLが鍵）: `GET /room/:code/result?s=<sessionId>`
   - 対象セッションが completed かつ 期間内（3日以内 かつ より新しい完了セッションが無い）なら返す。

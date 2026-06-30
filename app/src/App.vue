@@ -25,6 +25,7 @@ import {
   hasHostToken, dissolveRoomRemote,
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
   setItemAddRequestCallback, setItemAddResponseCallback, pendingItemRequests,
+  fetchRoomStatus, fetchRoomResult,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -47,6 +48,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
+import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
@@ -79,9 +81,12 @@ const activeTimer = useActiveTimer()
 function markActivity() { if (currentView.value === 'session') activeTimer.mark() }
 
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail'
+// 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail' | 'guest-result'
 const currentView   = ref('landing')
 const detailSnapshot = ref(null)
+// 完了後ゲスト閲覧（読み取り専用結果ビュー）
+const guestResult      = ref(null)   // 結果スナップショット（null = エラー表示）
+const guestResultError = ref('')
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
   pendingSession,
@@ -112,6 +117,21 @@ function _askNameAndJoin(code, joinSessionId = null) {
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
   showNameModal.value    = true
+}
+
+// セッションID付きリンク（?store=CODE&s=SID）の入口
+// まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
+async function _enterStoreLink(code, sessionId) {
+  const status = await fetchRoomStatus(code).catch(() => null)
+  if (status?.isActive && status.sessionId === sessionId) {
+    _askNameAndJoin(code, sessionId)   // 棚卸中: ライブルームに参加（鍵を渡す）
+    return
+  }
+  // 完了後: D1 スナップショットから金額抜きの結果を取得
+  const result = await fetchRoomResult(code, sessionId)
+  guestResult.value      = result
+  guestResultError.value = result ? '' : 'この棚卸の閲覧期間が終了したか、まだ完了していません。'
+  currentView.value      = 'guest-result'
 }
 
 async function onConfirmName() {
@@ -685,7 +705,9 @@ onMounted(async () => {
     const url = new URL(window.location.href)
     url.searchParams.delete('store'); url.searchParams.delete('s')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(storeParam, joinSid)
+    // セッションID付きリンク: ライブ中なら参加、完了後なら読み取り専用の結果ビューへ
+    if (joinSid) _enterStoreLink(storeParam, joinSid)
+    else         _askNameAndJoin(storeParam, joinSid)
   } else {
     const guestSession = getSavedGuestSession()
     if (guestSession) {
@@ -766,6 +788,7 @@ function _closeTopLayer() {
   if (showSync.value)        { showSync.value = false;    return true }
   if (showSettings.value)    { showSettings.value = false; return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
   if (currentView.value === 'sessions' && sessionsYear.value !== null) { sessionsYear.value = null; return true }
@@ -1722,6 +1745,14 @@ function dismissReview() {
       :is-host="!syncActive || syncIsHost"
       @back="currentView = 'sessions'"
       @patched="snap => { detailSnapshot = snap }"
+    />
+
+    <!-- ── 完了後ゲスト閲覧（読み取り専用・金額なし） ── -->
+    <GuestResultView
+      v-else-if="currentView === 'guest-result'"
+      :result="guestResult"
+      :error-message="guestResultError"
+      @home="currentView = isAuthenticated ? 'sessions' : 'landing'"
     />
 
     <!-- ── ランディング ── -->
