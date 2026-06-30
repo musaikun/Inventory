@@ -7,7 +7,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { isAuthenticated, createSession } from '../composables/useAuth.js'
 import { useSession } from '../composables/useSession.js'
 
-const emit = defineEmits(['close', 'complete', 'newSession'])
+const emit = defineEmits(['close', 'complete', 'newSession', 'viewMember'])
 
 const props = defineProps({
   isInventoryCompleted: { type: Boolean, default: false },
@@ -307,13 +307,14 @@ function onShareMail() {
         <div class="participants-section">
           <div class="participants-title">参加者（{{ participantList.length }}名）</div>
           <div class="participants-list">
-            <div v-for="p in participantList" :key="p.id" class="participant-item">
+            <button v-for="p in participantList" :key="p.id" class="participant-item" @click="emit('viewMember', p); emit('close')" title="タップで変更履歴を見る">
               <span class="participant-dot" :class="{ me: p.isMe, done: p.isDone }"></span>
               <span class="participant-name">{{ p.name }}</span>
               <span v-if="p.isMe" class="participant-me">あなた</span>
               <span v-if="p.isDone" class="participant-status done">✓ 完了</span>
               <span v-else class="participant-status working">作業中</span>
-            </div>
+              <span class="participant-chevron">›</span>
+            </button>
           </div>
         </div>
 
@@ -371,13 +372,14 @@ function onShareMail() {
         <div class="participants-section">
           <div class="participants-title">参加者（{{ participantList.length }}名）</div>
           <div class="participants-list">
-            <div v-for="p in participantList" :key="p.id" class="participant-item">
+            <button v-for="p in participantList" :key="p.id" class="participant-item" @click="emit('viewMember', p); emit('close')" title="タップで変更履歴を見る">
               <span class="participant-dot" :class="{ me: p.isMe, done: p.isDone }"></span>
               <span class="participant-name">{{ p.name }}</span>
               <span v-if="p.isMe" class="participant-me">あなた</span>
               <span v-if="p.isDone" class="participant-status done">✓ 完了</span>
               <span v-else class="participant-status working">作業中</span>
-            </div>
+              <span class="participant-chevron">›</span>
+            </button>
           </div>
         </div>
 
@@ -662,10 +664,23 @@ function onShareMail() {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
+  border: none;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
+  width: 100%;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .participant-item:last-child { border-bottom: none; }
+.participant-item:active { background: #f1f5f9; }
+.participant-chevron {
+  margin-left: auto;
+  color: var(--text-muted, #94a3b8);
+  font-size: 18px;
+  font-weight: 700;
+}
 .participant-dot {
   width: 8px;
   height: 8px;

@@ -51,6 +51,7 @@ import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind, findSim
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import TextPasteParserModal from './components/TextPasteParserModal.vue'
+import MemberHistoryModal from './components/MemberHistoryModal.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
 import { isTwaApp } from './utils/appMode.js'
@@ -300,6 +301,8 @@ const showPasteParser   = ref(false)
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
+const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
+function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
 const showAddItemForm   = ref(false)  // 品目追加フォームの表示/非表示
 const practiceMode      = ref(false)  // 練習モード（履歴に残さない）
 const inventoryTableRef = ref(null)
@@ -697,6 +700,7 @@ function _pushBackSentinel() {
 
 function _closeTopLayer() {
   if (showMenu.value)        { showMenu.value = false;      return true }
+  if (memberHistoryTarget.value) { memberHistoryTarget.value = null; return true }
   if (confirmState.value)    { onCancelConfirm();           return true }
   if (candidateState.value)  { onCancelCandidate();         return true }
   if (chatNotif.value)       { chatNotif.value = null;      return true }
@@ -1766,12 +1770,14 @@ function dismissReview() {
           <button class="sync-banner-btn" @click="showSync = true">詳細</button>
         </div>
         <div class="sync-banner-participants">
-          <span
+          <button
             v-for="p in participantList"
             :key="p.id"
             class="sync-participant-chip"
             :class="{ done: p.isDone, me: p.isMe }"
-          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></span>
+            @click="openMemberHistory(p)"
+            title="タップでこのメンバーの変更履歴を見る"
+          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></button>
         </div>
       </div>
 
@@ -2115,7 +2121,8 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
-    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
+    <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
     <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
