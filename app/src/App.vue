@@ -360,6 +360,33 @@ function onPasteParserApply(items) {
   showToast(msgs.join('・'), 3500, 'success')
 }
 
+// 棚卸結果CSVから入力（数量）を復元する。
+// 同名品目があればその数量を復元、無ければ新規追加して数量を入れる（数量のみ・単価は現リスト優先）。
+function onRestoreInventory(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return
+  if (currentView.value !== 'session') {
+    showToast('棚卸セッションを開始してから復元してください', 4000, 'warning')
+    return
+  }
+  if (inputLocked.value) { showToast('完了済みのため復元できません', 3000, 'warning'); return }
+
+  let restored = 0, added = 0
+  for (const r of rows) {
+    if (!r?.name || typeof r.qty !== 'number') continue
+    if (!config.order.includes(r.name)) {
+      // 新規分は表示が自然になるよう単位・コードも登録（単価は数量のみ復元の方針で除外）
+      addItem(r.name, null, null, r.unit || null, r.code || null)
+      added++
+    }
+    const unit = r.unit || config.units?.[r.name] || ''
+    updateQty(r.name, r.qty, unit, deviceName.value || '名前未設定')
+    if (syncActive.value) broadcastUpdate(r.name, r.qty, unit, deviceName.value || '名前未設定')
+    restored++
+  }
+  if (restored) markActivity()
+  showToast(`${restored}件の数量を復元しました${added ? `（新規${added}件）` : ''}`, 4500, 'success')
+}
+
 const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length > 0)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
@@ -906,7 +933,9 @@ async function onComplete() {
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
-    completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
+    // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
+    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
@@ -2102,7 +2131,7 @@ function dismissReview() {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
+    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />

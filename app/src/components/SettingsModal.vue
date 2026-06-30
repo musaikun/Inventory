@@ -10,10 +10,26 @@ import CsvMapperModal from './CsvMapperModal.vue'
 import TextPasteParserModal from './TextPasteParserModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
+import { parseResultCSV } from '../utils/resultCsvParser.js'
 
 const props = defineProps({ isGuest: Boolean })
-const emit = defineEmits(['close', 'openUpgrade'])
+const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
+
+const restoreInput = ref(null)
+function onRestoreFile(file) {
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const rows = parseResultCSV(e.target.result)
+      emit('restoreInventory', rows)
+      emit('close')
+    } catch (err) {
+      status.value = { type: 'error', msg: err.message }
+    }
+  }
+  reader.readAsText(file, 'UTF-8')
+}
 
 // CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
 function _importResultStatus(result) {
@@ -219,6 +235,15 @@ function copyCode() {
           🗂 フォーマット不明のCSVを列指定でインポート
         </button>
         <input ref="mapperInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+      </div>
+
+      <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="restoreInput.click()">
+          🔧 棚卸結果CSVから入力を復元
+        </button>
+        <input ref="restoreInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
 
       <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
@@ -615,6 +640,13 @@ function copyCode() {
   transition: background 0.15s, border-color 0.15s;
 }
 .mapper-trigger:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+
+.mapper-hint {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
 
 .guest-notice {
   padding: 14px 16px;
