@@ -372,6 +372,19 @@ function onCreateRoomFromMain() {
   showSync.value = true
 }
 
+// 履歴を確認できるメンバー = 在室中の参加者 ＋ 退室済みでも履歴を1件以上持つ人
+const historyMembers = computed(() => {
+  const map = new Map()
+  for (const p of participantList.value) {
+    map.set(p.id, { id: p.id, name: p.name, isMe: p.isMe, isDone: p.isDone, present: true })
+  }
+  for (const e of auditLog) {
+    if (!e.enteredById || map.has(e.enteredById)) continue
+    map.set(e.enteredById, { id: e.enteredById, name: e.enteredBy || '名前未設定', isMe: false, isDone: false, present: false })
+  }
+  return [...map.values()]
+})
+
 
 // ── あとで数える 一覧 ──────────────────────────────────────────────────────────
 const recountItems = computed(() => Object.keys(recountFlags))
@@ -1771,13 +1784,13 @@ function dismissReview() {
         </div>
         <div class="sync-banner-participants">
           <button
-            v-for="p in participantList"
+            v-for="p in historyMembers"
             :key="p.id"
             class="sync-participant-chip"
-            :class="{ done: p.isDone, me: p.isMe }"
+            :class="{ done: p.isDone, me: p.isMe, left: !p.present }"
             @click="openMemberHistory(p)"
-            title="タップでこのメンバーの変更履歴を見る"
-          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></button>
+            :title="p.present ? 'タップでこのメンバーの変更履歴を見る' : '退室済み — タップで履歴を見る'"
+          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span><span v-else-if="!p.present" class="chip-left"> ·退室</span></button>
         </div>
       </div>
 

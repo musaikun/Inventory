@@ -56,7 +56,8 @@ function actionClass(action) {
           </div>
           <div class="member-sub">入力 {{ qtyCount }}件 ・ 履歴 {{ entries.length }}件</div>
         </div>
-        <span class="member-live"><span class="member-live-dot"></span>リアルタイム</span>
+        <span v-if="participant.present === false" class="member-left">退室済み</span>
+        <span v-else class="member-live"><span class="member-live-dot"></span>リアルタイム</span>
       </div>
 
       <div class="member-log">
@@ -155,6 +156,15 @@ function actionClass(action) {
   border-radius: 50%;
   background: #22c55e;
   animation: member-pulse 1.4s ease-in-out infinite;
+}
+.member-left {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 7px;
+  flex-shrink: 0;
 }
 @keyframes member-pulse {
   0%, 100% { opacity: 1; }

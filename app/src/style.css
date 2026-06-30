@@ -332,8 +332,20 @@ body {
   color: #15803d;
 }
 
+.sync-participant-chip.left {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+.sync-participant-chip.left:hover { border-color: #cbd5e1; }
+
 .chip-check {
   font-weight: 700;
+}
+
+.chip-left {
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.8;
 }
 
 .settings-btn {
