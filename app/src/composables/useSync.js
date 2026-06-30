@@ -6,7 +6,7 @@ import { shopCode } from './useStore.js'
 
 function _saveSession() {
   if (!state.roomCode || state.mode === 'idle') return
-  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode })) } catch (_) {}
+  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode, sessionId: state.sessionId })) } catch (_) {}
 }
 
 function _clearSession() {
@@ -83,6 +83,7 @@ let _reconnectTimer  = null
 let _heartbeatTimer  = null
 let _reconnectCount  = 0
 let _disconnectedAt  = 0   // 切断時刻（再接続時マージ判定に使用）
+let _joinSessionId   = null  // ゲスト参加時に提示する招待リンクのセッションID（鍵）
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
 // ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
@@ -668,7 +669,7 @@ function _connect(code) {
         deviceId,
         deviceName: deviceName.value || '名前未設定',
         role:       isHostMode ? 'host' : 'guest',
-        ...(isHostMode ? { hostToken: _loadHostToken() } : {}),
+        ...(isHostMode ? { hostToken: _loadHostToken() } : { joinSessionId: _joinSessionId || '' }),
       }))
 
       if (isHostMode) {
@@ -720,6 +721,8 @@ function _connect(code) {
               ? 'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。'
               : data.code === 'auth_failed'
               ? 'ホスト認証に失敗しました。この端末はホスト権限がありません。'
+              : data.code === 'invalid_link'
+              ? 'この招待リンクは無効です。最新の招待リンク／QRをホストから受け取ってください。'
               : 'エラーが発生しました'
             state.error    = errMsg
             state.mode     = 'idle'
@@ -855,7 +858,7 @@ export function useSync() {
     return code
   }
 
-  async function joinRoom(code) {
+  async function joinRoom(code, joinSessionId = null) {
     state.error     = null
     _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -865,6 +868,8 @@ export function useSync() {
     }
     // 自分の店舗コードが入力された場合はホストとして再接続する
     const isOwnCode = !!(shopCode.value && normalized === shopCode.value.toUpperCase())
+    // ゲスト参加時は招待リンクのセッションIDを鍵として保持（再接続時も使う）
+    if (!isOwnCode) _joinSessionId = joinSessionId || null
     state.roomCode = normalized
     state.mode     = isOwnCode ? 'hosting' : 'joining'
     try {
@@ -902,7 +907,9 @@ export function useSync() {
   function getShareUrl() {
     if (!shopCode.value) return ''
     const base = window.location.origin + window.location.pathname.replace(/\/$/, '')
-    return `${base}?store=${shopCode.value}`
+    const sid  = state.sessionId
+    // セッションIDを鍵として付与（そのルーム限りのURL）。未開始時は store のみ。
+    return sid ? `${base}?store=${shopCode.value}&s=${encodeURIComponent(sid)}` : `${base}?store=${shopCode.value}`
   }
 
   return {

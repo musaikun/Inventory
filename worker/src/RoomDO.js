@@ -160,6 +160,17 @@ export class RoomDO {
             ws.close(1008, 'Session not active')
             return
           }
+          // 招待リンク検証: 現在のセッションIDと一致する鍵を持つゲストのみ許可。
+          // 古いURL（別セッションID）や鍵なし参加（店舗コード手入力）は拒否する。
+          const sid = await this.state.storage.get('sessionId')
+          if (sid) {
+            const provided = String(msg.joinSessionId ?? '')
+            if (provided !== sid) {
+              ws.send(JSON.stringify({ type: 'error', code: 'invalid_link' }))
+              ws.close(1008, 'Invalid invite link')
+              return
+            }
+          }
         }
 
         const existingIds = new Set(

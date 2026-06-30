@@ -246,7 +246,7 @@ function onShareMail() {
         </div>
 
         <div class="sync-note">
-          ※ メンバーはトップ画面から店舗コードを入力して参加できます。<br>
+          ※ メンバーはこの画面で発行される招待リンク／QRから参加します。<br>
           完全オフラインで一人で使う場合は、このまま閉じてください。
         </div>
       </template>
@@ -261,14 +261,14 @@ function onShareMail() {
             <span class="accepting-dot"></span>
             <div>
               <div class="accepting-status">参加を受け付け中</div>
-              <div class="accepting-sub">店舗コードを知っている人が参加できます</div>
+              <div class="accepting-sub">下の招待リンク／QRを共有して参加してもらいます</div>
             </div>
           </div>
           <button class="accepting-btn" @click="onCloseRoom">受付終了</button>
         </div>
 
         <div class="room-code-card">
-          <div class="room-code-label">店舗コード（参加用）</div>
+          <div class="room-code-label">店舗コード（参考）</div>
           <div class="room-code-value" @click="onCopyCode">
             {{ state.roomCode }}
             <span class="copy-hint">{{ copied ? '✓ コピー済み' : '📋 タップでコピー' }}</span>

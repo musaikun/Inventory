@@ -100,13 +100,15 @@ function _setNewSession(id) {
 }
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
-const pendingJoinCode  = ref(null)
+const pendingJoinCode      = ref(null)
+const pendingJoinSessionId = ref(null)  // 招待リンクのセッションID（鍵）
 const showNameModal    = ref(false)
 const pendingName      = ref('')
 const pendingNameError = ref(false)
 
-function _askNameAndJoin(code) {
-  pendingJoinCode.value  = code
+function _askNameAndJoin(code, joinSessionId = null) {
+  pendingJoinCode.value      = code
+  pendingJoinSessionId.value = joinSessionId
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
   showNameModal.value    = true
@@ -122,7 +124,9 @@ async function onConfirmName() {
   setDeviceName(name)
   showNameModal.value   = false
   const code            = pendingJoinCode.value
+  const joinSid         = pendingJoinSessionId.value
   pendingJoinCode.value = null
+  pendingJoinSessionId.value = null
 
   // Free プラン: 2台制限チェック（ルーム参加前に参加者数を確認）
   if (!canJoinRoom(participantList.value.length)) {
@@ -133,7 +137,7 @@ async function onConfirmName() {
 
   currentView.value     = 'session'
   try {
-    await joinRoom(code)
+    await joinRoom(code, joinSid)
     const isRejoined = syncState.mode === 'hosting'
     showToast(
       isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
@@ -154,7 +158,7 @@ function onCancelNameModal() {
 async function onLandingStarted(payload) {
   if (payload?.joinRoom) {
     // ゲスト参加（認証不要）
-    _askNameAndJoin(payload.joinRoom)
+    _askNameAndJoin(payload.joinRoom, payload.joinSessionId ?? null)
   } else if (payload?.hostMode) {
     // ホスト開始 → 認証済みならセッション一覧へ、未認証なら認証ページへ
     if (isAuthenticated.value) {
@@ -669,18 +673,19 @@ onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
+  const joinSid    = params.get('s')   // 招待リンクのセッションID（鍵）
 
   if (roomCode) {
     const url = new URL(window.location.href)
-    url.searchParams.delete('room')
+    url.searchParams.delete('room'); url.searchParams.delete('s')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(roomCode)
+    _askNameAndJoin(roomCode, joinSid)
   } else if (storeParam) {
     // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
     const url = new URL(window.location.href)
-    url.searchParams.delete('store')
+    url.searchParams.delete('store'); url.searchParams.delete('s')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(storeParam)
+    _askNameAndJoin(storeParam, joinSid)
   } else {
     const guestSession = getSavedGuestSession()
     if (guestSession) {
@@ -688,15 +693,16 @@ onMounted(async () => {
       discardSavedSession()
       currentView.value = 'session'
       const rejoinCode = guestSession.roomCode
+      const rejoinSid  = guestSession.sessionId ?? null
       if (deviceName.value) {
-        joinRoom(rejoinCode)
+        joinRoom(rejoinCode, rejoinSid)
           .then(() => showToast(`ルーム ${rejoinCode} に再参加しました`, 3000, 'join'))
           .catch(() => {
             showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
             currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
           })
       } else {
-        _askNameAndJoin(rejoinCode)
+        _askNameAndJoin(rejoinCode, rejoinSid)
       }
     } else {
       // ゲストセッションなし: ホストセッションを自動復元

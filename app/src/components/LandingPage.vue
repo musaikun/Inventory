@@ -15,10 +15,8 @@ function onLogin() {
 
 const loading      = ref(false)
 const error        = ref('')
-const joinExpanded = ref(false)
 const showScanner  = ref(false)
 const showRestore  = ref(false)
-const joinCode     = ref('')
 const restoreCode  = ref('')
 
 const videoRef  = ref(null)
@@ -33,39 +31,26 @@ async function onStart() {
   emit('started', { hostMode: true })
 }
 
-// ── 店舗コードで直接参加（D1経由不要）────────────────────────────────────────
-function _joinViaStoreCode(code) {
-  emit('started', { joinRoom: code })
-}
-
-// ── コード送信 ────────────────────────────────────────────────────────────────
-function onJoinSubmit() {
-  const code = joinCode.value.trim().toUpperCase().replace(/[^A-Z]/g, '')
-  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
-  _joinViaStoreCode(code)
-}
-
-// ── QRコード解析 ──────────────────────────────────────────────────────────────
+// ── QRコード解析（招待リンクのみ。コードの手入力参加は廃止）──────────────────
 async function _handleQrData(data) {
   closeScanner()
   try {
     const url = new URL(data)
     const storeParam = url.searchParams.get('store')
-    if (storeParam) { _joinViaStoreCode(storeParam); return }
+    const sParam     = url.searchParams.get('s')
+    if (storeParam) { emit('started', { joinRoom: storeParam, joinSessionId: sParam }); return }
     // 旧形式 ?room= も引き続きサポート
     const roomParam = url.searchParams.get('room')
-    if (roomParam) { emit('started', { joinRoom: roomParam.toUpperCase() }); return }
+    if (roomParam) { emit('started', { joinRoom: roomParam.toUpperCase(), joinSessionId: sParam }); return }
   } catch (_) {}
-  const cleaned = data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (cleaned.length >= 4) { _joinViaStoreCode(cleaned) }
-  else error.value = 'QRコードを認識できませんでした'
+  error.value = '招待リンクのQRコードを読み取ってください'
 }
 
 // ── カメラスキャン ────────────────────────────────────────────────────────────
 async function openScanner() {
   error.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
-    joinExpanded.value = true
+    error.value = 'このブラウザはカメラに対応していません。ホストの招待リンクを直接開いてください。'
     return
   }
   showScanner.value = true
@@ -79,9 +64,8 @@ async function openScanner() {
       _tick()
     }
   } catch {
-    error.value        = 'カメラへのアクセスを許可してください'
-    showScanner.value  = false
-    joinExpanded.value = true
+    error.value       = 'カメラへのアクセスを許可してください。または招待リンクを直接開いてください。'
+    showScanner.value = false
   }
 }
 
@@ -107,20 +91,6 @@ function closeScanner() {
   showScanner.value = false
   cancelAnimationFrame(_scanRaf)
   if (_stream) { _stream.getTracks().forEach(t => t.stop()); _stream = null }
-}
-
-// ── 参加フォームを開く ────────────────────────────────────────────────────────
-function openJoin() {
-  joinExpanded.value = true
-  showRestore.value  = false
-  error.value        = ''
-}
-
-function closeJoin() {
-  joinExpanded.value = false
-  showRestore.value  = false
-  error.value        = ''
-  joinCode.value     = ''
 }
 
 // ── 既存データを引き継ぐ ──────────────────────────────────────────────────────
@@ -151,7 +121,6 @@ onUnmounted(() => closeScanner())
       <div class="scanner-aim"></div>
       <p class="scanner-hint">QRコードをカメラに向けてください</p>
       <div class="scanner-footer">
-        <button class="scanner-btn-manual" @click="closeScanner(); joinExpanded = true">コードで入力</button>
         <button class="scanner-btn-close"  @click="closeScanner()">閉じる</button>
       </div>
     </div>
@@ -194,50 +163,16 @@ onUnmounted(() => closeScanner())
         <span class="lp-card-arrow">›</span>
       </button>
 
-      <!-- ── ゲストカード ── -->
+      <!-- ── ゲストカード（招待リンク／QRから参加）── -->
       <div class="lp-card-guest-wrap">
-        <button
-          class="lp-card lp-card-guest"
-          :class="{ 'is-open': joinExpanded }"
-          @click="!joinExpanded ? openJoin() : null"
-        >
-          <span class="lp-card-icon">🔑</span>
+        <button class="lp-card lp-card-guest" @click="openScanner">
+          <span class="lp-card-icon">📷</span>
           <span class="lp-card-body">
-            <span class="lp-card-title">ルームに参加</span>
-            <span class="lp-card-sub">店舗コードを入力して参加します</span>
+            <span class="lp-card-title">QRコードで参加</span>
+            <span class="lp-card-sub">ホストの招待リンク／QRから参加します</span>
           </span>
-          <span v-if="!joinExpanded" class="lp-card-arrow">›</span>
-          <button v-else class="lp-close-btn" @click.stop="closeJoin()">✕</button>
+          <span class="lp-card-arrow">›</span>
         </button>
-
-        <!-- 展開: コード入力フォーム -->
-        <div v-if="joinExpanded" class="lp-join-form">
-          <input
-            class="lp-join-input"
-            type="text"
-            placeholder="店舗コードを入力"
-            v-model="joinCode"
-            @keyup.enter="onJoinSubmit"
-            maxlength="8"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            autofocus
-          />
-          <div class="lp-join-actions">
-            <button class="lp-btn-qr" @click="openScanner">
-              📷 QRスキャン
-            </button>
-            <button
-              class="lp-btn-join"
-              :disabled="loading || joinCode.length < 4"
-              @click="onJoinSubmit"
-            >
-              {{ loading ? '確認中...' : '参加する' }}
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- ── データ引き継ぎ ── -->
