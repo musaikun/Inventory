@@ -124,7 +124,6 @@ let _onParticipantLeave = null
 let _onGuestLeave       = null
 let _onRemoteUpdate     = null
 let _onClearInventory   = null
-let _onScopeReceived    = null
 let _onSessionStarted   = null
 let _onSessionEnded     = null
 let _onNewSessionStarted = null  // ゲスト参加中に新規セッションが開始された
@@ -151,7 +150,6 @@ export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
 export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
 export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
-export function setScopeCallback(fn)            { _onScopeReceived    = fn }
 export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
 export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
 export function setNewSessionStartedCallback(fn) { _onNewSessionStarted = fn }
@@ -198,10 +196,6 @@ export function broadcastRemove(ingredient) {
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
 }
 
-export function broadcastScope(scope) {
-  if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'scope', scope }))
-}
 
 export function broadcastRecountFlag(ingredient, on) {
   if (_ws?.readyState !== WebSocket.OPEN) return
@@ -517,10 +511,6 @@ function _handleMessage(msg) {
 
     case 'config_update':
       _onConfigReceived?.(msg)
-      break
-
-    case 'scope':
-      _onScopeReceived?.(msg.scope)
       break
 
     case 'recount_flag':

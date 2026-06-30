@@ -15,9 +15,9 @@ import {
   setConflictCallback, setConflictQueueCallback, setConflictNotifyCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  setScopeCallback, setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
+  setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   setExpectedSessionId,
-  broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
@@ -47,7 +47,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
-import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
+import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import TextPasteParserModal from './components/TextPasteParserModal.vue'
@@ -579,9 +579,6 @@ setRemoteUpdateCallback((ingredient, qty, unit, by) => {
     ? `${who}: 「${ingredient}」を削除`
     : `${who}: 「${ingredient}」${qty}${unit}`
   showToast(msg, 2800, 'update')
-})
-setScopeCallback((scope) => {
-  if (!syncIsHost.value) categoryScope.value = scope
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
@@ -1147,28 +1144,12 @@ watch(() => syncState.roomCode, (code) => {
 })
 
 // ── Dictionary matching（実体は utils/itemMatcher.js・テスト付き）──────────────
-function isSupplyItem(canonical) {
-  return matcherIsSupply(canonical, config.categories)
-}
-
-// 資材・備品系品目が存在する場合のみ除外チップを表示
-const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(item)))
-// 棚卸対象スコープ: 'all' | 'food'（食材のみ） | 'supply'（資材・備品のみ）
-// 検索・棚卸一覧の両方を絞り込む
-const categoryScope = ref('all')
-
-// ホストの絞り込みスコープをゲストに同期（宣言後に配置しないと TDZ エラーになる）
-watch(categoryScope, (scope) => {
-  if (syncIsHost.value && syncActive.value) broadcastScope(scope)
-})
-
 function findCandidates(name) {
   return matcherFind(name, {
     dictionary: dictionary.value,
     order:      config.order,
     categories: config.categories,
     masterDict,
-    scope:      categoryScope.value,
   })
 }
 
@@ -1956,13 +1937,6 @@ function dismissReview() {
         <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
       </div>
 
-      <!-- 棚卸対象スコープ切り替え（ゲストはホストに追従するため非表示） -->
-      <div v-if="hasSupplyItems && (!syncActive || syncIsHost)" class="scope-bar">
-        <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
-        <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
-        <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
-      </div>
-
       <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
       <div v-if="recountItems.length > 0" class="recount-notice">
         <button class="recount-notice-toggle" @click="recountOpen = !recountOpen" type="button">
@@ -2017,7 +1991,6 @@ function dismissReview() {
         :filled-count="filledCount"
         :read-only="inputLocked"
         :recount-flags="recountFlags"
-        :category-scope="categoryScope"
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"

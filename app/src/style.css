@@ -425,37 +425,6 @@ body {
 }
 
 /* ── 棚卸対象スコープバー（食材 / 資材・備品）── */
-.scope-bar {
-  display: flex;
-  margin: 4px 16px 10px;
-  background: #f1f5f9;
-  border-radius: 12px;
-  padding: 4px;
-  gap: 3px;
-}
-
-.scope-btn {
-  flex: 1;
-  padding: 10px 4px;
-  font-size: 13px;
-  font-weight: 700;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.scope-btn.active {
-  background: white;
-  color: var(--primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-}
-
-.scope-btn:active { opacity: 0.8; }
-
 
 
 .search-input {

@@ -338,12 +338,6 @@ export class RoomDO {
         break
       }
 
-      case 'scope': {
-        const scope = msg.scope === 'food' || msg.scope === 'supply' ? msg.scope : 'all'
-        this._broadcast({ type: 'scope', scope }, ws)
-        break
-      }
-
       case 'recount_flag': {
         const ingredient = String(msg.ingredient ?? '')
         if (!ingredient || ingredient.length > MAX_INGREDIENT_LEN) return
