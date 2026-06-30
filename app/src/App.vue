@@ -356,23 +356,17 @@ const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length >
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
 
-// メイン画面の目立つ「ルームを作成」CTA から呼ぶ。1タップでルーム作成→共有画面へ。
-const roomCtaBusy = ref(false)
-async function onCreateRoomFromMain() {
+// メイン画面の目立つ「ルームを作成」CTA から呼ぶ。
+// SyncModal の作成フロー（セッション開始＝isActive 設定・QR生成・再接続判定）を
+// そのまま再利用するため、autoCreate フラグを立ててモーダルを開く。
+// ※ createRoom() を直接呼ぶと session_start が走らず、ゲストが
+//   「セッションが開始されていません」で弾かれるため必ずこの経路を通す。
+const syncAutoCreate = ref(false)
+function onCreateRoomFromMain() {
   if (syncActive.value) { showSync.value = true; return }
   if (!shopCode.value) { showToast('ルーム作成には店舗の登録が必要です', 3500, 'warning'); return }
-  // 端末名が未設定なら同期モーダルで「名前入力→作成」のフローに乗せる
-  if (!deviceName.value) { showSync.value = true; return }
-  roomCtaBusy.value = true
-  try {
-    await createRoom()
-    showSync.value = true   // 作成後は共有画面（ホストビュー：コード・QR・リンク）を開く
-    showToast('ルームを作成しました。コード・QR・リンクで招待できます', 4000, 'join')
-  } catch (e) {
-    showToast(e.message || 'ルームの作成に失敗しました', 4000, 'error')
-  } finally {
-    roomCtaBusy.value = false
-  }
+  syncAutoCreate.value = true
+  showSync.value = true
 }
 
 
@@ -1785,7 +1779,6 @@ function dismissReview() {
       <button
         v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
         class="room-cta"
-        :disabled="roomCtaBusy"
         @click="onCreateRoomFromMain"
       >
         <span class="room-cta-icon">👥</span>
@@ -1793,7 +1786,7 @@ function dismissReview() {
           <span class="room-cta-title">みんなで一緒に棚卸する</span>
           <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
         </span>
-        <span class="room-cta-action">{{ roomCtaBusy ? '作成中…' : 'ルームを作成 ＋' }}</span>
+        <span class="room-cta-action">ルームを作成 ＋</span>
       </button>
 
       <!-- 棚卸完了バナー -->
@@ -2122,7 +2115,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
-    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
     <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />

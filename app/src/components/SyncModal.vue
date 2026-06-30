@@ -11,6 +11,8 @@ const emit = defineEmits(['close', 'complete', 'newSession'])
 
 const props = defineProps({
   isInventoryCompleted: { type: Boolean, default: false },
+  // メイン画面のCTAから開いたとき、マウント時に自動でルーム作成フローを起動する
+  autoCreate:           { type: Boolean, default: false },
 })
 
 const { pendingSession, markActive, begin } = useSession()
@@ -59,6 +61,8 @@ const showQR    = ref(false)
 onMounted(() => {
   if (isHost.value) view.value = 'host'
   else if (isGuest.value) view.value = 'guest'
+  // CTA からの自動作成: まだホスト/ゲストでないときだけルーム作成を起動
+  else if (props.autoCreate) onCreateRoom()
 })
 
 // ── ホスト作成 ────────────────────────────────────────────────────────────────
