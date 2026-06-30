@@ -3,10 +3,11 @@ import { computed } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
-  participant: { type: Object, required: true },   // { id, name, isMe }
-  auditLog:    { type: Array,  default: () => [] },
+  participant: { type: Object,  required: true },   // { id, name, isMe }
+  auditLog:    { type: Array,   default: () => [] },
+  editable:    { type: Boolean, default: false },   // タップで品目編集を許可するか
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'editItem'])
 useEscapeKey(() => emit('close'))
 
 // このメンバーの変更だけを新しい順で抽出（auditLog はリアクティブなのでリアルタイム更新）
@@ -54,7 +55,10 @@ function actionClass(action) {
             {{ participant.name || '名前未設定' }}
             <span v-if="participant.isMe" class="member-me">あなた</span>
           </div>
-          <div class="member-sub">入力 {{ qtyCount }}件 ・ 履歴 {{ entries.length }}件</div>
+          <div class="member-sub">
+            入力 {{ qtyCount }}件 ・ 履歴 {{ entries.length }}件
+            <span v-if="editable && entries.length" class="member-edit-hint">／ 品目をタップで編集</span>
+          </div>
         </div>
         <span v-if="participant.present === false" class="member-left">退室済み</span>
         <span v-else class="member-live"><span class="member-live-dot"></span>リアルタイム</span>
@@ -69,7 +73,13 @@ function actionClass(action) {
             <span class="log-time">{{ fmtTime(entry.timestamp) }}</span>
           </div>
           <div class="log-right">
-            <div class="log-item">{{ entry.ingredient }}</div>
+            <button
+              v-if="editable"
+              class="log-item log-item-edit"
+              @click="$emit('editItem', entry.ingredient)"
+              title="タップしてこの品目を編集"
+            >{{ entry.ingredient }} <span class="log-item-pen">✎</span></button>
+            <div v-else class="log-item">{{ entry.ingredient }}</div>
             <div class="log-detail">
               <span :class="['action-badge', actionClass(entry.action)]">{{ actionLabel(entry.action) }}</span>
               <span
@@ -206,6 +216,19 @@ function actionClass(action) {
   font-weight: 700;
   color: var(--text, #0f172a);
 }
+.log-item-edit {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--primary, #2563eb);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.log-item-edit:active { opacity: 0.6; }
+.log-item-pen { font-size: 11px; opacity: 0.7; }
+
+.member-edit-hint { color: var(--primary, #2563eb); font-weight: 600; }
 .log-detail {
   display: flex;
   align-items: center;

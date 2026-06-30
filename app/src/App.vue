@@ -303,6 +303,12 @@ const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
 function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
+// メンバー履歴の品目タップ → その品目の数量編集モーダルを開く
+function onMemberHistoryEdit(ingredient) {
+  if (inputLocked.value || !ingredient) return
+  memberHistoryTarget.value = null
+  openConfirm(ingredient, null, config.units?.[ingredient] || '', 'search')
+}
 const showAddItemForm   = ref(false)  // 品目追加フォームの表示/非表示
 const practiceMode      = ref(false)  // 練習モード（履歴に残さない）
 const inventoryTableRef = ref(null)
@@ -2111,7 +2117,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
-    <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" @close="memberHistoryTarget = null" />
+    <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
     <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
