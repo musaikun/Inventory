@@ -222,10 +222,11 @@ async function onSessionStart(session) {
   reset()
   clearAuditLog()
   activeTimer.start()
-  // 空リストで開始した場合は一括入力グリッドを自動で開く（メイン画面の入口）
+  // 空リストで開始しても自動でモーダルは開かない。
+  // 検索欄に品目名を打つ＝その場で登録→数量モーダル（歩きながら積み上げ登録）が主動線。
+  // まとめて入れたい人は「📋 品目を一括入力」ボタンからグリッドを開ける。
   const startedEmpty = config.order.length === 0
   showAddItemForm.value = false
-  if (startedEmpty) showBulkGrid.value = true
   // 空で開始したら D1 にも空 config を保存する。
   // これをしないと再開時に D1 の古いリストを読み戻して品目が復活する。
   if (startedEmpty) _persistConfigToD1()
@@ -1235,7 +1236,55 @@ function runSearch(raw) {
   }
 
   const matched = name ? findCandidates(name) : []
+  // 候補ゼロ = 新規とみなし、その場で登録 → 数量モーダル（歩きながら積み上げ登録）
+  if (name && matched.length === 0) {
+    _walkRegister(name, qty, unit)
+    return
+  }
   candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
+}
+
+// 積み上げ登録: 新しい品目名を登録し、そのまま数量・単位モーダルへ。
+// 既存ならそのまま数量モーダル。ゲストはホスト承認、Free 上限も考慮。
+function _walkRegister(name, qty = null, unit = '') {
+  const n = (name ?? '').trim()
+  if (!n) return
+
+  if (config.order.includes(n)) {
+    openConfirm(n, qty, unit || config.units?.[n] || '', 'search')
+    return
+  }
+  if (!canAddItem(config.order.length)) {
+    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    return
+  }
+  // ゲスト: 品目追加はホスト承認が必要
+  if (syncActive.value && !syncIsHost.value) {
+    if (pendingGuestRequest.value) {
+      showToast('前の申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
+      return
+    }
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+    pendingGuestRequest.value = { requestId, name: n }
+    broadcastItemAddRequest(n, unit || '', '', requestId)
+    showToast(`「${n}」の追加をホストに申請しました`, 3000, 'info')
+    searchText.value = ''
+    nextTick(() => searchInputRef.value?.focus())
+    return
+  }
+  // ホスト/ソロ: 名前だけ登録 → そのまま数量・単位モーダル（キャンセルでも名前は残る）
+  addItem(n, null, null, unit || null, null)
+  track('item_added_walk')
+  openConfirm(n, qty, unit || '', 'search')
+}
+
+// CandidateModal から「新規登録」を選んだとき
+function onCandidateCreate() {
+  const c = candidateState.value
+  if (!c) return
+  candidateState.value = null
+  pendingCandidates.value = null
+  _walkRegister(c.searchTerm, c.qty, c.unit)
 }
 
 // ── Voice（連続入力がデフォルト動作）─────────────────────────────────────────
@@ -2099,7 +2148,9 @@ function dismissReview() {
         :matched="candidateState.matched"
         :qty="candidateState.qty"
         :unit="candidateState.unit"
+        :can-create="!(syncActive && !syncIsHost) || !pendingGuestRequest"
         @select="onCandidateSelect"
+        @create="onCandidateCreate"
         @cancel="onCancelCandidate"
       />
 
