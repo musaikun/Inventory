@@ -182,6 +182,19 @@ const selectedYearSessions = computed(() => {
   return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
 })
 
+// 選択中の年をさらに月ごとにグループ化（新しい月が上）
+const selectedYearByMonth = computed(() => {
+  const map = new Map()
+  for (const s of selectedYearSessions.value) {
+    const month = new Date(s.startedAt).getMonth() + 1
+    if (!map.has(month)) map.set(month, [])
+    map.get(month).push(s)
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([month, items]) => ({ month, items }))
+})
+
 const CORRECTION_DAYS = 3
 
 function _isSessionLocked(session) {
@@ -529,42 +542,49 @@ function _itemCount(session) {
               <span class="year-detail-title">{{ selectedYear }}年の棚卸</span>
               <span class="year-count">{{ selectedYearSessions.length }}件</span>
             </div>
-            <div
-              v-for="s in selectedYearSessions"
-              :key="s.id"
-              class="session-card session-card-completed"
-              @click="emit('viewSession', s)"
-            >
-              <div class="session-main">
-                <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
-                <span class="session-status status-done">完了</span>
-                <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
-                  ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
-                </span>
-                <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
-                <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+            <!-- 月ごとにグループ化 -->
+            <template v-for="grp in selectedYearByMonth" :key="grp.month">
+              <div class="month-header">
+                <span class="month-title">{{ grp.month }}月</span>
+                <span class="month-count">{{ grp.items.length }}件</span>
               </div>
-              <!-- 所要時間・参加者数・品目数 -->
-              <div class="session-stats-row">
-                <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
-                  ⏱ {{ selectedYearSessionStats[s.id].duration }}
-                </span>
-                <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
-                  👥 {{ selectedYearSessionStats[s.id].participants.length }}人
-                </span>
-                <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
-                <span class="session-detail-arrow">詳細 ›</span>
+              <div
+                v-for="s in grp.items"
+                :key="s.id"
+                class="session-card session-card-completed"
+                @click="emit('viewSession', s)"
+              >
+                <div class="session-main">
+                  <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
+                  <span class="session-status status-done">完了</span>
+                  <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+                  <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
+                    ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
+                  </span>
+                  <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
+                  <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+                </div>
+                <!-- 所要時間・参加者数・品目数 -->
+                <div class="session-stats-row">
+                  <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
+                    ⏱ {{ selectedYearSessionStats[s.id].duration }}
+                  </span>
+                  <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
+                    👥 {{ selectedYearSessionStats[s.id].participants.length }}人
+                  </span>
+                  <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
+                  <span class="session-detail-arrow">詳細 ›</span>
+                </div>
+                <!-- 参加者別内訳 -->
+                <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
+                  <span
+                    v-for="p in selectedYearSessionStats[s.id].participants"
+                    :key="p.name"
+                    class="part-chip"
+                  >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
+                </div>
               </div>
-              <!-- 参加者別内訳 -->
-              <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
-                <span
-                  v-for="p in selectedYearSessionStats[s.id].participants"
-                  :key="p.name"
-                  class="part-chip"
-                >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
-              </div>
-            </div>
+            </template>
             <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
           </template>
 
@@ -1286,6 +1306,28 @@ function _itemCount(session) {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary, #1e293b);
+}
+
+/* 月ごとの見出し */
+.month-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 2px 8px;
+}
+.month-header:first-of-type { margin-top: 8px; }
+.month-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+.month-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  background: #f1f5f9;
+  padding: 1px 8px;
+  border-radius: 10px;
 }
 
 /* NEW バッジ */
