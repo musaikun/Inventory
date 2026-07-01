@@ -1860,13 +1860,12 @@ function dismissReview() {
             type="text"
             v-model="searchText"
             :class="['search-input', searchStatus]"
-            placeholder="例：ブラジル 3袋　（音声 or 入力）"
+            placeholder="例：コーヒー　（音声 or 入力）"
             @keyup.enter="onTextSearch"
             @focus="onSearchFocus"
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
-        <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
 
         <!-- 品目追加・編集フォーム（トグルで表示/非表示） -->
         <button v-if="!editingItem" class="add-item-toggle" @click="showAddItemForm = !showAddItemForm">
