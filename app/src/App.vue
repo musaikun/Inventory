@@ -1050,30 +1050,6 @@ async function onStartNew() {
   if (continuousMode.value) onForceStop()
 }
 
-// SyncModal からの「✓ 棚卸を完了」
-// ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知 + ルーム解散 → セッション一覧へ
-async function onSyncComplete() {
-  const completedId   = pendingSession.value?.id
-  const completedYear = new Date().getFullYear()
-  completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
-  if (snapshot) saveSnapshotToD1(snapshot)
-  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
-  broadcastSessionEnd('completed')
-  if (continuousMode.value) onForceStop()
-  showSync.value = false
-  _hostInitiatedDissolve = true
-  await dissolveRoom()
-  _clearDraft(completedId)
-  clearSession()
-  track('session_completed', { item_count: filledCount.value, mode: 'host' })
-  _checkReviewPrompt()
-  sessionsTab.value  = 'dashboard'
-  sessionsYear.value = completedYear
-  _setNewSession(completedId)
-  currentView.value  = 'sessions'
-}
-
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
 // ホストがルーム作成前に入力した在庫はそのまま引き継ぐ（joined ハンドラでスキップ済み）
 function onSyncNewSession({ sessionId }) {
@@ -2186,7 +2162,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
-    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
