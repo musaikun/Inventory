@@ -27,3 +27,14 @@ database_id = "0bcb5cd0-0c51-44f9-b7b7-65b0ce5862df"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomDO"]
+
+# Cronトリガー（毎日JST 10:00 = UTC 01:00）
+# プッシュ通知の送信タイミング
+[triggers]
+crons = ["0 1 * * *"]
+
+# VAPID キー（プッシュ通知用）— wrangler secret で設定:
+#   npx wrangler secret put VAPID_PUBLIC_KEY
+#   npx wrangler secret put VAPID_PRIVATE_KEY
+#   npx wrangler secret put VAPID_SUBJECT
+# キー生成: node -e "const wp=require('web-push'); console.log(wp.generateVAPIDKeys())"

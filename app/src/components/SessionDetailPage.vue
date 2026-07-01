@@ -2,7 +2,6 @@
 import { ref, computed, reactive } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { isSupplyItem } from '../utils/itemMatcher.js'
 import InventoryTable from './InventoryTable.vue'
 
 const props = defineProps({
@@ -15,7 +14,6 @@ const { exportSnapshotCSV, getSnapshots, patchSnapshotItems } = useHistory()
 
 const activeTab     = ref('items')
 const dragOffset    = ref(0)
-const categoryScope = ref('all')
 
 // ── スナップショット → InventoryTable 用データへ変換 ───────────────────────────
 const snapItems = computed(() => props.snapshot.items ?? [])
@@ -46,10 +44,6 @@ const snapFlags = computed(() => {
   for (const it of snapItems.value) if (it.flagged) f[it.item] = true
   return Object.keys(f).length ? f : null
 })
-
-const hasSupplyItems = computed(() =>
-  snapItems.value.some(it => isSupplyItem(it.item, snapConfig.value.categories))
-)
 
 // ── ヘッダー集計 ──────────────────────────────────────────────────────────────
 const filledCount = computed(() => snapItems.value.filter(it => it.qty !== null).length)
@@ -281,18 +275,12 @@ function onDownload() {
       <div class="tab-panels-track" :style="trackStyle">
 
         <!-- 品目一覧 -->
-        <div class="tab-panel">
-          <div v-if="hasSupplyItems" class="scope-bar">
-            <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
-            <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
-            <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
-          </div>
+        <div class="tab-panel tab-panel-items">
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
             :read-only="true"
             :recount-flags="snapFlags"
-            :category-scope="categoryScope"
             :config-source="snapConfig"
           />
         </div>
@@ -686,7 +674,11 @@ function onDownload() {
   gap: 10px;
 }
 
-.scope-bar { margin-top: 0; }
+/* 品目一覧タブも縦スクロールできるようにする（メイン画面同様、最後まで見える） */
+.tab-panel-items {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* ── 参加者別 ── */
 .participant-section {

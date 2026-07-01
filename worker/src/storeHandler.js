@@ -2,7 +2,7 @@
 
 import { insertInventoryLines } from './inventoryLines.js'
 import { _now, _genShopCode } from './workerUtils.js'
-import { MAX_PAYLOAD_CHARS } from './constants.js'
+import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS } from './constants.js'
 
 function _tooLarge(body) {
   try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
@@ -96,6 +96,78 @@ export async function handleRoomUpdate(db, code, body) {
   await db.prepare('UPDATE stores SET active_room = ?, updated_at = ? WHERE shop_code = ?')
     .bind(body.roomCode ?? null, _now(), code).run()
   return { ok: true }
+}
+
+// ── 完了後ゲスト閲覧（result）─────────────────────────────────────────────────
+// スナップショットから金額（単価・在庫金額）を除去してゲスト向けに整形する。
+// 返すのは品目・数量・単位、参加者、変更履歴（誰が・何を・いつ）のみ。
+function _sanitizeForGuest(snap) {
+  const items = (snap.items ?? []).map(it => ({
+    item:     it.item,
+    qty:      it.qty ?? null,
+    unit:     it.unit ?? '',
+    code:     it.code ?? '',
+    flagged:  !!it.flagged,
+    category: it.category ?? null,
+  }))
+  const participants = (snap.participants ?? []).map(p => ({
+    name:  p.name,
+    items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '' })),
+  }))
+  const auditLog = (snap.auditLog ?? []).map(e => ({
+    id:        e.id,
+    ingredient: e.ingredient,
+    action:    e.action,
+    delta:     e.delta ?? null,
+    totalQty:  e.totalQty ?? null,
+    unit:      e.unit ?? '',
+    enteredBy: e.enteredBy ?? '',
+    timestamp: e.timestamp ?? null,
+  }))
+  return { date: snap.date, sessionId: snap.sessionId ?? null, items, participants, auditLog }
+}
+
+// スナップショットの完了時刻（ms）。savedAt 優先、無ければ snapshot_date を 0時として扱う。
+function _snapTs(s) {
+  const raw = s.savedAt ? new Date(s.savedAt).getTime()
+            : s.date    ? new Date(s.date + 'T00:00:00').getTime()
+            : 0
+  return Number.isFinite(raw) ? raw : 0
+}
+
+// GET /room/:code/result?s=<sessionId>
+// 無認証・URL（店舗コード + セッションID）が鍵。
+// データ源は store_history スナップショット（完了時のみ保存される＝存在＝完了済み）。
+// sessions テーブルには依存しない（未ログイン店舗ではセッション行が無いため）。
+export async function handleRoomResult(db, code, sessionId) {
+  if (!sessionId) return { _status: 400, error: 'リンクが無効です' }
+
+  const rows = await db.prepare(
+    'SELECT snapshot_json FROM store_history WHERE shop_code = ? ORDER BY snapshot_date DESC LIMIT 50'
+  ).bind(code).all()
+
+  const snaps = []
+  for (const r of rows.results ?? []) {
+    try { snaps.push(JSON.parse(r.snapshot_json)) } catch (_) {}
+  }
+
+  const target = snaps.find(s => s.sessionId === sessionId)
+  if (!target) return { _status: 404, error: 'この棚卸は閲覧できません' }
+
+  const targetTs = _snapTs(target)
+
+  // 期間チェック①: 完了から RESULT_WINDOW_DAYS 日以内
+  if (!targetTs || Date.now() - targetTs > RESULT_WINDOW_DAYS * 86400_000) {
+    return { _status: 410, error: '閲覧期間が終了しました' }
+  }
+
+  // 期間チェック②: より新しい完了スナップショットが無いこと（次の棚卸が完了したら失効）
+  const hasNewer = snaps.some(s => s.sessionId !== sessionId && _snapTs(s) > targetTs)
+  if (hasNewer) {
+    return { _status: 410, error: '新しい棚卸が完了したため、この結果は閲覧できません' }
+  }
+
+  return { result: _sanitizeForGuest(target) }
 }
 
 // ── セッション API ─────────────────────────────────────────────────────────────

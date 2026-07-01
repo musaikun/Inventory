@@ -1,15 +1,22 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { createStore, loadStore, shopCode } from '../composables/useStore.js'
+import { isTwaApp } from '../utils/appMode.js'
 
 const emit = defineEmits(['started'])
 
+const isTwa   = isTwaApp()
+const version = __APP_VERSION__
+
+// ── 契約済みユーザーのログイン（認証ページのログインタブへ）─────────────────
+function onLogin() {
+  emit('started', { hostMode: true })
+}
+
 const loading      = ref(false)
 const error        = ref('')
-const joinExpanded = ref(false)
 const showScanner  = ref(false)
 const showRestore  = ref(false)
-const joinCode     = ref('')
 const restoreCode  = ref('')
 
 const videoRef  = ref(null)
@@ -24,39 +31,26 @@ async function onStart() {
   emit('started', { hostMode: true })
 }
 
-// ── 店舗コードで直接参加（D1経由不要）────────────────────────────────────────
-function _joinViaStoreCode(code) {
-  emit('started', { joinRoom: code })
-}
-
-// ── コード送信 ────────────────────────────────────────────────────────────────
-function onJoinSubmit() {
-  const code = joinCode.value.trim().toUpperCase().replace(/[^A-Z]/g, '')
-  if (code.length < 4) { error.value = '4文字以上入力してください'; return }
-  _joinViaStoreCode(code)
-}
-
-// ── QRコード解析 ──────────────────────────────────────────────────────────────
+// ── QRコード解析（招待リンクのみ。コードの手入力参加は廃止）──────────────────
 async function _handleQrData(data) {
   closeScanner()
   try {
     const url = new URL(data)
     const storeParam = url.searchParams.get('store')
-    if (storeParam) { _joinViaStoreCode(storeParam); return }
+    const sParam     = url.searchParams.get('s')
+    if (storeParam) { emit('started', { joinRoom: storeParam, joinSessionId: sParam }); return }
     // 旧形式 ?room= も引き続きサポート
     const roomParam = url.searchParams.get('room')
-    if (roomParam) { emit('started', { joinRoom: roomParam.toUpperCase() }); return }
+    if (roomParam) { emit('started', { joinRoom: roomParam.toUpperCase(), joinSessionId: sParam }); return }
   } catch (_) {}
-  const cleaned = data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (cleaned.length >= 4) { _joinViaStoreCode(cleaned) }
-  else error.value = 'QRコードを認識できませんでした'
+  error.value = '招待リンクのQRコードを読み取ってください'
 }
 
 // ── カメラスキャン ────────────────────────────────────────────────────────────
 async function openScanner() {
   error.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
-    joinExpanded.value = true
+    error.value = 'このブラウザはカメラに対応していません。ホストの招待リンクを直接開いてください。'
     return
   }
   showScanner.value = true
@@ -70,9 +64,8 @@ async function openScanner() {
       _tick()
     }
   } catch {
-    error.value        = 'カメラへのアクセスを許可してください'
-    showScanner.value  = false
-    joinExpanded.value = true
+    error.value       = 'カメラへのアクセスを許可してください。または招待リンクを直接開いてください。'
+    showScanner.value = false
   }
 }
 
@@ -98,20 +91,6 @@ function closeScanner() {
   showScanner.value = false
   cancelAnimationFrame(_scanRaf)
   if (_stream) { _stream.getTracks().forEach(t => t.stop()); _stream = null }
-}
-
-// ── 参加フォームを開く ────────────────────────────────────────────────────────
-function openJoin() {
-  joinExpanded.value = true
-  showRestore.value  = false
-  error.value        = ''
-}
-
-function closeJoin() {
-  joinExpanded.value = false
-  showRestore.value  = false
-  error.value        = ''
-  joinCode.value     = ''
 }
 
 // ── 既存データを引き継ぐ ──────────────────────────────────────────────────────
@@ -142,7 +121,6 @@ onUnmounted(() => closeScanner())
       <div class="scanner-aim"></div>
       <p class="scanner-hint">QRコードをカメラに向けてください</p>
       <div class="scanner-footer">
-        <button class="scanner-btn-manual" @click="closeScanner(); joinExpanded = true">コードで入力</button>
         <button class="scanner-btn-close"  @click="closeScanner()">閉じる</button>
       </div>
     </div>
@@ -153,9 +131,18 @@ onUnmounted(() => closeScanner())
       <div class="lp-logo">
         <span class="lp-logo-icon">📋</span>
         <span class="lp-logo-name">棚卸アプリ</span>
+        <span class="lp-version">v{{ version }}</span>
       </div>
 
       <p class="lp-tagline">棚卸作業を開始してください</p>
+
+      <!-- アプリ版（TWA）: 無料版の案内＋契約済みログイン入口 -->
+      <div v-if="isTwa" class="lp-twa-banner">
+        <p class="lp-twa-free"><span class="lp-twa-check">✓</span>無料版をご利用いただけます</p>
+        <button class="lp-twa-login" @click="onLogin">
+          PRO契約済みの店舗はこちら<span class="lp-twa-login-strong">ログイン ›</span>
+        </button>
+      </div>
 
       <!-- エラー -->
       <div v-if="error" class="lp-error">{{ error }}</div>
@@ -176,50 +163,16 @@ onUnmounted(() => closeScanner())
         <span class="lp-card-arrow">›</span>
       </button>
 
-      <!-- ── ゲストカード ── -->
+      <!-- ── ゲストカード（招待リンク／QRから参加）── -->
       <div class="lp-card-guest-wrap">
-        <button
-          class="lp-card lp-card-guest"
-          :class="{ 'is-open': joinExpanded }"
-          @click="!joinExpanded ? openJoin() : null"
-        >
-          <span class="lp-card-icon">🔑</span>
+        <button class="lp-card lp-card-guest" @click="openScanner">
+          <span class="lp-card-icon">📷</span>
           <span class="lp-card-body">
-            <span class="lp-card-title">ルームに参加</span>
-            <span class="lp-card-sub">店舗コードを入力して参加します</span>
+            <span class="lp-card-title">QRコードで参加</span>
+            <span class="lp-card-sub">ホストの招待リンク／QRから参加します</span>
           </span>
-          <span v-if="!joinExpanded" class="lp-card-arrow">›</span>
-          <button v-else class="lp-close-btn" @click.stop="closeJoin()">✕</button>
+          <span class="lp-card-arrow">›</span>
         </button>
-
-        <!-- 展開: コード入力フォーム -->
-        <div v-if="joinExpanded" class="lp-join-form">
-          <input
-            class="lp-join-input"
-            type="text"
-            placeholder="店舗コードを入力"
-            v-model="joinCode"
-            @keyup.enter="onJoinSubmit"
-            maxlength="8"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            autofocus
-          />
-          <div class="lp-join-actions">
-            <button class="lp-btn-qr" @click="openScanner">
-              📷 QRスキャン
-            </button>
-            <button
-              class="lp-btn-join"
-              :disabled="loading || joinCode.length < 4"
-              @click="onJoinSubmit"
-            >
-              {{ loading ? '確認中...' : '参加する' }}
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- ── データ引き継ぎ ── -->
@@ -289,12 +242,71 @@ onUnmounted(() => closeScanner())
   color: #0f172a;
   letter-spacing: -0.02em;
 }
+.lp-version {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 6px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
 
 .lp-tagline {
   text-align: center;
   font-size: 13px;
   color: #64748b;
   margin: 0 0 8px;
+}
+
+/* ── アプリ版（TWA）バナー ── */
+.lp-twa-banner {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.lp-twa-free {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lp-twa-check {
+  color: #16a34a;
+  font-weight: 900;
+}
+
+.lp-twa-login {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.lp-twa-login:active { background: #f1f5f9; }
+.lp-twa-login-strong {
+  font-weight: 800;
+  color: #2563eb;
+  white-space: nowrap;
 }
 
 /* ── エラー ── */

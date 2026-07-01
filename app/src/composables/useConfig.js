@@ -8,6 +8,7 @@ import {
   SAMPLE_UNITS,
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
@@ -286,9 +287,15 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    _validateLearnedAliases(newOrder)
+    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+    const totalParsed = newOrder.length
+    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
+      ? newOrder.slice(0, FREE_ITEM_LIMIT)
+      : newOrder
 
-    config.order         = newOrder
+    _validateLearnedAliases(cappedOrder)
+
+    config.order         = cappedOrder
     config.units         = newUnits
     config.prices        = newPrices
     config.categories    = newCategories
@@ -298,12 +305,13 @@ export function useConfig() {
     config.lotSizes      = newLotSizes
     config.dictionary    = newDict
     // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
-    const newOrderSet    = new Set(newOrder)
+    const newOrderSet    = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
     _save()
 
     return {
-      count:         newOrder.length,
+      count:         cappedOrder.length,
+      truncated:     totalParsed - cappedOrder.length,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
@@ -336,6 +344,58 @@ export function useConfig() {
       rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell}`)
     })
     return rows.join('\r\n')
+  }
+
+  /** 現在の品目リストをディープコピーで退避する（練習モードの一時切替用） */
+  function snapshotConfig() {
+    return JSON.parse(JSON.stringify({
+      order:         config.order,
+      units:         config.units,
+      prices:        config.prices,
+      categories:    config.categories,
+      codes:         config.codes,
+      categoryCodes: config.categoryCodes,
+      prevMonths:    config.prevMonths,
+      lotSizes:      config.lotSizes,
+      dictionary:    config.dictionary,
+      isCustom:      config.isCustom,
+      manualItems:   config.manualItems,
+    }))
+  }
+
+  /** snapshotConfig で退避した品目リストを復元する */
+  function restoreConfigSnapshot(snap) {
+    if (!snap) return
+    config.order         = snap.order         ?? []
+    config.units         = snap.units         ?? {}
+    config.prices        = snap.prices        ?? {}
+    config.categories    = snap.categories    ?? {}
+    config.codes         = snap.codes         ?? {}
+    config.categoryCodes = snap.categoryCodes ?? {}
+    config.prevMonths    = snap.prevMonths    ?? {}
+    config.lotSizes      = snap.lotSizes      ?? {}
+    config.dictionary    = snap.dictionary    ?? {}
+    config.manualItems   = snap.manualItems   ?? []
+    config.isCustom      = !!snap.isCustom
+    if (snap.isCustom) _saveLocalOnly()
+    else localStorage.removeItem(CONFIG_KEY)
+  }
+
+  /** 空の品目リストで開始（棚卸しながら品目を追加していく用） */
+  function setEmptyList() {
+    config.order         = []
+    config.units         = {}
+    config.prices        = {}
+    config.categories    = {}
+    config.codes         = {}
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = {}
+    config.manualItems   = []
+    config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
+    config.savedAt       = null
+    localStorage.removeItem(CONFIG_KEY)
   }
 
   /** サンプルデータを読み込む（動作確認用） */
@@ -442,12 +502,15 @@ export function useConfig() {
     _saveMaster()
   }
 
-  function addItem(name, price, category) {
+  function addItem(name, price, category, unit, code) {
     const n = name.trim()
     if (!n || config.order.includes(n)) return false
+    if (!isPro() && config.order.length >= FREE_ITEM_LIMIT) return false
     config.order.push(n)
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     if (category?.trim()) config.categories[n] = category.trim()
+    if (unit?.trim())     config.units[n]       = unit.trim()
+    if (code?.trim())     config.codes[n]        = code.trim()
     if (!config.manualItems.includes(n)) config.manualItems.push(n)
     _save()
     return true
@@ -491,6 +554,78 @@ export function useConfig() {
     return true
   }
 
+  /**
+   * 任意CSVをフィールドマッピング指定でインポート
+   * mapping = { name, unit, price, category, alias, code } — 各フィールドの列インデックス（null=使用しない）
+   */
+  function loadFromCSVMapped(csvText, mapping) {
+    const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol, alias: aliasCol, code: codeCol } = mapping
+    if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
+
+    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) throw new Error('データ行がありません')
+
+    const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
+    const newCodes = {}, newDict = {}
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i])
+      const name = cols[nameCol]?.trim()
+      if (!name) continue
+
+      newOrder.push(name)
+      if (unitCol !== null) {
+        const u = cols[unitCol]?.trim()
+        if (u) newUnits[name] = u
+      }
+      if (priceCol !== null) {
+        const p = parseFloat(cols[priceCol])
+        if (!isNaN(p) && p > 0) newPrices[name] = p
+      }
+      if (categoryCol !== null) {
+        const c = cols[categoryCol]?.trim()
+        if (c) newCategories[name] = c
+      }
+      if (aliasCol !== null) {
+        ;(cols[aliasCol] ?? '').split(',').map(a => a.trim()).filter(Boolean)
+          .forEach(alias => { newDict[alias] = name })
+      }
+      if (codeCol !== null) {
+        const cd = cols[codeCol]?.trim()
+        if (cd) newCodes[name] = cd
+      }
+    }
+
+    if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
+
+    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+    const totalParsed = newOrder.length
+    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
+      ? newOrder.slice(0, FREE_ITEM_LIMIT)
+      : newOrder
+
+    _validateLearnedAliases(cappedOrder)
+    config.order         = cappedOrder
+    config.units         = newUnits
+    config.prices        = newPrices
+    config.categories    = newCategories
+    config.codes         = newCodes
+    config.categoryCodes = {}
+    config.prevMonths    = {}
+    config.lotSizes      = {}
+    config.dictionary    = newDict
+    const newSet         = new Set(cappedOrder)
+    config.manualItems   = config.manualItems.filter(n => newSet.has(n))
+    _save()
+
+    return {
+      count:         cappedOrder.length,
+      truncated:     totalParsed - cappedOrder.length,
+      hasPrices:     Object.keys(newPrices).length > 0,
+      hasCategories: Object.keys(newCategories).length > 0,
+    }
+  }
+
   const itemCount         = computed(() => config.order.length)
   const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
@@ -501,8 +636,12 @@ export function useConfig() {
     itemCount,
     learnedAliasCount,
     loadFromCSV,
+    loadFromCSVMapped,
     exportConfigCSV,
     clearConfig,
+    setEmptyList,
+    snapshotConfig,
+    restoreConfigSnapshot,
     loadSampleData,
     registerAlias,
     addItem,

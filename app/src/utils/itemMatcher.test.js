@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalize, scoreMatch, isSupplyItem, findCandidates } from './itemMatcher.js'
+import { normalize, scoreMatch, isSupplyItem, findCandidates, findSimilarNames } from './itemMatcher.js'
 
 describe('normalize', () => {
   it('半角カタカナを全角経由でひらがなに変換する', () => {
@@ -119,5 +119,35 @@ describe('findCandidates', () => {
   it('辞書・マスター辞書が無くても品目名直接マッチで動く', () => {
     expect(findCandidates('タマネギ', { dictionary: {}, order: ['たまねぎ'], categories: {}, masterDict: {} }))
       .toContain('たまねぎ')
+  })
+})
+
+describe('findSimilarNames（新規追加時の重複警告）', () => {
+  const order = ['牛乳', '牛乳（低脂肪）', 'コカコーラ', 'ビール']
+
+  it('部分文字列を含む既存品目を返す', () => {
+    expect(findSimilarNames('牛乳', order)).toContain('牛乳（低脂肪）')
+  })
+
+  it('入力が既存品目を内包する場合も検出（逆方向の部分一致）', () => {
+    // 「コカコーラゼロ」は既存「コカコーラ」を内包する
+    expect(findSimilarNames('コカコーラゼロ', order)).toContain('コカコーラ')
+  })
+
+  it('完全一致は除外する（それは登録済みエラーの担当）', () => {
+    expect(findSimilarNames('ビール', order)).not.toContain('ビール')
+  })
+
+  it('似ていない品目は返さない', () => {
+    expect(findSimilarNames('トマト', order)).toEqual([])
+  })
+
+  it('空文字・空白のみは空配列', () => {
+    expect(findSimilarNames('', order)).toEqual([])
+    expect(findSimilarNames('　 ', order)).toEqual([])
+  })
+
+  it('大文字小文字を無視する', () => {
+    expect(findSimilarNames('coca', ['CocaCola'])).toContain('CocaCola')
   })
 })

@@ -61,6 +61,11 @@ export async function logout() {
   _clearAuth()
 }
 
+// サーバー通信なしでローカル認証状態だけ破棄する（別端末ログインによる失効時など）
+export function clearAuthLocal() {
+  _clearAuth()
+}
+
 // ── セッション API（認証必須）─────────────────────────────────────────────────
 
 // GET /store/:code/sessions

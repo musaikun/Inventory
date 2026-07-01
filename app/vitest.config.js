@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   // worker/ は app/ の外にあるため、ファイルアクセスを親ディレクトリまで許可する
   server: { fs: { allow: ['..'] } },
+  define: { __APP_VERSION__: JSON.stringify('test') },
   test: {
     environment: 'jsdom',
     globals: true,

@@ -86,6 +86,11 @@ export async function handleLogin(db, body) {
   await db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run().catch(e =>
     console.error('[auth] login_attempts clear failed (fail-open):', e?.message ?? e))
 
+  // 単一ホストセッション: 既存トークンを全て無効化してから新トークンを発行する。
+  // これにより、同じ店舗を別端末/別ブラウザからログインすると前の端末は失効し、
+  // 複数ホストが同一セッションを同時に開始/再開して整合性が壊れるのを防ぐ。
+  await db.prepare('DELETE FROM auth_tokens WHERE shop_code = ?').bind(shopCode).run()
+
   const token   = _genToken()
   const now     = _now()
   const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()

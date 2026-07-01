@@ -1,18 +1,24 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'node:fs'
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url)))
 
 export default defineConfig({
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {
-        name: '棚卸管理',
-        short_name: '棚卸',
-        description: '飲食店棚卸入力アプリ',
+        name: 'タナオロ',
+        short_name: 'タナオロ',
+        description: '飲食店の棚卸を音声でスピード入力。複数端末リアルタイム同期対応。',
         theme_color: '#2563eb',
         background_color: '#f1f5f9',
         display: 'standalone',
@@ -39,6 +45,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
         // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。

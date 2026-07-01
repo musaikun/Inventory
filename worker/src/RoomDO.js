@@ -9,6 +9,7 @@ export class RoomDO {
   constructor(state, env) {
     this.state = state
     this.env   = env
+    this._itemAddRequests = new Map()  // requestId → requesting WS (in-memory only)
   }
 
   async fetch(request) {
@@ -158,6 +159,17 @@ export class RoomDO {
             ws.send(JSON.stringify({ type: 'error', code: 'session_not_active' }))
             ws.close(1008, 'Session not active')
             return
+          }
+          // 招待リンク検証: 現在のセッションIDと一致する鍵を持つゲストのみ許可。
+          // 古いURL（別セッションID）や鍵なし参加（店舗コード手入力）は拒否する。
+          const sid = await this.state.storage.get('sessionId')
+          if (sid) {
+            const provided = String(msg.joinSessionId ?? '')
+            if (provided !== sid) {
+              ws.send(JSON.stringify({ type: 'error', code: 'invalid_link' }))
+              ws.close(1008, 'Invalid invite link')
+              return
+            }
           }
         }
 
@@ -334,12 +346,6 @@ export class RoomDO {
 
         const { deviceId } = ws.deserializeAttachment() ?? {}
         this._broadcast({ type: 'remove', ingredient, fromDeviceId: deviceId }, ws)
-        break
-      }
-
-      case 'scope': {
-        const scope = msg.scope === 'food' || msg.scope === 'supply' ? msg.scope : 'all'
-        this._broadcast({ type: 'scope', scope }, ws)
         break
       }
 
@@ -620,6 +626,50 @@ export class RoomDO {
           type:        'conflict_lock',
           ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, MAX_INGREDIENT_LEN)),
         }, ws)
+        break
+      }
+
+      case 'item_add_request': {
+        const att  = ws.deserializeAttachment() ?? {}
+        const name = String(msg.name ?? '').trim().slice(0, MAX_INGREDIENT_LEN)
+        const requestId = String(msg.requestId ?? '').slice(0, 64)
+        if (!name || !requestId) return
+
+        this._itemAddRequests.set(requestId, ws)
+
+        const hostWs = this.state.getWebSockets().find(w => w.deserializeAttachment()?.isHost)
+        if (!hostWs) {
+          ws.send(JSON.stringify({ type: 'item_add_response', requestId, approved: false, reason: 'host_offline', name }))
+          this._itemAddRequests.delete(requestId)
+          return
+        }
+        hostWs.send(JSON.stringify({
+          type:           'item_add_request',
+          requestId,
+          name,
+          unit:           String(msg.unit ?? '').slice(0, MAX_UNIT_LEN),
+          code:           String(msg.code ?? '').slice(0, 64),
+          fromDeviceId:   att.deviceId   ?? '',
+          fromDeviceName: att.deviceName ?? '',
+        }))
+        break
+      }
+
+      case 'item_add_response': {
+        if (!this._isHost(ws)) return
+        const requestId   = String(msg.requestId ?? '').slice(0, 64)
+        const requesterWs = this._itemAddRequests.get(requestId)
+        this._itemAddRequests.delete(requestId)
+        if (requesterWs) {
+          try {
+            requesterWs.send(JSON.stringify({
+              type:     'item_add_response',
+              requestId,
+              approved: !!msg.approved,
+              name:     String(msg.name ?? '').slice(0, MAX_INGREDIENT_LEN),
+            }))
+          } catch (_) {}
+        }
         break
       }
 

@@ -6,7 +6,7 @@ import { shopCode } from './useStore.js'
 
 function _saveSession() {
   if (!state.roomCode || state.mode === 'idle') return
-  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode })) } catch (_) {}
+  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode, sessionId: state.sessionId })) } catch (_) {}
 }
 
 function _clearSession() {
@@ -59,6 +59,17 @@ export async function fetchRoomStatus(code) {
   } catch (_) { return null }
 }
 
+// 完了後ゲスト閲覧: 金額抜きの結果スナップショットを取得（閲覧期間外・未完了なら null）
+export async function fetchRoomResult(code, sessionId) {
+  if (!code || !sessionId || !HTTP_BASE) return null
+  try {
+    const r = await fetch(`${HTTP_BASE}/room/${code}/result?s=${encodeURIComponent(sessionId)}`)
+    if (!r.ok) return null
+    const body = await r.json().catch(() => null)
+    return body?.result ?? null
+  } catch (_) { return null }
+}
+
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const state = reactive({
   mode:            'idle',
@@ -74,14 +85,16 @@ const messages      = reactive([])
 const auditLog      = reactive([])
 const unreadCount   = ref(0)
 // { [ingredient]: { name: string, deviceId: string, _timer: number } }
-export const typingMap         = reactive({})
-export const lockedIngredients = reactive(new Set())
+export const typingMap            = reactive({})
+export const lockedIngredients    = reactive(new Set())
+export const pendingItemRequests  = reactive([])  // ホスト側: ゲストからの品目追加申請キュー
 
 let _ws              = null
 let _reconnectTimer  = null
 let _heartbeatTimer  = null
 let _reconnectCount  = 0
 let _disconnectedAt  = 0   // 切断時刻（再接続時マージ判定に使用）
+let _joinSessionId   = null  // ゲスト参加時に提示する招待リンクのセッションID（鍵）
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
 // ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
@@ -103,6 +116,8 @@ watch(deviceName, (newName, oldName) => {
 // ── コールバック ──────────────────────────────────────────────────────────────
 let _onItemUpdate     = null
 let _onItemRemove     = null
+let _onItemAddRequest  = null
+let _onItemAddResponse = null
 let _onRecountFlag    = null
 let _getInventory     = null
 let _getRecountFlags  = null
@@ -121,13 +136,14 @@ let _onParticipantLeave = null
 let _onGuestLeave       = null
 let _onRemoteUpdate     = null
 let _onClearInventory   = null
-let _onScopeReceived    = null
 let _onSessionStarted   = null
 let _onSessionEnded     = null
 let _onNewSessionStarted = null  // ゲスト参加中に新規セッションが開始された
 let _expectedSessionId   = null  // _reconnectToRoom が設定する期待セッションID
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
+export function setItemAddRequestCallback(fn)  { _onItemAddRequest  = fn }
+export function setItemAddResponseCallback(fn) { _onItemAddResponse = fn }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
 export function registerRecountFlagsGetter(fn) { _getRecountFlags = fn }
@@ -146,7 +162,6 @@ export function setParticipantLeaveCallback(fn) { _onParticipantLeave = fn }
 export function setGuestLeaveCallback(fn)       { _onGuestLeave       = fn }
 export function setRemoteUpdateCallback(fn)     { _onRemoteUpdate     = fn }
 export function setClearInventoryCallback(fn)   { _onClearInventory   = fn }
-export function setScopeCallback(fn)            { _onScopeReceived    = fn }
 export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
 export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
 export function setNewSessionStartedCallback(fn) { _onNewSessionStarted = fn }
@@ -193,10 +208,6 @@ export function broadcastRemove(ingredient) {
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
 }
 
-export function broadcastScope(scope) {
-  if (_ws?.readyState !== WebSocket.OPEN) return
-  _ws.send(JSON.stringify({ type: 'scope', scope }))
-}
 
 export function broadcastRecountFlag(ingredient, on) {
   if (_ws?.readyState !== WebSocket.OPEN) return
@@ -261,6 +272,21 @@ function _clearAllTypingByDevice(did) {
 export function broadcastConflictNotify(ingredient, fromName, guestQty, guestUnit, hostQty, hostUnit) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'conflict_notify', ingredient, fromName, guestQty, guestUnit, hostQty, hostUnit }))
+}
+
+export function broadcastItemAddRequest(name, unit, code, requestId) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_add_request', name, unit: unit ?? '', code: code ?? '', requestId }))
+}
+
+export function broadcastItemAddResponse(requestId, approved, name) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_add_response', requestId, approved, name }))
+}
+
+export function dismissItemAddRequest(requestId) {
+  const idx = pendingItemRequests.findIndex(r => r.requestId === requestId)
+  if (idx !== -1) pendingItemRequests.splice(idx, 1)
 }
 
 // 解決済み競合をキューから除去
@@ -354,6 +380,7 @@ function _resetClientState() {
   Object.keys(typingMap).forEach(k => { clearTimeout(typingMap[k]?._timer); delete typingMap[k] })
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
+  pendingItemRequests.splice(0, pendingItemRequests.length)
   unreadCount.value = 0
 }
 
@@ -498,10 +525,6 @@ function _handleMessage(msg) {
       _onConfigReceived?.(msg)
       break
 
-    case 'scope':
-      _onScopeReceived?.(msg.scope)
-      break
-
     case 'recount_flag':
       if (msg.fromDeviceId !== deviceId) {
         _onRecountFlag?.(msg.ingredient, msg.on, msg.enteredBy ?? '', msg.at)
@@ -586,6 +609,26 @@ function _handleMessage(msg) {
       for (const ing of (msg.ingredients ?? [])) lockedIngredients.add(ing)
       break
 
+    case 'item_add_request': {
+      // Host receives approval request from a guest (routed by DO)
+      const req = {
+        requestId:      msg.requestId ?? '',
+        name:           msg.name ?? '',
+        unit:           msg.unit ?? '',
+        code:           msg.code ?? '',
+        fromDeviceName: msg.fromDeviceName ?? '',
+        fromDeviceId:   msg.fromDeviceId ?? '',
+      }
+      pendingItemRequests.push(req)
+      _onItemAddRequest?.(req)
+      break
+    }
+
+    case 'item_add_response':
+      // Guest receives approval/rejection from host
+      _onItemAddResponse?.(msg.requestId ?? '', !!msg.approved, msg.name ?? '', msg.reason ?? '')
+      break
+
     case 'pong':
       break
   }
@@ -637,7 +680,7 @@ function _connect(code) {
         deviceId,
         deviceName: deviceName.value || '名前未設定',
         role:       isHostMode ? 'host' : 'guest',
-        ...(isHostMode ? { hostToken: _loadHostToken() } : {}),
+        ...(isHostMode ? { hostToken: _loadHostToken() } : { joinSessionId: _joinSessionId || '' }),
       }))
 
       if (isHostMode) {
@@ -689,6 +732,8 @@ function _connect(code) {
               ? 'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。'
               : data.code === 'auth_failed'
               ? 'ホスト認証に失敗しました。この端末はホスト権限がありません。'
+              : data.code === 'invalid_link'
+              ? 'この招待リンクは無効です。最新の招待リンク／QRをホストから受け取ってください。'
               : 'エラーが発生しました'
             state.error    = errMsg
             state.mode     = 'idle'
@@ -824,7 +869,7 @@ export function useSync() {
     return code
   }
 
-  async function joinRoom(code) {
+  async function joinRoom(code, joinSessionId = null) {
     state.error     = null
     _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -834,6 +879,8 @@ export function useSync() {
     }
     // 自分の店舗コードが入力された場合はホストとして再接続する
     const isOwnCode = !!(shopCode.value && normalized === shopCode.value.toUpperCase())
+    // ゲスト参加時は招待リンクのセッションIDを鍵として保持（再接続時も使う）
+    if (!isOwnCode) _joinSessionId = joinSessionId || null
     state.roomCode = normalized
     state.mode     = isOwnCode ? 'hosting' : 'joining'
     try {
@@ -871,7 +918,9 @@ export function useSync() {
   function getShareUrl() {
     if (!shopCode.value) return ''
     const base = window.location.origin + window.location.pathname.replace(/\/$/, '')
-    return `${base}?store=${shopCode.value}`
+    const sid  = state.sessionId
+    // セッションIDを鍵として付与（そのルーム限りのURL）。未開始時は store のみ。
+    return sid ? `${base}?store=${shopCode.value}&s=${encodeURIComponent(sid)}` : `${base}?store=${shopCode.value}`
   }
 
   return {

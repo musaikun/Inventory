@@ -10,6 +10,9 @@ export const IP_MAX_FAILS      = 30
 // ── Payload ───────────────────────────────────────────────────────────────────
 export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard
 
+// ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
+export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）
+
 // ── Durable Object room ───────────────────────────────────────────────────────
 export const ROOM_TTL_MS       = 24 * 60 * 60 * 1000  // alarm / inactivity TTL
 export const MAX_PARTICIPANTS  = 20

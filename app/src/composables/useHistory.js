@@ -31,7 +31,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -111,6 +111,7 @@ export function useHistory() {
       flaggedItems: recountFlags ? Object.keys(recountFlags) : [],
       sessionId,
       auditLog:     auditLog ? [...auditLog] : [],
+      activeMs:     typeof activeMs === 'number' ? activeMs : null,
     }
     _persist()
     return _data[today]

@@ -5,6 +5,7 @@ import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
+import { useActiveTimer, computeActive } from './composables/useActiveTimer.js'
 import {
   useSync,
   setInventoryCallbacks, registerInventoryGetter,
@@ -14,14 +15,17 @@ import {
   setConflictCallback, setConflictQueueCallback, setConflictNotifyCallback,
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
-  setScopeCallback, setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
+  setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   setExpectedSessionId,
-  broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig, broadcastScope,
+  broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
+  broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
+  setItemAddRequestCallback, setItemAddResponseCallback, pendingItemRequests,
+  fetchRoomStatus, fetchRoomResult,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -30,7 +34,8 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1,
 } from './composables/useStore.js'
-import { isAuthenticated } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
+import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -43,13 +48,21 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
-import { isSupplyItem as matcherIsSupply, findCandidates as matcherFind } from './utils/itemMatcher.js'
+import GuestResultView from './components/GuestResultView.vue'
+import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
+import UpgradeModal from './components/UpgradeModal.vue'
+import BarcodeScanner from './components/BarcodeScanner.vue'
+import TextPasteParserModal from './components/TextPasteParserModal.vue'
+import MemberHistoryModal from './components/MemberHistoryModal.vue'
+import { track } from './utils/analytics.js'
+import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
+import { isTwaApp } from './utils/appMode.js'
 
 // ── PWA 更新検知 ───────────────────────────────────────────────────────────────
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, addItem, updateConfigItem, removeConfigItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -63,10 +76,17 @@ const {
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId } = useHistory()
 
+// ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
+const activeTimer = useActiveTimer()
+function markActivity() { if (currentView.value === 'session') activeTimer.mark() }
+
 // ── 画面管理 ───────────────────────────────────────────────────────────────────
-// 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail'
+// 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail' | 'guest-result'
 const currentView   = ref('landing')
 const detailSnapshot = ref(null)
+// 完了後ゲスト閲覧（読み取り専用結果ビュー）
+const guestResult      = ref(null)   // 結果スナップショット（null = エラー表示）
+const guestResultError = ref('')
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
   pendingSession,
@@ -85,16 +105,33 @@ function _setNewSession(id) {
 }
 
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
-const pendingJoinCode  = ref(null)
+const pendingJoinCode      = ref(null)
+const pendingJoinSessionId = ref(null)  // 招待リンクのセッションID（鍵）
 const showNameModal    = ref(false)
 const pendingName      = ref('')
 const pendingNameError = ref(false)
 
-function _askNameAndJoin(code) {
-  pendingJoinCode.value  = code
+function _askNameAndJoin(code, joinSessionId = null) {
+  pendingJoinCode.value      = code
+  pendingJoinSessionId.value = joinSessionId
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
   showNameModal.value    = true
+}
+
+// セッションID付きリンク（?store=CODE&s=SID）の入口
+// まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
+async function _enterStoreLink(code, sessionId) {
+  const status = await fetchRoomStatus(code).catch(() => null)
+  if (status?.isActive && status.sessionId === sessionId) {
+    _askNameAndJoin(code, sessionId)   // 棚卸中: ライブルームに参加（鍵を渡す）
+    return
+  }
+  // 完了後: D1 スナップショットから金額抜きの結果を取得
+  const result = await fetchRoomResult(code, sessionId)
+  guestResult.value      = result
+  guestResultError.value = result ? '' : 'この棚卸の閲覧期間が終了したか、まだ完了していません。'
+  currentView.value      = 'guest-result'
 }
 
 async function onConfirmName() {
@@ -107,10 +144,20 @@ async function onConfirmName() {
   setDeviceName(name)
   showNameModal.value   = false
   const code            = pendingJoinCode.value
+  const joinSid         = pendingJoinSessionId.value
   pendingJoinCode.value = null
+  pendingJoinSessionId.value = null
+
+  // Free プラン: 2台制限チェック（ルーム参加前に参加者数を確認）
+  if (!canJoinRoom(participantList.value.length)) {
+    openUpgrade(`現在${participantList.value.length}台接続中です。無料プランは${FREE_DEVICE_LIMIT}台まで接続できます。`)
+    currentView.value = 'landing'
+    return
+  }
+
   currentView.value     = 'session'
   try {
-    await joinRoom(code)
+    await joinRoom(code, joinSid)
     const isRejoined = syncState.mode === 'hosting'
     showToast(
       isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
@@ -131,7 +178,7 @@ function onCancelNameModal() {
 async function onLandingStarted(payload) {
   if (payload?.joinRoom) {
     // ゲスト参加（認証不要）
-    _askNameAndJoin(payload.joinRoom)
+    _askNameAndJoin(payload.joinRoom, payload.joinSessionId ?? null)
   } else if (payload?.hostMode) {
     // ホスト開始 → 認証済みならセッション一覧へ、未認証なら認証ページへ
     if (isAuthenticated.value) {
@@ -170,11 +217,45 @@ function onAuthDone() {
 async function onSessionStart(session) {
   // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
   if (hasHostToken()) await dissolveRoomRemote()
+  practiceMode.value = false
   beginSession(session)
   reset()
   clearAuditLog()
+  activeTimer.start()
+  // 空リストで開始した場合は品目追加フォームを最初から表示（必須のため）
+  const startedEmpty = config.order.length === 0
+  showAddItemForm.value = startedEmpty
+  // 空で開始したら D1 にも空 config を保存する。
+  // これをしないと再開時に D1 の古いリストを読み戻して品目が復活する。
+  if (startedEmpty) _persistConfigToD1()
+  track('session_started')
   // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
+}
+
+// セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
+let _prepracticeConfig = null
+async function onStartPractice() {
+  if (hasHostToken()) await dissolveRoomRemote()
+  if (syncActive.value) leaveRoom()
+  practiceMode.value = true
+  reset()
+  clearAuditLog()
+  clearSession()                            // D1 セッションを持たない（履歴に残さない）
+  activeTimer.start()
+  _prepracticeConfig = snapshotConfig()     // 本来の品目リストを退避（練習で上書きするため）
+  loadSampleData()                          // 初期からあるテスト用リスト
+  showAddItemForm.value = false
+  showToast('練習モードを開始しました（履歴には残りません）', 3500, 'default')
+  currentView.value = 'session'
+}
+
+// 練習モードを抜けるときに本来の品目リストを復元する
+function _exitPractice() {
+  practiceMode.value = false
+  if (_prepracticeConfig) { restoreConfigSnapshot(_prepracticeConfig); _prepracticeConfig = null }
+  reset()
+  clearAuditLog()
 }
 
 // セッション一覧から「完了済みセッション詳細」
@@ -197,6 +278,8 @@ async function onSessionResume(session) {
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
   clearAuditLog()
+  practiceMode.value = false
+  activeTimer.start()   // 下書きに保存済み稼働時間があれば _restoreDraft が resume() で継続する
   resumeSession(session)
   await _startSessionView()
   if (shopCode.value && !syncActive.value) {
@@ -233,12 +316,131 @@ async function _reconnectToRoom(session) {
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
-const showSettings     = ref(false)
-const showSync         = ref(false)
+const showSettings      = ref(false)
+const showSync          = ref(false)
+const showUpgrade       = ref(false)
+const upgradeReason     = ref('')
+const showBarcode       = ref(false)
+const showPasteParser   = ref(false)
+const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
+const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
+const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
+const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
+function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
+// メンバー履歴の品目タップ → その品目の数量編集モーダルを開く
+function onMemberHistoryEdit(ingredient) {
+  if (inputLocked.value || !ingredient) return
+  memberHistoryTarget.value = null
+  openConfirm(ingredient, null, config.units?.[ingredient] || '', 'search')
+}
+const showAddItemForm   = ref(false)  // 品目追加フォームの表示/非表示
+const practiceMode      = ref(false)  // 練習モード（履歴に残さない）
 const inventoryTableRef = ref(null)
+
+function openUpgrade(reason = '') {
+  upgradeReason.value = reason
+  showUpgrade.value   = true
+}
+
+// バーコードスキャン: 品目コードと照合して確認モーダルを開く
+function onBarcodeScanned(text) {
+  showBarcode.value = false
+  const item = Object.entries(config.codes ?? {}).find(([, code]) => code === text)?.[0]
+  if (item) {
+    showToast(`バーコード認識: ${item}`, 2000, 'success')
+    openConfirm(item, null, config.units?.[item] || '', 'search')
+  } else {
+    // 未登録バーコード → 品目追加フォームをバーコードコード付きで開く
+    barcodeAddCode.value  = text
+    newItemName.value     = ''
+    newItemQty.value      = ''
+    newItemPrice.value    = ''
+    newItemCategory.value = ''
+    newItemError.value    = ''
+    showToast(`バーコード「${text}」が未登録です。品目名を入力して追加してください`, 4000, 'warning')
+    nextTick(() => newItemNameRef.value?.focus())
+  }
+}
+
+// テキスト貼り付けパーサー → 在庫記録＋新規品目の追加
+function onPasteParserApply(items) {
+  showPasteParser.value = false
+  let addedCount = 0, recordedCount = 0
+  for (const { name, qty, unit } of items) {
+    if (!config.order.includes(name)) {
+      addItem(name, null, null, unit || null, null)
+      addedCount++
+    }
+    if (qty != null) {
+      updateQty(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
+      if (syncActive.value) broadcastUpdate(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
+      recordedCount++
+    }
+  }
+  const msgs = []
+  if (addedCount)    msgs.push(`${addedCount}件を品目リストに追加`)
+  if (recordedCount) msgs.push(`${recordedCount}件の数量を記録`)
+  if (addedCount || recordedCount) markActivity()
+  showToast(msgs.join('・'), 3500, 'success')
+}
+
+// 棚卸結果CSVから入力（数量）を復元する。
+// 同名品目があればその数量を復元、無ければ新規追加して数量を入れる（数量のみ・単価は現リスト優先）。
+function onRestoreInventory(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return
+  if (currentView.value !== 'session') {
+    showToast('棚卸セッションを開始してから復元してください', 4000, 'warning')
+    return
+  }
+  if (inputLocked.value) { showToast('完了済みのため復元できません', 3000, 'warning'); return }
+
+  let restored = 0, added = 0
+  for (const r of rows) {
+    if (!r?.name || typeof r.qty !== 'number') continue
+    if (!config.order.includes(r.name)) {
+      // 新規分は表示が自然になるよう単位・コードも登録（単価は数量のみ復元の方針で除外）
+      addItem(r.name, null, null, r.unit || null, r.code || null)
+      added++
+    }
+    const unit = r.unit || config.units?.[r.name] || ''
+    updateQty(r.name, r.qty, unit, deviceName.value || '名前未設定')
+    if (syncActive.value) broadcastUpdate(r.name, r.qty, unit, deviceName.value || '名前未設定')
+    restored++
+  }
+  if (restored) markActivity()
+  showToast(`${restored}件の数量を復元しました${added ? `（新規${added}件）` : ''}`, 4500, 'success')
+}
+
+const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length > 0)
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
+
+// メイン画面の目立つ「ルームを作成」CTA から呼ぶ。
+// SyncModal の作成フロー（セッション開始＝isActive 設定・QR生成・再接続判定）を
+// そのまま再利用するため、autoCreate フラグを立ててモーダルを開く。
+// ※ createRoom() を直接呼ぶと session_start が走らず、ゲストが
+//   「セッションが開始されていません」で弾かれるため必ずこの経路を通す。
+const syncAutoCreate = ref(false)
+function onCreateRoomFromMain() {
+  if (syncActive.value) { showSync.value = true; return }
+  if (!shopCode.value) { showToast('ルーム作成には店舗の登録が必要です', 3500, 'warning'); return }
+  syncAutoCreate.value = true
+  showSync.value = true
+}
+
+// 履歴を確認できるメンバー = 在室中の参加者 ＋ 退室済みでも履歴を1件以上持つ人
+const historyMembers = computed(() => {
+  const map = new Map()
+  for (const p of participantList.value) {
+    map.set(p.id, { id: p.id, name: p.name, isMe: p.isMe, isDone: p.isDone, present: true })
+  }
+  for (const e of auditLog) {
+    if (!e.enteredById || map.has(e.enteredById)) continue
+    map.set(e.enteredById, { id: e.enteredById, name: e.enteredBy || '名前未設定', isMe: false, isDone: false, present: false })
+  }
+  return [...map.values()]
+})
 
 
 // ── あとで数える 一覧 ──────────────────────────────────────────────────────────
@@ -263,6 +465,7 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
 // ── あとで数える フラグの切替（ソロ=ローカル監査 / 同期中=ブロードキャスト）──
 function onToggleRecountFlag(item, on) {
   if (isCompleted.value) return
+  markActivity()
   setRecountFlag(item, on, deviceName.value || '名前未設定')
   if (syncActive.value) {
     broadcastRecountFlag(item, on)
@@ -300,22 +503,30 @@ setConfigCallback((cfg) => {
 // ホストに品目リストが無いルームへ参加した場合はローカルを空に揃える
 setResetConfigCallback(() => clearConfig())
 
+function _configPayload() {
+  return {
+    order:         config.order,
+    units:         config.units,
+    prices:        config.prices,
+    categories:    config.categories,
+    codes:         config.codes,
+    categoryCodes: config.categoryCodes,
+    prevMonths:    config.prevMonths,
+    lotSizes:      config.lotSizes,
+    dictionary:    config.dictionary,
+  }
+}
+
+// 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）
+function _persistConfigToD1() {
+  clearTimeout(_configSaveTimer)
+  saveConfigToD1(_configPayload())
+}
+
 let _configSaveTimer = null
 setConfigChangedCallback(() => {
   clearTimeout(_configSaveTimer)
-  _configSaveTimer = setTimeout(() => {
-    saveConfigToD1({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-    })
-  }, 2000)
+  _configSaveTimer = setTimeout(() => { saveConfigToD1(_configPayload()) }, 2000)
 })
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
@@ -376,12 +587,32 @@ setConflictNotifyCallback((ingredient) => {
   _postConflictToChat(ingredient)
 })
 
+function approveItemAdd(req) {
+  addItem(req.name, null, null, req.unit || null, req.code || null)
+  broadcastConfig({
+    order: config.order, units: config.units, prices: config.prices,
+    categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
+    prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
+    isCustom: config.isCustom,
+  })
+  broadcastItemAddResponse(req.requestId, true, req.name)
+  dismissItemAddRequest(req.requestId)
+  showToast(`「${req.name}」を品目リストに追加しました`, 2500, 'success')
+}
+
+function rejectItemAdd(req) {
+  broadcastItemAddResponse(req.requestId, false, req.name)
+  dismissItemAddRequest(req.requestId)
+  showToast(`「${req.name}」の追加を拒否しました`, 2000, 'default')
+}
+
 function onResolveConflict(c, resolution) {
   const qty  = resolution === 'sum'    ? Math.round((c.local.qty + c.remoteQty) * 10000) / 10000
              : resolution === 'mine'   ? c.local.qty
              :                          c.remoteQty
   const unit = resolution === 'theirs' ? c.remoteUnit : c.local.unit
   setItem(c.ingredient, qty, unit, false, deviceName.value || '名前未設定')
+  markActivity()
   if (!syncActive.value) {
     _localAudit(c.ingredient, 'overwrite', qty, qty, unit)
   } else {
@@ -399,14 +630,12 @@ setNameTakenCallback((prevName) => {
   showToast('この端末名は既に使用されています', 4000, 'warning')
 })
 setRemoteUpdateCallback((ingredient, qty, unit, by) => {
+  markActivity()   // 他端末の操作もルームの稼働とみなす（誰かが動いていれば一時停止しない）
   const who = by || '他のメンバー'
   const msg  = qty === null
     ? `${who}: 「${ingredient}」を削除`
     : `${who}: 「${ingredient}」${qty}${unit}`
   showToast(msg, 2800, 'update')
-})
-setScopeCallback((scope) => {
-  if (!syncIsHost.value) categoryScope.value = scope
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
@@ -429,23 +658,56 @@ setNewSessionStartedCallback(() => {
   leaveRoom()
 })
 
+// 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき
+setAuthInvalidatedHandler(() => {
+  if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
+  clearAuthLocal()
+  clearSession()
+  reset()
+  clearAuditLog()
+  showToast('別の端末でログインされたため、この端末からはログアウトしました', 6000, 'warning')
+  currentView.value = 'landing'
+})
+
+// ゲスト→ホスト 品目追加申請フロー
+setItemAddRequestCallback((req) => {
+  // ホスト側: ゲストからの申請を受信（pendingItemRequests に自動追加済み）
+  showToast(`${req.fromDeviceName} が「${req.name}」の追加を申請`, 5000, 'info')
+})
+setItemAddResponseCallback((requestId, approved, name, reason) => {
+  // ゲスト側: ホストの承認/拒否を受信
+  if (pendingGuestRequest.value?.requestId === requestId) {
+    pendingGuestRequest.value = null
+  }
+  if (reason === 'host_offline') {
+    showToast(`ホストがオフラインのため「${name}」の申請が失敗しました`, 4000, 'warning')
+  } else if (approved) {
+    showToast(`「${name}」がホストに承認されました ✓`, 3000, 'success')
+  } else {
+    showToast(`「${name}」の追加がホストに拒否されました`, 3000, 'warning')
+  }
+})
+
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
+  const joinSid    = params.get('s')   // 招待リンクのセッションID（鍵）
 
   if (roomCode) {
     const url = new URL(window.location.href)
-    url.searchParams.delete('room')
+    url.searchParams.delete('room'); url.searchParams.delete('s')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(roomCode)
+    _askNameAndJoin(roomCode, joinSid)
   } else if (storeParam) {
     // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
     const url = new URL(window.location.href)
-    url.searchParams.delete('store')
+    url.searchParams.delete('store'); url.searchParams.delete('s')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(storeParam)
+    // セッションID付きリンク: ライブ中なら参加、完了後なら読み取り専用の結果ビューへ
+    if (joinSid) _enterStoreLink(storeParam, joinSid)
+    else         _askNameAndJoin(storeParam, joinSid)
   } else {
     const guestSession = getSavedGuestSession()
     if (guestSession) {
@@ -453,15 +715,16 @@ onMounted(async () => {
       discardSavedSession()
       currentView.value = 'session'
       const rejoinCode = guestSession.roomCode
+      const rejoinSid  = guestSession.sessionId ?? null
       if (deviceName.value) {
-        joinRoom(rejoinCode)
+        joinRoom(rejoinCode, rejoinSid)
           .then(() => showToast(`ルーム ${rejoinCode} に再参加しました`, 3000, 'join'))
           .catch(() => {
             showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
             currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
           })
       } else {
-        _askNameAndJoin(rejoinCode)
+        _askNameAndJoin(rejoinCode, rejoinSid)
       }
     } else {
       // ゲストセッションなし: ホストセッションを自動復元
@@ -507,9 +770,17 @@ function _pushBackSentinel() {
 }
 
 function _closeTopLayer() {
-  if (confirmState.value)    { onCancelConfirm();         return true }
-  if (candidateState.value)  { onCancelCandidate();       return true }
-  if (chatNotif.value)       { chatNotif.value = null;    return true }
+  if (showMenu.value)        { showMenu.value = false;      return true }
+  if (memberHistoryTarget.value) { memberHistoryTarget.value = null; return true }
+  if (confirmState.value)    { onCancelConfirm();           return true }
+  if (candidateState.value)  { onCancelCandidate();         return true }
+  if (chatNotif.value)       { chatNotif.value = null;      return true }
+  if (showBarcode.value)      { showBarcode.value = false;      return true }
+  if (showPasteParser.value)  { showPasteParser.value = false;  return true }
+  if (showUpgrade.value)      { showUpgrade.value = false;      return true }
+  if (showOnboarding.value)  { dismissOnboarding();         return true }
+  if (showReview.value)      { dismissReview();             return true }
+  if (showFeedback.value)    { showFeedback.value = false;  return true }
   if (showNameModal.value)   { showNameModal.value = false; return true }
   if (recountOpen.value)     { recountOpen.value = false; return true }
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
@@ -517,6 +788,7 @@ function _closeTopLayer() {
   if (showSync.value)        { showSync.value = false;    return true }
   if (showSettings.value)    { showSettings.value = false; return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
   if (currentView.value === 'sessions' && sessionsYear.value !== null) { sessionsYear.value = null; return true }
@@ -561,7 +833,12 @@ const _DRAFT_PREFIX = 'inv_draft_'
 
 function _saveDraft(sessionId) {
   if (!sessionId || Object.keys(inventory).length === 0) return
-  try { localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({ ...inventory })) } catch (_) {}
+  try {
+    localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({
+      inv:      { ...inventory },
+      activeMs: activeTimer.activeMs.value,
+    }))
+  } catch (_) {}
 }
 
 function _restoreDraft(sessionId) {
@@ -570,7 +847,11 @@ function _restoreDraft(sessionId) {
     const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
     if (!raw) return
     const saved = JSON.parse(raw)
-    for (const [ingredient, entry] of Object.entries(saved)) {
+    // 新形式 { inv, activeMs } と旧形式（フラットな inventory）の両対応
+    const inv = saved.inv ?? saved
+    if (typeof saved.activeMs === 'number') activeTimer.resume(saved.activeMs)
+    for (const [ingredient, entry] of Object.entries(inv)) {
+      if (!entry || typeof entry.qty === 'undefined') continue
       applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
     }
   } catch (_) {}
@@ -640,6 +921,16 @@ const completedAtDisplay = computed(() => {
 })
 
 async function onComplete() {
+  // 練習モード: 履歴に残さず終了
+  if (practiceMode.value) {
+    if (!confirm('練習を終了しますか？\n（結果は履歴に保存されません）')) return
+    if (continuousMode.value) onForceStop()
+    _exitPractice()
+    showToast('練習を終了しました', 3000, 'success')
+    currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    return
+  }
+
   if (filledCount.value === 0) {
     showToast('1件以上入力してから完了してください', 2600, 'warning')
     return
@@ -666,12 +957,14 @@ async function onComplete() {
   const completedYear = new Date().getFullYear()
 
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
   if (snapshot) saveSnapshotToD1(snapshot)
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
-    completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
+    // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
+    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
@@ -688,6 +981,8 @@ async function onComplete() {
   await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   _clearDraft(completedId)
   clearSession()
+  track('session_completed', { item_count: filledCount.value, mode: 'solo' })
+  _checkReviewPrompt()
   showToast('棚卸を完了しました ✓', 3000, 'success')
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
@@ -704,6 +999,16 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
+  // 練習モード: 保存せず破棄して戻る
+  if (practiceMode.value) {
+    if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
+    if (continuousMode.value) onForceStop()
+    _exitPractice()
+    clearSession()
+    currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    return
+  }
+
   const hasData = filledCount.value > 0
 
   // ホスト中のみ確認（ホストは退出するがルームは残り、ゲストは継続できる）
@@ -748,7 +1053,7 @@ async function onSyncComplete() {
   const completedId   = pendingSession.value?.id
   const completedYear = new Date().getFullYear()
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
   if (snapshot) saveSnapshotToD1(snapshot)
   await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
   broadcastSessionEnd('completed')
@@ -758,6 +1063,8 @@ async function onSyncComplete() {
   await dissolveRoom()
   _clearDraft(completedId)
   clearSession()
+  track('session_completed', { item_count: filledCount.value, mode: 'host' })
+  _checkReviewPrompt()
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -776,18 +1083,28 @@ const sessionNow = ref(Date.now())
 let _sessionTimer = null
 watch(() => currentView.value, (v) => {
   clearInterval(_sessionTimer)
-  if (v === 'inventory') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 30_000)
+  if (v === 'session') _sessionTimer = setInterval(() => { sessionNow.value = Date.now() }, 15_000)
 }, { immediate: true })
 onUnmounted(() => clearInterval(_sessionTimer))
 
+// 稼働時間（アイドル除外）と一時停止状態
+const _activeState = computed(() =>
+  computeActive(
+    { activeMs: activeTimer.activeMs.value, lastActivityAt: activeTimer.lastActivityAt.value },
+    sessionNow.value,
+  )
+)
+const sessionPaused = computed(() =>
+  currentView.value === 'session' && !isCompleted.value && !!activeTimer.lastActivityAt.value && _activeState.value.paused
+)
+
 const sessionElapsed = computed(() => {
-  const st = pendingSession.value?.startedAt
-  if (!st || isCompleted.value) return null
-  const min = Math.floor((sessionNow.value - new Date(st).getTime()) / 60000)
+  if (currentView.value !== 'session' || isCompleted.value || !activeTimer.lastActivityAt.value) return null
+  const min = Math.floor(_activeState.value.elapsedMs / 60000)
   if (min < 1) return null
-  if (min < 60) return `${min}分経過`
+  if (min < 60) return `${min}分`
   const h = Math.floor(min / 60), m = min % 60
-  return m > 0 ? `${h}時間${m}分経過` : `${h}時間経過`
+  return m > 0 ? `${h}時間${m}分` : `${h}時間`
 })
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
@@ -891,28 +1208,12 @@ watch(() => syncState.roomCode, (code) => {
 })
 
 // ── Dictionary matching（実体は utils/itemMatcher.js・テスト付き）──────────────
-function isSupplyItem(canonical) {
-  return matcherIsSupply(canonical, config.categories)
-}
-
-// 資材・備品系品目が存在する場合のみ除外チップを表示
-const hasSupplyItems = computed(() => config.order.some(item => isSupplyItem(item)))
-// 棚卸対象スコープ: 'all' | 'food'（食材のみ） | 'supply'（資材・備品のみ）
-// 検索・棚卸一覧の両方を絞り込む
-const categoryScope = ref('all')
-
-// ホストの絞り込みスコープをゲストに同期（宣言後に配置しないと TDZ エラーになる）
-watch(categoryScope, (scope) => {
-  if (syncIsHost.value && syncActive.value) broadcastScope(scope)
-})
-
 function findCandidates(name) {
   return matcherFind(name, {
     dictionary: dictionary.value,
     order:      config.order,
     categories: config.categories,
     masterDict,
-    scope:      categoryScope.value,
   })
 }
 
@@ -942,6 +1243,7 @@ const continuousMode = ref(false)
 function onVoiceResult(raw) {
   searchText.value   = raw
   searchStatus.value = ''
+  track('voice_used')
   runSearch(raw)
 }
 
@@ -1054,11 +1356,6 @@ function _stopTypingKeepalive() {
   _typingKeepaliveTimer = null
 }
 
-function _isItemLocked(ing) {
-  if (!syncActive.value) return false
-  return !!(typingMap[ing] || lockedIngredients.has(ing) || conflictQueue.value.some(c => c.ingredient === ing))
-}
-
 function onConfirm({ ingredient, qty, unit, isAdd }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
@@ -1076,6 +1373,7 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
+  markActivity()
   if (!syncActive.value) {
     const action = !existing ? 'new' : isAdd ? 'add' : 'overwrite'
     _localAudit(ingredient, action, isAdd ? qty : finalQty, finalQty, unit)
@@ -1086,17 +1384,9 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   searchStatus.value = ''
 
   if (source === 'table') {
-    // テーブルタップ確定後 → 次の品目を自動オープン（ロック中はスキップ）
-    let nextItem = inventoryTableRef.value?.getNextVisibleItem(ingredient)
-    while (nextItem && _isItemLocked(nextItem)) {
-      nextItem = inventoryTableRef.value?.getNextVisibleItem(nextItem)
-    }
-    if (nextItem) {
-      openConfirm(nextItem, null, config.units?.[nextItem] || '', 'table')
-    } else {
-      _stopTypingKeepalive()
-      confirmState.value = null
-    }
+    // テーブルタップ確定後はモーダルを閉じるだけ（次の品目への自動移動はしない）
+    _stopTypingKeepalive()
+    confirmState.value = null
   } else if (pendingCandidates.value) {
     // 検索候補から選んで確定 → 残りの候補を再表示
     _stopTypingKeepalive()
@@ -1166,6 +1456,7 @@ function onTableTap(item) {
 // ── Table handlers ─────────────────────────────────────────────────────────────
 function onTableUpdate({ item, qty, unit }) {
   updateQty(item, qty, unit, deviceName.value || '名前未設定')
+  markActivity()
   if (syncActive.value) broadcastUpdate(item, qty, unit, deviceName.value || '名前未設定')
 }
 
@@ -1182,6 +1473,13 @@ const editingItem     = ref(null)   // null=追加モード、文字列=編集�
 const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
 )
+
+// ファジー類似品目: 部分文字列一致で既存品目を検索
+function _findSimilar(name) {
+  return findSimilarNames(name, config.order)
+}
+
+const _pendingItemSubmit = ref(null)  // 類似警告後に保留中の確定コールバック
 
 function submitNewItem() {
   const name = newItemName.value.trim()
@@ -1209,9 +1507,52 @@ function submitNewItem() {
   const qty = parseFloat(newItemQty.value)
   if (isNaN(qty) || qty < 0) { newItemError.value = '数量を入力してください'; return }
   if (config.order.includes(name)) { newItemError.value = 'すでに登録されている品目名です'; return }
-  addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null)
+
+  // Free プラン: 品目数上限チェック
+  if (!canAddItem(config.order.length)) {
+    newItemError.value = ''
+    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    return
+  }
+
+  // ファジー類似警告（保留済みなら警告スキップ）
+  if (!_pendingItemSubmit.value) {
+    const similar = _findSimilar(name)
+    if (similar.length) {
+      _pendingItemSubmit.value = () => submitNewItem()
+      newItemError.value = `類似品目「${similar[0]}」が既にあります。別品目として追加しますか？ [もう一度タップで確定]`
+      return
+    }
+  }
+  _pendingItemSubmit.value = null
+
+  // ゲスト接続中: 品目追加はホスト承認が必要
+  if (syncActive.value && !syncIsHost.value) {
+    if (pendingGuestRequest.value) {
+      newItemError.value = '前の申請がホストの承認待ちです。しばらくお待ちください。'
+      return
+    }
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+    pendingGuestRequest.value = { requestId, name }
+    broadcastItemAddRequest(name, '', barcodeAddCode.value || '', requestId)
+    showToast(`「${name}」の追加をホストに申請しました`, 3000, 'info')
+    newItemName.value     = ''
+    newItemQty.value      = ''
+    newItemPrice.value    = ''
+    newItemCategory.value = ''
+    newItemError.value    = ''
+    barcodeAddCode.value  = ''
+    nextTick(() => newItemNameRef.value?.focus())
+    return
+  }
+
+  addItem(name, (!isNaN(price) && price > 0) ? price : null, category || null,
+    null, barcodeAddCode.value || null)
+  barcodeAddCode.value = ''
   updateQty(name, qty, '', deviceName.value || '名前未設定')
+  markActivity()
   if (syncActive.value) broadcastUpdate(name, qty, '', deviceName.value || '名前未設定')
+  track('item_added_manual')
   newItemName.value     = ''
   newItemQty.value      = ''
   newItemPrice.value    = ''
@@ -1231,12 +1572,14 @@ function startEditItem(name) {
 }
 
 function cancelEditItem() {
-  editingItem.value     = null
-  newItemName.value     = ''
-  newItemQty.value      = ''
-  newItemPrice.value    = ''
-  newItemCategory.value = ''
-  newItemError.value    = ''
+  editingItem.value        = null
+  newItemName.value        = ''
+  newItemQty.value         = ''
+  newItemPrice.value       = ''
+  newItemCategory.value    = ''
+  newItemError.value       = ''
+  _pendingItemSubmit.value = null
+  barcodeAddCode.value     = ''
 }
 
 function onDeleteConfigItem(name) {
@@ -1286,6 +1629,87 @@ function doExport() {
 const dateStr = new Date().toLocaleDateString('ja-JP', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
 })
+
+// ── 初回オンボーディング ────────────────────────────────────────────────────────
+const _ONBOARD_KEY   = 'tanaoro_onboarded'
+const showOnboarding = ref(false)
+
+watch(() => currentView.value, (v) => {
+  if (v === 'session' && !localStorage.getItem(_ONBOARD_KEY)) {
+    showOnboarding.value = true
+  }
+})
+
+function dismissOnboarding() {
+  showOnboarding.value = false
+  localStorage.setItem(_ONBOARD_KEY, '1')
+}
+
+// ── フィードバック ─────────────────────────────────────────────────────────────
+const showFeedback      = ref(false)
+const feedbackText      = ref('')
+const feedbackSent      = ref(false)
+
+function openFeedback() {
+  feedbackText.value = ''
+  feedbackSent.value = false
+  showFeedback.value = true
+  track('feedback_opened')
+}
+
+function submitFeedback() {
+  const text = feedbackText.value.trim()
+  if (!text) return
+  track('feedback_submitted', { text })
+  feedbackSent.value = true
+  setTimeout(() => { showFeedback.value = false }, 2000)
+}
+
+// ── レビュー促進（3回目完了後） ────────────────────────────────────────────────
+const _COMPLETED_KEY = 'tanaoro_completed_count'
+const _REVIEW_KEY    = 'tanaoro_review_prompted'
+const showReview     = ref(false)
+const reviewRating   = ref(0)
+const reviewStep     = ref('rating') // 'rating' | 'thanks' | 'feedback'
+const reviewFeedback = ref('')
+
+function _checkReviewPrompt() {
+  if (localStorage.getItem(_REVIEW_KEY)) return
+  const count = parseInt(localStorage.getItem(_COMPLETED_KEY) || '0', 10) + 1
+  localStorage.setItem(_COMPLETED_KEY, String(count))
+  if (count >= 3) {
+    reviewRating.value   = 0
+    reviewStep.value     = 'rating'
+    reviewFeedback.value = ''
+    showReview.value     = true
+    track('review_prompt_shown', { completed_count: count })
+  }
+}
+
+function onReviewRate(star) {
+  reviewRating.value = star
+  if (star >= 4) {
+    reviewStep.value = 'thanks'
+    track('review_rated', { stars: star, positive: true })
+    localStorage.setItem(_REVIEW_KEY, '1')
+  } else {
+    reviewStep.value = 'feedback'
+    track('review_rated', { stars: star, positive: false })
+  }
+}
+
+function submitReviewFeedback() {
+  const text = reviewFeedback.value.trim()
+  if (text) track('review_feedback_submitted', { stars: reviewRating.value, text })
+  localStorage.setItem(_REVIEW_KEY, '1')
+  showReview.value = false
+}
+
+function dismissReview() {
+  localStorage.setItem(_REVIEW_KEY, '1')
+  showReview.value = false
+  track('review_dismissed')
+}
 </script>
 
 <template>
@@ -1305,11 +1729,13 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       :live-session-id="pendingSession?.id ?? null"
       :new-session-id="newSessionId"
       @start-session="onSessionStart"
+      @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
       @delete-session="_clearDraft"
       @back="currentView = 'landing'"
       @open-settings="showSettings = true"
+      @open-upgrade="reason => openUpgrade(reason)"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->
@@ -1321,6 +1747,14 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       @patched="snap => { detailSnapshot = snap }"
     />
 
+    <!-- ── 完了後ゲスト閲覧（読み取り専用・金額なし） ── -->
+    <GuestResultView
+      v-else-if="currentView === 'guest-result'"
+      :result="guestResult"
+      :error-message="guestResultError"
+      @home="currentView = isAuthenticated ? 'sessions' : 'landing'"
+    />
+
     <!-- ── ランディング ── -->
     <LandingPage v-else-if="currentView === 'landing'" @started="onLandingStarted" />
 
@@ -1330,24 +1764,48 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" title="セッション一覧に戻る">🏠</button>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" :title="practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る'">🏠</button>
+          <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
           <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
-          <div v-if="sessionElapsed" class="session-elapsed">⏱ {{ sessionElapsed }}</div>
+          <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します">⏸ 一時停止中</div>
+          <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
+          <!-- 同期中はステータス表示（タップで詳細）。未同期時はメニューから開く -->
           <button
-            class="settings-btn sync-btn"
-            :class="{ active: syncActive }"
+            v-if="syncActive"
+            class="settings-btn sync-btn active"
             @click="showSync = true"
-            :title="syncActive ? `ルーム ${syncState.roomCode}（${participantList.length}名）` : '複数デバイス同期'"
+            :title="`ルーム ${syncState.roomCode}（${participantList.length}名）`"
           >
-            <span v-if="syncActive" class="sync-badge">
-              🔗<span class="sync-count">{{ participantList.length }}</span>
-            </span>
-            <span v-else>🔗</span>
+            <span class="sync-badge">🔗<span class="sync-count">{{ participantList.length }}</span></span>
           </button>
-          <button class="settings-btn" @click="showSettings = true" title="品目リスト設定">⚙️</button>
+          <!-- ハンバーガーメニュー（ルーム参加中のゲストには表示しない）-->
+          <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
+            <button class="settings-btn menu-btn" @click="showMenu = !showMenu" :class="{ open: showMenu }" title="メニュー">☰</button>
+            <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
+            <div v-if="showMenu" class="menu-dropdown">
+              <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
+                <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
+              </button>
+              <button v-if="!syncActive && !practiceMode" class="menu-item" @click="showMenu = false; showSync = true">
+                <span class="menu-ico">🔗</span> 複数デバイスで同期
+              </button>
+              <button class="menu-item" @click="showMenu = false; showAddItemForm = !showAddItemForm">
+                <span class="menu-ico">➕</span> 品目追加フォームを{{ showAddItemForm ? '隠す' : '表示' }}
+              </button>
+              <button v-if="!inputLocked" class="menu-item" @click="showMenu = false; showPasteParser = true">
+                <span class="menu-ico">📋</span> テキストから記録
+              </button>
+              <button v-if="hasBarcodedItems && !inputLocked" class="menu-item" @click="showMenu = false; showBarcode = true">
+                <span class="menu-ico">📷</span> バーコードスキャン
+              </button>
+              <button class="menu-item" @click="showMenu = false; showSettings = true">
+                <span class="menu-ico">⚙️</span> 品目リスト設定
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -1365,14 +1823,30 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
           <button class="sync-banner-btn" @click="showSync = true">詳細</button>
         </div>
         <div class="sync-banner-participants">
-          <span
-            v-for="p in participantList"
+          <button
+            v-for="p in historyMembers"
             :key="p.id"
             class="sync-participant-chip"
-            :class="{ done: p.isDone, me: p.isMe }"
-          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span></span>
+            :class="{ done: p.isDone, me: p.isMe, left: !p.present }"
+            @click="openMemberHistory(p)"
+            :title="p.present ? 'タップでこのメンバーの変更履歴を見る' : '退室済み — タップで履歴を見る'"
+          >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span><span v-else-if="!p.present" class="chip-left"> ·退室</span></button>
         </div>
       </div>
+
+      <!-- ルーム作成 CTA（目玉機能・未同期時のみ）-->
+      <button
+        v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
+        class="room-cta"
+        @click="onCreateRoomFromMain"
+      >
+        <span class="room-cta-icon">👥</span>
+        <span class="room-cta-body">
+          <span class="room-cta-title">みんなで一緒に棚卸する</span>
+          <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
+        </span>
+        <span class="room-cta-action">ルームを作成 ＋</span>
+      </button>
 
       <!-- 棚卸完了バナー -->
       <div v-if="isCompleted" class="complete-banner">
@@ -1408,8 +1882,20 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
         <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
 
-        <!-- 品目追加・編集フォーム -->
-        <div class="add-item-form">
+        <!-- 品目追加・編集フォーム（トグルで表示/非表示） -->
+        <button v-if="!editingItem" class="add-item-toggle" @click="showAddItemForm = !showAddItemForm">
+          <span class="add-item-toggle-label">＋ 品目を手動で追加</span>
+          <span class="add-item-toggle-arrow">{{ showAddItemForm ? '▲ 閉じる' : '▼ 開く' }}</span>
+        </button>
+        <div v-if="showAddItemForm || editingItem" class="add-item-form">
+          <div v-if="barcodeAddCode" class="barcode-add-hint">
+            <span class="barcode-add-icon">📷</span>
+            <span>バーコード <code>{{ barcodeAddCode }}</code> を品目名と紐付けて登録します</span>
+            <button class="barcode-add-clear" @click="barcodeAddCode = ''; newItemError = ''; _pendingItemSubmit = null">✕</button>
+          </div>
+          <p v-if="syncActive && !syncIsHost && !editingItem" class="guest-add-hint">
+            ✋ 追加する品目はホストの承認が必要です
+          </p>
           <p class="add-item-label">{{ editingItem ? `✏️ 品目を編集` : '＋ 品目を追加' }}</p>
           <div class="add-item-row">
             <input
@@ -1486,11 +1972,28 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         </div>
       </div>
 
-      <!-- 棚卸対象スコープ切り替え（ゲストはホストに追従するため非表示） -->
-      <div v-if="hasSupplyItems && (!syncActive || syncIsHost)" class="scope-bar">
-        <button :class="['scope-btn', { active: categoryScope === 'all' }]"    @click="categoryScope = 'all'"    type="button">全品目</button>
-        <button :class="['scope-btn', { active: categoryScope === 'food' }]"   @click="categoryScope = 'food'"   type="button">食材</button>
-        <button :class="['scope-btn', { active: categoryScope === 'supply' }]" @click="categoryScope = 'supply'" type="button">資材・備品</button>
+      <!-- ホスト: ゲストからの品目追加申請 -->
+      <div v-if="syncIsHost && pendingItemRequests.length > 0" class="item-req-wrap">
+        <div v-for="req in pendingItemRequests" :key="req.requestId" class="item-req-card">
+          <div class="item-req-info">
+            <span class="item-req-icon">📋</span>
+            <span class="item-req-text">
+              <strong>{{ req.fromDeviceName }}</strong> が
+              「<strong>{{ req.name }}</strong>」の追加を申請
+            </span>
+          </div>
+          <div class="item-req-actions">
+            <button class="item-req-btn item-req-approve" @click="approveItemAdd(req)">承認</button>
+            <button class="item-req-btn item-req-reject"  @click="rejectItemAdd(req)">拒否</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ゲスト: ホスト承認待ち状態 -->
+      <div v-if="pendingGuestRequest" class="item-req-pending-guest">
+        <span class="item-req-pending-icon">⏳</span>
+        「<strong>{{ pendingGuestRequest.name }}</strong>」の追加をホストに申請中…
+        <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
       </div>
 
       <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
@@ -1547,7 +2050,6 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
         :filled-count="filledCount"
         :read-only="inputLocked"
         :recount-flags="recountFlags"
-        :category-scope="categoryScope"
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
@@ -1666,9 +2168,19 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" />
-    <SyncModal     v-if="showSync"     :is-inventory-completed="isCompleted" @close="showSync = false" @complete="onSyncComplete" @newSession="onSyncNewSession" />
-    <ChatModal     v-if="showChat"     @close="showChat = false" />
+    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
+    <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
+    <ChatModal      v-if="showChat"     @close="showChat = false" />
+    <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
+    <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
+    <TextPasteParserModal
+      v-if="showPasteParser"
+      mode="session"
+      :config-order="config.order"
+      @apply="onPasteParserApply"
+      @close="showPasteParser = false"
+    />
 
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">
@@ -1691,10 +2203,180 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
       <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
+    <!-- 初回オンボーディング -->
+    <Transition name="onboard">
+      <div v-if="showOnboarding" class="onboard-overlay" @click.self="dismissOnboarding">
+        <div class="onboard-card">
+          <div class="onboard-title">タナオロの使い方</div>
+          <ol class="onboard-steps">
+            <li class="onboard-step">
+              <span class="onboard-icon">🎤</span>
+              <div>
+                <strong>音声ボタンをタップ</strong>
+                <p>「豚バラ 3キロ」「卵 2パック」と話すだけ</p>
+              </div>
+            </li>
+            <li class="onboard-step">
+              <span class="onboard-icon">✓</span>
+              <div>
+                <strong>数量を確認して登録</strong>
+                <p>品目が自動で認識されます。数値を確認してタップ</p>
+              </div>
+            </li>
+            <li class="onboard-step">
+              <span class="onboard-icon">📋</span>
+              <div>
+                <strong>品目がない場合は追加</strong>
+                <p>「＋ 品目を追加」フォームからその場で登録できます</p>
+              </div>
+            </li>
+            <li class="onboard-step">
+              <span class="onboard-icon">🔗</span>
+              <div>
+                <strong>複数端末で同時入力</strong>
+                <p>🔗ボタンからルームを作成、QRコードで仲間を招待</p>
+              </div>
+            </li>
+          </ol>
+          <button class="onboard-btn" @click="dismissOnboarding">はじめる</button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- フィードバックボタン（セッション・一覧画面で表示） -->
+    <button
+      v-if="currentView === 'session' || currentView === 'sessions'"
+      class="feedback-fab"
+      @click="openFeedback"
+      title="フィードバックを送る"
+    >💬</button>
+
+    <!-- フィードバックモーダル -->
+    <div v-if="showFeedback" class="feedback-overlay" @click.self="showFeedback = false">
+      <div class="feedback-sheet">
+        <div class="sheet-handle"></div>
+        <div class="feedback-title">フィードバック</div>
+        <template v-if="!feedbackSent">
+          <p class="feedback-desc">ご意見・ご要望・不具合などをお聞かせください</p>
+          <textarea
+            v-model="feedbackText"
+            class="feedback-textarea"
+            placeholder="例：〇〇の操作がわかりにくかった、△△の機能が欲しい"
+            rows="5"
+            autofocus
+          ></textarea>
+          <div class="feedback-actions">
+            <button class="btn btn-secondary" @click="showFeedback = false">キャンセル</button>
+            <button class="btn btn-primary" :disabled="!feedbackText.trim()" @click="submitFeedback">送信</button>
+          </div>
+        </template>
+        <div v-else class="feedback-thanks">
+          <div class="feedback-thanks-icon">✓</div>
+          <div class="feedback-thanks-text">ありがとうございます！</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- レビュー促進モーダル -->
+    <div v-if="showReview" class="feedback-overlay" @click.self="dismissReview">
+      <div class="feedback-sheet">
+        <div class="sheet-handle"></div>
+
+        <!-- 評価ステップ -->
+        <template v-if="reviewStep === 'rating'">
+          <div class="feedback-title">タナオロはいかがですか？</div>
+          <p class="feedback-desc">3回目の棚卸が完了しました。使い心地を教えてください。</p>
+          <div class="review-stars">
+            <button
+              v-for="s in 5"
+              :key="s"
+              class="review-star"
+              :class="{ filled: s <= reviewRating }"
+              @click="onReviewRate(s)"
+            >★</button>
+          </div>
+          <button class="feedback-skip" @click="dismissReview">あとで</button>
+        </template>
+
+        <!-- 高評価 ありがとう -->
+        <template v-else-if="reviewStep === 'thanks'">
+          <div class="feedback-title">ありがとうございます！</div>
+          <div class="review-thanks-stars">
+            <span v-for="s in reviewRating" :key="s" class="review-star-filled">★</span>
+          </div>
+          <p class="feedback-desc">ご愛用いただき、誠にありがとうございます。</p>
+          <div class="feedback-actions">
+            <button class="btn btn-primary" @click="showReview = false">閉じる</button>
+          </div>
+        </template>
+
+        <!-- 低評価 → フィードバック -->
+        <template v-else>
+          <div class="feedback-title">改善点を教えてください</div>
+          <p class="feedback-desc">より良いアプリにするために、ご意見をお聞かせください。</p>
+          <textarea
+            v-model="reviewFeedback"
+            class="feedback-textarea"
+            placeholder="使いにくかった点、欲しい機能など"
+            rows="4"
+          ></textarea>
+          <div class="feedback-actions">
+            <button class="btn btn-secondary" @click="dismissReview">スキップ</button>
+            <button class="btn btn-primary" @click="submitReviewFeedback">送信</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <style scoped>
+/* ── バーコード未登録ヒント ── */
+.barcode-add-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff7ed;
+  border: 1.5px solid #fcd34d;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.guest-add-hint {
+  margin: 0 0 8px;
+  padding: 7px 11px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.barcode-add-hint code {
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.barcode-add-icon { flex-shrink: 0; }
+.barcode-add-clear {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: #92400e;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
 /* ── あとで数える 一覧バナー ── */
 .recount-notice {
   margin: 0 16px 8px;
@@ -2090,4 +2772,346 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
 .crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
 .crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
 .crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
+
+/* ── ゲスト品目追加申請 ── */
+.item-req-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.item-req-card {
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 2px 10px rgba(99,102,241,0.12);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.item-req-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-req-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.item-req-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.item-req-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.item-req-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.item-req-btn:active { opacity: 0.75; }
+.item-req-approve { background: #d1fae5; color: #065f46; }
+.item-req-reject  { background: #fee2e2; color: #991b1b; }
+
+.item-req-pending-guest {
+  margin: 0 16px 8px;
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-req-pending-icon { font-size: 16px; }
+
+.item-req-pending-cancel {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #93c5fd;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #3b82f6;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── 初回オンボーディング ── */
+.onboard-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.onboard-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 24px 24px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  animation: onboardIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes onboardIn {
+  from { transform: scale(0.88) translateY(20px); opacity: 0; }
+  to   { transform: scale(1)    translateY(0);    opacity: 1; }
+}
+
+.onboard-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  text-align: center;
+  margin-bottom: 22px;
+  letter-spacing: -0.02em;
+}
+
+.onboard-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.onboard-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.onboard-icon {
+  font-size: 22px;
+  width: 38px;
+  height: 38px;
+  background: #f0f6ff;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.onboard-step strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.onboard-step p {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.onboard-btn {
+  width: 100%;
+  padding: 15px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.onboard-btn:active { opacity: 0.85; }
+
+.onboard-enter-active { transition: opacity 0.2s ease; }
+.onboard-leave-active { transition: opacity 0.25s ease; }
+.onboard-enter-from,
+.onboard-leave-to     { opacity: 0; }
+
+/* ── フィードバック FAB ── */
+.feedback-fab {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 800;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.feedback-fab:active {
+  transform: scale(0.92);
+  box-shadow: 0 1px 6px rgba(37, 99, 235, 0.25);
+}
+
+/* ── フィードバック / レビュー モーダル ── */
+.feedback-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 3500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.feedback-sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(32px + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+  animation: slideUp 0.25s ease;
+}
+
+.feedback-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.feedback-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.feedback-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg);
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  -webkit-appearance: none;
+  line-height: 1.5;
+}
+.feedback-textarea:focus { border-color: var(--primary); }
+
+.feedback-actions {
+  display: flex;
+  gap: 10px;
+}
+.feedback-actions .btn { flex: 1; padding: 14px; font-size: 15px; }
+
+.feedback-skip {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.feedback-thanks {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0 8px;
+  gap: 10px;
+}
+.feedback-thanks-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 26px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feedback-thanks-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── レビュー星 ── */
+.review-stars {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 8px 0 20px;
+}
+.review-star {
+  font-size: 38px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #d1d5db;
+  transition: color 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+  padding: 4px;
+}
+.review-star.filled { color: #f59e0b; }
+.review-star:active  { transform: scale(1.2); }
+
+.review-thanks-stars {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+.review-star-filled {
+  font-size: 28px;
+  color: #f59e0b;
+}
 </style>

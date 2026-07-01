@@ -63,8 +63,12 @@ worker/src/
 
 ## 詳細ドキュメント
 
+- **現況と方向性（全体の索引）→ `docs/project-status.md`**
+- **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
+- 企業導入（多店舗）設計 → `docs/enterprise-design.md`
 - CI/CD パイプライン → `docs/ci-cd.md`
 - バックログ・優先度 → `docs/backlog.md`
 - 同期アーキテクチャ詳細 → `docs/sync-spec.md`
 - Phase 2 分析機能仕様 → `docs/phase2.md`
 - DB設計v2（スケール・10年運用）→ `docs/db-design-v2.md`
+- 新機能テスト項目一覧 → `docs/test-checklist-new-features.md`

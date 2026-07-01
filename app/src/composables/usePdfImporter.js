@@ -1,11 +1,17 @@
 import * as XLSX from 'xlsx'
-import * as pdfjsLib from 'pdfjs-dist'
 
-// ── PDF.js ワーカー設定 ───────────────────────────────────────────────────────
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).href
+// pdfjs-dist は PDF インポート時のみ動的ロード（初期バンドルから除外）
+let _pdfjs = null
+async function _getPdfjs() {
+  if (_pdfjs) return _pdfjs
+  const lib = await import('pdfjs-dist')
+  lib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url,
+  ).href
+  _pdfjs = lib
+  return lib
+}
 
 // ── 共通ユーティリティ ────────────────────────────────────────────────────────
 function isCjk(s) {
@@ -321,6 +327,7 @@ function parsePdfPageRotated(items) {
 
 export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
   // PDF は端末内で解析する（外部送信なし）。仕入情報を外に出さないためサーバー送信は行わない。
+  const pdfjsLib    = await _getPdfjs()
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
   const timeoutId   = setTimeout(() => loadingTask.destroy(), 40000)
 

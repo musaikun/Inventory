@@ -6,21 +6,55 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
+import CsvMapperModal from './CsvMapperModal.vue'
+import TextPasteParserModal from './TextPasteParserModal.vue'
+import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
+import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
+import { parseResultCSV } from '../utils/resultCsvParser.js'
 
 const props = defineProps({ isGuest: Boolean })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
+
+const restoreInput = ref(null)
+function onRestoreFile(file) {
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const rows = parseResultCSV(e.target.result)
+      emit('restoreInventory', rows)
+      emit('close')
+    } catch (err) {
+      status.value = { type: 'error', msg: err.message }
+    }
+  }
+  reader.readAsText(file, 'UTF-8')
+}
+
+// CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
+function _importResultStatus(result) {
+  if (result.truncated > 0) {
+    emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${result.truncated}件が上限を超えたため取り込まれませんでした。`)
+    return { type: 'warning', msg: `${result.count}件を読み込みました（${result.truncated}件は無料プラン上限超過のため未取込）` }
+  }
+  return { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+}
 
 const {
   config, itemCount,
-  loadFromCSV, exportConfigCSV,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
 const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイル
+const showMapper     = ref(false)
+const mapperCsvText  = ref('')
+const mapperFilename = ref('')
+const showPasteParser = ref(false)
 const dragging       = ref(false)
 const fileInput      = ref(null)
+const mapperInput    = ref(null)
 
 // ── 端末名 ───────────────────────────────────────────────────────────────────
 const deviceNameInput = ref(deviceName.value)
@@ -58,14 +92,52 @@ function handleFile(file) {
   // CSV → その場で直接読み込み
   const reader = new FileReader()
   reader.onload = e => {
+    const text = e.target.result
     try {
-      const result = loadFromCSV(e.target.result)
-      status.value = { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+      const result = loadFromCSV(text)
+      status.value = _importResultStatus(result)
     } catch (err) {
       status.value = { type: 'error', msg: err.message }
     }
   }
   reader.readAsText(file, 'UTF-8')
+}
+
+function openMapper(file) {
+  const reader = new FileReader()
+  reader.onload = e => {
+    mapperCsvText.value  = e.target.result
+    mapperFilename.value = file.name
+    showMapper.value     = true
+    status.value         = null
+  }
+  reader.readAsText(file, 'UTF-8')
+}
+
+function onPasteParserApply(items) {
+  let count = 0, blocked = 0
+  for (const { name, unit } of items) {
+    if (addItem(name, null, null, unit || null, null)) count++
+    else if (!isPro() && itemCount.value >= FREE_ITEM_LIMIT) blocked++
+  }
+  showPasteParser.value = false
+  if (blocked > 0) {
+    emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${blocked}件が上限を超えたため追加できませんでした。`)
+    status.value = { type: 'warning', msg: `${count}件を追加しました（${blocked}件は無料プラン上限超過のため未追加）` }
+  } else {
+    status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
+  }
+}
+
+function onMapperImported({ mapping, csvText }) {
+  try {
+    const result = loadFromCSVMapped(csvText, mapping)
+    showMapper.value = false
+    status.value = _importResultStatus(result)
+  } catch (err) {
+    status.value = { type: 'error', msg: err.message }
+    showMapper.value = false
+  }
 }
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
@@ -149,6 +221,30 @@ function copyCode() {
           {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
         </div>
       </template>
+
+      <!-- 納品書テキスト貼り付けで品目追加（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="showPasteParser = true">
+          📋 テキスト貼り付けで品目を追加（納品書・メモなど）
+        </button>
+      </div>
+
+      <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="mapperInput.click()">
+          🗂 フォーマット不明のCSVを列指定でインポート
+        </button>
+        <input ref="mapperInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+      </div>
+
+      <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
+      <div v-if="!props.isGuest" class="mapper-row">
+        <button class="mapper-trigger" @click="restoreInput.click()">
+          🔧 棚卸結果CSVから入力を復元
+        </button>
+        <input ref="restoreInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
+      </div>
 
       <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
       <button v-if="!props.isGuest" class="btn btn-secondary template-btn" @click="onDownloadTemplate">
@@ -234,6 +330,22 @@ function copyCode() {
         <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
       </div>
 
+      <!-- プッシュ通知 -->
+      <div v-if="pushSupported" class="notif-section">
+        <div class="device-label">棚卸リマインダー通知</div>
+        <div class="notif-row">
+          <span class="notif-desc">
+            {{ pushSubscribed ? '月末・棚卸リマインダーを受信します' : '棚卸のリマインダーを通知で受け取れます' }}
+          </span>
+          <button
+            class="notif-toggle"
+            :class="{ on: pushSubscribed }"
+            :disabled="pushLoading"
+            @click="pushSubscribed ? unsubscribePush() : subscribePush()"
+          >{{ pushSubscribed ? 'ON' : 'OFF' }}</button>
+        </div>
+      </div>
+
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
     </div>
   </div>
@@ -244,6 +356,24 @@ function copyCode() {
     :initial-file="importerFile"
     @close="onImporterClose"
     @imported="result => { onImporterClose(); status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+  />
+
+  <!-- CSVカラムマッピングモーダル -->
+  <CsvMapperModal
+    v-if="showMapper"
+    :csv-text="mapperCsvText"
+    :filename="mapperFilename"
+    @imported="onMapperImported"
+    @close="showMapper = false"
+  />
+
+  <!-- テキスト貼り付けパーサー（品目リスト追加モード） -->
+  <TextPasteParserModal
+    v-if="showPasteParser"
+    mode="import"
+    :config-order="config.order"
+    @apply="onPasteParserApply"
+    @close="showPasteParser = false"
   />
 </template>
 
@@ -491,6 +621,33 @@ function copyCode() {
 .import-btn { width: 100%; margin-bottom: 12px; }
 .close-btn  { width: 100%; margin-top: 4px; }
 
+.mapper-row {
+  margin-bottom: 10px;
+}
+
+.mapper-trigger {
+  width: 100%;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mapper-trigger:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+
+.mapper-hint {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .guest-notice {
   padding: 14px 16px;
   background: #f0f9ff;
@@ -503,4 +660,44 @@ function copyCode() {
   margin-bottom: 16px;
   text-align: center;
 }
+
+/* 通知設定 */
+.notif-section {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+}
+.notif-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.notif-desc {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.notif-toggle {
+  flex-shrink: 0;
+  min-width: 52px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 20px;
+  border: 2px solid var(--border);
+  background: #e5e7eb;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.notif-toggle.on {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.notif-toggle:disabled { opacity: 0.6; cursor: default; }
 </style>

@@ -48,6 +48,17 @@ function createMockD1({ failTables = [] } = {}) {
       tokens.push({ token: args[0], shop_code: args[1], expires_at: args[2] })
       return { success: true }
     }
+    if (s.startsWith('DELETE FROM auth_tokens WHERE shop_code')) {
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i].shop_code === args[0]) tokens.splice(i, 1)
+      }
+      return { success: true }
+    }
+    if (s.startsWith('DELETE FROM auth_tokens WHERE token')) {
+      const i = tokens.findIndex(t => t.token === args[0])
+      if (i >= 0) tokens.splice(i, 1)
+      return { success: true }
+    }
     if (s.startsWith('SELECT COUNT(*) AS n FROM login_attempts')) return { n: 0 }
     if (s.startsWith('INSERT INTO login_attempts'))               return { success: true }
     if (s.startsWith('DELETE FROM login_attempts'))               return { success: true }
