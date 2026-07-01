@@ -62,6 +62,7 @@ const hasParticipants = computed(() => (props.snapshot.participants?.length ?? 0
 const CORRECTION_DAYS = 3
 
 const isLocked = computed(() => {
+  if (props.snapshot.locked) return true   // 恒久ロック（新しい棚卸の完了で確定済み）
   const savedAt = new Date(props.snapshot.savedAt ?? props.snapshot.date)
   if (Date.now() - savedAt.getTime() > CORRECTION_DAYS * 86400_000) return true
   return getSnapshots().some(s =>

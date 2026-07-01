@@ -198,6 +198,8 @@ const selectedYearByMonth = computed(() => {
 const CORRECTION_DAYS = 3
 
 function _isSessionLocked(session) {
+  // 恒久ロック（新しい棚卸の完了で確定済み）。新しい方を削除しても外れない。
+  if (getSnapshotBySessionId(session.id)?.locked) return true
   if (!session.endedAt) return false
   if (Date.now() - new Date(session.endedAt).getTime() > CORRECTION_DAYS * 86400_000) return true
   return completedSessions.value.some(s =>
@@ -318,9 +320,12 @@ function onResume(session) {
 
 async function onDelete(session) {
   const isActive = session.status === 'active'
+  const locked   = session.status === 'completed' && _isSessionLocked(session)
   const msg = isActive
     ? `進行中のセッションを削除します。\n入力中のデータも失われます。\n\nこの操作は取り消せません。本当に削除しますか？`
-    : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
+    : locked
+      ? `確定済み（編集ロック）の棚卸です。\n削除すると復元できません。\n\n本当に削除しますか？`
+      : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
   if (!confirm(msg)) return
   deletingId.value = session.id
   try {

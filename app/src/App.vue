@@ -74,7 +74,7 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId } = useHistory()
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
@@ -979,7 +979,11 @@ async function onComplete() {
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
-  if (snapshot) saveSnapshotToD1(snapshot)
+  if (snapshot) {
+    saveSnapshotToD1(snapshot)
+    // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
+    for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
+  }
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {

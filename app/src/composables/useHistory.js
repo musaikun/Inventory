@@ -212,9 +212,27 @@ export function useHistory() {
    * @param {string} date      スナップショットの日付キー（YYYY-MM-DD）
    * @param {object} patches   { 品目名: { qty: number|null } }
    */
+  /**
+   * 新しい棚卸の完了に伴い、それ以外の完了済みスナップショットを恒久ロックする。
+   * 新しい方が後で削除されても前回分のロックが外れないよう、locked フラグを永続化する。
+   * @returns {Array} 新たにロックしたスナップショット（呼び出し側が D1 へ再保存する用）
+   */
+  function lockOtherSnapshots(currentSessionId) {
+    const changed = []
+    for (const key of Object.keys(_data)) {
+      const s = _data[key]
+      if (s && !s.locked && s.sessionId !== currentSessionId) {
+        s.locked = true
+        changed.push(s)
+      }
+    }
+    if (changed.length) _persist()
+    return changed
+  }
+
   function patchSnapshotItems(date, patches) {
     const snap = _data[date]
-    if (!snap) return null
+    if (!snap || snap.locked) return null   // ロック済みは編集不可（防御）
 
     for (const item of snap.items) {
       if (!(item.item in patches)) continue
@@ -236,5 +254,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems }
+  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }
