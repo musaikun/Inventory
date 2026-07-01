@@ -1,12 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
-import TextPasteParserModal from './TextPasteParserModal.vue'
+import BulkItemGrid from './BulkItemGrid.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
@@ -41,7 +41,7 @@ function _importResultStatus(result) {
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem, updateConfigItem,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
@@ -50,7 +50,11 @@ const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイ�
 const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
-const showPasteParser = ref(false)
+const showBulkGrid = ref(false)
+
+const existingCategories = computed(() =>
+  [...new Set(Object.values(config.categories ?? {}).filter(Boolean))]
+)
 const dragging       = ref(false)
 const fileInput      = ref(null)
 const mapperInput    = ref(null)
@@ -113,18 +117,31 @@ function openMapper(file) {
   reader.readAsText(file, 'UTF-8')
 }
 
-function onPasteParserApply(items) {
-  let count = 0, blocked = 0
-  for (const { name, unit } of items) {
-    if (addItem(name, null, null, unit || null, null)) count++
-    else if (!isPro() && itemCount.value >= FREE_ITEM_LIMIT) blocked++
+// 一括入力グリッド → 品目マスタへ upsert（設定からはリスト作成なので数量は扱わない）
+function onBulkApply(rows) {
+  let added = 0, updated = 0, blocked = 0
+  for (const r of rows) {
+    const name = (r.name ?? '').trim()
+    if (!name) continue
+    const priceNum = parseFloat(r.price)
+    const price    = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
+    const category = (r.category ?? '').trim() || null
+    const unit     = (r.unit ?? '').trim()
+    if (config.order.includes(name)) {
+      updateConfigItem(name, name, price, category)
+      updated++
+    } else if (addItem(name, price, category, unit || null, null)) {
+      added++
+    } else if (!isPro() && itemCount.value >= FREE_ITEM_LIMIT) {
+      blocked++
+    }
   }
-  showPasteParser.value = false
+  showBulkGrid.value = false
   if (blocked > 0) {
     emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${blocked}件が上限を超えたため追加できませんでした。`)
-    status.value = { type: 'warning', msg: `${count}件を追加しました（${blocked}件は無料プラン上限超過のため未追加）` }
+    status.value = { type: 'warning', msg: `${added}件追加・${updated}件更新（${blocked}件は無料プラン上限超過のため未追加）` }
   } else {
-    status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
+    status.value = { type: 'success', msg: `${added}件を追加・${updated}件を更新しました` }
   }
 }
 
@@ -213,10 +230,10 @@ function onDownloadTemplate() {
         </div>
       </template>
 
-      <!-- 納品書テキスト貼り付けで品目追加（ゲストには非表示） -->
+      <!-- 品目を一括入力（グリッド・貼り付け対応。ゲストには非表示） -->
       <div v-if="!props.isGuest" class="mapper-row">
-        <button class="mapper-trigger" @click="showPasteParser = true">
-          📋 テキスト貼り付けで品目を追加（納品書・メモなど）
+        <button class="mapper-trigger" @click="showBulkGrid = true">
+          📋 品目を一括入力（手打ち・コピペ対応）
         </button>
       </div>
 
@@ -346,13 +363,13 @@ function onDownloadTemplate() {
     @close="showMapper = false"
   />
 
-  <!-- テキスト貼り付けパーサー（品目リスト追加モード） -->
-  <TextPasteParserModal
-    v-if="showPasteParser"
-    mode="import"
-    :config-order="config.order"
-    @apply="onPasteParserApply"
-    @close="showPasteParser = false"
+  <!-- 品目一括入力グリッド（マスタ作成モード・数量列なし） -->
+  <BulkItemGrid
+    v-if="showBulkGrid"
+    :existing-categories="existingCategories"
+    :show-qty="false"
+    @apply="onBulkApply"
+    @close="showBulkGrid = false"
   />
 </template>
 

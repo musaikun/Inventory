@@ -179,6 +179,21 @@ body {
 .add-item-toggle:active { background: #f1f5f9; }
 .add-item-toggle-arrow { font-size: 11px; color: #94a3b8; font-weight: 600; }
 
+.bulk-input-btn {
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  background: #eff6ff;
+  border: 1.5px solid var(--primary, #3b82f6);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary, #3b82f6);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bulk-input-btn:active { background: #dbeafe; }
+
 /* ── 同期中バナー ── */
 .sync-banner {
   display: flex;
