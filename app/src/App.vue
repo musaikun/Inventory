@@ -323,6 +323,7 @@ const upgradeReason     = ref('')
 const showBarcode       = ref(false)
 const showPasteParser   = ref(false)
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
+const lastBarcode       = ref('')  // 直前に読み取ったコード（連続スキャン時の同一商品無視用）
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
@@ -345,10 +346,12 @@ function openUpgrade(reason = '') {
 // バーコードスキャン: 品目コードと照合して確認モーダルを開く
 function onBarcodeScanned(text) {
   showBarcode.value = false
+  lastBarcode.value = text            // 連続スキャンでカメラに戻った直後の同一商品を無視するため記録
   const item = Object.entries(config.codes ?? {}).find(([, code]) => code === text)?.[0]
   if (item) {
     showToast(`バーコード認識: ${item}`, 2000, 'success')
-    openConfirm(item, null, config.units?.[item] || '', 'search')
+    // source='barcode' にすると、数量入力完了後すぐカメラに戻る（連続スキャン）
+    openConfirm(item, null, config.units?.[item] || '', 'barcode')
   } else {
     // 未登録バーコード → 品目追加フォームをバーコードコード付きで開く
     barcodeAddCode.value  = text
@@ -1393,6 +1396,12 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
     candidateState.value = { ...pendingCandidates.value }
     pendingCandidates.value = null
     confirmState.value = null
+  } else if (source === 'barcode') {
+    // 連続スキャン: 数量入力完了後すぐバーコードカメラに戻す
+    _stopTypingKeepalive()
+    confirmState.value = null
+    showBarcode.value = true
+    return
   } else {
     _stopTypingKeepalive()
     confirmState.value = null
@@ -1403,15 +1412,22 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 
 function onCancelConfirm() {
   _stopTypingKeepalive()
+  const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value && confirmState.value) broadcastTyping(confirmState.value.ingredient, false)
   confirmState.value = null
   pendingCandidates.value = null
+  if (wasBarcode) {
+    // 連続スキャン: キャンセルでもカメラに戻す（カメラを閉じればループ終了）
+    showBarcode.value = true
+    return
+  }
   _restartIfContinuous()
 }
 
 function onConfirmRevert(prevState) {
   _stopTypingKeepalive()
   const ingredient = confirmState.value.ingredient
+  const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value) broadcastTyping(ingredient, false)
   const cur = confirmExisting.value
   if (!prevState) {
@@ -1426,6 +1442,7 @@ function onConfirmRevert(prevState) {
     showToast(`「${ingredient}」を ${prevState.qty}${prevState.unit} に戻しました`)
   }
   confirmState.value = null
+  if (wasBarcode) { showBarcode.value = true; return }
   _restartIfContinuous()
 }
 
@@ -2173,7 +2190,7 @@ function dismissReview() {
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
-    <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
+    <BarcodeScanner       v-if="showBarcode"    :recent-code="lastBarcode" @scanned="onBarcodeScanned" @close="showBarcode = false; lastBarcode = ''" />
     <TextPasteParserModal
       v-if="showPasteParser"
       mode="session"
