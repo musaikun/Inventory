@@ -1761,7 +1761,6 @@ function dismissReview() {
           <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
-          <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
           <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します">⏸ 一時停止中</div>
           <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
@@ -1781,12 +1780,6 @@ function dismissReview() {
             <div v-if="showMenu" class="menu-dropdown">
               <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
                 <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
-              </button>
-              <button v-if="!syncActive && !practiceMode" class="menu-item" @click="showMenu = false; showSync = true">
-                <span class="menu-ico">🔗</span> 複数デバイスで同期
-              </button>
-              <button class="menu-item" @click="showMenu = false; showAddItemForm = !showAddItemForm">
-                <span class="menu-ico">➕</span> 品目追加フォームを{{ showAddItemForm ? '隠す' : '表示' }}
               </button>
               <button v-if="!inputLocked" class="menu-item" @click="showMenu = false; showPasteParser = true">
                 <span class="menu-ico">📋</span> テキストから記録
