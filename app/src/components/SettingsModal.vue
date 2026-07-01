@@ -3,7 +3,6 @@ import { ref } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { shopCode } from '../composables/useStore.js'
 import { downloadItemTemplate } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
@@ -170,14 +169,6 @@ function onDownloadTemplate() {
   }
 }
 
-// ── 店舗コード ─────────────────────────────────────────────────────────────────
-const codeCopied = ref(false)
-function copyCode() {
-  navigator.clipboard.writeText(shopCode.value).then(() => {
-    codeCopied.value = true
-    setTimeout(() => (codeCopied.value = false), 2000)
-  })
-}
 </script>
 
 <template>
@@ -291,18 +282,6 @@ function copyCode() {
           <p class="format-note">エイリアスを設定すると、音声で短縮名を言っても認識されます。<br>PDFから取込むと、品目名に応じてエイリアスが自動設定されます。</p>
         </div>
       </details>
-
-      <!-- 店舗コード -->
-      <div v-if="shopCode" class="store-section">
-        <div class="store-label">店舗コード</div>
-        <div class="store-code-row">
-          <span class="store-code-value">{{ shopCode }}</span>
-          <button class="store-copy-btn" @click="copyCode">
-            {{ codeCopied ? '✓ コピー済み' : 'コピー' }}
-          </button>
-        </div>
-        <div class="store-hint">このコードで他の端末からも同じデータにアクセスできます</div>
-      </div>
 
       <!-- 端末名設定 -->
       <div class="device-section">
@@ -502,60 +481,6 @@ function copyCode() {
   font-weight: 600;
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
-
-/* 店舗コード */
-.store-section {
-  margin-bottom: 16px;
-  padding: 12px 14px;
-  background: #eff6ff;
-  border: 1.5px solid var(--primary);
-  border-radius: 12px;
-}
-
-.store-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 8px;
-}
-
-.store-code-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.store-code-value {
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--primary);
-  letter-spacing: 0.2em;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  flex: 1;
-}
-
-.store-copy-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.store-copy-btn:active { opacity: 0.8; }
-
-.store-hint {
-  font-size: 11px;
-  color: #3b82f6;
-  line-height: 1.5;
-}
 
 /* 端末名設定 */
 .device-section {
