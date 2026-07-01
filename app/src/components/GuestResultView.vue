@@ -115,7 +115,7 @@ function actionClass(action) {
 
       <div class="guest-body">
         <!-- 品目一覧 -->
-        <div v-show="activeTab === 'items'" class="panel">
+        <div v-show="activeTab === 'items'" class="panel panel-items">
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
@@ -285,6 +285,11 @@ function actionClass(action) {
 /* ── 本文 ── */
 .guest-body { flex: 1; overflow: hidden; min-height: 0; position: relative; }
 .panel { height: 100%; box-sizing: border-box; padding: 12px 0 24px; overflow: hidden; }
+/* 品目一覧タブも縦スクロールできるようにする（最後の品目まで見える） */
+.panel-items {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .panel-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
