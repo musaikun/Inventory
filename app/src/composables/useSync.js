@@ -246,6 +246,12 @@ export function broadcastMessage(text, replyTo = null) {
   _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
 }
 
+// メッセージの送信取り消し（自分のメッセージのみ・サーバー側で所有者検証）
+export function broadcastMessageDelete(id) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'message_delete', id }))
+}
+
 export function broadcastTyping(ingredient, active) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'typing', ingredient, active }))
@@ -509,6 +515,12 @@ function _handleMessage(msg) {
         if (msg.senderId !== deviceId) unreadCount.value++
       }
       _onMessage?.(msg)
+      break
+    }
+
+    case 'message_deleted': {
+      const i = messages.findIndex(m => m.id === msg.id)
+      if (i >= 0) messages.splice(i, 1)
       break
     }
 

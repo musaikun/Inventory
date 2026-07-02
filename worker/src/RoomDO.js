@@ -462,6 +462,21 @@ export class RoomDO {
         break
       }
 
+      case 'message_delete': {
+        const id = String(msg.id ?? '')
+        if (!id) return
+        const att = ws.deserializeAttachment() ?? {}
+        const messages = (await this.state.storage.get('messages')) ?? []
+        const idx = messages.findIndex(m => m.id === id)
+        if (idx < 0) return
+        // 自分が送ったメッセージのみ取り消し可
+        if (messages[idx].senderId !== (att.deviceId ?? '')) return
+        messages.splice(idx, 1)
+        await this.state.storage.put('messages', messages)
+        this._broadcast({ type: 'message_deleted', id })
+        break
+      }
+
       case 'dissolve': {
         if (!this._isHost(ws)) return
         this._broadcast({ type: 'dissolved' }, ws)
