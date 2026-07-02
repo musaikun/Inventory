@@ -52,7 +52,6 @@ import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
-import BulkItemGrid from './components/BulkItemGrid.vue'
 import MemberHistoryModal from './components/MemberHistoryModal.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
@@ -224,7 +223,7 @@ async function onSessionStart(session) {
   activeTimer.start()
   // 空リストで開始しても自動でモーダルは開かない。
   // 検索欄に品目名を打つ＝その場で登録→数量モーダル（歩きながら積み上げ登録）が主動線。
-  // まとめて入れたい人は「📋 品目を一括入力」ボタンからグリッドを開ける。
+  // まとめて入れたい場合は品目リスト設定の CSV/PDF 取込を使う。
   const startedEmpty = config.order.length === 0
   showAddItemForm.value = false
   // 空で開始したら D1 にも空 config を保存する。
@@ -323,7 +322,6 @@ const showSync          = ref(false)
 const showUpgrade       = ref(false)
 const upgradeReason     = ref('')
 const showBarcode       = ref(false)
-const showBulkGrid      = ref(false)  // 品目一括入力グリッド
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
 const lastBarcode       = ref('')  // 直前に読み取ったコード（連続スキャン時の同一商品無視用）
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
@@ -365,45 +363,6 @@ function onBarcodeScanned(text) {
     showToast(`バーコード「${text}」が未登録です。品目名を入力して追加してください`, 4000, 'warning')
     nextTick(() => newItemNameRef.value?.focus())
   }
-}
-
-// 品目一括入力グリッド → 品目マスタへ upsert（＋数量があれば在庫記録）
-// rows: [{ name, qty, unit, price, category }]（文字列）
-function onBulkApply(rows) {
-  showBulkGrid.value = false
-  let added = 0, updated = 0, recorded = 0, limitHit = false
-  for (const r of rows) {
-    const name = (r.name ?? '').trim()
-    if (!name) continue
-    const priceNum = parseFloat(r.price)
-    const price    = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
-    const category = (r.category ?? '').trim() || null
-    const unit     = (r.unit ?? '').trim()
-    const qtyNum   = (r.qty ?? '').toString().trim() === '' ? null : parseFloat(r.qty)
-
-    if (config.order.includes(name)) {
-      updateConfigItem(name, name, price, category)
-      updated++
-    } else {
-      const ok = addItem(name, price, category, unit || null, null)
-      if (!ok) { limitHit = true; break }   // Free プラン上限
-      added++
-    }
-    if (qtyNum != null && !isNaN(qtyNum) && qtyNum >= 0) {
-      const u = unit || config.units?.[name] || ''
-      updateQty(name, qtyNum, u, deviceName.value || '名前未設定')
-      if (syncActive.value) broadcastUpdate(name, qtyNum, u, deviceName.value || '名前未設定')
-      recorded++
-    }
-  }
-  if (added || updated || recorded) markActivity()
-  if (added || recorded) track('items_bulk_added', { added, recorded })
-  const msgs = []
-  if (added)    msgs.push(`${added}件を追加`)
-  if (updated)  msgs.push(`${updated}件を更新`)
-  if (recorded) msgs.push(`${recorded}件の数量を記録`)
-  if (msgs.length) showToast(msgs.join('・'), 3500, 'success')
-  if (limitHit) openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
 }
 
 // 棚卸結果CSVから入力（数量）を復元する。
@@ -802,7 +761,6 @@ function _closeTopLayer() {
   if (candidateState.value)  { onCancelCandidate();         return true }
   if (chatNotif.value)       { chatNotif.value = null;      return true }
   if (showBarcode.value)      { showBarcode.value = false;      return true }
-  if (showBulkGrid.value)     { showBulkGrid.value = false;    return true }
   if (showUpgrade.value)      { showUpgrade.value = false;      return true }
   if (showOnboarding.value)  { dismissOnboarding();         return true }
   if (showReview.value)      { dismissReview();             return true }
@@ -1916,9 +1874,6 @@ function dismissReview() {
               <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
                 <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
               </button>
-              <button v-if="!inputLocked" class="menu-item" @click="showMenu = false; showBulkGrid = true">
-                <span class="menu-ico">📋</span> 品目を一括入力
-              </button>
               <button v-if="hasBarcodedItems && !inputLocked" class="menu-item" @click="showMenu = false; showBarcode = true">
                 <span class="menu-ico">📷</span> バーコードスキャン
               </button>
@@ -2299,12 +2254,6 @@ function dismissReview() {
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
     <BarcodeScanner       v-if="showBarcode"    :recent-code="lastBarcode" @scanned="onBarcodeScanned" @close="showBarcode = false; lastBarcode = ''" />
-    <BulkItemGrid
-      v-if="showBulkGrid"
-      :existing-categories="existingCategories"
-      @apply="onBulkApply"
-      @close="showBulkGrid = false"
-    />
 
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">
