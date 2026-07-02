@@ -1,27 +1,54 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useVoice, parseText } from '../composables/useVoice.js'
 import NumPad from './NumPad.vue'
 
 const props = defineProps({
-  ingredient:  { type: String,  required: true },
-  initialQty:  { type: Number,  default: null },
-  initialUnit: { type: String,  default: '' },
-  existing:    { type: Object,  default: null }, // { qty, unit } | null
-  prevMonth:   { type: String,  default: '' },   // 前月実績ヒント
-  lotSize:     { type: String,  default: '' },   // 入数ヒント e.g. "24本"
-  unitLocked:  { type: Boolean, default: false }, // PDF登録済み単位は変更不可
-  auditLog:    { type: Array,   default: () => [] },
-  isFlagged:   { type: Boolean, default: false }, // 「あとで数える」フラグ状態
-  typingUser:  { type: String,  default: null },  // 同一品目を入力中の他ユーザー名
+  ingredient:      { type: String,  required: true },
+  initialQty:      { type: Number,  default: null },
+  initialUnit:     { type: String,  default: '' },
+  initialCategory: { type: String,  default: '' },  // 現在のジャンル
+  existing:        { type: Object,  default: null }, // { qty, unit } | null
+  prevMonth:       { type: String,  default: '' },   // 前月実績ヒント
+  lotSize:         { type: String,  default: '' },   // 入数ヒント e.g. "24本"
+  unitLocked:      { type: Boolean, default: false }, // インポート登録済み単位は変更不可
+  categoryLocked:  { type: Boolean, default: false }, // 登録済みジャンルは変更不可
+  existingCategories: { type: Array, default: () => [] }, // 既に使われているジャンル
+  auditLog:        { type: Array,   default: () => [] },
+  isFlagged:       { type: Boolean, default: false }, // 「あとで数える」フラグ状態
+  typingUser:      { type: String,  default: null },  // 同一品目を入力中の他ユーザー名
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag'])
 
+// 単位ドロップダウンの選択肢（p・ヶ を追加）
+const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
+// 初期ジャンル（既存が無いとき用）
+const PRESET_GENRES = ['肉類', '野菜', '魚', '冷凍', '冷蔵', '常温', '飲料', '酒類', '調味料', '乾物', '消耗品', 'その他']
+const CUSTOM = '__custom__'
+
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
 const hasError = ref(false)
-const voiceMsg = ref('')
+
+// ── 単位ドロップダウン ─────────────────────────────────────────────────────────
+const unitCustom = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
+const unitSelectValue = computed(() => unitCustom.value ? CUSTOM : unit.value)
+function onUnitChange(v) {
+  if (v === CUSTOM) { unitCustom.value = true; unit.value = '' }
+  else              { unitCustom.value = false; unit.value = v }
+}
+
+// ── ジャンル（ドロップダウン＋手入力）─────────────────────────────────────────
+const category = ref(props.initialCategory ?? '')
+const categoryOptions = computed(() =>
+  [...new Set([...(props.existingCategories ?? []), ...PRESET_GENRES])]
+)
+const categoryCustom = ref(!!props.initialCategory && !categoryOptions.value.includes(props.initialCategory))
+const categorySelectValue = computed(() => categoryCustom.value ? CUSTOM : category.value)
+function onCategoryChange(v) {
+  if (v === CUSTOM) { categoryCustom.value = true; category.value = '' }
+  else              { categoryCustom.value = false; category.value = v }
+}
 
 // ── テンキー入力 ───────────────────────────────────────────────────────────────
 function numpadDigit(d) {
@@ -63,10 +90,7 @@ function handleKeydown(e) {
 }
 
 onMounted(()   => document.addEventListener('keydown', handleKeydown))
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeydown)
-  if (qtyListening.value) toggleQtyVoice()
-})
+onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 
 // ── プリセット数量ボタン ───────────────────────────────────────────────────────
 const PRESETS = [0.1, 0.5, 1, 5, 10]
@@ -77,30 +101,6 @@ function addPreset(n) {
   qty.value      = String(result)
   hasError.value = false
 }
-
-// ── 単位クイック選択 ───────────────────────────────────────────────────────────
-const COMMON_UNITS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L']
-
-const unitSuggestions = computed(() => {
-  const configured = props.initialUnit?.trim()
-  if (!configured) return COMMON_UNITS.slice(0, 8)
-  return [configured, ...COMMON_UNITS.filter(u => u !== configured)].slice(0, 8)
-})
-
-// ── 音声入力 ───────────────────────────────────────────────────────────────────
-function onQtyVoiceResult(raw) {
-  const { qty: q, unit: u } = parseText(raw)
-  if (q !== null) {
-    qty.value      = String(q)
-    unit.value     = u || unit.value
-    voiceMsg.value = `「${raw}」→ ${q}${u || unit.value}`
-    hasError.value = false
-  } else {
-    voiceMsg.value = '数量を認識できませんでした'
-  }
-}
-
-const { isListening: qtyListening, toggle: toggleQtyVoice } = useVoice(onQtyVoiceResult)
 
 // ── 単位警告 ───────────────────────────────────────────────────────────────────
 const unitWarning = computed(() => {
@@ -178,7 +178,13 @@ function submit(isAdd) {
     return
   }
   hasError.value = false
-  emit('confirm', { ingredient: props.ingredient, qty: q, unit: unit.value.trim(), isAdd })
+  emit('confirm', {
+    ingredient: props.ingredient,
+    qty:        q,
+    unit:       unit.value.trim(),
+    category:   category.value.trim(),
+    isAdd,
+  })
 }
 </script>
 
@@ -237,50 +243,60 @@ function submit(isAdd) {
         </div>
       </div>
 
-      <!-- 数量表示 + 単位 + 音声 -->
+      <!-- 数量表示 + 単位 -->
       <div class="qty-row">
         <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
           {{ qty !== '' ? qty : '—' }}
         </div>
-        <!-- 単位：PDFロック時は変更不可バッジ、それ以外は入力欄 -->
+        <!-- 単位：インポートでロック済みはバッジ、それ以外はドロップダウン -->
         <div v-if="unitLocked" class="unit-locked-badge">
           {{ unit }}<span class="unit-lock-icon">🔒</span>
         </div>
-        <input
-          v-else
-          type="text"
-          v-model="unit"
-          maxlength="6"
-          placeholder="単位"
-          class="unit-input"
-        />
-        <button
-          class="voice-qty-btn"
-          :class="{ listening: qtyListening }"
-          @click="toggleQtyVoice"
-          type="button"
-          title="音声で数量入力"
-        >🎤</button>
+        <div v-else class="select-wrap unit-select-wrap">
+          <select class="field-select" :value="unitSelectValue" @change="onUnitChange($event.target.value)">
+            <option value="">単位</option>
+            <option v-for="u in UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+            <option :value="CUSTOM">その他…</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
       </div>
-
-      <!-- 音声フィードバック -->
-      <div v-if="voiceMsg || qtyListening" class="voice-feedback" :class="{ listening: qtyListening }">
-        {{ qtyListening ? '数量を話してください…（例：3袋、5本）' : voiceMsg }}
-      </div>
+      <!-- 単位：その他（手入力）-->
+      <input
+        v-if="!unitLocked && unitCustom"
+        type="text"
+        v-model="unit"
+        maxlength="6"
+        placeholder="単位を入力"
+        class="custom-input"
+      />
 
       <!-- 単位警告 -->
       <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
 
-      <!-- 単位クイック選択（ロックされていない場合のみ） -->
-      <div v-if="!unitLocked" class="unit-chips">
-        <button
-          v-for="u in unitSuggestions"
-          :key="u"
-          :class="['unit-chip', { active: unit === u }]"
-          @click="unit = u"
-          type="button"
-        >{{ u }}</button>
+      <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力 -->
+      <div class="genre-row">
+        <span class="genre-label">ジャンル</span>
+        <div v-if="categoryLocked" class="genre-locked-badge">
+          {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
+        </div>
+        <div v-else class="select-wrap genre-select-wrap">
+          <select class="field-select" :value="categorySelectValue" @change="onCategoryChange($event.target.value)">
+            <option value="">未設定</option>
+            <option v-for="g in categoryOptions" :key="g" :value="g">{{ g }}</option>
+            <option :value="CUSTOM">その他（手入力）…</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
       </div>
+      <input
+        v-if="!categoryLocked && categoryCustom"
+        type="text"
+        v-model="category"
+        maxlength="20"
+        placeholder="ジャンルを入力"
+        class="custom-input"
+      />
 
       <!-- プリセットボタン -->
       <div class="preset-row">
@@ -415,78 +431,71 @@ function submit(isAdd) {
   background: #fef2f2;
 }
 
-.unit-input {
-  width: 64px;
+/* 単位・ジャンルのドロップダウン（選択できると分かる見た目） */
+.select-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.field-select {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 2px solid var(--primary);
+  border-radius: 10px;
+  padding: 10px 26px 10px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+}
+.unit-select-wrap { width: 84px; }
+.unit-select-wrap .field-select { text-align: center; text-align-last: center; }
+.select-arrow {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--primary);
+  pointer-events: none;
+}
+.custom-input {
+  width: 100%;
+  box-sizing: border-box;
   border: 2px solid var(--border);
   border-radius: 10px;
-  padding: 10px 4px;
-  font-size: 15px;
+  padding: 9px 12px;
+  font-size: 14px;
   font-weight: 600;
-  text-align: center;
   outline: none;
+  margin-bottom: 8px;
 }
+.custom-input:focus { border-color: var(--primary); }
 
-.unit-input:focus { border-color: var(--primary); }
-
-/* PDF単位ロック表示 */
+/* インポート済みロック表示（単位・ジャンル共通） */
 .unit-locked-badge {
-  width: 64px;
+  min-width: 64px;
   border: 2px solid #d1fae5;
   border-radius: 10px;
-  padding: 10px 4px;
+  padding: 10px 8px;
   font-size: 14px;
   font-weight: 700;
   text-align: center;
   background: #f0fdf4;
   color: var(--success);
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
 .unit-lock-icon {
   font-size: 10px;
   opacity: 0.7;
 }
-
-/* 音声ボタン */
-.voice-qty-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: white;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.voice-qty-btn.listening {
-  background: var(--danger);
-  animation: pulse-sm 1.2s ease-in-out infinite;
-}
-
-@keyframes pulse-sm {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
-  50%       { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
-}
-
-.voice-feedback {
-  font-size: 12px;
-  color: var(--text-muted);
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 6px 12px;
-  margin-bottom: 8px;
-  text-align: center;
-}
-
-.voice-feedback.listening { color: var(--danger); background: #fef2f2; }
 
 .unit-warning {
   font-size: 12px;
@@ -499,35 +508,33 @@ function submit(isAdd) {
   line-height: 1.5;
 }
 
-/* 単位クイック選択 */
-.unit-chips {
+/* ジャンル行 */
+.genre-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 8px;
 }
-
-.unit-chip {
-  padding: 5px 12px;
+.genre-label {
   font-size: 13px;
-  font-weight: 600;
-  border: 1.5px solid var(--border);
-  border-radius: 20px;
-  background: #f8fafc;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: border-color 0.1s, background 0.1s, color 0.1s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.unit-chip.active {
-  border-color: var(--primary);
-  background: #eff6ff;
-  color: var(--primary);
   font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
-
-.unit-chip:active { opacity: 0.7; }
+.genre-select-wrap { flex: 1; }
+.genre-locked-badge {
+  flex: 1;
+  border: 2px solid #d1fae5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  background: #f0fdf4;
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 /* プリセットボタン */
 .preset-row {

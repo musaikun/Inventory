@@ -541,6 +541,16 @@ export function useConfig() {
     return n
   }
 
+  // 数量入力モーダルからジャンルだけを設定する（単価・並びは変えない）
+  function setItemCategory(name, category) {
+    if (!config.order.includes(name)) return false
+    const c = (category ?? '').trim()
+    if (c) config.categories[name] = c
+    else   delete config.categories[name]
+    _save()
+    return true
+  }
+
   function removeConfigItem(name) {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
@@ -647,5 +657,6 @@ export function useConfig() {
     addItem,
     updateConfigItem,
     removeConfigItem,
+    setItemCategory,
   }
 }

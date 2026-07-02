@@ -62,7 +62,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -1364,15 +1364,18 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     return
   }
 
-  // PDF登録済みの単位を優先し、ロック状態にする
-  const configUnit = config.units?.[ingredient]
+  // PDF登録済みの単位・ジャンルを優先し、ロック状態にする
+  const configUnit     = config.units?.[ingredient]
+  const configCategory = config.categories?.[ingredient]
   confirmState.value = {
     ingredient,
     qty,
-    unit:       configUnit || unit || '',
-    unitLocked: !!configUnit,
+    unit:           configUnit || unit || '',
+    unitLocked:     !!configUnit,
+    category:       configCategory || '',
+    categoryLocked: !!configCategory,
     source,
-    lotSize:    config.lotSizes?.[ingredient] ?? '',
+    lotSize:        config.lotSizes?.[ingredient] ?? '',
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -1397,7 +1400,7 @@ function _stopTypingKeepalive() {
   _typingKeepaliveTimer = null
 }
 
-function onConfirm({ ingredient, qty, unit, isAdd }) {
+function onConfirm({ ingredient, qty, unit, category, isAdd }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
 
@@ -1411,6 +1414,8 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
 
   const existing  = confirmExisting.value
   const source    = confirmState.value.source
+  // モーダルで選んだジャンルを品目マスタへ反映（ロック中＝設定済みは触らない）
+  if (!confirmState.value.categoryLocked && category) setItemCategory(ingredient, category)
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
@@ -2120,6 +2125,9 @@ function dismissReview() {
         :initial-qty="confirmState.qty"
         :initial-unit="confirmState.unit"
         :unit-locked="confirmState.unitLocked"
+        :initial-category="confirmState.category"
+        :category-locked="confirmState.categoryLocked"
+        :existing-categories="existingCategories"
         :existing="confirmExisting"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
         :lot-size="confirmState.lotSize"
