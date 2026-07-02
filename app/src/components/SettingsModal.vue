@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { downloadItemTemplate } from '../composables/usePdfImporter.js'
+import { downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
@@ -16,17 +16,20 @@ useEscapeKey(() => emit('close'))
 
 const restoreInput = ref(null)
 function onRestoreFile(file) {
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   const reader = new FileReader()
   reader.onload = e => {
     try {
-      const rows = parseResultCSV(e.target.result)
+      const csvText = isExcel ? excelToCsv(e.target.result) : e.target.result
+      const rows = parseResultCSV(csvText)
       emit('restoreInventory', rows)
       emit('close')
     } catch (err) {
       status.value = { type: 'error', msg: err.message }
     }
   }
-  reader.readAsText(file, 'UTF-8')
+  if (isExcel) reader.readAsArrayBuffer(file)
+  else         reader.readAsText(file, 'UTF-8')
 }
 
 // CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
@@ -101,14 +104,16 @@ function handleFile(file) {
 }
 
 function openMapper(file) {
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   const reader = new FileReader()
   reader.onload = e => {
-    mapperCsvText.value  = e.target.result
+    mapperCsvText.value  = isExcel ? excelToCsv(e.target.result) : e.target.result
     mapperFilename.value = file.name
     showMapper.value     = true
     status.value         = null
   }
-  reader.readAsText(file, 'UTF-8')
+  if (isExcel) reader.readAsArrayBuffer(file)
+  else         reader.readAsText(file, 'UTF-8')
 }
 
 function onMapperImported({ mapping, csvText }) {
@@ -199,17 +204,17 @@ function onDownloadTemplate() {
       <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
       <div v-if="!props.isGuest" class="mapper-row">
         <button class="mapper-trigger" @click="mapperInput.click()">
-          🗂 フォーマット不明のCSVを列指定でインポート
+          🗂 フォーマット不明のCSV/Excelを列指定でインポート
         </button>
-        <input ref="mapperInput" type="file" accept=".csv,.txt,text/csv,application/vnd.ms-excel,text/plain" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+        <input ref="mapperInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
       </div>
 
       <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
       <div v-if="!props.isGuest" class="mapper-row">
         <button class="mapper-trigger" @click="restoreInput.click()">
-          🔧 棚卸結果CSVから入力を復元
+          🔧 棚卸結果CSV/Excelから入力を復元
         </button>
-        <input ref="restoreInput" type="file" accept=".csv,.txt,text/csv,application/vnd.ms-excel,text/plain" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <input ref="restoreInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
 
