@@ -201,7 +201,7 @@ function onDownloadTemplate() {
         <button class="mapper-trigger" @click="mapperInput.click()">
           🗂 フォーマット不明のCSVを列指定でインポート
         </button>
-        <input ref="mapperInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+        <input ref="mapperInput" type="file" accept=".csv,.txt,text/csv,application/vnd.ms-excel,text/plain" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
       </div>
 
       <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
@@ -209,7 +209,7 @@ function onDownloadTemplate() {
         <button class="mapper-trigger" @click="restoreInput.click()">
           🔧 棚卸結果CSVから入力を復元
         </button>
-        <input ref="restoreInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <input ref="restoreInput" type="file" accept=".csv,.txt,text/csv,application/vnd.ms-excel,text/plain" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
 
