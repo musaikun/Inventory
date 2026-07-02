@@ -16,6 +16,7 @@ const props = defineProps({
   auditLog:        { type: Array,   default: () => [] },
   isFlagged:       { type: Boolean, default: false }, // 「あとで数える」フラグ状態
   typingUser:      { type: String,  default: null },  // 同一品目を入力中の他ユーザー名
+  isNew:           { type: Boolean, default: false }, // リスト未登録＝「新規登録」ボタンで初めて登録
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag'])
@@ -167,13 +168,14 @@ const addLabel = computed(() => {
 
 // ── 送信 ───────────────────────────────────────────────────────────────────────
 function submit(isAdd) {
-  // 空入力のままEnter → スキップ（未入力のまま次へ / モーダルを閉じる）
-  if (qty.value === '' || qty.value == null) {
+  const empty = qty.value === '' || qty.value == null
+  // 既存品目で空 → 変更せず閉じる。新規は「新規登録」で名前だけ登録できる（数量は任意）
+  if (empty && !props.isNew) {
     emit('cancel')
     return
   }
-  const q = parseFloat(qty.value)
-  if (isNaN(q) || q < 0) {
+  const q = empty ? null : parseFloat(qty.value)
+  if (q !== null && (isNaN(q) || q < 0)) {
     hasError.value = true
     return
   }
@@ -184,6 +186,7 @@ function submit(isAdd) {
     unit:       unit.value.trim(),
     category:   category.value.trim(),
     isAdd,
+    isNew:      props.isNew,
   })
 }
 </script>
@@ -192,7 +195,12 @@ function submit(isAdd) {
   <div class="modal-overlay" @click.self="$emit('cancel')">
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">数量を入力</div>
+      <div class="sheet-title">{{ isNew ? '新しい品目を登録' : '数量を入力' }}</div>
+
+      <!-- 新規登録の注意（誤登録防止）-->
+      <div v-if="isNew" class="new-item-notice">
+        リストにない品目です。「新規登録」を押すと追加します。
+      </div>
 
       <!-- 他メンバーの入力中インジケータ -->
       <div v-if="typingUser" class="typing-user-banner">
@@ -319,7 +327,7 @@ function submit(isAdd) {
           {{ addLabel }}
         </button>
         <button class="btn btn-success" @click="submit(false)">
-          {{ hasDuplicate ? '上書き' : '確定' }}
+          {{ isNew ? '新規登録' : (hasDuplicate ? '上書き' : '確定') }}
         </button>
       </div>
 
@@ -344,6 +352,17 @@ function submit(isAdd) {
   font-size: 12px;
   color: #92400e;
   font-style: italic;
+  text-align: center;
+}
+
+.new-item-notice {
+  background: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 8px;
+  margin: 0 16px 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: #1d4ed8;
   text-align: center;
 }
 

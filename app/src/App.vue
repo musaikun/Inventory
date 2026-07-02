@@ -1272,10 +1272,9 @@ function _walkRegister(name, qty = null, unit = '') {
     nextTick(() => searchInputRef.value?.focus())
     return
   }
-  // ホスト/ソロ: 名前だけ登録 → そのまま数量・単位モーダル（キャンセルでも名前は残る）
-  addItem(n, null, null, unit || null, null)
-  track('item_added_walk')
-  openConfirm(n, qty, unit || '', 'search')
+  // ホスト/ソロ: まだ登録しない。数量モーダルを「新規登録」モードで開き、
+  // 「新規登録」ボタンが押されたときだけ登録する（部分一致のつもりの誤登録を防ぐ）
+  openConfirm(n, qty, unit || '', 'search', { isNew: true })
 }
 
 // CandidateModal から「新規登録」を選んだとき
@@ -1347,7 +1346,7 @@ function onTextSearch() {
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────
 // source: 'search'（テキスト/音声）| 'table'（棚卸表タップ）
-function openConfirm(ingredient, qty, unit, source = 'search') {
+function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
   // TR行がfocusを持ったままだとEnterキーがTRの@keydownとModalのhandleKeydown
   // 両方に発火し、確定と同時に openConfirm(A) が再度呼ばれるバグを防ぐ
   document.activeElement?.blur()
@@ -1376,6 +1375,7 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     categoryLocked: !!configCategory,
     source,
     lotSize:        config.lotSizes?.[ingredient] ?? '',
+    isNew:          !!opts.isNew,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -1400,7 +1400,32 @@ function _stopTypingKeepalive() {
   _typingKeepaliveTimer = null
 }
 
-function onConfirm({ ingredient, qty, unit, category, isAdd }) {
+// 確定後の画面遷移（検索欄クリア/フォーカス・バーコード再開・候補の続き）
+function _finishConfirmNav(source) {
+  searchText.value   = ''
+  searchStatus.value = ''
+  if (source === 'table') {
+    _stopTypingKeepalive()
+    confirmState.value = null
+  } else if (pendingCandidates.value) {
+    _stopTypingKeepalive()
+    candidateState.value = { ...pendingCandidates.value }
+    pendingCandidates.value = null
+    confirmState.value = null
+  } else if (source === 'barcode') {
+    _stopTypingKeepalive()
+    confirmState.value = null
+    showBarcode.value = true
+    return
+  } else {
+    _stopTypingKeepalive()
+    confirmState.value = null
+    nextTick(() => searchInputRef.value?.focus())
+  }
+  _restartIfContinuous()
+}
+
+function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
 
@@ -1412,10 +1437,31 @@ function onConfirm({ ingredient, qty, unit, category, isAdd }) {
     return
   }
 
-  const existing  = confirmExisting.value
-  const source    = confirmState.value.source
+  const source = confirmState.value.source
+
+  // 新規品目: 「新規登録」ボタンが押されて初めてマスタへ追加する（誤登録を防ぐ）
+  if (isNew && !config.order.includes(ingredient)) {
+    if (!canAddItem(config.order.length)) {
+      confirmState.value = null
+      openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+      return
+    }
+    addItem(ingredient, null, category || null, unit || null, null)
+    track('item_added_walk')
+  }
+
   // モーダルで選んだジャンルを品目マスタへ反映（ロック中＝設定済みは触らない）
   if (!confirmState.value.categoryLocked && category) setItemCategory(ingredient, category)
+
+  const existing = confirmExisting.value
+
+  // 数量が未入力なら記録はせず、名前だけ登録してループを次へ
+  if (qty === null || qty === undefined) {
+    if (isNew) showToast(`「${ingredient}」を登録しました`)
+    _finishConfirmNav(source)
+    return
+  }
+
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
@@ -1426,31 +1472,7 @@ function onConfirm({ ingredient, qty, unit, category, isAdd }) {
   }
   if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '名前未設定', isAdd && !!existing)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
-  searchText.value   = ''
-  searchStatus.value = ''
-
-  if (source === 'table') {
-    // テーブルタップ確定後はモーダルを閉じるだけ（次の品目への自動移動はしない）
-    _stopTypingKeepalive()
-    confirmState.value = null
-  } else if (pendingCandidates.value) {
-    // 検索候補から選んで確定 → 残りの候補を再表示
-    _stopTypingKeepalive()
-    candidateState.value = { ...pendingCandidates.value }
-    pendingCandidates.value = null
-    confirmState.value = null
-  } else if (source === 'barcode') {
-    // 連続スキャン: 数量入力完了後すぐバーコードカメラに戻す
-    _stopTypingKeepalive()
-    confirmState.value = null
-    showBarcode.value = true
-    return
-  } else {
-    _stopTypingKeepalive()
-    confirmState.value = null
-    nextTick(() => searchInputRef.value?.focus())
-  }
-  _restartIfContinuous()
+  _finishConfirmNav(source)
 }
 
 function onCancelConfirm() {
@@ -2127,6 +2149,7 @@ function dismissReview() {
         :unit-locked="confirmState.unitLocked"
         :initial-category="confirmState.category"
         :category-locked="confirmState.categoryLocked"
+        :is-new="!!confirmState.isNew"
         :existing-categories="existingCategories"
         :existing="confirmExisting"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
