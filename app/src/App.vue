@@ -1306,22 +1306,13 @@ watch(liveText, v => {
   }
 })
 
-/** ボタンタップの挙動:
- *  - 停止中（非連続）     → 連続モード開始＋認識開始
- *  - 連続モード＋認識中   → 連続モード停止＋認識停止
- *  - 連続モード＋待機中   → 認識を再開（連続モードは継続）
+/** ボタンタップの挙動（タップ・トゥ・トーク＝一言だけの短時間バースト）:
+ *  - 認識中  → 即停止
+ *  - 停止中  → 1回だけ認識開始（約2秒で自動終了。常時オンにはしない）
  */
 function onVoiceButtonTap() {
-  if (!continuousMode.value) {
-    continuousMode.value = true
-    startVoice()
-  } else if (isListening.value) {
-    continuousMode.value = false
-    stopVoice()
-  } else {
-    // 待機中 → 再開
-    startVoice()
-  }
+  if (isListening.value) stopVoice()
+  else startVoice()
 }
 
 /** バナーの停止ボタン用（どの状態でも即停止） */
