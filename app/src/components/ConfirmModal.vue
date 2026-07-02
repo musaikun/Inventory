@@ -157,22 +157,11 @@ function formatAction(action) {
   return action
 }
 
-// ひとつ前の状態（auditLog の2番目から最後のエントリ）
-const prevState = computed(() => {
-  const h = itemHistory.value
-  if (h.length < 2) return null
-  const prev = h[h.length - 2]
-  return { qty: prev.totalQty, unit: prev.unit }
-})
-
-const undoLabel = computed(() => {
-  if (!hasDuplicate.value) return ''
-  if (!prevState.value) return '↩ 未入力に戻す'
-  return `↩ ${prevState.value.qty}${prevState.value.unit} に戻す`
-})
+// 入力済みを未入力に戻す（1個前の値に戻す機能は廃止し「未入力に戻す」に統一）
+const undoLabel = computed(() => hasDuplicate.value ? '↩ 未入力に戻す' : '')
 
 function handleRevert() {
-  emit('revert', prevState.value)
+  emit('revert', null)   // null = 未入力に戻す
 }
 
 // ── 重複 ───────────────────────────────────────────────────────────────────────

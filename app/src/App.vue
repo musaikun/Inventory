@@ -1451,23 +1451,17 @@ function onCancelConfirm() {
   _restartIfContinuous()
 }
 
-function onConfirmRevert(prevState) {
+// 入力済みを未入力に戻す（1個前の値に戻す機能は廃止・「未入力に戻す」に統一）
+function onConfirmRevert() {
   _stopTypingKeepalive()
   const ingredient = confirmState.value.ingredient
   const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value) broadcastTyping(ingredient, false)
   const cur = confirmExisting.value
-  if (!prevState) {
-    removeItem(ingredient)
-    if (syncActive.value) broadcastRemove(ingredient)
-    else _localAudit(ingredient, 'remove', -(cur?.qty ?? 0), 0, cur?.unit ?? '')
-    showToast(`「${ingredient}」を未入力に戻しました`)
-  } else {
-    setItem(ingredient, prevState.qty, prevState.unit, false, deviceName.value || '名前未設定')
-    if (syncActive.value) broadcastUpdate(ingredient, prevState.qty, prevState.unit, deviceName.value || '名前未設定', false)
-    else _localAudit(ingredient, 'overwrite', prevState.qty, prevState.qty, prevState.unit)
-    showToast(`「${ingredient}」を ${prevState.qty}${prevState.unit} に戻しました`)
-  }
+  removeItem(ingredient)
+  if (syncActive.value) broadcastRemove(ingredient)
+  else _localAudit(ingredient, 'remove', -(cur?.qty ?? 0), 0, cur?.unit ?? '')
+  showToast(`「${ingredient}」を未入力に戻しました`)
   confirmState.value = null
   if (wasBarcode) { showBarcode.value = true; return }
   _restartIfContinuous()
