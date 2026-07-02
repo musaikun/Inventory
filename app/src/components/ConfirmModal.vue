@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
 
 const props = defineProps({
@@ -32,11 +32,16 @@ const unit     = ref(props.initialUnit ?? '')
 const hasError = ref(false)
 
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
-const unitCustom = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
+const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
+const unitCustomRef = ref(null)
 const unitSelectValue = computed(() => unitCustom.value ? CUSTOM : unit.value)
 function onUnitChange(v) {
-  if (v === CUSTOM) { unitCustom.value = true; unit.value = '' }
-  else              { unitCustom.value = false; unit.value = v }
+  if (v === CUSTOM) {
+    unitCustom.value = true; unit.value = ''
+    nextTick(() => unitCustomRef.value?.focus())   // その他選択で即キーボードを開く
+  } else {
+    unitCustom.value = false; unit.value = v
+  }
 }
 
 // ── ジャンル（ドロップダウン＋手入力）─────────────────────────────────────────
@@ -44,11 +49,16 @@ const category = ref(props.initialCategory ?? '')
 const categoryOptions = computed(() =>
   [...new Set([...(props.existingCategories ?? []), ...PRESET_GENRES])]
 )
-const categoryCustom = ref(!!props.initialCategory && !categoryOptions.value.includes(props.initialCategory))
+const categoryCustom    = ref(!!props.initialCategory && !categoryOptions.value.includes(props.initialCategory))
+const categoryCustomRef = ref(null)
 const categorySelectValue = computed(() => categoryCustom.value ? CUSTOM : category.value)
 function onCategoryChange(v) {
-  if (v === CUSTOM) { categoryCustom.value = true; category.value = '' }
-  else              { categoryCustom.value = false; category.value = v }
+  if (v === CUSTOM) {
+    categoryCustom.value = true; category.value = ''
+    nextTick(() => categoryCustomRef.value?.focus())   // その他選択で即キーボードを開く
+  } else {
+    categoryCustom.value = false; category.value = v
+  }
 }
 
 // ── テンキー入力 ───────────────────────────────────────────────────────────────
@@ -197,9 +207,10 @@ function submit(isAdd) {
       <div class="sheet-handle"></div>
       <div class="sheet-title">{{ isNew ? '新しい品目を登録' : '数量を入力' }}</div>
 
-      <!-- 新規登録の注意（誤登録防止）-->
+      <!-- 新規登録の注意（誤登録防止・何をしているかの明確化）-->
       <div v-if="isNew" class="new-item-notice">
-        リストにない品目です。「新規登録」を押すと追加します。
+        🆕 この品目を<strong>新しく追加</strong>します<br>
+        <span class="new-item-sub">リストに無い品目です。下の「新規登録」で追加します</span>
       </div>
 
       <!-- 他メンバーの入力中インジケータ -->
@@ -262,9 +273,9 @@ function submit(isAdd) {
         </div>
         <div v-else class="select-wrap unit-select-wrap">
           <select class="field-select" :value="unitSelectValue" @change="onUnitChange($event.target.value)">
-            <option value="">単位</option>
+            <option value="">未設定</option>
             <option v-for="u in UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
-            <option :value="CUSTOM">その他…</option>
+            <option :value="CUSTOM">その他（手入力）…</option>
           </select>
           <span class="select-arrow">▾</span>
         </div>
@@ -272,6 +283,7 @@ function submit(isAdd) {
       <!-- 単位：その他（手入力）-->
       <input
         v-if="!unitLocked && unitCustom"
+        ref="unitCustomRef"
         type="text"
         v-model="unit"
         maxlength="6"
@@ -299,6 +311,7 @@ function submit(isAdd) {
       </div>
       <input
         v-if="!categoryLocked && categoryCustom"
+        ref="categoryCustomRef"
         type="text"
         v-model="category"
         maxlength="20"
@@ -356,14 +369,22 @@ function submit(isAdd) {
 }
 
 .new-item-notice {
-  background: #eff6ff;
-  border: 1.5px solid #bfdbfe;
-  border-radius: 8px;
+  background: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 10px;
   margin: 0 16px 10px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: #1d4ed8;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #92400e;
   text-align: center;
+  line-height: 1.6;
+}
+.new-item-notice strong { color: #b45309; }
+.new-item-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: #a16207;
 }
 
 .name-box {
