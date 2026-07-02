@@ -516,7 +516,8 @@ export function useConfig() {
     return true
   }
 
-  function updateConfigItem(oldName, newName, price, category) {
+  // unit を渡すと単位も更新する（undefined のときは触らない＝後方互換）
+  function updateConfigItem(oldName, newName, price, category, unit) {
     const idx = config.order.indexOf(oldName)
     if (idx < 0) return false
     const n = newName.trim()
@@ -537,6 +538,11 @@ export function useConfig() {
     else delete config.prices[n]
     if (category?.trim()) config.categories[n] = category.trim()
     else delete config.categories[n]
+    if (unit !== undefined) {
+      const u = (unit ?? '').trim()
+      if (u) config.units[n] = u
+      else   delete config.units[n]
+    }
     _save()
     return n
   }

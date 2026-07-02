@@ -17,9 +17,19 @@ const props = defineProps({
   isFlagged:       { type: Boolean, default: false }, // 「あとで数える」フラグ状態
   typingUser:      { type: String,  default: null },  // 同一品目を入力中の他ユーザー名
   isNew:           { type: Boolean, default: false }, // リスト未登録＝「新規登録」ボタンで初めて登録
+  isEdit:          { type: Boolean, default: false }, // 登録済み品目の編集モード
+  initialPrice:    { type: [Number, String], default: '' }, // 編集時の単価
 })
 
-const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag'])
+const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save'])
+
+// 編集モードでは単位・ジャンルのロックを解除して編集できる（編集が唯一の変更手段）
+const unitEditable     = computed(() => props.isEdit || !props.unitLocked)
+const categoryEditable = computed(() => props.isEdit || !props.categoryLocked)
+
+// 編集モード: 品目名・単価
+const editName = ref(props.ingredient)
+const price    = ref(props.initialPrice !== '' && props.initialPrice != null ? String(props.initialPrice) : '')
 
 // 単位ドロップダウンの選択肢（p・ヶ を追加）
 const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
@@ -199,13 +209,31 @@ function submit(isAdd) {
     isNew:      props.isNew,
   })
 }
+
+// 編集モードの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
+function saveEdit() {
+  const name = editName.value.trim()
+  if (!name) { hasError.value = true; return }
+  const empty = qty.value === '' || qty.value == null
+  const q = empty ? null : parseFloat(qty.value)
+  if (q !== null && (isNaN(q) || q < 0)) { hasError.value = true; return }
+  hasError.value = false
+  emit('edit-save', {
+    originalName: props.ingredient,
+    name,
+    qty:      q,
+    unit:     unit.value.trim(),
+    category: category.value.trim(),
+    price:    price.value.trim(),
+  })
+}
 </script>
 
 <template>
   <div class="modal-overlay" @click.self="$emit('cancel')">
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">{{ isNew ? '新しい品目を登録' : '数量を入力' }}</div>
+      <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : '数量を入力') }}</div>
 
       <!-- 新規登録の注意（誤登録防止・何をしているかの明確化）-->
       <div v-if="isNew" class="new-item-notice">
@@ -218,8 +246,16 @@ function submit(isAdd) {
         ✏️ {{ typingUser }}が入力中…
       </div>
 
-      <!-- 品目名 -->
-      <div class="name-box">
+      <!-- 品目名：編集モードは入力欄、それ以外は表示のみ -->
+      <input
+        v-if="isEdit"
+        type="text"
+        v-model="editName"
+        maxlength="40"
+        placeholder="品目名"
+        class="edit-name-input"
+      />
+      <div v-else class="name-box">
         {{ ingredient }}
         <div class="name-hints">
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
@@ -229,6 +265,7 @@ function submit(isAdd) {
 
       <!-- あとで数えるフラグ -->
       <button
+        v-if="!isEdit"
         class="recount-toggle"
         :class="{ on: isFlagged }"
         @click="$emit('toggle-flag', !isFlagged)"
@@ -236,13 +273,13 @@ function submit(isAdd) {
       >🔖 {{ isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える' }}</button>
 
       <!-- 重複警告 -->
-      <div v-if="hasDuplicate" class="dup-warn">
+      <div v-if="hasDuplicate && !isEdit" class="dup-warn">
         ⚠️ 入力済み：{{ existing.qty }}{{ existing.unit }}
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
       </div>
 
       <!-- 変更履歴アコーディオン -->
-      <div v-if="itemHistory.length > 0" class="history-accordion">
+      <div v-if="itemHistory.length > 0 && !isEdit" class="history-accordion">
         <button class="history-toggle" @click="historyOpen = !historyOpen" type="button">
           <span class="history-toggle-label">変更履歴 ({{ itemHistory.length }}件)</span>
           <span class="history-toggle-arrow">{{ historyOpen ? '▲' : '▼' }}</span>
@@ -267,8 +304,8 @@ function submit(isAdd) {
         <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
           {{ qty !== '' ? qty : '—' }}
         </div>
-        <!-- 単位：インポートでロック済みはバッジ、それ以外はドロップダウン -->
-        <div v-if="unitLocked" class="unit-locked-badge">
+        <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
+        <div v-if="!unitEditable" class="unit-locked-badge">
           {{ unit }}<span class="unit-lock-icon">🔒</span>
         </div>
         <div v-else class="select-wrap unit-select-wrap">
@@ -282,7 +319,7 @@ function submit(isAdd) {
       </div>
       <!-- 単位：その他（手入力）-->
       <input
-        v-if="!unitLocked && unitCustom"
+        v-if="unitEditable && unitCustom"
         ref="unitCustomRef"
         type="text"
         v-model="unit"
@@ -297,7 +334,7 @@ function submit(isAdd) {
       <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力 -->
       <div class="genre-row">
         <span class="genre-label">ジャンル</span>
-        <div v-if="categoryLocked" class="genre-locked-badge">
+        <div v-if="!categoryEditable" class="genre-locked-badge">
           {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
         </div>
         <div v-else class="select-wrap genre-select-wrap">
@@ -310,7 +347,7 @@ function submit(isAdd) {
         </div>
       </div>
       <input
-        v-if="!categoryLocked && categoryCustom"
+        v-if="categoryEditable && categoryCustom"
         ref="categoryCustomRef"
         type="text"
         v-model="category"
@@ -318,6 +355,21 @@ function submit(isAdd) {
         placeholder="ジャンルを入力"
         class="custom-input"
       />
+
+      <!-- 単価（編集モードのみ） -->
+      <div v-if="isEdit" class="price-row">
+        <span class="price-label">単価</span>
+        <input
+          type="number"
+          v-model="price"
+          min="0"
+          step="1"
+          inputmode="numeric"
+          placeholder="金額（任意）"
+          class="price-input"
+        />
+        <span class="price-yen">円</span>
+      </div>
 
       <!-- プリセットボタン -->
       <div class="preset-row">
@@ -334,7 +386,11 @@ function submit(isAdd) {
       <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
       <!-- アクションボタン -->
-      <div class="actions" :class="{ 'three-col': hasDuplicate }">
+      <div v-if="isEdit" class="actions">
+        <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
+        <button class="btn btn-success" @click="saveEdit">保存</button>
+      </div>
+      <div v-else class="actions" :class="{ 'three-col': hasDuplicate }">
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
         <button v-if="hasDuplicate" class="btn btn-primary" @click="submit(true)">
           {{ addLabel }}
@@ -346,7 +402,7 @@ function submit(isAdd) {
 
       <!-- ひとつ前の状態に戻す（入力済みの場合のみ） -->
       <button
-        v-if="hasDuplicate"
+        v-if="hasDuplicate && !isEdit"
         class="btn-undo-entry"
         @click="handleRevert"
         type="button"
@@ -513,6 +569,43 @@ function submit(isAdd) {
   margin-bottom: 8px;
 }
 .custom-input:focus { border-color: var(--primary); }
+
+/* 編集モード: 品目名・単価 */
+.edit-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 2px solid var(--primary);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  outline: none;
+  margin-bottom: 12px;
+}
+.price-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.price-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.price-input {
+  flex: 1;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+.price-input:focus { border-color: var(--primary); }
+.price-yen { font-size: 13px; color: var(--text-muted); flex-shrink: 0; }
 
 /* インポート済みロック表示（単位・ジャンル共通） */
 .unit-locked-badge {

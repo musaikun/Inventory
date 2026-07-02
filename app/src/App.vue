@@ -1511,6 +1511,39 @@ function onConfirmRevert(prevState) {
   _restartIfContinuous()
 }
 
+// 品目編集モーダルの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
+function onEditSave({ originalName, name, qty, unit, category, price }) {
+  const n = (name || '').trim()
+  if (!n) return
+  const oldEntry = inventory[originalName] ? { ...inventory[originalName] } : null
+  const priceNum = parseFloat(price)
+  const p = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
+
+  const result = updateConfigItem(originalName, n, p, category || null, unit || '')
+  if (!result) {
+    showToast('その品目名は既に使われています', 3000, 'warning')
+    return
+  }
+
+  // リネーム時は旧在庫エントリを削除（新名で入れ直す）
+  if (n !== originalName && oldEntry) {
+    removeItem(originalName)
+    if (syncActive.value) broadcastRemove(originalName)
+  }
+
+  // 反映する数量: 入力があればそれ、無ければ元の数量。未入力品目はそのまま未入力
+  const finalQty  = (qty !== null && qty !== undefined && !isNaN(qty)) ? qty : (oldEntry ? oldEntry.qty : null)
+  const finalUnit = unit || oldEntry?.unit || ''
+  if (finalQty !== null && finalQty !== undefined) {
+    updateQty(n, finalQty, finalUnit, deviceName.value || '名前未設定')
+    if (syncActive.value) broadcastUpdate(n, finalQty, finalUnit, deviceName.value || '名前未設定')
+  }
+
+  confirmState.value = null
+  markActivity()
+  showToast(`「${n}」を更新しました`, 2500, 'success')
+}
+
 // ── Candidate modal ────────────────────────────────────────────────────────────
 function onCandidateSelect(canonical) {
   const { qty, unit, searchTerm, matched } = candidateState.value
@@ -1643,14 +1676,23 @@ function submitNewItem() {
   nextTick(() => newItemNameRef.value?.focus())
 }
 
+// 品目編集: 新規登録と同じ入力モーダルを編集モードで開く
 function startEditItem(name) {
-  editingItem.value     = name
-  newItemName.value     = name
-  newItemQty.value      = ''
-  newItemPrice.value    = config.prices?.[name] ?? ''
-  newItemCategory.value = config.categories?.[name] ?? ''
-  newItemError.value    = ''
-  nextTick(() => newItemNameRef.value?.focus())
+  if (!config.order.includes(name)) return
+  const entry = inventory[name] ?? null
+  confirmState.value = {
+    ingredient:     name,
+    qty:            entry?.qty ?? null,
+    unit:           entry?.unit || config.units?.[name] || '',
+    unitLocked:     false,
+    category:       config.categories?.[name] || '',
+    categoryLocked: false,
+    price:          config.prices?.[name] ?? '',
+    source:         'edit',
+    lotSize:        config.lotSizes?.[name] ?? '',
+    isNew:          false,
+    isEdit:         true,
+  }
 }
 
 function cancelEditItem() {
@@ -2141,6 +2183,8 @@ function dismissReview() {
         :initial-category="confirmState.category"
         :category-locked="confirmState.categoryLocked"
         :is-new="!!confirmState.isNew"
+        :is-edit="!!confirmState.isEdit"
+        :initial-price="confirmState.price ?? ''"
         :existing-categories="existingCategories"
         :existing="confirmExisting"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
@@ -2151,6 +2195,7 @@ function dismissReview() {
         @confirm="onConfirm"
         @cancel="onCancelConfirm"
         @revert="onConfirmRevert"
+        @edit-save="onEditSave"
         @toggle-flag="on => onToggleRecountFlag(confirmState.ingredient, on)"
       />
 
