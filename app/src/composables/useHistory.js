@@ -31,7 +31,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -61,6 +61,8 @@ export function useHistory() {
         code,
         flagged:   !!recountFlags?.[item],            // 「あとで数える」フラグ
         category:  categories?.[item] ?? null,
+        lotSize:   lotSizes?.[item] ?? '',            // 入数
+        prevMonth: prevMonths?.[item] ?? '',          // 前月実績
       })
     }
 
@@ -158,37 +160,23 @@ export function useHistory() {
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
     }
 
-    const hasPrice  = snapshot.totalValue !== null
-    const hasCats   = snapshot.items.some(it => it.category != null)
-    const header    = hasPrice
-      ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
-      : '日付,商品コード,品目名,単位,数量'
+    // 読み込んだ情報を全て出力（復元で往復できるフラット形式）
+    const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]
 
-    let currentCat = undefined
     for (const it of snapshot.items) {
-      if (hasCats) {
-        const cat = it.category ?? 'その他'
-        if (cat !== currentCat) {
-          currentCat = cat
-          rows.push(hasPrice
-            ? `"","","【${cat}】","","","",""`
-            : `"","","【${cat}】","",""`)
-        }
-      }
       const code     = csvSafe(it.code ?? '')
       const safeItem = csvSafe(it.item)
+      const category = csvSafe(it.category ?? '')
       const unit     = csvSafe(it.unit ?? '')
+      const lot      = csvSafe(it.lotSize ?? '')
+      const prev     = csvSafe(it.prevMonth ?? '')
       const qty      = it.qty !== null && it.qty !== undefined ? it.qty : ''
-      if (hasPrice) {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
-      } else {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty}`)
-      }
+      rows.push(`"${snapshot.date}","${code}","${safeItem}","${category}","${unit}","${lot}","${prev}",${qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
     }
 
     if (snapshot.totalValue != null) {
-      rows.push(`"${snapshot.date}","","【合計】","",,,${snapshot.totalValue}`)
+      rows.push(`"${snapshot.date}","","【合計】","","","","",,,${snapshot.totalValue}`)
     }
     return rows.join('\r\n')
   }

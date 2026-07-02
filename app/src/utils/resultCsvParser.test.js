@@ -32,8 +32,8 @@ describe('resultCsvParser', () => {
     it('品目名・数量・単位・コード・単価を抽出する', () => {
       const rows = parseResultCSV(CSV_PRICED)
       expect(rows).toHaveLength(2)
-      expect(rows[0]).toEqual({ name: '豚バラ', qty: 3, unit: 'kg', code: '4900000000001', price: 500 })
-      expect(rows[1]).toEqual({ name: 'ビール', qty: 24, unit: '本', code: '', price: 200 })
+      expect(rows[0]).toEqual({ name: '豚バラ', qty: 3, unit: 'kg', code: '4900000000001', price: 500, category: '', lotSize: '', prevMonth: '' })
+      expect(rows[1]).toEqual({ name: 'ビール', qty: 24, unit: '本', code: '', price: 200, category: '', lotSize: '', prevMonth: '' })
     })
 
     it('【合計】行はスキップする', () => {

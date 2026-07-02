@@ -16,11 +16,14 @@ function parseCSVLine(line) {
 
 // ヘッダ候補（表記ゆれを許容）
 const COLS = {
-  name:  ['品目名', '商品名', '品名', '名称'],
-  qty:   ['数量', '在庫数', '棚卸数'],
-  unit:  ['単位'],
-  code:  ['商品コード', 'コード', 'jan', 'ean'],
-  price: ['単価', '原価'],
+  name:      ['品目名', '商品名', '品名', '名称'],
+  qty:       ['数量', '在庫数', '棚卸数'],
+  unit:      ['単位'],
+  code:      ['商品コード', 'コード', 'jan', 'ean'],
+  price:     ['単価', '原価'],
+  category:  ['カテゴリ', '分類', '種別', 'ジャンル'],
+  lotSize:   ['入数', '入り数', 'ロット'],
+  prevMonth: ['前月実績', '前月', '先月'],
 }
 
 function _findCol(header, names) {
@@ -40,7 +43,7 @@ export function isResultCSV(csvText) {
   return _findCol(header, COLS.name) >= 0 && _findCol(header, COLS.qty) >= 0
 }
 
-// 復元用の行配列を返す: [{ name, qty, unit, code, price }]
+// 復元用の行配列を返す: [{ name, qty, unit, code, price, category, lotSize, prevMonth }]
 // 数量が空・【合計】行・品目名が空の行はスキップする。
 export function parseResultCSV(csvText) {
   const text  = (csvText ?? '').replace(/^﻿/, '').trim()
@@ -49,16 +52,20 @@ export function parseResultCSV(csvText) {
 
   const header = parseCSVLine(lines[0])
   const ci = {
-    name:  _findCol(header, COLS.name),
-    qty:   _findCol(header, COLS.qty),
-    unit:  _findCol(header, COLS.unit),
-    code:  _findCol(header, COLS.code),
-    price: _findCol(header, COLS.price),
+    name:      _findCol(header, COLS.name),
+    qty:       _findCol(header, COLS.qty),
+    unit:      _findCol(header, COLS.unit),
+    code:      _findCol(header, COLS.code),
+    price:     _findCol(header, COLS.price),
+    category:  _findCol(header, COLS.category),
+    lotSize:   _findCol(header, COLS.lotSize),
+    prevMonth: _findCol(header, COLS.prevMonth),
   }
   if (ci.name < 0 || ci.qty < 0) {
     throw new Error('棚卸結果CSVの形式ではありません（「品目名」「数量」列が必要です）')
   }
 
+  const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
   const rows = []
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i])
@@ -73,9 +80,12 @@ export function parseResultCSV(csvText) {
     rows.push({
       name,
       qty,
-      unit:  ci.unit  >= 0 ? (cols[ci.unit]  ?? '').trim() : '',
-      code:  ci.code  >= 0 ? (cols[ci.code]  ?? '').trim() : '',
-      price: ci.price >= 0 ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return isNaN(p) ? null : p })() : null,
+      unit:      _cell(cols, ci.unit),
+      code:      _cell(cols, ci.code),
+      price:     ci.price >= 0 ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return isNaN(p) ? null : p })() : null,
+      category:  _cell(cols, ci.category),
+      lotSize:   _cell(cols, ci.lotSize),
+      prevMonth: _cell(cols, ci.prevMonth),
     })
   }
 

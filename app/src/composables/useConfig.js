@@ -547,6 +547,21 @@ export function useConfig() {
     return n
   }
 
+  // 復元時などに入数・前月実績をまとめて設定する
+  function setItemExtras(name, { lotSize, prevMonth } = {}) {
+    if (!config.order.includes(name)) return false
+    if (lotSize !== undefined) {
+      const l = (lotSize ?? '').trim()
+      if (l) config.lotSizes[name] = l; else delete config.lotSizes[name]
+    }
+    if (prevMonth !== undefined) {
+      const p = (prevMonth ?? '').trim()
+      if (p) config.prevMonths[name] = p; else delete config.prevMonths[name]
+    }
+    _save()
+    return true
+  }
+
   // 数量入力モーダルからジャンルだけを設定する（単価・並びは変えない）
   function setItemCategory(name, category) {
     if (!config.order.includes(name)) return false
@@ -575,14 +590,15 @@ export function useConfig() {
    * mapping = { name, unit, price, category, alias, code } — 各フィールドの列インデックス（null=使用しない）
    */
   function loadFromCSVMapped(csvText, mapping) {
-    const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol, alias: aliasCol, code: codeCol } = mapping
+    const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol,
+            code: codeCol, lotSize: lotCol, prevMonth: prevCol } = mapping
     if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
 
     const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
     if (lines.length < 2) throw new Error('データ行がありません')
 
     const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
-    const newCodes = {}, newDict = {}
+    const newCodes = {}, newLotSizes = {}, newPrevMonths = {}
 
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
@@ -590,25 +606,29 @@ export function useConfig() {
       if (!name) continue
 
       newOrder.push(name)
-      if (unitCol !== null) {
+      if (unitCol != null) {
         const u = cols[unitCol]?.trim()
         if (u) newUnits[name] = u
       }
-      if (priceCol !== null) {
+      if (priceCol != null) {
         const p = parseFloat(cols[priceCol])
         if (!isNaN(p) && p > 0) newPrices[name] = p
       }
-      if (categoryCol !== null) {
+      if (categoryCol != null) {
         const c = cols[categoryCol]?.trim()
         if (c) newCategories[name] = c
       }
-      if (aliasCol !== null) {
-        ;(cols[aliasCol] ?? '').split(',').map(a => a.trim()).filter(Boolean)
-          .forEach(alias => { newDict[alias] = name })
-      }
-      if (codeCol !== null) {
+      if (codeCol != null) {
         const cd = cols[codeCol]?.trim()
         if (cd) newCodes[name] = cd
+      }
+      if (lotCol != null) {
+        const l = cols[lotCol]?.trim()
+        if (l) newLotSizes[name] = l
+      }
+      if (prevCol != null) {
+        const pm = cols[prevCol]?.trim()
+        if (pm) newPrevMonths[name] = pm
       }
     }
 
@@ -627,9 +647,9 @@ export function useConfig() {
     config.categories    = newCategories
     config.codes         = newCodes
     config.categoryCodes = {}
-    config.prevMonths    = {}
-    config.lotSizes      = {}
-    config.dictionary    = newDict
+    config.prevMonths    = newPrevMonths
+    config.lotSizes      = newLotSizes
+    config.dictionary    = {}
     const newSet         = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
@@ -664,5 +684,6 @@ export function useConfig() {
     updateConfigItem,
     removeConfigItem,
     setItemCategory,
+    setItemExtras,
   }
 }

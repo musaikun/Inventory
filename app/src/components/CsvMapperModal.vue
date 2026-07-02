@@ -24,21 +24,23 @@ const headers    = allLines[0] ? _parseLine(allLines[0]).map(h => h.trim()) : []
 const previewRows = allLines.slice(1, 6).map(l => _parseLine(l))
 
 const mapping = reactive({
-  name:     null,
-  unit:     null,
-  price:    null,
-  category: null,
-  alias:    null,
-  code:     null,
+  name:      null,
+  unit:      null,
+  price:     null,
+  category:  null,
+  code:      null,
+  lotSize:   null,
+  prevMonth: null,
 })
 
 const HINTS = {
-  name:     ['品目名', '商品名', '品名', '名称', 'name', 'item', 'product'],
-  unit:     ['単位', 'unit'],
-  price:    ['単価', '価格', '金額', '原価', 'price', 'cost'],
-  category: ['カテゴリ', '分類', '種別', 'category', 'type'],
-  alias:    ['エイリアス', '別名', '略称', 'alias'],
-  code:     ['商品コード', 'コード', 'jan', 'ean', 'barcode', 'code'],
+  name:      ['品目名', '商品名', '品名', '名称', 'name', 'item', 'product'],
+  unit:      ['単位', 'unit'],
+  price:     ['単価', '価格', '金額', '原価', 'price', 'cost'],
+  category:  ['カテゴリ', '分類', '種別', 'ジャンル', 'category', 'type'],
+  code:      ['商品コード', 'コード', 'jan', 'ean', 'barcode', 'code'],
+  lotSize:   ['入数', '入り数', 'ロット', 'lot', 'pack'],
+  prevMonth: ['前月実績', '前月', '先月', 'prev', 'last'],
 }
 
 function _detect(hints) {
@@ -49,20 +51,22 @@ function _detect(hints) {
   return null
 }
 
-mapping.name     = _detect(HINTS.name)     ?? 0
-mapping.unit     = _detect(HINTS.unit)
-mapping.price    = _detect(HINTS.price)
-mapping.category = _detect(HINTS.category)
-mapping.alias    = _detect(HINTS.alias)
-mapping.code     = _detect(HINTS.code)
+mapping.name      = _detect(HINTS.name)     ?? 0
+mapping.unit      = _detect(HINTS.unit)
+mapping.price     = _detect(HINTS.price)
+mapping.category  = _detect(HINTS.category)
+mapping.code      = _detect(HINTS.code)
+mapping.lotSize   = _detect(HINTS.lotSize)
+mapping.prevMonth = _detect(HINTS.prevMonth)
 
 const FIELD_DEFS = [
-  { key: 'name',     label: '品目名',         required: true },
-  { key: 'unit',     label: '単位',           required: false },
-  { key: 'price',    label: '単価',           required: false },
-  { key: 'category', label: 'カテゴリ',       required: false },
-  { key: 'alias',    label: 'エイリアス',     required: false },
-  { key: 'code',     label: '商品コード（バーコード）', required: false },
+  { key: 'name',      label: '品目名',         required: true },
+  { key: 'unit',      label: '単位',           required: false },
+  { key: 'price',     label: '単価',           required: false },
+  { key: 'category',  label: 'カテゴリ',       required: false },
+  { key: 'code',      label: '商品コード（バーコード）', required: false },
+  { key: 'lotSize',   label: '入数',           required: false },
+  { key: 'prevMonth', label: '前月実績',       required: false },
 ]
 
 const canImport = computed(() => mapping.name !== null)

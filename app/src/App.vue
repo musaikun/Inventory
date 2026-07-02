@@ -62,7 +62,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -419,11 +419,15 @@ function onRestoreInventory(rows) {
   let restored = 0, added = 0
   for (const r of rows) {
     if (!r?.name || typeof r.qty !== 'number') continue
+    const priceNum = parseFloat(r.price)
+    const price    = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
     if (!config.order.includes(r.name)) {
-      // 新規分は表示が自然になるよう単位・コードも登録（単価は数量のみ復元の方針で除外）
-      addItem(r.name, null, null, r.unit || null, r.code || null)
+      // CSVの情報（単価・ジャンル・単位・コード）をまとめて復元
+      addItem(r.name, price, r.category || null, r.unit || null, r.code || null)
       added++
     }
+    // 入数・前月実績も復元
+    if (r.lotSize || r.prevMonth) setItemExtras(r.name, { lotSize: r.lotSize, prevMonth: r.prevMonth })
     const unit = r.unit || config.units?.[r.name] || ''
     updateQty(r.name, r.qty, unit, deviceName.value || '名前未設定')
     if (syncActive.value) broadcastUpdate(r.name, r.qty, unit, deviceName.value || '名前未設定')
@@ -979,7 +983,7 @@ async function onComplete() {
   const completedYear = new Date().getFullYear()
 
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths)
   if (snapshot) {
     saveSnapshotToD1(snapshot)
     // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
