@@ -401,7 +401,6 @@ function fmtYen(n) {
   <section class="inventory-section">
     <!-- ヘッダー行 -->
     <div class="section-header">
-      <h2>棚卸一覧</h2>
       <div class="header-right">
         <span class="progress">
           <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
@@ -558,17 +557,9 @@ function fmtYen(n) {
 /* ── セクションヘッダー ── */
 .section-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   padding: 14px 4px 10px;
-}
-
-.section-header h2 {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .header-right {

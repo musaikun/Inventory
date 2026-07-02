@@ -1956,16 +1956,7 @@ function dismissReview() {
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
 
-        <!-- 品目一括入力（コピペ対応グリッド。ゲストは承認制のため非表示）-->
-        <button v-if="!editingItem && !inputLocked && !(syncActive && !syncIsHost)" class="bulk-input-btn" @click="showBulkGrid = true">
-          📋 品目を一括入力（貼り付け対応）
-        </button>
-
-        <!-- 品目追加・編集フォーム（トグルで表示/非表示） -->
-        <button v-if="!editingItem" class="add-item-toggle" @click="showAddItemForm = !showAddItemForm">
-          <span class="add-item-toggle-label">＋ 品目を手動で追加</span>
-          <span class="add-item-toggle-arrow">{{ showAddItemForm ? '▲ 閉じる' : '▼ 開く' }}</span>
-        </button>
+        <!-- 品目編集フォーム（編集時のみ表示。追加は検索欄からの積み上げ登録が主動線） -->
         <div v-if="showAddItemForm || editingItem" class="add-item-form">
           <div v-if="barcodeAddCode" class="barcode-add-hint">
             <span class="barcode-add-icon">📷</span>
