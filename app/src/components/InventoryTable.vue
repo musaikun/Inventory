@@ -491,13 +491,13 @@ function fmtYen(n) {
         v-if="hasUsageData"
         :class="['used-toggle', { active: usedOnly }]"
         @click="toggleUsedOnly"
-        title="前回までよく使った品目だけを表示（検索は全品目対象）"
-      >⭐ よく使う品目</button>
+        title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
+      >{{ usedOnly ? '✓ ' : '' }}前回までに入力した品目のみ表示</button>
     </div>
 
     <!-- 絞り込み中インジケータ（いつでも全表示に戻せる） -->
     <div v-if="_usedActive && hiddenCount > 0" class="used-notice" @click="toggleUsedOnly">
-      使っていない {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
+      前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
     </div>
 
     <!-- テーブル -->
