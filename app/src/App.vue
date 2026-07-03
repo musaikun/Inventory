@@ -75,6 +75,18 @@ const {
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
+// 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
+const USAGE_SESSIONS = 3
+const itemUsageMap = computed(() => {
+  const map = {}
+  for (const snap of getSnapshots().slice(0, USAGE_SESSIONS)) {
+    for (const it of (snap.items ?? [])) {
+      if (it.qty !== null && it.qty !== undefined) map[it.item] = (map[it.item] ?? 0) + 1
+    }
+  }
+  return map
+})
+
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
 function markActivity() { if (currentView.value === 'session') activeTimer.mark() }
@@ -2118,6 +2130,7 @@ function dismissReview() {
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
+        :usage-map="itemUsageMap"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"

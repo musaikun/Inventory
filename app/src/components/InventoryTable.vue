@@ -15,6 +15,7 @@ const props = defineProps({
   conflictLocked:   { type: Object,  default: null },
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
+  usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item'])
@@ -26,6 +27,32 @@ const config = computed(() => props.configSource ?? liveConfig)
 
 function _isSupply(item) {
   return isSupplyItem(item, config.value.categories)
+}
+
+// ── よく使う品目に絞る（履歴ベース・表示のみ／マスタは不変）─────────────────────
+// 直近N回で一度も入力されていない品目を隠し、よく使う順に並べる。
+// 検索は常に全品目対象、今回入力済みの品目は必ず表示、いつでも全表示に戻せる。
+const usage        = computed(() => props.usageMap ?? {})
+const hasUsageData = computed(() => !props.readOnly && Object.keys(usage.value).length > 0)
+const usedOnly     = ref(false)
+try { usedOnly.value = localStorage.getItem('inv_used_only') === '1' } catch (_) {}
+function toggleUsedOnly() {
+  usedOnly.value = !usedOnly.value
+  try { localStorage.setItem('inv_used_only', usedOnly.value ? '1' : '0') } catch (_) {}
+}
+const _usedActive = computed(() => usedOnly.value && hasUsageData.value)
+// 表示対象か: 今回入力済み / カスタム品目 / 直近N回で1回でも入力あり
+function _isUsed(row) {
+  return row.custom || row.entry !== null || (usage.value[row.item] ?? 0) >= 1
+}
+// 名前ベースの「使う品目」判定（進捗集計用・filterMode非依存）
+function _isUsedName(item) {
+  return props.inventory[item] != null || (usage.value[item] ?? 0) >= 1
+}
+// グループ内をよく使う順に並べ替え（絞り込みON時のみ・元の順は安定ソートで保持）
+function _sortByUsage(arr) {
+  if (!_usedActive.value) return arr
+  return [...arr].sort((a, b) => (usage.value[b.item] ?? 0) - (usage.value[a.item] ?? 0))
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
@@ -79,6 +106,7 @@ const catRealStats = computed(() => {
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
     const cat = config.value.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
@@ -133,6 +161,11 @@ const rows = computed(() => {
     all = all.filter(r => _isSupply(r.item))
   }
 
+  // 3.5 よく使う品目のみ（ON時のみ・履歴で未使用の品目を隠す）
+  if (_usedActive.value) {
+    all = all.filter(_isUsed)
+  }
+
   // 4. 入力済み/未入力フィルター適用
   let items
   if (filterMode.value === 'filled') {
@@ -165,7 +198,7 @@ const rows = computed(() => {
     for (const [grp, groupRows] of sorted) {
       const real = kanaRealStats.value[grp] ?? { total: groupRows.length, filled: 0 }
       result.push({ type: 'group-header', label: grp, count: real.total, filled: real.filled, isKana: true })
-      result.push(...groupRows)
+      result.push(..._sortByUsage(groupRows))
     }
     return result
   }
@@ -194,7 +227,7 @@ const rows = computed(() => {
     for (const [cat, groupRows] of sorted) {
       const real = catRealStats.value[cat] ?? { total: groupRows.length, filled: 0 }
       result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled, isKana: false })
-      result.push(...groupRows)
+      result.push(..._sortByUsage(groupRows))
     }
     return result
   }
@@ -207,6 +240,23 @@ const rows = computed(() => {
 const visibleItemCount = computed(() =>
   rows.value.filter(r => r.type === 'item').length
 )
+
+// よく使う絞り込みで隠れている品目数（スコープ適用後・filterMode非依存）
+const hiddenCount = computed(() => {
+  if (!_usedActive.value) return 0
+  let hidden = 0
+  const all = [
+    ...config.value.order.map(item => ({ item, entry: props.inventory[item] ?? null, custom: false })),
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k))
+      .map(item => ({ item, entry: props.inventory[item], custom: true })),
+  ]
+  for (const r of all) {
+    if (props.categoryScope === 'food'   && _isSupply(r.item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(r.item)) continue
+    if (!_isUsed(r)) hidden++
+  }
+  return hidden
+})
 
 // ── 価格・金額 ────────────────────────────────────────────────────────────────
 const hasPrices = computed(() =>
@@ -362,6 +412,7 @@ const kanaRealStats = computed(() => {
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
     const grp = _kanaGroup(item)
     if (!map[grp]) map[grp] = { total: 0, filled: 0 }
     map[grp].total++
@@ -370,12 +421,12 @@ const kanaRealStats = computed(() => {
   return map
 })
 
-// スコープ対応の品目数（ヘッダー表示用）
+// スコープ対応の品目数（ヘッダー表示用・絞り込み中は使う品目のみ）
 const scopedTotal = computed(() => {
-  if (props.categoryScope === 'all') return config.value.order.length
-  return config.value.order.filter(item =>
-    props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item)
-  ).length
+  const inScope = props.categoryScope === 'all'
+    ? config.value.order
+    : config.value.order.filter(item => props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item))
+  return _usedActive.value ? inScope.filter(_isUsedName).length : inScope.length
 })
 
 const scopedFilled = computed(() => {
@@ -436,6 +487,17 @@ function fmtYen(n) {
           @click="filterMode = opt.value"
         >{{ opt.label }}</button>
       </div>
+      <button
+        v-if="hasUsageData"
+        :class="['used-toggle', { active: usedOnly }]"
+        @click="toggleUsedOnly"
+        title="前回までよく使った品目だけを表示（検索は全品目対象）"
+      >⭐ よく使う品目</button>
+    </div>
+
+    <!-- 絞り込み中インジケータ（いつでも全表示に戻せる） -->
+    <div v-if="_usedActive && hiddenCount > 0" class="used-notice" @click="toggleUsedOnly">
+      使っていない {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
     </div>
 
     <!-- テーブル -->
@@ -583,6 +645,7 @@ function fmtYen(n) {
   display: flex;
   gap: 8px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 
 .seg-full {
@@ -618,6 +681,37 @@ function fmtYen(n) {
   color: var(--primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
+
+/* ── よく使う品目トグル ── */
+.used-toggle {
+  flex: 1 0 100%;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.used-toggle.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+  color: var(--primary);
+}
+.used-notice {
+  font-size: 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 8px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.used-notice strong { color: #b45309; }
 
 /* ── テーブル ── */
 .inv-table {
