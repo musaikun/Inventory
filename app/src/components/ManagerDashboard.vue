@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   snapshots: { type: Array, default: () => [] },
@@ -12,10 +12,30 @@ const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 const sorted = computed(() =>
   [...props.snapshots].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 )
-const latest = computed(() => sorted.value[0] ?? null)
-const prev   = computed(() => sorted.value[1] ?? null)
+const hasData = computed(() => sorted.value.length > 0)
 
-const hasData = computed(() => !!latest.value)
+// ── どの棚卸を分析するか ────────────────────────────
+const selectedDate = ref(null)
+watch(sorted, (arr) => {
+  if (!selectedDate.value || !arr.some(s => s.date === selectedDate.value)) {
+    selectedDate.value = arr[0]?.date ?? null
+  }
+}, { immediate: true })
+
+const currentIdx = computed(() => sorted.value.findIndex(s => s.date === selectedDate.value))
+const current = computed(() => sorted.value[currentIdx.value] ?? null)
+// 選択した棚卸の「1つ前」= より古い直近のスナップショット
+const prevSnap = computed(() => {
+  const i = currentIdx.value
+  return i >= 0 ? (sorted.value[i + 1] ?? null) : null
+})
+
+function _hasPrices(snap) {
+  return !!snap && snap.items.some(it => it.unitPrice != null)
+}
+const curHasPrices  = computed(() => _hasPrices(current.value))
+const prevHasPrices = computed(() => _hasPrices(prevSnap.value))
+const canValue = computed(() => curHasPrices.value && prevHasPrices.value)
 
 function _yen(v) {
   if (v == null) return '—'
@@ -33,6 +53,9 @@ function _fmtDate(dateStr) {
   if (isNaN(d.getTime())) return dateStr
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
+function _optionLabel(s) {
+  return `${_fmtDate(s.date)}（${_weekday(s.date)}）${s.totalValue != null ? ' ' + _yen(s.totalValue) : ''}`
+}
 function _fmtDuration(ms) {
   if (typeof ms !== 'number' || ms <= 0) return null
   const min = Math.round(ms / 60000)
@@ -43,13 +66,13 @@ function _fmtDuration(ms) {
   return m > 0 ? `${h}時間${m}分` : `${h}時間`
 }
 
-// ── 最新棚卸サマリー ──────────────────────────────
+// ── 選択した棚卸のサマリー ──────────────────────────
 const summary = computed(() => {
-  const s = latest.value
+  const s = current.value
   if (!s) return null
   const entered = s.items.filter(it => it.qty !== null).length
-  const totalValue = s.totalValue
-  const prevTotal  = prev.value?.totalValue ?? null
+  const totalValue = curHasPrices.value ? s.totalValue : null
+  const prevTotal  = prevHasPrices.value ? (prevSnap.value?.totalValue ?? null) : null
   let diffValue = null, diffPct = null
   if (totalValue != null && prevTotal != null && prevTotal > 0) {
     diffValue = totalValue - prevTotal
@@ -58,6 +81,7 @@ const summary = computed(() => {
   return {
     date:        s.date,
     weekday:     _weekday(s.date),
+    hasPrices:   curHasPrices.value,
     totalValue,
     duration:    _fmtDuration(s.activeMs),
     headcount:   s.participants?.length ?? null,
@@ -79,13 +103,14 @@ const trend = computed(() => {
     label: `${new Date(s.date + 'T00:00:00').getMonth() + 1}/${new Date(s.date + 'T00:00:00').getDate()}`,
     value: s.totalValue,
     pct:   Math.round((s.totalValue / max) * 100),
+    sel:   s.date === selectedDate.value,
   }))
 })
 
-// ── ジャンル別在庫金額（最新）──────────────────────
+// ── ジャンル別在庫金額（選択した棚卸）────────────────
 const genreBreakdown = computed(() => {
-  const s = latest.value
-  if (!s) return []
+  const s = current.value
+  if (!s || !curHasPrices.value) return []
   const map = new Map()
   for (const it of s.items) {
     if (it.subtotal == null) continue
@@ -105,19 +130,21 @@ const genreBreakdown = computed(() => {
 
 // ── 前回差アラート ────────────────────────────────
 const alertMode = ref('value')      // 'value' | 'qty'
+const effectiveMode = computed(() => canValue.value ? alertMode.value : 'qty')
 const threshold = ref(200)          // 増加率 %（150〜500）
 const floorValue = ref(1000)        // 金額の下限（円）
 const floorQty   = ref(3)           // 数量の下限
 
 const diffRows = computed(() => {
-  const cur = latest.value
-  const pv  = prev.value
-  if (!cur || !pv) return { increases: [], decreases: [], appeared: [], gone: [] }
+  const cur = current.value
+  const pv  = prevSnap.value
+  const empty = { increases: [], decreases: [], appeared: [], gone: [] }
+  if (!cur || !pv) return empty
 
   const prevMap = new Map()
   for (const it of pv.items) prevMap.set(it.item, it)
 
-  const isValue = alertMode.value === 'value'
+  const isValue = effectiveMode.value === 'value'
   const floor = isValue ? floorValue.value : floorQty.value
   const th = threshold.value / 100
 
@@ -131,26 +158,25 @@ const diffRows = computed(() => {
 
     if (prevVal === null || prevVal === 0) {
       if (curVal >= floor) {
-        appeared.push({ item: it.item, category: it.category, curVal, prevVal: prevVal ?? null, unit: it.unit })
+        appeared.push({ item: it.item, curVal, unit: it.unit })
       }
       continue
     }
     const ratio = curVal / prevVal
     const absDiff = Math.abs(curVal - prevVal)
     if (absDiff < floor) continue
-    const row = { item: it.item, category: it.category, curVal, prevVal, ratio, unit: it.unit, diff: curVal - prevVal }
+    const row = { item: it.item, curVal, prevVal, ratio, unit: it.unit }
     if (ratio >= th) increases.push(row)
     else if (ratio <= 1 / th) decreases.push(row)
   }
 
-  // 前回入力あり → 今回未入力（消えた）
   const curMap = new Map()
   for (const it of cur.items) if (it.qty !== null) curMap.set(it.item, it)
   for (const it of pv.items) {
     if (it.qty === null) continue
     if (curMap.has(it.item)) continue
     const prevVal = isValue ? (it.subtotal ?? 0) : it.qty
-    if (prevVal >= floor) gone.push({ item: it.item, category: it.category, prevVal, unit: it.unit })
+    if (prevVal >= floor) gone.push({ item: it.item, prevVal, unit: it.unit })
   }
 
   increases.sort((a, b) => b.ratio - a.ratio)
@@ -161,19 +187,19 @@ const diffRows = computed(() => {
 })
 
 function _fmtVal(v) {
-  return alertMode.value === 'value' ? _yen(v) : `${v}`
+  return effectiveMode.value === 'value' ? _yen(v) : `${v}`
 }
 function _fmtUnit(unit) {
-  return alertMode.value === 'qty' && unit ? unit : ''
+  return effectiveMode.value === 'qty' && unit ? unit : ''
 }
 
-// ── ABC分析（最新・在庫金額）──────────────────────
+// ── ABC分析（選択した棚卸・在庫金額）──────────────
 const abc = computed(() => {
-  const s = latest.value
-  if (!s) return null
+  const s = current.value
+  if (!s || !curHasPrices.value) return null
   const rows = s.items
     .filter(it => it.subtotal != null && it.subtotal > 0)
-    .map(it => ({ item: it.item, category: it.category, value: it.subtotal }))
+    .map(it => ({ item: it.item, value: it.subtotal }))
     .sort((a, b) => b.value - a.value)
   const total = rows.reduce((sum, r) => sum + r.value, 0)
   if (total <= 0) return null
@@ -185,7 +211,7 @@ const abc = computed(() => {
     let cls = 'C'
     if (cumPct <= 70) cls = 'A'
     else if (cumPct <= 90) cls = 'B'
-    return { ...r, cumPct, cls }
+    return { ...r, cls }
   })
 
   const summarize = (cls) => {
@@ -201,6 +227,55 @@ const abc = computed(() => {
     }
   }
   return { total, A: summarize('A'), B: summarize('B'), C: summarize('C') }
+})
+
+// ── 分析できる項目（データに応じて増える）──────────
+const showCapabilities = ref(false)
+const capabilities = computed(() => {
+  const s = current.value
+  if (!s) return []
+  const withPrice = s.items.filter(it => it.unitPrice != null).length
+  const withCat   = s.items.filter(it => it.category).length
+  const withPrev  = s.items.filter(it => it.prevMonth !== '' && it.prevMonth != null).length
+  return [
+    {
+      name: '在庫金額・推移・ABC分析',
+      ok: withPrice > 0,
+      detail: withPrice > 0 ? `${withPrice}品目に単価あり` : '単価データなし',
+      need: '各品目の単価',
+      hint: '設定 › 品目リストで単価を入力（またはCSVで取込）すると、在庫金額の合計・推移・ABC分析が使えます',
+    },
+    {
+      name: 'ジャンル別在庫金額',
+      ok: withCat > 0 && withPrice > 0,
+      detail: withCat > 0 ? `${withCat}品目にジャンルあり` : 'ジャンル未設定',
+      need: '品目のジャンル＋単価',
+      hint: '入力モーダルやCSVで品目にジャンルを設定すると、ジャンル別の在庫金額が集計されます',
+    },
+    {
+      name: '前回差アラート',
+      ok: !!prevSnap.value,
+      detail: prevSnap.value ? '前回の棚卸データあり' : '前回データなし',
+      need: '2回以上の棚卸',
+      hint: '棚卸を2回以上完了すると、前回との差（急増・急減・新規・未入力）が表示されます',
+    },
+    {
+      name: '前月実績との比較',
+      ok: withPrev > 0,
+      future: true,
+      detail: withPrev > 0 ? `${withPrev}品目に前月実績あり` : '前月実績なし',
+      need: '前月実績（CSV）',
+      hint: 'CSVで「前月実績」列を取り込むと、前月比の分析に対応予定です',
+    },
+    {
+      name: '原価率・廃棄率・在庫回転率',
+      ok: false,
+      future: true,
+      detail: '仕入・出庫・廃棄が未記録',
+      need: '仕入・出庫・廃棄の記録',
+      hint: '月次の在庫だけでは在庫の増減しか分かりません。仕入合計などを記録すると、概算の原価率が算出できるよう対応予定です',
+    },
+  ]
 })
 </script>
 
@@ -220,7 +295,24 @@ const abc = computed(() => {
       </div>
 
       <template v-else>
-        <!-- 最新棚卸サマリー -->
+        <!-- 棚卸の選択 -->
+        <div class="dash-picker">
+          <label class="dash-picker-label">分析する棚卸</label>
+          <select v-model="selectedDate" class="dash-picker-select">
+            <option v-for="s in sorted" :key="s.date" :value="s.date">{{ _optionLabel(s) }}</option>
+          </select>
+        </div>
+
+        <!-- 金額データなしの注意 -->
+        <div v-if="!curHasPrices" class="dash-warn">
+          <span class="dash-warn-icon">⚠️</span>
+          <div>
+            <div class="dash-warn-title">この棚卸データには金額（単価）が含まれていません</div>
+            <div class="dash-warn-desc">数量ベースの分析のみ表示します。単価を設定すると在庫金額・ABC分析が使えます。</div>
+          </div>
+        </div>
+
+        <!-- サマリー -->
         <div class="dash-section">
           <div class="dash-summary-head">
             <span class="dash-summary-date">{{ _fmtDate(summary.date) }}</span>
@@ -228,16 +320,22 @@ const abc = computed(() => {
               {{ summary.weekday }}曜日
             </span>
           </div>
-          <div class="dash-total">{{ _yen(summary.totalValue) }}</div>
-          <div class="dash-total-label">在庫金額（最新）</div>
-          <div
-            v-if="summary.diffValue != null"
-            class="dash-diff"
-            :class="summary.diffValue >= 0 ? 'up' : 'down'"
-          >
-            前回比 {{ summary.diffValue >= 0 ? '+' : '−' }}{{ _yen(Math.abs(summary.diffValue)).slice(1) }}
-            （{{ summary.diffPct >= 0 ? '+' : '' }}{{ summary.diffPct }}%）
-          </div>
+          <template v-if="summary.hasPrices">
+            <div class="dash-total">{{ _yen(summary.totalValue) }}</div>
+            <div class="dash-total-label">在庫金額</div>
+            <div
+              v-if="summary.diffValue != null"
+              class="dash-diff"
+              :class="summary.diffValue >= 0 ? 'up' : 'down'"
+            >
+              前回比 {{ summary.diffValue >= 0 ? '+' : '−' }}{{ _yen(Math.abs(summary.diffValue)).slice(1) }}
+              （{{ summary.diffPct >= 0 ? '+' : '' }}{{ summary.diffPct }}%）
+            </div>
+          </template>
+          <template v-else>
+            <div class="dash-total dash-total-muted">金額データなし</div>
+            <div class="dash-total-label">単価が未設定です</div>
+          </template>
           <div class="dash-meta">
             <div class="dash-meta-item" v-if="summary.duration">
               <span class="dash-meta-icon">⏱</span>{{ summary.duration }}
@@ -257,12 +355,12 @@ const abc = computed(() => {
           <div class="dash-trend">
             <div v-for="t in trend" :key="t.date" class="dash-trend-col">
               <div class="dash-trend-bar-wrap">
-                <div class="dash-trend-bar" :style="{ height: Math.max(4, t.pct) + '%' }"></div>
+                <div class="dash-trend-bar" :class="{ sel: t.sel }" :style="{ height: Math.max(4, t.pct) + '%' }"></div>
               </div>
-              <div class="dash-trend-label">{{ t.label }}</div>
+              <div class="dash-trend-label" :class="{ sel: t.sel }">{{ t.label }}</div>
             </div>
           </div>
-          <div class="dash-trend-note">直近{{ trend.length }}回</div>
+          <div class="dash-trend-note">直近{{ trend.length }}回・選択中はハイライト</div>
         </div>
 
         <!-- ジャンル別在庫金額 -->
@@ -280,13 +378,14 @@ const abc = computed(() => {
         </div>
 
         <!-- 前回差アラート -->
-        <div class="dash-section" v-if="prev">
+        <div class="dash-section" v-if="prevSnap">
           <div class="dash-section-title">前回差アラート</div>
           <div class="dash-controls">
             <div class="dash-toggle">
-              <button :class="{ on: alertMode === 'value' }" @click="alertMode = 'value'">金額</button>
-              <button :class="{ on: alertMode === 'qty' }" @click="alertMode = 'qty'">数量</button>
+              <button :class="{ on: effectiveMode === 'value' }" :disabled="!canValue" @click="alertMode = 'value'">金額</button>
+              <button :class="{ on: effectiveMode === 'qty' }" @click="alertMode = 'qty'">数量</button>
             </div>
+            <span v-if="!canValue" class="dash-toggle-note">金額データがないため数量で比較</span>
           </div>
           <div class="dash-slider-row">
             <label class="dash-slider-label">増加率しきい値<span class="dash-slider-val">{{ threshold }}%以上</span></label>
@@ -295,15 +394,14 @@ const abc = computed(() => {
           <div class="dash-slider-row">
             <label class="dash-slider-label">
               最小差
-              <span class="dash-slider-val" v-if="alertMode === 'value'">{{ _yen(floorValue) }}以上</span>
+              <span class="dash-slider-val" v-if="effectiveMode === 'value'">{{ _yen(floorValue) }}以上</span>
               <span class="dash-slider-val" v-else>{{ floorQty }}以上</span>
             </label>
-            <input v-if="alertMode === 'value'" type="range" min="0" max="10000" step="500" v-model.number="floorValue" class="dash-slider" />
+            <input v-if="effectiveMode === 'value'" type="range" min="0" max="10000" step="500" v-model.number="floorValue" class="dash-slider" />
             <input v-else type="range" min="0" max="30" step="1" v-model.number="floorQty" class="dash-slider" />
           </div>
           <div class="dash-slider-hint">小さな増減を隠して、本当に増えた／減った品目だけを表示します</div>
 
-          <!-- 急増 -->
           <div class="dash-alert-group" v-if="diffRows.increases.length">
             <div class="dash-alert-head up">📈 急増 {{ diffRows.increases.length }}件</div>
             <div v-for="r in diffRows.increases" :key="'inc' + r.item" class="dash-alert-row">
@@ -315,7 +413,6 @@ const abc = computed(() => {
             </div>
           </div>
 
-          <!-- 急減 -->
           <div class="dash-alert-group" v-if="diffRows.decreases.length">
             <div class="dash-alert-head down">📉 急減 {{ diffRows.decreases.length }}件</div>
             <div v-for="r in diffRows.decreases" :key="'dec' + r.item" class="dash-alert-row">
@@ -327,25 +424,19 @@ const abc = computed(() => {
             </div>
           </div>
 
-          <!-- 新規・復活（前回0） -->
           <div class="dash-alert-group" v-if="diffRows.appeared.length">
             <div class="dash-alert-head new">🆕 新規・復活 {{ diffRows.appeared.length }}件</div>
             <div v-for="r in diffRows.appeared" :key="'app' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
-              <span class="dash-alert-change new">
-                前回0 → {{ _fmtVal(r.curVal) }}{{ _fmtUnit(r.unit) }}
-              </span>
+              <span class="dash-alert-change new">前回0 → {{ _fmtVal(r.curVal) }}{{ _fmtUnit(r.unit) }}</span>
             </div>
           </div>
 
-          <!-- 今回未入力（前回あり） -->
           <div class="dash-alert-group" v-if="diffRows.gone.length">
             <div class="dash-alert-head gone">⚠️ 今回未入力 {{ diffRows.gone.length }}件</div>
             <div v-for="r in diffRows.gone" :key="'gone' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
-              <span class="dash-alert-change gone">
-                前回 {{ _fmtVal(r.prevVal) }}{{ _fmtUnit(r.unit) }} → 未入力
-              </span>
+              <span class="dash-alert-change gone">前回 {{ _fmtVal(r.prevVal) }}{{ _fmtUnit(r.unit) }} → 未入力</span>
             </div>
           </div>
 
@@ -357,7 +448,7 @@ const abc = computed(() => {
           </div>
         </div>
         <div class="dash-section dash-note" v-else>
-          前回の棚卸がまだないため、差異アラートは次回から表示されます
+          この棚卸より前のデータがないため、差異アラートは表示できません
         </div>
 
         <!-- ABC分析 -->
@@ -383,6 +474,31 @@ const abc = computed(() => {
               <span class="dash-abc-rank a">A</span>
               <span class="dash-abc-name">{{ r.item }}</span>
               <span class="dash-abc-val">{{ _yen(r.value) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分析できる項目（データに応じて増える） -->
+        <div class="dash-section">
+          <button class="dash-cap-toggle" @click="showCapabilities = !showCapabilities">
+            <span>📋 分析できる項目・これがあればもっと出せます</span>
+            <span class="dash-cap-caret">{{ showCapabilities ? '▲' : '▼' }}</span>
+          </button>
+          <div v-if="showCapabilities" class="dash-cap-list">
+            <div v-for="c in capabilities" :key="c.name" class="dash-cap-row" :class="{ off: !c.ok }">
+              <div class="dash-cap-status" :class="c.ok ? 'ok' : (c.future ? 'future' : 'wait')">
+                {{ c.ok ? '✓' : (c.future ? '今後' : '🔒') }}
+              </div>
+              <div class="dash-cap-body">
+                <div class="dash-cap-name">
+                  {{ c.name }}
+                  <span class="dash-cap-badge" v-if="c.ok">利用可能</span>
+                  <span class="dash-cap-badge future" v-else-if="c.future">今後対応</span>
+                  <span class="dash-cap-badge wait" v-else>データ待ち</span>
+                </div>
+                <div class="dash-cap-detail">{{ c.detail }}</div>
+                <div class="dash-cap-hint" v-if="!c.ok">必要データ: {{ c.need }}<br>{{ c.hint }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -425,6 +541,21 @@ const abc = computed(() => {
 .dash-empty-title { font-weight: 700; margin-bottom: 6px; color: #374151; }
 .dash-empty-desc { font-size: 13px; }
 
+.dash-picker { margin-bottom: 14px; }
+.dash-picker-label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+.dash-picker-select {
+  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #d1d5db;
+  border-radius: 10px; background: #fff; color: #111827; appearance: none;
+}
+
+.dash-warn {
+  display: flex; gap: 10px; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+}
+.dash-warn-icon { font-size: 18px; flex-shrink: 0; }
+.dash-warn-title { font-size: 13px; font-weight: 700; color: #92400e; }
+.dash-warn-desc { font-size: 12px; color: #b45309; margin-top: 2px; line-height: 1.5; }
+
 .dash-section {
   background: #fff;
   border-radius: 14px;
@@ -443,6 +574,7 @@ const abc = computed(() => {
 .dash-weekday.sat { background: #eff6ff; color: #2563eb; }
 .dash-weekday.sun { background: #fef2f2; color: #dc2626; }
 .dash-total { font-size: 30px; font-weight: 800; color: #111827; letter-spacing: -0.5px; }
+.dash-total-muted { font-size: 20px; color: #9ca3af; }
 .dash-total-label { font-size: 12px; color: #9ca3af; margin-top: 2px; }
 .dash-diff { font-size: 13px; font-weight: 700; margin-top: 8px; }
 .dash-diff.up { color: #dc2626; }
@@ -454,8 +586,10 @@ const abc = computed(() => {
 .dash-trend { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
 .dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
 .dash-trend-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
-.dash-trend-bar { width: 100%; background: linear-gradient(180deg, #60a5fa, #2563eb); border-radius: 4px 4px 0 0; min-height: 4px; }
+.dash-trend-bar { width: 100%; background: linear-gradient(180deg, #93c5fd, #bfdbfe); border-radius: 4px 4px 0 0; min-height: 4px; }
+.dash-trend-bar.sel { background: linear-gradient(180deg, #60a5fa, #2563eb); }
 .dash-trend-label { font-size: 10px; color: #9ca3af; margin-top: 4px; }
+.dash-trend-label.sel { color: #2563eb; font-weight: 700; }
 .dash-trend-note { text-align: right; font-size: 11px; color: #9ca3af; margin-top: 6px; }
 
 .dash-genre-row { margin-bottom: 10px; }
@@ -466,10 +600,12 @@ const abc = computed(() => {
 .dash-genre-bar-wrap { height: 8px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
 .dash-genre-bar { height: 100%; background: linear-gradient(90deg, #34d399, #059669); border-radius: 4px; }
 
-.dash-controls { margin-bottom: 12px; }
+.dash-controls { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dash-toggle { display: inline-flex; background: #f3f4f6; border-radius: 8px; padding: 2px; }
 .dash-toggle button { border: none; background: none; padding: 6px 18px; font-size: 13px; border-radius: 6px; cursor: pointer; color: #6b7280; }
 .dash-toggle button.on { background: #fff; color: #111827; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.dash-toggle button:disabled { opacity: 0.4; cursor: not-allowed; }
+.dash-toggle-note { font-size: 11px; color: #9ca3af; }
 .dash-slider-row { margin-bottom: 10px; }
 .dash-slider-label { display: flex; justify-content: space-between; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
 .dash-slider-val { font-weight: 700; color: #374151; }
@@ -512,4 +648,27 @@ const abc = computed(() => {
 .dash-abc-rank.a { background: #dc2626; }
 .dash-abc-name { flex: 1; font-size: 13px; color: #374151; word-break: break-all; }
 .dash-abc-val { font-size: 13px; font-weight: 700; color: #111827; }
+
+.dash-cap-toggle {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  background: none; border: none; padding: 0; font-size: 14px; font-weight: 700;
+  color: #374151; cursor: pointer; text-align: left;
+}
+.dash-cap-caret { font-size: 11px; color: #9ca3af; }
+.dash-cap-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.dash-cap-row { display: flex; gap: 10px; align-items: flex-start; }
+.dash-cap-status {
+  flex-shrink: 0; width: 30px; height: 24px; border-radius: 6px; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.dash-cap-status.ok { background: #dcfce7; color: #16a34a; }
+.dash-cap-status.wait { background: #f3f4f6; }
+.dash-cap-status.future { background: #ede9fe; color: #7c3aed; font-size: 10px; }
+.dash-cap-body { flex: 1; }
+.dash-cap-name { font-size: 13px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dash-cap-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #dcfce7; color: #16a34a; }
+.dash-cap-badge.wait { background: #f3f4f6; color: #6b7280; }
+.dash-cap-badge.future { background: #ede9fe; color: #7c3aed; }
+.dash-cap-detail { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+.dash-cap-hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.5; background: #f9fafb; padding: 6px 8px; border-radius: 6px; }
 </style>
