@@ -13,6 +13,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import ManagerDashboard from './ManagerDashboard.vue'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -22,7 +23,9 @@ const props = defineProps({
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
-const { getSnapshotBySessionId } = useHistory()
+const { getSnapshotBySessionId, getSnapshots } = useHistory()
+const showDashboard = ref(false)
+const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
 const loading        = ref(true)
@@ -630,13 +633,13 @@ function _itemCount(session) {
             </div>
 
             <div class="section-title" style="margin-top:16px">📊 分析</div>
-            <div class="dashboard-card dashboard-card-disabled">
+            <div class="dashboard-card" @click="showDashboard = true">
               <div class="dashboard-card-icon">📊</div>
               <div class="dashboard-card-body">
-                <div class="dashboard-card-title">棚卸レポート</div>
-                <div class="dashboard-card-desc">差異・傾向レポートを準備中</div>
+                <div class="dashboard-card-title">店長ダッシュボード</div>
+                <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
               </div>
-              <span class="coming-badge">準備中</span>
+              <span class="dashboard-card-arrow">›</span>
             </div>
 
             <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
@@ -654,6 +657,8 @@ function _itemCount(session) {
 
       </div>
     </div>
+
+    <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
