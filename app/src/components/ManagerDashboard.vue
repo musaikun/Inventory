@@ -283,7 +283,7 @@ const capabilities = computed(() => {
   <div class="dash-overlay">
     <div class="dash-header">
       <button class="dash-back" @click="emit('close')">‹ 戻る</button>
-      <div class="dash-title">📊 店長ダッシュボード</div>
+      <div class="dash-title">📊 在庫分析</div>
       <div class="dash-header-spacer"></div>
     </div>
 

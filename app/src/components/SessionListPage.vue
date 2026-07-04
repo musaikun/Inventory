@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 export const _persistedTab  = ref('sessions')
 export const _selectedYear  = ref(null)
+export const _showDashboard = ref(false)
 </script>
 
 <script setup>
@@ -24,7 +25,7 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
-const showDashboard = ref(false)
+const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
@@ -636,7 +637,7 @@ function _itemCount(session) {
             <div class="dashboard-card" @click="showDashboard = true">
               <div class="dashboard-card-icon">📊</div>
               <div class="dashboard-card-body">
-                <div class="dashboard-card-title">店長ダッシュボード</div>
+                <div class="dashboard-card-title">在庫分析</div>
                 <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
               </div>
               <span class="dashboard-card-arrow">›</span>

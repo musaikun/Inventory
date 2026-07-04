@@ -46,7 +46,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -783,6 +783,7 @@ function _closeTopLayer() {
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
   if (showSettings.value)    { showSettings.value = false; return true }
+  if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
@@ -856,6 +857,18 @@ function _restoreDraft(sessionId) {
 function _clearDraft(sessionId) {
   if (!sessionId) return
   try { localStorage.removeItem(_DRAFT_PREFIX + sessionId) } catch (_) {}
+}
+
+// セッション削除時は対応するスナップショット（分析データ）も削除する。
+// 残しておくと在庫分析の対象として選べてしまうため、履歴からも消す。
+function onDeleteSession(sessionId) {
+  _clearDraft(sessionId)
+  if (!sessionId) return
+  const snap = getSnapshotBySessionId(sessionId)
+  if (snap?.date) {
+    deleteSnapshotLocal(snap.date)
+    deleteSnapshotFromD1(snap.date).catch(() => {})
+  }
 }
 
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
@@ -1846,7 +1859,7 @@ function dismissReview() {
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
-      @delete-session="_clearDraft"
+      @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="showSettings = true"
       @open-upgrade="reason => openUpgrade(reason)"
