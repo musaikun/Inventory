@@ -27,4 +27,5 @@ export const STORAGE_KEYS = {
   pendingSession:   '_pending_session_v1',
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
+  tapContinuous:    'inv_tap_continuous',
 }

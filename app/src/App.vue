@@ -1260,6 +1260,12 @@ function onCandidateCreate() {
   _walkRegister(c.searchTerm, c.qty, c.unit)
 }
 
+// ── タップ連続入力（品目タップで確定→自動で次の品目を開く。音声/文字検索は対象外）──
+const tapContinuous = ref(localStorage.getItem('inv_tap_continuous') === '1')
+watch(tapContinuous, v => {
+  try { localStorage.setItem('inv_tap_continuous', v ? '1' : '0') } catch (_) {}
+})
+
 // ── Voice（連続入力がデフォルト動作）─────────────────────────────────────────
 const continuousMode = ref(false)
 
@@ -1381,6 +1387,14 @@ function _finishConfirmNav(source) {
   if (source === 'table') {
     _stopTypingKeepalive()
     confirmState.value = null
+    const next = _tapNextItem
+    _tapNextItem = null
+    if (tapContinuous.value && next && !inputLocked.value) {
+      nextTick(() => _openTableConfirm(next))
+      return
+    }
+    _restartIfContinuous()
+    return
   } else if (pendingCandidates.value) {
     _stopTypingKeepalive()
     candidateState.value = { ...pendingCandidates.value }
@@ -1451,6 +1465,7 @@ function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
 
 function onCancelConfirm() {
   _stopTypingKeepalive()
+  _tapNextItem = null
   const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value && confirmState.value) broadcastTyping(confirmState.value.ingredient, false)
   confirmState.value = null
@@ -1466,6 +1481,7 @@ function onCancelConfirm() {
 // 入力済みを未入力に戻す（1個前の値に戻す機能は廃止・「未入力に戻す」に統一）
 function onConfirmRevert() {
   _stopTypingKeepalive()
+  _tapNextItem = null
   const ingredient = confirmState.value.ingredient
   const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value) broadcastTyping(ingredient, false)
@@ -1531,9 +1547,15 @@ function onCancelCandidate() {
 }
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
+// 連続入力用に「次の品目」を開いた時点で確保する（確定後は絞り込みで消える可能性があるため）
+let _tapNextItem = null
+function _openTableConfirm(item) {
+  _tapNextItem = inventoryTableRef.value?.getNextVisibleItem(item) || null
+  openConfirm(item, null, config.units?.[item] || '', 'table')
+}
 function onTableTap(item) {
   if (inputLocked.value) return
-  openConfirm(item, null, config.units?.[item] || '', 'table')
+  _openTableConfirm(item)
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
@@ -2131,6 +2153,7 @@ function dismissReview() {
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
+        v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"

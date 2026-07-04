@@ -16,9 +16,10 @@ const props = defineProps({
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
   usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
+  tapContinuous:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous'])
 
 const manualSet = computed(() => new Set(props.manualItems))
 
@@ -452,6 +453,16 @@ function fmtYen(n) {
   <section class="inventory-section">
     <!-- ヘッダー行 -->
     <div class="section-header">
+      <button
+        v-if="!readOnly"
+        :class="['tap-continuous-toggle', { active: tapContinuous }]"
+        @click="emit('update:tapContinuous', !tapContinuous)"
+        title="ONにすると、品目をタップして入力した後、自動で次の品目の入力画面が開きます（音声・文字検索は対象外）"
+      >
+        <span class="tc-track"><span class="tc-knob"></span></span>
+        連続入力
+      </button>
+      <div v-else></div>
       <div class="header-right">
         <span class="progress">
           <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
@@ -619,10 +630,46 @@ function fmtYen(n) {
 /* ── セクションヘッダー ── */
 .section-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   padding: 14px 4px 10px;
 }
+
+.tap-continuous-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tap-continuous-toggle.active { color: var(--primary); }
+.tc-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background 0.18s;
+  flex-shrink: 0;
+}
+.tap-continuous-toggle.active .tc-track { background: var(--primary); }
+.tc-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  transition: transform 0.18s;
+}
+.tap-continuous-toggle.active .tc-knob { transform: translateX(14px); }
 
 .header-right {
   display: flex;
