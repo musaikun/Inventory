@@ -64,6 +64,21 @@ function parseCSVLine(line) {
   return result
 }
 
+// 軸の割り当ては「品目 → グループ名の配列」（多ロケーション対応）。
+// 旧データ（文字列）や不正値を配列へ正規化する。
+function _normTags(m) {
+  const out = {}
+  if (m && typeof m === 'object') {
+    for (const k of Object.keys(m)) {
+      const v = m[k]
+      const arr = (Array.isArray(v) ? v : (v ? [v] : []))
+        .map(x => String(x).trim()).filter(Boolean)
+      if (arr.length) out[k] = [...new Set(arr)]
+    }
+  }
+  return out
+}
+
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
 function _load() {
   try {
@@ -82,8 +97,8 @@ function _load() {
       config.dictionary    = saved.dictionary    ?? {}
       config.manualItems   = saved.manualItems   ?? []
       config.axisNames     = saved.axisNames     ?? ['', '']
-      config.tagsA         = saved.tagsA         ?? {}
-      config.tagsB         = saved.tagsB         ?? {}
+      config.tagsA         = _normTags(saved.tagsA)
+      config.tagsB         = _normTags(saved.tagsB)
       config.axisGroupsA   = saved.axisGroupsA   ?? []
       config.axisGroupsB   = saved.axisGroupsB   ?? []
       config.isCustom      = true
@@ -180,8 +195,8 @@ export function applyRemoteConfig(cfg) {
   config.lotSizes      = cfg.lotSizes      ?? {}
   config.dictionary    = cfg.dictionary    ?? {}
   config.axisNames     = cfg.axisNames     ?? ['', '']
-  config.tagsA         = cfg.tagsA         ?? {}
-  config.tagsB         = cfg.tagsB         ?? {}
+  config.tagsA         = _normTags(cfg.tagsA)
+  config.tagsB         = _normTags(cfg.tagsB)
   config.axisGroupsA   = cfg.axisGroupsA   ?? []
   config.axisGroupsB   = cfg.axisGroupsB   ?? []
   _saveLocalOnly()
@@ -352,8 +367,8 @@ export function useConfig() {
       const catCode  = config.categoryCodes[config.categories[item]] ?? ''
       const prevMonth = cs(config.prevMonths[item] ?? '')
       const lotSize  = cs(config.lotSizes[item]   ?? '')
-      const tagA     = cs(config.tagsA[item]      ?? '')
-      const tagB     = cs(config.tagsB[item]      ?? '')
+      const tagA     = cs((config.tagsA[item] ?? []).join('|'))
+      const tagB     = cs((config.tagsB[item] ?? []).join('|'))
       const aliases  = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
         .map(([k]) => cs(k))
@@ -408,8 +423,8 @@ export function useConfig() {
     config.dictionary    = snap.dictionary    ?? {}
     config.manualItems   = snap.manualItems   ?? []
     config.axisNames     = snap.axisNames     ?? ['', '']
-    config.tagsA         = snap.tagsA         ?? {}
-    config.tagsB         = snap.tagsB         ?? {}
+    config.tagsA         = _normTags(snap.tagsA)
+    config.tagsB         = _normTags(snap.tagsB)
     config.axisGroupsA   = snap.axisGroupsA   ?? []
     config.axisGroupsB   = snap.axisGroupsB   ?? []
     config.isCustom      = !!snap.isCustom
@@ -629,7 +644,7 @@ export function useConfig() {
     const map = axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : null
     if (!map) return false
     const v = (value ?? '').trim()
-    if (v) map[name] = v
+    if (v) map[name] = [v]   // 編集モーダルは主グループを1つ設定（配列化）
     else   delete map[name]
     _save()
     return true
@@ -652,7 +667,7 @@ export function useConfig() {
     return true
   }
 
-  // グループをリネーム（所属品目の割り当ても追従）
+  // グループをリネーム（所属品目の配列も追従）
   function renameAxisGroup(axisIndex, oldName, newName) {
     const nn = (newName ?? '').trim()
     const list = _axisList(axisIndex), map = _axisMap(axisIndex)
@@ -661,31 +676,64 @@ export function useConfig() {
     if (idx < 0) return false
     if (nn !== oldName && list.includes(nn)) return false
     list[idx] = nn
-    for (const item of Object.keys(map)) if (map[item] === oldName) map[item] = nn
+    for (const item of Object.keys(map)) {
+      if (Array.isArray(map[item]) && map[item].includes(oldName)) {
+        map[item] = [...new Set(map[item].map(x => (x === oldName ? nn : x)))]
+      }
+    }
     _save()
     return true
   }
 
-  // グループを削除（所属品目は「その他」=未割り当てに戻す）
+  // グループを削除（所属品目からそのグループを外す。空になれば「その他」）
   function removeAxisGroup(axisIndex, name) {
     const list = _axisList(axisIndex), map = _axisMap(axisIndex)
     if (!list || !map) return false
     const idx = list.indexOf(name)
     if (idx >= 0) list.splice(idx, 1)
-    for (const item of Object.keys(map)) if (map[item] === name) delete map[item]
+    for (const item of Object.keys(map)) {
+      if (!Array.isArray(map[item])) continue
+      const arr = map[item].filter(x => x !== name)
+      if (arr.length) map[item] = arr
+      else            delete map[item]
+    }
     _save()
     return true
   }
 
-  // 複数品目をグループへ振り分け（group が空なら「その他」＝割り当て解除）
+  // 1品目を1グループへ追加（多ロケーション・重複は無視）
+  function addItemToGroup(axisIndex, item, group) {
+    const map = _axisMap(axisIndex)
+    const g = (group ?? '').trim()
+    if (!map || !g || !config.order.includes(item)) return false
+    const arr = Array.isArray(map[item]) ? [...map[item]] : []
+    if (!arr.includes(g)) { arr.push(g); map[item] = arr; _save() }
+    return true
+  }
+
+  // 1品目を1グループから外す（空になれば「その他」）
+  function removeItemFromGroup(axisIndex, item, group) {
+    const map = _axisMap(axisIndex)
+    if (!map || !Array.isArray(map[item])) return false
+    const g = (group ?? '').trim()
+    const arr = map[item].filter(x => x !== g)
+    if (arr.length) map[item] = arr
+    else            delete map[item]
+    _save()
+    return true
+  }
+
+  // 複数品目をグループへ一括追加（group が空なら各品目の割り当てを全解除＝その他）
   function assignItemsToGroup(axisIndex, items, group) {
     const map = _axisMap(axisIndex)
     if (!map || !Array.isArray(items)) return false
     const g = (group ?? '').trim()
     for (const item of items) {
       if (!config.order.includes(item)) continue
-      if (g) map[item] = g
-      else   delete map[item]
+      if (!g) { delete map[item]; continue }
+      const arr = Array.isArray(map[item]) ? [...map[item]] : []
+      if (!arr.includes(g)) arr.push(g)
+      map[item] = arr
     }
     _save()
     return true
@@ -762,11 +810,11 @@ export function useConfig() {
       }
       if (axisACol != null) {
         const v = cols[axisACol]?.trim()
-        if (v) newTagsA[name] = v
+        if (v) newTagsA[name] = v.split('|').map(s => s.trim()).filter(Boolean)
       }
       if (axisBCol != null) {
         const v = cols[axisBCol]?.trim()
-        if (v) newTagsB[name] = v
+        if (v) newTagsB[name] = v.split('|').map(s => s.trim()).filter(Boolean)
       }
     }
 
@@ -846,5 +894,7 @@ export function useConfig() {
     renameAxisGroup,
     removeAxisGroup,
     assignItemsToGroup,
+    addItemToGroup,
+    removeItemFromGroup,
   }
 }

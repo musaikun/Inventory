@@ -63,8 +63,8 @@ export function useHistory() {
         category:  categories?.[item] ?? null,
         lotSize:   lotSizes?.[item] ?? '',            // 入数
         prevMonth: prevMonths?.[item] ?? '',          // 前月実績
-        tagA:      tagsA?.[item] ?? '',               // 汎用軸1の値（場所など）
-        tagB:      tagsB?.[item] ?? '',               // 汎用軸2の値（仕入先など）
+        tagA:      Array.isArray(tagsA?.[item]) ? tagsA[item].join('|') : (tagsA?.[item] ?? ''),  // 軸1（複数は | 区切り）
+        tagB:      Array.isArray(tagsB?.[item]) ? tagsB[item].join('|') : (tagsB?.[item] ?? ''),  // 軸2
       })
     }
 

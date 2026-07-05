@@ -1613,10 +1613,10 @@ const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 const existingTagsA = computed(() =>
-  [...new Set(Object.values(config.tagsA ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+  [...new Set(Object.values(config.tagsA ?? {}).flat())].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 const existingTagsB = computed(() =>
-  [...new Set(Object.values(config.tagsB ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+  [...new Set(Object.values(config.tagsB ?? {}).flat())].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 
 // ファジー類似品目: 部分文字列一致で既存品目を検索
@@ -1720,8 +1720,8 @@ function startEditItem(name) {
     price:          config.prices?.[name] ?? '',
     source:         'edit',
     lotSize:        config.lotSizes?.[name] ?? '',
-    tagA:           config.tagsA?.[name] ?? '',
-    tagB:           config.tagsB?.[name] ?? '',
+    tagA:           (config.tagsA?.[name] ?? [])[0] ?? '',
+    tagB:           (config.tagsB?.[name] ?? [])[0] ?? '',
     isNew:          false,
     isEdit:         true,
   }

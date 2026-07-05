@@ -156,8 +156,8 @@ const rows = computed(() => {
     code:      config.value.codes?.[item]       ?? null,
     prevMonth: config.value.prevMonths?.[item]  ?? null,
     lotSize:   config.value.lotSizes?.[item]    ?? null,
-    tagA:      config.value.tagsA?.[item]       ?? '',
-    tagB:      config.value.tagsB?.[item]       ?? '',
+    tagA:      config.value.tagsA?.[item]       ?? [],
+    tagB:      config.value.tagsB?.[item]       ?? [],
   }))
 
   // 2. config.value.order に含まれないカスタム品目
@@ -174,8 +174,8 @@ const rows = computed(() => {
       code:      config.value.codes?.[item]       ?? null,
       prevMonth: config.value.prevMonths?.[item]  ?? null,
       lotSize:   config.value.lotSizes?.[item]    ?? null,
-      tagA:      config.value.tagsA?.[item]       ?? '',
-      tagB:      config.value.tagsB?.[item]       ?? '',
+      tagA:      config.value.tagsA?.[item]       ?? [],
+      tagB:      config.value.tagsB?.[item]       ?? [],
     }))
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
@@ -211,7 +211,7 @@ const rows = computed(() => {
     for (const row of items) {
       const grp = _kanaGroup(row.item)
       if (!groupMap.has(grp)) groupMap.set(grp, [])
-      groupMap.get(grp).push(row)
+      groupMap.get(grp).push({ ...row, _grp: grp })
     }
     // グループ内は五十音順にソート
     for (const arr of groupMap.values()) {
@@ -232,20 +232,23 @@ const rows = computed(() => {
 
   if (mode === 'category' || mode === 'axisA' || mode === 'axisB') {
     // ジャンル / 汎用軸によるグループ化（共通ロジック）
+    // 軸は多ロケーション対応: 1品目が複数グループに属する場合、各グループに複製して出す
     const emptyLabel = 'その他'
-    const keyOf = (row) =>
-      mode === 'category' ? (row.category ?? 'その他')
-      : mode === 'axisA'  ? (row.tagA || 'その他')
-      :                     (row.tagB || 'その他')
+    const groupsOf = (row) => {
+      if (mode === 'category') return [row.category ?? 'その他']
+      const arr = mode === 'axisA' ? row.tagA : row.tagB
+      return (Array.isArray(arr) && arr.length) ? arr : ['その他']
+    }
     const statsMap = mode === 'category' ? catRealStats.value
       : mode === 'axisA' ? axisAStats.value
       :                    axisBStats.value
 
     const groupMap = new Map()
     for (const row of items) {
-      const k = keyOf(row)
-      if (!groupMap.has(k)) groupMap.set(k, [])
-      groupMap.get(k).push(row)
+      for (const k of groupsOf(row)) {
+        if (!groupMap.has(k)) groupMap.set(k, [])
+        groupMap.get(k).push({ ...row, _grp: k })
+      }
     }
     // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
@@ -334,25 +337,23 @@ function rowClick(item) {
 }
 
 // ── キーボードナビゲーション ──────────────────────────────────────────────────
-function _groupLabelOf(row) {
-  switch (_effectiveSort.value) {
-    case 'alpha':    return _kanaGroup(row.item)
-    case 'category': return row.category ?? 'その他'
-    case 'axisA':    return row.tagA || 'その他'
-    case 'axisB':    return row.tagB || 'その他'
-    default:         return null
-  }
-}
 function _isRowVisible(row) {
-  const label = _groupLabelOf(row)
-  if (label === null) return true          // 非グループ表示は常に可視
-  return !!expandedGroups[_gkey(label)]
+  if (!_isGroupedMode.value) return true   // 非グループ表示は常に可視
+  if (row._grp == null) return true
+  return !!expandedGroups[_gkey(row._grp)]
 }
 
 function _getVisibleItems() {
-  return rows.value
-    .filter(r => r.type === 'item' && _isRowVisible(r))
-    .map(r => r.item)
+  // 多ロケーションで同一品目が複数回出るため、品目名で重複排除
+  const seen = new Set()
+  const out = []
+  for (const r of rows.value) {
+    if (r.type !== 'item' || !_isRowVisible(r)) continue
+    if (seen.has(r.item)) continue
+    seen.add(r.item)
+    out.push(r.item)
+  }
+  return out
 }
 
 function getNextVisibleItem(currentItem) {
@@ -478,10 +479,13 @@ function _axisStats(tagMap) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
-    const grp = tagMap?.[item] || 'その他'
-    if (!map[grp]) map[grp] = { total: 0, filled: 0 }
-    map[grp].total++
-    if (props.inventory[item] != null) map[grp].filled++
+    const arr = tagMap?.[item]
+    const groups = (Array.isArray(arr) && arr.length) ? arr : ['その他']
+    for (const grp of groups) {
+      if (!map[grp]) map[grp] = { total: 0, filled: 0 }
+      map[grp].total++
+      if (props.inventory[item] != null) map[grp].filled++
+    }
   }
   return map
 }
