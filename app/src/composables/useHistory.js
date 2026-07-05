@@ -31,7 +31,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -63,6 +63,8 @@ export function useHistory() {
         category:  categories?.[item] ?? null,
         lotSize:   lotSizes?.[item] ?? '',            // 入数
         prevMonth: prevMonths?.[item] ?? '',          // 前月実績
+        tagA:      tagsA?.[item] ?? '',               // 汎用軸1の値（場所など）
+        tagB:      tagsB?.[item] ?? '',               // 汎用軸2の値（仕入先など）
       })
     }
 
@@ -114,6 +116,7 @@ export function useHistory() {
       sessionId,
       auditLog:     auditLog ? [...auditLog] : [],
       activeMs:     typeof activeMs === 'number' ? activeMs : null,
+      axisNames:    Array.isArray(axisNames) ? [...axisNames] : ['', ''],
     }
     _persist()
     return _data[today]

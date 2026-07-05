@@ -489,6 +489,9 @@ registerConfigGetter(() => ({
   prevMonths:    config.prevMonths,
   lotSizes:      config.lotSizes,
   dictionary:    config.dictionary,
+  axisNames:     config.axisNames,
+  tagsA:         config.tagsA,
+  tagsB:         config.tagsB,
   isCustom:      config.isCustom,
 }))
 setConfigCallback((cfg) => {
@@ -511,6 +514,9 @@ function _configPayload() {
     prevMonths:    config.prevMonths,
     lotSizes:      config.lotSizes,
     dictionary:    config.dictionary,
+    axisNames:     config.axisNames,
+    tagsA:         config.tagsA,
+    tagsB:         config.tagsB,
   }
 }
 
@@ -590,6 +596,7 @@ function approveItemAdd(req) {
     order: config.order, units: config.units, prices: config.prices,
     categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
     prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
+    axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
     isCustom: config.isCustom,
   })
   broadcastItemAddResponse(req.requestId, true, req.name)
@@ -966,7 +973,7 @@ async function onComplete() {
   const completedYear = new Date().getFullYear()
 
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
   if (snapshot) {
     saveSnapshotToD1(snapshot)
     // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
@@ -1186,6 +1193,9 @@ watch(config, () => {
       prevMonths:    config.prevMonths,
       lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
+      axisNames:     config.axisNames,
+      tagsA:         config.tagsA,
+      tagsB:         config.tagsB,
       isCustom:      config.isCustom,
     })
   }, 300)

@@ -31,6 +31,9 @@ const config = reactive({
   isCustom:       false,
   savedAt:        null,
   manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
+  axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
+  tagsA:          {},        // 品目 → 軸1の値（フラットマップ）
+  tagsB:          {},        // 品目 → 軸2の値
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -76,6 +79,9 @@ function _load() {
       config.lotSizes      = saved.lotSizes      ?? {}
       config.dictionary    = saved.dictionary    ?? {}
       config.manualItems   = saved.manualItems   ?? []
+      config.axisNames     = saved.axisNames     ?? ['', '']
+      config.tagsA         = saved.tagsA         ?? {}
+      config.tagsB         = saved.tagsB         ?? {}
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -96,6 +102,9 @@ function _saveLocalOnly() {
       lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
       manualItems:   config.manualItems,
+      axisNames:     config.axisNames,
+      tagsA:         config.tagsA,
+      tagsB:         config.tagsB,
       savedAt:       config.savedAt,
     }))
     config.isCustom = true
@@ -164,6 +173,9 @@ export function applyRemoteConfig(cfg) {
   config.prevMonths    = cfg.prevMonths    ?? {}
   config.lotSizes      = cfg.lotSizes      ?? {}
   config.dictionary    = cfg.dictionary    ?? {}
+  config.axisNames     = cfg.axisNames     ?? ['', '']
+  config.tagsA         = cfg.tagsA         ?? {}
+  config.tagsB         = cfg.tagsB         ?? {}
   _saveLocalOnly()
 }
 
@@ -360,6 +372,9 @@ export function useConfig() {
       dictionary:    config.dictionary,
       isCustom:      config.isCustom,
       manualItems:   config.manualItems,
+      axisNames:     config.axisNames,
+      tagsA:         config.tagsA,
+      tagsB:         config.tagsB,
     }))
   }
 
@@ -376,6 +391,9 @@ export function useConfig() {
     config.lotSizes      = snap.lotSizes      ?? {}
     config.dictionary    = snap.dictionary    ?? {}
     config.manualItems   = snap.manualItems   ?? []
+    config.axisNames     = snap.axisNames     ?? ['', '']
+    config.tagsA         = snap.tagsA         ?? {}
+    config.tagsB         = snap.tagsB         ?? {}
     config.isCustom      = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
@@ -393,6 +411,9 @@ export function useConfig() {
     config.lotSizes      = {}
     config.dictionary    = {}
     config.manualItems   = []
+    config.axisNames     = ['', '']
+    config.tagsA         = {}
+    config.tagsB         = {}
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -409,6 +430,9 @@ export function useConfig() {
     config.prevMonths    = {}
     config.lotSizes      = {}
     config.dictionary    = { ...SAMPLE_DICTIONARY }
+    config.axisNames     = ['', '']
+    config.tagsA         = {}
+    config.tagsB         = {}
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -430,6 +454,9 @@ export function useConfig() {
     config.lotSizes      = {}
     config.dictionary    = { ...DEFAULT_DICT }
     config.manualItems   = []
+    config.axisNames     = ['', '']
+    config.tagsA         = {}
+    config.tagsB         = {}
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -525,7 +552,7 @@ export function useConfig() {
     if (n !== oldName && config.order.includes(n)) return false
     if (n !== oldName) {
       config.order[idx] = n
-      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes]) {
+      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.tagsA, config.tagsB]) {
         if (obj[oldName] !== undefined) { obj[n] = obj[oldName]; delete obj[oldName] }
       }
       for (const [alias, target] of Object.entries(config.dictionary)) {
@@ -562,6 +589,28 @@ export function useConfig() {
     return true
   }
 
+  // 汎用軸の名前を設定する（index: 0=軸A, 1=軸B）。空文字で未使用に戻す
+  function setAxisName(index, name) {
+    if (index !== 0 && index !== 1) return false
+    const arr = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
+    arr[index] = (name ?? '').trim()
+    config.axisNames = [arr[0] ?? '', arr[1] ?? '']
+    _save()
+    return true
+  }
+
+  // 品目に軸の値を設定する（axisIndex: 0=軸A, 1=軸B）。空で削除
+  function setItemTag(name, axisIndex, value) {
+    if (!config.order.includes(name)) return false
+    const map = axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : null
+    if (!map) return false
+    const v = (value ?? '').trim()
+    if (v) map[name] = v
+    else   delete map[name]
+    _save()
+    return true
+  }
+
   // 数量入力モーダルからジャンルだけを設定する（単価・並びは変えない）
   function setItemCategory(name, category) {
     if (!config.order.includes(name)) return false
@@ -576,7 +625,7 @@ export function useConfig() {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
     config.order.splice(idx, 1)
-    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes]) {
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.tagsA, config.tagsB]) {
       delete obj[name]
     }
     const mi = config.manualItems.indexOf(name)
@@ -650,6 +699,8 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = {}
+    config.tagsA         = {}   // 軸値は品目に紐づくため取込でリセット（軸名は維持）
+    config.tagsB         = {}
     const newSet         = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
@@ -685,5 +736,7 @@ export function useConfig() {
     removeConfigItem,
     setItemCategory,
     setItemExtras,
+    setAxisName,
+    setItemTag,
   }
 }

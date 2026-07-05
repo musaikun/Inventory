@@ -43,8 +43,12 @@ function _importResultStatus(result) {
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem, setAxisName,
 } = useConfig()
+
+function onAxisNameInput(index, e) {
+  setAxisName(index, e.target.value)
+}
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
@@ -264,6 +268,28 @@ function onDownloadTemplate() {
         </div>
       </details>
 
+      <!-- 分類軸（並べ替え用・任意2つ） -->
+      <div v-if="!props.isGuest" class="device-section">
+        <div class="device-label">分類軸（並べ替え用・最大2つ）</div>
+        <p class="axis-note">品目に「場所」「仕入先」などの軸を付けて並べ替えられます。名前を入れると軸が有効になります。</p>
+        <div class="axis-row">
+          <span class="axis-num">軸1</span>
+          <input
+            type="text" class="device-input" placeholder="例: 場所（冷凍庫・仕込み場…）"
+            maxlength="12" :value="config.axisNames?.[0] ?? ''"
+            @change="onAxisNameInput(0, $event)"
+          />
+        </div>
+        <div class="axis-row">
+          <span class="axis-num">軸2</span>
+          <input
+            type="text" class="device-input" placeholder="例: 仕入先（八百屋・肉屋…）"
+            maxlength="12" :value="config.axisNames?.[1] ?? ''"
+            @change="onAxisNameInput(1, $event)"
+          />
+        </div>
+      </div>
+
       <!-- 端末名設定 -->
       <div class="device-section">
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
@@ -453,6 +479,11 @@ function onDownloadTemplate() {
   font-weight: 600;
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
+
+.axis-note { font-size: 11px; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.5; }
+.axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.axis-num { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); width: 30px; }
+.axis-row .device-input { flex: 1; }
 
 /* 端末名設定 */
 .device-section {
