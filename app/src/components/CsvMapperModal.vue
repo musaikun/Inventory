@@ -4,6 +4,7 @@ import { ref, computed, reactive } from 'vue'
 const props = defineProps({
   csvText:  { type: String, required: true },
   filename: { type: String, default: '' },
+  axisNames: { type: Array, default: () => ['', ''] },
 })
 const emit = defineEmits(['imported', 'close'])
 
@@ -31,6 +32,8 @@ const mapping = reactive({
   code:      null,
   lotSize:   null,
   prevMonth: null,
+  axisA:     null,
+  axisB:     null,
 })
 
 const HINTS = {
@@ -41,6 +44,8 @@ const HINTS = {
   code:      ['商品コード', 'コード', 'jan', 'ean', 'barcode', 'code'],
   lotSize:   ['入数', '入り数', 'ロット', 'lot', 'pack'],
   prevMonth: ['前月実績', '前月', '先月', 'prev', 'last'],
+  axisA:     [props.axisNames?.[0], '場所', 'ロケーション', '棚', 'location', 'place'].filter(Boolean),
+  axisB:     [props.axisNames?.[1], '仕入先', '業者', '取引先', 'supplier', 'vendor'].filter(Boolean),
 }
 
 function _detect(hints) {
@@ -58,8 +63,10 @@ mapping.category  = _detect(HINTS.category)
 mapping.code      = _detect(HINTS.code)
 mapping.lotSize   = _detect(HINTS.lotSize)
 mapping.prevMonth = _detect(HINTS.prevMonth)
+mapping.axisA     = _detect(HINTS.axisA)
+mapping.axisB     = _detect(HINTS.axisB)
 
-const FIELD_DEFS = [
+const FIELD_DEFS = computed(() => [
   { key: 'name',      label: '品目名',         required: true },
   { key: 'unit',      label: '単位',           required: false },
   { key: 'price',     label: '単価',           required: false },
@@ -67,7 +74,9 @@ const FIELD_DEFS = [
   { key: 'code',      label: '商品コード（バーコード）', required: false },
   { key: 'lotSize',   label: '入数',           required: false },
   { key: 'prevMonth', label: '前月実績',       required: false },
-]
+  { key: 'axisA',     label: props.axisNames?.[0] || '分類軸1（場所など）', required: false },
+  { key: 'axisB',     label: props.axisNames?.[1] || '分類軸2（仕入先など）', required: false },
+])
 
 const canImport = computed(() => mapping.name !== null)
 

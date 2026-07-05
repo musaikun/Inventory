@@ -61,7 +61,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -1519,7 +1519,7 @@ function onConfirmRevert() {
 }
 
 // 品目編集モーダルの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
-function onEditSave({ originalName, name, qty, unit, category, price }) {
+function onEditSave({ originalName, name, qty, unit, category, price, tagA, tagB }) {
   const n = (name || '').trim()
   if (!n) return
   const oldEntry = inventory[originalName] ? { ...inventory[originalName] } : null
@@ -1531,6 +1531,10 @@ function onEditSave({ originalName, name, qty, unit, category, price }) {
     showToast('その品目名は既に使われています', 3000, 'warning')
     return
   }
+
+  // 汎用軸の値を反映（軸が未使用でも空文字で安全）
+  if (tagA !== undefined) setItemTag(n, 0, tagA)
+  if (tagB !== undefined) setItemTag(n, 1, tagB)
 
   // リネーム時は旧在庫エントリを削除（新名で入れ直す）
   if (n !== originalName && oldEntry) {
@@ -1600,6 +1604,12 @@ const editingItem     = ref(null)   // null=追加モード、文字列=編集�
 
 const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+)
+const existingTagsA = computed(() =>
+  [...new Set(Object.values(config.tagsA ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+)
+const existingTagsB = computed(() =>
+  [...new Set(Object.values(config.tagsB ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 
 // ファジー類似品目: 部分文字列一致で既存品目を検索
@@ -1703,6 +1713,8 @@ function startEditItem(name) {
     price:          config.prices?.[name] ?? '',
     source:         'edit',
     lotSize:        config.lotSizes?.[name] ?? '',
+    tagA:           config.tagsA?.[name] ?? '',
+    tagB:           config.tagsB?.[name] ?? '',
     isNew:          false,
     isEdit:         true,
   }
@@ -2198,6 +2210,11 @@ function dismissReview() {
         :is-edit="!!confirmState.isEdit"
         :initial-price="confirmState.price ?? ''"
         :existing-categories="existingCategories"
+        :axis-names="config.axisNames"
+        :initial-tag-a="confirmState.tagA ?? ''"
+        :initial-tag-b="confirmState.tagB ?? ''"
+        :existing-tags-a="existingTagsA"
+        :existing-tags-b="existingTagsB"
         :existing="confirmExisting"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
         :lot-size="confirmState.lotSize"

@@ -19,6 +19,11 @@ const props = defineProps({
   isNew:           { type: Boolean, default: false }, // リスト未登録＝「新規登録」ボタンで初めて登録
   isEdit:          { type: Boolean, default: false }, // 登録済み品目の編集モード
   initialPrice:    { type: [Number, String], default: '' }, // 編集時の単価
+  axisNames:       { type: Array,  default: () => ['', ''] }, // 汎用2軸の名前
+  initialTagA:     { type: String, default: '' },   // 軸1の現在値
+  initialTagB:     { type: String, default: '' },   // 軸2の現在値
+  existingTagsA:   { type: Array,  default: () => [] }, // 軸1の既存値（候補）
+  existingTagsB:   { type: Array,  default: () => [] }, // 軸2の既存値（候補）
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save'])
@@ -30,6 +35,10 @@ const categoryEditable = computed(() => props.isEdit || !props.categoryLocked)
 // 編集モード: 品目名・単価
 const editName = ref(props.ingredient)
 const price    = ref(props.initialPrice !== '' && props.initialPrice != null ? String(props.initialPrice) : '')
+
+// 編集モード: 汎用2軸の値
+const tagA = ref(props.initialTagA ?? '')
+const tagB = ref(props.initialTagB ?? '')
 
 // 単位ドロップダウンの選択肢（p・ヶ を追加）
 const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
@@ -214,6 +223,8 @@ function saveEdit() {
     unit:     unit.value.trim(),
     category: category.value.trim(),
     price:    price.value.trim(),
+    tagA:     tagA.value.trim(),
+    tagB:     tagB.value.trim(),
   })
 }
 </script>
@@ -358,6 +369,24 @@ function saveEdit() {
           class="price-input"
         />
         <span class="price-yen">円</span>
+      </div>
+
+      <!-- 汎用軸（編集モード・名前が設定されている軸のみ） -->
+      <div v-if="isEdit && axisNames?.[0]" class="genre-row">
+        <span class="genre-label">{{ axisNames[0] }}</span>
+        <input type="text" v-model="tagA" maxlength="20" list="axisA-list"
+               :placeholder="axisNames[0] + 'を入力'" class="price-input" />
+        <datalist id="axisA-list">
+          <option v-for="v in existingTagsA" :key="v" :value="v" />
+        </datalist>
+      </div>
+      <div v-if="isEdit && axisNames?.[1]" class="genre-row">
+        <span class="genre-label">{{ axisNames[1] }}</span>
+        <input type="text" v-model="tagB" maxlength="20" list="axisB-list"
+               :placeholder="axisNames[1] + 'を入力'" class="price-input" />
+        <datalist id="axisB-list">
+          <option v-for="v in existingTagsB" :key="v" :value="v" />
+        </datalist>
       </div>
 
       <!-- プリセットボタン -->

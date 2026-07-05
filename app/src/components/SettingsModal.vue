@@ -349,6 +349,7 @@ function onDownloadTemplate() {
     v-if="showMapper"
     :csv-text="mapperCsvText"
     :filename="mapperFilename"
+    :axis-names="config.axisNames"
     @imported="onMapperImported"
     @close="showMapper = false"
   />

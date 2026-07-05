@@ -333,7 +333,9 @@ export function useConfig() {
   function exportConfigCSV() {
     // フォーミュラインジェクション対策
     const cs = v => (typeof v === 'string' && /^[=+\-@|]/.test(v)) ? `'${v}` : v
-    const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数']
+    const a0 = (config.axisNames?.[0] || '軸1').replace(/,/g, ' ')
+    const a1 = (config.axisNames?.[1] || '軸2').replace(/,/g, ' ')
+    const rows = [`品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,${a0},${a1}`]
     config.order.forEach(item => {
       const unit     = cs(config.units[item]      ?? '')
       const price    = config.prices[item]        ?? ''
@@ -342,6 +344,8 @@ export function useConfig() {
       const catCode  = config.categoryCodes[config.categories[item]] ?? ''
       const prevMonth = cs(config.prevMonths[item] ?? '')
       const lotSize  = cs(config.lotSizes[item]   ?? '')
+      const tagA     = cs(config.tagsA[item]      ?? '')
+      const tagB     = cs(config.tagsB[item]      ?? '')
       const aliases  = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
         .map(([k]) => cs(k))
@@ -353,7 +357,9 @@ export function useConfig() {
       const catCodeCell = catCode !== '' ? catCode                  : ''
       const prevCell    = prevMonth      ? `"${prevMonth}"`         : ''
       const lotCell     = lotSize        ? `"${lotSize}"`           : ''
-      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell}`)
+      const tagACell    = tagA           ? `"${tagA}"`              : ''
+      const tagBCell    = tagB           ? `"${tagB}"`              : ''
+      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell},${tagACell},${tagBCell}`)
     })
     return rows.join('\r\n')
   }
@@ -640,14 +646,15 @@ export function useConfig() {
    */
   function loadFromCSVMapped(csvText, mapping) {
     const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol,
-            code: codeCol, lotSize: lotCol, prevMonth: prevCol } = mapping
+            code: codeCol, lotSize: lotCol, prevMonth: prevCol,
+            axisA: axisACol, axisB: axisBCol } = mapping
     if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
 
     const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
     if (lines.length < 2) throw new Error('データ行がありません')
 
     const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
-    const newCodes = {}, newLotSizes = {}, newPrevMonths = {}
+    const newCodes = {}, newLotSizes = {}, newPrevMonths = {}, newTagsA = {}, newTagsB = {}
 
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
@@ -679,6 +686,14 @@ export function useConfig() {
         const pm = cols[prevCol]?.trim()
         if (pm) newPrevMonths[name] = pm
       }
+      if (axisACol != null) {
+        const v = cols[axisACol]?.trim()
+        if (v) newTagsA[name] = v
+      }
+      if (axisBCol != null) {
+        const v = cols[axisBCol]?.trim()
+        if (v) newTagsB[name] = v
+      }
     }
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
@@ -699,8 +714,14 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = {}
-    config.tagsA         = {}   // 軸値は品目に紐づくため取込でリセット（軸名は維持）
-    config.tagsB         = {}
+    config.tagsA         = newTagsA
+    config.tagsB         = newTagsB
+    // 軸名が未設定なら、マッピングした列のヘッダ名を軸名に採用する
+    const headers = parseCSVLine(lines[0])
+    const axisNames = [...(config.axisNames ?? ['', ''])]
+    if (axisACol != null && !axisNames[0]) axisNames[0] = (headers[axisACol]?.trim() || '').slice(0, 12)
+    if (axisBCol != null && !axisNames[1]) axisNames[1] = (headers[axisBCol]?.trim() || '').slice(0, 12)
+    config.axisNames     = [axisNames[0] ?? '', axisNames[1] ?? '']
     const newSet         = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()

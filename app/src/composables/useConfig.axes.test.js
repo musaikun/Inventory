@@ -77,4 +77,26 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.axisNames).toEqual(['', ''])
     expect(cfg.config.tagsA).toEqual({})
   })
+
+  it('CSVマッピング取込で軸値と軸名（ヘッダ由来）が入る', () => {
+    cfg.config.axisNames = ['', '']
+    const csv = '品目名,場所,仕入先\nパスタ,冷凍庫,八百屋\nトマト,常温棚,青果店'
+    cfg.loadFromCSVMapped(csv, { name: 0, axisA: 1, axisB: 2 })
+    expect(cfg.config.tagsA['パスタ']).toBe('冷凍庫')
+    expect(cfg.config.tagsB['トマト']).toBe('青果店')
+    // 軸名が未設定だったのでヘッダ名を採用
+    expect(cfg.config.axisNames).toEqual(['場所', '仕入先'])
+  })
+
+  it('CSV出力に軸列が含まれる（往復）', () => {
+    cfg.config.order = ['パスタ']
+    cfg.config.axisNames = ['場所', '仕入先']
+    cfg.config.tagsA = { パスタ: '冷凍庫' }
+    cfg.config.tagsB = { パスタ: '八百屋' }
+    const out = cfg.exportConfigCSV()
+    expect(out.split('\r\n')[0]).toContain('場所')
+    expect(out.split('\r\n')[0]).toContain('仕入先')
+    expect(out).toContain('冷凍庫')
+    expect(out).toContain('八百屋')
+  })
 })
