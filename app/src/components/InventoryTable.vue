@@ -57,33 +57,58 @@ function _sortByUsage(arr) {
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'category' | 'alpha'
+const sortMode     = ref('category')  // 'category' | 'alpha' | 'axisA' | 'axisB'
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
-const expandedCats = reactive({})     // ジャンル別アコーディオン
-const expandedKana = reactive({})     // 五十音アコーディオン
 
-function toggleCat(label)  { if (expandedCats[label]) delete expandedCats[label]; else expandedCats[label] = true }
-function toggleKana(label) { if (expandedKana[label]) delete expandedKana[label]; else expandedKana[label] = true }
+// 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
+const sortOpts = computed(() => {
+  const opts = [
+    { value: 'category', label: 'ジャンル' },
+    { value: 'alpha',    label: '五十音' },
+  ]
+  const names = config.value.axisNames ?? ['', '']
+  if (names[0]) opts.push({ value: 'axisA', label: names[0] })
+  if (names[1]) opts.push({ value: 'axisB', label: names[1] })
+  return opts
+})
 
-function toggleGroup(row)      { row.isKana ? toggleKana(row.label) : toggleCat(row.label) }
-function isGroupExpanded(row)  { return row.isKana ? !!expandedKana[row.label] : !!expandedCats[row.label] }
+// 未設定の軸を選んだ状態でも壊れないよう、実効モードにフォールバック
+const _effectiveSort = computed(() => {
+  const m = sortMode.value
+  const names = config.value.axisNames ?? ['', '']
+  if (m === 'axisA' && !names[0]) return 'order'
+  if (m === 'axisB' && !names[1]) return 'order'
+  return m
+})
+const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB'].includes(_effectiveSort.value))
+
+// アコーディオン展開状態は「モード + ラベル」でキー化し、軸切替時の同名グループ混線を防ぐ
+const expandedGroups = reactive({})
+const SEP = '\u0000'
+function _gkey(label) { return _effectiveSort.value + SEP + label }
+
+function toggleGroup(row) {
+  const k = _gkey(row.label)
+  if (expandedGroups[k]) delete expandedGroups[k]
+  else expandedGroups[k] = true
+}
+function isGroupExpanded(row) { return !!expandedGroups[_gkey(row.label)] }
 
 function collapseAll() {
-  Object.keys(expandedCats).forEach(k => delete expandedCats[k])
-  Object.keys(expandedKana).forEach(k => delete expandedKana[k])
+  const prefix = _effectiveSort.value + SEP
+  Object.keys(expandedGroups).forEach(k => { if (k.startsWith(prefix)) delete expandedGroups[k] })
 }
 
 function expandAll() {
   for (const row of rows.value.filter(r => r.type === 'group-header')) {
-    if (row.isKana) expandedKana[row.label] = true
-    else expandedCats[row.label] = true
+    expandedGroups[_gkey(row.label)] = true
   }
 }
 
 const hasExpanded = computed(() => {
-  if (sortMode.value === 'category') return Object.keys(expandedCats).length > 0
-  if (sortMode.value === 'alpha')    return Object.keys(expandedKana).length > 0
-  return false
+  if (!_isGroupedMode.value) return false
+  const prefix = _effectiveSort.value + SEP
+  return Object.keys(expandedGroups).some(k => k.startsWith(prefix))
 })
 
 const hasAllExpanded = computed(() => {
@@ -91,11 +116,6 @@ const hasAllExpanded = computed(() => {
   if (groups.length === 0) return true
   return groups.every(r => isGroupExpanded(r))
 })
-
-const sortOpts = [
-  { value: 'category', label: 'ジャンル' },
-  { value: 'alpha',    label: '五十音' },
-]
 
 // ── カテゴリごとの実際の進捗（フィルターに依存しない・スコープ反映）──────────
 const catRealStats = computed(() => {
@@ -136,6 +156,8 @@ const rows = computed(() => {
     code:      config.value.codes?.[item]       ?? null,
     prevMonth: config.value.prevMonths?.[item]  ?? null,
     lotSize:   config.value.lotSizes?.[item]    ?? null,
+    tagA:      config.value.tagsA?.[item]       ?? '',
+    tagB:      config.value.tagsB?.[item]       ?? '',
   }))
 
   // 2. config.value.order に含まれないカスタム品目
@@ -152,6 +174,8 @@ const rows = computed(() => {
       code:      config.value.codes?.[item]       ?? null,
       prevMonth: config.value.prevMonths?.[item]  ?? null,
       lotSize:   config.value.lotSizes?.[item]    ?? null,
+      tagA:      config.value.tagsA?.[item]       ?? '',
+      tagB:      config.value.tagsB?.[item]       ?? '',
     }))
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
@@ -179,7 +203,9 @@ const rows = computed(() => {
   }
 
   // 5. 並べ替え適用
-  if (sortMode.value === 'alpha') {
+  const mode = _effectiveSort.value
+
+  if (mode === 'alpha') {
     // 五十音アコーディオン
     const groupMap = new Map()
     for (const row of items) {
@@ -204,30 +230,40 @@ const rows = computed(() => {
     return result
   }
 
-  if (sortMode.value === 'category') {
-    // カテゴリ別グループ化
+  if (mode === 'category' || mode === 'axisA' || mode === 'axisB') {
+    // ジャンル / 汎用軸によるグループ化（共通ロジック）
+    const emptyLabel = mode === 'category' ? 'その他' : '未設定'
+    const keyOf = (row) =>
+      mode === 'category' ? (row.category ?? 'その他')
+      : mode === 'axisA'  ? (row.tagA || '未設定')
+      :                     (row.tagB || '未設定')
+    const statsMap = mode === 'category' ? catRealStats.value
+      : mode === 'axisA' ? axisAStats.value
+      :                    axisBStats.value
+
     const groupMap = new Map()
     for (const row of items) {
-      const cat = row.category ?? 'その他'
-      if (!groupMap.has(cat)) groupMap.set(cat, [])
-      groupMap.get(cat).push(row)
+      const k = keyOf(row)
+      if (!groupMap.has(k)) groupMap.set(k, [])
+      groupMap.get(k).push(row)
     }
-    // 分類コード順ソート（コード未設定は五十音順で末尾）
+    // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
-      if (a === 'その他') return 1
-      if (b === 'その他') return -1
-      const codeA = config.value.categoryCodes?.[a]
-      const codeB = config.value.categoryCodes?.[b]
-      if (codeA != null && codeB != null) return codeA - codeB
-      if (codeA != null) return -1
-      if (codeB != null) return  1
+      if (a === emptyLabel) return 1
+      if (b === emptyLabel) return -1
+      if (mode === 'category') {
+        const codeA = config.value.categoryCodes?.[a]
+        const codeB = config.value.categoryCodes?.[b]
+        if (codeA != null && codeB != null) return codeA - codeB
+        if (codeA != null) return -1
+        if (codeB != null) return  1
+      }
       return a.localeCompare(b, 'ja')
     })
-    // グループヘッダー行を挿入（進捗はフィルター非依存の実数値を使用）
     const result = []
-    for (const [cat, groupRows] of sorted) {
-      const real = catRealStats.value[cat] ?? { total: groupRows.length, filled: 0 }
-      result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled, isKana: false })
+    for (const [key, groupRows] of sorted) {
+      const real = statsMap[key] ?? { total: groupRows.length, filled: 0 }
+      result.push({ type: 'group-header', label: key, count: real.total, filled: real.filled, isKana: false })
       result.push(..._sortByUsage(groupRows))
     }
     return result
@@ -298,10 +334,19 @@ function rowClick(item) {
 }
 
 // ── キーボードナビゲーション ──────────────────────────────────────────────────
+function _groupLabelOf(row) {
+  switch (_effectiveSort.value) {
+    case 'alpha':    return _kanaGroup(row.item)
+    case 'category': return row.category ?? 'その他'
+    case 'axisA':    return row.tagA || '未設定'
+    case 'axisB':    return row.tagB || '未設定'
+    default:         return null
+  }
+}
 function _isRowVisible(row) {
-  if (sortMode.value === 'category') return !!expandedCats[row.category ?? 'その他']
-  if (sortMode.value === 'alpha')    return !!expandedKana[_kanaGroup(row.item)]
-  return true
+  const label = _groupLabelOf(row)
+  if (label === null) return true          // 非グループ表示は常に可視
+  return !!expandedGroups[_gkey(label)]
 }
 
 function _getVisibleItems() {
@@ -421,6 +466,27 @@ const kanaRealStats = computed(() => {
   }
   return map
 })
+
+// 汎用軸ごとの進捗（catRealStats と同じくフィルター非依存・スコープ反映）
+function _axisStats(tagMap) {
+  const map = {}
+  const all = [
+    ...config.value.order,
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
+  ]
+  for (const item of all) {
+    if (props.categoryScope === 'food'   && _isSupply(item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
+    const grp = tagMap?.[item] || '未設定'
+    if (!map[grp]) map[grp] = { total: 0, filled: 0 }
+    map[grp].total++
+    if (props.inventory[item] != null) map[grp].filled++
+  }
+  return map
+}
+const axisAStats = computed(() => _axisStats(config.value.tagsA))
+const axisBStats = computed(() => _axisStats(config.value.tagsB))
 
 // スコープ対応の品目数（ヘッダー表示用・絞り込み中は使う品目のみ）
 const scopedTotal = computed(() => {
