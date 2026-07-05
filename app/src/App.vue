@@ -492,6 +492,8 @@ registerConfigGetter(() => ({
   axisNames:     config.axisNames,
   tagsA:         config.tagsA,
   tagsB:         config.tagsB,
+  axisGroupsA:   config.axisGroupsA,
+  axisGroupsB:   config.axisGroupsB,
   isCustom:      config.isCustom,
 }))
 setConfigCallback((cfg) => {
@@ -517,6 +519,8 @@ function _configPayload() {
     axisNames:     config.axisNames,
     tagsA:         config.tagsA,
     tagsB:         config.tagsB,
+    axisGroupsA:   config.axisGroupsA,
+    axisGroupsB:   config.axisGroupsB,
   }
 }
 
@@ -597,6 +601,7 @@ function approveItemAdd(req) {
     categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
     prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
     axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
+    axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB,
     isCustom: config.isCustom,
   })
   broadcastItemAddResponse(req.requestId, true, req.name)
@@ -1196,6 +1201,8 @@ watch(config, () => {
       axisNames:     config.axisNames,
       tagsA:         config.tagsA,
       tagsB:         config.tagsB,
+      axisGroupsA:   config.axisGroupsA,
+      axisGroupsB:   config.axisGroupsB,
       isCustom:      config.isCustom,
     })
   }, 300)

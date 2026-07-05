@@ -18,6 +18,8 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     cfg.config.axisNames   = ['', '']
     cfg.config.tagsA       = {}
     cfg.config.tagsB       = {}
+    cfg.config.axisGroupsA = []
+    cfg.config.axisGroupsB = []
     cfg.config.isCustom    = true
   })
 
@@ -98,5 +100,41 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(out.split('\r\n')[0]).toContain('仕入先')
     expect(out).toContain('冷凍庫')
     expect(out).toContain('八百屋')
+  })
+
+  it('グループの追加・リネーム・削除が割り当てに追従する', () => {
+    cfg.config.order = ['パスタ', 'トマト']
+    cfg.addAxisGroup(0, '冷凍庫')
+    expect(cfg.config.axisGroupsA).toContain('冷凍庫')
+    cfg.assignItemsToGroup(0, ['パスタ', 'トマト'], '冷凍庫')
+    expect(cfg.config.tagsA['パスタ']).toBe('冷凍庫')
+    // リネーム→所属も追従
+    cfg.renameAxisGroup(0, '冷凍庫', '冷凍室')
+    expect(cfg.config.axisGroupsA).toContain('冷凍室')
+    expect(cfg.config.tagsA['パスタ']).toBe('冷凍室')
+    // 削除→所属はその他（未割り当て）に戻る
+    cfg.removeAxisGroup(0, '冷凍室')
+    expect(cfg.config.axisGroupsA).not.toContain('冷凍室')
+    expect(cfg.config.tagsA['パスタ']).toBeUndefined()
+  })
+
+  it('その他へ振り分けると割り当てが解除される', () => {
+    cfg.config.order = ['パスタ']
+    cfg.config.tagsA = { パスタ: '冷凍庫' }
+    cfg.assignItemsToGroup(0, ['パスタ'], '')
+    expect(cfg.config.tagsA['パスタ']).toBeUndefined()
+  })
+
+  it('再インポートで既存割り当てを名前一致で維持し、新規はその他', () => {
+    cfg.config.order = ['パスタ', 'トマト']
+    cfg.config.axisNames = ['場所', '']
+    cfg.config.axisGroupsA = ['冷凍庫']
+    cfg.config.tagsA = { パスタ: '冷凍庫', トマト: '冷凍庫' }
+    // 軸列なしのCSVを再インポート（トマト消滅・レタス新規）
+    cfg.loadFromCSVMapped('品目名\nパスタ\nレタス', { name: 0 })
+    expect(cfg.config.tagsA['パスタ']).toBe('冷凍庫')  // 維持
+    expect(cfg.config.tagsA['トマト']).toBeUndefined() // 消えた品目は破棄
+    expect(cfg.config.tagsA['レタス']).toBeUndefined() // 新規はその他
+    expect(cfg.config.axisGroupsA).toContain('冷凍庫')  // グループ定義は維持
   })
 })

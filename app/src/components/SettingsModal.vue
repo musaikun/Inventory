@@ -6,6 +6,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
+import AxisAssignModal from './AxisAssignModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
@@ -49,6 +50,9 @@ const {
 function onAxisNameInput(index, e) {
   setAxisName(index, e.target.value)
 }
+
+const showAssign = ref(false)
+const hasNamedAxis = computed(() => (config.axisNames?.[0] || config.axisNames?.[1]))
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
@@ -288,6 +292,9 @@ function onDownloadTemplate() {
             @change="onAxisNameInput(1, $event)"
           />
         </div>
+        <button v-if="hasNamedAxis" class="axis-assign-btn" @click="showAssign = true">
+          🗂️ 品目をグループに振り分ける
+        </button>
       </div>
 
       <!-- 端末名設定 -->
@@ -353,6 +360,8 @@ function onDownloadTemplate() {
     @imported="onMapperImported"
     @close="showMapper = false"
   />
+
+  <AxisAssignModal v-if="showAssign" @close="showAssign = false" />
 </template>
 
 <style scoped>
@@ -482,6 +491,7 @@ function onDownloadTemplate() {
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
 
 .axis-note { font-size: 11px; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.5; }
+.axis-assign-btn { width: 100%; margin-top: 10px; padding: 10px; border: 1.5px solid var(--primary); background: #eff6ff; color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 10px; cursor: pointer; }
 .axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .axis-num { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); width: 30px; }
 .axis-row .device-input { flex: 1; }

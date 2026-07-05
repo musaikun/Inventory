@@ -32,8 +32,10 @@ const config = reactive({
   savedAt:        null,
   manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
   axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
-  tagsA:          {},        // 品目 → 軸1の値（フラットマップ）
-  tagsB:          {},        // 品目 → 軸2の値
+  tagsA:          {},        // 品目 → 軸1のグループ名（フラットマップ）
+  tagsB:          {},        // 品目 → 軸2のグループ名
+  axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
+  axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -82,6 +84,8 @@ function _load() {
       config.axisNames     = saved.axisNames     ?? ['', '']
       config.tagsA         = saved.tagsA         ?? {}
       config.tagsB         = saved.tagsB         ?? {}
+      config.axisGroupsA   = saved.axisGroupsA   ?? []
+      config.axisGroupsB   = saved.axisGroupsB   ?? []
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -105,6 +109,8 @@ function _saveLocalOnly() {
       axisNames:     config.axisNames,
       tagsA:         config.tagsA,
       tagsB:         config.tagsB,
+      axisGroupsA:   config.axisGroupsA,
+      axisGroupsB:   config.axisGroupsB,
       savedAt:       config.savedAt,
     }))
     config.isCustom = true
@@ -176,6 +182,8 @@ export function applyRemoteConfig(cfg) {
   config.axisNames     = cfg.axisNames     ?? ['', '']
   config.tagsA         = cfg.tagsA         ?? {}
   config.tagsB         = cfg.tagsB         ?? {}
+  config.axisGroupsA   = cfg.axisGroupsA   ?? []
+  config.axisGroupsB   = cfg.axisGroupsB   ?? []
   _saveLocalOnly()
 }
 
@@ -381,6 +389,8 @@ export function useConfig() {
       axisNames:     config.axisNames,
       tagsA:         config.tagsA,
       tagsB:         config.tagsB,
+      axisGroupsA:   config.axisGroupsA,
+      axisGroupsB:   config.axisGroupsB,
     }))
   }
 
@@ -400,6 +410,8 @@ export function useConfig() {
     config.axisNames     = snap.axisNames     ?? ['', '']
     config.tagsA         = snap.tagsA         ?? {}
     config.tagsB         = snap.tagsB         ?? {}
+    config.axisGroupsA   = snap.axisGroupsA   ?? []
+    config.axisGroupsB   = snap.axisGroupsB   ?? []
     config.isCustom      = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
@@ -420,6 +432,8 @@ export function useConfig() {
     config.axisNames     = ['', '']
     config.tagsA         = {}
     config.tagsB         = {}
+    config.axisGroupsA   = []
+    config.axisGroupsB   = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -439,6 +453,8 @@ export function useConfig() {
     config.axisNames     = ['', '']
     config.tagsA         = {}
     config.tagsB         = {}
+    config.axisGroupsA   = []
+    config.axisGroupsB   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -463,6 +479,8 @@ export function useConfig() {
     config.axisNames     = ['', '']
     config.tagsA         = {}
     config.tagsB         = {}
+    config.axisGroupsA   = []
+    config.axisGroupsB   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -617,6 +635,62 @@ export function useConfig() {
     return true
   }
 
+  // ── 汎用軸のグループ（場所・仕入先など）管理 ────────────────────────────────
+  function _axisList(axisIndex) {
+    return axisIndex === 0 ? config.axisGroupsA : axisIndex === 1 ? config.axisGroupsB : null
+  }
+  function _axisMap(axisIndex) {
+    return axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : null
+  }
+
+  // グループを追加（重複は無視）
+  function addAxisGroup(axisIndex, name) {
+    const n = (name ?? '').trim()
+    const list = _axisList(axisIndex)
+    if (!n || !list) return false
+    if (!list.includes(n)) { list.push(n); _save() }
+    return true
+  }
+
+  // グループをリネーム（所属品目の割り当ても追従）
+  function renameAxisGroup(axisIndex, oldName, newName) {
+    const nn = (newName ?? '').trim()
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!nn || !list || !map) return false
+    const idx = list.indexOf(oldName)
+    if (idx < 0) return false
+    if (nn !== oldName && list.includes(nn)) return false
+    list[idx] = nn
+    for (const item of Object.keys(map)) if (map[item] === oldName) map[item] = nn
+    _save()
+    return true
+  }
+
+  // グループを削除（所属品目は「その他」=未割り当てに戻す）
+  function removeAxisGroup(axisIndex, name) {
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!list || !map) return false
+    const idx = list.indexOf(name)
+    if (idx >= 0) list.splice(idx, 1)
+    for (const item of Object.keys(map)) if (map[item] === name) delete map[item]
+    _save()
+    return true
+  }
+
+  // 複数品目をグループへ振り分け（group が空なら「その他」＝割り当て解除）
+  function assignItemsToGroup(axisIndex, items, group) {
+    const map = _axisMap(axisIndex)
+    if (!map || !Array.isArray(items)) return false
+    const g = (group ?? '').trim()
+    for (const item of items) {
+      if (!config.order.includes(item)) continue
+      if (g) map[item] = g
+      else   delete map[item]
+    }
+    _save()
+    return true
+  }
+
   // 数量入力モーダルからジャンルだけを設定する（単価・並びは変えない）
   function setItemCategory(name, category) {
     if (!config.order.includes(name)) return false
@@ -714,8 +788,17 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = {}
-    config.tagsA         = newTagsA
-    config.tagsB         = newTagsB
+    // 軸の割り当てはアプリ内で維持する。再インポートは品目名の完全一致で保持し、
+    // 消えた品目は破棄、新規品目は未割り当て（その他）。CSVに軸列があればそれを優先。
+    const keepA = {}, keepB = {}
+    for (const nm of cappedOrder) {
+      const a = newTagsA[nm] !== undefined ? newTagsA[nm] : config.tagsA[nm]
+      const b = newTagsB[nm] !== undefined ? newTagsB[nm] : config.tagsB[nm]
+      if (a !== undefined) keepA[nm] = a
+      if (b !== undefined) keepB[nm] = b
+    }
+    config.tagsA         = keepA
+    config.tagsB         = keepB
     // 軸名が未設定なら、マッピングした列のヘッダ名を軸名に採用する
     const headers = parseCSVLine(lines[0])
     const axisNames = [...(config.axisNames ?? ['', ''])]
@@ -759,5 +842,9 @@ export function useConfig() {
     setItemExtras,
     setAxisName,
     setItemTag,
+    addAxisGroup,
+    renameAxisGroup,
+    removeAxisGroup,
+    assignItemsToGroup,
   }
 }

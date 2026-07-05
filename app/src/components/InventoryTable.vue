@@ -232,11 +232,11 @@ const rows = computed(() => {
 
   if (mode === 'category' || mode === 'axisA' || mode === 'axisB') {
     // ジャンル / 汎用軸によるグループ化（共通ロジック）
-    const emptyLabel = mode === 'category' ? 'その他' : '未設定'
+    const emptyLabel = 'その他'
     const keyOf = (row) =>
       mode === 'category' ? (row.category ?? 'その他')
-      : mode === 'axisA'  ? (row.tagA || '未設定')
-      :                     (row.tagB || '未設定')
+      : mode === 'axisA'  ? (row.tagA || 'その他')
+      :                     (row.tagB || 'その他')
     const statsMap = mode === 'category' ? catRealStats.value
       : mode === 'axisA' ? axisAStats.value
       :                    axisBStats.value
@@ -338,8 +338,8 @@ function _groupLabelOf(row) {
   switch (_effectiveSort.value) {
     case 'alpha':    return _kanaGroup(row.item)
     case 'category': return row.category ?? 'その他'
-    case 'axisA':    return row.tagA || '未設定'
-    case 'axisB':    return row.tagB || '未設定'
+    case 'axisA':    return row.tagA || 'その他'
+    case 'axisB':    return row.tagB || 'その他'
     default:         return null
   }
 }
@@ -478,7 +478,7 @@ function _axisStats(tagMap) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
-    const grp = tagMap?.[item] || '未設定'
+    const grp = tagMap?.[item] || 'その他'
     if (!map[grp]) map[grp] = { total: 0, filled: 0 }
     map[grp].total++
     if (props.inventory[item] != null) map[grp].filled++
