@@ -75,18 +75,27 @@ const leftGroups = computed(() => {
   return entries.map(([cat, items]) => ({ cat, items }))
 })
 
-const collapsed = reactive({})
-function toggleCat(cat) { collapsed[cat] = !collapsed[cat] }
-function isOpen(cat) { return !collapsed[cat] }
+// 左のアコーディオンは初期は全て閉じておく
+const opened = reactive({})
+function toggleCat(cat) { opened[cat] = !opened[cat] }
+function isOpen(cat) { return !!opened[cat] }
 
 // ── 振り分け対象グループ ────────────────────────
 const targetGroup = ref('')
 watch(activeAxis, () => { targetGroup.value = ''; search.value = '' })
 
+// 振り分け先グループの選択（同じものを再タップで選択解除＝閉じる）
+function selectGroup(g) { targetGroup.value = targetGroup.value === g ? '' : g }
+
+// 振り分け先未選択でタップされた時の案内
+const flash = ref('')
+let _flashT = null
+function flashMsg(m) { flash.value = m; clearTimeout(_flashT); _flashT = setTimeout(() => { flash.value = '' }, 2200) }
+
 // ── 振り分け操作（複数所属は確認モーダル） ────────
 const pendingItem = ref(null)
 function attemptAssign(item) {
-  if (!targetGroup.value) return
+  if (!targetGroup.value) { flashMsg('先に右で振り分け先（' + (activeName.value || '場所') + '）を選んでください'); return }
   const cur = itemGroups(item)
   if (cur.includes(targetGroup.value)) return       // 既にそのグループにある
   if (cur.length > 0) { pendingItem.value = item; return }  // 別の場所に既にある→確認
@@ -193,7 +202,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
           <div class="ax-scroll">
             <div v-for="g in displayGroups" :key="g"
                  :class="['ax-group', { on: targetGroup === g }]">
-              <div class="ax-group-head" @click="targetGroup = g">
+              <div class="ax-group-head" @click="selectGroup(g)">
                 <span class="ax-radio">{{ targetGroup === g ? '●' : '○' }}</span>
                 <span class="ax-group-name">{{ g }}</span>
                 <span class="ax-group-count">{{ groupCount[g] || 0 }}</span>
@@ -214,6 +223,9 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
         </div>
       </div>
     </template>
+
+    <!-- 振り分け先未選択の案内トースト -->
+    <div v-if="flash" class="ax-flash">{{ flash }}</div>
 
     <!-- 複数所属の確認 -->
     <div v-if="pendingItem" class="ax-confirm-overlay" @click.self="pendingItem = null">
@@ -292,6 +304,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-member-empty { font-size: 11px; color: #9ca3af; }
 
 .ax-none { padding: 20px; text-align: center; color: #9ca3af; font-size: 12px; }
+
+.ax-flash { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2200; background: #1f2937; color: #fff; font-size: 13px; font-weight: 700; padding: 10px 16px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-width: 90%; text-align: center; }
 
 .ax-confirm-overlay { position: fixed; inset: 0; z-index: 2200; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .ax-confirm { background: #fff; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; }
