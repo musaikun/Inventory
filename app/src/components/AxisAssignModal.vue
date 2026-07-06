@@ -5,7 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸 ────────────────────────────────────
@@ -111,9 +111,10 @@ function confirmMulti() {
 }
 function removeFrom(item, group) { removeItemFromGroup(activeAxis.value, item, group) }
 
-// 並び替え（定義済みグループのみ・▲▼で上下移動）
+// 並び替え（定義済みグループのみ）
 function definedIndex(g) { return defined.value.indexOf(g) }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
+function moveTop(g) { moveAxisGroupToTop(activeAxis.value, g) }
 
 // ── グループ管理 ──────────────────────────────
 const newGroupName = ref('')
@@ -214,21 +215,27 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 <span class="ax-radio">{{ targetGroup === g ? '●' : '○' }}</span>
                 <span class="ax-group-name">{{ g }}</span>
                 <span class="ax-group-count">{{ groupCount[g] || 0 }}</span>
-                <template v-if="definedIndex(g) >= 0">
-                  <button class="ax-gbtn" :disabled="definedIndex(g) === 0" @click.stop="move(g, -1)">▲</button>
-                  <button class="ax-gbtn" :disabled="definedIndex(g) === defined.length - 1" @click.stop="move(g, 1)">▼</button>
-                </template>
-                <button class="ax-gbtn" @click.stop="onRenameGroup(g)">✎</button>
-                <button class="ax-gbtn danger" @click.stop="onDeleteGroup(g)">🗑</button>
               </div>
-              <div v-if="targetGroup === g" class="ax-members">
+              <template v-if="targetGroup === g">
+                <!-- 選択中グループの操作バー（ヘッダーを狭くしない） -->
+                <div class="ax-group-actions">
+                  <template v-if="definedIndex(g) >= 0">
+                    <button class="ax-abtn" :disabled="definedIndex(g) === 0" @click.stop="moveTop(g)">⤒先頭</button>
+                    <button class="ax-abtn" :disabled="definedIndex(g) === 0" @click.stop="move(g, -1)">▲上</button>
+                    <button class="ax-abtn" :disabled="definedIndex(g) === defined.length - 1" @click.stop="move(g, 1)">▼下</button>
+                  </template>
+                  <button class="ax-abtn" @click.stop="onRenameGroup(g)">✎名前</button>
+                  <button class="ax-abtn danger" @click.stop="onDeleteGroup(g)">🗑削除</button>
+                </div>
+                <div class="ax-members">
                 <template v-for="item in config.order" :key="item">
                   <span v-if="itemGroups(item).includes(g)" class="ax-member">
                     {{ item }}<button class="ax-member-x" @click="removeFrom(item, g)">×</button>
                   </span>
                 </template>
                 <span v-if="(groupCount[g] || 0) === 0" class="ax-member-empty">左の品目をタップして追加</span>
-              </div>
+                </div>
+              </template>
             </div>
             <div v-if="displayGroups.length === 0" class="ax-none">上の欄でグループを追加してください</div>
           </div>
@@ -295,13 +302,14 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-cat-count { font-size: 11px; color: #9ca3af; }
 .ax-cat-count strong { color: #2563eb; font-weight: 700; }
 
-.ax-li { width: 100%; display: flex; align-items: center; gap: 6px; padding: 9px 10px; border: none; border-bottom: 1px solid #f3f4f6; background: #fff; cursor: pointer; text-align: left; }
+.ax-li { width: 100%; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: none; border-bottom: 1px solid #f3f4f6; background: #fff; cursor: pointer; text-align: left; }
 .ax-li.assigned { background: #f3f4f6; color: #9ca3af; }
 .ax-li.disabled { opacity: 0.7; }
 .ax-li-name { flex: 1; font-size: 13px; color: inherit; word-break: break-all; }
 .ax-li-add { color: #2563eb; font-weight: 700; }
-.ax-li-tags { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; }
-.ax-li-tag { font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border-radius: 6px; padding: 1px 5px; }
+/* 振り分け先は品目名の右で縦積み（品目名は中央揃え） */
+.ax-li-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.ax-li-tag { font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
 
 .ax-group { border-bottom: 1px solid #f0f1f3; }
 .ax-group.on { background: #eff6ff; }
@@ -309,8 +317,10 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-radio { font-size: 12px; color: #2563eb; }
 .ax-group-name { flex: 1; font-size: 13px; font-weight: 700; color: #374151; word-break: break-all; }
 .ax-group-count { font-size: 11px; color: #9ca3af; }
-.ax-gbtn { flex-shrink: 0; border: none; background: none; font-size: 13px; cursor: pointer; padding: 2px 3px; color: #6b7280; }
-.ax-gbtn:disabled { opacity: 0.25; cursor: default; }
+.ax-group-actions { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px; }
+.ax-abtn { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; font-size: 11px; color: #4b5563; cursor: pointer; padding: 5px 8px; white-space: nowrap; }
+.ax-abtn:disabled { opacity: 0.3; cursor: default; }
+.ax-abtn.danger { color: #dc2626; border-color: #fecaca; }
 .ax-gbtn.danger { filter: grayscale(0.2); }
 .ax-members { padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
 .ax-member { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 2px 4px 2px 8px; color: #374151; }

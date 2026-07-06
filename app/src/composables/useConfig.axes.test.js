@@ -141,6 +141,9 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.axisGroupsA).toEqual(['C', 'A', 'B'])
     // 端は移動しない
     expect(cfg.moveAxisGroup(0, 'C', -1)).toBe(false)
+    // 先頭へ
+    cfg.moveAxisGroupToTop(0, 'B')
+    expect(cfg.config.axisGroupsA).toEqual(['B', 'C', 'A'])
   })
 
   it('その他へ振り分けると割り当てが解除される', () => {

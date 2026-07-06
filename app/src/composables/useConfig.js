@@ -715,6 +715,18 @@ export function useConfig() {
     return true
   }
 
+  // グループを先頭へ移動
+  function moveAxisGroupToTop(axisIndex, name) {
+    const list = _axisList(axisIndex)
+    if (!list) return false
+    const i = list.indexOf(name)
+    if (i <= 0) return false
+    list.splice(i, 1)
+    list.unshift(name)
+    _save()
+    return true
+  }
+
   // 1品目を1グループへ追加（多ロケーション・重複は無視）
   function addItemToGroup(axisIndex, item, group) {
     const map = _axisMap(axisIndex)
@@ -911,5 +923,6 @@ export function useConfig() {
     addItemToGroup,
     removeItemFromGroup,
     moveAxisGroup,
+    moveAxisGroupToTop,
   }
 }
