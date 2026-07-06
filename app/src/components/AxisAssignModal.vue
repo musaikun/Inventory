@@ -53,12 +53,14 @@ const hasUsage = computed(() => Object.keys(usageMap.value).length > 0)
 const usedOnly = ref(false)
 const search   = ref('')
 
+// カタカナ半角/全角・英数字全半角を無視して検索するための正規化
+const _norm = (s) => (s || '').normalize('NFKC').toLowerCase()
 const leftGroups = computed(() => {
-  const q = search.value.trim().toLowerCase()
+  const q = _norm(search.value.trim())
   const map = new Map()
   for (const item of config.order) {
     if (usedOnly.value && !(usageMap.value[item] > 0)) continue
-    if (q && !item.toLowerCase().includes(q)) continue
+    if (q && !_norm(item).includes(q)) continue
     const cat = config.categories?.[item] || 'その他'
     if (!map.has(cat)) map.set(cat, [])
     map.get(cat).push(item)
@@ -178,7 +180,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
         <!-- 左：ジャンル別（デフォルト）の品目一覧 -->
         <div class="ax-pane ax-left">
           <div class="ax-pane-tools">
-            <input v-model="search" type="text" placeholder="品目検索" class="ax-mini-input" />
+            <input v-model="search" type="text" placeholder="検索" class="ax-mini-input" />
             <button v-if="hasUsage" :class="['ax-mini', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回0を非表示</button>
           </div>
           <div class="ax-scroll">
