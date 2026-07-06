@@ -72,7 +72,11 @@ const leftGroups = computed(() => {
     if (cb != null) return  1
     return a.localeCompare(b, 'ja')
   })
-  return entries.map(([cat, items]) => ({ cat, items }))
+  return entries.map(([cat, items]) => ({
+    cat,
+    items,
+    assigned: items.filter(i => isAssigned(i)).length,
+  }))
 })
 
 // 左のアコーディオンは初期は全て閉じておく
@@ -171,7 +175,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
               <div class="ax-cat-head" @click="toggleCat(grp.cat)">
                 <span class="ax-cat-arrow">{{ isOpen(grp.cat) ? '▼' : '▶' }}</span>
                 <span class="ax-cat-name">{{ grp.cat }}</span>
-                <span class="ax-cat-count">{{ grp.items.length }}</span>
+                <span class="ax-cat-count"><strong>{{ grp.assigned }}</strong>/{{ grp.items.length }}</span>
               </div>
               <template v-if="isOpen(grp.cat)">
                 <button
@@ -281,6 +285,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-cat-arrow { font-size: 10px; color: #9ca3af; }
 .ax-cat-name { flex: 1; font-size: 12px; font-weight: 700; color: #374151; }
 .ax-cat-count { font-size: 11px; color: #9ca3af; }
+.ax-cat-count strong { color: #2563eb; font-weight: 700; }
 
 .ax-li { width: 100%; display: flex; align-items: center; gap: 6px; padding: 9px 10px; border: none; border-bottom: 1px solid #f3f4f6; background: #fff; cursor: pointer; text-align: left; }
 .ax-li.assigned { background: #f3f4f6; color: #9ca3af; }
