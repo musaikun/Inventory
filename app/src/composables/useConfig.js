@@ -715,6 +715,30 @@ export function useConfig() {
     return true
   }
 
+  // 現在のジャンル構成をこの軸へコピー（ジャンルと同名グループを作り、品目を割り当て）
+  // 追加的（既存の割り当ては消さない）・冪等
+  function copyCategoriesToAxis(axisIndex) {
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!list || !map) return false
+    const cats = [...new Set(config.order.map(i => config.categories?.[i]).filter(Boolean))]
+    cats.sort((a, b) => {
+      const ca = config.categoryCodes?.[a], cb = config.categoryCodes?.[b]
+      if (ca != null && cb != null) return ca - cb
+      if (ca != null) return -1
+      if (cb != null) return  1
+      return a.localeCompare(b, 'ja')
+    })
+    for (const c of cats) if (!list.includes(c)) list.push(c)
+    for (const item of config.order) {
+      const c = config.categories?.[item]
+      if (!c) continue
+      const arr = Array.isArray(map[item]) ? [...map[item]] : []
+      if (!arr.includes(c)) { arr.push(c); map[item] = arr }
+    }
+    _save()
+    return cats.length
+  }
+
   // グループを先頭へ移動
   function moveAxisGroupToTop(axisIndex, name) {
     const list = _axisList(axisIndex)
@@ -924,5 +948,6 @@ export function useConfig() {
     removeItemFromGroup,
     moveAxisGroup,
     moveAxisGroupToTop,
+    copyCategoriesToAxis,
   }
 }

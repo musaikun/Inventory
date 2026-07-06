@@ -146,6 +146,19 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.axisGroupsA).toEqual(['B', 'C', 'A'])
   })
 
+  it('左のジャンルを軸へコピーできる', () => {
+    cfg.config.order = ['パスタ', 'トマト', 'レタス']
+    cfg.config.categories = { パスタ: '乾物', トマト: '野菜', レタス: '野菜' }
+    const n = cfg.copyCategoriesToAxis(0)
+    expect(n).toBe(2)  // 乾物・野菜
+    expect(cfg.config.axisGroupsA).toEqual(expect.arrayContaining(['乾物', '野菜']))
+    expect(cfg.config.tagsA['パスタ']).toEqual(['乾物'])
+    expect(cfg.config.tagsA['トマト']).toEqual(['野菜'])
+    // 冪等（二度実行しても重複しない）
+    cfg.copyCategoriesToAxis(0)
+    expect(cfg.config.tagsA['トマト']).toEqual(['野菜'])
+  })
+
   it('その他へ振り分けると割り当てが解除される', () => {
     cfg.config.order = ['パスタ']
     cfg.config.tagsA = { パスタ: ['冷凍庫'] }
