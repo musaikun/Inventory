@@ -64,7 +64,6 @@ const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 const sortOpts = computed(() => {
   const opts = [
     { value: 'category', label: 'ジャンル' },
-    { value: 'alpha',    label: '五十音' },
   ]
   const names = config.value.axisNames ?? ['', '']
   if (names[0]) opts.push({ value: 'axisA', label: names[0] })
