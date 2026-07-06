@@ -46,7 +46,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -796,6 +796,7 @@ function _closeTopLayer() {
   if (showSync.value)        { showSync.value = false;    return true }
   if (showSettings.value)    { showSettings.value = false; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
+  if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }

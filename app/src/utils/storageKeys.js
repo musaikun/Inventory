@@ -28,4 +28,5 @@ export const STORAGE_KEYS = {
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
   tapContinuous:    'inv_tap_continuous',
+  orders:           'inventory_orders_v1',
 }

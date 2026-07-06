@@ -3,6 +3,7 @@ import { ref } from 'vue'
 export const _persistedTab  = ref('sessions')
 export const _selectedYear  = ref(null)
 export const _showDashboard = ref(false)
+export const _showOrders    = ref(false)
 </script>
 
 <script setup>
@@ -15,6 +16,7 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
+import OrderModal from './OrderModal.vue'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -26,6 +28,7 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const showDashboard = _showDashboard
+const showOrders    = _showOrders
 const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
@@ -633,12 +636,20 @@ function _itemCount(session) {
               <span class="dashboard-card-arrow">›</span>
             </div>
 
-            <div class="section-title" style="margin-top:16px">📊 分析</div>
+            <div class="section-title" style="margin-top:16px">📊 分析・発注</div>
             <div class="dashboard-card" @click="showDashboard = true">
               <div class="dashboard-card-icon">📊</div>
               <div class="dashboard-card-body">
                 <div class="dashboard-card-title">在庫分析</div>
                 <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
+              </div>
+              <span class="dashboard-card-arrow">›</span>
+            </div>
+            <div class="dashboard-card" @click="showOrders = true">
+              <div class="dashboard-card-icon">🧾</div>
+              <div class="dashboard-card-body">
+                <div class="dashboard-card-title">発注</div>
+                <div class="dashboard-card-desc">仕入先・ジャンル別に発注数を記録／履歴</div>
               </div>
               <span class="dashboard-card-arrow">›</span>
             </div>
@@ -660,6 +671,7 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
+    <OrderModal v-if="showOrders" @close="showOrders = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
