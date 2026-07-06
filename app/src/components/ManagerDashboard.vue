@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { designateMonthEnds } from '../utils/businessDate.js'
+import { snapshotConfidence, detectAnomalies } from '../utils/analysisQuality.js'
 
 const props = defineProps({
   snapshots: { type: Array, default: () => [] },
@@ -8,27 +10,35 @@ const emit = defineEmits(['close'])
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-// 新しい順（getSnapshots は既に新しい順だが防御的に整列）
-const sorted = computed(() =>
-  [...props.snapshots].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-)
-const hasData = computed(() => sorted.value.length > 0)
+const hasData = computed(() => props.snapshots.length > 0)
 
-// ── どの棚卸を分析するか ────────────────────────────
-const selectedDate = ref(null)
-watch(sorted, (arr) => {
-  if (!selectedDate.value || !arr.some(s => s.date === selectedDate.value)) {
-    selectedDate.value = arr[0]?.date ?? null
+// 日付 → スナップショット
+const byDate = computed(() => {
+  const m = {}
+  for (const s of props.snapshots) if (s?.date) m[s.date] = s
+  return m
+})
+
+// 月末在庫の自動指定（営業日ベース・深夜またぎ考慮）。手動上書き・締め時刻は今は既定
+const designation = computed(() => designateMonthEnds(props.snapshots))
+const months = computed(() => Object.keys(designation.value).sort((a, b) => b.localeCompare(a)))
+
+// ── どの月を分析するか（月末在庫を自動選択）────────────
+const selectedMonth = ref(null)
+watch(months, (arr) => {
+  if (!selectedMonth.value || !arr.includes(selectedMonth.value)) {
+    selectedMonth.value = arr[0] ?? null
   }
 }, { immediate: true })
 
-const currentIdx = computed(() => sorted.value.findIndex(s => s.date === selectedDate.value))
-const current = computed(() => sorted.value[currentIdx.value] ?? null)
-// 選択した棚卸の「1つ前」= より古い直近のスナップショット
-const prevSnap = computed(() => {
-  const i = currentIdx.value
-  return i >= 0 ? (sorted.value[i + 1] ?? null) : null
+const curDesignation = computed(() => designation.value[selectedMonth.value] ?? null)
+const current = computed(() => byDate.value[curDesignation.value?.date] ?? null)
+// 1つ前の月（月末在庫）
+const prevMonthKey = computed(() => {
+  const i = months.value.indexOf(selectedMonth.value)
+  return i >= 0 ? (months.value[i + 1] ?? null) : null
 })
+const prevSnap = computed(() => byDate.value[designation.value[prevMonthKey.value]?.date] ?? null)
 
 function _hasPrices(snap) {
   return !!snap && snap.items.some(it => it.unitPrice != null)
@@ -53,8 +63,13 @@ function _fmtDate(dateStr) {
   if (isNaN(d.getTime())) return dateStr
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
-function _optionLabel(s) {
-  return `${_fmtDate(s.date)}（${_weekday(s.date)}）${s.totalValue != null ? ' ' + _yen(s.totalValue) : ''}`
+function _monthLabel(mk) {
+  const d = designation.value[mk]
+  const snap = byDate.value[d?.date]
+  const y = mk.slice(0, 4), m = +mk.slice(5)
+  const dt = d ? `（実測 ${_fmtDate(d.date).slice(5)} ${_weekday(d.date)}${d.manual ? '・手動' : ''}）` : ''
+  const val = snap?.totalValue != null ? ' ' + _yen(snap.totalValue) : ''
+  return `${y}年${m}月${dt}${val}`
 }
 function _fmtDuration(ms) {
   if (typeof ms !== 'number' || ms <= 0) return null
@@ -91,19 +106,29 @@ const summary = computed(() => {
   }
 })
 
-// ── 在庫金額推移（古い→新しい、最大12件）────────────
+// ── 信頼度（シビア採点）＋ 異常検知 ──────────────────
+// 月次比較では納品は当然あるので、増加は異常としない（単位変更・桁違いのみ拾う）
+const anomalies = computed(() =>
+  current.value ? detectAnomalies(current.value, prevSnap.value, { deliveryExpected: true }) : []
+)
+const confidence = computed(() =>
+  current.value ? snapshotConfidence(current.value, { anomalyCount: anomalies.value.length }) : null
+)
+
+// ── 在庫金額推移（月末在庫・古い→新しい、最大12ヶ月）──
 const trend = computed(() => {
-  const arr = [...sorted.value]
-    .filter(s => s.totalValue != null)
-    .reverse()
+  const asc = [...months.value].reverse()
+  const arr = asc
+    .map(mk => ({ mk, value: byDate.value[designation.value[mk]?.date]?.totalValue ?? null }))
+    .filter(x => x.value != null)
     .slice(-12)
-  const max = Math.max(1, ...arr.map(s => s.totalValue))
-  return arr.map(s => ({
-    date:  s.date,
-    label: `${new Date(s.date + 'T00:00:00').getMonth() + 1}/${new Date(s.date + 'T00:00:00').getDate()}`,
-    value: s.totalValue,
-    pct:   Math.round((s.totalValue / max) * 100),
-    sel:   s.date === selectedDate.value,
+  const max = Math.max(1, ...arr.map(x => x.value))
+  return arr.map(x => ({
+    date:  x.mk,
+    label: `${+x.mk.slice(5)}月`,
+    value: x.value,
+    pct:   Math.round((x.value / max) * 100),
+    sel:   x.mk === selectedMonth.value,
   }))
 })
 
@@ -295,11 +320,11 @@ const capabilities = computed(() => {
       </div>
 
       <template v-else>
-        <!-- 棚卸の選択 -->
+        <!-- 分析する月（月末在庫を自動選択）-->
         <div class="dash-picker">
-          <label class="dash-picker-label">分析する棚卸</label>
-          <select v-model="selectedDate" class="dash-picker-select">
-            <option v-for="s in sorted" :key="s.date" :value="s.date">{{ _optionLabel(s) }}</option>
+          <label class="dash-picker-label">分析する月（月末在庫を自動選択）</label>
+          <select v-model="selectedMonth" class="dash-picker-select">
+            <option v-for="mk in months" :key="mk" :value="mk">{{ _monthLabel(mk) }}</option>
           </select>
         </div>
 
@@ -319,6 +344,16 @@ const capabilities = computed(() => {
             <span class="dash-weekday" :class="{ sat: summary.weekday === '土', sun: summary.weekday === '日' }">
               {{ summary.weekday }}曜日
             </span>
+            <span
+              v-if="confidence"
+              class="dash-conf"
+              :class="'c-' + confidence.label"
+              :title="confidence.reasons.join(' / ') || '十分なデータ'"
+            >信頼度 {{ confidence.label }}（{{ confidence.score }}）</span>
+          </div>
+          <div class="dash-designate">
+            {{ selectedMonth?.slice(0, 4) }}年{{ +(selectedMonth?.slice(5) || 0) }}月の月末在庫 ＝
+            {{ _fmtDate(summary.date) }}（{{ summary.weekday }}）を自動選択{{ curDesignation?.manual ? '（手動指定）' : '' }}
           </div>
           <template v-if="summary.hasPrices">
             <div class="dash-total">{{ _yen(summary.totalValue) }}</div>
@@ -346,6 +381,10 @@ const capabilities = computed(() => {
             <div class="dash-meta-item">
               <span class="dash-meta-icon">📦</span>{{ summary.entered }}品目
             </div>
+          </div>
+          <div v-if="anomalies.length" class="dash-anomaly">
+            ⚠️ 要確認 {{ anomalies.length }}件（単位変更・桁違いの可能性）：
+            {{ anomalies.slice(0, 5).map(a => a.item).join('、') }}{{ anomalies.length > 5 ? ' ほか' : '' }}
           </div>
         </div>
 
@@ -565,8 +604,15 @@ const capabilities = computed(() => {
 }
 .dash-section-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #374151; }
 
-.dash-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dash-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .dash-summary-date { font-size: 13px; color: #6b7280; }
+.dash-conf { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; margin-left: auto; }
+.dash-conf.c-高 { background: #dcfce7; color: #16a34a; }
+.dash-conf.c-中 { background: #eef2ff; color: #4338ca; }
+.dash-conf.c-低 { background: #fef9c3; color: #a16207; }
+.dash-conf.c-不足 { background: #fee2e2; color: #b91c1c; }
+.dash-designate { font-size: 11px; color: #9ca3af; margin-bottom: 8px; line-height: 1.5; }
+.dash-anomaly { font-size: 11px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; margin-top: 10px; line-height: 1.5; }
 .dash-weekday {
   font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
   background: #eef2ff; color: #4338ca;
