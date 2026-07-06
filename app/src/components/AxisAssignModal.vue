@@ -5,7 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸 ────────────────────────────────────
@@ -111,6 +111,10 @@ function confirmMulti() {
 }
 function removeFrom(item, group) { removeItemFromGroup(activeAxis.value, item, group) }
 
+// 並び替え（定義済みグループのみ・▲▼で上下移動）
+function definedIndex(g) { return defined.value.indexOf(g) }
+function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
+
 // ── グループ管理 ──────────────────────────────
 const newGroupName = ref('')
 function onAddGroup() {
@@ -210,6 +214,10 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 <span class="ax-radio">{{ targetGroup === g ? '●' : '○' }}</span>
                 <span class="ax-group-name">{{ g }}</span>
                 <span class="ax-group-count">{{ groupCount[g] || 0 }}</span>
+                <template v-if="definedIndex(g) >= 0">
+                  <button class="ax-gbtn" :disabled="definedIndex(g) === 0" @click.stop="move(g, -1)">▲</button>
+                  <button class="ax-gbtn" :disabled="definedIndex(g) === defined.length - 1" @click.stop="move(g, 1)">▼</button>
+                </template>
                 <button class="ax-gbtn" @click.stop="onRenameGroup(g)">✎</button>
                 <button class="ax-gbtn danger" @click.stop="onDeleteGroup(g)">🗑</button>
               </div>
@@ -301,7 +309,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-radio { font-size: 12px; color: #2563eb; }
 .ax-group-name { flex: 1; font-size: 13px; font-weight: 700; color: #374151; word-break: break-all; }
 .ax-group-count { font-size: 11px; color: #9ca3af; }
-.ax-gbtn { flex-shrink: 0; border: none; background: none; font-size: 13px; cursor: pointer; padding: 2px 3px; }
+.ax-gbtn { flex-shrink: 0; border: none; background: none; font-size: 13px; cursor: pointer; padding: 2px 3px; color: #6b7280; }
+.ax-gbtn:disabled { opacity: 0.25; cursor: default; }
 .ax-gbtn.danger { filter: grayscale(0.2); }
 .ax-members { padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
 .ax-member { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 2px 4px 2px 8px; color: #374151; }

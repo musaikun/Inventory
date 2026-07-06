@@ -251,6 +251,10 @@ const rows = computed(() => {
       }
     }
     // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
+    // 軸は「振り分けページで定義したグループ順」を優先（未定義グループは末尾）
+    const axisOrder = mode === 'axisA' ? (config.value.axisGroupsA ?? [])
+      : mode === 'axisB' ? (config.value.axisGroupsB ?? [])
+      : []
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
       if (a === emptyLabel) return 1
       if (b === emptyLabel) return -1
@@ -260,6 +264,13 @@ const rows = computed(() => {
         if (codeA != null && codeB != null) return codeA - codeB
         if (codeA != null) return -1
         if (codeB != null) return  1
+      } else {
+        const ia = axisOrder.indexOf(a), ib = axisOrder.indexOf(b)
+        if (ia !== -1 || ib !== -1) {
+          if (ia === -1) return 1
+          if (ib === -1) return -1
+          return ia - ib
+        }
       }
       return a.localeCompare(b, 'ja')
     })

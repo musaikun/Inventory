@@ -133,6 +133,16 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.tagsA['パスタ']).toBeUndefined()
   })
 
+  it('グループを上下に並び替えできる', () => {
+    cfg.config.axisGroupsA = ['A', 'B', 'C']
+    cfg.moveAxisGroup(0, 'C', -1)
+    expect(cfg.config.axisGroupsA).toEqual(['A', 'C', 'B'])
+    cfg.moveAxisGroup(0, 'A', 1)
+    expect(cfg.config.axisGroupsA).toEqual(['C', 'A', 'B'])
+    // 端は移動しない
+    expect(cfg.moveAxisGroup(0, 'C', -1)).toBe(false)
+  })
+
   it('その他へ振り分けると割り当てが解除される', () => {
     cfg.config.order = ['パスタ']
     cfg.config.tagsA = { パスタ: ['冷凍庫'] }
