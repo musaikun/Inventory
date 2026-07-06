@@ -103,7 +103,11 @@ const pendingItem = ref(null)
 function attemptAssign(item) {
   if (!targetGroup.value) { flashMsg('先に右で振り分け先（' + (activeName.value || '場所') + '）を選んでください'); return }
   const cur = itemGroups(item)
-  if (cur.includes(targetGroup.value)) return       // 既にそのグループにある
+  if (cur.includes(targetGroup.value)) {            // 既にそのグループにある→タップで外す（誤操作の取り消し）
+    removeItemFromGroup(activeAxis.value, item, targetGroup.value)
+    flashMsg(`「${item}」を${targetGroup.value}から外しました`)
+    return
+  }
   if (cur.length > 0) { pendingItem.value = item; return }  // 別の場所に既にある→確認
   addItemToGroup(activeAxis.value, item, targetGroup.value)
 }
