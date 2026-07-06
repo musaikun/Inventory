@@ -146,16 +146,17 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.axisGroupsA).toEqual(['B', 'C', 'A'])
   })
 
-  it('左のジャンルを軸へコピーできる', () => {
+  it('左のジャンルを1個だけ軸へコピーできる', () => {
     cfg.config.order = ['パスタ', 'トマト', 'レタス']
     cfg.config.categories = { パスタ: '乾物', トマト: '野菜', レタス: '野菜' }
-    const n = cfg.copyCategoriesToAxis(0)
-    expect(n).toBe(2)  // 乾物・野菜
-    expect(cfg.config.axisGroupsA).toEqual(expect.arrayContaining(['乾物', '野菜']))
-    expect(cfg.config.tagsA['パスタ']).toEqual(['乾物'])
+    const n = cfg.copyCategoryToAxis(0, '野菜')
+    expect(n).toBe(2)  // トマト・レタス
+    expect(cfg.config.axisGroupsA).toEqual(['野菜'])       // 野菜だけ作成
     expect(cfg.config.tagsA['トマト']).toEqual(['野菜'])
-    // 冪等（二度実行しても重複しない）
-    cfg.copyCategoriesToAxis(0)
+    expect(cfg.config.tagsA['レタス']).toEqual(['野菜'])
+    expect(cfg.config.tagsA['パスタ']).toBeUndefined()      // 乾物は対象外
+    // 冪等
+    cfg.copyCategoryToAxis(0, '野菜')
     expect(cfg.config.tagsA['トマト']).toEqual(['野菜'])
   })
 

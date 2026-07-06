@@ -715,6 +715,24 @@ export function useConfig() {
     return true
   }
 
+  // 1ジャンルをこの軸へコピー（同名グループを作り、そのジャンルの品目を割り当て）
+  // 追加的・冪等。戻り値=割り当てた品目数
+  function copyCategoryToAxis(axisIndex, category) {
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    const c = (category ?? '').trim()
+    if (!list || !map || !c) return 0
+    if (!list.includes(c)) list.push(c)
+    let n = 0
+    for (const item of config.order) {
+      if ((config.categories?.[item] ?? '') !== c) continue
+      const arr = Array.isArray(map[item]) ? [...map[item]] : []
+      if (!arr.includes(c)) { arr.push(c); map[item] = arr }
+      n++
+    }
+    _save()
+    return n
+  }
+
   // 現在のジャンル構成をこの軸へコピー（ジャンルと同名グループを作り、品目を割り当て）
   // 追加的（既存の割り当ては消さない）・冪等
   function copyCategoriesToAxis(axisIndex) {
@@ -949,5 +967,6 @@ export function useConfig() {
     moveAxisGroup,
     moveAxisGroupToTop,
     copyCategoriesToAxis,
+    copyCategoryToAxis,
   }
 }

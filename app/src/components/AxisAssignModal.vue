@@ -5,7 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop, copyCategoriesToAxis } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop, copyCategoryToAxis } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸 ────────────────────────────────────
@@ -126,11 +126,10 @@ function onAddGroup() {
   newGroupName.value = ''
 }
 
-function onCopyGenres() {
-  const cats = new Set(config.order.map(i => config.categories?.[i]).filter(Boolean))
-  if (cats.size === 0) { flashMsg('コピーできるジャンルがありません'); return }
-  if (!confirm(`現在のジャンル（${cats.size}種）をコピーし、各品目を同名グループに割り当てます。既存の割り当ては残ります。よろしいですか？`)) return
-  copyCategoriesToAxis(activeAxis.value)
+// 左のジャンルを1個だけコピーしてグループ化
+function onCopyCategory(cat) {
+  const n = copyCategoryToAxis(activeAxis.value, cat)
+  if (n > 0) { targetGroup.value = cat; flashMsg(`「${cat}」を${n}件コピーしました`) }
 }
 function onRenameGroup(g) {
   const nn = (prompt(`「${g}」の新しい名前`, g) || '').trim()
@@ -187,6 +186,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
               <div class="ax-cat-head" @click="toggleCat(grp.cat)">
                 <span class="ax-cat-arrow">{{ isOpen(grp.cat) ? '▼' : '▶' }}</span>
                 <span class="ax-cat-name">{{ grp.cat }}</span>
+                <button v-if="grp.cat !== 'その他'" class="ax-cat-copy" @click.stop="onCopyCategory(grp.cat)">📋コピー</button>
                 <span class="ax-cat-count"><strong>{{ grp.assigned }}</strong>/{{ grp.items.length }}</span>
               </div>
               <template v-if="isOpen(grp.cat)">
@@ -215,7 +215,6 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                    @keyup.enter="onAddGroup" />
             <button class="ax-add-btn" @click="onAddGroup">＋</button>
           </div>
-          <button class="ax-copy-btn" @click="onCopyGenres">📋 左のジャンルをそのままコピー</button>
           <div class="ax-scroll">
             <div v-for="g in displayGroups" :key="g"
                  :class="['ax-group', { on: targetGroup === g }]">
@@ -301,7 +300,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-mini { flex-shrink: 0; border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 8px; font-size: 11px; color: #4b5563; cursor: pointer; white-space: nowrap; }
 .ax-mini.on { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
 .ax-add-btn { flex-shrink: 0; border: none; background: #2563eb; color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 16px; cursor: pointer; }
-.ax-copy-btn { display: block; margin: 0 8px 8px; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #475569; font-size: 12px; font-weight: 700; border-radius: 8px; padding: 8px; cursor: pointer; }
+.ax-cat-copy { flex-shrink: 0; border: 1px solid #bfdbfe; background: #eff6ff; color: #2563eb; font-size: 10px; font-weight: 700; border-radius: 7px; padding: 3px 7px; cursor: pointer; }
 
 .ax-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
