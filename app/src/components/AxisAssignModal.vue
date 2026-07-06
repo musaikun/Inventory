@@ -186,8 +186,10 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
               <div class="ax-cat-head" @click="toggleCat(grp.cat)">
                 <span class="ax-cat-arrow">{{ isOpen(grp.cat) ? '▼' : '▶' }}</span>
                 <span class="ax-cat-name">{{ grp.cat }}</span>
-                <button v-if="grp.cat !== 'その他'" class="ax-cat-copy" @click.stop="onCopyCategory(grp.cat)">📋コピー</button>
-                <span class="ax-cat-count"><strong>{{ grp.assigned }}</strong>/{{ grp.items.length }}</span>
+                <span class="ax-cat-right">
+                  <span class="ax-cat-count"><strong>{{ grp.assigned }}</strong>/{{ grp.items.length }}</span>
+                  <button v-if="grp.cat !== 'その他'" class="ax-cat-copy" @click.stop="onCopyCategory(grp.cat)">📋コピー</button>
+                </span>
               </div>
               <template v-if="isOpen(grp.cat)">
                 <button
@@ -306,7 +308,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 
 .ax-cat-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #f8fafc; border-bottom: 1px solid #eef0f2; position: sticky; top: 0; cursor: pointer; }
 .ax-cat-arrow { font-size: 10px; color: #9ca3af; }
-.ax-cat-name { flex: 1; font-size: 12px; font-weight: 700; color: #374151; }
+.ax-cat-name { flex: 1; font-size: 12px; font-weight: 700; color: #374151; word-break: break-all; }
+.ax-cat-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
 .ax-cat-count { font-size: 11px; color: #9ca3af; }
 .ax-cat-count strong { color: #2563eb; font-weight: 700; }
 
