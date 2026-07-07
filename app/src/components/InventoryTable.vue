@@ -89,6 +89,11 @@ function onAddAxis() {
   axisAssignInitial.value = idx
   showAxisAssign.value = true                      // 振り分けページへ
 }
+// アクティブな自作並び替えタブの ✎ から振り分けページへ
+function openAxisEdit(value) {
+  axisAssignInitial.value = value === 'axisA' ? 0 : 1
+  showAxisAssign.value = true
+}
 
 // 未設定の軸を選んだ状態でも壊れないよう、実効モードにフォールバック
 const _effectiveSort = computed(() => {
@@ -587,7 +592,12 @@ function fmtYen(n) {
           :key="opt.value"
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
-        >{{ opt.label }}</button>
+        >{{ opt.label }}<span
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && !readOnly"
+            class="seg-edit"
+            title="この並び替えのグループを編集"
+            @click.stop="openAxisEdit(opt.value)"
+          >✎</span></button>
         <button
           v-if="canAddAxis"
           class="seg-btn seg-add"
@@ -838,6 +848,15 @@ function fmtYen(n) {
   flex: 0 0 auto;
   color: var(--primary);
   font-weight: 800;
+}
+
+.seg-edit {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 4px;
+  font-size: 12px;
+  border-radius: 5px;
+  background: rgba(37, 99, 235, 0.12);
 }
 
 /* ── よく使う品目トグル ── */
