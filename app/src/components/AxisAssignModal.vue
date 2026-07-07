@@ -227,7 +227,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
       </div>
 
       <div class="ax-hint">
-        右で<b>グループを選択</b> → 左で<b>品目をタップ</b>して振り分け。
+        <b>グループを選択</b> → <b>品目をタップ</b>して振り分け。
         <span v-if="targetGroup">振り分け先：<b class="ax-target">{{ targetGroup }}</b></span>
         <span v-else class="ax-target-none">振り分け先を選んでください</span>
       </div>
@@ -371,8 +371,18 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-target { color: #2563eb; }
 .ax-target-none { color: #dc2626; }
 
-.ax-split { flex: 1; display: flex; gap: 8px; padding: 0 8px 8px; min-height: 0; }
-.ax-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); overflow: hidden; }
+/* スマホ＝上下2分割（上：グループ / 下：品目）。各ペインがフル幅で独立スクロール */
+.ax-split { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; min-height: 0; }
+.ax-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); overflow: hidden; }
+.ax-right { order: -1; flex: 0 0 auto; max-height: 42%; }
+.ax-left  { order: 0; flex: 1; }
+
+/* PC・タブレット＝左右2分割（左：品目 / 右：グループ） */
+@media (min-width: 700px) {
+  .ax-split { flex-direction: row; }
+  .ax-right { order: 0; flex: 1; max-height: none; }
+  .ax-left  { flex: 1; }
+}
 .ax-pane-tools, .ax-addrow { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid #f0f1f3; }
 .ax-mini-input { flex: 1; min-width: 0; border: 1.5px solid #d1d5db; border-radius: 8px; padding: 7px 9px; font-size: 13px; outline: none; }
 .ax-mini-input:focus { border-color: #2563eb; }
