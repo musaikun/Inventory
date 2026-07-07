@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 
@@ -89,6 +89,7 @@ function toggleCat(cat) { opened[cat] = !opened[cat] }
 function isOpen(cat) { return !!opened[cat] }
 
 // ── 振り分け対象グループ ────────────────────────
+const groupScroll = ref(null)
 const targetGroup = ref('')
 watch(activeAxis, () => { targetGroup.value = ''; search.value = '' })
 
@@ -182,7 +183,11 @@ const copyMode = ref(false)
 function onCopyCategory(cat) {
   if (cat === 'その他') { flashMsg('「その他」はコピーできません'); return }
   const n = copyCategoryToAxis(activeAxis.value, cat)
-  if (n > 0) { targetGroup.value = cat; flashMsg(`「${cat}」を${n}件コピーしました`) }
+  if (n > 0) {
+    targetGroup.value = cat
+    flashMsg(`「${cat}」を${n}件コピーしました`)
+    nextTick(() => groupScroll.value?.scrollTo({ top: groupScroll.value.scrollHeight, behavior: 'smooth' }))
+  }
   copyMode.value = false
 }
 function onLeftHeadTap(cat) {
@@ -284,7 +289,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                    @keyup.enter="onAddGroup" />
             <button class="ax-add-btn" @click="onAddGroup">＋</button>
           </div>
-          <div class="ax-scroll">
+          <div class="ax-scroll" ref="groupScroll">
             <TransitionGroup tag="div" name="axg">
             <div v-for="g in renderGroups" :key="g" :data-grp="g"
                  :class="['ax-group', { on: targetGroup === g, dragging: dragName === g }]">
@@ -427,6 +432,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 /* 並び替え時、飛び越されたグループがスッと動いて隙間を空ける */
 .axg-move { transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1); }
 .ax-group-head { display: flex; align-items: center; gap: 6px; padding: 9px 10px; cursor: pointer; }
+/* 選択中グループの見出しはペイン上部に固定し、所属品目がその下でスクロールする */
+.ax-group.on .ax-group-head { position: sticky; top: 0; z-index: 3; background: #eff6ff; box-shadow: 0 1px 0 #dbeafe; }
 .ax-drag { flex-shrink: 0; cursor: grab; color: #9ca3af; font-size: 16px; padding: 0 6px; touch-action: none; user-select: none; }
 .ax-drag:active { cursor: grabbing; color: #2563eb; }
 .ax-radio { font-size: 12px; color: #2563eb; }
