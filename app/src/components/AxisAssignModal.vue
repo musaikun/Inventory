@@ -54,6 +54,9 @@ const usageMap = computed(() => {
 const hasUsage = computed(() => Object.keys(usageMap.value).length > 0)
 const usedOnly = ref(false)
 const search   = ref('')
+const itemScroll = ref(null)   // 品目一覧ペインのスクロール要素
+const flashItem  = ref('')     // 逆引きで一瞬ハイライトする品目
+let _flashItemT = null
 
 // カタカナ半角/全角・英数字全半角を無視して検索するための正規化
 const _norm = (s) => (s || '').normalize('NFKC').toLowerCase()
@@ -120,6 +123,26 @@ function confirmMulti() {
   pendingItem.value = null
 }
 function removeFrom(item, group) { removeItemFromGroup(activeAxis.value, item, group) }
+
+// グループの品目チップから、品目一覧側で該当品目まで逆引き表示する
+function locateItem(item) {
+  const cat = config.categories?.[item] || 'その他'
+  search.value = ''
+  usedOnly.value = false
+  opened[cat] = true
+  flashItem.value = item
+  clearTimeout(_flashItemT)
+  _flashItemT = setTimeout(() => { flashItem.value = '' }, 1600)
+  nextTick(() => {
+    const sc = itemScroll.value
+    if (!sc) return
+    let target = null
+    for (const el of sc.querySelectorAll('[data-item]')) {
+      if (el.getAttribute('data-item') === item) { target = el; break }
+    }
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+}
 
 // 並び替え（定義済みグループのみ）
 function definedIndex(g) { return defined.value.indexOf(g) }
@@ -294,7 +317,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
             <button :class="['ax-mini', { on: copyMode }]" @click="copyMode = !copyMode">📋コピー</button>
           </div>
           <div v-if="copyMode" class="ax-copybar">コピーするジャンルをタップしてください</div>
-          <div class="ax-scroll">
+          <div class="ax-scroll" ref="itemScroll">
             <template v-for="grp in leftGroups" :key="grp.cat">
               <div :class="['ax-cat-head', { copytarget: copyMode && grp.cat !== 'その他' }]" @click="onLeftHeadTap(grp.cat)">
                 <span class="ax-cat-arrow">{{ copyMode ? '📋' : (isOpen(grp.cat) ? '▼' : '▶') }}</span>
@@ -306,7 +329,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
               <template v-if="isOpen(grp.cat)">
                 <button
                   v-for="item in grp.items" :key="item"
-                  :class="['ax-li', { assigned: isAssigned(item), disabled: !targetGroup }]"
+                  :data-item="item"
+                  :class="['ax-li', { assigned: isAssigned(item), disabled: !targetGroup, locate: flashItem === item }]"
                   @click="attemptAssign(item)"
                 >
                   <span class="ax-li-name">{{ item }}</span>
@@ -350,7 +374,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 <div class="ax-members">
                 <template v-for="item in config.order" :key="item">
                   <span v-if="itemGroups(item).includes(g)" class="ax-member">
-                    {{ item }}<button class="ax-member-x" @click="removeFrom(item, g)">×</button>
+                    <span class="ax-member-name" @click="locateItem(item)">{{ item }}</span>
+                    <button class="ax-member-x" @click="removeFrom(item, g)">×</button>
                   </span>
                 </template>
                 <span v-if="(groupCount[g] || 0) === 0" class="ax-member-empty">品目をタップして追加</span>
@@ -460,6 +485,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-li { width: 100%; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: none; border-bottom: 1px solid #f3f4f6; background: #fff; cursor: pointer; text-align: left; }
 .ax-li.assigned { background: #f3f4f6; color: #9ca3af; }
 .ax-li.disabled { opacity: 0.7; }
+.ax-li.locate { animation: ax-locate 1.6s ease-out; }
+@keyframes ax-locate { 0%, 30% { background: #fde68a; } 100% { background: transparent; } }
 .ax-li-name { flex: 1; font-size: 13px; color: inherit; word-break: break-all; }
 .ax-li-add { color: #2563eb; font-weight: 700; }
 /* 振り分け先は品目名の右で縦積み（品目名は中央揃え） */
@@ -486,6 +513,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-gbtn.danger { filter: grayscale(0.2); }
 .ax-members { padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
 .ax-member { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 2px 4px 2px 8px; color: #374151; }
+.ax-member-name { cursor: pointer; }
 .ax-member-x { border: none; background: none; color: #9ca3af; font-size: 13px; cursor: pointer; padding: 0 2px; }
 .ax-member-empty { font-size: 11px; color: #9ca3af; }
 
