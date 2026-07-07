@@ -198,6 +198,25 @@ export function classifyIncomingUpdate(local, now = Date.now()) {
   return 'overwrite'
 }
 
+function _entryDiffers(a, b) {
+  return (a.qty !== b.qty) || ((a.unit ?? '') !== (b.unit ?? ''))
+}
+
+// 再接続時、オフライン中に分岐した1品目をどう解決するか（純粋・テスト容易化）。
+// disc = 切断時刻。updatedAt がそれより後なら「オフライン中に変更した」と判定する。
+//   'conflict' = 自分・相手の両方が変更し値が異なる → 人が選ぶ（競合キュー）
+//   'local'    = 自分の変更が正（相手は未変更/同値、または自分がオフラインで追加）→ 再送信
+//   'server'   = 自分は未変更 → サーバー値を採用
+//   null       = 双方に無し等、何もしない
+export function resolveOfflineItem(local, server, disc) {
+  const localChanged  = !!local  && (local.updatedAt  ?? 0) > disc
+  const serverChanged = !!server && (server.updatedAt ?? 0) > disc
+  if (localChanged && serverChanged && _entryDiffers(local, server)) return 'conflict'
+  if (localChanged) return 'local'
+  if (server) return 'server'
+  return null
+}
+
 export function broadcastUpdate(ingredient, qty, unit, enteredBy = '', isAdd = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy, isAdd }))
@@ -312,6 +331,40 @@ export function dismissConflict(ingredient) {
   _syncConflictLock()
 }
 
+// 再接続時のオフライン分岐マージ。品目ごとに updatedAt で解決し、
+// 「自分だけ変更」は再送信、「相手だけ変更」はサーバー値を適用、
+// 「両方が変更して値が違う」は競合キューへ積んで人が確定する（ライブ競合と同じUI）。
+function _mergeOnReconnect(serverInv, disc) {
+  const localInv = { ...(_getInventory?.() ?? {}) }
+  const names = new Set([...Object.keys(localInv), ...Object.keys(serverInv)])
+  let conflicts = 0
+  for (const name of names) {
+    const local  = localInv[name]
+    const server = serverInv[name]
+    switch (resolveOfflineItem(local, server, disc)) {
+      case 'conflict': {
+        const entry = { ingredient: name, remoteQty: server.qty, remoteUnit: server.unit ?? '', remoteBy: server.enteredBy ?? '', local }
+        const idx = _conflictQueue.findIndex(c => c.ingredient === name)
+        if (idx === -1) _conflictQueue.push(entry)
+        else            _conflictQueue[idx] = entry
+        conflicts++
+        _onConflictNotify?.(name, server.enteredBy ?? '')
+        break
+      }
+      case 'local':
+        broadcastUpdate(name, local.qty, local.unit ?? '', local.enteredBy ?? '')
+        break
+      case 'server':
+        _onItemUpdate?.(name, server.qty, server.unit ?? '', server.enteredBy ?? '', server.updatedAt)
+        break
+    }
+  }
+  if (conflicts > 0) {
+    _onConflictQueue?.([..._conflictQueue])
+    _syncConflictLock()
+  }
+}
+
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
 function _startHeartbeat() {
   _stopHeartbeat()
@@ -404,12 +457,17 @@ function _handleMessage(msg) {
       // _reconnectToRoom が「同一セッション」と判断して設定した期待IDと一致する時のみ。
       // 新規セッション作成・別セッション復帰では DO の旧在庫をスキップし、
       // ローカル在庫（ホストが入力済みのデータ）を正とする。
+      const reconnecting = state.mode === 'hosting' && _disconnectedAt > 0
+
       const skipInventory = state.mode === 'hosting'
         && _disconnectedAt === 0
         && (!_expectedSessionId || msg.sessionId !== _expectedSessionId)
       _expectedSessionId = null
 
-      if (!skipInventory) {
+      if (reconnecting) {
+        // オフライン中の分岐を品目ごとに updatedAt で解決（消失・分岐・再送レースを防ぐ）
+        _mergeOnReconnect(serverInv, _disconnectedAt)
+      } else if (!skipInventory) {
         for (const [ingredient, entry] of Object.entries(serverInv)) {
           _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
         }
@@ -696,22 +754,8 @@ function _connect(code) {
       }))
 
       if (isHostMode) {
-        // 新規接続時は session_start が在庫・config・flags を一括同期するため不要。
-        // ネットワーク切断からの自動再接続時のみ、オフライン中に変更した品目を再送信する。
-        // 全品目を再送するとゲストに update トーストが大量発生するため差分のみ送る。
-        if (_disconnectedAt > 0) {
-          const disc = _disconnectedAt
-          setTimeout(() => {
-            if (_getInventory) {
-              const inv = _getInventory() ?? {}
-              for (const [ingredient, entry] of Object.entries(inv)) {
-                if ((entry.updatedAt ?? 0) > disc) {
-                  broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
-                }
-              }
-            }
-          }, 200)
-        }
+        // 新規接続は session_start が一括同期。オフライン切断からの再接続時は
+        // 'joined' 受信時に _mergeOnReconnect が品目ごとに解決・再送する（レース排除）。
         _startHeartbeat()
         hostFallbackTimer = setTimeout(() => {
           if (!settled) { settled = true; resolve() }
