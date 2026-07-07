@@ -322,12 +322,6 @@ function onStartPractice() {
   emit('startPractice')
 }
 
-// インポートなしで開始: リストがあればそのまま、無ければ空で（棚卸しながら登録）
-function onStartNoImport() {
-  if (config.isCustom) confirmStart()
-  else onStartEmpty()
-}
-
 function onResume(session) {
   emit('resumeSession', session)
 }
@@ -482,10 +476,10 @@ function _itemCount(session) {
           </div>
 
           <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
-            <div class="hero-start-icon">🎙</div>
+            <div class="hero-start-icon">👥</div>
             <div class="hero-start-text">
               <div class="hero-start-title">{{ starting ? '開始中...' : '棚卸を開始' }}</div>
-              <div class="hero-start-sub">音声でサクサク記録</div>
+              <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
             </div>
             <div class="hero-start-arrow">→</div>
           </button>
@@ -510,42 +504,6 @@ function _itemCount(session) {
             </div>
           </template>
 
-          <!-- 開始ガイド: 進行中が無いときは常に表示 -->
-          <div v-if="!activeSession" class="setup-banner">
-            <div class="setup-banner-head">
-              <span class="setup-banner-icon">🚀</span>
-              <div>
-                <div class="setup-banner-title">{{ config.isCustom ? '棚卸の始め方' : 'まずは始めてみましょう' }}</div>
-                <div class="setup-banner-sub">やり方を選んで、すぐ始められます</div>
-              </div>
-            </div>
-            <div class="setup-paths">
-              <button class="setup-path primary" @click="emit('openSettings')">
-                <span class="sp-icon">📂</span>
-                <div class="sp-body">
-                  <span class="sp-title">インポートして開始</span>
-                  <span class="sp-sub">CSV / Excel / PDF で品目を一括登録</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-              <button class="setup-path" @click="onStartNoImport">
-                <span class="sp-icon">✏️</span>
-                <div class="sp-body">
-                  <span class="sp-title">インポートなしで開始</span>
-                  <span class="sp-sub">{{ config.isCustom ? `今のリスト（${itemCount}件）で開始` : '棚卸しながら品目を登録していく' }}</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-              <button class="setup-path weak" @click="onStartPractice">
-                <span class="sp-icon">🎯</span>
-                <div class="sp-body">
-                  <span class="sp-title">練習で開始</span>
-                  <span class="sp-sub">履歴に残さずお試し（テスト用リスト）</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- ダッシュボードパネル -->
