@@ -571,6 +571,11 @@ export class RoomDO {
               prevMonths:    c.prevMonths    ?? {},
               lotSizes:      c.lotSizes      ?? {},
               dictionary:    c.dictionary    ?? {},
+              axisNames:     Array.isArray(c.axisNames) ? c.axisNames : ['', ''],
+              tagsA:         c.tagsA         ?? {},
+              tagsB:         c.tagsB         ?? {},
+              axisGroupsA:   Array.isArray(c.axisGroupsA) ? c.axisGroupsA : [],
+              axisGroupsB:   Array.isArray(c.axisGroupsB) ? c.axisGroupsB : [],
             }
             puts.push(this.state.storage.put('config', broadcastCfg))
           }

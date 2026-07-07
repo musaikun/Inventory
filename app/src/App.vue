@@ -222,9 +222,28 @@ async function _startSessionView({ loadConfig = true } = {}) {
   }
 }
 
+// アカウント設定（品目・並び替え・履歴）を D1 から取得してこの端末へ反映する。
+// 別端末でログインした直後など、mount 時点で shopCode が無かった経路の取りこぼしを防ぐ。
+async function _pullAccountConfig() {
+  if (!shopCode.value) return
+  try {
+    const [remoteConfig, remoteHistory] = await Promise.all([
+      loadConfigFromD1(),
+      loadHistoryFromD1(),
+    ])
+    if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
+      applyRemoteConfig(remoteConfig)
+    }
+    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+  } catch (_) {
+    // ネットワークエラーは無視してローカルデータで継続
+  }
+}
+
 // 認証後にセッション一覧へ
-function onAuthDone() {
+async function onAuthDone() {
   currentView.value = 'sessions'
+  await _pullAccountConfig()
 }
 
 // セッション一覧から「セッション開始」
