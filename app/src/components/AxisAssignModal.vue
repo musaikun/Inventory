@@ -22,6 +22,7 @@ watch(namedAxes, (arr) => {
   if (!arr.some(a => a.index === activeAxis.value)) activeAxis.value = arr[0]?.index ?? 0
 }, { immediate: true })
 
+const hasItems = computed(() => (config.order?.length ?? 0) > 0)
 const tagMap  = computed(() => activeAxis.value === 0 ? (config.tagsA ?? {}) : (config.tagsB ?? {}))
 const defined = computed(() => activeAxis.value === 0 ? (config.axisGroupsA ?? []) : (config.axisGroupsB ?? []))
 const displayGroups = computed(() => {
@@ -175,6 +176,14 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 @click="activeAxis = a.index">{{ a.name }}</button>
       </div>
 
+      <div v-if="!hasItems" class="ax-warn">
+        <span class="ax-warn-icon">📦</span>
+        <div>
+          <div class="ax-warn-title">品目がまだありません</div>
+          <div class="ax-warn-desc">先にメニューの「品目のインポート」で品目を追加すると、ここで振り分けできます。グループだけ先に作っておくことも可能です。</div>
+        </div>
+      </div>
+
       <div class="ax-hint">
         右で<b>グループを選択</b> → 左で<b>品目をタップ</b>して振り分け。
         <span v-if="targetGroup">振り分け先：<b class="ax-target">{{ targetGroup }}</b></span>
@@ -253,7 +262,15 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 </div>
               </template>
             </div>
-            <div v-if="displayGroups.length === 0" class="ax-none">上の欄でグループを追加してください</div>
+            <div v-if="displayGroups.length === 0" class="ax-guide">
+              <div class="ax-guide-arrow">☝️</div>
+              <div class="ax-guide-title">まずはグループを設定しましょう</div>
+              <div class="ax-guide-desc">上の欄に「{{ activeName }}」の名前を入れて「＋」で追加します。</div>
+              <div class="ax-guide-egtitle">例</div>
+              <div class="ax-guide-eg">食材　酒類　消耗品</div>
+              <div class="ax-guide-eg">キッチン冷凍庫　ホール冷蔵庫</div>
+              <div class="ax-guide-eg">八百屋　肉屋　酒屋</div>
+            </div>
           </div>
         </div>
       </div>
@@ -297,7 +314,19 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-tab { flex: 1; padding: 8px; border: 1.5px solid #d1d5db; background: #fff; border-radius: 9px; font-weight: 700; font-size: 13px; color: #6b7280; cursor: pointer; }
 .ax-tab.on { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
 
+.ax-warn { display: flex; gap: 10px; align-items: flex-start; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; margin: 10px 12px 0; padding: 10px 12px; }
+.ax-warn-icon { font-size: 18px; flex-shrink: 0; }
+.ax-warn-title { font-size: 13px; font-weight: 700; color: #92400e; }
+.ax-warn-desc { font-size: 12px; color: #b45309; margin-top: 2px; line-height: 1.5; }
+
 .ax-hint { font-size: 12px; color: #6b7280; padding: 8px 12px; line-height: 1.5; }
+
+.ax-guide { padding: 20px 14px; text-align: center; }
+.ax-guide-arrow { font-size: 22px; }
+.ax-guide-title { font-size: 15px; font-weight: 800; color: #2563eb; margin-top: 6px; }
+.ax-guide-desc { font-size: 12px; color: #6b7280; margin-top: 6px; line-height: 1.6; }
+.ax-guide-egtitle { font-size: 11px; color: #cbd5e1; font-weight: 700; margin-top: 14px; }
+.ax-guide-eg { font-size: 12px; color: #cbd5e1; margin-top: 4px; letter-spacing: 0.02em; }
 .ax-target { color: #2563eb; }
 .ax-target-none { color: #dc2626; }
 
