@@ -253,19 +253,16 @@ export function useConfig() {
     const newLotSizes      = {}
     const newDict          = {}
 
-    // ── パス1: 複数回出現する品目名を特定（同名品目のカテゴリ付与に使用）────
-    const nameCounts = new Map()
-    for (let i = 1; i < lines.length; i++) {
-      const n = parseCSVLine(lines[i])[0]?.trim()
-      if (n) nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1)
-    }
-    const dupNames = new Set([...nameCounts.entries()].filter(([, c]) => c > 1).map(([n]) => n))
+    // ── 品目名の完全一致で重複を統合（最初の1件を採用、以降は読み飛ばす）──────
+    const seen = new Set()
+    let merged = 0
 
-    // ── パス2: パース（重複削除なし・全件保持）────────────────────────────────
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
       const name = cols[0]?.trim()
       if (!name) continue
+      if (seen.has(name)) { merged++; continue }
+      seen.add(name)
 
       if (isOldFormat) {
         newOrder.push(name)
@@ -278,28 +275,21 @@ export function useConfig() {
         const price    = parseFloat(cols[2])
         const category = cols[3]?.trim()
         const code     = cols[5]?.trim() ?? ''
-
-        // 同名品目にはカテゴリを付与して識別しやすくする（削除はしない）
-        let storeName = name
-        if (dupNames.has(name)) {
-          const disambig = category || code
-          if (disambig) storeName = `${name}（${disambig}）`
-        }
-        newOrder.push(storeName)
+        newOrder.push(name)
 
         const catCode   = parseInt(cols[6]?.trim(), 10)
         const prevMonth = cols[7]?.trim() ?? ''
         const lotSize   = cols[8]?.trim() ?? ''
-        if (unit)                        newUnits[storeName]         = unit
-        if (!isNaN(price) && price > 0)  newPrices[storeName]        = price
-        if (category)                    newCategories[storeName]    = category
-        if (code)                        newCodes[storeName]         = code
-        if (category && !isNaN(catCode)) newCategoryCodes[category]  = catCode
-        if (prevMonth)                   newPrevMonths[storeName]    = prevMonth
-        if (lotSize)                     newLotSizes[storeName]      = lotSize
+        if (unit)                        newUnits[name]         = unit
+        if (!isNaN(price) && price > 0)  newPrices[name]        = price
+        if (category)                    newCategories[name]    = category
+        if (code)                        newCodes[name]         = code
+        if (category && !isNaN(catCode)) newCategoryCodes[category] = catCode
+        if (prevMonth)                   newPrevMonths[name]    = prevMonth
+        if (lotSize)                     newLotSizes[name]      = lotSize
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = storeName })
+            .forEach(alias => { newDict[alias] = name })
         }
       } else if (hasPriceCol) {
         newOrder.push(name)
@@ -349,6 +339,7 @@ export function useConfig() {
     return {
       count:         cappedOrder.length,
       truncated:     totalParsed - cappedOrder.length,
+      merged,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
@@ -874,10 +865,15 @@ export function useConfig() {
     const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
     const newCodes = {}, newLotSizes = {}, newPrevMonths = {}, newTagsA = {}, newTagsB = {}
 
+    const seen = new Set()
+    let merged = 0
+
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i])
       const name = cols[nameCol]?.trim()
       if (!name) continue
+      if (seen.has(name)) { merged++; continue }
+      seen.add(name)
 
       newOrder.push(name)
       if (unitCol != null) {
@@ -956,6 +952,7 @@ export function useConfig() {
     return {
       count:         cappedOrder.length,
       truncated:     totalParsed - cappedOrder.length,
+      merged,
       hasPrices:     Object.keys(newPrices).length > 0,
       hasCategories: Object.keys(newCategories).length > 0,
     }
