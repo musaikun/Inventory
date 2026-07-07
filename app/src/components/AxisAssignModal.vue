@@ -55,8 +55,10 @@ const hasUsage = computed(() => Object.keys(usageMap.value).length > 0)
 const usedOnly = ref(false)
 const search   = ref('')
 const itemScroll = ref(null)   // 品目一覧ペインのスクロール要素
-const flashItem  = ref('')     // 逆引きで一瞬ハイライトする品目
+const flashItem  = ref('')     // 逆引きで一瞬ハイライトする品目（一覧側）
 let _flashItemT = null
+const flashMember = ref('')    // 追加時に一瞬ハイライトするグループ側チップ
+let _flashMemberT = null
 
 // カタカナ半角/全角・英数字全半角を無視して検索するための正規化
 const _norm = (s) => (s || '').normalize('NFKC').toLowerCase()
@@ -117,20 +119,27 @@ function attemptAssign(item) {
   }
   if (cur.length > 0) { pendingItem.value = item; return }  // 別の場所に既にある→確認
   addItemToGroup(activeAxis.value, item, targetGroup.value)
-  pulseItem(item)
+  pulseMember(item)
 }
 function confirmMulti() {
   const it = pendingItem.value
-  if (it) { addItemToGroup(activeAxis.value, it, targetGroup.value); pulseItem(it) }
+  if (it) { addItemToGroup(activeAxis.value, it, targetGroup.value); pulseMember(it) }
   pendingItem.value = null
 }
 function removeFrom(item, group) { removeItemFromGroup(activeAxis.value, item, group) }
 
-// 品目一覧側で対象を一瞬ハイライト（逆引き・追加時に共通利用）
+// 品目一覧側で対象を一瞬ハイライト（逆引き用）
 function pulseItem(item) {
   flashItem.value = item
   clearTimeout(_flashItemT)
   _flashItemT = setTimeout(() => { flashItem.value = '' }, 1600)
+}
+
+// グループ側の該当チップを一瞬ハイライト（追加時）
+function pulseMember(item) {
+  flashMember.value = item
+  clearTimeout(_flashMemberT)
+  _flashMemberT = setTimeout(() => { flashMember.value = '' }, 1600)
 }
 
 // グループの品目チップから、品目一覧側で該当品目まで逆引き表示する
@@ -244,8 +253,9 @@ function onAddGroup() {
   const n = newGroupName.value.trim()
   if (!n) return
   addAxisGroup(activeAxis.value, n)
-  if (!targetGroup.value) targetGroup.value = n
+  targetGroup.value = n
   newGroupName.value = ''
+  nextTick(() => groupScroll.value?.scrollTo({ top: groupScroll.value.scrollHeight, behavior: 'smooth' }))
 }
 
 // コピーは「モードを選んでからジャンルをタップ」（誤操作防止）
@@ -380,7 +390,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 </div>
                 <div class="ax-members">
                 <template v-for="item in config.order" :key="item">
-                  <span v-if="itemGroups(item).includes(g)" class="ax-member">
+                  <span v-if="itemGroups(item).includes(g)" :class="['ax-member', { locate: flashMember === item }]">
                     <span class="ax-member-name" @click="locateItem(item)">{{ item }}</span>
                     <button class="ax-member-x" @click="removeFrom(item, g)">×</button>
                   </span>
@@ -521,6 +531,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-members { padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
 .ax-member { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 2px 4px 2px 8px; color: #374151; }
 .ax-member-name { cursor: pointer; }
+.ax-member.locate { animation: ax-locate-chip 1.6s ease-out; }
+@keyframes ax-locate-chip { 0%, 30% { background: #fde68a; border-color: #f59e0b; } 100% { background: #fff; } }
 .ax-member-x { border: none; background: none; color: #9ca3af; font-size: 13px; cursor: pointer; padding: 0 2px; }
 .ax-member-empty { font-size: 11px; color: #9ca3af; }
 
