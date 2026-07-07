@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: null } })
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop, copyCategoryToAxis } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop, setAxisGroupOrder, copyCategoryToAxis } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸 ────────────────────────────────────
@@ -124,6 +124,40 @@ function definedIndex(g) { return defined.value.indexOf(g) }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 function moveTop(g) { moveAxisGroupToTop(activeAxis.value, g) }
 
+// ── ハンドル(≡)ドラッグでグループ並び替え ──────────
+const dragName   = ref(null)
+const draftOrder = ref(null)   // ドラッグ中の並び（displayGroups相当）
+const renderGroups = computed(() => draftOrder.value ?? displayGroups.value)
+
+function onDragStart(e, g) {
+  dragName.value = g
+  draftOrder.value = [...displayGroups.value]
+  try { e.target.setPointerCapture?.(e.pointerId) } catch (_) {}
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd, { once: true })
+  window.addEventListener('pointercancel', onDragEnd, { once: true })
+}
+function onDragMove(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY)
+  const row = el && el.closest ? el.closest('[data-grp]') : null
+  if (!row) return
+  const over = row.getAttribute('data-grp')
+  if (!over || over === dragName.value) return
+  const arr = [...(draftOrder.value || [])]
+  const from = arr.indexOf(dragName.value), to = arr.indexOf(over)
+  if (from < 0 || to < 0) return
+  arr.splice(from, 1)
+  arr.splice(to, 0, dragName.value)
+  draftOrder.value = arr
+}
+function onDragEnd() {
+  window.removeEventListener('pointermove', onDragMove)
+  if (draftOrder.value) setAxisGroupOrder(activeAxis.value, draftOrder.value)
+  dragName.value = null
+  draftOrder.value = null
+}
+onBeforeUnmount(() => window.removeEventListener('pointermove', onDragMove))
+
 // ── グループ管理 ──────────────────────────────
 const newGroupName = ref('')
 function onAddGroup() {
@@ -234,21 +268,19 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
             <button class="ax-add-btn" @click="onAddGroup">＋</button>
           </div>
           <div class="ax-scroll">
-            <div v-for="g in displayGroups" :key="g"
-                 :class="['ax-group', { on: targetGroup === g }]">
-              <div class="ax-group-head" @click="selectGroup(g)">
-                <span class="ax-radio">{{ targetGroup === g ? '●' : '○' }}</span>
-                <span class="ax-group-name">{{ g }}</span>
-                <span class="ax-group-count">{{ groupCount[g] || 0 }}</span>
+            <div v-for="g in renderGroups" :key="g" :data-grp="g"
+                 :class="['ax-group', { on: targetGroup === g, dragging: dragName === g }]">
+              <div class="ax-group-head">
+                <span class="ax-drag" title="ドラッグで並び替え"
+                      @pointerdown.stop.prevent="onDragStart($event, g)">≡</span>
+                <span class="ax-radio" @click="selectGroup(g)">{{ targetGroup === g ? '●' : '○' }}</span>
+                <span class="ax-group-name" @click="selectGroup(g)">{{ g }}</span>
+                <span class="ax-group-count" @click="selectGroup(g)">{{ groupCount[g] || 0 }}</span>
               </div>
               <template v-if="targetGroup === g">
                 <!-- 選択中グループの操作バー（ヘッダーを狭くしない） -->
                 <div class="ax-group-actions">
-                  <template v-if="definedIndex(g) >= 0">
-                    <button class="ax-abtn" :disabled="definedIndex(g) === 0" @click.stop="moveTop(g)">⤒先頭</button>
-                    <button class="ax-abtn" :disabled="definedIndex(g) === 0" @click.stop="move(g, -1)">▲上</button>
-                    <button class="ax-abtn" :disabled="definedIndex(g) === defined.length - 1" @click.stop="move(g, 1)">▼下</button>
-                  </template>
+                  <button v-if="definedIndex(g) > 0" class="ax-abtn" @click.stop="moveTop(g)">⤒先頭へ</button>
                   <button class="ax-abtn" @click.stop="onRenameGroup(g)">✎名前</button>
                   <button class="ax-abtn danger" @click.stop="onDeleteGroup(g)">🗑削除</button>
                 </div>
@@ -358,9 +390,12 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-li-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .ax-li-tag { font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
 
-.ax-group { border-bottom: 1px solid #f0f1f3; }
+.ax-group { border-bottom: 1px solid #f0f1f3; background: #fff; }
 .ax-group.on { background: #eff6ff; }
+.ax-group.dragging { opacity: 0.9; background: #dbeafe; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 .ax-group-head { display: flex; align-items: center; gap: 6px; padding: 9px 10px; cursor: pointer; }
+.ax-drag { flex-shrink: 0; cursor: grab; color: #9ca3af; font-size: 16px; padding: 0 6px; touch-action: none; user-select: none; }
+.ax-drag:active { cursor: grabbing; color: #2563eb; }
 .ax-radio { font-size: 12px; color: #2563eb; }
 .ax-group-name { flex: 1; font-size: 13px; font-weight: 700; color: #374151; word-break: break-all; }
 .ax-group-count { font-size: 11px; color: #9ca3af; }

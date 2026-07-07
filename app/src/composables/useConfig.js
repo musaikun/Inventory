@@ -771,6 +771,19 @@ export function useConfig() {
     return cats.length
   }
 
+  // 定義済みグループの並び順を指定配列で置き換える（ドラッグ確定用）
+  function setAxisGroupOrder(axisIndex, names) {
+    const list = _axisList(axisIndex)
+    if (!list || !Array.isArray(names)) return false
+    const cur  = new Set(list)
+    const next = names.filter(n => cur.has(n))
+    for (const n of list) if (!next.includes(n)) next.push(n)  // 漏れは末尾へ
+    if (next.length !== list.length) return false
+    list.splice(0, list.length, ...next)
+    _save()
+    return true
+  }
+
   // グループを先頭へ移動
   function moveAxisGroupToTop(axisIndex, name) {
     const list = _axisList(axisIndex)
@@ -981,6 +994,7 @@ export function useConfig() {
     removeItemFromGroup,
     moveAxisGroup,
     moveAxisGroupToTop,
+    setAxisGroupOrder,
     copyCategoriesToAxis,
     copyCategoryToAxis,
   }

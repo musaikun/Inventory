@@ -153,6 +153,11 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     // 先頭へ
     cfg.moveAxisGroupToTop(0, 'B')
     expect(cfg.config.axisGroupsA).toEqual(['B', 'C', 'A'])
+    // ドラッグ確定（配列で並びを置き換え）
+    cfg.setAxisGroupOrder(0, ['A', 'B', 'C'])
+    expect(cfg.config.axisGroupsA).toEqual(['A', 'B', 'C'])
+    // 集合が違う（要素欠け）場合は拒否
+    expect(cfg.setAxisGroupOrder(0, ['A', 'B'])).toBe(false)
   })
 
   it('左のジャンルを1個だけ軸へコピーできる', () => {
