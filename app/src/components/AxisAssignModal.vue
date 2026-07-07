@@ -105,7 +105,7 @@ function flashMsg(m) { flash.value = m; clearTimeout(_flashT); _flashT = setTime
 const pendingItem = ref(null)
 function attemptAssign(item) {
   if (copyMode.value) { flashMsg('コピーするジャンルを選んでください'); return }
-  if (!targetGroup.value) { flashMsg('先に右で振り分け先（' + (activeName.value || '場所') + '）を選んでください'); return }
+  if (!targetGroup.value) { flashMsg('先に振り分け先（' + (activeName.value || '場所') + '）を選んでください'); return }
   const cur = itemGroups(item)
   if (cur.includes(targetGroup.value)) {            // 既にそのグループにある→タップで外す（誤操作の取り消し）
     removeItemFromGroup(activeAxis.value, item, targetGroup.value)
@@ -353,7 +353,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                     {{ item }}<button class="ax-member-x" @click="removeFrom(item, g)">×</button>
                   </span>
                 </template>
-                <span v-if="(groupCount[g] || 0) === 0" class="ax-member-empty">左の品目をタップして追加</span>
+                <span v-if="(groupCount[g] || 0) === 0" class="ax-member-empty">品目をタップして追加</span>
                 </div>
               </template>
             </div>
