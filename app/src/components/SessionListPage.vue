@@ -322,6 +322,12 @@ function onStartPractice() {
   emit('startPractice')
 }
 
+// インポートなしで開始: リストがあればそのまま、無ければ空で（棚卸しながら登録）
+function onStartNoImport() {
+  if (config.isCustom) confirmStart()
+  else onStartEmpty()
+}
+
 function onResume(session) {
   emit('resumeSession', session)
 }
@@ -504,45 +510,41 @@ function _itemCount(session) {
             </div>
           </template>
 
-          <!-- セットアップガイド: 品目リスト未設定時 -->
-          <div v-if="!activeSession && !config.isCustom" class="setup-banner">
+          <!-- 開始ガイド: 進行中が無いときは常に表示 -->
+          <div v-if="!activeSession" class="setup-banner">
             <div class="setup-banner-head">
-              <span class="setup-banner-icon">📋</span>
+              <span class="setup-banner-icon">🚀</span>
               <div>
-                <div class="setup-banner-title">まず品目リストを設定しましょう</div>
-                <div class="setup-banner-sub">品目リストがあると音声・バーコードで素早く棚卸できます</div>
+                <div class="setup-banner-title">{{ config.isCustom ? '棚卸の始め方' : 'まずは始めてみましょう' }}</div>
+                <div class="setup-banner-sub">やり方を選んで、すぐ始められます</div>
               </div>
             </div>
             <div class="setup-paths">
-              <button class="setup-path primary" @click="showStartModal = false; emit('openSettings')">
+              <button class="setup-path primary" @click="emit('openSettings')">
                 <span class="sp-icon">📂</span>
                 <div class="sp-body">
-                  <span class="sp-title">CSV / Excel / PDF でインポート</span>
-                  <span class="sp-sub">おすすめ・一括登録に最適</span>
+                  <span class="sp-title">インポートして開始</span>
+                  <span class="sp-sub">CSV / Excel / PDF で品目を一括登録</span>
                 </div>
                 <span class="sp-arr">›</span>
               </button>
-              <button class="setup-path" @click="confirmStart">
+              <button class="setup-path" @click="onStartNoImport">
                 <span class="sp-icon">✏️</span>
                 <div class="sp-body">
-                  <span class="sp-title">品目を登録しながら始める</span>
-                  <span class="sp-sub">棚卸しながら一覧を同時作成</span>
+                  <span class="sp-title">インポートなしで開始</span>
+                  <span class="sp-sub">{{ config.isCustom ? `今のリスト（${itemCount}件）で開始` : '棚卸しながら品目を登録していく' }}</span>
                 </div>
                 <span class="sp-arr">›</span>
               </button>
-              <button class="setup-path weak" @click="onStartWithSample">
-                <span class="sp-icon">🔬</span>
+              <button class="setup-path weak" @click="onStartPractice">
+                <span class="sp-icon">🎯</span>
                 <div class="sp-body">
-                  <span class="sp-title">サンプルデータで試す</span>
-                  <span class="sp-sub">仮データで動作確認</span>
+                  <span class="sp-title">練習で開始</span>
+                  <span class="sp-sub">履歴に残さずお試し（テスト用リスト）</span>
                 </div>
                 <span class="sp-arr">›</span>
               </button>
             </div>
-          </div>
-
-          <div v-else-if="!activeSession" class="hero-hint">
-            上のカードから棚卸を始めましょう。<br>複数端末で同時に記録できます。
           </div>
         </div>
 
