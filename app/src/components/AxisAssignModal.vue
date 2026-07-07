@@ -135,38 +135,78 @@ const renderGroups = computed(() => draftOrder.value ?? displayGroups.value)
 // 一定距離動くまで次の入替を抑止して往復（ちらつき）を防ぐ
 const SWAP_HYST = 16
 let swapAnchorY = 0
+let ptrX = 0, ptrY = 0
+let autoRaf = 0
 
-function onDragStart(e, g) {
-  dragName.value = g
-  draftOrder.value = [...displayGroups.value]
-  swapAnchorY = e.clientY
-  try { e.target.setPointerCapture?.(e.pointerId) } catch (_) {}
-  window.addEventListener('pointermove', onDragMove)
-  window.addEventListener('pointerup', onDragEnd, { once: true })
-  window.addEventListener('pointercancel', onDragEnd, { once: true })
-}
-function onDragMove(e) {
-  const el = document.elementFromPoint(e.clientX, e.clientY)
+// 指が枠外でも端でヒット判定できるよう座標をペイン内にクランプして入替を再評価
+function reorderAt(bypassHyst) {
+  if (!dragName.value) return
+  const sc = groupScroll.value
+  let x = ptrX, y = ptrY
+  if (sc) {
+    const r = sc.getBoundingClientRect()
+    x = Math.min(Math.max(x, r.left + 4), r.right - 4)
+    y = Math.min(Math.max(y, r.top + 4), r.bottom - 4)
+  }
+  const el = document.elementFromPoint(x, y)
   const row = el && el.closest ? el.closest('[data-grp]') : null
   if (!row) return
   const over = row.getAttribute('data-grp')
   if (!over || over === dragName.value) return
-  if (Math.abs(e.clientY - swapAnchorY) < SWAP_HYST) return
+  if (!bypassHyst && Math.abs(ptrY - swapAnchorY) < SWAP_HYST) return
   const arr = [...(draftOrder.value || [])]
   const from = arr.indexOf(dragName.value), to = arr.indexOf(over)
   if (from < 0 || to < 0) return
   arr.splice(from, 1)
   arr.splice(to, 0, dragName.value)
   draftOrder.value = arr
+  swapAnchorY = ptrY
+}
+
+// 掴んだまま端に寄ると自動スクロール（表示外の位置まで運べる）
+const EDGE = 52
+const MAX_STEP = 14
+function autoScrollTick() {
+  const sc = groupScroll.value
+  if (!dragName.value || !sc) { autoRaf = 0; return }
+  const r = sc.getBoundingClientRect()
+  let dy = 0
+  if (ptrY < r.top + EDGE)         dy = -Math.ceil(MAX_STEP * Math.min(1, (r.top + EDGE - ptrY) / EDGE))
+  else if (ptrY > r.bottom - EDGE) dy =  Math.ceil(MAX_STEP * Math.min(1, (ptrY - (r.bottom - EDGE)) / EDGE))
+  if (dy !== 0) {
+    const before = sc.scrollTop
+    sc.scrollTop += dy
+    if (sc.scrollTop !== before) reorderAt(true)
+  }
+  autoRaf = requestAnimationFrame(autoScrollTick)
+}
+
+function onDragStart(e, g) {
+  dragName.value = g
+  draftOrder.value = [...displayGroups.value]
+  ptrX = e.clientX; ptrY = e.clientY
   swapAnchorY = e.clientY
+  try { e.target.setPointerCapture?.(e.pointerId) } catch (_) {}
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd, { once: true })
+  window.addEventListener('pointercancel', onDragEnd, { once: true })
+  if (!autoRaf) autoRaf = requestAnimationFrame(autoScrollTick)
+}
+function onDragMove(e) {
+  ptrX = e.clientX; ptrY = e.clientY
+  reorderAt(false)
 }
 function onDragEnd() {
   window.removeEventListener('pointermove', onDragMove)
+  if (autoRaf) { cancelAnimationFrame(autoRaf); autoRaf = 0 }
   if (draftOrder.value) setAxisGroupOrder(activeAxis.value, draftOrder.value)
   dragName.value = null
   draftOrder.value = null
 }
-onBeforeUnmount(() => window.removeEventListener('pointermove', onDragMove))
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', onDragMove)
+  if (autoRaf) cancelAnimationFrame(autoRaf)
+})
 
 // ── グループ管理 ──────────────────────────────
 const newGroupName = ref('')
