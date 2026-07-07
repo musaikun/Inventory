@@ -85,7 +85,9 @@ function _load() {
     const raw = localStorage.getItem(CONFIG_KEY)
     if (!raw) return
     const saved = JSON.parse(raw)
-    if (Array.isArray(saved.order) && saved.order.length > 0) {
+    // CONFIG_KEY はカスタム設定でのみ保存される（空リスト開始も含む）。
+    // 空の品目リストでも軸名・グループ等を復元できるよう order 空も許容する。
+    if (Array.isArray(saved.order)) {
       config.order         = saved.order
       config.units         = saved.units         ?? {}
       config.prices        = saved.prices        ?? {}

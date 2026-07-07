@@ -95,6 +95,15 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.tagsA).toEqual({})
   })
 
+  it('空の品目リストでも軸名がlocalStorageに保存される', () => {
+    cfg.config.order = []          // 空リスト開始
+    cfg.setAxisName(0, '場所')
+    const saved = JSON.parse(localStorage.getItem('inventory_config_v1'))
+    expect(Array.isArray(saved.order)).toBe(true)
+    expect(saved.order.length).toBe(0)
+    expect(saved.axisNames).toEqual(['場所', ''])   // 空リストでも軸名が残る
+  })
+
   it('CSVマッピング取込で軸値と軸名（ヘッダ由来）が入る', () => {
     cfg.config.axisNames = ['', '']
     const csv = '品目名,場所,仕入先\nパスタ,冷凍庫,八百屋\nトマト,常温棚,青果店'

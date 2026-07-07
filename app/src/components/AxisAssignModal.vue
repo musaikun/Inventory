@@ -180,7 +180,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
         <span class="ax-warn-icon">📦</span>
         <div>
           <div class="ax-warn-title">品目がまだありません</div>
-          <div class="ax-warn-desc">先にメニューの「品目のインポート」で品目を追加すると、ここで振り分けできます。グループだけ先に作っておくことも可能です。</div>
+          <div class="ax-warn-desc">品目を「インポート」するか、棚卸しながら手動で登録すると、ここで振り分けできます。先にグループだけ作っておくのもOKです。</div>
         </div>
       </div>
 
