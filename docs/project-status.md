@@ -106,6 +106,7 @@
 | 全体の現在地（この文書） | `docs/project-status.md` |
 | 長期戦略・設計原則 | `docs/strategy-10yr.md` |
 | 企業導入（多店舗）設計 | `docs/enterprise-design.md` |
+| 実行計画（トラック別＋ウェーブ） | `docs/roadmap.md` |
 | やること一覧・現在地 | `docs/backlog.md` |
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` |
 | 同期アーキテクチャ | `docs/sync-spec.md` |
