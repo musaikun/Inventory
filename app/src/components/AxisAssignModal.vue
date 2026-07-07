@@ -117,12 +117,21 @@ function attemptAssign(item) {
   }
   if (cur.length > 0) { pendingItem.value = item; return }  // 別の場所に既にある→確認
   addItemToGroup(activeAxis.value, item, targetGroup.value)
+  pulseItem(item)
 }
 function confirmMulti() {
-  if (pendingItem.value) addItemToGroup(activeAxis.value, pendingItem.value, targetGroup.value)
+  const it = pendingItem.value
+  if (it) { addItemToGroup(activeAxis.value, it, targetGroup.value); pulseItem(it) }
   pendingItem.value = null
 }
 function removeFrom(item, group) { removeItemFromGroup(activeAxis.value, item, group) }
+
+// 品目一覧側で対象を一瞬ハイライト（逆引き・追加時に共通利用）
+function pulseItem(item) {
+  flashItem.value = item
+  clearTimeout(_flashItemT)
+  _flashItemT = setTimeout(() => { flashItem.value = '' }, 1600)
+}
 
 // グループの品目チップから、品目一覧側で該当品目まで逆引き表示する
 function locateItem(item) {
@@ -130,9 +139,7 @@ function locateItem(item) {
   search.value = ''
   usedOnly.value = false
   opened[cat] = true
-  flashItem.value = item
-  clearTimeout(_flashItemT)
-  _flashItemT = setTimeout(() => { flashItem.value = '' }, 1600)
+  pulseItem(item)
   nextTick(() => {
     const sc = itemScroll.value
     if (!sc) return
