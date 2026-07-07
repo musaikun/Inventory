@@ -331,26 +331,34 @@ export function dismissConflict(ingredient) {
   _syncConflictLock()
 }
 
-// 再接続時のオフライン分岐マージ。品目ごとに updatedAt で解決し、
+// 再接続時のオフライン分岐マージ（ホスト・ゲスト共通）。品目ごとに updatedAt で解決し、
 // 「自分だけ変更」は再送信、「相手だけ変更」はサーバー値を適用、
-// 「両方が変更して値が違う」は競合キューへ積んで人が確定する（ライブ競合と同じUI）。
+// 「両方が変更して値が違う」は競合として扱う。
+//   ホスト: 自分の競合キューへ積み、UI（sum/mine/theirs）で確定する。
+//   ゲスト: 解決権はホスト側にあるため、自分の値をロックしてホストへ競合を通知する
+//           （ライブ競合と同じ経路。ホストが確定 → update をブロードキャスト → 反映）。
 function _mergeOnReconnect(serverInv, disc) {
   const localInv = { ...(_getInventory?.() ?? {}) }
   const names = new Set([...Object.keys(localInv), ...Object.keys(serverInv)])
-  let conflicts = 0
+  const isHost = state.mode === 'hosting'
+  let hostConflicts = 0
   for (const name of names) {
     const local  = localInv[name]
     const server = serverInv[name]
     switch (resolveOfflineItem(local, server, disc)) {
-      case 'conflict': {
-        const entry = { ingredient: name, remoteQty: server.qty, remoteUnit: server.unit ?? '', remoteBy: server.enteredBy ?? '', local }
-        const idx = _conflictQueue.findIndex(c => c.ingredient === name)
-        if (idx === -1) _conflictQueue.push(entry)
-        else            _conflictQueue[idx] = entry
-        conflicts++
-        _onConflictNotify?.(name, server.enteredBy ?? '')
+      case 'conflict':
+        if (isHost) {
+          const entry = { ingredient: name, remoteQty: server.qty, remoteUnit: server.unit ?? '', remoteBy: server.enteredBy ?? '', local }
+          const idx = _conflictQueue.findIndex(c => c.ingredient === name)
+          if (idx === -1) _conflictQueue.push(entry)
+          else            _conflictQueue[idx] = entry
+          hostConflicts++
+          _onConflictNotify?.(name, server.enteredBy ?? '')
+        } else {
+          lockedIngredients.add(name)
+          broadcastConflictNotify(name, server.enteredBy ?? '', local.qty, local.unit ?? '', server.qty, server.unit ?? '')
+        }
         break
-      }
       case 'local':
         broadcastUpdate(name, local.qty, local.unit ?? '', local.enteredBy ?? '')
         break
@@ -359,7 +367,7 @@ function _mergeOnReconnect(serverInv, disc) {
         break
     }
   }
-  if (conflicts > 0) {
+  if (hostConflicts > 0) {
     _onConflictQueue?.([..._conflictQueue])
     _syncConflictLock()
   }
@@ -449,7 +457,12 @@ function _handleMessage(msg) {
     case 'joined': {
       const serverInv = msg.inventory ?? {}
 
-      if (state.mode === 'joining') {
+      // 切断からの復帰（ホスト・ゲスト共通）。初回接続は _disconnectedAt === 0。
+      const reconnecting = _disconnectedAt > 0
+
+      // 初回参加のゲストのみローカルを破棄してホスト状態を採用する。
+      // 再接続ではオフライン中の入力を _mergeOnReconnect で保全するため破棄しない。
+      if (state.mode === 'joining' && !reconnecting) {
         _onClearInventory?.()
       }
 
@@ -457,8 +470,6 @@ function _handleMessage(msg) {
       // _reconnectToRoom が「同一セッション」と判断して設定した期待IDと一致する時のみ。
       // 新規セッション作成・別セッション復帰では DO の旧在庫をスキップし、
       // ローカル在庫（ホストが入力済みのデータ）を正とする。
-      const reconnecting = state.mode === 'hosting' && _disconnectedAt > 0
-
       const skipInventory = state.mode === 'hosting'
         && _disconnectedAt === 0
         && (!_expectedSessionId || msg.sessionId !== _expectedSessionId)
