@@ -169,6 +169,19 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.tagsA['トマト']).toEqual(['野菜'])
   })
 
+  it('clearAxis で軸の名前・グループ・割り当てがすべて消える', () => {
+    cfg.config.order = ['パスタ']
+    cfg.config.axisNames = ['場所', '仕入先']
+    cfg.config.axisGroupsA = ['冷凍庫']
+    cfg.config.tagsA = { パスタ: ['冷凍庫'] }
+    cfg.clearAxis(0)
+    expect(cfg.config.axisNames).toEqual(['', '仕入先'])
+    expect(cfg.config.axisGroupsA).toEqual([])
+    expect(cfg.config.tagsA).toEqual({})
+    // 軸2は無傷
+    expect(cfg.config.axisNames[1]).toBe('仕入先')
+  })
+
   it('その他へ振り分けると割り当てが解除される', () => {
     cfg.config.order = ['パスタ']
     cfg.config.tagsA = { パスタ: ['冷凍庫'] }

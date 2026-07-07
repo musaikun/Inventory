@@ -652,6 +652,18 @@ export function useConfig() {
     return true
   }
 
+  // 並び替え（軸）を丸ごと削除: 名前・グループ・割り当てをすべて消す
+  function clearAxis(axisIndex) {
+    if (axisIndex !== 0 && axisIndex !== 1) return false
+    const names = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
+    names[axisIndex] = ''
+    config.axisNames = [names[0] ?? '', names[1] ?? '']
+    if (axisIndex === 0) { config.tagsA = {}; config.axisGroupsA = [] }
+    else                 { config.tagsB = {}; config.axisGroupsB = [] }
+    _save()
+    return true
+  }
+
   // ── 汎用軸のグループ（場所・仕入先など）管理 ────────────────────────────────
   function _axisList(axisIndex) {
     return axisIndex === 0 ? config.axisGroupsA : axisIndex === 1 ? config.axisGroupsB : null
@@ -959,6 +971,7 @@ export function useConfig() {
     setItemCategory,
     setItemExtras,
     setAxisName,
+    clearAxis,
     setItemTag,
     addAxisGroup,
     renameAxisGroup,
