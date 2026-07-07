@@ -74,8 +74,8 @@ const FIELD_DEFS = computed(() => [
   { key: 'code',      label: '商品コード（バーコード）', required: false },
   { key: 'lotSize',   label: '入数',           required: false },
   { key: 'prevMonth', label: '前月実績',       required: false },
-  { key: 'axisA',     label: props.axisNames?.[0] || '分類軸1（場所など）', required: false },
-  { key: 'axisB',     label: props.axisNames?.[1] || '分類軸2（仕入先など）', required: false },
+  { key: 'axisA',     label: props.axisNames?.[0] || '並び替え①（場所など）', required: false },
+  { key: 'axisB',     label: props.axisNames?.[1] || '並び替え②（仕入先など）', required: false },
 ])
 
 const canImport = computed(() => mapping.name !== null)

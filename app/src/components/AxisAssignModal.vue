@@ -163,8 +163,8 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 
     <div v-if="namedAxes.length === 0" class="ax-empty">
       <div class="ax-empty-icon">🏷️</div>
-      <div class="ax-empty-title">分類軸が未設定です</div>
-      <div class="ax-empty-desc">設定画面の「分類軸」で軸名（例：場所・仕入先）を先に入力してください。</div>
+      <div class="ax-empty-title">並び替えの名前が未設定です</div>
+      <div class="ax-empty-desc">メニューの「並び替え」で名前（例：場所・仕入先）を先に入力してください。</div>
     </div>
 
     <template v-else>

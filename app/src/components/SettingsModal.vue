@@ -277,20 +277,20 @@ function onDownloadTemplate() {
       </details>
       </template>
 
-      <!-- 分類軸（並べ替え用・任意2つ） -->
+      <!-- 並び替えの名前（最大2つ） -->
       <div v-if="!props.isGuest && _show('axis')" class="device-section">
-        <div class="device-label">分類軸（並べ替え用・最大2つ）</div>
-        <p class="axis-note">品目に「場所」「仕入先」などの軸を付けて並べ替えられます。名前を入れると軸が有効になります。</p>
+        <div class="device-label">並び替えの名前（最大2つ）</div>
+        <p class="axis-note">「場所」「仕入先」など、品目をまとめて並び替えたい切り口に名前をつけられます。名前を入れると使えるようになります。</p>
         <div class="axis-row">
-          <span class="axis-num">軸1</span>
+          <span class="axis-num">①</span>
           <input
-            type="text" class="device-input" placeholder="例: 場所（冷凍庫・仕込み場…）"
+            type="text" class="device-input" placeholder="例: 置き場所（冷凍庫・仕込み場…）"
             maxlength="12" :value="config.axisNames?.[0] ?? ''"
             @change="onAxisNameInput(0, $event)"
           />
         </div>
         <div class="axis-row">
-          <span class="axis-num">軸2</span>
+          <span class="axis-num">②</span>
           <input
             type="text" class="device-input" placeholder="例: 仕入先（八百屋・肉屋…）"
             maxlength="12" :value="config.axisNames?.[1] ?? ''"
