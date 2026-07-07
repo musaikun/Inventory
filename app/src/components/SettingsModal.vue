@@ -11,9 +11,17 @@ import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribeP
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 
-const props = defineProps({ isGuest: Boolean })
+const props = defineProps({
+  isGuest: Boolean,
+  section: { type: String, default: 'all' }, // 'all'|'import'|'axis'|'device'|'push'
+})
 const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
+
+const _show = (s) => props.section === 'all' || props.section === s
+const sheetTitle = computed(() => ({
+  import: '品目のインポート', axis: '並び替え', device: '端末名', push: 'プッシュ通知',
+}[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)
 function onRestoreFile(file) {
@@ -171,10 +179,10 @@ function onDownloadTemplate() {
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">品目リスト設定</div>
+      <div class="sheet-title">{{ sheetTitle }}</div>
 
       <!-- 現在の状態 -->
-      <div class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
+      <div v-if="_show('import')" class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
         <span class="status-icon">{{ config.isCustom ? '📝' : '📋' }}</span>
         <span>
           {{ config.isCustom ? 'カスタム設定' : 'デフォルト設定' }}
@@ -182,6 +190,7 @@ function onDownloadTemplate() {
         </span>
       </div>
 
+      <template v-if="_show('import')">
       <!-- ゲストは品目変更不可 -->
       <div v-if="props.isGuest" class="guest-notice">
         参加中はホストが品目リストを管理します。<br>品目の変更はホスト端末から行ってください。
@@ -226,11 +235,6 @@ function onDownloadTemplate() {
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
 
-      <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
-      <button v-if="!props.isGuest" class="btn btn-secondary template-btn" @click="onDownloadTemplate">
-        📥 Excelテンプレートをダウンロード
-      </button>
-
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
         <summary>フォーマットを確認（自作する場合）</summary>
@@ -271,9 +275,10 @@ function onDownloadTemplate() {
           <p class="format-note">エイリアスを設定すると、音声で短縮名を言っても認識されます。<br>PDFから取込むと、品目名に応じてエイリアスが自動設定されます。</p>
         </div>
       </details>
+      </template>
 
       <!-- 分類軸（並べ替え用・任意2つ） -->
-      <div v-if="!props.isGuest" class="device-section">
+      <div v-if="!props.isGuest && _show('axis')" class="device-section">
         <div class="device-label">分類軸（並べ替え用・最大2つ）</div>
         <p class="axis-note">品目に「場所」「仕入先」などの軸を付けて並べ替えられます。名前を入れると軸が有効になります。</p>
         <div class="axis-row">
@@ -298,7 +303,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- 端末名設定 -->
-      <div class="device-section">
+      <div v-if="_show('device')" class="device-section">
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
         <div class="device-row">
           <input
@@ -318,13 +323,8 @@ function onDownloadTemplate() {
         </div>
       </div>
 
-      <!-- アクションボタン（ゲストは非表示） -->
-      <div v-if="!props.isGuest" class="actions">
-        <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
-      </div>
-
       <!-- プッシュ通知 -->
-      <div v-if="pushSupported" class="notif-section">
+      <div v-if="pushSupported && _show('push')" class="notif-section">
         <div class="device-label">棚卸リマインダー通知</div>
         <div class="notif-row">
           <span class="notif-desc">

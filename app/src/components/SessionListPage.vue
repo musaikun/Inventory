@@ -17,6 +17,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import OrderModal from './OrderModal.vue'
+import AppMenu from './AppMenu.vue'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -385,6 +386,7 @@ function _itemCount(session) {
         <div class="store-name">{{ storeName || '店舗' }}</div>
         <div class="shop-code-badge">{{ shopCode }}</div>
       </div>
+      <AppMenu context="home" />
       <button class="btn-logout" @click="onLogout">ログアウト</button>
     </div>
 

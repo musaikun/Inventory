@@ -47,6 +47,8 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import AppMenu from './components/AppMenu.vue'
+import { settingsSection } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -329,7 +331,6 @@ async function _reconnectToRoom(session) {
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
-const showSettings      = ref(false)
 const showSync          = ref(false)
 const showUpgrade       = ref(false)
 const upgradeReason     = ref('')
@@ -794,7 +795,7 @@ function _closeTopLayer() {
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
-  if (showSettings.value)    { showSettings.value = false; return true }
+  if (settingsSection.value) { settingsSection.value = null;  return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
@@ -1891,7 +1892,7 @@ function dismissReview() {
       @view-session="onViewSession"
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
-      @open-settings="showSettings = true"
+      @open-settings="settingsSection = 'import'"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 
@@ -1939,19 +1940,16 @@ function dismissReview() {
           </button>
           <!-- ハンバーガーメニュー（ルーム参加中のゲストには表示しない）-->
           <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
-            <button class="settings-btn menu-btn" @click="showMenu = !showMenu" :class="{ open: showMenu }" title="メニュー">☰</button>
-            <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
-            <div v-if="showMenu" class="menu-dropdown">
-              <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
-                <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
-              </button>
-              <button v-if="hasBarcodedItems && !inputLocked" class="menu-item" @click="showMenu = false; showBarcode = true">
-                <span class="menu-ico">📷</span> バーコードスキャン
-              </button>
-              <button class="menu-item" @click="showMenu = false; showSettings = true">
-                <span class="menu-ico">⚙️</span> 品目リスト設定
-              </button>
-            </div>
+            <AppMenu context="session">
+              <template #default="{ close }">
+                <button v-if="isAuthenticated" class="am-item" @click="close(); onGoHome()">
+                  <span class="am-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
+                </button>
+                <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
+                  <span class="am-ico">📷</span> バーコードスキャン
+                </button>
+              </template>
+            </AppMenu>
           </div>
         </div>
       </header>
@@ -2326,7 +2324,7 @@ function dismissReview() {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
