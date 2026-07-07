@@ -103,6 +103,7 @@ function flashMsg(m) { flash.value = m; clearTimeout(_flashT); _flashT = setTime
 // ── 振り分け操作（複数所属は確認モーダル） ────────
 const pendingItem = ref(null)
 function attemptAssign(item) {
+  if (copyMode.value) { flashMsg('コピーするジャンルを選んでください'); return }
   if (!targetGroup.value) { flashMsg('先に右で振り分け先（' + (activeName.value || '場所') + '）を選んでください'); return }
   const cur = itemGroups(item)
   if (cur.includes(targetGroup.value)) {            // 既にそのグループにある→タップで外す（誤操作の取り消し）
@@ -168,10 +169,17 @@ function onAddGroup() {
   newGroupName.value = ''
 }
 
-// 左のジャンルを1個だけコピーしてグループ化
+// コピーは「モードを選んでからジャンルをタップ」（誤操作防止）
+const copyMode = ref(false)
 function onCopyCategory(cat) {
+  if (cat === 'その他') { flashMsg('「その他」はコピーできません'); return }
   const n = copyCategoryToAxis(activeAxis.value, cat)
   if (n > 0) { targetGroup.value = cat; flashMsg(`「${cat}」を${n}件コピーしました`) }
+  copyMode.value = false
+}
+function onLeftHeadTap(cat) {
+  if (copyMode.value) onCopyCategory(cat)
+  else toggleCat(cat)
 }
 function onRenameGroup(g) {
   const nn = (prompt(`「${g}」の新しい名前`, g) || '').trim()
@@ -230,15 +238,16 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
           <div class="ax-pane-tools">
             <input v-model="search" type="text" placeholder="検索" class="ax-mini-input" />
             <button v-if="hasUsage" :class="['ax-mini', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回0を非表示</button>
+            <button :class="['ax-mini', { on: copyMode }]" @click="copyMode = !copyMode">📋コピー</button>
           </div>
+          <div v-if="copyMode" class="ax-copybar">コピーするジャンルをタップしてください</div>
           <div class="ax-scroll">
             <template v-for="grp in leftGroups" :key="grp.cat">
-              <div class="ax-cat-head" @click="toggleCat(grp.cat)">
-                <span class="ax-cat-arrow">{{ isOpen(grp.cat) ? '▼' : '▶' }}</span>
+              <div :class="['ax-cat-head', { copytarget: copyMode && grp.cat !== 'その他' }]" @click="onLeftHeadTap(grp.cat)">
+                <span class="ax-cat-arrow">{{ copyMode ? '📋' : (isOpen(grp.cat) ? '▼' : '▶') }}</span>
                 <span class="ax-cat-name">{{ grp.cat }}</span>
                 <span class="ax-cat-right">
                   <span class="ax-cat-count"><strong>{{ grp.assigned }}</strong>/{{ grp.items.length }}</span>
-                  <button v-if="grp.cat !== 'その他'" class="ax-cat-copy" @click.stop="onCopyCategory(grp.cat)">📋コピー</button>
                 </span>
               </div>
               <template v-if="isOpen(grp.cat)">
@@ -370,7 +379,9 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-mini { flex-shrink: 0; border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 8px; font-size: 11px; color: #4b5563; cursor: pointer; white-space: nowrap; }
 .ax-mini.on { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
 .ax-add-btn { flex-shrink: 0; border: none; background: #2563eb; color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 16px; cursor: pointer; }
-.ax-cat-copy { flex-shrink: 0; border: 1px solid #bfdbfe; background: #eff6ff; color: #2563eb; font-size: 10px; font-weight: 700; border-radius: 7px; padding: 3px 7px; cursor: pointer; }
+.ax-copybar { font-size: 12px; font-weight: 700; color: #2563eb; background: #eff6ff; border-bottom: 1px solid #bfdbfe; padding: 8px 10px; text-align: center; }
+.ax-cat-head.copytarget { background: #eff6ff; }
+.ax-cat-head.copytarget .ax-cat-name { color: #2563eb; }
 
 .ax-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
