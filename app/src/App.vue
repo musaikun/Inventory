@@ -32,7 +32,7 @@ import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
-  saveInventoryToD1, loadInventoryFromD1,
+  saveInventoryToD1, loadInventoryFromD1, saveState,
 } from './composables/useStore.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -49,6 +49,8 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignModal from './components/AxisAssignModal.vue'
+import ConnectionBanner from './components/ConnectionBanner.vue'
+import { initConnectivity, isOnline } from './composables/useConnectivity.js'
 import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
@@ -719,7 +721,10 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
+const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pending')
+
 onMounted(async () => {
+  initConnectivity()
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
@@ -1892,7 +1897,9 @@ function dismissReview() {
 </script>
 
 <template>
-  <div id="app">
+  <div id="app" :class="{ 'has-banner': _bannerActive }">
+
+    <ConnectionBanner />
 
     <!-- ── 認証ページ ── -->
     <AuthPage

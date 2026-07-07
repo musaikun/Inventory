@@ -31,6 +31,8 @@ body {
   margin: 0 auto;
   padding-bottom: 80px;
 }
+/* 接続バナー表示中は内容を下げてヘッダーを隠さない */
+#app.has-banner { padding-top: 34px; }
 
 /* ── Header ── */
 .app-header {

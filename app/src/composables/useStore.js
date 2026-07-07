@@ -1,10 +1,46 @@
 import { ref } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { HTTP_BASE as BASE, apiFetch as _api } from '../utils/api.js'
+import { onReconnect } from './useConnectivity.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 export const shopCode  = ref(localStorage.getItem(STORAGE_KEYS.shopCode) ?? '')
 export const activeRoom = ref(null)  // D1 に記録されている進行中ルームコード
+
+// ── D1保存の状態と未送信の再送 ────────────────────────────────────────────────
+// 'idle' = 全て保存済み / 'saving' = 送信中 / 'pending' = 送信失敗（端末には保存済み・再送待ち）
+export const saveState = ref('idle')
+// config/inventory は全量PUT（最新が正）なので最後の失敗分だけ保持。snapshot は追記なのでキュー。
+const _pending  = { config: null, inventory: null }
+const _snapQueue = []
+let _retryTimer = null
+
+function _settle() {
+  saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0) ? 'idle' : 'pending'
+}
+function _scheduleRetry() {
+  if (_retryTimer) return
+  _retryTimer = setTimeout(() => { _retryTimer = null; retryPendingSaves() }, 8000)
+}
+
+// 未送信データをまとめて再送する（接続復帰時・タイマー時に呼ばれる）
+export async function retryPendingSaves() {
+  if (!shopCode.value || !BASE) return
+  if (_pending.config) {
+    try { await _api(`/store/${shopCode.value}/config`, { method: 'PUT', body: JSON.stringify(_pending.config) }); _pending.config = null } catch (_) {}
+  }
+  if (_pending.inventory) {
+    try { await _api(`/store/${shopCode.value}/inventory`, { method: 'PUT', body: JSON.stringify(_pending.inventory) }); _pending.inventory = null } catch (_) {}
+  }
+  while (_snapQueue.length) {
+    try { await _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(_snapQueue[0]) }); _snapQueue.shift() }
+    catch (_) { break }
+  }
+  _settle()
+  if (saveState.value === 'pending') _scheduleRetry()
+}
+
+onReconnect(retryPendingSaves)
 
 // ── 店舗コード 発行 ────────────────────────────────────────────────────────────
 export async function createStore() {
@@ -36,8 +72,16 @@ export async function loadConfigFromD1() {
 
 export async function saveConfigToD1(configData) {
   if (!shopCode.value || !BASE) return
-  return _api(`/store/${shopCode.value}/config`, { method: 'PUT', body: JSON.stringify(configData) })
-    .catch(e => console.warn('[store] config保存失敗:', e.message))
+  saveState.value = 'saving'
+  try {
+    await _api(`/store/${shopCode.value}/config`, { method: 'PUT', body: JSON.stringify(configData) })
+    _pending.config = null
+    _settle()
+  } catch (e) {
+    _pending.config = configData
+    saveState.value = 'pending'
+    _scheduleRetry()
+  }
 }
 
 // ── 棚卸データ ────────────────────────────────────────────────────────────────
@@ -48,8 +92,16 @@ export async function loadInventoryFromD1() {
 
 export async function saveInventoryToD1(inventoryData) {
   if (!shopCode.value || !BASE) return
-  return _api(`/store/${shopCode.value}/inventory`, { method: 'PUT', body: JSON.stringify(inventoryData) })
-    .catch(e => console.warn('[store] inventory保存失敗:', e.message))
+  saveState.value = 'saving'
+  try {
+    await _api(`/store/${shopCode.value}/inventory`, { method: 'PUT', body: JSON.stringify(inventoryData) })
+    _pending.inventory = null
+    _settle()
+  } catch (e) {
+    _pending.inventory = inventoryData
+    saveState.value = 'pending'
+    _scheduleRetry()
+  }
 }
 
 // ── 棚卸履歴 ──────────────────────────────────────────────────────────────────
@@ -60,8 +112,15 @@ export async function loadHistoryFromD1() {
 
 export async function saveSnapshotToD1(snapshot) {
   if (!shopCode.value || !BASE) return
-  return _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(snapshot) })
-    .catch(e => console.warn('[store] snapshot保存失敗:', e.message))
+  saveState.value = 'saving'
+  try {
+    await _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(snapshot) })
+    _settle()
+  } catch (e) {
+    _snapQueue.push(snapshot)
+    saveState.value = 'pending'
+    _scheduleRetry()
+  }
 }
 
 export async function deleteSnapshotFromD1(date) {
