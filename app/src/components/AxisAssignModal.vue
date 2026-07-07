@@ -3,6 +3,7 @@ import { ref, computed, reactive, watch } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 
+const props = defineProps({ initialAxis: { type: Number, default: null } })
 const emit = defineEmits(['close'])
 
 const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, moveAxisGroupToTop, copyCategoryToAxis } = useConfig()
@@ -16,7 +17,7 @@ const namedAxes = computed(() => {
   if (names[1]) out.push({ index: 1, name: names[1] })
   return out
 })
-const activeAxis = ref(0)
+const activeAxis = ref(props.initialAxis ?? 0)
 watch(namedAxes, (arr) => {
   if (!arr.some(a => a.index === activeAxis.value)) activeAxis.value = arr[0]?.index ?? 0
 }, { immediate: true })

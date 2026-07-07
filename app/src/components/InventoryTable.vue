@@ -2,8 +2,9 @@
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
+import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
-const { config: liveConfig } = useConfig()
+const { config: liveConfig, setAxisName } = useConfig()
 
 const props = defineProps({
   inventory:        { type: Object,  required: true },
@@ -70,6 +71,24 @@ const sortOpts = computed(() => {
   if (names[1]) opts.push({ value: 'axisB', label: names[1] })
   return opts
 })
+
+// 「並び替えを追加」ボタン（空きスロットがあり、編集可能なときだけ）
+const canAddAxis = computed(() => {
+  if (props.readOnly) return false
+  const names = config.value.axisNames ?? ['', '']
+  return !names[0] || !names[1]
+})
+function onAddAxis() {
+  const names = config.value.axisNames ?? ['', '']
+  const idx = !names[0] ? 0 : (!names[1] ? 1 : -1)
+  if (idx < 0) return
+  const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
+  if (!name) return
+  setAxisName(idx, name)
+  sortMode.value = idx === 0 ? 'axisA' : 'axisB'  // 追加した並び替えに切替
+  axisAssignInitial.value = idx
+  showAxisAssign.value = true                      // 振り分けページへ
+}
 
 // 未設定の軸を選んだ状態でも壊れないよう、実効モードにフォールバック
 const _effectiveSort = computed(() => {
@@ -569,6 +588,12 @@ function fmtYen(n) {
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
         >{{ opt.label }}</button>
+        <button
+          v-if="canAddAxis"
+          class="seg-btn seg-add"
+          title="場所・仕入先など、並び替えを追加"
+          @click="onAddAxis"
+        >＋</button>
       </div>
       <div class="seg-group">
         <button
@@ -807,6 +832,12 @@ function fmtYen(n) {
   background: white;
   color: var(--primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.seg-add {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-weight: 800;
 }
 
 /* ── よく使う品目トグル ── */

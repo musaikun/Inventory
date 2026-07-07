@@ -48,7 +48,8 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
-import { settingsSection } from './composables/appMenuState.js'
+import AxisAssignModal from './components/AxisAssignModal.vue'
+import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -795,6 +796,7 @@ function _closeTopLayer() {
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
+  if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
@@ -2325,6 +2327,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
