@@ -772,13 +772,14 @@ export function useConfig() {
   }
 
   // 定義済みグループの並び順を指定配列で置き換える（ドラッグ確定用）
+  // names は displayGroups（定義済み＋孤立値）を許容し、定義済みの並び替えのみ反映。
+  // 定義済みを過不足なく含まない場合は拒否。
   function setAxisGroupOrder(axisIndex, names) {
     const list = _axisList(axisIndex)
     if (!list || !Array.isArray(names)) return false
     const cur  = new Set(list)
     const next = names.filter(n => cur.has(n))
-    for (const n of list) if (!next.includes(n)) next.push(n)  // 漏れは末尾へ
-    if (next.length !== list.length) return false
+    if (next.length !== list.length || new Set(next).size !== list.length) return false
     list.splice(0, list.length, ...next)
     _save()
     return true
