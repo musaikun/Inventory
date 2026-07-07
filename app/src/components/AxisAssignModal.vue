@@ -130,9 +130,15 @@ const dragName   = ref(null)
 const draftOrder = ref(null)   // ドラッグ中の並び（displayGroups相当）
 const renderGroups = computed(() => draftOrder.value ?? displayGroups.value)
 
+// スライドアニメ中は元位置がしばらく指の下に残るため、直前の入替位置から
+// 一定距離動くまで次の入替を抑止して往復（ちらつき）を防ぐ
+const SWAP_HYST = 16
+let swapAnchorY = 0
+
 function onDragStart(e, g) {
   dragName.value = g
   draftOrder.value = [...displayGroups.value]
+  swapAnchorY = e.clientY
   try { e.target.setPointerCapture?.(e.pointerId) } catch (_) {}
   window.addEventListener('pointermove', onDragMove)
   window.addEventListener('pointerup', onDragEnd, { once: true })
@@ -144,12 +150,14 @@ function onDragMove(e) {
   if (!row) return
   const over = row.getAttribute('data-grp')
   if (!over || over === dragName.value) return
+  if (Math.abs(e.clientY - swapAnchorY) < SWAP_HYST) return
   const arr = [...(draftOrder.value || [])]
   const from = arr.indexOf(dragName.value), to = arr.indexOf(over)
   if (from < 0 || to < 0) return
   arr.splice(from, 1)
   arr.splice(to, 0, dragName.value)
   draftOrder.value = arr
+  swapAnchorY = e.clientY
 }
 function onDragEnd() {
   window.removeEventListener('pointermove', onDragMove)
@@ -277,6 +285,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
             <button class="ax-add-btn" @click="onAddGroup">＋</button>
           </div>
           <div class="ax-scroll">
+            <TransitionGroup tag="div" name="axg">
             <div v-for="g in renderGroups" :key="g" :data-grp="g"
                  :class="['ax-group', { on: targetGroup === g, dragging: dragName === g }]">
               <div class="ax-group-head">
@@ -303,6 +312,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
                 </div>
               </template>
             </div>
+            </TransitionGroup>
             <div v-if="displayGroups.length === 0" class="ax-guide">
               <div class="ax-guide-arrow">☝️</div>
               <div class="ax-guide-title">まずはグループを設定しましょう</div>
@@ -413,7 +423,9 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 
 .ax-group { border-bottom: 1px solid #f0f1f3; background: #fff; }
 .ax-group.on { background: #eff6ff; }
-.ax-group.dragging { opacity: 0.9; background: #dbeafe; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.ax-group.dragging { opacity: 0.95; background: #dbeafe; box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: relative; z-index: 2; }
+/* 並び替え時、飛び越されたグループがスッと動いて隙間を空ける */
+.axg-move { transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1); }
 .ax-group-head { display: flex; align-items: center; gap: 6px; padding: 9px 10px; cursor: pointer; }
 .ax-drag { flex-shrink: 0; cursor: grab; color: #9ca3af; font-size: 16px; padding: 0 6px; touch-action: none; user-select: none; }
 .ax-drag:active { cursor: grabbing; color: #2563eb; }
