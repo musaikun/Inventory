@@ -13,7 +13,8 @@ import { parseResultCSV } from '../utils/resultCsvParser.js'
 
 const props = defineProps({
   isGuest: Boolean,
-  section: { type: String, default: 'all' }, // 'all'|'import'|'axis'|'device'|'push'
+  section: { type: String, default: 'all' }, // 'all'|'import'|'axis'|'device'|'push'|'general'
+  canRestore: { type: Boolean, default: false }, // 進行中セッション中のみ「結果CSVから復元」を出す
 })
 const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
@@ -253,8 +254,8 @@ function onDownloadTemplate() {
         <input ref="mapperInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
       </div>
 
-      <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
-      <div v-if="!props.isGuest" class="mapper-row">
+      <!-- 棚卸結果CSVから入力を復元（進行中セッション中のみ・ゲスト非表示）-->
+      <div v-if="!props.isGuest && canRestore" class="mapper-row">
         <button class="mapper-trigger" @click="restoreInput.click()">
           🔧 棚卸結果CSV/Excelから入力を復元
         </button>
