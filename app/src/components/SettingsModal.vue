@@ -18,9 +18,12 @@ const props = defineProps({
 const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
 
-const _show = (s) => props.section === 'all' || props.section === s
+const _show = (s) =>
+  props.section === 'all' ||
+  props.section === s ||
+  (props.section === 'general' && (s === 'device' || s === 'push' || s === 'axis'))
 const sheetTitle = computed(() => ({
-  import: '品目のインポート', axis: '並び替え', device: '端末名', push: 'プッシュ通知',
+  import: '品目のインポート', axis: '並び替え', device: '端末名', push: 'プッシュ通知', general: '各種設定',
 }[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)

@@ -16,8 +16,7 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
-import OrderModal from './OrderModal.vue'
-import AppMenu from './AppMenu.vue'
+import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -29,7 +28,6 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const showDashboard = _showDashboard
-const showOrders    = _showOrders
 const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
@@ -386,7 +384,6 @@ function _itemCount(session) {
         <div class="store-name">{{ storeName || '店舗' }}</div>
         <div class="shop-code-badge">{{ shopCode }}</div>
       </div>
-      <AppMenu context="home" />
       <button class="btn-logout" @click="onLogout">ログアウト</button>
     </div>
 
@@ -588,17 +585,7 @@ function _itemCount(session) {
             </template>
             <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
-            <div class="section-title" style="margin-top:24px">📂 データ管理</div>
-            <div class="dashboard-card" @click="emit('openSettings')">
-              <div class="dashboard-card-icon">⚙️</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">品目リスト・インポート設定</div>
-                <div class="dashboard-card-desc">CSV / Excel / PDF から品目を読み込む</div>
-              </div>
-              <span class="dashboard-card-arrow">›</span>
-            </div>
-
-            <div class="section-title" style="margin-top:16px">📊 分析・発注</div>
+            <div class="section-title" style="margin-top:24px">📊 分析</div>
             <div class="dashboard-card" @click="showDashboard = true">
               <div class="dashboard-card-icon">📊</div>
               <div class="dashboard-card-body">
@@ -607,11 +594,13 @@ function _itemCount(session) {
               </div>
               <span class="dashboard-card-arrow">›</span>
             </div>
-            <div class="dashboard-card" @click="showOrders = true">
-              <div class="dashboard-card-icon">🧾</div>
+
+            <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
+            <div class="dashboard-card" @click="settingsSection = 'general'">
+              <div class="dashboard-card-icon">⚙️</div>
               <div class="dashboard-card-body">
-                <div class="dashboard-card-title">発注</div>
-                <div class="dashboard-card-desc">仕入先・ジャンル別に発注数を記録／履歴</div>
+                <div class="dashboard-card-title">各種設定</div>
+                <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
               </div>
               <span class="dashboard-card-arrow">›</span>
             </div>
@@ -633,7 +622,6 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
-    <OrderModal v-if="showOrders" @close="showOrders = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
