@@ -615,7 +615,7 @@ function onShareMail() {
   font-size: 11px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 8px;
   border-radius: 6px;
 }

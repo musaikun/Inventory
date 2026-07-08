@@ -35,7 +35,7 @@ const mode = computed(() => {
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 .cb.offline { background: #78350f; color: #fde68a; }
-.cb.pending { background: #1e3a8a; color: #dbeafe; }
+.cb.pending { background: #1e3a8a; color: var(--primary-soft); }
 .cb-dot { flex-shrink: 0; }
 .cb-text { flex: 1; min-width: 0; line-height: 1.4; }
 .cb-retry { flex-shrink: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 8px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }

@@ -317,11 +317,11 @@ function onImport() {
 
 .preview-chip {
   font-size: 11px;
-  background: #eff6ff;
+  background: var(--primary-weak);
   color: var(--primary);
   padding: 2px 8px;
   border-radius: 6px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--primary-border);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;

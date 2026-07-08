@@ -303,6 +303,19 @@ function onImportList() {
   emit('openSettings')
 }
 
+// 発注確認セッションを開始（オレンジテーマ）
+async function onStartOrder() {
+  starting.value = true
+  try {
+    const session = await createSession()
+    emit('startSession', session, 'order')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    starting.value = false
+  }
+}
+
 async function onStartWithSample() {
   loadSampleData()
   await confirmStart()
@@ -479,6 +492,16 @@ function _itemCount(session) {
               <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
             </div>
             <div class="hero-start-arrow">→</div>
+          </button>
+
+          <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
+          <button class="order-start" :disabled="starting" @click="onStartOrder">
+            <div class="order-start-icon">🧾</div>
+            <div class="order-start-text">
+              <div class="order-start-title">発注確認を開始</div>
+              <div class="order-start-sub">仕入先ごとに、発注をまとめて記録</div>
+            </div>
+            <div class="order-start-arrow">→</div>
           </button>
 
           <!-- レガシー: 古い未完了セッション（整理用） -->
@@ -717,7 +740,7 @@ function _itemCount(session) {
   background: none;
   border: none;
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 8px;
   transition: opacity 0.12s;
@@ -779,15 +802,15 @@ function _itemCount(session) {
 }
 
 .tab-btn.active {
-  color: var(--primary, #3b82f6);
-  border-bottom-color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
+  border-bottom-color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
 .tab-btn:active { transform: scale(0.95); }
 
 .tab-badge {
-  background: #3b82f6;
+  background: var(--primary-bright);
   color: white;
   font-size: 10px;
   font-weight: 700;
@@ -846,7 +869,7 @@ function _itemCount(session) {
   gap: 14px;
   width: 100%;
   padding: 20px 18px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
   color: white;
   border: none;
   border-radius: 18px;
@@ -896,12 +919,48 @@ function _itemCount(session) {
   flex-shrink: 0;
 }
 
+/* 発注確認カード（淡いオレンジ・棚卸カードの下に副次的に置く） */
+.order-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  border: 1.5px solid #fed7aa;
+  border-radius: 18px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  margin-bottom: 4px;
+  text-align: left;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-start:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(234,88,12,0.16); }
+.order-start:disabled { opacity: 0.7; cursor: not-allowed; }
+.order-start-icon {
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffe4c4;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.order-start-text { flex: 1; min-width: 0; }
+.order-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #c2410c; }
+.order-start-sub { font-size: 12px; color: #b45309; margin-top: 2px; }
+.order-start-arrow { font-size: 22px; font-weight: 300; color: #ea580c; flex-shrink: 0; }
+
 /* ヒーロー: LIVE 再開カード */
 .hero-live {
   width: 100%;
   padding: 16px 18px;
   background: white;
-  border: 2px solid #3b82f6;
+  border: 2px solid var(--primary-bright);
   border-radius: 18px;
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
   margin-bottom: 4px;
@@ -1025,9 +1084,9 @@ function _itemCount(session) {
   gap: 3px;
   font-size: 12px;
   font-weight: 600;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--primary-deep);
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-soft);
   padding: 3px 9px;
   border-radius: 14px;
 }
@@ -1071,7 +1130,7 @@ function _itemCount(session) {
   margin-left: auto;
   font-size: 13px;
   font-weight: 700;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
 }
 
 .hl-prog-bar {
@@ -1083,7 +1142,7 @@ function _itemCount(session) {
 
 .hl-prog-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  background: linear-gradient(90deg, var(--primary-bright), var(--primary));
   border-radius: 4px;
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1091,7 +1150,7 @@ function _itemCount(session) {
 .hero-live-resume {
   width: 100%;
   padding: 13px;
-  background: var(--primary, #3b82f6);
+  background: var(--primary, var(--primary-bright));
   color: white;
   border: none;
   border-radius: 12px;
@@ -1115,7 +1174,7 @@ function _itemCount(session) {
 /* セットアップバナー */
 .setup-banner {
   background: white;
-  border: 1.5px solid #bfdbfe;
+  border: 1.5px solid var(--primary-border);
   border-radius: 18px;
   padding: 16px;
   box-shadow: 0 2px 12px rgba(37,99,235,0.10);
@@ -1133,7 +1192,7 @@ function _itemCount(session) {
 .setup-banner-title {
   font-size: 15px;
   font-weight: 800;
-  color: var(--primary, #2563eb);
+  color: var(--primary, var(--primary));
   margin-bottom: 2px;
 }
 
@@ -1164,8 +1223,8 @@ function _itemCount(session) {
   transition: background 0.12s, border-color 0.12s;
 }
 .setup-path.primary {
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  border-color: #93c5fd;
+  background: linear-gradient(135deg, var(--primary-weak) 0%, var(--primary-soft) 100%);
+  border-color: var(--primary-mid);
 }
 .setup-path.weak {
   background: #fafafa;
@@ -1188,14 +1247,14 @@ function _itemCount(session) {
   color: var(--text-primary, #1e293b);
 }
 
-.setup-path.primary .sp-title { color: var(--primary, #2563eb); }
+.setup-path.primary .sp-title { color: var(--primary, var(--primary)); }
 .setup-path.weak .sp-title    { color: var(--text-muted, #64748b); }
 
 .sp-sub {
   font-size: 11px;
   color: var(--text-muted, #64748b);
 }
-.setup-path.primary .sp-sub { color: #3b82f6; }
+.setup-path.primary .sp-sub { color: var(--primary-bright); }
 
 .sp-arr {
   font-size: 18px;
@@ -1219,7 +1278,7 @@ function _itemCount(session) {
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s ease;
 }
-.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: #dbeafe; }
+.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: var(--primary-soft); }
 
 .year-card-info { flex: 1; min-width: 0; }
 
@@ -1248,7 +1307,7 @@ function _itemCount(session) {
 
 .year-card-arrow {
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -1258,7 +1317,7 @@ function _itemCount(session) {
   background: none;
   border: none;
   font-size: 15px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 0;
   text-align: left;
@@ -1331,7 +1390,7 @@ function _itemCount(session) {
   transition: transform 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.session-card.active { border-color: #3b82f6; }
+.session-card.active { border-color: var(--primary-bright); }
 
 .session-main {
   display: flex;
@@ -1367,7 +1426,7 @@ function _itemCount(session) {
   white-space: nowrap;
 }
 
-.status-active { background: #dbeafe; color: #1d4ed8; }
+.status-active { background: var(--primary-soft); color: var(--primary-deep); }
 .status-done   { background: #dcfce7; color: #15803d; }
 
 .session-date {
@@ -1423,7 +1482,7 @@ function _itemCount(session) {
 .session-detail-arrow {
   margin-left: auto;
   font-size: 12px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
@@ -1451,9 +1510,9 @@ function _itemCount(session) {
 .part-chip {
   font-size: 11px;
   font-weight: 600;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--primary-deep);
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-soft);
   padding: 3px 10px;
   border-radius: 14px;
   white-space: nowrap;
@@ -1504,7 +1563,7 @@ function _itemCount(session) {
 
 .dashboard-card-arrow {
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
@@ -1667,13 +1726,13 @@ function _itemCount(session) {
 .start-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .start-btn.primary {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
   color: white;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
 }
 .start-btn.ghost {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--primary-weak);
+  color: var(--primary);
 }
 .start-btn.ghost-weak {
   background: none;

@@ -189,7 +189,7 @@ onUnmounted(stop)
   position: absolute;
   width: 20px;
   height: 20px;
-  border-color: #3b82f6;
+  border-color: var(--primary-bright);
   border-style: solid;
   border-width: 0;
 }
@@ -217,7 +217,7 @@ onUnmounted(stop)
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+  background: linear-gradient(90deg, transparent, var(--primary-bright), transparent);
   animation: scan 2s linear infinite;
 }
 

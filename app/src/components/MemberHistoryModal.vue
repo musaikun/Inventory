@@ -117,7 +117,7 @@ function actionClass(action) {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  background: linear-gradient(135deg, var(--primary), var(--primary-grad));
   color: #fff;
   font-weight: 800;
   font-size: 18px;
@@ -140,8 +140,8 @@ function actionClass(action) {
 .member-me {
   font-size: 10px;
   font-weight: 700;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--primary-soft);
+  color: var(--primary-deep);
   border-radius: 6px;
   padding: 1px 6px;
 }
@@ -221,14 +221,14 @@ function actionClass(action) {
   border: none;
   padding: 0;
   cursor: pointer;
-  color: var(--primary, #2563eb);
+  color: var(--primary, var(--primary));
   text-align: left;
   -webkit-tap-highlight-color: transparent;
 }
 .log-item-edit:active { opacity: 0.6; }
 .log-item-pen { font-size: 11px; opacity: 0.7; }
 
-.member-edit-hint { color: var(--primary, #2563eb); font-weight: 600; }
+.member-edit-hint { color: var(--primary, var(--primary)); font-weight: 600; }
 .log-detail {
   display: flex;
   align-items: center;
@@ -243,7 +243,7 @@ function actionClass(action) {
   padding: 1px 6px;
 }
 .act-new    { background: #dcfce7; color: #166534; }
-.act-add    { background: #dbeafe; color: #1d4ed8; }
+.act-add    { background: var(--primary-soft); color: var(--primary-deep); }
 .act-over   { background: #fef3c7; color: #b45309; }
 .act-remove { background: #fee2e2; color: #991b1b; }
 .act-flag   { background: #f1f5f9; color: #475569; }

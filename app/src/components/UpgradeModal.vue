@@ -125,8 +125,8 @@ defineEmits(['close'])
 }
 
 .upgrade-price-box {
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  border: 1.5px solid #93c5fd;
+  background: linear-gradient(135deg, var(--primary-weak) 0%, var(--primary-soft) 100%);
+  border: 1.5px solid var(--primary-mid);
   border-radius: 16px;
   padding: 16px;
   margin-bottom: 20px;
@@ -153,7 +153,7 @@ defineEmits(['close'])
 
 .upgrade-cta {
   display: block;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%);
   color: white;
   font-size: 16px;
   font-weight: 800;

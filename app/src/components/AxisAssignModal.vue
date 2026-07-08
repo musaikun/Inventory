@@ -439,7 +439,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 <style scoped>
 .ax-overlay { position: fixed; inset: 0; z-index: 2100; background: #f5f6f8; display: flex; flex-direction: column; }
 .ax-header { display: flex; align-items: center; padding: 12px 14px; background: #fff; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
-.ax-back { background: none; border: none; color: #2563eb; font-size: 16px; cursor: pointer; padding: 4px 6px; }
+.ax-back { background: none; border: none; color: var(--primary); font-size: 16px; cursor: pointer; padding: 4px 6px; }
 .ax-title { font-weight: 700; font-size: 15px; flex: 1; text-align: center; }
 .ax-spacer { width: 52px; }
 
@@ -450,7 +450,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 
 .ax-tabs { display: flex; gap: 6px; padding: 10px 12px 0; }
 .ax-tab { flex: 1; padding: 8px; border: 1.5px solid #d1d5db; background: #fff; border-radius: 9px; font-weight: 700; font-size: 13px; color: #6b7280; cursor: pointer; }
-.ax-tab.on { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+.ax-tab.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
 
 .ax-warn { display: flex; gap: 10px; align-items: flex-start; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; margin: 10px 12px 0; padding: 10px 12px; }
 .ax-warn-icon { font-size: 18px; flex-shrink: 0; }
@@ -461,11 +461,11 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 
 .ax-guide { padding: 20px 14px; text-align: center; }
 .ax-guide-arrow { font-size: 22px; }
-.ax-guide-title { font-size: 15px; font-weight: 800; color: #2563eb; margin-top: 6px; }
+.ax-guide-title { font-size: 15px; font-weight: 800; color: var(--primary); margin-top: 6px; }
 .ax-guide-desc { font-size: 12px; color: #6b7280; margin-top: 6px; line-height: 1.6; }
 .ax-guide-egtitle { font-size: 11px; color: #cbd5e1; font-weight: 700; margin-top: 14px; }
 .ax-guide-eg { font-size: 12px; color: #cbd5e1; margin-top: 4px; letter-spacing: 0.02em; }
-.ax-target { color: #2563eb; }
+.ax-target { color: var(--primary); }
 .ax-target-none { color: #dc2626; }
 
 /* スマホ＝上下2分割（上：グループ / 下：品目）。各ペインがフル幅で独立スクロール */
@@ -482,13 +482,13 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 }
 .ax-pane-tools, .ax-addrow { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid #f0f1f3; }
 .ax-mini-input { flex: 1; min-width: 0; border: 1.5px solid #d1d5db; border-radius: 8px; padding: 7px 9px; font-size: 13px; outline: none; }
-.ax-mini-input:focus { border-color: #2563eb; }
+.ax-mini-input:focus { border-color: var(--primary); }
 .ax-mini { flex-shrink: 0; border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 8px; font-size: 11px; color: #4b5563; cursor: pointer; white-space: nowrap; }
-.ax-mini.on { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
-.ax-add-btn { flex-shrink: 0; border: none; background: #2563eb; color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 16px; cursor: pointer; }
-.ax-copybar { font-size: 12px; font-weight: 700; color: #2563eb; background: #eff6ff; border-bottom: 1px solid #bfdbfe; padding: 8px 10px; text-align: center; }
-.ax-cat-head.copytarget { background: #eff6ff; }
-.ax-cat-head.copytarget .ax-cat-name { color: #2563eb; }
+.ax-mini.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
+.ax-add-btn { flex-shrink: 0; border: none; background: var(--primary); color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 16px; cursor: pointer; }
+.ax-copybar { font-size: 12px; font-weight: 700; color: var(--primary); background: var(--primary-weak); border-bottom: 1px solid var(--primary-border); padding: 8px 10px; text-align: center; }
+.ax-cat-head.copytarget { background: var(--primary-weak); }
+.ax-cat-head.copytarget .ax-cat-name { color: var(--primary); }
 
 .ax-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
@@ -497,7 +497,7 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-cat-name { flex: 1; font-size: 12px; font-weight: 700; color: #374151; word-break: break-all; }
 .ax-cat-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
 .ax-cat-count { font-size: 11px; color: #9ca3af; }
-.ax-cat-count strong { color: #2563eb; font-weight: 700; }
+.ax-cat-count strong { color: var(--primary); font-weight: 700; }
 
 .ax-li { width: 100%; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: none; border-bottom: 1px solid #f3f4f6; background: #fff; cursor: pointer; text-align: left; }
 .ax-li.assigned { background: #f3f4f6; color: #9ca3af; }
@@ -505,22 +505,22 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-li.locate { animation: ax-locate 1.6s ease-out; }
 @keyframes ax-locate { 0%, 30% { background: #fde68a; } 100% { background: transparent; } }
 .ax-li-name { flex: 1; font-size: 13px; color: inherit; word-break: break-all; }
-.ax-li-add { color: #2563eb; font-weight: 700; }
+.ax-li-add { color: var(--primary); font-weight: 700; }
 /* 振り分け先は品目名の右で縦積み（品目名は中央揃え） */
 .ax-li-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
-.ax-li-tag { font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.ax-li-tag { font-size: 10px; font-weight: 700; color: var(--primary); background: var(--primary-weak); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
 
 .ax-group { border-bottom: 1px solid #f0f1f3; background: #fff; }
-.ax-group.on { background: #eff6ff; }
-.ax-group.dragging { opacity: 0.95; background: #dbeafe; box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: relative; z-index: 2; }
+.ax-group.on { background: var(--primary-weak); }
+.ax-group.dragging { opacity: 0.95; background: var(--primary-soft); box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: relative; z-index: 2; }
 /* 並び替え時、飛び越されたグループがスッと動いて隙間を空ける */
 .axg-move { transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1); }
 .ax-group-head { display: flex; align-items: center; gap: 6px; padding: 9px 10px; cursor: pointer; }
 /* 選択中グループの見出しはペイン上部に固定し、所属品目がその下でスクロールする */
-.ax-group.on .ax-group-head { position: sticky; top: 0; z-index: 3; background: #eff6ff; box-shadow: 0 1px 0 #dbeafe; }
+.ax-group.on .ax-group-head { position: sticky; top: 0; z-index: 3; background: var(--primary-weak); box-shadow: 0 1px 0 var(--primary-soft); }
 .ax-drag { flex-shrink: 0; cursor: grab; color: #9ca3af; font-size: 16px; padding: 0 6px; touch-action: none; user-select: none; }
-.ax-drag:active { cursor: grabbing; color: #2563eb; }
-.ax-radio { font-size: 12px; color: #2563eb; }
+.ax-drag:active { cursor: grabbing; color: var(--primary); }
+.ax-radio { font-size: 12px; color: var(--primary); }
 .ax-group-name { flex: 1; font-size: 13px; font-weight: 700; color: #374151; word-break: break-all; }
 .ax-group-count { font-size: 11px; color: #9ca3af; }
 .ax-group-actions { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px; }
@@ -546,5 +546,5 @@ const activeName = computed(() => namedAxes.value.find(a => a.index === activeAx
 .ax-confirm-body { font-size: 13px; color: #4b5563; line-height: 1.7; margin-bottom: 16px; }
 .ax-confirm-actions { display: flex; gap: 10px; }
 .ax-cbtn { flex: 1; padding: 10px; border: 1.5px solid #d1d5db; background: #fff; border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; }
-.ax-cbtn.primary { border-color: #2563eb; background: #2563eb; color: #fff; }
+.ax-cbtn.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
 </style>

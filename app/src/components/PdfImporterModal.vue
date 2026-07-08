@@ -229,7 +229,7 @@ function onImport() {
   margin-bottom: 14px;
 }
 .drop-zone.over,
-.drop-zone:hover  { border-color: var(--primary); background: #eff6ff; }
+.drop-zone:hover  { border-color: var(--primary); background: var(--primary-weak); }
 .drop-zone.loading { cursor: default; opacity: 0.7; }
 
 .drop-icon  { font-size: 36px; margin-bottom: 8px; }
@@ -300,7 +300,7 @@ function onImport() {
   cursor: pointer;
   font-weight: 600;
 }
-.toggle-btn:hover { background: #eff6ff; }
+.toggle-btn:hover { background: var(--primary-weak); }
 
 .preview-list {
   list-style: none;

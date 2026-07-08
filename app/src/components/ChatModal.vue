@@ -350,7 +350,7 @@ function needsDateSep(idx) {
   font-size: 12px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 10px;
   border-radius: 20px;
   letter-spacing: 0.05em;
@@ -491,7 +491,7 @@ function needsDateSep(idx) {
 }
 
 .mine :deep(.mention) {
-  color: #bfdbfe;
+  color: var(--primary-border);
   font-weight: 700;
 }
 
@@ -520,7 +520,7 @@ function needsDateSep(idx) {
 }
 
 .mine .msg-quote-sender {
-  color: #bfdbfe;
+  color: var(--primary-border);
 }
 
 .msg-quote-text {
@@ -595,8 +595,8 @@ function needsDateSep(idx) {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  background: #eff6ff;
-  border-top: 1.5px solid #bfdbfe;
+  background: var(--primary-weak);
+  border-top: 1.5px solid var(--primary-border);
   flex-shrink: 0;
 }
 
@@ -662,7 +662,7 @@ function needsDateSep(idx) {
   cursor: pointer;
 }
 .mention-item:last-child { border-bottom: none; }
-.mention-item:active { background: #eff6ff; }
+.mention-item:active { background: var(--primary-weak); }
 
 /* ── 入力エリア ── */
 .chat-input-area {
@@ -712,6 +712,6 @@ function needsDateSep(idx) {
   cursor: default;
 }
 .chat-send-btn:not(:disabled):active {
-  background: #1d4ed8;
+  background: var(--primary-deep);
 }
 </style>

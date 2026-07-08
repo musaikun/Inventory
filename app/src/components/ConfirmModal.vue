@@ -466,7 +466,7 @@ function saveEdit() {
   font-weight: 700;
   text-align: center;
   padding: 12px 16px;
-  background: #eff6ff;
+  background: var(--primary-weak);
   border-radius: 10px;
   color: var(--primary);
   margin-bottom: 12px;
@@ -559,7 +559,7 @@ function saveEdit() {
   font-size: 15px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   outline: none;
   cursor: pointer;
   width: 100%;
@@ -701,7 +701,7 @@ function saveEdit() {
   font-weight: 700;
   border: 1.5px solid var(--primary);
   border-radius: 10px;
-  background: #eff6ff;
+  background: var(--primary-weak);
   color: var(--primary);
   cursor: pointer;
   transition: background 0.1s, transform 0.08s;
@@ -709,7 +709,7 @@ function saveEdit() {
 }
 
 .preset-btn:active {
-  background: #dbeafe;
+  background: var(--primary-soft);
   transform: scale(0.96);
 }
 
@@ -795,7 +795,7 @@ function saveEdit() {
 .h-total { color: var(--text-muted); font-size: 11px; }
 
 .action-new       { background: #d1fae5; color: #065f46; }
-.action-add       { background: #dbeafe; color: #1e40af; }
+.action-add       { background: var(--primary-soft); color: var(--primary-deep); }
 .action-overwrite { background: #fef9c3; color: #854d0e; }
 .action-remove    { background: #fee2e2; color: #991b1b; }
 .action-flag_recount   { background: #ffedd5; color: #9a3412; }

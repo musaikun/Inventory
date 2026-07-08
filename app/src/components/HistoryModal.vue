@@ -317,7 +317,7 @@ function onDelete(date) {
   font-size: 13px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 8px;
   border-radius: 6px;
 }
@@ -362,7 +362,7 @@ function onDelete(date) {
 }
 
 .participant-row:last-child { border-bottom: none; }
-.participant-row:active      { background: #eff6ff; }
+.participant-row:active      { background: var(--primary-weak); }
 
 .participant-info {
   display: flex;
@@ -389,7 +389,7 @@ function onDelete(date) {
   font-size: 12px;
   font-weight: 600;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 1px 7px;
   border-radius: 5px;
   flex-shrink: 0;
@@ -416,7 +416,7 @@ function onDelete(date) {
   font-size: 13px;
   font-weight: 600;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -467,7 +467,7 @@ function onDelete(date) {
   font-size: 14px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 10px;
   border-radius: 6px;
 }
@@ -542,7 +542,7 @@ function onDelete(date) {
   -webkit-tap-highlight-color: transparent;
 }
 
-.cat-group-header:active { background: #eff6ff; }
+.cat-group-header:active { background: var(--primary-weak); }
 
 .cat-arrow {
   font-size: 10px;
@@ -568,7 +568,7 @@ function onDelete(date) {
   font-size: 12px;
   font-weight: 600;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 1px 7px;
   border-radius: 5px;
   flex-shrink: 0;

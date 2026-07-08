@@ -413,7 +413,7 @@ function onDownloadTemplate() {
   margin-bottom: 16px;
 }
 .status-bar.default { background: #f1f5f9; color: var(--text-muted); }
-.status-bar.custom  { background: #eff6ff; color: var(--primary); }
+.status-bar.custom  { background: var(--primary-weak); color: var(--primary); }
 
 .drop-zone {
   border: 2px dashed var(--border);
@@ -425,7 +425,7 @@ function onDownloadTemplate() {
   margin-bottom: 14px;
 }
 .drop-zone.over,
-.drop-zone:hover { border-color: var(--primary); background: #eff6ff; }
+.drop-zone:hover { border-color: var(--primary); background: var(--primary-weak); }
 
 .drop-icon  { font-size: 36px; margin-bottom: 8px; }
 .drop-label { font-size: 15px; font-weight: 600; color: var(--text); }
@@ -529,7 +529,7 @@ function onDownloadTemplate() {
 .axis-mini.danger { color: #dc2626; border-color: #fecaca; }
 .axis-add-btn2 { flex-shrink: 0; border: none; background: var(--primary); color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer; }
 .axis-add-btn2:disabled { opacity: 0.4; cursor: not-allowed; }
-.axis-assign-btn { width: 100%; margin-top: 10px; padding: 10px; border: 1.5px solid var(--primary); background: #eff6ff; color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 10px; cursor: pointer; }
+.axis-assign-btn { width: 100%; margin-top: 10px; padding: 10px; border: 1.5px solid var(--primary); background: var(--primary-weak); color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 10px; cursor: pointer; }
 .axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .axis-num { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); width: 30px; }
 .axis-row .device-input { flex: 1; }
@@ -616,7 +616,7 @@ function onDownloadTemplate() {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.15s, border-color 0.15s;
 }
-.mapper-trigger:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+.mapper-trigger:hover { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); }
 
 .mapper-hint {
   margin: 6px 2px 0;

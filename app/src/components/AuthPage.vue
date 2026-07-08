@@ -313,7 +313,7 @@ function onLoginPinInput(e) {
 }
 
 .form-input:focus {
-  border-color: var(--primary, #3b82f6);
+  border-color: var(--primary, var(--primary-bright));
 }
 
 .form-error {

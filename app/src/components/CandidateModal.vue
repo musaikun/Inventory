@@ -154,10 +154,10 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
   gap: 8px;
   padding: 13px 16px;
   margin-bottom: 10px;
-  border: 2px dashed var(--primary, #3b82f6);
+  border: 2px dashed var(--primary, var(--primary-bright));
   border-radius: 12px;
-  background: #eff6ff;
-  color: var(--primary, #3b82f6);
+  background: var(--primary-weak);
+  color: var(--primary, var(--primary-bright));
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -165,7 +165,7 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 }
 .create-btn.primary {
   border-style: solid;
-  background: var(--primary, #3b82f6);
+  background: var(--primary, var(--primary-bright));
   color: white;
 }
 .create-btn:active { opacity: 0.85; }
@@ -177,7 +177,7 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
   padding: 2px 8px;
 }
 .create-btn:not(.primary) .create-qty {
-  background: #dbeafe;
+  background: var(--primary-soft);
 }
 
 /* ── リスト ── */
@@ -226,12 +226,12 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 /* 一致品目：青ハイライト */
 .item-matched {
   border-color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   font-weight: 600;
 }
 
 .item-matched:active {
-  background: #dbeafe;
+  background: var(--primary-soft);
 }
 
 .item-name { flex: 1; }

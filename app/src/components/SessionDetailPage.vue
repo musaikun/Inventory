@@ -389,7 +389,7 @@ function onDownload() {
   background: none;
   border: none;
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 8px;
   flex-shrink: 0;
@@ -426,8 +426,8 @@ function onDownload() {
 .header-total {
   font-size: 12px;
   font-weight: 700;
-  color: var(--primary, #3b82f6);
-  background: #eff6ff;
+  color: var(--primary, var(--primary-bright));
+  background: var(--primary-weak);
   padding: 1px 7px;
   border-radius: 5px;
 }
@@ -507,7 +507,7 @@ function onDownload() {
   background: none;
   border: none;
   font-size: 14px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 8px;
   font-weight: 600;
@@ -585,7 +585,7 @@ function onDownload() {
 }
 .edit-qty-input:focus {
   outline: none;
-  border-color: var(--primary, #3b82f6);
+  border-color: var(--primary, var(--primary-bright));
   box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
 }
 
@@ -628,8 +628,8 @@ function onDownload() {
 }
 
 .tab-btn.active {
-  color: var(--primary, #3b82f6);
-  border-bottom-color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
+  border-bottom-color: var(--primary, var(--primary-bright));
 }
 
 .tab-btn:disabled {
@@ -722,8 +722,8 @@ function onDownload() {
 }
 
 .pmeta-value {
-  color: var(--primary, #3b82f6);
-  background: #eff6ff;
+  color: var(--primary, var(--primary-bright));
+  background: var(--primary-weak);
 }
 
 .participant-items {
@@ -754,7 +754,7 @@ function onDownload() {
 .pi-qty {
   font-size: 13px;
   font-weight: 700;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -828,7 +828,7 @@ function onDownload() {
 }
 
 .act-new     { background: #dcfce7; color: #15803d; }
-.act-add     { background: #dbeafe; color: #1d4ed8; }
+.act-add     { background: var(--primary-soft); color: var(--primary-deep); }
 .act-over    { background: #fef9c3; color: #854d0e; }
 .act-remove  { background: #fee2e2; color: #b91c1c; }
 .act-flag    { background: #fff7ed; color: #9a3412; }
@@ -841,7 +841,7 @@ function onDownload() {
 
 .log-delta {
   font-size: 11px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 </style>

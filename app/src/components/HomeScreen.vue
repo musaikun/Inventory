@@ -147,14 +147,14 @@ function filledItems(snap) {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: #eff6ff;
-  border-bottom: 1px solid #dbeafe;
+  background: var(--primary-weak);
+  border-bottom: 1px solid var(--primary-soft);
 }
 
 .home-store-label {
   font-size: 11px;
   font-weight: 700;
-  color: #3b82f6;
+  color: var(--primary-bright);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }

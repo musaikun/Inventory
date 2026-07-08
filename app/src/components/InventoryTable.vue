@@ -874,7 +874,7 @@ function fmtYen(n) {
 }
 .used-toggle.active {
   border-color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   color: var(--primary);
 }
 .used-notice {
@@ -901,7 +901,7 @@ function fmtYen(n) {
 }
 
 .inv-table thead tr {
-  background: #1e3a8a;
+  background: var(--primary-deep);
   color: white;
 }
 
@@ -931,7 +931,7 @@ function fmtYen(n) {
   cursor: pointer;
   user-select: none;
 }
-.group-header-row:hover { background: #eff6ff !important; }
+.group-header-row:hover { background: var(--primary-weak) !important; }
 
 .group-header-cell {
   padding: 8px 14px 0;
@@ -968,7 +968,7 @@ function fmtYen(n) {
   margin-left: auto;
   font-size: 11px;
   font-weight: 600;
-  background: #dbeafe;
+  background: var(--primary-soft);
   color: var(--primary);
   border-radius: 20px;
   padding: 1px 8px;
@@ -1002,8 +1002,8 @@ function fmtYen(n) {
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
 }
-.item-row:active             { background: #eff6ff !important; }
-.item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: #eff6ff !important; }
+.item-row:active             { background: var(--primary-weak) !important; }
+.item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }
 .item-row.read-only          { cursor: default; }
 .item-row.read-only:active   { background: inherit !important; }
@@ -1060,7 +1060,7 @@ function fmtYen(n) {
 
 .badge {
   font-size: 10px;
-  background: #dbeafe;
+  background: var(--primary-soft);
   color: var(--primary);
   border-radius: 4px;
   padding: 1px 5px;
@@ -1187,9 +1187,9 @@ function fmtYen(n) {
 }
 
 .manual-btn-edit {
-  background: #eff6ff;
-  color: #2563eb;
-  border-color: #bfdbfe;
+  background: var(--primary-weak);
+  color: var(--primary);
+  border-color: var(--primary-border);
 }
 
 .manual-btn-delete {
@@ -1198,7 +1198,7 @@ function fmtYen(n) {
   border-color: #fecaca;
 }
 
-.manual-btn-edit:active   { background: #dbeafe; }
+.manual-btn-edit:active   { background: var(--primary-soft); }
 .manual-btn-delete:active { background: #fee2e2; }
 
 /* ── 削除インライン確認 ── */

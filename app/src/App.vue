@@ -249,7 +249,8 @@ async function onAuthDone() {
 }
 
 // セッション一覧から「セッション開始」
-async function onSessionStart(session) {
+async function onSessionStart(session, mode = 'stock') {
+  sessionMode.value = mode === 'order' ? 'order' : 'stock'
   // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
   if (hasHostToken()) await dissolveRoomRemote()
   practiceMode.value = false
@@ -273,6 +274,7 @@ async function onSessionStart(session) {
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
 let _prepracticeConfig = null
 async function onStartPractice() {
+  sessionMode.value = 'stock'
   if (hasHostToken()) await dissolveRoomRemote()
   if (syncActive.value) leaveRoom()
   practiceMode.value = true
@@ -312,6 +314,7 @@ function onViewSession(session) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
+  sessionMode.value = 'stock'
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
   clearAuditLog()
@@ -723,6 +726,9 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
 const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pending')
 
+// セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
+const sessionMode = ref('stock')
+
 onMounted(async () => {
   initConnectivity()
   const params = new URLSearchParams(window.location.search)
@@ -1052,6 +1058,7 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
+  sessionMode.value = 'stock'
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
     if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
@@ -1897,7 +1904,7 @@ function dismissReview() {
 </script>
 
 <template>
-  <div id="app" :class="{ 'has-banner': _bannerActive }">
+  <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
 
     <ConnectionBanner />
 
@@ -2528,18 +2535,18 @@ function dismissReview() {
 .guest-add-hint {
   margin: 0 0 8px;
   padding: 7px 11px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-border);
   border-radius: 9px;
   font-size: 12px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: var(--primary-deep);
 }
 .barcode-add-hint code {
   font-family: monospace;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 1px 5px;
   border-radius: 4px;
 }
@@ -2792,7 +2799,7 @@ function dismissReview() {
 .chat-notif-sender {
   font-size: 11px;
   font-weight: 700;
-  color: #93c5fd;
+  color: var(--primary-mid);
   letter-spacing: 0.04em;
 }
 
@@ -2948,7 +2955,7 @@ function dismissReview() {
 .crv-btn:active { opacity: 0.75; }
 
 .crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
-.crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
+.crv-btn.crv-mine   { background: var(--primary-soft); color: var(--primary-deep); }
 .crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
 
 /* ── ゲスト品目追加申請 ── */
@@ -3011,12 +3018,12 @@ function dismissReview() {
 
 .item-req-pending-guest {
   margin: 0 16px 8px;
-  background: #eff6ff;
-  border: 1.5px solid #93c5fd;
+  background: var(--primary-weak);
+  border: 1.5px solid var(--primary-mid);
   border-radius: 12px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #1e40af;
+  color: var(--primary-deep);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3027,11 +3034,11 @@ function dismissReview() {
 .item-req-pending-cancel {
   margin-left: auto;
   background: none;
-  border: 1px solid #93c5fd;
+  border: 1px solid var(--primary-mid);
   border-radius: 7px;
   padding: 4px 10px;
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--primary-bright);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

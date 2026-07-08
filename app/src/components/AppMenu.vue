@@ -35,7 +35,7 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
   background: none; border: none; font-size: 20px; line-height: 1; cursor: pointer;
   padding: 6px 8px; border-radius: 8px; color: #374151;
 }
-.am-btn.open { background: #eef2ff; color: #2563eb; }
+.am-btn.open { background: #eef2ff; color: var(--primary); }
 .am-backdrop { position: fixed; inset: 0; z-index: 40; }
 .am-dropdown {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 41;
