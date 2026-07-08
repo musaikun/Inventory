@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
 import { deviceName, setDeviceName } from '../composables/useDeviceId.js'
@@ -16,6 +16,9 @@ const props = defineProps({
   // 'stock'=棚卸ルーム / 'order'=発注ルーム（同一shopCodeでも別DO）
   roomType:             { type: String, default: 'stock' },
 })
+
+// 文言の主語（棚卸/発注）をルーム種別で切り替える
+const actLabel = computed(() => props.roomType === 'order' ? '発注' : '棚卸')
 
 const { pendingSession, markActive, begin } = useSession()
 useEscapeKey(() => emit('close'))
@@ -79,7 +82,8 @@ async function onCreateRoom() {
     const d1SessionId = pendingSession.value?.id ?? ''
     const isReconnect = state.isSessionActive && !!doSessionId && doSessionId === d1SessionId
 
-    if (!isReconnect) {
+    // 発注ルームは棚卸の D1 セッション行を作らない（棚卸一覧・pendingSession を汚さない）。
+    if (!isReconnect && props.roomType !== 'order') {
       let sessionId = ''
       const useExisting = isAuthenticated.value
         && pendingSession.value?.id
@@ -163,7 +167,7 @@ const urlCopied = ref(false)
 const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
 function _inviteText() {
-  return '棚卸ルームへの招待です。下記リンクから参加してください。'
+  return `${actLabel.value}ルームへの招待です。下記リンクから参加してください。`
 }
 
 async function onCopyUrl() {
@@ -180,7 +184,7 @@ async function onNativeShare() {
   const url = getShareUrl()
   if (!url) return
   try {
-    await navigator.share({ title: '棚卸ルーム招待', text: _inviteText(), url })
+    await navigator.share({ title: `${actLabel.value}ルーム招待`, text: _inviteText(), url })
   } catch (_) { /* ユーザーがキャンセル */ }
 }
 
@@ -194,7 +198,7 @@ function onShareLine() {
 function onShareMail() {
   const url = getShareUrl()
   if (!url) return
-  const subject = encodeURIComponent('棚卸ルームへの招待')
+  const subject = encodeURIComponent(`${actLabel.value}ルームへの招待`)
   const body    = encodeURIComponent(`${_inviteText()}\n\n${url}`)
   window.location.href = `mailto:?subject=${subject}&body=${body}`
 }
@@ -208,10 +212,10 @@ function onShareMail() {
 
       <!-- ==== ホーム（初期）==== -->
       <template v-if="view === 'home'">
-        <div class="sheet-title">複数デバイスで棚卸</div>
+        <div class="sheet-title">複数デバイスで{{ actLabel }}</div>
 
         <div class="sync-intro">
-          複数人で同時に棚卸を行うと、お互いの入力がリアルタイムで共有されます。
+          複数人で同時に{{ actLabel }}を行うと、お互いの入力がリアルタイムで共有されます。
         </div>
 
         <div v-if="!deviceName" class="sync-warn">
@@ -219,7 +223,7 @@ function onShareMail() {
         </div>
 
         <button class="btn btn-primary sync-main-btn" @click="onCreateRoom">
-          🔗 棚卸ルームを開始
+          🔗 {{ actLabel }}ルームを開始
         </button>
 
         <div v-if="createError" class="msg error" style="margin-top:10px">
@@ -292,7 +296,7 @@ function onShareMail() {
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
+          <button class="btn btn-secondary" @click="$emit('close')">{{ actLabel }}に戻る</button>
         </div>
       </template>
 
@@ -347,7 +351,7 @@ function onShareMail() {
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
+          <button class="btn btn-secondary" @click="$emit('close')">{{ actLabel }}に戻る</button>
           <button class="btn btn-danger-block" @click="onLeave">退出する</button>
         </div>
       </template>
