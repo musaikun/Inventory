@@ -7,9 +7,10 @@ const props = defineProps({
   matched:    { type: Array,  default: () => [] },
   qty:        { type: Number, default: null },
   unit:       { type: String, default: '' },
+  canCreate:  { type: Boolean, default: true },  // 新規登録を許可（ゲスト申請中は false）
 })
 
-const emit = defineEmits(['select', 'cancel'])
+const emit = defineEmits(['select', 'create', 'cancel'])
 
 function handleKeydown(e) {
   if (e.key === 'Escape') { e.preventDefault(); emit('cancel') }
@@ -49,8 +50,19 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 
       <!-- 一致なし通知 -->
       <div v-if="noMatchNotice" class="no-match-notice">
-        辞書に一致する品目がありません。下の一覧から選択してください。
+        一致する品目がありません。新しく登録するか、下の一覧から選べます。
       </div>
+
+      <!-- 新規登録（この名前で品目を作る） -->
+      <button
+        v-if="searchTerm && canCreate"
+        class="create-btn"
+        :class="{ primary: !hasMatch }"
+        @click="$emit('create')"
+      >
+        ＋「{{ searchTerm }}」を新しく登録
+        <span v-if="hasQty" class="create-qty">{{ qtyLabel }}</span>
+      </button>
 
       <div class="item-list">
 
@@ -133,6 +145,41 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
   margin-bottom: 10px;
 }
 
+/* ── 新規登録ボタン ── */
+.create-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 16px;
+  margin-bottom: 10px;
+  border: 2px dashed var(--primary, var(--primary-bright));
+  border-radius: 12px;
+  background: var(--primary-weak);
+  color: var(--primary, var(--primary-bright));
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.create-btn.primary {
+  border-style: solid;
+  background: var(--primary, var(--primary-bright));
+  color: white;
+}
+.create-btn:active { opacity: 0.85; }
+.create-qty {
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.25);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.create-btn:not(.primary) .create-qty {
+  background: var(--primary-soft);
+}
+
 /* ── リスト ── */
 .item-list {
   display: flex;
@@ -179,12 +226,12 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 /* 一致品目：青ハイライト */
 .item-matched {
   border-color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   font-weight: 600;
 }
 
 .item-matched:active {
-  background: #dbeafe;
+  background: var(--primary-soft);
 }
 
 .item-name { flex: 1; }

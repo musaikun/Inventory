@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 export const _persistedTab  = ref('sessions')
 export const _selectedYear  = ref(null)
+export const _showDashboard = ref(false)
+export const _showOrders    = ref(false)
 </script>
 
 <script setup>
@@ -13,16 +15,20 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import ManagerDashboard from './ManagerDashboard.vue'
+import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'startOrder', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
-const { getSnapshotBySessionId } = useHistory()
+const { getSnapshotBySessionId, getSnapshots } = useHistory()
+const showDashboard = _showDashboard
+const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
 const loading        = ref(true)
@@ -182,9 +188,24 @@ const selectedYearSessions = computed(() => {
   return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
 })
 
+// 選択中の年をさらに月ごとにグループ化（新しい月が上）
+const selectedYearByMonth = computed(() => {
+  const map = new Map()
+  for (const s of selectedYearSessions.value) {
+    const month = new Date(s.startedAt).getMonth() + 1
+    if (!map.has(month)) map.set(month, [])
+    map.get(month).push(s)
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([month, items]) => ({ month, items }))
+})
+
 const CORRECTION_DAYS = 3
 
 function _isSessionLocked(session) {
+  // 恒久ロック（新しい棚卸の完了で確定済み）。新しい方を削除しても外れない。
+  if (getSnapshotBySessionId(session.id)?.locked) return true
   if (!session.endedAt) return false
   if (Date.now() - new Date(session.endedAt).getTime() > CORRECTION_DAYS * 86400_000) return true
   return completedSessions.value.some(s =>
@@ -282,6 +303,11 @@ function onImportList() {
   emit('openSettings')
 }
 
+// 発注確認を開始（棚卸のセッション行・ルームを作らない＝汚染しない。App側で入力モードへ）
+function onStartOrder() {
+  emit('startOrder')
+}
+
 async function onStartWithSample() {
   loadSampleData()
   await confirmStart()
@@ -305,9 +331,12 @@ function onResume(session) {
 
 async function onDelete(session) {
   const isActive = session.status === 'active'
+  const locked   = session.status === 'completed' && _isSessionLocked(session)
   const msg = isActive
     ? `進行中のセッションを削除します。\n入力中のデータも失われます。\n\nこの操作は取り消せません。本当に削除しますか？`
-    : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
+    : locked
+      ? `確定済み（編集ロック）の棚卸です。\n削除すると復元できません。\n\n本当に削除しますか？`
+      : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
   if (!confirm(msg)) return
   deletingId.value = session.id
   try {
@@ -449,12 +478,22 @@ function _itemCount(session) {
           </div>
 
           <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
-            <div class="hero-start-icon">🎙</div>
+            <div class="hero-start-icon">👥</div>
             <div class="hero-start-text">
               <div class="hero-start-title">{{ starting ? '開始中...' : '棚卸を開始' }}</div>
-              <div class="hero-start-sub">音声でサクサク記録</div>
+              <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
             </div>
             <div class="hero-start-arrow">→</div>
+          </button>
+
+          <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
+          <button class="order-start" :disabled="starting" @click="onStartOrder">
+            <div class="order-start-icon">🧾</div>
+            <div class="order-start-text">
+              <div class="order-start-title">発注確認を開始</div>
+              <div class="order-start-sub">仕入先ごとに、発注をまとめて記録</div>
+            </div>
+            <div class="order-start-arrow">→</div>
           </button>
 
           <!-- レガシー: 古い未完了セッション（整理用） -->
@@ -477,46 +516,6 @@ function _itemCount(session) {
             </div>
           </template>
 
-          <!-- セットアップガイド: 品目リスト未設定時 -->
-          <div v-if="!activeSession && !config.isCustom" class="setup-banner">
-            <div class="setup-banner-head">
-              <span class="setup-banner-icon">📋</span>
-              <div>
-                <div class="setup-banner-title">まず品目リストを設定しましょう</div>
-                <div class="setup-banner-sub">品目リストがあると音声・バーコードで素早く棚卸できます</div>
-              </div>
-            </div>
-            <div class="setup-paths">
-              <button class="setup-path primary" @click="showStartModal = false; emit('openSettings')">
-                <span class="sp-icon">📂</span>
-                <div class="sp-body">
-                  <span class="sp-title">CSV / Excel / PDF でインポート</span>
-                  <span class="sp-sub">おすすめ・一括登録に最適</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-              <button class="setup-path" @click="confirmStart">
-                <span class="sp-icon">✏️</span>
-                <div class="sp-body">
-                  <span class="sp-title">品目を登録しながら始める</span>
-                  <span class="sp-sub">棚卸しながら一覧を同時作成</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-              <button class="setup-path weak" @click="onStartWithSample">
-                <span class="sp-icon">🔬</span>
-                <div class="sp-body">
-                  <span class="sp-title">サンプルデータで試す</span>
-                  <span class="sp-sub">仮データで動作確認</span>
-                </div>
-                <span class="sp-arr">›</span>
-              </button>
-            </div>
-          </div>
-
-          <div v-else-if="!activeSession" class="hero-hint">
-            上のカードから棚卸を始めましょう。<br>複数端末で同時に記録できます。
-          </div>
         </div>
 
         <!-- ダッシュボードパネル -->
@@ -529,42 +528,49 @@ function _itemCount(session) {
               <span class="year-detail-title">{{ selectedYear }}年の棚卸</span>
               <span class="year-count">{{ selectedYearSessions.length }}件</span>
             </div>
-            <div
-              v-for="s in selectedYearSessions"
-              :key="s.id"
-              class="session-card session-card-completed"
-              @click="emit('viewSession', s)"
-            >
-              <div class="session-main">
-                <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
-                <span class="session-status status-done">完了</span>
-                <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
-                  ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
-                </span>
-                <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
-                <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+            <!-- 月ごとにグループ化 -->
+            <template v-for="grp in selectedYearByMonth" :key="grp.month">
+              <div class="month-header">
+                <span class="month-title">{{ grp.month }}月</span>
+                <span class="month-count">{{ grp.items.length }}件</span>
               </div>
-              <!-- 所要時間・参加者数・品目数 -->
-              <div class="session-stats-row">
-                <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
-                  ⏱ {{ selectedYearSessionStats[s.id].duration }}
-                </span>
-                <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
-                  👥 {{ selectedYearSessionStats[s.id].participants.length }}人
-                </span>
-                <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
-                <span class="session-detail-arrow">詳細 ›</span>
+              <div
+                v-for="s in grp.items"
+                :key="s.id"
+                class="session-card session-card-completed"
+                @click="emit('viewSession', s)"
+              >
+                <div class="session-main">
+                  <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
+                  <span class="session-status status-done">完了</span>
+                  <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
+                  <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
+                    ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
+                  </span>
+                  <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
+                  <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
+                </div>
+                <!-- 所要時間・参加者数・品目数 -->
+                <div class="session-stats-row">
+                  <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
+                    ⏱ {{ selectedYearSessionStats[s.id].duration }}
+                  </span>
+                  <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
+                    👥 {{ selectedYearSessionStats[s.id].participants.length }}人
+                  </span>
+                  <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
+                  <span class="session-detail-arrow">詳細 ›</span>
+                </div>
+                <!-- 参加者別内訳 -->
+                <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
+                  <span
+                    v-for="p in selectedYearSessionStats[s.id].participants"
+                    :key="p.name"
+                    class="part-chip"
+                  >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
+                </div>
               </div>
-              <!-- 参加者別内訳 -->
-              <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
-                <span
-                  v-for="p in selectedYearSessionStats[s.id].participants"
-                  :key="p.name"
-                  class="part-chip"
-                >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
-              </div>
-            </div>
+            </template>
             <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
           </template>
 
@@ -594,24 +600,24 @@ function _itemCount(session) {
             </template>
             <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
 
-            <div class="section-title" style="margin-top:24px">📂 データ管理</div>
-            <div class="dashboard-card" @click="emit('openSettings')">
-              <div class="dashboard-card-icon">⚙️</div>
+            <div class="section-title" style="margin-top:24px">📊 分析</div>
+            <div class="dashboard-card" @click="showDashboard = true">
+              <div class="dashboard-card-icon">📊</div>
               <div class="dashboard-card-body">
-                <div class="dashboard-card-title">品目リスト・インポート設定</div>
-                <div class="dashboard-card-desc">CSV / Excel / PDF から品目を読み込む</div>
+                <div class="dashboard-card-title">在庫分析</div>
+                <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
               </div>
               <span class="dashboard-card-arrow">›</span>
             </div>
 
-            <div class="section-title" style="margin-top:16px">📊 分析</div>
-            <div class="dashboard-card dashboard-card-disabled">
-              <div class="dashboard-card-icon">📊</div>
+            <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
+            <div class="dashboard-card" @click="settingsSection = 'general'">
+              <div class="dashboard-card-icon">⚙️</div>
               <div class="dashboard-card-body">
-                <div class="dashboard-card-title">棚卸レポート</div>
-                <div class="dashboard-card-desc">差異・傾向レポートを準備中</div>
+                <div class="dashboard-card-title">各種設定</div>
+                <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
               </div>
-              <span class="coming-badge">準備中</span>
+              <span class="dashboard-card-arrow">›</span>
             </div>
 
             <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
@@ -629,6 +635,8 @@ function _itemCount(session) {
 
       </div>
     </div>
+
+    <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
@@ -724,7 +732,7 @@ function _itemCount(session) {
   background: none;
   border: none;
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 8px;
   transition: opacity 0.12s;
@@ -786,15 +794,15 @@ function _itemCount(session) {
 }
 
 .tab-btn.active {
-  color: var(--primary, #3b82f6);
-  border-bottom-color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
+  border-bottom-color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
 .tab-btn:active { transform: scale(0.95); }
 
 .tab-badge {
-  background: #3b82f6;
+  background: var(--primary-bright);
   color: white;
   font-size: 10px;
   font-weight: 700;
@@ -853,7 +861,7 @@ function _itemCount(session) {
   gap: 14px;
   width: 100%;
   padding: 20px 18px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
   color: white;
   border: none;
   border-radius: 18px;
@@ -903,12 +911,48 @@ function _itemCount(session) {
   flex-shrink: 0;
 }
 
+/* 発注確認カード（淡いオレンジ・棚卸カードの下に副次的に置く） */
+.order-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  border: 1.5px solid #fed7aa;
+  border-radius: 18px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  margin-bottom: 4px;
+  text-align: left;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-start:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(234,88,12,0.16); }
+.order-start:disabled { opacity: 0.7; cursor: not-allowed; }
+.order-start-icon {
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffe4c4;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.order-start-text { flex: 1; min-width: 0; }
+.order-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #c2410c; }
+.order-start-sub { font-size: 12px; color: #b45309; margin-top: 2px; }
+.order-start-arrow { font-size: 22px; font-weight: 300; color: #ea580c; flex-shrink: 0; }
+
 /* ヒーロー: LIVE 再開カード */
 .hero-live {
   width: 100%;
   padding: 16px 18px;
   background: white;
-  border: 2px solid #3b82f6;
+  border: 2px solid var(--primary-bright);
   border-radius: 18px;
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
   margin-bottom: 4px;
@@ -1032,9 +1076,9 @@ function _itemCount(session) {
   gap: 3px;
   font-size: 12px;
   font-weight: 600;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--primary-deep);
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-soft);
   padding: 3px 9px;
   border-radius: 14px;
 }
@@ -1078,7 +1122,7 @@ function _itemCount(session) {
   margin-left: auto;
   font-size: 13px;
   font-weight: 700;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
 }
 
 .hl-prog-bar {
@@ -1090,7 +1134,7 @@ function _itemCount(session) {
 
 .hl-prog-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  background: linear-gradient(90deg, var(--primary-bright), var(--primary));
   border-radius: 4px;
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1098,7 +1142,7 @@ function _itemCount(session) {
 .hero-live-resume {
   width: 100%;
   padding: 13px;
-  background: var(--primary, #3b82f6);
+  background: var(--primary, var(--primary-bright));
   color: white;
   border: none;
   border-radius: 12px;
@@ -1122,7 +1166,7 @@ function _itemCount(session) {
 /* セットアップバナー */
 .setup-banner {
   background: white;
-  border: 1.5px solid #bfdbfe;
+  border: 1.5px solid var(--primary-border);
   border-radius: 18px;
   padding: 16px;
   box-shadow: 0 2px 12px rgba(37,99,235,0.10);
@@ -1140,7 +1184,7 @@ function _itemCount(session) {
 .setup-banner-title {
   font-size: 15px;
   font-weight: 800;
-  color: var(--primary, #2563eb);
+  color: var(--primary, var(--primary));
   margin-bottom: 2px;
 }
 
@@ -1171,8 +1215,8 @@ function _itemCount(session) {
   transition: background 0.12s, border-color 0.12s;
 }
 .setup-path.primary {
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  border-color: #93c5fd;
+  background: linear-gradient(135deg, var(--primary-weak) 0%, var(--primary-soft) 100%);
+  border-color: var(--primary-mid);
 }
 .setup-path.weak {
   background: #fafafa;
@@ -1195,14 +1239,14 @@ function _itemCount(session) {
   color: var(--text-primary, #1e293b);
 }
 
-.setup-path.primary .sp-title { color: var(--primary, #2563eb); }
+.setup-path.primary .sp-title { color: var(--primary, var(--primary)); }
 .setup-path.weak .sp-title    { color: var(--text-muted, #64748b); }
 
 .sp-sub {
   font-size: 11px;
   color: var(--text-muted, #64748b);
 }
-.setup-path.primary .sp-sub { color: #3b82f6; }
+.setup-path.primary .sp-sub { color: var(--primary-bright); }
 
 .sp-arr {
   font-size: 18px;
@@ -1226,7 +1270,7 @@ function _itemCount(session) {
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s ease;
 }
-.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: #dbeafe; }
+.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: var(--primary-soft); }
 
 .year-card-info { flex: 1; min-width: 0; }
 
@@ -1255,7 +1299,7 @@ function _itemCount(session) {
 
 .year-card-arrow {
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -1265,7 +1309,7 @@ function _itemCount(session) {
   background: none;
   border: none;
   font-size: 15px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   cursor: pointer;
   padding: 4px 0;
   text-align: left;
@@ -1286,6 +1330,28 @@ function _itemCount(session) {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary, #1e293b);
+}
+
+/* 月ごとの見出し */
+.month-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 2px 8px;
+}
+.month-header:first-of-type { margin-top: 8px; }
+.month-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+.month-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  background: #f1f5f9;
+  padding: 1px 8px;
+  border-radius: 10px;
 }
 
 /* NEW バッジ */
@@ -1316,7 +1382,7 @@ function _itemCount(session) {
   transition: transform 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.session-card.active { border-color: #3b82f6; }
+.session-card.active { border-color: var(--primary-bright); }
 
 .session-main {
   display: flex;
@@ -1352,7 +1418,7 @@ function _itemCount(session) {
   white-space: nowrap;
 }
 
-.status-active { background: #dbeafe; color: #1d4ed8; }
+.status-active { background: var(--primary-soft); color: var(--primary-deep); }
 .status-done   { background: #dcfce7; color: #15803d; }
 
 .session-date {
@@ -1408,7 +1474,7 @@ function _itemCount(session) {
 .session-detail-arrow {
   margin-left: auto;
   font-size: 12px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
@@ -1436,9 +1502,9 @@ function _itemCount(session) {
 .part-chip {
   font-size: 11px;
   font-weight: 600;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--primary-deep);
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-soft);
   padding: 3px 10px;
   border-radius: 14px;
   white-space: nowrap;
@@ -1489,7 +1555,7 @@ function _itemCount(session) {
 
 .dashboard-card-arrow {
   font-size: 18px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
 }
 
@@ -1652,13 +1718,13 @@ function _itemCount(session) {
 .start-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .start-btn.primary {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
   color: white;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
 }
 .start-btn.ghost {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--primary-weak);
+  color: var(--primary);
 }
 .start-btn.ghost-weak {
   background: none;

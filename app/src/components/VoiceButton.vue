@@ -17,11 +17,10 @@ defineEmits(['toggle'])
   >
     <span class="mic">🎤</span>
     <span class="label">
-      <template v-if="!continuousMode">タップして開始</template>
-      <template v-else-if="isListening">聞いています…</template>
-      <template v-else>再開する</template>
+      <template v-if="isListening">聞いています…</template>
+      <template v-else>タップして話す</template>
     </span>
-    <span v-if="continuousMode && isListening" class="stop-hint">タップで停止</span>
+    <span v-if="isListening" class="stop-hint">タップで停止</span>
   </button>
 </template>
 

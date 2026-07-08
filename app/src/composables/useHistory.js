@@ -31,7 +31,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null) {
+  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null) {
     if (Object.keys(inventory).length === 0) return
 
     const today = new Date().toISOString().slice(0, 10)
@@ -61,6 +61,10 @@ export function useHistory() {
         code,
         flagged:   !!recountFlags?.[item],            // 「あとで数える」フラグ
         category:  categories?.[item] ?? null,
+        lotSize:   lotSizes?.[item] ?? '',            // 入数
+        prevMonth: prevMonths?.[item] ?? '',          // 前月実績
+        tagA:      Array.isArray(tagsA?.[item]) ? tagsA[item].join('|') : (tagsA?.[item] ?? ''),  // 軸1（複数は | 区切り）
+        tagB:      Array.isArray(tagsB?.[item]) ? tagsB[item].join('|') : (tagsB?.[item] ?? ''),  // 軸2
       })
     }
 
@@ -112,6 +116,7 @@ export function useHistory() {
       sessionId,
       auditLog:     auditLog ? [...auditLog] : [],
       activeMs:     typeof activeMs === 'number' ? activeMs : null,
+      axisNames:    Array.isArray(axisNames) ? [...axisNames] : ['', ''],
     }
     _persist()
     return _data[today]
@@ -158,37 +163,23 @@ export function useHistory() {
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
     }
 
-    const hasPrice  = snapshot.totalValue !== null
-    const hasCats   = snapshot.items.some(it => it.category != null)
-    const header    = hasPrice
-      ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
-      : '日付,商品コード,品目名,単位,数量'
+    // 読み込んだ情報を全て出力（復元で往復できるフラット形式）
+    const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]
 
-    let currentCat = undefined
     for (const it of snapshot.items) {
-      if (hasCats) {
-        const cat = it.category ?? 'その他'
-        if (cat !== currentCat) {
-          currentCat = cat
-          rows.push(hasPrice
-            ? `"","","【${cat}】","","","",""`
-            : `"","","【${cat}】","",""`)
-        }
-      }
       const code     = csvSafe(it.code ?? '')
       const safeItem = csvSafe(it.item)
+      const category = csvSafe(it.category ?? '')
       const unit     = csvSafe(it.unit ?? '')
+      const lot      = csvSafe(it.lotSize ?? '')
+      const prev     = csvSafe(it.prevMonth ?? '')
       const qty      = it.qty !== null && it.qty !== undefined ? it.qty : ''
-      if (hasPrice) {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
-      } else {
-        rows.push(`"${snapshot.date}","${code}","${safeItem}","${unit}",${qty}`)
-      }
+      rows.push(`"${snapshot.date}","${code}","${safeItem}","${category}","${unit}","${lot}","${prev}",${qty},${it.unitPrice ?? ''},${it.subtotal ?? ''}`)
     }
 
     if (snapshot.totalValue != null) {
-      rows.push(`"${snapshot.date}","","【合計】","",,,${snapshot.totalValue}`)
+      rows.push(`"${snapshot.date}","","【合計】","","","","",,,${snapshot.totalValue}`)
     }
     return rows.join('\r\n')
   }
@@ -212,9 +203,27 @@ export function useHistory() {
    * @param {string} date      スナップショットの日付キー（YYYY-MM-DD）
    * @param {object} patches   { 品目名: { qty: number|null } }
    */
+  /**
+   * 新しい棚卸の完了に伴い、それ以外の完了済みスナップショットを恒久ロックする。
+   * 新しい方が後で削除されても前回分のロックが外れないよう、locked フラグを永続化する。
+   * @returns {Array} 新たにロックしたスナップショット（呼び出し側が D1 へ再保存する用）
+   */
+  function lockOtherSnapshots(currentSessionId) {
+    const changed = []
+    for (const key of Object.keys(_data)) {
+      const s = _data[key]
+      if (s && !s.locked && s.sessionId !== currentSessionId) {
+        s.locked = true
+        changed.push(s)
+      }
+    }
+    if (changed.length) _persist()
+    return changed
+  }
+
   function patchSnapshotItems(date, patches) {
     const snap = _data[date]
-    if (!snap) return null
+    if (!snap || snap.locked) return null   // ロック済みは編集不可（防御）
 
     for (const item of snap.items) {
       if (!(item.item in patches)) continue
@@ -236,5 +245,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems }
+  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

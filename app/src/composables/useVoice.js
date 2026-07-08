@@ -32,15 +32,37 @@ export function parseText(raw) {
   return { name: rest.replace(/\s+/g, '').trim(), qty, unit }
 }
 
-export function useVoice(onResult) {
+// 喋りはじめてから、この時間で打ち切る（雑音を拾い続けない・張り続けなくていい）
+const BURST_MS = 2000
+
+export function useVoice(onResult, { maxListenMs = BURST_MS } = {}) {
   const isListening  = ref(false)
   const liveText     = ref('')
   let   recognition  = null
+  let   burstTimer   = null
+  let   lastText     = ''
+  let   emitted      = false
+
+  // 発話開始から maxListenMs で1回だけ確定する
+  function _armBurst() {
+    if (burstTimer) return
+    burstTimer = setTimeout(() => _finish(lastText), maxListenMs)
+  }
+
+  function _finish(text) {
+    if (emitted) return
+    emitted = true
+    const t = (text ?? '').trim()
+    stop()
+    if (t) onResult(t)
+  }
 
   function start() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return false
 
+    emitted  = false
+    lastText = ''
     recognition = new SR()
     recognition.lang           = 'ja-JP'
     recognition.continuous     = false
@@ -51,16 +73,18 @@ export function useVoice(onResult) {
       liveText.value    = '話してください…'
     }
 
+    // 発話を検知した瞬間からバーストのカウントを開始
+    recognition.onspeechstart = () => _armBurst()
+
     recognition.onresult = e => {
       let text = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         text += e.results[i][0].transcript
       }
+      lastText       = text
       liveText.value = text
-      if (e.results[e.results.length - 1].isFinal) {
-        stop()
-        onResult(text.trim())
-      }
+      _armBurst()   // onspeechstart が来ない環境向けの保険
+      if (e.results[e.results.length - 1].isFinal) _finish(text)
     }
 
     recognition.onerror = e => {
@@ -75,7 +99,8 @@ export function useVoice(onResult) {
 
   function stop() {
     isListening.value = false
-    recognition?.stop()
+    if (burstTimer) { clearTimeout(burstTimer); burstTimer = null }
+    try { recognition?.stop() } catch (_) {}
     recognition = null
   }
 

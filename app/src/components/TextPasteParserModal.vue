@@ -274,8 +274,8 @@ function apply() {
   display: inline-block;
   font-size: 9px;
   font-weight: 700;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--primary-soft);
+  color: var(--primary-deep);
   border-radius: 4px;
   padding: 1px 5px;
 }

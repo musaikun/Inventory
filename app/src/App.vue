@@ -32,7 +32,7 @@ import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
-  saveInventoryToD1, loadInventoryFromD1,
+  saveInventoryToD1, loadInventoryFromD1, saveState,
 } from './composables/useStore.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -46,13 +46,17 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import AppMenu from './components/AppMenu.vue'
+import AxisAssignModal from './components/AxisAssignModal.vue'
+import ConnectionBanner from './components/ConnectionBanner.vue'
+import { initConnectivity, isOnline } from './composables/useConnectivity.js'
+import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
-import TextPasteParserModal from './components/TextPasteParserModal.vue'
 import MemberHistoryModal from './components/MemberHistoryModal.vue'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
@@ -62,7 +66,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -74,7 +78,19 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId } = useHistory()
+const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
+
+// 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
+const USAGE_SESSIONS = 3
+const itemUsageMap = computed(() => {
+  const map = {}
+  for (const snap of getSnapshots().slice(0, USAGE_SESSIONS)) {
+    for (const it of (snap.items ?? [])) {
+      if (it.qty !== null && it.qty !== undefined) map[it.item] = (map[it.item] ?? 0) + 1
+    }
+  }
+  return map
+})
 
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
@@ -107,13 +123,15 @@ function _setNewSession(id) {
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
 const pendingJoinCode      = ref(null)
 const pendingJoinSessionId = ref(null)  // 招待リンクのセッションID（鍵）
+const pendingJoinType      = ref('stock') // 参加先ルームの種類（棚卸/発注）
 const showNameModal    = ref(false)
 const pendingName      = ref('')
 const pendingNameError = ref(false)
 
-function _askNameAndJoin(code, joinSessionId = null) {
+function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
   pendingJoinCode.value      = code
   pendingJoinSessionId.value = joinSessionId
+  pendingJoinType.value      = type === 'order' ? 'order' : 'stock'
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
   showNameModal.value    = true
@@ -121,10 +139,10 @@ function _askNameAndJoin(code, joinSessionId = null) {
 
 // セッションID付きリンク（?store=CODE&s=SID）の入口
 // まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
-async function _enterStoreLink(code, sessionId) {
-  const status = await fetchRoomStatus(code).catch(() => null)
+async function _enterStoreLink(code, sessionId, type = 'stock') {
+  const status = await fetchRoomStatus(code, type).catch(() => null)
   if (status?.isActive && status.sessionId === sessionId) {
-    _askNameAndJoin(code, sessionId)   // 棚卸中: ライブルームに参加（鍵を渡す）
+    _askNameAndJoin(code, sessionId, type)   // ライブ中: ルームに参加（鍵を渡す）
     return
   }
   // 完了後: D1 スナップショットから金額抜きの結果を取得
@@ -145,6 +163,7 @@ async function onConfirmName() {
   showNameModal.value   = false
   const code            = pendingJoinCode.value
   const joinSid         = pendingJoinSessionId.value
+  const joinType        = pendingJoinType.value
   pendingJoinCode.value = null
   pendingJoinSessionId.value = null
 
@@ -155,9 +174,10 @@ async function onConfirmName() {
     return
   }
 
+  sessionMode.value     = joinType === 'order' ? 'order' : 'stock'
   currentView.value     = 'session'
   try {
-    await joinRoom(code, joinSid)
+    await joinRoom(code, joinSid, joinType)
     const isRejoined = syncState.mode === 'hosting'
     showToast(
       isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
@@ -208,23 +228,45 @@ async function _startSessionView({ loadConfig = true } = {}) {
   }
 }
 
+// アカウント設定（品目・並び替え・履歴）を D1 から取得してこの端末へ反映する。
+// 別端末でログインした直後など、mount 時点で shopCode が無かった経路の取りこぼしを防ぐ。
+async function _pullAccountConfig() {
+  if (!shopCode.value) return
+  try {
+    const [remoteConfig, remoteHistory] = await Promise.all([
+      loadConfigFromD1(),
+      loadHistoryFromD1(),
+    ])
+    if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
+      applyRemoteConfig(remoteConfig)
+    }
+    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+  } catch (_) {
+    // ネットワークエラーは無視してローカルデータで継続
+  }
+}
+
 // 認証後にセッション一覧へ
-function onAuthDone() {
+async function onAuthDone() {
   currentView.value = 'sessions'
+  await _pullAccountConfig()
 }
 
 // セッション一覧から「セッション開始」
-async function onSessionStart(session) {
+async function onSessionStart(session, mode = 'stock') {
+  sessionMode.value = mode === 'order' ? 'order' : 'stock'
   // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
-  if (hasHostToken()) await dissolveRoomRemote()
+  if (hasHostToken('stock')) await dissolveRoomRemote('stock')
   practiceMode.value = false
   beginSession(session)
   reset()
   clearAuditLog()
   activeTimer.start()
-  // 空リストで開始した場合は品目追加フォームを最初から表示（必須のため）
+  // 空リストで開始しても自動でモーダルは開かない。
+  // 検索欄に品目名を打つ＝その場で登録→数量モーダル（歩きながら積み上げ登録）が主動線。
+  // まとめて入れたい場合は品目リスト設定の CSV/PDF 取込を使う。
   const startedEmpty = config.order.length === 0
-  showAddItemForm.value = startedEmpty
+  showAddItemForm.value = false
   // 空で開始したら D1 にも空 config を保存する。
   // これをしないと再開時に D1 の古いリストを読み戻して品目が復活する。
   if (startedEmpty) _persistConfigToD1()
@@ -233,10 +275,27 @@ async function onSessionStart(session) {
   await _startSessionView({ loadConfig: false })
 }
 
+// 発注確認を開始（＝入力モード）。棚卸の D1 セッション行・ルーム・pendingSession を汚さない。
+// 記録は orders へ（次段）。ルームは発注用（type=order）を別DOで持てる。
+async function onOrderStart() {
+  sessionMode.value = 'order'
+  // 棚卸ルームには触れない。この端末が同期中なら離脱のみ（解散しない）。
+  if (syncActive.value) leaveRoom()
+  practiceMode.value = false
+  clearSession()        // 棚卸の pendingSession を現在扱いにしない（D1の棚卸行は残す）
+  reset()
+  clearAuditLog()
+  activeTimer.start()
+  showAddItemForm.value = false
+  showToast('発注確認を開始しました', 2600, 'default')
+  currentView.value = 'session'
+}
+
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
 let _prepracticeConfig = null
 async function onStartPractice() {
-  if (hasHostToken()) await dissolveRoomRemote()
+  sessionMode.value = 'stock'
+  if (hasHostToken('stock')) await dissolveRoomRemote('stock')
   if (syncActive.value) leaveRoom()
   practiceMode.value = true
   reset()
@@ -275,6 +334,7 @@ function onViewSession(session) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
+  sessionMode.value = 'stock'
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
   clearAuditLog()
@@ -316,13 +376,12 @@ async function _reconnectToRoom(session) {
 }
 
 // ── Settings / History / Sync modal ────────────────────────────────────────────
-const showSettings      = ref(false)
 const showSync          = ref(false)
 const showUpgrade       = ref(false)
 const upgradeReason     = ref('')
 const showBarcode       = ref(false)
-const showPasteParser   = ref(false)
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
+const lastBarcode       = ref('')  // 直前に読み取ったコード（連続スキャン時の同一商品無視用）
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
@@ -345,10 +404,12 @@ function openUpgrade(reason = '') {
 // バーコードスキャン: 品目コードと照合して確認モーダルを開く
 function onBarcodeScanned(text) {
   showBarcode.value = false
+  lastBarcode.value = text            // 連続スキャンでカメラに戻った直後の同一商品を無視するため記録
   const item = Object.entries(config.codes ?? {}).find(([, code]) => code === text)?.[0]
   if (item) {
     showToast(`バーコード認識: ${item}`, 2000, 'success')
-    openConfirm(item, null, config.units?.[item] || '', 'search')
+    // source='barcode' にすると、数量入力完了後すぐカメラに戻る（連続スキャン）
+    openConfirm(item, null, config.units?.[item] || '', 'barcode')
   } else {
     // 未登録バーコード → 品目追加フォームをバーコードコード付きで開く
     barcodeAddCode.value  = text
@@ -360,28 +421,6 @@ function onBarcodeScanned(text) {
     showToast(`バーコード「${text}」が未登録です。品目名を入力して追加してください`, 4000, 'warning')
     nextTick(() => newItemNameRef.value?.focus())
   }
-}
-
-// テキスト貼り付けパーサー → 在庫記録＋新規品目の追加
-function onPasteParserApply(items) {
-  showPasteParser.value = false
-  let addedCount = 0, recordedCount = 0
-  for (const { name, qty, unit } of items) {
-    if (!config.order.includes(name)) {
-      addItem(name, null, null, unit || null, null)
-      addedCount++
-    }
-    if (qty != null) {
-      updateQty(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
-      if (syncActive.value) broadcastUpdate(name, qty, unit || config.units?.[name] || '', deviceName.value || '名前未設定')
-      recordedCount++
-    }
-  }
-  const msgs = []
-  if (addedCount)    msgs.push(`${addedCount}件を品目リストに追加`)
-  if (recordedCount) msgs.push(`${recordedCount}件の数量を記録`)
-  if (addedCount || recordedCount) markActivity()
-  showToast(msgs.join('・'), 3500, 'success')
 }
 
 // 棚卸結果CSVから入力（数量）を復元する。
@@ -397,11 +436,15 @@ function onRestoreInventory(rows) {
   let restored = 0, added = 0
   for (const r of rows) {
     if (!r?.name || typeof r.qty !== 'number') continue
+    const priceNum = parseFloat(r.price)
+    const price    = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
     if (!config.order.includes(r.name)) {
-      // 新規分は表示が自然になるよう単位・コードも登録（単価は数量のみ復元の方針で除外）
-      addItem(r.name, null, null, r.unit || null, r.code || null)
+      // CSVの情報（単価・ジャンル・単位・コード）をまとめて復元
+      addItem(r.name, price, r.category || null, r.unit || null, r.code || null)
       added++
     }
+    // 入数・前月実績も復元
+    if (r.lotSize || r.prevMonth) setItemExtras(r.name, { lotSize: r.lotSize, prevMonth: r.prevMonth })
     const unit = r.unit || config.units?.[r.name] || ''
     updateQty(r.name, r.qty, unit, deviceName.value || '名前未設定')
     if (syncActive.value) broadcastUpdate(r.name, r.qty, unit, deviceName.value || '名前未設定')
@@ -492,6 +535,11 @@ registerConfigGetter(() => ({
   prevMonths:    config.prevMonths,
   lotSizes:      config.lotSizes,
   dictionary:    config.dictionary,
+  axisNames:     config.axisNames,
+  tagsA:         config.tagsA,
+  tagsB:         config.tagsB,
+  axisGroupsA:   config.axisGroupsA,
+  axisGroupsB:   config.axisGroupsB,
   isCustom:      config.isCustom,
 }))
 setConfigCallback((cfg) => {
@@ -514,6 +562,11 @@ function _configPayload() {
     prevMonths:    config.prevMonths,
     lotSizes:      config.lotSizes,
     dictionary:    config.dictionary,
+    axisNames:     config.axisNames,
+    tagsA:         config.tagsA,
+    tagsB:         config.tagsB,
+    axisGroupsA:   config.axisGroupsA,
+    axisGroupsB:   config.axisGroupsB,
   }
 }
 
@@ -593,6 +646,8 @@ function approveItemAdd(req) {
     order: config.order, units: config.units, prices: config.prices,
     categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
     prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
+    axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
+    axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB,
     isCustom: config.isCustom,
   })
   broadcastItemAddResponse(req.requestId, true, req.name)
@@ -689,42 +744,51 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
+const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pending')
+
+// セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
+const sessionMode = ref('stock')
+
 onMounted(async () => {
+  initConnectivity()
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
   const joinSid    = params.get('s')   // 招待リンクのセッションID（鍵）
+  const joinType   = params.get('type') === 'order' ? 'order' : 'stock'
 
   if (roomCode) {
     const url = new URL(window.location.href)
-    url.searchParams.delete('room'); url.searchParams.delete('s')
+    url.searchParams.delete('room'); url.searchParams.delete('s'); url.searchParams.delete('type')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(roomCode, joinSid)
+    _askNameAndJoin(roomCode, joinSid, joinType)
   } else if (storeParam) {
     // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
     const url = new URL(window.location.href)
-    url.searchParams.delete('store'); url.searchParams.delete('s')
+    url.searchParams.delete('store'); url.searchParams.delete('s'); url.searchParams.delete('type')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     // セッションID付きリンク: ライブ中なら参加、完了後なら読み取り専用の結果ビューへ
-    if (joinSid) _enterStoreLink(storeParam, joinSid)
-    else         _askNameAndJoin(storeParam, joinSid)
+    if (joinSid) _enterStoreLink(storeParam, joinSid, joinType)
+    else         _askNameAndJoin(storeParam, joinSid, joinType)
   } else {
     const guestSession = getSavedGuestSession()
     if (guestSession) {
       // ゲスト参加中だったセッションを優先復帰（ホスト登録があっても関係なく戻す）
       discardSavedSession()
+      const rejoinType = guestSession.roomType === 'order' ? 'order' : 'stock'
+      sessionMode.value = rejoinType
       currentView.value = 'session'
       const rejoinCode = guestSession.roomCode
       const rejoinSid  = guestSession.sessionId ?? null
       if (deviceName.value) {
-        joinRoom(rejoinCode, rejoinSid)
+        joinRoom(rejoinCode, rejoinSid, rejoinType)
           .then(() => showToast(`ルーム ${rejoinCode} に再参加しました`, 3000, 'join'))
           .catch(() => {
             showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
             currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
           })
       } else {
-        _askNameAndJoin(rejoinCode, rejoinSid)
+        _askNameAndJoin(rejoinCode, rejoinSid, rejoinType)
       }
     } else {
       // ゲストセッションなし: ホストセッションを自動復元
@@ -776,7 +840,6 @@ function _closeTopLayer() {
   if (candidateState.value)  { onCancelCandidate();         return true }
   if (chatNotif.value)       { chatNotif.value = null;      return true }
   if (showBarcode.value)      { showBarcode.value = false;      return true }
-  if (showPasteParser.value)  { showPasteParser.value = false;  return true }
   if (showUpgrade.value)      { showUpgrade.value = false;      return true }
   if (showOnboarding.value)  { dismissOnboarding();         return true }
   if (showReview.value)      { dismissReview();             return true }
@@ -786,7 +849,10 @@ function _closeTopLayer() {
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
-  if (showSettings.value)    { showSettings.value = false; return true }
+  if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
+  if (settingsSection.value) { settingsSection.value = null;  return true }
+  if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
+  if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
@@ -860,6 +926,18 @@ function _restoreDraft(sessionId) {
 function _clearDraft(sessionId) {
   if (!sessionId) return
   try { localStorage.removeItem(_DRAFT_PREFIX + sessionId) } catch (_) {}
+}
+
+// セッション削除時は対応するスナップショット（分析データ）も削除する。
+// 残しておくと在庫分析の対象として選べてしまうため、履歴からも消す。
+function onDeleteSession(sessionId) {
+  _clearDraft(sessionId)
+  if (!sessionId) return
+  const snap = getSnapshotBySessionId(sessionId)
+  if (snap?.date) {
+    deleteSnapshotLocal(snap.date)
+    deleteSnapshotFromD1(snap.date).catch(() => {})
+  }
 }
 
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
@@ -957,8 +1035,12 @@ async function onComplete() {
   const completedYear = new Date().getFullYear()
 
   completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
-  if (snapshot) saveSnapshotToD1(snapshot)
+  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
+  if (snapshot) {
+    saveSnapshotToD1(snapshot)
+    // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
+    for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
+  }
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
@@ -999,6 +1081,7 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
+  sessionMode.value = 'stock'
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
     if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
@@ -1045,30 +1128,6 @@ async function onStartNew() {
   reset()
   clearAuditLog()
   if (continuousMode.value) onForceStop()
-}
-
-// SyncModal からの「✓ 棚卸を完了」
-// ホスト: スナップショット保存 + D1完了 + ゲストへ完了通知 + ルーム解散 → セッション一覧へ
-async function onSyncComplete() {
-  const completedId   = pendingSession.value?.id
-  const completedYear = new Date().getFullYear()
-  completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs())
-  if (snapshot) saveSnapshotToD1(snapshot)
-  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
-  broadcastSessionEnd('completed')
-  if (continuousMode.value) onForceStop()
-  showSync.value = false
-  _hostInitiatedDissolve = true
-  await dissolveRoom()
-  _clearDraft(completedId)
-  clearSession()
-  track('session_completed', { item_count: filledCount.value, mode: 'host' })
-  _checkReviewPrompt()
-  sessionsTab.value  = 'dashboard'
-  sessionsYear.value = completedYear
-  _setNewSession(completedId)
-  currentView.value  = 'sessions'
 }
 
 // SyncModal からの新規セッション開始（在庫をDOへ送信）
@@ -1197,6 +1256,11 @@ watch(config, () => {
       prevMonths:    config.prevMonths,
       lotSizes:      config.lotSizes,
       dictionary:    config.dictionary,
+      axisNames:     config.axisNames,
+      tagsA:         config.tagsA,
+      tagsB:         config.tagsB,
+      axisGroupsA:   config.axisGroupsA,
+      axisGroupsB:   config.axisGroupsB,
       isCustom:      config.isCustom,
     })
   }, 300)
@@ -1234,8 +1298,61 @@ function runSearch(raw) {
   }
 
   const matched = name ? findCandidates(name) : []
+  // 候補ゼロ = 新規とみなし、その場で登録 → 数量モーダル（歩きながら積み上げ登録）
+  if (name && matched.length === 0) {
+    _walkRegister(name, qty, unit)
+    return
+  }
   candidateState.value = { searchTerm: name ?? raw, matched, qty, unit }
 }
+
+// 積み上げ登録: 新しい品目名を登録し、そのまま数量・単位モーダルへ。
+// 既存ならそのまま数量モーダル。ゲストはホスト承認、Free 上限も考慮。
+function _walkRegister(name, qty = null, unit = '') {
+  const n = (name ?? '').trim()
+  if (!n) return
+
+  if (config.order.includes(n)) {
+    openConfirm(n, qty, unit || config.units?.[n] || '', 'search')
+    return
+  }
+  if (!canAddItem(config.order.length)) {
+    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    return
+  }
+  // ゲスト: 品目追加はホスト承認が必要
+  if (syncActive.value && !syncIsHost.value) {
+    if (pendingGuestRequest.value) {
+      showToast('前の申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
+      return
+    }
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+    pendingGuestRequest.value = { requestId, name: n }
+    broadcastItemAddRequest(n, unit || '', '', requestId)
+    showToast(`「${n}」の追加をホストに申請しました`, 3000, 'info')
+    searchText.value = ''
+    nextTick(() => searchInputRef.value?.focus())
+    return
+  }
+  // ホスト/ソロ: まだ登録しない。数量モーダルを「新規登録」モードで開き、
+  // 「新規登録」ボタンが押されたときだけ登録する（部分一致のつもりの誤登録を防ぐ）
+  openConfirm(n, qty, unit || '', 'search', { isNew: true })
+}
+
+// CandidateModal から「新規登録」を選んだとき
+function onCandidateCreate() {
+  const c = candidateState.value
+  if (!c) return
+  candidateState.value = null
+  pendingCandidates.value = null
+  _walkRegister(c.searchTerm, c.qty, c.unit)
+}
+
+// ── タップ連続入力（品目タップで確定→自動で次の品目を開く。音声/文字検索は対象外）──
+const tapContinuous = ref(localStorage.getItem('inv_tap_continuous') === '1')
+watch(tapContinuous, v => {
+  try { localStorage.setItem('inv_tap_continuous', v ? '1' : '0') } catch (_) {}
+})
 
 // ── Voice（連続入力がデフォルト動作）─────────────────────────────────────────
 const continuousMode = ref(false)
@@ -1256,22 +1373,13 @@ watch(liveText, v => {
   }
 })
 
-/** ボタンタップの挙動:
- *  - 停止中（非連続）     → 連続モード開始＋認識開始
- *  - 連続モード＋認識中   → 連続モード停止＋認識停止
- *  - 連続モード＋待機中   → 認識を再開（連続モードは継続）
+/** ボタンタップの挙動（タップ・トゥ・トーク＝一言だけの短時間バースト）:
+ *  - 認識中  → 即停止
+ *  - 停止中  → 1回だけ認識開始（約2秒で自動終了。常時オンにはしない）
  */
 function onVoiceButtonTap() {
-  if (!continuousMode.value) {
-    continuousMode.value = true
-    startVoice()
-  } else if (isListening.value) {
-    continuousMode.value = false
-    stopVoice()
-  } else {
-    // 待機中 → 再開
-    startVoice()
-  }
+  if (isListening.value) stopVoice()
+  else startVoice()
 }
 
 /** バナーの停止ボタン用（どの状態でも即停止） */
@@ -1306,7 +1414,7 @@ function onTextSearch() {
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────
 // source: 'search'（テキスト/音声）| 'table'（棚卸表タップ）
-function openConfirm(ingredient, qty, unit, source = 'search') {
+function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
   // TR行がfocusを持ったままだとEnterキーがTRの@keydownとModalのhandleKeydown
   // 両方に発火し、確定と同時に openConfirm(A) が再度呼ばれるバグを防ぐ
   document.activeElement?.blur()
@@ -1323,15 +1431,19 @@ function openConfirm(ingredient, qty, unit, source = 'search') {
     return
   }
 
-  // PDF登録済みの単位を優先し、ロック状態にする
-  const configUnit = config.units?.[ingredient]
+  // PDF登録済みの単位・ジャンルを優先し、ロック状態にする
+  const configUnit     = config.units?.[ingredient]
+  const configCategory = config.categories?.[ingredient]
   confirmState.value = {
     ingredient,
     qty,
-    unit:       configUnit || unit || '',
-    unitLocked: !!configUnit,
+    unit:           configUnit || unit || '',
+    unitLocked:     !!configUnit,
+    category:       configCategory || '',
+    categoryLocked: !!configCategory,
     source,
-    lotSize:    config.lotSizes?.[ingredient] ?? '',
+    lotSize:        config.lotSizes?.[ingredient] ?? '',
+    isNew:          !!opts.isNew,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -1356,7 +1468,40 @@ function _stopTypingKeepalive() {
   _typingKeepaliveTimer = null
 }
 
-function onConfirm({ ingredient, qty, unit, isAdd }) {
+// 確定後の画面遷移（検索欄クリア/フォーカス・バーコード再開・候補の続き）
+function _finishConfirmNav(source) {
+  searchText.value   = ''
+  searchStatus.value = ''
+  if (source === 'table') {
+    _stopTypingKeepalive()
+    confirmState.value = null
+    const next = _tapNextItem
+    _tapNextItem = null
+    if (tapContinuous.value && next && !inputLocked.value) {
+      nextTick(() => _openTableConfirm(next))
+      return
+    }
+    _restartIfContinuous()
+    return
+  } else if (pendingCandidates.value) {
+    _stopTypingKeepalive()
+    candidateState.value = { ...pendingCandidates.value }
+    pendingCandidates.value = null
+    confirmState.value = null
+  } else if (source === 'barcode') {
+    _stopTypingKeepalive()
+    confirmState.value = null
+    showBarcode.value = true
+    return
+  } else {
+    _stopTypingKeepalive()
+    confirmState.value = null
+    nextTick(() => searchInputRef.value?.focus())
+  }
+  _restartIfContinuous()
+}
+
+function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
 
@@ -1368,8 +1513,31 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
     return
   }
 
-  const existing  = confirmExisting.value
-  const source    = confirmState.value.source
+  const source = confirmState.value.source
+
+  // 新規品目: 「新規登録」ボタンが押されて初めてマスタへ追加する（誤登録を防ぐ）
+  if (isNew && !config.order.includes(ingredient)) {
+    if (!canAddItem(config.order.length)) {
+      confirmState.value = null
+      openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+      return
+    }
+    addItem(ingredient, null, category || null, unit || null, null)
+    track('item_added_walk')
+  }
+
+  // モーダルで選んだジャンルを品目マスタへ反映（ロック中＝設定済みは触らない）
+  if (!confirmState.value.categoryLocked && category) setItemCategory(ingredient, category)
+
+  const existing = confirmExisting.value
+
+  // 数量が未入力なら記録はせず、名前だけ登録してループを次へ
+  if (qty === null || qty === undefined) {
+    if (isNew) showToast(`「${ingredient}」を登録しました`)
+    _finishConfirmNav(source)
+    return
+  }
+
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
   const finalQty  = Math.round(rawFinal * 10000) / 10000
   setItem(ingredient, qty, unit, isAdd, deviceName.value || '名前未設定')
@@ -1380,53 +1548,76 @@ function onConfirm({ ingredient, qty, unit, isAdd }) {
   }
   if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '名前未設定', isAdd && !!existing)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
-  searchText.value   = ''
-  searchStatus.value = ''
-
-  if (source === 'table') {
-    // テーブルタップ確定後はモーダルを閉じるだけ（次の品目への自動移動はしない）
-    _stopTypingKeepalive()
-    confirmState.value = null
-  } else if (pendingCandidates.value) {
-    // 検索候補から選んで確定 → 残りの候補を再表示
-    _stopTypingKeepalive()
-    candidateState.value = { ...pendingCandidates.value }
-    pendingCandidates.value = null
-    confirmState.value = null
-  } else {
-    _stopTypingKeepalive()
-    confirmState.value = null
-    nextTick(() => searchInputRef.value?.focus())
-  }
-  _restartIfContinuous()
+  _finishConfirmNav(source)
 }
 
 function onCancelConfirm() {
   _stopTypingKeepalive()
+  _tapNextItem = null
+  const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value && confirmState.value) broadcastTyping(confirmState.value.ingredient, false)
   confirmState.value = null
   pendingCandidates.value = null
+  if (wasBarcode) {
+    // 連続スキャン: キャンセルでもカメラに戻す（カメラを閉じればループ終了）
+    showBarcode.value = true
+    return
+  }
   _restartIfContinuous()
 }
 
-function onConfirmRevert(prevState) {
+// 入力済みを未入力に戻す（1個前の値に戻す機能は廃止・「未入力に戻す」に統一）
+function onConfirmRevert() {
   _stopTypingKeepalive()
+  _tapNextItem = null
   const ingredient = confirmState.value.ingredient
+  const wasBarcode = confirmState.value?.source === 'barcode'
   if (syncActive.value) broadcastTyping(ingredient, false)
   const cur = confirmExisting.value
-  if (!prevState) {
-    removeItem(ingredient)
-    if (syncActive.value) broadcastRemove(ingredient)
-    else _localAudit(ingredient, 'remove', -(cur?.qty ?? 0), 0, cur?.unit ?? '')
-    showToast(`「${ingredient}」を未入力に戻しました`)
-  } else {
-    setItem(ingredient, prevState.qty, prevState.unit, false, deviceName.value || '名前未設定')
-    if (syncActive.value) broadcastUpdate(ingredient, prevState.qty, prevState.unit, deviceName.value || '名前未設定', false)
-    else _localAudit(ingredient, 'overwrite', prevState.qty, prevState.qty, prevState.unit)
-    showToast(`「${ingredient}」を ${prevState.qty}${prevState.unit} に戻しました`)
-  }
+  removeItem(ingredient)
+  if (syncActive.value) broadcastRemove(ingredient)
+  else _localAudit(ingredient, 'remove', -(cur?.qty ?? 0), 0, cur?.unit ?? '')
+  showToast(`「${ingredient}」を未入力に戻しました`)
   confirmState.value = null
+  if (wasBarcode) { showBarcode.value = true; return }
   _restartIfContinuous()
+}
+
+// 品目編集モーダルの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
+function onEditSave({ originalName, name, qty, unit, category, price, tagA, tagB }) {
+  const n = (name || '').trim()
+  if (!n) return
+  const oldEntry = inventory[originalName] ? { ...inventory[originalName] } : null
+  const priceNum = parseFloat(price)
+  const p = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
+
+  const result = updateConfigItem(originalName, n, p, category || null, unit || '')
+  if (!result) {
+    showToast('その品目名は既に使われています', 3000, 'warning')
+    return
+  }
+
+  // 汎用軸の値を反映（軸が未使用でも空文字で安全）
+  if (tagA !== undefined) setItemTag(n, 0, tagA)
+  if (tagB !== undefined) setItemTag(n, 1, tagB)
+
+  // リネーム時は旧在庫エントリを削除（新名で入れ直す）
+  if (n !== originalName && oldEntry) {
+    removeItem(originalName)
+    if (syncActive.value) broadcastRemove(originalName)
+  }
+
+  // 反映する数量: 入力があればそれ、無ければ元の数量。未入力品目はそのまま未入力
+  const finalQty  = (qty !== null && qty !== undefined && !isNaN(qty)) ? qty : (oldEntry ? oldEntry.qty : null)
+  const finalUnit = unit || oldEntry?.unit || ''
+  if (finalQty !== null && finalQty !== undefined) {
+    updateQty(n, finalQty, finalUnit, deviceName.value || '名前未設定')
+    if (syncActive.value) broadcastUpdate(n, finalQty, finalUnit, deviceName.value || '名前未設定')
+  }
+
+  confirmState.value = null
+  markActivity()
+  showToast(`「${n}」を更新しました`, 2500, 'success')
 }
 
 // ── Candidate modal ────────────────────────────────────────────────────────────
@@ -1448,9 +1639,15 @@ function onCancelCandidate() {
 }
 
 // マイクなしで棚卸表から直接タップした場合（qty=null → 数量未入力で確認画面へ）
+// 連続入力用に「次の品目」を開いた時点で確保する（確定後は絞り込みで消える可能性があるため）
+let _tapNextItem = null
+function _openTableConfirm(item) {
+  _tapNextItem = inventoryTableRef.value?.getNextVisibleItem(item) || null
+  openConfirm(item, null, config.units?.[item] || '', 'table')
+}
 function onTableTap(item) {
   if (inputLocked.value) return
-  openConfirm(item, null, config.units?.[item] || '', 'table')
+  _openTableConfirm(item)
 }
 
 // ── Table handlers ─────────────────────────────────────────────────────────────
@@ -1472,6 +1669,12 @@ const editingItem     = ref(null)   // null=追加モード、文字列=編集�
 
 const existingCategories = computed(() =>
   [...new Set(Object.values(config.categories ?? {}))].sort((a, b) => a.localeCompare(b, 'ja'))
+)
+const existingTagsA = computed(() =>
+  [...new Set(Object.values(config.tagsA ?? {}).flat())].sort((a, b) => a.localeCompare(b, 'ja'))
+)
+const existingTagsB = computed(() =>
+  [...new Set(Object.values(config.tagsB ?? {}).flat())].sort((a, b) => a.localeCompare(b, 'ja'))
 )
 
 // ファジー類似品目: 部分文字列一致で既存品目を検索
@@ -1561,14 +1764,25 @@ function submitNewItem() {
   nextTick(() => newItemNameRef.value?.focus())
 }
 
+// 品目編集: 新規登録と同じ入力モーダルを編集モードで開く
 function startEditItem(name) {
-  editingItem.value     = name
-  newItemName.value     = name
-  newItemQty.value      = ''
-  newItemPrice.value    = config.prices?.[name] ?? ''
-  newItemCategory.value = config.categories?.[name] ?? ''
-  newItemError.value    = ''
-  nextTick(() => newItemNameRef.value?.focus())
+  if (!config.order.includes(name)) return
+  const entry = inventory[name] ?? null
+  confirmState.value = {
+    ingredient:     name,
+    qty:            entry?.qty ?? null,
+    unit:           entry?.unit || config.units?.[name] || '',
+    unitLocked:     false,
+    category:       config.categories?.[name] || '',
+    categoryLocked: false,
+    price:          config.prices?.[name] ?? '',
+    source:         'edit',
+    lotSize:        config.lotSizes?.[name] ?? '',
+    tagA:           (config.tagsA?.[name] ?? [])[0] ?? '',
+    tagB:           (config.tagsB?.[name] ?? [])[0] ?? '',
+    isNew:          false,
+    isEdit:         true,
+  }
 }
 
 function cancelEditItem() {
@@ -1713,7 +1927,9 @@ function dismissReview() {
 </script>
 
 <template>
-  <div id="app">
+  <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
+
+    <ConnectionBanner />
 
     <!-- ── 認証ページ ── -->
     <AuthPage
@@ -1729,12 +1945,13 @@ function dismissReview() {
       :live-session-id="pendingSession?.id ?? null"
       :new-session-id="newSessionId"
       @start-session="onSessionStart"
+      @start-order="onOrderStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
-      @delete-session="_clearDraft"
+      @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
-      @open-settings="showSettings = true"
+      @open-settings="settingsSection = 'import'"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 
@@ -1768,7 +1985,6 @@ function dismissReview() {
           <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
-          <div v-if="deviceName" class="device-badge">{{ deviceName }}</div>
           <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します">⏸ 一時停止中</div>
           <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）">⏱ {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
@@ -1783,28 +1999,16 @@ function dismissReview() {
           </button>
           <!-- ハンバーガーメニュー（ルーム参加中のゲストには表示しない）-->
           <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
-            <button class="settings-btn menu-btn" @click="showMenu = !showMenu" :class="{ open: showMenu }" title="メニュー">☰</button>
-            <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
-            <div v-if="showMenu" class="menu-dropdown">
-              <button v-if="isAuthenticated" class="menu-item" @click="showMenu = false; onGoHome()">
-                <span class="menu-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
-              </button>
-              <button v-if="!syncActive && !practiceMode" class="menu-item" @click="showMenu = false; showSync = true">
-                <span class="menu-ico">🔗</span> 複数デバイスで同期
-              </button>
-              <button class="menu-item" @click="showMenu = false; showAddItemForm = !showAddItemForm">
-                <span class="menu-ico">➕</span> 品目追加フォームを{{ showAddItemForm ? '隠す' : '表示' }}
-              </button>
-              <button v-if="!inputLocked" class="menu-item" @click="showMenu = false; showPasteParser = true">
-                <span class="menu-ico">📋</span> テキストから記録
-              </button>
-              <button v-if="hasBarcodedItems && !inputLocked" class="menu-item" @click="showMenu = false; showBarcode = true">
-                <span class="menu-ico">📷</span> バーコードスキャン
-              </button>
-              <button class="menu-item" @click="showMenu = false; showSettings = true">
-                <span class="menu-ico">⚙️</span> 品目リスト設定
-              </button>
-            </div>
+            <AppMenu context="session">
+              <template #default="{ close }">
+                <button v-if="isAuthenticated" class="am-item" @click="close(); onGoHome()">
+                  <span class="am-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
+                </button>
+                <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
+                  <span class="am-ico">📷</span> バーコードスキャン
+                </button>
+              </template>
+            </AppMenu>
           </div>
         </div>
       </header>
@@ -1874,19 +2078,14 @@ function dismissReview() {
             type="text"
             v-model="searchText"
             :class="['search-input', searchStatus]"
-            placeholder="例：ブラジル 3袋　（音声 or 入力）"
+            placeholder="例：コーヒー　（音声 or 入力）"
             @keyup.enter="onTextSearch"
             @focus="onSearchFocus"
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
-        <div class="voice-hint">例：「豚バラ いってん ご キロ」「卵 に パック」</div>
 
-        <!-- 品目追加・編集フォーム（トグルで表示/非表示） -->
-        <button v-if="!editingItem" class="add-item-toggle" @click="showAddItemForm = !showAddItemForm">
-          <span class="add-item-toggle-label">＋ 品目を手動で追加</span>
-          <span class="add-item-toggle-arrow">{{ showAddItemForm ? '▲ 閉じる' : '▼ 開く' }}</span>
-        </button>
+        <!-- 品目編集フォーム（編集時のみ表示。追加は検索欄からの積み上げ登録が主動線） -->
         <div v-if="showAddItemForm || editingItem" class="add-item-form">
           <div v-if="barcodeAddCode" class="barcode-add-hint">
             <span class="barcode-add-icon">📷</span>
@@ -2053,6 +2252,8 @@ function dismissReview() {
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
+        :usage-map="itemUsageMap"
+        v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
@@ -2068,6 +2269,17 @@ function dismissReview() {
         :initial-qty="confirmState.qty"
         :initial-unit="confirmState.unit"
         :unit-locked="confirmState.unitLocked"
+        :initial-category="confirmState.category"
+        :category-locked="confirmState.categoryLocked"
+        :is-new="!!confirmState.isNew"
+        :is-edit="!!confirmState.isEdit"
+        :initial-price="confirmState.price ?? ''"
+        :existing-categories="existingCategories"
+        :axis-names="config.axisNames"
+        :initial-tag-a="confirmState.tagA ?? ''"
+        :initial-tag-b="confirmState.tagB ?? ''"
+        :existing-tags-a="existingTagsA"
+        :existing-tags-b="existingTagsB"
         :existing="confirmExisting"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
         :lot-size="confirmState.lotSize"
@@ -2077,6 +2289,7 @@ function dismissReview() {
         @confirm="onConfirm"
         @cancel="onCancelConfirm"
         @revert="onConfirmRevert"
+        @edit-save="onEditSave"
         @toggle-flag="on => onToggleRecountFlag(confirmState.ingredient, on)"
       />
 
@@ -2087,7 +2300,9 @@ function dismissReview() {
         :matched="candidateState.matched"
         :qty="candidateState.qty"
         :unit="candidateState.unit"
+        :can-create="!(syncActive && !syncIsHost) || !pendingGuestRequest"
         @select="onCandidateSelect"
+        @create="onCandidateCreate"
         @cancel="onCancelCandidate"
       />
 
@@ -2168,19 +2383,13 @@ function dismissReview() {
     </div>
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
-    <SettingsModal  v-if="showSettings" :is-guest="syncActive && !syncIsHost" @close="showSettings = false" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
-    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @complete="onSyncComplete" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
+    <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />
-    <BarcodeScanner       v-if="showBarcode"    @scanned="onBarcodeScanned" @close="showBarcode = false" />
-    <TextPasteParserModal
-      v-if="showPasteParser"
-      mode="session"
-      :config-order="config.order"
-      @apply="onPasteParserApply"
-      @close="showPasteParser = false"
-    />
+    <BarcodeScanner       v-if="showBarcode"    :recent-code="lastBarcode" @scanned="onBarcodeScanned" @close="showBarcode = false; lastBarcode = ''" />
 
     <!-- LINE風チャット通知バナー（上部スライドイン） -->
     <Transition name="chat-notif">
@@ -2350,18 +2559,18 @@ function dismissReview() {
 .guest-add-hint {
   margin: 0 0 8px;
   padding: 7px 11px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-border);
   border-radius: 9px;
   font-size: 12px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: var(--primary-deep);
 }
 .barcode-add-hint code {
   font-family: monospace;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 1px 5px;
   border-radius: 4px;
 }
@@ -2614,7 +2823,7 @@ function dismissReview() {
 .chat-notif-sender {
   font-size: 11px;
   font-weight: 700;
-  color: #93c5fd;
+  color: var(--primary-mid);
   letter-spacing: 0.04em;
 }
 
@@ -2770,7 +2979,7 @@ function dismissReview() {
 .crv-btn:active { opacity: 0.75; }
 
 .crv-btn.crv-sum    { background: #d1fae5; color: #065f46; }
-.crv-btn.crv-mine   { background: #dbeafe; color: #1e40af; }
+.crv-btn.crv-mine   { background: var(--primary-soft); color: var(--primary-deep); }
 .crv-btn.crv-theirs { background: #fee2e2; color: #991b1b; }
 
 /* ── ゲスト品目追加申請 ── */
@@ -2833,12 +3042,12 @@ function dismissReview() {
 
 .item-req-pending-guest {
   margin: 0 16px 8px;
-  background: #eff6ff;
-  border: 1.5px solid #93c5fd;
+  background: var(--primary-weak);
+  border: 1.5px solid var(--primary-mid);
   border-radius: 12px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #1e40af;
+  color: var(--primary-deep);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2849,11 +3058,11 @@ function dismissReview() {
 .item-req-pending-cancel {
   margin-left: auto;
   background: none;
-  border: 1px solid #93c5fd;
+  border: 1px solid var(--primary-mid);
   border-radius: 7px;
   padding: 4px 10px;
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--primary-bright);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

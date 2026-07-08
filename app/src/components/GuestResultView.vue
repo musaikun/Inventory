@@ -115,7 +115,7 @@ function actionClass(action) {
 
       <div class="guest-body">
         <!-- 品目一覧 -->
-        <div v-show="activeTab === 'items'" class="panel">
+        <div v-show="activeTab === 'items'" class="panel panel-items">
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
@@ -195,7 +195,7 @@ function actionClass(action) {
 .guest-home-btn {
   margin-top: 8px;
   padding: 10px 24px;
-  background: var(--primary, #3b82f6);
+  background: var(--primary, var(--primary-bright));
   color: white;
   border: none;
   border-radius: 10px;
@@ -245,7 +245,7 @@ function actionClass(action) {
   background: none;
   border: none;
   font-size: 14px;
-  color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
   font-weight: 600;
   cursor: pointer;
   padding: 4px 8px;
@@ -277,14 +277,19 @@ function actionClass(action) {
   white-space: nowrap;
 }
 .tab-btn.active {
-  color: var(--primary, #3b82f6);
-  border-bottom-color: var(--primary, #3b82f6);
+  color: var(--primary, var(--primary-bright));
+  border-bottom-color: var(--primary, var(--primary-bright));
 }
 .tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── 本文 ── */
 .guest-body { flex: 1; overflow: hidden; min-height: 0; position: relative; }
 .panel { height: 100%; box-sizing: border-box; padding: 12px 0 24px; overflow: hidden; }
+/* 品目一覧タブも縦スクロールできるようにする（最後の品目まで見える） */
+.panel-items {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .panel-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -338,7 +343,7 @@ function actionClass(action) {
   white-space: nowrap;
   margin-right: 8px;
 }
-.pi-qty { font-size: 13px; font-weight: 700; color: var(--primary, #3b82f6); white-space: nowrap; flex-shrink: 0; }
+.pi-qty { font-size: 13px; font-weight: 700; color: var(--primary, var(--primary-bright)); white-space: nowrap; flex-shrink: 0; }
 
 /* ── 変更履歴 ── */
 .empty-msg { text-align: center; color: var(--text-muted, #64748b); font-size: 13px; padding: 32px 16px; }
@@ -380,10 +385,10 @@ function actionClass(action) {
 .log-detail { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .action-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
 .act-new     { background: #dcfce7; color: #15803d; }
-.act-add     { background: #dbeafe; color: #1d4ed8; }
+.act-add     { background: var(--primary-soft); color: var(--primary-deep); }
 .act-over    { background: #fef9c3; color: #854d0e; }
 .act-remove  { background: #fee2e2; color: #b91c1c; }
 .act-flag    { background: #fff7ed; color: #9a3412; }
 .log-qty { font-size: 13px; font-weight: 700; color: var(--text-primary, #1e293b); }
-.log-delta { font-size: 11px; color: var(--primary, #3b82f6); font-weight: 600; }
+.log-delta { font-size: 11px; color: var(--primary, var(--primary-bright)); font-weight: 600; }
 </style>

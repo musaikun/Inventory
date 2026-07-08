@@ -3,16 +3,25 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['scanned', 'close'])
 
+// recentCode: 直前に読み取ったコード。連続スキャンで同じ商品を即再検出しないよう、
+// カメラ再起動から一定時間このコードだけ無視する（別コードは即読み取り可能）。
+const props = defineProps({
+  recentCode: { type: String, default: '' },
+})
+
 const videoRef = ref(null)
 const status   = ref('loading') // 'loading' | 'scanning' | 'error'
 const errorMsg = ref('')
 
-let _reader = null
+let _reader  = null
+let _startAt = 0
+const RECENT_IGNORE_MS = 2000
 
 async function start() {
   try {
     const { BrowserMultiFormatReader } = await import('@zxing/browser')
     _reader = new BrowserMultiFormatReader()
+    _startAt = Date.now()
     status.value = 'scanning'
 
     await _reader.decodeFromConstraints(
@@ -20,7 +29,11 @@ async function start() {
       videoRef.value,
       (result, err) => {
         if (result) {
-          emit('scanned', result.getText())
+          const text = result.getText()
+          // 直前と同じコードは再起動直後の一定時間だけ無視（同一商品の連続誤検出を防ぐ）
+          if (text === props.recentCode && Date.now() - _startAt < RECENT_IGNORE_MS) return
+          if (navigator.vibrate) navigator.vibrate(35)   // 読み取り成功を触覚で通知
+          emit('scanned', text)
           stop()
         }
       }
@@ -176,7 +189,7 @@ onUnmounted(stop)
   position: absolute;
   width: 20px;
   height: 20px;
-  border-color: #3b82f6;
+  border-color: var(--primary-bright);
   border-style: solid;
   border-width: 0;
 }
@@ -204,7 +217,7 @@ onUnmounted(stop)
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+  background: linear-gradient(90deg, transparent, var(--primary-bright), transparent);
   animation: scan 2s linear infinite;
 }
 

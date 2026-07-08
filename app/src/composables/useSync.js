@@ -6,54 +6,56 @@ import { shopCode } from './useStore.js'
 
 function _saveSession() {
   if (!state.roomCode || state.mode === 'idle') return
-  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, mode: state.mode, sessionId: state.sessionId })) } catch (_) {}
+  try { localStorage.setItem(STORAGE_KEYS.syncSession, JSON.stringify({ roomCode: state.roomCode, roomType: state.roomType, mode: state.mode, sessionId: state.sessionId })) } catch (_) {}
 }
 
 function _clearSession() {
   try { localStorage.removeItem(STORAGE_KEYS.syncSession) } catch (_) {}
 }
 
-// ── ホストトークン管理（店舗コードごとに保持）────────────────────────────────
-function _hostTokenKey() {
-  return shopCode.value ? `${STORAGE_KEYS.hostTokenPrefix}${shopCode.value}` : null
+// ── ホストトークン管理（店舗コード×種類ごとに保持）────────────────────────────
+function _hostTokenKey(type = state.roomType) {
+  if (!shopCode.value) return null
+  const suffix = type === 'order' ? ':order' : ''
+  return `${STORAGE_KEYS.hostTokenPrefix}${shopCode.value}${suffix}`
 }
-function _loadHostToken() {
-  const key = _hostTokenKey()
+function _loadHostToken(type) {
+  const key = _hostTokenKey(type)
   return key ? (localStorage.getItem(key) ?? '') : ''
 }
-function _saveHostToken(token) {
-  const key = _hostTokenKey()
+function _saveHostToken(token, type) {
+  const key = _hostTokenKey(type)
   if (key && token) try { localStorage.setItem(key, token) } catch (_) {}
 }
-export function clearHostToken() {
-  const key = _hostTokenKey()
+export function clearHostToken(type) {
+  const key = _hostTokenKey(type)
   if (key) try { localStorage.removeItem(key) } catch (_) {}
 }
-export function hasHostToken() {
-  return !!_loadHostToken()
+export function hasHostToken(type) {
+  return !!_loadHostToken(type)
 }
 
 // 接続有無に関わらず、保存済みホストトークンで残存ルームを解散する（退室済みルームの掃除）
-export async function dissolveRoomRemote() {
+export async function dissolveRoomRemote(type = 'stock') {
   const code  = shopCode.value
-  const token = _loadHostToken()
+  const token = _loadHostToken(type)
   if (code && token && HTTP_BASE) {
     try {
-      await fetch(`${HTTP_BASE}/room/${code}/dissolve`, {
+      await fetch(`${HTTP_BASE}/room/${code}/dissolve${_typeQuery(type)}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ hostToken: token }),
       })
     } catch (_) {}
   }
-  clearHostToken()
+  clearHostToken(type)
 }
 
 // ルームの現在状態を取得（退室中ホストがゲストのライブ品目数を一覧表示するため）
-export async function fetchRoomStatus(code) {
+export async function fetchRoomStatus(code, type = 'stock') {
   if (!code || !HTTP_BASE) return null
   try {
-    const r = await fetch(`${HTTP_BASE}/room/${code}/status`)
+    const r = await fetch(`${HTTP_BASE}/room/${code}/status${_typeQuery(type)}`)
     if (!r.ok) return null
     return await r.json()
   } catch (_) { return null }
@@ -74,11 +76,17 @@ export async function fetchRoomResult(code, sessionId) {
 const state = reactive({
   mode:            'idle',
   roomCode:        null,
+  roomType:        'stock', // 'stock'=棚卸 / 'order'=発注（同一shopCodeでも別DO）
   isConnected:     false,
   error:           null,
   sessionId:       null,   // 現在のセッションID（D1）
   isSessionActive: false,  // DO側のセッションアクティブフラグ
 })
+
+// 種類ごとにDOを分けるためのURLクエリ（棚卸は無し・発注は ?type=order）
+function _typeQuery(type = state.roomType) {
+  return type === 'order' ? '?type=order' : ''
+}
 
 const participants  = reactive({})
 const messages      = reactive([])
@@ -198,6 +206,25 @@ export function classifyIncomingUpdate(local, now = Date.now()) {
   return 'overwrite'
 }
 
+function _entryDiffers(a, b) {
+  return (a.qty !== b.qty) || ((a.unit ?? '') !== (b.unit ?? ''))
+}
+
+// 再接続時、オフライン中に分岐した1品目をどう解決するか（純粋・テスト容易化）。
+// disc = 切断時刻。updatedAt がそれより後なら「オフライン中に変更した」と判定する。
+//   'conflict' = 自分・相手の両方が変更し値が異なる → 人が選ぶ（競合キュー）
+//   'local'    = 自分の変更が正（相手は未変更/同値、または自分がオフラインで追加）→ 再送信
+//   'server'   = 自分は未変更 → サーバー値を採用
+//   null       = 双方に無し等、何もしない
+export function resolveOfflineItem(local, server, disc) {
+  const localChanged  = !!local  && (local.updatedAt  ?? 0) > disc
+  const serverChanged = !!server && (server.updatedAt ?? 0) > disc
+  if (localChanged && serverChanged && _entryDiffers(local, server)) return 'conflict'
+  if (localChanged) return 'local'
+  if (server) return 'server'
+  return null
+}
+
 export function broadcastUpdate(ingredient, qty, unit, enteredBy = '', isAdd = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'update', ingredient, qty, unit: unit ?? '', enteredBy, isAdd }))
@@ -244,6 +271,12 @@ export function broadcastSessionEnd(status = 'completed') {
 export function broadcastMessage(text, replyTo = null) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'message', text, replyTo }))
+}
+
+// メッセージの送信取り消し（自分のメッセージのみ・サーバー側で所有者検証）
+export function broadcastMessageDelete(id) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'message_delete', id }))
 }
 
 export function broadcastTyping(ingredient, active) {
@@ -304,6 +337,48 @@ export function dismissConflict(ingredient) {
   _conflictQueue = _conflictQueue.filter(c => c.ingredient !== ingredient)
   _onConflictQueue?.([..._conflictQueue])
   _syncConflictLock()
+}
+
+// 再接続時のオフライン分岐マージ（ホスト・ゲスト共通）。品目ごとに updatedAt で解決し、
+// 「自分だけ変更」は再送信、「相手だけ変更」はサーバー値を適用、
+// 「両方が変更して値が違う」は競合として扱う。
+//   ホスト: 自分の競合キューへ積み、UI（sum/mine/theirs）で確定する。
+//   ゲスト: 解決権はホスト側にあるため、自分の値をロックしてホストへ競合を通知する
+//           （ライブ競合と同じ経路。ホストが確定 → update をブロードキャスト → 反映）。
+function _mergeOnReconnect(serverInv, disc) {
+  const localInv = { ...(_getInventory?.() ?? {}) }
+  const names = new Set([...Object.keys(localInv), ...Object.keys(serverInv)])
+  const isHost = state.mode === 'hosting'
+  let hostConflicts = 0
+  for (const name of names) {
+    const local  = localInv[name]
+    const server = serverInv[name]
+    switch (resolveOfflineItem(local, server, disc)) {
+      case 'conflict':
+        if (isHost) {
+          const entry = { ingredient: name, remoteQty: server.qty, remoteUnit: server.unit ?? '', remoteBy: server.enteredBy ?? '', local }
+          const idx = _conflictQueue.findIndex(c => c.ingredient === name)
+          if (idx === -1) _conflictQueue.push(entry)
+          else            _conflictQueue[idx] = entry
+          hostConflicts++
+          _onConflictNotify?.(name, server.enteredBy ?? '')
+        } else {
+          lockedIngredients.add(name)
+          broadcastConflictNotify(name, server.enteredBy ?? '', local.qty, local.unit ?? '', server.qty, server.unit ?? '')
+        }
+        break
+      case 'local':
+        broadcastUpdate(name, local.qty, local.unit ?? '', local.enteredBy ?? '')
+        break
+      case 'server':
+        _onItemUpdate?.(name, server.qty, server.unit ?? '', server.enteredBy ?? '', server.updatedAt)
+        break
+    }
+  }
+  if (hostConflicts > 0) {
+    _onConflictQueue?.([..._conflictQueue])
+    _syncConflictLock()
+  }
 }
 
 // ── 内部ヘルパー ──────────────────────────────────────────────────────────────
@@ -372,6 +447,7 @@ function _resetClientState() {
   _disconnectedAt       = 0
   state.mode            = 'idle'
   state.roomCode        = null
+  state.roomType        = 'stock'
   state.isConnected     = false
   state.error           = null
   state.sessionId       = null
@@ -390,7 +466,12 @@ function _handleMessage(msg) {
     case 'joined': {
       const serverInv = msg.inventory ?? {}
 
-      if (state.mode === 'joining') {
+      // 切断からの復帰（ホスト・ゲスト共通）。初回接続は _disconnectedAt === 0。
+      const reconnecting = _disconnectedAt > 0
+
+      // 初回参加のゲストのみローカルを破棄してホスト状態を採用する。
+      // 再接続ではオフライン中の入力を _mergeOnReconnect で保全するため破棄しない。
+      if (state.mode === 'joining' && !reconnecting) {
         _onClearInventory?.()
       }
 
@@ -403,7 +484,10 @@ function _handleMessage(msg) {
         && (!_expectedSessionId || msg.sessionId !== _expectedSessionId)
       _expectedSessionId = null
 
-      if (!skipInventory) {
+      if (reconnecting) {
+        // オフライン中の分岐を品目ごとに updatedAt で解決（消失・分岐・再送レースを防ぐ）
+        _mergeOnReconnect(serverInv, _disconnectedAt)
+      } else if (!skipInventory) {
         for (const [ingredient, entry] of Object.entries(serverInv)) {
           _onItemUpdate?.(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
         }
@@ -509,6 +593,12 @@ function _handleMessage(msg) {
         if (msg.senderId !== deviceId) unreadCount.value++
       }
       _onMessage?.(msg)
+      break
+    }
+
+    case 'message_deleted': {
+      const i = messages.findIndex(m => m.id === msg.id)
+      if (i >= 0) messages.splice(i, 1)
       break
     }
 
@@ -657,7 +747,7 @@ function _connect(code) {
     const isHostMode = state.mode === 'hosting'
     let hostFallbackTimer = null
 
-    const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws`)
+    const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws${_typeQuery()}`)
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true
@@ -684,22 +774,8 @@ function _connect(code) {
       }))
 
       if (isHostMode) {
-        // 新規接続時は session_start が在庫・config・flags を一括同期するため不要。
-        // ネットワーク切断からの自動再接続時のみ、オフライン中に変更した品目を再送信する。
-        // 全品目を再送するとゲストに update トーストが大量発生するため差分のみ送る。
-        if (_disconnectedAt > 0) {
-          const disc = _disconnectedAt
-          setTimeout(() => {
-            if (_getInventory) {
-              const inv = _getInventory() ?? {}
-              for (const [ingredient, entry] of Object.entries(inv)) {
-                if ((entry.updatedAt ?? 0) > disc) {
-                  broadcastUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '')
-                }
-              }
-            }
-          }, 200)
-        }
+        // 新規接続は session_start が一括同期。オフライン切断からの再接続時は
+        // 'joined' 受信時に _mergeOnReconnect が品目ごとに解決・再送する（レース排除）。
         _startHeartbeat()
         hostFallbackTimer = setTimeout(() => {
           if (!settled) { settled = true; resolve() }
@@ -829,6 +905,7 @@ export function restoreSession() {
     // ゲストセッションは自動復元しない（getSavedGuestSession で確認・再参加を促す）
     if (saved.mode === 'joining') return
     state.roomCode  = saved.roomCode
+    state.roomType  = saved.roomType === 'order' ? 'order' : 'stock'
     state.mode      = saved.mode
     _disconnectedAt = Date.now()  // 再接続扱い: onerror で即 idle にせず onclose の再接続チェーンに委ねる
     _connect(saved.roomCode).catch(() => {})
@@ -850,13 +927,14 @@ export function useSync() {
     }))
   )
 
-  async function createRoom() {
+  async function createRoom(type = 'stock') {
     state.error     = null
     _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const code  = shopCode.value
     if (!code) throw new Error('店舗コードが未登録です。先に店舗を登録してください。')
-    // 既に同じルームにホストとして接続済みなら再接続しない
-    if (state.mode === 'hosting' && state.roomCode === code && state.isConnected) return code
+    // 既に同じ種類のルームにホストとして接続済みなら再接続しない
+    if (state.mode === 'hosting' && state.roomCode === code && state.roomType === type && state.isConnected) return code
+    state.roomType = type
     state.roomCode = code
     state.mode     = 'hosting'
     try {
@@ -869,7 +947,7 @@ export function useSync() {
     return code
   }
 
-  async function joinRoom(code, joinSessionId = null) {
+  async function joinRoom(code, joinSessionId = null, type = 'stock') {
     state.error     = null
     _disconnectedAt = 0  // ユーザー操作による新規接続: 再接続サイクルをリセット
     const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -881,6 +959,7 @@ export function useSync() {
     const isOwnCode = !!(shopCode.value && normalized === shopCode.value.toUpperCase())
     // ゲスト参加時は招待リンクのセッションIDを鍵として保持（再接続時も使う）
     if (!isOwnCode) _joinSessionId = joinSessionId || null
+    state.roomType = type === 'order' ? 'order' : 'stock'
     state.roomCode = normalized
     state.mode     = isOwnCode ? 'hosting' : 'joining'
     try {
@@ -919,8 +998,11 @@ export function useSync() {
     if (!shopCode.value) return ''
     const base = window.location.origin + window.location.pathname.replace(/\/$/, '')
     const sid  = state.sessionId
+    const t    = state.roomType === 'order' ? '&type=order' : ''
     // セッションIDを鍵として付与（そのルーム限りのURL）。未開始時は store のみ。
-    return sid ? `${base}?store=${shopCode.value}&s=${encodeURIComponent(sid)}` : `${base}?store=${shopCode.value}`
+    return sid
+      ? `${base}?store=${shopCode.value}&s=${encodeURIComponent(sid)}${t}`
+      : `${base}?store=${shopCode.value}${t}`
   }
 
   return {

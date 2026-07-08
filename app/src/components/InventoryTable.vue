@@ -2,8 +2,9 @@
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
+import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
-const { config: liveConfig } = useConfig()
+const { config: liveConfig, setAxisName } = useConfig()
 
 const props = defineProps({
   inventory:        { type: Object,  required: true },
@@ -15,9 +16,11 @@ const props = defineProps({
   conflictLocked:   { type: Object,  default: null },
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
+  usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
+  tapContinuous:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous'])
 
 const manualSet = computed(() => new Set(props.manualItems))
 
@@ -28,34 +31,107 @@ function _isSupply(item) {
   return isSupplyItem(item, config.value.categories)
 }
 
+// ── よく使う品目に絞る（履歴ベース・表示のみ／マスタは不変）─────────────────────
+// 直近N回で一度も入力されていない品目を隠し、よく使う順に並べる。
+// 検索は常に全品目対象、今回入力済みの品目は必ず表示、いつでも全表示に戻せる。
+const usage        = computed(() => props.usageMap ?? {})
+const hasUsageData = computed(() => !props.readOnly && Object.keys(usage.value).length > 0)
+const usedOnly     = ref(false)
+try { usedOnly.value = localStorage.getItem('inv_used_only') === '1' } catch (_) {}
+function toggleUsedOnly() {
+  usedOnly.value = !usedOnly.value
+  try { localStorage.setItem('inv_used_only', usedOnly.value ? '1' : '0') } catch (_) {}
+}
+const _usedActive = computed(() => usedOnly.value && hasUsageData.value)
+// 表示対象か: 今回入力済み / カスタム品目 / 直近N回で1回でも入力あり
+function _isUsed(row) {
+  return row.custom || row.entry !== null || (usage.value[row.item] ?? 0) >= 1
+}
+// 名前ベースの「使う品目」判定（進捗集計用・filterMode非依存）
+function _isUsedName(item) {
+  return props.inventory[item] != null || (usage.value[item] ?? 0) >= 1
+}
+// グループ内をよく使う順に並べ替え（絞り込みON時のみ・元の順は安定ソートで保持）
+function _sortByUsage(arr) {
+  if (!_usedActive.value) return arr
+  return [...arr].sort((a, b) => (usage.value[b.item] ?? 0) - (usage.value[a.item] ?? 0))
+}
+
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'category' | 'alpha'
+const sortMode     = ref('category')  // 'category' | 'alpha' | 'axisA' | 'axisB'
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
-const expandedCats = reactive({})     // ジャンル別アコーディオン
-const expandedKana = reactive({})     // 五十音アコーディオン
 
-function toggleCat(label)  { if (expandedCats[label]) delete expandedCats[label]; else expandedCats[label] = true }
-function toggleKana(label) { if (expandedKana[label]) delete expandedKana[label]; else expandedKana[label] = true }
+// 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
+const sortOpts = computed(() => {
+  const opts = [
+    { value: 'category', label: 'ジャンル' },
+  ]
+  const names = config.value.axisNames ?? ['', '']
+  if (names[0]) opts.push({ value: 'axisA', label: names[0] })
+  if (names[1]) opts.push({ value: 'axisB', label: names[1] })
+  return opts
+})
 
-function toggleGroup(row)      { row.isKana ? toggleKana(row.label) : toggleCat(row.label) }
-function isGroupExpanded(row)  { return row.isKana ? !!expandedKana[row.label] : !!expandedCats[row.label] }
+// 「並び替えを追加」ボタン（空きスロットがあり、編集可能なときだけ）
+const canAddAxis = computed(() => {
+  if (props.readOnly) return false
+  const names = config.value.axisNames ?? ['', '']
+  return !names[0] || !names[1]
+})
+function onAddAxis() {
+  const names = config.value.axisNames ?? ['', '']
+  const idx = !names[0] ? 0 : (!names[1] ? 1 : -1)
+  if (idx < 0) return
+  const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
+  if (!name) return
+  setAxisName(idx, name)
+  sortMode.value = idx === 0 ? 'axisA' : 'axisB'  // 追加した並び替えに切替
+  axisAssignInitial.value = idx
+  showAxisAssign.value = true                      // 振り分けページへ
+}
+// アクティブな自作並び替えタブの ✎ から振り分けページへ
+function openAxisEdit(value) {
+  axisAssignInitial.value = value === 'axisA' ? 0 : 1
+  showAxisAssign.value = true
+}
+
+// 未設定の軸を選んだ状態でも壊れないよう、実効モードにフォールバック
+const _effectiveSort = computed(() => {
+  const m = sortMode.value
+  const names = config.value.axisNames ?? ['', '']
+  if (m === 'axisA' && !names[0]) return 'order'
+  if (m === 'axisB' && !names[1]) return 'order'
+  return m
+})
+const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB'].includes(_effectiveSort.value))
+
+// アコーディオン展開状態は「モード + ラベル」でキー化し、軸切替時の同名グループ混線を防ぐ
+const expandedGroups = reactive({})
+const SEP = '\u0000'
+function _gkey(label) { return _effectiveSort.value + SEP + label }
+
+function toggleGroup(row) {
+  const k = _gkey(row.label)
+  if (expandedGroups[k]) delete expandedGroups[k]
+  else expandedGroups[k] = true
+}
+function isGroupExpanded(row) { return !!expandedGroups[_gkey(row.label)] }
 
 function collapseAll() {
-  Object.keys(expandedCats).forEach(k => delete expandedCats[k])
-  Object.keys(expandedKana).forEach(k => delete expandedKana[k])
+  const prefix = _effectiveSort.value + SEP
+  Object.keys(expandedGroups).forEach(k => { if (k.startsWith(prefix)) delete expandedGroups[k] })
 }
 
 function expandAll() {
   for (const row of rows.value.filter(r => r.type === 'group-header')) {
-    if (row.isKana) expandedKana[row.label] = true
-    else expandedCats[row.label] = true
+    expandedGroups[_gkey(row.label)] = true
   }
 }
 
 const hasExpanded = computed(() => {
-  if (sortMode.value === 'category') return Object.keys(expandedCats).length > 0
-  if (sortMode.value === 'alpha')    return Object.keys(expandedKana).length > 0
-  return false
+  if (!_isGroupedMode.value) return false
+  const prefix = _effectiveSort.value + SEP
+  return Object.keys(expandedGroups).some(k => k.startsWith(prefix))
 })
 
 const hasAllExpanded = computed(() => {
@@ -63,11 +139,6 @@ const hasAllExpanded = computed(() => {
   if (groups.length === 0) return true
   return groups.every(r => isGroupExpanded(r))
 })
-
-const sortOpts = [
-  { value: 'category', label: 'ジャンル' },
-  { value: 'alpha',    label: '五十音' },
-]
 
 // ── カテゴリごとの実際の進捗（フィルターに依存しない・スコープ反映）──────────
 const catRealStats = computed(() => {
@@ -79,6 +150,7 @@ const catRealStats = computed(() => {
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
     const cat = config.value.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
@@ -107,6 +179,8 @@ const rows = computed(() => {
     code:      config.value.codes?.[item]       ?? null,
     prevMonth: config.value.prevMonths?.[item]  ?? null,
     lotSize:   config.value.lotSizes?.[item]    ?? null,
+    tagA:      config.value.tagsA?.[item]       ?? [],
+    tagB:      config.value.tagsB?.[item]       ?? [],
   }))
 
   // 2. config.value.order に含まれないカスタム品目
@@ -123,6 +197,8 @@ const rows = computed(() => {
       code:      config.value.codes?.[item]       ?? null,
       prevMonth: config.value.prevMonths?.[item]  ?? null,
       lotSize:   config.value.lotSizes?.[item]    ?? null,
+      tagA:      config.value.tagsA?.[item]       ?? [],
+      tagB:      config.value.tagsB?.[item]       ?? [],
     }))
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
@@ -131,6 +207,11 @@ const rows = computed(() => {
     all = all.filter(r => !_isSupply(r.item))
   } else if (props.categoryScope === 'supply') {
     all = all.filter(r => _isSupply(r.item))
+  }
+
+  // 3.5 よく使う品目のみ（ON時のみ・履歴で未使用の品目を隠す）
+  if (_usedActive.value) {
+    all = all.filter(_isUsed)
   }
 
   // 4. 入力済み/未入力フィルター適用
@@ -145,13 +226,15 @@ const rows = computed(() => {
   }
 
   // 5. 並べ替え適用
-  if (sortMode.value === 'alpha') {
+  const mode = _effectiveSort.value
+
+  if (mode === 'alpha') {
     // 五十音アコーディオン
     const groupMap = new Map()
     for (const row of items) {
       const grp = _kanaGroup(row.item)
       if (!groupMap.has(grp)) groupMap.set(grp, [])
-      groupMap.get(grp).push(row)
+      groupMap.get(grp).push({ ...row, _grp: grp })
     }
     // グループ内は五十音順にソート
     for (const arr of groupMap.values()) {
@@ -165,36 +248,60 @@ const rows = computed(() => {
     for (const [grp, groupRows] of sorted) {
       const real = kanaRealStats.value[grp] ?? { total: groupRows.length, filled: 0 }
       result.push({ type: 'group-header', label: grp, count: real.total, filled: real.filled, isKana: true })
-      result.push(...groupRows)
+      result.push(..._sortByUsage(groupRows))
     }
     return result
   }
 
-  if (sortMode.value === 'category') {
-    // カテゴリ別グループ化
+  if (mode === 'category' || mode === 'axisA' || mode === 'axisB') {
+    // ジャンル / 汎用軸によるグループ化（共通ロジック）
+    // 軸は多ロケーション対応: 1品目が複数グループに属する場合、各グループに複製して出す
+    const emptyLabel = 'その他'
+    const groupsOf = (row) => {
+      if (mode === 'category') return [row.category ?? 'その他']
+      const arr = mode === 'axisA' ? row.tagA : row.tagB
+      return (Array.isArray(arr) && arr.length) ? arr : ['その他']
+    }
+    const statsMap = mode === 'category' ? catRealStats.value
+      : mode === 'axisA' ? axisAStats.value
+      :                    axisBStats.value
+
     const groupMap = new Map()
     for (const row of items) {
-      const cat = row.category ?? 'その他'
-      if (!groupMap.has(cat)) groupMap.set(cat, [])
-      groupMap.get(cat).push(row)
+      for (const k of groupsOf(row)) {
+        if (!groupMap.has(k)) groupMap.set(k, [])
+        groupMap.get(k).push({ ...row, _grp: k })
+      }
     }
-    // 分類コード順ソート（コード未設定は五十音順で末尾）
+    // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
+    // 軸は「振り分けページで定義したグループ順」を優先（未定義グループは末尾）
+    const axisOrder = mode === 'axisA' ? (config.value.axisGroupsA ?? [])
+      : mode === 'axisB' ? (config.value.axisGroupsB ?? [])
+      : []
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
-      if (a === 'その他') return 1
-      if (b === 'その他') return -1
-      const codeA = config.value.categoryCodes?.[a]
-      const codeB = config.value.categoryCodes?.[b]
-      if (codeA != null && codeB != null) return codeA - codeB
-      if (codeA != null) return -1
-      if (codeB != null) return  1
+      if (a === emptyLabel) return 1
+      if (b === emptyLabel) return -1
+      if (mode === 'category') {
+        const codeA = config.value.categoryCodes?.[a]
+        const codeB = config.value.categoryCodes?.[b]
+        if (codeA != null && codeB != null) return codeA - codeB
+        if (codeA != null) return -1
+        if (codeB != null) return  1
+      } else {
+        const ia = axisOrder.indexOf(a), ib = axisOrder.indexOf(b)
+        if (ia !== -1 || ib !== -1) {
+          if (ia === -1) return 1
+          if (ib === -1) return -1
+          return ia - ib
+        }
+      }
       return a.localeCompare(b, 'ja')
     })
-    // グループヘッダー行を挿入（進捗はフィルター非依存の実数値を使用）
     const result = []
-    for (const [cat, groupRows] of sorted) {
-      const real = catRealStats.value[cat] ?? { total: groupRows.length, filled: 0 }
-      result.push({ type: 'group-header', label: cat, count: real.total, filled: real.filled, isKana: false })
-      result.push(...groupRows)
+    for (const [key, groupRows] of sorted) {
+      const real = statsMap[key] ?? { total: groupRows.length, filled: 0 }
+      result.push({ type: 'group-header', label: key, count: real.total, filled: real.filled, isKana: false })
+      result.push(..._sortByUsage(groupRows))
     }
     return result
   }
@@ -207,6 +314,23 @@ const rows = computed(() => {
 const visibleItemCount = computed(() =>
   rows.value.filter(r => r.type === 'item').length
 )
+
+// よく使う絞り込みで隠れている品目数（スコープ適用後・filterMode非依存）
+const hiddenCount = computed(() => {
+  if (!_usedActive.value) return 0
+  let hidden = 0
+  const all = [
+    ...config.value.order.map(item => ({ item, entry: props.inventory[item] ?? null, custom: false })),
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k))
+      .map(item => ({ item, entry: props.inventory[item], custom: true })),
+  ]
+  for (const r of all) {
+    if (props.categoryScope === 'food'   && _isSupply(r.item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(r.item)) continue
+    if (!_isUsed(r)) hidden++
+  }
+  return hidden
+})
 
 // ── 価格・金額 ────────────────────────────────────────────────────────────────
 const hasPrices = computed(() =>
@@ -248,15 +372,22 @@ function rowClick(item) {
 
 // ── キーボードナビゲーション ──────────────────────────────────────────────────
 function _isRowVisible(row) {
-  if (sortMode.value === 'category') return !!expandedCats[row.category ?? 'その他']
-  if (sortMode.value === 'alpha')    return !!expandedKana[_kanaGroup(row.item)]
-  return true
+  if (!_isGroupedMode.value) return true   // 非グループ表示は常に可視
+  if (row._grp == null) return true
+  return !!expandedGroups[_gkey(row._grp)]
 }
 
 function _getVisibleItems() {
-  return rows.value
-    .filter(r => r.type === 'item' && _isRowVisible(r))
-    .map(r => r.item)
+  // 多ロケーションで同一品目が複数回出るため、品目名で重複排除
+  const seen = new Set()
+  const out = []
+  for (const r of rows.value) {
+    if (r.type !== 'item' || !_isRowVisible(r)) continue
+    if (seen.has(r.item)) continue
+    seen.add(r.item)
+    out.push(r.item)
+  }
+  return out
 }
 
 function getNextVisibleItem(currentItem) {
@@ -362,6 +493,7 @@ const kanaRealStats = computed(() => {
   for (const item of all) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
     const grp = _kanaGroup(item)
     if (!map[grp]) map[grp] = { total: 0, filled: 0 }
     map[grp].total++
@@ -370,12 +502,36 @@ const kanaRealStats = computed(() => {
   return map
 })
 
-// スコープ対応の品目数（ヘッダー表示用）
+// 汎用軸ごとの進捗（catRealStats と同じくフィルター非依存・スコープ反映）
+function _axisStats(tagMap) {
+  const map = {}
+  const all = [
+    ...config.value.order,
+    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
+  ]
+  for (const item of all) {
+    if (props.categoryScope === 'food'   && _isSupply(item)) continue
+    if (props.categoryScope === 'supply' && !_isSupply(item)) continue
+    if (_usedActive.value && !_isUsedName(item)) continue
+    const arr = tagMap?.[item]
+    const groups = (Array.isArray(arr) && arr.length) ? arr : ['その他']
+    for (const grp of groups) {
+      if (!map[grp]) map[grp] = { total: 0, filled: 0 }
+      map[grp].total++
+      if (props.inventory[item] != null) map[grp].filled++
+    }
+  }
+  return map
+}
+const axisAStats = computed(() => _axisStats(config.value.tagsA))
+const axisBStats = computed(() => _axisStats(config.value.tagsB))
+
+// スコープ対応の品目数（ヘッダー表示用・絞り込み中は使う品目のみ）
 const scopedTotal = computed(() => {
-  if (props.categoryScope === 'all') return config.value.order.length
-  return config.value.order.filter(item =>
-    props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item)
-  ).length
+  const inScope = props.categoryScope === 'all'
+    ? config.value.order
+    : config.value.order.filter(item => props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item))
+  return _usedActive.value ? inScope.filter(_isUsedName).length : inScope.length
 })
 
 const scopedFilled = computed(() => {
@@ -401,7 +557,16 @@ function fmtYen(n) {
   <section class="inventory-section">
     <!-- ヘッダー行 -->
     <div class="section-header">
-      <h2>棚卸一覧</h2>
+      <button
+        v-if="!readOnly"
+        :class="['tap-continuous-toggle', { active: tapContinuous }]"
+        @click="emit('update:tapContinuous', !tapContinuous)"
+        title="ONにすると、品目をタップして入力した後、自動で次の品目の入力画面が開きます（音声・文字検索は対象外）"
+      >
+        <span class="tc-track"><span class="tc-knob"></span></span>
+        連続入力
+      </button>
+      <div v-else></div>
       <div class="header-right">
         <span class="progress">
           <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
@@ -427,7 +592,18 @@ function fmtYen(n) {
           :key="opt.value"
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
-        >{{ opt.label }}</button>
+        >{{ opt.label }}<span
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && !readOnly"
+            class="seg-edit"
+            title="この並び替えのグループを編集"
+            @click.stop="openAxisEdit(opt.value)"
+          >✎</span></button>
+        <button
+          v-if="canAddAxis"
+          class="seg-btn seg-add"
+          title="場所・仕入先など、並び替えを追加"
+          @click="onAddAxis"
+        >＋</button>
       </div>
       <div class="seg-group">
         <button
@@ -437,6 +613,17 @@ function fmtYen(n) {
           @click="filterMode = opt.value"
         >{{ opt.label }}</button>
       </div>
+      <button
+        v-if="hasUsageData"
+        :class="['used-toggle', { active: usedOnly }]"
+        @click="toggleUsedOnly"
+        title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
+      >{{ usedOnly ? '✓ ' : '' }}前回までに入力した品目のみ表示</button>
+    </div>
+
+    <!-- 絞り込み中インジケータ（いつでも全表示に戻せる） -->
+    <div v-if="_usedActive && hiddenCount > 0" class="used-notice" @click="toggleUsedOnly">
+      前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
     </div>
 
     <!-- テーブル -->
@@ -563,13 +750,41 @@ function fmtYen(n) {
   padding: 14px 4px 10px;
 }
 
-.section-header h2 {
-  font-size: 13px;
-  font-weight: 700;
+.tap-continuous-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  cursor: pointer;
 }
+.tap-continuous-toggle.active { color: var(--primary); }
+.tc-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background 0.18s;
+  flex-shrink: 0;
+}
+.tap-continuous-toggle.active .tc-track { background: var(--primary); }
+.tc-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  transition: transform 0.18s;
+}
+.tap-continuous-toggle.active .tc-knob { transform: translateX(14px); }
 
 .header-right {
   display: flex;
@@ -592,6 +807,7 @@ function fmtYen(n) {
   display: flex;
   gap: 8px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 
 .seg-full {
@@ -628,6 +844,52 @@ function fmtYen(n) {
   box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
 
+.seg-add {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.seg-edit {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 4px;
+  font-size: 12px;
+  border-radius: 5px;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+/* ── よく使う品目トグル ── */
+.used-toggle {
+  flex: 1 0 100%;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.used-toggle.active {
+  border-color: var(--primary);
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+.used-notice {
+  font-size: 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 8px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.used-notice strong { color: #b45309; }
+
 /* ── テーブル ── */
 .inv-table {
   width: 100%;
@@ -639,7 +901,7 @@ function fmtYen(n) {
 }
 
 .inv-table thead tr {
-  background: #1e3a8a;
+  background: var(--primary-deep);
   color: white;
 }
 
@@ -669,7 +931,7 @@ function fmtYen(n) {
   cursor: pointer;
   user-select: none;
 }
-.group-header-row:hover { background: #eff6ff !important; }
+.group-header-row:hover { background: var(--primary-weak) !important; }
 
 .group-header-cell {
   padding: 8px 14px 0;
@@ -706,7 +968,7 @@ function fmtYen(n) {
   margin-left: auto;
   font-size: 11px;
   font-weight: 600;
-  background: #dbeafe;
+  background: var(--primary-soft);
   color: var(--primary);
   border-radius: 20px;
   padding: 1px 8px;
@@ -740,8 +1002,8 @@ function fmtYen(n) {
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
 }
-.item-row:active             { background: #eff6ff !important; }
-.item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: #eff6ff !important; }
+.item-row:active             { background: var(--primary-weak) !important; }
+.item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }
 .item-row.read-only          { cursor: default; }
 .item-row.read-only:active   { background: inherit !important; }
@@ -798,7 +1060,7 @@ function fmtYen(n) {
 
 .badge {
   font-size: 10px;
-  background: #dbeafe;
+  background: var(--primary-soft);
   color: var(--primary);
   border-radius: 4px;
   padding: 1px 5px;
@@ -925,9 +1187,9 @@ function fmtYen(n) {
 }
 
 .manual-btn-edit {
-  background: #eff6ff;
-  color: #2563eb;
-  border-color: #bfdbfe;
+  background: var(--primary-weak);
+  color: var(--primary);
+  border-color: var(--primary-border);
 }
 
 .manual-btn-delete {
@@ -936,7 +1198,7 @@ function fmtYen(n) {
   border-color: #fecaca;
 }
 
-.manual-btn-edit:active   { background: #dbeafe; }
+.manual-btn-edit:active   { background: var(--primary-soft); }
 .manual-btn-delete:active { background: #fee2e2; }
 
 /* ── 削除インライン確認 ── */

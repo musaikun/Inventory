@@ -7,12 +7,14 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { isAuthenticated, createSession } from '../composables/useAuth.js'
 import { useSession } from '../composables/useSession.js'
 
-const emit = defineEmits(['close', 'complete', 'newSession', 'viewMember'])
+const emit = defineEmits(['close', 'newSession', 'viewMember'])
 
 const props = defineProps({
   isInventoryCompleted: { type: Boolean, default: false },
   // メイン画面のCTAから開いたとき、マウント時に自動でルーム作成フローを起動する
   autoCreate:           { type: Boolean, default: false },
+  // 'stock'=棚卸ルーム / 'order'=発注ルーム（同一shopCodeでも別DO）
+  roomType:             { type: String, default: 'stock' },
 })
 
 const { pendingSession, markActive, begin } = useSession()
@@ -21,16 +23,6 @@ const {
   state, participantList, isHost, isGuest,
   createRoom, joinRoom, leaveRoom, dissolveRoom, getShareUrl,
 } = useSync()
-
-// ── セッション管理 ──────────────────────────────────────────────────────────────
-const sessionEnding = ref(false)
-
-// 棚卸を完了（スナップショット保存・ゲスト退室は App.vue 側で実行）
-function onComplete() {
-  if (!confirm('棚卸を完了しますか？\n履歴に保存され、参加者は退室します。')) return
-  sessionEnding.value = true
-  emit('complete')
-}
 
 // 受付終了（保存せずルームを閉じる・ゲスト全員退室）
 async function onCloseRoom() {
@@ -47,7 +39,6 @@ async function onCloseRoom() {
 // ── UI state ─────────────────────────────────────────────────────────────────
 // 'home' | 'host' | 'guest' | 'namePrompt'
 const view = ref('home')
-const copied = ref(false)
 
 // ── 端末名未設定時のプロンプト ─────────────────────────────────────────────────
 const pendingAction = ref(null) // 'create'
@@ -78,7 +69,7 @@ async function onCreateRoom() {
   }
   createError.value = ''
   try {
-    await createRoom()
+    await createRoom(props.roomType)
 
     // DO のセッション ID と D1 の pendingSession.id が一致する場合のみ「再接続」扱い。
     // isSessionActive だけで判断すると、ホストが一覧へ戻って新しいセッションを開始した後も
@@ -167,22 +158,12 @@ async function _generateQR() {
   } catch (_) {}
 }
 
-// ── コードをクリップボードにコピー ──────────────────────────────────────────
-async function onCopyCode() {
-  if (!state.roomCode) return
-  try {
-    await navigator.clipboard.writeText(state.roomCode)
-    copied.value = true
-    setTimeout(() => copied.value = false, 1500)
-  } catch (_) {}
-}
-
 // ── 招待リンク共有 ────────────────────────────────────────────────────────────
 const urlCopied = ref(false)
 const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
 function _inviteText() {
-  return `棚卸ルームへの招待です。下記リンクから参加してください（店舗コード: ${state.roomCode}）`
+  return '棚卸ルームへの招待です。下記リンクから参加してください。'
 }
 
 async function onCopyUrl() {
@@ -267,14 +248,6 @@ function onShareMail() {
           <button class="accepting-btn" @click="onCloseRoom">受付終了</button>
         </div>
 
-        <div class="room-code-card">
-          <div class="room-code-label">店舗コード（参考）</div>
-          <div class="room-code-value" @click="onCopyCode">
-            {{ state.roomCode }}
-            <span class="copy-hint">{{ copied ? '✓ コピー済み' : '📋 タップでコピー' }}</span>
-          </div>
-        </div>
-
         <!-- 招待リンク共有 -->
         <div class="share-section">
           <div class="share-label">招待リンクを送る</div>
@@ -320,11 +293,6 @@ function onShareMail() {
 
         <div class="actions">
           <button class="btn btn-secondary" @click="$emit('close')">棚卸に戻る</button>
-          <button
-            class="btn btn-success"
-            :disabled="sessionEnding"
-            @click="onComplete"
-          >✓ 棚卸を完了</button>
         </div>
       </template>
 
@@ -358,11 +326,6 @@ function onShareMail() {
       <!-- ==== ゲスト画面（参加中）==== -->
       <template v-else-if="view === 'guest'">
         <div class="sheet-title">ルーム参加中</div>
-
-        <div class="room-code-card">
-          <div class="room-code-label">参加中の店舗コード</div>
-          <div class="room-code-value">{{ state.roomCode }}</div>
-        </div>
 
         <div class="connect-status connected">
           <span class="status-dot"></span>
@@ -480,47 +443,6 @@ function onShareMail() {
   -webkit-tap-highlight-color: transparent;
 }
 .accepting-btn:active { background: #fef2f2; }
-
-/* ── ルームコードカード ── */
-.room-code-card {
-  background: linear-gradient(135deg, #eff6ff, #dbeafe);
-  border: 2px solid var(--primary);
-  border-radius: 16px;
-  padding: 16px 20px;
-  text-align: center;
-  margin-bottom: 16px;
-}
-
-.room-code-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.room-code-value {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--primary);
-  letter-spacing: 0.25em;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  cursor: pointer;
-  user-select: all;
-  line-height: 1.2;
-}
-
-.copy-hint {
-  display: block;
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: inherit;
-  letter-spacing: normal;
-  font-weight: 600;
-  margin-top: 4px;
-  cursor: pointer;
-}
 
 /* ── 招待リンク共有 ── */
 .share-section {
@@ -695,7 +617,7 @@ function onShareMail() {
   font-size: 11px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 8px;
   border-radius: 6px;
 }
@@ -763,18 +685,6 @@ function onShareMail() {
   width: 100%;
   margin-bottom: 12px;
   font-size: 14px;
-}
-
-.btn-success {
-  background: var(--success, #22c55e);
-  color: white;
-  border: none;
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  flex: 1;
 }
 
 </style>

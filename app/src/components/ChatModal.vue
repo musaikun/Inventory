@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
-import { useSync, broadcastMessage } from '../composables/useSync.js'
+import { useSync, broadcastMessage, broadcastMessageDelete } from '../composables/useSync.js'
 import { deviceId } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
@@ -72,6 +72,33 @@ function setReply(msg) {
 
 function cancelReply() {
   replyTo.value = null
+}
+
+// ── 長押しメニュー（LINE風: 返信 / 送信取り消し）───────────────────────────────
+const actionMsg = ref(null)   // 操作対象メッセージ
+let _pressTimer = null
+
+function onPressStart(msg) {
+  clearTimeout(_pressTimer)
+  _pressTimer = setTimeout(() => { actionMsg.value = msg }, 450)
+}
+function onPressEnd() {
+  clearTimeout(_pressTimer)
+  _pressTimer = null
+}
+function closeActions() {
+  actionMsg.value = null
+}
+function actionReply() {
+  if (actionMsg.value) setReply(actionMsg.value)
+  closeActions()
+}
+function actionUnsend() {
+  const m = actionMsg.value
+  closeActions()
+  if (!m || m.senderId !== deviceId) return   // 自分のメッセージのみ
+  if (!confirm('このメッセージの送信を取り消しますか？\n全員の画面から消え、記録にも残りません。')) return
+  broadcastMessageDelete(m.id)
 }
 
 // ── 元メッセージへスクロール ────────────────────────────────────────────────────
@@ -196,9 +223,16 @@ function needsDateSep(idx) {
             </div>
 
             <div class="msg-body">
-              <button class="msg-reply-btn" @click="setReply(msg)" title="返信">↩</button>
-
-              <div class="msg-bubble">
+              <div
+                class="msg-bubble"
+                @touchstart.passive="onPressStart(msg)"
+                @touchend.passive="onPressEnd"
+                @touchmove.passive="onPressEnd"
+                @mousedown="onPressStart(msg)"
+                @mouseup="onPressEnd"
+                @mouseleave="onPressEnd"
+                @contextmenu.prevent="actionMsg = msg"
+              >
                 <!-- 返信引用 -->
                 <div
                   v-if="msg.replyTo"
@@ -218,6 +252,20 @@ function needsDateSep(idx) {
             <div class="msg-time">{{ fmtTime(msg.timestamp) }}</div>
           </div>
         </template>
+      </div>
+
+      <!-- 長押しメニュー（返信 / 送信取り消し） -->
+      <div v-if="actionMsg" class="action-overlay" @click.self="closeActions">
+        <div class="action-sheet">
+          <div class="action-preview">{{ actionMsg.text }}</div>
+          <button class="action-item" @click="actionReply">↩ 返信</button>
+          <button
+            v-if="actionMsg.senderId === deviceId"
+            class="action-item danger"
+            @click="actionUnsend"
+          >🗑 送信を取り消す</button>
+          <button class="action-item cancel" @click="closeActions">キャンセル</button>
+        </div>
       </div>
 
       <!-- 返信インジケータ -->
@@ -302,7 +350,7 @@ function needsDateSep(idx) {
   font-size: 12px;
   font-weight: 700;
   color: var(--primary);
-  background: #eff6ff;
+  background: var(--primary-weak);
   padding: 2px 10px;
   border-radius: 20px;
   letter-spacing: 0.05em;
@@ -415,6 +463,10 @@ function needsDateSep(idx) {
   padding: 10px 14px;
   max-width: 100%;
   word-break: break-word;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;   /* 長押しで iOS 標準メニューを出さない */
 }
 
 .mine .msg-bubble {
@@ -439,7 +491,7 @@ function needsDateSep(idx) {
 }
 
 .mine :deep(.mention) {
-  color: #bfdbfe;
+  color: var(--primary-border);
   font-weight: 700;
 }
 
@@ -468,7 +520,7 @@ function needsDateSep(idx) {
 }
 
 .mine .msg-quote-sender {
-  color: #bfdbfe;
+  color: var(--primary-border);
 }
 
 .msg-quote-text {
@@ -484,21 +536,50 @@ function needsDateSep(idx) {
   color: rgba(255, 255, 255, 0.75);
 }
 
-/* ── 返信ボタン ── */
-.msg-reply-btn {
+/* ── 長押しメニュー ── */
+.action-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 600;
+  display: flex;
+  align-items: flex-end;
+}
+.action-sheet {
+  width: 100%;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.action-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.action-item {
+  width: 100%;
+  padding: 14px 12px;
   background: none;
   border: none;
-  font-size: 16px;
-  color: var(--text-muted);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
-.msg-reply-btn:active,
-.msg-reply-btn:hover { opacity: 1; background: var(--border); }
+.action-item:active { background: #f1f5f9; }
+.action-item.danger { color: var(--danger, #dc2626); }
+.action-item.cancel { color: var(--text-muted); text-align: center; }
 
 /* ── 時刻 ── */
 .msg-time {
@@ -514,8 +595,8 @@ function needsDateSep(idx) {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  background: #eff6ff;
-  border-top: 1.5px solid #bfdbfe;
+  background: var(--primary-weak);
+  border-top: 1.5px solid var(--primary-border);
   flex-shrink: 0;
 }
 
@@ -581,7 +662,7 @@ function needsDateSep(idx) {
   cursor: pointer;
 }
 .mention-item:last-child { border-bottom: none; }
-.mention-item:active { background: #eff6ff; }
+.mention-item:active { background: var(--primary-weak); }
 
 /* ── 入力エリア ── */
 .chat-input-area {
@@ -631,6 +712,6 @@ function needsDateSep(idx) {
   cursor: default;
 }
 .chat-send-btn:not(:disabled):active {
-  background: #1d4ed8;
+  background: var(--primary-deep);
 }
 </style>

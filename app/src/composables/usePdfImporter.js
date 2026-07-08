@@ -129,6 +129,13 @@ function parseTemplateRows(rows) {
   return items
 }
 
+// Excel（先頭シート）を CSV テキストに変換する。列指定インポート・棚卸結果復元で流用。
+export function excelToCsv(arrayBuffer) {
+  const wb    = XLSX.read(arrayBuffer, { type: 'array' })
+  const sheet = wb.Sheets[wb.SheetNames[0]]
+  return sheet ? XLSX.utils.sheet_to_csv(sheet) : ''
+}
+
 export function parseExcelFile(arrayBuffer) {
   const wb    = XLSX.read(arrayBuffer, { type: 'array' })
   const items = []

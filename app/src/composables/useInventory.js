@@ -165,11 +165,9 @@ export function useInventory() {
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
     }
 
-    const date      = new Date().toISOString().slice(0, 10)
-    const hasPrices = Object.keys(config.prices ?? {}).length > 0
-    const header    = hasPrices
-      ? '日付,商品コード,品目名,単位,数量,単価,在庫金額'
-      : '日付,商品コード,品目名,単位,数量'
+    const date   = new Date().toISOString().slice(0, 10)
+    // 読み込んだ情報を全て出力（復元で往復できるフラット形式）
+    const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]
 
     const orderedItems = [
@@ -184,21 +182,19 @@ export function useInventory() {
       const e         = inventory[item] ?? null
       const unit      = csvSafe(e?.unit ?? config.units?.[item] ?? '')
       const code      = csvSafe(config.codes?.[item] ?? '')
+      const category  = csvSafe(config.categories?.[item] ?? '')
+      const lot       = csvSafe(config.lotSizes?.[item] ?? '')
+      const prev      = csvSafe(config.prevMonths?.[item] ?? '')
       const safeItem  = csvSafe(item)
-      if (hasPrices) {
-        const unitPrice = config.prices[item]
-        const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
-        if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
-        const qty = e != null ? e.qty : ''
-        rows.push(`"${date}","${code}","${safeItem}","${unit}",${qty},${unitPrice ?? ''},${subtotal}`)
-      } else {
-        const qty = e != null ? e.qty : ''
-        rows.push(`"${date}","${code}","${safeItem}","${unit}",${qty}`)
-      }
+      const unitPrice = config.prices?.[item]
+      const subtotal  = (e && unitPrice != null) ? Math.round(e.qty * unitPrice) : ''
+      if (typeof subtotal === 'number') { grandTotal += subtotal; hasAnyPrice = true }
+      const qty = e != null ? e.qty : ''
+      rows.push(`"${date}","${code}","${safeItem}","${category}","${unit}","${lot}","${prev}",${qty},${unitPrice ?? ''},${subtotal}`)
     })
 
     if (hasAnyPrice) {
-      rows.push(`"${date}","","【合計】","",,,${grandTotal}`)
+      rows.push(`"${date}","","【合計】","","","","",,,${grandTotal}`)
     }
 
     return rows.join('\r\n')

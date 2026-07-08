@@ -1,49 +1,95 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { shopCode } from '../composables/useStore.js'
-import { downloadItemTemplate } from '../composables/usePdfImporter.js'
+import { downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
-import TextPasteParserModal from './TextPasteParserModal.vue'
+import AxisAssignModal from './AxisAssignModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
-import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
+import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 
-const props = defineProps({ isGuest: Boolean })
+const props = defineProps({
+  isGuest: Boolean,
+  section: { type: String, default: 'all' }, // 'all'|'import'|'axis'|'device'|'push'|'general'
+  canRestore: { type: Boolean, default: false }, // 進行中セッション中のみ「結果CSVから復元」を出す
+})
 const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
 
+const _show = (s) =>
+  props.section === 'all' ||
+  props.section === s ||
+  (props.section === 'general' && (s === 'device' || s === 'push' || s === 'axis'))
+const sheetTitle = computed(() => ({
+  import: '品目のインポート', axis: '並び替え', device: '端末名', push: 'プッシュ通知', general: '各種設定',
+}[props.section] || '品目リスト設定'))
+
 const restoreInput = ref(null)
 function onRestoreFile(file) {
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   const reader = new FileReader()
   reader.onload = e => {
     try {
-      const rows = parseResultCSV(e.target.result)
+      const csvText = isExcel ? excelToCsv(e.target.result) : e.target.result
+      const rows = parseResultCSV(csvText)
       emit('restoreInventory', rows)
       emit('close')
     } catch (err) {
       status.value = { type: 'error', msg: err.message }
     }
   }
-  reader.readAsText(file, 'UTF-8')
+  if (isExcel) reader.readAsArrayBuffer(file)
+  else         reader.readAsText(file, 'UTF-8')
 }
 
 // CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
 function _importResultStatus(result) {
+  const mergedNote = result.merged > 0 ? `（同名${result.merged}件を統合）` : ''
   if (result.truncated > 0) {
     emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${result.truncated}件が上限を超えたため取り込まれませんでした。`)
-    return { type: 'warning', msg: `${result.count}件を読み込みました（${result.truncated}件は無料プラン上限超過のため未取込）` }
+    return { type: 'warning', msg: `${result.count}件を読み込みました${mergedNote}（${result.truncated}件は無料プラン上限超過のため未取込）` }
   }
-  return { type: 'success', msg: `${result.count}件の品目を読み込みました` }
+  return { type: 'success', msg: `${result.count}件の品目を読み込みました${mergedNote}` }
 }
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem, setAxisName, clearAxis,
 } = useConfig()
+
+// ── 並び替えの名前（明示的な追加・リネーム・削除）──────────────
+const newAxisName = ref('')
+const namedAxisList = computed(() =>
+  (config.axisNames ?? ['', '']).map((name, i) => ({ name, i })).filter(x => x.name)
+)
+const firstFreeAxis = computed(() => {
+  const a = config.axisNames ?? ['', '']
+  return !a[0] ? 0 : (!a[1] ? 1 : -1)
+})
+function onAddAxis() {
+  const n = newAxisName.value.trim()
+  const idx = firstFreeAxis.value
+  if (!n || idx < 0) return
+  setAxisName(idx, n)
+  newAxisName.value = ''
+}
+function onRenameAxis(i) {
+  const cur = config.axisNames?.[i] ?? ''
+  const nn = (prompt('並び替えの新しい名前', cur) || '').trim()
+  if (!nn || nn === cur) return
+  setAxisName(i, nn)
+}
+function onDeleteAxis(i) {
+  const name = config.axisNames?.[i] ?? ''
+  if (!confirm(`「${name}」の並び替えを削除します。振り分けたグループ・割り当ても消えます。よろしいですか？`)) return
+  clearAxis(i)
+}
+
+const showAssign = ref(false)
+const hasNamedAxis = computed(() => (config.axisNames?.[0] || config.axisNames?.[1]))
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
@@ -51,7 +97,6 @@ const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイ�
 const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
-const showPasteParser = ref(false)
 const dragging       = ref(false)
 const fileInput      = ref(null)
 const mapperInput    = ref(null)
@@ -104,29 +149,16 @@ function handleFile(file) {
 }
 
 function openMapper(file) {
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   const reader = new FileReader()
   reader.onload = e => {
-    mapperCsvText.value  = e.target.result
+    mapperCsvText.value  = isExcel ? excelToCsv(e.target.result) : e.target.result
     mapperFilename.value = file.name
     showMapper.value     = true
     status.value         = null
   }
-  reader.readAsText(file, 'UTF-8')
-}
-
-function onPasteParserApply(items) {
-  let count = 0, blocked = 0
-  for (const { name, unit } of items) {
-    if (addItem(name, null, null, unit || null, null)) count++
-    else if (!isPro() && itemCount.value >= FREE_ITEM_LIMIT) blocked++
-  }
-  showPasteParser.value = false
-  if (blocked > 0) {
-    emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${blocked}件が上限を超えたため追加できませんでした。`)
-    status.value = { type: 'warning', msg: `${count}件を追加しました（${blocked}件は無料プラン上限超過のため未追加）` }
-  } else {
-    status.value = { type: 'success', msg: `${count}件の品目を追加しました` }
-  }
+  if (isExcel) reader.readAsArrayBuffer(file)
+  else         reader.readAsText(file, 'UTF-8')
 }
 
 function onMapperImported({ mapping, csvText }) {
@@ -170,24 +202,16 @@ function onDownloadTemplate() {
   }
 }
 
-// ── 店舗コード ─────────────────────────────────────────────────────────────────
-const codeCopied = ref(false)
-function copyCode() {
-  navigator.clipboard.writeText(shopCode.value).then(() => {
-    codeCopied.value = true
-    setTimeout(() => (codeCopied.value = false), 2000)
-  })
-}
 </script>
 
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">品目リスト設定</div>
+      <div class="sheet-title">{{ sheetTitle }}</div>
 
       <!-- 現在の状態 -->
-      <div class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
+      <div v-if="_show('import')" class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
         <span class="status-icon">{{ config.isCustom ? '📝' : '📋' }}</span>
         <span>
           {{ config.isCustom ? 'カスタム設定' : 'デフォルト設定' }}
@@ -195,6 +219,7 @@ function copyCode() {
         </span>
       </div>
 
+      <template v-if="_show('import')">
       <!-- ゲストは品目変更不可 -->
       <div v-if="props.isGuest" class="guest-notice">
         参加中はホストが品目リストを管理します。<br>品目の変更はホスト端末から行ってください。
@@ -222,34 +247,22 @@ function copyCode() {
         </div>
       </template>
 
-      <!-- 納品書テキスト貼り付けで品目追加（ゲストには非表示） -->
-      <div v-if="!props.isGuest" class="mapper-row">
-        <button class="mapper-trigger" @click="showPasteParser = true">
-          📋 テキスト貼り付けで品目を追加（納品書・メモなど）
-        </button>
-      </div>
-
       <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
       <div v-if="!props.isGuest" class="mapper-row">
         <button class="mapper-trigger" @click="mapperInput.click()">
-          🗂 フォーマット不明のCSVを列指定でインポート
+          🗂 フォーマット不明のCSV/Excelを列指定でインポート
         </button>
-        <input ref="mapperInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
+        <input ref="mapperInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
       </div>
 
-      <!-- 棚卸結果CSVから入力を復元（ゲストには非表示） -->
-      <div v-if="!props.isGuest" class="mapper-row">
+      <!-- 棚卸結果CSVから入力を復元（進行中セッション中のみ・ゲスト非表示）-->
+      <div v-if="!props.isGuest && canRestore" class="mapper-row">
         <button class="mapper-trigger" @click="restoreInput.click()">
-          🔧 棚卸結果CSVから入力を復元
+          🔧 棚卸結果CSV/Excelから入力を復元
         </button>
-        <input ref="restoreInput" type="file" accept=".csv" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <input ref="restoreInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
-
-      <!-- Excelテンプレート ダウンロード（ゲストには非表示） -->
-      <button v-if="!props.isGuest" class="btn btn-secondary template-btn" @click="onDownloadTemplate">
-        📥 Excelテンプレートをダウンロード
-      </button>
 
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
@@ -291,21 +304,38 @@ function copyCode() {
           <p class="format-note">エイリアスを設定すると、音声で短縮名を言っても認識されます。<br>PDFから取込むと、品目名に応じてエイリアスが自動設定されます。</p>
         </div>
       </details>
+      </template>
 
-      <!-- 店舗コード -->
-      <div v-if="shopCode" class="store-section">
-        <div class="store-label">店舗コード</div>
-        <div class="store-code-row">
-          <span class="store-code-value">{{ shopCode }}</span>
-          <button class="store-copy-btn" @click="copyCode">
-            {{ codeCopied ? '✓ コピー済み' : 'コピー' }}
-          </button>
+      <!-- 並び替えの名前（最大2つ） -->
+      <div v-if="!props.isGuest && _show('axis')" class="device-section">
+        <div class="device-label">並び替えの名前（最大2つ）</div>
+        <p class="axis-note">「場所」「仕入先」など、品目をまとめて並び替えたい切り口に名前をつけます。</p>
+
+        <!-- 登録済み -->
+        <div v-for="a in namedAxisList" :key="a.i" class="axis-reg">
+          <span class="axis-num">{{ a.i === 0 ? '①' : '②' }}</span>
+          <span class="axis-reg-name">{{ a.name }}</span>
+          <button class="axis-mini" @click="onRenameAxis(a.i)">名前変更</button>
+          <button class="axis-mini danger" @click="onDeleteAxis(a.i)">削除</button>
         </div>
-        <div class="store-hint">このコードで他の端末からも同じデータにアクセスできます</div>
+
+        <!-- 追加（空きがあるとき）-->
+        <div v-if="firstFreeAxis >= 0" class="axis-row">
+          <input
+            type="text" class="device-input" v-model="newAxisName"
+            :placeholder="namedAxisList.length === 0 ? '例: 置き場所（冷凍庫・仕込み場…）' : '例: 仕入先（八百屋・肉屋…）'"
+            maxlength="12" @keyup.enter="onAddAxis"
+          />
+          <button class="axis-add-btn2" :disabled="!newAxisName.trim()" @click="onAddAxis">＋追加</button>
+        </div>
+
+        <button v-if="hasNamedAxis" class="axis-assign-btn" @click="showAssign = true">
+          🗂️ 品目をグループに振り分ける
+        </button>
       </div>
 
       <!-- 端末名設定 -->
-      <div class="device-section">
+      <div v-if="_show('device')" class="device-section">
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
         <div class="device-row">
           <input
@@ -325,13 +355,8 @@ function copyCode() {
         </div>
       </div>
 
-      <!-- アクションボタン（ゲストは非表示） -->
-      <div v-if="!props.isGuest" class="actions">
-        <button class="btn btn-secondary" @click="downloadCSV">📤 CSV出力</button>
-      </div>
-
       <!-- プッシュ通知 -->
-      <div v-if="pushSupported" class="notif-section">
+      <div v-if="pushSupported && _show('push')" class="notif-section">
         <div class="device-label">棚卸リマインダー通知</div>
         <div class="notif-row">
           <span class="notif-desc">
@@ -363,18 +388,12 @@ function copyCode() {
     v-if="showMapper"
     :csv-text="mapperCsvText"
     :filename="mapperFilename"
+    :axis-names="config.axisNames"
     @imported="onMapperImported"
     @close="showMapper = false"
   />
 
-  <!-- テキスト貼り付けパーサー（品目リスト追加モード） -->
-  <TextPasteParserModal
-    v-if="showPasteParser"
-    mode="import"
-    :config-order="config.order"
-    @apply="onPasteParserApply"
-    @close="showPasteParser = false"
-  />
+  <AxisAssignModal v-if="showAssign" @close="showAssign = false" />
 </template>
 
 <style scoped>
@@ -394,7 +413,7 @@ function copyCode() {
   margin-bottom: 16px;
 }
 .status-bar.default { background: #f1f5f9; color: var(--text-muted); }
-.status-bar.custom  { background: #eff6ff; color: var(--primary); }
+.status-bar.custom  { background: var(--primary-weak); color: var(--primary); }
 
 .drop-zone {
   border: 2px dashed var(--border);
@@ -406,7 +425,7 @@ function copyCode() {
   margin-bottom: 14px;
 }
 .drop-zone.over,
-.drop-zone:hover { border-color: var(--primary); background: #eff6ff; }
+.drop-zone:hover { border-color: var(--primary); background: var(--primary-weak); }
 
 .drop-icon  { font-size: 36px; margin-bottom: 8px; }
 .drop-label { font-size: 15px; font-weight: 600; color: var(--text); }
@@ -503,59 +522,17 @@ function copyCode() {
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
 
-/* 店舗コード */
-.store-section {
-  margin-bottom: 16px;
-  padding: 12px 14px;
-  background: #eff6ff;
-  border: 1.5px solid var(--primary);
-  border-radius: 12px;
-}
-
-.store-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 8px;
-}
-
-.store-code-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.store-code-value {
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--primary);
-  letter-spacing: 0.2em;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  flex: 1;
-}
-
-.store-copy-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.store-copy-btn:active { opacity: 0.8; }
-
-.store-hint {
-  font-size: 11px;
-  color: #3b82f6;
-  line-height: 1.5;
-}
+.axis-note { font-size: 11px; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.5; }
+.axis-reg { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+.axis-reg-name { flex: 1; font-size: 14px; font-weight: 700; color: var(--text); word-break: break-all; }
+.axis-mini { flex-shrink: 0; border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 5px 9px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.axis-mini.danger { color: #dc2626; border-color: #fecaca; }
+.axis-add-btn2 { flex-shrink: 0; border: none; background: var(--primary); color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer; }
+.axis-add-btn2:disabled { opacity: 0.4; cursor: not-allowed; }
+.axis-assign-btn { width: 100%; margin-top: 10px; padding: 10px; border: 1.5px solid var(--primary); background: var(--primary-weak); color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 10px; cursor: pointer; }
+.axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.axis-num { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); width: 30px; }
+.axis-row .device-input { flex: 1; }
 
 /* 端末名設定 */
 .device-section {
@@ -639,7 +616,7 @@ function copyCode() {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.15s, border-color 0.15s;
 }
-.mapper-trigger:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+.mapper-trigger:hover { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); }
 
 .mapper-hint {
   margin: 6px 2px 0;

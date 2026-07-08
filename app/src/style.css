@@ -6,7 +6,14 @@
 }
 
 :root {
-  --primary:      #2563eb;
+  --primary:        #2563eb;
+  --primary-bright: #3b82f6;
+  --primary-soft:   #dbeafe;
+  --primary-weak:   #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-deep:   #1d4ed8;
+  --primary-mid:    #93c5fd;
+  --primary-grad:   #4f46e5;
   --success:      #16a34a;
   --danger:       #dc2626;
   --bg:           #f1f5f9;
@@ -15,6 +22,18 @@
   --text:         #1e293b;
   --text-muted:   #64748b;
   --shadow:       0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* 発注確認セッションのオレンジテーマ（このクラスが付いた要素配下だけ変色） */
+.theme-order {
+  --primary:        #ea580c;
+  --primary-bright: #f97316;
+  --primary-soft:   #ffedd5;
+  --primary-weak:   #fff7ed;
+  --primary-border: #fed7aa;
+  --primary-deep:   #c2410c;
+  --primary-mid:    #fdba74;
+  --primary-grad:   #f97316;
 }
 
 body {
@@ -31,6 +50,8 @@ body {
   margin: 0 auto;
   padding-bottom: 80px;
 }
+/* 接続バナー表示中は内容を下げてヘッダーを隠さない */
+#app.has-banner { padding-top: 34px; }
 
 /* ── Header ── */
 .app-header {
@@ -179,13 +200,14 @@ body {
 .add-item-toggle:active { background: #f1f5f9; }
 .add-item-toggle-arrow { font-size: 11px; color: #94a3b8; font-weight: 600; }
 
+
 /* ── 同期中バナー ── */
 .sync-banner {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: #eff6ff;
-  border-bottom: 2px solid #93c5fd;
+  background: var(--primary-weak);
+  border-bottom: 2px solid var(--primary-mid);
   padding: 8px 14px 8px 20px;
   font-size: 12px;
   position: sticky;
@@ -203,7 +225,7 @@ body {
   padding: 16px 18px;
   border: none;
   border-radius: 16px;
-  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-grad) 100%);
   color: #fff;
   cursor: pointer;
   text-align: left;
@@ -298,7 +320,7 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.sync-banner-btn:active { background: #eff6ff; }
+.sync-banner-btn:active { background: var(--primary-weak); }
 
 .sync-banner-participants {
   display: flex;
@@ -311,20 +333,20 @@ body {
   font-size: 11px;
   font-weight: 600;
   padding: 3px 10px;
-  background: #dbeafe;
+  background: var(--primary-soft);
   border: 1px solid transparent;
   border-radius: 10px;
-  color: #1d4ed8;
+  color: var(--primary-deep);
   white-space: nowrap;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: border-color 0.12s, transform 0.12s;
 }
 .sync-participant-chip:active { transform: scale(0.94); }
-.sync-participant-chip:hover { border-color: #93c5fd; }
+.sync-participant-chip:hover { border-color: var(--primary-mid); }
 
 .sync-participant-chip.me {
-  background: #bfdbfe;
+  background: var(--primary-border);
 }
 
 .sync-participant-chip.done {
@@ -549,10 +571,10 @@ body {
 }
 
 .btn-collapse-all { color: var(--text-muted); }
-.btn-expand-all   { color: var(--primary); border-color: #bfdbfe; }
+.btn-expand-all   { color: var(--primary); border-color: var(--primary-border); }
 
 .btn-collapse-all:active { background: #f1f5f9; }
-.btn-expand-all:active   { background: #eff6ff; }
+.btn-expand-all:active   { background: var(--primary-weak); }
 
 /* ── 棚卸完了バナー ── */
 .complete-banner {
@@ -717,7 +739,7 @@ body {
 /* 解散 */
 .toast[data-type="error"]   { background: #dc2626; }
 /* データ更新 */
-.toast[data-type="update"]  { background: #2563eb; }
+.toast[data-type="update"]  { background: var(--primary); }
 /* 完了・保存 */
 .toast[data-type="success"] { background: #059669; }
 /* 警告・競合 */
@@ -738,7 +760,7 @@ body {
   justify-content: center;
   gap: 14px;
   padding: 11px 16px calc(11px + env(safe-area-inset-top, 0px));
-  background: #1d4ed8;
+  background: var(--primary-deep);
   color: white;
   font-size: 13px;
   font-weight: 600;
@@ -750,7 +772,7 @@ body {
 .pwa-banner-btn {
   padding: 6px 16px;
   background: white;
-  color: #1d4ed8;
+  color: var(--primary-deep);
   border: none;
   border-radius: 20px;
   font-size: 13px;
@@ -771,8 +793,8 @@ body {
 .session-elapsed {
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary, #3b82f6);
-  background: #eff6ff;
+  color: var(--primary, var(--primary-bright));
+  background: var(--primary-weak);
   padding: 2px 8px;
   border-radius: 10px;
   white-space: nowrap;
@@ -802,7 +824,7 @@ body {
 .add-item-label {
   font-size: 12px;
   font-weight: 700;
-  color: #2563eb;
+  color: var(--primary);
   margin-bottom: 8px;
   letter-spacing: 0.03em;
 }
@@ -830,7 +852,7 @@ body {
 }
 
 .add-input:focus {
-  border-color: #2563eb;
+  border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
 }
 
@@ -840,7 +862,7 @@ body {
 
 .add-item-btn {
   padding: 8px 18px;
-  background: #2563eb;
+  background: var(--primary);
   color: white;
   border: none;
   border-radius: 8px;
@@ -851,7 +873,7 @@ body {
   flex-shrink: 0;
 }
 
-.add-item-btn:active { background: #1d4ed8; }
+.add-item-btn:active { background: var(--primary-deep); }
 
 .add-item-error {
   margin-top: 6px;
@@ -900,7 +922,7 @@ body {
 .empty-items-btn {
   margin-top: 8px;
   padding: 12px 28px;
-  background: var(--primary, #3b82f6);
+  background: var(--primary, var(--primary-bright));
   color: white;
   border: none;
   border-radius: 14px;

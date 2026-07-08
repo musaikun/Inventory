@@ -221,7 +221,7 @@ function onCodeInput(e) {
 .code-input:focus { border-color: var(--primary); }
 
 .new-code-card {
-  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  background: linear-gradient(135deg, var(--primary-weak), var(--primary-soft));
   border: 2px solid var(--primary);
   border-radius: 16px;
   padding: 20px;
