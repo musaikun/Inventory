@@ -175,7 +175,7 @@ export async function handleRoomResult(db, code, sessionId) {
 // GET /store/:code/sessions
 export async function handleSessionsGet(db, code) {
   const rows = await db.prepare(`
-    SELECT id, shop_code, started_at, ended_at, status, item_count
+    SELECT id, shop_code, started_at, ended_at, status, item_count, type
     FROM sessions WHERE shop_code = ? ORDER BY started_at DESC LIMIT 50
   `).bind(code).all()
   return rows.results.map(r => ({
@@ -185,17 +185,19 @@ export async function handleSessionsGet(db, code) {
     endedAt:   r.ended_at   ?? null,
     status:    r.status,
     itemCount: r.item_count,
+    type:      r.type ?? 'stock',
   }))
 }
 
-// POST /store/:code/sessions
-export async function handleSessionCreate(db, code) {
-  const id  = crypto.randomUUID()
-  const now = _now()
+// POST /store/:code/sessions  body: { type? }
+export async function handleSessionCreate(db, code, body = {}) {
+  const id   = crypto.randomUUID()
+  const now  = _now()
+  const type = body?.type === 'order' ? 'order' : 'stock'
   await db.prepare(
-    "INSERT INTO sessions (id, shop_code, started_at, status, item_count) VALUES (?, ?, ?, 'active', 0)"
-  ).bind(id, code, now).run()
-  return { id, shopCode: code, startedAt: now, status: 'active', itemCount: 0 }
+    "INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, 'active', 0, ?)"
+  ).bind(id, code, now, type).run()
+  return { id, shopCode: code, startedAt: now, status: 'active', itemCount: 0, type }
 }
 
 // DELETE /store/:code/sessions/:id

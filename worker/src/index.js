@@ -170,7 +170,8 @@ export default {
         if (subpath === '/sessions' && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return jsonResponse(await handleSessionCreate(env.DB, code), 200, origin, allowedOrigin)
+          const body = await request.json().catch(() => ({}))
+          return jsonResponse(await handleSessionCreate(env.DB, code, body), 200, origin, allowedOrigin)
         }
 
         // PUT/DELETE /store/:code/sessions/:id （要認証）

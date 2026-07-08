@@ -252,43 +252,25 @@ async function onAuthDone() {
   await _pullAccountConfig()
 }
 
-// セッション一覧から「セッション開始」
+// セッション一覧から「セッション開始」（棚卸=stock / 発注=order の型付きセッション）
 async function onSessionStart(session, mode = 'stock') {
-  sessionMode.value = mode === 'order' ? 'order' : 'stock'
-  // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
-  if (hasHostToken('stock')) await dissolveRoomRemote('stock')
+  const isOrder = mode === 'order'
+  sessionMode.value = isOrder ? 'order' : 'stock'
+  // 棚卸: 残存ルームを解散。発注: 棚卸ルームは壊さず、この端末は現在のルームから離脱のみ。
+  if (!isOrder && hasHostToken('stock')) await dissolveRoomRemote('stock')
+  if (isOrder && syncActive.value) leaveRoom()
   practiceMode.value = false
   beginSession(session)
   reset()
   clearAuditLog()
   activeTimer.start()
-  // 空リストで開始しても自動でモーダルは開かない。
-  // 検索欄に品目名を打つ＝その場で登録→数量モーダル（歩きながら積み上げ登録）が主動線。
-  // まとめて入れたい場合は品目リスト設定の CSV/PDF 取込を使う。
+  // 空リストで開始しても自動でモーダルは開かない（検索→その場登録が主動線）。
   const startedEmpty = config.order.length === 0
   showAddItemForm.value = false
-  // 空で開始したら D1 にも空 config を保存する。
-  // これをしないと再開時に D1 の古いリストを読み戻して品目が復活する。
   if (startedEmpty) _persistConfigToD1()
   track('session_started')
-  // 品目リストは引き継ぐ（再インポートは開始バナーからユーザーが選択）
   await _startSessionView({ loadConfig: false })
-}
-
-// 発注確認を開始（＝入力モード）。棚卸の D1 セッション行・ルーム・pendingSession を汚さない。
-// 記録は orders へ（次段）。ルームは発注用（type=order）を別DOで持てる。
-async function onOrderStart() {
-  sessionMode.value = 'order'
-  // 棚卸ルームには触れない。この端末が同期中なら離脱のみ（解散しない）。
-  if (syncActive.value) leaveRoom()
-  practiceMode.value = false
-  clearSession()        // 棚卸の pendingSession を現在扱いにしない（D1の棚卸行は残す）
-  reset()
-  clearAuditLog()
-  activeTimer.start()
-  showAddItemForm.value = false
-  showToast('発注確認を開始しました', 2600, 'default')
-  currentView.value = 'session'
+  if (isOrder) showToast('発注確認を開始しました', 2600, 'default')
 }
 
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
@@ -334,7 +316,7 @@ function onViewSession(session) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
-  sessionMode.value = 'stock'
+  sessionMode.value = session?.type === 'order' ? 'order' : 'stock'
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
   clearAuditLog()
@@ -1945,7 +1927,6 @@ function dismissReview() {
       :live-session-id="pendingSession?.id ?? null"
       :new-session-id="newSessionId"
       @start-session="onSessionStart"
-      @start-order="onOrderStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
