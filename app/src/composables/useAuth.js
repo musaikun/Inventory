@@ -75,11 +75,11 @@ export async function getSessions() {
   return _api(`/store/${code}/sessions`)
 }
 
-// POST /store/:code/sessions
-export async function createSession() {
+// POST /store/:code/sessions  body: { type }
+export async function createSession(type = 'stock') {
   const code = shopCode.value
   if (!code || !_token.value) throw new Error('認証が必要です')
-  return _api(`/store/${code}/sessions`, { method: 'POST' })
+  return _api(`/store/${code}/sessions`, { method: 'POST', body: JSON.stringify({ type }) })
 }
 
 // PUT /store/:code/sessions/:id  { status, itemCount }

@@ -82,8 +82,7 @@ async function onCreateRoom() {
     const d1SessionId = pendingSession.value?.id ?? ''
     const isReconnect = state.isSessionActive && !!doSessionId && doSessionId === d1SessionId
 
-    // 発注ルームは棚卸の D1 セッション行を作らない（棚卸一覧・pendingSession を汚さない）。
-    if (!isReconnect && props.roomType !== 'order') {
+    if (!isReconnect) {
       let sessionId = ''
       const useExisting = isAuthenticated.value
         && pendingSession.value?.id
@@ -96,7 +95,7 @@ async function onCreateRoom() {
         }
       } else if (isAuthenticated.value) {
         try {
-          const sess = await createSession()
+          const sess = await createSession(props.roomType)
           begin(sess)
           sessionId = sess.id
         } catch (e) {

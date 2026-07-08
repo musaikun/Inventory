@@ -23,7 +23,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'startOrder', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
@@ -146,13 +146,18 @@ const inProgressSessions = computed(() =>
     .filter(s => s.status !== 'completed')
     .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))
 )
+// 種類で振り分け（棚卸=stock / 発注=order）。type未設定の旧行は棚卸扱い。
+const stockInProgress = computed(() => inProgressSessions.value.filter(s => (s.type ?? 'stock') !== 'order'))
+const orderInProgress = computed(() => inProgressSessions.value.filter(s => s.type === 'order'))
 
-// 1店舗 = 同時に1棚卸。最新の進行中をヒーローに、残りはレガシー整理用に下へ
-const activeSession = computed(() => inProgressSessions.value[0] || null)
-const otherActiveSessions = computed(() => inProgressSessions.value.slice(1))
+// 棚卸: 1店舗=同時に1棚卸。最新の進行中をヒーローに、残りはレガシー整理用に下へ
+const activeSession = computed(() => stockInProgress.value[0] || null)
+const otherActiveSessions = computed(() => stockInProgress.value.slice(1))
+// 発注: 進行中の発注セッション（あれば発注カードをヒーロー表示）
+const activeOrderSession = computed(() => orderInProgress.value[0] || null)
 
 const completedSessions = computed(() =>
-  sessions.value.filter(s => s.status === 'completed')
+  sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order')
 )
 
 // Free プラン: 直近 FREE_HISTORY_COUNT 件のみ表示（新しい順）
@@ -303,9 +308,17 @@ function onImportList() {
   emit('openSettings')
 }
 
-// 発注確認を開始（棚卸のセッション行・ルームを作らない＝汚染しない。App側で入力モードへ）
-function onStartOrder() {
-  emit('startOrder')
+// 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
+async function onStartOrder() {
+  starting.value = true
+  try {
+    const session = await createSession('order')
+    emit('startSession', session, 'order')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    starting.value = false
+  }
 }
 
 async function onStartWithSample() {
@@ -487,7 +500,19 @@ function _itemCount(session) {
           </button>
 
           <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
-          <button class="order-start" :disabled="starting" @click="onStartOrder">
+          <div v-if="activeOrderSession" class="order-live">
+            <div class="order-live-top">
+              <span class="order-live-badge">🧾 進行中の発注</span>
+              <button class="order-live-discard" :disabled="deletingId === activeOrderSession.id" @click="onDelete(activeOrderSession)">破棄</button>
+            </div>
+            <div class="order-live-row">
+              <span class="hl-label">開始</span>
+              <span class="hl-value">{{ _formatDate(activeOrderSession.startedAt) }}</span>
+              <span class="hl-elapsed">経過 {{ _formatElapsed(activeOrderSession.startedAt) }}</span>
+            </div>
+            <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
+          </div>
+          <button v-else class="order-start" :disabled="starting" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
               <div class="order-start-title">発注確認を開始</div>
@@ -946,6 +971,30 @@ function _itemCount(session) {
 .order-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #c2410c; }
 .order-start-sub { font-size: 12px; color: #b45309; margin-top: 2px; }
 .order-start-arrow { font-size: 22px; font-weight: 300; color: #ea580c; flex-shrink: 0; }
+
+/* 進行中の発注（淡いオレンジのヒーロー） */
+.order-live {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border: 1.5px solid #fed7aa;
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 4px;
+  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+}
+.order-live-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.order-live-badge { font-size: 15px; font-weight: 800; color: #c2410c; }
+.order-live-discard { border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; }
+.order-live-discard:disabled { opacity: 0.4; cursor: default; }
+.order-live-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #b45309; margin-bottom: 12px; }
+.order-live-row .hl-label { font-weight: 700; }
+.order-live-row .hl-elapsed { margin-left: auto; }
+.order-live-resume {
+  width: 100%; border: none; border-radius: 12px; padding: 12px;
+  background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%);
+  color: #fff; font-size: 15px; font-weight: 800; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-live-resume:active { transform: scale(0.98); }
 
 /* ヒーロー: LIVE 再開カード */
 .hero-live {
