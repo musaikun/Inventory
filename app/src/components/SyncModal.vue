@@ -13,6 +13,8 @@ const props = defineProps({
   isInventoryCompleted: { type: Boolean, default: false },
   // メイン画面のCTAから開いたとき、マウント時に自動でルーム作成フローを起動する
   autoCreate:           { type: Boolean, default: false },
+  // 'stock'=棚卸ルーム / 'order'=発注ルーム（同一shopCodeでも別DO）
+  roomType:             { type: String, default: 'stock' },
 })
 
 const { pendingSession, markActive, begin } = useSession()
@@ -67,7 +69,7 @@ async function onCreateRoom() {
   }
   createError.value = ''
   try {
-    await createRoom()
+    await createRoom(props.roomType)
 
     // DO のセッション ID と D1 の pendingSession.id が一致する場合のみ「再接続」扱い。
     // isSessionActive だけで判断すると、ホストが一覧へ戻って新しいセッションを開始した後も

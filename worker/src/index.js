@@ -261,7 +261,10 @@ export default {
         }
       }
 
-      const id   = env.ROOMS.idFromName(`room:${code}`)
+      // 種類でルーム（DOインスタンス）を分ける。棚卸=既定、発注=:order。
+      // ユーザーが見るコードは shopCode のままで、?type=order でDO名だけ切り替える。
+      const rtype  = url.searchParams.get('type') === 'order' ? ':order' : ''
+      const id   = env.ROOMS.idFromName(`room:${code}${rtype}`)
       const room = env.ROOMS.get(id)
       if (action === 'ws') return room.fetch(request)
       if ((action === 'dissolve' && request.method === 'POST') ||

@@ -123,13 +123,15 @@ function _setNewSession(id) {
 // ── ルーム参加前の名前設定 ────────────────────────────────────────────────────
 const pendingJoinCode      = ref(null)
 const pendingJoinSessionId = ref(null)  // 招待リンクのセッションID（鍵）
+const pendingJoinType      = ref('stock') // 参加先ルームの種類（棚卸/発注）
 const showNameModal    = ref(false)
 const pendingName      = ref('')
 const pendingNameError = ref(false)
 
-function _askNameAndJoin(code, joinSessionId = null) {
+function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
   pendingJoinCode.value      = code
   pendingJoinSessionId.value = joinSessionId
+  pendingJoinType.value      = type === 'order' ? 'order' : 'stock'
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
   showNameModal.value    = true
@@ -137,10 +139,10 @@ function _askNameAndJoin(code, joinSessionId = null) {
 
 // セッションID付きリンク（?store=CODE&s=SID）の入口
 // まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
-async function _enterStoreLink(code, sessionId) {
-  const status = await fetchRoomStatus(code).catch(() => null)
+async function _enterStoreLink(code, sessionId, type = 'stock') {
+  const status = await fetchRoomStatus(code, type).catch(() => null)
   if (status?.isActive && status.sessionId === sessionId) {
-    _askNameAndJoin(code, sessionId)   // 棚卸中: ライブルームに参加（鍵を渡す）
+    _askNameAndJoin(code, sessionId, type)   // ライブ中: ルームに参加（鍵を渡す）
     return
   }
   // 完了後: D1 スナップショットから金額抜きの結果を取得
@@ -161,6 +163,7 @@ async function onConfirmName() {
   showNameModal.value   = false
   const code            = pendingJoinCode.value
   const joinSid         = pendingJoinSessionId.value
+  const joinType        = pendingJoinType.value
   pendingJoinCode.value = null
   pendingJoinSessionId.value = null
 
@@ -171,9 +174,10 @@ async function onConfirmName() {
     return
   }
 
+  sessionMode.value     = joinType === 'order' ? 'order' : 'stock'
   currentView.value     = 'session'
   try {
-    await joinRoom(code, joinSid)
+    await joinRoom(code, joinSid, joinType)
     const isRejoined = syncState.mode === 'hosting'
     showToast(
       isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
@@ -252,7 +256,7 @@ async function onAuthDone() {
 async function onSessionStart(session, mode = 'stock') {
   sessionMode.value = mode === 'order' ? 'order' : 'stock'
   // 前セッションのルームが退室済みで残っていれば即解散（残存ルームによる汚染・遅延キック防止）
-  if (hasHostToken()) await dissolveRoomRemote()
+  if (hasHostToken('stock')) await dissolveRoomRemote('stock')
   practiceMode.value = false
   beginSession(session)
   reset()
@@ -271,11 +275,27 @@ async function onSessionStart(session, mode = 'stock') {
   await _startSessionView({ loadConfig: false })
 }
 
+// 発注確認を開始（＝入力モード）。棚卸の D1 セッション行・ルーム・pendingSession を汚さない。
+// 記録は orders へ（次段）。ルームは発注用（type=order）を別DOで持てる。
+async function onOrderStart() {
+  sessionMode.value = 'order'
+  // 棚卸ルームには触れない。この端末が同期中なら離脱のみ（解散しない）。
+  if (syncActive.value) leaveRoom()
+  practiceMode.value = false
+  clearSession()        // 棚卸の pendingSession を現在扱いにしない（D1の棚卸行は残す）
+  reset()
+  clearAuditLog()
+  activeTimer.start()
+  showAddItemForm.value = false
+  showToast('発注確認を開始しました', 2600, 'default')
+  currentView.value = 'session'
+}
+
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
 let _prepracticeConfig = null
 async function onStartPractice() {
   sessionMode.value = 'stock'
-  if (hasHostToken()) await dissolveRoomRemote()
+  if (hasHostToken('stock')) await dissolveRoomRemote('stock')
   if (syncActive.value) leaveRoom()
   practiceMode.value = true
   reset()
@@ -735,37 +755,40 @@ onMounted(async () => {
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
   const joinSid    = params.get('s')   // 招待リンクのセッションID（鍵）
+  const joinType   = params.get('type') === 'order' ? 'order' : 'stock'
 
   if (roomCode) {
     const url = new URL(window.location.href)
-    url.searchParams.delete('room'); url.searchParams.delete('s')
+    url.searchParams.delete('room'); url.searchParams.delete('s'); url.searchParams.delete('type')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
-    _askNameAndJoin(roomCode, joinSid)
+    _askNameAndJoin(roomCode, joinSid, joinType)
   } else if (storeParam) {
     // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
     const url = new URL(window.location.href)
-    url.searchParams.delete('store'); url.searchParams.delete('s')
+    url.searchParams.delete('store'); url.searchParams.delete('s'); url.searchParams.delete('type')
     history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     // セッションID付きリンク: ライブ中なら参加、完了後なら読み取り専用の結果ビューへ
-    if (joinSid) _enterStoreLink(storeParam, joinSid)
-    else         _askNameAndJoin(storeParam, joinSid)
+    if (joinSid) _enterStoreLink(storeParam, joinSid, joinType)
+    else         _askNameAndJoin(storeParam, joinSid, joinType)
   } else {
     const guestSession = getSavedGuestSession()
     if (guestSession) {
       // ゲスト参加中だったセッションを優先復帰（ホスト登録があっても関係なく戻す）
       discardSavedSession()
+      const rejoinType = guestSession.roomType === 'order' ? 'order' : 'stock'
+      sessionMode.value = rejoinType
       currentView.value = 'session'
       const rejoinCode = guestSession.roomCode
       const rejoinSid  = guestSession.sessionId ?? null
       if (deviceName.value) {
-        joinRoom(rejoinCode, rejoinSid)
+        joinRoom(rejoinCode, rejoinSid, rejoinType)
           .then(() => showToast(`ルーム ${rejoinCode} に再参加しました`, 3000, 'join'))
           .catch(() => {
             showToast(syncState.error || 'ルームへの参加に失敗しました', 5000, 'error')
             currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
           })
       } else {
-        _askNameAndJoin(rejoinCode, rejoinSid)
+        _askNameAndJoin(rejoinCode, rejoinSid, rejoinType)
       }
     } else {
       // ゲストセッションなし: ホストセッションを自動復元
@@ -1922,6 +1945,7 @@ function dismissReview() {
       :live-session-id="pendingSession?.id ?? null"
       :new-session-id="newSessionId"
       @start-session="onSessionStart"
+      @start-order="onOrderStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
       @view-session="onViewSession"
@@ -2361,7 +2385,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
-    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
+    <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
     <UpgradeModal         v-if="showUpgrade"    :reason="upgradeReason" :twa-mode="isTwaApp()" @close="showUpgrade = false" />

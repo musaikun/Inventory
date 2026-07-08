@@ -23,7 +23,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'startOrder', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
 const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
@@ -303,17 +303,9 @@ function onImportList() {
   emit('openSettings')
 }
 
-// 発注確認セッションを開始（オレンジテーマ）
-async function onStartOrder() {
-  starting.value = true
-  try {
-    const session = await createSession()
-    emit('startSession', session, 'order')
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    starting.value = false
-  }
+// 発注確認を開始（棚卸のセッション行・ルームを作らない＝汚染しない。App側で入力モードへ）
+function onStartOrder() {
+  emit('startOrder')
 }
 
 async function onStartWithSample() {
