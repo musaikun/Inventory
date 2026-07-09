@@ -440,7 +440,7 @@ function onRowKeydown(e, item) {
   }
 }
 
-defineExpose({ getNextVisibleItem })
+defineExpose({ getNextVisibleItem, getPrevVisibleItem })
 
 const pendingDelete = ref(null)  // 削除確認中の品目名
 

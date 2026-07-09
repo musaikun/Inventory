@@ -24,9 +24,11 @@ const props = defineProps({
   initialTagB:     { type: String, default: '' },   // 軸2の現在値
   existingTagsA:   { type: Array,  default: () => [] }, // 軸1の既存値（候補）
   existingTagsB:   { type: Array,  default: () => [] }, // 軸2の既存値（候補）
+  canPrev:         { type: Boolean, default: false }, // 前の品目へ移動可能
+  canNext:         { type: Boolean, default: false }, // 次の品目へ移動可能
 })
 
-const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save'])
+const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
 
 // 編集モードでは単位・ジャンルのロックを解除して編集できる（編集が唯一の変更手段）
 const unitEditable     = computed(() => props.isEdit || !props.unitLocked)
@@ -208,6 +210,23 @@ function submit(isAdd) {
   })
 }
 
+// 前後の品目へ移動（現在の入力を保存してから移動先を開く。空欄=変更なしで移動）
+function navigate(dir) {
+  const empty = qty.value === '' || qty.value == null
+  const q = empty ? null : parseFloat(qty.value)
+  if (q !== null && (isNaN(q) || q < 0)) { hasError.value = true; return }
+  hasError.value = false
+  emit('navigate', {
+    dir,
+    ingredient: props.ingredient,
+    qty:        q,
+    unit:       unit.value.trim(),
+    category:   category.value.trim(),
+    isAdd:      false,
+    isNew:      props.isNew,
+  })
+}
+
 // 編集モードの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
 function saveEdit() {
   const name = editName.value.trim()
@@ -256,7 +275,23 @@ function saveEdit() {
         class="edit-name-input"
       />
       <div v-else class="name-box">
-        {{ ingredient }}
+        <div class="name-row">
+          <button
+            class="name-nav prev"
+            :disabled="!canPrev"
+            @click="navigate('prev')"
+            type="button"
+            aria-label="前の品目"
+          >◀</button>
+          <span class="name-text">{{ ingredient }}</span>
+          <button
+            class="name-nav next"
+            :disabled="!canNext"
+            @click="navigate('next')"
+            type="button"
+            aria-label="次の品目"
+          >▶</button>
+        </div>
         <div class="name-hints">
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
@@ -474,6 +509,44 @@ function saveEdit() {
   position: sticky;
   top: 0;
   z-index: 2;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.name-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.name-nav {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 9px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, opacity 0.12s;
+}
+
+.name-nav:active {
+  background: var(--primary-border);
+}
+
+.name-nav:disabled {
+  opacity: 0.28;
+  cursor: default;
 }
 
 .name-hints {

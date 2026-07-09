@@ -1493,26 +1493,22 @@ function _finishConfirmNav(source) {
   _restartIfContinuous()
 }
 
-function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
+// 数量入力の保存本体。次遷移/ナビゲーションは呼び出し側で行う。
+// 戻り値: 'blocked'（競合/上限で保存せず）/ 'skipped'（数量未入力で名前のみ）/ 'saved'
+function _applyConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   _stopTypingKeepalive()
   if (syncActive.value) broadcastTyping(ingredient, false)
 
   if (syncActive.value && (lockedIngredients.has(ingredient) || conflictQueue.value.some(c => c.ingredient === ingredient))) {
-    confirmState.value = null
-    pendingCandidates.value = null
     showToast(`「${ingredient}」の競合を先に解決してください`, 2500, 'warning')
-    _restartIfContinuous()
-    return
+    return 'blocked'
   }
-
-  const source = confirmState.value.source
 
   // 新規品目: 「新規登録」ボタンが押されて初めてマスタへ追加する（誤登録を防ぐ）
   if (isNew && !config.order.includes(ingredient)) {
     if (!canAddItem(config.order.length)) {
-      confirmState.value = null
       openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
-      return
+      return 'blocked'
     }
     addItem(ingredient, null, category || null, unit || null, null)
     track('item_added_walk')
@@ -1523,11 +1519,10 @@ function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
 
   const existing = confirmExisting.value
 
-  // 数量が未入力なら記録はせず、名前だけ登録してループを次へ
+  // 数量が未入力なら記録はせず、名前だけ登録
   if (qty === null || qty === undefined) {
     if (isNew) showToast(`「${ingredient}」を登録しました`)
-    _finishConfirmNav(source)
-    return
+    return 'skipped'
   }
 
   const rawFinal  = isAdd && existing ? existing.qty + qty : qty
@@ -1540,8 +1535,40 @@ function onConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   }
   if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '名前未設定', isAdd && !!existing)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
+  return 'saved'
+}
+
+function onConfirm(payload) {
+  const source = confirmState.value?.source
+  const r = _applyConfirm(payload)
+  if (r === 'blocked') {
+    confirmState.value = null
+    pendingCandidates.value = null
+    _restartIfContinuous()
+    return
+  }
   _finishConfirmNav(source)
 }
+
+// 入力モーダルの左右矢印: 現在値を保存してから前/次の品目のモーダルへ移動する
+function onConfirmNavigate({ dir, ...payload }) {
+  const current = confirmState.value?.ingredient
+  const table   = inventoryTableRef.value
+  if (!current || !table) return
+  const target = dir === 'prev' ? table.getPrevVisibleItem(current) : table.getNextVisibleItem(current)
+  if (!target) return   // 端: 移動しない
+  if (_applyConfirm(payload) === 'blocked') return   // 競合等: 現在のモーダルを維持
+  _openTableConfirm(target)
+}
+
+const confirmCanPrev = computed(() => {
+  const i = confirmState.value?.ingredient
+  return !!(i && inventoryTableRef.value?.getPrevVisibleItem?.(i))
+})
+const confirmCanNext = computed(() => {
+  const i = confirmState.value?.ingredient
+  return !!(i && inventoryTableRef.value?.getNextVisibleItem?.(i))
+})
 
 function onCancelConfirm() {
   _stopTypingKeepalive()
@@ -2277,7 +2304,10 @@ function dismissReview() {
         :audit-log="auditLog"
         :is-flagged="!!recountFlags[confirmState.ingredient]"
         :typing-user="syncActive ? (typingMap[confirmState.ingredient]?.name ?? null) : null"
+        :can-prev="confirmCanPrev"
+        :can-next="confirmCanNext"
         @confirm="onConfirm"
+        @navigate="onConfirmNavigate"
         @cancel="onCancelConfirm"
         @revert="onConfirmRevert"
         @edit-save="onEditSave"
