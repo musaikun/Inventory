@@ -67,22 +67,22 @@ const trackStyle = computed(() => {
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
-const liveRoom = ref(null)   // /status の生レスポンス
+const liveRoom      = ref(null)   // 棚卸ルーム /status
+const liveOrderRoom = ref(null)   // 発注ルーム /status（type=order）
 const now      = ref(Date.now())
 let _statusTimer = null
 
 async function _pollRoomStatus() {
   now.value = Date.now()
-  if (!shopCode.value) { liveRoom.value = null; return }
-  liveRoom.value = await fetchRoomStatus(shopCode.value)
+  if (!shopCode.value) { liveRoom.value = null; liveOrderRoom.value = null; return }
+  liveRoom.value = await fetchRoomStatus(shopCode.value, 'stock')
+  liveOrderRoom.value = activeOrderSession.value ? await fetchRoomStatus(shopCode.value, 'order') : null
 }
 
-// アクティブセッションに対応するライブルーム状態（別セッションのルームは無視）
-// 旧 Worker（participants 未対応）でも壊れないよう正規化する
-const liveStatus = computed(() => {
-  const r = liveRoom.value
-  if (!r || !activeSession.value) return null
-  if (r.sessionId && r.sessionId !== activeSession.value.id) return null
+// 指定セッションに対応するライブルーム状態に正規化（別セッションのルームは無視）
+function _normStatus(r, session) {
+  if (!r || !session) return null
+  if (r.sessionId && r.sessionId !== session.id) return null
   return {
     ...r,
     participants: Array.isArray(r.participants) ? r.participants : [],
@@ -90,9 +90,14 @@ const liveStatus = computed(() => {
     roomExists:   r.roomExists ?? r.isActive ?? false,
     totalItems:   typeof r.totalItems === 'number' ? r.totalItems : null,
   }
-})
+}
 
-const isRoomConnected = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
+const liveStatus       = computed(() => _normStatus(liveRoom.value, activeSession.value))
+const orderLiveStatus  = computed(() => _normStatus(liveOrderRoom.value, activeOrderSession.value))
+const isRoomConnected      = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
+const isOrderRoomConnected = computed(() => (orderLiveStatus.value?.clientCount ?? 0) > 0)
+const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
+const orderTotalItems = computed(() => orderLiveStatus.value?.totalItems ?? null)
 
 const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
 const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? null)
@@ -510,6 +515,39 @@ function _itemCount(session) {
               <span class="hl-value">{{ _formatDate(activeOrderSession.startedAt) }}</span>
               <span class="hl-elapsed">経過 {{ _formatElapsed(activeOrderSession.startedAt) }}</span>
             </div>
+
+            <!-- ルーム状態（棚卸カードと同じ） -->
+            <div class="order-live-row hl-room">
+              <template v-if="isOrderRoomConnected">
+                <span class="room-badge online">🟢 ルーム接続中</span>
+                <span class="room-people">{{ orderLiveStatus.clientCount }}人が参加中</span>
+              </template>
+              <template v-else-if="orderLiveStatus && orderLiveStatus.roomExists">
+                <span class="room-badge idle">🟡 ルーム保持中</span>
+                <span class="room-people">接続中の端末はありません</span>
+              </template>
+              <template v-else>
+                <span class="room-badge off">⚪ ルーム未接続</span>
+                <span class="room-people">オフライン（端末内に保存済み）</span>
+              </template>
+            </div>
+
+            <!-- 参加者 -->
+            <div v-if="orderLiveStatus?.participants?.length" class="hl-people">
+              <span
+                v-for="(p, i) in orderLiveStatus.participants" :key="i"
+                class="person-chip" :class="{ host: p.isHost, done: p.isDone }"
+              >
+                <span v-if="p.isHost" class="person-crown">👑</span>{{ p.name }}<span v-if="p.isDone" class="person-check">✓</span>
+              </span>
+            </div>
+
+            <!-- 品目入力数 -->
+            <div class="order-live-row">
+              <span class="hl-prog-count">{{ orderLiveStatus?.totalItems ?? orderItemCount }}</span>
+              <span class="hl-prog-total"> 品目入力済み</span>
+            </div>
+
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
           </div>
           <button v-else class="order-start" :disabled="starting" @click="onStartOrder">

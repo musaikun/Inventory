@@ -337,10 +337,18 @@ async function onSessionResume(session) {
 // 店舗ルームは shopCode 単位の共有シングルトンのため、DO のアクティブセッションが
 // このセッションと一致する時だけ復帰する。不一致なら乗っ取らず退出しオフライン継続。
 async function _reconnectToRoom(session) {
+  const rtype = session?.type === 'order' ? 'order' : 'stock'
   try {
+    // まず GET /status で確認（ルームを作らない）。ライブで同一セッションの時だけ復帰接続する。
+    // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
+    const status = await fetchRoomStatus(shopCode.value, rtype).catch(() => null)
+    if (!(status?.isActive && status.sessionId === session.id)) {
+      _restoreDraft(session.id)   // ライブルーム無し → 作らずオフライン継続
+      return
+    }
     // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
     setExpectedSessionId(session.id)
-    await createRoom()
+    await createRoom(rtype)
     if (syncState.isSessionActive && syncState.sessionId === session.id) {
       // 本物の再接続: このセッションのライブルームに復帰（ゲスト入力含む在庫を適用済み）
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
