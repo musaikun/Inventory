@@ -337,9 +337,9 @@ const hasPrices = computed(() =>
   config.value.prices && Object.keys(config.value.prices).length > 0
 )
 
-const hasCodes = computed(() =>
-  config.value.codes && Object.keys(config.value.codes).length > 0
-)
+// 商品コードは棚卸・発注どちらでも一覧に表示しない（視覚ノイズ）。
+// データ自体は保持（バーコード照合／将来の発注送信で商品コードが必要になるため）。
+const hasCodes = computed(() => false)
 
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
@@ -440,7 +440,7 @@ function onRowKeydown(e, item) {
   }
 }
 
-defineExpose({ getNextVisibleItem })
+defineExpose({ getNextVisibleItem, getPrevVisibleItem })
 
 const pendingDelete = ref(null)  // 削除確認中の品目名
 

@@ -8,6 +8,7 @@ import {
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleSessionComplete, handleRoomResult,
+  handleOrdersGet, handleOrderCreate, handleOrderDelete,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
@@ -100,7 +101,7 @@ export default {
 
         // データ系API（config/inventory/history/room）は後方互換ソフト認証で保護。
         // PIN設定済み店舗はトークン必須、レガシー店舗は従来通り許可。
-        if (/^\/(config|inventory|history|room)(\/|$)/.test(subpath)) {
+        if (/^\/(config|inventory|history|room|orders)(\/|$)/.test(subpath)) {
           if (!(await verifyStoreAccess(env.DB, code, request))) {
             return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
           }
@@ -147,6 +148,21 @@ export default {
         // PUT /store/:code/room
         if (subpath === '/room' && request.method === 'PUT') {
           return jsonResponse(await handleRoomUpdate(env.DB, code, await request.json()), 200, origin, allowedOrigin)
+        }
+
+        // GET/POST /store/:code/orders
+        if (subpath === '/orders' && request.method === 'GET') {
+          return jsonResponse(await handleOrdersGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
+        }
+        if (subpath === '/orders' && request.method === 'POST') {
+          const result = await handleOrderCreate(env.DB, code, await request.json())
+          const status = result._status ?? 200; delete result._status
+          return jsonResponse(result, status, origin, allowedOrigin)
+        }
+        // DELETE /store/:code/orders/:id
+        const orderDelMatch = subpath.match(/^\/orders\/([\w-]{1,64})$/)
+        if (orderDelMatch && request.method === 'DELETE') {
+          return jsonResponse(await handleOrderDelete(env.DB, code, orderDelMatch[1]), 200, origin, allowedOrigin)
         }
 
         // POST /store/:code/push/subscribe

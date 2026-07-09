@@ -31,3 +31,4 @@ apply_if_missing 0004_v2_schema.sql          inventory_lines
 apply_if_missing 0005_ip_attempts.sql        ip_attempts
 apply_if_missing 0006_push_subscriptions.sql push_subscriptions
 apply_if_missing 0007_session_type.sql       idx_sessions_shop_type
+apply_if_missing 0008_orders.sql             orders
