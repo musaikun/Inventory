@@ -784,12 +784,14 @@ onMounted(async () => {
       // ゲストセッションなし: ホストセッションを自動復元
       restoreSession()
 
-      // 認証済み: 進行中の棚卸があれば棚卸画面へ直接復帰、なければ一覧へ
+      // 認証済み: 進行中のセッションがあれば直接復帰、なければ一覧へ
       if (isAuthenticated.value) {
         if (!isCompleted.value) restorePendingSession()
         currentView.value = (pendingSession.value?.id && !isCompleted.value)
           ? 'session'
           : 'sessions'
+        // リロード時もセッションの種類でテーマ（青=棚卸 / 橙=発注）を復元する
+        sessionMode.value = pendingSession.value?.type === 'order' ? 'order' : 'stock'
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
         if (pendingSession.value?.id && !isCompleted.value) {
           _restoreInventoryFromD1().catch(() => {})
