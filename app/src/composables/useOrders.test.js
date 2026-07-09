@@ -20,9 +20,32 @@ describe('useOrders（発注データ層）', () => {
     })
     expect(rec).not.toBeNull()
     expect(rec.lines.length).toBe(1)
-    expect(rec.lines[0]).toEqual({ item: 'トマト', qty: 3, unit: 'ケース' })
+    expect(rec.lines[0]).toEqual({ item: 'トマト', qty: 3, unit: 'ケース', stock: null, lot: 1, postStock: null, excluded: false })
     expect(rec.supplier).toBe('八百屋')
     expect(rec.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('在庫と入数から発注後在庫を計算して保存する', () => {
+    const rec = o.saveOrder({ date: '2026-07-06', lines: [{ item: 'トマト', qty: 1, unit: 'ケース', stock: 8, lot: '12本' }] })
+    expect(rec.lines[0].stock).toBe(8)
+    expect(rec.lines[0].lot).toBe(12)
+    expect(rec.lines[0].postStock).toBe(20)  // 8 + 1×12
+  })
+
+  it('在庫未入力なら postStock は null（学習対象外）', () => {
+    const rec = o.saveOrder({ date: '2026-07-06', lines: [{ item: 'ネギ', qty: 2 }] })
+    expect(rec.lines[0].postStock).toBeNull()
+    expect(rec.lines[0].lot).toBe(1)
+  })
+
+  it('getLearningEvents は postStock のある行だけ返す', () => {
+    o.saveOrder({ date: '2026-07-06', lines: [
+      { item: 'トマト', qty: 1, stock: 8, lot: 12 },  // postStock 20
+      { item: 'ネギ',   qty: 2 },                      // postStock null → 除外
+    ] })
+    const ev = o.getLearningEvents()
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toEqual({ item: 'トマト', date: '2026-07-06', postStock: 20, excluded: false })
   })
 
   it('有効行が無ければ null', () => {

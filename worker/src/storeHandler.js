@@ -222,6 +222,94 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
   return { ok: true }
 }
 
+// ── 発注 API ───────────────────────────────────────────────────────────────────
+// 発注レコードの正は D1。学習（曜日別・適正在庫）はクライアントが order_lines から算出する。
+
+// GET /store/:code/orders?sinceDays=400
+// 直近 sinceDays 日ぶんの発注レコードを新しい順で返す（クライアントの applyRemoteOrders 用）。
+export async function handleOrdersGet(db, code, sinceDays) {
+  const n     = Number(sinceDays)
+  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
+  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+
+  const heads = (await db.prepare(
+    'SELECT id, order_date, supplier, axis, session_id, saved_at FROM orders WHERE shop_code = ? AND order_date >= ? ORDER BY order_date DESC LIMIT 1000'
+  ).bind(code, since).all()).results ?? []
+  if (heads.length === 0) return []
+
+  const lineRows = (await db.prepare(
+    'SELECT order_id, item, qty, unit, stock, lot, post_stock, excluded FROM order_lines WHERE shop_code = ? AND order_date >= ?'
+  ).bind(code, since).all()).results ?? []
+
+  const byOrder = {}
+  for (const l of lineRows) {
+    ;(byOrder[l.order_id] ??= []).push({
+      item:      l.item,
+      qty:       l.qty,
+      unit:      l.unit ?? '',
+      stock:     l.stock ?? null,
+      lot:       l.lot ?? 1,
+      postStock: l.post_stock ?? null,
+      excluded:  !!l.excluded,
+    })
+  }
+
+  return heads.map(h => ({
+    id:        h.id,
+    date:      h.order_date,
+    supplier:  h.supplier ?? '',
+    axis:      h.axis ?? '',
+    sessionId: h.session_id ?? null,
+    savedAt:   h.saved_at,
+    lines:     byOrder[h.id] ?? [],
+  }))
+}
+
+// POST /store/:code/orders  body: 発注レコード { id, date, supplier, axis, sessionId, savedAt, lines[] }
+// 同一 id の再送は冪等（行を貼り直す）。
+export async function handleOrderCreate(db, code, body = {}) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const id   = (typeof body.id === 'string' && body.id) ? body.id : crypto.randomUUID()
+  const date = body.date ?? new Date().toISOString().slice(0, 10)
+  const now  = _now()
+
+  const clean = (Array.isArray(body.lines) ? body.lines : [])
+    .map(l => ({
+      item:      String(l.item ?? '').trim(),
+      qty:       Number(l.qty),
+      unit:      l.unit ?? '',
+      stock:     l.stock == null || l.stock === '' ? null : Number(l.stock),
+      lot:       Number.isFinite(Number(l.lot)) && Number(l.lot) > 0 ? Number(l.lot) : 1,
+      postStock: l.postStock == null || l.postStock === '' ? null : Number(l.postStock),
+      excluded:  l.excluded ? 1 : 0,
+    }))
+    .filter(l => l.item && Number.isFinite(l.qty))
+  if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
+
+  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare(`
+    INSERT INTO orders (id, shop_code, order_date, supplier, axis, session_id, saved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
+  `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now).run()
+
+  for (const l of clean) {
+    await db.prepare(`
+      INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, code, date, l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded, now).run()
+  }
+  return { ok: true, id }
+}
+
+// DELETE /store/:code/orders/:id
+export async function handleOrderDelete(db, code, id) {
+  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare('DELETE FROM orders WHERE id = ? AND shop_code = ?').bind(id, code).run()
+  return { ok: true }
+}
+
 // POST /store/:code/sessions/:id/complete
 // 棚卸完了の一括処理: inventory_lines 展開 + sessions 更新（archive_key は R2 実装後に追加）
 export async function handleSessionComplete(db, code, sessionId, body) {

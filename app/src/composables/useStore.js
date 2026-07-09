@@ -13,10 +13,11 @@ export const saveState = ref('idle')
 // config/inventory は全量PUT（最新が正）なので最後の失敗分だけ保持。snapshot は追記なのでキュー。
 const _pending  = { config: null, inventory: null }
 const _snapQueue = []
+const _orderQueue = []
 let _retryTimer = null
 
 function _settle() {
-  saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0) ? 'idle' : 'pending'
+  saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0 && _orderQueue.length === 0) ? 'idle' : 'pending'
 }
 function _scheduleRetry() {
   if (_retryTimer) return
@@ -34,6 +35,10 @@ export async function retryPendingSaves() {
   }
   while (_snapQueue.length) {
     try { await _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(_snapQueue[0]) }); _snapQueue.shift() }
+    catch (_) { break }
+  }
+  while (_orderQueue.length) {
+    try { await _api(`/store/${shopCode.value}/orders`, { method: 'POST', body: JSON.stringify(_orderQueue[0]) }); _orderQueue.shift() }
     catch (_) { break }
   }
   _settle()
@@ -127,6 +132,32 @@ export async function deleteSnapshotFromD1(date) {
   if (!shopCode.value || !BASE) return
   return _api(`/store/${shopCode.value}/history/${date}`, { method: 'DELETE' })
     .catch(e => console.warn('[store] snapshot削除失敗:', e.message))
+}
+
+// ── 発注 ──────────────────────────────────────────────────────────────────────
+export async function loadOrdersFromD1(sinceDays = null) {
+  if (!shopCode.value) return null
+  const q = sinceDays ? `?sinceDays=${sinceDays}` : ''
+  return _api(`/store/${shopCode.value}/orders${q}`).catch(() => null)
+}
+
+export async function saveOrderToD1(order) {
+  if (!shopCode.value || !BASE) return
+  saveState.value = 'saving'
+  try {
+    await _api(`/store/${shopCode.value}/orders`, { method: 'POST', body: JSON.stringify(order) })
+    _settle()
+  } catch (e) {
+    _orderQueue.push(order)
+    saveState.value = 'pending'
+    _scheduleRetry()
+  }
+}
+
+export async function deleteOrderFromD1(id) {
+  if (!shopCode.value || !BASE) return
+  return _api(`/store/${shopCode.value}/orders/${id}`, { method: 'DELETE' })
+    .catch(e => console.warn('[store] 発注削除失敗:', e.message))
 }
 
 // ── アクティブルーム ──────────────────────────────────────────────────────────

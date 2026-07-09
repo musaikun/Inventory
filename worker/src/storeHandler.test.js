@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { handleConfigPut, handleInventoryPut, handleHistoryPost, handleSessionComplete, handleRoomResult } from './storeHandler.js'
+import { handleConfigPut, handleInventoryPut, handleHistoryPost, handleSessionComplete, handleRoomResult, handleOrderCreate, handleOrdersGet, handleOrderDelete } from './storeHandler.js'
 
 // 書き込み系の最小モック（INSERT/UPDATE を success で返すだけ）
 function createMockD1() {
@@ -194,5 +194,125 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     // 変更履歴: 誰が・何を・いつ は残る
     expect(res.result.auditLog[0].enteredBy).toBe('田中')
     expect(res.result.auditLog[0].action).toBe('new')
+  })
+})
+
+// ── 発注（handleOrderCreate / handleOrdersGet / handleOrderDelete）─────────────
+function createOrdersMockD1() {
+  const orders = []
+  const orderLines = []
+
+  function prepare(sql) {
+    const s = sql.replace(/\s+/g, ' ').trim()
+    let bound = []
+    const stmt = {
+      bind(...a) { bound = a; return stmt },
+      async run() {
+        if (s.startsWith('DELETE FROM order_lines WHERE order_id')) {
+          const [orderId, shop] = bound
+          for (let i = orderLines.length - 1; i >= 0; i--) {
+            if (orderLines[i].order_id === orderId && orderLines[i].shop_code === shop) orderLines.splice(i, 1)
+          }
+        } else if (s.startsWith('DELETE FROM orders WHERE id')) {
+          const [id, shop] = bound
+          const i = orders.findIndex(o => o.id === id && o.shop_code === shop)
+          if (i >= 0) orders.splice(i, 1)
+        } else if (s.startsWith('INSERT INTO orders')) {
+          const [id, shop_code, order_date, supplier, axis, session_id, saved_at] = bound
+          const existing = orders.find(o => o.id === id)
+          if (existing) Object.assign(existing, { order_date, supplier, axis })
+          else orders.push({ id, shop_code, order_date, supplier, axis, session_id, saved_at })
+        } else if (s.startsWith('INSERT INTO order_lines')) {
+          const [order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded] = bound
+          orderLines.push({ order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded })
+        }
+        return { success: true }
+      },
+      async first() { return null },
+      async all() {
+        if (s.startsWith('SELECT id, order_date, supplier, axis, session_id, saved_at FROM orders')) {
+          const [shop, since] = bound
+          const rows = orders
+            .filter(o => o.shop_code === shop && o.order_date >= since)
+            .sort((a, b) => b.order_date.localeCompare(a.order_date))
+            .map(o => ({ id: o.id, order_date: o.order_date, supplier: o.supplier, axis: o.axis, session_id: o.session_id, saved_at: o.saved_at }))
+          return { results: rows }
+        }
+        if (s.startsWith('SELECT order_id, item, qty, unit, stock, lot, post_stock, excluded FROM order_lines')) {
+          const [shop, since] = bound
+          const rows = orderLines
+            .filter(l => l.shop_code === shop && l.order_date >= since)
+            .map(l => ({ order_id: l.order_id, item: l.item, qty: l.qty, unit: l.unit, stock: l.stock, lot: l.lot, post_stock: l.post_stock, excluded: l.excluded }))
+          return { results: rows }
+        }
+        return { results: [] }
+      },
+    }
+    return stmt
+  }
+  return { prepare, _orders: orders, _lines: orderLines }
+}
+
+describe('発注 API（orders）', () => {
+  const code = 'ABCDEF'
+  const rec = {
+    id: 'o_1', date: '2026-07-06', supplier: '八百屋', axis: '仕入先', sessionId: 's1', savedAt: '2026-07-06T10:00:00Z',
+    lines: [
+      { item: 'トマト', qty: 1, unit: 'ケース', stock: 8, lot: 12, postStock: 20 },
+      { item: 'レタス', qty: 0, unit: '玉', stock: 5, lot: 1, postStock: 5 },
+    ],
+  }
+
+  it('発注を保存し、GET で往復できる', async () => {
+    const db = createOrdersMockD1()
+    const res = await handleOrderCreate(db, code, rec)
+    expect(res.ok).toBe(true)
+    expect(res.id).toBe('o_1')
+
+    const got = await handleOrdersGet(db, code, 400)
+    expect(got).toHaveLength(1)
+    expect(got[0].id).toBe('o_1')
+    expect(got[0].lines).toHaveLength(2)
+    const tomato = got[0].lines.find(l => l.item === 'トマト')
+    expect(tomato.postStock).toBe(20)
+    expect(tomato.lot).toBe(12)
+    expect(tomato.excluded).toBe(false)
+  })
+
+  it('有効な発注行が無ければ 400', async () => {
+    const db = createOrdersMockD1()
+    const res = await handleOrderCreate(db, code, { id: 'o_x', lines: [{ item: '', qty: 1 }] })
+    expect(res._status).toBe(400)
+  })
+
+  it('同一 id の再送は冪等（行が二重にならない）', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+    await handleOrderCreate(db, code, rec)
+    const got = await handleOrdersGet(db, code, 400)
+    expect(got).toHaveLength(1)
+    expect(got[0].lines).toHaveLength(2)
+  })
+
+  it('LOT 未指定は 1 に正規化される', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, { id: 'o_2', date: '2026-07-06', lines: [{ item: 'ネギ', qty: 3 }] })
+    const got = await handleOrdersGet(db, code, 400)
+    expect(got[0].lines[0].lot).toBe(1)
+  })
+
+  it('巨大な発注は 413', async () => {
+    const db = createOrdersMockD1()
+    const res = await handleOrderCreate(db, code, { id: 'o_big', lines: [{ item: 'x', qty: 1, unit: 'y'.repeat(1_100_000) }] })
+    expect(res._status).toBe(413)
+  })
+
+  it('削除でヘッダと明細が消える', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+    await handleOrderDelete(db, code, 'o_1')
+    const got = await handleOrdersGet(db, code, 400)
+    expect(got).toHaveLength(0)
+    expect(db._lines).toHaveLength(0)
   })
 })
