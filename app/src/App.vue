@@ -33,7 +33,11 @@ import {
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
+  saveOrderToD1, loadOrdersFromD1,
 } from './composables/useStore.js'
+import { useOrders } from './composables/useOrders.js'
+import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
+import { effectiveLot } from './services/lot.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
@@ -79,6 +83,29 @@ const {
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
+
+// ── Orders（発注支援）────────────────────────────────────────────────────────────
+const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
+// 進行中発注の下書き（品目→行）。セッション単位で 1 発注レコードに集約して D1 へ。
+const orderDraft = ref({})
+function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
+function _todayStr() { return new Date().toISOString().slice(0, 10) }
+
+// この品目・今日の曜日の適正在庫（学習不足なら null）
+function _parLevelFor(item) {
+  return calcParLevel(getLearningEvents(), item, weekdayOf(_todayStr()))
+}
+// 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
+function _lastWeekQtyFor(item) {
+  const wd = weekdayOf(_todayStr())
+  let best = null
+  for (const o of getOrders()) {
+    if (weekdayOf(o.date) !== wd) continue
+    const line = (o.lines || []).find(l => l.item === item)
+    if (line && (!best || o.date > best.date)) best = { date: o.date, qty: line.qty }
+  }
+  return best ? best.qty : null
+}
 
 // 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
 const USAGE_SESSIONS = 3
@@ -270,7 +297,15 @@ async function onSessionStart(session, mode = 'stock') {
   if (startedEmpty) _persistConfigToD1()
   track('session_started')
   await _startSessionView({ loadConfig: false })
-  if (isOrder) showToast('発注確認を開始しました', 2600, 'default')
+  if (isOrder) { await _loadOrderData(); _restoreOrderDraft(); showToast('発注確認を開始しました', 2600, 'default') }
+}
+
+// 発注セッション用: D1 の過去発注を取り込み（学習データ）、下書きを復元する。
+async function _loadOrderData() {
+  try {
+    const remote = await loadOrdersFromD1()
+    if (Array.isArray(remote) && remote.length) applyRemoteOrders(remote)
+  } catch (_) {}
 }
 
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
@@ -324,6 +359,7 @@ async function onSessionResume(session) {
   activeTimer.start()   // 下書きに保存済み稼働時間があれば _restoreDraft が resume() で継続する
   resumeSession(session)
   await _startSessionView()
+  if (sessionMode.value === 'order') { await _loadOrderData(); _restoreOrderDraft() }
   if (shopCode.value && !syncActive.value) {
     // このセッションがライブなルームを持つ時だけ復帰判定する
     await _reconnectToRoom(session)
@@ -795,6 +831,7 @@ onMounted(async () => {
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
         if (pendingSession.value?.id && !isCompleted.value) {
           _restoreInventoryFromD1().catch(() => {})
+          if (sessionMode.value === 'order') _loadOrderData().then(_restoreOrderDraft)
         }
       }
     }
@@ -888,6 +925,15 @@ const inputLocked = computed(() => isCompleted.value || guestLocked.value)
 
 // ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
 const _DRAFT_PREFIX = 'inv_draft_'
+const _ORDER_DRAFT_PREFIX = 'order_draft_'
+
+// 発注下書きを localStorage から復元（発注セッション再開時）
+function _restoreOrderDraft() {
+  try {
+    const raw = localStorage.getItem(_ORDER_DRAFT_PREFIX + _orderId())
+    orderDraft.value = raw ? (JSON.parse(raw) || {}) : {}
+  } catch (_) { orderDraft.value = {} }
+}
 
 function _saveDraft(sessionId) {
   if (!sessionId || Object.keys(inventory).length === 0) return
@@ -1426,9 +1472,11 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
   // PDF登録済みの単位・ジャンルを優先し、ロック状態にする
   const configUnit     = config.units?.[ingredient]
   const configCategory = config.categories?.[ingredient]
+  const isOrder = sessionMode.value === 'order'
+  const draft   = orderDraft.value[ingredient]
   confirmState.value = {
     ingredient,
-    qty,
+    qty:            isOrder ? (draft?.stock ?? qty ?? inventory[ingredient]?.qty ?? null) : qty,
     unit:           configUnit || unit || '',
     unitLocked:     !!configUnit,
     category:       configCategory || '',
@@ -1436,6 +1484,11 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     source,
     lotSize:        config.lotSizes?.[ingredient] ?? '',
     isNew:          !!opts.isNew,
+    orderMode:      isOrder,
+    orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
+    parLevel:       isOrder ? _parLevelFor(ingredient) : null,
+    lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
+    initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -1538,9 +1591,37 @@ function _applyConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   return 'saved'
 }
 
+// 発注確定: 在庫を（入力があれば）反映し、発注下書きへ集約して D1 に保存する。
+function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
+  // 在庫入力があれば棚卸同様に反映（表に表示・同期）
+  if (stock != null && Number.isFinite(stock)) {
+    setItem(ingredient, stock, unit, false, deviceName.value || '名前未設定')
+    markActivity()
+    if (syncActive.value) broadcastUpdate(ingredient, stock, unit, deviceName.value || '名前未設定', false)
+    else _localAudit(ingredient, inventory[ingredient] ? 'overwrite' : 'new', stock, stock, unit)
+  }
+  // 発注下書きを更新（発注数 0 は下書きから外す＝発注なし）
+  const draft = { ...orderDraft.value }
+  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot }
+  else delete draft[ingredient]
+  orderDraft.value = draft
+  _persistOrderDraft()
+  return 'saved'
+}
+
+// 発注下書きをセッション単位で 1 レコードに集約し、useOrders + D1 へ保存する。
+function _persistOrderDraft() {
+  const lines = Object.entries(orderDraft.value).map(([item, d]) => ({
+    item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
+  }))
+  try { localStorage.setItem(_ORDER_DRAFT_PREFIX + _orderId(), JSON.stringify(orderDraft.value)) } catch (_) {}
+  const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
+  if (rec) saveOrderToD1(rec)
+}
+
 function onConfirm(payload) {
   const source = confirmState.value?.source
-  const r = _applyConfirm(payload)
+  const r = payload.orderMode ? _applyOrderConfirm(payload) : _applyConfirm(payload)
   if (r === 'blocked') {
     confirmState.value = null
     pendingCandidates.value = null
@@ -1557,7 +1638,8 @@ function onConfirmNavigate({ dir, ...payload }) {
   if (!current || !table) return
   const target = dir === 'prev' ? table.getPrevVisibleItem(current) : table.getNextVisibleItem(current)
   if (!target) return   // 端: 移動しない
-  if (_applyConfirm(payload) === 'blocked') return   // 競合等: 現在のモーダルを維持
+  const apply = payload.orderMode ? _applyOrderConfirm(payload) : _applyConfirm(payload)
+  if (apply === 'blocked') return   // 競合等: 現在のモーダルを維持
   _openTableConfirm(target)
 }
 
@@ -2306,6 +2388,11 @@ function dismissReview() {
         :typing-user="syncActive ? (typingMap[confirmState.ingredient]?.name ?? null) : null"
         :can-prev="confirmCanPrev"
         :can-next="confirmCanNext"
+        :order-mode="!!confirmState.orderMode"
+        :par-level="confirmState.parLevel"
+        :order-lot="confirmState.orderLot ?? 1"
+        :last-week-qty="confirmState.lastWeekQty"
+        :initial-order-qty="confirmState.initialOrderQty"
         @confirm="onConfirm"
         @navigate="onConfirmNavigate"
         @cancel="onCancelConfirm"

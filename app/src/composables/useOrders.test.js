@@ -38,6 +38,23 @@ describe('useOrders（発注データ層）', () => {
     expect(rec.lines[0].lot).toBe(1)
   })
 
+  it('upsertOrder は同一 id を差し替える（重複しない）', () => {
+    o.upsertOrder({ id: 'ord_s1', date: '2026-07-06', lines: [{ item: 'トマト', qty: 1, stock: 8, lot: 12 }] })
+    o.upsertOrder({ id: 'ord_s1', date: '2026-07-06', lines: [{ item: 'トマト', qty: 2, stock: 8, lot: 12 }] })
+    const list = o.getOrders()
+    expect(list).toHaveLength(1)
+    expect(list[0].lines[0].qty).toBe(2)
+    // 学習イベントも 1 件（二重計上しない）
+    expect(o.getLearningEvents()).toHaveLength(1)
+  })
+
+  it('upsertOrder は有効行が 0 になったらレコードを消す', () => {
+    o.upsertOrder({ id: 'ord_s2', lines: [{ item: 'ネギ', qty: 3, stock: 5, lot: 1 }] })
+    const removed = o.upsertOrder({ id: 'ord_s2', lines: [{ item: 'ネギ', qty: 0 }] })
+    expect(removed).toBeNull()
+    expect(o.getOrders()).toHaveLength(0)
+  })
+
   it('getLearningEvents は postStock のある行だけ返す', () => {
     o.saveOrder({ date: '2026-07-06', lines: [
       { item: 'トマト', qty: 1, stock: 8, lot: 12 },  // postStock 20

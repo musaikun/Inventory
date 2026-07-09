@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
+import { suggestOrder } from '../services/orderSuggestion.js'
 
 const props = defineProps({
   ingredient:      { type: String,  required: true },
@@ -26,6 +27,11 @@ const props = defineProps({
   existingTagsB:   { type: Array,  default: () => [] }, // 軸2の既存値（候補）
   canPrev:         { type: Boolean, default: false }, // 前の品目へ移動可能
   canNext:         { type: Boolean, default: false }, // 次の品目へ移動可能
+  orderMode:       { type: Boolean, default: false }, // 発注セッション: qty=現在在庫 + 発注数入力
+  parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
+  orderLot:        { type: Number,  default: 1 },     // 入数（数値）
+  lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
+  initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
@@ -51,6 +57,29 @@ const CUSTOM = '__custom__'
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
 const hasError = ref(false)
+
+// ── 発注モード（qty = 現在在庫 / 別に発注数を持つ）─────────────────────────────
+const orderQty     = ref(props.initialOrderQty)   // null=未編集（推奨に追従）
+const orderTouched = ref(props.initialOrderQty != null)
+
+// 現在在庫から算出した推奨発注数（適正在庫が無ければ null）
+const suggested = computed(() => {
+  if (!props.orderMode || props.parLevel == null) return null
+  const stock = qty.value === '' ? null : parseFloat(qty.value)
+  if (stock == null || isNaN(stock)) return null
+  return suggestOrder(props.parLevel, stock, props.orderLot)
+})
+
+// 実際に確定される発注数（ユーザーが触っていれば手入力値、未編集なら推奨）
+const effectiveOrderQty = computed(() => {
+  if (orderTouched.value && orderQty.value != null) return Math.max(0, orderQty.value)
+  return suggested.value ?? 0
+})
+
+function orderStep(delta) {
+  orderQty.value     = Math.max(0, (effectiveOrderQty.value ?? 0) + delta)
+  orderTouched.value = true
+}
 
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
 const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
@@ -109,11 +138,11 @@ function numpadClear() {
 function handleKeydown(e) {
   // 単位入力欄にフォーカス中は Enter / Escape のみ処理して他は通常通り
   if (e.target.tagName === 'INPUT') {
-    if (e.key === 'Enter')  { e.preventDefault(); submit(false) }
+    if (e.key === 'Enter')  { e.preventDefault(); onPrimary() }
     if (e.key === 'Escape') { e.preventDefault(); emit('cancel') }
     return
   }
-  if (e.key === 'Enter')     { e.preventDefault(); submit(false) }
+  if (e.key === 'Enter')     { e.preventDefault(); onPrimary() }
   else if (e.key === 'Escape')    { e.preventDefault(); emit('cancel') }
   else if (e.key === 'Backspace') { e.preventDefault(); numpadBack() }
   else if (e.key === 'Delete')    { e.preventDefault(); numpadClear() }
@@ -210,8 +239,42 @@ function submit(isAdd) {
   })
 }
 
+// 発注モードの送信ペイロード（在庫は任意・発注数は推奨/手入力）
+function _orderPayload() {
+  const stock = qty.value === '' ? null : parseFloat(qty.value)
+  return {
+    ingredient: props.ingredient,
+    orderMode:  true,
+    stock:      stock == null || isNaN(stock) ? null : stock,
+    orderQty:   effectiveOrderQty.value ?? 0,
+    unit:       unit.value.trim(),
+    lot:        props.orderLot,
+    isNew:      props.isNew,
+  }
+}
+
+function submitOrder() {
+  const stock = qty.value === '' ? null : parseFloat(qty.value)
+  if (stock !== null && (isNaN(stock) || stock < 0)) { hasError.value = true; return }
+  hasError.value = false
+  emit('confirm', _orderPayload())
+}
+
+// アクションボタン/Enter の主送信（モードで分岐）
+function onPrimary() {
+  if (props.orderMode) submitOrder()
+  else                 submit(false)
+}
+
 // 前後の品目へ移動（現在の入力を保存してから移動先を開く。空欄=変更なしで移動）
 function navigate(dir) {
+  if (props.orderMode) {
+    const stock = qty.value === '' ? null : parseFloat(qty.value)
+    if (stock !== null && (isNaN(stock) || stock < 0)) { hasError.value = true; return }
+    hasError.value = false
+    emit('navigate', { dir, ..._orderPayload() })
+    return
+  }
   const empty = qty.value === '' || qty.value == null
   const q = empty ? null : parseFloat(qty.value)
   if (q !== null && (isNaN(q) || q < 0)) { hasError.value = true; return }
@@ -252,7 +315,7 @@ function saveEdit() {
   <div class="modal-overlay" @click.self="$emit('cancel')">
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : '数量を入力') }}</div>
+      <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : (orderMode ? '発注数を入力' : '数量を入力')) }}</div>
 
       <!-- 新規登録の注意（誤登録防止・何をしているかの明確化）-->
       <div v-if="isNew" class="new-item-notice">
@@ -334,6 +397,9 @@ function saveEdit() {
         </div>
       </div>
 
+      <!-- 発注モード: 現在在庫のラベル -->
+      <div v-if="orderMode" class="stock-label">現在在庫（任意）</div>
+
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">
         <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
@@ -366,8 +432,25 @@ function saveEdit() {
       <!-- 単位警告 -->
       <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
 
+      <!-- 発注ブロック: 発注数（推奨プリセット）＋ 適正在庫/前週参考 -->
+      <div v-if="orderMode" class="order-block">
+        <div class="order-refs">
+          <span class="ref-chip ref-par">適正在庫: {{ parLevel != null ? parLevel : '学習中' }}</span>
+          <span v-if="lastWeekQty != null" class="ref-chip ref-last">前週同曜: {{ lastWeekQty }}</span>
+          <span v-if="suggested != null" class="ref-chip ref-sug">推奨: {{ suggested }}</span>
+        </div>
+        <div class="order-qty-row">
+          <span class="order-qty-label">発注数</span>
+          <button class="order-step" @click="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
+          <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
+          <button class="order-step" @click="orderStep(1)" type="button">＋</button>
+          <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
+        </div>
+        <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
+      </div>
+
       <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力 -->
-      <div class="genre-row">
+      <div v-if="!orderMode" class="genre-row">
         <span class="genre-label">ジャンル</span>
         <div v-if="!categoryEditable" class="genre-locked-badge">
           {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
@@ -442,6 +525,12 @@ function saveEdit() {
       <div v-if="isEdit" class="actions">
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
         <button class="btn btn-success" @click="saveEdit">保存</button>
+      </div>
+      <div v-else-if="orderMode" class="actions">
+        <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
+        <button class="btn btn-success" @click="submitOrder">
+          {{ effectiveOrderQty > 0 ? `発注 ${effectiveOrderQty} を確定` : '発注なしで確定' }}
+        </button>
       </div>
       <div v-else class="actions" :class="{ 'three-col': hasDuplicate }">
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
@@ -555,6 +644,86 @@ function saveEdit() {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
+}
+
+.stock-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 2px 0 4px;
+}
+
+.order-block {
+  background: var(--primary-weak);
+  border: 1px solid var(--primary-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.order-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ref-chip {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 20px;
+  padding: 3px 10px;
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+}
+.ref-sug { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.order-qty-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.order-qty-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.order-step {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.order-step:disabled { opacity: 0.3; cursor: default; }
+
+.order-qty-value {
+  min-width: 46px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+  color: #111827;
+}
+.order-qty-value.auto { color: var(--primary); }
+
+.order-qty-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-left: auto;
+}
+
+.order-note {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 8px;
 }
 
 .hint-chip {
