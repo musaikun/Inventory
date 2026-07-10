@@ -18,6 +18,7 @@ const props = defineProps({
   manualItems:      { type: Array,   default: () => [] },
   usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
   hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
+  canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
   tapContinuous:    { type: Boolean, default: false },
 })
 
@@ -25,6 +26,8 @@ const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item',
 
 const manualSet = computed(() => new Set(props.manualItems))
 const hiddenSet = computed(() => new Set(props.hiddenItems))
+// リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
+const canManage = computed(() => props.canManageList && !props.readOnly)
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -44,7 +47,7 @@ function toggleUsedOnly() {
   usedOnly.value = !usedOnly.value
   try { localStorage.setItem('inv_used_only', usedOnly.value ? '1' : '0') } catch (_) {}
 }
-const _usedActive = computed(() => usedOnly.value && hasUsageData.value)
+const _usedActive = computed(() => usedOnly.value && hasUsageData.value && props.canManageList)
 // 表示対象か: 今回入力済み / カスタム品目 / 直近N回で1回でも入力あり
 function _isUsed(row) {
   return row.custom || row.entry !== null || (usage.value[row.item] ?? 0) >= 1
@@ -474,7 +477,7 @@ let _sx = 0, _sy = 0, _dir = null, _baseDx = 0, _suppressClick = false
 function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
 
 function onRowTouchStart(e, item) {
-  if (props.readOnly) return
+  if (!canManage.value) return   // ゲスト/読み取り専用は非表示スワイプ不可
   if (swipeItem.value && swipeItem.value !== item) _resetSwipe()  // 別行に触れたら閉じる
   const t = e.changedTouches[0]
   _sx = t.clientX; _sy = t.clientY; _dir = null
@@ -655,14 +658,15 @@ function fmtYen(n) {
 
     <!-- 並べ替え / フィルター ツールバー -->
     <div class="toolbar">
-      <div class="seg-group">
+      <!-- 並べ替え（ゲストは操作不可＝ホストの結果を表示するだけ） -->
+      <div v-if="canManage" class="seg-group">
         <button
           v-for="opt in sortOpts"
           :key="opt.value"
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
         >{{ opt.label }}<span
-            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && !readOnly"
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB')"
             class="seg-edit"
             title="この並び替えのグループを編集"
             @click.stop="openAxisEdit(opt.value)"
@@ -683,7 +687,7 @@ function fmtYen(n) {
         >{{ opt.label }}</button>
       </div>
       <button
-        v-if="hasUsageData"
+        v-if="hasUsageData && canManage"
         :class="['used-toggle', { active: usedOnly }]"
         @click="toggleUsedOnly"
         title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
@@ -695,8 +699,8 @@ function fmtYen(n) {
       前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
     </div>
 
-    <!-- 手動非表示の管理（左スワイプで隠した品目） -->
-    <div v-if="!readOnly && hiddenSet.size > 0" class="hidden-notice" @click="manageHiddenOpen = true">
+    <!-- 手動非表示の管理（左スワイプで隠した品目。ゲストは操作不可） -->
+    <div v-if="canManage && hiddenSet.size > 0" class="hidden-notice" @click="manageHiddenOpen = true">
       手動非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
     </div>
 

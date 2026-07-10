@@ -2368,6 +2368,7 @@ function dismissReview() {
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
         :hidden-items="config.hiddenItems"
+        :can-manage-list="!syncActive || syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
