@@ -36,6 +36,7 @@ const config = reactive({
   tagsB:          {},        // 品目 → 軸2のグループ名
   axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
+  hiddenItems:    [],        // 手動で一覧から非表示にした品目名（マスタは不変・進捗の分母から除外）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -79,6 +80,46 @@ function _normTags(m) {
   return out
 }
 
+// ── 品目リストのデータフィールドを一箇所で扱う（同期・永続の食い違いを防ぐ）──────
+// ここに追加すれば save / load / snapshot / restore / getter / payload すべてに反映される。
+// manualItems / isCustom / savedAt は文脈ごとに扱いが違うため各関数で個別に付与する。
+function _serializeConfigData() {
+  return {
+    order:         config.order,
+    units:         config.units,
+    prices:        config.prices,
+    categories:    config.categories,
+    codes:         config.codes,
+    categoryCodes: config.categoryCodes,
+    prevMonths:    config.prevMonths,
+    lotSizes:      config.lotSizes,
+    dictionary:    config.dictionary,
+    axisNames:     config.axisNames,
+    tagsA:         config.tagsA,
+    tagsB:         config.tagsB,
+    axisGroupsA:   config.axisGroupsA,
+    axisGroupsB:   config.axisGroupsB,
+    hiddenItems:   config.hiddenItems,
+  }
+}
+function _assignConfigData(src) {
+  config.order         = Array.isArray(src.order) ? src.order : []
+  config.units         = src.units         ?? {}
+  config.prices        = src.prices        ?? {}
+  config.categories    = src.categories    ?? {}
+  config.codes         = src.codes         ?? {}
+  config.categoryCodes = src.categoryCodes ?? {}
+  config.prevMonths    = src.prevMonths    ?? {}
+  config.lotSizes      = src.lotSizes      ?? {}
+  config.dictionary    = src.dictionary    ?? {}
+  config.axisNames     = Array.isArray(src.axisNames) ? src.axisNames : ['', '']
+  config.tagsA         = _normTags(src.tagsA)
+  config.tagsB         = _normTags(src.tagsB)
+  config.axisGroupsA   = Array.isArray(src.axisGroupsA) ? src.axisGroupsA : []
+  config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
+  config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
+}
+
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
 function _load() {
   try {
@@ -88,21 +129,8 @@ function _load() {
     // CONFIG_KEY はカスタム設定でのみ保存される（空リスト開始も含む）。
     // 空の品目リストでも軸名・グループ等を復元できるよう order 空も許容する。
     if (Array.isArray(saved.order)) {
-      config.order         = saved.order
-      config.units         = saved.units         ?? {}
-      config.prices        = saved.prices        ?? {}
-      config.categories    = saved.categories    ?? {}
-      config.codes         = saved.codes         ?? {}
-      config.categoryCodes = saved.categoryCodes ?? {}
-      config.prevMonths    = saved.prevMonths    ?? {}
-      config.lotSizes      = saved.lotSizes      ?? {}
-      config.dictionary    = saved.dictionary    ?? {}
+      _assignConfigData(saved)
       config.manualItems   = saved.manualItems   ?? []
-      config.axisNames     = saved.axisNames     ?? ['', '']
-      config.tagsA         = _normTags(saved.tagsA)
-      config.tagsB         = _normTags(saved.tagsB)
-      config.axisGroupsA   = saved.axisGroupsA   ?? []
-      config.axisGroupsB   = saved.axisGroupsB   ?? []
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -113,22 +141,9 @@ function _saveLocalOnly() {
   try {
     config.savedAt = new Date().toISOString()
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      savedAt:       config.savedAt,
+      ..._serializeConfigData(),
+      manualItems: config.manualItems,
+      savedAt:     config.savedAt,
     }))
     config.isCustom = true
   } catch (_) {}
@@ -187,20 +202,7 @@ _loadMaster()
 export function applyRemoteConfig(cfg) {
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
   _validateLearnedAliases(cfg.order)
-  config.order         = cfg.order
-  config.units         = cfg.units         ?? {}
-  config.prices        = cfg.prices        ?? {}
-  config.categories    = cfg.categories    ?? {}
-  config.codes         = cfg.codes         ?? {}
-  config.categoryCodes = cfg.categoryCodes ?? {}
-  config.prevMonths    = cfg.prevMonths    ?? {}
-  config.lotSizes      = cfg.lotSizes      ?? {}
-  config.dictionary    = cfg.dictionary    ?? {}
-  config.axisNames     = cfg.axisNames     ?? ['', '']
-  config.tagsA         = _normTags(cfg.tagsA)
-  config.tagsB         = _normTags(cfg.tagsB)
-  config.axisGroupsA   = cfg.axisGroupsA   ?? []
-  config.axisGroupsB   = cfg.axisGroupsB   ?? []
+  _assignConfigData(cfg)
   _saveLocalOnly()
 }
 
@@ -383,43 +385,17 @@ export function useConfig() {
   /** 現在の品目リストをディープコピーで退避する（練習モードの一時切替用） */
   function snapshotConfig() {
     return JSON.parse(JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      isCustom:      config.isCustom,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
+      ..._serializeConfigData(),
+      isCustom:    config.isCustom,
+      manualItems: config.manualItems,
     }))
   }
 
   /** snapshotConfig で退避した品目リストを復元する */
   function restoreConfigSnapshot(snap) {
     if (!snap) return
-    config.order         = snap.order         ?? []
-    config.units         = snap.units         ?? {}
-    config.prices        = snap.prices        ?? {}
-    config.categories    = snap.categories    ?? {}
-    config.codes         = snap.codes         ?? {}
-    config.categoryCodes = snap.categoryCodes ?? {}
-    config.prevMonths    = snap.prevMonths    ?? {}
-    config.lotSizes      = snap.lotSizes      ?? {}
-    config.dictionary    = snap.dictionary    ?? {}
+    _assignConfigData(snap)
     config.manualItems   = snap.manualItems   ?? []
-    config.axisNames     = snap.axisNames     ?? ['', '']
-    config.tagsA         = _normTags(snap.tagsA)
-    config.tagsB         = _normTags(snap.tagsB)
-    config.axisGroupsA   = snap.axisGroupsA   ?? []
-    config.axisGroupsB   = snap.axisGroupsB   ?? []
     config.isCustom      = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
@@ -437,11 +413,10 @@ export function useConfig() {
     config.lotSizes      = {}
     config.dictionary    = {}
     config.manualItems   = []
-    config.axisNames     = ['', '']
+    // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
     config.tagsA         = {}
     config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -458,11 +433,10 @@ export function useConfig() {
     config.prevMonths    = {}
     config.lotSizes      = {}
     config.dictionary    = { ...SAMPLE_DICTIONARY }
-    config.axisNames     = ['', '']
+    // 軸（軸名・グループ定義）は店舗の永続設定。練習でも消さない（終了時に復元もされる）。
     config.tagsA         = {}
     config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -489,6 +463,7 @@ export function useConfig() {
     config.tagsB         = {}
     config.axisGroupsA   = []
     config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -961,11 +936,32 @@ export function useConfig() {
   const itemCount         = computed(() => config.order.length)
   const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
+  // ── 手動非表示 ────────────────────────────────────────────────────────────────
+  const hiddenSet = computed(() => new Set(config.hiddenItems))
+  // 非表示を除いた実効品目数（ホーム進捗の分母用）
+  const activeItemCount = computed(() => config.order.reduce((n, i) => n + (hiddenSet.value.has(i) ? 0 : 1), 0))
+
+  function hideItem(name) {
+    if (!name || config.hiddenItems.includes(name)) return
+    config.hiddenItems.push(name)
+    _save()
+  }
+  function unhideItem(name) {
+    const i = config.hiddenItems.indexOf(name)
+    if (i < 0) return
+    config.hiddenItems.splice(i, 1)
+    _save()
+  }
+
   return {
     config,
     dictionary,
     masterDict,
     itemCount,
+    activeItemCount,
+    hideItem,
+    unhideItem,
+    serializeConfigData: _serializeConfigData,
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,

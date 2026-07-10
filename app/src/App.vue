@@ -70,7 +70,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -551,23 +551,7 @@ setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
 registerRecountFlagsGetter(() => ({ ...recountFlags }))
-registerConfigGetter(() => ({
-  order:         config.order,
-  units:         config.units,
-  prices:        config.prices,
-  categories:    config.categories,
-  codes:         config.codes,
-  categoryCodes: config.categoryCodes,
-  prevMonths:    config.prevMonths,
-  lotSizes:      config.lotSizes,
-  dictionary:    config.dictionary,
-  axisNames:     config.axisNames,
-  tagsA:         config.tagsA,
-  tagsB:         config.tagsB,
-  axisGroupsA:   config.axisGroupsA,
-  axisGroupsB:   config.axisGroupsB,
-  isCustom:      config.isCustom,
-}))
+registerConfigGetter(() => ({ ...serializeConfigData(), isCustom: config.isCustom }))
 setConfigCallback((cfg) => {
   applyRemoteConfig(cfg)
   if (syncActive.value && !syncIsHost.value) {
@@ -578,22 +562,7 @@ setConfigCallback((cfg) => {
 setResetConfigCallback(() => clearConfig())
 
 function _configPayload() {
-  return {
-    order:         config.order,
-    units:         config.units,
-    prices:        config.prices,
-    categories:    config.categories,
-    codes:         config.codes,
-    categoryCodes: config.categoryCodes,
-    prevMonths:    config.prevMonths,
-    lotSizes:      config.lotSizes,
-    dictionary:    config.dictionary,
-    axisNames:     config.axisNames,
-    tagsA:         config.tagsA,
-    tagsB:         config.tagsB,
-    axisGroupsA:   config.axisGroupsA,
-    axisGroupsB:   config.axisGroupsB,
-  }
+  return serializeConfigData()
 }
 
 // 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）
@@ -1119,7 +1088,6 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
-  sessionMode.value = 'stock'
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
     if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
@@ -1127,6 +1095,7 @@ async function onGoHome() {
     _exitPractice()
     clearSession()
     currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    sessionMode.value = 'stock'
     return
   }
 
@@ -1153,6 +1122,7 @@ async function onGoHome() {
   showSync.value = false
   showChat.value = false
   currentView.value = 'sessions'
+  sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
 
 // 完了後に新規棚卸を開始
@@ -1904,6 +1874,17 @@ function onDeleteConfigItem(name) {
   if (editingItem.value === name) cancelEditItem()
 }
 
+// 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
+function onHideItem(name) {
+  hideItem(name)
+  if (syncActive.value) broadcastConfig()
+  showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
+}
+function onUnhideItem(name) {
+  unhideItem(name)
+  if (syncActive.value) broadcastConfig()
+}
+
 // ── CSV export ─────────────────────────────────────────────────────────────────
 const zeroItems     = ref([])  // 数量0品目
 const unfilledItems = ref([])  // 未入力品目
@@ -2353,12 +2334,16 @@ function dismissReview() {
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
+        :hidden-items="config.hiddenItems"
+        :can-manage-list="!syncActive || syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
         @edit-item="startEditItem"
         @delete-item="onDeleteConfigItem"
+        @hide-item="onHideItem"
+        @unhide-item="onUnhideItem"
       />
 
       <!-- 確認モーダル -->

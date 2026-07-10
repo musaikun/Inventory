@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
 import { suggestOrder } from '../services/orderSuggestion.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const props = defineProps({
   ingredient:      { type: String,  required: true },
@@ -290,6 +291,14 @@ function navigate(dir) {
   })
 }
 
+// ── スワイプで前後の品目へ移動（左=次 / 右=前）─────────────────────────────────
+const dragX = ref(0)
+const { onTouchStart, onTouchMove, onTouchEnd } = useHorizontalSwipe({
+  onLeft:  () => { if (!props.isEdit && props.canNext) navigate('next') },
+  onRight: () => { if (!props.isEdit && props.canPrev) navigate('prev') },
+  onDrag:  dx => { dragX.value = props.isEdit ? 0 : Math.max(-32, Math.min(32, dx * 0.28)) },
+})
+
 // 編集モードの保存（品目名・数量・単位・ジャンル・単価をまとめて更新）
 function saveEdit() {
   const name = editName.value.trim()
@@ -313,7 +322,12 @@ function saveEdit() {
 
 <template>
   <div class="modal-overlay" @click.self="$emit('cancel')">
-    <div class="modal-sheet">
+    <div
+      class="modal-sheet"
+      @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
+      @touchend="onTouchEnd"
+    >
       <div class="sheet-handle"></div>
       <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : (orderMode ? '発注数を入力' : '数量を入力')) }}</div>
 
@@ -338,7 +352,7 @@ function saveEdit() {
         class="edit-name-input"
       />
       <div v-else class="name-box">
-        <div class="name-row">
+        <div class="name-row" :style="dragX ? { transform: `translateX(${dragX}px)` } : null">
           <button
             class="name-nav prev"
             :disabled="!canPrev"
@@ -605,6 +619,7 @@ function saveEdit() {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  transition: transform 0.12s ease-out;
 }
 
 .name-text {

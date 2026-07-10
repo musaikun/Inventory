@@ -17,12 +17,17 @@ const props = defineProps({
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
   usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
+  hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
+  canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
   tapContinuous:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
 
 const manualSet = computed(() => new Set(props.manualItems))
+const hiddenSet = computed(() => new Set(props.hiddenItems))
+// リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
+const canManage = computed(() => props.canManageList && !props.readOnly)
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -42,7 +47,7 @@ function toggleUsedOnly() {
   usedOnly.value = !usedOnly.value
   try { localStorage.setItem('inv_used_only', usedOnly.value ? '1' : '0') } catch (_) {}
 }
-const _usedActive = computed(() => usedOnly.value && hasUsageData.value)
+const _usedActive = computed(() => usedOnly.value && hasUsageData.value && props.canManageList)
 // 表示対象か: 今回入力済み / カスタム品目 / 直近N回で1回でも入力あり
 function _isUsed(row) {
   return row.custom || row.entry !== null || (usage.value[row.item] ?? 0) >= 1
@@ -148,6 +153,7 @@ const catRealStats = computed(() => {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -203,6 +209,10 @@ const rows = computed(() => {
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
   let all = [...ordered, ...customs]
+  // 3.0 手動非表示（読み取り専用＝完了済み詳細では隠さない）
+  if (!props.readOnly && hiddenSet.value.size) {
+    all = all.filter(r => !hiddenSet.value.has(r.item))
+  }
   if (props.categoryScope === 'food') {
     all = all.filter(r => !_isSupply(r.item))
   } else if (props.categoryScope === 'supply') {
@@ -366,6 +376,8 @@ const grandTotal = computed(() => {
 })
 
 function rowClick(item) {
+  if (swipeItem.value === item && swipeDx.value < 0) { _resetSwipe(); return }  // 開いている→タップで閉じる
+  if (_suppressClick) { _suppressClick = false; return }                        // 直前がスワイプ操作
   if (props.conflictLocked?.has(item)) return
   emit('tap', item)
 }
@@ -451,6 +463,64 @@ function confirmDelete(item) {
   emit('delete-item', item)
 }
 
+// ── 手動非表示（左スワイプでカードが追従 → 非表示アクション → 確認ダイアログ）──────
+const ACTION_W  = 96   // 非表示アクションの幅(px)
+const REVEAL_AT = 40   // これ以上引いたらアクションを表示
+const OPEN_SNAP = 56   // これ以上で離すとスナップして開いたまま
+
+const swipeItem     = ref(null)   // ドラッグ/オープン中の品目名
+const swipeDx       = ref(0)      // 現在の移動量（<=0）
+const swipeDragging = ref(false)  // 指が触れている間（transition を切る）
+const hideDialogItem = ref(null)  // 確認ダイアログ対象
+let _sx = 0, _sy = 0, _dir = null, _baseDx = 0, _suppressClick = false
+
+function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
+
+function onRowTouchStart(e, item) {
+  if (!canManage.value) return   // ゲスト/読み取り専用は非表示スワイプ不可
+  if (swipeItem.value && swipeItem.value !== item) _resetSwipe()  // 別行に触れたら閉じる
+  const t = e.changedTouches[0]
+  _sx = t.clientX; _sy = t.clientY; _dir = null
+  _baseDx = (swipeItem.value === item) ? swipeDx.value : 0
+  swipeItem.value = item
+  swipeDragging.value = true
+}
+function onRowTouchMove(e) {
+  if (!swipeDragging.value) return
+  const t  = e.changedTouches[0]
+  const dx = t.clientX - _sx
+  const dy = t.clientY - _sy
+  if (_dir === null) {
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    _dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+  }
+  if (_dir !== 'h') return   // 縦スクロールは妨げない
+  let nx = _baseDx + dx
+  if (nx > 0) nx = 0
+  if (nx < -ACTION_W) nx = -ACTION_W - (-ACTION_W - nx) * 0.3  // 端で抵抗
+  swipeDx.value = nx
+}
+function onRowTouchEnd() {
+  if (!swipeDragging.value) return
+  swipeDragging.value = false
+  if (_dir === 'h') {
+    _suppressClick = true
+    swipeDx.value = (-swipeDx.value >= OPEN_SNAP) ? -ACTION_W : 0   // スナップ開/閉
+    if (swipeDx.value === 0) swipeItem.value = null
+  }
+}
+
+function openHideDialog(item) { hideDialogItem.value = item }
+function confirmHideDialog() {
+  const it = hideDialogItem.value
+  hideDialogItem.value = null
+  _resetSwipe()
+  if (it) emit('hide-item', it)
+}
+function cancelHideDialog() { hideDialogItem.value = null; _resetSwipe() }  // カードは滑らかに戻る
+
+const manageHiddenOpen = ref(false)
+
 // ── 五十音グループ ─────────────────────────────────────────────────────────────
 const KANA_ROWS = [
   { label: 'あ行', chars: 'あいうえお' },
@@ -491,6 +561,7 @@ const kanaRealStats = computed(() => {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -510,6 +581,7 @@ function _axisStats(tagMap) {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -586,6 +658,7 @@ function fmtYen(n) {
 
     <!-- 並べ替え / フィルター ツールバー -->
     <div class="toolbar">
+      <!-- 並べ替え（軸の切替はゲストも可。作成・編集＝✎/＋ はホストのみ） -->
       <div class="seg-group">
         <button
           v-for="opt in sortOpts"
@@ -593,13 +666,13 @@ function fmtYen(n) {
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
         >{{ opt.label }}<span
-            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && !readOnly"
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canManage"
             class="seg-edit"
             title="この並び替えのグループを編集"
             @click.stop="openAxisEdit(opt.value)"
           >✎</span></button>
         <button
-          v-if="canAddAxis"
+          v-if="canAddAxis && canManage"
           class="seg-btn seg-add"
           title="場所・仕入先など、並び替えを追加"
           @click="onAddAxis"
@@ -614,7 +687,7 @@ function fmtYen(n) {
         >{{ opt.label }}</button>
       </div>
       <button
-        v-if="hasUsageData"
+        v-if="hasUsageData && canManage"
         :class="['used-toggle', { active: usedOnly }]"
         @click="toggleUsedOnly"
         title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
@@ -624,6 +697,11 @@ function fmtYen(n) {
     <!-- 絞り込み中インジケータ（いつでも全表示に戻せる） -->
     <div v-if="_usedActive && hiddenCount > 0" class="used-notice" @click="toggleUsedOnly">
       前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
+    </div>
+
+    <!-- 手動非表示の管理（左スワイプで隠した品目。ゲストは操作不可） -->
+    <div v-if="canManage && hiddenSet.size > 0" class="hidden-notice" @click="manageHiddenOpen = true">
+      手動非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
     </div>
 
     <!-- テーブル -->
@@ -662,14 +740,25 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item) }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), 'swipe-dragging': swipeDragging && swipeItem === row.item }"
+              :style="swipeItem === row.item ? { transform: `translateX(${swipeDx}px)` } : null"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
               class="item-row"
               @click="rowClick(row.item)"
-              @keydown="onRowKeydown($event, row.item)">
+              @keydown="onRowKeydown($event, row.item)"
+              @touchstart.passive="onRowTouchStart($event, row.item)"
+              @touchmove.passive="onRowTouchMove"
+              @touchend="onRowTouchEnd">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
+              <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
+              <button
+                v-if="swipeItem === row.item && -swipeDx >= REVEAL_AT"
+                class="row-action"
+                :style="{ transform: `translateX(${-swipeDx}px)` }"
+                @click.stop="openHideDialog(row.item)"
+              >非表示</button>
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
@@ -736,11 +825,41 @@ function fmtYen(n) {
         </tr>
       </tfoot>
     </table>
+
+    <!-- 非表示の確認ダイアログ（小さめ・中央） -->
+    <div v-if="hideDialogItem" class="hide-dialog-overlay" @click.self="cancelHideDialog">
+      <div class="hide-dialog">
+        <div class="hide-dialog-title">この品目を非表示にしますか？</div>
+        <div class="hide-dialog-name">{{ hideDialogItem }}</div>
+        <div class="hide-dialog-actions">
+          <button class="hide-dialog-cancel" @click="cancelHideDialog">キャンセル</button>
+          <button class="hide-dialog-ok" @click="confirmHideDialog">非表示にする</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手動非表示の管理シート -->
+    <div v-if="manageHiddenOpen" class="hidden-overlay" @click.self="manageHiddenOpen = false">
+      <div class="hidden-sheet">
+        <div class="hidden-sheet-head">
+          <span class="hidden-sheet-title">手動非表示の品目（{{ hiddenSet.size }}）</span>
+          <button class="hidden-sheet-close" @click="manageHiddenOpen = false">閉じる</button>
+        </div>
+        <p class="hidden-sheet-sub">戻すと一覧・進捗に再び含まれます。</p>
+        <div class="hidden-list">
+          <div v-for="name in hiddenItems" :key="name" class="hidden-row">
+            <span class="hidden-row-name">{{ name }}</span>
+            <button class="hidden-row-restore" @click="emit('unhide-item', name)">戻す</button>
+          </div>
+          <div v-if="hiddenSet.size === 0" class="hidden-empty">非表示の品目はありません</div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.inventory-section { padding: 0 16px; }
+.inventory-section { padding: 0 16px; overflow-x: clip; }
 
 /* ── セクションヘッダー ── */
 .section-header {
@@ -890,6 +1009,106 @@ function fmtYen(n) {
 }
 .used-notice strong { color: #b45309; }
 
+.hidden-notice {
+  font-size: 12px;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.hidden-notice strong { color: #334155; }
+
+/* 非表示の確認ダイアログ（小さめ・中央） */
+.hide-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 24px;
+}
+.hide-dialog {
+  width: 100%;
+  max-width: 320px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  text-align: center;
+}
+.hide-dialog-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hide-dialog-name {
+  font-size: 14px; font-weight: 700; color: #475569;
+  background: #f1f5f9; border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px;
+  word-break: break-all;
+}
+.hide-dialog-actions { display: flex; gap: 10px; }
+.hide-dialog-cancel, .hide-dialog-ok {
+  flex: 1; border-radius: 10px; font-size: 14px; font-weight: 700; padding: 11px; cursor: pointer;
+}
+.hide-dialog-cancel { border: 1px solid #e2e8f0; background: #fff; color: #64748b; }
+.hide-dialog-ok { border: none; background: #64748b; color: #fff; }
+.hide-dialog-ok:active { background: #475569; }
+
+/* 管理シート */
+.hidden-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 60;
+}
+.hidden-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+}
+.hidden-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.hidden-sheet-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hidden-sheet-close {
+  border: none; background: none; color: #64748b;
+  font-size: 13px; font-weight: 700; cursor: pointer; padding: 4px 6px;
+}
+.hidden-sheet-sub { font-size: 12px; color: #94a3b8; margin: 0 0 10px; }
+.hidden-list { overflow-y: auto; }
+.hidden-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.hidden-row-name { font-size: 14px; color: #334155; }
+.hidden-row-restore {
+  border: 1px solid var(--primary-border, #bfdbfe);
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.hidden-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 20px 0; }
+
 /* ── テーブル ── */
 .inv-table {
   width: 100%;
@@ -1001,7 +1220,29 @@ function fmtYen(n) {
 .item-row {
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
+  position: relative;
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+.item-row.swipe-dragging { transition: none; }   /* ドラッグ中は指に即追従 */
+
+/* 左スワイプで現れる非表示アクション（行の右端に固定） */
+.row-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 96px;
+  border: none;
+  background: #64748b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  z-index: 3;
+  -webkit-tap-highlight-color: transparent;
+}
+.row-action:active { background: #475569; }
 .item-row:active             { background: var(--primary-weak) !important; }
 .item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }

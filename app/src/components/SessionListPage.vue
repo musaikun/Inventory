@@ -25,7 +25,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
-const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
+const { config, itemCount, activeItemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
@@ -96,16 +96,22 @@ const liveStatus       = computed(() => _normStatus(liveRoom.value, activeSessio
 const orderLiveStatus  = computed(() => _normStatus(liveOrderRoom.value, activeOrderSession.value))
 const isRoomConnected      = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
 const isOrderRoomConnected = computed(() => (orderLiveStatus.value?.clientCount ?? 0) > 0)
+// 進捗率（入力済み / 総品目）。総品目はルーム状態が無ければローカルの品目数で補完し、
+// ルームの有無に依らず 0/100 品目・ゲージを表示できるようにする。
+function _pct(count, total) {
+  if (!total) return null
+  return Math.min(100, Math.round((count / total) * 100))
+}
+
+// 進捗の分母は手動非表示を除いた実効品目数（ローカル）。ルームの totalItems は
+// 非表示を反映しないため、ホームの進捗はローカルの activeItemCount を優先する。
 const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
-const orderTotalItems = computed(() => orderLiveStatus.value?.totalItems ?? null)
+const orderTotalItems = computed(() => (activeItemCount.value || orderLiveStatus.value?.totalItems || null))
+const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
 
 const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
-const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? null)
-const liveProgressPct = computed(() => {
-  const total = liveTotalItems.value
-  if (!total) return null
-  return Math.min(100, Math.round((liveItemCount.value / total) * 100))
-})
+const liveTotalItems = computed(() => (activeItemCount.value || liveStatus.value?.totalItems || null))
+const liveProgressPct = computed(() => _pct(liveItemCount.value, liveTotalItems.value))
 
 function _formatElapsed(iso) {
   if (!iso) return ''
@@ -436,10 +442,8 @@ function _itemCount(session) {
           <div v-if="error" class="msg-error">{{ error }}</div>
 
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
-          <div v-if="activeSession" class="hero-live" :class="{ offline: !isRoomConnected }">
+          <div v-if="activeSession" class="hero-live">
             <div class="hero-live-head">
-              <span class="live-dot" :class="{ offline: !isRoomConnected }"></span>
-              <span class="live-label" :class="{ offline: !isRoomConnected }">{{ isRoomConnected ? 'LIVE' : 'OFFLINE' }}</span>
               <span class="hero-live-title">進行中の棚卸</span>
               <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
             </div>
@@ -542,10 +546,17 @@ function _itemCount(session) {
               </span>
             </div>
 
-            <!-- 品目入力数 -->
-            <div class="order-live-row">
-              <span class="hl-prog-count">{{ orderLiveStatus?.totalItems ?? orderItemCount }}</span>
-              <span class="hl-prog-total"> 品目入力済み</span>
+            <!-- 品目進捗（棚卸カードと統一）-->
+            <div class="hl-progress">
+              <div class="hl-prog-text">
+                <span class="hl-prog-count">{{ orderItemCount }}</span><span
+                  v-if="orderTotalItems" class="hl-prog-total"> / {{ orderTotalItems }} 品目</span><span
+                  v-else class="hl-prog-total"> 品目入力済み</span>
+                <span v-if="orderProgressPct != null" class="hl-prog-pct">{{ orderProgressPct }}%</span>
+              </div>
+              <div v-if="orderProgressPct != null" class="hl-prog-bar">
+                <div class="hl-prog-fill" :style="{ width: orderProgressPct + '%' }"></div>
+              </div>
             </div>
 
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
@@ -1018,6 +1029,16 @@ function _itemCount(session) {
   padding: 16px 18px;
   margin-bottom: 4px;
   box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  animation: order-breathe 3.2s ease-in-out infinite;
+}
+@keyframes order-breathe {
+  0%, 100% { border-color: #fed7aa; box-shadow: 0 3px 12px rgba(234,88,12,0.14); }
+  50%      { border-color: #fb923c; box-shadow: 0 6px 24px rgba(234,88,12,0.40); }
+}
+
+/* アクセシビリティ: モーション低減設定では点滅を止める */
+@media (prefers-reduced-motion: reduce) {
+  .hero-live, .order-live { animation: none; }
 }
 .order-live-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .order-live-badge { font-size: 15px; font-weight: 800; color: #c2410c; }
@@ -1044,46 +1065,18 @@ function _itemCount(session) {
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
   margin-bottom: 4px;
   transition: border-color 0.3s;
+  animation: hero-breathe 3.2s ease-in-out infinite;
 }
-.hero-live.offline {
-  border-color: #cbd5e1;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+@keyframes hero-breathe {
+  0%, 100% { border-color: var(--primary-bright); box-shadow: 0 4px 16px rgba(37,99,235,0.16); }
+  50%      { border-color: var(--primary);        box-shadow: 0 6px 26px rgba(37,99,235,0.42); }
 }
-
 .hero-live-head {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
 }
-
-.live-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #ef4444;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 0 rgba(239,68,68,0.55);
-  animation: live-pulse 1.8s infinite;
-}
-.live-dot.offline {
-  background: #cbd5e1;
-  animation: none;
-}
-
-@keyframes live-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
-  70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-}
-
-.live-label {
-  font-size: 11px;
-  font-weight: 800;
-  color: #ef4444;
-  letter-spacing: 0.08em;
-}
-.live-label.offline { color: #94a3b8; }
 
 .hero-live-title {
   font-size: 15px;
@@ -1093,17 +1086,19 @@ function _itemCount(session) {
 
 .hero-live-discard {
   margin-left: auto;
-  background: none;
-  border: none;
+  border: 1px solid #fecaca;
+  background: #fff;
+  color: #dc2626;
+  border-radius: 8px;
   font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  font-weight: 700;
+  padding: 4px 10px;
   cursor: pointer;
-  padding: 4px 6px;
   transition: color 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
 .hero-live-discard:active { color: #ef4444; }
-.hero-live-discard:disabled { opacity: 0.4; }
+.hero-live-discard:disabled { opacity: 0.4; cursor: default; }
 
 /* 情報行 */
 .hl-row {
