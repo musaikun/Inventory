@@ -37,9 +37,9 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
 
-// 編集モードでは単位・ジャンルのロックを解除して編集できる（編集が唯一の変更手段）
-const unitEditable     = computed(() => props.isEdit || !props.unitLocked)
-const categoryEditable = computed(() => props.isEdit || !props.categoryLocked)
+// 編集モードでは単位のロックを解除して編集できる（編集が唯一の変更手段）。
+// ジャンルは取込元由来のみ＝常に読み取り専用（ユーザー分類はユーザー軸で行う）。
+const unitEditable = computed(() => props.isEdit || !props.unitLocked)
 
 // 編集モード: 品目名・単価
 const editName = ref(props.ingredient)
@@ -51,8 +51,6 @@ const tagB = ref(props.initialTagB ?? '')
 
 // 単位ドロップダウンの選択肢（p・ヶ を追加）
 const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
-// 初期ジャンル（既存が無いとき用）
-const PRESET_GENRES = ['肉類', '野菜', '魚', '冷凍', '冷蔵', '常温', '飲料', '酒類', '調味料', '乾物', '消耗品', 'その他']
 const CUSTOM = '__custom__'
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
@@ -95,22 +93,8 @@ function onUnitChange(v) {
   }
 }
 
-// ── ジャンル（ドロップダウン＋手入力）─────────────────────────────────────────
+// ── ジャンル（取込元由来・表示のみ）─────────────────────────────────────────
 const category = ref(props.initialCategory ?? '')
-const categoryOptions = computed(() =>
-  [...new Set([...(props.existingCategories ?? []), ...PRESET_GENRES])]
-)
-const categoryCustom    = ref(!!props.initialCategory && !categoryOptions.value.includes(props.initialCategory))
-const categoryCustomRef = ref(null)
-const categorySelectValue = computed(() => categoryCustom.value ? CUSTOM : category.value)
-function onCategoryChange(v) {
-  if (v === CUSTOM) {
-    categoryCustom.value = true; category.value = ''
-    nextTick(() => categoryCustomRef.value?.focus())   // その他選択で即キーボードを開く
-  } else {
-    categoryCustom.value = false; category.value = v
-  }
-}
 
 // ── テンキー入力 ───────────────────────────────────────────────────────────────
 function numpadDigit(d) {
@@ -463,33 +447,11 @@ function saveEdit() {
         <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
 
-      <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力（任意）-->
-      <div v-if="!orderMode" class="genre-row">
-        <span class="genre-label">{{ categoryEditable ? 'ジャンル（任意）' : 'ジャンル' }}</span>
-        <div v-if="!categoryEditable" class="genre-locked-badge">
-          {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
-        </div>
-        <div v-else class="select-wrap genre-select-wrap">
-          <select class="field-select" :value="categorySelectValue" @change="onCategoryChange($event.target.value)">
-            <option value="">未設定</option>
-            <option v-for="g in categoryOptions" :key="g" :value="g">{{ g }}</option>
-            <option :value="CUSTOM">その他（手入力）…</option>
-          </select>
-          <span class="select-arrow">▾</span>
-        </div>
+      <!-- ジャンル：取込元由来のみ・読み取り専用（無ければ表示しない）-->
+      <div v-if="!orderMode && category" class="genre-row">
+        <span class="genre-label">ジャンル</span>
+        <span class="genre-locked-badge">{{ category }}<span class="unit-lock-icon">🔒</span></span>
       </div>
-      <div v-if="!orderMode && categoryEditable && isNew" class="genre-hint">
-        未設定でもOK。あとで「並び替え」でまとめて振り分けできます。
-      </div>
-      <input
-        v-if="categoryEditable && categoryCustom"
-        ref="categoryCustomRef"
-        type="text"
-        v-model="category"
-        maxlength="20"
-        placeholder="ジャンルを入力"
-        class="custom-input"
-      />
 
       <!-- 単価（編集モードのみ） -->
       <div v-if="isEdit" class="price-row">
