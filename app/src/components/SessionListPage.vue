@@ -1027,6 +1027,16 @@ function _itemCount(session) {
   padding: 16px 18px;
   margin-bottom: 4px;
   box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  animation: order-breathe 3.2s ease-in-out infinite;
+}
+@keyframes order-breathe {
+  0%, 100% { border-color: #fed7aa; box-shadow: 0 3px 12px rgba(234,88,12,0.14); }
+  50%      { border-color: #fb923c; box-shadow: 0 6px 24px rgba(234,88,12,0.40); }
+}
+
+/* アクセシビリティ: モーション低減設定では点滅を止める */
+@media (prefers-reduced-motion: reduce) {
+  .hero-live, .order-live { animation: none; }
 }
 .order-live-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .order-live-badge { font-size: 15px; font-weight: 800; color: #c2410c; }
@@ -1053,6 +1063,11 @@ function _itemCount(session) {
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
   margin-bottom: 4px;
   transition: border-color 0.3s;
+  animation: hero-breathe 3.2s ease-in-out infinite;
+}
+@keyframes hero-breathe {
+  0%, 100% { border-color: var(--primary-bright); box-shadow: 0 4px 16px rgba(37,99,235,0.16); }
+  50%      { border-color: var(--primary);        box-shadow: 0 6px 26px rgba(37,99,235,0.42); }
 }
 .hero-live-head {
   display: flex;
