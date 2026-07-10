@@ -53,10 +53,10 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignModal from './components/AxisAssignModal.vue'
-import MasterManageModal from './components/MasterManageModal.vue'
+import MasterManagePage from './components/MasterManagePage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showMasterManage } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -71,7 +71,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, setEmptyList, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -851,8 +851,8 @@ function _closeTopLayer() {
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
-  if (showMasterManage.value) { showMasterManage.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
+  if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
@@ -1889,6 +1889,14 @@ function onUnhideItem(name) {
   if (syncActive.value) broadcastConfig()
 }
 
+// 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
+function onClearMaster() {
+  setEmptyList()
+  _persistConfigToD1()
+  if (syncActive.value) broadcastConfig()
+  showToast('品目マスタを削除しました', 2600, 'default')
+}
+
 // ── CSV export ─────────────────────────────────────────────────────────────────
 const zeroItems     = ref([])  // 数量0品目
 const unfilledItems = ref([])  // 未入力品目
@@ -2037,7 +2045,15 @@ function dismissReview() {
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
+      @open-master="currentView = 'master'"
       @open-upgrade="reason => openUpgrade(reason)"
+    />
+
+    <!-- ── 品目マスタ管理（専用ページ） ── -->
+    <MasterManagePage
+      v-else-if="currentView === 'master'"
+      @back="currentView = 'sessions'"
+      @clear-master="onClearMaster"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->
@@ -2482,7 +2498,6 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
-    <MasterManageModal v-if="showMasterManage" @close="showMasterManage = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />

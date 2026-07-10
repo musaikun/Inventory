@@ -1,0 +1,219 @@
+<script setup>
+import { ref, computed } from 'vue'
+import { useConfig } from '../composables/useConfig.js'
+import { useHistory } from '../composables/useHistory.js'
+import { shopCode } from '../composables/useStore.js'
+import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
+
+const emit = defineEmits(['back', 'clear-master'])
+
+const { config, itemCount, hideItem, unhideItem, setAxisName } = useConfig()
+const { getSnapshots } = useHistory()
+
+const hiddenSet  = computed(() => new Set(config.hiddenItems))
+const hiddenList = computed(() => [...config.hiddenItems])
+
+const USAGE_SESSIONS = 3
+const usedNames = computed(() => {
+  const s = new Set()
+  for (const snap of getSnapshots().slice(0, USAGE_SESSIONS)) {
+    for (const it of (snap.items ?? [])) {
+      if (it.qty !== null && it.qty !== undefined) s.add(it.item)
+    }
+  }
+  return s
+})
+const hasHistory = computed(() => usedNames.value.size > 0)
+const unusedCandidates = computed(() =>
+  config.order.filter(i => !hiddenSet.value.has(i) && !usedNames.value.has(i))
+)
+
+const listOpen = ref(false)
+function genreOf(item) { return config.categories?.[item] || '' }
+function axisTagsOf(item) {
+  return [...(config.tagsA?.[item] || []), ...(config.tagsB?.[item] || [])]
+}
+
+function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
+function onAxisName(idx, e) { setAxisName(idx, (e.target.value || '').trim()) }
+
+function hideAllUnused() {
+  if (!unusedCandidates.value.length) return
+  if (!confirm(`前回まで未入力の ${unusedCandidates.value.length} 件をまとめて非表示にします。\nいつでも戻せます。よろしいですか？`)) return
+  for (const n of [...unusedCandidates.value]) hideItem(n)
+}
+
+// ── 一括削除（店舗コード入力ゲート）─────────────────────────────
+const delCode = ref('')
+const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
+function onClear() {
+  if (!canDelete.value) return
+  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。\n（軸の名前・グループ定義は残ります）\nこの操作は取り消せません。本当に削除しますか？`)) return
+  emit('clear-master')
+  delCode.value = ''
+}
+</script>
+
+<template>
+  <div class="mp">
+    <header class="mp-header">
+      <button class="mp-back" @click="emit('back')">‹ 戻る</button>
+      <span class="mp-title">📦 品目マスタ管理</span>
+      <span class="mp-count">{{ itemCount }}件</span>
+    </header>
+
+    <div class="mp-scroll">
+      <!-- 取込む -->
+      <button class="mm-row" @click="settingsSection = 'import'">
+        <span class="mm-row-ico">📥</span>
+        <span class="mm-row-body">
+          <span class="mm-row-title">品目を取込む / 更新</span>
+          <span class="mm-row-sub">CSV・Excel・PDF から</span>
+        </span>
+        <span class="mm-row-arrow">→</span>
+      </button>
+
+      <!-- 並び替え（軸） -->
+      <div class="mm-block">
+        <div class="mm-block-head"><span class="mm-block-title">並び替え（軸）</span></div>
+        <div class="mm-axis-row">
+          <span class="mm-axis-label">軸①</span>
+          <input class="mm-axis-input" :value="config.axisNames[0]" maxlength="12"
+                 placeholder="例：保管場所" @change="onAxisName(0, $event)" />
+          <button v-if="config.axisNames[0]" class="mm-axis-go" @click="openReorder(0)">振り分け →</button>
+        </div>
+        <div class="mm-axis-row">
+          <span class="mm-axis-label">軸②</span>
+          <input class="mm-axis-input" :value="config.axisNames[1]" maxlength="12"
+                 placeholder="例：仕入先" @change="onAxisName(1, $event)" />
+          <button v-if="config.axisNames[1]" class="mm-axis-go" @click="openReorder(1)">振り分け →</button>
+        </div>
+        <div class="mm-block-sub">軸の名前を入れると、その軸で品目をグループ分けできます。ジャンルは取込元由来（編集不可）。</div>
+      </div>
+
+      <!-- 使っていない候補（前回まで未入力） -->
+      <div class="mm-block">
+        <div class="mm-block-head">
+          <span class="mm-block-title">使っていない候補</span>
+          <span class="mm-block-note">前回まで未入力</span>
+        </div>
+        <div v-if="!hasHistory" class="mm-empty">棚卸の履歴がまだありません。数回の棚卸のあとに候補が出ます。</div>
+        <div v-else-if="unusedCandidates.length === 0" class="mm-empty">直近の棚卸で全ての品目に入力があります。候補はありません。</div>
+        <template v-else>
+          <div class="mm-block-sub">{{ unusedCandidates.length }}件。要らないものは非表示にできます（進捗の分母から外れます）。</div>
+          <button class="mm-bulk" @click="hideAllUnused">まとめて非表示にする（{{ unusedCandidates.length }}件）</button>
+          <div class="mm-chiplist">
+            <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n)">{{ n }}<span class="mm-chip-x">×</span></button>
+          </div>
+        </template>
+      </div>
+
+      <!-- 非表示中の管理 -->
+      <div class="mm-block">
+        <div class="mm-block-head">
+          <span class="mm-block-title">非表示中</span>
+          <span class="mm-block-note">{{ hiddenList.length }}件</span>
+        </div>
+        <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
+        <div v-else>
+          <div v-for="n in hiddenList" :key="n" class="mm-hidden-row">
+            <span class="mm-hidden-name">{{ n }}</span>
+            <button class="mm-restore" @click="unhideItem(n)">戻す</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 品目一覧（閲覧） -->
+      <div class="mm-block">
+        <button class="mm-block-head mm-toggle" @click="listOpen = !listOpen">
+          <span class="mm-block-title">品目一覧を見る</span>
+          <span class="mm-block-note">{{ listOpen ? '▲' : '▼' }} {{ itemCount }}件</span>
+        </button>
+        <div v-if="listOpen" class="mm-items">
+          <div v-for="item in config.order" :key="item" class="mm-item" :class="{ hidden: hiddenSet.has(item) }">
+            <span class="mm-item-name">{{ item }}</span>
+            <span class="mm-item-meta">
+              <span v-if="genreOf(item)" class="mm-tag genre">{{ genreOf(item) }}</span>
+              <span v-for="t in axisTagsOf(item)" :key="t" class="mm-tag">{{ t }}</span>
+              <span v-if="hiddenSet.has(item)" class="mm-tag off">非表示</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 一括削除（危険操作・店舗コードゲート） -->
+      <div v-if="itemCount > 0" class="mm-block danger">
+        <div class="mm-block-head"><span class="mm-block-title danger">品目マスタを一括削除</span></div>
+        <div class="mm-block-sub">
+          登録済みの品目をすべて削除します（軸の名前・グループ定義は残ります）。取り消せません。<br>
+          削除するには店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入力してください。
+        </div>
+        <input class="mm-del-input" v-model="delCode" placeholder="店舗コードを入力" autocapitalize="characters" />
+        <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.mp { min-height: 100vh; background: #f8fafc; }
+.mp-header {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+}
+.mp-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
+.mp-title { font-size: 16px; font-weight: 800; color: #1e293b; }
+.mp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); }
+.mp-scroll { padding: 14px; max-width: 620px; margin: 0 auto; }
+
+.mm-row {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 14px; margin-bottom: 12px; cursor: pointer; text-align: left;
+}
+.mm-row:active { background: #f1f5f9; }
+.mm-row-ico { font-size: 20px; }
+.mm-row-body { flex: 1; min-width: 0; }
+.mm-row-title { display: block; font-size: 15px; font-weight: 700; color: #334155; }
+.mm-row-sub { display: block; font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.mm-row-arrow { color: #cbd5e1; font-size: 18px; }
+
+.mm-block { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.mm-block.danger { border-color: #fecaca; }
+.mm-block-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: none; padding: 0; }
+.mm-toggle { cursor: pointer; }
+.mm-block-title { font-size: 14px; font-weight: 800; color: #334155; }
+.mm-block-title.danger { color: #dc2626; }
+.mm-block-note { margin-left: auto; font-size: 12px; font-weight: 700; color: #94a3b8; }
+.mm-block-sub { font-size: 12px; color: #64748b; margin: 8px 0; line-height: 1.6; }
+.mm-empty { font-size: 12px; color: #94a3b8; margin-top: 8px; }
+
+.mm-axis-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.mm-axis-label { font-size: 13px; font-weight: 800; color: #64748b; width: 32px; flex-shrink: 0; }
+.mm-axis-input { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+.mm-axis-go { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+
+.mm-bulk { width: 100%; border: none; border-radius: 10px; padding: 10px; background: #64748b; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }
+.mm-bulk:active { background: #475569; }
+.mm-chiplist { display: flex; flex-wrap: wrap; gap: 6px; }
+.mm-chip { border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; border-radius: 20px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.mm-chip-x { color: #cbd5e1; margin-left: 4px; }
+
+.mm-hidden-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
+.mm-hidden-name { font-size: 14px; color: #334155; }
+.mm-restore { border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
+
+.mm-items { margin-top: 8px; max-height: 50vh; overflow-y: auto; }
+.mm-item { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
+.mm-item.hidden { opacity: 0.5; }
+.mm-item-name { font-size: 14px; color: #334155; flex: 1; min-width: 0; }
+.mm-item-meta { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.mm-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
+.mm-tag.genre { color: #6d28d9; background: #ede9fe; }
+.mm-tag.off { color: #dc2626; background: #fef2f2; }
+
+.mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+.mm-del-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: #dc2626; color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; }
+.mm-del-btn:disabled { background: #fca5a5; cursor: not-allowed; }
+</style>

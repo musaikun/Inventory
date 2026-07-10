@@ -16,14 +16,14 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
-import { settingsSection, showMasterManage } from '../composables/appMenuState.js'
+import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice'])
 
 const { config, itemCount, activeItemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
@@ -459,14 +459,13 @@ function _itemCount(session) {
             <template v-if="itemCount > 0">
               <div v-if="config.isCustom && listSavedLabel" class="master-meta">最終更新 {{ listSavedLabel }}</div>
               <div class="master-actions">
-                <button class="master-btn" @click="onImportList">品目を取込む / 更新</button>
-                <button class="master-btn" @click="showMasterManage = true">閲覧・並び替え・非表示 →</button>
+                <button class="master-btn" @click="emit('openMaster')">管理する（取込・並び替え・非表示）→</button>
               </div>
             </template>
             <template v-else>
-              <div class="master-empty">まだ品目がありません。取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
+              <div class="master-empty">まだ品目がありません。「管理する」から取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
               <div class="master-actions">
-                <button class="master-btn primary" @click="onImportList">品目を取込む</button>
+                <button class="master-btn primary" @click="emit('openMaster')">管理する →</button>
               </div>
             </template>
           </div>
