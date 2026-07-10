@@ -16,7 +16,7 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
-import { settingsSection } from '../composables/appMenuState.js'
+import { settingsSection, showMasterManage } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -449,10 +449,10 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <!-- 品目マスタ（店舗の品目リスト＝棚卸・発注が共有する正）-->
+          <!-- 品目マスタ管理（店舗の品目リスト＝棚卸・発注が共有する正）-->
           <div class="master-card">
             <div class="master-head">
-              <span class="master-title">📦 品目マスタ</span>
+              <span class="master-title">📦 品目マスタ管理</span>
               <span v-if="config.isCustom && itemCount > 0" class="master-count">{{ itemCount }}件</span>
               <span v-else-if="itemCount > 0" class="master-sample">サンプル {{ itemCount }}件</span>
             </div>
@@ -460,6 +460,7 @@ function _itemCount(session) {
               <div v-if="config.isCustom && listSavedLabel" class="master-meta">最終更新 {{ listSavedLabel }}</div>
               <div class="master-actions">
                 <button class="master-btn" @click="onImportList">品目を取込む / 更新</button>
+                <button class="master-btn" @click="showMasterManage = true">閲覧・並び替え・非表示 →</button>
               </div>
             </template>
             <template v-else>

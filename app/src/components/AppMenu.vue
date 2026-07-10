@@ -19,9 +19,9 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
     <div v-if="open" class="am-dropdown">
       <!-- 画面固有の項目（セッション一覧に戻る・バーコード等）-->
       <slot :close="() => (open = false)" />
-      <!-- 品目の一括インポートはマスタ（ホーム）に集約。セッション中は出さない -->
+      <!-- 品目の一括インポート・並び替えはマスタ（ホーム）に集約。セッション中は出さない -->
       <button v-if="context !== 'session'" class="am-item" @click="pick('import')"><span class="am-ico">📥</span> 品目のインポート</button>
-      <button class="am-item" @click="pick('axis')"><span class="am-ico">🔀</span> 並び替え</button>
+      <button v-if="context !== 'session'" class="am-item" @click="pick('axis')"><span class="am-ico">🔀</span> 並び替え</button>
       <button class="am-item" @click="doExport"><span class="am-ico">📤</span> CSVエクスポート</button>
       <button class="am-item" @click="doTemplate"><span class="am-ico">📄</span> Excelテンプレート</button>
       <button class="am-item" @click="pick('device')"><span class="am-ico">📱</span> 端末名</button>

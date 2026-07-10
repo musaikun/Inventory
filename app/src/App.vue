@@ -53,9 +53,10 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignModal from './components/AxisAssignModal.vue'
+import MasterManageModal from './components/MasterManageModal.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showMasterManage } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -850,6 +851,7 @@ function _closeTopLayer() {
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
+  if (showMasterManage.value) { showMasterManage.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
@@ -2480,6 +2482,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
+    <MasterManageModal v-if="showMasterManage" @close="showMasterManage = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
