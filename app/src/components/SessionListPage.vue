@@ -321,6 +321,7 @@ function onImportList() {
 
 // 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
 async function onStartOrder() {
+  if (itemCount.value === 0) { error.value = '先に品目マスタを登録してください（取込む、または棚卸で追加）'; return }
   starting.value = true
   try {
     const session = await createSession('order')
@@ -440,6 +441,27 @@ function _itemCount(session) {
         <!-- セッションパネル -->
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
+
+          <!-- 品目マスタ（店舗の品目リスト＝棚卸・発注が共有する正）-->
+          <div class="master-card">
+            <div class="master-head">
+              <span class="master-title">📦 品目マスタ</span>
+              <span v-if="config.isCustom && itemCount > 0" class="master-count">{{ itemCount }}件</span>
+              <span v-else-if="itemCount > 0" class="master-sample">サンプル {{ itemCount }}件</span>
+            </div>
+            <template v-if="itemCount > 0">
+              <div v-if="config.isCustom && listSavedLabel" class="master-meta">最終更新 {{ listSavedLabel }}</div>
+              <div class="master-actions">
+                <button class="master-btn" @click="onImportList">品目を取込む / 更新</button>
+              </div>
+            </template>
+            <template v-else>
+              <div class="master-empty">まだ品目がありません。取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
+              <div class="master-actions">
+                <button class="master-btn primary" @click="onImportList">品目を取込む</button>
+              </div>
+            </template>
+          </div>
 
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
           <div v-if="activeSession" class="hero-live">
@@ -561,11 +583,11 @@ function _itemCount(session) {
 
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
           </div>
-          <button v-else class="order-start" :disabled="starting" @click="onStartOrder">
+          <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="starting || itemCount === 0" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
               <div class="order-start-title">発注確認を開始</div>
-              <div class="order-start-sub">仕入先ごとに、発注をまとめて記録</div>
+              <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注をまとめて記録' }}</div>
             </div>
             <div class="order-start-arrow">→</div>
           </button>
@@ -927,6 +949,36 @@ function _itemCount(session) {
   margin-top: 8px;
   margin-bottom: 4px;
 }
+
+/* 品目マスタ カード */
+.master-card {
+  background: #fff;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.master-head { display: flex; align-items: center; gap: 8px; }
+.master-title { font-size: 14px; font-weight: 800; color: #334155; }
+.master-count { font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); margin-left: auto; }
+.master-sample { font-size: 12px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 20px; padding: 2px 10px; margin-left: auto; }
+.master-meta { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+.master-empty { font-size: 12px; color: #64748b; margin-top: 6px; line-height: 1.5; }
+.master-actions { display: flex; gap: 8px; margin-top: 10px; }
+.master-btn {
+  border: 1px solid var(--primary-border, #bfdbfe);
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.master-btn.primary { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.master-btn:active { transform: scale(0.98); }
+
+.order-start.disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ヒーロー: 開始カード */
 .hero-start {
