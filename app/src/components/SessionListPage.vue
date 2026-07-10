@@ -96,16 +96,20 @@ const liveStatus       = computed(() => _normStatus(liveRoom.value, activeSessio
 const orderLiveStatus  = computed(() => _normStatus(liveOrderRoom.value, activeOrderSession.value))
 const isRoomConnected      = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
 const isOrderRoomConnected = computed(() => (orderLiveStatus.value?.clientCount ?? 0) > 0)
+// 進捗率（入力済み / 総品目）。総品目はルーム状態が無ければローカルの品目数で補完し、
+// ルームの有無に依らず 0/100 品目・ゲージを表示できるようにする。
+function _pct(count, total) {
+  if (!total) return null
+  return Math.min(100, Math.round((count / total) * 100))
+}
+
 const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
-const orderTotalItems = computed(() => orderLiveStatus.value?.totalItems ?? null)
+const orderTotalItems = computed(() => orderLiveStatus.value?.totalItems ?? (itemCount.value || null))
+const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
 
 const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
-const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? null)
-const liveProgressPct = computed(() => {
-  const total = liveTotalItems.value
-  if (!total) return null
-  return Math.min(100, Math.round((liveItemCount.value / total) * 100))
-})
+const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? (itemCount.value || null))
+const liveProgressPct = computed(() => _pct(liveItemCount.value, liveTotalItems.value))
 
 function _formatElapsed(iso) {
   if (!iso) return ''
@@ -542,10 +546,17 @@ function _itemCount(session) {
               </span>
             </div>
 
-            <!-- 品目入力数 -->
-            <div class="order-live-row">
-              <span class="hl-prog-count">{{ orderLiveStatus?.totalItems ?? orderItemCount }}</span>
-              <span class="hl-prog-total"> 品目入力済み</span>
+            <!-- 品目進捗（棚卸カードと統一）-->
+            <div class="hl-progress">
+              <div class="hl-prog-text">
+                <span class="hl-prog-count">{{ orderItemCount }}</span><span
+                  v-if="orderTotalItems" class="hl-prog-total"> / {{ orderTotalItems }} 品目</span><span
+                  v-else class="hl-prog-total"> 品目入力済み</span>
+                <span v-if="orderProgressPct != null" class="hl-prog-pct">{{ orderProgressPct }}%</span>
+              </div>
+              <div v-if="orderProgressPct != null" class="hl-prog-bar">
+                <div class="hl-prog-fill" :style="{ width: orderProgressPct + '%' }"></div>
+              </div>
             </div>
 
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
