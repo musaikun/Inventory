@@ -442,8 +442,6 @@ function _itemCount(session) {
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
           <div v-if="activeSession" class="hero-live" :class="{ offline: !isRoomConnected }">
             <div class="hero-live-head">
-              <span class="live-dot" :class="{ offline: !isRoomConnected }"></span>
-              <span class="live-label" :class="{ offline: !isRoomConnected }">{{ isRoomConnected ? 'LIVE' : 'OFFLINE' }}</span>
               <span class="hero-live-title">進行中の棚卸</span>
               <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
             </div>
@@ -1068,34 +1066,6 @@ function _itemCount(session) {
   margin-bottom: 12px;
 }
 
-.live-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #ef4444;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 0 rgba(239,68,68,0.55);
-  animation: live-pulse 1.8s infinite;
-}
-.live-dot.offline {
-  background: #cbd5e1;
-  animation: none;
-}
-
-@keyframes live-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
-  70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-}
-
-.live-label {
-  font-size: 11px;
-  font-weight: 800;
-  color: #ef4444;
-  letter-spacing: 0.08em;
-}
-.live-label.offline { color: #94a3b8; }
-
 .hero-live-title {
   font-size: 15px;
   font-weight: 700;
@@ -1104,17 +1074,19 @@ function _itemCount(session) {
 
 .hero-live-discard {
   margin-left: auto;
-  background: none;
-  border: none;
+  border: 1px solid #fecaca;
+  background: #fff;
+  color: #dc2626;
+  border-radius: 8px;
   font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  font-weight: 700;
+  padding: 4px 10px;
   cursor: pointer;
-  padding: 4px 6px;
   transition: color 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
 .hero-live-discard:active { color: #ef4444; }
-.hero-live-discard:disabled { opacity: 0.4; }
+.hero-live-discard:disabled { opacity: 0.4; cursor: default; }
 
 /* 情報行 */
 .hl-row {
