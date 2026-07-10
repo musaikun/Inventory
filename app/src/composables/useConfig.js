@@ -443,11 +443,9 @@ export function useConfig() {
     config.lotSizes      = {}
     config.dictionary    = {}
     config.manualItems   = []
-    config.axisNames     = ['', '']
+    // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
     config.tagsA         = {}
     config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
     config.hiddenItems   = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
@@ -465,11 +463,9 @@ export function useConfig() {
     config.prevMonths    = {}
     config.lotSizes      = {}
     config.dictionary    = { ...SAMPLE_DICTIONARY }
-    config.axisNames     = ['', '']
+    // 軸（軸名・グループ定義）は店舗の永続設定。練習でも消さない（終了時に復元もされる）。
     config.tagsA         = {}
     config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
     config.hiddenItems   = []
     config.isCustom      = false
     config.savedAt       = null

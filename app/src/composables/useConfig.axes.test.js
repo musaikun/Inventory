@@ -207,3 +207,29 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.axisGroupsA).toContain('冷凍庫')  // グループ定義は維持
   })
 })
+
+describe('useConfig 軸は店舗の永続設定（空開始・練習で消えない）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    cfg.config.order       = ['パスタ']
+    cfg.config.axisNames   = ['場所', '仕入先']
+    cfg.config.axisGroupsA = ['冷凍庫', '棚']
+    cfg.config.axisGroupsB = ['八百屋']
+    cfg.config.tagsA       = { パスタ: ['冷凍庫'] }
+    cfg.config.tagsB       = {}
+  })
+
+  it('setEmptyList: 品目は空になっても軸名・グループ定義は残る', () => {
+    cfg.setEmptyList()
+    expect(cfg.config.order).toEqual([])
+    expect(cfg.config.axisNames).toEqual(['場所', '仕入先'])
+    expect(cfg.config.axisGroupsA).toEqual(['冷凍庫', '棚'])
+    expect(cfg.config.axisGroupsB).toEqual(['八百屋'])
+  })
+
+  it('loadSampleData: サンプル読込でも軸名・グループ定義は残る', () => {
+    cfg.loadSampleData()
+    expect(cfg.config.axisNames).toEqual(['場所', '仕入先'])
+    expect(cfg.config.axisGroupsA).toEqual(['冷凍庫', '棚'])
+  })
+})
