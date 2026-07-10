@@ -658,21 +658,21 @@ function fmtYen(n) {
 
     <!-- 並べ替え / フィルター ツールバー -->
     <div class="toolbar">
-      <!-- 並べ替え（ゲストは操作不可＝ホストの結果を表示するだけ） -->
-      <div v-if="canManage" class="seg-group">
+      <!-- 並べ替え（軸の切替はゲストも可。作成・編集＝✎/＋ はホストのみ） -->
+      <div class="seg-group">
         <button
           v-for="opt in sortOpts"
           :key="opt.value"
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="sortMode = opt.value"
         >{{ opt.label }}<span
-            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB')"
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canManage"
             class="seg-edit"
             title="この並び替えのグループを編集"
             @click.stop="openAxisEdit(opt.value)"
           >✎</span></button>
         <button
-          v-if="canAddAxis"
+          v-if="canAddAxis && canManage"
           class="seg-btn seg-add"
           title="場所・仕入先など、並び替えを追加"
           @click="onAddAxis"
