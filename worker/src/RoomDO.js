@@ -5,6 +5,31 @@ import {
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
 } from './constants.js'
 
+// 品目リスト設定として保存・中継する全フィールドを一箇所で正規化する。
+// App.vue の getter（registerConfigGetter）が送る全フィールドと1:1で対応させること。
+// ここに列挙漏れがあると、ホストの品目更新でゲスト側の軸/非表示等が消える。
+export function normalizeConfig(src = {}) {
+  return {
+    order:         Array.isArray(src.order) ? src.order : [],
+    isCustom:      !!src.isCustom,
+    units:         src.units         ?? {},
+    prices:        src.prices        ?? {},
+    categories:    src.categories    ?? {},
+    codes:         src.codes         ?? {},
+    categoryCodes: src.categoryCodes ?? {},
+    prevMonths:    src.prevMonths    ?? {},
+    lotSizes:      src.lotSizes      ?? {},
+    dictionary:    src.dictionary    ?? {},
+    manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
+    axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
+    tagsA:         src.tagsA         ?? {},
+    tagsB:         src.tagsB         ?? {},
+    axisGroupsA:   Array.isArray(src.axisGroupsA) ? src.axisGroupsA : [],
+    axisGroupsB:   Array.isArray(src.axisGroupsB) ? src.axisGroupsB : [],
+    hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
+  }
+}
+
 export class RoomDO {
   constructor(state, env) {
     this.state = state
@@ -239,15 +264,8 @@ export class RoomDO {
 
       case 'config': {
         if (!this._isHost(ws)) return
-        const { order, units, prices, categories, codes, categoryCodes,
-                prevMonths, lotSizes, dictionary, isCustom } = msg
-        if (!Array.isArray(order)) return
-        const stored = {
-          order, isCustom: !!isCustom,
-          units: units ?? {}, prices: prices ?? {}, categories: categories ?? {},
-          codes: codes ?? {}, categoryCodes: categoryCodes ?? {},
-          prevMonths: prevMonths ?? {}, lotSizes: lotSizes ?? {}, dictionary: dictionary ?? {},
-        }
+        if (!Array.isArray(msg.order)) return
+        const stored = normalizeConfig(msg)   // 軸・非表示等を含む全フィールドを保存/中継
         await this.state.storage.put('config', stored)
         // ゲスト全員に品目リスト更新を通知
         this._broadcast({ type: 'config_update', ...stored }, ws)
@@ -560,23 +578,7 @@ export class RoomDO {
 
           const c = msg.config
           if (c && Array.isArray(c.order) && c.order.length > 0) {
-            broadcastCfg = {
-              order:         c.order,
-              isCustom:      !!c.isCustom,
-              units:         c.units         ?? {},
-              prices:        c.prices        ?? {},
-              categories:    c.categories    ?? {},
-              codes:         c.codes         ?? {},
-              categoryCodes: c.categoryCodes ?? {},
-              prevMonths:    c.prevMonths    ?? {},
-              lotSizes:      c.lotSizes      ?? {},
-              dictionary:    c.dictionary    ?? {},
-              axisNames:     Array.isArray(c.axisNames) ? c.axisNames : ['', ''],
-              tagsA:         c.tagsA         ?? {},
-              tagsB:         c.tagsB         ?? {},
-              axisGroupsA:   Array.isArray(c.axisGroupsA) ? c.axisGroupsA : [],
-              axisGroupsB:   Array.isArray(c.axisGroupsB) ? c.axisGroupsB : [],
-            }
+            broadcastCfg = normalizeConfig(c)   // 軸・非表示等を含む全フィールド
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {
