@@ -25,7 +25,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice'])
 
-const { config, itemCount, activeItemCount, loadSampleData, setEmptyList } = useConfig()
+const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
@@ -338,11 +338,6 @@ async function onStartOrder() {
   } finally {
     starting.value = false
   }
-}
-
-async function onStartWithSample() {
-  loadSampleData()
-  await confirmStart()
 }
 
 // 空のリストで開始（棚卸しながら品目を追加）
@@ -764,10 +759,9 @@ function _itemCount(session) {
           <div class="start-title">品目リストが未設定です</div>
           <div class="start-desc">
             実際の棚卸を始める前に、お店の品目リストをインポートしてください。<br>
-            まず動作を確認したい場合はサンプルデータで試せます。
+            まず動作を確認したい場合は、下の「サンプルで試す（練習）」で試せます。
           </div>
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost" :disabled="starting" @click="onStartWithSample">サンプルデータで試す</button>
         </template>
 
         <!-- サンプルデータ読み込み済み -->
@@ -799,8 +793,8 @@ function _itemCount(session) {
           <button class="start-alt-btn" @click="onStartPractice">
             <span class="start-alt-ico">🎯</span>
             <span class="start-alt-body">
-              <span class="start-alt-title">練習モードで開始</span>
-              <span class="start-alt-sub">テスト用リストで操作を試す（履歴に残りません）</span>
+              <span class="start-alt-title">サンプルで試す（練習モード）</span>
+              <span class="start-alt-sub">テスト用リストで操作を試す・履歴には残りません</span>
             </span>
           </button>
         </div>
