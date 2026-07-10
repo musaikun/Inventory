@@ -318,6 +318,10 @@ async function confirmStart() {
 }
 
 function onImportList() {
+  // 進行中セッションがあるまま品目リストを一括変更すると、その対象リストが変わる。
+  if (activeSession.value || activeOrderSession.value) {
+    if (!confirm('進行中のセッションがあります。\n品目リストを変更すると、進行中の棚卸／発注の対象リストも変わります。\n続けますか？')) return
+  }
   showStartModal.value = false
   emit('openSettings')
 }
