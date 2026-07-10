@@ -1121,7 +1121,6 @@ function onUndone() {
 
 // メイン画面のホームアイコン → セッション一覧へ戻る
 async function onGoHome() {
-  sessionMode.value = 'stock'
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
     if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
@@ -1129,6 +1128,7 @@ async function onGoHome() {
     _exitPractice()
     clearSession()
     currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    sessionMode.value = 'stock'
     return
   }
 
@@ -1155,6 +1155,7 @@ async function onGoHome() {
   showSync.value = false
   showChat.value = false
   currentView.value = 'sessions'
+  sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
 
 // 完了後に新規棚卸を開始

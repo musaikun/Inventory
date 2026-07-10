@@ -3,7 +3,6 @@ import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const { config: liveConfig, setAxisName } = useConfig()
 
@@ -374,7 +373,8 @@ const grandTotal = computed(() => {
 })
 
 function rowClick(item) {
-  if (_swipeMoved) { _swipeMoved = false; return }   // 横スワイプはタップにしない
+  if (swipeItem.value === item && swipeDx.value < 0) { _resetSwipe(); return }  // 開いている→タップで閉じる
+  if (_suppressClick) { _suppressClick = false; return }                        // 直前がスワイプ操作
   if (props.conflictLocked?.has(item)) return
   emit('tap', item)
 }
@@ -460,24 +460,61 @@ function confirmDelete(item) {
   emit('delete-item', item)
 }
 
-// ── 手動非表示（左スワイプ → 確認 → 非表示）─────────────────────────────────────
-const pendingHide = ref(null)  // 非表示確認中の品目名
-function requestHide(item)  { if (!props.readOnly) pendingHide.value = item }
-function cancelHide()       { pendingHide.value = null }
-function confirmHide(item)  { pendingHide.value = null; emit('hide-item', item) }
+// ── 手動非表示（左スワイプでカードが追従 → 非表示アクション → 確認ダイアログ）──────
+const ACTION_W  = 96   // 非表示アクションの幅(px)
+const REVEAL_AT = 40   // これ以上引いたらアクションを表示
+const OPEN_SNAP = 56   // これ以上で離すとスナップして開いたまま
 
-// 行の左スワイプで非表示確認を出す。タップ（数量入力）と区別するため moved を追う。
-let _swipeItem  = null
-let _swipeMoved = false
-const rowSwipe = useHorizontalSwipe({
-  threshold: 60,
-  onLeft:  () => { if (_swipeItem) requestHide(_swipeItem) },
-  onDrag:  dx => { if (dx !== 0) _swipeMoved = true },
-})
+const swipeItem     = ref(null)   // ドラッグ/オープン中の品目名
+const swipeDx       = ref(0)      // 現在の移動量（<=0）
+const swipeDragging = ref(false)  // 指が触れている間（transition を切る）
+const hideDialogItem = ref(null)  // 確認ダイアログ対象
+let _sx = 0, _sy = 0, _dir = null, _baseDx = 0, _suppressClick = false
+
+function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
+
 function onRowTouchStart(e, item) {
   if (props.readOnly) return
-  _swipeItem = item; _swipeMoved = false; rowSwipe.onTouchStart(e)
+  if (swipeItem.value && swipeItem.value !== item) _resetSwipe()  // 別行に触れたら閉じる
+  const t = e.changedTouches[0]
+  _sx = t.clientX; _sy = t.clientY; _dir = null
+  _baseDx = (swipeItem.value === item) ? swipeDx.value : 0
+  swipeItem.value = item
+  swipeDragging.value = true
 }
+function onRowTouchMove(e) {
+  if (!swipeDragging.value) return
+  const t  = e.changedTouches[0]
+  const dx = t.clientX - _sx
+  const dy = t.clientY - _sy
+  if (_dir === null) {
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    _dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+  }
+  if (_dir !== 'h') return   // 縦スクロールは妨げない
+  let nx = _baseDx + dx
+  if (nx > 0) nx = 0
+  if (nx < -ACTION_W) nx = -ACTION_W - (-ACTION_W - nx) * 0.3  // 端で抵抗
+  swipeDx.value = nx
+}
+function onRowTouchEnd() {
+  if (!swipeDragging.value) return
+  swipeDragging.value = false
+  if (_dir === 'h') {
+    _suppressClick = true
+    swipeDx.value = (-swipeDx.value >= OPEN_SNAP) ? -ACTION_W : 0   // スナップ開/閉
+    if (swipeDx.value === 0) swipeItem.value = null
+  }
+}
+
+function openHideDialog(item) { hideDialogItem.value = item }
+function confirmHideDialog() {
+  const it = hideDialogItem.value
+  hideDialogItem.value = null
+  _resetSwipe()
+  if (it) emit('hide-item', it)
+}
+function cancelHideDialog() { hideDialogItem.value = null; _resetSwipe() }  // カードは滑らかに戻る
 
 const manageHiddenOpen = ref(false)
 
@@ -699,17 +736,25 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item) }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), 'swipe-dragging': swipeDragging && swipeItem === row.item }"
+              :style="swipeItem === row.item ? { transform: `translateX(${swipeDx}px)` } : null"
               :tabindex="readOnly ? undefined : 0"
               :data-item="row.item"
               class="item-row"
               @click="rowClick(row.item)"
               @keydown="onRowKeydown($event, row.item)"
               @touchstart.passive="onRowTouchStart($event, row.item)"
-              @touchmove.passive="rowSwipe.onTouchMove"
-              @touchend="rowSwipe.onTouchEnd">
+              @touchmove.passive="onRowTouchMove"
+              @touchend="onRowTouchEnd">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
+              <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
+              <button
+                v-if="swipeItem === row.item && -swipeDx >= REVEAL_AT"
+                class="row-action"
+                :style="{ transform: `translateX(${-swipeDx}px)` }"
+                @click.stop="openHideDialog(row.item)"
+              >非表示</button>
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
@@ -727,11 +772,6 @@ function fmtYen(n) {
                 <span class="delete-confirm-msg">「{{ row.item }}」を削除しますか？</span>
                 <button class="delete-confirm-yes" @click="confirmDelete(row.item)">削除</button>
                 <button class="delete-confirm-no"  @click="cancelDelete">キャンセル</button>
-              </div>
-              <div v-else-if="pendingHide === row.item" class="delete-confirm hide-confirm" @click.stop>
-                <span class="delete-confirm-msg">「{{ row.item }}」を一覧から非表示にしますか？</span>
-                <button class="hide-confirm-yes" @click="confirmHide(row.item)">非表示</button>
-                <button class="delete-confirm-no" @click="cancelHide">キャンセル</button>
               </div>
               <div v-else-if="conflictLocked?.has(row.item)" class="conflict-indicator">
                 ⚡ 競合中 — ホストが解決中
@@ -782,6 +822,18 @@ function fmtYen(n) {
       </tfoot>
     </table>
 
+    <!-- 非表示の確認ダイアログ（小さめ・中央） -->
+    <div v-if="hideDialogItem" class="hide-dialog-overlay" @click.self="cancelHideDialog">
+      <div class="hide-dialog">
+        <div class="hide-dialog-title">この品目を非表示にしますか？</div>
+        <div class="hide-dialog-name">{{ hideDialogItem }}</div>
+        <div class="hide-dialog-actions">
+          <button class="hide-dialog-cancel" @click="cancelHideDialog">キャンセル</button>
+          <button class="hide-dialog-ok" @click="confirmHideDialog">非表示にする</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 手動非表示の管理シート -->
     <div v-if="manageHiddenOpen" class="hidden-overlay" @click.self="manageHiddenOpen = false">
       <div class="hidden-sheet">
@@ -803,7 +855,7 @@ function fmtYen(n) {
 </template>
 
 <style scoped>
-.inventory-section { padding: 0 16px; }
+.inventory-section { padding: 0 16px; overflow-x: clip; }
 
 /* ── セクションヘッダー ── */
 .section-header {
@@ -966,17 +1018,39 @@ function fmtYen(n) {
 }
 .hidden-notice strong { color: #334155; }
 
-/* 非表示確認（削除確認の色違い） */
-.hide-confirm-yes {
-  border: none;
-  background: #64748b;
-  color: #fff;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 12px;
-  cursor: pointer;
+/* 非表示の確認ダイアログ（小さめ・中央） */
+.hide-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 24px;
 }
+.hide-dialog {
+  width: 100%;
+  max-width: 320px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  text-align: center;
+}
+.hide-dialog-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hide-dialog-name {
+  font-size: 14px; font-weight: 700; color: #475569;
+  background: #f1f5f9; border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px;
+  word-break: break-all;
+}
+.hide-dialog-actions { display: flex; gap: 10px; }
+.hide-dialog-cancel, .hide-dialog-ok {
+  flex: 1; border-radius: 10px; font-size: 14px; font-weight: 700; padding: 11px; cursor: pointer;
+}
+.hide-dialog-cancel { border: 1px solid #e2e8f0; background: #fff; color: #64748b; }
+.hide-dialog-ok { border: none; background: #64748b; color: #fff; }
+.hide-dialog-ok:active { background: #475569; }
 
 /* 管理シート */
 .hidden-overlay {
@@ -1142,7 +1216,29 @@ function fmtYen(n) {
 .item-row {
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(59,130,246,0.1);
+  position: relative;
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+.item-row.swipe-dragging { transition: none; }   /* ドラッグ中は指に即追従 */
+
+/* 左スワイプで現れる非表示アクション（行の右端に固定） */
+.row-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 96px;
+  border: none;
+  background: #64748b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  z-index: 3;
+  -webkit-tap-highlight-color: transparent;
+}
+.row-action:active { background: #475569; }
 .item-row:active             { background: var(--primary-weak) !important; }
 .item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }
