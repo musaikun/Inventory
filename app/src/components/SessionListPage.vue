@@ -298,6 +298,9 @@ const selectedYearSessionStats = computed(() => {
 })
 
 function onStartNew() {
+  // マスタが正なので、実データがあれば確認を挟まず即開始。
+  // 開始バナーは「空マスタ / サンプル」の誘導だけに縮小。
+  if (config.isCustom && itemCount.value > 0) { confirmStart(); return }
   showStartModal.value = true
 }
 
