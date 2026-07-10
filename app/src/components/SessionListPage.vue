@@ -985,7 +985,17 @@ function _itemCount(session) {
 .master-btn.primary { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .master-btn:active { transform: scale(0.98); }
 
-.order-start.disabled { opacity: 0.6; cursor: not-allowed; }
+.order-start.disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.order-start.disabled .order-start-title { color: #64748b; }
+.order-start.disabled .order-start-sub,
+.order-start.disabled .order-start-arrow { color: #94a3b8; }
+.order-start.disabled .order-start-icon { filter: grayscale(1); opacity: 0.6; }
 
 /* ヒーロー: 開始カード */
 .hero-start {

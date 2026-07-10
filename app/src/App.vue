@@ -743,6 +743,8 @@ const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pen
 
 // セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
 const sessionMode = ref('stock')
+// セッション種別に応じた主語（棚卸/発注）。UI文言・確認・トーストで共用。
+const actNoun = computed(() => sessionMode.value === 'order' ? '発注' : '棚卸')
 
 onMounted(async () => {
   initConnectivity()
@@ -1034,8 +1036,8 @@ async function onComplete() {
   // ホスト or ソロ: 棚卸を締める
   const isHostInRoom = syncActive.value && syncIsHost.value
   const confirmMsg = isHostInRoom
-    ? '棚卸を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。'
-    : '棚卸を完了しますか？\n完了後は読み取り専用になります。'
+    ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
+    : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   if (!confirm(confirmMsg)) return
 
   const completedId   = pendingSession.value?.id
@@ -1072,7 +1074,7 @@ async function onComplete() {
   clearSession()
   track('session_completed', { item_count: filledCount.value, mode: 'solo' })
   _checkReviewPrompt()
-  showToast('棚卸を完了しました ✓', 3000, 'success')
+  showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -2127,7 +2129,7 @@ function dismissReview() {
       >
         <span class="room-cta-icon">👥</span>
         <span class="room-cta-body">
-          <span class="room-cta-title">みんなで一緒に棚卸する</span>
+          <span class="room-cta-title">みんなで一緒に{{ actNoun }}する</span>
           <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
         </span>
         <span class="room-cta-action">ルームを作成 ＋</span>
@@ -2136,7 +2138,7 @@ function dismissReview() {
       <!-- 棚卸完了バナー -->
       <div v-if="isCompleted" class="complete-banner">
         <span class="complete-icon">✓</span>
-        <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
+        <span class="complete-text">{{ actNoun }}完了 — {{ completedAtDisplay }}</span>
       </div>
 
       <!-- 音声入力 / テキスト検索（完了時・ゲスト棚卸完了後は非表示） -->
@@ -2411,8 +2413,8 @@ function dismissReview() {
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
             >{{ guestReported
-                ? (syncActive && !syncIsHost ? '↩ 入力再開' : '↩ 棚卸再開')
-                : (syncActive && !syncIsHost ? '✓ 入力完了' : '✓ 棚卸完了')
+                ? (syncActive && !syncIsHost ? '↩ 入力再開' : `↩ ${actNoun}再開`)
+                : (syncActive && !syncIsHost ? '✓ 入力完了' : `✓ ${actNoun}完了`)
               }}</button>
             <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
