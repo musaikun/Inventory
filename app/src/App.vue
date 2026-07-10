@@ -70,7 +70,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -551,24 +551,7 @@ setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
 registerRecountFlagsGetter(() => ({ ...recountFlags }))
-registerConfigGetter(() => ({
-  order:         config.order,
-  units:         config.units,
-  prices:        config.prices,
-  categories:    config.categories,
-  codes:         config.codes,
-  categoryCodes: config.categoryCodes,
-  prevMonths:    config.prevMonths,
-  lotSizes:      config.lotSizes,
-  dictionary:    config.dictionary,
-  axisNames:     config.axisNames,
-  tagsA:         config.tagsA,
-  tagsB:         config.tagsB,
-  axisGroupsA:   config.axisGroupsA,
-  axisGroupsB:   config.axisGroupsB,
-  hiddenItems:   config.hiddenItems,
-  isCustom:      config.isCustom,
-}))
+registerConfigGetter(() => ({ ...serializeConfigData(), isCustom: config.isCustom }))
 setConfigCallback((cfg) => {
   applyRemoteConfig(cfg)
   if (syncActive.value && !syncIsHost.value) {
@@ -579,23 +562,7 @@ setConfigCallback((cfg) => {
 setResetConfigCallback(() => clearConfig())
 
 function _configPayload() {
-  return {
-    order:         config.order,
-    units:         config.units,
-    prices:        config.prices,
-    categories:    config.categories,
-    codes:         config.codes,
-    categoryCodes: config.categoryCodes,
-    prevMonths:    config.prevMonths,
-    lotSizes:      config.lotSizes,
-    dictionary:    config.dictionary,
-    axisNames:     config.axisNames,
-    tagsA:         config.tagsA,
-    tagsB:         config.tagsB,
-    axisGroupsA:   config.axisGroupsA,
-    axisGroupsB:   config.axisGroupsB,
-    hiddenItems:   config.hiddenItems,
-  }
+  return serializeConfigData()
 }
 
 // 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）

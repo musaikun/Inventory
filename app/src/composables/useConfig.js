@@ -80,6 +80,46 @@ function _normTags(m) {
   return out
 }
 
+// ── 品目リストのデータフィールドを一箇所で扱う（同期・永続の食い違いを防ぐ）──────
+// ここに追加すれば save / load / snapshot / restore / getter / payload すべてに反映される。
+// manualItems / isCustom / savedAt は文脈ごとに扱いが違うため各関数で個別に付与する。
+function _serializeConfigData() {
+  return {
+    order:         config.order,
+    units:         config.units,
+    prices:        config.prices,
+    categories:    config.categories,
+    codes:         config.codes,
+    categoryCodes: config.categoryCodes,
+    prevMonths:    config.prevMonths,
+    lotSizes:      config.lotSizes,
+    dictionary:    config.dictionary,
+    axisNames:     config.axisNames,
+    tagsA:         config.tagsA,
+    tagsB:         config.tagsB,
+    axisGroupsA:   config.axisGroupsA,
+    axisGroupsB:   config.axisGroupsB,
+    hiddenItems:   config.hiddenItems,
+  }
+}
+function _assignConfigData(src) {
+  config.order         = Array.isArray(src.order) ? src.order : []
+  config.units         = src.units         ?? {}
+  config.prices        = src.prices        ?? {}
+  config.categories    = src.categories    ?? {}
+  config.codes         = src.codes         ?? {}
+  config.categoryCodes = src.categoryCodes ?? {}
+  config.prevMonths    = src.prevMonths    ?? {}
+  config.lotSizes      = src.lotSizes      ?? {}
+  config.dictionary    = src.dictionary    ?? {}
+  config.axisNames     = Array.isArray(src.axisNames) ? src.axisNames : ['', '']
+  config.tagsA         = _normTags(src.tagsA)
+  config.tagsB         = _normTags(src.tagsB)
+  config.axisGroupsA   = Array.isArray(src.axisGroupsA) ? src.axisGroupsA : []
+  config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
+  config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
+}
+
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
 function _load() {
   try {
@@ -89,22 +129,8 @@ function _load() {
     // CONFIG_KEY はカスタム設定でのみ保存される（空リスト開始も含む）。
     // 空の品目リストでも軸名・グループ等を復元できるよう order 空も許容する。
     if (Array.isArray(saved.order)) {
-      config.order         = saved.order
-      config.units         = saved.units         ?? {}
-      config.prices        = saved.prices        ?? {}
-      config.categories    = saved.categories    ?? {}
-      config.codes         = saved.codes         ?? {}
-      config.categoryCodes = saved.categoryCodes ?? {}
-      config.prevMonths    = saved.prevMonths    ?? {}
-      config.lotSizes      = saved.lotSizes      ?? {}
-      config.dictionary    = saved.dictionary    ?? {}
+      _assignConfigData(saved)
       config.manualItems   = saved.manualItems   ?? []
-      config.axisNames     = saved.axisNames     ?? ['', '']
-      config.tagsA         = _normTags(saved.tagsA)
-      config.tagsB         = _normTags(saved.tagsB)
-      config.axisGroupsA   = saved.axisGroupsA   ?? []
-      config.axisGroupsB   = saved.axisGroupsB   ?? []
-      config.hiddenItems   = saved.hiddenItems   ?? []
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -115,23 +141,9 @@ function _saveLocalOnly() {
   try {
     config.savedAt = new Date().toISOString()
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      hiddenItems:   config.hiddenItems,
-      savedAt:       config.savedAt,
+      ..._serializeConfigData(),
+      manualItems: config.manualItems,
+      savedAt:     config.savedAt,
     }))
     config.isCustom = true
   } catch (_) {}
@@ -190,21 +202,7 @@ _loadMaster()
 export function applyRemoteConfig(cfg) {
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
   _validateLearnedAliases(cfg.order)
-  config.order         = cfg.order
-  config.units         = cfg.units         ?? {}
-  config.prices        = cfg.prices        ?? {}
-  config.categories    = cfg.categories    ?? {}
-  config.codes         = cfg.codes         ?? {}
-  config.categoryCodes = cfg.categoryCodes ?? {}
-  config.prevMonths    = cfg.prevMonths    ?? {}
-  config.lotSizes      = cfg.lotSizes      ?? {}
-  config.dictionary    = cfg.dictionary    ?? {}
-  config.axisNames     = cfg.axisNames     ?? ['', '']
-  config.tagsA         = _normTags(cfg.tagsA)
-  config.tagsB         = _normTags(cfg.tagsB)
-  config.axisGroupsA   = cfg.axisGroupsA   ?? []
-  config.axisGroupsB   = cfg.axisGroupsB   ?? []
-  config.hiddenItems   = cfg.hiddenItems   ?? []
+  _assignConfigData(cfg)
   _saveLocalOnly()
 }
 
@@ -387,45 +385,17 @@ export function useConfig() {
   /** 現在の品目リストをディープコピーで退避する（練習モードの一時切替用） */
   function snapshotConfig() {
     return JSON.parse(JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      isCustom:      config.isCustom,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      hiddenItems:   config.hiddenItems,
+      ..._serializeConfigData(),
+      isCustom:    config.isCustom,
+      manualItems: config.manualItems,
     }))
   }
 
   /** snapshotConfig で退避した品目リストを復元する */
   function restoreConfigSnapshot(snap) {
     if (!snap) return
-    config.order         = snap.order         ?? []
-    config.units         = snap.units         ?? {}
-    config.prices        = snap.prices        ?? {}
-    config.categories    = snap.categories    ?? {}
-    config.codes         = snap.codes         ?? {}
-    config.categoryCodes = snap.categoryCodes ?? {}
-    config.prevMonths    = snap.prevMonths    ?? {}
-    config.lotSizes      = snap.lotSizes      ?? {}
-    config.dictionary    = snap.dictionary    ?? {}
+    _assignConfigData(snap)
     config.manualItems   = snap.manualItems   ?? []
-    config.axisNames     = snap.axisNames     ?? ['', '']
-    config.tagsA         = _normTags(snap.tagsA)
-    config.tagsB         = _normTags(snap.tagsB)
-    config.axisGroupsA   = snap.axisGroupsA   ?? []
-    config.axisGroupsB   = snap.axisGroupsB   ?? []
-    config.hiddenItems   = snap.hiddenItems   ?? []
     config.isCustom      = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
@@ -991,6 +961,7 @@ export function useConfig() {
     activeItemCount,
     hideItem,
     unhideItem,
+    serializeConfigData: _serializeConfigData,
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,
