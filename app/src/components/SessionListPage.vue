@@ -440,7 +440,7 @@ function _itemCount(session) {
           <div v-if="error" class="msg-error">{{ error }}</div>
 
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
-          <div v-if="activeSession" class="hero-live" :class="{ offline: !isRoomConnected }">
+          <div v-if="activeSession" class="hero-live">
             <div class="hero-live-head">
               <span class="hero-live-title">進行中の棚卸</span>
               <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
@@ -1054,11 +1054,6 @@ function _itemCount(session) {
   margin-bottom: 4px;
   transition: border-color 0.3s;
 }
-.hero-live.offline {
-  border-color: #cbd5e1;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-}
-
 .hero-live-head {
   display: flex;
   align-items: center;
