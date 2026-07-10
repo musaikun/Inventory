@@ -463,9 +463,9 @@ function saveEdit() {
         <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
 
-      <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力 -->
+      <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力（任意）-->
       <div v-if="!orderMode" class="genre-row">
-        <span class="genre-label">ジャンル</span>
+        <span class="genre-label">{{ categoryEditable ? 'ジャンル（任意）' : 'ジャンル' }}</span>
         <div v-if="!categoryEditable" class="genre-locked-badge">
           {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
         </div>
@@ -477,6 +477,9 @@ function saveEdit() {
           </select>
           <span class="select-arrow">▾</span>
         </div>
+      </div>
+      <div v-if="!orderMode && categoryEditable && isNew" class="genre-hint">
+        未設定でもOK。あとで「並び替え」でまとめて振り分けできます。
       </div>
       <input
         v-if="categoryEditable && categoryCustom"
@@ -922,6 +925,12 @@ function saveEdit() {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+.genre-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: -2px 0 10px;
+  line-height: 1.4;
 }
 .genre-label {
   font-size: 13px;
