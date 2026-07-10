@@ -36,6 +36,7 @@ const config = reactive({
   tagsB:          {},        // 品目 → 軸2のグループ名
   axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
+  hiddenItems:    [],        // 手動で一覧から非表示にした品目名（マスタは不変・進捗の分母から除外）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -103,6 +104,7 @@ function _load() {
       config.tagsB         = _normTags(saved.tagsB)
       config.axisGroupsA   = saved.axisGroupsA   ?? []
       config.axisGroupsB   = saved.axisGroupsB   ?? []
+      config.hiddenItems   = saved.hiddenItems   ?? []
       config.isCustom      = true
       config.savedAt       = saved.savedAt       ?? null
     }
@@ -128,6 +130,7 @@ function _saveLocalOnly() {
       tagsB:         config.tagsB,
       axisGroupsA:   config.axisGroupsA,
       axisGroupsB:   config.axisGroupsB,
+      hiddenItems:   config.hiddenItems,
       savedAt:       config.savedAt,
     }))
     config.isCustom = true
@@ -201,6 +204,7 @@ export function applyRemoteConfig(cfg) {
   config.tagsB         = _normTags(cfg.tagsB)
   config.axisGroupsA   = cfg.axisGroupsA   ?? []
   config.axisGroupsB   = cfg.axisGroupsB   ?? []
+  config.hiddenItems   = cfg.hiddenItems   ?? []
   _saveLocalOnly()
 }
 
@@ -399,6 +403,7 @@ export function useConfig() {
       tagsB:         config.tagsB,
       axisGroupsA:   config.axisGroupsA,
       axisGroupsB:   config.axisGroupsB,
+      hiddenItems:   config.hiddenItems,
     }))
   }
 
@@ -420,6 +425,7 @@ export function useConfig() {
     config.tagsB         = _normTags(snap.tagsB)
     config.axisGroupsA   = snap.axisGroupsA   ?? []
     config.axisGroupsB   = snap.axisGroupsB   ?? []
+    config.hiddenItems   = snap.hiddenItems   ?? []
     config.isCustom      = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
@@ -442,6 +448,7 @@ export function useConfig() {
     config.tagsB         = {}
     config.axisGroupsA   = []
     config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -463,6 +470,7 @@ export function useConfig() {
     config.tagsB         = {}
     config.axisGroupsA   = []
     config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -489,6 +497,7 @@ export function useConfig() {
     config.tagsB         = {}
     config.axisGroupsA   = []
     config.axisGroupsB   = []
+    config.hiddenItems   = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -961,11 +970,31 @@ export function useConfig() {
   const itemCount         = computed(() => config.order.length)
   const learnedAliasCount = computed(() => Object.keys(learnedAliases).length)
 
+  // ── 手動非表示 ────────────────────────────────────────────────────────────────
+  const hiddenSet = computed(() => new Set(config.hiddenItems))
+  // 非表示を除いた実効品目数（ホーム進捗の分母用）
+  const activeItemCount = computed(() => config.order.reduce((n, i) => n + (hiddenSet.value.has(i) ? 0 : 1), 0))
+
+  function hideItem(name) {
+    if (!name || config.hiddenItems.includes(name)) return
+    config.hiddenItems.push(name)
+    _save()
+  }
+  function unhideItem(name) {
+    const i = config.hiddenItems.indexOf(name)
+    if (i < 0) return
+    config.hiddenItems.splice(i, 1)
+    _save()
+  }
+
   return {
     config,
     dictionary,
     masterDict,
     itemCount,
+    activeItemCount,
+    hideItem,
+    unhideItem,
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,

@@ -70,7 +70,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -566,6 +566,7 @@ registerConfigGetter(() => ({
   tagsB:         config.tagsB,
   axisGroupsA:   config.axisGroupsA,
   axisGroupsB:   config.axisGroupsB,
+  hiddenItems:   config.hiddenItems,
   isCustom:      config.isCustom,
 }))
 setConfigCallback((cfg) => {
@@ -593,6 +594,7 @@ function _configPayload() {
     tagsB:         config.tagsB,
     axisGroupsA:   config.axisGroupsA,
     axisGroupsB:   config.axisGroupsB,
+    hiddenItems:   config.hiddenItems,
   }
 }
 
@@ -1904,6 +1906,17 @@ function onDeleteConfigItem(name) {
   if (editingItem.value === name) cancelEditItem()
 }
 
+// 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
+function onHideItem(name) {
+  hideItem(name)
+  if (syncActive.value) broadcastConfig()
+  showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
+}
+function onUnhideItem(name) {
+  unhideItem(name)
+  if (syncActive.value) broadcastConfig()
+}
+
 // ── CSV export ─────────────────────────────────────────────────────────────────
 const zeroItems     = ref([])  // 数量0品目
 const unfilledItems = ref([])  // 未入力品目
@@ -2353,12 +2366,15 @@ function dismissReview() {
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
+        :hidden-items="config.hiddenItems"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
         @edit-item="startEditItem"
         @delete-item="onDeleteConfigItem"
+        @hide-item="onHideItem"
+        @unhide-item="onUnhideItem"
       />
 
       <!-- 確認モーダル -->

@@ -3,6 +3,7 @@ import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isSupplyItem } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const { config: liveConfig, setAxisName } = useConfig()
 
@@ -17,12 +18,14 @@ const props = defineProps({
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
   usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
+  hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
   tapContinuous:    { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
 
 const manualSet = computed(() => new Set(props.manualItems))
+const hiddenSet = computed(() => new Set(props.hiddenItems))
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -148,6 +151,7 @@ const catRealStats = computed(() => {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -203,6 +207,10 @@ const rows = computed(() => {
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
   let all = [...ordered, ...customs]
+  // 3.0 手動非表示（読み取り専用＝完了済み詳細では隠さない）
+  if (!props.readOnly && hiddenSet.value.size) {
+    all = all.filter(r => !hiddenSet.value.has(r.item))
+  }
   if (props.categoryScope === 'food') {
     all = all.filter(r => !_isSupply(r.item))
   } else if (props.categoryScope === 'supply') {
@@ -366,6 +374,7 @@ const grandTotal = computed(() => {
 })
 
 function rowClick(item) {
+  if (_swipeMoved) { _swipeMoved = false; return }   // 横スワイプはタップにしない
   if (props.conflictLocked?.has(item)) return
   emit('tap', item)
 }
@@ -451,6 +460,27 @@ function confirmDelete(item) {
   emit('delete-item', item)
 }
 
+// ── 手動非表示（左スワイプ → 確認 → 非表示）─────────────────────────────────────
+const pendingHide = ref(null)  // 非表示確認中の品目名
+function requestHide(item)  { if (!props.readOnly) pendingHide.value = item }
+function cancelHide()       { pendingHide.value = null }
+function confirmHide(item)  { pendingHide.value = null; emit('hide-item', item) }
+
+// 行の左スワイプで非表示確認を出す。タップ（数量入力）と区別するため moved を追う。
+let _swipeItem  = null
+let _swipeMoved = false
+const rowSwipe = useHorizontalSwipe({
+  threshold: 60,
+  onLeft:  () => { if (_swipeItem) requestHide(_swipeItem) },
+  onDrag:  dx => { if (dx !== 0) _swipeMoved = true },
+})
+function onRowTouchStart(e, item) {
+  if (props.readOnly) return
+  _swipeItem = item; _swipeMoved = false; rowSwipe.onTouchStart(e)
+}
+
+const manageHiddenOpen = ref(false)
+
 // ── 五十音グループ ─────────────────────────────────────────────────────────────
 const KANA_ROWS = [
   { label: 'あ行', chars: 'あいうえお' },
@@ -491,6 +521,7 @@ const kanaRealStats = computed(() => {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -510,6 +541,7 @@ function _axisStats(tagMap) {
     ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k)),
   ]
   for (const item of all) {
+    if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     if (_usedActive.value && !_isUsedName(item)) continue
@@ -626,6 +658,11 @@ function fmtYen(n) {
       前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
     </div>
 
+    <!-- 手動非表示の管理（左スワイプで隠した品目） -->
+    <div v-if="!readOnly && hiddenSet.size > 0" class="hidden-notice" @click="manageHiddenOpen = true">
+      手動非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
+    </div>
+
     <!-- テーブル -->
     <table class="inv-table">
       <thead>
@@ -667,7 +704,10 @@ function fmtYen(n) {
               :data-item="row.item"
               class="item-row"
               @click="rowClick(row.item)"
-              @keydown="onRowKeydown($event, row.item)">
+              @keydown="onRowKeydown($event, row.item)"
+              @touchstart.passive="onRowTouchStart($event, row.item)"
+              @touchmove.passive="rowSwipe.onTouchMove"
+              @touchend="rowSwipe.onTouchEnd">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
               <div class="name-main">
@@ -687,6 +727,11 @@ function fmtYen(n) {
                 <span class="delete-confirm-msg">「{{ row.item }}」を削除しますか？</span>
                 <button class="delete-confirm-yes" @click="confirmDelete(row.item)">削除</button>
                 <button class="delete-confirm-no"  @click="cancelDelete">キャンセル</button>
+              </div>
+              <div v-else-if="pendingHide === row.item" class="delete-confirm hide-confirm" @click.stop>
+                <span class="delete-confirm-msg">「{{ row.item }}」を一覧から非表示にしますか？</span>
+                <button class="hide-confirm-yes" @click="confirmHide(row.item)">非表示</button>
+                <button class="delete-confirm-no" @click="cancelHide">キャンセル</button>
               </div>
               <div v-else-if="conflictLocked?.has(row.item)" class="conflict-indicator">
                 ⚡ 競合中 — ホストが解決中
@@ -736,6 +781,24 @@ function fmtYen(n) {
         </tr>
       </tfoot>
     </table>
+
+    <!-- 手動非表示の管理シート -->
+    <div v-if="manageHiddenOpen" class="hidden-overlay" @click.self="manageHiddenOpen = false">
+      <div class="hidden-sheet">
+        <div class="hidden-sheet-head">
+          <span class="hidden-sheet-title">手動非表示の品目（{{ hiddenSet.size }}）</span>
+          <button class="hidden-sheet-close" @click="manageHiddenOpen = false">閉じる</button>
+        </div>
+        <p class="hidden-sheet-sub">戻すと一覧・進捗に再び含まれます。</p>
+        <div class="hidden-list">
+          <div v-for="name in hiddenItems" :key="name" class="hidden-row">
+            <span class="hidden-row-name">{{ name }}</span>
+            <button class="hidden-row-restore" @click="emit('unhide-item', name)">戻す</button>
+          </div>
+          <div v-if="hiddenSet.size === 0" class="hidden-empty">非表示の品目はありません</div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -889,6 +952,84 @@ function fmtYen(n) {
   line-height: 1.5;
 }
 .used-notice strong { color: #b45309; }
+
+.hidden-notice {
+  font-size: 12px;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.hidden-notice strong { color: #334155; }
+
+/* 非表示確認（削除確認の色違い） */
+.hide-confirm-yes {
+  border: none;
+  background: #64748b;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+/* 管理シート */
+.hidden-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 60;
+}
+.hidden-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+}
+.hidden-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.hidden-sheet-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hidden-sheet-close {
+  border: none; background: none; color: #64748b;
+  font-size: 13px; font-weight: 700; cursor: pointer; padding: 4px 6px;
+}
+.hidden-sheet-sub { font-size: 12px; color: #94a3b8; margin: 0 0 10px; }
+.hidden-list { overflow-y: auto; }
+.hidden-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.hidden-row-name { font-size: 14px; color: #334155; }
+.hidden-row-restore {
+  border: 1px solid var(--primary-border, #bfdbfe);
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.hidden-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 20px 0; }
 
 /* ── テーブル ── */
 .inv-table {

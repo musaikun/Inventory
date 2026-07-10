@@ -25,7 +25,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
 
-const { config, itemCount, loadSampleData, setEmptyList } = useConfig()
+const { config, itemCount, activeItemCount, loadSampleData, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
@@ -103,12 +103,14 @@ function _pct(count, total) {
   return Math.min(100, Math.round((count / total) * 100))
 }
 
+// 進捗の分母は手動非表示を除いた実効品目数（ローカル）。ルームの totalItems は
+// 非表示を反映しないため、ホームの進捗はローカルの activeItemCount を優先する。
 const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
-const orderTotalItems = computed(() => orderLiveStatus.value?.totalItems ?? (itemCount.value || null))
+const orderTotalItems = computed(() => (activeItemCount.value || orderLiveStatus.value?.totalItems || null))
 const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
 
 const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
-const liveTotalItems = computed(() => liveStatus.value?.totalItems ?? (itemCount.value || null))
+const liveTotalItems = computed(() => (activeItemCount.value || liveStatus.value?.totalItems || null))
 const liveProgressPct = computed(() => _pct(liveItemCount.value, liveTotalItems.value))
 
 function _formatElapsed(iso) {
