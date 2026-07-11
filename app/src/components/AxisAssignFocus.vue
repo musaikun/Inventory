@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
 const emit = defineEmits(['close'])
@@ -9,7 +10,7 @@ const emit = defineEmits(['close'])
 const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup } = useConfig()
 const { getSnapshots } = useHistory()
 
-// ── 対象の軸 ────────────────────────────────────────────────
+// ── 対象の軸（分類）─────────────────────────────────────────
 const namedAxes = computed(() => {
   const names = config.axisNames ?? ['', '']
   const out = []
@@ -27,7 +28,8 @@ const defined = computed(() => activeAxis.value === 0 ? (config.axisGroupsA ?? [
 const groups  = computed(() => {
   const set = new Set(defined.value)
   for (const v of Object.values(tagMap.value)) for (const g of (v || [])) set.add(g)
-  return [...set]
+  const extras = [...set].filter(g => !defined.value.includes(g))
+  return [...defined.value, ...extras]
 })
 function itemGroups(item) { return tagMap.value[item] || [] }
 const groupCount = computed(() => {
@@ -37,13 +39,29 @@ const groupCount = computed(() => {
   return m
 })
 
-// ── 入れ先グループ ──────────────────────────────────────────
-const target = ref('')
-function selectGroup(g) { target.value = target.value === g ? '' : g }
-watch(activeAxis, () => { target.value = ''; search.value = '' })
+// ── 進捗（この分類で1つ以上のグループに入っている品目）───────
+const assignedCount = computed(() => config.order.reduce((n, i) => n + (itemGroups(i).length ? 1 : 0), 0))
+const total = computed(() => config.order.length)
+const progressPct = computed(() => total.value ? Math.round(assignedCount.value / total.value * 100) : 0)
+const allDone = computed(() => total.value > 0 && assignedCount.value === total.value)
 
-// ── 品目リスト（全幅・検索・前回入力優先）─────────────────────
+// ── ページ（A=グループ / B=品目）─────────────────────────────
+const page = ref('groups')  // 'groups' | 'items'
+const target = ref('')
+function pickGroup(g) { target.value = g; page.value = 'items'; search.value = '' }
+function backToGroups() { page.value = 'groups' }
+watch(activeAxis, () => { page.value = 'groups'; target.value = ''; search.value = '' })
+
+// スワイプ: 品目ページで右スワイプ→グループへ
+const swipe = useHorizontalSwipe({
+  threshold: 60,
+  onRight: () => { if (page.value === 'items') backToGroups() },
+})
+
+// ── 品目プール ──────────────────────────────────────────────
 const search = ref('')
+const unassignedOnly = ref(false)
+const usedOnly = ref(false)
 const USAGE = 3
 const usage = computed(() => {
   const m = {}
@@ -53,36 +71,50 @@ const usage = computed(() => {
   return m
 })
 const hasUsage = computed(() => Object.keys(usage.value).length > 0)
-const usedOnly = ref(false)
 const _norm = s => (s || '').normalize('NFKC').toLowerCase()
 
-const items = computed(() => {
+const poolItems = computed(() => {
   const q = _norm(search.value.trim())
-  let arr = config.order.filter(i => (!q || _norm(i).includes(q)) && (!usedOnly.value || (usage.value[i] > 0)))
-  // 選択中グループの所属を上に、次いで使用頻度順
+  let arr = config.order.filter(i =>
+    (!q || _norm(i).includes(q)) &&
+    (!usedOnly.value || usage.value[i] > 0) &&
+    (!unassignedOnly.value || itemGroups(i).length === 0)
+  )
   arr = [...arr].sort((a, b) => {
-    if (target.value) {
-      const ia = itemGroups(a).includes(target.value) ? 1 : 0
-      const ib = itemGroups(b).includes(target.value) ? 1 : 0
-      if (ia !== ib) return ib - ia
-    }
+    const ia = itemGroups(a).includes(target.value) ? 1 : 0
+    const ib = itemGroups(b).includes(target.value) ? 1 : 0
+    if (ia !== ib) return ib - ia
     return (usage.value[b] ?? 0) - (usage.value[a] ?? 0)
   })
   return arr
 })
-const assignedInTarget = computed(() => target.value ? items.value.filter(i => itemGroups(i).includes(target.value)).length : 0)
 
+// タップで所属トグル＋フィードバック
+const flash = ref('')
+const flashItem = ref('')
+let _flashT = null
 function toggle(item) {
   if (!target.value) return
-  if (itemGroups(item).includes(target.value)) removeItemFromGroup(activeAxis.value, item, target.value)
-  else addItemToGroup(activeAxis.value, item, target.value)
+  if (itemGroups(item).includes(target.value)) {
+    removeItemFromGroup(activeAxis.value, item, target.value)
+    _showFlash(`「${item}」を ${target.value} から外しました`, '')
+  } else {
+    addItemToGroup(activeAxis.value, item, target.value)
+    _showFlash(`「${item}」を ${target.value} に追加`, item)
+  }
+}
+function _showFlash(msg, item) {
+  flash.value = msg
+  flashItem.value = item
+  clearTimeout(_flashT)
+  _flashT = setTimeout(() => { flash.value = ''; flashItem.value = '' }, 1100)
 }
 
 // ── グループ管理 ────────────────────────────────────────────
 const editMode = ref(false)
 function onAdd() {
-  const n = (prompt('新しいグループ名') || '').trim()
-  if (n) { addAxisGroup(activeAxis.value, n); target.value = n }
+  const n = (prompt('新しいグループ名（分類先）') || '').trim()
+  if (n) { addAxisGroup(activeAxis.value, n); pickGroup(n) }
 }
 function onRename(g) {
   const n = (prompt('新しい名前', g) || '').trim()
@@ -94,140 +126,178 @@ function onRename(g) {
 function onDelete(g) {
   if (confirm(`グループ「${g}」を削除します。品目の割り当ても外れます。`)) {
     removeAxisGroup(activeAxis.value, g)
-    if (target.value === g) target.value = ''
+    if (target.value === g) { target.value = ''; page.value = 'groups' }
   }
 }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
-const orderedGroups = computed(() => {
-  const def = defined.value
-  const extras = groups.value.filter(g => !def.includes(g))
-  return [...def, ...extras]
-})
 </script>
 
 <template>
   <div class="af">
     <header class="af-head">
-      <button class="af-back" @click="emit('close')">‹ 閉じる</button>
-      <span class="af-title">振り分け</span>
-      <button class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
+      <button class="af-back" @click="page === 'items' ? backToGroups() : emit('close')">{{ page === 'items' ? '‹ 分類一覧' : '‹ 閉じる' }}</button>
+      <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
+      <button v-if="page === 'groups'" class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
     </header>
 
+    <!-- 進捗バー -->
+    <div class="af-progress">
+      <div class="af-prog-text">
+        <span class="af-prog-icon">{{ allDone ? '🎉' : '📦' }}</span>
+        <span>振り分け済み <b>{{ assignedCount }}</b> / {{ total }}</span>
+        <span v-if="allDone" class="af-done">全部できました！</span>
+        <span class="af-prog-pct">{{ progressPct }}%</span>
+      </div>
+      <div class="af-prog-bar"><div class="af-prog-fill" :class="{ done: allDone }" :style="{ width: progressPct + '%' }"></div></div>
+    </div>
+
     <div v-if="namedAxes.length === 0" class="af-empty">
-      並び替えの軸が未設定です。「品目マスタ管理」で軸①/軸②の名前を登録してください。
+      分類が未設定です。「品目マスタ管理」で分類を追加してください。
     </div>
 
     <template v-else>
-      <!-- 軸タブ（2軸あるとき） -->
-      <div v-if="namedAxes.length > 1" class="af-tabs">
+      <!-- 軸（分類）タブ -->
+      <div v-if="namedAxes.length > 1 && page === 'groups'" class="af-tabs">
         <button v-for="a in namedAxes" :key="a.index" :class="['af-tab', { on: activeAxis === a.index }]" @click="activeAxis = a.index">{{ a.name }}</button>
       </div>
 
-      <!-- グループ選択（全幅チップ・横スクロール） -->
-      <div class="af-groups">
-        <button v-for="g in orderedGroups" :key="g" :class="['af-chip', { on: target === g }]" @click="editMode ? null : selectGroup(g)">
-          <template v-if="editMode">
-            <span class="af-chip-move" @click.stop="move(g, -1)">◀</span>
-            <span class="af-chip-name" @click.stop="onRename(g)">{{ g }}</span>
-            <span class="af-chip-move" @click.stop="move(g, 1)">▶</span>
-            <span class="af-chip-del" @click.stop="onDelete(g)">×</span>
-          </template>
-          <template v-else>
-            {{ g }}<span class="af-chip-count">{{ groupCount[g] || 0 }}</span>
-          </template>
-        </button>
-        <button class="af-chip add" @click="onAdd">＋ グループ</button>
-      </div>
+      <!-- 2カード・スライド -->
+      <div class="af-viewport"
+           @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend="swipe.onTouchEnd">
+        <div class="af-track" :style="{ transform: page === 'items' ? 'translateX(-50%)' : 'translateX(0)' }">
 
-      <!-- 入れ先の案内 -->
-      <div class="af-hint">
-        <template v-if="target">入れ先：<b>{{ target }}</b>（{{ assignedInTarget }}件）・品目をタップで追加/解除</template>
-        <template v-else>上の<b>グループを選んで</b>から、品目をタップ</template>
-      </div>
+          <!-- カードA: 分類先（グループ）選択 -->
+          <section class="af-pane">
+            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください</div>
+            <div class="af-glist">
+              <button v-for="g in groups" :key="g" class="af-gcard" @click="editMode ? null : pickGroup(g)">
+                <template v-if="editMode">
+                  <span class="af-gmove" @click.stop="move(g, -1)">▲</span>
+                  <span class="af-gmove" @click.stop="move(g, 1)">▼</span>
+                  <span class="af-gname" @click.stop="onRename(g)">{{ g }}</span>
+                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                  <span class="af-gdel" @click.stop="onDelete(g)">削除</span>
+                </template>
+                <template v-else>
+                  <span class="af-gname">{{ g }}</span>
+                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                  <span class="af-garrow">→</span>
+                </template>
+              </button>
+              <button class="af-gadd" @click="onAdd">＋ グループを追加</button>
+              <div v-if="groups.length === 0" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            </div>
+          </section>
 
-      <!-- ツール -->
-      <div class="af-tools">
-        <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
-        <button v-if="hasUsage" :class="['af-used', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
-      </div>
-
-      <!-- 全幅の品目リスト -->
-      <div class="af-list">
-        <button
-          v-for="item in items" :key="item"
-          :class="['af-item', { in: target && itemGroups(item).includes(target), disabled: !target }]"
-          @click="toggle(item)"
-        >
-          <span class="af-check">{{ target && itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
-          <span class="af-item-name">{{ item }}</span>
-          <span v-if="itemGroups(item).length" class="af-item-tags">
-            <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
-          </span>
-        </button>
-        <div v-if="items.length === 0" class="af-empty">該当する品目がありません。</div>
+          <!-- カードB: 品目プール -->
+          <section class="af-pane">
+            <div class="af-target-bar">
+              <button class="af-target-back" @click="backToGroups">← 分類一覧</button>
+              <span class="af-target-name">{{ target }} に振り分け中</span>
+            </div>
+            <div class="af-tools">
+              <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
+              <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
+              <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
+            </div>
+            <div class="af-list">
+              <button
+                v-for="item in poolItems" :key="item"
+                :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
+                @click="toggle(item)"
+              >
+                <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
+                <span class="af-item-name">{{ item }}</span>
+                <span v-if="itemGroups(item).length" class="af-item-tags">
+                  <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
+                </span>
+              </button>
+              <div v-if="poolItems.length === 0" class="af-empty">{{ unassignedOnly ? '未振り分けの品目はありません 🎉' : '該当する品目がありません。' }}</div>
+            </div>
+          </section>
+        </div>
       </div>
     </template>
+
+    <!-- 追加フィードバック -->
+    <transition name="af-flash">
+      <div v-if="flash" class="af-flashbar">{{ flash }}</div>
+    </transition>
   </div>
 </template>
 
 <style scoped>
-.af { position: fixed; inset: 0; z-index: 60; background: #f8fafc; display: flex; flex-direction: column; }
-.af-head {
-  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-  background: #fff; border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
-}
+.af { position: fixed; inset: 0; z-index: 60; background: #f8fafc; display: flex; flex-direction: column; overflow: hidden; }
+.af-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
 .af-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-title { font-size: 16px; font-weight: 800; color: #1e293b; }
 .af-edit { margin-left: auto; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
 .af-edit.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 
-.af-empty { padding: 24px 16px; color: #94a3b8; font-size: 13px; text-align: center; line-height: 1.6; }
+.af-progress { padding: 10px 14px 8px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
+.af-prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #334155; margin-bottom: 6px; }
+.af-prog-text b { color: var(--primary, #2563eb); font-size: 15px; }
+.af-done { color: #16a34a; font-weight: 800; }
+.af-prog-pct { margin-left: auto; font-weight: 800; color: #64748b; }
+.af-prog-bar { height: 8px; background: #eef2f6; border-radius: 6px; overflow: hidden; }
+.af-prog-fill { height: 100%; background: var(--primary, #2563eb); border-radius: 6px; transition: width 0.35s ease; }
+.af-prog-fill.done { background: #16a34a; }
 
-.af-tabs { display: flex; gap: 6px; padding: 10px 14px 0; }
+.af-empty { padding: 24px 16px; color: #94a3b8; font-size: 13px; text-align: center; line-height: 1.6; }
+.af-tabs { display: flex; gap: 6px; padding: 10px 14px 0; flex-shrink: 0; }
 .af-tab { flex: 1; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; padding: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-tab.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 
-.af-groups {
-  display: flex; gap: 8px; padding: 12px 14px; overflow-x: auto; flex-shrink: 0;
-  background: #fff; border-bottom: 1px solid #eef2f6;
+.af-viewport { flex: 1; overflow: hidden; }
+.af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
+.af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }
+
+.af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
+.af-pane-hint b { color: var(--primary, #2563eb); }
+.af-glist { display: flex; flex-direction: column; gap: 10px; }
+.af-gcard {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
+  padding: 18px 16px; font-size: 16px; font-weight: 800; color: #1e293b; cursor: pointer; text-align: left;
 }
-.af-chip {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
-  border: 1.5px solid #e2e8f0; background: #fff; color: #334155;
-  border-radius: 22px; padding: 9px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
-}
-.af-chip.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
-.af-chip-count { background: rgba(0,0,0,0.08); border-radius: 12px; padding: 1px 7px; font-size: 12px; }
-.af-chip.on .af-chip-count { background: rgba(255,255,255,0.25); }
-.af-chip.add { color: var(--primary, #2563eb); border-style: dashed; border-color: var(--primary-border, #bfdbfe); }
-.af-chip-move { color: #94a3b8; padding: 0 2px; }
-.af-chip-name { text-decoration: underline; }
-.af-chip-del { color: #dc2626; font-weight: 800; padding-left: 2px; }
+.af-gcard:active { background: #f1f5f9; }
+.af-gname { flex: 1; min-width: 0; }
+.af-gcount { background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 14px; padding: 2px 12px; font-size: 14px; }
+.af-garrow { color: #cbd5e1; font-size: 20px; }
+.af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
+.af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
+.af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; }
 
-.af-hint { padding: 10px 14px; font-size: 13px; color: #475569; background: #fff; }
-.af-hint b { color: var(--primary, #2563eb); }
+.af-target-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.af-target-back { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 10px; cursor: pointer; }
+.af-target-name { font-size: 15px; font-weight: 800; color: var(--primary, #2563eb); }
+.af-tools { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.af-search { flex: 1; min-width: 120px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+.af-chip-btn { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 12px; cursor: pointer; }
+.af-chip-btn.on { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 
-.af-tools { display: flex; gap: 8px; padding: 8px 14px; }
-.af-search { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
-.af-used { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 12px; cursor: pointer; }
-.af-used.on { background: #fffbeb; color: #b45309; border-color: #fde68a; }
-
-.af-list { flex: 1; overflow-y: auto; padding: 4px 10px 24px; }
+.af-list { flex: 1; }
 .af-item {
   width: 100%; display: flex; align-items: center; gap: 12px;
   background: #fff; border: 1px solid #eef2f6; border-radius: 12px;
   padding: 15px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
+  transition: transform 0.12s, background 0.12s;
 }
-.af-item.disabled { opacity: 0.55; }
 .af-item.in { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
-.af-check {
-  width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0;
-}
+.af-item.pop { animation: af-pop 0.35s ease; }
+@keyframes af-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); background: #dbeafe; } 100% { transform: scale(1); } }
+.af-check { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; }
 .af-item.in .af-check { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .af-item-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
-.af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 45%; }
+.af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 42%; }
 .af-item-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
 .af-item-tag.cur { color: #fff; background: var(--primary, #2563eb); }
+
+.af-flashbar {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  background: #1e293b; color: #fff; font-size: 13px; font-weight: 700;
+  padding: 10px 18px; border-radius: 22px; z-index: 61; box-shadow: 0 6px 20px rgba(0,0,0,0.28);
+}
+.af-flash-enter-active, .af-flash-leave-active { transition: opacity 0.2s, transform 0.2s; }
+.af-flash-enter-from, .af-flash-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 </style>
