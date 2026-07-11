@@ -22,13 +22,3 @@ export async function insertInventoryLines(db, { sessionId, shopCode, takenAt, i
 
   await db.batch(stmts)
 }
-
-export async function queryItemHistory(db, shopCode, itemName) {
-  const rows = await db.prepare(`
-    SELECT taken_at, qty, unit, unit_price, line_value
-    FROM inventory_lines
-    WHERE shop_code = ? AND item_name = ?
-    ORDER BY taken_at ASC
-  `).bind(shopCode, itemName).all()
-  return rows.results
-}

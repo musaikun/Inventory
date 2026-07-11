@@ -5,6 +5,31 @@ import {
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
 } from './constants.js'
 
+// 品目リスト（config）の正規化。'config' と 'session_start' の両経路で
+// 同じフィールドセットを保存するための唯一の定義箇所（app 側 utils/configFields.js と対応）。
+// order が配列でなければ null（保存しない）。
+function normalizeConfig(c) {
+  if (!c || !Array.isArray(c.order)) return null
+  return {
+    order:         c.order,
+    isCustom:      !!c.isCustom,
+    units:         c.units         ?? {},
+    prices:        c.prices        ?? {},
+    categories:    c.categories    ?? {},
+    codes:         c.codes         ?? {},
+    categoryCodes: c.categoryCodes ?? {},
+    prevMonths:    c.prevMonths    ?? {},
+    lotSizes:      c.lotSizes      ?? {},
+    dictionary:    c.dictionary    ?? {},
+    axisNames:     Array.isArray(c.axisNames)   ? c.axisNames   : ['', ''],
+    tagsA:         c.tagsA         ?? {},
+    tagsB:         c.tagsB         ?? {},
+    axisGroupsA:   Array.isArray(c.axisGroupsA) ? c.axisGroupsA : [],
+    axisGroupsB:   Array.isArray(c.axisGroupsB) ? c.axisGroupsB : [],
+    hiddenItems:   Array.isArray(c.hiddenItems) ? c.hiddenItems : [],
+  }
+}
+
 export class RoomDO {
   constructor(state, env) {
     this.state = state
@@ -239,15 +264,8 @@ export class RoomDO {
 
       case 'config': {
         if (!this._isHost(ws)) return
-        const { order, units, prices, categories, codes, categoryCodes,
-                prevMonths, lotSizes, dictionary, isCustom } = msg
-        if (!Array.isArray(order)) return
-        const stored = {
-          order, isCustom: !!isCustom,
-          units: units ?? {}, prices: prices ?? {}, categories: categories ?? {},
-          codes: codes ?? {}, categoryCodes: categoryCodes ?? {},
-          prevMonths: prevMonths ?? {}, lotSizes: lotSizes ?? {}, dictionary: dictionary ?? {},
-        }
+        const stored = normalizeConfig(msg)
+        if (!stored) return
         await this.state.storage.put('config', stored)
         // ゲスト全員に品目リスト更新を通知
         this._broadcast({ type: 'config_update', ...stored }, ws)
@@ -284,8 +302,7 @@ export class RoomDO {
         }
 
         const att = ws.deserializeAttachment() ?? {}
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action,
           delta,
@@ -293,10 +310,7 @@ export class RoomDO {
           unit:        unit ?? '',
           enteredBy:   String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
-          timestamp:   Date.now(),
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('inventory', inventory),
@@ -324,8 +338,7 @@ export class RoomDO {
         const prev = inventory[ingredient]
         if (prev) {
           const att = ws.deserializeAttachment() ?? {}
-          const entry = {
-            id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          const entry = this._appendAudit(auditLog, {
             ingredient,
             action:      'remove',
             delta:       -(prev.qty ?? 0),
@@ -333,10 +346,7 @@ export class RoomDO {
             unit:        prev.unit ?? '',
             enteredBy:   att.deviceName ?? '',
             enteredById: att.deviceId  ?? '',
-            timestamp:   Date.now(),
-          }
-          auditLog.push(entry)
-          if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+          })
           this._broadcast({ type: 'audit_entry', entry })
           await this.state.storage.put('auditLog', auditLog)
         }
@@ -370,8 +380,7 @@ export class RoomDO {
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         const cur       = inventory[ingredient]
         const auditLog  = (await this.state.storage.get('auditLog')) ?? []
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action:      on ? 'flag_recount' : 'unflag_recount',
           delta:       0,
@@ -380,9 +389,7 @@ export class RoomDO {
           enteredBy:   String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
           timestamp:   at,
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('recountFlags', flags),
@@ -558,25 +565,9 @@ export class RoomDO {
           }
           puts.push(this.state.storage.put('recountFlags', broadcastFlags))
 
-          const c = msg.config
-          if (c && Array.isArray(c.order) && c.order.length > 0) {
-            broadcastCfg = {
-              order:         c.order,
-              isCustom:      !!c.isCustom,
-              units:         c.units         ?? {},
-              prices:        c.prices        ?? {},
-              categories:    c.categories    ?? {},
-              codes:         c.codes         ?? {},
-              categoryCodes: c.categoryCodes ?? {},
-              prevMonths:    c.prevMonths    ?? {},
-              lotSizes:      c.lotSizes      ?? {},
-              dictionary:    c.dictionary    ?? {},
-              axisNames:     Array.isArray(c.axisNames) ? c.axisNames : ['', ''],
-              tagsA:         c.tagsA         ?? {},
-              tagsB:         c.tagsB         ?? {},
-              axisGroupsA:   Array.isArray(c.axisGroupsA) ? c.axisGroupsA : [],
-              axisGroupsB:   Array.isArray(c.axisGroupsB) ? c.axisGroupsB : [],
-            }
+          const cfg = normalizeConfig(msg.config)
+          if (cfg && cfg.order.length > 0) {
+            broadcastCfg = cfg
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {
@@ -724,6 +715,18 @@ export class RoomDO {
 
   _isHost(ws) {
     return ws.deserializeAttachment()?.isHost === true
+  }
+
+  // 監査ログエントリを生成して追記・上限で切り詰める（id/timestamp は fields で上書き可）
+  _appendAudit(auditLog, fields) {
+    const entry = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      timestamp: Date.now(),
+      ...fields,
+    }
+    auditLog.push(entry)
+    if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+    return entry
   }
 
   _getParticipants() {

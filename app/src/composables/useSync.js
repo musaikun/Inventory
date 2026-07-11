@@ -105,6 +105,16 @@ let _disconnectedAt  = 0   // 切断時刻（再接続時マージ判定に使�
 let _joinSessionId   = null  // ゲスト参加時に提示する招待リンクのセッションID（鍵）
 const RECONNECT_DELAYS = [1500, 3000, 6000, 12000, 30000]
 
+// DO から届くエラーコード → ユーザー向けメッセージ（接続時・接続中で共用）
+const WS_ERROR_MESSAGES = {
+  room_not_found:     'ルームが存在しません',
+  session_not_active: 'ホストがまだセッションを開始していません。ホストが「棚卸ルームを開始」するまでお待ちください。',
+  room_full:          'ルームが満員です（上限20名）',
+  name_taken:         'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。',
+  auth_failed:        'ホスト認証に失敗しました。この端末はホスト権限がありません。',
+  invalid_link:       'この招待リンクは無効です。最新の招待リンク／QRをホストから受け取ってください。',
+}
+
 // ── deviceName 変更を即時反映 ─────────────────────────────────────────────────
 let _prevDeviceName = deviceName.value
 let _skipRename = false
@@ -662,7 +672,7 @@ function _handleMessage(msg) {
         _skipRename = true
         _onNameTaken?.(_prevDeviceName)
       } else if (msg.code === 'session_not_active') {
-        state.error    = 'セッションがまだ開始されていません。ホストがセッションを開始するまでお待ちください。'
+        state.error    = WS_ERROR_MESSAGES.session_not_active
         state.mode     = 'idle'
         state.roomCode = null
       }
@@ -798,19 +808,7 @@ function _connect(code) {
           } else if (data.type === 'error') {
             settled = true
             if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
-            const errMsg = data.code === 'room_not_found'
-              ? 'ルームが存在しません'
-              : data.code === 'session_not_active'
-              ? 'ホストがまだセッションを開始していません。ホストが「棚卸ルームを開始」するまでお待ちください。'
-              : data.code === 'room_full'
-              ? 'ルームが満員です（上限20名）'
-              : data.code === 'name_taken'
-              ? 'この端末名は既にルーム内で使用されています。設定から別の名前に変更してください。'
-              : data.code === 'auth_failed'
-              ? 'ホスト認証に失敗しました。この端末はホスト権限がありません。'
-              : data.code === 'invalid_link'
-              ? 'この招待リンクは無効です。最新の招待リンク／QRをホストから受け取ってください。'
-              : 'エラーが発生しました'
+            const errMsg = WS_ERROR_MESSAGES[data.code] ?? 'エラーが発生しました'
             state.error    = errMsg
             state.mode     = 'idle'
             state.roomCode = null

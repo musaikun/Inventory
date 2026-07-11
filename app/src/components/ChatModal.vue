@@ -152,15 +152,12 @@ function escHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-// 許可タグ以外を除去する最小サニタイザー
-// escHtml でユーザー入力は事前エスケープ済みのため、
-// 残るタグは自分たちが挿入した <br> / <span class="mention"> のみ
-const _ALLOWED_TAG = /^<(br|span class="mention"|\/span)>$/
+// escHtml でユーザー入力を先にエスケープするため、
+// 出力に含まれるタグは自分たちが挿入した <br> / <span class="mention"> のみ
 function renderText(text) {
   return escHtml(text)
     .replace(/@(\S+)/g, '<span class="mention">@$1</span>')
     .replace(/\n/g, '<br>')
-    .replace(/<[^>]*>/g, tag => (_ALLOWED_TAG.test(tag) ? tag : ''))
 }
 
 // ── 時刻フォーマット ─────────────────────────────────────────────────────────

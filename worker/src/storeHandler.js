@@ -1,7 +1,7 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
 import { insertInventoryLines } from './inventoryLines.js'
-import { _now, _genShopCode } from './workerUtils.js'
+import { _now, genUniqueShopCode } from './workerUtils.js'
 import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS } from './constants.js'
 
 function _tooLarge(body) {
@@ -10,13 +10,8 @@ function _tooLarge(body) {
 
 // POST /store/create
 export async function handleStoreCreate(db) {
-  let code, existing
-  do {
-    code     = _genShopCode()
-    existing = await db.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
-  } while (existing)
-
-  const now = _now()
+  const code = await genUniqueShopCode(db)
+  const now  = _now()
   await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)')
     .bind(code, now, now).run()
   return { shopCode: code }

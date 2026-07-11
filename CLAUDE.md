@@ -48,7 +48,6 @@ worker/src/
   - `./scripts/deploy.sh frontend` … テスト + ビルド + Pages のみ
   - マイグレーション適用ロジックは `scripts/migrate.sh`（CI と共用）
 - フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルビルド→`wrangler pages deploy` 方式（Pages 側のビルド設定・環境変数は不要）
-- Netlify → Pages の移行手順は `docs/migrate-to-pages.md`
 - **コメントは書かない**（WHYが非自明な場合のみ1行）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一

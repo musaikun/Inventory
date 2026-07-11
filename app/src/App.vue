@@ -40,6 +40,7 @@ import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js
 import { effectiveLot } from './services/lot.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
+import { syncConfigPayload } from './utils/configFields.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -579,23 +580,7 @@ setConfigCallback((cfg) => {
 setResetConfigCallback(() => clearConfig())
 
 function _configPayload() {
-  return {
-    order:         config.order,
-    units:         config.units,
-    prices:        config.prices,
-    categories:    config.categories,
-    codes:         config.codes,
-    categoryCodes: config.categoryCodes,
-    prevMonths:    config.prevMonths,
-    lotSizes:      config.lotSizes,
-    dictionary:    config.dictionary,
-    axisNames:     config.axisNames,
-    tagsA:         config.tagsA,
-    tagsB:         config.tagsB,
-    axisGroupsA:   config.axisGroupsA,
-    axisGroupsB:   config.axisGroupsB,
-    hiddenItems:   config.hiddenItems,
-  }
+  return syncConfigPayload(config)
 }
 
 // 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）
@@ -670,14 +655,7 @@ setConflictNotifyCallback((ingredient) => {
 
 function approveItemAdd(req) {
   addItem(req.name, null, null, req.unit || null, req.code || null)
-  broadcastConfig({
-    order: config.order, units: config.units, prices: config.prices,
-    categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
-    prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
-    axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
-    axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB,
-    isCustom: config.isCustom,
-  })
+  broadcastConfig(_configPayload())
   broadcastItemAddResponse(req.requestId, true, req.name)
   dismissItemAddRequest(req.requestId)
   showToast(`「${req.name}」を品目リストに追加しました`, 2500, 'success')
@@ -1286,23 +1264,7 @@ watch(config, () => {
   if (!syncIsHost.value || !syncActive.value) return
   clearTimeout(_configBroadcastTimer)
   _configBroadcastTimer = setTimeout(() => {
-    broadcastConfig({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      isCustom:      config.isCustom,
-    })
+    broadcastConfig(_configPayload())
   }, 300)
 }, { deep: true })
 
@@ -1909,12 +1871,12 @@ function onDeleteConfigItem(name) {
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
 function onHideItem(name) {
   hideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
   showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
 }
 function onUnhideItem(name) {
   unhideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────

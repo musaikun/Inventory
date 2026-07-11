@@ -9,6 +9,7 @@ import {
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { emptyConfigFields, CONFIG_FIELD_KEYS, pickConfigFields } from '../utils/configFields.js'
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
@@ -18,26 +19,27 @@ let _onConfigChanged = null
 export function setConfigChangedCallback(fn) { _onConfigChanged = fn }
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
+// フィールド定義は utils/configFields.js が唯一の正。
+// axisNames = 汎用2軸の名前（例: '場所', '仕入先'）。tagsA/B = 品目→グループ配列。
+// hiddenItems = 手動非表示（マスタ不変・進捗の分母から除外）。manualItems = 手動追加品目。
 const config = reactive({
-  order:          [...DEFAULT_ORDER],
-  units:          { ...DEFAULT_UNITS },
-  prices:         {},
-  categories:     {},
-  codes:          {},
-  categoryCodes:  {},
-  prevMonths:     {},
-  lotSizes:       {},
-  dictionary:     { ...DEFAULT_DICT },
-  isCustom:       false,
-  savedAt:        null,
-  manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
-  axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
-  tagsA:          {},        // 品目 → 軸1のグループ名（フラットマップ）
-  tagsB:          {},        // 品目 → 軸2のグループ名
-  axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
-  axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
-  hiddenItems:    [],        // 手動で一覧から非表示にした品目名（マスタは不変・進捗の分母から除外）
+  ...emptyConfigFields(),
+  order:      [...DEFAULT_ORDER],
+  units:      { ...DEFAULT_UNITS },
+  dictionary: { ...DEFAULT_DICT },
+  isCustom:   false,
+  savedAt:    null,
 })
+
+// src の値で config の同期対象フィールドを丸ごと置き換える（欠損は空デフォルト）
+function _assignFields(src) {
+  const base = emptyConfigFields()
+  for (const k of CONFIG_FIELD_KEYS) {
+    config[k] = src[k] ?? base[k]
+  }
+  config.tagsA = _normTags(config.tagsA)
+  config.tagsB = _normTags(config.tagsB)
+}
 
 // 自動学習エイリアス（別ストレージ）
 const learnedAliases = reactive({})
@@ -89,24 +91,9 @@ function _load() {
     // CONFIG_KEY はカスタム設定でのみ保存される（空リスト開始も含む）。
     // 空の品目リストでも軸名・グループ等を復元できるよう order 空も許容する。
     if (Array.isArray(saved.order)) {
-      config.order         = saved.order
-      config.units         = saved.units         ?? {}
-      config.prices        = saved.prices        ?? {}
-      config.categories    = saved.categories    ?? {}
-      config.codes         = saved.codes         ?? {}
-      config.categoryCodes = saved.categoryCodes ?? {}
-      config.prevMonths    = saved.prevMonths    ?? {}
-      config.lotSizes      = saved.lotSizes      ?? {}
-      config.dictionary    = saved.dictionary    ?? {}
-      config.manualItems   = saved.manualItems   ?? []
-      config.axisNames     = saved.axisNames     ?? ['', '']
-      config.tagsA         = _normTags(saved.tagsA)
-      config.tagsB         = _normTags(saved.tagsB)
-      config.axisGroupsA   = saved.axisGroupsA   ?? []
-      config.axisGroupsB   = saved.axisGroupsB   ?? []
-      config.hiddenItems   = saved.hiddenItems   ?? []
-      config.isCustom      = true
-      config.savedAt       = saved.savedAt       ?? null
+      _assignFields(saved)
+      config.isCustom = true
+      config.savedAt  = saved.savedAt ?? null
     }
   } catch (_) {}
 }
@@ -115,23 +102,8 @@ function _saveLocalOnly() {
   try {
     config.savedAt = new Date().toISOString()
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      hiddenItems:   config.hiddenItems,
-      savedAt:       config.savedAt,
+      ...pickConfigFields(config),
+      savedAt: config.savedAt,
     }))
     config.isCustom = true
   } catch (_) {}
@@ -190,22 +162,27 @@ _loadMaster()
 export function applyRemoteConfig(cfg) {
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
   _validateLearnedAliases(cfg.order)
-  config.order         = cfg.order
-  config.units         = cfg.units         ?? {}
-  config.prices        = cfg.prices        ?? {}
-  config.categories    = cfg.categories    ?? {}
-  config.codes         = cfg.codes         ?? {}
-  config.categoryCodes = cfg.categoryCodes ?? {}
-  config.prevMonths    = cfg.prevMonths    ?? {}
-  config.lotSizes      = cfg.lotSizes      ?? {}
-  config.dictionary    = cfg.dictionary    ?? {}
-  config.axisNames     = cfg.axisNames     ?? ['', '']
-  config.tagsA         = _normTags(cfg.tagsA)
-  config.tagsB         = _normTags(cfg.tagsB)
-  config.axisGroupsA   = cfg.axisGroupsA   ?? []
-  config.axisGroupsB   = cfg.axisGroupsB   ?? []
-  config.hiddenItems   = cfg.hiddenItems   ?? []
+  // manualItems はローカル専用のため維持する
+  _assignFields({ ...cfg, manualItems: config.manualItems })
   _saveLocalOnly()
+}
+
+// Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+function _capForPlan(newOrder) {
+  const total  = newOrder.length
+  const capped = (!isPro() && total > FREE_ITEM_LIMIT) ? newOrder.slice(0, FREE_ITEM_LIMIT) : newOrder
+  return { capped, truncated: total - capped.length }
+}
+
+// CSV 取込結果の共通サマリー
+function _importResult(capped, truncated, merged, newPrices, newCategories) {
+  return {
+    count:         capped.length,
+    truncated,
+    merged,
+    hasPrices:     Object.keys(newPrices).length > 0,
+    hasCategories: Object.keys(newCategories).length > 0,
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -318,12 +295,7 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
-    const totalParsed = newOrder.length
-    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
-      ? newOrder.slice(0, FREE_ITEM_LIMIT)
-      : newOrder
-
+    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
 
     config.order         = cappedOrder
@@ -340,13 +312,7 @@ export function useConfig() {
     config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
     _save()
 
-    return {
-      count:         cappedOrder.length,
-      truncated:     totalParsed - cappedOrder.length,
-      merged,
-      hasPrices:     Object.keys(newPrices).length > 0,
-      hasCategories: Object.keys(newCategories).length > 0,
-    }
+    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
   }
 
   /** 棚卸品目 CSV エクスポート */
@@ -387,92 +353,38 @@ export function useConfig() {
   /** 現在の品目リストをディープコピーで退避する（練習モードの一時切替用） */
   function snapshotConfig() {
     return JSON.parse(JSON.stringify({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      isCustom:      config.isCustom,
-      manualItems:   config.manualItems,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      hiddenItems:   config.hiddenItems,
+      ...pickConfigFields(config),
+      isCustom: config.isCustom,
     }))
   }
 
   /** snapshotConfig で退避した品目リストを復元する */
   function restoreConfigSnapshot(snap) {
     if (!snap) return
-    config.order         = snap.order         ?? []
-    config.units         = snap.units         ?? {}
-    config.prices        = snap.prices        ?? {}
-    config.categories    = snap.categories    ?? {}
-    config.codes         = snap.codes         ?? {}
-    config.categoryCodes = snap.categoryCodes ?? {}
-    config.prevMonths    = snap.prevMonths    ?? {}
-    config.lotSizes      = snap.lotSizes      ?? {}
-    config.dictionary    = snap.dictionary    ?? {}
-    config.manualItems   = snap.manualItems   ?? []
-    config.axisNames     = snap.axisNames     ?? ['', '']
-    config.tagsA         = _normTags(snap.tagsA)
-    config.tagsB         = _normTags(snap.tagsB)
-    config.axisGroupsA   = snap.axisGroupsA   ?? []
-    config.axisGroupsB   = snap.axisGroupsB   ?? []
-    config.hiddenItems   = snap.hiddenItems   ?? []
-    config.isCustom      = !!snap.isCustom
+    _assignFields(snap)
+    config.isCustom = !!snap.isCustom
     if (snap.isCustom) _saveLocalOnly()
     else localStorage.removeItem(CONFIG_KEY)
   }
 
   /** 空の品目リストで開始（棚卸しながら品目を追加していく用） */
   function setEmptyList() {
-    config.order         = []
-    config.units         = {}
-    config.prices        = {}
-    config.categories    = {}
-    config.codes         = {}
-    config.categoryCodes = {}
-    config.prevMonths    = {}
-    config.lotSizes      = {}
-    config.dictionary    = {}
-    config.manualItems   = []
-    config.axisNames     = ['', '']
-    config.tagsA         = {}
-    config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
-    config.hiddenItems   = []
-    config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
-    config.savedAt       = null
+    _assignFields({})
+    config.isCustom = true   // 意図的な空リスト（セットアップ完了扱い）
+    config.savedAt  = null
     localStorage.removeItem(CONFIG_KEY)
   }
 
   /** サンプルデータを読み込む（動作確認用） */
   function loadSampleData() {
-    config.order         = [...SAMPLE_ORDER]
-    config.units         = { ...SAMPLE_UNITS }
-    config.prices        = {}
-    config.categories    = {}
-    config.codes         = {}
-    config.categoryCodes = {}
-    config.prevMonths    = {}
-    config.lotSizes      = {}
-    config.dictionary    = { ...SAMPLE_DICTIONARY }
-    config.axisNames     = ['', '']
-    config.tagsA         = {}
-    config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
-    config.hiddenItems   = []
-    config.isCustom      = false
-    config.savedAt       = null
+    _assignFields({
+      order:       [...SAMPLE_ORDER],
+      units:       { ...SAMPLE_UNITS },
+      dictionary:  { ...SAMPLE_DICTIONARY },
+      manualItems: config.manualItems,
+    })
+    config.isCustom = false
+    config.savedAt  = null
     localStorage.removeItem(CONFIG_KEY)
   }
 
@@ -482,24 +394,13 @@ export function useConfig() {
    * ※「デフォルトに戻す」UIではない。ホストの正データを消す用途には絶対に使わないこと
    */
   function clearConfig() {
-    config.order         = [...DEFAULT_ORDER]
-    config.units         = { ...DEFAULT_UNITS }
-    config.prices        = {}
-    config.categories    = {}
-    config.codes         = {}
-    config.categoryCodes = {}
-    config.prevMonths    = {}
-    config.lotSizes      = {}
-    config.dictionary    = { ...DEFAULT_DICT }
-    config.manualItems   = []
-    config.axisNames     = ['', '']
-    config.tagsA         = {}
-    config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
-    config.hiddenItems   = []
-    config.isCustom      = false
-    config.savedAt       = null
+    _assignFields({
+      order:      [...DEFAULT_ORDER],
+      units:      { ...DEFAULT_UNITS },
+      dictionary: { ...DEFAULT_DICT },
+    })
+    config.isCustom = false
+    config.savedAt  = null
     localStorage.removeItem(CONFIG_KEY)
   }
 
@@ -921,12 +822,7 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
-    const totalParsed = newOrder.length
-    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
-      ? newOrder.slice(0, FREE_ITEM_LIMIT)
-      : newOrder
-
+    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
     config.order         = cappedOrder
     config.units         = newUnits
@@ -958,13 +854,7 @@ export function useConfig() {
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
 
-    return {
-      count:         cappedOrder.length,
-      truncated:     totalParsed - cappedOrder.length,
-      merged,
-      hasPrices:     Object.keys(newPrices).length > 0,
-      hasCategories: Object.keys(newCategories).length > 0,
-    }
+    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
   }
 
   const itemCount         = computed(() => config.order.length)

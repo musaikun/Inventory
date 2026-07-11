@@ -30,6 +30,13 @@ function jsonResponse(body, status, origin, allowedOrigin) {
   })
 }
 
+// ハンドラ戻り値の { _status } をHTTPステータスへ変換して返す（本文からは除去）
+function resultResponse(result, origin, allowedOrigin) {
+  const status = result._status ?? 200
+  delete result._status
+  return jsonResponse(result, status, origin, allowedOrigin)
+}
+
 async function _requireAuth(db, request, code, origin, allowedOrigin) {
   const authCode = await verifyAuth(db, request)
   if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
@@ -63,9 +70,7 @@ export default {
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
-        const result = await handleRegister(env.DB, await request.json())
-        const status = result._status ?? 200; delete result._status
-        return jsonResponse(result, status, origin, allowedOrigin)
+        return resultResponse(await handleRegister(env.DB, await request.json()), origin, allowedOrigin)
       }
       if (path === '/auth/login' && request.method === 'POST') {
         // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。店舗単位制限は handleLogin 内）
@@ -75,8 +80,7 @@ export default {
         }
         const result = await handleLogin(env.DB, await request.json())
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
-        const status = result._status ?? 200; delete result._status
-        return jsonResponse(result, status, origin, allowedOrigin)
+        return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/logout' && request.method === 'POST') {
         return jsonResponse(await handleLogout(env.DB, request), 200, origin, allowedOrigin)
@@ -118,27 +122,21 @@ export default {
           return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          const result = await handleConfigPut(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleConfigPut(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // GET/PUT /store/:code/inventory
         if (subpath === '/inventory' && request.method === 'GET') {
           return jsonResponse(await handleInventoryGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/inventory' && request.method === 'PUT') {
-          const result = await handleInventoryPut(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleInventoryPut(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
           return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
-          const result = await handleHistoryPost(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:date
         const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)
@@ -155,9 +153,7 @@ export default {
           return jsonResponse(await handleOrdersGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
         if (subpath === '/orders' && request.method === 'POST') {
-          const result = await handleOrderCreate(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleOrderCreate(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/orders/:id
         const orderDelMatch = subpath.match(/^\/orders\/([\w-]{1,64})$/)
@@ -195,9 +191,7 @@ export default {
         if (sessMatch && request.method === 'PUT') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          const result = await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json()), origin, allowedOrigin)
         }
         if (sessMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
@@ -210,9 +204,7 @@ export default {
         if (sessCompleteMatch && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          const result = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json()), origin, allowedOrigin)
         }
       }
     }
@@ -245,10 +237,9 @@ export default {
         return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
       }
       const result = await handleRoomResult(env.DB, code, sid)
-      const status = result._status ?? 200; delete result._status
       // 「見つからない・無効」は総当たり探索とみなして記録（期間切れ 410 は除外）
-      if (status === 400 || status === 404) await recordIpFail(env.DB, ip, 'probe')
-      return jsonResponse(result, status, origin, allowedOrigin)
+      if (result._status === 400 || result._status === 404) await recordIpFail(env.DB, ip, 'probe')
+      return resultResponse(result, origin, allowedOrigin)
     }
 
     // ── ルーム API（ルームID = 店舗コード）────────────────────────────────────
