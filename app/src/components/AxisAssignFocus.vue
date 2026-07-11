@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -7,7 +7,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸（分類）─────────────────────────────────────────
@@ -57,9 +57,19 @@ function pickGroup(g) { target.value = g; page.value = 'items'; search.value = '
 function backToGroups() { page.value = 'groups' }   // target は保持（スワイプで戻れる）
 watch(activeAxis, () => { page.value = 'groups'; target.value = ''; search.value = '' })
 
-// スワイプで双方向にカード切替（右=分類一覧へ / 左=選択中の品目プールへ）
+// スワイプで双方向にカード切替（指に追従→離すとスナップ）
+const vpEl = ref(null)
+const dragPx = ref(0)
+const dragging = ref(false)
 const swipe = useHorizontalSwipe({
   threshold: 55,
+  onDrag: dx => {
+    if (dx === 0) { dragging.value = false; dragPx.value = 0; return }
+    const W = vpEl.value?.clientWidth || 320
+    dragging.value = true
+    if (page.value === 'groups') dragPx.value = target.value ? Math.max(-W, Math.min(0, dx)) : 0
+    else                         dragPx.value = Math.min(W, Math.max(0, dx))
+  },
   onRight: () => { if (page.value === 'items') backToGroups() },
   onLeft:  () => { if (page.value === 'groups' && target.value) page.value = 'items' },
 })
@@ -143,6 +153,51 @@ function onDelete(g) {
   }
 }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
+
+// ── ドラッグハンドルでグループ並べ替え ─────────────────────────
+const dragG = ref(null)
+const draftOrder = ref(null)
+const renderGroups = computed(() => draftOrder.value ?? groups.value)
+function onHandleStart(g) { dragG.value = g; draftOrder.value = [...groups.value] }
+function onHandleMove(e) {
+  if (!dragG.value || !draftOrder.value) return
+  const t = e.touches?.[0]; if (!t) return
+  const el = document.elementFromPoint(t.clientX, t.clientY)
+  const card = el?.closest('[data-group]')
+  const overG = card?.getAttribute('data-group')
+  if (!overG || overG === dragG.value) return
+  const arr = draftOrder.value
+  const from = arr.indexOf(dragG.value), to = arr.indexOf(overG)
+  if (from < 0 || to < 0) return
+  arr.splice(to, 0, arr.splice(from, 1)[0])
+}
+function onHandleEnd() {
+  if (dragG.value && draftOrder.value) setAxisGroupOrder(activeAxis.value, draftOrder.value)
+  dragG.value = null; draftOrder.value = null
+}
+
+// ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
+const hasGenres = computed(() => Object.keys(config.categories || {}).length > 0)
+const groupedPool = computed(() => {
+  const map = new Map()
+  for (const it of poolItems.value) {
+    const cat = config.categories?.[it] || 'その他'
+    if (!map.has(cat)) map.set(cat, [])
+    map.get(cat).push(it)
+  }
+  const entries = [...map.entries()].sort(([a], [b]) => {
+    if (a === 'その他') return 1
+    if (b === 'その他') return -1
+    const ca = config.categoryCodes?.[a], cb = config.categoryCodes?.[b]
+    if (ca != null && cb != null) return ca - cb
+    if (ca != null) return -1
+    if (cb != null) return 1
+    return a.localeCompare(b, 'ja')
+  })
+  return entries.map(([cat, items]) => ({ cat, items }))
+})
+const closedCat = reactive({})
+function toggleCat(c) { closedCat[c] = !closedCat[c] }
 </script>
 
 <template>
@@ -174,29 +229,27 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
         <button v-for="a in namedAxes" :key="a.index" :class="['af-tab', { on: activeAxis === a.index }]" @click="activeAxis = a.index">{{ a.name }}</button>
       </div>
 
-      <!-- 2カード・スライド -->
-      <div class="af-viewport"
+      <!-- 2カード・スライド（指に追従） -->
+      <div class="af-viewport" ref="vpEl"
            @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend="swipe.onTouchEnd">
-        <div class="af-track" :style="{ transform: page === 'items' ? 'translateX(-50%)' : 'translateX(0)' }">
+        <div class="af-track" :class="{ dragging }" :style="{ transform: `translateX(calc(${page === 'items' ? -50 : 0}% + ${dragPx}px))` }">
 
           <!-- カードA: 分類先（グループ）選択 -->
           <section class="af-pane">
             <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください</div>
             <div class="af-glist">
-              <button v-for="g in groups" :key="g" class="af-gcard" @click="editMode ? null : pickGroup(g)">
-                <template v-if="editMode">
-                  <span class="af-gmove" @click.stop="move(g, -1)">▲</span>
-                  <span class="af-gmove" @click.stop="move(g, 1)">▼</span>
-                  <span class="af-gname" @click.stop="onRename(g)">{{ g }}</span>
-                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                  <span class="af-gdel" @click.stop="onDelete(g)">削除</span>
-                </template>
-                <template v-else>
-                  <span class="af-gname">{{ g }}</span>
-                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                  <span class="af-garrow">→</span>
-                </template>
-              </button>
+              <div v-for="g in renderGroups" :key="g" :data-group="g"
+                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG }"
+                   @click="editMode ? null : pickGroup(g)">
+                <span class="af-ghandle"
+                      @touchstart.stop.prevent="onHandleStart(g)"
+                      @touchmove.stop.prevent="onHandleMove"
+                      @touchend.stop="onHandleEnd">≡</span>
+                <span class="af-gname" @click.stop="editMode ? onRename(g) : pickGroup(g)">{{ g }}</span>
+                <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)">削除</span>
+                <span v-else class="af-garrow">→</span>
+              </div>
               <div v-if="adding" class="af-gadd-row">
                 <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
                 <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
@@ -219,17 +272,42 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
               <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
             </div>
             <div class="af-list">
-              <button
-                v-for="item in poolItems" :key="item"
-                :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
-                @click="toggle(item)"
-              >
-                <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
-                <span class="af-item-name">{{ item }}</span>
-                <span v-if="itemGroups(item).length" class="af-item-tags">
-                  <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
-                </span>
-              </button>
+              <!-- ジャンルがあればアコーディオン、無ければフラット -->
+              <template v-if="hasGenres">
+                <template v-for="grp in groupedPool" :key="grp.cat">
+                  <button class="af-cat-head" @click="toggleCat(grp.cat)">
+                    <span class="af-cat-arrow">{{ closedCat[grp.cat] ? '▶' : '▼' }}</span>
+                    <span class="af-cat-name">{{ grp.cat }}</span>
+                    <span class="af-cat-count">{{ grp.items.length }}</span>
+                  </button>
+                  <template v-if="!closedCat[grp.cat]">
+                    <button
+                      v-for="item in grp.items" :key="item"
+                      :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
+                      @click="toggle(item)"
+                    >
+                      <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
+                      <span class="af-item-name">{{ item }}</span>
+                      <span v-if="itemGroups(item).length" class="af-item-tags">
+                        <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
+                      </span>
+                    </button>
+                  </template>
+                </template>
+              </template>
+              <template v-else>
+                <button
+                  v-for="item in poolItems" :key="item"
+                  :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
+                  @click="toggle(item)"
+                >
+                  <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
+                  <span class="af-item-name">{{ item }}</span>
+                  <span v-if="itemGroups(item).length" class="af-item-tags">
+                    <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
+                  </span>
+                </button>
+              </template>
               <div v-if="poolItems.length === 0" class="af-empty">{{ unassignedOnly ? '未振り分けの品目はありません 🎉' : '該当する品目がありません。' }}</div>
             </div>
           </section>
@@ -268,6 +346,7 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 
 .af-viewport { flex: 1; overflow: hidden; }
 .af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
+.af-track.dragging { transition: none; }
 .af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }
 
 .af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
@@ -279,6 +358,9 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
   padding: 18px 16px; font-size: 16px; font-weight: 800; color: #1e293b; cursor: pointer; text-align: left;
 }
 .af-gcard:active { background: #f1f5f9; }
+.af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
+.af-gcard.dragging { opacity: 0.85; box-shadow: 0 8px 24px rgba(0,0,0,0.18); transform: scale(1.02); }
+.af-ghandle { flex-shrink: 0; color: #cbd5e1; font-size: 20px; cursor: grab; padding: 0 4px; touch-action: none; -webkit-tap-highlight-color: transparent; }
 .af-gname { flex: 1; min-width: 0; }
 .af-gcount { background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 14px; padding: 2px 12px; font-size: 14px; }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
@@ -300,6 +382,10 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 .af-chip-btn.on { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 
 .af-list { flex: 1; }
+.af-cat-head { width: 100%; display: flex; align-items: center; gap: 8px; background: #f1f5f9; border: none; border-radius: 8px; padding: 9px 12px; margin: 6px 0 4px; cursor: pointer; }
+.af-cat-arrow { color: #94a3b8; font-size: 11px; }
+.af-cat-name { font-size: 13px; font-weight: 800; color: #475569; }
+.af-cat-count { margin-left: auto; font-size: 12px; font-weight: 700; color: #94a3b8; }
 .af-item {
   width: 100%; display: flex; align-items: center; gap: 12px;
   background: #fff; border: 1px solid #eef2f6; border-radius: 12px;
