@@ -302,8 +302,7 @@ export class RoomDO {
         }
 
         const att = ws.deserializeAttachment() ?? {}
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action,
           delta,
@@ -311,10 +310,7 @@ export class RoomDO {
           unit:        unit ?? '',
           enteredBy:   String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
-          timestamp:   Date.now(),
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('inventory', inventory),
@@ -342,8 +338,7 @@ export class RoomDO {
         const prev = inventory[ingredient]
         if (prev) {
           const att = ws.deserializeAttachment() ?? {}
-          const entry = {
-            id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          const entry = this._appendAudit(auditLog, {
             ingredient,
             action:      'remove',
             delta:       -(prev.qty ?? 0),
@@ -351,10 +346,7 @@ export class RoomDO {
             unit:        prev.unit ?? '',
             enteredBy:   att.deviceName ?? '',
             enteredById: att.deviceId  ?? '',
-            timestamp:   Date.now(),
-          }
-          auditLog.push(entry)
-          if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+          })
           this._broadcast({ type: 'audit_entry', entry })
           await this.state.storage.put('auditLog', auditLog)
         }
@@ -388,8 +380,7 @@ export class RoomDO {
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         const cur       = inventory[ingredient]
         const auditLog  = (await this.state.storage.get('auditLog')) ?? []
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action:      on ? 'flag_recount' : 'unflag_recount',
           delta:       0,
@@ -398,9 +389,7 @@ export class RoomDO {
           enteredBy:   String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
           timestamp:   at,
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('recountFlags', flags),
@@ -726,6 +715,18 @@ export class RoomDO {
 
   _isHost(ws) {
     return ws.deserializeAttachment()?.isHost === true
+  }
+
+  // 監査ログエントリを生成して追記・上限で切り詰める（id/timestamp は fields で上書き可）
+  _appendAudit(auditLog, fields) {
+    const entry = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      timestamp: Date.now(),
+      ...fields,
+    }
+    auditLog.push(entry)
+    if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+    return entry
   }
 
   _getParticipants() {

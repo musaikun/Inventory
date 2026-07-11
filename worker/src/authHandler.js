@@ -1,6 +1,6 @@
 // ── 認証（店舗アカウント登録・ログイン・トークン検証）────────────────────────
 
-import { _now, _genShopCode } from './workerUtils.js'
+import { _now, genUniqueShopCode } from './workerUtils.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN } from './constants.js'
 
 async function _hashPin(shopCode, pin) {
@@ -25,13 +25,7 @@ export async function handleRegister(db, body) {
   const storeName = String(body.storeName ?? '').trim().slice(0, MAX_STORE_NAME_LEN)
   if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
 
-  // 重複しない店舗コードを発行
-  let code, existing
-  do {
-    code     = _genShopCode()
-    existing = await db.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
-  } while (existing)
-
+  const code    = await genUniqueShopCode(db)
   const pinHash = await _hashPin(code, pin)
   const token   = _genToken()
   const now     = _now()

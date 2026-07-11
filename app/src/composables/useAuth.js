@@ -29,12 +29,6 @@ function _clearAuth() {
   localStorage.removeItem(STORAGE_KEYS.shopCode)
 }
 
-// 認証ヘッダーを返す（他のAPIコールで使用）
-export function getAuthHeaders() {
-  if (!_token.value) return {}
-  return { Authorization: `Bearer ${_token.value}` }
-}
-
 // POST /auth/register  { storeName?, pin }
 export async function register(storeNameVal, pin) {
   const data = await _api('/auth/register', {

@@ -638,14 +638,7 @@ setConflictNotifyCallback((ingredient) => {
 
 function approveItemAdd(req) {
   addItem(req.name, null, null, req.unit || null, req.code || null)
-  broadcastConfig({
-    order: config.order, units: config.units, prices: config.prices,
-    categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
-    prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
-    axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
-    axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB,
-    isCustom: config.isCustom,
-  })
+  broadcastConfig(_configPayload())
   broadcastItemAddResponse(req.requestId, true, req.name)
   dismissItemAddRequest(req.requestId)
   showToast(`「${req.name}」を品目リストに追加しました`, 2500, 'success')
@@ -1258,23 +1251,7 @@ watch(config, () => {
   if (!syncIsHost.value || !syncActive.value) return
   clearTimeout(_configBroadcastTimer)
   _configBroadcastTimer = setTimeout(() => {
-    broadcastConfig({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      isCustom:      config.isCustom,
-    })
+    broadcastConfig(_configPayload())
   }, 300)
 }, { deep: true })
 
@@ -1881,19 +1858,19 @@ function onDeleteConfigItem(name) {
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
 function onHideItem(name) {
   hideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
   showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
 }
 function onUnhideItem(name) {
   unhideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
 }
 
 // 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
 function onClearMaster() {
   setEmptyList()
   _persistConfigToD1()
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
   showToast('品目マスタを削除しました', 2600, 'default')
 }
 

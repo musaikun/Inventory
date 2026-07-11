@@ -206,6 +206,24 @@ export function applyRemoteConfig(cfg) {
   _saveLocalOnly()
 }
 
+// Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
+function _capForPlan(newOrder) {
+  const total  = newOrder.length
+  const capped = (!isPro() && total > FREE_ITEM_LIMIT) ? newOrder.slice(0, FREE_ITEM_LIMIT) : newOrder
+  return { capped, truncated: total - capped.length }
+}
+
+// CSV 取込結果の共通サマリー
+function _importResult(capped, truncated, merged, newPrices, newCategories) {
+  return {
+    count:         capped.length,
+    truncated,
+    merged,
+    hasPrices:     Object.keys(newPrices).length > 0,
+    hasCategories: Object.keys(newCategories).length > 0,
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useConfig() {
 
@@ -316,12 +334,7 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
-    const totalParsed = newOrder.length
-    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
-      ? newOrder.slice(0, FREE_ITEM_LIMIT)
-      : newOrder
-
+    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
 
     config.order         = cappedOrder
@@ -338,13 +351,7 @@ export function useConfig() {
     config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
     _save()
 
-    return {
-      count:         cappedOrder.length,
-      truncated:     totalParsed - cappedOrder.length,
-      merged,
-      hasPrices:     Object.keys(newPrices).length > 0,
-      hasCategories: Object.keys(newCategories).length > 0,
-    }
+    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
   }
 
   /** 棚卸品目 CSV エクスポート */
@@ -448,24 +455,10 @@ export function useConfig() {
    * ※「デフォルトに戻す」UIではない。ホストの正データを消す用途には絶対に使わないこと
    */
   function clearConfig() {
-    config.order         = [...DEFAULT_ORDER]
-    config.units         = { ...DEFAULT_UNITS }
-    config.prices        = {}
-    config.categories    = {}
-    config.codes         = {}
-    config.categoryCodes = {}
-    config.prevMonths    = {}
-    config.lotSizes      = {}
-    config.dictionary    = { ...DEFAULT_DICT }
-    config.manualItems   = []
-    config.axisNames     = ['', '']
-    config.tagsA         = {}
-    config.tagsB         = {}
-    config.axisGroupsA   = []
-    config.axisGroupsB   = []
-    config.hiddenItems   = []
-    config.isCustom      = false
-    config.savedAt       = null
+    _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT } })
+    config.manualItems = []
+    config.isCustom    = false
+    config.savedAt     = null
     localStorage.removeItem(CONFIG_KEY)
   }
 
@@ -887,12 +880,7 @@ export function useConfig() {
 
     if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
 
-    // Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
-    const totalParsed = newOrder.length
-    const cappedOrder = (!isPro() && newOrder.length > FREE_ITEM_LIMIT)
-      ? newOrder.slice(0, FREE_ITEM_LIMIT)
-      : newOrder
-
+    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
     config.order         = cappedOrder
     config.units         = newUnits
@@ -924,13 +912,7 @@ export function useConfig() {
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
 
-    return {
-      count:         cappedOrder.length,
-      truncated:     totalParsed - cappedOrder.length,
-      merged,
-      hasPrices:     Object.keys(newPrices).length > 0,
-      hasCategories: Object.keys(newCategories).length > 0,
-    }
+    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
   }
 
   const itemCount         = computed(() => config.order.length)
