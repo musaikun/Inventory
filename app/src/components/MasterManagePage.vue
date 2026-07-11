@@ -7,7 +7,7 @@ import { showAxisAssign, axisAssignInitial, settingsSection } from '../composabl
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, hideItem, unhideItem, setAxisName } = useConfig()
+const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis } = useConfig()
 const { getSnapshots } = useHistory()
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
@@ -35,7 +35,22 @@ function axisTagsOf(item) {
 }
 
 function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
-function onAxisName(idx, e) { setAxisName(idx, (e.target.value || '').trim()) }
+
+// ── 分類（第1レイヤー）の登録 ─────────────────────────────
+const draft = ref(['', ''])
+const show2 = ref(false)
+function confirmAxis(idx) {
+  const name = draft.value[idx].trim()
+  if (!name) return
+  setAxisName(idx, name)
+  draft.value[idx] = ''
+}
+function deleteAxis(idx) {
+  const name = config.axisNames[idx]
+  if (!confirm(`分類「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
+  clearAxis(idx)
+  if (idx === 1) show2.value = false
+}
 
 function hideAllUnused() {
   if (!unusedCandidates.value.length) return
@@ -73,22 +88,40 @@ function onClear() {
         <span class="mm-row-arrow">→</span>
       </button>
 
-      <!-- 並び替え（軸） -->
+      <!-- 分類の追加（並び順） -->
       <div class="mm-block">
-        <div class="mm-block-head"><span class="mm-block-title">並び替え（軸）</span></div>
+        <div class="mm-block-head"><span class="mm-block-title">分類の追加（並び順）</span></div>
+
+        <!-- 分類① -->
         <div class="mm-axis-row">
-          <span class="mm-axis-label">軸①</span>
-          <input class="mm-axis-input" :value="config.axisNames[0]" maxlength="12"
-                 placeholder="例：保管場所" @change="onAxisName(0, $event)" />
-          <button v-if="config.axisNames[0]" class="mm-axis-go" @click="openReorder(0)">振り分け →</button>
+          <span class="mm-axis-label">分類①</span>
+          <template v-if="config.axisNames[0]">
+            <span class="mm-axis-name">{{ config.axisNames[0] }}</span>
+            <button class="mm-axis-go" @click="openReorder(0)">振り分け →</button>
+            <button class="mm-axis-del" @click="deleteAxis(0)">削除</button>
+          </template>
+          <template v-else>
+            <input class="mm-axis-input" v-model="draft[0]" maxlength="12" placeholder="分類名（例：保管場所）" @keyup.enter="confirmAxis(0)" />
+            <button class="mm-axis-confirm" :disabled="!draft[0].trim()" @click="confirmAxis(0)">確定</button>
+          </template>
         </div>
-        <div class="mm-axis-row">
-          <span class="mm-axis-label">軸②</span>
-          <input class="mm-axis-input" :value="config.axisNames[1]" maxlength="12"
-                 placeholder="例：仕入先" @change="onAxisName(1, $event)" />
-          <button v-if="config.axisNames[1]" class="mm-axis-go" @click="openReorder(1)">振り分け →</button>
+
+        <!-- 分類②: 設定済み or ＋で表示 -->
+        <div v-if="config.axisNames[1] || show2" class="mm-axis-row">
+          <span class="mm-axis-label">分類②</span>
+          <template v-if="config.axisNames[1]">
+            <span class="mm-axis-name">{{ config.axisNames[1] }}</span>
+            <button class="mm-axis-go" @click="openReorder(1)">振り分け →</button>
+            <button class="mm-axis-del" @click="deleteAxis(1)">削除</button>
+          </template>
+          <template v-else>
+            <input class="mm-axis-input" v-model="draft[1]" maxlength="12" placeholder="分類名（例：仕入先）" @keyup.enter="confirmAxis(1)" />
+            <button class="mm-axis-confirm" :disabled="!draft[1].trim()" @click="confirmAxis(1)">確定</button>
+          </template>
         </div>
-        <div class="mm-block-sub">軸の名前を入れると、その軸で品目をグループ分けできます。ジャンルは取込元由来（編集不可）。</div>
+        <button v-else-if="config.axisNames[0]" class="mm-axis-add" @click="show2 = true">＋ 分類を追加</button>
+
+        <div class="mm-block-sub">分類（例：保管場所・仕入先）を追加すると、品目を分類先に振り分けられます。ジャンルは取込元由来（編集不可）。</div>
       </div>
 
       <!-- 使っていない候補（前回まで未入力） -->
@@ -193,6 +226,11 @@ function onClear() {
 .mm-axis-label { font-size: 13px; font-weight: 800; color: #64748b; width: 32px; flex-shrink: 0; }
 .mm-axis-input { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 .mm-axis-go { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+.mm-axis-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: #1e293b; }
+.mm-axis-confirm { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 8px 16px; cursor: pointer; }
+.mm-axis-confirm:disabled { background: #cbd5e1; cursor: not-allowed; }
+.mm-axis-del { flex-shrink: 0; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+.mm-axis-add { width: 100%; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; margin-top: 8px; }
 
 .mm-bulk { width: 100%; border: none; border-radius: 10px; padding: 10px; background: #64748b; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }
 .mm-bulk:active { background: #475569; }
