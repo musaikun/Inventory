@@ -52,7 +52,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
-import AxisAssignModal from './components/AxisAssignModal.vue'
+import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
@@ -2497,7 +2497,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
-    <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
+    <AxisAssignFocus v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
