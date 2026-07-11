@@ -237,7 +237,7 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
           <!-- カードA: 分類先（グループ）選択 -->
           <section class="af-pane">
             <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください</div>
-            <div class="af-glist">
+            <TransitionGroup tag="div" name="af-reorder" class="af-glist">
               <div v-for="g in renderGroups" :key="g" :data-group="g"
                    class="af-gcard" :class="{ active: g === target, dragging: g === dragG }"
                    @click="editMode ? null : pickGroup(g)">
@@ -250,14 +250,14 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
                 <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)">削除</span>
                 <span v-else class="af-garrow">→</span>
               </div>
-              <div v-if="adding" class="af-gadd-row">
-                <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
-                <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
-                <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
-              </div>
-              <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
-              <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            </TransitionGroup>
+            <div v-if="adding" class="af-gadd-row">
+              <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
+              <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+              <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
             </div>
+            <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
+            <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
           </section>
 
           <!-- カードB: 品目プール -->
@@ -359,15 +359,18 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
 }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
-.af-gcard.dragging { opacity: 0.85; box-shadow: 0 8px 24px rgba(0,0,0,0.18); transform: scale(1.02); }
+.af-gcard.dragging { opacity: 0.92; box-shadow: 0 10px 26px rgba(0,0,0,0.2); border-color: var(--primary, #2563eb); position: relative; z-index: 3; }
+/* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へ滑らかに移動 */
+.af-reorder-move { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.af-glist { position: relative; }
 .af-ghandle { flex-shrink: 0; color: #cbd5e1; font-size: 20px; cursor: grab; padding: 0 4px; touch-action: none; -webkit-tap-highlight-color: transparent; }
 .af-gname { flex: 1; min-width: 0; }
 .af-gcount { background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 14px; padding: 2px 12px; font-size: 14px; }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
 .af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
-.af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; }
-.af-gadd-row { display: flex; gap: 8px; align-items: center; }
+.af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 10px; }
+.af-gadd-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .af-gadd-input { flex: 1; min-width: 0; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
 .af-gadd-ok { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 15px 18px; cursor: pointer; }
 .af-gadd-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
