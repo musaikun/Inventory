@@ -32,16 +32,21 @@ const groups  = computed(() => {
   return [...defined.value, ...extras]
 })
 function itemGroups(item) { return tagMap.value[item] || [] }
+
+// 非表示品目は振り分け対象外（進捗・プール・件数すべてから除外）
+const hiddenSet = computed(() => new Set(config.hiddenItems))
+const visibleOrder = computed(() => config.order.filter(i => !hiddenSet.value.has(i)))
+
 const groupCount = computed(() => {
   const m = {}
   for (const g of groups.value) m[g] = 0
-  for (const it of config.order) for (const g of itemGroups(it)) m[g] = (m[g] || 0) + 1
+  for (const it of visibleOrder.value) for (const g of itemGroups(it)) m[g] = (m[g] || 0) + 1
   return m
 })
 
-// ── 進捗（この分類で1つ以上のグループに入っている品目）───────
-const assignedCount = computed(() => config.order.reduce((n, i) => n + (itemGroups(i).length ? 1 : 0), 0))
-const total = computed(() => config.order.length)
+// ── 進捗（非表示を除いた品目のうち、1つ以上のグループに入っている数）───────
+const assignedCount = computed(() => visibleOrder.value.reduce((n, i) => n + (itemGroups(i).length ? 1 : 0), 0))
+const total = computed(() => visibleOrder.value.length)
 const progressPct = computed(() => total.value ? Math.round(assignedCount.value / total.value * 100) : 0)
 const allDone = computed(() => total.value > 0 && assignedCount.value === total.value)
 
@@ -49,13 +54,14 @@ const allDone = computed(() => total.value > 0 && assignedCount.value === total.
 const page = ref('groups')  // 'groups' | 'items'
 const target = ref('')
 function pickGroup(g) { target.value = g; page.value = 'items'; search.value = '' }
-function backToGroups() { page.value = 'groups' }
+function backToGroups() { page.value = 'groups' }   // target は保持（スワイプで戻れる）
 watch(activeAxis, () => { page.value = 'groups'; target.value = ''; search.value = '' })
 
-// スワイプ: 品目ページで右スワイプ→グループへ
+// スワイプで双方向にカード切替（右=分類一覧へ / 左=選択中の品目プールへ）
 const swipe = useHorizontalSwipe({
-  threshold: 60,
+  threshold: 55,
   onRight: () => { if (page.value === 'items') backToGroups() },
+  onLeft:  () => { if (page.value === 'groups' && target.value) page.value = 'items' },
 })
 
 // ── 品目プール ──────────────────────────────────────────────
@@ -76,6 +82,7 @@ const _norm = s => (s || '').normalize('NFKC').toLowerCase()
 const poolItems = computed(() => {
   const q = _norm(search.value.trim())
   let arr = config.order.filter(i =>
+    !hiddenSet.value.has(i) &&
     (!q || _norm(i).includes(q)) &&
     (!usedOnly.value || usage.value[i] > 0) &&
     (!unassignedOnly.value || itemGroups(i).length === 0)
@@ -112,9 +119,15 @@ function _showFlash(msg, item) {
 
 // ── グループ管理 ────────────────────────────────────────────
 const editMode = ref(false)
-function onAdd() {
-  const n = (prompt('新しいグループ名（分類先）') || '').trim()
-  if (n) { addAxisGroup(activeAxis.value, n); pickGroup(n) }
+
+// カード上で直接グループ名を入力して登録（連続追加できるよう入力欄は開いたまま）
+const adding = ref(false)
+const newName = ref('')
+function submitNew() {
+  const n = newName.value.trim()
+  if (!n) return
+  addAxisGroup(activeAxis.value, n)
+  newName.value = ''
 }
 function onRename(g) {
   const n = (prompt('新しい名前', g) || '').trim()
@@ -184,8 +197,13 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
                   <span class="af-garrow">→</span>
                 </template>
               </button>
-              <button class="af-gadd" @click="onAdd">＋ グループを追加</button>
-              <div v-if="groups.length === 0" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+              <div v-if="adding" class="af-gadd-row">
+                <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
+                <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+                <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
+              </div>
+              <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
+              <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
             </div>
           </section>
 
@@ -267,6 +285,11 @@ function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
 .af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
 .af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.af-gadd-row { display: flex; gap: 8px; align-items: center; }
+.af-gadd-input { flex: 1; min-width: 0; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
+.af-gadd-ok { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 15px 18px; cursor: pointer; }
+.af-gadd-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
+.af-gadd-x { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 12px; font-size: 18px; padding: 12px 15px; cursor: pointer; }
 
 .af-target-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .af-target-back { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 10px; cursor: pointer; }
