@@ -42,8 +42,10 @@ const listSavedLabel = computed(() => {
   if (!config.savedAt) return ''
   const d = new Date(config.savedAt)
   if (isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' })
+  return d.toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 })
+const hiddenCount   = computed(() => Math.max(0, itemCount.value - activeItemCount.value))
+const axisNamesSet  = computed(() => (config.axisNames || []).filter(Boolean))
 
 const activeTab    = _persistedTab
 const selectedYear = _selectedYear
@@ -444,24 +446,34 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <!-- 品目マスタ管理（店舗の品目リスト＝棚卸・発注が共有する正）-->
-          <div class="master-card">
+          <!-- 品目マスタ管理（店舗の品目リスト＝棚卸・発注が共有する正）。カード全体タップで管理へ -->
+          <div class="master-card pulse" @click="emit('openMaster')">
             <div class="master-head">
               <span class="master-title">📦 品目マスタ管理</span>
-              <span v-if="config.isCustom && itemCount > 0" class="master-count">{{ itemCount }}件</span>
-              <span v-else-if="itemCount > 0" class="master-sample">サンプル {{ itemCount }}件</span>
+              <span v-if="itemCount > 0 && !config.isCustom" class="master-sample">サンプル</span>
+              <span class="master-open">管理 →</span>
             </div>
             <template v-if="itemCount > 0">
-              <div v-if="config.isCustom && listSavedLabel" class="master-meta">最終更新 {{ listSavedLabel }}</div>
-              <div class="master-actions">
-                <button class="master-btn" @click="emit('openMaster')">管理する（取込・並び替え・非表示）→</button>
+              <div class="master-detail">
+                <div class="md-row">
+                  <span class="md-k">最終更新</span>
+                  <span class="md-v">{{ listSavedLabel || '—' }}</span>
+                </div>
+                <div class="md-row">
+                  <span class="md-k">品目数</span>
+                  <span class="md-v">全 <b>{{ itemCount }}</b> ・ 表示中 <b>{{ activeItemCount }}</b><span v-if="hiddenCount > 0" class="md-sub">（非表示 {{ hiddenCount }}）</span></span>
+                </div>
+                <div class="md-row">
+                  <span class="md-k">分類</span>
+                  <span class="md-v">
+                    <template v-if="axisNamesSet.length"><span v-for="n in axisNamesSet" :key="n" class="md-chip">{{ n }}</span></template>
+                    <span v-else class="md-none">分類未設定</span>
+                  </span>
+                </div>
               </div>
             </template>
             <template v-else>
-              <div class="master-empty">まだ品目がありません。「管理する」から取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
-              <div class="master-actions">
-                <button class="master-btn primary" @click="emit('openMaster')">管理する →</button>
-              </div>
+              <div class="master-empty">まだ品目がありません。タップして取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
             </template>
           </div>
 
@@ -958,13 +970,31 @@ function _itemCount(session) {
   border-radius: 14px;
   padding: 12px 14px;
   margin-bottom: 10px;
+  cursor: pointer;
+  transition: transform 0.12s;
 }
+.master-card:active { transform: scale(0.99); }
+.master-card.pulse { animation: master-pulse 3s ease-in-out infinite; }
+@keyframes master-pulse {
+  0%, 100% { border-color: var(--border, #e2e8f0); box-shadow: 0 1px 4px rgba(37,99,235,0.05); }
+  50%      { border-color: var(--primary-bright, #60a5fa); box-shadow: 0 3px 16px rgba(37,99,235,0.22); }
+}
+@media (prefers-reduced-motion: reduce) { .master-card.pulse { animation: none; } }
 .master-head { display: flex; align-items: center; gap: 8px; }
 .master-title { font-size: 14px; font-weight: 800; color: #334155; }
-.master-count { font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); margin-left: auto; }
-.master-sample { font-size: 12px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 20px; padding: 2px 10px; margin-left: auto; }
-.master-meta { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+.master-open { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); }
+.master-count { font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); }
+.master-sample { font-size: 11px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 20px; padding: 1px 9px; }
 .master-empty { font-size: 12px; color: #64748b; margin-top: 6px; line-height: 1.5; }
+
+.master-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.md-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
+.md-k { flex-shrink: 0; width: 56px; color: #94a3b8; font-weight: 700; }
+.md-v { color: #334155; }
+.md-v b { color: #1e293b; }
+.md-sub { color: #94a3b8; margin-left: 4px; }
+.md-none { color: #b45309; }
+.md-chip { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border-radius: 12px; padding: 1px 9px; margin-right: 4px; }
 .master-actions { display: flex; gap: 8px; margin-top: 10px; }
 .master-btn {
   border: 1px solid var(--primary-border, #bfdbfe);
