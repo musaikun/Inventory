@@ -360,8 +360,8 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
 .af-gcard.dragging { opacity: 0.92; box-shadow: 0 10px 26px rgba(0,0,0,0.2); border-color: var(--primary, #2563eb); position: relative; z-index: 3; }
-/* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へ滑らかに移動 */
-.af-reorder-move { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+/* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へゆっくり滑らかに移動 */
+.af-reorder-move { transition: transform 0.5s cubic-bezier(0.25, 0.9, 0.25, 1); }
 .af-glist { position: relative; }
 .af-ghandle { flex-shrink: 0; color: #cbd5e1; font-size: 20px; cursor: grab; padding: 0 4px; touch-action: none; -webkit-tap-highlight-color: transparent; }
 .af-gname { flex: 1; min-width: 0; }
