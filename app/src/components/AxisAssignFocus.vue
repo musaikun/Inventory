@@ -351,11 +351,11 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
 
 .af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .af-pane-hint b { color: var(--primary, #2563eb); }
-.af-glist { display: flex; flex-direction: column; gap: 10px; }
+.af-glist { display: flex; flex-direction: column; gap: 7px; }
 .af-gcard {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
-  padding: 18px 16px; font-size: 16px; font-weight: 800; color: #1e293b; cursor: pointer; text-align: left;
+  background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px;
+  padding: 11px 14px; font-size: 15px; font-weight: 800; color: #1e293b; cursor: pointer; text-align: left;
 }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
