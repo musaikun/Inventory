@@ -1078,25 +1078,25 @@ function _itemCount(session) {
   flex-shrink: 0;
 }
 
-/* 発注確認カード（淡いオレンジ・棚卸カードの下に副次的に置く） */
+/* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
 .order-start {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
   padding: 18px;
-  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  background: #fff;
   color: #9a3412;
-  border: 1.5px solid #fed7aa;
-  border-radius: 18px;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
   cursor: pointer;
-  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   margin-bottom: 4px;
   text-align: left;
   transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.order-start:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(234,88,12,0.16); }
+.order-start:active { transform: scale(0.98); }
 .order-start:disabled { opacity: 0.7; cursor: not-allowed; }
 .order-start-icon {
   font-size: 26px;
