@@ -196,8 +196,8 @@ const groupedPool = computed(() => {
   })
   return entries.map(([cat, items]) => ({ cat, items }))
 })
-const closedCat = reactive({})
-function toggleCat(c) { closedCat[c] = !closedCat[c] }
+const openCat = reactive({})   // 既定は閉じた状態（未キー=閉）
+function toggleCat(c) { openCat[c] = !openCat[c] }
 </script>
 
 <template>
@@ -276,11 +276,11 @@ function toggleCat(c) { closedCat[c] = !closedCat[c] }
               <template v-if="hasGenres">
                 <template v-for="grp in groupedPool" :key="grp.cat">
                   <button class="af-cat-head" @click="toggleCat(grp.cat)">
-                    <span class="af-cat-arrow">{{ closedCat[grp.cat] ? '▶' : '▼' }}</span>
+                    <span class="af-cat-arrow">{{ openCat[grp.cat] ? '▼' : '▶' }}</span>
                     <span class="af-cat-name">{{ grp.cat }}</span>
                     <span class="af-cat-count">{{ grp.items.length }}</span>
                   </button>
-                  <template v-if="!closedCat[grp.cat]">
+                  <template v-if="openCat[grp.cat]">
                     <button
                       v-for="item in grp.items" :key="item"
                       :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
