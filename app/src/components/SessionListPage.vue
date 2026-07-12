@@ -1,7 +1,6 @@
 <script>
 import { ref } from 'vue'
 export const _persistedTab  = ref('sessions')
-export const _selectedYear  = ref(null)
 export const _showDashboard = ref(false)
 export const _showOrders    = ref(false)
 </script>
@@ -16,6 +15,7 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
+import HistoryCalendar from './HistoryCalendar.vue'
 import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
@@ -48,7 +48,6 @@ const hiddenCount   = computed(() => Math.max(0, itemCount.value - activeItemCou
 const axisNamesSet  = computed(() => (config.axisNames || []).filter(Boolean))
 
 const activeTab    = _persistedTab
-const selectedYear = _selectedYear
 
 const swipe = useHorizontalSwipe({
   onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
@@ -185,40 +184,6 @@ const hiddenByPlanCount = computed(() =>
   completedSessions.value.length - visibleCompletedSessions.value.length
 )
 
-// 完了済みを年ごとにグループ化（新しい年が上）
-const completedByYear = computed(() => {
-  const map = new Map()
-  for (const s of visibleCompletedSessions.value) {
-    const year = new Date(s.startedAt).getFullYear()
-    if (!map.has(year)) map.set(year, [])
-    map.get(year).push(s)
-  }
-  return [...map.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([year, items]) => ({
-      year,
-      items: items.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt)),
-    }))
-})
-
-const selectedYearSessions = computed(() => {
-  if (!selectedYear.value) return []
-  return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
-})
-
-// 選択中の年をさらに月ごとにグループ化（新しい月が上）
-const selectedYearByMonth = computed(() => {
-  const map = new Map()
-  for (const s of selectedYearSessions.value) {
-    const month = new Date(s.startedAt).getMonth() + 1
-    if (!map.has(month)) map.set(month, [])
-    map.get(month).push(s)
-  }
-  return [...map.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([month, items]) => ({ month, items }))
-})
-
 const CORRECTION_DAYS = 3
 
 function _isSessionLocked(session) {
@@ -230,74 +195,6 @@ function _isSessionLocked(session) {
     s.id !== session.id && new Date(s.startedAt) > new Date(session.endedAt)
   )
 }
-
-function _correctionLabel(session) {
-  if (_isSessionLocked(session)) return null
-  const remaining = CORRECTION_DAYS * 86400_000 - (Date.now() - new Date(session.endedAt).getTime())
-  const days = Math.max(0, Math.ceil(remaining / 86400_000))
-  return days > 0 ? `あと${days}日` : '今日まで'
-}
-
-function _yearDateRange(items) {
-  if (!items.length) return ''
-  const months = items.map(s => new Date(s.startedAt).getMonth() + 1)
-  const min = Math.min(...months)
-  const max = Math.max(...months)
-  return min === max ? `${min}月` : `${min}月〜${max}月`
-}
-
-function _fmtDuration(ms) {
-  if (ms <= 0) return null
-  const min = Math.round(ms / 60000)
-  if (min < 1)  return '1分未満'
-  if (min < 60) return `${min}分`
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return m > 0 ? `${h}時間${m}分` : `${h}時間`
-}
-
-// 年詳細ビューの全セッション分を一括計算
-const selectedYearSessionStats = computed(() => {
-  const result = {}
-  for (const s of selectedYearSessions.value) {
-    const snap = getSnapshotBySessionId(s.id)
-
-    // 稼働時間（アイドル除外）が記録されていればそれを優先、無ければ壁時計（開始〜終了）
-    const duration = (snap && typeof snap.activeMs === 'number' && snap.activeMs > 0)
-      ? _fmtDuration(snap.activeMs)
-      : (s.startedAt && s.endedAt)
-        ? _fmtDuration(new Date(s.endedAt) - new Date(s.startedAt))
-        : null
-
-    // auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
-    const timeMap = new Map()
-    for (const entry of (snap?.auditLog ?? [])) {
-      if (!entry.enteredById || !entry.ts) continue
-      const t = new Date(entry.ts).getTime()
-      if (!timeMap.has(entry.enteredById)) {
-        timeMap.set(entry.enteredById, { name: entry.enteredBy || '?', first: t, last: t })
-      } else {
-        const cur = timeMap.get(entry.enteredById)
-        cur.first = Math.min(cur.first, t)
-        cur.last  = Math.max(cur.last, t)
-      }
-    }
-
-    const participants = (snap?.participants ?? []).map(p => {
-      const timeEntry = [...timeMap.values()].find(t => t.name === p.name)
-      const activeDur = timeEntry ? _fmtDuration(timeEntry.last - timeEntry.first) : null
-      return { name: p.name, itemCount: p.items?.length ?? 0, activeDur }
-    })
-
-    result[s.id] = {
-      duration,
-      participants,
-      locked:          _isSessionLocked(s),
-      correctionLabel: _correctionLabel(s),
-    }
-  }
-  return result
-})
 
 function onStartNew() {
   // マスタが正なので、実データがあれば確認を挟まず即開始。
@@ -631,115 +528,48 @@ function _itemCount(session) {
         <!-- ダッシュボードパネル -->
         <div class="tab-panel">
 
-          <!-- 年詳細ビュー -->
-          <template v-if="selectedYear !== null">
-            <button class="year-back-btn" @click="selectedYear = null">‹ 戻る</button>
-            <div class="year-detail-header">
-              <span class="year-detail-title">{{ selectedYear }}年の棚卸</span>
-              <span class="year-count">{{ selectedYearSessions.length }}件</span>
-            </div>
-            <!-- 月ごとにグループ化 -->
-            <template v-for="grp in selectedYearByMonth" :key="grp.month">
-              <div class="month-header">
-                <span class="month-title">{{ grp.month }}月</span>
-                <span class="month-count">{{ grp.items.length }}件</span>
-              </div>
-              <div
-                v-for="s in grp.items"
-                :key="s.id"
-                class="session-card session-card-completed"
-                @click="emit('viewSession', s)"
-              >
-                <div class="session-main">
-                  <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
-                  <span class="session-status status-done">完了</span>
-                  <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                  <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
-                    ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
-                  </span>
-                  <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
-                  <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
-                </div>
-                <!-- 所要時間・参加者数・品目数 -->
-                <div class="session-stats-row">
-                  <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
-                    ⏱ {{ selectedYearSessionStats[s.id].duration }}
-                  </span>
-                  <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
-                    👥 {{ selectedYearSessionStats[s.id].participants.length }}人
-                  </span>
-                  <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
-                  <span class="session-detail-arrow">詳細 ›</span>
-                </div>
-                <!-- 参加者別内訳 -->
-                <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
-                  <span
-                    v-for="p in selectedYearSessionStats[s.id].participants"
-                    :key="p.name"
-                    class="part-chip"
-                  >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
-                </div>
-              </div>
-            </template>
-            <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
-          </template>
+          <!-- 履歴カレンダー（日付を選ぶ → その日の棚卸/発注を見る） -->
+          <div class="section-title">📅 履歴</div>
+          <HistoryCalendar
+            :sessions="visibleCompletedSessions"
+            @view-session="s => emit('viewSession', s)"
+            @delete-session="onDelete"
+          />
+          <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
+            <span class="plan-limit-icon">🔒</span>
+            <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
+            <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
+          </div>
 
-          <!-- 年一覧ビュー -->
-          <template v-else>
-            <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
-            <template v-if="completedSessions.length > 0">
-              <button
-                v-for="grp in completedByYear"
-                :key="grp.year"
-                class="year-card"
-                @click="selectedYear = grp.year"
-              >
-                <div class="year-card-info">
-                  <span class="year-card-year">{{ grp.year }}年</span>
-                  <span class="year-card-range">{{ _yearDateRange(grp.items) }}</span>
-                </div>
-                <span class="year-card-count">{{ grp.items.length }}件</span>
-                <span class="year-card-arrow">›</span>
-              </button>
-              <!-- Free プラン: 直近1回より前の履歴件数をアップグレード誘導として表示 -->
-              <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
-                <span class="plan-limit-icon">🔒</span>
-                <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
-                <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
-              </div>
-            </template>
-            <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
-
-            <div class="section-title" style="margin-top:24px">📊 分析</div>
-            <div class="dashboard-card" @click="showDashboard = true">
-              <div class="dashboard-card-icon">📊</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">在庫分析</div>
-                <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
-              </div>
-              <span class="dashboard-card-arrow">›</span>
+          <div class="section-title" style="margin-top:24px">📊 分析</div>
+          <div class="dashboard-card" @click="showDashboard = true">
+            <div class="dashboard-card-icon">📊</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">在庫分析</div>
+              <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
             </div>
+            <span class="dashboard-card-arrow">›</span>
+          </div>
 
-            <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
-            <div class="dashboard-card" @click="settingsSection = 'general'">
-              <div class="dashboard-card-icon">⚙️</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">各種設定</div>
-                <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
-              </div>
-              <span class="dashboard-card-arrow">›</span>
+          <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
+          <div class="dashboard-card" @click="settingsSection = 'general'">
+            <div class="dashboard-card-icon">⚙️</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">各種設定</div>
+              <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
             </div>
+            <span class="dashboard-card-arrow">›</span>
+          </div>
 
-            <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
-            <div class="dashboard-card dashboard-card-disabled">
-              <div class="dashboard-card-icon">📖</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">使い方ガイド</div>
-                <div class="dashboard-card-desc">操作マニュアルを準備中</div>
-              </div>
-              <span class="coming-badge">準備中</span>
+          <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
+          <div class="dashboard-card dashboard-card-disabled">
+            <div class="dashboard-card-icon">📖</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">使い方ガイド</div>
+              <div class="dashboard-card-desc">操作マニュアルを準備中</div>
             </div>
-          </template>
+            <span class="coming-badge">準備中</span>
+          </div>
 
         </div>
 

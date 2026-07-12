@@ -50,7 +50,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
@@ -852,7 +852,6 @@ function _closeTopLayer() {
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
-  if (currentView.value === 'sessions' && sessionsYear.value !== null) { sessionsYear.value = null; return true }
   if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
   return false
 }
@@ -1036,7 +1035,6 @@ async function onComplete() {
   if (!confirm(confirmMsg)) return
 
   const completedId   = pendingSession.value?.id
-  const completedYear = new Date().getFullYear()
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
@@ -1057,7 +1055,6 @@ async function onComplete() {
     _clearDraft(completedId)
     clearSession()
     sessionsTab.value  = 'dashboard'
-    sessionsYear.value = completedYear
     _setNewSession(completedId)
     currentView.value  = 'sessions'
     return
