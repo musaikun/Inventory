@@ -17,6 +17,8 @@ import {
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   setExpectedSessionId,
+  setOrderCallbacks, setOrdersSnapshotCallback, registerOrdersGetter,
+  broadcastOrderUpdate, broadcastOrderRemove,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
@@ -40,6 +42,7 @@ import { useMovements } from './composables/useMovements.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
+import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
@@ -561,6 +564,9 @@ setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
 registerRecountFlagsGetter(() => ({ ...recountFlags }))
 registerConfigGetter(() => ({ ...serializeConfigData(), isCustom: config.isCustom }))
+setOrderCallbacks(applyRemoteOrderUpdate, applyRemoteOrderRemove)
+setOrdersSnapshotCallback(applyOrdersSnapshot)
+registerOrdersGetter(_ordersPayload)
 setConfigCallback((cfg) => {
   applyRemoteConfig(cfg)
   if (syncActive.value && !syncIsHost.value) {
@@ -1562,16 +1568,51 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
   if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot }
   else delete draft[ingredient]
   orderDraft.value = draft
+  // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
+  if (syncActive.value) {
+    if (orderQty > 0) broadcastOrderUpdate(ingredient, orderQty, unit, lot, deviceName.value || '名前未設定')
+    else              broadcastOrderRemove(ingredient)
+  }
   _persistOrderDraft()
   return 'saved'
 }
 
-// 発注下書きをセッション単位で 1 レコードに集約し、useOrders + D1 へ保存する。
+// ── 発注数の同期（受信・スナップショット・送信ペイロード）─────────────────────
+// リモートからの発注数更新: 下書きへ反映（localStorage のみ保存。D1 は発信元が書く）。
+function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot) {
+  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot })
+  _persistOrderDraftLocal()
+}
+
+function applyRemoteOrderRemove(ingredient) {
+  if (!orderDraft.value[ingredient]) return
+  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty: 0 })
+  _persistOrderDraftLocal()
+}
+
+// 参加/新セッション時の一括同期: DO の発注数を正として揃える（在庫は別ルートで保持）。
+function applyOrdersSnapshot(orders) {
+  if (!orders || typeof orders !== 'object') return
+  orderDraft.value = mergeOrderSnapshot(orderDraft.value, orders)
+  _persistOrderDraftLocal()
+}
+
+// session_start でホストが送る発注数ペイロード。
+function _ordersPayload() {
+  return orderDraftToPayload(orderDraft.value, deviceName.value || '')
+}
+
+// 発注下書きを localStorage にのみ保存（リモート反映時の軽量保存・D1 書き込みなし）。
+function _persistOrderDraftLocal() {
+  try { localStorage.setItem(_ORDER_DRAFT_PREFIX + _orderId(), JSON.stringify(orderDraft.value)) } catch (_) {}
+}
+
+// 発注下書きをセッション単位で 1 レコードに集約し、localStorage + useOrders + D1 へ保存する。
 function _persistOrderDraft() {
+  _persistOrderDraftLocal()
   const lines = Object.entries(orderDraft.value).map(([item, d]) => ({
     item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
   }))
-  try { localStorage.setItem(_ORDER_DRAFT_PREFIX + _orderId(), JSON.stringify(orderDraft.value)) } catch (_) {}
   const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
   if (rec) saveOrderToD1(rec)
 }

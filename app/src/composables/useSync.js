@@ -158,6 +158,10 @@ let _onSessionStarted   = null
 let _onSessionEnded     = null
 let _onNewSessionStarted = null  // ゲスト参加中に新規セッションが開始された
 let _expectedSessionId   = null  // _reconnectToRoom が設定する期待セッションID
+let _onOrderUpdate       = null  // 発注数のリモート更新
+let _onOrderRemove       = null  // 発注数のリモート取り消し
+let _onOrdersSnapshot    = null  // 参加/新セッション時の発注数一括同期
+let _getOrders           = null  // session_start 時に現在の発注下書きを送るための getter
 
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function setItemAddRequestCallback(fn)  { _onItemAddRequest  = fn }
@@ -184,6 +188,9 @@ export function setSessionStartedCallback(fn)   { _onSessionStarted   = fn }
 export function setSessionEndedCallback(fn)     { _onSessionEnded     = fn }
 export function setNewSessionStartedCallback(fn) { _onNewSessionStarted = fn }
 export function setExpectedSessionId(id)         { _expectedSessionId   = id }
+export function setOrderCallbacks(onUpdate, onRemove) { _onOrderUpdate = onUpdate; _onOrderRemove = onRemove }
+export function setOrdersSnapshotCallback(fn)    { _onOrdersSnapshot = fn }
+export function registerOrdersGetter(fn)         { _getOrders = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
 export function addLocalAuditEntry(entry) {
@@ -245,6 +252,17 @@ export function broadcastRemove(ingredient) {
   _ws.send(JSON.stringify({ type: 'remove', ingredient }))
 }
 
+// 発注数の同期（発注ルーム専用・在庫とは別チャネル）。
+export function broadcastOrderUpdate(ingredient, orderQty, unit = '', lot = 1, enteredBy = '') {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'order_update', ingredient, orderQty, unit: unit ?? '', lot: lot ?? 1, enteredBy }))
+}
+
+export function broadcastOrderRemove(ingredient) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'order_remove', ingredient }))
+}
+
 
 export function broadcastRecountFlag(ingredient, on) {
   if (_ws?.readyState !== WebSocket.OPEN) return
@@ -267,10 +285,11 @@ export function broadcastSessionStart(sessionId) {
   state.isSessionActive = true
   // 現在のローカル在庫＋品目リストをまとめて送り、DO側で原子的に保存させる
   // → ゲストはどのタイミングで参加しても完全なスナップショット（在庫＋品目）を受け取れる
-  const inv   = _getInventory?.() ?? {}
-  const cfg   = _getConfig?.() ?? null
-  const flags = _getRecountFlags?.() ?? {}
-  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg, recountFlags: flags }))
+  const inv    = _getInventory?.() ?? {}
+  const cfg    = _getConfig?.() ?? null
+  const flags  = _getRecountFlags?.() ?? {}
+  const orders = _getOrders?.() ?? {}
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg, recountFlags: flags, orders }))
 }
 
 export function broadcastSessionEnd(status = 'completed') {
@@ -503,6 +522,13 @@ function _handleMessage(msg) {
         }
       }
 
+      // 発注数のスナップショット同期。在庫と同じく、ホストが自分の下書きを正とする
+      // 新規接続（skipInventory）のときは適用しない。それ以外（ゲスト参加・再接続）は
+      // DO の共有状態へ揃える。
+      if (!skipInventory && msg.orders && typeof msg.orders === 'object') {
+        _onOrdersSnapshot?.(msg.orders)
+      }
+
       _disconnectedAt = 0
 
       _updateParticipants(msg.participants ?? [])
@@ -578,6 +604,18 @@ function _handleMessage(msg) {
       }
       break
 
+    case 'order_update':
+      if (msg.fromDeviceId !== deviceId) {
+        _onOrderUpdate?.(msg.ingredient, msg.orderQty, msg.unit ?? '', msg.lot ?? 1, msg.enteredBy ?? '')
+      }
+      break
+
+    case 'order_remove':
+      if (msg.fromDeviceId !== deviceId) {
+        _onOrderRemove?.(msg.ingredient)
+      }
+      break
+
     case 'participants':
       _updateParticipants(msg.list ?? [], true)  // 通知あり
       participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
@@ -640,6 +678,10 @@ function _handleMessage(msg) {
         for (const id of Object.keys(participants)) {
           if (participants[id]) participants[id].isDone = false
         }
+      }
+      // 発注数のスナップショットを反映（新規・再開いずれも）。
+      if (msg.orders && typeof msg.orders === 'object') {
+        _onOrdersSnapshot?.(msg.orders)
       }
       // セッションIDが変わった（新規セッション）かつゲスト接続中: 完全な状態同期を行う
       // 在庫・フラグ・品目リストをすべて session_started スナップショットで上書き

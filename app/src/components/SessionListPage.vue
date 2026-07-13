@@ -108,7 +108,13 @@ function _pct(count, total) {
 
 // 進捗の分母は手動非表示を除いた実効品目数（ローカル）。ルームの totalItems は
 // 非表示を反映しないため、ホームの進捗はローカルの activeItemCount を優先する。
-const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
+// 発注は「発注数が決まった品目数」を数える（在庫入力数ではない）。ルームがあれば
+// DO の orderItemCount を正とし、オフライン時のみ保存済みセッションの件数で補完する。
+const orderItemCount = computed(() => {
+  const s = orderLiveStatus.value
+  if (s && typeof s.orderItemCount === 'number' && (s.clientCount > 0 || s.roomExists)) return s.orderItemCount
+  return activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0
+})
 const orderTotalItems = computed(() => (activeItemCount.value || orderLiveStatus.value?.totalItems || null))
 const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
 

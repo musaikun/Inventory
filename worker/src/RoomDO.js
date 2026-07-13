@@ -84,8 +84,9 @@ export class RoomDO {
   }
 
   async _handleHttpStatus() {
-    const [inventory, isActive, sessionId, config, hostToken] = await Promise.all([
+    const [inventory, orders, isActive, sessionId, config, hostToken] = await Promise.all([
       this.state.storage.get('inventory').then(v => v ?? {}),
+      this.state.storage.get('orders').then(v => v ?? {}),
       this.state.storage.get('isActive').then(v => v ?? false),
       this.state.storage.get('sessionId').then(v => v ?? ''),
       this.state.storage.get('config').then(v => v ?? null),
@@ -99,7 +100,8 @@ export class RoomDO {
     return new Response(JSON.stringify({
       sessionId,
       isActive,
-      itemCount:   Object.keys(inventory).length,
+      itemCount:      Object.keys(inventory).length,
+      orderItemCount: Object.keys(orders).length,
       totalItems:  Array.isArray(config?.order) ? config.order.length : null,
       participants,
       clientCount: participants.length,
@@ -245,8 +247,9 @@ export class RoomDO {
 
         ws.serializeAttachment({ deviceId, deviceName, isHost: isVerifiedHost })
 
-        const [inventory, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
+        const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('orders').then(v => v ?? {}),
           this.state.storage.get('recountFlags').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
@@ -257,7 +260,7 @@ export class RoomDO {
         const participants = this._getParticipants()
 
         ws.send(JSON.stringify({
-          type: 'joined', inventory, recountFlags, config, participants, messages, auditLog,
+          type: 'joined', inventory, orders, recountFlags, config, participants, messages, auditLog,
           isSessionActive: isActive, sessionId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
         }))
@@ -359,6 +362,89 @@ export class RoomDO {
 
         const { deviceId } = ws.deserializeAttachment() ?? {}
         this._broadcast({ type: 'remove', ingredient, fromDeviceId: deviceId }, ws)
+        break
+      }
+
+      // ── 発注数の同期（発注ルーム専用・在庫の update とは別マップ 'orders'）──────
+      case 'order_update': {
+        const { ingredient, orderQty, unit, lot, enteredBy } = msg
+        if (!ingredient || typeof orderQty !== 'number') return
+        if (String(ingredient).length > MAX_INGREDIENT_LEN) return
+        // 0以下は「取り消し」。クライアントは order_remove を送る想定だが防御的に無視する。
+        if (!(orderQty > 0)) return
+
+        const [orders, auditLog] = await Promise.all([
+          this.state.storage.get('orders').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const att      = ws.deserializeAttachment() ?? {}
+        const cleanBy  = String(enteredBy ?? att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
+        const cleanUnit = String(unit ?? '').slice(0, MAX_UNIT_LEN)
+        const cleanLot  = Number.isFinite(Number(lot)) && Number(lot) > 0 ? Number(lot) : 1
+
+        orders[ingredient] = {
+          orderQty,
+          unit:        cleanUnit,
+          lot:         cleanLot,
+          enteredBy:   cleanBy,
+          enteredById: att.deviceId ?? '',
+          updatedAt:   Date.now(),
+        }
+
+        const entry = this._appendAudit(auditLog, {
+          ingredient,
+          action:      'order_set',
+          delta:       0,
+          totalQty:    orderQty,
+          unit:        cleanUnit,
+          enteredBy:   cleanBy,
+          enteredById: att.deviceId ?? '',
+        })
+
+        await Promise.all([
+          this.state.storage.put('orders', orders),
+          this.state.storage.put('auditLog', auditLog),
+        ])
+
+        this._broadcast({ type: 'audit_entry', entry })
+        this._broadcast(
+          { type: 'order_update', ingredient, orderQty, unit: cleanUnit, lot: cleanLot, enteredBy: cleanBy, fromDeviceId: att.deviceId ?? '' },
+          ws,
+        )
+        break
+      }
+
+      case 'order_remove': {
+        const { ingredient } = msg
+        if (!ingredient || String(ingredient).length > MAX_INGREDIENT_LEN) return
+
+        const [orders, auditLog] = await Promise.all([
+          this.state.storage.get('orders').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const att  = ws.deserializeAttachment() ?? {}
+        const prev = orders[ingredient]
+        if (prev) {
+          const entry = this._appendAudit(auditLog, {
+            ingredient,
+            action:      'order_clear',
+            delta:       0,
+            totalQty:    0,
+            unit:        prev.unit ?? '',
+            enteredBy:   att.deviceName ?? '',
+            enteredById: att.deviceId  ?? '',
+          })
+          this._broadcast({ type: 'audit_entry', entry })
+          delete orders[ingredient]
+          await Promise.all([
+            this.state.storage.put('orders', orders),
+            this.state.storage.put('auditLog', auditLog),
+          ])
+        }
+
+        this._broadcast({ type: 'order_remove', ingredient, fromDeviceId: att.deviceId ?? '' }, ws)
         break
       }
 
@@ -529,9 +615,10 @@ export class RoomDO {
           this.state.storage.put('sessionId', newId),
         ]
 
-        let broadcastInv   = {}
-        let broadcastFlags = {}
-        let broadcastCfg   = null
+        let broadcastInv    = {}
+        let broadcastOrders = {}
+        let broadcastFlags  = {}
+        let broadcastCfg    = null
 
         if (!isResume) {
           // 新規セッション: 全員の完了フラグをリセット
@@ -556,6 +643,23 @@ export class RoomDO {
           puts.push(this.state.storage.put('inventory', broadcastInv))
           puts.push(this.state.storage.put('auditLog',  []))
 
+          // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
+          if (msg.orders && typeof msg.orders === 'object') {
+            for (const [k, v] of Object.entries(msg.orders)) {
+              if (typeof v?.orderQty === 'number' && v.orderQty > 0 && String(k).length <= 200) {
+                broadcastOrders[k] = {
+                  orderQty:    v.orderQty,
+                  unit:        String(v.unit ?? '').slice(0, MAX_UNIT_LEN),
+                  lot:         Number.isFinite(Number(v.lot)) && Number(v.lot) > 0 ? Number(v.lot) : 1,
+                  enteredBy:   String(v.enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
+                  enteredById: String(v.enteredById ?? '').slice(0, MAX_DEVICE_ID_LEN),
+                  updatedAt:   typeof v.updatedAt === 'number' ? v.updatedAt : now,
+                }
+              }
+            }
+          }
+          puts.push(this.state.storage.put('orders', broadcastOrders))
+
           if (msg.recountFlags && typeof msg.recountFlags === 'object') {
             for (const [k, v] of Object.entries(msg.recountFlags)) {
               if (String(k).length <= 200) {
@@ -574,21 +678,23 @@ export class RoomDO {
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {
-          // 再開セッション: 既存の在庫・フラグ・品目リストをブロードキャスト用に読み込む
-          ;[broadcastInv, broadcastFlags, broadcastCfg] = await Promise.all([
+          // 再開セッション: 既存の在庫・発注数・フラグ・品目リストをブロードキャスト用に読み込む
+          ;[broadcastInv, broadcastOrders, broadcastFlags, broadcastCfg] = await Promise.all([
             this.state.storage.get('inventory').then(v => v ?? {}),
+            this.state.storage.get('orders').then(v => v ?? {}),
             this.state.storage.get('recountFlags').then(v => v ?? {}),
             this.state.storage.get('config').then(v => v ?? null),
           ])
         }
 
         await Promise.all(puts)
-        // session_started に在庫・フラグ・品目リストを同梱する
+        // session_started に在庫・発注数・フラグ・品目リストを同梱する
         // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる
         this._broadcast({
           type:         'session_started',
           sessionId:    newId,
           inventory:    broadcastInv,
+          orders:       broadcastOrders,
           recountFlags: broadcastFlags,
           ...(broadcastCfg ? { config: broadcastCfg } : {}),
         })
