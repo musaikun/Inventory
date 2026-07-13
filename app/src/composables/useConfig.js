@@ -36,7 +36,8 @@ const config = reactive({
   tagsB:          {},        // 品目 → 軸2のグループ名
   axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
-  hiddenItems:    [],        // 手動で一覧から非表示にした品目名（マスタは不変・進捗の分母から除外）
+  hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
+  hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -100,6 +101,7 @@ function _serializeConfigData() {
     axisGroupsA:   config.axisGroupsA,
     axisGroupsB:   config.axisGroupsB,
     hiddenItems:   config.hiddenItems,
+    hiddenAuto:    config.hiddenAuto,
   }
 }
 function _assignConfigData(src) {
@@ -118,6 +120,7 @@ function _assignConfigData(src) {
   config.axisGroupsA   = Array.isArray(src.axisGroupsA) ? src.axisGroupsA : []
   config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
+  config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -424,6 +427,7 @@ export function useConfig() {
     config.tagsA         = {}
     config.tagsB         = {}
     config.hiddenItems   = []
+    config.hiddenAuto    = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -444,6 +448,7 @@ export function useConfig() {
     config.tagsA         = {}
     config.tagsB         = {}
     config.hiddenItems   = []
+    config.hiddenAuto    = []
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -923,15 +928,19 @@ export function useConfig() {
   // 非表示を除いた実効品目数（ホーム進捗の分母用）
   const activeItemCount = computed(() => config.order.reduce((n, i) => n + (hiddenSet.value.has(i) ? 0 : 1), 0))
 
-  function hideItem(name) {
-    if (!name || config.hiddenItems.includes(name)) return
-    config.hiddenItems.push(name)
+  function hideItem(name, auto = false) {
+    if (!name) return
+    if (!config.hiddenItems.includes(name)) config.hiddenItems.push(name)
+    if (auto) { if (!config.hiddenAuto.includes(name)) config.hiddenAuto.push(name) }
+    else      { const j = config.hiddenAuto.indexOf(name); if (j >= 0) config.hiddenAuto.splice(j, 1) }
     _save()
   }
   function unhideItem(name) {
     const i = config.hiddenItems.indexOf(name)
-    if (i < 0) return
-    config.hiddenItems.splice(i, 1)
+    const j = config.hiddenAuto.indexOf(name)
+    if (i < 0 && j < 0) return
+    if (i >= 0) config.hiddenItems.splice(i, 1)
+    if (j >= 0) config.hiddenAuto.splice(j, 1)
     _save()
   }
 

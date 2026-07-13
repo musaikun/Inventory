@@ -13,6 +13,40 @@ const { getSnapshots } = useHistory()
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
 const hiddenList = computed(() => [...config.hiddenItems])
 
+// ── 非表示の由来（自動＝前回まで未入力 / 手動）と絞り込み ───────
+const autoSet        = computed(() => new Set(config.hiddenAuto))
+const autoHiddenList = computed(() => hiddenList.value.filter(n => autoSet.value.has(n)))
+const manualHiddenList = computed(() => hiddenList.value.filter(n => !autoSet.value.has(n)))
+const hFilter = ref('all')  // 'all' | 'auto' | 'manual'
+const filteredHidden = computed(() =>
+  hFilter.value === 'auto' ? autoHiddenList.value
+  : hFilter.value === 'manual' ? manualHiddenList.value
+  : hiddenList.value
+)
+function isAuto(n) { return autoSet.value.has(n) }
+
+// 直近スナップショットの入力済み集合（新しい順）→ 未入力の連続数で由来の深さを出す
+const enteredSets = computed(() =>
+  getSnapshots().map(snap => {
+    const s = new Set()
+    for (const it of (snap.items ?? [])) if (it.qty !== null && it.qty !== undefined) s.add(it.item)
+    return s
+  })
+)
+function unusedStreak(item) {
+  let n = 0
+  for (const set of enteredSets.value) { if (set.has(item)) break; n++ }
+  return n
+}
+// 1 = 前回のみ未入力（青）/ 2 = 前回・前々回とも未入力（濃い青）
+function srcLevel(n)  { return Math.min(2, Math.max(1, unusedStreak(n))) }
+function srcLabel(n)  { return srcLevel(n) >= 2 ? '前回・前々回 未入力' : '前回 未入力' }
+function restoreAllAuto() {
+  if (!autoHiddenList.value.length) return
+  if (!confirm(`自動で非表示にした ${autoHiddenList.value.length} 件をすべて戻します。よろしいですか？`)) return
+  for (const n of [...autoHiddenList.value]) unhideItem(n)
+}
+
 const USAGE_SESSIONS = 3
 const usedNames = computed(() => {
   const s = new Set()
@@ -56,7 +90,7 @@ function deleteAxis(idx) {
 function hideAllUnused() {
   if (!unusedCandidates.value.length) return
   if (!confirm(`前回まで未入力の ${unusedCandidates.value.length} 件をまとめて非表示にします。\nいつでも戻せます。よろしいですか？`)) return
-  for (const n of [...unusedCandidates.value]) hideItem(n)
+  for (const n of [...unusedCandidates.value]) hideItem(n, true)
 }
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
@@ -137,7 +171,7 @@ function onClear() {
           <div class="mm-block-sub">{{ unusedCandidates.length }}件。要らないものは非表示にできます（進捗の分母から外れます）。</div>
           <button class="mm-bulk" @click="hideAllUnused">まとめて非表示にする（{{ unusedCandidates.length }}件）</button>
           <div class="mm-chiplist">
-            <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n)">{{ n }}<span class="mm-chip-x">×</span></button>
+            <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n, true)">{{ n }}<span class="mm-chip-x">×</span></button>
           </div>
         </template>
       </div>
@@ -149,10 +183,25 @@ function onClear() {
           <span class="mm-block-note">{{ hiddenOpen ? '▲' : '▼' }} {{ hiddenList.length }}件</span>
         </button>
         <template v-if="hiddenOpen">
-          <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
+          <!-- 由来で絞り込み -->
+          <div v-if="hiddenList.length > 0" class="mm-hfilter">
+            <button :class="['mm-hf', { on: hFilter === 'all' }]" @click="hFilter = 'all'">すべて {{ hiddenList.length }}</button>
+            <button :class="['mm-hf', { on: hFilter === 'auto' }]" @click="hFilter = 'auto'">自動 {{ autoHiddenList.length }}</button>
+            <button :class="['mm-hf', { on: hFilter === 'manual' }]" @click="hFilter = 'manual'">手動 {{ manualHiddenList.length }}</button>
+          </div>
+          <button
+            v-if="(hFilter === 'all' || hFilter === 'auto') && autoHiddenList.length > 0"
+            class="mm-restore-all" @click="restoreAllAuto">
+            自動非表示をまとめて戻す（{{ autoHiddenList.length }}件）
+          </button>
+          <div v-if="filteredHidden.length === 0" class="mm-empty">
+            {{ hiddenList.length === 0 ? '非表示の品目はありません。' : '該当する品目はありません。' }}
+          </div>
           <div v-else>
-            <div v-for="n in hiddenList" :key="n" class="mm-hidden-row">
+            <div v-for="n in filteredHidden" :key="n" class="mm-hidden-row">
               <span class="mm-hidden-name">{{ n }}</span>
+              <span v-if="isAuto(n)" class="mm-src" :class="'lv' + srcLevel(n)">{{ srcLabel(n) }}</span>
+              <span v-else class="mm-src manual">手動</span>
               <button class="mm-restore" @click="unhideItem(n)">戻す</button>
             </div>
           </div>
@@ -241,9 +290,19 @@ function onClear() {
 .mm-chip { border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; border-radius: 20px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .mm-chip-x { color: #cbd5e1; margin-left: 4px; }
 
-.mm-hidden-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
-.mm-hidden-name { font-size: 14px; color: #334155; }
-.mm-restore { border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
+.mm-hfilter { display: flex; gap: 6px; margin: 8px 0; }
+.mm-hf { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.mm-hf.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.mm-restore-all { width: 100%; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 10px; padding: 9px; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }
+.mm-restore-all:active { background: #dbeafe; }
+
+.mm-hidden-row { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
+.mm-hidden-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
+.mm-src { flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 3px 8px; white-space: nowrap; }
+.mm-src.lv1 { color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; }
+.mm-src.lv2 { color: #fff; background: #1e3a8a; border: 1px solid #1e3a8a; }
+.mm-src.manual { color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; }
+.mm-restore { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
 
 .mm-items { margin-top: 8px; max-height: 50vh; overflow-y: auto; }
 .mm-item { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
