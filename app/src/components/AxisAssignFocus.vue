@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -125,6 +125,32 @@ function _showFlash(msg, item) {
   flashItem.value = item
   clearTimeout(_flashT)
   _flashT = setTimeout(() => { flash.value = ''; flashItem.value = '' }, 1100)
+}
+
+// ── 振り分け済みの確認モーダル＋逆引きフォーカス ───────────────
+const listEl = ref(null)
+const showAssigned = ref(false)
+const assignedItems = computed(() =>
+  target.value ? config.order.filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
+)
+const locateName = ref('')
+let _locateT = null
+function locate(item) {
+  showAssigned.value = false
+  search.value = ''
+  unassignedOnly.value = false
+  usedOnly.value = false
+  if (hasGenres.value) openCat[config.categories?.[item] || 'その他'] = true
+  locateName.value = item
+  clearTimeout(_locateT)
+  _locateT = setTimeout(() => { locateName.value = '' }, 1600)
+  nextTick(() => {
+    const sc = listEl.value
+    if (!sc) return
+    for (const el of sc.querySelectorAll('[data-item]')) {
+      if (el.getAttribute('data-item') === item) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); break }
+    }
+  })
 }
 
 // ── グループ管理 ────────────────────────────────────────────
@@ -268,13 +294,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               <button class="af-target-back" @click="backToGroups">← 分類一覧</button>
               <span v-if="target" class="af-target-name">{{ target }} に振り分け中</span>
               <span v-else class="af-target-none">グループ未選択 — 振り分け先を選択してください</span>
+              <button v-if="target" class="af-confirm" @click="showAssigned = true">確認 <b>{{ assignedItems.length }}</b></button>
             </div>
             <div class="af-tools">
               <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
               <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
               <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
             </div>
-            <div class="af-list">
+            <div class="af-list" ref="listEl">
               <!-- ジャンルがあればアコーディオン、無ければフラット -->
               <template v-if="hasGenres">
                 <template v-for="grp in groupedPool" :key="grp.cat">
@@ -285,8 +312,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                   </button>
                   <template v-if="openCat[grp.cat]">
                     <button
-                      v-for="item in grp.items" :key="item"
-                      :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
+                      v-for="item in grp.items" :key="item" :data-item="item"
+                      :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
                       @click="toggle(item)"
                     >
                       <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
@@ -300,8 +327,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               </template>
               <template v-else>
                 <button
-                  v-for="item in poolItems" :key="item"
-                  :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item }]"
+                  v-for="item in poolItems" :key="item" :data-item="item"
+                  :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
                   @click="toggle(item)"
                 >
                   <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
@@ -317,6 +344,24 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </div>
       </div>
     </template>
+
+    <!-- 振り分け済みの確認モーダル -->
+    <div v-if="showAssigned" class="af-modal" @click.self="showAssigned = false">
+      <div class="af-sheet">
+        <div class="af-sheet-head">
+          <span class="af-sheet-title">{{ target }} の振り分け済み <b>{{ assignedItems.length }}</b></span>
+          <button class="af-sheet-close" @click="showAssigned = false">✕</button>
+        </div>
+        <div class="af-sheet-hint">タップすると一覧の該当品目へ移動します</div>
+        <div class="af-sheet-list">
+          <button v-for="item in assignedItems" :key="item" class="af-sheet-item" @click="locate(item)">
+            <span class="af-sheet-item-name">{{ item }}</span>
+            <span class="af-sheet-item-go">確認 ›</span>
+          </button>
+          <div v-if="assignedItems.length === 0" class="af-empty">まだ振り分けられた品目はありません。</div>
+        </div>
+      </div>
+    </div>
 
     <!-- 追加フィードバック -->
     <transition name="af-flash">
@@ -385,6 +430,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-target-name { font-size: 15px; font-weight: 800; color: var(--primary, #2563eb); }
 .af-target-none { font-size: 14px; font-weight: 800; color: #dc2626; animation: af-blink 1s ease-in-out infinite; }
 @keyframes af-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+.af-confirm { margin-left: auto; flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 800; padding: 6px 12px; cursor: pointer; }
+.af-confirm b { font-weight: 800; }
 .af-tools { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .af-search { flex: 1; min-width: 120px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
 .af-chip-btn { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 12px; cursor: pointer; }
@@ -404,12 +451,33 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-item.in { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
 .af-item.pop { animation: af-pop 0.35s ease; }
 @keyframes af-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); background: #dbeafe; } 100% { transform: scale(1); } }
+/* 逆引きフォーカス: うっすら光らせて位置を知らせる */
+.af-item.locate { animation: af-locate 1.6s ease-out; }
+@keyframes af-locate {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+  18%  { box-shadow: 0 0 16px 4px rgba(37, 99, 235, 0.55); border-color: var(--primary, #2563eb); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
 .af-check { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; }
 .af-item.in .af-check { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .af-item-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
 .af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 42%; }
 .af-item-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
 .af-item-tag.cur { color: #fff; background: var(--primary, #2563eb); }
+
+.af-modal { position: fixed; inset: 0; z-index: 70; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+.af-sheet { width: 100%; max-width: 560px; max-height: 78vh; background: #fff; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; box-shadow: 0 -8px 30px rgba(0,0,0,0.25); animation: af-sheet-up 0.24s cubic-bezier(0.22,0.8,0.28,1); }
+@keyframes af-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.af-sheet-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 8px; }
+.af-sheet-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.af-sheet-title b { color: var(--primary, #2563eb); }
+.af-sheet-close { margin-left: auto; border: none; background: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 2px 6px; }
+.af-sheet-hint { padding: 0 16px 8px; font-size: 12px; color: #94a3b8; }
+.af-sheet-list { flex: 1; overflow-y: auto; padding: 4px 12px 20px; -webkit-overflow-scrolling: touch; }
+.af-sheet-item { width: 100%; display: flex; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #eef2f6; border-radius: 12px; padding: 14px; margin-bottom: 8px; cursor: pointer; text-align: left; }
+.af-sheet-item:active { background: #eef2f6; }
+.af-sheet-item-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #1e293b; }
+.af-sheet-item-go { flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); }
 
 .af-flashbar {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
