@@ -865,38 +865,35 @@ function _itemCount(session) {
 .order-start.disabled .order-start-arrow { color: #94a3b8; }
 .order-start.disabled .order-start-icon { filter: grayscale(1); opacity: 0.6; }
 
-/* ヒーロー: 開始カード */
+/* ヒーロー: 開始カード（枠は標準カードと統一・中身は青テーマ） */
 .hero-start {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 20px 18px;
-  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
-  color: white;
-  border: none;
-  border-radius: 18px;
+  padding: 18px;
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(37,99,235,0.32);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   margin-bottom: 4px;
   text-align: left;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
+  transition: transform 0.14s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.hero-start:active {
-  transform: scale(0.97);
-  box-shadow: 0 2px 8px rgba(37,99,235,0.28);
-}
+.hero-start:active { transform: scale(0.98); }
 .hero-start:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .hero-start-icon {
-  font-size: 30px;
-  width: 52px;
-  height: 52px;
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.18);
+  background: var(--primary-weak, #eff6ff);
   border-radius: 14px;
   flex-shrink: 0;
 }
@@ -904,21 +901,22 @@ function _itemCount(session) {
 .hero-start-text { flex: 1; min-width: 0; }
 
 .hero-start-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--primary, #2563eb);
 }
 
 .hero-start-sub {
   font-size: 12px;
-  opacity: 0.85;
+  color: var(--primary-bright, #3b82f6);
   margin-top: 2px;
 }
 
 .hero-start-arrow {
   font-size: 22px;
   font-weight: 300;
-  opacity: 0.9;
+  color: var(--primary-mid, #93c5fd);
   flex-shrink: 0;
 }
 
