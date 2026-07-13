@@ -48,6 +48,8 @@ const listSavedLabel = computed(() => {
 })
 const hiddenCount   = computed(() => Math.max(0, itemCount.value - activeItemCount.value))
 const axisNamesSet  = computed(() => (config.axisNames || []).filter(Boolean))
+// 分類は最大2枠。登録済み＝チップ、未登録＝破線の丸で「あと何枠か」を可視化。
+const axisSlots     = computed(() => [0, 1].map(i => (config.axisNames?.[i] || '').trim()))
 
 const activeTab    = _persistedTab
 
@@ -364,9 +366,11 @@ function _itemCount(session) {
                 </div>
                 <div class="md-row">
                   <span class="md-k">分類</span>
-                  <span class="md-v">
-                    <template v-if="axisNamesSet.length"><span v-for="n in axisNamesSet" :key="n" class="md-chip">{{ n }}</span></template>
-                    <span v-else class="md-none">分類未設定</span>
+                  <span class="md-v md-axes">
+                    <template v-for="(name, i) in axisSlots" :key="i">
+                      <span v-if="name" class="md-chip">{{ name }}</span>
+                      <span v-else class="md-slot" title="未登録の分類枠"></span>
+                    </template>
                   </span>
                 </div>
               </div>
@@ -838,7 +842,9 @@ function _itemCount(session) {
 .md-v b { color: #1e293b; }
 .md-sub { color: #94a3b8; margin-left: 4px; }
 .md-none { color: #b45309; }
-.md-chip { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border-radius: 12px; padding: 1px 9px; margin-right: 4px; }
+.md-axes { display: inline-flex; align-items: center; gap: 6px; }
+.md-chip { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border-radius: 12px; padding: 1px 9px; }
+.md-slot { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 1.5px dashed #cbd5e1; flex-shrink: 0; }
 .master-actions { display: flex; gap: 8px; margin-top: 10px; }
 .master-btn {
   border: 1px solid var(--primary-border, #bfdbfe);
