@@ -29,6 +29,7 @@ const unusedCandidates = computed(() =>
 )
 
 const listOpen = ref(false)
+const hiddenOpen = ref(false)
 function genreOf(item) { return config.categories?.[item] || '' }
 function axisTagsOf(item) {
   return [...(config.tagsA?.[item] || []), ...(config.tagsB?.[item] || [])]
@@ -143,17 +144,19 @@ function onClear() {
 
       <!-- 非表示中の管理 -->
       <div class="mm-block">
-        <div class="mm-block-head">
+        <button class="mm-block-head mm-toggle" @click="hiddenOpen = !hiddenOpen">
           <span class="mm-block-title">非表示中</span>
-          <span class="mm-block-note">{{ hiddenList.length }}件</span>
-        </div>
-        <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
-        <div v-else>
-          <div v-for="n in hiddenList" :key="n" class="mm-hidden-row">
-            <span class="mm-hidden-name">{{ n }}</span>
-            <button class="mm-restore" @click="unhideItem(n)">戻す</button>
+          <span class="mm-block-note">{{ hiddenOpen ? '▲' : '▼' }} {{ hiddenList.length }}件</span>
+        </button>
+        <template v-if="hiddenOpen">
+          <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
+          <div v-else>
+            <div v-for="n in hiddenList" :key="n" class="mm-hidden-row">
+              <span class="mm-hidden-name">{{ n }}</span>
+              <button class="mm-restore" @click="unhideItem(n)">戻す</button>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
 
       <!-- 品目一覧（閲覧） -->
