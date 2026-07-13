@@ -4,6 +4,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
+import InventoryTable from './InventoryTable.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
@@ -65,10 +66,6 @@ const unusedCandidates = computed(() =>
 const listOpen = ref(false)
 const hiddenOpen = ref(false)
 const unusedOpen = ref(false)
-function genreOf(item) { return config.categories?.[item] || '' }
-function axisTagsOf(item) {
-  return [...(config.tagsA?.[item] || []), ...(config.tagsB?.[item] || [])]
-}
 
 function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
 
@@ -217,15 +214,9 @@ function onClear() {
           <span class="mm-block-title">品目一覧を見る</span>
           <span class="mm-block-note">{{ listOpen ? '▲' : '▼' }} {{ itemCount }}件</span>
         </button>
-        <div v-if="listOpen" class="mm-items">
-          <div v-for="item in config.order" :key="item" class="mm-item" :class="{ hidden: hiddenSet.has(item) }">
-            <span class="mm-item-name">{{ item }}</span>
-            <span class="mm-item-meta">
-              <span v-if="genreOf(item)" class="mm-tag genre">{{ genreOf(item) }}</span>
-              <span v-for="t in axisTagsOf(item)" :key="t" class="mm-tag">{{ t }}</span>
-              <span v-if="hiddenSet.has(item)" class="mm-tag off">非表示</span>
-            </span>
-          </div>
+        <div v-if="listOpen" class="mm-preview">
+          <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。上の並び替えで分類先の割り当てを確認できます。</div>
+          <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" />
         </div>
       </div>
 
@@ -307,14 +298,8 @@ function onClear() {
 .mm-src.manual { color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; }
 .mm-restore { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
 
-.mm-items { margin-top: 8px; max-height: 50vh; overflow-y: auto; }
-.mm-item { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
-.mm-item.hidden { opacity: 0.5; }
-.mm-item-name { font-size: 14px; color: #334155; flex: 1; min-width: 0; }
-.mm-item-meta { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
-.mm-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
-.mm-tag.genre { color: #6d28d9; background: #ede9fe; }
-.mm-tag.off { color: #dc2626; background: #fef2f2; }
+.mm-preview { margin-top: 10px; }
+.mm-preview-hint { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
 
 .mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
 .mm-del-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: #dc2626; color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; }

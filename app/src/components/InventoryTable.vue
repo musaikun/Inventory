@@ -20,6 +20,7 @@ const props = defineProps({
   hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
   canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
   tapContinuous:    { type: Boolean, default: false },
+  preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
@@ -351,11 +352,14 @@ const hasPrices = computed(() =>
 // データ自体は保持（バーコード照合／将来の発注送信で商品コードが必要になるため）。
 const hasCodes = computed(() => false)
 
+// preview では金額列は出さない（数値なしの確認用途）
+const showAmount = computed(() => hasPrices.value && !props.preview)
+
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
   let n = 2 // 品目 + 数量
-  if (hasCodes.value)  n++
-  if (hasPrices.value) n++
+  if (hasCodes.value)   n++
+  if (showAmount.value) n++
   return n
 })
 
@@ -375,7 +379,17 @@ const grandTotal = computed(() => {
   return has ? Math.round(total) : null
 })
 
+// preview: 現在の並び替え軸で、その品目が振り分けられているグループ名（多ロケーションは複数）
+function previewGroups(row) {
+  const m = _effectiveSort.value
+  if (m === 'axisA') return Array.isArray(row.tagA) ? row.tagA : []
+  if (m === 'axisB') return Array.isArray(row.tagB) ? row.tagB : []
+  if (m === 'category') return row.category ? [row.category] : []
+  return []
+}
+
 function rowClick(item) {
+  if (props.preview) return
   if (swipeItem.value === item && swipeDx.value < 0) { _resetSwipe(); return }  // 開いている→タップで閉じる
   if (_suppressClick) { _suppressClick = false; return }                        // 直前がスワイプ操作
   if (props.conflictLocked?.has(item)) return
@@ -626,7 +640,7 @@ function fmtYen(n) {
 </script>
 
 <template>
-  <section class="inventory-section">
+  <section class="inventory-section" :class="{ 'inv-preview': preview }">
     <!-- ヘッダー行 -->
     <div class="section-header">
       <button
@@ -640,7 +654,7 @@ function fmtYen(n) {
       </button>
       <div v-else></div>
       <div class="header-right">
-        <span class="progress">
+        <span v-if="!preview" class="progress">
           <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
         </span>
         <button
@@ -678,7 +692,7 @@ function fmtYen(n) {
           @click="onAddAxis"
         >＋</button>
       </div>
-      <div class="seg-group">
+      <div v-if="!preview" class="seg-group">
         <button
           v-for="opt in filterOpts"
           :key="opt.value"
@@ -687,7 +701,7 @@ function fmtYen(n) {
         >{{ opt.label }}</button>
       </div>
       <button
-        v-if="hasUsageData && canManage"
+        v-if="hasUsageData && canManage && !preview"
         :class="['used-toggle', { active: usedOnly }]"
         @click="toggleUsedOnly"
         title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
@@ -710,8 +724,8 @@ function fmtYen(n) {
         <tr>
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th>品目</th>
-          <th class="th-qty">数量</th>
-          <th v-if="hasPrices" class="th-amount">金額</th>
+          <th class="th-qty">{{ preview ? '振り分け' : '数量' }}</th>
+          <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
       <tbody>
@@ -724,10 +738,11 @@ function fmtYen(n) {
                 <span class="cat-arrow">{{ isGroupExpanded(row) ? '▼' : '▶' }}</span>
                 <span class="cat-label">{{ row.label }}</span>
                 <span class="cat-badge">
-                  {{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}
+                  <template v-if="preview">{{ row.count }}</template>
+                  <template v-else>{{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}</template>
                 </span>
               </div>
-              <div class="cat-progress-track">
+              <div v-if="!preview" class="cat-progress-track">
                 <div
                   class="cat-progress-fill"
                   :style="{ width: (row.count > 0 ? row.filled / row.count * 100 : 0) + '%' }"
@@ -789,14 +804,18 @@ function fmtYen(n) {
               </div>
             </td>
             <td class="td-qty">
-              <div :class="['qty-display', { filled: row.entry !== null }]">
+              <div v-if="preview" class="preview-groups">
+                <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
+                <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
+              </div>
+              <div v-else :class="['qty-display', { filled: row.entry !== null }]">
                 <template v-if="row.entry !== null">
                   {{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span>
                 </template>
                 <template v-else>—</template>
               </div>
             </td>
-            <td v-if="hasPrices" class="td-amount">
+            <td v-if="showAmount" class="td-amount">
               <span v-if="subtotal(row) != null" class="amount-value">
                 {{ fmtYen(subtotal(row)) }}
               </span>
@@ -860,6 +879,7 @@ function fmtYen(n) {
 
 <style scoped>
 .inventory-section { padding: 0 16px; overflow-x: clip; }
+.inventory-section.inv-preview { padding: 0; }
 
 /* ── セクションヘッダー ── */
 .section-header {
@@ -1353,6 +1373,17 @@ function fmtYen(n) {
   color: var(--text-muted);
   margin-left: 1px;
 }
+
+/* ── preview: 数量欄に振り分け先グループを表示 ── */
+.inv-preview .th-qty { width: 132px; text-align: left; padding-left: 10px; }
+.inv-preview .td-qty { text-align: left; padding: 7px 8px; }
+.preview-groups { display: flex; flex-wrap: wrap; gap: 4px; }
+.preview-group-chip {
+  font-size: 10px; font-weight: 700; color: var(--primary);
+  background: var(--primary-weak); border: 1px solid var(--primary-border);
+  border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+}
+.preview-group-none { font-size: 11px; color: var(--text-muted); }
 
 /* ── 金額セル ── */
 .td-amount {
