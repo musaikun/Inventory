@@ -48,11 +48,12 @@ function onRestoreFile(file) {
 // CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
 function _importResultStatus(result) {
   const mergedNote = result.merged > 0 ? `（同名${result.merged}件を統合）` : ''
+  const restoreNote = result.restoredTags > 0 ? `・前回の振り分けを${result.restoredTags}品目復元` : ''
   if (result.truncated > 0) {
     emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${result.truncated}件が上限を超えたため取り込まれませんでした。`)
-    return { type: 'warning', msg: `${result.count}件を読み込みました${mergedNote}（${result.truncated}件は無料プラン上限超過のため未取込）` }
+    return { type: 'warning', msg: `${result.count}件を読み込みました${mergedNote}${restoreNote}（${result.truncated}件は無料プラン上限超過のため未取込）` }
   }
-  return { type: 'success', msg: `${result.count}件の品目を読み込みました${mergedNote}` }
+  return { type: 'success', msg: `${result.count}件の品目を読み込みました${mergedNote}${restoreNote}` }
 }
 
 const {

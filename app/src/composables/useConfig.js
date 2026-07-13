@@ -38,6 +38,8 @@ const config = reactive({
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
   hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
+  tagsArchiveA:   {},        // 軸1の割り当てを品目名で永続記憶（取込/一括削除をまたいで復元用）
+  tagsArchiveB:   {},        // 軸2の割り当てアーカイブ
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -102,6 +104,8 @@ function _serializeConfigData() {
     axisGroupsB:   config.axisGroupsB,
     hiddenItems:   config.hiddenItems,
     hiddenAuto:    config.hiddenAuto,
+    tagsArchiveA:  config.tagsArchiveA,
+    tagsArchiveB:  config.tagsArchiveB,
   }
 }
 function _assignConfigData(src) {
@@ -121,6 +125,8 @@ function _assignConfigData(src) {
   config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
+  config.tagsArchiveA  = _normTags(src.tagsArchiveA)
+  config.tagsArchiveB  = _normTags(src.tagsArchiveB)
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -352,9 +358,11 @@ export function useConfig() {
     // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
     const newOrderSet    = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
+    // 品目名の一致で振り分けを復元（軸列なしフォーマットなのでアーカイブ/既存から）
+    const restoredTags   = _restoreAssignments(cappedOrder)
     _save()
 
-    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
+    return { ..._importResult(cappedOrder, truncated, merged, newPrices, newCategories), restoredTags }
   }
 
   /** 棚卸品目 CSV エクスポート */
@@ -411,8 +419,12 @@ export function useConfig() {
     else localStorage.removeItem(CONFIG_KEY)
   }
 
-  /** 空の品目リストで開始（棚卸しながら品目を追加していく用） */
-  function setEmptyList() {
+  /**
+   * 空の品目リストで開始（棚卸しながら品目を追加／一括削除して再取込する用）。
+   * 既定では振り分けのアーカイブを残し、同名品目を再登録すれば割り当てが復活する。
+   * opts.resetAssignments=true で振り分けの記憶も消す。
+   */
+  function setEmptyList(opts = {}) {
     config.order         = []
     config.units         = {}
     config.prices        = {}
@@ -426,6 +438,7 @@ export function useConfig() {
     // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
     config.tagsA         = {}
     config.tagsB         = {}
+    if (opts.resetAssignments === true) { config.tagsArchiveA = {}; config.tagsArchiveB = {} }
     config.hiddenItems   = []
     config.hiddenAuto    = []
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
@@ -544,6 +557,9 @@ export function useConfig() {
     if (unit?.trim())     config.units[n]       = unit.trim()
     if (code?.trim())     config.codes[n]        = code.trim()
     if (!config.manualItems.includes(n)) config.manualItems.push(n)
+    // 同名品目が過去に振り分けられていれば復元（削除→再追加・個人利用の積み上げに対応）
+    if (config.tagsA[n] === undefined && Array.isArray(config.tagsArchiveA[n])) config.tagsA[n] = [...config.tagsArchiveA[n]]
+    if (config.tagsB[n] === undefined && Array.isArray(config.tagsArchiveB[n])) config.tagsB[n] = [...config.tagsArchiveB[n]]
     _save()
     return true
   }
@@ -612,6 +628,7 @@ export function useConfig() {
     const v = (value ?? '').trim()
     if (v) map[name] = [v]   // 編集モーダルは主グループを1つ設定（配列化）
     else   delete map[name]
+    _syncArchive(axisIndex, name)
     _save()
     return true
   }
@@ -622,8 +639,8 @@ export function useConfig() {
     const names = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
     names[axisIndex] = ''
     config.axisNames = [names[0] ?? '', names[1] ?? '']
-    if (axisIndex === 0) { config.tagsA = {}; config.axisGroupsA = [] }
-    else                 { config.tagsB = {}; config.axisGroupsB = [] }
+    if (axisIndex === 0) { config.tagsA = {}; config.axisGroupsA = []; config.tagsArchiveA = {} }
+    else                 { config.tagsB = {}; config.axisGroupsB = []; config.tagsArchiveB = {} }
     _save()
     return true
   }
@@ -634,6 +651,54 @@ export function useConfig() {
   }
   function _axisMap(axisIndex) {
     return axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : null
+  }
+  function _archiveMap(axisIndex) {
+    return axisIndex === 0 ? config.tagsArchiveA : axisIndex === 1 ? config.tagsArchiveB : null
+  }
+
+  // 割り当ての変更をアーカイブへ反映（品目名キーで永続記憶）
+  const ARCHIVE_CAP = 2000
+  function _syncArchive(axisIndex, item) {
+    const map = _axisMap(axisIndex), arch = _archiveMap(axisIndex)
+    if (!map || !arch) return
+    if (Array.isArray(map[item]) && map[item].length) arch[item] = [...map[item]]
+    else delete arch[item]
+    _pruneArchive()
+  }
+  function _pruneArchive() {
+    for (const arch of [config.tagsArchiveA, config.tagsArchiveB]) {
+      const keys = Object.keys(arch)
+      if (keys.length > ARCHIVE_CAP) for (const k of keys.slice(0, keys.length - ARCHIVE_CAP)) delete arch[k]
+    }
+  }
+
+  /**
+   * 取込後、品目名の一致で割り当てを復元して config.tagsA/B を作り直す。
+   * 優先度: CSV軸列 > 既存の割り当て(live) > アーカイブ。復元した割り当ては再びアーカイブへ記憶。
+   * @returns {number} アーカイブから新たに復元した品目数（通知用）
+   */
+  function _restoreAssignments(order, csvTagsA = null, csvTagsB = null) {
+    const a = {}, b = {}
+    const restoredSet = new Set()
+    for (const nm of order) {
+      const liveA = config.tagsA[nm], liveB = config.tagsB[nm]
+      const cA = csvTagsA?.[nm],      cB = csvTagsB?.[nm]
+      const rA = config.tagsArchiveA[nm], rB = config.tagsArchiveB[nm]
+      const av = cA !== undefined ? cA : liveA !== undefined ? liveA : rA
+      const bv = cB !== undefined ? cB : liveB !== undefined ? liveB : rB
+      if (av !== undefined) a[nm] = Array.isArray(av) ? [...av] : av
+      if (bv !== undefined) b[nm] = Array.isArray(bv) ? [...bv] : bv
+      if ((cA === undefined && liveA === undefined && rA !== undefined) ||
+          (cB === undefined && liveB === undefined && rB !== undefined)) restoredSet.add(nm)
+    }
+    config.tagsA = a
+    config.tagsB = b
+    for (const nm of order) {
+      if (a[nm]?.length) config.tagsArchiveA[nm] = [...a[nm]]
+      if (b[nm]?.length) config.tagsArchiveB[nm] = [...b[nm]]
+    }
+    _pruneArchive()
+    return restoredSet.size
   }
 
   // グループを追加（重複は無視）
@@ -767,7 +832,7 @@ export function useConfig() {
     const g = (group ?? '').trim()
     if (!map || !g || !config.order.includes(item)) return false
     const arr = Array.isArray(map[item]) ? [...map[item]] : []
-    if (!arr.includes(g)) { arr.push(g); map[item] = arr; _save() }
+    if (!arr.includes(g)) { arr.push(g); map[item] = arr; _syncArchive(axisIndex, item); _save() }
     return true
   }
 
@@ -779,6 +844,7 @@ export function useConfig() {
     const arr = map[item].filter(x => x !== g)
     if (arr.length) map[item] = arr
     else            delete map[item]
+    _syncArchive(axisIndex, item)
     _save()
     return true
   }
@@ -790,10 +856,11 @@ export function useConfig() {
     const g = (group ?? '').trim()
     for (const item of items) {
       if (!config.order.includes(item)) continue
-      if (!g) { delete map[item]; continue }
+      if (!g) { delete map[item]; _syncArchive(axisIndex, item); continue }
       const arr = Array.isArray(map[item]) ? [...map[item]] : []
       if (!arr.includes(g)) arr.push(g)
       map[item] = arr
+      _syncArchive(axisIndex, item)
     }
     _save()
     return true
@@ -896,17 +963,9 @@ export function useConfig() {
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
     config.dictionary    = {}
-    // 軸の割り当てはアプリ内で維持する。再インポートは品目名の完全一致で保持し、
-    // 消えた品目は破棄、新規品目は未割り当て（その他）。CSVに軸列があればそれを優先。
-    const keepA = {}, keepB = {}
-    for (const nm of cappedOrder) {
-      const a = newTagsA[nm] !== undefined ? newTagsA[nm] : config.tagsA[nm]
-      const b = newTagsB[nm] !== undefined ? newTagsB[nm] : config.tagsB[nm]
-      if (a !== undefined) keepA[nm] = a
-      if (b !== undefined) keepB[nm] = b
-    }
-    config.tagsA         = keepA
-    config.tagsB         = keepB
+    // 軸の割り当ては品目名の一致で復元。優先度は CSV軸列 > 既存 > アーカイブ。
+    // 消えた品目の割り当てもアーカイブに残るので、同名で再登場すれば復活する。
+    const restoredTags = _restoreAssignments(cappedOrder, newTagsA, newTagsB)
     // 軸名が未設定なら、マッピングした列のヘッダ名を軸名に採用する
     const headers = parseCSVLine(lines[0])
     const axisNames = [...(config.axisNames ?? ['', ''])]
@@ -917,7 +976,7 @@ export function useConfig() {
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
     _save()
 
-    return _importResult(cappedOrder, truncated, merged, newPrices, newCategories)
+    return { ..._importResult(cappedOrder, truncated, merged, newPrices, newCategories), restoredTags }
   }
 
   const itemCount         = computed(() => config.order.length)

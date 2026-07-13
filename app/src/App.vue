@@ -1872,11 +1872,11 @@ function onUnhideItem(name) {
 }
 
 // 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
-function onClearMaster() {
-  setEmptyList()
+function onClearMaster(opts = {}) {
+  setEmptyList({ resetAssignments: opts.resetAssignments === true })
   _persistConfigToD1()
   if (syncActive.value) broadcastConfig(_configPayload())
-  showToast('品目マスタを削除しました', 2600, 'default')
+  showToast(opts.resetAssignments ? '品目マスタと振り分けを削除しました' : '品目マスタを削除しました', 2600, 'default')
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────

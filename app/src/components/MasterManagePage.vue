@@ -93,12 +93,17 @@ function hideAllUnused() {
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
 const delCode = ref('')
+const resetAssign = ref(false)   // 振り分け（品目→分類先の割り当て）の記憶も消すか
 const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
 function onClear() {
   if (!canDelete.value) return
-  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。\n（軸の名前・グループ定義は残ります）\nこの操作は取り消せません。本当に削除しますか？`)) return
-  emit('clear-master')
+  const note = resetAssign.value
+    ? '\n振り分け（分類先の割り当て）の記憶も消去します。'
+    : '\n（軸の名前・グループ定義・振り分けの記憶は残り、同じ品目を再登録すれば割り当ては復活します）'
+  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。${note}\nこの操作は取り消せません。本当に削除しますか？`)) return
+  emit('clear-master', { resetAssignments: resetAssign.value })
   delCode.value = ''
+  resetAssign.value = false
 }
 </script>
 
@@ -228,6 +233,7 @@ function onClear() {
           削除するには店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入力してください。
         </div>
         <input class="mm-del-input" v-model="delCode" placeholder="店舗コードを入力" autocapitalize="characters" />
+        <label class="mm-del-reset"><input type="checkbox" v-model="resetAssign" />振り分け（分類先の割り当て）の記憶も消す</label>
         <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
       </div>
     </div>
@@ -302,6 +308,8 @@ function onClear() {
 .mm-preview-hint { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
 
 .mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+.mm-del-reset { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #64748b; margin-bottom: 10px; cursor: pointer; }
+.mm-del-reset input { width: 16px; height: 16px; }
 .mm-del-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: #dc2626; color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; }
 .mm-del-btn:disabled { background: #fca5a5; cursor: not-allowed; }
 </style>
