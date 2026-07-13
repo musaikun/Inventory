@@ -21,6 +21,8 @@ const props = defineProps({
   canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
   tapContinuous:    { type: Boolean, default: false },
   preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
+  orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
+  orderMode:        { type: Boolean, default: false }, // 発注セッションか（発注チップ表示の切替）
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
@@ -783,6 +785,12 @@ function fmtYen(n) {
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
+                <span
+                  v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
+                  class="order-chip"
+                  :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
+                >🧾 発注 {{ orderMap[row.item].orderQty }}<span
+                  v-if="orderMap[row.item].by" class="order-chip-by">・{{ orderMap[row.item].by }}</span></span>
                 <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
                   <button class="manual-btn-edit" @click="emit('edit-item', row.item)">編集</button>
                   <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
@@ -1439,6 +1447,23 @@ function fmtYen(n) {
   font-size: 12px;
   flex-shrink: 0;
 }
+
+/* 発注セッション: 品目ごとの発注数チップ（誰が発注したかを一覧で可視化） */
+.order-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.order-chip-by { font-weight: 600; color: #059669; opacity: 0.85; }
 
 /* ── 手動品目 編集・削除ボタン ── */
 .manual-actions {

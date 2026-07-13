@@ -1565,7 +1565,7 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
   }
   // 発注下書きを更新（発注数 0 は下書きから外す＝発注なし）
   const draft = { ...orderDraft.value }
-  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot }
+  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
   // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
@@ -1579,8 +1579,8 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
 
 // ── 発注数の同期（受信・スナップショット・送信ペイロード）─────────────────────
 // リモートからの発注数更新: 下書きへ反映（localStorage のみ保存。D1 は発信元が書く）。
-function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot) {
-  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot })
+function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot, by) {
+  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot, by })
   _persistOrderDraftLocal()
 }
 
@@ -2386,6 +2386,8 @@ function dismissReview() {
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
         :hidden-items="config.hiddenItems"
+        :order-map="sessionMode === 'order' ? orderDraft : null"
+        :order-mode="sessionMode === 'order'"
         :can-manage-list="!syncActive || syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"

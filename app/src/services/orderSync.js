@@ -15,6 +15,7 @@ export function mergeOrderSnapshot(prevDraft = {}, serverOrders = {}) {
           stock:    prevDraft?.[item]?.stock ?? null,
           unit:     d.unit || '',
           lot:      d.lot ?? 1,
+          by:       d.enteredBy || '',
         }
       }
     }
@@ -24,7 +25,7 @@ export function mergeOrderSnapshot(prevDraft = {}, serverOrders = {}) {
 
 // リモートの1品目更新を下書きへ反映（他フィールドは既存値を引き継ぐ）。
 // orderQty<=0 は取り消し（該当品目を落とす）。
-export function applyOrderLine(prevDraft = {}, ingredient, { orderQty, unit, lot } = {}) {
+export function applyOrderLine(prevDraft = {}, ingredient, { orderQty, unit, lot, by } = {}) {
   const next = { ...prevDraft }
   if (Number(orderQty) > 0) {
     const prev = prevDraft[ingredient]
@@ -33,6 +34,7 @@ export function applyOrderLine(prevDraft = {}, ingredient, { orderQty, unit, lot
       stock:    prev?.stock ?? null,
       unit:     unit || prev?.unit || '',
       lot:      lot ?? prev?.lot ?? 1,
+      by:       by ?? prev?.by ?? '',
     }
   } else {
     delete next[ingredient]
