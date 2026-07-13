@@ -180,6 +180,38 @@ function onDelete(g) {
 }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 
+// カード長押しでリネーム（タップ＝選択、ハンドル＝並べ替えと両立）
+const pressG = ref('')
+const _lpFired = ref(false)
+let _lpTimer = null
+let _lpStart = null
+function onCardDown(g, e) {
+  _lpFired.value = false
+  pressG.value = g
+  const t = e.touches?.[0]
+  _lpStart = { x: t ? t.clientX : e.clientX, y: t ? t.clientY : e.clientY }
+  clearTimeout(_lpTimer)
+  _lpTimer = setTimeout(() => {
+    _lpFired.value = true
+    pressG.value = ''
+    navigator.vibrate?.(15)
+    onRename(g)
+  }, 500)
+}
+function onCardMoveCancel(e) {
+  if (!_lpStart) return
+  const t = e.touches?.[0]
+  const x = t ? t.clientX : e.clientX
+  const y = t ? t.clientY : e.clientY
+  if (Math.abs(x - _lpStart.x) > 10 || Math.abs(y - _lpStart.y) > 10) { clearTimeout(_lpTimer); pressG.value = '' }
+}
+function onCardUp() { clearTimeout(_lpTimer); _lpStart = null; pressG.value = '' }
+function onCardClick(g) {
+  if (_lpFired.value) { _lpFired.value = false; return }   // 長押し後のクリックは無視
+  if (editMode.value) { onRename(g); return }
+  pickGroup(g)
+}
+
 // ── ドラッグハンドルでグループ並べ替え ─────────────────────────
 const dragG = ref(null)
 const draftOrder = ref(null)
@@ -264,18 +296,24 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
           <!-- カードA: 分類先（グループ）選択 -->
           <section class="af-pane">
-            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください</div>
+            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
             <TransitionGroup tag="div" name="af-reorder" class="af-glist">
               <div v-for="g in renderGroups" :key="g" :data-group="g"
-                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG }"
-                   @click="editMode ? null : pickGroup(g)">
+                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG, pressing: pressG === g }"
+                   @click="onCardClick(g)"
+                   @touchstart.passive="onCardDown(g, $event)"
+                   @touchmove.passive="onCardMoveCancel($event)"
+                   @touchend="onCardUp" @touchcancel="onCardUp"
+                   @mousedown="onCardDown(g, $event)"
+                   @mousemove="onCardMoveCancel($event)"
+                   @mouseup="onCardUp" @mouseleave="onCardUp">
                 <span class="af-ghandle"
                       @touchstart.stop.prevent="onHandleStart(g)"
                       @touchmove.stop.prevent="onHandleMove"
                       @touchend.stop="onHandleEnd">≡</span>
-                <span class="af-gname" @click.stop="editMode ? onRename(g) : pickGroup(g)">{{ g }}</span>
+                <span class="af-gname">{{ g }}</span>
                 <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)">削除</span>
+                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
                 <span v-else class="af-garrow">→</span>
               </div>
             </TransitionGroup>
@@ -399,6 +437,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
 .af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .af-pane-hint b { color: var(--primary, #2563eb); }
+.af-hint-sub { color: #94a3b8; font-size: 12px; margin-left: 6px; }
 .af-glist { display: flex; flex-direction: column; gap: 7px; }
 .af-gcard {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -407,6 +446,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
+.af-gcard.pressing { transform: scale(0.975); transition: transform 0.12s ease; }
 /* 掴んでいるカードは FLIP アニメを無効化＝指の下でぶれずにその場に留まる */
 .af-gcard.dragging { opacity: 0.92; box-shadow: 0 10px 26px rgba(0,0,0,0.2); border-color: var(--primary, #2563eb); position: relative; z-index: 3; transition: none; }
 /* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へゆっくり滑らかに移動 */
