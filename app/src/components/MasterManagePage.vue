@@ -216,7 +216,7 @@ function onClear() {
         </button>
         <div v-if="listOpen" class="mm-preview">
           <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。上の並び替えで分類先の割り当てを確認できます。</div>
-          <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" />
+          <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" />
         </div>
       </div>
 

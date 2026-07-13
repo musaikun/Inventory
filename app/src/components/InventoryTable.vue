@@ -777,6 +777,7 @@ function fmtYen(n) {
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
+                <span v-if="preview && hiddenSet.has(row.item)" class="badge badge-hidden">非表示</span>
                 <span
                   v-if="recountFlags?.[row.item]"
                   class="recount-flag-badge"
@@ -1327,6 +1328,7 @@ function fmtYen(n) {
   padding: 1px 5px;
   vertical-align: middle;
 }
+.badge-hidden { background: #fef2f2; color: #dc2626; }
 
 /* ── 商品コードセル ── */
 .td-code {
