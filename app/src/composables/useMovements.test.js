@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useMovements } from './useMovements.js'
+import { useMovements, deliveryLinesFromOrder } from './useMovements.js'
 
 const m = useMovements()
 
@@ -48,5 +48,30 @@ describe('useMovements（入出庫データ層）', () => {
     const rec = m.saveMovement({ type: 'in', lines: [{ item: 'A', qty: 1 }] })
     m.deleteMovement(rec.id)
     expect(m.getMovements()).toHaveLength(0)
+  })
+
+  it('入庫は orderId で発注と紐付けられる（出庫では無視）', () => {
+    const rec = m.saveMovement({ type: 'in', orderId: 'o_123', lines: [{ item: 'A', qty: 1 }] })
+    expect(rec.orderId).toBe('o_123')
+    const out = m.saveMovement({ type: 'out', orderId: 'o_123', lines: [{ item: 'A', qty: 1 }] })
+    expect(out.orderId).toBeNull()
+  })
+})
+
+describe('deliveryLinesFromOrder（発注→入庫行の換算）', () => {
+  it('納品数量 = 発注数（LOT数）× 入数 に換算する', () => {
+    const order = { lines: [
+      { item: 'ビール', qty: 2, unit: '本', lot: 24 },   // 2ケース×24本
+      { item: 'トマト', qty: 3, unit: '個', lot: 1 },
+    ] }
+    expect(deliveryLinesFromOrder(order)).toEqual([
+      { item: 'ビール', qty: 48, unit: '本' },
+      { item: 'トマト', qty: 3, unit: '個' },
+    ])
+  })
+
+  it('不正な行は除外・空発注は空配列', () => {
+    expect(deliveryLinesFromOrder({ lines: [{ item: '', qty: 1 }, { item: 'A', qty: 0 }] })).toEqual([])
+    expect(deliveryLinesFromOrder(null)).toEqual([])
   })
 })

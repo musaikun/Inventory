@@ -155,6 +155,8 @@ const selectedOrders = computed(() => (selectedKey.value ? orderByDate.value[sel
 
 const selectedStockRows = computed(() => selectedStock.value.map(s => ({ s, ..._stockValue(s) })))
 const selectedOrderRows = computed(() => selectedOrders.value.map(o => ({ o, ..._orderValue(o) })))
+// 入庫として取り込み済みの発注 id（納品済みバッジ用）
+const importedOrderIds = computed(() => new Set(getMovements().map(m => m.orderId).filter(Boolean)))
 function _sumRows(rows) {
   let t = 0
   let has = false
@@ -413,6 +415,7 @@ function onDeleteMove(id) {
           <div class="hc-entry-main" @click="toggleOrder(r.o.id)">
             <span class="hc-order-sup">{{ r.o.supplier || '（未分類）' }}</span>
             <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
+            <span v-if="importedOrderIds.has(r.o.id)" class="hc-ord-done">入庫済み</span>
             <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
             <button class="hc-entry-del" @click.stop="onDeleteOrder(r.o.id)" title="削除">🗑</button>
             <span class="hc-entry-arrow">{{ expanded[r.o.id] ? '▲' : '▼' }}</span>
@@ -511,6 +514,7 @@ function onDeleteMove(id) {
 .hc-entry-order .hc-entry-main,
 .hc-entry-move .hc-entry-main { cursor: pointer; }
 .hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-ord-done { font-size: 10px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 
