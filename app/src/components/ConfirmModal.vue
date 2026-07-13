@@ -33,6 +33,7 @@ const props = defineProps({
   orderLot:        { type: Number,  default: 1 },     // 入数（数値）
   lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
   initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
+  theoStock:       { type: Object,  default: null },  // 理論在庫 { qty, baseQty, baseDate, inQty, outQty }
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
@@ -79,6 +80,33 @@ function orderStep(delta) {
   orderQty.value     = Math.max(0, (effectiveOrderQty.value ?? 0) + delta)
   orderTouched.value = true
 }
+
+// ── 理論在庫（直近棚卸＋入出庫の導出値）──────────────────────────────────────
+// タップでプリフィルできるが、自動入力はしない（在庫入力は独立した観測値として
+// ズレ検出・学習品質に使うため、意図した採用だけを許す）。
+function _md(dateStr) {
+  const [, m, d] = String(dateStr || '').split('-').map(Number)
+  return m && d ? `${m}/${d}` : ''
+}
+const theoBasis = computed(() => {
+  const t = props.theoStock
+  if (!t) return ''
+  const parts = [t.baseDate ? `${_md(t.baseDate)}棚卸 ${t.baseQty}` : '棚卸実績なし']
+  if (t.inQty)  parts.push(`＋入庫${t.inQty}`)
+  if (t.outQty) parts.push(`−出庫${t.outQty}`)
+  return parts.join(' ')
+})
+function useTheoStock() {
+  qty.value = String(props.theoStock.qty)
+  hasError.value = false
+}
+// 入力値と理論在庫のズレ（0 は「一致」表示に使うため null と区別する）
+const stockDrift = computed(() => {
+  if (!props.orderMode || !props.theoStock || qty.value === '') return null
+  const v = parseFloat(qty.value)
+  if (isNaN(v)) return null
+  return Math.round((v - props.theoStock.qty) * 1000) / 1000
+})
 
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
 const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
@@ -395,8 +423,17 @@ function saveEdit() {
         </div>
       </div>
 
-      <!-- 発注モード: 現在在庫のラベル -->
+      <!-- 発注モード: 現在在庫のラベル＋理論在庫 -->
       <div v-if="orderMode" class="stock-label">現在在庫（任意）</div>
+      <div v-if="orderMode && theoStock" class="theo-row">
+        <button class="theo-chip" type="button" @click="useTheoStock">理論在庫 {{ theoStock.qty }}{{ unit }} を使う</button>
+        <span class="theo-basis">{{ theoBasis }}</span>
+      </div>
+      <div v-if="stockDrift != null" :class="['theo-drift', stockDrift === 0 ? 'ok' : '']">
+        <template v-if="stockDrift === 0">✓ 理論在庫と一致</template>
+        <template v-else-if="stockDrift < 0">理論在庫より {{ Math.abs(stockDrift) }} 少ない（未記録の使用・ロスの可能性）</template>
+        <template v-else>理論在庫より {{ stockDrift }} 多い（入庫の記録漏れや数え直しの可能性）</template>
+      </div>
 
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">
@@ -632,6 +669,24 @@ function saveEdit() {
   color: var(--primary);
   margin: 2px 0 4px;
 }
+
+.theo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.theo-chip {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.theo-chip:active { background: #d1fae5; }
+.theo-basis { font-size: 11px; color: #94a3b8; }
+.theo-drift { font-size: 11.5px; font-weight: 600; color: #b45309; margin-bottom: 6px; }
+.theo-drift.ok { color: #059669; }
 
 .order-block {
   background: var(--primary-weak);

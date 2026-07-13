@@ -36,7 +36,9 @@ import {
   saveOrderToD1, loadOrdersFromD1,
 } from './composables/useStore.js'
 import { useOrders } from './composables/useOrders.js'
+import { useMovements } from './composables/useMovements.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
+import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -95,6 +97,11 @@ function _todayStr() { return new Date().toISOString().slice(0, 10) }
 // この品目・今日の曜日の適正在庫（学習不足なら null）
 function _parLevelFor(item) {
   return calcParLevel(getLearningEvents(), item, weekdayOf(_todayStr()))
+}
+// 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
+const { getMovements } = useMovements()
+function _theoStockFor(item) {
+  return theoreticalStock(item, getSnapshots(), getMovements())
 }
 // 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
 function _lastWeekQtyFor(item) {
@@ -1437,6 +1444,7 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     parLevel:       isOrder ? _parLevelFor(ingredient) : null,
     lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
+    theoStock:      isOrder ? _theoStockFor(ingredient) : null,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -2372,6 +2380,7 @@ function dismissReview() {
         :order-lot="confirmState.orderLot ?? 1"
         :last-week-qty="confirmState.lastWeekQty"
         :initial-order-qty="confirmState.initialOrderQty"
+        :theo-stock="confirmState.theoStock"
         @confirm="onConfirm"
         @navigate="onConfirmNavigate"
         @cancel="onCancelConfirm"
