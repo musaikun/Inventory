@@ -67,11 +67,11 @@ const swipe = useHorizontalSwipe({
     if (dx === 0) { dragging.value = false; dragPx.value = 0; return }
     const W = vpEl.value?.clientWidth || 320
     dragging.value = true
-    if (page.value === 'groups') dragPx.value = target.value ? Math.max(-W, Math.min(0, dx)) : 0
+    if (page.value === 'groups') dragPx.value = Math.max(-W, Math.min(0, dx))
     else                         dragPx.value = Math.min(W, Math.max(0, dx))
   },
   onRight: () => { if (page.value === 'items') backToGroups() },
-  onLeft:  () => { if (page.value === 'groups' && target.value) page.value = 'items' },
+  onLeft:  () => { if (page.value === 'groups') page.value = 'items' },
 })
 
 // ── 品目プール ──────────────────────────────────────────────
@@ -111,7 +111,7 @@ const flash = ref('')
 const flashItem = ref('')
 let _flashT = null
 function toggle(item) {
-  if (!target.value) return
+  if (!target.value) { _showFlash('先に振り分け先を選んでください', ''); return }
   if (itemGroups(item).includes(target.value)) {
     removeItemFromGroup(activeAxis.value, item, target.value)
     _showFlash(`「${item}」を ${target.value} から外しました`, '')
@@ -264,7 +264,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           <section class="af-pane">
             <div class="af-target-bar">
               <button class="af-target-back" @click="backToGroups">← 分類一覧</button>
-              <span class="af-target-name">{{ target }} に振り分け中</span>
+              <span v-if="target" class="af-target-name">{{ target }} に振り分け中</span>
+              <span v-else class="af-target-none">グループ未選択 — 振り分け先を選択してください</span>
             </div>
             <div class="af-tools">
               <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
@@ -379,6 +380,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-target-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .af-target-back { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 10px; cursor: pointer; }
 .af-target-name { font-size: 15px; font-weight: 800; color: var(--primary, #2563eb); }
+.af-target-none { font-size: 14px; font-weight: 800; color: #dc2626; animation: af-blink 1s ease-in-out infinite; }
+@keyframes af-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 .af-tools { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .af-search { flex: 1; min-width: 120px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
 .af-chip-btn { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 12px; cursor: pointer; }
