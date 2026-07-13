@@ -56,6 +56,7 @@ import SessionListPage, { _persistedTab as sessionsTab, _showDashboard as dashbo
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
+import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
 import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
@@ -2028,6 +2029,7 @@ function dismissReview() {
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="currentView = 'master'"
+      @open-movement="currentView = 'movement'"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 
@@ -2036,6 +2038,12 @@ function dismissReview() {
       v-else-if="currentView === 'master'"
       @back="currentView = 'sessions'"
       @clear-master="onClearMaster"
+    />
+
+    <!-- ── 入出庫（専用ページ・品目ごとに増減） ── -->
+    <MovementPage
+      v-else-if="currentView === 'movement'"
+      @back="currentView = 'sessions'"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->

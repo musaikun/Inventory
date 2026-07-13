@@ -16,7 +16,6 @@ import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
-import MovementModal from './MovementModal.vue'
 import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
@@ -24,7 +23,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
@@ -38,7 +37,6 @@ const starting       = ref(false)
 const deletingId     = ref(null)
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
-const showMovementModal = ref(false)
 
 const listSavedLabel = computed(() => {
   if (!config.savedAt) return ''
@@ -447,12 +445,12 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
-          <!-- 入出庫の記録（セッション不要・その場で保存） -->
-          <button class="move-start" @click="showMovementModal = true">
+          <!-- 入出庫の記録（専用ページで品目ごとに増減を入力） -->
+          <button class="move-start" @click="emit('openMovement')">
             <div class="move-start-icon">📥</div>
             <div class="move-start-text">
               <div class="move-start-title">入出庫を記録</div>
-              <div class="move-start-sub">仕入の入庫・使用や廃棄の出庫を、その場で記録</div>
+              <div class="move-start-sub">仕入の入庫・使用や廃棄の出庫を、品目ごとに記録</div>
             </div>
             <div class="move-start-arrow">→</div>
           </button>
@@ -593,8 +591,6 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
-
-    <MovementModal v-if="showMovementModal" @close="showMovementModal = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
