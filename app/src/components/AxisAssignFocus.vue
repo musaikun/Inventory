@@ -166,10 +166,12 @@ function onHandleMove(e) {
   const card = el?.closest('[data-group]')
   const overG = card?.getAttribute('data-group')
   if (!overG || overG === dragG.value) return
-  const arr = draftOrder.value
-  const from = arr.indexOf(dragG.value), to = arr.indexOf(overG)
-  if (from < 0 || to < 0) return
-  arr.splice(to, 0, arr.splice(from, 1)[0])
+  // ポインタが対象カードの上半分/下半分かで前後に差し込む（中点しきい値で往復＝ぶれを防ぐ）
+  const rect = card.getBoundingClientRect()
+  const after = t.clientY > rect.top + rect.height / 2
+  const next = draftOrder.value.filter(g => g !== dragG.value)
+  next.splice(next.indexOf(overG) + (after ? 1 : 0), 0, dragG.value)
+  if (next.join('') !== draftOrder.value.join('')) draftOrder.value = next
 }
 function onHandleEnd() {
   if (dragG.value && draftOrder.value) setAxisGroupOrder(activeAxis.value, draftOrder.value)
@@ -360,9 +362,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
-.af-gcard.dragging { opacity: 0.92; box-shadow: 0 10px 26px rgba(0,0,0,0.2); border-color: var(--primary, #2563eb); position: relative; z-index: 3; }
+/* 掴んでいるカードは FLIP アニメを無効化＝指の下でぶれずにその場に留まる */
+.af-gcard.dragging { opacity: 0.92; box-shadow: 0 10px 26px rgba(0,0,0,0.2); border-color: var(--primary, #2563eb); position: relative; z-index: 3; transition: none; }
 /* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へゆっくり滑らかに移動 */
-.af-reorder-move { transition: transform 0.5s cubic-bezier(0.25, 0.9, 0.25, 1); }
+.af-reorder-move { transition: transform 0.62s cubic-bezier(0.22, 0.8, 0.28, 1); will-change: transform; }
 .af-glist { position: relative; }
 .af-ghandle { flex-shrink: 0; color: #cbd5e1; font-size: 20px; cursor: grab; padding: 0 4px; touch-action: none; -webkit-tap-highlight-color: transparent; }
 .af-gname { flex: 1; min-width: 0; }
