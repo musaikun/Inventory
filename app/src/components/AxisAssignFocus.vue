@@ -327,17 +327,19 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           </section>
 
           <!-- カードB: 品目プール -->
-          <section class="af-pane">
-            <div class="af-target-bar">
-              <button class="af-target-back" @click="backToGroups">← 分類一覧</button>
-              <span v-if="target" class="af-target-name">{{ target }} に振り分け中</span>
-              <span v-else class="af-target-none">グループ未選択 — 振り分け先を選択してください</span>
-              <button v-if="target" class="af-confirm" @click="showAssigned = true">確認 <b>{{ assignedItems.length }}</b></button>
-            </div>
-            <div class="af-tools">
-              <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
-              <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
-              <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
+          <section class="af-pane af-pane-b">
+            <div class="af-b-head">
+              <div class="af-target-bar">
+                <button class="af-target-back" @click="backToGroups">← 分類一覧</button>
+                <span v-if="target" class="af-target-name">{{ target }} に振り分け中</span>
+                <span v-else class="af-target-none">グループ未選択 — 振り分け先を選択してください</span>
+                <button v-if="target" class="af-confirm" @click="showAssigned = true">確認 <b>{{ assignedItems.length }}</b></button>
+              </div>
+              <div class="af-tools">
+                <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
+                <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
+                <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
+              </div>
             </div>
             <div class="af-list" ref="listEl">
               <!-- ジャンルがあればアコーディオン、無ければフラット -->
@@ -434,6 +436,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
 .af-track.dragging { transition: none; }
 .af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }
+/* カードB: ヘッダー（分類一覧/確認・検索・フィルタ）は固定、品目一覧だけスクロール */
+.af-pane-b { overflow: hidden; padding: 0; }
+.af-b-head { flex-shrink: 0; padding: 12px 14px 8px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
+.af-pane-b .af-list { flex: 1; overflow-y: auto; padding: 10px 14px 24px; -webkit-overflow-scrolling: touch; }
+.af-pane-b .af-tools { margin-bottom: 0; }
 
 .af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .af-pane-hint b { color: var(--primary, #2563eb); }

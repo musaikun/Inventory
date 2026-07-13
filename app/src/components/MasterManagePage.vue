@@ -64,6 +64,7 @@ const unusedCandidates = computed(() =>
 
 const listOpen = ref(false)
 const hiddenOpen = ref(false)
+const unusedOpen = ref(false)
 function genreOf(item) { return config.categories?.[item] || '' }
 function axisTagsOf(item) {
   return [...(config.tagsA?.[item] || []), ...(config.tagsB?.[item] || [])]
@@ -161,18 +162,20 @@ function onClear() {
 
       <!-- 使っていない候補（前回まで未入力） -->
       <div class="mm-block">
-        <div class="mm-block-head">
+        <button class="mm-block-head mm-toggle" @click="unusedOpen = !unusedOpen">
           <span class="mm-block-title">使っていない候補</span>
-          <span class="mm-block-note">前回まで未入力</span>
-        </div>
-        <div v-if="!hasHistory" class="mm-empty">棚卸の履歴がまだありません。数回の棚卸のあとに候補が出ます。</div>
-        <div v-else-if="unusedCandidates.length === 0" class="mm-empty">直近の棚卸で全ての品目に入力があります。候補はありません。</div>
-        <template v-else>
-          <div class="mm-block-sub">{{ unusedCandidates.length }}件。要らないものは非表示にできます（進捗の分母から外れます）。</div>
-          <button class="mm-bulk" @click="hideAllUnused">まとめて非表示にする（{{ unusedCandidates.length }}件）</button>
-          <div class="mm-chiplist">
-            <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n, true)">{{ n }}<span class="mm-chip-x">×</span></button>
-          </div>
+          <span class="mm-block-note">{{ unusedOpen ? '▲' : '▼' }} {{ hasHistory ? unusedCandidates.length + '件' : '前回まで未入力' }}</span>
+        </button>
+        <template v-if="unusedOpen">
+          <div v-if="!hasHistory" class="mm-empty">棚卸の履歴がまだありません。数回の棚卸のあとに候補が出ます。</div>
+          <div v-else-if="unusedCandidates.length === 0" class="mm-empty">直近の棚卸で全ての品目に入力があります。候補はありません。</div>
+          <template v-else>
+            <div class="mm-block-sub">{{ unusedCandidates.length }}件。要らないものは非表示にできます（進捗の分母から外れます）。</div>
+            <button class="mm-bulk" @click="hideAllUnused">まとめて非表示にする（{{ unusedCandidates.length }}件）</button>
+            <div class="mm-chiplist">
+              <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n, true)">{{ n }}<span class="mm-chip-x">×</span></button>
+            </div>
+          </template>
         </template>
       </div>
 
