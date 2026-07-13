@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useConfig } from '../composables/useConfig.js'
+import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
@@ -78,6 +78,18 @@ function confirmAxis(idx) {
   setAxisName(idx, name)
   draft.value[idx] = ''
 }
+
+// 設定済みの分類名をその場で再編集する
+const editingAxis = ref(-1)
+const editDraft = ref('')
+function startEditAxis(idx) { editingAxis.value = idx; editDraft.value = config.axisNames[idx] || '' }
+function confirmEditAxis(idx) {
+  const name = editDraft.value.trim()
+  if (!name) return
+  setAxisName(idx, name)
+  editingAxis.value = -1
+}
+function cancelEditAxis() { editingAxis.value = -1 }
 function deleteAxis(idx) {
   const name = config.axisNames[idx]
   if (!confirm(`分類「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
@@ -133,13 +145,19 @@ function onClear() {
         <!-- 分類① -->
         <div class="mm-axis-row">
           <span class="mm-axis-label">分類①</span>
-          <template v-if="config.axisNames[0]">
+          <template v-if="config.axisNames[0] && editingAxis !== 0">
             <span class="mm-axis-name">{{ config.axisNames[0] }}</span>
+            <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(0)">✎</button>
             <button class="mm-axis-go" @click="openReorder(0)">振り分け →</button>
             <button class="mm-axis-del" @click="deleteAxis(0)">削除</button>
           </template>
+          <template v-else-if="editingAxis === 0">
+            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @keyup.enter="confirmEditAxis(0)" />
+            <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(0)">確定</button>
+            <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
+          </template>
           <template v-else>
-            <input class="mm-axis-input" v-model="draft[0]" maxlength="12" placeholder="分類名（例：保管場所）" @keyup.enter="confirmAxis(0)" />
+            <input class="mm-axis-input" v-model="draft[0]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：保管場所）" @keyup.enter="confirmAxis(0)" />
             <button class="mm-axis-confirm" :disabled="!draft[0].trim()" @click="confirmAxis(0)">確定</button>
           </template>
         </div>
@@ -147,13 +165,19 @@ function onClear() {
         <!-- 分類②: 設定済み or ＋で表示 -->
         <div v-if="config.axisNames[1] || show2" class="mm-axis-row">
           <span class="mm-axis-label">分類②</span>
-          <template v-if="config.axisNames[1]">
+          <template v-if="config.axisNames[1] && editingAxis !== 1">
             <span class="mm-axis-name">{{ config.axisNames[1] }}</span>
+            <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(1)">✎</button>
             <button class="mm-axis-go" @click="openReorder(1)">振り分け →</button>
             <button class="mm-axis-del" @click="deleteAxis(1)">削除</button>
           </template>
+          <template v-else-if="editingAxis === 1">
+            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @keyup.enter="confirmEditAxis(1)" />
+            <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(1)">確定</button>
+            <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
+          </template>
           <template v-else>
-            <input class="mm-axis-input" v-model="draft[1]" maxlength="12" placeholder="分類名（例：仕入先）" @keyup.enter="confirmAxis(1)" />
+            <input class="mm-axis-input" v-model="draft[1]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：仕入先）" @keyup.enter="confirmAxis(1)" />
             <button class="mm-axis-confirm" :disabled="!draft[1].trim()" @click="confirmAxis(1)">確定</button>
           </template>
         </div>
@@ -282,6 +306,8 @@ function onClear() {
 .mm-axis-confirm { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 8px 16px; cursor: pointer; }
 .mm-axis-confirm:disabled { background: #cbd5e1; cursor: not-allowed; }
 .mm-axis-del { flex-shrink: 0; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+.mm-axis-edit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 6px 9px; cursor: pointer; }
+.mm-axis-cancel { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
 .mm-axis-add { width: 100%; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; margin-top: 8px; }
 
 .mm-bulk { width: 100%; border: none; border-radius: 10px; padding: 10px; background: #64748b; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }

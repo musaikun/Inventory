@@ -12,6 +12,8 @@ import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
+
+export const AXIS_NAME_MAX = 10   // 分類名の文字数上限
 const MASTER_KEY  = STORAGE_KEYS.master
 
 let _onConfigChanged = null
@@ -614,7 +616,7 @@ export function useConfig() {
   function setAxisName(index, name) {
     if (index !== 0 && index !== 1) return false
     const arr = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
-    arr[index] = (name ?? '').trim()
+    arr[index] = (name ?? '').trim().slice(0, AXIS_NAME_MAX)
     config.axisNames = [arr[0] ?? '', arr[1] ?? '']
     _save()
     return true
@@ -969,8 +971,8 @@ export function useConfig() {
     // 軸名が未設定なら、マッピングした列のヘッダ名を軸名に採用する
     const headers = parseCSVLine(lines[0])
     const axisNames = [...(config.axisNames ?? ['', ''])]
-    if (axisACol != null && !axisNames[0]) axisNames[0] = (headers[axisACol]?.trim() || '').slice(0, 12)
-    if (axisBCol != null && !axisNames[1]) axisNames[1] = (headers[axisBCol]?.trim() || '').slice(0, 12)
+    if (axisACol != null && !axisNames[0]) axisNames[0] = (headers[axisACol]?.trim() || '').slice(0, AXIS_NAME_MAX)
+    if (axisBCol != null && !axisNames[1]) axisNames[1] = (headers[axisBCol]?.trim() || '').slice(0, AXIS_NAME_MAX)
     config.axisNames     = [axisNames[0] ?? '', axisNames[1] ?? '']
     const newSet         = new Set(cappedOrder)
     config.manualItems   = config.manualItems.filter(n => newSet.has(n))
