@@ -2,6 +2,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
+import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
@@ -15,6 +16,7 @@ const emit = defineEmits(['view-session', 'delete-session'])
 
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders, deleteOrder } = useOrders()
+const { getMovements, deleteMovement } = useMovements()
 const { config } = useConfig()
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
@@ -32,9 +34,10 @@ const todayKey = _key(_now.getFullYear(), _now.getMonth(), _now.getDate())
 const viewYear  = ref(_now.getFullYear())
 const viewMonth = ref(_now.getMonth())
 
-const filter = ref('all')  // 'all' | 'stock' | 'order'
-const showStock = computed(() => filter.value !== 'order')
-const showOrder = computed(() => filter.value !== 'stock')
+const filter = ref('all')  // 'all' | 'stock' | 'order' | 'move'
+const showStock = computed(() => filter.value === 'all' || filter.value === 'stock')
+const showOrder = computed(() => filter.value === 'all' || filter.value === 'order')
+const showMove  = computed(() => filter.value === 'all' || filter.value === 'move')
 
 // 日付キー → 棚卸セッション配列
 const stockByDate = computed(() => {
@@ -58,6 +61,17 @@ const orderByDate = computed(() => {
   return map
 })
 
+// 日付キー → 入出庫レコード配列
+const moveByDate = computed(() => {
+  const map = {}
+  for (const m of getMovements()) {
+    const k = m.date
+    if (!k) continue
+    ;(map[k] ||= []).push(m)
+  }
+  return map
+})
+
 const monthLabel = computed(() => `${viewYear.value}年${viewMonth.value + 1}月`)
 
 const weeks = computed(() => {
@@ -75,6 +89,7 @@ const weeks = computed(() => {
       isToday: key === todayKey,
       stock: stockByDate.value[key] || [],
       orders: orderByDate.value[key] || [],
+      moves: moveByDate.value[key] || [],
       wx: props.weather[key] || null,
     })
   }
@@ -86,7 +101,9 @@ const weeks = computed(() => {
 
 function _hasVisible(cell) {
   if (!cell) return false
-  return (showStock.value && cell.stock.length > 0) || (showOrder.value && cell.orders.length > 0)
+  return (showStock.value && cell.stock.length > 0)
+    || (showOrder.value && cell.orders.length > 0)
+    || (showMove.value && cell.moves.length > 0)
 }
 
 function prevMonth() {
@@ -108,6 +125,7 @@ const recentKey = computed(() => {
   const keys = new Set()
   if (showStock.value) for (const k of Object.keys(stockByDate.value)) keys.add(k)
   if (showOrder.value) for (const k of Object.keys(orderByDate.value)) keys.add(k)
+  if (showMove.value)  for (const k of Object.keys(moveByDate.value)) keys.add(k)
   const sorted = [...keys].sort((a, b) => b.localeCompare(a))
   return sorted[0] || null
 })
@@ -127,7 +145,9 @@ function onCellTap(cell) {
   selectedKey.value = cell.key === selectedKey.value ? null : cell.key
 }
 function _hasAny(key) {
-  return (stockByDate.value[key]?.length || 0) > 0 || (orderByDate.value[key]?.length || 0) > 0
+  return (stockByDate.value[key]?.length || 0) > 0
+    || (orderByDate.value[key]?.length || 0) > 0
+    || (moveByDate.value[key]?.length || 0) > 0
 }
 
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
@@ -143,6 +163,20 @@ function _sumRows(rows) {
 }
 const selStockTotal = computed(() => _sumRows(selectedStockRows.value))
 const selOrderTotal = computed(() => _sumRows(selectedOrderRows.value))
+
+const selectedMoves = computed(() => (selectedKey.value ? moveByDate.value[selectedKey.value] || [] : []))
+// 入庫/出庫のセクション定義（rows: 金額付き、_orderValue は lines を持つレコード共通で使える）
+const moveSections = computed(() => {
+  const mk = (type, label, icon, dot) => {
+    const rows = selectedMoves.value.filter(m => m.type === type).map(m => ({ m, ..._orderValue(m) }))
+    return { type, label, icon, dot, rows, total: _sumRows(rows) }
+  }
+  return [
+    mk('in', '入庫', '📥', 'dot-in'),
+    mk('out', '出庫', '📤', 'dot-out'),
+  ].filter(s => s.rows.length)
+})
+const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
 
 const selectedLabel = computed(() => {
@@ -199,8 +233,17 @@ function _fmtUnpriced(list) {
 }
 
 // 単一フィルタ時のみ: 日付キー → { count, amount }（金額が1件も無い日は amount: null）
+// 入出庫は方向別の件数（inCount/outCount）を出す（合算金額は意味が無いためセルでは出さない）
 const cellInfo = computed(() => {
   if (filter.value === 'all') return null
+  if (filter.value === 'move') {
+    const map = {}
+    for (const [k, arr] of Object.entries(moveByDate.value)) {
+      const inCount = arr.filter(m => m.type === 'in').length
+      map[k] = { count: arr.length, inCount, outCount: arr.length - inCount, amount: null }
+    }
+    return map
+  }
   const src = filter.value === 'stock' ? stockByDate.value : orderByDate.value
   const calc = filter.value === 'stock' ? _stockValue : _orderValue
   const map = {}
@@ -231,6 +274,10 @@ function onDeleteOrder(id) {
   if (!confirm('この発注記録を削除しますか？')) return
   deleteOrder(id)
 }
+function onDeleteMove(id) {
+  if (!confirm('この入出庫記録を削除しますか？')) return
+  deleteMovement(id)
+}
 </script>
 
 <template>
@@ -248,6 +295,7 @@ function onDeleteOrder(id) {
       <button :class="['hc-leg', { on: filter === 'all' }]" @click="filter = 'all'">すべて</button>
       <button :class="['hc-leg', { on: filter === 'stock' }]" @click="filter = 'stock'"><span class="dot dot-stock"></span>棚卸</button>
       <button :class="['hc-leg', { on: filter === 'order' }]" @click="filter = 'order'"><span class="dot dot-order"></span>発注</button>
+      <button :class="['hc-leg', { on: filter === 'move' }]" @click="filter = 'move'"><span class="dot dot-in"></span><span class="dot dot-out"></span>入出庫</button>
       <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
 
@@ -274,10 +322,18 @@ function onDeleteOrder(id) {
             <span v-if="!cellInfo" class="hc-dots">
               <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
               <span v-if="showOrder && cell.orders.length" class="dot dot-order"></span>
+              <span v-if="showMove && cell.moves.some(m => m.type === 'in')" class="dot dot-in"></span>
+              <span v-if="showMove && cell.moves.some(m => m.type === 'out')" class="dot dot-out"></span>
             </span>
             <span v-else-if="cellInfo[cell.key]" :class="['hc-cell-info', filter]">
-              <span class="hc-ci-count">{{ cellInfo[cell.key].count }}件</span>
-              <span v-if="cellInfo[cell.key].amount != null" class="hc-ci-amt">{{ fmtYenShort(cellInfo[cell.key].amount) }}</span>
+              <template v-if="filter === 'move'">
+                <span v-if="cellInfo[cell.key].inCount" class="hc-ci-count ci-in">入{{ cellInfo[cell.key].inCount }}</span>
+                <span v-if="cellInfo[cell.key].outCount" class="hc-ci-count ci-out">出{{ cellInfo[cell.key].outCount }}</span>
+              </template>
+              <template v-else>
+                <span class="hc-ci-count">{{ cellInfo[cell.key].count }}件</span>
+                <span v-if="cellInfo[cell.key].amount != null" class="hc-ci-amt">{{ fmtYenShort(cellInfo[cell.key].amount) }}</span>
+              </template>
             </span>
           </template>
         </div>
@@ -320,6 +376,33 @@ function onDeleteOrder(id) {
         </div>
       </template>
 
+      <!-- 入庫 / 出庫 -->
+      <template v-if="showMove">
+        <template v-for="sec in moveSections" :key="sec.type">
+          <div class="hc-sec-title">
+            <span :class="['dot', sec.dot]"></span>{{ sec.label }}（{{ sec.rows.length }}件）
+            <span v-if="sec.total != null" class="hc-sec-total">{{ fmtYen(sec.total) }}</span>
+          </div>
+          <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move">
+            <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
+              <span class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
+              <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目</span>
+              <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
+              <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+              <button class="hc-entry-del" @click.stop="onDeleteMove(r.m.id)" title="削除">🗑</button>
+              <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>
+            </div>
+            <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+            <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
+            <div v-if="expanded[r.m.id]" class="hc-order-lines">
+              <div v-for="l in r.m.lines" :key="l.item" class="hc-order-line">
+                <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </template>
+
       <!-- 発注 -->
       <template v-if="showOrder && selectedOrders.length">
         <div class="hc-sec-title">
@@ -342,10 +425,14 @@ function onDeleteOrder(id) {
             </div>
           </div>
         </div>
-        <div v-if="selOrderTotal != null" class="hc-est-note">※ 発注金額は品目マスタの現在の単価による概算です</div>
       </template>
 
-      <div v-if="!(showStock && selectedStock.length) && !(showOrder && selectedOrders.length)" class="hc-empty">
+      <div v-if="anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
+
+      <div
+        v-if="!(showStock && selectedStock.length) && !(showOrder && selectedOrders.length) && !(showMove && selectedMoves.length)"
+        class="hc-empty"
+      >
         この日の履歴はありません
       </div>
     </div>
@@ -362,7 +449,7 @@ function onDeleteOrder(id) {
 .hc-today { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; flex-shrink: 0; }
 .hc-today:active { background: #f0f9ff; }
 
-.hc-legend { display: flex; align-items: center; gap: 6px; }
+.hc-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .hc-leg { display: inline-flex; align-items: center; gap: 5px; border: 1.5px solid #d1d5db; background: #fff; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #6b7280; cursor: pointer; }
 .hc-leg.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
 .hc-recent { margin-left: auto; border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 4px; }
@@ -370,6 +457,8 @@ function onDeleteOrder(id) {
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .dot-stock { background: #3b82f6; }
 .dot-order { background: #f59e0b; }
+.dot-in    { background: #10b981; }
+.dot-out   { background: #ef4444; }
 
 .hc-cal { background: #fff; border-radius: 12px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
@@ -395,6 +484,8 @@ function onDeleteOrder(id) {
 .hc-cell-info.order { color: #d97706; }
 .hc-ci-count { font-size: 9px; font-weight: 700; line-height: 1; }
 .hc-ci-amt { font-size: 9px; font-weight: 800; line-height: 1; white-space: nowrap; }
+.hc-ci-count.ci-in  { color: #059669; }
+.hc-ci-count.ci-out { color: #dc2626; }
 
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
@@ -417,7 +508,9 @@ function onDeleteOrder(id) {
 .hc-entry-amt.none { font-size: 11px; font-weight: 600; color: #9ca3af; }
 .hc-entry-del { border: none; background: none; cursor: pointer; font-size: 14px; }
 .hc-entry-arrow { font-size: 12px; color: #9ca3af; flex-shrink: 0; }
-.hc-entry-order .hc-entry-main { cursor: pointer; }
+.hc-entry-order .hc-entry-main,
+.hc-entry-move .hc-entry-main { cursor: pointer; }
+.hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 

@@ -16,6 +16,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
+import MovementModal from './MovementModal.vue'
 import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
@@ -37,6 +38,7 @@ const starting       = ref(false)
 const deletingId     = ref(null)
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
+const showMovementModal = ref(false)
 
 const listSavedLabel = computed(() => {
   if (!config.savedAt) return ''
@@ -441,6 +443,16 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
+          <!-- 入出庫の記録（セッション不要・その場で保存） -->
+          <button class="move-start" @click="showMovementModal = true">
+            <div class="move-start-icon">📥</div>
+            <div class="move-start-text">
+              <div class="move-start-title">入出庫を記録</div>
+              <div class="move-start-sub">仕入の入庫・使用や廃棄の出庫を、その場で記録</div>
+            </div>
+            <div class="move-start-arrow">→</div>
+          </button>
+
           <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
           <div v-if="activeOrderSession" class="order-live">
             <div class="order-live-top">
@@ -577,6 +589,8 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
+
+    <MovementModal v-if="showMovementModal" @close="showMovementModal = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
@@ -907,6 +921,40 @@ function _itemCount(session) {
   opacity: 0.9;
   flex-shrink: 0;
 }
+
+/* 入出庫カード（枠は標準カードと統一・中身はグリーンテーマ） */
+.move-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px;
+  background: #fff;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  margin-bottom: 4px;
+  text-align: left;
+  transition: transform 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.move-start:active { transform: scale(0.98); }
+.move-start-icon {
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #d1fae5;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.move-start-text { flex: 1; min-width: 0; }
+.move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; }
+.move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
+.move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
 
 /* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
 .order-start {

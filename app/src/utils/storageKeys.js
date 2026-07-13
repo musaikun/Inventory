@@ -29,4 +29,5 @@ export const STORAGE_KEYS = {
   authStoreName:    '_auth_store_name',
   tapContinuous:    'inv_tap_continuous',
   orders:           'inventory_orders_v1',
+  movements:        'inventory_movements_v1',
 }
