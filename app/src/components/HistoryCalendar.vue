@@ -234,29 +234,41 @@ function _fmtUnpriced(list) {
   return `${list.slice(0, UNPRICED_MAX).join('、')} 他${list.length - UNPRICED_MAX}品目`
 }
 
-// 単一フィルタ時のみ: 日付キー → { count, amount }（金額が1件も無い日は amount: null）
-// 入出庫は方向別の件数（inCount/outCount）を出す（合算金額は意味が無いためセルでは出さない）
+// 単一フィルタ時のみ: 日付キー → { count, amount }。count は「件数」ではなく
+// その日に扱った品目数（棚卸=入力済み品目・発注/入出庫=行数の合計）。
+// 入出庫は方向別の品目数（inCount/outCount）を出す（合算金額は意味が無いためセルでは出さない）。
 const cellInfo = computed(() => {
   if (filter.value === 'all') return null
   if (filter.value === 'move') {
     const map = {}
     for (const [k, arr] of Object.entries(moveByDate.value)) {
-      const inCount = arr.filter(m => m.type === 'in').length
-      map[k] = { count: arr.length, inCount, outCount: arr.length - inCount, amount: null }
+      let inCount = 0
+      let outCount = 0
+      for (const m of arr) {
+        const n = (m.lines || []).length
+        if (m.type === 'out') outCount += n
+        else inCount += n
+      }
+      map[k] = { count: inCount + outCount, inCount, outCount, amount: null }
     }
     return map
   }
   const src = filter.value === 'stock' ? stockByDate.value : orderByDate.value
   const calc = filter.value === 'stock' ? _stockValue : _orderValue
+  const countItems = filter.value === 'stock'
+    ? (rec) => _stockItemCount(rec)
+    : (rec) => (rec.lines || []).length
   const map = {}
   for (const [k, arr] of Object.entries(src)) {
     let total = 0
     let has = false
+    let items = 0
     for (const rec of arr) {
       const v = calc(rec)
       if (v.amount != null) { total += v.amount; has = true }
+      items += countItems(rec)
     }
-    map[k] = { count: arr.length, amount: has ? total : null }
+    map[k] = { count: items, amount: has ? total : null }
   }
   return map
 })
@@ -333,7 +345,7 @@ function onDeleteMove(id) {
                 <span v-if="cellInfo[cell.key].outCount" class="hc-ci-count ci-out">出{{ cellInfo[cell.key].outCount }}</span>
               </template>
               <template v-else>
-                <span class="hc-ci-count">{{ cellInfo[cell.key].count }}件</span>
+                <span class="hc-ci-count">{{ cellInfo[cell.key].count }}品目</span>
                 <span v-if="cellInfo[cell.key].amount != null" class="hc-ci-amt">{{ fmtYenShort(cellInfo[cell.key].amount) }}</span>
               </template>
             </span>
