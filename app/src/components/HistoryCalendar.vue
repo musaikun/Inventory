@@ -2,6 +2,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
+import { useConfig } from '../composables/useConfig.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // 日を選ぶ → その日の履歴（種類別）を見る。
@@ -14,6 +15,7 @@ const emit = defineEmits(['view-session', 'delete-session'])
 
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders, deleteOrder } = useOrders()
+const { config } = useConfig()
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -130,6 +132,17 @@ function _hasAny(key) {
 
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
 const selectedOrders = computed(() => (selectedKey.value ? orderByDate.value[selectedKey.value] || [] : []))
+
+const selectedStockRows = computed(() => selectedStock.value.map(s => ({ s, ..._stockValue(s) })))
+const selectedOrderRows = computed(() => selectedOrders.value.map(o => ({ o, ..._orderValue(o) })))
+function _sumRows(rows) {
+  let t = 0
+  let has = false
+  for (const r of rows) if (r.amount != null) { t += r.amount; has = true }
+  return has ? t : null
+}
+const selStockTotal = computed(() => _sumRows(selectedStockRows.value))
+const selOrderTotal = computed(() => _sumRows(selectedOrderRows.value))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
 
 const selectedLabel = computed(() => {
@@ -144,6 +157,64 @@ function _stockItemCount(s) {
   if (snap) return snap.items.filter(i => i.qty != null).length
   return s.itemCount ?? 0
 }
+
+// ── 金額 ─────────────────────────────────
+// 棚卸 = スナップショットの totalValue（保存時単価）。
+// 発注 = レコードに単価が無いため、品目マスタの現在単価 × 数量で概算。
+function _stockValue(s) {
+  const snap = getSnapshotBySessionId(s.id)
+  if (!snap) return { amount: null, noData: true, unpriced: [] }
+  const unpriced = snap.items.filter(i => i.qty != null && i.unitPrice == null).map(i => i.item)
+  return { amount: snap.totalValue ?? null, noData: false, unpriced }
+}
+
+function _orderValue(o) {
+  let total = 0
+  let has = false
+  const unpriced = []
+  for (const l of o.lines) {
+    const p = Number(config.prices?.[l.item])
+    if (Number.isFinite(p) && p > 0) { total += Math.round(l.qty * p); has = true }
+    else unpriced.push(l.item)
+  }
+  return { amount: has ? total : null, noData: false, unpriced }
+}
+
+function fmtYen(v) {
+  return v == null ? '' : `¥${v.toLocaleString()}`
+}
+
+// セル用の短縮表記（例: 12,400 → 1.2万）
+function fmtYenShort(v) {
+  if (v == null) return ''
+  if (v >= 1e8) return `${(v / 1e8).toFixed(v < 1e9 ? 1 : 0).replace(/\.0$/, '')}億`
+  if (v >= 1e4) return `${(v / 1e4).toFixed(v < 1e5 ? 1 : 0).replace(/\.0$/, '')}万`
+  return `¥${v.toLocaleString()}`
+}
+
+const UNPRICED_MAX = 8
+function _fmtUnpriced(list) {
+  if (list.length <= UNPRICED_MAX) return list.join('、')
+  return `${list.slice(0, UNPRICED_MAX).join('、')} 他${list.length - UNPRICED_MAX}品目`
+}
+
+// 単一フィルタ時のみ: 日付キー → { count, amount }（金額が1件も無い日は amount: null）
+const cellInfo = computed(() => {
+  if (filter.value === 'all') return null
+  const src = filter.value === 'stock' ? stockByDate.value : orderByDate.value
+  const calc = filter.value === 'stock' ? _stockValue : _orderValue
+  const map = {}
+  for (const [k, arr] of Object.entries(src)) {
+    let total = 0
+    let has = false
+    for (const rec of arr) {
+      const v = calc(rec)
+      if (v.amount != null) { total += v.amount; has = true }
+    }
+    map[k] = { count: arr.length, amount: has ? total : null }
+  }
+  return map
+})
 function _timeLabel(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -200,9 +271,13 @@ function onDeleteOrder(id) {
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6 }]">{{ cell.d }}</span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
-            <span class="hc-dots">
+            <span v-if="!cellInfo" class="hc-dots">
               <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
               <span v-if="showOrder && cell.orders.length" class="dot dot-order"></span>
+            </span>
+            <span v-else-if="cellInfo[cell.key]" :class="['hc-cell-info', filter]">
+              <span class="hc-ci-count">{{ cellInfo[cell.key].count }}件</span>
+              <span v-if="cellInfo[cell.key].amount != null" class="hc-ci-amt">{{ fmtYenShort(cellInfo[cell.key].amount) }}</span>
             </span>
           </template>
         </div>
@@ -222,38 +297,52 @@ function onDeleteOrder(id) {
 
       <!-- 棚卸 -->
       <template v-if="showStock && selectedStock.length">
-        <div class="hc-sec-title"><span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）</div>
+        <div class="hc-sec-title">
+          <span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）
+          <span v-if="selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
+        </div>
         <div
-          v-for="s in selectedStock"
-          :key="s.id"
+          v-for="r in selectedStockRows"
+          :key="r.s.id"
           class="hc-entry hc-entry-stock"
-          @click="emit('view-session', s)"
+          @click="emit('view-session', r.s)"
         >
           <div class="hc-entry-main">
-            <span class="hc-entry-time">{{ _timeLabel(s.endedAt ?? s.startedAt) }}</span>
-            <span class="hc-entry-info">📦 {{ _stockItemCount(s) }}品目</span>
-            <button class="hc-entry-del" @click.stop="emit('delete-session', s)" title="削除">🗑</button>
+            <span class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
+            <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
+            <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+            <button class="hc-entry-del" @click.stop="emit('delete-session', r.s)" title="削除">🗑</button>
             <span class="hc-entry-arrow">詳細 ›</span>
           </div>
+          <div v-if="r.noData" class="hc-entry-warn">この端末に明細データが無いため、金額を計算できません</div>
+          <div v-else-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+          <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
         </div>
       </template>
 
       <!-- 発注 -->
       <template v-if="showOrder && selectedOrders.length">
-        <div class="hc-sec-title"><span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）</div>
-        <div v-for="o in selectedOrders" :key="o.id" class="hc-entry hc-entry-order">
-          <div class="hc-entry-main" @click="toggleOrder(o.id)">
-            <span class="hc-order-sup">{{ o.supplier || '（未分類）' }}</span>
-            <span class="hc-entry-info">🧾 {{ o.lines.length }}品目</span>
-            <button class="hc-entry-del" @click.stop="onDeleteOrder(o.id)" title="削除">🗑</button>
-            <span class="hc-entry-arrow">{{ expanded[o.id] ? '▲' : '▼' }}</span>
+        <div class="hc-sec-title">
+          <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
+          <span v-if="selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
+        </div>
+        <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order">
+          <div class="hc-entry-main" @click="toggleOrder(r.o.id)">
+            <span class="hc-order-sup">{{ r.o.supplier || '（未分類）' }}</span>
+            <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
+            <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+            <button class="hc-entry-del" @click.stop="onDeleteOrder(r.o.id)" title="削除">🗑</button>
+            <span class="hc-entry-arrow">{{ expanded[r.o.id] ? '▲' : '▼' }}</span>
           </div>
-          <div v-if="expanded[o.id]" class="hc-order-lines">
-            <div v-for="l in o.lines" :key="l.item" class="hc-order-line">
+          <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+          <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
+          <div v-if="expanded[r.o.id]" class="hc-order-lines">
+            <div v-for="l in r.o.lines" :key="l.item" class="hc-order-line">
               <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
             </div>
           </div>
         </div>
+        <div v-if="selOrderTotal != null" class="hc-est-note">※ 発注金額は品目マスタの現在の単価による概算です</div>
       </template>
 
       <div v-if="!(showStock && selectedStock.length) && !(showOrder && selectedOrders.length)" class="hc-empty">
@@ -301,6 +390,12 @@ function onDeleteOrder(id) {
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }
 .hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; }
 
+.hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.hc-cell-info.stock { color: #2563eb; }
+.hc-cell-info.order { color: #d97706; }
+.hc-ci-count { font-size: 9px; font-weight: 700; line-height: 1; }
+.hc-ci-amt { font-size: 9px; font-weight: 800; line-height: 1; white-space: nowrap; }
+
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
 .hc-sheet-date { font-weight: 700; font-size: 15px; color: #1f2937; }
@@ -309,6 +404,7 @@ function onDeleteOrder(id) {
 
 .hc-sec-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #6b7280; margin: 10px 0 6px; }
 .hc-sec-title:first-of-type { margin-top: 2px; }
+.hc-sec-total { margin-left: auto; font-size: 13px; font-weight: 800; color: #1f2937; }
 
 .hc-entry { border: 1px solid #eef0f2; border-radius: 10px; margin-bottom: 6px; overflow: hidden; }
 .hc-entry-stock { cursor: pointer; }
@@ -317,9 +413,13 @@ function onDeleteOrder(id) {
 .hc-entry-time { font-size: 12px; color: #6b7280; flex-shrink: 0; }
 .hc-order-sup { font-size: 14px; font-weight: 700; color: #374151; }
 .hc-entry-info { font-size: 13px; color: #4b5563; }
-.hc-entry-del { border: none; background: none; cursor: pointer; font-size: 14px; margin-left: auto; }
+.hc-entry-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: #1f2937; flex-shrink: 0; white-space: nowrap; }
+.hc-entry-amt.none { font-size: 11px; font-weight: 600; color: #9ca3af; }
+.hc-entry-del { border: none; background: none; cursor: pointer; font-size: 14px; }
 .hc-entry-arrow { font-size: 12px; color: #9ca3af; flex-shrink: 0; }
 .hc-entry-order .hc-entry-main { cursor: pointer; }
+.hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
+.hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 
 .hc-order-lines { border-top: 1px solid #f3f4f6; }
 .hc-order-line { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #f8fafc; }
