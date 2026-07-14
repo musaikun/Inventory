@@ -5,6 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
+import { parseLot } from '../services/lot.js'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -100,6 +101,10 @@ function theoOf(item) {
 }
 function unitOf(item) { return config.units?.[item] ?? '' }
 
+// 入数（ケース1箱あたりのバラ数）。未設定なら null＝変換不要（バラ入力のみ）。
+function lotOf(item) { return parseLot(config.lotSizes?.[item]) }
+function hasLot(item) { return (lotOf(item) ?? 1) > 1 }
+
 function _delta(item) {
   const v = Number(deltas[item])
   return Number.isFinite(v) ? v : 0
@@ -107,9 +112,26 @@ function _delta(item) {
 function step(item, d) {
   deltas[item] = Math.round((_delta(item) + d) * 1000) / 1000
 }
+// ケース単位で増減（＋入庫/−出庫）。入数ぶんのバラに変換して delta に足す。
+function stepCase(item, sign) {
+  const lot = lotOf(item)
+  if (lot) step(item, sign * lot)
+}
 function onInput(item, e) {
   const v = e.target.value
   deltas[item] = v === '' || v === '-' ? 0 : Number(v)
+}
+// バラ数 → ケース内訳の表示（入数がある品目のみ）。例: 53本(入数24) → "2ケース +5"
+function caseBreakdown(item) {
+  const lot = lotOf(item)
+  const d = _delta(item)
+  if (!lot || d === 0) return ''
+  const sign = d < 0 ? '−' : ''
+  const abs = Math.abs(d)
+  const cases = Math.floor(abs / lot)
+  const rem = Math.round((abs - cases * lot) * 1000) / 1000
+  if (cases === 0) return ''
+  return `${sign}${cases}ケース${rem ? ` +${rem}` : ''}`
 }
 
 // 変更のある品目（記録対象）
@@ -221,19 +243,27 @@ function onSave() {
                 <span class="mv-item-theo">
                   理論 {{ theoOf(item) != null ? theoOf(item) : '—' }}{{ unitOf(item)
                   }}<template v-if="_delta(item) !== 0 && theoOf(item) != null"> → <b :class="_delta(item) > 0 ? 'up' : 'down'">{{ theoOf(item) + _delta(item) }}</b></template>
+                  <span v-if="hasLot(item)" class="mv-lot">入数{{ lotOf(item) }}</span>
+                  <span v-if="caseBreakdown(item)" class="mv-cases">{{ caseBreakdown(item) }}</span>
                 </span>
               </div>
-              <div class="mv-stepper">
-                <button class="mv-step out" @click="step(item, -1)" type="button">−</button>
-                <input
-                  class="mv-step-val"
-                  :class="{ pos: _delta(item) > 0, neg: _delta(item) < 0 }"
-                  type="number" inputmode="numeric"
-                  :value="_delta(item) || ''"
-                  placeholder="0"
-                  @input="onInput(item, $event)"
-                />
-                <button class="mv-step in" @click="step(item, 1)" type="button">＋</button>
+              <div class="mv-row-ctl">
+                <div v-if="hasLot(item)" class="mv-case-ctl">
+                  <button class="mv-case-btn out" @click="stepCase(item, -1)" type="button" title="1ケース出庫">−箱</button>
+                  <button class="mv-case-btn in" @click="stepCase(item, 1)" type="button" title="1ケース入庫">＋箱</button>
+                </div>
+                <div class="mv-stepper">
+                  <button class="mv-step out" @click="step(item, -1)" type="button">−</button>
+                  <input
+                    class="mv-step-val"
+                    :class="{ pos: _delta(item) > 0, neg: _delta(item) < 0 }"
+                    type="number" inputmode="numeric"
+                    :value="_delta(item) || ''"
+                    placeholder="0"
+                    @input="onInput(item, $event)"
+                  />
+                  <button class="mv-step in" @click="step(item, 1)" type="button">＋</button>
+                </div>
               </div>
             </div>
           </div>
@@ -310,6 +340,15 @@ function onSave() {
 .mv-item-theo { font-size: 11.5px; color: #94a3b8; }
 .mv-item-theo b.up { color: #059669; }
 .mv-item-theo b.down { color: #dc2626; }
+.mv-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 8px; padding: 1px 6px; }
+.mv-cases { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #059669; }
+
+.mv-row-ctl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.mv-case-ctl { display: flex; flex-direction: column; gap: 3px; }
+.mv-case-btn { border: 1.5px solid #e2e8f0; background: #fff; border-radius: 7px; padding: 2px 6px; font-size: 11px; font-weight: 800; cursor: pointer; line-height: 1.3; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+.mv-case-btn.in { color: #059669; border-color: #a7f3d0; }
+.mv-case-btn.out { color: #dc2626; border-color: #fecaca; }
+.mv-case-btn:active { transform: scale(0.94); }
 
 .mv-stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .mv-step { width: 34px; height: 34px; border-radius: 9px; border: 1.5px solid #e2e8f0; background: #fff; font-size: 18px; font-weight: 700; cursor: pointer; line-height: 1; -webkit-tap-highlight-color: transparent; }
