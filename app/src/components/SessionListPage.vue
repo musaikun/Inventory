@@ -33,7 +33,10 @@ const dashboardSnapshots = computed(() => getSnapshots())
 const sessions       = ref([])
 const loading        = ref(true)
 const error          = ref('')
-const starting       = ref(false)
+// どのカードを開始処理中か（null | 'stock' | 'order'）。棚卸カードの「開始中」表示を
+// 発注開始で誤点灯させないため種別で持つ。disabled 判定は starting(computed)で共用。
+const startingKind   = ref(null)
+const starting       = computed(() => startingKind.value !== null)
 const deletingId     = ref(null)
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
@@ -213,14 +216,14 @@ function onStartNew() {
 
 async function confirmStart() {
   showStartModal.value = false
-  starting.value = true
+  startingKind.value = 'stock'
   try {
     const session = await createSession()
     emit('startSession', session)
   } catch (e) {
     error.value = e.message
   } finally {
-    starting.value = false
+    startingKind.value = null
   }
 }
 
@@ -236,14 +239,14 @@ function onImportList() {
 // 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
 async function onStartOrder() {
   if (itemCount.value === 0) { error.value = '先に品目マスタを登録してください（取込む、または棚卸で追加）'; return }
-  starting.value = true
+  startingKind.value = 'order'
   try {
     const session = await createSession('order')
     emit('startSession', session, 'order')
   } catch (e) {
     error.value = e.message
   } finally {
-    starting.value = false
+    startingKind.value = null
   }
 }
 
@@ -445,7 +448,7 @@ function _itemCount(session) {
           <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
             <div class="hero-start-icon">👥</div>
             <div class="hero-start-text">
-              <div class="hero-start-title">{{ starting ? '開始中...' : '棚卸を開始' }}</div>
+              <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
               <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
             </div>
             <div class="hero-start-arrow">→</div>
@@ -517,7 +520,7 @@ function _itemCount(session) {
           <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="starting || itemCount === 0" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
-              <div class="order-start-title">発注確認を開始</div>
+              <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注確認を開始' }}</div>
               <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注をまとめて記録' }}</div>
             </div>
             <div class="order-start-arrow">→</div>
