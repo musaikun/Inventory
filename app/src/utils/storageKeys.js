@@ -30,4 +30,5 @@ export const STORAGE_KEYS = {
   tapContinuous:    'inv_tap_continuous',
   orders:           'inventory_orders_v1',
   movements:        'inventory_movements_v1',
+  pdfProfiles:      'inventory_pdf_profiles_v1',  // PDF列マッピングのレシピ保存
 }

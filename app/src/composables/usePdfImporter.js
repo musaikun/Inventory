@@ -357,6 +357,7 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
 
   const items      = []
   const debugLines = []
+  const pages      = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
     if (signal?.aborted) {
@@ -368,6 +369,7 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
 
     const page      = await pdf.getPage(p)
     const pageItems = await getPdfPageItems(page)
+    pages.push({ tokens: pageItems, rotate: page.rotate })
 
     if (p === 1) {
       const vp = page.getViewport({ scale: 1 })
@@ -388,7 +390,7 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
   }
 
   pdf.destroy()
-  return { items, debugLines }
+  return { items, debugLines, pages }
 }
 
 // ── エイリアス自動生成ルール ──────────────────────────────────────────────────

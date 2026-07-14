@@ -113,6 +113,25 @@ function _mapRow(cells, columns) {
 }
 
 /**
+ * 手動マッピング/プロファイルで指定した列に沿って抽出する（汎用検出に頼らない）。
+ * columns = [{ field, x }]（見本行でユーザーがタップした列）。
+ * fromY = データ開始行の y（この y 以下＝表の下方向をデータとみなす）。省略時は全行。
+ * @returns {Array<{name,unit,price,category,code,packQty,prevMonth}>}
+ */
+export function extractRows(items, columns, { fromY = Infinity } = {}) {
+  if (!Array.isArray(items) || !Array.isArray(columns) || columns.length < 2) return []
+  if (!columns.some(c => c.field === 'name')) return []
+  const rows = _clusterRows(items).filter(r => r.y <= fromY + ROW_TOL)
+  const cols = [...columns].sort((a, b) => a.x - b.x)
+  const products = []
+  for (const row of rows) {
+    const rec = _mapRow(row.cells, cols)
+    if (rec && rec.name && !_isMeta(rec.name)) products.push(rec)
+  }
+  return products
+}
+
+/**
  * 汎用テーブル解析。items = [{ text, x, y }]（rotate=0の読み方向座標）。
  * @returns {Array<{name,unit,price,category,code,packQty,prevMonth}>}
  */

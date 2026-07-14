@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseGenericTable } from './pdfTableParser.js'
+import { parseGenericTable, extractRows } from './pdfTableParser.js'
 
 // 実サンプルPDF（テキスト層あり・rotate=0）から抽出した座標を使う
 
@@ -77,5 +77,57 @@ describe('parseGenericTable', () => {
       { text: '牛乳', x: 57, y: 655 }, { text: '本', x: 334, y: 655 }, { text: '220', x: 397, y: 655 },
     ]
     expect(parseGenericTable(items)).toEqual([])
+  })
+})
+
+describe('extractRows（手動マッピング/プロファイル適用）', () => {
+  // 見本行でユーザーがタップした列（フィールドとx）を指定して抽出する
+  const columns = [
+    { field: 'code', x: 60 }, { field: 'name', x: 122 },
+    { field: 'category', x: 320 }, { field: 'unit', x: 377 },
+    { field: 'price', x: 420 }, { field: 'qty', x: 482 },
+  ]
+
+  it('指定した列に沿って各行を抽出する', () => {
+    const items = [
+      // ヘッダ y=714（fromY より上なので除外される）
+      { text: '品目コード', x: 60, y: 714 }, { text: '品目名', x: 122, y: 714 },
+      { text: '分類', x: 320, y: 714 }, { text: '単位', x: 377, y: 714 },
+      { text: '単価', x: 420, y: 714 }, { text: '数量', x: 482, y: 714 },
+      // データ y=688
+      { text: '1001', x: 60, y: 688 }, { text: 'コーヒー豆(ブレンド)', x: 122, y: 688 },
+      { text: '食材', x: 320, y: 688 }, { text: '袋', x: 377, y: 688 },
+      { text: '980', x: 463, y: 688 }, { text: '40', x: 519, y: 688 },
+      // データ y=666
+      { text: '1002', x: 60, y: 666 }, { text: '牛乳', x: 122, y: 666 },
+      { text: '食材', x: 320, y: 666 }, { text: '本', x: 377, y: 666 },
+      { text: '220', x: 463, y: 666 }, { text: '30', x: 519, y: 666 },
+    ]
+    const out = extractRows(items, columns, { fromY: 700 })
+    expect(out.map(p => p.name)).toEqual(['コーヒー豆(ブレンド)', '牛乳'])
+    expect(out[0]).toMatchObject({ code: '1001', category: '食材', unit: '袋', price: '980' })
+    expect(out[1]).toMatchObject({ code: '1002', unit: '本', price: '220' })
+  })
+
+  it('fromY より上の行（見出し・ヘッダ）は除外する', () => {
+    const items = [
+      { text: '品目一覧', x: 60, y: 800 },
+      { text: '品目コード', x: 60, y: 714 }, { text: '品目名', x: 122, y: 714 },
+      { text: '1001', x: 60, y: 688 }, { text: 'コーヒー豆', x: 122, y: 688 },
+      { text: '980', x: 463, y: 688 },
+    ]
+    const out = extractRows(items, columns, { fromY: 700 })
+    expect(out.map(p => p.name)).toEqual(['コーヒー豆'])
+  })
+
+  it('name 列が無い指定は空配列', () => {
+    const items = [{ text: '1001', x: 60, y: 688 }, { text: '980', x: 463, y: 688 }]
+    expect(extractRows(items, [{ field: 'code', x: 60 }, { field: 'price', x: 420 }], {})).toEqual([])
+  })
+
+  it('列が1つ以下、または不正入力は空配列', () => {
+    expect(extractRows([], columns, {})).toEqual([])
+    expect(extractRows([{ text: 'x', x: 1, y: 1 }], [{ field: 'name', x: 1 }], {})).toEqual([])
+    expect(extractRows(null, columns, {})).toEqual([])
   })
 })
