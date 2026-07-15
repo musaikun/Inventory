@@ -31,4 +31,5 @@ export const STORAGE_KEYS = {
   orders:           'inventory_orders_v1',
   movements:        'inventory_movements_v1',
   pdfProfiles:      'inventory_pdf_profiles_v1',  // PDF列マッピングのレシピ保存
+  dataOwner:        '_data_owner',   // localStorage の業務データが属する店舗コード（アカウント分離用）
 }

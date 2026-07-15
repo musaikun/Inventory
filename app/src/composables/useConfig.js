@@ -209,6 +209,22 @@ _load()
 _loadAliases()
 _loadMaster()
 
+// アカウント切替時のローカル全消去（品目マスタ・辞書・学習エイリアス）。
+// メモリと localStorage の両方を初期状態へ戻す（前アカウントのデータ残存＝漏洩を防ぐ）。
+export function resetLocalData() {
+  _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT } })
+  config.manualItems = []
+  config.isCustom    = false
+  config.savedAt     = null
+  for (const k of Object.keys(learnedAliases)) delete learnedAliases[k]
+  for (const k of Object.keys(masterDict))     delete masterDict[k]
+  try {
+    localStorage.removeItem(CONFIG_KEY)
+    localStorage.removeItem(ALIASES_KEY)
+    localStorage.removeItem(MASTER_KEY)
+  } catch (_) {}
+}
+
 // ── リモート設定の適用（同期ゲスト参加時にホストの品目リストを受け取る） ───────
 export function applyRemoteConfig(cfg) {
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return

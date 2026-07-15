@@ -40,7 +40,8 @@ import { useMovements } from './composables/useMovements.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
-import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler } from './composables/useAuth.js'
+import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -708,6 +709,15 @@ setNewSessionStartedCallback(() => {
   showToast('ホストが新しい棚卸を開始したため退室します', 4000, 'warning')
   _hostCompletedLeave = true
   leaveRoom()
+})
+
+// 別アカウントでログイン/登録したとき、前アカウントのローカルデータを全消去する
+// （品目マスタ・棚卸・発注・入出庫・履歴等がアカウント境界を越えて見える漏洩を防ぐ）
+setAccountResetHandler(() => {
+  clearLocalAccountData()
+  clearSession()
+  reset()
+  clearAuditLog()
 })
 
 // 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき

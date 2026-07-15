@@ -23,6 +23,12 @@ function _persist() {
 
 _load()
 
+// アカウント切替時のローカル全消去（入出庫レコード）。
+export function resetLocalData() {
+  _data.list = []
+  try { localStorage.removeItem(STORAGE_KEYS.movements) } catch (_) {}
+}
+
 function _today() { return new Date().toISOString().slice(0, 10) }
 function _uid() { return 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }
 

@@ -66,6 +66,31 @@
 - **テスト**: `authHandler.test.js` — PBKDF2形式・衝突しない・旧hash移行成功・誤PINは非移行
 - **残**: PIN 4桁の空間は依然 10^4。総当たりスプレー（1234等×全店舗）への追加対策（6桁化 or 頻出PIN拒否）は別途検討
 
+### S-10 ✅ クロスアカウントのデータ漏洩（同一ブラウザでの残存）
+- **リスク**: 品目マスタ・棚卸・発注・入出庫・履歴・辞書が shopCode で名前空間を分けない
+  固定 localStorage キー（`inventory_config_v1` 等）＋モジュールスコープのメモリに保持され、
+  `logout()` は認証キーのみ削除・`login()` は新 shopCode を設定するだけ。さらに発注は
+  `applyRemoteOrders` がマージ、入出庫は D1 非同期で localStorage 専用。結果、**同一ブラウザで
+  アカウントを切り替えると前アカウントの全データが見えてしまう**（実報告あり）
+- **原因の切り分け**: サーバー(D1)は全クエリ `WHERE shop_code = ?` でテナント分離済み。
+  入出庫（サーバーに存在しない localStorage 専用データ）まで漏れていた事実が、原因が
+  **クライアントのローカル永続化**であることの決定的証拠
+- **対策**: 「この端末の業務データが属する店舗」を示す `_data_owner` マーカーを導入。
+  ログイン/登録時に `_data_owner`（無ければ直前の `_shop_code`）と異なるアカウントなら、
+  前アカウントのローカルデータ（メモリ＋localStorage）を全消去してから新アカウントを確立する。
+  対象: config/inventory/orders/movements/history/aliases/master/進行中セッション/下書き/
+  ホストトークン/同期セッション/PDFレシピ。端末固有設定（deviceId/deviceName/UI設定）は保持
+- **実装**: 各 composable の `resetLocalData()`、`composables/accountData.js`
+  （`clearLocalAccountData`）、`useAuth.js`（`_ensureAccountData` / `setAccountResetHandler`）、
+  `App.vue`（ハンドラ登録）
+- **テスト**: `accountData.test.js` — 全消去・別アカウント切替で消去・同一アカウントは保持・
+  旧インストール移行
+- **残（別対応）**: ①入出庫は D1 非同期のため、切替時に消えると復元不可 → 入出庫の D1 同期が必要
+  （耐久性・分離の両面）。②`tanaoro_push_subscribed` はアカウント跨ぎで残り、プッシュの
+  宛先ズレの可能性（表示漏洩ではない）。③プレーンなログアウトでは消さない設計（同一アカウント
+  再ログイン時のローカル専用データ保持のため）。共有端末での「ログアウト後・未ログイン時」の
+  残存は入出庫の D1 同期後にログアウト全消去へ引き上げる
+
 ---
 
 ## 残課題（優先度順）

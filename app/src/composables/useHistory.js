@@ -20,6 +20,12 @@ function _persist() {
 
 _load()
 
+// アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
+export function resetLocalData() {
+  for (const k of Object.keys(_data)) delete _data[k]
+  try { localStorage.removeItem(STORAGE_KEYS.history) } catch (_) {}
+}
+
 export function useHistory() {
   /**
    * 棚卸完了時にスナップショットを保存

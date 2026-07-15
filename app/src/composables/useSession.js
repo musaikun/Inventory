@@ -28,6 +28,13 @@ function _canWrite() {
   return isAuthenticated.value && !!pendingSession.value?.id
 }
 
+// アカウント切替時のローカル全消去（進行中セッション）。watch が localStorage も消す。
+export function resetLocalData() {
+  _cancelTouch()
+  _finalized = false
+  pendingSession.value = null
+}
+
 function _cancelTouch() {
   clearTimeout(_touchTimer)
   _touchTimer = null
