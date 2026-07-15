@@ -39,6 +39,20 @@
 - **実装**: `index.js` ルームルート共通ゲート + `rateLimiter.js`
 - **テスト**: `index.test.js` — 404/DO非到達・転送・記録・429・別IP非ブロック
 
+### S-A ✅ ホスト乗っ取り（DOトークン復旧の認可強化）
+- **リスク**: `RoomDO` の join は hostToken 不一致でも「空室 / 同一deviceId / 他にホスト不在」のいずれかで
+  トークンを再発行しホスト承認していた。店舗コードを知る第三者（招待URLを受け取った元ゲスト等）が
+  正規ホストのオフライン中に `role: 'host'` で接続するだけで、在庫・**単価**・監査ログ・チャットの取得と
+  ルーム解散が可能だった。②の deviceId は自己申告のため詐称も可能
+- **対策**: PIN設定済み（保護）店舗はホスト権限の（再）発行に **D1認証トークンの検証を必須**化。
+  ブラウザ WS はヘッダを付けられないため、認証トークンは join メッセージに載せ（WSS暗号化）、
+  DO は自分の店舗コード（URLパス由来・Worker で存在検証済み）に対して `verifyAuthToken` で照合する。
+  hostToken 一致の再接続は従来どおり高速パス（D1照合なし）。レガシー（PIN未設定）店舗は後方互換で
+  従来のトポロジ判定を維持。D1障害時はフェイルオープン（レガシー扱い）で可用性を優先
+- **実装**: `RoomDO.js`（`canGrantHost` / `_isStoreProtected` / `_hostAuthOk` / fetch で店舗コード記録）、
+  `authHandler.js`（`verifyAuthToken` 分離）、`useSync.js`（ホスト join に `authToken` 同梱）
+- **テスト**: `RoomDO.hostAuth.test.js` — 保護店舗8ケース（認証必須の確認）／レガシー後方互換
+
 ---
 
 ## 残課題（優先度順）

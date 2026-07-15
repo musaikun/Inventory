@@ -105,14 +105,19 @@ export async function handleLogout(db, request) {
   return { ok: true }
 }
 
-// Bearer トークンを検証して shopCode を返す（無効なら null）
-export async function verifyAuth(db, request) {
-  const token = _extractToken(request)
+// 生トークン文字列を検証して shopCode を返す（無効なら null）
+// WebSocket の join メッセージなど、ヘッダを使えない経路からも呼べるよう分離する。
+export async function verifyAuthToken(db, token) {
   if (!token) return null
   const row = await db.prepare(
     "SELECT shop_code FROM auth_tokens WHERE token = ? AND expires_at > datetime('now')"
   ).bind(token).first()
   return row?.shop_code ?? null
+}
+
+// Bearer トークンを検証して shopCode を返す（無効なら null）
+export async function verifyAuth(db, request) {
+  return verifyAuthToken(db, _extractToken(request))
 }
 
 // 店舗データAPIのアクセス可否（後方互換ソフト認証）。
