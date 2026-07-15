@@ -445,12 +445,12 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
-          <!-- 入出庫の記録（専用ページで品目ごとに増減を入力） -->
+          <!-- 在庫確認・入出庫の記録（専用ページ：在庫/入庫/出庫の3タブ） -->
           <button class="move-start" @click="emit('openMovement')">
             <div class="move-start-icon">📥</div>
             <div class="move-start-text">
-              <div class="move-start-title">入出庫を記録</div>
-              <div class="move-start-sub">仕入の入庫・使用や廃棄の出庫を、品目ごとに記録</div>
+              <div class="move-start-title">在庫・入出庫</div>
+              <div class="move-start-sub">現在の在庫を確認／入庫・出庫を品目ごとに記録</div>
             </div>
             <div class="move-start-arrow">→</div>
           </button>
