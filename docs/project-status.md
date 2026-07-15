@@ -136,6 +136,7 @@
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` | 実装済み（A/B/D/E）＋残設計 |
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` | 設計のみ（一部実装: inventory_lines / complete API） |
+| **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |
 | 手動テスト: 同期コア回帰 | `docs/test-cases.md` | 現行 |
 | 手動テスト: 新機能 | `docs/test-checklist-new-features.md` | 現行 |
 | CI/CD | `docs/ci-cd.md` | 現行 |
@@ -154,3 +155,6 @@
 - **定型作業はスキルに逃がす** — 一次レビュー `/code-review`、確定 `/ship`（ビルド→コミット→プッシュ）
 - **diffは小さく** — 1機能=1コミットを目安に
 - **人間が最終レビュー** — 「テストが通った」≠「正しい」。実機確認を必ず挟む
+- **新機能は共通チェックリストを通す** — `docs/feature-checklist.md`（UI3サイズ・権限・多店舗・
+  同時操作・オフライン・戻る操作 等18観点＋事故由来の項目）。実装セッションがセルフチェック、
+  PM セッションが取り込みレビューで再照合する

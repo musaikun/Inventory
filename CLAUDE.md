@@ -38,6 +38,8 @@ worker/src/
 
 - **ブランチ**: `claude/restaurant-inventory-system-0XNHA`
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
+- **新機能・仕様変更は `docs/feature-checklist.md`（共通DoD）でセルフチェック**してから完了とする。
+  N/A 項目は理由を一言残す。取り込み時に PM セッションが再照合する
 - **構成**: フロント = Cloudflare Pages ／ バックエンド = Cloudflare Worker + D1（すべて Cloudflare に統一）
 - **デプロイ（自動・推奨）**: GitHub Actions（`.github/workflows/deploy.yml`）
   - `main` へ merge → 本番デプロイ（テスト → D1 → Worker → Pages 本番）
