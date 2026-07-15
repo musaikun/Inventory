@@ -3,6 +3,7 @@
 import { insertInventoryLines } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
 import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS } from './constants.js'
+import { entitlement } from './entitlements.js'
 
 function _tooLarge(body) {
   try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
@@ -19,9 +20,9 @@ export async function handleStoreCreate(db) {
 
 // GET /store/:code
 export async function handleStoreGet(db, code) {
-  const row = await db.prepare('SELECT shop_code, active_room, created_at FROM stores WHERE shop_code = ?').bind(code).first()
+  const row = await db.prepare('SELECT shop_code, active_room, created_at, plan FROM stores WHERE shop_code = ?').bind(code).first()
   if (!row) return null
-  return { shopCode: row.shop_code, activeRoom: row.active_room ?? null, createdAt: row.created_at }
+  return { shopCode: row.shop_code, activeRoom: row.active_room ?? null, createdAt: row.created_at, ...entitlement(row) }
 }
 
 // GET /store/:code/config

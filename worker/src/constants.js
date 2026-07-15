@@ -4,6 +4,11 @@ export const LOGIN_MAX_FAILS   = 5                  // max failures per window
 export const TOKEN_EXPIRY_MS   = 30 * 24 * 60 * 60 * 1000  // auth token lifetime
 export const PBKDF2_ITERATIONS = 100_000           // PIN hash stretching (SHA-256 base)
 
+// ── Plan / trial ──────────────────────────────────────────────────────────────
+// 新規登録から TRIAL_DAYS 日間は全機能開放（pro 相当）。以降は stores.plan に従う。
+// 無料/有料の具体的な機能ゲートは未確定のため、現状は算出のみ（サーバー強制は未実装）。
+export const TRIAL_DAYS = 14
+
 // ── IP rate limit (cross-store brute force / room code probing) ──────────────
 export const IP_RATE_WINDOW_MS = 15 * 60 * 1000
 export const IP_MAX_FAILS      = 30

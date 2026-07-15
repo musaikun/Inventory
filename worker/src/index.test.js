@@ -27,13 +27,13 @@ function createMockD1({ failTables = [] } = {}) {
       const r = stores.find(r => r.shop_code === args[0])
       return r ? { pin_hash: r.pin_hash ?? null } : null
     }
-    if (s.startsWith('SELECT shop_code, store_name, pin_hash FROM stores')) {
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
-      return r ? { shop_code: r.shop_code, store_name: r.store_name ?? null, pin_hash: r.pin_hash ?? null } : null
+      return r ? { shop_code: r.shop_code, store_name: r.store_name ?? null, pin_hash: r.pin_hash ?? null, plan: r.plan ?? 'free', created_at: r.created_at ?? '' } : null
     }
-    if (s.startsWith('SELECT shop_code, active_room, created_at FROM stores')) {
+    if (s.startsWith('SELECT shop_code, active_room, created_at, plan FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
-      return r ? { shop_code: r.shop_code, active_room: null, created_at: r.created_at ?? '' } : null
+      return r ? { shop_code: r.shop_code, active_room: null, created_at: r.created_at ?? '', plan: r.plan ?? 'free' } : null
     }
     if (s.startsWith('SELECT shop_code FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null

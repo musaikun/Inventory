@@ -18,7 +18,7 @@ function createMockD1() {
       stores.push({ shop_code, store_name, pin_hash, created_at, updated_at })
       return { success: true }
     }
-    if (s.startsWith('SELECT shop_code, store_name, pin_hash FROM stores')) {
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
     if (s.startsWith('SELECT pin_hash FROM stores')) {
@@ -102,6 +102,18 @@ describe('authHandler', () => {
     expect(res.token).toBeTruthy()
     expect(db._stores).toHaveLength(1)
     expect(db._tokens).toHaveLength(1)
+  })
+
+  it('登録・ログイン応答にプラン／トライアル情報が含まれる（新規はトライアル中＝pro相当）', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    expect(reg.plan).toBe('free')
+    expect(reg.inTrial).toBe(true)
+    expect(reg.isPro).toBe(true)
+    expect(reg.trialEndsAt).toBeTruthy()
+
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(login.isPro).toBe(true)
+    expect(login.trialEndsAt).toBeTruthy()
   })
 
   it('PINが4桁でない場合は400を返し店舗を作らない', async () => {

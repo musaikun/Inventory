@@ -2,6 +2,7 @@
 
 import { _now, genUniqueShopCode } from './workerUtils.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
+import { entitlement } from './entitlements.js'
 
 // ── PIN ハッシュ（PBKDF2・ランダムsalt）─────────────────────────────────────────
 // 新形式: "pbkdf2$<iterations>$<saltB64>$<hashB64>"。
@@ -80,7 +81,8 @@ export async function handleRegister(db, body) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(token, code, expires, now).run()
 
-  return { shopCode: code, token, storeName: storeName || null }
+  // 新規店舗は 'free'（列既定）だが、created_at からトライアル中＝pro相当になる
+  return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan: 'free', created_at: now }) }
 }
 
 // POST /auth/login  body: { shopCode, pin }
@@ -89,7 +91,7 @@ export async function handleLogin(db, body) {
   const pin      = String(body.pin      ?? '').replace(/\D/g, '')
 
   const store = await db.prepare(
-    'SELECT shop_code, store_name, pin_hash FROM stores WHERE shop_code = ?'
+    'SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores WHERE shop_code = ?'
   ).bind(shopCode).first()
 
   if (!store)           return { _status: 401, error: '店舗コードが見つかりません' }
@@ -144,7 +146,7 @@ export async function handleLogin(db, body) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(token, shopCode, expires, now).run()
 
-  return { token, shopCode, storeName: store.store_name ?? null }
+  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store) }
 }
 
 // POST /auth/logout
