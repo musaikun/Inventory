@@ -1,12 +1,53 @@
 // ── 認証（店舗アカウント登録・ログイン・トークン検証）────────────────────────
 
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN } from './constants.js'
+import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
 
-async function _hashPin(shopCode, pin) {
-  const data = `${shopCode}:${pin}`
-  const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data))
+// ── PIN ハッシュ（PBKDF2・ランダムsalt）─────────────────────────────────────────
+// 新形式: "pbkdf2$<iterations>$<saltB64>$<hashB64>"。
+// 旧形式（SHA-256(shopCode:pin) の64桁hex）はログイン成功時に透過的に再ハッシュする。
+function _b64(bytes)  { return btoa(String.fromCharCode(...new Uint8Array(bytes))) }
+function _unb64(s)    { return Uint8Array.from(atob(s), c => c.charCodeAt(0)) }
+
+function _ctEqual(a, b) {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+  return diff === 0
+}
+
+async function _deriveBits(pin, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256)
+  return new Uint8Array(bits)
+}
+
+// 新形式ハッシュを生成する（登録・透過移行で使用）
+async function _hashPin(pin) {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const hash = await _deriveBits(pin, salt, PBKDF2_ITERATIONS)
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${_b64(salt)}$${_b64(hash)}`
+}
+
+// 旧 SHA-256 ハッシュ（後方互換の検証専用）
+async function _legacySha256(shopCode, pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${shopCode}:${pin}`))
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// PIN 照合。{ ok, needsRehash } を返す。
+// needsRehash = 旧形式、または反復回数が現行値より低い（＝より強い形式へ更新すべき）。
+async function _verifyPin(shopCode, pin, storedHash) {
+  if (typeof storedHash === 'string' && storedHash.startsWith('pbkdf2$')) {
+    const [, iterStr, saltB64, hashB64] = storedHash.split('$')
+    const iterations = parseInt(iterStr, 10) || PBKDF2_ITERATIONS
+    let derived
+    try { derived = await _deriveBits(pin, _unb64(saltB64), iterations) }
+    catch { return { ok: false, needsRehash: false } }
+    return { ok: _ctEqual(derived, _unb64(hashB64)), needsRehash: iterations < PBKDF2_ITERATIONS }
+  }
+  const legacy = await _legacySha256(shopCode, pin)
+  return { ok: legacy === storedHash, needsRehash: true }
 }
 
 function _genToken() {
@@ -26,7 +67,7 @@ export async function handleRegister(db, body) {
   if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
 
   const code    = await genUniqueShopCode(db)
-  const pinHash = await _hashPin(code, pin)
+  const pinHash = await _hashPin(pin)
   const token   = _genToken()
   const now     = _now()
   const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()
@@ -68,12 +109,22 @@ export async function handleLogin(db, body) {
     console.error('[auth] login_attempts check failed (fail-open):', e?.message ?? e)
   }
 
-  const pinHash = await _hashPin(shopCode, pin)
-  if (pinHash !== store.pin_hash) {
+  const { ok, needsRehash } = await _verifyPin(shopCode, pin, store.pin_hash)
+  if (!ok) {
     await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
       .bind(shopCode, _now()).run().catch(e =>
         console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
     return { _status: 401, error: 'PINが正しくありません' }
+  }
+
+  // 透過移行: 旧 SHA-256 / 低反復のハッシュを現行 PBKDF2 へ更新する（失敗しても続行）
+  if (needsRehash) {
+    try {
+      await db.prepare('UPDATE stores SET pin_hash = ?, updated_at = ? WHERE shop_code = ?')
+        .bind(await _hashPin(pin), _now(), shopCode).run()
+    } catch (e) {
+      console.error('[auth] pin rehash failed (continue):', e?.message ?? e)
+    }
   }
 
   // 成功: 失敗履歴をクリア

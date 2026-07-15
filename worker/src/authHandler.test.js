@@ -24,6 +24,12 @@ function createMockD1() {
     if (s.startsWith('SELECT pin_hash FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
+    if (s.startsWith('UPDATE stores SET pin_hash')) {
+      const [pin_hash, updated_at, shop_code] = args
+      const r = stores.find(x => x.shop_code === shop_code)
+      if (r) { r.pin_hash = pin_hash; r.updated_at = updated_at }
+      return { success: true }
+    }
     if (s.startsWith('INSERT INTO auth_tokens')) {
       const [token, shop_code, expires_at, created_at] = args
       tokens.push({ token, shop_code, expires_at, created_at })
@@ -139,12 +145,43 @@ describe('authHandler', () => {
     expect(res._status).toBe(401)
   })
 
-  it('PINは店舗コードでソルトされ、別店舗の同一PINでもハッシュが衝突しない', async () => {
+  it('PINはPBKDF2＋ランダムsaltでハッシュされ、同一PINでもハッシュが衝突しない', async () => {
     const a = await handleRegister(db, { pin: '1234' })
     const b = await handleRegister(db, { pin: '1234' })
     const ha = db._stores.find(s => s.shop_code === a.shopCode).pin_hash
     const hb = db._stores.find(s => s.shop_code === b.shopCode).pin_hash
-    expect(ha).not.toBe(hb)
+    expect(ha).toMatch(/^pbkdf2\$100000\$/)   // 新形式（PBKDF2）で保存される
+    expect(ha).not.toBe(hb)                    // ランダムsaltで衝突しない
+  })
+
+  // ── S-B 透過移行: 旧 SHA-256 ハッシュを次回ログイン成功時に PBKDF2 へ更新 ──────
+  it('旧SHA-256ハッシュの店舗は正しいPINでログインでき、ハッシュがPBKDF2へ移行される', async () => {
+    // 旧形式（SHA-256(shopCode:pin)）でシードした店舗を用意
+    const legacyHash = async (code, pin) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${code}:${pin}`))
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+    const code = 'OLDSTR'
+    db._stores.push({ shop_code: code, store_name: null, pin_hash: await legacyHash(code, '1234') })
+
+    const res = await handleLogin(db, { shopCode: code, pin: '1234' })
+    expect(res.token).toBeTruthy()
+    // ログイン成功でハッシュが PBKDF2 形式へ透過移行される
+    expect(db._stores.find(s => s.shop_code === code).pin_hash).toMatch(/^pbkdf2\$/)
+  })
+
+  it('旧SHA-256ハッシュでも誤ったPINは401（移行しない）', async () => {
+    const legacyHash = async (code, pin) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${code}:${pin}`))
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+    const code = 'OLDST2'
+    const original = await legacyHash(code, '1234')
+    db._stores.push({ shop_code: code, store_name: null, pin_hash: original })
+
+    const res = await handleLogin(db, { shopCode: code, pin: '9999' })
+    expect(res._status).toBe(401)
+    expect(db._stores.find(s => s.shop_code === code).pin_hash).toBe(original)  // 変更なし
   })
 
   // verifyAuth
