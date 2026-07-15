@@ -20,6 +20,7 @@ const TAB_ORDER = ['view', 'in', 'out']
 const mode = ref('view')  // 'view' | 'in' | 'out'
 const isRecord = computed(() => mode.value !== 'view')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
+const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
 
 const date  = ref(new Date().toISOString().slice(0, 10))
 const note  = ref('')
@@ -219,12 +220,14 @@ function onSave() {
       <span v-if="isRecord && changed.length" class="mv-count">{{ changed.length }}品目</span>
     </header>
 
-    <!-- モードタブ -->
+    <!-- モードタブ（スライド下線で切替可能を示す）-->
     <div class="mv-tabs">
       <button :class="['mv-tab', { on: mode === 'view' }]" @click="setMode('view')">在庫</button>
       <button :class="['mv-tab', 'in', { on: mode === 'in' }]" @click="setMode('in')">📥 入庫</button>
       <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')">📤 出庫</button>
+      <div class="mv-tab-ind" :class="mode" :style="{ transform: `translateX(${tabIndex * 100}%)` }"></div>
     </div>
+    <div class="mv-swipe-hint">‹ スワイプで切替 ›</div>
 
     <div
       class="mv-scroll"
@@ -366,11 +369,15 @@ function onSave() {
 .mv.out .mv-back, .mv.out .mv-count { color: #dc2626; }
 .mv.out .mv-title { color: #991b1b; }
 
-.mv-tabs { display: flex; gap: 6px; padding: 10px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 49px; z-index: 2; }
-.mv-tab { flex: 1; border: 1.5px solid #e2e8f0; background: #fff; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 800; color: #64748b; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mv-tab.on { border-color: #334155; color: #1e293b; background: #f1f5f9; }
-.mv-tab.in.on  { border-color: #10b981; color: #047857; background: #ecfdf5; }
-.mv-tab.out.on { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+.mv-tabs { position: sticky; top: 49px; z-index: 2; display: flex; padding: 0 8px; background: #fff; border-bottom: 1px solid #e2e8f0; }
+.mv-tab { flex: 1; border: none; background: none; padding: 13px 4px; font-size: 14px; font-weight: 800; color: #94a3b8; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color 0.18s; }
+.mv-tab.on { color: #334155; }
+.mv-tab.in.on  { color: #047857; }
+.mv-tab.out.on { color: #b91c1c; }
+.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 3); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
+.mv-tab-ind.in  { background: #10b981; }
+.mv-tab-ind.out { background: #ef4444; }
+.mv-swipe-hint { text-align: center; font-size: 10.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.08em; padding: 5px 0 0; background: #f8fafc; }
 
 .mv-scroll { flex: 1; padding: 14px; max-width: 620px; margin: 0 auto; width: 100%; overflow-y: auto; overflow-x: hidden; }
 .mv-page { animation: mv-slide-fwd 0.22s ease; }
