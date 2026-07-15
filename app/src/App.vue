@@ -854,6 +854,7 @@ function _closeTopLayer() {
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }

@@ -6,6 +6,7 @@ import { useMovements, deliveryLinesFromOrder } from '../composables/useMovement
 import { useOrders } from '../composables/useOrders.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { parseLot } from '../services/lot.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -15,8 +16,10 @@ const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
 
 // 画面モード: 在庫（読み取り）/ 入庫（記録）/ 出庫（記録）
+const TAB_ORDER = ['view', 'in', 'out']
 const mode = ref('view')  // 'view' | 'in' | 'out'
 const isRecord = computed(() => mode.value !== 'view')
+const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 
 const date  = ref(new Date().toISOString().slice(0, 10))
 const note  = ref('')
@@ -181,9 +184,15 @@ function unlinkOrder() { linkedOrderId.value = null; linkedLabel.value = '' }
 // ── モード切替・保存 ─────────────────────────────
 function setMode(m) {
   if (m === mode.value) return
+  slideDir.value = TAB_ORDER.indexOf(m) > TAB_ORDER.indexOf(mode.value) ? 'fwd' : 'back'
   mode.value = m
   if (m !== 'in') unlinkOrder()
 }
+// 左右スワイプで在庫→入庫→出庫を切り替え
+const swipe = useHorizontalSwipe({
+  onLeft:  () => { const i = TAB_ORDER.indexOf(mode.value); if (i < TAB_ORDER.length - 1) setMode(TAB_ORDER[i + 1]) },
+  onRight: () => { const i = TAB_ORDER.indexOf(mode.value); if (i > 0) setMode(TAB_ORDER[i - 1]) },
+})
 function onSave() {
   if (!canSave.value) return
   saveMovement({
@@ -217,7 +226,13 @@ function onSave() {
       <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')">📤 出庫</button>
     </div>
 
-    <div class="mv-scroll">
+    <div
+      class="mv-scroll"
+      @touchstart.passive="swipe.onTouchStart"
+      @touchmove.passive="swipe.onTouchMove"
+      @touchend.passive="swipe.onTouchEnd"
+    >
+     <div class="mv-page" :key="mode" :class="slideDir">
       <!-- 記録モード: 日付・メモ・発注取込 -->
       <template v-if="isRecord">
         <div class="mv-controls">
@@ -322,6 +337,7 @@ function onSave() {
         <template v-if="allItems.length === 0">表示中の品目がありません。品目マスタを登録してください。</template>
         <template v-else>「{{ search }}」に一致する品目がありません。</template>
       </div>
+     </div>
     </div>
 
     <!-- 保存バー（記録モードのみ）-->
@@ -356,7 +372,12 @@ function onSave() {
 .mv-tab.in.on  { border-color: #10b981; color: #047857; background: #ecfdf5; }
 .mv-tab.out.on { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
 
-.mv-scroll { flex: 1; padding: 14px; max-width: 620px; margin: 0 auto; width: 100%; overflow-y: auto; }
+.mv-scroll { flex: 1; padding: 14px; max-width: 620px; margin: 0 auto; width: 100%; overflow-y: auto; overflow-x: hidden; }
+.mv-page { animation: mv-slide-fwd 0.22s ease; }
+.mv-page.back { animation: mv-slide-back 0.22s ease; }
+@keyframes mv-slide-fwd  { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+@keyframes mv-slide-back { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mv-page, .mv-page.back { animation: none; } }
 
 .mv-controls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .mv-ctl-row { display: flex; align-items: center; gap: 10px; }
