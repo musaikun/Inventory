@@ -3,6 +3,7 @@ import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder } from '../composables/useMovements.js'
+import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { parseLot } from '../services/lot.js'
@@ -14,6 +15,7 @@ const { config } = useConfig()
 const { getSnapshots } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
+const { draft, clearMode } = useMovementDraft()
 
 // 画面モード: 在庫（読み取り）/ 入庫（記録）/ 出庫（記録）
 const TAB_ORDER = ['view', 'in', 'out']
@@ -22,14 +24,9 @@ const isRecord = computed(() => mode.value !== 'view')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
 
-const date  = ref(new Date().toISOString().slice(0, 10))
-const note  = ref('')
 const search = ref('')
-const linkedOrderId = ref(null)
-const linkedLabel   = ref('')
-
-// 記録中の入力量（モード別に保持）。入庫はケース→バラ変換済みの値、出庫はバラ。すべて正の数。
-const inputs = reactive({ in: {}, out: {} })
+// 日付・メモ・発注紐付け・入力量は draft（localStorage 保持）に持つ。
+// 未記録のままホームへ戻っても入力が残り、ホームカードに「未記録の入力あり」を出せる。
 
 const hiddenSet = computed(() => new Set(config.hiddenItems || []))
 const allItems = computed(() => (config.order || []).filter(n => !hiddenSet.value.has(n)))
@@ -71,11 +68,11 @@ function hasLot(item) { return (lotOf(item) ?? 1) > 1 }
 // ── 入力量の操作（現在の記録モード）─────────────────────────
 function _q(item) {
   if (!isRecord.value) return 0
-  const v = Number(inputs[mode.value][item])
+  const v = Number(draft[mode.value][item])
   return Number.isFinite(v) && v > 0 ? v : 0
 }
 function _set(item, v) {
-  inputs[mode.value][item] = Math.max(0, Math.round(v * 1000) / 1000)
+  draft[mode.value][item] = Math.max(0, Math.round(v * 1000) / 1000)
 }
 function step(item, d) { _set(item, _q(item) + d) }
 function stepCase(item) {           // 入庫のみ: 入数ぶんのバラを足す
@@ -176,18 +173,18 @@ function importOrder(o) {
   const dl = deliveryLinesFromOrder(o)
   if (dl.length === 0) return
   for (const l of dl) _set(l.item, _q(l.item) + l.qty)
-  linkedOrderId.value = o.id
-  linkedLabel.value = `${_md(o.date)} ${o.supplier || '（未分類）'}`
-  if (!note.value) note.value = `${_md(o.date)}発注分の納品`
+  draft.orderId = o.id
+  draft.orderLabel = `${_md(o.date)} ${o.supplier || '（未分類）'}`
+  if (!draft.note) draft.note = `${_md(o.date)}発注分の納品`
 }
-function unlinkOrder() { linkedOrderId.value = null; linkedLabel.value = '' }
+function unlinkOrder() { draft.orderId = null; draft.orderLabel = '' }
 
 // ── モード切替・保存 ─────────────────────────────
+// 発注紐付けは入庫の保存でのみ使う。モード切替では消さない（在庫を見て戻っても保持）。
 function setMode(m) {
   if (m === mode.value) return
   slideDir.value = TAB_ORDER.indexOf(m) > TAB_ORDER.indexOf(mode.value) ? 'fwd' : 'back'
   mode.value = m
-  if (m !== 'in') unlinkOrder()
 }
 // 左右スワイプで在庫→入庫→出庫を切り替え
 const swipe = useHorizontalSwipe({
@@ -196,17 +193,16 @@ const swipe = useHorizontalSwipe({
 })
 function onSave() {
   if (!canSave.value) return
+  const m = mode.value
   saveMovement({
-    type: mode.value === 'out' ? 'out' : 'in',
-    date: date.value,
-    note: note.value,
-    orderId: mode.value === 'in' ? linkedOrderId.value : null,
+    type: m === 'out' ? 'out' : 'in',
+    date: draft.date,
+    note: draft.note,
+    orderId: m === 'in' ? draft.orderId : null,
     lines: recordLines.value,
   })
-  // 保存したモードの入力をクリアし、在庫（確認）に戻って結果を見せる
-  inputs[mode.value] = {}
-  unlinkOrder()
-  note.value = ''
+  // 保存したモードのドラフトをクリアし、在庫（確認）に戻って結果を見せる
+  clearMode(m)
   emit('saved')
   mode.value = 'view'
 }
@@ -241,13 +237,13 @@ function onSave() {
         <div class="mv-controls">
           <div class="mv-ctl-row">
             <label class="mv-ctl-label">日付</label>
-            <input v-model="date" type="date" class="mv-date" />
+            <input v-model="draft.date" type="date" class="mv-date" />
           </div>
-          <input v-model="note" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
+          <input v-model="draft.note" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
         </div>
 
-        <div v-if="mode === 'in' && linkedOrderId" class="mv-linked">
-          🧾 {{ linkedLabel }} の発注を入庫にプリフィル済み
+        <div v-if="mode === 'in' && draft.orderId" class="mv-linked">
+          🧾 {{ draft.orderLabel }} の発注を入庫にプリフィル済み
           <button class="mv-linked-clear" @click="unlinkOrder">解除</button>
         </div>
         <div v-else-if="mode === 'in' && pendingOrders.length" class="mv-orders">

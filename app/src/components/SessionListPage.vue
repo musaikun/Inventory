@@ -14,6 +14,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import { useMovementDraft } from '../composables/useMovementDraft.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
 import { settingsSection } from '../composables/appMenuState.js'
@@ -27,6 +28,7 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
+const { hasDraft: hasMovementDraft, draftCount: movementDraftCount } = useMovementDraft()
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
 
@@ -446,11 +448,16 @@ function _itemCount(session) {
           </button>
 
           <!-- 在庫確認・入出庫の記録（専用ページ：在庫/入庫/出庫の3タブ） -->
-          <button class="move-start" @click="emit('openMovement')">
+          <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
             <div class="move-start-icon">📥</div>
             <div class="move-start-text">
-              <div class="move-start-title">在庫・入出庫</div>
-              <div class="move-start-sub">現在の在庫を確認／入庫・出庫を品目ごとに記録</div>
+              <div class="move-start-title">
+                在庫・入出庫
+                <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
+              </div>
+              <div class="move-start-sub">
+                {{ hasMovementDraft ? '記録していない入力があります（タップで再開）' : '現在の在庫を確認／入庫・出庫を品目ごとに記録' }}
+              </div>
             </div>
             <div class="move-start-arrow">→</div>
           </button>
@@ -952,9 +959,12 @@ function _itemCount(session) {
   flex-shrink: 0;
 }
 .move-start-text { flex: 1; min-width: 0; }
-.move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; }
+.move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; display: flex; align-items: center; gap: 8px; }
 .move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
 .move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
+.move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
+.move-draft-badge { font-size: 11px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
+.move-start.has-draft .move-start-sub { color: #b45309; }
 
 /* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
 .order-start {
