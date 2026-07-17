@@ -35,10 +35,10 @@ const dashboardSnapshots = computed(() => getSnapshots())
 const sessions       = ref([])
 const loading        = ref(true)
 const error          = ref('')
-// どのカードを開始処理中か（null | 'stock' | 'order'）。棚卸カードの「開始中」表示を
-// 発注開始で誤点灯させないため種別で持つ。disabled 判定は starting(computed)で共用。
+// どのカードを開始処理中か（null | 'stock' | 'order'）。棚卸・発注は独立したセッション
+// なので、開始中の「開始中…」表示も disabled も自カードの種別のときだけに閉じる
+// （もう一方のカードを薄く/無効化しない＝互いに影響しないことを見た目でも保証）。
 const startingKind   = ref(null)
-const starting       = computed(() => startingKind.value !== null)
 const deletingId     = ref(null)
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
@@ -447,7 +447,7 @@ function _itemCount(session) {
             <button class="hero-live-resume" @click="onResume(activeSession)">再開する →</button>
           </div>
 
-          <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
+          <button v-else class="hero-start" :disabled="startingKind === 'stock'" @click="onStartNew">
             <div class="hero-start-icon">👥</div>
             <div class="hero-start-text">
               <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
@@ -524,7 +524,7 @@ function _itemCount(session) {
 
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
           </div>
-          <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="starting || itemCount === 0" @click="onStartOrder">
+          <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="startingKind === 'order' || itemCount === 0" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
               <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注確認を開始' }}</div>
@@ -621,7 +621,7 @@ function _itemCount(session) {
             <span class="start-count">{{ itemCount }}件</span>
             <span v-if="listSavedLabel" class="start-date">最終更新：{{ listSavedLabel }}</span>
           </div>
-          <button class="start-btn primary" :disabled="starting" @click="confirmStart">このまま開始</button>
+          <button class="start-btn primary" :disabled="startingKind === 'stock'" @click="confirmStart">このまま開始</button>
           <button class="start-btn ghost" @click="onImportList">最新リストに更新</button>
         </template>
 
@@ -649,13 +649,13 @@ function _itemCount(session) {
             <span class="start-date">サンプル</span>
           </div>
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままサンプルで開始</button>
+          <button class="start-btn ghost-weak" :disabled="startingKind === 'stock'" @click="confirmStart">このままサンプルで開始</button>
         </template>
 
         <!-- その他の開始方法（常時） -->
         <div class="start-alt">
           <div class="start-alt-divider"><span>その他の開始方法</span></div>
-          <button class="start-alt-btn" :disabled="starting" @click="onStartEmpty">
+          <button class="start-alt-btn" :disabled="startingKind === 'stock'" @click="onStartEmpty">
             <span class="start-alt-ico">➕</span>
             <span class="start-alt-body">
               <span class="start-alt-title">空のリストで開始</span>
