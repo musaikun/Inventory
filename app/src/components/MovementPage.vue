@@ -23,6 +23,11 @@ const mode = ref('view')  // 'view' | 'in' | 'out'
 const isRecord = computed(() => mode.value !== 'view')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
+// メモはモード別（入庫/出庫で混ざらない）
+const noteModel = computed({
+  get: () => (mode.value === 'out' ? draft.noteOut : draft.noteIn),
+  set: (v) => { if (mode.value === 'out') draft.noteOut = v; else draft.noteIn = v },
+})
 
 const search = ref('')
 // 日付・メモ・発注紐付け・入力量は draft（localStorage 保持）に持つ。
@@ -172,7 +177,7 @@ function importOrder(o) {
   for (const l of dl) _set(l.item, _q(l.item) + l.qty)
   draft.orderId = o.id
   draft.orderLabel = `${_md(o.date)} ${o.supplier || '（未分類）'}`
-  if (!draft.note) draft.note = `${_md(o.date)}発注分の納品`
+  if (!draft.noteIn) draft.noteIn = `${_md(o.date)}発注分の納品`
 }
 function unlinkOrder() { draft.orderId = null; draft.orderLabel = '' }
 
@@ -194,7 +199,7 @@ function onSave() {
   saveMovement({
     type: m === 'out' ? 'out' : 'in',
     date: draft.date,
-    note: draft.note,
+    note: m === 'out' ? draft.noteOut : draft.noteIn,
     orderId: m === 'in' ? draft.orderId : null,
     lines: recordLines.value,
   })
@@ -236,7 +241,7 @@ function onSave() {
             <label class="mv-ctl-label">日付</label>
             <input v-model="draft.date" type="date" class="mv-date" />
           </div>
-          <input v-model="draft.note" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
+          <input v-model="noteModel" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
         </div>
 
         <div v-if="mode === 'in' && draft.orderId" class="mv-linked">
