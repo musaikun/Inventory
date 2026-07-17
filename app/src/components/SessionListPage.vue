@@ -15,6 +15,8 @@ import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
+import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
+import { useOrders } from '../composables/useOrders.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
 import { settingsSection } from '../composables/appMenuState.js'
@@ -29,6 +31,16 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
+const { getMovements } = useMovements()
+const { getOrders } = useOrders()
+// 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
+const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
+// 入出庫カードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
+const moveCardSub = computed(() => {
+  if (hasMovementDraft.value) return '記録していない入力があります（タップで再開）'
+  if (unreflectedInboundCount.value > 0) return `発注 ${unreflectedInboundCount.value}件が入庫として未反映です（タップで反映）`
+  return '現在の在庫を確認／入庫・出庫を品目ごとに記録'
+})
 function onDiscardMovementDraft() {
   if (!confirm('未記録の入出庫の入力を破棄しますか？')) return
   discardMovementDraft()
@@ -468,9 +480,10 @@ function _itemCount(session) {
                 <div class="move-start-title">
                   在庫・入出庫
                   <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
+                  <span v-if="unreflectedInboundCount > 0" class="move-inbound-badge">🧾 未反映の入庫 {{ unreflectedInboundCount }}</span>
                 </div>
                 <div class="move-start-sub">
-                  {{ hasMovementDraft ? '記録していない入力があります（タップで再開）' : '現在の在庫を確認／入庫・出庫を品目ごとに記録' }}
+                  {{ moveCardSub }}
                 </div>
               </div>
               <div class="move-start-arrow">→</div>
@@ -986,6 +999,7 @@ function _itemCount(session) {
 .move-wrap { position: relative; }
 .move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
 .move-draft-badge { font-size: 11px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
+.move-inbound-badge { font-size: 11px; font-weight: 800; color: #fff; background: #ea580c; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
 .move-start.has-draft .move-start-sub { color: #b45309; }
 .move-discard {
   position: absolute; top: 8px; right: 10px; z-index: 1;

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useMovements, deliveryLinesFromOrder } from './useMovements.js'
+import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from './useMovements.js'
+
+const _daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10)
 
 const m = useMovements()
 
@@ -73,5 +75,39 @@ describe('deliveryLinesFromOrder（発注→入庫行の換算）', () => {
   it('不正な行は除外・空発注は空配列', () => {
     expect(deliveryLinesFromOrder({ lines: [{ item: '', qty: 1 }, { item: 'A', qty: 0 }] })).toEqual([])
     expect(deliveryLinesFromOrder(null)).toEqual([])
+  })
+})
+
+describe('unreflectedOrders（入庫未反映の発注）', () => {
+  it('入庫(orderId)が記録済みの発注は除外し、未記録のものだけ返す', () => {
+    const orders = [
+      { id: 'o1', date: _daysAgo(1), lines: [{ item: 'A', qty: 1 }] },
+      { id: 'o2', date: _daysAgo(2), lines: [{ item: 'B', qty: 1 }] },
+    ]
+    const movements = [{ id: 'm1', type: 'in', orderId: 'o2', lines: [] }]
+    const out = unreflectedOrders(orders, movements, 30)
+    expect(out.map(o => o.id)).toEqual(['o1'])   // o2 は反映済みで除外
+  })
+
+  it('直近 sinceDays 日より古い発注は除外する', () => {
+    const orders = [
+      { id: 'recent', date: _daysAgo(5),  lines: [] },
+      { id: 'old',    date: _daysAgo(40), lines: [] },
+    ]
+    expect(unreflectedOrders(orders, [], 30).map(o => o.id)).toEqual(['recent'])
+  })
+
+  it('日付の新しい順で返す', () => {
+    const orders = [
+      { id: 'a', date: _daysAgo(10), lines: [] },
+      { id: 'b', date: _daysAgo(2),  lines: [] },
+      { id: 'c', date: _daysAgo(6),  lines: [] },
+    ]
+    expect(unreflectedOrders(orders, [], 30).map(o => o.id)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('空・不正入力でも例外なく空配列', () => {
+    expect(unreflectedOrders(undefined, undefined, 30)).toEqual([])
+    expect(unreflectedOrders([], null, 30)).toEqual([])
   })
 })
