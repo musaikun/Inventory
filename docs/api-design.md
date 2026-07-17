@@ -105,7 +105,7 @@ D1 データベース                               ← データを取る
 | メソッド | パス | 役割 |
 |---|---|---|
 | GET | `/room/:code/ws` | WebSocket接続（同期の本体・Durable Object）。店舗存在チェック＋probeレート制限（S-06） |
-| GET | `/room/:code/status` | 退室中ホストのライブ品目数 |
+| GET | `/room/:code/status` | 退室中ホストのライブ品目数（`orderItemCount`＝発注済み品目数も返す） |
 | POST | `/room/:code/dissolve` | 残存ルームの掃除 |
 | GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・金額除去 → `room-url-design.md`） |
 | GET | `/api/push/vapid-key` | プッシュ公開鍵 |
