@@ -822,7 +822,11 @@ function _connect(code) {
         deviceId,
         deviceName: deviceName.value || '名前未設定',
         role:       isHostMode ? 'host' : 'guest',
-        ...(isHostMode ? { hostToken: _loadHostToken() } : { joinSessionId: _joinSessionId || '' }),
+        // authToken = D1認証トークン。PIN設定店舗のホスト権限（再）発行時に
+        // DO 側で照合し、店舗コードを知るだけの第三者による乗っ取りを防ぐ。
+        ...(isHostMode
+          ? { hostToken: _loadHostToken(), authToken: localStorage.getItem(STORAGE_KEYS.authToken) || '' }
+          : { joinSessionId: _joinSessionId || '' }),
       }))
 
       if (isHostMode) {

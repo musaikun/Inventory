@@ -48,9 +48,10 @@ worker/src/
   - `./scripts/deploy.sh frontend` … テスト + ビルド + Pages のみ
   - マイグレーション適用ロジックは `scripts/migrate.sh`（CI と共用）
 - フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルビルド→`wrangler pages deploy` 方式（Pages 側のビルド設定・環境変数は不要）
-- **コメントは書かない**（WHYが非自明な場合のみ1行）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一
+
+（コメント方針・コミット前の検証など全プロジェクト共通のルールは `~/.claude/CLAUDE.md`）
 
 ## 同期の基本設計（バグ調査時の参照用）
 
@@ -66,8 +67,8 @@ worker/src/
 - **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
 - 企業導入（多店舗）設計 → `docs/enterprise-design.md`
 - CI/CD パイプライン → `docs/ci-cd.md`
-- バックログ・優先度 → `docs/backlog.md`
+- 実行計画（トラック別・ウェーブ）→ `docs/roadmap.md`
 - 同期アーキテクチャ詳細 → `docs/sync-spec.md`
-- Phase 2 分析機能仕様 → `docs/phase2.md`
+- 料金・獲得戦略（未実装メモ）→ `docs/pricing-strategy.md`
 - DB設計v2（スケール・10年運用）→ `docs/db-design-v2.md`
 - 新機能テスト項目一覧 → `docs/test-checklist-new-features.md`

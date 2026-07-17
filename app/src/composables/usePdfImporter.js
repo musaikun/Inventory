@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { parseGenericTable } from '../utils/pdfTableParser.js'
 
 // pdfjs-dist は PDF インポート時のみ動的ロード（初期バンドルから除外）
 let _pdfjs = null
@@ -11,6 +12,12 @@ async function _getPdfjs() {
   ).href
   _pdfjs = lib
   return lib
+}
+
+// CJK フォント(CIDフォント)のPDFは cMap が無いとテキスト抽出が0件になる。
+// cmaps は Vite プラグインで dist/cmaps へ配信（プリキャッシュ対象外）。
+function _cMapUrl() {
+  try { return new URL('cmaps/', document.baseURI).href } catch (_) { return undefined }
 }
 
 // ── 共通ユーティリティ ────────────────────────────────────────────────────────
@@ -335,7 +342,7 @@ function parsePdfPageRotated(items) {
 export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
   // PDF は端末内で解析する（外部送信なし）。仕入情報を外に出さないためサーバー送信は行わない。
   const pdfjsLib    = await _getPdfjs()
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), cMapUrl: _cMapUrl(), cMapPacked: true })
   const timeoutId   = setTimeout(() => loadingTask.destroy(), 40000)
 
   let pdf
@@ -350,6 +357,7 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
 
   const items      = []
   const debugLines = []
+  const pages      = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
     if (signal?.aborted) {
@@ -361,6 +369,7 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
 
     const page      = await pdf.getPage(p)
     const pageItems = await getPdfPageItems(page)
+    pages.push({ tokens: pageItems, rotate: page.rotate })
 
     if (p === 1) {
       const vp = page.getViewport({ scale: 1 })
@@ -371,11 +380,17 @@ export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
       }
     }
 
-    items.push(...parsePdfPageRotated(pageItems))
+    // 既知フォーマット（rotate=90帳票）を優先。0件なら汎用パーサーで拾う（rotate=0のみ）
+    const rotated = parsePdfPageRotated(pageItems)
+    if (rotated.length > 0) {
+      items.push(...rotated)
+    } else if (page.rotate === 0 || page.rotate === 360) {
+      items.push(...parseGenericTable(pageItems))
+    }
   }
 
   pdf.destroy()
-  return { items, debugLines }
+  return { items, debugLines, pages }
 }
 
 // ── エイリアス自動生成ルール ──────────────────────────────────────────────────

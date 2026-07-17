@@ -87,6 +87,15 @@ export function applyRemoteRecountFlag(item, on, by = '', at = Date.now()) {
   _save()
 }
 
+// アカウント切替時のローカル全消去（当日の棚卸データ）。
+export function resetLocalData() {
+  for (const k of Object.keys(inventory))    delete inventory[k]
+  for (const k of Object.keys(recountFlags)) delete recountFlags[k]
+  entryLog.splice(0, entryLog.length)
+  completedAt.value = null
+  try { localStorage.removeItem(STORAGE_KEYS.inventory) } catch (_) {}
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useInventory() {
   const { config } = useConfig()

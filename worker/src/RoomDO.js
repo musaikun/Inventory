@@ -4,6 +4,18 @@ import {
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
 } from './constants.js'
+import { verifyAuthToken } from './authHandler.js'
+
+// ホスト権限を（再）発行してよいかの判定。純関数・テスト容易化のため抽出。
+// protectedStore = PIN設定済み店舗（D1認証で守る）。この場合トポロジ（空室・同端末・
+// 他ホスト不在）は信用せず、D1トークンの検証結果 authOk のみで判断する。
+// レガシー店舗（PIN未設定）は後方互換で従来のトポロジ判定を維持する。
+//   ① 空室（再初期化） ② 同一 deviceId のホスト残存（本人のオフライン復帰）
+//   ③ 他にホスト権限を持つ接続が無い（ホスト不在ルームの引き継ぎ）
+export function canGrantHost({ protectedStore, authOk, isEmpty, sameDeviceHost, anyVerifiedHost }) {
+  if (protectedStore) return authOk === true
+  return isEmpty || sameDeviceHost || !anyVerifiedHost
+}
 
 // 品目リスト設定として保存・中継する全フィールドを一箇所で正規化する。
 // App.vue の getter（registerConfigGetter）が送る全フィールドと1:1で対応させること。
@@ -42,6 +54,15 @@ export class RoomDO {
 
   async fetch(request) {
     const url = new URL(request.url)
+    // このDOが担当する店舗コードをパスから記録する（Worker 層で存在検証済み・
+    // ルームID = 店舗コードの統一設計により、パスのコード＝このDOの正体）。
+    // ホスト認証（PIN設定店舗のD1トークン照合）で自分の店舗コードとして使う。
+    const codeMatch = url.pathname.match(/\/room\/([A-Za-z0-9]{4,8})\//)
+    if (codeMatch) {
+      const code = codeMatch[1].toUpperCase()
+      const existing = await this.state.storage.get('shopCode')
+      if (existing !== code) await this.state.storage.put('shopCode', code)
+    }
     // HTTP 経由のルーム解散（ホストが退室済みで WS 未接続の残存ルームを掃除する）
     if (url.pathname.endsWith('/dissolve')) {
       return this._handleHttpDissolve(request)
@@ -149,28 +170,27 @@ export class RoomDO {
           const storedToken   = await this.state.storage.get('hostToken')
           const providedToken = String(msg.hostToken ?? '').slice(0, MAX_TOKEN_LEN)
 
-          if (!storedToken) {
-            // 初回ホスト接続: トークンを発行して保存
-            const token = crypto.randomUUID()
-            await this.state.storage.put('hostToken', token)
-            isVerifiedHost = true
-            newHostToken   = token
-          } else if (providedToken === storedToken) {
-            // 再接続: トークン一致 → ホスト承認
+          if (storedToken && providedToken === storedToken) {
+            // 再接続: hostToken 一致（発行済みの能力トークン）→ 承認（D1照合は不要）
             isVerifiedHost = true
           } else {
-            // トークン不一致: 以下のいずれかを満たせばトークンを再発行して復旧する
-            //   ① 他に接続が無い（空ルーム再初期化）
-            //   ② 同一 deviceId のホスト接続が残存（オフライン復帰でトークンを失った本人）
-            //   ③ 他にホスト権限を持つ接続が一つも無い（ホスト不在のルームの引き継ぎ）
-            // ②③により、同時オフライン→復帰時の auth_failed 無限ループを解消する。
+            // hostToken 不一致 or 未発行（初回・復旧）: ホスト権限の（再）発行判定。
+            // PIN設定店舗は D1 認証トークンの検証を必須にし、店舗コードを知るだけの
+            // 第三者がホスト不在時に乗っ取れる穴（監査 S-A）を塞ぐ。
+            const shopCode       = await this.state.storage.get('shopCode')
+            const protectedStore = await this._isStoreProtected(shopCode)
+            const authOk         = protectedStore
+              ? await this._hostAuthOk(shopCode, msg.authToken)
+              : false
+
             const others = this.state.getWebSockets().filter(w => w !== ws)
             const sameDeviceHost  = others.some(w => {
               const a = w.deserializeAttachment()
               return a?.deviceId === deviceId && a?.isHost
             })
             const anyVerifiedHost = others.some(w => w.deserializeAttachment()?.isHost)
-            if (others.length === 0 || sameDeviceHost || !anyVerifiedHost) {
+
+            if (canGrantHost({ protectedStore, authOk, isEmpty: others.length === 0, sameDeviceHost, anyVerifiedHost })) {
               const token = crypto.randomUUID()
               await this.state.storage.put('hostToken', token)
               isVerifiedHost = true
@@ -824,6 +844,32 @@ export class RoomDO {
 
   _isHost(ws) {
     return ws.deserializeAttachment()?.isHost === true
+  }
+
+  // PIN設定済み（＝D1認証で保護すべき）店舗か。D1障害時はフェイルオープンで
+  // false（レガシー扱い）にし、可用性を優先する（既存のレート制限と同方針）。
+  async _isStoreProtected(shopCode) {
+    if (!shopCode || !this.env?.DB) return false
+    try {
+      const row = await this.env.DB.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(shopCode).first()
+      return !!(row && row.pin_hash)
+    } catch (e) {
+      console.error('[RoomDO] store protection lookup failed (fail-open):', e?.message ?? e)
+      return false
+    }
+  }
+
+  // join メッセージの認証トークンが、この店舗の有効な D1 トークンか。
+  async _hostAuthOk(shopCode, rawToken) {
+    if (!shopCode || !this.env?.DB) return false
+    try {
+      const token = String(rawToken ?? '').slice(0, MAX_TOKEN_LEN)
+      const tokenStore = await verifyAuthToken(this.env.DB, token)
+      return !!tokenStore && tokenStore === shopCode
+    } catch (e) {
+      console.error('[RoomDO] host auth check failed:', e?.message ?? e)
+      return false
+    }
   }
 
   // 監査ログエントリを生成して追記・上限で切り詰める（id/timestamp は fields で上書き可）

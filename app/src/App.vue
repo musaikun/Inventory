@@ -43,7 +43,8 @@ import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler } from './composables/useAuth.js'
+import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -716,6 +717,15 @@ setNewSessionStartedCallback(() => {
   leaveRoom()
 })
 
+// 別アカウントでログイン/登録したとき、前アカウントのローカルデータを全消去する
+// （品目マスタ・棚卸・発注・入出庫・履歴等がアカウント境界を越えて見える漏洩を防ぐ）
+setAccountResetHandler(() => {
+  clearLocalAccountData()
+  clearSession()
+  reset()
+  clearAuditLog()
+})
+
 // 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき
 setAuthInvalidatedHandler(() => {
   if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
@@ -860,6 +870,7 @@ function _closeTopLayer() {
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }

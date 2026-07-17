@@ -86,7 +86,7 @@
 | フロントエンド | Vue 3 + Vite | Composition API の composable パターンが状態分離に適している |
 | PWA | vite-plugin-pwa + Workbox | ホーム画面追加・オフラインキャッシュ |
 | 音声認識 | Web Speech API | ネイティブ API のため追加 SDK 不要 |
-| PDF解析 | pdfjs-dist | クライアント側処理（Worker 移行を検討中→ backlog.md） |
+| PDF解析 | pdfjs-dist | クライアント側処理（Worker 移行を検討中→ roadmap.md） |
 | HTTP + Auth | Cloudflare Workers | エッジ実行、D1/DO へのバインディングが標準機能 |
 | リアルタイム同期 | Cloudflare Durable Objects | 1店舗 = 1 DO インスタンスで分離・WebSocket を集中管理 |
 | DB | Cloudflare D1 (SQLite) | セッション履歴・認証。無料枠で十分 |
@@ -295,7 +295,7 @@ cd worker && npx wrangler deploy
 
 ## 10. 既知の制限・今後の課題
 
-`docs/backlog.md` に優先度付きで整理済み。主要なものを抜粋:
+実行計画は `docs/roadmap.md`・現在地は `docs/project-status.md`。主要な既知課題を抜粋:
 
 | 課題 | 影響 | 対応状況 |
 |------|------|---------|

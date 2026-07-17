@@ -32,3 +32,4 @@ apply_if_missing 0005_ip_attempts.sql        ip_attempts
 apply_if_missing 0006_push_subscriptions.sql push_subscriptions
 apply_if_missing 0007_session_type.sql       idx_sessions_shop_type
 apply_if_missing 0008_orders.sql             orders
+apply_if_missing 0009_store_plan.sql         idx_stores_plan
