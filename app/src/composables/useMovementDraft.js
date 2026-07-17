@@ -31,14 +31,19 @@ function _persist() {
 _load()
 watch(_draft, _persist, { deep: true })
 
-// アカウント切替時のローカル全消去（未記録の入出庫ドラフト）。
-export function resetLocalData() {
+// 入力を空にする（入庫・出庫・メモ・発注紐付け）。日付は今日に戻す。
+function _clear() {
   _draft.in = {}
   _draft.out = {}
   _draft.note = ''
   _draft.orderId = null
   _draft.orderLabel = ''
   _draft.date = _today()
+}
+
+// アカウント切替時のローカル全消去（未記録の入出庫ドラフト）。
+export function resetLocalData() {
+  _clear()
   try { localStorage.removeItem(STORAGE_KEYS.movementDraft) } catch (_) {}
 }
 
@@ -61,5 +66,5 @@ export function useMovementDraft() {
     _draft.orderLabel = ''
     _draft.note = ''
   }
-  return { draft: _draft, draftCount: _count, hasDraft: _hasDraft, clearMode }
+  return { draft: _draft, draftCount: _count, hasDraft: _hasDraft, clearMode, discardAll: _clear }
 }

@@ -28,7 +28,11 @@ const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back'
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
-const { hasDraft: hasMovementDraft, draftCount: movementDraftCount } = useMovementDraft()
+const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
+function onDiscardMovementDraft() {
+  if (!confirm('未記録の入出庫の入力を破棄しますか？')) return
+  discardMovementDraft()
+}
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
 
@@ -457,19 +461,27 @@ function _itemCount(session) {
           </button>
 
           <!-- 在庫確認・入出庫の記録（専用ページ：在庫/入庫/出庫の3タブ） -->
-          <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
-            <div class="move-start-icon">📥</div>
-            <div class="move-start-text">
-              <div class="move-start-title">
-                在庫・入出庫
-                <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
+          <div class="move-wrap">
+            <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
+              <div class="move-start-icon">📥</div>
+              <div class="move-start-text">
+                <div class="move-start-title">
+                  在庫・入出庫
+                  <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
+                </div>
+                <div class="move-start-sub">
+                  {{ hasMovementDraft ? '記録していない入力があります（タップで再開）' : '現在の在庫を確認／入庫・出庫を品目ごとに記録' }}
+                </div>
               </div>
-              <div class="move-start-sub">
-                {{ hasMovementDraft ? '記録していない入力があります（タップで再開）' : '現在の在庫を確認／入庫・出庫を品目ごとに記録' }}
-              </div>
-            </div>
-            <div class="move-start-arrow">→</div>
-          </button>
+              <div class="move-start-arrow">→</div>
+            </button>
+            <button
+              v-if="hasMovementDraft"
+              class="move-discard"
+              @click.stop="onDiscardMovementDraft"
+              title="未記録の入力を破棄"
+            >破棄</button>
+          </div>
 
           <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
           <div v-if="activeOrderSession" class="order-live">
@@ -971,9 +983,17 @@ function _itemCount(session) {
 .move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; display: flex; align-items: center; gap: 8px; }
 .move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
 .move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
+.move-wrap { position: relative; }
 .move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
 .move-draft-badge { font-size: 11px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
 .move-start.has-draft .move-start-sub { color: #b45309; }
+.move-discard {
+  position: absolute; top: 8px; right: 10px; z-index: 1;
+  border: 1px solid #fecaca; background: #fff; color: #dc2626;
+  border-radius: 8px; font-size: 11px; font-weight: 700; padding: 3px 9px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.move-discard:active { color: #ef4444; }
 
 /* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
 .order-start {
