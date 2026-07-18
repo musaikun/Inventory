@@ -2,7 +2,7 @@
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
-import { useMovements, deliveryLinesFromOrder } from '../composables/useMovements.js'
+import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
@@ -23,6 +23,11 @@ const mode = ref('view')  // 'view' | 'in' | 'out'
 const isRecord = computed(() => mode.value !== 'view')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
+// メモはモード別（入庫/出庫で混ざらない）
+const noteModel = computed({
+  get: () => (mode.value === 'out' ? draft.noteOut : draft.noteIn),
+  set: (v) => { if (mode.value === 'out') draft.noteOut = v; else draft.noteIn = v },
+})
 
 const search = ref('')
 // 日付・メモ・発注紐付け・入力量は draft（localStorage 保持）に持つ。
@@ -164,18 +169,15 @@ const recordLines = computed(() => changed.value.map(n => ({ item: n, qty: _q(n)
 const canSave = computed(() => recordLines.value.length > 0)
 
 // ── 発注→入庫の一括プリフィル（入庫モードのみ）─────────────
-const _importedOrderIds = computed(() => new Set(_moves.value.map(m => m.orderId).filter(Boolean)))
-const pendingOrders = computed(() => {
-  const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
-  return getOrders().filter(o => (o.date || '') >= since && !_importedOrderIds.value.has(o.id)).slice(0, 5)
-})
+// 未反映の発注（直近30日で入庫が未記録のもの）。ホームカードのバッジと共通の純関数を使う。
+const pendingOrders = computed(() => unreflectedOrders(getOrders(), _moves.value, 30).slice(0, 5))
 function importOrder(o) {
   const dl = deliveryLinesFromOrder(o)
   if (dl.length === 0) return
   for (const l of dl) _set(l.item, _q(l.item) + l.qty)
   draft.orderId = o.id
   draft.orderLabel = `${_md(o.date)} ${o.supplier || '（未分類）'}`
-  if (!draft.note) draft.note = `${_md(o.date)}発注分の納品`
+  if (!draft.noteIn) draft.noteIn = `${_md(o.date)}発注分の納品`
 }
 function unlinkOrder() { draft.orderId = null; draft.orderLabel = '' }
 
@@ -197,7 +199,7 @@ function onSave() {
   saveMovement({
     type: m === 'out' ? 'out' : 'in',
     date: draft.date,
-    note: draft.note,
+    note: m === 'out' ? draft.noteOut : draft.noteIn,
     orderId: m === 'in' ? draft.orderId : null,
     lines: recordLines.value,
   })
@@ -239,7 +241,7 @@ function onSave() {
             <label class="mv-ctl-label">日付</label>
             <input v-model="draft.date" type="date" class="mv-date" />
           </div>
-          <input v-model="draft.note" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
+          <input v-model="noteModel" type="text" class="mv-note" placeholder="メモ（任意）例: 火曜納品分 / まかない使用" />
         </div>
 
         <div v-if="mode === 'in' && draft.orderId" class="mv-linked">
@@ -247,12 +249,17 @@ function onSave() {
           <button class="mv-linked-clear" @click="unlinkOrder">解除</button>
         </div>
         <div v-else-if="mode === 'in' && pendingOrders.length" class="mv-orders">
-          <div class="mv-orders-title">未入庫の発注から取り込む</div>
-          <div class="mv-orders-chips">
-            <button v-for="o in pendingOrders" :key="o.id" class="mv-order-chip" @click="importOrder(o)">
-              🧾 {{ _md(o.date) }} {{ o.supplier || '（未分類）' }}（{{ o.lines.length }}品目）
-            </button>
+          <div class="mv-orders-title">🧾 入庫として未反映の発注があります</div>
+          <div class="mv-orders-list">
+            <div v-for="o in pendingOrders" :key="o.id" class="mv-order-row">
+              <div class="mv-order-info">
+                <span class="mv-order-when">{{ _md(o.date) }} {{ o.supplier || '（未分類）' }}</span>
+                <span class="mv-order-meta">{{ o.lines.length }}品目の発注が未反映です</span>
+              </div>
+              <button class="mv-order-apply" @click="importOrder(o)">反映する</button>
+            </div>
           </div>
+          <div class="mv-orders-note">※ 実際に届いた数に直してから保存できます（分納・欠品に対応）</div>
         </div>
       </template>
 
@@ -388,11 +395,16 @@ function onSave() {
 .mv-date { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: 14px; color: #1e293b; background: #fff; }
 .mv-note { border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 
-.mv-orders { margin-bottom: 10px; }
-.mv-orders-title { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 6px; }
-.mv-orders-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.mv-order-chip { border: 1px solid #fed7aa; background: #fff7ed; color: #c2410c; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.mv-order-chip:active { background: #ffedd5; }
+.mv-orders { margin-bottom: 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 10px 12px; }
+.mv-orders-title { font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 8px; }
+.mv-orders-list { display: flex; flex-direction: column; gap: 6px; }
+.mv-order-row { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; }
+.mv-order-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mv-order-when { font-size: 13px; font-weight: 700; color: #c2410c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-order-meta { font-size: 11px; color: #b45309; }
+.mv-order-apply { flex-shrink: 0; border: none; background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%); color: #fff; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mv-order-apply:active { transform: scale(0.97); }
+.mv-orders-note { font-size: 10.5px; color: #b45309; margin-top: 7px; line-height: 1.5; }
 .mv-linked { font-size: 12px; font-weight: 600; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mv-linked-clear { margin-left: auto; border: none; background: none; color: #ea580c; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
 

@@ -46,6 +46,17 @@ export function deliveryLinesFromOrder(order) {
     .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
 }
 
+// 入庫として未反映の発注を返す（純関数）。直近 sinceDays 日の発注のうち、その発注ID
+// (orderId) を持つ入庫がまだ記録されていないもの。日付の新しい順。
+// ホームカードのバッジと入庫タブの「反映しますか？」プロンプトで共用する。
+export function unreflectedOrders(orders = [], movements = [], sinceDays = 30) {
+  const since = new Date(Date.now() - sinceDays * 86400000).toISOString().slice(0, 10)
+  const reflected = new Set((movements || []).map(m => m?.orderId).filter(Boolean))
+  return (orders || [])
+    .filter(o => o && o.id && (o.date || '') >= since && !reflected.has(o.id))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+}
+
 export function useMovements() {
   /**
    * 入出庫を記録する。qty>0 の行だけ保存。
