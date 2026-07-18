@@ -45,6 +45,16 @@ describe('useMovementDraft（未記録入出庫のドラフト）', () => {
     expect(draftCount.value).toBe(1)
   })
 
+  // R2-01 リグレッション: ドラフトが空になったら既定日付は今日へ戻る
+  it('入力が空になると date は今日へ戻る（前回操作日の残留を防ぐ）', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    draft.date = '2020-01-01'
+    draft.in['トマト'] = 3          // 入力あり → 日付は保持される
+    expect(draft.date).toBe('2020-01-01')
+    clearMode('in')                  // 入力が空に → 日付は今日へ
+    expect(draft.date).toBe(today)
+  })
+
   // R2-02 リグレッション: 出庫の保存が入庫の発注紐付け・メモを消してはいけない
   it('clearMode(out) は入庫の発注紐付け・入庫メモを消さない（データの環を守る）', () => {
     draft.in['トマト'] = 3

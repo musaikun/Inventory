@@ -24,7 +24,18 @@ function _load() {
       _draft.orderLabel = p?.orderLabel || ''
     }
   } catch (_) {}
-  if (!_draft.date) _draft.date = _today()
+  // R2-01: 未記録の入力が無ければ既定日付は常に今日（前回操作日の残留＝分析汚染を防ぐ）。
+  //         入力途中（ドラフトあり）のときだけ、ユーザーが選んだ日付を保持する。
+  if (!_draft.date || _isEmpty()) _draft.date = _today()
+}
+
+// 入庫・出庫に qty>0 の入力が1つも無いか
+function _isEmpty() {
+  for (const m of ['in', 'out']) {
+    const obj = _draft[m] || {}
+    for (const k in obj) if (Number(obj[k]) > 0) return false
+  }
+  return true
 }
 
 function _persist() {
@@ -75,6 +86,8 @@ export function useMovementDraft() {
       _draft.orderId = null
       _draft.orderLabel = ''
     }
+    // R2-01: 入力が全て無くなったら既定日付を今日へ戻す（前回操作日の残留＝分析汚染を防ぐ）
+    if (_isEmpty()) _draft.date = _today()
   }
   return { draft: _draft, draftCount: _count, hasDraft: _hasDraft, clearMode, discardAll: _clear }
 }
