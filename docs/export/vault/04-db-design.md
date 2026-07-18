@@ -1,3 +1,8 @@
+---
+title: "DB設計"
+aliases:
+  - "DB設計"
+---
 # 04 DB設計
 
 スナップショット: 2026-07-15 / v0.48（正: `worker/migrations/` と `docs/db-design-v2.md`）
@@ -6,7 +11,7 @@
 | 層 | 役割 | 中身 |
 |---|---|---|
 | localStorage | 高速キャッシュ・端末ローカル | 業務データのミラー＋入出庫（※現状ここだけ＝要D1同期） |
-| Durable Object storage | セッション中のライブ状態 | inventory / auditLog(200件) / messages / hostToken / config |
+| Durable Object storage | セッション中のライブ状態 | inventory / orders（発注数・2026-07追加） / auditLog(200件) / messages / hostToken / config |
 | D1 (SQLite) | 記録の正 | 下表 |
 
 ## D1 テーブル（migration 0001〜0009）

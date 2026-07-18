@@ -1,3 +1,8 @@
+---
+title: "SaaS設計"
+aliases:
+  - "SaaS設計"
+---
 # 06 SaaS設計
 
 スナップショット: 2026-07-15 / v0.48（正: `docs/pricing-strategy.md`・`docs/enterprise-design.md`）

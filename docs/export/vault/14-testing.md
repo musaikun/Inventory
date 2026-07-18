@@ -1,3 +1,8 @@
+---
+title: "テスト"
+aliases:
+  - "テスト"
+---
 # 14 テスト
 
 スナップショット: 2026-07-15 / v0.48
@@ -5,7 +10,7 @@
 ## 現状
 | 種別 | 状態 |
 |---|---|
-| ユニット（Vitest） | **app 323件 / worker 78件・全green**。CIがデプロイ前に全件実行 |
+| ユニット（Vitest） | **app 323件＋ / worker 78件・全green**。CIがデプロイ前に全件実行（2026-07-15取込で orderSync・useMovementDraft のテスト追加。DO側 orders チャネルは未カバー＝R2-04） |
 | 手動: 同期コア回帰 | `docs/test-cases.md`（オンボーディング・競合・オフライン・22ケース） |
 | 手動: 新機能 | `docs/test-checklist-new-features.md` |
 | E2E（Playwright等） | **ゼロ（最大の穴）** |

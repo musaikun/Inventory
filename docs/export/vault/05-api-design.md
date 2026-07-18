@@ -1,3 +1,8 @@
+---
+title: "API設計"
+aliases:
+  - "API設計"
+---
 # 05 API設計
 
 スナップショット: 2026-07-15 / v0.48（正: `docs/api-design.md`）
@@ -12,7 +17,8 @@
 ## エンドポイント系統
 - `/auth/*` … register / login / logout（+ plan/isPro/inTrial を返す）
 - `/store/:code/*` … config / inventory / history / sessions / sessions/:id/complete / orders / push/subscribe / room
-- `/room/:code/*` … ws（WebSocket→DO）/ status / dissolve / result
+- `/room/:code/*` … ws（WebSocket→DO）/ status（orderItemCount 含む）/ dissolve / result
+  - WS には発注数チャネル（order_update / order_remove・2026-07追加）→ リポジトリ `docs/sync-spec.md`
 - `/pdf`（PDFテキスト抽出）／ `/api/push/vapid-key` ／ `/health`
 
 ## 規約
