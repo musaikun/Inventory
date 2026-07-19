@@ -13,9 +13,11 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       axisGroupsA: ['冷蔵', '常温'],
       axisGroupsB: ['八百屋'],
       hiddenItems: ['レタス'],
+      reorderPoints: { トマト: 5 },
       isCustom: true,
     }
     const out = normalizeConfig(src)
+    expect(out.reorderPoints).toEqual({ トマト: 5 })
     expect(out.axisNames).toEqual(['場所', '仕入先'])
     expect(out.tagsA).toEqual({ トマト: ['冷蔵'] })
     expect(out.tagsB).toEqual({ トマト: ['八百屋'] })
@@ -29,6 +31,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
   it('欠損フィールドは安全な既定値になる', () => {
     const out = normalizeConfig({ order: ['A'] })
     expect(out.axisNames).toEqual(['', ''])
+    expect(out.reorderPoints).toEqual({})
     expect(out.tagsA).toEqual({})
     expect(out.axisGroupsA).toEqual([])
     expect(out.hiddenItems).toEqual([])

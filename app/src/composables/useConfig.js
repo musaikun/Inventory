@@ -29,6 +29,7 @@ const config = reactive({
   categoryCodes:  {},
   prevMonths:     {},
   lotSizes:       {},
+  reorderPoints:  {},        // 品目 → 発注点（この理論在庫以下で「要補充」）。手動設定
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
   savedAt:        null,
@@ -99,6 +100,7 @@ function _serializeConfigData() {
     categoryCodes: config.categoryCodes,
     prevMonths:    config.prevMonths,
     lotSizes:      config.lotSizes,
+    reorderPoints: config.reorderPoints,
     dictionary:    config.dictionary,
     axisNames:     config.axisNames,
     tagsA:         config.tagsA,
@@ -121,6 +123,7 @@ function _assignConfigData(src) {
   config.categoryCodes = src.categoryCodes ?? {}
   config.prevMonths    = src.prevMonths    ?? {}
   config.lotSizes      = src.lotSizes      ?? {}
+  config.reorderPoints = src.reorderPoints ?? {}
   config.dictionary    = src.dictionary    ?? {}
   config.axisNames     = Array.isArray(src.axisNames) ? src.axisNames : ['', '']
   config.tagsA         = _normTags(src.tagsA)
@@ -470,6 +473,7 @@ export function useConfig() {
     config.categoryCodes = {}
     config.prevMonths    = {}
     config.lotSizes      = {}
+    config.reorderPoints = {}
     config.dictionary    = {}
     config.manualItems   = []
     // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
@@ -493,6 +497,7 @@ export function useConfig() {
     config.categoryCodes = {}
     config.prevMonths    = {}
     config.lotSizes      = {}
+    config.reorderPoints = {}
     config.dictionary    = { ...SAMPLE_DICTIONARY }
     // 軸（軸名・グループ定義）は店舗の永続設定。練習でも消さない（終了時に復元もされる）。
     config.tagsA         = {}
@@ -610,7 +615,7 @@ export function useConfig() {
     if (n !== oldName && config.order.includes(n)) return false
     if (n !== oldName) {
       config.order[idx] = n
-      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.tagsA, config.tagsB]) {
+      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.tagsA, config.tagsB]) {
         if (obj[oldName] !== undefined) { obj[n] = obj[oldName]; delete obj[oldName] }
       }
       for (const [alias, target] of Object.entries(config.dictionary)) {
@@ -630,6 +635,16 @@ export function useConfig() {
     }
     _save()
     return n
+  }
+
+  // 発注点（この理論在庫以下で「要補充」）を設定。空/不正なら解除。
+  function setReorderPoint(name, value) {
+    if (!config.order.includes(name)) return false
+    const v = Number(value)
+    if (value !== '' && value != null && Number.isFinite(v) && v >= 0) config.reorderPoints[name] = v
+    else delete config.reorderPoints[name]
+    _save()
+    return true
   }
 
   // 復元時などに入数・前月実績をまとめて設定する
@@ -917,7 +932,7 @@ export function useConfig() {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
     config.order.splice(idx, 1)
-    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.tagsA, config.tagsB]) {
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.tagsA, config.tagsB]) {
       delete obj[name]
     }
     const mi = config.manualItems.indexOf(name)
@@ -1064,6 +1079,7 @@ export function useConfig() {
     removeConfigItem,
     setItemCategory,
     setItemExtras,
+    setReorderPoint,
     setAxisName,
     clearAxis,
     setItemTag,

@@ -31,6 +31,7 @@ export function normalizeConfig(src = {}) {
     categoryCodes: src.categoryCodes ?? {},
     prevMonths:    src.prevMonths    ?? {},
     lotSizes:      src.lotSizes      ?? {},
+    reorderPoints: src.reorderPoints ?? {},
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
