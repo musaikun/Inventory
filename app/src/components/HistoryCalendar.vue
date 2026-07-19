@@ -113,13 +113,6 @@ const weeks = computed(() => {
   return out
 })
 
-function _hasVisible(cell) {
-  if (!cell) return false
-  return (showStock.value && cell.stock.length > 0)
-    || (showOrder.value && cell.orders.length > 0)
-    || (showMove.value && cell.moves.length > 0)
-}
-
 function prevMonth() {
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
   else viewMonth.value--
@@ -131,7 +124,7 @@ function nextMonth() {
 function goToday() {
   viewYear.value = _now.getFullYear()
   viewMonth.value = _now.getMonth()
-  selectedKey.value = _hasAny(todayKey) ? todayKey : null
+  selectedKey.value = todayKey
 }
 
 // フィルタ考慮で最も新しいデータのある日付
@@ -155,13 +148,8 @@ function goRecent() {
 // ── 選択日 ─────────────────────────────────
 const selectedKey = ref(null)
 function onCellTap(cell) {
-  if (!_hasVisible(cell)) return
+  // 記録の有無に関わらず、どの日でも詳細を開ける（暦・比較を確認するため）
   selectedKey.value = cell.key === selectedKey.value ? null : cell.key
-}
-function _hasAny(key) {
-  return (stockByDate.value[key]?.length || 0) > 0
-    || (orderByDate.value[key]?.length || 0) > 0
-    || (moveByDate.value[key]?.length || 0) > 0
 }
 
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
@@ -207,7 +195,60 @@ const selectedFactors = computed(() => {
   else if (f.longWeekend) chips.push({ cls: 'long', label: '連休' })
   if (f.payday)      chips.push({ cls: 'pay',     label: '💰 給料日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
+  if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
   return chips
+})
+
+// 指定 year/month0 の n 番目の weekday(0..6) の日付(1..)。無ければ null。
+function _nthWeekdayDate(year, month0, weekday, nth) {
+  const firstDow = new Date(year, month0, 1).getDay()
+  const day = 1 + ((weekday - firstDow + 7) % 7) + (nth - 1) * 7
+  const dim = new Date(year, month0 + 1, 0).getDate()
+  return day <= dim ? day : null
+}
+
+const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))
+
+// 曜日・週の情報（第N週・第N○曜日）
+const selWeekInfo = computed(() => {
+  const d = selDate.value
+  if (!d) return null
+  const day = d.getDate()
+  return { weekday: d.getDay(), weekOfMonth: Math.ceil(day / 7), nth: Math.ceil(day / 7) }
+})
+
+// 前月の同曜（対応週）の日と、当日/前月の納品(入庫)・発注件数
+const selPrevMonthCompare = computed(() => {
+  const d = selDate.value
+  if (!d) return null
+  const wd = d.getDay()
+  const nth = Math.ceil(d.getDate() / 7)
+  const pm = new Date(d.getFullYear(), d.getMonth() - 1, 1)
+  const day = _nthWeekdayDate(pm.getFullYear(), pm.getMonth(), wd, nth)
+  if (!day) return null
+  const pk = _key(pm.getFullYear(), pm.getMonth(), day)
+  const inCount = (k) => (moveByDate.value[k] || []).filter(m => m.type === 'in').length
+  const ordCount = (k) => (orderByDate.value[k] || []).length
+  return {
+    label:        `${pm.getMonth() + 1}/${day}（第${nth}${WEEK[wd]}曜）`,
+    curDelivery:  inCount(selectedKey.value),
+    prevDelivery: inCount(pk),
+    curOrder:     ordCount(selectedKey.value),
+    prevOrder:    ordCount(pk),
+  }
+})
+
+// 直近の棚卸から選択日までの経過日数
+const selDaysSinceStock = computed(() => {
+  if (!selectedKey.value) return null
+  let best = null
+  for (const s of props.sessions) {
+    const k = _keyOf(s.endedAt ?? s.startedAt)
+    if (k && k <= selectedKey.value && (!best || k > best)) best = k
+  }
+  if (!best) return null
+  const days = Math.round((new Date(selectedKey.value) - new Date(best)) / 86400000)
+  return { date: best, days }
 })
 
 const selectedLabel = computed(() => {
@@ -308,7 +349,7 @@ function _timeLabel(iso) {
 }
 
 onMounted(() => {
-  if (_hasAny(todayKey)) selectedKey.value = todayKey
+  selectedKey.value = todayKey
 })
 
 const expanded = reactive({})
@@ -356,7 +397,7 @@ function onDeleteMove(id) {
             empty: !cell,
             today: cell && cell.isToday,
             selected: cell && cell.key === selectedKey,
-            tappable: _hasVisible(cell),
+            tappable: !!cell,
             eve: cell && showFactors && cell.factors.holidayEve && !cell.factors.holiday,
           }]"
           @click="cell && onCellTap(cell)"
@@ -398,6 +439,25 @@ function onDeleteMove(id) {
       </div>
       <div v-if="selectedFactors.length" class="hc-sheet-factors">
         <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
+      </div>
+
+      <!-- この日の基本情報 -->
+      <div v-if="selWeekInfo" class="hc-facts">
+        <div class="hc-fact"><span class="hc-fact-k">週</span><span class="hc-fact-v">第{{ selWeekInfo.weekOfMonth }}週 ・ 第{{ selWeekInfo.nth }}{{ WEEK[selWeekInfo.weekday] }}曜</span></div>
+        <div class="hc-fact"><span class="hc-fact-k">天気</span><span class="hc-fact-v">{{ selectedWeather ? `${selectedWeather.icon || ''} ${selectedWeather.label || ''}`.trim() : '— (未連携)' }}</span></div>
+        <div class="hc-fact"><span class="hc-fact-k">気温</span><span class="hc-fact-v">{{ selectedWeather && selectedWeather.tempHi != null ? `${selectedWeather.tempHi}° / ${selectedWeather.tempLo}°` : '—' }}</span></div>
+        <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
+      </div>
+
+      <!-- 前月同曜との比較 -->
+      <div v-if="selPrevMonthCompare" class="hc-compare">
+        <div class="hc-compare-title">前月同曜 {{ selPrevMonthCompare.label }} との比較</div>
+        <div class="hc-compare-grid">
+          <span class="hc-cmp-k">納品(入庫)</span>
+          <span class="hc-cmp-v">当日 <b>{{ selPrevMonthCompare.curDelivery }}</b> / 前月 {{ selPrevMonthCompare.prevDelivery }} 件</span>
+          <span class="hc-cmp-k">発注</span>
+          <span class="hc-cmp-v">当日 <b>{{ selPrevMonthCompare.curOrder }}</b> / 前月 {{ selPrevMonthCompare.prevOrder }} 件</span>
+        </div>
       </div>
 
       <!-- 棚卸 -->
@@ -483,7 +543,7 @@ function onDeleteMove(id) {
         v-if="!(showStock && selectedStock.length) && !(showOrder && selectedOrders.length) && !(showMove && selectedMoves.length)"
         class="hc-empty"
       >
-        この日の履歴はありません
+        この日はアプリの記録はありません
       </div>
     </div>
   </div>
@@ -555,6 +615,19 @@ function onDeleteMove(id) {
 .hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
+.hc-fchip.f-weekday { background: #f1f5f9; color: #475569; }
+
+/* この日の基本情報・比較 */
+.hc-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; }
+.hc-fact { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.hc-fact-k { color: #94a3b8; font-weight: 700; flex-shrink: 0; min-width: 48px; }
+.hc-fact-v { color: #334155; font-weight: 600; }
+.hc-compare { background: #f8fafc; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
+.hc-compare-title { font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 5px; }
+.hc-compare-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items: baseline; }
+.hc-cmp-k { font-size: 11px; color: #94a3b8; font-weight: 700; }
+.hc-cmp-v { font-size: 12px; color: #334155; }
+.hc-cmp-v b { color: #0f766e; font-weight: 800; }
 
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
