@@ -67,6 +67,18 @@ const listOpen = ref(false)
 const hiddenOpen = ref(false)
 const unusedOpen = ref(false)
 
+// ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
+const HELP = {
+  import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加されます。',
+  axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
+  unused: 'インポートされた品目のうち、前回までの棚卸で未入力だったものが候補に挙がります。使わないものは非表示にでき、進捗の分母（残り件数）から外れます。',
+  hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。いつでも戻せます。',
+  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。数値入力欄の位置には、現在の分類先の割り当てが表示されます。',
+  delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
+}
+const activeHelp = ref('')
+function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
+
 function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
 
 // ── 分類（第1レイヤー）の登録 ─────────────────────────────
@@ -129,18 +141,26 @@ function onClear() {
 
     <div class="mp-scroll">
       <!-- 取込む -->
-      <button class="mm-row" @click="settingsSection = 'import'">
-        <span class="mm-row-ico">📥</span>
-        <span class="mm-row-body">
-          <span class="mm-row-title">品目を取込む / 更新</span>
-          <span class="mm-row-sub">CSV・Excel・PDF から</span>
-        </span>
-        <span class="mm-row-arrow">→</span>
-      </button>
+      <div class="mm-row-wrap">
+        <button class="mm-row" @click="settingsSection = 'import'">
+          <span class="mm-row-ico">📥</span>
+          <span class="mm-row-body">
+            <span class="mm-row-title">品目を取込む / 更新</span>
+            <span class="mm-row-sub">CSV・Excel・PDF から</span>
+          </span>
+          <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
+          <span class="mm-row-arrow">→</span>
+        </button>
+        <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
+      </div>
 
       <!-- 分類の追加（並び順） -->
       <div class="mm-block">
-        <div class="mm-block-head"><span class="mm-block-title">分類の追加（並び順）</span></div>
+        <div class="mm-block-head">
+          <span class="mm-block-title">分類の追加（並び順）</span>
+          <button class="mm-help-btn" :class="{ on: activeHelp === 'axis' }" @click="toggleHelp('axis')">?</button>
+        </div>
+        <div v-if="activeHelp === 'axis'" class="mm-help">{{ HELP.axis }}</div>
 
         <!-- 分類① -->
         <div class="mm-axis-row">
@@ -188,10 +208,14 @@ function onClear() {
 
       <!-- 使っていない候補（前回まで未入力） -->
       <div class="mm-block">
-        <button class="mm-block-head mm-toggle" @click="unusedOpen = !unusedOpen">
-          <span class="mm-block-title">使っていない候補</span>
-          <span class="mm-block-note">{{ unusedOpen ? '▲' : '▼' }} {{ hasHistory ? unusedCandidates.length + '件' : '前回まで未入力' }}</span>
-        </button>
+        <div class="mm-head-row">
+          <button class="mm-block-head mm-toggle" @click="unusedOpen = !unusedOpen">
+            <span class="mm-block-title">使っていない候補</span>
+            <span class="mm-block-note">{{ unusedOpen ? '▲' : '▼' }} {{ hasHistory ? unusedCandidates.length + '件' : '前回まで未入力' }}</span>
+          </button>
+          <button class="mm-help-btn" :class="{ on: activeHelp === 'unused' }" @click="toggleHelp('unused')">?</button>
+        </div>
+        <div v-if="activeHelp === 'unused'" class="mm-help">{{ HELP.unused }}</div>
         <template v-if="unusedOpen">
           <div v-if="!hasHistory" class="mm-empty">棚卸の履歴がまだありません。数回の棚卸のあとに候補が出ます。</div>
           <div v-else-if="unusedCandidates.length === 0" class="mm-empty">直近の棚卸で全ての品目に入力があります。候補はありません。</div>
@@ -207,10 +231,14 @@ function onClear() {
 
       <!-- 非表示中の管理 -->
       <div class="mm-block">
-        <button class="mm-block-head mm-toggle" @click="hiddenOpen = !hiddenOpen">
-          <span class="mm-block-title">非表示中</span>
-          <span class="mm-block-note">{{ hiddenOpen ? '▲' : '▼' }} {{ hiddenList.length }}件</span>
-        </button>
+        <div class="mm-head-row">
+          <button class="mm-block-head mm-toggle" @click="hiddenOpen = !hiddenOpen">
+            <span class="mm-block-title">非表示中</span>
+            <span class="mm-block-note">{{ hiddenOpen ? '▲' : '▼' }} {{ hiddenList.length }}件</span>
+          </button>
+          <button class="mm-help-btn" :class="{ on: activeHelp === 'hidden' }" @click="toggleHelp('hidden')">?</button>
+        </div>
+        <div v-if="activeHelp === 'hidden'" class="mm-help">{{ HELP.hidden }}</div>
         <template v-if="hiddenOpen">
           <!-- 由来で絞り込み -->
           <div v-if="hiddenList.length > 0" class="mm-hfilter">
@@ -239,10 +267,14 @@ function onClear() {
 
       <!-- 品目一覧（閲覧） -->
       <div class="mm-block">
-        <button class="mm-block-head mm-toggle" @click="listOpen = !listOpen">
-          <span class="mm-block-title">品目一覧を見る</span>
-          <span class="mm-block-note">{{ listOpen ? '▲' : '▼' }} {{ itemCount }}件</span>
-        </button>
+        <div class="mm-head-row">
+          <button class="mm-block-head mm-toggle" @click="listOpen = !listOpen">
+            <span class="mm-block-title">品目一覧を見る</span>
+            <span class="mm-block-note">{{ listOpen ? '▲' : '▼' }} {{ itemCount }}件</span>
+          </button>
+          <button class="mm-help-btn" :class="{ on: activeHelp === 'list' }" @click="toggleHelp('list')">?</button>
+        </div>
+        <div v-if="activeHelp === 'list'" class="mm-help">{{ HELP.list }}</div>
         <div v-if="listOpen" class="mm-preview">
           <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。上の並び替えで分類先の割り当てを確認できます。</div>
           <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" />
@@ -251,7 +283,11 @@ function onClear() {
 
       <!-- 一括削除（危険操作・店舗コードゲート） -->
       <div v-if="itemCount > 0" class="mm-block danger">
-        <div class="mm-block-head"><span class="mm-block-title danger">品目マスタを一括削除</span></div>
+        <div class="mm-block-head">
+          <span class="mm-block-title danger">品目マスタを一括削除</span>
+          <button class="mm-help-btn danger" :class="{ on: activeHelp === 'delete' }" @click="toggleHelp('delete')">?</button>
+        </div>
+        <div v-if="activeHelp === 'delete'" class="mm-help">{{ HELP.delete }}</div>
         <div class="mm-block-sub">
           登録済みの品目をすべて削除します（軸の名前・グループ定義は残ります）。取り消せません。<br>
           削除するには店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入力してください。
@@ -287,6 +323,32 @@ function onClear() {
 .mm-row-title { display: block; font-size: 15px; font-weight: 700; color: #334155; }
 .mm-row-sub { display: block; font-size: 12px; color: #94a3b8; margin-top: 2px; }
 .mm-row-arrow { color: #cbd5e1; font-size: 18px; }
+
+.mm-row-wrap { margin-bottom: 12px; }
+.mm-row-wrap .mm-row { margin-bottom: 0; }
+
+.mm-head-row { display: flex; align-items: center; gap: 8px; }
+.mm-head-row .mm-block-head { flex: 1; }
+
+.mm-help-btn {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: auto;
+  border: 1px solid #cbd5e1; border-radius: 50%;
+  background: #fff; color: #94a3b8;
+  font-size: 12px; font-weight: 800; line-height: 1;
+  cursor: pointer;
+}
+.mm-help-btn.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.mm-help-btn.danger.on { background: #dc2626; border-color: #dc2626; }
+
+.mm-help {
+  font-size: 12px; line-height: 1.7; color: #475569;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-left: 3px solid var(--primary, #2563eb);
+  border-radius: 8px; padding: 9px 12px; margin: 8px 0 2px;
+}
 
 .mm-block { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
 .mm-block.danger { border-color: #fecaca; }
