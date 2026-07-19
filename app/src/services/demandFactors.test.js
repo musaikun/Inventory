@@ -39,12 +39,18 @@ describe('demandFactors（日ごとの需要要因）', () => {
     expect(seasonBreak('2025-06-10')).toBe(null)
   })
 
-  it('dayFactors: 祝前日', () => {
-    // 2025-01-12(日) の翌日 1/13 が成人の日 → 1/12 は祝前日
+  it('dayFactors: 祝前日と種別（平日/休日）', () => {
+    // 2025-01-12(日) の翌日 1/13 が成人の日 → 1/12 は祝前日（休日=週末）
     const f = dayFactors('2025-01-12')
     expect(f.holidayEve).toBe(true)
+    expect(f.holidayEveKind).toBe('weekend')
+    // 2025-02-10(月・平日) の翌日 2/11 が建国記念の日 → 平日の祝前日
+    const wd = dayFactors('2025-02-10')
+    expect(wd.holidayEve).toBe(true)
+    expect(wd.holidayEveKind).toBe('weekday')
     // 成人の日当日は holidayEve=false（自身が祝日）
     expect(dayFactors('2025-01-13').holidayEve).toBe(false)
+    expect(dayFactors('2025-01-13').holidayEveKind).toBe(null)
   })
 
   it('dayFactors: 給料日（既定25日）・月末・5の倍数', () => {

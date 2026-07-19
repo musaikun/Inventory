@@ -78,14 +78,18 @@ export function dayFactors(date, opts = {}) {
 
   const monthEnd = day === daysInMonth
   const holiday = isHoliday(d)
+  const weekend = d.getDay() === 0 || d.getDay() === 6
+  const eve = !holiday && isHoliday(next)
 
   return {
     date:         keyOf(d),
     weekday:      d.getDay(),                       // 0=日..6=土
     holiday,
     holidayName:  holidayName(d),                   // 祝日名 | null
-    holidayEve:   !holiday && isHoliday(next),      // 祝前日（自身は非祝日で翌日が祝日）
-    weekend:      d.getDay() === 0 || d.getDay() === 6,
+    holidayEve:   eve,                              // 祝前日（自身は非祝日で翌日が祝日）
+    // 祝前日の種別: 平日の祝前日は需要インパクトが大きい／休日(週末)の祝前日は連休の一部で意味が違う
+    holidayEveKind: eve ? (weekend ? 'weekend' : 'weekday') : null,
+    weekend,
     payday:       paydays.includes(day) || (!!opts.monthEndPayday && monthEnd),
     monthEnd,
     fifthMultiple: day % 5 === 0,                   // 5の倍数日

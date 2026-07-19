@@ -4,7 +4,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
-import { dayFactors } from '../services/demandFactors.js'
+import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // 日を選ぶ → その日の履歴（種類別）を見る。
@@ -87,6 +87,22 @@ const moveByDate = computed(() => {
 
 const monthLabel = computed(() => `${viewYear.value}年${viewMonth.value + 1}月`)
 
+// 連休（週末＋祝日が3日以上連続）の連結情報。連休でなければ null。
+// capL/capR = 連休の端（または週の行端）で、アンダーラインの丸め位置に使う。
+function _runInfo(y, m, d) {
+  const dt = new Date(y, m, d)
+  if (!isOffDay(dt) || consecutiveOffLength(dt) < 3) return null
+  const dow = dt.getDay()
+  const prevOff = isOffDay(new Date(y, m, d - 1))
+  const nextOff = isOffDay(new Date(y, m, d + 1))
+  return {
+    len:    consecutiveOffLength(dt),
+    capL:   !prevOff || dow === 0,   // 連休の開始 or 日曜（行頭）
+    capR:   !nextOff || dow === 6,   // 連休の終了 or 土曜（行末）
+    start:  !prevOff,                // 連休の初日（件数ラベル表示用）
+  }
+}
+
 const weeks = computed(() => {
   const y = viewYear.value, m = viewMonth.value
   const firstDow = new Date(y, m, 1).getDay()
@@ -105,6 +121,7 @@ const weeks = computed(() => {
       moves: moveByDate.value[key] || [],
       wx: props.weather[key] || null,
       factors: dayFactors(key),   // 暦の需要要因（祝日・祝前日・給料日・連休・スパン…）
+      run: _runInfo(y, m, d),     // 連休（3連休以上）の連結情報
     })
   }
   while (cells.length % 7 !== 0) cells.push(null)
@@ -187,12 +204,13 @@ const selectedWeather = computed(() => (selectedKey.value ? props.weather[select
 const selectedFactors = computed(() => {
   if (!selectedKey.value) return []
   const f = dayFactors(selectedKey.value)
+  const runLen = consecutiveOffLength(selectedKey.value)
   const chips = []
   if (f.holidayName) chips.push({ cls: 'holiday', label: `🎌 ${f.holidayName}` })
-  if (f.holidayEve)  chips.push({ cls: 'eve',     label: '🎏 祝前日' })
+  if (f.holidayEve)  chips.push({ cls: 'eve',     label: f.holidayEveKind === 'weekday' ? '🎏 祝前日（平日）' : '🎏 祝前日（休日）' })
   if (f.span)        chips.push({ cls: 'span',    label: f.span })
   else if (f.seasonBreak) chips.push({ cls: 'season', label: f.seasonBreak })
-  else if (f.longWeekend) chips.push({ cls: 'long', label: '連休' })
+  else if (runLen >= 3)   chips.push({ cls: 'long', label: `${runLen}連休` })
   if (f.payday)      chips.push({ cls: 'pay',     label: '💰 給料日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
   if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
@@ -369,13 +387,15 @@ function onDeleteMove(id) {
             today: cell && cell.isToday,
             selected: cell && cell.key === selectedKey,
             tappable: !!cell,
-            eve: cell && showFactors && cell.factors.holidayEve && !cell.factors.holiday,
+            'eve-weekday': cell && showFactors && !cell.run && cell.factors.holidayEveKind === 'weekday',
+            'eve-weekend': cell && showFactors && !cell.run && cell.factors.holidayEveKind === 'weekend',
           }]"
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: showFactors && cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="showFactors && cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
+            <span v-if="showFactors && cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
             <span v-if="!cellInfo" class="hc-dots">
               <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
@@ -562,7 +582,13 @@ function onDeleteMove(id) {
 .hc-cell.band-span:not(.today):not(.selected)    { background: #f5f3ff; }  /* お盆・年末年始 薄紫 */
 .hc-cell.band-season:not(.today):not(.selected)  { background: #effdfa; }  /* 長期休暇 薄ティール */
 .hc-cell.band-long:not(.today):not(.selected)    { background: #fffbeb; }  /* 連休 薄アンバー */
-.hc-cell.eve:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #fcd34d; }  /* 祝前日 下線 */
+/* 祝前日: 平日は濃い下線（需要インパクト大）、休日(週末)は淡い下線 */
+.hc-cell.eve-weekday:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #f59e0b; }
+.hc-cell.eve-weekend:not(.today):not(.selected) { box-shadow: inset 0 -2px 0 #fde68a; }
+/* 連休（3連休以上）の連結アンダーライン。隣接セルと繋がり、連休の端を丸める */
+.hc-run { position: absolute; left: 0; right: 0; bottom: 1px; height: 4px; background: #475569; z-index: 1; }
+.hc-run.capL { left: 3px; border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
+.hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
 .hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
 .hc-factor-toggle.on { border-color: #ea580c; color: #c2410c; background: #fff7ed; }
