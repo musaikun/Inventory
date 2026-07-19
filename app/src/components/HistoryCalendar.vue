@@ -199,14 +199,6 @@ const selectedFactors = computed(() => {
   return chips
 })
 
-// 指定 year/month0 の n 番目の weekday(0..6) の日付(1..)。無ければ null。
-function _nthWeekdayDate(year, month0, weekday, nth) {
-  const firstDow = new Date(year, month0, 1).getDay()
-  const day = 1 + ((weekday - firstDow + 7) % 7) + (nth - 1) * 7
-  const dim = new Date(year, month0 + 1, 0).getDate()
-  return day <= dim ? day : null
-}
-
 const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))
 
 // 曜日・週の情報（第N週・第N○曜日）
@@ -215,27 +207,6 @@ const selWeekInfo = computed(() => {
   if (!d) return null
   const day = d.getDate()
   return { weekday: d.getDay(), weekOfMonth: Math.ceil(day / 7), nth: Math.ceil(day / 7) }
-})
-
-// 前月の同曜（対応週）の日と、当日/前月の納品(入庫)・発注件数
-const selPrevMonthCompare = computed(() => {
-  const d = selDate.value
-  if (!d) return null
-  const wd = d.getDay()
-  const nth = Math.ceil(d.getDate() / 7)
-  const pm = new Date(d.getFullYear(), d.getMonth() - 1, 1)
-  const day = _nthWeekdayDate(pm.getFullYear(), pm.getMonth(), wd, nth)
-  if (!day) return null
-  const pk = _key(pm.getFullYear(), pm.getMonth(), day)
-  const inCount = (k) => (moveByDate.value[k] || []).filter(m => m.type === 'in').length
-  const ordCount = (k) => (orderByDate.value[k] || []).length
-  return {
-    label:        `${pm.getMonth() + 1}/${day}（第${nth}${WEEK[wd]}曜）`,
-    curDelivery:  inCount(selectedKey.value),
-    prevDelivery: inCount(pk),
-    curOrder:     ordCount(selectedKey.value),
-    prevOrder:    ordCount(pk),
-  }
 })
 
 // 直近の棚卸から選択日までの経過日数
@@ -449,17 +420,6 @@ function onDeleteMove(id) {
         <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
       </div>
 
-      <!-- 前月同曜との比較 -->
-      <div v-if="selPrevMonthCompare" class="hc-compare">
-        <div class="hc-compare-title">前月同曜 {{ selPrevMonthCompare.label }} との比較</div>
-        <div class="hc-compare-grid">
-          <span class="hc-cmp-k">納品(入庫)</span>
-          <span class="hc-cmp-v">当日 <b>{{ selPrevMonthCompare.curDelivery }}</b> / 前月 {{ selPrevMonthCompare.prevDelivery }} 件</span>
-          <span class="hc-cmp-k">発注</span>
-          <span class="hc-cmp-v">当日 <b>{{ selPrevMonthCompare.curOrder }}</b> / 前月 {{ selPrevMonthCompare.prevOrder }} 件</span>
-        </div>
-      </div>
-
       <!-- 棚卸 -->
       <template v-if="showStock && selectedStock.length">
         <div class="hc-sec-title">
@@ -622,12 +582,6 @@ function onDeleteMove(id) {
 .hc-fact { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
 .hc-fact-k { color: #94a3b8; font-weight: 700; flex-shrink: 0; min-width: 48px; }
 .hc-fact-v { color: #334155; font-weight: 600; }
-.hc-compare { background: #f8fafc; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
-.hc-compare-title { font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 5px; }
-.hc-compare-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items: baseline; }
-.hc-cmp-k { font-size: 11px; color: #94a3b8; font-weight: 700; }
-.hc-cmp-v { font-size: 12px; color: #334155; }
-.hc-cmp-v b { color: #0f766e; font-weight: 800; }
 
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }

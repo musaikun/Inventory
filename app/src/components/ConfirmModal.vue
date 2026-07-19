@@ -32,6 +32,7 @@ const props = defineProps({
   parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
   orderLot:        { type: Number,  default: 1 },     // 入数（数値）
   lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
+  weekdayHistory:  { type: Object,  default: null },  // 品目×同曜の発注履歴 { lastWeek, lastMonth, median, values, samples, count }
   initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
   theoStock:       { type: Object,  default: null },  // 理論在庫 { qty, baseQty, baseDate, inQty, outQty }
 })
@@ -93,6 +94,20 @@ function setOrderQty(v) {
   orderTouched.value = true
   orderFocus.value   = 'order'
 }
+
+// 品目×同曜の発注履歴（前週・先月・中央値・ミニ推移）
+const WD = ['日', '月', '火', '水', '木', '金', '土']
+const orderWeekdayLabel = computed(() => {
+  const s = props.weekdayHistory?.lastWeek?.date || props.weekdayHistory?.samples?.[0]?.date
+  return s ? WD[new Date(s + 'T12:00:00').getDay()] : WD[new Date().getDay()]
+})
+// スパークライン: 値を 8..100% の高さへ正規化
+const spark = computed(() => {
+  const vals = props.weekdayHistory?.values ?? []
+  if (!vals.length) return []
+  const max = Math.max(...vals, 1)
+  return vals.map(v => Math.max(8, Math.round((v / max) * 100)))
+})
 
 // ── 理論在庫（直近棚卸＋入出庫の導出値）──────────────────────────────────────
 // タップでプリフィルできるが、自動入力はしない（在庫入力は独立した観測値として
@@ -517,13 +532,37 @@ function saveEdit() {
 
       <!-- 発注ブロック: 発注数（推奨プリセット）＋ 適正在庫/前週参考 -->
       <div v-if="orderMode" class="order-block">
-        <!-- 学習値チップ: 前週・推奨はタップで発注数にセット（そこから微調整）-->
+        <!-- 学習値チップ: 推奨はタップで発注数にセット（そこから微調整）-->
         <div class="order-refs">
           <span class="ref-chip ref-par">適正在庫: {{ parLevel != null ? parLevel : '学習中' }}</span>
-          <button v-if="lastWeekQty != null" class="ref-chip ref-last tappable" type="button" @click="setOrderQty(lastWeekQty)">前週同曜: {{ lastWeekQty }}</button>
           <button v-if="suggested != null" class="ref-chip ref-sug tappable" type="button" @click="setOrderQty(suggested)">推奨: {{ suggested }}</button>
         </div>
-        <div v-if="lastWeekQty != null || suggested != null" class="order-refs-hint">↑ タップで発注数にセット・下のテンキーで微調整</div>
+
+        <!-- 品目×同曜の発注実績（前週・先月・直近中央値・ミニ推移）。タップで発注数にセット -->
+        <div v-if="weekdayHistory && weekdayHistory.count" class="order-hist">
+          <div class="oh-title">{{ orderWeekdayLabel }}曜の発注実績（タップで発注数に）</div>
+          <div class="oh-row">
+            <button v-if="weekdayHistory.lastWeek" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
+              前週 {{ _md(weekdayHistory.lastWeek.date) }} <b>{{ weekdayHistory.lastWeek.qty }}</b>
+            </button>
+            <button v-if="weekdayHistory.lastMonth" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastMonth.qty)">
+              先月 {{ _md(weekdayHistory.lastMonth.date) }} <b>{{ weekdayHistory.lastMonth.qty }}</b>
+            </button>
+            <button v-if="weekdayHistory.median != null" class="oh-chip oh-median" type="button" @click="setOrderQty(weekdayHistory.median)">
+              直近中央値 <b>{{ weekdayHistory.median }}</b>
+            </button>
+          </div>
+          <div v-if="spark.length" class="oh-spark">
+            <span
+              v-for="(h, i) in spark" :key="i"
+              class="oh-bar"
+              :style="{ height: h + '%' }"
+              :title="`${_md(weekdayHistory.samples[i].date)}: ${weekdayHistory.samples[i].qty}`"
+            ></span>
+          </div>
+        </div>
+
+        <div v-if="suggested != null || (weekdayHistory && weekdayHistory.count)" class="order-refs-hint">↑ タップで発注数にセット・下のテンキーで微調整</div>
         <div class="order-qty-block" @click="orderFocus = 'order'">
           <div class="order-qty-head">
             <span class="order-qty-label">発注数</span>
@@ -776,6 +815,18 @@ function saveEdit() {
 .ref-chip.tappable:active { transform: scale(0.95); }
 .ref-last.tappable { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
 .order-refs-hint { font-size: 10.5px; color: var(--primary); opacity: 0.85; margin: -3px 0 8px; }
+
+/* 品目×同曜の発注実績 */
+.order-hist { background: #fff; border: 1px solid var(--primary-border); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.oh-title { font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 6px; }
+.oh-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.oh-chip { border: 1px solid var(--primary-border); background: var(--primary-weak); color: var(--primary); border-radius: 16px; padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.oh-chip b { font-weight: 800; margin-left: 2px; }
+.oh-chip:active { transform: scale(0.96); }
+.oh-chip.oh-median { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+.oh-spark { display: flex; align-items: flex-end; gap: 3px; height: 28px; margin-top: 8px; }
+.oh-bar { flex: 1; min-width: 4px; max-width: 16px; background: var(--primary); opacity: 0.55; border-radius: 2px 2px 0 0; }
+.oh-bar:last-child { opacity: 0.9; }
 
 /* NumPad が編集中の欄を示すバッジ・枠 */
 .focus-badge { font-size: 10px; font-weight: 800; color: #fff; background: var(--primary); border-radius: 8px; padding: 1px 6px; margin-left: 6px; letter-spacing: 0.02em; }

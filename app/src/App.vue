@@ -40,6 +40,7 @@ import {
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
+import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
@@ -118,6 +119,10 @@ function _lastWeekQtyFor(item) {
     if (line && (!best || o.date > best.date)) best = { date: o.date, qty: line.qty }
   }
   return best ? best.qty : null
+}
+// 品目×同曜の発注履歴（前週・先月・直近中央値・推移）。当日分は除外。
+function _weekdayHistoryFor(item) {
+  return weekdayOrderHistory(getOrders(), item, weekdayOf(_todayStr()), { window: 6, before: _todayStr() })
 }
 
 // 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
@@ -1465,6 +1470,7 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
     parLevel:       isOrder ? _parLevelFor(ingredient) : null,
     lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
+    weekdayHistory: isOrder ? _weekdayHistoryFor(ingredient) : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
     theoStock:      isOrder ? _theoStockFor(ingredient) : null,
   }
@@ -2445,6 +2451,7 @@ function dismissReview() {
         :par-level="confirmState.parLevel"
         :order-lot="confirmState.orderLot ?? 1"
         :last-week-qty="confirmState.lastWeekQty"
+        :weekday-history="confirmState.weekdayHistory"
         :initial-order-qty="confirmState.initialOrderQty"
         :theo-stock="confirmState.theoStock"
         @confirm="onConfirm"
