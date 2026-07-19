@@ -36,11 +36,25 @@ const search = ref('')
 const hiddenSet = computed(() => new Set(config.hiddenItems || []))
 const allItems = computed(() => (config.order || []).filter(n => !hiddenSet.value.has(n)))
 
+// 在庫タブ専用の状態フィルタ: 'all' | 'has'（在庫あり>0） | 'reorder'（0以下＝要補充）
+const stockFilter = ref('all')
 const filteredItems = computed(() => {
   const q = search.value.trim()
-  if (!q) return allItems.value
-  return allItems.value.filter(n => n.includes(q))
+  let list = q ? allItems.value.filter(n => n.includes(q)) : allItems.value
+  if (mode.value === 'view' && stockFilter.value !== 'all') {
+    list = list.filter(n => {
+      const t = theoOf(n)
+      if (t == null) return false            // 理論在庫なし（—）は絞り込み対象外
+      return stockFilter.value === 'has' ? t > 0 : t <= 0
+    })
+  }
+  return list
 })
+// 要補充（理論在庫0以下）の件数 — フィルタチップのバッジ用
+const reorderCount = computed(() => allItems.value.reduce((n, item) => {
+  const t = theoOf(item)
+  return n + (t != null && t <= 0 ? 1 : 0)
+}, 0))
 
 // ── 理論在庫（全品目を一括算出）─────────────────────────────
 const _snaps = computed(() => getSnapshots())
@@ -280,9 +294,18 @@ function onSave() {
         </button>
       </div>
 
+      <!-- 在庫タブ: 状態フィルタ -->
+      <div v-if="mode === 'view'" class="mv-stockfilter">
+        <button :class="['mv-sf', { on: stockFilter === 'all' }]" @click="stockFilter = 'all'">すべて</button>
+        <button :class="['mv-sf', { on: stockFilter === 'has' }]" @click="stockFilter = 'has'">在庫あり</button>
+        <button :class="['mv-sf', 'reorder', { on: stockFilter === 'reorder' }]" @click="stockFilter = 'reorder'">
+          要補充<span v-if="reorderCount" class="mv-sf-badge">{{ reorderCount }}</span>
+        </button>
+      </div>
+
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
-      <div v-else class="mv-hint">直近の棚卸を基準に、入出庫を加減算した理論在庫です。</div>
+      <div v-else class="mv-hint">直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。</div>
 
       <!-- グループ（アコーディオン） -->
       <div v-if="groups.length" class="mv-groups">
@@ -296,13 +319,16 @@ function onSave() {
           <div v-if="isOpen(g.label)" class="mv-list">
             <!-- 在庫（読み取り） -->
             <template v-if="!isRecord">
-              <div v-for="item in g.items" :key="item" class="mv-item">
+              <div v-for="item in g.items" :key="item" :class="['mv-item', { reorder: theoOf(item) != null && theoOf(item) <= 0 }]">
                 <div class="mv-item-info">
                   <span class="mv-item-name">{{ item }}</span>
                   <span class="mv-item-basis">{{ basisLabel(item) }}</span>
                 </div>
                 <div class="mv-stock">
-                  <span v-if="theoOf(item) != null" class="mv-stock-qty">{{ theoOf(item) }}<span class="mv-stock-unit">{{ unitOf(item) }}</span></span>
+                  <template v-if="theoOf(item) != null">
+                    <span :class="['mv-stock-qty', { low: theoOf(item) <= 0 }]">{{ theoOf(item) }}<span class="mv-stock-unit">{{ unitOf(item) }}</span></span>
+                    <span v-if="theoOf(item) <= 0" class="mv-reorder-badge">要補充</span>
+                  </template>
                   <span v-else class="mv-stock-none">—</span>
                 </div>
               </div>
@@ -341,7 +367,10 @@ function onSave() {
       </div>
       <div v-else class="mv-empty">
         <template v-if="allItems.length === 0">表示中の品目がありません。品目マスタを登録してください。</template>
-        <template v-else>「{{ search }}」に一致する品目がありません。</template>
+        <template v-else-if="mode === 'view' && stockFilter === 'reorder'">要補充（在庫0以下）の品目はありません。</template>
+        <template v-else-if="mode === 'view' && stockFilter === 'has'">在庫あり（0より多い）の品目はありません。</template>
+        <template v-else-if="search.trim()">「{{ search }}」に一致する品目がありません。</template>
+        <template v-else>該当する品目がありません。</template>
       </div>
      </div>
     </div>
@@ -442,10 +471,19 @@ function onSave() {
 .mv-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 8px; padding: 1px 6px; }
 .mv-cases { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #059669; }
 
-.mv-stock { flex-shrink: 0; text-align: right; }
+.mv-stockfilter { display: flex; gap: 6px; margin-bottom: 8px; }
+.mv-sf { border: 1.5px solid #e2e8f0; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; -webkit-tap-highlight-color: transparent; }
+.mv-sf.on { border-color: #334155; color: #1e293b; background: #f1f5f9; }
+.mv-sf.reorder.on { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+.mv-sf-badge { font-size: 10px; font-weight: 800; color: #fff; background: #ef4444; border-radius: 9px; padding: 0 6px; }
+
+.mv-stock { flex-shrink: 0; display: flex; align-items: center; gap: 8px; text-align: right; }
 .mv-stock-qty { font-size: 17px; font-weight: 800; color: #1e293b; }
+.mv-stock-qty.low { color: #dc2626; }
 .mv-stock-unit { font-size: 11px; font-weight: 700; color: #94a3b8; margin-left: 2px; }
 .mv-stock-none { font-size: 15px; color: #cbd5e1; }
+.mv-item.reorder { background: #fef2f2; }
+.mv-reorder-badge { font-size: 10px; font-weight: 800; color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; border-radius: 9px; padding: 1px 7px; flex-shrink: 0; }
 
 .mv-row-ctl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .mv-case-btn { border: 1.5px solid #a7f3d0; background: #ecfdf5; color: #059669; border-radius: 8px; padding: 6px 8px; font-size: 12px; font-weight: 800; cursor: pointer; line-height: 1; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
