@@ -81,6 +81,38 @@ function itemMovements(item) {
 }
 function onReorderInput(item, e) { setReorderPoint(item, e.target.value) }
 
+// ── 推奨発注点の目安（暫定ヒューリスティック）───────────────
+// 手動発注点＝人間が決める床。ここは「データから出す目安」を横に添えるだけ（自動上書きしない）。
+// 将来は曜日別・外的/内的要因の予測モデルに置き換える。
+// 目安 = 直近30日の平均日消費 × 発注間隔（発注曜日の最大ギャップ、未設定は7日）。
+function avgDailyOut(item) {
+  const since = Date.now() - 30 * 86400000
+  let total = 0, has = false
+  for (const mv of getMovements()) {
+    if (mv.type !== 'out') continue
+    const d = new Date(mv.date + 'T00:00:00').getTime()
+    if (isNaN(d) || d < since) continue
+    const line = (mv.lines || []).find(l => l.item === item)
+    if (line) { total += Number(line.qty) || 0; has = true }
+  }
+  return has ? total / 30 : null
+}
+const reorderHorizon = computed(() => {
+  const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
+  if (days.length < 2) return 7
+  let maxGap = 0
+  for (let i = 0; i < days.length; i++) {
+    const gap = (days[(i + 1) % days.length] - days[i] + 7) % 7 || 7
+    maxGap = Math.max(maxGap, gap)
+  }
+  return maxGap
+})
+function suggestedReorder(item) {
+  const avg = avgDailyOut(item)
+  if (avg == null || avg <= 0) return null
+  return Math.max(1, Math.ceil(avg * reorderHorizon.value))
+}
+
 // ── 理論在庫（全品目を一括算出）─────────────────────────────
 const _snaps = computed(() => getSnapshots())
 const _moves = computed(() => getMovements())
@@ -365,7 +397,7 @@ function onSave() {
                   <!-- 内訳 -->
                   <div class="mv-d-basis">{{ basisLabel(item) }} → 理論 <b>{{ theoOf(item) != null ? theoOf(item) : '—' }}</b>{{ unitOf(item) }}</div>
 
-                  <!-- 発注点 -->
+                  <!-- 発注点（手動＝床）-->
                   <div class="mv-d-reorder">
                     <label class="mv-d-label">発注点</label>
                     <input
@@ -375,6 +407,13 @@ function onSave() {
                     />
                     <span class="mv-d-rp-unit">{{ unitOf(item) || '個' }}以下で要補充</span>
                   </div>
+
+                  <!-- 推奨（目安・データから算出。タップで採用・上書きしない）-->
+                  <div v-if="suggestedReorder(item) != null" class="mv-d-suggest">
+                    <button class="mv-d-suggest-btn" @click.stop="setReorderPoint(item, suggestedReorder(item))">目安 {{ suggestedReorder(item) }} を採用</button>
+                    <span class="mv-d-suggest-basis">直近平均 {{ avgDailyOut(item).toFixed(1) }}/日 × {{ reorderHorizon }}日</span>
+                  </div>
+                  <div v-else class="mv-d-suggest-none">入出庫が貯まると発注点の目安を表示します</div>
 
                   <!-- マスタ情報 -->
                   <div class="mv-d-meta">
@@ -564,6 +603,11 @@ function onSave() {
 .mv-d-rp-input { width: 72px; border: 1.5px solid #fecaca; border-radius: 8px; padding: 6px 8px; font-size: 14px; font-weight: 700; text-align: right; color: #b91c1c; background: #fff; }
 .mv-d-rp-input:focus { outline: none; border-color: #ef4444; }
 .mv-d-rp-unit { font-size: 11px; color: #94a3b8; }
+.mv-d-suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mv-d-suggest-btn { border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 16px; padding: 4px 12px; font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mv-d-suggest-btn:active { transform: scale(0.96); }
+.mv-d-suggest-basis { font-size: 10.5px; color: #94a3b8; }
+.mv-d-suggest-none { font-size: 10.5px; color: #cbd5e1; }
 .mv-d-meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .mv-d-meta span { font-size: 10.5px; font-weight: 700; color: #64748b; background: #eef2f6; border-radius: 8px; padding: 1px 7px; }
 .mv-d-mv-title { font-size: 11px; font-weight: 800; color: #94a3b8; }
