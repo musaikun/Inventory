@@ -145,7 +145,8 @@
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` | 設計のみ（一部実装: inventory_lines / complete API） |
 | **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |
-| **取り込みレビュー記録** | `docs/intake-reviews.md` | 現行（PMセッションが追記） |
+| **取り込みレビュー記録**（PM→実装・下り） | `docs/intake-reviews.md` | 現行（PMセッションが追記） |
+| **セッション提案箱**（実装/戦略→PM・上り） | `docs/proposals.md` | 現行（各セッションが追記・PMがトリアージ） |
 | 手動テスト: 同期コア回帰 | `docs/test-cases.md` | 現行 |
 | 手動テスト: 新機能 | `docs/test-checklist-new-features.md` | 現行 |
 | CI/CD | `docs/ci-cd.md` | 現行 |
