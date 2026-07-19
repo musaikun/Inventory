@@ -17,6 +17,8 @@ import { useHistory } from '../composables/useHistory.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
+import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
+import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
 import { settingsSection } from '../composables/appMenuState.js'
@@ -35,6 +37,14 @@ const { getMovements } = useMovements()
 const { getOrders } = useOrders()
 // 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
+
+// ── 発注スケジュール（頻度・締切）─────────────────────────────
+const showScheduleModal = ref(false)
+const orderSchedule   = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
+const hasSched        = computed(() => hasSchedule(orderSchedule.value))
+const schedSummary    = computed(() => scheduleSummary(orderSchedule.value))
+const schedTodayCtx   = computed(() => todayOrderContext(orderSchedule.value, new Date(now.value)))
+const schedDeadline   = computed(() => deadlineStatus(orderSchedule.value, new Date(now.value)))
 // 入出庫カードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
 const moveCardSub = computed(() => {
   if (hasMovementDraft.value) return '記録していない入力があります（タップで再開）'
@@ -558,6 +568,25 @@ function _itemCount(session) {
             <div class="order-start-arrow">→</div>
           </button>
 
+          <!-- 発注スケジュール（頻度・締切）。未設定なら設定を促す -->
+          <button v-if="!activeOrderSession && itemCount > 0" class="order-sched" type="button" @click="showScheduleModal = true">
+            <span class="order-sched-ico">🗓</span>
+            <span class="order-sched-text">
+              <template v-if="hasSched">
+                <span class="order-sched-summary">
+                  {{ schedSummary }}
+                  <span v-if="schedDeadline.has" :class="['order-sched-dl', { past: schedDeadline.past }]">・{{ schedDeadline.label }}</span>
+                </span>
+                <span v-if="schedTodayCtx" class="order-sched-ctx">{{ schedTodayCtx }}</span>
+              </template>
+              <template v-else>
+                <span class="order-sched-summary">発注スケジュールを設定</span>
+                <span class="order-sched-ctx">発注する曜日・締切を登録（任意）</span>
+              </template>
+            </span>
+            <span class="order-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
+          </button>
+
           <!-- レガシー: 古い未完了セッション（整理用） -->
           <template v-if="otherActiveSessions.length > 0">
             <div class="section-title">その他の未完了（古い）</div>
@@ -632,6 +661,8 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
+
+    <OrderScheduleModal v-if="showScheduleModal" @close="showScheduleModal = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
@@ -1010,6 +1041,30 @@ function _itemCount(session) {
 .move-discard:active { color: #ef4444; }
 
 /* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
+/* 発注スケジュール行（発注カードの直下・頻度/締切/位置づけ） */
+.order-sched {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  margin: -2px 0 6px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-sched:active { background: #ffedd5; }
+.order-sched-ico { font-size: 16px; flex-shrink: 0; }
+.order-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.order-sched-summary { font-size: 13px; font-weight: 800; color: #c2410c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-sched-dl { font-weight: 700; color: #b45309; }
+.order-sched-dl.past { color: #dc2626; }
+.order-sched-ctx { font-size: 11px; color: #b45309; }
+.order-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #ea580c; border: 1px solid #fed7aa; border-radius: 8px; padding: 3px 10px; background: #fff; }
+
 .order-start {
   display: flex;
   align-items: center;

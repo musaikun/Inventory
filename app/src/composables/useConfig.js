@@ -42,6 +42,7 @@ const config = reactive({
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
   tagsArchiveA:   {},        // 軸1の割り当てを品目名で永続記憶（取込/一括削除をまたいで復元用）
   tagsArchiveB:   {},        // 軸2の割り当てアーカイブ
+  orderSchedule:  { days: [], deadline: '' },  // 発注スケジュール（days:0=日..6=土 / deadline:'HH:MM'）
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -108,6 +109,7 @@ function _serializeConfigData() {
     hiddenAuto:    config.hiddenAuto,
     tagsArchiveA:  config.tagsArchiveA,
     tagsArchiveB:  config.tagsArchiveB,
+    orderSchedule: config.orderSchedule,
   }
 }
 function _assignConfigData(src) {
@@ -129,6 +131,16 @@ function _assignConfigData(src) {
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
   config.tagsArchiveA  = _normTags(src.tagsArchiveA)
   config.tagsArchiveB  = _normTags(src.tagsArchiveB)
+  config.orderSchedule = _normSchedule(src.orderSchedule)
+}
+
+// 発注スケジュールの正規化（days は 0..6 の整数配列・重複除去、deadline は 'HH:MM'）
+function _normSchedule(s) {
+  const days = Array.isArray(s?.days)
+    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))]
+    : []
+  const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
+  return { days, deadline }
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -163,6 +175,13 @@ function _saveLocalOnly() {
 function _save() {
   _saveLocalOnly()
   _onConfigChanged?.()
+}
+
+// 発注スケジュール（頻度＝発注曜日・締切）を設定して保存（localStorage + D1）。
+function setOrderSchedule({ days, deadline } = {}) {
+  config.orderSchedule = _normSchedule({ days, deadline })
+  config.isCustom = true
+  _save()
 }
 
 // ── 自動学習エイリアス ────────────────────────────────────────────────────────
@@ -1059,5 +1078,6 @@ export function useConfig() {
     setAxisGroupOrder,
     copyCategoriesToAxis,
     copyCategoryToAxis,
+    setOrderSchedule,
   }
 }
