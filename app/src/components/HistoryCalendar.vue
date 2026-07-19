@@ -4,6 +4,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
+import { dayFactors } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // 日を選ぶ → その日の履歴（種類別）を見る。
@@ -35,6 +36,17 @@ const viewYear  = ref(_now.getFullYear())
 const viewMonth = ref(_now.getMonth())
 
 const filter = ref('all')  // 'all' | 'stock' | 'order' | 'move'
+const showFactors = ref(true)  // 暦の需要要因（帯・マーカー）の表示ON/OFF
+
+// セル背景の帯（優先: スパン＞祝日＞連休）。要因表示OFFなら空。
+function cellBand(cell) {
+  if (!showFactors.value || !cell) return ''
+  const f = cell.factors
+  if (f.span) return 'span'          // お盆・年末年始
+  if (f.holiday) return 'holiday'    // 祝日・振替・国民の休日
+  if (f.longWeekend) return 'long'   // 3連休以上
+  return ''
+}
 const showStock = computed(() => filter.value === 'all' || filter.value === 'stock')
 const showOrder = computed(() => filter.value === 'all' || filter.value === 'order')
 const showMove  = computed(() => filter.value === 'all' || filter.value === 'move')
@@ -91,6 +103,7 @@ const weeks = computed(() => {
       orders: orderByDate.value[key] || [],
       moves: moveByDate.value[key] || [],
       wx: props.weather[key] || null,
+      factors: dayFactors(key),   // 暦の需要要因（祝日・祝前日・給料日・連休・スパン…）
     })
   }
   while (cells.length % 7 !== 0) cells.push(null)
@@ -180,6 +193,20 @@ const moveSections = computed(() => {
 })
 const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
+
+// 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）
+const selectedFactors = computed(() => {
+  if (!selectedKey.value) return []
+  const f = dayFactors(selectedKey.value)
+  const chips = []
+  if (f.holidayName) chips.push({ cls: 'holiday', label: `🎌 ${f.holidayName}` })
+  if (f.holidayEve)  chips.push({ cls: 'eve',     label: '🎏 祝前日' })
+  if (f.span)        chips.push({ cls: 'span',    label: f.span })
+  else if (f.longWeekend) chips.push({ cls: 'long', label: '連休' })
+  if (f.payday)      chips.push({ cls: 'pay',     label: '💰 給料日' })
+  if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
+  return chips
+})
 
 const selectedLabel = computed(() => {
   const k = selectedKey.value
@@ -310,6 +337,7 @@ function onDeleteMove(id) {
       <button :class="['hc-leg', { on: filter === 'stock' }]" @click="filter = 'stock'"><span class="dot dot-stock"></span>棚卸</button>
       <button :class="['hc-leg', { on: filter === 'order' }]" @click="filter = 'order'"><span class="dot dot-order"></span>発注</button>
       <button :class="['hc-leg', { on: filter === 'move' }]" @click="filter = 'move'"><span class="dot dot-in"></span><span class="dot dot-out"></span>入出庫</button>
+      <button :class="['hc-leg', 'hc-factor-toggle', { on: showFactors }]" @click="showFactors = !showFactors" title="祝日・連休・給料日などの表示切替">🗓 条件</button>
       <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
 
@@ -322,16 +350,18 @@ function onDeleteMove(id) {
         <div
           v-for="(cell, ci) in week"
           :key="ci"
-          :class="['hc-cell', {
+          :class="['hc-cell', cell && cellBand(cell) ? 'band-' + cellBand(cell) : '', {
             empty: !cell,
             today: cell && cell.isToday,
             selected: cell && cell.key === selectedKey,
             tappable: _hasVisible(cell),
+            eve: cell && showFactors && cell.factors.holidayEve && !cell.factors.holiday,
           }]"
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
-            <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6 }]">{{ cell.d }}</span>
+            <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: showFactors && cell.factors.holiday }]">{{ cell.d }}</span>
+            <span v-if="showFactors && cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
             <span v-if="!cellInfo" class="hc-dots">
               <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
@@ -363,6 +393,9 @@ function onDeleteMove(id) {
           <template v-if="selectedWeather.tempHi != null">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</template>
         </span>
         <button class="hc-sheet-close" @click="selectedKey = null">✕</button>
+      </div>
+      <div v-if="selectedFactors.length" class="hc-sheet-factors">
+        <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
       </div>
 
       <!-- 棚卸 -->
@@ -501,6 +534,23 @@ function onDeleteMove(id) {
 .hc-ci-amt { font-size: 9px; font-weight: 800; line-height: 1; white-space: nowrap; }
 .hc-ci-count.ci-in  { color: #059669; }
 .hc-ci-count.ci-out { color: #dc2626; }
+
+/* 暦の需要要因レイヤー（帯＝背景・祝前日＝下線・給料日＝マーカー） */
+.hc-cell.band-holiday:not(.today):not(.selected) { background: #fef2f2; }  /* 祝日 薄赤 */
+.hc-cell.band-span:not(.today):not(.selected)    { background: #f5f3ff; }  /* お盆・年末年始 薄紫 */
+.hc-cell.band-long:not(.today):not(.selected)    { background: #fffbeb; }  /* 連休 薄アンバー */
+.hc-cell.eve:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #fcd34d; }  /* 祝前日 下線 */
+.hc-day.hol { color: #dc2626; font-weight: 700; }
+.hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
+.hc-factor-toggle.on { border-color: #ea580c; color: #c2410c; background: #fff7ed; }
+
+.hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
+.hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
+.hc-fchip.f-holiday { background: #fef2f2; color: #dc2626; }
+.hc-fchip.f-eve     { background: #fffbeb; color: #b45309; }
+.hc-fchip.f-span    { background: #f5f3ff; color: #7c3aed; }
+.hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
+.hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
 
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
