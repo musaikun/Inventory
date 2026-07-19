@@ -38,13 +38,14 @@ const viewMonth = ref(_now.getMonth())
 const filter = ref('all')  // 'all' | 'stock' | 'order' | 'move'
 const showFactors = ref(true)  // 暦の需要要因（帯・マーカー）の表示ON/OFF
 
-// セル背景の帯（優先: スパン＞祝日＞連休）。要因表示OFFなら空。
+// セル背景の帯（優先: スパン＞祝日＞長期休暇＞連休）。要因表示OFFなら空。
 function cellBand(cell) {
   if (!showFactors.value || !cell) return ''
   const f = cell.factors
-  if (f.span) return 'span'          // お盆・年末年始
-  if (f.holiday) return 'holiday'    // 祝日・振替・国民の休日
-  if (f.longWeekend) return 'long'   // 3連休以上
+  if (f.span) return 'span'            // お盆・年末年始（短期・強い）
+  if (f.holiday) return 'holiday'      // 祝日・振替・国民の休日
+  if (f.seasonBreak) return 'season'   // 夏/冬/春休み（広い）
+  if (f.longWeekend) return 'long'     // 3連休以上
   return ''
 }
 const showStock = computed(() => filter.value === 'all' || filter.value === 'stock')
@@ -202,6 +203,7 @@ const selectedFactors = computed(() => {
   if (f.holidayName) chips.push({ cls: 'holiday', label: `🎌 ${f.holidayName}` })
   if (f.holidayEve)  chips.push({ cls: 'eve',     label: '🎏 祝前日' })
   if (f.span)        chips.push({ cls: 'span',    label: f.span })
+  else if (f.seasonBreak) chips.push({ cls: 'season', label: f.seasonBreak })
   else if (f.longWeekend) chips.push({ cls: 'long', label: '連休' })
   if (f.payday)      chips.push({ cls: 'pay',     label: '💰 給料日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
@@ -538,6 +540,7 @@ function onDeleteMove(id) {
 /* 暦の需要要因レイヤー（帯＝背景・祝前日＝下線・給料日＝マーカー） */
 .hc-cell.band-holiday:not(.today):not(.selected) { background: #fef2f2; }  /* 祝日 薄赤 */
 .hc-cell.band-span:not(.today):not(.selected)    { background: #f5f3ff; }  /* お盆・年末年始 薄紫 */
+.hc-cell.band-season:not(.today):not(.selected)  { background: #effdfa; }  /* 長期休暇 薄ティール */
 .hc-cell.band-long:not(.today):not(.selected)    { background: #fffbeb; }  /* 連休 薄アンバー */
 .hc-cell.eve:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #fcd34d; }  /* 祝前日 下線 */
 .hc-day.hol { color: #dc2626; font-weight: 700; }
@@ -549,6 +552,7 @@ function onDeleteMove(id) {
 .hc-fchip.f-holiday { background: #fef2f2; color: #dc2626; }
 .hc-fchip.f-eve     { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-span    { background: #f5f3ff; color: #7c3aed; }
+.hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
 

@@ -41,13 +41,25 @@ export function isLongWeekend(date) {
   return consecutiveOffLength(date) >= 3
 }
 
-// 慣習的な繁忙/休業スパン（法定祝日ではないが全国的に共通のもの）。無ければ null。
+// 慣習的な繁忙/休業スパン（法定祝日ではないが全国的に共通・短期で強い）。無ければ null。
 export function customarySpan(date) {
   const d = toDate(date)
   const m = d.getMonth() + 1
   const day = d.getDate()
   if (m === 8 && day >= 13 && day <= 16) return 'お盆'
   if ((m === 12 && day >= 29) || (m === 1 && day <= 3)) return '年末年始'
+  return null
+}
+
+// 学校の長期休暇（全国一般デフォルト・地域差は考慮しない広いスパン）。無ければ null。
+// 夏 7/20–8/31 / 冬 12/25–1/7 / 春 3/25–4/5。お盆・年末年始は customarySpan が優先。
+export function seasonBreak(date) {
+  const d = toDate(date)
+  const m = d.getMonth() + 1
+  const day = d.getDate()
+  if ((m === 7 && day >= 20) || m === 8) return '夏休み'
+  if ((m === 12 && day >= 25) || (m === 1 && day <= 7)) return '冬休み'
+  if ((m === 3 && day >= 25) || (m === 4 && day <= 5)) return '春休み'
   return null
 }
 
@@ -78,6 +90,7 @@ export function dayFactors(date, opts = {}) {
     monthEnd,
     fifthMultiple: day % 5 === 0,                   // 5の倍数日
     longWeekend:  isLongWeekend(d),                 // 3連休以上に含まれる
-    span:         customarySpan(d),                 // 'お盆' | '年末年始' | null
+    span:         customarySpan(d),                 // 'お盆' | '年末年始' | null（短期・強い）
+    seasonBreak:  seasonBreak(d),                   // '夏休み' | '冬休み' | '春休み' | null（広い）
   }
 }

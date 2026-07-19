@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isOffDay, consecutiveOffLength, isLongWeekend, customarySpan, dayFactors,
+  isOffDay, consecutiveOffLength, isLongWeekend, customarySpan, seasonBreak, dayFactors,
 } from './demandFactors.js'
 
 describe('demandFactors（日ごとの需要要因）', () => {
@@ -25,6 +25,18 @@ describe('demandFactors（日ごとの需要要因）', () => {
     expect(customarySpan('2025-12-31')).toBe('年末年始')
     expect(customarySpan('2026-01-02')).toBe('年末年始')
     expect(customarySpan('2025-06-10')).toBe(null)
+  })
+
+  it('seasonBreak: 夏休み・冬休み・春休み（全国一般デフォルト）', () => {
+    expect(seasonBreak('2025-08-15')).toBe('夏休み')
+    expect(seasonBreak('2025-07-25')).toBe('夏休み')
+    expect(seasonBreak('2025-07-19')).toBe(null)
+    expect(seasonBreak('2025-12-26')).toBe('冬休み')
+    expect(seasonBreak('2026-01-05')).toBe('冬休み')
+    expect(seasonBreak('2025-03-30')).toBe('春休み')
+    expect(seasonBreak('2025-04-05')).toBe('春休み')
+    expect(seasonBreak('2025-04-06')).toBe(null)
+    expect(seasonBreak('2025-06-10')).toBe(null)
   })
 
   it('dayFactors: 祝前日', () => {
