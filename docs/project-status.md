@@ -145,7 +145,8 @@
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` | 設計のみ（一部実装: inventory_lines / complete API） |
 | **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |
-| **取り込みレビュー記録** | `docs/intake-reviews.md` | 現行（PMセッションが追記） |
+| **取り込みレビュー記録**（PM→実装・下り） | `docs/intake-reviews.md` | 現行（PMセッションが追記） |
+| **セッション提案箱**（実装/戦略→PM・上り） | `docs/proposals.md` | 現行（各セッションが追記・PMがトリアージ） |
 | 手動テスト: 同期コア回帰 | `docs/test-cases.md` | 現行 |
 | 手動テスト: 新機能 | `docs/test-checklist-new-features.md` | 現行 |
 | CI/CD | `docs/ci-cd.md` | 現行 |
@@ -167,3 +168,7 @@
 - **新機能は共通チェックリストを通す** — `docs/feature-checklist.md`（UI3サイズ・権限・多店舗・
   同時操作・オフライン・戻る操作 等18観点＋事故由来の項目）。実装セッションがセルフチェック、
   PM セッションが取り込みレビューで再照合する
+- **提案は提案箱へ（上り）** — 実装/戦略セッションの設計判断・仕様提案は `docs/proposals.md` に
+  テンプレで投稿し、恒久docsは直接編集しない。PM がトリアージして恒久docsへ反映し、
+  エントリは「✅採用（→反映先）/🕓保留/❌却下」で記録として残す。
+  `intake-reviews.md`（PM→実装・下り）と対になる仕組み

@@ -40,6 +40,9 @@ worker/src/
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
 - **新機能・仕様変更は `docs/feature-checklist.md`（共通DoD）でセルフチェック**してから完了とする。
   N/A 項目は理由を一言残す。取り込み時に PM セッションが再照合する
+- **設計判断・仕様提案は `docs/proposals.md`（提案箱）へ投稿**する。テンプレに従い日付見出しで
+  先頭に追記（1提案=概要/背景・根拠/影響範囲・実装状況/PM判断⬜）。恒久docsへの反映可否は
+  PM セッションがトリアージする。**実装済みでも「合意済み」ではない**。恒久docsの直接編集はしない
 - **構成**: フロント = Cloudflare Pages ／ バックエンド = Cloudflare Worker + D1（すべて Cloudflare に統一）
 - **デプロイ（自動・推奨）**: GitHub Actions（`.github/workflows/deploy.yml`）
   - `main` へ merge → 本番デプロイ（テスト → D1 → Worker → Pages 本番）
@@ -68,6 +71,7 @@ worker/src/
 - **現況と方向性（全体の索引）→ `docs/project-status.md`**
 - **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
 - 全体レビュー（PM/QA/セキュリティ横断・優先度の根拠）→ `docs/holistic-review-2026-07.md`
+- セッション提案箱（実装/戦略→PM・上り）→ `docs/proposals.md` ／ 取り込みレビュー（PM→実装・下り）→ `docs/intake-reviews.md`
 - 企業導入（多店舗）設計 → `docs/enterprise-design.md`
 - CI/CD パイプライン → `docs/ci-cd.md`
 - 実行計画（トラック別・ウェーブ）→ `docs/roadmap.md`
