@@ -1037,8 +1037,12 @@ async function onComplete() {
     return
   }
 
-  if (filledCount.value === 0) {
-    showToast('1件以上入力してから完了してください', 2600, 'warning')
+  // 完了に必要な件数: 発注モードは「発注数」の件数、棚卸は在庫入力件数。
+  // 発注では在庫入力は任意なので、在庫0でも発注数が1件以上あれば完了できる。
+  const isOrderMode = sessionMode.value === 'order'
+  const completionCount = isOrderMode ? Object.keys(orderDraft.value).length : filledCount.value
+  if (completionCount === 0) {
+    showToast(isOrderMode ? '発注数を1件以上入力してから完了してください' : '1件以上入力してから完了してください', 2600, 'warning')
     return
   }
 
@@ -1073,7 +1077,7 @@ async function onComplete() {
   if (isHostInRoom) {
     // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
     // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
-    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
@@ -1086,10 +1090,10 @@ async function onComplete() {
   }
 
   // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
-  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
   _clearDraft(completedId)
   clearSession()
-  track('session_completed', { item_count: filledCount.value, mode: 'solo' })
+  track('session_completed', { item_count: completionCount, mode: 'solo' })
   _checkReviewPrompt()
   showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'

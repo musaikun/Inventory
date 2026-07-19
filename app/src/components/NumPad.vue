@@ -1,15 +1,21 @@
 <script setup>
+import { computed } from 'vue'
+const props = defineProps({
+  integer: { type: Boolean, default: false }, // true=小数点キーを無効化（発注数など整数入力）
+})
 const emit = defineEmits(['digit', 'dot', 'backspace', 'clear'])
 
-const rows = [
+// 整数モードでは小数点キーを空欄（無効）にする。レイアウトは崩さない。
+const rows = computed(() => [
   ['7', '8', '9'],
   ['4', '5', '6'],
   ['1', '2', '3'],
-  ['C', '.', '0', '⌫'],
-]
+  ['C', props.integer ? '' : '.', '0', '⌫'],
+])
 
 function press(key) {
-  if      (key === '⌫') emit('backspace')
+  if      (key === '')  return                // 整数モードの小数点跡地（無効）
+  else if (key === '⌫') emit('backspace')
   else if (key === 'C') emit('clear')
   else if (key === '.') emit('dot')
   else                  emit('digit', key)
@@ -20,9 +26,10 @@ function press(key) {
   <div class="numpad">
     <div v-for="(row, ri) in rows" :key="ri" class="numpad-row">
       <button
-        v-for="key in row"
-        :key="key"
-        :class="['numpad-btn', { 'is-del': key === '⌫', 'is-dot': key === '.', 'is-clear': key === 'C' }]"
+        v-for="(key, ki) in row"
+        :key="ki"
+        :class="['numpad-btn', { 'is-del': key === '⌫', 'is-dot': key === '.', 'is-clear': key === 'C', 'is-blank': key === '' }]"
+        :disabled="key === ''"
         @click="press(key)"
         type="button"
       >{{ key }}</button>
@@ -87,4 +94,11 @@ function press(key) {
   font-weight: 800;
   line-height: 1;
 }
+
+.is-blank {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+.is-blank:active { background: transparent; transform: none; }
 </style>
