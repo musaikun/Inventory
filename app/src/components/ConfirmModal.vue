@@ -524,12 +524,17 @@ function saveEdit() {
           <button v-if="suggested != null" class="ref-chip ref-sug tappable" type="button" @click="setOrderQty(suggested)">推奨: {{ suggested }}</button>
         </div>
         <div v-if="lastWeekQty != null || suggested != null" class="order-refs-hint">↑ タップで発注数にセット・下のテンキーで微調整</div>
-        <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]" @click="orderFocus = 'order'">
-          <span class="order-qty-label">発注数<span v-if="orderFocus === 'order'" class="focus-badge">⌨ 入力中</span></span>
-          <button class="order-step" @click.stop="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
-          <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
-          <button class="order-step" @click.stop="orderStep(1)" type="button">＋</button>
-          <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
+        <div class="order-qty-block" @click="orderFocus = 'order'">
+          <div class="order-qty-head">
+            <span class="order-qty-label">発注数</span>
+            <span v-if="orderFocus === 'order'" class="focus-badge">⌨ 入力中</span>
+          </div>
+          <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]">
+            <button class="order-step" @click.stop="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
+            <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
+            <button class="order-step" @click.stop="orderStep(1)" type="button">＋</button>
+            <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
+          </div>
         </div>
         <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
@@ -718,6 +723,10 @@ function saveEdit() {
   font-weight: 700;
   color: var(--primary);
   margin: 2px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
 }
 
 .theo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
@@ -773,16 +782,23 @@ function saveEdit() {
 .qty-display { transition: box-shadow 0.12s; }
 .qty-display.focus-on { box-shadow: 0 0 0 2px var(--primary); }
 
+.order-qty-block { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.order-qty-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
+  margin-bottom: 6px;
+}
 .order-qty-row {
   display: flex;
   align-items: center;
   gap: 10px;
   border-radius: 10px;
+  padding: 4px;
   transition: box-shadow 0.12s;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
 }
-.order-qty-row.focus-on { box-shadow: 0 0 0 2px var(--primary); }
+.order-qty-row.focus-on { box-shadow: inset 0 0 0 2px var(--primary); }
 
 .order-qty-label {
   font-size: 13px;
