@@ -132,7 +132,7 @@ const weeks = computed(() => {
   return out
 })
 
-const slideDir = ref('next')  // 月移動のスライド方向（アニメ用）
+const slideDir = ref('next')  // 月移動のスライド方向（コミット後のアニメ用）
 function prevMonth() {
   slideDir.value = 'prev'
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
@@ -143,8 +143,32 @@ function nextMonth() {
   if (viewMonth.value === 11) { viewMonth.value = 0; viewYear.value++ }
   else viewMonth.value++
 }
-// カレンダー内スワイプで月移動（左=翌月 / 右=前月）。親のタブ切替へは伝播させない。
-const calSwipe = useHorizontalSwipe({ onLeft: nextMonth, onRight: prevMonth })
+
+// ── 指追従スワイプ ───────────────────────────────
+// ドラッグ中は指の移動量だけグリッドを動かし、離したらしきい値超で月移動・未満でスナップバック。
+const dragX = ref(0)
+const dragging = ref(false)
+let _committed = false
+const dragStyle = computed(() => ({
+  transform: dragX.value ? `translateX(${dragX.value}px)` : '',
+  transition: dragging.value ? 'none' : 'transform 0.2s ease',
+}))
+const calSwipe = useHorizontalSwipe({
+  threshold: 55,
+  onDrag: (dx) => {
+    if (dx === 0) {
+      // 指を離した瞬間。onLeft/onRight（コミット）が続けて呼ばれるかを microtask で確認。
+      dragging.value = false
+      _committed = false
+      queueMicrotask(() => { if (!_committed) dragX.value = 0 })  // 未コミットはスナップバック
+    } else {
+      dragging.value = true
+      dragX.value = dx
+    }
+  },
+  onLeft:  () => { _committed = true; dragX.value = 0; nextMonth() },
+  onRight: () => { _committed = true; dragX.value = 0; prevMonth() },
+})
 function goToday() {
   viewYear.value = _now.getFullYear()
   viewMonth.value = _now.getMonth()
@@ -413,7 +437,7 @@ function onDeleteMove(id) {
       <div class="hc-dow-row">
         <span v-for="(w, i) in WEEK" :key="w" :class="['hc-dow', { sun: i === 0, sat: i === 6 }]">{{ w }}</span>
       </div>
-      <div class="hc-weeks" :key="viewYear + '-' + viewMonth" :class="'anim-' + slideDir">
+      <div class="hc-weeks" :key="viewYear + '-' + viewMonth" :class="'anim-' + slideDir" :style="dragStyle">
       <div v-for="(week, wi) in weeks" :key="wi" class="hc-week">
         <div
           v-for="(cell, ci) in week"
