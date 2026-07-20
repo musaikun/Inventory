@@ -5,6 +5,56 @@
 
 ---
 
+## 2026-07-18: 需要カレンダー・発注スケジュール・在庫タブ拡張（1fd0a8e..839f40f・v0.55）
+
+対象: 需要カレンダーP1〜P2（祝日/連休/給料日/長期休暇の層）・発注スケジュール（曜日/締切）・
+在庫タブ詳細展開＋発注点設定・発注テンキー＋完了ゲート・品目マスタのヘルプ・R2-01修正
+総評: 純関数分離（jpHolidays / demandFactors / orderScheduleUtil・テスト計180行）と
+発注点の config 統合（rename/remove/reset/両側テストまで完備）は**高品質**。
+ただし **B-01 と同型のフィールド脱落が再発**しており、これが最優先。
+
+### 必須
+- **R3-01 `orderSchedule` が worker 側 `normalizeConfig` に無い（B-01 再発）**
+  client の `_serializeConfigData` には追加済みだが、`RoomDO.js normalizeConfig` は
+  `reorderPoints` のみ追加で **orderSchedule が脱落**する。
+  影響: config が DO を経由する全経路（ゲスト joined / config_update / session_started）で
+  発注スケジュールが `{days:[],deadline:''}` に落ち、ゲスト端末→D1 再保存の経路次第では
+  ホスト設定の消失もあり得る。
+  修正: normalizeConfig に orderSchedule（days 0..6 整数配列・deadline 'HH:MM' の正規化込み）を
+  追加し、`RoomDO.config.test.js` にケース追加。
+  **構造対策（再々発防止・要検討→提案箱へ）**: config フィールド一覧が client/worker で
+  二重管理のままなのが根因（R-03 の worker 側が残っている）。「serialize の出力キー一覧」と
+  「normalizeConfig の出力キー一覧」を突き合わせる守りのテスト等を検討。
+
+### 推奨
+- **R3-02 エクスポートCSVに発注点列がない** — 単価・入数・前月・軸は列があるのに
+  `reorderPoints` は出力されず、CSVでの資産持ち出し/復元で発注点だけ欠ける。
+  取込側の列対応とセットで（なお再取込は reorderPoints を消さない=非破壊は確認済み。
+  消えた品目のキー残留は参考レベル）。
+- **R3-03 OrderScheduleModal にスマホ戻る/ESC の処理が無い** — checklist §7。
+  ホーム（SessionListPage）系モーダルの戻る対応を既存の `_closeTopLayer` 系へ載せる。
+  実機確認を test-checklist へ。
+- **R3-04 手動テスト項目が未追加** — 本バッチの実機観点（需要カレンダー層の表示・
+  スケジュール締切カウントダウン・発注点の要補充連動・発注テンキー）を
+  `test-checklist-new-features.md` へ。
+
+### 参考
+- R3-05 `jpHolidays` は近似式（有効域1980..2099）・五輪特例対象外＝コメント明記済みで良。
+  **祝日法改正時に手動更新が必要**な運用メモを残すこと（運用ノートに記載済み）。
+  給料日既定25日・ゴトー日・全国一律の長期休暇はヒューリスティック（将来は店舗別設定候補）。
+- R3-06 発注テンキーは整数・上限999999のガードあり（良）。DO 側 orderQty の
+  数値ガード（R2-05）は依然未対応 — 再掲。
+- R3-07 完了ゲートの発注モード分岐（発注数>0で完了可）は妥当。`item_count` の意味が
+  セッション種別で変わる（棚卸=在庫入力数/発注=発注品目数）ことを履歴表示側が
+  前提にしている点だけ将来の注意。
+
+### チェックリスト照合
+✓ 純関数テスト3本＋draft回帰／✓ reorderPoints の config 両側＋テスト・rename/remove/reset 組込み／
+✓ CSV再取込 非破壊／✓ プラン境界（手動系は無料の床=提案と整合）／✓ R2-01 修正確認
+✗ orderSchedule の worker 側（R3-01）／✗ 手動テスト項目（R3-04）／✗ project-status 未更新 → PM側で更新済み
+
+---
+
 ## 2026-07-17 追補: R2-02修正＋発注→入庫の未反映可視化（9a8a5c0..1fd0a8e・4コミット）
 
 対象: R2-02修正 / 発注→入庫の未反映バッジ＋反映プロンプト / 未記録ドラフトの破棄ボタン /
