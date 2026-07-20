@@ -1,9 +1,11 @@
 <script setup>
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
+import { useDayNotes } from '../composables/useDayNotes.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
@@ -138,6 +140,8 @@ function nextMonth() {
   if (viewMonth.value === 11) { viewMonth.value = 0; viewYear.value++ }
   else viewMonth.value++
 }
+// カレンダー内スワイプで月移動（左=翌月 / 右=前月）。親のタブ切替へは伝播させない。
+const calSwipe = useHorizontalSwipe({ onLeft: nextMonth, onRight: prevMonth })
 function goToday() {
   viewYear.value = _now.getFullYear()
   viewMonth.value = _now.getMonth()
@@ -217,6 +221,28 @@ const selectedFactors = computed(() => {
   if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
   return chips
 })
+
+// ── 日別メモ（内部イベント要因＋学習除外）───────────────────
+const { getNote, hasNote, setNote } = useDayNotes()
+const MEMO_TAGS = ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']
+const memoText = ref('')
+const memoTags = ref([])
+const memoExcluded = ref(false)
+watch(selectedKey, (k) => {
+  const n = k ? getNote(k) : null
+  memoText.value = n?.text || ''
+  memoTags.value = n?.tags ? [...n.tags] : []
+  memoExcluded.value = !!n?.excluded
+}, { immediate: true })
+function toggleMemoTag(t) {
+  const i = memoTags.value.indexOf(t)
+  if (i >= 0) memoTags.value.splice(i, 1)
+  else memoTags.value.push(t)
+}
+function saveMemo() {
+  if (!selectedKey.value) return
+  setNote(selectedKey.value, { text: memoText.value, tags: memoTags.value, excluded: memoExcluded.value })
+}
 
 const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))
 
@@ -374,8 +400,13 @@ function onDeleteMove(id) {
       <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
 
-    <!-- カレンダー -->
-    <div class="hc-cal">
+    <!-- カレンダー（内スワイプで月移動・親のタブ切替へは伝播させない）-->
+    <div
+      class="hc-cal"
+      @touchstart.stop.passive="calSwipe.onTouchStart"
+      @touchmove.stop.passive="calSwipe.onTouchMove"
+      @touchend.stop.passive="calSwipe.onTouchEnd"
+    >
       <div class="hc-dow-row">
         <span v-for="(w, i) in WEEK" :key="w" :class="['hc-dow', { sun: i === 0, sat: i === 6 }]">{{ w }}</span>
       </div>
@@ -396,6 +427,7 @@ function onDeleteMove(id) {
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: showFactors && cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="showFactors && cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
+            <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
             <span v-if="showFactors && cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
             <span v-if="!cellInfo" class="hc-dots">
@@ -440,6 +472,19 @@ function onDeleteMove(id) {
         <div v-if="selectedWeather && selectedWeather.tempHi != null" class="hc-fact"><span class="hc-fact-k">気温</span><span class="hc-fact-v">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</span></div>
         <div v-if="selectedWeather && selectedWeather.pop != null" class="hc-fact"><span class="hc-fact-k">降水</span><span class="hc-fact-v">{{ selectedWeather.pop }}%</span></div>
         <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
+      </div>
+
+      <!-- 日別メモ（内部イベント要因＋学習除外）-->
+      <div class="hc-memo">
+        <div class="hc-memo-tags">
+          <button v-for="t in MEMO_TAGS" :key="t" type="button" :class="['hc-memo-tag', { on: memoTags.includes(t) }]" @click="toggleMemoTag(t)">{{ t }}</button>
+        </div>
+        <textarea v-model="memoText" class="hc-memo-text" rows="2" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
+        <label class="hc-memo-excl">
+          <input type="checkbox" v-model="memoExcluded" />
+          この日を発注学習から除外（貸切・イベント等の異常日）
+        </label>
+        <button class="hc-memo-save" type="button" @click="saveMemo">メモを保存</button>
       </div>
 
       <!-- 棚卸 -->
@@ -593,6 +638,7 @@ function onDeleteMove(id) {
 .hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
 .hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
+.hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
 .hc-factor-toggle.on { border-color: #ea580c; color: #c2410c; background: #fff7ed; }
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
@@ -611,6 +657,16 @@ function onDeleteMove(id) {
 .hc-fact { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
 .hc-fact-k { color: #94a3b8; font-weight: 700; flex-shrink: 0; min-width: 48px; }
 .hc-fact-v { color: #334155; font-weight: 600; }
+
+/* 日別メモ */
+.hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.hc-memo-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+.hc-memo-tag { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 14px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.hc-memo-tag.on { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
+.hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
+.hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; margin: 7px 0; cursor: pointer; }
+.hc-memo-excl input { width: 16px; height: 16px; }
+.hc-memo-save { border: none; background: var(--primary); color: #fff; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
 .hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }

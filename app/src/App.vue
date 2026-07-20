@@ -39,6 +39,7 @@ import {
 } from './composables/useStore.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
+import { useDayNotes } from './composables/useDayNotes.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
@@ -100,9 +101,12 @@ const orderDraft = ref({})
 function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
 function _todayStr() { return new Date().toISOString().slice(0, 10) }
 
-// この品目・今日の曜日の適正在庫（学習不足なら null）
+// この品目・今日の曜日の適正在庫（学習不足なら null）。
+// 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
+const { isExcluded: _isDateExcluded } = useDayNotes()
 function _parLevelFor(item) {
-  return calcParLevel(getLearningEvents(), item, weekdayOf(_todayStr()))
+  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date))
+  return calcParLevel(events, item, weekdayOf(_todayStr()))
 }
 // 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
 const { getMovements } = useMovements()
