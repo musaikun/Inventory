@@ -626,8 +626,8 @@ function _itemCount(session) {
           <div class="section-title">📅 履歴</div>
           <div class="wx-bar">
             <template v-if="weatherState.loc">
-              <span class="wx-loc">🌤 天気表示中</span>
-              <span class="wx-coord">📍 {{ weatherState.loc.lat }}, {{ weatherState.loc.lon }}{{ weatherState.loading ? '（更新中…）' : '' }}</span>
+              <span class="wx-loc">🌤 天気表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
+              <span class="wx-coord">📍 {{ weatherState.loc.name || `${weatherState.loc.lat}, ${weatherState.loc.lon}` }}</span>
               <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">現在地で更新</button>
             </template>
             <template v-else>

@@ -44,9 +44,26 @@ export async function fetchWeather(force = false) {
   }
 }
 
+// 逆ジオコーディング（BigDataCloud・APIキー不要・CORS対応）→ 「都道府県＋市区町村」
+async function _reverseGeocode(lat, lon) {
+  try {
+    const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=ja`)
+    if (!r.ok) return ''
+    const j = await r.json()
+    const parts = [j.principalSubdivision, j.locality].filter(Boolean)
+    return [...new Set(parts)].join('') || j.city || ''
+  } catch (_) { return '' }
+}
+
 export function setLocation(lat, lon, name = '') {
   state.loc = { lat: Math.round(lat * 10000) / 10000, lon: Math.round(lon * 10000) / 10000, name }
   _saveLoc()
+  // 地名を非同期取得して更新（未指定時のみ）
+  if (!name) {
+    _reverseGeocode(state.loc.lat, state.loc.lon).then(n => {
+      if (n) { state.loc = { ...state.loc, name: n }; _saveLoc() }
+    })
+  }
   return fetchWeather(true)
 }
 
@@ -55,7 +72,7 @@ export function requestGeolocation() {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) { reject(new Error('no geolocation')); return }
     navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation(pos.coords.latitude, pos.coords.longitude, '現在地').then(resolve).catch(reject),
+      (pos) => setLocation(pos.coords.latitude, pos.coords.longitude).then(resolve).catch(reject),
       (err) => reject(err),
       { timeout: 10000, maximumAge: 3600 * 1000 },
     )
