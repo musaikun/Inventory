@@ -21,6 +21,7 @@ import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from 
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
+import { useWeather, requestGeolocation } from '../composables/useWeather.js'
 import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
@@ -35,6 +36,15 @@ const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
 const { getMovements } = useMovements()
 const { getOrders } = useOrders()
+
+// 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
+const { state: weatherState } = useWeather()
+const weatherBusy = ref(false)
+async function onEnableWeather() {
+  weatherBusy.value = true
+  try { await requestGeolocation() } catch (_) { /* 拒否/失敗は state.error に反映 */ }
+  finally { weatherBusy.value = false }
+}
 // 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
 
@@ -614,8 +624,20 @@ function _itemCount(session) {
 
           <!-- 履歴カレンダー（日付を選ぶ → その日の棚卸/発注を見る） -->
           <div class="section-title">📅 履歴</div>
+          <div class="wx-bar">
+            <template v-if="weatherState.loc">
+              <span class="wx-loc">🌤 {{ weatherState.loc.name || '設定地点' }}の天気を表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
+              <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">📍 現在地で更新</button>
+            </template>
+            <template v-else>
+              <span class="wx-hint">天気・気温・降水をカレンダーに表示できます</span>
+              <button class="wx-btn primary" :disabled="weatherBusy" @click="onEnableWeather">{{ weatherBusy ? '取得中…' : '📍 現在地で天気を表示' }}</button>
+            </template>
+            <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
+          </div>
           <HistoryCalendar
             :sessions="visibleCompletedSessions"
+            :weather="weatherState.weather"
             @view-session="s => emit('viewSession', s)"
             @delete-session="onDelete"
           />
@@ -868,6 +890,13 @@ function _itemCount(session) {
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
 }
+
+.wx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
+.wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.wx-btn.primary { border-color: #38bdf8; background: #f0f9ff; color: #0369a1; }
+.wx-btn:disabled { opacity: 0.5; cursor: default; }
+.wx-err { font-size: 11px; color: #dc2626; }
 
 .section-title {
   font-size: 12px;

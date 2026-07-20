@@ -425,6 +425,7 @@ function onDeleteMove(id) {
         <span v-if="selectedWeather" class="hc-sheet-wx">
           {{ selectedWeather.icon }} {{ selectedWeather.label }}
           <template v-if="selectedWeather.tempHi != null">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</template>
+          <template v-if="selectedWeather.pop != null"> ☔{{ selectedWeather.pop }}%</template>
         </span>
         <button class="hc-sheet-close" @click="selectedKey = null">✕</button>
       </div>
@@ -435,8 +436,8 @@ function onDeleteMove(id) {
       <!-- この日の基本情報 -->
       <div v-if="selWeekInfo" class="hc-facts">
         <div class="hc-fact"><span class="hc-fact-k">週</span><span class="hc-fact-v">第{{ selWeekInfo.weekOfMonth }}週 ・ 第{{ selWeekInfo.nth }}{{ WEEK[selWeekInfo.weekday] }}曜</span></div>
-        <div class="hc-fact"><span class="hc-fact-k">天気</span><span class="hc-fact-v">{{ selectedWeather ? `${selectedWeather.icon || ''} ${selectedWeather.label || ''}`.trim() : '— (未連携)' }}</span></div>
-        <div class="hc-fact"><span class="hc-fact-k">気温</span><span class="hc-fact-v">{{ selectedWeather && selectedWeather.tempHi != null ? `${selectedWeather.tempHi}° / ${selectedWeather.tempLo}°` : '—' }}</span></div>
+        <div v-if="selectedWeather && selectedWeather.tempHi != null" class="hc-fact"><span class="hc-fact-k">気温</span><span class="hc-fact-v">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</span></div>
+        <div v-if="selectedWeather && selectedWeather.pop != null" class="hc-fact"><span class="hc-fact-k">降水</span><span class="hc-fact-v">{{ selectedWeather.pop }}%</span></div>
         <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
       </div>
 
@@ -586,7 +587,7 @@ function onDeleteMove(id) {
 .hc-cell.eve-weekday:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #f59e0b; }
 .hc-cell.eve-weekend:not(.today):not(.selected) { box-shadow: inset 0 -2px 0 #fde68a; }
 /* 連休（3連休以上）の連結アンダーライン。隣接セルと繋がり、連休の端を丸める */
-.hc-run { position: absolute; left: 0; right: 0; bottom: 1px; height: 4px; background: #475569; z-index: 1; }
+.hc-run { position: absolute; left: 0; right: 0; bottom: 1px; height: 4px; background: #ec4899; z-index: 1; }
 .hc-run.capL { left: 3px; border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
