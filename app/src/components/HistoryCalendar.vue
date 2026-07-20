@@ -602,7 +602,7 @@ function onDeleteMove(id) {
 .dot-in    { background: #10b981; }
 .dot-out   { background: #ef4444; }
 
-.hc-cal { background: #fff; border-radius: 12px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); overflow: hidden; }
+.hc-cal { background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; }
 .hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
 
 /* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/
