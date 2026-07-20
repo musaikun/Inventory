@@ -97,7 +97,8 @@
 
 ### S-07 🟡 XSS対策（トークン漏洩リスク）
 - **リスク**: `_auth_token` が `localStorage` に平文保存。XSSが起きると盗まれる
-- **対策案**: Content Security Policy（CSP）ヘッダーを Cloudflare Pages に設定（`app/public/_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ
+- **対策案**: Content Security Policy（CSP）ヘッダーを Cloudflare Pages に設定（`app/public/_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ。
+  **注意（2026-07-20）**: 天気連携導入により `connect-src` には self に加え `https://api.open-meteo.com` の許可が必要
 - **備考**: このアプリは外部スクリプトを読み込んでいないため、CSPの設定コストは低い
 
 ### S-08 🟢 CORS フェイルセーフ
