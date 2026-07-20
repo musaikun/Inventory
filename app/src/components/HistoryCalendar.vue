@@ -211,7 +211,8 @@ const selectedFactors = computed(() => {
   if (f.span)        chips.push({ cls: 'span',    label: f.span })
   else if (f.seasonBreak) chips.push({ cls: 'season', label: f.seasonBreak })
   else if (runLen >= 3)   chips.push({ cls: 'long', label: `${runLen}連休` })
-  if (f.payday)      chips.push({ cls: 'pay',     label: '💰 給料日' })
+  if (f.payday)      chips.push({ cls: 'pay',     label: `💰 ${f.paydayLabel}給料日` })
+  if (f.pension)     chips.push({ cls: 'pension', label: '👛 年金支給日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
   if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
   return chips
@@ -602,6 +603,7 @@ function onDeleteMove(id) {
 .hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
+.hc-fchip.f-pension { background: #eff6ff; color: #1d4ed8; }
 .hc-fchip.f-weekday { background: #f1f5f9; color: #475569; }
 
 /* この日の基本情報・比較 */

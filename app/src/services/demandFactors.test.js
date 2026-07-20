@@ -54,8 +54,9 @@ describe('demandFactors（日ごとの需要要因）', () => {
   })
 
   it('dayFactors: 給料日（既定25日）・月末・5の倍数', () => {
-    const f25 = dayFactors('2025-06-25')
+    const f25 = dayFactors('2025-06-25')   // 2025-06-25 は水曜（銀行営業日）
     expect(f25.payday).toBe(true)
+    expect(f25.paydayLabel).toBe('25日')
     expect(f25.fifthMultiple).toBe(true)   // 25 は5の倍数
     expect(f25.monthEnd).toBe(false)
 
@@ -68,6 +69,23 @@ describe('demandFactors（日ごとの需要要因）', () => {
     expect(dayFactors('2025-06-20').fifthMultiple).toBe(true)
   })
 
+  it('給料日: 銀行休業日は前営業日へ繰り上げ（25日が日曜→前の金曜）', () => {
+    // 2025-05-25 は日曜 → 実際の給料日は 5/23(金)
+    expect(dayFactors('2025-05-23').payday).toBe(true)
+    expect(dayFactors('2025-05-23').paydayLabel).toBe('25日')
+    expect(dayFactors('2025-05-25').payday).toBe(false)      // 日曜当日は給料日でない
+  })
+
+  it('年金支給日: 偶数月15日（繰り上げ後）', () => {
+    // 2025-06-15(日) → 繰り上げ 6/13(金)。6月は偶数月 → 年金かつ15日給料日
+    expect(dayFactors('2025-06-13').pension).toBe(true)
+    expect(dayFactors('2025-06-13').payday).toBe(true)
+    expect(dayFactors('2025-06-15').pension).toBe(false)     // 日曜当日は繰り上げ先でない
+    // 奇数月の15日は年金でない（2025-07-15 火）
+    expect(dayFactors('2025-07-15').pension).toBe(false)
+    expect(dayFactors('2025-07-15').payday).toBe(true)       // 15日給料日
+  })
+
   it('dayFactors: 祝日名と曜日', () => {
     const f = dayFactors('2025-01-01')
     expect(f.holiday).toBe(true)
@@ -75,8 +93,8 @@ describe('demandFactors（日ごとの需要要因）', () => {
     expect(f.weekday).toBe(3)  // 2025-01-01 は水曜
   })
 
-  it('dayFactors: 給料日を任意指定できる（例 15日）', () => {
-    expect(dayFactors('2025-06-15', { paydays: [15] }).payday).toBe(true)
-    expect(dayFactors('2025-06-25', { paydays: [15] }).payday).toBe(false)
+  it('dayFactors: 給料日を任意指定できる（例 15日・平日）', () => {
+    expect(dayFactors('2025-07-15', { paydays: [15] }).payday).toBe(true)   // 火曜
+    expect(dayFactors('2025-07-25', { paydays: [15] }).payday).toBe(false)
   })
 })
