@@ -132,11 +132,14 @@ const weeks = computed(() => {
   return out
 })
 
+const slideDir = ref('next')  // 月移動のスライド方向（アニメ用）
 function prevMonth() {
+  slideDir.value = 'prev'
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
   else viewMonth.value--
 }
 function nextMonth() {
+  slideDir.value = 'next'
   if (viewMonth.value === 11) { viewMonth.value = 0; viewYear.value++ }
   else viewMonth.value++
 }
@@ -410,6 +413,7 @@ function onDeleteMove(id) {
       <div class="hc-dow-row">
         <span v-for="(w, i) in WEEK" :key="w" :class="['hc-dow', { sun: i === 0, sat: i === 6 }]">{{ w }}</span>
       </div>
+      <div class="hc-weeks" :key="viewYear + '-' + viewMonth" :class="'anim-' + slideDir">
       <div v-for="(week, wi) in weeks" :key="wi" class="hc-week">
         <div
           v-for="(cell, ci) in week"
@@ -448,6 +452,7 @@ function onDeleteMove(id) {
             </span>
           </template>
         </div>
+      </div>
       </div>
     </div>
 
@@ -597,15 +602,22 @@ function onDeleteMove(id) {
 .dot-in    { background: #10b981; }
 .dot-out   { background: #ef4444; }
 
-.hc-cal { background: #fff; border-radius: 12px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.hc-cal { background: #fff; border-radius: 12px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); overflow: hidden; }
 .hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+
+/* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/
+.hc-weeks { border-top: 1px solid #dfe4ea; border-left: 1px solid #dfe4ea; border-radius: 8px; overflow: hidden; animation-duration: 0.22s; animation-timing-function: ease-out; }
+.hc-weeks.anim-next { animation-name: hcSlideNext; }
+.hc-weeks.anim-prev { animation-name: hcSlidePrev; }
+@keyframes hcSlideNext { from { transform: translateX(26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
+@keyframes hcSlidePrev { from { transform: translateX(-26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
 .hc-dow { text-align: center; font-size: 11px; font-weight: 700; color: #9ca3af; padding: 4px 0; }
 .hc-dow.sun { color: #ef4444; }
 .hc-dow.sat { color: #3b82f6; }
 
 .hc-week { display: grid; grid-template-columns: repeat(7, 1fr); }
-.hc-cell { position: relative; aspect-ratio: 1 / 1.28; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 6px; border-radius: 8px; }
-.hc-cell.empty { visibility: hidden; }
+.hc-cell { position: relative; aspect-ratio: 1 / 1.28; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 6px; border-right: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
+.hc-cell.empty { background: #fafbfc; }
 .hc-cell.tappable { cursor: pointer; }
 .hc-cell.tappable:active { background: #f0f9ff; }
 .hc-cell.today { background: #eff6ff; }
