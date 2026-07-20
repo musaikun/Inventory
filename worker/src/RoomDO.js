@@ -6,6 +6,16 @@ import {
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 
+// 発注スケジュールの正規化（client useConfig の _normSchedule と一致させる）。
+// days = 0..6 の整数配列（重複除去）／deadline = 'HH:MM' 形式のみ許可。
+function _normSchedule(s) {
+  const days = Array.isArray(s?.days)
+    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))]
+    : []
+  const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
+  return { days, deadline }
+}
+
 // ホスト権限を（再）発行してよいかの判定。純関数・テスト容易化のため抽出。
 // protectedStore = PIN設定済み店舗（D1認証で守る）。この場合トポロジ（空室・同端末・
 // 他ホスト不在）は信用せず、D1トークンの検証結果 authOk のみで判断する。
@@ -32,6 +42,7 @@ export function normalizeConfig(src = {}) {
     prevMonths:    src.prevMonths    ?? {},
     lotSizes:      src.lotSizes      ?? {},
     reorderPoints: src.reorderPoints ?? {},
+    orderSchedule: _normSchedule(src.orderSchedule),
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
