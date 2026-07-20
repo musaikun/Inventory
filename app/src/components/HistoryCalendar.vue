@@ -559,13 +559,13 @@ function onDeleteMove(id) {
 .hc-dow.sat { color: #3b82f6; }
 
 .hc-week { display: grid; grid-template-columns: repeat(7, 1fr); }
-.hc-cell { position: relative; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 5px; border-radius: 8px; }
+.hc-cell { position: relative; aspect-ratio: 1 / 1.28; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 6px; border-radius: 8px; }
 .hc-cell.empty { visibility: hidden; }
 .hc-cell.tappable { cursor: pointer; }
 .hc-cell.tappable:active { background: #f0f9ff; }
 .hc-cell.today { background: #eff6ff; }
 .hc-cell.selected { background: var(--primary-weak); box-shadow: inset 0 0 0 2px var(--primary); }
-.hc-day { font-size: 13px; color: #374151; line-height: 1; }
+.hc-day { font-size: 14px; font-weight: 600; color: #374151; line-height: 1; }
 .hc-day.sun { color: #ef4444; }
 .hc-day.sat { color: #3b82f6; }
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }

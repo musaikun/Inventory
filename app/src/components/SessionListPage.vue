@@ -626,8 +626,9 @@ function _itemCount(session) {
           <div class="section-title">📅 履歴</div>
           <div class="wx-bar">
             <template v-if="weatherState.loc">
-              <span class="wx-loc">🌤 {{ weatherState.loc.name || '設定地点' }}の天気を表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
-              <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">📍 現在地で更新</button>
+              <span class="wx-loc">🌤 天気表示中</span>
+              <span class="wx-coord">📍 {{ weatherState.loc.lat }}, {{ weatherState.loc.lon }}{{ weatherState.loading ? '（更新中…）' : '' }}</span>
+              <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">現在地で更新</button>
             </template>
             <template v-else>
               <span class="wx-hint">天気・気温・降水をカレンダーに表示できます</span>
@@ -893,6 +894,7 @@ function _itemCount(session) {
 
 .wx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
+.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
 .wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .wx-btn.primary { border-color: #38bdf8; background: #f0f9ff; color: #0369a1; }
 .wx-btn:disabled { opacity: 0.5; cursor: default; }
