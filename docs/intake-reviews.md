@@ -10,7 +10,8 @@
 `orderItemHistory.js`（同曜そろえ・当日除外・同日合算・中央値ならし。純関数＋テスト）と
 カレンダーの連休連結アンダーライン・祝前日の平日/休日区別。**指摘なし**。
 「全体の件数/金額はムラが大きく信号にならないため品目×曜日に絞る」判断は
-信頼度思想（甘い数字を出さない）と整合。**R3-01（orderSchedule の worker 側）は未修正のまま**。
+信頼度思想（甘い数字を出さない）と整合。~~**R3-01（orderSchedule の worker 側）は未修正のまま**~~
+→ ✅ **R3-01 修正済み（2026-07-19）**。
 
 ---
 
@@ -23,7 +24,10 @@
 ただし **B-01 と同型のフィールド脱落が再発**しており、これが最優先。
 
 ### 必須
-- **R3-01 `orderSchedule` が worker 側 `normalizeConfig` に無い（B-01 再発）**
+- ✅ **R3-01 修正済み（2026-07-19）: `orderSchedule` を worker 側 `normalizeConfig` に追加**
+  `RoomDO.js` に client の `_normSchedule` と同一の正規化（days 0..6 整数配列・deadline 'HH:MM'）を
+  持たせ、`normalizeConfig` に `orderSchedule` を追加。`RoomDO.config.test.js` に保持・正規化・
+  欠損既定の3観点でケース追加（worker テスト 97 pass）。以下は当時の指摘（記録として保持）。
   client の `_serializeConfigData` には追加済みだが、`RoomDO.js normalizeConfig` は
   `reorderPoints` のみ追加で **orderSchedule が脱落**する。
   影響: config が DO を経由する全経路（ゲスト joined / config_update / session_started）で
@@ -60,7 +64,7 @@
 ### チェックリスト照合
 ✓ 純関数テスト3本＋draft回帰／✓ reorderPoints の config 両側＋テスト・rename/remove/reset 組込み／
 ✓ CSV再取込 非破壊／✓ プラン境界（手動系は無料の床=提案と整合）／✓ R2-01 修正確認
-✗ orderSchedule の worker 側（R3-01）／✗ 手動テスト項目（R3-04）／✗ project-status 未更新 → PM側で更新済み
+✅ orderSchedule の worker 側（R3-01・2026-07-19修正）／✗ 手動テスト項目（R3-04）／✗ project-status 未更新 → PM側で更新済み
 
 ---
 
