@@ -97,12 +97,9 @@ const poolItems = computed(() => {
     (!usedOnly.value || usage.value[i] > 0) &&
     (!unassignedOnly.value || itemGroups(i).length === 0)
   )
-  arr = [...arr].sort((a, b) => {
-    const ia = itemGroups(a).includes(target.value) ? 1 : 0
-    const ib = itemGroups(b).includes(target.value) ? 1 : 0
-    if (ia !== ib) return ib - ia
-    return (usage.value[b] ?? 0) - (usage.value[a] ?? 0)
-  })
+  // 振り分け状態では並べ替えない（タップした品目がその場から動かないように）。
+  // 使用頻度のみで安定ソート（頻度は棚卸履歴由来でセッション中は不変＝並びが動かない）。
+  arr = [...arr].sort((a, b) => (usage.value[b] ?? 0) - (usage.value[a] ?? 0))
   return arr
 })
 
@@ -295,35 +292,39 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <div class="af-track" :class="{ dragging }" :style="{ transform: `translateX(calc(${page === 'items' ? -50 : 0}% + ${dragPx}px))` }">
 
           <!-- カードA: 分類先（グループ）選択 -->
-          <section class="af-pane">
-            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
-            <TransitionGroup tag="div" name="af-reorder" class="af-glist">
-              <div v-for="g in renderGroups" :key="g" :data-group="g"
-                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG, pressing: pressG === g }"
-                   @click="onCardClick(g)"
-                   @touchstart.passive="onCardDown(g, $event)"
-                   @touchmove.passive="onCardMoveCancel($event)"
-                   @touchend="onCardUp" @touchcancel="onCardUp"
-                   @mousedown="onCardDown(g, $event)"
-                   @mousemove="onCardMoveCancel($event)"
-                   @mouseup="onCardUp" @mouseleave="onCardUp">
-                <span class="af-ghandle"
-                      @touchstart.stop.prevent="onHandleStart(g)"
-                      @touchmove.stop.prevent="onHandleMove"
-                      @touchend.stop="onHandleEnd">≡</span>
-                <span class="af-gname">{{ g }}</span>
-                <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
-                <span v-else class="af-garrow">→</span>
+          <section class="af-pane af-pane-a">
+            <div class="af-a-head">
+              <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
+              <div v-if="adding" class="af-gadd-row">
+                <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
+                <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+                <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
               </div>
-            </TransitionGroup>
-            <div v-if="adding" class="af-gadd-row">
-              <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
-              <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
-              <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
+              <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
             </div>
-            <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
-            <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            <div class="af-a-list">
+              <TransitionGroup tag="div" name="af-reorder" class="af-glist">
+                <div v-for="g in renderGroups" :key="g" :data-group="g"
+                     class="af-gcard" :class="{ active: g === target, dragging: g === dragG, pressing: pressG === g }"
+                     @click="onCardClick(g)"
+                     @touchstart.passive="onCardDown(g, $event)"
+                     @touchmove.passive="onCardMoveCancel($event)"
+                     @touchend="onCardUp" @touchcancel="onCardUp"
+                     @mousedown="onCardDown(g, $event)"
+                     @mousemove="onCardMoveCancel($event)"
+                     @mouseup="onCardUp" @mouseleave="onCardUp">
+                  <span class="af-ghandle"
+                        @touchstart.stop.prevent="onHandleStart(g)"
+                        @touchmove.stop.prevent="onHandleMove"
+                        @touchend.stop="onHandleEnd">≡</span>
+                  <span class="af-gname">{{ g }}</span>
+                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                  <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
+                  <span v-else class="af-garrow">→</span>
+                </div>
+              </TransitionGroup>
+              <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            </div>
           </section>
 
           <!-- カードB: 品目プール -->
@@ -436,6 +437,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
 .af-track.dragging { transition: none; }
 .af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }
+/* カードA: ヘッダー（案内＋グループ追加ボタン）は固定、グループ一覧だけスクロール */
+.af-pane-a { overflow: hidden; padding: 0; }
+.af-a-head { flex-shrink: 0; padding: 12px 14px 10px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
+.af-a-head .af-pane-hint { margin-bottom: 8px; }
+.af-a-head .af-gadd { margin-top: 0; padding: 12px; font-size: 14px; }
+.af-a-head .af-gadd-row { margin-top: 0; }
+.af-a-list { flex: 1; overflow-y: auto; padding: 12px 14px 24px; -webkit-overflow-scrolling: touch; }
+
 /* カードB: ヘッダー（分類一覧/確認・検索・フィルタ）は固定、品目一覧だけスクロール */
 .af-pane-b { overflow: hidden; padding: 0; }
 .af-b-head { flex-shrink: 0; padding: 12px 14px 8px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
