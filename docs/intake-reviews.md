@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-07-21: 入出庫D1永続化・日別メモ・逆ジオコーディングほか（〜v0.58）
+
+対象: 入出庫のD1永続化（0010_movements・Wave 2.5 #2）／発注削除のD1連動fix／日別メモ（学習除外）／
+天気の地名表示（BigDataCloud 逆ジオコーディング）／論理出庫（消費逆算）／カレンダーUX多数／TOP整理
+総評: 入出庫D1化は**設計判断が的確**（追記ログ=非リアルタイム同期で十分・冪等POST・再送キュー・
+ゲートは movements を正規表現に含めて S-F の教訓が活きている・テスト7件）。以下の2点が必須。
+
+### 必須
+- **R5-01 movements upsert のテナント境界に穴**（`handleMovementCreate`）
+  `movements.id` はグローバル PRIMARY KEY で、`ON CONFLICT(id) DO UPDATE` に **shop_code 条件が無い**。
+  自店コードで認証した攻撃者が他店の movement UUID を指定して POST すると、
+  **他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられる**（UUIDが推測困難なため
+  実害確率は低いが、B2Bで問われるテナント不変条件の破れ）。
+  修正案: `DO UPDATE ... WHERE movements.shop_code = excluded.shop_code` を付ける、
+  または PK を (id, shop_code) 複合化／事前に所有チェック。worker テストに
+  「他店idへのPOSTが他店行を変更しない」ケースを追加。
+- **R5-02 日別メモ（dayNotes）がアカウント切替消去に未配線**
+  `useDayNotes.resetLocalData()` は定義済みだが `accountData.clearLocalAccountData()` から
+  呼ばれていない。営業メモ・学習除外フラグ＝業務データが**アカウント切替後も残る**（S-10 と同型）。
+  1行の import＋呼び出し追加＋ accountData.test にケース追加。
+
+### 推奨
+- **R5-03 外部送信先が2つに増えた** — 逆ジオコーディングに BigDataCloud を使用（座標を送信）。
+  R4-01（ポリシー記載）の対象に追加。将来 CSP の connect-src にも `api.bigdatacloud.net` が必要
+  （R4-03 更新）。**R4-01/R4-02 は依然未対応** — 天気を含むビルドの本番前に。
+- R5-04 movement_lines の INSERT が行ごと逐次 await — `db.batch()` へ（監査スケール#4
+  handleOrderCreate と同根。同時に直すのが安い）。
+
+### 参考
+- R5-05 削除は D1 からも消え復元不可（提案どおり現状維持）。Undoトーストは提案箱の
+  補足論点として採用側で扱う。
+- 論理出庫（消費逆算）・給料日25日化＋五十日・カレンダーUXは指摘なし。
+- TOP「引き継ぎ」削除は「会員登録/ログインで置換予定」— 認証刷新の提案が来る前提で観察。
+
+---
+
 ## 2026-07-20: R3-01検収＋天気連携・給料日実務化（ff3556a・fd5384a・42953ba）
 
 - ✅ **R3-01 検収合格**: worker 側 `_normSchedule` が client と同一仕様・normalizeConfig への追加・
