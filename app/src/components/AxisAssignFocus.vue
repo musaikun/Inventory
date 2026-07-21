@@ -262,8 +262,16 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <header class="af-head">
       <button class="af-back" @click="page === 'items' ? backToGroups() : emit('close')">{{ page === 'items' ? '‹ 分類一覧' : '‹ 閉じる' }}</button>
       <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
+      <button v-if="namedAxes.length && !adding" class="af-head-add" @click="adding = true">＋ グループ</button>
       <button v-if="page === 'groups'" class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
     </header>
+
+    <!-- グループ追加の入力バー（どのカードでも上部に固定表示） -->
+    <div v-if="adding" class="af-addbar">
+      <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
+      <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+      <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
+    </div>
 
     <!-- 進捗バー -->
     <div class="af-progress">
@@ -292,39 +300,29 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <div class="af-track" :class="{ dragging }" :style="{ transform: `translateX(calc(${page === 'items' ? -50 : 0}% + ${dragPx}px))` }">
 
           <!-- カードA: 分類先（グループ）選択 -->
-          <section class="af-pane af-pane-a">
-            <div class="af-a-head">
-              <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
-              <div v-if="adding" class="af-gadd-row">
-                <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
-                <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
-                <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
+          <section class="af-pane">
+            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
+            <TransitionGroup tag="div" name="af-reorder" class="af-glist">
+              <div v-for="g in renderGroups" :key="g" :data-group="g"
+                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG, pressing: pressG === g }"
+                   @click="onCardClick(g)"
+                   @touchstart.passive="onCardDown(g, $event)"
+                   @touchmove.passive="onCardMoveCancel($event)"
+                   @touchend="onCardUp" @touchcancel="onCardUp"
+                   @mousedown="onCardDown(g, $event)"
+                   @mousemove="onCardMoveCancel($event)"
+                   @mouseup="onCardUp" @mouseleave="onCardUp">
+                <span class="af-ghandle"
+                      @touchstart.stop.prevent="onHandleStart(g)"
+                      @touchmove.stop.prevent="onHandleMove"
+                      @touchend.stop="onHandleEnd">≡</span>
+                <span class="af-gname">{{ g }}</span>
+                <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
+                <span v-else class="af-garrow">→</span>
               </div>
-              <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
-            </div>
-            <div class="af-a-list">
-              <TransitionGroup tag="div" name="af-reorder" class="af-glist">
-                <div v-for="g in renderGroups" :key="g" :data-group="g"
-                     class="af-gcard" :class="{ active: g === target, dragging: g === dragG, pressing: pressG === g }"
-                     @click="onCardClick(g)"
-                     @touchstart.passive="onCardDown(g, $event)"
-                     @touchmove.passive="onCardMoveCancel($event)"
-                     @touchend="onCardUp" @touchcancel="onCardUp"
-                     @mousedown="onCardDown(g, $event)"
-                     @mousemove="onCardMoveCancel($event)"
-                     @mouseup="onCardUp" @mouseleave="onCardUp">
-                  <span class="af-ghandle"
-                        @touchstart.stop.prevent="onHandleStart(g)"
-                        @touchmove.stop.prevent="onHandleMove"
-                        @touchend.stop="onHandleEnd">≡</span>
-                  <span class="af-gname">{{ g }}</span>
-                  <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                  <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
-                  <span v-else class="af-garrow">→</span>
-                </div>
-              </TransitionGroup>
-              <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
-            </div>
+            </TransitionGroup>
+            <div v-if="groups.length === 0 && !adding" class="af-empty">上の「＋ グループ」で分類先を作ってください（例：冷蔵庫・棚）。</div>
           </section>
 
           <!-- カードB: 品目プール -->
@@ -418,6 +416,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-title { font-size: 16px; font-weight: 800; color: #1e293b; }
 .af-edit { margin-left: auto; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
 .af-edit.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.af-head-add { margin-left: auto; flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 800; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+.af-head-add:active { background: #dbeafe; }
+
+/* グループ追加の入力バー（ヘッダー直下に固定） */
+.af-addbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
+.af-addbar .af-gadd-input { padding: 11px 12px; }
+.af-addbar .af-gadd-ok { padding: 11px 16px; }
+.af-addbar .af-gadd-x { padding: 10px 13px; }
 
 .af-progress { padding: 10px 14px 8px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
 .af-prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #334155; margin-bottom: 6px; }
@@ -437,14 +443,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
 .af-track.dragging { transition: none; }
 .af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }
-/* カードA: ヘッダー（案内＋グループ追加ボタン）は固定、グループ一覧だけスクロール */
-.af-pane-a { overflow: hidden; padding: 0; }
-.af-a-head { flex-shrink: 0; padding: 12px 14px 10px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
-.af-a-head .af-pane-hint { margin-bottom: 8px; }
-.af-a-head .af-gadd { margin-top: 0; padding: 12px; font-size: 14px; }
-.af-a-head .af-gadd-row { margin-top: 0; }
-.af-a-list { flex: 1; overflow-y: auto; padding: 12px 14px 24px; -webkit-overflow-scrolling: touch; }
-
 /* カードB: ヘッダー（分類一覧/確認・検索・フィルタ）は固定、品目一覧だけスクロール */
 .af-pane-b { overflow: hidden; padding: 0; }
 .af-b-head { flex-shrink: 0; padding: 12px 14px 8px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
@@ -474,8 +472,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
 .af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
-.af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 10px; }
-.af-gadd-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .af-gadd-input { flex: 1; min-width: 0; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
 .af-gadd-ok { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 15px 18px; cursor: pointer; }
 .af-gadd-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
