@@ -380,12 +380,12 @@ export async function handleMovementCreate(db, code, body = {}) {
     ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
   `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now).run()
 
-  for (const l of clean) {
-    await db.prepare(`
-      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, code, date, l.item, l.qty, l.unit, now).run()
-  }
+  // 明細は1件ずつの await ではなく batch で一括投入（R5-04・handleOrderCreate と同根）。
+  const lineStmts = clean.map(l => db.prepare(`
+    INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, code, date, l.item, l.qty, l.unit, now))
+  if (lineStmts.length) await db.batch(lineStmts)
   return { ok: true, id }
 }
 

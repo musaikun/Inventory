@@ -33,8 +33,8 @@
 - **R5-03 外部送信先が2つに増えた** — 逆ジオコーディングに BigDataCloud を使用（座標を送信）。
   R4-01（ポリシー記載）の対象に追加。将来 CSP の connect-src にも `api.bigdatacloud.net` が必要
   （R4-03 更新）。→ ✅ **R4-01/R4-02 とも 2026-07-21 修正済み**（下記）／CSP connect-src は S-07 実施時。
-- R5-04 movement_lines の INSERT が行ごと逐次 await — `db.batch()` へ（監査スケール#4
-  handleOrderCreate と同根。同時に直すのが安い）。
+- ✅ **R5-04 対応済み（2026-07-21）**: movement_lines の明細 INSERT を `db.batch()` へ集約。
+  （handleOrderCreate も同型だが今回はレビュー対象の movements のみ。orders は別途 R5-04b として残す。）
 
 ### 参考
 - R5-05 削除は D1 からも消え復元不可（提案どおり現状維持）。Undoトーストは提案箱の
@@ -108,14 +108,20 @@
   「normalizeConfig の出力キー一覧」を突き合わせる守りのテスト等を検討。
 
 ### 推奨
-- **R3-02 エクスポートCSVに発注点列がない** — 単価・入数・前月・軸は列があるのに
+- ✅ **R3-02 修正済み（2026-07-21）**: CSV 末尾に「発注点」列を追加（export/import 往復）。
+  列名でインデックスを特定し、列が無い旧CSVは既存の発注点を保持（非破壊）。テスト4件追加。以下は当時の指摘。
+- （旧）**R3-02 エクスポートCSVに発注点列がない** — 単価・入数・前月・軸は列があるのに
   `reorderPoints` は出力されず、CSVでの資産持ち出し/復元で発注点だけ欠ける。
   取込側の列対応とセットで（なお再取込は reorderPoints を消さない=非破壊は確認済み。
   消えた品目のキー残留は参考レベル）。
-- **R3-03 OrderScheduleModal にスマホ戻る/ESC の処理が無い** — checklist §7。
+- ✅ **R3-03 修正済み（2026-07-21）**: 開閉状態を `appMenuState.showOrderSchedule` に移し、
+  App の `_closeTopLayer`（戻る）に載せた＋モーダルに `useEscapeKey`（ESC）。以下は当時の指摘。
+- （旧）**R3-03 OrderScheduleModal にスマホ戻る/ESC の処理が無い** — checklist §7。
   ホーム（SessionListPage）系モーダルの戻る対応を既存の `_closeTopLayer` 系へ載せる。
   実機確認を test-checklist へ。
-- **R3-04 手動テスト項目が未追加** — 本バッチの実機観点（需要カレンダー層の表示・
+- ✅ **R3-04 対応済み（2026-07-21）**: `test-checklist-new-features.md` に M（発注点・スケジュール）・
+  N（需要カレンダー）・O（天気）・P（入出庫D1）節を追加。以下は当時の指摘。
+- （旧）**R3-04 手動テスト項目が未追加** — 本バッチの実機観点（需要カレンダー層の表示・
   スケジュール締切カウントダウン・発注点の要補充連動・発注テンキー）を
   `test-checklist-new-features.md` へ。
 
@@ -177,7 +183,9 @@
   ホスト再接続でもローカル下書きを DO へ再送しない（在庫は3方向マージ＋再送）。
   低頻度だが「入れたはずの発注数が消えた」に直結。最低限仕様として明記（sync-spec に現状を
   記載済み）。望ましくは在庫と同様の updatedAt マージ＋再送へ。
-- **R2-04 DO の order_update / order_remove にワーカー側テストがない**
+- ✅ **R2-04 対応済み（2026-07-21）**: `RoomDO.orders.test.js` を新設（保存・audit・送信者除外配信・
+  数値/0以下ガード・lot既定・remove・存在しない品目の5ケース）。以下は当時の指摘。
+- （旧）**R2-04 DO の order_update / order_remove にワーカー側テストがない**
   クライアント純関数（orderSync）はテスト済みだが、DO 側（サニタイズ・audit・
   session_start の orders 検証）が未カバー。RoomDO.config.test.js のパターンで追加を。
 

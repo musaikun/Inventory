@@ -8,3 +8,6 @@ export const settingsSection = ref(null)
 export const showAxisAssign  = ref(false)
 export const axisAssignInitial = ref(0)   // 開いたとき最初に選択する並び替え（0=①, 1=②）
 
+// 発注スケジュール設定（OrderScheduleModal）。App の戻る/ESC 制御に載せるため共有状態にする。
+export const showOrderSchedule = ref(false)
+

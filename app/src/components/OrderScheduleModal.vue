@@ -1,10 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { weekdayLabel, scheduleSummary } from '../services/orderScheduleUtil.js'
 
 const emit = defineEmits(['close', 'saved'])
 const { config, setOrderSchedule } = useConfig()
+
+// デスクトップの ESC で閉じる（スマホの戻るは App の _closeTopLayer → showOrderSchedule 経由）
+useEscapeKey(() => emit('close'))
 
 // 既存値で初期化（月火…の順で表示するため 1..6,0 の並び）
 const DOW_ORDER = [1, 2, 3, 4, 5, 6, 0]  // 月火水木金土日

@@ -22,7 +22,7 @@ import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
 import HistoryCalendar from './HistoryCalendar.vue'
 import { useWeather, requestGeolocation } from '../composables/useWeather.js'
-import { settingsSection } from '../composables/appMenuState.js'
+import { settingsSection, showOrderSchedule } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -49,7 +49,8 @@ async function onEnableWeather() {
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
 
 // ── 発注スケジュール（頻度・締切）─────────────────────────────
-const showScheduleModal = ref(false)
+// 開閉状態は appMenuState 共有（App の戻る/ESC 制御＝_closeTopLayer に載せるため）。
+const showScheduleModal = showOrderSchedule
 const orderSchedule   = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
 const hasSched        = computed(() => hasSchedule(orderSchedule.value))
 const schedSummary    = computed(() => scheduleSummary(orderSchedule.value))

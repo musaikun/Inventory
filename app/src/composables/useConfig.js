@@ -311,6 +311,9 @@ export function useConfig() {
     const isOldFormat    = header[1] === 'エイリアス'
     const hasPriceCol    = !isOldFormat && header[2] === '単価'
     const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'
+    // 発注点は列位置が可変（将来の列追加に耐える）ため、ヘッダ名で位置を特定する。
+    // 列が無い旧CSVは reorderIdx<0 → 既存の発注点を保持（非破壊）。
+    const reorderIdx     = header.indexOf('発注点')
 
     const newOrder         = []
     const newUnits         = {}
@@ -320,6 +323,7 @@ export function useConfig() {
     const newCategoryCodes = {}
     const newPrevMonths    = {}
     const newLotSizes      = {}
+    const newReorderPoints = {}
     const newDict          = {}
 
     // ── 品目名の完全一致で重複を統合（最初の1件を採用、以降は読み飛ばす）──────
@@ -356,6 +360,10 @@ export function useConfig() {
         if (category && !isNaN(catCode)) newCategoryCodes[category] = catCode
         if (prevMonth)                   newPrevMonths[name]    = prevMonth
         if (lotSize)                     newLotSizes[name]      = lotSize
+        if (reorderIdx >= 0) {
+          const rp = parseFloat(cols[reorderIdx])
+          if (!isNaN(rp) && rp >= 0)     newReorderPoints[name] = rp
+        }
         if (cols[4]) {
           cols[4].split(',').map(a => a.trim()).filter(Boolean)
             .forEach(alias => { newDict[alias] = name })
@@ -394,6 +402,8 @@ export function useConfig() {
     config.categoryCodes = newCategoryCodes
     config.prevMonths    = newPrevMonths
     config.lotSizes      = newLotSizes
+    // 発注点は列があるCSVのみ反映（無い旧CSVは既存値を保持＝非破壊）。
+    if (reorderIdx >= 0) config.reorderPoints = newReorderPoints
     config.dictionary    = newDict
     // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
     const newOrderSet    = new Set(cappedOrder)
@@ -411,7 +421,7 @@ export function useConfig() {
     const cs = v => (typeof v === 'string' && /^[=+\-@|]/.test(v)) ? `'${v}` : v
     const a0 = (config.axisNames?.[0] || '軸1').replace(/,/g, ' ')
     const a1 = (config.axisNames?.[1] || '軸2').replace(/,/g, ' ')
-    const rows = [`品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,${a0},${a1}`]
+    const rows = [`品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,${a0},${a1},発注点`]
     config.order.forEach(item => {
       const unit     = cs(config.units[item]      ?? '')
       const price    = config.prices[item]        ?? ''
@@ -420,6 +430,7 @@ export function useConfig() {
       const catCode  = config.categoryCodes[config.categories[item]] ?? ''
       const prevMonth = cs(config.prevMonths[item] ?? '')
       const lotSize  = cs(config.lotSizes[item]   ?? '')
+      const reorder  = config.reorderPoints?.[item] ?? ''
       const tagA     = cs((config.tagsA[item] ?? []).join('|'))
       const tagB     = cs((config.tagsB[item] ?? []).join('|'))
       const aliases  = Object.entries(config.dictionary)
@@ -435,7 +446,8 @@ export function useConfig() {
       const lotCell     = lotSize        ? `"${lotSize}"`           : ''
       const tagACell    = tagA           ? `"${tagA}"`              : ''
       const tagBCell    = tagB           ? `"${tagB}"`              : ''
-      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell},${tagACell},${tagBCell}`)
+      const reorderCell = reorder !== '' ? reorder                  : ''
+      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell},${tagACell},${tagBCell},${reorderCell}`)
     })
     return rows.join('\r\n')
   }

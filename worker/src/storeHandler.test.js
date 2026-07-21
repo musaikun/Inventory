@@ -377,7 +377,12 @@ function createMovementsMockD1() {
     }
     return stmt
   }
-  return { prepare, _movements: movements, _lines: moveLines }
+  async function batch(stmts) {
+    const out = []
+    for (const s of stmts) out.push(await s.run())
+    return out
+  }
+  return { prepare, batch, _movements: movements, _lines: moveLines }
 }
 
 describe('入出庫 API（movements）', () => {
