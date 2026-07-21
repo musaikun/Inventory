@@ -97,12 +97,9 @@ const poolItems = computed(() => {
     (!usedOnly.value || usage.value[i] > 0) &&
     (!unassignedOnly.value || itemGroups(i).length === 0)
   )
-  arr = [...arr].sort((a, b) => {
-    const ia = itemGroups(a).includes(target.value) ? 1 : 0
-    const ib = itemGroups(b).includes(target.value) ? 1 : 0
-    if (ia !== ib) return ib - ia
-    return (usage.value[b] ?? 0) - (usage.value[a] ?? 0)
-  })
+  // 振り分け状態では並べ替えない（タップした品目がその場から動かないように）。
+  // 使用頻度のみで安定ソート（頻度は棚卸履歴由来でセッション中は不変＝並びが動かない）。
+  arr = [...arr].sort((a, b) => (usage.value[b] ?? 0) - (usage.value[a] ?? 0))
   return arr
 })
 
@@ -265,8 +262,16 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <header class="af-head">
       <button class="af-back" @click="page === 'items' ? backToGroups() : emit('close')">{{ page === 'items' ? '‹ 分類一覧' : '‹ 閉じる' }}</button>
       <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
+      <button v-if="namedAxes.length && !adding" class="af-head-add" @click="adding = true">＋ グループ</button>
       <button v-if="page === 'groups'" class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
     </header>
+
+    <!-- グループ追加の入力バー（どのカードでも上部に固定表示） -->
+    <div v-if="adding" class="af-addbar">
+      <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
+      <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+      <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
+    </div>
 
     <!-- 進捗バー -->
     <div class="af-progress">
@@ -317,13 +322,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                 <span v-else class="af-garrow">→</span>
               </div>
             </TransitionGroup>
-            <div v-if="adding" class="af-gadd-row">
-              <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
-              <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
-              <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
-            </div>
-            <button v-else class="af-gadd" @click="adding = true">＋ グループを追加</button>
-            <div v-if="groups.length === 0 && !adding" class="af-empty">まず「＋ グループを追加」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            <div v-if="groups.length === 0 && !adding" class="af-empty">上の「＋ グループ」で分類先を作ってください（例：冷蔵庫・棚）。</div>
           </section>
 
           <!-- カードB: 品目プール -->
@@ -417,6 +416,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-title { font-size: 16px; font-weight: 800; color: #1e293b; }
 .af-edit { margin-left: auto; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
 .af-edit.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.af-head-add { margin-left: auto; flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 800; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+.af-head-add:active { background: #dbeafe; }
+
+/* グループ追加の入力バー（ヘッダー直下に固定） */
+.af-addbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
+.af-addbar .af-gadd-input { padding: 11px 12px; }
+.af-addbar .af-gadd-ok { padding: 11px 16px; }
+.af-addbar .af-gadd-x { padding: 10px 13px; }
 
 .af-progress { padding: 10px 14px 8px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
 .af-prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #334155; margin-bottom: 6px; }
@@ -465,8 +472,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
 .af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
-.af-gadd { width: 100%; border: 1.5px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 14px; padding: 16px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 10px; }
-.af-gadd-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .af-gadd-input { flex: 1; min-width: 0; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
 .af-gadd-ok { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 15px 18px; cursor: pointer; }
 .af-gadd-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
