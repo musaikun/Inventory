@@ -76,14 +76,21 @@ describe('demandFactors（日ごとの需要要因）', () => {
     expect(dayFactors('2025-05-25').payday).toBe(false)      // 日曜当日は給料日でない
   })
 
-  it('年金支給日: 偶数月15日（繰り上げ後）', () => {
-    // 2025-06-15(日) → 繰り上げ 6/13(金)。6月は偶数月 → 年金かつ15日給料日
+  it('年金支給日: 偶数月15日（繰り上げ後）・15日は給料日ではない', () => {
+    // 2025-06-15(日) → 繰り上げ 6/13(金)。6月は偶数月 → 年金
     expect(dayFactors('2025-06-13').pension).toBe(true)
-    expect(dayFactors('2025-06-13').payday).toBe(true)
+    expect(dayFactors('2025-06-13').payday).toBe(false)      // 既定は25日のみ → 15日は給料日でない
     expect(dayFactors('2025-06-15').pension).toBe(false)     // 日曜当日は繰り上げ先でない
-    // 奇数月の15日は年金でない（2025-07-15 火）
-    expect(dayFactors('2025-07-15').pension).toBe(false)
-    expect(dayFactors('2025-07-15').payday).toBe(true)       // 15日給料日
+    expect(dayFactors('2025-07-15').pension).toBe(false)     // 奇数月は年金でない
+  })
+
+  it('五十日（ごとおび）: 5の倍数日・休業日は前営業日へ繰り上げ', () => {
+    expect(dayFactors('2025-07-10').gotobi).toBe(true)   // 7/10(木) 平日
+    expect(dayFactors('2025-07-25').gotobi).toBe(true)   // 7/25(金)
+    expect(dayFactors('2025-07-11').gotobi).toBe(false)  // 5の倍数でない
+    // 2025-05-25(日) → 繰り上げ 5/23(金)が五十日マーク
+    expect(dayFactors('2025-05-23').gotobi).toBe(true)
+    expect(dayFactors('2025-05-25').gotobi).toBe(false)
   })
 
   it('dayFactors: 祝日名と曜日', () => {

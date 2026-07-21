@@ -244,6 +244,7 @@ const selectedFactors = computed(() => {
   else if (runLen >= 3)   chips.push({ cls: 'long', label: `${runLen}連休` })
   if (f.payday)      chips.push({ cls: 'pay',     label: `💰 ${f.paydayLabel}給料日` })
   if (f.pension)     chips.push({ cls: 'pension', label: '👛 年金支給日' })
+  if (f.gotobi)      chips.push({ cls: 'gotobi',  label: '五十日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
   if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
   return chips
@@ -456,6 +457,7 @@ function onDeleteMove(id) {
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: showFactors && cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="showFactors && cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
+            <span v-if="showFactors && cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
             <span v-if="showFactors && cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
             <span v-if="!cellInfo" class="hc-dots">
@@ -675,6 +677,7 @@ function onDeleteMove(id) {
 .hc-day.hol { color: #dc2626; font-weight: 700; }
 .hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
+.hc-gotobi-mark { position: absolute; bottom: 3px; left: 3px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
 .hc-factor-toggle.on { border-color: #ea580c; color: #c2410c; background: #fff7ed; }
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
@@ -686,6 +689,7 @@ function onDeleteMove(id) {
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
 .hc-fchip.f-pension { background: #eff6ff; color: #1d4ed8; }
+.hc-fchip.f-gotobi  { background: #ecfeff; color: #0e7490; }
 .hc-fchip.f-weekday { background: #f1f5f9; color: #475569; }
 
 /* この日の基本情報・比較 */

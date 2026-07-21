@@ -96,8 +96,8 @@ export function dayFactors(date, opts = {}) {
   const m = d.getMonth() + 1
   const day = d.getDate()
   const daysInMonth = new Date(y, m, 0).getDate()
-  // 給料日の一般デフォルト（最も多い25日＋15日）。opts.paydays で上書き可。
-  const paydays = Array.isArray(opts.paydays) ? opts.paydays : [25, 15]
+  // 給料日の一般デフォルト（最も多い25日）。opts.paydays で上書き可。
+  const paydays = Array.isArray(opts.paydays) ? opts.paydays : [25]
 
   const next = new Date(d)
   next.setDate(next.getDate() + 1)
@@ -120,6 +120,13 @@ export function dayFactors(date, opts = {}) {
   const pension = [2, 4, 6, 8, 10, 12].includes(m) &&
     _isSameDay(precedingBankDay(y, d.getMonth(), 15), y, d.getMonth(), day)
 
+  // 五十日（ごとおび）: 5の倍数日（5/10/15/20/25/30）。休業日なら前営業日へ繰り上げてマーク。
+  let gotobi = false
+  for (const nd of [5, 10, 15, 20, 25, 30]) {
+    if (nd > daysInMonth) continue
+    if (_isSameDay(precedingBankDay(y, d.getMonth(), nd), y, d.getMonth(), day)) { gotobi = true; break }
+  }
+
   return {
     date:         keyOf(d),
     weekday:      d.getDay(),                       // 0=日..6=土
@@ -132,8 +139,9 @@ export function dayFactors(date, opts = {}) {
     payday,                                         // 給料日（銀行休業日繰り上げ後）
     paydayLabel,                                    // '25日' | '15日' | '月末' | ''
     pension,                                        // 年金支給日（偶数月15日・繰り上げ後）
+    gotobi,                                          // 五十日（5の倍数日・休業日は前営業日へ繰り上げ）
     monthEnd,
-    fifthMultiple: day % 5 === 0,                   // 5の倍数日
+    fifthMultiple: day % 5 === 0,                   // 5の倍数日（生の値・繰り上げなし）
     longWeekend:  isLongWeekend(d),                 // 3連休以上に含まれる
     span:         customarySpan(d),                 // 'お盆' | '年末年始' | null（短期・強い）
     seasonBreak:  seasonBreak(d),                   // '夏休み' | '冬休み' | '春休み' | null（広い）
