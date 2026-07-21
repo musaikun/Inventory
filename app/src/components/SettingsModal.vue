@@ -6,10 +6,10 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
-import AxisAssignModal from './AxisAssignModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
+import pkg from '../../package.json'
 
 const props = defineProps({
   isGuest: Boolean,
@@ -22,9 +22,10 @@ useEscapeKey(() => emit('close'))
 const _show = (s) =>
   props.section === 'all' ||
   props.section === s ||
-  (props.section === 'general' && (s === 'device' || s === 'push' || s === 'axis'))
+  (props.section === 'general' && (s === 'device' || s === 'push'))
+const _showGeneral = computed(() => props.section === 'all' || props.section === 'general')
 const sheetTitle = computed(() => ({
-  import: '品目のインポート', axis: '並び替え', device: '端末名', push: 'プッシュ通知', general: '各種設定',
+  import: '品目のインポート', device: '端末名', push: 'プッシュ通知', general: '各種設定',
 }[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)
@@ -58,39 +59,8 @@ function _importResultStatus(result) {
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem, setAxisName, clearAxis,
+  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
 } = useConfig()
-
-// ── 並び替えの名前（明示的な追加・リネーム・削除）──────────────
-const newAxisName = ref('')
-const namedAxisList = computed(() =>
-  (config.axisNames ?? ['', '']).map((name, i) => ({ name, i })).filter(x => x.name)
-)
-const firstFreeAxis = computed(() => {
-  const a = config.axisNames ?? ['', '']
-  return !a[0] ? 0 : (!a[1] ? 1 : -1)
-})
-function onAddAxis() {
-  const n = newAxisName.value.trim()
-  const idx = firstFreeAxis.value
-  if (!n || idx < 0) return
-  setAxisName(idx, n)
-  newAxisName.value = ''
-}
-function onRenameAxis(i) {
-  const cur = config.axisNames?.[i] ?? ''
-  const nn = (prompt('並び替えの新しい名前', cur) || '').trim()
-  if (!nn || nn === cur) return
-  setAxisName(i, nn)
-}
-function onDeleteAxis(i) {
-  const name = config.axisNames?.[i] ?? ''
-  if (!confirm(`「${name}」の並び替えを削除します。振り分けたグループ・割り当ても消えます。よろしいですか？`)) return
-  clearAxis(i)
-}
-
-const showAssign = ref(false)
-const hasNamedAxis = computed(() => (config.axisNames?.[0] || config.axisNames?.[1]))
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
 const showImporter   = ref(false)
@@ -112,6 +82,25 @@ function saveDeviceName() {
 function saveAndClose() {
   setDeviceName(deviceNameInput.value)
   emit('close')
+}
+
+// ── 安全なキャッシュ削除（アプリ本体の古いファイルのみ・業務データは無傷）──────
+const appVersion = pkg.version
+const clearingCache = ref(false)
+async function clearAppCache() {
+  if (!confirm('アプリの表示キャッシュを削除して再読み込みします。\n設定・品目・発注点・履歴などのデータは消えません。よろしいですか？')) return
+  clearingCache.value = true
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(r => r.unregister()))
+    }
+    if (window.caches) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(k => caches.delete(k)))
+    }
+  } catch (_) { /* 失敗しても再読込は行う */ }
+  location.reload()
 }
 
 // ── ファイル読み込み（CSV / PDF / Excel 自動判別）─────────────────────────────
@@ -307,34 +296,6 @@ function onDownloadTemplate() {
       </details>
       </template>
 
-      <!-- 並び替えの名前（最大2つ） -->
-      <div v-if="!props.isGuest && _show('axis')" class="device-section">
-        <div class="device-label">並び替えの名前（最大2つ）</div>
-        <p class="axis-note">「場所」「仕入先」など、品目をまとめて並び替えたい切り口に名前をつけます。</p>
-
-        <!-- 登録済み -->
-        <div v-for="a in namedAxisList" :key="a.i" class="axis-reg">
-          <span class="axis-num">{{ a.i === 0 ? '①' : '②' }}</span>
-          <span class="axis-reg-name">{{ a.name }}</span>
-          <button class="axis-mini" @click="onRenameAxis(a.i)">名前変更</button>
-          <button class="axis-mini danger" @click="onDeleteAxis(a.i)">削除</button>
-        </div>
-
-        <!-- 追加（空きがあるとき）-->
-        <div v-if="firstFreeAxis >= 0" class="axis-row">
-          <input
-            type="text" class="device-input" v-model="newAxisName"
-            :placeholder="namedAxisList.length === 0 ? '例: 置き場所（冷凍庫・仕込み場…）' : '例: 仕入先（八百屋・肉屋…）'"
-            maxlength="12" @keyup.enter="onAddAxis"
-          />
-          <button class="axis-add-btn2" :disabled="!newAxisName.trim()" @click="onAddAxis">＋追加</button>
-        </div>
-
-        <button v-if="hasNamedAxis" class="axis-assign-btn" @click="showAssign = true">
-          🗂️ 品目をグループに振り分ける
-        </button>
-      </div>
-
       <!-- 端末名設定 -->
       <div v-if="_show('device')" class="device-section">
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
@@ -372,6 +333,21 @@ function onDownloadTemplate() {
         </div>
       </div>
 
+      <!-- 表示キャッシュの削除（安全版・業務データは消えません） -->
+      <div v-if="_showGeneral" class="device-section">
+        <div class="device-label">表示の不具合をリセット</div>
+        <p class="cache-note">アプリの表示が古い・崩れる・更新が反映されないときに使います。<b>設定・品目・発注点・履歴などのデータは消えません。</b></p>
+        <button class="cache-btn" :disabled="clearingCache" @click="clearAppCache">
+          {{ clearingCache ? '再読み込み中…' : '表示キャッシュを削除して再読込' }}
+        </button>
+      </div>
+
+      <!-- アプリ情報 -->
+      <div v-if="_showGeneral" class="device-section app-info">
+        <div class="device-label">アプリ情報</div>
+        <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}</span></div>
+      </div>
+
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
     </div>
   </div>
@@ -393,8 +369,6 @@ function onDownloadTemplate() {
     @imported="onMapperImported"
     @close="showMapper = false"
   />
-
-  <AxisAssignModal v-if="showAssign" @close="showAssign = false" />
 </template>
 
 <style scoped>
@@ -523,17 +497,19 @@ function onDownloadTemplate() {
 }
 .ex-row:not(.ex-head) > span:last-child { color: var(--primary); font-weight: 600; }
 
-.axis-note { font-size: 11px; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.5; }
-.axis-reg { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
-.axis-reg-name { flex: 1; font-size: 14px; font-weight: 700; color: var(--text); word-break: break-all; }
-.axis-mini { flex-shrink: 0; border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 5px 9px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
-.axis-mini.danger { color: #dc2626; border-color: #fecaca; }
-.axis-add-btn2 { flex-shrink: 0; border: none; background: var(--primary); color: #fff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer; }
-.axis-add-btn2:disabled { opacity: 0.4; cursor: not-allowed; }
-.axis-assign-btn { width: 100%; margin-top: 10px; padding: 10px; border: 1.5px solid var(--primary); background: var(--primary-weak); color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 10px; cursor: pointer; }
-.axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.axis-num { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); width: 30px; }
-.axis-row .device-input { flex: 1; }
+/* キャッシュ削除・アプリ情報 */
+.cache-note { font-size: 11px; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.6; }
+.cache-note b { color: var(--text); }
+.cache-btn {
+  width: 100%; padding: 10px; border: 1.5px solid var(--border);
+  background: #fff; color: var(--text); border-radius: 10px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.cache-btn:active { background: #f1f5f9; }
+.cache-btn:disabled { opacity: 0.5; cursor: default; }
+.app-info .info-row { display: flex; align-items: center; justify-content: space-between; }
+.info-key { font-size: 13px; color: var(--text-muted); }
+.info-val { font-size: 13px; font-weight: 700; color: var(--text); font-family: monospace; }
 
 /* 端末名設定 */
 .device-section {

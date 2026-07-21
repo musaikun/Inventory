@@ -663,7 +663,7 @@ function _itemCount(session) {
             <div class="dashboard-card-icon">⚙️</div>
             <div class="dashboard-card-body">
               <div class="dashboard-card-title">各種設定</div>
-              <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
+              <div class="dashboard-card-desc">端末名・プッシュ通知・アプリ情報</div>
             </div>
             <span class="dashboard-card-arrow">›</span>
           </div>
