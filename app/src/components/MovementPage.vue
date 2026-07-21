@@ -6,6 +6,7 @@ import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../comp
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
+import { avgDailyConsumption } from '../services/impliedConsumption.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
@@ -84,18 +85,10 @@ function onReorderInput(item, e) { setReorderPoint(item, e.target.value) }
 // ── 推奨発注点の目安（暫定ヒューリスティック）───────────────
 // 手動発注点＝人間が決める床。ここは「データから出す目安」を横に添えるだけ（自動上書きしない）。
 // 将来は曜日別・外的/内的要因の予測モデルに置き換える。
-// 目安 = 直近30日の平均日消費 × 発注間隔（発注曜日の最大ギャップ、未設定は7日）。
-function avgDailyOut(item) {
-  const since = Date.now() - 30 * 86400000
-  let total = 0, has = false
-  for (const mv of getMovements()) {
-    if (mv.type !== 'out') continue
-    const d = new Date(mv.date + 'T00:00:00').getTime()
-    if (isNaN(d) || d < since) continue
-    const line = (mv.lines || []).find(l => l.item === item)
-    if (line) { total += Number(line.qty) || 0; has = true }
-  }
-  return has ? total / 30 : null
+// 目安 = 推定日消費 × 発注間隔（発注曜日の最大ギャップ、未設定は7日）。
+// 消費は「論理出庫」＝在庫観測（棚卸・発注時在庫）＋入庫から逆算（出庫を記録しない飲食店でも出る）。
+function dailyConsumption(item) {
+  return avgDailyConsumption(item, { windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value })
 }
 const reorderHorizon = computed(() => {
   const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
@@ -108,7 +101,7 @@ const reorderHorizon = computed(() => {
   return maxGap
 })
 function suggestedReorder(item) {
-  const avg = avgDailyOut(item)
+  const avg = dailyConsumption(item)
   if (avg == null || avg <= 0) return null
   return Math.max(1, Math.ceil(avg * reorderHorizon.value))
 }
@@ -411,9 +404,9 @@ function onSave() {
                   <!-- 推奨（目安・データから算出。タップで採用・上書きしない）-->
                   <div v-if="suggestedReorder(item) != null" class="mv-d-suggest">
                     <button class="mv-d-suggest-btn" @click.stop="setReorderPoint(item, suggestedReorder(item))">目安 {{ suggestedReorder(item) }} を採用</button>
-                    <span class="mv-d-suggest-basis">直近平均 {{ avgDailyOut(item).toFixed(1) }}/日 × {{ reorderHorizon }}日</span>
+                    <span class="mv-d-suggest-basis">推定消費 {{ dailyConsumption(item).toFixed(1) }}/日 × {{ reorderHorizon }}日</span>
                   </div>
-                  <div v-else class="mv-d-suggest-none">入出庫が貯まると発注点の目安を表示します</div>
+                  <div v-else class="mv-d-suggest-none">在庫の観測（棚卸・発注時在庫）が2回以上貯まると目安を表示します</div>
 
                   <!-- マスタ情報 -->
                   <div class="mv-d-meta">
