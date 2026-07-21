@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { createStore, loadStore, shopCode } from '../composables/useStore.js'
+import { shopCode } from '../composables/useStore.js'
 import { isTwaApp } from '../utils/appMode.js'
 
 const emit = defineEmits(['started'])
@@ -13,30 +13,12 @@ function onLogin() {
   emit('started', { hostMode: true })
 }
 
-const loading      = ref(false)
-const error        = ref('')
-const showRestore  = ref(false)
-const restoreCode  = ref('')
+const loading = ref(false)
 
 // ── ホストとして開始（認証フローへ）─────────────────────────────────────────
 async function onStart() {
   // hostMode フラグを渡すことで App.vue が認証チェックを行う
   emit('started', { hostMode: true })
-}
-
-// ── 既存データを引き継ぐ ──────────────────────────────────────────────────────
-async function onRestoreSubmit() {
-  const code = restoreCode.value.toUpperCase().replace(/[^A-Z]/g, '')
-  if (!/^[A-Z]{4,8}$/.test(code)) { error.value = '4〜8文字の英字で入力してください'; return }
-  loading.value = true
-  error.value   = ''
-  try {
-    await loadStore(code)
-    emit('started')
-  } catch {
-    error.value   = 'そのコードは見つかりません。'
-    loading.value = false
-  }
 }
 </script>
 
@@ -62,9 +44,6 @@ async function onRestoreSubmit() {
         </button>
       </div>
 
-      <!-- エラー -->
-      <div v-if="error" class="lp-error">{{ error }}</div>
-
       <!-- ── ホストカード ── -->
       <button
         class="lp-card lp-card-host"
@@ -80,35 +59,6 @@ async function onRestoreSubmit() {
         </span>
         <span class="lp-card-arrow">›</span>
       </button>
-
-      <!-- ── データ引き継ぎ ── -->
-      <button class="lp-restore-link" @click="showRestore = !showRestore; error = ''">
-        別端末に店舗データを引き継ぐ ›
-      </button>
-
-      <div v-if="showRestore" class="lp-restore-form">
-        <input
-          class="lp-join-input"
-          type="text"
-          placeholder="店舗コード（例: SAKURA）"
-          v-model="restoreCode"
-          @keyup.enter="onRestoreSubmit"
-          maxlength="8"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="characters"
-          spellcheck="false"
-          autofocus
-        />
-        <button
-          class="lp-btn-join"
-          :disabled="loading"
-          @click="onRestoreSubmit"
-          style="width:100%; margin-top:8px"
-        >
-          {{ loading ? '確認中...' : '引き継ぐ' }}
-        </button>
-      </div>
     </div>
 
   </div>
@@ -216,17 +166,6 @@ async function onRestoreSubmit() {
 }
 
 /* ── エラー ── */
-.lp-error {
-  padding: 10px 14px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #dc2626;
-  text-align: center;
-}
-
 /* ── カード共通 ── */
 .lp-card {
   display: flex;
@@ -294,63 +233,6 @@ async function onRestoreSubmit() {
   padding: 2px 4px;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
-}
-
-/* ── 参加コード入力（引き継ぎフォームで使用） ── */
-.lp-join-input {
-  padding: 12px 14px;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 10px;
-  outline: none;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  background: #f8fafc;
-  color: #0f172a;
-  -webkit-appearance: none;
-  width: 100%;
-}
-.lp-join-input:focus { border-color: var(--primary); background: #fff; }
-.lp-join-input::placeholder { font-family: inherit; letter-spacing: 0; font-weight: 400; color: #94a3b8; font-size: 14px; }
-
-.lp-btn-join {
-  flex: 1;
-  padding: 12px;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 800;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s;
-}
-.lp-btn-join:active  { opacity: 0.8; }
-.lp-btn-join:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ── データ引き継ぎ ── */
-.lp-restore-link {
-  font-size: 12px;
-  color: #94a3b8;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: center;
-  padding: 4px 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  -webkit-tap-highlight-color: transparent;
-  margin-top: 4px;
-}
-.lp-restore-link:hover { color: #475569; }
-
-.lp-restore-form {
-  background: #fff;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 14px;
 }
 
 </style>
