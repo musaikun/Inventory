@@ -8,7 +8,8 @@ async function fresh() {
   const accountData = await import('./accountData.js')
   const orders      = await import('./useOrders.js')
   const movements   = await import('./useMovements.js')
-  return { auth, accountData, orders, movements }
+  const dayNotes    = await import('./useDayNotes.js')
+  return { auth, accountData, orders, movements, dayNotes }
 }
 
 function stubLogin(shopCode) {
@@ -41,6 +42,19 @@ describe('clearLocalAccountData（ローカル業務データの全消去）', (
     // 端末固有の設定は保持
     expect(localStorage.getItem('_device_id')).toBe('dev-1')
     expect(localStorage.getItem('_device_name')).toBe('レジ')
+  })
+
+  it('R5-02: 日別メモ（内部イベント・学習除外）も消える', async () => {
+    const { accountData, dayNotes } = await fresh()
+
+    dayNotes.useDayNotes().setNote('2026-07-21', { text: '貸切', excluded: true })
+    expect(dayNotes.useDayNotes().hasNote('2026-07-21')).toBe(true)
+    expect(localStorage.getItem('inventory_day_notes_v1')).not.toBeNull()
+
+    accountData.clearLocalAccountData()
+
+    expect(dayNotes.useDayNotes().hasNote('2026-07-21')).toBe(false)
+    expect(localStorage.getItem('inventory_day_notes_v1')).toBeNull()
   })
 })
 

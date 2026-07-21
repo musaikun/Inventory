@@ -13,7 +13,9 @@
 ゲートは movements を正規表現に含めて S-F の教訓が活きている・テスト7件）。以下の2点が必須。
 
 ### 必須
-- **R5-01 movements upsert のテナント境界に穴**（`handleMovementCreate`）
+- ✅ **R5-01 修正済み（2026-07-21）: movements upsert のテナント境界**（`handleMovementCreate`）
+  保存前に `SELECT shop_code FROM movements WHERE id=?` で所有者を確認し、別店舗の id なら 409 で拒否。
+  ヘッダ・明細とも他店データに触れない。worker テストに「他店idへのPOSTが他店行を変更しない」追加（103 pass）。以下は当時の指摘。
   `movements.id` はグローバル PRIMARY KEY で、`ON CONFLICT(id) DO UPDATE` に **shop_code 条件が無い**。
   自店コードで認証した攻撃者が他店の movement UUID を指定して POST すると、
   **他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられる**（UUIDが推測困難なため
@@ -21,7 +23,8 @@
   修正案: `DO UPDATE ... WHERE movements.shop_code = excluded.shop_code` を付ける、
   または PK を (id, shop_code) 複合化／事前に所有チェック。worker テストに
   「他店idへのPOSTが他店行を変更しない」ケースを追加。
-- **R5-02 日別メモ（dayNotes）がアカウント切替消去に未配線**
+- ✅ **R5-02 修正済み（2026-07-21）: 日別メモ（dayNotes）をアカウント切替消去に配線**
+  `accountData.clearLocalAccountData()` に `resetDayNotes()` を追加。accountData.test にケース追加。以下は当時の指摘。
   `useDayNotes.resetLocalData()` は定義済みだが `accountData.clearLocalAccountData()` から
   呼ばれていない。営業メモ・学習除外フラグ＝業務データが**アカウント切替後も残る**（S-10 と同型）。
   1行の import＋呼び出し追加＋ accountData.test にケース追加。
@@ -29,7 +32,7 @@
 ### 推奨
 - **R5-03 外部送信先が2つに増えた** — 逆ジオコーディングに BigDataCloud を使用（座標を送信）。
   R4-01（ポリシー記載）の対象に追加。将来 CSP の connect-src にも `api.bigdatacloud.net` が必要
-  （R4-03 更新）。**R4-01/R4-02 は依然未対応** — 天気を含むビルドの本番前に。
+  （R4-03 更新）。→ ✅ **R4-01/R4-02 とも 2026-07-21 修正済み**（下記）／CSP connect-src は S-07 実施時。
 - R5-04 movement_lines の INSERT が行ごと逐次 await — `db.batch()` へ（監査スケール#4
   handleOrderCreate と同根。同時に直すのが安い）。
 
@@ -49,13 +52,17 @@
   エラーハンドリングあり。設計は良。ただし:
 
 ### 必須（本番リリース前）
-- **R4-01 プライバシーポリシーに位置情報の記載が無い** — 現ポリシーは位置情報に触れていない。
+- ✅ **R4-01 修正済み（2026-07-21）**: プライバシーポリシーに位置情報の収集（任意・オプトイン・端末内保存）と
+  Open-Meteo/BigDataCloud への座標の外部送信を §2/§3/§5/§8 に追記。以下は当時の指摘。
+- （旧）**R4-01 プライバシーポリシーに位置情報の記載が無い** — 現ポリシーは位置情報に触れていない。
   「任意で位置情報を取得（端末保存）」「座標を Open-Meteo（外国事業者）へ送信して天気を取得」を
   収集情報・外部送信先として追記が必要（外部送信規律の観点でも）。天気機能を含むビルドを
   本番へ出す前に対応。
 
 ### 推奨
-- **R4-02 `weather_loc` / `weather_cache` が storageKeys.js 未登録（直書き）** — checklist §2 違反。
+- ✅ **R4-02 修正済み（2026-07-21）**: `weatherLoc`/`weatherCache` を storageKeys.js に登録し useWeather.js が参照。
+  分類は「端末固有（切替でも保持・全消去対象外）」をコメントで明記。以下は当時の指摘。
+- （旧）**R4-02 `weather_loc` / `weather_cache` が storageKeys.js 未登録（直書き）** — checklist §2 違反。
   登録し、分類は「端末固有（アカウント切替でも保持）」で妥当（共有端末で店舗が変わる場合も
   端末の物理位置は同じ）。その判断を storageKeys のコメントに一言。
 

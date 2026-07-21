@@ -367,6 +367,12 @@ export async function handleMovementCreate(db, code, body = {}) {
   // 出庫は発注紐付けを持たない。
   const orderId = type === 'in' && body.orderId ? body.orderId : null
 
+  // テナント境界: movements.id はグローバル PK。既存 id が別店舗のものなら拒否し、
+  // 他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられないようにする。
+  // 同一店舗の再送はこのチェックを通り、下の upsert で冪等に貼り直す。
+  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
+  if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
   await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
   await db.prepare(`
     INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at)

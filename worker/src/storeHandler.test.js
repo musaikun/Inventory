@@ -348,7 +348,14 @@ function createMovementsMockD1() {
         }
         return { success: true }
       },
-      async first() { return null },
+      async first() {
+        if (s.startsWith('SELECT shop_code FROM movements WHERE id')) {
+          const [id] = bound
+          const m = movements.find(mv => mv.id === id)
+          return m ? { shop_code: m.shop_code } : null
+        }
+        return null
+      },
       async all() {
         if (s.startsWith('SELECT id, move_date, type, note, order_id, saved_at FROM movements')) {
           const [shop, since] = bound
@@ -428,5 +435,24 @@ describe('入出庫 API（movements）', () => {
     const got = await handleMovementsGet(db, code, 400)
     expect(got).toHaveLength(0)
     expect(db._lines).toHaveLength(0)
+  })
+
+  it('R5-01: 他店の movement id への POST は 409 で拒否し、他店データを書き換えない', async () => {
+    const db = createMovementsMockD1()
+    // A店が m_1 を保存
+    await handleMovementCreate(db, code, rec)
+    // B店が同じ id で上書きを試みる
+    const res = await handleMovementCreate(db, 'ZZZZZZ', {
+      id: 'm_1', date: '2099-01-01', type: 'out', note: '改竄', lines: [{ item: '不正', qty: 1 }],
+    })
+    expect(res._status).toBe(409)
+    // A店のヘッダ・明細は無傷
+    const got = await handleMovementsGet(db, code, 400)
+    expect(got).toHaveLength(1)
+    expect(got[0].type).toBe('in')
+    expect(got[0].note).toBe('火曜納品分')
+    expect(got[0].lines).toHaveLength(2)
+    // B店から見ると存在しない（他店の明細も混入しない）
+    expect(await handleMovementsGet(db, 'ZZZZZZ', 400)).toHaveLength(0)
   })
 })

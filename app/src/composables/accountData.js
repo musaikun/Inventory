@@ -13,6 +13,7 @@ import { resetLocalData as resetInventory } from './useInventory.js'
 import { resetLocalData as resetOrders }    from './useOrders.js'
 import { resetLocalData as resetMovements } from './useMovements.js'
 import { resetLocalData as resetMovementDraft } from './useMovementDraft.js'
+import { resetLocalData as resetDayNotes }  from './useDayNotes.js'
 import { resetLocalData as resetHistory }   from './useHistory.js'
 import { resetLocalData as resetSession }   from './useSession.js'
 
@@ -24,6 +25,7 @@ export function clearLocalAccountData() {
   resetOrders()
   resetMovements()
   resetMovementDraft()
+  resetDayNotes()
   resetHistory()
   resetSession()
 

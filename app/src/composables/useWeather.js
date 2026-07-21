@@ -1,10 +1,11 @@
 import { reactive } from 'vue'
 import { mapDailyToWeather } from '../services/weatherCodes.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // 天気（Open-Meteo・APIキー不要・CORS対応）。過去31日＋予報16日を日付マップで保持。
 // 位置は端末に保存（localStorage）。取得結果は1時間キャッシュ。
-const LOC_KEY   = 'weather_loc'    // { lat, lon, name }
-const CACHE_KEY = 'weather_cache'  // { updatedAt, weather }
+const LOC_KEY   = STORAGE_KEYS.weatherLoc    // { lat, lon, name }
+const CACHE_KEY = STORAGE_KEYS.weatherCache  // { updatedAt, weather }
 const TTL_MS    = 3600 * 1000
 
 const state = reactive({ weather: {}, loc: null, loading: false, error: null, updatedAt: null })
