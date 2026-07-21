@@ -190,6 +190,7 @@
   session_start の orders 検証）が未カバー。RoomDO.config.test.js のパターンで追加を。
 
 ### 参考
+- ✅ R2-05 対応済み（2026-07-21）: order_update と session_start の orders 検証に有限・上限（MAX_ORDER_QTY=1,000,000）ガードを追加。テスト1件。以下は当時の指摘。
 - R2-05 `orderQty` に上限・有限チェックがない（`Infinity` は `typeof number` を通過し
   JSON 化で null になる）。在庫 update と共通の数値ガード（有限・上限・桁）を入れる余地。
 - R2-06 DO storage の `orders` も単一キー保存（128KiB 上限の既知パターンの対象拡大。

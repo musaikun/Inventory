@@ -2,7 +2,7 @@ import {
   ROOM_TTL_MS, MAX_PARTICIPANTS, MAX_AUDIT_LOG,
   WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
-  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
+  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN, MAX_ORDER_QTY,
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 
@@ -402,8 +402,9 @@ export class RoomDO {
         const { ingredient, orderQty, unit, lot, enteredBy } = msg
         if (!ingredient || typeof orderQty !== 'number') return
         if (String(ingredient).length > MAX_INGREDIENT_LEN) return
-        // 0以下は「取り消し」。クライアントは order_remove を送る想定だが防御的に無視する。
-        if (!(orderQty > 0)) return
+        // 有限・上限ガード（R2-05）。0以下は「取り消し」で防御的に無視、Infinity/巨大値も弾く
+        // （JSON化で null 化して壊れるのを防ぐ）。取り消しは order_remove を使う想定。
+        if (!Number.isFinite(orderQty) || orderQty <= 0 || orderQty > MAX_ORDER_QTY) return
 
         const [orders, auditLog] = await Promise.all([
           this.state.storage.get('orders').then(v => v ?? {}),
@@ -678,7 +679,7 @@ export class RoomDO {
           // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
           if (msg.orders && typeof msg.orders === 'object') {
             for (const [k, v] of Object.entries(msg.orders)) {
-              if (typeof v?.orderQty === 'number' && v.orderQty > 0 && String(k).length <= 200) {
+              if (Number.isFinite(v?.orderQty) && v.orderQty > 0 && v.orderQty <= MAX_ORDER_QTY && String(k).length <= 200) {
                 broadcastOrders[k] = {
                   orderQty:    v.orderQty,
                   unit:        String(v.unit ?? '').slice(0, MAX_UNIT_LEN),

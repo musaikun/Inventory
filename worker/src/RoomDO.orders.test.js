@@ -65,6 +65,16 @@ describe('RoomDO 発注数チャネル（order_update / order_remove）', () => 
     expect(state._store.get('orders')).toBeUndefined()
   })
 
+  it('order_update: Infinity・上限超えの orderQty は保存しない（R2-05・有限/上限ガード）', async () => {
+    const { room, state, ws1 } = setup()
+    await room._handleMessage(ws1, { type: 'order_update', ingredient: 'トマト', orderQty: Infinity })
+    await room._handleMessage(ws1, { type: 'order_update', ingredient: 'レタス', orderQty: 1e12 })
+    expect(state._store.get('orders')).toBeUndefined()
+    // 上限ちょうどは通る
+    await room._handleMessage(ws1, { type: 'order_update', ingredient: 'ナス', orderQty: 1000000 })
+    expect(state._store.get('orders')['ナス'].orderQty).toBe(1000000)
+  })
+
   it('order_update: lot 不正は 1、enteredBy 未指定は deviceName を採用', async () => {
     const { room, state, ws1 } = setup()
     await room._handleMessage(ws1, { type: 'order_update', ingredient: 'トマト', orderQty: 2, lot: 0 })
