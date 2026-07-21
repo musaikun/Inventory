@@ -6,6 +6,7 @@ import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { deleteOrderFromD1 } from '../composables/useStore.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
@@ -411,7 +412,8 @@ const expanded = reactive({})
 function toggleOrder(id) { expanded[id] = !expanded[id] }
 function onDeleteOrder(id) {
   if (!confirm('この発注記録を削除しますか？')) return
-  deleteOrder(id)
+  deleteOrder(id)          // ローカル（未反映バッジ・学習の元データ）から除去
+  deleteOrderFromD1(id)    // D1 からも削除。しないと次回のD1取込で復活し「未反映の入庫」に再表示される
 }
 function onDeleteMove(id) {
   if (!confirm('この入出庫記録を削除しますか？')) return
