@@ -132,6 +132,17 @@ const weeks = computed(() => {
   return out
 })
 
+// セルに出る実績ドット数（棚卸/発注/入庫/出庫）。4つのとき 2×2 折り返しにする。
+function dotCount(cell) {
+  if (!cell) return 0
+  let n = 0
+  if (showStock.value && cell.stock.length) n++
+  if (showOrder.value && cell.orders.length) n++
+  if (showMove.value && cell.moves.some(m => m.type === 'in')) n++
+  if (showMove.value && cell.moves.some(m => m.type === 'out')) n++
+  return n
+}
+
 const slideDir = ref('next')  // 月移動のスライド方向（コミット後のアニメ用）
 function prevMonth() {
   slideDir.value = 'prev'
@@ -460,7 +471,7 @@ function onDeleteMove(id) {
             <span v-if="showFactors && cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
             <span v-if="showFactors && cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
-            <span v-if="!cellInfo" class="hc-dots">
+            <span v-if="!cellInfo" :class="['hc-dots', { 'dots-grid': dotCount(cell) === 4 }]">
               <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
               <span v-if="showOrder && cell.orders.length" class="dot dot-order"></span>
               <span v-if="showMove && cell.moves.some(m => m.type === 'in')" class="dot dot-in"></span>
@@ -646,13 +657,18 @@ function onDeleteMove(id) {
 .hc-cell.empty { background: #fafbfc; }
 .hc-cell.tappable { cursor: pointer; }
 .hc-cell.tappable:active { background: #f0f9ff; }
-.hc-cell.today { background: #eff6ff; }
-.hc-cell.selected { background: var(--primary-weak); box-shadow: inset 0 0 0 2px var(--primary); }
+.hc-cell.today { box-shadow: inset 0 0 0 2px #111827; }        /* 今日＝黒枠 */
+.hc-cell.selected { background: var(--primary-weak); box-shadow: inset 0 0 0 2px var(--primary); }  /* 選択中＝青枠（今日より優先）*/
 .hc-day { font-size: 14px; font-weight: 600; color: #374151; line-height: 1; }
 .hc-day.sun { color: #ef4444; }
 .hc-day.sat { color: #3b82f6; }
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }
-.hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; }
+.hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; justify-content: center; }
+/* 4つのときだけ 2×2 に折り返す（3つまでは横並び）*/
+.hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 3px; }
+/* 実施済みの実績ドットをゆっくり点滅 */
+.hc-dots .dot { animation: hcDotPulse 2s ease-in-out infinite; }
+@keyframes hcDotPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 .hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
 .hc-cell-info.stock { color: #2563eb; }
