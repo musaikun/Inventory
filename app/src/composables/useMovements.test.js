@@ -58,6 +58,27 @@ describe('useMovements（入出庫データ層）', () => {
     const out = m.saveMovement({ type: 'out', orderId: 'o_123', lines: [{ item: 'A', qty: 1 }] })
     expect(out.orderId).toBeNull()
   })
+
+  it('applyRemoteMovements は id 重複を排除して取り込む（冪等）', () => {
+    const local = m.saveMovement({ type: 'in', date: '2026-07-05', lines: [{ item: 'A', qty: 1 }] })
+    m.applyRemoteMovements([
+      { id: local.id, date: '2026-07-05', type: 'in', lines: [{ item: 'A', qty: 1 }] }, // 既存＝無視
+      { id: 'm_remote', date: '2026-07-06', type: 'out', lines: [{ item: 'B', qty: 2 }] },
+    ])
+    const ids = m.getMovements().map(r => r.id)
+    expect(ids).toContain('m_remote')
+    expect(ids.filter(id => id === local.id)).toHaveLength(1)  // 二重取り込みしない
+    // 二度目の適用でも増えない
+    m.applyRemoteMovements([{ id: 'm_remote', date: '2026-07-06', type: 'out', lines: [] }])
+    expect(m.getMovements().filter(r => r.id === 'm_remote')).toHaveLength(1)
+  })
+
+  it('applyRemoteMovements は配列以外を無視する', () => {
+    m.saveMovement({ type: 'in', lines: [{ item: 'A', qty: 1 }] })
+    m.applyRemoteMovements(null)
+    m.applyRemoteMovements(undefined)
+    expect(m.getMovements()).toHaveLength(1)
+  })
 })
 
 describe('deliveryLinesFromOrder（発注→入庫行の換算）', () => {

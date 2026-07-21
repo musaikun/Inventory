@@ -5,6 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
+import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
 import { parseLot } from '../services/lot.js'
@@ -260,13 +261,14 @@ const swipe = useHorizontalSwipe({
 function onSave() {
   if (!canSave.value) return
   const m = mode.value
-  saveMovement({
+  const rec = saveMovement({
     type: m === 'out' ? 'out' : 'in',
     date: draft.date,
     note: m === 'out' ? draft.noteOut : draft.noteIn,
     orderId: m === 'in' ? draft.orderId : null,
     lines: recordLines.value,
   })
+  if (rec) saveMovementToD1(rec)   // D1 にも永続化（端末間共有・キャッシュ削除からの復旧）
   // 保存したモードのドラフトをクリアし、在庫（確認）に戻って結果を見せる
   clearMode(m)
   emit('saved')

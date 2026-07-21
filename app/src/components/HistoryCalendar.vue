@@ -6,7 +6,7 @@ import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { deleteOrderFromD1 } from '../composables/useStore.js'
+import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
@@ -417,7 +417,8 @@ function onDeleteOrder(id) {
 }
 function onDeleteMove(id) {
   if (!confirm('この入出庫記録を削除しますか？')) return
-  deleteMovement(id)
+  deleteMovement(id)          // ローカルから除去
+  deleteMovementFromD1(id)    // D1 からも削除（次回取込での復活を防ぐ）
 }
 </script>
 

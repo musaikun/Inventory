@@ -93,5 +93,15 @@ export function useMovements() {
     if (i >= 0) { _data.list.splice(i, 1); _persist() }
   }
 
-  return { saveMovement, getMovements, deleteMovement }
+  /** D1 等から取得した入出庫配列をローカルへ反映（id で重複排除） */
+  function applyRemoteMovements(movements) {
+    if (!Array.isArray(movements)) return
+    const seen = new Set(_data.list.map(m => m.id))
+    for (const m of movements) {
+      if (m?.id && !seen.has(m.id)) { _data.list.push(m); seen.add(m.id) }
+    }
+    _persist()
+  }
+
+  return { saveMovement, getMovements, deleteMovement, applyRemoteMovements }
 }

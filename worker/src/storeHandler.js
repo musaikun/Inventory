@@ -306,6 +306,90 @@ export async function handleOrderDelete(db, code, id) {
   return { ok: true }
 }
 
+// ── 入出庫 API ─────────────────────────────────────────────────────────────────
+// 入出庫レコードの正は D1。理論在庫はクライアントが棚卸＋movement_lines から算出する。
+
+// GET /store/:code/movements?sinceDays=400
+// 直近 sinceDays 日ぶんの入出庫レコードを新しい順で返す（クライアントの applyRemoteMovements 用）。
+export async function handleMovementsGet(db, code, sinceDays) {
+  const n     = Number(sinceDays)
+  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
+  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+
+  const heads = (await db.prepare(
+    'SELECT id, move_date, type, note, order_id, saved_at FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
+  ).bind(code, since).all()).results ?? []
+  if (heads.length === 0) return []
+
+  const lineRows = (await db.prepare(
+    'SELECT movement_id, item, qty, unit FROM movement_lines WHERE shop_code = ? AND move_date >= ?'
+  ).bind(code, since).all()).results ?? []
+
+  const byMove = {}
+  for (const l of lineRows) {
+    ;(byMove[l.movement_id] ??= []).push({
+      item: l.item,
+      qty:  l.qty,
+      unit: l.unit ?? '',
+    })
+  }
+
+  return heads.map(h => ({
+    id:      h.id,
+    date:    h.move_date,
+    type:    h.type === 'out' ? 'out' : 'in',
+    note:    h.note ?? '',
+    orderId: h.order_id ?? null,
+    savedAt: h.saved_at,
+    lines:   byMove[h.id] ?? [],
+  }))
+}
+
+// POST /store/:code/movements  body: 入出庫レコード { id, date, type, note, orderId, savedAt, lines[] }
+// 同一 id の再送は冪等（行を貼り直す）。
+export async function handleMovementCreate(db, code, body = {}) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const id   = (typeof body.id === 'string' && body.id) ? body.id : crypto.randomUUID()
+  const date = body.date ?? new Date().toISOString().slice(0, 10)
+  const type = body.type === 'out' ? 'out' : 'in'
+  const now  = _now()
+
+  const clean = (Array.isArray(body.lines) ? body.lines : [])
+    .map(l => ({
+      item: String(l.item ?? '').trim(),
+      qty:  Number(l.qty),
+      unit: l.unit ?? '',
+    }))
+    .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
+  if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
+
+  // 出庫は発注紐付けを持たない。
+  const orderId = type === 'in' && body.orderId ? body.orderId : null
+
+  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare(`
+    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
+  `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now).run()
+
+  for (const l of clean) {
+    await db.prepare(`
+      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, code, date, l.item, l.qty, l.unit, now).run()
+  }
+  return { ok: true, id }
+}
+
+// DELETE /store/:code/movements/:id
+export async function handleMovementDelete(db, code, id) {
+  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare('DELETE FROM movements WHERE id = ? AND shop_code = ?').bind(id, code).run()
+  return { ok: true }
+}
+
 // POST /store/:code/sessions/:id/complete
 // 棚卸完了の一括処理: inventory_lines 展開 + sessions 更新（archive_key は R2 実装後に追加）
 export async function handleSessionComplete(db, code, sessionId, body) {

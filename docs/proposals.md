@@ -24,6 +24,32 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 ---
 
+## 2026-07-21: 入出庫（movements）を D1 永続化・端末間で揃える（提案元: 入出庫セッション）
+
+- **概要**: これまで localStorage 専用だった入出庫レコードを、発注・棚卸と同様に **D1 を正**として
+  永続化。保存時 POST・開始/表示時ロードの「非リアルタイム同期」で、端末をまたいで入出庫が見え、
+  キャッシュ削除・端末紛失でも消えないようにした。
+- **背景・根拠**: 発注・棚卸は D1 化済みなのに入出庫だけローカル専用で、①別端末で入出庫が存在しない
+  ②「発注はD1・入庫はローカル」で理論在庫/発注→入庫反映が端末間で食い違う、という非対称があった。
+  加えて、発注削除がローカルのみで D1 から復活し「未反映の入庫」に再表示される不具合の同型リスクが
+  入出庫にも生じるため（D1化するなら削除もD1連動が必須）、あわせて対処した。
+- **設計判断**: 入出庫は「確定済み記録の追記ログ」で複数人同時編集が無いため、棚卸・発注のような
+  **WebSocket リアルタイム同期は採用せず**、発注レコードと同じ「保存時POST＋開始時ロード（id重複排除で冪等）」に
+  留めた（DO 併設は過剰と判断）。
+- **影響範囲 / 実装状況**: 実装済み。
+  - 追加: マイグレーション `0010_movements.sql`（`movements`/`movement_lines`）、
+    worker `handleMovementsGet/Create/Delete` ＋ ルート `/store/:code/movements`、
+    client `useStore` の `loadMovementsFromD1/saveMovementToD1/deleteMovementFromD1`（再送キュー込み）、
+    `useMovements.applyRemoteMovements`。
+  - 配線: `MovementPage.onSave` で保存後 POST、`App._pullMovements` を認証後/入出庫ページ表示時にロード、
+    `HistoryCalendar.onDeleteMove` で D1 からも削除。
+  - テスト: worker 5件（往復・出庫はorderId無し・400・冪等・削除）＋ client 2件（applyRemoteMovements）。
+- **補足（PM論点）**: これらの削除は D1 からも消え **復元不可**。今回は現状維持だが、誤タップ対策として
+  「削除直後のUndoトースト」を将来入れる余地あり（別提案化の候補・本セッションで方針保留）。
+- **PM判断**: ⬜未トリアージ
+
+---
+
 ## 2026-07-19: config フィールドの client/worker 二重管理を守りのテストで塞ぐ（提案元: R3-01修正セッション）
 
 - **概要**: 品目リスト config のフィールド一覧が client（`useConfig._serializeConfigData`）と

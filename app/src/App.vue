@@ -36,6 +36,7 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
+  loadMovementsFromD1,
 } from './composables/useStore.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
@@ -109,7 +110,7 @@ function _parLevelFor(item) {
   return calcParLevel(events, item, weekdayOf(_todayStr()))
 }
 // 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
-const { getMovements } = useMovements()
+const { getMovements, applyRemoteMovements } = useMovements()
 function _theoStockFor(item) {
   return theoreticalStock(item, getSnapshots(), getMovements())
 }
@@ -293,6 +294,7 @@ async function _pullAccountConfig() {
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
+  await _pullMovements()  // 入出庫（ホームの未反映バッジ・カレンダー表示で使用）
 }
 
 // 認証後にセッション一覧へ
@@ -328,6 +330,21 @@ async function _loadOrderData() {
     const remote = await loadOrdersFromD1()
     if (Array.isArray(remote) && remote.length) applyRemoteOrders(remote)
   } catch (_) {}
+}
+
+// 入出庫を D1 から取り込む（端末間共有・キャッシュ削除からの復旧）。id重複排除で冪等。
+async function _pullMovements() {
+  if (!shopCode.value) return
+  try {
+    const remote = await loadMovementsFromD1()
+    if (Array.isArray(remote) && remote.length) applyRemoteMovements(remote)
+  } catch (_) {}
+}
+
+// 入出庫ページを開く。最新の入出庫を D1 から取り込んでから表示する。
+function openMovement() {
+  currentView.value = 'movement'
+  _pullMovements()
 }
 
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
@@ -2095,7 +2112,7 @@ function dismissReview() {
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="currentView = 'master'"
-      @open-movement="currentView = 'movement'"
+      @open-movement="openMovement"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 
