@@ -94,18 +94,33 @@
 
 ---
 
+### S-07 ✅ CSP（XSS時のトークン漏洩・外部通信制限）（2026-07-21）
+- **対策**: `app/public/_headers` に CSP。`script-src 'self'`（インライン無し確認済み）、
+  `connect-src` は self＋Worker(https/wss)＋Open-Meteo＋BigDataCloud＋PostHog に限定。
+  X-Content-Type-Options / X-Frame-Options: DENY / frame-ancestors 'none' / Referrer-Policy /
+  Permissions-Policy（geolocation/camera/microphone=self）も付与。
+- **検証**: dist を CSP ヘッダ付き配信で実ブラウザ起動 → CSP違反0・正常mount。
+- **残**: トークン保存方式の強化（httpOnly Cookie 等）は S-H と併せ将来。
+
+### S-E/S-08 ✅ CORS フェイルクローズ（2026-07-21）
+- **対策**: `isAllowedOrigin()` 導入。本番/プレビュー（*.inventory-app.pages.dev）＋localhost＋
+  ALLOWED_ORIGIN（カンマ区切り完全一致）のみ許可、他は 403。ACAO はワイルドカード不使用で
+  許可 Origin を個別反映。Origin 無し（同一/WS/S2S）は許可。wrangler.toml を本番ドメインに設定。
+- **テスト**: `index.test.js` — 許可/拒否/なりすまし/カンマ区切り/403 の6ケース。
+
+### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）
+- **対策**: ①IPレート制限（kind='pdf'・15分/30回）②認証必須 ③サイズ上限5MB
+  （Content-Length＋arrayBuffer.byteLength）。重い処理前に安価なゲートで弾く順序。
+  現行クライアントはPDFをローカル解析するため本EPは未使用だがDoS面を塞ぐため強化。
+- **テスト**: `index.test.js` — 401/413/200/429 の4ケース。
+
+### S-G ✅ ゲストへ単価を渡さない（2026-07-21）
+- **対策**: DOで接続ごとの `isHost` を見て、ゲスト宛送信は prices を空に
+  （`_broadcastPriceAware`/`_stripPricesForGuest`）。storage には保持しホストは受領。
+  result API の `_sanitizeForGuest` と同水準を WS 経路でも適用（C-02 の商業懸念も解消）。
+- **テスト**: `RoomDO.prices.test.js` — 3ケース。
+
 ## 残課題（優先度順）
-
-### S-07 🟡 XSS対策（トークン漏洩リスク）
-- **リスク**: `_auth_token` が `localStorage` に平文保存。XSSが起きると盗まれる
-- **対策案**: Content Security Policy（CSP）ヘッダーを Cloudflare Pages に設定（`app/public/_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ。
-  **注意（2026-07-20）**: 天気連携導入により `connect-src` には self に加え `https://api.open-meteo.com` の許可が必要
-- **備考**: このアプリは外部スクリプトを読み込んでいないため、CSPの設定コストは低い
-
-### S-08 🟢 CORS フェイルセーフ
-- **リスク**: `env.ALLOWED_ORIGIN` が未設定の場合、全オリジンからのアクセスを許可してしまう
-- **対策案**: 未設定時は `''`（許可なし）をデフォルトにし、明示設定を必須化
-- **備考**: Cloudflare Pages のオリジンが固定なので、設定漏れは起きにくい。優先度は低
 
 ### S-09 🟢 セッション完了処理のトランザクション化
 - **リスク**: `sessions更新` → `inventory_lines INSERT` → `R2保存` の途中失敗で不整合が残る

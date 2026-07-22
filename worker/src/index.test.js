@@ -307,3 +307,90 @@ describe('フェイルオープン（レート制限テーブル未作成でも�
     expect((await res.json()).token).toBeTruthy()
   })
 })
+
+// ── S-E: CORS フェイルクローズ ────────────────────────────────────────────────
+import { isAllowedOrigin } from './index.js'
+
+describe('S-E: CORS フェイルクローズ（isAllowedOrigin）', () => {
+  it('Origin 無し（同一オリジン/WS/server-to-server）は許可', () => {
+    expect(isAllowedOrigin('', '')).toBe(true)
+    expect(isAllowedOrigin(undefined, '')).toBe(true)
+  })
+  it('本番/プレビュー（*.inventory-app.pages.dev）と localhost は既定で許可', () => {
+    expect(isAllowedOrigin('https://inventory-app.pages.dev', '')).toBe(true)
+    expect(isAllowedOrigin('https://feature-x.inventory-app.pages.dev', '')).toBe(true)
+    expect(isAllowedOrigin('http://localhost:5173', '')).toBe(true)
+    expect(isAllowedOrigin('http://127.0.0.1:8080', '')).toBe(true)
+  })
+  it('未設定でも見知らぬ Origin は拒否（フェイルクローズ）', () => {
+    expect(isAllowedOrigin('https://evil.example.com', '')).toBe(false)
+    // 類似ドメインのなりすまし（サフィックス偽装）も拒否
+    expect(isAllowedOrigin('https://evil-inventory-app.pages.dev', '')).toBe(false)
+    expect(isAllowedOrigin('https://inventory-app.pages.dev.evil.com', '')).toBe(false)
+  })
+  it('ALLOWED_ORIGIN（カンマ区切りの完全一致）で独自ドメインを追加できる', () => {
+    expect(isAllowedOrigin('https://tanaoro.example', 'https://tanaoro.example')).toBe(true)
+    expect(isAllowedOrigin('https://a.example', 'https://b.example, https://a.example')).toBe(true)
+  })
+})
+
+describe('S-E: 許可外 Origin のリクエストは 403', () => {
+  it('見知らぬ Origin ヘッダ付きは Forbidden', async () => {
+    const db  = createMockD1()
+    const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+    const req = {
+      method: 'GET', url: 'https://api.test/health',
+      headers: { get: (h) => (h === 'Origin' ? 'https://evil.example.com' : null) },
+      json: async () => ({}),
+    }
+    const res = await worker.fetch(req, env)
+    expect(res.status).toBe(403)
+  })
+})
+
+// ── S-D: /pdf の認証・サイズ上限・レート制限 ──────────────────────────────────
+describe('S-D: /pdf エンドポイントのガード', () => {
+  function pdfReq({ token, contentLength, bytes = 10, ip } = {}) {
+    const buf = new ArrayBuffer(bytes)
+    return {
+      method: 'POST', url: 'https://api.test/pdf',
+      headers: { get: (h) => {
+        if (h === 'Authorization' && token) return `Bearer ${token}`
+        if (h === 'CF-Connecting-IP')       return ip ?? '198.51.100.7'
+        if (h === 'Content-Length')         return contentLength != null ? String(contentLength) : null
+        return null
+      } },
+      json: async () => ({}),
+      arrayBuffer: async () => buf,
+    }
+  }
+
+  it('認証なしは 401', async () => {
+    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+    const res = await worker.fetch(pdfReq({}), env)
+    expect(res.status).toBe(401)
+  })
+
+  it('Content-Length が上限超過なら 413（本体を読む前に弾く）', async () => {
+    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 6 * 1024 * 1024 }), env)
+    expect(res.status).toBe(413)
+  })
+
+  it('認証あり・小さいPDFは 200（parsePdfFile はモック）', async () => {
+    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 1000, bytes: 1000 }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('IPレート制限: 上限超過で 429', async () => {
+    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    // ip_attempts を pdf kind で上限まで積む（IP_MAX_FAILS=30）
+    for (let i = 0; i < 30; i++) db._ipRows.push({ ip: '198.51.100.7', kind: 'pdf', attempted_at: new Date().toISOString() })
+    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 1000 }), env)
+    expect(res.status).toBe(429)
+  })
+})

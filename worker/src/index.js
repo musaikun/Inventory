@@ -14,14 +14,36 @@ import {
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { savePushSubscription, deletePushSubscription, handleCron } from './pushHandler.js'
+import { MAX_PDF_BYTES } from './constants.js'
 export { RoomDO }
 
+// 許可オリジン判定（フェイルクローズ・S-E）。ALLOWED_ORIGIN（カンマ区切りの完全一致）に加え、
+// 本番/プレビュー（*.inventory-app.pages.dev＝プロジェクト所有者のみが配信可能）と
+// ローカル開発（localhost / 127.0.0.1）を許可する。それ以外の Origin は拒否。
+// Origin ヘッダ無し（同一オリジン・WebSocket・server-to-server）は従来どおり通す。
+export function isAllowedOrigin(origin, allowedOrigin) {
+  if (!origin) return true
+  const list = String(allowedOrigin || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (list.includes(origin)) return true
+  try {
+    const h = new URL(origin).hostname
+    if (h === 'inventory-app.pages.dev' || h.endsWith('.inventory-app.pages.dev')) return true
+    if (h === 'localhost' || h === '127.0.0.1') return true
+  } catch (_) { /* 不正な Origin は不許可 */ }
+  return false
+}
+
 function corsHeaders(origin, allowedOrigin) {
-  return {
-    'Access-Control-Allow-Origin':  allowedOrigin || origin || '*',
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
   }
+  // 許可した Origin のみを個別に反映（ワイルドカード '*' は使わない＝フェイルクローズ）。
+  if (origin && isAllowedOrigin(origin, allowedOrigin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
 }
 
 function jsonResponse(body, status, origin, allowedOrigin) {
@@ -58,8 +80,9 @@ export default {
       })
     }
 
-    // Origin 検証
-    if (allowedOrigin && origin !== allowedOrigin) {
+    // Origin 検証（フェイルクローズ・S-E）: Origin が有り、かつ許可リスト外なら拒否。
+    // ALLOWED_ORIGIN 未設定でも既定の許可（本番/プレビュー/ローカル）以外は通さない。
+    if (origin && !isAllowedOrigin(origin, allowedOrigin)) {
       return new Response('Forbidden', { status: 403 })
     }
 
@@ -230,8 +253,27 @@ export default {
 
     // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
     if (path === '/pdf' && request.method === 'POST') {
+      // S-D: 経済的DoS対策。①IPレート制限 → ②認証必須 → ③サイズ上限 の順で
+      // 重い pdfjs 実行の前に安価なゲートで弾く。
+      const ip = clientIp(request)
+      if (await isIpBlocked(env.DB, ip, 'pdf')) {
+        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+      }
+      // このエンドポイントは重い処理なので、成否に関わらず1回として計上（総回数を抑制）
+      await recordIpFail(env.DB, ip, 'pdf')
+
+      const authCode = await verifyAuth(env.DB, request)
+      if (!authCode) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+
+      const declared = Number(request.headers.get('Content-Length') ?? '')
+      if (Number.isFinite(declared) && declared > MAX_PDF_BYTES) {
+        return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
+      }
       try {
-        const buf    = await request.arrayBuffer()
+        const buf = await request.arrayBuffer()
+        if (buf.byteLength > MAX_PDF_BYTES) {
+          return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
+        }
         const result = await parsePdfFile(buf)
         return jsonResponse(result, 200, origin, allowedOrigin)
       } catch (e) {

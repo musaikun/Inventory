@@ -291,11 +291,13 @@ export class RoomDO {
         ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({
+        const joinedMsg = {
           type: 'joined', inventory, orders, recountFlags, config, participants, messages, auditLog,
           isSessionActive: isActive, sessionId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
-        }))
+        }
+        // ゲストには単価を渡さない（S-G）。ホスト検証済みのみ全量。
+        ws.send(JSON.stringify(isVerifiedHost ? joinedMsg : this._stripPricesForGuest(joinedMsg)))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
@@ -305,8 +307,8 @@ export class RoomDO {
         if (!Array.isArray(msg.order)) return
         const stored = normalizeConfig(msg)   // 軸・非表示等を含む全フィールドを保存/中継
         await this.state.storage.put('config', stored)
-        // ゲスト全員に品目リスト更新を通知
-        this._broadcast({ type: 'config_update', ...stored }, ws)
+        // ゲスト全員に品目リスト更新を通知（ゲストには prices を落とす・S-G）
+        this._broadcastPriceAware({ type: 'config_update', ...stored }, ws)
         break
       }
 
@@ -722,8 +724,8 @@ export class RoomDO {
 
         await Promise.all(puts)
         // session_started に在庫・発注数・フラグ・品目リストを同梱する
-        // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる
-        this._broadcast({
+        // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる（ゲストには prices を落とす・S-G）
+        this._broadcastPriceAware({
           type:         'session_started',
           sessionId:    newId,
           inventory:    broadcastInv,
@@ -852,6 +854,26 @@ export class RoomDO {
       if (ws !== exclude) {
         try { ws.send(data) } catch (_) {}
       }
+    }
+  }
+
+  // ゲストには単価（原価）を渡さない（S-G）。config_update はトップレベル prices、
+  // joined/session_started は config.prices に入るため、両方を空にしたコピーを返す。
+  _stripPricesForGuest(msg) {
+    const out = { ...msg }
+    if (out.prices) out.prices = {}
+    if (out.config && out.config.prices) out.config = { ...out.config, prices: {} }
+    return out
+  }
+
+  // 単価を含みうるメッセージのブロードキャスト。ホストには全量、ゲストには prices を落として送る。
+  _broadcastPriceAware(msg, exclude = null) {
+    const full  = JSON.stringify(msg)
+    const guest = JSON.stringify(this._stripPricesForGuest(msg))
+    for (const ws of this.state.getWebSockets()) {
+      if (ws === exclude) continue
+      const isHost = ws.deserializeAttachment()?.isHost === true
+      try { ws.send(isHost ? full : guest) } catch (_) {}
     }
   }
 

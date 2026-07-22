@@ -34,4 +34,5 @@ export const MAX_INGREDIENT_LEN  = 200
 export const MAX_UNIT_LEN        = 50
 export const MAX_CHAT_TEXT_LEN   = 500
 export const MAX_ORDER_QTY       = 1_000_000        // 発注数の上限（有限・非現実的な巨大値/Infinityを弾く）
+export const MAX_PDF_BYTES        = 5 * 1024 * 1024  // /pdf 受付の上限（5MB・経済的DoS対策 S-D）
 export const MAX_STORE_NAME_LEN  = 50
