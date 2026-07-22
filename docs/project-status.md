@@ -161,6 +161,7 @@
 | 長期戦略・設計原則 | `docs/strategy-10yr.md` | 現行（安定） |
 | 実行計画（トラック別＋ウェーブ） | `docs/roadmap.md` | 現行 |
 | **全体レビュー（PM/QA/セキュリティ横断）** | `docs/holistic-review-2026-07.md` | 記録（2026-07） |
+| **Codex横断レビュー運用** | `docs/codex-review-process.md` | 現行（Claude Code 6セッションとの分業ルール） |
 | コード監査（リファクタ・スケール） | `docs/audit-2026-07.md` | 記録（対応状況を追記） |
 | セキュリティ対応状況 | `docs/security-review.md` | 現行（生きた台帳） |
 | アーキテクチャ全体・オンボーディング | `docs/spec.md` | 現行 |
