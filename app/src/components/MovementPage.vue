@@ -10,10 +10,13 @@ import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
+import { excelToCsv } from '../composables/usePdfImporter.js'
+import DeliveryImportModal from './DeliveryImportModal.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
-const { config, setReorderPoint } = useConfig()
+const { config, setReorderPoint, dictionary, masterDict, registerAlias, addItem } = useConfig()
 const { getSnapshots } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
@@ -274,6 +277,63 @@ function onSave() {
   emit('saved')
   mode.value = 'view'
 }
+
+// ── 過去納品の一括取込 ─────────────────────────────
+const showImport     = ref(false)
+const importCsv      = ref('')
+const importFilename = ref('')
+const importFileInput = ref(null)
+
+const importCtx = computed(() => ({
+  order:      config.order || [],
+  dictionary: dictionary.value || {},
+  masterDict: masterDict || {},
+  categories: config.categories || {},
+}))
+
+function openImportPicker() { importFileInput.value?.click() }
+
+async function onImportFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  try {
+    if (/\.(xlsx|xls)$/i.test(file.name)) {
+      importCsv.value = excelToCsv(await file.arrayBuffer())
+    } else {
+      importCsv.value = await file.text()
+    }
+    importFilename.value = file.name
+    showImport.value = true
+  } catch (_) {
+    alert('ファイルの読み込みに失敗しました')
+  }
+}
+
+function onImported({ movements, aliasPairs, newItems }) {
+  // 新規品目をマスタへ追加（一覧・分析に載せる）
+  for (const it of newItems || []) addItem(it.name, it.price, it.category, it.unit)
+  // 名寄せ学習（業者名 → 既存品目）
+  for (const p of aliasPairs || []) registerAlias(p.term, p.canonical)
+  // 入庫レコードを保存 + D1 同期
+  let n = 0
+  for (const mv of movements || []) {
+    const rec = saveMovement(mv)
+    if (rec) { saveMovementToD1(rec); n++ }
+  }
+  showImport.value = false
+  importCsv.value = ''
+  if (n > 0) emit('saved')
+}
+
+function downloadImportTemplate() {
+  const blob = new Blob(['﻿' + deliveryImportTemplateCSV()], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = '納品取込テンプレート.csv'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
 </script>
 
 <template>
@@ -326,6 +386,13 @@ function onSave() {
             </div>
           </div>
           <div class="mv-orders-note">※ 実際に届いた数に直してから保存できます（分納・欠品に対応）</div>
+        </div>
+
+        <!-- 過去納品の一括取込（入庫モードのみ）-->
+        <div v-if="mode === 'in'" class="mv-import-bar">
+          <button class="mv-import-btn" @click="openImportPicker">📥 過去の納品を取り込む（CSV/Excel）</button>
+          <button class="mv-import-tmpl" @click="downloadImportTemplate">テンプレ</button>
+          <input ref="importFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onImportFile" />
         </div>
       </template>
 
@@ -483,11 +550,34 @@ function onSave() {
         {{ mode === 'in' ? '入庫を記録' : '出庫を記録' }}
       </button>
     </div>
+
+    <DeliveryImportModal
+      v-if="showImport"
+      :csv-text="importCsv"
+      :filename="importFilename"
+      :ctx="importCtx"
+      :existing-movements="getMovements()"
+      @imported="onImported"
+      @close="showImport = false"
+    />
   </div>
 </template>
 
 <style scoped>
 .mv { min-height: 100dvh; background: #f8fafc; display: flex; flex-direction: column; }
+
+/* 過去納品の一括取込バー */
+.mv-import-bar { display: flex; gap: 8px; margin: 8px 0 4px; }
+.mv-import-btn {
+  flex: 1; padding: 9px 12px; border: 1.5px dashed #10b981; border-radius: 10px;
+  background: #ecfdf5; color: #047857; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.mv-import-btn:active { background: #d1fae5; }
+.mv-import-tmpl {
+  padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 10px;
+  background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.mv-hidden-file { display: none; }
 .mv-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
