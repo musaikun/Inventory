@@ -85,6 +85,8 @@
 ### 検討中（未実装・要吟味）
 - **料金・獲得戦略** → `docs/pricing-strategy.md`（リバーストライアル：フル14日→入出庫の無料床、
   2,980円1本。現機能の完成後に再吟味して実装）
+- **過去発注（納品）履歴 取込** → `docs/order-history-import-design.md`（中間フォーマット集約・
+  逆算2段・納品カレンダー・名寄せ/ステージング。未着手）
 
 ### 品質
 - 自動テスト: 全green（CIがデプロイ前に全件実行。v0.48時点 app 323 / worker 78、
@@ -169,6 +171,7 @@
 | 企業導入（多店舗）設計 | `docs/enterprise-design.md` | 設計のみ |
 | 料金・獲得戦略（未実装メモ） | `docs/pricing-strategy.md` | 設計のみ |
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` | 実装済み（A/B/D/E）＋残設計 |
+| 過去発注（納品）履歴 取込 設計 | `docs/order-history-import-design.md` | 設計のみ（未着手） |
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` | 設計のみ（一部実装: inventory_lines / complete API） |
 | **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |
