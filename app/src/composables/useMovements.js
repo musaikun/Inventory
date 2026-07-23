@@ -3,8 +3,10 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { effectiveLot } from '../services/lot.js'
 
 // 入出庫レコード（フロー）。発注(useOrders)と同型の別倉庫。
-// 1レコード = { id, date, type: 'in'|'out', note, savedAt, orderId, lines:[{ item, qty, unit }] }
-// orderId = 発注からの納品取込で作られた入庫の場合、その発注レコードの id。
+// 1レコード = { id, date, type: 'in'|'out', note, savedAt, orderId, source, importBatchId, lines:[{ item, qty, unit }] }
+// orderId       = 発注からの納品取込で作られた入庫の場合、その発注レコードの id。
+// source        = 'import' なら過去履歴の一括取込由来（手入力と区別）。既定 null。
+// importBatchId = 取込単位のID（一括取消・再取込の追跡）。既定 null。
 const _data = reactive({ list: [] })
 
 function _load() {
@@ -63,7 +65,7 @@ export function useMovements() {
    * @param {object} opts { type: 'in'|'out', date, note, lines:[{item,qty,unit}] }
    * @returns {object|null} 保存したレコード（有効行が無ければ null）
    */
-  function saveMovement({ type = 'in', date = null, note = '', orderId = null, lines = [] } = {}) {
+  function saveMovement({ type = 'in', date = null, note = '', orderId = null, source = null, importBatchId = null, lines = [] } = {}) {
     const cleanLines = _cleanLines(lines)
     if (cleanLines.length === 0) return null
     const rec = {
@@ -72,6 +74,8 @@ export function useMovements() {
       type:    type === 'out' ? 'out' : 'in',
       note:    (note || '').trim(),
       orderId: type !== 'out' && orderId ? orderId : null,
+      source:  source || null,
+      importBatchId: importBatchId || null,
       savedAt: new Date().toISOString(),
       lines:   cleanLines,
     }
@@ -93,6 +97,17 @@ export function useMovements() {
     if (i >= 0) { _data.list.splice(i, 1); _persist() }
   }
 
+  /** 取込バッチをまとめて削除（一括取消）。削除したレコードidの配列を返す（D1削除に対応）。*/
+  function deleteImportBatch(importBatchId) {
+    if (!importBatchId) return []
+    const removed = _data.list.filter(m => m.importBatchId === importBatchId).map(m => m.id)
+    if (removed.length) {
+      _data.list = _data.list.filter(m => m.importBatchId !== importBatchId)
+      _persist()
+    }
+    return removed
+  }
+
   /** D1 等から取得した入出庫配列をローカルへ反映（id で重複排除） */
   function applyRemoteMovements(movements) {
     if (!Array.isArray(movements)) return
@@ -103,5 +118,5 @@ export function useMovements() {
     _persist()
   }
 
-  return { saveMovement, getMovements, deleteMovement, applyRemoteMovements }
+  return { saveMovement, getMovements, deleteMovement, deleteImportBatch, applyRemoteMovements }
 }

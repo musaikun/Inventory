@@ -1,0 +1,159 @@
+// 納品履歴の一括取込「中間フォーマット」CSV パーサ。
+// 形式（列順は自由・ヘッダ名で特定）:
+//   日付, 種別, 仕入先, カテゴリ, 品目名, 数量, 単位, 単価, 商品コード, 入数
+// 各行に日付があるため 1ファイルで複数日ぶんを投入できる。
+// resultCsvParser と同じくヘッダ表記ゆれを許容する。
+//
+// 出力行: { date, type, supplier, category, name, qty, unit, price, code, lotSize }
+//   date は 'YYYY-MM-DD' に正規化。type は 'in'（既定）| 'out'。
+
+function parseCSVLine(line) {
+  const out = []
+  let cur = '', inQ = false
+  for (const ch of line) {
+    if (ch === '"') inQ = !inQ
+    else if (ch === ',' && !inQ) { out.push(cur); cur = '' }
+    else cur += ch
+  }
+  out.push(cur)
+  return out.map(s => s.trim())
+}
+
+// ヘッダ候補（表記ゆれを許容）。種別(type)とカテゴリ(category)は語を分けて誤検出を防ぐ。
+const COLS = {
+  date:     ['日付', '納品日', '入荷日', '伝票日付', '取引日', 'date'],
+  type:     ['種別', '区分', '入出庫', 'type'],
+  supplier: ['仕入先', '業者', '取引先', 'メーカー', 'ベンダー', 'supplier'],
+  category: ['カテゴリ', '分類', 'ジャンル', '部門', '品目分類'],
+  name:     ['品目名', '商品名', '品名', '名称', 'item'],
+  qty:      ['数量', '入荷数', '納品数', '数', 'qty'],
+  unit:     ['単位', 'unit'],
+  price:    ['単価', '原価', '仕入単価', '仕入価格', 'price'],
+  code:     ['商品コード', 'コード', '品番', 'jan', 'ean'],
+  lotSize:  ['入数', '入り数', 'ロット', 'ケース入数', 'lot'],
+}
+
+function _findCol(header, names) {
+  const lower = header.map(h => h.toLowerCase())
+  for (const n of names) {
+    const i = lower.indexOf(n.toLowerCase())
+    if (i >= 0) return i
+  }
+  return -1
+}
+
+// 種別を 'in' | 'out' に正規化。出庫系のみ out、それ以外（入庫/入荷/納品/仕入/空）は in。
+export function normalizeType(s) {
+  const t = (s ?? '').trim()
+  if (/出庫|出荷|廃棄|ロス|返品|out/i.test(t)) return 'out'
+  return 'in'
+}
+
+// 日付を 'YYYY-MM-DD' に正規化。解釈できなければ ''。
+// 受理: 2026-06-01 / 2026/6/1 / 2026.6.1 / 2026年6月1日
+export function normalizeDate(s) {
+  let t = (s ?? '').trim()
+  if (!t) return ''
+  t = t.replace(/年|月/g, '-').replace(/日/g, '').replace(/[./]/g, '-').trim()
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (!m) return ''
+  const y = m[1]
+  const mo = Number(m[2]), d = Number(m[3])
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+// この CSV が中間フォーマットとして解釈可能か（日付・品目名・数量列がある）。
+export function isDeliveryImportCSV(csvText) {
+  const firstLine = (csvText ?? '').replace(/^﻿/, '').split(/\r?\n/)[0] ?? ''
+  if (!firstLine) return false
+  const header = parseCSVLine(firstLine)
+  return _findCol(header, COLS.date) >= 0 &&
+         _findCol(header, COLS.name) >= 0 &&
+         _findCol(header, COLS.qty) >= 0
+}
+
+/**
+ * 中間フォーマットCSVを解析して正規化行を返す。
+ * @returns {{ rows: Array, skipped: number, total: number }}
+ *   rows    = 有効行 [{ date, type, supplier, category, name, qty, unit, price, code, lotSize }]
+ *   skipped = 日付・品目名・数量の欠落/不正で捨てた行数
+ *   total   = データ行数（ヘッダを除く非空行）
+ * 構造不正（必須列なし・データ行なし）は throw。
+ */
+export function parseDeliveryImportCSV(csvText) {
+  const text  = (csvText ?? '').replace(/^﻿/, '').trim()
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) throw new Error('データ行がありません')
+
+  const header = parseCSVLine(lines[0])
+  const ci = {
+    date:     _findCol(header, COLS.date),
+    type:     _findCol(header, COLS.type),
+    supplier: _findCol(header, COLS.supplier),
+    category: _findCol(header, COLS.category),
+    name:     _findCol(header, COLS.name),
+    qty:      _findCol(header, COLS.qty),
+    unit:     _findCol(header, COLS.unit),
+    price:    _findCol(header, COLS.price),
+    code:     _findCol(header, COLS.code),
+    lotSize:  _findCol(header, COLS.lotSize),
+  }
+  if (ci.date < 0 || ci.name < 0 || ci.qty < 0) {
+    throw new Error('納品取込CSVの形式ではありません（「日付」「品目名」「数量」列が必要です）')
+  }
+
+  const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
+  const rows = []
+  let skipped = 0
+  let total = 0
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i])
+    const name = (cols[ci.name] ?? '').trim()
+    const date = normalizeDate(cols[ci.date])
+    const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()
+    const qty = parseFloat(qtyRaw)
+
+    // 合計行など明らかな非データ行はカウントせず読み飛ばす
+    if (!name && !date && qtyRaw === '') continue
+    if (name === '【合計】' || name === '合計') continue
+    total++
+
+    if (!name || !date || qtyRaw === '' || !Number.isFinite(qty) || qty <= 0) {
+      skipped++
+      continue
+    }
+
+    const priceVal = ci.price >= 0
+      ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return Number.isFinite(p) && p > 0 ? p : null })()
+      : null
+
+    rows.push({
+      date,
+      type:     normalizeType(cols[ci.type]),
+      supplier: _cell(cols, ci.supplier),
+      category: _cell(cols, ci.category),
+      name,
+      qty,
+      unit:     _cell(cols, ci.unit),
+      price:    priceVal,
+      code:     _cell(cols, ci.code),
+      lotSize:  _cell(cols, ci.lotSize),
+    })
+  }
+
+  if (rows.length === 0) throw new Error('取り込める納品データが見つかりませんでした')
+  return { rows, skipped, total }
+}
+
+// 中間フォーマットのテンプレCSV文字列（ダウンロード用・見本行つき）。
+export function deliveryImportTemplateCSV() {
+  const header = '日付,種別,仕入先,カテゴリ,品目名,数量,単位,単価,商品コード,入数'
+  const examples = [
+    '2026-06-01,入庫,八百屋青果,野菜,玉ねぎ,20,kg,190,,10',
+    '2026-06-01,入庫,肉のヤマ,肉,鶏もも,5,kg,980,,1',
+    '2026-06-03,入庫,八百屋青果,野菜,レタス,24,玉,100,,8',
+  ]
+  return [header, ...examples].join('\r\n')
+}
