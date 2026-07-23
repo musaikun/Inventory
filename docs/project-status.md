@@ -37,6 +37,7 @@
 
 ### 設計済み・実装保留
 - **発注アシスト＆分析基盤** → `docs/ordering-analytics-design.md`（コードは温存、UI導線は非表示）
+- **過去発注（納品）履歴 取込** → `docs/order-history-import-design.md`（中間フォーマット集約・逆算2段・納品カレンダー。未着手）
 
 ### 品質
 - 自動テスト: **app 244件 / worker 70件（計314件）** 全green
@@ -109,6 +110,7 @@
 | 実行計画（トラック別＋ウェーブ） | `docs/roadmap.md` |
 | やること一覧・現在地 | `docs/backlog.md` |
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` |
+| 過去発注（納品）履歴 取込 設計 | `docs/order-history-import-design.md` |
 | 同期アーキテクチャ | `docs/sync-spec.md` |
 | ルーム限定URL設計 | `docs/room-url-design.md` |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` |
