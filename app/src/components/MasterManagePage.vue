@@ -4,12 +4,47 @@ import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
+import { useDataImport } from '../composables/useDataImport.js'
 import InventoryTable from './InventoryTable.vue'
+import DeliveryImportModal from './DeliveryImportModal.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis } = useConfig()
-const { getSnapshots } = useHistory()
+const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis, exportConfigCSV } = useConfig()
+const { getSnapshots, exportSnapshotCSV } = useHistory()
+
+// ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
+const {
+  showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
+  openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
+  importStocktakeFromFile,
+} = useDataImport()
+
+const deliveryFileInput  = ref(null)
+const stocktakeFileInput = ref(null)
+function pickDelivery()  { deliveryFileInput.value?.click() }
+function pickStocktake() { stocktakeFileInput.value?.click() }
+function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
+function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; importStocktakeFromFile(f) }
+
+function _download(text, filename) {
+  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+function exportMasterCsv() {
+  if (itemCount.value === 0) { alert('出力する品目がありません。'); return }
+  _download(exportConfigCSV(), `品目マスタ_${new Date().toISOString().slice(0, 10)}.csv`)
+}
+function exportLatestSnapshotCsv() {
+  const snap = getSnapshots()[0]
+  if (!snap) { alert('棚卸の履歴がまだありません。'); return }
+  _download(exportSnapshotCSV(snap), `棚卸結果_${snap.date}.csv`)
+}
+const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
 const hiddenList = computed(() => [...config.hiddenItems])
@@ -70,6 +105,8 @@ const unusedOpen = ref(false)
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
   import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加されます。',
+  delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。',
+  stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
   unused: 'インポートされた品目のうち、前回までの棚卸で未入力だったものが候補に挙がります。使わないものは非表示にでき、進捗の分母（残り件数）から外れます。',
   hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。いつでも戻せます。',
@@ -135,24 +172,78 @@ function onClear() {
   <div class="mp">
     <header class="mp-header">
       <button class="mp-back" @click="emit('back')">‹ 戻る</button>
-      <span class="mp-title">📦 品目マスタ管理</span>
+      <span class="mp-title">🗂 データ管理</span>
       <span class="mp-count">{{ itemCount }}件</span>
     </header>
 
     <div class="mp-scroll">
-      <!-- 取込む -->
+      <!-- 取り込む -->
+      <div class="mm-section-label">取り込む</div>
       <div class="mm-row-wrap">
         <button class="mm-row" @click="settingsSection = 'import'">
           <span class="mm-row-ico">📥</span>
           <span class="mm-row-body">
             <span class="mm-row-title">品目を取込む / 更新</span>
-            <span class="mm-row-sub">CSV・Excel・PDF から</span>
+            <span class="mm-row-sub">CSV・Excel・PDF から（品目マスタ）</span>
           </span>
           <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
           <span class="mm-row-arrow">→</span>
         </button>
         <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
       </div>
+      <div class="mm-row-wrap">
+        <button class="mm-row" @click="pickDelivery">
+          <span class="mm-row-ico">🧾</span>
+          <span class="mm-row-body">
+            <span class="mm-row-title">過去の納品を取り込む</span>
+            <span class="mm-row-sub">CSV・Excel から（入庫として記録）</span>
+          </span>
+          <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
+          <span class="mm-row-arrow">→</span>
+        </button>
+        <div v-if="activeHelp === 'delivery'" class="mm-help">
+          {{ HELP.delivery }}
+          <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
+        </div>
+      </div>
+      <div class="mm-row-wrap">
+        <button class="mm-row" @click="pickStocktake">
+          <span class="mm-row-ico">🧮</span>
+          <span class="mm-row-body">
+            <span class="mm-row-title">過去の棚卸を取り込む</span>
+            <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
+          </span>
+          <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
+          <span class="mm-row-arrow">→</span>
+        </button>
+        <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
+      </div>
+
+      <!-- 書き出す -->
+      <div class="mm-section-label">書き出す</div>
+      <div class="mm-row-wrap">
+        <button class="mm-row" @click="exportMasterCsv">
+          <span class="mm-row-ico">📤</span>
+          <span class="mm-row-body">
+            <span class="mm-row-title">品目リストを出力</span>
+            <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
+          </span>
+          <span class="mm-row-arrow">↓</span>
+        </button>
+      </div>
+      <div class="mm-row-wrap">
+        <button class="mm-row" @click="exportLatestSnapshotCsv">
+          <span class="mm-row-ico">📤</span>
+          <span class="mm-row-body">
+            <span class="mm-row-title">棚卸結果を出力</span>
+            <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
+          </span>
+          <span class="mm-row-arrow">↓</span>
+        </button>
+      </div>
+
+      <!-- 整える -->
+      <div class="mm-section-label">整える・確認</div>
 
       <!-- 分類の追加（並び順） -->
       <div class="mm-block">
@@ -297,6 +388,20 @@ function onClear() {
         <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
       </div>
     </div>
+
+    <!-- 取込ファイル入力（常設・非表示）-->
+    <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onDeliveryFile" />
+    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onStocktakeFile" />
+
+    <DeliveryImportModal
+      v-if="showDeliveryModal"
+      :csv-text="deliveryCsv"
+      :filename="deliveryFilename"
+      :ctx="importCtx"
+      :existing-movements="existingMovements()"
+      @imported="onDeliveryImported"
+      @close="closeDelivery"
+    />
   </div>
 </template>
 
@@ -326,6 +431,18 @@ function onClear() {
 
 .mm-row-wrap { margin-bottom: 12px; }
 .mm-row-wrap .mm-row { margin-bottom: 0; }
+
+.mm-section-label {
+  font-size: 12px; font-weight: 800; color: #94a3b8;
+  letter-spacing: 0.04em; margin: 4px 2px 8px; text-transform: none;
+}
+.mm-section-label:not(:first-child) { margin-top: 6px; }
+.mm-tmpl-link {
+  display: block; margin-top: 8px; border: none; background: none;
+  color: var(--primary, #2563eb); font-size: 12px; font-weight: 700;
+  text-decoration: underline; cursor: pointer; padding: 0;
+}
+.mm-hidden-file { display: none; }
 
 .mm-head-row { display: flex; align-items: center; gap: 8px; }
 .mm-head-row .mm-block-head { flex: 1; }

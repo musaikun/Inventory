@@ -28,6 +28,9 @@
   消費逆算・理論在庫が遡及算出される。
 - **算出のゲート表示** — `services/analysisCapability`。下地が無い店に「過去の棚卸を取り込むと
   消費・適正在庫・発注の理論値が算出できます」バナー＋品目詳細の動的ヒント。
+- **導線を「データ管理」に集約** — 品目マスタ管理を **データ管理**（`MasterManagePage`）へ格上げ。
+  取り込む（品目／過去納品／過去棚卸）・書き出す（品目マスタ／棚卸結果）を1画面に集約。取込フローは
+  `composables/useDataImport.js` に抽出し、入出庫画面（入庫モード）とデータ管理の2導線で共用。
 - 設計 → `docs/order-history-import-design.md` v2 §9.1。D1列追加・バルクIngest・sinceDays窓拡張は
   別セッション（DB）へ（`db-design-v2.md` §10）。
 

@@ -393,10 +393,10 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <!-- 品目マスタ管理（店舗の品目リスト＝棚卸・発注が共有する正）。カード全体タップで管理へ -->
+          <!-- データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
           <div class="master-card pulse" @click="emit('openMaster')">
             <div class="master-head">
-              <span class="master-title">📦 品目マスタ管理</span>
+              <span class="master-title">🗂 データ管理</span>
               <span v-if="itemCount > 0 && !config.isCustom" class="master-sample">サンプル</span>
               <span class="master-open">管理 →</span>
             </div>
