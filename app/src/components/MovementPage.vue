@@ -9,6 +9,7 @@ import { saveMovementToD1, saveSnapshotToD1 } from '../composables/useStore.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
+import { itemConsumptionAvailability, storeConsumptionReadiness } from '../services/analysisCapability.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
@@ -95,6 +96,11 @@ function onReorderInput(item, e) { setReorderPoint(item, e.target.value) }
 function dailyConsumption(item) {
   return avgDailyConsumption(item, { windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value })
 }
+// ゲート表示: 算出に必要なデータが揃わない場合のヒント（過去棚卸の取込を促す）
+function consumptionHintOf(item) {
+  return itemConsumptionAvailability(item, { snapshots: _snaps.value, orders: getOrders() }).hint
+}
+const storeReadiness = computed(() => storeConsumptionReadiness({ snapshots: _snaps.value }))
 const reorderHorizon = computed(() => {
   const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
   if (days.length < 2) return 7
@@ -430,7 +436,6 @@ async function onStocktakeFile(e) {
         </div>
         <div v-if="mode === 'in'" class="mv-import-sub">
           <button class="mv-import-sub-btn" @click="openStocktakePicker">🧮 過去の棚卸を取り込む（消費・理論値の算出に必要）</button>
-          <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
         </div>
       </template>
 
@@ -463,6 +468,12 @@ async function onStocktakeFile(e) {
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
       <div v-else class="mv-hint">直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。</div>
+
+      <!-- ゲート案内: 消費・理論値の算出下地が無いとき、過去棚卸の取込を促す -->
+      <div v-if="mode === 'view' && !storeReadiness.ready" class="mv-unlock">
+        <span class="mv-unlock-txt">💡 {{ storeReadiness.hint }}</span>
+        <button class="mv-unlock-btn" @click="openStocktakePicker">取り込む</button>
+      </div>
 
       <!-- グループ（アコーディオン） -->
       <div v-if="groups.length" class="mv-groups">
@@ -513,7 +524,7 @@ async function onStocktakeFile(e) {
                     <button class="mv-d-suggest-btn" @click.stop="setReorderPoint(item, suggestedReorder(item))">目安 {{ suggestedReorder(item) }} を採用</button>
                     <span class="mv-d-suggest-basis">推定消費 {{ dailyConsumption(item).toFixed(1) }}/日 × {{ reorderHorizon }}日</span>
                   </div>
-                  <div v-else class="mv-d-suggest-none">在庫の観測（棚卸・発注時在庫）が2回以上貯まると目安を表示します</div>
+                  <div v-else class="mv-d-suggest-none">{{ consumptionHintOf(item) }}</div>
 
                   <!-- マスタ情報 -->
                   <div class="mv-d-meta">
@@ -589,6 +600,9 @@ async function onStocktakeFile(e) {
       </button>
     </div>
 
+    <!-- 過去棚卸の取込ファイル入力（モード非依存で常設）-->
+    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
+
     <DeliveryImportModal
       v-if="showImport"
       :csv-text="importCsv"
@@ -622,6 +636,19 @@ async function onStocktakeFile(e) {
   background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer;
 }
 .mv-import-sub-btn:active { background: #f1f5f9; }
+
+/* ゲート案内（消費・理論値のアンロック） */
+.mv-unlock {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 8px; padding: 10px 12px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+}
+.mv-unlock-txt { flex: 1; font-size: 12px; color: #92400e; line-height: 1.4; }
+.mv-unlock-btn {
+  flex-shrink: 0; padding: 6px 12px; border: none; border-radius: 8px;
+  background: #f59e0b; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.mv-unlock-btn:active { background: #d97706; }
 .mv-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
