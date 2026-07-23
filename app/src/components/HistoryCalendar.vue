@@ -686,7 +686,7 @@ function onDeleteMove(id) {
 .hc-dots .dot:nth-child(4) { animation-delay: -1.95s, 0s; }
 @keyframes hcStarSpin { from { transform: perspective(100px) rotateY(0); } to { transform: perspective(100px) rotateY(360deg); } }
 @keyframes hcStarTwinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
-@media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
+/* 注: 実績スターの回転は演出として常時再生する（端末の「視差効果を減らす」設定でも止めない） */
 
 .hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
 .hc-cell-info.stock { color: #2563eb; }
