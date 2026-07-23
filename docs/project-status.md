@@ -19,6 +19,18 @@
 
 ## 2. 現在の状況（v0.58 系）
 
+### 直近セッションの追加（過去履歴の一括取込 / 2026-07-23）
+- **過去の納品履歴の一括取込** — 中間フォーマットCSV → 入庫（`movements type:in`）へ一括投入。
+  名寄せ（`itemMatcher`）・冪等（日付+種別+品目+数量）・ステージングUI（`DeliveryImportModal`）・
+  `importBatchId` で一括取消。導線は入出庫画面の入庫モード。
+- **過去棚卸の実行済みインポート** — `resultCsvParser.parseResultSnapshots` ＋
+  `useHistory.importPastSnapshot`（過去日付スナップショット挿入）。過去棚卸＋過去納品で
+  消費逆算・理論在庫が遡及算出される。
+- **算出のゲート表示** — `services/analysisCapability`。下地が無い店に「過去の棚卸を取り込むと
+  消費・適正在庫・発注の理論値が算出できます」バナー＋品目詳細の動的ヒント。
+- 設計 → `docs/order-history-import-design.md` v2 §9.1。D1列追加・バルクIngest・sinceDays窓拡張は
+  別セッション（DB）へ（`db-design-v2.md` §10）。
+
 ### 直近セッションの追加（入出庫D1化ほか / 2026-07-21 取り込み）
 - **入出庫の D1 永続化** — Wave 2.5 #2 完了（`0010_movements`・冪等POST＋開始時ロード・
   再送キュー・削除もD1連動）。R5-01（upsertのテナント境界）修正済み ✅。
@@ -86,8 +98,8 @@
 - **料金・獲得戦略** → `docs/pricing-strategy.md`（リバーストライアル：フル14日→入出庫の無料床、
   2,980円1本。現機能の完成後に再吟味して実装）
 - **過去発注（納品）履歴 取込** → `docs/order-history-import-design.md` v2（既存の入出庫/消費逆算/
-  レシピ/名寄せエンジンへ、過去の納品を一括バックフィルする設計。中間CSV・複数ファイル・
-  ステージング/冪等・納品カレンダー拡張。未着手）
+  レシピ/名寄せエンジンへ、過去の納品を一括バックフィルする設計。**P0＋過去棚卸import＋ゲート表示は
+  実装済み**。DB層＝source/import_batch_id列・バルクIngest・sinceDays窓拡張は別セッション）
 
 ### 品質
 - 自動テスト: 全green（CIがデプロイ前に全件実行。v0.48時点 app 323 / worker 78、
@@ -172,7 +184,7 @@
 | 企業導入（多店舗）設計 | `docs/enterprise-design.md` | 設計のみ |
 | 料金・獲得戦略（未実装メモ） | `docs/pricing-strategy.md` | 設計のみ |
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` | 実装済み（A/B/D/E）＋残設計 |
-| 過去発注（納品）履歴 取込 設計 | `docs/order-history-import-design.md` | 設計v2（既存エンジンへのバックフィル・未着手） |
+| 過去発注（納品）履歴 取込 設計 | `docs/order-history-import-design.md` | v2・P0実装済み（DB層は別セッション） |
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
 | DB設計v2（時系列基盤） | `docs/db-design-v2.md` | 設計のみ（一部実装: inventory_lines / complete API） |
 | **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |

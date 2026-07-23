@@ -24,6 +24,31 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 ---
 
+## 2026-07-23: 過去の納品・棚卸の一括取込（発注理論値のコールドスタート解消）（提案元: 過去履歴取込セッション）
+
+- **概要**: 過去の納品履歴を中間フォーマットCSVから **入庫（movements type:in）** へ一括投入し、
+  過去の棚卸結果を **実行済みスナップショット** として過去日付で挿入できるようにした。両者が揃うと
+  既存の消費逆算（`impliedConsumption`）・理論在庫（`theoreticalStock`）が過去に遡って算出され、
+  発注理論値のコールドスタートが解消される。設計は `docs/order-history-import-design.md` v2。
+- **背景・根拠**: 予測・分析エンジンは実装済みだが「過去のフローを過去日付で一括投入する経路」が
+  無かった（PDF/CSV取込は品目マスタ止まり）。名寄せ(`itemMatcher`)・レシピ(`pdfProfiles`)・
+  入庫(`useMovements`)の既存土台に**供給**する形で最小増設した。
+- **設計判断（PMトリアージ希望）**:
+  1. **D1列は未追加（別セッション）**: `source`/`import_batch_id` は localStorage のみ保持し、
+     既存 `POST /movements` へは送るが worker 側は無視（後方互換）。一括Ingest・`sinceDays`窓拡張・
+     列追加は DB設計セッションで（`db-design-v2.md` §10）。**過去1年超の取込は現状 GET 窓外**になる点は要対応。
+  2. **プラン境界**: 取込は既存方針どおり無料。新規品目追加のみ `addItem` の `FREE_ITEM_LIMIT` に従う。
+     movements/history の取込自体は無制限。要PM確認。
+  3. **冪等キー**: `日付+種別+品目+数量`。同一納品書の二重取込を防止。`importBatchId` で一括取消可能。
+  4. **名寄せ学習**: 取込時の「業者名→既存品目」を `registerAlias`（`masterDict`）へ学習し次回自動化。
+  5. **過去棚卸は名寄せ不要**（自店の品目名）。上書き確認のみで直接挿入。
+- **影響範囲 / 実装状況**: 実装済み・app全テストgreen。
+  - 追加: `utils/deliveryImportParser` `utils/importBatch` `services/deliveryImportMatch`
+    `services/deliveryImportCommit` `services/analysisCapability`、`components/DeliveryImportModal.vue`、
+    `resultCsvParser.parseResultSnapshots`、`useHistory.importPastSnapshot`、
+    `useMovements`（source/importBatchId・deleteImportBatch）、`MovementPage` 導線＋ゲート表示。
+- **PM判断**: ⬜未トリアージ
+
 ## 2026-07-21: 入出庫（movements）を D1 永続化・端末間で揃える（提案元: 入出庫セッション）
 
 - **概要**: これまで localStorage 専用だった入出庫レコードを、発注・棚卸と同様に **D1 を正**として

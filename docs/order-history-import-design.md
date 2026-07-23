@@ -190,6 +190,27 @@
 
 依存：P0→(P1,P2)、(P0+過去棚卸)→P2、P2→P3。P4はP0の中間形式に合流するので独立に足せる。
 
+### 9.1 実装状況（2026-07-23）
+
+**P0 実装済み**（クライアント層・app全テストgreen）:
+- 中間フォーマットCSVパーサ `utils/deliveryImportParser`（複数日・表記ゆれ・テンプレDL）
+- 名寄せ突合 `services/deliveryImportMatch`（`itemMatcher` 利用・matched/candidate/unmatched）
+- 冪等 `utils/importBatch`（`日付+種別+品目+数量`・`importBatchId`）
+- ステージングUI `components/DeliveryImportModal.vue`（差分サマリ・行対応づけ・除外）
+- 確定 `services/deliveryImportCommit` → `useMovements.saveMovement`（`source:'import'`/`importBatchId`）
+- 導線: `MovementPage` 入庫モードに取込＋テンプレDL、`useMovements.deleteImportBatch`（一括取消）
+
+**過去棚卸インポート 実装済み**:
+- `resultCsvParser.parseResultSnapshots`（日付グルーピング）＋ `useHistory.importPastSnapshot`（過去日付挿入）
+- `MovementPage` に導線。過去棚卸＋過去納品で `impliedConsumption` が遡及算出。
+
+**ゲート表示 実装済み**:
+- `services/analysisCapability`（`itemConsumptionAvailability`/`storeConsumptionReadiness`）
+- `MovementPage` 在庫ビューにアンロックバナー、品目詳細に動的ヒント。
+
+**未着手（別セッション＝DB）**: `movements` への `source`/`import_batch_id` 列、バルクIngest、`sinceDays` 窓拡張
+（`db-design-v2.md` §10）。**現状は過去1年超の取込が GET 窓外**になるため、DB側対応が必要。
+
 ---
 
 ## 10. 未確定の決定事項（実装前に確定する）
