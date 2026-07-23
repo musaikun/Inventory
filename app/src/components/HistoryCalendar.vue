@@ -671,10 +671,21 @@ function onDeleteMove(id) {
 .hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; justify-content: center; }
 /* 4つのときだけ 2×2 に折り返す（3つまでは横並び）*/
 .hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 3px; }
-/* 実施済みの実績スター（★）をゆっくり回転＋点滅 */
-.hc-dots .dot { font-size: 13px; animation: hcStarSpin 6s linear infinite, hcStarPulse 2.4s ease-in-out infinite; will-change: transform, opacity; }
-@keyframes hcStarSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-@keyframes hcStarPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+/* セルの実績スターはゲーム風: 発光＋光沢＋3D回転（コインのように自軸で回る）＋わずかな点滅 */
+.hc-dots .dot {
+  font-size: 15px;
+  filter: drop-shadow(0 0 2px currentColor);
+  text-shadow: 0 -0.5px 0 rgba(255,255,255,0.85), 0 1px 1px rgba(0,0,0,0.25);
+  transform-style: preserve-3d;
+  animation: hcStarSpin 2.6s linear infinite, hcStarTwinkle 2.4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+/* 複数の星は位相をずらして波打つように回す */
+.hc-dots .dot:nth-child(2) { animation-delay: -0.65s, 0s; }
+.hc-dots .dot:nth-child(3) { animation-delay: -1.3s, 0s; }
+.hc-dots .dot:nth-child(4) { animation-delay: -1.95s, 0s; }
+@keyframes hcStarSpin { from { transform: perspective(100px) rotateY(0); } to { transform: perspective(100px) rotateY(360deg); } }
+@keyframes hcStarTwinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
 @media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
 
 .hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
