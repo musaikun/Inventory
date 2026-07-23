@@ -177,41 +177,9 @@ function onDelete(g) {
 }
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 
-// カード長押しでリネーム（タップ＝選択、ハンドル＝並べ替えと両立）
-const pressG = ref('')
-const _lpFired = ref(false)
-let _lpTimer = null
-let _lpStart = null
-function onCardDown(g, e) {
-  _lpFired.value = false
-  pressG.value = g
-  const t = e.touches?.[0]
-  _lpStart = { x: t ? t.clientX : e.clientX, y: t ? t.clientY : e.clientY }
-  clearTimeout(_lpTimer)
-  _lpTimer = setTimeout(() => {
-    _lpFired.value = true
-    pressG.value = ''
-    navigator.vibrate?.(15)
-    onRename(g)
-  }, 500)
-}
-function onCardMoveCancel(e) {
-  if (!_lpStart) return
-  const t = e.touches?.[0]
-  const x = t ? t.clientX : e.clientX
-  const y = t ? t.clientY : e.clientY
-  if (Math.abs(x - _lpStart.x) > 10 || Math.abs(y - _lpStart.y) > 10) { clearTimeout(_lpTimer); pressG.value = '' }
-}
-function onCardUp() { clearTimeout(_lpTimer); _lpStart = null; pressG.value = '' }
-function onCardClick(g) {
-  if (_lpFired.value) { _lpFired.value = false; return }   // 長押し後のクリックは無視
-  if (editMode.value) { onRename(g); return }
-  pickGroup(g)
-}
-
 // ── ドラッグハンドルでグループ並べ替え ─────────────────────────
-// 誤操作防止: ハンドルを 0.5 秒長押しして初めて並べ替えが起動（振動＋他カードを暗く）。
-// 起動前に指が動いたら長押しをキャンセルする。
+// 誤操作防止: カードを 0.5 秒長押しして初めて並べ替えが起動（振動＋他カードを暗く）。
+// タップ＝選択 / 長押し＝並べ替え / ✎ボタン＝名前変更。起動前に指が動いたらキャンセル。
 const dragG = ref(null)         // 並べ替え起動中のグループ
 const holdG = ref('')           // 長押し判定中（起動前）のグループ
 const draftOrder = ref(null)
@@ -220,8 +188,10 @@ const HOLD_MS = 500
 const HOLD_CANCEL_PX = 10
 let _holdTimer = null
 let _holdStart = null
+let _suppressClick = false      // 長押し起動後のクリック（＝選択）を抑止
 function _clearHold() { clearTimeout(_holdTimer); _holdTimer = null; _holdStart = null; holdG.value = '' }
-function onHandleStart(g, e) {
+function onCardDown(g, e) {
+  _suppressClick = false
   const t = e.touches?.[0]
   _holdStart = { x: t ? t.clientX : e.clientX, y: t ? t.clientY : e.clientY }
   holdG.value = g
@@ -230,10 +200,11 @@ function onHandleStart(g, e) {
     holdG.value = ''
     dragG.value = g
     draftOrder.value = [...groups.value]
+    _suppressClick = true
     navigator.vibrate?.(15)
   }, HOLD_MS)
 }
-function onHandleMove(e) {
+function onCardMove(e) {
   const t = e.touches?.[0]
   // 起動前: 少し動いたら長押しをキャンセル（グラつき・スクロール誤爆を防ぐ）
   if (!dragG.value) {
@@ -242,6 +213,7 @@ function onHandleMove(e) {
          Math.abs(t.clientY - _holdStart.y) > HOLD_CANCEL_PX)) _clearHold()
     return
   }
+  if (e.cancelable) e.preventDefault()   // 起動後はスクロールを止めて並べ替え
   if (!draftOrder.value || !t) return
   const el = document.elementFromPoint(t.clientX, t.clientY)
   const card = el?.closest('[data-group]')
@@ -254,10 +226,14 @@ function onHandleMove(e) {
   next.splice(next.indexOf(overG) + (after ? 1 : 0), 0, dragG.value)
   if (next.join('') !== draftOrder.value.join('')) draftOrder.value = next
 }
-function onHandleEnd() {
+function onCardUp() {
   _clearHold()
   if (dragG.value && draftOrder.value) setAxisGroupOrder(activeAxis.value, draftOrder.value)
   dragG.value = null; draftOrder.value = null
+}
+function onCardClick(g) {
+  if (_suppressClick) { _suppressClick = false; return }   // 長押し（並べ替え）後の選択は無視
+  pickGroup(g)
 }
 
 // ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
@@ -328,24 +304,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
           <!-- カードA: 分類先（グループ）選択 -->
           <section class="af-pane">
-            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで名前変更）</span></div>
+            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで並べ替え・✎で名前変更）</span></div>
             <TransitionGroup tag="div" name="af-reorder" class="af-glist" :class="{ reordering: dragG }">
               <div v-for="g in renderGroups" :key="g" :data-group="g"
-                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG, holding: g === holdG, pressing: pressG === g }"
+                   class="af-gcard" :class="{ active: g === target, dragging: g === dragG, holding: g === holdG }"
                    @click="onCardClick(g)"
                    @touchstart.passive="onCardDown(g, $event)"
-                   @touchmove.passive="onCardMoveCancel($event)"
+                   @touchmove="onCardMove($event)"
                    @touchend="onCardUp" @touchcancel="onCardUp"
                    @mousedown="onCardDown(g, $event)"
-                   @mousemove="onCardMoveCancel($event)"
+                   @mousemove="onCardMove($event)"
                    @mouseup="onCardUp" @mouseleave="onCardUp">
-                <span class="af-ghandle" :class="{ holding: g === holdG || g === dragG }"
-                      @touchstart.stop.prevent="onHandleStart(g, $event)"
-                      @touchmove.stop.prevent="onHandleMove"
-                      @touchend.stop="onHandleEnd"
-                      @touchcancel.stop="onHandleEnd">≡</span>
                 <span class="af-gname">{{ g }}</span>
                 <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
+                <button class="af-gedit" title="名前を変更" @click.stop="onRename(g)" @touchstart.stop @mousedown.stop>✎</button>
                 <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
                 <span v-else class="af-garrow">→</span>
               </div>
@@ -488,7 +460,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 }
 .af-gcard:active { background: #f1f5f9; }
 .af-gcard.active { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
-.af-gcard.pressing { transform: scale(0.975); transition: transform 0.12s ease; }
 /* 長押し判定中（起動前）: つかもうとしていることを軽く示す */
 .af-gcard.holding { border-color: var(--primary, #2563eb); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
 /* 並べ替え起動中: 掴んだカードを強調し、他カードは暗くグレーアウト */
@@ -498,9 +469,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へゆっくり滑らかに移動 */
 .af-reorder-move { transition: transform 0.62s cubic-bezier(0.22, 0.8, 0.28, 1); will-change: transform; }
 .af-glist { position: relative; }
-.af-ghandle { flex-shrink: 0; color: #cbd5e1; font-size: 20px; cursor: grab; padding: 0 4px; touch-action: none; -webkit-tap-highlight-color: transparent; transition: color 0.15s, transform 0.15s; }
-.af-ghandle.holding { color: var(--primary, #2563eb); transform: scale(1.25); }
 .af-gname { flex: 1; min-width: 0; }
+.af-gedit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 15px; line-height: 1; padding: 7px 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.af-gedit:active { background: #f1f5f9; color: var(--primary, #2563eb); }
 .af-gcount { background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 14px; padding: 2px 12px; font-size: 14px; }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
