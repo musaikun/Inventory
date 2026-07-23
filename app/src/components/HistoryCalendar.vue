@@ -636,7 +636,9 @@ function onDeleteMove(id) {
 .hc-leg.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
 .hc-recent { margin-left: auto; border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 4px; }
 
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+/* 実績マーカーは★（星）。色は種別ごと（背景色でそのまま塗る） */
+.dot { display: inline-block; width: 9px; height: 9px;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
 .dot-stock { background: #3b82f6; }
 .dot-order { background: #f59e0b; }
 .dot-in    { background: #10b981; }
@@ -669,9 +671,10 @@ function onDeleteMove(id) {
 .hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; justify-content: center; }
 /* 4つのときだけ 2×2 に折り返す（3つまでは横並び）*/
 .hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 3px; }
-/* 実施済みの実績ドットをゆっくり点滅 */
-.hc-dots .dot { animation: hcDotPulse 2s ease-in-out infinite; }
-@keyframes hcDotPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+/* 実施済みの実績スター（★）をゆっくり回転 */
+.hc-dots .dot { width: 11px; height: 11px; animation: hcStarSpin 6s linear infinite; will-change: transform; }
+@keyframes hcStarSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
 
 .hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
 .hc-cell-info.stock { color: #2563eb; }
