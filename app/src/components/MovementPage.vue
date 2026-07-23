@@ -5,7 +5,8 @@ import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
-import { saveMovementToD1 } from '../composables/useStore.js'
+import { saveMovementToD1, saveSnapshotToD1 } from '../composables/useStore.js'
+import { parseResultSnapshots } from '../utils/resultCsvParser.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
 import { parseLot } from '../services/lot.js'
@@ -17,7 +18,7 @@ import DeliveryImportModal from './DeliveryImportModal.vue'
 const emit = defineEmits(['back', 'saved'])
 
 const { config, setReorderPoint, dictionary, masterDict, registerAlias, addItem } = useConfig()
-const { getSnapshots } = useHistory()
+const { getSnapshots, importPastSnapshot } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
 const { draft, clearMode } = useMovementDraft()
@@ -334,6 +335,39 @@ function downloadImportTemplate() {
   a.click()
   URL.revokeObjectURL(a.href)
 }
+
+// ── 過去棚卸の一括取込（実行済みスナップショットとして）─────────
+// 自店の品目名なので名寄せは不要。日付ごとに束ねて過去日付で挿入する。
+const stocktakeFileInput = ref(null)
+function openStocktakePicker() { stocktakeFileInput.value?.click() }
+
+async function onStocktakeFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  let csv
+  try {
+    csv = /\.(xlsx|xls)$/i.test(file.name) ? excelToCsv(await file.arrayBuffer()) : await file.text()
+  } catch (_) { alert('ファイルの読み込みに失敗しました'); return }
+
+  let snaps
+  try { snaps = parseResultSnapshots(csv) }
+  catch (err) { alert(err?.message || '取り込みに失敗しました'); return }
+
+  const existing = new Set(getSnapshots().map(s => s.date))
+  const collide  = snaps.filter(s => existing.has(s.date)).length
+  const msg = `${snaps.length}日分の過去棚卸を取り込みます。`
+    + (collide > 0 ? `\n※ 既存の${collide}日分は上書きされます。` : '')
+    + `\nよろしいですか？`
+  if (!window.confirm(msg)) return
+
+  let n = 0
+  for (const s of snaps) {
+    const rec = importPastSnapshot(s)
+    if (rec) { saveSnapshotToD1(rec); n++ }
+  }
+  if (n > 0) { alert(`${n}日分の過去棚卸を取り込みました。`); emit('saved') }
+}
 </script>
 
 <template>
@@ -388,11 +422,15 @@ function downloadImportTemplate() {
           <div class="mv-orders-note">※ 実際に届いた数に直してから保存できます（分納・欠品に対応）</div>
         </div>
 
-        <!-- 過去納品の一括取込（入庫モードのみ）-->
+        <!-- 過去データの一括取込（入庫モードのみ）-->
         <div v-if="mode === 'in'" class="mv-import-bar">
           <button class="mv-import-btn" @click="openImportPicker">📥 過去の納品を取り込む（CSV/Excel）</button>
           <button class="mv-import-tmpl" @click="downloadImportTemplate">テンプレ</button>
           <input ref="importFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onImportFile" />
+        </div>
+        <div v-if="mode === 'in'" class="mv-import-sub">
+          <button class="mv-import-sub-btn" @click="openStocktakePicker">🧮 過去の棚卸を取り込む（消費・理論値の算出に必要）</button>
+          <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
         </div>
       </template>
 
@@ -578,6 +616,12 @@ function downloadImportTemplate() {
   background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
 .mv-hidden-file { display: none; }
+.mv-import-sub { margin: 0 0 8px; }
+.mv-import-sub-btn {
+  width: 100%; padding: 8px 12px; border: 1px dashed #cbd5e1; border-radius: 10px;
+  background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.mv-import-sub-btn:active { background: #f1f5f9; }
 .mv-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;

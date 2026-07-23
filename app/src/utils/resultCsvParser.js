@@ -24,6 +24,19 @@ const COLS = {
   category:  ['カテゴリ', '分類', '種別', 'ジャンル'],
   lotSize:   ['入数', '入り数', 'ロット'],
   prevMonth: ['前月実績', '前月', '先月'],
+  date:      ['日付', '棚卸日', '実施日', 'date'],
+}
+
+// 日付を 'YYYY-MM-DD' に正規化。解釈できなければ ''。
+function _normDate(s) {
+  let t = (s ?? '').trim()
+  if (!t) return ''
+  t = t.replace(/年|月/g, '-').replace(/日/g, '').replace(/[./]/g, '-').trim()
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (!m) return ''
+  const mo = Number(m[2]), d = Number(m[3])
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''
+  return `${m[1]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
 function _findCol(header, names) {
@@ -91,4 +104,66 @@ export function parseResultCSV(csvText) {
 
   if (rows.length === 0) throw new Error('復元できる数量データが見つかりませんでした')
   return rows
+}
+
+// 過去棚卸の一括インポート用。日付列を持つ棚卸結果CSVを日付ごとのスナップショットに束ねる。
+// 戻り値: [{ date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice, code, category, lotSize, prevMonth }] }]
+// 日付列が無い／有効な日付が1つも無い場合は throw（過去棚卸には日付が必須）。
+export function parseResultSnapshots(csvText) {
+  const text  = (csvText ?? '').replace(/^﻿/, '').trim()
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) throw new Error('データ行がありません')
+
+  const header = parseCSVLine(lines[0])
+  const ci = {
+    date:      _findCol(header, COLS.date),
+    name:      _findCol(header, COLS.name),
+    qty:       _findCol(header, COLS.qty),
+    unit:      _findCol(header, COLS.unit),
+    code:      _findCol(header, COLS.code),
+    price:     _findCol(header, COLS.price),
+    category:  _findCol(header, COLS.category),
+    lotSize:   _findCol(header, COLS.lotSize),
+    prevMonth: _findCol(header, COLS.prevMonth),
+  }
+  if (ci.date < 0) throw new Error('過去棚卸の取込には「日付」列が必要です')
+  if (ci.name < 0 || ci.qty < 0) throw new Error('棚卸結果CSVの形式ではありません（「品目名」「数量」列が必要です）')
+
+  const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
+  const byDate = new Map()
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i])
+    const name = (cols[ci.name] ?? '').trim()
+    if (!name || name === '【合計】' || name === '合計') continue
+    const date = _normDate(cols[ci.date])
+    if (!date) continue
+
+    const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()
+    if (qtyRaw === '') continue
+    const qty = parseFloat(qtyRaw)
+    if (isNaN(qty)) continue
+
+    const price = ci.price >= 0
+      ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return isNaN(p) ? null : p })()
+      : null
+
+    if (!byDate.has(date)) byDate.set(date, [])
+    byDate.get(date).push({
+      item:      name,
+      qty,
+      unit:      _cell(cols, ci.unit),
+      unitPrice: price,
+      code:      _cell(cols, ci.code),
+      category:  _cell(cols, ci.category) || null,
+      lotSize:   _cell(cols, ci.lotSize),
+      prevMonth: _cell(cols, ci.prevMonth),
+    })
+  }
+
+  if (byDate.size === 0) throw new Error('取り込める棚卸データが見つかりませんでした（日付・数量を確認してください）')
+
+  return [...byDate.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, items]) => ({ date, items }))
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseResultCSV, isResultCSV } from './resultCsvParser.js'
+import { parseResultCSV, isResultCSV, parseResultSnapshots } from './resultCsvParser.js'
 
 const CSV_PRICED = [
   '日付,商品コード,品目名,単位,数量,単価,在庫金額',
@@ -61,6 +61,35 @@ describe('resultCsvParser', () => {
 
     it('数量データが無ければエラー', () => {
       expect(() => parseResultCSV('品目名,数量\n豚バラ,\nビール,')).toThrow()
+    })
+  })
+
+  describe('parseResultSnapshots（過去棚卸の日付グルーピング）', () => {
+    it('日付ごとにスナップショットへ束ねる', () => {
+      const csv = [
+        '日付,商品コード,品目名,単位,数量,単価,在庫金額',
+        '2026-05-31,,豚バラ,kg,2,500,1000',
+        '2026-05-31,,ビール,本,10,200,2000',
+        '2026/6/30,,豚バラ,kg,3,500,1500',
+        '2026-06-30,,【合計】,,,,',
+      ].join('\n')
+      const snaps = parseResultSnapshots(csv)
+      expect(snaps).toHaveLength(2)
+      expect(snaps[0].date).toBe('2026-05-31')
+      expect(snaps[0].items).toEqual([
+        { item: '豚バラ', qty: 2, unit: 'kg', unitPrice: 500, code: '', category: null, lotSize: '', prevMonth: '' },
+        { item: 'ビール', qty: 10, unit: '本', unitPrice: 200, code: '', category: null, lotSize: '', prevMonth: '' },
+      ])
+      expect(snaps[1]).toMatchObject({ date: '2026-06-30' })
+      expect(snaps[1].items).toHaveLength(1)
+    })
+
+    it('日付列が無ければエラー', () => {
+      expect(() => parseResultSnapshots('品目名,数量\n豚バラ,3')).toThrow(/日付/)
+    })
+
+    it('有効な日付行が無ければエラー', () => {
+      expect(() => parseResultSnapshots('日付,品目名,数量\n,豚バラ,3')).toThrow(/見つかりません/)
     })
   })
 })
