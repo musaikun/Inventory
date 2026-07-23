@@ -26,7 +26,8 @@ const preview     = ref([])     // [{ name, unit, category, code, packQty, prevM
 const groupMap    = ref({})     // { カテゴリ: count }
 const debugLines  = ref([])     // PDF解析失敗時のraw行
 const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
-const pdfPages    = ref([])     // [{ tokens, rotate }] 手動マッピング用のrawトークン
+const pdfPages    = ref([])     // [{ tokens, rotate }] レシピ自動照合用のrawトークン
+const pdfFile     = ref(null)   // 手動マッピングでPDF実物を描画するための File
 const mapperOpen  = ref(false)
 
 function cancelPdf() {
@@ -74,6 +75,7 @@ async function handleFile(file) {
   showDetail.value = false
   pdfProgress.value = null
   pdfPages.value   = []
+  pdfFile.value    = isPdf ? file : null
   loading.value    = true
 
   const ctrl = new AbortController()
@@ -248,8 +250,8 @@ function onImport() {
     </div>
 
     <PdfColumnMapper
-      v-if="mapperOpen"
-      :pages="pdfPages"
+      v-if="mapperOpen && pdfFile"
+      :file="pdfFile"
       @close="mapperOpen = false"
       @apply="onMapperApply"
     />

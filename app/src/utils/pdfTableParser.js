@@ -29,11 +29,21 @@ function _fieldOf(text) {
   return null
 }
 
+// 列見出しラベル（そのままの値なら品目ではない＝除外）。手動マッピングで見出し行を
+// タップしても、その行が品目として混入しないようにする。
+const HEADER_LABELS = new Set([
+  '品目名', '商品名', '品名', '名称', '品目', '商品', '品目コード', '商品コード', 'コード', '品番',
+  '単価', '価格', '金額', '値段', '数量', '在庫', '個数', '分類', 'カテゴリ', 'ジャンル', '区分',
+  '単位', '入数', '前月', '前月実績',
+  'item', 'name', 'product', 'qty', 'quantity', 'stock', 'unit', 'price', 'category', 'code',
+])
+
 // 行以外のメタ情報（発行日・取引先・ページ番号・見出し・合計）を品目から除外
 function _isMeta(name) {
   const t = _norm(name)
   if (!t) return true
   if (/^[\d,.\s]+$/.test(t)) return true                     // 数字だけ
+  if (HEADER_LABELS.has(t) || HEADER_LABELS.has(t.toLowerCase())) return true  // 列見出しそのもの
   if (/発行日|取引先|作成|店舗|業態|棚卸|ページ|^p\.?\d|合計|小計|見出|注意|※|社外秘/i.test(t)) return true
   if (/^[【〔\[(（].*[】〕\])）]$/.test(t)) return true        // 【飲料】等の見出し行
   return false
