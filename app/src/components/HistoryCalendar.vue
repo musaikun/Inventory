@@ -636,13 +636,13 @@ function onDeleteMove(id) {
 .hc-leg.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
 .hc-recent { margin-left: auto; border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 4px; }
 
-/* 実績マーカーは★（星）。色は種別ごと（背景色でそのまま塗る） */
-.dot { display: inline-block; width: 9px; height: 9px;
-  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
-.dot-stock { background: #3b82f6; }
-.dot-order { background: #f59e0b; }
-.dot-in    { background: #10b981; }
-.dot-out   { background: #ef4444; }
+/* 実績マーカーは★（星）。glyphで描画（Safariの clip-path+transform 不具合を回避）。色は種別ごと */
+.dot { display: inline-block; font-size: 10px; line-height: 1; color: #94a3b8; }
+.dot::before { content: '★'; display: block; }
+.dot-stock { color: #3b82f6; }
+.dot-order { color: #f59e0b; }
+.dot-in    { color: #10b981; }
+.dot-out   { color: #ef4444; }
 
 .hc-cal { background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; }
 .hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
@@ -671,9 +671,10 @@ function onDeleteMove(id) {
 .hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; justify-content: center; }
 /* 4つのときだけ 2×2 に折り返す（3つまでは横並び）*/
 .hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 3px; }
-/* 実施済みの実績スター（★）をゆっくり回転 */
-.hc-dots .dot { width: 11px; height: 11px; animation: hcStarSpin 6s linear infinite; will-change: transform; }
+/* 実施済みの実績スター（★）をゆっくり回転＋点滅 */
+.hc-dots .dot { font-size: 13px; animation: hcStarSpin 6s linear infinite, hcStarPulse 2.4s ease-in-out infinite; will-change: transform, opacity; }
 @keyframes hcStarSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes hcStarPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 @media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
 
 .hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
