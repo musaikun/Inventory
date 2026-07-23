@@ -463,7 +463,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* 長押し判定中（起動前）: つかもうとしていることを軽く示す */
 .af-gcard.holding { border-color: var(--primary, #2563eb); box-shadow: 0 0 0 1px var(--primary, #2563eb) inset; }
 /* 並べ替え起動中: 掴んだカードを強調し、他カードは暗くグレーアウト */
-.af-glist.reordering .af-gcard:not(.dragging) { opacity: 0.4; filter: grayscale(0.55); transition: opacity 0.2s, filter 0.2s; }
+/* 並べ替え中の他カード: 暗転に加え、退避（Displacement）を滑らかにアニメーション。
+   transform を transition に含めないと FLIP（.af-reorder-move）を打ち消して瞬間移動になる。 */
+.af-glist.reordering .af-gcard:not(.dragging) { opacity: 0.4; filter: grayscale(0.55); transition: transform 0.42s cubic-bezier(0.22, 0.8, 0.28, 1), opacity 0.2s, filter 0.2s; }
 /* 掴んでいるカードは FLIP アニメを無効化＝指の下でぶれずにその場に留まる */
 .af-gcard.dragging { opacity: 1; background: var(--primary-weak, #eff6ff); box-shadow: 0 12px 30px rgba(37,99,235,0.3); border-color: var(--primary, #2563eb); position: relative; z-index: 3; transition: none; transform: scale(1.03); }
 /* Reorder Animation（FLIP）: 入れ換わるカードが新しい位置へゆっくり滑らかに移動 */
