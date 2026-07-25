@@ -1,7 +1,12 @@
 # プロジェクト現況と方向性
 
-最終更新: 2026-07-21 / バージョン v0.58 系
+最終方針更新: 2026-07-25 / 本文の機能棚卸し v0.58 系
 位置づけ: プロジェクト全体の現在地を1枚で把握する索引。相談・意思決定の起点。
+
+> 最新の検証済み技術状態は [`quality-foundation/project-status.md`](quality-foundation/project-status.md)、
+> 2026-07-27〜2026-08-08の共同品質基盤スプリントは
+> [`quality-foundation/sprint-plan-2026-07-27.md`](quality-foundation/sprint-plan-2026-07-27.md) を参照。
+> 期間中はGoogle Play要件と品質基盤以外の機能開発を停止する。
 
 ---
 

@@ -1,5 +1,10 @@
 # セキュリティレビュー — 飲食店棚卸システム
 
+> 2026-07-25以降の最新監査とP0/P1は
+> [`quality-foundation/audit-2026-07-25.md`](quality-foundation/audit-2026-07-25.md) および
+> [`quality-foundation/task-list.md`](quality-foundation/task-list.md) を参照してください。
+> 本文中の「残課題」「テスト件数」は作成時点の記録を含みます。
+
 多店舗展開前のセキュリティチェックリスト。
 「対応済み」と「残課題」を一目で把握できるよう管理する。
 

@@ -5,6 +5,10 @@
 対象コミット: `131a36f520e7350b995ec6e811452b10527e00c5`  
 フロントエンド版: `0.66.0`
 
+現在の実行方針: 2026-07-27〜2026-08-08はGoogle Play要件と品質基盤以外の機能開発を停止。  
+計画: [`sprint-plan-2026-07-27.md`](sprint-plan-2026-07-27.md)  
+公開判定: [`quality-scorecard.md`](quality-scorecard.md) / [`google-play-readiness.md`](google-play-readiness.md)
+
 この文書は、上記コミットに対して実行・確認した事実です。最新性の判断は、検証日時と
 対象コミットを必ず併せて行ってください。
 
@@ -31,6 +35,8 @@ App テストの失敗は `deliveryImportCommit.test.js` の仕入先順です�
 - WebSocket 接続後、正常な `join` より前に在庫更新などのメッセージを処理できる。
 - 注文 ID が既存の別店舗注文と衝突した場合、`ON CONFLICT(id)` が店舗境界を確認せず
   注文ヘッダーを更新できる。
+- Google Play公開前に、in-appと公開Webの両方からaccount deletionを開始でき、
+  関連dataを削除する一貫した仕組みが必要。
 
 ### P1
 
@@ -79,4 +85,3 @@ App テストの失敗は `deliveryImportCommit.test.js` の仕入先順です�
 - 依存パッケージのバージョン
 - Cloudflare / GitHub の外部状態
 - デプロイ、DB migration、commit、push
-

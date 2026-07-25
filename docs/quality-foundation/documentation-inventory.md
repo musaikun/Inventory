@@ -11,6 +11,21 @@
 - `履歴`: 作成時点の監査・snapshot。原則として本文を現行化しない。
 - `運用ログ`: 提案・取り込みの時系列。追記で扱う。
 
+## 共同品質基盤
+
+| 文書 | 役割 |
+|---|---|
+| `docs/quality-foundation/README.md` | Codex・Claude Code・Userの共通入口 |
+| `sprint-plan-2026-07-27.md` | 2週間のscope、担当、日程、release gate |
+| `task-list.md` | 優先度、owner、状態、完了条件 |
+| `google-play-readiness.md` | Google Play公開要件と提出前checklist |
+| `quality-scorecard.md` | 双方の独立評価とA+基準 |
+| `project-status.md` | 検証日・commit付きの技術状態 |
+| `decisions.md` | 採用・保留判断の履歴 |
+| `session-log.md` | 作業結果と次の再開地点 |
+| `working-agreement.md` | 競合回避・検証・引き継ぎ規則 |
+| `audit-2026-07-25.md` | 初回横断監査の根拠 |
+
 ## 現行文書
 
 | 文書 | 分類 | 確認結果 / 次の処理 |
@@ -46,7 +61,7 @@
 
 | 文書 | 分類 | 扱い |
 |---|---|---|
-| `docs/audit-2026-07.md` | 履歴 | 当時の監査として保持。現在結果は `docs/codex/` を参照 |
+| `docs/audit-2026-07.md` | 履歴 | 当時の監査として保持。現在結果は `docs/quality-foundation/` を参照 |
 | `docs/holistic-review-2026-07.md` | 履歴 | v0.48 時点の横断 review として保持 |
 | `docs/export/project-summary-2026-07.md` | 履歴 | export 時点の snapshot。現行仕様として更新しない |
 | `docs/export/vault/00-INDEX.md`〜`27-support-faq.md` | 履歴 | 一括 export の知識庫。個別の鮮度負債として数えない |
@@ -66,4 +81,3 @@
 - branch 名を恒久ルールとして固定せず、`git branch --show-current` を基準にする。
 - dated audit と export は履歴として凍結し、現在状態は別文書に記録する。
 - コード変更で仕様・API・DB・認可・運用が変わる場合、同じタスクの完了条件に文書更新を含める。
-

@@ -4,36 +4,86 @@
 
 状態は `未着手 / 進行中 / レビュー待ち / 保留 / 完了 / リスク受容` を使用します。
 担当は `未割当 / Codex / Claude Code / User` のいずれか、または担当者名を記載します。
-P0 は認可・データ境界に直結するため、原則として新機能より先に処理します。
+P0 は認可・データ境界またはGoogle Play公開を直接blockする項目です。
+
+2026-07-27〜2026-08-08はP0と公開対象P1だけを実装し、P2以下は原則保留します。
+全体計画は [`sprint-plan-2026-07-27.md`](sprint-plan-2026-07-27.md) を参照してください。
 
 ## 一覧
 
 | ID | 優先度 | 状態 | 担当 | 概要 |
 |---|---:|---|---|---|
-| SEC-001 | P0 | 未着手 | 未割当 | WebSocket の参加完了前メッセージを遮断 |
-| SEC-002 | P0 | 未着手 | 未割当 | 注文 upsert の店舗境界を保証 |
-| BUG-001 | P1 | 未着手 | 未割当 | cron の存在しない列参照を修正 |
-| TEST-001 | P1 | 未着手 | 未割当 | 仕入先順の仕様を決め App テストを復旧 |
-| SEC-003 | P1 | 未着手 | 未割当 | Push 購読 API の認証・検証を追加 |
-| SEC-004 | P1 | 未着手 | 未割当 | ホスト認可境界を fail-closed 化 |
-| SEC-005 | P1 | 未着手 | 未割当 | 無制限な店舗作成経路を整理 |
-| DO-001 | P1 | 未着手 | 未割当 | 品目追加要求を休止復帰対応にする |
-| DATA-001 | P1 | 未着手 | 未割当 | 複数 D1 書き込みの原子性と入力制限を改善 |
-| CI-001 | P1 | 未着手 | 未割当 | `develop` の CI 方針を決定・適用 |
-| DEP-001 | P1 | 未着手 | 未割当 | `xlsx` の high 脆弱性を解消または隔離 |
-| TEST-002 | P2 | 未着手 | 未割当 | App / Worker テスト責務を分離 |
-| OPS-001 | P2 | 未着手 | 未割当 | Workers 互換日・observability・ログを整備 |
-| REF-001 | P2 | 未着手 | 未割当 | 大型コンポーネントと composable を段階分割 |
-| PERF-001 | P2 | 未着手 | 未割当 | フロント bundle を分割 |
-| PRIV-001 | P2 | 未着手 | 未割当 | PostHog の収集内容と同意・規約を照合 |
-| SEC-006 | P2 | 未着手 | 未割当 | 店舗コード・PIN・保存トークンを再評価 |
-| DATA-002 | P2 | 未着手 | 未割当 | 履歴検索と DO/D1 の成長時設計を検証 |
-| DOC-001 | P2 | 未着手 | 未割当 | 現行仕様書の鮮度差を解消 |
-| CFG-001 | P2 | 未着手 | 未割当 | Claude Code の古い hook/command を可搬化 |
+| SEC-001 | P0 | 未着手 | Codex | WebSocket の参加完了前メッセージを遮断 |
+| SEC-002 | P0 | 未着手 | Codex | 注文 upsert の店舗境界を保証 |
+| PLAY-001 | P0 | 未着手 | Codex | account削除backendと関連data削除 |
+| PLAY-002 | P0 | 未着手 | Claude Code | in-app削除UXと公開Web申請導線 |
+| PLAY-003 | P1 | 未着手 | Codex | Data Safety・privacy・第三者SDKの整合監査 |
+| PLAY-004 | P1 | 未着手 | Claude Code | TWA審査導線・store listing・screenshots |
+| BUG-001 | P1 | 未着手 | Codex | cron の存在しない列参照を修正 |
+| TEST-001 | P1 | 未着手 | Codex | 仕入先順の仕様を決め App テストを復旧 |
+| SEC-003 | P1 | 未着手 | Codex | Push 購読 API の認証・検証を追加 |
+| SEC-004 | P1 | 未着手 | Codex | ホスト認可境界を fail-closed 化 |
+| SEC-005 | P1 | 未着手 | Codex | 無制限な店舗作成経路を整理 |
+| DO-001 | P1 | 未着手 | Codex | 品目追加要求を休止復帰対応にする |
+| DATA-001 | P1 | 未着手 | Codex | 複数 D1 書き込みの原子性と入力制限を改善 |
+| CI-001 | P1 | 未着手 | Codex | `develop` でtest/buildを自動実行 |
+| DEP-001 | P1 | 未着手 | Codex | `xlsx` の high 脆弱性を解消または隔離 |
+| TEST-002 | P1 | 未着手 | Codex | package test分離とcritical integration/E2E |
+| OPS-001 | P1 | 未着手 | Codex | 最小observability・構造化log・互換日確認 |
+| PRIV-001 | P1 | 未着手 | Codex | PostHog の収集内容と同意・規約を照合 |
+| REF-001 | P2 | 保留 | 未割当 | 大型コンポーネントと composable を段階分割 |
+| PERF-001 | P2 | 保留 | 未割当 | フロント bundle を分割 |
+| SEC-006 | P2 | 保留 | 未割当 | 店舗コード・PIN・保存トークンを再評価 |
+| DATA-002 | P2 | 保留 | 未割当 | 履歴検索と DO/D1 の成長時設計を検証 |
+| DOC-001 | P2 | 保留 | 未割当 | 現行仕様書の鮮度差を解消 |
+| CFG-001 | P2 | 保留 | 未割当 | Claude Code の古い hook/command を可搬化 |
 | DOC-000 | P2 | 完了 | Codex | 共有監査・引き継ぎ基盤を作成 |
 | REPO-001 | P3 | 完了 | Codex | ローカル生成物を `.gitignore` に追加 |
 
 ## タスク詳細
+
+### PLAY-001 — account削除backendと関連data削除
+
+- 根拠: account作成API/UIは既に存在するが、削除API/UIがなく、`stores.deleted_at` だけでは
+  Google Playのaccount deletion要件を満たさない。
+- 主担当: Codex。UI contractはClaude Codeと実装前に固定する。
+- 完了条件:
+  - 有効な再認証と削除確認を要求する。
+  - D1 table、DO state、Push購読、auth token、local cacheの削除/匿名化/保持mapを確定する。
+  - 他店舗を削除できず、削除後の全tokenが無効になる。
+  - 部分失敗時に再試行可能で、完了状態を一意に返す。
+  - 正常、誤認証、越境、再送、途中失敗を自動testする。
+- Checklist: [`google-play-readiness.md`](google-play-readiness.md)
+
+### PLAY-002 — in-app削除UXと公開Web申請導線
+
+- 主担当: Claude Code。backend contractは`PLAY-001`に従う。
+- 完了条件:
+  - account設定から見つけやすく、対象店舗と削除dataを明示する。
+  - 再認証、誤操作防止、進行中、失敗、再試行、完了状態を扱う。
+  - appをinstallしていなくても使える公開Web resourceを用意する。
+  - privacy/terms/supportへの導線とmobile accessibilityを確認する。
+  - Codexが認可・data削除・表示内容を独立reviewする。
+
+### PLAY-003 — Data Safety・privacy・第三者SDKの整合監査
+
+- 主担当: Codex。Claude Codeは公開画面と文言を反映する。
+- 対象: PostHog、Push、位置情報、camera/microphone、upload、token、localStorage、log。
+- 完了条件:
+  - data typeごとに収集・利用・共有・保存・削除を一覧化する。
+  - Data Safety申告案、privacy policy、実装が一致する。
+  - 公開HTTPS policy URLとin-app導線を確認する。
+  - 保持例外に目的と期間を明記する。
+
+### PLAY-004 — TWA審査導線・store listing・screenshots
+
+- 主担当: Claude Code。8/6のUI freeze後に画像を確定する。
+- 完了条件:
+  - TWAで価格・外部決済導線が露出しない。
+  - reviewerがlogin、主要機能、account削除を確認できる。
+  - store説明・画像が提出buildの実機能と一致する。
+  - 実dataやsecretを含まない言語別screenshotsを準備する。
+  - CodexがPlay checklistとの一致を独立reviewする。
 
 ### SEC-001 — WebSocket の参加完了前メッセージを遮断
 
@@ -137,7 +187,8 @@ P0 は認可・データ境界に直結するため、原則として新機能�
 - 完了条件:
   - 各 package が単独で再現可能にテストできる。
   - Worker の runtime、D1、DO、WebSocket の重要経路に統合テストを加える。
-  - E2E と coverage 導入を段階計画にする。
+  - account登録→削除、host/guest同期、再接続のcritical E2Eを最低1本安定実行する。
+  - coverage全面導入はスプリント後でもよいが、P0/P1変更箇所の回帰testは必須。
 
 ### OPS-001 — Workers 互換日・observability・ログを整備
 
@@ -193,11 +244,10 @@ P0 は認可・データ境界に直結するため、原則として新機能�
 ### DOC-000 — 共有監査・引き継ぎ基盤を作成
 
 - 完了: 2026-07-25
-- 成果物: `docs/codex/`、`AGENTS.md`、`CLAUDE.md` の共有導線。
+- 成果物: `docs/quality-foundation/`、`AGENTS.md`、`CLAUDE.md` の共有導線。
 
 ### REPO-001 — ローカル生成物を `.gitignore` に追加
 
 - 完了: 2026-07-25
 - 対象: `/.wrangler/`、`/worker/dist/`、ルートの偶発的 `package-lock.json`。
 - 注記: 既存ファイルは削除していない。
-
