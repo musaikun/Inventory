@@ -20,6 +20,12 @@ function _persist() {
 
 _load()
 
+// アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
+export function resetLocalData() {
+  for (const k of Object.keys(_data)) delete _data[k]
+  try { localStorage.removeItem(STORAGE_KEYS.history) } catch (_) {}
+}
+
 export function useHistory() {
   /**
    * 棚卸完了時にスナップショットを保存
@@ -120,6 +126,61 @@ export function useHistory() {
     }
     _persist()
     return _data[today]
+  }
+
+  /**
+   * 過去棚卸の一括インポート（実行済みスナップショットとして過去日付で挿入）。
+   * saveSnapshot は「当日」固定なのに対し、これは任意の過去日付キーで保存する。
+   * 消費逆算（impliedConsumption）・理論在庫（theoreticalStock）の観測点になる。
+   * @param {object} arg { date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice|price, code, category, lotSize, prevMonth }] }
+   * @returns 挿入したスナップショット（不正な入力は null）
+   */
+  function importPastSnapshot({ date, items } = {}) {
+    if (!date || !Array.isArray(items) || items.length === 0) return null
+
+    let totalValue = 0
+    let hasPrices  = false
+    const built = []
+    for (const it of items) {
+      const name = (it.item ?? it.name ?? '').trim()
+      if (!name) continue
+      const qty       = (it.qty == null || it.qty === '') ? null : Number(it.qty)
+      const unitPrice = it.unitPrice ?? it.price ?? null
+      const subtotal  = (qty != null && unitPrice != null) ? Math.round(qty * unitPrice) : null
+      if (subtotal != null) { totalValue += subtotal; hasPrices = true }
+      built.push({
+        item:      name,
+        qty:       qty != null && Number.isFinite(qty) ? qty : null,
+        unit:      it.unit ?? '',
+        unitPrice,
+        subtotal,
+        code:      it.code ?? '',
+        flagged:   false,
+        category:  it.category ?? null,
+        lotSize:   it.lotSize ?? '',
+        prevMonth: it.prevMonth ?? '',
+        tagA:      '',
+        tagB:      '',
+      })
+    }
+    if (built.length === 0) return null
+
+    _data[date] = {
+      date,
+      savedAt:      new Date().toISOString(),
+      items:        built,
+      totalValue:   hasPrices ? totalValue : null,
+      entryLog:     [],
+      participants: null,
+      flaggedItems: [],
+      sessionId:    null,
+      auditLog:     [],
+      activeMs:     null,
+      axisNames:    ['', ''],
+      source:       'import',   // 過去取込由来（手動棚卸と区別）
+    }
+    _persist()
+    return _data[date]
   }
 
   /**
@@ -245,5 +306,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
+  return { saveSnapshot, importPastSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

@@ -11,7 +11,36 @@ export const authToken       = computed(() => _token.value)
 export const storeName       = computed(() => _storeName.value)
 export const isAuthenticated = computed(() => !!_token.value)
 
+// 既存インストールの移行: dataOwner 未設定でもログイン中（shopCode あり）なら、
+// 現在のローカルデータはその店舗のものとみなしてマーカーを付ける。
+// これにより、この修正の適用後に別アカウントへ切り替えても初回から漏洩を検出できる。
+try {
+  if (!localStorage.getItem(STORAGE_KEYS.dataOwner) && shopCode.value) {
+    localStorage.setItem(STORAGE_KEYS.dataOwner, shopCode.value)
+  }
+} catch (_) {}
+
+// アカウント切替時に前アカウントのローカルデータを消すハンドラ（App.vue が登録）。
+// import 循環を避けるためコールバック方式にする（useSession → useAuth の依存があるため）。
+let _onAccountReset = null
+export function setAccountResetHandler(fn) { _onAccountReset = fn }
+
+// この端末の localStorage 業務データが属する店舗と code が異なれば、前アカウント分を消す。
+// dataOwner マーカーは認証状態と独立（ログアウトでは消えない）＝データの実所有者を追う。
+function _ensureAccountData(code) {
+  try {
+    // owner 未設定の端末では、直前まで使っていた店舗コード（_shop_code）を実所有者とみなす
+    const owner = localStorage.getItem(STORAGE_KEYS.dataOwner)
+                  ?? localStorage.getItem(STORAGE_KEYS.shopCode)
+    if (owner && owner !== code) {
+      try { _onAccountReset?.() } catch (_) {}
+    }
+    localStorage.setItem(STORAGE_KEYS.dataOwner, code)
+  } catch (_) {}
+}
+
 function _setAuth(token, code, name) {
+  _ensureAccountData(code)   // 別アカウントへ切り替わるなら先にローカルを掃除する
   _token.value     = token
   _storeName.value = name ?? null
   shopCode.value   = code
@@ -27,12 +56,6 @@ function _clearAuth() {
   localStorage.removeItem(STORAGE_KEYS.authToken)
   localStorage.removeItem(STORAGE_KEYS.authStoreName)
   localStorage.removeItem(STORAGE_KEYS.shopCode)
-}
-
-// 認証ヘッダーを返す（他のAPIコールで使用）
-export function getAuthHeaders() {
-  if (!_token.value) return {}
-  return { Authorization: `Bearer ${_token.value}` }
 }
 
 // POST /auth/register  { storeName?, pin }
@@ -64,6 +87,19 @@ export async function logout() {
 // サーバー通信なしでローカル認証状態だけ破棄する（別端末ログインによる失効時など）
 export function clearAuthLocal() {
   _clearAuth()
+}
+
+// DELETE /auth/account  { requestId, pin, confirmation }
+// account-deletion-contract に従う。成功/replay は
+// { ok, status:'deleted', deletedAt, alreadyDeleted, requestId } を返す。
+// 失敗は err.status / err.code / err.body（retryable 等）を投げる（api.js が付与）。
+// requestId は「削除画面を開いた時点で1回だけ生成」した値を再試行でも変えずに渡す。
+// 成功時のローカル掃除（Push解除・業務data消去・auth破棄・分析reset）は呼び出し側で行う。
+export async function deleteAccount({ requestId, pin, confirmation }) {
+  return _api('/auth/account', {
+    method: 'DELETE',
+    body:   JSON.stringify({ requestId, pin, confirmation }),
+  })
 }
 
 // ── セッション API（認証必須）─────────────────────────────────────────────────

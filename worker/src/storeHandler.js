@@ -1,8 +1,9 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
 import { insertInventoryLines } from './inventoryLines.js'
-import { _now, _genShopCode } from './workerUtils.js'
+import { _now, genUniqueShopCode } from './workerUtils.js'
 import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS } from './constants.js'
+import { entitlement } from './entitlements.js'
 
 function _tooLarge(body) {
   try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
@@ -10,13 +11,8 @@ function _tooLarge(body) {
 
 // POST /store/create
 export async function handleStoreCreate(db) {
-  let code, existing
-  do {
-    code     = _genShopCode()
-    existing = await db.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
-  } while (existing)
-
-  const now = _now()
+  const code = await genUniqueShopCode(db)
+  const now  = _now()
   await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)')
     .bind(code, now, now).run()
   return { shopCode: code }
@@ -24,9 +20,11 @@ export async function handleStoreCreate(db) {
 
 // GET /store/:code
 export async function handleStoreGet(db, code) {
-  const row = await db.prepare('SELECT shop_code, active_room, created_at FROM stores WHERE shop_code = ?').bind(code).first()
+  const row = await db.prepare(
+    'SELECT shop_code, active_room, created_at, plan FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+  ).bind(code).first()
   if (!row) return null
-  return { shopCode: row.shop_code, activeRoom: row.active_room ?? null, createdAt: row.created_at }
+  return { shopCode: row.shop_code, activeRoom: row.active_room ?? null, createdAt: row.created_at, ...entitlement(row) }
 }
 
 // GET /store/:code/config
@@ -93,7 +91,9 @@ export async function handleHistoryDelete(db, code, date) {
 
 // PUT /store/:code/room  body: { roomCode: string | null }
 export async function handleRoomUpdate(db, code, body) {
-  await db.prepare('UPDATE stores SET active_room = ?, updated_at = ? WHERE shop_code = ?')
+  await db.prepare(
+    'UPDATE stores SET active_room = ?, updated_at = ? WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+  )
     .bind(body.roomCode ?? null, _now(), code).run()
   return { ok: true }
 }
@@ -287,12 +287,24 @@ export async function handleOrderCreate(db, code, body = {}) {
     .filter(l => l.item && Number.isFinite(l.qty))
   if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
 
-  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
-  await db.prepare(`
+  // テナント境界: orders.id はグローバルPK。同じidを別店舗が指定しても、
+  // 他店のヘッダ・明細を更新できないようownerを確認する。
+  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
+  if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
+  // SELECT後に別店舗が同じidを作る競合も、upsert自身のWHEREで原子的に拒否する。
+  // D1Result.meta.changes が1でない限り、明細の削除・追加へ進まない。
+  const headWrite = await db.prepare(`
     INSERT INTO orders (id, shop_code, order_date, supplier, axis, session_id, saved_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
+    WHERE orders.shop_code = excluded.shop_code
   `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now).run()
+  if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
+    return { _status: 409, error: '保存できませんでした' }
+  }
+
+  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
 
   for (const l of clean) {
     await db.prepare(`
@@ -305,8 +317,102 @@ export async function handleOrderCreate(db, code, body = {}) {
 
 // DELETE /store/:code/orders/:id
 export async function handleOrderDelete(db, code, id) {
+  // 不存在と他店舗所有を同じ404にして、idの存在有無を別店舗へ開示しない。
+  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
+  if (!owner || owner.shop_code !== code) return { _status: 404, error: '発注が見つかりません' }
+
   await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
   await db.prepare('DELETE FROM orders WHERE id = ? AND shop_code = ?').bind(id, code).run()
+  return { ok: true }
+}
+
+// ── 入出庫 API ─────────────────────────────────────────────────────────────────
+// 入出庫レコードの正は D1。理論在庫はクライアントが棚卸＋movement_lines から算出する。
+
+// GET /store/:code/movements?sinceDays=400
+// 直近 sinceDays 日ぶんの入出庫レコードを新しい順で返す（クライアントの applyRemoteMovements 用）。
+export async function handleMovementsGet(db, code, sinceDays) {
+  const n     = Number(sinceDays)
+  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
+  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+
+  const heads = (await db.prepare(
+    'SELECT id, move_date, type, note, order_id, saved_at FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
+  ).bind(code, since).all()).results ?? []
+  if (heads.length === 0) return []
+
+  const lineRows = (await db.prepare(
+    'SELECT movement_id, item, qty, unit FROM movement_lines WHERE shop_code = ? AND move_date >= ?'
+  ).bind(code, since).all()).results ?? []
+
+  const byMove = {}
+  for (const l of lineRows) {
+    ;(byMove[l.movement_id] ??= []).push({
+      item: l.item,
+      qty:  l.qty,
+      unit: l.unit ?? '',
+    })
+  }
+
+  return heads.map(h => ({
+    id:      h.id,
+    date:    h.move_date,
+    type:    h.type === 'out' ? 'out' : 'in',
+    note:    h.note ?? '',
+    orderId: h.order_id ?? null,
+    savedAt: h.saved_at,
+    lines:   byMove[h.id] ?? [],
+  }))
+}
+
+// POST /store/:code/movements  body: 入出庫レコード { id, date, type, note, orderId, savedAt, lines[] }
+// 同一 id の再送は冪等（行を貼り直す）。
+export async function handleMovementCreate(db, code, body = {}) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const id   = (typeof body.id === 'string' && body.id) ? body.id : crypto.randomUUID()
+  const date = body.date ?? new Date().toISOString().slice(0, 10)
+  const type = body.type === 'out' ? 'out' : 'in'
+  const now  = _now()
+
+  const clean = (Array.isArray(body.lines) ? body.lines : [])
+    .map(l => ({
+      item: String(l.item ?? '').trim(),
+      qty:  Number(l.qty),
+      unit: l.unit ?? '',
+    }))
+    .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
+  if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
+
+  // 出庫は発注紐付けを持たない。
+  const orderId = type === 'in' && body.orderId ? body.orderId : null
+
+  // テナント境界: movements.id はグローバル PK。既存 id が別店舗のものなら拒否し、
+  // 他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられないようにする。
+  // 同一店舗の再送はこのチェックを通り、下の upsert で冪等に貼り直す。
+  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
+  if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
+  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare(`
+    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
+  `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now).run()
+
+  // 明細は1件ずつの await ではなく batch で一括投入（R5-04・handleOrderCreate と同根）。
+  const lineStmts = clean.map(l => db.prepare(`
+    INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, code, date, l.item, l.qty, l.unit, now))
+  if (lineStmts.length) await db.batch(lineStmts)
+  return { ok: true, id }
+}
+
+// DELETE /store/:code/movements/:id
+export async function handleMovementDelete(db, code, id) {
+  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
+  await db.prepare('DELETE FROM movements WHERE id = ? AND shop_code = ?').bind(id, code).run()
   return { ok: true }
 }
 

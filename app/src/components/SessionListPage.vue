@@ -1,7 +1,6 @@
 <script>
 import { ref } from 'vue'
 export const _persistedTab  = ref('sessions')
-export const _selectedYear  = ref(null)
 export const _showDashboard = ref(false)
 export const _showOrders    = ref(false)
 </script>
@@ -15,25 +14,68 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import { useMovementDraft } from '../composables/useMovementDraft.js'
+import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
+import { useOrders } from '../composables/useOrders.js'
+import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
+import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
-import { settingsSection } from '../composables/appMenuState.js'
+import HistoryCalendar from './HistoryCalendar.vue'
+import { useWeather, requestGeolocation } from '../composables/useWeather.js'
+import { settingsSection, showOrderSchedule } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openUpgrade', 'startPractice'])
+const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
 
-const { config, itemCount, activeItemCount, loadSampleData, setEmptyList } = useConfig()
+const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
+const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
+const { getMovements } = useMovements()
+const { getOrders } = useOrders()
+
+// 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
+const { state: weatherState } = useWeather()
+const weatherBusy = ref(false)
+async function onEnableWeather() {
+  weatherBusy.value = true
+  try { await requestGeolocation() } catch (_) { /* 拒否/失敗は state.error に反映 */ }
+  finally { weatherBusy.value = false }
+}
+// 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
+const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
+
+// ── 発注スケジュール（頻度・締切）─────────────────────────────
+// 開閉状態は appMenuState 共有（App の戻る/ESC 制御＝_closeTopLayer に載せるため）。
+const showScheduleModal = showOrderSchedule
+const orderSchedule   = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
+const hasSched        = computed(() => hasSchedule(orderSchedule.value))
+const schedSummary    = computed(() => scheduleSummary(orderSchedule.value))
+const schedTodayCtx   = computed(() => todayOrderContext(orderSchedule.value, new Date(now.value)))
+const schedDeadline   = computed(() => deadlineStatus(orderSchedule.value, new Date(now.value)))
+// 入出庫カードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
+const moveCardSub = computed(() => {
+  if (hasMovementDraft.value) return '記録していない入力があります（タップで再開）'
+  if (unreflectedInboundCount.value > 0) return `発注 ${unreflectedInboundCount.value}件が入庫として未反映です（タップで反映）`
+  return '現在の在庫を確認／入庫・出庫を品目ごとに記録'
+})
+function onDiscardMovementDraft() {
+  if (!confirm('未記録の入出庫の入力を破棄しますか？')) return
+  discardMovementDraft()
+}
 const showDashboard = _showDashboard
 const dashboardSnapshots = computed(() => getSnapshots())
 
 const sessions       = ref([])
 const loading        = ref(true)
 const error          = ref('')
-const starting       = ref(false)
+// どのカードを開始処理中か（null | 'stock' | 'order'）。棚卸・発注は独立したセッション
+// なので、開始中の「開始中…」表示も disabled も自カードの種別のときだけに閉じる
+// （もう一方のカードを薄く/無効化しない＝互いに影響しないことを見た目でも保証）。
+const startingKind   = ref(null)
 const deletingId     = ref(null)
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
@@ -42,11 +84,14 @@ const listSavedLabel = computed(() => {
   if (!config.savedAt) return ''
   const d = new Date(config.savedAt)
   if (isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' })
+  return d.toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 })
+const hiddenCount   = computed(() => Math.max(0, itemCount.value - activeItemCount.value))
+const axisNamesSet  = computed(() => (config.axisNames || []).filter(Boolean))
+// 分類は最大2枠。登録済み＝チップ、未登録＝破線の丸で「あと何枠か」を可視化。
+const axisSlots     = computed(() => [0, 1].map(i => (config.axisNames?.[i] || '').trim()))
 
 const activeTab    = _persistedTab
-const selectedYear = _selectedYear
 
 const swipe = useHorizontalSwipe({
   onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
@@ -105,7 +150,13 @@ function _pct(count, total) {
 
 // 進捗の分母は手動非表示を除いた実効品目数（ローカル）。ルームの totalItems は
 // 非表示を反映しないため、ホームの進捗はローカルの activeItemCount を優先する。
-const orderItemCount = computed(() => (activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0))
+// 発注は「発注数が決まった品目数」を数える（在庫入力数ではない）。ルームがあれば
+// DO の orderItemCount を正とし、オフライン時のみ保存済みセッションの件数で補完する。
+const orderItemCount = computed(() => {
+  const s = orderLiveStatus.value
+  if (s && typeof s.orderItemCount === 'number' && (s.clientCount > 0 || s.roomExists)) return s.orderItemCount
+  return activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0
+})
 const orderTotalItems = computed(() => (activeItemCount.value || orderLiveStatus.value?.totalItems || null))
 const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
 
@@ -183,40 +234,6 @@ const hiddenByPlanCount = computed(() =>
   completedSessions.value.length - visibleCompletedSessions.value.length
 )
 
-// 完了済みを年ごとにグループ化（新しい年が上）
-const completedByYear = computed(() => {
-  const map = new Map()
-  for (const s of visibleCompletedSessions.value) {
-    const year = new Date(s.startedAt).getFullYear()
-    if (!map.has(year)) map.set(year, [])
-    map.get(year).push(s)
-  }
-  return [...map.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([year, items]) => ({
-      year,
-      items: items.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt)),
-    }))
-})
-
-const selectedYearSessions = computed(() => {
-  if (!selectedYear.value) return []
-  return completedByYear.value.find(g => g.year === selectedYear.value)?.items ?? []
-})
-
-// 選択中の年をさらに月ごとにグループ化（新しい月が上）
-const selectedYearByMonth = computed(() => {
-  const map = new Map()
-  for (const s of selectedYearSessions.value) {
-    const month = new Date(s.startedAt).getMonth() + 1
-    if (!map.has(month)) map.set(month, [])
-    map.get(month).push(s)
-  }
-  return [...map.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([month, items]) => ({ month, items }))
-})
-
 const CORRECTION_DAYS = 3
 
 function _isSessionLocked(session) {
@@ -229,112 +246,47 @@ function _isSessionLocked(session) {
   )
 }
 
-function _correctionLabel(session) {
-  if (_isSessionLocked(session)) return null
-  const remaining = CORRECTION_DAYS * 86400_000 - (Date.now() - new Date(session.endedAt).getTime())
-  const days = Math.max(0, Math.ceil(remaining / 86400_000))
-  return days > 0 ? `あと${days}日` : '今日まで'
-}
-
-function _yearDateRange(items) {
-  if (!items.length) return ''
-  const months = items.map(s => new Date(s.startedAt).getMonth() + 1)
-  const min = Math.min(...months)
-  const max = Math.max(...months)
-  return min === max ? `${min}月` : `${min}月〜${max}月`
-}
-
-function _fmtDuration(ms) {
-  if (ms <= 0) return null
-  const min = Math.round(ms / 60000)
-  if (min < 1)  return '1分未満'
-  if (min < 60) return `${min}分`
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return m > 0 ? `${h}時間${m}分` : `${h}時間`
-}
-
-// 年詳細ビューの全セッション分を一括計算
-const selectedYearSessionStats = computed(() => {
-  const result = {}
-  for (const s of selectedYearSessions.value) {
-    const snap = getSnapshotBySessionId(s.id)
-
-    // 稼働時間（アイドル除外）が記録されていればそれを優先、無ければ壁時計（開始〜終了）
-    const duration = (snap && typeof snap.activeMs === 'number' && snap.activeMs > 0)
-      ? _fmtDuration(snap.activeMs)
-      : (s.startedAt && s.endedAt)
-        ? _fmtDuration(new Date(s.endedAt) - new Date(s.startedAt))
-        : null
-
-    // auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
-    const timeMap = new Map()
-    for (const entry of (snap?.auditLog ?? [])) {
-      if (!entry.enteredById || !entry.ts) continue
-      const t = new Date(entry.ts).getTime()
-      if (!timeMap.has(entry.enteredById)) {
-        timeMap.set(entry.enteredById, { name: entry.enteredBy || '?', first: t, last: t })
-      } else {
-        const cur = timeMap.get(entry.enteredById)
-        cur.first = Math.min(cur.first, t)
-        cur.last  = Math.max(cur.last, t)
-      }
-    }
-
-    const participants = (snap?.participants ?? []).map(p => {
-      const timeEntry = [...timeMap.values()].find(t => t.name === p.name)
-      const activeDur = timeEntry ? _fmtDuration(timeEntry.last - timeEntry.first) : null
-      return { name: p.name, itemCount: p.items?.length ?? 0, activeDur }
-    })
-
-    result[s.id] = {
-      duration,
-      participants,
-      locked:          _isSessionLocked(s),
-      correctionLabel: _correctionLabel(s),
-    }
-  }
-  return result
-})
-
 function onStartNew() {
+  // マスタが正なので、実データがあれば確認を挟まず即開始。
+  // 開始バナーは「空マスタ / サンプル」の誘導だけに縮小。
+  if (config.isCustom && itemCount.value > 0) { confirmStart(); return }
   showStartModal.value = true
 }
 
 async function confirmStart() {
   showStartModal.value = false
-  starting.value = true
+  startingKind.value = 'stock'
   try {
     const session = await createSession()
     emit('startSession', session)
   } catch (e) {
     error.value = e.message
   } finally {
-    starting.value = false
+    startingKind.value = null
   }
 }
 
 function onImportList() {
+  // 進行中セッションがあるまま品目リストを一括変更すると、その対象リストが変わる。
+  if (activeSession.value || activeOrderSession.value) {
+    if (!confirm('進行中のセッションがあります。\n品目リストを変更すると、進行中の棚卸／発注の対象リストも変わります。\n続けますか？')) return
+  }
   showStartModal.value = false
   emit('openSettings')
 }
 
 // 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
 async function onStartOrder() {
-  starting.value = true
+  if (itemCount.value === 0) { error.value = '先に品目マスタを登録してください（取込む、または棚卸で追加）'; return }
+  startingKind.value = 'order'
   try {
     const session = await createSession('order')
     emit('startSession', session, 'order')
   } catch (e) {
     error.value = e.message
   } finally {
-    starting.value = false
+    startingKind.value = null
   }
-}
-
-async function onStartWithSample() {
-  loadSampleData()
-  await confirmStart()
 }
 
 // 空のリストで開始（棚卸しながら品目を追加）
@@ -441,6 +393,39 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
+          <!-- データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
+          <div class="master-card pulse" @click="emit('openMaster')">
+            <div class="master-head">
+              <span class="master-title">🗂 データ管理</span>
+              <span v-if="itemCount > 0 && !config.isCustom" class="master-sample">サンプル</span>
+              <span class="master-open">管理 →</span>
+            </div>
+            <template v-if="itemCount > 0">
+              <div class="master-detail">
+                <div class="md-row">
+                  <span class="md-k">最終更新</span>
+                  <span class="md-v">{{ listSavedLabel || '—' }}</span>
+                </div>
+                <div class="md-row">
+                  <span class="md-k">品目数</span>
+                  <span class="md-v">全 <b>{{ itemCount }}</b> ・ 表示中 <b>{{ activeItemCount }}</b><span v-if="hiddenCount > 0" class="md-sub">（非表示 {{ hiddenCount }}）</span></span>
+                </div>
+                <div class="md-row">
+                  <span class="md-k">分類</span>
+                  <span class="md-v md-axes">
+                    <template v-for="(name, i) in axisSlots" :key="i">
+                      <span v-if="name" class="md-chip">{{ name }}</span>
+                      <span v-else class="md-slot" title="未登録の分類枠"></span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div class="master-empty">まだ品目がありません。タップして取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
+            </template>
+          </div>
+
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
           <div v-if="activeSession" class="hero-live">
             <div class="hero-live-head">
@@ -499,14 +484,38 @@ function _itemCount(session) {
             <button class="hero-live-resume" @click="onResume(activeSession)">再開する →</button>
           </div>
 
-          <button v-else class="hero-start" :disabled="starting" @click="onStartNew">
+          <button v-else class="hero-start" :disabled="startingKind === 'stock'" @click="onStartNew">
             <div class="hero-start-icon">👥</div>
             <div class="hero-start-text">
-              <div class="hero-start-title">{{ starting ? '開始中...' : '棚卸を開始' }}</div>
+              <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
               <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
             </div>
             <div class="hero-start-arrow">→</div>
           </button>
+
+          <!-- 在庫確認・入出庫の記録（専用ページ：在庫/入庫/出庫の3タブ） -->
+          <div class="move-wrap">
+            <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
+              <div class="move-start-icon">📥</div>
+              <div class="move-start-text">
+                <div class="move-start-title">
+                  在庫・入出庫
+                  <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
+                  <span v-if="unreflectedInboundCount > 0" class="move-inbound-badge">🧾 未反映の入庫 {{ unreflectedInboundCount }}</span>
+                </div>
+                <div class="move-start-sub">
+                  {{ moveCardSub }}
+                </div>
+              </div>
+              <div class="move-start-arrow">→</div>
+            </button>
+            <button
+              v-if="hasMovementDraft"
+              class="move-discard"
+              @click.stop="onDiscardMovementDraft"
+              title="未記録の入力を破棄"
+            >破棄</button>
+          </div>
 
           <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
           <div v-if="activeOrderSession" class="order-live">
@@ -561,13 +570,32 @@ function _itemCount(session) {
 
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
           </div>
-          <button v-else class="order-start" :disabled="starting" @click="onStartOrder">
+          <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="startingKind === 'order' || itemCount === 0" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
-              <div class="order-start-title">発注確認を開始</div>
-              <div class="order-start-sub">仕入先ごとに、発注をまとめて記録</div>
+              <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注確認を開始' }}</div>
+              <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注をまとめて記録' }}</div>
             </div>
             <div class="order-start-arrow">→</div>
+          </button>
+
+          <!-- 発注スケジュール（頻度・締切）。未設定なら設定を促す -->
+          <button v-if="!activeOrderSession && itemCount > 0" class="order-sched" type="button" @click="showScheduleModal = true">
+            <span class="order-sched-ico">🗓</span>
+            <span class="order-sched-text">
+              <template v-if="hasSched">
+                <span class="order-sched-summary">
+                  {{ schedSummary }}
+                  <span v-if="schedDeadline.has" :class="['order-sched-dl', { past: schedDeadline.past }]">・{{ schedDeadline.label }}</span>
+                </span>
+                <span v-if="schedTodayCtx" class="order-sched-ctx">{{ schedTodayCtx }}</span>
+              </template>
+              <template v-else>
+                <span class="order-sched-summary">発注スケジュールを設定</span>
+                <span class="order-sched-ctx">発注する曜日・締切を登録（任意）</span>
+              </template>
+            </span>
+            <span class="order-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
           </button>
 
           <!-- レガシー: 古い未完了セッション（整理用） -->
@@ -595,115 +623,61 @@ function _itemCount(session) {
         <!-- ダッシュボードパネル -->
         <div class="tab-panel">
 
-          <!-- 年詳細ビュー -->
-          <template v-if="selectedYear !== null">
-            <button class="year-back-btn" @click="selectedYear = null">‹ 戻る</button>
-            <div class="year-detail-header">
-              <span class="year-detail-title">{{ selectedYear }}年の棚卸</span>
-              <span class="year-count">{{ selectedYearSessions.length }}件</span>
-            </div>
-            <!-- 月ごとにグループ化 -->
-            <template v-for="grp in selectedYearByMonth" :key="grp.month">
-              <div class="month-header">
-                <span class="month-title">{{ grp.month }}月</span>
-                <span class="month-count">{{ grp.items.length }}件</span>
-              </div>
-              <div
-                v-for="s in grp.items"
-                :key="s.id"
-                class="session-card session-card-completed"
-                @click="emit('viewSession', s)"
-              >
-                <div class="session-main">
-                  <span v-if="s.id === newSessionId" class="badge-new">NEW</span>
-                  <span class="session-status status-done">完了</span>
-                  <span class="session-date">{{ _formatDate(s.startedAt) }}</span>
-                  <span v-if="selectedYearSessionStats[s.id]?.correctionLabel" class="badge-correction">
-                    ✏️ {{ selectedYearSessionStats[s.id].correctionLabel }}
-                  </span>
-                  <span v-else-if="selectedYearSessionStats[s.id]?.locked" class="badge-locked">🔒 確定</span>
-                  <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
-                </div>
-                <!-- 所要時間・参加者数・品目数 -->
-                <div class="session-stats-row">
-                  <span v-if="selectedYearSessionStats[s.id]?.duration" class="sstat">
-                    ⏱ {{ selectedYearSessionStats[s.id].duration }}
-                  </span>
-                  <span v-if="selectedYearSessionStats[s.id]?.participants?.length" class="sstat">
-                    👥 {{ selectedYearSessionStats[s.id].participants.length }}人
-                  </span>
-                  <span class="sstat">📦 {{ _itemCount(s) }}品目</span>
-                  <span class="session-detail-arrow">詳細 ›</span>
-                </div>
-                <!-- 参加者別内訳 -->
-                <div v-if="selectedYearSessionStats[s.id]?.participants?.length > 0" class="session-parts">
-                  <span
-                    v-for="p in selectedYearSessionStats[s.id].participants"
-                    :key="p.name"
-                    class="part-chip"
-                  >{{ p.name }}&nbsp;{{ p.itemCount }}品<template v-if="p.activeDur">・{{ p.activeDur }}</template></span>
-                </div>
-              </div>
+          <!-- 履歴カレンダー（日付を選ぶ → その日の棚卸/発注を見る） -->
+          <div class="section-title">📅 履歴</div>
+          <div class="wx-bar">
+            <template v-if="weatherState.loc">
+              <span class="wx-loc">🌤 天気表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
+              <span class="wx-coord">📍 {{ weatherState.loc.name || `${weatherState.loc.lat}, ${weatherState.loc.lon}` }}</span>
+              <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">現在地で更新</button>
             </template>
-            <div v-if="selectedYearSessions.length === 0" class="no-sessions">この年のデータがありません</div>
-          </template>
-
-          <!-- 年一覧ビュー -->
-          <template v-else>
-            <div class="section-title">📋 完了済み（{{ completedSessions.length }}件）</div>
-            <template v-if="completedSessions.length > 0">
-              <button
-                v-for="grp in completedByYear"
-                :key="grp.year"
-                class="year-card"
-                @click="selectedYear = grp.year"
-              >
-                <div class="year-card-info">
-                  <span class="year-card-year">{{ grp.year }}年</span>
-                  <span class="year-card-range">{{ _yearDateRange(grp.items) }}</span>
-                </div>
-                <span class="year-card-count">{{ grp.items.length }}件</span>
-                <span class="year-card-arrow">›</span>
-              </button>
-              <!-- Free プラン: 直近1回より前の履歴件数をアップグレード誘導として表示 -->
-              <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
-                <span class="plan-limit-icon">🔒</span>
-                <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
-                <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
-              </div>
+            <template v-else>
+              <span class="wx-hint">天気・気温・降水をカレンダーに表示できます</span>
+              <button class="wx-btn primary" :disabled="weatherBusy" @click="onEnableWeather">{{ weatherBusy ? '取得中…' : '📍 現在地で天気を表示' }}</button>
             </template>
-            <div v-else class="no-sessions">完了済みのセッションはまだありません</div>
+            <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
+          </div>
+          <HistoryCalendar
+            :sessions="visibleCompletedSessions"
+            :weather="weatherState.weather"
+            @view-session="s => emit('viewSession', s)"
+            @delete-session="onDelete"
+          />
+          <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
+            <span class="plan-limit-icon">🔒</span>
+            <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
+            <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
+          </div>
 
-            <div class="section-title" style="margin-top:24px">📊 分析</div>
-            <div class="dashboard-card" @click="showDashboard = true">
-              <div class="dashboard-card-icon">📊</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">在庫分析</div>
-                <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
-              </div>
-              <span class="dashboard-card-arrow">›</span>
+          <div class="section-title" style="margin-top:24px">📊 分析</div>
+          <div class="dashboard-card" @click="showDashboard = true">
+            <div class="dashboard-card-icon">📊</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">在庫分析</div>
+              <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
             </div>
+            <span class="dashboard-card-arrow">›</span>
+          </div>
 
-            <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
-            <div class="dashboard-card" @click="settingsSection = 'general'">
-              <div class="dashboard-card-icon">⚙️</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">各種設定</div>
-                <div class="dashboard-card-desc">端末名・プッシュ通知・並べ替え</div>
-              </div>
-              <span class="dashboard-card-arrow">›</span>
+          <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
+          <div class="dashboard-card" @click="settingsSection = 'general'">
+            <div class="dashboard-card-icon">⚙️</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">各種設定</div>
+              <div class="dashboard-card-desc">端末名・プッシュ通知・アプリ情報</div>
             </div>
+            <span class="dashboard-card-arrow">›</span>
+          </div>
 
-            <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
-            <div class="dashboard-card dashboard-card-disabled">
-              <div class="dashboard-card-icon">📖</div>
-              <div class="dashboard-card-body">
-                <div class="dashboard-card-title">使い方ガイド</div>
-                <div class="dashboard-card-desc">操作マニュアルを準備中</div>
-              </div>
-              <span class="coming-badge">準備中</span>
+          <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
+          <div class="dashboard-card dashboard-card-disabled">
+            <div class="dashboard-card-icon">📖</div>
+            <div class="dashboard-card-body">
+              <div class="dashboard-card-title">使い方ガイド</div>
+              <div class="dashboard-card-desc">操作マニュアルを準備中</div>
             </div>
-          </template>
+            <span class="coming-badge">準備中</span>
+          </div>
 
         </div>
 
@@ -711,6 +685,8 @@ function _itemCount(session) {
     </div>
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
+
+    <OrderScheduleModal v-if="showScheduleModal" @close="showScheduleModal = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
@@ -725,7 +701,7 @@ function _itemCount(session) {
             <span class="start-count">{{ itemCount }}件</span>
             <span v-if="listSavedLabel" class="start-date">最終更新：{{ listSavedLabel }}</span>
           </div>
-          <button class="start-btn primary" :disabled="starting" @click="confirmStart">このまま開始</button>
+          <button class="start-btn primary" :disabled="startingKind === 'stock'" @click="confirmStart">このまま開始</button>
           <button class="start-btn ghost" @click="onImportList">最新リストに更新</button>
         </template>
 
@@ -735,10 +711,9 @@ function _itemCount(session) {
           <div class="start-title">品目リストが未設定です</div>
           <div class="start-desc">
             実際の棚卸を始める前に、お店の品目リストをインポートしてください。<br>
-            まず動作を確認したい場合はサンプルデータで試せます。
+            まず動作を確認したい場合は、下の「サンプルで試す（練習）」で試せます。
           </div>
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost" :disabled="starting" @click="onStartWithSample">サンプルデータで試す</button>
         </template>
 
         <!-- サンプルデータ読み込み済み -->
@@ -754,13 +729,13 @@ function _itemCount(session) {
             <span class="start-date">サンプル</span>
           </div>
           <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost-weak" :disabled="starting" @click="confirmStart">このままサンプルで開始</button>
+          <button class="start-btn ghost-weak" :disabled="startingKind === 'stock'" @click="confirmStart">このままサンプルで開始</button>
         </template>
 
         <!-- その他の開始方法（常時） -->
         <div class="start-alt">
           <div class="start-alt-divider"><span>その他の開始方法</span></div>
-          <button class="start-alt-btn" :disabled="starting" @click="onStartEmpty">
+          <button class="start-alt-btn" :disabled="startingKind === 'stock'" @click="onStartEmpty">
             <span class="start-alt-ico">➕</span>
             <span class="start-alt-body">
               <span class="start-alt-title">空のリストで開始</span>
@@ -770,8 +745,8 @@ function _itemCount(session) {
           <button class="start-alt-btn" @click="onStartPractice">
             <span class="start-alt-ico">🎯</span>
             <span class="start-alt-body">
-              <span class="start-alt-title">練習モードで開始</span>
-              <span class="start-alt-sub">テスト用リストで操作を試す（履歴に残りません）</span>
+              <span class="start-alt-title">サンプルで試す（練習モード）</span>
+              <span class="start-alt-sub">テスト用リストで操作を試す・履歴には残りません</span>
             </span>
           </button>
         </div>
@@ -918,6 +893,14 @@ function _itemCount(session) {
   -webkit-overflow-scrolling: touch;
 }
 
+.wx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
+.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
+.wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.wx-btn.primary { border-color: #38bdf8; background: #f0f9ff; color: #0369a1; }
+.wx-btn:disabled { opacity: 0.5; cursor: default; }
+.wx-err { font-size: 11px; color: #dc2626; }
+
 .section-title {
   font-size: 12px;
   font-weight: 700;
@@ -928,38 +911,95 @@ function _itemCount(session) {
   margin-bottom: 4px;
 }
 
-/* ヒーロー: 開始カード */
+/* 品目マスタ カード */
+.master-card {
+  background: #fff;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.master-card:active { transform: scale(0.99); }
+.master-card.pulse { animation: master-pulse 3s ease-in-out infinite; }
+@keyframes master-pulse {
+  0%, 100% { border-color: var(--border, #e2e8f0); box-shadow: 0 1px 4px rgba(37,99,235,0.05); }
+  50%      { border-color: var(--primary-bright, #60a5fa); box-shadow: 0 3px 16px rgba(37,99,235,0.22); }
+}
+@media (prefers-reduced-motion: reduce) { .master-card.pulse { animation: none; } }
+.master-head { display: flex; align-items: center; gap: 8px; }
+.master-title { font-size: 14px; font-weight: 800; color: #334155; }
+.master-open { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); }
+.master-count { font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); }
+.master-sample { font-size: 11px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 20px; padding: 1px 9px; }
+.master-empty { font-size: 12px; color: #64748b; margin-top: 6px; line-height: 1.5; }
+
+.master-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.md-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
+.md-k { flex-shrink: 0; width: 56px; color: #94a3b8; font-weight: 700; }
+.md-v { color: #334155; }
+.md-v b { color: #1e293b; }
+.md-sub { color: #94a3b8; margin-left: 4px; }
+.md-none { color: #b45309; }
+.md-axes { display: inline-flex; align-items: center; gap: 6px; }
+.md-chip { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border-radius: 12px; padding: 1px 9px; }
+.md-slot { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 1.5px dashed #cbd5e1; flex-shrink: 0; }
+.master-actions { display: flex; gap: 8px; margin-top: 10px; }
+.master-btn {
+  border: 1px solid var(--primary-border, #bfdbfe);
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.master-btn.primary { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.master-btn:active { transform: scale(0.98); }
+
+.order-start.disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.order-start.disabled .order-start-title { color: #64748b; }
+.order-start.disabled .order-start-sub,
+.order-start.disabled .order-start-arrow { color: #94a3b8; }
+.order-start.disabled .order-start-icon { filter: grayscale(1); opacity: 0.6; }
+
+/* ヒーロー: 開始カード（枠は標準カードと統一・中身は青テーマ） */
 .hero-start {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 20px 18px;
-  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
-  color: white;
-  border: none;
-  border-radius: 18px;
+  padding: 18px;
+  background: #fff;
+  color: var(--primary, #2563eb);
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(37,99,235,0.32);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   margin-bottom: 4px;
   text-align: left;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
+  transition: transform 0.14s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.hero-start:active {
-  transform: scale(0.97);
-  box-shadow: 0 2px 8px rgba(37,99,235,0.28);
-}
+.hero-start:active { transform: scale(0.98); }
 .hero-start:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .hero-start-icon {
-  font-size: 30px;
-  width: 52px;
-  height: 52px;
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.18);
+  background: var(--primary-weak, #eff6ff);
   border-radius: 14px;
   flex-shrink: 0;
 }
@@ -967,43 +1007,114 @@ function _itemCount(session) {
 .hero-start-text { flex: 1; min-width: 0; }
 
 .hero-start-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--primary, #2563eb);
 }
 
 .hero-start-sub {
   font-size: 12px;
-  opacity: 0.85;
+  color: var(--primary-bright, #3b82f6);
   margin-top: 2px;
 }
 
 .hero-start-arrow {
   font-size: 22px;
   font-weight: 300;
-  opacity: 0.9;
+  color: var(--primary-mid, #93c5fd);
   flex-shrink: 0;
 }
 
-/* 発注確認カード（淡いオレンジ・棚卸カードの下に副次的に置く） */
+/* 入出庫カード（枠は標準カードと統一・中身はグリーンテーマ） */
+.move-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px;
+  background: #fff;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  margin-bottom: 4px;
+  text-align: left;
+  transition: transform 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.move-start:active { transform: scale(0.98); }
+.move-start-icon {
+  font-size: 26px;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #d1fae5;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.move-start-text { flex: 1; min-width: 0; }
+.move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; display: flex; align-items: center; gap: 8px; }
+.move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
+.move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
+.move-wrap { position: relative; }
+.move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
+.move-draft-badge { font-size: 11px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
+.move-inbound-badge { font-size: 11px; font-weight: 800; color: #fff; background: #ea580c; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
+.move-start.has-draft .move-start-sub { color: #b45309; }
+.move-discard {
+  position: absolute; top: 8px; right: 10px; z-index: 1;
+  border: 1px solid #fecaca; background: #fff; color: #dc2626;
+  border-radius: 8px; font-size: 11px; font-weight: 700; padding: 3px 9px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.move-discard:active { color: #ef4444; }
+
+/* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
+/* 発注スケジュール行（発注カードの直下・頻度/締切/位置づけ） */
+.order-sched {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  margin: -2px 0 6px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-sched:active { background: #ffedd5; }
+.order-sched-ico { font-size: 16px; flex-shrink: 0; }
+.order-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.order-sched-summary { font-size: 13px; font-weight: 800; color: #c2410c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-sched-dl { font-weight: 700; color: #b45309; }
+.order-sched-dl.past { color: #dc2626; }
+.order-sched-ctx { font-size: 11px; color: #b45309; }
+.order-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #ea580c; border: 1px solid #fed7aa; border-radius: 8px; padding: 3px 10px; background: #fff; }
+
 .order-start {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
   padding: 18px;
-  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  background: #fff;
   color: #9a3412;
-  border: 1.5px solid #fed7aa;
-  border-radius: 18px;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
   cursor: pointer;
-  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   margin-bottom: 4px;
   text-align: left;
   transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.order-start:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(234,88,12,0.16); }
+.order-start:active { transform: scale(0.98); }
 .order-start:disabled { opacity: 0.7; cursor: not-allowed; }
 .order-start-icon {
   font-size: 26px;

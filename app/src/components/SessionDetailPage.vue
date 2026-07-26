@@ -203,7 +203,7 @@ function fmtYen(n) {
 }
 
 function actionLabel(action) {
-  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: '🔖フラグ', unflag_recount: 'フラグ解除' }
+  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: '🔖フラグ', unflag_recount: 'フラグ解除', order_set: '発注', order_clear: '発注取消' }
   return m[action] ?? action
 }
 

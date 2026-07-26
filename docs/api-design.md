@@ -53,7 +53,7 @@ D1 データベース                               ← データを取る
 ## 1. 現状のAPI一覧（v1）
 
 `worker/src/index.js` がルーター（宛先を見て担当関数に振り分ける場所）。
-そこから呼ばれる実処理は `storeHandler.js` / `authHandler.js` にある。
+そこから呼ばれる実処理は `storeHandler.js` / `authHandler.js` / `accountDeletion.js` にある。
 
 ### 1.1 認証API（`authHandler.js`）
 
@@ -62,25 +62,40 @@ D1 データベース                               ← データを取る
 | POST | `/auth/register` | `{ storeName?, pin }` | `{ shopCode, token, storeName }` | 不要 |
 | POST | `/auth/login` | `{ shopCode, pin }` | `{ token, shopCode, storeName }` | 不要 |
 | POST | `/auth/logout` | （Bearerトークン） | `{ ok: true }` | Bearer |
+| DELETE | `/auth/account` | Bearer + `{ requestId, pin, confirmation }` | `{ ok, status: deleted, requestId, deletedAt, alreadyDeleted }` | Bearer + 現在PIN + 店舗code再入力 |
 
 - `register` = 新規店舗を作りPINを設定、トークン発行（30日有効）
 - `login` = 店舗コード＋PINを照合、トークン発行
 - トークンは以後 `Authorization: Bearer <token>` ヘッダーで送る
+- `account` deletionは同じUUID `requestId` の再送を7日間冪等成功にし、D1関連data、全token、
+  Push購読、棚卸/発注Durable Objectsを削除する。詳細は
+  [`quality-foundation/account-deletion-contract.md`](quality-foundation/account-deletion-contract.md)。
+- `deletion_pending_at` または `deleted_at` の店舗はlogin、通常token、store API、room gateで拒否する。
 
 ### 1.2 店舗データAPI（`storeHandler.js`）
 
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
-| POST | `/store/create` | — | `{ shopCode }` | 不要 |
-| GET | `/store/:code` | — | `{ shopCode, activeRoom, createdAt }` / 404 | 不要 |
-| GET | `/store/:code/config` | — | 設定オブジェクト / `{}` | 不要 |
-| PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | 不要 |
-| GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | 不要 |
-| PUT | `/store/:code/inventory` | `{ inventory, recountFlags, sessionId, savedAt }` | `{ ok: true }` | 不要 |
-| GET | `/store/:code/history` | — | `[ snapshot, ... ]`（最新50件） | 不要 |
-| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok: true }` | 不要 |
-| DELETE | `/store/:code/history/:date` | — | `{ ok: true }` | 不要 |
-| PUT | `/store/:code/room` | `{ roomCode }` | `{ ok: true }` | 不要 |
+| POST | `/store/create` | — | `{ shopCode }` | 不要（PIN必須化と合わせ廃止検討・監査②） |
+| GET | `/store/:code` | — | `{ shopCode, activeRoom, plan, isPro, inTrial, ... }` / 404 | 不要 |
+| GET | `/store/:code/config` | — | 設定オブジェクト / `{}` | ソフト† |
+| PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | ソフト† |
+| GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | ソフト† |
+| PUT | `/store/:code/inventory` | `{ inventory, recountFlags, sessionId, savedAt }` | `{ ok: true }` | ソフト† |
+| GET | `/store/:code/history` | — | `[ snapshot, ... ]`（最新50件） | ソフト† |
+| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok: true }` | ソフト† |
+| DELETE | `/store/:code/history/:date` | — | `{ ok: true }` | ソフト† |
+| PUT | `/store/:code/room` | `{ roomCode }` | `{ ok: true }` | ソフト† |
+| GET | `/store/:code/orders` | — | `[ order, ... ]` | ソフト† |
+| POST | `/store/:code/orders` | 発注レコード | `{ ok: true, id }` | ソフト† |
+| DELETE | `/store/:code/orders/:id` | — | `{ ok: true }` | ソフト† |
+| POST | `/store/:code/push/subscribe` | PushSubscription JSON（最大8KiB） | `{ ok: true }` | Bearer必須 |
+| DELETE | `/store/:code/push/subscribe` | `{ endpoint }` | `{ ok: true }` | Bearer必須 |
+
+> † **ソフト認証**（`verifyStoreAccess`・S-02）: PIN設定済み店舗は Bearer 必須。
+> レガシー（PIN未設定）店舗は店舗コードのみで許可（後方互換・S-C の残課題）。
+> Push購読はレガシー例外を適用しないstrict認証。endpointは公開HTTPS、鍵はPush API / RFC 8291形式、
+> 同一endpointを別店舗へ付け替える操作は409で拒否する。
 
 ### 1.3 セッションAPI（`storeHandler.js`・要認証）
 
@@ -90,15 +105,18 @@ D1 データベース                               ← データを取る
 | POST | `/store/:code/sessions` | — | `{ id, shopCode, startedAt, status, itemCount }` | Bearer |
 | PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }` | `{ ok: true }` / 400 | Bearer |
 | DELETE | `/store/:code/sessions/:id` | — | `{ ok: true }` | Bearer |
+| POST | `/store/:code/sessions/:id/complete` | `{ inventory, totalValue, auditLog, participants }` | `{ ok, sessionId, itemCount }` | Bearer（§3.1 の実装・✅済み） |
 
 ### 1.4 リアルタイム・その他（`index.js` → RoomDO）
 
 | メソッド | パス | 役割 |
 |---|---|---|
-| GET | `/room/:code/ws` | WebSocket接続（同期の本体・Durable Object） |
-| GET | `/room/:code/status` | 退室中ホストのライブ品目数 |
+| GET | `/room/:code/ws` | WebSocket接続（同期の本体・Durable Object）。店舗存在チェック＋probeレート制限（S-06） |
+| GET | `/room/:code/status` | 退室中ホストのライブ品目数（`orderItemCount`＝発注済み品目数も返す） |
 | POST | `/room/:code/dissolve` | 残存ルームの掃除 |
-| POST | `/pdf` | PDFから品目テキスト抽出 |
+| GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・金額除去 → `room-url-design.md`） |
+| GET | `/api/push/vapid-key` | プッシュ公開鍵 |
+| POST | `/pdf` | PDFから品目テキスト抽出 ⚠️ **無認証・サイズ無制限（監査 S-D・要対策）** |
 | GET | `/health` | 死活監視 |
 
 > 補足：リアルタイム同期だけ「HTTP（一往復）」ではなく「WebSocket（つなぎっぱなし）」を使う。
@@ -123,12 +141,12 @@ D1 データベース                               ← データを取る
 
 | 課題 | 詳細 | 関連設計 |
 |---|---|---|
-| 🔴 認証の濃淡が不均一 | `sessions` だけ要認証。`config`/`inventory`/`history` は**コードさえ知れば誰でも読み書きできる** | セキュリティ設計 |
-| 🟡 履歴がブロブまるごと | `GET /history` が50件分のJSONを全部返す。重い・分析できない | DB設計v2 |
-| 🟡 完了処理が分散 | 「セッション完了」と「スナップショット保存」と「在庫クリア」が別API。途中で失敗すると不整合 | API/トランザクション設計 |
+| ✅ 認証の濃淡（対応済み） | ソフト認証（S-02）とPush strict認証（SEC-003）を導入済み。**残**: レガシー店舗のフェイルオープン（S-C） | `security-review.md` |
+| 🟡 履歴がブロブまるごと | `GET /history` が50件分のJSONを全部返す。重い・分析できない。監査スケール#3（session_id 列）と同根 | DB設計v2 |
+| ✅ 完了処理の分散（対応済み） | `POST /sessions/:id/complete` に集約（§3.1 実装済み） | API/トランザクション設計 |
 | 🟡 エラー形式が半端 | `{ error }` のときと `{ _status, error }` のときがある | API規約 |
 
-> 特に **2.2の認証の穴** は、多店舗展開の前に必ず塞ぐべき重要課題。
+> 認証の穴（2.2）はソフト認証の導入で大枠は塞いだが、レガシー店舗の扱い（S-C）が残っている。
 > 「API設計を文書化したら、セキュリティ設計の宿題が見つかった」という良い例。
 
 ---
@@ -138,7 +156,7 @@ D1 データベース                               ← データを取る
 `docs/db-design-v2.md` の3層アーキテクチャ（D1 + inventory_lines + R2）を
 APIから見るとどう変わるかを設計する。
 
-### 3.1 棚卸完了API（新設・複数処理を1つにまとめる）
+### 3.1 棚卸完了API ✅ 実装済み（`POST /store/:code/sessions/:id/complete`）
 
 現状バラバラな「完了時の3処理」を1つのAPIに集約し、サーバー側で一括実行する。
 途中失敗による不整合を防ぐ（トランザクション化）。
@@ -199,10 +217,10 @@ GET /store/:code/analytics/item?name=コーヒー豆&from=2026-01-01&to=2026-06-
 
 | 区分 | メソッド | パス | 状態 |
 |---|---|---|---|
-| 完了 | POST | `/store/:code/sessions/:id/complete` | 🆕 新設 |
-| 履歴詳細 | GET | `/store/:code/sessions/:id/detail` | 🆕 新設（R2） |
-| 分析 | GET | `/store/:code/analytics/item` | 🆕 新設 |
-| 認証 | — | `config`/`inventory`/`history` | 🔧 認証必須化 |
+| 完了 | POST | `/store/:code/sessions/:id/complete` | ✅ 実装済み |
+| 履歴詳細 | GET | `/store/:code/sessions/:id/detail` | ⬜ 未実装（R2アーカイブと同時） |
+| 分析 | GET | `/store/:code/analytics/item` | ⬜ 未実装（フェーズ2） |
+| 認証 | — | `config`/`inventory`/`history` | 🔧 ソフト認証済み・レガシー店舗の完全必須化が残（S-C） |
 | 旧履歴 | POST/GET | `/store/:code/history*` | ⚠️ 段階的に非推奨 |
 
 ---

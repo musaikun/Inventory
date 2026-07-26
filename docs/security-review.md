@@ -1,5 +1,10 @@
 # セキュリティレビュー — 飲食店棚卸システム
 
+> 2026-07-25以降の最新監査とP0/P1は
+> [`quality-foundation/audit-2026-07-25.md`](quality-foundation/audit-2026-07-25.md) および
+> [`quality-foundation/task-list.md`](quality-foundation/task-list.md) を参照してください。
+> 本文中の「残課題」「テスト件数」は作成時点の記録を含みます。
+
 多店舗展開前のセキュリティチェックリスト。
 「対応済み」と「残課題」を一目で把握できるよう管理する。
 
@@ -39,28 +44,88 @@
 - **実装**: `index.js` ルームルート共通ゲート + `rateLimiter.js`
 - **テスト**: `index.test.js` — 404/DO非到達・転送・記録・429・別IP非ブロック
 
+### S-A ✅ ホスト乗っ取り（DOトークン復旧の認可強化）
+- **リスク**: `RoomDO` の join は hostToken 不一致でも「空室 / 同一deviceId / 他にホスト不在」のいずれかで
+  トークンを再発行しホスト承認していた。店舗コードを知る第三者（招待URLを受け取った元ゲスト等）が
+  正規ホストのオフライン中に `role: 'host'` で接続するだけで、在庫・**単価**・監査ログ・チャットの取得と
+  ルーム解散が可能だった。②の deviceId は自己申告のため詐称も可能
+- **対策**: PIN設定済み（保護）店舗はホスト権限の（再）発行に **D1認証トークンの検証を必須**化。
+  ブラウザ WS はヘッダを付けられないため、認証トークンは join メッセージに載せ（WSS暗号化）、
+  DO は自分の店舗コード（URLパス由来・Worker で存在検証済み）に対して `verifyAuthToken` で照合する。
+  hostToken 一致の再接続は従来どおり高速パス（D1照合なし）。レガシー（PIN未設定）店舗は後方互換で
+  従来のトポロジ判定を維持。D1障害時はフェイルオープン（レガシー扱い）で可用性を優先
+- **実装**: `RoomDO.js`（`canGrantHost` / `_isStoreProtected` / `_hostAuthOk` / fetch で店舗コード記録）、
+  `authHandler.js`（`verifyAuthToken` 分離）、`useSync.js`（ホスト join に `authToken` 同梱）
+- **テスト**: `RoomDO.hostAuth.test.js` — 保護店舗8ケース（認証必須の確認）／レガシー後方互換
+
 ---
 
+### S-04 ✅ PINハッシュ強化（PBKDF2）
+- **リスク**: 旧実装は SHA-256(shopCode:pin)（高速ハッシュ・saltは公開情報の店舗コードのみ）。
+  D1流出時に全店舗のPINが総当たりで即割れる。S-01/S-05 のオンライン制限をかいくぐれた場合も脆弱
+- **対策**: PBKDF2（`crypto.subtle.deriveBits`・SHA-256ベース・100,000反復・16バイトのランダムsalt）へ移行。
+  保存形式 `pbkdf2$<iter>$<saltB64>$<hashB64>`。照合は定数時間比較（`_ctEqual`）
+- **透過移行**: 新規登録は即PBKDF2。既存の旧SHA-256店舗は**次回ログイン成功時に自動で再ハッシュ**して
+  `stores.pin_hash` を更新（ユーザー操作・強制ログアウト不要）。反復回数を将来引き上げた場合も同経路で更新
+- **実装**: `authHandler.js`（`_hashPin` / `_verifyPin` / `_legacySha256` / login の rehash）、`constants.js`（`PBKDF2_ITERATIONS`）
+- **テスト**: `authHandler.test.js` — PBKDF2形式・衝突しない・旧hash移行成功・誤PINは非移行
+- **残**: PIN 4桁の空間は依然 10^4。総当たりスプレー（1234等×全店舗）への追加対策（6桁化 or 頻出PIN拒否）は別途検討
+
+### S-10 ✅ クロスアカウントのデータ漏洩（同一ブラウザでの残存）
+- **リスク**: 品目マスタ・棚卸・発注・入出庫・履歴・辞書が shopCode で名前空間を分けない
+  固定 localStorage キー（`inventory_config_v1` 等）＋モジュールスコープのメモリに保持され、
+  `logout()` は認証キーのみ削除・`login()` は新 shopCode を設定するだけ。さらに発注は
+  `applyRemoteOrders` がマージ、入出庫は D1 非同期で localStorage 専用。結果、**同一ブラウザで
+  アカウントを切り替えると前アカウントの全データが見えてしまう**（実報告あり）
+- **原因の切り分け**: サーバー(D1)は全クエリ `WHERE shop_code = ?` でテナント分離済み。
+  入出庫（サーバーに存在しない localStorage 専用データ）まで漏れていた事実が、原因が
+  **クライアントのローカル永続化**であることの決定的証拠
+- **対策**: 「この端末の業務データが属する店舗」を示す `_data_owner` マーカーを導入。
+  ログイン/登録時に `_data_owner`（無ければ直前の `_shop_code`）と異なるアカウントなら、
+  前アカウントのローカルデータ（メモリ＋localStorage）を全消去してから新アカウントを確立する。
+  対象: config/inventory/orders/movements/history/aliases/master/進行中セッション/下書き/
+  ホストトークン/同期セッション/PDFレシピ。端末固有設定（deviceId/deviceName/UI設定）は保持
+- **実装**: 各 composable の `resetLocalData()`、`composables/accountData.js`
+  （`clearLocalAccountData`）、`useAuth.js`（`_ensureAccountData` / `setAccountResetHandler`）、
+  `App.vue`（ハンドラ登録）
+- **テスト**: `accountData.test.js` — 全消去・別アカウント切替で消去・同一アカウントは保持・
+  旧インストール移行
+- **残（別対応）**: ①入出庫は D1 非同期のため、切替時に消えると復元不可 → 入出庫の D1 同期が必要
+  （耐久性・分離の両面）。②`tanaoro_push_subscribed` はアカウント跨ぎで残り、プッシュの
+  宛先ズレの可能性（表示漏洩ではない）。③プレーンなログアウトでは消さない設計（同一アカウント
+  再ログイン時のローカル専用データ保持のため）。共有端末での「ログアウト後・未ログイン時」の
+  残存は入出庫の D1 同期後にログアウト全消去へ引き上げる
+  → **2026-07-21: 入出庫の D1 同期が実装され前提が揃った。ログアウト全消去への引き上げは実施可能・未着手**
+
+---
+
+### S-07 ✅ CSP（XSS時のトークン漏洩・外部通信制限）（2026-07-21）
+- **対策**: `app/public/_headers` に CSP。`script-src 'self'`（インライン無し確認済み）、
+  `connect-src` は self＋Worker(https/wss)＋Open-Meteo＋BigDataCloud＋PostHog に限定。
+  X-Content-Type-Options / X-Frame-Options: DENY / frame-ancestors 'none' / Referrer-Policy /
+  Permissions-Policy（geolocation/camera/microphone=self）も付与。
+- **検証**: dist を CSP ヘッダ付き配信で実ブラウザ起動 → CSP違反0・正常mount。
+- **残**: トークン保存方式の強化（httpOnly Cookie 等）は S-H と併せ将来。
+
+### S-E/S-08 ✅ CORS フェイルクローズ（2026-07-21）
+- **対策**: `isAllowedOrigin()` 導入。本番/プレビュー（*.inventory-app.pages.dev）＋localhost＋
+  ALLOWED_ORIGIN（カンマ区切り完全一致）のみ許可、他は 403。ACAO はワイルドカード不使用で
+  許可 Origin を個別反映。Origin 無し（同一/WS/S2S）は許可。wrangler.toml を本番ドメインに設定。
+- **テスト**: `index.test.js` — 許可/拒否/なりすまし/カンマ区切り/403 の6ケース。
+
+### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）
+- **対策**: ①IPレート制限（kind='pdf'・15分/30回）②認証必須 ③サイズ上限5MB
+  （Content-Length＋arrayBuffer.byteLength）。重い処理前に安価なゲートで弾く順序。
+  現行クライアントはPDFをローカル解析するため本EPは未使用だがDoS面を塞ぐため強化。
+- **テスト**: `index.test.js` — 401/413/200/429 の4ケース。
+
+### S-G ✅ ゲストへ単価を渡さない（2026-07-21）
+- **対策**: DOで接続ごとの `isHost` を見て、ゲスト宛送信は prices を空に
+  （`_broadcastPriceAware`/`_stripPricesForGuest`）。storage には保持しホストは受領。
+  result API の `_sanitizeForGuest` と同水準を WS 経路でも適用（C-02 の商業懸念も解消）。
+- **テスト**: `RoomDO.prices.test.js` — 3ケース。
+
 ## 残課題（優先度順）
-
-### S-04 🔴 PINハッシュ強化（PBKDF2/scrypt）
-- **リスク**: 現在 SHA-256（高速ハッシュ）。S-01のブロックをかいくぐれた場合でも耐久性が低い
-- **対策案**: `crypto.subtle.deriveBits` でPBKDF2（100,000イテレーション）に移行
-- **移行方針**（要決定）:
-  - 新規登録は即日新形式
-  - 既存ユーザーは次回ログイン時に再ハッシュ（透過移行）
-  - DB設計v2 Step 5 として計画済み
-- **ブロッカー**: 移行UXの確認（強制ログアウトの是非）
-
-### S-07 🟡 XSS対策（トークン漏洩リスク）
-- **リスク**: `_auth_token` が `localStorage` に平文保存。XSSが起きると盗まれる
-- **対策案**: Content Security Policy（CSP）ヘッダーを Cloudflare Pages に設定（`app/public/_headers` ファイル）。`script-src 'self'` で外部スクリプトの注入を防ぐ
-- **備考**: このアプリは外部スクリプトを読み込んでいないため、CSPの設定コストは低い
-
-### S-08 🟢 CORS フェイルセーフ
-- **リスク**: `env.ALLOWED_ORIGIN` が未設定の場合、全オリジンからのアクセスを許可してしまう
-- **対策案**: 未設定時は `''`（許可なし）をデフォルトにし、明示設定を必須化
-- **備考**: Cloudflare Pages のオリジンが固定なので、設定漏れは起きにくい。優先度は低
 
 ### S-09 🟢 セッション完了処理のトランザクション化
 - **リスク**: `sessions更新` → `inventory_lines INSERT` → `R2保存` の途中失敗で不整合が残る

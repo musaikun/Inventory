@@ -1,23 +1,29 @@
 # テストケース — 飲食店棚卸管理システム
 
-最終更新: 2026-06-08 / 自動テスト導入
+最終更新: 2026-07-15（自動テスト節を現況に同期。手動シナリオは同期コアの回帰用として維持）
+位置づけ: **同期・競合・オフラインの手動回帰シナリオ集**。新機能の手動チェックは
+`test-checklist-new-features.md`。E2E自動化（Playwright）は未導入（→ roadmap H）。
 
 ## 自動テスト（Vitest）
 
-ロジック単体は自動化済み。`cd app && npm test` で約1秒で全件検証できる。
+ロジック単体は自動化済み。**app 323件 / worker 78件（2026-07-13 時点・全green）**。
+CI（GitHub Actions）がデプロイ前に全件実行する。
 
 ```bash
-cd app
-npm test          # 1回実行
-npm run test:watch  # 保存のたび再実行
+cd app && npm test      # フロント側
+cd worker && npm test   # Worker側
 ```
+
+下表は本書の手動ケースIDと対応する代表的なテストファイル（全ファイル一覧はソース参照）:
 
 | テストファイル | 対象 | カバーするケースID |
 |---|---|---|
-| `worker/src/authHandler.test.js` | 認証・トークン | O-01, O-02, O-03 ほか |
+| `worker/src/authHandler.test.js` | 認証・トークン・レート制限・PBKDF2 | O-01, O-02, O-03 ほか |
 | `app/src/composables/useInventory.test.js` | 在庫CRUD・localEntry・undo | S-01, C-06 の前提ロジック |
 | `app/src/composables/useSync.conflict.test.js` | 競合判定 `classifyIncomingUpdate` | C-01, C-05, C-06 の判定部 |
-| `app/src/composables/useSync.reconnect.test.js` | 再接続の増殖防止（接続張り替え時に古いソケットがループを撒かない） | N-01, N-02 の前提 |
+| `app/src/composables/useSync.reconnect.test.js` / `useSync.offlineMerge.test.js` | 再接続・オフラインマージ | N-01, N-02 の前提 |
+| `worker/src/RoomDO.hostAuth.test.js` | ホスト権限の認可（S-A） | R系の前提 |
+| `app/src/composables/accountData.test.js` | アカウント切替のデータ分離（S-10） | — |
 
 各ケースの末尾ラベル: 🤖=自動テスト済 / 🟡=判定部のみ自動 / 🖐=手動（実機・実WS）
 

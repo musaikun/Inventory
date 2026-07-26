@@ -2,6 +2,7 @@
 import { ref, computed, reactive, watch } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useOrders } from '../composables/useOrders.js'
+import { deleteOrderFromD1 } from '../composables/useStore.js'
 
 const emit = defineEmits(['close'])
 const { config } = useConfig()
@@ -87,7 +88,8 @@ const expanded = reactive({})
 function toggleOrder(id) { expanded[id] = !expanded[id] }
 function onDeleteOrder(id) {
   if (!confirm('この発注記録を削除しますか？')) return
-  deleteOrder(id)
+  deleteOrder(id)          // ローカルから除去
+  deleteOrderFromD1(id)    // D1 からも削除（次回取込での復活を防ぐ）
 }
 function _fmtDate(d) {
   if (!d) return ''

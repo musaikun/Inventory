@@ -26,6 +26,8 @@ export function apiFetch(path, options = {}) {
     }
     const err = new Error(body.error || `HTTP ${r.status}`)
     err.status = r.status
+    err.code   = body.code   // サーバーの機械可読コード（例: confirmation_mismatch / deletion_in_progress）
+    err.body   = body        // retryable など追加フィールドを参照する呼び出し向け
     throw err
   })
 }

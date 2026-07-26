@@ -1,5 +1,9 @@
 # 飲食店棚卸管理システム — 開発者向け仕様書
 
+最終更新: 2026-07-15（v0.48 系に同期）
+位置づけ: アーキテクチャと設計判断のオンボーディング資料。
+機能の現在地は `project-status.md`、API の正は `api-design.md`、同期の詳細は `sync-spec.md` が正。
+
 ## 1. プロジェクト概要
 
 ### 背景と課題
@@ -86,7 +90,7 @@
 | フロントエンド | Vue 3 + Vite | Composition API の composable パターンが状態分離に適している |
 | PWA | vite-plugin-pwa + Workbox | ホーム画面追加・オフラインキャッシュ |
 | 音声認識 | Web Speech API | ネイティブ API のため追加 SDK 不要 |
-| PDF解析 | pdfjs-dist | クライアント側処理（Worker 移行を検討中→ backlog.md） |
+| PDF解析 | pdfjs-dist | クライアント側処理（Worker 移行を検討中→ roadmap.md） |
 | HTTP + Auth | Cloudflare Workers | エッジ実行、D1/DO へのバインディングが標準機能 |
 | リアルタイム同期 | Cloudflare Durable Objects | 1店舗 = 1 DO インスタンスで分離・WebSocket を集中管理 |
 | DB | Cloudflare D1 (SQLite) | セッション履歴・認証。無料枠で十分 |
@@ -98,44 +102,30 @@
 
 ### 4.1 D1 スキーマ
 
-```sql
--- 店舗（認証）
-CREATE TABLE stores (
-  shop_code   TEXT PRIMARY KEY,  -- 英数字 6〜8 文字
-  store_name  TEXT,
-  pin_hash    TEXT NOT NULL,     -- bcrypt
-  token       TEXT,              -- Bearer トークン（ログインごとに再発行）
-  created_at  TEXT DEFAULT (datetime('now'))
-);
+スキーマの正は `worker/migrations/`（0001〜0011）。主要テーブルの概要:
 
--- 棚卸セッション
-CREATE TABLE sessions (
-  id          TEXT PRIMARY KEY,  -- UUID v4
-  shop_code   TEXT NOT NULL REFERENCES stores(shop_code),
-  status      TEXT NOT NULL CHECK(status IN ('active', 'completed')),
-  item_count  INTEGER DEFAULT 0,
-  started_at  TEXT DEFAULT (datetime('now')),
-  ended_at    TEXT
-);
-```
-
-> `status = 'incomplete'` は旧バージョンとの後方互換のため Worker 側で受け付けるが、
-> フロントエンドは `active` / `completed` のみ発行する。
+| テーブル | 役割 | 補足 |
+|---|---|---|
+| `stores` | 店舗・認証・プラン・削除状態 | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。削除中は`deletion_pending_at` / `deletion_request_id`、完了後は7日匿名tombstone |
+| `auth_tokens` | Bearer トークン（30日有効） | ログインごとに発行。`stores` とは分離 |
+| `sessions` | 棚卸/発注セッション | `type` 列で棚卸(stock)/発注(order)を区別。status は `active`/`completed`（旧 `incomplete` は後方互換で受理のみ） |
+| `store_history` | 完了スナップショット | 最新50件。R2アーカイブ移行が将来課題（db-design-v2） |
+| `inventory_lines` | 1品目1行の時系列（分析用） | db-design-v2 Step 1 |
+| `orders` | 発注レコード | v0.48 |
+| `movements` / `movement_lines` | 入出庫レコード | 0010 |
+| `login_attempts` / `ip_attempts` | レート制限 | フェイルオープン実装 |
+| `push_subscriptions` | プッシュ通知購読 | |
+| `account_deletion_receipts` | 削除再送の冪等receipt | account識別子なし、7日後cron削除（0011） |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）
 
-| キー | 型 | 内容 |
+キーの正（名前・一覧）は `app/src/utils/storageKeys.js` の `STORAGE_KEYS`。ここでは分類のみ:
+
+| 分類 | キー例 | 備考 |
 |-----|----|------|
-| `_auth_token` | string | Bearer トークン |
-| `_auth_store_name` | string | 店舗名 |
-| `shop_code` | string | 店舗コード |
-| `pending_session` | JSON | 継続中セッション `{ id, status, itemCount, startedAt }` |
-| `inventory_data` | JSON | 在庫数量 `{ [item]: { qty, unit, updatedAt } }` |
-| `config_items` | JSON | 品目リスト `[{ name, unit, category }]` |
-| `config_aliases` | JSON | 音声補正辞書 `{ [正規名]: string[] }` |
-| `inventory_history` | JSON | 完了スナップショット配列（最新50件） |
-| `device_id` | string | 端末固有 UUID（WebSocket の enteredById） |
-| `_host_token_{shopCode}` | string | DO 発行のホスト認証トークン |
+| 業務データ | `inventory_v1` / `inventory_config_v1` / `inventory_history_v1` / `inventory_orders_v1` / `inventory_movements_v1` / `inventory_aliases_v1` / `inventory_master_v1` | **アカウント切替時に全消去**（`_data_owner` マーカー・S-10 対策、`composables/accountData.js`） |
+| 認証・セッション | `_auth_token` / `_auth_store_name` / `_shop_code` / `_pending_session_v1` / `_sync_session_v1` / `_host_token_<shopCode>` | `_auth_token` は平文保存（CSP 導入が残課題 S-07） |
+| 端末固有（保持） | `_device_id` / `_device_name` / UI設定 | アカウント切替でも消さない |
 
 ### 4.3 Durable Object 状態
 
@@ -243,20 +233,13 @@ session-view（入力中）
 
 ## 8. Worker API 一覧
 
-| メソッド | パス | 説明 |
-|---------|------|------|
-| POST | `/auth/register` | 店舗登録（shopCode 発行） |
-| POST | `/auth/login` | ログイン（トークン発行） |
-| POST | `/auth/logout` | ログアウト（トークン無効化） |
-| GET | `/store/:code/sessions` | セッション一覧取得 |
-| POST | `/store/:code/sessions` | セッション新規作成 |
-| PUT | `/store/:code/sessions/:id` | ステータス・品目数更新 |
-| DELETE | `/store/:code/sessions/:id` | セッション削除 |
-| GET | `/store/:code/config` | 品目リスト・辞書取得 |
-| PUT | `/store/:code/config` | 品目リスト・辞書保存 |
-| GET | `/ws` + Upgrade | WebSocket（Durable Object へ転送） |
+**API の正は `docs/api-design.md`**（認証区分・リクエスト/レスポンス形式を含む）。
+主な系統: `/auth/*`（認証）、`/store/:code/*`（config・inventory・history・sessions・orders・
+push/subscribe・sessions/:id/complete）、`/room/:code/*`（ws・status・dissolve・result）、
+`/pdf`、`/health`。
 
-全エンドポイント（`/auth` 系を除く）は `Authorization: Bearer <token>` が必須。
+認証は3段階: Bearer 必須（sessions系・complete）／ソフト認証（PIN設定店舗のみ Bearer 必須 =
+`verifyStoreAccess`・S-02）／無認証（result はURLが鍵＋IPレート制限、`/pdf` は**現状無認証・要対策 S-D**）。
 
 ---
 
@@ -295,11 +278,13 @@ cd worker && npx wrangler deploy
 
 ## 10. 既知の制限・今後の課題
 
-`docs/backlog.md` に優先度付きで整理済み。主要なものを抜粋:
+実行計画は `docs/roadmap.md`・現在地は `docs/project-status.md`。主要な既知課題を抜粋（2026-07-15更新）:
 
 | 課題 | 影響 | 対応状況 |
 |------|------|---------|
-| PDF解析がクライアント側処理 | iPhone SE2 でタイムアウトする場合がある | Worker 側移行を検討中 |
-| 在庫データが localStorage のみ | 端末変更・ブラウザ削除でデータ消失 | D1 移行を検討中 |
-| PIN 忘れ時の復旧手段がない | shopCode + hostToken のエクスポート機能で対応予定 | 未実装 |
+| 入出庫データが localStorage のみ | 端末変更・ブラウザ削除で消失（在庫・履歴・発注は D1 永続化済み） | D1 同期が必須（roadmap Wave 2.5） |
+| PIN 忘れ時の復旧手段がない | 完全ロックアウト（連絡先を保持していない） | リカバリーコード or メールを検討（C-07） |
+| `/pdf` が無認証・サイズ無制限 | 経済的 DoS ベクタ | 対策予定（S-D・Wave 2.5） |
+| CSP 未設定・トークン平文保存 | XSS 時にトークン漏洩 | `_headers` 追加予定（S-07・Wave 2.5） |
 | Google OAuth 未対応 | PIN 管理が必要 | Phase 2 候補 |
+| App.vue 3,400行 | 同期バグ混入率 | R-01 分割（専用セッション推奨） |

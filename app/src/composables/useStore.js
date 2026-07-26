@@ -14,10 +14,11 @@ export const saveState = ref('idle')
 const _pending  = { config: null, inventory: null }
 const _snapQueue = []
 const _orderQueue = []
+const _moveQueue = []
 let _retryTimer = null
 
 function _settle() {
-  saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0 && _orderQueue.length === 0) ? 'idle' : 'pending'
+  saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0 && _orderQueue.length === 0 && _moveQueue.length === 0) ? 'idle' : 'pending'
 }
 function _scheduleRetry() {
   if (_retryTimer) return
@@ -39,6 +40,10 @@ export async function retryPendingSaves() {
   }
   while (_orderQueue.length) {
     try { await _api(`/store/${shopCode.value}/orders`, { method: 'POST', body: JSON.stringify(_orderQueue[0]) }); _orderQueue.shift() }
+    catch (_) { break }
+  }
+  while (_moveQueue.length) {
+    try { await _api(`/store/${shopCode.value}/movements`, { method: 'POST', body: JSON.stringify(_moveQueue[0]) }); _moveQueue.shift() }
     catch (_) { break }
   }
   _settle()
@@ -158,6 +163,32 @@ export async function deleteOrderFromD1(id) {
   if (!shopCode.value || !BASE) return
   return _api(`/store/${shopCode.value}/orders/${id}`, { method: 'DELETE' })
     .catch(e => console.warn('[store] 発注削除失敗:', e.message))
+}
+
+// ── 入出庫 ────────────────────────────────────────────────────────────────────
+export async function loadMovementsFromD1(sinceDays = null) {
+  if (!shopCode.value) return null
+  const q = sinceDays ? `?sinceDays=${sinceDays}` : ''
+  return _api(`/store/${shopCode.value}/movements${q}`).catch(() => null)
+}
+
+export async function saveMovementToD1(movement) {
+  if (!shopCode.value || !BASE) return
+  saveState.value = 'saving'
+  try {
+    await _api(`/store/${shopCode.value}/movements`, { method: 'POST', body: JSON.stringify(movement) })
+    _settle()
+  } catch (e) {
+    _moveQueue.push(movement)
+    saveState.value = 'pending'
+    _scheduleRetry()
+  }
+}
+
+export async function deleteMovementFromD1(id) {
+  if (!shopCode.value || !BASE) return
+  return _api(`/store/${shopCode.value}/movements/${id}`, { method: 'DELETE' })
+    .catch(e => console.warn('[store] 入出庫削除失敗:', e.message))
 }
 
 // ── アクティブルーム ──────────────────────────────────────────────────────────

@@ -9,18 +9,46 @@ import {
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleSessionComplete, handleRoomResult,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
+  handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
+import { handleAccountDelete } from './accountDeletion.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { savePushSubscription, deletePushSubscription, handleCron } from './pushHandler.js'
+import {
+  ACCOUNT_DELETION_INTERNAL_HEADER,
+  MAX_PDF_BYTES,
+  MAX_PUSH_SUBSCRIPTION_BYTES,
+} from './constants.js'
 export { RoomDO }
 
+// 許可オリジン判定（フェイルクローズ・S-E）。ALLOWED_ORIGIN（カンマ区切りの完全一致）に加え、
+// 本番/プレビュー（*.inventory-app.pages.dev＝プロジェクト所有者のみが配信可能）と
+// ローカル開発（localhost / 127.0.0.1）を許可する。それ以外の Origin は拒否。
+// Origin ヘッダ無し（同一オリジン・WebSocket・server-to-server）は従来どおり通す。
+export function isAllowedOrigin(origin, allowedOrigin) {
+  if (!origin) return true
+  const list = String(allowedOrigin || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (list.includes(origin)) return true
+  try {
+    const h = new URL(origin).hostname
+    if (h === 'inventory-app.pages.dev' || h.endsWith('.inventory-app.pages.dev')) return true
+    if (h === 'localhost' || h === '127.0.0.1') return true
+  } catch (_) { /* 不正な Origin は不許可 */ }
+  return false
+}
+
 function corsHeaders(origin, allowedOrigin) {
-  return {
-    'Access-Control-Allow-Origin':  allowedOrigin || origin || '*',
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
   }
+  // 許可した Origin のみを個別に反映（ワイルドカード '*' は使わない＝フェイルクローズ）。
+  if (origin && isAllowedOrigin(origin, allowedOrigin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
 }
 
 function jsonResponse(body, status, origin, allowedOrigin) {
@@ -30,10 +58,85 @@ function jsonResponse(body, status, origin, allowedOrigin) {
   })
 }
 
+// ハンドラ戻り値の { _status } をHTTPステータスへ変換して返す（本文からは除去）
+function resultResponse(result, origin, allowedOrigin) {
+  const status = result._status ?? 200
+  delete result._status
+  return jsonResponse(result, status, origin, allowedOrigin)
+}
+
 async function _requireAuth(db, request, code, origin, allowedOrigin) {
   const authCode = await verifyAuth(db, request)
   if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
   return null
+}
+
+async function _readJsonBodyWithLimit(request, maxBytes) {
+  const tooLarge = {
+    _status: 413,
+    code: 'payload_too_large',
+    error: 'リクエストデータが大きすぎます',
+  }
+  const declared = Number(request.headers.get('Content-Length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) return { error: tooLarge }
+
+  // Unit-test request doubles do not always expose a ReadableStream.
+  if (!request.body || typeof request.body.getReader !== 'function') {
+    try {
+      const body = await request.json()
+      if (new TextEncoder().encode(JSON.stringify(body)).byteLength > maxBytes) return { error: tooLarge }
+      return { body }
+    } catch (_) {
+      return { error: { _status: 400, code: 'invalid_json', error: 'JSONが不正です' } }
+    }
+  }
+
+  const reader = request.body.getReader()
+  const chunks = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+      total += chunk.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {})
+        return { error: tooLarge }
+      }
+      chunks.push(chunk)
+    }
+  } catch (_) {
+    return { error: { _status: 400, code: 'invalid_json', error: 'JSONが不正です' } }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return { body: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
+  } catch (_) {
+    return { error: { _status: 400, code: 'invalid_json', error: 'JSONが不正です' } }
+  }
+}
+
+export async function purgeAccountRooms(rooms, shopCode) {
+  const results = await Promise.allSettled(['', ':order'].map(async suffix => {
+    const id = rooms.idFromName(`room:${shopCode}${suffix}`)
+    const room = rooms.get(id)
+    const response = await room.fetch(new Request('https://internal/internal/account-delete', {
+      method: 'DELETE',
+      headers: { 'X-Inventory-Internal-Action': ACCOUNT_DELETION_INTERNAL_HEADER },
+    }))
+    if (!response.ok) throw new Error(`Durable Object purge failed (${response.status})`)
+  }))
+  const failed = results.find(result => result.status === 'rejected')
+  if (failed) throw new Error('Durable Object purge failed', { cause: failed.reason })
 }
 
 export default {
@@ -50,8 +153,9 @@ export default {
       })
     }
 
-    // Origin 検証
-    if (allowedOrigin && origin !== allowedOrigin) {
+    // Origin 検証（フェイルクローズ・S-E）: Origin が有り、かつ許可リスト外なら拒否。
+    // ALLOWED_ORIGIN 未設定でも既定の許可（本番/プレビュー/ローカル）以外は通さない。
+    if (origin && !isAllowedOrigin(origin, allowedOrigin)) {
       return new Response('Forbidden', { status: 403 })
     }
 
@@ -63,9 +167,7 @@ export default {
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
-        const result = await handleRegister(env.DB, await request.json())
-        const status = result._status ?? 200; delete result._status
-        return jsonResponse(result, status, origin, allowedOrigin)
+        return resultResponse(await handleRegister(env.DB, await request.json()), origin, allowedOrigin)
       }
       if (path === '/auth/login' && request.method === 'POST') {
         // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。店舗単位制限は handleLogin 内）
@@ -75,11 +177,20 @@ export default {
         }
         const result = await handleLogin(env.DB, await request.json())
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
-        const status = result._status ?? 200; delete result._status
-        return jsonResponse(result, status, origin, allowedOrigin)
+        return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/logout' && request.method === 'POST') {
         return jsonResponse(await handleLogout(env.DB, request), 200, origin, allowedOrigin)
+      }
+      if (path === '/auth/account' && request.method === 'DELETE') {
+        const body = await request.json().catch(() => ({}))
+        const result = await handleAccountDelete(
+          env.DB,
+          request,
+          body,
+          shopCode => purgeAccountRooms(env.ROOMS, shopCode),
+        )
+        return resultResponse(result, origin, allowedOrigin)
       }
     }
 
@@ -101,7 +212,7 @@ export default {
 
         // データ系API（config/inventory/history/room）は後方互換ソフト認証で保護。
         // PIN設定済み店舗はトークン必須、レガシー店舗は従来通り許可。
-        if (/^\/(config|inventory|history|room|orders)(\/|$)/.test(subpath)) {
+        if (/^\/(config|inventory|history|room|orders|movements)(\/|$)/.test(subpath)) {
           if (!(await verifyStoreAccess(env.DB, code, request))) {
             return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
           }
@@ -118,27 +229,21 @@ export default {
           return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          const result = await handleConfigPut(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleConfigPut(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // GET/PUT /store/:code/inventory
         if (subpath === '/inventory' && request.method === 'GET') {
           return jsonResponse(await handleInventoryGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/inventory' && request.method === 'PUT') {
-          const result = await handleInventoryPut(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleInventoryPut(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
           return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
-          const result = await handleHistoryPost(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:date
         const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)
@@ -155,26 +260,37 @@ export default {
           return jsonResponse(await handleOrdersGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
         if (subpath === '/orders' && request.method === 'POST') {
-          const result = await handleOrderCreate(env.DB, code, await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleOrderCreate(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/orders/:id
         const orderDelMatch = subpath.match(/^\/orders\/([\w-]{1,64})$/)
         if (orderDelMatch && request.method === 'DELETE') {
-          return jsonResponse(await handleOrderDelete(env.DB, code, orderDelMatch[1]), 200, origin, allowedOrigin)
+          return resultResponse(await handleOrderDelete(env.DB, code, orderDelMatch[1]), origin, allowedOrigin)
         }
 
-        // POST /store/:code/push/subscribe
-        if (subpath === '/push/subscribe' && request.method === 'POST') {
-          await savePushSubscription(env.DB, code, await request.json())
-          return jsonResponse({ ok: true }, 200, origin, allowedOrigin)
+        // GET/POST /store/:code/movements
+        if (subpath === '/movements' && request.method === 'GET') {
+          return jsonResponse(await handleMovementsGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
-        // DELETE /store/:code/push/subscribe
-        if (subpath === '/push/subscribe' && request.method === 'DELETE') {
-          const { endpoint } = await request.json()
-          await deletePushSubscription(env.DB, code, endpoint)
-          return jsonResponse({ ok: true }, 200, origin, allowedOrigin)
+        if (subpath === '/movements' && request.method === 'POST') {
+          return resultResponse(await handleMovementCreate(env.DB, code, await request.json()), origin, allowedOrigin)
+        }
+        // DELETE /store/:code/movements/:id
+        const moveDelMatch = subpath.match(/^\/movements\/([\w-]{1,64})$/)
+        if (moveDelMatch && request.method === 'DELETE') {
+          return jsonResponse(await handleMovementDelete(env.DB, code, moveDelMatch[1]), 200, origin, allowedOrigin)
+        }
+
+        // POST/DELETE /store/:code/push/subscribe（strict auth + bounded payload）
+        if (subpath === '/push/subscribe' && (request.method === 'POST' || request.method === 'DELETE')) {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const parsed = await _readJsonBodyWithLimit(request, MAX_PUSH_SUBSCRIPTION_BYTES)
+          if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
+          const result = request.method === 'POST'
+            ? await savePushSubscription(env.DB, code, parsed.body)
+            : await deletePushSubscription(env.DB, code, parsed.body?.endpoint)
+          return resultResponse(result, origin, allowedOrigin)
         }
 
         // GET/POST /store/:code/sessions （要認証）
@@ -195,9 +311,7 @@ export default {
         if (sessMatch && request.method === 'PUT') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          const result = await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json()), origin, allowedOrigin)
         }
         if (sessMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
@@ -210,9 +324,7 @@ export default {
         if (sessCompleteMatch && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          const result = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json())
-          const status = result._status ?? 200; delete result._status
-          return jsonResponse(result, status, origin, allowedOrigin)
+          return resultResponse(await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json()), origin, allowedOrigin)
         }
       }
     }
@@ -224,8 +336,27 @@ export default {
 
     // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
     if (path === '/pdf' && request.method === 'POST') {
+      // S-D: 経済的DoS対策。①IPレート制限 → ②認証必須 → ③サイズ上限 の順で
+      // 重い pdfjs 実行の前に安価なゲートで弾く。
+      const ip = clientIp(request)
+      if (await isIpBlocked(env.DB, ip, 'pdf')) {
+        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+      }
+      // このエンドポイントは重い処理なので、成否に関わらず1回として計上（総回数を抑制）
+      await recordIpFail(env.DB, ip, 'pdf')
+
+      const authCode = await verifyAuth(env.DB, request)
+      if (!authCode) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+
+      const declared = Number(request.headers.get('Content-Length') ?? '')
+      if (Number.isFinite(declared) && declared > MAX_PDF_BYTES) {
+        return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
+      }
       try {
-        const buf    = await request.arrayBuffer()
+        const buf = await request.arrayBuffer()
+        if (buf.byteLength > MAX_PDF_BYTES) {
+          return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
+        }
         const result = await parsePdfFile(buf)
         return jsonResponse(result, 200, origin, allowedOrigin)
       } catch (e) {
@@ -244,11 +375,17 @@ export default {
       if (await isIpBlocked(env.DB, ip, 'probe')) {
         return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
       }
+      const activeStore = await env.DB.prepare(
+        'SELECT shop_code FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+      ).bind(code).first()
+      if (!activeStore) {
+        await recordIpFail(env.DB, ip, 'probe')
+        return jsonResponse({ error: 'この棚卸は閲覧できません' }, 404, origin, allowedOrigin)
+      }
       const result = await handleRoomResult(env.DB, code, sid)
-      const status = result._status ?? 200; delete result._status
       // 「見つからない・無効」は総当たり探索とみなして記録（期間切れ 410 は除外）
-      if (status === 400 || status === 404) await recordIpFail(env.DB, ip, 'probe')
-      return jsonResponse(result, status, origin, allowedOrigin)
+      if (result._status === 400 || result._status === 404) await recordIpFail(env.DB, ip, 'probe')
+      return resultResponse(result, origin, allowedOrigin)
     }
 
     // ── ルーム API（ルームID = 店舗コード）────────────────────────────────────
@@ -267,7 +404,9 @@ export default {
         // フェイルオープン: stores が読めない場合はゲートを素通しして DO に委ねる
         let store = null, gateOk = true
         try {
-          store = await env.DB.prepare('SELECT shop_code FROM stores WHERE shop_code = ?').bind(code).first()
+          store = await env.DB.prepare(
+            'SELECT shop_code FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+          ).bind(code).first()
         } catch (e) {
           console.error('[Worker] room gate store lookup failed (fail-open):', e?.message ?? e)
           gateOk = false

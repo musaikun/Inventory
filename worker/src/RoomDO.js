@@ -2,8 +2,31 @@ import {
   ROOM_TTL_MS, MAX_PARTICIPANTS, MAX_AUDIT_LOG,
   WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
-  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN,
+  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN, MAX_ORDER_QTY,
+  ACCOUNT_DELETION_INTERNAL_HEADER,
 } from './constants.js'
+import { verifyAuthToken } from './authHandler.js'
+
+// 発注スケジュールの正規化（client useConfig の _normSchedule と一致させる）。
+// days = 0..6 の整数配列（重複除去）／deadline = 'HH:MM' 形式のみ許可。
+function _normSchedule(s) {
+  const days = Array.isArray(s?.days)
+    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))]
+    : []
+  const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
+  return { days, deadline }
+}
+
+// ホスト権限を（再）発行してよいかの判定。純関数・テスト容易化のため抽出。
+// protectedStore = PIN設定済み店舗（D1認証で守る）。この場合トポロジ（空室・同端末・
+// 他ホスト不在）は信用せず、D1トークンの検証結果 authOk のみで判断する。
+// レガシー店舗（PIN未設定）は後方互換で従来のトポロジ判定を維持する。
+//   ① 空室（再初期化） ② 同一 deviceId のホスト残存（本人のオフライン復帰）
+//   ③ 他にホスト権限を持つ接続が無い（ホスト不在ルームの引き継ぎ）
+export function canGrantHost({ protectedStore, authOk, isEmpty, sameDeviceHost, anyVerifiedHost }) {
+  if (protectedStore) return authOk === true
+  return isEmpty || sameDeviceHost || !anyVerifiedHost
+}
 
 // 品目リスト設定として保存・中継する全フィールドを一箇所で正規化する。
 // App.vue の getter（registerConfigGetter）が送る全フィールドと1:1で対応させること。
@@ -19,6 +42,8 @@ export function normalizeConfig(src = {}) {
     categoryCodes: src.categoryCodes ?? {},
     prevMonths:    src.prevMonths    ?? {},
     lotSizes:      src.lotSizes      ?? {},
+    reorderPoints: src.reorderPoints ?? {},
+    orderSchedule: _normSchedule(src.orderSchedule),
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
@@ -27,6 +52,9 @@ export function normalizeConfig(src = {}) {
     axisGroupsA:   Array.isArray(src.axisGroupsA) ? src.axisGroupsA : [],
     axisGroupsB:   Array.isArray(src.axisGroupsB) ? src.axisGroupsB : [],
     hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
+    hiddenAuto:    Array.isArray(src.hiddenAuto) ? src.hiddenAuto : [],
+    tagsArchiveA:  src.tagsArchiveA ?? {},
+    tagsArchiveB:  src.tagsArchiveB ?? {},
   }
 }
 
@@ -39,6 +67,18 @@ export class RoomDO {
 
   async fetch(request) {
     const url = new URL(request.url)
+    if (url.pathname === '/internal/account-delete') {
+      return this._handleAccountDelete(request)
+    }
+    // このDOが担当する店舗コードをパスから記録する（Worker 層で存在検証済み・
+    // ルームID = 店舗コードの統一設計により、パスのコード＝このDOの正体）。
+    // ホスト認証（PIN設定店舗のD1トークン照合）で自分の店舗コードとして使う。
+    const codeMatch = url.pathname.match(/\/room\/([A-Za-z0-9]{4,8})\//)
+    if (codeMatch) {
+      const code = codeMatch[1].toUpperCase()
+      const existing = await this.state.storage.get('shopCode')
+      if (existing !== code) await this.state.storage.put('shopCode', code)
+    }
     // HTTP 経由のルーム解散（ホストが退室済みで WS 未接続の残存ルームを掃除する）
     if (url.pathname.endsWith('/dissolve')) {
       return this._handleHttpDissolve(request)
@@ -55,6 +95,28 @@ export class RoomDO {
     const alarm = await this.state.storage.getAlarm()
     if (!alarm) await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  async _handleAccountDelete(request) {
+    if (request.method !== 'DELETE') return new Response('Method Not Allowed', { status: 405 })
+    if (request.headers.get('X-Inventory-Internal-Action') !== ACCOUNT_DELETION_INTERNAL_HEADER) {
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    this._broadcast({ type: 'account_deleted' })
+    for (const ws of this.state.getWebSockets()) {
+      try {
+        ws.serializeAttachment({ leftCleanly: true })
+        ws.close(1000, 'Account deleted')
+      } catch (_) {}
+    }
+    this._itemAddRequests.clear()
+    await this.state.storage.deleteAlarm()
+    await this.state.storage.deleteAll()
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   async _handleHttpDissolve(request) {
@@ -81,8 +143,9 @@ export class RoomDO {
   }
 
   async _handleHttpStatus() {
-    const [inventory, isActive, sessionId, config, hostToken] = await Promise.all([
+    const [inventory, orders, isActive, sessionId, config, hostToken] = await Promise.all([
       this.state.storage.get('inventory').then(v => v ?? {}),
+      this.state.storage.get('orders').then(v => v ?? {}),
       this.state.storage.get('isActive').then(v => v ?? false),
       this.state.storage.get('sessionId').then(v => v ?? ''),
       this.state.storage.get('config').then(v => v ?? null),
@@ -96,7 +159,8 @@ export class RoomDO {
     return new Response(JSON.stringify({
       sessionId,
       isActive,
-      itemCount:   Object.keys(inventory).length,
+      itemCount:      Object.keys(inventory).length,
+      orderItemCount: Object.keys(orders).length,
       totalItems:  Array.isArray(config?.order) ? config.order.length : null,
       participants,
       clientCount: participants.length,
@@ -116,9 +180,27 @@ export class RoomDO {
   }
 
   async _handleMessage(ws, msg) {
-    await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
+    const type = typeof msg?.type === 'string' ? msg.type : ''
+    const isJoined = this._isJoined(ws)
 
-    if (msg.type !== 'ping' && msg.type !== 'join') {
+    // WebSocket upgrade 自体は公開経路のため、join が成功するまでは room data への
+    // 読み書きを一切許可しない。認可状態は attachment に置き、hibernation 後も維持する。
+    if (type === 'join' && isJoined) {
+      ws.send(JSON.stringify({ type: 'error', code: 'already_joined' }))
+      return
+    }
+    if (type !== 'join' && type !== 'ping' && !isJoined) {
+      ws.send(JSON.stringify({ type: 'error', code: 'join_required' }))
+      ws.close(1008, 'Join required')
+      return
+    }
+
+    // 未参加 ping は疎通確認だけ許可し、ルーム寿命は延長させない。
+    if (type !== 'ping' || isJoined) {
+      await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
+    }
+
+    if (type !== 'ping' && type !== 'join') {
       const att   = ws.deserializeAttachment() ?? {}
       const now   = Date.now()
       const start = att._rlTime ?? 0
@@ -133,9 +215,15 @@ export class RoomDO {
 
     switch (msg.type) {
       case 'join': {
-        const deviceId   = String(msg.deviceId   ?? '').slice(0, MAX_DEVICE_ID_LEN)
+        const deviceId   = String(msg.deviceId   ?? '').trim().slice(0, MAX_DEVICE_ID_LEN)
         const deviceName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
         const role       = msg.role === 'host' ? 'host' : 'guest'
+
+        if (!deviceId) {
+          ws.send(JSON.stringify({ type: 'error', code: 'invalid_device_id' }))
+          ws.close(1008, 'Invalid device ID')
+          return
+        }
 
         let isVerifiedHost = false
         let newHostToken   = null   // 初回発行時のみ送り返す
@@ -144,28 +232,27 @@ export class RoomDO {
           const storedToken   = await this.state.storage.get('hostToken')
           const providedToken = String(msg.hostToken ?? '').slice(0, MAX_TOKEN_LEN)
 
-          if (!storedToken) {
-            // 初回ホスト接続: トークンを発行して保存
-            const token = crypto.randomUUID()
-            await this.state.storage.put('hostToken', token)
-            isVerifiedHost = true
-            newHostToken   = token
-          } else if (providedToken === storedToken) {
-            // 再接続: トークン一致 → ホスト承認
+          if (storedToken && providedToken === storedToken) {
+            // 再接続: hostToken 一致（発行済みの能力トークン）→ 承認（D1照合は不要）
             isVerifiedHost = true
           } else {
-            // トークン不一致: 以下のいずれかを満たせばトークンを再発行して復旧する
-            //   ① 他に接続が無い（空ルーム再初期化）
-            //   ② 同一 deviceId のホスト接続が残存（オフライン復帰でトークンを失った本人）
-            //   ③ 他にホスト権限を持つ接続が一つも無い（ホスト不在のルームの引き継ぎ）
-            // ②③により、同時オフライン→復帰時の auth_failed 無限ループを解消する。
-            const others = this.state.getWebSockets().filter(w => w !== ws)
+            // hostToken 不一致 or 未発行（初回・復旧）: ホスト権限の（再）発行判定。
+            // PIN設定店舗は D1 認証トークンの検証を必須にし、店舗コードを知るだけの
+            // 第三者がホスト不在時に乗っ取れる穴（監査 S-A）を塞ぐ。
+            const shopCode       = await this.state.storage.get('shopCode')
+            const protectedStore = await this._isStoreProtected(shopCode)
+            const authOk         = protectedStore
+              ? await this._hostAuthOk(shopCode, msg.authToken)
+              : false
+
+            const others = this.state.getWebSockets().filter(w => w !== ws && this._isJoined(w))
             const sameDeviceHost  = others.some(w => {
               const a = w.deserializeAttachment()
               return a?.deviceId === deviceId && a?.isHost
             })
             const anyVerifiedHost = others.some(w => w.deserializeAttachment()?.isHost)
-            if (others.length === 0 || sameDeviceHost || !anyVerifiedHost) {
+
+            if (canGrantHost({ protectedStore, authOk, isEmpty: others.length === 0, sameDeviceHost, anyVerifiedHost })) {
               const token = crypto.randomUUID()
               await this.state.storage.put('hostToken', token)
               isVerifiedHost = true
@@ -200,7 +287,7 @@ export class RoomDO {
 
         const existingIds = new Set(
           this.state.getWebSockets()
-            .filter(w => w !== ws)
+            .filter(w => w !== ws && this._isJoined(w))
             .map(w => w.deserializeAttachment()?.deviceId)
             .filter(Boolean)
         )
@@ -214,7 +301,7 @@ export class RoomDO {
         if (deviceName) {
           const existingNames = new Set(
             this.state.getWebSockets()
-              .filter(w => w !== ws)
+              .filter(w => w !== ws && this._isJoined(w))
               .filter(w => w.deserializeAttachment()?.deviceId !== deviceId)
               .map(w => w.deserializeAttachment()?.deviceName)
               .filter(Boolean)
@@ -232,7 +319,7 @@ export class RoomDO {
         for (const existingWs of this.state.getWebSockets()) {
           if (existingWs === ws) continue
           const att = existingWs.deserializeAttachment()
-          if (att?.deviceId === deviceId) {
+          if (this._isJoined(existingWs) && att?.deviceId === deviceId) {
             try {
               existingWs.serializeAttachment({ leftCleanly: true })  // deviceId を除去してゾンビを即時非表示
               existingWs.close(1000, 'Session recovered')
@@ -240,10 +327,11 @@ export class RoomDO {
           }
         }
 
-        ws.serializeAttachment({ deviceId, deviceName, isHost: isVerifiedHost })
+        ws.serializeAttachment({ joined: true, deviceId, deviceName, isHost: isVerifiedHost })
 
-        const [inventory, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
+        const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
+          this.state.storage.get('orders').then(v => v ?? {}),
           this.state.storage.get('recountFlags').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
@@ -253,11 +341,13 @@ export class RoomDO {
         ])
         const participants = this._getParticipants()
 
-        ws.send(JSON.stringify({
-          type: 'joined', inventory, recountFlags, config, participants, messages, auditLog,
+        const joinedMsg = {
+          type: 'joined', inventory, orders, recountFlags, config, participants, messages, auditLog,
           isSessionActive: isActive, sessionId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
-        }))
+        }
+        // ゲストには単価を渡さない（S-G）。ホスト検証済みのみ全量。
+        ws.send(JSON.stringify(isVerifiedHost ? joinedMsg : this._stripPricesForGuest(joinedMsg)))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
@@ -267,8 +357,8 @@ export class RoomDO {
         if (!Array.isArray(msg.order)) return
         const stored = normalizeConfig(msg)   // 軸・非表示等を含む全フィールドを保存/中継
         await this.state.storage.put('config', stored)
-        // ゲスト全員に品目リスト更新を通知
-        this._broadcast({ type: 'config_update', ...stored }, ws)
+        // ゲスト全員に品目リスト更新を通知（ゲストには prices を落とす・S-G）
+        this._broadcastPriceAware({ type: 'config_update', ...stored }, ws)
         break
       }
 
@@ -302,8 +392,7 @@ export class RoomDO {
         }
 
         const att = ws.deserializeAttachment() ?? {}
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action,
           delta,
@@ -311,10 +400,7 @@ export class RoomDO {
           unit:        unit ?? '',
           enteredBy:   String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
-          timestamp:   Date.now(),
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('inventory', inventory),
@@ -342,8 +428,7 @@ export class RoomDO {
         const prev = inventory[ingredient]
         if (prev) {
           const att = ws.deserializeAttachment() ?? {}
-          const entry = {
-            id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          const entry = this._appendAudit(auditLog, {
             ingredient,
             action:      'remove',
             delta:       -(prev.qty ?? 0),
@@ -351,10 +436,7 @@ export class RoomDO {
             unit:        prev.unit ?? '',
             enteredBy:   att.deviceName ?? '',
             enteredById: att.deviceId  ?? '',
-            timestamp:   Date.now(),
-          }
-          auditLog.push(entry)
-          if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+          })
           this._broadcast({ type: 'audit_entry', entry })
           await this.state.storage.put('auditLog', auditLog)
         }
@@ -364,6 +446,90 @@ export class RoomDO {
 
         const { deviceId } = ws.deserializeAttachment() ?? {}
         this._broadcast({ type: 'remove', ingredient, fromDeviceId: deviceId }, ws)
+        break
+      }
+
+      // ── 発注数の同期（発注ルーム専用・在庫の update とは別マップ 'orders'）──────
+      case 'order_update': {
+        const { ingredient, orderQty, unit, lot, enteredBy } = msg
+        if (!ingredient || typeof orderQty !== 'number') return
+        if (String(ingredient).length > MAX_INGREDIENT_LEN) return
+        // 有限・上限ガード（R2-05）。0以下は「取り消し」で防御的に無視、Infinity/巨大値も弾く
+        // （JSON化で null 化して壊れるのを防ぐ）。取り消しは order_remove を使う想定。
+        if (!Number.isFinite(orderQty) || orderQty <= 0 || orderQty > MAX_ORDER_QTY) return
+
+        const [orders, auditLog] = await Promise.all([
+          this.state.storage.get('orders').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const att      = ws.deserializeAttachment() ?? {}
+        const cleanBy  = String(enteredBy ?? att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
+        const cleanUnit = String(unit ?? '').slice(0, MAX_UNIT_LEN)
+        const cleanLot  = Number.isFinite(Number(lot)) && Number(lot) > 0 ? Number(lot) : 1
+
+        orders[ingredient] = {
+          orderQty,
+          unit:        cleanUnit,
+          lot:         cleanLot,
+          enteredBy:   cleanBy,
+          enteredById: att.deviceId ?? '',
+          updatedAt:   Date.now(),
+        }
+
+        const entry = this._appendAudit(auditLog, {
+          ingredient,
+          action:      'order_set',
+          delta:       0,
+          totalQty:    orderQty,
+          unit:        cleanUnit,
+          enteredBy:   cleanBy,
+          enteredById: att.deviceId ?? '',
+        })
+
+        await Promise.all([
+          this.state.storage.put('orders', orders),
+          this.state.storage.put('auditLog', auditLog),
+        ])
+
+        this._broadcast({ type: 'audit_entry', entry })
+        this._broadcast(
+          { type: 'order_update', ingredient, orderQty, unit: cleanUnit, lot: cleanLot, enteredBy: cleanBy, fromDeviceId: att.deviceId ?? '' },
+          ws,
+        )
+        break
+      }
+
+      case 'order_remove': {
+        const { ingredient } = msg
+        if (!ingredient || String(ingredient).length > MAX_INGREDIENT_LEN) return
+
+        const [orders, auditLog] = await Promise.all([
+          this.state.storage.get('orders').then(v => v ?? {}),
+          this.state.storage.get('auditLog').then(v => v ?? []),
+        ])
+
+        const att  = ws.deserializeAttachment() ?? {}
+        const prev = orders[ingredient]
+        if (prev) {
+          const entry = this._appendAudit(auditLog, {
+            ingredient,
+            action:      'order_clear',
+            delta:       0,
+            totalQty:    0,
+            unit:        prev.unit ?? '',
+            enteredBy:   att.deviceName ?? '',
+            enteredById: att.deviceId  ?? '',
+          })
+          this._broadcast({ type: 'audit_entry', entry })
+          delete orders[ingredient]
+          await Promise.all([
+            this.state.storage.put('orders', orders),
+            this.state.storage.put('auditLog', auditLog),
+          ])
+        }
+
+        this._broadcast({ type: 'order_remove', ingredient, fromDeviceId: att.deviceId ?? '' }, ws)
         break
       }
 
@@ -388,8 +554,7 @@ export class RoomDO {
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         const cur       = inventory[ingredient]
         const auditLog  = (await this.state.storage.get('auditLog')) ?? []
-        const entry = {
-          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        const entry = this._appendAudit(auditLog, {
           ingredient,
           action:      on ? 'flag_recount' : 'unflag_recount',
           delta:       0,
@@ -398,9 +563,7 @@ export class RoomDO {
           enteredBy:   String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
           enteredById: att.deviceId ?? '',
           timestamp:   at,
-        }
-        auditLog.push(entry)
-        if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+        })
 
         await Promise.all([
           this.state.storage.put('recountFlags', flags),
@@ -414,14 +577,10 @@ export class RoomDO {
 
       case 'leave': {
         // クリーン退出フラグを立て、webSocketClose での二重ブロードキャストを防ぐ
-        const att = ws.deserializeAttachment() ?? {}
-        ws.serializeAttachment({ ...att, leftCleanly: true })
+        // joined/deviceId も除去し、このメッセージ以降の操作・受信を即時停止する。
+        ws.serializeAttachment({ leftCleanly: true })
         // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
-        const remaining = this.state.getWebSockets()
-          .filter(w => w !== ws)
-          .map(w => w.deserializeAttachment())
-          .filter(Boolean)
-        this._broadcast({ type: 'participants', list: remaining }, ws)
+        this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
 
@@ -537,9 +696,10 @@ export class RoomDO {
           this.state.storage.put('sessionId', newId),
         ]
 
-        let broadcastInv   = {}
-        let broadcastFlags = {}
-        let broadcastCfg   = null
+        let broadcastInv    = {}
+        let broadcastOrders = {}
+        let broadcastFlags  = {}
+        let broadcastCfg    = null
 
         if (!isResume) {
           // 新規セッション: 全員の完了フラグをリセット
@@ -564,6 +724,23 @@ export class RoomDO {
           puts.push(this.state.storage.put('inventory', broadcastInv))
           puts.push(this.state.storage.put('auditLog',  []))
 
+          // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
+          if (msg.orders && typeof msg.orders === 'object') {
+            for (const [k, v] of Object.entries(msg.orders)) {
+              if (Number.isFinite(v?.orderQty) && v.orderQty > 0 && v.orderQty <= MAX_ORDER_QTY && String(k).length <= 200) {
+                broadcastOrders[k] = {
+                  orderQty:    v.orderQty,
+                  unit:        String(v.unit ?? '').slice(0, MAX_UNIT_LEN),
+                  lot:         Number.isFinite(Number(v.lot)) && Number(v.lot) > 0 ? Number(v.lot) : 1,
+                  enteredBy:   String(v.enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
+                  enteredById: String(v.enteredById ?? '').slice(0, MAX_DEVICE_ID_LEN),
+                  updatedAt:   typeof v.updatedAt === 'number' ? v.updatedAt : now,
+                }
+              }
+            }
+          }
+          puts.push(this.state.storage.put('orders', broadcastOrders))
+
           if (msg.recountFlags && typeof msg.recountFlags === 'object') {
             for (const [k, v] of Object.entries(msg.recountFlags)) {
               if (String(k).length <= 200) {
@@ -582,21 +759,23 @@ export class RoomDO {
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {
-          // 再開セッション: 既存の在庫・フラグ・品目リストをブロードキャスト用に読み込む
-          ;[broadcastInv, broadcastFlags, broadcastCfg] = await Promise.all([
+          // 再開セッション: 既存の在庫・発注数・フラグ・品目リストをブロードキャスト用に読み込む
+          ;[broadcastInv, broadcastOrders, broadcastFlags, broadcastCfg] = await Promise.all([
             this.state.storage.get('inventory').then(v => v ?? {}),
+            this.state.storage.get('orders').then(v => v ?? {}),
             this.state.storage.get('recountFlags').then(v => v ?? {}),
             this.state.storage.get('config').then(v => v ?? null),
           ])
         }
 
         await Promise.all(puts)
-        // session_started に在庫・フラグ・品目リストを同梱する
-        // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる
-        this._broadcast({
+        // session_started に在庫・発注数・フラグ・品目リストを同梱する
+        // → 既接続ゲストが新セッション開始時に完全な状態へ同期できる（ゲストには prices を落とす・S-G）
+        this._broadcastPriceAware({
           type:         'session_started',
           sessionId:    newId,
           inventory:    broadcastInv,
+          orders:       broadcastOrders,
           recountFlags: broadcastFlags,
           ...(broadcastCfg ? { config: broadcastCfg } : {}),
         })
@@ -644,6 +823,7 @@ export class RoomDO {
 
       case 'conflict_lock': {
         // 競合中品目リストをゲストへ転送（ホスト→全員）
+        if (!this._isHost(ws)) return
         this._broadcast({
           type:        'conflict_lock',
           ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, MAX_INGREDIENT_LEN)),
@@ -703,7 +883,8 @@ export class RoomDO {
 
   async webSocketClose(ws) {
     // 'leave' メッセージで既にブロードキャスト済みの場合は二重送信しない
-    if (!ws.deserializeAttachment()?.leftCleanly) {
+    const attachment = ws.deserializeAttachment()
+    if (attachment?.joined === true && !attachment.leftCleanly) {
       this._broadcast({ type: 'participants', list: this._getParticipants() })
     }
   }
@@ -718,19 +899,90 @@ export class RoomDO {
   _broadcast(msg, exclude = null) {
     const data = JSON.stringify(msg)
     for (const ws of this.state.getWebSockets()) {
-      if (ws !== exclude) {
+      if (ws !== exclude && this._isJoined(ws)) {
         try { ws.send(data) } catch (_) {}
       }
     }
   }
 
+  // ゲストには単価（原価）を渡さない（S-G）。config_update はトップレベル prices、
+  // joined/session_started は config.prices に入るため、両方を空にしたコピーを返す。
+  _stripPricesForGuest(msg) {
+    const out = { ...msg }
+    if (out.prices) out.prices = {}
+    if (out.config && out.config.prices) out.config = { ...out.config, prices: {} }
+    return out
+  }
+
+  // 単価を含みうるメッセージのブロードキャスト。ホストには全量、ゲストには prices を落として送る。
+  _broadcastPriceAware(msg, exclude = null) {
+    const full  = JSON.stringify(msg)
+    const guest = JSON.stringify(this._stripPricesForGuest(msg))
+    for (const ws of this.state.getWebSockets()) {
+      if (ws === exclude || !this._isJoined(ws)) continue
+      const isHost = this._isHost(ws)
+      try { ws.send(isHost ? full : guest) } catch (_) {}
+    }
+  }
+
+  _isJoined(ws) {
+    const attachment = ws.deserializeAttachment()
+    return attachment?.joined === true
+      && typeof attachment.deviceId === 'string'
+      && attachment.deviceId.length > 0
+  }
+
   _isHost(ws) {
-    return ws.deserializeAttachment()?.isHost === true
+    return this._isJoined(ws) && ws.deserializeAttachment()?.isHost === true
+  }
+
+  // PIN設定済み（＝D1認証で保護すべき）店舗か。D1障害時はフェイルオープンで
+  // false（レガシー扱い）にし、可用性を優先する（既存のレート制限と同方針）。
+  async _isStoreProtected(shopCode) {
+    if (!shopCode || !this.env?.DB) return false
+    try {
+      const row = await this.env.DB.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(shopCode).first()
+      return !!(row && row.pin_hash)
+    } catch (e) {
+      console.error('[RoomDO] store protection lookup failed (fail-open):', e?.message ?? e)
+      return false
+    }
+  }
+
+  // join メッセージの認証トークンが、この店舗の有効な D1 トークンか。
+  async _hostAuthOk(shopCode, rawToken) {
+    if (!shopCode || !this.env?.DB) return false
+    try {
+      const token = String(rawToken ?? '').slice(0, MAX_TOKEN_LEN)
+      const tokenStore = await verifyAuthToken(this.env.DB, token)
+      return !!tokenStore && tokenStore === shopCode
+    } catch (e) {
+      console.error('[RoomDO] host auth check failed:', e?.message ?? e)
+      return false
+    }
+  }
+
+  // 監査ログエントリを生成して追記・上限で切り詰める（id/timestamp は fields で上書き可）
+  _appendAudit(auditLog, fields) {
+    const entry = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      timestamp: Date.now(),
+      ...fields,
+    }
+    auditLog.push(entry)
+    if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+    return entry
   }
 
   _getParticipants() {
     return this.state.getWebSockets()
       .map(ws => ws.deserializeAttachment())
-      .filter(a => a?.deviceId)  // deviceId が無い = 切断処理中のゾンビ、除外する
+      .filter(a => a?.joined === true && typeof a.deviceId === 'string' && a.deviceId.length > 0)
+      .map(a => ({
+        deviceId:   a.deviceId,
+        deviceName: a.deviceName ?? '',
+        isHost:     a.isHost === true,
+        isDone:     a.isDone === true,
+      }))
   }
 }

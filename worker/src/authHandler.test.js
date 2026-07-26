@@ -18,11 +18,20 @@ function createMockD1() {
       stores.push({ shop_code, store_name, pin_hash, created_at, updated_at })
       return { success: true }
     }
-    if (s.startsWith('SELECT shop_code, store_name, pin_hash FROM stores')) {
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
-    if (s.startsWith('SELECT pin_hash FROM stores')) {
+    if (s.startsWith('SELECT pin_hash, deleted_at, deletion_pending_at FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
+    }
+    if (s.startsWith('SELECT deleted_at, deletion_pending_at FROM stores')) {
+      return stores.find(r => r.shop_code === args[0]) ?? null
+    }
+    if (s.startsWith('UPDATE stores SET pin_hash')) {
+      const [pin_hash, updated_at, shop_code] = args
+      const r = stores.find(x => x.shop_code === shop_code)
+      if (r) { r.pin_hash = pin_hash; r.updated_at = updated_at }
+      return { success: true }
     }
     if (s.startsWith('INSERT INTO auth_tokens')) {
       const [token, shop_code, expires_at, created_at] = args
@@ -98,6 +107,18 @@ describe('authHandler', () => {
     expect(db._tokens).toHaveLength(1)
   })
 
+  it('登録・ログイン応答にプラン／トライアル情報が含まれる（新規はトライアル中＝pro相当）', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    expect(reg.plan).toBe('free')
+    expect(reg.inTrial).toBe(true)
+    expect(reg.isPro).toBe(true)
+    expect(reg.trialEndsAt).toBeTruthy()
+
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(login.isPro).toBe(true)
+    expect(login.trialEndsAt).toBeTruthy()
+  })
+
   it('PINが4桁でない場合は400を返し店舗を作らない', async () => {
     const res = await handleRegister(db, { pin: '12' })
     expect(res._status).toBe(400)
@@ -139,12 +160,43 @@ describe('authHandler', () => {
     expect(res._status).toBe(401)
   })
 
-  it('PINは店舗コードでソルトされ、別店舗の同一PINでもハッシュが衝突しない', async () => {
+  it('PINはPBKDF2＋ランダムsaltでハッシュされ、同一PINでもハッシュが衝突しない', async () => {
     const a = await handleRegister(db, { pin: '1234' })
     const b = await handleRegister(db, { pin: '1234' })
     const ha = db._stores.find(s => s.shop_code === a.shopCode).pin_hash
     const hb = db._stores.find(s => s.shop_code === b.shopCode).pin_hash
-    expect(ha).not.toBe(hb)
+    expect(ha).toMatch(/^pbkdf2\$100000\$/)   // 新形式（PBKDF2）で保存される
+    expect(ha).not.toBe(hb)                    // ランダムsaltで衝突しない
+  })
+
+  // ── S-B 透過移行: 旧 SHA-256 ハッシュを次回ログイン成功時に PBKDF2 へ更新 ──────
+  it('旧SHA-256ハッシュの店舗は正しいPINでログインでき、ハッシュがPBKDF2へ移行される', async () => {
+    // 旧形式（SHA-256(shopCode:pin)）でシードした店舗を用意
+    const legacyHash = async (code, pin) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${code}:${pin}`))
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+    const code = 'OLDSTR'
+    db._stores.push({ shop_code: code, store_name: null, pin_hash: await legacyHash(code, '1234') })
+
+    const res = await handleLogin(db, { shopCode: code, pin: '1234' })
+    expect(res.token).toBeTruthy()
+    // ログイン成功でハッシュが PBKDF2 形式へ透過移行される
+    expect(db._stores.find(s => s.shop_code === code).pin_hash).toMatch(/^pbkdf2\$/)
+  })
+
+  it('旧SHA-256ハッシュでも誤ったPINは401（移行しない）', async () => {
+    const legacyHash = async (code, pin) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${code}:${pin}`))
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+    const code = 'OLDST2'
+    const original = await legacyHash(code, '1234')
+    db._stores.push({ shop_code: code, store_name: null, pin_hash: original })
+
+    const res = await handleLogin(db, { shopCode: code, pin: '9999' })
+    expect(res._status).toBe(401)
+    expect(db._stores.find(s => s.shop_code === code).pin_hash).toBe(original)  // 変更なし
   })
 
   // verifyAuth
@@ -169,6 +221,19 @@ describe('authHandler', () => {
     // モック内のトークンを過去に失効させる
     db._tokens[0].expires_at = new Date(Date.now() - 1000).toISOString()
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
+  })
+
+  it('削除pendingになった店舗の既存トークンは即時無効になる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    db._stores[0].deletion_pending_at = new Date().toISOString()
+    expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
+  })
+
+  it('削除済み店舗は正しいPINでもログインできない', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    db._stores[0].deleted_at = new Date().toISOString()
+    const response = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(response._status).toBe(401)
   })
 
   // ログアウト
@@ -227,5 +292,21 @@ describe('authHandler', () => {
     db._stores.push({ shop_code: 'LEGACY', store_name: null, pin_hash: null })
     const noTokenReq = { headers: { get: () => null } }
     expect(await verifyStoreAccess(db, 'LEGACY', noTokenReq)).toBe(true)
+  })
+
+  it('存在しない店舗はsoft-authでもアクセス拒否', async () => {
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, 'MISSING', noTokenReq)).toBe(false)
+  })
+
+  it('削除pendingのレガシー店舗もアクセス拒否', async () => {
+    db._stores.push({
+      shop_code: 'LEGACY',
+      store_name: null,
+      pin_hash: null,
+      deletion_pending_at: new Date().toISOString(),
+    })
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, 'LEGACY', noTokenReq)).toBe(false)
   })
 })

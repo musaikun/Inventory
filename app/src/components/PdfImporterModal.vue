@@ -1,8 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
+import { extractRows } from '../utils/pdfTableParser.js'
+import { matchProfile } from '../composables/pdfProfiles.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import PdfColumnMapper from './PdfColumnMapper.vue'
 
 const props = defineProps({
   initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
@@ -23,9 +26,26 @@ const preview     = ref([])     // [{ name, unit, category, code, packQty, prevM
 const groupMap    = ref({})     // { カテゴリ: count }
 const debugLines  = ref([])     // PDF解析失敗時のraw行
 const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
+const pdfPages    = ref([])     // [{ tokens, rotate }] レシピ自動照合用のrawトークン
+const pdfFile     = ref(null)   // 手動マッピングでPDF実物を描画するための File
+const mapperOpen  = ref(false)
 
 function cancelPdf() {
   abortCtrl.value?.abort()
+}
+
+// 保存済みレシピをページ全体に適用（同一フォーマットの再取込を自動化）
+function applyProfile(profile, pages) {
+  const all = []
+  for (const pg of pages) all.push(...extractRows(pg.tokens, profile.columns, { fromY: profile.fromY }))
+  return all
+}
+
+function openMapper() { mapperOpen.value = true }
+
+function onMapperApply(items) {
+  mapperOpen.value = false
+  if (applyItems(items)) debugLines.value = []
 }
 
 function applyItems(items) {
@@ -54,6 +74,8 @@ async function handleFile(file) {
   debugLines.value = []
   showDetail.value = false
   pdfProgress.value = null
+  pdfPages.value   = []
+  pdfFile.value    = isPdf ? file : null
   loading.value    = true
 
   const ctrl = new AbortController()
@@ -62,13 +84,24 @@ async function handleFile(file) {
   try {
     const buf = await file.arrayBuffer()
     if (isPdf) {
-      const { items, debugLines: dl } = await parsePdfFile(buf, {
+      const { items, debugLines: dl, pages } = await parsePdfFile(buf, {
         signal: ctrl.signal,
         onProgress: (p) => { pdfProgress.value = p },
       })
-      if (!applyItems(items)) {
+      pdfPages.value = pages || []
+      // 保存済みレシピがあれば優先適用（同一フォーマットの再取込を自動化）
+      const profile = pdfPages.value.length ? matchProfile(pdfPages.value[0].tokens) : null
+      const byProfile = profile ? applyProfile(profile, pdfPages.value) : []
+      if (byProfile.length && applyItems(byProfile)) {
+        status.value = { type: 'success', msg: `レシピ「${profile.name}」で${byProfile.length}件を検出` }
+      } else if (!applyItems(items)) {
         debugLines.value = dl
-        status.value = { type: 'error', msg: '品目が見つかりませんでした。下記の解析結果を確認してください' }
+        if (pdfPages.value.length) {
+          status.value = { type: 'error', msg: '自動では読み取れませんでした。「列を指定して読み取る」でお試しください' }
+          mapperOpen.value = true
+        } else {
+          status.value = { type: 'error', msg: '品目が見つかりませんでした。下記の解析結果を確認してください' }
+        }
       }
     } else {
       const items = parseExcelFile(buf)
@@ -148,6 +181,11 @@ function onImport() {
         {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
       </div>
 
+      <!-- 手動マッピング（PDFのrawトークンがあるとき） -->
+      <button v-if="pdfPages.length" class="manual-map-btn" @click="openMapper">
+        🎯 列を指定して読み取る（レシピ保存）
+      </button>
+
       <!-- プレビュー -->
       <div v-if="preview.length > 0" class="preview-section">
         <div class="preview-title-row">
@@ -210,6 +248,13 @@ function onImport() {
         </button>
       </div>
     </div>
+
+    <PdfColumnMapper
+      v-if="mapperOpen && pdfFile"
+      :file="pdfFile"
+      @close="mapperOpen = false"
+      @apply="onMapperApply"
+    />
   </div>
 </template>
 
@@ -273,6 +318,20 @@ function onImport() {
 }
 .msg.success { background: #f0fdf4; color: var(--success); }
 .msg.error   { background: #fef2f2; color: var(--danger); }
+
+.manual-map-btn {
+  width: 100%;
+  padding: 11px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1.5px solid var(--primary);
+  border-radius: 10px;
+  background: var(--primary-weak);
+  color: var(--primary);
+  cursor: pointer;
+}
+.manual-map-btn:active { opacity: 0.8; }
 
 .preview-section {
   margin-bottom: 16px;

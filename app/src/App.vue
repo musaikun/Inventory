@@ -17,6 +17,8 @@ import {
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
   setExpectedSessionId,
+  setOrderCallbacks, setOrdersSnapshotCallback, registerOrdersGetter,
+  broadcastOrderUpdate, broadcastOrderRemove,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
@@ -34,11 +36,18 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
+  loadMovementsFromD1,
 } from './composables/useStore.js'
 import { useOrders } from './composables/useOrders.js'
+import { useMovements } from './composables/useMovements.js'
+import { useDayNotes } from './composables/useDayNotes.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
+import { weekdayOrderHistory } from './services/orderItemHistory.js'
+import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
-import { isAuthenticated, clearAuthLocal } from './composables/useAuth.js'
+import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler } from './composables/useAuth.js'
+import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
@@ -46,16 +55,19 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import DeleteAccountModal from './components/DeleteAccountModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _selectedYear as sessionsYear, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as sessionsTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
-import AxisAssignModal from './components/AxisAssignModal.vue'
+import AxisAssignFocus from './components/AxisAssignFocus.vue'
+import MasterManagePage from './components/MasterManagePage.vue'
+import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -70,7 +82,7 @@ import { isTwaApp } from './utils/appMode.js'
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, setEmptyList, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -91,9 +103,17 @@ const orderDraft = ref({})
 function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
 function _todayStr() { return new Date().toISOString().slice(0, 10) }
 
-// この品目・今日の曜日の適正在庫（学習不足なら null）
+// この品目・今日の曜日の適正在庫（学習不足なら null）。
+// 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
+const { isExcluded: _isDateExcluded } = useDayNotes()
 function _parLevelFor(item) {
-  return calcParLevel(getLearningEvents(), item, weekdayOf(_todayStr()))
+  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date))
+  return calcParLevel(events, item, weekdayOf(_todayStr()))
+}
+// 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
+const { getMovements, applyRemoteMovements } = useMovements()
+function _theoStockFor(item) {
+  return theoreticalStock(item, getSnapshots(), getMovements())
 }
 // 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
 function _lastWeekQtyFor(item) {
@@ -105,6 +125,10 @@ function _lastWeekQtyFor(item) {
     if (line && (!best || o.date > best.date)) best = { date: o.date, qty: line.qty }
   }
   return best ? best.qty : null
+}
+// 品目×同曜の発注履歴（前週・先月・直近中央値・推移）。当日分は除外。
+function _weekdayHistoryFor(item) {
+  return weekdayOrderHistory(getOrders(), item, weekdayOf(_todayStr()), { window: 6, before: _todayStr() })
 }
 
 // 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
@@ -271,6 +295,7 @@ async function _pullAccountConfig() {
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
+  await _pullMovements()  // 入出庫（ホームの未反映バッジ・カレンダー表示で使用）
 }
 
 // 認証後にセッション一覧へ
@@ -306,6 +331,21 @@ async function _loadOrderData() {
     const remote = await loadOrdersFromD1()
     if (Array.isArray(remote) && remote.length) applyRemoteOrders(remote)
   } catch (_) {}
+}
+
+// 入出庫を D1 から取り込む（端末間共有・キャッシュ削除からの復旧）。id重複排除で冪等。
+async function _pullMovements() {
+  if (!shopCode.value) return
+  try {
+    const remote = await loadMovementsFromD1()
+    if (Array.isArray(remote) && remote.length) applyRemoteMovements(remote)
+  } catch (_) {}
+}
+
+// 入出庫ページを開く。最新の入出庫を D1 から取り込んでから表示する。
+function openMovement() {
+  currentView.value = 'movement'
+  _pullMovements()
 }
 
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
@@ -552,6 +592,9 @@ setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
 registerRecountFlagsGetter(() => ({ ...recountFlags }))
 registerConfigGetter(() => ({ ...serializeConfigData(), isCustom: config.isCustom }))
+setOrderCallbacks(applyRemoteOrderUpdate, applyRemoteOrderRemove)
+setOrdersSnapshotCallback(applyOrdersSnapshot)
+registerOrdersGetter(_ordersPayload)
 setConfigCallback((cfg) => {
   applyRemoteConfig(cfg)
   if (syncActive.value && !syncIsHost.value) {
@@ -637,14 +680,7 @@ setConflictNotifyCallback((ingredient) => {
 
 function approveItemAdd(req) {
   addItem(req.name, null, null, req.unit || null, req.code || null)
-  broadcastConfig({
-    order: config.order, units: config.units, prices: config.prices,
-    categories: config.categories, codes: config.codes, categoryCodes: config.categoryCodes,
-    prevMonths: config.prevMonths, lotSizes: config.lotSizes, dictionary: config.dictionary,
-    axisNames: config.axisNames, tagsA: config.tagsA, tagsB: config.tagsB,
-    axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB,
-    isCustom: config.isCustom,
-  })
+  broadcastConfig(_configPayload())
   broadcastItemAddResponse(req.requestId, true, req.name)
   dismissItemAddRequest(req.requestId)
   showToast(`「${req.name}」を品目リストに追加しました`, 2500, 'success')
@@ -708,6 +744,15 @@ setNewSessionStartedCallback(() => {
   leaveRoom()
 })
 
+// 別アカウントでログイン/登録したとき、前アカウントのローカルデータを全消去する
+// （品目マスタ・棚卸・発注・入出庫・履歴等がアカウント境界を越えて見える漏洩を防ぐ）
+setAccountResetHandler(() => {
+  clearLocalAccountData()
+  clearSession()
+  reset()
+  clearAuditLog()
+})
+
 // 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき
 setAuthInvalidatedHandler(() => {
   if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
@@ -743,6 +788,8 @@ const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pen
 
 // セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
 const sessionMode = ref('stock')
+// セッション種別に応じた主語（棚卸/発注）。UI文言・確認・トーストで共用。
+const actNoun = computed(() => sessionMode.value === 'order' ? '発注' : '棚卸')
 
 onMounted(async () => {
   initConnectivity()
@@ -848,16 +895,26 @@ function _closeTopLayer() {
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
+  if (showOrderSchedule.value) { showOrderSchedule.value = false; return true }
+  if (showDeleteAccount.value) { showDeleteAccount.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
+  if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
-  if (currentView.value === 'sessions' && sessionsYear.value !== null) { sessionsYear.value = null; return true }
   if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
   return false
+}
+
+// アカウント削除の完了（DeleteAccountModal が既に token/ローカルデータを破棄済み）。
+// ログイン状態は解除されているため、ランディングへ戻す。
+function onAccountDeleted() {
+  showDeleteAccount.value = false
+  currentView.value = 'landing'
 }
 
 function _onBrowserBack() {
@@ -1016,8 +1073,12 @@ async function onComplete() {
     return
   }
 
-  if (filledCount.value === 0) {
-    showToast('1件以上入力してから完了してください', 2600, 'warning')
+  // 完了に必要な件数: 発注モードは「発注数」の件数、棚卸は在庫入力件数。
+  // 発注では在庫入力は任意なので、在庫0でも発注数が1件以上あれば完了できる。
+  const isOrderMode = sessionMode.value === 'order'
+  const completionCount = isOrderMode ? Object.keys(orderDraft.value).length : filledCount.value
+  if (completionCount === 0) {
+    showToast(isOrderMode ? '発注数を1件以上入力してから完了してください' : '1件以上入力してから完了してください', 2600, 'warning')
     return
   }
 
@@ -1034,12 +1095,11 @@ async function onComplete() {
   // ホスト or ソロ: 棚卸を締める
   const isHostInRoom = syncActive.value && syncIsHost.value
   const confirmMsg = isHostInRoom
-    ? '棚卸を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。'
-    : '棚卸を完了しますか？\n完了後は読み取り専用になります。'
+    ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
+    : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   if (!confirm(confirmMsg)) return
 
   const completedId   = pendingSession.value?.id
-  const completedYear = new Date().getFullYear()
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
@@ -1053,26 +1113,25 @@ async function onComplete() {
   if (isHostInRoom) {
     // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
     // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
-    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
     _clearDraft(completedId)
     clearSession()
     sessionsTab.value  = 'dashboard'
-    sessionsYear.value = completedYear
     _setNewSession(completedId)
     currentView.value  = 'sessions'
     return
   }
 
   // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
-  await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
   _clearDraft(completedId)
   clearSession()
-  track('session_completed', { item_count: filledCount.value, mode: 'solo' })
+  track('session_completed', { item_count: completionCount, mode: 'solo' })
   _checkReviewPrompt()
-  showToast('棚卸を完了しました ✓', 3000, 'success')
+  showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -1254,23 +1313,7 @@ watch(config, () => {
   if (!syncIsHost.value || !syncActive.value) return
   clearTimeout(_configBroadcastTimer)
   _configBroadcastTimer = setTimeout(() => {
-    broadcastConfig({
-      order:         config.order,
-      units:         config.units,
-      prices:        config.prices,
-      categories:    config.categories,
-      codes:         config.codes,
-      categoryCodes: config.categoryCodes,
-      prevMonths:    config.prevMonths,
-      lotSizes:      config.lotSizes,
-      dictionary:    config.dictionary,
-      axisNames:     config.axisNames,
-      tagsA:         config.tagsA,
-      tagsB:         config.tagsB,
-      axisGroupsA:   config.axisGroupsA,
-      axisGroupsB:   config.axisGroupsB,
-      isCustom:      config.isCustom,
-    })
+    broadcastConfig(_configPayload())
   }, 300)
 }, { deep: true })
 
@@ -1458,7 +1501,9 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
     parLevel:       isOrder ? _parLevelFor(ingredient) : null,
     lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
+    weekdayHistory: isOrder ? _weekdayHistoryFor(ingredient) : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
+    theoStock:      isOrder ? _theoStockFor(ingredient) : null,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -1572,19 +1617,54 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
   }
   // 発注下書きを更新（発注数 0 は下書きから外す＝発注なし）
   const draft = { ...orderDraft.value }
-  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot }
+  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
+  // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
+  if (syncActive.value) {
+    if (orderQty > 0) broadcastOrderUpdate(ingredient, orderQty, unit, lot, deviceName.value || '名前未設定')
+    else              broadcastOrderRemove(ingredient)
+  }
   _persistOrderDraft()
   return 'saved'
 }
 
-// 発注下書きをセッション単位で 1 レコードに集約し、useOrders + D1 へ保存する。
+// ── 発注数の同期（受信・スナップショット・送信ペイロード）─────────────────────
+// リモートからの発注数更新: 下書きへ反映（localStorage のみ保存。D1 は発信元が書く）。
+function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot, by) {
+  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot, by })
+  _persistOrderDraftLocal()
+}
+
+function applyRemoteOrderRemove(ingredient) {
+  if (!orderDraft.value[ingredient]) return
+  orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty: 0 })
+  _persistOrderDraftLocal()
+}
+
+// 参加/新セッション時の一括同期: DO の発注数を正として揃える（在庫は別ルートで保持）。
+function applyOrdersSnapshot(orders) {
+  if (!orders || typeof orders !== 'object') return
+  orderDraft.value = mergeOrderSnapshot(orderDraft.value, orders)
+  _persistOrderDraftLocal()
+}
+
+// session_start でホストが送る発注数ペイロード。
+function _ordersPayload() {
+  return orderDraftToPayload(orderDraft.value, deviceName.value || '')
+}
+
+// 発注下書きを localStorage にのみ保存（リモート反映時の軽量保存・D1 書き込みなし）。
+function _persistOrderDraftLocal() {
+  try { localStorage.setItem(_ORDER_DRAFT_PREFIX + _orderId(), JSON.stringify(orderDraft.value)) } catch (_) {}
+}
+
+// 発注下書きをセッション単位で 1 レコードに集約し、localStorage + useOrders + D1 へ保存する。
 function _persistOrderDraft() {
+  _persistOrderDraftLocal()
   const lines = Object.entries(orderDraft.value).map(([item, d]) => ({
     item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
   }))
-  try { localStorage.setItem(_ORDER_DRAFT_PREFIX + _orderId(), JSON.stringify(orderDraft.value)) } catch (_) {}
   const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
   if (rec) saveOrderToD1(rec)
 }
@@ -1877,12 +1957,20 @@ function onDeleteConfigItem(name) {
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
 function onHideItem(name) {
   hideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
   showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
 }
 function onUnhideItem(name) {
   unhideItem(name)
-  if (syncActive.value) broadcastConfig()
+  if (syncActive.value) broadcastConfig(_configPayload())
+}
+
+// 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
+function onClearMaster(opts = {}) {
+  setEmptyList({ resetAssignments: opts.resetAssignments === true })
+  _persistConfigToD1()
+  if (syncActive.value) broadcastConfig(_configPayload())
+  showToast(opts.resetAssignments ? '品目マスタと振り分けを削除しました' : '品目マスタを削除しました', 2600, 'default')
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
@@ -2033,7 +2121,22 @@ function dismissReview() {
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
+      @open-master="currentView = 'master'"
+      @open-movement="openMovement"
       @open-upgrade="reason => openUpgrade(reason)"
+    />
+
+    <!-- ── 品目マスタ管理（専用ページ） ── -->
+    <MasterManagePage
+      v-else-if="currentView === 'master'"
+      @back="currentView = 'sessions'"
+      @clear-master="onClearMaster"
+    />
+
+    <!-- ── 入出庫（専用ページ・品目ごとに増減） ── -->
+    <MovementPage
+      v-else-if="currentView === 'movement'"
+      @back="currentView = 'sessions'"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->
@@ -2127,7 +2230,7 @@ function dismissReview() {
       >
         <span class="room-cta-icon">👥</span>
         <span class="room-cta-body">
-          <span class="room-cta-title">みんなで一緒に棚卸する</span>
+          <span class="room-cta-title">みんなで一緒に{{ actNoun }}する</span>
           <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
         </span>
         <span class="room-cta-action">ルームを作成 ＋</span>
@@ -2136,7 +2239,7 @@ function dismissReview() {
       <!-- 棚卸完了バナー -->
       <div v-if="isCompleted" class="complete-banner">
         <span class="complete-icon">✓</span>
-        <span class="complete-text">棚卸完了 — {{ completedAtDisplay }}</span>
+        <span class="complete-text">{{ actNoun }}完了 — {{ completedAtDisplay }}</span>
       </div>
 
       <!-- 音声入力 / テキスト検索（完了時・ゲスト棚卸完了後は非表示） -->
@@ -2335,6 +2438,8 @@ function dismissReview() {
         :manual-items="config.manualItems"
         :usage-map="itemUsageMap"
         :hidden-items="config.hiddenItems"
+        :order-map="sessionMode === 'order' ? orderDraft : null"
+        :order-mode="sessionMode === 'order'"
         :can-manage-list="!syncActive || syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
@@ -2377,7 +2482,9 @@ function dismissReview() {
         :par-level="confirmState.parLevel"
         :order-lot="confirmState.orderLot ?? 1"
         :last-week-qty="confirmState.lastWeekQty"
+        :weekday-history="confirmState.weekdayHistory"
         :initial-order-qty="confirmState.initialOrderQty"
+        :theo-stock="confirmState.theoStock"
         @confirm="onConfirm"
         @navigate="onConfirmNavigate"
         @cancel="onCancelConfirm"
@@ -2411,8 +2518,8 @@ function dismissReview() {
               :class="{ reported: guestReported }"
               @click="guestReported ? onUndone() : onComplete()"
             >{{ guestReported
-                ? (syncActive && !syncIsHost ? '↩ 入力再開' : '↩ 棚卸再開')
-                : (syncActive && !syncIsHost ? '✓ 入力完了' : '✓ 棚卸完了')
+                ? (syncActive && !syncIsHost ? '↩ 入力再開' : `↩ ${actNoun}再開`)
+                : (syncActive && !syncIsHost ? '✓ 入力完了' : `✓ ${actNoun}完了`)
               }}</button>
             <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
           </template>
@@ -2477,7 +2584,8 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
-    <AxisAssignModal v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
+    <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
+    <AxisAssignFocus v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />

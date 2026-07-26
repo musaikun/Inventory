@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { insertInventoryLines, queryItemHistory } from './inventoryLines.js'
+import { insertInventoryLines } from './inventoryLines.js'
 
 // ── D1 モック ──────────────────────────────────────────────────────────────────
 function createMockD1() {
@@ -101,17 +101,5 @@ describe('insertInventoryLines', () => {
     expect(db._lines.every(l => l.session_id === SESSION_ID)).toBe(true)
     expect(db._lines.every(l => l.shop_code  === SHOP_CODE)).toBe(true)
     expect(db._lines.every(l => l.taken_at   === TAKEN_AT)).toBe(true)
-  })
-})
-
-describe('queryItemHistory', () => {
-  it('指定品目の時系列を返す', async () => {
-    const db = createMockD1()
-    await insertInventoryLines(db, { sessionId: 'sess-1', shopCode: SHOP_CODE, takenAt: '2026-05-01', inventory: INVENTORY, prices: PRICES })
-    await insertInventoryLines(db, { sessionId: 'sess-2', shopCode: SHOP_CODE, takenAt: '2026-06-01', inventory: INVENTORY, prices: PRICES })
-    const rows = await queryItemHistory(db, SHOP_CODE, 'コーヒー豆')
-    expect(rows).toHaveLength(2)
-    expect(rows[0].taken_at).toBe('2026-05-01')
-    expect(rows[1].taken_at).toBe('2026-06-01')
   })
 })

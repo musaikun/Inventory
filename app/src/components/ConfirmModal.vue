@@ -32,14 +32,16 @@ const props = defineProps({
   parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
   orderLot:        { type: Number,  default: 1 },     // 入数（数値）
   lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
+  weekdayHistory:  { type: Object,  default: null },  // 品目×同曜の発注履歴 { lastWeek, lastMonth, median, values, samples, count }
   initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
+  theoStock:       { type: Object,  default: null },  // 理論在庫 { qty, baseQty, baseDate, inQty, outQty }
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
 
-// 編集モードでは単位・ジャンルのロックを解除して編集できる（編集が唯一の変更手段）
-const unitEditable     = computed(() => props.isEdit || !props.unitLocked)
-const categoryEditable = computed(() => props.isEdit || !props.categoryLocked)
+// 編集モードでは単位のロックを解除して編集できる（編集が唯一の変更手段）。
+// ジャンルは取込元由来のみ＝常に読み取り専用（ユーザー分類はユーザー軸で行う）。
+const unitEditable = computed(() => props.isEdit || !props.unitLocked)
 
 // 編集モード: 品目名・単価
 const editName = ref(props.ingredient)
@@ -51,8 +53,6 @@ const tagB = ref(props.initialTagB ?? '')
 
 // 単位ドロップダウンの選択肢（p・ヶ を追加）
 const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
-// 初期ジャンル（既存が無いとき用）
-const PRESET_GENRES = ['肉類', '野菜', '魚', '冷凍', '冷蔵', '常温', '飲料', '酒類', '調味料', '乾物', '消耗品', 'その他']
 const CUSTOM = '__custom__'
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
@@ -80,7 +80,61 @@ const effectiveOrderQty = computed(() => {
 function orderStep(delta) {
   orderQty.value     = Math.max(0, (effectiveOrderQty.value ?? 0) + delta)
   orderTouched.value = true
+  orderFocus.value   = 'order'
 }
+
+// 発注モードで NumPad/プリセットが編集する対象。初期は発注数（主役）。
+// 'order' = 発注数（整数）／'stock' = 現在在庫（小数OK・従来どおり）
+const orderFocus = ref('order')
+
+// 学習値（推奨・前週）をタップして発注数にセット（そこから微調整できる）
+function setOrderQty(v) {
+  if (v == null || isNaN(v)) return
+  orderQty.value     = Math.max(0, Math.round(v))
+  orderTouched.value = true
+  orderFocus.value   = 'order'
+}
+
+// 品目×同曜の発注履歴（前週・先月・中央値・ミニ推移）
+const WD = ['日', '月', '火', '水', '木', '金', '土']
+const orderWeekdayLabel = computed(() => {
+  const s = props.weekdayHistory?.lastWeek?.date || props.weekdayHistory?.samples?.[0]?.date
+  return s ? WD[new Date(s + 'T12:00:00').getDay()] : WD[new Date().getDay()]
+})
+// スパークライン: 値を 8..100% の高さへ正規化
+const spark = computed(() => {
+  const vals = props.weekdayHistory?.values ?? []
+  if (!vals.length) return []
+  const max = Math.max(...vals, 1)
+  return vals.map(v => Math.max(8, Math.round((v / max) * 100)))
+})
+
+// ── 理論在庫（直近棚卸＋入出庫の導出値）──────────────────────────────────────
+// タップでプリフィルできるが、自動入力はしない（在庫入力は独立した観測値として
+// ズレ検出・学習品質に使うため、意図した採用だけを許す）。
+function _md(dateStr) {
+  const [, m, d] = String(dateStr || '').split('-').map(Number)
+  return m && d ? `${m}/${d}` : ''
+}
+const theoBasis = computed(() => {
+  const t = props.theoStock
+  if (!t) return ''
+  const parts = [t.baseDate ? `${_md(t.baseDate)}棚卸 ${t.baseQty}` : '棚卸実績なし']
+  if (t.inQty)  parts.push(`＋入庫${t.inQty}`)
+  if (t.outQty) parts.push(`−出庫${t.outQty}`)
+  return parts.join(' ')
+})
+function useTheoStock() {
+  qty.value = String(props.theoStock.qty)
+  hasError.value = false
+}
+// 入力値と理論在庫のズレ（0 は「一致」表示に使うため null と区別する）
+const stockDrift = computed(() => {
+  if (!props.orderMode || !props.theoStock || qty.value === '') return null
+  const v = parseFloat(qty.value)
+  if (isNaN(v)) return null
+  return Math.round((v - props.theoStock.qty) * 1000) / 1000
+})
 
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
 const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
@@ -95,25 +149,21 @@ function onUnitChange(v) {
   }
 }
 
-// ── ジャンル（ドロップダウン＋手入力）─────────────────────────────────────────
+// ── ジャンル（取込元由来・表示のみ）─────────────────────────────────────────
 const category = ref(props.initialCategory ?? '')
-const categoryOptions = computed(() =>
-  [...new Set([...(props.existingCategories ?? []), ...PRESET_GENRES])]
-)
-const categoryCustom    = ref(!!props.initialCategory && !categoryOptions.value.includes(props.initialCategory))
-const categoryCustomRef = ref(null)
-const categorySelectValue = computed(() => categoryCustom.value ? CUSTOM : category.value)
-function onCategoryChange(v) {
-  if (v === CUSTOM) {
-    categoryCustom.value = true; category.value = ''
-    nextTick(() => categoryCustomRef.value?.focus())   // その他選択で即キーボードを開く
-  } else {
-    categoryCustom.value = false; category.value = v
-  }
-}
 
 // ── テンキー入力 ───────────────────────────────────────────────────────────────
+// 発注数フォーカス中か（NumPad/プリセットの編集対象が発注数）
+const editingOrder = computed(() => props.orderMode && orderFocus.value === 'order')
+
 function numpadDigit(d) {
+  if (editingOrder.value) {
+    const cur  = orderTouched.value && orderQty.value != null ? String(orderQty.value) : ''
+    const next = cur === '0' ? d : cur + d
+    orderQty.value     = Math.min(999999, parseInt(next, 10) || 0)  // 発注は整数
+    orderTouched.value = true
+    return
+  }
   const s = String(qty.value)
   if (s === '0') qty.value = d
   else           qty.value = s + d
@@ -121,16 +171,29 @@ function numpadDigit(d) {
 }
 
 function numpadDot() {
+  if (editingOrder.value) return   // 発注は整数のみ（小数点なし）
   const s = String(qty.value)
   if (!s.includes('.')) qty.value = (s || '0') + '.'
 }
 
 function numpadBack() {
+  if (editingOrder.value) {
+    const cur  = orderTouched.value && orderQty.value != null ? String(orderQty.value) : ''
+    const next = cur.length <= 1 ? '' : cur.slice(0, -1)
+    orderQty.value     = next === '' ? 0 : parseInt(next, 10)
+    orderTouched.value = true
+    return
+  }
   const s = String(qty.value)
   qty.value = s.length <= 1 ? '' : s.slice(0, -1)
 }
 
 function numpadClear() {
+  if (editingOrder.value) {
+    orderQty.value     = 0
+    orderTouched.value = true
+    return
+  }
   qty.value      = ''
   hasError.value = false
 }
@@ -155,9 +218,15 @@ onMounted(()   => document.addEventListener('keydown', handleKeydown))
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 
 // ── プリセット数量ボタン ───────────────────────────────────────────────────────
-const PRESETS = [0.1, 0.5, 1, 5, 10]
+const PRESETS       = [0.1, 0.5, 1, 5, 10]  // 在庫: 小数を含む加算
+const ORDER_PRESETS = [-1, 1, 5, 10]        // 発注: 整数の増減（微調整）
+
+// 発注数フォーカス時は整数プリセット、在庫入力時は従来のプリセット。
+const activePresets = computed(() => (editingOrder.value ? ORDER_PRESETS : PRESETS))
+function presetLabel(n) { return n < 0 ? `−${Math.abs(n)}` : `+${n}` }
 
 function addPreset(n) {
+  if (editingOrder.value) { orderStep(n); return }  // 発注数の微調整
   const current  = parseFloat(qty.value) || 0
   const result   = Math.round((current + n) * 10000) / 10000
   qty.value      = String(result)
@@ -411,12 +480,27 @@ function saveEdit() {
         </div>
       </div>
 
-      <!-- 発注モード: 現在在庫のラベル -->
-      <div v-if="orderMode" class="stock-label">現在在庫（任意）</div>
+      <!-- 発注モード: 現在在庫のラベル＋理論在庫 -->
+      <div v-if="orderMode" class="stock-label">
+        現在在庫（任意）
+        <span v-if="orderFocus === 'stock'" class="focus-badge">⌨ 入力中</span>
+      </div>
+      <div v-if="orderMode && theoStock" class="theo-row">
+        <button class="theo-chip" type="button" @click="useTheoStock">理論在庫 {{ theoStock.qty }}{{ unit }} を使う</button>
+        <span class="theo-basis">{{ theoBasis }}</span>
+      </div>
+      <div v-if="stockDrift != null" :class="['theo-drift', stockDrift === 0 ? 'ok' : '']">
+        <template v-if="stockDrift === 0">✓ 理論在庫と一致</template>
+        <template v-else-if="stockDrift < 0">理論在庫より {{ Math.abs(stockDrift) }} 少ない（未記録の使用・ロスの可能性）</template>
+        <template v-else>理論在庫より {{ stockDrift }} 多い（入庫の記録漏れや数え直しの可能性）</template>
+      </div>
 
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">
-        <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
+        <div
+          :class="['qty-display', { error: hasError, filled: qty !== '', 'focus-on': orderMode && orderFocus === 'stock' }]"
+          @click="orderMode && (orderFocus = 'stock')"
+        >
           {{ qty !== '' ? qty : '—' }}
         </div>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
@@ -448,45 +532,57 @@ function saveEdit() {
 
       <!-- 発注ブロック: 発注数（推奨プリセット）＋ 適正在庫/前週参考 -->
       <div v-if="orderMode" class="order-block">
+        <!-- 学習値チップ: 推奨はタップで発注数にセット（そこから微調整）-->
         <div class="order-refs">
           <span class="ref-chip ref-par">適正在庫: {{ parLevel != null ? parLevel : '学習中' }}</span>
-          <span v-if="lastWeekQty != null" class="ref-chip ref-last">前週同曜: {{ lastWeekQty }}</span>
-          <span v-if="suggested != null" class="ref-chip ref-sug">推奨: {{ suggested }}</span>
+          <button v-if="suggested != null" class="ref-chip ref-sug tappable" type="button" @click="setOrderQty(suggested)">推奨: {{ suggested }}</button>
         </div>
-        <div class="order-qty-row">
-          <span class="order-qty-label">発注数</span>
-          <button class="order-step" @click="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
-          <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
-          <button class="order-step" @click="orderStep(1)" type="button">＋</button>
-          <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
+
+        <!-- 品目×同曜の発注実績（前週・先月・直近中央値・ミニ推移）。タップで発注数にセット -->
+        <div v-if="weekdayHistory && weekdayHistory.count" class="order-hist">
+          <div class="oh-title">{{ orderWeekdayLabel }}曜の発注実績（タップで発注数に）</div>
+          <div class="oh-row">
+            <button v-if="weekdayHistory.lastWeek" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
+              前週 {{ _md(weekdayHistory.lastWeek.date) }} <b>{{ weekdayHistory.lastWeek.qty }}</b>
+            </button>
+            <button v-if="weekdayHistory.lastMonth" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastMonth.qty)">
+              先月 {{ _md(weekdayHistory.lastMonth.date) }} <b>{{ weekdayHistory.lastMonth.qty }}</b>
+            </button>
+            <button v-if="weekdayHistory.median != null" class="oh-chip oh-median" type="button" @click="setOrderQty(weekdayHistory.median)">
+              直近中央値 <b>{{ weekdayHistory.median }}</b>
+            </button>
+          </div>
+          <div v-if="spark.length" class="oh-spark">
+            <span
+              v-for="(h, i) in spark" :key="i"
+              class="oh-bar"
+              :style="{ height: h + '%' }"
+              :title="`${_md(weekdayHistory.samples[i].date)}: ${weekdayHistory.samples[i].qty}`"
+            ></span>
+          </div>
+        </div>
+
+        <div v-if="suggested != null || (weekdayHistory && weekdayHistory.count)" class="order-refs-hint">↑ タップで発注数にセット・下のテンキーで微調整</div>
+        <div class="order-qty-block" @click="orderFocus = 'order'">
+          <div class="order-qty-head">
+            <span class="order-qty-label">発注数</span>
+            <span v-if="orderFocus === 'order'" class="focus-badge">⌨ 入力中</span>
+          </div>
+          <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]">
+            <button class="order-step" @click.stop="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
+            <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
+            <button class="order-step" @click.stop="orderStep(1)" type="button">＋</button>
+            <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
+          </div>
         </div>
         <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
 
-      <!-- ジャンル：ロック済みはバッジ、それ以外はドロップダウン＋手入力 -->
-      <div v-if="!orderMode" class="genre-row">
+      <!-- ジャンル：取込元由来のみ・読み取り専用（無ければ表示しない）-->
+      <div v-if="!orderMode && category" class="genre-row">
         <span class="genre-label">ジャンル</span>
-        <div v-if="!categoryEditable" class="genre-locked-badge">
-          {{ category || '未設定' }}<span class="unit-lock-icon">🔒</span>
-        </div>
-        <div v-else class="select-wrap genre-select-wrap">
-          <select class="field-select" :value="categorySelectValue" @change="onCategoryChange($event.target.value)">
-            <option value="">未設定</option>
-            <option v-for="g in categoryOptions" :key="g" :value="g">{{ g }}</option>
-            <option :value="CUSTOM">その他（手入力）…</option>
-          </select>
-          <span class="select-arrow">▾</span>
-        </div>
+        <span class="genre-locked-badge">{{ category }}<span class="unit-lock-icon">🔒</span></span>
       </div>
-      <input
-        v-if="categoryEditable && categoryCustom"
-        ref="categoryCustomRef"
-        type="text"
-        v-model="category"
-        maxlength="20"
-        placeholder="ジャンルを入力"
-        class="custom-input"
-      />
 
       <!-- 単価（編集モードのみ） -->
       <div v-if="isEdit" class="price-row">
@@ -521,19 +617,19 @@ function saveEdit() {
         </datalist>
       </div>
 
-      <!-- プリセットボタン -->
+      <!-- プリセットボタン（発注数フォーカス時は整数の増減）-->
       <div class="preset-row">
         <button
-          v-for="n in PRESETS"
+          v-for="n in activePresets"
           :key="n"
           class="preset-btn"
           @click="addPreset(n)"
           type="button"
-        >+{{ n }}</button>
+        >{{ presetLabel(n) }}</button>
       </div>
 
-      <!-- テンキー -->
-      <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
+      <!-- テンキー（発注数フォーカス時は小数点なし）-->
+      <NumPad :integer="editingOrder" @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
       <!-- アクションボタン -->
       <div v-if="isEdit" class="actions">
@@ -666,7 +762,29 @@ function saveEdit() {
   font-weight: 700;
   color: var(--primary);
   margin: 2px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
 }
+
+.theo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.theo-chip {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.theo-chip:active { background: #d1fae5; }
+.theo-basis { font-size: 11px; color: #94a3b8; }
+.theo-drift { font-size: 11.5px; font-weight: 600; color: #b45309; margin-bottom: 6px; }
+.theo-drift.ok { color: #059669; }
 
 .order-block {
   background: var(--primary-weak);
@@ -693,12 +811,45 @@ function saveEdit() {
   border: 1px solid var(--primary-border);
 }
 .ref-sug { background: var(--primary); color: #fff; border-color: var(--primary); }
+.ref-chip.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ref-chip.tappable:active { transform: scale(0.95); }
+.ref-last.tappable { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.order-refs-hint { font-size: 10.5px; color: var(--primary); opacity: 0.85; margin: -3px 0 8px; }
 
+/* 品目×同曜の発注実績 */
+.order-hist { background: #fff; border: 1px solid var(--primary-border); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.oh-title { font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 6px; }
+.oh-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.oh-chip { border: 1px solid var(--primary-border); background: var(--primary-weak); color: var(--primary); border-radius: 16px; padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.oh-chip b { font-weight: 800; margin-left: 2px; }
+.oh-chip:active { transform: scale(0.96); }
+.oh-chip.oh-median { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+.oh-spark { display: flex; align-items: flex-end; gap: 3px; height: 28px; margin-top: 8px; }
+.oh-bar { flex: 1; min-width: 4px; max-width: 16px; background: var(--primary); opacity: 0.55; border-radius: 2px 2px 0 0; }
+.oh-bar:last-child { opacity: 0.9; }
+
+/* NumPad が編集中の欄を示すバッジ・枠 */
+.focus-badge { font-size: 10px; font-weight: 800; color: #fff; background: var(--primary); border-radius: 8px; padding: 1px 6px; margin-left: 6px; letter-spacing: 0.02em; }
+.qty-display { transition: box-shadow 0.12s; }
+.qty-display.focus-on { box-shadow: 0 0 0 2px var(--primary); }
+
+.order-qty-block { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.order-qty-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
+  margin-bottom: 6px;
+}
 .order-qty-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  border-radius: 10px;
+  padding: 4px;
+  transition: box-shadow 0.12s;
 }
+.order-qty-row.focus-on { box-shadow: inset 0 0 0 2px var(--primary); }
 
 .order-qty-label {
   font-size: 13px;
@@ -922,6 +1073,12 @@ function saveEdit() {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+.genre-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: -2px 0 10px;
+  line-height: 1.4;
 }
 .genre-label {
   font-size: 13px;

@@ -143,5 +143,5 @@ AIを「競合」でなく「機能強化のエンジン」として組み込む
 
 - 企業導入（多店舗）設計 → `docs/enterprise-design.md`
 - DB設計v2（時系列データ基盤）→ `docs/db-design-v2.md`
-- Phase2 分析機能仕様 → `docs/phase2.md`
-- バックログ・優先度 → `docs/backlog.md`
+- 実行計画（トラック別・ウェーブ）→ `docs/roadmap.md`
+- 料金・獲得戦略（未実装メモ）→ `docs/pricing-strategy.md`

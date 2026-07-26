@@ -27,6 +27,16 @@ export const STORAGE_KEYS = {
   pendingSession:   '_pending_session_v1',
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
+  deleteRequestId:  '_delete_account_request_id',  // アカウント削除の in-flight requestId（成功/中止で消す・再試行では同じ値）
   tapContinuous:    'inv_tap_continuous',
   orders:           'inventory_orders_v1',
+  movements:        'inventory_movements_v1',
+  movementDraft:    'inventory_movement_draft_v1',  // 未記録の入出庫入力（端末に保持）
+  dayNotes:         'inventory_day_notes_v1',  // 日別メモ（内部イベント・学習除外フラグ）
+  pdfProfiles:      'inventory_pdf_profiles_v1',  // PDF列マッピングのレシピ保存
+  dataOwner:        '_data_owner',   // localStorage の業務データが属する店舗コード（アカウント分離用）
+  // 天気連携（端末固有・アカウント切替でも保持＝端末の物理位置は店舗が変わっても同じ）。
+  // 業務データではないため accountData の全消去対象には含めない。
+  weatherLoc:       'weather_loc',    // 天気表示の位置（緯度・経度・地名）
+  weatherCache:     'weather_cache',  // 天気データの1hキャッシュ
 }

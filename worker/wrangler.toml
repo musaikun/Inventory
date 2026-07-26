@@ -6,7 +6,10 @@ account_id = "d27afd2bc7f0a66b1275eb28d7b3d470"
 
 
 [vars]
-ALLOWED_ORIGIN = ""
+# 許可オリジン（カンマ区切りの完全一致）。本番/プレビュー（*.inventory-app.pages.dev）と
+# localhost はコード側（isAllowedOrigin）で常に許可されるため、ここには独自ドメイン取得時に
+# その本番ドメインを追記する。空でもフェイルクローズ（既定の許可以外は 403）。
+ALLOWED_ORIGIN = "https://inventory-app.pages.dev"
 
 [durable_objects]
 bindings = [
