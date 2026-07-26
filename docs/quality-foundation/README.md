@@ -60,8 +60,9 @@ security row cleanupまでlocal対応済みです。CCの公開privacy/terms/sup
 
 次の担当:
 
-- Codex — UserがD-005を決めた後の`TEST-001`復旧。本番D1 migrationは承認があるまで適用しない。
-- User — D-005の仕入先順、reviewer用test店舗、canonical URL/contact、料金表示方針、Cloudflare plan/Logsを決定。
+- Codex — `TEST-001`は入力順で復旧済み。CI-001のActions実行確認後、次の公開対象P1へ進む。
+  本番D1 migrationは承認があるまで適用しない。
+- User — reviewer用test店舗、canonical URL/contact、料金表示方針、Cloudflare plan/Logsを決定。
 - Claude Code — `docs/legal/terms.md`と公開termsの残る文面差を同期し、User判断後に料金表示・絶対URLを反映。
   screenshotsは8/6のUI freeze後。
 

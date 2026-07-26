@@ -183,7 +183,7 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
 - clean install: App `npm ci`成功。PostHog削除後にVitest 4 / Vite 8のoptional peerを再現可能にするため
   `esbuild@0.28.0`をdevDependencyへ明示し、`npm ls vitest vite esbuild posthog-js`成功。
 - Worker全体: 15 files / 195 tests passed。
-- App全体: 67 files中66 passed、1 failed。656 passed / 1 known failure（`TEST-001`の日本語仕入先名順序）。
+- App全体: 67 files / 658 tests passed（`TEST-001`解消後）。
 - App production build成功（444 modules）。500 kB超chunk警告は既知の`PERF-001`。
 - `git diff --check`成功。source/package/CSP/build成果物にPostHog import、key、hostがないことを`rg`で確認。
 - Cloudflare read-only preflight: Time Travel info取得成功（bookmark値は非記録）。本番D1に0010/0011の

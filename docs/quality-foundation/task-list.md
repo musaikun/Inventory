@@ -20,7 +20,7 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 | PLAY-003 | P1 | 進行中 | Codex | Data Safety・privacy・第三者SDKの整合監査 |
 | PLAY-004 | P1 | 進行中 | Claude Code | TWA審査導線・store listing・screenshots |
 | BUG-001 | P1 | 完了 | Codex | cron の存在しない列参照を修正 |
-| TEST-001 | P1 | 進行中 | Codex | 仕入先順の仕様を決め App テストを復旧 |
+| TEST-001 | P1 | 完了 | Codex | 仕入先順の仕様を決め App テストを復旧 |
 | SEC-003 | P1 | 完了 | Codex | Push 購読 API の認証・検証を追加 |
 | SEC-004 | P1 | 完了 | Codex | ホスト認可境界を fail-closed 化 |
 | SEC-005 | P1 | 未着手 | Codex | 無制限な店舗作成経路を整理 |
@@ -297,8 +297,14 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 ### TEST-001 — 仕入先順の仕様を決め App テストを復旧
 
+- 着手・完了: 2026-07-26 / Codex（User判断: 入力順）。
 - 根拠: `deliveryImportCommit.test.js` の期待順と `localeCompare` による実装順が不一致。
-- 未決: 入力順、Unicode/locale 順、正規化済み表示順のどれを製品仕様にするか。
+- 決定: 日付昇順。同一日内はCSVで仕入先が最初に登場した順を保持し、同一日・仕入先の行は
+  最初の登場位置に1件の入庫レコードとして集約する（D-005）。
+- 実装: group作成時の`firstSeen`を保持し、日付→初出順でsort。locale依存の仕入先名sortを除去した。
+- 検証: 対象4/4、App 67 files / 658 tests、Worker 15 files / 195 testsが全件成功。
+  App production build成功（444 modules）、`git diff --check`成功。
+- 未実施: commit、push、deploy。
 - 完了条件: 判断を `decisions.md` に記録し、実装とテストを一致させ、App テストを全件成功させる。
 
 ### SEC-003 — Push 購読 API の認証・検証を追加
@@ -374,8 +380,8 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 - ローカル適用: `.github/workflows/develop-preview.yml`と運用文書を追加・同期。
 - migration安全性review: develop workflowはD1を変更しない。手動deploy用`migrate.sh`が0010/0011を
   列挙していない不備を修正し、migration directory全件の列挙を保証するWorker testを追加した。
-- 検証: Worker 191/191、公開削除route 3/3、App build成功。App全体は597/598で、既知`TEST-001`のみ失敗。
-- 残り: commit/push後のActions実行確認。`TEST-001`解消までは品質gateでpreview deployを停止する。
+- 検証: 2026-07-26にWorker 195/195、App 658/658、App production buildがlocalで成功。
+- 残り: commit/push後のActions実行とPages preview更新確認。
 - 完了条件: ユーザー判断を記録し、push / PR の対象と deploy 有無を workflow と文書で一致させる。
 
 ### DEP-001 — `xlsx` の high 脆弱性を解消または隔離

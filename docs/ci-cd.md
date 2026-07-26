@@ -57,7 +57,8 @@ npx wrangler pages project create inventory-app --production-branch=main
 2. Worker/AppテストとAppビルドが成功した場合だけPages deployへ進む
 3. `https://develop.inventory-app-c40.pages.dev`で反映を確認する
 
-既知の`TEST-001`が残っている間は品質gateで停止し、自動previewは更新されません。
+`TEST-001`は2026-07-26に解消し、localでWorker 195/195、App 658/658、App build成功を確認済みです。
+最終的なCI-001完了には、commit/push後のActions成功とpreview URL更新を確認します。
 
 ## 手動デプロイ（フォールバック）
 

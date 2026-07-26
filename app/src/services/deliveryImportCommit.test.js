@@ -22,6 +22,24 @@ describe('buildImportMovements', () => {
     expect(out[2]).toMatchObject({ date: '2026-06-03', note: '八百屋' })
   })
 
+  it('日付昇順かつ同一日内は仕入先の入力初出順を保持する', () => {
+    const rows = [
+      { date: '2026-06-03', type: 'in', supplier: '青果店', item: 'トマト', qty: 3, unit: 'kg' },
+      { date: '2026-06-01', type: 'in', supplier: '八百屋', item: '玉ねぎ', qty: 20, unit: 'kg' },
+      { date: '2026-06-01', type: 'in', supplier: '肉のヤマ', item: '鶏もも', qty: 5, unit: 'kg' },
+      { date: '2026-06-01', type: 'in', supplier: '八百屋', item: 'レタス', qty: 24, unit: '玉' },
+    ]
+
+    const out = buildImportMovements(rows)
+
+    expect(out.map(({ date, note }) => [date, note])).toEqual([
+      ['2026-06-01', '八百屋'],
+      ['2026-06-01', '肉のヤマ'],
+      ['2026-06-03', '青果店'],
+    ])
+    expect(out[0].lines.map(line => line.item)).toEqual(['玉ねぎ', 'レタス'])
+  })
+
   it('item 無し・qty<=0・出庫・日付無しは除外', () => {
     const rows = [
       { date: '2026-06-01', type: 'in', item: '', qty: 3 },

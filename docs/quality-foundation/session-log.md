@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-07-26 — TEST-001完了・develop CI local gate全件成功
+
+- UserがD-005を「日付昇順＋同一日内はCSVでの仕入先初出順」で決定。
+  同一日・仕入先の複数行は最初の登場位置へ1件に集約する。
+- `deliveryImportCommit.js`へgroupの`firstSeen`を追加し、locale依存の仕入先名sortを除去。
+  日付が前後する入力、同一仕入先の再登場、日本語名を含む回帰testを追加した。
+- 検証: 対象4/4、clean install後にApp 67 files / 658 tests、Worker 15 files / 195 testsが全件成功。
+  App production build成功（444 modules）、`git diff --check`成功。
+- `TEST-001`を完了へ更新。CI-001の残りはcommit/push後のActions実行とpreview更新確認。
+- 既知warning: App `npm ci`はNode 22に対するZXing Node >=24 engine警告、buildは500 kB超chunk警告。
+  dependency auditはApp 12件、Worker 7件を報告するが、このタスクでは変更していない。
+- commit、push、deploy、remote migrationは実施していない。
+
 ## 2026-07-26 — Codex: PLAY-004後半独立review・全体回帰
 
 - CCの公開privacy/terms/support、削除/landing/settings導線、retention・外部送信文面を独立review。
