@@ -30,8 +30,8 @@ function makeWs(att) {
 }
 
 function setup() {
-  const ws1 = makeWs({ deviceId: 'd1', deviceName: 'レジ' })
-  const ws2 = makeWs({ deviceId: 'd2', deviceName: 'ホール' })
+  const ws1 = makeWs({ joined: true, deviceId: 'd1', deviceName: 'レジ' })
+  const ws2 = makeWs({ joined: true, deviceId: 'd2', deviceName: 'ホール' })
   const state = makeState([ws1, ws2])
   const room = new RoomDO(state, {})
   return { room, state, ws1, ws2 }

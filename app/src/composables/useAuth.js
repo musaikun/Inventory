@@ -89,6 +89,19 @@ export function clearAuthLocal() {
   _clearAuth()
 }
 
+// DELETE /auth/account  { requestId, pin, confirmation }
+// account-deletion-contract に従う。成功/replay は
+// { ok, status:'deleted', deletedAt, alreadyDeleted, requestId } を返す。
+// 失敗は err.status / err.code / err.body（retryable 等）を投げる（api.js が付与）。
+// requestId は「削除画面を開いた時点で1回だけ生成」した値を再試行でも変えずに渡す。
+// 成功時のローカル掃除（Push解除・業務data消去・auth破棄・分析reset）は呼び出し側で行う。
+export async function deleteAccount({ requestId, pin, confirmation }) {
+  return _api('/auth/account', {
+    method: 'DELETE',
+    body:   JSON.stringify({ requestId, pin, confirmation }),
+  })
+}
+
 // ── セッション API（認証必須）─────────────────────────────────────────────────
 
 // GET /store/:code/sessions

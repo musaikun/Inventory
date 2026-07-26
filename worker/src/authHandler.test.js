@@ -18,10 +18,13 @@ function createMockD1() {
       stores.push({ shop_code, store_name, pin_hash, created_at, updated_at })
       return { success: true }
     }
-    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores')) {
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
-    if (s.startsWith('SELECT pin_hash FROM stores')) {
+    if (s.startsWith('SELECT pin_hash, deleted_at, deletion_pending_at FROM stores')) {
+      return stores.find(r => r.shop_code === args[0]) ?? null
+    }
+    if (s.startsWith('SELECT deleted_at, deletion_pending_at FROM stores')) {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
     if (s.startsWith('UPDATE stores SET pin_hash')) {
@@ -220,6 +223,19 @@ describe('authHandler', () => {
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
   })
 
+  it('削除pendingになった店舗の既存トークンは即時無効になる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    db._stores[0].deletion_pending_at = new Date().toISOString()
+    expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
+  })
+
+  it('削除済み店舗は正しいPINでもログインできない', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    db._stores[0].deleted_at = new Date().toISOString()
+    const response = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(response._status).toBe(401)
+  })
+
   // ログアウト
   it('ログアウト後はトークンが無効化される', async () => {
     const reg = await handleRegister(db, { pin: '1234' })
@@ -276,5 +292,21 @@ describe('authHandler', () => {
     db._stores.push({ shop_code: 'LEGACY', store_name: null, pin_hash: null })
     const noTokenReq = { headers: { get: () => null } }
     expect(await verifyStoreAccess(db, 'LEGACY', noTokenReq)).toBe(true)
+  })
+
+  it('存在しない店舗はsoft-authでもアクセス拒否', async () => {
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, 'MISSING', noTokenReq)).toBe(false)
+  })
+
+  it('削除pendingのレガシー店舗もアクセス拒否', async () => {
+    db._stores.push({
+      shop_code: 'LEGACY',
+      store_name: null,
+      pin_hash: null,
+      deletion_pending_at: new Date().toISOString(),
+    })
+    const noTokenReq = { headers: { get: () => null } }
+    expect(await verifyStoreAccess(db, 'LEGACY', noTokenReq)).toBe(false)
   })
 })

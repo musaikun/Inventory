@@ -3,6 +3,8 @@ export const LOGIN_WINDOW_MS   = 15 * 60 * 1000    // brute-force window
 export const LOGIN_MAX_FAILS   = 5                  // max failures per window
 export const TOKEN_EXPIRY_MS   = 30 * 24 * 60 * 60 * 1000  // auth token lifetime
 export const PBKDF2_ITERATIONS = 100_000           // PIN hash stretching (SHA-256 base)
+export const ACCOUNT_DELETION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+export const ACCOUNT_DELETION_INTERNAL_HEADER = 'account-delete-v1'
 
 // ── Plan / trial ──────────────────────────────────────────────────────────────
 // 新規登録から TRIAL_DAYS 日間は全機能開放（pro 相当）。以降は stores.plan に従う。
@@ -15,6 +17,7 @@ export const IP_MAX_FAILS      = 30
 
 // ── Payload ───────────────────────────────────────────────────────────────────
 export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard
+export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024 // PushSubscription JSON guard
 
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）

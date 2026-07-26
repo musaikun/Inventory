@@ -40,8 +40,8 @@ describe('S-G: ゲストへ単価を渡さない', () => {
   })
 
   it('_broadcastPriceAware: ホストは単価あり・ゲストは単価なし', () => {
-    const host  = makeWs({ isHost: true })
-    const guest = makeWs({ isHost: false })
+    const host  = makeWs({ joined: true, deviceId: 'host', isHost: true })
+    const guest = makeWs({ joined: true, deviceId: 'guest', isHost: false })
     const room  = new RoomDO(makeState([host, guest]), {})
     room._broadcastPriceAware({ type: 'config_update', prices: { トマト: 100 }, order: ['トマト'] })
     expect(host._sent[0].prices).toEqual({ トマト: 100 })
@@ -49,8 +49,8 @@ describe('S-G: ゲストへ単価を渡さない', () => {
   })
 
   it('config メッセージ処理: ゲストへの config_update は prices が空', async () => {
-    const host  = makeWs({ isHost: true })
-    const guest = makeWs({ isHost: false })
+    const host  = makeWs({ joined: true, deviceId: 'host', isHost: true })
+    const guest = makeWs({ joined: true, deviceId: 'guest', isHost: false })
     const room  = new RoomDO(makeState([host, guest]), {})
     // ホストが単価つき config を送る（送信者=host は _broadcast の exclude 対象）
     await room._handleMessage(host, { type: 'config', order: ['トマト'], prices: { トマト: 100 } })

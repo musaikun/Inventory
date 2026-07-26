@@ -20,6 +20,28 @@
 
 ---
 
+## PLAY. アカウント削除（PLAY-001 / PLAY-002）🖐
+
+前提: migration 0011と対象Worker/UIを反映した検証環境で、棚卸・発注・入出庫・Push購読を持つ
+専用テスト店舗を使用する。本番店舗では実施しない。
+
+- [ ] **PLAY-1** 設定からアカウント削除を開く
+  - ✅ 店舗名・店舗code・削除対象・復元不能であることが表示される
+  - ✅ PINと店舗codeの両方を入力するまで最終削除できない
+- [ ] **PLAY-2** 誤PIN、別店舗code、小文字codeで実行
+  - ✅ 401または400を表示し、ログイン状態と店舗dataは残る
+- [ ] **PLAY-3** 送信直前にオフライン化し、network error後に復帰
+  - ✅ local token/dataを先に消さず、同じrequestIdで再試行できる
+- [ ] **PLAY-4** 正しいPINと店舗codeで削除を完了
+  - ✅ 完了表示後にlocalStorage/Cache/PushSubscription/PostHog local identityを消去する
+  - ✅ 既存tokenで再ログイン・store API・棚卸/発注roomへアクセスできない
+- [ ] **PLAY-5** 応答喪失を想定して同じrequestIdを再送
+  - ✅ 7日以内は`alreadyDeleted: true`の完了として扱い、二重エラーにしない
+- [ ] **PLAY-6** 公開Web削除resourceを未install端末から開く
+  - ✅ app再installなしで認証・削除でき、app名/developer名・privacy/terms/supportへ到達できる
+
+---
+
 ## A. ゲスト品目追加 → ホスト承認 🔁🖐
 
 前提: A がルームを開始し、B がゲスト参加している状態。

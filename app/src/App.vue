@@ -55,6 +55,7 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import DeleteAccountModal from './components/DeleteAccountModal.vue'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
@@ -66,7 +67,7 @@ import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -895,6 +896,7 @@ function _closeTopLayer() {
   if (showSync.value)        { showSync.value = false;    return true }
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (showOrderSchedule.value) { showOrderSchedule.value = false; return true }
+  if (showDeleteAccount.value) { showDeleteAccount.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
@@ -906,6 +908,13 @@ function _closeTopLayer() {
   if (currentView.value === 'session') { onGoHome();                    return true }
   if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
   return false
+}
+
+// アカウント削除の完了（DeleteAccountModal が既に token/ローカルデータを破棄済み）。
+// ログイン状態は解除されているため、ランディングへ戻す。
+function onAccountDeleted() {
+  showDeleteAccount.value = false
+  currentView.value = 'landing'
 }
 
 function _onBrowserBack() {
@@ -2575,6 +2584,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
     <AxisAssignFocus v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />

@@ -201,6 +201,7 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
 function createOrdersMockD1() {
   const orders = []
   const orderLines = []
+  let hideOwnerOnce = false
 
   function prepare(sql) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -208,27 +209,47 @@ function createOrdersMockD1() {
     const stmt = {
       bind(...a) { bound = a; return stmt },
       async run() {
+        let changes = 0
         if (s.startsWith('DELETE FROM order_lines WHERE order_id')) {
           const [orderId, shop] = bound
           for (let i = orderLines.length - 1; i >= 0; i--) {
-            if (orderLines[i].order_id === orderId && orderLines[i].shop_code === shop) orderLines.splice(i, 1)
+            if (orderLines[i].order_id === orderId && orderLines[i].shop_code === shop) {
+              orderLines.splice(i, 1)
+              changes++
+            }
           }
         } else if (s.startsWith('DELETE FROM orders WHERE id')) {
           const [id, shop] = bound
           const i = orders.findIndex(o => o.id === id && o.shop_code === shop)
-          if (i >= 0) orders.splice(i, 1)
+          if (i >= 0) { orders.splice(i, 1); changes = 1 }
         } else if (s.startsWith('INSERT INTO orders')) {
           const [id, shop_code, order_date, supplier, axis, session_id, saved_at] = bound
           const existing = orders.find(o => o.id === id)
-          if (existing) Object.assign(existing, { order_date, supplier, axis })
-          else orders.push({ id, shop_code, order_date, supplier, axis, session_id, saved_at })
+          if (existing) {
+            const ownerCondition = s.includes('WHERE orders.shop_code = excluded.shop_code')
+            if (!ownerCondition || existing.shop_code === shop_code) {
+              Object.assign(existing, { order_date, supplier, axis })
+              changes = 1
+            }
+          } else {
+            orders.push({ id, shop_code, order_date, supplier, axis, session_id, saved_at })
+            changes = 1
+          }
         } else if (s.startsWith('INSERT INTO order_lines')) {
           const [order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded] = bound
           orderLines.push({ order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded })
+          changes = 1
         }
-        return { success: true }
+        return { success: true, meta: { changes } }
       },
-      async first() { return null },
+      async first() {
+        if (s.startsWith('SELECT shop_code FROM orders WHERE id')) {
+          if (hideOwnerOnce) { hideOwnerOnce = false; return null }
+          const order = orders.find(o => o.id === bound[0])
+          return order ? { shop_code: order.shop_code } : null
+        }
+        return null
+      },
       async all() {
         if (s.startsWith('SELECT id, order_date, supplier, axis, session_id, saved_at FROM orders')) {
           const [shop, since] = bound
@@ -250,7 +271,12 @@ function createOrdersMockD1() {
     }
     return stmt
   }
-  return { prepare, _orders: orders, _lines: orderLines }
+  return {
+    prepare,
+    _orders: orders,
+    _lines: orderLines,
+    _hideOwnerOnce() { hideOwnerOnce = true },
+  }
 }
 
 describe('発注 API（orders）', () => {
@@ -314,6 +340,68 @@ describe('発注 API（orders）', () => {
     const got = await handleOrdersGet(db, code, 400)
     expect(got).toHaveLength(0)
     expect(db._lines).toHaveLength(0)
+  })
+
+  it('SEC-002: 他店の order id へのPOSTは409で拒否し、ヘッダと明細を変更しない', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+
+    const res = await handleOrderCreate(db, 'ZZZZZZ', {
+      id: 'o_1',
+      date: '2099-01-01',
+      supplier: '改竄先',
+      axis: '不正',
+      lines: [{ item: '不正品', qty: 99 }],
+    })
+
+    expect(res._status).toBe(409)
+    const original = await handleOrdersGet(db, code, 400)
+    expect(original).toHaveLength(1)
+    expect(original[0].supplier).toBe('八百屋')
+    expect(original[0].lines).toHaveLength(2)
+    expect(await handleOrdersGet(db, 'ZZZZZZ', 400)).toHaveLength(0)
+  })
+
+  it('SEC-002: owner事前確認後の競合でも条件付きupsertが越境更新を拒否する', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+    db._hideOwnerOnce() // owner SELECT直後に他店行が現れた競合を模擬
+
+    const res = await handleOrderCreate(db, 'ZZZZZZ', {
+      id: 'o_1', date: '2099-01-01', supplier: '競合改竄', lines: [{ item: '不正品', qty: 1 }],
+    })
+
+    expect(res._status).toBe(409)
+    expect(db._orders[0].shop_code).toBe(code)
+    expect(db._orders[0].supplier).toBe('八百屋')
+    expect(db._lines).toHaveLength(2)
+  })
+
+  it('SEC-002: 同じ店舗の既存id再送は更新できる', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+
+    const res = await handleOrderCreate(db, code, {
+      ...rec,
+      supplier: '青果市場',
+      lines: [{ item: 'トマト', qty: 3, unit: '箱' }],
+    })
+
+    expect(res.ok).toBe(true)
+    const got = await handleOrdersGet(db, code, 400)
+    expect(got[0].supplier).toBe('青果市場')
+    expect(got[0].lines).toHaveLength(1)
+  })
+
+  it('SEC-002: 他店からのDELETEは404で拒否し、所有店舗のデータを残す', async () => {
+    const db = createOrdersMockD1()
+    await handleOrderCreate(db, code, rec)
+
+    const res = await handleOrderDelete(db, 'ZZZZZZ', 'o_1')
+
+    expect(res._status).toBe(404)
+    expect(await handleOrdersGet(db, code, 400)).toHaveLength(1)
+    expect(db._lines).toHaveLength(2)
   })
 })
 

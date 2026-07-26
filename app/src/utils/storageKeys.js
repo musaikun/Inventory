@@ -27,6 +27,7 @@ export const STORAGE_KEYS = {
   pendingSession:   '_pending_session_v1',
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
+  deleteRequestId:  '_delete_account_request_id',  // アカウント削除の in-flight requestId（成功/中止で消す・再試行では同じ値）
   tapContinuous:    'inv_tap_continuous',
   orders:           'inventory_orders_v1',
   movements:        'inventory_movements_v1',

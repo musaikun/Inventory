@@ -10,6 +10,9 @@ function createMockD1({ failTables = [] } = {}) {
   const tokens  = []
   const configs = {}
   const ipRows  = []
+  const orders  = []
+  const orderLines = []
+  const pushSubscriptions = []
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -23,20 +26,41 @@ function createMockD1({ failTables = [] } = {}) {
       if (!t || new Date(t.expires_at).getTime() <= Date.now()) return null
       return { shop_code: t.shop_code }
     }
-    if (s.startsWith('SELECT pin_hash FROM stores')) {
+    if (s.startsWith('SELECT pin_hash, deleted_at, deletion_pending_at FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
-      return r ? { pin_hash: r.pin_hash ?? null } : null
+      return r ? {
+        pin_hash: r.pin_hash ?? null,
+        deleted_at: r.deleted_at ?? null,
+        deletion_pending_at: r.deletion_pending_at ?? null,
+      } : null
     }
-    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores')) {
+    if (s.startsWith('SELECT deleted_at, deletion_pending_at FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
-      return r ? { shop_code: r.shop_code, store_name: r.store_name ?? null, pin_hash: r.pin_hash ?? null, plan: r.plan ?? 'free', created_at: r.created_at ?? '' } : null
+      return r ? {
+        deleted_at: r.deleted_at ?? null,
+        deletion_pending_at: r.deletion_pending_at ?? null,
+      } : null
+    }
+    if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores')) {
+      const r = stores.find(r => r.shop_code === args[0])
+      return r ? {
+        shop_code: r.shop_code,
+        store_name: r.store_name ?? null,
+        pin_hash: r.pin_hash ?? null,
+        plan: r.plan ?? 'free',
+        created_at: r.created_at ?? '',
+        deleted_at: r.deleted_at ?? null,
+        deletion_pending_at: r.deletion_pending_at ?? null,
+      } : null
     }
     if (s.startsWith('SELECT shop_code, active_room, created_at, plan FROM stores')) {
       const r = stores.find(r => r.shop_code === args[0])
       return r ? { shop_code: r.shop_code, active_room: null, created_at: r.created_at ?? '', plan: r.plan ?? 'free' } : null
     }
     if (s.startsWith('SELECT shop_code FROM stores')) {
-      return stores.find(r => r.shop_code === args[0]) ?? null
+      const r = stores.find(r => r.shop_code === args[0]) ?? null
+      if (r && s.includes('deleted_at IS NULL') && (r.deleted_at || r.deletion_pending_at)) return null
+      return r
     }
     if (s.startsWith('INSERT INTO stores')) {
       stores.push(args.length >= 5
@@ -71,8 +95,50 @@ function createMockD1({ failTables = [] } = {}) {
       return { success: true }
     }
     if (s.startsWith('DELETE FROM ip_attempts')) return { success: true }
+    if (s.startsWith('SELECT shop_code FROM push_subscriptions WHERE endpoint')) {
+      const row = pushSubscriptions.find(item => item.endpoint === args[0])
+      return row ? { shop_code: row.shop_code } : null
+    }
+    if (s.startsWith('INSERT INTO push_subscriptions')) {
+      const [shopCode, endpoint, p256dh, auth] = args
+      const existing = pushSubscriptions.find(item => item.endpoint === endpoint)
+      if (existing) {
+        if (s.includes('push_subscriptions.shop_code = excluded.shop_code') && existing.shop_code !== shopCode) {
+          return { success: true, meta: { changes: 0 } }
+        }
+        existing.shop_code = shopCode
+        existing.p256dh = p256dh
+        existing.auth = auth
+      } else {
+        pushSubscriptions.push({ shop_code: shopCode, endpoint, p256dh, auth })
+      }
+      return { success: true, meta: { changes: 1 } }
+    }
+    if (s.startsWith('DELETE FROM push_subscriptions WHERE shop_code')) {
+      const [shopCode, endpoint] = args
+      const index = pushSubscriptions.findIndex(item => item.shop_code === shopCode && item.endpoint === endpoint)
+      if (index >= 0) pushSubscriptions.splice(index, 1)
+      return { success: true, meta: { changes: index >= 0 ? 1 : 0 } }
+    }
     if (s.startsWith('INSERT INTO store_configs')) {
       configs[args[0]] = args[1]
+      return { success: true }
+    }
+    if (s.startsWith('SELECT shop_code FROM orders WHERE id')) {
+      const order = orders.find(o => o.id === args[0])
+      return order ? { shop_code: order.shop_code } : null
+    }
+    if (s.startsWith('DELETE FROM order_lines WHERE order_id')) {
+      const [id, shop] = args
+      for (let i = orderLines.length - 1; i >= 0; i--) {
+        if (orderLines[i].order_id === id && orderLines[i].shop_code === shop) orderLines.splice(i, 1)
+      }
+      return { success: true }
+    }
+    if (s.startsWith('DELETE FROM orders WHERE id')) {
+      const [id, shop] = args
+      const i = orders.findIndex(o => o.id === id && o.shop_code === shop)
+      if (i >= 0) orders.splice(i, 1)
       return { success: true }
     }
     if (s.startsWith('SELECT id, shop_code, started_at')) return []
@@ -90,7 +156,16 @@ function createMockD1({ failTables = [] } = {}) {
     return stmt
   }
 
-  return { prepare, _stores: stores, _configs: configs, _ipRows: ipRows, _failTables: failTables }
+  return {
+    prepare,
+    _stores: stores,
+    _configs: configs,
+    _ipRows: ipRows,
+    _orders: orders,
+    _orderLines: orderLines,
+    _pushSubscriptions: pushSubscriptions,
+    _failTables: failTables,
+  }
 }
 
 function makeReq(method, path, { body, token, ip } = {}) {
@@ -106,6 +181,34 @@ function makeReq(method, path, { body, token, ip } = {}) {
     },
     json: async () => body ?? {},
   }
+}
+
+function base64Url(bytes) {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function validPushSubscription(endpoint = 'https://push.example.com/subscription/abc') {
+  const publicKey = new Uint8Array(65).fill(1)
+  publicKey[0] = 0x04
+  return {
+    endpoint,
+    keys: {
+      p256dh: base64Url(publicKey),
+      auth: base64Url(new Uint8Array(16).fill(2)),
+    },
+  }
+}
+
+function makeHttpReq(method, path, { body, rawBody, token } = {}) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return new Request(`https://api.test${path}`, {
+    method,
+    headers,
+    body: rawBody ?? JSON.stringify(body ?? {}),
+  })
 }
 
 describe('Worker ルーティング（特性テスト）', () => {
@@ -136,6 +239,14 @@ describe('Worker ルーティング（特性テスト）', () => {
     expect(body.token).toBeTruthy()
   })
 
+  it('DELETE /auth/account をaccount deletion handlerへ接続する', async () => {
+    const res = await worker.fetch(makeReq('DELETE', '/auth/account', {
+      body: { requestId: 'invalid', pin: '1234', confirmation: 'ABCDEF' },
+    }), env)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('invalid_request')
+  })
+
   it('GET /store/:code は存在しない店舗で 404', async () => {
     const res = await worker.fetch(makeReq('GET', '/store/ZZZZZZ'), env)
     expect(res.status).toBe(404)
@@ -146,6 +257,97 @@ describe('Worker ルーティング（特性テスト）', () => {
     const res  = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}`), env)
     expect(res.status).toBe(200)
     expect((await res.json()).shopCode).toBe(reg.shopCode)
+  })
+
+  it('削除pending店舗はPush購読と公開resultを遮断する', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const store = db._stores.find(row => row.shop_code === reg.shopCode)
+    store.deletion_pending_at = new Date().toISOString()
+
+    const push = await worker.fetch(makeReq('POST', `/store/${reg.shopCode}/push/subscribe`, {
+      body: { endpoint: 'https://push.example/sub', keys: {} },
+    }), env)
+    const result = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/result?s=session-1`), env)
+
+    // Push APIはstrict authのため、pendingでtokenが無効化された時点で401。
+    expect(push.status).toBe(401)
+    expect(result.status).toBe(404)
+    expect(db._ipRows.filter(row => row.kind === 'probe')).toHaveLength(1)
+  })
+
+  it('Push購読作成は認証なしでは拒否する', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', {
+      body: { pin: '1234' },
+    }), env)).json()
+    const res = await worker.fetch(makeHttpReq(
+      'POST',
+      `/store/${reg.shopCode}/push/subscribe`,
+      { body: validPushSubscription() },
+    ), env)
+
+    expect(res.status).toBe(401)
+    expect(db._pushSubscriptions).toHaveLength(0)
+  })
+
+  it('Push購読は無効URLと8KiB超payloadを拒否する', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', {
+      body: { pin: '1234' },
+    }), env)).json()
+    const invalid = validPushSubscription('http://localhost/push')
+    const invalidRes = await worker.fetch(makeHttpReq(
+      'POST',
+      `/store/${reg.shopCode}/push/subscribe`,
+      { body: invalid, token: reg.token },
+    ), env)
+    const oversizedRes = await worker.fetch(makeHttpReq(
+      'POST',
+      `/store/${reg.shopCode}/push/subscribe`,
+      { rawBody: JSON.stringify({ ...validPushSubscription(), padding: 'x'.repeat(9000) }), token: reg.token },
+    ), env)
+
+    expect(invalidRes.status).toBe(400)
+    expect(oversizedRes.status).toBe(413)
+    expect(db._pushSubscriptions).toHaveLength(0)
+  })
+
+  it('Push endpointは所有店舗だけが更新・削除できる', async () => {
+    const first = await (await worker.fetch(makeReq('POST', '/auth/register', {
+      body: { pin: '1234' },
+    }), env)).json()
+    const second = await (await worker.fetch(makeReq('POST', '/auth/register', {
+      body: { pin: '5678' },
+    }), env)).json()
+    const subscription = validPushSubscription()
+
+    const created = await worker.fetch(makeHttpReq(
+      'POST',
+      `/store/${first.shopCode}/push/subscribe`,
+      { body: subscription, token: first.token },
+    ), env)
+    const conflict = await worker.fetch(makeHttpReq(
+      'POST',
+      `/store/${second.shopCode}/push/subscribe`,
+      { body: subscription, token: second.token },
+    ), env)
+    const foreignDelete = await worker.fetch(makeHttpReq(
+      'DELETE',
+      `/store/${second.shopCode}/push/subscribe`,
+      { body: { endpoint: subscription.endpoint }, token: second.token },
+    ), env)
+
+    expect(created.status).toBe(200)
+    expect(conflict.status).toBe(409)
+    expect(foreignDelete.status).toBe(200)
+    expect(db._pushSubscriptions).toHaveLength(1)
+    expect(db._pushSubscriptions[0].shop_code).toBe(first.shopCode)
+
+    const ownerDelete = await worker.fetch(makeHttpReq(
+      'DELETE',
+      `/store/${first.shopCode}/push/subscribe`,
+      { body: { endpoint: subscription.endpoint }, token: first.token },
+    ), env)
+    expect(ownerDelete.status).toBe(200)
+    expect(db._pushSubscriptions).toHaveLength(0)
   })
 
   it('PIN設定店舗の config PUT はトークン無しだと 401', async () => {
@@ -193,6 +395,20 @@ describe('Worker ルーティング（特性テスト）', () => {
     const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions`, { token: b.token }), env)
     expect(res.status).toBe(401)
+  })
+
+  it('SEC-002: 他店舗のorder DELETEは404をHTTPへ伝播し、元データを残す', async () => {
+    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+    db._orders.push({ id: 'shared-order', shop_code: a.shopCode })
+    db._orderLines.push({ order_id: 'shared-order', shop_code: a.shopCode })
+
+    const res = await worker.fetch(makeReq('DELETE', `/store/${b.shopCode}/orders/shared-order`, { token: b.token }), env)
+
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toBeTruthy()
+    expect(db._orders).toHaveLength(1)
+    expect(db._orderLines).toHaveLength(1)
   })
 })
 
@@ -309,7 +525,50 @@ describe('フェイルオープン（レート制限テーブル未作成でも�
 })
 
 // ── S-E: CORS フェイルクローズ ────────────────────────────────────────────────
-import { isAllowedOrigin } from './index.js'
+import { isAllowedOrigin, purgeAccountRooms } from './index.js'
+
+describe('PLAY-001: account room purge routing', () => {
+  it('棚卸・発注の2つのDOを専用内部requestで削除する', async () => {
+    const names = []
+    const requests = []
+    const rooms = {
+      idFromName(name) { names.push(name); return name },
+      get(id) {
+        return {
+          async fetch(request) {
+            requests.push({ id, request })
+            return new Response('{ok:true}', { status: 200 })
+          },
+        }
+      },
+    }
+
+    await purgeAccountRooms(rooms, 'ABCDEF')
+
+    expect(names).toEqual(['room:ABCDEF', 'room:ABCDEF:order'])
+    expect(requests).toHaveLength(2)
+    for (const { request } of requests) {
+      expect(request.method).toBe('DELETE')
+      expect(new URL(request.url).pathname).toBe('/internal/account-delete')
+      expect(request.headers.get('X-Inventory-Internal-Action')).toBe('account-delete-v1')
+    }
+  })
+
+  it('どちらかのDOが失敗statusなら削除成功にしない', async () => {
+    const rooms = {
+      idFromName(name) { return name },
+      get(id) {
+        return {
+          async fetch() {
+            return new Response('{}', { status: id.endsWith(':order') ? 503 : 200 })
+          },
+        }
+      },
+    }
+
+    await expect(purgeAccountRooms(rooms, 'ABCDEF')).rejects.toThrow('Durable Object purge failed')
+  })
+})
 
 describe('S-E: CORS フェイルクローズ（isAllowedOrigin）', () => {
   it('Origin 無し（同一オリジン/WS/server-to-server）は許可', () => {

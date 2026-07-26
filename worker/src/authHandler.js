@@ -38,7 +38,7 @@ async function _legacySha256(shopCode, pin) {
 
 // PIN 照合。{ ok, needsRehash } を返す。
 // needsRehash = 旧形式、または反復回数が現行値より低い（＝より強い形式へ更新すべき）。
-async function _verifyPin(shopCode, pin, storedHash) {
+export async function verifyPinHash(shopCode, pin, storedHash) {
   if (typeof storedHash === 'string' && storedHash.startsWith('pbkdf2$')) {
     const [, iterStr, saltB64, hashB64] = storedHash.split('$')
     const iterations = parseInt(iterStr, 10) || PBKDF2_ITERATIONS
@@ -56,7 +56,7 @@ function _genToken() {
     .map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function _extractToken(request) {
+export function extractBearerToken(request) {
   const auth = request.headers.get('Authorization') ?? ''
   return auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
 }
@@ -91,10 +91,13 @@ export async function handleLogin(db, body) {
   const pin      = String(body.pin      ?? '').replace(/\D/g, '')
 
   const store = await db.prepare(
-    'SELECT shop_code, store_name, pin_hash, plan, created_at FROM stores WHERE shop_code = ?'
+    'SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?'
   ).bind(shopCode).first()
 
   if (!store)           return { _status: 401, error: '店舗コードが見つかりません' }
+  if (store.deleted_at || store.deletion_pending_at) {
+    return { _status: 401, error: '店舗コードまたはPINを確認してください' }
+  }
   if (!store.pin_hash)  return { _status: 401, error: 'このアカウントはPINが未設定です。新規登録してください。' }
 
   // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）
@@ -111,7 +114,7 @@ export async function handleLogin(db, body) {
     console.error('[auth] login_attempts check failed (fail-open):', e?.message ?? e)
   }
 
-  const { ok, needsRehash } = await _verifyPin(shopCode, pin, store.pin_hash)
+  const { ok, needsRehash } = await verifyPinHash(shopCode, pin, store.pin_hash)
   if (!ok) {
     await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
       .bind(shopCode, _now()).run().catch(e =>
@@ -151,33 +154,40 @@ export async function handleLogin(db, body) {
 
 // POST /auth/logout
 export async function handleLogout(db, request) {
-  const token = _extractToken(request)
+  const token = extractBearerToken(request)
   if (token) {
     await db.prepare('DELETE FROM auth_tokens WHERE token = ?').bind(token).run()
   }
   return { ok: true }
 }
 
-// 生トークン文字列を検証して shopCode を返す（無効なら null）
+// 生トークン文字列を検証して active な shopCode を返す（無効なら null）
 // WebSocket の join メッセージなど、ヘッダを使えない経路からも呼べるよう分離する。
 export async function verifyAuthToken(db, token) {
   if (!token) return null
   const row = await db.prepare(
     "SELECT shop_code FROM auth_tokens WHERE token = ? AND expires_at > datetime('now')"
   ).bind(token).first()
-  return row?.shop_code ?? null
+  if (!row?.shop_code) return null
+  const store = await db.prepare(
+    'SELECT deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?'
+  ).bind(row.shop_code).first()
+  return store && !store.deleted_at && !store.deletion_pending_at ? row.shop_code : null
 }
 
 // Bearer トークンを検証して shopCode を返す（無効なら null）
 export async function verifyAuth(db, request) {
-  return verifyAuthToken(db, _extractToken(request))
+  return verifyAuthToken(db, extractBearerToken(request))
 }
 
 // 店舗データAPIのアクセス可否（後方互換ソフト認証）。
 // PIN設定済みの店舗は有効なトークン必須。PIN未設定のレガシー店舗は従来通り許可。
 export async function verifyStoreAccess(db, code, request) {
-  const row = await db.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(code).first()
-  if (!row || !row.pin_hash) return true
+  const row = await db.prepare(
+    'SELECT pin_hash, deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?'
+  ).bind(code).first()
+  if (!row || row.deleted_at || row.deletion_pending_at) return false
+  if (!row.pin_hash) return true
   const authCode = await verifyAuth(db, request)
   return authCode === code
 }

@@ -33,6 +33,7 @@ export function clearLocalAccountData() {
     localStorage.removeItem(STORAGE_KEYS.syncSession)
     localStorage.removeItem(STORAGE_KEYS.pendingSession)
     localStorage.removeItem(STORAGE_KEYS.pdfProfiles)
+    localStorage.removeItem(STORAGE_KEYS.deleteRequestId)  // 別アカウントへ跨る削除requestId残存を防ぐ
     // ホストトークン（店舗ごと）・下書き（セッション/発注ごと）はプレフィックス走査で消す
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i)

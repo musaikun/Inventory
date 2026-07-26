@@ -53,7 +53,7 @@ D1 データベース                               ← データを取る
 ## 1. 現状のAPI一覧（v1）
 
 `worker/src/index.js` がルーター（宛先を見て担当関数に振り分ける場所）。
-そこから呼ばれる実処理は `storeHandler.js` / `authHandler.js` にある。
+そこから呼ばれる実処理は `storeHandler.js` / `authHandler.js` / `accountDeletion.js` にある。
 
 ### 1.1 認証API（`authHandler.js`）
 
@@ -62,10 +62,15 @@ D1 データベース                               ← データを取る
 | POST | `/auth/register` | `{ storeName?, pin }` | `{ shopCode, token, storeName }` | 不要 |
 | POST | `/auth/login` | `{ shopCode, pin }` | `{ token, shopCode, storeName }` | 不要 |
 | POST | `/auth/logout` | （Bearerトークン） | `{ ok: true }` | Bearer |
+| DELETE | `/auth/account` | Bearer + `{ requestId, pin, confirmation }` | `{ ok, status: deleted, requestId, deletedAt, alreadyDeleted }` | Bearer + 現在PIN + 店舗code再入力 |
 
 - `register` = 新規店舗を作りPINを設定、トークン発行（30日有効）
 - `login` = 店舗コード＋PINを照合、トークン発行
 - トークンは以後 `Authorization: Bearer <token>` ヘッダーで送る
+- `account` deletionは同じUUID `requestId` の再送を7日間冪等成功にし、D1関連data、全token、
+  Push購読、棚卸/発注Durable Objectsを削除する。詳細は
+  [`quality-foundation/account-deletion-contract.md`](quality-foundation/account-deletion-contract.md)。
+- `deletion_pending_at` または `deleted_at` の店舗はlogin、通常token、store API、room gateで拒否する。
 
 ### 1.2 店舗データAPI（`storeHandler.js`）
 
@@ -84,11 +89,13 @@ D1 データベース                               ← データを取る
 | GET | `/store/:code/orders` | — | `[ order, ... ]` | ソフト† |
 | POST | `/store/:code/orders` | 発注レコード | `{ ok: true, id }` | ソフト† |
 | DELETE | `/store/:code/orders/:id` | — | `{ ok: true }` | ソフト† |
-| POST | `/store/:code/push/subscribe` | 購読オブジェクト | `{ ok: true }` | ⚠️ ソフト認証ゲート外（監査 S-F・要修正） |
-| DELETE | `/store/:code/push/subscribe` | — | `{ ok: true }` | ⚠️ 同上 |
+| POST | `/store/:code/push/subscribe` | PushSubscription JSON（最大8KiB） | `{ ok: true }` | Bearer必須 |
+| DELETE | `/store/:code/push/subscribe` | `{ endpoint }` | `{ ok: true }` | Bearer必須 |
 
 > † **ソフト認証**（`verifyStoreAccess`・S-02）: PIN設定済み店舗は Bearer 必須。
 > レガシー（PIN未設定）店舗は店舗コードのみで許可（後方互換・S-C の残課題）。
+> Push購読はレガシー例外を適用しないstrict認証。endpointは公開HTTPS、鍵はPush API / RFC 8291形式、
+> 同一endpointを別店舗へ付け替える操作は409で拒否する。
 
 ### 1.3 セッションAPI（`storeHandler.js`・要認証）
 
@@ -134,7 +141,7 @@ D1 データベース                               ← データを取る
 
 | 課題 | 詳細 | 関連設計 |
 |---|---|---|
-| ✅ 認証の濃淡（対応済み） | ソフト認証（S-02）導入済み。**残**: レガシー店舗のフェイルオープン（S-C）・push/subscribe のゲート外（S-F） | `security-review.md` |
+| ✅ 認証の濃淡（対応済み） | ソフト認証（S-02）とPush strict認証（SEC-003）を導入済み。**残**: レガシー店舗のフェイルオープン（S-C） | `security-review.md` |
 | 🟡 履歴がブロブまるごと | `GET /history` が50件分のJSONを全部返す。重い・分析できない。監査スケール#3（session_id 列）と同根 | DB設計v2 |
 | ✅ 完了処理の分散（対応済み） | `POST /sessions/:id/complete` に集約（§3.1 実装済み） | API/トランザクション設計 |
 | 🟡 エラー形式が半端 | `{ error }` のときと `{ _status, error }` のときがある | API規約 |

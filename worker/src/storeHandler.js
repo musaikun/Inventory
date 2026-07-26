@@ -20,7 +20,9 @@ export async function handleStoreCreate(db) {
 
 // GET /store/:code
 export async function handleStoreGet(db, code) {
-  const row = await db.prepare('SELECT shop_code, active_room, created_at, plan FROM stores WHERE shop_code = ?').bind(code).first()
+  const row = await db.prepare(
+    'SELECT shop_code, active_room, created_at, plan FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+  ).bind(code).first()
   if (!row) return null
   return { shopCode: row.shop_code, activeRoom: row.active_room ?? null, createdAt: row.created_at, ...entitlement(row) }
 }
@@ -89,7 +91,9 @@ export async function handleHistoryDelete(db, code, date) {
 
 // PUT /store/:code/room  body: { roomCode: string | null }
 export async function handleRoomUpdate(db, code, body) {
-  await db.prepare('UPDATE stores SET active_room = ?, updated_at = ? WHERE shop_code = ?')
+  await db.prepare(
+    'UPDATE stores SET active_room = ?, updated_at = ? WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+  )
     .bind(body.roomCode ?? null, _now(), code).run()
   return { ok: true }
 }
@@ -283,12 +287,24 @@ export async function handleOrderCreate(db, code, body = {}) {
     .filter(l => l.item && Number.isFinite(l.qty))
   if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
 
-  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
-  await db.prepare(`
+  // テナント境界: orders.id はグローバルPK。同じidを別店舗が指定しても、
+  // 他店のヘッダ・明細を更新できないようownerを確認する。
+  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
+  if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
+  // SELECT後に別店舗が同じidを作る競合も、upsert自身のWHEREで原子的に拒否する。
+  // D1Result.meta.changes が1でない限り、明細の削除・追加へ進まない。
+  const headWrite = await db.prepare(`
     INSERT INTO orders (id, shop_code, order_date, supplier, axis, session_id, saved_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
+    WHERE orders.shop_code = excluded.shop_code
   `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now).run()
+  if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
+    return { _status: 409, error: '保存できませんでした' }
+  }
+
+  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
 
   for (const l of clean) {
     await db.prepare(`
@@ -301,6 +317,10 @@ export async function handleOrderCreate(db, code, body = {}) {
 
 // DELETE /store/:code/orders/:id
 export async function handleOrderDelete(db, code, id) {
+  // 不存在と他店舗所有を同じ404にして、idの存在有無を別店舗へ開示しない。
+  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
+  if (!owner || owner.shop_code !== code) return { _status: 404, error: '発注が見つかりません' }
+
   await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
   await db.prepare('DELETE FROM orders WHERE id = ? AND shop_code = ?').bind(id, code).run()
   return { ok: true }

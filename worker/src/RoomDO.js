@@ -3,6 +3,7 @@ import {
   WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN, MAX_ORDER_QTY,
+  ACCOUNT_DELETION_INTERNAL_HEADER,
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 
@@ -66,6 +67,9 @@ export class RoomDO {
 
   async fetch(request) {
     const url = new URL(request.url)
+    if (url.pathname === '/internal/account-delete') {
+      return this._handleAccountDelete(request)
+    }
     // このDOが担当する店舗コードをパスから記録する（Worker 層で存在検証済み・
     // ルームID = 店舗コードの統一設計により、パスのコード＝このDOの正体）。
     // ホスト認証（PIN設定店舗のD1トークン照合）で自分の店舗コードとして使う。
@@ -91,6 +95,28 @@ export class RoomDO {
     const alarm = await this.state.storage.getAlarm()
     if (!alarm) await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  async _handleAccountDelete(request) {
+    if (request.method !== 'DELETE') return new Response('Method Not Allowed', { status: 405 })
+    if (request.headers.get('X-Inventory-Internal-Action') !== ACCOUNT_DELETION_INTERNAL_HEADER) {
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    this._broadcast({ type: 'account_deleted' })
+    for (const ws of this.state.getWebSockets()) {
+      try {
+        ws.serializeAttachment({ leftCleanly: true })
+        ws.close(1000, 'Account deleted')
+      } catch (_) {}
+    }
+    this._itemAddRequests.clear()
+    await this.state.storage.deleteAlarm()
+    await this.state.storage.deleteAll()
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   async _handleHttpDissolve(request) {
@@ -154,9 +180,27 @@ export class RoomDO {
   }
 
   async _handleMessage(ws, msg) {
-    await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
+    const type = typeof msg?.type === 'string' ? msg.type : ''
+    const isJoined = this._isJoined(ws)
 
-    if (msg.type !== 'ping' && msg.type !== 'join') {
+    // WebSocket upgrade 自体は公開経路のため、join が成功するまでは room data への
+    // 読み書きを一切許可しない。認可状態は attachment に置き、hibernation 後も維持する。
+    if (type === 'join' && isJoined) {
+      ws.send(JSON.stringify({ type: 'error', code: 'already_joined' }))
+      return
+    }
+    if (type !== 'join' && type !== 'ping' && !isJoined) {
+      ws.send(JSON.stringify({ type: 'error', code: 'join_required' }))
+      ws.close(1008, 'Join required')
+      return
+    }
+
+    // 未参加 ping は疎通確認だけ許可し、ルーム寿命は延長させない。
+    if (type !== 'ping' || isJoined) {
+      await this.state.storage.setAlarm(Date.now() + ROOM_TTL_MS)
+    }
+
+    if (type !== 'ping' && type !== 'join') {
       const att   = ws.deserializeAttachment() ?? {}
       const now   = Date.now()
       const start = att._rlTime ?? 0
@@ -171,9 +215,15 @@ export class RoomDO {
 
     switch (msg.type) {
       case 'join': {
-        const deviceId   = String(msg.deviceId   ?? '').slice(0, MAX_DEVICE_ID_LEN)
+        const deviceId   = String(msg.deviceId   ?? '').trim().slice(0, MAX_DEVICE_ID_LEN)
         const deviceName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
         const role       = msg.role === 'host' ? 'host' : 'guest'
+
+        if (!deviceId) {
+          ws.send(JSON.stringify({ type: 'error', code: 'invalid_device_id' }))
+          ws.close(1008, 'Invalid device ID')
+          return
+        }
 
         let isVerifiedHost = false
         let newHostToken   = null   // 初回発行時のみ送り返す
@@ -195,7 +245,7 @@ export class RoomDO {
               ? await this._hostAuthOk(shopCode, msg.authToken)
               : false
 
-            const others = this.state.getWebSockets().filter(w => w !== ws)
+            const others = this.state.getWebSockets().filter(w => w !== ws && this._isJoined(w))
             const sameDeviceHost  = others.some(w => {
               const a = w.deserializeAttachment()
               return a?.deviceId === deviceId && a?.isHost
@@ -237,7 +287,7 @@ export class RoomDO {
 
         const existingIds = new Set(
           this.state.getWebSockets()
-            .filter(w => w !== ws)
+            .filter(w => w !== ws && this._isJoined(w))
             .map(w => w.deserializeAttachment()?.deviceId)
             .filter(Boolean)
         )
@@ -251,7 +301,7 @@ export class RoomDO {
         if (deviceName) {
           const existingNames = new Set(
             this.state.getWebSockets()
-              .filter(w => w !== ws)
+              .filter(w => w !== ws && this._isJoined(w))
               .filter(w => w.deserializeAttachment()?.deviceId !== deviceId)
               .map(w => w.deserializeAttachment()?.deviceName)
               .filter(Boolean)
@@ -269,7 +319,7 @@ export class RoomDO {
         for (const existingWs of this.state.getWebSockets()) {
           if (existingWs === ws) continue
           const att = existingWs.deserializeAttachment()
-          if (att?.deviceId === deviceId) {
+          if (this._isJoined(existingWs) && att?.deviceId === deviceId) {
             try {
               existingWs.serializeAttachment({ leftCleanly: true })  // deviceId を除去してゾンビを即時非表示
               existingWs.close(1000, 'Session recovered')
@@ -277,7 +327,7 @@ export class RoomDO {
           }
         }
 
-        ws.serializeAttachment({ deviceId, deviceName, isHost: isVerifiedHost })
+        ws.serializeAttachment({ joined: true, deviceId, deviceName, isHost: isVerifiedHost })
 
         const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -527,14 +577,10 @@ export class RoomDO {
 
       case 'leave': {
         // クリーン退出フラグを立て、webSocketClose での二重ブロードキャストを防ぐ
-        const att = ws.deserializeAttachment() ?? {}
-        ws.serializeAttachment({ ...att, leftCleanly: true })
+        // joined/deviceId も除去し、このメッセージ以降の操作・受信を即時停止する。
+        ws.serializeAttachment({ leftCleanly: true })
         // 退出を即時通知: TCP クローズ検出を待たず参加者リストを更新してブロードキャスト
-        const remaining = this.state.getWebSockets()
-          .filter(w => w !== ws)
-          .map(w => w.deserializeAttachment())
-          .filter(Boolean)
-        this._broadcast({ type: 'participants', list: remaining }, ws)
+        this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
 
@@ -777,6 +823,7 @@ export class RoomDO {
 
       case 'conflict_lock': {
         // 競合中品目リストをゲストへ転送（ホスト→全員）
+        if (!this._isHost(ws)) return
         this._broadcast({
           type:        'conflict_lock',
           ingredients: (msg.ingredients ?? []).map(s => String(s).slice(0, MAX_INGREDIENT_LEN)),
@@ -836,7 +883,8 @@ export class RoomDO {
 
   async webSocketClose(ws) {
     // 'leave' メッセージで既にブロードキャスト済みの場合は二重送信しない
-    if (!ws.deserializeAttachment()?.leftCleanly) {
+    const attachment = ws.deserializeAttachment()
+    if (attachment?.joined === true && !attachment.leftCleanly) {
       this._broadcast({ type: 'participants', list: this._getParticipants() })
     }
   }
@@ -851,7 +899,7 @@ export class RoomDO {
   _broadcast(msg, exclude = null) {
     const data = JSON.stringify(msg)
     for (const ws of this.state.getWebSockets()) {
-      if (ws !== exclude) {
+      if (ws !== exclude && this._isJoined(ws)) {
         try { ws.send(data) } catch (_) {}
       }
     }
@@ -871,14 +919,21 @@ export class RoomDO {
     const full  = JSON.stringify(msg)
     const guest = JSON.stringify(this._stripPricesForGuest(msg))
     for (const ws of this.state.getWebSockets()) {
-      if (ws === exclude) continue
-      const isHost = ws.deserializeAttachment()?.isHost === true
+      if (ws === exclude || !this._isJoined(ws)) continue
+      const isHost = this._isHost(ws)
       try { ws.send(isHost ? full : guest) } catch (_) {}
     }
   }
 
+  _isJoined(ws) {
+    const attachment = ws.deserializeAttachment()
+    return attachment?.joined === true
+      && typeof attachment.deviceId === 'string'
+      && attachment.deviceId.length > 0
+  }
+
   _isHost(ws) {
-    return ws.deserializeAttachment()?.isHost === true
+    return this._isJoined(ws) && ws.deserializeAttachment()?.isHost === true
   }
 
   // PIN設定済み（＝D1認証で保護すべき）店舗か。D1障害時はフェイルオープンで
@@ -922,6 +977,12 @@ export class RoomDO {
   _getParticipants() {
     return this.state.getWebSockets()
       .map(ws => ws.deserializeAttachment())
-      .filter(a => a?.deviceId)  // deviceId が無い = 切断処理中のゾンビ、除外する
+      .filter(a => a?.joined === true && typeof a.deviceId === 'string' && a.deviceId.length > 0)
+      .map(a => ({
+        deviceId:   a.deviceId,
+        deviceName: a.deviceName ?? '',
+        isHost:     a.isHost === true,
+        isDone:     a.isDone === true,
+      }))
   }
 }

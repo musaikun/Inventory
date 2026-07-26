@@ -13,15 +13,15 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 | ID | 優先度 | 状態 | 担当 | 概要 |
 |---|---:|---|---|---|
-| SEC-001 | P0 | 未着手 | Codex | WebSocket の参加完了前メッセージを遮断 |
-| SEC-002 | P0 | 未着手 | Codex | 注文 upsert の店舗境界を保証 |
-| PLAY-001 | P0 | 未着手 | Codex | account削除backendと関連data削除 |
-| PLAY-002 | P0 | 未着手 | Claude Code | in-app削除UXと公開Web申請導線 |
+| SEC-001 | P0 | 完了 | Codex | WebSocket の参加完了前メッセージを遮断 |
+| SEC-002 | P0 | 完了 | Codex | 注文 upsert の店舗境界を保証 |
+| PLAY-001 | P0 | 完了 | Codex | account削除backendと関連data削除 |
+| PLAY-002 | P0 | 進行中 | Claude Code | in-app削除UXと公開Web申請導線 |
 | PLAY-003 | P1 | 未着手 | Codex | Data Safety・privacy・第三者SDKの整合監査 |
 | PLAY-004 | P1 | 未着手 | Claude Code | TWA審査導線・store listing・screenshots |
-| BUG-001 | P1 | 未着手 | Codex | cron の存在しない列参照を修正 |
+| BUG-001 | P1 | 完了 | Codex | cron の存在しない列参照を修正 |
 | TEST-001 | P1 | 未着手 | Codex | 仕入先順の仕様を決め App テストを復旧 |
-| SEC-003 | P1 | 未着手 | Codex | Push 購読 API の認証・検証を追加 |
+| SEC-003 | P1 | 完了 | Codex | Push 購読 API の認証・検証を追加 |
 | SEC-004 | P1 | 未着手 | Codex | ホスト認可境界を fail-closed 化 |
 | SEC-005 | P1 | 未着手 | Codex | 無制限な店舗作成経路を整理 |
 | DO-001 | P1 | 未着手 | Codex | 品目追加要求を休止復帰対応にする |
@@ -44,6 +44,8 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 ### PLAY-001 — account削除backendと関連data削除
 
+- 着手: 2026-07-25 / Codex
+- 完了: 2026-07-25 / Codex（backend。in-app / 公開Webは `PLAY-002`）
 - 根拠: account作成API/UIは既に存在するが、削除API/UIがなく、`stores.deleted_at` だけでは
   Google Playのaccount deletion要件を満たさない。
 - 主担当: Codex。UI contractはClaude Codeと実装前に固定する。
@@ -54,10 +56,55 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
   - 部分失敗時に再試行可能で、完了状態を一意に返す。
   - 正常、誤認証、越境、再送、途中失敗を自動testする。
 - Checklist: [`google-play-readiness.md`](google-play-readiness.md)
+- Contract: [`account-deletion-contract.md`](account-deletion-contract.md)
+- 実装:
+  - `DELETE /auth/account` にBearer、現在PIN、店舗code、UUID requestIdを要求。
+  - pendingで通常アクセスを停止し、D1 13 data group、全token、Push購読を原子的に削除。
+  - 棚卸/発注2 DOの接続・alarm・storageを削除。匿名tombstone/receiptは7日cron cleanup。
+  - 同一requestId replay、別requestId競合、DO/D1部分失敗を明示状態で返す。
+- 検証:
+  - 失敗testを先に追加し、実装前はmodule未存在、DO内部pathは426で失敗することを確認。
+  - `cd worker && npm test`: 12 files / 180 tests passed（2026-07-25）。
+  - インメモリSQLite: 0001〜0011適用、削除列/receipt列、pending後INSERTの`account_inactive`を確認。
+- 未実施: production migration、deploy、commit、push。User承認後に行う。
 
 ### PLAY-002 — in-app削除UXと公開Web申請導線
 
+- 着手: 2026-07-25 / Claude Code
+- 方針: 着手はアプリ内UXから。公開Webは vue-router 無しのため SPA 内 URL 起動ビュー方式（D-013 / User 承認 2026-07-25）。
 - 主担当: Claude Code。backend contractは`PLAY-001`に従う。
+- 実装(アプリ内UX・レビュー待ち 2026-07-25):
+  - `DeleteAccountModal.vue`（再認証→最終確認→処理中→エラー/再試行→完了）＋設定内 danger 導線。
+  - `useAuth.deleteAccount()`、`api.js` err.code 公開、`analytics.resetAnalytics()`、storageKeys/appMenuState 追加。
+  - 契約準拠: requestId 保持・409 retryable:false・503 再試行・200 後のみローカル掃除。
+  - `cd app && npm run build` 成功。commit/push なし。
+  - Codex独立レビュー（2026-07-26）:
+  - Blocker: `deleteRequestId`が店舗非依存の単一key。backend完了後の応答喪失→別店舗login時に、前店舗の
+    匿名receipt replayを新店舗の削除成功と誤認し得る。`shopCode + requestId`を一体保存し、不一致時は破棄する。
+  - Blocker: backend成功後はtokenが失効済みのため`unsubscribePush()`のAPI DELETEが401となり、
+    browser `PushSubscription.unsubscribe()`へ到達しない。成功後はlocal-only解除、またはremote失敗でも必ず解除する。
+  - Accessibility: dialog semantics、label関連付け、初期focus/focus trap、status/alert live regionを実機前に補う。
+  - 検証: `api.test.js` 9 passed、production build成功。削除flow専用unit testは未追加。
+- レビュー対応(2026-07-26): Blocker1(requestId 店舗scope化)・Blocker2(Push local-only解除)修正、a11y追加、
+  純粋ロジックを `utils/accountDeletionFlow.js` へ切り出し unit test 12件。vitest/build 緑。
+- Codex再レビュー（2026-07-26）: **Deliverable A（アプリ内削除UX）承認**。
+  - requestIdの店舗scope化と、削除成功後のPush local-only解除を確認。前回Blocker 2件は解消。
+  - dialog semantics、label関連付け、初期focus、status/alert live regionを確認。
+  - 対象テスト `21 passed`、App production build成功。App全体は既知の`TEST-001`のみ1件失敗
+    （58 files / 574 tests passed、1 file / 1 test failed）。PLAY-002由来の回帰なし。
+  - 非Blocker残件: 保存requestIdのUUID形式検証、Service Worker未登録時もfinalizeを停止させない保証と
+    local-only Push解除/finalizeの結合テスト、focus trap。
+- 再レビュー残件の対応(2026-07-26): ①保存requestIdのUUID形式検証、②`unsubscribePushLocal`を
+  `getRegistration()`化しSW未登録でのfinalize hangを回避。テスト計15緑・build成功。focus trapは据え置き。
+- Codex追再レビュー（2026-07-26）: 上記2点を承認。Workerと同一のUUID形式、SW未登録時の即時完了、
+  browser購読のlocal-only解除を確認。削除経路24 tests passed、App build成功。App全体は既知の
+  `TEST-001`のみ失敗（59 files / 577 tests passed、1 file / 1 test failed）。
+  - 低優先残件: Push非対応環境でも購読表示keyを必ず消すこと、およびremote API未呼出しをspyで固定するtest。
+- 低優先残件の対応(2026-07-26): A=非対応環境でも購読表示keyを掃除（早期returnより前へ）、
+  B=`apiFetch`未呼出しをモックで固定＋非対応環境testを追加（usePush.local 計3）。計16緑・build成功。
+- Codex最終確認（2026-07-26）: 上記2点を承認。削除経路25 tests passed、App build成功。
+  App全体は578 tests passed、既知`TEST-001`のみ1件失敗。Deliverable Aに追加指摘なし。
+- 残り: 🖐実機UI、focus trap(全モーダル共通課題)、公開Web削除ビュー、privacy/terms/support導線。
 - 完了条件:
   - account設定から見つけやすく、対象店舗と削除dataを明示する。
   - 再認証、誤操作防止、進行中、失敗、再試行、完了状態を扱う。
@@ -87,37 +134,58 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 ### SEC-001 — WebSocket の参加完了前メッセージを遮断
 
+- 着手: 2026-07-25 / Codex
+- 完了: 2026-07-25 / Codex
 - 根拠: `worker/src/RoomDO.js:156` の共通メッセージ処理には参加済みガードがなく、
   `join` は 173 行付近、在庫更新は 315 行付近、競合ロックは 778 行付近にある。
 - 影響: ルームを知る未参加接続が更新系メッセージを送れる。空の `deviceId` は参加者上限の
   一意 ID 集計を回避する可能性がある。`conflict_lock` のホスト限定コメントと実装も不一致。
-- 完了条件:
-  - `join` と必要最小限の接続維持メッセージ以外は、参加成功まで拒否する。
-  - `deviceId`、role、招待 session、host token を一貫して検証する。
-  - ホスト専用メッセージをサーバー側で強制する。
-  - 未参加、空 ID、偽 host、guest のホスト操作、正常再接続のテストを追加する。
-- 検証: Worker 全テストに加え、可能なら Workers runtime に近い WebSocket 統合テスト。
+- 実装:
+  - `join` 成功を Durable Object の WebSocket attachment に永続化し、`ping` 以外の
+    参加前メッセージを `1008 / join_required` で拒否。
+  - 空・空白 `deviceId`、二重 `join`、招待 session 不一致、偽 host token を拒否。
+  - 未参加ソケットへの broadcast を遮断し、`leave` 時に認可状態を即時無効化。
+  - `conflict_lock` を参加済みホスト専用にし、参加者公開値から内部rate-limit情報を除外。
+- 検証:
+  - `worker/src/RoomDO.joinAuth.test.js`: 33 tests passed。
+  - `cd worker && npm test`: 11 files / 154 tests passed（2026-07-25）。
+  - Workers runtimeに近い統合テストへの移行は、既存Node mock基盤全体を扱う `TEST-002` で継続。
 
 ### SEC-002 — 注文 upsert の店舗境界を保証
 
+- 着手: 2026-07-25 / Codex
+- 完了: 2026-07-25 / Codex
 - 根拠: `worker/src/storeHandler.js:266` 以降の注文保存は
   `ON CONFLICT(id) DO UPDATE` を使うが、既存 ID の `shop_code` 所有確認がない。
 - 影響: 認証済みの別店舗から既知または衝突した注文 ID を指定すると、別店舗の注文ヘッダーを
   更新できる可能性がある。
-- 完了条件:
-  - 既存注文 ID の所有店舗が異なる場合は書き込みを拒否する。
-  - 明細削除・ヘッダー upsert・明細追加が同じ店舗境界を守る。
-  - 2店舗を用いた回帰テストで、越境更新と削除が失敗する。
-- 検証: `worker/src/storeHandler.test.js` の正常・同店舗再送・別店舗衝突テスト。
+- 実装:
+  - 既存order ownerを事前確認し、別店舗の同一IDを409で拒否。
+  - `ON CONFLICT` 自体にも `orders.shop_code = excluded.shop_code` を付け、
+    owner確認後の競合を原子的に拒否。ヘッダー成功確認前は明細を変更しない。
+  - DELETEは不存在と他店舗所有を同じ404にし、HTTP routeへstatusを伝播。
+- 検証:
+  - 2店舗の越境POST、owner確認後の競合、同店舗再送、越境DELETE、HTTP 404をtest。
+  - インメモリSQLite: 別店舗 `changes=0`、同店舗 `changes=1`、owner保持を確認。
+  - `cd worker && npm test`: 11 files / 159 tests passed（2026-07-25）。
 
 ### BUG-001 — cron の存在しない列参照を修正
 
+- 着手・完了: 2026-07-25 / Codex
 - 根拠: `worker/src/pushHandler.js:115` は `sessions.updated_at` を参照するが、
   現在の sessions migrations に同列がない。
+- 決定: 最終操作時刻はD1へ保存されていないため、既存の正である`started_at`を基準にし、
+  開始から24時間超・7日以内のactive sessionを再開通知対象とする。
+- 実装: queryを`started_at`へ整合させ、`deleted_at IS NULL`で論理削除済みsessionを除外。
+- 検証:
+  - 全migration 0001〜0011をNode SQLiteへ適用してcron全体を実行するtestを追加。
+  - 修正前に`no such column: s.updated_at`で失敗することを確認。
+  - 25時間、23時間、8日超の境界を固定し、`cd worker && npm test`: 13 files / 182 tests passed。
+- 未実施: deploy、実環境変更、commit、push。
 - 完了条件:
   - 「放置セッション」の基準時刻を仕様として決める。
-  - query または schema を整合させる。
-  - cron 全体を既存 schema で実行するテストを追加する。
+    - query または schema を整合させる。
+    - cron 全体を既存 schema で実行するテストを追加する。
 
 ### TEST-001 — 仕入先順の仕様を決め App テストを復旧
 
@@ -127,7 +195,19 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 ### SEC-003 — Push 購読 API の認証・検証を追加
 
+- 着手・完了: 2026-07-25 / Codex
 - 根拠: `worker/src/index.js:201-209` の購読作成・削除が現在の soft auth 対象外。
+- 実装:
+  - 作成・削除とも対象店舗のBearer tokenを必須化。bodyはstream実測を含む8KiB上限。
+  - endpointは2048文字以内の公開HTTPS URL（credential/fragment/非標準port/local・IP literalを拒否）。
+  - `p256dh`はURL-safe base64の非圧縮P-256公開鍵（65 bytes / 0x04）、`auth`は16 bytesを要求。
+  - endpoint ownerを確認し、UPSERTにも同一`shop_code`条件を付与。別店舗の奪取は409、DELETEは
+    `shop_code + endpoint`条件で他店舗dataを変更しない。
+- 検証:
+  - 実装前に未認証、不正URL/keys、8KiB超、越境upsert/deleteの5失敗を確認。
+  - 実SQLiteでvalidationとtenant境界、Worker routeで正常/401/400/413/409をtest。
+  - `cd worker && npm test`: 13 files / 187 tests passed。
+- 未実施: deploy、実環境変更、commit、push。
 - 完了条件:
   - 店舗認証を必須化する。
   - endpoint、keys、payload size、許容 URL を検証する。

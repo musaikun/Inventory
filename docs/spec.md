@@ -102,18 +102,20 @@
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0009）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0011）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
-| `stores` | 店舗・認証・プラン | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。`plan` 列＝サーバー側プラン管理（C-01） |
+| `stores` | 店舗・認証・プラン・削除状態 | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。削除中は`deletion_pending_at` / `deletion_request_id`、完了後は7日匿名tombstone |
 | `auth_tokens` | Bearer トークン（30日有効） | ログインごとに発行。`stores` とは分離 |
 | `sessions` | 棚卸/発注セッション | `type` 列で棚卸(stock)/発注(order)を区別。status は `active`/`completed`（旧 `incomplete` は後方互換で受理のみ） |
 | `store_history` | 完了スナップショット | 最新50件。R2アーカイブ移行が将来課題（db-design-v2） |
 | `inventory_lines` | 1品目1行の時系列（分析用） | db-design-v2 Step 1 |
 | `orders` | 発注レコード | v0.48 |
+| `movements` / `movement_lines` | 入出庫レコード | 0010 |
 | `login_attempts` / `ip_attempts` | レート制限 | フェイルオープン実装 |
 | `push_subscriptions` | プッシュ通知購読 | |
+| `account_deletion_receipts` | 削除再送の冪等receipt | account識別子なし、7日後cron削除（0011） |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）
 

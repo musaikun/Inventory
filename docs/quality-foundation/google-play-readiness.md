@@ -30,17 +30,19 @@
 
 | Data group | 保存先候補 | 初期方針 | 確定・証拠 |
 |---|---|---|---|
-| account/store | D1 `stores` | 削除または復元不能な匿名化 | 未確定 |
-| auth token / attempts | D1 | 削除 | 未確定 |
-| sessions / inventory lines | D1 | 削除 | 未確定 |
-| config / history | D1 | 削除 | 未確定 |
-| orders / order lines | D1 | 削除 | 未確定 |
-| movements / movement lines | D1 | 削除 | 未確定 |
-| push subscriptions | D1 / Push service | unsubscribe後に削除 | 未確定 |
-| active room state | Durable Objects | close・purge | 未確定 |
-| device cache / token | localStorage / Cache API | 削除 | 未確定 |
-| analytics / feedback | PostHog | identity・event取扱いを決定 | 未確定 |
-| security records | D1/logs | 必要最小限のみ保持候補 | User判断・policy記載 |
+| account/store | D1 `stores` | 匿名tombstoneを7日後に削除 | `PLAY-001` 完了 / 0011 + test |
+| auth token / login attempts | D1 | 削除 | `PLAY-001` 完了 / test |
+| sessions / inventory lines | D1 | 削除 | `PLAY-001` 完了 / test |
+| config / history | D1 | 削除 | `PLAY-001` 完了 / test |
+| orders / order lines | D1 | 削除 | `PLAY-001` 完了 / test |
+| movements / movement lines | D1 | 削除 | `PLAY-001` 完了 / test |
+| push subscriptions | D1 / Push service | D1削除で送信停止、client購読解除 | `PLAY-001`削除 + `SEC-003`認証/検証 完了 / clientは`PLAY-002` |
+| active room state | Durable Objects | stock/orderをclose・purge | `PLAY-001` 完了 / test |
+| device cache / token | localStorage / Cache API | 削除 | Claude Code |
+| analytics / feedback | PostHog | account未identify、local identity reset | `PLAY-003` / `PRIV-001` |
+| deletion receipt | D1 | account識別子なしで7日保持 | `PLAY-001` 完了 / cron cleanup test |
+| D1 Time Travel | Cloudflare管理backup | provider回復期間満了、通常復元禁止 | privacy policy反映待ち |
+| security records | D1/logs | account非連結の最小記録のみ | `PLAY-003` / `OPS-001` |
 
 法令・不正防止などの正当な保持理由がある場合、対象、目的、期間、問い合わせ先を
 privacy policyに明記します。
@@ -82,4 +84,3 @@ privacy policyに明記します。
 ## 公開判定
 
 このchecklistの未完了項目に、owner、期限、審査への影響が記載されていない場合はrelease不可です。
-

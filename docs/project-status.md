@@ -24,6 +24,19 @@
 
 ## 2. 現在の状況（v0.58 系）
 
+### 共同品質基盤スプリント（account deletion backend / 2026-07-25）
+
+- `PLAY-001` backend完了: `DELETE /auth/account`、PIN/店舗code再確認、UUID requestId冪等処理。
+- D1 0011: 削除pending/request、匿名receipt、inactive accountへの再INSERT防止trigger。
+- 関連D1 data・全auth token・Push購読と、棚卸/発注2 Durable Objectsを削除。
+- 7日匿名tombstone/receiptを日次cronで清掃。pending/削除済み店舗は通常APIとroomを遮断。
+- `BUG-001`完了: cronの不存在`sessions.updated_at`参照を、仕様化した`started_at`基準へ修正。
+- `SEC-003`完了: Push購読APIをstrict認証、8KiB上限、標準鍵形式・tenant owner検証で保護。
+- Worker検証: 13 files / 187 tests passed。全migrationのインメモリSQLite適用も成功。
+- in-app削除UX、端末cache/Push解除、公開Web申請導線は `PLAY-002`（Claude Code）で接続予定。
+- 正式な現況・contract: [`quality-foundation/task-list.md`](quality-foundation/task-list.md) /
+  [`quality-foundation/account-deletion-contract.md`](quality-foundation/account-deletion-contract.md)。
+
 ### 直近セッションの追加（過去履歴の一括取込 / 2026-07-23）
 - **過去の納品履歴の一括取込** — 中間フォーマットCSV → 入庫（`movements type:in`）へ一括投入。
   名寄せ（`itemMatcher`）・冪等（日付+種別+品目+数量）・ステージングUI（`DeliveryImportModal`）・

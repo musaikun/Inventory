@@ -42,6 +42,7 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 ## 現在の再開地点
 
-2026-07-25 の初回横断監査と共有基盤作成、2週間スプリントの方針確定まで完了しています。
-アプリ本体は未変更です。2026-07-27から機能開発を凍結し、`SEC-001`、`SEC-002`、
-Google Playのaccount deletion contract確定から開始します。
+2026-07-25 に初回横断監査、共有基盤、2週間スプリントの方針確定、`SEC-001` と
+`SEC-002` を完了しました。WorkerにはWebSocket参加認可境界と注文の店舗境界、
+それぞれの回帰テストと `PLAY-001` account deletion backendが追加されています。次はClaude Codeが
+`PLAY-002` のin-app削除UX/公開Webを接続し、Codexが認可・data削除を独立reviewします。

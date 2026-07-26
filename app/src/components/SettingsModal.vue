@@ -9,6 +9,8 @@ import CsvMapperModal from './CsvMapperModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
+import { isAuthenticated } from '../composables/useAuth.js'
+import { showDeleteAccount } from '../composables/appMenuState.js'
 import pkg from '../../package.json'
 
 const props = defineProps({
@@ -81,6 +83,12 @@ function saveDeviceName() {
 
 function saveAndClose() {
   setDeviceName(deviceNameInput.value)
+  emit('close')
+}
+
+// ── アカウント削除（設定を閉じて削除モーダルを開く）───────────────────────────
+function openDeleteAccount() {
+  showDeleteAccount.value = true
   emit('close')
 }
 
@@ -346,6 +354,16 @@ function onDownloadTemplate() {
       <div v-if="_showGeneral" class="device-section app-info">
         <div class="device-label">アプリ情報</div>
         <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}</span></div>
+      </div>
+
+      <!-- アカウント削除（認証済みのみ・ゲスト非表示）-->
+      <div v-if="_showGeneral && isAuthenticated && !props.isGuest" class="danger-section">
+        <div class="danger-label">アカウントの削除</div>
+        <p class="danger-note">
+          店舗アカウントと、品目・棚卸・発注・入出庫・履歴・設定などのすべてのデータを削除します。
+          <b>削除すると元に戻せません。</b>
+        </p>
+        <button class="danger-btn" @click="openDeleteAccount">アカウントを削除する…</button>
       </div>
 
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>
@@ -654,4 +672,25 @@ function onDownloadTemplate() {
   border-color: var(--primary);
 }
 .notif-toggle:disabled { opacity: 0.6; cursor: default; }
+
+/* アカウント削除（危険操作）*/
+.danger-section {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #fef2f2;
+  border: 1.5px solid #fecaca;
+  border-radius: 12px;
+}
+.danger-label { font-size: 12px; font-weight: 800; color: var(--danger); margin-bottom: 6px; }
+.danger-note { font-size: 11px; color: #7f1d1d; margin: 0 0 10px; line-height: 1.6; }
+.danger-note b { color: var(--danger); }
+.danger-btn {
+  width: 100%; padding: 10px;
+  border: 1.5px solid var(--danger);
+  background: #fff; color: var(--danger);
+  border-radius: 10px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.danger-btn:active { background: #fee2e2; }
 </style>
