@@ -22,7 +22,7 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 | BUG-001 | P1 | 完了 | Codex | cron の存在しない列参照を修正 |
 | TEST-001 | P1 | 未着手 | Codex | 仕入先順の仕様を決め App テストを復旧 |
 | SEC-003 | P1 | 完了 | Codex | Push 購読 API の認証・検証を追加 |
-| SEC-004 | P1 | 未着手 | Codex | ホスト認可境界を fail-closed 化 |
+| SEC-004 | P1 | 完了 | Codex | ホスト認可境界を fail-closed 化 |
 | SEC-005 | P1 | 未着手 | Codex | 無制限な店舗作成経路を整理 |
 | DO-001 | P1 | 未着手 | Codex | 品目追加要求を休止復帰対応にする |
 | DATA-001 | P1 | 未着手 | Codex | 複数 D1 書き込みの原子性と入力制限を改善 |
@@ -104,7 +104,28 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
   B=`apiFetch`未呼出しをモックで固定＋非対応環境testを追加（usePush.local 計3）。計16緑・build成功。
 - Codex最終確認（2026-07-26）: 上記2点を承認。削除経路25 tests passed、App build成功。
   App全体は578 tests passed、既知`TEST-001`のみ1件失敗。Deliverable Aに追加指摘なし。
-- 残り: 🖐実機UI、focus trap(全モーダル共通課題)、公開Web削除ビュー、privacy/terms/support導線。
+- Deliverable B 実装(レビュー待ち 2026-07-26): 公開Web削除ビュー。`App.vue` onMounted で `?delete-account`
+  検出→`DeleteAccountPage.vue`（未ログインは店舗コード+PIN ログイン→承認済み `DeleteAccountModal` 再利用→
+  完了表示）。build 成功・削除 unit test 16 緑。privacy/terms/support URL は設定値化（PLAY-003 確定待ち）。
+- Deliverable B Codex独立レビュー（2026-07-26）: **changes requested**。
+  - 公開routeの優先判定、未loginからの認証、承認済み削除flow再利用は妥当。
+  - 修正1: `APP_NAME='棚卸管理'`をGoogle Play listing/PWA/法務文書の正式名「タナオロ」と一致させる。
+  - 修正2: 新規route/viewの専用回帰test（未認証でのroute優先表示、login入力/遷移）を追加する。
+  - 公開前gate: `PLAY-003`でprivacy/terms/supportのHTTPS URLと、7日tombstone/receipt、D1 backup、
+    security recordの保持文面を確定・反映する。
+  - 検証: App 582 tests passed、既知`TEST-001`のみ1 failed。production build成功。
+    local URLのHTTP応答は確認、browser接続なしのため目視/click/mobile実機は未実施。
+- Deliverable B レビュー対応(2026-07-26): 修正1=`APP_NAME`を manifest と同じ「タナオロ」へ（公開ページのみ。
+  AuthPage/HomeScreen の「棚卸管理」表記は混在のままで統一は `PLAY-004`／User 判断）。修正2=URL判定を
+  `utils/startupRoute.js` へ切り出し、`startupRoute.test.js` 7件＋`DeleteAccountPage.login.test.js` 3件を追加
+  （@vue/test-utils は導入せず描画非依存でテスト）。削除経路 5 files / 35 tests passed・build 成功。
+- 画面レベル回帰への作り直し(2026-07-26): 「描画せずcomposableを直接呼ぶだけ」という指摘を受け全面改訂。
+  `vitest.config.js` に既存devDependencyの `@vitejs/plugin-vue` を追加＋`virtual:pwa-register/vue` を
+  `src/test-stubs/` へ alias し、`createApp`+jsdom で実mount（@vue/test-utils は非導入）。
+  `DeleteAccountPage.login.test.js` 5件（入力→ログインclick→削除対象表示→削除モーダル起動、失敗時非遷移）、
+  `App.deleteRoute.test.js` 3件（未ログイン/ログイン済みでの `?delete-account` 優先表示、無指定時は非表示）。
+  App 63 files / 597 passed（既知`TEST-001`のみ1件失敗）、Worker 191 passed、build 成功。
+- 残り: 🖐実機UI、focus trap(全モーダル共通課題)、privacy/terms/support の確定URL反映（PLAY-003依存）。
 - 完了条件:
   - account設定から見つけやすく、対象店舗と削除dataを明示する。
   - 再認証、誤操作防止、進行中、失敗、再試行、完了状態を扱う。
@@ -215,7 +236,17 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
 
 ### SEC-004 — ホスト認可境界を fail-closed 化
 
+- 着手・完了: 2026-07-26 / Codex
 - 根拠: ルーム店舗確認と `RoomDO._isStoreProtected()` が D1 例外時に legacy 扱いへ倒れる。
+- 実装:
+  - Workerのルーム店舗確認はDB binding欠落・D1例外を503 `service_unavailable`で拒否し、DOを起動しない。
+  - RoomDOは、D1で存在とPIN未設定を明示確認できた店舗だけlegacy扱い。不明・binding欠落・D1例外は
+    保護店舗として扱い、有効auth tokenなしの新規host token発行を拒否する。
+  - `ip_attempts`障害は認可判定ではないため従来どおりfail-openとし、店舗認可の成功要件と分離する（D-015）。
+- 検証:
+  - 実装前にD1例外・binding欠落でDO到達/host token発行する4失敗を確認。
+  - 対象3 files / 86 tests、Worker全体13 files / 191 tests passed。
+- 未実施: deploy、実環境変更、commit、push。
 - 完了条件:
   - D1 障害時に保護店舗のホスト権限を新規取得できない。
   - 可用性を優先してよい読み取り処理と、閉じるべき認可処理を分離する。

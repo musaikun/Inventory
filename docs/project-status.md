@@ -32,7 +32,8 @@
 - 7日匿名tombstone/receiptを日次cronで清掃。pending/削除済み店舗は通常APIとroomを遮断。
 - `BUG-001`完了: cronの不存在`sessions.updated_at`参照を、仕様化した`started_at`基準へ修正。
 - `SEC-003`完了: Push購読APIをstrict認証、8KiB上限、標準鍵形式・tenant owner検証で保護。
-- Worker検証: 13 files / 187 tests passed。全migrationのインメモリSQLite適用も成功。
+- `SEC-004`完了: room gateとDOの店舗保護判定をD1障害時fail-closed化。
+- Worker検証: 13 files / 191 tests passed。全migrationのインメモリSQLite適用も成功。
 - in-app削除UX、端末cache/Push解除、公開Web申請導線は `PLAY-002`（Claude Code）で接続予定。
 - 正式な現況・contract: [`quality-foundation/task-list.md`](quality-foundation/task-list.md) /
   [`quality-foundation/account-deletion-contract.md`](quality-foundation/account-deletion-contract.md)。

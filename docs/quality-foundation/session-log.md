@@ -2,6 +2,104 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-07-26 — PLAY-002 Deliverable B 画面レベル回帰テストへの作り直し
+
+- 担当: Claude Code。Codex 指摘（前回のtestは画面を描画せず回帰にならない）は妥当と判断し全面的に作り直し。
+- テスト基盤（新規依存なし・既存devDependencyのみ）:
+  - `vitest.config.js` に `@vitejs/plugin-vue`（ビルドで既に使用）を追加し、`.vue` を mount 可能にした。
+  - `virtual:pwa-register/vue` は PWA プラグイン非搭載のテストで解決できないため、
+    `src/test-stubs/pwaRegister.js` へ alias（Windows 対応のため `fileURLToPath` 使用）。
+  - `@vue/test-utils` は導入せず、Vue 本体の `createApp` + jsdom の実 DOM 操作で検証。
+- `DeleteAccountPage.login.test.js`（5件・実mount）: 未ログイン時の入力欄表示／店舗コード小文字→大文字化を
+  含む input イベント→ログインボタンclick→**削除対象アカウント画面への遷移**／PIN 4桁未満はAPIを呼ばず
+  エラー表示・非遷移／ログイン失敗は非遷移／「アカウント削除に進む」で削除モーダル（role=dialog・
+  再認証PIN欄・店舗コード確認欄）が開く。
+- `App.deleteRoute.test.js`（3件・App を実mount）: 未ログイン+`?delete-account` で公開削除ページが描画される／
+  ログイン済みでも同ルートを優先し削除対象を表示／パラメータ無しでは削除ページを出さない（通常起動を阻害しない）。
+- 検証:
+  - App 全体: 63 files / 597 passed、既知 `TEST-001`（仕入先順）のみ 1 failed。config 変更由来の回帰なし。
+  - Worker 全体: 13 files / 191 passed。App production build 成功。
+- 未対応（合意済み/依存）: focus trap、実機UI確認、privacy/terms/support 確定URLと保持方針文面（`PLAY-003`）。
+- 未実施: commit、push。
+- 次の再開地点: Codex 再レビュー（画面レベル回帰の充足確認）。
+
+## 2026-07-26 — PLAY-002 Deliverable B レビュー指摘の修正
+
+- 担当: Claude Code。Codex の changes requested 2点へ対応。Worker 無変更。
+- 指摘1（アプリ名）: 事実確認のうえ修正。PWA manifest（`vite.config.js`）は `name/short_name = タナオロ`、
+  アプリ内も「タナオロの使い方」「タナオロ プロプラン」が正式名。`DeleteAccountPage.vue` の
+  `APP_NAME` を「棚卸管理」→「タナオロ」へ。manifest と併せて更新する旨をコメントで明記。
+  ※`AuthPage.vue` / `HomeScreen.vue` の見出しは「棚卸管理」のままで表記が混在。公開ページのみ
+  listing 名に一致させる方針（User 判断 2026-07-26）。アプリ全体の表記統一は `PLAY-004` で扱う。
+- 指摘2（公開routeのtest）: URL 判定を `utils/startupRoute.js` の `isDeleteAccountRoute()` へ切り出し、
+  App.vue から使用。`@vue/test-utils` は未導入のため依存追加はせず、描画に依存しない形でテスト化。
+  - `startupRoute.test.js` 7件: 値なし/値付き/他param併用/部分一致は反応しない/room・store では false/
+    null・undefined 安全。＝未認証でも公開ページが優先表示され、通常起動を妨げない回帰。
+  - `DeleteAccountPage.login.test.js` 3件: 店舗code+PIN login 成功で認証済み・削除対象確定、
+    失敗では認証状態を作らない、別アカウント login で前アカウントのローカル業務データが掃除される。
+- 検証: 削除経路 5 files / 35 tests passed、`npm run build` 成功（precache 2244.68 KiB）。
+- 未対応（合意済み/依存）: focus trap、実機UI確認、privacy/terms/support 確定URLと保持方針文面（`PLAY-003`）。
+- 未実施: commit、push。
+- 次の再開地点: Codex 再レビュー（指摘2点の解消確認）。
+
+## 2026-07-26 — PLAY-002 Deliverable B Codex独立レビュー（changes requested）
+
+- 判定: 公開Web削除経路の設計・実装方針は妥当。ただし、Google Playへ登録できる完成状態としては
+  修正2点と`PLAY-003`の公開前gateが残る。
+- 確認できた点:
+  - `?delete-account`を認証・room・session復元より先に判定し、未install/未loginでも専用viewへ到達する。
+  - 店舗code+PINでlogin後、承認済み`DeleteAccountModal`と同じbackend contractを再利用する。
+  - account切替時はlocal auth/shop codeを消去し、別account login時はowner差分でlocal業務dataを掃除する。
+- 修正依頼:
+  1. `DeleteAccountPage.vue`の`APP_NAME`が「棚卸管理」だが、PWA manifest・privacy policy・termsの
+     正式サービス名は「タナオロ」。Google Playの公開Web resourceはstore listing上のapp名または
+     developer名を参照する必要があるため、listingと一致させる。
+  2. 新規の公開route/viewに専用の自動testがない。少なくとも`?delete-account`が未認証でも優先表示される
+     回帰testと、公開pageのlogin入力/遷移のtestを追加する。
+- 公開前gate（`PLAY-003`依存）:
+  - privacy/terms/support URLは現在空で非表示。確定HTTPS URLを反映する。
+  - privacy policyへ、匿名tombstone/receiptの7日保持、D1 Time Travel/provider backupの回復期間、
+    account非連結security recordの保持方針を実装と矛盾なく反映する。保持するdataがある場合は明示が必要。
+- 根拠: Google Play公式のaccount deletion要件は、Web linkが機能し、削除申請手段を目立つ形で示し、
+  store listing上のapp/developer名を参照することを要求。正当な理由でdataを保持する場合は保持方針を明示する。
+- 検証:
+  - App全体: 60 files中59 passed / 1 failed、582 tests passed / 既知`TEST-001`のみ1 failed。
+  - production build成功（444 modules、PWA precache 2244.58 KiB）。
+  - local `/?delete-account`のHTTP応答を確認。操作可能なbrowser接続が無かったため目視・click・mobile実機は未実施。
+- 未実施: App実装変更、deploy、commit、push。
+- 次の再開地点: Claude Codeが上記2点を修正後、Codex再レビュー。公開URL/保持文面は`PLAY-003`で確定する。
+
+## 2026-07-26 — SEC-004 ホスト認可境界のfail-closed化 完了
+
+- 担当: Codex。Claude CodeのPLAY-002 Deliverable B（App）とは非競合のWorker lane。
+- 問題: D1のstores照会失敗時にWorkerがDOへ素通しし、RoomDOも保護状態不明をlegacy扱いしたため、
+  空室では第三者へ新規host tokenを発行できた。
+- 修正:
+  - Worker room gateはDB未設定/D1例外を503で閉じ、DOへ到達させない。
+  - RoomDOは明示的に存在するPIN未設定店舗だけlegacy互換。不明/DB未設定/D1例外は保護扱いとし、
+    有効auth tokenなしの新規host tokenを拒否。
+  - レート制限table障害は認可境界ではないため、従来のfail-openを維持。
+- テスト: 修正前に4経路の失敗を確認。対象3 files / 86 tests、Worker全体13 files / 191 tests passed。
+- 根拠: Cloudflare Workers/DOの最新best practices（例外境界、明示的エラー、DO呼出し失敗の伝播）を確認。
+- 未実施: deploy、実環境変更、commit、push。
+- 次の再開地点: CCのDeliverable B独立レビュー。またはCodexの次タスク`SEC-005`。
+
+## 2026-07-26 — PLAY-002 Deliverable B 公開Web削除ビュー 実装（レビュー待ち）
+
+- 担当: Claude Code。承認済みの Deliverable A（削除フロー）を再利用。Worker 無変更。
+- 対象: アプリ未インストールでもブラウザから削除申請できる公開Webリソース（Play の Data deletion URL 用）。
+- 実装:
+  - `App.vue` の onMounted 冒頭で `?delete-account` を検出し、認証・ルーム・セッション復元より優先して
+    `currentView='delete-account'` を表示（未ログインでも到達可）。テンプレートに専用ビュー分岐を追加。
+  - 新規 `DeleteAccountPage.vue`: アプリ名・削除対象・復元不能を明示。未ログインは店舗コード+PIN で
+    `login()`→承認済み `DeleteAccountModal` を再利用して削除。完了時は静的な完了表示。
+  - privacy/terms/support は設定値化（`PRIVACY_URL` 等）。未設定なら導線非表示。**確定URLは PLAY-003 依存**。
+- 検証: `npm run build` 成功（precache 2244 KiB＝新ページ反映）。削除ロジックの unit test 16 緑（回帰なし）。
+- 残り: 🖐実機UI（in-app＋公開ページ）、privacy/terms/support の確定URL反映（PLAY-003）、focus trap、
+  Codex による公開ビューの独立レビュー。
+- 未実施: commit、push。
+- 次の再開地点: Codex の公開ビュー独立レビュー＋実機確認 → 確定URL反映。
+
 ## 2026-07-26 — PLAY-002 Deliverable A 低優先残件のCodex確認
 
 - 判定: **対応2点を承認、追加指摘なし**。Deliverable Aのコードレビューは完了。

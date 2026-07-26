@@ -477,13 +477,13 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
   })
 })
 
-describe('フェイルオープン（レート制限テーブル未作成でも本体機能を殺さない）', () => {
-  function makeEnv(db) {
+describe('障害境界（レート制限はfail-open、店舗認可はfail-closed）', () => {
+  function makeEnv(db, onRoomFetch = () => {}) {
     return {
       DB: db,
       ROOMS: {
         idFromName: () => 'x',
-        get: () => ({ fetch: async () => new Response('{}', { status: 200 }) }),
+        get: () => ({ fetch: async () => { onRoomFetch(); return new Response('{}', { status: 200 }) } }),
       },
       ALLOWED_ORIGIN: '',
     }
@@ -504,11 +504,23 @@ describe('フェイルオープン（レート制限テーブル未作成でも�
     expect(res.status).toBe(404)
   })
 
-  it('stores 自体が読めない場合はルーム接続を素通しする（DO に委ねる）', async () => {
+  it('stores 自体が読めない場合は503で閉じ、DOへ到達させない', async () => {
+    let roomFetched = 0
     const db  = createMockD1({ failTables: ['ip_attempts', 'stores'] })
-    const env = makeEnv(db)
+    const env = makeEnv(db, () => { roomFetched++ })
     const res = await worker.fetch(makeReq('GET', '/room/ABCDEF/status'), env)
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe('service_unavailable')
+    expect(roomFetched).toBe(0)
+  })
+
+  it('DB binding が無い場合もルームゲートを503で閉じる', async () => {
+    let roomFetched = 0
+    const env = makeEnv(undefined, () => { roomFetched++ })
+    const res = await worker.fetch(makeReq('GET', '/room/ABCDEF/status'), env)
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe('service_unavailable')
+    expect(roomFetched).toBe(0)
   })
 
   it('login_attempts / ip_attempts が無くても正しい PIN でログインできる', async () => {

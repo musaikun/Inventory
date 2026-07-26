@@ -56,6 +56,8 @@ import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import DeleteAccountModal from './components/DeleteAccountModal.vue'
+import DeleteAccountPage from './components/DeleteAccountPage.vue'
+import { isDeleteAccountRoute } from './utils/startupRoute.js'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
@@ -798,6 +800,13 @@ onMounted(async () => {
   const storeParam = params.get('store')
   const joinSid    = params.get('s')   // 招待リンクのセッションID（鍵）
   const joinType   = params.get('type') === 'order' ? 'order' : 'stock'
+
+  // 公開Web削除申請（Play Console の Data deletion URL）。認証・ルーム・セッション復元より
+  // 優先し、未ログインでもブラウザから削除申請できる専用ページを表示する。
+  if (isDeleteAccountRoute(window.location.search)) {
+    currentView.value = 'delete-account'
+    return
+  }
 
   if (roomCode) {
     const url = new URL(window.location.href)
@@ -2155,6 +2164,9 @@ function dismissReview() {
       :error-message="guestResultError"
       @home="currentView = isAuthenticated ? 'sessions' : 'landing'"
     />
+
+    <!-- ── 公開Web アカウント削除申請（?delete-account） ── -->
+    <DeleteAccountPage v-else-if="currentView === 'delete-account'" />
 
     <!-- ── ランディング ── -->
     <LandingPage v-else-if="currentView === 'landing'" @started="onLandingStarted" />

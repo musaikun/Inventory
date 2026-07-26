@@ -936,16 +936,17 @@ export class RoomDO {
     return this._isJoined(ws) && ws.deserializeAttachment()?.isHost === true
   }
 
-  // PIN設定済み（＝D1認証で保護すべき）店舗か。D1障害時はフェイルオープンで
-  // false（レガシー扱い）にし、可用性を優先する（既存のレート制限と同方針）。
+  // PIN設定済み（＝D1認証で保護すべき）店舗か。明示的に存在しPIN未設定と確認できた
+  // 店舗だけfalse（レガシー）にする。不明・DB未設定・D1障害は保護対象として扱い、
+  // 続くauth token検証も成功しない限り新規host tokenを発行しない。
   async _isStoreProtected(shopCode) {
-    if (!shopCode || !this.env?.DB) return false
+    if (!shopCode || !this.env?.DB) return true
     try {
       const row = await this.env.DB.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(shopCode).first()
-      return !!(row && row.pin_hash)
+      return !row || !!row.pin_hash
     } catch (e) {
-      console.error('[RoomDO] store protection lookup failed (fail-open):', e?.message ?? e)
-      return false
+      console.error('[RoomDO] store protection lookup failed (fail-closed):', e?.message ?? e)
+      return true
     }
   }
 

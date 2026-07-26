@@ -396,25 +396,29 @@ export default {
       const code   = roomMatch[1].toUpperCase()
       const action = roomMatch[2].toLowerCase()
 
-      if (env.DB) {
-        const ip = clientIp(request)
-        if (await isIpBlocked(env.DB, ip, 'probe')) {
-          return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
-        }
-        // フェイルオープン: stores が読めない場合はゲートを素通しして DO に委ねる
-        let store = null, gateOk = true
-        try {
-          store = await env.DB.prepare(
-            'SELECT shop_code FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
-          ).bind(code).first()
-        } catch (e) {
-          console.error('[Worker] room gate store lookup failed (fail-open):', e?.message ?? e)
-          gateOk = false
-        }
-        if (gateOk && !store) {
-          await recordIpFail(env.DB, ip, 'probe')
-          return jsonResponse({ error: 'ルームが見つかりません' }, 404, origin, allowedOrigin)
-        }
+      // 店舗存在確認はルーム認可境界の一部。DB未設定・D1障害を「存在するかもしれない」と
+      // 解釈してDOへ通すと、DO側でも保護状態を確認できず新規ホスト発行へ倒れ得るため閉じる。
+      if (!env.DB) {
+        return jsonResponse({ code: 'service_unavailable', error: 'サービスを一時的に利用できません' }, 503, origin, allowedOrigin)
+      }
+
+      const ip = clientIp(request)
+      // レート制限の読取失敗は本体を止めないが、直後の店舗認可は必ず成功を要求する。
+      if (await isIpBlocked(env.DB, ip, 'probe')) {
+        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+      }
+      let store
+      try {
+        store = await env.DB.prepare(
+          'SELECT shop_code FROM stores WHERE shop_code = ? AND deleted_at IS NULL AND deletion_pending_at IS NULL'
+        ).bind(code).first()
+      } catch (e) {
+        console.error('[Worker] room gate store lookup failed (fail-closed):', e?.message ?? e)
+        return jsonResponse({ code: 'service_unavailable', error: 'サービスを一時的に利用できません' }, 503, origin, allowedOrigin)
+      }
+      if (!store) {
+        await recordIpFail(env.DB, ip, 'probe')
+        return jsonResponse({ error: 'ルームが見つかりません' }, 404, origin, allowedOrigin)
       }
 
       // 種類でルーム（DOインスタンス）を分ける。棚卸=既定、発注=:order。

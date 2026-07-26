@@ -56,6 +56,29 @@ function makeProtectedDb({ shopCode = 'SHOP01', validAuthToken = 'valid-auth' } 
   }
 }
 
+function makeLegacyDb() {
+  return {
+    prepare(query) {
+      return {
+        bind() {
+          return {
+            async first() {
+              if (query.includes('SELECT pin_hash FROM stores')) return { pin_hash: null }
+              return null
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+function makeFailingDb() {
+  return {
+    prepare() { throw new Error('D1 unavailable') },
+  }
+}
+
 const JOIN_REQUIRED_TYPES = [
   'config',
   'update',
@@ -221,6 +244,58 @@ describe('SEC-001: WebSocket join 認可境界', () => {
     expect(ws._closed).toEqual([{ code: 1008, reason: 'Host authentication failed' }])
     expect(ws._attachment()).toBeNull()
     expect(state._store.get('hostToken')).toBe('real-host-token')
+  })
+
+  it('店舗保護状態のD1照会が失敗した場合は、空室でも新規host tokenを発行しない', async () => {
+    const ws = makeWs()
+    const state = makeState([ws], { shopCode: 'SHOP01' })
+    const room = new RoomDO(state, { DB: makeFailingDb() })
+
+    await room._handleMessage(ws, {
+      type: 'join',
+      role: 'host',
+      deviceId: 'new-host',
+      deviceName: 'ホスト候補',
+      authToken: 'unknown',
+    })
+
+    expect(ws._sent).toEqual([{ type: 'error', code: 'auth_failed' }])
+    expect(ws._closed).toEqual([{ code: 1008, reason: 'Host authentication failed' }])
+    expect(ws._attachment()).toBeNull()
+    expect(state._store.has('hostToken')).toBe(false)
+  })
+
+  it('DB bindingが無い場合も新規host tokenを発行しない', async () => {
+    const ws = makeWs()
+    const state = makeState([ws], { shopCode: 'SHOP01' })
+    const room = new RoomDO(state, {})
+
+    await room._handleMessage(ws, {
+      type: 'join',
+      role: 'host',
+      deviceId: 'new-host',
+      deviceName: 'ホスト候補',
+    })
+
+    expect(ws._sent).toEqual([{ type: 'error', code: 'auth_failed' }])
+    expect(state._store.has('hostToken')).toBe(false)
+  })
+
+  it('D1でPIN未設定を明示確認できたレガシー店舗は従来どおり初回hostを許可する', async () => {
+    const ws = makeWs()
+    const state = makeState([ws], { shopCode: 'LEGACY' })
+    const room = new RoomDO(state, { DB: makeLegacyDb() })
+
+    await room._handleMessage(ws, {
+      type: 'join',
+      role: 'host',
+      deviceId: 'legacy-host',
+      deviceName: 'レガシーホスト',
+    })
+
+    expect(ws._attachment()).toMatchObject({ joined: true, isHost: true })
+    expect(ws._sent[0]).toMatchObject({ type: 'joined' })
+    expect(state._store.get('hostToken')).toBeTruthy()
   })
 
   it('正しい host token で同一端末が再接続し、旧ソケットを無効化する', async () => {
