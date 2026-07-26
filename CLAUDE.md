@@ -52,9 +52,11 @@ worker/src/
   PM セッションがトリアージする。**実装済みでも「合意済み」ではない**。
   ただし `docs/quality-foundation/` の共有作業記録と、採用済み仕様に対する鮮度修正は直接更新してよい
 - **構成**: フロント = Cloudflare Pages ／ バックエンド = Cloudflare Worker + D1（すべて Cloudflare に統一）
-- **デプロイ（自動・推奨）**: GitHub Actions（`.github/workflows/deploy.yml`）
-  - `main` へ merge → 本番デプロイ（テスト → D1 → Worker → Pages 本番）
-  - `claude/**` へ push → プレビューデプロイ（`<branch>.inventory-app.pages.dev`）
+- **develop preview（自動）**: GitHub Actions（`.github/workflows/develop-preview.yml`）
+  - `develop` へ push → Worker/App test → App build → Pages preview
+  - 固定URL: `https://develop.inventory-app-c40.pages.dev`
+  - D1、Worker、本番Pagesは変更しない。preview frontendは本番Workerを参照する
+- **本番デプロイ**: 現在は自動workflowなし。Userの明示承認後に手動フォールバックを使用
   - セットアップと仕組み → `docs/ci-cd.md`
 - **デプロイ（手動・フォールバック）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
   - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ

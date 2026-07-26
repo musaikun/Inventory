@@ -1,1 +1,7 @@
+# 公開legalページは拡張子なしでも到達できるようにする（Play Console へ登録する URL の揺れ対策）。
+# 末尾の SPA フォールバックより前に置くこと（上から順に評価される）。
+/privacy    /privacy.html    200
+/terms      /terms.html      200
+/support    /support.html    200
+
 /*  /index.html  200

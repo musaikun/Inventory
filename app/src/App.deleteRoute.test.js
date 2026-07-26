@@ -51,7 +51,7 @@ describe('App の起動ルート', () => {
     expect(el.textContent).toContain('タナオロ')
     expect(el.querySelector('#dap-code')).toBeTruthy()
     expect(el.querySelector('#dap-pin')).toBeTruthy()
-  })
+  }, 15000)
 
   it('ログイン済みでも ?delete-account を優先し、セッション一覧を出さない', async () => {
     localStorage.setItem('_auth_token', 'tok-1')

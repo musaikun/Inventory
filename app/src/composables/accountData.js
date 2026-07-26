@@ -44,3 +44,17 @@ export function clearLocalAccountData() {
     }
   } catch (_) {}
 }
+
+// アカウント削除の完了時だけ呼ぶ（PLAY-003 / DS-01）。
+// 業務データに加えて所有者マーカー自体を消す。ログアウト・アカウント切替では消さない:
+// dataOwner は「この端末の localStorage が誰のものか」を認証状態と独立に追う値で、
+// ログアウトで消すと再ログイン時に切替を検出できず、前アカウントのデータが残る。
+// 一方、削除後は所有者ごと消えるべきで、残すと削除済みアカウントの店舗コードが端末に残留する。
+export function clearDeletedAccountLocalData() {
+  try {
+    clearLocalAccountData()
+  } finally {
+    // 個別composableのresetが例外になっても、削除済みaccountの識別子だけは必ず消去を試みる。
+    try { localStorage.removeItem(STORAGE_KEYS.dataOwner) } catch (_) {}
+  }
+}

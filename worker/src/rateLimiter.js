@@ -2,7 +2,7 @@
 // kind: 'login'（ログイン失敗）| 'probe'（存在しない店舗/ルームへのアクセス）
 
 import { _now } from './workerUtils.js'
-import { IP_RATE_WINDOW_MS, IP_MAX_FAILS } from './constants.js'
+import { IP_RATE_WINDOW_MS, IP_MAX_FAILS, SECURITY_ATTEMPT_RETENTION_MS } from './constants.js'
 
 export function clientIp(request) {
   return request.headers.get('CF-Connecting-IP') ?? 'unknown'
@@ -31,5 +31,25 @@ export async function recordIpFail(db, ip, kind) {
       .bind(ip, kind, _now()).run()
   } catch (e) {
     console.error('[rateLimiter] recordIpFail failed (fail-open):', e?.message ?? e)
+  }
+}
+
+// 全account/IPの期限切れsecurity recordを日次cronから削除する。
+// per-key cleanupだけでは、そのkeyが再利用されない場合に古いrowが残り続けるため必要。
+export async function cleanupExpiredSecurityRecords(db, now = _now()) {
+  const nowDate = now instanceof Date ? now : new Date(now)
+  if (!Number.isFinite(nowDate.getTime())) throw new TypeError('Invalid cleanup time')
+  const cutoff = new Date(nowDate.getTime() - SECURITY_ATTEMPT_RETENTION_MS).toISOString()
+  const results = await db.batch([
+    db.prepare('DELETE FROM login_attempts WHERE attempted_at <= ?').bind(cutoff),
+    db.prepare('DELETE FROM ip_attempts WHERE attempted_at <= ?').bind(cutoff),
+  ])
+  if (!results.every(result => result?.success === true)) {
+    throw new Error('Security record cleanup failed')
+  }
+  return {
+    loginAttemptsDeleted: results[0]?.meta?.changes ?? 0,
+    ipAttemptsDeleted: results[1]?.meta?.changes ?? 0,
+    cutoff,
   }
 }

@@ -75,7 +75,7 @@ function onCodeInput(e) {
 
       <!-- ── 選択画面 ── -->
       <template v-if="view === 'select'">
-        <div class="setup-title">棚卸アプリへようこそ</div>
+        <div class="setup-title">タナオロへようこそ</div>
         <div class="setup-desc">
           店舗コードを使うと、どの端末からでも同じデータにアクセスできます。
         </div>

@@ -45,11 +45,13 @@
 
 ## D-006 — `develop` の CI と preview
 
-- 日付: 2026-07-25
+- 日付: 2026-07-25（2026-07-26更新）
 - 状態: 採用
-- 判断: `develop` のpush / PRではtestとbuildを実行し、自動deployは行わない。
-  previewは明示的な対象branchまたは手動実行に限定する。
-- 理由: 品質feedbackを早くしつつ、外部変更とCloudflare実行costを無断で増やさないため。
+- 判断: `develop` のpushではWorker/App testとApp buildを実行し、成功時だけPagesの
+  `develop` previewを自動更新する。D1 migration、Worker、本番Pagesは変更しない。
+  手動実行は`workflow_dispatch`でも可能にする。
+- 理由: 品質gateを維持しつつ、固定preview URLでdevelopの実機確認を継続するため。
+- 決定者: User
 
 ## D-007 — Skill / hook の追加時期
 

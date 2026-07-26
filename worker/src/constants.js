@@ -14,6 +14,9 @@ export const TRIAL_DAYS = 14
 // ── IP rate limit (cross-store brute force / room code probing) ──────────────
 export const IP_RATE_WINDOW_MS = 15 * 60 * 1000
 export const IP_MAX_FAILS      = 30
+// login_attempts / ip_attempts はレート制限窓を超えて保持しない。
+// global cleanupは日次cronのため、実際の削除は窓終了後の次回cron（最長約24時間15分）となる。
+export const SECURITY_ATTEMPT_RETENTION_MS = Math.max(LOGIN_WINDOW_MS, IP_RATE_WINDOW_MS)
 
 // ── Payload ───────────────────────────────────────────────────────────────────
 export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard

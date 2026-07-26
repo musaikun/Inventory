@@ -356,6 +356,18 @@ function onDownloadTemplate() {
         <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}</span></div>
       </div>
 
+      <!-- 法的情報・サポート（公開静的ページ。同じ配信元なので相対URLで到達できる）-->
+      <div v-if="_showGeneral" class="device-section legal-section">
+        <div class="device-label">法的情報・サポート</div>
+        <a class="legal-link" href="./privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>
+        <a class="legal-link" href="./terms.html" target="_blank" rel="noopener">利用規約</a>
+        <a class="legal-link" href="./support.html" target="_blank" rel="noopener">サポート・お問い合わせ</a>
+        <p class="legal-note">
+          この端末に残るデータ（端末ID・端末名・天気の位置情報）の消去方法は、
+          <a href="./support.html" target="_blank" rel="noopener">サポートページ</a>で説明しています。
+        </p>
+      </div>
+
       <!-- アカウント削除（認証済みのみ・ゲスト非表示）-->
       <div v-if="_showGeneral && isAuthenticated && !props.isGuest" class="danger-section">
         <div class="danger-label">アカウントの削除</div>
@@ -525,6 +537,22 @@ function onDownloadTemplate() {
 }
 .cache-btn:active { background: #f1f5f9; }
 .cache-btn:disabled { opacity: 0.5; cursor: default; }
+/* 法的情報・サポート */
+.legal-link {
+  display: block;
+  padding: 9px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  -webkit-tap-highlight-color: transparent;
+}
+.legal-link:last-of-type { border-bottom: none; }
+.legal-link::after { content: ' ›'; color: var(--text-muted); }
+.legal-note { font-size: 11px; color: var(--text-muted); margin: 8px 0 0; line-height: 1.6; }
+.legal-note a { color: var(--primary); }
+
 .app-info .info-row { display: flex; align-items: center; justify-content: space-between; }
 .info-key { font-size: 13px; color: var(--text-muted); }
 .info-val { font-size: 13px; font-weight: 700; color: var(--text); font-family: monospace; }

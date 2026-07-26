@@ -29,7 +29,7 @@ function filledItems(snap) {
 
     <!-- ヘッダー -->
     <header class="home-header">
-      <div class="home-title">棚卸管理</div>
+      <div class="home-title">タナオロ</div>
       <div class="home-header-right">
         <button class="home-icon-btn" @click="$emit('sync')" title="同期">🔗</button>
         <button class="home-icon-btn" @click="$emit('settings')" title="設定">⚙️</button>

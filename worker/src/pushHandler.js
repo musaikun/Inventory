@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
+import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
 
 const MAX_PUSH_ENDPOINT_CHARS = 2048
 
@@ -117,6 +118,14 @@ export async function handleCron(env) {
     await cleanupExpiredAccountDeletionRecords(env.DB)
   } catch (error) {
     console.error('[account-deletion] scheduled cleanup failed:', error?.message ?? error)
+  }
+  try {
+    await cleanupExpiredSecurityRecords(env.DB)
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'security-record-cleanup-failed',
+      error: error?.message ?? String(error),
+    }))
   }
   if (!env.VAPID_PUBLIC_KEY) return
 

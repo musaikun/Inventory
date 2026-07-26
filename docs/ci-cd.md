@@ -1,17 +1,19 @@
 # CI/CD パイプライン
 
-GitHub Actions による自動デプロイ。`./scripts/deploy.sh`（手動）を GitHub に肩代わりさせる仕組み。
+現在の自動化対象は`develop`のCloudflare Pages previewです。D1、Worker、本番Pagesは
+自動変更せず、Userの明示承認後に手動デプロイします。
 
 ## ブランチモデル
 
 | イベント | 動作 | 反映先 |
 |---|---|---|
-| `main` へ push / merge | テスト → D1 マイグレーション → Worker → Pages **本番** | `inventory-app.pages.dev`（独自ドメイン） |
-| `claude/**` へ push | テスト → Pages **プレビュー** | `<branch>.inventory-app.pages.dev` |
+| `develop` へ push | Worker/Appテスト → Appビルド → Pages **プレビュー** | `develop.inventory-app-c40.pages.dev` |
+| Actionsの手動実行 | 同じdevelop preview workflowを再実行 | `develop.inventory-app-c40.pages.dev` |
+| `main` / その他branchへpush | 現在は自動処理なし | — |
 | テスト失敗時 | デプロイは実行されない（ゲート） | — |
 
-- 本番は **main に取り込んだ瞬間だけ**。普段の作業ブランチへの push は本番を汚さない。
-- 毎日の実機テストは **プレビューURL** で行える。
+- `develop` pushはfrontend previewだけを更新し、D1・Worker・本番Pagesを変更しない。
+- 固定preview URLで毎日の実機テストを行える。
 - 連続 push は古い実行を自動キャンセル（`concurrency`）。
 
 > **プレビューの注意**: 現状プレビューのフロントは**本番 Worker / 本番 D1** を見る
@@ -27,8 +29,6 @@ GitHub Actions による自動デプロイ。`./scripts/deploy.sh`（手動）�
 2. **Create Token** → テンプレートではなく **Create Custom Token**
 3. 権限（Permissions）を以下にする:
    - `Account` → `Cloudflare Pages` → **Edit**
-   - `Account` → `Workers Scripts` → **Edit**
-   - `Account` → `D1` → **Edit**
 4. Account Resources を対象アカウントに限定 → **Create Token**
 5. 表示されたトークン文字列をコピー（再表示不可なので注意）
 
@@ -49,13 +49,15 @@ GitHub リポジトリ → **Settings** → **Secrets and variables** → **Acti
 npx wrangler pages project create inventory-app --production-branch=main
 ```
 
-これで準備完了。以降は **main に merge するだけで本番デプロイ**される。
+これで準備完了。以降は`develop`へpushすると、テストとビルド成功後にpreviewが更新される。
 
 ## 動作確認
 
-1. `claude/**` ブランチに何か push → Actions タブで `test` と `deploy-preview` が走る
-2. ログ末尾にプレビューURL（`https://<branch>.inventory-app.pages.dev`）が出る
-3. 問題なければ main に merge → `deploy-production` が走り本番反映
+1. `develop`へpush → Actionsタブで`Develop Pages Preview`が走る
+2. Worker/AppテストとAppビルドが成功した場合だけPages deployへ進む
+3. `https://develop.inventory-app-c40.pages.dev`で反映を確認する
+
+既知の`TEST-001`が残っている間は品質gateで停止し、自動previewは更新されません。
 
 ## 手動デプロイ（フォールバック）
 
@@ -67,13 +69,16 @@ GitHub Actions が落ちている / ローカルから直接出したい場合�
 ./scripts/deploy.sh frontend # ビルド + Pages のみ
 ```
 
-CI と手動はマイグレーション適用ロジック（`scripts/migrate.sh`）を共有しているため、
-どちらで実行しても「未適用のマイグレーションのみ適用」される。
+現行のdevelop CIはD1 migrationを実行しない。手動の`backend`/全体deployだけが
+`scripts/migrate.sh`を呼び、schema sentinelを確認して未適用分を適用する。
+
+`npx wrangler d1 migrations list`の結果は使用しない。このrepositoryはWrangler標準の
+migration履歴tableではなくschema sentinel方式を使うため、適用状態は実table/index/triggerで判定する。
 
 ## 仕組みのファイル
 
 ```
-.github/workflows/deploy.yml  # CI/CD 定義（test / deploy-production / deploy-preview）
-scripts/migrate.sh            # D1 マイグレーション（センチネル方式・CIと手動で共用）
+.github/workflows/develop-preview.yml  # developのtest / build / Pages preview
+scripts/migrate.sh            # D1 マイグレーション（センチネル方式・手動backend deploy用）
 scripts/deploy.sh             # 手動デプロイ（migrate.sh を呼ぶ）
 ```

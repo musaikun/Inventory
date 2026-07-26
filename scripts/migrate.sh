@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # D1 マイグレーションを「未適用のみ」適用する（センチネル方式・冪等）。
-# deploy.sh（手動）と GitHub Actions（CI）の両方から呼ぶ単一の真実。
+# deploy.sh（手動backend deploy）から呼ぶマイグレーション一覧の単一の真実。
+# 現行のdevelop GitHub Actionsはfrontend preview専用で、このscriptを呼ばない。
 #
 # 認証:
 #   - ローカル : npx wrangler login 済みのセッション
@@ -33,3 +34,5 @@ apply_if_missing 0006_push_subscriptions.sql push_subscriptions
 apply_if_missing 0007_session_type.sql       idx_sessions_shop_type
 apply_if_missing 0008_orders.sql             orders
 apply_if_missing 0009_store_plan.sql         idx_stores_plan
+apply_if_missing 0010_movements.sql          idx_movement_lines_item
+apply_if_missing 0011_account_deletion.sql   trg_movement_lines_active_insert

@@ -1,0 +1,62 @@
+name: Develop Pages Preview
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: develop-pages-preview
+  cancel-in-progress: true
+
+env:
+  VITE_SYNC_WORKER_URL: wss://inventory-sync.yuya-takaki.workers.dev
+  CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
+  PAGES_PROJECT: inventory-app
+  PAGES_BRANCH: develop
+
+jobs:
+  test-build-deploy:
+    name: Test, build, and deploy develop preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+
+      - name: Install and test Worker
+        working-directory: worker
+        run: |
+          npm ci
+          npm test
+
+      - name: Install, test, and build App
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Deploy develop preview to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy app/dist --project-name=${{ env.PAGES_PROJECT }} --branch=${{ env.PAGES_BRANCH }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write preview URL
+        run: echo 'Preview URL = https://develop.inventory-app-c40.pages.dev' >> $GITHUB_STEP_SUMMARY

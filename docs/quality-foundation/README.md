@@ -12,6 +12,11 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 2. [`project-status.md`](project-status.md) — 最後に確認できた実装・テスト・依存関係の状態
 3. [`task-list.md`](task-list.md) — 優先順位、担当、完了条件、検証方法
 4. [`google-play-readiness.md`](google-play-readiness.md) — Google Play公開チェックリスト
+   （data安全性の実装台帳 → [`data-safety-audit.md`](data-safety-audit.md)、
+   Console回答案 → [`data-safety-form-draft.md`](data-safety-form-draft.md)、
+   保持文面 → [`privacy-retention-draft.md`](privacy-retention-draft.md)、
+   D1復元手順 → [`d1-recovery-runbook.md`](d1-recovery-runbook.md)、
+   審査手順 → [`play-reviewer-guide.md`](play-reviewer-guide.md)）
 5. [`quality-scorecard.md`](quality-scorecard.md) — Codex / Claude Code共通の評価基準
 6. [`working-agreement.md`](working-agreement.md) — 並行作業と引き継ぎのルール
 7. [`decisions.md`](decisions.md) — 未決事項を含む判断記録
@@ -42,7 +47,22 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 ## 現在の再開地点
 
-2026-07-25 に初回横断監査、共有基盤、2週間スプリントの方針確定、`SEC-001` と
-`SEC-002` を完了しました。WorkerにはWebSocket参加認可境界と注文の店舗境界、
-それぞれの回帰テストと `PLAY-001` account deletion backendが追加されています。次はClaude Codeが
-`PLAY-002` のin-app削除UX/公開Webを接続し、Codexが認可・data削除を独立reviewします。
+最終更新: 2026-07-26
+
+Worker側は `SEC-001` `SEC-002` `SEC-003` `SEC-004` `BUG-001` `PLAY-001`（account deletion backend）が完了。
+App側は `PLAY-002` の削除UX（アプリ内・公開Web）がCodex承認済みで、`DS-01`（削除後の`_data_owner`残存）も
+CC修正・Codex独立review済みです。`PLAY-004` 前半はアプリ名の `タナオロ` 統一と
+[`play-reviewer-guide.md`](play-reviewer-guide.md)（審査手順書）まで完了しています。
+
+`PLAY-003` / `PRIV-001` はData Safety回答・保持文面・D1復元runbookのdraft、PostHog無効固定、
+security row cleanupまでlocal対応済みです。CCの公開privacy/terms/supportとアプリ導線も実装・Codex対象review済みです。
+本番D1は0010/0011未適用で、Cloudflare plan/Workers Logs、canonical URL/contact、TWA実機の確定が残ります。
+
+次の担当:
+
+- Codex — UserがD-005を決めた後の`TEST-001`復旧。本番D1 migrationは承認があるまで適用しない。
+- User — D-005の仕入先順、reviewer用test店舗、canonical URL/contact、料金表示方針、Cloudflare plan/Logsを決定。
+- Claude Code — `docs/legal/terms.md`と公開termsの残る文面差を同期し、User判断後に料金表示・絶対URLを反映。
+  screenshotsは8/6のUI freeze後。
+
+commit / push / deployは未実施です（すべてローカル作業ツリー）。

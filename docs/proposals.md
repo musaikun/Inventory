@@ -24,6 +24,19 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 ---
 
+## 2026-07-26: Google Play公開buildのdata最小化（提案元: PLAY-003 / PRIV-001）
+
+- **概要**: Google Play公開buildではPostHogを無効固定し、D1のlogin/IP失敗recordは
+  rate-limit判定窓15分を過ぎた後の日次cleanup（実保持は最長約24時間15分）で削除する。
+- **背景・根拠**: 旧analytics実装はkey設定時にPostHog SDKの既定`autocapture:true`が働き、
+  consent/allowlist/保持期間を整備しないまま送信できる構成だった。また`login_attempts` / `ip_attempts`は
+  同一keyの再利用がなければ期限切れrowが残り、privacy policyの「access log 90日」とも一致しなかった。
+- **影響範囲 / 実装状況**: local実装済み。`posthog-js`依存・key例・CSP接続先を除去し、analyticsを
+  常時no-op化。security rowのglobal cleanupを既存日次cronへ追加し、targeted testを追加した。
+  公開buildのnetwork、Cloudflare dashboard、最終legal文面は未確認。将来analyticsを再導入する場合は、
+  明示consent、event allowlist、retention、privacy/Data Safetyを同じreleaseで設計する。
+- **PM判断**: ⬜未トリアージ（local実装は公開安全側の暫定措置であり、恒久方針の採用を意味しない）
+
 ## 2026-07-23: 過去の納品・棚卸の一括取込（発注理論値のコールドスタート解消）（提案元: 過去履歴取込セッション）
 
 - **概要**: 過去の納品履歴を中間フォーマットCSVから **入庫（movements type:in）** へ一括投入し、

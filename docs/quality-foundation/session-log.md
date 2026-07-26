@@ -2,6 +2,189 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-07-26 — Codex: PLAY-004後半独立review・全体回帰
+
+- CCの公開privacy/terms/support、削除/landing/settings導線、retention・外部送信文面を独立review。
+  公開3 HTMLと主要実装事実は承認。targeted 5 files / 66 tests passed。
+- 全体回帰: Worker 15 files / 195 passed。App 67 files中66 passed、656 passed / 1 failed。
+  失敗は仕様判断待ちの既知`TEST-001`だけ。App production build成功（444 modules）、`git diff --check`成功。
+- 未解消review指摘: `docs/legal/terms.md`（正本）と公開/landing termsに終了通知・免責・規約変更等の文面差が残る。
+  また`landing/index.html`の月額1,980円・解約表現は「現在無料・決済なし」のtermsと矛盾する。
+- canonical URL/contact、料金表示、D-005仕入先順はUser判断待ち。実機UI/公開networkは未確認。
+- commit、push、deploy、remote migrationは実施していない。
+
+## 2026-07-26 — PLAY-004後半: 公開legalページ・URL導線・legal文面の実装整合
+
+- 担当: Claude Code。Codexの`PLAY-003`成果（`privacy-retention-draft.md`、`data-safety-audit.md`）を公開面へ反映。
+- **配信方式の判断**: 公開legalは `app/public/` の静的HTML（`/privacy.html` `/terms.html` `/support.html`）。
+  SPA・認証・installを介さず到達でき、アプリからは**相対リンク**で繋ぐため canonical host 未確定（`DS-08`）でも
+  導線を完成できる。Play Console へ登録する絶対URLだけがUser待ちになる。
+  `landing/` はどのdeploy scriptにも含まれない手動サイトのため、公開面は app deploy（`app/dist`）に一本化した。
+- **配信の落とし穴に対処**: ①`_redirects`のSPA catch-all（`/* → /index.html`）より前に
+  `/privacy` `/terms` `/support` の200 rewriteを追加。②`vite.config.js`の`navigateFallbackDenylist`へ
+  3 pathを追加し、インストール済みPWAが拡張子なしURLでアプリ本体へ倒れないようにした。
+- **文面の実装整合**: 保持期間（token 30日 / DO chat・監査 200件かつ24時間 / login・IP失敗記録 最長約24時間15分 /
+  削除receipt・匿名tombstone 7日 / D1 Time Travel 契約planに応じ最大30日）、外部送信先（Cloudflare、Push service、
+  Open-Meteo、BigDataCloud）、任意権限の発生条件を反映。旧記載の「操作ログ1年」「アクセスログ90日」を削除。
+  Stripe・PostHogを委託先から外し「現在利用していません」と明記（`DS-09`）。termsの第4条を
+  「無料提供・決済機能なし」へ改定し、料金前払い・返金・支払未確認による登録取消の条項を落とした。
+  Workers Logsは有効/無効が未確認のため「記録される場合はCloudflareの仕様に従う」という条件付き表現にした。
+- **端末内データ（`DS-02`）**: 削除後も残る端末ID・端末名・天気の位置情報を明示し、Android/Chrome・
+  PWA・iOS Safari・PCブラウザ別の消去手順をsupportページに用意。privacy §8 と設定画面から接続した。
+  削除時に端末設定まで消す方針へ変える場合は、文面より先に実装とtestを変える必要がある旨を台帳へ残した。
+- **導線**: LandingPage下部、SettingsModal「法的情報・サポート」、公開削除ページ（`PRIVACY_URL`等を実URLへ）。
+- 正本 `docs/legal/{privacy-policy,terms}.md` と `landing/{privacy,terms,support}.html`（support は新規）も同期。
+- 検証:
+  - 新規 `src/utils/legalPages.test.js` 47件: ページの存在、viewport/lang、外部リソース非依存（CSP self）、
+    contact統一（`support@tanaoro.com`混在の検出）、旧記載（90日・1年間・Stripe, Inc.）の再発防止、
+    実装事実の記載、アプリ3導線、`_redirects`の順序、PWA denylist。
+  - `DeleteAccountPage.login.test.js` に未ログインでの3リンク到達を1件追加。
+  - build後 `dist/` に3ページと`_redirects`が出力（precache 15 entries）。`vite preview`で
+    `/privacy.html` `/terms.html` `/support.html` `/?delete-account` が**未ログインでHTTP 200**、
+    titleも期待どおりであることを確認。
+  - App全体: 67 files / 656 passed、既知`TEST-001`のみ1 failed。build成功。
+- 未実施: commit、push、deploy。実機（375px）での目視確認。
+- 次の再開地点: Codexによる公開legalページ・導線・文面の独立review。
+  Userは canonical host と統一contact（`DS-08`）を決定。決定後にCCが絶対URLを反映する。
+- 要User判断: `landing/index.html` の「¥1,980/月」表示が改定後のterms（決済機能なし）と矛盾する。
+  landingはdeploy対象外だが、公開するなら料金表示の扱いを決める必要がある。
+
+## 2026-07-26 — Cloudflare read-only preflight・D1 migration列挙修正・CC legal再review
+
+- 担当: Codex。Cloudflare/Wranglerをread-onlyで確認。D1 Time Travel info取得は成功したが、bookmark値は
+  repositoryへ記録していない。account plan名と保存済みWorkers Logs設定はCLIで取得できず、
+  Dashboard用browserも未接続のためUser確認を残した。
+- 本番D1 schemaには0010の`movements`/`movement_lines`、0011の削除列・receipt・triggerが存在せず、
+  両migrationが未適用と確認。remote write、migration、deployは実施していない。
+- 手動backend deploy用`scripts/migrate.sh`が0009までしか列挙していなかったため、0010/0011を追加。
+  migration directory全件を順序どおり列挙する`worker/test/migrationScript.test.js`を追加し、1 test passed。
+- develop workflowはfrontend preview専用でD1/Workerを変更しないことを再確認。標準Wrangler migration履歴ではなく、
+  repositoryのschema sentinel方式で適用状態を判定する運用を`docs/ci-cd.md`へ明記した。
+- CCの公開privacy/terms/support・app導線を独立reviewし、対象5 files / 66 tests passed。
+  canonical URLと統一contactはUser確定待ちで、公開済みとは判定していない。
+- ZXing: `@zxing/browser@0.2.0`が要求する`@zxing/library@^0.22.0`はNode >=24を宣言。
+  現行Node 22ではwarningのみでtest/build可能だが、CI Node 20との組合せをrelease前にNode 24へ揃えるか、
+  browser 0.1.5/library 0.21系へ下げるかを別依存判断とする。
+- commit、push、deploy、remote migrationは実施していない。
+
+## 2026-07-26 — PLAY-003 / PRIV-001 data最小化実装・回答draft・CC再review
+
+- 担当: Codex。CCの`DS-01`、名称統一、reviewer手順書を独立reviewし、`_data_owner`は
+  account削除成功時だけ消し、logout/account切替では保持する設計を承認した。途中cleanupが例外でも
+  owner削除を必ず試すよう`clearDeletedAccountLocalData()`を`finally`で補強した。
+- Data Safety / privacy: `data-safety-form-draft.md`と`privacy-retention-draft.md`を作成。
+  位置情報、音声、Push、端末名/ID、chat、security record、D1 Time Travelをdata type/保持期間へ対応付けた。
+  現行policyの「操作log 1年」「access log 90日」「Stripe利用中」は実装不一致として公開前修正対象にした。
+- PRIV-001: `posthog-js`依存、key例、CSPのPostHog接続先を除去。analytics moduleを常時no-op化し、
+  旧PostHog localStorageだけを削除するunit testを追加。source/package/CSP/buildにimport/key/host残存なし。
+- Security retention: `login_attempts` / `ip_attempts`は15分の判定窓を維持し、期限切れrowを既存日次cronで
+  全体cleanupする実装とtestを追加。実保持は最長約24時間15分。platform logはdashboard確認を別gateとした。
+- D1: `d1-recovery-runbook.md`を作成。Time TravelはFree 7日/Paid 30日、restoreは破壊的であり、
+  復元前の削除抑止list退避と復元後の再削除を必須化。現状はmaintenance modeと外部削除ledgerがないため、
+  本番restoreを安全に完遂できないことを明記した。
+- 検証:
+  - App clean install `npm ci`成功。`npm ls vitest vite esbuild posthog-js`成功。
+  - Worker: 14 files / 194 tests passed。
+  - App: 608 passed / 1 known failure（`TEST-001`の日本語仕入先名順序）。
+  - App production build成功（444 modules）。500 kB超chunk警告は既知の`PERF-001`。
+  - `git diff --check`成功。
+- 注意: `npm ci`は現行Node 22.14.0に対し`@zxing/library@0.22.0`がNode >=24を要求する
+  engine warningを出すが、test/buildは上記結果。別の依存更新判断が必要。
+- 未完了gate: public privacy/terms/support URL・統一contact、端末設定保持、TWA microphone、`/pdf`存廃、
+  本番Cloudflare plan/Workers Logs、provider共有例外、公開build network、Play Console双方照合。
+- deploy、remote migration、commit、pushは実施していない。
+
+## 2026-07-26 — PLAY-004前半の実施（名称統一・reviewer手順書）とDS-01修正
+
+- 担当: Claude Code。前回の前半監査で「User判断待ち」だった指摘を実施し、Codexの`DS-01`へ対応した。
+- **名称統一（前半の最重要指摘）**: `index.html`（`title`=`棚卸入力`→`タナオロ`、`apple-mobile-web-app-title`=
+  `棚卸`→`タナオロ`）、`AuthPage.vue`・`HomeScreen.vue`（`棚卸管理`→）、`LandingPage.vue`・
+  `StoreSetupModal.vue`（`棚卸アプリ`→）を`タナオロ`へ統一。`app/`配下の旧表記は残存0で、
+  manifest・公開削除ページ・onboarding と5表記すべてが一致した。旧表記に依存するtestは無し。
+- **reviewer手順書を新規作成**: `play-reviewer-guide.md`。Play Consoleの「アプリのアクセス権」へ貼る本文、
+  社内実機チェック9手順、削除2経路（アプリ内はログイン済みのみ表示／公開Webは未ログイン可）、
+  権限4種の発生条件、TWAで課金導線が出ない根拠、未確定項目の owner 一覧。
+  test店舗のcode/PINと公開URLはUser記入待ち。reviewerが削除を実行するとその店舗は再ログイン不可
+  （7日tombstone）になるため、予備のtest店舗を用意する注意を明記した。
+- **DS-01（Codex指摘）**: 削除完了後も`_data_owner`（店舗code）がlocalStorageへ残る不整合を修正。
+  `clearDeletedAccountLocalData()`を追加し`DeleteAccountModal.finalize()`から使用。ログアウト・
+  アカウント切替では`_data_owner`を残す（消すと再ログイン時に切替を検出できず前アカウントのデータが残る）。
+  修正前に公開削除ページの通しテストが`_data_owner="STOREA"`残留で失敗することを確認済み。
+- 前半監査の補正: cameraは`BarcodeScanner.vue`が直接`getUserMedia`を呼ばず`@zxing/browser`の
+  `decodeFromConstraints`経由。位置情報は自動取得ではなく「📍 現在地で天気を表示」押下時のみ
+  （`SessionListPage.vue:636`）で、拒否しても主機能は完結する。→ `DS-02`の申告文はこの前提で作れる。
+- 検証:
+  - 新規`DeleteAccountPage.delete.test.js` 2件＋`accountData.test.js` 4件追加。削除経路 6 files / 35 passed。
+  - `cd app && npm test`: 64 files / 603 passed、既知`TEST-001`（仕入先順）のみ1 failed。回帰なし。
+  - `cd app && npm run build`: 成功（PWA precache 2244.75 KiB）。
+- 未実施: commit、push、deploy。実機UI確認。
+- 次の再開地点: Codexが①DS-01修正 ②reviewer手順書 ③名称統一 を独立review。
+  Userは手順書§1のtest店舗と`DS-08`のURL/contactを確定。後半（公開legalページ）は`PLAY-003`完了後。
+
+## 2026-07-26 — PLAY-003 / PRIV-001 初回実装整合監査
+
+- 担当: Codex。`data-safety-audit.md`を新設し、App/Worker/D1/DO/localStorage/第三者SDKを
+  data type単位で収集・送信・保存・削除・保持・Data Safety候補へ整理した。
+- PLAY-002追加gate: 削除成功後も`_data_owner`（店舗code）がlocalStorageへ残る。画面回帰の承認は維持するが、
+  account data削除はClaude Code修正→Codex再reviewまで未完了。
+- PRIV-001: tracked build設定ではPostHog key未注入でno-op。ただしkey設定時はautocapture default=true、
+  default opt-in、自由記述feedback送信となる。品質凍結期間は無効固定を推奨。
+- privacy差分: 現行の操作log 1年/access log 90日は実装証拠と不一致。Push/Web Speech/DO chat/device IDs、
+  7日tombstone/receipt、D1 Time Travel、即時削除導線も記載不足。Stripeは未実装なのに現行サービスとして記載。
+- 公開前gate: device名/ID・位置情報保持、security row保持、D1 plan、`/pdf`存廃、canonical URL/contactをUser決定。
+  Claude Codeは`_data_owner`修正と公開legal route/URL導線、Codexは保持・PostHog・Worker/運用整合と再reviewを担当。
+- 検証根拠: PLAY-002 6 files / 40 tests passed。監査はdocs/code reviewで、追加testは未実施。
+- 未実施: deploy、migration、commit、push。
+
+## 2026-07-26 — PLAY-004 前半監査（TWA・reviewer導線・名称・store metadata）
+
+- 担当: Claude Code。**監査のみでコード変更なし**（指摘は起票し、実施はUser判断後）。
+- TWA課金導線: **問題なし**。価格・決済CTAは `UpgradeModal.vue` に集約され `twaMode` で非表示。
+  呼び出しは `App.vue:2604` の1箇所のみで `isTwaApp()` を必ず渡す。`STRIPE_CHECKOUT_URL` は空文字で
+  他参照なし。TWAでは `LandingPage` が無料版案内＋PRO契約済みログイン入口のみ表示。
+- **最重要指摘: アプリ名が5表記に分裂**（`タナオロ` / `棚卸入力`(title) / `棚卸`(apple title) /
+  `棚卸管理`(AuthPage・HomeScreen) / `棚卸アプリ`(LandingPage・StoreSetupModal)）。
+  store listing・アプリ内・公開削除リソースの名称一致はPlay要件のため `タナオロ` への統一が必要。
+  Deliverable B で公開ページのみ先に `タナオロ` へ揃えた件の残りにあたる。
+- reviewer導線: 削除は `SettingsModal.vue:360` の `isAuthenticated && !isGuest` ガード下にあり、
+  **未ログインでは不可視**。reviewer用test店舗の認証情報が必須。公開Web `?delete-account` は
+  未ログインでも到達できるため審査手順に使える。
+- 権限申告の要確認: camera(BarcodeScanner)・microphone(useVoice)・通知(usePush)に加え、
+  **位置情報(useWeather の geolocation)** を検出。棚卸の主機能と無関係に見えるため
+  Data Safety申告・機能説明との整合を `PLAY-003` と突き合わせる必要がある。
+- store metadata: manifest description は実機能と整合。icon 192/512/maskable あり。
+- 次の再開地点: 名称統一の実施可否をUser判断 → 反映。reviewer手順書の作成。
+  公開legalページ・URL導線は `PLAY-003` 完了後、screenshots は 8/6 UI freeze 後。
+
+## 2026-07-26 — PLAY-002 Deliverable B承認 / PLAY-003・PRIV-001着手
+
+- 担当: Codex。
+- PLAY-002再レビュー: 公開routeと削除pageを実mountする画面レベル回帰を承認。追加blockerなし。
+- 検証: 削除関連6 files / 40 tests passed。未login/login済みroute、入力、login成功/失敗、
+  削除対象表示、削除modal起動、通常route非干渉を確認。
+- PLAY-002残件: User実機UI、PLAY-003後のprivacy/terms/support確定URL、据え置き合意済みfocus trap。
+- 着手: PLAY-003とPRIV-001。App/Worker/D1/DO/端末/第三者SDKをdata type単位で監査し、
+  Data Safety案、privacy保持文面、公開URLのCC handoffを作る。
+- 未実施: deploy、migration、commit、push。
+
+## 2026-07-26 — CI-001 develop Pages preview 自動化（ローカル適用）
+
+- 担当: Codex。User承認によりD-006を更新し、`develop` push後の固定preview自動更新を採用。
+- 追加: `.github/workflows/develop-preview.yml`。Worker/App testとApp buildに成功した場合だけ、
+  Cloudflare Pagesの`develop` branchへfrontendをdeployする。
+- 固定URL: `https://develop.inventory-app-c40.pages.dev`。
+- 安全境界: D1 migration、Worker、本番Pagesは自動変更しない。preview frontendは本番Workerを参照するため、
+  実機確認にはtest店舗を使う。
+- 文書: `CLAUDE.md`、`docs/ci-cd.md`、D-006、CI-001を現行workflowへ同期。
+- CI安定化: フルsuite時だけ5秒を超えた`App.deleteRoute.test.js`の公開削除画面testに15秒timeoutを設定。
+- 検証:
+  - `cd worker && npm test`: 13 files / 191 passed。
+  - `cd app && npx vitest run src/App.deleteRoute.test.js`: 1 file / 3 passed。
+  - `cd app && npm test`: 62 files / 597 passed、既知`TEST-001`のみ1 failed。
+  - `cd app && npm run build`: 成功（445 modules、PWA precache 2244.68 KiB）。
+- 状態: CI-001は進行中。commit/pushとActions実行は未実施。`TEST-001`解消まではtest gateでdeployされない。
+- 未実施: D1 migration、Worker deploy、本番Pages deploy、commit、push。
+
 ## 2026-07-26 — PLAY-002 Deliverable B 画面レベル回帰テストへの作り直し
 
 - 担当: Claude Code。Codex 指摘（前回のtestは画面を描画せず回帰にならない）は妥当と判断し全面的に作り直し。

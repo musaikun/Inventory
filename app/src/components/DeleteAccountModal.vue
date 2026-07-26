@@ -10,7 +10,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { deleteAccount, clearAuthLocal, storeName } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 import { unsubscribePushLocal } from '../composables/usePush.js'
-import { clearLocalAccountData } from '../composables/accountData.js'
+import { clearDeletedAccountLocalData } from '../composables/accountData.js'
 import { resetAnalytics } from '../utils/analytics.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { resolveRequestId, mapDeletionError } from '../utils/accountDeletionFlow.js'
@@ -108,10 +108,11 @@ function applyError(e) {
 
 // 200 deleted / alreadyDeleted 後の端末側クリーンアップ（data map の client 担当分）。
 // Push はサーバー側で削除済み・token 失効済みのため local-only 解除にする。
+// 業務データに加え dataOwner（削除済み店舗コード）も消す（DS-01）。
 async function finalize() {
   try { localStorage.removeItem(STORAGE_KEYS.deleteRequestId) } catch (_) {}
   try { await unsubscribePushLocal() } catch (_) {}
-  try { clearLocalAccountData() } catch (_) {}
+  try { clearDeletedAccountLocalData() } catch (_) {}
   try { resetAnalytics() } catch (_) {}
   try { clearAuthLocal() } catch (_) {}
   phase.value = 'done'

@@ -10,10 +10,12 @@ import DeleteAccountModal from './DeleteAccountModal.vue'
 // Google Play の公開Web削除リソースは store listing 上のアプリ名（＝PWA manifest の name）と
 // 一致している必要がある。表示名を変える場合は vite.config.js の manifest と併せて更新する。
 const APP_NAME = 'タナオロ'
-// TODO(PLAY-003/PLAY-004): 確定した公開URLに差し替える。未設定なら導線は非表示。
-const PRIVACY_URL = ''
-const TERMS_URL = ''
-const SUPPORT_URL = ''
+// 公開legalページ（app/public/*.html）。同じ Pages 配信なので相対URLで到達でき、
+// preview / 本番 / 独自ドメインのどれでもリンクが壊れない。Play Console へ登録する
+// 絶対URLは canonical host 確定後（DS-08）に User が設定する。
+const PRIVACY_URL = './privacy.html'
+const TERMS_URL = './terms.html'
+const SUPPORT_URL = './support.html'
 
 const showModal = ref(false)
 const done = ref(false)

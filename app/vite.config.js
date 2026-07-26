@@ -84,8 +84,11 @@ export default defineConfig({
         // デプロイのたびに index.html と各ハッシュ資産がアトミックに差し替わる。
         clientsClaim: true,
         skipWaiting:  true,
-        // /cmaps/*.bcmap は SPA フォールバック（index.html）に飲まれないよう除外
-        navigateFallbackDenylist: [/^\/cmaps\//],
+        // SPA フォールバック（index.html）に飲まれてはいけないパスを除外する。
+        // - /cmaps/*.bcmap: PDF取込のcMap
+        // - 公開legalページ: インストール済みPWAから拡張子なしURL（/privacy 等）を開いても
+        //   アプリ本体ではなく実ページへ到達させる（Play審査で参照される公開URL）
+        navigateFallbackDenylist: [/^\/cmaps\//, /^\/privacy/, /^\/terms/, /^\/support/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\./,

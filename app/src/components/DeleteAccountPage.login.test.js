@@ -8,7 +8,7 @@ vi.mock('../utils/api.js', () => ({
   HTTP_BASE: 'https://worker.test',
   apiFetch: vi.fn(),
 }))
-// posthog の実初期化を避ける（削除完了時の identity reset は別テストで担保）
+// analytics callをmockする（無送信とlegacy storage cleanupはanalytics.test.jsで担保）
 vi.mock('../utils/analytics.js', () => ({
   initAnalytics: vi.fn(),
   track: vi.fn(),
@@ -62,6 +62,17 @@ describe('公開削除ページ（画面）', () => {
     expect(el.textContent).toContain('削除すると元に戻せません')
     // 未ログインでは削除ボタンは出さない
     expect(el.textContent).not.toContain('アカウント削除に進む')
+  })
+
+  it('未ログインのまま privacy / terms / support の公開ページへ到達できる（PLAY-004）', async () => {
+    const el = await mountPage()
+
+    const hrefs = [...el.querySelectorAll('a')].map(a => a.getAttribute('href'))
+    expect(hrefs).toContain('./privacy.html')
+    expect(hrefs).toContain('./terms.html')
+    expect(hrefs).toContain('./support.html')
+    expect(el.textContent).toContain('プライバシーポリシー')
+    expect(el.textContent).toContain('利用規約')
   })
 
   it('入力 → ログインクリックで、削除対象アカウントの画面へ遷移する', async () => {

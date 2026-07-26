@@ -30,7 +30,7 @@ async function onStart() {
       <!-- ロゴ -->
       <div class="lp-logo">
         <span class="lp-logo-icon">📋</span>
-        <span class="lp-logo-name">棚卸アプリ</span>
+        <span class="lp-logo-name">タナオロ</span>
         <span class="lp-version">v{{ version }}</span>
       </div>
 
@@ -59,6 +59,15 @@ async function onStart() {
         </span>
         <span class="lp-card-arrow">›</span>
       </button>
+
+      <!-- 法的情報・サポート（公開静的ページ。未ログインでも到達できる）-->
+      <div class="lp-legal">
+        <a href="./privacy.html">プライバシーポリシー</a>
+        <span class="lp-legal-sep" aria-hidden="true">·</span>
+        <a href="./terms.html">利用規約</a>
+        <span class="lp-legal-sep" aria-hidden="true">·</span>
+        <a href="./support.html">サポート</a>
+      </div>
     </div>
 
   </div>
@@ -91,6 +100,21 @@ async function onStart() {
   gap: 8px;
   margin-bottom: 4px;
 }
+/* ── 法的情報リンク ── */
+.lp-legal {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 2;
+}
+.lp-legal a {
+  color: #64748b;
+  text-decoration: underline;
+  -webkit-tap-highlight-color: transparent;
+}
+.lp-legal-sep { margin: 0 8px; }
+
 .lp-logo-icon { font-size: 28px; }
 .lp-logo-name {
   font-size: 22px;

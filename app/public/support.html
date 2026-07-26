@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow" />
+<title>サポート・お問い合わせ — タナオロ</title>
+<!--
+  公開supportページ（PLAY-004 後半）。Google Play の support URL / アプリ内の問い合わせ導線の先。
+  端末内データ（端末ID・端末名・天気の位置情報）の消去手順は、privacy.html §8 と対応させる（DS-02）。
+  問い合わせ先を変更するときは privacy.html / terms.html / docs/legal/*.md も同時に更新する。
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #2563eb;
+    --text:    #1e293b;
+    --muted:   #64748b;
+    --bg:      #f8fafc;
+    --surface: #ffffff;
+    --border:  #e2e8f0;
+    --danger:  #dc2626;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    font-size: 16px;
+    line-height: 1.8;
+    -webkit-text-size-adjust: 100%;
+  }
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    min-height: 56px;
+  }
+  .nav-logo { font-size: 18px; font-weight: 800; color: var(--primary); text-decoration: none; }
+  .nav-back { font-size: 13px; color: var(--primary); text-decoration: none; }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 16px 72px;
+    background: var(--surface);
+    min-height: calc(100vh - 56px);
+  }
+  h1 { font-size: 24px; font-weight: 800; margin-bottom: 8px; line-height: 1.4; }
+  .lead { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+  h2 {
+    font-size: 17px; font-weight: 700;
+    margin: 36px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    line-height: 1.5;
+  }
+  h3 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; }
+  p { margin-bottom: 12px; font-size: 15px; }
+  ol, ul { padding-left: 22px; margin-bottom: 12px; font-size: 15px; }
+  li { margin-bottom: 6px; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 320px; }
+  th, td { text-align: left; padding: 10px 12px; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--bg); font-weight: 600; }
+  .card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin: 16px 0;
+  }
+  .card-danger { background: #fef2f2; border-color: #fecaca; }
+  .contact {
+    margin-top: 40px; padding: 20px;
+    background: var(--bg); border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  a { color: var(--primary); }
+  footer {
+    text-align: center; padding: 28px 16px;
+    color: var(--muted); font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--muted); margin: 0 8px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="./">タナオロ</a>
+  <a class="nav-back" href="./">← アプリに戻る</a>
+</nav>
+
+<main>
+  <h1>サポート・お問い合わせ</h1>
+  <p class="lead">タナオロ（飲食店・小売店向けの棚卸管理アプリ）のサポートページです。</p>
+
+  <div class="contact">
+    <strong>お問い合わせ先</strong><br />
+    <a href="mailto:ss_inventory@outlook.com">ss_inventory@outlook.com</a><br />
+    <span style="font-size:14px;color:var(--muted)">
+      アカウントの削除・データの開示に関するご請求は、受付から30日以内に対応します。<br />
+      お問い合わせの際は、店舗コードと発生している症状をお知らせください（PINは絶対に記載しないでください）。
+    </span>
+  </div>
+
+  <h2>アカウントとデータの削除</h2>
+  <p>アカウントの削除は、運営者への申請なしで利用者ご自身が実行できます。削除すると元に戻せません。</p>
+  <ul>
+    <li><strong>アプリ内から</strong>：「ダッシュボード」タブ →「各種設定」→ 画面下部の「アカウントの削除」</li>
+    <li><strong>アプリを使わずに</strong>：<a href="./?delete-account">アカウント削除ページ</a>（インストール不要。店舗コードとPINでログインして手続きできます）</li>
+  </ul>
+  <p>削除されるもの・保持されるものは<a href="./privacy.html">プライバシーポリシー §7</a>に記載しています。</p>
+
+  <h2>この端末に残るデータの消去</h2>
+  <p>
+    アカウント削除が完了すると、業務データ（品目・棚卸・発注・入出庫・履歴・設定）、認証情報、
+    データの所有店舗を示す情報は、この端末から自動的に削除されます。
+  </p>
+  <p>
+    一方、次の情報は<strong>アカウントとは独立した端末の設定</strong>として残ります。
+    アカウントを削除しても、別のアカウントでログインしても引き継がれます。
+  </p>
+  <div class="scroll">
+    <table>
+      <tr><th>残るもの</th><th>内容</th></tr>
+      <tr><td>端末ID</td><td>ブラウザが生成した識別子。同期中の参加者識別に使います</td></tr>
+      <tr><td>端末名</td><td>「レジ」「ホール」など、利用者が設定した名称</td></tr>
+      <tr><td>天気の位置情報・天気キャッシュ</td><td>天気表示を利用した場合の座標・地名と取得済みの天気</td></tr>
+      <tr><td>表示に関する端末の設定</td><td>入力方法などの端末ごとの好み</td></tr>
+    </table>
+  </div>
+  <p>これらも消去する場合は、ブラウザからこのサイトのデータを削除してください。</p>
+
+  <div class="card">
+    <h3>Android（Chrome）</h3>
+    <ol>
+      <li>Chrome の「⋮」→「設定」→「プライバシーとセキュリティ」</li>
+      <li>「サイトの設定」→「保存されているデータ」（または「データを削除」）</li>
+      <li>タナオロのサイトを選び、「削除」を実行</li>
+    </ol>
+    <h3>アプリ（Google Play からインストールした場合）</h3>
+    <ol>
+      <li>端末の「設定」→「アプリ」→「タナオロ」</li>
+      <li>「ストレージとキャッシュ」→「ストレージを消去」</li>
+    </ol>
+    <h3>iPhone / iPad（Safari）</h3>
+    <ol>
+      <li>「設定」→「Safari」→「詳細」→「Webサイトデータ」</li>
+      <li>タナオロのサイトを探して左にスワイプ →「削除」</li>
+    </ol>
+    <h3>パソコンのブラウザ</h3>
+    <ol>
+      <li>アドレスバー左の鍵アイコン（またはサイト情報）をクリック</li>
+      <li>「Cookie とサイトデータ」→「データを削除」</li>
+    </ol>
+  </div>
+
+  <div class="card card-danger">
+    サイトデータを削除すると、端末に保存された未送信の入力内容も失われます。
+    同期していない棚卸データがある場合は、先にアプリで同期または書き出しを行ってください。
+  </div>
+
+  <h2>権限（カメラ・マイク・通知・位置情報）</h2>
+  <p>いずれも任意です。許可しなくても、棚卸の入力・記録・同期は利用できます。</p>
+  <div class="scroll">
+    <table>
+      <tr><th>権限</th><th>使う場面</th><th>取り消し方</th></tr>
+      <tr><td>マイク</td><td>数量の音声入力を使うとき</td><td rowspan="4">ブラウザのサイト設定（鍵アイコン →「権限」）、またはアプリの場合は端末の設定 →「アプリ」→「タナオロ」→「権限」</td></tr>
+      <tr><td>カメラ</td><td>バーコードを読み取るとき</td></tr>
+      <tr><td>通知</td><td>棚卸の再開リマインドを受け取るとき</td></tr>
+      <tr><td>位置情報</td><td>「現在地で天気を表示」を押したときのみ</td></tr>
+    </table>
+  </div>
+
+  <h2>よくある質問</h2>
+
+  <h3>PIN を忘れました</h3>
+  <p>
+    PIN はハッシュ化して保存しているため、運営者が元の値を確認することはできません。
+    同じ店舗の別端末にログイン状態が残っている場合は、その端末の設定から PIN を再設定できます。
+    ログイン中の端末がない場合は、上記のお問い合わせ先へご連絡ください。
+  </p>
+
+  <h3>他の端末と同期できません</h3>
+  <ol>
+    <li>両方の端末がインターネットに接続されているか確認してください。</li>
+    <li>ゲスト側が、ホストと同じ店舗コードのルームに参加しているか確認してください。</li>
+    <li>アプリの「各種設定」→「表示キャッシュを削除して再読込」を試してください（業務データは消えません）。</li>
+  </ol>
+
+  <h3>表示が古い・更新が反映されません</h3>
+  <p>「各種設定」→「表示キャッシュを削除して再読込」をお試しください。棚卸・品目・発注などのデータは削除されません。</p>
+
+  <h3>料金はかかりますか</h3>
+  <p>現在、すべての機能を無料で提供しています。決済機能は提供していません（<a href="./terms.html">利用規約 第4条</a>）。</p>
+
+  <div class="contact">
+    <strong>解決しない場合</strong><br />
+    <a href="mailto:ss_inventory@outlook.com">ss_inventory@outlook.com</a> までご連絡ください。
+  </div>
+</main>
+
+<footer>
+  <a href="./">アプリ</a>
+  <a href="./privacy.html">プライバシーポリシー</a>
+  <a href="./terms.html">利用規約</a>
+  <a href="./?delete-account">アカウント削除</a>
+  <div style="margin-top:8px">© 2026 musaikun — タナオロ</div>
+</footer>
+
+</body>
+</html>
