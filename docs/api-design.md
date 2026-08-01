@@ -77,7 +77,7 @@ D1 データベース                               ← データを取る
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
 | POST | `/store/create` | — | `{ shopCode }` | 不要（PIN必須化と合わせ廃止検討・監査②） |
-| GET | `/store/:code` | — | `{ shopCode, activeRoom, plan, isPro, inTrial, ... }` / 404 | 不要 |
+| GET | `/store/:code` | — | `{ shopCode, activeRoom, plan, isPro, inTrial:false, trialEndsAt:null, ... }` / 404 | 不要 |
 | GET | `/store/:code/config` | — | 設定オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | ソフト† |

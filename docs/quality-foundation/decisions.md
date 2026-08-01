@@ -168,3 +168,38 @@
   - IPレート制限など補助的な可用性制御の照会失敗はfail-openを維持し、認可判断と混同しない。
 - 理由: インフラ障害を「認証不要」と解釈して新しい権限を発行することを防ぎつつ、補助機能の障害で
   正常な認証処理まで停止させないため。
+
+## D-016 — 初回Google Play版は恒久無料枠、PROは将来のWeb契約とする
+
+- 日付: 2026-07-28
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - 初回公開は14日トライアルや自動課金を行わず、期間制限のない無料プランを提供する。
+  - 無料登録時にも1店舗の店舗コードと4桁PINを発行し、別端末ログインとルーム同期を可能にする。
+  - 無料枠は接続端末2台、登録品目150件、棚卸履歴の閲覧直近3回とする。現行の中核機能と取込は利用できる。
+  - 将来のPROは月額2,980円の1本とし、Webで明示的に契約した店舗だけに付与する。
+  - Google Play/TWA内には価格、Stripe、外部購入リンクを出さず、アプリ名は共通して「タナオロ」とする。
+- 実装境界: 初回公開は全店舗をfreeとして扱う。PRO開始前にStripe Webhook、server entitlement、
+  server-side上限制御、解約・支払失敗・account削除との連携を別途実装する。
+
+## D-017 — PostHogはFree・最小event・1年保持とする
+
+- 日付: 2026-07-28
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - PostHog Cloud EUのFree planを使用し、現行planの1年保持を採用する。
+  - autocapture等は使わず、allowlist済みの疑似・最小eventだけを明示同意後に送る。
+  - privacy policy、Data Safety、同意/撤回、削除連携、公開build通信確認が揃うまではno-opを維持する。
+
+## D-018 — Pro ReviewはPages・Worker・D1/DOをproductionから分離する
+
+- 日付: 2026-07-28
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - 無料版develop Reviewとは別に、Cloudflare Accessで保護したPro Review Previewを急ぎ構築する。
+  - Pages project、Worker、D1、Durable Objectsをproductionから分離し、Cloudflare Free枠で運用する。
+  - URL parameter/localStorageではPRO化せず、専用build変数2つの完全一致とreview Workerの`plan=pro`を使う。
+  - review画面へテスト環境表示を常時出し、productionの店舗dataを移さない。

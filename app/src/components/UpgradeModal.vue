@@ -1,9 +1,7 @@
 <script setup>
-import { STRIPE_CHECKOUT_URL } from '../utils/planLimits.js'
-
 defineProps({
   reason:  { type: String,  default: '' },
-  // アプリ版（TWA）: Google Play 課金ポリシー対策で価格・外部決済導線を出さない
+  // 呼び出し側との互換用。初回公開は全環境で価格・決済導線を出さない。
   twaMode: { type: Boolean, default: false },
 })
 defineEmits(['close'])
@@ -21,41 +19,14 @@ defineEmits(['close'])
 
       <ul class="upgrade-features">
         <li><span class="uf-check">✓</span>品目登録 無制限（無料は150品目）</li>
-        <li><span class="uf-check">✓</span>全期間の棚卸履歴を閲覧（無料は直近1回）</li>
-        <li><span class="uf-check">✓</span>接続端末 無制限（無料は3台）</li>
-        <li><span class="uf-check">✓</span>分析・レポート・PDF出力</li>
-        <li><span class="uf-check">✓</span>優先サポート</li>
+        <li><span class="uf-check">✓</span>全期間の棚卸履歴を閲覧（無料は直近3回）</li>
+        <li><span class="uf-check">✓</span>接続端末の上限を緩和（無料は2台）</li>
       </ul>
 
-      <!-- アプリ版（TWA）: 価格・決済導線を出さず、契約済み案内のみ -->
-      <template v-if="twaMode">
-        <div class="upgrade-twa-note">
-          これらの機能は<strong>タナオロPRO</strong>でご利用いただけます。<br>
-          すでにご契約済みの場合は、ログインすると有効になります。
-        </div>
-      </template>
-
-      <template v-else>
-        <div class="upgrade-price-box">
-          <span class="up-amount">¥1,980</span>
-          <span class="up-period"> / 月</span>
-          <div class="up-trial">最初の3ヶ月無料</div>
-        </div>
-
-        <a
-          v-if="STRIPE_CHECKOUT_URL"
-          :href="STRIPE_CHECKOUT_URL"
-          class="upgrade-cta"
-          target="_blank"
-          rel="noopener noreferrer"
-          @click="$emit('close')"
-        >無料トライアルを開始 →</a>
-
-        <div v-else class="upgrade-coming-wrap">
-          <div class="upgrade-coming-badge">近日公開</div>
-          <p class="upgrade-coming-hint">現在β版を無料公開中です。<br>料金プランは近日公開予定。</p>
-        </div>
-      </template>
+      <div class="upgrade-twa-note">
+        <strong>タナオロPRO</strong>は将来Webで提供予定です。<br>
+        現在はアプリ内で契約・決済できず、自動的に課金されることもありません。
+      </div>
 
       <button class="upgrade-dismiss" @click="$emit('close')">閉じる</button>
     </div>

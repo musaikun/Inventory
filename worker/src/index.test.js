@@ -64,7 +64,7 @@ function createMockD1({ failTables = [] } = {}) {
     }
     if (s.startsWith('INSERT INTO stores')) {
       stores.push(args.length >= 5
-        ? { shop_code: args[0], store_name: args[1], pin_hash: args[2] }
+        ? { shop_code: args[0], store_name: args[1], pin_hash: args[2], plan: args[3] }
         : { shop_code: args[0] })
       return { success: true }
     }
@@ -237,6 +237,15 @@ describe('Worker ルーティング（特性テスト）', () => {
     expect(res.status).toBe(200)
     expect(body.shopCode).toMatch(/^[A-Z]{6}$/)
     expect(body.token).toBeTruthy()
+  })
+
+  it('Pro Review envの登録店舗はplan=proになる', async () => {
+    env.DEFAULT_STORE_PLAN = 'pro'
+    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.plan).toBe('pro')
+    expect(body.isPro).toBe(true)
   })
 
   it('DELETE /auth/account をaccount deletion handlerへ接続する', async () => {

@@ -36,6 +36,32 @@ new_sqlite_classes = ["RoomDO"]
 [triggers]
 crons = ["0 1 * * *"]
 
+# Pro機能確認専用。productionとはWorker、D1、Durable Objectsを分離する。
+# cronとVAPID secretsは継承しないため、review環境からPush通知は送らない。
+[env.pro_review]
+name = "inventory-sync-pro-review"
+
+[env.pro_review.vars]
+ALLOWED_ORIGIN = "https://pro-review.inventory-app-pro-review.pages.dev"
+DEFAULT_STORE_PLAN = "pro"
+
+[env.pro_review.durable_objects]
+bindings = [
+  { name = "ROOMS", class_name = "RoomDO" }
+]
+
+[[env.pro_review.d1_databases]]
+binding = "DB"
+database_name = "inventory-store-pro-review"
+database_id = "e237eca8-89c8-44be-a3f2-323267e80539"
+
+[[env.pro_review.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO"]
+
+[env.pro_review.triggers]
+crons = []
+
 # VAPID キー（プッシュ通知用）— wrangler secret で設定:
 #   npx wrangler secret put VAPID_PUBLIC_KEY
 #   npx wrangler secret put VAPID_PRIVATE_KEY

@@ -1,0 +1,61 @@
+name: Pro Review Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: pro-review-pages
+  cancel-in-progress: true
+
+env:
+  VITE_SYNC_WORKER_URL: wss://inventory-sync-pro-review.yuya-takaki.workers.dev
+  VITE_DEPLOYMENT_CHANNEL: pro-review
+  VITE_REVIEW_PLAN: pro
+  CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
+  PAGES_PROJECT: inventory-app-pro-review
+  PAGES_BRANCH: pro-review
+
+jobs:
+  test-build-deploy:
+    name: Test, build, and deploy protected Pro Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+
+      - name: Install and test Worker
+        working-directory: worker
+        run: |
+          npm ci
+          npm test
+
+      - name: Install, test, and build Pro Review App
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Deploy protected Pro Review preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy app/dist --project-name=${{ env.PAGES_PROJECT }} --branch=${{ env.PAGES_BRANCH }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write Pro Review URL
+        run: echo 'Pro Review URL = https://pro-review.inventory-app-pro-review.pages.dev' >> $GITHUB_STEP_SUMMARY

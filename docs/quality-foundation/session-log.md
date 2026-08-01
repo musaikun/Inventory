@@ -2,6 +2,99 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-01 — Access保護付きPro Review Pagesを初回deploy
+
+- 担当: Codex。UserがCloudflare PagesのPreview access policy有効化を完了したため、
+  `inventory-app-pro-review`の`pro-review` Previewだけを初回deploy。本番Pages、通常Worker、本番D1、
+  migration、commit、pushは変更していない。
+- 対象: `develop@e35c2ba`＋未commit差分。Wrangler `4.118.0`を使用。
+- 検証:
+  - Worker: 15 files / 196 tests passed。
+  - App: 67 files / 658 tests passed。
+  - `VITE_SYNC_WORKER_URL=wss://inventory-sync-pro-review.yuya-takaki.workers.dev`、
+    `VITE_DEPLOYMENT_CHANNEL=pro-review`、`VITE_REVIEW_PLAN=pro`でproduction build成功（444 modules）。
+  - build内に専用Worker URLと`PRO REVIEW · テストデータ`表示を確認。通常Worker URLはJS assetに不在。
+  - deployment ID `4e8cedd7-2dbf-4ab6-b4b4-bee250fea610`。
+    固定URL `https://pro-review.inventory-app-pro-review.pages.dev`、固有URL
+    `https://4e8cedd7.inventory-app-pro-review.pages.dev`。
+  - 両URLとも未認証アクセスはCloudflare Access loginへ`302`。専用Worker healthは`200 OK`。
+    固定Review originにはCORS許可、develop originには`Access-Control-Allow-Origin`なし。
+  - 専用D1をread-only確認し、`PRO REVIEW TEST`（`EXCFGA`）1店舗、`plan=pro`、`deleted_at=null`、
+    queryの`rows_written=0`を確認。
+- 残件: このセッションでは操作可能なbrowserが無く、Access login後の画面目視とDevTools上の
+  `X-Robots-Tag: noindex`確認は未実施。Userが固定URLを開き、レビュー識別表示・ログイン・主要機能を実機確認する。
+- 既知warning: Vite CJS API deprecated、500 kB超chunk。commit、pushは未実施。
+
+## 2026-07-28 — 無料枠上限メッセージからPlay課金誘導表現を除去
+
+- 担当: Claude Code。D-016（恒久無料＋将来Web PRO）に伴い、**契約手段が存在しないPROの利用を促す文言**を除去。
+- 判断根拠: Play Billingの義務は「アプリ内でデジタル商品を販売する場合」に発生する。現状は決済導線・
+  外部リンクがゼロ（`app/src` に `href="http(s)://` の一致なし）で課金ポリシー違反には当たらない。
+  残るリスクは**購入できないプランの利用を促す誤認表示**であり、事実の告知へ置換して解消した。
+- 変更（Codex編集中ファイルとは行が重複しない範囲のみ）:
+  - `App.vue` 3か所: 「さらに登録するにはPROプランをご利用ください」→
+    「無料プランの上限（150品目）に達しました。上限の緩和は将来提供予定です。」
+  - `SessionListPage.vue`: 「過去N件の履歴はPROプランで閲覧できます」→「〜は無料プランでは表示されません」。
+    **「アップグレード」ボタンを「詳しく」へ改称**（購入動作を示唆するCTAだった）。reason文にも将来提供予定を明記。
+- 非対象: `UpgradeModal.vue`（Codexが価格・CTA撤去済み）、接続端末数の警告（`App.vue:225`。元から事実告知のみ）。
+- 検証: App 67 files / 657 tests passed。production build成功（precache 2075.73 KiB）。
+  文言に依存するtestは存在しないことをgrepで確認済み。
+- 残る要判断（User）:
+  - `terms` 第4条の「月額2,980円」表記。アプリ内から到達する法務ページに価格が載る状態。購入導線がないため
+    通常は問題ないが、完全に安全側へ倒すなら金額を落として「提供開始時に別途掲示」に留める。
+  - Play Consoleの「アプリ内購入」申告を**なし**にする。
+  - 購入手段がない以上、上限到達時にPROモーダルを開く体験自体の是非（トースト等へ変更するか）。
+- 注意: 作業中に`App.vue`がCodex側でも編集された（`isProReviewEnvironment`とPRO REVIEWバッジの追加）。
+  今回の変更とは行が重複せず競合しなかったが、**`App.vue`は現在共有ファイル**のため以降の編集は要調整。
+- 未実施: commit、push、deploy。task-listの状態更新はCodexの編集中のため未実施。
+
+## 2026-07-28 — D-016無料版方針を実装・PostHog設定手順を整理
+
+- 担当: Codex。User採用の「恒久無料版＋将来Web PRO」を実装と現行文書へ反映。
+- 無料登録でも1店舗の店舗コードと4桁PINを発行し、無料枠を接続端末2台・品目150件・
+  棚卸履歴直近3回とした。
+- `LIMITS_DISABLED`とlocalStorageのPRO自己申告、Workerの14日トライアル算出を撤去。
+  初回公開では全店舗をfreeとして扱い、自動課金・自動有料化を行わない。
+- アプリ内の価格・Stripe・外部決済CTAと3か月無料表記を撤去。landing、公開/正本terms、
+  support、reviewer guide、料金戦略を同期し、将来Web PROは月額2,980円の提供予定とした。
+- `posthog-setup-checklist.md`を追加。EU Cloud、IP破棄、autocapture/replay等off、明示同意、
+  custom event allowlistを採用する。現行Freeの保持は1年のため、User承認まではno-opを維持する。
+- 検証:
+  - 対象App 3 files / 67 tests passed。
+  - 対象Worker 2 files / 30 tests passed。
+  - App全体 67 files / 652 tests passed。
+  - Worker全体 15 files / 193 tests passed。
+  - App production build成功（444 modules）。
+  - `git diff --check`成功。Vite CJSと500 kB超chunkの既知warningあり。
+- 未実施: commit、push、deploy、Cloudflare resource変更。
+- 残り: server-side無料枠強制、PRO entitlement配線、PostHog 1年保持のUser承認とproject情報、
+  developと分離したAccess保護付きPRO review環境の採否。
+
+## 2026-07-28 — アカウント登録拡張（復旧用メール・PIN復旧・アンケート）の設計を提案箱へ起票
+
+- 担当: Claude Code。**コード変更なし**。User構想の共有を受けた設計整理のみで、Codexへは未共有。
+- User判断: 実装時期は決めず「まず設計だけ固める」。PIN復旧の方式（リンク/コード）は未決。
+- `docs/proposals.md` へ起票。主な論点:
+  - **メールを identity にしない**。`enterprise-design.md` §9.1/§9.2 は「店舗＝共有アカウント」を採用済みで、
+    email認証は org_admins（本部層）に置く設計のため、店舗層のidentityをメールへ移すと衝突する。
+    → 復旧用の連絡先として `stores` に任意列を足すに留め、ログインは `shop_code + PIN` を維持。
+  - **PIN復旧はログイン相当**。`authHandler.js:142` の単一ホストセッション（成功時に全token失効）により、
+    復旧すると稼働中の他端末が落ちる。挙動は維持しUIで明示する。
+  - **強度差**: メール到達だけでPIN再設定できると実強度＝メールアカウントの強度。単回・短命・ハッシュ保存の
+    復旧トークン、復旧後の全token失効、メール/IP単位のレート制限、**列挙対策（応答を常に同一に）**、
+    未確認メールでの復旧禁止を条件とする。
+  - **削除範囲**: `accountDeletion.js` の13グループへメール・復旧トークン・アンケート回答を追加し、
+    `0011` と同型のトリガを新表にも付ける。7日tombstone中の再登録判定は**メールハッシュのみ保持**を推奨。
+  - **アンケートは任意・目的限定**。Data Safety申告対象になるため必須化しない。
+  - **配信基盤が未存在**。Cloudflare Email Serviceが構成上自然。送信ドメインとSPF/DKIM/DMARCが先行作業で、
+    canonical host（`DS-08`）の決定と同時に決めるのが効率的。
+- 既存成果への影響（実装する場合）: `data-safety-form-draft.md` の前提「アカウントに紐づく個人情報なし」が崩れ、
+  privacy §2/§4/§5/§6 とterms第6条3・第11条3の再改定が必要になる。スプリント凍結の対象外作業のため、
+  着手は8/8以降または凍結解除のUser判断が要る。
+- **確認**: 本件があっても、`PLAY-004` 残blocker①のterms同期を「掲示」方向で進める判断は変わらない。
+  規約は現況の実装を述べるものであり、メール登録の実装時に改めて「通知」へ改定するのが正規手順。
+- 未実施: commit、push、deploy。task-listへの新規タスク登録はPMトリアージ後。
+
 ## 2026-07-26 — TEST-001完了・develop CI local gate全件成功
 
 - UserがD-005を「日付昇順＋同一日内はCSVでの仕入先初出順」で決定。

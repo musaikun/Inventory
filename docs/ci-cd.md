@@ -1,7 +1,7 @@
 # CI/CD パイプライン
 
-現在の自動化対象は`develop`のCloudflare Pages previewです。D1、Worker、本番Pagesは
-自動変更せず、Userの明示承認後に手動デプロイします。
+現在の自動化対象は`develop`のCloudflare Pages previewと、手動実行する分離Pro Review Pagesです。
+D1、Worker、本番Pagesは自動変更せず、Userの明示承認後に手動デプロイします。
 
 ## ブランチモデル
 
@@ -9,6 +9,7 @@
 |---|---|---|
 | `develop` へ push | Worker/Appテスト → Appビルド → Pages **プレビュー** | `develop.inventory-app-c40.pages.dev` |
 | Actionsの手動実行 | 同じdevelop preview workflowを再実行 | `develop.inventory-app-c40.pages.dev` |
+| `Pro Review Pages`を手動実行 | Worker/App test → Pro build → Access保護Preview | `pro-review.inventory-app-pro-review.pages.dev` |
 | `main` / その他branchへpush | 現在は自動処理なし | — |
 | テスト失敗時 | デプロイは実行されない（ゲート） | — |
 
@@ -19,7 +20,14 @@
 > **プレビューの注意**: 現状プレビューのフロントは**本番 Worker / 本番 D1** を見る
 > （`VITE_SYNC_WORKER_URL` が共通のため）。プレビューで実機テストする際は
 > テスト用の店舗コードを使うこと。バックエンドも分離したプレビュー環境
-> （staging Worker + staging D1）は将来の拡張余地。
+> はPro Reviewで用意する。develop preview自体のbackend分離は未実施。
+
+## Pro Review
+
+Pro Reviewは`inventory-sync-pro-review`、`inventory-store-pro-review`、専用Durable Objectsへ接続し、
+production dataと分離する。通常buildは無料枠のままで、専用build変数2つが一致した場合だけPRO制限を解除する。
+初期構築、Access、Free枠、手動更新手順は
+[`quality-foundation/pro-review-runbook.md`](quality-foundation/pro-review-runbook.md)を正とする。
 
 ## 初回セットアップ（一度だけ）
 
@@ -80,6 +88,7 @@ migration履歴tableではなくschema sentinel方式を使うため、適用状
 
 ```
 .github/workflows/develop-preview.yml  # developのtest / build / Pages preview
+.github/workflows/pro-review.yml       # 手動のPro Review frontend更新
 scripts/migrate.sh            # D1 マイグレーション（センチネル方式・手動backend deploy用）
 scripts/deploy.sh             # 手動デプロイ（migrate.sh を呼ぶ）
 ```

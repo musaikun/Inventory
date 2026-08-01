@@ -14,8 +14,8 @@ function createMockD1() {
       return stores.find(r => r.shop_code === args[0]) ?? null
     }
     if (s.startsWith('INSERT INTO stores')) {
-      const [shop_code, store_name, pin_hash, created_at, updated_at] = args
-      stores.push({ shop_code, store_name, pin_hash, created_at, updated_at })
+      const [shop_code, store_name, pin_hash, plan, created_at, updated_at] = args
+      stores.push({ shop_code, store_name, pin_hash, plan, created_at, updated_at })
       return { success: true }
     }
     if (s.startsWith('SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores')) {
@@ -107,16 +107,33 @@ describe('authHandler', () => {
     expect(db._tokens).toHaveLength(1)
   })
 
-  it('登録・ログイン応答にプラン／トライアル情報が含まれる（新規はトライアル中＝pro相当）', async () => {
+  it('登録・ログイン応答は新規店舗をトライアルなしのfreeとして返す', async () => {
     const reg = await handleRegister(db, { pin: '1234' })
     expect(reg.plan).toBe('free')
-    expect(reg.inTrial).toBe(true)
-    expect(reg.isPro).toBe(true)
-    expect(reg.trialEndsAt).toBeTruthy()
+    expect(reg.inTrial).toBe(false)
+    expect(reg.isPro).toBe(false)
+    expect(reg.trialEndsAt).toBeNull()
 
     const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(login.isPro).toBe(false)
+    expect(login.trialEndsAt).toBeNull()
+  })
+
+  it('Pro Reviewの新規店舗だけplan=proで保存し、再ログイン後もPROになる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' }, { defaultPlan: 'pro' })
+    expect(reg.plan).toBe('pro')
+    expect(reg.isPro).toBe(true)
+    expect(db._stores[0].plan).toBe('pro')
+
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    expect(login.plan).toBe('pro')
     expect(login.isPro).toBe(true)
-    expect(login.trialEndsAt).toBeTruthy()
+  })
+
+  it('未知のdefaultPlanはfreeへ閉じる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' }, { defaultPlan: 'enterprise' })
+    expect(reg.plan).toBe('free')
+    expect(reg.isPro).toBe(false)
   })
 
   it('PINが4桁でない場合は400を返し店舗を作らない', async () => {

@@ -1,25 +1,22 @@
 // Free プランの制限値
-export const FREE_DEVICE_LIMIT  = 3    // ルーム同期は使えるが3台まで
+export const FREE_DEVICE_LIMIT  = 2    // ルーム同期を体験できる2台まで
 export const FREE_ITEM_LIMIT    = 150  // 品目登録の上限
-export const FREE_HISTORY_COUNT = 1    // 閲覧できる過去（完了済み）セッション数 = 直近1回
+export const FREE_HISTORY_COUNT = 3    // 閲覧できる過去（完了済み）セッション数 = 直近3回
 
-// ⚠️ テスト用: アプリ実行時は無料プラン制限を解除（全員PRO扱い）。
-// 本番リリース前に LIMITS_DISABLED を false に戻すこと。
-// ユニットテスト時は制限ロジックを検証し続けるため false にする。
-const _IS_TEST = (() => {
-  try { if (import.meta.env?.MODE === 'test' || import.meta.env?.VITEST) return true } catch (_) {}
-  try { if (typeof process !== 'undefined' && process.env?.VITEST) return true } catch (_) {}
-  return false
-})()
-const LIMITS_DISABLED = !_IS_TEST
-
-// localStorage にプロプランフラグが立っているか（将来のStripe連携用）
-export function isPro() {
-  if (LIMITS_DISABLED) return true   // ← テスト用の一時解除。戻すときはこの行を削除
-  return localStorage.getItem('tanaoro_is_pro') === '1'
+// Pro Reviewは専用Pages buildだけで有効にする。2変数の完全一致を要求し、
+// URL parameterやlocalStorageからは切り替えられない。
+export function isProReviewEnvironment(env = import.meta.env) {
+  return env?.VITE_DEPLOYMENT_CHANNEL === 'pro-review'
+    && env?.VITE_REVIEW_PLAN === 'pro'
 }
 
-// 接続デバイス数チェック（Freeは3台まで）
+// 初回公開では恒久無料枠だけを提供する。通常buildは常にfalse。
+// 将来のStripe導入時は、サーバーのentitlementへ置き換える。
+export function isPro() {
+  return isProReviewEnvironment()
+}
+
+// 接続デバイス数チェック（Freeは2台まで）
 export function canJoinRoom(currentParticipantCount) {
   if (isPro()) return true
   return currentParticipantCount < FREE_DEVICE_LIMIT
@@ -36,6 +33,3 @@ export function remainingItemSlots(currentItemCount) {
   if (isPro()) return Infinity
   return Math.max(0, FREE_ITEM_LIMIT - currentItemCount)
 }
-
-// Stripe Checkout URL（将来: 実際のURLに差し替え）
-export const STRIPE_CHECKOUT_URL = ''

@@ -77,11 +77,12 @@ import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import MemberHistoryModal from './components/MemberHistoryModal.vue'
 import { track } from './utils/analytics.js'
-import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT } from './utils/planLimits.js'
+import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT, isProReviewEnvironment } from './utils/planLimits.js'
 import { isTwaApp } from './utils/appMode.js'
 
 // ── PWA 更新検知 ───────────────────────────────────────────────────────────────
 const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
+const proReviewBuild = isProReviewEnvironment()
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
 const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, setEmptyList, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
@@ -1377,7 +1378,7 @@ function _walkRegister(name, qty = null, unit = '') {
     return
   }
   if (!canAddItem(config.order.length)) {
-    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    openUpgrade(`無料プランの上限（${FREE_ITEM_LIMIT}品目）に達しました。上限の緩和は将来提供予定です。`)
     return
   }
   // ゲスト: 品目追加はホスト承認が必要
@@ -1584,7 +1585,7 @@ function _applyConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   // 新規品目: 「新規登録」ボタンが押されて初めてマスタへ追加する（誤登録を防ぐ）
   if (isNew && !config.order.includes(ingredient)) {
     if (!canAddItem(config.order.length)) {
-      openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+      openUpgrade(`無料プランの上限（${FREE_ITEM_LIMIT}品目）に達しました。上限の緩和は将来提供予定です。`)
       return 'blocked'
     }
     addItem(ingredient, null, category || null, unit || null, null)
@@ -1874,7 +1875,7 @@ function submitNewItem() {
   // Free プラン: 品目数上限チェック
   if (!canAddItem(config.order.length)) {
     newItemError.value = ''
-    openUpgrade(`無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。さらに登録するにはPROプランをご利用ください。`)
+    openUpgrade(`無料プランの上限（${FREE_ITEM_LIMIT}品目）に達しました。上限の緩和は将来提供予定です。`)
     return
   }
 
@@ -2109,6 +2110,10 @@ function dismissReview() {
   <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
 
     <ConnectionBanner />
+
+    <div v-if="proReviewBuild" class="pro-review-badge" role="status">
+      PRO REVIEW · テストデータ
+    </div>
 
     <!-- ── 認証ページ ── -->
     <AuthPage
@@ -2754,6 +2759,24 @@ function dismissReview() {
 </template>
 
 <style scoped>
+.pro-review-badge {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 10020;
+  transform: translateX(-50%);
+  padding: 5px 10px;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 18%);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+
 /* ── バーコード未登録ヒント ── */
 .barcode-add-hint {
   display: flex;

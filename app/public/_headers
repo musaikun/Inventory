@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://inventory-sync.yuya-takaki.workers.dev wss://inventory-sync.yuya-takaki.workers.dev https://api.open-meteo.com https://api.bigdatacloud.net; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://inventory-sync.yuya-takaki.workers.dev wss://inventory-sync.yuya-takaki.workers.dev https://inventory-sync-pro-review.yuya-takaki.workers.dev wss://inventory-sync-pro-review.yuya-takaki.workers.dev https://api.open-meteo.com https://api.bigdatacloud.net; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin

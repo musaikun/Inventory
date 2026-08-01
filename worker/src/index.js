@@ -167,7 +167,11 @@ export default {
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
-        return resultResponse(await handleRegister(env.DB, await request.json()), origin, allowedOrigin)
+        return resultResponse(await handleRegister(
+          env.DB,
+          await request.json(),
+          { defaultPlan: env.DEFAULT_STORE_PLAN },
+        ), origin, allowedOrigin)
       }
       if (path === '/auth/login' && request.method === 'POST') {
         // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。店舗単位制限は handleLogin 内）

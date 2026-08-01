@@ -8,7 +8,7 @@ const emit = defineEmits(['started'])
 const isTwa   = isTwaApp()
 const version = __APP_VERSION__
 
-// ── 契約済みユーザーのログイン（認証ページのログインタブへ）─────────────────
+// ── 店舗コードを持つユーザーのログイン（認証ページのログインタブへ）─────────
 function onLogin() {
   emit('started', { hostMode: true })
 }
@@ -36,11 +36,11 @@ async function onStart() {
 
       <p class="lp-tagline">棚卸作業を開始してください</p>
 
-      <!-- アプリ版（TWA）: 無料版の案内＋契約済みログイン入口 -->
+      <!-- アプリ版（TWA）: 無料版の案内＋既存店舗のログイン入口 -->
       <div v-if="isTwa" class="lp-twa-banner">
         <p class="lp-twa-free"><span class="lp-twa-check">✓</span>無料版をご利用いただけます</p>
         <button class="lp-twa-login" @click="onLogin">
-          PRO契約済みの店舗はこちら<span class="lp-twa-login-strong">ログイン ›</span>
+          店舗コードをお持ちの方はこちら<span class="lp-twa-login-strong">ログイン ›</span>
         </button>
       </div>
 

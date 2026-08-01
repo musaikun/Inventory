@@ -62,7 +62,8 @@ export function extractBearerToken(request) {
 }
 
 // POST /auth/register  body: { storeName?, pin }
-export async function handleRegister(db, body) {
+// defaultPlan='pro' は分離されたPro Review Workerだけで指定する。
+export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
   const pin       = String(body.pin ?? '').replace(/\D/g, '').slice(0, 4)
   const storeName = String(body.storeName ?? '').trim().slice(0, MAX_STORE_NAME_LEN)
   if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
@@ -72,17 +73,17 @@ export async function handleRegister(db, body) {
   const token   = _genToken()
   const now     = _now()
   const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()
+  const plan    = defaultPlan === 'pro' ? 'pro' : 'free'
 
   await db.prepare(
-    'INSERT INTO stores (shop_code, store_name, pin_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-  ).bind(code, storeName || null, pinHash, now, now).run()
+    'INSERT INTO stores (shop_code, store_name, pin_hash, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(code, storeName || null, pinHash, plan, now, now).run()
 
   await db.prepare(
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(token, code, expires, now).run()
 
-  // 新規店舗は 'free'（列既定）だが、created_at からトライアル中＝pro相当になる
-  return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan: 'free', created_at: now }) }
+  return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan }) }
 }
 
 // POST /auth/login  body: { shopCode, pin }

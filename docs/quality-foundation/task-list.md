@@ -1,6 +1,6 @@
 # 横断改善タスクリスト
 
-最終更新: 2026-07-26
+最終更新: 2026-08-01
 
 状態は `未着手 / 進行中 / レビュー待ち / 保留 / 完了 / リスク受容` を使用します。
 担当は `未割当 / Codex / Claude Code / User` のいずれか、または担当者名を記載します。
@@ -228,11 +228,13 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
   targeted 5 files / 66 tests、App production build、`git diff --check`成功。追加blockerは次の2点。
   1. `docs/legal/terms.md`は正本と記載されるが、公開/landing termsと終了通知・免責・規約変更等の文面が未同期。
   2. `landing/index.html`の月額1,980円・解約表現は「現在無料・決済なし」のtermsと矛盾（User判断待ち）。
+- 料金方針対応(2026-07-28 / Codex): UserがD-016を採用。無料でも1店舗コードを発行し、2台・150品目・
+  履歴直近3回とした。14日/3か月トライアルと自動課金を撤回し、将来のWeb PROを月額2,980円とした。
+  `LIMITS_DISABLED`とlocalStorage PRO自己申告、Workerの14日トライアル算出、アプリ内旧価格・決済導線を撤去。
+  landing、公開/正本terms、support、reviewer guideを同期した。server-side上限強制とStripeは将来タスク。
 - 残り(前半): reviewer手順書へのtest店舗情報記入(User)。Codexによる手順書とPlay checklistの独立review。
 - 残り(後半): canonical hostと統一contactのUser決定→絶対URLをPlay Consoleへ登録(`DS-08`)。
-  terms正本の同期、実機でのモバイル表示確認。8/6 UI freeze後にscreenshots。
-- 要User判断: `landing/index.html`は「¥1,980/月」の料金表示を含み、改定後のterms（決済機能なし）と矛盾する。
-  landingはdeploy scriptの対象外だが、公開する場合は料金表示の扱いを決める必要がある。
+  実機でのモバイル表示確認。8/6 UI freeze後にscreenshots。
 - 完了条件:
   - TWAで価格・外部決済導線が露出しない。
   - reviewerがlogin、主要機能、account削除を確認できる。
@@ -382,6 +384,12 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
   列挙していない不備を修正し、migration directory全件の列挙を保証するWorker testを追加した。
 - 検証: 2026-07-26にWorker 195/195、App 658/658、App production buildがlocalで成功。
 - 残り: commit/push後のActions実行とPages preview更新確認。
+- 緊急Pro Review(2026-07-28 / User・Codex): 無料版developとは別にAccess保護付きPages、専用Worker、
+  専用D1/DOをFree枠内で構築する。通常buildはfreeのまま、専用buildだけPRO制限を解除する。
+  手順と境界は[`pro-review-runbook.md`](pro-review-runbook.md)。production dataへ接続しない。
+- Pro Review初回deploy(2026-08-01 / Codex): Worker 196/196、App 658/658、専用build成功後、
+  `inventory-app-pro-review`の`pro-review` Previewへdeploy。固定/固有URLのAccess `302`、専用Workerの
+  health/CORS境界、専用D1のtest店舗`plan=pro`を確認。ログイン後の画面目視と`noindex` header確認はUser実機残件。
 - 完了条件: ユーザー判断を記録し、push / PR の対象と deploy 有無を workflow と文書で一致させる。
 
 ### DEP-001 — `xlsx` の high 脆弱性を解消または隔離
@@ -435,7 +443,16 @@ P0 は認可・データ境界またはGoogle Play公開を直接blockする項�
   有効化する場合は明示off/allowlist、同意・撤回、保持期間、policy/Data Safetyの同時整備をgateとする。
 - 対応(2026-07-26 / Codex): `posthog-js`依存、key例、CSP接続先を除去し、analytics moduleを
   build環境に関係なく常時no-op化。旧PostHog storageだけをcleanupするtestを追加。
-- 残り: 公開buildでPostHog requestがないことをnetwork確認し、Data Safety/公開policyを最終照合する。
+- User方針(2026-07-28): PostHogをprivacy-first構成で再導入する。EU Cloud、custom event allowlist、
+  default opt-out＋明示同意/撤回、IP保存off、autocapture/pageview/pageleave/session replay/error/log off、
+  自由記述・店舗code/PIN/token/品目/数量/価格/位置/端末名/URLを送らない。設定完了まではno-opを維持する。
+- User準備: PostHog Cloud EUでprojectを作成し、Project > GeneralのIP data captureをdiscardにする。
+  project tokenとEU hostはclient設定用として受領する。個人API keyはchat/repositoryへ貼らず、削除連携時にWorker secret化する。
+- Checklist: [`posthog-setup-checklist.md`](posthog-setup-checklist.md)
+- 保持期間確定(2026-07-28 / User): PostHog Freeの範囲で、上記の疑似・最小eventを1年保持する。
+  有効化と同時にprivacy policyとData Safetyへ記載する。
+- 残り: SDK再導入、同意UI、allowlist/before-send guard、analytics IDと削除連携、privacy/Data Safety更新、
+  公開buildのopt-out/opt-in/撤回network確認、PostHog dashboardで受信propertyを照合する。
 - 完了条件: 収集最小化、同意、保存期間、privacy policy との一致を確認し、必要なら設定を変更する。
 
 ### SEC-006 — 店舗コード・PIN・保存トークンを再評価

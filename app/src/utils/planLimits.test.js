@@ -1,44 +1,51 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  isPro, canJoinRoom, canAddItem, remainingItemSlots,
+  isPro, isProReviewEnvironment, canJoinRoom, canAddItem, remainingItemSlots,
   FREE_DEVICE_LIMIT, FREE_ITEM_LIMIT, FREE_HISTORY_COUNT,
 } from './planLimits.js'
-
-const PRO_KEY = 'tanaoro_is_pro'
 
 describe('planLimits（無料プラン制限）', () => {
   beforeEach(() => localStorage.clear())
 
-  it('既定値は 3台・150品目・履歴1回', () => {
-    expect(FREE_DEVICE_LIMIT).toBe(3)
+  it('既定値は 2台・150品目・履歴3回', () => {
+    expect(FREE_DEVICE_LIMIT).toBe(2)
     expect(FREE_ITEM_LIMIT).toBe(150)
-    expect(FREE_HISTORY_COUNT).toBe(1)
+    expect(FREE_HISTORY_COUNT).toBe(3)
   })
 
   describe('isPro', () => {
-    it('フラグ未設定なら false', () => {
+    it('通常buildでは false', () => {
       expect(isPro()).toBe(false)
     })
-    it('tanaoro_is_pro=1 なら true', () => {
-      localStorage.setItem(PRO_KEY, '1')
-      expect(isPro()).toBe(true)
-    })
-    it('1 以外の値は false', () => {
-      localStorage.setItem(PRO_KEY, 'true')
+    it('localStorageの自己申告ではPROにならない', () => {
+      localStorage.setItem('tanaoro_is_pro', '1')
       expect(isPro()).toBe(false)
+    })
+    it('専用channelとplanが両方一致したPro Reviewだけ true', () => {
+      expect(isProReviewEnvironment({
+        VITE_DEPLOYMENT_CHANNEL: 'pro-review',
+        VITE_REVIEW_PLAN: 'pro',
+      })).toBe(true)
+    })
+    it('片方だけ・大文字違い・未知値では false', () => {
+      expect(isProReviewEnvironment({ VITE_REVIEW_PLAN: 'pro' })).toBe(false)
+      expect(isProReviewEnvironment({
+        VITE_DEPLOYMENT_CHANNEL: 'develop',
+        VITE_REVIEW_PLAN: 'pro',
+      })).toBe(false)
+      expect(isProReviewEnvironment({
+        VITE_DEPLOYMENT_CHANNEL: 'pro-review',
+        VITE_REVIEW_PLAN: 'PRO',
+      })).toBe(false)
     })
   })
 
-  describe('canJoinRoom（3台まで）', () => {
-    it('無料: 2台接続中は参加可（3台目）', () => {
-      expect(canJoinRoom(2)).toBe(true)
+  describe('canJoinRoom（2台まで）', () => {
+    it('無料: 1台接続中は参加可（2台目）', () => {
+      expect(canJoinRoom(1)).toBe(true)
     })
-    it('無料: 3台接続中は参加不可（4台目）', () => {
-      expect(canJoinRoom(3)).toBe(false)
-    })
-    it('PRO: 何台でも参加可', () => {
-      localStorage.setItem(PRO_KEY, '1')
-      expect(canJoinRoom(99)).toBe(true)
+    it('無料: 2台接続中は参加不可（3台目）', () => {
+      expect(canJoinRoom(2)).toBe(false)
     })
   })
 
@@ -52,10 +59,6 @@ describe('planLimits（無料プラン制限）', () => {
     it('無料: 0品目は追加可', () => {
       expect(canAddItem(0)).toBe(true)
     })
-    it('PRO: 上限なし', () => {
-      localStorage.setItem(PRO_KEY, '1')
-      expect(canAddItem(10000)).toBe(true)
-    })
   })
 
   describe('remainingItemSlots（残り登録可能数）', () => {
@@ -67,10 +70,6 @@ describe('planLimits（無料プラン制限）', () => {
     })
     it('無料: 上限超過でも負にならず0', () => {
       expect(remainingItemSlots(200)).toBe(0)
-    })
-    it('PRO: Infinity', () => {
-      localStorage.setItem(PRO_KEY, '1')
-      expect(remainingItemSlots(100)).toBe(Infinity)
     })
   })
 })

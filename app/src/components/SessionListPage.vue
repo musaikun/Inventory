@@ -645,8 +645,8 @@ function _itemCount(session) {
           />
           <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
             <span class="plan-limit-icon">🔒</span>
-            <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴はPROプランで閲覧できます</span>
-            <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸のみです`)">アップグレード</button>
+            <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴は無料プランでは表示されません</span>
+            <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸です。上限の緩和は将来提供予定です。`)">詳しく</button>
           </div>
 
           <div class="section-title" style="margin-top:24px">📊 分析</div>

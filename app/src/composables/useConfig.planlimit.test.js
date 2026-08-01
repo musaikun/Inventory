@@ -34,11 +34,11 @@ describe('useConfig 無料プラン上限', () => {
       expect(cfg.config.order.length).toBe(FREE_ITEM_LIMIT)
     })
 
-    it('PRO: 上限を超えて追加できる', () => {
+    it('旧localStorage PROフラグでは上限を超えて追加できない', () => {
       localStorage.setItem('tanaoro_is_pro', '1')
       cfg.config.order = Array.from({ length: FREE_ITEM_LIMIT }, (_, i) => `x${i}`)
-      expect(cfg.addItem('PRO品目', null, null, null, null)).toBe(true)
-      expect(cfg.config.order.length).toBe(FREE_ITEM_LIMIT + 1)
+      expect(cfg.addItem('はみ出し品目', null, null, null, null)).toBe(false)
+      expect(cfg.config.order.length).toBe(FREE_ITEM_LIMIT)
     })
 
     it('重複品目は上限と無関係に false', () => {
@@ -62,11 +62,11 @@ describe('useConfig 無料プラン上限', () => {
       expect(cfg.config.order.length).toBe(FREE_ITEM_LIMIT)
     })
 
-    it('PRO: 上限を超えても全件取り込み、truncated=0', () => {
+    it('旧localStorage PROフラグでも上限で切り捨てる', () => {
       localStorage.setItem('tanaoro_is_pro', '1')
       const r = cfg.loadFromCSV(makeCsv(FREE_ITEM_LIMIT + 30))
-      expect(r.count).toBe(FREE_ITEM_LIMIT + 30)
-      expect(r.truncated).toBe(0)
+      expect(r.count).toBe(FREE_ITEM_LIMIT)
+      expect(r.truncated).toBe(30)
     })
   })
 
@@ -79,11 +79,11 @@ describe('useConfig 無料プラン上限', () => {
       expect(r.truncated).toBe(10)
     })
 
-    it('PRO: 全件取り込み', () => {
+    it('旧localStorage PROフラグでも上限で切り捨てる', () => {
       localStorage.setItem('tanaoro_is_pro', '1')
       const r = cfg.loadFromCSVMapped(makeCsv(FREE_ITEM_LIMIT + 10), mapping)
-      expect(r.count).toBe(FREE_ITEM_LIMIT + 10)
-      expect(r.truncated).toBe(0)
+      expect(r.count).toBe(FREE_ITEM_LIMIT)
+      expect(r.truncated).toBe(10)
     })
   })
 })

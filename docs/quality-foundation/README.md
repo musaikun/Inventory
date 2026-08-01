@@ -62,8 +62,8 @@ security row cleanupまでlocal対応済みです。CCの公開privacy/terms/sup
 
 - Codex — `TEST-001`は入力順で復旧済み。CI-001のActions実行確認後、次の公開対象P1へ進む。
   本番D1 migrationは承認があるまで適用しない。
-- User — reviewer用test店舗、canonical URL/contact、料金表示方針、Cloudflare plan/Logsを決定。
-- Claude Code — `docs/legal/terms.md`と公開termsの残る文面差を同期し、User判断後に料金表示・絶対URLを反映。
+- User — reviewer用test店舗、canonical URL/contact、PostHog EU projectと1年保持の可否、Cloudflare Logsを決定。
+- Claude Code — canonical決定後に公開legalの絶対URLを反映し、8/6 UI freeze後にscreenshotsを作成。
   screenshotsは8/6のUI freeze後。
 
 commit / push / deployは未実施です（すべてローカル作業ツリー）。

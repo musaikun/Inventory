@@ -25,6 +25,16 @@ const ALL_HTML = [...PUBLIC_PAGES, ...LANDING_PAGES]
 const LEGAL_DOCS = ['docs/legal/privacy-policy.md', 'docs/legal/terms.md']
 
 describe('公開legalページ: 配信物としての存在と体裁', () => {
+  it('Pages CSPはproductionと分離Pro ReviewのWorkerだけを明示許可する', () => {
+    const headers = read('app/public/_headers')
+    expect(headers).toContain('connect-src')
+    expect(headers).toContain('https://inventory-sync.yuya-takaki.workers.dev')
+    expect(headers).toContain('wss://inventory-sync.yuya-takaki.workers.dev')
+    expect(headers).toContain('https://inventory-sync-pro-review.yuya-takaki.workers.dev')
+    expect(headers).toContain('wss://inventory-sync-pro-review.yuya-takaki.workers.dev')
+    expect(headers).not.toContain('posthog.com')
+  })
+
   it.each(PUBLIC_PAGES)('%s が app/public にあり、Pages にそのまま配信される', (p) => {
     expect(exists(p)).toBe(true)
     expect(read(p).length).toBeGreaterThan(1000)
@@ -92,8 +102,13 @@ describe('公開legalページ: 実装事実の記載', () => {
 
   it.each(termsCopies)('%s が現在の料金実装（決済なし）を述べている', (p) => {
     const text = read(p)
-    expect(text).toContain('無料で提供')
+    expect(text).toContain('無料プランのみ')
+    expect(text).toContain('店舗コードを1つ発行')
+    expect(text).toContain('接続端末2台')
+    expect(text).toContain('登録品目150件')
+    expect(text).toContain('直近3回')
     expect(text).toContain('決済機能を提供しておらず')
+    expect(text).toContain('自動的に有料へ切り替わることもありません')
     expect(text).not.toContain('前払い')
   })
 
