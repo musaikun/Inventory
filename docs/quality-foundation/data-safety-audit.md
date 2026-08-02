@@ -1,6 +1,6 @@
 # PLAY-003 / PRIV-001 実装整合監査
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 担当: Codex
 状態: code対応・回答draft作成済み、実環境/公開前 gate の確認待ち
 
@@ -127,10 +127,10 @@ Cloudflare公式仕様では、D1 Time Travelは常時有効で、復元可能�
 | ID | gate | owner案 | 完了証拠 |
 |---|---|---|---|
 | DS-01 | account削除時に`_data_owner`を削除し、logoutでは保持する回帰testを追加 | Claude Code（PLAY-002 App lane）→ Codex再review | **実装・Codex再review済み**: `clearDeletedAccountLocalData()`＋unit/公開route成功・失敗test |
-| DS-02 | device ID/name・位置情報をaccount削除後に保持するか決定。保持なら説明と端末data消去導線を用意 | User決定、Claude Code UI、Codex監査 | decision + test + policy |
+| DS-02 | account削除時にdevice ID/name・位置情報/cacheも自動削除する | User決定、Claude Code UI、Codex監査 | **D-019で方針確定**。App実装・test・privacy/support更新待ち |
 | DS-03 | PostHogを公開時無効固定する | User決定、Codex実装/監査 | **code・unit test済み**。公開buildのnetwork確認待ち |
-| DS-04 | `login_attempts` / `ip_attempts`を15分の判定窓後の日次cronでcleanup。platform logは別確認 | Codex Worker / User OPS | **code・cron test済み**。CLIでは保存済みWorkers Logs設定を取得できず、Dashboard証拠待ち |
-| DS-05 | D1の本番planとTime Travel期間を確認し、復元後再削除runbookを作る | User/OPS、Codex文書 | [runbook作成済み](d1-recovery-runbook.md)。Time Travel info取得成功、plan名・maintenance・外部削除ledger待ち。本番0010/0011未適用 |
+| DS-04 | `login_attempts` / `ip_attempts`を15分の判定窓後の日次cronでcleanup。platform logは別確認 | Codex Worker / User OPS | **code・cron test済み**。Workers LogsはUserが有効化済み。保持期間・閲覧担当・payload/masking待ち |
+| DS-05 | D1の本番planとTime Travel期間を確認し、復元後再削除runbookを作る | User/OPS、Codex文書 | **Free / 7日をD-020で確定**。[runbook作成済み](d1-recovery-runbook.md)。maintenance・外部削除ledger待ち。本番0010/0011未適用 |
 | DS-06 | microphoneのTWA実機挙動と外部処理を確認 | User実機、Codex申告反映 | device/browser/build情報 + network観測 |
 | DS-07 | dormant `/pdf` endpointを削除するか公開機能として申告するか決定 | User決定、Codex Worker lane | code/testまたはpolicy |
 | DS-08 | privacy/terms/supportの確定HTTPS URLと統一contactを決め、公開routeとアプリ導線へ反映 | User決定、Claude Code（PLAY-004） | **ページ・導線はCC実装・Codex対象review済み（2026-07-26）**: `app/public/{privacy,terms,support}.html`、Landing/設定/削除ページから相対リンク。**残: canonical host/contactのUser決定、terms正本同期、実機確認** |
@@ -149,9 +149,9 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
   `app/public/{privacy,terms,support}.html` へ反映した。保持期間（token 30日 / DO 200件・24時間 /
   失敗記録 最長約24時間15分 / receipt・tombstone 7日 / D1 Time Travel 契約planに応じ最大30日）、
   外部送信先、任意権限の発生条件、端末内データの残存と消去手順を実装どおりに記載している。
-  Workers Logsは有効/無効が未確認のため「記録される場合はCloudflareの仕様に従う」という条件付き表現にした。
-  **`DS-02` は「端末設定として残る事実＋消去手順」を明記する形で公開文面を確定させたが、
-  削除時に端末設定も消す方針へ変更する場合は文面より先に実装とtestを変える必要がある。**
+  Workers Logsは当時有効/無効が未確認だったため、条件付き表現にした。その後Userが有効化済み。
+  **`DS-02` の現行build・公開文面は「端末設定として残る事実＋消去手順」で一致しているが、
+  D-019で自動削除へ変更した。App実装とtestを先に変更し、同じreleaseで公開文面を更新する。**
 
 ## 8. 作業分担
 

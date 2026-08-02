@@ -1,6 +1,6 @@
 # 判断記録
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 
 状態は `提案 / 採用 / 却下 / 保留 / 廃止` を使用します。採用済み判断を変える場合は
 既存項目を消さず、新しい項目から置き換え先を参照します。
@@ -180,8 +180,9 @@
   - 無料枠は接続端末2台、登録品目150件、棚卸履歴の閲覧直近3回とする。現行の中核機能と取込は利用できる。
   - 将来のPROは月額2,980円の1本とし、Webで明示的に契約した店舗だけに付与する。
   - Google Play/TWA内には価格、Stripe、外部購入リンクを出さず、アプリ名は共通して「タナオロ」とする。
-- 実装境界: 初回公開は全店舗をfreeとして扱う。PRO開始前にStripe Webhook、server entitlement、
-  server-side上限制御、解約・支払失敗・account削除との連携を別途実装する。
+- 実装境界: 初回公開は全店舗をfreeとして扱い、公開前にFree店舗の2台制限をserver-sideで強制する。
+  PRO開始前にStripe Webhook、server entitlement、その他のserver-side上限制御、解約・支払失敗・
+  account削除との連携を別途実装する。
 
 ## D-017 — PostHogはFree・最小event・1年保持とする
 
@@ -203,3 +204,26 @@
   - Pages project、Worker、D1、Durable Objectsをproductionから分離し、Cloudflare Free枠で運用する。
   - URL parameter/localStorageではPRO化せず、専用build変数2つの完全一致とreview Workerの`plan=pro`を使う。
   - review画面へテスト環境表示を常時出し、productionの店舗dataを移さない。
+
+## D-019 — Account削除時に端末固有設定も自動削除する
+
+- 日付: 2026-08-01
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - account削除完了時に、業務dataだけでなく端末ID、端末名、天気用位置情報とcacheも自動削除する。
+  - logoutやaccount切替では端末設定を維持し、account削除成功時だけ消去する。
+  - 削除失敗時は認証・業務data・端末設定を保持し、再試行可能にする。
+- 実装境界: 現行buildと公開privacy/supportは「端末設定として残る」挙動に一致している。
+  App実装とtestを先に変更し、同じreleaseでprivacy/support/Data Safetyを自動削除の説明へ更新する。
+
+## D-020 — 初期Cloudflare運用はFree planとしWorkers Logsを有効にする
+
+- 日付: 2026-08-01
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - 当面はCloudflare Free planを使用し、D1 Time Travelの回復可能期間を7日として扱う。
+  - Workers LogsはDashboardで有効化する（Userが設定済み）。
+  - 規模拡大時にPaid planとD1 Time Travel 30日への変更を再検討する。
+- 残り: Workers Logsの実保持期間・閲覧担当・機密値masking、alert対象と通知先を`OPS-001`で確定する。

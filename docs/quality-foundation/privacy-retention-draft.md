@@ -1,6 +1,6 @@
 # Privacy policy 保持・削除文面案
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 担当: Codex
 状態: `PLAY-003`監査draft。CCが公開legal文面へ反映する前にUser判断と実環境確認が必要
 
@@ -24,7 +24,7 @@
 | login/IP失敗record | 不正利用防止の15分間の判定窓に使用します。期限切れrecordは毎日1回のcleanupで削除するため、実際の保持は最長約24時間15分です |
 | account削除tombstone・receipt | 削除処理の再試行と冪等性のため7日間保持します。receiptはaccount識別子を含みません |
 | 端末内の業務data・店舗所有者marker・認証情報 | account削除の成功後に削除します |
-| 端末ID・端末名・天気の位置情報/cache | accountとは独立した端末設定として、browser storageを消去するまで端末内に残ります。保持方針のUser確定と、利用者向け消去手順の追加が公開前gateです |
+| 端末ID・端末名・天気の位置情報/cache | 現行buildではbrowser storageを消去するまで残ります。D-019でaccount削除時の自動削除を採用済みのため、App実装・test後に「削除完了時に消去」へ公開文面を更新します |
 
 ## 3. provider側の回復・log保持
 
@@ -32,8 +32,8 @@
 > Free planで過去7日、Paid planで過去30日です。この履歴は通常利用には使わず、障害復旧に限って
 > accessを制限します。復旧により削除済みdataが戻る可能性がある場合は、運用手順に従って削除を再適用します。
 
-本番planを確認するまではprivacy policyへ「7日」と断定せず、
-「契約planに応じて最大30日」または確認済みの期間を記載する。
+D-020で当面のFree planを確認したため、公開privacy policyの回復可能期間は7日へ確定する。
+Paidへ変更するreleaseでは30日へ更新する。
 
 > Cloudflare Workers Logsを有効にしている場合、request/exception等の運用logはCloudflareの仕様に従い、
 > Free planで3日、Paid planで7日保持されます。
@@ -61,8 +61,8 @@ Web Speech APIはTWA実機で外部音声処理の有無を確定後、必要な
 > 端末ID、端末名、天気機能の位置情報/cacheはaccountとは独立した端末設定です。これらも消去する場合は
 > browserのsite dataを削除してください。
 
-最後の端末設定文は`DS-02`で保持方針と実際のUI/手順が確定した場合だけ使用する。
-削除時に端末設定も消す方針へ変更する場合は、文面ではなく実装とtestを先に合わせる。
+上記引用は現行buildの説明としてのみ維持する。D-019の自動削除は、文面ではなく実装とtestを先に合わせ、
+同じreleaseで「account削除完了時に端末設定も削除する」説明へ置換する。
 
 ## 6. 自由入力への注意
 
@@ -74,8 +74,8 @@ Web Speech APIはTWA実機で外部音声処理の有無を確定後、必要な
 ## 7. 公開前に決める項目
 
 - 公式support contactをVAPID、privacy、terms、Play listingで統一
-- 端末ID・端末名・位置情報/cacheのaccount削除後の扱い
-- 本番Cloudflare plan、Workers Logsの有効/無効と保持期間
+- 端末ID・端末名・位置情報/cacheの自動削除実装と公開文面の切替
+- Workers Logsの保持期間・閲覧担当・payload/masking（Free planとLogs有効化はD-020で確定済み）
 - dormant `/pdf` endpointの存廃
 - TWA/Web Speechの実機処理
 - providerを「共有なし」の例外として扱う契約根拠

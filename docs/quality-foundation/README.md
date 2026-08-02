@@ -1,6 +1,6 @@
 # 共同品質基盤ハブ
 
-最終更新: 2026-07-25
+最終更新: 2026-08-02
 
 このディレクトリは、プロジェクト全体の監査・バグ修正・リファクタリングと
 Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続するための共有入口です。
@@ -10,7 +10,10 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 1. [`sprint-plan-2026-07-27.md`](sprint-plan-2026-07-27.md) — 2週間の範囲・担当・日程・完了条件
 2. [`project-status.md`](project-status.md) — 最後に確認できた実装・テスト・依存関係の状態
-3. [`task-list.md`](task-list.md) — 優先順位、担当、完了条件、検証方法
+3. [`task-list.md`](task-list.md) — **状態の正本**。優先度・状態・担当の進捗ボード
+   （各タスクの根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下。完了分は
+   [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)、P2/P3は [`tasks/backlog.md`](tasks/backlog.md)。
+   実使用バグの報告台帳は [`bug-reports.md`](bug-reports.md)）
 4. [`google-play-readiness.md`](google-play-readiness.md) — Google Play公開チェックリスト
    （data安全性の実装台帳 → [`data-safety-audit.md`](data-safety-audit.md)、
    Console回答案 → [`data-safety-form-draft.md`](data-safety-form-draft.md)、
@@ -39,7 +42,9 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 ## 使い方
 
-- 着手前にタスクの `状態` を `進行中`、`担当` を自分の名前に更新する。
+- 着手前に [`task-list.md`](task-list.md) の `状態` を `進行中`、`担当` を自分の名前に更新する。
+  進行中・未着手P0/P1の作業記録は `tasks/<ID>.md` へ追記する。
+  優先度・状態・担当は詳細fileへ複製せず、`task-list.md`だけで管理する。
 - 同じタスクを複数エージェントが同時に編集しない。
 - 実装後は完了条件に沿って検証し、結果とコミット前の差分を記録する。
 - 完了した事実だけを `完了` とし、未検証は `レビュー待ち` または `保留` にする。
@@ -47,23 +52,23 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 ## 現在の再開地点
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 
-Worker側は `SEC-001` `SEC-002` `SEC-003` `SEC-004` `BUG-001` `PLAY-001`（account deletion backend）が完了。
-App側は `PLAY-002` の削除UX（アプリ内・公開Web）がCodex承認済みで、`DS-01`（削除後の`_data_owner`残存）も
-CC修正・Codex独立review済みです。`PLAY-004` 前半はアプリ名の `タナオロ` 統一と
-[`play-reviewer-guide.md`](play-reviewer-guide.md)（審査手順書）まで完了しています。
+`develop@96233d4`はcommit / push済みです。Access保護付きPro Review Pagesと専用Worker / D1 / DOは
+2026-08-01に初回deploy済みで、本番Pages / Worker / D1は変更していません。
 
-`PLAY-003` / `PRIV-001` はData Safety回答・保持文面・D1復元runbookのdraft、PostHog無効固定、
-security row cleanupまでlocal対応済みです。CCの公開privacy/terms/supportとアプリ導線も実装・Codex対象review済みです。
-本番D1は0010/0011未適用で、Cloudflare plan/Workers Logs、canonical URL/contact、TWA実機の確定が残ります。
+初回develop Actions（run `30690499992`）はNode 20で`node:sqlite`を読み込めず失敗し、develop previewは
+更新されませんでした。現在の未commit差分で両workflowをNode 24へ変更し、App/WorkerのVitest対象を分離しています。
+ローカルではWorker 196 tests、App 467 tests、App production buildが成功しました。GitHub Actions再確認はpush後です。
 
-次の担当:
+Google Play公開前の主な残件は、`PLAY-002`の端末設定自動削除と実機確認、`PLAY-003`のcanonical URL/contact・
+Data Safety最終照合、`PLAY-004`のFree 2台制限server強制・TWA表示・screenshots、`DEP-001`、
+critical integration/E2E、未修正の履歴P1（`DATA-002`）です。本番D1の0010/0011はUserの明示承認まで適用しません。
 
-- Codex — `TEST-001`は入力順で復旧済み。CI-001のActions実行確認後、次の公開対象P1へ進む。
-  本番D1 migrationは承認があるまで適用しない。
-- User — reviewer用test店舗、canonical URL/contact、PostHog EU projectと1年保持の可否、Cloudflare Logsを決定。
-- Claude Code — canonical決定後に公開legalの絶対URLを反映し、8/6 UI freeze後にscreenshotsを作成。
-  screenshotsは8/6のUI freeze後。
+次の判断・確認:
 
-commit / push / deployは未実施です（すべてローカル作業ツリー）。
+- User — canonical domain/contact、Workers Logsの保持期間・閲覧担当・alert通知先、Free既存3台利用の扱いを決める。
+- Codex — 現差分のcommit / push後にActionsとdevelop previewを確認し、公開対象P1を継続する。
+- Claude Code — canonical決定後に公開legalの絶対URLを反映し、8/6 UI freeze後にscreenshotsを作成する。
+
+現在の文書分割、Node 24、test分離は未commitです。deploy、production migrationは行っていません。

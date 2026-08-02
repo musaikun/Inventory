@@ -1,6 +1,6 @@
 # Google Play Data Safety 回答案
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 担当: Codex
 状態: Play Console転記前のdraft（`DS-02`、`DS-05`〜`DS-10`の確認待ち）
 
@@ -67,8 +67,8 @@ Play Consoleの選択肢に合う場合、棚卸品目名、数量、価格、�
 
 ## 5. 転記前gate
 
-- [ ] `DS-02`: 端末ID・端末名・位置情報をaccount削除後も端末設定として保持する方針と消去方法を確定
-- [ ] `DS-05`: 本番D1 planとTime Travel期間、Workers Logs設定をdashboardで確認
+- [ ] `DS-02`: 自動削除方針はD-019で確定。App実装・test・privacy/support更新を完了
+- [ ] `DS-05`: Free / Time Travel 7日とWorkers Logs有効化はD-020で確定。Logs保持期間・閲覧担当・payloadを確認
 - [ ] `DS-06`: TWA実機でmicrophone処理とnetworkを確認
 - [ ] `DS-07`: dormant `/pdf` endpointの存廃を確定
 - [ ] `DS-08`: privacy / terms / supportのHTTPS URLと統一contactを公開

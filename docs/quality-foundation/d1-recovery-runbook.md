@@ -1,6 +1,6 @@
 # D1 Time Travel 復元・削除再適用runbook
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 担当: Codex
 状態: 運用draft。maintenance modeと削除抑止listの外部保管が整うまで本番実行不可
 
@@ -114,7 +114,7 @@ write trafficを再開する前に実施する。
 
 ## 7. 公開前の残作業
 
-- 本番D1 planを確認し、privacy policyの回復可能期間を確定
+- Free plan / 回復可能期間7日はD-020で確定済み。plan変更時にprivacy policyを更新
 - maintenance/read-only modeを実装
 - account識別可能な削除抑止listをD1以外へ最小限・暗号化して保管する設計を承認
 - 復元後再削除scriptとverification queryをstagingで演習
@@ -125,6 +125,7 @@ write trafficを再開する前に実施する。
 - `wrangler d1 time-travel info inventory-store`は成功し、Time Travelを利用可能と確認した。
   bookmark値はcredentialに準ずる運用情報として本repositoryへ記録しない。
 - command出力にaccount plan名はなく、Dashboard用browserも未接続だったため、Free/Paidの確定はUser確認を残す。
+- 2026-08-01 User確認: 当面はFree planを使用し、Time Travelは7日として扱う（D-020）。
 - 本番schemaのread-only queryで、0010の`movements`/`movement_lines`と0011の削除列・receipt・triggerが
   存在しないことを確認した。remote migrationは実行していない。
 - `scripts/migrate.sh`に0010/0011の列挙漏れがあったため修正し、migration directory全件を検査する

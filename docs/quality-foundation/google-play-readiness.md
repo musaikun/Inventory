@@ -1,6 +1,6 @@
 # Google Play 公開準備チェックリスト
 
-最終更新: 2026-07-26
+最終更新: 2026-08-02
 
 公式資料を最終判断の正とします。
 
@@ -59,7 +59,8 @@ privacy policyに明記します。
 - ~~account削除後に`_data_owner`が残る。~~ → CC修正、Codex独立review済み（2026-07-26・`DS-01`）。
 - ~~PostHogはkey設定時にautocaptureが有効化され得る。~~ → 依存除去・常時no-op化、公開build network確認待ち。
 - ~~D1 security rowに期限切れ全体cleanupがない。~~ → 15分判定窓＋日次cleanup実装・test済み。
-- D1 Time TravelのCLI取得は成功。本番plan、Workers Logs、端末名/位置情報の保持方針は未確定。
+- D1 Time TravelはFree / 7日、Workers Logsは有効化済み（D-020）。Logs保持期間・閲覧担当・payloadは未確定。
+  端末ID・端末名・天気位置情報はaccount削除時の自動削除を採用済み（D-019）だが、App実装と公開文面は未対応。
 - 本番D1は0010/0011未適用。修正済み`migrate.sh`による適用はUser明示承認後に行う。
 - privacy/terms/supportの静的pageとapp導線はCC実装済み。canonical HTTPS URLとcontactはUser確定待ち。
 

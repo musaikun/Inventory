@@ -6,7 +6,9 @@
 2. `docs/quality-foundation/README.md`
 3. `docs/quality-foundation/sprint-plan-2026-07-27.md`
 4. `docs/quality-foundation/project-status.md`
-5. `docs/quality-foundation/task-list.md`
+5. `docs/quality-foundation/task-list.md`（状態の正本＝進捗ボード。
+   進行中・未着手P0/P1の詳細は `docs/quality-foundation/tasks/<ID>.md`、
+   完了分と保留分は同directoryの集約file）
 6. `docs/quality-foundation/working-agreement.md`
 7. `docs/quality-foundation/session-log.md`
 8. `docs/quality-foundation/google-play-readiness.md`

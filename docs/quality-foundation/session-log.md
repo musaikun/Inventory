@@ -2,6 +2,49 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-02 — task分割の独立review修正・CI/Test分離を反映
+
+- 担当: Codex。Claude Codeの`task-list.md`進捗ボード化と`tasks/`分割を独立reviewし、構造は採用した。
+- 文書修正:
+  - 優先度・状態・担当は`task-list.md`だけを正本とし、詳細fileの重複metadataを削除。
+  - `develop@96233d4`のcommit/pushとPro Review deploy済み事実を反映。本番Pages / Worker / D1は未変更。
+  - Free 2台制限は現行App/Workerでは成立しないP1として`PLAY-004`へ記録し、server-side拒否testを完了条件へ追加。
+  - D-019（account削除時の端末ID・端末名・天気位置情報/cache自動削除）とD-020（Cloudflare Free、
+    Time Travel 7日、Workers Logs有効）を追加し、PLAY/Data Safety/retention/runbook/checklistへ反映。
+  - 現行buildと公開privacy/supportは端末設定を保持する挙動で一致しているため、D-019のApp実装・test後に
+    同じreleaseで公開文面を切り替える。
+- CI/Testのローカル対応:
+  - 2026-08-01のdevelop Actions `30690499992`はNode 20の`node:sqlite` importで失敗し、preview未更新。
+  - `develop-preview.yml` / `pro-review.yml`をNode 24へ更新し、App VitestからWorker testを分離。
+  - Worker 15 files / 196 tests、App 54 files / 467 tests、App production build（444 modules）成功。
+  - `TEST-002`はpackage分離のみ完了。critical integration/E2Eが残るため状態は進行中。
+- 文書検証: 新規`tasks/`と更新した品質基盤文書のlocal Markdown linkは全件解決。
+  trailing whitespaceなし、`git diff --check`成功（改行形式warningのみ）。
+- 残り: commit/push後のActions・develop preview確認、Free 2台制限、端末設定自動削除、各公開P0/P1。
+- 未実施: commit、push、追加deploy、本番migration。
+
+## 2026-08-01 — task-listを進捗ボード化し、詳細を tasks/ へ分割
+
+- 担当: Claude Code。**文書整理のみ。コード変更なし。**
+- **状態の正本は `task-list.md`**（進捗ボード）。根拠・実装・検証証拠・完了条件は `tasks/<ID>.md` へ移した。
+  完了分は `tasks/completed-2026-07.md`、P2/P3は `tasks/backlog.md`。
+- 副次効果: CodexとCCが**別ファイルを編集できる**ため、単一の巨大ファイルでの競合が減る。
+- 新規タスクIDは作らず、以下を既存タスクへ統合した。
+  - CI/検証環境のNode不整合（`@zxing/library`がNode >=24宣言、CIはNode 20） → `CI-001`
+  - App VitestがWorkerテストを含み重複実行 → `TEST-002`
+  - `postcss` / `xlsx` のproduction high → `DEP-001`
+  - TWA価格表示・無料版2台制限（D-016の公開面反映） → `PLAY-004`
+  - 履歴の端末依存（`R-001`・`F-001`〜`F-004`） → `DATA-002`（**P2→P1へ変更**）
+- `bug-reports.md` は報告台帳として維持し、統合先を明記（内容は削除していない）。
+- `DEP-001` は記載の鮮度確認のため `npm audit --omit=dev` を再実行（read-only）。
+  production high 2件: `postcss <=8.5.17`（Path Traversal・**修正版あり**）、`xlsx`（prototype pollution / ReDoS・修正版なし）。
+  対応の性質が違うため分けて記述した。
+- 参照先を更新: `README.md`（読む順番・使い方）、`working-agreement.md`（開始/完了手順）、`AGENTS.md`（読む順番）。
+- 検証: 旧`task-list.md`の詳細374行を新構成と全行照合し、**内容の欠落なし**を確認
+  （差分は見出し構造・相対リンク化・節見出しへの昇格のみ）。内部リンクは全件解決。
+  旧26タスクID＝新12ファイル＋completed 9＋backlog 5 で一致。
+- 未実施: commit、push、deploy。
+
 ## 2026-08-01 — Access保護付きPro Review Pagesを初回deploy
 
 - 担当: Codex。UserがCloudflare PagesのPreview access policy有効化を完了したため、
