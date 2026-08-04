@@ -486,7 +486,23 @@ function _resetClientState() {
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
   pendingItemRequests.splice(0, pendingItemRequests.length)
+  lockedIngredients.clear()
+  _conflictQueue = []
+  _joinSessionId = null
+  _expectedSessionId = null
   unreadCount.value = 0
+}
+
+// アカウント削除・切替時の強制切断。再接続timerと旧店舗の同期データを残さない。
+// 通常の退室通知やguest callbackは不要なため、leaveRoomとは分ける。
+export function resetAccountData() {
+  state.mode = 'idle'
+  state.roomCode = null
+  if (_ws) {
+    try { _ws.close(1000, 'Account reset') } catch (_) {}
+    _ws = null
+  }
+  _resetClientState()
 }
 
 function _handleMessage(msg) {

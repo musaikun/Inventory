@@ -16,6 +16,7 @@ const _snapQueue = []
 const _orderQueue = []
 const _moveQueue = []
 let _retryTimer = null
+let _saveGeneration = 0
 
 function _settle() {
   saveState.value = (!_pending.config && !_pending.inventory && _snapQueue.length === 0 && _orderQueue.length === 0 && _moveQueue.length === 0) ? 'idle' : 'pending'
@@ -27,24 +28,49 @@ function _scheduleRetry() {
 
 // 未送信データをまとめて再送する（接続復帰時・タイマー時に呼ばれる）
 export async function retryPendingSaves() {
-  if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
+  if (!code || !BASE) return
+  const stale = () => generation !== _saveGeneration || code !== shopCode.value
   if (_pending.config) {
-    try { await _api(`/store/${shopCode.value}/config`, { method: 'PUT', body: JSON.stringify(_pending.config) }); _pending.config = null } catch (_) {}
+    const data = _pending.config
+    try {
+      await _api(`/store/${code}/config`, { method: 'PUT', body: JSON.stringify(data) })
+      if (stale()) return
+      if (_pending.config === data) _pending.config = null
+    } catch (_) { if (stale()) return }
   }
   if (_pending.inventory) {
-    try { await _api(`/store/${shopCode.value}/inventory`, { method: 'PUT', body: JSON.stringify(_pending.inventory) }); _pending.inventory = null } catch (_) {}
+    const data = _pending.inventory
+    try {
+      await _api(`/store/${code}/inventory`, { method: 'PUT', body: JSON.stringify(data) })
+      if (stale()) return
+      if (_pending.inventory === data) _pending.inventory = null
+    } catch (_) { if (stale()) return }
   }
   while (_snapQueue.length) {
-    try { await _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(_snapQueue[0]) }); _snapQueue.shift() }
-    catch (_) { break }
+    const data = _snapQueue[0]
+    try {
+      await _api(`/store/${code}/history`, { method: 'POST', body: JSON.stringify(data) })
+      if (stale()) return
+      if (_snapQueue[0] === data) _snapQueue.shift()
+    } catch (_) { if (stale()) return; break }
   }
   while (_orderQueue.length) {
-    try { await _api(`/store/${shopCode.value}/orders`, { method: 'POST', body: JSON.stringify(_orderQueue[0]) }); _orderQueue.shift() }
-    catch (_) { break }
+    const data = _orderQueue[0]
+    try {
+      await _api(`/store/${code}/orders`, { method: 'POST', body: JSON.stringify(data) })
+      if (stale()) return
+      if (_orderQueue[0] === data) _orderQueue.shift()
+    } catch (_) { if (stale()) return; break }
   }
   while (_moveQueue.length) {
-    try { await _api(`/store/${shopCode.value}/movements`, { method: 'POST', body: JSON.stringify(_moveQueue[0]) }); _moveQueue.shift() }
-    catch (_) { break }
+    const data = _moveQueue[0]
+    try {
+      await _api(`/store/${code}/movements`, { method: 'POST', body: JSON.stringify(data) })
+      if (stale()) return
+      if (_moveQueue[0] === data) _moveQueue.shift()
+    } catch (_) { if (stale()) return; break }
   }
   _settle()
   if (saveState.value === 'pending') _scheduleRetry()
@@ -82,12 +108,16 @@ export async function loadConfigFromD1() {
 
 export async function saveConfigToD1(configData) {
   if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
   saveState.value = 'saving'
   try {
-    await _api(`/store/${shopCode.value}/config`, { method: 'PUT', body: JSON.stringify(configData) })
+    await _api(`/store/${code}/config`, { method: 'PUT', body: JSON.stringify(configData) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _pending.config = null
     _settle()
   } catch (e) {
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _pending.config = configData
     saveState.value = 'pending'
     _scheduleRetry()
@@ -102,12 +132,16 @@ export async function loadInventoryFromD1() {
 
 export async function saveInventoryToD1(inventoryData) {
   if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
   saveState.value = 'saving'
   try {
-    await _api(`/store/${shopCode.value}/inventory`, { method: 'PUT', body: JSON.stringify(inventoryData) })
+    await _api(`/store/${code}/inventory`, { method: 'PUT', body: JSON.stringify(inventoryData) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _pending.inventory = null
     _settle()
   } catch (e) {
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _pending.inventory = inventoryData
     saveState.value = 'pending'
     _scheduleRetry()
@@ -122,11 +156,15 @@ export async function loadHistoryFromD1() {
 
 export async function saveSnapshotToD1(snapshot) {
   if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
   saveState.value = 'saving'
   try {
-    await _api(`/store/${shopCode.value}/history`, { method: 'POST', body: JSON.stringify(snapshot) })
+    await _api(`/store/${code}/history`, { method: 'POST', body: JSON.stringify(snapshot) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _settle()
   } catch (e) {
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _snapQueue.push(snapshot)
     saveState.value = 'pending'
     _scheduleRetry()
@@ -148,11 +186,15 @@ export async function loadOrdersFromD1(sinceDays = null) {
 
 export async function saveOrderToD1(order) {
   if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
   saveState.value = 'saving'
   try {
-    await _api(`/store/${shopCode.value}/orders`, { method: 'POST', body: JSON.stringify(order) })
+    await _api(`/store/${code}/orders`, { method: 'POST', body: JSON.stringify(order) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _settle()
   } catch (e) {
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _orderQueue.push(order)
     saveState.value = 'pending'
     _scheduleRetry()
@@ -174,11 +216,15 @@ export async function loadMovementsFromD1(sinceDays = null) {
 
 export async function saveMovementToD1(movement) {
   if (!shopCode.value || !BASE) return
+  const generation = _saveGeneration
+  const code = shopCode.value
   saveState.value = 'saving'
   try {
-    await _api(`/store/${shopCode.value}/movements`, { method: 'POST', body: JSON.stringify(movement) })
+    await _api(`/store/${code}/movements`, { method: 'POST', body: JSON.stringify(movement) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _settle()
   } catch (e) {
+    if (generation !== _saveGeneration || code !== shopCode.value) return
     _moveQueue.push(movement)
     saveState.value = 'pending'
     _scheduleRetry()
@@ -204,4 +250,18 @@ export function clearShopCode() {
   shopCode.value   = ''
   activeRoom.value = null
   localStorage.removeItem(STORAGE_KEYS.shopCode)
+}
+
+// アカウント削除・切替時に、旧店舗の未送信データと再送タイマーを破棄する。
+// generation更新により、既に待機中の通信が後から失敗してもqueueを復活させない。
+export function resetAccountData() {
+  _saveGeneration++
+  _pending.config = null
+  _pending.inventory = null
+  _snapQueue.splice(0)
+  _orderQueue.splice(0)
+  _moveQueue.splice(0)
+  if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null }
+  activeRoom.value = null
+  saveState.value = 'idle'
 }

@@ -55,4 +55,73 @@ describe('useWeather: resetLocalData（アカウント削除時のみ）', () =>
     expect(() => m.resetLocalData()).not.toThrow()
     expect(localStorage.getItem('weather_loc')).toBeNull()
   })
+
+  it('削除前に開始した天気取得の応答で、stateとcacheを復活させない', async () => {
+    let resolveFetch
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => { resolveFetch = resolve })))
+    const m = await fresh()
+
+    const pending = m.useWeather().setLocation(35.6812, 139.7671, '東京')
+    m.resetLocalData()
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        daily: {
+          time: ['2026-08-04'],
+          temperature_2m_max: [31],
+          temperature_2m_min: [24],
+          precipitation_probability_max: [10],
+          weather_code: [0],
+        },
+      }),
+    })
+    await pending
+
+    const { state } = m.useWeather()
+    expect(state.loc).toBeNull()
+    expect(state.weather).toEqual({})
+    expect(localStorage.getItem('weather_loc')).toBeNull()
+    expect(localStorage.getItem('weather_cache')).toBeNull()
+  })
+
+  it('削除前に開始した逆ジオコーディングで位置情報を復活させない', async () => {
+    let resolveGeocode
+    vi.stubGlobal('fetch', vi.fn(url => {
+      if (String(url).includes('reverse-geocode-client')) {
+        return new Promise(resolve => { resolveGeocode = resolve })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ daily: { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_probability_max: [], weather_code: [] } }),
+      })
+    }))
+    const m = await fresh()
+
+    await m.useWeather().setLocation(35.6812, 139.7671)
+    m.resetLocalData()
+    resolveGeocode({ ok: true, json: async () => ({ principalSubdivision: '東京都', locality: '千代田区' }) })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(m.useWeather().state.loc).toBeNull()
+    expect(localStorage.getItem('weather_loc')).toBeNull()
+  })
+
+  it('削除前に要求した位置情報の遅延callbackで位置情報を復活させない', async () => {
+    let onSuccess
+    vi.stubGlobal('navigator', {
+      geolocation: {
+        getCurrentPosition(success) { onSuccess = success },
+      },
+    })
+    const m = await fresh()
+
+    const pending = m.useWeather().requestGeolocation()
+    m.resetLocalData()
+    onSuccess({ coords: { latitude: 35.6812, longitude: 139.7671 } })
+    await pending
+
+    expect(m.useWeather().state.loc).toBeNull()
+    expect(localStorage.getItem('weather_loc')).toBeNull()
+  })
 })

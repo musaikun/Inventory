@@ -69,7 +69,7 @@ import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -906,6 +906,7 @@ function _closeTopLayer() {
   if (showSync.value)        { showSync.value = false;    return true }
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (showOrderSchedule.value) { showOrderSchedule.value = false; return true }
+  if (consumeDeleteAccountBack()) return true
   if (showDeleteAccount.value) { showDeleteAccount.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }

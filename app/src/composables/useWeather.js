@@ -9,6 +9,13 @@ const CACHE_KEY = STORAGE_KEYS.weatherCache  // { updatedAt, weather }
 const TTL_MS    = 3600 * 1000
 
 const state = reactive({ weather: {}, loc: null, loading: false, error: null, updatedAt: null })
+let _generation = 0
+
+function _isCurrent(generation, loc) {
+  return generation === _generation
+    && state.loc?.lat === loc.lat
+    && state.loc?.lon === loc.lon
+}
 
 function _load() {
   try { const r = localStorage.getItem(LOC_KEY);   if (r) state.loc = JSON.parse(r) } catch (_) {}
@@ -25,23 +32,27 @@ _load()
 export async function fetchWeather(force = false) {
   if (!state.loc) return
   if (!force && state.updatedAt && Date.now() - state.updatedAt < TTL_MS && Object.keys(state.weather).length) return
+  const generation = _generation
+  const loc = { ...state.loc }
   state.loading = true
   state.error = null
   try {
-    const { lat, lon } = state.loc
+    const { lat, lon } = loc
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
       + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code`
       + `&timezone=auto&past_days=31&forecast_days=16`
     const r = await fetch(url)
     if (!r.ok) throw new Error('weather http ' + r.status)
     const j = await r.json()
+    // アカウント削除や位置変更より前に開始した応答で、消去済みデータを復活させない。
+    if (!_isCurrent(generation, loc)) return
     state.weather = mapDailyToWeather(j.daily)
     state.updatedAt = Date.now()
     _saveCache()
   } catch (_) {
-    state.error = '天気の取得に失敗しました'
+    if (_isCurrent(generation, loc)) state.error = '天気の取得に失敗しました'
   } finally {
-    state.loading = false
+    if (_isCurrent(generation, loc)) state.loading = false
   }
 }
 
@@ -57,12 +68,17 @@ async function _reverseGeocode(lat, lon) {
 }
 
 export function setLocation(lat, lon, name = '') {
-  state.loc = { lat: Math.round(lat * 10000) / 10000, lon: Math.round(lon * 10000) / 10000, name }
+  const generation = _generation
+  const loc = { lat: Math.round(lat * 10000) / 10000, lon: Math.round(lon * 10000) / 10000, name }
+  state.loc = loc
   _saveLoc()
   // 地名を非同期取得して更新（未指定時のみ）
   if (!name) {
-    _reverseGeocode(state.loc.lat, state.loc.lon).then(n => {
-      if (n) { state.loc = { ...state.loc, name: n }; _saveLoc() }
+    _reverseGeocode(loc.lat, loc.lon).then(n => {
+      if (n && _isCurrent(generation, loc)) {
+        state.loc = { ...state.loc, name: n }
+        _saveLoc()
+      }
     })
   }
   return fetchWeather(true)
@@ -72,9 +88,13 @@ export function setLocation(lat, lon, name = '') {
 export function requestGeolocation() {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) { reject(new Error('no geolocation')); return }
+    const generation = _generation
     navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation(pos.coords.latitude, pos.coords.longitude).then(resolve).catch(reject),
-      (err) => reject(err),
+      (pos) => {
+        if (generation !== _generation) { resolve(); return }
+        setLocation(pos.coords.latitude, pos.coords.longitude).then(resolve).catch(reject)
+      },
+      (err) => generation === _generation ? reject(err) : resolve(),
       { timeout: 10000, maximumAge: 3600 * 1000 },
     )
   })
@@ -88,6 +108,8 @@ export function requestGeolocation() {
  * state を戻さないと、削除後もリロードするまで前の位置・天気が表示され続ける。
  */
 export function resetLocalData() {
+  // 進行中のfetch / geolocation / reverse-geocodeを論理的に失効させる。
+  _generation++
   state.weather   = {}
   state.loc       = null
   state.loading   = false

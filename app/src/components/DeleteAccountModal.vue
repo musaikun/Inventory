@@ -5,8 +5,10 @@
 // - 200 deleted / alreadyDeleted を受けてから端末のローカルデータを消去する
 // - 503 / 通信失敗では local token を先に消さず、同じ requestId で再試行できる
 // - 409（別requestId競合）は retryable:false。保存済みの元IDを保持し自動再送しない
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { useFocusTrap } from '../composables/useFocusTrap.js'
+import { registerDeleteAccountBackHandler } from '../composables/appMenuState.js'
 import { deleteAccount, clearAuthLocal, storeName } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 import { unsubscribePushLocal } from '../composables/usePush.js'
@@ -52,7 +54,8 @@ const retryable  = ref(false)
 // close 時に requestId を保持するか（削除が進行中/保留になり得るケースは保持して再開可能に）
 let keepId = false
 
-const pinRef = ref(null)
+const pinRef   = ref(null)
+const sheetRef = ref(null)
 
 const busy = computed(() => phase.value === 'deleting')
 const canSubmit = computed(() => /^\d{4}$/.test(pin.value) && confirmVal.value === targetShop)
@@ -60,7 +63,27 @@ const canSubmit = computed(() => /^\d{4}$/.test(pin.value) && confirmVal.value =
 // ESC: 処理中と完了後は閉じない（誤操作・二重操作の防止）
 useEscapeKey(() => { if (phase.value !== 'deleting' && phase.value !== 'done') requestClose() })
 
-onMounted(() => { nextTick(() => pinRef.value?.focus()) })
+// フォーカスをモーダル内へ閉じ込め、閉じたら開く前の要素へ戻す
+const { focusFirst } = useFocusTrap(sheetRef)
+
+let unregisterBackHandler = null
+onMounted(() => {
+  unregisterBackHandler = registerDeleteAccountBackHandler(() => {
+    if (phase.value === 'deleting' || phase.value === 'done') return
+    requestClose()
+  })
+  nextTick(() => pinRef.value?.focus())
+})
+onUnmounted(() => { unregisterBackHandler?.() })
+
+// 局面が変わると前の局面の要素は v-if で DOM から消えるため、
+// フォーカスが body へ落ちてトラップが空回りする。新しい局面の先頭へ移す。
+watch(phase, (p) => {
+  nextTick(() => {
+    if (p === 'form') { pinRef.value?.focus(); return }
+    focusFirst()
+  })
+})
 
 function onPinInput(e) {
   const v = e.target.value.replace(/\D/g, '').slice(0, 4)
@@ -135,7 +158,14 @@ function onOverlay() {
 
 <template>
   <div class="modal-overlay" @click.self="onOverlay">
-    <div class="modal-sheet da-sheet" role="dialog" aria-modal="true" aria-labelledby="da-title">
+    <div
+      ref="sheetRef"
+      class="modal-sheet da-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="da-title"
+      tabindex="-1"
+    >
       <div class="sheet-handle"></div>
 
       <!-- 完了 -->
@@ -250,6 +280,21 @@ function onOverlay() {
 
 <style scoped>
 .da-sheet { max-height: 90vh; overflow-y: auto; }
+/* 処理中は操作対象が無いためシート自体へフォーカスを移す。
+   その際にコンテナ全体が枠で囲まれると不自然なので、プログラム的なフォーカスでは輪郭を出さない。
+   キーボード操作由来（:focus-visible）のときだけ輪郭を出す。 */
+.da-sheet:focus { outline: none; }
+.da-sheet:focus-visible { outline: 2px solid var(--danger); outline-offset: -2px; }
+
+/* 店舗名・サーバー由来のエラー文など、長さを制御できないテキストが
+   375px 幅で横へはみ出さないようにする（日本語・英数字の連続いずれも折り返す） */
+.da-target-name,
+.da-final-lead,
+.da-error-box,
+.da-form-error,
+.da-progress-text,
+.da-done-text,
+.da-warn-list li { overflow-wrap: anywhere; }
 
 .da-title { text-align: center; }
 .da-title-danger { color: var(--danger); }
@@ -361,7 +406,9 @@ function onOverlay() {
 
 /* アクション・ボタン */
 .da-actions { display: flex; gap: 10px; margin-top: 12px; }
-.da-actions .btn { flex: 1; }
+/* min-width:0 が無いと flex item は内容幅より縮まず、狭い端末で行から溢れる。
+   .btn は line-height:1 のため、折り返した場合に文字が重ならないよう行間も戻す。 */
+.da-actions .btn { flex: 1; min-width: 0; line-height: 1.35; }
 
 .da-btn-danger {
   background: var(--danger);

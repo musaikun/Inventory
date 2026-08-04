@@ -402,8 +402,9 @@ function onDownloadTemplate() {
         <a class="legal-link" href="./terms.html" target="_blank" rel="noopener">利用規約</a>
         <a class="legal-link" href="./support.html" target="_blank" rel="noopener">サポート・お問い合わせ</a>
         <p class="legal-note">
-          この端末に残るデータ（端末ID・端末名・天気の位置情報）の消去方法は、
+          アカウントを削除せずに、この端末に残るデータを消す方法は
           <a href="./support.html" target="_blank" rel="noopener">サポートページ</a>で説明しています。
+          （端末ID・端末名・天気の位置情報は、アカウント削除時に自動で消去されます）
         </p>
       </div>
 

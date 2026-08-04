@@ -19,30 +19,43 @@ import { resetLocalData as resetHistory }   from './useHistory.js'
 import { resetLocalData as resetSession }   from './useSession.js'
 import { resetLocalData as resetDeviceId }  from './useDeviceId.js'
 import { resetLocalData as resetWeather }   from './useWeather.js'
+import { resetAccountData as resetStore }   from './useStore.js'
+import { resetAccountData as resetSync }    from './useSync.js'
 
 const _DRAFT_PREFIXES = ['inv_draft_', 'order_draft_']
 
 export function clearLocalAccountData() {
-  resetConfig()
-  resetInventory()
-  resetOrders()
-  resetMovements()
-  resetMovementDraft()
-  resetDayNotes()
-  resetHistory()
-  resetSession()
+  // 1つのcomposableが壊れても、他のaccount dataの消去は継続する。
+  for (const reset of [
+    resetSync,
+    resetStore,
+    resetConfig,
+    resetInventory,
+    resetOrders,
+    resetMovements,
+    resetMovementDraft,
+    resetDayNotes,
+    resetHistory,
+    resetSession,
+  ]) {
+    try { reset() } catch (_) {}
+  }
 
   try {
-    localStorage.removeItem(STORAGE_KEYS.syncSession)
-    localStorage.removeItem(STORAGE_KEYS.pendingSession)
-    localStorage.removeItem(STORAGE_KEYS.pdfProfiles)
-    localStorage.removeItem(STORAGE_KEYS.deleteRequestId)  // 別アカウントへ跨る削除requestId残存を防ぐ
+    for (const key of [
+      STORAGE_KEYS.syncSession,
+      STORAGE_KEYS.pendingSession,
+      STORAGE_KEYS.pdfProfiles,
+      STORAGE_KEYS.deleteRequestId, // 別アカウントへ跨る削除requestId残存を防ぐ
+    ]) {
+      try { localStorage.removeItem(key) } catch (_) {}
+    }
     // ホストトークン（店舗ごと）・下書き（セッション/発注ごと）はプレフィックス走査で消す
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i)
       if (!k) continue
       if (k.startsWith(STORAGE_KEYS.hostTokenPrefix) || _DRAFT_PREFIXES.some(p => k.startsWith(p))) {
-        localStorage.removeItem(k)
+        try { localStorage.removeItem(k) } catch (_) {}
       }
     }
   } catch (_) {}

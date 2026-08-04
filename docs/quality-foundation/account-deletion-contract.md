@@ -88,7 +88,8 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 | stock/order Durable Objects | 接続を閉じ、全storageを削除 |
 | R2 | 現在binding・保存実装なし。削除対象なし |
 | PostHog | shopCode/emailをidentifyしていない。端末identity resetと保持方針は `PLAY-003` / `PRIV-001` |
-| localStorage / Cache / PushSubscription | 削除成功後にclientで消去。Claude Code担当 |
+| localStorage（業務data、端末ID・端末名、天気位置/cache）/ PushSubscription | 削除成功後にclientで消去 |
+| Cache API / Service Worker | app shell・font・PDF cMapの公開静的assetだけを保持し、account/API dataは保存しない。account削除時のcache削除・SW解除は不要 |
 | D1 Time Travel / provider backup | providerの回復期間満了まで残り得る。通常復元へ使用せずprivacy policyへ明記 |
 | `ip_attempts` / platform log | account keyを持たないsecurity record。保持期間とData Safetyは `PLAY-003` / `OPS-001` で確定 |
 

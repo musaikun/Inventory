@@ -56,6 +56,25 @@ describe('clearLocalAccountData（ローカル業務データの全消去）', (
     expect(dayNotes.useDayNotes().hasNote('2026-07-21')).toBe(false)
     expect(localStorage.getItem('inventory_day_notes_v1')).toBeNull()
   })
+
+  it('1つのresetが例外でも、後続の業務dataと識別子を消し続ける', async () => {
+    vi.resetModules()
+    vi.doMock('./useConfig.js', () => ({ resetLocalData: () => { throw new Error('broken reset') } }))
+    try {
+      localStorage.setItem('inventory_orders_v1', JSON.stringify([{ id: 'old-order' }]))
+      localStorage.setItem('_sync_session_v1', '{}')
+      localStorage.setItem('inventory_pdf_profiles_v1', '{}')
+      const accountData = await import('./accountData.js')
+
+      expect(() => accountData.clearLocalAccountData()).not.toThrow()
+      expect(localStorage.getItem('inventory_orders_v1')).toBeNull()
+      expect(localStorage.getItem('_sync_session_v1')).toBeNull()
+      expect(localStorage.getItem('inventory_pdf_profiles_v1')).toBeNull()
+    } finally {
+      vi.doUnmock('./useConfig.js')
+      vi.resetModules()
+    }
+  })
 })
 
 describe('アカウント切替時の自動消去（漏洩防止の核）', () => {

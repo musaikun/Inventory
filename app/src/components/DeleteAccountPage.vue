@@ -151,6 +151,11 @@ function onDeleted() {
 
 .dap-logo { font-size: 40px; margin-bottom: 4px; }
 
+/* 店舗名・サーバー由来のエラー文は長さを制御できないため、375px 幅で横へはみ出さないようにする */
+.dap-title,
+.dap-account-name,
+.dap-error { overflow-wrap: anywhere; }
+
 .dap-title { font-size: 20px; font-weight: 800; color: var(--text); margin: 0 0 4px; }
 .dap-app { font-size: 13px; font-weight: 700; color: var(--primary); margin: 0 0 14px; }
 

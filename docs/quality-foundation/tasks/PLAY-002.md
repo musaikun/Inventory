@@ -105,6 +105,125 @@
     実装と矛盾する状態になった。D-019の実装境界どおり、privacy/support/landing/正本`docs/legal/*`と
     Data Safety申告を自動削除の説明へ更新してから公開する必要がある。`legalPages.test.js`は
     `端末ID`の存在しか見ていないため、この矛盾を検出できない（アサーション追加が要る）。
+## UI・アクセシビリティ(2026-08-04 / Claude Code / code review済み・実機待ち)
+
+分担: Claude Codeが主担当（UI・a11y）。Codexは独立reviewとdata削除検証。進捗ボード上の担当はClaude Code。
+
+- **focus trap を実装**: `composables/useFocusTrap.js` を新規追加し `DeleteAccountModal` へ適用。
+  `role="dialog" aria-modal="true"` だけではブラウザは Tab の移動範囲を制限しないため、
+  トラップ無しでは**削除処理中に背後の画面を操作できる**状態だった。
+  - 可視性（`offsetParent`/`display`）では絞らない。局面ごとに `v-if` で要素そのものを差し替える構造のため
+    「DOMにある＝操作できる」で判定してよく、jsdomでは `offsetParent` が常に null になるため。
+  - `keydown` は capture で受け、他のハンドラより先に Tab を処理する。
+- **フォーカス復帰**: モーダルを開く直前の `document.activeElement` を保持し、`onUnmounted` で戻す。
+  元の要素がDOMから消えている場合（削除完了で導線ごと消えるなど）は何もしない。
+- **局面切り替え時のフォーカス移動**: 局面が変わると前局面の要素は `v-if` で消え、フォーカスが body へ落ちる。
+  `watch(phase)` で新しい局面の先頭へ移す。処理中は操作対象が無いため、`tabindex="-1"` を付けた
+  ダイアログ自身へフォーカスを移して外へ出さない。
+- **誤操作防止**（既存挙動を回帰testで固定）: 処理中・完了表示ではESCとoverlayクリックで閉じない。
+- **375px対応**: 長さを制御できないテキスト（店舗名・サーバー由来のエラー文）が横へはみ出さないよう
+  `overflow-wrap: anywhere` を付与。`.da-actions .btn` に `min-width: 0` を追加（flex itemは
+  これが無いと内容幅より縮まず、狭い端末で行から溢れる）。`.btn` の `line-height: 1` は
+  折り返し時に文字が重なるため 1.35 へ戻した。`DeleteAccountPage` の店舗名・エラー文にも同様の対策。
+- **文面の不整合を修正**: `SettingsModal` の「この端末に残るデータ（端末ID・端末名・天気の位置情報）の
+  消去方法は…」がD-019の実装と矛盾していたため、「アカウント削除時に自動で消去される」旨へ改めた。
+- 確認済みだった点: 公開ページの店舗コード入力は `[^A-Z]` を除去する正規化で、
+  Workerの発行規則（`ABCDEFGHJKLMNPQRSTUVWXYZ` 6桁・数字なし）および `AuthPage.vue:75` と一致している。
+- 検証:
+  - 新規 `DeleteAccountModal.a11y.test.js` 12件（フォーカス管理6・誤操作防止4・dialogセマンティクス2）。
+    実装を`git stash`した状態で**7件が失敗**することを確認（残り5件は既存挙動の回帰固定）。
+  - App 59 files / 514 tests passed。App production build成功（precache 17 entries / 2474.95 KiB）。
+  - `vite preview` で未ログインのHTTP応答を確認: `/?delete-account` `/privacy.html` `/terms.html`
+    `/support.html` と拡張子なしの `/privacy` `/terms` `/support` がすべて **200**。
+    配信物の `support.html` から「残るもの」表の端末ID行が消え、自動削除の記載が入っていることも確認。
+- 未対応: canonical URL/contact確定後の絶対URL反映（`DS-08`待ち）。実機での目視・タップ確認（下記手順）。
+
+## Data削除境界の独立review（2026-08-04 / Codex）
+
+- **client cleanupを補強**:
+  - `clearLocalAccountData()`をbest-effort化し、1つのcomposable resetが例外でも後続data・識別子を消し続ける。
+  - `useStore.resetAccountData()`で旧店舗の未送信config/inventory/history/order/movement queueとretry timerを破棄。
+    境界前に開始した通信が遅れて失敗してもgeneration guardでqueueを復活させない。
+  - `useSync.resetAccountData()`でWebSocket、再接続timer、参加者・message・audit・競合dataを消去。
+  - `useWeather`のfetch、逆geocode、位置情報callbackをgeneration/位置で失効させ、削除後に
+    `weather_loc` / `weather_cache` / memory stateが復活するraceを防止。
+- **Cache API / Service Worker監査**:
+  - Workbox runtime cacheはfontとPDF cMapだけ、precacheはapp shell/static assetだけ。
+  - `push-sw.js`は通知表示・clickだけを扱い、Cache API / IndexedDB / localStorageを使用しない。
+  - account/API dataはbrowser cacheへ保存されないため、account削除時にSW解除や静的cache削除は不要。
+    `accountDeletionCachePolicy.test.js`で方針を回帰固定した。
+- **Worker / D1 / DO再照合**:
+  - 公開Workerは `/room/:code/(dissolve|status|ws)` だけをDOへ転送し、DO内部削除pathは外部から到達しない。
+  - stock/orderの2 DOでsocket close、`deleteAlarm()`、`deleteAll()`を実行。現行compatibility dateが
+    2026-02-24より前でもalarmを明示削除している。
+  - D1は`deletion_pending_at`で通常accessを遮断し、migration `0011`の全account-keyed INSERT triggerが
+    認証通過済み遅延requestによる削除後のdata再生成も拒否する。追加Worker変更は不要と判断。
+- **CC UI差分の独立review**:
+  - focus trap、局面切替時focus、focus復帰、ESC/overlay防止、375px折返しは実装・testとも妥当。
+  - **Android/browser Back blocker解消（2026-08-04 / Codex）**:
+    `DeleteAccountModal`が現在のBack handlerを登録し、App共通制御がそれを消費する配線を追加した。
+    入力・最終確認・errorでは既存closeを呼び、`deleting`・`done`ではmodalを維持してsentinelを再投入する。
+    設定内のglobal stateと公開削除pageのlocal stateを同じmodal callbackで扱い、phaseをAppへ漏らさない。
+    `App.deleteBack.test.js` 3件と`appMenuState.test.js` 3件で実結合・登録解除競合を回帰固定した。
+- **検証**:
+  - data削除境界の追加・関連client test: 5 files / 27 tests passed。
+  - Back/UI関連: 5 files / 28 tests passed。
+  - App全体: 63 files / 531 tests passed。
+  - Worker全体: 15 files / 196 tests passed。
+  - App production build成功（448 modules、PWA precache 17 entries / 2476.36 KiB）。
+  - `git diff --check`成功。deploy、migration適用、commit、pushは未実施。
+- **判定**: Codex担当の認可・data削除・Cache/SW境界、CCのUI/a11y差分、Back制御のcode reviewは承認。
+  PLAY-002はcanonical URL/contact確定とUser実機確認が残るため、進行中を維持する。
+
+### 実機確認手順（375px相当・User実施）
+
+対象は Android Chrome または iOS Safari の実機、もしくは DevTools のデバイス эмуレーション（iPhone SE / 375×667）。
+**reviewer用ではなく破棄してよいtest店舗**で行う（削除すると7日間は同じ店舗コードで再ログインできない）。
+
+**A. アプリ内の削除導線**
+
+1. test店舗でログインし、「ダッシュボード」タブ →「各種設定」を開く。
+2. 画面下部までスクロールし、赤枠の「アカウントの削除」区画が**スクロールだけで見つかる**こと。
+3. 「アカウントを削除する…」をタップ。モーダルが下から出ること。
+4. 削除対象の**店舗名と店舗コードが読める**こと（折り返して枠外へ出ていない）。
+5. 削除対象の一覧に「この端末の設定（端末名・端末ID・天気の位置情報）」が含まれること。
+6. PIN欄に自動でフォーカスが当たり、**数字キーボード**が出ること。
+7. 店舗コード欄に小文字で入力しても**大文字へ変換**されること。
+8. 4桁未満のPIN、または店舗コード不一致では「削除に進む」が**押せない**こと。
+9. 「削除に進む」→ 最終確認画面に「端末の設定も消去される」旨が出ること。
+10. 「戻る」で入力画面へ戻れること。
+
+**B. 誤操作防止（Aの続き）**
+
+11. 「完全に削除する」をタップ後、処理中の表示になること。
+12. 処理中に**画面外（オーバーレイ）をタップしても閉じない**こと。
+13. 処理中に端末の戻る操作をしても、削除が中断されないこと。
+14. 完了表示が出たら「閉じる」でランディング画面へ戻ること。
+
+**C. 失敗時（機内モードで再現）**
+
+15. 機内モードにしてから「完全に削除する」をタップ。
+16. エラー文が**枠内に収まって**表示され、「再試行する」が出ること。
+17. 機内モードを解除して「再試行する」→ 削除が完了すること。
+18. 失敗した時点では**まだログイン状態が保たれている**こと（アカウント切替やデータ消失が起きていない）。
+
+**D. 公開Web削除ページ（未ログイン）**
+
+19. **ログアウト状態またはシークレットウィンドウ**で `<公開URL>/?delete-account` を開く。
+20. アプリ名「タナオロ」と削除対象の説明が読めること。
+21. 店舗コード・PINを入力してログイン → 削除対象アカウントが表示されること。
+22. 画面下部の「プライバシーポリシー」「利用規約」「お問い合わせ」の3リンクが**未ログインでも開ける**こと。
+23. 以降は A-3 以降と同じ。
+
+**E. キーボード操作（PC or Bluetoothキーボード）**
+
+24. モーダルを開いた状態で Tab を連打し、**フォーカスがモーダルの外へ出ない**こと。
+25. Shift+Tab でも同様に循環すること。
+26. Escape でモーダルが閉じ、**開く前のボタンへフォーカスが戻る**こと。
+27. 処理中は Escape で閉じないこと。
+
+記録: 実施日・端末・OS・ブラウザ版と、NGがあれば番号と症状をこのファイルへ追記する。
+
 - 完了条件:
   - account設定から見つけやすく、対象店舗と削除dataを明示する。
   - 再認証、誤操作防止、進行中、失敗、再試行、完了状態を扱う。

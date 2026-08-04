@@ -15,3 +15,20 @@ export const showOrderSchedule = ref(false)
 // App の戻る/ESC 制御に載せるため共有状態にする。
 export const showDeleteAccount = ref(false)
 
+// DeleteAccountModal は設定内と公開削除ページの2経路から開く。
+// App の共通 Back 制御へ現在のモーダルだけを登録し、親が持つ表示 state に依存せず閉じる。
+let _deleteAccountBackHandler = null
+
+export function registerDeleteAccountBackHandler(handler) {
+  _deleteAccountBackHandler = handler
+  return () => {
+    if (_deleteAccountBackHandler === handler) _deleteAccountBackHandler = null
+  }
+}
+
+export function consumeDeleteAccountBack() {
+  if (!_deleteAccountBackHandler) return false
+  _deleteAccountBackHandler()
+  return true
+}
+

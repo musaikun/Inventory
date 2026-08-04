@@ -2,6 +2,30 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-04 — PLAY-002: data削除境界の独立reviewとrace修正
+
+- 担当: Codex（data削除・Cache/SW・Worker/D1/DO）。Claude CodeのUI/a11y差分を保持し、
+  Back blocker解消に限って共有境界の`App.vue` / `DeleteAccountModal.vue` / `appMenuState.js`を最小変更。
+- client側で3つの削除raceを修正:
+  - 旧店舗のD1未送信queue/retry timerと、境界前に開始した保存の遅延失敗によるqueue復活。
+  - 削除後も残る同期WebSocket再接続と、参加者/message/audit/競合のmemory data。
+  - 天気fetch・逆geocode・geolocation callbackの遅延完了による位置/cache/state復活。
+- `clearLocalAccountData()`をbest-effort化し、1 resetの例外で後続消去が止まらないよう補強。
+- Cache/SW監査: Workboxはapp shell/font/PDF cMap、push SWは通知だけ。account/API dataは保存しないため、
+  account削除時のSW解除・静的cache削除は不要。専用testで回帰固定。
+- Cloudflare公式仕様と現行実装を再照合:
+  - DOは互換日付が古くても`deleteAlarm()`後に`deleteAll()`し、stock/order両方を消去。
+  - D1の削除中/削除後INSERT競合はmigration 0011の`account_inactive` triggerで既に遮断。
+  - 公開Worker routeからDO内部削除pathへは到達しない。Worker変更は不要と判断。
+- CCのUI/a11y差分はfocus trap・focus復帰・375px対応を承認。独立reviewで検出したAndroid/browser Back
+  blockerは、modal登録handlerをApp共通制御が消費する方式で解消。入力・確認・errorは閉じ、
+  削除処理中・完了はmodalを維持する。設定内と公開削除pageの両方を同じ配線で扱う。
+- 検証: data境界対象5 files / 27 tests、Back/UI関連5 files / 28 tests、App全体63 files / 531 tests、
+  Worker全体15 files / 196 tests、App production build成功（448 modules、PWA precache 17 entries /
+  2476.36 KiB）、`git diff --check`成功。
+- 判定: code review範囲は承認。PLAY-002はcanonical/contact確定とUser実機確認が残るため進行中。
+- 未実施: commit、push、deploy、production migration、Play Console変更。
+
 ## 2026-08-04 — PLAY-003: D-019端末data削除とData Safety再照合
 
 - 担当: Codex。既存のPLAY-002/004・DEP-001差分を保持し、PLAY-003の監査台帳・回答draft・進捗記録だけを更新した。
@@ -38,6 +62,33 @@
   `spreadsheetImport.worker-*.js`の独立bundleとPWA precacheを確認。`git diff --check`成功。
 - 残件: 通常の`npm audit`にはbuild/test用依存の6 high / 3 moderate / 1 lowが残る。
   commit、push、deploy、実機Excel取込は未実施。
+
+## 2026-08-04 — PLAY-002: focus trap・誤操作防止・375px対応（UI/a11y）
+
+- 担当: Claude Code（UI・a11y主担当）。Codexは独立reviewとdata削除検証。Worker無変更。
+- **focus trap**: `composables/useFocusTrap.js` を新規追加し `DeleteAccountModal` へ適用。
+  `role="dialog" aria-modal="true"` だけではブラウザはTabの移動範囲を制限しないため、
+  トラップ無しでは**削除処理中に背後の画面を操作できる**状態だった。capture で Tab を先取りする。
+  可視性では絞らず「DOMにある＝操作できる」で判定（局面ごとに`v-if`で差し替える構造、
+  かつjsdomでは`offsetParent`が常にnullのため）。
+- **フォーカス復帰**: 開く直前の`document.activeElement`を保持し`onUnmounted`で戻す。
+  元の要素が消えている場合は何もしない。
+- **局面切り替え**: `watch(phase)`で新局面の先頭へフォーカスを移す。処理中は操作対象が無いため
+  `tabindex="-1"`のダイアログ自身へ移し、トラップの外へ出さない。
+- **375px**: 店舗名・サーバー由来エラー文へ`overflow-wrap: anywhere`。`.da-actions .btn`へ`min-width: 0`
+  （flex itemはこれが無いと内容幅より縮まず狭い端末で溢れる）。`.btn`の`line-height: 1`は折り返し時に
+  文字が重なるため1.35へ。`DeleteAccountPage`にも同様の対策。
+- **文面の不整合を修正**: `SettingsModal`の端末データ説明がD-019の実装と矛盾していたため改めた。
+- 確認: 公開ページの店舗コード正規化（`[^A-Z]`除去）はWorkerの発行規則（英大文字6桁・数字なし）と一致。
+- 検証:
+  - 新規`DeleteAccountModal.a11y.test.js` 12件。実装を`git stash`した状態で**7件が失敗**することを確認。
+  - App 59 files / 514 tests passed。production build成功（precache 17 entries / 2474.95 KiB）。
+  - `vite preview`で未ログインの`/?delete-account` `/privacy(.html)` `/terms(.html)` `/support(.html)`が
+    すべて200。配信物のsupport.htmlから「残るもの」表の端末ID行が消え、自動削除の記載が入ることも確認。
+- **実機確認手順（375px・User実施）をPLAY-002.mdへ記録**（A:削除導線 / B:誤操作防止 / C:失敗と再試行 /
+  D:公開Web未ログイン / E:キーボード の27項目）。
+- 未対応: canonical URL/contact確定後の絶対URL反映（`DS-08`待ち）、実機での目視・タップ確認。
+- 未実施: commit、push、deploy。
 
 ## 2026-08-02 — PLAY-004: terms正本の同期とD-019の公開文面反映
 
