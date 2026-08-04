@@ -1,8 +1,8 @@
 # Google Play Data Safety 回答案
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 担当: Codex
-状態: Play Console転記前のdraft（`DS-02`、`DS-05`〜`DS-10`の確認待ち）
+状態: Play Console転記前のdraft（`DS-02`・`DS-05`整合済み、`DS-04`・`DS-06`〜`DS-10`の確認待ち）
 
 ## 1. このdraftの前提
 
@@ -12,6 +12,8 @@
   endpointはこの回答の対象外とするが、公開前に削除または別途申告を決める。
 - camera映像・barcodeは端末内処理で、serverへ送信しない。
 - microphoneはWeb Speech APIのTWA実機挙動を確認するまで最終回答しない。
+- account削除成功時は、業務data・認証情報に加えて端末ID・端末名・天気の位置情報とcacheも端末から削除する。
+  削除失敗、logout、account切替では端末設定を保持する。
 - 本書は法的助言ではない。Play Consoleへ転記する前に公開build、provider契約、公開privacy URLと
   実機networkを再確認する。
 
@@ -35,12 +37,12 @@ Google Playでは、端末外への送信は一時処理でも原則「収集」
 
 | Play data type | 収集 | 共有 | 一時処理 | 必須/任意 | 目的 | 対象data・根拠 |
 |---|---:|---:|---:|---|---|---|
-| Location > Precise location | はい | いいえ（暫定） | いいえ | 任意 | App functionality | 天気機能で利用者が明示操作した緯度・経度。Open-Meteo / BigDataCloudへ直接送信し、端末にも保持 |
-| Personal info > Name | はい | いいえ（暫定） | いいえ | 任意 | App functionality | 端末名・nickname。自由入力なので氏名を入力でき、DO参加者表示・chat/auditへ含まれ得る |
+| Location > Precise location | はい | いいえ（暫定） | いいえ | 任意 | App functionality | 天気機能で利用者が明示操作した緯度・経度。Open-Meteo / BigDataCloudへ直接送信し端末にも保持するが、account削除成功時に位置・cacheを消去 |
+| Personal info > Name | はい | いいえ（暫定） | いいえ | 任意 | App functionality | 端末名・nickname。自由入力なので氏名を入力でき、DO参加者表示・chat/auditへ含まれ得る。account削除成功時に端末保存値を消去しDOもpurge |
 | Personal info > User IDs | はい | いいえ（暫定） | いいえ | 必須 | App functionality, Account management | 店舗code。account、D1、同期roomの識別子 |
 | App activity > Other actions | はい | いいえ（暫定） | いいえ | 主機能利用時 | App functionality, Security and compliance | 棚卸・注文・移動の操作記録、DO audit、失敗試行 |
 | App info and performance > Diagnostics | 要確認 | いいえ（暫定） | 要確認 | 自動 | App functionality, Security and compliance | Cloudflare Workers Logsの実環境設定とpayloadを`OPS-001`で確認後に確定 |
-| Device or other IDs | はい | いいえ（暫定） | いいえ | 一部任意 | App functionality, Fraud prevention/security, Developer communications | 端末ID、Push endpoint/key、IP address。Pushと同期は利用時のみ、rate-limitは自動 |
+| Device or other IDs | はい | いいえ（暫定） | いいえ | 一部任意 | App functionality, Fraud prevention/security, Developer communications | 端末ID、Push endpoint/key、IP address。Pushと同期は利用時のみ、rate-limitは自動。account削除成功時に端末ID保存値とPush購読を消去 |
 | Messages > Other in-app messages | はい | いいえ（暫定） | いいえ | 任意 | App functionality | 同期roomのchat自由記述。DOで最大200件、room参加者へ表示 |
 | Files and docs | いいえ（現行App） | いいえ | — | — | — | 原PDF/Excel/CSVは端末内parse。正規化して保存した品目等はOther user-generated contentとして扱う |
 | Audio files > Voice or sound recordings | **保留** | **保留** | **保留** | 任意 | App functionality | Web Speech APIの音声が端末外へ送られるかTWA実機・OS/browser条件で確認 |
@@ -67,8 +69,9 @@ Play Consoleの選択肢に合う場合、棚卸品目名、数量、価格、�
 
 ## 5. 転記前gate
 
-- [ ] `DS-02`: 自動削除方針はD-019で確定。App実装・test・privacy/support更新を完了
-- [ ] `DS-05`: Free / Time Travel 7日とWorkers Logs有効化はD-020で確定。Logs保持期間・閲覧担当・payloadを確認
+- [x] `DS-02`: D-019に従い、端末ID/name・位置情報/cacheの自動削除、失敗時保持、logout/account切替時保持をApp実装・test・privacy/support/legalへ反映（2026-08-04再照合）
+- [x] `DS-05`: D-020のFree plan / D1 Time Travel 7日と復元runbookを公式仕様・公開privacyへ反映
+- [ ] `DS-04`: Workers Logs有効化・Free保持3日は確認済み。閲覧担当・payload/masking・alertを確定
 - [ ] `DS-06`: TWA実機でmicrophone処理とnetworkを確認
 - [ ] `DS-07`: dormant `/pdf` endpointの存廃を確定
 - [ ] `DS-08`: privacy / terms / supportのHTTPS URLと統一contactを公開

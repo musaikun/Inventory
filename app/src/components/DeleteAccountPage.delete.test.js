@@ -80,6 +80,15 @@ afterEach(() => {
   vi.resetModules()
 })
 
+// 端末固有データ（D-019）。mount 後に置く: useWeather は位置が保存済みだと
+// モジュール初期化時に天気取得へ出るため、起動経路を汚さない。
+function seedDeviceData() {
+  localStorage.setItem('_device_id', 'dev-1')
+  localStorage.setItem('_device_name', 'レジ')
+  localStorage.setItem('weather_loc', JSON.stringify({ lat: 35, lon: 139, name: '東京' }))
+  localStorage.setItem('weather_cache', JSON.stringify({ updatedAt: 1, weather: {} }))
+}
+
 describe('公開削除ページ: 削除完了後の端末データ', () => {
   it('削除が完了すると _data_owner（削除済み店舗コード）が残らない', async () => {
     stubApi()
@@ -114,5 +123,62 @@ describe('公開削除ページ: 削除完了後の端末データ', () => {
     expect(dialog.textContent).not.toContain('アカウントを削除しました')
     expect(localStorage.getItem('_data_owner')).toBe('STOREA')
     expect(localStorage.getItem('_auth_token')).toBe('tok-1')
+  })
+
+  // D-019: 端末ID・端末名・天気の位置情報とキャッシュも削除対象に含める。
+  it('削除が完了すると端末ID・端末名・天気の位置情報とキャッシュも残らない', async () => {
+    stubApi()
+    const el = await mountPage()
+    seedDeviceData()
+
+    const dialog = await deleteThroughUi(el)
+
+    expect(dialog.textContent).toContain('アカウントを削除しました')
+    expect(localStorage.getItem('_device_id')).toBeNull()
+    expect(localStorage.getItem('_device_name')).toBeNull()
+    expect(localStorage.getItem('weather_loc')).toBeNull()
+    expect(localStorage.getItem('weather_cache')).toBeNull()
+  })
+
+  it('削除に失敗した場合は端末設定を残す（再試行できる状態を壊さない）', async () => {
+    apiFetch.mockImplementation(async (path) => {
+      if (path === '/auth/login') return { token: 'tok-1', shopCode: 'STOREA', storeName: 'A店' }
+      const err = new Error('しばらくしてから再試行してください')
+      err.status = 503
+      err.code   = 'service_unavailable'
+      err.body   = { retryable: true }
+      throw err
+    })
+    const el = await mountPage()
+    seedDeviceData()
+
+    const dialog = await deleteThroughUi(el)
+
+    expect(dialog.textContent).not.toContain('アカウントを削除しました')
+    expect(localStorage.getItem('_device_id')).toBe('dev-1')
+    expect(localStorage.getItem('_device_name')).toBe('レジ')
+    expect(localStorage.getItem('weather_loc')).not.toBeNull()
+    expect(localStorage.getItem('weather_cache')).not.toBeNull()
+  })
+
+  it('削除の確認画面が端末設定も消えることを説明している', async () => {
+    stubApi()
+    const el = await mountPage()
+
+    await type(el.querySelector('#dap-code'), 'STOREA')
+    await type(el.querySelector('#dap-pin'), '1234')
+    await click(button(el, 'ログイン'))
+    await click(button(el, 'アカウント削除に進む'))
+
+    const dialog = el.querySelector('[role="dialog"]')
+    // 入力フォームの削除対象一覧
+    expect(dialog.textContent).toContain('この端末の設定')
+
+    await type(dialog.querySelector('#da-pin'), '1234')
+    await type(dialog.querySelector('#da-confirm'), 'STOREA')
+    await click(button(dialog, '削除に進む'))
+
+    // 最終確認でも明示する
+    expect(dialog.textContent).toContain('天気の位置情報')
   })
 })

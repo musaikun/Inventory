@@ -19,20 +19,21 @@
 | PLAY-002 | P0 | 進行中 | Claude Code | in-app削除UXと公開Web申請導線 | [PLAY-002.md](tasks/PLAY-002.md) |
 | PLAY-003 | P1 | 進行中 | Codex | Data Safety・privacy・第三者SDKの整合監査 | [PLAY-003.md](tasks/PLAY-003.md) |
 | PLAY-004 | P1 | 進行中 | Claude Code | TWA審査導線・store listing・screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
-| CI-001 | P1 | 進行中 | Codex | `develop` のtest/buildとPages preview自動実行 | [CI-001.md](tasks/CI-001.md) |
 | OPS-001 | P1 | 進行中 | Codex | 最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 進行中 | Codex | PostHogの収集内容と同意・規約を照合 | [PRIV-001.md](tasks/PRIV-001.md) |
 | DATA-002 | P1 | 未着手 | 未割当 | 履歴の端末依存を解消しDO/D1の成長時設計を検証 | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 無制限な店舗作成経路を整理 | [SEC-005.md](tasks/SEC-005.md) |
 | DO-001 | P1 | 未着手 | Codex | 品目追加要求を休止復帰対応にする | [DO-001.md](tasks/DO-001.md) |
 | DATA-001 | P1 | 未着手 | Codex | 複数D1書き込みの原子性と入力制限を改善 | [DATA-001.md](tasks/DATA-001.md) |
-| DEP-001 | P1 | 未着手 | Codex | 本番依存の high 脆弱性を解消または隔離 | [DEP-001.md](tasks/DEP-001.md) |
 | TEST-002 | P1 | 進行中 | Codex | package test分離とcritical integration/E2E | [TEST-002.md](tasks/TEST-002.md) |
 
 ## 完了
 
-詳細は [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)。各詳細内の「未実施」は完了記録時点の状態です。
-実装は `develop@96233d4` までに commit / push 済みです。Pro Review は 2026-08-01 にdeploy済みですが、
+2026-07完了分の詳細は [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)。
+2026-08完了分は [`CI-001.md`](tasks/CI-001.md) と [`DEP-001.md`](tasks/DEP-001.md)。
+各詳細内の「未実施」は完了記録時点の状態です。
+2026-07完了分は `develop@96233d4` まで、CI-001は`develop@7d47cb4`でcommit / push済みです。
+DEP-001は現在の作業ツリーにあり未commitです。Pro Review は 2026-08-01 にdeploy済みですが、
 本番Pages / Workerの更新と本番D1 migrationは未実施です。
 
 | ID | P | 完了日 | 担当 | 概要 |
@@ -46,6 +47,8 @@
 | TEST-001 | P1 | 2026-07-26 | Codex | 仕入先順の仕様を決め App テストを復旧 |
 | DOC-000 | P2 | 2026-07-25 | Codex | 共有監査・引き継ぎ基盤を作成 |
 | REPO-001 | P3 | 2026-07-25 | Codex | ローカル生成物を `.gitignore` に追加 |
+| CI-001 | P1 | 2026-08-02 | Codex | `develop` のtest/buildとPages preview自動実行 |
+| DEP-001 | P1 | 2026-08-02 | Codex | 本番依存の high 脆弱性を解消または隔離 |
 
 ## 保留（P2 / P3）
 

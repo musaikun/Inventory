@@ -1,6 +1,6 @@
 # 共同品質基盤ハブ
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 
 このディレクトリは、プロジェクト全体の監査・バグ修正・リファクタリングと
 Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続するための共有入口です。
@@ -54,21 +54,23 @@ Google Play公開準備を、ユーザー、Codex、Claude Codeの間で継続�
 
 最終更新: 2026-08-02
 
-`develop@96233d4`はcommit / push済みです。Access保護付きPro Review Pagesと専用Worker / D1 / DOは
+`develop@7d47cb4`はcommit / push済みです。Access保護付きPro Review Pagesと専用Worker / D1 / DOは
 2026-08-01に初回deploy済みで、本番Pages / Worker / D1は変更していません。
 
-初回develop Actions（run `30690499992`）はNode 20で`node:sqlite`を読み込めず失敗し、develop previewは
-更新されませんでした。現在の未commit差分で両workflowをNode 24へ変更し、App/WorkerのVitest対象を分離しています。
-ローカルではWorker 196 tests、App 467 tests、App production buildが成功しました。GitHub Actions再確認はpush後です。
+Node 24とApp/Worker test分離を反映したdevelop Actions（run `30725392991`）は、Worker/App test、App build、
+Pages deployの全stepが成功しました。develop aliasは`https://develop.inventory-app-c40.pages.dev`です。
+現在の未commit差分では、PLAY-002/004の削除・legal対応、PLAY-003のD-019 Data Safety整合と、
+DEP-001の依存更新・Excel解析隔離を実装しています。ローカルではApp 502 tests、App production build、
+`npm audit --omit=dev` 0件を確認しています。
 
-Google Play公開前の主な残件は、`PLAY-002`の端末設定自動削除と実機確認、`PLAY-003`のcanonical URL/contact・
-Data Safety最終照合、`PLAY-004`のFree 2台制限server強制・TWA表示・screenshots、`DEP-001`、
+Google Play公開前の主な残件は、`PLAY-002`の実機確認、`PLAY-003`のcanonical URL/contact・
+Data Safety最終照合、`PLAY-004`のFree 2台制限server強制・TWA表示・screenshots、
 critical integration/E2E、未修正の履歴P1（`DATA-002`）です。本番D1の0010/0011はUserの明示承認まで適用しません。
 
 次の判断・確認:
 
-- User — canonical domain/contact、Workers Logsの保持期間・閲覧担当・alert通知先、Free既存3台利用の扱いを決める。
-- Codex — 現差分のcommit / push後にActionsとdevelop previewを確認し、公開対象P1を継続する。
+- User — canonical domain/contact、Workers Logsの閲覧担当・payload masking・alert通知先、Free既存3台利用の扱いを決める。
+- Codex — PLAY-003のprovider共有例外・公開build network・TWA microphone・`/pdf`存廃を継続する。
 - Claude Code — canonical決定後に公開legalの絶対URLを反映し、8/6 UI freeze後にscreenshotsを作成する。
 
-現在の文書分割、Node 24、test分離は未commitです。deploy、production migrationは行っていません。
+現在のPLAY-002/003/004・DEP-001・完了記録は未commitです。追加deploy、production migrationは行っていません。

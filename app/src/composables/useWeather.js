@@ -80,6 +80,23 @@ export function requestGeolocation() {
   })
 }
 
+/**
+ * アカウント削除の完了時だけ呼ぶ（D-019）。ログアウト・アカウント切替では呼ばない
+ * （端末の物理的な位置は、利用する店舗が変わっても同じであるため）。
+ *
+ * 位置情報と天気キャッシュを localStorage から消し、メモリ上の state も初期化する。
+ * state を戻さないと、削除後もリロードするまで前の位置・天気が表示され続ける。
+ */
+export function resetLocalData() {
+  state.weather   = {}
+  state.loc       = null
+  state.loading   = false
+  state.error     = null
+  state.updatedAt = null
+  try { localStorage.removeItem(LOC_KEY) }   catch (_) {}
+  try { localStorage.removeItem(CACHE_KEY) } catch (_) {}
+}
+
 // 位置が既にあればアプリ起動時に更新（TTL内はスキップ）
 if (state.loc) fetchWeather()
 

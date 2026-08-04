@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
+import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
@@ -11,6 +11,12 @@ import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
 import { showDeleteAccount } from '../composables/appMenuState.js'
+import {
+  ANALYTICS_ENABLED,
+  ANALYTICS_RETENTION_DAYS,
+  analyticsConsent,
+  setAnalyticsConsent,
+} from '../utils/analytics.js'
 import pkg from '../../package.json'
 
 const props = defineProps({
@@ -31,21 +37,17 @@ const sheetTitle = computed(() => ({
 }[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)
-function onRestoreFile(file) {
+async function onRestoreFile(file) {
   const isExcel = /\.(xlsx|xls)$/i.test(file.name)
-  const reader = new FileReader()
-  reader.onload = e => {
-    try {
-      const csvText = isExcel ? excelToCsv(e.target.result) : e.target.result
-      const rows = parseResultCSV(csvText)
-      emit('restoreInventory', rows)
-      emit('close')
-    } catch (err) {
-      status.value = { type: 'error', msg: err.message }
-    }
+  try {
+    if (isExcel) assertSpreadsheetFile(file)
+    const csvText = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
+    const rows = parseResultCSV(csvText)
+    emit('restoreInventory', rows)
+    emit('close')
+  } catch (err) {
+    status.value = { type: 'error', msg: err.message }
   }
-  if (isExcel) reader.readAsArrayBuffer(file)
-  else         reader.readAsText(file, 'UTF-8')
 }
 
 // CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
@@ -95,6 +97,19 @@ function openDeleteAccount() {
 // ── 安全なキャッシュ削除（アプリ本体の古いファイルのみ・業務データは無傷）──────
 const appVersion = pkg.version
 const clearingCache = ref(false)
+const analyticsBusy = ref(false)
+const analyticsActive = computed(() => ANALYTICS_ENABLED && analyticsConsent.value === 'granted')
+
+async function toggleAnalyticsConsent() {
+  if (!ANALYTICS_ENABLED || analyticsBusy.value) return
+  analyticsBusy.value = true
+  try {
+    await setAnalyticsConsent(!analyticsActive.value)
+  } finally {
+    analyticsBusy.value = false
+  }
+}
+
 async function clearAppCache() {
   if (!confirm('アプリの表示キャッシュを削除して再読み込みします。\n設定・品目・発注点・履歴などのデータは消えません。よろしいですか？')) return
   clearingCache.value = true
@@ -146,17 +161,17 @@ function handleFile(file) {
   reader.readAsText(file, 'UTF-8')
 }
 
-function openMapper(file) {
+async function openMapper(file) {
   const isExcel = /\.(xlsx|xls)$/i.test(file.name)
-  const reader = new FileReader()
-  reader.onload = e => {
-    mapperCsvText.value  = isExcel ? excelToCsv(e.target.result) : e.target.result
+  try {
+    if (isExcel) assertSpreadsheetFile(file)
+    mapperCsvText.value  = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
     mapperFilename.value = file.name
     showMapper.value     = true
     status.value         = null
+  } catch (err) {
+    status.value = { type: 'error', msg: err.message }
   }
-  if (isExcel) reader.readAsArrayBuffer(file)
-  else         reader.readAsText(file, 'UTF-8')
 }
 
 function onMapperImported({ mapping, csvText }) {
@@ -356,6 +371,30 @@ function onDownloadTemplate() {
         <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}</span></div>
       </div>
 
+      <div v-if="_showGeneral" class="device-section analytics-section">
+        <div class="device-label">匿名の利用状況の共有</div>
+        <p class="analytics-note">
+          セッションの開始・完了、追加方法、音声機能の利用、レビュー評価だけをPostHog EUへ送信し、
+          最長{{ ANALYTICS_RETENTION_DAYS }}日保存します。店舗コード、PIN、品目・数量・価格、位置情報、
+          自由記述、画面録画は送信しません。任意で、いつでもOFFにできます。
+        </p>
+        <div class="analytics-row">
+          <span class="analytics-status">
+            {{ !ANALYTICS_ENABLED ? '現在は収集していません' : (analyticsActive ? '同意済み・送信中' : '送信しません') }}
+          </span>
+          <button
+            class="notif-toggle"
+            :class="{ on: analyticsActive }"
+            :disabled="!ANALYTICS_ENABLED || analyticsBusy"
+            :aria-pressed="analyticsActive"
+            @click="toggleAnalyticsConsent"
+          >{{ analyticsActive ? 'ON' : 'OFF' }}</button>
+        </div>
+        <p v-if="!ANALYTICS_ENABLED" class="analytics-disabled-note">
+          PostHog project設定と公開文書の更新が完了するまでは有効化されません。
+        </p>
+      </div>
+
       <!-- 法的情報・サポート（公開静的ページ。同じ配信元なので相対URLで到達できる）-->
       <div v-if="_showGeneral" class="device-section legal-section">
         <div class="device-label">法的情報・サポート</div>
@@ -537,6 +576,22 @@ function onDownloadTemplate() {
 }
 .cache-btn:active { background: #f1f5f9; }
 .cache-btn:disabled { opacity: 0.5; cursor: default; }
+/* PRIV-001 analytics同意 */
+.analytics-note,
+.analytics-disabled-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+  line-height: 1.6;
+}
+.analytics-disabled-note { margin: 8px 0 0; }
+.analytics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.analytics-status { font-size: 13px; color: var(--text); font-weight: 600; }
 /* 法的情報・サポート */
 .legal-link {
   display: block;

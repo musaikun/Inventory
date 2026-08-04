@@ -1,8 +1,8 @@
 # PLAY-003 / PRIV-001 実装整合監査
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 担当: Codex
-状態: code対応・回答draft作成済み、実環境/公開前 gate の確認待ち
+状態: code対応・回答draft作成済み、DS-02整合完了、実環境/公開前 gate の確認待ち
 
 ## 1. 目的と監査基準
 
@@ -48,12 +48,12 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 | 店舗code・店舗名（User ID候補） | 登録/login | Cloudflare Worker / D1 / localStorage | account識別、同期 | 必須 | D1はaccount削除時に店舗を匿名tombstone化し7日後削除。local authは削除成功時に消去 | collected / app functionality。`useAuth.js`、`stores` migration、`accountDeletion.js` |
 | PIN hash・auth token | 登録/login | D1、tokenはlocalStorageにも保存 | 認証・security | 必須 | token有効期間30日。account削除で全token削除 | collected / account management, security。`authHandler.js`、`constants.js` |
 | 棚卸・品目・価格・注文・移動・設定・履歴 | 利用者入力/import | D1、localStorage、同期中はDurable Objects | 主機能、同期 | 必須 | D1はaccount削除まで。DOは明示終了/削除または最終activityから24時間。local業務dataはaccount境界/削除時に消去 | collected / app functionality。migrations 0001〜0010、`RoomDO.js`、`accountData.js` |
-| 端末名（Personal info候補） | 利用者が任意入力 | localStorage、DO接続attachment、audit/chat、他参加者 | 複数端末の識別 | 任意 | localStorageはaccount削除後も保持。DOは最大200件/24時間TTL | collected / app functionality。保持方針のUser判断が必要。`useDeviceId.js`、`RoomDO.js` |
-| 端末ID（Device or other IDs） | browserで生成 | localStorage、DO、他参加者への同期event | 再接続・参加者識別・監査 | 自動 | localStorageはaccount削除後も保持。DOは最大200件/24時間TTL | collected / app functionality, fraud/security候補。`useDeviceId.js`、`useSync.js`、`RoomDO.js` |
+| 端末名（Personal info候補） | 利用者が任意入力 | localStorage、DO接続attachment、audit/chat、他参加者 | 複数端末の識別 | 任意 | account削除成功時にlocalStorageとmemoryを消去。logout/account切替では保持。DOはaccount削除時にpurgeし、通常時も最大200件/24時間TTL | collected / app functionality。`useDeviceId.js`、`accountData.js`、`RoomDO.js` |
+| 端末ID（Device or other IDs） | browserで生成 | localStorage、DO、他参加者への同期event | 再接続・参加者識別・監査 | 自動 | account削除成功時に保存値を消去しmemory上は別IDへ交換。次回起動で新IDを保存。logout/account切替では保持。DOはaccount削除時にpurge | collected / app functionality, fraud/security候補。`useDeviceId.js`、`accountData.js`、`useSync.js`、`RoomDO.js` |
 | chat自由記述（Other user-generated content） | 同期roomで利用者入力 | Durable Objects、同室参加者 | collaboration | 任意 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | collected / app functionality。`ChatModal.vue`、`RoomDO.js` |
 | 操作audit | 同期room操作 | Durable Objects、同室参加者 | 変更者表示・監査 | 主機能利用時 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | app interactions / user content候補。`RoomDO.js` |
 | Push endpoint・P-256 key・auth secret（Device or other IDs） | 通知を許可・購読 | browser push service、Worker、D1 | 通知 | 任意 | unsubscribe/account削除/失効検知までD1保持。message TTLは24時間 | collected / app functionality, developer communications。`usePush.js`、`pushHandler.js` |
-| 緯度・経度・地名（Precise location） | 「現在地で天気」を利用 | localStorage、Open-Meteo、BigDataCloud | 天気・地名表示 | 任意・permission | 端末では削除/切替後も期限なく残る。天気cache TTLは再取得判定1時間だが値自体は自動削除しない | collected。第三者共有は例外条件確認。`useWeather.js` |
+| 緯度・経度・地名（Precise location） | 「現在地で天気」を利用 | localStorage、Open-Meteo、BigDataCloud | 天気・地名表示 | 任意・permission | account削除成功時に位置・cacheとmemory stateを消去。logout/account切替では保持。天気cache TTLは再取得判定1時間 | collected。第三者共有は例外条件確認。`useWeather.js`、`accountData.js` |
 | camera映像・barcode | barcode scan | 端末内のZXing/browser処理 | barcode入力 | 任意・permission | upload/server保存なし | 端末内処理だけならnot collected。`BarcodeScanner.vue` |
 | microphone音声・認識結果 | 音声入力 | Web Speech API実装依存、認識結果はApp入力へ | 音声入力 | 任意・permission | App側は録音保存なし。browser/OSによるremote speech processing有無はTWA実機で確定が必要 | Audio候補。`useVoice.js` |
 | PDF/Excel/CSV内容 | 利用者がfile選択 | 現行App importは端末内parse。正規化された業務dataはD1保存 | 一括入力 | 任意 | 原fileのserver保存なし。正規化dataはaccount削除まで | file自体は現行UIではnot collected、入力結果は業務data。`usePdfImporter.js`、`PdfImporterModal.vue` |
@@ -72,12 +72,13 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 | Push | D1購読削除、browser購読をbest-effort解除、local flag削除 | 実装済み |
 | local業務data/auth/legacy PostHog identity | 業務data・token・旧PostHog identityを削除 | 実装済み |
 | `_data_owner` | `clearDeletedAccountLocalData()`が削除成功時だけ店舗codeを削除。logout/account切替では境界検出のため保持 | CC修正をCodex再review済み |
-| device ID/name・位置情報 | accountとは独立した端末設定として保持 | policy/UX判断が必要。少なくとも保持事実と手動削除方法を明記 |
-| D1 Time Travel | Cloudflareで常時有効。Freeは7日、Paidは30日 | plan確認とpolicy反映が必要。復元時に削除済みaccountを再削除するrunbookも必要 |
+| device ID/name・位置情報 | account削除成功時にlocalStorageとmemory stateを消去。logout/account切替では保持 | D-019のApp実装・unit/画面回帰・privacy/support反映済み。表示設定だけは端末に残る |
+| D1 Time Travel | Cloudflareで常時有効。現行Workers Free planは7日 | D-020と公開privacyへ反映済み。復元時に削除済みaccountを再削除するrunbook作成済み |
 | rate-limit/security rows | 判定窓15分。日次cronが全account/IPの期限切れrowを削除 | 実装・targeted test済み。privacy policyは最長約24時間15分へ修正 |
 
-Cloudflare公式仕様では、D1 Time Travelは常時有効で、復元可能期間はWorkers Freeで7日、Workers Paidで30日。
-本番accountのplanを確認せず「7日」と断定しない。復元すると削除済みdataも復活し得るため、通常復元を避けるだけでなく、
+Cloudflare公式仕様（2026-08-04再確認）では、D1 Time Travelは常時有効で、復元可能期間はWorkers Freeで7日、
+Workers Paidで30日。D-020で現行accountをFree planと確定した。復元すると削除済みdataも復活し得るため、
+通常復元を避けるだけでなく、
 匿名receiptだけでは店舗codeを復元できないため、restore前に削除抑止listをD1外へ退避し、削除を再適用する
 [runbook](d1-recovery-runbook.md)を作成した。maintenance modeと外部削除ledgerが未実装の間は、本番restoreを
 安全に完遂できないためOPS-001の公開前gateとする。
@@ -116,7 +117,7 @@ Cloudflare公式仕様では、D1 Time Travelは常時有効で、復元可能�
 | access logを90日保持 | D1失敗recordは15分の判定窓＋日次cleanup（最長約24時間15分）。Cloudflare logはdashboard設定未確認で、公式上はFree 3日/Paid 7日。 |
 | email請求を30日以内に対応 | 実装済みのin-app/public web即時削除、7日tombstone/receipt、D1 Time Travelを追加する。 |
 | Cloudflare / Stripe / 天気providerを記載 | Stripeは未実装。PostHogは除去済み。Push service、Web Speech、camera、file処理、DO chat/device IDsが未記載。 |
-| localStorageはauth・業務data・天気 | device ID/name、`_data_owner`、Push flag、旧PostHog identity cleanup等が不足。 |
+| localStorageはauth・業務data・天気 | 公開privacyはdevice ID/name、`_data_owner`、Push flag、旧PostHog identity cleanupと、D-019の削除範囲へ更新済み。表示設定はaccount削除後も残ると明記。 |
 | 氏名等を収集しない | 端末名やchat/feedbackの自由記述へ個人名・個人情報を入力可能。断定を弱め、入力しない注意を検討する。 |
 
 また、VAPIDのdefault contactは `support@tanaoro.com`、legal文書の問い合わせ先は
@@ -127,9 +128,9 @@ Cloudflare公式仕様では、D1 Time Travelは常時有効で、復元可能�
 | ID | gate | owner案 | 完了証拠 |
 |---|---|---|---|
 | DS-01 | account削除時に`_data_owner`を削除し、logoutでは保持する回帰testを追加 | Claude Code（PLAY-002 App lane）→ Codex再review | **実装・Codex再review済み**: `clearDeletedAccountLocalData()`＋unit/公開route成功・失敗test |
-| DS-02 | account削除時にdevice ID/name・位置情報/cacheも自動削除する | User決定、Claude Code UI、Codex監査 | **D-019で方針確定**。App実装・test・privacy/support更新待ち |
+| DS-02 | account削除時にdevice ID/name・位置情報/cacheも自動削除する | User決定、Claude Code UI、Codex監査 | **完了（2026-08-04再照合）**。`useDeviceId.resetLocalData()`、`useWeather.resetLocalData()`、`accountData.clearDeviceLocalData()`、unit/公開削除画面test、privacy/support/legal文面を確認 |
 | DS-03 | PostHogを公開時無効固定する | User決定、Codex実装/監査 | **code・unit test済み**。公開buildのnetwork確認待ち |
-| DS-04 | `login_attempts` / `ip_attempts`を15分の判定窓後の日次cronでcleanup。platform logは別確認 | Codex Worker / User OPS | **code・cron test済み**。Workers LogsはUserが有効化済み。保持期間・閲覧担当・payload/masking待ち |
+| DS-04 | `login_attempts` / `ip_attempts`を15分の判定窓後の日次cronでcleanup。platform logは別確認 | Codex Worker / User OPS | **code・cron test済み**。Workers LogsはUserが有効化済み、Free保持3日を公式再確認。閲覧担当・payload/masking・alert待ち |
 | DS-05 | D1の本番planとTime Travel期間を確認し、復元後再削除runbookを作る | User/OPS、Codex文書 | **Free / 7日をD-020で確定**。[runbook作成済み](d1-recovery-runbook.md)。maintenance・外部削除ledger待ち。本番0010/0011未適用 |
 | DS-06 | microphoneのTWA実機挙動と外部処理を確認 | User実機、Codex申告反映 | device/browser/build情報 + network観測 |
 | DS-07 | dormant `/pdf` endpointを削除するか公開機能として申告するか決定 | User決定、Codex Worker lane | code/testまたはpolicy |
@@ -147,11 +148,11 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
 - reviewer向けの権限・削除導線の説明は [`play-reviewer-guide.md`](play-reviewer-guide.md) §4・§5 に集約した。
 - 公開legalページ（2026-07-26 / PLAY-004後半）: 本台帳と[保持文面案](privacy-retention-draft.md)を
   `app/public/{privacy,terms,support}.html` へ反映した。保持期間（token 30日 / DO 200件・24時間 /
-  失敗記録 最長約24時間15分 / receipt・tombstone 7日 / D1 Time Travel 契約planに応じ最大30日）、
+  失敗記録 最長約24時間15分 / receipt・tombstone 7日 / D1 Time Travel Free 7日）、
   外部送信先、任意権限の発生条件、端末内データの残存と消去手順を実装どおりに記載している。
   Workers Logsは当時有効/無効が未確認だったため、条件付き表現にした。その後Userが有効化済み。
-  **`DS-02` の現行build・公開文面は「端末設定として残る事実＋消去手順」で一致しているが、
-  D-019で自動削除へ変更した。App実装とtestを先に変更し、同じreleaseで公開文面を更新する。**
+  **`DS-02` はD-019に従い、App実装・test・公開privacy/support/legal文面をaccount削除成功時の
+  自動削除へ更新済み。削除失敗、logout、account切替では端末設定を保持する。**
 
 ## 8. 作業分担
 
@@ -166,11 +167,11 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
 
 - PLAY-002 App laneで`_data_owner`の削除整合を修正し、account削除時のみ消えるtestを追加する。
 - PLAY-004後半でprivacy/terms/supportを公開HTML routeとして実装し、削除pageとアプリ内導線へ確定URLを接続する。
-- Userが決めた端末data保持方針、contact、Stripe表記を画面文言へ反映する。
+- Userが決めたcontactを画面文言へ反映する。D-019の端末data削除方針とStripe表記は反映済み。
 
 ### User
 
-- PostHogの公開時方針、端末data保持、security log保持、`/pdf`存廃を決める。
+- security log保持・閲覧担当・alert、`/pdf`存廃を決める。
 - 本番D1 plan、canonical host、公式support contactを確定する。
 - TWA実機のmicrophone/権限と最終URLを確認し、Play Console回答をCodexと照合する。
 
@@ -186,6 +187,12 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
 - App全体: 67 files / 658 tests passed（`TEST-001`解消後）。
 - App production build成功（444 modules）。500 kB超chunk警告は既知の`PERF-001`。
 - `git diff --check`成功。source/package/CSP/build成果物にPostHog import、key、hostがないことを`rg`で確認。
+- D-019（2026-08-04再照合）: `useDeviceId.test.js`、`useWeather.test.js`、`accountData.test.js`、
+  `DeleteAccountPage.delete.test.js`で、削除成功時の端末ID/name・位置/cache消去、失敗・logout・account切替時の保持を確認。
+  `legalPages.test.js`を含む対象5 files / 81 tests、App全体58 files / 502 tests、App production buildが成功。
+  privacy/support/legalとData Safety draftを同じ削除範囲へ更新し、`git diff --check`も成功した。
+- 公式仕様再確認（2026-08-04）: D1 Time TravelはWorkers Free 7日、Workers LogsはFree 3日。
+  Google Playは端末外への送信を原則collectionに含め、account削除時は関連dataも削除対象とする。
 - Cloudflare read-only preflight: Time Travel info取得成功（bookmark値は非記録）。本番D1に0010/0011の
   schemaがないことを確認し、`migrate.sh`の列挙漏れを修正。migration coverage test 1 passed。remote writeなし。
 - 公開URLの実network確認は未実施。

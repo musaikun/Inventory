@@ -2,6 +2,89 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-04 — PLAY-003: D-019端末data削除とData Safety再照合
+
+- 担当: Codex。既存のPLAY-002/004・DEP-001差分を保持し、PLAY-003の監査台帳・回答draft・進捗記録だけを更新した。
+- D-019のApp実装を独立再照合:
+  - account削除成功時に端末ID・端末名・天気位置情報/cacheとmemory stateを消去する。
+  - 削除失敗、logout、account切替では端末設定を保持し、再試行・通常利用を壊さない。
+  - privacy/support/legalの公開文面と削除確認UIが同じ範囲を説明する。
+- `data-safety-audit.md`、`data-safety-form-draft.md`、`google-play-readiness.md`を実装へ同期し、
+  `DS-02`を整合済みとした。PLAY-003自体は他gateが残るため進行中を維持。
+- 公式仕様を2026-08-04に再確認: D1 Time TravelはWorkers Free 7日、Workers LogsはFree 3日。
+  Google Playは端末外への送信を原則collectionに含め、account削除時は関連dataも削除対象とする。
+- 検証:
+  - 対象: 5 files / 81 tests passed。
+  - App全体: 58 files / 502 tests passed。
+  - App production build成功（447 modules、PWA precache 17 entries / 2473.26 KiB）。
+  - `git diff --check`成功。既知のVite CJS・500 kB超chunk警告と改行warningのみ。
+- 残件: canonical URL/contact、Workers Logs閲覧担当・payload masking・alert、provider共有例外、
+  TWA microphone、`/pdf`存廃、公開build network、0010/0011適用承認。
+- 未実施: commit、push、deploy、production migration、Play Console変更。
+
+## 2026-08-02 — CI-001完了・DEP-001 production high解消
+
+- 担当: Codex。Claude CodeのPLAY-002/004差分は保持し、依存・Excel取込境界とCI証拠だけを変更した。
+- **CI-001完了**: `develop@7d47cb4`のActions run
+  [`30725392991`](https://github.com/musaikun/Inventory/actions/runs/30725392991)が成功。
+  Node 24でWorker test、App test/build、Pages deploy、develop alias更新の全stepが成功した。
+  develop aliasは`https://develop.inventory-app-c40.pages.dev`。実ブラウザ接続は環境に利用可能なbrowserがなく未確認。
+- **DEP-001完了**:
+  - `postcss` 8.5.15 → 8.5.25。
+  - `xlsx`をnpm registry 0.18.5からSheetJS公式CDN 0.20.3へ変更。
+  - Excel解析をWeb Workerへ隔離し、5 MiB、20シート、各5,000行・100列、合計10万セル、8秒timeoutを追加。
+  - 日本語を含む`.xlsx` / `.xls`、入力上限、Worker timeoutの回帰testを追加。
+- 検証: `npm audit --omit=dev` 0 vulnerabilities、App 58 files / 498 tests、production build成功。
+  `spreadsheetImport.worker-*.js`の独立bundleとPWA precacheを確認。`git diff --check`成功。
+- 残件: 通常の`npm audit`にはbuild/test用依存の6 high / 3 moderate / 1 lowが残る。
+  commit、push、deploy、実機Excel取込は未実施。
+
+## 2026-08-02 — PLAY-004: terms正本の同期とD-019の公開文面反映
+
+- 担当: Claude Code。legal文面と回帰testのみ。App/Worker実装は無変更。
+- **terms正本の同期（Codex review指摘1・長期未解消だった項目）**: 公開/landing termsは既に正しく、
+  `docs/legal/terms.md`だけがずれていたため正本を公開版へ寄せた。
+  - 第6条3・第11条3を「利用者へ通知」→「本サービス上へ掲示／お知らせ」。
+    **連絡先を保持しない実装では個別通知を履行できない**ため。将来メール登録を入れる場合は「通知」へ再改定する。
+  - 第7条2/5の「一切の責任を負いません」→「責任を負いません」（全部免責は消費者契約法8条で無効となり得る）。
+  - 第1・2・8条の表現差も解消し、改定日と理由を追記。
+- **D-019の公開文面反映**: 端末ID・端末名・天気の位置情報とキャッシュを「削除しても残る」→
+  「アカウント削除の完了時に自動削除される」へ。privacy/support/landing/正本の計6ファイルを同時更新。
+  「残るもの」は表示設定のみになった。
+- **回帰test追加**（`legalPages.test.js`）: 条文単位の同期チェックと、端末固有データの自動削除の記述。
+  旧文言（`利用者へ通知します`/`一切の責任を負いません`/`操作ログ等`/`端末の設定として残ります`/
+  「残るもの」表の端末ID行）を再発防止として禁止。
+- 検証: 文面を`git stash`した状態で**6件が失敗**することを確認。`legalPages.test.js` 56 tests passed。
+  App 58 files / 497 tests passed。App production build成功。
+- 注意: 作業ツリーにCodexのDEP-001（`xlsx`をSheetJS CDN 0.20.3へ）が進行中のため`app/package.json`は触っていない。
+  buildのprecacheが16 entries / 2346.54 KiBへ増えているのはその差分の影響。
+- **PLAY-003へ引き継ぎ**: `data-safety-form-draft.md` / `data-safety-audit.md` の端末データ保持の記述は未更新。
+- 未実施: commit、push、deploy。実機UI確認。
+
+## 2026-08-02 — D-019: account削除時に端末固有データも自動削除（PLAY-002）
+
+- 担当: Claude Code。App実装＋test＋削除UX。Worker・legal文面は無変更。
+- 実装:
+  - `useDeviceId.resetLocalData()` — `_device_id`/`_device_name`を削除し、`deviceId`はメモリ上だけ
+    新しい値へ差し替える（`export const`→`export let`のlive binding）。永続化しないため次回起動で
+    通常の初期化経路が新IDを採番・保存する。削除済みaccountのIDを送り続けず、IDが空にもならない。
+  - `useWeather.resetLocalData()` — `weather_loc`/`weather_cache`とmodule scopeの`state`を初期化。
+    stateを戻さないとリロードするまで前の位置・天気が残るため。
+  - `accountData.clearDeviceLocalData()` を追加し `clearDeletedAccountLocalData()` の`finally`から呼ぶ。
+    logout/account切替の`clearLocalAccountData()`には含めない。
+  - 削除UX: 削除対象一覧へ「この端末の設定（端末名・端末ID・天気の位置情報）」を追加し、最終確認にも明記。
+- 失敗時の保持: `finalize()`は200後にしか呼ばれないため、503/409/通信失敗では認証・業務data・端末設定が
+  すべて残り再試行できる。実装変更は不要で、回帰testで固定した。
+- 検証:
+  - 実装を`git stash`した状態で新規・追加testのうち**9件が失敗**することを確認（回帰として機能する）。
+  - 対象4 files / 25 tests passed。App 56 files / 481 tests passed。Worker 15 files / 196 tests passed。
+  - App production build成功（precache 2076.40 KiB）。
+- **同一release内の未完（PLAY-003/004へ引き継ぎ）**: `app/public/privacy.html:249,291` と `support.html` は
+  「端末設定はサイトデータを消去するまで残る」と記載しており、実装と矛盾する状態になった。
+  privacy/support/landing/`docs/legal/*`とData Safety申告を自動削除の説明へ更新してから公開する。
+  `legalPages.test.js`は`端末ID`の存在しか見ておらずこの矛盾を検出できないため、アサーション追加が要る。
+- 未実施: commit、push、deploy。実機UI確認。
+
 ## 2026-08-02 — task分割の独立review修正・CI/Test分離を反映
 
 - 担当: Codex。Claude Codeの`task-list.md`進捗ボード化と`tasks/`分割を独立reviewし、構造は採用した。

@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx'
 import { parseGenericTable } from '../utils/pdfTableParser.js'
+import { parseSpreadsheetInWorker } from '../utils/spreadsheetWorkerClient.js'
+export { assertSpreadsheetFile } from '../utils/spreadsheetImport.js'
 
 // pdfjs-dist は PDF インポート時のみ動的ロード（初期バンドルから除外）
 let _pdfjs = null
@@ -137,19 +139,13 @@ function parseTemplateRows(rows) {
 }
 
 // Excel（先頭シート）を CSV テキストに変換する。列指定インポート・棚卸結果復元で流用。
-export function excelToCsv(arrayBuffer) {
-  const wb    = XLSX.read(arrayBuffer, { type: 'array' })
-  const sheet = wb.Sheets[wb.SheetNames[0]]
-  return sheet ? XLSX.utils.sheet_to_csv(sheet) : ''
+export async function excelToCsv(arrayBuffer) {
+  return await parseSpreadsheetInWorker(arrayBuffer, 'csv')
 }
 
-export function parseExcelFile(arrayBuffer) {
-  const wb    = XLSX.read(arrayBuffer, { type: 'array' })
+export async function parseExcelFile(arrayBuffer) {
   const items = []
-
-  const allRows = wb.SheetNames.map(
-    name => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' })
-  )
+  const allRows = await parseSpreadsheetInWorker(arrayBuffer, 'rows')
 
   // ユーザー作成テンプレート（品目名ヘッダー）なら全シートを直接解析
   if (allRows.length && isTemplateRows(allRows[0])) {

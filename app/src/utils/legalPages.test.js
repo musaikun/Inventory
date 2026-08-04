@@ -32,7 +32,9 @@ describe('公開legalページ: 配信物としての存在と体裁', () => {
     expect(headers).toContain('wss://inventory-sync.yuya-takaki.workers.dev')
     expect(headers).toContain('https://inventory-sync-pro-review.yuya-takaki.workers.dev')
     expect(headers).toContain('wss://inventory-sync-pro-review.yuya-takaki.workers.dev')
-    expect(headers).not.toContain('posthog.com')
+    expect(headers).toContain('https://eu.i.posthog.com')
+    expect(headers).not.toContain('https://us.i.posthog.com')
+    expect(headers).not.toContain('posthog-assets')
   })
 
   it.each(PUBLIC_PAGES)('%s が app/public にあり、Pages にそのまま配信される', (p) => {
@@ -73,7 +75,7 @@ describe('公開legalページ: 実装と一致しない記載が復活しない
     expect(text).not.toContain('1年間')
     // Stripe は未実装。委託先として列挙しない（「利用していません」の言及だけ許容する）
     expect(text).not.toContain('Stripe, Inc.')
-    // PostHog は依存ごと削除済み。委託先・分析基盤として列挙しない
+    // PostHogは既定buildで無効。有効化前は委託先・分析基盤として列挙しない
     expect(text).not.toMatch(/PostHog[^等）]*(?:へ送信|に送信|を利用しています)/)
   })
 })
@@ -85,18 +87,20 @@ describe('公開legalページ: 実装事実の記載', () => {
     const text = read(p)
     expect(text).toContain('約24時間15分')   // login/IP 失敗記録（15分判定窓＋日次cleanup）
     expect(text).toContain('7日間')           // 削除receipt / 匿名tombstone
-    expect(text).toContain('最大30日')        // D1 Time Travel（plan依存）
+    expect(text).toContain('復元可能な期間は7日間') // D1 Time Travel（Free plan）
+    expect(text).toContain('Freeプランでは3日間')  // Workers Logs
     expect(text).toContain('200件')           // DO の chat / 操作履歴
     expect(text).toContain('30日')            // 認証トークン
   })
 
-  it.each(privacyCopies)('%s が任意権限の発生条件と端末内データの残存を説明している', (p) => {
+  it.each(privacyCopies)('%s が任意権限の発生条件と端末内データを説明している', (p) => {
     const text = read(p)
     expect(text).toContain('現在地で天気を表示')  // 位置情報は自動取得しない
     expect(text).toContain('Web Speech API')      // 音声はブラウザ/OS側で処理され得る
     expect(text).toContain('端末内で解析')        // camera / file は送信しない
-    expect(text).toContain('端末ID')              // 削除後も残る端末設定
+    expect(text).toContain('端末ID')              // 端末に保存される情報として列挙する
   })
+
 
   const termsCopies = ['app/public/terms.html', 'landing/terms.html', 'docs/legal/terms.md']
 
@@ -112,6 +116,21 @@ describe('公開legalページ: 実装事実の記載', () => {
     expect(text).not.toContain('前払い')
   })
 
+  // 正本(docs/legal)と公開HTML・landingコピーで条文の事実がずれないこと。
+  // markup が違うため行単位では比較できないので、齟齬が出た条文の要点を固定する。
+  it.each(termsCopies)('%s の終了通知・免責・規約変更が3コピーで一致している', (p) => {
+    const text = read(p)
+    // 第6条3 / 第11条3: 連絡先を保持しない実装のため「個別通知」ではなく「掲示」
+    expect(text).toContain('終了の30日前までに本サービス上へ掲示します')
+    expect(text).toContain('掲示の30日前までに本サービス上でお知らせします')
+    expect(text).not.toContain('利用者へ通知します')
+    // 第7条2/5: 全部免責は消費者契約法8条で無効となり得るため「一切の」を置かない
+    expect(text).not.toContain('一切の責任を負いません')
+    // 第2条: 用語を「操作履歴」に統一
+    expect(text).toContain('操作履歴等')
+    expect(text).not.toContain('操作ログ等')
+  })
+
   const supportCopies = ['app/public/support.html', 'landing/support.html']
 
   it.each(supportCopies)('%s が端末内データの消去手順を持つ（DS-02 の説明導線）', (p) => {
@@ -120,6 +139,18 @@ describe('公開legalページ: 実装事実の記載', () => {
     expect(text).toContain('サイトデータ')
     expect(text).toContain('Safari')
     expect(text).toContain('Chrome')
+  })
+
+  // D-019: account削除の完了時に端末ID・端末名・天気の位置情報とキャッシュも自動削除する。
+  // 実装は accountData.clearDeviceLocalData()（useDeviceId / useWeather の resetLocalData）。
+  // 実装だけ変えて文面が「削除しても端末に残る」のままだと Data Safety の説明と矛盾するため固定する。
+  it.each([...privacyCopies, ...supportCopies])('%s が端末固有データの自動削除を述べている', (p) => {
+    const text = read(p)
+    expect(text).toContain('端末ID・端末名・天気の位置情報とキャッシュ')
+    expect(text).toContain('端末IDは削除後、次回の起動時に新しい値が発行されます')
+    // 旧記載（削除しても端末に残る）の再発防止
+    expect(text).not.toContain('端末ID・端末名・天気の位置情報は端末の設定として残ります')
+    expect(text).not.toMatch(/<td>端末ID<\/td>\s*<td>ブラウザが生成した識別子/)
   })
 })
 

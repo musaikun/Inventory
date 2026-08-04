@@ -3,7 +3,7 @@ import { useConfig } from './useConfig.js'
 import { useMovements } from './useMovements.js'
 import { useHistory } from './useHistory.js'
 import { saveMovementToD1, saveSnapshotToD1 } from './useStore.js'
-import { excelToCsv } from './usePdfImporter.js'
+import { assertSpreadsheetFile, excelToCsv } from './usePdfImporter.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
 
@@ -12,7 +12,10 @@ import { parseResultSnapshots } from '../utils/resultCsvParser.js'
 // 状態（モーダル表示・CSV）は呼び出しごとに独立。
 
 async function _fileToCsv(file) {
-  if (/\.(xlsx|xls)$/i.test(file.name)) return excelToCsv(await file.arrayBuffer())
+  if (/\.(xlsx|xls)$/i.test(file.name)) {
+    assertSpreadsheetFile(file)
+    return await excelToCsv(await file.arrayBuffer())
+  }
   return await file.text()
 }
 

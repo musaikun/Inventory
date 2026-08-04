@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
+import { assertSpreadsheetFile, parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { extractRows } from '../utils/pdfTableParser.js'
 import { matchProfile } from '../composables/pdfProfiles.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -82,6 +82,7 @@ async function handleFile(file) {
   abortCtrl.value = ctrl
 
   try {
+    if (isExcel) assertSpreadsheetFile(file)
     const buf = await file.arrayBuffer()
     if (isPdf) {
       const { items, debugLines: dl, pages } = await parsePdfFile(buf, {
@@ -104,7 +105,7 @@ async function handleFile(file) {
         }
       }
     } else {
-      const items = parseExcelFile(buf)
+      const items = await parseExcelFile(buf)
       if (!applyItems(items)) {
         status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
       }

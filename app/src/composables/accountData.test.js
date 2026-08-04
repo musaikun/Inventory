@@ -150,6 +150,53 @@ describe('アカウント削除後のローカル残留（DS-01）', () => {
     expect(localStorage.getItem('_data_owner')).toBe('AAAAAA')
   })
 
+  it('削除完了の掃除では端末ID・端末名・天気の位置情報とキャッシュも消える（D-019）', async () => {
+    const { accountData } = await fresh()
+    // import 後に置く（useWeather の起動時取得を走らせないため）
+    localStorage.setItem('_device_id', 'dev-1')
+    localStorage.setItem('_device_name', 'レジ')
+    localStorage.setItem('weather_loc', JSON.stringify({ lat: 35, lon: 139, name: '東京' }))
+    localStorage.setItem('weather_cache', JSON.stringify({ updatedAt: 1, weather: {} }))
+
+    accountData.clearDeletedAccountLocalData()
+
+    expect(localStorage.getItem('_device_id')).toBeNull()
+    expect(localStorage.getItem('_device_name')).toBeNull()
+    expect(localStorage.getItem('weather_loc')).toBeNull()
+    expect(localStorage.getItem('weather_cache')).toBeNull()
+  })
+
+  it('切替用の掃除（clearLocalAccountData）は端末ID・端末名・天気を消さない', async () => {
+    const { accountData } = await fresh()
+    localStorage.setItem('_device_id', 'dev-1')
+    localStorage.setItem('_device_name', 'レジ')
+    localStorage.setItem('weather_loc', JSON.stringify({ lat: 35, lon: 139, name: '東京' }))
+    localStorage.setItem('weather_cache', JSON.stringify({ updatedAt: 1, weather: {} }))
+
+    accountData.clearLocalAccountData()
+
+    expect(localStorage.getItem('_device_id')).toBe('dev-1')
+    expect(localStorage.getItem('_device_name')).toBe('レジ')
+    expect(localStorage.getItem('weather_loc')).not.toBeNull()
+    expect(localStorage.getItem('weather_cache')).not.toBeNull()
+  })
+
+  it('ログアウトでは端末ID・端末名・天気を消さない', async () => {
+    const { auth } = await fresh()
+    stubLogin('AAAAAA')
+    await auth.login('AAAAAA', '1234')
+    localStorage.setItem('_device_id', 'dev-1')
+    localStorage.setItem('_device_name', 'レジ')
+    localStorage.setItem('weather_loc', JSON.stringify({ lat: 35, lon: 139, name: '東京' }))
+
+    await auth.logout()
+
+    expect(localStorage.getItem('_auth_token')).toBeNull()
+    expect(localStorage.getItem('_device_id')).toBe('dev-1')
+    expect(localStorage.getItem('_device_name')).toBe('レジ')
+    expect(localStorage.getItem('weather_loc')).not.toBeNull()
+  })
+
   it('削除後に別アカウントでログインしても、前アカウントの掃除が誤発火しない', async () => {
     const { auth, accountData } = await fresh()
     stubLogin('AAAAAA')

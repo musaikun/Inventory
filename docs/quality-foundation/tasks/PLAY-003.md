@@ -17,10 +17,14 @@
   plan名とWorkers Logsの保存設定はCLIで取得できず、Dashboard用browserも未接続のためUser確認を残す。
   本番D1には0010/0011のtable/column/triggerがなく、未適用と確認した。remote writeは未実施。
 - User判断(2026-08-01): CloudflareはFree plan、D1 Time Travelは7日。Workers Logsは有効化済み。
-  account削除時は端末ID・端末名・天気用位置情報も自動削除する方針を採用したが、実装と公開文面は未対応。
-- 残り: 公開URL/contact、privacyのD1 Time Travel文面をFree 7日へ確定、端末設定の自動削除実装、
-  TWA microphone、`/pdf`削除可否の最終確認、
-  Workers Logsの保持期間・閲覧担当・alert、provider共有例外、0010/0011適用承認、公開build networkを確定する。
+  account削除時は端末ID・端末名・天気用位置情報も自動削除する方針を採用した（この時点では実装と公開文面は未対応）。
+- DS-02再照合(2026-08-04 / Codex): D-019のApp実装・unit/画面回帰test・privacy/support/legal文面を確認し、
+  Data Safety台帳と回答draftを「account削除成功時に端末ID・端末名・天気位置情報/cacheも自動削除」へ更新。
+  削除失敗、logout、account切替では保持する境界も一致した。Cloudflare公式でD1 Time Travel Free 7日、
+  Workers Logs Free 3日を再確認した。対象5 files / 81 tests、App全体58 files / 502 tests、
+  App production build、`git diff --check`が成功した。
+- 残り: 公開URL/contact、TWA microphone、`/pdf`削除可否の最終確認、
+  Workers Logsの閲覧担当・payload/masking・alert、provider共有例外、0010/0011適用承認、公開build networkを確定する。
 - 完了条件:
   - data typeごとに収集・利用・共有・保存・削除を一覧化する。
   - Data Safety申告案、privacy policy、実装が一致する。

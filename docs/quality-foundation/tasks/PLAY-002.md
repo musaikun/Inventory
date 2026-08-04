@@ -78,6 +78,33 @@
   ~~DS-01修正のCodex再review~~ → 2026-07-26に完了（上記の「DS-01のCodex独立review」を参照）。
 - User判断(2026-08-01): account削除時は端末ID・端末名・天気用位置情報も自動削除する。
   現行`clearDeletedAccountLocalData()`はこれらを保持するため、実装・test・privacy/support文面の更新が未完。
+- D-019 App実装(2026-08-02 / Claude Code / レビュー待ち): 端末固有データの自動削除を実装。
+  - `useDeviceId.js`に`resetLocalData()`を追加。`_device_id`/`_device_name`を消し、`deviceId`は
+    **メモリ上だけ新しい値へ差し替える**（`export const`→`export let`のlive binding）。永続化はしないため、
+    次回起動で通常の初期化経路が新IDを採番・保存する（＝新規インストールと同じ状態）。
+    メモリ上を空にせず差し替えるのは、削除後も同期・監査ログが送信元IDを参照するため。
+    削除済みaccountのIDを送り続けることも、IDが空になることも避ける。
+  - `useWeather.js`に`resetLocalData()`を追加。`weather_loc`/`weather_cache`に加え、
+    module scopeの`state`（`loc`/`weather`/`updatedAt`/`error`/`loading`）も初期化する。
+    stateを戻さないとリロードするまで前の位置・天気が表示され続けるため。
+  - `accountData.js`に`clearDeviceLocalData()`を追加し、`clearDeletedAccountLocalData()`の`finally`から呼ぶ。
+    片方が例外でももう片方の消去を試みる。`clearLocalAccountData()`（logout/account切替）には含めない。
+  - 失敗時の保持: `finalize()`は200 deleted / alreadyDeleted の後にしか呼ばれないため、
+    503・409・通信失敗では認証・業務data・端末設定がすべて残り、同一requestIdで再試行できる。実装変更なし。
+  - 削除UX: 入力フォームの削除対象一覧へ「この端末の設定（端末名・端末ID・天気の位置情報）」を追加し、
+    最終確認画面にも端末設定が消える旨を明記した。
+  - テスト（実装を`git stash`した状態で**9件が失敗**することを確認済み）:
+    - 新規`useDeviceId.test.js` 5件（初期化2・reset 3）、新規`useWeather.test.js` 3件。
+    - `accountData.test.js` +3件（削除で消える／切替では消さない／logoutでは残す）。
+    - `DeleteAccountPage.delete.test.js` +3件（画面レベル: 削除完了で端末dataが消える／503失敗で保持／
+      確認画面の文言）。
+  - 検証: 対象4 files / 25 tests passed。App 56 files / 481 tests passed。
+    Worker 15 files / 196 tests passed。App production build成功（precache 2076.40 KiB）。
+  - **同一release内の未完**: 公開`privacy.html:249`「アカウントとは独立した端末の設定として、ブラウザの
+    サイトデータを消去するまで端末内に残ります」と`privacy.html:291`、および`support.html`の該当記述が
+    実装と矛盾する状態になった。D-019の実装境界どおり、privacy/support/landing/正本`docs/legal/*`と
+    Data Safety申告を自動削除の説明へ更新してから公開する必要がある。`legalPages.test.js`は
+    `端末ID`の存在しか見ていないため、この矛盾を検出できない（アサーション追加が要る）。
 - 完了条件:
   - account設定から見つけやすく、対象店舗と削除dataを明示する。
   - 再認証、誤操作防止、進行中、失敗、再試行、完了状態を扱う。

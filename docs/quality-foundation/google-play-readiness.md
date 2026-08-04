@@ -1,6 +1,6 @@
 # Google Play 公開準備チェックリスト
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 
 公式資料を最終判断の正とします。
 
@@ -38,7 +38,7 @@
 | movements / movement lines | D1 | 削除 | code/test完了。本番D1は0010未適用のため公開前migration gate |
 | push subscriptions | D1 / Push service | D1削除で送信停止、client購読解除 | `PLAY-001`削除 + `SEC-003`認証/検証 完了 / clientは`PLAY-002` |
 | active room state | Durable Objects | stock/orderをclose・purge | `PLAY-001` 完了 / test |
-| device cache / token | localStorage / Cache API | 削除 | Claude Code |
+| device cache / token | localStorage / Cache API | 削除 | 業務data/tokenと端末ID/name・天気位置/cacheのApp実装・test済み。Cache API/service workerの実機確認は`PLAY-002` |
 | analytics / feedback | 現行公開buildでは保存・送信なし | PostHog依存除去、analytics no-op、legacy identity cleanup | `PLAY-003` / `PRIV-001` code・unit test済み |
 | deletion receipt | D1 | account識別子なしで7日保持 | `PLAY-001` 完了 / cron cleanup test |
 | D1 Time Travel | Cloudflare管理backup | provider回復期間満了、通常復元禁止、restore時は削除再適用 | `d1-recovery-runbook.md`作成 / plan・運用準備待ち |
@@ -59,8 +59,10 @@ privacy policyに明記します。
 - ~~account削除後に`_data_owner`が残る。~~ → CC修正、Codex独立review済み（2026-07-26・`DS-01`）。
 - ~~PostHogはkey設定時にautocaptureが有効化され得る。~~ → 依存除去・常時no-op化、公開build network確認待ち。
 - ~~D1 security rowに期限切れ全体cleanupがない。~~ → 15分判定窓＋日次cleanup実装・test済み。
-- D1 Time TravelはFree / 7日、Workers Logsは有効化済み（D-020）。Logs保持期間・閲覧担当・payloadは未確定。
-  端末ID・端末名・天気位置情報はaccount削除時の自動削除を採用済み（D-019）だが、App実装と公開文面は未対応。
+- D1 Time TravelはFree / 7日、Workers Logsは有効化済み・Free保持3日（D-020、2026-08-04公式再確認）。
+  Logsの閲覧担当・payload/masking・alertは未確定。
+  端末ID・端末名・天気位置情報/cacheはaccount削除時の自動削除を採用し（D-019）、App実装・test・
+  公開privacy/support/legal・Data Safety draftを2026-08-04に再照合済み。削除失敗、logout、account切替では保持する。
 - 本番D1は0010/0011未適用。修正済み`migrate.sh`による適用はUser明示承認後に行う。
 - privacy/terms/supportの静的pageとapp導線はCC実装済み。canonical HTTPS URLとcontactはUser確定待ち。
 

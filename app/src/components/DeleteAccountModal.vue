@@ -109,6 +109,8 @@ function applyError(e) {
 // 200 deleted / alreadyDeleted 後の端末側クリーンアップ（data map の client 担当分）。
 // Push はサーバー側で削除済み・token 失効済みのため local-only 解除にする。
 // 業務データに加え dataOwner（削除済み店舗コード）も消す（DS-01）。
+// さらに端末ID・端末名・天気の位置情報とキャッシュも消す（D-019）。
+// 失敗時はここへ来ないため、認証・業務データ・端末設定はすべて保持され再試行できる。
 async function finalize() {
   try { localStorage.removeItem(STORAGE_KEYS.deleteRequestId) } catch (_) {}
   try { await unsubscribePushLocal() } catch (_) {}
@@ -176,6 +178,9 @@ function onOverlay() {
             「<strong>{{ targetName }}（{{ targetShop }}）</strong>」のアカウントと
             すべての関連データを<strong class="da-strong">完全に削除</strong>します。
           </p>
+          <p class="da-final-note">
+            この端末に残る設定（端末名・端末ID・天気の位置情報）も消去されます。
+          </p>
           <p class="da-final-warn">この操作は取り消せません。復元はできません。</p>
         </div>
         <div class="da-actions">
@@ -201,6 +206,7 @@ function onOverlay() {
             <li>発注・入出庫の記録</li>
             <li>店舗設定・ログイン情報（PIN）</li>
             <li>通知の購読・共有ルーム</li>
+            <li>この端末の設定（端末名・端末ID・天気の位置情報）</li>
           </ul>
           <p class="da-warn-note">削除後は同じ店舗コードでログインできなくなります。</p>
         </div>
@@ -311,6 +317,7 @@ function onOverlay() {
 }
 .da-final-lead { font-size: 14px; color: var(--text); line-height: 1.7; margin: 0 0 8px; }
 .da-strong { color: var(--danger); }
+.da-final-note { font-size: 12px; color: var(--text-muted); line-height: 1.6; margin: 0 0 8px; }
 .da-final-warn { font-size: 13px; font-weight: 700; color: var(--danger); margin: 0; }
 
 /* 処理中 */
