@@ -12,6 +12,12 @@
 > 機能開発を停止する。この期間の正式なscope、担当、日程、release gateは
 > [`quality-foundation/sprint-plan-2026-07-27.md`](quality-foundation/sprint-plan-2026-07-27.md) を正とする。
 
+> **2026-08-04 方針変更（D-021）:** 現在はWeb Free版のproduction公開を優先する。
+> 将来はAndroid app内登録の14日trial、Web Stripe契約、Google Play consumption-onlyを扱う。
+> Web登録へのtrial適用とStripe/backendの単独公開順は未決。現在の実行順とgateは
+> [`quality-foundation/web-release-readiness.md`](quality-foundation/web-release-readiness.md)を正とし、
+> 以下の旧Waveは長期優先度の参考として読む。
+
 ---
 
 ## 0. アプリの目標（オーナーの言葉）
@@ -127,7 +133,7 @@
 7. 天気タグ付き履歴＋現場フック（A/D）🔧 表示スロットのみ・実データ連携残
 8. 発注アシスト（E・信頼度ゲート／入数推定）✅（入数推定・パー・ミッションは残）
 
-### Wave 2.5 — 共同品質基盤スプリント（2026-07-27〜2026-08-08）★現在地
+### Wave 2.5 — 共同品質基盤スプリント（2026-07-27〜2026-08-08・履歴）
 9. セキュリティ小改修3点＋WS prices サニタイズ（G）✅ 2026-07-21
 10. 入出庫の D1 同期（F・料金戦略の前提）✅（R5-01 テナント境界も修正済み）
 11. 日次バックアップ cron→R2＋リストア検証（F）
@@ -137,10 +143,17 @@
 13b. develop CI、critical integration/E2E、dependency high脆弱性の解消
 13c. Data Safety・privacy・TWA審査導線・store listingの整合
 
+### Wave 2.6 — Web Free版 production readiness ★現在地
+
+1. canonical/contact、Pages routing、CORS、production deploy/rollbackを固定
+2. 本番D1 0010/0011、登録濫用、Free上限、履歴data integrityを解消
+3. observability、critical E2E、production smoke、User承認
+4. 詳細は[Web公開準備](quality-foundation/web-release-readiness.md)
+
 ### Wave 3 — 配布・拡張・企業インフラ（指標で発火）
-14. Google Play 無料版の機能境界＋TWA公開（G）※12が前提
-15. 多店舗集計基盤・管理者ページの本部版（B）
-16. **E0 完遂＋Web PRO実装**（C・`pricing-strategy.md` の恒久無料枠＋Stripe）→ 法務セット（特商法・ポリシー改定）→ B2B料金・請求書払い・企業認証（C/G）
+14. **A1準備: E0完遂＋Android trial/Web Stripe** → 公開順、特商法・規約・privacyを確定
+15. **A1: Google Play consumption-only＋TWA公開**
+16. 多店舗集計基盤・管理者ページの本部版（B）
 17. スケール天井: 書き込み削減→session_id列→R2アーカイブ→D1分割（F）
 18. 連携API（外部）（G・引き合い後）
 
@@ -149,7 +162,7 @@
 ## 3. 判断メモ
 
 - **課金基盤(E0)**: サーバー側プラン列は導入済み。無料/PRO境界を2026-07-28に確定し、14日トライアルと
-  クライアントの一時解除は撤去済み。認証API配線とserver enforcementはWeb PRO実装（Wave 3）で行う。
+  クライアントの一時解除は撤去済み。認証API配線とserver enforcementは将来のPro/Play準備で行う。
 - **Wave 2.5 の現行方針**: 収益化・Play公開・企業商談のいずれにも必要な認可、data integrity、
   削除、CI、privacyを先に固める。2026-07-25の判断により期間中の機能追加は凍結し、
   **mandatory release gatesを通過するまでWave 3へ入らない**。

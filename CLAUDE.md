@@ -2,8 +2,8 @@
 
 飲食店の棚卸作業を高速化するスマホWebアプリ。音声入力→辞書変換→在庫記録、複数端末リアルタイム同期。
 
-作業開始時は **`docs/quality-foundation/README.md` を最初に読む**。現状、優先タスク、担当、未決事項、
-直近の再開地点を Codex / Claude Code と共有している。
+作業開始時は **`docs/README.md` → `docs/quality-foundation/README.md` の順に読む**。
+現在の公開目標、正本、優先タスク、担当、未決事項をCodex / Claude Codeと共有している。
 
 ## 技術スタック（現在）
 
@@ -13,7 +13,7 @@
 | 同期 | Cloudflare Durable Objects + WebSocket |
 | DB | Cloudflare D1（SQLite）— セッション・認証・店舗データ永続化 |
 | 認証 | Bearer トークン（D1 管理） |
-| ストレージ | localStorage（高速キャッシュ）＋ D1（在庫・設定・履歴の正） |
+| ストレージ | localStorage（高速cache）＋ D1（認証・店舗・在庫を永続化。履歴詳細read pathはDATA-002で未解消） |
 
 ## 主要ファイル
 
@@ -42,7 +42,8 @@ worker/src/
 
 - **ブランチ**: 固定名を前提にせず、作業開始時に `git branch --show-current` で確認
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **品質集中期間**: 2026-07-27〜2026-08-08はGoogle Play要件と品質基盤以外の新機能を停止
+- **現在の品質集中scope**: Web Free版の公開gateと品質基盤以外の新機能を停止。
+  Stripe、trial、TWA、Google Play提出は後続
 - **共有タスク**: 着手前に `docs/quality-foundation/task-list.md` の状態・担当を更新し、
   完了時に検証結果と `docs/quality-foundation/session-log.md` を更新
 - **新機能・仕様変更は `docs/feature-checklist.md`（共通DoD）でセルフチェック**してから完了とする。
@@ -56,12 +57,13 @@ worker/src/
   - `develop` へ push → Worker/App test → App build → Pages preview
   - 固定URL: `https://develop.inventory-app-c40.pages.dev`
   - D1、Worker、本番Pagesは変更しない。preview frontendは本番Workerを参照する
-- **本番デプロイ**: 現在は自動workflowなし。Userの明示承認後に手動フォールバックを使用
-  - セットアップと仕組み → `docs/ci-cd.md`
-- **デプロイ（手動・フォールバック）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
+- **本番デプロイ**: 現在は自動workflowなし。公開判定と未解消事項は
+  `docs/quality-foundation/web-release-readiness.md`を正とする
+- **デプロイ（手動・要事前確認）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
   - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ
   - `./scripts/deploy.sh frontend` … テスト + ビルド + Pages のみ
   - マイグレーション適用ロジックは `scripts/migrate.sh`（CI と共用）
+  - 現状のPages branch、Wrangler版、rollbackはWEB-001で未確定。production手順としてそのまま実行しない
 - フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルビルド→`wrangler pages deploy` 方式（Pages 側のビルド設定・環境変数は不要）
 - 型なし（TypeScriptは不使用）
 - Vue 3 `<script setup>` 記法で統一
@@ -78,7 +80,9 @@ worker/src/
 
 ## 詳細ドキュメント
 
+- **docs全体の索引 → `docs/README.md`**
 - **共同品質基盤の入口 → `docs/quality-foundation/README.md`**
+- **現在のWeb release gate → `docs/quality-foundation/web-release-readiness.md`**
 - **現況と方向性（全体の索引）→ `docs/project-status.md`**
 - **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
 - 全体レビュー（PM/QA/セキュリティ横断・優先度の根拠）→ `docs/holistic-review-2026-07.md`
@@ -87,6 +91,6 @@ worker/src/
 - CI/CD パイプライン → `docs/ci-cd.md`
 - 実行計画（トラック別・ウェーブ）→ `docs/roadmap.md`
 - 同期アーキテクチャ詳細 → `docs/sync-spec.md`
-- 料金・獲得戦略（未実装メモ）→ `docs/pricing-strategy.md`
+- 料金・提供順（W1 Web Free → A1 Android trial / Web Stripe。未決事項あり）→ `docs/pricing-strategy.md`
 - DB設計v2（スケール・10年運用）→ `docs/db-design-v2.md`
 - 新機能テスト項目一覧 → `docs/test-checklist-new-features.md`

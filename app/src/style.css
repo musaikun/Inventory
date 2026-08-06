@@ -933,3 +933,208 @@ body {
   transition: opacity 0.12s;
 }
 .empty-items-btn:active { opacity: 0.8; }
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   デスクトップレイアウト（>= 1024px）
+
+   このセクションより上はすべてモバイル前提のスタイルで、意図的に手を入れていない。
+   デスクトップ表示はここだけを読めば把握できるように一箇所へまとめる。
+
+   有効化は body.dt-shell（App.vue の showDesktopNav が true の時に付与）。
+   サイドナビは position:fixed なので、本文の逃げ幅は body の padding-left で作り、
+   #app の max-width / margin:auto をそのまま活かす。
+
+   body.dt-shell を前置きすると詳細度が (0,2,1) になり、各コンポーネントの
+   scoped スタイル（.x[data-v-*] = (0,2,0)）を、コンポーネントを編集せずに上書きできる。
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 閾値 1024px は useMediaQuery.js の DESKTOP_QUERY と対で保つこと。
+     メディアクエリは custom property を読めないため、値は下にも直書きしている。 */
+  --dt-nav-w: 232px;
+  --dt-content-max: 1080px;
+  --dt-reading-max: 640px;   /* 入力欄など、広げても読みにくくなるだけの要素 */
+  /* 全幅の帯（ヘッダー等）の中身だけを本文カラムに揃えるための内側余白 */
+  --dt-gutter: max(24px, (100% - var(--dt-content-max)) / 2);
+}
+
+@media (min-width: 1024px) {
+
+  /* ── シェル本体 ──
+     #app の 600px 制限は外し、幅は各ブロックが自分で決める。
+     ここで #app を 1080px に固定すると、ヘッダーの青帯やフッターまで 1080px で切れ、
+     左右にグレーの帯が残って「浮いた板」に見えてしまう。 */
+  body.dt-shell { padding-left: var(--dt-nav-w); }
+  body.dt-shell #app { max-width: none; }
+
+  /* 本文ブロックはカラム幅で中央に揃える（帯だけが全幅になる） */
+  body.dt-shell .complete-banner,
+  body.dt-shell .conflict-resolve-wrap,
+  body.dt-shell .item-req-wrap,
+  body.dt-shell .item-req-pending-guest,
+  body.dt-shell .recount-notice,
+  body.dt-shell .conflict-notice,
+  body.dt-shell .inventory-section {
+    max-width: var(--dt-content-max);
+    margin-inline: auto;
+  }
+
+  /* サイドナビを持たない単独画面は #app の 600px 制限を外す。
+     外さないと .lp / .auth 自身の背景が 600px 幅で切れ、body 背景との継ぎ目が出る。 */
+  body[data-view="landing"] #app,
+  body[data-view="auth"] #app,
+  body[data-view="delete-account"] #app,
+  body[data-view="guest-result"] #app { max-width: none; }
+
+  /* .app-footer を持つのは session ビューだけ。他の画面は自前で 100vh/100dvh を取るため、
+     #app のフッター用 padding-bottom(80px) が下端に死んだ余白とスクロールを作る。 */
+  body[data-view]:not([data-view="session"]):not([data-view="guest-result"]) #app {
+    padding-bottom: 0;
+  }
+
+  /* 帯は全幅のまま、中身だけ本文カラムに揃える */
+  body.dt-shell .app-header {
+    padding-block: 12px;
+    padding-inline: var(--dt-gutter);
+  }
+  body.dt-shell .sync-banner { padding-inline: var(--dt-gutter); }
+
+  /* position:fixed 要素はビューポート基準なので body の padding が効かない。個別に逃がす。
+     フッターの中身は .footer-actions が自前で max-width:600px + margin:auto を持ち、
+     #app と同じ「ナビ右端〜画面右端」の中央に載るのでガター指定は不要。 */
+  body.dt-shell .app-footer { left: var(--dt-nav-w); padding: 12px 24px; }
+  body.dt-shell .pwa-update-banner,
+  body.dt-shell .chat-notif-banner { left: var(--dt-nav-w); }
+  body.dt-shell .toast,
+  body.dt-shell .od-flash { left: calc(50% + var(--dt-nav-w) / 2); }
+
+  /* 全画面テイクオーバー型（暗転しない実質ページ）はナビを隠さない */
+  body.dt-shell .ax-overlay,
+  body.dt-shell .od-overlay { left: var(--dt-nav-w); }
+
+  /* ── ボトムシート → 中央ダイアログ ── */
+  body.dt-shell .modal-overlay,
+  body.dt-shell .feedback-overlay,
+  body.dt-shell .name-modal-overlay,
+  body.dt-shell .os-overlay {
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+
+  body.dt-shell .modal-sheet,
+  body.dt-shell .feedback-sheet,
+  body.dt-shell .name-modal-sheet,
+  body.dt-shell .os-sheet {
+    border-radius: 16px;
+    max-height: 82vh;
+    padding-bottom: 24px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+    animation: dt-pop 0.16s ease-out;
+  }
+  /* .os-sheet だけ max-width を持たず width:100% で伸びるため、ここで止める */
+  body.dt-shell .os-sheet { max-width: 560px; }
+
+  /* ドラッグハンドルはタッチ専用の見た目なので隠す */
+  body.dt-shell .sheet-handle { display: none; }
+
+  @keyframes dt-pop {
+    from { transform: scale(0.97); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+  }
+
+  /* ── 入力系は広げすぎない ── */
+  body.dt-shell .voice-section {
+    max-width: var(--dt-reading-max);
+    margin: 0 auto;
+    padding: 20px 24px;
+  }
+  body.dt-shell .room-cta {
+    max-width: var(--dt-content-max);
+    margin: 18px auto 6px;
+    width: calc(100% - 48px);
+  }
+
+  /* ── セッション一覧・セッション詳細 ──
+     .tab-panel はスライドトラックの一枚なので width:50% を変えられない。
+     max-width ではなく padding-inline で内側を中央に寄せる。
+     カード一覧は表と違い、伸ばすほど1行が長くなって読みにくいので 760px で止める。 */
+  body.dt-shell .tab-panel,
+  body.dt-shell .tab-panel-scroll,
+  body.dt-shell .tab-panel-items,
+  body.dt-shell .tab-bar,
+  body.dt-shell .sessions-header,
+  body.dt-shell .detail-header {
+    padding-inline: max(20px, (100% - 760px) / 2);
+  }
+  body.dt-shell .tab-panel,
+  body.dt-shell .tab-panel-scroll { padding-block: 20px; }
+  body.dt-shell .sessions-header,
+  body.dt-shell .detail-header { padding-block: 18px 14px; }
+
+  /* 品目マスタ・入出庫は自前で max-width:620px を持つので幅はそのまま、余白だけ足す */
+  body.dt-shell .mp-scroll,
+  body.dt-shell .mv-scroll { padding: 20px 24px; }
+
+  /* ── 在庫テーブル ──
+     テーブルは幅が広がるほど読みやすくなるので伸ばしたままにし、
+     行のポインタ追従（hover）だけ足す。モバイルは :active のみで足りている。 */
+  body.dt-shell .inventory-section { padding: 0 24px; }
+
+  @media (hover: hover) {
+    body.dt-shell .item-row:not(.read-only):not(.conflict):hover {
+      background: var(--primary-weak);
+    }
+    /* .active は選択中を示す primary-bright の枠を持つので上書きしない */
+    body.dt-shell .session-card:not(.active):hover {
+      border-color: var(--primary-mid);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.09);
+      transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    body.dt-shell .tab-btn:not(.active):hover { color: var(--text); }
+    body.dt-shell .btn-back:hover,
+    body.dt-shell .btn-logout:hover { opacity: 0.65; }
+  }
+
+  /* ── ポインタ操作のフィードバック ──
+     モバイルは :active だけで成立するが、マウスは押す前の手応えが要る。
+     hover:hover で「本物のポインタがある環境」に限定し、タッチ端末のsticky hoverを避ける */
+  @media (hover: hover) {
+    body.dt-shell .search-btn:hover,
+    body.dt-shell .settings-btn:hover,
+    body.dt-shell .empty-items-btn:hover { opacity: 0.85; }
+
+    body.dt-shell .room-cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 26px rgba(37, 99, 235, 0.38);
+    }
+    body.dt-shell .menu-item:hover,
+    body.dt-shell .add-item-toggle:hover { background: #f1f5f9; }
+    body.dt-shell .continuous-stop-btn:hover { background: #fef2f2; }
+  }
+
+  /* キーボード操作の可視化はデスクトップで必須 */
+  body.dt-shell button:focus-visible,
+  body.dt-shell a:focus-visible,
+  body.dt-shell input:focus-visible,
+  body.dt-shell select:focus-visible,
+  body.dt-shell textarea:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+/* ── ポインタ環境ではクリックできる要素にカーソルを出す（全ブレークポイント共通）──
+   モバイル表示のPCブラウザや、ウィンドウを狭めた状態でも効かせたいので
+   dt-shell の外に置く。見た目は変えずカーソルだけを補う。 */
+@media (hover: hover) and (pointer: fine) {
+  .app-header button,
+  .sync-banner button,
+  .sync-participant-chip,
+  .recount-notice-toggle,
+  .conflict-notice-toggle,
+  .btn-complete,
+  .btn-export,
+  .btn-new-session { cursor: pointer; }
+}

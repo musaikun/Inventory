@@ -259,4 +259,48 @@ async function onStart() {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ── デスクトップ（>= 1024px）──
+   スマホでは画面いっぱいの縦積みで成立するが、PCだと幅400pxの要素が
+   広い余白に浮くだけになる。白いカードに載せて「置かれている」状態にする。 */
+@media (min-width: 1024px) {
+  .lp {
+    background:
+      radial-gradient(1100px 520px at 50% -10%, var(--primary-weak) 0%, transparent 62%),
+      #f8fafc;
+    padding: 40px;
+  }
+
+  .lp-body {
+    max-width: 448px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px 34px 30px;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.09);
+  }
+
+  .lp-logo { margin-bottom: 2px; }
+  .lp-logo-icon { font-size: 32px; }
+  .lp-logo-name { font-size: 25px; }
+  .lp-tagline { margin-bottom: 6px; }
+
+  .lp-card { padding: 20px 22px; }
+  .lp-legal { margin-top: 22px; }
+  .lp-legal a { text-decoration-color: #cbd5e1; }
+  .lp-legal a:hover { color: var(--primary); text-decoration-color: currentColor; }
+
+  .lp-card:focus-visible,
+  .lp-close-btn:focus-visible,
+  .lp-twa-login:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-card, .lp-card-host { transition: none; }
+  .lp-card:active { transform: none; }
+  .lp-card-host:hover:not(:disabled) { transform: none; }
+}
+
 </style>

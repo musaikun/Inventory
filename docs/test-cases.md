@@ -1,18 +1,41 @@
 # テストケース — 飲食店棚卸管理システム
 
-最終更新: 2026-07-15（自動テスト節を現況に同期。手動シナリオは同期コアの回帰用として維持）
-位置づけ: **同期・競合・オフラインの手動回帰シナリオ集**。新機能の手動チェックは
-`test-checklist-new-features.md`。E2E自動化（Playwright）は未導入（→ roadmap H）。
+- **Status:** 現行
+- **Role:** 同期・競合・offlineを中心とする恒久手動回帰仕様
+- **Source of truth:** 本書はケースの操作と期待結果の正本。実行対象は現行のpackage/config/test file、
+  Web公開判定は[Web公開準備](quality-foundation/web-release-readiness.md)を正とする
+- **Last verified:** 2026-08-04 / `develop@bc9fb85`
 
-## 自動テスト（Vitest）
+本書は件数や一回の成功結果を固定する場所ではありません。新規・変更タスク固有の検証は
+`docs/quality-foundation/tasks/<ID>.md`、実行履歴は
+[`session-log.md`](quality-foundation/session-log.md)へ、対象commit・command・環境・結果・未実施を記録します。
 
-ロジック単体は自動化済み。**app 323件 / worker 78件（2026-07-13 時点・全green）**。
-CI（GitHub Actions）がデプロイ前に全件実行する。
+## 文書間の責務
+
+| 種別 | 記録先 | 本書との関係 |
+|---|---|---|
+| 恒久回帰仕様 | 本書 | 複数端末、実WebSocket、offline、競合の再現手順と期待結果 |
+| タスク固有検証 | `quality-foundation/tasks/<ID>.md` | 変更ごとの失敗条件、対象file、command、結果 |
+| Web release gate | [`web-release-readiness.md`](quality-foundation/web-release-readiness.md) / [`WEB-001.md`](quality-foundation/tasks/WEB-001.md) | critical E2E、production smoke、rollbackを含む公開可否 |
+| 履歴実績 | [`session-log.md`](quality-foundation/session-log.md) / GitHub Actions | 日付とcommitに紐づく一回の証拠。恒久仕様にはしない |
+
+## 自動テストとの境界
+
+自動testの実行範囲は次を正とします。
+
+- App: `app/package.json`の`npm test`と`app/vitest.config.js`。現行includeは`src/**/*.test.js`
+- Worker: `worker/package.json`の`npm test`。Appとは別packageとして実行
+- Build: `app/package.json`の`npm run build`
 
 ```bash
-cd app && npm test      # フロント側
-cd worker && npm test   # Worker側
+npm --prefix worker test
+npm --prefix app test
+npm --prefix app run build
 ```
+
+上記はVitestとproduction buildの検証です。実browser、remote Worker/D1、複数端末の実WebSocketを通す
+critical E2Eや、公開URLのproduction smokeを代替しません。これらは現在
+`WEB-09` / `WEB-10`の未完gateです。
 
 下表は本書の手動ケースIDと対応する代表的なテストファイル（全ファイル一覧はソース参照）:
 
@@ -184,6 +207,9 @@ cd worker && npm test   # Worker側
 ---
 
 ## チェック結果記入欄
+
+この欄は実行時のworksheetです。release証拠として採用する場合は、結果だけでなく対象commit、
+環境/URL、実行者、日時、未実施項目をtask記録へ転記します。空欄は失敗を意味せず、未実施です。
 
 | ID | 結果 | メモ |
 |---|---|---|

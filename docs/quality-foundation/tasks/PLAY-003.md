@@ -4,6 +4,8 @@
 
 - 着手: 2026-07-26 / Codex
 - 主担当: Codex。Claude Codeは公開画面と文言を反映する。
+- 現在の扱い（2026-08-04 / D-021）: Web privacy、公開URL、第三者通信、保持・削除の整合は
+  W1で継続する。Play ConsoleのData Safety転記、TWA権限、reviewer向け最終照合はA1まで保留する。
 - 対象: PostHog、Push、位置情報、camera/microphone、upload、token、localStorage、log。
 - 監査台帳: [`../data-safety-audit.md`](../data-safety-audit.md)（収集・利用・共有・保存・削除・保持根拠とcode evidenceを記録）。
 - 初回監査(2026-07-26 / Codex): data flow台帳、Data Safety申告候補、retention、privacy差分、
@@ -23,8 +25,9 @@
   削除失敗、logout、account切替では保持する境界も一致した。Cloudflare公式でD1 Time Travel Free 7日、
   Workers Logs Free 3日を再確認した。対象5 files / 81 tests、App全体58 files / 502 tests、
   App production build、`git diff --check`が成功した。
-- 残り: 公開URL/contact、TWA microphone、`/pdf`削除可否の最終確認、
-  Workers Logsの閲覧担当・payload/masking・alert、provider共有例外、0010/0011適用承認、公開build networkを確定する。
+- W1の残り: 公開URL/contact、`/pdf`存廃、Workers Logsの閲覧担当・payload masking・alert、
+  provider共有例外、0010/0011適用承認、公開build networkを確定する。
+- A1へ保留: TWA microphone、Play Data Safety formのConsole最終照合。
 - 完了条件:
   - data typeごとに収集・利用・共有・保存・削除を一覧化する。
   - Data Safety申告案、privacy policy、実装が一致する。

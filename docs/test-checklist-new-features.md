@@ -1,7 +1,26 @@
 # テスト項目一覧 — 新機能（このフェーズの追加分）
 
-最終更新: 2026-07-28
-対象ブランチ: 実行時にGitで確認（現在`develop`）
+- **Status:** 履歴snapshot（現行release checklistではない）
+- **Role:** 2026-07-28までの追加機能について、task固有の手動確認候補を保存する
+- **Source of truth:** なし（履歴）。現在の期待値はcode/test、採用済み
+  [`decisions.md`](quality-foundation/decisions.md)、対象task fileを照合し、Web公開判定は
+  [`web-release-readiness.md`](quality-foundation/web-release-readiness.md)を正とする
+- **Last verified:** 2026-08-04 / `develop@bc9fb85`
+
+既存のcheck項目と未check状態は、作成時点の作業記録として保持します。未checkは現在のtask状態や
+release blockerを意味しません。D-016 / D-021などで置き換わった価格、PRO誘導、TWA判定を、
+本書から現行仕様へ戻しません。`?twa=1`はsigned artifactや配布面のpolicy境界ではありません。
+
+## 文書間の責務
+
+| 種別 | 記録先 |
+|---|---|
+| 恒久的な同期・競合・offline回帰 | [`test-cases.md`](test-cases.md) |
+| 現在のtask固有検証と完了条件 | `quality-foundation/tasks/<ID>.md` |
+| Web公開可否、critical E2E、production smoke | [`web-release-readiness.md`](quality-foundation/web-release-readiness.md) |
+| 過去の実行結果 | [`session-log.md`](quality-foundation/session-log.md) / GitHub Actions |
+
+本書を再利用する場合も、実行時branch/commit、環境/URL、command、結果、未実施をtask fileへ記録します。
 
 凡例: ✅=期待結果 / 🤖=自動テスト済 / 🖐=手動確認が必要 / 🔁=複数端末
 
@@ -15,7 +34,7 @@
 | **B** | ゲスト | 別端末 or シークレットウィンドウ |
 
 - 各端末の localStorage をクリア（DevTools → Application → Clear site data）
-- アプリ版UIの確認は URL に `?twa=1` を付与（例: `https://<branch>.inventory-app.pages.dev/?twa=1`）
+- 旧TWA確認の`?twa=1`手順は履歴。A1ではsigned artifactと分離した配布面で確認する
 - 初回公開ではPROを提供しない。localStorage値でPROを自己申告できないことも確認する
 
 ---
@@ -88,7 +107,7 @@
 
 ---
 
-## C. アプリ版（TWA）判定・価格非表示 🖐（判定は 🤖）
+## C. アプリ版（TWA）判定・価格非表示 🖐（履歴）
 
 `?twa=1` を付けてアクセスした状態で確認。
 
@@ -103,7 +122,7 @@
 
 ---
 
-## D. アプリ版ランディング 🖐
+## D. アプリ版ランディング 🖐（履歴）
 
 - [ ] **D-1** `?twa=1` でトップ（ランディング）を開く
   - ✅ 「✓ 無料版をご利用いただけます」表示
@@ -302,14 +321,18 @@
 
 ---
 
-## 自動テストの実行（リグレッション）
+## 作成時の自動test対応メモ（履歴）
+
+現在の件数を本書へ固定しません。実行対象は`app/package.json`、`app/vitest.config.js`、
+`worker/package.json`と現存する`*.test.js`を正とし、AppとWorkerを別packageで実行します。
 
 ```bash
-cd app && npm test       # フロント 189件
-cd worker && npm test    # バックエンド 65件
+npm --prefix app test
+npm --prefix worker test
 ```
 
-このフェーズで追加した自動テスト:
+次はこのsnapshot作成フェーズで追加した代表的な自動testです。現在の全test一覧ではありません。
+
 - `app/src/utils/planLimits.test.js` — 課金境界（B）
 - `app/src/composables/useConfig.planlimit.test.js` — 品目上限・CSV切り捨て（B）
 - `app/src/composables/useConfig.practice.test.js` — 空リスト・練習モードの退避/復元

@@ -1,10 +1,111 @@
 # API設計書 — 飲食店棚卸システム
 
-このドキュメントは2つの役割を持つ：
-1. **学習用** — 「APIとは何か」を、このアプリの実コードを教材に理解する
-2. **設計書** — 現状のAPIを明文化し、v2（DB設計v2）で追加するAPIを設計する
+| 項目 | 内容 |
+|---|---|
+| **Status** | 現行W1 API baseline（known gapを併記） |
+| **Role** | Web Free版で実装済みのHTTP/WebSocket境界を一覧化する派生仕様 |
+| **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
+| **Last verified** | 2026-08-04 / `develop@bc9fb85` |
+
+実装と矛盾する場合は上記code/migrationを優先します。account削除の詳細は
+[account deletion contract](quality-foundation/account-deletion-contract.md)、公開可否は
+[Web公開準備](quality-foundation/web-release-readiness.md)を正とします。
+
+## 現行W1 API baseline
+
+### 共通境界
+
+- JSON APIの成功はdataまたは`{ ok: true }`、失敗は主に`{ error, code? }`とHTTP statusで返す。
+- repositoryのCORSはOriginをallowlist照合し、許可外を403でfail-closedにする。ただし実Pages hostとの
+  設定不一致と旧production Workerは[WEB-001](quality-foundation/tasks/WEB-001.md)で未解消。
+- Bearerは`Authorization: Bearer <token>`。token有効期間は30日で、削除中/削除済みstoreは無効。
+- 「soft auth」はPIN設定storeで同店舗Bearer必須、PIN未設定legacy storeだけcodeで許可する。
+
+### 認証・account
+
+| Method / path | 現行contract | Auth |
+|---|---|---|
+| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。rate limit/bot対策は未実装 |
+| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
+| `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
+| `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
+| `POST /store/create` | PINなしlegacy store codeを作る旧経路 | 不要。廃止/保護をSEC-005で未解消 |
+| `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
+
+`DELETE /auth/account`は棚卸/発注の2 Durable Objectsを内部認証付きでpurgeし、D1の
+inventory/session/history/order/movement/config/Push/token等を削除します。store rowは匿名tombstone、
+requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功扱いにせず503を返し、同じrequestIdで
+再試行します。200/replay成功後だけAppがlocal業務data、端末ID/名、天気位置/cache、Push、authを消します。
+本番利用にはmigration 0011が必要で、現時点のproductionには未適用です。
+
+### Store data
+
+| Method / path | 主なbody / response | Auth |
+|---|---|---|
+| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは約100万文字guard | soft |
+| `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは約100万文字guard | soft |
+| `GET/POST /store/:code/history` | 日付keyのsnapshot、GETは新しい順50件。POSTは同日をupsert | soft |
+| `DELETE /store/:code/history/:date` | 日付単位でsnapshotを削除 | soft |
+| `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
+| `GET/POST /store/:code/orders` | `sinceDays`は1〜1000日、default 400。header + lines | soft |
+| `DELETE /store/:code/orders/:id` | 同store ownerだけ削除。不在/他storeは404 | soft |
+| `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
+| `DELETE /store/:code/movements/:id` | 同storeのheader/linesを削除し`{ok:true}` | soft |
+| `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成 | strict同store Bearer |
+| `PUT/DELETE /store/:code/sessions/:uuid` | status/itemCount更新または削除 | strict同store Bearer |
+| `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt? }` → `{ok,sessionId,itemCount,totalValue}` | strict同store Bearer |
+| `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
+
+movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
+GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。client recordの
+`source` / `importBatchId`は現行API/schemaへ保存されません。本番D1は0010未適用です。
+
+### Room / utility
+
+| Method / path | 現行contract | Auth / guard |
+|---|---|---|
+| `GET /room/:code/ws` | WebSocket upgrade。join成功前はping以外を拒否 | store存在gate + join時のD1 token/session条件 |
+| `GET /room/:code/status` | item/order件数、participants、room状態 | store存在 + IP probe制限 |
+| `POST /room/:code/dissolve` | `{hostToken}`一致でroom破棄 | store存在 + DO hostToken |
+| `GET /room/:code/result?s=:sessionId` | 最新完了結果の数量等を金額抜きで返す。3日または次回完了まで | 無認証。URL token相当 + IP probe制限 |
+| `GET /api/push/vapid-key` | `{key}` | 不要 |
+| `POST /pdf` | raw PDFを解析。active Bearer、宣言/実byteとも5 MiB以下 | Bearer + IP 30回/15分。全試行を計上 |
+| `GET /health` | text `OK` | 不要 |
+
+現行AppのPDF UIは`pdfjs-dist`によるclient解析で、`/pdf`を呼びません。endpointの存廃は
+PLAY-003 / WEB-001で未決です。
+
+### Plan / trial
+
+- 通常Workerの新規登録は`plan=free`。分離Pro Review環境だけ`DEFAULT_STORE_PLAN=pro`です。
+- backend entitlementは保存planを`free|pro`へ正規化しますが、trialは常に
+  `inTrial=false` / `trialEndsAt=null`で、Stripe/webhook/subscription処理はありません。
+- migration 0009は適用時点の既存storeを`pro`へ更新するため、DB上の既存値まで一律Freeとは断定しません。
+- 通常AppはAPI entitlementを機能gateへ保存せず、Pro Review用build変数以外をFree扱いします。
+  150品目/履歴3回はclient gate、2台制限はserver未強制です。
+
+### Known gaps
+
+| Task | API上の未解消事項 |
+|---|---|
+| [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
+| [DATA-001](quality-foundation/tasks/DATA-001.md) | order/movement header-lines、棚卸完了writeの原子性とfield/array上限 |
+| [DATA-002](quality-foundation/tasks/DATA-002.md) | `GET /store/:code/sessions/:id/lines`未実装、history同日上書き・孤児・別端末詳細 |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010/0011、Free server limits、E2E/smoke |
+
+### 将来A1（現行APIではない）
+
+[D-021](quality-foundation/decisions.md#d-021--web先行とplay向け将来フローの分離)で採用された
+Android app内登録起点の14日trialと、Web Stripe契約を同一accountへ反映するserver entitlementは未実装です。
+Web登録者へのtrial、Stripe/backendのrelease順、trial起算・再登録防止・grace、価格/上限は未決であり、
+このbaselineのendpoint contractには含めません。
 
 ---
+
+## 参考snapshot（旧学習・v2設計本文）
+
+> 以下は従来の学習説明と将来v2案を履歴参照用に残したものです。現行contractや実装済み判定には使わず、
+> 上の「現行W1 API baseline」とcode/migrationを優先してください。
 
 ## 0. APIとは何か（このアプリで理解する）
 
@@ -116,7 +217,7 @@ D1 データベース                               ← データを取る
 | POST | `/room/:code/dissolve` | 残存ルームの掃除 |
 | GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・金額除去 → `room-url-design.md`） |
 | GET | `/api/push/vapid-key` | プッシュ公開鍵 |
-| POST | `/pdf` | PDFから品目テキスト抽出 ⚠️ **無認証・サイズ無制限（監査 S-D・要対策）** |
+| POST | `/pdf` | PDFから品目テキスト抽出。**active Bearer必須・5 MiB・IP 30回/15分**（現行Appは未使用） |
 | GET | `/health` | 死活監視 |
 
 > 補足：リアルタイム同期だけ「HTTP（一往復）」ではなく「WebSocket（つなぎっぱなし）」を使う。

@@ -1,5 +1,9 @@
 # 共同品質基盤スプリント計画
 
+> **履歴snapshot:** この計画は2026-07-27〜2026-08-08のGoogle Play先行計画です。
+> 2026-08-04にD-021で公開順をWeb先行へ変更しました。現在の実行計画とrelease gateは
+> [`web-release-readiness.md`](web-release-readiness.md)を参照してください。以下の本文は当時の計画として保持します。
+
 期間: 2026-07-27〜2026-08-08  
 基準実装: `develop@131a36f` / app `0.66.0`  
 参加者: User / Codex / Claude Code
@@ -93,4 +97,3 @@ backendとUIを分離してから並行作業します。
 - App / Worker testとbuildがclean checkout相当で再現可能。
 - 未解決P0と公開対象P1が0件。
 - deploy、migration、store提出はUserの最終承認後にのみ実施する。
-

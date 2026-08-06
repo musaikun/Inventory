@@ -17,8 +17,13 @@
 - Checklist: [`../posthog-setup-checklist.md`](../posthog-setup-checklist.md)
 - 保持期間確定(2026-07-28 / User): PostHog Freeの範囲で、上記の疑似・最小eventを1年保持する。
   有効化と同時にprivacy policyとData Safetyへ記載する。
-- 残り: SDK再導入、同意UI、allowlist/before-send guard、analytics IDと削除連携、privacy/Data Safety更新、
-  公開buildのopt-out/opt-in/撤回network確認、PostHog dashboardで受信propertyを照合する。
+- 再導入準備(2026-08-04 / `dd68a50`):
+  - SDK、明示同意UI、event/property allowlist、analytics専用ID、account削除時cleanupを実装した。
+  - `VITE_POSTHOG_ENABLED=true`、public project token、EU hostの3条件が完全一致しないbuildでは無効。
+  - 自動capture/replay/error/log等をoffにし、slim no-external bundleを遅延loadする。
+- W1の残り: release buildで分析用変数を有効にせず、PostHogへのnetwork送信がないことを確認する。
+- 有効化releaseへ保留: privacy/Data Safety改定、opt-out/opt-in/撤回network確認、
+  PostHog dashboardの受信property、server側削除連携を照合する。
 - 完了条件: 収集最小化、同意、保存期間、privacy policy との一致を確認し、必要なら設定を変更する。
 
 ## 注意

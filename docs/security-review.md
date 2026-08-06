@@ -1,9 +1,61 @@
 # セキュリティレビュー — 飲食店棚卸システム
 
-> 2026-07-25以降の最新監査とP0/P1は
-> [`quality-foundation/audit-2026-07-25.md`](quality-foundation/audit-2026-07-25.md) および
-> [`quality-foundation/task-list.md`](quality-foundation/task-list.md) を参照してください。
-> 本文中の「残課題」「テスト件数」は作成時点の記録を含みます。
+| Field | Value |
+|---|---|
+| Status | **Current security baseline**。W1 Web Free版は未公開判定 |
+| Role | 実装済みsecurity境界と、Web公開前に閉じるgapの台帳。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
+| Source of truth | Worker/App code、migration、関連test、[task board](quality-foundation/task-list.md)、[decisions](quality-foundation/decisions.md) |
+| Last verified | **2026-08-04 / `develop@bc9fb85`**（repositoryとread-only production監査。deploy済みを意味しない） |
+
+## 現行baseline
+
+### 実装済みの境界
+
+| 境界 | 現行実装 | 根拠 |
+|---|---|---|
+| PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、login成功時は同店舗の既存tokenを失効 | [`authHandler.js`](../worker/src/authHandler.js) |
+| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
+| HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/pushはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
+| WebSocket | Workerがactive店舗をD1確認してからDOへ転送。join前はping以外を遮断し、PIN設定店舗のhost再発行は同店舗Bearer必須。D1障害・binding欠落は503/auth失敗で閉じる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js) |
+| guest data | guest宛てconfigから単価を除去し、完了結果APIも金額を除外。未参加socketにはbroadcastしない | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
+| account削除 | Bearer + PIN + 店舗code + UUID requestId。削除中は通常accessを遮断し、stock/order DOの接続・alarm・storageを破棄後、D1関連data/tokenをbatch削除。匿名receipt/tombstoneは7日 | [account deletion contract](quality-foundation/account-deletion-contract.md)、[`accountDeletion.js`](../worker/src/accountDeletion.js) |
+| payload / Push | config/inventory/history/order/movementは約1MB guard。Pushはstrict auth、8KiB、HTTPS endpoint/key形式、owner境界。PDFはauth、5MiB、IP rate limit | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`pushHandler.js`](../worker/src/pushHandler.js) |
+| browser policy | Pages sourceにCSP、`nosniff`、frame拒否、referrer/permission policyがある。scriptはself、接続先はWorker、weather、PostHog EUへ限定 | [`_headers`](../app/public/_headers) |
+| PostHog | SDKは3つのbuild条件（enabled/key/EU host）と明示同意が揃う場合だけ遅延初期化し、custom event/property allowlistを二重検証。自動capture/replay/error/logはoff | [`analytics.js`](../app/src/utils/analytics.js)、[`PRIV-001`](quality-foundation/tasks/PRIV-001.md) |
+
+### repository CORSとproductionの差
+
+- repositoryの`isAllowedOrigin()`はallowlist完全一致、旧project suffix、localhostだけを許可し、
+  未知Originを403で拒否する。許可Originだけを`Access-Control-Allow-Origin`へ反映する回帰testがある。
+- ただし`worker/wrangler.toml`の`ALLOWED_ORIGIN=https://inventory-app.pages.dev`と組み込みsuffix
+  `*.inventory-app.pages.dev`は、実project host `inventory-app-c40.pages.dev`と一致しない。
+- 2026-08-04のread-only probeではremote Workerが任意Originを反射する旧挙動だった。
+  したがってrepositoryのfail-closed実装を**production対策済みとは判定しない**。canonical確定、
+  config/test更新、Worker deploy、許可/拒否Originの実probeはWEB-02で行う。
+
+## Web公開前の既知gap
+
+| 優先 | Gap / release影響 | 追跡先 |
+|---|---|---|
+| P0 | production CORSが旧fail-open。repository設定も実host不一致 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
+| P1 | `/auth/register`にrate limit/bot対策がなく、legacy `/store/create`も無認証で店舗を作成できる | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
+| P1 | Free 2台・150品目・履歴3件は主にclient表示制御。DOはplan非依存で20台、server entitlementは上限を強制しない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
+| P1 | 棚卸完了、注文、移動のheader/linesやsnapshotが単一transactionでなく、部分成功を注入した回帰が未完 | [`DATA-001`](quality-foundation/tasks/DATA-001.md) / WEB-07 |
+| P1 | 履歴一覧・snapshot・`inventory_lines`のdata源が分裂し、別端末で詳細を読めない実害と孤児dataが確認済み | [`DATA-002`](quality-foundation/tasks/DATA-002.md) / WEB-07 |
+| P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
+| P1 | account削除に必要なproduction D1 0011と現行Workerは未反映。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |
+
+code test/buildは本更新で未実行。remote事実は2026-08-04の
+[WEB-001 read-only preflight](quality-foundation/tasks/WEB-001.md)を参照する。過去の成功件数は
+[session log](quality-foundation/session-log.md)に対象commitとcommandを残しており、現在HEADやproductionの
+成功へ読み替えない。
+
+## 参考snapshot（旧監査本文）
+
+以下は作成時点の監査記録として保持する。現行baselineと矛盾する場合は上のbaseline、code、
+現行taskを優先する。特に旧S-Aの「D1障害時fail-open」はD-015と現行codeにより
+**fail-closedへ置換済み**。旧CORSのproject suffix、PostHog状態、固定test件数も現況ではない。
 
 多店舗展開前のセキュリティチェックリスト。
 「対応済み」と「残課題」を一目で把握できるよう管理する。

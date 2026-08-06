@@ -2,10 +2,13 @@
 
 最終更新: 2026-07-25  
 Backend owner: Codex / UI・公開Web owner: Claude Code
+役割: W1 Webと将来A1で共用する削除境界の正本
+最新照合: 2026-08-04 / `develop@bc9fb85`
+状態: code/testは実装済み。本番D1 0011、canonical URL、実機確認は未完
 
 ## 目的
 
-Google Playのaccount deletion要件に対し、in-appと公開Webの両方から同じbackendを使って
+Web利用者の自己削除と将来のGoogle Play account deletion要件に対し、in-appと公開Webの両方から同じbackendを使って
 店舗accountと関連dataを削除します。論理削除だけで完了とはせず、業務dataを物理削除し、
 再利用や復元に使えない最小tombstoneだけを短期間保持します。
 

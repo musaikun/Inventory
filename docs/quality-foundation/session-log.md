@@ -2,6 +2,34 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-04〜2026-08-06 — DOC-001: Web公開を目標にdocs全体を再編
+
+- 担当: Codex。文書整理とread-only監査のみ。App/Worker実装は変更していない。
+- User判断をD-021へ記録し、現在と将来フローを分離:
+  - W1（現在）: Web/PWA Free版。trial、Stripe、Pro販売、PostHog有効化、Play配布なし。
+  - A1（将来）: Android app内登録を起点に14日Pro無料体験→Free。Web Stripeの明示契約を
+    同一accountのserver entitlementへ反映するconsumption-only Play版。
+  - Web登録へのtrial適用とStripe/backendの単独公開順は未決として残した。
+- docs配下90 Markdown＋export ZIPを棚卸し。正本、現行候補、runbook/draft、将来設計、履歴へ分類した。
+- `docs/README.md`を総合索引、`web-release-readiness.md`を現在のrelease gateとして新設。
+  WEB-001/DOC-001を作成し、task boardとagent入口をWeb先行へ同期。Play資料は削除せず後続へ保留した。
+- Dated audit、export、完了記録、過去session entryは改変していない。大量のfile移動/renameも行っていない。
+- 初回Web preflightで新たに確認したblocker:
+  - 文書の`inventory-app.pages.dev`は正常な公開先でなく、実project productionは旧build。
+  - develop previewのprivacy/terms/supportはPages上で308 redirect loop。
+  - remote Workerは旧CORSで任意Originを反射し、repositoryの許可Originは実Pages hostと不一致。
+  - production branch/Wrangler/rollback未固定、本番D1 0010/0011未適用。
+  - 登録濫用、Free 2台制限、履歴data integrity、observability、critical E2Eが未完。
+- `bug-reports.md`の壊れたrepository相対link 41件を`../../app` / `../../worker`へ修正。
+- Phase 2で`spec/api/sync/security/test/ci-cd`を`develop@bc9fb85`へ照合。現行W1 baseline、
+  known gap、旧reference snapshot、履歴実績の境界を追加し、DOC-001を完了した。
+- 8/5に並行追加されたUI-001とApp差分は保持し、DOC-001のcode変更・検証実績には含めていない。
+- 基準: `develop@bc9fb85`。develop Actions run `30882005257`はpreviewまで成功。
+- 未実施: code修正、test/build再実行、production deploy、migration、外部service変更、commit、push。
+- 最終検証: 92 files（Markdown 91 + ZIP 1）、local Markdown link全件解決、Markdown table列崩れなし、
+  `git diff --check`成功。DOC-001としてcode test/buildは未実行。
+- 次の再開地点: WEB-01のcanonical/contactをUserが決定後、Pages routing/CORS/deploy経路から着手。
+
 ## 2026-08-04 — PLAY-002: data削除境界の独立reviewとrace修正
 
 - 担当: Codex（data削除・Cache/SW・Worker/D1/DO）。Claude CodeのUI/a11y差分を保持し、

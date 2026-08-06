@@ -1,5 +1,83 @@
 # 同期アーキテクチャ仕様
 
+| Field | Value |
+|---|---|
+| Status | **Current baseline**。W1 Web Free版の同期・認可境界。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
+| Role | App / Worker / Durable Objects / D1の責務と、実装済み境界・既知gapを結ぶ現行仕様 |
+| Source of truth | [`useSync.js`](../app/src/composables/useSync.js)、[`RoomDO.js`](../worker/src/RoomDO.js)、[`index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、migration、関連test |
+| Last verified | **2026-08-04 / `develop@bc9fb85`**（code review。production反映済みを意味しない） |
+
+## 現行baseline
+
+### 権限とdataの正
+
+- `shopCode`は店舗account、room URL、DOのrouting keyを兼ねる。棚卸は`room:<shopCode>`、
+  発注は`room:<shopCode>:order`の別DOへ分離する。
+- active room中の共有在庫、発注数、config、recount flag、chat、audit、session状態は
+  **RoomDO storage**が共有stateの正。参加済み権限はWebSocket attachmentの`joined`、
+  `deviceId`、`isHost`を正とし、hibernation後も復元できる。
+- account、Bearer token、店舗data、session一覧、完了明細はD1が正。localStorageは端末cache、
+  host token、接続復元情報、未送信queueの一部を持つが、accountやserver entitlementの正ではない。
+- DOは一律20 device ID、24時間inactivity TTL、chat/audit各200件を上限とする。
+  この20台上限はplan-awareではなく、W1のFree 2台契約を強制していない。
+
+### 接続・join認可
+
+1. Workerの`/room/:code/{ws,status,dissolve}` gateが、削除中でない店舗をD1で確認してから
+   DOへ転送する。DB binding欠落、D1例外、店舗不明は503/404で閉じる。
+2. WebSocket upgrade後も、`join`成功前は`ping`以外を`join_required`（1008）で拒否し、
+   未参加socketへroom dataを配信しない。空`deviceId`、二重joinも拒否する。
+3. PIN設定店舗のhost tokenが一致しない初回発行・復旧では、有効Bearer tokenと店舗codeの
+   一致を必須にする。保護状態不明、DB欠落、D1例外は**fail-closed**。D1でPIN未設定と
+   明示確認できたlegacy店舗だけ、従来のtopology判定を使う。
+4. guestはactive sessionと一致する`joinSessionId`が必要。host-only操作はconfig、dissolve、
+   session start/end、conflict lock、品目追加応答。単価を含みうるconfigはguest宛てに除去する。
+
+根拠testは[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js)、
+[`RoomDO.hostAuth.test.js`](../worker/src/RoomDO.hostAuth.test.js)、
+[`index.test.js`](../worker/src/index.test.js)。現在turnでは再実行していない。
+
+### lifecycle・再接続
+
+- hostは`join`後に`session_start`を送り、新規sessionでは在庫、発注、flag、configを保存して
+  `session_started` snapshotを配信する。同一session IDの再開ではDOの既存stateを読む。
+- guestの初回参加はlocal在庫/configをhost snapshotへ揃える。再接続は1.5 / 3 / 6 / 12 /
+  30秒backoffで、在庫の`updatedAt`と切断時刻を比較する。双方更新かつ値が違う場合は
+  conflict、localだけ更新なら再送、server値があればserverを適用する。
+- 発注は在庫と異なり、参加・再接続時にDO snapshotを採用し、offline中のlocal発注編集を
+  再送しない。
+- `session_end`はDOの`isActive`をfalseにして通知する。恒久履歴のD1保存は別経路であり、
+  DOの終了通知だけでは履歴dataの永続化成功を保証しない。
+
+### account削除
+
+- [account deletion contract](quality-foundation/account-deletion-contract.md)に従い、Worker内部header付きで
+  棚卸・発注の2 DOへDELETEし、接続close、item request破棄、alarm削除、`deleteAll()`を行う。
+- DO purge成功後にD1関連dataをbatch削除する。DOまたはD1失敗は成功扱いにせず、同じ
+  `requestId`で再試行する。Appは削除成功時に同期socket、再接続timer、memory/local sessionを消す。
+- repository code/testは存在するが、production D1の0011適用と現行Worker deployは未完。
+
+## 既知gapと追跡先
+
+| Gap | 現状 | 追跡先 |
+|---|---|---|
+| Free接続上限 | Appの事前guardは新規端末のroom人数を信頼できず、DOはplanを見ず20台まで許可 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
+| 履歴の端末依存 | 一覧は`sessions`、表示snapshotはlocalStorage / `store_history`、明細は読取APIのない`inventory_lines`に分裂 | [`DATA-002`](quality-foundation/tasks/DATA-002.md) |
+| 完了writeの部分失敗 | snapshot保存は非awaitの別request。`inventory_lines`とsession完了更新、注文・移動のheader/linesも単一transactionではない | [`DATA-001`](quality-foundation/tasks/DATA-001.md) |
+| 未送信queue | snapshot/order/movement queueはmemoryのみでreloadに耐えず、保存失敗の恒久可視化もない | [`DATA-002`](quality-foundation/tasks/DATA-002.md) |
+| offline削除 | 在庫mergeにtombstoneがなく、切断中のlocal/server削除を区別できない。発注offline編集も破棄される | [`TEST-002`](quality-foundation/tasks/TEST-002.md) / WEB-09 |
+| hibernation | 品目追加要求のrequest先はmemory `Map`だけで、DO休止復帰時に失われる | [`DO-001`](quality-foundation/tasks/DO-001.md) |
+| production証拠 | critical host/guest再接続E2E、実production CORS/migration/smokeは未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+
+直近のCI成功は[session log](quality-foundation/session-log.md)の対象commit・commandを参照する。
+unit testの過去成功をproduction WebSocket / D1 / DO integration成功とは扱わない。
+
+## 参考snapshot（旧詳細）
+
+以下は既存の詳細説明を履歴として保持する。上のbaselineまたは現行codeと矛盾する場合は、
+上のbaseline、code、現行taskを優先する。特に旧「3方向マージ」の削除推定は現行実装に無く、
+削除tombstone問題は上記gapが正しい。
+
 ## メッセージフロー
 
 ```

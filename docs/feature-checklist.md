@@ -54,7 +54,8 @@
 - [ ] **[該当時]** 新エンドポイントは **`index.js` の認証ゲート（ソフト認証の正規表現）の内側**に入れ、`api-design.md` の一覧に認証区分つきで登録 → 事故 S-F（push/subscribe がゲート外）
 - [ ] **[該当時]** ペイロードサイズ上限（約1MB・S-03）とレート制限の要否（無認証エンドポイントは必ず → S-D の反省）
 - [ ] **[該当時]** プラン境界（無料/PRO/トライアルのどれで使えるか決めて `isPro()`/entitlements で囲う。→ `pricing-strategy.md`）
-- [ ] **[該当時]** TWA（アプリ版）で価格・課金導線が出ないか（`isTwaApp()` 分岐・Play ポリシー）
+- [ ] **[該当時]** 配布artifactごとの購入面を確認する。URL queryやlocalStorageのclient判定を
+  課金・policy境界の正にせず、Web購入面とPlay consumption-only面の漏洩testを持つ
 
 ## 6. ログ・監査
 

@@ -1,11 +1,12 @@
 # 共同作業ルール
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 
 ## セッション開始
 
 1. `git status --short --branch` で現在 branch と既存差分を確認する。
-2. `docs/quality-foundation/README.md` の順にsprint、現状、タスク、判断、直近logを読む。
+2. `docs/README.md` と `docs/quality-foundation/README.md` の順に、現在の公開gate、
+   タスク、判断、直近logを読む。
 3. 対象タスクを一つ選び、`task-list.md`（状態の正本）の状態と担当を更新する。
    進行中・未着手P0/P1の詳細と作業記録は `tasks/<ID>.md` に置く。
    優先度・状態・担当は詳細fileへ複製せず、`task-list.md`だけで管理する。
@@ -16,7 +17,8 @@
 - ユーザーの差分と、別エージェントが担当中の差分を上書きしない。
 - セキュリティ修正は、成立条件を示す失敗テストを先に追加または同じ差分に含める。
 - バグ修正と大型 refactoring を同じタスクに混ぜない。
-- 2026-08-08まではGoogle Play要件と品質基盤以外の機能を追加しない。
+- Web Free版のrelease gateが完了するまでは、Web公開・品質基盤以外の新機能を追加しない。
+  Stripe、trial、TWA、Play提出はD-021の後続マイルストーンとして扱う。
 - Cloudflare API、制限、設定は、実装時点の公式文書で再確認する。
 - DB migration は後方互換性、rollback 不能性、既存データを確認する。
 - deploy、commit、push、外部サービス変更はユーザーの明示依頼がある場合だけ行う。
@@ -54,8 +56,8 @@ AppとWorkerのVitest対象は2026-08-02に分離済みです。両packageを個
 4. `session-log.md` の先頭へ、変更、検証、残件、次の一手を追記する。
 5. 未追跡ファイルと意図しない差分がないか `git status` で確認する。
 
-最終release判定では、担当者自身の採点だけで完了にせず、
-`quality-scorecard.md` をCodexとClaude Codeが独立して評価します。
+現在のWeb release判定は`web-release-readiness.md`を使用し、production URLのUser確認を必須とします。
+Google Play releaseでは`quality-scorecard.md`をCodexとClaude Codeが独立して評価します。
 
 ## 競合時
 

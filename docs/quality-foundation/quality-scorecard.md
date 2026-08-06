@@ -1,5 +1,8 @@
 # 共同品質スコアカード
 
+> **適用対象:** D-021以前のGoogle Play release profileです。現在のWeb Free版のrelease判定には
+> [`web-release-readiness.md`](web-release-readiness.md)を使用します。Play着手時に公式要件を再確認して更新します。
+
 適用期間: 2026-07-27〜2026-08-08
 
 ## 採点規則
@@ -68,4 +71,3 @@
 | Q10 | — | — | — | — | |
 
 現在値は初回監査結果から推測せず、修正後の独立監査で初めて採点します。
-

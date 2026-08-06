@@ -2,6 +2,10 @@
 
 最終更新: 2026-08-04
 
+> **後続マイルストーン:** D-021により、現在はWeb Free版の公開を優先します。
+> この文書はA1（Android / Google Play）まで保留し、現在のWeb release gateには
+> [`web-release-readiness.md`](web-release-readiness.md)を使用します。
+
 公式資料を最終判断の正とします。
 
 - [Account deletion requirements](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en)

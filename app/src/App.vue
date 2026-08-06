@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
@@ -76,6 +76,8 @@ import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMat
 import UpgradeModal from './components/UpgradeModal.vue'
 import BarcodeScanner from './components/BarcodeScanner.vue'
 import MemberHistoryModal from './components/MemberHistoryModal.vue'
+import DesktopNav from './components/DesktopNav.vue'
+import { useMediaQuery, DESKTOP_QUERY } from './composables/useMediaQuery.js'
 import { track } from './utils/analytics.js'
 import { canJoinRoom, FREE_DEVICE_LIMIT, canAddItem, FREE_ITEM_LIMIT, isProReviewEnvironment } from './utils/planLimits.js'
 import { isTwaApp } from './utils/appMode.js'
@@ -527,6 +529,49 @@ const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length >
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
+
+// ── デスクトップシェル（サイドナビ + 広い本文）────────────────────────────────
+// 1024px 以上かつログイン済みの「アプリ内」画面でのみサイドナビを出す。
+// ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
+// matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
+const isDesktop = useMediaQuery(DESKTOP_QUERY)
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'session-detail']
+const showDesktopNav = computed(() =>
+  isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
+)
+
+// サイドナビは position:fixed のため、本文の逃げ幅は body の padding で確保する。
+// #app 自身の max-width / margin:auto を壊さずに済む。
+// data-view はサイドナビを持たない単独画面（ランディング等）をCSSから識別するために出す。
+watchEffect(() => {
+  if (typeof document === 'undefined') return
+  document.body.classList.toggle('dt-shell', showDesktopNav.value)
+  document.body.dataset.view = currentView.value
+})
+onUnmounted(() => {
+  if (typeof document === 'undefined') return
+  document.body.classList.remove('dt-shell')
+  delete document.body.dataset.view
+})
+
+// サイドナビからの画面遷移。棚卸画面からの離脱は保存・確認を伴うため onGoHome を通す。
+async function onDesktopNavigate(view) {
+  if (view === currentView.value) return
+
+  if (currentView.value === 'session') {
+    await onGoHome()
+    // 確認ダイアログをキャンセルした場合は遷移しない
+    if (currentView.value !== 'sessions') return
+    if (view === 'sessions') return
+  }
+
+  if (view === 'session') {
+    if (pendingSession.value) await onSessionResume(pendingSession.value)
+    return
+  }
+  if (view === 'movement') { openMovement(); return }
+  currentView.value = view
+}
 
 // メイン画面の目立つ「ルームを作成」CTA から呼ぶ。
 // SyncModal の作成フロー（セッション開始＝isActive 設定・QR生成・再接続判定）を
@@ -2111,6 +2156,23 @@ function dismissReview() {
   <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
 
     <ConnectionBanner />
+
+    <!-- ── デスクトップ用サイドナビ（1024px 以上・ログイン済みのアプリ内画面のみ）── -->
+    <DesktopNav
+      v-if="showDesktopNav"
+      :current-view="currentView"
+      :has-live-session="!!pendingSession"
+      :practice-mode="practiceMode"
+      :session-mode="sessionMode"
+      :sync-active="syncActive"
+      :sync-connected="!!syncState.isConnected"
+      :sync-room-code="syncState.roomCode ?? ''"
+      :participant-count="participantList.length"
+      :is-guest="syncActive && !syncIsHost"
+      @navigate="onDesktopNavigate"
+      @open-sync="showSync = true"
+      @open-feedback="openFeedback"
+    />
 
     <div v-if="proReviewBuild" class="pro-review-badge" role="status">
       PRO REVIEW · テストデータ

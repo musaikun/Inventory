@@ -393,4 +393,31 @@ function onLoginPinInput(e) {
   margin-top: 8px;
   line-height: 1.5;
 }
+
+/* ── デスクトップ（>= 1024px）──
+   カード自体はモバイルで既に成立しているので、幅と余白を少し足し、
+   マウス/キーボード操作の手応え（hover・フォーカスリング）だけ補う。 */
+@media (min-width: 1024px) {
+  .auth-page {
+    background:
+      radial-gradient(1100px 520px at 50% -10%, var(--primary-weak) 0%, transparent 62%),
+      var(--bg-secondary, #f8fafc);
+    padding: 40px;
+  }
+
+  .auth-card {
+    max-width: 448px;
+    padding: 38px 34px;
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.09);
+  }
+
+  .auth-tab:hover:not(.active) { color: var(--text); }
+
+  .auth-page button:focus-visible,
+  .auth-page input:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
 </style>

@@ -3,6 +3,10 @@
 飲食店棚卸システムを「100店舗以上・10年運用・Phase 2分析」に耐える構造へ移行するための設計。
 本書は**設計のみ**。実装は段階的に別途行う。
 
+> **役割:** 将来設計。現在の本番schemaの正本ではありません。
+> 現行schemaは`worker/migrations/*.sql`とschema sentinel、
+> 適用状況は[Web公開準備](quality-foundation/web-release-readiness.md)を参照します。
+
 ---
 
 ## 1. 現状（v1）の評価

@@ -71,8 +71,8 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 
 | 箇所 | 表示 | 判定条件 |
 |---|---|---|
-| [App.vue:387](app/src/App.vue#L387) | `この端末での棚卸データが見つかりません` | セッション詳細を開く際、ローカルにスナップショットが無い |
-| [HistoryCalendar.vue:554](app/src/components/HistoryCalendar.vue#L554) | `この端末に明細データが無いため、金額を計算できません` | 同上（`getSnapshotBySessionId` が null） |
+| [App.vue:387](../../app/src/App.vue#L387) | `この端末での棚卸データが見つかりません` | セッション詳細を開く際、ローカルにスナップショットが無い |
+| [HistoryCalendar.vue:554](../../app/src/components/HistoryCalendar.vue#L554) | `この端末に明細データが無いため、金額を計算できません` | 同上（`getSnapshotBySessionId` が null） |
 
 #### 確認できたデータ構造（これが端末依存の正体）
 
@@ -80,9 +80,9 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 
 | 種類 | 保存先 | 端末をまたぐか |
 |---|---|---|
-| セッション一覧（日付・件数・金額） | D1 `sessions`（[storeHandler.js:179](worker/src/storeHandler.js#L179)、`LIMIT 50`） | **またぐ** |
-| 棚卸の**明細スナップショット** | localStorage `inventory_history_v1`（[useHistory.js:17](app/src/composables/useHistory.js#L17)）＋ D1 `store_history` | **D1にある分だけまたぐ** |
-| 完了時の明細（品目・数量・単価） | D1 `inventory_lines`（[storeHandler.js:440](worker/src/storeHandler.js#L440)） | **またぐが、読み出すAPIが無い** |
+| セッション一覧（日付・件数・金額） | D1 `sessions`（[storeHandler.js:179](../../worker/src/storeHandler.js#L179)、`LIMIT 50`） | **またぐ** |
+| 棚卸の**明細スナップショット** | localStorage `inventory_history_v1`（[useHistory.js:17](../../app/src/composables/useHistory.js#L17)）＋ D1 `store_history` | **D1にある分だけまたぐ** |
+| 完了時の明細（品目・数量・単価） | D1 `inventory_lines`（[storeHandler.js:440](../../worker/src/storeHandler.js#L440)） | **またぐが、読み出すAPIが無い** |
 
 つまり「一覧はD1から来るので新端末でも並ぶが、詳細はローカル or `store_history` にしか無いので開けない」
 という組み合わせで、報告の症状（一覧は見えるが詳細が開けない）と一致します。
@@ -91,36 +91,36 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 
 **① ローカルのみのスナップショットをD1へ**押し上げる経路が存在しない（構造上の欠落・最有力）
 
-同期は `applyRemoteHistory`（[useHistory.js:249](app/src/composables/useHistory.js#L249)）による
+同期は `applyRemoteHistory`（[useHistory.js:249](../../app/src/composables/useHistory.js#L249)）による
 **D1 → ローカルの一方向だけ**。ローカルにしか無いスナップショットをD1へ送る処理は、
-`saveSnapshotToD1` の呼び出し2箇所（[App.vue:1116](app/src/App.vue#L1116) の棚卸完了時、
-[useDataImport.js:93](app/src/composables/useDataImport.js#L93) の過去取込時）だけで、
+`saveSnapshotToD1` の呼び出し2箇所（[App.vue:1116](../../app/src/App.vue#L1116) の棚卸完了時、
+[useDataImport.js:93](../../app/src/composables/useDataImport.js#L93) の過去取込時）だけで、
 **ログイン時・起動時のバックフィルが無い**。一度ローカルだけに残ったスナップショットは、
 その端末を離れると永久に届かない。
 
-**② D1保存の失敗キューがメモリ上にしか無い**（[useStore.js:15](app/src/composables/useStore.js#L15)）
+**② D1保存の失敗キューがメモリ上にしか無い**（[useStore.js:15](../../app/src/composables/useStore.js#L15)）
 
 `saveSnapshotToD1` は失敗すると `_snapQueue`（**モジュール変数**）へ積み、8秒ごとに再送する。
 アプリを閉じるとキューは消え、**localStorageには保存済み・D1には未保存**の状態が確定する。
 棚卸は冷蔵庫・倉庫など電波の弱い場所で完了することが多く、現実的に踏みやすい。
 `config`/`inventory` の `_pending` も同じ構造。
 
-**③ 店舗コードが無い時点の棚卸はD1へ保存されない**（[useStore.js:124](app/src/composables/useStore.js#L124)）
+**③ 店舗コードが無い時点の棚卸はD1へ保存されない**（[useStore.js:124](../../app/src/composables/useStore.js#L124)）
 
 `if (!shopCode.value || !BASE) return` で**黙って捨てる**。アカウント登録前・ログアウト状態で
 完了した棚卸は、ローカルのみに残る。またD1履歴同期は `531d84b`（店舗コード + D1 導入）以降の機能のため、
 **それ以前に取った棚卸は全てローカルのみ**。
 
 **④ 【本件の原因ではないが別バグとして残存】`store_history` が日付キーで、1日1件しか持てない**
-（[storeHandler.js:79-81](worker/src/storeHandler.js#L79-L81)）
+（[storeHandler.js:79-81](../../worker/src/storeHandler.js#L79-L81)）
 
 `ON CONFLICT(shop_code, snapshot_date) DO UPDATE` かつローカルも `_data[today]`
-（[useHistory.js:114](app/src/composables/useHistory.js#L114)）。
+（[useHistory.js:114](../../app/src/composables/useHistory.js#L114)）。
 **同じ日に2回棚卸すると、後の1件が前の1件を上書きする**。
 一方 `sessions` はセッション単位なので、一覧には2件並ぶが詳細は1件分しか無く、
 古い方は `getSnapshotBySessionId` が null になる。→ 端末変更と無関係にも起きる**別バグ**。
 
-**⑤ 【本件の原因ではないが別バグとして残存】履歴取得が `LIMIT 50`**（[storeHandler.js:68](worker/src/storeHandler.js#L68)）
+**⑤ 【本件の原因ではないが別バグとして残存】履歴取得が `LIMIT 50`**（[storeHandler.js:68](../../worker/src/storeHandler.js#L68)）
 
 `store_history` は日付単位50件、`sessions` は50件で**単位が違う**ため、件数が増えると
 「一覧に出るが履歴取得の窓から外れて詳細が無い」ズレが発生する。長期運用で必ず顕在化する。
@@ -131,10 +131,10 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 
 | 書き込み | 呼び出し | 待機 | 保存先 | 詳細表示に使われるか |
 |---|---|---|---|---|
-| スナップショット | `saveSnapshotToD1`（[App.vue:1116](app/src/App.vue#L1116)） | **await しない**（fire-and-forget） | `store_history` | **使う**（唯一の表示源） |
-| セッション完了 | `completeSessionD1`（[App.vue:1138](app/src/App.vue#L1138)） | **await する** | `sessions` ＋ **`inventory_lines`** | **使っていない** |
+| スナップショット | `saveSnapshotToD1`（[App.vue:1116](../../app/src/App.vue#L1116)） | **await しない**（fire-and-forget） | `store_history` | **使う**（唯一の表示源） |
+| セッション完了 | `completeSessionD1`（[App.vue:1138](../../app/src/App.vue#L1138)） | **await する** | `sessions` ＋ **`inventory_lines`** | **使っていない** |
 
-`handleSessionComplete`（[storeHandler.js:421-449](worker/src/storeHandler.js#L421-L449)）は
+`handleSessionComplete`（[storeHandler.js:421-449](../../worker/src/storeHandler.js#L421-L449)）は
 `insertInventoryLines` で**品目名・数量・単位・単価・金額を1行ずつ**保存してから
 `sessions.status = 'completed'` を書く。**カレンダーに完了済みとして日付が出ている＝この処理は成功している**ため、
 `inventory_lines` にはその棚卸の明細が残っているはず。
@@ -156,7 +156,7 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 - **①も同時に成立**: 仮にローカルには残っていても、D1へ押し上げる経路が無いため
   端末を替えた時点で復旧不能になった。
 - **代替候補（要確認）**: 新端末での `loadHistoryFromD1()` が401等で失敗し、
-  `.catch(() => null)`（[useStore.js:120](app/src/composables/useStore.js#L120)）が**黙って握り潰した**。
+  `.catch(() => null)`（[useStore.js:120](../../app/src/composables/useStore.js#L120)）が**黙って握り潰した**。
   この場合D1にはデータがあり、再ログインやリロードで直る可能性がある。
   → **D1を1回SELECTすれば②と代替候補を確実に区別できる**（下記）。
 
@@ -186,7 +186,7 @@ F-001〜F-004 はUser報告ではなく、R-001の調査中に発見したもの
 **確定した事実**
 
 1. カレンダーに出ている2026-07-07の棚卸は、**`store_history` にスナップショットが1件も無い**。
-   → `getSnapshotBySessionId` も日付フォールバックも外れ、[App.vue:387](app/src/App.vue#L387) のトーストに落ちる。**症状と完全に一致**。
+   → `getSnapshotBySessionId` も日付フォールバックも外れ、[App.vue:387](../../app/src/App.vue#L387) のトーストに落ちる。**症状と完全に一致**。
 2. **その棚卸の明細は `inventory_lines` に351行そのまま残っている**（数量329件・単位あり）。
    単価は未登録のため金額は復元できないが、**品目・数量・単位は完全に復旧可能**。
 3. `sessions` と `store_history` は**互いに参照整合性が無く、両方向に孤児が出ている**。
@@ -214,10 +214,10 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 
 #### 想定影響範囲（修正時に触る箇所）
 
-- App: [useHistory.js](app/src/composables/useHistory.js)、[useStore.js](app/src/composables/useStore.js)、
-  [App.vue](app/src/App.vue)（`_pullAccountConfig` / `_startSessionView` / mount）、
-  [HistoryCalendar.vue](app/src/components/HistoryCalendar.vue)
-- Worker: [storeHandler.js](worker/src/storeHandler.js)（history GET/POST、`inventory_lines` 読み出しを足す場合）
+- App: [useHistory.js](../../app/src/composables/useHistory.js)、[useStore.js](../../app/src/composables/useStore.js)、
+  [App.vue](../../app/src/App.vue)（`_pullAccountConfig` / `_startSessionView` / mount）、
+  [HistoryCalendar.vue](../../app/src/components/HistoryCalendar.vue)
+- Worker: [storeHandler.js](../../worker/src/storeHandler.js)（history GET/POST、`inventory_lines` 読み出しを足す場合）
 - migration: `store_history` をセッション単位にする案を採る場合は新規migrationが必要（**後方互換の検討必須**）
 - Data Safety台帳: 保存先・保持期間の記述に影響しうる（既存の申告内容と要照合）
 
@@ -249,7 +249,7 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 
 旧端末が無いため、**CSV書き出しによる移行は使えない**（旧端末のlocalStorageが唯一の書き出し元だった）。
 残る復旧手段は `inventory_lines` からの復元のみ。
-なお過去分の手入力での再登録は [useDataImport.js](app/src/composables/useDataImport.js) の
+なお過去分の手入力での再登録は [useDataImport.js](../../app/src/composables/useDataImport.js) の
 `importPastSnapshot` 経由で可能（D1にも保存される）。
 
 #### 他セッションとの関係
@@ -280,12 +280,12 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 
 | 対象 | 変更内容 |
 |---|---|
-| [storeHandler.js](worker/src/storeHandler.js) | `GET /store/:code/sessions/:id/lines` を追加。`inventory_lines` を `session_id` **と `shop_code` の両方**で絞る（`SEC-002` の店舗境界に合わせ、session_id 単独で引かない） |
-| [index.js](worker/src/index.js) | 上記ルートを追加。`/sessions` 系は前段の `verifyStoreAccess`（後方互換ソフト認証）ではなく、各ルートで `_requireAuth`（strict）を呼ぶ方式になっているため、**新ルートも `_requireAuth` に揃える**（レガシー店舗でも素通りさせない） |
-| [useStore.js](app/src/composables/useStore.js) | `loadSessionLinesFromD1(sessionId)` を追加 |
-| [App.vue:380-392](app/src/App.vue#L380-L392) | `onViewSession` を async 化。snapshot が無ければ lines を取得し、表示用 snapshot を組み立てて `detailSnapshot` に渡す。取得も失敗した時だけ現在のトーストを出す |
+| [storeHandler.js](../../worker/src/storeHandler.js) | `GET /store/:code/sessions/:id/lines` を追加。`inventory_lines` を `session_id` **と `shop_code` の両方**で絞る（`SEC-002` の店舗境界に合わせ、session_id 単独で引かない） |
+| [index.js](../../worker/src/index.js) | 上記ルートを追加。`/sessions` 系は前段の `verifyStoreAccess`（後方互換ソフト認証）ではなく、各ルートで `_requireAuth`（strict）を呼ぶ方式になっているため、**新ルートも `_requireAuth` に揃える**（レガシー店舗でも素通りさせない） |
+| [useStore.js](../../app/src/composables/useStore.js) | `loadSessionLinesFromD1(sessionId)` を追加 |
+| [App.vue:380-392](../../app/src/App.vue#L380-L392) | `onViewSession` を async 化。snapshot が無ければ lines を取得し、表示用 snapshot を組み立てて `detailSnapshot` に渡す。取得も失敗した時だけ現在のトーストを出す |
 
-組み立てる snapshot の形（[SessionDetailPage.vue](app/src/components/SessionDetailPage.vue) が要求する形）:
+組み立てる snapshot の形（[SessionDetailPage.vue](../../app/src/components/SessionDetailPage.vue) が要求する形）:
 
 ```
 { date, savedAt, sessionId, locked: true,
@@ -296,14 +296,14 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 - 復元できるもの: **品目名・数量・単位**（＋単価が登録されていれば単価と金額）
 - 復元できないもの: 参加者別集計・変更履歴・入力順ログ・所要時間 → 各タブは空表示になる
 - `locked: true` を立てる。3日の訂正期間はとうに過ぎており、
-  `isLocked`（[SessionDetailPage.vue:64](app/src/components/SessionDetailPage.vue#L64)）も真になるため、
+  `isLocked`（[SessionDetailPage.vue:64](../../app/src/components/SessionDetailPage.vue#L64)）も真になるため、
   **書き戻しの経路を作らずに済む**（`patchSnapshotItems` は snapshot がローカルに無いと動かないため）
-- 併せて [HistoryCalendar.vue:328](app/src/components/HistoryCalendar.vue#L328) の `noData` 判定も
+- 併せて [HistoryCalendar.vue:328](../../app/src/components/HistoryCalendar.vue#L328) の `noData` 判定も
   フォールバック後の状態を見るようにする（今回は単価が無いので金額は出ないが、警告文は消える）
 
 **Phase 2 — 同じ消失を再発させない**
 
-1. `_snapQueue` / `_pending` を localStorage へ永続化（[useStore.js:14-16](app/src/composables/useStore.js#L14-L16)）。再起動後も再送する
+1. `_snapQueue` / `_pending` を localStorage へ永続化（[useStore.js:14-16](../../app/src/composables/useStore.js#L14-L16)）。再起動後も再送する
 2. `saveState === 'pending'` をユーザーに見せる（現在は保存失敗が**完全に無言**）
 3. ログイン・起動時のバックフィル: ローカルにあってD1に無い snapshot を押し上げる
 
@@ -328,13 +328,13 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 
 - **発見日**: 2026-07-28（R-001の調査中）／**状態**: 確認済み・未修正／**深刻度**: P1（データ消失）
 - **内容**: 棚卸明細の保存キーが**日付**になっている。
-  - ローカル: `_data[today] = {...}`（[useHistory.js:114](app/src/composables/useHistory.js#L114)）
-  - D1: `ON CONFLICT(shop_code, snapshot_date) DO UPDATE`（[storeHandler.js:80](worker/src/storeHandler.js#L80)）
-  - 削除も日付単位: `DELETE ... AND snapshot_date = ?`（[storeHandler.js:87](worker/src/storeHandler.js#L87)）
+  - ローカル: `_data[today] = {...}`（[useHistory.js:114](../../app/src/composables/useHistory.js#L114)）
+  - D1: `ON CONFLICT(shop_code, snapshot_date) DO UPDATE`（[storeHandler.js:80](../../worker/src/storeHandler.js#L80)）
+  - 削除も日付単位: `DELETE ... AND snapshot_date = ?`（[storeHandler.js:87](../../worker/src/storeHandler.js#L87)）
 - **起きること**:
   1. 同じ日に2回棚卸すると、**2回目が1回目を無言で上書き**する。`sessions` には2件残るため、
      古い方は詳細が開けない（R-001と同じ症状）。
-  2. セッション削除は `deleteSnapshotFromD1(snap.date)`（[App.vue:1012](app/src/App.vue#L1012)）で
+  2. セッション削除は `deleteSnapshotFromD1(snap.date)`（[App.vue:1012](../../app/src/App.vue#L1012)）で
      **日付ごと消す**ため、同日の別セッションの明細まで巻き添えで消える。
 - **補足**: `today` は `new Date().toISOString().slice(0,10)` = **UTC日付**。
   JST 0:00〜8:59 に完了した棚卸は**前日のキー**になる。深夜の閉店後棚卸で日付がずれる。
@@ -344,8 +344,8 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 ### F-002: 履歴取得の `LIMIT 50` が `sessions` と単位違い
 
 - **発見日**: 2026-07-28／**状態**: 確認済み・未修正／**深刻度**: P2（長期運用で顕在化）
-- **内容**: `sessions` は**セッション50件**（[storeHandler.js:179](worker/src/storeHandler.js#L179)）、
-  `store_history` は**日付50件**（[storeHandler.js:68](worker/src/storeHandler.js#L68)）。
+- **内容**: `sessions` は**セッション50件**（[storeHandler.js:179](../../worker/src/storeHandler.js#L179)）、
+  `store_history` は**日付50件**（[storeHandler.js:68](../../worker/src/storeHandler.js#L68)）。
   母集団が違うため、件数が増えると「一覧に出るのに詳細が無い」ズレが必ず出る。
   加えて `store_history` は1件185KBに達しており（実測）、50件で**約9MBを毎回転送**する。
 - **修正方針（未実施）**: 一覧はメタ情報のみ、明細は開いた時に取得する形へ。または期間指定・ページング。
@@ -357,8 +357,8 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 
   | 画面 | データ源 | 実装 |
   |---|---|---|
-  | 履歴カレンダー | **D1 `sessions`** | [HistoryCalendar.vue:61](app/src/components/HistoryCalendar.vue#L61) `props.sessions` |
-  | 経営ダッシュボード・分析 | **snapshot（ローカル）** | [SessionListPage.vue:70](app/src/components/SessionListPage.vue#L70) `getSnapshots()` |
+  | 履歴カレンダー | **D1 `sessions`** | [HistoryCalendar.vue:61](../../app/src/components/HistoryCalendar.vue#L61) `props.sessions` |
+  | 経営ダッシュボード・分析 | **snapshot（ローカル）** | [SessionListPage.vue:70](../../app/src/components/SessionListPage.vue#L70) `getSnapshots()` |
 
   両者に参照整合性が無いため、**同じ棚卸が片方にしか出ない**。本番の実データで両方向とも発生していた。
 
@@ -375,7 +375,7 @@ SELECT session_id, COUNT(*) FROM inventory_lines WHERE shop_code = ? GROUP BY se
 ### F-004: セッション削除時、ローカルに明細が無いとD1側が孤児として残る
 
 - **発見日**: 2026-07-28／**状態**: 確認済み・未修正／**深刻度**: P2
-- **内容**: [App.vue:1006-1014](app/src/App.vue#L1006-L1014) の `onDeleteSession` は
+- **内容**: [App.vue:1006-1014](../../app/src/App.vue#L1006-L1014) の `onDeleteSession` は
   `getSnapshotBySessionId`（**ローカル**）で日付を引いてからD1を消す。
   ローカルに明細が無い端末（＝まさに機種変更後の端末）で削除すると、**D1の明細だけが残る**。
   さらに `deleteSnapshotFromD1(...).catch(() => {})` で失敗も握り潰す。

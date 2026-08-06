@@ -1,5 +1,9 @@
 # 現状スナップショット
 
+> **履歴snapshot:** 2026-07-25 / `develop@131a36f`時点の技術監査です。
+> 現在地として更新しません。現在の全体索引は[`../project-status.md`](../project-status.md)、
+> 公開判定は[`web-release-readiness.md`](web-release-readiness.md)を参照してください。
+
 検証日時: 2026-07-25（Asia/Tokyo）  
 対象ブランチ: `develop`（`origin/develop` を追跡）  
 対象コミット: `131a36f520e7350b995ec6e811452b10527e00c5`  

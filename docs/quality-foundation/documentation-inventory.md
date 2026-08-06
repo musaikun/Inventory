@@ -1,5 +1,45 @@
 # ドキュメント鮮度台帳
 
+最終監査: 2026-08-06
+実装基準: `develop@bc9fb85` / app `0.66.2`
+役割: 機械的な棚卸しと鮮度負債。総合索引は[`../README.md`](../README.md)を正とする。
+
+## 2026-08-04〜2026-08-06 棚卸し
+
+- 対象: 92 files（Markdown 91、export ZIP 1）。8/5に並行追加された`tasks/UI-001.md`を含む
+- `docs/export/`: 30 files。すべて履歴
+- 非export: 62 files
+- 物理移動・削除: なし
+
+| 分類 | 対象 |
+|---|---|
+| 作業・判断の正本 | `quality-foundation/README.md`、`task-list.md`、`decisions.md`、`working-agreement.md`、`web-release-readiness.md` |
+| 契約・法務の正本 | `account-deletion-contract.md`、`legal/terms.md`、`legal/privacy-policy.md` |
+| 現行overview・仕様 | `project-status.md`、`spec.md`、`api-design.md`、`sync-spec.md`、`security-review.md`、`roadmap.md`、`test-cases.md`、`ci-cd.md` |
+| Runbook / checklist / draft | D1復元、Pro Review、PostHog、Play readiness/reviewer/Data Safety、privacy retention |
+| 将来設計・提案 | `strategy-10yr.md`、`enterprise-design.md`、`db-design-v2.md`、ordering/order import設計、`proposals.md` |
+| 作業証拠 | `tasks/<ID>.md`、`bug-reports.md`、`session-log.md` |
+| 履歴 | dated audit、旧sprint/snapshot、`test-checklist-new-features.md`、completed task、`intake-reviews.md`、`docs/export/**` |
+
+### 現在の重大な鮮度差
+
+- 2冊の`project-status.md`: rootはoverview、quality-foundation側は2026-07-25 snapshotとして役割を分離した。
+- `spec/api/sync/security/test/ci-cd`は2026-08-06に現行code/workflowへ照合し、
+  current baselineと旧reference snapshotを分離した。未解消実装は各文書からtaskへ追跡する。
+- `ci-cd.md`のproduction branch、Wrangler版、rollbackは文書鮮度ではなくWEB-001の実装gapとして未確定。
+- legal正本の`https://<host>`、canonical URL、正式contactはUser判断待ち。
+- `bug-reports.md`のrepository root基準相対link 41件はDOC-001 Phase 1で修正済み。
+
+### 更新順
+
+1. Web公開gate、task board、判断、agent入口
+2. canonical/contact、Pages routing/CORS、production deploy/migration runbook
+3. canonical確定後にlegal原文・公開HTML・supportを同期
+4. release candidateで仕様、security、test、CIを対象SHA付き再検証
+5. 長期設計は対応機能へ着手するときに再照合
+
+## 2026-07-25 初回台帳（履歴）
+
 基準日: 2026-07-25  
 実装基準: `develop@131a36f` / app `0.66.0`
 

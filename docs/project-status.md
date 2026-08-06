@@ -1,12 +1,33 @@
 # プロジェクト現況と方向性
 
-最終方針更新: 2026-07-25 / 本文の機能棚卸し v0.58 系
-位置づけ: プロジェクト全体の現在地を1枚で把握する索引。相談・意思決定の起点。
+最終方針更新: 2026-08-04 / docs整理完了: 2026-08-06 / 実装確認基準 `develop@bc9fb85`
+位置づけ: product overview。タスク状態の正本ではありません。
 
-> 最新の検証済み技術状態は [`quality-foundation/project-status.md`](quality-foundation/project-status.md)、
-> 2026-07-27〜2026-08-08の共同品質基盤スプリントは
-> [`quality-foundation/sprint-plan-2026-07-27.md`](quality-foundation/sprint-plan-2026-07-27.md) を参照。
-> 期間中はGoogle Play要件と品質基盤以外の機能開発を停止する。
+> 現在の公開判定は[Web公開準備](quality-foundation/web-release-readiness.md)、
+> 状態・優先度・担当は[task board](quality-foundation/task-list.md)、
+> docs全体の役割は[docs案内](README.md)を正とします。
+> `quality-foundation/project-status.md`と旧sprint計画は2026-07-25時点の履歴です。
+
+## 現在の目標
+
+1. **W1（現在）**: Web/PWAのFree版を安全にproduction公開する。
+2. **A1（将来のAndroid / Google Play milestone）**: Android app内登録を起点に14日Pro無料体験を
+   提供し、終了後はFreeへ戻す。Webで明示的にStripe契約した同じaccountへserver entitlementを反映する。
+
+W1ではtrial、Stripe、Pro販売、PostHog有効化、TWA/Play提出を行いません。
+Web登録者へのtrial適用と、Stripe/backendをPlayより先に単独公開するかは未決です。
+
+## 実装スナップショット（2026-08-04）
+
+- HEAD `bc9fb85`まで、account削除のWorker/D1/DO/client、local data消去、Back制御、
+  focus/a11y回帰がcommit / push済み。
+- develop CI run `30882005257`はWorker/App test、App build、Pages preview deployに成功。
+- production dependencyの直近auditは0件。spreadsheet parserはworker隔離、size/complexity/timeout制限あり。
+- production公開は未完。本番URL/Pages artifact、CORS、legal route、D1 0010/0011、登録濫用、
+  Free 2台制限、履歴整合、observability、critical E2E、smokeがblocker。
+- production deploy、migration、外部service変更はUserの明示承認まで行わない。
+
+以下の機能棚卸しには過去versionの詳細が残ります。現在の優先順位・test件数・branchとしては使用しません。
 
 ---
 
@@ -17,14 +38,15 @@
 
 - フロント: Vue 3 + Vite（PWA）/ Cloudflare Pages
 - バックエンド: Cloudflare Workers + Durable Objects（WebSocket同期）
-- DB: Cloudflare D1（SQLite）— 認証・店舗・在庫・履歴の正
+- DB: Cloudflare D1（SQLite）— 認証・店舗・在庫を永続化。履歴をD1へ集約する設計だが、
+  履歴詳細のread path不整合は`DATA-002`で未解消
 - 認証: Bearer トークン（D1管理）
 
 ---
 
-## 2. 現在の状況（v0.58 系）
+## 2. 機能棚卸し（v0.58以降の履歴を含む）
 
-### 共同品質基盤スプリント（account deletion backend / 2026-07-25）
+### 共同品質基盤スプリント（account deletion backend / 2026-07-25・履歴）
 
 - `PLAY-001` backend完了: `DELETE /auth/account`、PIN/店舗code再確認、UUID requestId冪等処理。
 - D1 0011: 削除pending/request、匿名receipt、inactive accountへの再INSERT防止trigger。
@@ -105,7 +127,7 @@
 - 複数端末リアルタイム同期（Durable Objects + WebSocket）・競合解決
 - D1永続化・認証（店舗コード＋PIN）・セッション履歴・監査ログ
 - ゲスト品目追加 → ホスト承認フロー
-- 無料 / PRO プラン制限（後述）と TWA（アプリ版）対応
+- Free制限のclient土台とTWA用UI判定。server強制とsigned TWA/DAL/build/署名は未完
 - 招待リンク共有（ネイティブ共有 / LINE / メール）
 - 「空リスト / 練習モード」開始、品目追加フォームのトグル
 - **在庫分析ダッシュボード**（ManagerDashboard：在庫金額・前回差・ABC・曜日・信頼度）
@@ -117,19 +139,17 @@
 - **端末間のアカウント設定同期**（品目・軸を D1 経由で任意端末に再現／ログイン時の取りこぼし修正）
 
 ### 検討中（未実装・要吟味）
-- **料金・獲得戦略** → `docs/pricing-strategy.md`（2026-07-28採用：恒久無料枠＋将来のWeb PRO月額2,980円。
-  14日トライアル・自動課金なし）
+- **料金・提供順** → `docs/pricing-strategy.md`（W1 Web Free → A1 Android trial / Web Stripe。未決事項あり）
 - **過去発注（納品）履歴 取込** → `docs/order-history-import-design.md` v2（既存の入出庫/消費逆算/
   レシピ/名寄せエンジンへ、過去の納品を一括バックフィルする設計。**P0＋過去棚卸import＋ゲート表示は
   実装済み**。DB層＝source/import_batch_id列・バルクIngest・sinceDays窓拡張は別セッション）
 
 ### 品質
-- 自動テスト: 全green（CIがデプロイ前に全件実行。v0.48時点 app 323 / worker 78、
-  以後 orderSync・movementDraft・jpHolidays・demandFactors・orderScheduleUtil 等を追加）
-- CI/CD: GitHub Actions（main→本番、claude/**→プレビュー）
+- 自動test/buildの現在証拠は対象commit付きで`web-release-readiness.md`へ記録する。
+- `develop@bc9fb85`のpreview CIは成功。本番自動deployはなく、production release経路はWEB-001で整備中。
 
 ### 開発ブランチ
-- `claude/restaurant-inventory-system-0XNHA`
+- 固定しない。`git branch --show-current`で確認する。
 
 ---
 
@@ -139,8 +159,8 @@
 |---|---|---|
 | 無料プラン | 1店舗コード / 150品目 / 履歴直近3回 / 同期2台 / 取込は無料 | 中核機能を体験でき、履歴・規模で課金転換 |
 | 課金基盤 | Web=Stripe主体（実装は保留） | 手数料・全デバイス対応 |
-| アプリ版(Play) | リーダーアプリモデル（価格・決済導線を出さない／契約済みログイン入口のみ） | Google Play課金ポリシー回避 |
-| TWA判定 | `isTwaApp()` で分岐（`?twa=1`／android-app://） | アプリ版だけ価格非表示 |
+| アプリ版(Play) | A1でconsumption-only。Android登録trialとWeb契約済みserver entitlementを利用 | D-021 |
+| 配布面の境界 | URL query/localStorageをpolicy境界にしない。Stripe開始前にWeb購入面とPlay artifact/originを分離 | client判定漏洩を防ぐ |
 | ホスト同時ログイン | 1端末に制限（単一トークン） | 多重ホストによるセッション破壊を防止 |
 | 企業導入 | 設計のみ先行（E0=サーバー側プラン管理から） | 引き合い前の過剰投資を回避 |
 | AI | 方針確定・実装は保留（フェーズ3） | データが貯まってから着手 |
@@ -165,28 +185,15 @@
 
 ## 5. 次にやること
 
-### 最優先: Wave 2.5 — 信頼性と収益化準備（→ `roadmap.md` / 根拠は `holistic-review-2026-07.md`）
-1. **セキュリティ小改修** ✅ 2026-07-21（CORSフェイルクローズ S-E／CSP S-07／`/pdf`ガード S-D／WSゲスト prices サニタイズ S-G）
-2. **入出庫の D1 同期** — localStorage 専用のまま＝「無料の床」戦略の前提が崩れる
-3. **日次バックアップ（cron→R2・リストア検証込み）** — 「記録の正」の信頼性の根幹
-4. **退会・アカウント削除フロー** — Google Play 公開の必須要件
-5. 最小監視＋認証テーブル掃除 cron
+現在の順序は[Web公開準備](quality-foundation/web-release-readiness.md)を正とします。
 
-### 非機能・スケール対策（~1年以内の天井 → 詳細は roadmap.md の F 節）
-- **inventory_lines の R2 アーカイブ** — D1の10GB上限が最初に来る天井。要着手
-- **ライブ在庫の D1 書き込み削減** — `saveInventoryToD1`（30秒デバウンス）を完了時＋粗い間隔へ
+1. canonical/contact、Pages legal routing、本番origin/CORS、production deploy/rollbackを固定する。
+2. 本番D1 0010/0011、登録濫用、Free上限、履歴data integrityを解消する。
+3. observability、critical E2E、production smokeを整え、User承認でW1を公開する。
+4. W1の運用が安定してからAndroid trial、Web Stripe、server entitlementを設計・実装する。
+5. Web登録へのtrial適用とStripeの公開順をUserが決め、権利境界と配布面を検証後にA1を再開する。
 
-### フェーズ1→2の橋渡し（土台先行）
-- **E0: サーバー側プラン管理** — 🔧 `stores.plan`土台あり。14日トライアルと`LIMITS_DISABLED`/
-  localStorage自己申告は撤去済み。残りは認証APIのentitlementをAppへ配線し、上限をserver側でも強制すること。
-
-### 保留中（着手前に判断が要る）
-- **料金プラン実装** … 恒久無料枠は採用・client反映済み。Web Stripe/PROとserver enforcementは品質集中期間後
-- **消費量の逆算＋需要ベース発注予測** … 発注時在庫→納品入庫→次回在庫でデータの環は完成。
-  実データが貯まってから精度検証（入出庫・理論在庫・発注→入庫の連携は実装済み）
-- 決済（Stripe）実装 … サンドボックス検証待ち
-- 企業導入 E1以降 … 最初の企業引き合い後に実要望を聞いてから
-- AI / MCP … フェーズ1完了・データ蓄積後
+多店舗、AI、需要予測、大型refactoringなどはこの公開順より後に再評価します。
 
 ---
 
@@ -194,17 +201,18 @@
 
 | 知りたいこと | ドキュメント | 状態 |
 |---|---|---|
+| **docs全体の正本・履歴区分** | `docs/README.md` | 現行 |
 | 全体の現在地（この文書） | `docs/project-status.md` | 現行（更新は随時） |
 | 長期戦略・設計原則 | `docs/strategy-10yr.md` | 現行（安定） |
 | 実行計画（トラック別＋ウェーブ） | `docs/roadmap.md` | 現行 |
 | **全体レビュー（PM/QA/セキュリティ横断）** | `docs/holistic-review-2026-07.md` | 記録（2026-07） |
 | コード監査（リファクタ・スケール） | `docs/audit-2026-07.md` | 記録（対応状況を追記） |
-| セキュリティ対応状況 | `docs/security-review.md` | 現行（生きた台帳） |
-| アーキテクチャ全体・オンボーディング | `docs/spec.md` | 現行 |
-| API設計（現状＋v2） | `docs/api-design.md` | 現行 |
-| 同期アーキテクチャ | `docs/sync-spec.md` | 現行（安定） |
+| セキュリティ対応状況 | `docs/security-review.md` | 現行W1 baseline＋known gap |
+| アーキテクチャ全体・オンボーディング | `docs/spec.md` | 現行W1 baseline＋旧reference snapshot |
+| API設計（現状＋v2） | `docs/api-design.md` | 現行W1 API baseline＋将来v2 snapshot |
+| 同期アーキテクチャ | `docs/sync-spec.md` | 現行baseline＋known gap |
 | 企業導入（多店舗）設計 | `docs/enterprise-design.md` | 設計のみ |
-| 料金・獲得戦略（未実装メモ） | `docs/pricing-strategy.md` | 設計のみ |
+| 料金・提供順 | `docs/pricing-strategy.md` | W1採用仕様＋A1将来フロー |
 | 発注アシスト＆分析基盤 設計 | `docs/ordering-analytics-design.md` | 実装済み（A/B/D/E）＋残設計 |
 | 過去発注（納品）履歴 取込 設計 | `docs/order-history-import-design.md` | v2・P0実装済み（DB層は別セッション） |
 | ルーム限定URL設計 | `docs/room-url-design.md` | 実装済み（記録） |
@@ -212,8 +220,8 @@
 | **新機能の共通チェックリスト（DoD）** | `docs/feature-checklist.md` | 現行（PMセッションが改訂） |
 | **取り込みレビュー記録**（PM→実装・下り） | `docs/intake-reviews.md` | 現行（PMセッションが追記） |
 | **セッション提案箱**（実装/戦略→PM・上り） | `docs/proposals.md` | 現行（各セッションが追記・PMがトリアージ） |
-| 手動テスト: 同期コア回帰 | `docs/test-cases.md` | 現行 |
-| 手動テスト: 新機能 | `docs/test-checklist-new-features.md` | 現行 |
+| 手動テスト: 同期コア回帰 | `docs/test-cases.md` | 現行scenario。件数・一回の実績は保持しない |
+| 手動テスト: 新機能 | `docs/test-checklist-new-features.md` | 2026-07-28までの履歴snapshot |
 | CI/CD | `docs/ci-cd.md` | 現行 |
 | 法務（規約・プライバシー） | `docs/legal/` | 現行（課金開始時に改定要 → holistic-review §3.2） |
 

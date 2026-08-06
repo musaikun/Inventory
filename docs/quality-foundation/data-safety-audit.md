@@ -3,6 +3,8 @@
 最終更新: 2026-08-04
 担当: Codex
 状態: code対応・回答draft作成済み、DS-02整合完了、実環境/公開前 gate の確認待ち
+役割: W1のprivacy/data flow根拠。Play Console回答はA1までdraftとして扱う
+最新照合: 2026-08-04 / `develop@bc9fb85`（各証拠行の過去commitは履歴として保持）
 
 ## 1. 目的と監査基準
 

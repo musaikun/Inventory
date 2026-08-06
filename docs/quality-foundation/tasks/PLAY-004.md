@@ -1,7 +1,10 @@
 # PLAY-004 — TWA審査導線・store listing・screenshots
 
 - 状態の正本は [`../task-list.md`](../task-list.md)
-- **統合**: TWA価格表示・無料版2台制限（D-016の公開面への反映）は新規IDを作らず本タスクで扱う。
+- **現在の扱い（2026-08-04 / D-021）**: Web Free版の公開中は保留。TWA、reviewer、Play Console、
+  store listing、screenshotsはA1マイルストーンで再開する。
+- Free 2台制限はWeb利用規約にも影響するため、現在の公開gate
+  [`WEB-001`](WEB-001.md)へ移した。以下の過去監査記録は削除しない。
 
 - 着手: 2026-07-26 / Claude Code（前半＝TWA・reviewer導線・名称・store metadata の監査）
 - 分割: 前半は監査のみ（コード変更は指摘として起票）。公開legalページとURL導線は `PLAY-003` 完了後に実装。
@@ -14,7 +17,8 @@
   `twaMode` で分岐して非表示。呼び出しは `App.vue:2604` の1箇所のみで `:twa-mode="isTwaApp()"` を必ず渡す。
   `STRIPE_CHECKOUT_URL` は現在空文字（`planLimits.js:41`）で他からの参照なし。TWAでは
   `LandingPage` が「無料版＋PRO契約済みログイン入口」を出すのみ。
-  ※この監査時点の構成。2026-07-28のD-016対応で `twaMode` 分岐ごと撤去された（後述）。
+  ※この監査時点の構成。2026-07-28のD-016対応後も `twaMode` 分岐の土台は残っている。
+  A1再開時に実際の配布artifactで価格・外部購入導線が露出しないことを再照合する。
 - **P0相当の指摘: アプリ名が5表記に分裂。** manifest=`タナオロ`／`index.html` title=`棚卸入力`／
   apple-mobile-web-app-title=`棚卸`／`AuthPage`・`HomeScreen`=`棚卸管理`／`LandingPage`・
   `StoreSetupModal`=`棚卸アプリ`／`UpgradeModal`・onboarding・公開削除ページ=`タナオロ`。
@@ -136,7 +140,7 @@ Worker・App実装は無変更で、legal文面と回帰testのみ。
 ## 完了条件
 
 - TWAで価格・外部決済導線が露出しない。
-- Free店舗の3台目をWorker側で拒否し、Pro Review・同一端末再接続は拒否しない自動testを追加する。
+- ~~Free店舗の3台目をWorker側で拒否する。~~ → 現在のWeb gate `WEB-06`へ移管。
 - reviewerがlogin、主要機能、account削除を確認できる。
 - store説明・画像が提出buildの実機能と一致する。
 - 実dataやsecretを含まない言語別screenshotsを準備する。

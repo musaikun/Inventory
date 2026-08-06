@@ -1,6 +1,6 @@
 # 判断記録
 
-最終更新: 2026-08-02
+最終更新: 2026-08-04
 
 状態は `提案 / 採用 / 却下 / 保留 / 廃止` を使用します。採用済み判断を変える場合は
 既存項目を消さず、新しい項目から置き換え先を参照します。
@@ -183,6 +183,8 @@
 - 実装境界: 初回公開は全店舗をfreeとして扱い、公開前にFree店舗の2台制限をserver-sideで強制する。
   PRO開始前にStripe Webhook、server entitlement、その他のserver-side上限制御、解約・支払失敗・
   account削除との連携を別途実装する。
+- 適用範囲変更: Free上限、現在はtrial/課金なし、Web Stripe、Play内購入なしという**現行W1の実装境界**は
+  維持する。公開順と将来trialの方針はD-021が置き換える。
 
 ## D-017 — PostHogはFree・最小event・1年保持とする
 
@@ -216,6 +218,8 @@
   - 削除失敗時は認証・業務data・端末設定を保持し、再試行可能にする。
 - 実装境界: 現行buildと公開privacy/supportは「端末設定として残る」挙動に一致している。
   App実装とtestを先に変更し、同じreleaseでprivacy/support/Data Safetyを自動削除の説明へ更新する。
+- 実装結果: 2026-08-04にApp、回帰test、公開privacy/support/legal、Data Safety draftを同期済み。
+  production反映と実機確認はWEB-001 / PLAY-002で継続する。
 
 ## D-020 — 初期Cloudflare運用はFree planとしWorkers Logsを有効にする
 
@@ -227,3 +231,41 @@
   - Workers LogsはDashboardで有効化する（Userが設定済み）。
   - 規模拡大時にPaid planとD1 Time Travel 30日への変更を再検討する。
 - 残り: Workers Logsの実保持期間・閲覧担当・機密値masking、alert対象と通知先を`OPS-001`で確定する。
+
+## D-021 — Web先行とPlay向け将来フローの分離
+
+- 日付: 2026-08-04
+- 状態: 採用
+- 決定者: User
+- 判断:
+  1. **W1（現在）**: まずWeb/PWAのFree版を安全に公開する。現行どおり14日trial、Stripe、
+     Pro販売、自動課金は提供しない。
+  2. **A1（将来のAndroid / Google Play milestone）**: Google PlayからAndroid appをinstallし、
+     app内で新規account登録した利用者へ14日間のPro無料体験を付与する。終了後は自動でFreeへ戻す。
+  3. 利用者がWebでStripe契約を明示的に行った場合、同じaccountでAndroid appへloginすると
+     server entitlementによりProを自動反映する。Play版はconsumption-onlyとし、app内に
+     Stripe Checkout、外部購入link、購入CTAを置かない。
+- A1のtrial終了時にAndroid appへ表示する確定文言:
+
+  > 無料体験が終了しました。
+  >
+  > 現在、このアカウントでは利用可能なProプランがありません。
+  >
+  > Proプランをご利用いただくには有効な契約が必要です。
+
+- 権利境界:
+  - plan/trialの正はbackendとし、URL query、localStorage、TWA判定を権限の正にしない。
+  - 将来のStripe webhookは冪等に処理し、解約、支払失敗、猶予、返金、account削除を状態遷移へ含める。
+  - Stripeを有効にする前にWeb購入面とPlay配布artifact/originの分離方法を決定する。
+- 未決:
+  - Webから新規登録したaccountにも14日trialを付与するか。今回の判断ではAndroid app内登録だけを確定する。
+  - Stripe/backendをPlay公開前に単独releaseするか、Playと同時にreleaseするか。
+  - Android trialの厳密な起算時点、既存accountへのtrial付与、再登録防止、grace期間。
+  - 将来の最終価格、Pro上限、特商法・規約・privacy改定内容。
+- 置換関係:
+  - D-016の「Google Playを初回公開にする」という順序を置き換える。
+  - D-016の「初回公開ではtrialなし」はW1として維持する。
+  - 将来trialは上記Android app内登録フローだけを確定し、Web登録への適用は未決とする。
+  - D-016の月額2,980円確定を予定価格へ戻し、A1開始前に最終価格を再決定する。
+  - W1の実装・legalは現在のFree/no-payment状態を記述し、将来機能を提供前に現在形で掲載しない。
+- 現在のrelease gate: [`web-release-readiness.md`](web-release-readiness.md)
