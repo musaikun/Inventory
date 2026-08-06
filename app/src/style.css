@@ -1070,6 +1070,37 @@ body {
   }
   body.dt-shell .tab-panel,
   body.dt-shell .tab-panel-scroll { padding-block: 20px; }
+
+  /* セッションタブ（トラック1枚目）だけカードを2列に組む。
+     中身が「データ管理 / 棚卸 / 入出庫 / 発注 / スケジュール」の並列カードで、
+     1列だと横に細長い帯が縦に並ぶだけになるため。
+     2枚目は履歴カレンダーが主役でグリッド化すると崩れるので対象外にする。 */
+  body.dt-shell .tab-panels-track > .tab-panel:first-child {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 12px;
+    padding-inline: max(20px, (100% - 920px) / 2);
+  }
+
+  /* 主役（棚卸の開始／進行中）と見出し・エラー・データ管理は全幅のまま */
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .msg-error,
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .master-card,
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .hero-live,
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .hero-start,
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .section-title {
+    grid-column: 1 / -1;
+  }
+
+  /* 同じ行のカードは高さを揃える。.move-wrap だけボタンを内包する構造なので、
+     wrap自身が伸びてもボタンが伸びず、隣のカードと段差になる。ここで追従させる。 */
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .move-wrap {
+    display: flex;
+  }
+  body.dt-shell .tab-panels-track > .tab-panel:first-child > .move-wrap > .move-start {
+    flex: 1;
+  }
+
   body.dt-shell .sessions-header,
   body.dt-shell .detail-header { padding-block: 18px 14px; }
 
@@ -1122,6 +1153,14 @@ body {
   body.dt-shell textarea:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  /* ── 幅は足りるが指で操作する環境（横向きタブレット等）──
+     端末種別は判定しない。iPadOS Safari は自分を Macintosh と名乗るため UA では
+     区別できず、判定したいのは結局「入力が精密か」だけなので pointer で分岐する。
+     サイドナビ下部の設定・フィードバックだけが 44px を下回るのでここで確保する。 */
+  @media (pointer: coarse) {
+    body.dt-shell .dt-nav-mini { padding-block: 13px; }
   }
 }
 
