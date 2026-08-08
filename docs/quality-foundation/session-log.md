@@ -2,6 +2,30 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — S1: 担当と公開範囲の記録更新（CC 第1セッション）
+
+- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の第1セッション S1。**docsのみでcode変更なし**。
+- 作業ブランチ `claude/branch-operational-status-2lwwwu` を3セッション共有として確定。
+  `develop@f8da4c1` を fast-forward 取り込み済み。
+- 担当変更: `DATA-001` を Codex → **Claude Code**、`DATA-002` を 未割当 → **Claude Code**。
+  優先度・状態・release gate（`WEB-01`〜`WEB-10`）の判定基準は変更していない。
+- 初回Web版の中心を **棚卸業務の効率化** と明記。第一導線は
+  「品目を準備 → 棚卸開始 → 入力 → 完了 → 履歴」。入出庫・発注確認は **β機能**、出庫は主導線から外す。
+  新機能は追加せず既存機能の整理と安定化に限定する方針を `task-list.md` と
+  `web-release-readiness.md` の両方へ記載した。
+- `DATA-002.md` の「着手時期: Codexの作業が完了した後。それまで着手しない」（2026-07-28 User判断）を
+  **打ち消し線で原文を残したまま失効**とし、失効理由（担当がCCへ移り前提が成立しない）と
+  新しい着手時期（即時着手可・ただしPhase 1をSEC-005より先に完了）を追記した。
+- **`DATA-002` Phase 1 → `SEC-005` の順序を固定**。`worker/src/index.js` の store ルート群で競合するため。
+  `DATA-002.md` / `SEC-005.md` / `task-list.md` / `web-release-readiness.md`（`WEB-05`）へ記載。
+  CCはPhase 1完了時にCodexへ着手可を通知する。
+- `DATA-002` **Phase 3** と **過去棚卸取込の再設計** を初回公開scope外（公開後）と確定。
+  Phase 3 は migration を伴い、本番D1に 0010/0011 未適用（`WEB-04`）のため判断材料が揃わない。
+  過去棚卸取込は Phase 3 完了が前提。新規IDは作らず `DATA-002` の公開後フェーズとして扱う。
+- `WEB-07` の Owner を Codex → **Claude Code / Codex** へ更新（実装がCCへ移ったため。公開判定はCodexのまま）。
+- 未実施: code修正、test/build（docsのみのため）、production deploy、migration、外部service変更。
+- 次の再開地点: 第1セッションの **S2（品目マスタ取込の止血）**。その後 S3（DATA-002 Phase 1）→ S4（DATA-001）。
+
 ## 2026-08-04〜2026-08-06 — DOC-001: Web公開を目標にdocs全体を再編
 
 - 担当: Codex。文書整理とread-only監査のみ。App/Worker実装は変更していない。

@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-06
+最終更新: 2026-08-08
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -20,6 +20,18 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 
 ## 現在のマイルストーン: Web Free版
 
+### 初回Web版の中心（2026-08-08 確定）
+
+初回Web版の中心は **棚卸業務の効率化** です。第一導線は
+「品目を準備 → 棚卸開始 → 入力 → 完了 → 履歴」で、棚卸開始を最も目立つ主操作とします。
+
+- **入出庫・発注確認は中核機能ではなく β機能** として位置づけます。理論在庫は記録状況によって
+  誤差が出るため、その旨を画面に明示します。発注確認は仕入先へ自動送信しません。
+- **新機能は増やしません。** 今回のscopeは既存機能の整理と安定化に限定します。
+  画面構成の再編（棚卸中心へ戻す）は機能追加ではなく整理として扱います。
+- 公開scopeの正本は [`web-release-readiness.md`](web-release-readiness.md)、
+  CC側の実行順は [`cc-session-plan.md`](cc-session-plan.md) にあります。
+
 | ID | P | 状態 | 担当 | Web公開との関係 | 詳細 |
 |---|---:|---|---|---|---|
 | WEB-001 | P0 | 保留 | Codex | DOC-001完了。WEB-01のUser判断後に実装再開 | [WEB-001.md](tasks/WEB-001.md) |
@@ -27,9 +39,9 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| DATA-002 | P1 | 未着手 | 未割当 | 別端末で履歴詳細を読めない実害と参照不整合 | [DATA-002.md](tasks/DATA-002.md) |
-| SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | 未着手 | Codex | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-002 | P1 | 未着手 | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。Phase 1/2のみ今回scope | [DATA-002.md](tasks/DATA-002.md) |
+| SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止。**DATA-002 Phase 1 の完了後に着手** | [SEC-005.md](tasks/SEC-005.md) |
+| DATA-001 | P1 | 未着手 | Claude Code | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -47,6 +59,18 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。
 モバイル表示は非改変のため、release gate側の375px検証をやり直す必要はありません。
 実ブラウザでの目視確認は未実施です。
+
+### 初回公開scope外（着手しない・2026-08-08 確定）
+
+新規IDは作らず、既存タスクの公開後フェーズとして扱います。
+
+| 対象 | 統合先 | 着手の前提 |
+|---|---|---|
+| DATA-002 **Phase 3**（`store_history`のsession単位キー化・データ源一本化・`LIMIT 50`見直し・削除のサーバー側完結） | [DATA-002](tasks/DATA-002.md) | PM判断 ＋ `WEB-04`（本番D1 migration 0010/0011の適用） |
+| 過去棚卸取込の再設計（`importBatchId`・日付衝突の選択・一括取消） | [DATA-002](tasks/DATA-002.md) | **Phase 3 完了後**。履歴が日付キーのままでは成立しない |
+
+Phase 3 は migration を伴い、本番D1に 0010/0011 が未適用の現状では判断材料が揃いません。
+今回実装するのは **Phase 1（別端末からの明細取得・R-001復旧）と Phase 2（保存失敗の可視化・バックフィル）** だけです。
 
 14日trial/StripeはD-021のA1将来フローとして保持します。W1完了前に実装タスクを開始しません。
 Web登録へのtrial適用とStripe/backendの単独公開順はUser判断待ちです。
@@ -105,6 +129,10 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-08: `DATA-001` の担当を Codex → **Claude Code**、`DATA-002` の担当を 未割当 → **Claude Code** へ変更。
+  初回Web版の中心を「棚卸効率化」、入出庫・発注確認を β機能 と明記し、新機能を増やさない方針を記載。
+  `DATA-002` Phase 1 → `SEC-005` の着手順を固定（`worker/src/index.js` の store ルート群で競合するため）。
+  `DATA-002` Phase 3 と過去棚卸取込の再設計を初回公開scope外へ。優先度・状態・release gateは変更していない。
 - 2026-08-05: `UI-001`（デスクトップ表示）を次のマイルストーンへ追加。User指示で実装済み・PMトリアージ待ち。
   release gate（`WEB-01`〜`WEB-10`）とWeb Free版のscopeは変更していない。
 - 2026-08-04: D-021により現在目標をWeb Free版へ変更。WEB-001を新設し、DOC-001だけをCodex進行中へ変更。

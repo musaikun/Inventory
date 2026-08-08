@@ -4,7 +4,7 @@
 - **Role:** User が CC セッションへ指示を出すための台本。8タスクを3セッションに束ねた割り振りと、各タスクの完了条件を持つ
 - **Source of truth:** 状態は [`task-list.md`](task-list.md)、完了条件の正本は各 `tasks/<ID>.md`、
   公開可否は [`web-release-readiness.md`](web-release-readiness.md)。**本書はそれらの実行順を示すだけで、状態の正本ではない**
-- **Last verified:** 2026-08-08 / `develop@eb99895`
+- **Last verified:** 2026-08-08 / `develop@f8da4c1`
 - **破棄条件:** 第3セッション完了時、または公開スコープが変わった時点で削除する。恒久docsへ残さない
 
 ---
@@ -39,9 +39,19 @@ cd worker && npm test          # Worker ユニットテスト
 | commit | 内容 | 状態 |
 |---|---|---|
 | `37128a4` | デスクトップUI（サイドナビ・レイアウト層）＋ DOC-001 の文書整理 | push済み |
-| `eb99895` | セッションタブの2列グリッド＋タッチ環境のタップ領域 | **未push** |
+| `eb99895` | セッションタブの2列グリッド＋タッチ環境のタップ領域 | push済み（develop CI success） |
+| `f8da4c1` | 本書の追加 | push済み |
 
 `eb99895` は取り消さない。S8 で該当CSSを書き換える（詳細は S8 の完了条件）。
+
+### 作業ブランチ（3セッション共有）
+
+```
+claude/branch-operational-status-2lwwwu
+```
+
+3つの会話セッションが**同じブランチ**を共有する。**着手前に必ず `git pull`、完了後に push** する。
+第2セッション（S5/S6）は `worker/` に触らないため、第1セッション（S3/S4）と並行しても衝突しない。
 
 ### 主要ファイル地図（本計画で触る範囲）
 
@@ -161,16 +171,21 @@ S8 を最後にするのは、データ層の結果を反映する側だから�
 
 ## 各タスクの完了条件
 
-### S1 — 担当と公開範囲の更新（docs のみ）
+### S1 — 担当と公開範囲の更新（docs のみ） ✅ 完了（2026-08-08・第1セッション）
 
-- [ ] [`task-list.md`](task-list.md) の DATA-001 担当を Codex → **CC**
-- [ ] 同 DATA-002 担当を 未割当 → **CC**
-- [ ] 初回Web版の中心を「**棚卸効率化**」と明記
-- [ ] 入出庫・発注確認を中核機能ではなく **β機能** と位置づける
-- [ ] 新機能は増やさず既存機能の整理と安定化に限定する旨を明記
-- [ ] [`DATA-002.md`](tasks/DATA-002.md) の着手時期の判断を上書き（経緯を残す）
-- [ ] DATA-002 Phase 1 → SEC-005 の順序を両docへ明記
-- [ ] Phase 3 / 過去棚卸取込を公開後スコープと明記
+- [x] [`task-list.md`](task-list.md) の DATA-001 担当を Codex → **CC**（`Claude Code` 表記）
+- [x] 同 DATA-002 担当を 未割当 → **CC**
+- [x] 初回Web版の中心を「**棚卸効率化**」と明記 … `task-list.md`「初回Web版の中心」節 ＋
+      [`web-release-readiness.md`](web-release-readiness.md)「公開scope」
+- [x] 入出庫・発注確認を中核機能ではなく **β機能** と位置づける（同上2箇所）
+- [x] 新機能は増やさず既存機能の整理と安定化に限定する旨を明記（同上2箇所）
+- [x] [`DATA-002.md`](tasks/DATA-002.md) の着手時期の判断を上書き（打ち消し線で原文を残し、
+      失効理由と新しい着手時期を追記）
+- [x] DATA-002 Phase 1 → SEC-005 の順序を両docへ明記（[`DATA-002.md`](tasks/DATA-002.md)
+      「着手順」節 ／ [`SEC-005.md`](tasks/SEC-005.md)「着手順」節。`task-list.md` と
+      `web-release-readiness.md` の `WEB-05` にも記載）
+- [x] Phase 3 / 過去棚卸取込を公開後スコープと明記（`task-list.md`「初回公開scope外」節、
+      `DATA-002.md`「今回の公開scope」表、`web-release-readiness.md`「今回の対象外」）
 
 ### S2 — 品目マスタ取込の止血
 

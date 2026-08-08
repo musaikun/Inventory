@@ -1,14 +1,18 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-04
+最終更新: 2026-08-08
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
 
 ## 公開scope
 
-今回公開するのはWeb/PWAのFree版です。
+今回公開するのはWeb/PWAのFree版です。**中心は棚卸業務の効率化**で、第一導線は
+「品目を準備 → 棚卸開始 → 入力 → 完了 → 履歴」です。
 
 - account登録、店舗コード+PIN login、棚卸、同期、履歴、取込・書出しを提供する。
+- **入出庫・発注確認は中核機能ではなくβ機能**として提供する。理論在庫は記録状況によって誤差が出る旨を
+  画面に明示し、発注確認は仕入先へ自動送信しない。出庫は初回公開の主導線から外す。
+- **新機能は追加しない。** 今回は既存機能の整理と安定化に限定する（画面構成の再編は整理として扱う）。
 - 現行Free上限を公開文面と実装で一致させる。
 - 14日無料体験、Stripe、Pro販売、自動課金は提供しない。
 - PostHogはrelease buildで無効とし、送信がないことを確認する。
@@ -24,9 +28,9 @@
 | WEB-02 | production origin / CORS | remote Workerは2026-08-04確認時に任意Originを反射する旧状態。実hostを`ALLOWED_ORIGIN`とtestへ反映し、deploy後に許可/拒否を実probe | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
 | WEB-04 | D1 migration | 本番で未適用の0010/0011をpreflightし、User承認後に適用。schema確認後にWorkerを更新 | Codex / User |
-| WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
+| WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護。**`WEB-07`のDATA-002 Phase 1完了後に着手**（同じstoreルート群で競合） | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
-| WEB-07 | 履歴・data integrity | DATA-002 Phase 1/2と、棚卸完了時の独立writeによる欠落を解消し、別端末から詳細を取得可能にする | Codex |
+| WEB-07 | 履歴・data integrity | DATA-002 Phase 1/2と、棚卸完了時の独立writeによる欠落（DATA-001）を解消し、別端末から詳細を取得可能にする。Phase 3はscope外 | Claude Code / Codex |
 | WEB-08 | observability | log masking、閲覧担当、最低限のalert/通知先、障害確認手順を確定 | User / Codex |
 | WEB-09 | critical E2E | 登録→棚卸→同期/再接続→別browser履歴→削除を本番相当環境で安定実行 | Codex |
 | WEB-10 | production smoke / rollback | 公開URLで主要route・API・CORS・PWA・legal・削除を確認し、直前版へ戻す手順を検証 | User / Codex |
@@ -77,6 +81,10 @@ frontend/Workerのrollbackとdata recoveryを分けて記録します。
 
 ## 今回の対象外
 
+- DATA-002 **Phase 3**（`store_history`のsession単位キー化、データ源一本化、`LIMIT 50`見直し、削除のサーバー側完結）。
+  migrationを伴い、`WEB-04`完了とPM判断が前提
+- 過去棚卸取込の再設計（`importBatchId`、日付衝突の選択、一括取消）。**Phase 3完了後**
+- 推奨発注・分析・スケジュールの新規拡張
 - 14日Pro無料体験、trial entitlement
 - Stripe Checkout / Customer Portal / webhook
 - Pro契約の解約、支払失敗、猶予、返金
