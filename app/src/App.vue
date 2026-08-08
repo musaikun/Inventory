@@ -36,8 +36,9 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
-  loadMovementsFromD1,
+  loadMovementsFromD1, resumePendingSaves,
 } from './composables/useStore.js'
+import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { useDayNotes } from './composables/useDayNotes.js'
@@ -268,6 +269,17 @@ async function onLandingStarted(payload) {
   }
 }
 
+// D1 の履歴を端末へ反映し、端末にしか無いスナップショットを送り直す（DATA-002 Phase 2）。
+// 完了時の保存が片方だけ失敗すると「一覧には出るが詳細が開けない」状態が残るため、
+// 履歴を読むタイミング（起動・ログイン・セッション開始）ごとに片落ちを埋める。
+// 差分の判定は applyRemoteHistory より前に行う（後だとローカルがリモートで潰れて差分が消える）。
+async function _syncHistoryFromD1(remoteHistory) {
+  const toBackfill = missingSnapshots(getSnapshots(), remoteHistory)
+  if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+  for (const snap of toBackfill) await saveSnapshotToD1(snap)
+  return toBackfill.length
+}
+
 async function _startSessionView({ loadConfig = true } = {}) {
   currentView.value = 'session'
   try {
@@ -278,7 +290,7 @@ async function _startSessionView({ loadConfig = true } = {}) {
     if (loadConfig && remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
       applyRemoteConfig(remoteConfig)
     }
-    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+    await _syncHistoryFromD1(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
@@ -296,7 +308,7 @@ async function _pullAccountConfig() {
     if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
       applyRemoteConfig(remoteConfig)
     }
-    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+    await _syncHistoryFromD1(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
@@ -919,11 +931,15 @@ onMounted(async () => {
       if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
         applyRemoteConfig(remoteConfig)
       }
-      if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+      await _syncHistoryFromD1(remoteHistory)
     } catch (_) {
       // ネットワークエラーは無視してローカルデータで継続
     }
   }
+
+  // 前回のアプリ終了時に残っていた未送信分を送り直す（DATA-002 Phase 2）。
+  // バックフィルの後に置く: 履歴の差分送信で増えた分もまとめて片付く。
+  resumePendingSaves()
 })
 
 // ── Android/PWAの戻るボタン制御 ──────────────────────────────────────────────
@@ -1159,8 +1175,12 @@ async function onComplete() {
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
+  // 明細の保存結果を見てから完了を伝える（DATA-002 Phase 2）。
+  // 以前は投げっぱなしで、失敗しても「完了しました ✓」だけが出ていた。
+  // 一覧（D1 sessions）には出るのに詳細が開けない状態が、ユーザーには見えないまま残る。
+  let snapshotSaved = true
   if (snapshot) {
-    saveSnapshotToD1(snapshot)
+    snapshotSaved = await saveSnapshotToD1(snapshot)
     // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
     for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
   }
@@ -1178,6 +1198,7 @@ async function onComplete() {
     sessionsTab.value  = 'dashboard'
     _setNewSession(completedId)
     currentView.value  = 'sessions'
+    if (!snapshotSaved) _warnSnapshotUnsent()
     return
   }
 
@@ -1187,13 +1208,21 @@ async function onComplete() {
   clearSession()
   track('session_completed', { item_count: completionCount, mode: 'solo' })
   _checkReviewPrompt()
-  showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
+  if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
+  else               _warnSnapshotUnsent()
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
   currentView.value  = 'sessions'
 }
 
+
+// 明細をサーバーへ送れなかったときの通知（DATA-002 Phase 2）。
+// 端末には保存済みで自動再送もされるが、「保存できていない」ことは隠さず伝える。
+// 画面上部の ConnectionBanner が再送状況を出し続けるので、ここでは一度だけ知らせる。
+function _warnSnapshotUnsent() {
+  showToast('完了しましたが、明細をサーバーへ保存できていません。端末に保存済みで、接続が戻ると自動で送信します', 8000, 'error')
+}
 
 function onUndone() {
   broadcastUndone()

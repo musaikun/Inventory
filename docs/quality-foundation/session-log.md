@@ -2,6 +2,75 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — CC第3セッション: S7（保存失敗の可視化）/ S8（画面を棚卸中心へ）
+
+- 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション（S7・S8）。
+- ブランチ: `claude/branch-operational-status-2lwwwu`（`develop@f8da4c1` から）。
+  作業開始時点で S1〜S6 は本ブランチに未取り込みだったため、**S7/S8 はそれらに依存しない範囲で完結させた**。
+  push 時に第1セッションの S1・S2（`6b336ac` / `d12878b`）が先に入っていたため rebase し、
+  docs 3件（`session-log` / `task-list` / `DATA-002`）の衝突を解消した。コードの衝突は無し。
+
+### S7 — DATA-002 Phase 2（保存失敗の可視化・バックフィル）
+
+- 未送信キュー（`_pending` / `_snapQueue` / `_orderQueue` / `_moveQueue`）を localStorage
+  `_pending_saves_v1` へ永続化。payload に `shopCode` を持たせ、**別店舗のキューは読み込み時に破棄**する。
+  `resetAccountData` / `clearLocalAccountData` の消去対象に追加した。
+- 棚卸完了が `saveSnapshotToD1` の結果を待つようにし、未送信ならトーストで明示。
+  `ConnectionBanner` に `failed`（連続失敗2回以上）表示を追加し、未送信件数を出す。
+- `services/historyBackfill.js`（純関数 `missingSnapshots`）を追加。履歴を読む3経路
+  （起動 / ログイン / セッション開始）で、端末にあって D1 に無い・D1 側が古いスナップショットを送り直す。
+- 起動時に `resumePendingSaves()` を呼び、接続復帰イベントを待たずに前回の未送信分を送る。
+- 付随修正2点: `applyRemoteHistory` が端末側の新しいスナップショットを潰していたのを修正（同時刻はリモート優先＝従来どおり）。
+  再送間隔を指数バックオフ化（8秒 → 最大2分）。
+- **Phase 1（`GET /store/:code/sessions/:id/lines`）は未着手**。別セッション担当のため `worker/` は1行も触っていない。
+  2026-07-07 の351品目の復旧は Phase 1 側。
+
+### S8 — 画面を棚卸中心へ
+
+- セッションタブを「① 品目を準備 → ② 棚卸をする → ③ 記録を見る」の順路へ組み直し、
+  履歴カレンダーへの導線を第一導線の終点として追加した。
+- 入出庫・発注確認・発注スケジュールを区切り線から下の **β機能**（`.beta-group`）へ移動。
+  「発注確認」→「**発注内容の確認・記録（β）**」へ改称し、**仕入先へ自動送信されない**旨を常時表示。
+- 出庫は主導線から外し、`MovementPage` 内のタブとしては残した（記録は削除していない）。
+- 理論在庫の誤差要因（未記録の使用・ロス・納品）をホームカードと `MovementPage` の両方に明示。
+- データ管理カードの点滅を**品目0件のときだけ**にした（棚卸開始と注意を奪い合わないため）。
+- `DesktopNav` の並びを 棚卸 → 品目マスタ → 在庫・入庫（β）へ。
+- `eb99895` の2列グリッドを書き換え、対象を panel 全体から `.beta-group` へ縮小。
+  同コミットの `(pointer: coarse)` タップ領域確保は**残している**。
+
+### 検証
+
+- App: `npm test` 67 files / **558 passed**（変更前 63 files / 531）。`npm run build` 成功。
+  CSS 226.06kB → 228.08kB（gzip 35.98 → 36.33kB）。
+- Worker: `npm test` 15 files / **196 passed**（`worker/` は未変更・回帰確認のみ）。
+- 追加テスト4件: `useStore.pending.test.js`（永続化・店舗境界・容量不足・失敗回数）、
+  `historyBackfill.test.js`（差分判定）、`useHistory.remote.test.js`（上書き規則）、
+  `SessionListPage.flow.test.js`（順路の並びと文言）。
+- **未実施**: 実ブラウザでの目視確認（この環境にブラウザ自動化が無い）。手動確認の台本は
+  [`tasks/UI-001.md`](tasks/UI-001.md) に追加した。deploy・D1 migration は行っていない（migration の追加なし）。
+
+### 共通DoD（[`../feature-checklist.md`](../feature-checklist.md)）セルフチェック
+
+| 節 | 結果 |
+|---|---|
+| 1. UI・表示 | 🖐 375px / タブレット / PC の目視は**未実施**（台本を `tasks/UI-001.md` へ追加）。空状態は「完了した棚卸はまだありません」を履歴導線に用意。ホームカードのテーマ色（棚卸=青 / 入出庫=緑 / 発注=オレンジ）は維持。最小フォントは 11px の注記が既存カードと同水準 |
+| 2. 入力・データ | `_pending_saves_v1` を `storageKeys.js` へ登録。`clearLocalAccountData` と `resetAccountData` の消去対象に追加。D1永続化の要否＝**未送信キューは端末専用で正しい**（D1 へ送れなかったものの控えなので、D1 に置く対象ではない）。schema変更なし＝**migration なし**。config へのフィールド追加なし＝`normalizeConfig` 変更不要 |
+| 3. エラー処理・通信 | 保存失敗は日本語の明示表示（トースト＋バナー）。再送はバックオフ上限2分で無限即時リトライにしない。バックフィルは1回10件上限。**フェイルの方針**: 履歴取得が失敗（null）したときは「D1 は空」と解釈せず**何も送らない**（誤って全件上書きしないため）。機内モード実機確認は未実施 |
+| 4. 同期・多人数 | **N/A**。WS メッセージ型・DO storage は未変更。ホスト完了経路の待ち追加のみで、ゲストへ送る内容は変わらない |
+| 5. 権限・認可 | **N/A（サーバー側は未変更）**。client 側の店舗境界として、復元した未送信キューは `shopCode` 照合で他店舗分を破棄する |
+| 6. ログ・監査 | 秘匿情報の出力なし。未送信件数のみ表示（単価・PIN・トークンは出さない） |
+| 7. ナビゲーション | 履歴導線はタブ切替のみで `currentView` を変えないため、`_closeTopLayer` の規約に影響しない。β機能の移動は既存 emit の位置変更のみ |
+| 8. 通知 | プッシュは**N/A**。トーストは保存失敗時の1回のみ（成功時は従来どおり） |
+| 9. テスト・ドキュメント | ユニットテスト4ファイル追加（App 558 passed）。手動台本は `tasks/UI-001.md` へ（`test-checklist-new-features.md` は自ら「履歴snapshot・現行checklistではない」と宣言し、現在のtask固有検証は `tasks/<ID>.md` を正としているため、そちらへ追加した）。`project-status.md` の実装済み節を更新。設計判断は `proposals.md` へ投稿 |
+
+### 未決・引き渡し
+
+- 設計判断は [`../proposals.md`](../proposals.md) の 2026-08-08 エントリ2件へ投稿済み（PMトリアージ待ち）。
+  特に **`applyRemoteHistory` の上書き規則変更**と**完了処理が明細保存を待つようになった点**は既存挙動の変更。
+- Codex へのレビュー希望: アカウント境界（`_pending_saves_v1` の店舗照合）、
+  バックフィルが D1 を過剰に上書きしないか、完了処理の待ち追加と `DATA-001`（S4）の設計が衝突しないか。
+- 次の再開地点: Phase 1（S3）と DATA-001（S4）。どちらも `worker/` 側で、本セッションの差分とは重ならない。
+
 ## 2026-08-08 — S2: 品目マスタ取込の止血（CC 第1セッション）
 
 - 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S2。**挙動は変えず、警告と文言だけを追加**。

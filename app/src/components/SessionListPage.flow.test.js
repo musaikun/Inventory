@@ -1,0 +1,119 @@
+// S8 — ホームを棚卸中心へ戻したことの回帰。
+// 守りたいのは見た目ではなく順路: 「品目を準備 → 棚卸 → 記録を見る」が第一導線で、
+// 入出庫・発注はその下のβ機能として置かれていること。
+// 並びが崩れると「どれから手を付けるのか」が読めなくなり、初回公開の狙いが消える。
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createApp, nextTick } from 'vue'
+
+vi.mock('../utils/api.js', () => ({
+  HTTP_BASE: 'https://worker.test',
+  apiFetch: vi.fn(async () => ({})),
+  setAuthInvalidatedHandler: vi.fn(),
+}))
+vi.mock('../composables/useAuth.js', () => ({
+  getSessions:     vi.fn(async () => []),
+  createSession:   vi.fn(),
+  updateSession:   vi.fn(),
+  deleteSession:   vi.fn(),
+  logout:          vi.fn(),
+  isAuthenticated: { value: true },
+  storeName:       { value: 'テスト店' },
+}))
+vi.mock('../composables/useSync.js', () => ({
+  fetchRoomStatus: vi.fn(async () => null),
+}))
+vi.mock('../composables/useWeather.js', () => ({
+  useWeather: () => ({ state: { loc: null, weather: {}, loading: false, error: null } }),
+  requestGeolocation: vi.fn(),
+}))
+
+let app = null
+let host = null
+
+async function mountPage() {
+  const { default: SessionListPage } = await import('./SessionListPage.vue')
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  app = createApp(SessionListPage)
+  app.mount(host)
+  await nextTick()
+  await nextTick()   // onMounted の _loadSessions を待つ
+  await nextTick()
+  return host
+}
+
+// セッションパネル（トラック1枚目）の直下要素を上から並べたクラス列
+function panelChildClasses(root) {
+  const panel = root.querySelector('.tab-panels-track > .tab-panel')
+  return [...panel.children].map(el => el.className)
+}
+function indexOfClass(classes, name) {
+  return classes.findIndex(c => c.split(' ').includes(name))
+}
+
+describe('SessionListPage — 棚卸中心の順路', () => {
+  beforeEach(() => { localStorage.clear(); vi.useFakeTimers() })
+  afterEach(() => {
+    if (app) { app.unmount(); app = null }
+    if (host) { host.remove(); host = null }
+    vi.clearAllTimers()
+    vi.useRealTimers()
+    vi.resetModules()
+  })
+
+  it('準備 → 棚卸 → 記録 → β機能 の順に並ぶ', async () => {
+    const root = await mountPage()
+    const classes = panelChildClasses(root)
+
+    const prep    = indexOfClass(classes, 'master-card')
+    const count   = indexOfClass(classes, 'hero-start')
+    const history = indexOfClass(classes, 'history-link')
+    const beta    = indexOfClass(classes, 'beta-head')
+
+    expect(prep).toBeGreaterThanOrEqual(0)
+    expect(prep).toBeLessThan(count)
+    expect(count).toBeLessThan(history)
+    expect(history).toBeLessThan(beta)
+  })
+
+  it('入出庫・発注はβ機能の区切りより下にある', async () => {
+    const root = await mountPage()
+    const classes = panelChildClasses(root)
+    const beta  = indexOfClass(classes, 'beta-head')
+    const group = indexOfClass(classes, 'beta-group')
+    expect(beta).toBeGreaterThanOrEqual(0)
+    expect(group).toBeGreaterThan(beta)
+
+    const groupEl = root.querySelector('.beta-group')
+    expect(groupEl.querySelector('.move-start')).not.toBeNull()
+    expect(groupEl.querySelector('.order-start')).not.toBeNull()
+  })
+
+  it('棚卸の開始が主操作として置かれている', async () => {
+    const root = await mountPage()
+    const hero = root.querySelector('.hero-start')
+    expect(hero).not.toBeNull()
+    expect(hero.textContent).toContain('棚卸を開始')
+  })
+
+  it('発注は「確認・記録」であり、仕入先へ自動送信されないと明示する', async () => {
+    const root = await mountPage()
+    const order = root.querySelector('.order-start')
+    expect(order.textContent).toContain('発注内容の確認・記録')
+    expect(order.textContent).toContain('自動送信されません')
+  })
+
+  it('在庫表示が理論在庫であることと、誤差が出ることを明示する', async () => {
+    const root = await mountPage()
+    const move = root.querySelector('.move-start')
+    expect(move.textContent).toContain('理論在庫')
+    expect(move.textContent).toContain('ずれます')
+  })
+
+  it('履歴への導線が第一導線の終点にある', async () => {
+    const root = await mountPage()
+    const link = root.querySelector('.history-link')
+    expect(link).not.toBeNull()
+    expect(link.textContent).toContain('履歴カレンダー')
+  })
+})

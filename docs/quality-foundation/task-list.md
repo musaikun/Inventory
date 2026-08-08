@@ -39,7 +39,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| DATA-002 | P1 | 未着手 | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。Phase 1/2のみ今回scope | [DATA-002.md](tasks/DATA-002.md) |
+| DATA-002 | P1 | Phase 2 完了 / Phase 1 未着手 | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。Phase 1/2のみ今回scope | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止。**DATA-002 Phase 1 の完了後に着手** | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | 未着手 | Claude Code | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
@@ -54,6 +54,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
+| UI-002 | P2 | レビュー待ち | Claude Code | ホームを棚卸中心の順路へ戻し、入出庫・発注をβ機能へ降ろす（S8） | [UI-001.md](tasks/UI-001.md) |
 
 `UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。

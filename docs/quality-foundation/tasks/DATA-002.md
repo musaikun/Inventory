@@ -58,7 +58,7 @@ CC/Codex の役割が「CC = 製品機能・データ処理・画面構成 ／ C
 Phase 1 を先にする理由は、本番で実害が出ており、User承認済みの復旧対象データ
 （2026-07-07 の351行）が `inventory_lines` に残ったままのためです。
 
-## 実装計画（未着手・全文は [`../bug-reports.md`](../bug-reports.md)）
+## 実装計画（Phase 1・3 未着手 / Phase 2 実装済み・全文は [`../bug-reports.md`](../bug-reports.md)）
 
 - **Phase 1** — 詳細が読めない状態を解消（2026-07-07データの復旧を兼ねる）。
   `GET /store/:code/sessions/:id/lines` を追加し、`session_id` と `shop_code` の両方で絞る
@@ -67,6 +67,34 @@ Phase 1 を先にする理由は、本番で実害が出ており、User承認�
   ログイン・起動時のバックフィル。
 - **Phase 3** — 構造の是正（要PM判断・migration含む）。`store_history` のsession単位キー化（F-001）、
   データ源の一本化（F-003）、`LIMIT 50` 見直し（F-002）、削除のサーバー側完結（F-004）。
+
+## Phase 2 の実装（2026-08-08・Claude Code 第3セッション / S7）
+
+**状態: 実装済み・未コミット時点で App 558 tests passed / production build 成功。**
+Phase 1（`GET /store/:code/sessions/:id/lines`）は別セッション担当のため未着手。
+Phase 2 は Phase 1 と独立して成立する（再発防止であり、既存の欠損復旧ではない）。
+
+| 完了条件 | 実装 |
+|---|---|
+| `_snapQueue` / `_pending` の localStorage 永続化 | `useStore.js`。キー `_pending_saves_v1`（`storageKeys.js` に登録）。`shopCode` を payload に持ち、**別店舗のキューは読み込み時に破棄**する（事故 S-10 と同じ境界）。`resetAccountData` と `clearLocalAccountData` の消去対象に追加 |
+| 保存失敗の可視化 | 完了処理が `saveSnapshotToD1` の結果を待ち、未送信ならトーストで明示（従来は投げっぱなしで「完了しました ✓」だけが出ていた）。`ConnectionBanner` に `failed` 表示を追加し、連続失敗2回以上で「サーバーへ保存できていません（未送信 N件）」へ強める |
+| 起動時のバックフィル | `services/historyBackfill.js`（純関数 `missingSnapshots`）。履歴を読む3経路（起動・ログイン・セッション開始）で、端末にあって D1 に無い／D1 側が古いスナップショットを送り直す。1回あたり最大10件 |
+| 起動時の未送信再送 | `resumePendingSaves()` を `App.vue` の `onMounted` から呼ぶ（接続復帰イベントを待たない） |
+
+### 付随して直した2点
+
+1. **`applyRemoteHistory` が端末側の新しいスナップショットを潰していた**。未送信分が D1 の古い版で
+   上書きされると、バックフィルで送るべき差分ごと消える。保存時刻を比較し、端末側が新しければ残す
+   （同時刻・不明はリモート優先＝従来どおり）。
+2. **再送間隔を指数バックオフ化**（8秒 → 最大2分）。復旧しない障害で8秒ごとに叩き続けない。
+
+### 残っている穴（Phase 2 では埋めていない）
+
+- localStorage の容量不足でスナップショット（1件で百KB規模）を端末に残せない場合、
+  メモリ上には保持するが**アプリを閉じると消える**。`pendingPersisted=false` として
+  バナーに「この端末では未送信分を保持できません」と出すところまで。恒久対処は IndexedDB 化で、Phase 3 相当。
+- 完了処理そのものの原子性は **DATA-001（S4）の範囲**。ここでは「失敗したことが見える」までしか担保していない。
+- 日付キーのままなので **F-001（同日2回目の上書き）は解消していない**。バックフィルも日付キーで判定する。
 
 ## 着手順（2026-08-08 確定）
 

@@ -1071,35 +1071,25 @@ body {
   body.dt-shell .tab-panel,
   body.dt-shell .tab-panel-scroll { padding-block: 20px; }
 
-  /* セッションタブ（トラック1枚目）だけカードを2列に組む。
-     中身が「データ管理 / 棚卸 / 入出庫 / 発注 / スケジュール」の並列カードで、
-     1列だと横に細長い帯が縦に並ぶだけになるため。
-     2枚目は履歴カレンダーが主役でグリッド化すると崩れるので対象外にする。 */
-  body.dt-shell .tab-panels-track > .tab-panel:first-child {
+  /* セッションタブ（トラック1枚目）は「準備 → 棚卸 → 記録を見る」の順路なので、
+     全体を2列に割らない。順路は縦一列で読ませ、並列の選択肢である
+     β機能（入出庫 / 発注 / スケジュール）だけを2列に組む。
+     以前は panel 全体を grid にしていたが、順路の各段が横に割れて
+     「どれから手を付けるのか」が読めなくなるため、対象を .beta-group に絞った。 */
+  body.dt-shell .beta-group {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-content: start;
+    align-items: stretch;
     gap: 12px;
-    padding-inline: max(20px, (100% - 920px) / 2);
-  }
-
-  /* 主役（棚卸の開始／進行中）と見出し・エラー・データ管理は全幅のまま */
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .msg-error,
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .master-card,
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .hero-live,
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .hero-start,
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .section-title {
-    grid-column: 1 / -1;
   }
 
   /* 同じ行のカードは高さを揃える。.move-wrap だけボタンを内包する構造なので、
      wrap自身が伸びてもボタンが伸びず、隣のカードと段差になる。ここで追従させる。 */
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .move-wrap {
-    display: flex;
-  }
-  body.dt-shell .tab-panels-track > .tab-panel:first-child > .move-wrap > .move-start {
-    flex: 1;
-  }
+  body.dt-shell .beta-group > .move-wrap { display: flex; }
+  body.dt-shell .beta-group > .move-wrap > .move-start { flex: 1; }
+
+  /* 進行中の発注は情報量が多く、隣に並べると縦に伸びて釣り合わないので全幅に戻す */
+  body.dt-shell .beta-group > .order-live { grid-column: 1 / -1; }
 
   body.dt-shell .sessions-header,
   body.dt-shell .detail-header { padding-block: 18px 14px; }

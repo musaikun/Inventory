@@ -20,6 +20,12 @@ function _persist() {
 
 _load()
 
+/** スナップショットの保存時刻をミリ秒にする（欠損・不正は 0 = 最古扱い） */
+function _savedAtMs(snap) {
+  const t = Date.parse(snap?.updatedAt ?? snap?.savedAt ?? '')
+  return Number.isFinite(t) ? t : 0
+}
+
 // アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
 export function resetLocalData() {
   for (const k of Object.keys(_data)) delete _data[k]
@@ -245,11 +251,19 @@ export function useHistory() {
     return rows.join('\r\n')
   }
 
-  /** D1 から取得したスナップショット配列をローカルに反映（リモートで上書き） */
+  /**
+   * D1 から取得したスナップショット配列をローカルに反映（リモートで上書き）。
+   * ただし端末側が新しい場合は残す。未送信のスナップショットが D1 の古い版で
+   * 潰れると、バックフィル（historyBackfill）が送るべき差分ごと消えるため。
+   * 保存時刻が同じ・不明なときはリモートを採用する（従来の挙動）。
+   */
   function applyRemoteHistory(snapshots) {
     if (!Array.isArray(snapshots)) return
     for (const snap of snapshots) {
-      if (snap?.date) _data[snap.date] = snap
+      if (!snap?.date) continue
+      const local = _data[snap.date]
+      if (local && _savedAtMs(local) > _savedAtMs(snap)) continue
+      _data[snap.date] = snap
     }
     _persist()
   }
