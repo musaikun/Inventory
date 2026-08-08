@@ -2,6 +2,102 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — CC第2セッション: 品目マスタ取込の本修理（S5・S6）
+
+- 担当: Claude Code。範囲は `cc-session-plan.md` の第2セッション（S5・S6）。`worker/` は無変更。
+- 基点: `develop@f8da4c1` で実装し、push 時に `claude/branch-operational-status-2lwwwu`
+  （S1・S2・S7・S8 が先行）へ rebase して統合した。
+- **S2（止血）の後始末**: S2 の申し送り「S5 で通常取込からこの確認を外し、全置換操作にだけ残す」を実施した。
+  - 外した: `SettingsModal.handleFile` / `SettingsModal.onMapperImported` / `PdfImporterModal.onImport`
+    の `confirmMasterImport` 呼び出し3箇所、`SettingsModal.vue` の `.replace-warn` とそのCSS、
+    `useConfig.js` の暫定コメント2箇所（全置換代入そのものが無くなったため）。
+  - 残した: `utils/masterImportWarning.js` は削除せず、`ItemImportPreviewModal` の
+    **「全入れ替え」確定時だけ**呼ぶようにした。冒頭コメントを現状に合わせて書き換え、
+    `masterImportWarning.test.js` の8件はそのまま緑。
+  - `HELP.import` は S2 の全置換文言からマージ後の挙動へ書き換えた。
+  - S2 の手動確認台本のうち 2〜5・7 は前提が変わったため、差し替えを
+    `test-checklist-new-features.md` の S 節へ置き、`cc-session-plan.md` の S2 節から参照させた。
+- 統合時のコード衝突は S2 由来のみ（4ファイル）。S7・S8 とはファイルが重ならず衝突なし。
+
+### S5 — 取込のマージ化
+
+- 取込を「解析 → 計画 → 適用」の3段へ分離し、純粋関数を `app/src/utils/itemImport.js` へ新設。
+  計画（`buildImportPlan`）は `config` を書き換えないため、プレビューと実取込が同じ結果になる。
+- **既定を「追加・更新」に変更**。`loadFromCSV` / `loadFromCSVMapped` はファイルに無い既存品目を
+  消さず、同名品目はファイルにある列だけ上書きする。空欄列は既存値を保持。
+- **全入れ替えは `{ mode: 'replace' }` を明示したときだけ**。UI では確認画面のラジオ＋
+  削除件数の警告＋確認チェックを通さないと実行できない。
+- Free上限はマージ時に既存品目を削らない。空きぶんだけ新規を入れ、残りを `truncated` で返す。
+- 推奨フォーマット（`exportConfigCSV` の出力）の往復を成立させた。従来 `loadFromCSV` が
+  無視していた並び替え軸列（10・11列目）を読み、軸名未設定なら列名を採用する。
+- 発注点の既存仕様（列があって空セルなら解除／列が無ければ非破壊）は維持。
+
+### S6 — 取込前プレビュー
+
+- `ItemImportPreviewModal.vue` を新設し、CSV / 列指定 / PDF・Excel の**全経路を確定前に通す**。
+  PdfImporterModal は品目マスタへ直接書かず、変換したCSVを確認画面へ渡す方式へ変更した。
+- 表示: 追加・更新・変更なし・除外（＋全入れ替え時は削除）の件数、取込後の総件数、
+  更新される品目のフィールド単位の差分（変更前 → 変更後）、除外行の**行番号と理由**。
+- Free上限による切り捨てを**取込前に**警告する（従来 `_capForPlan` が無言で切っていた）。
+- PDF取込をβ表記にした（PdfImporterModal のタイトル・注記、取込導線のサブテキスト、
+  SettingsModal のドロップゾーン）。
+- 取込直後に限り1回だけ「取込前に戻す」ができる（`undoLastImport`）。メモリ上の退避のみで、
+  再読込・アカウント切替（`resetLocalData`）・ホスト設定受信（`applyRemoteConfig`）・
+  取込以外の品目変更（`_save`）で失効する。`cc-session-plan.md` S6 の注記どおり、
+  恒久的なスナップショット機構は作っていない。
+
+### 変更ファイル
+
+- 新規: `app/src/utils/itemImport.js`、`app/src/components/ItemImportPreviewModal.vue`、
+  `app/src/composables/useConfig.importMerge.test.js`、`app/src/composables/useConfig.importPreview.test.js`
+- 変更: `app/src/composables/useConfig.js`、`app/src/components/SettingsModal.vue`、
+  `app/src/components/PdfImporterModal.vue`、`app/src/components/MasterManagePage.vue`、
+  `app/src/composables/useConfig.axes.test.js`
+
+### 検証（S1・S2・S7・S8 と統合したあとの実行結果）
+
+- `cd app && npx vitest run`: **70 files / 604 tests passed**。
+  S5・S6 単体では 65 files / 569 tests passed（S1〜S4・S7・S8 を含まない基点での実行）。
+- `cd app && npm run build`: 成功（PWA precache 17 entries / 2518.25 KiB）。既知のchunk警告のみ。
+- `cd worker && npm test`: **15 files / 196 tests passed**（無変更の確認）。
+- `git diff --check`: 指摘なし。
+- 既存テストの変更は1件のみ: `useConfig.axes.test.js` の
+  「再インポートで既存割り当てを名前一致で維持し、新規はその他」を `mode: 'replace'` へ明示化し、
+  既定（マージ）側の対応ケースを追加した。全置換前提を書いていたのはこの1件だけ。
+  S2 の `masterImportWarning.test.js`（8件）は変更せずに緑のまま。
+
+### 仕様上の判断
+
+- 実装とヘルプ文言が食い違っていた件は**文言側（追加マージ）を正**とした。
+- 「上書き」は列単位。同名品目でも空欄列は既存値を消さない（発注点だけ明示解除あり）。
+- 取込の取り消しは永続化していない。永続化の要否は提案箱でPM判断待ち。
+
+### 残っているリスク
+
+- 🖐 実機UI未確認（375px・デスクトップ）。この環境にブラウザ自動化がない。
+- 全入れ替えを選んだ場合の破壊性は変わらない。確認UIと事前の削除件数表示で防いでいる。
+- 第1セッションの S2（止血）と `MasterManagePage.vue` / `SettingsModal.vue` で競合し得る。
+
+### 未実施
+
+- commit / push（この記録の時点）、deploy、production migration（migration は不要）。
+- DoD セルフチェックは下記。N/A 理由つき。
+  - 1 UI・表示: 🖐 スマホ / タブレット / PC の実機確認が**未実施**（要User確認）。
+    空状態（0件取込・全行除外）はエラーメッセージで処理。
+  - 2 入力・データ: 🤖 バリデーション済み。localStorage キー追加なし（退避はメモリのみ）。
+    config フィールド追加なし＝`RoomDO.normalizeConfig` 影響なし。D1・migration なし。
+    再インポート時の軸割り当て維持はテストで固定。
+  - 3 エラー処理: 解析エラーは日本語で確認画面に表示。通信を伴わないため通信エラー項目は N/A。
+  - 4 同期・多人数: 取込は既存どおり `_save()` → `_onConfigChanged` で伝播。WSメッセージ型の追加なし。
+    ゲストは取込導線が非表示のため多人数項目は N/A。
+  - 5 権限・認可: 新エンドポイントなし・D1クエリなしのため N/A。プラン境界は `isPro()` 経由で維持。
+  - 6 ログ・監査: 品目マスタ取込は従来から auditLog 対象外（同期の config 更新として伝播）。変更なし。
+  - 7 ナビゲーション: 確認画面は既存モーダル規約（`useEscapeKey` + `.modal-overlay`）に合わせた。
+    🖐 Android の戻る操作は未確認。既存モーダルと同じ扱いが必要かは実機確認で判断する。
+  - 8 通知: N/A（通知を出さない）。
+  - 9 テスト・ドキュメント: 🤖 ユニットテスト追加済み。
+    `test-checklist-new-features.md` と `project-status.md` の更新は本セッションで実施。
+
 ## 2026-08-08 — CC第3セッション: S7（保存失敗の可視化）/ S8（画面を棚卸中心へ）
 
 - 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション（S7・S8）。

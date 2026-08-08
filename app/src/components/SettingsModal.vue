@@ -6,9 +6,9 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
+import ItemImportPreviewModal from './ItemImportPreviewModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
-import { confirmMasterImport } from '../utils/masterImportWarning.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
 import { showDeleteAccount } from '../composables/appMenuState.js'
@@ -51,20 +51,28 @@ async function onRestoreFile(file) {
   }
 }
 
-// CSV取込結果のメッセージ（Free上限で切り捨てがあれば案内を付ける）
+// 取込結果のメッセージ。何が増えて何が変わったかを件数で示す。
+// Free上限で取り込めなかった分があれば必ず知らせる（黙って切らない）。
 function _importResultStatus(result) {
-  const mergedNote = result.merged > 0 ? `（同名${result.merged}件を統合）` : ''
-  const restoreNote = result.restoredTags > 0 ? `・前回の振り分けを${result.restoredTags}品目復元` : ''
+  const parts = []
+  if (result.mode === 'replace') parts.push(`全入れ替え（${result.removed}件を削除）`)
+  parts.push(`追加${result.added}件・更新${result.updated}件`)
+  if (result.unchanged  > 0) parts.push(`変更なし${result.unchanged}件`)
+  if (result.merged     > 0) parts.push(`ファイル内の重複${result.merged}行を統合`)
+  if (result.skipped    > 0) parts.push(`${result.skipped}行を除外`)
+  if (result.restoredTags > 0) parts.push(`振り分けを${result.restoredTags}品目復元`)
+  const head = `${parts.join(' / ')}。登録${result.count}件になりました`
+
   if (result.truncated > 0) {
     emit('openUpgrade', `無料プランは${FREE_ITEM_LIMIT}品目まで登録できます。${result.truncated}件が上限を超えたため取り込まれませんでした。`)
-    return { type: 'warning', msg: `${result.count}件を読み込みました${mergedNote}${restoreNote}（${result.truncated}件は無料プラン上限超過のため未取込）` }
+    return { type: 'warning', msg: `${head}（${result.truncated}件は無料プラン上限超過のため未取込）` }
   }
-  return { type: 'success', msg: `${result.count}件の品目を読み込みました${mergedNote}${restoreNote}` }
+  return { type: 'success', msg: head }
 }
 
 const {
   config, itemCount,
-  loadFromCSV, loadFromCSVMapped, exportConfigCSV, addItem,
+  exportConfigCSV, addItem, undoLastImport, importUndoAvailable,
 } = useConfig()
 
 const status         = ref(null)  // { type: 'success'|'error', msg: String }
@@ -76,6 +84,23 @@ const mapperFilename = ref('')
 const dragging       = ref(false)
 const fileInput      = ref(null)
 const mapperInput    = ref(null)
+
+// ── 取込確認（プレビュー）─────────────────────────────────────────────────────
+// CSV / 列指定 / PDF・Excel のどの経路でも、確定前に必ずこの画面を通す。
+const previewSource = ref(null)   // { origin, csvText, mapping, filename }
+
+function openPreview(src) {
+  status.value        = null
+  previewSource.value = src
+}
+function onPreviewImported(result) {
+  previewSource.value = null
+  status.value = _importResultStatus(result)
+}
+function onUndoImport() {
+  if (!undoLastImport()) return
+  status.value = { type: 'success', msg: '取込前の品目リストに戻しました' }
+}
 
 // ── 端末名 ───────────────────────────────────────────────────────────────────
 const deviceNameInput = ref(deviceName.value)
@@ -148,18 +173,10 @@ function handleFile(file) {
     return
   }
 
-  // CSV → その場で直接読み込み
+  // CSV → 取込内容を確認してから反映する
   const reader = new FileReader()
   reader.onload = e => {
-    const text = e.target.result
-    // 取込は全置換。実行前に必ず同意を取る（暫定措置。masterImportWarning.js 参照）
-    if (!confirmMasterImport(itemCount.value)) { status.value = null; return }
-    try {
-      const result = loadFromCSV(text)
-      status.value = _importResultStatus(result)
-    } catch (err) {
-      status.value = { type: 'error', msg: err.message }
-    }
+    openPreview({ origin: 'csv', csvText: e.target.result, filename: file.name })
   }
   reader.readAsText(file, 'UTF-8')
 }
@@ -178,16 +195,8 @@ async function openMapper(file) {
 }
 
 function onMapperImported({ mapping, csvText }) {
-  // 列指定取込も全置換（暫定措置。masterImportWarning.js 参照）
-  if (!confirmMasterImport(itemCount.value)) { showMapper.value = false; status.value = null; return }
-  try {
-    const result = loadFromCSVMapped(csvText, mapping)
-    showMapper.value = false
-    status.value = _importResultStatus(result)
-  } catch (err) {
-    status.value = { type: 'error', msg: err.message }
-    showMapper.value = false
-  }
+  showMapper.value = false
+  openPreview({ origin: 'mapped', csvText, mapping, filename: mapperFilename.value })
 }
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
@@ -196,6 +205,13 @@ function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.fil
 function onImporterClose() {
   showImporter.value = false
   importerFile.value = null
+}
+
+// PDF・Excel の読み取り結果はCSVで渡され、共通の取込確認画面へ流す
+function onImporterImported({ csvText }) {
+  const filename = importerFile.value?.name ?? ''
+  onImporterClose()
+  openPreview({ origin: 'pdf', csvText, filename })
 }
 
 // ── 品目リスト CSVダウンロード ─────────────────────────────────────────────────
@@ -245,11 +261,6 @@ function onDownloadTemplate() {
 
       <!-- ドロップゾーン（CSV / PDF / Excel 全対応）※ゲストには非表示 -->
       <template v-else>
-        <!-- 取込は全置換。ファイルを選ぶ前に見える位置へ置く（暫定措置。utils/masterImportWarning.js）-->
-        <p v-if="itemCount > 0" class="replace-warn">
-          ⚠️ 取込は<strong>入れ替え</strong>です。現在の{{ itemCount }}件はファイルの内容に置き換わり、
-          ファイルに無い品目とその単価・別名・カテゴリは削除されます。
-        </p>
         <div
           class="drop-zone"
           :class="{ over: dragging }"
@@ -260,13 +271,18 @@ function onDownloadTemplate() {
         >
           <div class="drop-icon">📂</div>
           <div class="drop-label">ドラッグ or タップしてアップロード</div>
-          <div class="drop-hint">CSV / PDF / Excel（.csv / .pdf / .xlsx）</div>
+          <div class="drop-hint">CSV / Excel（.csv / .xlsx）・PDF はβ</div>
           <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
         </div>
+        <p class="import-policy">
+          取り込むと、<b>同じ品目名は上書き、無い品目は追加</b>されます。ファイルに載っていない品目は消えません。
+          全入れ替えにしたいときは、次の確認画面で選べます。
+        </p>
 
         <!-- ステータスメッセージ -->
         <div v-if="status" class="msg" :class="status.type">
-          {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
+          {{ status.type === 'success' ? '✓' : status.type === 'warning' ? '⚠' : '✗' }} {{ status.msg }}
+          <button v-if="importUndoAvailable" class="undo-btn" @click="onUndoImport">取込前に戻す</button>
         </div>
       </template>
 
@@ -289,9 +305,10 @@ function onDownloadTemplate() {
 
       <!-- CSVフォーマット説明 -->
       <details class="format-help">
-        <summary>フォーマットを確認（自作する場合）</summary>
+        <summary>推奨フォーマットを確認（自作する場合）</summary>
         <div class="format-body">
           <p class="format-intro">上の「Excelテンプレート」を使うと、記入してそのまま .xlsx でアップロードできます。<br>1行目はヘッダー行（スキップされます）。列2以降は省略可能です。</p>
+          <p class="format-intro">「品目リストを出力」で書き出したCSVは、そのまま読み戻せます（並び替えの分類・発注点まで復元されます）。</p>
 
           <div class="col-table">
             <div class="col-row col-head">
@@ -306,7 +323,14 @@ function onDownloadTemplate() {
             <div class="col-row"><span>7</span><span>分類コード</span><span>カテゴリの並び順を数値で制御（省略可）</span></div>
             <div class="col-row"><span>8</span><span>前月実績</span><span>入力画面にヒント表示（省略可）</span></div>
             <div class="col-row"><span>9</span><span>入数</span><span>仕入れ単位をヒント表示・入力ミス防止（省略可）</span></div>
+            <div class="col-row"><span>10・11</span><span>並び替え①②</span><span>分類先。複数は | 区切り（省略可）</span></div>
+            <div class="col-row"><span>12</span><span>発注点</span><span>この理論在庫以下で「要補充」（省略可）</span></div>
           </div>
+
+          <p class="format-note">
+            同じ品目名の行は上書き、無い品目は追加されます。空欄の列は既存の値をそのまま残します。
+            ファイルに載っていない品目を消したいときは、確認画面で「全入れ替え」を選んでください。
+          </p>
 
           <p class="format-intro" style="margin-top:10px">記入例：</p>
           <div class="example-table">
@@ -437,7 +461,7 @@ function onDownloadTemplate() {
     v-if="showImporter"
     :initial-file="importerFile"
     @close="onImporterClose"
-    @imported="result => { onImporterClose(); status = { type: 'success', msg: `${result.count}件の品目を読み込みました` } }"
+    @imported="onImporterImported"
   />
 
   <!-- CSVカラムマッピングモーダル -->
@@ -448,6 +472,17 @@ function onDownloadTemplate() {
     :axis-names="config.axisNames"
     @imported="onMapperImported"
     @close="showMapper = false"
+  />
+
+  <!-- 取込内容の確認（CSV / 列指定 / PDF・Excel 共通）-->
+  <ItemImportPreviewModal
+    v-if="previewSource"
+    :origin="previewSource.origin"
+    :csv-text="previewSource.csvText"
+    :mapping="previewSource.mapping"
+    :filename="previewSource.filename"
+    @imported="onPreviewImported"
+    @close="previewSource = null"
   />
 </template>
 
@@ -496,18 +531,20 @@ function onDownloadTemplate() {
 }
 .msg.success { background: #f0fdf4; color: var(--success); }
 .msg.error   { background: #fef2f2; color: var(--danger); }
+.msg.warning { background: #fffbeb; color: #b45309; }
 
-/* 取込が全置換であることの事前警告（暫定。utils/masterImportWarning.js 参照）*/
-.replace-warn {
-  margin: 0 0 10px;
-  padding: 10px 12px;
-  border: 1.5px solid var(--danger);
-  border-radius: 10px;
-  background: #fef2f2;
-  color: var(--danger);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.6;
+.import-policy {
+  font-size: 12px; line-height: 1.6; color: #475569;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-left: 3px solid var(--primary, #2563eb);
+  border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
+}
+
+.undo-btn {
+  display: block; margin-top: 8px;
+  border: 1px solid currentColor; border-radius: 8px;
+  background: #fff; color: inherit;
+  font-size: 12px; font-weight: 800; padding: 6px 12px; cursor: pointer;
 }
 
 .template-btn {

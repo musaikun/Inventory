@@ -24,6 +24,42 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 ---
 
+## 2026-08-08: 品目マスタ取込を「追加・更新」既定にし、全入れ替えを分離（提案元: Claude Code / CC第2セッション S5・S6）
+
+- **概要**: 品目マスタの取込を**既定で「追加・更新（マージ）」**に変更し、従来の全置換は
+  `mode: 'replace'` を明示したときだけ実行する別操作へ分離した。あわせて取込前プレビュー
+  （追加/更新/変更なし/除外/削除の件数と差分・スキップ行の行番号と理由）を全取込経路に挟んだ。
+- **背景・根拠**:
+  - `useConfig.loadFromCSV` / `loadFromCSVMapped` は `order` / `units` / `prices` / `categories` /
+    `codes` / `categoryCodes` / `prevMonths` / `lotSizes` / `dictionary` を丸ごと差し替えていた。
+    一方 `MasterManagePage.vue` のヘルプは「品目名が一致するものは上書き、無いものは追加」と
+    **追加マージを約束**していた。300品目の店舗が50品目のファイルを入れると250品目と
+    単価・別名・分類が消える。文言と実装のどちらを正にするかの選択で、**文言側を正とした**。
+  - Free上限の切り捨て（`_capForPlan`）が無言だった。取込前に件数を出すよう変更した。
+- **設計判断（トリアージ希望）**:
+  1. **既定をマージにした**（後方互換より事故防止を優先）。`loadFromCSV(csv)` の意味が変わるため、
+     既存呼び出し元3箇所（SettingsModal / PdfImporterModal 経由 / CsvMapperModal 経由）は
+     すべてプレビュー経由に付け替えた。全置換の意図を持つ既存テストは `mode: 'replace'` へ明示化した。
+  2. **同名品目の空欄列は既存値を消さない**（「上書き」は列単位）。例外は発注点で、
+     発注点列があって空セルなら解除する（既存仕様 `useConfig.reorderCsv.test.js` を維持）。
+  3. **Free上限はマージ時に既存品目を絶対に削らない**。空きぶんだけ新規を入れ、残りを
+     `truncated` として返す。上限に達していても既存品目の更新は通す。
+  4. **解析/計画/適用を分離**した（`app/src/utils/itemImport.js`）。プレビューと実取込が
+     同じ `buildImportPlan` を使うため、表示した件数と取込結果が構造的に一致する。
+  5. **取込直後に限り1回だけ取り消せる**ようにした（メモリ上の退避のみ。再読込・アカウント切替・
+     ホスト設定受信・取込以外の品目変更で失効）。`cc-session-plan.md` S6 の注記どおり
+     恒久的なスナップショット機構は作っていない。**永続化の要否はPM判断**。
+  6. **推奨フォーマットの往復を成立させた**。`exportConfigCSV` が書く並び替え軸列（10・11列目）を
+     `loadFromCSV` が読めていなかったため、読み取り対応を追加した（軸名未設定なら列名を採用）。
+- **影響範囲 / 実装状況**: **実装済み**（`claude/quality-foundation-session-two-807bux`）。
+  - 新規: `app/src/utils/itemImport.js`、`app/src/components/ItemImportPreviewModal.vue`
+  - 変更: `app/src/composables/useConfig.js`、`SettingsModal.vue`、`PdfImporterModal.vue`、
+    `MasterManagePage.vue`
+  - Worker / D1 / migration は無変更。同期の config スキーマも無変更（`normalizeConfig` 影響なし）。
+  - 検証: S1・S2・S7・S8 と統合後で App 70 files / 604 tests passed、production build 成功、
+    Worker 15 files / 196 tests passed。
+  - S2 の `masterImportWarning.js` は削除せず、確認を**全入れ替え操作にだけ**残した（S2 の申し送りどおり）。
+- **未実施**: 実機でのUI確認（375px・デスクトップ）。この環境にブラウザ自動化がないため未実行。
 ## 2026-08-08: 初回Web公開のスコープを「棚卸」に絞り、入出庫・発注をβへ降ろす（提案元: Claude Code / 第3セッション S8）
 
 - **概要**: セッションタブ（ホーム）を「① 品目を準備 → ② 棚卸をする → ③ 記録を見る」の順路へ組み直し、

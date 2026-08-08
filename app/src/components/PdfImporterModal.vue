@@ -3,10 +3,8 @@ import { ref, onMounted } from 'vue'
 import { assertSpreadsheetFile, parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { extractRows } from '../utils/pdfTableParser.js'
 import { matchProfile } from '../composables/pdfProfiles.js'
-import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfColumnMapper from './PdfColumnMapper.vue'
-import { confirmMasterImport } from '../utils/masterImportWarning.js'
 
 const props = defineProps({
   initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
@@ -14,8 +12,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'imported'])
 useEscapeKey(() => emit('close'))
-
-const { loadFromCSV, itemCount } = useConfig()
 
 const dragging    = ref(false)
 const fileInput   = ref(null)
@@ -132,13 +128,11 @@ onMounted(() => {
   if (props.initialFile) handleFile(props.initialFile)
 })
 
+// 読み取り結果は品目マスタへ直接は書かない。CSVへ変換して取込確認画面へ渡し、
+// 追加・更新の件数と差分を見せてから確定させる（S6）。
 function onImport() {
-  // PDF / Excel からの取込も全置換（暫定措置。masterImportWarning.js 参照）
-  if (!confirmMasterImport(itemCount.value)) return
   try {
-    const csv    = itemsToConfigCSV(preview.value)
-    const result = loadFromCSV(csv)
-    emit('imported', result)
+    emit('imported', { csvText: itemsToConfigCSV(preview.value), count: preview.value.length })
     emit('close')
   } catch (err) {
     status.value = { type: 'error', msg: err.message }
@@ -150,7 +144,11 @@ function onImport() {
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-sheet importer-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">棚卸記入表 → 品目リスト変換</div>
+      <div class="sheet-title">棚卸記入表 → 品目リスト変換<span class="beta-tag">β</span></div>
+      <p class="beta-note">
+        PDF・Excel の自動読み取りはβ機能です。レイアウトによっては列がずれることがあります。
+        次の画面で追加・更新の内容を確認してから取り込んでください。
+      </p>
 
       <!-- ドロップゾーン -->
       <div
@@ -248,7 +246,7 @@ function onImport() {
           :disabled="preview.length === 0"
           @click="onImport"
         >
-          品目リストとして読み込む
+          取込内容を確認する
         </button>
       </div>
     </div>
@@ -266,6 +264,17 @@ function onImport() {
 .importer-sheet {
   max-height: 88vh;
   overflow-y: auto;
+}
+
+.beta-tag {
+  margin-left: 8px; vertical-align: middle;
+  border: 1px solid #fde68a; background: #fffbeb; color: #b45309;
+  border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 800;
+}
+.beta-note {
+  font-size: 12px; line-height: 1.6; color: #78350f;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+  padding: 9px 12px; margin: 0 0 14px;
 }
 
 .drop-zone {
