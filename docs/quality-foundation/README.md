@@ -21,6 +21,12 @@
 5. [`working-agreement.md`](working-agreement.md) — 並行作業と引き継ぎのルール
 6. [`session-log.md`](session-log.md) — 直近の作業と次の再開地点
 
+**Claude Code（CC）として製品機能・データ処理・画面構成を実装する場合は、
+上記に加えて [`cc-session-plan.md`](cc-session-plan.md) を読みます。**
+8タスクを3セッションへ束ねた実行順、各タスクの完了条件、環境・コマンド、主要ファイル地図、
+既知の落とし穴を持つ**指示出し用の一時文書**です。そこだけを参照して着手できるよう書いてあります
+（状態の正本は [`task-list.md`](task-list.md) のままです）。
+
 Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-readiness.md)、
 [`play-reviewer-guide.md`](play-reviewer-guide.md)、
 [`data-safety-form-draft.md`](data-safety-form-draft.md)、
