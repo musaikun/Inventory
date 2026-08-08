@@ -6,6 +6,7 @@ import { matchProfile } from '../composables/pdfProfiles.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfColumnMapper from './PdfColumnMapper.vue'
+import { confirmMasterImport } from '../utils/masterImportWarning.js'
 
 const props = defineProps({
   initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
@@ -14,7 +15,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'imported'])
 useEscapeKey(() => emit('close'))
 
-const { loadFromCSV } = useConfig()
+const { loadFromCSV, itemCount } = useConfig()
 
 const dragging    = ref(false)
 const fileInput   = ref(null)
@@ -132,6 +133,8 @@ onMounted(() => {
 })
 
 function onImport() {
+  // PDF / Excel からの取込も全置換（暫定措置。masterImportWarning.js 参照）
+  if (!confirmMasterImport(itemCount.value)) return
   try {
     const csv    = itemsToConfigCSV(preview.value)
     const result = loadFromCSV(csv)

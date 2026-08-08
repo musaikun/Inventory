@@ -8,6 +8,7 @@ import PdfImporterModal from './PdfImporterModal.vue'
 import CsvMapperModal from './CsvMapperModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { confirmMasterImport } from '../utils/masterImportWarning.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
 import { showDeleteAccount } from '../composables/appMenuState.js'
@@ -151,6 +152,8 @@ function handleFile(file) {
   const reader = new FileReader()
   reader.onload = e => {
     const text = e.target.result
+    // 取込は全置換。実行前に必ず同意を取る（暫定措置。masterImportWarning.js 参照）
+    if (!confirmMasterImport(itemCount.value)) { status.value = null; return }
     try {
       const result = loadFromCSV(text)
       status.value = _importResultStatus(result)
@@ -175,6 +178,8 @@ async function openMapper(file) {
 }
 
 function onMapperImported({ mapping, csvText }) {
+  // 列指定取込も全置換（暫定措置。masterImportWarning.js 参照）
+  if (!confirmMasterImport(itemCount.value)) { showMapper.value = false; status.value = null; return }
   try {
     const result = loadFromCSVMapped(csvText, mapping)
     showMapper.value = false
@@ -240,6 +245,11 @@ function onDownloadTemplate() {
 
       <!-- ドロップゾーン（CSV / PDF / Excel 全対応）※ゲストには非表示 -->
       <template v-else>
+        <!-- 取込は全置換。ファイルを選ぶ前に見える位置へ置く（暫定措置。utils/masterImportWarning.js）-->
+        <p v-if="itemCount > 0" class="replace-warn">
+          ⚠️ 取込は<strong>入れ替え</strong>です。現在の{{ itemCount }}件はファイルの内容に置き換わり、
+          ファイルに無い品目とその単価・別名・カテゴリは削除されます。
+        </p>
         <div
           class="drop-zone"
           :class="{ over: dragging }"
@@ -486,6 +496,19 @@ function onDownloadTemplate() {
 }
 .msg.success { background: #f0fdf4; color: var(--success); }
 .msg.error   { background: #fef2f2; color: var(--danger); }
+
+/* 取込が全置換であることの事前警告（暫定。utils/masterImportWarning.js 参照）*/
+.replace-warn {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--danger);
+  border-radius: 10px;
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
 
 .template-btn {
   width: 100%;

@@ -394,6 +394,11 @@ export function useConfig() {
     const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
 
+    // 【暫定】ここは追加マージではなく全置換。ファイルに無い品目と、その単価・別名・
+    // カテゴリは消える。UIの説明は長く「一致は上書き・無いものは追加」と食い違っており、
+    // 実行前の確認（utils/masterImportWarning.js）で止血している。
+    // 本修理では通常取込をマージ化し、全置換は別操作へ分離する。
+    // 経緯と完了条件: docs/quality-foundation/cc-session-plan.md の S2 / S5
     config.order         = cappedOrder
     config.units         = newUnits
     config.prices        = newPrices
@@ -1018,6 +1023,7 @@ export function useConfig() {
 
     const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
     _validateLearnedAliases(cappedOrder)
+    // 【暫定】loadFromCSV と同じく全置換。止血と本修理の方針は同関数のコメントを参照
     config.order         = cappedOrder
     config.units         = newUnits
     config.prices        = newPrices

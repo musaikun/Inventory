@@ -2,6 +2,26 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — S2: 品目マスタ取込の止血（CC 第1セッション）
+
+- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S2。**挙動は変えず、警告と文言だけを追加**。
+- 実害: `loadFromCSV` / `loadFromCSVMapped` は品目リストを**全置換**する。ファイルに無い品目と、
+  その単価・別名・カテゴリが消える。一方UIの説明は「品目名が一致するものは上書き、無いものは追加」＝
+  追加マージを約束しており、300品目の店舗が50品目のファイルを入れると250品目が消えていた。
+- `app/src/utils/masterImportWarning.js` を新設。全置換であることを説明する確認を、
+  **3つの取込入口すべて**へ入れた（CSV直接 / 列指定マッパー / PDF・Excel）。
+  品目0件のときは失うものが無いため確認しない。confirm が使えない環境では中止（同意なしに破壊しない）。
+- ファイル選択**前**に見える警告を `SettingsModal` のドロップゾーン上へ追加（`.replace-warn`）。
+  確認ダイアログはファイルを選んだ後にしか出ないため。
+- `MasterManagePage.vue` の `HELP.import` を実装の挙動へ一致させた。
+- 暫定である旨を `masterImportWarning.js` 冒頭、`useConfig.js` の全置換代入の直前2箇所、
+  `HELP.import` の上に残した。S5 で外す対象も `cc-session-plan.md` に列挙した。
+- 検証: `npm test` 539 passed / 64 files（新規8件）、`npm run build` 成功。
+  CSS 226.06 → 226.26kB（gzip 35.98 → 36.03kB）。
+- 未実施: 実ブラウザでの目視確認。手動確認台本8項目を `cc-session-plan.md` の S2 節に残した。
+- feature-checklist セルフチェック結果は同節と本コミットに記載。
+- 次の再開地点: **S3（DATA-002 Phase 1）**。完了時に Codex へ `SEC-005` の着手可を通知する。
+
 ## 2026-08-08 — S1: 担当と公開範囲の記録更新（CC 第1セッション）
 
 - 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の第1セッション S1。**docsのみでcode変更なし**。
