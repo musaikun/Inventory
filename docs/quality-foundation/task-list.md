@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-08
+最終更新: 2026-08-09
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -14,8 +14,8 @@
 D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持します。
 
 > **CCセッションの実行計画は [`cc-session-plan.md`](cc-session-plan.md) にあります。**
-> 8タスクを3セッションへ束ねた割り振り、各タスクの完了条件、環境・コマンド、
-> 主要ファイル地図、既知の落とし穴をまとめた**指示出し用の一時文書**です。
+> Codexレビューの修正を3セッションへ分け、各回の範囲、受入条件、必須test、
+> 引き渡し方法をまとめた**指示出し用の一時文書**です。
 > CC側の作業を始めるときは、まずそちらを読んでください（状態の正本は本ファイルのままです）。
 
 ## 現在のマイルストーン: Web Free版
@@ -27,6 +27,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
+| IMPORT-001 | P1 | 未着手 | Claude Code | 品目マスタ取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
 | DATA-002 | P1 | 未着手 | 未割当 | 別端末で履歴詳細を読めない実害と参照不整合 | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | 未着手 | Codex | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
@@ -105,6 +106,9 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-09: CC実装のCodex独立reviewで、品目取込のparser・alias衝突・preview・表示文言に
+  公開前修正が必要と判定した。WEB-07配下の実装作業を追跡する`IMPORT-001`をP1で追加し、
+  3セッションの修正計画を`cc-session-plan.md`へ更新した。既存タスクの状態・担当は変更していない。
 - 2026-08-08: User判断で製品実装をClaude Code、release品質基盤と独立reviewをCodexへ分離。
   WEB-001を品質基盤更新として再開し、棚卸中心の公開契約とWeb向け共同採点を追加した。
   production変更、URL/contact、deploy承認待ちは継続する。

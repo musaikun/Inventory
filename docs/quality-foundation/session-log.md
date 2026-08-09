@@ -2,6 +2,22 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-09 — CCレビュー修正を3セッションへ再編
+
+- 担当: Codex。CC branch `claude/branch-operational-status-2lwwwu@8ff46af`をread-only reviewした結果を、
+  既存の一時文書`cc-session-plan.md`へ反映した。App / Worker実装は変更していない。
+- 修正順を①完了失敗・pending保存、②sessionId・原子性・D1、③品目/過去棚卸取込・最終統合へ変更した。
+  `App.vue` / `useStore.js` / `useHistory.js`が重なるため、3セッションは前回checkpointを継ぐ直列実行とした。
+- `develop@dcf6874`のWeb公開契約を維持し、Phase 3・過去棚卸取込をUser判断なしに公開後へ送らないこと、
+  DATA-001/002はCodex承認前に完了にしないことを明記した。
+- 品目マスタ取込を正式に追跡する`IMPORT-001`をP1・未着手・Claude Code担当で追加した。
+  既存タスクの状態・担当は変更していない。
+- 旧計画を説明していたREADME/task-listの案内文を、今回のレビュー修正計画へ同期した。
+- 検証: 変更5文書のlocal Markdown link 66/66件解決、Markdown table 6件の列数一致、
+  `git diff --check`成功（改行warningのみ）。docs-onlyのためcode test/buildは未実行。
+- 未実施: commit、push、deploy、production migration、外部service変更。
+- 次の再開地点: Userが第1セッション指示をCCへ渡し、CCのcheckpoint報告後にCodexが独立reviewする。
+
 ## 2026-08-08 — WEB-001: 棚卸中心の公開契約とWeb共同採点を追加
 
 - 担当: Codex。Claude Codeは**同じ`develop`・同じ作業tree**で並行作業した。`task-list.md`で編集が
