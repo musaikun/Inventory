@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-09 — CC 第1〜3セッション完了（S1〜S8 全実装）
+
+- 全8タスク実装完了: S1（記録更新）→ S2（止血）→ S3（Phase 1）→ S4（原子性）→ S5（マージ化）→ S6（プレビュー）→ S7（可視化）→ S8（画面再編）
+- 共有ブランチ: `claude/branch-operational-status-2lwwwu`（3セッション共用）
+- 最終commit: `36fc8ad`（S4 の最後のシクル）
+- 検証: App 619 tests / 71 files、Worker 251 tests / 17 files、ビルド成功。**migration なし**。
+- 次のステップ: `cc-session-plan.md` を削除（完了条件により恒久docs へ残さない）。
+  Codex レビュー待ち（DATA-001 / DATA-002 は状態「レビュー待ち」）。
+  SEC-005 着手可（Codex 着手待ち）。
+
 ## 2026-08-08 — S4: DATA-001 複数writeの原子性（CC 第1セッション）
 
 - 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S4。Worker中心＋App一部。**migration なし**。
