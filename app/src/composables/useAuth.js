@@ -135,6 +135,15 @@ export async function deleteSession(sessionId) {
   return _api(`/store/${code}/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
+// GET /store/:code/sessions/:id/lines
+// 端末に snapshot が無い完了済み棚卸の明細を D1 から読む（DATA-002 Phase 1 / R-001）。
+// 見つからない・他店舗のIDは 404 が返る。呼び出し側で握って従来の案内へ倒す。
+export async function getSessionLines(sessionId) {
+  const code = shopCode.value
+  if (!code || !_token.value || !sessionId) return null
+  return _api(`/store/${code}/sessions/${sessionId}/lines`)
+}
+
 // POST /store/:code/sessions/:id/complete
 // 棚卸完了の一括処理（inventory_lines 展開 + sessions 更新）
 export async function completeSession(sessionId, inventory, prices, takenAt) {

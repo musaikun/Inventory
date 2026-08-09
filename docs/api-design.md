@@ -54,6 +54,7 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成 | strict同store Bearer |
 | `PUT/DELETE /store/:code/sessions/:uuid` | status/itemCount更新または削除 | strict同store Bearer |
 | `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt? }` → `{ok,sessionId,itemCount,totalValue}` | strict同store Bearer |
+| `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
@@ -90,7 +91,7 @@ PLAY-003 / WEB-001で未決です。
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
 | [DATA-001](quality-foundation/tasks/DATA-001.md) | order/movement header-lines、棚卸完了writeの原子性とfield/array上限 |
-| [DATA-002](quality-foundation/tasks/DATA-002.md) | `GET /store/:code/sessions/:id/lines`未実装、history同日上書き・孤児・別端末詳細 |
+| [DATA-002](quality-foundation/tasks/DATA-002.md) | Phase 1（`GET /store/:code/sessions/:id/lines`）と Phase 2 は実装済み。history同日上書き（F-001）・孤児（F-004）・データ源二重（F-003）・`LIMIT 50`（F-002）は Phase 3 で公開後 |
 | [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010/0011、Free server limits、E2E/smoke |
 
 ### 将来A1（現行APIではない）
@@ -207,6 +208,13 @@ D1 データベース                               ← データを取る
 | PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }` | `{ ok: true }` / 400 | Bearer |
 | DELETE | `/store/:code/sessions/:id` | — | `{ ok: true }` | Bearer |
 | POST | `/store/:code/sessions/:id/complete` | `{ inventory, totalValue, auditLog, participants }` | `{ ok, sessionId, itemCount }` | Bearer（§3.1 の実装・✅済み） |
+| GET | `/store/:code/sessions/:id/lines` | — | `{ sessionId, date, startedAt, endedAt, status, type, itemCount, totalValue, truncated, lines[] }` / 404 | Bearer（DATA-002 Phase 1・✅済み） |
+
+`lines[]` は `{ item, qty, unit, unitPrice, subtotal, category }`。`rowid` 順＝完了時の挿入順で返します。
+1回の上限は `MAX_SESSION_LINES`（2,000件）で、超過分は打ち切り `truncated: true` を返します
+（`totalValue` は `sessions.total_value` を返すため、打ち切っても合計は過小になりません）。
+店舗境界は `session_id` と `shop_code` の両方で絞ります。他storeのIDと存在しないIDは
+同じ404にして、IDの存在有無を漏らしません。
 
 ### 1.4 リアルタイム・その他（`index.js` → RoomDO）
 

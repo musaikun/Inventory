@@ -2,7 +2,7 @@
 
 import { insertInventoryLines } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS } from './constants.js'
+import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES } from './constants.js'
 import { entitlement } from './entitlements.js'
 
 function _tooLarge(body) {
@@ -204,6 +204,67 @@ export async function handleSessionCreate(db, code, body = {}) {
 export async function handleSessionDelete(db, code, sessionId) {
   await db.prepare('DELETE FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).run()
   return { ok: true }
+}
+
+// GET /store/:code/sessions/:id/lines
+//
+// 完了済みセッションの明細を D1 から読む（DATA-002 Phase 1 / R-001）。
+// 一覧は D1 sessions、詳細は localStorage + store_history という持ち主の違いがあり、
+// 端末を変えると「一覧には出るのに詳細が開けない」状態になっていた。
+// 完了時の明細は inventory_lines に残っているので、そこを読み出す経路を用意する。
+// D1 への復旧書き込みは行わない（User判断 2026-07-28: 方式A）。
+//
+// 店舗境界: session_id だけで引くと、他店舗のセッションIDを渡された場合に
+// その店舗の明細が読める。SEC-002 と同じく shop_code と session_id の両方で絞る。
+export async function handleSessionLinesGet(db, code, sessionId) {
+  // セッションが自店舗のものであることを先に確認する。
+  // 「他店舗のID」と「存在しないID」は同じ 404 にして、IDの存在有無を漏らさない。
+  const session = await db.prepare(`
+    SELECT id, started_at, ended_at, status, item_count, total_value, type
+    FROM sessions WHERE id = ? AND shop_code = ?
+  `).bind(sessionId, code).first()
+  if (!session) return { _status: 404, error: 'セッションが見つかりません' }
+
+  // rowid 順＝完了時の挿入順。棚卸で入力した並びに最も近く、再取得しても安定する
+  // （ON CONFLICT DO UPDATE は rowid を変えない）。
+  const rows = await db.prepare(`
+    SELECT item_name, category, qty, unit, unit_price, line_value, taken_at
+    FROM inventory_lines
+    WHERE session_id = ? AND shop_code = ?
+    ORDER BY rowid
+    LIMIT ?
+  `).bind(sessionId, code, MAX_SESSION_LINES + 1).all()
+
+  const all       = rows.results ?? []
+  const truncated = all.length > MAX_SESSION_LINES
+  const picked    = truncated ? all.slice(0, MAX_SESSION_LINES) : all
+
+  const lines = picked.map(r => ({
+    item:      r.item_name,
+    qty:       r.qty,
+    unit:      r.unit ?? null,
+    unitPrice: r.unit_price ?? null,
+    subtotal:  r.line_value ?? null,
+    category:  r.category ?? null,
+  }))
+
+  // 表示日の決定順: 明細の taken_at → セッションの ended_at → started_at。
+  // 過去取込ぶんは taken_at が実施日で、ended_at（取込した日時）とはずれる。
+  const date = (picked.find(r => r.taken_at)?.taken_at
+    ?? session.ended_at ?? session.started_at ?? '').slice(0, 10)
+
+  return {
+    sessionId,
+    date,
+    startedAt:  session.started_at,
+    endedAt:    session.ended_at ?? null,
+    status:     session.status,
+    type:       session.type ?? 'stock',
+    itemCount:  lines.length,
+    totalValue: session.total_value ?? null,
+    truncated,
+    lines,
+  }
 }
 
 // PUT /store/:code/sessions/:id  body: { status, itemCount? }

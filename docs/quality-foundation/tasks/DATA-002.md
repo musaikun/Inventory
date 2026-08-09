@@ -58,7 +58,7 @@ CC/Codex の役割が「CC = 製品機能・データ処理・画面構成 ／ C
 Phase 1 を先にする理由は、本番で実害が出ており、User承認済みの復旧対象データ
 （2026-07-07 の351行）が `inventory_lines` に残ったままのためです。
 
-## 実装計画（Phase 1・3 未着手 / Phase 2 実装済み・全文は [`../bug-reports.md`](../bug-reports.md)）
+## 実装計画（Phase 1・2 実装済み / Phase 3 は公開後・全文は [`../bug-reports.md`](../bug-reports.md)）
 
 - **Phase 1** — 詳細が読めない状態を解消（2026-07-07データの復旧を兼ねる）。
   `GET /store/:code/sessions/:id/lines` を追加し、`session_id` と `shop_code` の両方で絞る
@@ -67,6 +67,39 @@ Phase 1 を先にする理由は、本番で実害が出ており、User承認�
   ログイン・起動時のバックフィル。
 - **Phase 3** — 構造の是正（要PM判断・migration含む）。`store_history` のsession単位キー化（F-001）、
   データ源の一本化（F-003）、`LIMIT 50` 見直し（F-002）、削除のサーバー側完結（F-004）。
+
+## Phase 1 の実装（2026-08-08・Claude Code 第1セッション / S3）
+
+**状態: 実装済み。Worker 210 tests passed / App 617 tests passed / production build 成功。**
+D1 への復旧書き込みは行っていない（User判断 2026-07-28 の方式A）。
+
+| 完了条件 | 実装 |
+|---|---|
+| `GET /store/:code/sessions/:id/lines` を追加し `session_id` と `shop_code` の両方で絞る | `storeHandler.js` の `handleSessionLinesGet`。`index.js` の `_requireAuth`（strict同store Bearer）の内側に登録。単価・在庫金額を含むためゲスト経路には置かない |
+| 他店舗の `session_id` を渡した場合の店舗境界テストを先に書く | `worker/src/sessionLines.test.js` を先に作成し、10件すべて失敗を確認してから実装。加えて `index.test.js` にルーター層の401/404/200を追加 |
+| App 側は snapshot が無ければ lines から表示用snapshotを組み立てる | `app/src/services/snapshotFromLines.js`（純関数）＋ `App.vue` の `onViewSession` |
+
+### 設計上の判断
+
+- **他店舗のIDと存在しないIDは同じ404**にした。区別すると「そのIDが実在するか」を
+  他店舗から確かめられる。
+- **復元したスナップショットは `locked: true`** にした。`patchSnapshotItems` は
+  localStorage の該当日付を書き換える実装で、端末に実体が無い記録を編集させると
+  「保存したつもりで消える」状態になる。訂正は端末に実体がある場合のみ。
+- **localStorage にも D1 にも書き戻さない。** その場で見るための復元であり、
+  端末のスナップショットとして正にはしない。バックフィル（Phase 2）とは逆向きの経路。
+- **`totalValue` はサーバーの `sessions.total_value` を優先**する。明細が上限で
+  打ち切られた場合に、積み上げ計算だと実際より小さい合計を出してしまう。
+- **1回の返却上限は 2,000件**（`MAX_SESSION_LINES`）。`F-002` の転送量問題を新経路へ
+  持ち込まないための有界化。超過時は `truncated` を返し、App はトーストで明示する。
+
+### 残っている穴（Phase 1 では埋めていない）
+
+- 復元経路は**完了済みセッションの明細のみ**。`entryLog` / `participants` / `auditLog` は
+  `inventory_lines` に無いため空になる。詳細画面の「入力者別」「変更履歴」は端末に
+  スナップショットがある場合にだけ出る。
+- 日付キーのままなので **F-001（同日2回目の上書き）は解消していない**。
+- 一覧と詳細のデータ源が2つある状態（F-003）そのものは Phase 3 の範囲。
 
 ## Phase 2 の実装（2026-08-08・Claude Code 第3セッション / S7）
 
@@ -105,6 +138,12 @@ Phase 1 は `worker/src/index.js` の store ルート群に入り、**`SEC-005`�
 その後に Codex が `SEC-005` へ着手する**。同じ順序を [`SEC-005.md`](SEC-005.md) にも記載している。
 
 CC は Phase 1 完了時に **Codex へ `SEC-005` の着手可を通知する**。
+
+> **2026-08-08: Phase 1 完了。`SEC-005` は着手可。**
+> `worker/src/index.js` の store ルート群に `GET /store/:code/sessions/:id/lines` を追加済み
+> （`_requireAuth` の内側、`/sessions/:id/complete` の直前）。`storeHandler.js` に
+> `handleSessionLinesGet`、`constants.js` に `MAX_SESSION_LINES` を追加している。
+> `SEC-005` で legacy `/store/create` を触る際は、この追加後の状態を基点にすること。
 
 ### 今回の公開scope
 

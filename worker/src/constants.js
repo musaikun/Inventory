@@ -17,6 +17,11 @@ export const SECURITY_ATTEMPT_RETENTION_MS = Math.max(LOGIN_WINDOW_MS, IP_RATE_W
 export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard
 export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024 // PushSubscription JSON guard
 
+// GET /store/:code/sessions/:id/lines で1回に返す明細の上限。
+// Free上限150品目に対して十分な余裕を持たせつつ、1セッションぶんの転送を有界にする。
+// 超えた分は truncated を立てて打ち切る（F-002 の転送量問題を新経路へ持ち込まないため）。
+export const MAX_SESSION_LINES = 2_000
+
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）
 

@@ -2,6 +2,34 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — S3: DATA-002 Phase 1（CC 第1セッション）
+
+- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S3。**Worker と App の両方**に触れた。
+- `GET /store/:code/sessions/:id/lines` を追加。`storeHandler.js` の `handleSessionLinesGet` を
+  `index.js` の `_requireAuth`（strict同store Bearer）の内側、`/sessions/:id/complete` の直前に登録。
+  単価・在庫金額を返すためゲスト経路には置かない。
+- **店舗境界テストを先に書いた**（完了条件どおり）。`worker/src/sessionLines.test.js` を作成し
+  10件すべて失敗を確認してから実装。`session_id` だけで引くSQLではテストが落ちるモックにしてある。
+  ルーター層の401/他店舗トークン401/他店舗セッション404/自店舗200を `index.test.js` に追加。
+- 他店舗のIDと存在しないIDは**同じ404**。区別するとIDの実在を他店舗から確かめられる。
+- App 側は `services/snapshotFromLines.js`（純関数）で lines から表示用スナップショットを組み立て、
+  `App.vue` の `onViewSession` が端末にスナップショットが無いときだけ呼ぶ。
+  **localStorage にも D1 にも書き戻さない**（User判断 2026-07-28 の方式A）。
+- 復元したスナップショットは `locked: true`。`patchSnapshotItems` は localStorage の該当日付を
+  書き換える実装で、端末に実体が無い記録を編集させると「保存したつもりで消える」ため。
+- 1回の返却上限 `MAX_SESSION_LINES` = 2,000件。超過時は `truncated` を返しトーストで明示する
+  （`F-002` の転送量問題を新経路へ持ち込まないための有界化）。
+- `totalValue` はサーバーの `sessions.total_value` を優先。打ち切り時に合計が過小にならないため。
+- **`SEC-005` を着手可へ変更**（順序ブロック解除）。`SEC-005.md` / `DATA-002.md` / `task-list.md` に明記。
+- `docs/api-design.md` に認証区分つきで登録（feature-checklist §5）。DATA-002 の未解消行も更新。
+- 検証: worker `npm test` 210 passed / 16 files（+14）、app `npm test` 617 passed / 71 files（+13）、
+  `npm run build` 成功。
+- 未実施: 実機・本番D1での確認。別端末で詳細が開けること、2026-07-07の351品目が出ることは
+  **未確認**で、手動確認台本6項目を `cc-session-plan.md` の S3 節に残した。
+- 残る穴: 復元経路では `entryLog` / `participants` / `auditLog` が空（`inventory_lines` に無い）。
+  F-001（同日2回目の上書き）と F-003（データ源二重）は Phase 3 の範囲で未解消。
+- 次の再開地点: 第1セッションの **S4（DATA-001・完了処理の原子性）**。
+
 ## 2026-08-08 — CC第2セッション: 品目マスタ取込の本修理（S5・S6）
 
 - 担当: Claude Code。範囲は `cc-session-plan.md` の第2セッション（S5・S6）。`worker/` は無変更。

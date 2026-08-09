@@ -47,7 +47,8 @@ import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines } from './composables/useAuth.js'
+import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
@@ -392,15 +393,42 @@ function _exitPractice() {
 }
 
 // セッション一覧から「完了済みセッション詳細」
-function onViewSession(session) {
+//
+// 端末にスナップショットが無ければ D1 の明細（inventory_lines）から組み立てて表示する
+// （DATA-002 Phase 1 / R-001）。端末を変えると詳細が開けなくなっていた実害への対処で、
+// 端末の localStorage にも D1 にも書き戻さない。読むだけ。
+const viewSessionLoading = ref(false)
+async function onViewSession(session) {
+  if (viewSessionLoading.value) return
   let snap = getSnapshotBySessionId(session.id)
   if (!snap) {
     const dateKey = (session.endedAt ?? session.startedAt ?? '').slice(0, 10)
     if (dateKey) snap = getSnapshots().find(s => s.date === dateKey) ?? null
   }
+
+  if (!snap && session.id) {
+    viewSessionLoading.value = true
+    try {
+      snap = buildSnapshotFromLines(await getSessionLines(session.id))
+    } catch (err) {
+      // 404 = この店舗に無いセッション。それ以外（通信・認証）は原因を分けて伝える
+      if (err?.status && err.status !== 404) {
+        console.error('[App] session lines fetch failed:', session.id, err?.message ?? err)
+        showToast('棚卸データを取得できませんでした。通信状況を確認してください', 3500, 'warning')
+        viewSessionLoading.value = false
+        return
+      }
+    } finally {
+      viewSessionLoading.value = false
+    }
+  }
+
   if (!snap) {
-    showToast('この端末での棚卸データが見つかりません', 3000, 'warning')
+    showToast('この棚卸の明細が見つかりません', 3000, 'warning')
     return
+  }
+  if (snap.truncated) {
+    showToast('明細が多いため一部のみ表示しています', 3500, 'warning')
   }
   detailSnapshot.value = snap
   currentView.value = 'session-detail'

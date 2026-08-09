@@ -7,7 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleSessionComplete, handleRoomResult,
+  handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
@@ -321,6 +321,16 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
+        }
+
+        // GET /store/:code/sessions/:id/lines （要認証）
+        // 端末に snapshot が無くても完了済み棚卸の詳細を開けるようにする（DATA-002 Phase 1）。
+        // 単価・在庫金額を含むためゲストには出さない。ここは店舗トークン必須の側に置く。
+        const sessLinesMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/lines$/)
+        if (sessLinesMatch && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleSessionLinesGet(env.DB, code, sessLinesMatch[1]), origin, allowedOrigin)
         }
 
         // POST /store/:code/sessions/:id/complete （要認証）
