@@ -1,13 +1,15 @@
 <script setup>
 import { computed } from 'vue'
 import { isOnline } from '../composables/useConnectivity.js'
-import { saveState, retryPendingSaves, saveFailures, pendingCount, pendingPersisted } from '../composables/useStore.js'
+import { saveState, retryPendingSaves, saveFailures, pendingCount, pendingPersisted, pendingTruncated } from '../composables/useStore.js'
 
 // オンラインなのに再送が続けて失敗している＝一時的な瞬断ではない。
 // 「再送しています…」のままだと保存できていないことが伝わらないため、表示を強める。
 const FAILED_THRESHOLD = 2
 
-// 表示するのは「オフライン」か「未送信あり（再送待ち／保存できていない）」のときだけ。
+// 表示優先度：offline → failed → pending → idle
+// offline/failed/pending は いずれもUIに通知が必要な状態。
+// 未送信が無ければ空の文字列を返して非表示。
 const mode = computed(() => {
   if (!isOnline.value) return 'offline'
   if (saveState.value !== 'pending') return ''
@@ -15,11 +17,18 @@ const mode = computed(() => {
 })
 
 const countLabel = computed(() => (pendingCount.value > 0 ? `未送信 ${pendingCount.value}件` : '未送信'))
+
+// 容量制限で失われたデータがあるか
+const hasTruncation = computed(() =>
+  pendingTruncated.value.snapshots > 0 ||
+  pendingTruncated.value.orders > 0 ||
+  pendingTruncated.value.movements > 0
+)
 </script>
 
 <template>
   <transition name="cb-slide">
-    <div v-if="mode" :class="['cb', mode]">
+    <div v-if="mode" :class="['cb', mode]" role="status" aria-live="polite" aria-atomic="true">
       <template v-if="mode === 'offline'">
         <span class="cb-dot">📴</span>
         <span class="cb-text">オフライン — 変更は端末に保存済み。接続が戻ると自動で同期します。</span>
@@ -27,13 +36,27 @@ const countLabel = computed(() => (pendingCount.value > 0 ? `未送信 ${pending
       <template v-else-if="mode === 'failed'">
         <span class="cb-dot">⚠️</span>
         <span class="cb-text">
-          サーバーへ保存できていません（{{ countLabel }}）。<template v-if="pendingPersisted">端末には保存済みで、再送を続けます。</template><template v-else>この端末では未送信分を保持できません。アプリを閉じる前に再送してください。</template>
+          <template v-if="hasTruncation">
+            サーバーへ保存できていません（{{ countLabel }}、一部は容量不足で失われた可能性があります）。
+          </template>
+          <template v-else>
+            サーバーへ保存できていません（{{ countLabel }}）。
+          </template>
+          <template v-if="pendingPersisted">端末には保存済み。今すぐ再送してください。</template>
+          <template v-else>この端末では未送信分を保持できません。今すぐ再送してください。</template>
         </span>
         <button class="cb-retry" @click="retryPendingSaves">今すぐ再送</button>
       </template>
       <template v-else>
         <span class="cb-dot spin">🔄</span>
-        <span class="cb-text">未送信の変更があります（{{ countLabel }}）。再送しています…</span>
+        <span class="cb-text">
+          <template v-if="hasTruncation">
+            未送信の変更があります（{{ countLabel }}、一部は容量不足で失われた可能性があります）。再送しています…
+          </template>
+          <template v-else>
+            未送信の変更があります（{{ countLabel }}）。再送しています…
+          </template>
+        </span>
         <button class="cb-retry" @click="retryPendingSaves">今すぐ再送</button>
       </template>
     </div>

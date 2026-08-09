@@ -1218,7 +1218,10 @@ async function onComplete() {
     // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
     // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
     const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
-    if (!completed?.ok) _warnCompleteUnsaved()
+    if (!completed?.ok) {
+      _warnCompleteUnsaved()
+      return  // 失敗時は状態を保持したままセッション画面から抜けない
+    }
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
@@ -1233,13 +1236,16 @@ async function onComplete() {
 
   // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
   const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  if (!completed?.ok) {
+    _warnCompleteUnsaved()
+    return  // 失敗時は状態を保持したままセッション画面から抜けない
+  }
   _clearDraft(completedId)
   clearSession()
   track('session_completed', { item_count: completionCount, mode: 'solo' })
   _checkReviewPrompt()
-  if (!completed?.ok)     _warnCompleteUnsaved()
-  else if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
-  else                    _warnSnapshotUnsent()
+  if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
+  else               _warnSnapshotUnsent()
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -1292,7 +1298,11 @@ async function onGoHome() {
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
   if (isCompleted.value) {
-    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    const completed = await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    if (!completed?.ok) {
+      _warnCompleteUnsaved()
+      return  // 失敗時は状態を保持したままセッション画面から抜けない
+    }
   } else {
     _saveDraft(pendingSession.value?.id)
     await markSessionActive(filledCount.value)

@@ -27,6 +27,8 @@ const _PENDING_CAP = { snapshots: 20, orders: 200, movements: 200 }
 export const saveFailures = ref(0)
 // 未送信データを端末に保存できているか。false = この端末では再起動をまたげない（容量不足等）。
 export const pendingPersisted = ref(true)
+// 未送信データのうち、容量制限で端末に保存できなかった件数。トーストで「全て保存しましたが...」と伝えるのに使う。
+export const pendingTruncated = ref({ snapshots: 0, orders: 0, movements: 0 })
 export const pendingCount = computed(() =>
   (_pendingCounts.value.config ? 1 : 0) + (_pendingCounts.value.inventory ? 1 : 0) +
   _pendingCounts.value.snapshots + _pendingCounts.value.orders + _pendingCounts.value.movements
@@ -47,34 +49,60 @@ function _syncPendingCounts() {
 function _persistPending() {
   _syncPendingCounts()
   const empty = pendingCount.value === 0
+  // トランケーション追跡をリセット
+  pendingTruncated.value = { snapshots: 0, orders: 0, movements: 0 }
   try {
     if (empty) { localStorage.removeItem(STORAGE_KEYS.pendingSaves); pendingPersisted.value = true; return }
+    // 容量制限に基づいて末尾をスライス。超過分は記録する（UIで警告用）。
+    const snapshots = _snapQueue.slice(-_PENDING_CAP.snapshots)
+    const orders = _orderQueue.slice(-_PENDING_CAP.orders)
+    const movements = _moveQueue.slice(-_PENDING_CAP.movements)
+    pendingTruncated.value = {
+      snapshots: Math.max(0, _snapQueue.length - _PENDING_CAP.snapshots),
+      orders: Math.max(0, _orderQueue.length - _PENDING_CAP.orders),
+      movements: Math.max(0, _moveQueue.length - _PENDING_CAP.movements),
+    }
     const payload = {
       shopCode:  shopCode.value,
       config:    _pending.config,
       inventory: _pending.inventory,
-      snapshots: _snapQueue.slice(-_PENDING_CAP.snapshots),
-      orders:    _orderQueue.slice(-_PENDING_CAP.orders),
-      movements: _moveQueue.slice(-_PENDING_CAP.movements),
+      snapshots,
+      orders,
+      movements,
     }
     localStorage.setItem(STORAGE_KEYS.pendingSaves, JSON.stringify(payload))
     pendingPersisted.value = true
-  } catch (_) {
+  } catch (firstError) {
     // 容量不足。snapshot は1件で百KB規模になるため、小さいものだけでも残す。
     // それも入らなければ端末保存は諦め、pendingPersisted=false としてUIで警告する。
     try {
+      const orders = _orderQueue.slice(-_PENDING_CAP.orders)
+      const movements = _moveQueue.slice(-_PENDING_CAP.movements)
       localStorage.setItem(STORAGE_KEYS.pendingSaves, JSON.stringify({
         shopCode:  shopCode.value,
         config:    _pending.config,
         inventory: _pending.inventory,
         snapshots: [],
-        orders:    _orderQueue.slice(-_PENDING_CAP.orders),
-        movements: _moveQueue.slice(-_PENDING_CAP.movements),
+        orders,
+        movements,
       }))
-    } catch (_) {
+      // スナップショットが保存できなかった
+      pendingTruncated.value = {
+        snapshots: _snapQueue.length,
+        orders: Math.max(0, _orderQueue.length - _PENDING_CAP.orders),
+        movements: Math.max(0, _moveQueue.length - _PENDING_CAP.movements),
+      }
+      pendingPersisted.value = true
+    } catch (secondError) {
+      // 容量不足が解消できない。その他も失敗する可能性
       try { localStorage.removeItem(STORAGE_KEYS.pendingSaves) } catch (_) {}
+      pendingTruncated.value = {
+        snapshots: _snapQueue.length,
+        orders: _orderQueue.length,
+        movements: _moveQueue.length,
+      }
+      pendingPersisted.value = false
     }
-    pendingPersisted.value = false
   }
 }
 
@@ -123,6 +151,10 @@ export async function retryPendingSaves() {
   if (!code || !BASE) return
   const stale = () => generation !== _saveGeneration || code !== shopCode.value
   const before = pendingCount.value
+  // キューの重複排除: 同じリソースの複数バージョンが存在する場合、古い方を除外
+  // 例: Order A-v1失敗 → Order A-v2成功 → retry時にA-v1を再送しないようにする（ロールバック防止）
+  const savedResources = new Set()
+
   if (_pending.config) {
     const data = _pending.config
     try {
@@ -149,18 +181,36 @@ export async function retryPendingSaves() {
   }
   while (_orderQueue.length) {
     const data = _orderQueue[0]
+    const resourceId = `order:${data?.id}`
+    // 同じリソースの新しいバージョンが既に成功しているなら、古いバージョンは実行しない
+    if (savedResources.has(resourceId)) {
+      _orderQueue.shift()
+      continue
+    }
     try {
       await _api(`/store/${code}/orders`, { method: 'POST', body: JSON.stringify(data) })
       if (stale()) return
-      if (_orderQueue[0] === data) _orderQueue.shift()
+      if (_orderQueue[0] === data) {
+        _orderQueue.shift()
+        savedResources.add(resourceId)
+      }
     } catch (_) { if (stale()) return; break }
   }
   while (_moveQueue.length) {
     const data = _moveQueue[0]
+    const resourceId = `movement:${data?.id}`
+    // 同じリソースの新しいバージョンが既に成功しているなら、古いバージョンは実行しない
+    if (savedResources.has(resourceId)) {
+      _moveQueue.shift()
+      continue
+    }
     try {
       await _api(`/store/${code}/movements`, { method: 'POST', body: JSON.stringify(data) })
       if (stale()) return
-      if (_moveQueue[0] === data) _moveQueue.shift()
+      if (_moveQueue[0] === data) {
+        _moveQueue.shift()
+        savedResources.add(resourceId)
+      }
     } catch (_) { if (stale()) return; break }
   }
   _syncPendingCounts()
