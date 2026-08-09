@@ -2,6 +2,36 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — S4: DATA-001 複数writeの原子性（CC 第1セッション）
+
+- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S4。Worker中心＋App一部。**migration なし**。
+- 棚卸完了・発注・入出庫の3つとも、ヘッダ（完了状態）と明細を**1つの `db.batch`
+  （=1トランザクション）**へまとめた。従来は棚卸完了が2回、発注が別writeの連続、入出庫が3回。
+- `inventoryLines.js` を「実行する」から「**文を組み立てて返す**」（`inventoryLineStatements`）へ変更。
+  呼び出し側が `UPDATE sessions` と同じ batch へ載せられるようにするため。
+- batch は途中で中断できないので、**明細の INSERT 自身に持ち主の確認を持たせた**
+  （`WHERE EXISTS (SELECT 1 FROM sessions/orders/movements WHERE id = ? AND shop_code = ?)`）。
+  `UPDATE sessions` を batch の先頭に置き、0行なら後続の INSERT も弾かれる。
+- 冪等性は「毎回全削除してから入れ直す」で担保。upsert だけだと品目が減った再送で前回ぶんが残る。
+- **クライアント側の部分適用も塞いだ。** `useSession.complete()` は complete API が失敗すると
+  `updateSession(id, 'completed')` へフォールバックしており、「明細の保存に失敗したのに
+  セッションだけ完了として残す」＝ DATA-001 が防ぎたい状態そのものをクライアントから作っていた。
+  削除して `{ ok:false, reason:'save_failed' }` を返し、`_finalized` も戻して再試行を塞がない。
+  **旧テスト1件（フォールバックを固定していた）を反転させた。**
+- `handleMovementCreate` のヘッダ upsert に店舗境界の WHERE が無く、事前SELECT後の競合で
+  他店のヘッダを上書きできる隙間が残っていた。`handleOrderCreate` と同じ形へ揃えた。
+- 上限: `MAX_LINES_PER_REQUEST` = 5,000行を新設（`MAX_PAYLOAD_CHARS` はJSON全体のバイト数しか
+  見ないため、短い行を大量に並べると上限内のまま数万行を1トランザクションへ詰め込める）。
+  品目名・単位は既存の `MAX_INGREDIENT_LEN` / `MAX_UNIT_LEN` で slice。
+  棚卸完了に `_tooLarge` と `inventory` の型チェックを追加（従来なし）。
+- 検証: worker `npm test` 251 passed / 17 files（+29。`atomicity.test.js` 新設）、
+  app `npm test` 619 passed / 71 files、`npm run build` 成功。
+- 未実施: 実機・本番D1での確認。**本番D1で batch がトランザクションとして巻き戻ることは未検証**。
+  ローカルは注入モックで再現しているだけ。手動確認台本6項目を `cc-session-plan.md` の S4 節に残した。
+- 範囲外: `saveSnapshotToD1`（`store_history`）は完了処理とは別 write のまま。1つにまとめるには
+  `store_history` の session単位キー化（F-001）が要るため Phase 3（公開後）。
+- **第1セッション（S1〜S4）はこれで完了。** 8タスク全体では S1〜S8 がすべて実装済み。
+
 ## 2026-08-08 — S3: DATA-002 Phase 1（CC 第1セッション）
 
 - 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S3。**Worker と App の両方**に触れた。

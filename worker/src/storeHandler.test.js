@@ -12,14 +12,42 @@ function createMockD1() {
     const stmt = {
       bind(...a) { bound = a; return stmt },
       async run() {
-        if (s.startsWith('INSERT INTO inventory_lines')) {
+        let changes = 0
+        if (s.startsWith('DELETE FROM inventory_lines')) {
+          const [sessionId, shop] = bound
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].session_id === sessionId && lines[i].shop_code === shop) {
+              lines.splice(i, 1)
+              changes++
+            }
+          }
+        } else if (s.startsWith('INSERT INTO inventory_lines')) {
           const [session_id, shop_code, taken_at, item_name, , qty, unit, unit_price, line_value] = bound
-          lines.push({ session_id, shop_code, taken_at, item_name, qty, unit, unit_price, line_value })
+          // WHERE EXISTS でセッションの存在を確認する形なら、無ければ入らない
+          const guarded = s.includes('WHERE EXISTS')
+          const [exId, exShop] = bound.slice(-2)
+          const ownerOk = !guarded || sessions.some(x => x.id === exId && x.shop_code === exShop)
+          if (ownerOk) {
+            lines.push({ session_id, shop_code, taken_at, item_name, qty, unit, unit_price, line_value })
+            changes = 1
+          }
+        } else if (s.startsWith('UPDATE sessions')) {
+          const [, itemCount, totalValue, id, shop] = bound
+          const target = sessions.find(x => x.id === id && x.shop_code === shop)
+          if (target) {
+            Object.assign(target, { status: 'completed', item_count: itemCount, total_value: totalValue })
+            changes = 1
+          }
         }
-        return { success: true }
+        return { success: true, meta: { changes } }
       },
       async first() {
-        if (s.includes('FROM sessions WHERE id')) return sessions.find(s => s.id === bound[0]) ?? null
+        if (s.includes('FROM sessions WHERE id')) {
+          const [id, shop] = bound
+          return sessions.find(x =>
+            x.id === id && (s.includes('shop_code = ?') ? x.shop_code === shop : true)
+          ) ?? null
+        }
         return null
       },
       async all() { return { results: [] } },
@@ -27,13 +55,24 @@ function createMockD1() {
     return stmt
   }
 
+  // D1 の batch は1トランザクション。failAt で部分失敗を注入し、巻き戻りを再現する。
+  let failAt = null
   async function batch(stmts) {
+    const before = { lines: lines.map(l => ({ ...l })), sessions: sessions.map(x => ({ ...x })) }
     const results = []
-    for (const s of stmts) results.push(await s.run())
+    for (let i = 0; i < stmts.length; i++) {
+      if (failAt === i) {
+        failAt = null
+        lines.splice(0, lines.length, ...before.lines)
+        sessions.splice(0, sessions.length, ...before.sessions)
+        throw new Error('D1_ERROR: injected failure')
+      }
+      results.push(await stmts[i].run())
+    }
     return results
   }
 
-  return { prepare, batch, _lines: lines, _sessions: sessions }
+  return { prepare, batch, _lines: lines, _sessions: sessions, _failBatchAt(i) { failAt = i } }
 }
 
 describe('storeHandler ペイロードサイズ上限', () => {
@@ -237,8 +276,14 @@ function createOrdersMockD1() {
           }
         } else if (s.startsWith('INSERT INTO order_lines')) {
           const [order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded] = bound
-          orderLines.push({ order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded })
-          changes = 1
+          // WHERE EXISTS で持ち主を確認する形なら、ヘッダが無い/他店舗のときは入らない
+          const guarded = s.includes('WHERE EXISTS')
+          const [exId, exShop] = bound.slice(-2)
+          const ownerOk = !guarded || orders.some(o => o.id === exId && o.shop_code === exShop)
+          if (ownerOk) {
+            orderLines.push({ order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded })
+            changes = 1
+          }
         }
         return { success: true, meta: { changes } }
       },
@@ -271,11 +316,31 @@ function createOrdersMockD1() {
     }
     return stmt
   }
+  // D1 の batch は1トランザクション。failAt を指定すると、そのindexで例外を投げ、
+  // それまでに適用した変更を巻き戻す（部分失敗の注入用）。
+  let failAt = null
+  async function batch(stmts) {
+    const before = { orders: orders.map(o => ({ ...o })), lines: orderLines.map(l => ({ ...l })) }
+    const results = []
+    for (let i = 0; i < stmts.length; i++) {
+      if (failAt === i) {
+        failAt = null
+        orders.splice(0, orders.length, ...before.orders)
+        orderLines.splice(0, orderLines.length, ...before.lines)
+        throw new Error('D1_ERROR: injected failure')
+      }
+      results.push(await stmts[i].run())
+    }
+    return results
+  }
+
   return {
     prepare,
+    batch,
     _orders: orders,
     _lines: orderLines,
     _hideOwnerOnce() { hideOwnerOnce = true },
+    _failBatchAt(i) { failAt = i },
   }
 }
 
@@ -416,25 +481,44 @@ function createMovementsMockD1() {
     const stmt = {
       bind(...a) { bound = a; return stmt },
       async run() {
+        let changes = 0
         if (s.startsWith('DELETE FROM movement_lines WHERE movement_id')) {
           const [moveId, shop] = bound
           for (let i = moveLines.length - 1; i >= 0; i--) {
-            if (moveLines[i].movement_id === moveId && moveLines[i].shop_code === shop) moveLines.splice(i, 1)
+            if (moveLines[i].movement_id === moveId && moveLines[i].shop_code === shop) {
+              moveLines.splice(i, 1)
+              changes++
+            }
           }
         } else if (s.startsWith('DELETE FROM movements WHERE id')) {
           const [id, shop] = bound
           const i = movements.findIndex(m => m.id === id && m.shop_code === shop)
-          if (i >= 0) movements.splice(i, 1)
+          if (i >= 0) { movements.splice(i, 1); changes = 1 }
         } else if (s.startsWith('INSERT INTO movements')) {
           const [id, shop_code, move_date, type, note, order_id, saved_at] = bound
           const existing = movements.find(m => m.id === id)
-          if (existing) Object.assign(existing, { move_date, type, note, order_id })
-          else movements.push({ id, shop_code, move_date, type, note, order_id, saved_at })
+          if (existing) {
+            const ownerCondition = s.includes('WHERE movements.shop_code = excluded.shop_code')
+            if (!ownerCondition || existing.shop_code === shop_code) {
+              Object.assign(existing, { move_date, type, note, order_id })
+              changes = 1
+            }
+          } else {
+            movements.push({ id, shop_code, move_date, type, note, order_id, saved_at })
+            changes = 1
+          }
         } else if (s.startsWith('INSERT INTO movement_lines')) {
           const [movement_id, shop_code, move_date, item, qty, unit] = bound
-          moveLines.push({ movement_id, shop_code, move_date, item, qty, unit })
+          // WHERE EXISTS で持ち主を確認する形なら、ヘッダが無い/他店舗のときは入らない
+          const guarded = s.includes('WHERE EXISTS')
+          const [exId, exShop] = bound.slice(-2)
+          const ownerOk = !guarded || movements.some(m => m.id === exId && m.shop_code === exShop)
+          if (ownerOk) {
+            moveLines.push({ movement_id, shop_code, move_date, item, qty, unit })
+            changes = 1
+          }
         }
-        return { success: true }
+        return { success: true, meta: { changes } }
       },
       async first() {
         if (s.startsWith('SELECT shop_code FROM movements WHERE id')) {
@@ -465,12 +549,23 @@ function createMovementsMockD1() {
     }
     return stmt
   }
+  // D1 の batch は1トランザクション。failAt で部分失敗を注入し、巻き戻りを再現する。
+  let failAt = null
   async function batch(stmts) {
+    const before = { moves: movements.map(m => ({ ...m })), lines: moveLines.map(l => ({ ...l })) }
     const out = []
-    for (const s of stmts) out.push(await s.run())
+    for (let i = 0; i < stmts.length; i++) {
+      if (failAt === i) {
+        failAt = null
+        movements.splice(0, movements.length, ...before.moves)
+        moveLines.splice(0, moveLines.length, ...before.lines)
+        throw new Error('D1_ERROR: injected failure')
+      }
+      out.push(await stmts[i].run())
+    }
     return out
   }
-  return { prepare, batch, _movements: movements, _lines: moveLines }
+  return { prepare, batch, _movements: movements, _lines: moveLines, _failBatchAt(i) { failAt = i } }
 }
 
 describe('入出庫 API（movements）', () => {

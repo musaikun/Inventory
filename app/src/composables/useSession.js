@@ -87,20 +87,48 @@ export function useSession() {
   // 完了確定（保留 touch をキャンセルし、以降の active 書き込みを封じる）
   // payload = { inventory, prices, takenAt } があれば complete API を呼び
   // inventory_lines（分析用明細）も書き込む。失敗時は従来の状態更新へフォールバック。
+  /**
+   * 完了確定。明細と完了状態はサーバー側で1トランザクションとして書かれる（DATA-001）。
+   *
+   * 失敗しても `updateSession(id, 'completed')` へ**フォールバックしない**。
+   * かつてはそうしていたが、それは「明細の保存に失敗したのに、セッションだけ
+   * 完了として残す」という DATA-001 そのものの状態を、クライアント側から作る動きだった。
+   * 一覧には出るのに詳細が開けない棚卸（R-001）は、この経路でも生まれる。
+   *
+   * 失敗時は完了扱いにせず、`_finalized` も戻して再試行できる状態にする。
+   *
+   * @returns {Promise<{ ok: boolean, reason?: 'offline'|'save_failed', retryable?: boolean }>}
+   */
   async function complete(count, payload = null) {
     _cancelTouch()
     _finalized = true
-    if (!_canWrite()) return
+    // 未ログイン・セッション未確立。サーバーに書くものが無いので、ローカルの完了は成立する
+    if (!_canWrite()) return { ok: true, reason: 'offline' }
     const id = pendingSession.value.id
+
     if (payload) {
       try {
         await completeSessionApi(id, payload.inventory, payload.prices, payload.takenAt)
         if (pendingSession.value) pendingSession.value.status = 'completed'
-        return
-      } catch (_) {}
+        return { ok: true }
+      } catch (err) {
+        // 完了状態を付けないまま返す。次の再送で明細ごとやり直せる
+        _finalized = false
+        console.error('[useSession] complete failed:', id, err?.message ?? err)
+        return { ok: false, reason: 'save_failed', retryable: err?.body?.retryable !== false }
+      }
     }
-    await updateSession(id, 'completed', count).catch(() => {})
-    if (pendingSession.value) pendingSession.value.status = 'completed'
+
+    // payload を持たない経路（明細を伴わない完了）。ここは従来どおり状態のみ更新する
+    try {
+      await updateSession(id, 'completed', count)
+      if (pendingSession.value) pendingSession.value.status = 'completed'
+      return { ok: true }
+    } catch (err) {
+      _finalized = false
+      console.error('[useSession] complete(status only) failed:', id, err?.message ?? err)
+      return { ok: false, reason: 'save_failed', retryable: true }
+    }
   }
 
   // 一覧へ戻る・退出時にセッション参照を破棄

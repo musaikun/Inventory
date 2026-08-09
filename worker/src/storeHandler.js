@@ -1,8 +1,8 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
-import { insertInventoryLines } from './inventoryLines.js'
+import { inventoryLineStatements } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES } from './constants.js'
+import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST, MAX_INGREDIENT_LEN, MAX_UNIT_LEN } from './constants.js'
 import { entitlement } from './entitlements.js'
 
 function _tooLarge(body) {
@@ -335,11 +335,14 @@ export async function handleOrderCreate(db, code, body = {}) {
   const date = body.date ?? new Date().toISOString().slice(0, 10)
   const now  = _now()
 
-  const clean = (Array.isArray(body.lines) ? body.lines : [])
+  const rawLines = Array.isArray(body.lines) ? body.lines : []
+  if (rawLines.length > MAX_LINES_PER_REQUEST) return { _status: 413, error: '発注行が多すぎます' }
+
+  const clean = rawLines
     .map(l => ({
-      item:      String(l.item ?? '').trim(),
+      item:      String(l.item ?? '').trim().slice(0, MAX_INGREDIENT_LEN),
       qty:       Number(l.qty),
-      unit:      l.unit ?? '',
+      unit:      String(l.unit ?? '').slice(0, MAX_UNIT_LEN),
       stock:     l.stock == null || l.stock === '' ? null : Number(l.stock),
       lot:       Number.isFinite(Number(l.lot)) && Number(l.lot) > 0 ? Number(l.lot) : 1,
       postStock: l.postStock == null || l.postStock === '' ? null : Number(l.postStock),
@@ -353,25 +356,39 @@ export async function handleOrderCreate(db, code, body = {}) {
   const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
   if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
 
-  // SELECT後に別店舗が同じidを作る競合も、upsert自身のWHEREで原子的に拒否する。
-  // D1Result.meta.changes が1でない限り、明細の削除・追加へ進まない。
-  const headWrite = await db.prepare(`
+  // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
+  // 以前はヘッダ→削除→N回INSERTが独立したwriteで、途中で落ちると
+  // 「ヘッダはあるが明細が消えたまま」「一部の行だけ入った」状態が残った。
+  //
+  // SELECT後に別店舗が同じidを作る競合は upsert 自身の WHERE が原子的に拒否する。
+  // batch は途中で中断できないため、明細INSERTも EXISTS で持ち主を確認し、
+  // ヘッダが拒否された場合に明細だけが入るのを防ぐ。
+  const headStmt = db.prepare(`
     INSERT INTO orders (id, shop_code, order_date, supplier, axis, session_id, saved_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
     WHERE orders.shop_code = excluded.shop_code
-  `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now).run()
-  if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
-    return { _status: 409, error: '保存できませんでした' }
+  `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now)
+
+  const delStmt = db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code)
+
+  const lineStmts = clean.map(l => db.prepare(`
+    INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND shop_code = ?)
+  `).bind(id, code, date, l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded, now, id, code))
+
+  let results
+  try {
+    results = await db.batch([headStmt, delStmt, ...lineStmts])
+  } catch (e) {
+    console.error('[storeHandler] order create batch failed:', code, id, e?.message ?? e)
+    return { _status: 503, code: 'order_save_failed', retryable: true, error: '保存できませんでした' }
   }
 
-  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
-
-  for (const l of clean) {
-    await db.prepare(`
-      INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, code, date, l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded, now).run()
+  const headWrite = results?.[0]
+  if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
+    return { _status: 409, error: '保存できませんでした' }
   }
   return { ok: true, id }
 }
@@ -436,11 +453,14 @@ export async function handleMovementCreate(db, code, body = {}) {
   const type = body.type === 'out' ? 'out' : 'in'
   const now  = _now()
 
-  const clean = (Array.isArray(body.lines) ? body.lines : [])
+  const rawLines = Array.isArray(body.lines) ? body.lines : []
+  if (rawLines.length > MAX_LINES_PER_REQUEST) return { _status: 413, error: '入出庫行が多すぎます' }
+
+  const clean = rawLines
     .map(l => ({
-      item: String(l.item ?? '').trim(),
+      item: String(l.item ?? '').trim().slice(0, MAX_INGREDIENT_LEN),
       qty:  Number(l.qty),
-      unit: l.unit ?? '',
+      unit: String(l.unit ?? '').slice(0, MAX_UNIT_LEN),
     }))
     .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
   if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
@@ -454,19 +474,38 @@ export async function handleMovementCreate(db, code, body = {}) {
   const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
   if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
 
-  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
-  await db.prepare(`
+  // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
+  // 明細を消してからヘッダを書いていたため、間で落ちると明細だけ消えた状態が残った。
+  //
+  // upsert に WHERE を足した。SELECT 後に別店舗が同じ id を作る競合で、
+  // 他店のヘッダを上書きできてしまう隙間が残っていた（handleOrderCreate と同じ形へ揃える）。
+  const headStmt = db.prepare(`
     INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
-  `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now).run()
+    WHERE movements.shop_code = excluded.shop_code
+  `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now)
 
-  // 明細は1件ずつの await ではなく batch で一括投入（R5-04・handleOrderCreate と同根）。
+  const delStmt = db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code)
+
   const lineStmts = clean.map(l => db.prepare(`
     INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, code, date, l.item, l.qty, l.unit, now))
-  if (lineStmts.length) await db.batch(lineStmts)
+    SELECT ?, ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM movements WHERE id = ? AND shop_code = ?)
+  `).bind(id, code, date, l.item, l.qty, l.unit, now, id, code))
+
+  let results
+  try {
+    results = await db.batch([headStmt, delStmt, ...lineStmts])
+  } catch (e) {
+    console.error('[storeHandler] movement create batch failed:', code, id, e?.message ?? e)
+    return { _status: 503, code: 'movement_save_failed', retryable: true, error: '保存できませんでした' }
+  }
+
+  const headWrite = results?.[0]
+  if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
+    return { _status: 409, error: '保存できませんでした' }
+  }
   return { ok: true, id }
 }
 
@@ -479,32 +518,60 @@ export async function handleMovementDelete(db, code, id) {
 
 // POST /store/:code/sessions/:id/complete
 // 棚卸完了の一括処理: inventory_lines 展開 + sessions 更新（archive_key は R2 実装後に追加）
+// 棚卸完了の一括処理。明細（inventory_lines）と完了状態（sessions）を
+// **1つの db.batch = 1トランザクション**で書く（DATA-001）。
+//
+// 以前は insertInventoryLines と UPDATE sessions が独立した2つの write で、
+// 前者だけ失敗すると「セッションは残るが明細が消える」状態になっていた。
+// これは DATA-002 の R-001 として本番で実害が出ている。
+//
+// 冪等性: 同じ完了要求を再送しても最終状態は同じ。明細は貼り直し、
+// 完了状態は同じ値で上書きされる。品目が減った再送でも前回ぶんは残らない。
 export async function handleSessionComplete(db, code, sessionId, body) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const { inventory = {}, prices = {}, takenAt } = body ?? {}
+  if (inventory == null || typeof inventory !== 'object' || Array.isArray(inventory)) {
+    return { _status: 400, error: '在庫データの形式が不正です' }
+  }
+  if (Object.keys(inventory).length > MAX_LINES_PER_REQUEST) {
+    return { _status: 413, error: '品目数が多すぎます' }
+  }
+
   const session = await db.prepare(
     'SELECT id FROM sessions WHERE id = ? AND shop_code = ?'
   ).bind(sessionId, code).first()
   if (!session) return { _status: 404, error: 'セッションが見つかりません' }
 
-  const { inventory = {}, prices = {}, takenAt } = body
-  const now       = _now()
-  const taken     = takenAt ?? now.slice(0, 10)
-  const itemCount = Object.keys(inventory).length
+  const now   = _now()
+  const taken = takenAt ?? now.slice(0, 10)
 
-  const totalValue = (() => {
-    let total = 0; let has = false
-    for (const [item, entry] of Object.entries(inventory)) {
-      if (prices[item] != null) { total += entry.qty * prices[item]; has = true }
-    }
-    return has ? Math.round(total) : null
-  })()
+  const { statements, itemCount, totalValue } =
+    inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
 
-  await insertInventoryLines(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
-
-  await db.prepare(`
+  // UPDATE を batch の先頭に置く。セッションが消えている・他店舗のものになっている場合に
+  // ここが 0 行となり、後続の INSERT も EXISTS で弾かれて何も書き込まれない。
+  const sessionUpdate = db.prepare(`
     UPDATE sessions
     SET status = 'completed', ended_at = ?, item_count = ?, total_value = ?
     WHERE id = ? AND shop_code = ?
-  `).bind(now, itemCount, totalValue, sessionId, code).run()
+  `).bind(now, itemCount, totalValue, sessionId, code)
+
+  let results
+  try {
+    results = await db.batch([sessionUpdate, ...statements])
+  } catch (e) {
+    // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
+    // 完了扱いにせず、クライアントが再送できる形で返す。
+    console.error('[storeHandler] session complete batch failed:', code, sessionId, e?.message ?? e)
+    return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を保存できませんでした' }
+  }
+
+  // UPDATE が 0 行 = 直前にセッションが消えた/他店舗のものになった。
+  // 明細も EXISTS で入っていないため、部分的に書かれた状態にはならない。
+  if (results?.[0]?.meta?.changes !== 1) {
+    return { _status: 404, error: 'セッションが見つかりません' }
+  }
 
   return { ok: true, sessionId, itemCount, totalValue }
 }

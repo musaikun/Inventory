@@ -41,7 +41,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | DATA-002 | P1 | レビュー待ち（Phase 1/2 完了） | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。Phase 3は公開後 | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手（**着手可**） | Codex | 公開登録とlegacy店舗作成の濫用防止。DATA-002 Phase 1 完了により2026-08-08から着手可 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | 未着手 | Claude Code | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。本番D1での部分失敗は未検証 | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -130,6 +130,10 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-08: `DATA-001`（複数writeの原子性）実装。棚卸完了・発注・入出庫のヘッダと明細を
+  1つの `db.batch`（=1トランザクション）へまとめ、行数・文字列長の上限をserver側で強制。
+  `useSession.complete()` の危険なフォールバック（明細保存に失敗してもセッションだけ完了にする）を削除。
+  状態を レビュー待ち へ。migrationなし。詳細は [`DATA-001.md`](tasks/DATA-001.md)。
 - 2026-08-08: `DATA-002` Phase 1（`GET /store/:code/sessions/:id/lines`）実装。Phase 1/2 完了により
   状態を レビュー待ち へ。**`SEC-005` を着手可へ変更**（順序ブロック解除）。実装内容は
   [`DATA-002.md`](tasks/DATA-002.md)、API登録は [`api-design.md`](../api-design.md)。

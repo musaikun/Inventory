@@ -22,6 +22,11 @@ export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024 // PushSubscription JSON gua
 // 超えた分は truncated を立てて打ち切る（F-002 の転送量問題を新経路へ持ち込まないため）。
 export const MAX_SESSION_LINES = 2_000
 
+// 1リクエストで受け付ける明細行の上限（棚卸完了 / 発注 / 入出庫 共通・DATA-001）。
+// MAX_PAYLOAD_CHARS はJSON全体のバイト数しか見ないため、短い行を大量に並べると
+// 上限内のまま数万行のwriteを1トランザクションへ詰め込める。件数でも縛る。
+export const MAX_LINES_PER_REQUEST = 5_000
+
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）
 

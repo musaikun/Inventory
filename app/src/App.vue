@@ -1217,7 +1217,8 @@ async function onComplete() {
   if (isHostInRoom) {
     // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
     // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
-    await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    if (!completed?.ok) _warnCompleteUnsaved()
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
     await dissolveRoom()
@@ -1231,13 +1232,14 @@ async function onComplete() {
   }
 
   // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
-  await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
   _clearDraft(completedId)
   clearSession()
   track('session_completed', { item_count: completionCount, mode: 'solo' })
   _checkReviewPrompt()
-  if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
-  else               _warnSnapshotUnsent()
+  if (!completed?.ok)     _warnCompleteUnsaved()
+  else if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
+  else                    _warnSnapshotUnsent()
   sessionsTab.value  = 'dashboard'
   sessionsYear.value = completedYear
   _setNewSession(completedId)
@@ -1248,6 +1250,13 @@ async function onComplete() {
 // 明細をサーバーへ送れなかったときの通知（DATA-002 Phase 2）。
 // 端末には保存済みで自動再送もされるが、「保存できていない」ことは隠さず伝える。
 // 画面上部の ConnectionBanner が再送状況を出し続けるので、ここでは一度だけ知らせる。
+// 完了そのものをサーバーへ書けなかったときの通知（DATA-001）。
+// 明細と完了状態は1トランザクションなので、失敗した＝サーバー側には何も入っていない。
+// 端末側の記録は残っており、セッションは active のままなので再完了できる。
+function _warnCompleteUnsaved() {
+  showToast('端末には保存しましたが、サーバーへ完了を記録できませんでした。接続が戻ってからもう一度完了してください', 8000, 'error')
+}
+
 function _warnSnapshotUnsent() {
   showToast('完了しましたが、明細をサーバーへ保存できていません。端末に保存済みで、接続が戻ると自動で送信します', 8000, 'error')
 }
