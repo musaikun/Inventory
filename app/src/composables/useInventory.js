@@ -158,6 +158,20 @@ export function useInventory() {
     _save()
   }
 
+  /**
+   * 完了マークを取り消して入力可能な状態へ戻す。
+   *
+   * サーバーへの完了記録が失敗したときに呼ぶ（DATA-001）。完了マークを付けたままだと
+   * 画面が読み取り専用になり、同じ画面から完了をやり直せない。入力値・入力順ログ・
+   * 「あとで数える」フラグには触れず、完了マークだけを外す。
+   */
+  function reopenSession() {
+    if (completedAt.value === null) return false
+    completedAt.value = null
+    _save()
+    return true
+  }
+
   /** 新規棚卸を開始（現セッションをクリア） */
   function reset() {
     Object.keys(inventory).forEach(k => delete inventory[k])
@@ -214,6 +228,6 @@ export function useInventory() {
     isCompleted, completedAt,
     entryLog,
     setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
-    completeSession,
+    completeSession, reopenSession,
   }
 }

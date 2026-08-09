@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-08
+最終更新: 2026-08-09
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -40,6 +40,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | DATA-002 | P1 | 進行中 | Claude Code | CCレビュー修正（pending整合・永続化・表示） | [DATA-002.md](tasks/DATA-002.md) |
+| IMPORT-001 | P1 | 未着手 | Claude Code | 品目マスタ取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止。DATA-002 Phase 1 完了により2026-08-08から着手可 | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | 進行中 | Claude Code | CCレビュー修正（棚卸完了失敗時の状態保持・再試行） | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |

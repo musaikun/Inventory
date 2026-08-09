@@ -85,6 +85,55 @@ DATA-001 が防ごうとしている部分適用そのものをクライアン�
 - D1 の batch がトランザクションであることに依存している。ローカルのモックでは
   巻き戻りを注入して再現しているが、**本番D1での部分失敗は未検証**。
 
+## レビュー修正（2026-08-09・Claude Code / CCレビュー修正 第1セッション §1）
+
+Codex レビューで、**サーバー側を原子的にしただけでは足りない**ことが指摘された。
+`worker` 側は `36fc8ad` で1トランザクション化されたが、App 側は
+`completeSessionD1()` が `ok:false` を返しても後片付けを続けていた。
+
+### 修正前に確認した壊れ方
+
+`app/src/App.vue` の完了処理は、完了記録の成否に関わらず
+`broadcastSessionEnd` / `dissolveRoom` / `_clearDraft` / `clearSession` / 一覧への遷移 /
+`track('session_completed')` を実行していた。結果として
+
+- サーバーには完了が記録されていないのに、端末の draft と pendingSession は消える
+- ホストではルームまで解散するため、ゲストの続行手段も消える
+- 画面は一覧へ移るので、**同じ棚卸をやり直す導線が無い**
+
+`app/src/App.complete.test.js` を追加し、**修正前の挙動では6件中4件が失敗する**ことを
+確認してから修正した（確認方法: 修正箇所を一時的に旧挙動へ戻して実行）。
+
+### 併せて見つけた未定義参照
+
+ソロ完了経路の `sessionsYear.value = completedYear` は、`sessionsYear` も `completedYear` も
+**リポジトリ内のどこにも定義が無い**。`cf25ae5` で代入だけが入り、以来ずっと
+solo 完了時に `ReferenceError` を投げていた（`clearSession()` の後・画面遷移の前で throw するため、
+一覧へ遷移できない）。行ごと削除した。ホスト経路には無い行のため、症状はソロ完了のみ。
+
+### 実装
+
+| 完了条件 | 実装 |
+|---|---|
+| `ok:false` / 5xx / 通信断で後片付けをしない | `_finishSession()` を新設し、`completeSessionD1` の結果が `ok` のときだけ 終了通知・解散・draft削除・clear・遷移・analytics を実行する |
+| 入力値・draft・room・参加者を保持する | 失敗時は `reopenSession()`（`useInventory` に追加）で読み取り専用を解除するだけ。他は一切触らない |
+| 同じ画面から再試行できる | 完了ボタンが残り、同じ `pendingSession` に対してもう一度押せる |
+| 成功後だけ各1回 | 二重押しガード `completing` を追加し、ボタンも `:disabled` にする |
+| 表示文言を実状態に合わせる | 失敗時は「サーバーへ完了を記録できませんでした。接続が戻ってからもう一度完了してください」 |
+
+### 検証
+
+- `src/App.complete.test.js` 6件（App をマウントして完了ボタンを実際に押す）
+- App 全体 74 files / 648 passed、`npm run build` 成功
+- Worker は未変更（17 files / 251 passed で回帰のみ確認）
+
+### 残っている穴
+
+- 完了が失敗した時点で**ローカルのスナップショットは既に作られている**（入力値を失わないため意図的）。
+  サーバー側にはセッションが active のまま残るので、一覧と履歴で見え方が一時的にずれる。
+  Phase 2 のバックフィルが next drain で埋めるが、**sessionId 単位の整合は第2セッションの範囲**。
+- 実機・実ブラウザでの確認は未実施。
+
 ## 関連
 
 - 棚卸完了時は `saveSnapshotToD1`（await しない）と `completeSessionD1`（await する）の

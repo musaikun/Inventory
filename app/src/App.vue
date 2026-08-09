@@ -36,7 +36,7 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
-  loadMovementsFromD1, resumePendingSaves,
+  loadMovementsFromD1, resumePendingSaves, pendingCount, rejectedSaves,
 } from './composables/useStore.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
@@ -97,8 +97,11 @@ const {
   isCompleted, completedAt,
   entryLog,
   setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
-  completeSession,
+  completeSession, reopenSession,
 } = useInventory()
+
+// 完了処理の実行中フラグ。await 中の二重押しで完了要求が2本走るのを防ぐ。
+const completing = ref(false)
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
@@ -872,7 +875,10 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
-const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pending')
+// ConnectionBanner の表示条件と対で保つ（本文をバナー分だけ下げるため）。
+const _bannerActive = computed(() =>
+  !isOnline.value || saveState.value === 'pending' || pendingCount.value > 0 || rejectedSaves.value.length > 0
+)
 
 // セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
 const sessionMode = ref('stock')
@@ -1199,7 +1205,20 @@ async function onComplete() {
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   if (!confirm(confirmMsg)) return
 
-  const completedId   = pendingSession.value?.id
+  // 二重押し防止。await の間にもう一度押されると完了要求が2本走り、
+  // 解散・遷移が二重に実行される。
+  if (completing.value) return
+  completing.value = true
+  try {
+    await _finishSession(completionCount, isHostInRoom)
+  } finally {
+    completing.value = false
+  }
+}
+
+// 棚卸／発注を締める本体（ホスト・ソロ共通）。onComplete から二重押しガード付きで呼ばれる。
+async function _finishSession(completionCount, isHostInRoom) {
+  const completedId = pendingSession.value?.id
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
@@ -1212,42 +1231,37 @@ async function onComplete() {
     // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
     for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
   }
-  if (continuousMode.value) onForceStop()
 
-  if (isHostInRoom) {
-    // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
-    // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
-    const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
-    if (!completed?.ok) {
-      _warnCompleteUnsaved()
-      return  // 失敗時は状態を保持したままセッション画面から抜けない
-    }
-    broadcastSessionEnd('completed')
-    _hostInitiatedDissolve = true
-    await dissolveRoom()
-    _clearDraft(completedId)
-    clearSession()
-    sessionsTab.value  = 'dashboard'
-    _setNewSession(completedId)
-    currentView.value  = 'sessions'
-    if (!snapshotSaved) _warnSnapshotUnsent()
+  // サーバーへの完了記録。**これが成立するまで後片付けを一切しない**（DATA-001）。
+  // 以前は失敗してもトーストを出すだけで、ルーム解散・draft削除・セッションclear・遷移まで
+  // 実行していた。サーバーには何も残らないのに端末側の作業状態だけが消え、
+  // 「完了できていないのに、やり直す手段も無い」状態になっていた。
+  const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  if (!completed?.ok) {
+    // 読み取り専用を解除し、同じ画面の同じボタンから再試行できる状態へ戻す。
+    // draft・pendingSession・入力値・ルーム・参加者はすべて保持したまま。
+    reopenSession()
+    _warnCompleteUnsaved()
     return
   }
 
-  // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
-  const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
-  if (!completed?.ok) {
-    _warnCompleteUnsaved()
-    return  // 失敗時は状態を保持したままセッション画面から抜けない
+  // ── ここから下は完了が成立した場合だけ。各処理はこの経路で1回だけ実行される ──
+  if (continuousMode.value) onForceStop()
+
+  if (isHostInRoom) {
+    broadcastSessionEnd('completed')
+    _hostInitiatedDissolve = true
+    await dissolveRoom()
+  } else {
+    track('session_completed', { item_count: completionCount, mode: 'solo' })
+    _checkReviewPrompt()
   }
+
   _clearDraft(completedId)
   clearSession()
-  track('session_completed', { item_count: completionCount, mode: 'solo' })
-  _checkReviewPrompt()
   if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   else               _warnSnapshotUnsent()
   sessionsTab.value  = 'dashboard'
-  sessionsYear.value = completedYear
   _setNewSession(completedId)
   currentView.value  = 'sessions'
 }
@@ -1298,10 +1312,13 @@ async function onGoHome() {
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
   if (isCompleted.value) {
+    // 完了済みセッションを離れる経路でも、サーバーへ書けなければ画面を離れない。
+    // ここで抜けると draft と session 参照が消え、完了を記録し直す手段が無くなる。
     const completed = await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
     if (!completed?.ok) {
+      reopenSession()
       _warnCompleteUnsaved()
-      return  // 失敗時は状態を保持したままセッション画面から抜けない
+      return
     }
   } else {
     _saveDraft(pendingSession.value?.id)
@@ -2672,6 +2689,7 @@ function dismissReview() {
             <button
               class="btn-complete"
               :class="{ reported: guestReported }"
+              :disabled="completing"
               @click="guestReported ? onUndone() : onComplete()"
             >{{ guestReported
                 ? (syncActive && !syncIsHost ? '↩ 入力再開' : `↩ ${actNoun}再開`)

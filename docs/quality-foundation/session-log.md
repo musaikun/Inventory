@@ -2,6 +2,79 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-09 — CCレビュー修正 第1セッション: 完了失敗と保留保存の安全化
+
+- 担当: Claude Code。台本は develop の [`cc-session-plan.md`](cc-session-plan.md)（`develop@726d819`）第1セッション。
+- branch `claude/branch-operational-status-2lwwwu`、開始HEAD `6eac2a4`（`8ff46af` の子孫）。
+- **範囲はApp側のみ**。`worker/`・履歴schema・品目取込・`SEC-005` には触れていない。
+
+### 開始前のtask board統合（計画「第1開始前」）
+
+- `IMPORT-001` を `未着手 / Claude Code` で追加（task fileは `develop@726d819` から取得）。
+- `WEB-001 = 進行中 / Codex`、`SEC-005 = 未着手 / Codex` を維持。
+- `DATA-001` / `DATA-002` は `進行中 / Claude Code`（`6eac2a4` で設定済みを確認）。
+- `DATA-002.md` に 2026-08-09 の前提再置換を追記（旧判断は削除せず残置）。
+
+### §1 完了失敗時に作業状態を保持（DATA-001）
+
+- `completeSessionD1()` が `ok:false` でも、後片付けを全部実行していた。**サーバーに完了が
+  無いのに端末のdraft・pendingSessionが消え、ホストではルームまで解散**していた。
+- `_finishSession()` を分離し、**完了が成立したときだけ**終了通知・解散・draft削除・clear・
+  遷移・完了analyticsを実行する。失敗時は `reopenSession()`（`useInventory` に追加）で
+  読み取り専用を解除するだけにして、同じ画面の同じボタンから再試行できるようにした。
+- 二重押しガード `completing` を追加（ボタンも `:disabled`）。
+- **併せて未定義参照を除去**: ソロ完了経路の `sessionsYear.value = completedYear` は
+  `sessionsYear` も `completedYear` も定義が無く、`cf25ae5` 以来 solo 完了で
+  `ReferenceError` を投げていた（`clearSession()` の後・遷移の前で throw）。行ごと削除。
+
+### §2 pending queueをlatest-winsかつ直列化（DATA-002 Phase 2）
+
+- 保存対象を `kind + shopCode + resourceId` で識別する Map へ置き換え、要求ごとに `rev` を採番。
+  成功時はその rev 以下の待ち項目を破棄し、**古いAの再送で新しいBを巻き戻さない**。
+- drain を1本に束ね、起動・接続復帰・タイマー・手動が同時でも二重送信しない。
+- 失敗を `auth`（401/403・停止）/ `permanent`（400番台・捨てて提示）/ `retry`（429・5xx・断）へ分類。
+  再ログイン用に `clearAuthBlock()` を追加。
+
+### §3 永続化失敗を隠さない
+
+- snapshot 20件・order/movement 200件の `slice` を撤廃。溢れた分をメモリにだけ残して
+  「端末に保存済み」と表示していたのをやめ、`unpersistedCount` として表に出す。
+- バナーは**未保存の警告をオフラインより優先**。`role="status"` + `aria-live` を常設し、
+  端末にも保持できていないときだけ `assertive`。拒否された保存は `rejectedSaves` で提示。
+
+### 修正前に失敗を確認したtest
+
+`src/App.complete.test.js` を追加し、修正箇所を一時的に旧挙動へ戻した状態で実行して
+**6件中4件が失敗**することを確認してから修正を戻した。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `cd app && npx vitest run src/App.complete.test.js` | 6 passed |
+| `cd app && npx vitest run src/composables/useStore.queue.test.js` | 12 passed |
+| `cd app && npx vitest run src/components/ConnectionBanner.test.js` | 11 passed |
+| `cd app && npm test` | **74 files / 648 passed** |
+| `cd app && npm run build` | 成功（CSS 234.43kB / gzip 37.33kB） |
+| `cd worker && npm test` | 17 files / 251 passed（**未変更・回帰確認のみ**） |
+
+- migration: **なし**（schema変更なし）
+- 未実施: 実browser・実device・実D1での確認。commit / push / deploy は行っていない。
+
+### 残っているリスク
+
+- `rejectedSaves` は種別と件数を出すだけで、拒否された内容そのものは復元できない。
+- localStorage が全く使えない環境では、依然としてアプリを閉じると未送信分が失われる。
+- 完了失敗時にローカルのスナップショットは作られたまま残る（入力値保護のため意図的）。
+  sessionId 単位の整合は**第2セッションの範囲**。
+- `task-list.md` から `cc-session-plan.md` への参照は、`2e14e23` の削除により
+  このbranchでは切れたまま。**docs の3-way統合は第3セッションの範囲**なので触れていない。
+
+### 次の再開地点
+
+第2セッション（sessionId中心の履歴整合と完了原子性）。本セッションのcheckpoint commitを
+User が承認した後、そのcommitを含むHEADから開始する。
+
 ## 2026-08-09 — CC 第1〜3セッション完了（S1〜S8 全実装）
 
 - 全8タスク実装完了: S1（記録更新）→ S2（止血）→ S3（Phase 1）→ S4（原子性）→ S5（マージ化）→ S6（プレビュー）→ S7（可視化）→ S8（画面再編）
