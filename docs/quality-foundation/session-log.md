@@ -2,6 +2,26 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-08 — WEB-001: 棚卸中心の公開契約とWeb共同採点を追加
+
+- 担当: Codex。Claude Codeは**同じ`develop`・同じ作業tree**で並行作業した。`task-list.md`で編集が
+  競合したが、Claude Code側が作業fileに触れず index のみを操作して分離commitしたため
+  （`git hash-object` + `git update-index`）、この作業treeは無傷で残った。
+  同一fileを触る場合は、着手前に互いのcommit区切りを合わせる。
+- WEB-001を品質基盤更新として進行中へ戻した。canonical URL/contact、production変更、deploy承認待ちは継続。
+- Web Free版の主経路を、品目準備→棚卸開始→中断/再開→完了→別端末履歴詳細→CSV→削除へ固定。
+- 品目取込の非破壊性、完了writeの一貫性、同日複数履歴、過去棚卸取込、β機能境界を
+  release candidate product contractとして追加。
+- 入出庫・発注確認は正式な在庫管理・発注送信として約束せず、搭載時はβ表示・主要導線外とした。
+- quality-scorecardを旧Google Play profileからW1 Web/PWA Free版へ更新し、棚卸core/import safety、
+  privacy/public surface、observability、scope/traceabilityを独立採点対象にした。
+- Cloudflare skillのPages/D1資料を確認。既存のpreflight→承認済みmigration→Worker→Pages→smokeという
+  本番順序は維持し、platform設定、production data、App/Worker codeは変更していない。
+- 検証: git diff --check成功（改行warningのみ）、変更4文書のlocal Markdown link全件存在、
+  Markdown table列数一致。
+- code test/buildはdocs-onlyのため未実行。未実施: commit、push、deploy、production migration。
+- 次の再開地点: Claude Codeのtask単位handoffをproduct contractで独立reviewし、WEB-07/09の証拠へ接続する。
+
 ## 2026-08-04〜2026-08-06 — DOC-001: Web公開を目標にdocs全体を再編
 
 - 担当: Codex。文書整理とread-only監査のみ。App/Worker実装は変更していない。

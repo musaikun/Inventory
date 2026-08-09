@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-06
+最終更新: 2026-08-08
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -22,7 +22,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 
 | ID | P | 状態 | 担当 | Web公開との関係 | 詳細 |
 |---|---:|---|---|---|---|
-| WEB-001 | P0 | 保留 | Codex | DOC-001完了。WEB-01のUser判断後に実装再開 | [WEB-001.md](tasks/WEB-001.md) |
+| WEB-001 | P0 | 進行中 | Codex | 公開契約・独立採点基盤を更新中。production変更はWEB-01のUser判断待ち | [WEB-001.md](tasks/WEB-001.md) |
 | PLAY-002 | P0 | レビュー待ち | User | code review済み。canonicalと実機確認待ち | [PLAY-002.md](tasks/PLAY-002.md) |
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
@@ -105,6 +105,9 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-08: User判断で製品実装をClaude Code、release品質基盤と独立reviewをCodexへ分離。
+  WEB-001を品質基盤更新として再開し、棚卸中心の公開契約とWeb向け共同採点を追加した。
+  production変更、URL/contact、deploy承認待ちは継続する。
 - 2026-08-05: `UI-001`（デスクトップ表示）を次のマイルストーンへ追加。User指示で実装済み・PMトリアージ待ち。
   release gate（`WEB-01`〜`WEB-10`）とWeb Free版のscopeは変更していない。
 - 2026-08-04: D-021により現在目標をWeb Free版へ変更。WEB-001を新設し、DOC-001だけをCodex進行中へ変更。

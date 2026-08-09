@@ -1,20 +1,35 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-04
+最終更新: 2026-08-08
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
 
 ## 公開scope
 
-今回公開するのはWeb/PWAのFree版です。
+今回公開するのは、棚卸効率化を中心とするWeb/PWAのFree版です。
 
-- account登録、店舗コード+PIN login、棚卸、同期、履歴、取込・書出しを提供する。
+- account登録、店舗コード+PIN login、品目準備、棚卸、同期、履歴詳細、CSV書出し、account削除を提供する。
+- 主経路は「品目を準備→棚卸を開始→中断/再開→完了→別端末で履歴確認→書出し」とする。
+- 入出庫・発注確認は正式な在庫管理・発注送信として約束しない。搭載する場合はβ表示し、主要導線から分離する。
 - 現行Free上限を公開文面と実装で一致させる。
 - 14日無料体験、Stripe、Pro販売、自動課金は提供しない。
 - PostHogはrelease buildで無効とし、送信がないことを確認する。
 - TWA、Google Play Console、store listing、Play Data Safetyは今回の判定対象外。
 
 後続の提供順は [D-021](decisions.md#d-021--web先行とplay向け将来フローの分離) を参照します。
+
+## Release candidate product contract
+
+以下はURL・deploy条件とは独立した製品受入条件です。Claude Codeが実装し、Codexが差分と証拠を
+独立reviewします。
+
+- [ ] 品目取込は取込前に追加・更新・除外・errorを確認でき、通常操作で既存品目を黙って削除しない
+- [ ] 全置換・上限超過・不正行・同日履歴衝突は、処理前に影響と選択肢を表示する
+- [ ] 棚卸完了はsession・明細・snapshotの部分成功を残さず、再試行しても重複しない
+- [ ] 同一店舗の別browser/端末から履歴一覧と明細を取得でき、同日複数回を上書きしない
+- [ ] 過去棚卸取込はpreview、server保存確認、batch単位の取消、calendar/detail整合を持つ
+- [ ] 入出庫は任意β、出庫は主要導線外、発注確認は「確認・記録（β）」で送信しないことが分かる
+- [ ] β機能を利用しなくても、棚卸の主経路とaccount削除が完結する
 
 ## 現在のblocker
 
@@ -26,10 +41,10 @@
 | WEB-04 | D1 migration | 本番で未適用の0010/0011をpreflightし、User承認後に適用。schema確認後にWorkerを更新 | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
-| WEB-07 | 履歴・data integrity | DATA-002 Phase 1/2と、棚卸完了時の独立writeによる欠落を解消し、別端末から詳細を取得可能にする | Codex |
+| WEB-07 | 取込・履歴・data integrity | 品目取込の非破壊性、DATA-001/002、過去棚卸取込を上のproduct contractへ適合させ、Codexが独立reviewする | Claude Code / Codex |
 | WEB-08 | observability | log masking、閲覧担当、最低限のalert/通知先、障害確認手順を確定 | User / Codex |
-| WEB-09 | critical E2E | 登録→棚卸→同期/再接続→別browser履歴→削除を本番相当環境で安定実行 | Codex |
-| WEB-10 | production smoke / rollback | 公開URLで主要route・API・CORS・PWA・legal・削除を確認し、直前版へ戻す手順を検証 | User / Codex |
+| WEB-09 | critical E2E | 登録→品目取込→棚卸→同期/再接続→完了→別browser履歴詳細→CSV→削除を本番相当環境で安定実行 | Codex |
+| WEB-10 | production smoke / rollback | 公開URLで主経路・β境界・API・CORS・PWA・legal・削除を確認し、直前版へ戻す手順を検証 | User / Codex |
 
 `https://inventory-app.pages.dev/` は2026-08-04のread-only確認で正常な公開先として利用できませんでした。
 実projectのproductionは旧build、現行buildの稼働確認先はdevelop previewです。
@@ -44,6 +59,9 @@ URLを推測で本番正本にしません。
 - [x] `migrate.sh`は0001〜0011を列挙し、列挙testがある
 - [x] production dependency auditは直近記録で0件。spreadsheet parserに隔離・上限・timeout testがある
 - [x] develop CIはNode 24でWorker/App test、App build、preview deployに成功
+- [ ] 品目取込のpreview・非破壊default・明示的な全置換・error明細をrelease candidateで確認
+- [ ] 棚卸完了後、同一店舗の別browserで一覧と明細が一致することを確認
+- [ ] 入出庫・発注確認のβ表示、主要導線からの分離、発注非送信の文言を確認
 - [ ] release candidateのclean checkoutでWorker test、App test、App production buildを再実行
 - [ ] release artifactでPostHog・Stripeへの通信がないことをnetwork確認
 - [ ] account削除を375px相当とkeyboardで実機確認
@@ -60,7 +78,7 @@ URLを推測で本番正本にしません。
 4. 0010、0011を順番に適用し、table/column/triggerをread-only確認する。
 5. Workerをdeployし、health、認証、許可Origin、拒否Originをprobeする。
 6. Pagesを明示したproduction branchへdeployする。
-7. 公開URLで新規登録、login、棚卸、同期、履歴、legal、削除、PWAをsmokeする。
+7. 公開URLで新規登録、品目取込、棚卸、同期、別browser履歴詳細、CSV、β境界、legal、削除、PWAをsmokeする。
 8. observabilityで当該requestを確認し、Userがrelease candidateを承認する。
 
 途中で失敗した場合は次段階へ進みません。migrationは不可逆変更として扱い、
@@ -72,6 +90,7 @@ frontend/Workerのrollbackとdata recoveryを分けて記録します。
 - [ ] task board上のWeb P0が0件
 - [ ] 未完のWeb P1にrelease影響、owner、期限、回避策がある
 - [ ] test/build/auditの対象commitとcommandが記録済み
+- [ ] [quality-scorecard.md](quality-scorecard.md)をCodexとClaude Codeが独立採点し、低い方でも基準を満たす
 - [ ] production URLでUserが主要導線を確認
 - [ ] Userがdeployと公開継続を明示承認
 
@@ -83,6 +102,7 @@ frontend/Workerのrollbackとdata recoveryを分けて記録します。
 - TWA、Digital Asset Links、署名、target API
 - Play Console、Data Safety提出、reviewer credentials、store画像
 - PostHogの本番有効化
+- 仕入先への発注送信、自動発注、入出庫・発注β機能の精度保証
 
 対象外機能を先にlegal文面で「提供中」としません。
 
