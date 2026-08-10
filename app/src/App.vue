@@ -403,11 +403,10 @@ function _exitPractice() {
 const viewSessionLoading = ref(false)
 async function onViewSession(session) {
   if (viewSessionLoading.value) return
+  // sessionId で一致するものだけを端末の記録として採用する。
+  // 以前は「日付が同じスナップショット」へfallbackしていたが、同じ日に2回棚卸すると
+  // 別セッションの中身を出してしまう。取り違えて見せるより、サーバーから取り直す（fail-closed）。
   let snap = getSnapshotBySessionId(session.id)
-  if (!snap) {
-    const dateKey = (session.endedAt ?? session.startedAt ?? '').slice(0, 10)
-    if (dateKey) snap = getSnapshots().find(s => s.date === dateKey) ?? null
-  }
 
   if (!snap && session.id) {
     viewSessionLoading.value = true
@@ -1103,10 +1102,11 @@ function _clearDraft(sessionId) {
 function onDeleteSession(sessionId) {
   _clearDraft(sessionId)
   if (!sessionId) return
+  // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   const snap = getSnapshotBySessionId(sessionId)
-  if (snap?.date) {
-    deleteSnapshotLocal(snap.date)
-    deleteSnapshotFromD1(snap.date).catch(() => {})
+  if (snap) {
+    deleteSnapshotLocal(sessionId)
+    deleteSnapshotFromD1(sessionId).catch(() => {})
   }
 }
 
@@ -1222,21 +1222,18 @@ async function _finishSession(completionCount, isHostInRoom) {
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
-  // 明細の保存結果を見てから完了を伝える（DATA-002 Phase 2）。
-  // 以前は投げっぱなしで、失敗しても「完了しました ✓」だけが出ていた。
-  // 一覧（D1 sessions）には出るのに詳細が開けない状態が、ユーザーには見えないまま残る。
-  let snapshotSaved = true
-  if (snapshot) {
-    snapshotSaved = await saveSnapshotToD1(snapshot)
-    // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
-    for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
-  }
-
-  // サーバーへの完了記録。**これが成立するまで後片付けを一切しない**（DATA-001）。
+  // スナップショットは完了APIと同じ要求で送る（DATA-001 / 第2セッション）。
+  // 以前は saveSnapshotToD1() を完了APIより先に独立成功させており、
+  // 「スナップショットは入ったが完了は失敗」「完了はしたがスナップショットが無い」を作れた。
+  // サーバーは sessions・inventory_lines・store_history を1トランザクションで書く。
+  //
+  // **これが成立するまで後片付けを一切しない**（第1セッションの契約）。
   // 以前は失敗してもトーストを出すだけで、ルーム解散・draft削除・セッションclear・遷移まで
   // 実行していた。サーバーには何も残らないのに端末側の作業状態だけが消え、
   // 「完了できていないのに、やり直す手段も無い」状態になっていた。
-  const completed = await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  const completed = await completeSessionD1(completionCount, {
+    inventory: { ...inventory }, prices: config.prices ?? {}, snapshot,
+  })
   if (!completed?.ok) {
     // 読み取り専用を解除し、同じ画面の同じボタンから再試行できる状態へ戻す。
     // draft・pendingSession・入力値・ルーム・参加者はすべて保持したまま。
@@ -1244,6 +1241,10 @@ async function _finishSession(completionCount, isHostInRoom) {
     _warnCompleteUnsaved()
     return
   }
+
+  // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）。
+  // 完了が成立した後なので、失敗しても今回の記録は失われない。
+  for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
 
   // ── ここから下は完了が成立した場合だけ。各処理はこの経路で1回だけ実行される ──
   if (continuousMode.value) onForceStop()
@@ -1259,8 +1260,7 @@ async function _finishSession(completionCount, isHostInRoom) {
 
   _clearDraft(completedId)
   clearSession()
-  if (snapshotSaved) showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
-  else               _warnSnapshotUnsent()
+  showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'
   _setNewSession(completedId)
   currentView.value  = 'sessions'
@@ -1277,9 +1277,6 @@ function _warnCompleteUnsaved() {
   showToast('端末には保存しましたが、サーバーへ完了を記録できませんでした。接続が戻ってからもう一度完了してください', 8000, 'error')
 }
 
-function _warnSnapshotUnsent() {
-  showToast('完了しましたが、明細をサーバーへ保存できていません。端末に保存済みで、接続が戻ると自動で送信します', 8000, 'error')
-}
 
 function onUndone() {
   broadcastUndone()

@@ -335,9 +335,10 @@ export async function saveSnapshotToD1(snapshot) {
   return _save('snapshot', snapshot?.date ?? '', snapshot)
 }
 
-export async function deleteSnapshotFromD1(date) {
+export async function deleteSnapshotFromD1(key) {
   if (!shopCode.value || !BASE) return
-  return _api(`/store/${shopCode.value}/history/${date}`, { method: 'DELETE' })
+  // key は sessionId（現行）または legacy の日付キー
+  return _api(`/store/${shopCode.value}/history/${encodeURIComponent(key)}`, { method: 'DELETE' })
     .catch(e => console.warn('[store] snapshot削除失敗:', e.message))
 }
 

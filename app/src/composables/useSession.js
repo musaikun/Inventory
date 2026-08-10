@@ -108,7 +108,7 @@ export function useSession() {
 
     if (payload) {
       try {
-        await completeSessionApi(id, payload.inventory, payload.prices, payload.takenAt)
+        await completeSessionApi(id, payload.inventory, payload.prices, payload.takenAt, payload.snapshot ?? null)
         if (pendingSession.value) pendingSession.value.status = 'completed'
         return { ok: true }
       } catch (err) {

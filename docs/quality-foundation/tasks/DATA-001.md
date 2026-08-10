@@ -139,3 +139,56 @@ solo 完了時に `ReferenceError` を投げていた（`clearSession()` の後�
 - 棚卸完了時は `saveSnapshotToD1`（await しない）と `completeSessionD1`（await する）の
   **2つの独立した書き込み**が走り、前者だけが失敗すると「セッションは残るが明細が消える」状態になる。
   この非対称は `DATA-002` の R-001 で本番実害として確認されている。原子性の設計はそちらと突き合わせる。
+
+## 2026-08-09 — CC第2セッション: server原子性・D1上限・数量契約
+
+- 対象HEAD: `claude/branch-operational-status-2lwwwu@9a7141f`（第1セッションのcheckpointを含む）
+- **migration あり**: `worker/migrations/0012_history_session_key.sql`（**未適用**）。
+  development / production D1 には適用していない。`store_history` を作り直すため
+  **ロールバック不能**。適用前のバックアップ確認が要る。
+
+### 1. snapshot を完了処理へ取り込んだ
+
+`saveSnapshotToD1()` が完了APIより**先に独立成功**していた経路を廃止した。
+client は snapshot を `POST /sessions/:id/complete` の body へ載せ、サーバーが
+`UPDATE sessions` → `inventory_lines` → `store_history` を**1つの `db.batch`**で書く。
+途中で落ちれば全部巻き戻り、`ok:false` を返して client は cleanup しない（第1の契約どおり）。
+snapshot の `sessionId` はサーバーが完了対象のセッションIDへ揃える（client 指定を信用しない）。
+
+### 2. 明細INSERTを複数行まとめへ変更（D1上限）
+
+1行1 INSERT だと N+2 statements になり、**Free の「Queries per Worker invocation = 50」**を
+150品目でも超えていた。まとめ行数は **bound parameter 上限 100/query** から逆算し、
+持ち主確認は `FROM parent p, (...) v WHERE p.id = ? AND p.shop_code = ?` の JOIN で担保する
+（batch は途中中断できないため文ごとに閉じる必要がある）。
+
+### 3. 数量の業務契約を固定
+
+`Number.isFinite(x) ? x : 0` の丸めを廃止。NaN / Infinity / 範囲外は **400 で拒否**する。
+棚卸は 0 を許し負数を拒否、発注は 0 を許し（「確認したが発注しない」行）負数を拒否、
+入出庫は 0 と負数を拒否。ID・日付・文字列長・配列件数もサーバーで検証する。
+
+### 4. order / movement の削除を原子化
+
+明細DELETE + ヘッダDELETE を1 batch にした。`handleMovementDelete` に持ち主確認が無く
+他店舗IDでも 200 を返していたため、`handleOrderDelete` と同じ 404 へ揃えた。
+
+### 実行したcommandと結果
+
+```
+cd worker && npx vitest run   → 19 files / 335 tests passed
+cd app    && npx vitest run   → 72 files / 634 tests passed
+cd app    && npm run build    → 成功（PWA precache 17 entries / 2522.19 KiB）
+git diff --check              → 指摘なし
+```
+
+Worker全体テストで5秒timeoutは**再現していない**（全体2.2秒）。
+
+### 未実施
+
+- **実D1での計測・検証は一切していない。** batch内statementがFreeのquery数へどう数えられるかは
+  公式資料に記載がなく、**厳しい側（1 statement = 1 query）を仮定**して上限を決めた。
+  実測は release gate（WEB-07）へ残す。
+- 隔離non-production D1 での351品目試験（User承認が要るため未実行）。
+- migration 0012 の適用、deploy、production D1 への write。
+- 実機UI確認。

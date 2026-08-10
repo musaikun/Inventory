@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { inventoryLineStatements } from './inventoryLines.js'
-import { MAX_INGREDIENT_LEN, MAX_UNIT_LEN } from './constants.js'
+import { MAX_INGREDIENT_LEN, MAX_UNIT_LEN, INVENTORY_ROWS_PER_STATEMENT } from './constants.js'
 
 // 文を組み立てるだけの関数なので、prepare/bind を記録する最小モックで足りる。
 // 実行（batch）は呼び出し側（handleSessionComplete）の責務。
@@ -31,14 +31,31 @@ function build(inventory = INVENTORY, prices = PRICES) {
   })
 }
 
-/** INSERT 文だけを { 列名: 値 } で取り出す */
+/**
+ * INSERT 文の bound を行単位へ展開する。
+ * 1文は [takenAt, (item,qty,unit,price,value) × N, sessionId, shopCode] の並び。
+ */
 function inserts(statements) {
-  return statements
-    .filter(s => s.sql.startsWith('INSERT INTO inventory_lines'))
-    .map(s => {
-      const [session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value] = s.bound
-      return { session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value, _sql: s.sql, _bound: s.bound }
-    })
+  const out = []
+  for (const s of statements.filter(s => s.sql.startsWith('INSERT INTO inventory_lines'))) {
+    const taken_at   = s.bound[0]
+    const shop_code  = s.bound[s.bound.length - 1]
+    const session_id = s.bound[s.bound.length - 2]
+    const values     = s.bound.slice(1, -2)
+    for (let i = 0; i < values.length; i += 5) {
+      const [item_name, qty, unit, unit_price, line_value] = values.slice(i, i + 5)
+      out.push({
+        session_id, shop_code, taken_at, item_name, category: null,
+        qty, unit, unit_price, line_value, _sql: s.sql, _bound: s.bound,
+      })
+    }
+  }
+  return out
+}
+
+/** INSERT 文の本数（statement 数の検証用） */
+function insertStatements(statements) {
+  return statements.filter(s => s.sql.startsWith('INSERT INTO inventory_lines'))
 }
 
 describe('inventoryLineStatements — 文の組み立て', () => {
@@ -109,12 +126,12 @@ describe('inventoryLineStatements — 冪等性（DATA-001）', () => {
 })
 
 describe('inventoryLineStatements — 持ち主のいない明細を作らない', () => {
-  it('各 INSERT は sessions の存在を EXISTS で確認する', () => {
-    for (const row of inserts(build().statements)) {
-      expect(row._sql).toContain('WHERE EXISTS')
-      expect(row._sql).toContain('FROM sessions WHERE id = ? AND shop_code = ?')
-      // 末尾2つが EXISTS 用の session_id / shop_code
-      expect(row._bound.slice(-2)).toEqual([SESSION_ID, SHOP_CODE])
+  it('各 INSERT は sessions を絞り込んで持ち主を確認する', () => {
+    for (const stmt of insertStatements(build().statements)) {
+      expect(stmt.sql).toContain('FROM sessions s,')
+      expect(stmt.sql).toContain('WHERE s.id = ? AND s.shop_code = ?')
+      // 末尾2つが持ち主確認用の session_id / shop_code
+      expect(stmt.bound.slice(-2)).toEqual([SESSION_ID, SHOP_CODE])
     }
   })
 })
@@ -143,8 +160,24 @@ describe('inventoryLineStatements — 入力の正規化と上限', () => {
     expect(rows[0].unit).toHaveLength(MAX_UNIT_LEN)
   })
 
-  it('数量が数値でなければ 0 として扱う（NaN を書き込まない）', () => {
-    const rows = inserts(build({ '牛乳': { qty: 'あ', unit: '本' } }, {}).statements)
+  it('数量が数値でなければ 0 へ丸めず拒否する（DATA-001）', () => {
+    const r = build({ '牛乳': { qty: 'あ', unit: '本' } }, {})
+    expect(r.statements).toBeUndefined()
+    expect(r.error).toMatchObject({ _status: 400, code: 'invalid_qty' })
+  })
+
+  it('Infinity / -Infinity / NaN を拒否する', () => {
+    for (const bad of [Infinity, -Infinity, NaN]) {
+      expect(build({ '牛乳': { qty: bad } }, {}).error).toMatchObject({ code: 'invalid_qty' })
+    }
+  })
+
+  it('負数の在庫を拒否する', () => {
+    expect(build({ '牛乳': { qty: -1 } }, {}).error).toMatchObject({ code: 'invalid_qty' })
+  })
+
+  it('在庫0は正当な記録として受け付ける', () => {
+    const rows = inserts(build({ '牛乳': { qty: 0 } }, {}).statements)
     expect(rows[0].qty).toBe(0)
   })
 
@@ -157,5 +190,49 @@ describe('inventoryLineStatements — 入力の正規化と上限', () => {
   it('単位が未指定なら null', () => {
     const rows = inserts(build({ '牛乳': { qty: 1 } }, {}).statements)
     expect(rows[0].unit).toBeNull()
+  })
+})
+
+// ── D1 実行上限への適合（2026-08-09 公式制限で確認）─────────────────────────
+// 1行1 INSERT だと N+2 statements になり、Free の 50 queries/invocation を
+// 150品目でも超える。まとめINSERTで statement 数を有界にしていることを固定する。
+describe('inventoryLineStatements — D1 statement 数と bound parameter 上限', () => {
+  function makeInventory(n) {
+    const inv = {}
+    for (let i = 0; i < n; i++) inv[`品目${i}`] = { qty: i % 7, unit: '個' }
+    return inv
+  }
+
+  it.each([0, 1, 150, 351, 500])('%i 品目でも bound parameter が 100 を超えない', (n) => {
+    const { statements } = build(makeInventory(n), {})
+    for (const s of statements) expect(s.bound.length).toBeLessThanOrEqual(100)
+  })
+
+  it.each([
+    [0, 0],
+    [1, 1],
+    [150, Math.ceil(150 / INVENTORY_ROWS_PER_STATEMENT)],
+    [351, Math.ceil(351 / INVENTORY_ROWS_PER_STATEMENT)],
+    [500, Math.ceil(500 / INVENTORY_ROWS_PER_STATEMENT)],
+  ])('%i 品目の INSERT は %i 文にまとまる', (n, expected) => {
+    expect(insertStatements(build(makeInventory(n), {}).statements)).toHaveLength(expected)
+  })
+
+  it('351品目（R-001 の実データ規模）でも全行が保たれる', () => {
+    const { statements, itemCount } = build(makeInventory(351), {})
+    expect(itemCount).toBe(351)
+    expect(inserts(statements)).toHaveLength(351)
+  })
+
+  it('採用上限（500品目）で DELETE を含めても batch は 28 文', () => {
+    const { statements } = build(makeInventory(500), {})
+    expect(statements).toHaveLength(1 + Math.ceil(500 / INVENTORY_ROWS_PER_STATEMENT))
+    expect(statements.length).toBe(28)
+  })
+
+  it('まとめ単位ちょうど / +1 で文数が変わる', () => {
+    const r = INVENTORY_ROWS_PER_STATEMENT
+    expect(insertStatements(build(makeInventory(r), {}).statements)).toHaveLength(1)
+    expect(insertStatements(build(makeInventory(r + 1), {}).statements)).toHaveLength(2)
   })
 })

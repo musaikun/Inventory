@@ -103,7 +103,8 @@ function saveEdit() {
     if (edited !== orig) patches[it.item] = { qty: edited }
   }
   if (Object.keys(patches).length === 0) { isEditing.value = false; return }
-  const updated = patchSnapshotItems(props.snapshot.date, patches)
+  // sessionId をキーに更新する（同じ日の別セッションを取り違えない）
+  const updated = patchSnapshotItems(props.snapshot.sessionId ?? props.snapshot.date, patches)
   isEditing.value = false
   if (updated) emit('patched', updated)
 }

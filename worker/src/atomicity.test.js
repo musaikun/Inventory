@@ -12,6 +12,26 @@
 import { describe, it, expect } from 'vitest'
 import { handleSessionComplete, handleOrderCreate, handleMovementCreate } from './storeHandler.js'
 import { MAX_LINES_PER_REQUEST } from './constants.js'
+// 複数行まとめINSERT（`FROM parent p, (SELECT ? AS a ... UNION ALL ...) v WHERE p.id = ? AND p.shop_code = ?`）の
+// bind を行単位へ展開する。bind の並びは [SELECTリストの固定値…, 行ごとの値×N, 親id, 親shop]。
+function _expandRows(s, bound, fieldNames) {
+  // rowSize は最初の SELECT ... AS だけを数える（UNION ALL で繰り返されるため）
+  const fromIdx = s.indexOf(' FROM ')
+  const rowSize = ((s.slice(fromIdx).split(' UNION ALL ')[0].match(/\? AS /g)) ?? []).length
+  const prefix  = ((s.slice(0, fromIdx).match(/\?/g)) ?? []).length
+  const ownerId = bound[bound.length - 2]
+  const ownerShop = bound[bound.length - 1]
+  const fixed   = bound.slice(0, prefix)
+  const values  = bound.slice(prefix, bound.length - 2)
+  const rows    = []
+  for (let i = 0; i < values.length; i += rowSize) {
+    const row = {}
+    fieldNames.forEach((name, j) => { row[name] = values[i + j] })
+    rows.push(row)
+  }
+  return { rows, fixed, ownerId, ownerShop }
+}
+
 
 const CODE  = 'ABCDEF'
 const OTHER = 'ZZZZZZ'
@@ -22,6 +42,7 @@ const SID   = 'sess-001'
 function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'active' }] } = {}) {
   const lines = []
   const batches = []
+
   let failAt = null
 
   function prepare(sql) {
@@ -38,11 +59,14 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
             if (lines[i].session_id === sid && lines[i].shop_code === shop) { lines.splice(i, 1); changes++ }
           }
         } else if (s.startsWith('INSERT INTO inventory_lines')) {
-          const [session_id, shop_code, taken_at, item_name, , qty, unit, unit_price, line_value] = bound
-          const [exId, exShop] = bound.slice(-2)
-          if (!s.includes('WHERE EXISTS') || sessions.some(x => x.id === exId && x.shop_code === exShop)) {
-            lines.push({ session_id, shop_code, taken_at, item_name, qty, unit, unit_price, line_value })
-            changes = 1
+          const { rows, fixed, ownerId, ownerShop } =
+            _expandRows(s, bound, ['item_name', 'qty', 'unit', 'unit_price', 'line_value'])
+          const owner = sessions.find(x => x.id === ownerId && x.shop_code === ownerShop)
+          if (owner) {
+            for (const r of rows) {
+              lines.push({ session_id: ownerId, shop_code: ownerShop, taken_at: fixed[0], ...r })
+              changes++
+            }
           }
         } else if (s.startsWith('UPDATE sessions')) {
           const [, itemCount, totalValue, id, shop] = bound
@@ -247,11 +271,9 @@ function createHeaderLinesDb(kind) {
             changes = 1
           }
         } else if (s.startsWith(`INSERT INTO ${lineTable}`)) {
-          const [parent, shop_code, , item] = bound
-          const [exId, exShop] = bound.slice(-2)
-          if (!s.includes('WHERE EXISTS') || headers.some(h => h.id === exId && h.shop_code === exShop)) {
-            lines.push({ parent, shop_code, item })
-            changes = 1
+          const { rows, ownerId, ownerShop } = _expandRows(s, bound, ['item'])
+          if (headers.some(h => h.id === ownerId && h.shop_code === ownerShop)) {
+            for (const r of rows) { lines.push({ parent: ownerId, shop_code: ownerShop, item: r.item }); changes++ }
           }
         }
         return { success: true, meta: { changes } }

@@ -1,6 +1,27 @@
 import { describe, it, expect } from 'vitest'
 import { handleConfigPut, handleInventoryPut, handleHistoryPost, handleSessionComplete, handleRoomResult, handleOrderCreate, handleOrdersGet, handleOrderDelete, handleMovementCreate, handleMovementsGet, handleMovementDelete } from './storeHandler.js'
 
+
+// 複数行まとめINSERT（`FROM parent p, (SELECT ? AS a ... UNION ALL ...) v WHERE p.id = ? AND p.shop_code = ?`）の
+// bind を行単位へ展開する。bind の並びは [SELECTリストの固定値…, 行ごとの値×N, 親id, 親shop]。
+function _expandRows(s, bound, fieldNames) {
+  // rowSize は最初の SELECT ... AS だけを数える（UNION ALL で繰り返されるため）
+  const fromIdx = s.indexOf(' FROM ')
+  const rowSize = ((s.slice(fromIdx).split(' UNION ALL ')[0].match(/\? AS /g)) ?? []).length
+  const prefix  = ((s.slice(0, fromIdx).match(/\?/g)) ?? []).length
+  const ownerId = bound[bound.length - 2]
+  const ownerShop = bound[bound.length - 1]
+  const fixed   = bound.slice(0, prefix)
+  const values  = bound.slice(prefix, bound.length - 2)
+  const rows    = []
+  for (let i = 0; i < values.length; i += rowSize) {
+    const row = {}
+    fieldNames.forEach((name, j) => { row[name] = values[i + j] })
+    rows.push(row)
+  }
+  return { rows, fixed, ownerId, ownerShop }
+}
+
 // 書き込み系の最小モック（INSERT/UPDATE を success で返すだけ）
 function createMockD1() {
   const lines = []
@@ -22,14 +43,13 @@ function createMockD1() {
             }
           }
         } else if (s.startsWith('INSERT INTO inventory_lines')) {
-          const [session_id, shop_code, taken_at, item_name, , qty, unit, unit_price, line_value] = bound
-          // WHERE EXISTS でセッションの存在を確認する形なら、無ければ入らない
-          const guarded = s.includes('WHERE EXISTS')
-          const [exId, exShop] = bound.slice(-2)
-          const ownerOk = !guarded || sessions.some(x => x.id === exId && x.shop_code === exShop)
-          if (ownerOk) {
-            lines.push({ session_id, shop_code, taken_at, item_name, qty, unit, unit_price, line_value })
-            changes = 1
+          const { rows, fixed, ownerId, ownerShop } =
+            _expandRows(s, bound, ['item_name', 'qty', 'unit', 'unit_price', 'line_value'])
+          if (sessions.some(x => x.id === ownerId && x.shop_code === ownerShop)) {
+            for (const r of rows) {
+              lines.push({ session_id: ownerId, shop_code: ownerShop, taken_at: fixed[0], ...r })
+              changes++
+            }
           }
         } else if (s.startsWith('UPDATE sessions')) {
           const [, itemCount, totalValue, id, shop] = bound
@@ -275,14 +295,13 @@ function createOrdersMockD1() {
             changes = 1
           }
         } else if (s.startsWith('INSERT INTO order_lines')) {
-          const [order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded] = bound
-          // WHERE EXISTS で持ち主を確認する形なら、ヘッダが無い/他店舗のときは入らない
-          const guarded = s.includes('WHERE EXISTS')
-          const [exId, exShop] = bound.slice(-2)
-          const ownerOk = !guarded || orders.some(o => o.id === exId && o.shop_code === exShop)
-          if (ownerOk) {
-            orderLines.push({ order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded })
-            changes = 1
+          const { rows, fixed, ownerId, ownerShop } =
+            _expandRows(s, bound, ['item', 'qty', 'unit', 'stock', 'lot', 'post_stock', 'excluded'])
+          if (orders.some(o => o.id === ownerId && o.shop_code === ownerShop)) {
+            for (const r of rows) {
+              orderLines.push({ order_id: ownerId, shop_code: ownerShop, order_date: fixed[0], ...r })
+              changes++
+            }
           }
         }
         return { success: true, meta: { changes } }
@@ -508,14 +527,13 @@ function createMovementsMockD1() {
             changes = 1
           }
         } else if (s.startsWith('INSERT INTO movement_lines')) {
-          const [movement_id, shop_code, move_date, item, qty, unit] = bound
-          // WHERE EXISTS で持ち主を確認する形なら、ヘッダが無い/他店舗のときは入らない
-          const guarded = s.includes('WHERE EXISTS')
-          const [exId, exShop] = bound.slice(-2)
-          const ownerOk = !guarded || movements.some(m => m.id === exId && m.shop_code === exShop)
-          if (ownerOk) {
-            moveLines.push({ movement_id, shop_code, move_date, item, qty, unit })
-            changes = 1
+          const { rows, fixed, ownerId, ownerShop } =
+            _expandRows(s, bound, ['item', 'qty', 'unit'])
+          if (movements.some(m => m.id === ownerId && m.shop_code === ownerShop)) {
+            for (const r of rows) {
+              moveLines.push({ movement_id: ownerId, shop_code: ownerShop, move_date: fixed[0], ...r })
+              changes++
+            }
           }
         }
         return { success: true, meta: { changes } }

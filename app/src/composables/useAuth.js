@@ -146,11 +146,13 @@ export async function getSessionLines(sessionId) {
 
 // POST /store/:code/sessions/:id/complete
 // 棚卸完了の一括処理（inventory_lines 展開 + sessions 更新）
-export async function completeSession(sessionId, inventory, prices, takenAt) {
+// snapshot も同じ要求へ載せる。サーバーは sessions・inventory_lines・store_history を
+// 1トランザクションで書くため、片方だけ成功した状態が残らない（DATA-001）。
+export async function completeSession(sessionId, inventory, prices, takenAt, snapshot = null) {
   const code = shopCode.value
   if (!code || !_token.value || !sessionId) return
   return _api(`/store/${code}/sessions/${sessionId}/complete`, {
     method: 'POST',
-    body:   JSON.stringify({ inventory, prices, takenAt }),
+    body:   JSON.stringify({ inventory, prices, takenAt, snapshot }),
   })
 }

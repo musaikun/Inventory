@@ -30,7 +30,8 @@ describe('useSession.complete', () => {
 
   it('在庫ペイロード付きなら complete API（inventory_lines書き込み）を呼ぶ', async () => {
     await session.complete(1, PAYLOAD)
-    expect(mocks.completeSession).toHaveBeenCalledWith('abc-123', PAYLOAD.inventory, PAYLOAD.prices, undefined)
+    // snapshot も同じ要求へ載せる（DATA-001 / 第2セッション）。未指定なら null。
+    expect(mocks.completeSession).toHaveBeenCalledWith('abc-123', PAYLOAD.inventory, PAYLOAD.prices, undefined, null)
     expect(mocks.updateSession).not.toHaveBeenCalled()
     expect(session.pendingSession.value.status).toBe('completed')
   })

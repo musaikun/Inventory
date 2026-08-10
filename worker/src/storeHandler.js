@@ -2,7 +2,13 @@
 
 import { inventoryLineStatements } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST, MAX_INGREDIENT_LEN, MAX_UNIT_LEN } from './constants.js'
+import {
+  MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
+  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
+  MAX_ORDER_QTY, MAX_MOVEMENT_QTY,
+  ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
+} from './constants.js'
+import { parseClientId, parseDate, parseQty, parseOptionalNumber, text, chunk, isValidDate } from './validate.js'
 import { entitlement } from './entitlements.js'
 
 function _tooLarge(body) {
@@ -64,28 +70,73 @@ export async function handleInventoryPut(db, code, body) {
 // GET /store/:code/history
 export async function handleHistoryGet(db, code) {
   const rows = await db.prepare(`
-    SELECT snapshot_json FROM store_history
-    WHERE shop_code = ? ORDER BY snapshot_date DESC LIMIT 50
+    SELECT session_id, snapshot_json, created_at FROM store_history
+    WHERE shop_code = ? ORDER BY snapshot_date DESC, id DESC LIMIT 50
   `).bind(code).all()
-  return rows.results.map(r => JSON.parse(r.snapshot_json))
+  return rows.results.map(r => {
+    const snap = JSON.parse(r.snapshot_json)
+    // 識別と新旧判定はサーバー側の値を正にする。client の updatedAt は端末時計に依存する。
+    return { ...snap, sessionId: r.session_id ?? snap.sessionId ?? null, serverSavedAt: r.created_at }
+  })
+}
+
+/**
+ * スナップショットを1件書き込む文を返す（実行しない）。
+ * 棚卸完了では sessions / inventory_lines と同じ batch へ載せる（DATA-001）。
+ *
+ * sessionId を持つ行は (shop_code, session_id) で一意。同じ日に2回棚卸しても
+ * 別セッションなら共存する（migration 0012 / F-001）。
+ * sessionId を持たない過去取込・旧データは従来どおり日付で一意。
+ */
+export function historySnapshotStatement(db, code, snapshot, now) {
+  const date      = snapshot?.date ?? now.slice(0, 10)
+  const sessionId = parseClientId(snapshot?.sessionId) ?? null
+  const json      = JSON.stringify(snapshot)
+
+  if (sessionId) {
+    return db.prepare(`
+      INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
+        SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date
+    `).bind(code, sessionId, date, json, now)
+  }
+  return db.prepare(`
+    INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at)
+    VALUES (?, NULL, ?, ?, ?)
+    ON CONFLICT(shop_code, snapshot_date) WHERE session_id IS NULL DO UPDATE
+      SET snapshot_json = excluded.snapshot_json
+  `).bind(code, date, json, now)
 }
 
 // POST /store/:code/history
+// 過去取込・訂正など、棚卸完了以外の経路から1件保存する。
+// 棚卸完了は handleSessionComplete が同じ batch で書くので、こちらを使わない。
 export async function handleHistoryPost(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
-  const date = body.date ?? new Date().toISOString().slice(0, 10)
-  const now  = _now()
-  await db.prepare(`
-    INSERT INTO store_history (shop_code, snapshot_date, snapshot_json, created_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(shop_code, snapshot_date) DO UPDATE SET snapshot_json = excluded.snapshot_json
-  `).bind(code, date, JSON.stringify(body), now).run()
+  const now = _now()
+  if (body?.date != null && parseDate(body.date, now.slice(0, 10)) === null) {
+    return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+  }
+  await historySnapshotStatement(db, code, body, now).run()
   return { ok: true }
 }
 
-// DELETE /store/:code/history/:date
-export async function handleHistoryDelete(db, code, date) {
-  await db.prepare('DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ?')
-    .bind(code, date).run()
+// DELETE /store/:code/history/:key
+// key は sessionId（現行）または日付（legacy行）。
+// sessionId 形式なら session_id で消す。日付形式なら session_id を持たない行だけを消す。
+// 日付で消したときに同日の別セッションまで巻き込まないため、条件を分ける（F-001）。
+export async function handleHistoryDelete(db, code, key) {
+  if (isValidDate(key)) {
+    await db.prepare(
+      'DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
+    ).bind(code, key).run()
+    return { ok: true }
+  }
+  const sessionId = parseClientId(key)
+  if (!sessionId) return { _status: 400, code: 'invalid_id', error: '削除対象が不正です' }
+  await db.prepare('DELETE FROM store_history WHERE shop_code = ? AND session_id = ?')
+    .bind(code, sessionId).run()
   return { ok: true }
 }
 
@@ -331,29 +382,47 @@ export async function handleOrdersGet(db, code, sinceDays) {
 export async function handleOrderCreate(db, code, body = {}) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
 
-  const id   = (typeof body.id === 'string' && body.id) ? body.id : crypto.randomUUID()
-  const date = body.date ?? new Date().toISOString().slice(0, 10)
-  const now  = _now()
+  const now = _now()
 
-  const rawLines = Array.isArray(body.lines) ? body.lines : []
+  const id = parseClientId(body.id)
+  if (id === undefined) return { _status: 400, code: 'invalid_id', error: 'IDの形式が不正です' }
+  const orderId = id ?? crypto.randomUUID()
+
+  const date = parseDate(body.date, now.slice(0, 10))
+  if (date === null) return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+
+  if (!Array.isArray(body.lines)) return { _status: 400, error: '発注行がありません' }
+  const rawLines = body.lines
   if (rawLines.length > MAX_LINES_PER_REQUEST) return { _status: 413, error: '発注行が多すぎます' }
 
-  const clean = rawLines
-    .map(l => ({
-      item:      String(l.item ?? '').trim().slice(0, MAX_INGREDIENT_LEN),
-      qty:       Number(l.qty),
-      unit:      String(l.unit ?? '').slice(0, MAX_UNIT_LEN),
-      stock:     l.stock == null || l.stock === '' ? null : Number(l.stock),
-      lot:       Number.isFinite(Number(l.lot)) && Number(l.lot) > 0 ? Number(l.lot) : 1,
-      postStock: l.postStock == null || l.postStock === '' ? null : Number(l.postStock),
-      excluded:  l.excluded ? 1 : 0,
-    }))
-    .filter(l => l.item && Number.isFinite(l.qty))
+  // 数量は「発注しない行は送らない」契約。0・負数・NaN・Infinity・桁外れは拒否し、
+  // 黙って0や1へ丸めない（DATA-001）。
+  const clean = []
+  for (const l of rawLines) {
+    const item = text(l?.item, MAX_INGREDIENT_LEN)
+    if (!item) continue
+    // 0 は「確認したが発注しない」行として正当（excluded と併用される）。
+    // 負数・NaN・Infinity・桁外れだけを拒否する。
+    const qty = parseQty(l?.qty, { min: 0, max: MAX_ORDER_QTY })
+    if (qty === null) return { _status: 400, code: 'invalid_qty', error: `発注数が不正です: ${item}` }
+    const stock = parseOptionalNumber(l?.stock, { min: -MAX_ORDER_QTY, max: MAX_ORDER_QTY })
+    if (stock === undefined) return { _status: 400, code: 'invalid_qty', error: `在庫数が不正です: ${item}` }
+    const postStock = parseOptionalNumber(l?.postStock, { min: -MAX_ORDER_QTY, max: MAX_ORDER_QTY })
+    if (postStock === undefined) return { _status: 400, code: 'invalid_qty', error: `発注後在庫が不正です: ${item}` }
+    const lotNum = parseOptionalNumber(l?.lot, { min: Number.MIN_VALUE, max: MAX_ORDER_QTY })
+    if (lotNum === undefined) return { _status: 400, code: 'invalid_qty', error: `入数が不正です: ${item}` }
+    clean.push({
+      item, qty, stock, postStock,
+      unit:     text(l?.unit, MAX_UNIT_LEN),
+      lot:      lotNum ?? 1,
+      excluded: l?.excluded ? 1 : 0,
+    })
+  }
   if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
 
   // テナント境界: orders.id はグローバルPK。同じidを別店舗が指定しても、
   // 他店のヘッダ・明細を更新できないようownerを確認する。
-  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
+  const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(orderId).first()
   if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
 
   // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
@@ -368,21 +437,36 @@ export async function handleOrderCreate(db, code, body = {}) {
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
     WHERE orders.shop_code = excluded.shop_code
-  `).bind(id, code, date, body.supplier ?? '', body.axis ?? '', body.sessionId ?? null, body.savedAt ?? now)
+  `).bind(orderId, code, date, text(body.supplier, MAX_SUPPLIER_LEN), text(body.axis, MAX_SUPPLIER_LEN),
+          parseClientId(body.sessionId) ?? null, body.savedAt ?? now)
 
-  const delStmt = db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code)
+  const delStmt = db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(orderId, code)
 
-  const lineStmts = clean.map(l => db.prepare(`
-    INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-    WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND shop_code = ?)
-  `).bind(id, code, date, l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded, now, id, code))
+  // 明細は複数行を1文へまとめる。1行1文だと N+2 statements になり、
+  // Free の「Queries per Worker invocation = 50」を超える（D1公式制限・2026-08-09確認）。
+  // 持ち主の確認は JOIN 元の orders 絞り込みが担う。
+  const lineStmts = chunk(clean, ORDER_ROWS_PER_STATEMENT).map(group => {
+    const values = group.map(() =>
+      'SELECT ? AS item, ? AS qty, ? AS unit, ? AS stock, ? AS lot, ? AS post_stock, ? AS excluded'
+    ).join(' UNION ALL ')
+    // bind はSQL文中の ? の出現順。SELECTリストの2個（order_date, created_at）が先、
+    // 次にFROM内の副問い合わせ、最後にWHEREの2個。
+    const binds = [date, now]
+    for (const l of group) binds.push(l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded)
+    binds.push(orderId, code)
+    return db.prepare(`
+      INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
+      SELECT o.id, o.shop_code, ?, v.item, v.qty, v.unit, v.stock, v.lot, v.post_stock, v.excluded, ?
+      FROM orders o, (${values}) v
+      WHERE o.id = ? AND o.shop_code = ?
+    `).bind(...binds)
+  })
 
   let results
   try {
     results = await db.batch([headStmt, delStmt, ...lineStmts])
   } catch (e) {
-    console.error('[storeHandler] order create batch failed:', code, id, e?.message ?? e)
+    console.error('[storeHandler] order create batch failed:', code, orderId, e?.message ?? e)
     return { _status: 503, code: 'order_save_failed', retryable: true, error: '保存できませんでした' }
   }
 
@@ -390,7 +474,7 @@ export async function handleOrderCreate(db, code, body = {}) {
   if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
     return { _status: 409, error: '保存できませんでした' }
   }
-  return { ok: true, id }
+  return { ok: true, id: orderId }
 }
 
 // DELETE /store/:code/orders/:id
@@ -399,8 +483,18 @@ export async function handleOrderDelete(db, code, id) {
   const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
   if (!owner || owner.shop_code !== code) return { _status: 404, error: '発注が見つかりません' }
 
-  await db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code).run()
-  await db.prepare('DELETE FROM orders WHERE id = ? AND shop_code = ?').bind(id, code).run()
+  // 明細とヘッダを1 batch（=1トランザクション）で消す（DATA-001）。
+  // 独立した2 write だと、間で落ちたとき「ヘッダは残るが明細だけ消えた」状態になり、
+  // 一覧には出るのに中身が空、という R-001 と同じ見え方を作る。
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(id, code),
+      db.prepare('DELETE FROM orders WHERE id = ? AND shop_code = ?').bind(id, code),
+    ])
+  } catch (e) {
+    console.error('[storeHandler] order delete batch failed:', code, id, e?.message ?? e)
+    return { _status: 503, code: 'order_delete_failed', retryable: true, error: '削除できませんでした' }
+  }
   return { ok: true }
 }
 
@@ -448,30 +542,39 @@ export async function handleMovementsGet(db, code, sinceDays) {
 export async function handleMovementCreate(db, code, body = {}) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
 
-  const id   = (typeof body.id === 'string' && body.id) ? body.id : crypto.randomUUID()
-  const date = body.date ?? new Date().toISOString().slice(0, 10)
-  const type = body.type === 'out' ? 'out' : 'in'
   const now  = _now()
+  const type = body.type === 'out' ? 'out' : 'in'
 
-  const rawLines = Array.isArray(body.lines) ? body.lines : []
+  const rawId = parseClientId(body.id)
+  if (rawId === undefined) return { _status: 400, code: 'invalid_id', error: 'IDの形式が不正です' }
+  const moveId = rawId ?? crypto.randomUUID()
+
+  const date = parseDate(body.date, now.slice(0, 10))
+  if (date === null) return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+
+  if (!Array.isArray(body.lines)) return { _status: 400, error: '入出庫行がありません' }
+  const rawLines = body.lines
   if (rawLines.length > MAX_LINES_PER_REQUEST) return { _status: 413, error: '入出庫行が多すぎます' }
 
-  const clean = rawLines
-    .map(l => ({
-      item: String(l.item ?? '').trim().slice(0, MAX_INGREDIENT_LEN),
-      qty:  Number(l.qty),
-      unit: String(l.unit ?? '').slice(0, MAX_UNIT_LEN),
-    }))
-    .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
+  // 数量0・負数の入出庫は記録の意味がないため拒否する。
+  // 従来は filter で黙って捨てていたので、送った側は成功したと誤解していた。
+  const clean = []
+  for (const l of rawLines) {
+    const item = text(l?.item, MAX_INGREDIENT_LEN)
+    if (!item) continue
+    const qty = parseQty(l?.qty, { min: Number.MIN_VALUE, max: MAX_MOVEMENT_QTY })
+    if (qty === null) return { _status: 400, code: 'invalid_qty', error: `数量が不正です: ${item}` }
+    clean.push({ item, qty, unit: text(l?.unit, MAX_UNIT_LEN) })
+  }
   if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
 
   // 出庫は発注紐付けを持たない。
-  const orderId = type === 'in' && body.orderId ? body.orderId : null
+  const linkedOrderId = type === 'in' ? (parseClientId(body.orderId) ?? null) : null
 
   // テナント境界: movements.id はグローバル PK。既存 id が別店舗のものなら拒否し、
   // 他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられないようにする。
   // 同一店舗の再送はこのチェックを通り、下の upsert で冪等に貼り直す。
-  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
+  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(moveId).first()
   if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
 
   // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
@@ -484,21 +587,30 @@ export async function handleMovementCreate(db, code, body = {}) {
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
     WHERE movements.shop_code = excluded.shop_code
-  `).bind(id, code, date, type, body.note ?? '', orderId, body.savedAt ?? now)
+  `).bind(moveId, code, date, type, text(body.note, MAX_NOTE_LEN), linkedOrderId, body.savedAt ?? now)
 
-  const delStmt = db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code)
+  const delStmt = db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(moveId, code)
 
-  const lineStmts = clean.map(l => db.prepare(`
-    INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
-    SELECT ?, ?, ?, ?, ?, ?, ?
-    WHERE EXISTS (SELECT 1 FROM movements WHERE id = ? AND shop_code = ?)
-  `).bind(id, code, date, l.item, l.qty, l.unit, now, id, code))
+  // 明細は複数行を1文へまとめる（D1の queries/invocation 対策・constants.js 参照）。
+  // 持ち主の確認は JOIN 元の movements 絞り込みが担う。
+  const lineStmts = chunk(clean, MOVEMENT_ROWS_PER_STATEMENT).map(group => {
+    const values = group.map(() => 'SELECT ? AS item, ? AS qty, ? AS unit').join(' UNION ALL ')
+    const binds = [date, now]
+    for (const l of group) binds.push(l.item, l.qty, l.unit)
+    binds.push(moveId, code)
+    return db.prepare(`
+      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
+      SELECT m.id, m.shop_code, ?, v.item, v.qty, v.unit, ?
+      FROM movements m, (${values}) v
+      WHERE m.id = ? AND m.shop_code = ?
+    `).bind(...binds)
+  })
 
   let results
   try {
     results = await db.batch([headStmt, delStmt, ...lineStmts])
   } catch (e) {
-    console.error('[storeHandler] movement create batch failed:', code, id, e?.message ?? e)
+    console.error('[storeHandler] movement create batch failed:', code, moveId, e?.message ?? e)
     return { _status: 503, code: 'movement_save_failed', retryable: true, error: '保存できませんでした' }
   }
 
@@ -506,13 +618,25 @@ export async function handleMovementCreate(db, code, body = {}) {
   if (headWrite?.success !== true || headWrite?.meta?.changes !== 1) {
     return { _status: 409, error: '保存できませんでした' }
   }
-  return { ok: true, id }
+  return { ok: true, id: moveId }
 }
 
 // DELETE /store/:code/movements/:id
 export async function handleMovementDelete(db, code, id) {
-  await db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code).run()
-  await db.prepare('DELETE FROM movements WHERE id = ? AND shop_code = ?').bind(id, code).run()
+  // 不存在と他店舗所有を同じ404にして、idの存在有無を別店舗へ開示しない（handleOrderDeleteと同じ形）。
+  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
+  if (!owner || owner.shop_code !== code) return { _status: 404, error: '入出庫が見つかりません' }
+
+  // 明細とヘッダを1 batch で消す（DATA-001）。順序が逆でも部分状態を残さない。
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(id, code),
+      db.prepare('DELETE FROM movements WHERE id = ? AND shop_code = ?').bind(id, code),
+    ])
+  } catch (e) {
+    console.error('[storeHandler] movement delete batch failed:', code, id, e?.message ?? e)
+    return { _status: 503, code: 'movement_delete_failed', retryable: true, error: '削除できませんでした' }
+  }
   return { ok: true }
 }
 
@@ -530,7 +654,7 @@ export async function handleMovementDelete(db, code, id) {
 export async function handleSessionComplete(db, code, sessionId, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
 
-  const { inventory = {}, prices = {}, takenAt } = body ?? {}
+  const { inventory = {}, prices = {}, takenAt, snapshot } = body ?? {}
   if (inventory == null || typeof inventory !== 'object' || Array.isArray(inventory)) {
     return { _status: 400, error: '在庫データの形式が不正です' }
   }
@@ -546,8 +670,10 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   const now   = _now()
   const taken = takenAt ?? now.slice(0, 10)
 
-  const { statements, itemCount, totalValue } =
-    inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
+  const built = inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
+  // 数量・単価が業務契約に合わない場合は、何も書かずに 400 を返す（0 へ丸めない・DATA-001）。
+  if (built.error) return built.error
+  const { statements, itemCount, totalValue } = built
 
   // UPDATE を batch の先頭に置く。セッションが消えている・他店舗のものになっている場合に
   // ここが 0 行となり、後続の INSERT も EXISTS で弾かれて何も書き込まれない。
@@ -557,9 +683,23 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     WHERE id = ? AND shop_code = ?
   `).bind(now, itemCount, totalValue, sessionId, code)
 
+  // 表示・分析用スナップショットも同じ batch に載せる（DATA-001 / 第2セッション）。
+  // 以前は client が saveSnapshotToD1() を完了APIより先に独立成功させており、
+  // 「スナップショットは入ったが完了は失敗」「完了はしたがスナップショットが無い」が作れた。
+  // sessionId は必ずこのセッションのものに揃える（client 指定は信用しない）。
+  const snapStatements = []
+  if (snapshot != null) {
+    if (typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return { _status: 400, error: 'スナップショットの形式が不正です' }
+    }
+    snapStatements.push(historySnapshotStatement(
+      db, code, { ...snapshot, sessionId, date: snapshot.date ?? taken }, now,
+    ))
+  }
+
   let results
   try {
-    results = await db.batch([sessionUpdate, ...statements])
+    results = await db.batch([sessionUpdate, ...statements, ...snapStatements])
   } catch (e) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
@@ -573,5 +713,5 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     return { _status: 404, error: 'セッションが見つかりません' }
   }
 
-  return { ok: true, sessionId, itemCount, totalValue }
+  return { ok: true, sessionId, itemCount, totalValue, snapshotSaved: snapStatements.length > 0 }
 }

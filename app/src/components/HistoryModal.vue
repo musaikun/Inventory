@@ -92,9 +92,11 @@ function onDownload(snapshot) {
   URL.revokeObjectURL(url)
 }
 
-function onDelete(date) {
+function onDelete(snap) {
+  const date = typeof snap === 'string' ? snap : snap?.date
   if (!confirm(`${date} の履歴を削除しますか？`)) return
-  deleteSnapshot(date)
+  // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
+  deleteSnapshot(typeof snap === 'string' ? snap : (snap?.sessionId ?? snap?.date))
 }
 </script>
 
@@ -222,7 +224,7 @@ function onDelete(date) {
               </div>
               <div class="card-actions">
                 <button class="icon-btn" @click="onDownload(snap)" title="CSVダウンロード">💾</button>
-                <button class="icon-btn danger" @click="onDelete(snap.date)" title="削除">🗑</button>
+                <button class="icon-btn danger" @click="onDelete(snap)" title="削除">🗑</button>
               </div>
             </div>
 

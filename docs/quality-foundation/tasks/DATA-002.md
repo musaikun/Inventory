@@ -246,3 +246,45 @@ CC は Phase 1 完了時に **Codex へ `SEC-005` の着手可を通知する**�
 - 一覧（`sessions`）と詳細（明細）の参照整合性が保たれ、片方にしか出ないデータが発生しない。
 - 保存失敗がユーザーに見える形で通知される。
 - 新エンドポイントに他店舗の `session_id` を渡した場合の店舗境界テストを先に追加する。
+
+## 2026-08-09 — CC第2セッション: sessionIdを履歴の正本identityにする
+
+- 対象HEAD: `claude/branch-operational-status-2lwwwu@9a7141f`
+- **migration あり**: `0012_history_session_key.sql`（**未適用**・ロールバック不能）。
+  `store_history` の一意制約を `(shop_code, snapshot_date)` から `(shop_code, session_id)` へ移す。
+  `session_id` を持たない行（過去取込・旧データ）は従来どおり日付で一意。
+  既存行の `session_id` は `json_extract(snapshot_json, '$.sessionId')` で引き上げる。
+
+### 直したこと
+
+- **同日2回の棚卸が上書きされる問題（F-001）を解消**。localStorage の履歴も `sessionId` を
+  キーにした（旧形式は読み込み時に移行）。サーバー側も一意制約を移した。
+- **日付一致だけの local snapshot を先に採用しない**。`App.vue onViewSession` の
+  「sessionIdで見つからなければ同じ日付のsnapshotを使う」fallbackを削除した。
+  端末に無ければサーバーの明細から組み立てる（誤表示よりfail-closed）。
+- **新旧判定を server 時刻へ移した**。`applyRemoteHistory` は `serverSavedAt`（D1 の `created_at`）で
+  比較する。端末にサーバー時刻が無い＝未送信の版はリモートで潰さない。
+  双方サーバー時刻を持たない旧データ同士だけ、従来どおり client 時刻で比較する。
+- **削除が同日の別セッションを巻き込まない**。`DELETE /store/:code/history/:key` は
+  key が sessionId ならそのセッション、日付なら `session_id IS NULL` の legacy 行だけを消す。
+- **バックフィルの突き合わせを sessionId キーへ**。日付キーだと同日2件の片方を
+  「送信済み」と誤判定して落としていた。
+
+### 実行したcommandと結果
+
+```
+cd worker && npx vitest run   → 19 files / 335 tests passed
+cd app    && npx vitest run   → 72 files / 634 tests passed
+cd app    && npm run build    → 成功
+git diff --check              → 指摘なし
+```
+
+新規テスト: `app/src/composables/useHistory.sessionKey.test.js`（15件）、
+`worker/test/writeAtomicity.sqlite.test.js`、`worker/test/migrationFresh.test.js`。
+Worker側は全migrationを当てた**実SQLite**で検証している（`worker/test/d1Harness.js`）。
+
+### 未実施
+
+- migration 0012 の適用（development / production とも）。
+- 実D1での動作・計測。別端末での実機確認。
+- Phase 3（データ源一本化・`LIMIT 50` 見直し・削除のサーバー側完結）は引き続き scope外。

@@ -36,3 +36,4 @@ apply_if_missing 0008_orders.sql             orders
 apply_if_missing 0009_store_plan.sql         idx_stores_plan
 apply_if_missing 0010_movements.sql          idx_movement_lines_item
 apply_if_missing 0011_account_deletion.sql   trg_movement_lines_active_insert
+apply_if_missing 0012_history_session_key.sql idx_history_session

@@ -249,8 +249,8 @@ export default {
         if (subpath === '/history' && request.method === 'POST') {
           return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
         }
-        // DELETE /store/:code/history/:date
-        const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)
+        // DELETE /store/:code/history/:key （key = sessionId または legacy日付）
+        const histDateMatch = subpath.match(/^\/history\/([\w-]{1,64})$/)
         if (histDateMatch && request.method === 'DELETE') {
           return jsonResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), 200, origin, allowedOrigin)
         }
