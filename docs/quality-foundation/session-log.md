@@ -142,6 +142,42 @@ User が承認した後、そのcommitを含むHEADから開始する。
   Codex レビュー待ち（DATA-001 / DATA-002 は状態「レビュー待ち」）。
   SEC-005 着手可（Codex 着手待ち）。
 
+## 2026-08-09 — CCレビュー修正を3セッションへ再編
+
+- 担当: Codex。CC branch `claude/branch-operational-status-2lwwwu@8ff46af`をread-only reviewした結果を、
+  既存の一時文書`cc-session-plan.md`へ反映した。App / Worker実装は変更していない。
+- 修正順を①完了失敗・pending保存、②sessionId・原子性・D1、③品目/過去棚卸取込・最終統合へ変更した。
+  `App.vue` / `useStore.js` / `useHistory.js`が重なるため、3セッションは前回checkpointを継ぐ直列実行とした。
+- `develop@dcf6874`のWeb公開契約を維持し、Phase 3・過去棚卸取込をUser判断なしに公開後へ送らないこと、
+  DATA-001/002はCodex承認前に完了にしないことを明記した。
+- 品目マスタ取込を正式に追跡する`IMPORT-001`をP1・未着手・Claude Code担当で追加した。
+  既存タスクの状態・担当は変更していない。
+- 旧計画を説明していたREADME/task-listの案内文を、今回のレビュー修正計画へ同期した。
+- 検証: 変更5文書のlocal Markdown link 66/66件解決、Markdown table 6件の列数一致、
+  `git diff --check`成功（改行warningのみ）。docs-onlyのためcode test/buildは未実行。
+- 未実施: commit、push、deploy、production migration、外部service変更。
+- 次の再開地点: Userが第1セッション指示をCCへ渡し、CCのcheckpoint報告後にCodexが独立reviewする。
+
+## 2026-08-08 — WEB-001: 棚卸中心の公開契約とWeb共同採点を追加
+
+- 担当: Codex。Claude Codeは**同じ`develop`・同じ作業tree**で並行作業した。`task-list.md`で編集が
+  競合したが、Claude Code側が作業fileに触れず index のみを操作して分離commitしたため
+  （`git hash-object` + `git update-index`）、この作業treeは無傷で残った。
+  同一fileを触る場合は、着手前に互いのcommit区切りを合わせる。
+- WEB-001を品質基盤更新として進行中へ戻した。canonical URL/contact、production変更、deploy承認待ちは継続。
+- Web Free版の主経路を、品目準備→棚卸開始→中断/再開→完了→別端末履歴詳細→CSV→削除へ固定。
+- 品目取込の非破壊性、完了writeの一貫性、同日複数履歴、過去棚卸取込、β機能境界を
+  release candidate product contractとして追加。
+- 入出庫・発注確認は正式な在庫管理・発注送信として約束せず、搭載時はβ表示・主要導線外とした。
+- quality-scorecardを旧Google Play profileからW1 Web/PWA Free版へ更新し、棚卸core/import safety、
+  privacy/public surface、observability、scope/traceabilityを独立採点対象にした。
+- Cloudflare skillのPages/D1資料を確認。既存のpreflight→承認済みmigration→Worker→Pages→smokeという
+  本番順序は維持し、platform設定、production data、App/Worker codeは変更していない。
+- 検証: git diff --check成功（改行warningのみ）、変更4文書のlocal Markdown link全件存在、
+  Markdown table列数一致。
+- code test/buildはdocs-onlyのため未実行。未実施: commit、push、deploy、production migration。
+- 次の再開地点: Claude Codeのtask単位handoffをproduct contractで独立reviewし、WEB-07/09の証拠へ接続する。
+
 ## 2026-08-08 — S4: DATA-001 複数writeの原子性（CC 第1セッション）
 
 - 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S4。Worker中心＋App一部。**migration なし**。

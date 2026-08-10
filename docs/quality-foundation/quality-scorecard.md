@@ -1,9 +1,10 @@
 # 共同品質スコアカード
 
-> **適用対象:** D-021以前のGoogle Play release profileです。現在のWeb Free版のrelease判定には
-> [`web-release-readiness.md`](web-release-readiness.md)を使用します。Play着手時に公式要件を再確認して更新します。
+> **適用対象:** D-021のW1 Web/PWA Free版です。[web-release-readiness.md](web-release-readiness.md)の
+> gateを前提に、release candidateをCodexとClaude Codeが独立採点します。
+> Google Play/TWAへ進む際は別profileとして公式要件を再確認します。
 
-適用期間: 2026-07-27〜2026-08-08
+適用期間: 2026-08-08〜W1 release判定
 
 ## 採点規則
 
@@ -30,27 +31,32 @@
 | Q1 | 認証・認可 | 未参加・偽host・失効token・未認証APIをserverで拒否 | 異常系integration testとfail-closedが全重要経路にある |
 | Q2 | 店舗分離・data integrity | 全write/deleteでtenant ownerを検証、部分失敗を制御 | 2店舗越境testと再試行・冪等性testがある |
 | Q3 | account lifecycle | 登録・logout・削除・token失効・端末消去が一貫 | D1/DO/Push/外部分析を含む削除証跡と保持例外が検証済み |
-| Q4 | Google Play / privacy | deletion、Data Safety、privacy URL、TWA表示が整合 | 提出checklist全通過、第三者による表記・実装照合済み |
-| Q5 | automated tests | App/Worker全件成功、重要riskに回帰testあり | critical flow E2Eとruntimeに近いDO/WS testが安定成功 |
-| Q6 | CI / release再現性 | developで自動test・build、secretなしで失敗理由が明確 | clean checkoutから同一成果物を再現しrollback/runbookも確認 |
-| Q7 | dependency / input safety | high以上の未処理脆弱性なし、upload制限あり | file parserにsize/complexity/time limitと悪性入力testがある |
-| Q8 | reliability / observability | cron・非同期処理・主要errorを捕捉し構造化記録 | alert条件、correlation、障害注入、復旧確認まである |
-| Q9 | required UX / accessibility | 登録・削除・規約・errorがmobileで理解可能 | keyboard/screen reader/誤操作防止を含む独立UX review合格 |
-| Q10 | docs / traceability | API、privacy、task、test結果が実装と一致 | commit・判断・証拠・rollbackまで一方向に追跡可能 |
+| Q4 | privacy / public surface | privacy・terms・support・削除URLと実data処理が一致し、分析通信が無効 | 公開URL・network・削除証跡を第三者が照合済み |
+| Q5 | 棚卸core / import safety | 品目取込が非破壊で、完了保存と別端末履歴が一貫 | 全置換・衝突・再試行・過去取込・同日複数回の異常系まで検証 |
+| Q6 | automated tests | App/Worker全件成功、重要riskに回帰testあり | core E2Eとruntimeに近いD1/DO/WS testが安定成功 |
+| Q7 | CI / release再現性 | developで自動test・build、secretなしで失敗理由が明確 | clean checkoutから同一成果物を再現しrollback/runbookも確認 |
+| Q8 | dependency / input safety | high以上の未処理脆弱性なし、upload制限とerror明細あり | file parserにsize/complexity/time limit、悪性入力、取消testがある |
+| Q9 | reliability / observability | 非同期処理・主要errorを捕捉し、利用者が未保存を識別可能 | alert条件、correlation、障害注入、復旧確認まである |
+| Q10 | UX / scope / traceability | 棚卸が第一導線で、β境界、API、privacy、task、test結果が一致 | mobile/desktop独立UX reviewとcommit→証拠→rollbackの追跡が完了 |
 
 ## Mandatory release gates
 
 - [ ] 未解決P0が0件
-- [ ] Google Play公開対象P1が0件
+- [ ] [web-release-readiness.md](web-release-readiness.md)のWEB-01〜WEB-10がすべて完了
+- [ ] Web公開対象P1が0件、またはrelease影響・owner・期限・回避策をUserが受容
 - [ ] App testが全件成功
 - [ ] Worker testが全件成功
 - [ ] App production build成功
 - [ ] critical integration/E2E成功
 - [ ] production dependencyに未処理high/criticalがない
+- [ ] 品目取込が非破壊defaultで、全置換・上限超過・不正行を処理前に確認できる
+- [ ] 棚卸完了が部分成功を残さず、別browserで履歴一覧と明細を取得できる
+- [ ] 入出庫・発注確認が主要導線から分離され、β・非送信であることが明確
 - [ ] account deletionのin-app経路と公開Web経路が動作
 - [ ] 関連data削除・保持例外・privacy policyが一致
-- [ ] Data Safety申告案がcode/SDK/権限と一致
 - [ ] develop CI成功
+- [ ] release対象commit、production resource、rollback、test証拠が一意に追跡可能
+- [ ] CodexとClaude Codeの独立採点で正式点が基準を満たす
 - [ ] Userがrelease candidateを承認
 
 ## 採点表
