@@ -1,6 +1,6 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-08
+最終更新: 2026-08-10
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
 
@@ -81,9 +81,12 @@ frontend/Workerのrollbackとdata recoveryを分けて記録します。
 
 ## 今回の対象外
 
-- DATA-002 **Phase 3**（`store_history`のsession単位キー化、データ源一本化、`LIMIT 50`見直し、削除のサーバー側完結）。
+- DATA-002 **Phase 3**（データ源一本化、`LIMIT 50`見直し、削除のサーバー側完結）。
   migrationを伴い、`WEB-04`完了とPM判断が前提
-- 過去棚卸取込の再設計（`importBatchId`、日付衝突の選択、一括取消）。**Phase 3完了後**
+  - このうち `store_history` の session 単位キー化は 2026-08-09 に migration 0012 として実装済み
+- ~~過去棚卸取込の再設計（`importBatchId`、日付衝突の選択、一括取消）~~
+  → 2026-08-10 に `IMPORT-001` として実装（migration 0013）。前提だった「履歴が日付キーのまま」は
+  0012 で解消済み。**公開scopeへ正式に含めるかはCodex再レビューとPM判断**。CC判断で `WEB-07` 通過としない
 - 推奨発注・分析・スケジュールの新規拡張
 - 14日Pro無料体験、trial entitlement
 - Stripe Checkout / Customer Portal / webhook

@@ -49,6 +49,25 @@ describe('全migrationのfresh適用', () => {
     expect(() => ins.run('ABCDEF', '2026-07-07', '{}', '2026-07-07T00:00:00Z')).toThrow()
   })
 
+  it('0013: sessions に import_batch_id 列がある', () => {
+    const h = createD1()
+    const cols = h.rows('PRAGMA table_info(sessions)').map(r => r.name)
+    expect(cols).toContain('import_batch_id')
+  })
+
+  it('0013: 既存の session は import_batch_id NULL のまま作れる（後方互換）', () => {
+    const h = createD1()
+    h.seedStore('ABCDEF', { sessionId: 'legacy-1' })
+    const row = h.rows('SELECT import_batch_id FROM sessions WHERE id = ?', 'legacy-1')[0]
+    expect(row.import_batch_id).toBeNull()
+  })
+
+  it('0013: 取込バッチのインデックスがある（migrate.sh のセンチネル）', () => {
+    const h = createD1()
+    const idx = h.rows("SELECT name FROM sqlite_master WHERE type='index'").map(r => r.name)
+    expect(idx).toContain('idx_sessions_import_batch')
+  })
+
   it('0012: 削除済みアカウントへ履歴を書けないトリガが残っている', () => {
     const h = createD1()
     h.sqlite.prepare('INSERT INTO stores (shop_code, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?)')

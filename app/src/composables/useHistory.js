@@ -171,7 +171,7 @@ export function useHistory() {
    * @param {object} arg { date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice|price, code, category, lotSize, prevMonth }] }
    * @returns 挿入したスナップショット（不正な入力は null）
    */
-  function importPastSnapshot({ date, items } = {}) {
+  function importPastSnapshot({ date, items, sessionId = null, importBatchId = null } = {}) {
     if (!date || !Array.isArray(items) || items.length === 0) return null
 
     let totalValue = 0
@@ -201,7 +201,11 @@ export function useHistory() {
     }
     if (built.length === 0) return null
 
-    _data[date] = {
+    // sessionId を正本キーにする（IMPORT-001）。
+    // 以前は日付キーで書いていたため、同じ日に通常の棚卸があると取込が黙って上書きしていた。
+    // サーバーが採番した sessionId でしまうことで、同日の別セッションと共存し、
+    // カレンダー・詳細・取消がすべて同じ sessionId を参照する。
+    const snap = {
       date,
       savedAt:      new Date().toISOString(),
       items:        built,
@@ -209,14 +213,37 @@ export function useHistory() {
       entryLog:     [],
       participants: null,
       flaggedItems: [],
-      sessionId:    null,
+      sessionId:    sessionId ? String(sessionId) : null,
+      importBatchId,
       auditLog:     [],
       activeMs:     null,
       axisNames:    ['', ''],
       source:       'import',   // 過去取込由来（手動棚卸と区別）
     }
+    _data[snapshotKey(snap)] = snap
     _persist()
-    return _data[date]
+    return snap
+  }
+
+  /**
+   * 取込バッチで入れたスナップショットを端末から消す（サーバー取消と対で使う）。
+   * importBatchId が一致するものだけを消すので、別バッチ・通常の棚卸は残る。
+   * @returns 消した件数
+   */
+  function deleteImportBatchLocal(importBatchId) {
+    if (!importBatchId) return 0
+    let n = 0
+    for (const [k, snap] of Object.entries(_data)) {
+      if (snap?.importBatchId === importBatchId) { delete _data[k]; n++ }
+    }
+    if (n) _persist()
+    return n
+  }
+
+  /** 取込バッチに属するスナップショット（取消前の確認用） */
+  function getImportBatch(importBatchId) {
+    if (!importBatchId) return []
+    return Object.values(_data).filter(s => s?.importBatchId === importBatchId)
   }
 
   /**
@@ -390,5 +417,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, snapshotKey, importPastSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
+  return { saveSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

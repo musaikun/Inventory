@@ -13,6 +13,7 @@ import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
+import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -288,7 +289,9 @@ function onSave() {
 const {
   showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
   openDeliveryFromFile, closeDelivery, onDeliveryImported: commitDelivery, downloadDeliveryTemplate,
-  importStocktakeFromFile,
+  showStocktakeModal, stocktakePlan, stocktakeFilename,
+  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
+  confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
 
 const deliveryFileInput  = ref(null)
@@ -296,10 +299,7 @@ const stocktakeFileInput = ref(null)
 function pickDelivery()  { deliveryFileInput.value?.click() }
 function pickStocktake() { stocktakeFileInput.value?.click() }
 function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-async function onStocktakeFile(e) {
-  const f = e.target.files?.[0]; e.target.value = ''
-  const n = await importStocktakeFromFile(f); if (n > 0) emit('saved')
-}
+function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
 function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n > 0) emit('saved') }
 </script>
 
@@ -532,6 +532,17 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 
     <!-- 過去棚卸の取込ファイル入力（モード非依存で常設）-->
     <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
+
+    <PastStocktakeImportModal
+      v-if="showStocktakeModal && stocktakePlan"
+      :plan="stocktakePlan"
+      :filename="stocktakeFilename"
+      :confirm-import="confirmStocktakeImport"
+      :undo-import="undoStocktakeImport"
+      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
+      @imported="emit('saved')"
+      @close="closeStocktake"
+    />
 
     <DeliveryImportModal
       v-if="showDeliveryModal"

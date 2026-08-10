@@ -335,6 +335,27 @@ export async function saveSnapshotToD1(snapshot) {
   return _save('snapshot', snapshot?.date ?? '', snapshot)
 }
 
+// ── 過去棚卸の取込（IMPORT-001）────────────────────────────────────────────────
+//
+// 未送信キュー（_save）へは載せない。取込は「サーバーに入ったことを確認してから
+// 完了と表示する」契約なので、成功／失敗をそのまま呼び出し側へ返す。
+// 端末にだけ入った状態を「取り込めた」と見せないため。
+
+/** 1日ぶんを取り込む。原子的・冪等（同じ batchId + date の再送で増えない）。 */
+export async function importPastSessionToD1(importBatchId, payload) {
+  if (!shopCode.value || !BASE) throw new Error('店舗が未設定です')
+  return _api(`/store/${shopCode.value}/imports/${encodeURIComponent(importBatchId)}/sessions`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** 取込バッチをまとめて取り消す。戻り値の removed が実際にサーバーで消えた件数。 */
+export async function cancelPastImportOnD1(importBatchId) {
+  if (!shopCode.value || !BASE) throw new Error('店舗が未設定です')
+  return _api(`/store/${shopCode.value}/imports/${encodeURIComponent(importBatchId)}`, { method: 'DELETE' })
+}
+
 export async function deleteSnapshotFromD1(key) {
   if (!shopCode.value || !BASE) return
   // key は sessionId（現行）または legacy の日付キー

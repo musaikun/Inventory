@@ -16,9 +16,11 @@ import {
   parseCSVLine,
   IMPORT_MODE_MERGE,
   IMPORT_MODE_REPLACE,
+  ALIAS_KEEP_EXISTING,
+  ALIAS_TAKEOVER,
 } from '../utils/itemImport.js'
 
-export { IMPORT_MODE_MERGE, IMPORT_MODE_REPLACE }
+export { IMPORT_MODE_MERGE, IMPORT_MODE_REPLACE, ALIAS_KEEP_EXISTING, ALIAS_TAKEOVER }
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
@@ -269,9 +271,10 @@ function _pruneArchive() {
 }
 
 // 取込計画の共通オプション（Free は品目上限つき、Pro は無制限）
-function _planOptions(mode) {
+function _planOptions(mode, aliasPolicy = ALIAS_KEEP_EXISTING) {
   return {
     mode,
+    aliasPolicy,
     itemLimit:   isPro() ? Infinity : FREE_ITEM_LIMIT,
     axisNameMax: AXIS_NAME_MAX,
   }
@@ -382,15 +385,22 @@ export function useConfig() {
    * 同名品目はファイルにある列だけを上書きする。全入れ替えは呼び出し側が
    * { mode: IMPORT_MODE_REPLACE } を明示したときだけ行う（S5 / 2026-08-08）。
    */
-  function loadFromCSV(csvText, { mode = IMPORT_MODE_MERGE } = {}) {
-    const parsed = parseItemCSV(csvText)
-    return _applyImportPlan(buildImportPlan(parsed, config, _planOptions(mode)))
+  function loadFromCSV(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy } = {}) {
+    return applyImportPlan(planCSVImport(csvText, { mode, aliasPolicy }))
   }
 
-  /** loadFromCSV の取込前プレビュー（config は変更しない） */
-  function previewCSVImport(csvText, { mode = IMPORT_MODE_MERGE } = {}) {
-    const parsed = parseItemCSV(csvText)
-    return buildImportPlan(parsed, config, _planOptions(mode)).summary
+  /**
+   * 取込計画を組み立てる（config は変更しない）。
+   * 画面はこの計画をプレビューへ出し、**同じ計画オブジェクト**を applyImportPlan へ渡す。
+   * プレビューと取込で解析・計画を2回作らないので、両者がずれる余地が無い。
+   */
+  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy } = {}) {
+    return buildImportPlan(parseItemCSV(csvText), config, _planOptions(mode, aliasPolicy))
+  }
+
+  /** loadFromCSV の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
+  function previewCSVImport(csvText, opts = {}) {
+    return planCSVImport(csvText, opts).summary
   }
 
   /** 棚卸品目 CSV エクスポート */
@@ -901,15 +911,24 @@ export function useConfig() {
    *   — 各フィールドの列インデックス（null=使用しない）
    * loadFromCSV と同じく既定は「追加・更新」。
    */
-  function loadFromCSVMapped(csvText, mapping, { mode = IMPORT_MODE_MERGE } = {}) {
-    const parsed = parseMappedCSV(csvText, mapping)
-    return _applyImportPlan(buildImportPlan(parsed, config, _planOptions(mode)))
+  function loadFromCSVMapped(csvText, mapping, opts = {}) {
+    return applyImportPlan(planMappedImport(csvText, mapping, opts))
   }
 
-  /** loadFromCSVMapped の取込前プレビュー（config は変更しない） */
-  function previewMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE } = {}) {
-    const parsed = parseMappedCSV(csvText, mapping)
-    return buildImportPlan(parsed, config, _planOptions(mode)).summary
+  /** loadFromCSVMapped の取込計画（config は変更しない） */
+  function planMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader } = {}) {
+    const parsed = parseMappedCSV(csvText, mapping, hasHeader === undefined ? {} : { hasHeader })
+    return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy))
+  }
+
+  /** loadFromCSVMapped の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
+  function previewMappedImport(csvText, mapping, opts = {}) {
+    return planMappedImport(csvText, mapping, opts).summary
+  }
+
+  /** プレビューで見せた計画をそのまま適用する（唯一の書き換え地点） */
+  function applyImportPlan(plan) {
+    return _applyImportPlan(plan)
   }
 
   /**
@@ -962,6 +981,9 @@ export function useConfig() {
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,
+    planCSVImport,
+    planMappedImport,
+    applyImportPlan,
     previewCSVImport,
     previewMappedImport,
     undoLastImport,

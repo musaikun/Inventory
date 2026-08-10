@@ -288,3 +288,17 @@ Worker側は全migrationを当てた**実SQLite**で検証している（`worker
 - migration 0012 の適用（development / production とも）。
 - 実D1での動作・計測。別端末での実機確認。
 - Phase 3（データ源一本化・`LIMIT 50` 見直し・削除のサーバー側完結）は引き続き scope外。
+
+## 状態（2026-08-10 / 第3セッション終了時）
+
+**レビュー待ち / Claude Code。** 第1〜第3セッションの差分がこのbranchに揃った時点で
+`task-list.md` の状態を `進行中` → `レビュー待ち` へ変更した。
+Codex による全差分の独立レビュー前なので、`完了` にも `WEB-07` 通過にもしていない。
+
+- 対象branch / HEAD: `claude/branch-operational-status-2lwwwu`（第3セッション作業ぶんを含む）
+- 第3セッションでこのタスクのコードは変更していない。IMPORT-001 の実装（過去棚卸取込）が
+  本タスクの sessionId identity と server原子性の契約に**乗る側**として追加されている。
+  取込が作る session も `inventory_lines` と `store_history` を同じ `db.batch` で書く。
+- 統合後の再実行結果: App 79 files / 747 tests passed、Worker 20 files / 367 tests passed、
+  `npm run build` 成功。
+- 未実施は上記「未実施」節のとおり（実D1・実機・migration適用）。0013 も未適用として加わる。

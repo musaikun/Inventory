@@ -2,6 +2,62 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-10 — CCレビュー修正 第3セッション: 取込のデータ品質と最終統合（IMPORT-001）
+
+- 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション。
+- branch `claude/branch-operational-status-2lwwwu`、開始HEAD `ae9c03b`（第2セッションの成果）。
+- 状態は **レビュー待ちまで**。Codex承認前に `完了` / `WEB-07` 通過 / release可としていない。
+- commit / push / deploy / migration適用は**していない**（Userの明示指示待ち）。
+
+### 開始時の前提確認で一度停止した
+
+- 指示の「前提HEAD」がプレースホルダのまま置換されておらず、照合対象が無かった。
+- 当初の checkout は `claude/cc-review-session-3-1s4jxj@cda7b62`（= `main` 相当）で、
+  第1・第2セッションの成果も `cc-session-plan.md` も `tasks/` も**含まれていなかった**。
+  `git merge-base --is-ancestor ae9c03b HEAD` は非祖先。
+- 実装を開始せず報告し、Userの確認後に `claude/branch-operational-status-2lwwwu` を
+  checkout（working tree は clean・破棄した差分ゼロ）してから着手した。
+
+### 実装
+
+詳細と証拠は [`tasks/IMPORT-001.md`](tasks/IMPORT-001.md)。要点だけ:
+
+1. **CSVの字句解析を `app/src/utils/csvParse.js` へ一本化。** 品目取込・棚卸結果取込・納品取込が
+   同じ欠陥を持つ1行パーサを3本持っていた。`"1,200"` が `1` に、`5"" 皿` が `5 皿` になり、
+   未閉じ引用符は黙って通っていた。
+2. **不正数値を「既存値を維持」にすり替えない。** その行をエラーにし、同じ行の他の列も適用しない。
+   列数不一致・ヘッダ無しも同様に行番号・列・理由つきで出す。
+3. **エイリアス衝突を非破壊に。** 既存品目の別名を無言で奪っていた。既定では奪わず、
+   画面で「既存を優先／ファイルを優先」を選ぶまで取込ボタンを無効にする。
+4. **プレビューと取込が同じ計画オブジェクトを使う。** 以前は解析と計画を2回組み直していた。
+5. **過去棚卸取込を sessionId モデルへ接続。** 日付キーの直接書き込みと投げっぱなしのD1保存をやめ、
+   取込前プレビュー → サーバー保存確認 → 端末反映の順にした。`importBatchId` 単位の取消を
+   server側で原子的・冪等に実装（**migration 0013 追加・適用は未実施**）。
+
+### 文書の統合
+
+- 旧計画（S1〜S8）を `36fc8ad`（`2e14e23` の親）から
+  [`archive/cc-session-plan-s1-s8-2026-08-08.md`](archive/cc-session-plan-s1-s8-2026-08-08.md) へ履歴保存し、
+  本ログと `proposals.md` に残っていた「`cc-session-plan.md` の S2/S3/S4/S6 節」への参照を
+  そちらへ向け直した。**同名pathの現行計画に旧sectionがあるように見せない**ため。
+- `UI-002` は実体file を持たず `UI-001.md` へ誤リンクしていた。新IDを作らず `UI-001` へ統合した。
+- `task-list.md` / `web-release-readiness.md` の「過去棚卸取込は Phase 3 完了後」という
+  scope外記述を、**記録を消さずに**前提置換の追記つきで更新した。前提だった
+  「履歴が日付キーのまま」は第2セッションの migration 0012 で解消済み。
+  公開scopeへ正式に含めるかは Codex再レビューと PM判断に残す。
+- `api-design.md` に取込API 2本と、`history` 系の現状（0012以降）を反映した。
+
+### 未実施
+
+- 実D1（migration 0013 適用・statement数と実行時間の計測）。
+- 実ブラウザ / 実機での 375px・1024px以上・keyboard の目視確認。
+- 大量データ（500行上限付近・複数日×多品目）の実測。
+
+### 次の再開地点
+
+Codex による第1〜第3セッション全差分の独立レビュー。
+`SEC-005` は未着手 / Codex のまま（第3セッションでは触れていない）。
+
 ## 2026-08-09 — CCレビュー修正 第1セッション: 完了失敗と保留保存の安全化
 
 - 担当: Claude Code。台本は develop の [`cc-session-plan.md`](cc-session-plan.md)（`develop@726d819`）第1セッション。
@@ -67,7 +123,7 @@
 - localStorage が全く使えない環境では、依然としてアプリを閉じると未送信分が失われる。
 - 完了失敗時にローカルのスナップショットは作られたまま残る（入力値保護のため意図的）。
   sessionId 単位の整合は**第2セッションの範囲**。
-- `task-list.md` から `cc-session-plan.md` への参照は、`2e14e23` の削除により
+- `task-list.md` から旧 `cc-session-plan.md`（S1〜S8）への参照は、`2e14e23` の削除により
   このbranchでは切れたまま。**docs の3-way統合は第3セッションの範囲**なので触れていない。
 
 ### 次の再開地点
@@ -81,13 +137,14 @@ User が承認した後、そのcommitを含むHEADから開始する。
 - 共有ブランチ: `claude/branch-operational-status-2lwwwu`（3セッション共用）
 - 最終commit: `36fc8ad`（S4 の最後のシクル）
 - 検証: App 619 tests / 71 files、Worker 251 tests / 17 files、ビルド成功。**migration なし**。
-- 次のステップ: `cc-session-plan.md` を削除（完了条件により恒久docs へ残さない）。
+- 次のステップ: 旧 `cc-session-plan.md`（S1〜S8）を削除（完了条件により恒久docs へ残さない）。
+  **2026-08-10 追記**: 削除直前版を[履歴スナップショット](archive/cc-session-plan-s1-s8-2026-08-08.md)として保存し、参照切れを解消した。
   Codex レビュー待ち（DATA-001 / DATA-002 は状態「レビュー待ち」）。
   SEC-005 着手可（Codex 着手待ち）。
 
 ## 2026-08-08 — S4: DATA-001 複数writeの原子性（CC 第1セッション）
 
-- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S4。Worker中心＋App一部。**migration なし**。
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S4。Worker中心＋App一部。**migration なし**。
 - 棚卸完了・発注・入出庫の3つとも、ヘッダ（完了状態）と明細を**1つの `db.batch`
   （=1トランザクション）**へまとめた。従来は棚卸完了が2回、発注が別writeの連続、入出庫が3回。
 - `inventoryLines.js` を「実行する」から「**文を組み立てて返す**」（`inventoryLineStatements`）へ変更。
@@ -110,14 +167,14 @@ User が承認した後、そのcommitを含むHEADから開始する。
 - 検証: worker `npm test` 251 passed / 17 files（+29。`atomicity.test.js` 新設）、
   app `npm test` 619 passed / 71 files、`npm run build` 成功。
 - 未実施: 実機・本番D1での確認。**本番D1で batch がトランザクションとして巻き戻ることは未検証**。
-  ローカルは注入モックで再現しているだけ。手動確認台本6項目を `cc-session-plan.md` の S4 節に残した。
+  ローカルは注入モックで再現しているだけ。手動確認台本6項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S4 節に残した（現行の台本は `../test-checklist-new-features.md`）。
 - 範囲外: `saveSnapshotToD1`（`store_history`）は完了処理とは別 write のまま。1つにまとめるには
   `store_history` の session単位キー化（F-001）が要るため Phase 3（公開後）。
 - **第1セッション（S1〜S4）はこれで完了。** 8タスク全体では S1〜S8 がすべて実装済み。
 
 ## 2026-08-08 — S3: DATA-002 Phase 1（CC 第1セッション）
 
-- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S3。**Worker と App の両方**に触れた。
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S3。**Worker と App の両方**に触れた。
 - `GET /store/:code/sessions/:id/lines` を追加。`storeHandler.js` の `handleSessionLinesGet` を
   `index.js` の `_requireAuth`（strict同store Bearer）の内側、`/sessions/:id/complete` の直前に登録。
   単価・在庫金額を返すためゲスト経路には置かない。
@@ -138,14 +195,14 @@ User が承認した後、そのcommitを含むHEADから開始する。
 - 検証: worker `npm test` 210 passed / 16 files（+14）、app `npm test` 617 passed / 71 files（+13）、
   `npm run build` 成功。
 - 未実施: 実機・本番D1での確認。別端末で詳細が開けること、2026-07-07の351品目が出ることは
-  **未確認**で、手動確認台本6項目を `cc-session-plan.md` の S3 節に残した。
+  **未確認**で、手動確認台本6項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S3 節に残した（現行の台本は `../test-checklist-new-features.md`）。
 - 残る穴: 復元経路では `entryLog` / `participants` / `auditLog` が空（`inventory_lines` に無い）。
   F-001（同日2回目の上書き）と F-003（データ源二重）は Phase 3 の範囲で未解消。
 - 次の再開地点: 第1セッションの **S4（DATA-001・完了処理の原子性）**。
 
 ## 2026-08-08 — CC第2セッション: 品目マスタ取込の本修理（S5・S6）
 
-- 担当: Claude Code。範囲は `cc-session-plan.md` の第2セッション（S5・S6）。`worker/` は無変更。
+- 担当: Claude Code。範囲は[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の第2セッション（S5・S6）。`worker/` は無変更。
 - 基点: `develop@f8da4c1` で実装し、push 時に `claude/branch-operational-status-2lwwwu`
   （S1・S2・S7・S8 が先行）へ rebase して統合した。
 - **S2（止血）の後始末**: S2 の申し送り「S5 で通常取込からこの確認を外し、全置換操作にだけ残す」を実施した。
@@ -157,7 +214,7 @@ User が承認した後、そのcommitを含むHEADから開始する。
     `masterImportWarning.test.js` の8件はそのまま緑。
   - `HELP.import` は S2 の全置換文言からマージ後の挙動へ書き換えた。
   - S2 の手動確認台本のうち 2〜5・7 は前提が変わったため、差し替えを
-    `test-checklist-new-features.md` の S 節へ置き、`cc-session-plan.md` の S2 節から参照させた。
+    `../test-checklist-new-features.md` の S 節へ置いた（旧計画の S2 節は[履歴](archive/cc-session-plan-s1-s8-2026-08-08.md)に保存）。
 - 統合時のコード衝突は S2 由来のみ（4ファイル）。S7・S8 とはファイルが重ならず衝突なし。
 
 ### S5 — 取込のマージ化
@@ -184,7 +241,7 @@ User が承認した後、そのcommitを含むHEADから開始する。
   SettingsModal のドロップゾーン）。
 - 取込直後に限り1回だけ「取込前に戻す」ができる（`undoLastImport`）。メモリ上の退避のみで、
   再読込・アカウント切替（`resetLocalData`）・ホスト設定受信（`applyRemoteConfig`）・
-  取込以外の品目変更（`_save`）で失効する。`cc-session-plan.md` S6 の注記どおり、
+  取込以外の品目変更（`_save`）で失効する。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) S6 の注記どおり、
   恒久的なスナップショット機構は作っていない。
 
 ### 変更ファイル
@@ -264,7 +321,7 @@ User が承認した後、そのcommitを含むHEADから開始する。
 
 ## 2026-08-08 — CC第3セッション: S7（保存失敗の可視化）/ S8（画面を棚卸中心へ）
 
-- 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション（S7・S8）。
+- 担当: Claude Code。台本は[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の第3セッション（S7・S8）。**現行の第3セッションとは別物。**
 - ブランチ: `claude/branch-operational-status-2lwwwu`（`develop@f8da4c1` から）。
   作業開始時点で S1〜S6 は本ブランチに未取り込みだったため、**S7/S8 はそれらに依存しない範囲で完結させた**。
   push 時に第1セッションの S1・S2（`6b336ac` / `d12878b`）が先に入っていたため rebase し、
@@ -333,7 +390,7 @@ User が承認した後、そのcommitを含むHEADから開始する。
 
 ## 2026-08-08 — S2: 品目マスタ取込の止血（CC 第1セッション）
 
-- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の S2。**挙動は変えず、警告と文言だけを追加**。
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S2。**挙動は変えず、警告と文言だけを追加**。
 - 実害: `loadFromCSV` / `loadFromCSVMapped` は品目リストを**全置換**する。ファイルに無い品目と、
   その単価・別名・カテゴリが消える。一方UIの説明は「品目名が一致するものは上書き、無いものは追加」＝
   追加マージを約束しており、300品目の店舗が50品目のファイルを入れると250品目が消えていた。
@@ -344,16 +401,16 @@ User が承認した後、そのcommitを含むHEADから開始する。
   確認ダイアログはファイルを選んだ後にしか出ないため。
 - `MasterManagePage.vue` の `HELP.import` を実装の挙動へ一致させた。
 - 暫定である旨を `masterImportWarning.js` 冒頭、`useConfig.js` の全置換代入の直前2箇所、
-  `HELP.import` の上に残した。S5 で外す対象も `cc-session-plan.md` に列挙した。
+  `HELP.import` の上に残した。S5 で外す対象も[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)に列挙した。
 - 検証: `npm test` 539 passed / 64 files（新規8件）、`npm run build` 成功。
   CSS 226.06 → 226.26kB（gzip 35.98 → 36.03kB）。
-- 未実施: 実ブラウザでの目視確認。手動確認台本8項目を `cc-session-plan.md` の S2 節に残した。
+- 未実施: 実ブラウザでの目視確認。手動確認台本8項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S2 節に残した（現行の台本は `../test-checklist-new-features.md`）。
 - feature-checklist セルフチェック結果は同節と本コミットに記載。
 - 次の再開地点: **S3（DATA-002 Phase 1）**。完了時に Codex へ `SEC-005` の着手可を通知する。
 
 ## 2026-08-08 — S1: 担当と公開範囲の記録更新（CC 第1セッション）
 
-- 担当: Claude Code。[`cc-session-plan.md`](cc-session-plan.md) の第1セッション S1。**docsのみでcode変更なし**。
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の第1セッション S1。**docsのみでcode変更なし**。
 - 作業ブランチ `claude/branch-operational-status-2lwwwu` を3セッション共有として確定。
   `develop@f8da4c1` を fast-forward 取り込み済み。
 - 担当変更: `DATA-001` を Codex → **Claude Code**、`DATA-002` を 未割当 → **Claude Code**。

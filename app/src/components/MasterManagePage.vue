@@ -7,6 +7,7 @@ import { showAxisAssign, axisAssignInitial, settingsSection } from '../composabl
 import { useDataImport } from '../composables/useDataImport.js'
 import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
+import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
@@ -17,7 +18,9 @@ const { getSnapshots, exportSnapshotCSV } = useHistory()
 const {
   showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
   openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
-  importStocktakeFromFile,
+  showStocktakeModal, stocktakePlan, stocktakeFilename,
+  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
+  confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
 
 const deliveryFileInput  = ref(null)
@@ -25,7 +28,7 @@ const stocktakeFileInput = ref(null)
 function pickDelivery()  { deliveryFileInput.value?.click() }
 function pickStocktake() { stocktakeFileInput.value?.click() }
 function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; importStocktakeFromFile(f) }
+function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
 
 function _download(text, filename) {
   const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })
@@ -392,6 +395,16 @@ function onClear() {
     <!-- 取込ファイル入力（常設・非表示）-->
     <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onDeliveryFile" />
     <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onStocktakeFile" />
+
+    <PastStocktakeImportModal
+      v-if="showStocktakeModal && stocktakePlan"
+      :plan="stocktakePlan"
+      :filename="stocktakeFilename"
+      :confirm-import="confirmStocktakeImport"
+      :undo-import="undoStocktakeImport"
+      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
+      @close="closeStocktake"
+    />
 
     <DeliveryImportModal
       v-if="showDeliveryModal"

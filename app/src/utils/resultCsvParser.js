@@ -2,16 +2,17 @@
 // 形式: 日付,商品コード,品目名,単位,数量[,単価,在庫金額]
 // ヘッダ名で列を特定するため、列順が多少違っても動く。
 
-function parseCSVLine(line) {
-  const out = []
-  let cur = '', inQ = false
-  for (const ch of line) {
-    if (ch === '"') inQ = !inQ
-    else if (ch === ',' && !inQ) { out.push(cur); cur = '' }
-    else cur += ch
-  }
-  out.push(cur)
-  return out.map(s => s.trim())
+import { tokenizeCSV, parseCSVLine as _line } from './csvParse.js'
+
+// 字句解析は utils/csvParse.js と共用する（エスケープされた引用符・未閉じ引用符・
+// 引用符内の改行の扱いを、品目取込と棚卸結果取込で1つにするため）。
+const parseCSVLine = (line) => _line(line).map(s => s.trim())
+
+// ファイル全体をレコードへ分解する。未閉じ引用符は黙って受理せず throw する。
+function _records(csvText) {
+  const { rows, error } = tokenizeCSV(csvText)
+  if (error) throw Object.assign(new Error(error.message), { code: error.code, line: error.line })
+  return rows.map(r => ({ line: r.line, cols: r.cols.map(c => c.trim()) }))
 }
 
 // ヘッダ候補（表記ゆれを許容）
@@ -59,11 +60,10 @@ export function isResultCSV(csvText) {
 // 復元用の行配列を返す: [{ name, qty, unit, code, price, category, lotSize, prevMonth }]
 // 数量が空・【合計】行・品目名が空の行はスキップする。
 export function parseResultCSV(csvText) {
-  const text  = (csvText ?? '').replace(/^﻿/, '').trim()
-  const lines = text.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) throw new Error('データ行がありません')
+  const records = _records(csvText)
+  if (records.length < 2) throw new Error('データ行がありません')
 
-  const header = parseCSVLine(lines[0])
+  const header = records[0].cols
   const ci = {
     name:      _findCol(header, COLS.name),
     qty:       _findCol(header, COLS.qty),
@@ -80,8 +80,7 @@ export function parseResultCSV(csvText) {
 
   const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
   const rows = []
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (const { cols } of records.slice(1)) {
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
 
@@ -110,11 +109,10 @@ export function parseResultCSV(csvText) {
 // 戻り値: [{ date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice, code, category, lotSize, prevMonth }] }]
 // 日付列が無い／有効な日付が1つも無い場合は throw（過去棚卸には日付が必須）。
 export function parseResultSnapshots(csvText) {
-  const text  = (csvText ?? '').replace(/^﻿/, '').trim()
-  const lines = text.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) throw new Error('データ行がありません')
+  const records = _records(csvText)
+  if (records.length < 2) throw new Error('データ行がありません')
 
-  const header = parseCSVLine(lines[0])
+  const header = records[0].cols
   const ci = {
     date:      _findCol(header, COLS.date),
     name:      _findCol(header, COLS.name),
@@ -132,8 +130,7 @@ export function parseResultSnapshots(csvText) {
   const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
   const byDate = new Map()
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (const { cols } of records.slice(1)) {
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
     const date = _normDate(cols[ci.date])

@@ -424,6 +424,44 @@ describe('Worker ルーティング（特性テスト）', () => {
     expect(res.status).toBe(401)
   })
 
+  // IMPORT-001: 過去棚卸の取込・取消。単価と在庫を書き換えるので strict auth の側に置く。
+  describe('過去棚卸の取込 API', () => {
+    const BATCH = 'imp_abc123'
+    const body  = { date: '2026-07-01', items: [{ item: 'A', qty: 1 }] }
+
+    it('POST /imports/:batchId/sessions はトークン無しだと 401', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('POST', `/store/${reg.shopCode}/imports/${BATCH}/sessions`, { body }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('POST /imports/:batchId/sessions は他店舗のトークンでは 401', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const res = await worker.fetch(makeReq('POST', `/store/${a.shopCode}/imports/${BATCH}/sessions`, { body, token: b.token }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('DELETE /imports/:batchId はトークン無しだと 401', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${BATCH}`), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('DELETE /imports/:batchId は他店舗のトークンでは 401', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/imports/${BATCH}`, { token: b.token }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('取込IDが64文字を超える経路は route に一致しない（404）', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${'a'.repeat(65)}`, { token: reg.token }), env)
+      expect(res.status).toBe(404)
+    })
+  })
+
   // DATA-002 Phase 1: 端末に snapshot が無くても詳細を開けるようにする経路。
   // 単価・在庫金額を返すため、認可の穴は「他店舗の在庫金額が読める」に直結する。
   describe('GET /store/:code/sessions/:id/lines', () => {

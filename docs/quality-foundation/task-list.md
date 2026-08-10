@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-09
+最終更新: 2026-08-10
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -39,10 +39,10 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| DATA-002 | P1 | 進行中 | Claude Code | CCレビュー修正（pending整合・永続化・表示） | [DATA-002.md](tasks/DATA-002.md) |
-| IMPORT-001 | P1 | 未着手 | Claude Code | 品目マスタ取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | CCレビュー修正（pending整合・永続化・表示・履歴identity） | [DATA-002.md](tasks/DATA-002.md) |
+| IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止。DATA-002 Phase 1 完了により2026-08-08から着手可 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | 進行中 | Claude Code | CCレビュー修正（棚卸完了失敗時の状態保持・再試行） | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-001 | P1 | レビュー待ち | Claude Code | CCレビュー修正（棚卸完了失敗時の状態保持・再試行・server原子性） | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -54,10 +54,9 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 |---|---:|---|---|---|---|
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
-| UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
-| UI-002 | P2 | レビュー待ち | Claude Code | ホームを棚卸中心の順路へ戻し、入出庫・発注をβ機能へ降ろす（S8） | [UI-001.md](tasks/UI-001.md) |
+| UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px）とホームの順路再編（旧 UI-002 を統合） | [UI-001.md](tasks/UI-001.md) |
 
-`UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
+`UI-001`（旧 `UI-002` の画面再編を含む）はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。
 モバイル表示は非改変のため、release gate側の375px検証をやり直す必要はありません。
 実ブラウザでの目視確認は未実施です。
@@ -68,11 +67,27 @@ gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPM�
 
 | 対象 | 統合先 | 着手の前提 |
 |---|---|---|
-| DATA-002 **Phase 3**（`store_history`のsession単位キー化・データ源一本化・`LIMIT 50`見直し・削除のサーバー側完結） | [DATA-002](tasks/DATA-002.md) | PM判断 ＋ `WEB-04`（本番D1 migration 0010/0011の適用） |
-| 過去棚卸取込の再設計（`importBatchId`・日付衝突の選択・一括取消） | [DATA-002](tasks/DATA-002.md) | **Phase 3 完了後**。履歴が日付キーのままでは成立しない |
+| DATA-002 **Phase 3**（データ源一本化・`LIMIT 50`見直し・削除のサーバー側完結） | [DATA-002](tasks/DATA-002.md) | PM判断 ＋ `WEB-04`（本番D1 migration の適用） |
 
 Phase 3 は migration を伴い、本番D1に 0010/0011 が未適用の現状では判断材料が揃いません。
-今回実装するのは **Phase 1（別端末からの明細取得・R-001復旧）と Phase 2（保存失敗の可視化・バックフィル）** だけです。
+実装済みは **Phase 1（別端末からの明細取得・R-001復旧）と Phase 2（保存失敗の可視化・バックフィル）** です。
+
+> **2026-08-10 前提の置き換え（記録を消さずに追記）**
+>
+> 2026-08-08 時点でこの表には次の2行がありました。
+>
+> - 「`store_history` の session 単位キー化」＝ Phase 3 の一部
+> - 「過去棚卸取込の再設計（`importBatchId`・日付衝突の選択・一括取消）」
+>   — 着手の前提は「**Phase 3 完了後**。履歴が日付キーのままでは成立しない」
+>
+> このうち session 単位キー化は **2026-08-09 の第2セッションで migration 0012 として実装済み**で、
+> 前提だった「履歴が日付キーのまま」という状態がなくなりました。これを受けて
+> [`cc-session-plan.md`](cc-session-plan.md) 第3セッションが過去棚卸取込を対象に含め、
+> 2026-08-10 に `IMPORT-001` として実装しています（migration 0013）。
+>
+> **PM判断の対象**: 前提が消えたことによる自動的なscope入りではなく、
+> 第3セッション指示に基づく実装です。公開scopeへ正式に含めるかどうかは
+> Codex再レビューとPM判断に残します。CC判断で `WEB-07` 通過や公開可とはしていません。
 
 14日trial/StripeはD-021のA1将来フローとして保持します。W1完了前に実装タスクを開始しません。
 Web登録へのtrial適用とStripe/backendの単独公開順はUser判断待ちです。
@@ -126,10 +141,21 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 | TWAでの価格・購入面（D-021のP1） | [PLAY-004](tasks/PLAY-004.md) |
 | Free 2台制限のserver整合（D-016のW1公開面） | [WEB-001](tasks/WEB-001.md) |
 | 履歴の端末依存とデータ源の不整合（`R-001` / `F-001`〜`F-004`） | [DATA-002](tasks/DATA-002.md) |
+| ホームを棚卸中心の順路へ戻す画面再編（旧 `UI-002`。独立した詳細fileを持たなかった） | [UI-001](tasks/UI-001.md) |
 
 実使用バグの報告全文・コード根拠・本番D1の調査結果は [`bug-reports.md`](bug-reports.md) に保存しています。
 
 ## 変更履歴
+
+- 2026-08-10: `IMPORT-001` を実装し **レビュー待ち / Claude Code** へ。品目取込のCSV厳格化
+  （quoted comma・escaped quote・未閉じquote・列数不一致・ヘッダ無し・不正数値）、
+  エイリアス衝突の非破壊化と明示解決、preview の欠落項目（分類コード・軸名・名称切り詰め・
+  error明細）を追加。過去棚卸取込を **sessionId モデルへ接続**し、取込前preview・
+  サーバー保存確認・`importBatchId` 単位の取消をserver側で原子的・冪等に実装した
+  （**migration 0013 追加。適用は未実施**）。あわせて `DATA-001` / `DATA-002` を
+  第1〜第3セッションの成果として **レビュー待ち** へ。Codex承認前に`完了`にしない。
+  旧 `UI-002` は実体fileを持たず `UI-001.md` へ誤リンクしていたため `UI-001` へ統合した。
+  詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md)。
 
 - 2026-08-08: `DATA-001`（複数writeの原子性）実装。棚卸完了・発注・入出庫のヘッダと明細を
   1つの `db.batch`（=1トランザクション）へまとめ、行数・文字列長の上限をserver側で強制。
