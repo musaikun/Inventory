@@ -13,6 +13,7 @@ import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
+import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -288,7 +289,9 @@ function onSave() {
 const {
   showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
   openDeliveryFromFile, closeDelivery, onDeliveryImported: commitDelivery, downloadDeliveryTemplate,
-  importStocktakeFromFile,
+  showStocktakeModal, stocktakePlan, stocktakeFilename,
+  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
+  confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
 
 const deliveryFileInput  = ref(null)
@@ -296,10 +299,7 @@ const stocktakeFileInput = ref(null)
 function pickDelivery()  { deliveryFileInput.value?.click() }
 function pickStocktake() { stocktakeFileInput.value?.click() }
 function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-async function onStocktakeFile(e) {
-  const f = e.target.files?.[0]; e.target.value = ''
-  const n = await importStocktakeFromFile(f); if (n > 0) emit('saved')
-}
+function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
 function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n > 0) emit('saved') }
 </script>
 
@@ -394,7 +394,10 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
-      <div v-else class="mv-hint">直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。</div>
+      <div v-else class="mv-hint">
+        直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。<br>
+        <span class="mv-hint-caveat">記録していない使用・ロス・納品の分だけ実際とずれます。正確な数は棚卸で確定します。</span>
+      </div>
 
       <!-- ゲート案内: 消費・理論値の算出下地が無いとき、過去棚卸の取込を促す -->
       <div v-if="mode === 'view' && !storeReadiness.ready" class="mv-unlock">
@@ -530,6 +533,17 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
     <!-- 過去棚卸の取込ファイル入力（モード非依存で常設）-->
     <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
 
+    <PastStocktakeImportModal
+      v-if="showStocktakeModal && stocktakePlan"
+      :plan="stocktakePlan"
+      :filename="stocktakeFilename"
+      :confirm-import="confirmStocktakeImport"
+      :undo-import="undoStocktakeImport"
+      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
+      @imported="emit('saved')"
+      @close="closeStocktake"
+    />
+
     <DeliveryImportModal
       v-if="showDeliveryModal"
       :csv-text="deliveryCsv"
@@ -625,7 +639,9 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 
 .mv-search { width: 100%; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
 .mv-search:focus { outline: none; border-color: #94a3b8; }
-.mv-hint { font-size: 11.5px; color: #94a3b8; margin-bottom: 10px; }
+.mv-hint { font-size: 11.5px; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
+/* 理論在庫の誤差要因は隠さない（甘い数字を出さない） */
+.mv-hint-caveat { color: #b45309; }
 
 .mv-groupbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .mv-seg { display: inline-flex; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; padding: 2px; gap: 2px; }

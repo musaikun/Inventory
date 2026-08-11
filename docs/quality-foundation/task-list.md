@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-09
+最終更新: 2026-08-10
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -27,10 +27,10 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| IMPORT-001 | P1 | 未着手 | Claude Code | 品目マスタ取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | 未着手 | 未割当 | 別端末で履歴詳細を読めない実害と参照不整合 | [DATA-002.md](tasks/DATA-002.md) |
+| IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装 | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | 未着手 | Codex | 棚卸完了を含む複数writeの部分失敗防止 | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -101,11 +101,22 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 | TWAでの価格・購入面（D-021のP1） | [PLAY-004](tasks/PLAY-004.md) |
 | Free 2台制限のserver整合（D-016のW1公開面） | [WEB-001](tasks/WEB-001.md) |
 | 履歴の端末依存とデータ源の不整合（`R-001` / `F-001`〜`F-004`） | [DATA-002](tasks/DATA-002.md) |
+| ホームを棚卸中心の順路へ戻す画面再編（旧 `UI-002`。実体fileを持たず`UI-001.md`へ誤リンクしていた） | [UI-001](tasks/UI-001.md) |
 
 実使用バグの報告全文・コード根拠・本番D1の調査結果は [`bug-reports.md`](bug-reports.md) に保存しています。
 
 ## 変更履歴
 
+- 2026-08-10: CCレビュー修正 第1〜第3セッションを実装し、`DATA-001` / `DATA-002` / `IMPORT-001` を
+  **レビュー待ち / Claude Code** へ。第1=完了失敗時の状態保持とpending latest-wins、
+  第2=sessionId中心の履歴identityと棚卸完了のserver原子性（migration 0012）、
+  第3=品目取込のCSV厳格化・alias衝突の非破壊化・preview欠落項目の追加と、
+  過去棚卸取込のsessionIdモデル接続（取込前preview・server保存確認・`importBatchId`単位の取消／
+  migration 0013）。**migration 0012・0013とも本番未適用**。実D1と実browserは未確認。
+  Codex承認前に`完了`・`WEB-07`通過・release可としない。
+  旧 `UI-002` は実体fileを持たず`UI-001.md`へ誤リンクしていたため`UI-001`へ統合し、統合先を記録した。
+  詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md) / [`DATA-001.md`](tasks/DATA-001.md) /
+  [`DATA-002.md`](tasks/DATA-002.md)、経緯は [`session-log.md`](session-log.md)。
 - 2026-08-09: CC実装のCodex独立reviewで、品目取込のparser・alias衝突・preview・表示文言に
   公開前修正が必要と判定した。WEB-07配下の実装作業を追跡する`IMPORT-001`をP1で追加し、
   3セッションの修正計画を`cc-session-plan.md`へ更新した。既存タスクの状態・担当は変更していない。

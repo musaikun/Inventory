@@ -194,17 +194,28 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.tagsA['パスタ']).toBeUndefined()
   })
 
-  it('再インポートで既存割り当てを名前一致で維持し、新規はその他', () => {
+  it('全入れ替え取込で既存割り当てを名前一致で維持し、新規はその他', () => {
     cfg.config.order = ['パスタ', 'トマト']
     cfg.config.axisNames = ['場所', '']
     cfg.config.axisGroupsA = ['冷凍庫']
     cfg.config.tagsA = { パスタ: ['冷凍庫'], トマト: ['冷凍庫'] }
-    // 軸列なしのCSVを再インポート（トマト消滅・レタス新規）
-    cfg.loadFromCSVMapped('品目名\nパスタ\nレタス', { name: 0 })
+    // 軸列なしのCSVを全入れ替えで再インポート（トマト消滅・レタス新規）
+    cfg.loadFromCSVMapped('品目名\nパスタ\nレタス', { name: 0 }, { mode: 'replace' })
     expect(cfg.config.tagsA['パスタ']).toEqual(['冷凍庫'])  // 維持
     expect(cfg.config.tagsA['トマト']).toBeUndefined() // 消えた品目は破棄
     expect(cfg.config.tagsA['レタス']).toBeUndefined() // 新規はその他
     expect(cfg.config.axisGroupsA).toContain('冷凍庫')  // グループ定義は維持
+  })
+
+  it('既定（追加・更新）の取込では消えた品目も割り当ても残る', () => {
+    cfg.config.order = ['パスタ', 'トマト']
+    cfg.config.axisNames = ['場所', '']
+    cfg.config.axisGroupsA = ['冷凍庫']
+    cfg.config.tagsA = { パスタ: ['冷凍庫'], トマト: ['冷凍庫'] }
+    cfg.loadFromCSVMapped('品目名\nパスタ\nレタス', { name: 0 })
+    expect(cfg.config.order).toEqual(['パスタ', 'トマト', 'レタス'])
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷凍庫'])  // ファイルに無くても消えない
+    expect(cfg.config.tagsA['レタス']).toBeUndefined()
   })
 })
 

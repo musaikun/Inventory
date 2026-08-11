@@ -1,4 +1,4 @@
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref } from 'vue'
 import {
   DICTIONARY as DEFAULT_DICT,
   INVENTORY_ORDER as DEFAULT_ORDER,
@@ -9,6 +9,18 @@ import {
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import {
+  parseItemCSV,
+  parseMappedCSV,
+  buildImportPlan,
+  parseCSVLine,
+  IMPORT_MODE_MERGE,
+  IMPORT_MODE_REPLACE,
+  ALIAS_KEEP_EXISTING,
+  ALIAS_TAKEOVER,
+} from '../utils/itemImport.js'
+
+export { IMPORT_MODE_MERGE, IMPORT_MODE_REPLACE, ALIAS_KEEP_EXISTING, ALIAS_TAKEOVER }
 
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
@@ -58,19 +70,7 @@ const dictionary = computed(() => ({
   ...learnedAliases,
 }))
 
-// ── CSV パーサー ───────────────────────────────────────────────────────────────
-function parseCSVLine(line) {
-  const result = []
-  let cur = ''
-  let inQ = false
-  for (const ch of line) {
-    if (ch === '"')              { inQ = !inQ }
-    else if (ch === ',' && !inQ) { result.push(cur); cur = '' }
-    else                         { cur += ch }
-  }
-  result.push(cur)
-  return result
-}
+// CSV パーサーは utils/itemImport.js と共用（取込プレビューと同じ解析を使う）
 
 // 軸の割り当ては「品目 → グループ名の配列」（多ロケーション対応）。
 // 旧データ（文字列）や不正値を配列へ正規化する。
@@ -176,6 +176,8 @@ function _saveLocalOnly() {
 }
 
 function _save() {
+  // 取込の取り消しは「取り込んだ直後」だけ有効。品目マスタが他の理由で変わった時点で失効させる。
+  _dropImportBackup()
   _saveLocalOnly()
   _onConfigChanged?.()
 }
@@ -234,6 +236,8 @@ _loadMaster()
 // アカウント切替時のローカル全消去（品目マスタ・辞書・学習エイリアス）。
 // メモリと localStorage の両方を初期状態へ戻す（前アカウントのデータ残存＝漏洩を防ぐ）。
 export function resetLocalData() {
+  // 取込の退避は前アカウントの品目マスタそのもの。境界では必ず捨てる（漏洩防止）
+  _dropImportBackup()
   _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT } })
   config.manualItems = []
   config.isCustom    = false
@@ -250,26 +254,103 @@ export function resetLocalData() {
 // ── リモート設定の適用（同期ゲスト参加時にホストの品目リストを受け取る） ───────
 export function applyRemoteConfig(cfg) {
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
+  // ホストのリストで上書きされたあとに「取込を取り消す」とホスト側と食い違うため退避を捨てる
+  _dropImportBackup()
   _validateLearnedAliases(cfg.order)
   _assignConfigData(cfg)
   _saveLocalOnly()
 }
 
-// Free プラン: 上限を超える分は切り捨て（取込機能自体は無料）
-function _capForPlan(newOrder) {
-  const total  = newOrder.length
-  const capped = (!isPro() && total > FREE_ITEM_LIMIT) ? newOrder.slice(0, FREE_ITEM_LIMIT) : newOrder
-  return { capped, truncated: total - capped.length }
+// 振り分けアーカイブの上限（古いキーから捨てる）
+const ARCHIVE_CAP = 2000
+function _pruneArchive() {
+  for (const arch of [config.tagsArchiveA, config.tagsArchiveB]) {
+    const keys = Object.keys(arch)
+    if (keys.length > ARCHIVE_CAP) for (const k of keys.slice(0, keys.length - ARCHIVE_CAP)) delete arch[k]
+  }
 }
 
-// CSV 取込結果の共通サマリー
-function _importResult(capped, truncated, merged, newPrices, newCategories) {
+// 取込計画の共通オプション（Free は品目上限つき、Pro は無制限）
+function _planOptions(mode, aliasPolicy = ALIAS_KEEP_EXISTING) {
   return {
-    count:         capped.length,
-    truncated,
-    merged,
-    hasPrices:     Object.keys(newPrices).length > 0,
-    hasCategories: Object.keys(newCategories).length > 0,
+    mode,
+    aliasPolicy,
+    itemLimit:   isPro() ? Infinity : FREE_ITEM_LIMIT,
+    axisNameMax: AXIS_NAME_MAX,
+  }
+}
+
+// 直前の取込を1回だけ元に戻すための退避。メモリのみで、再読込・アカウント切替では消える。
+// 「取り込んだ直後に間違いに気づく」ケースを救うためのもので、履歴ではない。
+// 品目マスタが他の理由で1回でも変わったら（_save 経由）失効する。
+let _importBackup = null
+export const importUndoAvailable = ref(false)
+
+function _snapshotForUndo() {
+  try {
+    return JSON.parse(JSON.stringify({
+      ..._serializeConfigData(),
+      manualItems: config.manualItems,
+    }))
+  } catch (_) {
+    return null
+  }
+}
+
+function _dropImportBackup() {
+  _importBackup = null
+  importUndoAvailable.value = false
+}
+
+// 取込計画を config へ適用する。ここだけが状態を書き換える。
+function _applyImportPlan(plan) {
+  const backup = _snapshotForUndo()   // 取込前の品目マスタ
+  _validateLearnedAliases(plan.order)
+
+  config.order         = plan.order
+  config.units         = plan.units
+  config.prices        = plan.prices
+  config.categories    = plan.categories
+  config.codes         = plan.codes
+  config.categoryCodes = plan.categoryCodes
+  config.prevMonths    = plan.prevMonths
+  config.lotSizes      = plan.lotSizes
+  config.reorderPoints = plan.reorderPoints
+  config.dictionary    = plan.dictionary
+  config.tagsA         = plan.tagsA
+  config.tagsB         = plan.tagsB
+  config.axisNames     = [plan.axisNames[0] ?? '', plan.axisNames[1] ?? '']
+  config.manualItems   = plan.manualItems
+
+  // 復元した割り当てを再びアーカイブへ記憶（取込をまたいで復元できるように）
+  for (const nm of plan.order) {
+    if (plan.tagsA[nm]?.length) config.tagsArchiveA[nm] = [...plan.tagsA[nm]]
+    if (plan.tagsB[nm]?.length) config.tagsArchiveB[nm] = [...plan.tagsB[nm]]
+  }
+  _pruneArchive()
+  _save()   // ここで前回の退避が失効する
+
+  // 退避は保存のあとに立てる。以降、取込以外の変更が入るまで取り消せる。
+  _importBackup = backup
+  importUndoAvailable.value = !!backup
+
+  return _importResult(plan)
+}
+
+// 取込結果のサマリー（count / truncated / merged は従来の呼び出し元との互換のため維持）
+function _importResult(plan) {
+  const s = plan.summary
+  return {
+    mode:         plan.mode,
+    count:        plan.order.length,    // 取込後の総品目数
+    added:        s.added.length,
+    updated:      s.updated.length,
+    unchanged:    s.unchanged.length,
+    removed:      s.removed.length,     // 全入れ替えで消えた品目数
+    skipped:      s.skipped.length,     // 取り込めなかった行数
+    truncated:    s.truncated.length,   // Free上限で入らなかった品目数
+    merged:       s.duplicates,         // ファイル内の同名重複行
+    restoredTags: plan.restoredTags,
   }
 }
 
@@ -297,122 +378,29 @@ export function useConfig() {
   }
 
   /**
-   * 棚卸品目 CSV 読み込み（品目名,単位,単価,カテゴリ,エイリアス）
-   * 旧フォーマット（2/3/4列）も互換
+   * 棚卸品目 CSV 読み込み（品目名,単位,単価,カテゴリ,エイリアス,…）
+   * 旧フォーマット（2/3/4列）も互換。
+   *
+   * 既定は「追加・更新」（IMPORT_MODE_MERGE）。ファイルに無い既存品目は消さず、
+   * 同名品目はファイルにある列だけを上書きする。全入れ替えは呼び出し側が
+   * { mode: IMPORT_MODE_REPLACE } を明示したときだけ行う（S5 / 2026-08-08）。
    */
-  function loadFromCSV(csvText) {
-    const text  = csvText.replace(/^\uFEFF/, '').trim()
-    const lines = text.split(/\r?\n/).filter(l => l.trim())
+  function loadFromCSV(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy } = {}) {
+    return applyImportPlan(planCSVImport(csvText, { mode, aliasPolicy }))
+  }
 
-    if (lines.length < 2) throw new Error('データ行がありません')
+  /**
+   * 取込計画を組み立てる（config は変更しない）。
+   * 画面はこの計画をプレビューへ出し、**同じ計画オブジェクト**を applyImportPlan へ渡す。
+   * プレビューと取込で解析・計画を2回作らないので、両者がずれる余地が無い。
+   */
+  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy } = {}) {
+    return buildImportPlan(parseItemCSV(csvText), config, _planOptions(mode, aliasPolicy))
+  }
 
-    const header = parseCSVLine(lines[0]).map(h => h.trim())
-
-    const isOldFormat    = header[1] === 'エイリアス'
-    const hasPriceCol    = !isOldFormat && header[2] === '単価'
-    const hasCategoryCol = hasPriceCol  && header[3] === 'カテゴリ'
-    // 発注点は列位置が可変（将来の列追加に耐える）ため、ヘッダ名で位置を特定する。
-    // 列が無い旧CSVは reorderIdx<0 → 既存の発注点を保持（非破壊）。
-    const reorderIdx     = header.indexOf('発注点')
-
-    const newOrder         = []
-    const newUnits         = {}
-    const newPrices        = {}
-    const newCategories    = {}
-    const newCodes         = {}
-    const newCategoryCodes = {}
-    const newPrevMonths    = {}
-    const newLotSizes      = {}
-    const newReorderPoints = {}
-    const newDict          = {}
-
-    // ── 品目名の完全一致で重複を統合（最初の1件を採用、以降は読み飛ばす）──────
-    const seen = new Set()
-    let merged = 0
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCSVLine(lines[i])
-      const name = cols[0]?.trim()
-      if (!name) continue
-      if (seen.has(name)) { merged++; continue }
-      seen.add(name)
-
-      if (isOldFormat) {
-        newOrder.push(name)
-        if (cols[1]) {
-          cols[1].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = name })
-        }
-      } else if (hasCategoryCol) {
-        const unit     = cols[1]?.trim()
-        const price    = parseFloat(cols[2])
-        const category = cols[3]?.trim()
-        const code     = cols[5]?.trim() ?? ''
-        newOrder.push(name)
-
-        const catCode   = parseInt(cols[6]?.trim(), 10)
-        const prevMonth = cols[7]?.trim() ?? ''
-        const lotSize   = cols[8]?.trim() ?? ''
-        if (unit)                        newUnits[name]         = unit
-        if (!isNaN(price) && price > 0)  newPrices[name]        = price
-        if (category)                    newCategories[name]    = category
-        if (code)                        newCodes[name]         = code
-        if (category && !isNaN(catCode)) newCategoryCodes[category] = catCode
-        if (prevMonth)                   newPrevMonths[name]    = prevMonth
-        if (lotSize)                     newLotSizes[name]      = lotSize
-        if (reorderIdx >= 0) {
-          const rp = parseFloat(cols[reorderIdx])
-          if (!isNaN(rp) && rp >= 0)     newReorderPoints[name] = rp
-        }
-        if (cols[4]) {
-          cols[4].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = name })
-        }
-      } else if (hasPriceCol) {
-        newOrder.push(name)
-        const unit  = cols[1]?.trim()
-        const price = parseFloat(cols[2])
-        if (unit)                       newUnits[name]  = unit
-        if (!isNaN(price) && price > 0) newPrices[name] = price
-        if (cols[3]) {
-          cols[3].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = name })
-        }
-      } else {
-        newOrder.push(name)
-        const unit = cols[1]?.trim()
-        if (unit) newUnits[name] = unit
-        if (cols[2]) {
-          cols[2].split(',').map(a => a.trim()).filter(Boolean)
-            .forEach(alias => { newDict[alias] = name })
-        }
-      }
-    }
-
-    if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
-
-    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
-    _validateLearnedAliases(cappedOrder)
-
-    config.order         = cappedOrder
-    config.units         = newUnits
-    config.prices        = newPrices
-    config.categories    = newCategories
-    config.codes         = newCodes
-    config.categoryCodes = newCategoryCodes
-    config.prevMonths    = newPrevMonths
-    config.lotSizes      = newLotSizes
-    // 発注点は列があるCSVのみ反映（無い旧CSVは既存値を保持＝非破壊）。
-    if (reorderIdx >= 0) config.reorderPoints = newReorderPoints
-    config.dictionary    = newDict
-    // CSV取込後もインポート後の一覧に残っている手動登録品目は編集・削除できるよう保持する
-    const newOrderSet    = new Set(cappedOrder)
-    config.manualItems   = config.manualItems.filter(n => newOrderSet.has(n))
-    // 品目名の一致で振り分けを復元（軸列なしフォーマットなのでアーカイブ/既存から）
-    const restoredTags   = _restoreAssignments(cappedOrder)
-    _save()
-
-    return { ..._importResult(cappedOrder, truncated, merged, newPrices, newCategories), restoredTags }
+  /** loadFromCSV の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
+  function previewCSVImport(csvText, opts = {}) {
+    return planCSVImport(csvText, opts).summary
   }
 
   /** 棚卸品目 CSV エクスポート */
@@ -721,48 +709,12 @@ export function useConfig() {
   }
 
   // 割り当ての変更をアーカイブへ反映（品目名キーで永続記憶）
-  const ARCHIVE_CAP = 2000
   function _syncArchive(axisIndex, item) {
     const map = _axisMap(axisIndex), arch = _archiveMap(axisIndex)
     if (!map || !arch) return
     if (Array.isArray(map[item]) && map[item].length) arch[item] = [...map[item]]
     else delete arch[item]
     _pruneArchive()
-  }
-  function _pruneArchive() {
-    for (const arch of [config.tagsArchiveA, config.tagsArchiveB]) {
-      const keys = Object.keys(arch)
-      if (keys.length > ARCHIVE_CAP) for (const k of keys.slice(0, keys.length - ARCHIVE_CAP)) delete arch[k]
-    }
-  }
-
-  /**
-   * 取込後、品目名の一致で割り当てを復元して config.tagsA/B を作り直す。
-   * 優先度: CSV軸列 > 既存の割り当て(live) > アーカイブ。復元した割り当ては再びアーカイブへ記憶。
-   * @returns {number} アーカイブから新たに復元した品目数（通知用）
-   */
-  function _restoreAssignments(order, csvTagsA = null, csvTagsB = null) {
-    const a = {}, b = {}
-    const restoredSet = new Set()
-    for (const nm of order) {
-      const liveA = config.tagsA[nm], liveB = config.tagsB[nm]
-      const cA = csvTagsA?.[nm],      cB = csvTagsB?.[nm]
-      const rA = config.tagsArchiveA[nm], rB = config.tagsArchiveB[nm]
-      const av = cA !== undefined ? cA : liveA !== undefined ? liveA : rA
-      const bv = cB !== undefined ? cB : liveB !== undefined ? liveB : rB
-      if (av !== undefined) a[nm] = Array.isArray(av) ? [...av] : av
-      if (bv !== undefined) b[nm] = Array.isArray(bv) ? [...bv] : bv
-      if ((cA === undefined && liveA === undefined && rA !== undefined) ||
-          (cB === undefined && liveB === undefined && rB !== undefined)) restoredSet.add(nm)
-    }
-    config.tagsA = a
-    config.tagsB = b
-    for (const nm of order) {
-      if (a[nm]?.length) config.tagsArchiveA[nm] = [...a[nm]]
-      if (b[nm]?.length) config.tagsArchiveB[nm] = [...b[nm]]
-    }
-    _pruneArchive()
-    return restoredSet.size
   }
 
   // グループを追加（重複は無視）
@@ -955,92 +907,42 @@ export function useConfig() {
 
   /**
    * 任意CSVをフィールドマッピング指定でインポート
-   * mapping = { name, unit, price, category, alias, code } — 各フィールドの列インデックス（null=使用しない）
+   * mapping = { name, unit, price, category, code, lotSize, prevMonth, axisA, axisB }
+   *   — 各フィールドの列インデックス（null=使用しない）
+   * loadFromCSV と同じく既定は「追加・更新」。
    */
-  function loadFromCSVMapped(csvText, mapping) {
-    const { name: nameCol, unit: unitCol, price: priceCol, category: categoryCol,
-            code: codeCol, lotSize: lotCol, prevMonth: prevCol,
-            axisA: axisACol, axisB: axisBCol } = mapping
-    if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
+  function loadFromCSVMapped(csvText, mapping, opts = {}) {
+    return applyImportPlan(planMappedImport(csvText, mapping, opts))
+  }
 
-    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
-    if (lines.length < 2) throw new Error('データ行がありません')
+  /** loadFromCSVMapped の取込計画（config は変更しない） */
+  function planMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader } = {}) {
+    const parsed = parseMappedCSV(csvText, mapping, hasHeader === undefined ? {} : { hasHeader })
+    return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy))
+  }
 
-    const newOrder = [], newUnits = {}, newPrices = {}, newCategories = {}
-    const newCodes = {}, newLotSizes = {}, newPrevMonths = {}, newTagsA = {}, newTagsB = {}
+  /** loadFromCSVMapped の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
+  function previewMappedImport(csvText, mapping, opts = {}) {
+    return planMappedImport(csvText, mapping, opts).summary
+  }
 
-    const seen = new Set()
-    let merged = 0
+  /** プレビューで見せた計画をそのまま適用する（唯一の書き換え地点） */
+  function applyImportPlan(plan) {
+    return _applyImportPlan(plan)
+  }
 
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCSVLine(lines[i])
-      const name = cols[nameCol]?.trim()
-      if (!name) continue
-      if (seen.has(name)) { merged++; continue }
-      seen.add(name)
-
-      newOrder.push(name)
-      if (unitCol != null) {
-        const u = cols[unitCol]?.trim()
-        if (u) newUnits[name] = u
-      }
-      if (priceCol != null) {
-        const p = parseFloat(cols[priceCol])
-        if (!isNaN(p) && p > 0) newPrices[name] = p
-      }
-      if (categoryCol != null) {
-        const c = cols[categoryCol]?.trim()
-        if (c) newCategories[name] = c
-      }
-      if (codeCol != null) {
-        const cd = cols[codeCol]?.trim()
-        if (cd) newCodes[name] = cd
-      }
-      if (lotCol != null) {
-        const l = cols[lotCol]?.trim()
-        if (l) newLotSizes[name] = l
-      }
-      if (prevCol != null) {
-        const pm = cols[prevCol]?.trim()
-        if (pm) newPrevMonths[name] = pm
-      }
-      if (axisACol != null) {
-        const v = cols[axisACol]?.trim()
-        if (v) newTagsA[name] = v.split('|').map(s => s.trim()).filter(Boolean)
-      }
-      if (axisBCol != null) {
-        const v = cols[axisBCol]?.trim()
-        if (v) newTagsB[name] = v.split('|').map(s => s.trim()).filter(Boolean)
-      }
-    }
-
-    if (newOrder.length === 0) throw new Error('有効な品目が見つかりませんでした')
-
-    const { capped: cappedOrder, truncated } = _capForPlan(newOrder)
-    _validateLearnedAliases(cappedOrder)
-    config.order         = cappedOrder
-    config.units         = newUnits
-    config.prices        = newPrices
-    config.categories    = newCategories
-    config.codes         = newCodes
-    config.categoryCodes = {}
-    config.prevMonths    = newPrevMonths
-    config.lotSizes      = newLotSizes
-    config.dictionary    = {}
-    // 軸の割り当ては品目名の一致で復元。優先度は CSV軸列 > 既存 > アーカイブ。
-    // 消えた品目の割り当てもアーカイブに残るので、同名で再登場すれば復活する。
-    const restoredTags = _restoreAssignments(cappedOrder, newTagsA, newTagsB)
-    // 軸名が未設定なら、マッピングした列のヘッダ名を軸名に採用する
-    const headers = parseCSVLine(lines[0])
-    const axisNames = [...(config.axisNames ?? ['', ''])]
-    if (axisACol != null && !axisNames[0]) axisNames[0] = (headers[axisACol]?.trim() || '').slice(0, AXIS_NAME_MAX)
-    if (axisBCol != null && !axisNames[1]) axisNames[1] = (headers[axisBCol]?.trim() || '').slice(0, AXIS_NAME_MAX)
-    config.axisNames     = [axisNames[0] ?? '', axisNames[1] ?? '']
-    const newSet         = new Set(cappedOrder)
-    config.manualItems   = config.manualItems.filter(n => newSet.has(n))
-    _save()
-
-    return { ..._importResult(cappedOrder, truncated, merged, newPrices, newCategories), restoredTags }
+  /**
+   * 直前の取込を取り消して、取込前の品目マスタへ戻す。1回だけ・メモリ上のみ。
+   * 取り消せる状態かは importUndoAvailable で判定する。
+   */
+  function undoLastImport() {
+    if (!_importBackup) return false
+    const snap = _importBackup
+    _assignConfigData(snap)
+    config.manualItems = snap.manualItems ?? []
+    _validateLearnedAliases(config.order)
+    _save()   // 退避はここで失効する（取り消しは1回だけ）
+    return true
   }
 
   const itemCount         = computed(() => config.order.length)
@@ -1079,6 +981,13 @@ export function useConfig() {
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,
+    planCSVImport,
+    planMappedImport,
+    applyImportPlan,
+    previewCSVImport,
+    previewMappedImport,
+    undoLastImport,
+    importUndoAvailable,
     exportConfigCSV,
     clearConfig,
     setEmptyList,

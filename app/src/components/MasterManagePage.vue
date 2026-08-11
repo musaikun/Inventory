@@ -7,6 +7,7 @@ import { showAxisAssign, axisAssignInitial, settingsSection } from '../composabl
 import { useDataImport } from '../composables/useDataImport.js'
 import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
+import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
@@ -17,7 +18,9 @@ const { getSnapshots, exportSnapshotCSV } = useHistory()
 const {
   showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
   openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
-  importStocktakeFromFile,
+  showStocktakeModal, stocktakePlan, stocktakeFilename,
+  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
+  confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
 
 const deliveryFileInput  = ref(null)
@@ -25,7 +28,7 @@ const stocktakeFileInput = ref(null)
 function pickDelivery()  { deliveryFileInput.value?.click() }
 function pickStocktake() { stocktakeFileInput.value?.click() }
 function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; importStocktakeFromFile(f) }
+function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
 
 function _download(text, filename) {
   const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })
@@ -104,7 +107,7 @@ const unusedOpen = ref(false)
 
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
-  import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加されます。',
+  import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
@@ -184,7 +187,7 @@ function onClear() {
           <span class="mm-row-ico">📥</span>
           <span class="mm-row-body">
             <span class="mm-row-title">品目を取込む / 更新</span>
-            <span class="mm-row-sub">CSV・Excel・PDF から（品目マスタ）</span>
+            <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
           </span>
           <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
           <span class="mm-row-arrow">→</span>
@@ -392,6 +395,16 @@ function onClear() {
     <!-- 取込ファイル入力（常設・非表示）-->
     <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onDeliveryFile" />
     <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onStocktakeFile" />
+
+    <PastStocktakeImportModal
+      v-if="showStocktakeModal && stocktakePlan"
+      :plan="stocktakePlan"
+      :filename="stocktakeFilename"
+      :confirm-import="confirmStocktakeImport"
+      :undo-import="undoStocktakeImport"
+      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
+      @close="closeStocktake"
+    />
 
     <DeliveryImportModal
       v-if="showDeliveryModal"

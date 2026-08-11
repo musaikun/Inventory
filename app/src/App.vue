@@ -36,8 +36,9 @@ import {
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
-  loadMovementsFromD1,
+  loadMovementsFromD1, resumePendingSaves, pendingCount, rejectedSaves,
 } from './composables/useStore.js'
+import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { useDayNotes } from './composables/useDayNotes.js'
@@ -46,7 +47,8 @@ import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines } from './composables/useAuth.js'
+import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
@@ -95,8 +97,11 @@ const {
   isCompleted, completedAt,
   entryLog,
   setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
-  completeSession,
+  completeSession, reopenSession,
 } = useInventory()
+
+// 完了処理の実行中フラグ。await 中の二重押しで完了要求が2本走るのを防ぐ。
+const completing = ref(false)
 
 // ── History ────────────────────────────────────────────────────────────────────
 const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
@@ -268,6 +273,17 @@ async function onLandingStarted(payload) {
   }
 }
 
+// D1 の履歴を端末へ反映し、端末にしか無いスナップショットを送り直す（DATA-002 Phase 2）。
+// 完了時の保存が片方だけ失敗すると「一覧には出るが詳細が開けない」状態が残るため、
+// 履歴を読むタイミング（起動・ログイン・セッション開始）ごとに片落ちを埋める。
+// 差分の判定は applyRemoteHistory より前に行う（後だとローカルがリモートで潰れて差分が消える）。
+async function _syncHistoryFromD1(remoteHistory) {
+  const toBackfill = missingSnapshots(getSnapshots(), remoteHistory)
+  if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+  for (const snap of toBackfill) await saveSnapshotToD1(snap)
+  return toBackfill.length
+}
+
 async function _startSessionView({ loadConfig = true } = {}) {
   currentView.value = 'session'
   try {
@@ -278,7 +294,7 @@ async function _startSessionView({ loadConfig = true } = {}) {
     if (loadConfig && remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
       applyRemoteConfig(remoteConfig)
     }
-    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+    await _syncHistoryFromD1(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
@@ -296,7 +312,7 @@ async function _pullAccountConfig() {
     if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
       applyRemoteConfig(remoteConfig)
     }
-    if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
+    await _syncHistoryFromD1(remoteHistory)
   } catch (_) {
     // ネットワークエラーは無視してローカルデータで継続
   }
@@ -380,15 +396,41 @@ function _exitPractice() {
 }
 
 // セッション一覧から「完了済みセッション詳細」
-function onViewSession(session) {
+//
+// 端末にスナップショットが無ければ D1 の明細（inventory_lines）から組み立てて表示する
+// （DATA-002 Phase 1 / R-001）。端末を変えると詳細が開けなくなっていた実害への対処で、
+// 端末の localStorage にも D1 にも書き戻さない。読むだけ。
+const viewSessionLoading = ref(false)
+async function onViewSession(session) {
+  if (viewSessionLoading.value) return
+  // sessionId で一致するものだけを端末の記録として採用する。
+  // 以前は「日付が同じスナップショット」へfallbackしていたが、同じ日に2回棚卸すると
+  // 別セッションの中身を出してしまう。取り違えて見せるより、サーバーから取り直す（fail-closed）。
   let snap = getSnapshotBySessionId(session.id)
-  if (!snap) {
-    const dateKey = (session.endedAt ?? session.startedAt ?? '').slice(0, 10)
-    if (dateKey) snap = getSnapshots().find(s => s.date === dateKey) ?? null
+
+  if (!snap && session.id) {
+    viewSessionLoading.value = true
+    try {
+      snap = buildSnapshotFromLines(await getSessionLines(session.id))
+    } catch (err) {
+      // 404 = この店舗に無いセッション。それ以外（通信・認証）は原因を分けて伝える
+      if (err?.status && err.status !== 404) {
+        console.error('[App] session lines fetch failed:', session.id, err?.message ?? err)
+        showToast('棚卸データを取得できませんでした。通信状況を確認してください', 3500, 'warning')
+        viewSessionLoading.value = false
+        return
+      }
+    } finally {
+      viewSessionLoading.value = false
+    }
   }
+
   if (!snap) {
-    showToast('この端末での棚卸データが見つかりません', 3000, 'warning')
+    showToast('この棚卸の明細が見つかりません', 3000, 'warning')
     return
+  }
+  if (snap.truncated) {
+    showToast('明細が多いため一部のみ表示しています', 3500, 'warning')
   }
   detailSnapshot.value = snap
   currentView.value = 'session-detail'
@@ -832,7 +874,10 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
 })
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
-const _bannerActive = computed(() => !isOnline.value || saveState.value === 'pending')
+// ConnectionBanner の表示条件と対で保つ（本文をバナー分だけ下げるため）。
+const _bannerActive = computed(() =>
+  !isOnline.value || saveState.value === 'pending' || pendingCount.value > 0 || rejectedSaves.value.length > 0
+)
 
 // セッションの種類。'stock' = 棚卸（青） / 'order' = 発注確認（オレンジ）
 const sessionMode = ref('stock')
@@ -919,11 +964,15 @@ onMounted(async () => {
       if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
         applyRemoteConfig(remoteConfig)
       }
-      if (remoteHistory?.length)       applyRemoteHistory(remoteHistory)
+      await _syncHistoryFromD1(remoteHistory)
     } catch (_) {
       // ネットワークエラーは無視してローカルデータで継続
     }
   }
+
+  // 前回のアプリ終了時に残っていた未送信分を送り直す（DATA-002 Phase 2）。
+  // バックフィルの後に置く: 履歴の差分送信で増えた分もまとめて片付く。
+  resumePendingSaves()
 })
 
 // ── Android/PWAの戻るボタン制御 ──────────────────────────────────────────────
@@ -1053,10 +1102,11 @@ function _clearDraft(sessionId) {
 function onDeleteSession(sessionId) {
   _clearDraft(sessionId)
   if (!sessionId) return
+  // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   const snap = getSnapshotBySessionId(sessionId)
-  if (snap?.date) {
-    deleteSnapshotLocal(snap.date)
-    deleteSnapshotFromD1(snap.date).catch(() => {})
+  if (snap) {
+    deleteSnapshotLocal(sessionId)
+    deleteSnapshotFromD1(sessionId).catch(() => {})
   }
 }
 
@@ -1155,43 +1205,76 @@ async function onComplete() {
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   if (!confirm(confirmMsg)) return
 
-  const completedId   = pendingSession.value?.id
+  // 二重押し防止。await の間にもう一度押されると完了要求が2本走り、
+  // 解散・遷移が二重に実行される。
+  if (completing.value) return
+  completing.value = true
+  try {
+    await _finishSession(completionCount, isHostInRoom)
+  } finally {
+    completing.value = false
+  }
+}
+
+// 棚卸／発注を締める本体（ホスト・ソロ共通）。onComplete から二重押しガード付きで呼ばれる。
+async function _finishSession(completionCount, isHostInRoom) {
+  const completedId = pendingSession.value?.id
 
   completeSession()
   const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
-  if (snapshot) {
-    saveSnapshotToD1(snapshot)
-    // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）
-    for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
-  }
-  if (continuousMode.value) onForceStop()
-
-  if (isHostInRoom) {
-    // 履歴に確実に残すため D1 完了書き込みを待ってから解散・遷移する
-    // （fire-and-forget だと解散・遷移と競合して status=completed が欠落しうる）
-    await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
-    broadcastSessionEnd('completed')
-    _hostInitiatedDissolve = true
-    await dissolveRoom()
-    _clearDraft(completedId)
-    clearSession()
-    sessionsTab.value  = 'dashboard'
-    _setNewSession(completedId)
-    currentView.value  = 'sessions'
+  // スナップショットは完了APIと同じ要求で送る（DATA-001 / 第2セッション）。
+  // 以前は saveSnapshotToD1() を完了APIより先に独立成功させており、
+  // 「スナップショットは入ったが完了は失敗」「完了はしたがスナップショットが無い」を作れた。
+  // サーバーは sessions・inventory_lines・store_history を1トランザクションで書く。
+  //
+  // **これが成立するまで後片付けを一切しない**（第1セッションの契約）。
+  // 以前は失敗してもトーストを出すだけで、ルーム解散・draft削除・セッションclear・遷移まで
+  // 実行していた。サーバーには何も残らないのに端末側の作業状態だけが消え、
+  // 「完了できていないのに、やり直す手段も無い」状態になっていた。
+  const completed = await completeSessionD1(completionCount, {
+    inventory: { ...inventory }, prices: config.prices ?? {}, snapshot,
+  })
+  if (!completed?.ok) {
+    // 読み取り専用を解除し、同じ画面の同じボタンから再試行できる状態へ戻す。
+    // draft・pendingSession・入力値・ルーム・参加者はすべて保持したまま。
+    reopenSession()
+    _warnCompleteUnsaved()
     return
   }
 
-  // ソロ完了: D1 書き込みを待ってから遷移（履歴ページで即表示するため）
-  await completeSessionD1(completionCount, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）。
+  // 完了が成立した後なので、失敗しても今回の記録は失われない。
+  for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
+
+  // ── ここから下は完了が成立した場合だけ。各処理はこの経路で1回だけ実行される ──
+  if (continuousMode.value) onForceStop()
+
+  if (isHostInRoom) {
+    broadcastSessionEnd('completed')
+    _hostInitiatedDissolve = true
+    await dissolveRoom()
+  } else {
+    track('session_completed', { item_count: completionCount, mode: 'solo' })
+    _checkReviewPrompt()
+  }
+
   _clearDraft(completedId)
   clearSession()
-  track('session_completed', { item_count: completionCount, mode: 'solo' })
-  _checkReviewPrompt()
   showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'
-  sessionsYear.value = completedYear
   _setNewSession(completedId)
   currentView.value  = 'sessions'
+}
+
+
+// 明細をサーバーへ送れなかったときの通知（DATA-002 Phase 2）。
+// 端末には保存済みで自動再送もされるが、「保存できていない」ことは隠さず伝える。
+// 画面上部の ConnectionBanner が再送状況を出し続けるので、ここでは一度だけ知らせる。
+// 完了そのものをサーバーへ書けなかったときの通知（DATA-001）。
+// 明細と完了状態は1トランザクションなので、失敗した＝サーバー側には何も入っていない。
+// 端末側の記録は残っており、セッションは active のままなので再完了できる。
+function _warnCompleteUnsaved() {
+  showToast('端末には保存しましたが、サーバーへ完了を記録できませんでした。接続が戻ってからもう一度完了してください', 8000, 'error')
 }
 
 
@@ -1226,7 +1309,14 @@ async function onGoHome() {
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
   if (isCompleted.value) {
-    await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    // 完了済みセッションを離れる経路でも、サーバーへ書けなければ画面を離れない。
+    // ここで抜けると draft と session 参照が消え、完了を記録し直す手段が無くなる。
+    const completed = await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
+    if (!completed?.ok) {
+      reopenSession()
+      _warnCompleteUnsaved()
+      return
+    }
   } else {
     _saveDraft(pendingSession.value?.id)
     await markSessionActive(filledCount.value)
@@ -2596,6 +2686,7 @@ function dismissReview() {
             <button
               class="btn-complete"
               :class="{ reported: guestReported }"
+              :disabled="completing"
               @click="guestReported ? onUndone() : onComplete()"
             >{{ guestReported
                 ? (syncActive && !syncIsHost ? '↩ 入力再開' : `↩ ${actNoun}再開`)

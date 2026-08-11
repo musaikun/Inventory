@@ -1,6 +1,6 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-08
+最終更新: 2026-08-10
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
 
@@ -38,7 +38,7 @@
 | WEB-01 | canonical URL・contact | 実際に200で配信するhostと正式問い合わせ先を決定し、legal・削除URL・supportを同期 | User |
 | WEB-02 | production origin / CORS | remote Workerは2026-08-04確認時に任意Originを反射する旧状態。実hostを`ALLOWED_ORIGIN`とtestへ反映し、deploy後に許可/拒否を実probe | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
-| WEB-04 | D1 migration | 本番で未適用の0010/0011をpreflightし、User承認後に適用。schema確認後にWorkerを更新 | Codex / User |
+| WEB-04 | D1 migration | 本番で未適用の0010/0011/0012/0013をpreflightし、User承認後に適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013は列追加のみでロールバック可 | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
 | WEB-07 | 取込・履歴・data integrity | 品目取込の非破壊性、DATA-001/002、過去棚卸取込を上のproduct contractへ適合させ、Codexが独立reviewする | Claude Code / Codex |
@@ -56,7 +56,7 @@ URLを推測で本番正本にしません。
 - [x] sourceにはCSP、静的privacy/terms/support、rewrite、PWA denylistがある
 - [ ] Cloudflare Pages上で`/privacy`、`/terms`、`/support`がredirect loopせず、最終200本文とCSPを返す
 - [x] account削除のWorker/D1/DO/client処理とBack/a11y回帰testがある
-- [x] `migrate.sh`は0001〜0011を列挙し、列挙testがある
+- [x] `migrate.sh`は0001〜0013を列挙し、列挙testがある（0012・0013は**本番未適用**）
 - [x] production dependency auditは直近記録で0件。spreadsheet parserに隔離・上限・timeout testがある
 - [x] develop CIはNode 24でWorker/App test、App build、preview deployに成功
 - [ ] 品目取込のpreview・非破壊default・明示的な全置換・error明細をrelease candidateで確認

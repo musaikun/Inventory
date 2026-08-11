@@ -7,16 +7,16 @@
 // 出力行: { date, type, supplier, category, name, qty, unit, price, code, lotSize }
 //   date は 'YYYY-MM-DD' に正規化。type は 'in'（既定）| 'out'。
 
-function parseCSVLine(line) {
-  const out = []
-  let cur = '', inQ = false
-  for (const ch of line) {
-    if (ch === '"') inQ = !inQ
-    else if (ch === ',' && !inQ) { out.push(cur); cur = '' }
-    else cur += ch
-  }
-  out.push(cur)
-  return out.map(s => s.trim())
+import { tokenizeCSV, parseCSVLine as _line } from './csvParse.js'
+
+// 字句解析は utils/csvParse.js と共用する（3つの取込経路で1つの解釈にそろえる）。
+const parseCSVLine = (line) => _line(line).map(s => s.trim())
+
+// ファイル全体をレコードへ分解する。未閉じ引用符は黙って受理せず throw する。
+function _records(csvText) {
+  const { rows, error } = tokenizeCSV(csvText)
+  if (error) throw Object.assign(new Error(error.message), { code: error.code, line: error.line })
+  return rows.map(r => ({ line: r.line, cols: r.cols.map(c => c.trim()) }))
 }
 
 // ヘッダ候補（表記ゆれを許容）。種別(type)とカテゴリ(category)は語を分けて誤検出を防ぐ。
@@ -82,11 +82,10 @@ export function isDeliveryImportCSV(csvText) {
  * 構造不正（必須列なし・データ行なし）は throw。
  */
 export function parseDeliveryImportCSV(csvText) {
-  const text  = (csvText ?? '').replace(/^﻿/, '').trim()
-  const lines = text.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) throw new Error('データ行がありません')
+  const records = _records(csvText)
+  if (records.length < 2) throw new Error('データ行がありません')
 
-  const header = parseCSVLine(lines[0])
+  const header = records[0].cols
   const ci = {
     date:     _findCol(header, COLS.date),
     type:     _findCol(header, COLS.type),
@@ -108,8 +107,7 @@ export function parseDeliveryImportCSV(csvText) {
   let skipped = 0
   let total = 0
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (const { cols } of records.slice(1)) {
     const name = (cols[ci.name] ?? '').trim()
     const date = normalizeDate(cols[ci.date])
     const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()

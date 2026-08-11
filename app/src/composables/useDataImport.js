@@ -2,10 +2,13 @@ import { ref, computed } from 'vue'
 import { useConfig } from './useConfig.js'
 import { useMovements } from './useMovements.js'
 import { useHistory } from './useHistory.js'
-import { saveMovementToD1, saveSnapshotToD1 } from './useStore.js'
+import { saveMovementToD1, importPastSessionToD1, cancelPastImportOnD1 } from './useStore.js'
 import { assertSpreadsheetFile, excelToCsv } from './usePdfImporter.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
+import {
+  buildPastImportPlan, withResolution, commitPastImport, cancelPastImport,
+} from '../services/pastImportPlan.js'
 
 // 過去データ（納品・棚卸）の取込フローを1箇所に集約する composable。
 // 入出庫画面・データ管理画面の両方から同じ動作で使う（導線が2箇所でも実装は1つ）。
@@ -22,7 +25,7 @@ async function _fileToCsv(file) {
 export function useDataImport() {
   const { config, dictionary, masterDict, registerAlias, addItem } = useConfig()
   const { getMovements, saveMovement } = useMovements()
-  const { getSnapshots, importPastSnapshot } = useHistory()
+  const { getSnapshots, importPastSnapshot, deleteImportBatchLocal } = useHistory()
 
   // ── 納品取込（ステージングモーダル経由）───────────────────────
   const showDeliveryModal = ref(false)
@@ -71,32 +74,63 @@ export function useDataImport() {
     URL.revokeObjectURL(a.href)
   }
 
-  // ── 過去棚卸取込（名寄せ不要・確認して直接挿入）─────────────────
-  // @returns 取り込んだ日数（0 = 未取込/キャンセル）
-  async function importStocktakeFromFile(file) {
-    if (!file) return 0
+  // ── 過去棚卸取込（IMPORT-001）───────────────────────────────────
+  //
+  // 「解析 → 計画をプレビュー → サーバー確定 → 端末反映」の順で進める。
+  // ファイルを選んだ時点では何も書き換えず、計画をモーダルへ渡すだけ。
+  const showStocktakeModal = ref(false)
+  const stocktakePlan      = ref(null)
+  const stocktakeFilename  = ref('')
+
+  /** ファイルから計画を作ってプレビューを開く。config・履歴は変更しない。 */
+  async function openStocktakeFromFile(file) {
+    if (!file) return false
     let csv
     try { csv = await _fileToCsv(file) }
-    catch (_) { alert('ファイルの読み込みに失敗しました'); return 0 }
+    catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
 
-    let snaps
-    try { snaps = parseResultSnapshots(csv) }
-    catch (err) { alert(err?.message || '取り込みに失敗しました'); return 0 }
-
-    const existing = new Set(getSnapshots().map(s => s.date))
-    const collide  = snaps.filter(s => existing.has(s.date)).length
-    const msg = `${snaps.length}日分の過去棚卸を取り込みます。`
-      + (collide > 0 ? `\n※ 既存の${collide}日分は上書きされます。` : '')
-      + `\nよろしいですか？`
-    if (!window.confirm(msg)) return 0
-
-    let n = 0
-    for (const s of snaps) {
-      const rec = importPastSnapshot(s)
-      if (rec) { saveSnapshotToD1(rec); n++ }
+    try {
+      const snaps = parseResultSnapshots(csv)
+      stocktakePlan.value = buildPastImportPlan(snaps, { existing: getSnapshots() })
+    } catch (err) {
+      alert(err?.message || '取り込みに失敗しました')
+      return false
     }
-    if (n > 0) alert(`${n}日分の過去棚卸を取り込みました。`)
-    return n
+    stocktakeFilename.value  = file.name
+    showStocktakeModal.value = true
+    return true
+  }
+
+  function closeStocktake() {
+    showStocktakeModal.value = false
+    stocktakePlan.value      = null
+    stocktakeFilename.value  = ''
+  }
+
+  /** 日付ごとの「別セッションとして追加 / 上書き」の選択を反映する */
+  function setStocktakeResolution(date, resolution) {
+    if (!stocktakePlan.value) return
+    stocktakePlan.value = withResolution(stocktakePlan.value, date, resolution)
+  }
+
+  /**
+   * プレビューで見せた計画を確定する。
+   * サーバーが sessionId を返した日だけを端末へ反映し、成功件数を返す。
+   */
+  async function confirmStocktakeImport() {
+    if (!stocktakePlan.value) return { saved: [], failed: [], ok: false }
+    return commitPastImport(stocktakePlan.value, {
+      saveToServer: importPastSessionToD1,
+      applyLocal:   importPastSnapshot,
+    })
+  }
+
+  /** 取込バッチを取り消す（サーバー結果を確認してから端末を消す） */
+  async function undoStocktakeImport(importBatchId) {
+    return cancelPastImport(importBatchId, {
+      cancelOnServer: cancelPastImportOnD1,
+      deleteLocal:    deleteImportBatchLocal,
+    })
   }
 
   return {
@@ -104,6 +138,8 @@ export function useDataImport() {
     showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
     openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
     // 過去棚卸取込
-    importStocktakeFromFile,
+    showStocktakeModal, stocktakePlan, stocktakeFilename,
+    openStocktakeFromFile, closeStocktake, setStocktakeResolution,
+    confirmStocktakeImport, undoStocktakeImport,
   }
 }

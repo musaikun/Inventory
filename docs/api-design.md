@@ -44,8 +44,8 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 |---|---|---|
 | `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは約100万文字guard | soft |
 | `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは約100万文字guard | soft |
-| `GET/POST /store/:code/history` | 日付keyのsnapshot、GETは新しい順50件。POSTは同日をupsert | soft |
-| `DELETE /store/:code/history/:date` | 日付単位でsnapshotを削除 | soft |
+| `GET/POST /store/:code/history` | GETは新しい順50件。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012） | soft |
+| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない | soft |
 | `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
 | `GET/POST /store/:code/orders` | `sinceDays`は1〜1000日、default 400。header + lines | soft |
 | `DELETE /store/:code/orders/:id` | 同store ownerだけ削除。不在/他storeは404 | soft |
@@ -54,11 +54,16 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成 | strict同store Bearer |
 | `PUT/DELETE /store/:code/sessions/:uuid` | status/itemCount更新または削除 | strict同store Bearer |
 | `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt? }` → `{ok,sessionId,itemCount,totalValue}` | strict同store Bearer |
+| `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
+| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[], snapshot? }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced}`。session / `inventory_lines` / `store_history` を1つの`db.batch`で書く。同じ`batchId`＋同じ`date`の再送は同じsessionを貼り直す（冪等） | strict同store Bearer |
+| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionだけを消し、通常の棚卸（NULL）と別バッチには触れない。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
-GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。client recordの
-`source` / `importBatchId`は現行API/schemaへ保存されません。本番D1は0010未適用です。
+GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
+`source` / `importBatchId`は現行API/schemaへ保存されません（**過去棚卸取込の`importBatchId`は
+migration 0013 で `sessions.import_batch_id` として保存されます**。両者は別物）。
+本番D1は0010・0011・0012・0013が未適用です。
 
 ### Room / utility
 
@@ -90,7 +95,8 @@ PLAY-003 / WEB-001で未決です。
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
 | [DATA-001](quality-foundation/tasks/DATA-001.md) | order/movement header-lines、棚卸完了writeの原子性とfield/array上限 |
-| [DATA-002](quality-foundation/tasks/DATA-002.md) | `GET /store/:code/sessions/:id/lines`未実装、history同日上書き・孤児・別端末詳細 |
+| [DATA-002](quality-foundation/tasks/DATA-002.md) | Phase 1（`GET /store/:code/sessions/:id/lines`）と Phase 2 は実装済み。history同日上書き（F-001）は migration 0012 の session 単位キー化で解消。孤児（F-004）・データ源二重（F-003）・`LIMIT 50`（F-002）は Phase 3 で公開後 |
+| [IMPORT-001](quality-foundation/tasks/IMPORT-001.md) | 過去棚卸取込API（`/imports/:batchId/*`）は実装済み・**migration 0013 は未適用**。実D1での確認は release gate（`WEB-04` / `WEB-07`）に残る |
 | [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010/0011、Free server limits、E2E/smoke |
 
 ### 将来A1（現行APIではない）
@@ -207,6 +213,36 @@ D1 データベース                               ← データを取る
 | PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }` | `{ ok: true }` / 400 | Bearer |
 | DELETE | `/store/:code/sessions/:id` | — | `{ ok: true }` | Bearer |
 | POST | `/store/:code/sessions/:id/complete` | `{ inventory, totalValue, auditLog, participants }` | `{ ok, sessionId, itemCount }` | Bearer（§3.1 の実装・✅済み） |
+| GET | `/store/:code/sessions/:id/lines` | — | `{ sessionId, date, startedAt, endedAt, status, type, itemCount, totalValue, truncated, lines[] }` / 404 | Bearer（DATA-002 Phase 1・✅済み） |
+
+### 1.3.1 過去棚卸の取込API（`pastImport.js`・要認証 / IMPORT-001）
+
+| メソッド | パス | リクエスト | レスポンス | 認証 |
+|---|---|---|---|---|
+| POST | `/store/:code/imports/:batchId/sessions` | `{ date, items[], replaceSessionIds?[], snapshot? }` | `{ ok, sessionId, date, itemCount, totalValue, importBatchId, replaced }` | Bearer |
+| DELETE | `/store/:code/imports/:batchId` | — | `{ ok, removed, sessionIds[], importBatchId }` | Bearer |
+
+取込で作るのは**通常の棚卸と同じ session** です（migration 0012 の sessionId identity をそのまま使う）。
+`sessions.import_batch_id`（migration 0013）を持つ行だけが取込由来で、通常の棚卸は `NULL` です。
+
+- **1リクエスト = 1日ぶん。** 複数日は client が同じ `batchId` で繰り返し呼びます。
+  日数×品目数を1回のbatchへ入れると、D1 の 1 invocation あたりの statement 上限を超えるためです。
+- **原子性**: session・`inventory_lines`・`store_history` を1つの `db.batch` で書きます。
+  途中で落ちれば全部巻き戻り、`503` / `retryable: true` を返します。
+- **冪等性**: 同じ `(shop_code, batchId, date)` は既存 session を貼り直します。再送でsessionは増えません。
+  明細は貼り直し前に削除するので、品目が減った再取込で前回分が残りません。
+- **同日衝突**: 既定では何も消さず、別 session として共存します（0012 で同日複数 session が可能）。
+  上書きは client が `replaceSessionIds` で**明示指定した session だけ**を、`shop_code` の内側で削除します。
+- **取消**: `import_batch_id` の一致だけを条件に消すため、別バッチと通常の棚卸は残ります。
+- **検証**: 日付は実在日（`2026-02-30` は拒否）、`items` は `MAX_LINES_PER_REQUEST`（500）まで、
+  数量は棚卸と同じ契約（`0` は正当・負数と非有限は拒否・`0` へ丸めない）、
+  品目名 200 / 単位 50 文字で切り詰め、payload 全体は約100万文字guard。
+
+`lines[]` は `{ item, qty, unit, unitPrice, subtotal, category }`。`rowid` 順＝完了時の挿入順で返します。
+1回の上限は `MAX_SESSION_LINES`（2,000件）で、超過分は打ち切り `truncated: true` を返します
+（`totalValue` は `sessions.total_value` を返すため、打ち切っても合計は過小になりません）。
+店舗境界は `session_id` と `shop_code` の両方で絞ります。他storeのIDと存在しないIDは
+同じ404にして、IDの存在有無を漏らしません。
 
 ### 1.4 リアルタイム・その他（`index.js` → RoomDO）
 

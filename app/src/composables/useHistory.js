@@ -5,10 +5,33 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 // 保存・削除のたびに自動再計算される
 const _data = reactive({})
 
+/**
+ * スナップショットの保管キー（DATA-002 / F-001）。
+ *
+ * sessionId を正本にする。以前は日付キーだったため、同じ日に2回棚卸すると
+ * 2回目が1回目を上書きして消していた。sessionId を持たない行（過去取込・旧データ）
+ * だけが日付キーのまま残る。
+ */
+export function snapshotKey(snap) {
+  return snap?.sessionId ? String(snap.sessionId) : (snap?.date ?? '')
+}
+
+/** 与えられたキーが legacy の日付キーか */
+function _isDateKey(key) {
+  return typeof key === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(key)
+}
+
 function _load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.history)
-    if (raw) Object.assign(_data, JSON.parse(raw))
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    // 旧形式（日付キー）からの移行。sessionId を持つ行は sessionId キーへ移す。
+    // 同日2件が既に潰れている過去分は復元できないが、以後は共存する。
+    for (const [oldKey, snap] of Object.entries(saved ?? {})) {
+      if (!snap || typeof snap !== 'object') continue
+      _data[snapshotKey(snap) || oldKey] = snap
+    }
   } catch (_) {}
 }
 
@@ -19,6 +42,18 @@ function _persist() {
 }
 
 _load()
+
+/** client時計による保存時刻（端末間の比較には使わない） */
+function _savedAtMs(snap) {
+  const t = Date.parse(snap?.updatedAt ?? snap?.savedAt ?? '')
+  return Number.isFinite(t) ? t : 0
+}
+
+/** サーバーが記録した保存時刻。無ければ null（= 未同期） */
+function _serverMs(snap) {
+  const t = Date.parse(snap?.serverSavedAt ?? '')
+  return Number.isFinite(t) ? t : null
+}
 
 // アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
 export function resetLocalData() {
@@ -111,7 +146,8 @@ export function useHistory() {
       }
     }
 
-    _data[today] = {
+    const key = sessionId ? String(sessionId) : today
+    _data[key] = {
       date:         today,
       savedAt:      new Date().toISOString(),
       items,
@@ -125,7 +161,7 @@ export function useHistory() {
       axisNames:    Array.isArray(axisNames) ? [...axisNames] : ['', ''],
     }
     _persist()
-    return _data[today]
+    return _data[key]
   }
 
   /**
@@ -135,7 +171,7 @@ export function useHistory() {
    * @param {object} arg { date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice|price, code, category, lotSize, prevMonth }] }
    * @returns 挿入したスナップショット（不正な入力は null）
    */
-  function importPastSnapshot({ date, items } = {}) {
+  function importPastSnapshot({ date, items, sessionId = null, importBatchId = null } = {}) {
     if (!date || !Array.isArray(items) || items.length === 0) return null
 
     let totalValue = 0
@@ -165,7 +201,11 @@ export function useHistory() {
     }
     if (built.length === 0) return null
 
-    _data[date] = {
+    // sessionId を正本キーにする（IMPORT-001）。
+    // 以前は日付キーで書いていたため、同じ日に通常の棚卸があると取込が黙って上書きしていた。
+    // サーバーが採番した sessionId でしまうことで、同日の別セッションと共存し、
+    // カレンダー・詳細・取消がすべて同じ sessionId を参照する。
+    const snap = {
       date,
       savedAt:      new Date().toISOString(),
       items:        built,
@@ -173,14 +213,37 @@ export function useHistory() {
       entryLog:     [],
       participants: null,
       flaggedItems: [],
-      sessionId:    null,
+      sessionId:    sessionId ? String(sessionId) : null,
+      importBatchId,
       auditLog:     [],
       activeMs:     null,
       axisNames:    ['', ''],
       source:       'import',   // 過去取込由来（手動棚卸と区別）
     }
+    _data[snapshotKey(snap)] = snap
     _persist()
-    return _data[date]
+    return snap
+  }
+
+  /**
+   * 取込バッチで入れたスナップショットを端末から消す（サーバー取消と対で使う）。
+   * importBatchId が一致するものだけを消すので、別バッチ・通常の棚卸は残る。
+   * @returns 消した件数
+   */
+  function deleteImportBatchLocal(importBatchId) {
+    if (!importBatchId) return 0
+    let n = 0
+    for (const [k, snap] of Object.entries(_data)) {
+      if (snap?.importBatchId === importBatchId) { delete _data[k]; n++ }
+    }
+    if (n) _persist()
+    return n
+  }
+
+  /** 取込バッチに属するスナップショット（取消前の確認用） */
+  function getImportBatch(importBatchId) {
+    if (!importBatchId) return []
+    return Object.values(_data).filter(s => s?.importBatchId === importBatchId)
   }
 
   /**
@@ -195,20 +258,46 @@ export function useHistory() {
       .map(s => ({ date: s.date, log: s.entryLog }))
   }
 
-  /** 全スナップショットを新しい日付順で返す */
+  /**
+   * 全スナップショットを新しい順で返す。
+   * 同じ日に複数セッションがある場合は保存時刻の新しい方を先にする（一覧で潰さない）。
+   */
   function getSnapshots() {
-    return Object.values(_data).sort((a, b) => b.date.localeCompare(a.date))
+    return Object.values(_data).sort((a, b) =>
+      b.date.localeCompare(a.date) || (_savedAtMs(b) - _savedAtMs(a))
+    )
   }
 
-  /** セッションIDでスナップショットを検索 */
+  /**
+   * セッションIDでスナップショットを検索する。
+   * **日付へのfallbackはしない。** 同じ日の別セッションを取り違えて表示するくらいなら
+   * 「端末に無い」として扱い、呼び出し側がサーバーから取り直す（fail-closed）。
+   */
   function getSnapshotBySessionId(sessionId) {
     if (!sessionId) return null
+    const direct = _data[String(sessionId)]
+    if (direct) return direct
     return Object.values(_data).find(s => s.sessionId === sessionId) ?? null
   }
 
-  /** 指定日付のスナップショットを削除 */
-  function deleteSnapshot(date) {
-    delete _data[date]
+  /**
+   * スナップショットを削除する。key は sessionId または legacy の日付キー。
+   * 日付を渡された場合、sessionId を持つ行は消さない。
+   * 同日の別セッションを巻き添えで消さないため（F-001）。
+   */
+  function deleteSnapshot(key) {
+    if (!key) return
+    if (_isDateKey(key)) {
+      for (const [k, snap] of Object.entries(_data)) {
+        if (!snap?.sessionId && snap?.date === key) delete _data[k]
+      }
+      delete _data[key]
+    } else {
+      delete _data[String(key)]
+      for (const [k, snap] of Object.entries(_data)) {
+        if (snap?.sessionId === key) delete _data[k]
+      }
+    }
     _persist()
   }
 
@@ -245,18 +334,40 @@ export function useHistory() {
     return rows.join('\r\n')
   }
 
-  /** D1 から取得したスナップショット配列をローカルに反映（リモートで上書き） */
+  /**
+   * D1 から取得したスナップショット配列をローカルに反映（リモートで上書き）。
+   * ただし端末側が新しい場合は残す。未送信のスナップショットが D1 の古い版で
+   * 潰れると、バックフィル（historyBackfill）が送るべき差分ごと消えるため。
+   * 保存時刻が同じ・不明なときはリモートを採用する（従来の挙動）。
+   */
   function applyRemoteHistory(snapshots) {
     if (!Array.isArray(snapshots)) return
     for (const snap of snapshots) {
-      if (snap?.date) _data[snap.date] = snap
+      if (!snap?.date) continue
+      const key   = snapshotKey(snap)
+      if (!key) continue
+      const local = _data[key]
+      if (local) {
+        const localServer  = _serverMs(local)
+        const remoteServer = _serverMs(snap)
+        if (remoteServer != null) {
+          // 端末側にサーバー時刻が無い = このスナップショットはまだ送れていない。
+          // 端末の変更をリモートの版で潰すとバックフィルの差分ごと消えるため残す。
+          if (localServer == null) continue
+          if (localServer > remoteServer) continue
+        } else if (_savedAtMs(local) > _savedAtMs(snap)) {
+          // 双方サーバー時刻を持たない旧データ同士は、従来どおりclient時刻で比較する。
+          continue
+        }
+      }
+      _data[key] = snap
     }
     _persist()
   }
 
-  /** ローカルストレージからスナップショットを削除（D1削除に対応） */
-  function deleteSnapshotLocal(date) {
-    deleteSnapshot(date)
+  /** ローカルストレージからスナップショットを削除（D1削除に対応）。key = sessionId または日付 */
+  function deleteSnapshotLocal(key) {
+    deleteSnapshot(key)
   }
 
   /**
@@ -282,8 +393,8 @@ export function useHistory() {
     return changed
   }
 
-  function patchSnapshotItems(date, patches) {
-    const snap = _data[date]
+  function patchSnapshotItems(key, patches) {
+    const snap = _data[String(key)] ?? getSnapshotBySessionId(key)
     if (!snap || snap.locked) return null   // ロック済みは編集不可（防御）
 
     for (const item of snap.items) {
@@ -306,5 +417,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, importPastSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
+  return { saveSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

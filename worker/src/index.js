@@ -7,10 +7,11 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleSessionComplete, handleRoomResult,
+  handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
+import { handlePastImportCreate, handlePastImportCancel } from './pastImport.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { handleAccountDelete } from './accountDeletion.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
@@ -249,8 +250,8 @@ export default {
         if (subpath === '/history' && request.method === 'POST') {
           return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
         }
-        // DELETE /store/:code/history/:date
-        const histDateMatch = subpath.match(/^\/history\/(\d{4}-\d{2}-\d{2})$/)
+        // DELETE /store/:code/history/:key （key = sessionId または legacy日付）
+        const histDateMatch = subpath.match(/^\/history\/([\w-]{1,64})$/)
         if (histDateMatch && request.method === 'DELETE') {
           return jsonResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), 200, origin, allowedOrigin)
         }
@@ -321,6 +322,45 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
+        }
+
+        // GET /store/:code/sessions/:id/lines （要認証）
+        // 端末に snapshot が無くても完了済み棚卸の詳細を開けるようにする（DATA-002 Phase 1）。
+        // 単価・在庫金額を含むためゲストには出さない。ここは店舗トークン必須の側に置く。
+        const sessLinesMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/lines$/)
+        if (sessLinesMatch && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleSessionLinesGet(env.DB, code, sessLinesMatch[1]), origin, allowedOrigin)
+        }
+
+        // ── 過去棚卸の取込（IMPORT-001）─────────────────────────────────────
+        // 単価・在庫を書き換えるので、後方互換ソフト認証ではなく店舗トークン必須の側に置く。
+        // 対象は必ず shop_code の内側（handler が全 SQL に shop_code を入れている）。
+        //
+        // POST /store/:code/imports/:batchId/sessions … 1日ぶんを原子的・冪等に取り込む
+        const importCreateMatch = subpath.match(/^\/imports\/([\w-]{1,64})\/sessions$/)
+        if (importCreateMatch && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => null)
+          if (body == null) {
+            return jsonResponse({ error: 'リクエストの形式が不正です' }, 400, origin, allowedOrigin)
+          }
+          return resultResponse(
+            await handlePastImportCreate(env.DB, code, importCreateMatch[1], body),
+            origin, allowedOrigin,
+          )
+        }
+        // DELETE /store/:code/imports/:batchId … バッチ単位の取消（冪等）
+        const importCancelMatch = subpath.match(/^\/imports\/([\w-]{1,64})$/)
+        if (importCancelMatch && request.method === 'DELETE') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(
+            await handlePastImportCancel(env.DB, code, importCancelMatch[1]),
+            origin, allowedOrigin,
+          )
         }
 
         // POST /store/:code/sessions/:id/complete （要認証）

@@ -13,6 +13,8 @@ function createMockD1({ failTables = [] } = {}) {
   const orders  = []
   const orderLines = []
   const pushSubscriptions = []
+  const sessions = []
+  const inventoryLines = []
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -142,6 +144,20 @@ function createMockD1({ failTables = [] } = {}) {
       return { success: true }
     }
     if (s.startsWith('SELECT id, shop_code, started_at')) return []
+    // GET /store/:code/sessions/:id/lines（DATA-002 Phase 1）
+    // shop_code を WHERE に含まないSQLでは絞り込まない＝店舗境界の抜けをテストで検出する
+    if (s.startsWith('SELECT id, started_at, ended_at, status, item_count, total_value, type FROM sessions')) {
+      const [id, shop] = args
+      return sessions.find(x =>
+        x.id === id && (s.includes('shop_code = ?') ? x.shop_code === shop : true)
+      ) ?? null
+    }
+    if (s.includes('FROM inventory_lines')) {
+      const [sessionId, shop] = args
+      return inventoryLines.filter(l =>
+        l.session_id === sessionId && (s.includes('shop_code = ?') ? l.shop_code === shop : true)
+      )
+    }
     throw new Error('Unhandled SQL in mock: ' + s)
   }
 
@@ -163,6 +179,8 @@ function createMockD1({ failTables = [] } = {}) {
     _ipRows: ipRows,
     _orders: orders,
     _orderLines: orderLines,
+    _sessions: sessions,
+    _inventoryLines: inventoryLines,
     _pushSubscriptions: pushSubscriptions,
     _failTables: failTables,
   }
@@ -404,6 +422,98 @@ describe('Worker ルーティング（特性テスト）', () => {
     const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions`, { token: b.token }), env)
     expect(res.status).toBe(401)
+  })
+
+  // IMPORT-001: 過去棚卸の取込・取消。単価と在庫を書き換えるので strict auth の側に置く。
+  describe('過去棚卸の取込 API', () => {
+    const BATCH = 'imp_abc123'
+    const body  = { date: '2026-07-01', items: [{ item: 'A', qty: 1 }] }
+
+    it('POST /imports/:batchId/sessions はトークン無しだと 401', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('POST', `/store/${reg.shopCode}/imports/${BATCH}/sessions`, { body }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('POST /imports/:batchId/sessions は他店舗のトークンでは 401', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const res = await worker.fetch(makeReq('POST', `/store/${a.shopCode}/imports/${BATCH}/sessions`, { body, token: b.token }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('DELETE /imports/:batchId はトークン無しだと 401', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${BATCH}`), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('DELETE /imports/:batchId は他店舗のトークンでは 401', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/imports/${BATCH}`, { token: b.token }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('取込IDが64文字を超える経路は route に一致しない（404）', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${'a'.repeat(65)}`, { token: reg.token }), env)
+      expect(res.status).toBe(404)
+    })
+  })
+
+  // DATA-002 Phase 1: 端末に snapshot が無くても詳細を開けるようにする経路。
+  // 単価・在庫金額を返すため、認可の穴は「他店舗の在庫金額が読める」に直結する。
+  describe('GET /store/:code/sessions/:id/lines', () => {
+    const SID = '11111111-1111-4111-8111-111111111111'
+
+    it('トークン無しは 401', async () => {
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions/${SID}/lines`), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('他店舗のトークンでは読めない（401）', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions/${SID}/lines`, { token: b.token }), env)
+      expect(res.status).toBe(401)
+    })
+
+    it('自店舗のトークンでも、他店舗のセッションIDなら 404 で明細を返さない', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      db._sessions.push({ id: SID, shop_code: a.shopCode, started_at: '2026-07-07T01:00:00Z', status: 'completed' })
+      db._inventoryLines.push({
+        session_id: SID, shop_code: a.shopCode, taken_at: '2026-07-07',
+        item_name: '鶏もも', category: null, qty: 3, unit: 'kg', unit_price: 500, line_value: 1500,
+      })
+
+      const res = await worker.fetch(makeReq('GET', `/store/${b.shopCode}/sessions/${SID}/lines`, { token: b.token }), env)
+      expect(res.status).toBe(404)
+      const body = await res.json()
+      expect(body.lines).toBeUndefined()
+    })
+
+    it('自店舗のセッションなら 200 で明細を返す', async () => {
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      db._sessions.push({
+        id: SID, shop_code: a.shopCode, started_at: '2026-07-07T01:00:00Z',
+        ended_at: '2026-07-07T02:00:00Z', status: 'completed', item_count: 1, total_value: 1500, type: 'stock',
+      })
+      db._inventoryLines.push({
+        session_id: SID, shop_code: a.shopCode, taken_at: '2026-07-07',
+        item_name: '鶏もも', category: null, qty: 3, unit: 'kg', unit_price: 500, line_value: 1500,
+      })
+
+      const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions/${SID}/lines`, { token: a.token }), env)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.date).toBe('2026-07-07')
+      expect(body.lines).toEqual([
+        { item: '鶏もも', qty: 3, unit: 'kg', unitPrice: 500, subtotal: 1500, category: null },
+      ])
+    })
   })
 
   it('SEC-002: 他店舗のorder DELETEは404をHTTPへ伝播し、元データを残す', async () => {

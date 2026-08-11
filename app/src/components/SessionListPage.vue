@@ -393,8 +393,13 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <!-- データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
-          <div class="master-card pulse" @click="emit('openMaster')">
+          <!-- ① 棚卸の準備。データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
+          <div class="flow-step">
+            <span class="flow-num">1</span>
+            <span class="flow-label">品目を準備する</span>
+            <span class="flow-sub">棚卸で数える品目のリストをそろえる</span>
+          </div>
+          <div class="master-card" :class="{ pulse: itemCount === 0 }" @click="emit('openMaster')">
             <div class="master-head">
               <span class="master-title">🗂 データ管理</span>
               <span v-if="itemCount > 0 && !config.isCustom" class="master-sample">サンプル</span>
@@ -424,6 +429,13 @@ function _itemCount(session) {
             <template v-else>
               <div class="master-empty">まだ品目がありません。タップして取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
             </template>
+          </div>
+
+          <!-- ② 棚卸そのもの。この画面の主操作 -->
+          <div class="flow-step">
+            <span class="flow-num">2</span>
+            <span class="flow-label">棚卸をする</span>
+            <span class="flow-sub">開始 → 数量を入力 → 完了</span>
           </div>
 
           <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
@@ -493,18 +505,49 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
-          <!-- 在庫確認・入出庫の記録（専用ページ：在庫/入庫/出庫の3タブ） -->
+          <!-- ③ 完了した棚卸を見る。履歴はダッシュボードタブのカレンダーが正 -->
+          <div class="flow-step">
+            <span class="flow-num">3</span>
+            <span class="flow-label">記録を見る</span>
+            <span class="flow-sub">完了した棚卸の履歴・在庫金額の推移</span>
+          </div>
+          <button class="history-link" type="button" @click="activeTab = 'dashboard'">
+            <span class="history-link-ico">📅</span>
+            <span class="history-link-text">
+              <span class="history-link-title">履歴カレンダー</span>
+              <span class="history-link-sub">
+                <template v-if="completedSessions.length > 0">完了した棚卸 {{ completedSessions.length }}回 — 日付を選んで詳細を開く</template>
+                <template v-else>完了した棚卸はまだありません</template>
+              </span>
+            </span>
+            <span class="history-link-arrow">→</span>
+          </button>
+
+          <!-- ここから下は棚卸の主導線ではない。初回公開ではβ機能として二段目に置く -->
+          <div class="beta-head">
+            <span class="beta-badge">β</span>
+            <span class="beta-title">試用中の機能</span>
+            <span class="beta-note">棚卸とは別の記録です。まだ検証中のため、結果は参考値として扱ってください。</span>
+          </div>
+
+          <div class="beta-group">
+
+          <!-- 在庫確認・入庫の記録（専用ページ：在庫/入庫/出庫の3タブ）。
+               出庫は初回公開の主導線から外し、ページ内のタブとしてのみ残す -->
           <div class="move-wrap">
             <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
               <div class="move-start-icon">📥</div>
               <div class="move-start-text">
                 <div class="move-start-title">
-                  在庫・入出庫
+                  在庫の確認・入庫の記録<span class="beta-chip">β</span>
                   <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
                   <span v-if="unreflectedInboundCount > 0" class="move-inbound-badge">🧾 未反映の入庫 {{ unreflectedInboundCount }}</span>
                 </div>
                 <div class="move-start-sub">
                   {{ moveCardSub }}
+                </div>
+                <div class="move-start-caveat">
+                  在庫の表示は直近の棚卸に入出庫を加減算した理論在庫です。記録していない使用・ロスの分だけ実際とずれます。
                 </div>
               </div>
               <div class="move-start-arrow">→</div>
@@ -517,10 +560,10 @@ function _itemCount(session) {
             >破棄</button>
           </div>
 
-          <!-- 発注確認（淡いオレンジ）── 棚卸とは別のセッション -->
+          <!-- 発注内容の確認・記録（淡いオレンジ）── 棚卸とは別のセッション -->
           <div v-if="activeOrderSession" class="order-live">
             <div class="order-live-top">
-              <span class="order-live-badge">🧾 進行中の発注</span>
+              <span class="order-live-badge">🧾 進行中の発注記録<span class="beta-chip">β</span></span>
               <button class="order-live-discard" :disabled="deletingId === activeOrderSession.id" @click="onDelete(activeOrderSession)">破棄</button>
             </div>
             <div class="order-live-row">
@@ -568,13 +611,15 @@ function _itemCount(session) {
               </div>
             </div>
 
-            <button class="order-live-resume" @click="onResume(activeOrderSession)">発注を再開する →</button>
+            <div class="order-live-caveat">記録するだけで、仕入先へは自動送信されません。</div>
+            <button class="order-live-resume" @click="onResume(activeOrderSession)">発注の記録を再開する →</button>
           </div>
           <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="startingKind === 'order' || itemCount === 0" @click="onStartOrder">
             <div class="order-start-icon">🧾</div>
             <div class="order-start-text">
-              <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注確認を開始' }}</div>
-              <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注をまとめて記録' }}</div>
+              <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注内容の確認・記録' }}<span class="beta-chip">β</span></div>
+              <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注する数をまとめて確認・記録' }}</div>
+              <div class="order-start-caveat">記録するだけで、仕入先へは自動送信されません。</div>
             </div>
             <div class="order-start-arrow">→</div>
           </button>
@@ -597,6 +642,8 @@ function _itemCount(session) {
             </span>
             <span class="order-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
           </button>
+
+          </div><!-- /.beta-group -->
 
           <!-- レガシー: 古い未完了セッション（整理用） -->
           <template v-if="otherActiveSessions.length > 0">
@@ -911,6 +958,96 @@ function _itemCount(session) {
   margin-bottom: 4px;
 }
 
+/* ── 棚卸の流れ（準備 → 棚卸 → 記録を見る）の見出し ──
+   何をする画面なのかを番号で示す。番号は導線の順序であって、
+   進捗（済/未）ではない（済み判定を持たせると再棚卸で嘘になる）。 */
+.flow-step {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 10px;
+}
+.flow-num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  align-self: center;
+}
+.flow-label { font-size: 13px; font-weight: 800; color: #334155; }
+.flow-sub   { font-size: 11px; color: #94a3b8; font-weight: 600; }
+
+/* 履歴（ダッシュボードタブ）への導線。棚卸の流れの終点 */
+.history-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  background: #fff;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.history-link:active { transform: scale(0.99); }
+.history-link-ico { font-size: 22px; flex-shrink: 0; }
+.history-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.history-link-title { font-size: 15px; font-weight: 800; color: #334155; }
+.history-link-sub { font-size: 12px; color: #64748b; }
+.history-link-arrow { font-size: 20px; font-weight: 300; color: #94a3b8; flex-shrink: 0; }
+
+/* ── β機能の仕切り ──
+   入出庫・発注は初回公開の主導線ではない。棚卸と同じ強さで並べると
+   「どれもやらないといけない」ように見えるため、ここから下だと明示する。 */
+.beta-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.beta-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 20px;
+  padding: 1px 8px;
+  align-self: center;
+}
+.beta-title { font-size: 13px; font-weight: 800; color: #334155; }
+.beta-note  { font-size: 11px; color: #94a3b8; font-weight: 600; flex-basis: 100%; line-height: 1.5; }
+/* β機能のカード群。モバイルでは .tab-panel と同じ縦積み、
+   デスクトップでは style.css 側で2列に組む（並列の選択肢なので横に並べてよい）。 */
+.beta-group { display: flex; flex-direction: column; gap: 8px; }
+.beta-chip {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 20px;
+  padding: 0 6px;
+  vertical-align: middle;
+}
+
 /* 品目マスタ カード */
 .master-card {
   background: #fff;
@@ -1058,6 +1195,8 @@ function _itemCount(session) {
 .move-start-text { flex: 1; min-width: 0; }
 .move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; display: flex; align-items: center; gap: 8px; }
 .move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
+/* 理論在庫の誤差はユーザーに見える形で残す（甘い数字を出さない） */
+.move-start-caveat { font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.5; }
 .move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
 .move-wrap { position: relative; }
 .move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
@@ -1130,6 +1269,8 @@ function _itemCount(session) {
 .order-start-text { flex: 1; min-width: 0; }
 .order-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #c2410c; }
 .order-start-sub { font-size: 12px; color: #b45309; margin-top: 2px; }
+/* 「発注」という語から仕入先への送信を連想させないための断り書き */
+.order-start-caveat { font-size: 11px; color: #78716c; margin-top: 6px; line-height: 1.5; }
 .order-start-arrow { font-size: 22px; font-weight: 300; color: #ea580c; flex-shrink: 0; }
 
 /* 進行中の発注（淡いオレンジのヒーロー） */
@@ -1158,6 +1299,7 @@ function _itemCount(session) {
 .order-live-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #b45309; margin-bottom: 12px; }
 .order-live-row .hl-label { font-weight: 700; }
 .order-live-row .hl-elapsed { margin-left: auto; }
+.order-live-caveat { font-size: 11px; color: #78716c; line-height: 1.5; margin-bottom: 10px; }
 .order-live-resume {
   width: 100%; border: none; border-radius: 12px; padding: 12px;
   background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%);

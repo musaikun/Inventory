@@ -2,6 +2,146 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-10 — CCレビュー修正 第3セッション: 取込のデータ品質と最終統合（IMPORT-001）
+
+- 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション。
+- branch `claude/branch-operational-status-2lwwwu`、開始HEAD `ae9c03b`（第2セッションの成果）。
+- 状態は **レビュー待ちまで**。Codex承認前に `完了` / `WEB-07` 通過 / release可としていない。
+- commit / push / deploy / migration適用は**していない**（Userの明示指示待ち）。
+
+### 開始時の前提確認で一度停止した
+
+- 指示の「前提HEAD」がプレースホルダのまま置換されておらず、照合対象が無かった。
+- 当初の checkout は `claude/cc-review-session-3-1s4jxj@cda7b62`（= `main` 相当）で、
+  第1・第2セッションの成果も `cc-session-plan.md` も `tasks/` も**含まれていなかった**。
+  `git merge-base --is-ancestor ae9c03b HEAD` は非祖先。
+- 実装を開始せず報告し、Userの確認後に `claude/branch-operational-status-2lwwwu` を
+  checkout（working tree は clean・破棄した差分ゼロ）してから着手した。
+
+### 実装
+
+詳細と証拠は [`tasks/IMPORT-001.md`](tasks/IMPORT-001.md)。要点だけ:
+
+1. **CSVの字句解析を `app/src/utils/csvParse.js` へ一本化。** 品目取込・棚卸結果取込・納品取込が
+   同じ欠陥を持つ1行パーサを3本持っていた。`"1,200"` が `1` に、`5"" 皿` が `5 皿` になり、
+   未閉じ引用符は黙って通っていた。
+2. **不正数値を「既存値を維持」にすり替えない。** その行をエラーにし、同じ行の他の列も適用しない。
+   列数不一致・ヘッダ無しも同様に行番号・列・理由つきで出す。
+3. **エイリアス衝突を非破壊に。** 既存品目の別名を無言で奪っていた。既定では奪わず、
+   画面で「既存を優先／ファイルを優先」を選ぶまで取込ボタンを無効にする。
+4. **プレビューと取込が同じ計画オブジェクトを使う。** 以前は解析と計画を2回組み直していた。
+5. **過去棚卸取込を sessionId モデルへ接続。** 日付キーの直接書き込みと投げっぱなしのD1保存をやめ、
+   取込前プレビュー → サーバー保存確認 → 端末反映の順にした。`importBatchId` 単位の取消を
+   server側で原子的・冪等に実装（**migration 0013 追加・適用は未実施**）。
+
+### 文書の統合
+
+- 旧計画（S1〜S8）を `36fc8ad`（`2e14e23` の親）から
+  [`archive/cc-session-plan-s1-s8-2026-08-08.md`](archive/cc-session-plan-s1-s8-2026-08-08.md) へ履歴保存し、
+  本ログと `proposals.md` に残っていた「`cc-session-plan.md` の S2/S3/S4/S6 節」への参照を
+  そちらへ向け直した。**同名pathの現行計画に旧sectionがあるように見せない**ため。
+- `UI-002` は実体file を持たず `UI-001.md` へ誤リンクしていた。新IDを作らず `UI-001` へ統合した。
+- `task-list.md` / `web-release-readiness.md` の「過去棚卸取込は Phase 3 完了後」という
+  scope外記述を、**記録を消さずに**前提置換の追記つきで更新した。前提だった
+  「履歴が日付キーのまま」は第2セッションの migration 0012 で解消済み。
+  公開scopeへ正式に含めるかは Codex再レビューと PM判断に残す。
+- `api-design.md` に取込API 2本と、`history` 系の現状（0012以降）を反映した。
+
+### 未実施
+
+- 実D1（migration 0013 適用・statement数と実行時間の計測）。
+- 実ブラウザ / 実機での 375px・1024px以上・keyboard の目視確認。
+- 大量データ（500行上限付近・複数日×多品目）の実測。
+
+### 次の再開地点
+
+Codex による第1〜第3セッション全差分の独立レビュー。
+`SEC-005` は未着手 / Codex のまま（第3セッションでは触れていない）。
+
+## 2026-08-09 — CCレビュー修正 第1セッション: 完了失敗と保留保存の安全化
+
+- 担当: Claude Code。台本は develop の [`cc-session-plan.md`](cc-session-plan.md)（`develop@726d819`）第1セッション。
+- branch `claude/branch-operational-status-2lwwwu`、開始HEAD `6eac2a4`（`8ff46af` の子孫）。
+- **範囲はApp側のみ**。`worker/`・履歴schema・品目取込・`SEC-005` には触れていない。
+
+### 開始前のtask board統合（計画「第1開始前」）
+
+- `IMPORT-001` を `未着手 / Claude Code` で追加（task fileは `develop@726d819` から取得）。
+- `WEB-001 = 進行中 / Codex`、`SEC-005 = 未着手 / Codex` を維持。
+- `DATA-001` / `DATA-002` は `進行中 / Claude Code`（`6eac2a4` で設定済みを確認）。
+- `DATA-002.md` に 2026-08-09 の前提再置換を追記（旧判断は削除せず残置）。
+
+### §1 完了失敗時に作業状態を保持（DATA-001）
+
+- `completeSessionD1()` が `ok:false` でも、後片付けを全部実行していた。**サーバーに完了が
+  無いのに端末のdraft・pendingSessionが消え、ホストではルームまで解散**していた。
+- `_finishSession()` を分離し、**完了が成立したときだけ**終了通知・解散・draft削除・clear・
+  遷移・完了analyticsを実行する。失敗時は `reopenSession()`（`useInventory` に追加）で
+  読み取り専用を解除するだけにして、同じ画面の同じボタンから再試行できるようにした。
+- 二重押しガード `completing` を追加（ボタンも `:disabled`）。
+- **併せて未定義参照を除去**: ソロ完了経路の `sessionsYear.value = completedYear` は
+  `sessionsYear` も `completedYear` も定義が無く、`cf25ae5` 以来 solo 完了で
+  `ReferenceError` を投げていた（`clearSession()` の後・遷移の前で throw）。行ごと削除。
+
+### §2 pending queueをlatest-winsかつ直列化（DATA-002 Phase 2）
+
+- 保存対象を `kind + shopCode + resourceId` で識別する Map へ置き換え、要求ごとに `rev` を採番。
+  成功時はその rev 以下の待ち項目を破棄し、**古いAの再送で新しいBを巻き戻さない**。
+- drain を1本に束ね、起動・接続復帰・タイマー・手動が同時でも二重送信しない。
+- 失敗を `auth`（401/403・停止）/ `permanent`（400番台・捨てて提示）/ `retry`（429・5xx・断）へ分類。
+  再ログイン用に `clearAuthBlock()` を追加。
+
+### §3 永続化失敗を隠さない
+
+- snapshot 20件・order/movement 200件の `slice` を撤廃。溢れた分をメモリにだけ残して
+  「端末に保存済み」と表示していたのをやめ、`unpersistedCount` として表に出す。
+- バナーは**未保存の警告をオフラインより優先**。`role="status"` + `aria-live` を常設し、
+  端末にも保持できていないときだけ `assertive`。拒否された保存は `rejectedSaves` で提示。
+
+### 修正前に失敗を確認したtest
+
+`src/App.complete.test.js` を追加し、修正箇所を一時的に旧挙動へ戻した状態で実行して
+**6件中4件が失敗**することを確認してから修正を戻した。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `cd app && npx vitest run src/App.complete.test.js` | 6 passed |
+| `cd app && npx vitest run src/composables/useStore.queue.test.js` | 12 passed |
+| `cd app && npx vitest run src/components/ConnectionBanner.test.js` | 11 passed |
+| `cd app && npm test` | **74 files / 648 passed** |
+| `cd app && npm run build` | 成功（CSS 234.43kB / gzip 37.33kB） |
+| `cd worker && npm test` | 17 files / 251 passed（**未変更・回帰確認のみ**） |
+
+- migration: **なし**（schema変更なし）
+- 未実施: 実browser・実device・実D1での確認。commit / push / deploy は行っていない。
+
+### 残っているリスク
+
+- `rejectedSaves` は種別と件数を出すだけで、拒否された内容そのものは復元できない。
+- localStorage が全く使えない環境では、依然としてアプリを閉じると未送信分が失われる。
+- 完了失敗時にローカルのスナップショットは作られたまま残る（入力値保護のため意図的）。
+  sessionId 単位の整合は**第2セッションの範囲**。
+- `task-list.md` から旧 `cc-session-plan.md`（S1〜S8）への参照は、`2e14e23` の削除により
+  このbranchでは切れたまま。**docs の3-way統合は第3セッションの範囲**なので触れていない。
+
+### 次の再開地点
+
+第2セッション（sessionId中心の履歴整合と完了原子性）。本セッションのcheckpoint commitを
+User が承認した後、そのcommitを含むHEADから開始する。
+
+## 2026-08-09 — CC 第1〜3セッション完了（S1〜S8 全実装）
+
+- 全8タスク実装完了: S1（記録更新）→ S2（止血）→ S3（Phase 1）→ S4（原子性）→ S5（マージ化）→ S6（プレビュー）→ S7（可視化）→ S8（画面再編）
+- 共有ブランチ: `claude/branch-operational-status-2lwwwu`（3セッション共用）
+- 最終commit: `36fc8ad`（S4 の最後のシクル）
+- 検証: App 619 tests / 71 files、Worker 251 tests / 17 files、ビルド成功。**migration なし**。
+- 次のステップ: 旧 `cc-session-plan.md`（S1〜S8）を削除（完了条件により恒久docs へ残さない）。
+  **2026-08-10 追記**: 削除直前版を[履歴スナップショット](archive/cc-session-plan-s1-s8-2026-08-08.md)として保存し、参照切れを解消した。
+  Codex レビュー待ち（DATA-001 / DATA-002 は状態「レビュー待ち」）。
+  SEC-005 着手可（Codex 着手待ち）。
+
 ## 2026-08-09 — CCレビュー修正を3セッションへ再編
 
 - 担当: Codex。CC branch `claude/branch-operational-status-2lwwwu@8ff46af`をread-only reviewした結果を、
@@ -37,6 +177,296 @@
   Markdown table列数一致。
 - code test/buildはdocs-onlyのため未実行。未実施: commit、push、deploy、production migration。
 - 次の再開地点: Claude Codeのtask単位handoffをproduct contractで独立reviewし、WEB-07/09の証拠へ接続する。
+
+## 2026-08-08 — S4: DATA-001 複数writeの原子性（CC 第1セッション）
+
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S4。Worker中心＋App一部。**migration なし**。
+- 棚卸完了・発注・入出庫の3つとも、ヘッダ（完了状態）と明細を**1つの `db.batch`
+  （=1トランザクション）**へまとめた。従来は棚卸完了が2回、発注が別writeの連続、入出庫が3回。
+- `inventoryLines.js` を「実行する」から「**文を組み立てて返す**」（`inventoryLineStatements`）へ変更。
+  呼び出し側が `UPDATE sessions` と同じ batch へ載せられるようにするため。
+- batch は途中で中断できないので、**明細の INSERT 自身に持ち主の確認を持たせた**
+  （`WHERE EXISTS (SELECT 1 FROM sessions/orders/movements WHERE id = ? AND shop_code = ?)`）。
+  `UPDATE sessions` を batch の先頭に置き、0行なら後続の INSERT も弾かれる。
+- 冪等性は「毎回全削除してから入れ直す」で担保。upsert だけだと品目が減った再送で前回ぶんが残る。
+- **クライアント側の部分適用も塞いだ。** `useSession.complete()` は complete API が失敗すると
+  `updateSession(id, 'completed')` へフォールバックしており、「明細の保存に失敗したのに
+  セッションだけ完了として残す」＝ DATA-001 が防ぎたい状態そのものをクライアントから作っていた。
+  削除して `{ ok:false, reason:'save_failed' }` を返し、`_finalized` も戻して再試行を塞がない。
+  **旧テスト1件（フォールバックを固定していた）を反転させた。**
+- `handleMovementCreate` のヘッダ upsert に店舗境界の WHERE が無く、事前SELECT後の競合で
+  他店のヘッダを上書きできる隙間が残っていた。`handleOrderCreate` と同じ形へ揃えた。
+- 上限: `MAX_LINES_PER_REQUEST` = 5,000行を新設（`MAX_PAYLOAD_CHARS` はJSON全体のバイト数しか
+  見ないため、短い行を大量に並べると上限内のまま数万行を1トランザクションへ詰め込める）。
+  品目名・単位は既存の `MAX_INGREDIENT_LEN` / `MAX_UNIT_LEN` で slice。
+  棚卸完了に `_tooLarge` と `inventory` の型チェックを追加（従来なし）。
+- 検証: worker `npm test` 251 passed / 17 files（+29。`atomicity.test.js` 新設）、
+  app `npm test` 619 passed / 71 files、`npm run build` 成功。
+- 未実施: 実機・本番D1での確認。**本番D1で batch がトランザクションとして巻き戻ることは未検証**。
+  ローカルは注入モックで再現しているだけ。手動確認台本6項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S4 節に残した（現行の台本は `../test-checklist-new-features.md`）。
+- 範囲外: `saveSnapshotToD1`（`store_history`）は完了処理とは別 write のまま。1つにまとめるには
+  `store_history` の session単位キー化（F-001）が要るため Phase 3（公開後）。
+- **第1セッション（S1〜S4）はこれで完了。** 8タスク全体では S1〜S8 がすべて実装済み。
+
+## 2026-08-08 — S3: DATA-002 Phase 1（CC 第1セッション）
+
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S3。**Worker と App の両方**に触れた。
+- `GET /store/:code/sessions/:id/lines` を追加。`storeHandler.js` の `handleSessionLinesGet` を
+  `index.js` の `_requireAuth`（strict同store Bearer）の内側、`/sessions/:id/complete` の直前に登録。
+  単価・在庫金額を返すためゲスト経路には置かない。
+- **店舗境界テストを先に書いた**（完了条件どおり）。`worker/src/sessionLines.test.js` を作成し
+  10件すべて失敗を確認してから実装。`session_id` だけで引くSQLではテストが落ちるモックにしてある。
+  ルーター層の401/他店舗トークン401/他店舗セッション404/自店舗200を `index.test.js` に追加。
+- 他店舗のIDと存在しないIDは**同じ404**。区別するとIDの実在を他店舗から確かめられる。
+- App 側は `services/snapshotFromLines.js`（純関数）で lines から表示用スナップショットを組み立て、
+  `App.vue` の `onViewSession` が端末にスナップショットが無いときだけ呼ぶ。
+  **localStorage にも D1 にも書き戻さない**（User判断 2026-07-28 の方式A）。
+- 復元したスナップショットは `locked: true`。`patchSnapshotItems` は localStorage の該当日付を
+  書き換える実装で、端末に実体が無い記録を編集させると「保存したつもりで消える」ため。
+- 1回の返却上限 `MAX_SESSION_LINES` = 2,000件。超過時は `truncated` を返しトーストで明示する
+  （`F-002` の転送量問題を新経路へ持ち込まないための有界化）。
+- `totalValue` はサーバーの `sessions.total_value` を優先。打ち切り時に合計が過小にならないため。
+- **`SEC-005` を着手可へ変更**（順序ブロック解除）。`SEC-005.md` / `DATA-002.md` / `task-list.md` に明記。
+- `docs/api-design.md` に認証区分つきで登録（feature-checklist §5）。DATA-002 の未解消行も更新。
+- 検証: worker `npm test` 210 passed / 16 files（+14）、app `npm test` 617 passed / 71 files（+13）、
+  `npm run build` 成功。
+- 未実施: 実機・本番D1での確認。別端末で詳細が開けること、2026-07-07の351品目が出ることは
+  **未確認**で、手動確認台本6項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S3 節に残した（現行の台本は `../test-checklist-new-features.md`）。
+- 残る穴: 復元経路では `entryLog` / `participants` / `auditLog` が空（`inventory_lines` に無い）。
+  F-001（同日2回目の上書き）と F-003（データ源二重）は Phase 3 の範囲で未解消。
+- 次の再開地点: 第1セッションの **S4（DATA-001・完了処理の原子性）**。
+
+## 2026-08-08 — CC第2セッション: 品目マスタ取込の本修理（S5・S6）
+
+- 担当: Claude Code。範囲は[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の第2セッション（S5・S6）。`worker/` は無変更。
+- 基点: `develop@f8da4c1` で実装し、push 時に `claude/branch-operational-status-2lwwwu`
+  （S1・S2・S7・S8 が先行）へ rebase して統合した。
+- **S2（止血）の後始末**: S2 の申し送り「S5 で通常取込からこの確認を外し、全置換操作にだけ残す」を実施した。
+  - 外した: `SettingsModal.handleFile` / `SettingsModal.onMapperImported` / `PdfImporterModal.onImport`
+    の `confirmMasterImport` 呼び出し3箇所、`SettingsModal.vue` の `.replace-warn` とそのCSS、
+    `useConfig.js` の暫定コメント2箇所（全置換代入そのものが無くなったため）。
+  - 残した: `utils/masterImportWarning.js` は削除せず、`ItemImportPreviewModal` の
+    **「全入れ替え」確定時だけ**呼ぶようにした。冒頭コメントを現状に合わせて書き換え、
+    `masterImportWarning.test.js` の8件はそのまま緑。
+  - `HELP.import` は S2 の全置換文言からマージ後の挙動へ書き換えた。
+  - S2 の手動確認台本のうち 2〜5・7 は前提が変わったため、差し替えを
+    `../test-checklist-new-features.md` の S 節へ置いた（旧計画の S2 節は[履歴](archive/cc-session-plan-s1-s8-2026-08-08.md)に保存）。
+- 統合時のコード衝突は S2 由来のみ（4ファイル）。S7・S8 とはファイルが重ならず衝突なし。
+
+### S5 — 取込のマージ化
+
+- 取込を「解析 → 計画 → 適用」の3段へ分離し、純粋関数を `app/src/utils/itemImport.js` へ新設。
+  計画（`buildImportPlan`）は `config` を書き換えないため、プレビューと実取込が同じ結果になる。
+- **既定を「追加・更新」に変更**。`loadFromCSV` / `loadFromCSVMapped` はファイルに無い既存品目を
+  消さず、同名品目はファイルにある列だけ上書きする。空欄列は既存値を保持。
+- **全入れ替えは `{ mode: 'replace' }` を明示したときだけ**。UI では確認画面のラジオ＋
+  削除件数の警告＋確認チェックを通さないと実行できない。
+- Free上限はマージ時に既存品目を削らない。空きぶんだけ新規を入れ、残りを `truncated` で返す。
+- 推奨フォーマット（`exportConfigCSV` の出力）の往復を成立させた。従来 `loadFromCSV` が
+  無視していた並び替え軸列（10・11列目）を読み、軸名未設定なら列名を採用する。
+- 発注点の既存仕様（列があって空セルなら解除／列が無ければ非破壊）は維持。
+
+### S6 — 取込前プレビュー
+
+- `ItemImportPreviewModal.vue` を新設し、CSV / 列指定 / PDF・Excel の**全経路を確定前に通す**。
+  PdfImporterModal は品目マスタへ直接書かず、変換したCSVを確認画面へ渡す方式へ変更した。
+- 表示: 追加・更新・変更なし・除外（＋全入れ替え時は削除）の件数、取込後の総件数、
+  更新される品目のフィールド単位の差分（変更前 → 変更後）、除外行の**行番号と理由**。
+- Free上限による切り捨てを**取込前に**警告する（従来 `_capForPlan` が無言で切っていた）。
+- PDF取込をβ表記にした（PdfImporterModal のタイトル・注記、取込導線のサブテキスト、
+  SettingsModal のドロップゾーン）。
+- 取込直後に限り1回だけ「取込前に戻す」ができる（`undoLastImport`）。メモリ上の退避のみで、
+  再読込・アカウント切替（`resetLocalData`）・ホスト設定受信（`applyRemoteConfig`）・
+  取込以外の品目変更（`_save`）で失効する。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) S6 の注記どおり、
+  恒久的なスナップショット機構は作っていない。
+
+### 変更ファイル
+
+- 新規: `app/src/utils/itemImport.js`、`app/src/components/ItemImportPreviewModal.vue`、
+  `app/src/composables/useConfig.importMerge.test.js`、`app/src/composables/useConfig.importPreview.test.js`
+- 変更: `app/src/composables/useConfig.js`、`app/src/components/SettingsModal.vue`、
+  `app/src/components/PdfImporterModal.vue`、`app/src/components/MasterManagePage.vue`、
+  `app/src/composables/useConfig.axes.test.js`
+
+### 検証（S1・S2・S7・S8 と統合したあとの実行結果）
+
+- `cd app && npx vitest run`: **70 files / 604 tests passed**。
+  S5・S6 単体では 65 files / 569 tests passed（S1〜S4・S7・S8 を含まない基点での実行）。
+- `cd app && npm run build`: 成功（PWA precache 17 entries / 2518.25 KiB）。既知のchunk警告のみ。
+- `cd worker && npm test`: **15 files / 196 tests passed**（無変更の確認）。
+- `git diff --check`: 指摘なし。
+- 既存テストの変更は1件のみ: `useConfig.axes.test.js` の
+  「再インポートで既存割り当てを名前一致で維持し、新規はその他」を `mode: 'replace'` へ明示化し、
+  既定（マージ）側の対応ケースを追加した。全置換前提を書いていたのはこの1件だけ。
+  S2 の `masterImportWarning.test.js`（8件）は変更せずに緑のまま。
+
+### 仕様上の判断
+
+- 実装とヘルプ文言が食い違っていた件は**文言側（追加マージ）を正**とした。
+- 「上書き」は列単位。同名品目でも空欄列は既存値を消さない（発注点だけ明示解除あり）。
+- 取込の取り消しは永続化していない。永続化の要否は提案箱でPM判断待ち。
+
+### 残っているリスク
+
+- 🖐 実機UI未確認（375px・デスクトップ）。この環境にブラウザ自動化がない。
+- 全入れ替えを選んだ場合の破壊性は変わらない。確認UIと事前の削除件数表示で防いでいる。
+- 取込の取り消しはメモリ上のみ。取込直後にタブを閉じる・再読込すると戻せない。
+  マージ既定で破壊性自体が下がっているため許容範囲と判断したが、永続化の要否はPM判断。
+- 差分計算は「取込後の値 vs 現在の値」で、品目数×フィールド数に比例する。
+  Free上限150品目では問題ないが、Pro相当の数千品目でプレビューの体感を実測していない。
+
+### migration
+
+- **なし**。D1スキーマ・`worker/migrations/` は無変更。config スキーマも変えていないため
+  `RoomDO.normalizeConfig` と同期payloadへの影響もない。
+
+### Codex にレビューしてほしい点
+
+1. **既定をマージへ変えた判断そのもの**。`loadFromCSV(csv)` の意味が変わる後方非互換で、
+   呼び出し元は全て付け替えたが、これを製品仕様として確定してよいか。
+2. **`buildImportPlan` の全置換モード**（`app/src/utils/itemImport.js`）。
+   `reorderPoints` だけ「発注点列が無ければ既存を保持」という既存の非対称仕様を引き継いでいる。
+   ファイルに無い品目の発注点が残る点は従来どおりだが、意図した挙動か再確認してほしい。
+3. **Free上限の扱い**。マージ時は `itemLimit - 既存件数` を空きとし、既存が上限を超えていても
+   （Pro→Free の降格や過去データ）既存は削らず新規だけ弾く。プラン境界としてこれでよいか。
+4. **取り消し（`undoLastImport`）の失効条件**。`_save()` 経由で失効させ、
+   `resetLocalData` / `applyRemoteConfig` でも明示的に破棄している。
+   アカウント境界で前アカウントの品目マスタが復元されうる経路が残っていないか。
+5. **`masterImportWarning.js` の残し方**。S2 の申し送りに従い全入れ替え確定時だけ呼んでいるが、
+   確認画面のチェックボックスと二段になる。片方に寄せるべきかは判断を仰ぎたい。
+
+### 未実施
+
+- deploy、production migration（migration は不要）。
+- DoD セルフチェックは下記。N/A 理由つき。
+  - 1 UI・表示: 🖐 スマホ / タブレット / PC の実機確認が**未実施**（要User確認）。
+    空状態（0件取込・全行除外）はエラーメッセージで処理。
+  - 2 入力・データ: 🤖 バリデーション済み。localStorage キー追加なし（退避はメモリのみ）。
+    config フィールド追加なし＝`RoomDO.normalizeConfig` 影響なし。D1・migration なし。
+    再インポート時の軸割り当て維持はテストで固定。
+  - 3 エラー処理: 解析エラーは日本語で確認画面に表示。通信を伴わないため通信エラー項目は N/A。
+  - 4 同期・多人数: 取込は既存どおり `_save()` → `_onConfigChanged` で伝播。WSメッセージ型の追加なし。
+    ゲストは取込導線が非表示のため多人数項目は N/A。
+  - 5 権限・認可: 新エンドポイントなし・D1クエリなしのため N/A。プラン境界は `isPro()` 経由で維持。
+  - 6 ログ・監査: 品目マスタ取込は従来から auditLog 対象外（同期の config 更新として伝播）。変更なし。
+  - 7 ナビゲーション: 確認画面は既存モーダル規約（`useEscapeKey` + `.modal-overlay`）に合わせた。
+    🖐 Android の戻る操作は未確認。既存モーダルと同じ扱いが必要かは実機確認で判断する。
+  - 8 通知: N/A（通知を出さない）。
+  - 9 テスト・ドキュメント: 🤖 ユニットテスト追加済み。
+    `test-checklist-new-features.md` と `project-status.md` の更新は本セッションで実施。
+
+## 2026-08-08 — CC第3セッション: S7（保存失敗の可視化）/ S8（画面を棚卸中心へ）
+
+- 担当: Claude Code。台本は[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の第3セッション（S7・S8）。**現行の第3セッションとは別物。**
+- ブランチ: `claude/branch-operational-status-2lwwwu`（`develop@f8da4c1` から）。
+  作業開始時点で S1〜S6 は本ブランチに未取り込みだったため、**S7/S8 はそれらに依存しない範囲で完結させた**。
+  push 時に第1セッションの S1・S2（`6b336ac` / `d12878b`）が先に入っていたため rebase し、
+  docs 3件（`session-log` / `task-list` / `DATA-002`）の衝突を解消した。コードの衝突は無し。
+
+### S7 — DATA-002 Phase 2（保存失敗の可視化・バックフィル）
+
+- 未送信キュー（`_pending` / `_snapQueue` / `_orderQueue` / `_moveQueue`）を localStorage
+  `_pending_saves_v1` へ永続化。payload に `shopCode` を持たせ、**別店舗のキューは読み込み時に破棄**する。
+  `resetAccountData` / `clearLocalAccountData` の消去対象に追加した。
+- 棚卸完了が `saveSnapshotToD1` の結果を待つようにし、未送信ならトーストで明示。
+  `ConnectionBanner` に `failed`（連続失敗2回以上）表示を追加し、未送信件数を出す。
+- `services/historyBackfill.js`（純関数 `missingSnapshots`）を追加。履歴を読む3経路
+  （起動 / ログイン / セッション開始）で、端末にあって D1 に無い・D1 側が古いスナップショットを送り直す。
+- 起動時に `resumePendingSaves()` を呼び、接続復帰イベントを待たずに前回の未送信分を送る。
+- 付随修正2点: `applyRemoteHistory` が端末側の新しいスナップショットを潰していたのを修正（同時刻はリモート優先＝従来どおり）。
+  再送間隔を指数バックオフ化（8秒 → 最大2分）。
+- **Phase 1（`GET /store/:code/sessions/:id/lines`）は未着手**。別セッション担当のため `worker/` は1行も触っていない。
+  2026-07-07 の351品目の復旧は Phase 1 側。
+
+### S8 — 画面を棚卸中心へ
+
+- セッションタブを「① 品目を準備 → ② 棚卸をする → ③ 記録を見る」の順路へ組み直し、
+  履歴カレンダーへの導線を第一導線の終点として追加した。
+- 入出庫・発注確認・発注スケジュールを区切り線から下の **β機能**（`.beta-group`）へ移動。
+  「発注確認」→「**発注内容の確認・記録（β）**」へ改称し、**仕入先へ自動送信されない**旨を常時表示。
+- 出庫は主導線から外し、`MovementPage` 内のタブとしては残した（記録は削除していない）。
+- 理論在庫の誤差要因（未記録の使用・ロス・納品）をホームカードと `MovementPage` の両方に明示。
+- データ管理カードの点滅を**品目0件のときだけ**にした（棚卸開始と注意を奪い合わないため）。
+- `DesktopNav` の並びを 棚卸 → 品目マスタ → 在庫・入庫（β）へ。
+- `eb99895` の2列グリッドを書き換え、対象を panel 全体から `.beta-group` へ縮小。
+  同コミットの `(pointer: coarse)` タップ領域確保は**残している**。
+
+### 検証
+
+- App: `npm test` 67 files / **558 passed**（変更前 63 files / 531）。`npm run build` 成功。
+  CSS 226.06kB → 228.08kB（gzip 35.98 → 36.33kB）。
+- Worker: `npm test` 15 files / **196 passed**（`worker/` は未変更・回帰確認のみ）。
+- 追加テスト4件: `useStore.pending.test.js`（永続化・店舗境界・容量不足・失敗回数）、
+  `historyBackfill.test.js`（差分判定）、`useHistory.remote.test.js`（上書き規則）、
+  `SessionListPage.flow.test.js`（順路の並びと文言）。
+- **未実施**: 実ブラウザでの目視確認（この環境にブラウザ自動化が無い）。手動確認の台本は
+  [`tasks/UI-001.md`](tasks/UI-001.md) に追加した。deploy・D1 migration は行っていない（migration の追加なし）。
+
+### 共通DoD（[`../feature-checklist.md`](../feature-checklist.md)）セルフチェック
+
+| 節 | 結果 |
+|---|---|
+| 1. UI・表示 | 🖐 375px / タブレット / PC の目視は**未実施**（台本を `tasks/UI-001.md` へ追加）。空状態は「完了した棚卸はまだありません」を履歴導線に用意。ホームカードのテーマ色（棚卸=青 / 入出庫=緑 / 発注=オレンジ）は維持。最小フォントは 11px の注記が既存カードと同水準 |
+| 2. 入力・データ | `_pending_saves_v1` を `storageKeys.js` へ登録。`clearLocalAccountData` と `resetAccountData` の消去対象に追加。D1永続化の要否＝**未送信キューは端末専用で正しい**（D1 へ送れなかったものの控えなので、D1 に置く対象ではない）。schema変更なし＝**migration なし**。config へのフィールド追加なし＝`normalizeConfig` 変更不要 |
+| 3. エラー処理・通信 | 保存失敗は日本語の明示表示（トースト＋バナー）。再送はバックオフ上限2分で無限即時リトライにしない。バックフィルは1回10件上限。**フェイルの方針**: 履歴取得が失敗（null）したときは「D1 は空」と解釈せず**何も送らない**（誤って全件上書きしないため）。機内モード実機確認は未実施 |
+| 4. 同期・多人数 | **N/A**。WS メッセージ型・DO storage は未変更。ホスト完了経路の待ち追加のみで、ゲストへ送る内容は変わらない |
+| 5. 権限・認可 | **N/A（サーバー側は未変更）**。client 側の店舗境界として、復元した未送信キューは `shopCode` 照合で他店舗分を破棄する |
+| 6. ログ・監査 | 秘匿情報の出力なし。未送信件数のみ表示（単価・PIN・トークンは出さない） |
+| 7. ナビゲーション | 履歴導線はタブ切替のみで `currentView` を変えないため、`_closeTopLayer` の規約に影響しない。β機能の移動は既存 emit の位置変更のみ |
+| 8. 通知 | プッシュは**N/A**。トーストは保存失敗時の1回のみ（成功時は従来どおり） |
+| 9. テスト・ドキュメント | ユニットテスト4ファイル追加（App 558 passed）。手動台本は `tasks/UI-001.md` へ（`test-checklist-new-features.md` は自ら「履歴snapshot・現行checklistではない」と宣言し、現在のtask固有検証は `tasks/<ID>.md` を正としているため、そちらへ追加した）。`project-status.md` の実装済み節を更新。設計判断は `proposals.md` へ投稿 |
+
+### 未決・引き渡し
+
+- 設計判断は [`../proposals.md`](../proposals.md) の 2026-08-08 エントリ2件へ投稿済み（PMトリアージ待ち）。
+  特に **`applyRemoteHistory` の上書き規則変更**と**完了処理が明細保存を待つようになった点**は既存挙動の変更。
+- Codex へのレビュー希望: アカウント境界（`_pending_saves_v1` の店舗照合）、
+  バックフィルが D1 を過剰に上書きしないか、完了処理の待ち追加と `DATA-001`（S4）の設計が衝突しないか。
+- 次の再開地点: Phase 1（S3）と DATA-001（S4）。どちらも `worker/` 側で、本セッションの差分とは重ならない。
+
+## 2026-08-08 — S2: 品目マスタ取込の止血（CC 第1セッション）
+
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の S2。**挙動は変えず、警告と文言だけを追加**。
+- 実害: `loadFromCSV` / `loadFromCSVMapped` は品目リストを**全置換**する。ファイルに無い品目と、
+  その単価・別名・カテゴリが消える。一方UIの説明は「品目名が一致するものは上書き、無いものは追加」＝
+  追加マージを約束しており、300品目の店舗が50品目のファイルを入れると250品目が消えていた。
+- `app/src/utils/masterImportWarning.js` を新設。全置換であることを説明する確認を、
+  **3つの取込入口すべて**へ入れた（CSV直接 / 列指定マッパー / PDF・Excel）。
+  品目0件のときは失うものが無いため確認しない。confirm が使えない環境では中止（同意なしに破壊しない）。
+- ファイル選択**前**に見える警告を `SettingsModal` のドロップゾーン上へ追加（`.replace-warn`）。
+  確認ダイアログはファイルを選んだ後にしか出ないため。
+- `MasterManagePage.vue` の `HELP.import` を実装の挙動へ一致させた。
+- 暫定である旨を `masterImportWarning.js` 冒頭、`useConfig.js` の全置換代入の直前2箇所、
+  `HELP.import` の上に残した。S5 で外す対象も[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)に列挙した。
+- 検証: `npm test` 539 passed / 64 files（新規8件）、`npm run build` 成功。
+  CSS 226.06 → 226.26kB（gzip 35.98 → 36.03kB）。
+- 未実施: 実ブラウザでの目視確認。手動確認台本8項目を[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md)の S2 節に残した（現行の台本は `../test-checklist-new-features.md`）。
+- feature-checklist セルフチェック結果は同節と本コミットに記載。
+- 次の再開地点: **S3（DATA-002 Phase 1）**。完了時に Codex へ `SEC-005` の着手可を通知する。
+
+## 2026-08-08 — S1: 担当と公開範囲の記録更新（CC 第1セッション）
+
+- 担当: Claude Code。[旧計画（S1〜S8）](archive/cc-session-plan-s1-s8-2026-08-08.md) の第1セッション S1。**docsのみでcode変更なし**。
+- 作業ブランチ `claude/branch-operational-status-2lwwwu` を3セッション共有として確定。
+  `develop@f8da4c1` を fast-forward 取り込み済み。
+- 担当変更: `DATA-001` を Codex → **Claude Code**、`DATA-002` を 未割当 → **Claude Code**。
+  優先度・状態・release gate（`WEB-01`〜`WEB-10`）の判定基準は変更していない。
+- 初回Web版の中心を **棚卸業務の効率化** と明記。第一導線は
+  「品目を準備 → 棚卸開始 → 入力 → 完了 → 履歴」。入出庫・発注確認は **β機能**、出庫は主導線から外す。
+  新機能は追加せず既存機能の整理と安定化に限定する方針を `task-list.md` と
+  `web-release-readiness.md` の両方へ記載した。
+- `DATA-002.md` の「着手時期: Codexの作業が完了した後。それまで着手しない」（2026-07-28 User判断）を
+  **打ち消し線で原文を残したまま失効**とし、失効理由（担当がCCへ移り前提が成立しない）と
+  新しい着手時期（即時着手可・ただしPhase 1をSEC-005より先に完了）を追記した。
+- **`DATA-002` Phase 1 → `SEC-005` の順序を固定**。`worker/src/index.js` の store ルート群で競合するため。
+  `DATA-002.md` / `SEC-005.md` / `task-list.md` / `web-release-readiness.md`（`WEB-05`）へ記載。
+  CCはPhase 1完了時にCodexへ着手可を通知する。
+- `DATA-002` **Phase 3** と **過去棚卸取込の再設計** を初回公開scope外（公開後）と確定。
+  Phase 3 は migration を伴い、本番D1に 0010/0011 未適用（`WEB-04`）のため判断材料が揃わない。
+  過去棚卸取込は Phase 3 完了が前提。新規IDは作らず `DATA-002` の公開後フェーズとして扱う。
+- `WEB-07` の Owner を Codex → **Claude Code / Codex** へ更新（実装がCCへ移ったため。公開判定はCodexのまま）。
+- 未実施: code修正、test/build（docsのみのため）、production deploy、migration、外部service変更。
+- 次の再開地点: 第1セッションの **S2（品目マスタ取込の止血）**。その後 S3（DATA-002 Phase 1）→ S4（DATA-001）。
 
 ## 2026-08-04〜2026-08-06 — DOC-001: Web公開を目標にdocs全体を再編
 
