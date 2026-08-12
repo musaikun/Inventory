@@ -42,20 +42,20 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 
 | Method / path | 主なbody / response | Auth |
 |---|---|---|
-| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは約100万文字guard | soft |
-| `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは約100万文字guard | soft |
-| `GET/POST /store/:code/history` | GETは新しい順50件。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012） | soft |
-| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない | soft |
+| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard | soft |
+| `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは1 MB（UTF-8 byte）guard | soft |
+| `GET/POST /store/:code/history` | GETは新しい順50件で各行に`serverRevision` / `serverSavedAt`を含む。POSTは`{ok,sessionId,date,serverRevision,serverSavedAt}`。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012）。revisionは保存のたびに`shop_code`内の最大値+1（migration 0014） | soft |
+| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft |
 | `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
 | `GET/POST /store/:code/orders` | `sinceDays`は1〜1000日、default 400。header + lines | soft |
-| `DELETE /store/:code/orders/:id` | 同store ownerだけ削除。不在/他storeは404 | soft |
-| `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
-| `DELETE /store/:code/movements/:id` | 同storeのheader/linesを削除し`{ok:true}` | soft |
+| `DELETE /store/:code/orders/:id` | header/linesを1 batchで削除。不在/他storeは404 `order_not_found`、rollbackは503 `order_delete_failed`（retryable） | soft |
+| `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。`type`は`in` / `out`必須（不正値は400 `invalid_type`）、`orderId`の形式不正も400。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
+| `DELETE /store/:code/movements/:id` | header/linesを1 batchで削除。不在/他storeは404 `movement_not_found`、rollbackは503 `movement_delete_failed`（retryable）。**HTTP statusで返す**（旧実装は常に200） | soft |
 | `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成 | strict同store Bearer |
 | `PUT/DELETE /store/:code/sessions/:uuid` | status/itemCount更新または削除 | strict同store Bearer |
-| `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt? }` → `{ok,sessionId,itemCount,totalValue}` | strict同store Bearer |
+| `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。**snapshotは必須**（無ければ400 `snapshot_required`）。sessions / `inventory_lines` / `store_history` を1 batchで書き、snapshotは`sessions`を参照する`INSERT ... SELECT`なので孤児を作らない | strict同store Bearer |
 | `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
-| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[], snapshot? }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced}`。session / `inventory_lines` / `store_history` を1つの`db.batch`で書く。同じ`batchId`＋同じ`date`の再送は同じsessionを貼り直す（冪等） | strict同store Bearer |
+| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
 | `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionだけを消し、通常の棚卸（NULL）と別バッチには触れない。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
 
@@ -189,13 +189,13 @@ D1 データベース                               ← データを取る
 | PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/inventory` | `{ inventory, recountFlags, sessionId, savedAt }` | `{ ok: true }` | ソフト† |
-| GET | `/store/:code/history` | — | `[ snapshot, ... ]`（最新50件） | ソフト† |
-| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok: true }` | ソフト† |
-| DELETE | `/store/:code/history/:date` | — | `{ ok: true }` | ソフト† |
+| GET | `/store/:code/history` | — | `[ { ...snapshot, sessionId, serverRevision, serverSavedAt }, ... ]`（最新50件） | ソフト† |
+| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok, sessionId, date, serverRevision, serverSavedAt }` / 400 | ソフト† |
+| DELETE | `/store/:code/history/:key` | — | `{ ok, removed }` / 400 / 503 | ソフト† |
 | PUT | `/store/:code/room` | `{ roomCode }` | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/orders` | — | `[ order, ... ]` | ソフト† |
 | POST | `/store/:code/orders` | 発注レコード | `{ ok: true, id }` | ソフト† |
-| DELETE | `/store/:code/orders/:id` | — | `{ ok: true }` | ソフト† |
+| DELETE | `/store/:code/orders/:id` | — | `{ ok: true }` / 404 / 503 | ソフト† |
 | POST | `/store/:code/push/subscribe` | PushSubscription JSON（最大8KiB） | `{ ok: true }` | Bearer必須 |
 | DELETE | `/store/:code/push/subscribe` | `{ endpoint }` | `{ ok: true }` | Bearer必須 |
 
@@ -209,17 +209,17 @@ D1 データベース                               ← データを取る
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
 | GET | `/store/:code/sessions` | — | `[ session, ... ]`（最新50件） | Bearer |
-| POST | `/store/:code/sessions` | — | `{ id, shopCode, startedAt, status, itemCount }` | Bearer |
-| PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }` | `{ ok: true }` / 400 | Bearer |
+| POST | `/store/:code/sessions` | `{ type? }`（`stock` / `order`） | `{ id, shopCode, startedAt, status, itemCount, type }` / 400 | Bearer |
+| PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }`（itemCountは0以上の整数のみ） | `{ ok: true }` / 400 | Bearer |
 | DELETE | `/store/:code/sessions/:id` | — | `{ ok: true }` | Bearer |
-| POST | `/store/:code/sessions/:id/complete` | `{ inventory, totalValue, auditLog, participants }` | `{ ok, sessionId, itemCount }` | Bearer（§3.1 の実装・✅済み） |
+| POST | `/store/:code/sessions/:id/complete` | `{ inventory, prices, takenAt?, snapshot }` | `{ ok, sessionId, itemCount, totalValue, snapshotSaved, serverRevision, serverSavedAt }` / 400 / 404 / 503 | Bearer（§3.1 の実装・✅済み） |
 | GET | `/store/:code/sessions/:id/lines` | — | `{ sessionId, date, startedAt, endedAt, status, type, itemCount, totalValue, truncated, lines[] }` / 404 | Bearer（DATA-002 Phase 1・✅済み） |
 
 ### 1.3.1 過去棚卸の取込API（`pastImport.js`・要認証 / IMPORT-001）
 
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
-| POST | `/store/:code/imports/:batchId/sessions` | `{ date, items[], replaceSessionIds?[], snapshot? }` | `{ ok, sessionId, date, itemCount, totalValue, importBatchId, replaced }` | Bearer |
+| POST | `/store/:code/imports/:batchId/sessions` | `{ date, items[], replaceSessionIds?[] }` | `{ ok, sessionId, date, itemCount, totalValue, importBatchId, replaced, snapshotSaved, serverRevision, serverSavedAt }` / 400 / 409 / 413 / 503 | Bearer |
 | DELETE | `/store/:code/imports/:batchId` | — | `{ ok, removed, sessionIds[], importBatchId }` | Bearer |
 
 取込で作るのは**通常の棚卸と同じ session** です（migration 0012 の sessionId identity をそのまま使う）。
@@ -229,14 +229,26 @@ D1 データベース                               ← データを取る
   日数×品目数を1回のbatchへ入れると、D1 の 1 invocation あたりの statement 上限を超えるためです。
 - **原子性**: session・`inventory_lines`・`store_history` を1つの `db.batch` で書きます。
   途中で落ちれば全部巻き戻り、`503` / `retryable: true` を返します。
-- **冪等性**: 同じ `(shop_code, batchId, date)` は既存 session を貼り直します。再送でsessionは増えません。
+- **冪等性**: `sessionId` は `(shop_code, batchId, date)` から決まる決定的UUID（SHA-256 由来のv5相当）です。
+  応答を取りこぼした再送も、同時に届いた2本も、同じ行の upsert に収束します。
+  DB側にも `UNIQUE(shop_code, import_batch_id, started_at) WHERE import_batch_id IS NOT NULL`
+  （migration 0014）を置き、旧ランダムIDの行が割り込んだ場合は batch ごと失敗させて2件目を作りません。
   明細は貼り直し前に削除するので、品目が減った再取込で前回分が残りません。
+- **snapshot はserverが作る**: client の `snapshot` は保存しません。検証済みの行から
+  `items` を含む canonical snapshot を組み立てて `store_history` へ書きます。
+  items を持たない snapshot を保存できると、「一覧には出るのに詳細が空」（R-001）を取込経路から作れるためです。
 - **同日衝突**: 既定では何も消さず、別 session として共存します（0012 で同日複数 session が可能）。
-  上書きは client が `replaceSessionIds` で**明示指定した session だけ**を、`shop_code` の内側で削除します。
+  上書きは client が `replaceSessionIds` で**明示指定した session だけ**です。許可条件は
+  **同じ店舗・同じ日付・`completed`・`stock`** の4つで、1件でも外れたら `409 replace_not_allowed`
+  （`reason` = `not_found` / `date_mismatch` / `not_completed` / `not_stock`）で**全体を拒否し、何も削除しません**。
+  他storeのIDと存在しないIDは同じ `not_found` にして実在を漏らしません。
+  削除は件数によらず3文（`inventory_lines` / `store_history` / `sessions`）へ `IN` で集約するため、
+  上限50件でも statement 数は増えません。
 - **取消**: `import_batch_id` の一致だけを条件に消すため、別バッチと通常の棚卸は残ります。
 - **検証**: 日付は実在日（`2026-02-30` は拒否）、`items` は `MAX_LINES_PER_REQUEST`（500）まで、
+  `replaceSessionIds` は `MAX_REPLACE_SESSIONS`（50）まで、
   数量は棚卸と同じ契約（`0` は正当・負数と非有限は拒否・`0` へ丸めない）、
-  品目名 200 / 単位 50 文字で切り詰め、payload 全体は約100万文字guard。
+  品目名 200 / 単位 50 文字で切り詰め、payload 全体は 1 MB（**UTF-8 byte**）guard。
 
 `lines[]` は `{ item, qty, unit, unitPrice, subtotal, category }`。`rowid` 順＝完了時の挿入順で返します。
 1回の上限は `MAX_SESSION_LINES`（2,000件）で、超過分は打ち切り `truncated: true` を返します
@@ -298,25 +310,36 @@ APIから見るとどう変わるかを設計する。
 現状バラバラな「完了時の3処理」を1つのAPIに集約し、サーバー側で一括実行する。
 途中失敗による不整合を防ぐ（トランザクション化）。
 
+R2 は未導入のため、生スナップショットは D1 `store_history` へ同じ batch で書きます（現行の実装）。
+
 ```
 POST /store/:code/sessions/:id/complete        （要認証）
 
 リクエスト:
 {
-  inventory:    { "コーヒー豆": { qty: 5, unit: "kg", ... }, ... },
-  totalValue:   48000,
-  auditLog:     [ ... ],
-  participants: [ ... ]
+  inventory: { "コーヒー豆": { qty: 5, unit: "kg" }, ... },
+  prices:    { "コーヒー豆": 2000, ... },
+  takenAt:   "2026-08-11",           // 省略時は当日。実在日でなければ 400
+  snapshot:  { date, items[], ... }  // **必須**。無ければ 400 snapshot_required
 }
 
-サーバー側の処理（1トランザクション相当）:
-  1. inventory を inventory_lines に1品目1行で展開INSERT（当時の単価を焼き込む）
-  2. 生スナップショット（auditLog含む）を R2 に保存
-  3. sessions を status='completed', total_value, archive_key で更新
+サーバー側の処理（1 db.batch = 1トランザクション）:
+  1. UPDATE sessions … status='completed', ended_at, item_count, total_value
+  2. DELETE + INSERT inventory_lines（複数行を1文へまとめる。持ち主は sessions への JOIN で確認）
+  3. INSERT INTO store_history … SELECT … FROM sessions WHERE id=? AND shop_code=?
+     （sessions を参照するので、直前にセッションが消えても snapshot だけが残らない）
 
 レスポンス:
-{ ok: true, sessionId, itemCount, archiveKey }
+{ ok: true, sessionId, itemCount, totalValue, snapshotSaved: true, serverRevision, serverSavedAt }
 ```
+
+- **snapshot 必須**（第2セッション §1）。明細だけ書いて表示用 snapshot が無い状態が R-001 そのもので、
+  完了要求に載せさせることで3テーブルを必ず同時に揃えます。
+- **孤児を作らない**: 事前の存在確認と batch の間にセッションが消える／他店舗のものになる競合でも、
+  UPDATE が0行になり、`inventory_lines` と `store_history` も存在条件で0行になります。応答は404。
+- **冪等**: 同じ `sessionId` へ同じ payload を再送しても、明細を貼り直し snapshot を上書きするだけです。
+- **新旧判定**: `serverRevision` は `store_history` 保存のたびに `shop_code` 内の最大値+1 で採番されます。
+  client の `updatedAt` / `savedAt`（端末時計）はサーバー側の判定に使いません。
 
 ### 3.2 履歴詳細API（新設・R2から取得）
 

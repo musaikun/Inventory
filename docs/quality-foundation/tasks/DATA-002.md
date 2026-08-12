@@ -302,3 +302,95 @@ Codex による全差分の独立レビュー前なので、`完了` にも `WEB
 - 統合後の再実行結果: App 79 files / 747 tests passed、Worker 20 files / 367 tests passed、
   `npm run build` 成功。
 - 未実施は上記「未実施」節のとおり（実D1・実機・migration適用）。0013 も未適用として加わる。
+
+## Worker / D1 契約の修正（2026-08-12 / Claude Code・CCレビュー修正 第2セッション）
+
+Codexレビューを受けた第2セッション（Worker・D1・履歴契約・削除API）の差分。App側（`app/src`）は変更していない。
+状態は `進行中 / Claude Code` のまま。Codex再レビュー前なので `完了` にも `WEB-07` 通過にもしていない。
+
+- 対象branch: `claude/worker-d1-atomicity-history-delete-eyek0c`（`07cc29f` を含む develop descendant）
+
+### 1. 棚卸完了APIをsnapshot必須・孤児ゼロにした
+
+| 直したこと | 実装 |
+|---|---|
+| snapshotを必須化 | `handleSessionComplete`。無指定は `400 snapshot_required`。明細だけ書いて表示用snapshotが無い状態＝R-001そのものを、APIとして作れなくした |
+| 孤児snapshotを作らない | `sessionSnapshotStatement()` を新設。`INSERT INTO store_history … SELECT … FROM sessions WHERE id=? AND shop_code=? AND deleted_at IS NULL`。旧 `VALUES` 形式では、事前の存在確認と `db.batch` の間にセッションが消えても snapshot だけ書き込まれた |
+| takenAt / snapshot.date の検証 | `parseDate` を通し、不正値は `400 invalid_date`。従来は無検証で `taken_at` 列へそのまま入っていた |
+| 再送の冪等性 | 明細は貼り直し、snapshotは同じ行をupsert。`sessions` の UPDATE は同値でも1行 |
+| 応答 | `{ ok, sessionId, itemCount, totalValue, snapshotSaved: true, serverRevision, serverSavedAt }` |
+
+**Appへの影響（未対応・第3セッション以降の課題）**: `App.vue` の完了経路のうち
+`setSessionEndedCallback`（`app/src/App.vue:818`）と「完了済みセッションを離れる」経路
+（同 `:1314`）は snapshot を付けずに `completeSessionD1()` を呼んでいる。
+本変更でこの2経路は `400 snapshot_required` になる。`_finishSession`（同 `:1234`）は snapshot を送るため影響しない。
+App側を触らない指示のため未修正。**このまま統合するとApp側の2経路が壊れる**ので、
+第3セッションかApp担当セッションで snapshot を載せる修正が必要。
+
+### 2. 履歴に server revision を持たせた（migration 0014）
+
+- `store_history` へ `revision`（`NOT NULL DEFAULT 0`）と `updated_at` を追加。
+- 採番は upsert のたびに `COALESCE(MAX(revision) WHERE shop_code=?, 0) + 1`。同じ行を上書きしても必ず増える。
+- `GET /history` は各行に `serverRevision` / `serverSavedAt` を含める。
+  `POST /history` は保存後の `serverRevision` / `serverSavedAt` を返す。
+- client の `updatedAt` / `savedAt`（端末時計）はサーバー側の新旧判定に一切使わない。
+- 既存行は `revision = id` / `updated_at = created_at` でバックフィルする。
+
+`POST /history` は**セッション行の存在を確認しない**ままにした。PIN未設定のレガシー店舗は
+`/sessions`（strict Bearer）を使えず `sessions` 行を持たないため、存在を要求すると履歴保存そのものが
+できなくなる。棚卸完了と過去取込だけが存在確認つきの経路を使う。**この経路からは孤児snapshotを作れる**
+（F-004の残り）ため、Phase 3 の課題として残す。
+
+### 3. 削除APIのHTTPステータス契約
+
+- `DELETE /store/:code/movements/:id` を `resultResponse` 経由にした。従来は常に200で、
+  404（不在・他店舗）も503（batch巻き戻し）も本文の差にしかならず、clientが削除失敗を検知できなかった。
+- `DELETE /store/:code/history/:key` も `resultResponse` 経由にし、失敗を `503 history_delete_failed`
+  （`retryable: true`）で返すようにした。削除件数 `removed` も返す。
+- 404 に機械可読な `code`（`movement_not_found` / `order_not_found` / `session_not_found`）を付けた。
+- `DELETE /store/:code/sessions/:id` も `resultResponse` へ揃えた（現状の戻り値は変わらない）。
+
+### 4. 過去棚卸API
+
+| 直したこと | 実装 |
+|---|---|
+| canonical snapshot をserverが生成 | `_canonicalSnapshot()`。検証済み行から `items` を含む snapshot を組み立てる。clientの `snapshot` は形だけ検証して保存しない |
+| replace の許可条件 | 同じ店舗・同じ日付・`completed`・`stock` の4条件。1件でも外れたら `409 replace_not_allowed`（`reason` / `sessionId` 付き）で全体を拒否し、何も削除しない |
+| replace 削除のstatement集約 | 件数によらず3文へ `IN` で集約。50件でも `IN` 50 + shop 1 = 51 bound params（上限100） |
+| 同一 batchId + date の一意性 | `sessionId` を `(shop_code, batchId, date)` のSHA-256から決定的に採番（UUID v5相当）。加えて migration 0014 で `UNIQUE(shop_code, import_batch_id, started_at) WHERE import_batch_id IS NOT NULL` |
+| response loss後の再送 | 決定的IDにより同じ行のupsertへ収束する |
+| cancel | 変更なし（`import_batch_id` 一致のみを削除。通常棚卸・別バッチに触れない） |
+
+### 5. validation と migration
+
+- payload上限を **UTF-8バイト数**で判定（`jsonByteLength()` / `MAX_PAYLOAD_BYTES`）。
+  旧 `JSON.stringify().length` は UTF-16 code unit 数で、日本語payloadが実バイト数の約3倍まで通っていた。
+- 既定値へ黙って倒していた箇所を拒否へ変更:
+  movement `type`（`'out'` 以外を全て `'in'` にしていた）、movement `orderId` と order `sessionId`
+  （形式不正を `null` へ）、session `type`（不正を `'stock'` へ）、session `itemCount`（数値以外を `0` へ）。
+- migration 0012 の `PRAGMA foreign_keys = OFF/ON` を `PRAGMA defer_foreign_keys = on` へ修正。
+  D1 は全クエリを暗黙トランザクション内で実行するため `foreign_keys` を切り替えられない
+  （2026-08-12 に[公式資料](https://developers.cloudflare.com/d1/sql-api/foreign-keys/)で確認）。
+
+### 検証
+
+- `cd worker && npm test` … 21 files / 437 tests passed
+- 追加した必須test:
+  - snapshotなし完了の400拒否、snapshot形式不正の拒否
+  - 存在確認後にセッションが消える／他店舗へ移る競合で孤児snapshotが残らない
+  - batch の各statement（0〜3）への障害注入で全ロールバック
+  - movement DELETE の 404 / 503 を **HTTPステータス**で確認（`src/index.test.js`）
+  - 履歴upsertごとの revision 単調増加、`GET/POST /history` の `serverRevision` / `serverSavedAt`
+  - 過去棚卸 snapshot に `items` が入ること
+  - replace の別日・active・order・他店舗・不在の全体拒否（何も削除しない）
+  - 50 replace + 500 lines の総クエリ本数（認証2本込みで50以下）と bound parameter 100以下
+  - 同一 batchId + date の並行要求で session 1件、response loss相当の再送で重複なし
+  - データ入り 0011 相当DBからの 0012〜0014 更新（`test/migrationUpgrade.test.js`）
+
+### 未実施・残risk
+
+- **remote D1 への migration 適用は行っていない**（0012 / 0013 / 0014 とも未適用）。
+- 実D1での計測は未実施。`batch` 内 statement が invocation あたりの query 数へどう数えられるかは
+  公式資料に明記がないため、引き続き厳しい側（1 statement = 1 query）を仮定している。
+- App側2経路の `snapshot_required` 破れ（上記1）。
+- `POST /history` 経由の孤児snapshot（上記2）。

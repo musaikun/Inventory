@@ -3,16 +3,21 @@
 import { inventoryLineStatements } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
 import {
-  MAX_PAYLOAD_CHARS, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
+  MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
-import { parseClientId, parseDate, parseQty, parseOptionalNumber, text, chunk, isValidDate } from './validate.js'
+import {
+  parseClientId, parseDate, parseQty, parseOptionalNumber, parseEnum, parseCount,
+  text, chunk, isValidDate, jsonByteLength,
+} from './validate.js'
 import { entitlement } from './entitlements.js'
 
+// payload 上限は UTF-8 バイト数で判定する（第2セッション §5）。
+// JSON.stringify().length は UTF-16 code unit 数で、日本語では実バイト数の約1/3を返す。
 function _tooLarge(body) {
-  try { return JSON.stringify(body).length > MAX_PAYLOAD_CHARS } catch { return true }
+  return jsonByteLength(body) > MAX_PAYLOAD_BYTES
 }
 
 // POST /store/create
@@ -68,45 +73,106 @@ export async function handleInventoryPut(db, code, body) {
 }
 
 // GET /store/:code/history
+//
+// serverRevision / serverSavedAt はサーバーが採番・記録した値。
+// client の updatedAt / savedAt は端末時計に依存し、時計がずれた端末が古い版を
+// 「新しい」と主張できるため、新旧判定には使わない（第2セッション §2）。
 export async function handleHistoryGet(db, code) {
   const rows = await db.prepare(`
-    SELECT session_id, snapshot_json, created_at FROM store_history
+    SELECT session_id, snapshot_json, created_at, updated_at, revision FROM store_history
     WHERE shop_code = ? ORDER BY snapshot_date DESC, id DESC LIMIT 50
   `).bind(code).all()
   return rows.results.map(r => {
     const snap = JSON.parse(r.snapshot_json)
-    // 識別と新旧判定はサーバー側の値を正にする。client の updatedAt は端末時計に依存する。
-    return { ...snap, sessionId: r.session_id ?? snap.sessionId ?? null, serverSavedAt: r.created_at }
+    return {
+      ...snap,
+      sessionId:      r.session_id ?? snap.sessionId ?? null,
+      serverRevision: r.revision ?? 0,
+      serverSavedAt:  r.updated_at ?? r.created_at,
+    }
   })
 }
 
+// store_history の revision は「同じ店舗の最大値 + 1」。
+// upsert のたびに採番し直すので、同じ行を上書きしても必ず増える。
+// D1 の書き込みは1データベース1直列なので、この式で採番の衝突は起きない。
+const _NEXT_REVISION = `COALESCE((SELECT MAX(h2.revision) FROM store_history h2 WHERE h2.shop_code = ?), 0) + 1`
+
 /**
  * スナップショットを1件書き込む文を返す（実行しない）。
- * 棚卸完了では sessions / inventory_lines と同じ batch へ載せる（DATA-001）。
  *
  * sessionId を持つ行は (shop_code, session_id) で一意。同じ日に2回棚卸しても
  * 別セッションなら共存する（migration 0012 / F-001）。
  * sessionId を持たない過去取込・旧データは従来どおり日付で一意。
+ *
+ * こちらは **セッション行の存在を確認しない**。PIN 未設定のレガシー店舗は
+ * `/sessions`（strict Bearer）を使えず sessions 行を持たないため、ここで
+ * 存在を要求すると履歴保存そのものができなくなる。
+ * 棚卸完了・過去取込は sessionSnapshotStatement（存在確認つき）を使う。
  */
 export function historySnapshotStatement(db, code, snapshot, now) {
-  const date      = snapshot?.date ?? now.slice(0, 10)
+  const date      = snapshot?.date || now.slice(0, 10)
   const sessionId = parseClientId(snapshot?.sessionId) ?? null
   const json      = JSON.stringify(snapshot)
 
   if (sessionId) {
     return db.prepare(`
-      INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at, updated_at, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ${_NEXT_REVISION})
       ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
-        SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date
-    `).bind(code, sessionId, date, json, now)
+        SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
+            updated_at = excluded.updated_at, revision = excluded.revision
+    `).bind(code, sessionId, date, json, now, now, code)
   }
   return db.prepare(`
-    INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at)
-    VALUES (?, NULL, ?, ?, ?)
+    INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at, updated_at, revision)
+    VALUES (?, NULL, ?, ?, ?, ?, ${_NEXT_REVISION})
     ON CONFLICT(shop_code, snapshot_date) WHERE session_id IS NULL DO UPDATE
-      SET snapshot_json = excluded.snapshot_json
-  `).bind(code, date, json, now)
+      SET snapshot_json = excluded.snapshot_json,
+          updated_at = excluded.updated_at, revision = excluded.revision
+  `).bind(code, date, json, now, now, code)
+}
+
+/**
+ * 棚卸完了・過去取込用のスナップショット文（実行しない）。
+ *
+ * `INSERT ... SELECT ... FROM sessions WHERE id = ? AND shop_code = ?` にすることで、
+ * **セッション行が同じトランザクション内に存在する場合しか行を作らない**。
+ * VALUES 形式では、事前の存在確認と batch の間にセッションが消えても
+ * snapshot だけが書き込まれ、一覧に出ない孤児スナップショットが残っていた
+ * （本番D1で両方向の孤児を確認済み・DATA-002 / F-004）。
+ * batch は途中で中断できないので、文ごとに存在条件を閉じておく必要がある。
+ */
+export function sessionSnapshotStatement(db, code, sessionId, snapshot, now) {
+  const date = snapshot?.date || now.slice(0, 10)
+  const json = JSON.stringify({ ...snapshot, sessionId, date })
+  return db.prepare(`
+    INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at, updated_at, revision)
+    SELECT s.shop_code, s.id, ?, ?, ?, ?, ${_NEXT_REVISION}
+    FROM sessions s
+    WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL
+    ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
+      SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
+          updated_at = excluded.updated_at, revision = excluded.revision
+  `).bind(date, json, now, now, code, sessionId, code)
+}
+
+/** 保存後の server 側 revision / 保存時刻を読み戻す。読めなくても保存自体は成立している。 */
+export async function readHistoryStamp(db, code, { sessionId = null, date = null } = {}) {
+  try {
+    const row = sessionId
+      ? await db.prepare(
+          'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND session_id = ?'
+        ).bind(code, sessionId).first()
+      : await db.prepare(
+          'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
+        ).bind(code, date).first()
+    if (!row) return { serverRevision: null, serverSavedAt: null }
+    return { serverRevision: row.revision ?? 0, serverSavedAt: row.updated_at ?? row.created_at ?? null }
+  } catch (e) {
+    console.error('[storeHandler] history stamp read failed:', code, e?.message ?? e)
+    return { serverRevision: null, serverSavedAt: null }
+  }
 }
 
 // POST /store/:code/history
@@ -114,12 +180,18 @@ export function historySnapshotStatement(db, code, snapshot, now) {
 // 棚卸完了は handleSessionComplete が同じ batch で書くので、こちらを使わない。
 export async function handleHistoryPost(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
-  const now = _now()
-  if (body?.date != null && parseDate(body.date, now.slice(0, 10)) === null) {
-    return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
-  }
+  const now   = _now()
+  const today = now.slice(0, 10)
+
+  const date = parseDate(body?.date, today)
+  if (date === null) return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+
+  const sessionId = parseClientId(body?.sessionId)
+  if (sessionId === undefined) return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
+
   await historySnapshotStatement(db, code, body, now).run()
-  return { ok: true }
+  const stamp = await readHistoryStamp(db, code, { sessionId, date })
+  return { ok: true, sessionId, date, ...stamp }
 }
 
 // DELETE /store/:code/history/:key
@@ -127,17 +199,23 @@ export async function handleHistoryPost(db, code, body) {
 // sessionId 形式なら session_id で消す。日付形式なら session_id を持たない行だけを消す。
 // 日付で消したときに同日の別セッションまで巻き込まないため、条件を分ける（F-001）。
 export async function handleHistoryDelete(db, code, key) {
-  if (isValidDate(key)) {
-    await db.prepare(
-      'DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
-    ).bind(code, key).run()
-    return { ok: true }
+  const isDate    = isValidDate(key)
+  const sessionId = isDate ? null : parseClientId(key)
+  if (!isDate && !sessionId) return { _status: 400, code: 'invalid_id', error: '削除対象が不正です' }
+
+  try {
+    const res = isDate
+      ? await db.prepare(
+          'DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
+        ).bind(code, key).run()
+      : await db.prepare('DELETE FROM store_history WHERE shop_code = ? AND session_id = ?')
+          .bind(code, sessionId).run()
+    return { ok: true, removed: res?.meta?.changes ?? 0 }
+  } catch (e) {
+    // 失敗を 200 で返すと、client は「消えた」と表示したまま再試行しない。
+    console.error('[storeHandler] history delete failed:', code, key, e?.message ?? e)
+    return { _status: 503, code: 'history_delete_failed', retryable: true, error: '削除できませんでした' }
   }
-  const sessionId = parseClientId(key)
-  if (!sessionId) return { _status: 400, code: 'invalid_id', error: '削除対象が不正です' }
-  await db.prepare('DELETE FROM store_history WHERE shop_code = ? AND session_id = ?')
-    .bind(code, sessionId).run()
-  return { ok: true }
 }
 
 // PUT /store/:code/room  body: { roomCode: string | null }
@@ -242,9 +320,14 @@ export async function handleSessionsGet(db, code) {
 
 // POST /store/:code/sessions  body: { type? }
 export async function handleSessionCreate(db, code, body = {}) {
+  // 未指定は 'stock'。指定されていて 'stock' / 'order' 以外なら拒否する
+  // （黙って 'stock' へ倒すと、発注セッションのつもりの行が棚卸として集計される）。
+  const parsedType = parseEnum(body?.type, ['stock', 'order'])
+  if (parsedType === undefined) return { _status: 400, code: 'invalid_type', error: 'セッション種別が不正です' }
+
   const id   = crypto.randomUUID()
   const now  = _now()
-  const type = body?.type === 'order' ? 'order' : 'stock'
+  const type = parsedType ?? 'stock'
   await db.prepare(
     "INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, 'active', 0, ?)"
   ).bind(id, code, now, type).run()
@@ -274,7 +357,7 @@ export async function handleSessionLinesGet(db, code, sessionId) {
     SELECT id, started_at, ended_at, status, item_count, total_value, type
     FROM sessions WHERE id = ? AND shop_code = ?
   `).bind(sessionId, code).first()
-  if (!session) return { _status: 404, error: 'セッションが見つかりません' }
+  if (!session) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
 
   // rowid 順＝完了時の挿入順。棚卸で入力した並びに最も近く、再取得しても安定する
   // （ON CONFLICT DO UPDATE は rowid を変えない）。
@@ -320,10 +403,13 @@ export async function handleSessionLinesGet(db, code, sessionId) {
 
 // PUT /store/:code/sessions/:id  body: { status, itemCount? }
 export async function handleSessionUpdate(db, code, sessionId, body) {
-  const validStatuses = ['active', 'completed', 'incomplete']
-  const status    = validStatuses.includes(body.status) ? body.status : null
-  const itemCount = typeof body.itemCount === 'number' ? Math.max(0, body.itemCount) : 0
-  if (!status) return { _status: 400, error: '無効なステータスです' }
+  const status = parseEnum(body?.status, ['active', 'completed', 'incomplete'])
+  if (!status) return { _status: 400, code: 'invalid_status', error: '無効なステータスです' }
+
+  // 旧実装は数値以外を黙って 0 にしていた。'12' や NaN を 0 として保存すると
+  // 一覧の品目数が実際と食い違う（詳細を開くまで気づけない）。
+  const itemCount = parseCount(body?.itemCount, MAX_LINES_PER_REQUEST)
+  if (itemCount === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
 
   const now     = _now()
   const endedAt = status === 'active' ? null : now
@@ -420,6 +506,13 @@ export async function handleOrderCreate(db, code, body = {}) {
   }
   if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
 
+  // 紐付け先セッションIDは形式不正なら拒否する。旧実装は `?? null` で黙って
+  // 「紐付けなし」へ倒しており、発注が棚卸セッションから切り離されていた。
+  const linkedSessionId = parseClientId(body.sessionId)
+  if (linkedSessionId === undefined) {
+    return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
+  }
+
   // テナント境界: orders.id はグローバルPK。同じidを別店舗が指定しても、
   // 他店のヘッダ・明細を更新できないようownerを確認する。
   const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(orderId).first()
@@ -438,7 +531,7 @@ export async function handleOrderCreate(db, code, body = {}) {
     ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
     WHERE orders.shop_code = excluded.shop_code
   `).bind(orderId, code, date, text(body.supplier, MAX_SUPPLIER_LEN), text(body.axis, MAX_SUPPLIER_LEN),
-          parseClientId(body.sessionId) ?? null, body.savedAt ?? now)
+          linkedSessionId, body.savedAt ?? now)
 
   const delStmt = db.prepare('DELETE FROM order_lines WHERE order_id = ? AND shop_code = ?').bind(orderId, code)
 
@@ -481,7 +574,9 @@ export async function handleOrderCreate(db, code, body = {}) {
 export async function handleOrderDelete(db, code, id) {
   // 不存在と他店舗所有を同じ404にして、idの存在有無を別店舗へ開示しない。
   const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(id).first()
-  if (!owner || owner.shop_code !== code) return { _status: 404, error: '発注が見つかりません' }
+  if (!owner || owner.shop_code !== code) {
+    return { _status: 404, code: 'order_not_found', error: '発注が見つかりません' }
+  }
 
   // 明細とヘッダを1 batch（=1トランザクション）で消す（DATA-001）。
   // 独立した2 write だと、間で落ちたとき「ヘッダは残るが明細だけ消えた」状態になり、
@@ -542,8 +637,7 @@ export async function handleMovementsGet(db, code, sinceDays) {
 export async function handleMovementCreate(db, code, body = {}) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
 
-  const now  = _now()
-  const type = body.type === 'out' ? 'out' : 'in'
+  const now = _now()
 
   const rawId = parseClientId(body.id)
   if (rawId === undefined) return { _status: 400, code: 'invalid_id', error: 'IDの形式が不正です' }
@@ -551,6 +645,11 @@ export async function handleMovementCreate(db, code, body = {}) {
 
   const date = parseDate(body.date, now.slice(0, 10))
   if (date === null) return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+
+  // 種別は入庫/出庫のどちらかでなければならない。旧実装は 'out' 以外をすべて 'in' に
+  // していたため、typo や欠落した種別が「入庫」として理論在庫へ加算されていた。
+  const type = parseEnum(body.type, ['in', 'out'])
+  if (!type) return { _status: 400, code: 'invalid_type', error: '入出庫の種別が不正です' }
 
   if (!Array.isArray(body.lines)) return { _status: 400, error: '入出庫行がありません' }
   const rawLines = body.lines
@@ -568,8 +667,13 @@ export async function handleMovementCreate(db, code, body = {}) {
   }
   if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
 
-  // 出庫は発注紐付けを持たない。
-  const linkedOrderId = type === 'in' ? (parseClientId(body.orderId) ?? null) : null
+  // 出庫は発注紐付けを持たない。入庫の orderId は形式不正なら拒否する
+  // （`?? null` で黙って紐付けを外すと、発注の消込状態が実態とずれる）。
+  const parsedOrderId = parseClientId(body.orderId)
+  if (parsedOrderId === undefined) {
+    return { _status: 400, code: 'invalid_id', error: '発注IDの形式が不正です' }
+  }
+  const linkedOrderId = type === 'in' ? parsedOrderId : null
 
   // テナント境界: movements.id はグローバル PK。既存 id が別店舗のものなら拒否し、
   // 他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられないようにする。
@@ -625,7 +729,9 @@ export async function handleMovementCreate(db, code, body = {}) {
 export async function handleMovementDelete(db, code, id) {
   // 不存在と他店舗所有を同じ404にして、idの存在有無を別店舗へ開示しない（handleOrderDeleteと同じ形）。
   const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(id).first()
-  if (!owner || owner.shop_code !== code) return { _status: 404, error: '入出庫が見つかりません' }
+  if (!owner || owner.shop_code !== code) {
+    return { _status: 404, code: 'movement_not_found', error: '入出庫が見つかりません' }
+  }
 
   // 明細とヘッダを1 batch で消す（DATA-001）。順序が逆でも部分状態を残さない。
   try {
@@ -662,13 +768,33 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     return { _status: 413, error: '品目数が多すぎます' }
   }
 
-  const session = await db.prepare(
-    'SELECT id FROM sessions WHERE id = ? AND shop_code = ?'
-  ).bind(sessionId, code).first()
-  if (!session) return { _status: 404, error: 'セッションが見つかりません' }
-
   const now   = _now()
-  const taken = takenAt ?? now.slice(0, 10)
+  const today = now.slice(0, 10)
+
+  // takenAt は inventory_lines.taken_at になり、分析・カレンダーの日付そのもの。
+  // 以前は無検証で受けていたため、'yesterday' のような文字列がそのまま列へ入り得た。
+  const taken = parseDate(takenAt, today)
+  if (taken === null) return { _status: 400, code: 'invalid_date', error: '棚卸日の形式が不正です' }
+
+  // スナップショットは必須（第2セッション §1）。
+  // 明細（inventory_lines）だけ書いて表示用スナップショットが無い状態が、
+  // 「一覧には出るのに詳細が開けない」= R-001 そのもの。完了要求に含めさせ、
+  // sessions / inventory_lines / store_history を同じ batch で必ず揃える。
+  if (snapshot == null) {
+    return { _status: 400, code: 'snapshot_required', error: '棚卸の明細（スナップショット）がありません' }
+  }
+  if (typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return { _status: 400, code: 'invalid_snapshot', error: 'スナップショットの形式が不正です' }
+  }
+  const snapDate = parseDate(snapshot.date, taken)
+  if (snapDate === null) {
+    return { _status: 400, code: 'invalid_date', error: 'スナップショットの日付が不正です' }
+  }
+
+  const session = await db.prepare(
+    'SELECT id FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
+  ).bind(sessionId, code).first()
+  if (!session) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
 
   const built = inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
   // 数量・単価が業務契約に合わない場合は、何も書かずに 400 を返す（0 へ丸めない・DATA-001）。
@@ -676,30 +802,24 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   const { statements, itemCount, totalValue } = built
 
   // UPDATE を batch の先頭に置く。セッションが消えている・他店舗のものになっている場合に
-  // ここが 0 行となり、後続の INSERT も EXISTS で弾かれて何も書き込まれない。
+  // ここが 0 行となり、後続の INSERT も存在条件で弾かれて何も書き込まれない。
   const sessionUpdate = db.prepare(`
     UPDATE sessions
     SET status = 'completed', ended_at = ?, item_count = ?, total_value = ?
-    WHERE id = ? AND shop_code = ?
+    WHERE id = ? AND shop_code = ? AND deleted_at IS NULL
   `).bind(now, itemCount, totalValue, sessionId, code)
 
   // 表示・分析用スナップショットも同じ batch に載せる（DATA-001 / 第2セッション）。
-  // 以前は client が saveSnapshotToD1() を完了APIより先に独立成功させており、
-  // 「スナップショットは入ったが完了は失敗」「完了はしたがスナップショットが無い」が作れた。
   // sessionId は必ずこのセッションのものに揃える（client 指定は信用しない）。
-  const snapStatements = []
-  if (snapshot != null) {
-    if (typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-      return { _status: 400, error: 'スナップショットの形式が不正です' }
-    }
-    snapStatements.push(historySnapshotStatement(
-      db, code, { ...snapshot, sessionId, date: snapshot.date ?? taken }, now,
-    ))
-  }
+  // 上の SELECT と batch の間にセッションが消えても、sessionSnapshotStatement は
+  // sessions を参照する INSERT ... SELECT なので snapshot だけが残ることはない。
+  const snapStatement = sessionSnapshotStatement(
+    db, code, sessionId, { ...snapshot, sessionId, date: snapDate }, now,
+  )
 
   let results
   try {
-    results = await db.batch([sessionUpdate, ...statements, ...snapStatements])
+    results = await db.batch([sessionUpdate, ...statements, snapStatement])
   } catch (e) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
@@ -708,10 +828,11 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   }
 
   // UPDATE が 0 行 = 直前にセッションが消えた/他店舗のものになった。
-  // 明細も EXISTS で入っていないため、部分的に書かれた状態にはならない。
+  // 明細も snapshot も存在条件で入っていないため、部分的に書かれた状態にはならない。
   if (results?.[0]?.meta?.changes !== 1) {
-    return { _status: 404, error: 'セッションが見つかりません' }
+    return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
   }
 
-  return { ok: true, sessionId, itemCount, totalValue, snapshotSaved: snapStatements.length > 0 }
+  const stamp = await readHistoryStamp(db, code, { sessionId })
+  return { ok: true, sessionId, itemCount, totalValue, snapshotSaved: true, ...stamp }
 }

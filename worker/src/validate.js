@@ -67,6 +67,37 @@ export function parseOptionalNumber(v, { min, max }) {
   return n
 }
 
+/**
+ * 列挙値。許可リストに無い値は undefined（=拒否）。未指定は null。
+ * 「不正なら既定値へ倒す」をやめるための入口（movement type / session type）。
+ */
+export function parseEnum(v, allowed) {
+  if (v == null || v === '') return null
+  return allowed.includes(v) ? v : undefined
+}
+
+/**
+ * 0以上の整数（件数）。未指定は null。非整数・負数・非有限は undefined（=拒否）。
+ * 旧実装は `typeof === 'number'` 以外を黙って 0 にしていた。
+ */
+export function parseCount(v, max) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 0 || n > max) return undefined
+  return n
+}
+
+/** JSON化したときの UTF-8 バイト数。直列化できない値は Infinity（=拒否側へ倒す）。 */
+export function jsonByteLength(body) {
+  try {
+    const json = JSON.stringify(body ?? {})
+    if (typeof json !== 'string') return Infinity
+    return new TextEncoder().encode(json).byteLength
+  } catch (_) {
+    return Infinity
+  }
+}
+
 /** 文字列を trim して上限で切る。非文字列は空文字。 */
 export function text(v, maxLen) {
   if (v == null) return ''

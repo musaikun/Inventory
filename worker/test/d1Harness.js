@@ -14,16 +14,35 @@ import { join } from 'node:path'
 
 const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url))
 
+/** migrations/ のファイル名を名前順で返す（`0012` のような接頭辞で絞れる） */
+export function migrationFiles({ from = null, to = null } = {}) {
+  return readdirSync(migrationsDir)
+    .filter(n => n.endsWith('.sql'))
+    .sort()
+    .filter(n => (from == null || n >= from) && (to == null || n <= to))
+}
+
+/** migration を1本ずつ適用する（適用途中の状態を作るテスト用） */
+export function applyMigrations(sqlite, files) {
+  for (const file of files) sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'))
+}
+
 /** migrations/ のSQLを名前順に全部当てた空DBを作る */
 export function createD1() {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA foreign_keys = ON')
-  for (const file of readdirSync(migrationsDir).filter(n => n.endsWith('.sql')).sort()) {
-    sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'))
-  }
+  applyMigrations(sqlite, migrationFiles())
 
   let failAt = null
   let stmtIndex = 0
+  let beforeBatch = null
+  // D1 の「Queries per Worker invocation」に相当する本数。
+  // batch の外の SELECT/UPDATE は1本、batch は含まれる statement 数ぶんを数える
+  // （公式資料に batch の数え方の明記が無いため、厳しい側を採る・constants.js 参照）。
+  let queries = 0
+  let lastBatchSize  = 0
+  let maxBatchSize   = 0
+  let maxBoundParams = 0
 
   function prepare(sql) {
     let values = []
@@ -31,20 +50,30 @@ export function createD1() {
       sql,
       bind(...next) { values = next; return stmt },
       async first() {
+        queries++
         return sqlite.prepare(sql).get(...values) ?? null
       },
       async all() {
+        queries++
         return { results: sqlite.prepare(sql).all(...values) }
       },
       async run() {
+        queries++
         const r = sqlite.prepare(sql).run(...values)
         return { success: true, meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }
       },
+      /** bind した値の個数（bound parameter 上限の検証用） */
+      boundParams() { return values.length },
     }
     return stmt
   }
 
   async function batch(statements) {
+    lastBatchSize = statements.length
+    maxBatchSize  = Math.max(maxBatchSize, statements.length)
+    maxBoundParams = Math.max(maxBoundParams, 0, ...statements.map(s => s.boundParams?.() ?? 0))
+    if (beforeBatch) { const cb = beforeBatch; beforeBatch = null; cb() }
+
     const results = []
     sqlite.exec('BEGIN')
     stmtIndex = 0
@@ -69,6 +98,14 @@ export function createD1() {
     sqlite,
     /** batch の i 番目（0始まり）の statement で失敗させる */
     failBatchAt(i) { failAt = i },
+    /**
+     * 次の batch が始まる直前（BEGIN の前）に1回だけ呼ぶ。
+     * 「存在確認 → batch」の隙間に別リクエストが割り込む競合を再現する。
+     */
+    onNextBatch(cb) { beforeBatch = cb },
+    /** D1 クエリ本数のカウンタ（batch 内 statement も1本ずつ数える） */
+    resetCounters() { queries = 0; maxBatchSize = 0; lastBatchSize = 0; maxBoundParams = 0 },
+    counters() { return { queries, maxBatchSize, lastBatchSize, maxBoundParams } },
     /** テーブルを素の配列で読む（アサーション用） */
     rows(sql, ...params) { return sqlite.prepare(sql).all(...params) },
     /** 店舗と（任意で）セッションを用意する */

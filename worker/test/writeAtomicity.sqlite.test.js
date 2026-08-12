@@ -5,7 +5,7 @@ import {
   handleMovementCreate, handleMovementDelete,
 } from '../src/storeHandler.js'
 import {
-  MAX_LINES_PER_REQUEST, D1_MAX_BOUND_PARAMS,
+  MAX_LINES_PER_REQUEST, D1_MAX_BOUND_PARAMS, D1_QUERIES_PER_INVOCATION_FREE,
   INVENTORY_ROWS_PER_STATEMENT, ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from '../src/constants.js'
 
@@ -15,6 +15,10 @@ import {
 const SHOP  = 'ABCDEF'
 const OTHER = 'ZZZZZZ'
 const SESS  = '11111111-1111-4111-8111-111111111111'
+
+// 棚卸完了はスナップショット必須（第2セッション §1）。
+// sessionId は server 側が完了対象のものへ強制するので、既定形をひとつ使い回す。
+const SNAP = { date: '2026-08-09', items: [{ item: '牛乳', qty: 1 }] }
 
 function setup() {
   const h = createD1()
@@ -27,7 +31,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
       inventory: { 牛乳: { qty: 3, unit: '本' }, 砂糖: { qty: 2, unit: 'kg' } },
-      prices: { 牛乳: 200 },
+      prices: { 牛乳: 200 }, snapshot: SNAP,
     })
     expect(res.ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines WHERE session_id = ?', SESS)).toHaveLength(2)
@@ -39,7 +43,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
     const h = setup()
     h.failBatchAt(2)   // UPDATE sessions → DELETE lines の次
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: makeInventory(40), prices: {},
+      inventory: makeInventory(40), prices: {}, snapshot: SNAP,
     })
     expect(res._status).toBe(503)
     expect(res.retryable).toBe(true)
@@ -50,7 +54,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
   it('失敗後に同じ要求を送り直せば完了する（再試行可能）', async () => {
     const h = setup()
     h.failBatchAt(2)
-    const body = { inventory: makeInventory(40), prices: {} }
+    const body = { inventory: makeInventory(40), prices: {}, snapshot: SNAP }
     expect((await handleSessionComplete(h.db, SHOP, SESS, body))._status).toBe(503)
     expect((await handleSessionComplete(h.db, SHOP, SESS, body)).ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(40)
@@ -58,7 +62,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
 
   it('同じ完了要求の再送で明細が重複しない（冪等）', async () => {
     const h = setup()
-    const body = { inventory: makeInventory(30), prices: {} }
+    const body = { inventory: makeInventory(30), prices: {}, snapshot: SNAP }
     await handleSessionComplete(h.db, SHOP, SESS, body)
     await handleSessionComplete(h.db, SHOP, SESS, body)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(30)
@@ -66,15 +70,15 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
 
   it('品目が減った再送では前回ぶんが残らない', async () => {
     const h = setup()
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(10), prices: {} })
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {} })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(10), prices: {}, snapshot: SNAP })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
     expect(h.rows('SELECT item_name FROM inventory_lines').map(r => r.item_name)).toEqual(['牛乳'])
   })
 
   it('他店舗のsessionIdでは存在有無を漏らさず404、明細も作らない', async () => {
     const h = setup()
     h.seedStore(OTHER)
-    const res = await handleSessionComplete(h.db, OTHER, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {} })
+    const res = await handleSessionComplete(h.db, OTHER, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
     expect(res._status).toBe(404)
     expect(res.error).toBe('セッションが見つかりません')
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
@@ -83,7 +87,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
   it('存在しないsessionIdも同じ404（IDの実在を区別させない）', async () => {
     const h = setup()
     const missing = '22222222-2222-4222-8222-222222222222'
-    const res = await handleSessionComplete(h.db, SHOP, missing, { inventory: { 牛乳: { qty: 1 } }, prices: {} })
+    const res = await handleSessionComplete(h.db, SHOP, missing, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
     expect(res._status).toBe(404)
     expect(res.error).toBe('セッションが見つかりません')
   })
@@ -94,7 +98,7 @@ describe('数量の業務契約（DATA-001）', () => {
     ['NaN', NaN], ['Infinity', Infinity], ['-Infinity', -Infinity], ['文字列', 'あ'], ['負数', -1],
   ])('棚卸: %s の数量は400で拒否し、0へ丸めない', async (_label, qty) => {
     const h = setup()
-    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty } }, prices: {} })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty } }, prices: {}, snapshot: SNAP })
     expect(res._status).toBe(400)
     expect(res.code).toBe('invalid_qty')
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
@@ -103,7 +107,7 @@ describe('数量の業務契約（DATA-001）', () => {
 
   it('棚卸: 在庫0は正当な記録として保存する', async () => {
     const h = setup()
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 0 } }, prices: {} })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 0 } }, prices: {}, snapshot: SNAP })
     expect(h.rows('SELECT qty FROM inventory_lines')[0].qty).toBe(0)
   })
 
@@ -126,7 +130,7 @@ describe('数量の業務契約（DATA-001）', () => {
   it.each([['NaN', NaN], ['Infinity', Infinity], ['0', 0], ['負数', -5]])(
     '入出庫: %s の数量は400で拒否する', async (_label, qty) => {
       const h = setup()
-      const res = await handleMovementCreate(h.db, SHOP, { id: 'm1', lines: [{ item: '牛乳', qty }] })
+      const res = await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: [{ item: '牛乳', qty }] })
       expect(res._status).toBe(400)
       expect(res.code).toBe('invalid_qty')
       expect(h.rows('SELECT * FROM movements')).toHaveLength(0)
@@ -135,7 +139,7 @@ describe('数量の業務契約（DATA-001）', () => {
   it('上限を超える数量は拒否する', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS,
-      { inventory: { 牛乳: { qty: 1_000_001 } }, prices: {} })
+      { inventory: { 牛乳: { qty: 1_000_001 } }, prices: {}, snapshot: SNAP })
     expect(res._status).toBe(400)
   })
 })
@@ -158,7 +162,7 @@ describe('ID・日付・件数の検証', () => {
   it.each(['../../etc', 'a'.repeat(65), 'id with space', 'id;DROP'])(
     '不正なID %s は400で拒否する', async (id) => {
       const h = setup()
-      const res = await handleMovementCreate(h.db, SHOP, { id, lines: [{ item: '牛乳', qty: 1 }] })
+      const res = await handleMovementCreate(h.db, SHOP, { id, type: 'in', lines: [{ item: '牛乳', qty: 1 }] })
       expect(res._status).toBe(400)
       expect(res.code).toBe('invalid_id')
     })
@@ -171,10 +175,71 @@ describe('ID・日付・件数の検証', () => {
     expect(h.rows('SELECT * FROM orders WHERE id = ?', 'ng')).toHaveLength(0)
   })
 
+  it.each([
+    ['未指定',   undefined],
+    ['空文字',   ''],
+    ['typo',     'IN'],
+    ['別の語',   'transfer'],
+    ['数値',     1],
+  ])('入出庫の種別が %s の場合は既定値へ倒さず400で拒否する', async (_label, type) => {
+    const h = setup()
+    const res = await handleMovementCreate(h.db, SHOP, { id: 'm1', type, lines: makeLines(1) })
+    expect(res._status).toBe(400)
+    expect(res.code).toBe('invalid_type')
+    expect(h.rows('SELECT * FROM movements')).toHaveLength(0)
+  })
+
+  it('入出庫の orderId が不正な形なら、紐付けを外さず400で拒否する', async () => {
+    const h = setup()
+    const res = await handleMovementCreate(h.db, SHOP,
+      { id: 'm1', type: 'in', orderId: 'bad id', lines: makeLines(1) })
+    expect(res).toMatchObject({ _status: 400, code: 'invalid_id' })
+    expect(h.rows('SELECT * FROM movements')).toHaveLength(0)
+  })
+
+  it('発注の sessionId が不正な形なら、null へ倒さず400で拒否する', async () => {
+    const h = setup()
+    const res = await handleOrderCreate(h.db, SHOP,
+      { id: 'o1', sessionId: 'bad id', lines: makeLines(1) })
+    expect(res).toMatchObject({ _status: 400, code: 'invalid_id' })
+    expect(h.rows('SELECT * FROM orders')).toHaveLength(0)
+  })
+
+  it('セッション種別が不正なら stock へ倒さず400で拒否する', async () => {
+    const h = setup()
+    const { handleSessionCreate } = await import('../src/storeHandler.js')
+    expect(await handleSessionCreate(h.db, SHOP, { type: 'delivery' }))
+      .toMatchObject({ _status: 400, code: 'invalid_type' })
+    expect((await handleSessionCreate(h.db, SHOP, {})).type).toBe('stock')
+  })
+
+  it('セッション更新の itemCount が数値でなければ 0 へ倒さず400で拒否する', async () => {
+    const h = setup()
+    const { handleSessionUpdate } = await import('../src/storeHandler.js')
+    expect(await handleSessionUpdate(h.db, SHOP, SESS, { status: 'active', itemCount: 'abc' }))
+      .toMatchObject({ _status: 400, code: 'invalid_count' })
+    expect(await handleSessionUpdate(h.db, SHOP, SESS, { status: 'active', itemCount: -1 }))
+      .toMatchObject({ _status: 400, code: 'invalid_count' })
+    expect(h.rows('SELECT item_count FROM sessions WHERE id = ?', SESS)[0].item_count).toBe(0)
+  })
+
+  // 上限は UTF-8 バイト数で見る。JSON.stringify().length（UTF-16 code unit）だと
+  // 日本語の payload が実バイト数の3倍まで通っていた。
+  it('payload 上限を UTF-8 バイト数で判定する', async () => {
+    const h = setup()
+    const { handleHistoryPost } = await import('../src/storeHandler.js')
+    // 40万文字の日本語 = 約120万バイト。code unit 数では 100万を下回る。
+    const japanese = 'あ'.repeat(400_000)
+    expect(JSON.stringify({ note: japanese }).length).toBeLessThan(1_000_000)
+    const res = await handleHistoryPost(h.db, SHOP, { date: '2026-08-09', note: japanese })
+    expect(res._status).toBe(413)
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+  })
+
   it('棚卸も上限+1品目を413で拒否する', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS,
-      { inventory: makeInventory(MAX_LINES_PER_REQUEST + 1), prices: {} })
+      { inventory: makeInventory(MAX_LINES_PER_REQUEST + 1), prices: {}, snapshot: SNAP })
     expect(res._status).toBe(413)
   })
 })
@@ -192,7 +257,7 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
   it.each([0, 1, 150, 351, MAX_LINES_PER_REQUEST])('棚卸 %i 品目の batch は41文以内', async (n) => {
     const h = setup()
     const peek = countBatchStatements(h)
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(n), prices: {} })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(n), prices: {}, snapshot: SNAP })
     expect(peek()).toBeLessThanOrEqual(41)
   })
 
@@ -206,7 +271,7 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
   it.each([1, 150, 351, MAX_LINES_PER_REQUEST])('入出庫 %i 行の batch は41文以内', async (n) => {
     const h = setup()
     const peek = countBatchStatements(h)
-    await handleMovementCreate(h.db, SHOP, { id: 'm1', lines: makeLines(n) })
+    await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: makeLines(n) })
     expect(peek()).toBeLessThanOrEqual(41)
   })
 
@@ -218,10 +283,46 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
 
   it('351品目（R-001の実データ規模）が欠けずに保存される', async () => {
     const h = setup()
-    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(351), prices: {} })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(351), prices: {}, snapshot: SNAP })
     expect(res.ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(351)
   })
+
+  // batch 内の文数だけでなく、1リクエストが実際に投げる D1 クエリの総本数を数える。
+  // 認証2本ぶん（verifyAuth）は handler の外なので、ここへ足して 50 と比べる。
+  const AUTH_QUERIES = 2
+
+  it.each([1, 150, 351, MAX_LINES_PER_REQUEST])(
+    '棚卸完了 %i 品目の総クエリ本数が Free の 50 に収まる', async (n) => {
+      const h = setup()
+      h.resetCounters()
+      const res = await handleSessionComplete(h.db, SHOP, SESS,
+        { inventory: makeInventory(n), prices: {}, snapshot: SNAP })
+      expect(res.ok).toBe(true)
+      const c = h.counters()
+      expect(c.queries + AUTH_QUERIES).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE)
+      expect(c.maxBoundParams).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    })
+
+  it.each([1, MAX_LINES_PER_REQUEST])(
+    '発注 %i 行の総クエリ本数が Free の 50 に収まる', async (n) => {
+      const h = setup()
+      h.resetCounters()
+      expect((await handleOrderCreate(h.db, SHOP, { id: 'o1', lines: makeLines(n) })).ok).toBe(true)
+      const c = h.counters()
+      expect(c.queries + AUTH_QUERIES).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE)
+      expect(c.maxBoundParams).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    })
+
+  it.each([1, MAX_LINES_PER_REQUEST])(
+    '入出庫 %i 行の総クエリ本数が Free の 50 に収まる', async (n) => {
+      const h = setup()
+      h.resetCounters()
+      expect((await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: makeLines(n) })).ok).toBe(true)
+      const c = h.counters()
+      expect(c.queries + AUTH_QUERIES).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE)
+      expect(c.maxBoundParams).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    })
 })
 
 describe('order / movement の削除を原子的にする', () => {
@@ -245,7 +346,7 @@ describe('order / movement の削除を原子的にする', () => {
 
   it('入出庫削除も明細とヘッダを1トランザクションで消す', async () => {
     const h = setup()
-    await handleMovementCreate(h.db, SHOP, { id: 'm1', lines: makeLines(4) })
+    await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: makeLines(4) })
     h.failBatchAt(1)
     expect((await handleMovementDelete(h.db, SHOP, 'm1'))._status).toBe(503)
     expect(h.rows('SELECT * FROM movement_lines')).toHaveLength(4)
@@ -257,7 +358,7 @@ describe('order / movement の削除を原子的にする', () => {
   it('他店舗の入出庫は404で、所有店舗のデータを消さない', async () => {
     const h = setup()
     h.seedStore(OTHER)
-    await handleMovementCreate(h.db, SHOP, { id: 'm1', lines: makeLines(2) })
+    await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: makeLines(2) })
     const res = await handleMovementDelete(h.db, OTHER, 'm1')
     expect(res._status).toBe(404)
     expect(h.rows('SELECT * FROM movements')).toHaveLength(1)
@@ -343,12 +444,149 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     expect(h.rows('SELECT session_id FROM store_history')[0].session_id).toBe(SESS)
   })
 
-  it('snapshot 未指定でも完了は成立する（後方互換）', async () => {
+  it('snapshot 無しの完了要求は400で拒否し、明細も完了状態も書かない', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {} })
-    expect(res.ok).toBe(true)
-    expect(res.snapshotSaved).toBe(false)
+    expect(res._status).toBe(400)
+    expect(res.code).toBe('snapshot_required')
     expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+    expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
+    expect(h.rows('SELECT status FROM sessions WHERE id = ?', SESS)[0].status).toBe('active')
+  })
+
+  it.each([
+    ['配列', []], ['文字列', 'x'], ['数値', 1],
+  ])('snapshot が object でない（%s）場合も400で拒否する', async (_label, snapshot) => {
+    const h = setup()
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot })
+    expect(res._status).toBe(400)
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+  })
+
+  it('成功応答は snapshotSaved:true と server 側 revision を返す', async () => {
+    const h = setup()
+    const res = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+    })
+    expect(res.snapshotSaved).toBe(true)
+    expect(res.serverRevision).toBeGreaterThan(0)
+    expect(typeof res.serverSavedAt).toBe('string')
+  })
+
+  // 「存在確認 → batch」の隙間でセッションが消える競合。VALUES 形式の INSERT では
+  // snapshot だけが書き込まれ、一覧に出ない孤児が残っていた（DATA-002 / F-004）。
+  it('存在確認の後にセッションが消えても、snapshot だけが残らない', async () => {
+    const h = setup()
+    h.onNextBatch(() => {
+      h.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(SESS)
+    })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+    })
+    expect(res._status).toBe(404)
+    expect(res.code).toBe('session_not_found')
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+    expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
+  })
+
+  it('セッションが他店舗のものへ変わっても、snapshot だけが残らない', async () => {
+    const h = setup()
+    h.seedStore(OTHER)
+    h.onNextBatch(() => {
+      h.sqlite.prepare('UPDATE sessions SET shop_code = ? WHERE id = ?').run(OTHER, SESS)
+    })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+    })
+    expect(res._status).toBe(404)
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+  })
+
+  // batch のどの statement で落ちても、3テーブルすべてが元へ戻ること。
+  it.each([0, 1, 2, 3])('batch の %i 番目で落ちても全体が巻き戻る', async (failIndex) => {
+    const h = setup()
+    h.failBatchAt(failIndex)
+    const res = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: makeInventory(25), prices: {}, snapshot: snap(SESS, '2026-08-09'),
+    })
+    expect(res._status).toBe(503)
+    expect(res.retryable).toBe(true)
+    expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
+    expect(h.rows('SELECT status, ended_at FROM sessions WHERE id = ?', SESS)[0])
+      .toMatchObject({ status: 'active', ended_at: null })
+  })
+
+  it('takenAt / snapshot.date の不正値は既定値へ倒さず400で拒否する', async () => {
+    const h = setup()
+    const bad = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: 'yesterday', snapshot: snap(SESS, '2026-08-09'),
+    })
+    expect(bad).toMatchObject({ _status: 400, code: 'invalid_date' })
+
+    const badSnapDate = await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-02-30'),
+    })
+    expect(badSnapDate).toMatchObject({ _status: 400, code: 'invalid_date' })
+    expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
+  })
+})
+
+describe('履歴の server revision（第2セッション §2）', () => {
+  const snap = (sessionId, date = '2026-08-09') => ({ date, sessionId, items: [{ item: '牛乳', qty: 1 }] })
+
+  it('同じ session の upsert ごとに revision が増える', async () => {
+    const h = setup()
+    const revisions = []
+    for (let i = 0; i < 3; i++) {
+      const res = await handleSessionComplete(h.db, SHOP, SESS, {
+        inventory: { 牛乳: { qty: i + 1 } }, prices: {}, snapshot: snap(SESS),
+      })
+      revisions.push(res.serverRevision)
+    }
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(1)
+    expect(revisions[1]).toBeGreaterThan(revisions[0])
+    expect(revisions[2]).toBeGreaterThan(revisions[1])
+  })
+
+  it('POST /history も保存のたびに revision と server 保存時刻を返す', async () => {
+    const h = setup()
+    const { handleHistoryPost } = await import('../src/storeHandler.js')
+    const first  = await handleHistoryPost(h.db, SHOP, { date: '2026-07-07', items: [] })
+    const second = await handleHistoryPost(h.db, SHOP, { date: '2026-07-07', items: [{ item: 'A', qty: 1 }] })
+
+    expect(first.ok).toBe(true)
+    expect(second.serverRevision).toBeGreaterThan(first.serverRevision)
+    expect(second.serverSavedAt).toBeTruthy()
+    expect(h.rows('SELECT * FROM store_history')).toHaveLength(1)
+  })
+
+  it('GET /history は serverRevision / serverSavedAt を返し、client の updatedAt を採用しない', async () => {
+    const h = setup()
+    const { handleHistoryGet } = await import('../src/storeHandler.js')
+    await handleSessionComplete(h.db, SHOP, SESS, {
+      inventory: { 牛乳: { qty: 1 } }, prices: {},
+      // 端末時計が未来へずれている想定。server 側の判定には使わせない。
+      snapshot: { ...snap(SESS), updatedAt: '2099-01-01T00:00:00.000Z', savedAt: '2099-01-01T00:00:00.000Z' },
+    })
+    const [row] = await handleHistoryGet(h.db, SHOP)
+    expect(row.serverRevision).toBeGreaterThan(0)
+    expect(row.serverSavedAt.startsWith('2099')).toBe(false)
+  })
+
+  it('別セッションを保存しても、既存行の revision は下がらない', async () => {
+    const h = setup()
+    const SESS2 = '44444444-4444-4444-8444-444444444444'
+    h.sqlite.prepare(
+      "INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, 'active', 0, 'stock')"
+    ).run(SESS2, SHOP, '2026-08-10T09:00:00.000Z')
+
+    const a = await handleSessionComplete(h.db, SHOP, SESS,  { inventory: { A: { qty: 1 } }, prices: {}, snapshot: snap(SESS) })
+    const b = await handleSessionComplete(h.db, SHOP, SESS2, { inventory: { B: { qty: 1 } }, prices: {}, snapshot: snap(SESS2, '2026-08-10') })
+    expect(b.serverRevision).toBeGreaterThan(a.serverRevision)
+
+    const rows = h.rows('SELECT session_id, revision FROM store_history ORDER BY revision')
+    expect(rows.map(r => r.session_id)).toEqual([SESS, SESS2])
   })
 })
 
@@ -382,5 +620,18 @@ describe('履歴の削除は同日の別セッションを巻き込まない', (
 
     await handleHistoryDelete(h.db, SHOP, '2026-07-07')
     expect(h.rows('SELECT session_id FROM store_history').map(r => r.session_id)).toEqual([SESS])
+  })
+
+  it('削除件数を返し、対象が無ければ removed:0（成功と区別できる）', async () => {
+    const h = setup()
+    const { handleHistoryDelete } = await import('../src/storeHandler.js')
+    expect(await handleHistoryDelete(h.db, SHOP, SESS)).toMatchObject({ ok: true, removed: 0 })
+  })
+
+  it.each(['../etc', 'a b', 'a'.repeat(65)])('不正な削除キー %s は400で拒否する', async (key) => {
+    const h = setup()
+    const { handleHistoryDelete } = await import('../src/storeHandler.js')
+    expect(await handleHistoryDelete(h.db, SHOP, key))
+      .toMatchObject({ _status: 400, code: 'invalid_id' })
   })
 })

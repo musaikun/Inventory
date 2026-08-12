@@ -251,9 +251,11 @@ export default {
           return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:key （key = sessionId または legacy日付）
+        // resultResponse を通す＝ハンドラの 400/503 をそのままHTTPステータスへ出す。
+        // jsonResponse(…, 200) では失敗が成功として届き、client が再試行できない。
         const histDateMatch = subpath.match(/^\/history\/([\w-]{1,64})$/)
         if (histDateMatch && request.method === 'DELETE') {
-          return jsonResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), 200, origin, allowedOrigin)
+          return resultResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), origin, allowedOrigin)
         }
         // PUT /store/:code/room
         if (subpath === '/room' && request.method === 'PUT') {
@@ -281,9 +283,12 @@ export default {
           return resultResponse(await handleMovementCreate(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/movements/:id
+        // 発注削除と同じく resultResponse を通す。ここだけ 200 固定だったため、
+        // 404（他店舗・不存在）も 503（batch 巻き戻し）も本文だけの差になり、
+        // client は削除できていないものを削除済みとして扱っていた。
         const moveDelMatch = subpath.match(/^\/movements\/([\w-]{1,64})$/)
         if (moveDelMatch && request.method === 'DELETE') {
-          return jsonResponse(await handleMovementDelete(env.DB, code, moveDelMatch[1]), 200, origin, allowedOrigin)
+          return resultResponse(await handleMovementDelete(env.DB, code, moveDelMatch[1]), origin, allowedOrigin)
         }
 
         // POST/DELETE /store/:code/push/subscribe（strict auth + bounded payload）
@@ -321,7 +326,7 @@ export default {
         if (sessMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return jsonResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), 200, origin, allowedOrigin)
+          return resultResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/:id/lines （要認証）

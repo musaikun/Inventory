@@ -14,7 +14,11 @@ export const IP_MAX_FAILS      = 30
 export const SECURITY_ATTEMPT_RETENTION_MS = Math.max(LOGIN_WINDOW_MS, IP_RATE_WINDOW_MS)
 
 // ── Payload ───────────────────────────────────────────────────────────────────
-export const MAX_PAYLOAD_CHARS = 1_000_000          // ~1 MB JSON guard
+// **UTF-8 のバイト数**で判定する（DATA-002 第2セッション）。
+// 旧 MAX_PAYLOAD_CHARS は JSON.stringify().length ＝ UTF-16 code unit 数で見ており、
+// 日本語（1文字=3バイト）中心の payload では実際の3倍まで通っていた。
+// D1 の row 上限（2MB）と Worker のメモリを守るのが目的なので、単位はバイトが正しい。
+export const MAX_PAYLOAD_BYTES = 1_000_000          // 1 MB JSON guard（UTF-8 bytes）
 export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024 // PushSubscription JSON guard
 
 // GET /store/:code/sessions/:id/lines で1回に返す明細の上限。
@@ -47,6 +51,12 @@ export const D1_BATCH_STATEMENTS_COUNT_INDIVIDUALLY = true
 //   verifyAuth: auth_tokens SELECT + stores SELECT = 2
 //   持ち主確認: sessions / orders / movements の SELECT = 1
 // 実測ではなくコード上の本数。経路を増やしたらここも増やす。
+//
+// 経路ごとの実際の合計は batch の大きさで決まるため、この定数だけでは足りない。
+// 履歴を書く経路（棚卸完了・過去取込）は revision 読み戻しでもう1本使うが、
+// その batch は最大でも 30〜33 文なので合計は 50 を大きく下回る。
+// 最悪ケースは order_lines（1文13行 → 500行で 41 文）で、そこには読み戻しが無い。
+// 実際の合計本数は writeAtomicity.sqlite.test.js の queryCount で経路ごとに固定する。
 export const D1_QUERIES_OVERHEAD_PER_REQUEST = 3
 
 // 明細 batch へ割り当てられる statement 数。Free の 50 から overhead を引き、
@@ -73,7 +83,7 @@ export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty
 
 // 1リクエストで受け付ける明細行の上限（棚卸完了 / 発注 / 入出庫 共通・DATA-001）。
 //
-// MAX_PAYLOAD_CHARS はJSON全体のバイト数しか見ないため、短い行を大量に並べると
+// MAX_PAYLOAD_BYTES はJSON全体のバイト数しか見ないため、短い行を大量に並べると
 // 上限内のまま数万行のwriteを1トランザクションへ詰め込める。件数でも縛る。
 //
 // 上限の根拠: 3テーブルのうち1文あたりの行数が最も少ない order_lines（13行/文）で、
@@ -81,6 +91,12 @@ export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty
 //   ceil(500/13) + 2 = 41 statements ≦ 41
 // 旧値 5,000 は N+2 statements を生み、Free の 50 はもちろん Paid の 1,000 も超えていた。
 export const MAX_LINES_PER_REQUEST = 500
+
+// 過去棚卸取込で1リクエストに指定できる「上書き対象セッション」の上限。
+// 削除は3文（inventory_lines / store_history / sessions）へ IN 句で集約するので、
+// 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる:
+//   IN 句 50個 + shop_code 1個 + 日付など数個 ≦ D1_MAX_BOUND_PARAMS(100)
+export const MAX_REPLACE_SESSIONS = 50
 
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）

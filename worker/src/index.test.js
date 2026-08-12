@@ -15,6 +15,9 @@ function createMockD1({ failTables = [] } = {}) {
   const pushSubscriptions = []
   const sessions = []
   const inventoryLines = []
+  const movements = []
+  const movementLines = []
+  const history = []
 
   function exec(sql, args) {
     const s = sql.replace(/\s+/g, ' ').trim()
@@ -143,6 +146,35 @@ function createMockD1({ failTables = [] } = {}) {
       if (i >= 0) orders.splice(i, 1)
       return { success: true }
     }
+    if (s.startsWith('SELECT shop_code FROM movements WHERE id')) {
+      const m = movements.find(x => x.id === args[0])
+      return m ? { shop_code: m.shop_code } : null
+    }
+    if (s.startsWith('DELETE FROM movement_lines WHERE movement_id')) {
+      const [id, shop] = args
+      for (let i = movementLines.length - 1; i >= 0; i--) {
+        if (movementLines[i].movement_id === id && movementLines[i].shop_code === shop) movementLines.splice(i, 1)
+      }
+      return { success: true, meta: { changes: 1 } }
+    }
+    if (s.startsWith('DELETE FROM movements WHERE id')) {
+      const [id, shop] = args
+      const i = movements.findIndex(x => x.id === id && x.shop_code === shop)
+      if (i >= 0) movements.splice(i, 1)
+      return { success: true, meta: { changes: i >= 0 ? 1 : 0 } }
+    }
+    if (s.startsWith('DELETE FROM store_history')) {
+      const before = history.length
+      const [shop, key] = args
+      for (let i = history.length - 1; i >= 0; i--) {
+        const row = history[i]
+        const hit = s.includes('session_id = ?')
+          ? row.shop_code === shop && row.session_id === key
+          : row.shop_code === shop && row.snapshot_date === key && row.session_id == null
+        if (hit) history.splice(i, 1)
+      }
+      return { success: true, meta: { changes: before - history.length } }
+    }
     if (s.startsWith('SELECT id, shop_code, started_at')) return []
     // GET /store/:code/sessions/:id/lines（DATA-002 Phase 1）
     // shop_code を WHERE に含まないSQLでは絞り込まない＝店舗境界の抜けをテストで検出する
@@ -172,8 +204,24 @@ function createMockD1({ failTables = [] } = {}) {
     return stmt
   }
 
+  // D1 の batch は1トランザクション。failAt で「巻き戻って 503 になる」経路を作る。
+  let failAt = null
+  async function batch(stmts) {
+    const out = []
+    for (let i = 0; i < stmts.length; i++) {
+      if (failAt === i) { failAt = null; throw new Error('D1_ERROR: injected failure') }
+      out.push(await stmts[i].run())
+    }
+    return out
+  }
+
   return {
     prepare,
+    batch,
+    _failBatchAt(i) { failAt = i },
+    _movements: movements,
+    _movementLines: movementLines,
+    _history: history,
     _stores: stores,
     _configs: configs,
     _ipRows: ipRows,
@@ -528,6 +576,89 @@ describe('Worker ルーティング（特性テスト）', () => {
     expect((await res.json()).error).toBeTruthy()
     expect(db._orders).toHaveLength(1)
     expect(db._orderLines).toHaveLength(1)
+  })
+
+  // 削除系のHTTPステータス契約（第2セッション §3）。
+  // movement DELETE と history DELETE は 200 固定で返しており、
+  // 「消せていない」ことが client 側で判定できなかった。
+  describe('削除APIのHTTPステータス契約', () => {
+    async function reg(pin = '1234') {
+      return (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin } }), env)).json()
+    }
+
+    it('存在しない入出庫の DELETE は 404 を HTTP へ伝播する', async () => {
+      const a = await reg()
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/movements/none`, { token: a.token }), env)
+      expect(res.status).toBe(404)
+      expect((await res.json()).code).toBe('movement_not_found')
+    })
+
+    it('他店舗の入出庫 DELETE も 404 で、元データを消さない', async () => {
+      const a = await reg('1234')
+      const b = await reg('5678')
+      db._movements.push({ id: 'shared-move', shop_code: a.shopCode })
+      db._movementLines.push({ movement_id: 'shared-move', shop_code: a.shopCode })
+
+      const res = await worker.fetch(makeReq('DELETE', `/store/${b.shopCode}/movements/shared-move`, { token: b.token }), env)
+      expect(res.status).toBe(404)
+      expect(db._movements).toHaveLength(1)
+      expect(db._movementLines).toHaveLength(1)
+    })
+
+    it('入出庫 DELETE の batch が巻き戻ったら 503 を返し、client に成功と読ませない', async () => {
+      const a = await reg()
+      db._movements.push({ id: 'm1', shop_code: a.shopCode })
+      db._movementLines.push({ movement_id: 'm1', shop_code: a.shopCode })
+      db._failBatchAt(1)
+
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/movements/m1`, { token: a.token }), env)
+      expect(res.status).toBe(503)
+      const body = await res.json()
+      expect(body).toMatchObject({ code: 'movement_delete_failed', retryable: true })
+      expect(body.ok).toBeUndefined()
+      expect(db._movements).toHaveLength(1)
+    })
+
+    it('成功した入出庫 DELETE は 200', async () => {
+      const a = await reg()
+      db._movements.push({ id: 'm1', shop_code: a.shopCode })
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/movements/m1`, { token: a.token }), env)
+      expect(res.status).toBe(200)
+      expect(db._movements).toHaveLength(0)
+    })
+
+    it('発注 DELETE の batch が巻き戻ったら 503', async () => {
+      const a = await reg()
+      db._orders.push({ id: 'o1', shop_code: a.shopCode })
+      db._failBatchAt(1)
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/orders/o1`, { token: a.token }), env)
+      expect(res.status).toBe(503)
+      expect((await res.json()).code).toBe('order_delete_failed')
+      expect(db._orders).toHaveLength(1)
+    })
+
+    it('履歴 DELETE が失敗したら 503 を返し、成功として届けない', async () => {
+      const failing = createMockD1({ failTables: ['store_history'] })
+      const failEnv = { ...env, DB: failing }
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), failEnv)).json()
+
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/history/sess-1`, { token: a.token }), failEnv)
+      expect(res.status).toBe(503)
+      const body = await res.json()
+      expect(body).toMatchObject({ code: 'history_delete_failed', retryable: true })
+      expect(body.ok).toBeUndefined()
+    })
+
+    it('履歴 DELETE は sessionId 指定で該当行だけ消し、件数を返す', async () => {
+      const a = await reg()
+      db._history.push({ shop_code: a.shopCode, session_id: 'sess-1', snapshot_date: '2026-07-07' })
+      db._history.push({ shop_code: a.shopCode, session_id: 'sess-2', snapshot_date: '2026-07-07' })
+
+      const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/history/sess-1`, { token: a.token }), env)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ ok: true, removed: 1 })
+      expect(db._history.map(r => r.session_id)).toEqual(['sess-2'])
+    })
   })
 })
 

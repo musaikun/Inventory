@@ -22,8 +22,16 @@
 --   sessionId を持たない旧スナップショット）は session_id NULL のまま残す。
 --
 -- 適用前後で行数は変わらない。UNIQUE の張り替えだけを行う。
+--
+-- foreign_keys について（2026-08-11 に公式資料で再確認）:
+--   D1 は `PRAGMA foreign_keys = OFF` を受け付けない。すべてのクエリを暗黙の
+--   トランザクション内で実行するため、ユーザークエリから外部キー強制を切れない。
+--   https://developers.cloudflare.com/d1/sql-api/foreign-keys/
+--   table を作り直す migration では `PRAGMA defer_foreign_keys = on` を使い、
+--   トランザクション終了までの間だけ検証を保留する（終了時に違反が残っていれば失敗する）。
+--   store_history を参照する外部キーは無いので、ここは保険として置いている。
 
-PRAGMA foreign_keys = OFF;
+PRAGMA defer_foreign_keys = on;
 
 CREATE TABLE IF NOT EXISTS store_history_v2 (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,4 +85,5 @@ BEGIN
   SELECT RAISE(ABORT, 'account_inactive');
 END;
 
-PRAGMA foreign_keys = ON;
+-- defer_foreign_keys はトランザクション終了時に自動で off へ戻る。
+-- 明示的な戻し（旧 `PRAGMA foreign_keys = ON`）は不要で、D1 では無効。

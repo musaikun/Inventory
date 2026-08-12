@@ -25,6 +25,7 @@ function _expandRows(s, bound, fieldNames) {
 // 書き込み系の最小モック（INSERT/UPDATE を success で返すだけ）
 function createMockD1() {
   const lines = []
+  const history = []
   const sessions = [{ id: 'sess-001', shop_code: 'ABCDEF', status: 'active' }]
 
   function prepare(sql) {
@@ -41,6 +42,21 @@ function createMockD1() {
               lines.splice(i, 1)
               changes++
             }
+          }
+        } else if (s.startsWith('INSERT INTO store_history')) {
+          // 存在条件つき INSERT ... SELECT。bind の末尾2つが session_id と shop_code。
+          const sid  = bound[bound.length - 2]
+          const shop = bound[bound.length - 1]
+          if (sessions.some(x => x.id === sid && x.shop_code === shop)) {
+            const rev = Math.max(0, ...history.filter(x => x.shop_code === shop).map(x => x.revision)) + 1
+            const row = {
+              shop_code: shop, session_id: sid, snapshot_date: bound[0], snapshot_json: bound[1],
+              created_at: bound[2], updated_at: bound[3], revision: rev,
+            }
+            const at = history.findIndex(x => x.session_id === sid && x.shop_code === shop)
+            if (at >= 0) history[at] = { ...history[at], ...row }
+            else history.push(row)
+            changes = 1
           }
         } else if (s.startsWith('INSERT INTO inventory_lines')) {
           const { rows, fixed, ownerId, ownerShop } =
@@ -68,6 +84,10 @@ function createMockD1() {
             x.id === id && (s.includes('shop_code = ?') ? x.shop_code === shop : true)
           ) ?? null
         }
+        if (s.includes('FROM store_history')) {
+          const [shop, sid] = bound
+          return history.find(x => x.shop_code === shop && x.session_id === sid) ?? null
+        }
         return null
       },
       async all() { return { results: [] } },
@@ -78,13 +98,18 @@ function createMockD1() {
   // D1 の batch は1トランザクション。failAt で部分失敗を注入し、巻き戻りを再現する。
   let failAt = null
   async function batch(stmts) {
-    const before = { lines: lines.map(l => ({ ...l })), sessions: sessions.map(x => ({ ...x })) }
+    const before = {
+      lines: lines.map(l => ({ ...l })),
+      sessions: sessions.map(x => ({ ...x })),
+      history: history.map(x => ({ ...x })),
+    }
     const results = []
     for (let i = 0; i < stmts.length; i++) {
       if (failAt === i) {
         failAt = null
         lines.splice(0, lines.length, ...before.lines)
         sessions.splice(0, sessions.length, ...before.sessions)
+        history.splice(0, history.length, ...before.history)
         throw new Error('D1_ERROR: injected failure')
       }
       results.push(await stmts[i].run())
@@ -92,7 +117,7 @@ function createMockD1() {
     return results
   }
 
-  return { prepare, batch, _lines: lines, _sessions: sessions, _failBatchAt(i) { failAt = i } }
+  return { prepare, batch, _lines: lines, _sessions: sessions, _history: history, _failBatchAt(i) { failAt = i } }
 }
 
 describe('storeHandler ペイロードサイズ上限', () => {
@@ -138,17 +163,19 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
     '牛乳':       { qty: 12, unit: '本' },
   }
   const prices = { 'コーヒー豆': 2000 }
+  // 棚卸完了はスナップショット必須（第2セッション §1）
+  const SNAP = { date: takenAt, items: [{ item: '牛乳', qty: 12 }] }
 
   it('品目数分の inventory_lines が挿入される', async () => {
     const db  = createMockD1()
-    const res = await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt })
+    const res = await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt, snapshot: SNAP })
     expect(res.ok).toBe(true)
     expect(db._lines).toHaveLength(2)
   })
 
   it('単価あり品目の line_value が正しく計算される', async () => {
     const db  = createMockD1()
-    await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt })
+    await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt, snapshot: SNAP })
     const coffee = db._lines.find(l => l.item_name === 'コーヒー豆')
     expect(coffee.unit_price).toBe(2000)
     expect(coffee.line_value).toBe(10000)
@@ -156,7 +183,7 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
 
   it('単価なし品目の unit_price・line_value が null になる', async () => {
     const db  = createMockD1()
-    await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt })
+    await handleSessionComplete(db, code, sessId, { inventory, prices, takenAt, snapshot: SNAP })
     const milk = db._lines.find(l => l.item_name === '牛乳')
     expect(milk.unit_price).toBeNull()
     expect(milk.line_value).toBeNull()
@@ -164,7 +191,7 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
 
   it('存在しないセッションIDは 404 を返す', async () => {
     const db  = createMockD1()
-    const res = await handleSessionComplete(db, code, 'no-such-id', { inventory, prices, takenAt })
+    const res = await handleSessionComplete(db, code, 'no-such-id', { inventory, prices, takenAt, snapshot: SNAP })
     expect(res._status).toBe(404)
   })
 })

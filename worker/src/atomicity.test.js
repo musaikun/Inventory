@@ -41,6 +41,7 @@ const SID   = 'sess-001'
 
 function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'active' }] } = {}) {
   const lines = []
+  const history = []
   const batches = []
 
   let failAt = null
@@ -57,6 +58,21 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
           const [sid, shop] = bound
           for (let i = lines.length - 1; i >= 0; i--) {
             if (lines[i].session_id === sid && lines[i].shop_code === shop) { lines.splice(i, 1); changes++ }
+          }
+        } else if (s.startsWith('INSERT INTO store_history')) {
+          // 存在条件つき INSERT ... SELECT。bind の末尾2つが session_id と shop_code。
+          const sid  = bound[bound.length - 2]
+          const shop = bound[bound.length - 1]
+          if (sessions.some(x => x.id === sid && x.shop_code === shop)) {
+            const rev = Math.max(0, ...history.filter(x => x.shop_code === shop).map(x => x.revision)) + 1
+            const row = {
+              shop_code: shop, session_id: sid, snapshot_date: bound[0], snapshot_json: bound[1],
+              created_at: bound[2], updated_at: bound[3], revision: rev,
+            }
+            const at = history.findIndex(x => x.session_id === sid && x.shop_code === shop)
+            if (at >= 0) history[at] = { ...history[at], ...row }
+            else history.push(row)
+            changes = 1
           }
         } else if (s.startsWith('INSERT INTO inventory_lines')) {
           const { rows, fixed, ownerId, ownerShop } =
@@ -80,6 +96,10 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
           const [id, shop] = bound
           return sessions.find(x => x.id === id && x.shop_code === shop) ?? null
         }
+        if (s.includes('FROM store_history')) {
+          const [shop, sid] = bound
+          return history.find(x => x.shop_code === shop && x.session_id === sid) ?? null
+        }
         return null
       },
       async all() { return { results: [] } },
@@ -89,13 +109,18 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
 
   async function batch(stmts) {
     batches.push(stmts.map(s => s.sql))
-    const before = { lines: lines.map(l => ({ ...l })), sessions: sessions.map(x => ({ ...x })) }
+    const before = {
+      lines: lines.map(l => ({ ...l })),
+      sessions: sessions.map(x => ({ ...x })),
+      history: history.map(x => ({ ...x })),
+    }
     const out = []
     for (let i = 0; i < stmts.length; i++) {
       if (failAt === i) {
         failAt = null
         lines.splice(0, lines.length, ...before.lines)
         sessions.splice(0, sessions.length, ...before.sessions)
+        history.splice(0, history.length, ...before.history)
         throw new Error('D1_ERROR: injected failure')
       }
       out.push(await stmts[i].run())
@@ -105,7 +130,7 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
 
   return {
     prepare, batch,
-    _lines: lines, _sessions: sessions, _batches: batches,
+    _lines: lines, _sessions: sessions, _history: history, _batches: batches,
     _failBatchAt(i) { failAt = i },
   }
 }
@@ -115,17 +140,19 @@ const INVENTORY = {
   '牛乳':       { qty: 12, unit: '本' },
 }
 const PRICES = { 'コーヒー豆': 2000, '牛乳': 200 }
+// 棚卸完了はスナップショット必須（第2セッション §1）
+const SNAP = { date: '2026-06-11', items: [{ item: '牛乳', qty: 12 }] }
 
 describe('棚卸完了 — 明細と完了状態を1つのトランザクションで書く', () => {
   it('write が1回の batch にまとまっている', async () => {
     const db = createSessionDb()
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(db._batches).toHaveLength(1)
   })
 
   it('同じ batch に完了状態の UPDATE と明細の INSERT が両方入っている', async () => {
     const db = createSessionDb()
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     const [sqls] = db._batches
     expect(sqls.some(s => s.startsWith('UPDATE sessions'))).toBe(true)
     expect(sqls.some(s => s.startsWith('INSERT INTO inventory_lines'))).toBe(true)
@@ -133,7 +160,7 @@ describe('棚卸完了 — 明細と完了状態を1つのトランザクショ�
 
   it('成功時は明細と完了状態の両方が反映される', async () => {
     const db  = createSessionDb()
-    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(res.ok).toBe(true)
     expect(db._lines).toHaveLength(2)
     expect(db._sessions[0].status).toBe('completed')
@@ -145,7 +172,7 @@ describe('棚卸完了 — 部分失敗を作らない', () => {
   it('明細の途中で落ちたら、完了状態も明細も残らない', async () => {
     const db = createSessionDb()
     db._failBatchAt(2)   // UPDATE → DELETE の後、最初の INSERT で落とす
-    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
 
     expect(res.ok).toBeUndefined()
     expect(res._status).toBe(503)
@@ -157,7 +184,7 @@ describe('棚卸完了 — 部分失敗を作らない', () => {
   it('失敗は再試行できる形で返す（完了扱いにしない）', async () => {
     const db = createSessionDb()
     db._failBatchAt(0)
-    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(res.retryable).toBe(true)
     expect(res.code).toBe('complete_failed')
   })
@@ -165,10 +192,10 @@ describe('棚卸完了 — 部分失敗を作らない', () => {
   it('失敗後に同じ要求を送り直せば完了する', async () => {
     const db = createSessionDb()
     db._failBatchAt(1)
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(db._sessions[0].status).toBe('active')
 
-    const retry = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const retry = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(retry.ok).toBe(true)
     expect(db._sessions[0].status).toBe('completed')
     expect(db._lines).toHaveLength(2)
@@ -180,7 +207,7 @@ describe('棚卸完了 — 部分失敗を作らない', () => {
     const origBatch = db.batch
     db.batch = async (stmts) => { db._sessions.length = 0; return origBatch(stmts) }
 
-    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(res._status).toBe(404)
     expect(db._lines).toHaveLength(0)
   })
@@ -189,15 +216,15 @@ describe('棚卸完了 — 部分失敗を作らない', () => {
 describe('棚卸完了 — 冪等', () => {
   it('同じ完了要求を2回送っても明細が重複しない', async () => {
     const db = createSessionDb()
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(db._lines).toHaveLength(2)
   })
 
   it('品目が減った再送では、前回ぶんが残らない', async () => {
     const db = createSessionDb()
-    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
-    await handleSessionComplete(db, CODE, SID, { inventory: { '牛乳': { qty: 1, unit: '本' } }, prices: {} })
+    await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
+    await handleSessionComplete(db, CODE, SID, { inventory: { '牛乳': { qty: 1, unit: '本' } }, prices: {}, snapshot: SNAP })
 
     expect(db._lines.map(l => l.item_name)).toEqual(['牛乳'])
     expect(db._sessions[0].item_count).toBe(1)
@@ -205,7 +232,7 @@ describe('棚卸完了 — 冪等', () => {
 
   it('他店舗のセッションIDでは 404。明細を書かない', async () => {
     const db  = createSessionDb({ sessions: [{ id: SID, shop_code: OTHER, status: 'active' }] })
-    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES })
+    const res = await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
     expect(res._status).toBe(404)
     expect(db._lines).toHaveLength(0)
     expect(db._batches).toHaveLength(0)

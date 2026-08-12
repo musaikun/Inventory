@@ -38,3 +38,4 @@ apply_if_missing 0010_movements.sql          idx_movement_lines_item
 apply_if_missing 0011_account_deletion.sql   trg_movement_lines_active_insert
 apply_if_missing 0012_history_session_key.sql idx_history_session
 apply_if_missing 0013_import_batches.sql     idx_sessions_import_batch
+apply_if_missing 0014_history_revision.sql   idx_history_revision
