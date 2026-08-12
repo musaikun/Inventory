@@ -12,7 +12,7 @@
  * CSV の字句解析と数値の読み方は utils/csvParse.js に一本化してある。
  */
 
-import { tokenizeCSV, parseNumericCell, parseCSVLine as _parseCSVLine } from './csvParse.js'
+import { tokenizeCSV, readNumericCell, parseCSVLine as _parseCSVLine } from './csvParse.js'
 
 export const IMPORT_MODE_MERGE   = 'merge'    // 追加・更新（既定）。ファイルに無い既存品目は残す
 export const IMPORT_MODE_REPLACE = 'replace'  // 全入れ替え。ファイルに無い既存品目は削除する
@@ -101,22 +101,12 @@ function _emptyParsed() {
 
 /**
  * 数値セルを読む。空欄・不正・範囲外を呼び出し側が区別できる形で返す。
- * 不正値を「未指定（＝既存値を維持）」へすり替えないのが要点。
+ * 判定そのものは csvParse.readNumericCell（全取込入口の共通契約）に任せ、
+ * 不正値を「未指定（＝既存値を維持）」へすり替えないことだけをここで守る。
  */
-function _numCell(cols, idx, { label, column, positive = false, allowNegative = false } = {}) {
+function _numCell(cols, idx, opts = {}) {
   if (idx === null || idx === undefined || idx < 0) return { empty: true }
-  const parsed = parseNumericCell(cols[idx])
-  if (parsed.empty)   return { empty: true }
-  if (parsed.invalid) return { error: `${label}「${parsed.raw}」は数値として読めません`, column, value: parsed.raw }
-
-  const n = parsed.value
-  if (positive && !(n > 0)) {
-    return { error: `${label}「${parsed.raw ?? n}」は0より大きい数値にしてください`, column, value: String(cols[idx]).trim() }
-  }
-  if (!allowNegative && !positive && n < 0) {
-    return { error: `${label}「${n}」は0以上の数値にしてください`, column, value: String(cols[idx]).trim() }
-  }
-  return { value: n }
+  return readNumericCell(cols[idx], { column: idx, ...opts })
 }
 
 /**
@@ -128,8 +118,8 @@ function _buildRow({ line, cols, spec, headers }) {
   const label = (idx, fallback) => headers?.[idx]?.trim() || fallback
 
   const num = (idx, fallback, opts) => {
-    const r = _numCell(cols, idx, { label: label(idx, fallback), column: idx, ...opts })
-    if (r.error) { errors.push({ line, column: idx, columnLabel: label(idx, fallback), value: r.value, reason: r.error }) }
+    const r = _numCell(cols, idx, { line, columnLabel: label(idx, fallback), ...opts })
+    if (r.error) errors.push(r.error)
     return r
   }
 
@@ -366,11 +356,20 @@ function _diffItem(name, current, next, beforeAliases, afterAliases) {
  * 衝突として返して画面に出す。ALIAS_TAKEOVER が明示されたときだけ付け替える。
  *
  * 品目名そのものと同じ別名（既存品目を隠してしまう）も衝突として扱う。
+ *
+ * 衝突は3種で、**どちらの選択でも「画面の文言どおり」の結果**にする。
+ *   existing … 既存の別名が別品目を指す。keep=既存を維持 / takeover=ファイルへ付け替え
+ *   item     … 別名が既存の品目名と同じ。keep=品目を隠さない / takeover=ファイルへ付け替え
+ *   file     … ファイル内で2品目が同じ別名を取り合う。
+ *              keep=ファイルの**先頭行**を維持 / takeover=**あとの行**へ付け替える
+ *              （「ファイルの指定を優先する」を選んだのに先頭行だけが残ると、
+ *                画面の説明と結果がずれるため、ファイル内衝突も同じ規則で動かす）
  */
 function _planAliases({ rows, orderSet, baseDictionary, removedSet, policy }) {
   const dictionary = { ...baseDictionary }
   const conflicts  = []
-  const claimed    = new Map()   // alias -> 今回のファイルで最初に要求した品目
+  const claimed    = new Map()   // alias -> 今回のファイルで採用済みの品目
+  const takeover   = policy === ALIAS_TAKEOVER
 
   for (const row of rows) {
     if (!orderSet.has(row.name)) continue
@@ -381,16 +380,15 @@ function _planAliases({ rows, orderSet, baseDictionary, removedSet, policy }) {
       // 同じ別名をファイル内の2品目が取り合っている
       if (fileOwner && fileOwner !== row.name) {
         conflicts.push({ alias, from: fileOwner, to: row.name, line: row.line, kind: 'file' })
-        continue
-      }
-      // 既存品目の名前を別名にすると、その品目が検索から隠れる
-      if (orderSet.has(alias) && alias !== row.name) {
+        if (!takeover) continue
+      } else if (orderSet.has(alias) && alias !== row.name) {
+        // 既存品目の名前を別名にすると、その品目が検索から隠れる
         conflicts.push({ alias, from: alias, to: row.name, line: row.line, kind: 'item' })
-        if (policy !== ALIAS_TAKEOVER) continue
+        if (!takeover) continue
       } else if (currentOwner && currentOwner !== row.name && !removedSet.has(currentOwner)) {
         // 既存の別名が別の品目を指している
         conflicts.push({ alias, from: currentOwner, to: row.name, line: row.line, kind: 'existing' })
-        if (policy !== ALIAS_TAKEOVER) continue
+        if (!takeover) continue
       }
 
       dictionary[alias] = row.name

@@ -180,8 +180,39 @@ describe('エイリアス衝突', () => {
 
   it('ファイル内で同じエイリアスを2品目が取り合う場合も衝突として出す', () => {
     const p = plan(`${HEAD}\nきゅうり,本,,,"みどり"\nピーマン,個,,,"みどり"`, emptyConfig())
-    expect(p.dictionary['みどり']).toBe('きゅうり')            // 先に出た行を採用
+    expect(p.dictionary['みどり']).toBe('きゅうり')            // 既定は先に出た行を保持
     expect(p.summary.aliasConflicts[0]).toMatchObject({ kind: 'file', from: 'きゅうり', to: 'ピーマン' })
+  })
+
+  it('ファイル内衝突でも takeover なら画面の文言どおり「あとの行」へ付け替える', () => {
+    // 「ファイルの指定を優先する」を選んだのに先頭行だけが残ると、説明と結果がずれる
+    const p = plan(
+      `${HEAD}\nきゅうり,本,,,"みどり"\nピーマン,個,,,"みどり"`,
+      emptyConfig(), { aliasPolicy: ALIAS_TAKEOVER },
+    )
+    expect(p.dictionary['みどり']).toBe('ピーマン')
+    expect(p.summary.aliasConflicts[0]).toMatchObject({ kind: 'file' })   // 解決しても記録は残す
+  })
+
+  it('takeover は3種すべての衝突を同じ規則で解決する', () => {
+    const cfg = emptyConfig({ order: ['トマト', 'なす'], dictionary: { あかいやつ: 'トマト' } })
+    const csv = [
+      HEAD,
+      'レタス,玉,,,"あかいやつ"',    // existing: 既存の別名を奪う
+      'きゅうり,本,,,"なす"',        // item: 既存の品目名を隠す
+      'ピーマン,個,,,"みどり"',
+      'ズッキーニ,本,,,"みどり"',    // file: ファイル内で取り合う
+    ].join('\n')
+    const keep = plan(csv, cfg, { aliasPolicy: ALIAS_KEEP_EXISTING })
+    expect(keep.dictionary['あかいやつ']).toBe('トマト')
+    expect(keep.dictionary['なす']).toBeUndefined()
+    expect(keep.dictionary['みどり']).toBe('ピーマン')
+
+    const take = plan(csv, cfg, { aliasPolicy: ALIAS_TAKEOVER })
+    expect(take.dictionary['あかいやつ']).toBe('レタス')
+    expect(take.dictionary['なす']).toBe('きゅうり')
+    expect(take.dictionary['みどり']).toBe('ズッキーニ')
+    expect(take.summary.aliasConflicts.map(c => c.kind).sort()).toEqual(['existing', 'file', 'item'])
   })
 
   it('同じ品目が自分のエイリアスを再指定するのは衝突にしない', () => {

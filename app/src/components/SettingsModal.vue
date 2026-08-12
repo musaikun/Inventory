@@ -194,9 +194,11 @@ async function openMapper(file) {
   }
 }
 
-function onMapperImported({ mapping, csvText }) {
+// hasHeader（1行目は見出し／データ）はマッピング画面の選択をそのまま確認画面へ渡す。
+// ここで作り直すと、画面の説明と実際に取り込む行がずれる。
+function onMapperImported({ mapping, csvText, hasHeader = true }) {
   showMapper.value = false
-  openPreview({ origin: 'mapped', csvText, mapping, filename: mapperFilename.value })
+  openPreview({ origin: 'mapped', csvText, mapping, hasHeader, filename: mapperFilename.value })
 }
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
@@ -480,6 +482,7 @@ function onDownloadTemplate() {
     :origin="previewSource.origin"
     :csv-text="previewSource.csvText"
     :mapping="previewSource.mapping"
+    :has-header="previewSource.hasHeader !== false"
     :filename="previewSource.filename"
     @imported="onPreviewImported"
     @close="previewSource = null"

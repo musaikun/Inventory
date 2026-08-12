@@ -34,9 +34,10 @@ describe('R3-02: 発注点の CSV エクスポート/インポート', () => {
     const rows = out.split('\r\n')
     expect(rows[0].split(',').pop()).toBe('発注点')
     // トマト行の末尾セルが 5、レタス行（未設定）は空
-    const tomato = rows.find(r => r.startsWith('"トマト"'))
+    // （エスケープが要らないセルは引用符で囲まない＝RFC4180 どおりの共通実装）
+    const tomato = rows.find(r => r.startsWith('トマト,'))
     expect(tomato.split(',').pop()).toBe('5')
-    const lettuce = rows.find(r => r.startsWith('"レタス"'))
+    const lettuce = rows.find(r => r.startsWith('レタス,'))
     expect(lettuce.split(',').pop()).toBe('')
   })
 

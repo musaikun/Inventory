@@ -20,10 +20,15 @@ const NEW = '__new__'   // 「この名前で新規追加」を表す choice 値
 const parseError = ref('')
 const skipped    = ref(0)
 const rows       = ref([])
+// 数値・日付として読めなかった行（行番号・列名・元の値・理由）。
+// 件数だけを出すと「気づかないまま確定」になるので、明細を出して確認を必須にする。
+const rowErrors  = ref([])
+const errorsAcknowledged = ref(false)
 
 try {
-  const { rows: parsed, skipped: sk } = parseDeliveryImportCSV(props.csvText)
-  skipped.value = sk
+  const { rows: parsed, skipped: sk, errors } = parseDeliveryImportCSV(props.csvText)
+  skipped.value   = sk
+  rowErrors.value = errors ?? []
   const existKeys = existingLineKeys(props.existingMovements)
   const seen = new Set()
 
@@ -66,7 +71,9 @@ const summary = computed(() => {
   return s
 })
 
-const canImport = computed(() => summary.value.willImport > 0)
+// 不正行があるうちは、明細を見て「除いて取り込む」と明示するまで確定させない
+const canImport = computed(() =>
+  summary.value.willImport > 0 && (rowErrors.value.length === 0 || errorsAcknowledged.value))
 
 function statusLabel(r) {
   if (r.duplicate) return '重複'
@@ -115,7 +122,25 @@ function onImport() {
         <div class="import-hint">
           <span v-if="filename" class="import-filename">{{ filename }}</span>
           {{ summary.total }}件を確認して取り込みます。
-          <span v-if="skipped > 0" class="import-skip">（{{ skipped }}件は日付・数量の不備でスキップ）</span>
+          <span v-if="skipped > 0" class="import-skip">（{{ skipped }}件は日付・品目名・数量が空のためスキップ）</span>
+        </div>
+
+        <!-- 読めなかった行。行番号・列名・元の値・理由をそのまま出す -->
+        <div v-if="rowErrors.length" class="err-block" role="alert">
+          <div class="err-head">取り込めない値が{{ rowErrors.length }}行あります</div>
+          <div class="err-list">
+            <div v-for="(e, i) in rowErrors.slice(0, 20)" :key="i" class="err-row">
+              <span class="err-line">{{ e.line }}行目</span>
+              <span class="err-col">{{ e.columnLabel }}{{ e.name ? `（${e.name}）` : '' }}</span>
+              <span class="err-val">「{{ e.value }}」</span>
+              <span class="err-why">{{ e.reason }}</span>
+            </div>
+            <p v-if="rowErrors.length > 20" class="err-more">ほか{{ rowErrors.length - 20 }}行</p>
+          </div>
+          <label class="err-ack">
+            <input type="checkbox" v-model="errorsAcknowledged" />
+            この{{ rowErrors.length }}行を取り込まずに進む
+          </label>
         </div>
 
         <!-- サマリ -->
@@ -175,6 +200,18 @@ function onImport() {
 </template>
 
 <style scoped>
+.err-block { border: 1px solid #fecaca; background: #fef2f2; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.err-head { font-size: 13px; font-weight: 800; color: #b91c1c; margin-bottom: 6px; }
+.err-list { max-height: 180px; overflow-y: auto; }
+.err-row { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; line-height: 1.6; padding: 3px 0; }
+.err-line { color: #b45309; font-weight: 800; min-width: 56px; }
+.err-col  { color: #334155; }
+.err-val  { color: #7f1d1d; font-weight: 700; word-break: break-all; }
+.err-why  { color: #94a3b8; }
+.err-more { font-size: 12px; color: #94a3b8; margin: 4px 0 0; }
+.err-ack { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #7f1d1d; margin-top: 8px; cursor: pointer; }
+.err-ack input { width: 16px; height: 16px; }
+
 .import-sheet { max-height: 92vh; overflow-y: auto; }
 
 .import-error {

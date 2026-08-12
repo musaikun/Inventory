@@ -207,3 +207,94 @@ describe('プレビューと取込の一致', () => {
     expect(cfg.config.prices['トマト']).toBe(150)
   })
 })
+
+describe('ヘッダ無しCSV（列指定）— 1行目の品目を失わない', () => {
+  const MAPPING = { name: 0, unit: 1, price: 2, category: null, code: null, lotSize: null, prevMonth: null, axisA: null, axisB: null }
+  const NO_HEADER_CSV = 'トマト,箱,120\nレタス,玉,80'
+
+  it('hasHeader:false で1行目も品目として取り込む（実際に config へ入る）', async () => {
+    const { events, text } = await mount({
+      origin: 'mapped', hasHeader: false, mapping: MAPPING, csvText: NO_HEADER_CSV,
+    })
+    expect(text()).toContain('1行目からデータ')
+    await click('取り込む')
+    expect(events.imported[0].added).toBe(2)
+    expect(cfg.config.order).toEqual(['トマト', 'レタス'])
+    expect(cfg.config.prices['トマト']).toBe(120)
+    expect(cfg.config.units['トマト']).toBe('箱')
+  })
+
+  it('hasHeader:true では1行目を見出しとして捨てる（同じファイル・同じ画面）', async () => {
+    const { events } = await mount({
+      origin: 'mapped', hasHeader: true, mapping: MAPPING, csvText: NO_HEADER_CSV,
+    })
+    await click('取り込む')
+    expect(events.imported[0].added).toBe(1)
+    expect(cfg.config.order).toEqual(['レタス'])   // 修正前はこれが既定で、トマトが消えていた
+  })
+
+  it('画面の表示（取込後の件数）と実際の取込結果が一致する', async () => {
+    const { events, text } = await mount({
+      origin: 'mapped', hasHeader: false, mapping: MAPPING, csvText: NO_HEADER_CSV,
+    })
+    expect(text()).toContain('2件')
+    await click('取り込む')
+    expect(events.imported[0].count).toBe(2)
+  })
+})
+
+describe('PDF/Excel 由来の不正な数値をプレビューで止める', () => {
+  it('単価 -100 / abc100 を正常値へ変換せず、行番号つきのエラーにする', async () => {
+    const { text } = await mount({
+      origin: 'pdf',
+      csvText: `${HEAD}\nトマト,箱,-100,野菜,\nレタス,玉,abc100,野菜,\nなす,本,120,野菜,`,
+    })
+    expect(text()).toContain('2行目')
+    expect(text()).toContain('3行目')
+    expect(text()).toContain('-100')
+    expect(text()).toContain('abc100')
+    expect(text()).not.toContain('100円')
+  })
+
+  it('正しい 1,200 と小数は受理する', async () => {
+    const { events } = await mount({ csvText: `${HEAD}\nトマト,箱,"1,200",野菜,\nレタス,玉,0.5,野菜,` })
+    await click('取り込む')
+    expect(events.imported[0].added).toBe(2)
+    expect(cfg.config.prices['トマト']).toBe(1200)
+    expect(cfg.config.prices['レタス']).toBe(0.5)
+  })
+})
+
+describe('エイリアス衝突の解決が計画と確定で一致する', () => {
+  it('既定（今のまま）では既存の割り当てを保持する', async () => {
+    cfg.loadFromCSV(`${HEAD}\nトマト,箱,120,野菜,"あかいやつ"`)
+    const { text } = await mount({ csvText: `${HEAD}\nレタス,玉,80,野菜,"あかいやつ"` })
+    expect(text()).toContain('エイリアスが1件ぶつかっています')
+
+    // 選ぶまで取り込めない
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('取り込む'))
+    expect(btn.disabled).toBe(true)
+
+    await pickRadio('今のままにする')
+    await click('取り込む')
+    expect(cfg.dictionary.value['あかいやつ']).toBe('トマト')
+  })
+
+  it('「ファイルの指定を優先する」を選ぶと、画面の説明どおり付け替える', async () => {
+    cfg.loadFromCSV(`${HEAD}\nトマト,箱,120,野菜,"あかいやつ"`)
+    await mount({ csvText: `${HEAD}\nレタス,玉,80,野菜,"あかいやつ"` })
+    await pickRadio('ファイルの指定を優先する')
+    await click('取り込む')
+    expect(cfg.dictionary.value['あかいやつ']).toBe('レタス')
+  })
+
+  it('ファイル内衝突でも「ファイルの指定を優先する」ならあとの行へ付け替える', async () => {
+    const { text } = await mount({
+      csvText: `${HEAD}\nきゅうり,本,,野菜,"みどり"\nピーマン,個,,野菜,"みどり"`,
+    })
+    expect(text()).toContain('ファイル内で重複')
+    await pickRadio('ファイルの指定を優先する')
+    await click('取り込む')
+    expect(cfg.dictionary.value['みどり']).toBe('ピーマン')
+  })
+})

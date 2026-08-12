@@ -23,6 +23,9 @@ const props = defineProps({
   csvText:  { type: String, required: true },
   mapping:  { type: Object, default: null },
   filename: { type: String, default: '' },
+  // 列指定取込で「1行目は見出し／データ」のどちらを選んだか。
+  // マッピング画面 → 確認画面 → 確定処理まで同じ値を運ぶ（画面の説明と結果を一致させる）。
+  hasHeader: { type: Boolean, default: true },
 })
 const emit = defineEmits(['imported', 'close'])
 
@@ -58,7 +61,7 @@ const preview = computed(() => {
   try {
     const opts = { mode: mode.value, aliasPolicy: aliasPolicy.value ?? ALIAS_KEEP_EXISTING }
     const plan = isMapped.value
-      ? planMappedImport(props.csvText, props.mapping, opts)
+      ? planMappedImport(props.csvText, props.mapping, { ...opts, hasHeader: props.hasHeader })
       : planCSVImport(props.csvText, opts)
     return { plan, error: '', errorCode: '', rowErrors: [] }
   } catch (err) {
@@ -83,6 +86,17 @@ const errorSample     = computed(() => cap(summary.value?.errors ?? preview.valu
 const errorTotal      = computed(() => (summary.value?.errors ?? preview.value.rowErrors ?? []).length)
 const conflicts       = computed(() => summary.value?.aliasConflicts ?? [])
 const conflictSample  = computed(() => cap(conflicts.value))
+// 衝突の種類ごとに文言を変える（「既存を守る」と「先頭行を守る」は別の話なので混ぜない）
+const CONFLICT_KIND_LABEL = {
+  existing: '既存の別名',
+  item:     '既存の品目名',
+  file:     'ファイル内で重複',
+}
+const conflictKinds = computed(() => {
+  const kinds = { existing: false, item: false, file: false }
+  for (const c of conflicts.value) if (c.kind in kinds) kinds[c.kind] = true
+  return kinds
+})
 const truncatedNames  = computed(() => summary.value?.truncatedNames ?? [])
 const categoryCodeChanges = computed(() => cap(summary.value?.categoryCodeChanges))
 const axisNameChanges = computed(() => summary.value?.axisNameChanges ?? [])
@@ -123,13 +137,17 @@ function onConfirm() {
       <p class="src-line">
         <span v-if="filename" class="src-file">{{ filename }}</span>
         <span v-if="origin === 'pdf'" class="beta-tag">PDF/Excel 読み取り（β）</span>
+        <span v-if="isMapped" class="header-tag">
+          {{ hasHeader ? '1行目は見出し' : '1行目からデータ' }}
+        </span>
         <span class="src-now">現在の登録：{{ itemCount }}件</span>
       </p>
 
       <div v-if="error" class="msg error" role="alert" aria-live="assertive">
         ✗ {{ error }}
         <span v-if="needsMapping" class="msg-hint">
-          「フォーマット不明のCSV/Excelを列指定でインポート」から列を指定すると、1行目も品目として取り込めます。
+          「フォーマット不明のCSV/Excelを列指定でインポート」を選び、
+          <b>「1行目からデータ」</b>を指定すると、1行目も品目として取り込めます。
         </span>
       </div>
 
@@ -154,14 +172,20 @@ function onConfirm() {
             <input type="radio" :value="IMPORT_MODE_MERGE" v-model="mode" />
             <span class="mode-body">
               <span class="mode-name">追加・更新（推奨）</span>
-              <span class="mode-desc">ファイルに無い品目はそのまま残ります。同じ品目名はファイルの値で更新します。</span>
+              <span class="mode-desc">
+                ファイルに無い品目はそのまま残ります。同じ品目名はファイルの値で更新します。
+                取込の直後にかぎり「取込前に戻す」で1回だけ戻せます。
+              </span>
             </span>
           </label>
           <label class="mode-opt danger" :class="{ on: isReplace }">
             <input type="radio" :value="IMPORT_MODE_REPLACE" v-model="mode" />
             <span class="mode-body">
               <span class="mode-name">全入れ替え</span>
-              <span class="mode-desc">現在の品目をすべて捨て、ファイルの内容だけにします。</span>
+              <span class="mode-desc">
+                現在の品目をすべて捨て、ファイルの内容だけにします。
+                こちらも戻せるのは取込の直後に1回だけです。
+              </span>
             </span>
           </label>
         </div>
@@ -194,11 +218,13 @@ function onConfirm() {
           <p class="warn-title">エイリアスが{{ conflicts.length }}件ぶつかっています</p>
           <p class="warn-body">
             同じ別名を複数の品目が使おうとしています。どちらを優先するか選んでください。
+            <span v-if="conflictKinds.file">ファイルの中で取り合っている別名も含みます。</span>
           </p>
           <ul class="conflict-list">
             <li v-for="(c, i) in conflictSample" :key="i">
               <b>{{ c.alias }}</b>
               <span class="conflict-line">{{ c.line }}行目</span>
+              <span class="conflict-kind">{{ CONFLICT_KIND_LABEL[c.kind] ?? '' }}</span>
               <span class="conflict-move">{{ c.from }} → {{ c.to }}</span>
             </li>
             <li v-if="conflicts.length > conflictSample.length" class="more">
@@ -207,11 +233,13 @@ function onConfirm() {
           </ul>
           <label class="alias-opt">
             <input type="radio" :value="ALIAS_KEEP_EXISTING" v-model="aliasPolicy" />
-            今のままにする（既存の品目が別名を持ち続ける）
+            {{ conflictKinds.file && !conflictKinds.existing && !conflictKinds.item
+               ? '先に出てきた行を優先する（ファイルの先頭側の品目が別名を持つ）'
+               : '今のままにする（既存の割り当て・ファイルの先頭行を保持する）' }}
           </label>
           <label class="alias-opt">
             <input type="radio" :value="ALIAS_TAKEOVER" v-model="aliasPolicy" />
-            ファイルの指定を優先する（別名を新しい品目へ付け替える）
+            ファイルの指定を優先する（別名をあとの行の品目へ付け替える）
           </label>
         </div>
 
@@ -416,6 +444,8 @@ function onConfirm() {
 .conflict-list { margin: 8px 0; padding-left: 18px; font-size: 12px; color: #78350f; line-height: 1.7; }
 .conflict-list .more { list-style: none; margin-left: -18px; color: #94a3b8; }
 .conflict-line { color: #b45309; font-weight: 800; margin-left: 6px; }
+.conflict-kind { color: #92400e; font-size: 11px; margin-left: 6px; }
+.header-tag { border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 700; color: #475569; }
 .conflict-move { color: #475569; margin-left: 6px; }
 .alias-opt {
   display: flex; align-items: flex-start; gap: 8px;

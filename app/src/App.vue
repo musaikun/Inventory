@@ -549,8 +549,9 @@ function onRestoreInventory(rows) {
   let restored = 0, added = 0
   for (const r of rows) {
     if (!r?.name || typeof r.qty !== 'number') continue
-    const priceNum = parseFloat(r.price)
-    const price    = (!isNaN(priceNum) && priceNum > 0) ? priceNum : null
+    // 単価は parser（共通の数値契約）が数値か null にして渡す。ここで parseFloat し直すと
+    // 前方一致で `12abc` → 12 を作り直してしまうので、値をそのまま使う。
+    const price = typeof r.price === 'number' && r.price > 0 ? r.price : null
     if (!config.order.includes(r.name)) {
       // CSVの情報（単価・ジャンル・単位・コード）をまとめて復元
       addItem(r.name, price, r.category || null, r.unit || null, r.code || null)
