@@ -17,17 +17,30 @@ import { STORAGE_KEYS } from './utils/storageKeys.js'
 // ── apiFetch: パスごとに応答を決める。既定は成功 ──────────────────────────────
 let completeShouldFail = false
 let completeCalls = 0
+let completeBodies = []
+// 完了APIを保留させる（通信中の状態を作る）。null = 保留しない
+let completeGate = null
+// 完了APIの応答を差し替える（snapshotSaved を欠く応答など）
+let completeResponse = null
 
 vi.mock('./utils/api.js', () => ({
   // '' にすると useStore 側の D1 保存は no-op（本testの対象外）。
   // useAuth は HTTP_BASE を見ずに apiFetch を呼ぶので、完了経路はそのまま通る。
   HTTP_BASE: '',
   WS_BASE: '',
-  apiFetch: vi.fn(async (path) => {
+  apiFetch: vi.fn(async (path, options) => {
     if (path.endsWith('/complete')) {
       completeCalls++
-      if (completeShouldFail) throw new Error('network down')
-      return { ok: true }
+      completeBodies.push(JSON.parse(options?.body ?? '{}'))
+      if (completeGate) await completeGate
+      if (completeShouldFail) {
+        const err = new Error('サービスが一時的に利用できません')
+        err.status = 503
+        err.body   = { retryable: true }
+        throw err
+      }
+      // snapshot を載せた完了は snapshotSaved:true が成功条件（handleSessionComplete の契約）
+      return completeResponse ?? { ok: true, snapshotSaved: true }
     }
     // GET /store/:code — 空オブジェクトを返すと loadStore が shopCode を undefined で
     // 上書きし、以降の session API が「店舗コード無し」で黙って no-op になる。
@@ -48,11 +61,14 @@ const syncIsHost   = { value: false }
 const broadcastSessionEnd = vi.fn()
 const dissolveRoom        = vi.fn(async () => {})
 
+let sessionEndedCallback = null
+
 vi.mock('./composables/useSync.js', async (importOriginal) => {
   const actual = await importOriginal()
   const { computed, reactive } = await import('vue')
   return {
     ...actual,
+    setSessionEndedCallback: (fn) => { sessionEndedCallback = fn },
     broadcastSessionEnd,
     useSync: () => ({
       state: reactive({ error: '', connected: false, participants: [], messages: [] }),
@@ -98,11 +114,17 @@ async function mountApp() {
 }
 
 const completeBtn = () => host.querySelector('.btn-complete')
+const homeBtn     = () => host.querySelector('.home-btn')
+
+async function settle(n = 12) { for (let i = 0; i < n; i++) await nextTick() }
 
 async function clickComplete() {
   completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  for (let i = 0; i < 12; i++) await nextTick()
+  await settle()
 }
+
+const HISTORY_KEY = 'inventory_history_v1'
+const historyEntries = () => Object.values(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '{}'))
 
 describe('App — 棚卸完了がサーバーへ書けなかったとき', () => {
   beforeEach(() => {
@@ -110,6 +132,10 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     vi.clearAllMocks()
     completeShouldFail = false
     completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
@@ -188,6 +214,189 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     expect(broadcastSessionEnd).toHaveBeenCalledTimes(1)
     expect(dissolveRoom).toHaveBeenCalledTimes(1)
     expect(completeBtn()).toBeNull()
+  })
+})
+
+// ── サーバー成功前にローカルを確定しない（DATA-001 §1）───────────────────────
+describe('App — 完了はサーバー成功後にだけローカルへ確定する', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('完了APIが503でも入力画面・draft・sessionが残り、履歴だけが作られない', async () => {
+    completeShouldFail = true
+    await mountApp()
+    // 下書きは入力時に作られている前提を作る（セッション単位の inv_draft_）
+    localStorage.setItem('inv_draft_sess-1', JSON.stringify({ inv: { トマト: { qty: 3 } }, activeMs: 0 }))
+    await clickComplete()
+
+    // 入力画面に留まる（読み取り専用にもならない）
+    expect(completeBtn()).not.toBeNull()
+    expect(host.querySelector('.btn-new-session')).toBeNull()
+    // draft と pendingSession は保持
+    expect(localStorage.getItem('inv_draft_sess-1')).not.toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+    // 端末側の完了マークも付かない
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory)).completedAt).toBeNull()
+    // **履歴が作られていない**（旧実装はAPI呼び出し前に書いていた）
+    expect(historyEntries()).toHaveLength(0)
+  })
+
+  it('完了通信中にタブが閉じても、再起動後に同じセッションを再試行できる', async () => {
+    // 応答を返さない = 通信中にタブが閉じた状況。この Promise は解決しない
+    completeGate = new Promise(() => {})
+    await mountApp()
+
+    // 完了ボタンを押した直後＝完了APIの応答が返る前にタブが閉じる相当
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(4)
+    expect(completeCalls).toBe(1)
+
+    // この時点の localStorage が、再起動後に読まれる内容
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory)).completedAt).toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+    expect(historyEntries()).toHaveLength(0)
+
+    // 応答が返らないままタブが閉じる。再起動（同じ localStorage で App を作り直す）
+    app.unmount(); app = null
+    host.remove(); host = null
+    vi.resetModules()
+    completeGate = null
+    completeCalls = 0
+    const { default: App } = await import('./App.vue')
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp(App)
+    app.mount(host)
+    await settle(8)
+
+    // 進行中セッションとして復帰し、同じ sessionId で完了し直せる
+    expect(completeBtn()).not.toBeNull()
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+    expect(completeBtn()).toBeNull()
+  })
+
+  it('snapshot を送ったのに保存されなければ完了扱いにしない', async () => {
+    completeResponse = { ok: true }   // snapshotSaved が無い＝明細が入っていない
+    await mountApp()
+    await clickComplete()
+
+    expect(completeBtn()).not.toBeNull()          // 画面に留まる
+    expect(historyEntries()).toHaveLength(0)      // 履歴も作らない
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+  })
+
+  it('成功したら履歴が1件だけ作られ、サーバー確認済みとして記録される', async () => {
+    await mountApp()
+    await clickComplete()
+
+    const entries = historyEntries()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].sessionId).toBe('sess-1')
+    expect(entries[0].synced).toBe(true)
+    expect(entries[0].dirty).toBe(false)
+  })
+})
+
+// ── 完了要求は常に1本（DATA-001 §1）──────────────────────────────────────────
+describe('App — 完了要求が二重に走らない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('完了ボタンの二重押しでも完了要求は1本', async () => {
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+
+    release()
+    await settle()
+    expect(completeCalls).toBe(1)
+    // 後片付けも1回だけ（履歴が2件に増えない）
+    expect(historyEntries()).toHaveLength(1)
+  })
+
+  it('完了ボタン＋ホーム＋session_ended が競合しても完了要求は1本', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+    expect(typeof sessionEndedCallback).toBe('function')
+
+    // 1) 完了ボタン
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+    // 2) 完了通信中にホームを押す
+    const home = homeBtn()
+    if (home) home.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+    // 3) 同時にホスト自身の session_ended が届く
+    const ended = sessionEndedCallback('completed', 'sess-1', 1)
+    await settle(2)
+
+    release()
+    await Promise.resolve(ended).catch(() => {})
+    await settle()
+
+    expect(completeCalls).toBe(1)
+    // 後片付けも1回だけ
+    expect(broadcastSessionEnd).toHaveBeenCalledTimes(1)
+    expect(dissolveRoom).toHaveBeenCalledTimes(1)
+  })
+
+  it('再試行は同じ sessionId・同じ内容で送る（サーバー側で冪等）', async () => {
+    completeShouldFail = true
+    await mountApp()
+    await clickComplete()
+    completeShouldFail = false
+    await clickComplete()
+
+    expect(completeBodies).toHaveLength(2)
+    expect(completeBodies[0].inventory).toEqual(completeBodies[1].inventory)
+    expect(completeBodies[0].snapshot.sessionId).toBe('sess-1')
+    expect(completeBodies[1].snapshot.sessionId).toBe('sess-1')
+    expect(completeBodies[0].snapshot.items).toEqual(completeBodies[1].snapshot.items)
   })
 })
 

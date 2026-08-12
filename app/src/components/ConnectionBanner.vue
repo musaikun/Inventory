@@ -11,15 +11,17 @@ import {
 const FAILED_THRESHOLD = 2
 
 /**
- * 表示の優先順位。**未保存の警告をオフライン表示より上に置く**。
- * オフラインは「そのうち直る」と読めるが、未保存は失われうる変更なので、
- * 両方成り立つときは未保存側を出す。
+ * 表示の優先順位。**失われうる変更を、待てば直るものより上に置く**。
  *
  *  'unpersisted' … 端末にも保持できていない（アプリを閉じると失われる）
  *  'failed'      … 送信が続けて失敗している
  *  'pending'     … 未送信あり・再送中
+ *  'rejected'    … サーバーに拒否された。再送しても直らず、入力し直しが要る
  *  'offline'     … 未送信は無いがオフライン
- *  'rejected'    … サーバーに拒否されて送れなかったものがある
+ *
+ * **オフラインより拒否を先に出す。** オフラインは「そのうち直る」と読めるが、
+ * 拒否された保存は放っておいても入らない。オフライン中に拒否の事実が隠れると、
+ * ユーザーは接続が戻れば送られると誤解したまま、入力し直す機会を失う。
  */
 const mode = computed(() => {
   if (pendingCount.value > 0 || saveState.value === 'pending') {
@@ -27,8 +29,8 @@ const mode = computed(() => {
     if (!isOnline.value)         return 'pending'
     return saveFailures.value >= FAILED_THRESHOLD ? 'failed' : 'pending'
   }
-  if (!isOnline.value)            return 'offline'
   if (rejectedSaves.value.length) return 'rejected'
+  if (!isOnline.value)            return 'offline'
   return ''
 })
 

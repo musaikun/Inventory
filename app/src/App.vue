@@ -37,7 +37,9 @@ import {
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
   loadMovementsFromD1, resumePendingSaves, pendingCount, rejectedSaves,
+  noteAuthInvalidated, clearAuthBlock,
 } from './composables/useStore.js'
+import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
@@ -100,11 +102,8 @@ const {
   completeSession, reopenSession,
 } = useInventory()
 
-// 完了処理の実行中フラグ。await 中の二重押しで完了要求が2本走るのを防ぐ。
-const completing = ref(false)
-
 // ── History ────────────────────────────────────────────────────────────────────
-const { saveSnapshot, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
+const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
 // ── Orders（発注支援）────────────────────────────────────────────────────────────
 const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
@@ -166,7 +165,7 @@ const guestResult      = ref(null)   // 結果スナップショット（null = 
 const guestResultError = ref('')
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
-  pendingSession,
+  pendingSession, isCompleting: completing,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
   clear: clearSession,
@@ -277,11 +276,27 @@ async function onLandingStarted(payload) {
 // 完了時の保存が片方だけ失敗すると「一覧には出るが詳細が開けない」状態が残るため、
 // 履歴を読むタイミング（起動・ログイン・セッション開始）ごとに片落ちを埋める。
 // 差分の判定は applyRemoteHistory より前に行う（後だとローカルがリモートで潰れて差分が消える）。
+//
+// 進行中セッションは対象外。まだ完了していない棚卸のスナップショットを送ると、
+// サーバー側で「active なのに完了履歴だけある」状態が生まれ、一覧と詳細が食い違う。
 async function _syncHistoryFromD1(remoteHistory) {
-  const toBackfill = missingSnapshots(getSnapshots(), remoteHistory)
+  const activeSessionIds = pendingSession.value?.id && !isCompleted.value
+    ? [pendingSession.value.id]
+    : []
+  const toBackfill = missingSnapshots(getSnapshots(), remoteHistory, { activeSessionIds })
   if (remoteHistory?.length) applyRemoteHistory(remoteHistory)
-  for (const snap of toBackfill) await saveSnapshotToD1(snap)
+  for (const snap of toBackfill) await _pushSnapshot(snap)
   return toBackfill.length
+}
+
+// スナップショットを D1 へ送り、成功したらサーバーの revision を端末へ書き戻す。
+// dirty（端末でだけ訂正した状態）を下ろすのはサーバーが受け付けた後だけ。
+// dirty / synced は端末側の同期状態なのでサーバーへは送らない（保存内容に混ぜない）。
+async function _pushSnapshot(snap) {
+  const { dirty, synced, ...payload } = snap
+  const { ok, result } = await saveSnapshotToD1(payload)
+  if (ok) markSnapshotSynced(snap.sessionId ?? snap.date, result)
+  return ok
 }
 
 async function _startSessionView({ loadConfig = true } = {}) {
@@ -322,6 +337,10 @@ async function _pullAccountConfig() {
 // 認証後にセッション一覧へ
 async function onAuthDone() {
   currentView.value = 'sessions'
+  // 401 で止めていた再送を解除する（DATA-001 §2）。送るのは現在の店舗ぶんだけなので、
+  // 別店舗へログインした場合に旧店舗の未送信データは送られない。
+  // 別アカウントなら useAuth の accountReset が先に旧店舗ぶんを破棄している。
+  clearAuthBlock()
   await _pullAccountConfig()
 }
 
@@ -406,7 +425,12 @@ async function onViewSession(session) {
   // sessionId で一致するものだけを端末の記録として採用する。
   // 以前は「日付が同じスナップショット」へfallbackしていたが、同じ日に2回棚卸すると
   // 別セッションの中身を出してしまう。取り違えて見せるより、サーバーから取り直す（fail-closed）。
+  //
+  // 中身の揃わないスナップショット（明細が空・書きかけ）は「端末に記録がある」と
+  // 扱わない。サーバーには正しい明細があるのに空の詳細を見せてしまうため、
+  // sessionId で明細を取り直す。
   let snap = getSnapshotBySessionId(session.id)
+  if (snap && !isSnapshotComplete(snap)) snap = null
 
   if (!snap && session.id) {
     viewSessionLoading.value = true
@@ -434,6 +458,20 @@ async function onViewSession(session) {
   }
   detailSnapshot.value = snap
   currentView.value = 'session-detail'
+}
+
+/**
+ * 履歴詳細で数量を訂正したとき（SessionDetailPage の patched）。
+ *
+ * 訂正は端末で dirty として保持され、ここでサーバーへ送る。以前は送る経路が無く、
+ * バックフィルが端末時計（updatedAt）でリモートと比較して拾うのを待っていた。
+ * 時計を戻した端末では「リモートの方が新しい」と判定され、訂正が黙って消えていた。
+ * 送信に失敗しても dirty のまま残り、未送信キューと次回のバックフィルが再送する。
+ */
+async function onSnapshotPatched(snap) {
+  detailSnapshot.value = snap
+  const saved = await _pushSnapshot(snap)
+  if (!saved) showToast('訂正はこの端末に保存しました。接続が戻ると自動で送信します', 4000, 'warning')
 }
 
 // セッション一覧から「再開」
@@ -815,6 +853,8 @@ setRemoteUpdateCallback((ingredient, qty, unit, by) => {
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
   const count = itemCount ?? filledCount.value ?? 0
+  // ホスト自身の完了処理が走っている最中に自分の session_ended を受けても、
+  // useSession が実行中の1本へ合流させるので完了要求は増えない。
   if (status === 'completed') await completeSessionD1(count, { inventory: { ...inventory }, prices: config.prices ?? {} })
 
   if (!syncIsHost.value && status === 'completed') {
@@ -843,15 +883,29 @@ setAccountResetHandler(() => {
   clearAuditLog()
 })
 
-// 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき
+/**
+ * 別端末で同じ店舗にログインされ、この端末のトークンが失効したとき。
+ *
+ * **消す前に残す。** 以前はここで clearSession()（＝進行中セッションの参照）と
+ * reset()（＝当日の入力）を無条件に捨てていた。失効は入力中でも起きるため、
+ * 数十品目の入力が確認も再送手段もないまま消えていた。
+ *
+ * いまは
+ *   1. 未送信キューを失効時点の shopCode へ紐付けて端末へ書く（noteAuthInvalidated）
+ *   2. 作業中の入力を同じセッションの下書きとして書く（_saveDraft）
+ *   3. その後でローカルの認証状態を捨てる
+ * とし、同じ店舗へ再ログインしたときだけ 1 の再送と 2 の復元が走る。
+ * 別店舗へログインした場合は useAuth の accountReset が旧店舗ぶんをまとめて捨てる。
+ */
 setAuthInvalidatedHandler(() => {
+  const lostShop = noteAuthInvalidated(shopCode.value)
+  _saveDraft(pendingSession.value?.id)
   if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
   clearAuthLocal()
-  clearSession()
-  reset()
-  clearAuditLog()
-  showToast('別の端末でログインされたため、この端末からはログアウトしました', 6000, 'warning')
+  // pendingSession / 入力値は残す。同じ店舗へ戻れば同じセッションを完了し直せる。
+  showToast('別の端末でログインされたため、この端末からはログアウトしました。入力内容はこの端末に残しています', 7000, 'warning')
   currentView.value = 'landing'
+  console.warn('[App] auth invalidated; work preserved for shop:', lostShop)
 })
 
 // ゲスト→ホスト 品目追加申請フロー
@@ -1205,48 +1259,61 @@ async function onComplete() {
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   if (!confirm(confirmMsg)) return
 
-  // 二重押し防止。await の間にもう一度押されると完了要求が2本走り、
-  // 解散・遷移が二重に実行される。
-  if (completing.value) return
-  completing.value = true
+  // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は
+  // ここにしかない。合流した2本目が同じ後片付けを走らせないよう、入口でも締める。
+  if (_finishing) return
+  _finishing = true
   try {
     await _finishSession(completionCount, isHostInRoom)
   } finally {
-    completing.value = false
+    _finishing = false
   }
 }
+let _finishing = false
 
-// 棚卸／発注を締める本体（ホスト・ソロ共通）。onComplete から二重押しガード付きで呼ばれる。
+/**
+ * 棚卸／発注を締める本体（ホスト・ソロ共通）。
+ *
+ * **サーバーが完了を受け付けるまで、端末側の状態を一切変えない。**
+ * 以前は completeSession()（＝読み取り専用マーク）と saveSnapshot()（＝履歴への
+ * 書き込み）を完了APIより先に実行していた。そのため
+ *
+ *   - 通信中にタブを閉じると、端末は「完了済み」で復帰し、進行中セッションが
+ *     復元されない＝同じ棚卸を完了し直す導線が消える
+ *   - サーバーには active なセッションしか無いのに、端末には完了履歴が残る
+ *   - その履歴をバックフィルが送り、一覧と詳細が食い違う
+ *
+ * という消失経路ができていた。送信用スナップショットはメモリ上で組み立て、
+ * サーバー成功後に commitSnapshot() で端末へ確定する。
+ *
+ * 二重押し・ホーム・session_ended が重なっても、完了要求は useSession 側で
+ * 1本に束ねられる（同じ sessionId・同じ内容で冪等に再試行できる）。
+ */
 async function _finishSession(completionCount, isHostInRoom) {
   const completedId = pendingSession.value?.id
 
-  completeSession()
-  const snapshot = saveSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
-  // スナップショットは完了APIと同じ要求で送る（DATA-001 / 第2セッション）。
-  // 以前は saveSnapshotToD1() を完了APIより先に独立成功させており、
-  // 「スナップショットは入ったが完了は失敗」「完了はしたがスナップショットが無い」を作れた。
+  // 端末へは書かない。完了APIと同じ要求で送るためだけの組み立て（DATA-001 / 第2セッション）。
+  const snapshot = buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
   // サーバーは sessions・inventory_lines・store_history を1トランザクションで書く。
-  //
-  // **これが成立するまで後片付けを一切しない**（第1セッションの契約）。
-  // 以前は失敗してもトーストを出すだけで、ルーム解散・draft削除・セッションclear・遷移まで
-  // 実行していた。サーバーには何も残らないのに端末側の作業状態だけが消え、
-  // 「完了できていないのに、やり直す手段も無い」状態になっていた。
+  // 成功条件には snapshotSaved を含める（useSession）。明細が入らない完了は完了ではない。
   const completed = await completeSessionD1(completionCount, {
     inventory: { ...inventory }, prices: config.prices ?? {}, snapshot,
   })
   if (!completed?.ok) {
-    // 読み取り専用を解除し、同じ画面の同じボタンから再試行できる状態へ戻す。
-    // draft・pendingSession・入力値・ルーム・参加者はすべて保持したまま。
-    reopenSession()
+    // 入力値・draft・pendingSession・ルーム・参加者はすべて保持したまま。
+    // 読み取り専用にもしていないので、同じ画面の同じボタンからそのまま再試行できる。
     _warnCompleteUnsaved()
     return
   }
 
+  // ── ここから下は完了が成立した場合だけ ──
+  completeSession()                              // 端末を読み取り専用へ
+  commitSnapshot(snapshot, completed.result)     // 履歴へ確定（サーバー確認済みとして）
+
   // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）。
   // 完了が成立した後なので、失敗しても今回の記録は失われない。
-  for (const prev of lockOtherSnapshots(completedId)) saveSnapshotToD1(prev)
+  for (const prev of lockOtherSnapshots(completedId)) _pushSnapshot(prev)
 
-  // ── ここから下は完了が成立した場合だけ。各処理はこの経路で1回だけ実行される ──
   if (continuousMode.value) onForceStop()
 
   if (isHostInRoom) {
@@ -1267,14 +1334,12 @@ async function _finishSession(completionCount, isHostInRoom) {
 }
 
 
-// 明細をサーバーへ送れなかったときの通知（DATA-002 Phase 2）。
-// 端末には保存済みで自動再送もされるが、「保存できていない」ことは隠さず伝える。
-// 画面上部の ConnectionBanner が再送状況を出し続けるので、ここでは一度だけ知らせる。
-// 完了そのものをサーバーへ書けなかったときの通知（DATA-001）。
-// 明細と完了状態は1トランザクションなので、失敗した＝サーバー側には何も入っていない。
-// 端末側の記録は残っており、セッションは active のままなので再完了できる。
+// 完了をサーバーへ書けなかったときの通知（DATA-001）。
+// 明細・完了状態・スナップショットは1トランザクションなので、失敗した＝サーバー側には
+// 何も入っていない。端末側の入力・下書き・セッションはそのまま残っており、
+// 同じ画面の同じボタンから同じ内容で再試行できる。
 function _warnCompleteUnsaved() {
-  showToast('端末には保存しましたが、サーバーへ完了を記録できませんでした。接続が戻ってからもう一度完了してください', 8000, 'error')
+  showToast('サーバーへ完了を記録できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度完了してください', 8000, 'error')
 }
 
 
@@ -1311,6 +1376,7 @@ async function onGoHome() {
   if (isCompleted.value) {
     // 完了済みセッションを離れる経路でも、サーバーへ書けなければ画面を離れない。
     // ここで抜けると draft と session 参照が消え、完了を記録し直す手段が無くなる。
+    // 完了ボタンの要求が走っている最中なら、useSession がそれへ合流させる（要求は1本）。
     const completed = await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
     if (!completed?.ok) {
       reopenSession()
@@ -2312,7 +2378,7 @@ function dismissReview() {
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
       @back="currentView = 'sessions'"
-      @patched="snap => { detailSnapshot = snap }"
+      @patched="onSnapshotPatched"
     />
 
     <!-- ── 完了後ゲスト閲覧（読み取り専用・金額なし） ── -->

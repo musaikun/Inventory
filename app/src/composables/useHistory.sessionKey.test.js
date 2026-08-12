@@ -83,10 +83,11 @@ describe('新旧判定は server 時刻を使う（client時計に依存しな�
   })
 
   it('端末に未送信（server時刻なし）の版があればリモートで潰さない', () => {
-    // 端末で作ったばかり = serverSavedAt を持たない
+    // 端末で作ったばかり = serverSavedAt を持たず、サーバー確認済み(synced)でもない
     h.applyRemoteHistory([snap(S1, '2026-08-09')])
     const local = h.getSnapshotBySessionId(S1)
     delete local.serverSavedAt
+    delete local.synced
     local.items = [{ item: '未送信の訂正', qty: 5 }]
 
     h.applyRemoteHistory([snap(S1, '2026-08-09', {

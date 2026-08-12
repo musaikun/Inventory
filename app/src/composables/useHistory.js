@@ -1,5 +1,8 @@
 import { reactive } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import {
+  clientSavedMs, serverSavedMs, serverRevision, isSnapshotDirty,
+} from '../utils/snapshotSync.js'
 
 // reactive にすることで getSnapshots/getEntryLogs を参照する computed が
 // 保存・削除のたびに自動再計算される
@@ -30,6 +33,9 @@ function _load() {
     // 同日2件が既に潰れている過去分は復元できないが、以後は共存する。
     for (const [oldKey, snap] of Object.entries(saved ?? {})) {
       if (!snap || typeof snap !== 'object') continue
+      // dirty/synced を持たない旧データの移行。訂正済み（updatedAt あり）で
+      // サーバー確認の形跡が無いものは「未送信の訂正」として扱う（下の isSnapshotDirty と同じ判定）。
+      if (snap.dirty === undefined && isSnapshotDirty(snap)) snap.dirty = true
       _data[snapshotKey(snap) || oldKey] = snap
     }
   } catch (_) {}
@@ -41,19 +47,12 @@ function _persist() {
   } catch (_) {}
 }
 
+// 同期状態の判定は historyBackfill と共有する（utils/snapshotSync.js に一本化）。
+const _savedAtMs = clientSavedMs
+const _serverMs  = serverSavedMs
+const _serverRev = serverRevision
+
 _load()
-
-/** client時計による保存時刻（端末間の比較には使わない） */
-function _savedAtMs(snap) {
-  const t = Date.parse(snap?.updatedAt ?? snap?.savedAt ?? '')
-  return Number.isFinite(t) ? t : 0
-}
-
-/** サーバーが記録した保存時刻。無ければ null（= 未同期） */
-function _serverMs(snap) {
-  const t = Date.parse(snap?.serverSavedAt ?? '')
-  return Number.isFinite(t) ? t : null
-}
 
 // アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
 export function resetLocalData() {
@@ -63,7 +62,15 @@ export function resetLocalData() {
 
 export function useHistory() {
   /**
-   * 棚卸完了時にスナップショットを保存
+   * 棚卸完了時のスナップショットを**メモリ上で組み立てる**（端末へは書かない）。
+   *
+   * かつては組み立てと保存が一体で、完了APIを呼ぶ前に localStorage へ書いていた。
+   * そのため完了が失敗した端末にも「完了済みの履歴」が残り、
+   *   - 一覧（サーバー）には active、履歴（端末）には完了、と食い違う
+   *   - まだ進行中のセッションのスナップショットをバックフィルが送ってしまう
+   * という状態を作れた。組み立てと確定を分け、**サーバーが完了を受け付けた後に
+   * だけ** commitSnapshot() で端末へ確定する。
+   *
    * @param {object}   inventory  reactive inventory オブジェクト
    * @param {object}   prices     config.prices
    * @param {string[]} order      config.order
@@ -72,8 +79,8 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function saveSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null) {
-    if (Object.keys(inventory).length === 0) return
+  function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null) {
+    if (Object.keys(inventory).length === 0) return null
 
     const today = new Date().toISOString().slice(0, 10)
 
@@ -146,8 +153,7 @@ export function useHistory() {
       }
     }
 
-    const key = sessionId ? String(sessionId) : today
-    _data[key] = {
+    return {
       date:         today,
       savedAt:      new Date().toISOString(),
       items,
@@ -155,10 +161,32 @@ export function useHistory() {
       entryLog:     entryLog ? [...entryLog] : [],
       participants,
       flaggedItems: recountFlags ? Object.keys(recountFlags) : [],
-      sessionId,
+      sessionId:    sessionId ? String(sessionId) : null,
       auditLog:     auditLog ? [...auditLog] : [],
       activeMs:     typeof activeMs === 'number' ? activeMs : null,
       axisNames:    Array.isArray(axisNames) ? [...axisNames] : ['', ''],
+    }
+  }
+
+  /**
+   * 組み立て済みスナップショットを端末へ確定する。
+   * **サーバーが完了を受け付けた後にだけ**呼ぶ（buildSnapshot のコメント参照）。
+   *
+   * @param {object} snap    buildSnapshot の戻り値
+   * @param {object} meta    サーバーの応答（serverRevision / serverSavedAt）。
+   *                         完了APIがまだ返さない場合は synced だけ立てる。
+   */
+  function commitSnapshot(snap, meta = null) {
+    if (!snap) return null
+    const key = snapshotKey(snap)
+    if (!key) return null
+    const rev = _serverRev(meta)
+    _data[key] = {
+      ...snap,
+      ...(rev != null ? { serverRevision: rev } : {}),
+      ...(meta?.serverSavedAt ? { serverSavedAt: meta.serverSavedAt } : {}),
+      dirty:  false,
+      synced: true,   // サーバーが受け付けた内容そのもの＝再送不要
     }
     _persist()
     return _data[key]
@@ -336,33 +364,63 @@ export function useHistory() {
 
   /**
    * D1 から取得したスナップショット配列をローカルに反映（リモートで上書き）。
-   * ただし端末側が新しい場合は残す。未送信のスナップショットが D1 の古い版で
-   * 潰れると、バックフィル（historyBackfill）が送るべき差分ごと消えるため。
-   * 保存時刻が同じ・不明なときはリモートを採用する（従来の挙動）。
+   *
+   * 判定順は serverRevision → serverSavedAt → client時刻（旧データ同士のみ）。
+   * 端末でだけ訂正した版（dirty）は、サーバーが取り込むまでリモートで潰さない。
+   * 潰すとバックフィルが送るべき差分ごと消え、訂正が黙って無かったことになる。
    */
+  function _remoteWins(local, remote) {
+    if (!local) return true
+    // 未送信の訂正。保存キュー経由でサーバーへ送り直されるまで端末側を正とする。
+    if (isSnapshotDirty(local)) return false
+
+    const lr = _serverRev(local), rr = _serverRev(remote)
+    if (lr != null && rr != null) return rr >= lr          // 第一優先
+
+    const lm = _serverMs(local), rm = _serverMs(remote)
+    if (lm != null && rm != null) return rm >= lm          // legacy fallback
+
+    // 片方だけがサーバー値を持つ。
+    // リモートだけが持つ = 端末側は「サーバー確認済み」と分かっている場合のみ譲る。
+    if (rr != null || rm != null) return !!local.synced
+    // 端末側だけが持つ = リモートは revision を返さない旧サーバー。端末の値を保つ。
+    if (lr != null || lm != null) return false
+
+    // 双方サーバー値なし（旧データ同士）。従来どおり client 時刻で比較する。
+    return _savedAtMs(remote) >= _savedAtMs(local)
+  }
+
   function applyRemoteHistory(snapshots) {
     if (!Array.isArray(snapshots)) return
     for (const snap of snapshots) {
       if (!snap?.date) continue
-      const key   = snapshotKey(snap)
+      const key = snapshotKey(snap)
       if (!key) continue
-      const local = _data[key]
-      if (local) {
-        const localServer  = _serverMs(local)
-        const remoteServer = _serverMs(snap)
-        if (remoteServer != null) {
-          // 端末側にサーバー時刻が無い = このスナップショットはまだ送れていない。
-          // 端末の変更をリモートの版で潰すとバックフィルの差分ごと消えるため残す。
-          if (localServer == null) continue
-          if (localServer > remoteServer) continue
-        } else if (_savedAtMs(local) > _savedAtMs(snap)) {
-          // 双方サーバー時刻を持たない旧データ同士は、従来どおりclient時刻で比較する。
-          continue
-        }
-      }
-      _data[key] = snap
+      if (!_remoteWins(_data[key], snap)) continue
+      // サーバーから来た内容そのもの。以後の比較で「未送信」と誤判定させない。
+      _data[key] = { ...snap, dirty: false, synced: true }
     }
     _persist()
+  }
+
+  /**
+   * サーバーが保存を受け付けたことを端末のスナップショットへ反映する（訂正の再送後）。
+   * dirty を下ろし、次回以降の比較に使う serverRevision / serverSavedAt を書く。
+   *
+   * @param {string} key   sessionId または legacy の日付キー
+   * @param {object} meta  POST /store/:code/history の応答
+   */
+  function markSnapshotSynced(key, meta = null) {
+    if (!key) return null
+    const snap = _data[String(key)] ?? getSnapshotBySessionId(key)
+    if (!snap) return null
+    const rev = _serverRev(meta)
+    if (rev != null) snap.serverRevision = rev
+    if (meta?.serverSavedAt) snap.serverSavedAt = meta.serverSavedAt
+    snap.dirty  = false
+    snap.synced = true
+    _persist()
+    return snap
   }
 
   /** ローカルストレージからスナップショットを削除（D1削除に対応）。key = sessionId または日付 */
@@ -386,6 +444,10 @@ export function useHistory() {
       const s = _data[key]
       if (s && !s.locked && s.sessionId !== currentSessionId) {
         s.locked = true
+        // ロックも端末発の変更。サーバーが受け取るまで dirty として保護する
+        // （届く前にリモートの版で潰れると、ロックが外れたまま編集できてしまう）。
+        s.dirty  = true
+        s.synced = false
         changed.push(s)
       }
     }
@@ -412,10 +474,14 @@ export function useHistory() {
     }
     snap.totalValue = hasPrices ? total : null
     snap.updatedAt  = new Date().toISOString()
+    // 端末でだけ訂正した状態。サーバーが受け付けるまでリモートで潰されない
+    // （端末時計の updatedAt には依存しない）。
+    snap.dirty  = true
+    snap.synced = false
 
     _persist()
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { saveSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
+  return { buildSnapshot, commitSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, markSnapshotSynced, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

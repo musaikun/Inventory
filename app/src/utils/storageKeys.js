@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
   pendingSession:   '_pending_session_v1',
   pendingSaves:     '_pending_saves_v1',  // D1へ未送信の保存（再起動をまたいで再送するため端末に残す）
+  rejectedSaves:    '_rejected_saves_v1',  // サーバーに拒否された保存（リロードしても事実を消さない）
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
   deleteRequestId:  '_delete_account_request_id',  // アカウント削除の in-flight requestId（成功/中止で消す・再試行では同じ値）

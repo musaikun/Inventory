@@ -145,6 +145,31 @@ describe('ConnectionBanner', () => {
     expect(banner().className).not.toContain('rejected')
   })
 
+  // 拒否はオフラインより上。オフラインは「接続が戻れば送られる」と読めるため、
+  // 拒否の事実が隠れると入力し直す機会を失う。
+  it('オフラインでも拒否された保存があれば拒否を先に出す', async () => {
+    isOnline.value = false
+    rejectedSaves.value = [{ kind: 'snapshot', label: '棚卸の明細', status: 400, message: 'bad' }]
+    await mountBanner()
+    expect(banner().className).toContain('rejected')
+    expect(banner().className).not.toContain('offline')
+    expect(text()).toContain('拒否')
+  })
+
+  // 容量不足で端末にも残せていないときに「端末に保存済み」と言わない（オフライン時も同じ）
+  it('オフライン＋容量不足では「端末に保存済み」と言わない', async () => {
+    isOnline.value = false
+    saveState.value = 'pending'
+    pendingSize.value = 4
+    pendingPersisted.value = false
+    unpersistedCount.value = 4
+    await mountBanner()
+    expect(banner().className).toContain('unpersisted')
+    expect(text()).not.toContain('端末に保存済み')
+    expect(text()).not.toContain('端末には保存済み')
+    expect(text()).toContain('失われます')
+  })
+
   it('「今すぐ再送」で再送を呼ぶ', async () => {
     saveState.value = 'pending'
     pendingSize.value = 1
