@@ -206,3 +206,134 @@ Codex による全差分の独立レビュー前なので、`完了` にも `WEB
 - 統合後の再実行結果: App 79 files / 747 tests passed、Worker 20 files / 367 tests passed、
   `npm run build` 成功。
 - 未実施は上記「未実施」節のとおり（実D1・実機・migration適用）。0013 も未適用として加わる。
+
+## 2026-08-12 — CC第1セッション: 完了確定・401・保存queue・履歴revision
+
+- 基準HEAD: `develop@07cc29f`（3セッション統合済み）。作業branchは
+  `claude/inventory-auth-queue-session-1-h8e4ku`。
+- **App側のみ**。Worker、migration、取込関連component/parserは変更していない。
+- **migration なし**（0012 / 0013 は依然として本番未適用）。
+
+### 1. 完了はserver成功後にだけローカルへ確定する
+
+前回までは `completeSession()`（読み取り専用マーク）と `saveSnapshot()`（履歴への書き込み）を
+**完了APIより先に**実行していた。失敗時に `reopenSession()` で巻き戻す設計だったが、
+巻き戻せるのは「応答が返ってきた失敗」だけで、次の消失経路が残っていた。
+
+| 壊れ方 | 直し方 |
+|---|---|
+| 通信中にタブが終了すると、端末は完了済みで復帰し `restorePendingSession()` が走らない＝同じ棚卸を完了し直す導線が消える | ローカル確定をサーバー成功後へ移した。応答が返らなければ端末側は何も変わらない |
+| サーバーには active しか無いのに端末には完了履歴が残る | `saveSnapshot` を `buildSnapshot`（メモリ上で組み立て）と `commitSnapshot`（端末へ確定）へ分割 |
+| その履歴をバックフィルが送り、一覧と詳細が食い違う | `missingSnapshots` に `activeSessionIds` を渡し、進行中セッションぶんを除外 |
+| 明細が入らない完了を成功として扱う | `snapshotSaved !== true` を失敗（`reason:'snapshot_missing'`）にした。snapshot を送った完了だけが対象 |
+| 中身の無い端末スナップショットを詳細として表示する | `isSnapshotComplete()` で弾き、`sessionId` の lines 取得へ fallback |
+
+完了要求は `useSession.complete()` が **sessionId 単位で1本**に束ねる。完了ボタン・
+ホームへ戻る・`session_ended` が重なっても実行中の1本へ合流する。後片付け（解散・
+draft削除・遷移）は `App._finishSession` の `_finishing` でも締める。
+再試行は同じ sessionId・同じ内容で送るため、サーバー側の冪等性がそのまま効く。
+
+### 2. 401で作業を消さない
+
+`api.js` の失効ハンドラは `.then` の中で**同期的に**呼ばれ、`shopCode` を空にしてから
+`_save` の catch が走る。そのため
+
+- `_save` の stale 判定（`code !== shopCode.value`）が真になり、**401を起こした最新版が
+  enqueue されずに消えていた**
+- `_persistPending` が `shopCode: ''` で書き、次回起動の `_restorePending` が読み捨てていた
+- App の失効ハンドラが `clearSession()` / `reset()` で進行中セッションと入力値を捨てていた
+
+直し方:
+
+- キューの各項目が**自分の shopCode を持つ**。鍵は `kind + shopCode + resourceId`。
+  stale 判定は `_saveGeneration`（アカウント切替）だけを見る。
+- `noteAuthInvalidated(code)` を追加し、App の失効ハンドラが**消す前に**呼ぶ。
+  再送を止め、未送信分と作業中 draft（`_saveDraft`）を失効時点の店舗へ紐付けて書き出す。
+- 失効ハンドラは `clearAuthLocal()` だけにし、`pendingSession` / 入力値 / draft を残す。
+- `_restorePending` は「別店舗でログイン中」のときだけ他店舗ぶんを落とす。
+  ログアウト状態（shopCode 空）では捨てない。
+- 送信対象は `_activeEntries()`＝現在の店舗ぶんだけ。別店舗へログインしても旧店舗へは送らない。
+- `clearAuthBlock()` を `App.onAuthDone()` へ接続した（従来は test からしか呼ばれていない
+  dead code だった）。別アカウントなら `useAuth` の accountReset が先に旧店舗ぶんを破棄する。
+
+### 3. queue identityと順序
+
+- snapshot の resourceId を **sessionId** にした（`_resourceId()`）。日付キーだと同じ日の
+  2回目の棚卸が1回目のキュー項目を潰し、片方がサーバーへ届かないまま消えていた。
+  sessionId を持たない legacy 行だけ日付へ落とす。D1 側の一意制約（0012）と同じ形。
+- 同一対象への直接保存を `_inflight` で**直列化**。A→Bと投げても応答がB→Aで返ると
+  サーバー到達順まで入れ替わり、古いAが最終値になりえた。先行が無ければ待たずに送る。
+- 拒否された保存（400/409/413）を localStorage（`_rejected_saves_v1`）へ永続化。
+  リロードで「保存できなかった」事実だけが消えると、入力し直す必要に気づけない。
+- ConnectionBanner の優先順位を `unpersisted → failed/pending → rejected → offline` にした。
+  オフラインは「そのうち直る」と読めるが、拒否は放っておいても入らない。
+- 容量不足時の `unpersistedCount` / `pendingPersisted` を現在の店舗ぶんに揃え、
+  `pendingCount` と母数を一致させた。
+
+### 4. 履歴revisionを利用する（第2セッションの契約に乗る側）
+
+判定順を `serverRevision` → `serverSavedAt` → client時刻（旧データ同士のみ）にした。
+判定は `app/src/utils/snapshotSync.js` に一本化し、`useHistory` と `historyBackfill` が共有する。
+
+- 端末の訂正は `dirty` / `synced` という**状態**で持つ。`updatedAt`（端末時計）で新旧を
+  決めると、時計を戻した端末の訂正が「古い」と判定されて消えていた。
+- `patchSnapshotItems` / `lockOtherSnapshots` が `dirty` を立て、
+  `markSnapshotSynced(key, meta)` がサーバー成功後に下ろして revision を書き戻す。
+- dirty なローカル訂正は remote で潰さない（キュー経由で送り直されるまで端末側を正とする）。
+- 履歴詳細の訂正が**サーバーへ送られていなかった**（`@patched` が `detailSnapshot` を
+  差し替えるだけだった）。`onSnapshotPatched` で送るようにした。失敗しても dirty のまま残り、
+  未送信キューと次回のバックフィルが再送する。
+- `GET/POST /store/:code/history` が `serverRevision` / `serverSavedAt` を返す前提だが、
+  **返さない現行Workerでも動く**（fallback 経路。第2セッションの実装待ち）。
+
+### 変更file
+
+```
+app/src/App.vue
+app/src/utils/api.js                       （変更なし。失効ハンドラの契約はApp側で満たす）
+app/src/utils/snapshotSync.js              新規
+app/src/utils/storageKeys.js
+app/src/composables/useStore.js
+app/src/composables/useSession.js
+app/src/composables/useHistory.js
+app/src/composables/accountData.js
+app/src/services/historyBackfill.js
+app/src/components/ConnectionBanner.vue
+app/src/App.complete.test.js               （拡張）
+app/src/App.authLoss.test.js               新規
+app/src/composables/useStore.authQueue.test.js   新規
+app/src/composables/useHistory.revision.test.js  新規
+app/src/composables/useHistory.sessionKey.test.js（fixtureを新モデルへ）
+app/src/services/historyBackfill.test.js   （拡張）
+app/src/components/ConnectionBanner.test.js（拡張）
+```
+
+### 実行したcommandと結果
+
+```
+cd app    && npm test        → 82 files / 789 tests passed（連続2回とも成功。timeout延長なし）
+cd app    && npm run build   → 成功（PWA precache 17 entries / 2550.81 KiB）
+cd worker && npm test        → 20 files / 367 tests passed（Worker未変更・回帰確認のみ）
+git diff --check             → 指摘なし
+```
+
+`App.complete.test.js` の mock は `{ ok: true, snapshotSaved: true }` を返すよう更新した。
+`snapshotSaved` を成功条件へ入れたため、これを欠く応答は完了として扱わない。
+
+修正が効いていることは、対象箇所を一時的に旧挙動へ戻して確認した。
+
+- `useSession` の合流を外す → 「完了ボタン＋ホーム＋session_ended が競合しても完了要求は1本」が失敗
+- ローカル確定を完了APIの前へ戻す → 「完了APIが503でも…履歴だけが作られない」が失敗
+
+### 未実施・残リスク
+
+- **実D1・実browser・実機は未確認。** migration 0012 / 0013 は本番未適用のまま。
+- 第2セッションが `GET/POST /store/:code/history` へ `serverRevision` / `serverSavedAt` を
+  返すまで、履歴の新旧判定は `serverSavedAt` fallback で動く。revision 経路は
+  App側の unit test でのみ検証済み。
+- 完了APIは `serverRevision` を返さないため、完了直後のローカル snapshot は
+  `synced: true` だけを持つ。revision は次の `GET /history` で埋まる。
+- 401直後の未送信データは、同じ端末で別店舗へログインするまで localStorage に残る
+  （`resetAccountData` が破棄する）。ログアウトのまま放置した場合の保持期間は決めていない。
+- `useStore` の `_save` は `{ ok, result }` を返すよう変わった。boolean を期待する既存
+  呼び出しは各 export 側で `.ok` へ畳んである（`saveSnapshotToD1` だけが object を返す）。

@@ -46,6 +46,7 @@ export function clearLocalAccountData() {
       STORAGE_KEYS.syncSession,
       STORAGE_KEYS.pendingSession,
       STORAGE_KEYS.pendingSaves,  // resetStore でも消えるが、reset が壊れても残さない
+      STORAGE_KEYS.rejectedSaves, // 同上（前アカウントの拒否通知を跨がせない）
       STORAGE_KEYS.pdfProfiles,
       STORAGE_KEYS.deleteRequestId, // 別アカウントへ跨る削除requestId残存を防ぐ
     ]) {

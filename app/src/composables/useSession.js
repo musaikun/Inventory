@@ -18,6 +18,17 @@ const pendingSession = ref(null)
 let _touchTimer = null
 let _finalized  = false   // 確定状態(completed/incomplete)を書いたら true → touch を無視
 
+/**
+ * 実行中の完了要求（sessionId 単位で1本）。
+ *
+ * 完了は3か所から起こる — 完了ボタン、完了済みセッションでホームへ戻る、
+ * ホストからの session_ended 受信。これらが重なると同じセッションへ完了APIが
+ * 複数本走り、片方の失敗でもう片方の成功が上書きされたり、後片付けが二重に走る。
+ * 同じセッションへの2つ目以降は**実行中の1本に合流させる**。
+ */
+let _completing = null    // { id, promise }
+export const isCompleting = ref(false)
+
 // リロード復帰用に localStorage へ永続化（ID の変化＝再代入時のみ）
 watch(pendingSession, (s) => {
   if (s?.id) localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(s))
@@ -32,6 +43,8 @@ function _canWrite() {
 export function resetLocalData() {
   _cancelTouch()
   _finalized = false
+  _completing = null
+  isCompleting.value = false
   pendingSession.value = null
 }
 
@@ -85,10 +98,9 @@ export function useSession() {
   }
 
   // 完了確定（保留 touch をキャンセルし、以降の active 書き込みを封じる）
-  // payload = { inventory, prices, takenAt } があれば complete API を呼び
-  // inventory_lines（分析用明細）も書き込む。失敗時は従来の状態更新へフォールバック。
   /**
-   * 完了確定。明細と完了状態はサーバー側で1トランザクションとして書かれる（DATA-001）。
+   * 完了確定。明細・完了状態・スナップショットはサーバー側で1トランザクションとして
+   * 書かれる（DATA-001）。
    *
    * 失敗しても `updateSession(id, 'completed')` へ**フォールバックしない**。
    * かつてはそうしていたが、それは「明細の保存に失敗したのに、セッションだけ
@@ -96,10 +108,27 @@ export function useSession() {
    * 一覧には出るのに詳細が開けない棚卸（R-001）は、この経路でも生まれる。
    *
    * 失敗時は完了扱いにせず、`_finalized` も戻して再試行できる状態にする。
+   * 同じ内容・同じ sessionId で再送でき、サーバー側は冪等。
    *
-   * @returns {Promise<{ ok: boolean, reason?: 'offline'|'save_failed', retryable?: boolean }>}
+   * 完了ボタン・ホームへ戻る・session_ended が重なっても、同じセッションへの
+   * 完了要求は1本に束ねる（実行中のものへ合流する）。
+   *
+   * @returns {Promise<{ ok: boolean, reason?, retryable?, result? }>}
    */
-  async function complete(count, payload = null) {
+  function complete(count, payload = null) {
+    const id = pendingSession.value?.id
+    // 実行中の1本へ合流する。二重押し・二重経路でも完了要求は増やさない。
+    if (_completing && _completing.id === id) return _completing.promise
+
+    const promise = _complete(count, payload).finally(() => {
+      if (_completing?.promise === promise) { _completing = null; isCompleting.value = false }
+    })
+    _completing = { id, promise }
+    isCompleting.value = true
+    return promise
+  }
+
+  async function _complete(count, payload) {
     _cancelTouch()
     _finalized = true
     // 未ログイン・セッション未確立。サーバーに書くものが無いので、ローカルの完了は成立する
@@ -108,9 +137,18 @@ export function useSession() {
 
     if (payload) {
       try {
-        await completeSessionApi(id, payload.inventory, payload.prices, payload.takenAt, payload.snapshot ?? null)
+        const res = await completeSessionApi(
+          id, payload.inventory, payload.prices, payload.takenAt, payload.snapshot ?? null,
+        )
+        // スナップショットを送ったのに保存されていない = 一覧には出るが詳細が開けない
+        // 状態（R-001）そのもの。完了として扱わず、明細ごと送り直せるようにする。
+        if (payload.snapshot && res?.snapshotSaved !== true) {
+          _finalized = false
+          console.error('[useSession] complete without snapshot:', id)
+          return { ok: false, reason: 'snapshot_missing', retryable: true }
+        }
         if (pendingSession.value) pendingSession.value.status = 'completed'
-        return { ok: true }
+        return { ok: true, result: res ?? null }
       } catch (err) {
         // 完了状態を付けないまま返す。次の再送で明細ごとやり直せる
         _finalized = false
@@ -138,5 +176,5 @@ export function useSession() {
     pendingSession.value = null
   }
 
-  return { pendingSession, begin, resume, restore, touch, markActive, complete, clear }
+  return { pendingSession, isCompleting, begin, resume, restore, touch, markActive, complete, clear }
 }

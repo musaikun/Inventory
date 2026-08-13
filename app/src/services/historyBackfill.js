@@ -9,31 +9,39 @@
  * 判定は sessionId を正本キーにする（DATA-002 / F-001）。日付キーで突き合わせると、
  * 同じ日に2回棚卸したとき片方をもう片方で「既に送信済み」と誤判定して落としてしまう。
  * sessionId を持たない行（過去取込・旧データ）だけ日付で突き合わせる。
+ *
+ * 新旧の判定に **端末時計は使わない**（DATA-001 §4）。時計を戻した端末の訂正が
+ * 「古い」と見なされて送られなくなるため、送るかどうかは
+ *   1. リモートに無い
+ *   2. 端末でだけ訂正した（dirty）
+ * の2つだけで決める。
  */
+
+import { isSnapshotDirty, isSnapshotComplete } from '../utils/snapshotSync.js'
 
 /** 突き合わせキー。sessionId があればそれ、無ければ日付 */
 function _key(snap) {
   return snap?.sessionId ? `s:${snap.sessionId}` : (snap?.date ? `d:${snap.date}` : '')
 }
 
-/** client時計の保存時刻（同一キー同士の比較にだけ使う） */
-function _savedAtMs(snap) {
-  const t = Date.parse(snap?.updatedAt ?? snap?.savedAt ?? '')
-  return Number.isFinite(t) ? t : 0
-}
-
 /**
- * ローカルにあって D1 に無い（または D1 側が古い）スナップショットを返す。
+ * ローカルにあって D1 に無い（または端末側に未送信の訂正がある）スナップショットを返す。
  *
  * @param {Array}  localSnapshots  端末のスナップショット（useHistory の getSnapshots()）
  * @param {Array}  remoteSnapshots D1 から取得したスナップショット（null 可 = 取得失敗）
- * @param {number} limit           1回で送る上限（大量アップロードを避ける）
+ * @param {number|object} options  上限件数、または { limit, activeSessionIds }
  * @returns {Array} 送り直すべきスナップショット（新しい日付順）
  */
-export function missingSnapshots(localSnapshots, remoteSnapshots, limit = 10) {
+export function missingSnapshots(localSnapshots, remoteSnapshots, options = {}) {
   if (!Array.isArray(localSnapshots) || localSnapshots.length === 0) return []
   // 取得できなかった場合は「D1 は空」ではなく「不明」。全件送ると通信も上書きも過剰なので何もしない。
   if (!Array.isArray(remoteSnapshots)) return []
+
+  const { limit = 10, activeSessionIds = [] } =
+    typeof options === 'number' ? { limit: options } : (options ?? {})
+  // 進行中セッションのスナップショットは「完了の記録」ではない。送ると、サーバー側で
+  // まだ active なセッションに完了済みの履歴だけが生まれ、一覧と詳細が食い違う。
+  const active = new Set([...activeSessionIds].filter(Boolean).map(String))
 
   const remoteByKey = new Map()
   for (const snap of remoteSnapshots) {
@@ -43,13 +51,11 @@ export function missingSnapshots(localSnapshots, remoteSnapshots, limit = 10) {
 
   const missing = []
   for (const snap of localSnapshots) {
-    if (!snap?.date || !Array.isArray(snap.items) || snap.items.length === 0) continue
+    if (!snap?.date || !isSnapshotComplete(snap)) continue
+    if (snap.sessionId && active.has(String(snap.sessionId))) continue
     const k = _key(snap)
     if (!k) continue
-    const remote = remoteByKey.get(k)
-    // D1 に無い、または D1 側が古い（訂正・ロックが届いていない）ものだけ送る。
-    // 端末時計が前後しても、キーが一致しない別セッションへは決して寄せない。
-    if (!remote || _savedAtMs(remote) < _savedAtMs(snap)) missing.push(snap)
+    if (!remoteByKey.has(k) || isSnapshotDirty(snap)) missing.push(snap)
   }
 
   return missing
