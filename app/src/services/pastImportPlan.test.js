@@ -10,7 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   buildPastImportPlan, withResolution, unresolvedConflicts,
   commitPastImport, cancelPastImport,
-  ON_CONFLICT_ADD, ON_CONFLICT_REPLACE,
+  mergeCommitResults, retryableDates, canCancelBatch,
+  ON_CONFLICT_ADD, ON_CONFLICT_REPLACE, OUTCOME_FAILED, OUTCOME_UNKNOWN,
 } from './pastImportPlan.js'
 import { useHistory } from '../composables/useHistory.js'
 
@@ -257,5 +258,116 @@ describe('端末側の履歴との通し（sessionId モデルへの接続）', 
     })
     expect(h.getImportBatch(plan.importBatchId).map(s => s.date).sort())
       .toEqual(['2026-05-01', '2026-05-08'])
+  })
+})
+
+describe('応答喪失からの再試行・取消（response loss）', () => {
+  const plan3 = () => buildPastImportPlan([
+    { date: '2026-05-01', items: [{ item: '米', qty: 1 }] },
+    { date: '2026-05-08', items: [{ item: '米', qty: 2 }] },
+    { date: '2026-05-15', items: [{ item: '米', qty: 3 }] },
+  ])
+
+  it('例外（通信断）は「失敗」ではなく「結果不明」にする', async () => {
+    const save = vi.fn()
+      .mockResolvedValueOnce({ ok: true, sessionId: 's1' })
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: true, sessionId: 's3' })
+    const r = await commitPastImport(plan3(), { saveToServer: save, applyLocal: () => {} })
+
+    expect(r.saved.map(s => s.date)).toEqual(['2026-05-01', '2026-05-15'])
+    expect(r.failed).toHaveLength(1)
+    expect(r.failed[0]).toMatchObject({ date: '2026-05-08', outcome: OUTCOME_UNKNOWN, retryable: true })
+  })
+
+  it('サーバーが理由つきで拒否した日は「保存されず」にする', async () => {
+    const save = vi.fn().mockResolvedValue({ ok: false, error: '品目数が多すぎます' })
+    const r = await commitPastImport(plan3(), { saveToServer: save, applyLocal: () => {} })
+    expect(r.failed.every(f => f.outcome === OUTCOME_FAILED)).toBe(true)
+  })
+
+  it('onlyDates で失敗・結果不明の日だけを送り直す（成功済みの日は送らない）', async () => {
+    const plan = plan3()
+    const save = vi.fn()
+      .mockResolvedValueOnce({ ok: true, sessionId: 's1' })
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockRejectedValueOnce(new Error('timeout'))
+    const first = await commitPastImport(plan, { saveToServer: save, applyLocal: () => {} })
+    expect(retryableDates(first)).toEqual(['2026-05-08', '2026-05-15'])
+
+    save.mockReset()
+    save.mockResolvedValue({ ok: true, sessionId: 'retry' })
+    const second = await commitPastImport(plan, {
+      saveToServer: save, applyLocal: () => {}, onlyDates: retryableDates(first),
+    })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls.map(c => c[1].date)).toEqual(['2026-05-08', '2026-05-15'])
+  })
+
+  it('再試行で新しい batchId を作らない', async () => {
+    const plan = plan3()
+    const save = vi.fn().mockRejectedValue(new Error('timeout'))
+    const first = await commitPastImport(plan, { saveToServer: save, applyLocal: () => {} })
+
+    save.mockReset(); save.mockResolvedValue({ ok: true, sessionId: 's' })
+    const second = await commitPastImport(plan, {
+      saveToServer: save, applyLocal: () => {}, onlyDates: retryableDates(first),
+    })
+    expect(second.importBatchId).toBe(plan.importBatchId)
+    expect(new Set(save.mock.calls.map(c => c[0]))).toEqual(new Set([plan.importBatchId]))
+  })
+
+  it('mergeCommitResults は成功済みの日を二重に数えない', async () => {
+    const first  = { importBatchId: 'imp_1', saved: [{ date: '2026-05-01', sessionId: 's1' }],
+                     failed: [{ date: '2026-05-08', outcome: OUTCOME_UNKNOWN }, { date: '2026-05-15', outcome: OUTCOME_UNKNOWN }], ok: false }
+    const second = { importBatchId: 'imp_1', saved: [{ date: '2026-05-08', sessionId: 's2' }],
+                     failed: [{ date: '2026-05-15', outcome: OUTCOME_UNKNOWN }], ok: false }
+    const merged = mergeCommitResults(first, second)
+
+    expect(merged.saved.map(s => s.date)).toEqual(['2026-05-01', '2026-05-08'])
+    expect(merged.failed.map(f => f.date)).toEqual(['2026-05-15'])
+    expect(merged.importBatchId).toBe('imp_1')
+    expect(merged.ok).toBe(false)
+  })
+
+  it('全日が成功したら ok になり、失敗リストは空になる', () => {
+    const first  = { importBatchId: 'imp_1', saved: [], failed: [{ date: '2026-05-01', outcome: OUTCOME_UNKNOWN }], ok: false }
+    const second = { importBatchId: 'imp_1', saved: [{ date: '2026-05-01', sessionId: 's1' }], failed: [], ok: true }
+    const merged = mergeCommitResults(first, second)
+    expect(merged.ok).toBe(true)
+    expect(merged.failed).toEqual([])
+  })
+
+  it('同じ日を再送しても、成功済みの日は重複して数えない', async () => {
+    const plan = plan3()
+    const save = vi.fn().mockResolvedValue({ ok: true, sessionId: 'same-session' })
+    const applied = []
+    const first  = await commitPastImport(plan, { saveToServer: save, applyLocal: (a) => applied.push(a.date) })
+    // サーバーは冪等（同じ batchId + date は同じ session を返す）ので再送しても増えない
+    const second = await commitPastImport(plan, { saveToServer: save, applyLocal: (a) => applied.push(a.date) })
+    const merged = mergeCommitResults(first, second)
+    expect(merged.saved).toHaveLength(3)
+    expect(new Set(merged.saved.map(s => s.date)).size).toBe(3)
+  })
+
+  it('savedCount=0 でも結果不明があれば取消できる', () => {
+    expect(canCancelBatch({
+      importBatchId: 'imp_1', saved: [], failed: [{ date: '2026-05-01', outcome: OUTCOME_UNKNOWN }],
+    })).toBe(true)
+  })
+
+  it('サーバーが明示的に拒否しただけなら取消は出さない', () => {
+    expect(canCancelBatch({
+      importBatchId: 'imp_1', saved: [], failed: [{ date: '2026-05-01', outcome: OUTCOME_FAILED }],
+    })).toBe(false)
+  })
+
+  it('1日でも保存できていれば取消できる', () => {
+    expect(canCancelBatch({ importBatchId: 'imp_1', saved: [{ date: '2026-05-01' }], failed: [] })).toBe(true)
+  })
+
+  it('batchId が無ければ取消できない', () => {
+    expect(canCancelBatch({ saved: [], failed: [] })).toBe(false)
+    expect(canCancelBatch(null)).toBe(false)
   })
 })

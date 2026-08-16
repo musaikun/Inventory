@@ -93,22 +93,35 @@ export function unresolvedConflicts(plan) {
   return plan.days.filter(d => d.collisions.length > 0 && !d.resolution)
 }
 
+// 失敗の種類。**応答が届かなかった日は「失敗」ではなく「結果不明」**として扱う。
+// サーバー側では保存できている可能性があり、端末側から見て区別できないため。
+export const OUTCOME_FAILED  = 'failed'   // サーバーが「保存しなかった」と答えた
+export const OUTCOME_UNKNOWN = 'unknown'  // 応答が届かなかった（保存済みかもしれない）
+
 /**
  * 計画をサーバーへ確定する。**1日ずつ、サーバーの応答を確認してから**端末へ反映する。
- * 途中で失敗しても、そこまでに成功した日ぶんは同じ importBatchId に属するので、
- * まとめて取り消せる。
+ *
+ * 同じ `importBatchId` の再送はサーバー側で冪等（同じ (shop_code, batchId, date) は
+ * 同じ session を貼り直す）なので、**再試行しても成功済みの日が重複しない**。
+ * そのため再試行は必ず同じ batchId で行い、ここで新しい ID を作らない。
  *
  * @param {object}   plan
  * @param {object}   io
  * @param {Function} io.saveToServer   (batchId, payload) => Promise<{ ok, sessionId, ... }>
  * @param {Function} io.applyLocal     ({ date, items, sessionId, importBatchId }) => snapshot|null
+ * @param {string[]} [io.onlyDates]    この日付だけを送る（部分再試行）。未指定なら全日
  * @returns {{ importBatchId, saved: Array, failed: Array, ok: boolean }}
+ *   failed[].outcome … OUTCOME_FAILED | OUTCOME_UNKNOWN
  */
-export async function commitPastImport(plan, { saveToServer, applyLocal }) {
+export async function commitPastImport(plan, { saveToServer, applyLocal, onlyDates } = {}) {
   const saved  = []
   const failed = []
 
-  for (const day of plan.days) {
+  const target = Array.isArray(onlyDates) && onlyDates.length
+    ? plan.days.filter(d => onlyDates.includes(d.date))
+    : plan.days
+
+  for (const day of target) {
     // 上書きを選んだ日だけ、既存 sessionId を明示して渡す。
     // sessionId を持たない legacy 行はサーバーで消せないため対象にしない。
     const replaceSessionIds = day.resolution === ON_CONFLICT_REPLACE
@@ -124,13 +137,26 @@ export async function commitPastImport(plan, { saveToServer, applyLocal }) {
         snapshot: { date: day.date, source: 'import' },
       })
     } catch (err) {
-      failed.push({ date: day.date, error: err?.message ?? '保存に失敗しました', retryable: err?.body?.retryable === true })
+      // 例外＝応答が届かなかった。サーバーには入っているかもしれないので「結果不明」。
+      failed.push({
+        date:      day.date,
+        error:     err?.message ?? '保存の結果を確認できませんでした',
+        outcome:   OUTCOME_UNKNOWN,
+        retryable: true,
+      })
       continue
     }
 
     // サーバーが sessionId を返して初めて「取り込めた」とみなす。
     if (!res?.ok || !res?.sessionId) {
-      failed.push({ date: day.date, error: res?.error ?? 'サーバーが保存を確認できませんでした', retryable: false })
+      // 明示的な拒否（ok:false + 理由）は失敗。応答の形が想定外なら結果不明として扱う。
+      const explicit = res?.ok === false && !!res?.error
+      failed.push({
+        date:      day.date,
+        error:     res?.error ?? 'サーバーが保存を確認できませんでした',
+        outcome:   explicit ? OUTCOME_FAILED : OUTCOME_UNKNOWN,
+        retryable: true,
+      })
       continue
     }
 
@@ -147,8 +173,59 @@ export async function commitPastImport(plan, { saveToServer, applyLocal }) {
 }
 
 /**
+ * 再試行の結果を前回の結果へ畳み込む。
+ *
+ * 再試行では**まだ確定していない日だけ**を送るので、成功した日を saved へ移し、
+ * 失敗・結果不明のまま残った日だけを failed に残す。saved を作り直さないので、
+ * 1回目に成功した日を二重にカウントしない。
+ */
+export function mergeCommitResults(prev, next) {
+  if (!prev) return next
+  const retriedDates = new Set([
+    ...next.saved.map(s => s.date),
+    ...next.failed.map(f => f.date),
+  ])
+  const saved = [
+    ...prev.saved.filter(s => !next.saved.some(n => n.date === s.date)),
+    ...next.saved,
+  ].sort((a, b) => a.date.localeCompare(b.date))
+  const failed = [
+    ...prev.failed.filter(f => !retriedDates.has(f.date)),
+    ...next.failed,
+  ].sort((a, b) => a.date.localeCompare(b.date))
+
+  return {
+    importBatchId: prev.importBatchId ?? next.importBatchId,
+    saved,
+    failed,
+    ok: failed.length === 0 && saved.length > 0,
+  }
+}
+
+/** 再試行の対象日（失敗した日と、結果が分からない日）。成功済みの日は送り直さない。 */
+export function retryableDates(result) {
+  return (result?.failed ?? []).map(f => f.date).filter(d => d && d !== '—')
+}
+
+/**
+ * 取消の導線を出すべきか。
+ *
+ * `saved` が0件でも、応答が届かなかった日があればサーバーには入っている可能性がある。
+ * このときに取消を隠すと、ユーザーは「取り込めていない」と思ったまま、実際には
+ * 残っているデータを消せない。**結果不明が1つでもあれば取消できるようにする。**
+ */
+export function canCancelBatch(result) {
+  if (!result?.importBatchId) return false
+  if ((result.saved ?? []).length > 0) return true
+  return (result.failed ?? []).some(f => f.outcome !== OUTCOME_FAILED)
+}
+
+/**
  * 取込バッチを取り消す。**サーバーの結果を確認してから**端末を消す。
  * サーバーで消せていないのに端末から消すと、次の同期で復活して「消えない」ように見える。
+ *
+ * 取消は `import_batch_id` の一致だけを条件にするので冪等で、
+ * 「端末には1件も入っていないが、サーバーには入ったかもしれない」状態でも実行できる。
  *
  * @returns {{ ok, removedOnServer, removedLocally }}
  */

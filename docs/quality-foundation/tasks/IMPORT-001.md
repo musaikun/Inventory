@@ -37,11 +37,167 @@ CC branch `claude/branch-operational-status-2lwwwu@8ff46af`で、非破壊merge�
 着手時に`task-list.md`を`進行中 / Claude Code`へ更新し、証拠提出後は`レビュー待ち`までとする。
 Codex承認前に`完了`またはWEB-07通過としない。
 
-**2026-08-10 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
+**2026-08-11 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
+2026-08-10 の実装に、2026-08-11 の追補（ヘッダなしCSV・数値契約の統一・PDF/Excel変換・
+エイリアス衝突・応答喪失からの再試行／取消）を重ねている。**`完了` および WEB-07 通過は判定していない。**
+
+## 追補実装（2026-08-11 / Claude Code 第3セッション・続き）
+
+対象HEAD: `claude/bold-ramanujan-vap4ls@07cc29f`（develop 統合後）。
+2026-08-10 の実装に残っていた「入口ごとに契約が違う」問題を、5点ぶんそろえた。
+**Worker と migration は変更していない。**
+
+### A. ヘッダなしCSVを画面から選べるようにした
+
+`parseMappedCSV` は `hasHeader` を持っていたが、**画面がそれを渡していなかった**。
+`CsvMapperModal` は常に1行目をヘッダとして扱い、独自の1行パーサ（`_parseLine`）で解析していた。
+その結果、見出しの無いファイルでは1行目の品目が黙って消えていた。
+
+- Mapper に「1行目は見出し（列名）／1行目からデータ」の明示選択を追加した。
+  自動判定は**既定値の初期化にだけ**使い、最終判断はユーザーの選択を優先する。
+- `hasHeader` を Mapper → `SettingsModal` → `ItemImportPreviewModal` →
+  `planMappedImport` → 確定処理まで同じ値で運ぶ。確認画面にも現在の選択を出す。
+- 選択を切り替えると、プレビュー行・データ行数・列見出し（`列1`…）・列名からの自動検出が
+  すべて追従する。**画面の説明と実際に取り込む行が一致する。**
+- 独自の1行パーサを廃止し、`utils/csvParse.js` の共通トークナイザへ寄せた。
+  未閉じ引用符はここで構造エラーになり、マッピングへ進めない。
+
+### B. 数値解釈を全入口で1つにした
+
+`resultCsvParser` と `deliveryImportParser` は `parseFloat` を使い、
+カンマを全部落としてから読んでいた。実測の挙動:
+
+| 入力 | 修正前 | 修正後 |
+|---|---|---|
+| `12abc` | **12** | 行エラー（行番号・列名・元の値・理由） |
+| `abc100` | NaN → 行を黙って捨てる | 行エラー |
+| `"1,20"` | **120** | 行エラー（桁区切りとして不成立） |
+| `-100`（単価） | **-100 のまま通す／null にすり替え** | 行エラー |
+| `1 200` | **1** | 行エラー（空白混入） |
+| `NaN` / `Infinity` / `1e5` | NaN 扱いで黙って除外 | 行エラー |
+| `"1,200"` | **1** | 1200 |
+| `0.5` | 0.5 | 0.5 |
+
+- 許可する形式は `csvParse.parseNumericCell` の1か所だけで定義する
+  （整数・小数・先頭符号・3桁区切り・`¥`・全角数字・前後の空白）。
+- エラーの形も `csvParse.readNumericCell` に一本化し、4入口が
+  `{ line, column, columnLabel, value, reason }` の**同じ形**を返す。
+  `itemImport._numCell` もこれへ委譲した。
+- 「空欄（未入力）」と「書いてあるのに読めない」を分けた。
+  納品取込の `skipped` は空欄だけを数え、読めない値は `errors` に入る。
+- **不正データに気づかないまま確定できない**ようにした。
+  - 品目取込: 従来どおり行エラーとして確認画面に出す（既定で開く）。
+  - 納品取込 / 過去棚卸取込: 行番号・列名・元の値・理由を明細で出し、
+    「この N 行を取り込まずに進む」にチェックするまで確定ボタンを無効にする。
+  - 棚卸結果からの復元（確認画面を持たない一発操作）: 1件でも読めない値があれば
+    行番号つきの理由を添えて**取り込まない**（フェイルクローズ）。
+
+### C. PDF/Excel 変換が値を書き換えないようにした
+
+`itemsToConfigCSV` は単価から数字以外を削っていた（`price.replace(/[^0-9.]/g,'')`）。
+`-100` → `100`、`abc100` → `100` になり、**確認画面にも正しい値として並んでいた**。
+
+- 元のセル値をそのまま CSV へ渡し、良し悪しは共通の数値契約に判定させる。
+  読めない値は確認画面に行番号つきで出る。
+- CSV生成を `csvParse.toCSVRow` / `csvEscapeCell` に一本化した。
+  `"${v}"` で囲むだけの実装は、値の中の `"` でセルが割れる（`5" 皿` → 列ずれ）。
+  RFC4180 どおり `"` を `""` にしてから囲む。
+- 同じ理由で `useConfig.exportConfigCSV` も共通実装へ寄せた（フォーミュラ対策は維持）。
+  引用符・カンマ・改行を含む品目名／単位／エイリアスが**出力→取込で往復**する。
+
+### D. エイリアス衝突を画面の文言どおりに解決する
+
+`file` 種別（ファイル内で2品目が同じ別名を取り合う）だけ、`ALIAS_TAKEOVER` を選んでも
+先頭行が残っていた。「ファイルの指定を優先する」と書いてあるのに結果が変わらない状態だった。
+
+- takeover は3種（`existing` / `item` / `file`）を同じ規則で解決する。
+  ファイル内衝突は**あとの行**へ付け替える。
+- 既定（`ALIAS_KEEP_EXISTING`）は従来どおり、既存の割り当てとファイル先頭行を保持する。
+- 確認画面は衝突の種類を明示し、`file` だけのときは選択肢の文言を
+  「先に出てきた行を優先する」へ変える。plan と確定が同じ結果になることをtestで固定した。
+
+### E. 過去棚卸の応答喪失（response loss）から復帰できるようにした
+
+修正前は、確定に失敗すると失敗リストを出すだけで、**取込IDも計画も画面から消えていた**。
+サーバー側に入っている可能性がある状態で、再試行も取消もできなかった。
+
+- 失敗を2種に分ける。`OUTCOME_FAILED`（サーバーが理由つきで拒否）と
+  `OUTCOME_UNKNOWN`（応答が届かず、保存されているかもしれない）。例外は必ず後者。
+- 確定に失敗しても計画と `importBatchId` を保持し、
+  **「同じ取込IDで再試行」と「この取込を取り消す」**の2つを出す。取込IDも画面に出す。
+- 再試行は `commitPastImport(plan, { onlyDates })` で**失敗・結果不明の日だけ**を送る。
+  `importBatchId` は計画のものを使い回し、**再試行で新しいIDを作らない**。
+  サーバーは `(shop_code, batchId, date)` で冪等なので、成功済みの日を送り直しても増えない。
+- `mergeCommitResults` で前回の成功を残したまま結果を畳み込む。成功日を二重に数えない。
+- `savedCount = 0` でも結果不明が1つでもあれば取消を出す（`canCancelBatch`）。
+  「取り込めていない」と思ったまま、実際に残ったデータを消せない状態を作らない。
+- 保存中・取消中はボタンを無効にし、閉じる操作も塞ぐ（二重押しと結果の見失いを防ぐ）。
+  取消に失敗したら理由と取込IDを残し、もう一度押せるようにする。
+- 第二セッションの canonical snapshot / 冪等APIに接続する前提。
+  Worker 側（`worker/src/pastImport.js`・migration 0013）は**今回変更していない**。
+
+### F. 文言を実装に合わせた
+
+- `masterImportWarning` の「・取り消しはできません」を削除し、
+  「取込の直後にかぎり1回だけ戻せる／端末のメモリ上だけの退避」へ書き換えた
+  （`undoLastImport` が実在するので旧文言は誤り）。確認画面の説明とも同じ文にした。
+- 過去棚卸の確認画面に、取込前から「この取込ぶんだけ取り消せる」を出す。
+- `test-checklist-new-features.md` の S-5 から「取り消せない旨の警告」を外し、
+  T節に応答喪失・実D1での再試行・納品取込の数値契約の手動項目を追加した。
+
+## 検証（2026-08-11）
+
+| command | 結果 |
+|---|---|
+| `cd app && npm test` | **84 files / 833 passed** |
+| `cd app && npm run build` | 成功（`dist/` 生成・PWA precache 17 entries） |
+| `cd worker && npm test` | 20 files / 367 passed（worker は無変更・回帰確認のみ） |
+| `git diff --check` | 出力なし |
+
+### 今回追加・変更したtest
+
+| file | 内容 |
+|---|---|
+| `app/src/components/CsvMapperModal.test.js`（新規・12件） | 見出し／データの選択、ヘッダなしで1行目が残る、`hasHeader` の受け渡し、quoted comma・escaped quote・multiline・BOM・CRLF、未閉じ引用符でインポート不可 |
+| `app/src/components/SettingsModal.import.test.js`（新規・3件） | **実UI経由**の配線: マッピング画面 → 確認画面 → 確定で1行目が残る／見出し扱いなら消える／引用符・カンマを含むセルが壊れない |
+| `app/src/components/DeliveryImportModal.test.js`（新規・5件） | 行番号・列名・元の値・理由の表示、確認するまで取り込めない、`1,200`・小数の受理 |
+| `app/src/components/PastStocktakeImportModal.test.js`（新規・13件） | 応答喪失後の取込ID保持、再試行が失敗日だけを送る、成功日を二重に数えない、savedCount=0 での取消、二重押し防止、取消失敗の表示、読めない行の確認必須 |
+| `app/src/composables/usePdfImporter.csv.test.js`（新規・7件） | `-100`・`abc100` を変換しない、共通契約で行エラーになる、引用符・カンマ・改行の往復 |
+| `app/src/utils/csvParse.test.js`（+9件） | 前方一致の拒否、空白混入の拒否、`readNumericCell` の共通エラー形、`csvEscapeCell` / `toCSVRow` の往復 |
+| `app/src/utils/itemImport.strict.test.js`（+2件） | ファイル内衝突の takeover、3種の衝突を同じ規則で解決 |
+| `app/src/utils/resultCsvParser.test.js`（+7件） | 各不正値の拒否、`1,200`・小数の受理、読めない日付、errors の返却 |
+| `app/src/utils/deliveryImportParser.test.js`（+6件、既存1件を更新） | 同上（空欄=skipped と 不正=errors の分離を含む） |
+| `app/src/components/ItemImportPreviewModal.test.js`（+8件） | `hasHeader` の伝搬、PDF由来の不正単価、エイリアス解決が plan と確定で一致 |
+
+### 既存testの更新（挙動を変えたもの）
+
+| test | 変更理由 |
+|---|---|
+| `useConfig.reorderCsv.test.js` | エクスポートが RFC4180 準拠になり、エスケープ不要なセルを引用符で囲まなくなった |
+| `masterImportWarning.test.js` | 「取り消しはできません」が誤りだったため、正しい文言を期待するよう変更 |
+| `deliveryImportParser.test.js` | 空欄（skipped）と読めない値（errors）を分けた |
+| `resultCsvParser.test.js` | `parseResultSnapshots` が `{ snapshots, errors }` を返すようになった |
+
+## 未実施（2026-08-11 時点）
+
+- **実ブラウザ / 実機**: T-1-1〜T-1-8、T-2-*、T-4-* は未実施。jsdom は `matchMedia` が
+  `matches: false` を返すため、component testはモバイル経路だけを通る。
+- **実D1**: 応答喪失からの再試行（T-2-9）と、端末に無い状態からの取消（T-2-10）は
+  実D1で未検証。冪等性はserver testと client 側の契約testまで。
+- migration 0013 の development / production への適用は依然として未実施（第3セッション当初と同じ）。
+- 大量データ（500行上限付近・複数日×多品目）の実測。
 
 ## 実装（2026-08-10 / Claude Code 第3セッション）
 
 対象HEAD: `claude/branch-operational-status-2lwwwu@ae9c03b`（第2セッションの成果を含む）
+
+> **2026-08-11 追記（この節の記載範囲の訂正）**
+> 下記「1. CSVの字句解析と数値解釈を一本化」は、実際には**字句解析（トークナイザ）だけ**が
+> 一本化されていた。数値の解釈は品目取込にしか適用されておらず、棚卸結果取込・納品取込は
+> `parseFloat` の前方一致受理を続けていた。PDF/Excel 変換も単価から数字以外を削っていた。
+> 数値契約が4入口でそろったのは2026-08-11の追補（上記 B / C）。
+> 同じく「失敗日を出して手動再実行」も、当時の画面には再試行・取消の導線が無く、
+> 実際には確定失敗と同時に取込IDが失われていた（上記 E で解消）。
 
 ### 1. CSVの字句解析と数値解釈を一本化
 

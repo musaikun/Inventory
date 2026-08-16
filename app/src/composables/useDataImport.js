@@ -90,8 +90,11 @@ export function useDataImport() {
     catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
 
     try {
-      const snaps = parseResultSnapshots(csv)
-      stocktakePlan.value = buildPastImportPlan(snaps, { existing: getSnapshots() })
+      const { snapshots, errors } = parseResultSnapshots(csv)
+      const plan = buildPastImportPlan(snapshots, { existing: getSnapshots() })
+      // 読めなかった行は捨てずに計画へ載せる。確認画面が行番号つきで出し、
+      // 明示的に「除いて取り込む」と選ぶまで確定させない。
+      stocktakePlan.value = { ...plan, rowErrors: errors ?? [] }
     } catch (err) {
       alert(err?.message || '取り込みに失敗しました')
       return false
@@ -116,12 +119,16 @@ export function useDataImport() {
   /**
    * プレビューで見せた計画を確定する。
    * サーバーが sessionId を返した日だけを端末へ反映し、成功件数を返す。
+   *
+   * `onlyDates` を渡すとその日だけを送る（部分再試行）。**batchId は計画のものを使い回す**ので、
+   * 成功済みの日を送り直しても新しいセッションは増えない（サーバー側で冪等）。
    */
-  async function confirmStocktakeImport() {
+  async function confirmStocktakeImport(onlyDates) {
     if (!stocktakePlan.value) return { saved: [], failed: [], ok: false }
     return commitPastImport(stocktakePlan.value, {
       saveToServer: importPastSessionToD1,
       applyLocal:   importPastSnapshot,
+      onlyDates,
     })
   }
 

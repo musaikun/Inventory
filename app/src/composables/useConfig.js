@@ -9,6 +9,7 @@ import {
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { toCSVRow } from '../utils/csvParse.js'
 import {
   parseItemCSV,
   parseMappedCSV,
@@ -403,39 +404,37 @@ export function useConfig() {
     return planCSVImport(csvText, opts).summary
   }
 
-  /** 棚卸品目 CSV エクスポート */
+  /**
+   * 棚卸品目 CSV エクスポート。
+   *
+   * セルの書き出しは utils/csvParse.js の toCSVRow に一本化する（フォーミュラ対策も込み）。
+   * 以前は値を `"..."` で囲むだけだったので、`5" 皿` のように引用符を含む品目名・単位・
+   * エイリアスを出力すると、読み戻したときにセルが割れて列がずれていた。
+   */
   function exportConfigCSV() {
-    // フォーミュラインジェクション対策
-    const cs = v => (typeof v === 'string' && /^[=+\-@|]/.test(v)) ? `'${v}` : v
-    const a0 = (config.axisNames?.[0] || '軸1').replace(/,/g, ' ')
-    const a1 = (config.axisNames?.[1] || '軸2').replace(/,/g, ' ')
-    const rows = [`品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,${a0},${a1},発注点`]
+    const a0 = config.axisNames?.[0] || '軸1'
+    const a1 = config.axisNames?.[1] || '軸2'
+    const rows = [toCSVRow(
+      ['品目名', '単位', '単価', 'カテゴリ', 'エイリアス', '商品コード', '分類コード', '前月実績', '入数', a0, a1, '発注点'],
+    )]
     config.order.forEach(item => {
-      const unit     = cs(config.units[item]      ?? '')
-      const price    = config.prices[item]        ?? ''
-      const category = cs(config.categories[item] ?? '')
-      const code     = cs(config.codes[item]      ?? '')
-      const catCode  = config.categoryCodes[config.categories[item]] ?? ''
-      const prevMonth = cs(config.prevMonths[item] ?? '')
-      const lotSize  = cs(config.lotSizes[item]   ?? '')
-      const reorder  = config.reorderPoints?.[item] ?? ''
-      const tagA     = cs((config.tagsA[item] ?? []).join('|'))
-      const tagB     = cs((config.tagsB[item] ?? []).join('|'))
-      const aliases  = Object.entries(config.dictionary)
+      const aliases = Object.entries(config.dictionary)
         .filter(([, v]) => v === item)
-        .map(([k]) => cs(k))
-      const unitCell    = unit           ? `"${unit}"`              : ''
-      const priceCell   = price !== ''   ? price                    : ''
-      const catCell     = category       ? `"${category}"`          : ''
-      const aliasCell   = aliases.length ? `"${aliases.join(',')}"` : ''
-      const codeCell    = code           ? `"${code}"`              : ''
-      const catCodeCell = catCode !== '' ? catCode                  : ''
-      const prevCell    = prevMonth      ? `"${prevMonth}"`         : ''
-      const lotCell     = lotSize        ? `"${lotSize}"`           : ''
-      const tagACell    = tagA           ? `"${tagA}"`              : ''
-      const tagBCell    = tagB           ? `"${tagB}"`              : ''
-      const reorderCell = reorder !== '' ? reorder                  : ''
-      rows.push(`"${cs(item)}",${unitCell},${priceCell},${catCell},${aliasCell},${codeCell},${catCodeCell},${prevCell},${lotCell},${tagACell},${tagBCell},${reorderCell}`)
+        .map(([k]) => k)
+      rows.push(toCSVRow([
+        item,
+        config.units[item]      ?? '',
+        config.prices[item]     ?? '',
+        config.categories[item] ?? '',
+        aliases.join(','),
+        config.codes[item]      ?? '',
+        config.categoryCodes[config.categories[item]] ?? '',
+        config.prevMonths[item] ?? '',
+        config.lotSizes[item]   ?? '',
+        (config.tagsA[item] ?? []).join('|'),
+        (config.tagsB[item] ?? []).join('|'),
+        config.reorderPoints?.[item] ?? '',
+      ], { formulaGuard: true }))
     })
     return rows.join('\r\n')
   }

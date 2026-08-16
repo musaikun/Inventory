@@ -1,5 +1,18 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+/**
+ * 列指定インポートのマッピング画面（IMPORT-001）。
+ *
+ * 字句解析は utils/csvParse.js の共通トークナイザを使う。独自の1行パーサは
+ *   ・`""`（エスケープされた引用符）を落とす
+ *   ・引用符の中の改行でレコードを割る
+ *   ・閉じていない引用符を黙って受理する
+ * ので廃止した。
+ *
+ * 先頭行が見出しかデータかは**ユーザーに明示的に選ばせる**。自動判定だけに任せると、
+ * 見出しの無いファイルで1行目の品目が黙って消える。
+ */
+import { ref, computed, reactive, watch } from 'vue'
+import { tokenizeCSV } from '../utils/csvParse.js'
 
 const props = defineProps({
   csvText:  { type: String, required: true },
@@ -8,21 +21,38 @@ const props = defineProps({
 })
 const emit = defineEmits(['imported', 'close'])
 
-function _parseLine(line) {
-  const result = []
-  let cur = '', inQ = false
-  for (const ch of line) {
-    if (ch === '"')              { inQ = !inQ }
-    else if (ch === ',' && !inQ) { result.push(cur); cur = '' }
-    else                         { cur += ch }
-  }
-  result.push(cur)
-  return result
+// 共通トークナイザ。未閉じ引用符などの構造エラーはここで出し、マッピングさせない。
+const { rows: records, error: parseError } = tokenizeCSV(props.csvText)
+
+const firstCols = records[0]?.cols.map(c => c.trim()) ?? []
+const colCount  = records.reduce((n, r) => Math.max(n, r.cols.length), 0)
+
+// 1行目が見出しらしいか（列名候補にあたる語を含み、かつ数値だけの行ではない）。
+// 既定値の初期化にだけ使う。最終的な判断はユーザーの選択が優先する。
+const HEADER_WORDS = [
+  '品目', '商品', '品名', '名称', '単位', '単価', '価格', '金額', '原価', 'カテゴリ', '分類',
+  'コード', '入数', '前月', 'name', 'item', 'unit', 'price', 'code', 'category',
+]
+function _looksLikeHeader(cols) {
+  if (!cols.length) return false
+  const filled = cols.filter(c => c !== '')
+  if (!filled.length) return false
+  // 全部が数値のような行は見出しではない
+  if (filled.every(c => /^[-0-9.,¥￥]+$/.test(c))) return false
+  return filled.some(c => HEADER_WORDS.some(w => c.toLowerCase().includes(w)))
 }
 
-const allLines   = props.csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim())
-const headers    = allLines[0] ? _parseLine(allLines[0]).map(h => h.trim()) : []
-const previewRows = allLines.slice(1, 6).map(l => _parseLine(l))
+const hasHeader = ref(_looksLikeHeader(firstCols))
+
+// 列見出しの表示名。見出し行が無いときは「列1」…にする（マッピングの選択肢もこれ）。
+const headers = computed(() =>
+  Array.from({ length: colCount }, (_, i) =>
+    (hasHeader.value ? (firstCols[i] ?? '') : '') || `列${i + 1}`),
+)
+// 見出し行を「データ」と宣言したら、1行目もプレビューとインポートの対象に含める。
+const dataRecords = computed(() => (hasHeader.value ? records.slice(1) : records))
+const previewRows = computed(() => dataRecords.value.slice(0, 5).map(r => r.cols))
+const totalRows   = computed(() => dataRecords.value.length)
 
 const mapping = reactive({
   name:      null,
@@ -48,23 +78,32 @@ const HINTS = {
   axisB:     [props.axisNames?.[1], '仕入先', '業者', '取引先', 'supplier', 'vendor'].filter(Boolean),
 }
 
+// 自動検出は「見出し行がある」と判断したときだけ意味がある。
+// 見出しが無いファイルでは全て未選択にし、品目名だけ1列目を既定にする。
 function _detect(hints) {
-  for (let i = 0; i < headers.length; i++) {
-    const h = headers[i].toLowerCase()
+  if (!hasHeader.value) return null
+  for (let i = 0; i < firstCols.length; i++) {
+    const h = firstCols[i].toLowerCase()
     if (hints.some(hint => h.includes(hint.toLowerCase()))) return i
   }
   return null
 }
 
-mapping.name      = _detect(HINTS.name)     ?? 0
-mapping.unit      = _detect(HINTS.unit)
-mapping.price     = _detect(HINTS.price)
-mapping.category  = _detect(HINTS.category)
-mapping.code      = _detect(HINTS.code)
-mapping.lotSize   = _detect(HINTS.lotSize)
-mapping.prevMonth = _detect(HINTS.prevMonth)
-mapping.axisA     = _detect(HINTS.axisA)
-mapping.axisB     = _detect(HINTS.axisB)
+// 見出し／データの選択を切り替えたら、列名からの自動検出もやり直す
+// （「先頭行はデータ」に変えた瞬間、見出し語で当てた対応が残っていると誤対応になる）。
+function autoDetect() {
+  mapping.name      = _detect(HINTS.name)     ?? 0
+  mapping.unit      = _detect(HINTS.unit)
+  mapping.price     = _detect(HINTS.price)
+  mapping.category  = _detect(HINTS.category)
+  mapping.code      = _detect(HINTS.code)
+  mapping.lotSize   = _detect(HINTS.lotSize)
+  mapping.prevMonth = _detect(HINTS.prevMonth)
+  mapping.axisA     = _detect(HINTS.axisA)
+  mapping.axisB     = _detect(HINTS.axisB)
+}
+autoDetect()
+watch(hasHeader, autoDetect)
 
 const FIELD_DEFS = computed(() => [
   { key: 'name',      label: '品目名',         required: true },
@@ -78,19 +117,18 @@ const FIELD_DEFS = computed(() => [
   { key: 'axisB',     label: props.axisNames?.[1] || '並び替え②（仕入先など）', required: false },
 ])
 
-const canImport = computed(() => mapping.name !== null)
-
-const totalRows = allLines.length - 1
+const canImport = computed(() => !parseError && mapping.name !== null && totalRows.value > 0)
 
 function preview(colIdx, rowIdx) {
   if (colIdx === null || colIdx === undefined) return ''
-  const row = previewRows[rowIdx]
+  const row = previewRows.value[rowIdx]
   return row?.[colIdx]?.trim() ?? ''
 }
 
 function onImport() {
   if (!canImport.value) return
-  emit('imported', { mapping: { ...mapping }, csvText: props.csvText })
+  // hasHeader は確認画面と確定処理まで同じ値で伝える（画面の説明と取込結果を一致させる）
+  emit('imported', { mapping: { ...mapping }, csvText: props.csvText, hasHeader: hasHeader.value })
 }
 </script>
 
@@ -103,18 +141,44 @@ function onImport() {
       <div class="mapper-hint">
         アップロードされたCSVの各列を品目リストのフィールドに対応付けてください。
         <span v-if="filename" class="mapper-filename">{{ filename }}</span>
-        （{{ totalRows }}行）
+        （データ{{ totalRows }}行）
+      </div>
+
+      <!-- 構造エラー（未閉じ引用符など）。ここから先へ進ませない -->
+      <div v-if="parseError" class="mapper-error" role="alert">
+        ✗ {{ parseError.message }}
+      </div>
+
+      <!-- 先頭行の扱い。自動判定に任せず必ず明示させる -->
+      <div class="header-block">
+        <div class="mapping-label">1行目の扱い</div>
+        <label class="header-opt" :class="{ on: hasHeader }">
+          <input type="radio" :value="true" v-model="hasHeader" />
+          <span class="header-body">
+            <span class="header-name">1行目は見出し（列名）</span>
+            <span class="header-desc">1行目は取り込まず、列名として使います。</span>
+          </span>
+        </label>
+        <label class="header-opt" :class="{ on: !hasHeader }">
+          <input type="radio" :value="false" v-model="hasHeader" />
+          <span class="header-body">
+            <span class="header-name">1行目からデータ</span>
+            <span class="header-desc">見出しの無いファイル。<b>1行目の品目も取り込みます。</b></span>
+          </span>
+        </label>
       </div>
 
       <!-- プレビューテーブル -->
       <div class="preview-wrap">
-        <div class="preview-label">プレビュー（先頭{{ previewRows.length }}行）</div>
+        <div class="preview-label">
+          プレビュー（データの先頭{{ previewRows.length }}行）
+        </div>
         <div class="preview-scroll">
           <table class="preview-table">
             <thead>
               <tr>
                 <th class="col-num">#</th>
-                <th v-for="(h, i) in headers" :key="i" class="col-head">{{ h || `列${i+1}` }}</th>
+                <th v-for="(h, i) in headers" :key="i" class="col-head">{{ h }}</th>
               </tr>
             </thead>
             <tbody>
@@ -147,7 +211,7 @@ function onImport() {
             >
               <option :value="null">（使用しない）</option>
               <option v-for="(h, i) in headers" :key="i" :value="i">
-                {{ i + 1 }}列: {{ h || `列${i+1}` }}
+                {{ i + 1 }}列: {{ h }}
               </option>
             </select>
             <div v-if="mapping[def.key] !== null" class="mapping-preview">
@@ -192,6 +256,28 @@ function onImport() {
   color: var(--primary);
   margin-left: 4px;
 }
+
+.mapper-error {
+  background: #fef2f2;
+  color: var(--danger, #dc2626);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.header-block { margin-bottom: 14px; }
+.header-opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 9px 12px; margin-bottom: 6px; cursor: pointer;
+}
+.header-opt.on { border-color: var(--primary); background: var(--primary-weak); }
+.header-opt input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; }
+.header-body { display: flex; flex-direction: column; gap: 2px; }
+.header-name { font-size: 13px; font-weight: 800; color: var(--text); }
+.header-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 
 .preview-wrap {
   margin-bottom: 16px;

@@ -74,19 +74,21 @@ describe('parseDeliveryImportCSV', () => {
     expect(parseDeliveryImportCSV(csv).rows[0].qty).toBe(1200)
   })
 
-  it('日付・数量が不正な行は skipped に数え、合計行は無視', () => {
+  it('空欄は skipped、書いてあるのに読めない値は errors。合計行は無視', () => {
     const csv = [
       '日付,品目名,数量',
       '2026-06-01,玉ねぎ,20',
-      ',レタス,3',          // 日付なし → skip
-      '2026-06-02,トマト,',  // 数量なし → skip
-      '2026-06-02,ねぎ,-5',  // 0以下 → skip
+      ',レタス,3',          // 日付が空 → skipped（未入力）
+      '2026-06-02,トマト,',  // 数量が空 → skipped（未入力）
+      '2026-06-02,ねぎ,-5',  // 0以下 → errors（書いてあるが取り込めない）
       ',【合計】,',           // 合計行 → 無視（total に数えない）
     ].join('\n')
-    const { rows, skipped, total } = parseDeliveryImportCSV(csv)
+    const { rows, skipped, total, errors } = parseDeliveryImportCSV(csv)
     expect(rows).toHaveLength(1)
-    expect(skipped).toBe(3)
+    expect(skipped).toBe(2)
     expect(total).toBe(4)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ line: 5, columnLabel: '数量', value: '-5', name: 'ねぎ' })
   })
 
   it('必須列が無ければ throw', () => {
@@ -101,5 +103,54 @@ describe('parseDeliveryImportCSV', () => {
     const { rows } = parseDeliveryImportCSV(deliveryImportTemplateCSV())
     expect(rows).toHaveLength(3)
     expect(rows[0]).toMatchObject({ name: '玉ねぎ', type: 'in', qty: 20 })
+  })
+})
+
+describe('数値の解釈 — 品目取込・棚卸結果取込と同じ契約', () => {
+  const csv = (...lines) => ['日付,品目名,数量,単価', ...lines].join('\n')
+
+  it('12abc / 1,20 / -100 / abc100 を黙って正常値へ変換せず errors に入れる', () => {
+    // 桁区切りに見える不正値はセルが割れないよう引用符で囲んで渡す
+    for (const bad of ['12abc', '1,20', '-100', 'abc100', 'NaN', 'Infinity']) {
+      const cell = bad.includes(',') ? `"${bad}"` : bad
+      const { rows, errors } = parseDeliveryImportCSV(csv(`2026-06-01,玉ねぎ,${cell},190`))
+      expect(rows, bad).toHaveLength(0)
+      expect(errors, bad).toHaveLength(1)
+      expect(errors[0], bad).toMatchObject({ line: 2, columnLabel: '数量', value: bad, name: '玉ねぎ' })
+    }
+  })
+
+  it('不正な単価も行ごとエラーにする（負単価を null にすり替えない）', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-06-01,玉ねぎ,20,-100'))
+    expect(rows).toHaveLength(0)
+    expect(errors[0]).toMatchObject({ columnLabel: '単価', value: '-100' })
+  })
+
+  it('正しい 1,200 と小数は受理する', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv(
+      '2026-06-01,玉ねぎ,"1,200","1,500"',
+      '2026-06-01,レタス,0.5,80',
+    ))
+    expect(errors).toEqual([])
+    expect(rows[0]).toMatchObject({ qty: 1200, price: 1500 })
+    expect(rows[1]).toMatchObject({ qty: 0.5 })
+  })
+
+  it('読めない日付は「不備でスキップ」ではなく errors に出す', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-13-45,玉ねぎ,20,190'))
+    expect(rows).toHaveLength(0)
+    expect(errors[0]).toMatchObject({ columnLabel: '日付', value: '2026-13-45' })
+  })
+
+  it('全行が読めなくても errors を返す（理由を消して throw しない）', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-06-01,玉ねぎ,12abc,190'))
+    expect(rows).toEqual([])
+    expect(errors).toHaveLength(1)
+  })
+
+  it('テンプレCSVは引用符を含む値でも壊れない形で書き出す', () => {
+    const { rows } = parseDeliveryImportCSV(deliveryImportTemplateCSV())
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toMatchObject({ name: '玉ねぎ', qty: 20, price: 190 })
   })
 })

@@ -97,11 +97,17 @@ function _toHalfWidth(s) {
 }
 
 /**
- * 数値セルの解釈。
+ * 数値セルの解釈。**全取込入口（品目・棚卸結果・納品・過去棚卸）の唯一の実装。**
  *
- * `"1,200"` は桁区切りとして 1200 と読む。**1 にはしない。**
- * 桁区切りとして成立しない `1,20` や `1,2345` は不正として返し、呼び出し側が
- * 行番号つきのエラーにする（黙って先頭だけ採用しない）。
+ * 許可する形式はこれだけ:
+ *   - 整数 `120` / 小数 `1.5` / 先頭の符号 `-3`（負の可否は呼び出し側が決める）
+ *   - 3桁区切り `1,200` `1,234,567` `1,200.50` → カンマを外して読む
+ *   - 前後の空白、`¥` `￥`、全角数字・全角ピリオド・全角カンマ・全角マイナス
+ *
+ * 拒否するもの（`parseFloat` の前方一致受理をやめた理由）:
+ *   `12abc` → 12 / `abc100` → NaN→0扱い / `1,20` → 1 / `1 2` → 1 /
+ *   `NaN` `Infinity` `1e5` `--1` `1.2.3` `.` `-`
+ * これらは黙って正常値へ寄せず、不正として返して呼び出し側が行番号つきで見せる。
  *
  * @param {*} raw
  * @returns {{ empty: true } | { value: number } | { invalid: true, raw: string }}
@@ -110,12 +116,74 @@ export function parseNumericCell(raw) {
   const original = String(raw ?? '').trim()
   if (original === '') return { empty: true }
 
-  let s = _toHalfWidth(original).replace(/[¥￥\s]/g, '')
+  // 空白は「桁区切りの代わり」ではなく混入とみなす。`1 2` を 12 にしない。
+  if (/\s/.test(original)) return { invalid: true, raw: original }
+
+  const s0 = _toHalfWidth(original).replace(/[¥￥]/g, '')
+  let s = s0
 
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '')   // 桁区切り
   else if (!/^-?\d+(\.\d+)?$/.test(s)) return { invalid: true, raw: original }
 
   const n = Number(s)
+  // 上の正規表現を通れば NaN / Infinity にはならないが、桁あふれ（1e309 相当の長い数字列）
+  // だけは Infinity になりうるので最後に必ず確認する。
   if (!Number.isFinite(n)) return { invalid: true, raw: original }
   return { value: n }
+}
+
+/**
+ * 数値セルを読み、不正なら**行番号・列・元の値・理由**を持つエラーを返す。
+ * 4つの取込入口が同じ形のエラーを作るための共通入口（画面はこの形だけを描く）。
+ *
+ * @param {*} raw
+ * @param {object} opts
+ * @param {number}  opts.line          ファイル上の行番号
+ * @param {number}  [opts.column]      列インデックス（0始まり・不明なら null）
+ * @param {string}  [opts.columnLabel] 画面に出す列名
+ * @param {boolean} [opts.positive]    0以下を不正にする（単価・入数など）
+ * @param {boolean} [opts.allowNegative] 負数を許可する（既定は不許可）
+ * @returns {{ empty: true } | { value: number } | { error: object }}
+ */
+export function readNumericCell(raw, {
+  line, column = null, columnLabel = '', positive = false, allowNegative = false,
+} = {}) {
+  const original = String(raw ?? '').trim()
+  const parsed   = parseNumericCell(raw)
+  const fail = (reason) => ({ error: { line, column, columnLabel, value: original, reason } })
+
+  if (parsed.empty)   return { empty: true }
+  if (parsed.invalid) return fail(`${columnLabel || '数値'}「${original}」は数値として読めません`)
+
+  const n = parsed.value
+  if (positive && !(n > 0)) {
+    return fail(`${columnLabel || '数値'}「${original}」は0より大きい数値にしてください`)
+  }
+  if (!allowNegative && n < 0) {
+    return fail(`${columnLabel || '数値'}「${original}」は0以上の数値にしてください`)
+  }
+  return { value: n }
+}
+
+/**
+ * CSVの1セルを書き出す。カンマ・引用符・改行を含む値を壊さない**唯一のエスケープ実装**。
+ *
+ * `"${v}"` で囲むだけの実装は、値の中の `"` でセルが割れる（`5" 皿` → `5 皿` や列ずれ）。
+ * ここでは RFC4180 どおり `"` を `""` へ倍にしてから囲む。tokenizeCSV と対で往復する。
+ *
+ * @param {*} value
+ * @param {object} [opts]
+ * @param {boolean} [opts.formulaGuard] `=+-@|` 始まりの文字列に `'` を付ける（表計算のフォーミュラ実行対策）
+ */
+export function csvEscapeCell(value, { formulaGuard = false } = {}) {
+  let s = value === undefined || value === null ? '' : String(value)
+  if (s === '') return ''
+  if (formulaGuard && /^[=+\-@|]/.test(s)) s = `'${s}`
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+/** セル配列を1行のCSV文字列にする（区切りはカンマ固定） */
+export function toCSVRow(cells, opts) {
+  return cells.map(c => csvEscapeCell(c, opts)).join(',')
 }

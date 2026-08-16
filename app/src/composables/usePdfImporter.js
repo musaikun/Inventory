@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { toCSVRow } from '../utils/csvParse.js'
 import { parseGenericTable } from '../utils/pdfTableParser.js'
 import { parseSpreadsheetInWorker } from '../utils/spreadsheetWorkerClient.js'
 export { assertSpreadsheetFile } from '../utils/spreadsheetImport.js'
@@ -521,22 +522,34 @@ function autoAliases(name, base) {
 }
 
 // ── アプリ形式 CSV に変換 ────────────────────────────────────────────────────
+//
+// 変換はここで数値を「直さない」。以前は単価から数字以外を落としていたため、
+// PDF/Excel の `-100` が `100`、`abc100` が `100` になって**取込前の確認画面にも
+// 正しい値として並んでいた**。元のセル値をそのまま渡し、良し悪しは
+// itemImport（= 共通の数値契約）に判定させる。読めない値はそこで行番号つきのエラーになる。
+//
+// カンマ・改行・引用符のエスケープは csvParse.toCSVRow に一本化する。
+// `"${v}"` で囲むだけだと、`5" 皿` のような値でセルが割れて列がずれる。
 export function itemsToConfigCSV(items) {
-  const rows = ['品目名,単位,単価,カテゴリ,エイリアス,商品コード,カテゴリコード,前月実績,入数']
+  const HEADER = ['品目名', '単位', '単価', 'カテゴリ', 'エイリアス', '商品コード', 'カテゴリコード', '前月実績', '入数']
+  const rows = [toCSVRow(HEADER)]
   for (const { name, unit, price, category, categoryCode, code, prevMonth, packQty, aliases } of items) {
-    const u  = unit         ? `"${unit}"`       : ''
-    const p  = price        ? String(price).replace(/[^0-9.]/g, '') : ''
-    const c  = category     ? `"${category}"`   : ''
-    const d  = code         ? `"${code}"`       : ''
-    const e  = categoryCode ? `${categoryCode}` : ''
-    const pm = prevMonth    ? `"${prevMonth}"`  : ''
-    const pk = packQty      ? `"${packQty}"`    : ''
     // カテゴリ名＋ユーザー入力エイリアスをベースに自動エイリアスを付与
     const base = category ? [category] : []
     if (Array.isArray(aliases)) base.push(...aliases)
     const merged = autoAliases(name, base)
-    const a = merged.length > 0 ? `"${merged.join(',')}"` : ''
-    rows.push(`"${name}",${u},${p},${c},${a},${d},${e},${pm},${pk}`)
+
+    rows.push(toCSVRow([
+      name,
+      unit ?? '',
+      price === undefined || price === null ? '' : String(price).trim(),
+      category ?? '',
+      merged.join(','),
+      code ?? '',
+      categoryCode ?? '',
+      prevMonth ?? '',
+      packQty ?? '',
+    ]))
   }
   return rows.join('\r\n')
 }

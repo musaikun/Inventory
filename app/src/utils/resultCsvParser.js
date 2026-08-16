@@ -2,7 +2,7 @@
 // 形式: 日付,商品コード,品目名,単位,数量[,単価,在庫金額]
 // ヘッダ名で列を特定するため、列順が多少違っても動く。
 
-import { tokenizeCSV, parseCSVLine as _line } from './csvParse.js'
+import { tokenizeCSV, readNumericCell, parseCSVLine as _line } from './csvParse.js'
 
 // 字句解析は utils/csvParse.js と共用する（エスケープされた引用符・未閉じ引用符・
 // 引用符内の改行の扱いを、品目取込と棚卸結果取込で1つにするため）。
@@ -13,6 +13,23 @@ function _records(csvText) {
   const { rows, error } = tokenizeCSV(csvText)
   if (error) throw Object.assign(new Error(error.message), { code: error.code, line: error.line })
   return rows.map(r => ({ line: r.line, cols: r.cols.map(c => c.trim()) }))
+}
+
+/**
+ * 数値の読み方は品目取込・納品取込と同じ契約（csvParse.readNumericCell）を使う。
+ * `parseFloat` の前方一致受理をやめたので、`12abc` `1,20` `-100` `abc100` は
+ * 「取り込めない行」になり、行番号・列名・元の値・理由つきで呼び出し側へ渡る。
+ */
+export const RESULT_ERROR_INVALID_ROWS = 'invalid_rows'
+
+/** 不正行を握り潰さずに例外へ載せる（画面が行番号・列名・元の値・理由を出せるようにする） */
+function _invalidRowsError(errors) {
+  const detail = errors.slice(0, 5).map(e => `${e.line}行目 ${e.reason}`).join(' / ')
+  const rest   = errors.length > 5 ? ` ほか${errors.length - 5}件` : ''
+  return Object.assign(
+    new Error(`そのまま読めない値が${errors.length}件あります（${detail}${rest}）。ファイルを直してから取り込んでください`),
+    { code: RESULT_ERROR_INVALID_ROWS, errors },
+  )
 }
 
 // ヘッダ候補（表記ゆれを許容）
@@ -79,35 +96,54 @@ export function parseResultCSV(csvText) {
   }
 
   const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
-  const rows = []
-  for (const { cols } of records.slice(1)) {
+  const label = (i, fallback) => (header[i] ?? '').trim() || fallback
+  const rows   = []
+  const errors = []
+
+  for (const { line, cols } of records.slice(1)) {
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
 
-    const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()
-    if (qtyRaw === '') continue
-    const qty = parseFloat(qtyRaw)
-    if (isNaN(qty)) continue
+    // 数量が空欄の行は「未入力」であって不正ではない（棚卸で触っていない品目）
+    if ((cols[ci.qty] ?? '').trim() === '') continue
+
+    const qty = readNumericCell(cols[ci.qty], {
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'),
+    })
+    if (qty.error) { errors.push({ ...qty.error, name }); continue }
+
+    let price = null
+    if (ci.price >= 0) {
+      const p = readNumericCell(cols[ci.price], {
+        line, column: ci.price, columnLabel: label(ci.price, '単価'),
+      })
+      if (p.error) { errors.push({ ...p.error, name }); continue }
+      price = p.value ?? null
+    }
 
     rows.push({
       name,
-      qty,
+      qty:       qty.value,
       unit:      _cell(cols, ci.unit),
       code:      _cell(cols, ci.code),
-      price:     ci.price >= 0 ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return isNaN(p) ? null : p })() : null,
+      price,
       category:  _cell(cols, ci.category),
       lotSize:   _cell(cols, ci.lotSize),
       prevMonth: _cell(cols, ci.prevMonth),
     })
   }
 
+  // 復元は確認画面を持たない一発操作なので、不正値があれば**取り込ませない**。
+  // 一部だけ黙って復元すると、画面の「N件復元しました」が実データと合わなくなる。
+  if (errors.length) throw _invalidRowsError(errors)
   if (rows.length === 0) throw new Error('復元できる数量データが見つかりませんでした')
   return rows
 }
 
 // 過去棚卸の一括インポート用。日付列を持つ棚卸結果CSVを日付ごとのスナップショットに束ねる。
-// 戻り値: [{ date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice, code, category, lotSize, prevMonth }] }]
+// 戻り値: { snapshots: [{ date:'YYYY-MM-DD', items:[{ item, qty, unit, unitPrice, ... }] }], errors: [...] }
 // 日付列が無い／有効な日付が1つも無い場合は throw（過去棚卸には日付が必須）。
+// 数値として読めない数量・単価は捨てずに errors へ入れ、確認画面が行番号つきで出す。
 export function parseResultSnapshots(csvText) {
   const records = _records(csvText)
   if (records.length < 2) throw new Error('データ行がありません')
@@ -128,27 +164,48 @@ export function parseResultSnapshots(csvText) {
   if (ci.name < 0 || ci.qty < 0) throw new Error('棚卸結果CSVの形式ではありません（「品目名」「数量」列が必要です）')
 
   const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
+  const label  = (i, fallback) => (header[i] ?? '').trim() || fallback
   const byDate = new Map()
+  const errors = []
 
-  for (const { cols } of records.slice(1)) {
+  for (const { line, cols } of records.slice(1)) {
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
-    const date = _normDate(cols[ci.date])
-    if (!date) continue
 
-    const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()
-    if (qtyRaw === '') continue
-    const qty = parseFloat(qtyRaw)
-    if (isNaN(qty)) continue
+    const dateRaw = (cols[ci.date] ?? '').trim()
+    const date    = _normDate(cols[ci.date])
+    if (!date) {
+      // 日付が空の行は集計行などの可能性があるので黙って飛ばす。
+      // 書いてあるのに読めない日付は、取り込む日を1日ぶん失うのでエラーにする。
+      if (dateRaw !== '') {
+        errors.push({
+          line, column: ci.date, columnLabel: label(ci.date, '日付'), value: dateRaw, name,
+          reason: `日付「${dateRaw}」を YYYY-MM-DD として読めません`,
+        })
+      }
+      continue
+    }
 
-    const price = ci.price >= 0
-      ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return isNaN(p) ? null : p })()
-      : null
+    if ((cols[ci.qty] ?? '').trim() === '') continue
+
+    const qty = readNumericCell(cols[ci.qty], {
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'),
+    })
+    if (qty.error) { errors.push({ ...qty.error, name, date }); continue }
+
+    let price = null
+    if (ci.price >= 0) {
+      const p = readNumericCell(cols[ci.price], {
+        line, column: ci.price, columnLabel: label(ci.price, '単価'),
+      })
+      if (p.error) { errors.push({ ...p.error, name, date }); continue }
+      price = p.value ?? null
+    }
 
     if (!byDate.has(date)) byDate.set(date, [])
     byDate.get(date).push({
       item:      name,
-      qty,
+      qty:       qty.value,
       unit:      _cell(cols, ci.unit),
       unitPrice: price,
       code:      _cell(cols, ci.code),
@@ -158,9 +215,17 @@ export function parseResultSnapshots(csvText) {
     })
   }
 
-  if (byDate.size === 0) throw new Error('取り込める棚卸データが見つかりませんでした（日付・数量を確認してください）')
+  if (byDate.size === 0) {
+    if (errors.length) throw _invalidRowsError(errors)
+    throw new Error('取り込める棚卸データが見つかりませんでした（日付・数量を確認してください）')
+  }
 
-  return [...byDate.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, items]) => ({ date, items }))
+  // 過去棚卸は確認画面を持つので、不正行は捨てずに一緒に返して画面へ出す
+  // （ユーザーが気づかないまま確定できないよう、画面側で確認を必須にする）。
+  return {
+    snapshots: [...byDate.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, items]) => ({ date, items })),
+    errors,
+  }
 }

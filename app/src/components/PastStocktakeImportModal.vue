@@ -9,10 +9,20 @@
  * を取り込む前に日付単位で選ばせる。既定は非破壊（別セッションとして追加）。
  *
  * 「取り込みました」はサーバーが sessionId を返した日についてだけ出す。
+ *
+ * **応答が届かなかったとき**（通信断・タイムアウト）は、サーバーに入っている可能性がある。
+ * このときモーダルを閉じてしまうと、その batchId が画面から消えて再試行も取消もできない。
+ * そこで計画と importBatchId を持ち続け、
+ *   ・同じ batchId で再試行する（サーバー側で冪等なので成功済みの日は重複しない）
+ *   ・この batchId を取り消す（結果不明でも実行できる）
+ * の2つの導線をここに出す。再試行では**新しい batchId を作らない**。
  */
 import { ref, computed } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { ON_CONFLICT_ADD, ON_CONFLICT_REPLACE } from '../services/pastImportPlan.js'
+import {
+  ON_CONFLICT_ADD, ON_CONFLICT_REPLACE,
+  OUTCOME_UNKNOWN, mergeCommitResults, retryableDates, canCancelBatch,
+} from '../services/pastImportPlan.js'
 
 const props = defineProps({
   plan:     { type: Object, required: true },
@@ -24,58 +34,104 @@ const props = defineProps({
 })
 const emit = defineEmits(['resolve', 'imported', 'close'])
 
+const importing = ref(false)
+const undoing   = ref(false)
+
 // キャンセル・Escape・オーバーレイクリックが重なっても閉じる処理は1回だけ。
 // 閉じる経路では履歴もサーバーも一切変更しない。
 const closed = ref(false)
 function requestClose() {
-  if (closed.value || importing.value) return
+  if (closed.value || importing.value || undoing.value) return
   closed.value = true
   emit('close')
 }
 useEscapeKey(requestClose)
 
-const importing = ref(false)
 const result    = ref(null)   // { saved, failed, ok, importBatchId }
-const undoing   = ref(false)
 const undoMsg   = ref('')
+const undoFailed = ref(false)
 
 const days      = computed(() => props.plan?.days ?? [])
 const totals    = computed(() => props.plan?.totals ?? { days: 0, items: 0, conflicts: 0 })
 const conflicts = computed(() => days.value.filter(d => d.collisions.length > 0))
 
+// 数値・日付として読めなかった行。件数だけでは気づけないので明細を出し、
+// 「除いて取り込む」を明示するまで確定させない。
+const rowErrors  = computed(() => props.plan?.rowErrors ?? [])
+const errorsAcknowledged = ref(false)
+
 const savedCount  = computed(() => result.value?.saved?.length ?? 0)
 const failedList  = computed(() => result.value?.failed ?? [])
 const finished    = computed(() => result.value !== null)
+const unknownList = computed(() => failedList.value.filter(f => f.outcome === OUTCOME_UNKNOWN))
+// 取込IDは再試行・取消の手がかりなので、失敗しても画面から消さない
+const batchId     = computed(() => result.value?.importBatchId ?? props.plan?.importBatchId ?? '')
+const canRetry    = computed(() => retryableDates(result.value).length > 0 && !undone.value)
+const undone      = computed(() => result.value?.undone === true)
+const canCancel   = computed(() => !undone.value && canCancelBatch(result.value))
+
+const canConfirm = computed(() =>
+  !importing.value && totals.value.days > 0
+  && (rowErrors.value.length === 0 || errorsAcknowledged.value))
 
 function setResolution(date, resolution) {
   emit('resolve', { date, resolution })
 }
 
-async function onConfirm() {
-  if (importing.value || finished.value) return
+/**
+ * 確定・再試行の共通処理。`dates` を渡すとその日だけを送る。
+ * 二重押しは importing で塞ぐ。再試行でも batchId は計画のものを使い回す。
+ */
+async function _commit(dates) {
+  if (importing.value || undoing.value) return
   importing.value = true
   try {
-    // サーバーが確認した結果だけを表示に使う
-    result.value = await props.confirmImport()
-    if ((result.value?.saved?.length ?? 0) > 0) emit('imported', result.value)
+    const next = await props.confirmImport(dates)
+    // サーバーが確認した結果だけを表示に使い、前回の成功はそのまま残す
+    result.value = mergeCommitResults(result.value, next)
+    if ((next?.saved?.length ?? 0) > 0) emit('imported', result.value)
   } catch (err) {
-    result.value = { saved: [], failed: [{ date: '—', error: err?.message ?? '保存に失敗しました' }] }
+    // confirmImport 自体が投げた＝どの日まで進んだか分からない。結果不明として扱う。
+    result.value = mergeCommitResults(result.value, {
+      importBatchId: batchId.value,
+      saved:  [],
+      failed: (dates ?? days.value.map(d => d.date)).map(date => ({
+        date,
+        error:     err?.message ?? '保存の結果を確認できませんでした',
+        outcome:   OUTCOME_UNKNOWN,
+        retryable: true,
+      })),
+      ok: false,
+    })
   } finally {
     importing.value = false
   }
 }
 
+function onConfirm() {
+  if (!canConfirm.value || finished.value) return
+  return _commit()
+}
+
+/** 失敗・結果不明の日だけを、同じ batchId で送り直す */
+function onRetry() {
+  if (!canRetry.value) return
+  return _commit(retryableDates(result.value))
+}
+
 async function onUndo() {
-  if (undoing.value || !result.value?.importBatchId) return
+  if (undoing.value || importing.value || !batchId.value) return
   undoing.value = true
   undoMsg.value = ''
+  undoFailed.value = false
   try {
-    const r = await props.undoImport(result.value.importBatchId)
-    undoMsg.value = `取り込んだ${r.removedOnServer}日分を取り消しました。`
-    result.value  = { ...result.value, saved: [], undone: true }
+    const r = await props.undoImport(batchId.value)
+    undoMsg.value = `この取込（${batchId.value}）のぶんをサーバーから${r.removedOnServer}日分取り消しました。`
+    result.value  = { ...(result.value ?? { importBatchId: batchId.value }), saved: [], failed: [], undone: true }
     emit('imported', result.value)
   } catch (err) {
-    undoMsg.value = err?.message ?? '取り消せませんでした。'
+    undoFailed.value = true
+    undoMsg.value = `${err?.message ?? '取り消せませんでした。'}（取込ID ${batchId.value}）`
   } finally {
     undoing.value = false
   }
@@ -148,48 +204,95 @@ async function onUndo() {
           </div>
         </div>
 
+        <!-- 読めなかった行。行番号・列名・元の値・理由をそのまま出す -->
+        <div v-if="rowErrors.length" class="warn err-warn" role="alert">
+          <p class="warn-title">取り込めない値が{{ rowErrors.length }}行あります</p>
+          <div class="err-list">
+            <div v-for="(e, i) in rowErrors.slice(0, 20)" :key="i" class="err-row">
+              <span class="err-line">{{ e.line }}行目</span>
+              <span class="err-col">{{ e.columnLabel }}{{ e.name ? `（${e.name}）` : '' }}</span>
+              <span class="err-val">「{{ e.value }}」</span>
+              <span class="err-why">{{ e.reason }}</span>
+            </div>
+            <p v-if="rowErrors.length > 20" class="err-more">ほか{{ rowErrors.length - 20 }}行</p>
+          </div>
+          <label class="err-ack">
+            <input type="checkbox" v-model="errorsAcknowledged" />
+            この{{ rowErrors.length }}行を取り込まずに進む
+          </label>
+        </div>
+
         <p class="policy-note">
           取り込んだ棚卸は<b>通常の棚卸と同じ記録</b>として保存され、カレンダーと詳細から開けます。
           サーバーへの保存を確認できた日だけを「取り込み済み」として表示します。
+          取り込んだあとは<b>この取込ぶんだけ</b>をあとから取り消せます（ほかの棚卸は残ります）。
         </p>
       </template>
 
       <!-- 取込後: サーバーが確認した結果だけを出す -->
       <template v-else>
         <div class="msg" :class="failedList.length ? 'warning' : 'success'" role="status" aria-live="polite">
-          <template v-if="result.undone">✓ 取り消しました。</template>
+          <template v-if="undone">✓ 取り消しました。</template>
+          <template v-else-if="savedCount > 0 && failedList.length">
+            ✓ {{ savedCount }}日分を保存しました。残り{{ failedList.length }}日は確認が必要です。
+          </template>
           <template v-else-if="savedCount > 0">✓ {{ savedCount }}日分をサーバーに保存しました。</template>
           <template v-else>✗ 取り込めませんでした。</template>
         </div>
 
+        <p v-if="batchId" class="batch-line">
+          取込ID <b class="batch-id">{{ batchId }}</b>
+          <span class="batch-note">再試行・取消はこのIDのまま行います（新しい取込にはなりません）。</span>
+        </p>
+
         <div v-if="failedList.length" class="detail-block">
-          <div class="detail-head">保存できなかった日（{{ failedList.length }}日）</div>
+          <div class="detail-head">保存を確認できなかった日（{{ failedList.length }}日）</div>
           <div class="skip-list">
             <div v-for="f in failedList" :key="f.date" class="skip-row">
               <span class="skip-line">{{ f.date }}</span>
-              <span class="skip-reason">{{ f.error }}{{ f.retryable ? '（時間をおいて再実行できます）' : '' }}</span>
+              <span class="skip-name" :class="f.outcome === OUTCOME_UNKNOWN ? 'st-unknown' : 'st-failed'">
+                {{ f.outcome === OUTCOME_UNKNOWN ? '結果不明' : '保存されず' }}
+              </span>
+              <span class="skip-reason">{{ f.error }}</span>
             </div>
           </div>
         </div>
 
-        <p v-if="undoMsg" class="policy-note" role="status" aria-live="polite">{{ undoMsg }}</p>
+        <p v-if="unknownList.length" class="warn-inline">
+          {{ unknownList.length }}日は応答が届かず、<b>サーバーに保存されている可能性があります</b>。
+          「同じ取込IDで再試行」を押すと、同じ日を送り直しても重複しません。
+          取り込みたくない場合は「この取込を取り消す」で消せます。
+        </p>
 
-        <p v-if="savedCount > 0 && !result.undone" class="policy-note">
+        <p v-if="undoMsg" class="policy-note" :class="{ 'undo-failed': undoFailed }" role="status" aria-live="polite">
+          {{ undoMsg }}
+        </p>
+
+        <p v-if="savedCount > 0 && !undone" class="policy-note">
           この取込は1つのまとまりとして取り消せます。取り消すとサーバーと端末の両方から
           <b>この取込ぶんだけ</b>が消え、ほかの棚卸は残ります。
         </p>
       </template>
 
+      <p v-if="rowErrors.length && !errorsAcknowledged && !finished" class="blocked-note" role="status">
+        取り込めない行の扱いを選ぶと取り込めます。
+      </p>
+
       <div class="actions">
-        <button class="btn btn-secondary" :disabled="importing" @click="requestClose">
+        <button class="btn btn-secondary" :disabled="importing || undoing" @click="requestClose">
           {{ finished ? '閉じる' : 'キャンセル' }}
         </button>
-        <button v-if="!finished" class="btn btn-primary" :disabled="importing || totals.days === 0" @click="onConfirm">
+        <button v-if="!finished" class="btn btn-primary" :disabled="!canConfirm" @click="onConfirm">
           {{ importing ? '保存中…' : '取り込む' }}
         </button>
-        <button v-else-if="savedCount > 0 && !result.undone" class="btn btn-primary danger" :disabled="undoing" @click="onUndo">
-          {{ undoing ? '取り消し中…' : 'この取込を取り消す' }}
-        </button>
+        <template v-else>
+          <button v-if="canRetry" class="btn btn-primary" :disabled="importing || undoing" @click="onRetry">
+            {{ importing ? '再試行中…' : '同じ取込IDで再試行' }}
+          </button>
+          <button v-if="canCancel" class="btn btn-primary danger" :disabled="undoing || importing" @click="onUndo">
+            {{ undoing ? '取り消し中…' : 'この取込を取り消す' }}
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -247,6 +350,35 @@ async function onUndo() {
 .skip-reason { color: #94a3b8; margin-left: auto; }
 
 .policy-note { font-size: 12px; color: #475569; line-height: 1.6; margin: 0 0 12px; }
+.policy-note.undo-failed { color: #b91c1c; font-weight: 700; }
+
+.batch-line { font-size: 12px; color: #64748b; margin: 0 0 10px; line-height: 1.6; }
+.batch-id { color: #334155; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.batch-note { display: block; color: #94a3b8; }
+
+.warn-inline {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+  padding: 10px 12px; font-size: 12px; color: #78350f; line-height: 1.6; margin: 0 0 12px;
+}
+
+.err-warn { background: #fef2f2; border: 1px solid #fecaca; }
+.err-warn .warn-title { color: #b91c1c; }
+.err-list { max-height: 180px; overflow-y: auto; margin-top: 4px; }
+.err-row { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; line-height: 1.6; padding: 3px 0; }
+.err-line { color: #b45309; font-weight: 800; min-width: 56px; }
+.err-col  { color: #334155; }
+.err-val  { color: #7f1d1d; font-weight: 700; word-break: break-all; }
+.err-why  { color: #94a3b8; }
+.err-more { font-size: 12px; color: #94a3b8; margin: 4px 0 0; }
+.err-ack {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: #7f1d1d; margin-top: 8px; cursor: pointer;
+}
+.err-ack input { width: 16px; height: 16px; }
+
+.blocked-note { font-size: 12px; color: #b45309; font-weight: 700; margin: 0 0 8px; }
+.st-unknown { color: #b45309; font-weight: 800; }
+.st-failed  { color: #b91c1c; font-weight: 800; }
 
 .actions { display: flex; gap: 10px; margin-top: 6px; }
 .btn { flex: 1; border: none; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }

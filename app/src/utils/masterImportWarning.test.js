@@ -13,7 +13,11 @@ describe('buildMasterImportWarning', () => {
     expect(msg).toContain('追加ではありません')
     expect(msg).toContain('ファイルに無い品目は削除されます')
     expect(msg).toContain('単価・別名・カテゴリ')
-    expect(msg).toContain('取り消しはできません')
+    // 「取り消しはできません」は実装（undoLastImport）と食い違う旧文言。
+    // 1回だけ戻せること、その退避が端末のメモリ上だけであることを明示する。
+    expect(msg).not.toContain('取り消しはできません')
+    expect(msg).toContain('1回だけ戻せます')
+    expect(msg).toContain('メモリ上')
   })
 
   it('不正な件数は0件として扱い、例外を投げない', () => {

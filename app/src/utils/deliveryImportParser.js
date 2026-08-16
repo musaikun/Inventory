@@ -7,7 +7,7 @@
 // 出力行: { date, type, supplier, category, name, qty, unit, price, code, lotSize }
 //   date は 'YYYY-MM-DD' に正規化。type は 'in'（既定）| 'out'。
 
-import { tokenizeCSV, parseCSVLine as _line } from './csvParse.js'
+import { tokenizeCSV, readNumericCell, toCSVRow, parseCSVLine as _line } from './csvParse.js'
 
 // 字句解析は utils/csvParse.js と共用する（3つの取込経路で1つの解釈にそろえる）。
 const parseCSVLine = (line) => _line(line).map(s => s.trim())
@@ -75,11 +75,16 @@ export function isDeliveryImportCSV(csvText) {
 
 /**
  * 中間フォーマットCSVを解析して正規化行を返す。
- * @returns {{ rows: Array, skipped: number, total: number }}
+ * @returns {{ rows: Array, skipped: number, total: number, errors: Array }}
  *   rows    = 有効行 [{ date, type, supplier, category, name, qty, unit, price, code, lotSize }]
- *   skipped = 日付・品目名・数量の欠落/不正で捨てた行数
+ *   skipped = 日付・品目名・数量が**空**で捨てた行数（未入力）
  *   total   = データ行数（ヘッダを除く非空行）
+ *   errors  = 書いてあるのに読めない行 [{ line, column, columnLabel, value, reason, name }]
  * 構造不正（必須列なし・データ行なし）は throw。
+ *
+ * 数値の読み方は品目取込・棚卸結果取込と同じ契約（csvParse.readNumericCell）を使う。
+ * `parseFloat` の前方一致受理をやめたので、`12abc` `1,20` `-100` `abc100` は
+ * 黙って正常値へ寄らず、行番号・列名・元の値・理由つきで画面へ出る。
  */
 export function parseDeliveryImportCSV(csvText) {
   const records = _records(csvText)
@@ -103,29 +108,47 @@ export function parseDeliveryImportCSV(csvText) {
   }
 
   const _cell = (cols, i) => i >= 0 ? (cols[i] ?? '').trim() : ''
-  const rows = []
+  const label = (i, fallback) => (header[i] ?? '').trim() || fallback
+  const rows   = []
+  const errors = []
   let skipped = 0
   let total = 0
 
-  for (const { cols } of records.slice(1)) {
-    const name = (cols[ci.name] ?? '').trim()
-    const date = normalizeDate(cols[ci.date])
-    const qtyRaw = (cols[ci.qty] ?? '').replace(/,/g, '').trim()
-    const qty = parseFloat(qtyRaw)
+  for (const { line, cols } of records.slice(1)) {
+    const name    = (cols[ci.name] ?? '').trim()
+    const dateRaw = (cols[ci.date] ?? '').trim()
+    const date    = normalizeDate(cols[ci.date])
+    const qtyRaw  = (cols[ci.qty] ?? '').trim()
 
     // 合計行など明らかな非データ行はカウントせず読み飛ばす
-    if (!name && !date && qtyRaw === '') continue
+    if (!name && !dateRaw && qtyRaw === '') continue
     if (name === '【合計】' || name === '合計') continue
     total++
 
-    if (!name || !date || qtyRaw === '' || !Number.isFinite(qty) || qty <= 0) {
-      skipped++
+    // 未入力（空欄）は「不備でスキップ」、書いてあるのに読めない値は「エラー」に分ける。
+    if (!name || !dateRaw || qtyRaw === '') { skipped++; continue }
+
+    if (!date) {
+      errors.push({
+        line, column: ci.date, columnLabel: label(ci.date, '日付'), value: dateRaw, name,
+        reason: `日付「${dateRaw}」を YYYY-MM-DD として読めません`,
+      })
       continue
     }
 
-    const priceVal = ci.price >= 0
-      ? (() => { const p = parseFloat((cols[ci.price] ?? '').replace(/,/g, '')); return Number.isFinite(p) && p > 0 ? p : null })()
-      : null
+    const qty = readNumericCell(cols[ci.qty], {
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'), positive: true,
+    })
+    if (qty.error) { errors.push({ ...qty.error, name }); continue }
+
+    let priceVal = null
+    if (ci.price >= 0) {
+      const p = readNumericCell(cols[ci.price], {
+        line, column: ci.price, columnLabel: label(ci.price, '単価'), positive: true,
+      })
+      if (p.error) { errors.push({ ...p.error, name }); continue }
+      priceVal = p.value ?? null
+    }
 
     rows.push({
       date,
@@ -133,7 +156,7 @@ export function parseDeliveryImportCSV(csvText) {
       supplier: _cell(cols, ci.supplier),
       category: _cell(cols, ci.category),
       name,
-      qty,
+      qty:      qty.value,
       unit:     _cell(cols, ci.unit),
       price:    priceVal,
       code:     _cell(cols, ci.code),
@@ -141,17 +164,18 @@ export function parseDeliveryImportCSV(csvText) {
     })
   }
 
-  if (rows.length === 0) throw new Error('取り込める納品データが見つかりませんでした')
-  return { rows, skipped, total }
+  if (rows.length === 0 && errors.length === 0) throw new Error('取り込める納品データが見つかりませんでした')
+  return { rows, skipped, total, errors }
 }
 
 // 中間フォーマットのテンプレCSV文字列（ダウンロード用・見本行つき）。
 export function deliveryImportTemplateCSV() {
-  const header = '日付,種別,仕入先,カテゴリ,品目名,数量,単位,単価,商品コード,入数'
+  // 見本の値も共通エスケープを通す（カンマ・引用符を含む品目名でも壊れないテンプレにする）
+  const header = ['日付', '種別', '仕入先', 'カテゴリ', '品目名', '数量', '単位', '単価', '商品コード', '入数']
   const examples = [
-    '2026-06-01,入庫,八百屋青果,野菜,玉ねぎ,20,kg,190,,10',
-    '2026-06-01,入庫,肉のヤマ,肉,鶏もも,5,kg,980,,1',
-    '2026-06-03,入庫,八百屋青果,野菜,レタス,24,玉,100,,8',
+    ['2026-06-01', '入庫', '八百屋青果', '野菜', '玉ねぎ',   '20', 'kg', '190', '', '10'],
+    ['2026-06-01', '入庫', '肉のヤマ',   '肉',   '鶏もも',   '5',  'kg', '980', '', '1'],
+    ['2026-06-03', '入庫', '八百屋青果', '野菜', 'レタス',   '24', '玉', '100', '', '8'],
   ]
-  return [header, ...examples].join('\r\n')
+  return [header, ...examples].map(cells => toCSVRow(cells)).join('\r\n')
 }
