@@ -61,12 +61,36 @@ describe('取込の作成', () => {
     })
   })
 
-  it('同じバッチ・同じ日付の再送でセッションが増えない（冪等）', async () => {
+  it('同じバッチ・同じ日付・同じ内容の再送でセッションが増えない（冪等）', async () => {
     const h = setup()
     const a = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(3) })
-    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(2) })
+    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(3) })
 
     expect(b.sessionId).toBe(a.sessionId)
+    expect(sessionsOf(h)).toHaveLength(1)
+    expect(linesOf(h)).toHaveLength(3)
+    expect(historyOf(h)).toHaveLength(1)
+  })
+
+  it('同じバッチ・同じ日付で内容が違えば 409（別の意図・DATA-002 §2）', async () => {
+    const h = setup()
+    await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(3) })
+    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(2) })
+
+    expect(b._status).toBe(409)
+    expect(b.code).toBe('import_intent_conflict')
+    expect(linesOf(h)).toHaveLength(3)      // 既存の取込を黙って書き換えない
+  })
+
+  it('台帳を持たない旧データ（0015 適用前）への再送は、明細を貼り直す', async () => {
+    const h = setup()
+    await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(3) })
+    // 0015 適用前に作られた取込セッション相当の状態にする
+    h.sqlite.prepare('DELETE FROM import_batch_requests').run()
+
+    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(2) })
+
+    expect(b.ok).toBe(true)
     expect(sessionsOf(h)).toHaveLength(1)
     expect(linesOf(h)).toHaveLength(2)      // 減った品目が残らない（貼り直し）
     expect(historyOf(h)).toHaveLength(1)
@@ -184,8 +208,9 @@ describe('snapshot は server が組み立てる', () => {
 
   it('保存後の server revision と保存時刻を返す', async () => {
     const h = setup()
+    // 同じバッチの別日付＝別の要求単位。どちらも書き込みが起き、revision が進む。
     const a = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(2) })
-    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-01', items: items(3) })
+    const b = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-02', items: items(3) })
     expect(a.serverRevision).toBeGreaterThan(0)
     expect(b.serverRevision).toBeGreaterThan(a.serverRevision)
     expect(b.serverSavedAt).toBeTruthy()

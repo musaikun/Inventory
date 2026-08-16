@@ -74,6 +74,11 @@ function createMockD1() {
             Object.assign(target, { status: 'completed', item_count: itemCount, total_value: totalValue })
             changes = 1
           }
+        } else if (s.startsWith('SELECT revision')) {
+          // revision の読み戻しは write と同じ batch に入る（DATA-002 §5）。
+          const [shop, sid] = bound
+          const row = history.find(x => x.shop_code === shop && x.session_id === sid)
+          return { success: true, results: row ? [row] : [], meta: { changes: 0 } }
         }
         return { success: true, meta: { changes } }
       },
@@ -163,8 +168,12 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
     '牛乳':       { qty: 12, unit: '本' },
   }
   const prices = { 'コーヒー豆': 2000 }
-  // 棚卸完了はスナップショット必須（第2セッション §1）
-  const SNAP = { date: takenAt, items: [{ item: '牛乳', qty: 12 }] }
+  // 棚卸完了はスナップショット必須（第2セッション §1）。
+  // DATA-002 §1 で「snapshot.items は inventory の全行を含むこと」も契約に加わった。
+  const SNAP = {
+    date: takenAt,
+    items: [{ item: 'コーヒー豆', qty: 5, unit: 'kg' }, { item: '牛乳', qty: 12, unit: '本' }],
+  }
 
   it('品目数分の inventory_lines が挿入される', async () => {
     const db  = createMockD1()

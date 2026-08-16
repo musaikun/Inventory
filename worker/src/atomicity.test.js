@@ -88,6 +88,12 @@ function createSessionDb({ sessions = [{ id: SID, shop_code: CODE, status: 'acti
           const [, itemCount, totalValue, id, shop] = bound
           const t = sessions.find(x => x.id === id && x.shop_code === shop)
           if (t) { Object.assign(t, { status: 'completed', item_count: itemCount, total_value: totalValue }); changes = 1 }
+        } else if (s.startsWith('SELECT revision')) {
+          // revision の読み戻しは write と同じ batch に入る（DATA-002 §5）。
+          // D1 の batch は SELECT の結果を同じ位置の D1Result へ返す。
+          const [shop, sid] = bound
+          const row = history.find(x => x.shop_code === shop && x.session_id === sid)
+          return { success: true, results: row ? [row] : [], meta: { changes: 0 } }
         }
         return { success: true, meta: { changes } }
       },
@@ -140,8 +146,15 @@ const INVENTORY = {
   '牛乳':       { qty: 12, unit: '本' },
 }
 const PRICES = { 'コーヒー豆': 2000, '牛乳': 200 }
-// 棚卸完了はスナップショット必須（第2セッション §1）
-const SNAP = { date: '2026-06-11', items: [{ item: '牛乳', qty: 12 }] }
+// 棚卸完了はスナップショット必須（第2セッション §1）。
+// さらに DATA-002 §1 で「snapshot.items は inventory の全行を含むこと」が契約になった。
+// 欠けていると 400 snapshot_mismatch（＝一覧と詳細が食い違う履歴を作らせない）。
+const SNAP = {
+  date: '2026-06-11',
+  items: [{ item: 'コーヒー豆', qty: 5, unit: 'kg' }, { item: '牛乳', qty: 12, unit: '本' }],
+}
+// 品目を減らした再送用（inventory と items を揃える）
+const SNAP_MILK_ONLY = { date: '2026-06-11', items: [{ item: '牛乳', qty: 1, unit: '本' }] }
 
 describe('棚卸完了 — 明細と完了状態を1つのトランザクションで書く', () => {
   it('write が1回の batch にまとまっている', async () => {
@@ -224,7 +237,7 @@ describe('棚卸完了 — 冪等', () => {
   it('品目が減った再送では、前回ぶんが残らない', async () => {
     const db = createSessionDb()
     await handleSessionComplete(db, CODE, SID, { inventory: INVENTORY, prices: PRICES, snapshot: SNAP })
-    await handleSessionComplete(db, CODE, SID, { inventory: { '牛乳': { qty: 1, unit: '本' } }, prices: {}, snapshot: SNAP })
+    await handleSessionComplete(db, CODE, SID, { inventory: { '牛乳': { qty: 1, unit: '本' } }, prices: {}, snapshot: SNAP_MILK_ONLY })
 
     expect(db._lines.map(l => l.item_name)).toEqual(['牛乳'])
     expect(db._sessions[0].item_count).toBe(1)

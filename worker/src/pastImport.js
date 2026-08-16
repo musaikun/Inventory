@@ -30,7 +30,7 @@ import {
   INVENTORY_ROWS_PER_STATEMENT,
 } from './constants.js'
 import { isValidDate, parseQty, parseClientId, text, chunk, jsonByteLength } from './validate.js'
-import { sessionSnapshotStatement, readHistoryStamp } from './storeHandler.js'
+import { sessionSnapshotStatement, historyStampStatement, readStampResult } from './storeHandler.js'
 
 const _now = () => new Date().toISOString()
 
@@ -156,11 +156,16 @@ function _canonicalSnapshot({ sessionId, date, rows, totalValue, batch, now }) {
 }
 
 /**
- * 上書き指定を検証する。1件でも条件を外れたら**全体を拒否**し、何も消さない。
+ * 上書き指定を **事前に** 検証する。1件でも条件を外れたら全体を拒否し、何も消さない。
  *
  * 許可するのは「同じ店舗・同じ日付・completed・stock」だけ。
  * 進行中（active）を消すと入力中の棚卸が消え、order セッションを消すと発注記録が消え、
  * 別日を消すと画面に出ていない日の棚卸が黙って消える。
+ *
+ * **この SELECT は削除権限の根拠ではない**（DATA-002 §3）。理由を持った 409 を返して
+ * client に何が悪いかを伝えるための preflight であり、SELECT と DELETE の間に
+ * 対象が active へ戻る隙間がある。実際の許可判定は `_replaceGuardSql` が持つ
+ * 文中の guard で、batch と同じトランザクション内で評価される。
  */
 async function _validateReplaceTargets(db, code, ids, date) {
   if (ids.length === 0) return { ids: [] }
@@ -193,6 +198,78 @@ async function _validateReplaceTargets(db, code, ids, date) {
 
 function _replaceDenied(sessionId, reason, message) {
   return { _status: 409, code: 'replace_not_allowed', reason, sessionId, error: message }
+}
+
+/**
+ * 上書きを許可する唯一の条件を SQL の真偽式として返す（DATA-002 §3 / TOCTOU）。
+ *
+ * 「指定された ID のうち、同じ店舗・同じ日付・completed・stock を満たすものの件数が、
+ * 指定件数とちょうど同じ」。1件でも欠けたら false になる。
+ *
+ * これを **削除・作成のすべての文の WHERE へ埋める**。batch は1トランザクションなので、
+ * guard は全文で同じ結果になり、次のいずれかにしかならない。
+ *   - guard true  : 旧セッション削除・新セッション作成・明細・snapshot・台帳がすべて成立
+ *   - guard false : すべての文が 0 行。旧セッションも消えず、新セッションもできない
+ *
+ * 「conditional DELETE を commit してから changes を見る」方式は採らない。
+ * それだと DELETE 自体は成立してしまい、後続の判定で戻せない（batch は途中で中断できない）。
+ *
+ * 上書き指定が無い場合は常に true の定数式にして、文の形を変えずに済ませる。
+ *
+ * @returns {{ sql: string, binds: any[] }}
+ */
+function _replaceGuardSql(code, ids, date) {
+  if (ids.length === 0) return { sql: '1', binds: [] }
+  const ph = ids.map(() => '?').join(',')
+  return {
+    sql: `(SELECT COUNT(*) FROM sessions
+            WHERE shop_code = ? AND id IN (${ph})
+              AND status = 'completed'
+              AND COALESCE(type, 'stock') = 'stock'
+              AND substr(started_at, 1, 10) = ?) = ?`,
+    binds: [code, ...ids, date, ids.length],
+  }
+}
+
+/**
+ * 要求の指紋。日付・明細（正規化済み）・上書き対象集合から決まる。
+ *
+ * 上書き対象は集合として扱う（並び順の違いは同じ要求）。明細は検証後の行を使うので、
+ * 空白の差や単価の文字列/数値表現の違いでは指紋が変わらない。
+ */
+async function _fingerprint({ date, rows, replaceIds }) {
+  const canonical = JSON.stringify({
+    date,
+    replace: [...replaceIds].sort(),
+    rows: rows.map(r => [r.item, r.qty, r.unit ?? '', r.price, r.value]),
+  })
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** 台帳（migration 0015）から前回の要求を読む。 */
+async function _readLedger(db, code, batch, date) {
+  return db.prepare(`
+    SELECT fingerprint, session_id, item_count, total_value, replaced
+    FROM import_batch_requests
+    WHERE shop_code = ? AND batch_id = ? AND import_date = ?
+  `).bind(code, batch, date).first()
+}
+
+/** 台帳の行を、初回成功時と同じ応答へ戻す。 */
+function _replayResponse(row, { batch, date, stamp }) {
+  return {
+    ok: true,
+    sessionId:  row.session_id,
+    date,
+    itemCount:  row.item_count,
+    totalValue: row.total_value ?? null,
+    importBatchId: batch,
+    replaced:   row.replaced ?? 0,
+    snapshotSaved: true,
+    replay:     true,
+    ...(stamp ?? { serverRevision: null, serverSavedAt: null }),
+  }
 }
 
 /**
@@ -241,6 +318,28 @@ export async function handlePastImportCreate(db, code, batchId, body) {
     return { _status: 400, code: 'no_lines', error: '取り込める明細がありません' }
   }
 
+  const now = _now()
+
+  // ── 応答喪失からの再送を、内容の違う要求と区別する（§2 / migration 0015）────
+  // 同じ (店舗, バッチ, 対象日) の要求が台帳にあるなら、
+  //   指紋一致 → 前回と同じ結果をそのまま返す（置換対象が既に消えていても 409 にしない）
+  //   指紋相違 → 別の意図なので 409。既存の取込を黙って書き換えない
+  const fingerprint = await _fingerprint({ date, rows, replaceIds })
+  const ledger      = await _readLedger(db, code, batch, date)
+  if (ledger) {
+    if (ledger.fingerprint !== fingerprint) {
+      return {
+        _status: 409, code: 'import_intent_conflict', importBatchId: batch, date,
+        error: '同じ取込IDで内容の異なる要求が届きました',
+      }
+    }
+    const stamp = readStampResult(
+      await historyStampStatement(db, code, { sessionId: ledger.session_id }).all(),
+    )
+    return _replayResponse(ledger, { batch, date, stamp })
+  }
+
+  // preflight。理由つきの 409 を返すためのもので、削除権限の根拠にはしない（§3）。
   const replaceCheck = await _validateReplaceTargets(db, code, replaceIds, date)
   if (replaceCheck.error) return replaceCheck.error
 
@@ -255,84 +354,164 @@ export async function handlePastImportCreate(db, code, batchId, body) {
 
   const sessionId = existing?.id ?? await importSessionId(code, batch, date)
   const startedAt = `${date}T00:00:00.000Z`
-  const now       = _now()
+
+  // 取込先そのものを上書き対象に指定させない。指定を許すと、下の 1) で作った
+  // セッションを 2) の DELETE が消し、明細と snapshot だけが宙に浮く。
+  // 同じバッチ・同じ日付への再取込は upsert が担うので、指定する必要も無い。
+  if (replaceIds.includes(sessionId)) {
+    return _replaceDenied(sessionId, 'self_replace', '取込先のセッションは上書き対象に指定できません')
+  }
+
+  // 上書きを許可する唯一の条件。この batch の write すべてがこれに従属する。
+  const guard = _replaceGuardSql(code, replaceIds, date)
 
   const statements = []
 
-  // 1) ユーザーが明示的に「上書き」を選んだセッションだけを消す。
-  //    件数によらず3文へ集約する。1件3文だと50件で150文になり、D1 の
-  //    「Queries per Worker invocation」（Free 50）を1リクエストで超える。
-  //    shop_code で必ず絞るので、他店舗のIDを渡されても何も消えない。
-  if (replaceIds.length > 0) {
-    const ph = replaceIds.map(() => '?').join(',')
-    statements.push(
-      db.prepare(`DELETE FROM inventory_lines WHERE shop_code = ? AND session_id IN (${ph})`)
-        .bind(code, ...replaceIds),
-      db.prepare(`DELETE FROM store_history   WHERE shop_code = ? AND session_id IN (${ph})`)
-        .bind(code, ...replaceIds),
-      db.prepare(`DELETE FROM sessions        WHERE shop_code = ? AND id IN (${ph})`)
-        .bind(code, ...replaceIds),
-    )
-  }
+  // ── batch 内の順序は契約の一部 ───────────────────────────────────────────────
+  // guard は「上書き対象が completed / stock / 同日で **ちょうど N 件ある**」を数える。
+  // 対象を先に DELETE すると COUNT が減って guard 自身が false になるため、
+  // **guard を評価する文はすべて DELETE より前**に置く。
+  // 逆に明細・snapshot は「1) が実際に走ったか」に従属させる必要があるので、
+  // 1) が書き込む ended_at（この要求の時刻）をマーカーとして参照する。
+  //   guard 成立 → 1) が ended_at=now を書く → 3)〜5) が一致して適用される
+  //   guard 不成立 → 1) は 0 行 → ended_at は前回のまま → 3)〜5) も 0 行
 
-  // 2) セッション本体（完了済みとして作る）。再送では同じ行を上書きする。
+  // 1) セッション本体（完了済みとして作る）。再送では同じ行を上書きする。
   //    upsert に WHERE を付けて、万一 id が別店舗のものと衝突した場合に
   //    他店の session を書き換えないようにする（orders / movements と同じ形）。
+  //    VALUES ではなく `SELECT ... WHERE <guard>` にして、guard が false なら行を作らない。
   const sessionStmtIndex = statements.length
   statements.push(db.prepare(`
     INSERT INTO sessions (id, shop_code, started_at, ended_at, status, item_count, total_value, type, import_batch_id)
-    VALUES (?, ?, ?, ?, 'completed', ?, ?, 'stock', ?)
+    SELECT ?, ?, ?, ?, 'completed', ?, ?, 'stock', ?
+    WHERE ${guard.sql}
     ON CONFLICT(id) DO UPDATE SET
       ended_at = excluded.ended_at, status = 'completed',
       item_count = excluded.item_count, total_value = excluded.total_value,
       import_batch_id = excluded.import_batch_id
     WHERE sessions.shop_code = excluded.shop_code
-  `).bind(sessionId, code, startedAt, now, rows.length, totalValue, batch))
+  `).bind(sessionId, code, startedAt, now, rows.length, totalValue, batch, ...guard.binds))
+
+  // 2) 要求台帳（migration 0015）。取込本体と同じトランザクションで確定させる。
+  //    guard に従属させるので、上書きが許可されなかった要求は台帳にも残らない。
+  //    PRIMARY KEY は (shop_code, batch_id, import_date)。並行して届いた同一要求は
+  //    片方がここで一意制約に当たり、batch ごと巻き戻って下の catch へ落ちる。
+  statements.push(db.prepare(`
+    INSERT INTO import_batch_requests
+      (shop_code, batch_id, import_date, fingerprint, session_id, item_count, total_value, replaced, created_at)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE ${guard.sql}
+  `).bind(code, batch, date, fingerprint, sessionId, rows.length, totalValue, replaceIds.length, now,
+          ...guard.binds))
 
   // 3) 明細。再取込で品目が減った場合に前回ぶんを残さないよう、先に消してから入れ直す。
-  statements.push(db.prepare('DELETE FROM inventory_lines WHERE session_id = ? AND shop_code = ?')
-    .bind(sessionId, code))
+  //    1) が走った場合だけ適用する（ended_at マーカー）。
+  statements.push(db.prepare(`
+    DELETE FROM inventory_lines
+    WHERE session_id = ? AND shop_code = ?
+      AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = ? AND s.shop_code = ? AND s.ended_at = ?)
+  `).bind(sessionId, code, sessionId, code, now))
 
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
     const values = group.map(() => 'SELECT ? AS item, ? AS qty, ? AS unit, ? AS price, ? AS value')
       .join(' UNION ALL ')
     const binds = [date]
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
-    binds.push(sessionId, code)
+    binds.push(sessionId, code, now)
 
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
         (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
       SELECT s.id, s.shop_code, ?, v.item, NULL, v.qty, v.unit, v.price, v.value
       FROM sessions s, (${values}) v
-      WHERE s.id = ? AND s.shop_code = ?
+      WHERE s.id = ? AND s.shop_code = ? AND s.ended_at = ?
     `).bind(...binds))
   }
 
   // 4) 表示・分析用スナップショット。server が組み立てた canonical 版だけを保存する。
-  //    sessions を参照する INSERT ... SELECT なので、2) が何らかの理由で行を作れなかった
-  //    場合に snapshot だけが残ることはない。
+  //    sessions を参照する INSERT ... SELECT なので、1) が行を作れなかった場合に
+  //    snapshot だけが残ることはない。
   statements.push(sessionSnapshotStatement(
     db, code, sessionId,
     _canonicalSnapshot({ sessionId, date, rows, totalValue, batch, now }),
     now,
+    { endedAt: now },
   ))
+
+  // 5) ユーザーが明示的に「上書き」を選んだセッションだけを消す。**guard 評価の最後**。
+  //    件数によらず3文へ集約する。1件3文だと40件で120文になり、D1 の
+  //    「Queries per Worker invocation」（Free 50）を1リクエストで超える。
+  //    shop_code で必ず絞るので、他店舗のIDを渡されても何も消えない。
+  //
+  //    preflight の後・batch の直前に対象が active へ戻った場合、guard が false になり
+  //    1)〜5) がすべて 0 行になる。旧セッションは残り、新セッションもできない
+  //    （一部だけ削除された状態を作らない）。
+  if (replaceIds.length > 0) {
+    const ph = replaceIds.map(() => '?').join(',')
+    statements.push(
+      db.prepare(`DELETE FROM inventory_lines WHERE shop_code = ? AND session_id IN (${ph}) AND ${guard.sql}`)
+        .bind(code, ...replaceIds, ...guard.binds),
+      db.prepare(`DELETE FROM store_history   WHERE shop_code = ? AND session_id IN (${ph}) AND ${guard.sql}`)
+        .bind(code, ...replaceIds, ...guard.binds),
+      db.prepare(`DELETE FROM sessions        WHERE shop_code = ? AND id IN (${ph}) AND ${guard.sql}`)
+        .bind(code, ...replaceIds, ...guard.binds),
+    )
+  }
+
+  // 6) revision の読み戻し。write と同じ batch に入れて、別要求の revision を
+  //    自分の応答として返さない（§5）。
+  const stampStmtIndex = statements.length
+  statements.push(historyStampStatement(db, code, { sessionId }))
 
   let results
   try {
     results = await db.batch(statements)
   } catch (e) {
     console.error('[pastImport] create batch failed:', code, batch, date, e?.message ?? e)
+    // 並行した同一要求に台帳を先取りされた場合はここへ来る。相手が確定させた
+    // 結果を読み直し、同じ要求なら同じ成功を返す（重複は作らない）。
+    const raced = await _readLedger(db, code, batch, date).catch(() => null)
+    if (raced && raced.fingerprint === fingerprint) {
+      const stamp = readStampResult(
+        await historyStampStatement(db, code, { sessionId: raced.session_id }).all(),
+      )
+      return _replayResponse(raced, { batch, date, stamp })
+    }
+    if (raced) {
+      return {
+        _status: 409, code: 'import_intent_conflict', importBatchId: batch, date,
+        error: '同じ取込IDで内容の異なる要求が届きました',
+      }
+    }
     return { _status: 503, code: 'import_failed', retryable: true, error: '取込を保存できませんでした' }
   }
 
-  // session が書けていなければ明細も snapshot も存在条件で弾かれている。
-  // 「取り込めた」と返さず、client が状況を出せる形で返す。
+  // session が書けていなければ明細も snapshot も台帳も、guard か存在条件で弾かれている。
   if (results?.[sessionStmtIndex]?.meta?.changes !== 1) {
-    return { _status: 409, code: 'import_conflict', error: '取込を保存できませんでした' }
+    // guard が false になる正当な理由がもう1つある: **並行して届いた同一要求が
+    // 先に完了し、上書き対象を消した**場合。その要求の台帳が残っているので、
+    // 指紋が一致すれば同じ成功を返す（重複も作らず、失敗も報告しない）。
+    const done = await _readLedger(db, code, batch, date).catch(() => null)
+    if (done && done.fingerprint === fingerprint) {
+      const stamp = readStampResult(
+        await historyStampStatement(db, code, { sessionId: done.session_id }).all(),
+      )
+      return _replayResponse(done, { batch, date, stamp })
+    }
+    // それ以外は、preflight の後に上書き対象が変わった（active へ戻った・別日になった等）。
+    // 何も書いていないので、client が状況を出せる形で返す。
+    return {
+      _status: 409, code: 'replace_not_allowed', reason: 'target_changed',
+      error: '上書き対象の棚卸が変更されたため、取込を中止しました',
+    }
   }
 
-  const stamp = await readHistoryStamp(db, code, { sessionId })
+  const stamp = readStampResult(results[stampStmtIndex])
+  if (!stamp) {
+    console.error('[pastImport] revision missing after write:', code, batch, date)
+    return { _status: 503, code: 'import_failed', retryable: true, error: '取込を確認できませんでした' }
+  }
+
   return {
     ok: true, sessionId, date,
     itemCount: rows.length, totalValue,
@@ -346,9 +525,13 @@ export async function handlePastImportCreate(db, code, batchId, body) {
 /**
  * DELETE /store/:code/imports/:batchId
  *
- * バッチで作ったセッション・明細・スナップショットだけを消す。
+ * バッチで作ったセッション・明細・スナップショット・要求台帳だけを消す。
  * 通常の棚卸（import_batch_id IS NULL）と別バッチには触れない。
  * 2回目以降は removed:0 で成功する（冪等）。
+ *
+ * 台帳（migration 0015）も同じトランザクションで消す。残したままだと、
+ * 取り消したバッチを同じ内容で取り込み直したときに「前回と同じ要求」と判定され、
+ * 何も書かずに成功を返してしまう。
  */
 export async function handlePastImportCancel(db, code, batchId) {
   const batch = parseBatchId(batchId)
@@ -358,7 +541,6 @@ export async function handlePastImportCancel(db, code, batchId) {
 
   const found = await db.prepare(target).bind(code, batch).all()
   const ids   = (found.results ?? []).map(r => r.id)
-  if (ids.length === 0) return { ok: true, removed: 0, importBatchId: batch }
 
   try {
     await db.batch([
@@ -367,6 +549,7 @@ export async function handlePastImportCancel(db, code, batchId) {
       db.prepare(`DELETE FROM store_history   WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
       db.prepare('DELETE FROM sessions WHERE shop_code = ? AND import_batch_id = ?').bind(code, batch),
+      db.prepare('DELETE FROM import_batch_requests WHERE shop_code = ? AND batch_id = ?').bind(code, batch),
     ])
   } catch (e) {
     console.error('[pastImport] cancel batch failed:', code, batch, e?.message ?? e)

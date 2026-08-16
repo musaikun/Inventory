@@ -28,7 +28,11 @@ import { parseQty, text, chunk } from './validate.js'
  * なので、セッションが無い／他店舗のものなら 0 行しか作らない。batch は途中で
  * 中断できないため、文ごとに閉じておく必要がある。
  *
- * @returns {{ statements?: object[], itemCount?: number, totalValue?: number|null, error?: object }}
+ * `rows` も返す。完了APIが表示用 snapshot を **検証済みのこの行から** 組み立てるため
+ * （DATA-002 §1）。client が送った snapshot をそのまま保存すると、明細と食い違う
+ * itemCount / totalValue / items を履歴として残せてしまう。
+ *
+ * @returns {{ statements?: object[], rows?: object[], itemCount?: number, totalValue?: number|null, error?: object }}
  */
 export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inventory, prices }) {
   const rows = []
@@ -98,5 +102,5 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
     `).bind(...binds))
   }
 
-  return { statements, itemCount: rows.length, totalValue: hasPrices ? total : null }
+  return { statements, rows, itemCount: rows.length, totalValue: hasPrices ? total : null }
 }

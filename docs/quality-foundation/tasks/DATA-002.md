@@ -394,3 +394,234 @@ App側を触らない指示のため未修正。**このまま統合するとApp
   公式資料に明記がないため、引き続き厳しい側（1 statement = 1 query）を仮定している。
 - App側2経路の `snapshot_required` 破れ（上記1）。
 - `POST /history` 経由の孤児snapshot（上記2）。
+
+## Worker / D1 / API整合性の修正（2026-08-16 / Claude Code・第1修正セッション）
+
+Codexレビューで指摘された、Workerの完了処理・過去棚卸置換・HTTP status・revision応答・
+migration文書の問題を修正した。`app/src/**` は変更していない（差分ゼロ）。
+状態は `進行中` → `レビュー待ち / Claude Code`。Codex再レビュー前なので `完了` にも `WEB-07` 通過にもしていない。
+
+- 基準commit: `develop@e095282`（ancestor確認済み）／ branch `claude/data-002-worker-d1-api-bogzyq`
+- Cloudflare公式資料の確認日: **2026-08-16**
+  - [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) —
+    bound parameters 100 / statement 100,000 bytes / query 30秒 /
+    queries per invocation Free 50・Paid 1,000 / row 2 MB。
+    「Limits for individual queries apply to each individual statement contained within a batch statement」
+    という記述は今も *individual query* の制限についてのみで、**invocationあたりの本数の数え方には触れていない**。
+    実装は従来どおり厳しい側（1 statement = 1 query）を仮定している。
+  - [D1 batch()](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) —
+    「Batched statements are SQL transactions」「each statement in the list will execute and commit,
+    sequentially, non-concurrently」「An array of D1Result objects … in the array position corresponding to
+    the array position of the initial prepare statement」。**読み戻しSELECTを同じbatchへ入れる根拠**。
+  - [D1 return object](https://developers.cloudflare.com/d1/worker-api/return-object/) —
+    `success` / `meta` / `results`。`meta.changes` は変更行数。
+  - [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/) —
+    公式は `d1_migrations` table方式。本repositoryはsentinel方式なので `scripts/migrate.sh` と実schemaを照合する。
+  - [Workers best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/) —
+    bodyを読む前にサイズ上限を課す、`try...catch` と適切なHTTP statusで返す。
+- `@cloudflare/workers-types`: **インストールされていない**。`worker/package-lock.json` に現れるのは
+  `wrangler@3.114.17` の *optional peerDependency*（`^4.20250408.0`）としてのみで、
+  `worker/node_modules/@cloudflare` は存在しない。本projectは型なしJSのため、採用APIは
+  types定義ではなく上記公式資料と実SQLite testで裏づけている。
+
+### 修正前に失敗を確認したtest
+
+新規3ファイル 42件のうち **25件**が修正前の実装で失敗した（内訳: `sessionContract` 16 / `pastImportIdempotency` 8 /
+`routerStatus` 1）。主な失敗理由:
+
+| test | 修正前の挙動 |
+|---|---|
+| snapshotのcanonical化・不一致拒否 | clientの `itemCount` / `totalValue` / `sessionId` / `items` をそのまま保存していた |
+| `empty_inventory` | inventory 0件でも `snapshotSaved: true` で完了できた |
+| order完了 | `400 snapshot_required` で**完了できなかった**（在庫入力を伴わないため） |
+| completed→active | 409にならず、`status='active'` / `ended_at=NULL` / `item_count` が巻き戻った |
+| replace再送 | 置換対象が削除済みのため `409 replace_not_allowed / not_found` |
+| replace TOCTOU | preflight後にactiveへ戻ったsessionを削除できた |
+| `POST /sessions` 不正type | HTTP **200** で `{_status:400}` が本文に露出 |
+| revision読み戻し | batch外の独立SELECTのため、別要求のrevisionを返しうる／失敗時も成功していた |
+
+### 1. session type別の完了契約（確定）
+
+調査した経路: `sessions.type`（migration 0007）、`handleSessionComplete` → `inventoryLineStatements` →
+`inventory_lines`、`orders` / `order_lines`（`handleOrderCreate`）、`handleSessionsGet` /
+`handleSessionLinesGet`、App の `_finishSession` / `SessionListPage.completedSessions`。
+
+**決め手**: App の完了一覧は `s.status === 'completed' && (s.type ?? 'stock') !== 'order'` で
+**order sessionを除外している**。発注の詳細は `orders` / `order_lines` から読む。
+つまり order に `store_history` を持たせる読み手が現状どこにも無い。
+
+#### stock
+
+| 項目 | 契約 |
+|---|---|
+| 要求 | `{ inventory, prices, takenAt?, snapshot }`。`snapshot` 必須（無ければ `400 snapshot_required`） |
+| canonical化 | `sessionId` / `date` / `type` / `items` / `itemCount` / `totalValue` / `savedAt` は**server が検証済みinventory rowsから決める**。client値は採らない |
+| 不一致 | `qty` を持つ品目の集合が明細行と一致しなければ `400 snapshot_mismatch`（**何も書かない**）。数量・単位・単価・小計は行の値で上書き（正規化）。`qty: null` の未入力品目は表示のため残す |
+| 0件 | `400 empty_inventory`。明細もitemsも無い「完了」は R-001 そのもの |
+| 任意metadata | allowlistのみ。`entryLog` / `auditLog` 各500件、`participants` 50件、`flaggedItems`、`activeMs`、`axisNames`、`locked`。leaf は型と長さで切る。`dirty` / `synced` / `serverRevision` などは捨てる |
+| 応答 | `{ ok, sessionId, type:'stock', itemCount, totalValue, snapshotSaved:true, serverRevision, serverSavedAt }` |
+| `snapshotSaved` | 有効なsnapshotが実際に保存された場合だけ `true` |
+
+#### order
+
+| 論点 | 決定 |
+|---|---|
+| `store_history` | **保存しない**。架空のmarker snapshotも作らない |
+| canonical detail | `orders` / `order_lines`（`POST /store/:code/orders`） |
+| listの `itemCount` | **client値（検証済み・0〜500）**。発注明細は別経路で冪等に書かれるため、完了を `order_lines` の到着に依存させると未送信キューが残っている間だけ完了できなくなる |
+| detail表示 | 従来どおり `orders` から。完了一覧には出さない（App既存の除外を維持） |
+| retry | 単一UPDATEで冪等 |
+| 既存order sessionとの互換性 | 影響なし。`store_history` を持たないのは従来どおりで、schema変更も不要 |
+| 誤送信 | `snapshot` または空でない `inventory` は `400 snapshot_not_allowed` |
+| 応答 | `{ ok, sessionId, type:'order', itemCount, snapshotSaved:false }` |
+
+#### 状態遷移
+
+`PUT /store/:code/sessions/:id` は `completed` から戻さない。単一UPDATE文の
+`WHERE ... AND status <> 'completed'` が判定を持つ（後続SELECTは404と409の区別だけに使い、権限判定には使わない）。
+
+- `completed` → `active` / `incomplete` … `409 session_completed`。明細・snapshot・`ended_at` は保たれる
+- `completed` → `completed` … 冪等に200
+- 不在・他店舗 … 404（存在を漏らさない）
+
+### Appへの引継ぎ（このセッションではApp を編集していない）
+
+`app/src` は担当外のため未修正。**次のAppセッションで必ず対応が必要**な3点。
+
+1. **`App.vue:859` `setSessionEndedCallback`** — `completeSessionD1(count, { inventory, prices })` を
+   snapshot なしで呼んでいる。stock では `400 snapshot_required` になる。
+   ホスト自身の完了は `_finishSession` が snapshot 付きで送るため、この経路は
+   **snapshot を載せる**か、ホスト自身の場合は呼ばない形にする。
+2. **`App.vue:1381` `onGoHome` の完了済み経路** — 同上。snapshot なしで `completeSessionD1` を呼んでいる。
+3. **order モードの完了** — `_finishSession` は order でも
+   `{ inventory, prices, snapshot }` を送る。`buildSnapshot` は `inventory` が空だと `null` を返すため、
+   発注のみのセッションは `snapshot: null` → `400 snapshot_required` になる。
+   `sessionMode === 'order'` では `{ itemCount }` だけを送る形へ分岐する。
+
+送るべきpayload例:
+
+```js
+// stock（従来どおり。snapshot.items は inventory の全行を含むこと）
+await completeSessionD1(count, {
+  inventory: { ...inventory },
+  prices: config.prices ?? {},
+  takenAt: '2026-08-16',
+  snapshot,                       // buildSnapshot(...) の戻り値
+})
+// → { ok, sessionId, type:'stock', itemCount, totalValue, snapshotSaved:true, serverRevision, serverSavedAt }
+
+// order
+await completeSessionD1(count, { itemCount: Object.keys(orderDraft.value).length })
+// → { ok, sessionId, type:'order', itemCount, snapshotSaved:false }
+```
+
+`useSession.complete()` の「`payload.snapshot` があるのに `snapshotSaved !== true` なら失敗扱い」は
+そのままで正しい（order では `payload.snapshot` が無いので判定に入らない）。
+`useAuth.completeSession()` は `{ inventory, prices, takenAt, snapshot }` を固定で送るため、
+**order 用に `{ itemCount }` を送れる引数追加が必要**。
+
+`touch()` / `markActive()` の遅延送信は完了後に `409 session_completed` を受けるが、
+どちらも `.catch(() => {})` しているため表示への影響はない（＝意図どおり無視される）。
+
+### 2. 過去棚卸replaceのidempotency（migration 0015・未適用）
+
+**新規migration `0015_import_replay.sql`**。既存migrationは書き換えていない。適用も行っていない。
+
+- 台帳 `import_batch_requests`。PRIMARY KEY は `(shop_code, batch_id, import_date)`。
+  `fingerprint` は「日付・検証済み明細・上書き対象集合（順序非依存）」の SHA-256。
+- 台帳があり指紋一致 → 前回と同じ成功をそのまま返す（`replay: true`）。
+  **置換対象が既に削除済みでも 409 にしない。**
+- 台帳があり指紋相違 → `409 import_intent_conflict`。既存の取込を黙って書き換えない。
+- 台帳の INSERT は取込本体と**同じ batch**。並行した同一要求は PRIMARY KEY 違反で片方が
+  batch ごと巻き戻り、台帳を読み直して同じ成功へ収束する。
+- 「既存batchを見つけたら検証を省略する」ではない。payload検証は従来どおり全て通り、
+  **指紋が要求全体の同一性を保証**している。
+- 同じ `batchId` の**別日付**は設計上の別要求単位（1リクエスト=1日）なので通る。
+- 取消（`DELETE /imports/:batchId`）は台帳行も同じ batch で消す。
+  消さないと、取り消したバッチの再取込が「replay」と判定されて何も書かなくなる。
+- 台帳を持たない旧データ（0015適用前の取込）は従来どおり upsert で貼り直す（後方互換）。
+
+### 3. replace authorizationのTOCTOU
+
+- preflight SELECT は**理由つき409を返すためだけ**に残し、削除権限の根拠から外した。
+- 唯一の許可条件を SQL の真偽式にした:
+  「指定IDのうち 同店舗・同日・`completed`・`stock` を満たすものが**ちょうどN件**」。
+- これを session作成・台帳INSERT・削除3文の**すべての WHERE へ埋めた**。
+  明細DELETE / 明細INSERT / snapshot は「1)が実際に走ったか」を `sessions.ended_at`（この要求の時刻）で
+  参照して従属させている。
+- **batch内の順序が契約の一部**: guard は対象件数を数えるため、対象を先に DELETE すると
+  guard 自身が false になる。guard を評価する文をすべて DELETE より前に置いている。
+- 結果は二択のみ。guard成立＝全部適用／guard不成立＝**全文0行**（`409 replace_not_allowed` /
+  `reason: target_changed`）。「条件つきDELETEをcommitしてから `changes` を見る」方式は採っていない。
+- 取込先自身を上書き対象に指定した場合は `409 replace_not_allowed / self_replace`
+  （作ったsessionを同じbatchのDELETEが消して明細だけ宙に浮くため）。
+- **`MAX_REPLACE_SESSIONS` を 50 → 40 へ変更**。guard がID一覧をもう一度参照するので
+  1文あたり `2N + 4 ≦ 100`（bound parameter上限）→ N ≦ 48。余白を見て40。
+  超過は書き込み前に `400 invalid_replace`。
+
+### 4. HTTP status伝播
+
+`POST /store/:code/sessions` を `jsonResponse(..., 200, ...)` から `resultResponse` へ変更した。
+`resultResponse` が `_status` を本文から削除する。他の `jsonResponse(await handler(...), 200, ...)`
+call site（config/inventory/history GET、room PUT、orders/movements GET、store create、sessions GET）は
+`_status` を返しうる handler ではないことを確認済み。
+
+### 5. revision acknowledgement
+
+- `readHistoryStamp()`（batch後の独立SELECT）を廃止し、`historyStampStatement()` / `readStampResult()` へ置換。
+  読み戻しSELECTを**書き込みと同じ `db.batch()`** の最後に入れる。
+- 対象call site: `handleSessionComplete`、`handlePastImportCreate`、`handleHistoryPost`（3か所すべて修正）。
+- `RETURNING` は使っていない。D1公式資料に明記が無いため、明記のある
+  「batch = 1トランザクション・statement順に実行・位置対応のD1Result」だけに依存した。
+- 読み戻せない場合は `serverRevision: null` で成功させず、`503`（`retryable: true`）を返す。
+  batchが落ちれば読み戻しごと巻き戻る。
+- 回帰テスト: `h.onNextBatch()` で**旧standalone SELECTの位置に競合writeを注入**し、
+  応答の `serverRevision` が自分の行の値（42）と一致することを確認している。
+
+### 6. migration 0014 / 0015 の文書反映
+
+`scripts/migrate.sh` は 0014 を列挙済みだったが、リリース手順側から欠落していた。
+
+| 文書 | 修正 |
+|---|---|
+| `web-release-readiness.md` | `WEB-04` の対象を 0010〜0015 へ。`migrate.sh` の列挙範囲を0001〜0015へ。公開手順3にsentinel一覧とTime Travel確認、手順4に適用順・rollback可否表・後方互換を追記 |
+| `api-design.md` | 完了API §3.1 を stock / order 別の契約へ書き直し、状態遷移を追記。`sessions` / `imports` / `history` の contract表、未適用migration一覧、取込spec（原子guard・台帳・上限40）を更新 |
+| `project-status.md` | 0014 / 0015 を未適用として追記 |
+| `task-list.md` | 「migration 0012・0013とも本番未適用」→「0012〜0015はいずれも本番未適用」 |
+
+`scripts/migrate.sh` へ `apply_if_missing 0015_import_replay.sql import_batch_requests` を追加した
+（列挙testが全migration fileとの一致を検査する）。dated audit・履歴snapshot・`docs/export/` は編集していない。
+
+### 付随修正
+
+- `accountDeletion.js` の削除対象へ `import_batch_requests` を追加（店舗の業務データのため・PLAY-001の削除範囲）。
+- `test/d1Harness.js`: batch内のSELECTが `results` を返すようにした（D1のbatch戻り値の再現）。
+  `seedSession()` / `seedToken()` を追加。
+
+### 実行したcommandと結果
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker ci` / `npm --prefix app ci` | 成功（`node_modules` が未インストールだったため実施） |
+| `npx vitest run test/sessionContract.sqlite.test.js test/routerStatus.sqlite.test.js test/pastImportIdempotency.sqlite.test.js`（**修正前**） | **25 failed / 17 passed（42）** |
+| 同（修正後） | 42 passed（3 files） |
+| `npm --prefix worker test` | **24 files / 481 tests passed** |
+| `npm --prefix app test -- --run` | **87 files / 875 tests passed** |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | **出力なし（App差分ゼロ）** |
+
+### 未実施・残risk
+
+- **migration は local / remote とも適用していない**（0012〜0015すべて未適用）。
+- 実D1での動作・statement数・実行時間の計測は未実施。`batch` 内statementが
+  invocationあたりのquery数へどう数えられるかは公式資料に明記が無いため、
+  引き続き厳しい側（1 statement = 1 query）を仮定している。
+- 実browser / 実機での確認は未実施。
+- **App側3経路（上記「Appへの引継ぎ」）は未修正**。このWorker差分だけを統合すると、
+  `session_ended` 経由の完了・完了済みセッションからのホーム遷移・発注セッションの完了が
+  400 になる。App セッションとセットで統合すること。
+- `POST /history`（soft auth・legacy店舗用）は従来どおりセッション行の存在を確認しない。
+  この経路からは孤児snapshotを作れる（F-004の残り）。Phase 3の課題として据え置き。
+- `_snapshotMeta` は `auditLog` / `entryLog` を500件で切る。500件を超える変更履歴を持つ
+  棚卸では、古い側が履歴snapshotから落ちる（明細そのものは `inventory_lines` に全件残る）。

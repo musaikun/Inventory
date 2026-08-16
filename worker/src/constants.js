@@ -94,9 +94,25 @@ export const MAX_LINES_PER_REQUEST = 500
 
 // 過去棚卸取込で1リクエストに指定できる「上書き対象セッション」の上限。
 // 削除は3文（inventory_lines / store_history / sessions）へ IN 句で集約するので、
-// 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる:
-//   IN 句 50個 + shop_code 1個 + 日付など数個 ≦ D1_MAX_BOUND_PARAMS(100)
-export const MAX_REPLACE_SESSIONS = 50
+// 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる。
+//
+// 2026-08-16: 削除の権限判定を preflight SELECT から**文中の原子 guard**へ移した
+// （DATA-002 §3 / TOCTOU）。guard は同じ ID 一覧をもう一度 IN 句で参照するため、
+// 1文あたりの bound parameter は概ね次のとおり:
+//   DELETE ... WHERE shop_code=?(1) AND session_id IN (N) AND <guard: shop_code(1) + IN(N) + date(1) + count(1)>
+//   = 2N + 4 ≦ D1_MAX_BOUND_PARAMS(100)  →  N ≦ 48
+// 余白を残して 40 とする（実運用では1日に共存する棚卸は1〜2件）。
+// 超過は書き込み前に 400 invalid_replace で拒否する。
+export const MAX_REPLACE_SESSIONS = 40
+
+// ── 完了 snapshot の metadata 上限（DATA-002 §1）──────────────────────────────
+// snapshot の主要項目（items / itemCount / totalValue / date / sessionId / type）は
+// server が検証済み inventory rows から canonical 化する。それ以外の任意 metadata は
+// allowlist した鍵だけを、下の件数上限まで受け付ける。
+// MAX_PAYLOAD_BYTES だけでは「短い要素を大量に並べる」形を止められないため件数でも縛る。
+export const MAX_SNAPSHOT_ITEMS        = 2_000   // 未入力ぶんを含む表示用 items
+export const MAX_SNAPSHOT_LOG_ENTRIES  = 500     // entryLog / auditLog
+export const MAX_SNAPSHOT_PARTICIPANTS = 50      // 参加者別集計（MAX_PARTICIPANTS 20 の余裕分）
 
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）

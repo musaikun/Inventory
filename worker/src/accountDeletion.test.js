@@ -28,6 +28,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
     order_lines: [],
     movements: [],
     movement_lines: [],
+    import_batch_requests: [],   // 過去棚卸取込の要求台帳（migration 0015）
     account_deletion_receipts: [],
   }
   let shouldFailBatch = failBatchOnce

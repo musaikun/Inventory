@@ -313,7 +313,11 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
-          return jsonResponse(await handleSessionCreate(env.DB, code, body), 200, origin, allowedOrigin)
+          // resultResponse を通す。jsonResponse(…, 200) だと handler の
+          // `{ _status: 400, code:'invalid_type' }` が HTTP 200 で届き、client は
+          // 作成できていないセッションを作成済みとして扱う（DATA-002 §4）。
+          // `_status` は resultResponse が本文から取り除く。
+          return resultResponse(await handleSessionCreate(env.DB, code, body), origin, allowedOrigin)
         }
 
         // PUT/DELETE /store/:code/sessions/:id （要認証）

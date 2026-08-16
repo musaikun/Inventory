@@ -2,6 +2,64 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-16 — DATA-002 第1修正セッション: Worker / D1 / API整合性
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、開始HEAD `e095282`（clean・ancestor確認済み）。
+- 範囲は `worker/**` と現行API/DB/リリース手順文書のみ。**`app/src` は差分ゼロ**（`git diff --name-only -- app/src` が空）。
+- 状態は `進行中` → `レビュー待ち / Claude Code`。`完了` / `WEB-07` 通過にはしていない。
+- commit / push / deploy / migration適用は**していない**。
+
+### 直したこと
+
+詳細と証拠は [`tasks/DATA-002.md`](tasks/DATA-002.md)（2026-08-16 節）。要点だけ:
+
+1. **stock / order で完了契約を分けた。** 種別を見ずに snapshot 必須にしていたため、
+   在庫入力を伴わない発注セッションは `400 snapshot_required` で**完了できなかった**。
+   order は `store_history` を書かず、正本は `orders` / `order_lines`（App の完了一覧も order を除外している）。
+2. **stock の snapshot を server 側で canonical 化。** `sessionId` / `date` / `type` / `items` /
+   `itemCount` / `totalValue` は client 値を採らない。明細と items が食い違えば `400 snapshot_mismatch` で
+   何も書かない。inventory 0件は `400 empty_inventory`。任意 metadata は allowlist + 件数・長さ制限。
+3. **completed からの巻き戻しを禁止。** 完了応答を取りこぼした端末の遅れた `touch()` が
+   `status='active'` / `ended_at=NULL` へ戻していた。`409 session_completed`。
+4. **過去棚卸 replace の応答喪失からの復帰。** 要求台帳（**migration 0015・未適用**）に
+   「日付・明細・上書き対象集合」の SHA-256 指紋を残し、まったく同じ再送は置換対象が削除済みでも
+   同じ成功を返す。内容が違えば `409 import_intent_conflict`。
+5. **replace 権限の TOCTOU を閉じた。** preflight SELECT を削除権限の根拠から外し、
+   「同店舗・同日・completed・stock がちょうどN件」を全 delete/insert 文の WHERE へ埋めた。
+   1件でも外れたら全文0行。`MAX_REPLACE_SESSIONS` は bound parameter 上限から 50 → **40**。
+6. **`POST /sessions` の不正 type が HTTP 400 で返るようにした**（router が 200 で包み直していた）。
+7. **revision 応答を自分の write と一致させた。** 読み戻し SELECT を書き込みと同じ `db.batch` へ入れ、
+   読み戻せない場合は成功にせず 503。
+8. **migration 0014 / 0015 をリリース手順へ反映**（`web-release-readiness.md` / `api-design.md` /
+   `project-status.md` / `task-list.md`）。適用順・sentinel・rollback可否・後方互換を明記。
+
+### 修正前に失敗を確認したtest
+
+新規3ファイル（`test/sessionContract.sqlite.test.js` / `test/routerStatus.sqlite.test.js` /
+`test/pastImportIdempotency.sqlite.test.js`）42件のうち、**25件が修正前の実装で失敗**した。
+修正後は42件すべて成功。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 24 files / 481 tests passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+### 次の再開地点
+
+**App セッションで3経路の追随が必要**（このWorker差分だけを統合すると壊れる）。
+
+1. `App.vue:859` `setSessionEndedCallback` — snapshot なしで `completeSessionD1` を呼んでいる
+2. `App.vue:1381` `onGoHome` の完了済み経路 — 同上
+3. order モードの完了 — `{ itemCount }` を送る形へ分岐が必要（`useAuth.completeSession()` に引数追加）
+
+必要な payload 例は [`tasks/DATA-002.md`](tasks/DATA-002.md) の「Appへの引継ぎ」に記録済み。
+その後 Codex が全差分を独立レビューする。`SEC-005` は `未着手 / Codex` のまま（触れていない）。
+
 ## 2026-08-10 — CCレビュー修正 第3セッション: 取込のデータ品質と最終統合（IMPORT-001）
 
 - 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション。

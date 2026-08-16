@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-10
+最終更新: 2026-08-16
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -28,7 +28,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装 | [DATA-002.md](tasks/DATA-002.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約とreplaceの原子guardまで修正（**App側3経路の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
@@ -107,12 +107,21 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-16: DATA-002 の第1修正セッション（Worker / D1 / API整合性）を実装し、
+  `レビュー待ち / Claude Code` へ戻した。stock/orderで完了契約を分離（orderは`store_history`を書かず
+  正本は`orders`/`order_lines`）、stock snapshotをserver側でcanonical化、completed→activeの巻き戻しを409で禁止、
+  過去棚卸replaceを要求台帳（**migration 0015 追加・未適用**）で応答喪失から復帰可能にし、
+  replace権限を文中の原子guardへ移した。`POST /sessions`の不正typeがHTTP 400で返るようにし、
+  revision応答を書込みと同じ`db.batch`で確定させた。migration 0014 / 0015 をリリース手順へ反映。
+  `app/src`は差分ゼロ。**App側3経路（`session_ended`・完了済みからのホーム遷移・order完了）の追随が必要**で、
+  必要な payload は [`DATA-002.md`](tasks/DATA-002.md) に記録した。
+  `DATA-001` / `IMPORT-001` / `WEB-001` / `SEC-005` の状態・担当は変更していない。
 - 2026-08-10: CCレビュー修正 第1〜第3セッションを実装し、`DATA-001` / `DATA-002` / `IMPORT-001` を
   **レビュー待ち / Claude Code** へ。第1=完了失敗時の状態保持とpending latest-wins、
   第2=sessionId中心の履歴identityと棚卸完了のserver原子性（migration 0012）、
   第3=品目取込のCSV厳格化・alias衝突の非破壊化・preview欠落項目の追加と、
   過去棚卸取込のsessionIdモデル接続（取込前preview・server保存確認・`importBatchId`単位の取消／
-  migration 0013）。**migration 0012・0013とも本番未適用**。実D1と実browserは未確認。
+  migration 0013）。**migration 0012〜0015はいずれも本番未適用**。実D1と実browserは未確認。
   Codex承認前に`完了`・`WEB-07`通過・release可としない。
   旧 `UI-002` は実体fileを持たず`UI-001.md`へ誤リンクしていたため`UI-001`へ統合し、統合先を記録した。
   詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md) / [`DATA-001.md`](tasks/DATA-001.md) /

@@ -5,7 +5,9 @@ import { _now, genUniqueShopCode } from './workerUtils.js'
 import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
-  MAX_ORDER_QTY, MAX_MOVEMENT_QTY,
+  MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
+  MAX_ID_LEN, MAX_DEVICE_NAME_LEN,
+  MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
 import {
@@ -143,36 +145,58 @@ export function historySnapshotStatement(db, code, snapshot, now) {
  * （本番D1で両方向の孤児を確認済み・DATA-002 / F-004）。
  * batch は途中で中断できないので、文ごとに存在条件を閉じておく必要がある。
  */
-export function sessionSnapshotStatement(db, code, sessionId, snapshot, now) {
+export function sessionSnapshotStatement(db, code, sessionId, snapshot, now, { endedAt = null } = {}) {
   const date = snapshot?.date || now.slice(0, 10)
   const json = JSON.stringify({ ...snapshot, sessionId, date })
+  // endedAt を渡すと「そのセッション行が **この要求で** 書かれた場合だけ」という
+  // 条件が加わる（過去取込の原子 guard 用・DATA-002 §3）。同じ batch の先頭で
+  // ended_at をこの要求の時刻に更新しておき、その更新が起きなかった場合に
+  // snapshot だけが書かれるのを防ぐ。
+  const markerSql   = endedAt ? ' AND s.ended_at = ?' : ''
+  const markerBinds = endedAt ? [endedAt] : []
   return db.prepare(`
     INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at, updated_at, revision)
     SELECT s.shop_code, s.id, ?, ?, ?, ?, ${_NEXT_REVISION}
     FROM sessions s
-    WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL
+    WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL${markerSql}
     ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
       SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
           updated_at = excluded.updated_at, revision = excluded.revision
-  `).bind(date, json, now, now, code, sessionId, code)
+  `).bind(date, json, now, now, code, sessionId, code, ...markerBinds)
 }
 
-/** 保存後の server 側 revision / 保存時刻を読み戻す。読めなくても保存自体は成立している。 */
-export async function readHistoryStamp(db, code, { sessionId = null, date = null } = {}) {
-  try {
-    const row = sessionId
-      ? await db.prepare(
-          'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND session_id = ?'
-        ).bind(code, sessionId).first()
-      : await db.prepare(
-          'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
-        ).bind(code, date).first()
-    if (!row) return { serverRevision: null, serverSavedAt: null }
-    return { serverRevision: row.revision ?? 0, serverSavedAt: row.updated_at ?? row.created_at ?? null }
-  } catch (e) {
-    console.error('[storeHandler] history stamp read failed:', code, e?.message ?? e)
-    return { serverRevision: null, serverSavedAt: null }
-  }
+/**
+ * 保存した行の revision / 保存時刻を読み戻す **文** を返す（実行しない）。
+ *
+ * この SELECT は必ず **書き込みと同じ `db.batch()`** に載せる（DATA-002 §5）。
+ * 以前は batch の後に独立した SELECT を撃っていたため、その隙間に別リクエストが
+ * 同じ店舗の履歴を保存すると、**別要求が確定させた revision を自分の応答として返して**
+ * いた。client はそれを「自分の版はサーバーに載った」と解釈し、実際には載っていない
+ * 版を未送信キューから捨てる。
+ *
+ * D1 の batch は1トランザクションで、statement は順に実行・commit される
+ * （2026-08-16 に公式資料で確認）。同じ batch の後方に置いた SELECT は、
+ * 直前の自分の write を必ず見る。batch が落ちれば読み戻しごと巻き戻る。
+ */
+export function historyStampStatement(db, code, { sessionId = null, date = null } = {}) {
+  return sessionId
+    ? db.prepare(
+        'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND session_id = ?'
+      ).bind(code, sessionId)
+    : db.prepare(
+        'SELECT revision, updated_at, created_at FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
+      ).bind(code, date)
+}
+
+/**
+ * `historyStampStatement` の結果（D1Result）から revision / 保存時刻を取り出す。
+ * 行が無い＝書き込みが成立していないので、`serverRevision: null` で成功させず
+ * 呼び出し側が retryable なエラーへ倒す。
+ */
+export function readStampResult(result) {
+  const row = result?.results?.[0]
+  if (!row) return null
+  return { serverRevision: row.revision ?? 0, serverSavedAt: row.updated_at ?? row.created_at ?? null }
 }
 
 // POST /store/:code/history
@@ -189,8 +213,24 @@ export async function handleHistoryPost(db, code, body) {
   const sessionId = parseClientId(body?.sessionId)
   if (sessionId === undefined) return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
 
-  await historySnapshotStatement(db, code, body, now).run()
-  const stamp = await readHistoryStamp(db, code, { sessionId, date })
+  // 保存と revision の読み戻しを同じ batch（=1トランザクション）へ入れる（§5）。
+  let results
+  try {
+    results = await db.batch([
+      historySnapshotStatement(db, code, body, now),
+      historyStampStatement(db, code, { sessionId, date }),
+    ])
+  } catch (e) {
+    console.error('[storeHandler] history save batch failed:', code, e?.message ?? e)
+    return { _status: 503, code: 'history_save_failed', retryable: true, error: '保存できませんでした' }
+  }
+
+  const stamp = readStampResult(results?.[1])
+  if (!stamp) {
+    // 書けていれば必ず読める。読めない＝保存が成立していないので成功にしない。
+    console.error('[storeHandler] history revision missing after write:', code, sessionId ?? date)
+    return { _status: 503, code: 'history_save_failed', retryable: true, error: '保存を確認できませんでした' }
+  }
   return { ok: true, sessionId, date, ...stamp }
 }
 
@@ -402,6 +442,16 @@ export async function handleSessionLinesGet(db, code, sessionId) {
 }
 
 // PUT /store/:code/sessions/:id  body: { status, itemCount? }
+//
+// **completed からは戻さない**（DATA-002 §1 / 状態遷移）。
+// 完了要求の応答を取りこぼした端末は、保留していた `touch()`（active の遅延保存）を
+// そのまま送ってくる。旧実装はそれを無条件に適用し、`status='active'`、`ended_at=NULL`、
+// `item_count=<入力途中の件数>` で完了済みセッションを上書きしていた。
+// `inventory_lines` と `store_history` は残るのに一覧だけが「進行中」へ戻るため、
+// 完了済みの詳細に到達できなくなる（R-001 と同じ見え方）。
+//
+// 判定は UPDATE 文の WHERE 自身が持つ（単一文＝原子的）。後続の SELECT は
+// 404 と 409 を区別してメッセージを出すためだけに使い、権限判定には使わない。
 export async function handleSessionUpdate(db, code, sessionId, body) {
   const status = parseEnum(body?.status, ['active', 'completed', 'incomplete'])
   if (!status) return { _status: 400, code: 'invalid_status', error: '無効なステータスです' }
@@ -414,10 +464,23 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
   const now     = _now()
   const endedAt = status === 'active' ? null : now
 
-  await db.prepare(`
-    UPDATE sessions SET status = ?, ended_at = ?, item_count = ? WHERE id = ? AND shop_code = ?
+  const res = await db.prepare(`
+    UPDATE sessions SET status = ?, ended_at = ?, item_count = ?
+    WHERE id = ? AND shop_code = ? AND status <> 'completed'
   `).bind(status, endedAt, itemCount, sessionId, code).run()
-  return { ok: true }
+
+  if (res?.meta?.changes === 1) return { ok: true }
+
+  const row = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?')
+    .bind(sessionId, code).first()
+  // 他店舗のIDと存在しないIDは同じ404（IDの存在有無を漏らさない）。
+  if (!row) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+  // completed → completed の再送は冪等に成功させる（同じ確定状態への再送）。
+  if (status === 'completed') return { ok: true }
+  return {
+    _status: 409, code: 'session_completed', retryable: false,
+    error: '完了済みの棚卸は進行中に戻せません',
+  }
 }
 
 // ── 発注 API ───────────────────────────────────────────────────────────────────
@@ -746,17 +809,198 @@ export async function handleMovementDelete(db, code, id) {
   return { ok: true }
 }
 
+// ── 完了 snapshot の canonical 化（DATA-002 §1）────────────────────────────────
+
+/**
+ * client の snapshot から、保存してよい任意 metadata だけを取り出す。
+ *
+ * 主要項目（items / itemCount / totalValue / date / sessionId / type）はここでは扱わない。
+ * それらは検証済みの inventory rows から server が組み立てる。
+ * ここに無い鍵（`dirty` / `synced` / `serverRevision` など client 内部の状態や、
+ * 未知の任意データ）は捨てる。件数と文字列長も上限で切る。
+ */
+function _snapshotMeta(snapshot) {
+  const log = entries => (Array.isArray(entries) ? entries : [])
+    .slice(0, MAX_SNAPSHOT_LOG_ENTRIES)
+    .filter(e => e != null && typeof e === 'object' && !Array.isArray(e))
+    .map(e => ({
+      id:         text(e.id, MAX_ID_LEN),
+      ingredient: text(e.ingredient, MAX_INGREDIENT_LEN),
+      action:     text(e.action, 32),
+      delta:      parseOptionalNumber(e.delta, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
+      totalQty:   parseOptionalNumber(e.totalQty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
+      unit:       text(e.unit, MAX_UNIT_LEN),
+      enteredBy:  text(e.enteredBy, MAX_DEVICE_NAME_LEN),
+      timestamp:  text(e.timestamp, 40),
+    }))
+
+  const participants = Array.isArray(snapshot.participants)
+    ? snapshot.participants
+        .slice(0, MAX_SNAPSHOT_PARTICIPANTS)
+        .filter(p => p != null && typeof p === 'object' && !Array.isArray(p))
+        .map(p => ({
+          name:  text(p.name, MAX_DEVICE_NAME_LEN),
+          items: (Array.isArray(p.items) ? p.items : [])
+            .slice(0, MAX_SNAPSHOT_ITEMS)
+            .filter(it => it != null && typeof it === 'object')
+            .map(it => ({
+              item: text(it.item, MAX_INGREDIENT_LEN),
+              qty:  parseOptionalNumber(it.qty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
+              unit: text(it.unit, MAX_UNIT_LEN),
+            })),
+          totalValue: parseOptionalNumber(p.totalValue, { min: -MAX_UNIT_PRICE * MAX_INVENTORY_QTY, max: MAX_UNIT_PRICE * MAX_INVENTORY_QTY }) ?? null,
+        }))
+    : null
+
+  return {
+    entryLog:     log(snapshot.entryLog),
+    auditLog:     log(snapshot.auditLog),
+    participants,
+    flaggedItems: (Array.isArray(snapshot.flaggedItems) ? snapshot.flaggedItems : [])
+      .slice(0, MAX_SNAPSHOT_ITEMS)
+      .map(v => text(v, MAX_INGREDIENT_LEN))
+      .filter(Boolean),
+    activeMs:  parseOptionalNumber(snapshot.activeMs, { min: 0, max: 366 * 86400_000 }) ?? null,
+    axisNames: (Array.isArray(snapshot.axisNames) ? snapshot.axisNames : ['', ''])
+      .slice(0, 2).map(v => text(v, MAX_SUPPLIER_LEN)),
+    locked: snapshot.locked === true,
+  }
+}
+
+/**
+ * 検証済み inventory rows と client snapshot を突き合わせて canonical snapshot を作る。
+ *
+ * client の snapshot をそのまま保存すると、items が空・件数や合計が実際と違う・
+ * 別セッションの sessionId を名乗る履歴を作れてしまう（＝R-001 と同じ「一覧に出るのに
+ * 詳細が合わない」状態を、API から新しく作れる）。
+ *
+ * - 数量・単位・単価・小計は **rows で上書き**する（正規化）。
+ * - `qty` を持つ品目の集合が rows と一致しない場合は保存せず 400 で拒否する。
+ *   多い＝サーバーに明細が無いものを「入力済み」と主張している。
+ *   少ない＝明細にあるものが履歴から欠ける。どちらも表示が実データと食い違う。
+ * - 未入力（`qty: null`）の品目は表示のためにそのまま残す（棚卸で数えなかった品目）。
+ *
+ * @returns {{ snapshot?: object, error?: object }}
+ */
+function _canonicalStockSnapshot({ sessionId, date, rows, totalValue, snapshot, now }) {
+  const rowByItem = new Map(rows.map(r => [r.item, r]))
+  const rawItems  = Array.isArray(snapshot.items) ? snapshot.items : []
+  if (rawItems.length > MAX_SNAPSHOT_ITEMS) {
+    return { error: { _status: 413, code: 'snapshot_too_large', error: 'スナップショットの品目数が多すぎます' } }
+  }
+
+  const items   = []
+  const matched = new Set()
+  const seen    = new Set()
+
+  for (const raw of rawItems) {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { error: { _status: 400, code: 'invalid_snapshot', error: 'スナップショットの明細が不正です' } }
+    }
+    const item = text(raw.item, MAX_INGREDIENT_LEN)
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+
+    const row = rowByItem.get(item)
+    if (!row) {
+      // 明細に無い品目が数量を主張している = 改ざんか client 側の不整合。
+      if (raw.qty != null) {
+        return {
+          error: {
+            _status: 400, code: 'snapshot_mismatch', item,
+            error: '棚卸の明細とスナップショットが一致しません',
+          },
+        }
+      }
+      // 未入力の品目はそのまま表示用に残す。
+      items.push({
+        item, qty: null, unit: text(raw.unit, MAX_UNIT_LEN), unitPrice: null, subtotal: null,
+        ..._snapshotItemLabels(raw),
+      })
+      continue
+    }
+
+    matched.add(item)
+    items.push({
+      item,
+      qty:       row.qty,
+      unit:      row.unit ?? '',
+      unitPrice: row.price,
+      subtotal:  row.value,
+      ..._snapshotItemLabels(raw),
+    })
+  }
+
+  if (matched.size !== rows.length) {
+    return {
+      error: {
+        _status: 400, code: 'snapshot_mismatch',
+        error: '棚卸の明細とスナップショットが一致しません',
+      },
+    }
+  }
+
+  return {
+    snapshot: {
+      // ── server が決める主要項目 ──
+      sessionId,
+      date,
+      type:       'stock',
+      savedAt:    now,          // 端末時計ではなくサーバー時刻を正とする
+      items,
+      itemCount:  rows.length,
+      totalValue,
+      // ── allowlist した任意 metadata ──
+      ..._snapshotMeta(snapshot),
+    },
+  }
+}
+
+/** 明細に影響しない表示用ラベル（切り詰めるだけ・保存してよい）。 */
+function _snapshotItemLabels(raw) {
+  return {
+    code:      text(raw.code, MAX_ID_LEN),
+    flagged:   raw.flagged === true,
+    category:  raw.category == null ? null : text(raw.category, MAX_INGREDIENT_LEN),
+    lotSize:   text(raw.lotSize, MAX_UNIT_LEN),
+    prevMonth: text(raw.prevMonth, MAX_UNIT_LEN),
+    tagA:      text(raw.tagA, MAX_SUPPLIER_LEN),
+    tagB:      text(raw.tagB, MAX_SUPPLIER_LEN),
+  }
+}
+
 // POST /store/:code/sessions/:id/complete
-// 棚卸完了の一括処理: inventory_lines 展開 + sessions 更新（archive_key は R2 実装後に追加）
-// 棚卸完了の一括処理。明細（inventory_lines）と完了状態（sessions）を
-// **1つの db.batch = 1トランザクション**で書く（DATA-001）。
 //
-// 以前は insertInventoryLines と UPDATE sessions が独立した2つの write で、
-// 前者だけ失敗すると「セッションは残るが明細が消える」状態になっていた。
-// これは DATA-002 の R-001 として本番で実害が出ている。
+// **セッション種別ごとに完了契約が違う**（DATA-002 §1）。旧実装は種別を見ずに
+// 「snapshot 必須」を全経路へ課しており、発注セッション（在庫入力を伴わない）は
+// 完了できなかった。
 //
-// 冪等性: 同じ完了要求を再送しても最終状態は同じ。明細は貼り直し、
-// 完了状態は同じ値で上書きされる。品目が減った再送でも前回ぶんは残らない。
+// ## stock（棚卸）
+//   要求: `{ inventory, prices, takenAt?, snapshot }`
+//   - `snapshot` は必須。無ければ 400 `snapshot_required`。
+//   - 保存する snapshot は **server が検証済み inventory rows から canonical 化**する。
+//     `sessionId` / `date` / `type` / `items` / `itemCount` / `totalValue` は client 値を採らない。
+//   - 明細と snapshot.items が食い違えば 400 `snapshot_mismatch`（何も書かない）。
+//   - `inventory` が 0 件の完了は 400 `empty_inventory`。
+//     明細も items も無い「完了」は、一覧に出るのに詳細が空という R-001 そのものになる。
+//   - `sessions` / `inventory_lines` / `store_history` を1つの `db.batch` で書く。
+//   - 応答: `{ ok, sessionId, type:'stock', itemCount, totalValue, snapshotSaved:true,
+//              serverRevision, serverSavedAt }`
+//
+// ## order（発注確認）
+//   要求: `{ itemCount }`
+//   - `store_history` を **書かない**。発注の正本は `orders` / `order_lines` で、
+//     App の完了一覧も `type==='order'` を除外している。架空の marker snapshot を
+//     作ると、履歴・カレンダー・分析に発注が棚卸として現れる。
+//   - `snapshot` や `inventory` を送ってきたら 400 `snapshot_not_allowed`。
+//     「発注なのに棚卸の snapshot を作ってしまう」経路を API として塞ぐ。
+//   - 一覧の `itemCount` は client 値（検証済み）。発注明細は `POST /orders` が
+//     別経路・別タイミングで冪等に書くため、完了を order_lines の到着に依存させると
+//     未送信キューが残っている間だけ完了できなくなる。詳細の正本は `orders` 側。
+//   - 応答: `{ ok, sessionId, type:'order', itemCount, snapshotSaved:false }`
+//
+// 冪等性: どちらも同じ要求の再送で最終状態が変わらない。
+// completed になった後の active 更新は `handleSessionUpdate` が 409 で拒否する。
 export async function handleSessionComplete(db, code, sessionId, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
 
@@ -776,10 +1020,15 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   const taken = parseDate(takenAt, today)
   if (taken === null) return { _status: 400, code: 'invalid_date', error: '棚卸日の形式が不正です' }
 
-  // スナップショットは必須（第2セッション §1）。
-  // 明細（inventory_lines）だけ書いて表示用スナップショットが無い状態が、
-  // 「一覧には出るのに詳細が開けない」= R-001 そのもの。完了要求に含めさせ、
-  // sessions / inventory_lines / store_history を同じ batch で必ず揃える。
+  const session = await db.prepare(
+    'SELECT id, type FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
+  ).bind(sessionId, code).first()
+  if (!session) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+
+  const type = session.type === 'order' ? 'order' : 'stock'
+  if (type === 'order') return _completeOrderSession(db, code, sessionId, body, now)
+
+  // ── 以降 stock ──────────────────────────────────────────────────────────────
   if (snapshot == null) {
     return { _status: 400, code: 'snapshot_required', error: '棚卸の明細（スナップショット）がありません' }
   }
@@ -791,15 +1040,21 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     return { _status: 400, code: 'invalid_date', error: 'スナップショットの日付が不正です' }
   }
 
-  const session = await db.prepare(
-    'SELECT id FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
-  ).bind(sessionId, code).first()
-  if (!session) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
-
   const built = inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
   // 数量・単価が業務契約に合わない場合は、何も書かずに 400 を返す（0 へ丸めない・DATA-001）。
   if (built.error) return built.error
-  const { statements, itemCount, totalValue } = built
+  const { statements, rows, itemCount, totalValue } = built
+
+  // 明細が1件も無い完了は成立させない。sessions だけ completed になり、
+  // inventory_lines も items も空の履歴が残る＝詳細が開けない棚卸そのもの。
+  if (itemCount === 0) {
+    return { _status: 400, code: 'empty_inventory', error: '棚卸の明細がありません' }
+  }
+
+  const canonical = _canonicalStockSnapshot({
+    sessionId, date: snapDate, rows, totalValue, snapshot, now,
+  })
+  if (canonical.error) return canonical.error
 
   // UPDATE を batch の先頭に置く。セッションが消えている・他店舗のものになっている場合に
   // ここが 0 行となり、後続の INSERT も存在条件で弾かれて何も書き込まれない。
@@ -810,16 +1065,15 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   `).bind(now, itemCount, totalValue, sessionId, code)
 
   // 表示・分析用スナップショットも同じ batch に載せる（DATA-001 / 第2セッション）。
-  // sessionId は必ずこのセッションのものに揃える（client 指定は信用しない）。
   // 上の SELECT と batch の間にセッションが消えても、sessionSnapshotStatement は
   // sessions を参照する INSERT ... SELECT なので snapshot だけが残ることはない。
-  const snapStatement = sessionSnapshotStatement(
-    db, code, sessionId, { ...snapshot, sessionId, date: snapDate }, now,
-  )
+  const snapStatement = sessionSnapshotStatement(db, code, sessionId, canonical.snapshot, now)
+  // revision の読み戻しも同じ batch。別要求の revision を自分の応答にしない（§5）。
+  const stampStatement = historyStampStatement(db, code, { sessionId })
 
   let results
   try {
-    results = await db.batch([sessionUpdate, ...statements, snapStatement])
+    results = await db.batch([sessionUpdate, ...statements, snapStatement, stampStatement])
   } catch (e) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
@@ -833,6 +1087,53 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
   }
 
-  const stamp = await readHistoryStamp(db, code, { sessionId })
-  return { ok: true, sessionId, itemCount, totalValue, snapshotSaved: true, ...stamp }
+  const stamp = readStampResult(results[results.length - 1])
+  if (!stamp) {
+    console.error('[storeHandler] complete revision missing after write:', code, sessionId)
+    return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を確認できませんでした' }
+  }
+
+  return {
+    ok: true, sessionId, type: 'stock', itemCount, totalValue,
+    snapshotSaved: true, ...stamp,
+  }
+}
+
+/**
+ * 発注セッションの完了。`store_history` も `inventory_lines` も書かない。
+ * 状態と件数だけを確定させる単一 UPDATE（＝原子的）。
+ */
+async function _completeOrderSession(db, code, sessionId, body, now) {
+  const { inventory, snapshot, itemCount: rawCount } = body ?? {}
+  if (snapshot != null) {
+    return {
+      _status: 400, code: 'snapshot_not_allowed',
+      error: '発注セッションに棚卸のスナップショットは保存できません',
+    }
+  }
+  if (inventory != null && typeof inventory === 'object' && Object.keys(inventory).length > 0) {
+    return {
+      _status: 400, code: 'snapshot_not_allowed',
+      error: '発注セッションに棚卸の明細は保存できません',
+    }
+  }
+
+  const itemCount = parseCount(rawCount, MAX_LINES_PER_REQUEST)
+  if (itemCount === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
+
+  let res
+  try {
+    res = await db.prepare(`
+      UPDATE sessions SET status = 'completed', ended_at = ?, item_count = ?
+      WHERE id = ? AND shop_code = ? AND deleted_at IS NULL
+    `).bind(now, itemCount ?? 0, sessionId, code).run()
+  } catch (e) {
+    console.error('[storeHandler] order session complete failed:', code, sessionId, e?.message ?? e)
+    return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を保存できませんでした' }
+  }
+  if (res?.meta?.changes !== 1) {
+    return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+  }
+
+  return { ok: true, sessionId, type: 'order', itemCount: itemCount ?? 0, snapshotSaved: false }
 }
