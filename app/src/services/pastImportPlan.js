@@ -98,6 +98,41 @@ export function unresolvedConflicts(plan) {
 export const OUTCOME_FAILED  = 'failed'   // サーバーが「保存しなかった」と答えた
 export const OUTCOME_UNKNOWN = 'unknown'  // 応答が届かなかった（保存済みかもしれない）
 
+// 再試行しても直らない HTTP status（送り直すだけ無駄で、ユーザーを待たせる）。
+// 400 = payload不正 / 409 = 競合 / 413 = 上限超過。いずれもファイルか計画を直す必要がある。
+const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 409, 413, 422])
+
+/**
+ * 確定要求が投げた例外を「HTTP失敗」と「結果不明」へ分類する。
+ *
+ * `utils/api.js` は**非2xxのときだけ** `status` と `body` を持つ Error を投げる。
+ * つまり status が数値なら、サーバーは要求を受け取って**保存しないと答えた**＝ FAILED。
+ * status が無い例外（`TypeError: Failed to fetch`、接続断、タイムアウト）は応答自体が
+ * 届いていないので、保存済みかどうか端末から判断できない ＝ UNKNOWN。
+ *
+ * ここを分けないと、明確な 400 まで「結果不明」になって画面を閉じられなくなる
+ * （逆に、本当の通信断を「失敗」と言い切ると、サーバーに残ったデータを消せなくなる）。
+ *
+ * @param {*} err
+ * @returns {{ outcome: string, retryable: boolean, error: string }}
+ */
+export function classifyCommitError(err) {
+  const status = err?.status
+  if (!Number.isInteger(status)) {
+    return {
+      outcome:   OUTCOME_UNKNOWN,
+      retryable: true,
+      error:     err?.message ?? '保存の結果を確認できませんでした',
+    }
+  }
+  return {
+    outcome:   OUTCOME_FAILED,
+    // 408 / 429 / 5xx は時間をおけば通る可能性がある。恒久的な4xxは送り直さない。
+    retryable: !PERMANENT_STATUSES.has(status) && (status === 408 || status === 429 || status >= 500),
+    error:     err?.body?.error ?? err?.message ?? `保存できませんでした（HTTP ${status}）`,
+  }
+}
+
 /**
  * 計画をサーバーへ確定する。**1日ずつ、サーバーの応答を確認してから**端末へ反映する。
  *
@@ -137,19 +172,16 @@ export async function commitPastImport(plan, { saveToServer, applyLocal, onlyDat
         snapshot: { date: day.date, source: 'import' },
       })
     } catch (err) {
-      // 例外＝応答が届かなかった。サーバーには入っているかもしれないので「結果不明」。
-      failed.push({
-        date:      day.date,
-        error:     err?.message ?? '保存の結果を確認できませんでした',
-        outcome:   OUTCOME_UNKNOWN,
-        retryable: true,
-      })
+      // HTTP status を持つ例外＝サーバーが答えた「保存しなかった」。
+      // status の無い例外＝応答が届かなかった＝サーバーには入っているかもしれない。
+      failed.push({ date: day.date, ...classifyCommitError(err) })
       continue
     }
 
     // サーバーが sessionId を返して初めて「取り込めた」とみなす。
     if (!res?.ok || !res?.sessionId) {
-      // 明示的な拒否（ok:false + 理由）は失敗。応答の形が想定外なら結果不明として扱う。
+      // 明示的な拒否（ok:false + 理由）は失敗。2xx なのに必須の応答情報（sessionId）が
+      // 欠けている場合は、保存されたかどうか判断できないので結果不明として扱う。
       const explicit = res?.ok === false && !!res?.error
       failed.push({
         date:      day.date,
@@ -202,9 +234,15 @@ export function mergeCommitResults(prev, next) {
   }
 }
 
-/** 再試行の対象日（失敗した日と、結果が分からない日）。成功済みの日は送り直さない。 */
+/**
+ * 再試行の対象日。成功済みの日は送り直さず、**恒久的な失敗（`retryable === false`）も送らない**。
+ * 400 / 409 / 413 を再送しても同じ理由で拒否されるだけで、ユーザーを待たせるだけになる。
+ */
 export function retryableDates(result) {
-  return (result?.failed ?? []).map(f => f.date).filter(d => d && d !== '—')
+  return (result?.failed ?? [])
+    .filter(f => f.retryable !== false)
+    .map(f => f.date)
+    .filter(d => d && d !== '—')
 }
 
 /**

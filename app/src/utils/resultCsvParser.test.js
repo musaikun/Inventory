@@ -175,3 +175,64 @@ describe('数値の解釈 — 品目取込・納品取込と同じ契約', () =>
     })
   })
 })
+
+describe('実在する日付だけを受理する（月日の範囲だけ見ない）', () => {
+  const csv = (...lines) => ['日付,品目名,単位,数量,単価', ...lines].join('\n')
+
+  it('閏年の2月29日は取り込む', () => {
+    const { snapshots, errors } = parseResultSnapshots(csv('2024-02-29,豚バラ,kg,2,500'))
+    expect(errors).toEqual([])
+    expect(snapshots.map(s => s.date)).toEqual(['2024-02-29'])
+  })
+
+  it('平年の2月29日・2月30日・2月31日・4月31日は行エラーにする', () => {
+    for (const bad of ['2025-02-29', '2026-02-30', '2026-02-31', '2026-04-31']) {
+      const { snapshots, errors } = parseResultSnapshots(csv(
+        '2026-05-31,豚バラ,kg,2,500',
+        `${bad},ビール,本,3,200`,
+      ))
+      expect(snapshots.map(s => s.date), bad).toEqual(['2026-05-31'])
+      expect(errors, bad).toHaveLength(1)
+      expect(errors[0], bad).toMatchObject({ line: 3, columnLabel: '日付', value: bad, name: 'ビール' })
+    }
+  })
+
+  it('既存の / . 年月日 表記は引き続き正規化する', () => {
+    const { snapshots, errors } = parseResultSnapshots(csv(
+      '2026/6/1,豚バラ,kg,2,500',
+      '2026.6.2,ビール,本,3,200',
+      '2026年6月3日,ワイン,本,1,900',
+    ))
+    expect(errors).toEqual([])
+    expect(snapshots.map(s => s.date)).toEqual(['2026-06-01', '2026-06-02', '2026-06-03'])
+  })
+})
+
+describe('数量・単価の上限（Worker契約と同じ値）', () => {
+  const csv  = (...lines) => ['日付,品目名,単位,数量,単価', ...lines].join('\n')
+  const rcsv = (...lines) => ['品目名,単位,数量,単価', ...lines].join('\n')
+
+  it('過去棚卸: 上限ちょうどは受理し、上限+1は行エラーにする', () => {
+    const ok = parseResultSnapshots(csv('2026-05-31,豚バラ,kg,1000000,100000000'))
+    expect(ok.errors).toEqual([])
+    expect(ok.snapshots[0].items[0]).toMatchObject({ qty: 1_000_000, unitPrice: 100_000_000 })
+
+    const ng = parseResultSnapshots(csv(
+      '2026-05-31,豚バラ,kg,2,500',
+      '2026-05-31,ビール,本,1000001,200',
+      '2026-05-31,ワイン,本,3,100000001',
+    ))
+    expect(ng.snapshots[0].items).toHaveLength(1)
+    expect(ng.errors[0]).toMatchObject({ line: 3, columnLabel: '数量', value: '1000001', name: 'ビール' })
+    expect(ng.errors[1]).toMatchObject({ line: 4, columnLabel: '単価', value: '100000001', name: 'ワイン' })
+  })
+
+  it('復元（確認画面なし）は上限超過があれば1件も取り込まない', () => {
+    expect(parseResultCSV(rcsv('豚バラ,kg,1000000,100000000'))[0]).toMatchObject({ qty: 1_000_000 })
+
+    let err
+    try { parseResultCSV(rcsv('豚バラ,kg,2,500', 'ビール,本,1000001,200')) } catch (e) { err = e }
+    expect(err.errors).toHaveLength(1)
+    expect(err.errors[0]).toMatchObject({ line: 3, columnLabel: '数量', value: '1000001' })
+  })
+})

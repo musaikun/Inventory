@@ -154,3 +154,49 @@ describe('数値の解釈 — 品目取込・棚卸結果取込と同じ契約',
     expect(rows[0]).toMatchObject({ name: '玉ねぎ', qty: 20, price: 190 })
   })
 })
+
+describe('実在する日付だけを受理する（月日の範囲だけ見ない）', () => {
+  it('normalizeDate は閏年を判定する', () => {
+    expect(normalizeDate('2024-02-29')).toBe('2024-02-29')
+    expect(normalizeDate('2025-02-29')).toBe('')
+    expect(normalizeDate('2026-02-30')).toBe('')
+    expect(normalizeDate('2026-02-31')).toBe('')
+    expect(normalizeDate('2026-04-31')).toBe('')
+  })
+
+  it('既存の / . 年月日 表記は引き続き正規化する', () => {
+    expect(normalizeDate('2024/2/29')).toBe('2024-02-29')
+    expect(normalizeDate('2026.6.1')).toBe('2026-06-01')
+    expect(normalizeDate('2026年6月1日')).toBe('2026-06-01')
+  })
+
+  it('存在しない日は黙ってskipせず、既存形式の行エラーにする', () => {
+    const csv = ['日付,品目名,数量,単価', '2026-02-30,玉ねぎ,20,190'].join('\n')
+    const { rows, errors } = parseDeliveryImportCSV(csv)
+    expect(rows).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ line: 2, columnLabel: '日付', value: '2026-02-30', name: '玉ねぎ' })
+  })
+})
+
+describe('数量・単価の上限（Worker契約と同じ値）', () => {
+  const csv = (...lines) => ['日付,品目名,数量,単価', ...lines].join('\n')
+
+  it('上限ちょうどは受理する', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-06-01,玉ねぎ,1000000,100000000'))
+    expect(errors).toEqual([])
+    expect(rows[0]).toMatchObject({ qty: 1_000_000, price: 100_000_000 })
+  })
+
+  it('数量が上限+1なら行エラーにして取り込まない', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-06-01,玉ねぎ,1000001,190'))
+    expect(rows).toHaveLength(0)
+    expect(errors[0]).toMatchObject({ line: 2, columnLabel: '数量', value: '1000001', name: '玉ねぎ' })
+  })
+
+  it('単価が上限+1なら行エラーにして取り込まない', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv('2026-06-01,玉ねぎ,20,100000001'))
+    expect(rows).toHaveLength(0)
+    expect(errors[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '100000001' })
+  })
+})

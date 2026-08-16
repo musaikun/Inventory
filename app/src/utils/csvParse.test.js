@@ -154,6 +154,59 @@ describe('readNumericCell — 全取込入口で共通のエラー形', () => {
   })
 })
 
+describe('通貨記号は先頭の1個だけ許可する', () => {
+  it('先頭の ¥ / ￥ は受理する（全角の桁区切りを含む）', () => {
+    expect(parseNumericCell('¥1,200')).toEqual({ value: 1200 })
+    expect(parseNumericCell('￥１，２００')).toEqual({ value: 1200 })
+    expect(parseNumericCell('￥120')).toEqual({ value: 120 })
+  })
+
+  it('先頭以外の通貨記号を拒否する（任意位置から削り取らない）', () => {
+    // 修正前は ¥ を全部落としていたので `1¥2` が 12、`100￥` が 100 として通っていた
+    expect(parseNumericCell('1¥2')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('100￥')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('1￥200')).toMatchObject({ invalid: true })
+  })
+
+  it('通貨記号の重複を拒否する', () => {
+    expect(parseNumericCell('¥1¥2')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('￥￥100')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('¥￥100')).toMatchObject({ invalid: true })
+  })
+
+  it('通貨記号だけ・記号のあとが数値でないものを拒否する', () => {
+    expect(parseNumericCell('¥')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('¥abc')).toMatchObject({ invalid: true })
+    expect(parseNumericCell('¥ 100')).toMatchObject({ invalid: true })
+  })
+
+  it('符号との組合せは既存の受理形式のまま広げない', () => {
+    expect(parseNumericCell('¥-100')).toEqual({ value: -100 })   // 記号は先頭の1個
+    expect(parseNumericCell('-¥100')).toMatchObject({ invalid: true })
+  })
+})
+
+describe('readNumericCell — 上限（Worker契約と同じ値）', () => {
+  it('上限ちょうどは受理する', () => {
+    expect(readNumericCell('1000000', { line: 2, max: 1_000_000 })).toEqual({ value: 1_000_000 })
+    expect(readNumericCell('1,000,000', { line: 2, max: 1_000_000 })).toEqual({ value: 1_000_000 })
+  })
+
+  it('上限+1は行番号・列・元の値・理由つきで拒否する', () => {
+    const r = readNumericCell('1000001', { line: 9, column: 4, columnLabel: '数量', max: 1_000_000 })
+    expect(r.error).toMatchObject({ line: 9, column: 4, columnLabel: '数量', value: '1000001' })
+    expect(r.error.reason).toContain('1,000,000')
+  })
+
+  it('max を渡さなければ上限判定をしない（既存の呼び出しを変えない）', () => {
+    expect(readNumericCell('99999999999', { line: 2 })).toEqual({ value: 99999999999 })
+  })
+
+  it('小数の上限超過も拒否する', () => {
+    expect(readNumericCell('1000000.5', { line: 2, max: 1_000_000 }).error).toBeTruthy()
+  })
+})
+
 describe('csvEscapeCell / toCSVRow — 書き出しと読み戻しの往復', () => {
   it('カンマ・改行・引用符を含む値だけを囲み、引用符を倍にする', () => {
     expect(csvEscapeCell('トマト')).toBe('トマト')

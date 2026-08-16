@@ -302,3 +302,44 @@ describe('merge / replace の非破壊性', () => {
     expect(p.order).toEqual(['新規'])
   })
 })
+
+describe('数量・単価の上限（Worker契約と同じ値）', () => {
+  const REORDER_HEAD = '品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,場所,仕入先,発注点'
+
+  it('単価の上限ちょうどは受理する', () => {
+    const p = parseItemCSV(`${HEAD}\nトマト,箱,100000000,野菜,`)
+    expect(p.errors).toEqual([])
+    expect(p.rows[0].price).toBe(100_000_000)
+  })
+
+  it('単価が上限+1なら行番号・列・元の値・理由つきで拒否する', () => {
+    const p = parseItemCSV(`${HEAD}\nトマト,箱,100000001,野菜,\nレタス,玉,120,野菜,`)
+    expect(p.rows.map(r => r.name)).toEqual(['レタス'])
+    expect(p.errors[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '100000001', name: 'トマト' })
+  })
+
+  it('上限超過の行は既存の単価を書き換えない（計画にも反映しない）', () => {
+    const cfg = emptyConfig({ order: ['トマト'], prices: { トマト: 500 } })
+    const p = plan(`${HEAD}\nトマト,箱,100000001,野菜,\nレタス,玉,120,野菜,`, cfg)
+    expect(p.prices['トマト']).toBe(500)
+    expect(p.summary.errors).toHaveLength(1)
+  })
+
+  it('発注点の上限ちょうどは受理し、上限+1は拒否する', () => {
+    const ok = parseItemCSV(`${REORDER_HEAD}\nトマト,箱,120,野菜,,,,,,,,1000000`)
+    expect(ok.errors).toEqual([])
+    expect(ok.rows[0].reorderPoint).toBe(1_000_000)
+
+    const ng = parseItemCSV(`${REORDER_HEAD}\nトマト,箱,120,野菜,,,,,,,,1000001\nレタス,玉,90,野菜,,,,,,,,4`)
+    expect(ng.rows.map(r => r.name)).toEqual(['レタス'])
+    expect(ng.errors[0]).toMatchObject({ line: 2, columnLabel: '発注点', value: '1000001' })
+  })
+
+  it('列指定取込でも同じ上限が効く', () => {
+    const p = () => parseMappedCSV('トマト,箱,100000001', { name: 0, unit: 1, price: 2 }, { hasHeader: false })
+    let thrown
+    try { p() } catch (e) { thrown = e }
+    expect(thrown.code).toBe(IMPORT_ERROR_NO_VALID_ROWS)
+    expect(thrown.errors[0]).toMatchObject({ line: 1, columnLabel: '単価', value: '100000001' })
+  })
+})

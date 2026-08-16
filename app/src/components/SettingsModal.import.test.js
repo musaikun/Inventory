@@ -81,12 +81,26 @@ async function openMapperWith(csvText, filename = 'items.csv') {
 }
 
 describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
+  it('1行目の扱いを選ぶまで実行できない', async () => {
+    await mountSettings()
+    await openMapperWith('トマト,箱,120\nレタス,玉,80')
+
+    expect(radioInput('1行目は見出し').checked).toBe(false)
+    expect(radioInput('1行目からデータ').checked).toBe(false)
+    expect(button('このマッピングでインポート').disabled).toBe(true)
+
+    button('このマッピングでインポート').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    // 確認画面へ進んでいない ＝ 取り込む導線も出ない
+    expect(button('取り込む')).toBeUndefined()
+    expect(cfg.config.order).toEqual([])
+  })
+
   it('「1行目からデータ」を選ぶと1行目の品目が残る', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,120\nレタス,玉,80')
 
-    // マッピング画面が開き、見出しの無いファイルなので「1行目からデータ」が既定
-    expect(radioInput('1行目からデータ').checked).toBe(true)
+    await pick('1行目からデータ')
     await mapField('単位', 1)
     await mapField('単価', 2)
     button('このマッピングでインポート').click()
@@ -102,7 +116,7 @@ describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
     expect(cfg.config.units['トマト']).toBe('箱')
   })
 
-  it('「1行目は見出し」へ切り替えると1行目は列名として扱われる', async () => {
+  it('「1行目は見出し」を選ぶと1行目は列名として扱われる', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,120\nレタス,玉,80')
 
@@ -117,11 +131,28 @@ describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
     expect(cfg.config.order).toEqual(['レタス'])
   })
 
+  it('見出しらしいファイルでも、選ぶまでは推測で確定しない', async () => {
+    await mountSettings()
+    await openMapperWith('品目名,単位,単価\nトマト,箱,120\nレタス,玉,80')
+
+    expect(radioInput('1行目は見出し').checked).toBe(false)
+    expect(button('このマッピングでインポート').disabled).toBe(true)
+
+    // 「1行目からデータ」を選べば、見出しに見える行も品目として取り込む
+    await pick('1行目からデータ')
+    button('このマッピングでインポート').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    button('取り込む').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    expect(cfg.config.order).toEqual(['品目名', 'トマト', 'レタス'])
+  })
+
   it('引用符・カンマ・改行を含むセルが画面を通しても壊れない', async () => {
     await mountSettings()
     await openMapperWith('"5"" 皿",箱,120\r\n"トマト,大玉",ケース,300\r\n')
 
-    expect(radioInput('1行目からデータ').checked).toBe(true)
+    await pick('1行目からデータ')
     await mapField('単価', 2)
     button('このマッピングでインポート').click()
     for (let i = 0; i < 4; i++) await nextTick()

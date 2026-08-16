@@ -21,7 +21,8 @@ import { ref, computed } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import {
   ON_CONFLICT_ADD, ON_CONFLICT_REPLACE,
-  OUTCOME_UNKNOWN, mergeCommitResults, retryableDates, canCancelBatch,
+  OUTCOME_UNKNOWN, classifyCommitError,
+  mergeCommitResults, retryableDates, canCancelBatch,
 } from '../services/pastImportPlan.js'
 
 const props = defineProps({
@@ -40,8 +41,18 @@ const undoing   = ref(false)
 // キャンセル・Escape・オーバーレイクリックが重なっても閉じる処理は1回だけ。
 // 閉じる経路では履歴もサーバーも一切変更しない。
 const closed = ref(false)
+// 結果不明が残っているのに閉じようとしたときの説明（押した理由を画面に残す）
+const closeBlockedNote = ref('')
+
 function requestClose() {
   if (closed.value || importing.value || undoing.value) return
+  // 結果不明が1日でも残っているあいだは閉じない。閉じると batchId と計画が画面から消え、
+  // サーバーに入っているかもしれないデータを再試行も取消もできなくなる。
+  if (hasUnknown.value) {
+    closeBlockedNote.value =
+      '結果不明が残っているため閉じられません。同じ取込IDで再試行するか、この取込を取り消してください。'
+    return
+  }
   closed.value = true
   emit('close')
 }
@@ -70,6 +81,11 @@ const canRetry    = computed(() => retryableDates(result.value).length > 0 && !u
 const undone      = computed(() => result.value?.undone === true)
 const canCancel   = computed(() => !undone.value && canCancelBatch(result.value))
 
+// 「サーバーに入ったかどうか端末から判断できない」日が残っているか。
+// **明確なHTTP失敗（保存されていないと分かっている日）はここに含めない。**
+// 取り消し済みなら、その batchId ぶんはサーバーから消えているので残らない。
+const hasUnknown = computed(() => !undone.value && unknownList.value.length > 0)
+
 const canConfirm = computed(() =>
   !importing.value && totals.value.days > 0
   && (rowErrors.value.length === 0 || errorsAcknowledged.value))
@@ -85,22 +101,20 @@ function setResolution(date, resolution) {
 async function _commit(dates) {
   if (importing.value || undoing.value) return
   importing.value = true
+  closeBlockedNote.value = ''
   try {
     const next = await props.confirmImport(dates)
     // サーバーが確認した結果だけを表示に使い、前回の成功はそのまま残す
     result.value = mergeCommitResults(result.value, next)
     if ((next?.saved?.length ?? 0) > 0) emit('imported', result.value)
   } catch (err) {
-    // confirmImport 自体が投げた＝どの日まで進んだか分からない。結果不明として扱う。
+    // confirmImport 自体が投げた場合も、HTTP status の有無で「保存されなかった」と
+    // 「結果が分からない」を分ける（判定は pastImportPlan と同じ1つの実装）。
+    const outcome = classifyCommitError(err)
     result.value = mergeCommitResults(result.value, {
       importBatchId: batchId.value,
       saved:  [],
-      failed: (dates ?? days.value.map(d => d.date)).map(date => ({
-        date,
-        error:     err?.message ?? '保存の結果を確認できませんでした',
-        outcome:   OUTCOME_UNKNOWN,
-        retryable: true,
-      })),
+      failed: (dates ?? days.value.map(d => d.date)).map(date => ({ date, ...outcome })),
       ok: false,
     })
   } finally {
@@ -124,6 +138,7 @@ async function onUndo() {
   undoing.value = true
   undoMsg.value = ''
   undoFailed.value = false
+  closeBlockedNote.value = ''
   try {
     const r = await props.undoImport(batchId.value)
     undoMsg.value = `この取込（${batchId.value}）のぶんをサーバーから${r.removedOnServer}日分取り消しました。`
@@ -258,10 +273,15 @@ async function onUndo() {
           </div>
         </div>
 
-        <p v-if="unknownList.length" class="warn-inline">
+        <p v-if="hasUnknown" class="warn-inline">
           {{ unknownList.length }}日は応答が届かず、<b>サーバーに保存されている可能性があります</b>。
+          結果が確定するまでこの画面は閉じられません。
           「同じ取込IDで再試行」を押すと、同じ日を送り直しても重複しません。
           取り込みたくない場合は「この取込を取り消す」で消せます。
+        </p>
+
+        <p v-if="closeBlockedNote" class="blocked-note" role="alert" aria-live="assertive">
+          {{ closeBlockedNote }}
         </p>
 
         <p v-if="undoMsg" class="policy-note" :class="{ 'undo-failed': undoFailed }" role="status" aria-live="polite">
@@ -279,7 +299,13 @@ async function onUndo() {
       </p>
 
       <div class="actions">
-        <button class="btn btn-secondary" :disabled="importing || undoing" @click="requestClose">
+        <!-- 結果不明が残っているあいだは閉じる導線を塞ぐ（batchId と計画を画面から失わないため） -->
+        <button
+          class="btn btn-secondary"
+          :disabled="importing || undoing || hasUnknown"
+          :title="hasUnknown ? '結果不明が残っているため閉じられません' : ''"
+          @click="requestClose"
+        >
           {{ finished ? '閉じる' : 'キャンセル' }}
         </button>
         <button v-if="!finished" class="btn btn-primary" :disabled="!canConfirm" @click="onConfirm">

@@ -102,12 +102,15 @@ function _toHalfWidth(s) {
  * 許可する形式はこれだけ:
  *   - 整数 `120` / 小数 `1.5` / 先頭の符号 `-3`（負の可否は呼び出し側が決める）
  *   - 3桁区切り `1,200` `1,234,567` `1,200.50` → カンマを外して読む
- *   - 前後の空白、`¥` `￥`、全角数字・全角ピリオド・全角カンマ・全角マイナス
+ *   - 前後の空白、**先頭の** `¥` `￥` を1個、全角数字・全角ピリオド・全角カンマ・全角マイナス
  *
  * 拒否するもの（`parseFloat` の前方一致受理をやめた理由）:
  *   `12abc` → 12 / `abc100` → NaN→0扱い / `1,20` → 1 / `1 2` → 1 /
  *   `NaN` `Infinity` `1e5` `--1` `1.2.3` `.` `-`
  * これらは黙って正常値へ寄せず、不正として返して呼び出し側が行番号つきで見せる。
+ *
+ * 通貨記号は**先頭の1個だけ**。任意位置から削り取ると `1¥2` が 12、`100￥` が 100、
+ * `¥1¥2` が 12 として通り、元のセルに無い数値を作ってしまう。
  *
  * @param {*} raw
  * @returns {{ empty: true } | { value: number } | { invalid: true, raw: string }}
@@ -119,8 +122,8 @@ export function parseNumericCell(raw) {
   // 空白は「桁区切りの代わり」ではなく混入とみなす。`1 2` を 12 にしない。
   if (/\s/.test(original)) return { invalid: true, raw: original }
 
-  const s0 = _toHalfWidth(original).replace(/[¥￥]/g, '')
-  let s = s0
+  let s = _toHalfWidth(original).replace(/^[¥￥]/, '')   // 先頭の通貨記号は1個だけ外す
+  if (/[¥￥]/.test(s)) return { invalid: true, raw: original }   // 残っていれば位置違いか重複
 
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '')   // 桁区切り
   else if (!/^-?\d+(\.\d+)?$/.test(s)) return { invalid: true, raw: original }
@@ -143,10 +146,13 @@ export function parseNumericCell(raw) {
  * @param {string}  [opts.columnLabel] 画面に出す列名
  * @param {boolean} [opts.positive]    0以下を不正にする（単価・入数など）
  * @param {boolean} [opts.allowNegative] 負数を許可する（既定は不許可）
+ * @param {number}  [opts.max]         上限（この値ちょうどは受理・超過は拒否）。
+ *                                     値は utils/importLimits.js（＝worker の契約）から渡す。
+ *                                     渡さなければ上限判定をしない
  * @returns {{ empty: true } | { value: number } | { error: object }}
  */
 export function readNumericCell(raw, {
-  line, column = null, columnLabel = '', positive = false, allowNegative = false,
+  line, column = null, columnLabel = '', positive = false, allowNegative = false, max = null,
 } = {}) {
   const original = String(raw ?? '').trim()
   const parsed   = parseNumericCell(raw)
@@ -161,6 +167,11 @@ export function readNumericCell(raw, {
   }
   if (!allowNegative && n < 0) {
     return fail(`${columnLabel || '数値'}「${original}」は0以上の数値にしてください`)
+  }
+  // 上限はサーバーと同じ値。ここで弾かないと、確定の途中でサーバーが拒否して
+  // 「一部だけ入った」状態になる。
+  if (max !== null && max !== undefined && n > max) {
+    return fail(`${columnLabel || '数値'}「${original}」は上限（${max.toLocaleString('en-US')}）を超えています`)
   }
   return { value: n }
 }

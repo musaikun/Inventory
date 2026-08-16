@@ -194,9 +194,11 @@ async function openMapper(file) {
   }
 }
 
-// hasHeader（1行目は見出し／データ）はマッピング画面の選択をそのまま確認画面へ渡す。
-// ここで作り直すと、画面の説明と実際に取り込む行がずれる。
-function onMapperImported({ mapping, csvText, hasHeader = true }) {
+// hasHeader（1行目は見出し／データ）はマッピング画面の**明示的な選択**をそのまま確認画面へ渡す。
+// ここで作り直したり既定値で埋めたりすると、画面の説明と実際に取り込む行がずれる。
+// 選択されていない（boolean でない）ペイロードは進めない。
+function onMapperImported({ mapping, csvText, hasHeader }) {
+  if (typeof hasHeader !== 'boolean') return
   showMapper.value = false
   openPreview({ origin: 'mapped', csvText, mapping, hasHeader, filename: mapperFilename.value })
 }

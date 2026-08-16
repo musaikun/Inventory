@@ -50,8 +50,12 @@ async function pick(labelText) {
   await nextTick()
 }
 
+function button(label) {
+  return [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
+}
+
 async function clickImport() {
-  const btn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('このマッピングでインポート'))
+  const btn = button('このマッピングでインポート')
   btn.click()
   await nextTick()
   return btn
@@ -60,20 +64,55 @@ async function clickImport() {
 const HEADED    = '品目名,単位,単価\nトマト,箱,120\nレタス,玉,80'
 const HEADERLESS = 'トマト,箱,120\nレタス,玉,80'
 
-describe('1行目の扱いを明示的に選ばせる', () => {
-  it('見出しらしい1行目なら「1行目は見出し」を既定にする', async () => {
+describe('1行目の扱いは推測せず、明示的に選ばせる', () => {
+  it('初期状態ではどちらのradioも選択されていない', async () => {
     await mount({ csvText: HEADED })
-    expect(radio('1行目は見出し').checked).toBe(true)
+    expect(radio('1行目は見出し').checked).toBe(false)
     expect(radio('1行目からデータ').checked).toBe(false)
   })
 
-  it('見出しの無いファイルは「1行目からデータ」を既定にする', async () => {
+  it('見出しの無いファイルでも初期状態は未選択のまま', async () => {
     await mount({ csvText: HEADERLESS })
-    expect(radio('1行目からデータ').checked).toBe(true)
+    expect(radio('1行目は見出し').checked).toBe(false)
+    expect(radio('1行目からデータ').checked).toBe(false)
+  })
+
+  it('先頭値が「商品A」「品目セット」でも自動的に見出し扱いにしない', async () => {
+    // 「商品」「品目」という語を含むだけのデータ行を、推測で見出しへ確定させない
+    for (const first of ['商品A,箱,120', '品目セット,箱,120']) {
+      await mount({ csvText: `${first}\nレタス,玉,80` })
+      expect(radio('1行目は見出し').checked, first).toBe(false)
+      expect(radio('1行目からデータ').checked, first).toBe(false)
+      // 選ぶまで取り込めない ＝ 推測だけで1行目が消えることはない
+      expect(button('このマッピングでインポート').disabled, first).toBe(true)
+      app.unmount(); host.remove(); app = null; host = null
+    }
+  })
+
+  it('推測は参考表示に留め、選択値へ反映しない', async () => {
+    const { text } = await mount({ csvText: HEADED })
+    expect(text()).toContain('参考')
+    expect(radio('1行目は見出し').checked).toBe(false)
+  })
+
+  it('未選択のあいだは取り込めない', async () => {
+    const { events } = await mount({ csvText: HEADERLESS })
+    const btn = button('このマッピングでインポート')
+    expect(btn.disabled).toBe(true)
+    btn.click()
+    await nextTick()
+    expect(events.imported).toHaveLength(0)
+  })
+
+  it('選択すると取り込めるようになる', async () => {
+    await mount({ csvText: HEADERLESS })
+    await pick('1行目からデータ')
+    expect(button('このマッピングでインポート').disabled).toBe(false)
   })
 
   it('「1行目からデータ」では1行目もプレビューに出て、データ行数に数える', async () => {
     const { text } = await mount({ csvText: HEADERLESS })
+    await pick('1行目からデータ')
     expect(text()).toContain('データ2行')
     expect(text()).toContain('トマト')     // 1行目が消えない
     expect(text()).toContain('レタス')
@@ -81,22 +120,28 @@ describe('1行目の扱いを明示的に選ばせる', () => {
 
   it('「1行目は見出し」では1行目が列名になり、データ行数から外れる', async () => {
     const { text } = await mount({ csvText: HEADED })
+    await pick('1行目は見出し')
     expect(text()).toContain('データ2行')
     // 見出しの語が列選択肢に出る
     expect([...host.querySelectorAll('option')].some(o => o.textContent.includes('品目名'))).toBe(true)
   })
 
-  it('選択を切り替えると列見出しの表示が 列1… に変わる', async () => {
+  it('選択を切り替えると見出し・データ行数・列名からの自動検出が追従する', async () => {
     const { text } = await mount({ csvText: HEADED })
+    await pick('1行目は見出し')
+    expect(text()).toContain('データ2行')
+
     await pick('1行目からデータ')
     expect(text()).toContain('列1')
     expect(text()).toContain('データ3行')   // 見出しだった行もデータになる
+    expect([...host.querySelectorAll('option')].some(o => o.textContent.includes('品目名'))).toBe(false)
   })
 })
 
 describe('確定処理まで hasHeader を運ぶ', () => {
   it('「1行目からデータ」の選択を imported ペイロードへ載せる', async () => {
     const { events } = await mount({ csvText: HEADERLESS })
+    await pick('1行目からデータ')
     await clickImport()
     expect(events.imported).toHaveLength(1)
     expect(events.imported[0].hasHeader).toBe(false)
@@ -106,19 +151,29 @@ describe('確定処理まで hasHeader を運ぶ', () => {
 
   it('「1行目は見出し」の選択も同じ経路で渡す', async () => {
     const { events } = await mount({ csvText: HEADED })
+    await pick('1行目は見出し')
     await clickImport()
     expect(events.imported[0].hasHeader).toBe(true)
+  })
+
+  it('見出しらしいファイルで「1行目からデータ」を選んだら、その選択がそのまま渡る', async () => {
+    const { events } = await mount({ csvText: HEADED })
+    await pick('1行目からデータ')
+    await clickImport()
+    expect(events.imported[0].hasHeader).toBe(false)
   })
 })
 
 describe('字句解析は共通トークナイザを使う', () => {
   it('引用符つきカンマでセルを割らない', async () => {
     const { text } = await mount({ csvText: '"トマト,大玉",箱,120' })
+    await pick('1行目からデータ')
     expect(text()).toContain('トマト,大玉')
   })
 
   it('エスケープされた引用符を値の中の " として保つ', async () => {
     const { events } = await mount({ csvText: '"5"" 皿",箱,120' })
+    await pick('1行目からデータ')
     await clickImport()
     // 画面が csvText をそのまま渡し、解析は共通経路で行う
     expect(events.imported[0].csvText).toContain('5""')
@@ -127,18 +182,20 @@ describe('字句解析は共通トークナイザを使う', () => {
 
   it('引用符の中の改行でレコードを割らない', async () => {
     const { text } = await mount({ csvText: '"トマト\n大玉",箱,120\nレタス,玉,80' })
+    await pick('1行目からデータ')
     expect(text()).toContain('データ2行')
   })
 
   it('閉じていない引用符は黙って受理せず、インポートさせない', async () => {
     const { text } = await mount({ csvText: '"トマト,箱,120\nレタス,玉,80' })
     expect(text()).toContain('引用符')
-    const btn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('このマッピングでインポート'))
-    expect(btn.disabled).toBe(true)
+    await pick('1行目からデータ')
+    expect(button('このマッピングでインポート').disabled).toBe(true)
   })
 
   it('BOM と CRLF を同じ結果へ寄せる', async () => {
     const { text } = await mount({ csvText: '﻿トマト,箱,120\r\nレタス,玉,80\r\n' })
+    await pick('1行目からデータ')
     expect(text()).toContain('データ2行')
     expect(text()).toContain('トマト')
   })

@@ -371,3 +371,76 @@ describe('応答喪失からの再試行・取消（response loss）', () => {
     expect(canCancelBatch(null)).toBe(false)
   })
 })
+
+describe('HTTP失敗と通信結果不明の分類（api.js が投げる Error を使う）', () => {
+  const plan1 = () => buildPastImportPlan([{ date: '2026-05-01', items: [{ item: '米', qty: 1 }] }])
+
+  /** api.js の apiFetch が非2xxで投げるのと同じ形の Error */
+  const httpError = (status, body = {}) =>
+    Object.assign(new Error(body.error || `HTTP ${status}`), { status, code: body.code, body })
+
+  const commitWith = (err) => commitPastImport(plan1(), {
+    saveToServer: async () => { throw err },
+    applyLocal: () => {},
+  })
+
+  it('数値の status を持つ例外は FAILED（結果不明にしない）', async () => {
+    for (const status of [400, 409, 413, 408, 429, 500, 503]) {
+      const r = await commitWith(httpError(status, { error: 'ng' }))
+      expect(r.failed[0].outcome, String(status)).toBe(OUTCOME_FAILED)
+    }
+  })
+
+  it('400 / 409 / 413 は retryable にしない（永続的な拒否を再試行しない）', async () => {
+    for (const status of [400, 409, 413]) {
+      const r = await commitWith(httpError(status, { error: 'ng' }))
+      expect(r.failed[0], String(status)).toMatchObject({ outcome: OUTCOME_FAILED, retryable: false })
+      expect(retryableDates(r), String(status)).toEqual([])
+    }
+  })
+
+  it('408 / 429 / 5xx は FAILED だが retryable', async () => {
+    for (const status of [408, 429, 500, 502, 503]) {
+      const r = await commitWith(httpError(status, { error: 'busy' }))
+      expect(r.failed[0], String(status)).toMatchObject({ outcome: OUTCOME_FAILED, retryable: true })
+      expect(retryableDates(r), String(status)).toEqual(['2026-05-01'])
+    }
+  })
+
+  it('status を持たない通信例外（TypeError / 切断）は UNKNOWN', async () => {
+    for (const err of [new TypeError('Failed to fetch'), new Error('NetworkError'), Object.assign(new Error('x'), { status: 'oops' })]) {
+      const r = await commitWith(err)
+      expect(r.failed[0], String(err)).toMatchObject({ outcome: OUTCOME_UNKNOWN, retryable: true })
+    }
+  })
+
+  it('サーバーの理由（body.error）を失敗メッセージに残す', async () => {
+    const r = await commitWith(httpError(413, { error: '1リクエストの上限を超えています' }))
+    expect(r.failed[0].error).toContain('上限を超えています')
+  })
+
+  it('2xx でも sessionId が欠ければ UNKNOWN（必須応答情報の欠落）', async () => {
+    const r = await commitPastImport(plan1(), {
+      saveToServer: async () => ({ ok: true }), applyLocal: () => {},
+    })
+    expect(r.failed[0].outcome).toBe(OUTCOME_UNKNOWN)
+  })
+
+  it('HTTP失敗だけなら取消の導線を出さない（結果不明ではない）', async () => {
+    const r = await commitWith(httpError(400, { error: 'ng' }))
+    expect(canCancelBatch(r)).toBe(false)
+  })
+
+  it('retryableDates は retryable:false を含めない', () => {
+    const result = {
+      importBatchId: 'imp_1', saved: [],
+      failed: [
+        { date: '2026-05-01', outcome: OUTCOME_FAILED,  retryable: false },
+        { date: '2026-05-08', outcome: OUTCOME_FAILED,  retryable: true },
+        { date: '2026-05-15', outcome: OUTCOME_UNKNOWN, retryable: true },
+      ],
+      ok: false,
+    }
+    expect(retryableDates(result)).toEqual(['2026-05-08', '2026-05-15'])
+  })
+})

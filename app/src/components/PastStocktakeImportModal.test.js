@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
-import { buildPastImportPlan, OUTCOME_UNKNOWN } from '../services/pastImportPlan.js'
+import { buildPastImportPlan, OUTCOME_FAILED, OUTCOME_UNKNOWN } from '../services/pastImportPlan.js'
 
 let app = null
 let host = null
@@ -250,5 +250,157 @@ describe('取消できる範囲の説明が実挙動と一致する', () => {
     const { text } = await mount({})
     expect(text()).toContain('この取込ぶんだけ')
     expect(text()).not.toContain('取り消しできません')
+  })
+})
+
+describe('結果不明が残っているあいだは閉じられない', () => {
+  const allUnknown  = () => partialConfirm(PLAN_DAYS.map(d => d.date), { recoverAfter: Infinity })
+  const someUnknown = () => partialConfirm(['2026-05-08', '2026-05-15'], { recoverAfter: Infinity })
+
+  /** 閉じる3経路（ボタン・Escape・オーバーレイ）をすべて試す */
+  async function tryCloseEveryWay() {
+    const btn = button('閉じる') ?? button('キャンセル')
+    btn.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    host.querySelector('.modal-overlay').dispatchEvent(new MouseEvent('click', { bubbles: false }))
+    await nextTick(); await nextTick()
+    return btn
+  }
+
+  it('全件が結果不明なら、閉じるボタン・Escape・オーバーレイのすべてで閉じない', async () => {
+    const { events, text } = await mount({ confirmImport: allUnknown() })
+    await click('取り込む')
+
+    const btn = await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+    expect(btn.disabled).toBe(true)
+    expect(text()).toContain('結果不明が残っている')
+  })
+
+  it('一部成功＋一部結果不明でも閉じない', async () => {
+    const { events, text } = await mount({ confirmImport: someUnknown() })
+    await click('取り込む')
+
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+    expect(text()).toContain('結果不明が残っている')
+  })
+
+  it('閉じようとしても取込IDと計画を保持する', async () => {
+    const confirmImport = someUnknown()
+    const { text } = await mount({ confirmImport })
+    await click('取り込む')
+
+    await tryCloseEveryWay()
+    expect(text()).toContain('imp_test')
+
+    // 同じ batchId のまま再試行でき、送る日も変わらない
+    await click('同じ取込IDで再試行')
+    expect(confirmImport.mock.calls[1][0]).toEqual(['2026-05-08', '2026-05-15'])
+  })
+
+  it('閉じられないあいだも再試行と取消の両方を押せる', async () => {
+    await mount({ confirmImport: allUnknown() })
+    await click('取り込む')
+    await tryCloseEveryWay()
+
+    expect(button('同じ取込IDで再試行')).toBeTruthy()
+    expect(button('同じ取込IDで再試行').disabled).toBe(false)
+    expect(button('この取込を取り消す')).toBeTruthy()
+    expect(button('この取込を取り消す').disabled).toBe(false)
+  })
+
+  it('再試行しても結果不明が残るなら、まだ閉じられない', async () => {
+    const { events } = await mount({ confirmImport: allUnknown() })
+    await click('取り込む')
+    await click('同じ取込IDで再試行')
+
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+  })
+
+  it('再試行で全日が確定したら閉じられる（close は1回だけ）', async () => {
+    // 1回目は結果不明、再試行で回復する
+    const { events } = await mount({ confirmImport: partialConfirm(PLAN_DAYS.map(d => d.date)) })
+    await click('取り込む')
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+
+    await click('同じ取込IDで再試行')
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(1)
+  })
+
+  it('取消に成功したら閉じられる（close は1回だけ）', async () => {
+    const { events } = await mount({
+      confirmImport: allUnknown(),
+      undoImport: async () => ({ ok: true, removedOnServer: 3, removedLocally: 0 }),
+    })
+    await click('取り込む')
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+
+    await click('この取込を取り消す')
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(1)
+  })
+
+  it('取消に失敗したら引き続き閉じられない', async () => {
+    const { events, text } = await mount({
+      confirmImport: allUnknown(),
+      undoImport: () => { throw new Error('サーバーが応答しません') },
+    })
+    await click('取り込む')
+    await click('この取込を取り消す')
+
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(0)
+    expect(text()).toContain('サーバーが応答しません')
+    expect(button('この取込を取り消す')).toBeTruthy()   // もう一度押せる
+  })
+
+  it('明確なHTTP失敗だけで結果不明が無ければ閉じられる', async () => {
+    const confirmImport = vi.fn(async () => ({
+      importBatchId: 'imp_test',
+      saved: [],
+      failed: PLAN_DAYS.map(d => ({
+        date: d.date, error: '品目数が多すぎます', outcome: OUTCOME_FAILED, retryable: false,
+      })),
+      ok: false,
+    }))
+    const { events, text } = await mount({ confirmImport })
+    await click('取り込む')
+
+    expect(text()).toContain('保存されず')
+    expect(text()).not.toContain('結果不明が残っている')
+    await tryCloseEveryWay()
+    expect(events.close).toHaveLength(1)
+  })
+
+  it('永続的な失敗では再試行・取消を出さない', async () => {
+    const confirmImport = vi.fn(async () => ({
+      importBatchId: 'imp_test',
+      saved: [],
+      failed: [{ date: '2026-05-01', error: '不正な日付です', outcome: OUTCOME_FAILED, retryable: false }],
+      ok: false,
+    }))
+    await mount({ confirmImport })
+    await click('取り込む')
+
+    expect(button('同じ取込IDで再試行')).toBeUndefined()
+    expect(button('この取込を取り消す')).toBeUndefined()
+  })
+
+  it('再試行できるHTTP失敗（503）では再試行を出す', async () => {
+    const confirmImport = vi.fn(async () => ({
+      importBatchId: 'imp_test',
+      saved: [],
+      failed: [{ date: '2026-05-01', error: '混雑しています', outcome: OUTCOME_FAILED, retryable: true }],
+      ok: false,
+    }))
+    await mount({ confirmImport })
+    await click('取り込む')
+
+    expect(button('同じ取込IDで再試行')).toBeTruthy()
   })
 })

@@ -37,9 +37,187 @@ CC branch `claude/branch-operational-status-2lwwwu@8ff46af`で、非破壊merge�
 着手時に`task-list.md`を`進行中 / Claude Code`へ更新し、証拠提出後は`レビュー待ち`までとする。
 Codex承認前に`完了`またはWEB-07通過としない。
 
-**2026-08-11 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
+**2026-08-16 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
 2026-08-10 の実装に、2026-08-11 の追補（ヘッダなしCSV・数値契約の統一・PDF/Excel変換・
-エイリアス衝突・応答喪失からの再試行／取消）を重ねている。**`完了` および WEB-07 通過は判定していない。**
+エイリアス衝突・応答喪失からの再試行／取消）と、2026-08-16 の追補（ヘッダ選択の明示化・
+結果不明中のclose禁止・HTTP失敗とUNKNOWNの分類・数量／単価上限・通貨記号の位置・実在日付）を
+重ねている。**`完了` および WEB-07 通過は判定していない。**
+
+## 追補実装（2026-08-16 / Claude Code 第3修正セッション）
+
+対象HEAD: `develop@e095282`（第1・第2修正セッションの成果を統合済み）。
+branch `claude/csv-past-stocktake-import-a0kjl3`。
+**`worker/`、`App.vue`、`useStore.js`、`useDataImport.js`、`api.js` は変更していない。**
+
+### 1. ヘッダ有無を推測で確定しない
+
+`CsvMapperModal` は `_looksLikeHeader()` の推測を**既定値として採用**していた。
+判定は「1行目のどれかのセルが `品目` `商品` `単位` … を含むか」なので、
+実測で次のデータ行が見出しとして確定していた。
+
+| 1行目 | 修正前 | 修正後 |
+|---|---|---|
+| `商品A,箱,120` | 見出し扱い（**この品目が消える**） | 未選択のまま。選ぶまで取込不可 |
+| `品目セット,箱,120` | 見出し扱い（同上） | 同上 |
+| `品目名,単位,単価` | 見出し扱い | 未選択。ユーザーが選ぶ |
+
+- `hasHeader` の初期値を `null`（未選択）にし、radio はどちらも未選択で開く。
+- 推測は `参考:` 付きの文言としてだけ出す。**選択値へ反映しない。**
+- 未選択のあいだは「このマッピングでインポート」を無効にし、
+  「どちらかを選ぶまで取り込めません」を出す。
+- 選択後に header / データ行 / 件数 / `列N` 見出し / 列名からの自動検出をすべて再計算する。
+- `SettingsModal.onMapperImported` は `hasHeader` が boolean でないペイロードを進めない
+  （既定値 `true` で埋めると、画面の説明と取り込む行がずれる）。
+
+### 2. 結果不明が残るあいだはモーダルを閉じさせない
+
+修正前は「保存中・取消中」だけを塞いでいた。確定が終わったあとは、
+**結果不明（`OUTCOME_UNKNOWN`）が残っていても閉じられた**。閉じると `importBatchId` と
+計画が画面から消え、サーバーに入っているかもしれないデータを再試行も取消もできない。
+
+- `hasUnknown`（取消済みでない × 結果不明が1日以上）のあいだ、
+  閉じるボタン・Escape・オーバーレイクリックの**3経路とも** `close` を emit しない。
+- 閉じるボタンは `disabled`。押したときは
+  「結果不明が残っているため閉じられません。同じ取込IDで再試行するか、この取込を取り消してください。」
+  を `role="alert"` で出す。
+- 閉じられないあいだも再試行・取消は押せる。`importBatchId` と計画はそのまま保持する。
+- 再試行で全日が確定した後、または取消に成功した後は閉じられる（`close` は1回だけ）。
+- 取消に失敗した場合は結果が変わらないので**引き続き閉じられない**。
+- **明確なHTTP失敗だけで結果不明が無ければ閉じられる**（保存されていないと分かっているため）。
+- `useDataImport.js` は編集していない。close を発生させない側だけで閉じている。
+
+### 3. HTTP失敗と通信結果不明を分ける
+
+修正前の `commitPastImport` は**例外を無条件に `OUTCOME_UNKNOWN` + `retryable: true`** にしていた。
+`utils/api.js` は非2xxのときも throw するので、明確な 400 / 409 / 413 まで「結果不明」になり、
+画面を閉じられず、直らない要求を何度も再送できてしまう状態だった。
+
+`classifyCommitError(err)` を `pastImportPlan.js` へ追加し、`commitPastImport` と
+モーダルの catch の両方が同じ判定を使う。
+
+| 例外 | outcome | retryable |
+|---|---|---|
+| `status` が数値: 400 / 401 / 403 / 404 / 409 / 413 / 422 | `FAILED` | `false` |
+| `status` が数値: 408 / 429 / 5xx | `FAILED` | `true` |
+| `status` なし（`TypeError: Failed to fetch`・接続断） | `UNKNOWN` | `true` |
+| 2xx だが `sessionId` が欠ける | `UNKNOWN` | `true` |
+
+- `retryableDates()` が `retryable === false` を返さないので、永続的4xxを再送しない。
+- HTTP失敗だけなら `canCancelBatch()` は `false`（取消の導線を出さない）。
+- 失敗メッセージは `err.body.error`（サーバーの理由）を優先して残す。
+
+### 4. 数量・単価の上限をクライアントで拒否
+
+Worker の現行契約（`worker/src/constants.js`・**読み取り専用**）を `app/src/utils/importLimits.js`
+へ写し、`readNumericCell` に `max` を追加した。上限が client に無いと、
+プレビューは通ったのにサーバーが 400 を返し、過去棚卸取込（1日=1リクエスト）では
+**途中の日だけ落ちて「一部だけ入った」状態**が残る。
+
+| 項目 | 上限 | worker 側 | 適用先 |
+|---|---:|---|---|
+| 棚卸数量 | 1,000,000 | `MAX_INVENTORY_QTY` | 棚卸結果取込・過去棚卸取込 |
+| 入出庫数量 | 1,000,000 | `MAX_MOVEMENT_QTY` | 納品取込 |
+| 発注点 | 1,000,000 | `MAX_ORDER_QTY` | 品目取込 |
+| 単価 | 100,000,000 | `MAX_UNIT_PRICE` | 品目取込・棚卸結果・過去棚卸・納品取込 |
+
+- 定数は `importLimits.test.js` が worker の定数と直接照合する（片方だけ変えたら落ちる）。
+- エラーの形は既存のまま `{ line, column, columnLabel, value, reason }`。
+- 上限ちょうどは受理、上限+1は拒否。無効行は local 反映にも API 呼出しにも進まない。
+- **worker に数値契約が無い項目（入数・前月実績・分類コード）へ上限を足していない。**
+- PDF / Excel は `itemsToConfigCSV` → 品目取込の経路なので同じ上限を通る。
+
+### 5. 通貨記号は先頭の1個だけ
+
+`parseNumericCell` は `¥` `￥` を**任意位置から全部**削っていた。
+実測で `1¥2` → 12、`100￥` → 100、`¥1¥2` → 12 と、**元のセルに無い数値**を作っていた。
+
+- 先頭の記号を1個だけ外し、残っていれば不正として返す。
+- 受理: `¥1,200` `￥１，２００` `¥-100`（記号は先頭）。
+- 拒否: `1¥2` `100￥` `¥1¥2` `￥￥100` `-¥100` `¥` `¥abc` `¥ 100`。
+- 符号の扱い（先頭の `-`・`allowNegative`）は変えていない。
+
+### 6. 実在する日付だけを受理する
+
+配送取込と棚卸結果取込が同じ正規表現を各自で持ち、**月 1..12 / 日 1..31 の範囲だけ**を
+見ていた。`2026-02-30` `2025-02-29` `2026-04-31` が 'YYYY-MM-DD' として通り、
+存在しない日の棚卸セッションを作れる状態だった。
+
+- `app/src/utils/importDate.js`（新規）へ正規化と実在判定を一本化した。
+  ISO 化のあと `Date.UTC` で組み立て、年月日を round-trip して確認する
+  （2月30日は3月2日へ繰り上がるので、繰り上がった時点で不正）。
+  端末のタイムゾーンで日がずれないよう UTC で組み立てる。
+- `deliveryImportParser.normalizeDate` は **export 名と戻り値の契約をそのまま維持**し、
+  内部で共通実装へ委譲する。`resultCsvParser._normDate` も同じ。
+- 不正日付は黙って skip せず、既存形式の行エラー（行番号・列名・元の値・理由）で出す。
+- 閏年ルール（4年 / 100年 / 400年）を含めてテストで固定した。
+
+### 検証（2026-08-16）
+
+| command | 結果 |
+|---|---|
+| 対象10 test file（修正前） | **35 failed / 175 passed**、加えて `importDate` / `importLimits` の2 fileは対象moduleが無く読み込み失敗 |
+| 対象10 test file（修正後） | **10 files / 222 passed** |
+| `npm --prefix app test -- --run` | **89 files / 938 passed** |
+| `npm --prefix app run build` | 成功（`dist/` 生成・PWA precache 17 entries） |
+| `npm --prefix worker test` | **21 files / 437 passed**（worker は無変更・回帰確認のみ） |
+| `git diff --check` | 出力なし |
+| `git diff --name-only -- worker app/src/App.vue app/src/composables/useStore.js app/src/composables/useDataImport.js app/src/utils/api.js` | 出力なし（変更禁止fileに差分なし） |
+
+修正前の baseline は `develop@e095282` で **87 files / 875 passed**。
+
+### 修正前に失敗を確認したtest（35件）
+
+| file | 失敗したtest |
+|---|---|
+| `components/CsvMapperModal.test.js`（5件） | 初期状態でどちらのradioも未選択 / 見出しの無いファイルでも未選択 / `商品A`・`品目セット` を見出し扱いにしない / 推測は参考表示に留める / 未選択では取り込めない |
+| `components/SettingsModal.import.test.js`（2件） | 1行目の扱いを選ぶまで実行できない / 見出しらしいファイルでも推測で確定しない |
+| `components/PastStocktakeImportModal.test.js`（7件） | 全件結果不明で3経路とも閉じない / 一部成功＋一部結果不明でも閉じない / 再試行後も結果不明なら閉じない / 再試行で確定したら閉じられる / 取消成功で閉じられる / 取消失敗では閉じられない / 永続的失敗では再試行・取消を出さない |
+| `services/pastImportPlan.test.js`（5件） | 数値statusはFAILED / 400・409・413はretry不可 / 408・429・5xxはretry可 / HTTP失敗だけなら取消を出さない / `retryableDates` が `retryable:false` を含めない |
+| `utils/csvParse.test.js`（5件） | 先頭以外の通貨記号を拒否 / 通貨記号の重複を拒否 / 符号との組合せ / 上限+1の拒否 / 小数の上限超過 |
+| `utils/itemImport.strict.test.js`（4件） | 単価上限+1の拒否 / 上限超過行が既存値を書き換えない / 発注点の上限 / 列指定取込でも同じ上限 |
+| `utils/deliveryImportParser.test.js`（4件） | `normalizeDate` の閏年判定 / 存在しない日を行エラーにする / 数量上限+1 / 単価上限+1 |
+| `utils/resultCsvParser.test.js`（3件） | 平年2/29・2/30・2/31・4/31を行エラーにする / 過去棚卸の上限 / 復元の上限 |
+| `utils/importDate.test.js` | file全体が読み込み失敗（`importDate.js` 未作成） |
+| `utils/importLimits.test.js` | file全体が読み込み失敗（`importLimits.js` 未作成） |
+
+### 変更file
+
+| 種別 | file |
+|---|---|
+| 新規 | `app/src/utils/importLimits.js` / `importLimits.test.js` |
+| 新規 | `app/src/utils/importDate.js` / `importDate.test.js` |
+| 変更 | `app/src/utils/csvParse.js`（通貨記号の位置・`max`） |
+| 変更 | `app/src/utils/itemImport.js`（単価・発注点の上限） |
+| 変更 | `app/src/utils/resultCsvParser.js`（実在日付・上限） |
+| 変更 | `app/src/utils/deliveryImportParser.js`（実在日付・上限） |
+| 変更 | `app/src/services/pastImportPlan.js`（`classifyCommitError` / `retryableDates`） |
+| 変更 | `app/src/components/CsvMapperModal.vue`（ヘッダ選択の明示化） |
+| 変更 | `app/src/components/PastStocktakeImportModal.vue`（結果不明中のclose禁止） |
+| 変更 | `app/src/components/SettingsModal.vue`（`hasHeader` を既定値で埋めない） |
+| 変更 | 上記に対応する既存test（`csvParse` / `itemImport.strict` / `resultCsvParser` / `deliveryImportParser` / `pastImportPlan` / `CsvMapperModal` / `SettingsModal.import` / `PastStocktakeImportModal`） |
+
+### 挙動を変えたため更新した既存test
+
+| test | 変更理由 |
+|---|---|
+| `CsvMapperModal.test.js` | 推測を既定値にしなくなったので、各caseで明示選択してから進む形へ |
+| `SettingsModal.import.test.js` | 同上（「既定で選ばれている」前提の assertion を「未選択」へ） |
+
+### 未実施・残risk（2026-08-16 追加分）
+
+- **ブラウザー更新・強制終了をまたぐ永続化は今回の対象外。**
+  結果不明のあいだ close は塞げるが、**リロード・タブclose・端末の強制終了では
+  `importBatchId` と計画が失われる**。その場合ユーザーは取込IDを知る手段がなく、
+  サーバーに残ったかもしれないバッチを取り消せない。
+  `importBatchId` を localStorage 等へ退避する設計は、`storageKeys.js` と
+  account切替時の消去対象に関わるため本セッションの所有範囲外とし、残riskとして記録する。
+- 実browser / 実機での375px・1024px以上・keyboard確認は依然未実施
+  （jsdom は `matchMedia` が `matches:false` を返すため、component testはモバイル経路だけを通る）。
+- 実D1での上限超過拒否（client と server の境界値が本当に一致するか）は未検証。
+  照合は定数レベル（`importLimits.test.js`）まで。
+- `utils/textParser.js`（音声・テキスト貼付の入力）には上限を入れていない。
+  CSV取込入口ではなく、本セッションの所有範囲外のため。
+- migration 0013 の development / production 適用は引き続き未実施。
 
 ## 追補実装（2026-08-11 / Claude Code 第3セッション・続き）
 

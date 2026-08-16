@@ -8,6 +8,8 @@
 //   date は 'YYYY-MM-DD' に正規化。type は 'in'（既定）| 'out'。
 
 import { tokenizeCSV, readNumericCell, toCSVRow, parseCSVLine as _line } from './csvParse.js'
+import { normalizeImportDate } from './importDate.js'
+import { IMPORT_MAX_MOVEMENT_QTY, IMPORT_MAX_UNIT_PRICE } from './importLimits.js'
 
 // 字句解析は utils/csvParse.js と共用する（3つの取込経路で1つの解釈にそろえる）。
 const parseCSVLine = (line) => _line(line).map(s => s.trim())
@@ -49,18 +51,14 @@ export function normalizeType(s) {
   return 'in'
 }
 
-// 日付を 'YYYY-MM-DD' に正規化。解釈できなければ ''。
+// 日付を 'YYYY-MM-DD' に正規化。解釈できない・実在しない日は ''。
 // 受理: 2026-06-01 / 2026/6/1 / 2026.6.1 / 2026年6月1日
+//
+// 実装は utils/importDate.js（棚卸結果取込と共用）。月日の範囲だけを見ていた頃は
+// `2026-02-30` や平年の `2025-02-29` がそのまま通っていた。
+// 既存の呼び出し元のために export 名はそのまま残す。
 export function normalizeDate(s) {
-  let t = (s ?? '').trim()
-  if (!t) return ''
-  t = t.replace(/年|月/g, '-').replace(/日/g, '').replace(/[./]/g, '-').trim()
-  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-  if (!m) return ''
-  const y = m[1]
-  const mo = Number(m[2]), d = Number(m[3])
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  return normalizeImportDate(s)
 }
 
 // この CSV が中間フォーマットとして解釈可能か（日付・品目名・数量列がある）。
@@ -137,14 +135,16 @@ export function parseDeliveryImportCSV(csvText) {
     }
 
     const qty = readNumericCell(cols[ci.qty], {
-      line, column: ci.qty, columnLabel: label(ci.qty, '数量'), positive: true,
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'),
+      positive: true, max: IMPORT_MAX_MOVEMENT_QTY,
     })
     if (qty.error) { errors.push({ ...qty.error, name }); continue }
 
     let priceVal = null
     if (ci.price >= 0) {
       const p = readNumericCell(cols[ci.price], {
-        line, column: ci.price, columnLabel: label(ci.price, '単価'), positive: true,
+        line, column: ci.price, columnLabel: label(ci.price, '単価'),
+        positive: true, max: IMPORT_MAX_UNIT_PRICE,
       })
       if (p.error) { errors.push({ ...p.error, name }); continue }
       priceVal = p.value ?? null

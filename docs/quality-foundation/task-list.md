@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-10
+最終更新: 2026-08-16
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -107,6 +107,15 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-16: CC第3修正セッション（`develop@e095282` 起点）で `IMPORT-001` の取込データ品質を6点修正し、
+  **レビュー待ち / Claude Code** へ戻した。ヘッダ有無の推測を選択値へ反映しない（`商品A` `品目セット` を
+  見出し扱いにしない）、結果不明が残るあいだの modal close を3経路とも塞ぐ、HTTP失敗と通信結果不明を
+  `status` の有無で分けて永続的4xxを再試行しない、Worker契約と同じ数量・単価上限をclientでも拒否、
+  通貨記号を先頭1個だけ許可、閏年を含む実在日検証を両parserで共用。
+  `worker/`、`App.vue`、`useStore.js`、`useDataImport.js`、`api.js` は無変更。
+  **migration 0012・0013は本番未適用のまま。実D1・実browserは未確認。**
+  ブラウザー更新・強制終了をまたぐ `importBatchId` の永続化は対象外で残riskに記録した。
+  Codex承認前に `完了`・`WEB-07` 通過・release可としない。詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md)。
 - 2026-08-10: CCレビュー修正 第1〜第3セッションを実装し、`DATA-001` / `DATA-002` / `IMPORT-001` を
   **レビュー待ち / Claude Code** へ。第1=完了失敗時の状態保持とpending latest-wins、
   第2=sessionId中心の履歴identityと棚卸完了のserver原子性（migration 0012）、

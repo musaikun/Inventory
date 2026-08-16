@@ -10,6 +10,11 @@
  *
  * 先頭行が見出しかデータかは**ユーザーに明示的に選ばせる**。自動判定だけに任せると、
  * 見出しの無いファイルで1行目の品目が黙って消える。
+ *
+ * 推測を**既定値としても使わない**。`商品A` `品目セット` のような品目名は
+ * 「商品」「品目」を含むので見出しと推測されるが、実際はデータ行で、
+ * そのまま取り込むと1品目目が消える。推測は参考として出すだけにして、
+ * 選択されるまで取込を実行させない。
  */
 import { ref, computed, reactive, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
@@ -28,7 +33,7 @@ const firstCols = records[0]?.cols.map(c => c.trim()) ?? []
 const colCount  = records.reduce((n, r) => Math.max(n, r.cols.length), 0)
 
 // 1行目が見出しらしいか（列名候補にあたる語を含み、かつ数値だけの行ではない）。
-// 既定値の初期化にだけ使う。最終的な判断はユーザーの選択が優先する。
+// **参考表示にだけ使う。選択値へは一切反映しない。**
 const HEADER_WORDS = [
   '品目', '商品', '品名', '名称', '単位', '単価', '価格', '金額', '原価', 'カテゴリ', '分類',
   'コード', '入数', '前月', 'name', 'item', 'unit', 'price', 'code', 'category',
@@ -42,15 +47,23 @@ function _looksLikeHeader(cols) {
   return filled.some(c => HEADER_WORDS.some(w => c.toLowerCase().includes(w)))
 }
 
-const hasHeader = ref(_looksLikeHeader(firstCols))
+// null = 未選択。ユーザーが選ぶまでどちらでもない（推測で埋めない）。
+const hasHeader    = ref(null)
+const headerChosen = computed(() => hasHeader.value !== null)
 
-// 列見出しの表示名。見出し行が無いときは「列1」…にする（マッピングの選択肢もこれ）。
+const headerGuess = _looksLikeHeader(firstCols)
+const guessHint = headerGuess
+  ? '参考: 1行目は列名のように見えます（自動では決めません）'
+  : '参考: 1行目に列名らしい語は見つかりませんでした（自動では決めません）'
+
+// 列見出しの表示名。見出し行として使わないあいだは「列1」…にする（マッピングの選択肢もこれ）。
 const headers = computed(() =>
   Array.from({ length: colCount }, (_, i) =>
-    (hasHeader.value ? (firstCols[i] ?? '') : '') || `列${i + 1}`),
+    (hasHeader.value === true ? (firstCols[i] ?? '') : '') || `列${i + 1}`),
 )
 // 見出し行を「データ」と宣言したら、1行目もプレビューとインポートの対象に含める。
-const dataRecords = computed(() => (hasHeader.value ? records.slice(1) : records))
+// 未選択のあいだはファイルの全行をそのまま見せる（取込は canImport で塞ぐ）。
+const dataRecords = computed(() => (hasHeader.value === true ? records.slice(1) : records))
 const previewRows = computed(() => dataRecords.value.slice(0, 5).map(r => r.cols))
 const totalRows   = computed(() => dataRecords.value.length)
 
@@ -78,10 +91,10 @@ const HINTS = {
   axisB:     [props.axisNames?.[1], '仕入先', '業者', '取引先', 'supplier', 'vendor'].filter(Boolean),
 }
 
-// 自動検出は「見出し行がある」と判断したときだけ意味がある。
-// 見出しが無いファイルでは全て未選択にし、品目名だけ1列目を既定にする。
+// 自動検出は「見出し行がある」と選んだときだけ意味がある。
+// 見出しが無い／未選択のあいだは全て未選択にし、品目名だけ1列目を既定にする。
 function _detect(hints) {
-  if (!hasHeader.value) return null
+  if (hasHeader.value !== true) return null
   for (let i = 0; i < firstCols.length; i++) {
     const h = firstCols[i].toLowerCase()
     if (hints.some(hint => h.includes(hint.toLowerCase()))) return i
@@ -117,7 +130,10 @@ const FIELD_DEFS = computed(() => [
   { key: 'axisB',     label: props.axisNames?.[1] || '並び替え②（仕入先など）', required: false },
 ])
 
-const canImport = computed(() => !parseError && mapping.name !== null && totalRows.value > 0)
+// 1行目の扱いが未選択のあいだは取り込ませない。
+// （どちらとも決まっていない状態で実行すると、片方の解釈で黙って1行失う）
+const canImport = computed(() =>
+  !parseError && headerChosen.value && mapping.name !== null && totalRows.value > 0)
 
 function preview(colIdx, rowIdx) {
   if (colIdx === null || colIdx === undefined) return ''
@@ -149,29 +165,33 @@ function onImport() {
         ✗ {{ parseError.message }}
       </div>
 
-      <!-- 先頭行の扱い。自動判定に任せず必ず明示させる -->
+      <!-- 先頭行の扱い。推測で確定させず、必ず明示的に選ばせる -->
       <div class="header-block">
-        <div class="mapping-label">1行目の扱い</div>
-        <label class="header-opt" :class="{ on: hasHeader }">
+        <div class="mapping-label">1行目の扱い（選択してください）</div>
+        <label class="header-opt" :class="{ on: hasHeader === true }">
           <input type="radio" :value="true" v-model="hasHeader" />
           <span class="header-body">
             <span class="header-name">1行目は見出し（列名）</span>
             <span class="header-desc">1行目は取り込まず、列名として使います。</span>
           </span>
         </label>
-        <label class="header-opt" :class="{ on: !hasHeader }">
+        <label class="header-opt" :class="{ on: hasHeader === false }">
           <input type="radio" :value="false" v-model="hasHeader" />
           <span class="header-body">
             <span class="header-name">1行目からデータ</span>
             <span class="header-desc">見出しの無いファイル。<b>1行目の品目も取り込みます。</b></span>
           </span>
         </label>
+        <p class="header-guess">{{ guessHint }}</p>
+        <p v-if="!headerChosen" class="header-blocked" role="status">
+          どちらかを選ぶまで取り込めません。
+        </p>
       </div>
 
       <!-- プレビューテーブル -->
       <div class="preview-wrap">
         <div class="preview-label">
-          プレビュー（データの先頭{{ previewRows.length }}行）
+          プレビュー（{{ headerChosen ? 'データの' : 'ファイルの' }}先頭{{ previewRows.length }}行）
         </div>
         <div class="preview-scroll">
           <table class="preview-table">
@@ -278,6 +298,8 @@ function onImport() {
 .header-body { display: flex; flex-direction: column; gap: 2px; }
 .header-name { font-size: 13px; font-weight: 800; color: var(--text); }
 .header-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.header-guess { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 4px 0 0; }
+.header-blocked { font-size: 12px; font-weight: 700; color: #b45309; margin: 4px 0 0; }
 
 .preview-wrap {
   margin-bottom: 16px;

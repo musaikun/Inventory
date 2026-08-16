@@ -3,6 +3,8 @@
 // ヘッダ名で列を特定するため、列順が多少違っても動く。
 
 import { tokenizeCSV, readNumericCell, parseCSVLine as _line } from './csvParse.js'
+import { normalizeImportDate } from './importDate.js'
+import { IMPORT_MAX_INVENTORY_QTY, IMPORT_MAX_UNIT_PRICE } from './importLimits.js'
 
 // 字句解析は utils/csvParse.js と共用する（エスケープされた引用符・未閉じ引用符・
 // 引用符内の改行の扱いを、品目取込と棚卸結果取込で1つにするため）。
@@ -45,17 +47,10 @@ const COLS = {
   date:      ['日付', '棚卸日', '実施日', 'date'],
 }
 
-// 日付を 'YYYY-MM-DD' に正規化。解釈できなければ ''。
-function _normDate(s) {
-  let t = (s ?? '').trim()
-  if (!t) return ''
-  t = t.replace(/年|月/g, '-').replace(/日/g, '').replace(/[./]/g, '-').trim()
-  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-  if (!m) return ''
-  const mo = Number(m[2]), d = Number(m[3])
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''
-  return `${m[1]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-}
+// 日付を 'YYYY-MM-DD' に正規化。解釈できない・実在しない日は ''。
+// 判定は utils/importDate.js（納品取込と共用）。範囲だけを見ていた頃は
+// `2026-04-31` が通り、存在しない日の棚卸セッションを作れてしまった。
+const _normDate = normalizeImportDate
 
 function _findCol(header, names) {
   const lower = header.map(h => h.toLowerCase())
@@ -108,14 +103,14 @@ export function parseResultCSV(csvText) {
     if ((cols[ci.qty] ?? '').trim() === '') continue
 
     const qty = readNumericCell(cols[ci.qty], {
-      line, column: ci.qty, columnLabel: label(ci.qty, '数量'),
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'), max: IMPORT_MAX_INVENTORY_QTY,
     })
     if (qty.error) { errors.push({ ...qty.error, name }); continue }
 
     let price = null
     if (ci.price >= 0) {
       const p = readNumericCell(cols[ci.price], {
-        line, column: ci.price, columnLabel: label(ci.price, '単価'),
+        line, column: ci.price, columnLabel: label(ci.price, '単価'), max: IMPORT_MAX_UNIT_PRICE,
       })
       if (p.error) { errors.push({ ...p.error, name }); continue }
       price = p.value ?? null
@@ -189,14 +184,14 @@ export function parseResultSnapshots(csvText) {
     if ((cols[ci.qty] ?? '').trim() === '') continue
 
     const qty = readNumericCell(cols[ci.qty], {
-      line, column: ci.qty, columnLabel: label(ci.qty, '数量'),
+      line, column: ci.qty, columnLabel: label(ci.qty, '数量'), max: IMPORT_MAX_INVENTORY_QTY,
     })
     if (qty.error) { errors.push({ ...qty.error, name, date }); continue }
 
     let price = null
     if (ci.price >= 0) {
       const p = readNumericCell(cols[ci.price], {
-        line, column: ci.price, columnLabel: label(ci.price, '単価'),
+        line, column: ci.price, columnLabel: label(ci.price, '単価'), max: IMPORT_MAX_UNIT_PRICE,
       })
       if (p.error) { errors.push({ ...p.error, name, date }); continue }
       price = p.value ?? null

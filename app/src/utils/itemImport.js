@@ -13,6 +13,7 @@
  */
 
 import { tokenizeCSV, readNumericCell, parseCSVLine as _parseCSVLine } from './csvParse.js'
+import { IMPORT_MAX_REORDER_POINT, IMPORT_MAX_UNIT_PRICE } from './importLimits.js'
 
 export const IMPORT_MODE_MERGE   = 'merge'    // 追加・更新（既定）。ファイルに無い既存品目は残す
 export const IMPORT_MODE_REPLACE = 'replace'  // 全入れ替え。ファイルに無い既存品目は削除する
@@ -135,15 +136,16 @@ function _buildRow({ line, cols, spec, headers }) {
   if (spec.axisB     !== undefined) row.tagsB     = _tagList(cols, spec.axisB)
 
   if (spec.price !== undefined) {
-    const r = num(spec.price, '単価', { positive: true })
+    const r = num(spec.price, '単価', { positive: true, max: IMPORT_MAX_UNIT_PRICE })
     if (r.value !== undefined) row.price = r.value
   }
   if (spec.categoryCode !== undefined) {
+    // 分類コードは worker 側に数値契約が無いので、上限を勝手に足さない
     const r = num(spec.categoryCode, '分類コード')
     if (r.value !== undefined) row.categoryCode = r.value
   }
   if (spec.reorderPoint !== undefined && spec.reorderPoint >= 0) {
-    const r = num(spec.reorderPoint, '発注点')
+    const r = num(spec.reorderPoint, '発注点', { max: IMPORT_MAX_REORDER_POINT })
     // 発注点列があるとき、空欄は「解除」を意味する。undefined（列なし）と区別して null にする。
     row.reorderPoint = r.empty ? null : (r.value ?? null)
   }

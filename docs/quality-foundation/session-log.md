@@ -2,6 +2,59 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-16 — CC第3修正セッション: CSV・過去棚卸取込のデータ品質（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、開始HEAD `e095282`（= `develop`）。
+- 第1・第2修正セッションの成果（`e952550` / `39f7776` / `3f0f9c2`）が祖先であることを確認してから着手した。
+  開始時の working tree は clean。既存差分の reset / stash / checkout はしていない。
+- 状態は **レビュー待ちまで**。`完了` / `WEB-07` 通過 / release可としていない。
+- commit / push / deploy / migration適用は**していない**（Userの明示指示待ち）。
+- **変更禁止file（`worker/`、`App.vue`、`useStore.js`、`useDataImport.js`、`api.js`）に差分なし**を
+  `git diff --name-only` で確認済み。
+
+### 直した6点（詳細と証拠は [`tasks/IMPORT-001.md`](tasks/IMPORT-001.md)）
+
+1. **ヘッダ有無の推測を選択値へ反映しない。** `CsvMapperModal` は「1行目のセルが `品目` `商品` 等を
+   含むか」の推測を**既定値として採用**していた。`商品A,箱,120` `品目セット,箱,120` のような
+   データ行が見出しとして確定し、1品目目が黙って消えていた。初期値を未選択にし、
+   推測は `参考:` の文言だけにして、選ぶまで取込を実行させない。
+2. **結果不明が残るあいだは過去棚卸モーダルを閉じさせない。** 以前は保存中・取消中だけを塞いでいた。
+   確定後に結果不明が残っていても閉じられ、`importBatchId` と計画が画面から消えて
+   再試行も取消もできなくなっていた。閉じるボタン・Escape・オーバーレイの3経路とも `close` を出さない。
+   `useDataImport.js` は編集せず、close を発生させない側だけで解決した。
+3. **HTTP失敗と通信結果不明を分けた。** `commitPastImport` は例外を無条件に「結果不明」にしていたが、
+   `api.js` は非2xxでも throw する。`status` が数値なら FAILED、無ければ UNKNOWN。
+   400/409/413 は retry不可、408/429/5xx は retry可。`retryableDates` が `retryable:false` を返さない。
+4. **数量・単価の上限をclientでも拒否。** Worker の `constants.js` を読み取り専用の正本として
+   `utils/importLimits.js` へ写し、`readNumericCell` へ `max` を追加。定数は worker と直接照合するtestで固定。
+5. **通貨記号は先頭1個だけ。** `¥` `￥` を任意位置から削っていたため、`1¥2` が 12、`100￥` が 100 と、
+   元のセルに無い数値になっていた。
+6. **実在する日付だけを受理。** 月日の範囲だけを見ていたので `2026-02-30` `2025-02-29` `2026-04-31` が
+   通っていた。`utils/importDate.js` へ共通化し、ISO化後に UTC で round-trip して確認する。
+   `deliveryImportParser.normalizeDate` の export 互換は維持した。
+
+### 検証
+
+- 対象10 test file: 修正前 **35 failed / 175 passed**（＋ 新規2 fileは対象module未作成で読み込み失敗）
+  → 修正後 **10 files / 222 passed**。
+- `npm --prefix app test -- --run`: **89 files / 938 passed**（baseline `e095282` は 87 files / 875 passed）。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **21 files / 437 passed**（worker無変更・回帰確認）。
+- `git diff --check`: 出力なし。
+
+### 未実施・残risk
+
+- **ブラウザー更新・強制終了をまたぐ永続化は対象外。** リロード・タブclose・強制終了では
+  `importBatchId` と計画が失われ、サーバーに残ったかもしれないバッチを取り消せない。
+  退避先の設計は `storageKeys.js` とaccount切替時の消去対象に関わるため所有範囲外。
+- 実D1（client と server の境界値の一致、migration 0013 適用）、実browser / 実機は未確認。
+- `utils/textParser.js`（音声・貼付入力）はCSV入口ではないため上限を入れていない。
+
+### 次の再開地点
+
+Codex による第1〜第3修正セッション全差分の独立レビュー。
+`WEB-001 = 進行中 / Codex`、`SEC-005 = 未着手 / Codex` は変更していない。
+
 ## 2026-08-10 — CCレビュー修正 第3セッション: 取込のデータ品質と最終統合（IMPORT-001）
 
 - 担当: Claude Code。台本は [`cc-session-plan.md`](cc-session-plan.md) の第3セッション。
