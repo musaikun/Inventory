@@ -2,6 +2,50 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-17 — App第2セッション: 完了ライフサイクルと同期キュー（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準HEAD `develop@77d6d48`。
+- **App側のみ**。`worker/**`・migration・取込 parser/UI は変更していない（`git diff --name-only -- worker` は空）。
+- 第1修正セッションの4 commit（`38cf1cc` / `1d3cbfa` / `e9b1dbe` / `77d6d48`）と
+  それ以前（`39f7776` / `e952550`）がHEADの祖先であることを確認してから着手した。
+- commit / push / deploy / migration適用は**していない**。
+- 状態は `DATA-001` を `進行中` → `レビュー待ち / Claude Code` へ戻すまで。
+  `DATA-002` / `IMPORT-001` / `WEB-07` の状態は変更していない。
+
+### 直したこと（詳細と証拠は [`tasks/DATA-001.md`](tasks/DATA-001.md)）
+
+1. 完了中・結果不明中に `active` を書き戻さない（`completionUnknown` / Home・Back・切替・破棄のguard）。
+2. 本番の完了経路を `services/sessionCompletion.js` へ集約し、**stock/order 別の確定契約**へ合わせた。
+   order は `{ itemCount }` だけを送り、在庫入力があっても snapshot / inventory を送らない。
+   `takenAt` は `snapshot.date` から1か所で決める。
+3. queue再送と直接保存を同じ key 単位レーンへ入れ、遅れて決着した古い版が新しい版を上書きしない。
+4. generation / shopCode / 認証主体を**論理要求の作成時**に確定させ、旧店舗の要求が新トークンで飛ばない。
+5. snapshot の ack を `localRev` で「送った版」に限定し、送信中に作られた訂正を clean にしない。
+6. `clearAuthBlock()` を await 可能にし、再ログインは drain → pull の順。失効直前のデバウンス
+   保存は旧店舗の durable queue へ確定する。
+7. App mount test の初回 import を `beforeAll` へ移し、既定5秒 timeout の枯渇要因を消した。
+8. **完了の再送は同じ body を送る**。server の fingerprint は canonical snapshot 全体から
+   作られるため、組み立て直すと `409 completion_intent_conflict` で確定できなくなる。
+
+### DATA-002「Appへの引継ぎ7点」
+
+1〜5・7 は対応済み。**6（`409 legacy_import_unverified` の導線）は未対応**で、
+過去棚卸取込UIが本セッションの変更禁止範囲のため第3セッション（IMPORT-001）へ送る。
+
+### 検証
+
+- `npm --prefix app test -- --run` … 91 files / 935 tests passed（連続2回とも成功）
+- `npm --prefix app run build` … 成功（PWA precache 17 entries / 2570.69 KiB）
+- `npm --prefix worker test` … 26 files / 545 tests passed（未変更・回帰確認）
+- `git diff --check` 指摘なし / `git diff --name-only -- worker` 出力なし
+
+### 未実施・次の一手
+
+- 実D1・実機・実browserは未確認。migration 0012〜0016 は未適用のまま。
+- **適用順序に注意**: App をこの契約へ合わせたため、migration 未適用の Worker では
+  完了が動かない。migration → Worker → App の順で出す判断が release gate 側に要る。
+- `409 completion_intent_conflict` の復旧導線（session 作り直し）は未実装。
+
 ## 2026-08-17（追加3） — DATA-002 独立レビュー指摘（replace の孤児 claim / cancel の transaction）
 
 - 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `e9b1dbe`（clean）。

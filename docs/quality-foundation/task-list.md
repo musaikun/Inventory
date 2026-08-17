@@ -107,6 +107,17 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-17: DATA-001 の App第2セッション（完了ライフサイクル・同期キュー）を実装し、
+  `進行中` → `レビュー待ち / Claude Code` へ戻した。第1修正セッションが確定した
+  **stock/order 別の完了契約**へ App を合わせ、snapshot なしで完了APIを呼ぶ経路を無くした
+  （発注は `{ itemCount }` だけを送る）。完了中・結果不明中に `active` を書き戻さない
+  busy/unknown状態、完了要求の同一body再送（409 `completion_intent_conflict` 対策）、
+  保存レーンの直列化、generationの作成時capture、snapshot ackの版一致、
+  再ログインの drain→pull 順序、App mount testの5秒timeout要因の除去を含む。
+  `DATA-002` の「Appへの引継ぎ7点」のうち **6（`409 legacy_import_unverified` の導線）は未対応**で、
+  過去棚卸取込UIを扱う `IMPORT-001` へ送る。`worker/**`・migrationは変更していない
+  （0012〜0016は引き続き未適用で、**migration → Worker → App の順**で出す必要がある）。
+  `DATA-002` / `IMPORT-001` / `WEB-001` / `SEC-005` / `WEB-07` の状態・担当は変更していない。
 - 2026-08-17（追加3）: 独立レビュー指摘を修正（状態は`レビュー待ち / Claude Code`のまま）。
   過去棚卸replaceの削除を3文→**5文**にし、旧`session_completions`・旧`import_batch_requests`まで
   同一transactionで消すようにした（孤児claim・stale台帳が通常操作で発生していた）。

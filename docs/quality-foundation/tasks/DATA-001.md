@@ -337,3 +337,217 @@ git diff --check             → 指摘なし
   （`resetAccountData` が破棄する）。ログアウトのまま放置した場合の保持期間は決めていない。
 - `useStore` の `_save` は `{ ok, result }` を返すよう変わった。boolean を期待する既存
   呼び出しは各 export 側で `.ok` へ畳んである（`saveSnapshotToD1` だけが object を返す）。
+
+## 2026-08-17 — CC App第2セッション: 完了ライフサイクルと同期キュー
+
+- 基準HEAD: `develop@77d6d48`。作業branchは `claude/app-completion-sync-queue-z8etdp`。
+- **App側のみ**。`worker/**`、migration、CSV・過去棚卸取込の parser / UI は変更していない。
+- **migration なし**（0012〜0016 は依然として local / remote とも未適用）。
+
+### 参照した第1修正セッションのcommitと完了契約
+
+| commit | 内容 |
+|---|---|
+| `39f7776` | 完了APIの snapshot 必須化、履歴 revision（0014） |
+| `e952550` | App側の完了確定・401・保存queue・履歴revision（前回のApp差分） |
+| `38cf1cc` | **stock/order別の完了契約を確定**、snapshot の server canonical 化、`completed→active` 禁止（0015） |
+| `1d3cbfa` | 汎用PUTでの完了迂回を 409 で封鎖、棚卸日を `takenAt` 一本化、完了 claim / fingerprint（0016） |
+| `e9b1dbe` | fingerprint を canonical snapshot 全体へ拡大 |
+| `77d6d48` | replace の旧claim・旧台帳削除、取消の同一transaction化 |
+
+いずれも作業HEADの祖先であることを `git merge-base --is-ancestor` で確認した。
+App側の追随項目は [`DATA-002.md`](DATA-002.md) の「Appへの引継ぎ」（7点）に記録されている。
+
+**App が従う完了契約**（`docs/api-design.md` §3.1 / `DATA-002.md` §1）:
+
+| | stock | order |
+|---|---|---|
+| body | `{ inventory, prices, takenAt, snapshot }` | `{ itemCount }` **だけ** |
+| snapshot | 必須（`400 snapshot_required`） | 送ると `400 snapshot_not_allowed` |
+| inventory | 0件は `400 empty_inventory` | 非空は `400 snapshot_not_allowed` |
+| 日付 | `takenAt` と `snapshot.date` の不一致は `400 snapshot_date_mismatch` | — |
+| items | `qty` を持つ集合が明細行と不一致なら `400 snapshot_mismatch` | — |
+| 状態遷移 | `PUT` で completed にすると `409 use_complete_endpoint` | 同左 |
+| 再送 | canonical snapshot 全体の fingerprint が違えば `409 completion_intent_conflict` | 冪等 |
+
+### Appへの引継ぎ7点の対応
+
+| # | 引継ぎ | 対応 |
+|---|---|---|
+| 1 | `setSessionEndedCallback` が snapshot なしで完了API | 共通 helper 経由へ（§2） |
+| 2 | `onGoHome` の完了済み経路が snapshot なし | 同上（§2） |
+| 3 | order は `{ itemCount }` へ分岐、`useAuth.completeSession()` に引数追加 | `completeSession(sessionId, body)` へ変更し、body は helper が作る（§2） |
+| 4 | `snapshot.date` と `takenAt` を一致させる | helper が `takenAt = snapshot.date` を1か所で決める（§2） |
+| 5 | `409 completion_intent_conflict` / `use_complete_endpoint` の扱い | 409 を retryable:false で扱い、`updateSession(id,'completed')` の経路を削除（§2・§8） |
+| 6 | `409 legacy_import_unverified` の導線 | **未対応**。過去棚卸取込UIは本セッションの変更禁止範囲（第3セッション所有）。残課題として下記に記録 |
+| 7 | 完了の再送は snapshot を1文字も変えずに送る | 完了要求を sessionId 単位でキャッシュし、結果不明のあいだは同一 body を再送（§8） |
+
+### 1. 完了処理中・結果不明中に active を書き戻さない
+
+完了要求の送信中は `isCompleted` がまだ false なので、ホームを押すと
+`markSessionActive()` が `PUT /sessions/:id {status:'active'}` を送っていた。
+server は `409 session_completed` で拒否するようになったが、**端末側が「進行中」と
+信じ続ける状態そのもの**（完了済みの詳細へ到達できない）を作らせない。
+
+| 直したこと | 実装 |
+|---|---|
+| 専用のbusy / 結果不明state | `useSession` に `completionUnknown`（応答なし・5xx・通信断）と `completionBusy` を追加。4xx（429除く）は server の応答があるので不明にしない |
+| 競合操作のguard | `onGoHome` / ブラウザバック / `onSessionStart` / `onSessionResume` / `onStartPractice` / `onStartNew` / `onDeleteSession` / `onViewSession` を `_blockedByCompletion()` で止める。ホームボタンも `:disabled` |
+| active を書かない | `markActive()` 自身が `completing` / `completion_unknown` / `completed` を拒否する（呼び出し側のguardが漏れても書けない） |
+| completed → active の経路を残さない | `onGoHome` 失敗時の `reopenSession()` を廃止し、`useInventory.reopenSession()` ごと削除した |
+| 結果不明からの収束 | ホームで `verifyCompletion()`（`GET /sessions`）→ 同じ完了要求を再送。server 側は同一 intent の replay として冪等に成功する |
+| 二重クリック | 従来の `completing` による `:disabled` を維持 |
+
+### 2. snapshot なしの本番完了経路をなくし、stock/order を分けた
+
+`setSessionEndedCallback` と `onGoHome` の完了済み経路が snapshot 無しで
+`completeSessionD1()` を呼んでおり、現行 Worker では `400 snapshot_required` になる。
+発注セッションは `buildSnapshot` が `null` を返すため同じく 400 になっていた。
+
+- 完了payloadの組み立てを `app/src/services/sessionCompletion.js` へ集約。
+  本番の3経路（完了ボタン・`session_ended`・`onGoHome`）がすべて `_buildCompletionRequest()` を通る。
+- **order は種別だけで分岐**する。在庫を入力していても snapshot も inventory も送らない
+  （正本は `orders` / `order_lines`。架空の marker snapshot を作らない）。
+- `takenAt` は `snapshot.date` から決める。1か所で決めるので不一致が構造的に起きない。
+- `useAuth.completeSession(sessionId, body)` へ変更し、body の形を固定しない。
+- **server の検証を手前で行う**: `qty` を持つ items の集合と `inventory` の集合が一致しない、
+  品目名が200文字で切り詰めた結果衝突する、日付が実在しない場合は **API を呼ばずに**
+  理由つきのエラーを出す（`completionErrorMessage`）。
+
+### 3. queue retry と direct save の競合
+
+`_drain` が `_inflight` レーンを通さず直接送っていたため、「Aの再送が飛んでいる最中に
+新しいBを直接保存」すると2本が同時にサーバーへ向かい、遅れて決着したAが新しいBを
+最終状態として上書きできた。
+
+- `_lane(key, task)` を新設し、直接保存もキューの再送も同じレーンを通す。
+- レーンは `kind + shopCode + resourceId` 単位。別対象は待たされない（testで固定）。
+- 再送はレーンに入ってから**キューを読み直す**。直接保存が成功して項目が消えていれば
+  何も送らず、新しい版へ差し替わっていれば新しい方を送る。
+- coalescing（latest-wins）・失敗分類・auth block は変更していない。
+
+### 4. account 切替時の generation
+
+`_sendOnce` が generation を**実際の送信開始時**に読んでいた。レーン待ちの間に
+アカウントを切り替えると、旧アカウントで作った保存が新しいトークンで送られる。
+
+- `generation` / `shopCode` / 認証主体（token）を `_save()`＝論理要求の作成時に確定する。
+- generation が変わっていれば送らない（`resetAccountData` が旧店舗ぶんを破棄済みなので
+  キューへも戻さない）。
+- 店舗または認証主体だけが変わっている場合は、**作成時点の店舗の未送信キューへ確定**する。
+  同じ店舗へ戻れば drain が改めて送る（旧店舗用の durable queue）。
+
+### 5. history acknowledgement の version 競合
+
+`markSnapshotSynced(key)` が「その時点で key に入っているオブジェクト」を無条件に
+clean にしていた。A の送信中に作った B が A の応答だけで「サーバー確認済み」になり、
+バックフィルの対象から外れてリモートの古い版に潰される。
+
+- snapshot ごとに `localRev`（単調増加・端末時計に依存しない）を持たせた。
+  `commitSnapshot` / `patchSnapshotItems` / `lockOtherSnapshots` / `applyRemoteHistory` /
+  `importPastSnapshot` が版を進める。リロード時は保存済みの最大値から採番を続ける。
+- `markSnapshotSynced(key, meta, sentLocalRev)` は版が一致するときだけ clean にする。
+- `_pushSnapshot` は送信時の `localRev` を捕まえて渡し、`localRev` 自体はサーバーへ送らない。
+
+### 6. 同一店舗への再ログイン
+
+`clearAuthBlock()` が drain の完了を待たず、`onAuthDone()` が直後にリモートを読んで
+ローカルへ反映していた。再ログイン直後の端末にはサーバーより新しい未送信の版がある。
+
+- `clearAuthBlock()` は `{ wasBlocked, drained, pending }` を返す await 可能な関数にした。
+- 順序は `services/authResume.js` の `resumeAfterLogin()` に出した（App を mount せずに検証できる）。
+  drain → 送り切れたときだけ pull。送り切れなければ pull せず、件数を通知して
+  キューと再送導線（指数バックオフ・バナー）を保つ。
+- 失効ハンドラは、credentials を消す**前に**デバウンス中の config / inventory を
+  `queuePendingSave()` で失効時点の店舗のキューへ確定する（**送信はしない**）。
+
+### 7. 既定 test の安定化
+
+App を mount する test の**初回 `import('./App.vue')` が2.6〜3.7秒**かかり、既定5秒の
+`testTimeout` の大半を test 本体で食っていた（`App.deleteRoute.test.js` には
+`, 15000` の個別延長が入っていた）。
+
+- 初回 import を `beforeAll`（既定 hookTimeout 10秒）へ移し、直後に `vi.resetModules()` で
+  registry を捨てる。transform 結果だけが再利用され、各 test は毎回まっさらな
+  モジュール状態から始まる。
+- 4つの App mount test file に適用し、`App.deleteRoute.test.js` の個別 timeout を削除した。
+- 結果: 最遅だった3件（3706ms / 3389ms / 2630ms）がいずれも 300ms 未満になった。
+- `testTimeout` の引き上げ、sleep の追加、test の削除・skip、`maxWorkers=1` 固定、
+  assertion の削減は**していない**。
+
+### 8. 完了の再送は同じ body を送る（fingerprint 契約）
+
+server は canonical snapshot 全体（除外は `savedAt` / `activeMs`）から fingerprint を作り、
+内容が違う再送を `409 completion_intent_conflict` で拒否する。応答を取りこぼした要求が
+サーバー側で確定していた場合、**組み立て直した body では二度と確定できない**
+（`auditLog` が1件増えているだけで別 intent になる）。
+
+- 完了要求を `_completionIntent = { sessionId, request }` として保持する。
+- 結果不明のあいだは保持した body をそのまま再送する。
+- サーバーが受け付けていないと**断定できた**失敗（4xx・`snapshotSaved` 欠落）のときだけ
+  捨てて、最新の入力で作り直す。
+- `409 completion_intent_conflict` は `retryable:false` として扱い、未送信キューへ戻さない。
+  端末の履歴も確定しない（サーバーの内容が正）。ホームから離脱でき、`active` は送らない。
+- `409 completion_record_missing` も `retryable:false`（同じ session では復旧できない）。
+
+### 追加・変更した test（修正前に失敗を確認済み）
+
+| file | 内容 | 修正前 |
+|---|---|---|
+| `src/App.complete.test.js` / `src/composables/useSession.test.js` | 完了中のホーム／バック／ボタン無効、応答喪失後にactiveを送らない、結果不明からの収束、`session_ended` / ホーム経路のpayload、order の `{itemCount}` 契約、payload不正でAPIを呼ばない、同一body再送、409群 | 本番fileを `77d6d48` の内容へ戻して **27件失敗** |
+| `src/composables/useStore.lane.test.js` / `src/composables/useHistory.ackVersion.test.js` | レーン競合、別keyは待たない、generation捕捉、旧店舗キューへの確定、`clearAuthBlock` の await、`queuePendingSave`、ack の版一致 | `useStore.js` / `useHistory.js` を戻して **12件失敗** |
+| `src/App.authLoss.test.js` | 失効直前のデバウンス config / inventory がキューに残る | `App.vue` を戻して **2件失敗** |
+| `src/services/sessionCompletion.test.js` | stock/order の完了契約（新規 helper） | 新規 |
+| `src/services/authResume.test.js` | drain → pull 順序（新規 helper） | 新規 |
+
+### 変更file
+
+```
+app/src/App.vue
+app/src/composables/useSession.js
+app/src/composables/useStore.js
+app/src/composables/useHistory.js
+app/src/composables/useInventory.js            （reopenSession を削除）
+app/src/composables/useAuth.js                 （completeSession(sessionId, body) へ）
+app/src/services/sessionCompletion.js          新規
+app/src/services/authResume.js                 新規
+app/src/services/sessionCompletion.test.js     新規
+app/src/services/authResume.test.js            新規
+app/src/composables/useStore.lane.test.js      新規
+app/src/composables/useHistory.ackVersion.test.js 新規
+app/src/App.complete.test.js                   （拡張・warm hook）
+app/src/App.authLoss.test.js                   （拡張・warm hook）
+app/src/App.deleteBack.test.js                 （warm hook）
+app/src/App.deleteRoute.test.js                （warm hook・個別timeout削除）
+app/src/composables/useSession.test.js         （契約更新）
+app/src/composables/useStore.queue.test.js     （戻り値更新）
+```
+
+### 実行したcommandと結果
+
+```
+npm --prefix app test -- --run    → 91 files / 935 tests passed（1回目）
+npm --prefix app test -- --run    → 91 files / 935 tests passed（連続2回目）
+npm --prefix app run build        → 成功（PWA precache 17 entries / 2570.69 KiB）
+npm --prefix worker test          → 26 files / 545 tests passed（未変更・回帰確認）
+git diff --check                  → 指摘なし
+git diff --name-only -- worker    → 出力なし
+```
+
+### 未実施・残リスク
+
+- **実D1・実browser・実機は未確認。** migration 0012〜0016 は local / remote とも未適用。
+- **適用順序**: App をこの契約へ合わせたため、**migration 未適用の Worker では完了が動かない**。
+  migration → Worker → App の順で出す必要がある。判断は release gate（`WEB-04` / `WEB-07`）側。
+- **引継ぎ6点目（`409 legacy_import_unverified`）は未対応**。過去棚卸取込UIは本セッションの
+  変更禁止範囲のため、第3セッション（IMPORT-001）で扱う。
+- `verifyCompletion()` は `GET /sessions`（最新50件）に依存する。50件を超えて古くなった
+  セッションは一覧に出ないため「確認できない＝結果不明のまま」となり、再送で収束させる。
+- 結果不明のまま端末を閉じると、`completionUnknown` と完了要求のキャッシュはメモリのみで
+  失われる。復帰後は進行中セッションとして再開でき、もう一度完了を押すと**その時点の内容**で
+  送る。先の要求がサーバーで確定していれば `409 completion_intent_conflict` になり、
+  同じ session では確定し直せない（サーバーの記録は無傷）。恒久対処は完了要求の永続化で、
+  第3セッション以降の課題。
+- `409 completion_intent_conflict` の復旧導線（session を作り直して入力を引き継ぐ）は
+  実装していない。現状は「サーバーで別内容として確定済み」と表示し、一覧から確定内容を
+  確認させるところまで。

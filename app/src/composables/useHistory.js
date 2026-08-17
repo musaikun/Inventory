@@ -52,7 +52,29 @@ const _savedAtMs = clientSavedMs
 const _serverMs  = serverSavedMs
 const _serverRev = serverRevision
 
+/**
+ * 端末側の版番号（localRev）。
+ *
+ * 送信中の版と、その後に端末で作られた版を区別するために持つ。
+ * これが無いと `markSnapshotSynced(key)` は「いま key に入っているオブジェクト」を
+ * 無条件に clean にするため、A の送信中に作った B が、A の応答だけで
+ * 「サーバー確認済み」になってしまう（未送信の訂正が黙って消える）。
+ *
+ * 端末時計ではなく単調増加のカウンタ。時計を戻した端末でも順序が壊れない。
+ */
+let _localRev = 0
+function _nextLocalRev() { return ++_localRev }
+
+// 復元した内容から採番の続きを決める（リロードしても版番号が巻き戻らない）
+function _seedLocalRev() {
+  for (const snap of Object.values(_data)) {
+    const v = Number(snap?.localRev)
+    if (Number.isFinite(v) && v > _localRev) _localRev = v
+  }
+}
+
 _load()
+_seedLocalRev()
 
 // アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
 export function resetLocalData() {
@@ -185,8 +207,9 @@ export function useHistory() {
       ...snap,
       ...(rev != null ? { serverRevision: rev } : {}),
       ...(meta?.serverSavedAt ? { serverSavedAt: meta.serverSavedAt } : {}),
-      dirty:  false,
-      synced: true,   // サーバーが受け付けた内容そのもの＝再送不要
+      dirty:    false,
+      synced:   true,   // サーバーが受け付けた内容そのもの＝再送不要
+      localRev: _nextLocalRev(),
     }
     _persist()
     return _data[key]
@@ -247,6 +270,7 @@ export function useHistory() {
       activeMs:     null,
       axisNames:    ['', ''],
       source:       'import',   // 過去取込由来（手動棚卸と区別）
+      localRev:     _nextLocalRev(),
     }
     _data[snapshotKey(snap)] = snap
     _persist()
@@ -398,7 +422,8 @@ export function useHistory() {
       if (!key) continue
       if (!_remoteWins(_data[key], snap)) continue
       // サーバーから来た内容そのもの。以後の比較で「未送信」と誤判定させない。
-      _data[key] = { ...snap, dirty: false, synced: true }
+      // 版は進める。送信中だった旧版の ack が、この新しい内容へ効かないようにする。
+      _data[key] = { ...snap, dirty: false, synced: true, localRev: _nextLocalRev() }
     }
     _persist()
   }
@@ -407,13 +432,22 @@ export function useHistory() {
    * サーバーが保存を受け付けたことを端末のスナップショットへ反映する（訂正の再送後）。
    * dirty を下ろし、次回以降の比較に使う serverRevision / serverSavedAt を書く。
    *
-   * @param {string} key   sessionId または legacy の日付キー
-   * @param {object} meta  POST /store/:code/history の応答
+   * **ack は「送った版」にだけ効く。** `sentLocalRev` を渡すと、端末の現在の版が
+   * それと一致するときだけ clean にする。送信中に新しい訂正（B）が作られていた場合、
+   * A の応答で B を「サーバー確認済み」にしてしまうと、一度も送っていない B が
+   * バックフィルの対象から外れ、リモートの古い版に潰されて消える。
+   *
+   * @param {string} key           sessionId または legacy の日付キー
+   * @param {object} meta          POST /store/:code/history の応答
+   * @param {number} sentLocalRev  送信時に捕まえた localRev（省略時は版を確認しない）
+   * @returns {object|null} 反映したスナップショット。版が進んでいれば null
    */
-  function markSnapshotSynced(key, meta = null) {
+  function markSnapshotSynced(key, meta = null, sentLocalRev = null) {
     if (!key) return null
     const snap = _data[String(key)] ?? getSnapshotBySessionId(key)
     if (!snap) return null
+    // 送信後に端末側で作られた新しい版。この ack は当てはまらない
+    if (sentLocalRev != null && snap.localRev !== sentLocalRev) return null
     const rev = _serverRev(meta)
     if (rev != null) snap.serverRevision = rev
     if (meta?.serverSavedAt) snap.serverSavedAt = meta.serverSavedAt
@@ -446,8 +480,9 @@ export function useHistory() {
         s.locked = true
         // ロックも端末発の変更。サーバーが受け取るまで dirty として保護する
         // （届く前にリモートの版で潰れると、ロックが外れたまま編集できてしまう）。
-        s.dirty  = true
-        s.synced = false
+        s.dirty    = true
+        s.synced   = false
+        s.localRev = _nextLocalRev()
         changed.push(s)
       }
     }
@@ -476,8 +511,9 @@ export function useHistory() {
     snap.updatedAt  = new Date().toISOString()
     // 端末でだけ訂正した状態。サーバーが受け付けるまでリモートで潰されない
     // （端末時計の updatedAt には依存しない）。
-    snap.dirty  = true
-    snap.synced = false
+    snap.dirty    = true
+    snap.synced   = false
+    snap.localRev = _nextLocalRev()
 
     _persist()
     return { ...snap, items: snap.items.map(i => ({ ...i })) }

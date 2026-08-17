@@ -10,7 +10,7 @@
 //
 // 認証・セッションAPIはモックせず、localStorage のトークンと `utils/api.js` の
 // apiFetch だけを差し替えて実経路（useAuth → useSession → App）を通す。
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import { STORAGE_KEYS } from './utils/storageKeys.js'
 
@@ -22,6 +22,12 @@ let completeBodies = []
 let completeGate = null
 // 完了APIの応答を差し替える（snapshotSaved を欠く応答など）
 let completeResponse = null
+// サーバー側では完了しているのに応答だけ失われた状況を作る
+let completeLosesResponse = false
+// PUT /sessions/:id（status 更新）の記録。active の書き戻しを検出する
+let sessionUpdates = []
+// GET /store/:code/sessions の応答（サーバー側の状態確認）
+let serverSessions = []
 
 vi.mock('./utils/api.js', () => ({
   // '' にすると useStore 側の D1 保存は no-op（本testの対象外）。
@@ -33,20 +39,35 @@ vi.mock('./utils/api.js', () => ({
       completeCalls++
       completeBodies.push(JSON.parse(options?.body ?? '{}'))
       if (completeGate) await completeGate
+      if (completeLosesResponse) {
+        // サーバーは完了を書き終えている。返り道だけが切れた
+        serverSessions = [{ id: 'sess-1', status: 'completed', itemCount: 1, type: 'stock' }]
+        throw new Error('Network request failed')   // status を持たない = 結果不明
+      }
       if (completeShouldFail) {
         const err = new Error('サービスが一時的に利用できません')
         err.status = 503
         err.body   = { retryable: true }
         throw err
       }
-      // snapshot を載せた完了は snapshotSaved:true が成功条件（handleSessionComplete の契約）
-      return completeResponse ?? { ok: true, snapshotSaved: true }
+      // 契約は session 種別で分かれる（DATA-002 §1）。
+      //   stock … snapshotSaved:true が成功条件
+      //   order … `{ itemCount }` だけを受け取り snapshotSaved:false を返す
+      const sent = completeBodies[completeBodies.length - 1]
+      if (completeResponse) return completeResponse
+      if (sent?.snapshot) return { ok: true, type: 'stock', snapshotSaved: true }
+      return { ok: true, type: 'order', itemCount: sent?.itemCount ?? 0, snapshotSaved: false }
+    }
+    // PUT /store/:code/sessions/:id — active / completed の状態更新
+    if (/\/sessions\/[^/]+$/.test(path) && options?.method === 'PUT') {
+      sessionUpdates.push(JSON.parse(options?.body ?? '{}'))
+      return { ok: true }
     }
     // GET /store/:code — 空オブジェクトを返すと loadStore が shopCode を undefined で
     // 上書きし、以降の session API が「店舗コード無し」で黙って no-op になる。
     if (/\/store\/[A-Z0-9]+$/.test(path)) return { shopCode: 'ABCDEF', activeRoom: null, plan: 'free' }
     // 完了後はセッション一覧へ遷移する。配列を返さないと一覧の computed が落ちる
-    if (/\/sessions(\?|$)/.test(path)) return []
+    if (/\/sessions(\?|$)/.test(path)) return serverSessions
     return {}
   }),
   setAuthInvalidatedHandler: vi.fn(),
@@ -92,18 +113,28 @@ let host = null
 
 const SESSION = { id: 'sess-1', shopCode: 'ABCDEF', startedAt: '2026-08-09T00:00:00Z', status: 'active', itemCount: 1 }
 
-async function mountApp() {
+// App のモジュールグラフを先に温める。
+// 初回 import は transform とモジュール評価で2秒以上かかり、これを test 本体で
+// 支払うと既定の 5 秒 testTimeout の大半を食う（hook の既定は 10 秒）。
+// 温めた直後に registry を捨てるので、各 test は毎回まっさらなモジュール状態から
+// 始まる（transform 結果だけが再利用されて軽くなる）。
+beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+
+/** localStorage を「進行中セッションのある端末」の状態にする */
+function seedDevice({ session = SESSION, inventory = { トマト: { qty: 3, unit: '個', updatedAt: Date.now() } } } = {}) {
   localStorage.setItem(STORAGE_KEYS.authToken, 'test-token')
   localStorage.setItem(STORAGE_KEYS.shopCode, 'ABCDEF')
-  localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(SESSION))
+  localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(session))
   localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
     date:        new Date().toISOString().slice(0, 10),   // 当日でないと読み捨てられる
-    data:        { トマト: { qty: 3, unit: '個', updatedAt: Date.now() } },
+    data:        inventory,
     recountFlags: {},
-    entryLog:    ['トマト'],
+    entryLog:    Object.keys(inventory),
     completedAt: null,
   }))
+}
 
+async function mountOnly() {
   const { default: App } = await import('./App.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -111,6 +142,11 @@ async function mountApp() {
   app.mount(host)
   for (let i = 0; i < 8; i++) await nextTick()
   return host
+}
+
+async function mountApp(opts) {
+  seedDevice(opts)
+  return mountOnly()
 }
 
 const completeBtn = () => host.querySelector('.btn-complete')
@@ -135,6 +171,9 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     completeBodies = []
     completeGate = null
     completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -227,6 +266,9 @@ describe('App — 完了はサーバー成功後にだけローカルへ確定�
     completeBodies = []
     completeGate = null
     completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -326,6 +368,9 @@ describe('App — 完了要求が二重に走らない', () => {
     completeBodies = []
     completeGate = null
     completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -400,3 +445,354 @@ describe('App — 完了要求が二重に走らない', () => {
   })
 })
 
+// ── 完了処理中の離脱（第2セッション §1）──────────────────────────────────────
+//
+// 完了要求の送信中は isCompleted がまだ false のため、ホームを押すと
+// markSessionActive() が `PUT /sessions/:id {status:'active'}` を送っていた。
+// 完了APIより後に届けば、サーバー側で確定した completed が active へ巻き戻る
+// （明細と履歴を持ったまま「進行中」に見えるセッションになる）。
+describe('App — 完了処理中に離脱しようとしても active を書き戻さない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('完了送信の直後にホームを押しても active 要求は0件', async () => {
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+
+    // 完了中は画面を離れない
+    expect(completeBtn()).not.toBeNull()
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+
+    release()
+    await settle()
+    expect(completeCalls).toBe(1)
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  it('完了中はブラウザバックでも離脱しない', async () => {
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(2)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await settle(2)
+
+    expect(completeBtn()).not.toBeNull()
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+
+    release()
+    await settle()
+  })
+
+  it('完了中はホームボタンが無効になっている', async () => {
+    completeGate = new Promise(() => {})
+    await mountApp()
+
+    expect(homeBtn().disabled).toBe(false)
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(3)
+    expect(homeBtn().disabled).toBe(true)
+    expect(completeBtn().disabled).toBe(true)
+  })
+
+  it('サーバーで完了した後に応答が失われても active を送らない', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+
+    // 結果不明。画面に留まり、履歴も確定しない
+    expect(completeBtn()).not.toBeNull()
+    expect(historyEntries()).toHaveLength(0)
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+
+    // 不明のままホームを押しても active は飛ばない。
+    // サーバー状態を確認し、同じ完了要求を送り直して収束する
+    completeLosesResponse = false
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(16)
+
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[0].snapshot.sessionId).toBe(completeBodies[1].snapshot.sessionId)
+    expect(completeBtn()).toBeNull()             // 一覧へ遷移した
+    expect(historyEntries()).toHaveLength(1)
+  })
+
+  it('結果不明のまま再度「完了」を押しても要求は増えず収束する', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+
+    completeLosesResponse = false
+    await clickComplete()
+
+    expect(completeCalls).toBe(2)
+    expect(completeBtn()).toBeNull()
+    expect(historyEntries()).toHaveLength(1)
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+})
+
+// ── 本番の完了経路はすべて同じ payload を作る（第2セッション §2）─────────────
+describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('session_ended（ホスト自身の完了通知）も snapshot 付きで送る', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    await mountApp()
+    expect(typeof sessionEndedCallback).toBe('function')
+
+    await sessionEndedCallback('completed', 'sess-1', 1)
+    await settle()
+
+    expect(completeCalls).toBe(1)
+    expect(completeBodies[0].snapshot).toBeTruthy()
+    expect(completeBodies[0].snapshot.sessionId).toBe('sess-1')
+    expect(completeBodies[0].snapshot.items.length).toBeGreaterThan(0)
+  })
+
+  it('完了済みセッションをホームで離れる経路も snapshot 付きで送る', async () => {
+    // 完了は成立したのに後片付けの途中（ルーム解散）で止まり、
+    // 「完了済み表示のまま棚卸画面に残る」状態を作る。この画面のホームが
+    // 以前 snapshot 無しで完了APIを呼んでいた経路。
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    dissolveRoom.mockImplementationOnce(() => new Promise(() => {}))
+    await mountApp()
+    await clickComplete()
+
+    expect(completeCalls).toBe(1)
+    expect(host.querySelector('.btn-new-session')).not.toBeNull()   // 完了済み表示
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(16)
+
+    // 2本目も同じ helper の payload（snapshot 付き）で送っている
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[1].snapshot).toBeTruthy()
+    expect(completeBodies[1].snapshot.sessionId).toBe('sess-1')
+    expect(completeBodies[1].snapshot.items.length).toBeGreaterThan(0)
+    // 完了済みを active へ戻さない
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  it('完了済みセッションのホームが失敗しても active へ戻さない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    dissolveRoom.mockImplementationOnce(() => new Promise(() => {}))
+    await mountApp()
+    await clickComplete()
+
+    completeShouldFail = true
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(16)
+
+    // 画面に留まり、完了済みのまま。active も送らない
+    expect(host.querySelector('.btn-new-session')).not.toBeNull()
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+  })
+
+  // 発注は `{ itemCount }` だけを完了APIへ送る（DATA-002 §1 order）。
+  // 汎用 PUT で completed にすると server が 409 use_complete_endpoint を返し、
+  // snapshot / 非空 inventory を送ると 400 snapshot_not_allowed になる。
+  it('発注のみのセッションは itemCount だけを完了APIへ送る', async () => {
+    localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
+      トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
+    }))
+    await mountApp({
+      session: { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-09T00:00:00Z', status: 'active', itemCount: 0, type: 'order' },
+      inventory: {},
+    })
+
+    expect(completeBtn()).not.toBeNull()
+    await clickComplete()
+
+    expect(completeCalls).toBe(1)
+    expect(completeBodies[0]).toEqual({ itemCount: 1 })
+    // 汎用 PUT で completed にしない
+    expect(sessionUpdates.filter(u => u.status === 'completed')).toHaveLength(0)
+    expect(completeBtn()).toBeNull()             // 一覧へ遷移した
+    expect(historyEntries()).toHaveLength(0)     // 中身の無い履歴を作らない
+  })
+
+  it('発注セッションで在庫も入力していても snapshot / inventory を送らない', async () => {
+    localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
+      トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
+    }))
+    await mountApp({
+      session: { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-09T00:00:00Z', status: 'active', itemCount: 0, type: 'order' },
+      inventory: { トマト: { qty: 3, unit: '個', updatedAt: Date.now() } },
+    })
+    await clickComplete()
+
+    expect(completeCalls).toBe(1)
+    expect(completeBodies[0]).not.toHaveProperty('snapshot')
+    expect(completeBodies[0]).not.toHaveProperty('inventory')
+    expect(completeBodies[0]).toEqual({ itemCount: 1 })
+  })
+
+  it('棚卸で明細が組み立てられない場合は完了APIを呼ばない', async () => {
+    // 在庫が空のまま session_ended が届く（ゲスト在庫が同期されていない等）
+    await mountApp({ inventory: {} })
+    await sessionEndedCallback?.('completed', 'sess-1', 0)
+    await settle()
+
+    expect(completeCalls).toBe(0)
+    expect(sessionUpdates.filter(u => u.status === 'completed')).toHaveLength(0)
+  })
+})
+
+// ── 再送は同じ body（第2セッション §7 / 409 completion_intent_conflict）──────
+//
+// server は canonical snapshot 全体から fingerprint を作り、内容が違う再送を
+// 409 で拒否する（除外は savedAt / activeMs だけ）。応答を取りこぼした要求が
+// サーバー側で確定していた場合、組み立て直した body では二度と確定できない。
+describe('App — 結果不明のあとは同じ内容で再送する', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('結果不明のあとに入力を変えても、再送の body は1回目と同一', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+
+    // 結果不明のまま端末側で入力を変える
+    const { useInventory } = await import('./composables/useInventory.js')
+    useInventory().setItem('トマト', 99, '個', false, 'tester')
+    await settle(4)
+
+    completeLosesResponse = false
+    await clickComplete()
+
+    expect(completeCalls).toBe(2)
+    // fingerprint が一致しないと 409 になるため、1文字も変えずに送る
+    expect(completeBodies[1]).toEqual(completeBodies[0])
+    expect(completeBtn()).toBeNull()   // 確定して一覧へ
+  })
+
+  it('サーバーが拒否した失敗（4xx）のあとは、最新の入力で組み立て直す', async () => {
+    completeResponse = { ok: true, type: 'stock' }   // snapshotSaved を欠く = 明確な失敗
+    await mountApp()
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+
+    const { useInventory } = await import('./composables/useInventory.js')
+    useInventory().setItem('トマト', 42, '個', false, 'tester')
+    await settle(4)
+
+    completeResponse = null
+    await clickComplete()
+
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[1].inventory['トマト'].qty).toBe(42)
+    expect(completeBodies[1]).not.toEqual(completeBodies[0])
+  })
+
+  it('409 completion_intent_conflict は再送せず、active も書かない', async () => {
+    await mountApp()
+    completeResponse = null
+    completeShouldFail = false
+    // 別内容で確定済み
+    const { apiFetch } = await import('./utils/api.js')
+    const original = apiFetch.getMockImplementation()
+    apiFetch.mockImplementation(async (path, options) => {
+      if (path.endsWith('/complete')) {
+        completeCalls++
+        completeBodies.push(JSON.parse(options?.body ?? '{}'))
+        const err = new Error('別の内容で完了済みです')
+        err.status = 409
+        err.code   = 'completion_intent_conflict'
+        throw err
+      }
+      return original(path, options)
+    })
+
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+    // 履歴は端末へ確定しない（サーバーの内容が正）
+    expect(historyEntries()).toHaveLength(0)
+
+    // ホームで離脱できる。active は1件も送らない
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(16)
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+    expect(completeCalls).toBe(1)   // 再送しない
+  })
+})

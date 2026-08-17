@@ -37,8 +37,10 @@ import {
   saveInventoryToD1, loadInventoryFromD1, saveState,
   saveOrderToD1, loadOrdersFromD1,
   loadMovementsFromD1, resumePendingSaves, pendingCount, rejectedSaves,
-  noteAuthInvalidated, clearAuthBlock,
+  noteAuthInvalidated, clearAuthBlock, queuePendingSave,
 } from './composables/useStore.js'
+import { buildCompletionRequest, completionErrorMessage, COMPLETION_STOCK } from './services/sessionCompletion.js'
+import { resumeAfterLogin } from './services/authResume.js'
 import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
@@ -99,7 +101,7 @@ const {
   isCompleted, completedAt,
   entryLog,
   setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
-  completeSession, reopenSession,
+  completeSession,
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
@@ -165,10 +167,10 @@ const guestResult      = ref(null)   // 結果スナップショット（null = 
 const guestResultError = ref('')
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
-  pendingSession, isCompleting: completing,
+  pendingSession, isCompleting: completing, completionUnknown,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
-  clear: clearSession,
+  verifyCompletion, clear: clearSession,
 } = useSession()
 
 // ── 完了セッションの NEW バッジ ───────────────────────────────────────────────
@@ -291,11 +293,15 @@ async function _syncHistoryFromD1(remoteHistory) {
 
 // スナップショットを D1 へ送り、成功したらサーバーの revision を端末へ書き戻す。
 // dirty（端末でだけ訂正した状態）を下ろすのはサーバーが受け付けた後だけ。
-// dirty / synced は端末側の同期状態なのでサーバーへは送らない（保存内容に混ぜない）。
+// dirty / synced / localRev は端末側の同期状態なのでサーバーへは送らない（保存内容に混ぜない）。
+//
+// ack は**送った版にだけ**効かせる（localRev）。送信中に同じセッションの新しい訂正が
+// 作られていた場合、この応答でそれを「サーバー確認済み」にすると、一度も送っていない
+// 版が未送信キューとバックフィルの対象から外れて黙って消える。
 async function _pushSnapshot(snap) {
-  const { dirty, synced, ...payload } = snap
+  const { dirty, synced, localRev, ...payload } = snap
   const { ok, result } = await saveSnapshotToD1(payload)
-  if (ok) markSnapshotSynced(snap.sessionId ?? snap.date, result)
+  if (ok) markSnapshotSynced(snap.sessionId ?? snap.date, result, localRev ?? null)
   return ok
 }
 
@@ -340,12 +346,25 @@ async function onAuthDone() {
   // 401 で止めていた再送を解除する（DATA-001 §2）。送るのは現在の店舗ぶんだけなので、
   // 別店舗へログインした場合に旧店舗の未送信データは送られない。
   // 別アカウントなら useAuth の accountReset が先に旧店舗ぶんを破棄している。
-  clearAuthBlock()
-  await _pullAccountConfig()
+  //
+  // **drain の完了を待ってから pull する**（第2セッション §6）。同じ店舗へ再ログインした
+  // 直後は、端末側にサーバーより新しい未送信の版が残っている。先にリモートを読むと
+  // 古い内容でローカルを上書きし、送るべき差分ごと消える。順序は services/authResume.js。
+  await resumeAfterLogin({
+    drain: clearAuthBlock,
+    pull:  _pullAccountConfig,
+    // 送り切れていない。リモートは反映しない（未送信の変更が消えるため）。
+    // キューは残り、指数バックオフの再送とバナーの導線がそのまま効く。
+    onPendingLeft: (n) => showToast(
+      `未送信の変更が${n}件残っています。送信できるまでこの端末の内容を表示します`, 6000, 'warning',
+    ),
+  })
 }
 
 // セッション一覧から「セッション開始」（棚卸=stock / 発注=order の型付きセッション）
 async function onSessionStart(session, mode = 'stock') {
+  // 完了処理の最中に別セッションへ移ると、完了要求の対象と端末の状態がずれる
+  if (_blockedByCompletion()) return
   const isOrder = mode === 'order'
   sessionMode.value = isOrder ? 'order' : 'stock'
   // 棚卸: 残存ルームを解散。発注: 棚卸ルームは壊さず、この端末は現在のルームから離脱のみ。
@@ -391,6 +410,7 @@ function openMovement() {
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
 let _prepracticeConfig = null
 async function onStartPractice() {
+  if (_blockedByCompletion()) return
   sessionMode.value = 'stock'
   if (hasHostToken('stock')) await dissolveRoomRemote('stock')
   if (syncActive.value) leaveRoom()
@@ -422,6 +442,7 @@ function _exitPractice() {
 const viewSessionLoading = ref(false)
 async function onViewSession(session) {
   if (viewSessionLoading.value) return
+  if (session?.id && session.id === pendingSession.value?.id && _blockedByCompletion()) return
   // sessionId で一致するものだけを端末の記録として採用する。
   // 以前は「日付が同じスナップショット」へfallbackしていたが、同じ日に2回棚卸すると
   // 別セッションの中身を出してしまう。取り違えて見せるより、サーバーから取り直す（fail-closed）。
@@ -476,6 +497,7 @@ async function onSnapshotPatched(snap) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
+  if (_blockedByCompletion()) return
   sessionMode.value = session?.type === 'order' ? 'order' : 'stock'
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
@@ -740,13 +762,17 @@ function _configPayload() {
 // 即時に現在の config を D1 へ保存（空リスト開始の確定など、デバウンスを待てない場面用）
 function _persistConfigToD1() {
   clearTimeout(_configSaveTimer)
+  _configSaveTimer = null
   saveConfigToD1(_configPayload())
 }
 
 let _configSaveTimer = null
 setConfigChangedCallback(() => {
   clearTimeout(_configSaveTimer)
-  _configSaveTimer = setTimeout(() => { saveConfigToD1(_configPayload()) }, 2000)
+  _configSaveTimer = setTimeout(() => {
+    _configSaveTimer = null
+    saveConfigToD1(_configPayload())
+  }, 2000)
 })
 setDoneCallback((name, isFinal) => {
   const msg = isFinal
@@ -853,10 +879,17 @@ setRemoteUpdateCallback((ingredient, qty, unit, by) => {
   showToast(msg, 2800, 'update')
 })
 setSessionEndedCallback(async (status, sessionId, itemCount) => {
-  const count = itemCount ?? filledCount.value ?? 0
   // ホスト自身の完了処理が走っている最中に自分の session_ended を受けても、
   // useSession が実行中の1本へ合流させるので完了要求は増えない。
-  if (status === 'completed') await completeSessionD1(count, { inventory: { ...inventory }, prices: config.prices ?? {} })
+  //
+  // 完了要求は本番経路すべてで同じ helper から作る（第2セッション §2）。
+  // 以前はここだけ snapshot 無しで呼んでおり、snapshot 必須化した現行 Worker では
+  // 400 snapshot_required になる＝ホストの完了がこの経路から壊れていた。
+  if (status === 'completed' && pendingSession.value?.id) {
+    const req = _buildCompletionRequest()
+    if (req.ok) await completeSessionD1(req)
+    else console.error('[App] session_ended: completion payload unavailable:', req.reason)
+  }
 
   if (!syncIsHost.value && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
@@ -900,6 +933,7 @@ setAccountResetHandler(() => {
  */
 setAuthInvalidatedHandler(() => {
   const lostShop = noteAuthInvalidated(shopCode.value)
+  _flushDebouncedSavesToQueue(lostShop)
   _saveDraft(pendingSession.value?.id)
   if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
   clearAuthLocal()
@@ -1155,6 +1189,8 @@ function _clearDraft(sessionId) {
 // セッション削除時は対応するスナップショット（分析データ）も削除する。
 // 残しておくと在庫分析の対象として選べてしまうため、履歴からも消す。
 function onDeleteSession(sessionId) {
+  // 完了要求の対象を、結果が出る前に破棄させない
+  if (sessionId && sessionId === pendingSession.value?.id && _blockedByCompletion()) return
   _clearDraft(sessionId)
   if (!sessionId) return
   // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
@@ -1182,14 +1218,18 @@ watch(filledCount, (count) => {
 // 数量編集（品目数が変わらない更新）も捕捉するため inventory/recountFlags を deep watch。
 let _invD1Timer    = null
 let _invD1LastSave = 0
-function _flushInventoryToD1() {
-  _invD1LastSave = Date.now()
-  saveInventoryToD1({
+function _inventoryPayload() {
+  return {
     inventory:    { ...inventory },
     recountFlags: { ...recountFlags },
     sessionId:    pendingSession.value?.id ?? null,
-    savedAt:      _invD1LastSave,
-  })
+    savedAt:      Date.now(),
+  }
+}
+function _flushInventoryToD1() {
+  _invD1Timer    = null
+  _invD1LastSave = Date.now()
+  saveInventoryToD1(_inventoryPayload())
 }
 function _persistInventoryToD1() {
   if (!shopCode.value || isCompleted.value) return
@@ -1201,6 +1241,31 @@ function _persistInventoryToD1() {
   _invD1Timer = setTimeout(_flushInventoryToD1, 3000)
 }
 watch([inventory, recountFlags], _persistInventoryToD1, { deep: true })
+
+/**
+ * 認証失効の瞬間に、まだ送っていないデバウンス中の変更を未送信キューへ確定する
+ * （第2セッション §6）。
+ *
+ * 失効ハンドラは shopCode と token を消す。デバウンスの timer はそのまま残っており、
+ * 発火しても `_save` が「店舗未設定」で何も送らずに捨てていた。数十秒ぶんの入力と
+ * 品目リストの変更が、キューにも端末にも残らないまま消える経路だった。
+ *
+ * 無効なトークンで送らず、**送信せずにキューへ入れるだけ**にする。同じ店舗へ
+ * 再ログインしたときの drain が改めて送る。
+ */
+function _flushDebouncedSavesToQueue(code) {
+  if (!code) return
+  if (_configSaveTimer) {
+    clearTimeout(_configSaveTimer)
+    _configSaveTimer = null
+    queuePendingSave('config', _configPayload(), { shopCode: code })
+  }
+  if (_invD1Timer) {
+    clearTimeout(_invD1Timer)
+    _invD1Timer = null
+    queuePendingSave('inventory', _inventoryPayload(), { shopCode: code })
+  }
+}
 
 // 起動・セッション再開時に D1 から進行中在庫を復旧（ローカルが空 or D1 が新しい場合のみ）
 async function _restoreInventoryFromD1() {
@@ -1273,6 +1338,44 @@ async function onComplete() {
 let _finishing = false
 
 /**
+ * 完了要求の組み立て（本番の完了経路はすべてここを通る・第2セッション §2）。
+ *
+ * 種別ごとの契約は services/sessionCompletion.js に置き、組み立てられない場合は
+ * API を呼ばずに理由を返す。発注セッションへ架空の snapshot を付けない。
+ *
+ * **結果不明のあいだは同じ body を保持して再送する（第2セッション §7）。**
+ * server は canonical snapshot 全体から fingerprint を作り、内容が違う再送を
+ * `409 completion_intent_conflict` で拒否する。応答を取りこぼした要求がサーバー側で
+ * 確定していた場合、組み立て直した body（`auditLog` が1件増えているだけでも）では
+ * 二度と確定できない。サーバーが受け付けていないと断定できた失敗のときだけ捨て、
+ * 最新の入力で作り直す。
+ */
+let _completionIntent = null   // { sessionId, request }
+
+function _dropCompletionIntent() { _completionIntent = null }
+
+function _buildCompletionRequest() {
+  const sessionId = pendingSession.value?.id ?? null
+  if (_completionIntent && _completionIntent.sessionId === sessionId) return _completionIntent.request
+
+  const type = pendingSession.value?.type ?? sessionMode.value
+  // 端末へは書かない。完了APIと同じ要求で送るためだけの組み立て（DATA-001 / 第2セッション）。
+  // 発注セッションでは snapshot 自体を作らない（送れないので作る意味が無い）。
+  const snapshot = type === 'order' ? null
+    : buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, sessionId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
+
+  const request = buildCompletionRequest({
+    sessionType: type,
+    snapshot,
+    inventory,
+    prices:     config.prices ?? {},
+    orderCount: Object.keys(orderDraft.value).length,
+  })
+  if (request.ok) _completionIntent = { sessionId, request }
+  return request
+}
+
+/**
  * 棚卸／発注を締める本体（ホスト・ソロ共通）。
  *
  * **サーバーが完了を受け付けるまで、端末側の状態を一切変えない。**
@@ -1293,23 +1396,32 @@ let _finishing = false
 async function _finishSession(completionCount, isHostInRoom) {
   const completedId = pendingSession.value?.id
 
-  // 端末へは書かない。完了APIと同じ要求で送るためだけの組み立て（DATA-001 / 第2セッション）。
-  const snapshot = buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, completedId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
-  // サーバーは sessions・inventory_lines・store_history を1トランザクションで書く。
+  const req = _buildCompletionRequest()
+  if (!req.ok) {
+    // 通らないと分かっている要求はサーバーへ投げない。理由をそのまま伝える。
+    console.error('[App] completion payload unavailable:', req.reason)
+    showToast(completionErrorMessage(req.reason), 6000, 'error')
+    return
+  }
+  // stock はサーバーが sessions・inventory_lines・store_history を1トランザクションで書く。
   // 成功条件には snapshotSaved を含める（useSession）。明細が入らない完了は完了ではない。
-  const completed = await completeSessionD1(completionCount, {
-    inventory: { ...inventory }, prices: config.prices ?? {}, snapshot,
-  })
+  // order は sessions だけを更新し、明細の正本は orders / order_lines に残る。
+  const completed = await completeSessionD1(req)
   if (!completed?.ok) {
     // 入力値・draft・pendingSession・ルーム・参加者はすべて保持したまま。
     // 読み取り専用にもしていないので、同じ画面の同じボタンからそのまま再試行できる。
-    _warnCompleteUnsaved()
+    _warnCompleteUnsaved(completed)
+    // サーバーが受け付けていないと断定できた失敗だけ、要求を捨てて次回作り直す。
+    // 結果不明のときに捨てると、確定済みかもしれない内容と違う body で再送してしまう。
+    if (completed?.unknown === false && !completed?.conflict) _dropCompletionIntent()
     return
   }
 
   // ── ここから下は完了が成立した場合だけ ──
+  _dropCompletionIntent()
   completeSession()                              // 端末を読み取り専用へ
-  commitSnapshot(snapshot, completed.result)     // 履歴へ確定（サーバー確認済みとして）
+  // 履歴へ確定（サーバー確認済みとして）。order は store_history を持たない。
+  if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
 
   // 前回までの棚卸を恒久ロック（新しい方を後で削除してもロックは外れない）。
   // 完了が成立した後なので、失敗しても今回の記録は失われない。
@@ -1336,11 +1448,42 @@ async function _finishSession(completionCount, isHostInRoom) {
 
 
 // 完了をサーバーへ書けなかったときの通知（DATA-001）。
-// 明細・完了状態・スナップショットは1トランザクションなので、失敗した＝サーバー側には
+// 明細・完了状態・スナップショットは1トランザクションなので、拒否された＝サーバー側には
 // 何も入っていない。端末側の入力・下書き・セッションはそのまま残っており、
 // 同じ画面の同じボタンから同じ内容で再試行できる。
-function _warnCompleteUnsaved() {
-  showToast('サーバーへ完了を記録できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度完了してください', 8000, 'error')
+//
+// 応答が返らなかった場合（result 不明）は「入っていない」と断定できない。
+// この状態では active も書かないので、案内は再送またはサーバー状態の確認へ寄せる。
+function _warnCompleteUnsaved(result = null) {
+  // 別内容で既に確定済み（409 completion_intent_conflict）。再試行では解消せず、
+  // サーバーの記録は無傷。この session へ後からの変更を足す手段は無い。
+  if (result?.conflict) {
+    showToast(
+      `この${actNoun.value}はサーバー上で別の内容として確定済みです。確定後にこの端末で変えた内容は保存できません。一覧から確定済みの内容を確認してください`,
+      9000, 'error',
+    )
+    return
+  }
+  const msg = result?.unknown
+    ? `${actNoun.value}の完了結果を確認できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度「完了」を押すと、送信時と同じ内容で確定できます（それ以降の変更は含まれません）`
+    : 'サーバーへ完了を記録できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度完了してください'
+  showToast(msg, 8000, 'error')
+}
+
+/**
+ * 完了処理が競合する操作（ホーム・戻る・セッション切替・破棄）を止める。
+ * @returns {boolean} true = 進行中なので呼び出し側は処理を中断する
+ */
+function _blockedByCompletion() {
+  if (completing.value) {
+    showToast(`${actNoun.value}の完了処理中です。結果が出るまでお待ちください`, 3000, 'warning')
+    return true
+  }
+  if (completionUnknown.value) {
+    showToast(`${actNoun.value}の完了結果が未確定です。もう一度「完了」を押して確定してください`, 4000, 'warning')
+    return true
+  }
+  return false
 }
 
 
@@ -1363,6 +1506,19 @@ async function onGoHome() {
     return
   }
 
+  // 完了要求が走っている間は画面を離れない。以前はここで isCompleted がまだ false のため
+  // markSessionActive() が走り、直後に確定するサーバー側の completed を active へ
+  // 巻き戻していた（明細と履歴はあるのに進行中に見えるセッションができる）。
+  if (completing.value) {
+    showToast(`${actNoun.value}の完了処理中です。結果が出るまでお待ちください`, 3000, 'warning')
+    return
+  }
+  // 結果不明: active は書かず、まずサーバーの状態を確認してから同じ完了要求を送り直す。
+  if (completionUnknown.value) {
+    await _resolveUnknownCompletion()
+    return
+  }
+
   const hasData = filledCount.value > 0
 
   // ホスト中のみ確認（ホストは退出するがルームは残り、ゲストは継続できる）
@@ -1378,11 +1534,27 @@ async function onGoHome() {
     // 完了済みセッションを離れる経路でも、サーバーへ書けなければ画面を離れない。
     // ここで抜けると draft と session 参照が消え、完了を記録し直す手段が無くなる。
     // 完了ボタンの要求が走っている最中なら、useSession がそれへ合流させる（要求は1本）。
-    const completed = await completeSessionD1(filledCount.value, { inventory: { ...inventory }, prices: config.prices ?? {} })
-    if (!completed?.ok) {
-      reopenSession()
-      _warnCompleteUnsaved()
+    //
+    // 送るのは完了ボタンと同じ helper の payload（第2セッション §2）。
+    // 以前はここだけ snapshot 無しで呼んでおり、現行 Worker では 400 になる。
+    const req = _buildCompletionRequest()
+    if (!req.ok) {
+      console.error('[App] completion payload unavailable (go home):', req.reason)
+      showToast(completionErrorMessage(req.reason), 6000, 'error')
       return
+    }
+    const completed = await completeSessionD1(req)
+    if (!completed?.ok) {
+      // reopenSession() は呼ばない。完了済みを端末側で「進行中」へ戻すと、
+      // 次のホームで active がサーバーへ飛び、確定済みの completed を巻き戻す。
+      _warnCompleteUnsaved(completed)
+      // 別内容で確定済み（409）なら、この画面から確定し直す手段は無い。
+      // サーバーの記録を正として離脱させる（次の履歴取得で正しい内容が入る）。
+      if (!completed?.conflict) return
+      _dropCompletionIntent()
+    } else {
+      _dropCompletionIntent()
+      if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
     }
   } else {
     _saveDraft(pendingSession.value?.id)
@@ -1397,8 +1569,33 @@ async function onGoHome() {
   sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
 
+/**
+ * 完了結果が不明なまま離脱しようとしたときの収束処理（第2セッション §1）。
+ *
+ * 1. サーバーの状態を読み直す。まだ active なら、同じ完了要求をそのまま送り直す
+ *    （sessionId も内容も同じなのでサーバー側は冪等）。
+ * 2. 既に completed なら、端末側の確定（読み取り専用・履歴・後片付け）を進める。
+ * 3. どちらも確認できなければ、active を書かずに画面へ留まる。
+ */
+async function _resolveUnknownCompletion() {
+  if (_finishing) return
+  _finishing = true
+  try {
+    const state = await verifyCompletion()
+    if (!state.ok) {
+      showToast(`${actNoun.value}の完了結果を確認できませんでした。接続が戻ってからもう一度「完了」を押してください`, 6000, 'warning')
+      return
+    }
+    // active でも completed でも、同じ完了要求を送り直せば端末とサーバーが揃う。
+    await _finishSession(filledCount.value, syncActive.value && syncIsHost.value)
+  } finally {
+    _finishing = false
+  }
+}
+
 // 完了後に新規棚卸を開始
 async function onStartNew() {
+  if (_blockedByCompletion()) return
   // ホスト中はルームを解散してから開始（ゲストと在庫が乖離するのを防ぐ）
   if (syncIsHost.value && syncActive.value) {
     if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
@@ -2402,7 +2599,7 @@ function dismissReview() {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" @click="onGoHome" :title="practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る'">🏠</button>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onGoHome" :title="practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る'">🏠</button>
           <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
@@ -2422,7 +2619,7 @@ function dismissReview() {
           <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
             <AppMenu context="session">
               <template #default="{ close }">
-                <button v-if="isAuthenticated" class="am-item" @click="close(); onGoHome()">
+                <button v-if="isAuthenticated" class="am-item" :disabled="completing" @click="close(); onGoHome()">
                   <span class="am-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
                 </button>
                 <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
