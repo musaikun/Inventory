@@ -2,6 +2,65 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-17 — DATA-002 第1修正セッション 追加分: 再レビュー指摘（Worker / D1）
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `38cf1cc`（clean・ancestor確認済み）。
+- `38cf1cc` は既にローカル develop へ fast-forward 済みのため、**amend / reset / rebase せず追加差分**で修正した。
+- 範囲は `worker/**` と現行API/DB/削除/release文書のみ。**`app/src` は差分ゼロ**。
+- 状態は `進行中` → `レビュー待ち / Claude Code`。`DATA-001` / `IMPORT-001` / `WEB-001` / `WEB-07` は変更していない。
+- commit / push / deploy / migration適用は**していない**。
+
+### 直したこと（詳細は [`tasks/DATA-002.md`](tasks/DATA-002.md) の 2026-08-17 節）
+
+1. **汎用PUTで完了契約を迂回できないようにした**。`PUT /sessions/:id` に `completed` を送ると
+   409 `use_complete_endpoint`（書込み0件）。lines も history も無い completed session を作れなくした。
+2. **棚卸日を `takenAt` ひとつに統一**。`snapshot.date` が違えば 400 `snapshot_date_mismatch`。
+   明細が 08-09・履歴が 08-10 という分裂した記録を作れなくした。
+3. **完了は最初の1要求だけが確定できる**（**migration 0016 追加・未適用**）。
+   確定内容は server 生成 fingerprint として `session_completions` に残る。
+   同一 intent の再送は保存済み結果、内容の違う再送は 409 `completion_intent_conflict`。
+4. **時刻 marker を廃止**。`ended_at === now` は排他 token にならないため、
+   claim（PRIMARY KEY + fingerprint）へ全文を従属させる形へ統一した。取込も同じ形。
+   これに伴い `MAX_REPLACE_SESSIONS` を 40 → **50 へ戻した**（旧guard形状のための制約が消えたため）。
+5. **stale ledger / claim で嘘をつかない**。replay 成功には session と `store_history` の実在を要求。
+   あわせて `DELETE /sessions/:id` を5文の1 batch（lines / history / 台帳 / claim / session）にし、
+   `DELETE /history/:sessionId` と `DELETE /imports/:batchId` も台帳・claim を整合させた。
+6. **account削除**に `session_completions` を追加し、testで両店舗をseedして境界を固定。
+7. **migration切替境界**を `web-release-readiness.md` に明文化（preflight件数・許容判断・maintenance条件）。
+8. 現行文書（`ci-cd.md` / `spec.md` / `README.md` / `api-design.md` / 削除contract / roadmap）の
+   migration記載を 0010〜0016 へそろえた。
+
+### 修正前に失敗を確認したtest
+
+新規2ファイル（`test/completionClaim.sqlite.test.js` / `test/ledgerLifecycle.sqlite.test.js`）と
+`accountDeletion.test.js` の追加分、計41件のうち **23件が `38cf1cc` で失敗**。修正後は全件成功。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 26 files / 511 tests passed |
+| `npm --prefix app test -- --run src/App.complete.test.js` | 13 passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed（**既知のtimeoutは再現せず**） |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+D1実行上限の実測（実SQLiteハーネス・batch内statementも1本ずつ計上）:
+完了500品目 = 35 queries / 99 bound params、取込500行+replace50件 = 38 queries / 99 bound params。
+
+### 次の再開地点
+
+**App セッションで5点の追随が必要**（Worker差分だけを統合すると壊れる）。
+
+1. `App.vue:859` `setSessionEndedCallback` — snapshot なしの `completeSessionD1`
+2. `App.vue:1381` `onGoHome` の完了済み経路 — 同上
+3. order モードの完了 — `{ itemCount }` を送る分岐（`useAuth.completeSession()` に引数追加）
+4. `snapshot.date` と `takenAt` を一致させる（不一致は 400 `snapshot_date_mismatch`）
+5. 409 `completion_intent_conflict` / `use_complete_endpoint` の扱い（前者は retryable ではない）
+
+その後 Codex が全差分を独立レビューする。`SEC-005` は `未着手 / Codex` のまま。
+
 ## 2026-08-16 — DATA-002 第1修正セッション: Worker / D1 / API整合性
 
 - 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、開始HEAD `e095282`（clean・ancestor確認済み）。

@@ -34,7 +34,7 @@ import { parseQty, text, chunk } from './validate.js'
  *
  * @returns {{ statements?: object[], rows?: object[], itemCount?: number, totalValue?: number|null, error?: object }}
  */
-export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inventory, prices }) {
+export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inventory, prices, claim = null }) {
   const rows = []
   const seen = new Set()
   let total = 0
@@ -80,9 +80,24 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
     })
   }
 
+  // claim を渡すと「この要求が勝者である」ことにも従属させる（DATA-002 §3）。
+  // claim は `sessions s` と相関する EXISTS なので、1文あたり bound parameter を
+  // fingerprint の1個しか増やさない（constants.js の行数計算はこれを織り込んでいる）。
+  const claimSql   = claim ? ` AND ${claim.sql}` : ''
+  const claimBinds = claim ? claim.binds : []
+
+  const deleteBinds = [sessionId, shopCode]
+  let deleteClaimSql = ''
+  if (claim) {
+    // DELETE には `sessions s` が無いので、非相関の EXISTS を使う。
+    deleteClaimSql = ` AND EXISTS (SELECT 1 FROM session_completions c
+      WHERE c.shop_code = ? AND c.session_id = ? AND c.fingerprint = ?)`
+    deleteBinds.push(shopCode, sessionId, ...claimBinds)
+  }
+
   const statements = [
-    db.prepare('DELETE FROM inventory_lines WHERE session_id = ? AND shop_code = ?')
-      .bind(sessionId, shopCode),
+    db.prepare(`DELETE FROM inventory_lines WHERE session_id = ? AND shop_code = ?${deleteClaimSql}`)
+      .bind(...deleteBinds),
   ]
 
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
@@ -91,14 +106,14 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
     const binds = []
     binds.push(takenAt)                                   // SELECT リストの ?（文ごと1個）
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
-    binds.push(sessionId, shopCode)                       // WHERE の ?（文ごと2個）
+    binds.push(sessionId, shopCode, ...claimBinds)        // WHERE の ?（文ごと2〜3個）
 
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
         (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
       SELECT s.id, s.shop_code, ?, v.item, NULL, v.qty, v.unit, v.price, v.value
       FROM sessions s, (${values}) v
-      WHERE s.id = ? AND s.shop_code = ?
+      WHERE s.id = ? AND s.shop_code = ?${claimSql}
     `).bind(...binds))
   }
 

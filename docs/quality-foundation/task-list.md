@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-16
+最終更新: 2026-08-17
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -28,7 +28,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約とreplaceの原子guardまで修正（**App側3経路の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側5点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
@@ -107,6 +107,17 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-17: DATA-002 の再レビュー指摘を修正し、`レビュー待ち / Claude Code` を維持。
+  汎用PUTからの完了迂回を409 `use_complete_endpoint`で塞ぎ、棚卸日を`takenAt`ひとつに統一
+  （不一致は400 `snapshot_date_mismatch`）、完了確定をserver生成fingerprintのclaimで一意化
+  （**migration 0016 追加・未適用**／内容の違う再送は409 `completion_intent_conflict`）、
+  過去取込の所有権guardから時刻markerを廃止して同じclaim方式へ統一、
+  stale ledger/claimでの偽の成功をfail-closedにし、session/history/batch/account削除と整合させた。
+  `MAX_REPLACE_SESSIONS`はguard再設計により40→**50へ復帰**。
+  migration切替境界（preflight件数・maintenance条件）を`web-release-readiness.md`へ明文化し、
+  現行docsのmigration記載を0010〜0016へそろえた。`app/src`は差分ゼロ。
+  **App側5点の追随が必要**（詳細は [`DATA-002.md`](tasks/DATA-002.md)）。
+  `DATA-001` / `IMPORT-001` / `WEB-001` / `WEB-07` の状態・担当は変更していない。
 - 2026-08-16: DATA-002 の第1修正セッション（Worker / D1 / API整合性）を実装し、
   `レビュー待ち / Claude Code` へ戻した。stock/orderで完了契約を分離（orderは`store_history`を書かず
   正本は`orders`/`order_lines`）、stock snapshotをserver側でcanonical化、completed→activeの巻き戻しを409で禁止、

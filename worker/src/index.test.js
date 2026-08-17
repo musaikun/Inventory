@@ -175,6 +175,12 @@ function createMockD1({ failTables = [] } = {}) {
       }
       return { success: true, meta: { changes: before - history.length } }
     }
+    // 取込台帳（migration 0015）と完了claim（migration 0016）。
+    // このモックはルーティングとHTTPステータスの検証用なので、行は持たず件数0で応答する。
+    // 実データを伴う挙動は test/ledgerLifecycle.sqlite.test.js（実SQLite）で固定している。
+    if (s.startsWith('DELETE FROM import_batch_requests') || s.startsWith('DELETE FROM session_completions')) {
+      return { success: true, meta: { changes: 0 } }
+    }
     if (s.startsWith('SELECT id, shop_code, started_at')) return []
     // GET /store/:code/sessions/:id/lines（DATA-002 Phase 1）
     // shop_code を WHERE に含まないSQLでは絞り込まない＝店舗境界の抜けをテストで検出する

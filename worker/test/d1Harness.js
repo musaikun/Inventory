@@ -74,7 +74,20 @@ export function createD1() {
     return stmt
   }
 
-  async function batch(statements) {
+  // D1 は1データベースあたり書き込みを直列化し、batch は
+  // 「execute and commit, sequentially, non-concurrently」（公式）。
+  // ここでも batch 同士を直列化する。並行要求のテストで2つの BEGIN が入れ子にならず、
+  // 「先に確定した側が勝つ」という実際の順序をそのまま再現できる。
+  let batchLock = Promise.resolve()
+
+  function batch(statements) {
+    const run = batchLock.then(() => _batch(statements), () => _batch(statements))
+    // lock 自体は失敗を伝播させない（次の batch は前の失敗に関係なく走る）
+    batchLock = run.then(() => {}, () => {})
+    return run
+  }
+
+  async function _batch(statements) {
     lastBatchSize = statements.length
     maxBatchSize  = Math.max(maxBatchSize, statements.length)
     maxBoundParams = Math.max(maxBoundParams, 0, ...statements.map(s => s.boundParams?.() ?? 0))

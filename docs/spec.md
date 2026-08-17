@@ -34,7 +34,7 @@
 | 棚卸履歴 | `sessions`、`inventory_lines`、日付keyの`store_history`、端末local historyを併用 | snapshot保存とsession完了は独立write。同日上書き、孤児、別端末で詳細を読めない問題を[DATA-001](quality-foundation/tasks/DATA-001.md) / [DATA-002](quality-foundation/tasks/DATA-002.md)で未解消 |
 
 repositoryのCORS実装はfail-closedですが、許可host設定と稼働中production Workerは現行repositoryと
-一致していません。migration 0010/0011、Pages routing、CORS、smokeを含む公開状態は
+一致していません。migration 0010〜0016、Pages routing、CORS、smokeを含む公開状態は
 [Web公開準備](quality-foundation/web-release-readiness.md)だけで判定します。
 
 ## 将来A1の境界（現行仕様ではない）
@@ -150,7 +150,7 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0011）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0016）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
@@ -164,6 +164,8 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 | `login_attempts` / `ip_attempts` | レート制限 | フェイルオープン実装 |
 | `push_subscriptions` | プッシュ通知購読 | |
 | `account_deletion_receipts` | 削除再送の冪等receipt | account識別子なし、7日後cron削除（0011） |
+| `import_batch_requests` | 過去棚卸取込の要求台帳（応答喪失からの再送判定） | 0015。**本番未適用** |
+| `session_completions` | 棚卸完了のclaim（確定は最初の1要求だけ） | 0016。**本番未適用** |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）
 

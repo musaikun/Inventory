@@ -77,7 +77,11 @@ export function rowsPerStatement(perRow, fixed) {
 
 // 各明細テーブルのまとめ行数。JOIN 元（sessions / orders / movements）で持ち主を確認するため、
 // 文ごとの固定パラメータに id と shop_code を含む。
-export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 3)   // item,qty,unit,price,value ／ takenAt,id,shop = 19
+//
+// inventory_lines は加えて「この要求が勝者である」claim へ従属する（DATA-002 §3 / §4）。
+// claim は `sessions s` と相関する EXISTS なので、増える bound parameter は fingerprint の1個だけ:
+//   takenAt(1) + id(1) + shop(1) + fingerprint(1) = 4
+export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 4)   // item,qty,unit,price,value ／ takenAt,id,shop,claim = 19
 export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 4)   // item,qty,unit,stock,lot,post,excluded ／ date,createdAt,id,shop = 13
 export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty,unit ／ date,createdAt,id,shop = 32
 
@@ -97,13 +101,18 @@ export const MAX_LINES_PER_REQUEST = 500
 // 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる。
 //
 // 2026-08-16: 削除の権限判定を preflight SELECT から**文中の原子 guard**へ移した
-// （DATA-002 §3 / TOCTOU）。guard は同じ ID 一覧をもう一度 IN 句で参照するため、
-// 1文あたりの bound parameter は概ね次のとおり:
-//   DELETE ... WHERE shop_code=?(1) AND session_id IN (N) AND <guard: shop_code(1) + IN(N) + date(1) + count(1)>
-//   = 2N + 4 ≦ D1_MAX_BOUND_PARAMS(100)  →  N ≦ 48
-// 余白を残して 40 とする（実運用では1日に共存する棚卸は1〜2件）。
+// （DATA-002 §3 / TOCTOU）。当初の guard は同じ ID 一覧をもう一度 IN 句で参照したため
+// 1文あたり 2N + 4 となり、上限を 40 まで下げていた。
+//
+// 2026-08-17: guard を**取込台帳（claim）への従属**へ置き換えた（DATA-002 再レビュー §4）。
+// 件数条件を評価するのは台帳 INSERT の1文だけで、以降の文は
+// 「自分の fingerprint の台帳行が存在するか」だけを見る。ID 一覧の二重参照が無くなり、
+// 1文あたりの bound parameter は次のとおり:
+//   台帳 INSERT   : 値9 + 件数guard(shop 1 + IN N + date 1 + count 1) = N + 12
+//   replace DELETE: shop(1) + IN(N) + 台帳EXISTS(4)                    = N + 5
+// N = 50 でも 62 / 55 で D1_MAX_BOUND_PARAMS(100) に収まるため、50 へ戻す。
 // 超過は書き込み前に 400 invalid_replace で拒否する。
-export const MAX_REPLACE_SESSIONS = 40
+export const MAX_REPLACE_SESSIONS = 50
 
 // ── 完了 snapshot の metadata 上限（DATA-002 §1）──────────────────────────────
 // snapshot の主要項目（items / itemCount / totalValue / date / sessionId / type）は

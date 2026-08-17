@@ -145,24 +145,53 @@ export function historySnapshotStatement(db, code, snapshot, now) {
  * （本番D1で両方向の孤児を確認済み・DATA-002 / F-004）。
  * batch は途中で中断できないので、文ごとに存在条件を閉じておく必要がある。
  */
-export function sessionSnapshotStatement(db, code, sessionId, snapshot, now, { endedAt = null } = {}) {
+export function sessionSnapshotStatement(db, code, sessionId, snapshot, now, { claim = null } = {}) {
   const date = snapshot?.date || now.slice(0, 10)
   const json = JSON.stringify({ ...snapshot, sessionId, date })
-  // endedAt を渡すと「そのセッション行が **この要求で** 書かれた場合だけ」という
-  // 条件が加わる（過去取込の原子 guard 用・DATA-002 §3）。同じ batch の先頭で
-  // ended_at をこの要求の時刻に更新しておき、その更新が起きなかった場合に
-  // snapshot だけが書かれるのを防ぐ。
-  const markerSql   = endedAt ? ' AND s.ended_at = ?' : ''
-  const markerBinds = endedAt ? [endedAt] : []
+  // claim を渡すと「**この要求が勝者である**ことを示す claim 行が存在する場合だけ」という
+  // 条件が加わる（DATA-002 §3 / §4）。claim は同じ batch の先頭で、server が作った
+  // fingerprint とともに排他的に INSERT される。
+  //
+  // 旧実装は `s.ended_at = <この要求の時刻>` を所有権 marker にしていたが、
+  // ミリ秒精度の時刻は排他的 token にならない。同じミリ秒の別要求が同じ marker を
+  // 満たしてしまい、409 を返した側の snapshot だけが残りうる。
+  const claimSql   = claim ? ` AND ${claim.sql}` : ''
+  const claimBinds = claim ? claim.binds : []
   return db.prepare(`
     INSERT INTO store_history (shop_code, session_id, snapshot_date, snapshot_json, created_at, updated_at, revision)
     SELECT s.shop_code, s.id, ?, ?, ?, ?, ${_NEXT_REVISION}
     FROM sessions s
-    WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL${markerSql}
+    WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL${claimSql}
     ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
       SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
           updated_at = excluded.updated_at, revision = excluded.revision
-  `).bind(date, json, now, now, code, sessionId, code, ...markerBinds)
+  `).bind(date, json, now, now, code, sessionId, code, ...claimBinds)
+}
+
+/**
+ * 「この要求が勝者である」ことを表す claim 条件（SQL 断片）。
+ *
+ * 完了は `session_completions`（migration 0016）、過去取込は `import_batch_requests`
+ * （migration 0015）を claim table として使う。どちらも
+ * **PRIMARY KEY で排他的**、かつ **server が作った fingerprint を持つ**。
+ * 相関副問い合わせにして、shop_code / session_id は外側の `sessions s` から取る
+ * （bound parameter を fingerprint の1個だけに抑えるため）。
+ */
+export function completionClaimGuard(fingerprint) {
+  return {
+    sql: `EXISTS (SELECT 1 FROM session_completions c
+                   WHERE c.shop_code = s.shop_code AND c.session_id = s.id AND c.fingerprint = ?)`,
+    binds: [fingerprint],
+  }
+}
+
+/** 同上（非相関版）。`sessions s` を持たない文の WHERE へ埋める。 */
+export function completionClaimExists(code, sessionId, fingerprint) {
+  return {
+    sql: `EXISTS (SELECT 1 FROM session_completions c
+                   WHERE c.shop_code = ? AND c.session_id = ? AND c.fingerprint = ?)`,
+    binds: [code, sessionId, fingerprint],
+  }
 }
 
 /**
@@ -244,13 +273,21 @@ export async function handleHistoryDelete(db, code, key) {
   if (!isDate && !sessionId) return { _status: 400, code: 'invalid_id', error: '削除対象が不正です' }
 
   try {
-    const res = isDate
-      ? await db.prepare(
-          'DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
-        ).bind(code, key).run()
-      : await db.prepare('DELETE FROM store_history WHERE shop_code = ? AND session_id = ?')
-          .bind(code, sessionId).run()
-    return { ok: true, removed: res?.meta?.changes ?? 0 }
+    if (isDate) {
+      const res = await db.prepare(
+        'DELETE FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL'
+      ).bind(code, key).run()
+      return { ok: true, removed: res?.meta?.changes ?? 0 }
+    }
+    // sessionId 指定のときは取込台帳（0015）も同じトランザクションで消す
+    // （DATA-002 再レビュー §5）。残すと、snapshot が無いのに replay が
+    // `snapshotSaved: true` を返す「保存済みだと嘘をつく」状態になる。
+    // 台帳が消えることで、同じ batchId + 日付での取り込み直しもできる。
+    const results = await db.batch([
+      db.prepare('DELETE FROM store_history          WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
+      db.prepare('DELETE FROM import_batch_requests  WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
+    ])
+    return { ok: true, removed: results?.[0]?.meta?.changes ?? 0 }
   } catch (e) {
     // 失敗を 200 で返すと、client は「消えた」と表示したまま再試行しない。
     console.error('[storeHandler] history delete failed:', code, key, e?.message ?? e)
@@ -375,8 +412,27 @@ export async function handleSessionCreate(db, code, body = {}) {
 }
 
 // DELETE /store/:code/sessions/:id
+//
+// セッションに属するものを**1 batch（=1トランザクション）でまとめて消す**
+// （DATA-002 再レビュー §5）。旧実装は `sessions` の行だけを消しており、
+//   - `inventory_lines` / `store_history` が孤児として残る（F-004）
+//   - 取込台帳（0015）が残り、削除済みの取込を replay が「保存済み」と誤回答する
+//   - 完了 claim（0016）が残り、同じセッションIDでの再完了を塞ぎ続ける
+// という状態を作っていた。全 SQL を `shop_code` で絞るので他店舗には触れない。
 export async function handleSessionDelete(db, code, sessionId) {
-  await db.prepare('DELETE FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).run()
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM inventory_lines      WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+      db.prepare('DELETE FROM store_history        WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+      db.prepare('DELETE FROM import_batch_requests WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+      db.prepare('DELETE FROM session_completions  WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+      db.prepare('DELETE FROM sessions             WHERE id = ? AND shop_code = ?').bind(sessionId, code),
+    ])
+  } catch (e) {
+    // 途中で落ちれば batch ごと巻き戻る。一部だけ消えた状態を成功として返さない。
+    console.error('[storeHandler] session delete batch failed:', code, sessionId, e?.message ?? e)
+    return { _status: 503, code: 'session_delete_failed', retryable: true, error: '削除できませんでした' }
+  }
   return { ok: true }
 }
 
@@ -461,13 +517,31 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
   const itemCount = parseCount(body?.itemCount, MAX_LINES_PER_REQUEST)
   if (itemCount === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
 
-  const now     = _now()
-  const endedAt = status === 'active' ? null : now
+  // ── completed への遷移はこのAPIでは行わない（DATA-002 再レビュー §1）────────
+  // 汎用PUTで completed にできると、`inventory_lines` も `store_history` も持たない
+  // completed session を作れてしまう（＝一覧には出るのに詳細が空。R-001 そのもの）。
+  // 完了は必ず `POST /sessions/:id/complete` を通す。ここでは**一切書き込まない**。
+  if (status === 'completed') {
+    const row = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?')
+      .bind(sessionId, code).first()
+    if (!row) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+    // 既に completed への再送は、何も変更せず冪等成功とする。
+    if (row.status === 'completed') return { ok: true }
+    return {
+      _status: 409, code: 'use_complete_endpoint', retryable: false,
+      error: '棚卸の完了は完了APIから行ってください',
+    }
+  }
 
+  const now = _now()
+
+  // active / incomplete への遷移。completed からは戻さない（判定は WHERE 自身が持つ＝原子的）。
+  // 完了応答を取りこぼした端末は保留していた `touch()` をそのまま送ってくるため、
+  // 旧実装はそれを適用して完了済みセッションを進行中へ巻き戻していた。
   const res = await db.prepare(`
     UPDATE sessions SET status = ?, ended_at = ?, item_count = ?
     WHERE id = ? AND shop_code = ? AND status <> 'completed'
-  `).bind(status, endedAt, itemCount, sessionId, code).run()
+  `).bind(status, status === 'active' ? null : now, itemCount, sessionId, code).run()
 
   if (res?.meta?.changes === 1) return { ok: true }
 
@@ -475,8 +549,6 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
     .bind(sessionId, code).first()
   // 他店舗のIDと存在しないIDは同じ404（IDの存在有無を漏らさない）。
   if (!row) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
-  // completed → completed の再送は冪等に成功させる（同じ確定状態への再送）。
-  if (status === 'completed') return { ok: true }
   return {
     _status: 409, code: 'session_completed', retryable: false,
     error: '完了済みの棚卸は進行中に戻せません',
@@ -999,6 +1071,13 @@ function _snapshotItemLabels(raw) {
 //     未送信キューが残っている間だけ完了できなくなる。詳細の正本は `orders` 側。
 //   - 応答: `{ ok, sessionId, type:'order', itemCount, snapshotSaved:false }`
 //
+// ## 確定は1回だけ（DATA-002 再レビュー §3）
+//   最初の1要求だけが completed を確定できる。確定内容は `session_completions`
+//   （migration 0016）の claim 行に fingerprint として残る。
+//   - まったく同じ intent の再送 → 保存済みの結果をそのまま返す
+//   - 数量・単価・日付・明細・件数・合計が違う再送 → 409 `completion_intent_conflict`
+//   fingerprint は **server が検証済みの値からだけ**作る。client 送信値は信用しない。
+//
 // 冪等性: どちらも同じ要求の再送で最終状態が変わらない。
 // completed になった後の active 更新は `handleSessionUpdate` が 409 で拒否する。
 export async function handleSessionComplete(db, code, sessionId, body) {
@@ -1015,18 +1094,18 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   const now   = _now()
   const today = now.slice(0, 10)
 
-  // takenAt は inventory_lines.taken_at になり、分析・カレンダーの日付そのもの。
-  // 以前は無検証で受けていたため、'yesterday' のような文字列がそのまま列へ入り得た。
+  // 棚卸日は **takenAt ひとつ**で決まる（DATA-002 再レビュー §2）。
+  // `inventory_lines.taken_at` になり、分析・カレンダーの日付そのもの。
   const taken = parseDate(takenAt, today)
   if (taken === null) return { _status: 400, code: 'invalid_date', error: '棚卸日の形式が不正です' }
 
   const session = await db.prepare(
-    'SELECT id, type FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
+    'SELECT id, type, status FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
   ).bind(sessionId, code).first()
   if (!session) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
 
   const type = session.type === 'order' ? 'order' : 'stock'
-  if (type === 'order') return _completeOrderSession(db, code, sessionId, body, now)
+  if (type === 'order') return _completeOrderSession(db, code, sessionId, session, body, now)
 
   // ── 以降 stock ──────────────────────────────────────────────────────────────
   if (snapshot == null) {
@@ -1035,15 +1114,26 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   if (typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     return { _status: 400, code: 'invalid_snapshot', error: 'スナップショットの形式が不正です' }
   }
-  const snapDate = parseDate(snapshot.date, taken)
-  if (snapDate === null) {
-    return { _status: 400, code: 'invalid_date', error: 'スナップショットの日付が不正です' }
+
+  // snapshot.date は canonical 日付（takenAt）と一致していなければならない。
+  // 旧実装は両方を別々に受理していたため、`inventory_lines.taken_at = 08-09` と
+  // `store_history.snapshot_date = 08-10` という分裂した記録を作れた。
+  if (snapshot.date != null && snapshot.date !== '') {
+    if (!isValidDate(snapshot.date)) {
+      return { _status: 400, code: 'invalid_date', error: 'スナップショットの日付が不正です' }
+    }
+    if (snapshot.date !== taken) {
+      return {
+        _status: 400, code: 'snapshot_date_mismatch',
+        error: '棚卸日とスナップショットの日付が一致しません',
+      }
+    }
   }
 
   const built = inventoryLineStatements(db, { sessionId, shopCode: code, takenAt: taken, inventory, prices })
   // 数量・単価が業務契約に合わない場合は、何も書かずに 400 を返す（0 へ丸めない・DATA-001）。
   if (built.error) return built.error
-  const { statements, rows, itemCount, totalValue } = built
+  const { rows, itemCount, totalValue } = built
 
   // 明細が1件も無い完了は成立させない。sessions だけ completed になり、
   // inventory_lines も items も空の履歴が残る＝詳細が開けない棚卸そのもの。
@@ -1052,28 +1142,59 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   }
 
   const canonical = _canonicalStockSnapshot({
-    sessionId, date: snapDate, rows, totalValue, snapshot, now,
+    sessionId, date: taken, rows, totalValue, snapshot, now,
   })
   if (canonical.error) return canonical.error
 
-  // UPDATE を batch の先頭に置く。セッションが消えている・他店舗のものになっている場合に
-  // ここが 0 行となり、後続の INSERT も存在条件で弾かれて何も書き込まれない。
+  // server が検証済みの値だけから作る canonical intent の指紋。
+  const fingerprint = await _completionFingerprint({
+    type: 'stock', date: taken, itemCount, totalValue, rows,
+  })
+
+  // 既に確定済みなら、同じ intent の再送だけを冪等成功にする。
+  const settled = await _settledCompletion(db, code, sessionId, fingerprint, {
+    type: 'stock', requireHistory: true,
+  })
+  if (settled) return settled
+
+  const claim = completionClaimGuard(fingerprint)
+
+  // batch の先頭で claim を取る。PRIMARY KEY(shop_code, session_id) と
+  // `status <> 'completed'` により、**この batch で確定できるのは1要求だけ**。
+  // 以降の全文はこの claim 行の存在に従属するので、claim を取れなかった側は
+  // 1行も書き込めない（時刻 marker と違い、同一ミリ秒でも区別できる）。
+  const claimStatement = db.prepare(`
+    INSERT INTO session_completions
+      (shop_code, session_id, fingerprint, type, taken_at, item_count, total_value, completed_at)
+    SELECT ?, ?, ?, 'stock', ?, ?, ?, ?
+    WHERE EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL AND s.status <> 'completed'
+    )
+  `).bind(code, sessionId, fingerprint, taken, itemCount, totalValue, now, sessionId, code)
+
   const sessionUpdate = db.prepare(`
     UPDATE sessions
     SET status = 'completed', ended_at = ?, item_count = ?, total_value = ?
     WHERE id = ? AND shop_code = ? AND deleted_at IS NULL
-  `).bind(now, itemCount, totalValue, sessionId, code)
+      AND ${completionClaimExists(code, sessionId, fingerprint).sql}
+  `).bind(now, itemCount, totalValue, sessionId, code,
+          ...completionClaimExists(code, sessionId, fingerprint).binds)
+
+  // 明細も claim に従属させる（JOIN 元の sessions 経由で相関）。
+  const lineStatements = inventoryLineStatements(db, {
+    sessionId, shopCode: code, takenAt: taken, inventory, prices, claim,
+  }).statements
 
   // 表示・分析用スナップショットも同じ batch に載せる（DATA-001 / 第2セッション）。
-  // 上の SELECT と batch の間にセッションが消えても、sessionSnapshotStatement は
   // sessions を参照する INSERT ... SELECT なので snapshot だけが残ることはない。
-  const snapStatement = sessionSnapshotStatement(db, code, sessionId, canonical.snapshot, now)
-  // revision の読み戻しも同じ batch。別要求の revision を自分の応答にしない（§5）。
+  const snapStatement = sessionSnapshotStatement(db, code, sessionId, canonical.snapshot, now, { claim })
+  // revision の読み戻しも同じ batch。別要求の revision を自分の応答にしない。
   const stampStatement = historyStampStatement(db, code, { sessionId })
 
   let results
   try {
-    results = await db.batch([sessionUpdate, ...statements, snapStatement, stampStatement])
+    results = await db.batch([claimStatement, sessionUpdate, ...lineStatements, snapStatement, stampStatement])
   } catch (e) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
@@ -1081,9 +1202,19 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を保存できませんでした' }
   }
 
-  // UPDATE が 0 行 = 直前にセッションが消えた/他店舗のものになった。
-  // 明細も snapshot も存在条件で入っていないため、部分的に書かれた状態にはならない。
+  // claim を取れなかった = 直前に別要求が確定した / 既に completed だった /
+  // セッションが消えた（他店舗のものになった）。
+  // 明細も snapshot も claim 条件で 0 行なので、部分的に書かれた状態にはならない。
   if (results?.[0]?.meta?.changes !== 1) {
+    const raced = await _settledCompletion(db, code, sessionId, fingerprint, {
+      type: 'stock', requireHistory: true,
+    })
+    if (raced) return raced
+    return await _claimFailureReason(db, code, sessionId)
+  }
+
+  // UPDATE が 0 行 = claim 直後にセッションが消えた/他店舗のものになった。
+  if (results?.[1]?.meta?.changes !== 1) {
     return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
   }
 
@@ -1094,16 +1225,103 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   }
 
   return {
-    ok: true, sessionId, type: 'stock', itemCount, totalValue,
+    ok: true, sessionId, type: 'stock', date: taken, itemCount, totalValue,
     snapshotSaved: true, ...stamp,
   }
 }
 
 /**
- * 発注セッションの完了。`store_history` も `inventory_lines` も書かない。
- * 状態と件数だけを確定させる単一 UPDATE（＝原子的）。
+ * canonical intent の指紋。**server が検証した値だけ**から作る。
+ *
+ * client が送る fingerprint は信用しない（改ざんで別内容の上書きが通ってしまう）。
+ * allowlist した任意 metadata（`entryLog` / `auditLog` / `activeMs` など）は
+ * **含めない**。`activeMs` は再試行のたびに増えるため、含めると正当な再送まで
+ * 「別の intent」と判定されてしまう。確定内容そのもの（明細・件数・合計・日付）だけを見る。
  */
-async function _completeOrderSession(db, code, sessionId, body, now) {
+async function _completionFingerprint({ type, date, itemCount, totalValue, rows = [] }) {
+  const canonical = JSON.stringify({
+    type, date, itemCount, totalValue: totalValue ?? null,
+    rows: rows.map(r => [r.item, r.qty, r.unit ?? '', r.price, r.value]),
+  })
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * claim を取れなかった原因を、実際の状態から確定させる。
+ * セッションが消えていれば 404、それ以外は別内容での確定済みとして 409。
+ */
+async function _claimFailureReason(db, code, sessionId) {
+  const row = await db.prepare(
+    'SELECT status FROM sessions WHERE id = ? AND shop_code = ? AND deleted_at IS NULL'
+  ).bind(sessionId, code).first()
+  if (!row) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+  return _completionConflict(sessionId)
+}
+
+function _completionConflict(sessionId, reason = 'different_payload') {
+  return {
+    _status: 409, code: 'completion_intent_conflict', reason, sessionId, retryable: false,
+    error: 'この棚卸は別の内容で完了済みです',
+  }
+}
+
+/**
+ * 確定済み completion があるかを見て、再送の扱いを決める。
+ *
+ * @returns 応答オブジェクト（返すべき場合）／ null（新規確定へ進んでよい場合）
+ */
+async function _settledCompletion(db, code, sessionId, fingerprint, { type, requireHistory }) {
+  const claim = await db.prepare(`
+    SELECT fingerprint, type, taken_at, item_count, total_value
+    FROM session_completions WHERE shop_code = ? AND session_id = ?
+  `).bind(code, sessionId).first()
+
+  if (!claim) {
+    // claim が無いのに completed = **0016 適用前に完了したセッション**。
+    // 当時の要求と同一かを判定する材料が無いため、推測で fingerprint を作らず
+    // fail-closed にする（保存済みデータは無傷。詳細APIで内容を確認できる）。
+    const row = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?')
+      .bind(sessionId, code).first()
+    if (row?.status === 'completed') return _completionConflict(sessionId, 'already_completed')
+    return null
+  }
+
+  if (claim.fingerprint !== fingerprint) return _completionConflict(sessionId)
+
+  if (type === 'order') {
+    return {
+      ok: true, sessionId, type: 'order', itemCount: claim.item_count,
+      snapshotSaved: false, replay: true,
+    }
+  }
+
+  // stale claim を「保存済み」と答えない（DATA-002 再レビュー §5）。
+  // session が消えている / snapshot が消えている場合、replay を成功にすると
+  // client は存在しない記録を保存済みとして扱う。
+  const stamp = requireHistory
+    ? readStampResult(await historyStampStatement(db, code, { sessionId }).all())
+    : null
+  if (requireHistory && !stamp) {
+    console.error('[storeHandler] stale completion claim (history missing):', code, sessionId)
+    return {
+      _status: 409, code: 'completion_record_missing', sessionId, retryable: false,
+      error: 'この棚卸の記録が見つかりません。セッションを削除してからやり直してください',
+    }
+  }
+
+  return {
+    ok: true, sessionId, type: 'stock', date: claim.taken_at,
+    itemCount: claim.item_count, totalValue: claim.total_value ?? null,
+    snapshotSaved: true, replay: true, ...(stamp ?? {}),
+  }
+}
+
+/**
+ * 発注セッションの完了。`store_history` も `inventory_lines` も書かない。
+ * 確定は claim（migration 0016）が持ち、同じ `itemCount` の再送だけを冪等成功にする。
+ */
+async function _completeOrderSession(db, code, sessionId, session, body, now) {
   const { inventory, snapshot, itemCount: rawCount } = body ?? {}
   if (snapshot != null) {
     return {
@@ -1118,22 +1336,51 @@ async function _completeOrderSession(db, code, sessionId, body, now) {
     }
   }
 
-  const itemCount = parseCount(rawCount, MAX_LINES_PER_REQUEST)
-  if (itemCount === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
+  const parsed = parseCount(rawCount, MAX_LINES_PER_REQUEST)
+  if (parsed === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
+  const itemCount = parsed ?? 0
 
-  let res
+  const fingerprint = await _completionFingerprint({ type: 'order', date: null, itemCount, totalValue: null })
+
+  const settled = await _settledCompletion(db, code, sessionId, fingerprint, {
+    type: 'order', requireHistory: false,
+  })
+  if (settled) return settled
+
+  const claimExists = completionClaimExists(code, sessionId, fingerprint)
+
+  let results
   try {
-    res = await db.prepare(`
-      UPDATE sessions SET status = 'completed', ended_at = ?, item_count = ?
-      WHERE id = ? AND shop_code = ? AND deleted_at IS NULL
-    `).bind(now, itemCount ?? 0, sessionId, code).run()
+    results = await db.batch([
+      db.prepare(`
+        INSERT INTO session_completions
+          (shop_code, session_id, fingerprint, type, taken_at, item_count, total_value, completed_at)
+        SELECT ?, ?, ?, 'order', NULL, ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1 FROM sessions s
+          WHERE s.id = ? AND s.shop_code = ? AND s.deleted_at IS NULL AND s.status <> 'completed'
+        )
+      `).bind(code, sessionId, fingerprint, itemCount, now, sessionId, code),
+      db.prepare(`
+        UPDATE sessions SET status = 'completed', ended_at = ?, item_count = ?
+        WHERE id = ? AND shop_code = ? AND deleted_at IS NULL AND ${claimExists.sql}
+      `).bind(now, itemCount, sessionId, code, ...claimExists.binds),
+    ])
   } catch (e) {
     console.error('[storeHandler] order session complete failed:', code, sessionId, e?.message ?? e)
     return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を保存できませんでした' }
   }
-  if (res?.meta?.changes !== 1) {
+
+  if (results?.[0]?.meta?.changes !== 1) {
+    const raced = await _settledCompletion(db, code, sessionId, fingerprint, {
+      type: 'order', requireHistory: false,
+    })
+    if (raced) return raced
+    return await _claimFailureReason(db, code, sessionId)
+  }
+  if (results?.[1]?.meta?.changes !== 1) {
     return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
   }
 
-  return { ok: true, sessionId, type: 'order', itemCount: itemCount ?? 0, snapshotSaved: false }
+  return { ok: true, sessionId, type: 'order', itemCount, snapshotSaved: false }
 }

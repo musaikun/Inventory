@@ -68,7 +68,7 @@ Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-r
   production公開の証拠ではありません。
 - account削除のdata消去、Back制御、focus/a11yはcode/testまで反映済み。実機確認と本番migrationは未実施。
 - 現在のP0は[WEB-001](tasks/WEB-001.md)と[PLAY-002](tasks/PLAY-002.md)。
-- canonical/contact、本番origin/CORS、legal route、0010/0011、登録濫用、Free 2台制限、
+- canonical/contact、本番origin/CORS、legal route、0010〜0016のmigration、登録濫用、Free 2台制限、
   履歴data integrity、observability、critical E2E、production smokeが主なWeb blockerです。
 - deploy、production migration、commit、pushはUserの明示依頼なしに行いません。
 

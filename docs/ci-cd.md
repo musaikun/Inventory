@@ -69,7 +69,7 @@ production URLへの自動smoke、失敗時の自動rollbackもありません�
 | production branch | workflowのpreview branchは明示済みだが、`scripts/deploy.sh`のPages deployは`--branch`なし。setup例の`main`は実project状態の証拠ではない | production branchをrepositoryと実projectで固定し、deploy commandへ明示 |
 | Wrangler | workflowは`wrangler-action@v3`だけを指定し、Pages用Wrangler versionを固定していない。手動frontendはWrangler依存のない`app`から`npx wrangler`を実行 | 使用versionを固定し、release記録へ`wrangler --version`を保存 |
 | rollback | last-known-goodのdeployment ID、Worker version、切戻しcommand、判定手順がない | Pages/WorkerのrollbackをD1 recoveryと分離して実演・記録 |
-| D1 | 本番0010/0011は未適用 | read-only preflight後、User承認下で順次適用しschema確認 |
+| D1 | 本番0010〜0016は未適用 | read-only preflight後、User承認下で**0010→0016の順に**適用しschema確認。0012は`DROP TABLE`を含む不可逆点。0015/0016はmigration適用〜Worker deployの間に取込・完了を行わせないmaintenance条件つき（[Web公開準備](quality-foundation/web-release-readiness.md)の「切替境界」） |
 | critical E2E | browser E2Eのdependency/script/workflowなし | 登録→棚卸→同期/再接続→別browser履歴→削除を本番相当環境で安定実行 |
 | production smoke | 公開URLを検証するscript/jobなし | 主要route、API、CORS、PWA、legal、削除を対象SHA付きで確認 |
 
