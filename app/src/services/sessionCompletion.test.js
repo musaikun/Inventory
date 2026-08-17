@@ -158,3 +158,112 @@ describe('completionErrorMessage', () => {
     expect(completionErrorMessage('unknown-reason')).toBeTruthy()
   })
 })
+
+// ── 再送用 body は不変でなければならない（レビュー指摘3）────────────────────
+//
+// `{ ...inventory }` は外側だけの浅いコピーで、entry オブジェクトは共有される。
+// `updateQty()` は entry を直接書き換えるため、キャッシュした完了要求の inventory まで
+// 変わってしまう。snapshot 側は値のコピーなので変わらず、再送が
+// 400 snapshot_mismatch（数量の食い違い）や 409 になる。
+describe('buildCompletionRequest — 組み立てた body は後から変化しない', () => {
+  it('inventory の数量を後から変えても body は変わらない', () => {
+    const inventory = { トマト: { qty: 1, unit: '個' } }
+    const snapshot  = SNAP({ items: [{ item: 'トマト', qty: 1, unit: '個' }] })
+    const r = buildCompletionRequest({ sessionType: 'stock', snapshot, inventory })
+    expect(r.ok).toBe(true)
+
+    // 完了要求を作ったあとに在庫を編集する（updateQty と同じ形の破壊的更新）
+    inventory['トマト'].qty = 9
+    inventory['トマト'].updatedAt = Date.now()
+
+    expect(r.body.inventory['トマト'].qty).toBe(1)
+  })
+
+  it('inventory へ品目を足しても body は変わらない', () => {
+    const inventory = { トマト: { qty: 1 } }
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory,
+      snapshot: SNAP({ items: [{ item: 'トマト', qty: 1 }] }),
+    })
+    inventory['なす'] = { qty: 2 }
+    expect(Object.keys(r.body.inventory)).toEqual(['トマト'])
+  })
+
+  it('prices を後から変えても body は変わらない', () => {
+    const prices = { トマト: 100 }
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: { トマト: { qty: 1 } }, prices,
+      snapshot: SNAP({ items: [{ item: 'トマト', qty: 1 }] }),
+    })
+    prices['トマト'] = 999
+    expect(r.body.prices['トマト']).toBe(100)
+  })
+
+  it('snapshot の items を後から変えても body は変わらない', () => {
+    const snapshot = SNAP({ items: [{ item: 'トマト', qty: 1 }] })
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: { トマト: { qty: 1 } }, snapshot,
+    })
+    snapshot.items[0].qty = 9
+    snapshot.items.push({ item: 'なす', qty: 3 })
+
+    expect(r.body.snapshot.items).toHaveLength(1)
+    expect(r.body.snapshot.items[0].qty).toBe(1)
+    // 端末の履歴確定に使う snapshot も同じ固定版であること
+    expect(r.snapshot).toEqual(r.body.snapshot)
+  })
+
+  it('body と snapshot は同じ内容を指す（履歴確定と送信内容がずれない）', () => {
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: INV, snapshot: SNAP(),
+    })
+    expect(r.snapshot).toBe(r.body.snapshot)
+  })
+})
+
+// ── server と同じ上限で手前に落とす（レビュー指摘4）──────────────────────────
+//
+// Worker の MAX_LINES_PER_REQUEST は 500（D1 の statement 予算から逆算した値）。
+// App が 5,000 を前提にしていると、501件を「正常な payload」として作って 413/400 を受ける。
+describe('buildCompletionRequest — server と同じ件数上限', () => {
+  const manyInventory = (n) => Object.fromEntries(
+    Array.from({ length: n }, (_, i) => [`品目${i}`, { qty: 1, unit: '個' }]),
+  )
+  const manySnapshot = (n) => SNAP({
+    items: Array.from({ length: n }, (_, i) => ({ item: `品目${i}`, qty: 1, unit: '個' })),
+  })
+
+  it('棚卸 500件は組み立てる', () => {
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: manyInventory(500), snapshot: manySnapshot(500),
+    })
+    expect(r.ok).toBe(true)
+    expect(Object.keys(r.body.inventory)).toHaveLength(500)
+  })
+
+  it('棚卸 501件は送らない', () => {
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: manyInventory(501), snapshot: manySnapshot(501),
+    })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('too_many_items')
+  })
+
+  it('snapshot の items が上限（2,000件）を超えたら送らない', () => {
+    // 未入力ぶんを含む表示用 items は明細より多くなりうる（server は MAX_SNAPSHOT_ITEMS で制限）
+    const items = Array.from({ length: 2001 }, (_, i) => ({ item: `表示${i}`, qty: null }))
+    const r = buildCompletionRequest({
+      sessionType: 'stock', inventory: INV,
+      snapshot: SNAP({ items: [{ item: 'トマト', qty: 3, unit: '個' }, ...items] }),
+    })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('snapshot_too_large')
+  })
+
+  it('発注 500件は組み立て、501件は送らない', () => {
+    expect(buildCompletionRequest({ sessionType: 'order', orderCount: 500 }).ok).toBe(true)
+    const over = buildCompletionRequest({ sessionType: 'order', orderCount: 501 })
+    expect(over.ok).toBe(false)
+    expect(over.reason).toBe('invalid_order_count')
+  })
+})

@@ -37,14 +37,37 @@ import { isSnapshotComplete } from '../utils/snapshotSync.js'
 export const COMPLETION_STOCK = 'stock'
 export const COMPLETION_ORDER = 'order'
 
-// server 側と同じ正規化・上限（worker/src/constants.js・validate.js の text()）
-const MAX_INGREDIENT_LEN     = 200
-const MAX_LINES_PER_REQUEST  = 5000
+// server 側と同じ正規化・上限（worker/src/constants.js・validate.js の text()）。
+// **値をずらすと、App が「正常」と判断した payload を server が 400/413 で落とす。**
+// MAX_LINES_PER_REQUEST は D1 の statement 予算から逆算された 500（旧 5,000 ではない）。
+const MAX_INGREDIENT_LEN    = 200
+const MAX_LINES_PER_REQUEST = 500    // 明細行（inventory）・発注件数の上限
+const MAX_SNAPSHOT_ITEMS    = 2000   // 未入力ぶんを含む表示用 items の上限
 
 /** server の `text(v, MAX_INGREDIENT_LEN)` と同じ正規化 */
 function _normName(v) {
   if (v == null) return ''
   return String(v).trim().slice(0, MAX_INGREDIENT_LEN)
+}
+
+/**
+ * 送信用に内容を固定する（deep clone）。
+ *
+ * `{ ...inventory }` は外側だけの浅いコピーで、entry オブジェクトは元の在庫と共有される。
+ * `updateQty()` は entry を直接書き換えるため、**組み立て済みの完了要求まで後から変わる**。
+ * snapshot 側は値のコピーなので変わらず、再送時に server の
+ * `400 snapshot_mismatch` や `409 completion_intent_conflict` を招く。
+ *
+ * 中身は JSON へ入る値（文字列・数値・真偽・null・配列・平objects）だけなので
+ * JSON 経由で複製する。`undefined` の鍵は落ちるが、送信時に落ちるのと同じ。
+ */
+function _freeze(value) {
+  if (value == null) return value
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch (_) {
+    return null
+  }
 }
 
 function _isValidDate(v) {
@@ -117,6 +140,15 @@ function _stockRequest({ snapshot, inventory, prices }) {
   const takenAt = snapshot.date
   if (!_isValidDate(takenAt)) return { ok: false, reason: 'invalid_date' }
 
+  // server と同じ上限で手前に落とす。超過分を送っても 413/400 になるだけで、
+  // ユーザーには「保存できなかった」しか残らない。
+  if (Object.keys(inventory).length > MAX_LINES_PER_REQUEST) {
+    return { ok: false, reason: 'too_many_items', limit: MAX_LINES_PER_REQUEST }
+  }
+  if (snapshot.items.length > MAX_SNAPSHOT_ITEMS) {
+    return { ok: false, reason: 'snapshot_too_large', limit: MAX_SNAPSHOT_ITEMS }
+  }
+
   const { names, collided } = _normalizedInventoryNames(inventory)
   if (collided.length > 0) return { ok: false, reason: 'duplicate_item_name', item: collided[0] }
 
@@ -130,17 +162,17 @@ function _stockRequest({ snapshot, inventory, prices }) {
   }
   if (claimed.size !== names.size) return { ok: false, reason: 'snapshot_mismatch' }
 
-  return {
-    ok: true,
-    type: COMPLETION_STOCK,
-    snapshot,
-    body: {
-      inventory: { ...inventory },
-      prices:    { ...(prices ?? {}) },
-      takenAt,
-      snapshot,
-    },
+  // ここで内容を固定する。以降の入力・訂正はこの要求へ影響しない。
+  const body = {
+    inventory: _freeze(inventory) ?? {},
+    prices:    _freeze(prices ?? {}) ?? {},
+    takenAt,
+    snapshot:  _freeze(snapshot),
   }
+  if (!body.snapshot) return { ok: false, reason: 'snapshot_build_failed' }
+
+  // 端末の履歴確定にも**送ったのと同じ版**を使う（表示とサーバー内容をずらさない）。
+  return { ok: true, type: COMPLETION_STOCK, snapshot: body.snapshot, body }
 }
 
 const _MESSAGES = {
@@ -151,6 +183,8 @@ const _MESSAGES = {
   duplicate_item_name:      '品目名が長すぎて重複しています。品目名を短くしてからもう一度完了してください',
   invalid_date:             '棚卸日を確定できませんでした。日付を確認してもう一度お試しください',
   invalid_order_count:      '発注件数を確定できませんでした。入力内容を確認してもう一度お試しください',
+  too_many_items:           `1回に保存できる品目数（${MAX_LINES_PER_REQUEST}件）を超えています。品目を減らすか、分けて棚卸してください`,
+  snapshot_too_large:       `表示する品目数（${MAX_SNAPSHOT_ITEMS}件）が多すぎます。使っていない品目を非表示にしてからお試しください`,
 }
 
 /** 組み立てに失敗した理由をユーザーへ説明する文言 */

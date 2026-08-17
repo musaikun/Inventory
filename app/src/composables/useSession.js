@@ -1,5 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { isAuthenticated, updateSession, completeSession as completeSessionApi, getSessions } from './useAuth.js'
+import { shopCode } from './useStore.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 // ── セッションライフサイクル集約（モジュールスコープ シングルトン）─────────────
@@ -52,6 +53,53 @@ export const completionUnknown = ref(false)
 /** 完了処理中、または結果が不明。競合する操作（ホーム・戻る・切替・破棄）を止める */
 export const completionBusy = computed(() => isCompleting.value || completionUnknown.value)
 
+/**
+ * 結果が確認できていない完了要求。**端末へ永続化する。**
+ *
+ * メモリだけに置くと、応答喪失のあとに再読込した端末は「ただの進行中セッション」として
+ * 復帰する。そこから完了し直すと body が組み立て直され（`auditLog` が1件増えているだけでも）、
+ * server の fingerprint と一致せず `409 completion_intent_conflict` で
+ * **二度と確定できない**。結果不明と送信済み body をセットで残し、復帰後は同じ body を送る。
+ *
+ * 形: `{ sessionId, shopCode, type, body }`
+ */
+let _intent = null
+
+/**
+ * アカウントの世代。切替のたびに増やす。
+ *
+ * 完了要求は世代・店舗・sessionId を**送信開始時に捕まえ**、応答を適用する直前に
+ * 突き合わせる。`_completing` の参照を消しても実行中の Promise は止まらないため、
+ * 旧アカウントの応答が後から返って現在の pendingSession を completed にし、
+ * 呼び出し側が旧 snapshot を現在の履歴へ確定して現在の draft を消す経路があった。
+ */
+let _accountGeneration = 0
+
+function _persistIntent() {
+  try {
+    if (_intent) localStorage.setItem(STORAGE_KEYS.completionIntent, JSON.stringify(_intent))
+    else localStorage.removeItem(STORAGE_KEYS.completionIntent)
+  } catch (_) {
+    // 容量不足などで body を残せない場合でも、結果不明そのものは失わせない。
+    // 復帰後は body を組み立て直すことになり 409 になりうるが、その 409 は
+    // 「サーバー側で確定済み」と分かる形で扱える（active を書き戻すより安全）。
+    try { localStorage.setItem(STORAGE_KEYS.completionIntent, JSON.stringify({ ..._intent, body: null })) } catch (_) {}
+  }
+}
+
+function _setIntent(next) {
+  _intent = next
+  _persistIntent()
+}
+
+function _clearIntent() {
+  if (_intent === null) {
+    try { localStorage.removeItem(STORAGE_KEYS.completionIntent) } catch (_) {}
+    return
+  }
+  _setIntent(null)
+}
+
 // リロード復帰用に localStorage へ永続化（ID の変化＝再代入時のみ）
 watch(pendingSession, (s) => {
   if (s?.id) localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(s))
@@ -63,12 +111,15 @@ function _canWrite() {
 }
 
 // アカウント切替時のローカル全消去（進行中セッション）。watch が localStorage も消す。
+// 世代を進めることで、実行中の完了要求の応答が新しいアカウントへ適用されなくなる。
 export function resetLocalData() {
+  _accountGeneration++
   _cancelTouch()
   _finalized = false
   _completing = null
   isCompleting.value = false
   completionUnknown.value = false
+  _clearIntent()
   pendingSession.value = null
 }
 
@@ -83,6 +134,7 @@ export function useSession() {
     _cancelTouch()
     _finalized = false
     completionUnknown.value = false
+    _clearIntent()
     pendingSession.value = session
   }
 
@@ -91,16 +143,53 @@ export function useSession() {
     _cancelTouch()
     _finalized = false
     completionUnknown.value = false
+    _clearIntent()
     pendingSession.value = session
   }
 
-  // リロード後に localStorage から復帰
+  /**
+   * リロード後に localStorage から復帰。
+   *
+   * 進行中セッションだけでなく、**結果が確認できていない完了要求も復帰させる**。
+   * ここで拾わないと、応答喪失後の端末は「ただの進行中セッション」として戻り、
+   * `markActive()` が active を書き、再完了は別 body になって 409 で確定できなくなる。
+   * 別店舗のぶんは復帰させない（アカウント境界）。
+   */
   function restore() {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.pendingSession)
       if (raw) pendingSession.value = JSON.parse(raw)
     } catch (_) {}
+
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.completionIntent)
+      const saved = raw ? JSON.parse(raw) : null
+      const sameShop    = !saved?.shopCode || !shopCode.value || saved.shopCode === shopCode.value
+      const sameSession = !!saved?.sessionId && saved.sessionId === pendingSession.value?.id
+      if (saved && sameShop && sameSession) {
+        _intent = saved
+        completionUnknown.value = true
+      } else if (saved) {
+        _clearIntent()
+      }
+    } catch (_) {}
+
     return pendingSession.value
+  }
+
+  /**
+   * 結果不明のまま残っている完了要求（再送用）。
+   * `services/sessionCompletion.js` の戻り値と同じ形へ戻す。
+   */
+  function pendingCompletionIntent() {
+    if (!_intent?.body) return null
+    if (_intent.sessionId !== pendingSession.value?.id) return null
+    return {
+      ok: true,
+      type: _intent.type,
+      body: _intent.body,
+      snapshot: _intent.body.snapshot ?? null,
+    }
   }
 
   // 入力中の品目数を active として保存（デバウンス・確定後は無視）
@@ -132,7 +221,22 @@ export function useSession() {
     _cancelTouch()
     _finalized = false
     if (!_canWrite()) return { ok: false, reason: 'offline' }
-    await updateSession(pendingSession.value.id, 'active', count).catch(() => {})
+
+    // **失敗を握り潰さない。** 以前は `.catch(() => {})` のあとで無条件に
+    // `status = 'active'` を書いていた。server が `409 session_completed` を返しても
+    // 端末は「進行中」と信じ続け、完了済みの詳細へ到達できなくなる。
+    try {
+      await updateSession(pendingSession.value.id, 'active', count)
+    } catch (err) {
+      console.error('[useSession] markActive failed:', pendingSession.value?.id, err?.code ?? err?.message ?? err)
+      // server 側は既に完了している。端末の表示をそれへ合わせる
+      if (err?.status === 409 && err?.code === 'session_completed') {
+        _finalized = true
+        if (pendingSession.value) pendingSession.value.status = 'completed'
+        return { ok: false, reason: 'session_completed' }
+      }
+      return { ok: false, reason: 'save_failed', retryable: true }
+    }
     if (pendingSession.value) pendingSession.value.status = 'active'
     return { ok: true }
   }
@@ -161,6 +265,8 @@ export function useSession() {
     const completed = found.status === 'completed'
     completionUnknown.value = false
     _finalized = completed
+    // 完了が確定したなら、保持していた再送用の要求はもう要らない
+    if (completed) _clearIntent()
     if (pendingSession.value) pendingSession.value.status = found.status
     return { ok: true, completed }
   }
@@ -230,8 +336,21 @@ export function useSession() {
       return _fail('no_payload', { unknown: false, retryable: false })
     }
 
+    // 送信開始時の身元を捕まえる。応答を適用する直前に突き合わせ、
+    // 別アカウント・別セッションへ結果を書かない。
+    const origin = { generation: _accountGeneration, shop: shopCode.value, id }
+    const stale  = () => _accountGeneration !== origin.generation
+                      || shopCode.value !== origin.shop
+                      || pendingSession.value?.id !== origin.id
+
     try {
       const res = await completeSessionApi(id, request.body)
+      // 応答が返るまでにアカウント・セッションが変わっていたら、いま画面にあるものへ
+      // 適用しない。呼び出し側もこの結果で後片付け（履歴確定・draft削除・遷移）をしない。
+      if (stale()) {
+        console.warn('[useSession] discarding completion result for a stale account/session:', origin.id)
+        return { ok: false, reason: 'stale', stale: true, retryable: false, unknown: false }
+      }
       // stock はスナップショットが保存された場合だけ完了。送ったのに保存されていない状態は
       // 「一覧には出るが詳細が開けない」（R-001）そのもの。order は契約上 false を返す。
       if (request.type === 'stock' && res?.snapshotSaved !== true) {
@@ -239,27 +358,40 @@ export function useSession() {
         return _fail('snapshot_missing', { unknown: false })
       }
       completionUnknown.value = false
+      _clearIntent()
       if (pendingSession.value) pendingSession.value.status = 'completed'
       return { ok: true, result: res ?? null }
     } catch (err) {
       console.error('[useSession] complete failed:', id, err?.code ?? err?.message ?? err)
+      if (stale()) {
+        console.warn('[useSession] discarding completion failure for a stale account/session:', origin.id)
+        return { ok: false, reason: 'stale', stale: true, retryable: false, unknown: false }
+      }
 
       // 別内容で既に確定済み。再試行しても解消せず、server 側の記録は無傷のまま。
       // 未送信キューへも戻さない。サーバーの確定内容を正として扱う。
       if (err?.status === 409 && err?.code === 'completion_intent_conflict') {
         completionUnknown.value = false
+        _clearIntent()
         if (pendingSession.value) pendingSession.value.status = 'completed'
         return { ok: false, reason: 'intent_conflict', retryable: false, unknown: false, conflict: true }
       }
       // claim はあるのに履歴が消えている。同じ session では復旧できない（fail-closed）。
       if (err?.status === 409 && err?.code === 'completion_record_missing') {
+        _clearIntent()
         return _fail('record_missing', { unknown: false, retryable: false })
       }
 
       // 完了状態を付けないまま返す。次の再送で明細ごとやり直せる。
       // 応答が返らなかった＝サーバー側の状態が分からない。active は書かない。
+      const unknown = !_isDefiniteFailure(err)
+      // 結果不明のあいだは、送った body をそのまま端末へ残す（再読込をまたぐ）。
+      // サーバーが受け付けていないと断定できた失敗では捨て、最新の入力で作り直させる。
+      if (unknown) _setIntent({ sessionId: id, shopCode: origin.shop, type: request.type, body: request.body })
+      else _clearIntent()
+
       return _fail('save_failed', {
-        unknown:   !_isDefiniteFailure(err),
+        unknown,
         retryable: err?.body?.retryable !== false && !_isDefiniteFailure(err),
       })
     }
@@ -270,11 +402,13 @@ export function useSession() {
     _cancelTouch()
     _finalized = false
     completionUnknown.value = false
+    _clearIntent()
     pendingSession.value = null
   }
 
   return {
     pendingSession, isCompleting, completionUnknown, completionBusy,
     begin, resume, restore, touch, markActive, complete, verifyCompletion, clear,
+    pendingCompletionIntent,
   }
 }

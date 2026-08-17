@@ -2,6 +2,24 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-17 — App第2セッション レビュー指摘の修正（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c3141e6`。
+- 独立レビューの5点（重大3・中2）を修正。`worker/**` は変更していない。
+  1. 完了結果不明と完了要求を端末へ永続化（再読込しても同じ body で再送できる）。
+     `markActive()` の API エラー握り潰しも解消
+  2. 完了要求に generation / shopCode / sessionId を捕捉し、応答適用の直前に照合。
+     旧アカウントの応答で現在の履歴・draft を壊さない
+  3. 送信 body を deep clone して固定。完了中・結果不明中は入力をロック
+  4. 件数上限を Worker と同じ 500 / 2,000 へそろえ、API を呼ぶ前に拒否
+  5. `session_ended` の sessionId を検証（別セッション・不明は完了させない）
+- 付随: 409 の test が共有モックの実装を差し替えており、以降の全 test が 409 を受けていた。
+  フラグ方式へ置き換え（単体では通るのに全体で落ちる状態を解消）。
+- 検証: App 91 files / 962 tests passed（連続2回）、build 成功、
+  Worker 26 files / 545 tests passed（未変更）。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 は未適用のため
+  migration → Worker → App の順で出す必要がある。
+
 ## 2026-08-17 — App第2セッション: 完了ライフサイクルと同期キュー（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準HEAD `develop@77d6d48`。

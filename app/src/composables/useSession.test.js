@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   updateSession:   vi.fn(async () => ({ ok: true })),
   completeSession: vi.fn(async () => ({ ok: true, sessionId: 'abc-123', type: 'stock', itemCount: 2, snapshotSaved: true })),
   getSessions:     vi.fn(async () => []),
+  shopCode:        { value: 'ABCDEF' },
 }))
 
 vi.mock('./useAuth.js', () => ({
@@ -20,8 +21,17 @@ vi.mock('./useAuth.js', () => ({
   completeSession: mocks.completeSession,
   getSessions:     mocks.getSessions,
 }))
+vi.mock('./useStore.js', () => ({ shopCode: mocks.shopCode }))
 
-import { useSession } from './useSession.js'
+import { useSession, resetLocalData } from './useSession.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
+
+// 再読込の再現: module registry を捨てて作り直す（localStorage はそのまま）
+async function reloadSession() {
+  vi.resetModules()
+  const mod = await import('./useSession.js')
+  return mod.useSession()
+}
 
 const SESSION = { id: 'abc-123', shopCode: 'ABCDEF', startedAt: '2026-06-11', status: 'active', itemCount: 0 }
 
@@ -264,5 +274,189 @@ describe('useSession — 409 の扱い', () => {
 
     expect(res.unknown).toBe(true)
     expect(res.retryable).toBe(true)
+  })
+})
+
+// ── 結果不明は再読込をまたぐ（レビュー指摘1）────────────────────────────────
+//
+// completionUnknown と完了要求がメモリだけにあると、応答喪失後の再読込で
+// 「ただの active セッション」として復帰する。そこから完了し直すと body が
+// 組み立て直され、server の fingerprint と一致せず 409 で確定できなくなる。
+// さらに markActive() が API エラーを握り潰して端末側を active にしていた。
+describe('useSession — 結果不明の状態が再読込で失われない', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  it('応答喪失後の完了要求は端末へ保存される', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.completionIntent))
+    expect(saved.sessionId).toBe('abc-123')
+    expect(saved.shopCode).toBe('ABCDEF')
+    expect(saved.type).toBe('stock')
+    expect(saved.body).toEqual(STOCK_REQ.body)
+  })
+
+  it('再読込しても結果不明のまま復帰し、同じ body を再送できる', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    // リロード相当: module を作り直して localStorage から復帰する
+    const reloaded = await reloadSession()
+    expect(reloaded.completionUnknown.value).toBe(false)
+
+    reloaded.restore()
+    expect(reloaded.pendingSession.value.id).toBe('abc-123')
+    expect(reloaded.completionUnknown.value).toBe(true)
+
+    const kept = reloaded.pendingCompletionIntent()
+    expect(kept.body).toEqual(STOCK_REQ.body)
+    expect(kept.type).toBe('stock')
+
+    await reloaded.complete(kept)
+    expect(mocks.completeSession).toHaveBeenLastCalledWith('abc-123', STOCK_REQ.body)
+  })
+
+  it('復帰直後も active を書き戻さない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+    const reloaded = await reloadSession()
+    reloaded.restore()
+
+    const marked = await reloaded.markActive(2)
+    expect(marked.ok).toBe(false)
+    expect(marked.reason).toBe('completion_unknown')
+    expect(mocks.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('別店舗の保存分は復帰させない（アカウント境界）', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+    mocks.shopCode.value = 'ZZZZZZ'
+    const reloaded = await reloadSession()
+    reloaded.restore()
+    expect(reloaded.completionUnknown.value).toBe(false)
+    expect(reloaded.pendingCompletionIntent()).toBeNull()
+  })
+
+  it('完了が成立したら保存分を消す', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
+
+    await session.complete(STOCK_REQ)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+  })
+
+  it('サーバーが拒否した（4xx）ら保存分を消す', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    mocks.completeSession.mockRejectedValueOnce(httpError(400, 'snapshot_mismatch'))
+    await session.complete(STOCK_REQ)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+    expect(session.completionUnknown.value).toBe(false)
+  })
+
+  // markActive は updateSession の失敗を握り潰し、端末側だけ active にしていた。
+  // server が 409 session_completed を返しても端末は「進行中」と信じ続ける。
+  it('active の保存が失敗したら端末側も active にしない', async () => {
+    mocks.updateSession.mockRejectedValueOnce(httpError(409, 'session_completed'))
+    const res = await session.markActive(2)
+
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('session_completed')
+    expect(session.pendingSession.value.status).not.toBe('active')
+  })
+
+  it('active の保存が通信断でも端末側を active にしない', async () => {
+    session.pendingSession.value.status = 'incomplete'
+    mocks.updateSession.mockRejectedValueOnce(new Error('network'))
+    const res = await session.markActive(2)
+
+    expect(res.ok).toBe(false)
+    expect(session.pendingSession.value.status).toBe('incomplete')
+  })
+})
+
+// ── アカウント切替と完了応答の競合（レビュー指摘2）──────────────────────────
+//
+// 切替時に _completing の参照を消しても、実行中の Promise は止まらない。
+// 旧アカウントの応答が後から返ると、その時点の pendingSession を completed にし、
+// 呼び出し側は旧 snapshot を現在の履歴へ確定して現在の draft を消していた。
+describe('useSession — 旧アカウントの完了応答が新アカウントを壊さない', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  it('アカウント切替後に返った応答は現在のセッションへ適用しない', async () => {
+    let release
+    mocks.completeSession.mockImplementationOnce(() => new Promise(r => {
+      release = () => r({ ok: true, type: 'stock', snapshotSaved: true })
+    }))
+    const inflight = session.complete(STOCK_REQ)
+
+    // 別アカウントへ切替 → 新しいセッションを開始
+    resetLocalData()
+    mocks.shopCode.value = 'ZZZZZZ'
+    session.begin({ id: 'new-1', shopCode: 'ZZZZZZ', status: 'active', itemCount: 0 })
+
+    release()
+    const res = await inflight
+
+    expect(res.ok).toBe(false)
+    expect(res.stale).toBe(true)
+    // 新アカウントのセッションは触られていない
+    expect(session.pendingSession.value.id).toBe('new-1')
+    expect(session.pendingSession.value.status).toBe('active')
+    expect(session.completionUnknown.value).toBe(false)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+  })
+
+  it('同じアカウントで別セッションへ移った後の応答も適用しない', async () => {
+    let release
+    mocks.completeSession.mockImplementationOnce(() => new Promise(r => {
+      release = () => r({ ok: true, type: 'stock', snapshotSaved: true })
+    }))
+    const inflight = session.complete(STOCK_REQ)
+
+    session.begin({ id: 'other-1', shopCode: 'ABCDEF', status: 'active', itemCount: 0 })
+    release()
+    const res = await inflight
+
+    expect(res.stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('active')
+  })
+
+  it('失敗の応答も、切替後は結果不明フラグを立てない', async () => {
+    let reject
+    mocks.completeSession.mockImplementationOnce(() => new Promise((_, rj) => { reject = rj }))
+    const inflight = session.complete(STOCK_REQ)
+
+    resetLocalData()
+    mocks.shopCode.value = 'ZZZZZZ'
+    session.begin({ id: 'new-1', shopCode: 'ZZZZZZ', status: 'active', itemCount: 0 })
+
+    reject(new Error('network'))
+    const res = await inflight
+
+    expect(res.stale).toBe(true)
+    expect(session.completionUnknown.value).toBe(false)
   })
 })

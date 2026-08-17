@@ -167,10 +167,10 @@ const guestResult      = ref(null)   // 結果スナップショット（null = 
 const guestResultError = ref('')
 // セッションライフサイクル（D1 状態遷移はすべて useSession 経由）
 const {
-  pendingSession, isCompleting: completing, completionUnknown,
+  pendingSession, isCompleting: completing, completionUnknown, completionBusy,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
-  verifyCompletion, clear: clearSession,
+  verifyCompletion, pendingCompletionIntent, clear: clearSession,
 } = useSession()
 
 // ── 完了セッションの NEW バッジ ───────────────────────────────────────────────
@@ -885,10 +885,17 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   // 完了要求は本番経路すべてで同じ helper から作る（第2セッション §2）。
   // 以前はここだけ snapshot 無しで呼んでおり、snapshot 必須化した現行 Worker では
   // 400 snapshot_required になる＝ホストの完了がこの経路から壊れていた。
-  if (status === 'completed' && pendingSession.value?.id) {
+  //
+  // **どのセッションの通知かを必ず確かめる。** 古いルームから遅れて届いた session_ended で
+  // いま開いている別のセッションを完了させない。sessionId を持たない通知（sessionId を
+  // 保存していないルーム）は、対象を特定できないので完了させない（fail-closed）。
+  // ホスト自身の完了は `_finishSession` が主経路で、ここはそれへ合流するだけの保険。
+  if (status === 'completed' && sessionId && sessionId === pendingSession.value?.id) {
     const req = _buildCompletionRequest()
     if (req.ok) await completeSessionD1(req)
     else console.error('[App] session_ended: completion payload unavailable:', req.reason)
+  } else if (status === 'completed' && sessionId !== pendingSession.value?.id) {
+    console.warn('[App] session_ended for another session; ignoring completion:', sessionId)
   }
 
   if (!syncIsHost.value && status === 'completed') {
@@ -1141,7 +1148,10 @@ watch(syncActive, (v) => { if (!v) guestReported.value = false })
 
 // ゲストが棚卸完了を報告している間は入力を完全ロック
 const guestLocked = computed(() => syncActive.value && !syncIsHost.value && guestReported.value)
-const inputLocked = computed(() => isCompleted.value || guestLocked.value)
+// 完了中・結果不明中も入力を止める。組み立て済みの完了要求は固定されているので、
+// ここで編集できると「画面の内容」と「サーバーへ送る（送った）内容」がずれる
+// （再送は同じ body でしか通らない＝編集分は保存されない）。
+const inputLocked = computed(() => isCompleted.value || guestLocked.value || completionBusy.value)
 
 // ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
 const _DRAFT_PREFIX = 'inv_draft_'
@@ -1350,13 +1360,12 @@ let _finishing = false
  * 二度と確定できない。サーバーが受け付けていないと断定できた失敗のときだけ捨て、
  * 最新の入力で作り直す。
  */
-let _completionIntent = null   // { sessionId, request }
-
-function _dropCompletionIntent() { _completionIntent = null }
-
 function _buildCompletionRequest() {
   const sessionId = pendingSession.value?.id ?? null
-  if (_completionIntent && _completionIntent.sessionId === sessionId) return _completionIntent.request
+  // 結果不明のまま残っている要求があれば、それをそのまま使う。
+  // useSession が端末へ永続化しているので、**再読込をまたいでも同じ body で再送できる**。
+  const kept = pendingCompletionIntent()
+  if (kept) return kept
 
   const type = pendingSession.value?.type ?? sessionMode.value
   // 端末へは書かない。完了APIと同じ要求で送るためだけの組み立て（DATA-001 / 第2セッション）。
@@ -1371,7 +1380,6 @@ function _buildCompletionRequest() {
     prices:     config.prices ?? {},
     orderCount: Object.keys(orderDraft.value).length,
   })
-  if (request.ok) _completionIntent = { sessionId, request }
   return request
 }
 
@@ -1407,18 +1415,17 @@ async function _finishSession(completionCount, isHostInRoom) {
   // 成功条件には snapshotSaved を含める（useSession）。明細が入らない完了は完了ではない。
   // order は sessions だけを更新し、明細の正本は orders / order_lines に残る。
   const completed = await completeSessionD1(req)
+  // 応答が返るまでにアカウント・セッションが切り替わっていた。旧アカウントの結果で
+  // いまの履歴を確定したり、いまの draft・セッションを消したりしない（useSession が検出）。
+  if (completed?.stale) return
   if (!completed?.ok) {
     // 入力値・draft・pendingSession・ルーム・参加者はすべて保持したまま。
     // 読み取り専用にもしていないので、同じ画面の同じボタンからそのまま再試行できる。
     _warnCompleteUnsaved(completed)
-    // サーバーが受け付けていないと断定できた失敗だけ、要求を捨てて次回作り直す。
-    // 結果不明のときに捨てると、確定済みかもしれない内容と違う body で再送してしまう。
-    if (completed?.unknown === false && !completed?.conflict) _dropCompletionIntent()
     return
   }
 
   // ── ここから下は完了が成立した場合だけ ──
-  _dropCompletionIntent()
   completeSession()                              // 端末を読み取り専用へ
   // 履歴へ確定（サーバー確認済みとして）。order は store_history を持たない。
   if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
@@ -1544,6 +1551,7 @@ async function onGoHome() {
       return
     }
     const completed = await completeSessionD1(req)
+    if (completed?.stale) return
     if (!completed?.ok) {
       // reopenSession() は呼ばない。完了済みを端末側で「進行中」へ戻すと、
       // 次のホームで active がサーバーへ飛び、確定済みの completed を巻き戻す。
@@ -1551,10 +1559,9 @@ async function onGoHome() {
       // 別内容で確定済み（409）なら、この画面から確定し直す手段は無い。
       // サーバーの記録を正として離脱させる（次の履歴取得で正しい内容が入る）。
       if (!completed?.conflict) return
-      _dropCompletionIntent()
-    } else {
-      _dropCompletionIntent()
-      if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
+      // 409 のときは useSession が保持していた要求を捨てている（再送しても解消しない）
+    } else if (req.type === COMPLETION_STOCK) {
+      commitSnapshot(req.snapshot, completed.result)
     }
   } else {
     _saveDraft(pendingSession.value?.id)

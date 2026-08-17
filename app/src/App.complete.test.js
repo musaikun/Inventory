@@ -24,6 +24,8 @@ let completeGate = null
 let completeResponse = null
 // サーバー側では完了しているのに応答だけ失われた状況を作る
 let completeLosesResponse = false
+// 別内容で既に確定済み（409 completion_intent_conflict）
+let completeConflict = false
 // PUT /sessions/:id（status 更新）の記録。active の書き戻しを検出する
 let sessionUpdates = []
 // GET /store/:code/sessions の応答（サーバー側の状態確認）
@@ -39,6 +41,12 @@ vi.mock('./utils/api.js', () => ({
       completeCalls++
       completeBodies.push(JSON.parse(options?.body ?? '{}'))
       if (completeGate) await completeGate
+      if (completeConflict) {
+        const err = new Error('別の内容で完了済みです')
+        err.status = 409
+        err.code   = 'completion_intent_conflict'
+        throw err
+      }
       if (completeLosesResponse) {
         // サーバーは完了を書き終えている。返り道だけが切れた
         serverSessions = [{ id: 'sess-1', status: 'completed', itemCount: 1, type: 'stock' }]
@@ -172,6 +180,7 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -267,6 +276,7 @@ describe('App — 完了はサーバー成功後にだけローカルへ確定�
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -369,6 +379,7 @@ describe('App — 完了要求が二重に走らない', () => {
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -461,6 +472,7 @@ describe('App — 完了処理中に離脱しようとしても active を書き
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -574,6 +586,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -712,6 +725,7 @@ describe('App — 結果不明のあとは同じ内容で再送する', () => {
     completeGate = null
     completeResponse = null
     completeLosesResponse = false
+    completeConflict = false
     sessionUpdates = []
     serverSessions = []
     sessionEndedCallback = null
@@ -767,22 +781,8 @@ describe('App — 結果不明のあとは同じ内容で再送する', () => {
 
   it('409 completion_intent_conflict は再送せず、active も書かない', async () => {
     await mountApp()
-    completeResponse = null
-    completeShouldFail = false
-    // 別内容で確定済み
-    const { apiFetch } = await import('./utils/api.js')
-    const original = apiFetch.getMockImplementation()
-    apiFetch.mockImplementation(async (path, options) => {
-      if (path.endsWith('/complete')) {
-        completeCalls++
-        completeBodies.push(JSON.parse(options?.body ?? '{}'))
-        const err = new Error('別の内容で完了済みです')
-        err.status = 409
-        err.code   = 'completion_intent_conflict'
-        throw err
-      }
-      return original(path, options)
-    })
+    // 別内容で確定済み（共有モックのフラグ。実装を差し替えると後続testへ漏れる）
+    completeConflict = true
 
     await clickComplete()
     expect(completeCalls).toBe(1)
@@ -794,5 +794,128 @@ describe('App — 結果不明のあとは同じ内容で再送する', () => {
     await settle(16)
     expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
     expect(completeCalls).toBe(1)   // 再送しない
+  })
+})
+
+// ── レビュー指摘の回帰（第2セッション 追補）──────────────────────────────────
+describe('App — 完了結果不明・session_ended・入力ロック', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  // 指摘1: 結果不明がメモリだけだと、再読込で active セッションとして復帰し、
+  // 組み立て直した body では 409 になって二度と確定できない。
+  it('応答喪失のあと再読込しても、同じ body で再送する', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+    expect(completeCalls).toBe(1)
+    const sentBody = completeBodies[0]
+
+    // 再読込（同じ localStorage で App を作り直す）
+    app.unmount(); app = null
+    host.remove(); host = null
+    vi.resetModules()
+    completeLosesResponse = false
+    await mountOnly()
+
+    // 進行中セッションとして復帰し、完了ボタンが出ている
+    expect(completeBtn()).not.toBeNull()
+    await clickComplete()
+
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[1]).toEqual(sentBody)     // 1文字も変えずに再送
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  it('再読込直後にホームを押しても active を送らない', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+
+    app.unmount(); app = null
+    host.remove(); host = null
+    vi.resetModules()
+    await mountOnly()
+
+    homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(16)
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  // 指摘3: 完了中・結果不明中に入力できると、キャッシュした body と画面がずれる。
+  it('完了中は入力できない', async () => {
+    completeGate = new Promise(() => {})
+    await mountApp()
+    expect(host.querySelector('.voice-section')).not.toBeNull()
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(4)
+    expect(host.querySelector('.voice-section')).toBeNull()
+  })
+
+  it('結果不明のあいだも入力できない', async () => {
+    completeLosesResponse = true
+    await mountApp()
+    await clickComplete()
+    expect(host.querySelector('.voice-section')).toBeNull()
+  })
+
+  // 指摘5: 古いルームから遅延した session_ended が、いま開いているセッションを完了させない。
+  it('別セッションの session_ended では完了しない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    await mountApp()
+
+    await sessionEndedCallback('completed', 'sess-OLD', 1)
+    await settle()
+
+    expect(completeCalls).toBe(0)
+    expect(sessionUpdates).toHaveLength(0)
+    expect(completeBtn()).not.toBeNull()
+  })
+
+  it('sessionId を持たない session_ended でも完了しない（fail-closed）', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    await mountApp()
+
+    await sessionEndedCallback('completed', '', 1)
+    await settle()
+
+    expect(completeCalls).toBe(0)
+  })
+
+  it('同じセッションの session_ended は従来どおり完了する', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    await mountApp()
+
+    await sessionEndedCallback('completed', 'sess-1', 1)
+    await settle()
+
+    expect(completeCalls).toBe(1)
+    expect(completeBodies[0].snapshot.sessionId).toBe('sess-1')
   })
 })

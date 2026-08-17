@@ -543,11 +543,107 @@ git diff --name-only -- worker    → 出力なし
   変更禁止範囲のため、第3セッション（IMPORT-001）で扱う。
 - `verifyCompletion()` は `GET /sessions`（最新50件）に依存する。50件を超えて古くなった
   セッションは一覧に出ないため「確認できない＝結果不明のまま」となり、再送で収束させる。
-- 結果不明のまま端末を閉じると、`completionUnknown` と完了要求のキャッシュはメモリのみで
-  失われる。復帰後は進行中セッションとして再開でき、もう一度完了を押すと**その時点の内容**で
-  送る。先の要求がサーバーで確定していれば `409 completion_intent_conflict` になり、
-  同じ session では確定し直せない（サーバーの記録は無傷）。恒久対処は完了要求の永続化で、
-  第3セッション以降の課題。
+- 結果不明の状態と完了要求は端末へ永続化する（下の「レビュー指摘の修正」§1）。
+  容量不足で body を書けなかった場合だけ、結果不明の事実だけが残り再送は組み立て直しになる。
+  その場合の `409` は「サーバーで確定済み」と分かる形で扱う（active は書き戻さない）。
 - `409 completion_intent_conflict` の復旧導線（session を作り直して入力を引き継ぐ）は
   実装していない。現状は「サーバーで別内容として確定済み」と表示し、一覧から確定内容を
   確認させるところまで。
+
+## 2026-08-17 — レビュー指摘の修正（第2セッション 追補）
+
+独立レビューで挙がった5点。基準は push 済みの `c3141e6`。`worker/**` は変更していない。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内容 |
+|---|---|---|
+| `src/composables/useSession.test.js` | 10 | 結果不明の永続化・復帰、`markActive` の失敗握り潰し、アカウント切替と応答の競合 |
+| `src/services/sessionCompletion.test.js` | 5 | body の deep clone、件数上限（500 / 2,000）の境界 |
+| `src/App.complete.test.js` | 6 | 再読込後の同一body再送、完了中・結果不明中の入力ロック、`session_ended` の sessionId 検証 |
+
+### 1. 完了結果不明が再読込で失われる（重大）
+
+`completionUnknown` と完了要求のキャッシュがメモリだけにあり、応答喪失後に再読込すると
+ただの進行中セッションとして復帰していた。そこから完了し直すと body が組み立て直され、
+server の fingerprint と一致せず `409 completion_intent_conflict` で**二度と確定できない**。
+
+- 完了要求を `STORAGE_KEYS.completionIntent`（`_completion_intent_v1`）へ永続化する。
+  形は `{ sessionId, shopCode, type, body }`。保存・破棄は `useSession` が一元管理し、
+  App 側の module 変数（`_completionIntent`）は廃止した。
+- `restore()` が結果不明の状態ごと復帰させる。**別店舗のぶんは復帰させない**（アカウント境界）。
+- 成功・4xx・`409`・`verifyCompletion` の完了確認で破棄する。
+- 容量不足で body を書けない場合は、`body: null` の marker だけを残す。
+  再送は組み立て直しになるが、`active` を書き戻すよりは安全側。
+- **`markActive()` が API エラーを握り潰していた**。`.catch(() => {})` の後で無条件に
+  `status = 'active'` を書いており、server が `409 session_completed` を返しても端末は
+  「進行中」と信じ続けた。失敗時は端末側も更新せず、`409 session_completed` なら
+  端末を completed へ合わせる。
+
+### 2. 旧アカウントの完了応答が新アカウントを壊す（重大）
+
+`resetLocalData()` は `_completing` の参照を消すだけで、実行中の Promise は止まらない。
+旧アカウントの応答が後から返ると、その時点の `pendingSession` を completed にし、
+App が**旧 snapshot を現在の履歴へ確定し、現在の draft と session を消して**いた。
+
+- `_accountGeneration` を追加し、`resetLocalData()` で進める。
+- 完了要求は送信開始時に `{ generation, shopCode, sessionId }` を捕まえ、
+  **応答（成功・失敗とも）を適用する直前に突き合わせる**。ずれていれば
+  `{ ok:false, stale:true }` を返し、状態も結果不明フラグも一切触らない。
+- App の `_finishSession` / `onGoHome` は `stale` を受けたら後片付けをせずに戻る。
+
+### 3. 再送用 payload が不変でない（重大）
+
+`{ ...inventory }` は外側だけの浅いコピーで、entry オブジェクトは在庫と共有されていた。
+`updateQty()` は entry を直接書き換えるため、**組み立て済みの完了要求まで後から変わる**。
+snapshot 側は値のコピーなので変わらず、再送が `400 snapshot_mismatch` になりうる。
+
+- `buildCompletionRequest()` が `inventory` / `prices` / `snapshot` を deep clone して固定する。
+  端末の履歴確定にも**送ったのと同じ版**（`req.snapshot === req.body.snapshot`）を使う。
+- あわせて `inputLocked` に `completionBusy` を含め、**完了中・結果不明中は入力できない**ようにした。
+  ここで編集できると「画面の内容」と「送った内容」がずれ、編集分は保存されない
+  （再送は同じ body でしか通らない）。
+
+### 4. App と Worker で件数上限が違う（中）
+
+App は 5,000 件を前提にしていたが、Worker の `MAX_LINES_PER_REQUEST` は **500**
+（D1 の statement 予算から逆算した値）。501 件を「正常な payload」として作って
+413/400 を受けていた。
+
+- App 側の定数を 500 / `MAX_SNAPSHOT_ITEMS` 2,000 へそろえ、**API を呼ぶ前に**拒否する。
+- 境界 test: 棚卸 500 件成功 / 501 件拒否、snapshot items 2,001 件拒否、
+  発注 500 件成功 / 501 件拒否。
+
+### 5. `session_ended` の sessionId を検証していない（中）
+
+callback は `sessionId` を受け取りながら現在の `pendingSession` を完了していた。
+古いルームから遅れて届いたイベントで、いま開いている別のセッションを完了させられる。
+
+- `sessionId === pendingSession.id` のときだけ完了する。
+- `sessionId` を持たない通知（sessionId を保存していないルーム）は対象を特定できないので
+  完了させない（fail-closed）。ホスト自身の完了は `_finishSession` が主経路で、
+  ここはそれへ合流するだけの保険。
+
+### 付随して直したtestの欠陥
+
+`409` の test が `apiFetch.mockImplementation()` で**共有モックの実装ごと差し替えて**いた。
+`vi.clearAllMocks()` は呼び出し履歴しか消さないため、以降の全 test が 409 を受け続け、
+単体では通るのに全体では落ちる状態になっていた。共有モックのフラグ（`completeConflict`）
+へ置き換え、実装の差し替えをやめた。
+
+### 実行したcommandと結果
+
+```
+npm --prefix app test -- --run    → 91 files / 962 tests passed（連続2回）
+npm --prefix app run build        → 成功（PWA precache 17 entries / 2573.21 KiB）
+npm test（worker）                 → 26 files / 545 tests passed（未変更・回帰確認）
+git diff --check                  → 指摘なし
+git diff --name-only -- worker    → 出力なし
+```
+
+### 残リスク
+
+- `409 completion_intent_conflict` の復旧導線（session を作り直して入力を引き継ぐ）は
+  引き続き未実装。現状は「サーバーで別内容として確定済み」と表示するところまで。
+- 完了要求の永続化は snapshot 全体を localStorage へ書く。大規模店舗（数百品目）では
+  数百KB になり、容量が逼迫している端末では marker だけの保存に落ちる。
