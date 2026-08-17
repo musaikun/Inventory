@@ -277,3 +277,107 @@ describe('完了は最初の1要求だけが確定できる', () => {
     expect(detail.date).toBe('2026-08-09')
   })
 })
+
+// ── 再レビュー HIGH: fingerprint は保存対象の安定した内容を全部見る ───────────
+describe('fingerprint は保存する snapshot の内容を取りこぼさない', () => {
+  /** items のラベル列だけを変えた snapshot（数量・単価・日付・品目名は同じ） */
+  function bodyWithLabels(labels) {
+    const inv = inventory(3)
+    return {
+      inventory: inv,
+      prices: { 品目0: 100, 品目1: 100, 品目2: 100 },
+      takenAt: '2026-08-09',
+      snapshot: {
+        sessionId: SID,
+        items: Object.entries(inv).map(([item, v]) => ({
+          item, qty: v.qty, unit: v.unit, ...labels,
+        })),
+      },
+    }
+  }
+
+  it.each([
+    ['category', { category: '冷凍' }],
+    ['code', { code: 'X-999' }],
+    ['flagged', { flagged: true }],
+    ['lotSize', { lotSize: '12' }],
+    ['tagA', { tagA: '軸A' }],
+  ])('%s だけが違う再送は 409（サーバーと端末が食い違わない）', async (_label, labels) => {
+    const h = setup()
+    const first = await handleSessionComplete(h.db, CODE, SID, bodyWithLabels({}))
+    expect(first.ok).toBe(true)
+    const saved = historyOf(h)[0].snapshot_json
+
+    const res = await handleSessionComplete(h.db, CODE, SID, bodyWithLabels(labels))
+
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('completion_intent_conflict')
+    expect(historyOf(h)[0].snapshot_json).toBe(saved)
+  })
+
+  it('auditLog が違う再送は 409', async () => {
+    const h = setup()
+    const base = completeBody()
+    const withLog = {
+      ...base,
+      snapshot: {
+        ...base.snapshot,
+        auditLog: [{
+          id: 'a1', ingredient: '品目0', action: 'set', delta: 1, totalQty: 1,
+          unit: '個', enteredBy: '端末A', timestamp: '2026-08-09T01:00:00.000Z',
+        }],
+      },
+    }
+    expect((await handleSessionComplete(h.db, CODE, SID, base)).ok).toBe(true)
+    const res = await handleSessionComplete(h.db, CODE, SID, withLog)
+
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('completion_intent_conflict')
+    expect(JSON.parse(historyOf(h)[0].snapshot_json).auditLog).toEqual([])
+  })
+
+  it.each([
+    ['participants', { participants: [{ name: '端末A', items: [], totalValue: null }] }],
+    ['flaggedItems', { flaggedItems: ['品目0'] }],
+    ['axisNames', { axisNames: ['仕入先', '売場'] }],
+    ['locked', { locked: true }],
+  ])('%s が違う再送も 409', async (_label, extra) => {
+    const h = setup()
+    const base = completeBody()
+    expect((await handleSessionComplete(h.db, CODE, SID, base)).ok).toBe(true)
+
+    const res = await handleSessionComplete(h.db, CODE, SID, {
+      ...base, snapshot: { ...base.snapshot, ...extra },
+    })
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('completion_intent_conflict')
+  })
+
+  it('activeMs だけが違う再送は成功する（再試行のたびに増えるため意図的に除外）', async () => {
+    const h = setup()
+    const base = completeBody()
+    const a = await handleSessionComplete(h.db, CODE, SID, {
+      ...base, snapshot: { ...base.snapshot, activeMs: 1000 },
+    })
+    const b = await handleSessionComplete(h.db, CODE, SID, {
+      ...base, snapshot: { ...base.snapshot, activeMs: 9999 },
+    })
+
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(b.replay).toBe(true)
+    expect(historyOf(h)).toHaveLength(1)
+  })
+
+  it('まったく同じ snapshot（ラベル・metadata 込み）の再送は成功する', async () => {
+    const h = setup()
+    const body = bodyWithLabels({ category: '冷蔵', code: 'C-1', tagA: '軸A' })
+    const a = await handleSessionComplete(h.db, CODE, SID, body)
+    const b = await handleSessionComplete(h.db, CODE, SID, bodyWithLabels({ category: '冷蔵', code: 'C-1', tagA: '軸A' }))
+
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(b.replay).toBe(true)
+    expect(historyOf(h)).toHaveLength(1)
+  })
+})

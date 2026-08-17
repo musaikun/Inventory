@@ -1,8 +1,9 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-10
+最終更新: 2026-08-17
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
+最新照合: 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq@1d3cbfa` の後続差分（migration 0016 まで・すべて本番未適用）
 
 ## 公開scope
 
@@ -107,7 +108,7 @@ URLを推測で本番正本にしません。
 
 | 状況 | 影響 | 判断 |
 |---|---|---|
-| 0015 適用前に作られた取込バッチ（`import_batch_id IS NOT NULL` かつ台帳行なし） | 同じ `batchId` + 日付への再送が replay ではなく通常の upsert になる。データは壊れないが「取り込み直し」として処理される | 許容。preflightの件数で影響範囲を把握する |
+| 0015 適用前に作られた取込バッチ（`import_batch_id IS NOT NULL` かつ台帳行なし） | 同じ `batchId` + 日付への再送は **`409 legacy_import_unverified`** で拒否される（内容を保証できないものを黙って上書きしないため）。取り込み直すには `DELETE /imports/:batchId` で明示的に取り消す | 許容。preflightの件数で影響範囲を把握し、Userへ取消→再取込の手順を伝える |
 | 0016 適用前に完了した session（claim 行なし） | 同じ内容の完了を再送しても `409 completion_intent_conflict`（`reason: already_completed`）。保存済みデータは無傷で、詳細APIから内容を確認できる | 許容。fail-closed 側 |
 
 **推測で fingerprint を作らない。** 当時の明細から再計算しても「当時の要求と同一である」
@@ -116,13 +117,20 @@ URLを推測で本番正本にしません。
 **maintenance条件（必須）**: migration 適用から新Worker deploy 完了までの窓では、
 旧Workerが台帳・claim を書かないまま取込・完了を処理できる。この窓の書き込みは
 上表と同じ「記録の無いデータ」を増やすため、**この間は過去棚卸取込と棚卸完了を行わせない**。
-実務上は次のいずれかを取る。
+これは必須条件であり、選択肢ではない。
 
-1. 利用の少ない時間帯に migration適用 → Worker deploy を連続実施し、窓を最小化する。
-2. 窓の間に完了・取込が発生した場合は件数を記録し、上表の許容範囲として扱う。
+- 利用の少ない時間帯に migration適用 → Worker deploy を**連続して**実施し、窓を最小化する。
+- 窓を開けたまま放置しない。deployが失敗した場合はWorkerを旧版へ戻して窓を閉じてから再試行する。
 
-窓の間に発生した完了・取込は**データとしては正しく保存される**（台帳・claim が無いだけ）。
-復旧作業は不要で、次回以降の要求から記録が始まる。
+窓の間に発生してしまった完了・取込の扱い（**事後対応であって、事前の許可ではない**）:
+
+| 発生したもの | 状態 | 対応 |
+|---|---|---|
+| 棚卸完了 | データは正しく保存される。claim が無いだけ | data修復は不要。ただし同じ完了の再送は `409 completion_intent_conflict`（`reason: already_completed`）になる |
+| 過去棚卸取込 | データは正しく保存される。台帳が無いだけ | **同じ batchId + 日付への再取込が `409 legacy_import_unverified` で塞がる**。取り込み直すには `DELETE /imports/:batchId` で明示的に取り消してから再取込する |
+
+いずれも保存済みデータは無傷で、data修復作業は不要。
+件数を記録し、Userへ「その取込は取り消してから入れ直す必要がある」ことを伝えられるようにする。
 
 5. Workerをdeployし、health、認証、許可Origin、拒否Originをprobeする。
 6. Pagesを明示したproduction branchへdeployする。

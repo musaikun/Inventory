@@ -430,7 +430,26 @@ export async function handlePastImportCreate(db, code, batchId, body) {
     ORDER BY started_at LIMIT 1
   `).bind(code, batch, date).first()
 
-  const sessionId = existing?.id ?? await importSessionId(code, batch, date)
+  // 台帳を持たない既存取込（0015 適用前に旧Workerが書いたもの、または台帳だけを
+  // 消したもの）は、**別内容で黙って上書きさせない**。
+  //
+  // 台帳が無いと「前回と同じ要求か」を判定する材料が無く、明細から fingerprint を
+  // 再計算しても当時の要求と同一である保証がない。推測で replay 成功にすると
+  // 取り込み済みの内容を黙って差し替えることになるため、fail-closed にする。
+  // 取り込み直したい場合は `DELETE /imports/:batchId` で明示的に取り消してもらう。
+  if (existing) {
+    // 並行して届いた同一要求が、この SELECT の直前に台帳を確定させた可能性がある。
+    // その場合は legacy ではなく通常の replay / conflict として扱う。
+    const raced = await _resolveRacedLedger(db, code, batch, date, fingerprint)
+    if (raced) return raced
+    return {
+      _status: 409, code: 'legacy_import_unverified', importBatchId: batch, date, retryable: false,
+      sessionId: existing.id,
+      error: 'この取込は記録が無いため上書きできません。取込を取り消してからやり直してください',
+    }
+  }
+
+  const sessionId = await importSessionId(code, batch, date)
   const startedAt = `${date}T00:00:00.000Z`
 
   // 取込先そのものを上書き対象に指定させない。指定を許すと、下の 1) で作った

@@ -28,7 +28,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側5点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側7点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
 | DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
@@ -107,6 +107,12 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-17（追加2）: 再レビューHIGH 2件を修正。完了fingerprintの対象を**canonical snapshot全体**へ広げ
+  （`code`/`category`/`auditLog` などを変えた再送が replay 成功し、server旧内容・端末新内容になる食い違いを解消。
+  除外は `savedAt` / `activeMs` の2つだけ）、台帳を持たない既存取込を
+  409 `legacy_import_unverified` で fail-closed にした（復旧は `DELETE /imports/:batchId` → 再取込）。
+  切替境界の文書矛盾（必須 vs 許容）を解消し、現行docsの最終照合を 0016 まで へ同期、
+  新しい409/400のHTTP伝播testを追加。`app/src`は差分ゼロ。
 - 2026-08-17: DATA-002 の再レビュー指摘を修正し、`レビュー待ち / Claude Code` を維持。
   汎用PUTからの完了迂回を409 `use_complete_endpoint`で塞ぎ、棚卸日を`takenAt`ひとつに統一
   （不一致は400 `snapshot_date_mismatch`）、完了確定をserver生成fingerprintのclaimで一意化

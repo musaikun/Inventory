@@ -5,7 +5,7 @@
 | **Status** | 現行W1 baseline（既知の未解消事項を含む） |
 | **Role** | Web Free版の機能・architecture・data境界を説明するdeveloper向けoverview |
 | **Source of truth** | [App code](../app/src/)、[Worker code](../worker/src/)、[D1 migrations](../worker/migrations/)、採用済み[D-015/D-016/D-019/D-021](quality-foundation/decisions.md) |
-| **Last verified** | 2026-08-04 / `develop@bc9fb85` |
+| **Last verified** | 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq`（migration 0016 まで・本番未適用） |
 
 この文書はrelease可否の正本ではありません。Web公開判定は
 [Web公開準備](quality-foundation/web-release-readiness.md)、endpoint契約は

@@ -2,6 +2,44 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-17（追加2） — DATA-002 再レビュー HIGH 2件の修正
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `1d3cbfa`。
+- 追加差分のみ（amend / reset / rebase なし）。**`app/src` は差分ゼロ**。
+- 追加した回帰test **13件が `1d3cbfa` で失敗**することを確認してから修正した。
+
+1. **完了 fingerprint の対象を canonical snapshot 全体へ広げた。**
+   旧実装は明細（品目名・数量・単位・単価・小計）と件数・合計・日付しか見ておらず、
+   `code` / `category` / `flagged` / `lotSize` / `tagA` / `tagB` / `entryLog` / `auditLog` /
+   `participants` / `flaggedItems` / `axisNames` / `locked` を変えた再送が replay 成功していた
+   （**サーバー旧内容・端末新内容**の食い違い）。
+   意図的な除外は `savedAt`（server時刻・毎回変わる）と `activeMs`（再試行で増える）の2つだけで、
+   理由をコードと `api-design.md` に明記した。
+2. **台帳を持たない既存取込を 409 `legacy_import_unverified` で閉じた。**
+   `existing && !ledger` をそのまま upsert していたため、0015 適用前のバッチや
+   台帳だけ消えた状態を別内容で黙って上書きできた。推測で fingerprint を作らず fail-closed にし、
+   復旧経路を **`DELETE /imports/:batchId` → 再取込**へ一本化した。
+   これに伴い「history を消したら直接再取込できる」という前回の記述は取り下げた。
+
+合わせて、切替境界の文書矛盾（「操作停止が必須」と「発生しても許容」の並記）を解消し、
+`api-design.md` / `spec.md` / `web-release-readiness.md` の最終照合を 2026-08-17・0016 まで へ更新、
+新しい 409/400 の HTTP 伝播と `_status` 非露出を `test/routerStatus.sqlite.test.js` へ追加した。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 26 files / 534 tests passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` / `git diff --name-only -- app/src` | 指摘なし / 出力なし |
+
+### 次の再開地点
+
+App セッションでの追随は **7点**（前回5点 + `legacy_import_unverified` の案内、
+完了再送時に snapshot を変えない扱い）。詳細は [`tasks/DATA-002.md`](tasks/DATA-002.md)。
+その後 Codex が全差分を独立レビューする。
+
 ## 2026-08-17 — DATA-002 第1修正セッション 追加分: 再レビュー指摘（Worker / D1）
 
 - 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `38cf1cc`（clean・ancestor確認済み）。

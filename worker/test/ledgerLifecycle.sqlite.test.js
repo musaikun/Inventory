@@ -196,7 +196,7 @@ describe('stale ledger で replay 成功にしない', () => {
     expect(linesOf(h)).toHaveLength(3)
   })
 
-  it('history 削除で台帳との矛盾を残さない（再取込できる）', async () => {
+  it('history 削除で stale な台帳を残さない', async () => {
     const h = setup()
     const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
 
@@ -204,6 +204,19 @@ describe('stale ledger で replay 成功にしない', () => {
     expect(res.ok).toBe(true)
     expect(historyOf(h)).toHaveLength(0)
     expect(ledgerOf(h)).toHaveLength(0)
+  })
+
+  it('history 削除後の再取込は、明示的な取消を経てからだけ成功する', async () => {
+    const h = setup()
+    const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
+    await handleHistoryDelete(h.db, CODE, first.sessionId)
+
+    // session は残っているのに台帳が無い＝内容を保証できない。黙って上書きしない。
+    const blocked = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
+    expect(blocked._status).toBe(409)
+    expect(blocked.code).toBe('legacy_import_unverified')
+
+    expect((await handlePastImportCancel(h.db, CODE, BATCH)).ok).toBe(true)
 
     const again = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
     expect(again.ok).toBe(true)
@@ -275,19 +288,61 @@ describe('stale ledger で replay 成功にしない', () => {
 })
 
 // ── legacy（0015 以前の取込・台帳なし）─────────────────────────────────────
-describe('台帳を持たない legacy batch', () => {
-  it('台帳が無ければ通常の要求として扱い、推測でfingerprintを作らない', async () => {
-    const h = setup()
-    await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
-    // 0015 適用前に旧Workerが書いた取込の状態を作る
+describe('台帳を持たない legacy batch（0015 適用前の取込）', () => {
+  /** 0015 適用前に旧Workerが書いた取込（session はあるが台帳が無い）を作る */
+  async function seedLegacyImport(h) {
+    const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
     h.sqlite.prepare('DELETE FROM import_batch_requests').run()
+    return first
+  }
+
+  it('台帳が無い既存取込は、別内容で黙って上書きできない（409 fail-closed）', async () => {
+    const h = setup()
+    await seedLegacyImport(h)
 
     const res = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
 
-    expect(res.ok).toBe(true)
-    expect(res.replay).toBeUndefined()
+    expect(res.ok).toBeUndefined()
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('legacy_import_unverified')
+    // 既存の取込は無傷
     expect(sessionsOf(h)).toHaveLength(1)
+    expect(linesOf(h)).toHaveLength(3)
+    expect(historyOf(h)).toHaveLength(1)
+    expect(ledgerOf(h)).toHaveLength(0)
+  })
+
+  it('同じ内容の再送でも、台帳が無ければ 409（推測でfingerprintを作らない）', async () => {
+    const h = setup()
+    await seedLegacyImport(h)
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
+
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('legacy_import_unverified')
+    expect(linesOf(h)).toHaveLength(3)
+  })
+
+  it('明示的に取り消した後なら再取込できる', async () => {
+    const h = setup()
+    await seedLegacyImport(h)
+
+    const cancel = await handlePastImportCancel(h.db, CODE, BATCH)
+    expect(cancel.ok).toBe(true)
+    expect(sessionsOf(h)).toHaveLength(0)
+
+    const again = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
+    expect(again.ok).toBe(true)
     expect(linesOf(h)).toHaveLength(2)
     expect(ledgerOf(h)).toHaveLength(1)      // 以後は台帳が付く
+  })
+
+  it('同じバッチでも別日付なら台帳の有無に関係なく取り込める', async () => {
+    const h = setup()
+    await seedLegacyImport(h)
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-02', items: items(2) })
+    expect(res.ok).toBe(true)
+    expect(sessionsOf(h)).toHaveLength(2)
   })
 })

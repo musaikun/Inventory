@@ -1146,9 +1146,12 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   })
   if (canonical.error) return canonical.error
 
-  // server が検証済みの値だけから作る canonical intent の指紋。
+  // server が検証・正規化した値だけから作る canonical intent の指紋。
+  // **保存する canonical snapshot 全体**（volatile な鍵を除く）を含めるので、
+  // `category` / `code` / `auditLog` など「明細以外だが保存される項目」を変えた再送も
+  // 別 intent として 409 になる（server 旧内容・端末新内容の食い違いを作らない）。
   const fingerprint = await _completionFingerprint({
-    type: 'stock', date: taken, itemCount, totalValue, rows,
+    type: 'stock', date: taken, itemCount, totalValue, rows, snapshot: canonical.snapshot,
   })
 
   // 既に確定済みなら、同じ intent の再送だけを冪等成功にする。
@@ -1231,17 +1234,39 @@ export async function handleSessionComplete(db, code, sessionId, body) {
 }
 
 /**
- * canonical intent の指紋。**server が検証した値だけ**から作る。
+ * fingerprint から**意図的に除外する** canonical snapshot の鍵。
  *
- * client が送る fingerprint は信用しない（改ざんで別内容の上書きが通ってしまう）。
- * allowlist した任意 metadata（`entryLog` / `auditLog` / `activeMs` など）は
- * **含めない**。`activeMs` は再試行のたびに増えるため、含めると正当な再送まで
- * 「別の intent」と判定されてしまう。確定内容そのもの（明細・件数・合計・日付）だけを見る。
+ * ここに挙げた項目だけは「違っていても同じ intent」とみなす。理由が無いものは足さない。
+ *
+ * - `savedAt`: server 時刻。要求のたびに必ず変わるため、含めると再送が常に別 intent になる。
+ * - `activeMs`: 端末の計測時間。完了に失敗して同じ画面から再試行すると増えるため、
+ *   含めると正当な再送が 409 になる。表示用の参考値で、棚卸の記録内容そのものではない。
+ *
+ * これ以外（`items` の全列 = 数量・単位・単価・小計に加え `code` / `flagged` / `category` /
+ * `lotSize` / `prevMonth` / `tagA` / `tagB`、および `entryLog` / `auditLog` / `participants` /
+ * `flaggedItems` / `axisNames` / `locked` / `itemCount` / `totalValue` / `date` / `sessionId` /
+ * `type`）は**すべて fingerprint に含める**。保存対象なのに指紋から漏れていると、
+ * その項目だけを変えた再送が「同じ intent」として replay 成功になり、
+ * **サーバーは旧内容・端末は新内容**という食い違いを作る。
  */
-async function _completionFingerprint({ type, date, itemCount, totalValue, rows = [] }) {
+const FINGERPRINT_EXCLUDED_SNAPSHOT_KEYS = ['savedAt', 'activeMs']
+
+/**
+ * canonical intent の指紋。**server が検証・正規化した値だけ**から作る。
+ *
+ * client が送る fingerprint は受け取らない（改ざんで別内容の上書きが通ってしまう）。
+ * stock では「保存する canonical snapshot そのもの」から上記の除外鍵を落としたものを使うため、
+ * 保存対象が増えても指紋の対象が自動的に追随する。
+ */
+async function _completionFingerprint({ type, date, itemCount, totalValue, rows = [], snapshot = null }) {
+  // canonical snapshot は server が固定の鍵順で組み立てるので、JSON 化は決定的。
+  const stable = snapshot == null ? null : Object.fromEntries(
+    Object.entries(snapshot).filter(([k]) => !FINGERPRINT_EXCLUDED_SNAPSHOT_KEYS.includes(k)),
+  )
   const canonical = JSON.stringify({
     type, date, itemCount, totalValue: totalValue ?? null,
     rows: rows.map(r => [r.item, r.qty, r.unit ?? '', r.price, r.value]),
+    snapshot: stable,
   })
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
   return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')

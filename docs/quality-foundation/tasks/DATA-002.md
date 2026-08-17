@@ -829,3 +829,87 @@ dated audit（`audit-2026-07-25.md` / `data-safety-audit.md`）、`docs/export/`
 - 完了 claim を消す経路は session 削除だけ。`DELETE /history/:sessionId` は claim を残すため、
   history を消した完了済み session は `409 completion_record_missing` になり、
   同じ session では復旧できない（session を削除してやり直す）。意図的な fail-closed。
+
+## 再レビュー HIGH 2件の修正（2026-08-17 / Claude Code・追加分2）
+
+`1d3cbfa` を基準にした追加差分。`app/src/**` は変更していない。
+
+### 修正前に失敗を確認したtest
+
+追加した回帰test 13件が `1d3cbfa` で失敗した
+（`completionClaim` 10 / `ledgerLifecycle` 2 / `routerStatus` 1）。
+
+### HIGH 1: 完了 fingerprint が snapshot の一部しか見ていなかった
+
+`_completionFingerprint` は「種別・日付・件数・合計・明細行（品目名・数量・単位・単価・小計）」
+だけを見ていた。保存対象なのに指紋へ入っていない項目があると、その項目だけを変えた再送が
+**replay 成功**になり、**サーバーは旧内容・端末は新内容**という食い違いを作る。
+
+指紋から漏れていた保存対象:
+
+| 種別 | 項目 |
+|---|---|
+| items のラベル列 | `code` / `flagged` / `category` / `lotSize` / `prevMonth` / `tagA` / `tagB` |
+| snapshot metadata | `entryLog` / `auditLog` / `participants` / `flaggedItems` / `axisNames` / `locked` |
+
+**修正**: 指紋の対象を「保存する canonical snapshot **そのもの**」へ変えた。
+保存対象が増えても指紋が自動的に追随する。
+
+**意図的に除外する鍵は2つだけ**（`FINGERPRINT_EXCLUDED_SNAPSHOT_KEYS`）。
+
+| 鍵 | 除外理由 |
+|---|---|
+| `savedAt` | server 時刻。要求のたびに必ず変わるため、含めると再送が常に別 intent になる |
+| `activeMs` | 端末の計測時間。完了に失敗して同じ画面から再試行すると増えるため、含めると正当な再送が 409 になる。表示用の参考値で、棚卸の記録内容そのものではない |
+
+これ以外は**すべて含める**。除外を追加する場合は上記と同じ水準の理由を明記すること。
+
+### HIGH 2: 0015以前の台帳なし取込を別内容で黙って上書きできた
+
+`existing && !ledger`（session はあるが台帳が無い）で、そのまま upsert していた。
+0015 適用前に旧Workerが書いたバッチや、`DELETE /history/:sessionId` で台帳だけが消えた状態で、
+**取り込み済みの内容を別内容へ黙って差し替えられた**。
+
+**修正**: `409 legacy_import_unverified`（`retryable: false`）で fail-closed。
+
+- 台帳が無いと「前回と同じ要求か」を判定する材料が無い。明細から fingerprint を再計算しても
+  当時の要求と同一である保証がないため、**推測で replay 成功にしない**。
+- 並行して届いた同一要求が直前に台帳を確定させた場合は legacy ではないので、
+  `_resolveRacedLedger` を先に通してから legacy 判定へ落とす。
+- 復旧経路は **`DELETE /imports/:batchId` で明示的に取り消してから再取込**の一本。
+  同じバッチの**別日付**は影響を受けない。
+- 副次: `DELETE /history/:sessionId` 後の再取込も、この経路で 409 になる。
+  「history を消したら直接再取込できる」という前回の記述は取り下げ、
+  **stale 状態からの復旧はすべて cancel 経由**に統一した（testも更新済み）。
+
+### 合わせて直した項目
+
+| 項目 | 内容 |
+|---|---|
+| 文書矛盾 | `web-release-readiness.md` の切替境界が「操作停止が必須」と「発生しても許容」を並記していた。**必須条件であり選択肢ではない**と明記し、窓の間に発生した場合の扱いを「事後対応であって事前の許可ではない」表に分離した |
+| 0010〜0016の記載同期 | `api-design.md` / `spec.md` の `Last verified` を 2026-08-17 / 現branch（0016まで・本番未適用）へ。`web-release-readiness.md` に最新照合行を追加 |
+| router test | 新しい 409/400 が HTTP でも正しく返り、本文へ `_status` が漏れないことを `test/routerStatus.sqlite.test.js` へ追加（`use_complete_endpoint` / `session_completed` / `snapshot_date_mismatch` / `completion_intent_conflict` / replay 200 / `legacy_import_unverified` / `import_intent_conflict`） |
+
+### 実行したcommandと結果
+
+| command | 結果 |
+|---|---|
+| 追加した回帰test（**修正前**・`1d3cbfa`） | **13 failed** |
+| `npm --prefix worker test` | **26 files / 534 tests passed** |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+### Appへの引継ぎ（追加分）
+
+前回の5点に加えて、次を扱う必要がある。
+
+6. **`409 legacy_import_unverified`** — 過去棚卸取込で、内容を保証できない既存取込があるときに返る。
+   再試行では解消しない。「先に取込を取り消してください」と案内し、
+   `DELETE /imports/:batchId` → 再取込の導線を出す。
+7. **完了の再送は snapshot を1文字も変えずに送る**。`category` / `code` / `auditLog` などを
+   変えて再送すると `409 completion_intent_conflict` になる。
+   完了失敗後に内容を編集した場合は「別の内容として完了し直す」ことになり、
+   同じ sessionId では確定できない（session を作り直す導線が要る）。
+   `activeMs` だけは変わってもよい。
