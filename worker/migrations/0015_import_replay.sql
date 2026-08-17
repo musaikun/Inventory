@@ -42,7 +42,18 @@
 --   取込済みデータそのものは壊れない。
 --
 -- 適用前後で既存テーブルの行数は変わらない。
--- 既存の取込バッチは台帳行を持たないため、次回の要求から記録が始まる（後方互換）。
+--
+-- 既存の取込バッチ（このmigration適用前に作られたもの）は台帳行を持たない。
+-- **その場合の現行契約は「黙って上書きしない」**:
+--   - 台帳が無いと「前回と同じ要求か」を判定する材料が無い。明細から fingerprint を
+--     再計算しても当時の要求と同一である保証がないため、**推測で fingerprint を作らない**。
+--   - 同じ batchId + 同じ日付への再送は、内容が同じであっても
+--     `409 legacy_import_unverified` で拒否する（fail-closed）。
+--   - 取り込み直すには `DELETE /imports/:batchId` で**明示的に取り消して**から再取込する。
+--     取消は台帳行も消すので、そのあとは通常どおり記録が始まる。
+--   - 同じバッチの**別日付**は影響を受けない。
+-- 運用上の扱いと preflight は docs/quality-foundation/web-release-readiness.md の
+-- 「migration → Worker deploy の切替境界」を正とする。
 
 CREATE TABLE IF NOT EXISTS import_batch_requests (
   shop_code   TEXT    NOT NULL,

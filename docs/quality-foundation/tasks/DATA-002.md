@@ -913,3 +913,115 @@ dated audit（`audit-2026-07-25.md` / `data-safety-audit.md`）、`docs/export/`
    完了失敗後に内容を編集した場合は「別の内容として完了し直す」ことになり、
    同じ sessionId では確定できない（session を作り直す導線が要る）。
    `activeMs` だけは変わってもよい。
+
+## 独立レビュー指摘の修正（2026-08-17 / Claude Code・追加分3）
+
+`e9b1dbe` を基準にした追加差分。`app/src/**` は変更していない。
+第2セッション（App完了処理・同期キュー）と第3セッション（CSV・過去棚卸取込UI）の差分には触れていない。
+
+- Cloudflare公式資料は 2026-08-17 に確認済み（本セッション内で再取得）。
+  [D1 batch()](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) の
+  「Batched statements are SQL transactions」「execute and commit, sequentially, non-concurrently」
+  「D1Result 配列は prepare した順に対応」が、今回の cancel 修正（SELECT を batch 先頭へ）の根拠。
+  `RETURNING` は今も公式に記載が無いため使用しない。
+
+### 修正前に失敗を確認したtest
+
+追加した回帰test のうち **6件**が `e9b1dbe` で失敗した（すべて `test/ledgerLifecycle.sqlite.test.js`）。
+
+| test | 修正前の挙動 |
+|---|---|
+| 通常棚卸を置換すると、旧 `session_completions` も消える | 旧 claim が孤児として残った |
+| 取込済みを別 batch で置換すると、旧 `import_batch_requests` も消える | 旧台帳が残り、旧バッチ再送が `import_record_missing` になった |
+| batch のどの位置で失敗しても部分状態にならない | 削除文が増える前提の検査で落ちた |
+| 上限件数の replace で query / bound parameter が上限内 | 同上 |
+| 事前処理後・batch 開始前に確定した取込も削除し件数に含める | `removed: 0` / `sessionIds: []` を返した |
+| cancel の batch のどこで失敗しても元のまま | 事前 SELECT が `cancel_failed` の catch 対象外だった |
+
+### HIGH: replace で旧 claim・旧台帳が残る
+
+上書き対象について、同一 transaction 内で **5種類**を削除するようにした（旧実装は前3つだけ）。
+
+1. `inventory_lines`
+2. `store_history`
+3. `session_completions`（新規）
+4. `import_batch_requests`（新規）
+5. `sessions`
+
+維持している条件:
+
+- `shop_code` で対象店舗を限定し、`session_id` / `id IN replaceIds` で対象を限定
+- 5文すべてを新しい取込要求の claim guard（台帳 EXISTS + fingerprint）に従属させる
+- **session 本体より先に**関連 claim・台帳を削除する
+- 作成中の新しい `import_batch_requests` は対象にならない
+  （その `session_id` は新セッションで、`self_replace` 拒否により `replaceIds` に入らない）
+- guard 失敗時は全 statement が0件。batch 途中失敗は全体 rollback
+- 件数によらず5文へ集約（1件5文だと50件で250文になり Free の invocation 上限を超える）
+
+`api-design.md` の「通常操作では stale 台帳は発生しない」という契約と実装が一致した。
+
+### MEDIUM: 取消対象の取得が transaction 外
+
+対象 session の SELECT を **削除と同じ `db.batch()` の先頭**へ移した。
+
+- `sessionIds` / `removed` は batch 結果の先頭 SELECT から作る。
+  応答の件数・IDが「実際に消した対象」と必ず一致する。
+- SELECT を含む batch のどこで失敗しても `503 cancel_failed` / `retryable: true`（全体 rollback）。
+  旧実装では事前 SELECT の失敗が catch 対象外だった。
+- 冪等性は維持（2回目は `removed: 0`）。通常棚卸・別batch・他店舗には触れない。
+- query 数は増えていない（旧: 外1 + batch5 = 6／新: batch6 = 6）。
+
+### LOW: migration 0015 のコメント
+
+SQL 構造は変えず、末尾のコメントを現行契約へ合わせた。
+「既存の取込バッチは台帳行を持たないため、次回の要求から記録が始まる（後方互換）」は誤りで、
+実際は台帳なし既存取込を `409 legacy_import_unverified` で fail-closed にしている。
+推測で fingerprint を作らないこと、同内容でも拒否すること、明示的な取消後に再取込することを明記した。
+
+### D1実行上限の実測（実SQLiteハーネス・batch 内 statement も1本ずつ計上）
+
+| 経路 | queries | 最大 bound parameter |
+|---|---:|---:|
+| 棚卸完了 1品目 | 9 | 9 |
+| 棚卸完了 150品目 | 16 | 99 |
+| 棚卸完了 351品目（R-001の実データ規模） | 27 | 99 |
+| 棚卸完了 500品目（上限） | 35 | 99 |
+| 過去取込 500行 / replace 0件 | 34 | 99 |
+| 過去取込 500行 / replace 50件（上限） | 40 | 99 |
+| 取込の取消 | 6 | 3 |
+
+replace 削除が3文→5文になって取込は 38 → 40 queries。認証2本を足しても Free の 50 に収まる。
+
+### テストの設計上の注意
+
+`status='completed'` を直接 INSERT する seed では `session_completions` が作られず、
+今回の欠陥を検出できない。追加した test は **実API経路**（`handleSessionComplete()` /
+`handlePastImportCreate()`）で claim・台帳を作っている。
+rollback test は statement の並びに依存させないため、成功実行で batch サイズを測ってから
+0..size-1 のすべてに障害を注入する形にした。
+
+### 実行したcommandと結果
+
+| command | 結果 |
+|---|---|
+| 追加した回帰test（**修正前**・`e9b1dbe`） | **6 failed / 21 passed（27）** |
+| `npm test -- test/ledgerLifecycle.sqlite.test.js test/pastImportIdempotency.sqlite.test.js test/pastImport.sqlite.test.js` | 3 files / 83 passed |
+| `npm test -- test/migrationFresh.test.js test/migrationUpgrade.test.js test/migrationScript.test.js` | 3 files / 20 passed |
+| `npm test`（worker 全体） | **26 files / 545 tests passed** |
+| `npm --prefix app test -- --run` | 87 files / 875 passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+### 未実施・残risk
+
+- **migration は local / remote とも未適用**（0012〜0016）。
+- 実D1での計測は未実施。上の queries / boundParams は実SQLiteハーネスの値で、
+  `batch` 内 statement が invocation あたりの query 数へどう数えられるかは公式資料に明記が無い。
+  引き続き厳しい側（1 statement = 1 query）を仮定している。
+- 実browser / 実機確認は未実施。
+- **App側の追随が未了**（7点。前回までの記録のとおり）。
+- `POST /history`（legacy 店舗用 soft auth）は従来どおりセッション行の存在を確認しないため、
+  この経路からは孤児 snapshot を作れる（F-004 の残り・Phase 3）。
+- replace の対象が `completed` / `stock` / 同日に限られるのは従来どおり。
+  order セッションや進行中の棚卸は上書きできない（意図した制約）。

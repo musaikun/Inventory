@@ -533,9 +533,20 @@ export async function handlePastImportCreate(db, code, batchId, body) {
   ))
 
   // 5) ユーザーが明示的に「上書き」を選んだセッションだけを消す。
-  //    件数によらず3文へ集約する。1件3文だと50件で150文になり、D1 の
+  //    件数によらず**5文**へ集約する。1件5文だと50件で250文になり、D1 の
   //    「Queries per Worker invocation」（Free 50）を1リクエストで超える。
   //    shop_code で必ず絞るので、他店舗のIDを渡されても何も消えない。
+  //
+  //    消すのは「そのセッションに属するもの全部」。旧実装は
+  //    inventory_lines / store_history / sessions の3種類しか消しておらず、
+  //      - 通常棚卸を置換 → 旧 session_completions が孤児として残る
+  //      - 取込済みを別batchで置換 → 旧 import_batch_requests が残り、
+  //        旧バッチの再送が `import_record_missing` になる
+  //    という stale 状態を**通常操作で**作っていた（DATA-002 再レビュー HIGH）。
+  //
+  //    順序: session 本体より**先に**関連 claim・台帳を消す。
+  //    新しい取込の台帳行は `session_id` が新セッション（= replaceIds に含まれない。
+  //    self_replace を上で弾いている）なので、この DELETE の対象にならない。
   //
   //    claim に従属させるので、削除も**勝者のトランザクションだけ**で起きる。
   //    preflight の後・batch の直前に対象が active へ戻った場合は 1) の件数 guard が
@@ -543,11 +554,15 @@ export async function handlePastImportCreate(db, code, batchId, body) {
   if (replaceIds.length > 0) {
     const ph = replaceIds.map(() => '?').join(',')
     statements.push(
-      db.prepare(`DELETE FROM inventory_lines WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
+      db.prepare(`DELETE FROM inventory_lines       WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
         .bind(code, ...replaceIds, ...claim.binds),
-      db.prepare(`DELETE FROM store_history   WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
+      db.prepare(`DELETE FROM store_history         WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
         .bind(code, ...replaceIds, ...claim.binds),
-      db.prepare(`DELETE FROM sessions        WHERE shop_code = ? AND id IN (${ph}) AND ${claim.sql}`)
+      db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
+        .bind(code, ...replaceIds, ...claim.binds),
+      db.prepare(`DELETE FROM import_batch_requests WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
+        .bind(code, ...replaceIds, ...claim.binds),
+      db.prepare(`DELETE FROM sessions              WHERE shop_code = ? AND id IN (${ph}) AND ${claim.sql}`)
         .bind(code, ...replaceIds, ...claim.binds),
     )
   }
@@ -621,18 +636,26 @@ export async function handlePastImportCancel(db, code, batchId) {
 
   const target = 'SELECT id FROM sessions WHERE shop_code = ? AND import_batch_id = ?'
 
-  const found = await db.prepare(target).bind(code, batch).all()
-  const ids   = (found.results ?? []).map(r => r.id)
-
+  // 対象の取得を**削除と同じ batch（=1トランザクション）の先頭**へ入れる
+  // （DATA-002 再レビュー MEDIUM）。旧実装は batch の外で SELECT していたため、
+  // SELECT と削除の間に同じバッチの取込が確定すると、実際には消したのに
+  // `removed: 0` / `sessionIds: []` という誤った応答を返した。
+  // 事前 SELECT が失敗した場合も `cancel_failed` の catch 対象外だった。
+  //
+  // D1 の batch は statement を順に実行し、結果配列も statement 順に返す（公式）。
+  // 先頭の SELECT はこのトランザクション内の削除前の状態を見るので、
+  // 応答の件数とIDは「実際に消した対象」と必ず一致する。
+  let results
   try {
-    await db.batch([
-      db.prepare(`DELETE FROM inventory_lines WHERE shop_code = ? AND session_id IN (${target})`)
+    results = await db.batch([
+      db.prepare(target).bind(code, batch),
+      db.prepare(`DELETE FROM inventory_lines       WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
-      db.prepare(`DELETE FROM store_history   WHERE shop_code = ? AND session_id IN (${target})`)
+      db.prepare(`DELETE FROM store_history         WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
-      db.prepare(`DELETE FROM session_completions WHERE shop_code = ? AND session_id IN (${target})`)
+      db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
-      db.prepare('DELETE FROM sessions WHERE shop_code = ? AND import_batch_id = ?').bind(code, batch),
+      db.prepare('DELETE FROM sessions              WHERE shop_code = ? AND import_batch_id = ?').bind(code, batch),
       db.prepare('DELETE FROM import_batch_requests WHERE shop_code = ? AND batch_id = ?').bind(code, batch),
     ])
   } catch (e) {
@@ -640,5 +663,6 @@ export async function handlePastImportCancel(db, code, batchId) {
     return { _status: 503, code: 'cancel_failed', retryable: true, error: '取込を取り消せませんでした' }
   }
 
+  const ids = (results?.[0]?.results ?? []).map(r => r.id)
   return { ok: true, removed: ids.length, sessionIds: ids, importBatchId: batch }
 }

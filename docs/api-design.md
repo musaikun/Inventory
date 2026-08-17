@@ -56,7 +56,7 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `POST /store/:code/sessions/:uuid/complete` | **`sessions.type`で契約が分かれる**（下記「§3.1 棚卸完了API」）。`stock`は`{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,type:'stock',date,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。`order`は`{ itemCount }` → `{ok,sessionId,type:'order',itemCount,snapshotSaved:false}`で`store_history`を書かない。**確定できるのは最初の1要求だけ**。同一intentの再送は保存済み結果（`replay:true`）、内容の違う再送は409 `completion_intent_conflict`。intentの同一性は**保存するcanonical snapshot全体**（`savedAt` / `activeMs`を除く）で判定する。棚卸日は`takenAt`ひとつで決まり、`snapshot.date`が違えば400 `snapshot_date_mismatch` | strict同store Bearer |
 | `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
 | `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
-| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。2回目は`removed:0`で成功（冪等）。台帳も消すので、取消後は同じ内容で取り込み直せる | strict同store Bearer |
+| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
@@ -243,8 +243,13 @@ D1 データベース                               ← データを取る
   **同じ店舗・同じ日付・`completed`・`stock`** の4つで、1件でも外れたら `409 replace_not_allowed`
   （`reason` = `not_found` / `date_mismatch` / `not_completed` / `not_stock`）で**全体を拒否し、何も削除しません**。
   他storeのIDと存在しないIDは同じ `not_found` にして実在を漏らしません。
-  削除は件数によらず3文（`inventory_lines` / `store_history` / `sessions`）へ `IN` で集約するため、
-  上限50件でも statement 数は増えません。
+  削除は件数によらず**5文**（`inventory_lines` / `store_history` / `session_completions` /
+  `import_batch_requests` / `sessions`）へ `IN` で集約するため、上限50件でも statement 数は増えません。
+  **セッションに属するものを全部消します**。旧実装は前3つしか消しておらず、
+  通常棚卸を置換すると旧 `session_completions` が孤児として残り、取込済みを別バッチで置換すると
+  旧 `import_batch_requests` が残って旧バッチの再送が `import_record_missing` になっていました。
+  session 本体より先に関連 claim・台帳を消し、作成中の新しい台帳行（`session_id` が新セッション）は
+  対象になりません。
 - **上書き許可の判定は文中の原子guardが持ちます**（DATA-002 §3 / §4）。preflight の SELECT は
   理由つき409を返すためだけのもので、削除権限の根拠にしません。SELECT と DELETE の間に対象が
   `active` へ戻る隙間があり、そこで入力中の棚卸を消せていました。
@@ -286,6 +291,18 @@ D1 データベース                               ← データを取る
   取り込み直すには `DELETE /imports/:batchId` で**明示的に取り消して**から再取込します。
   同じバッチの**別日付**は影響を受けません。
 - **取消**: `import_batch_id` の一致だけを条件に消すため、別バッチと通常の棚卸は残ります。
+  対象取得の SELECT を削除と**同じ `db.batch`（=1トランザクション）の先頭**へ置いているので、
+  SELECT と削除の間に同じバッチの取込が確定しても、応答の件数・IDが実際に消した対象とずれません。
+  batch は 6 文（SELECT 1 + 削除 5）です。
+- **D1実行上限の実測**（実SQLiteハーネス・batch 内 statement も1本ずつ計上／2026-08-17）:
+
+  | 経路 | queries | 最大 bound parameter |
+  |---|---:|---:|
+  | 取込 500行 / replace 0件 | 34 | 99 |
+  | 取込 500行 / replace 50件（上限） | 40 | 99 |
+  | 取込の取消 | 6 | 3 |
+
+  いずれも認証2本を足しても Free の 50 / bound parameter 100 に収まります。
 - **検証**: 日付は実在日（`2026-02-30` は拒否）、`items` は `MAX_LINES_PER_REQUEST`（500）まで、
   `replaceSessionIds` は `MAX_REPLACE_SESSIONS`（50）まで、
   数量は棚卸と同じ契約（`0` は正当・負数と非有限は拒否・`0` へ丸めない）、

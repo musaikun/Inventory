@@ -2,6 +2,53 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-17（追加3） — DATA-002 独立レビュー指摘（replace の孤児 claim / cancel の transaction）
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `e9b1dbe`（clean）。
+- 対象は Worker/D1・関連test・現行文書のみ。第2/第3セッションの差分には触れていない。
+- **`app/src` は差分ゼロ**。状態は `レビュー待ち / Claude Code` のまま（完了にしない）。
+- commit / push / deploy / migration適用は**していない**（追加指示待ち）。
+
+### 直したこと
+
+1. **HIGH: replace で旧 claim・旧台帳が残っていた。**
+   上書き削除が `inventory_lines` / `store_history` / `sessions` の3種類だけだったため、
+   通常棚卸を置換すると旧 `session_completions` が孤児になり、取込済みを別batchで置換すると
+   旧 `import_batch_requests` が残って旧バッチの再送が `import_record_missing` になっていた。
+   `session_completions` と `import_batch_requests` を加えた**5文**にし、
+   session 本体より先に claim・台帳を消すようにした。作成中の新しい台帳は対象外。
+2. **MEDIUM: 取消の対象取得が transaction 外だった。**
+   SELECT を削除と同じ `db.batch()` の先頭へ移し、`removed` / `sessionIds` を batch 結果から作る。
+   直前に同じバッチの取込が確定しても「消したのに `removed: 0`」を返さない。
+   事前 SELECT の失敗も `cancel_failed` / `retryable: true` に含まれるようになった。
+3. **LOW: migration 0015 のコメントが現行契約と不一致**だった。SQL は変えず、
+   台帳なし既存取込を `409 legacy_import_unverified` で fail-closed にする現行契約へ書き直した。
+
+### 修正前に失敗を確認したtest
+
+追加した回帰test のうち **6件**が `e9b1dbe` で失敗（すべて `test/ledgerLifecycle.sqlite.test.js`）。
+seed で `status='completed'` を直接 INSERT しても claim は作られないため、
+**実API経路**（`handleSessionComplete` / `handlePastImportCreate`）で claim・台帳を作る test にしている。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm test -- test/ledgerLifecycle… test/pastImportIdempotency… test/pastImport…` | 3 files / 83 passed |
+| `npm test -- test/migrationFresh… test/migrationUpgrade… test/migrationScript…` | 3 files / 20 passed |
+| `npm test`（worker 全体） | **26 files / 545 tests passed** |
+| `npm --prefix app test -- --run` | 87 files / 875 passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` / `git diff --name-only -- app/src` | 指摘なし / 出力なし |
+
+D1実行上限の実測: 取込 500行+replace 50件 = **40 queries / 99 bound params**、取消 = **6 / 3**、
+棚卸完了 500品目 = **35 / 99**。replace が3文→5文になり取込は 38 → 40 queries（Free 50 内）。
+
+### 次の再開地点
+
+Codex の再レビュー。App 側の追随は 7 点のまま（[`tasks/DATA-002.md`](tasks/DATA-002.md)）。
+migration 0012〜0016 は本番未適用。
+
 ## 2026-08-17（追加2） — DATA-002 再レビュー HIGH 2件の修正
 
 - 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `1d3cbfa`。

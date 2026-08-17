@@ -19,6 +19,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createD1 } from './d1Harness.js'
 import { handlePastImportCreate, handlePastImportCancel } from '../src/pastImport.js'
 import {
+  MAX_REPLACE_SESSIONS, D1_MAX_BOUND_PARAMS, D1_QUERIES_PER_INVOCATION_FREE,
+} from '../src/constants.js'
+import {
   handleSessionComplete, handleSessionDelete, handleHistoryDelete,
 } from '../src/storeHandler.js'
 
@@ -344,5 +347,262 @@ describe('台帳を持たない legacy batch（0015 適用前の取込）', () =
     const res = await handlePastImportCreate(h.db, CODE, BATCH, { date: '2026-07-02', items: items(2) })
     expect(res.ok).toBe(true)
     expect(sessionsOf(h)).toHaveLength(2)
+  })
+})
+
+// ── 再レビュー HIGH: replace は旧 claim・旧台帳まで消す ─────────────────────
+// 旧実装は inventory_lines / store_history / sessions の3種類しか消しておらず、
+//   - 通常棚卸を置換 → 旧 session_completions が孤児として残る
+//   - 取込済みを別batchで置換 → 旧 import_batch_requests が残り、
+//     旧バッチの再送が import_record_missing になる
+// という状態を作っていた。`api-design.md` の「通常操作ではstale台帳は発生しない」とも矛盾する。
+//
+// **seed で `status='completed'` を直接 INSERT しても claim は作られない**ため、
+// ここでは必ず実API経路（handleSessionComplete / handlePastImportCreate）で作る。
+describe('replace は上書き対象の claim と台帳まで消す', () => {
+  const claimsOf = (h, code = CODE) =>
+    h.rows('SELECT * FROM session_completions WHERE shop_code = ?', code)
+
+  /** 実API経路で完了済み stock session を作り、claim まで持たせる */
+  async function completeRealStock(h, id, { code = CODE, date = DATE } = {}) {
+    h.seedSession(code, id, { status: 'active', type: 'stock', startedAt: `${date}T00:00:00.000Z` })
+    const res = await handleSessionComplete(h.db, code, id, {
+      inventory: { 既存品目: { qty: 5, unit: '個' } },
+      prices: { 既存品目: 10 },
+      takenAt: date,
+      snapshot: { sessionId: id, items: [{ item: '既存品目', qty: 5, unit: '個' }] },
+    })
+    expect(res.ok).toBe(true)
+    return id
+  }
+
+  it('通常棚卸を置換すると、旧 session_completions も消える', async () => {
+    const h = setup()
+    const victim = await completeRealStock(h, 'aaaaaaaa-1111-4111-8111-111111111111')
+    expect(claimsOf(h)).toHaveLength(1)
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, {
+      date: DATE, items: items(3), replaceSessionIds: [victim],
+    })
+
+    expect(res.ok).toBe(true)
+    expect(sessionsOf(h).some(s => s.id === victim)).toBe(false)
+    expect(claimsOf(h).some(c => c.session_id === victim)).toBe(false)
+    expect(claimsOf(h)).toHaveLength(0)          // 孤児 claim を残さない
+    // 新しい取込は揃っている
+    expect(linesOf(h)).toHaveLength(3)
+    expect(historyOf(h)).toHaveLength(1)
+    expect(ledgerOf(h)).toHaveLength(1)
+  })
+
+  it('取込済み棚卸を別 batch で置換すると、旧 import_batch_requests も消える', async () => {
+    const h = setup()
+    const OLD = 'imp_old001'
+    const first = await handlePastImportCreate(h.db, CODE, OLD, { date: DATE, items: items(2) })
+    expect(first.ok).toBe(true)
+    expect(ledgerOf(h)).toHaveLength(1)
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, {
+      date: DATE, items: items(3), replaceSessionIds: [first.sessionId],
+    })
+
+    expect(res.ok).toBe(true)
+    expect(sessionsOf(h).some(s => s.id === first.sessionId)).toBe(false)
+    // 旧バッチの台帳が残っていない
+    const ledger = ledgerOf(h)
+    expect(ledger).toHaveLength(1)
+    expect(ledger[0].batch_id).toBe(BATCH)
+    expect(ledger.some(r => r.batch_id === OLD)).toBe(false)
+
+    // 旧バッチを再送しても import_record_missing にならない（記録ごと消えている）
+    const reimport = await handlePastImportCreate(h.db, CODE, OLD, { date: DATE, items: items(2) })
+    expect(reimport.code).not.toBe('import_record_missing')
+  })
+
+  it('作成中の新しい台帳 claim は消さない', async () => {
+    const h = setup()
+    const victim = await completeRealStock(h, 'aaaaaaaa-1111-4111-8111-111111111111')
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, {
+      date: DATE, items: items(3), replaceSessionIds: [victim],
+    })
+
+    expect(res.ok).toBe(true)
+    const ledger = ledgerOf(h)
+    expect(ledger).toHaveLength(1)
+    expect(ledger[0].batch_id).toBe(BATCH)
+    expect(ledger[0].session_id).toBe(res.sessionId)
+  })
+
+  it('他店舗・別batchの claim と台帳には触れない', async () => {
+    const h = setup()
+    const victim  = await completeRealStock(h, 'aaaaaaaa-1111-4111-8111-111111111111')
+    const foreign = await completeRealStock(h, 'cccccccc-1111-4111-8111-111111111111', { code: OTHER })
+    const keepBatch = await handlePastImportCreate(h.db, CODE, 'imp_keep01', {
+      date: '2026-07-05', items: items(2),
+    })
+    expect(keepBatch.ok).toBe(true)
+
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, {
+      date: DATE, items: items(3), replaceSessionIds: [victim],
+    })
+    expect(res.ok).toBe(true)
+
+    // 他店舗
+    expect(claimsOf(h, OTHER).some(c => c.session_id === foreign)).toBe(true)
+    expect(sessionsOf(h, OTHER)).toHaveLength(1)
+    // 別batch
+    expect(ledgerOf(h).some(r => r.batch_id === 'imp_keep01')).toBe(true)
+    expect(sessionsOf(h).some(s => s.id === keepBatch.sessionId)).toBe(true)
+  })
+
+  // batch の **どの statement で落ちても** 何も変わらないこと。
+  // statement の並びに依存させないため、まず成功実行で batch サイズを測り、
+  // 0..size-1 のすべてに障害を注入する。
+  it('batch のどの位置で失敗しても、旧対象と新取込のどちらも部分状態にならない', async () => {
+    const probe = setup()
+    const pv = await completeRealStock(probe, 'aaaaaaaa-1111-4111-8111-111111111111')
+    probe.resetCounters()
+    expect((await handlePastImportCreate(probe.db, CODE, BATCH, {
+      date: DATE, items: items(3), replaceSessionIds: [pv],
+    })).ok).toBe(true)
+    const batchSize = probe.counters().lastBatchSize
+    expect(batchSize).toBeGreaterThan(5)      // ledger+session+lines+snapshot+削除5+stamp
+
+    for (let failIndex = 0; failIndex < batchSize; failIndex++) {
+      const hh = setup()
+      const v  = await completeRealStock(hh, 'aaaaaaaa-1111-4111-8111-111111111111')
+      hh.failBatchAt(failIndex)
+      const res = await handlePastImportCreate(hh.db, CODE, BATCH, {
+        date: DATE, items: items(3), replaceSessionIds: [v],
+      })
+      const at = `failIndex=${failIndex}`
+      expect(res.ok, at).toBeUndefined()
+      expect(res._status, at).toBe(503)
+      // 旧対象はすべて残る（一部だけ消えない）
+      expect(sessionsOf(hh).some(s => s.id === v), at).toBe(true)
+      expect(claimsOf(hh).some(c => c.session_id === v), at).toBe(true)
+      expect(historyOf(hh).some(r => r.session_id === v), at).toBe(true)
+      expect(linesOf(hh).some(r => r.session_id === v), at).toBe(true)
+      // 新取込は1件も入らない
+      expect(sessionsOf(hh).filter(s => s.import_batch_id === BATCH), at).toHaveLength(0)
+      expect(ledgerOf(hh), at).toHaveLength(0)
+    }
+  })
+
+  it('上限件数の replace でも query 数と bound parameter 数が D1 上限内', async () => {
+    const h = setup()
+    const ids = []
+    for (let i = 0; i < MAX_REPLACE_SESSIONS; i++) {
+      ids.push(await completeRealStock(h, `dddddddd-${String(i).padStart(4, '0')}-4111-8111-111111111111`))
+    }
+
+    h.resetCounters()
+    const res = await handlePastImportCreate(h.db, CODE, BATCH, {
+      date: DATE, items: items(200), replaceSessionIds: ids,
+    })
+    const c = h.counters()
+
+    expect(res.ok).toBe(true)
+    expect(c.maxBoundParams).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    expect(c.queries).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE - 2)   // 認証2本ぶんの余白
+    expect(claimsOf(h)).toHaveLength(0)      // 旧 claim は全部消えている
+    expect(ledgerOf(h)).toHaveLength(1)
+  })
+})
+
+// ── 再レビュー MEDIUM: 取消の対象取得を同じ transaction へ ─────────────────
+describe('取消は対象取得と削除を同じ transaction で行う', () => {
+  it('事前処理後・batch 開始前に確定した同じバッチの取込も削除し、件数に含める', async () => {
+    const h = setup()
+    const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
+    expect(first.ok).toBe(true)
+
+    // cancel の batch が始まる直前に、同じバッチの別日付が確定する競合
+    const racedId = 'eeeeeeee-1111-4111-8111-111111111111'
+    h.onNextBatch(() => {
+      h.sqlite.prepare(`
+        INSERT INTO sessions (id, shop_code, started_at, status, item_count, type, import_batch_id)
+        VALUES (?, ?, '2026-07-09T00:00:00.000Z', 'completed', 1, 'stock', ?)
+      `).run(racedId, CODE, BATCH)
+      h.sqlite.prepare(`
+        INSERT INTO import_batch_requests
+          (shop_code, batch_id, import_date, fingerprint, session_id, item_count, total_value, replaced, created_at)
+        VALUES (?, ?, '2026-07-09', 'fp-raced', ?, 1, NULL, 0, '2026-07-09T00:00:00.000Z')
+      `).run(CODE, BATCH, racedId)
+    })
+
+    const res = await handlePastImportCancel(h.db, CODE, BATCH)
+
+    expect(res.ok).toBe(true)
+    // 競合で入った session も消え、件数と ID がその実態と一致する
+    expect(sessionsOf(h)).toHaveLength(0)
+    expect(ledgerOf(h)).toHaveLength(0)
+    expect(res.removed).toBe(2)
+    expect(res.sessionIds).toContain(first.sessionId)
+    expect(res.sessionIds).toContain(racedId)
+  })
+
+  it('batch のどこで失敗しても session・履歴・明細・台帳がすべて元のまま', async () => {
+    for (const failIndex of [0, 1, 2, 3, 4, 5]) {
+      const h = setup()
+      const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
+      expect(first.ok).toBe(true)
+
+      h.failBatchAt(failIndex)
+      const res = await handlePastImportCancel(h.db, CODE, BATCH)
+
+      expect(res.ok, `failIndex=${failIndex}`).toBeUndefined()
+      expect(res._status, `failIndex=${failIndex}`).toBe(503)
+      expect(res.code, `failIndex=${failIndex}`).toBe('cancel_failed')
+      expect(res.retryable, `failIndex=${failIndex}`).toBe(true)
+
+      expect(sessionsOf(h), `failIndex=${failIndex}`).toHaveLength(1)
+      expect(linesOf(h), `failIndex=${failIndex}`).toHaveLength(2)
+      expect(historyOf(h), `failIndex=${failIndex}`).toHaveLength(1)
+      expect(ledgerOf(h), `failIndex=${failIndex}`).toHaveLength(1)
+    }
+  })
+
+  it('2回目の取消は removed:0 で成功する（冪等）', async () => {
+    const h = setup()
+    await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
+    expect((await handlePastImportCancel(h.db, CODE, BATCH)).removed).toBe(1)
+
+    const second = await handlePastImportCancel(h.db, CODE, BATCH)
+    expect(second.ok).toBe(true)
+    expect(second.removed).toBe(0)
+    expect(second.sessionIds).toEqual([])
+  })
+
+  it('通常棚卸・別batch・他店舗には触れない', async () => {
+    const h = setup()
+    const mine  = await handlePastImportCreate(h.db, CODE,  BATCH, { date: DATE, items: items(2) })
+    const other = await handlePastImportCreate(h.db, OTHER, BATCH, { date: DATE, items: items(2) })
+    const keep  = await handlePastImportCreate(h.db, CODE, 'imp_keep01', { date: '2026-07-05', items: items(2) })
+    h.seedSession(CODE, SID, { status: 'completed', type: 'stock' })   // 通常棚卸
+    expect(mine.ok && other.ok && keep.ok).toBe(true)
+
+    const res = await handlePastImportCancel(h.db, CODE, BATCH)
+
+    expect(res.removed).toBe(1)
+    expect(res.sessionIds).toEqual([mine.sessionId])
+    expect(sessionsOf(h).some(s => s.id === SID)).toBe(true)
+    expect(sessionsOf(h).some(s => s.id === keep.sessionId)).toBe(true)
+    expect(sessionsOf(h, OTHER)).toHaveLength(1)
+    expect(ledgerOf(h, OTHER)).toHaveLength(1)
+    expect(ledgerOf(h).map(r => r.batch_id)).toEqual(['imp_keep01'])
+  })
+
+  it('取消の query 数は Free 上限内', async () => {
+    const h = setup()
+    await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(2) })
+
+    h.resetCounters()
+    const res = await handlePastImportCancel(h.db, CODE, BATCH)
+    const c = h.counters()
+
+    expect(res.ok).toBe(true)
+    expect(c.queries).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE - 2)
   })
 })

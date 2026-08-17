@@ -107,6 +107,13 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-17（追加3）: 独立レビュー指摘を修正（状態は`レビュー待ち / Claude Code`のまま）。
+  過去棚卸replaceの削除を3文→**5文**にし、旧`session_completions`・旧`import_batch_requests`まで
+  同一transactionで消すようにした（孤児claim・stale台帳が通常操作で発生していた）。
+  取消の対象取得SELECTを削除と同じ`db.batch`の先頭へ移し、`removed`/`sessionIds`が
+  実際に消した対象と一致するようにした（事前SELECTの失敗も`cancel_failed`に含む）。
+  migration 0015のコメントを`legacy_import_unverified`の現行契約へ修正（SQLは不変）。
+  実測: 取込500行+replace50件=40 queries/99 binds、取消=6/3。`app/src`は差分ゼロ。
 - 2026-08-17（追加2）: 再レビューHIGH 2件を修正。完了fingerprintの対象を**canonical snapshot全体**へ広げ
   （`code`/`category`/`auditLog` などを変えた再送が replay 成功し、server旧内容・端末新内容になる食い違いを解消。
   除外は `savedAt` / `activeMs` の2つだけ）、台帳を持たない既存取込を
