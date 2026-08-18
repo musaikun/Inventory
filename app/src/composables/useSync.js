@@ -31,6 +31,33 @@ export function clearHostToken(type) {
   const key = _hostTokenKey(type)
   if (key) try { localStorage.removeItem(key) } catch (_) {}
 }
+
+/**
+ * 指定 key が指定 token のままなら消す（await をまたぐ解散用）。
+ * key も token も**待機前に捕まえた値**を渡すこと。
+ */
+function _clearHostTokenIf(key, token) {
+  if (!key || !token) return false
+  try {
+    if (localStorage.getItem(key) !== token) return false
+    localStorage.removeItem(key)
+    return true
+  } catch (_) { return false }
+}
+
+/**
+ * 接続世代。**新しい接続を張るたび**に進む（解散・退出では進まない）。
+ *
+ * 呼び出し側（App）が「解散通知の遅延処理を実行してよいか」を判断するために使う。
+ * App の session lifecycle 世代だけでは、**同じ pendingSession のまま新しいルームを
+ * 作る**場合を検出できない（`SyncModal` は `begin()` を呼ばないので世代が変わらない）。
+ * 旧ルームのタイマーが、新ルームで使用中のセッション・在庫を消せてしまう。
+ */
+let _connectGeneration = 0
+export function captureSyncConnection() { return { gen: _connectGeneration } }
+export function isSyncConnectionStale(token) {
+  return !token || token.gen !== _connectGeneration
+}
 export function hasHostToken(type) {
   return !!_loadHostToken(type)
 }
@@ -39,6 +66,9 @@ export function hasHostToken(type) {
 export async function dissolveRoomRemote(type = 'stock') {
   const code  = shopCode.value
   const token = _loadHostToken(type)
+  // 削除対象の key も**待機前に**確定させる。`clearHostToken()` は現在の shopCode から
+  // key を作り直すため、fetch を待つ間に店舗が変わると別店舗の token を消してしまう。
+  const key   = _hostTokenKey(type)
   if (code && token && HTTP_BASE) {
     try {
       await fetch(`${HTTP_BASE}/room/${code}/dissolve${_typeQuery(type)}`, {
@@ -48,7 +78,9 @@ export async function dissolveRoomRemote(type = 'stock') {
       })
     } catch (_) {}
   }
-  clearHostToken(type)
+  // 捕まえた key が、捕まえた token のままの場合だけ消す。
+  // 同じ店舗でも新しいルームを作っていれば token は差し替わっているので消さない。
+  _clearHostTokenIf(key, token)
 }
 
 // ルームの現在状態を取得（退室中ホストがゲストのライブ品目数を一覧表示するため）
@@ -793,6 +825,7 @@ function _handleMessage(msg) {
 }
 
 function _connect(code) {
+  _connectGeneration++   // 新しい接続。解散通知の遅延処理を失効させる
   if (!WORKER_URL) {
     state.error = 'サーバーURLが未設定です（.env の VITE_SYNC_WORKER_URL を確認）'
     state.mode  = 'idle'
@@ -1066,9 +1099,16 @@ export function useSync() {
     if (socket?.readyState === WebSocket.OPEN) {
       try { socket.send(JSON.stringify({ type: 'dissolve' })) } catch (_) {}
       await new Promise(r => setTimeout(r, 150))
-      // 待機中につなぎ替わっていたら、新しい接続には一切触らない。
-      // 旧 socket は既に別経路で閉じられている（_connect が張り替え時に閉じる）。
-      if (_ws !== socket || shopCode.value !== code || state.roomCode !== room || state.roomType !== type) {
+      // **「socket が変わった」だけでは中止しない。**
+      // Worker（RoomDO の dissolve）はホスト自身へ dissolved を送らず、直後に socket を
+      // 閉じる。正常な解散でも onclose が `_ws = null` にするため、`_ws !== socket` を
+      // 中止条件にすると hosting 状態・host token・再接続タイマーが残り、
+      // 解散したはずのルームを作り直してしまう。
+      //
+      // 中止するのは「**別の生きた接続へ張り替わった**」場合だけ。
+      const switched = (_ws && _ws !== socket)
+        || shopCode.value !== code || state.roomCode !== room || state.roomType !== type
+      if (switched) {
         console.warn('[sync] dissolveRoom: connection changed while waiting; leaving the new one intact')
         return
       }

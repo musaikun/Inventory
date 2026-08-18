@@ -2,6 +2,22 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正4（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e87080f`。P1 3件。
+  1. **前回修正の回帰**: `_ws !== socket` の中止条件が広すぎ、Worker が解散直後に socket を
+     閉じる正常経路まで「つなぎ替え」と誤判定していた。hosting 状態・token・再接続タイマーが
+     残り、解散したルームを作り直す。中止は「別の生きた接続へ張り替わった」場合だけに絞った
+  2. 解散の3.5秒後処理が App の session 世代しか見ておらず、**同じ session のまま新ルームを
+     作る**経路で新ルームの作業を消せた。`useSync` に接続世代を追加し、両方を確認する
+  3. `dissolveRoomRemote()` が待機後に現在の shopCode から key を作り直しており、
+     店舗切替で別店舗の host token を消せた。key も待機前に確定し、token 一致時のみ削除。
+     `onSessionStart()` も await 後に lifecycle を再確認する
+- 検証: App 92 files / 1012 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSync 5件 / App 1件が失敗。
+- 未実施: `onSessionStart` の切替後guardの end-to-end 回帰（SessionListPage 経由）。
+  実D1・実機・実browser。migration 0012〜0016 未適用。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正3（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c2cb281`。

@@ -90,6 +90,8 @@ const syncIsHost   = { value: false }
 const broadcastSessionEnd = vi.fn()
 const dissolveRoom        = vi.fn(async () => {})
 const leaveRoom           = vi.fn()
+// 同期接続の世代（新しいルームを張ると進む）。App の解散遅延処理が参照する
+let syncConnectionGen = 0
 
 let sessionEndedCallback = null
 let dissolvedCallback = null
@@ -101,6 +103,8 @@ vi.mock('./composables/useSync.js', async (importOriginal) => {
     ...actual,
     setSessionEndedCallback: (fn) => { sessionEndedCallback = fn },
     setDissolvedCallback:    (fn) => { dissolvedCallback = fn },
+    captureSyncConnection:   () => ({ gen: syncConnectionGen }),
+    isSyncConnectionStale:   (t) => !t || t.gen !== syncConnectionGen,
     broadcastSessionEnd,
     useSync: () => ({
       state: reactive({ error: '', connected: false, participants: [], messages: [] }),
@@ -1240,6 +1244,7 @@ describe('App — 遅延した解散処理・不一致通知が現在の作業�
     dissolvedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
+    syncConnectionGen  = 0
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
     appErrors = []
@@ -1339,5 +1344,76 @@ describe('App — 遅延した解散処理・不一致通知が現在の作業�
 
     expect(leaveRoom).toHaveBeenCalledTimes(1)
     expect(completeCalls).toBe(0)
+  })
+})
+
+// ══ 再レビュー3 §2: 同じsessionのまま新しいルームを作った場合 ═════════════════
+//
+// 解散通知の3.5秒後処理は App の lifecycle 世代（generation/shop/sessionId）だけを
+// 見ていた。**同じ pendingSession のまま新しいルームを作る**経路（SyncModal は
+// `begin()` を呼ばない）では世代が変わらないため、旧ルームのタイマーが
+// 新ルームで使用中のセッション・在庫を消せていた。
+describe('App — 同じsessionで新ルームを作ったら旧解散処理を実行しない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    dissolvedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    syncConnectionGen  = 0
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  it('待機中に新しいルームを張ったら、同じsessionでも片付けない', async () => {
+    vi.useFakeTimers()
+    syncIsActive.value = true
+    await mountApp()
+
+    dissolvedCallback()          // 他者による解散 → 3.5秒後に片付ける予定
+    await settle(2)
+
+    // 同じ pendingSession のまま新しいルームを作る（begin() は呼ばれない）
+    syncConnectionGen++
+    await settle(2)
+    const invBefore = localStorage.getItem(STORAGE_KEYS.inventory)
+
+    vi.advanceTimersByTime(4000)
+    await settle(4)
+
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+    expect(localStorage.getItem(STORAGE_KEYS.inventory)).toBe(invBefore)
+  })
+
+  it('新しいルームを張っていなければ従来どおり片付ける', async () => {
+    vi.useFakeTimers()
+    syncIsActive.value = true
+    await mountApp()
+
+    dissolvedCallback()
+    await settle(2)
+    vi.advanceTimersByTime(4000)
+    await settle(4)
+
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toBeNull()
   })
 })

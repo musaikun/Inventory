@@ -28,6 +28,7 @@ import {
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
   setItemAddRequestCallback, setItemAddResponseCallback, pendingItemRequests,
   fetchRoomStatus, fetchRoomResult,
+  captureSyncConnection, isSyncConnectionStale,
 } from './composables/useSync.js'
 import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
 import {
@@ -368,8 +369,16 @@ async function onSessionStart(session, mode = 'stock') {
   if (_blockedByCompletion()) return
   const isOrder = mode === 'order'
   sessionMode.value = isOrder ? 'order' : 'stock'
+  // 残存ルームの解散は通信を待つ。**待機中にアカウントが切り替わりうる**ので、
+  // 切替前に選んだセッションをそのまま開始しない（別店舗の session を
+  // beginSession してしまうと、reset() で現在の在庫まで消える）。
+  const origin = captureLifecycle()
   // 棚卸: 残存ルームを解散。発注: 棚卸ルームは壊さず、この端末は現在のルームから離脱のみ。
   if (!isOrder && hasHostToken('stock')) await dissolveRoomRemote('stock')
+  if (isLifecycleStale(origin)) {
+    console.warn('[App] account/session changed while dissolving; not starting the selected session:', session?.id)
+    return
+  }
   if (isOrder && syncActive.value) leaveRoom()
   practiceMode.value = false
   beginSession(session)
@@ -795,12 +804,16 @@ setDissolvedCallback(() => {
   _hostInitiatedDissolve = false
   if (!selfDissolved) {
     showToast('セッションが破棄されました', 4000, 'error')
-    const origin = captureLifecycle()
+    // セッション世代だけでは足りない。**同じ pendingSession のまま新しいルームを作る**
+    // 経路（SyncModal は `begin()` を呼ばない）では世代が変わらず、旧ルームのタイマーが
+    // 新ルームで使用中のセッション・在庫を消せる。同期接続の世代も併せて確認する。
+    const origin     = captureLifecycle()
+    const connection = captureSyncConnection()
     clearTimeout(_dissolvedTimer)
     _dissolvedTimer = setTimeout(() => {
       _dissolvedTimer = null
-      if (isLifecycleStale(origin)) {
-        console.warn('[App] dissolved cleanup skipped; the session changed while waiting')
+      if (isLifecycleStale(origin) || isSyncConnectionStale(connection)) {
+        console.warn('[App] dissolved cleanup skipped; the session or connection changed while waiting')
         return
       }
       clearSession()

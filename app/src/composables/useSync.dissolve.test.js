@@ -133,3 +133,113 @@ describe('dissolveRoom — 待機中につなぎ替わった接続を壊さな�
     expect(api.state.roomCode).toBeNull()
   })
 })
+
+// ── 正常な解散を「つなぎ替え」と誤認しない（再レビュー3 §1）──────────────────
+//
+// 実 Worker（RoomDO の `dissolve`）は **ホスト自身へ dissolved を送らず**、直後に
+// すべての socket を close する。つまり正常な解散でも
+//   1. ホストの onclose が `_ws = null` にする
+//   2. mode が hosting のままなので再接続タイマーが登録される
+//   3. 150ms 後の照合で「socket が違う」と判定される
+// となり、`clearHostToken()` / `leaveRoom()` が実行されないまま hosting 状態と
+// token と再接続タイマーが残る＝解散直後にルームを作り直してしまう。
+describe('dissolveRoom — Worker側のcloseを「つなぎ替え」と誤認しない', () => {
+  it('解散送信直後にserverがsocketを閉じても、token削除・idle化まで行う', async () => {
+    const api = sync.useSync()
+    const ws1 = await hostRoom(api, 'SHOPAA')
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+
+    const dissolving = api.dissolveRoom()
+    await Promise.resolve()
+    expect(JSON.parse(ws1.sent.at(-1)).type).toBe('dissolve')
+
+    // 実 Worker と同じ: dissolved はホストへ送らず、socket を閉じる
+    ws1.close()
+    const wsCountAfterClose = MockWebSocket.instances.length
+
+    vi.advanceTimersByTime(200)
+    await dissolving
+
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBeNull()
+    expect(api.state.mode).toBe('idle')
+    expect(api.state.roomCode).toBeNull()
+
+    // 再接続タイマーが残っていないこと（解散したルームを作り直さない）
+    vi.advanceTimersByTime(60000)
+    expect(MockWebSocket.instances.length).toBe(wsCountAfterClose)
+  })
+})
+
+// ── dissolveRoomRemote のアカウント切替競合（再レビュー3 §3）─────────────────
+//
+// `clearHostToken(type)` は **現在の shopCode** から key を作る。待機中に店舗が
+// 変わると、A の解散応答で B の host token を消せる。
+describe('dissolveRoomRemote — 待機中の店舗切替で別店舗のtokenを消さない', () => {
+  it('店舗AのdissolveがBのhost tokenを削除しない', async () => {
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+    let release
+    const fetchMock = vi.fn(() => new Promise(r => { release = () => r({ ok: true, json: async () => ({}) }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const p = sync.dissolveRoomRemote('stock')
+    await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // 待機中に別店舗へ切り替わり、その店舗の host token が保存される
+    const { shopCode } = await import('./useStore.js')
+    shopCode.value = 'SHOPBB'
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPBB`, 'tok-B')
+
+    release()
+    await p
+
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPBB`)).toBe('tok-B')
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBeNull()
+  })
+
+  it('同じ店舗のままなら従来どおり削除する', async () => {
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })))
+
+    await sync.dissolveRoomRemote('stock')
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBeNull()
+  })
+
+  it('待機中に同じ店舗で新しいtokenへ差し替わったら消さない', async () => {
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-old')
+    let release
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(r => { release = () => r({ ok: true, json: async () => ({}) }) })))
+
+    const p = sync.dissolveRoomRemote('stock')
+    await Promise.resolve()
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-new')   // 新しいルームを作った
+
+    release()
+    await p
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBe('tok-new')
+  })
+})
+
+// ── 接続世代（再レビュー3 §2 で App が使う）───────────────────────────────────
+describe('接続世代', () => {
+  it('新しい接続を張るたびに進む', async () => {
+    const api = sync.useSync()
+    const before = sync.captureSyncConnection()
+    expect(sync.isSyncConnectionStale(before)).toBe(false)
+
+    await hostRoom(api, 'SHOPAA')
+    expect(sync.isSyncConnectionStale(before)).toBe(true)
+  })
+
+  it('解散・退出だけでは進まない（解散後の後片付けを失効させない）', async () => {
+    const api = sync.useSync()
+    await hostRoom(api, 'SHOPAA')
+    const token = sync.captureSyncConnection()
+
+    const dissolving = api.dissolveRoom()
+    vi.advanceTimersByTime(200)
+    await dissolving
+
+    expect(sync.isSyncConnectionStale(token)).toBe(false)
+  })
+})

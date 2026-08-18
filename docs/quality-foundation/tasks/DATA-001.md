@@ -955,3 +955,80 @@ git diff --name-only -- worker     → 出力なし
   残るが、`dissolveRoomRemote()`（起動時の残存ルーム掃除）が同じ token で解散できる。
 - `session_ended` の fail-closed により、sessionId を保存していないルームのゲストは
   この通知では退出しない。直後にホストが送る `dissolved` で退出する。
+
+## 2026-08-18 — 再レビュー修正4（正常解散の誤判定・接続世代・remote解散の店舗境界）
+
+基準 `e87080f`。P1 3件。`app/src/composables/useSync.js` と `App.vue` を変更（Worker は未変更）。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内容 |
+|---|---|---|
+| `src/composables/useSync.dissolve.test.js` | 5 | 正常解散の誤判定、`dissolveRoomRemote` の店舗境界、接続世代 |
+| `src/App.complete.test.js` | 1 | 同じ session のまま新ルームを作った場合の解散遅延処理 |
+
+### 1. 正常なルーム解散を「接続切替」と誤認していた（P1・前回修正の回帰）
+
+前回入れた `_ws !== socket` の中止条件が広すぎた。実 Worker（`RoomDO` の `dissolve`）は
+**ホスト自身へ `dissolved` を送らず**、直後に全 socket を close する。そのため正常な解散でも
+
+1. ホストの `onclose` が `_ws = null` にする
+2. `state.mode` は `hosting` のままなので**再接続タイマーが登録される**
+3. 150ms 後の照合が `_ws !== socket` に当たって return
+4. `clearHostToken()` / `leaveRoom()` が実行されない
+
+となり、hosting 状態・host token・再接続タイマーが残って**解散したルームを作り直す**。
+
+- 中止条件を「**別の生きた接続へ張り替わった**」だけに絞った
+  （`_ws && _ws !== socket`、または shopCode / roomCode / roomType の変化）。
+  `_ws === null`（自分の socket が閉じただけ）は正常な解散として片付けを続行する。
+- 回帰testは Worker と同じ順序（dissolve 送信 → server が socket close）を再現し、
+  token 削除・`idle` 化に加えて**再接続タイマーが残っていない**ことまで確認する。
+
+### 2. 3.5秒cleanupが同じsessionの新ルームを消せた（P1）
+
+タイマーは App の lifecycle 世代（generation / shop / sessionId）だけを見ていた。
+**同じ `pendingSession` のまま新しいルームを作る**経路（`SyncModal` は `begin()` を
+呼ばないので世代が変わらない）では、旧ルームのタイマーが新ルームで使用中の
+セッション・在庫を消せた。
+
+- `useSync` に**接続世代**を追加した。`captureSyncConnection()` /
+  `isSyncConnectionStale(token)`。`_connect()`（新しい接続を張る）でだけ進み、
+  解散・退出では進まない（解散後の正当な後片付けを失効させないため）。
+- 解散の遅延処理は lifecycle 世代と接続世代の**両方**を確認する。
+
+### 3. `dissolveRoomRemote()` にアカウント切替競合が残っていた（P1）
+
+`code` / `token` は捕まえていたが、`await fetch()` 後の `clearHostToken(type)` は
+**現在の shopCode から key を作り直す**。待機中に店舗 A→B へ切り替わると、A の解散応答で
+B の host token を削除できた。
+
+- 削除対象の **key も待機前に確定**させ、`_clearHostTokenIf(key, token)` で
+  「捕まえた key が捕まえた token のままのときだけ」消す。
+  同じ店舗でも新しいルームを作って token が差し替わっていれば消さない。
+- `App.onSessionStart()` も `await dissolveRoomRemote('stock')` の後に
+  `isLifecycleStale()` を確認し、切替前に選んだセッションを開始しない
+  （別店舗の session を `beginSession()` すると `reset()` で現在の在庫まで消える）。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/composables/useSync.dissolve.test.js（修正前）→ 5 failed / 4 passed
+npx vitest run src/App.complete.test.js -t "同じsessionで新ルーム"（修正前）→ 1 failed / 1 passed
+npx vitest run src/composables/useSync            → 6 files / 29 passed
+npx vitest run src/App.complete.test.js           → 50 passed
+npm --prefix app test -- --run    → 92 files / 1012 tests passed（1回目）
+npm --prefix app test -- --run    → 92 files / 1012 tests passed（連続2回目）
+npm --prefix app run build        → 成功（PWA precache 17 entries / 2575.49 KiB）
+npm --prefix worker test          → 26 files / 545 tests passed
+git diff --check                  → 指摘なし
+git diff --name-only -- worker    → 出力なし
+```
+
+### 未実施・残risk
+
+- `App.onSessionStart()` の切替後guardは、`SessionListPage` を通した end-to-end の
+  回帰testを持っていない（`dissolveRoomRemote` 側の破壊的動作は useSync の test で固定済み）。
+  一覧からのセッション開始を駆動するtestは `SessionListPage.flow.test.js` の範囲で、
+  次のセッションの課題として残す。
+- 実D1・実browser・実機は未確認。migration 0012〜0016 は未適用。
