@@ -816,7 +816,9 @@ describe('useSession — 同じsessionIdを開き直しても旧Promiseは失効
     return { promise, resolve, reject }
   }
 
-  it('complete: resume で開き直したら旧応答を適用しない', async () => {
+  // 旧応答は無視するが、**再送に必要な body は捨てない**。捨てると、サーバーだけ
+  // completed で端末は active という状態へ戻れなくなる（再レビュー2 §2）。
+  it('complete: resume で開き直しても未確定intentは残す（旧応答は無視）', async () => {
     const gate = deferred()
     mocks.completeSession.mockImplementationOnce(() => gate.promise)
     const inflight = session.complete(STOCK_REQ)
@@ -826,7 +828,33 @@ describe('useSession — 同じsessionIdを開き直しても旧Promiseは失効
 
     expect((await inflight).stale).toBe(true)
     expect(session.pendingSession.value.status).toBe('active')
+
+    // 同じ店舗・同じ session の未確定 intent は保持される
+    const kept = session.pendingCompletionIntent()
+    expect(kept.body).toEqual(STOCK_REQ.body)
+    expect(session.completionUnknown.value).toBe(true)
+    // 結果が確定するまで active も書かない
+    expect((await session.markActive(1)).reason).toBe('completion_unknown')
+  })
+
+  it('別sessionを開始したら未確定intentは持ち越さない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
+
+    session.begin({ id: 'other-1', shopCode: 'ABCDEF', status: 'active', itemCount: 0 })
     expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+    expect(session.completionUnknown.value).toBe(false)
+  })
+
+  it('別店舗の同じsessionIdでは持ち越さない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    mocks.shopCode.value = 'ZZZZZZ'
+    session.resume({ ...SESSION, shopCode: 'ZZZZZZ' })
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+    expect(session.completionUnknown.value).toBe(false)
   })
 
   it('markActive: resume で開き直したら旧応答を適用しない', async () => {

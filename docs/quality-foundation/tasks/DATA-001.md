@@ -870,3 +870,88 @@ mount 前に設定して再現している。
 - `session_ended` の stale 判定は「通知を受けた時点」を基準にする。通知後に同じ
   セッションへ戻った場合（例: 退出→即再参加）は、その通知は処理されない。
   完了自体は `_finishSession` が主経路なので影響しない。
+
+## 2026-08-18 — 再レビュー修正3（同期層の世代確認・intent保持・遅延処理）
+
+基準 `c2cb281`。P1 3件・P2 1件。**`app/src/composables/useSync.js` を変更した**
+（同期層の内側でしか直せない競合のため。Worker は未変更）。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内容 |
+|---|---|---|
+| `src/composables/useSync.dissolve.test.js` | 2 | 解散待機中のつなぎ替えで新接続の token / socket / room を壊す（**新規file・実 useSync**） |
+| `src/composables/useSession.test.js` | 1 | 同一 session の resume で未確定 intent が消える |
+| `src/App.complete.test.js` | 3 | 解散通知の3.5秒後処理、不一致・欠落 `session_ended` での退出 |
+
+### 1. `dissolveRoom()` の世代確認が遅く、新しい接続を切断できた（P1）
+
+App 側の確認は `await dissolveRoom()` の**後**。しかし `useSync.dissolveRoom()` は
+内部で 150ms 待ってから、**グローバルな `_ws` / `state` / `shopCode`** に対して
+`clearHostToken()` と `leaveRoom()` を実行する。待機中につなぎ替わると、App が
+確認するより先に新アカウントの host token 削除・新 socket の close・新ルーム状態の
+idle 化・ゲスト leave callback が起きていた。
+
+- 同期層の内側で **socket / shopCode / roomCode / roomType を待機前に捕まえ**、
+  待機後に一致しなければ何もせず返る。
+- `clearHostToken()` は捕まえた `type` を渡す（`_hostTokenKey()` の既定値は
+  `state.roomType` で、待機後には新しいルームの種別になりうる）。
+- 回帰testは `dissolveRoom` をモックせず、**実 useSync + MockWebSocket** で
+  別店舗つなぎ替え・別ルーム参加・つなぎ替え無しの3系統を固定した。
+
+### 2. 同一sessionIdの再開でdurable intentが消えた（P1）
+
+`_startFresh()` は世代を進める一方で `completionUnknown` を解除し intent を削除して
+いた。旧完了要求がサーバーに受理された後で `resume()` されると、旧応答は stale として
+無視されるが**再送・確認に必要な body も失われ**、新しいライフサイクルは active 扱いに
+戻る（サーバーだけ completed）。
+
+- `_startFresh(next)` が、**同じ店舗・同じ sessionId の未確定 intent は保持**する。
+  保持中は `completionUnknown` を立て、確認・同一 body の再送が済むまで
+  `markActive()` を拒否する。
+- 別 session を開始した場合と、別店舗の同じ sessionId は従来どおり破棄する。
+- 「resume で intent が消える」ことを正しい挙動として固定していた test を反転した。
+
+### 3. `dissolved` の3.5秒後処理が新しいセッションを消せた（P1）
+
+解散通知から 3.5 秒後に無条件で `clearSession()` / `reset()` / landing 遷移を実行して
+いた。待機中に別セッション開始・アカウント切替が起きると、旧ルームのタイマーが
+現在の作業を削除する。
+
+- callback 受付時に `captureLifecycle()` を取り、タイマー実行時に再確認する。
+  stale なら何もしない。
+- タイマー参照を保持し、`onUnmounted` で解除する（テスト間へ漏らさない）。
+- fake timer による競合testと、切り替えが無い場合の従来どおりの片付けを固定した。
+
+### 4. 不一致・欠落した `session_ended` が fail-closed でなかった（P2）
+
+sessionId 不一致を warn するだけで return せず、そのまま guest 分岐へ進んで
+**現在のルームを退出**していた。欠落時も同様。
+
+- `sessionId` が無い、または**自分の進行中セッションと違う**通知は、完了・退出・通知を
+  含めて即 return する。
+- ただし **自分のセッションを持たないゲスト**（`pendingSession` 無し）は、
+  従来どおりホストの完了通知で退出する。このルームについての通知であり、
+  取り違える対象が無い。この差は test で明示している。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/composables/useSync.dissolve.test.js（修正前）→ 2 failed / 1 passed
+npx vitest run src/App.complete.test.js src/composables/useSession.test.js（修正前）→ 4 failed / 97 passed
+npx vitest run src/composables/useSync                          → 6 files / 23 passed
+npx vitest run src/App.complete.test.js src/composables/useSession.test.js → 101 passed
+npm --prefix app test -- --run     → 92 files / 1004 tests passed（1回目）
+npm --prefix app test -- --run     → 92 files / 1004 tests passed（連続2回目）
+npm --prefix app run build         → 成功（PWA precache 17 entries / 2575.09 KiB）
+npm --prefix worker test           → 26 files / 545 tests passed
+git diff --check                   → 指摘なし
+git diff --name-only -- worker     → 出力なし
+```
+
+### 残risk（今回の差分ぶん）
+
+- `dissolveRoom()` は「待機中につなぎ替わったら何もしない」。旧ルームの host token は
+  残るが、`dissolveRoomRemote()`（起動時の残存ルーム掃除）が同じ token で解散できる。
+- `session_ended` の fail-closed により、sessionId を保存していないルームのゲストは
+  この通知では退出しない。直後にホストが送る `dissolved` で退出する。

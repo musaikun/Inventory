@@ -2,6 +2,24 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正3（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c2cb281`。
+- P1 3件・P2 1件を修正。**`app/src/composables/useSync.js` を変更**（同期層の内側でしか
+  直せない競合のため）。Worker は未変更。
+  1. `dissolveRoom()` が 150ms 待機後にグローバルな `_ws`/`state`/`shopCode` へ作用し、
+     つなぎ替え後の新しい token・socket・ルーム状態を壊していた。同期層内で
+     socket/shop/room/type を捕まえて待機後に照合する。**実 useSync を使う回帰test**を追加
+  2. `_startFresh()` が未確定の durable intent を消しており、同一 session の resume で
+     再送用 body を失っていた。同じ店舗・同じ session なら保持する
+  3. `dissolved` の3.5秒後処理が無条件だったため、待機中に開始した新セッションを消せた。
+     lifecycle を capture してタイマー実行時に再確認し、unmount で解除する
+  4. 不一致・欠落 `session_ended` が guest 分岐へ進んで現在のルームを退出していた。
+     即 return する（自分のセッションを持たないゲストは従来どおり退出）
+- 検証: App 92 files / 1004 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSync 2件 / useSession 1件 / App 3件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正2（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a20db8b`。

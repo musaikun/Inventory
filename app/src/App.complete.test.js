@@ -92,6 +92,7 @@ const dissolveRoom        = vi.fn(async () => {})
 const leaveRoom           = vi.fn()
 
 let sessionEndedCallback = null
+let dissolvedCallback = null
 
 vi.mock('./composables/useSync.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -99,6 +100,7 @@ vi.mock('./composables/useSync.js', async (importOriginal) => {
   return {
     ...actual,
     setSessionEndedCallback: (fn) => { sessionEndedCallback = fn },
+    setDissolvedCallback:    (fn) => { dissolvedCallback = fn },
     broadcastSessionEnd,
     useSync: () => ({
       state: reactive({ error: '', connected: false, participants: [], messages: [] }),
@@ -1217,5 +1219,125 @@ describe('App — awaitをまたいだ旧処理が現在のセッションを壊
     const toast = host.querySelector('.toast')?.textContent ?? ''
     expect(toast).toContain('この端末')
     expect(toast).not.toContain('サーバーへ完了を記録できませんでした')
+  })
+})
+
+// ══ 再レビュー2: 遅延処理と不一致通知（App level）═════════════════════════════
+describe('App — 遅延した解散処理・不一致通知が現在の作業を消さない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    dissolvedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  const OTHER = { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-10T00:00:00Z', status: 'active', itemCount: 1 }
+  const savedSession = () => localStorage.getItem(STORAGE_KEYS.pendingSession)
+
+  async function switchSession() {
+    const { useSession } = await import('./composables/useSession.js')
+    useSession().begin({ ...OTHER })
+    await settle(2)
+  }
+
+  // 指摘3: 解散通知の 3.5 秒後に無条件で clearSession()/reset()/landing を実行していた
+  it('解散通知の遅延処理は、待機中に別セッションへ移ったら実行しない', async () => {
+    vi.useFakeTimers()
+    syncIsActive.value = true
+    await mountApp()
+    expect(typeof dissolvedCallback).toBe('function')
+
+    dissolvedCallback()          // ホスト以外による解散 → 3.5秒後に片付ける
+    await settle(2)
+
+    await switchSession()        // 待機中に別セッションを開始
+    const invBefore = localStorage.getItem(STORAGE_KEYS.inventory)
+
+    vi.advanceTimersByTime(4000)
+    await settle(4)
+
+    // 現在のセッション・入力は消えない
+    expect(savedSession()).toContain('sess-2')
+    expect(localStorage.getItem(STORAGE_KEYS.inventory)).toBe(invBefore)
+  })
+
+  it('解散通知の遅延処理は、切り替えが無ければ従来どおり片付ける', async () => {
+    vi.useFakeTimers()
+    syncIsActive.value = true
+    await mountApp()
+
+    dissolvedCallback()
+    await settle(2)
+    vi.advanceTimersByTime(4000)
+    await settle(4)
+
+    expect(savedSession()).toBeNull()
+  })
+
+  // 指摘4: sessionId 不一致・欠落でも guest 分岐へ進み、現在のルームを退出していた
+  it('別セッションの session_ended では退出も通知もしない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = false
+    await mountApp()
+    leaveRoom.mockClear()
+
+    await sessionEndedCallback('completed', 'sess-OLD', 1)
+    await settle(6)
+
+    expect(leaveRoom).not.toHaveBeenCalled()
+    expect(completeCalls).toBe(0)
+    expect(host.querySelector('.toast')).toBeNull()
+    expect(savedSession()).toContain('sess-1')
+  })
+
+  it('sessionId を持たない session_ended でも退出しない（fail-closed）', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = false
+    await mountApp()
+    leaveRoom.mockClear()
+
+    await sessionEndedCallback('completed', '', 1)
+    await settle(6)
+
+    expect(leaveRoom).not.toHaveBeenCalled()
+    expect(completeCalls).toBe(0)
+  })
+
+  // 自分のセッションを持たないゲストは、従来どおりホストの完了で退出する
+  it('自分のセッションを持たないゲストは、ホストの完了で退出する', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = false
+    localStorage.clear()
+    localStorage.setItem(STORAGE_KEYS.shopCode, 'ABCDEF')
+    await mountOnly()
+    leaveRoom.mockClear()
+
+    await sessionEndedCallback('completed', 'host-session', 1)
+    await settle(6)
+
+    expect(leaveRoom).toHaveBeenCalledTimes(1)
+    expect(completeCalls).toBe(0)
   })
 })

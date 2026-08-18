@@ -1045,12 +1045,35 @@ export function useSync() {
     if (wasGuest) _onGuestLeave?.()
   }
 
+  /**
+   * ルームを解散する（ホスト）。
+   *
+   * **150ms 待つ間に接続先が変わりうる。** `clearHostToken()` / `leaveRoom()` は
+   * グローバルな `_ws` / `state` / `shopCode` に対して働くため、待機中に別ルーム・
+   * 別店舗へつなぎ替えられていると
+   *   - 新しいアカウントの host token を消す
+   *   - 新しい WebSocket を close する
+   *   - 新しいルーム状態を idle へ戻し、ゲストの leave callback を実行する
+   * が起きる。呼び出し側（App）の世代確認は await の後なので間に合わない。
+   * 待機前の socket・店舗・ルーム・種別を捕まえ、待機後に一致を確かめる。
+   */
   async function dissolveRoom() {
-    if (_ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'dissolve' }))
+    const socket = _ws
+    const code   = shopCode.value
+    const room   = state.roomCode
+    const type   = state.roomType
+
+    if (socket?.readyState === WebSocket.OPEN) {
+      try { socket.send(JSON.stringify({ type: 'dissolve' })) } catch (_) {}
       await new Promise(r => setTimeout(r, 150))
+      // 待機中につなぎ替わっていたら、新しい接続には一切触らない。
+      // 旧 socket は既に別経路で閉じられている（_connect が張り替え時に閉じる）。
+      if (_ws !== socket || shopCode.value !== code || state.roomCode !== room || state.roomType !== type) {
+        console.warn('[sync] dissolveRoom: connection changed while waiting; leaving the new one intact')
+        return
+      }
     }
-    clearHostToken()
+    clearHostToken(type)
     leaveRoom()
   }
 

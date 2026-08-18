@@ -784,6 +784,10 @@ setDoneCallback((name, isFinal) => {
 setMessageCallback((msgObj) => {
   if (!showChat.value) showChatNotif(msgObj.text, msgObj.senderName)
 })
+// 解散の片付けはトーストを読ませてから行うため 3.5 秒遅らせる。
+// **その間に別セッション開始・アカウント切替が起きうる。** 無条件に実行すると、
+// 旧ルームのタイマーが現在の作業（session・入力・画面）を消す（再レビュー2 §3）。
+let _dissolvedTimer = null
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
@@ -791,7 +795,14 @@ setDissolvedCallback(() => {
   _hostInitiatedDissolve = false
   if (!selfDissolved) {
     showToast('セッションが破棄されました', 4000, 'error')
-    setTimeout(() => {
+    const origin = captureLifecycle()
+    clearTimeout(_dissolvedTimer)
+    _dissolvedTimer = setTimeout(() => {
+      _dissolvedTimer = null
+      if (isLifecycleStale(origin)) {
+        console.warn('[App] dissolved cleanup skipped; the session changed while waiting')
+        return
+      }
       clearSession()
       reset()
       clearAuditLog()
@@ -909,9 +920,15 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
     } else {
       console.error('[App] session_ended: completion payload unavailable:', req.reason)
     }
-  } else if (status === 'completed' && sessionId !== pendingSession.value?.id) {
-    console.warn('[App] session_ended for another session; ignoring completion:', sessionId)
+  } else if (status === 'completed' && (!sessionId || pendingSession.value?.id)) {
+    // 対象を特定できない通知（sessionId 欠落）と、**自分の進行中セッションとは別の**
+    // セッションの通知は fail-closed。完了させないだけでなく、退出も通知もしない。
+    // 古いルームから遅れて届いた通知で、いま参加しているルームを閉じてしまうため。
+    console.warn('[App] session_ended: not for the current session; ignoring:', sessionId)
+    return
   }
+  // 自分のセッションを持たないゲストは、ホストの完了通知で従来どおり退出する
+  // （このルームについての通知であり、取り違える対象が無い）。
 
   // 退出も通知も、通知を受けた時点のホスト/ゲストで判断する（await 中の変化に従わない）
   if (!wasHost && status === 'completed') {
@@ -1140,7 +1157,11 @@ function _onBrowserBack() {
 }
 
 onMounted(() => { _pushBackSentinel(); window.addEventListener('popstate', _onBrowserBack) })
-onUnmounted(() => { window.removeEventListener('popstate', _onBrowserBack) })
+onUnmounted(() => {
+  window.removeEventListener('popstate', _onBrowserBack)
+  clearTimeout(_dissolvedTimer)
+  _dissolvedTimer = null
+})
 
 // ── Modal state ────────────────────────────────────────────────────────────────
 const confirmState      = ref(null) // { ingredient, qty, unit, unitLocked, source, lotSize }

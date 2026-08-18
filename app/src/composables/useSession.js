@@ -182,13 +182,13 @@ function _staleResult(origin, where) {
 export function useSession() {
   // 新規セッション開始（SessionListPage で createSession 済みのオブジェクトを受け取る）
   function begin(session) {
-    _startFresh()
+    _startFresh(session)
     pendingSession.value = session
   }
 
   // 中断セッションの再開
   function resume(session) {
-    _startFresh()
+    _startFresh(session)
     pendingSession.value = session
   }
 
@@ -198,14 +198,31 @@ export function useSession() {
    * **実行中の完了要求への合流も断つ。** `_completing` を残したまま同じ id の
    * セッションを開き直すと、前のライフサイクルの（stale になった）要求へ合流し、
    * 決着しない Promise を待ち続ける。実行中の要求自体は origin 照合で失効する。
+   *
+   * ただし **未確定の完了要求（durable intent）は、同じ店舗・同じ session なら残す**。
+   * 旧応答を stale として捨てるのは正しいが、そこで再送に必要な body まで失うと、
+   * 「サーバーだけ completed・端末は active」へ戻る手段が無くなる（再レビュー2 §2）。
+   * 残している間は `completionUnknown` を立て、確認・同一 body の再送が済むまで
+   * active を書かせない。
+   *
+   * @param {object|null} next これから開くセッション（未指定なら intent を捨てる）
    */
-  function _startFresh() {
+  function _startFresh(next = null) {
     // 前のライフサイクルの実行中要求を失効させる（同じ sessionId で開き直しても）
     _lifecycleGeneration++
     _cancelTouch()
     _finalized = false
     _completing = null
     isCompleting.value = false
+
+    const keep = !!_intent?.body
+      && !!next?.id
+      && _intent.sessionId === next.id
+      && (!_intent.shopCode || !shopCode.value || _intent.shopCode === shopCode.value)
+    if (keep) {
+      completionUnknown.value = true
+      return
+    }
     completionUnknown.value = false
     _clearIntent()
   }
