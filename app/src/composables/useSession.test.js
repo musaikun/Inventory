@@ -181,8 +181,11 @@ describe('useSession — 完了中・結果不明中に active を書かない',
   it('完了済みセッションを active へ戻さない', async () => {
     await session.complete(STOCK_REQ)
     expect(session.pendingSession.value.status).toBe('completed')
-    const marked = await session.markActive(2)
-    expect(marked.reason).toBe('completed')
+    // 端末側の確定前は「結果不明」として、確定後は「完了済み」として拒否する。
+    // どちらでも active は送らない
+    expect((await session.markActive(2)).ok).toBe(false)
+    session.ackCompletionFinalized('abc-123')
+    expect((await session.markActive(2)).reason).toBe('completed')
     expect(mocks.updateSession).not.toHaveBeenCalled()
   })
 
@@ -195,23 +198,34 @@ describe('useSession — 完了中・結果不明中に active を書かない',
     vi.useRealTimers()
   })
 
-  it('結果不明は再試行の成功で解除される', async () => {
+  // 再試行が成功しても、端末側の確定（履歴 commit・後片付け）が終わるまでは
+  // 結果不明を下ろさない。API 成功と端末の確定完了は別（再レビュー §1）。
+  it('結果不明は再試行の成功＋確定ackで解除される', async () => {
     mocks.completeSession.mockRejectedValueOnce(new Error('network'))
     await session.complete(STOCK_REQ)
     expect(session.completionUnknown.value).toBe(true)
 
     const res = await session.complete(STOCK_REQ)
     expect(res.ok).toBe(true)
+    expect(session.completionUnknown.value).toBe(true)   // ack 前は保持
+
+    session.ackCompletionFinalized('abc-123')
     expect(session.completionUnknown.value).toBe(false)
   })
 
-  it('サーバー状態の再確認で結果不明を解除できる', async () => {
+  // verify は「サーバーがどうなっているか」を教えるだけ。端末側の確定は別（再レビュー §3）。
+  it('サーバー状態の再確認だけでは結果不明を解除しない（確定ackで解除する）', async () => {
     mocks.completeSession.mockRejectedValueOnce(new Error('network'))
     await session.complete(STOCK_REQ)
 
     mocks.getSessions.mockResolvedValueOnce([{ id: 'abc-123', status: 'completed' }])
     const res = await session.verifyCompletion()
-    expect(res).toEqual({ ok: true, completed: true })
+    expect(res).toMatchObject({ ok: true, completed: true })
+    expect(session.completionUnknown.value).toBe(true)
+    // どちらの状態でも active は書かない
+    expect((await session.markActive(2)).ok).toBe(false)
+
+    session.ackCompletionFinalized('abc-123')
     expect(session.completionUnknown.value).toBe(false)
     expect((await session.markActive(2)).reason).toBe('completed')
   })
@@ -348,12 +362,16 @@ describe('useSession — 結果不明の状態が再読込で失われない', (
     expect(reloaded.pendingCompletionIntent()).toBeNull()
   })
 
-  it('完了が成立したら保存分を消す', async () => {
+  it('完了が成立し、端末側の確定ackまで済んだら保存分を消す', async () => {
     mocks.completeSession.mockRejectedValueOnce(new Error('network'))
     await session.complete(STOCK_REQ)
     expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
 
     await session.complete(STOCK_REQ)
+    // API 成功だけでは消さない（成功直後に端末が落ちても replay できるようにする）
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
+
+    session.ackCompletionFinalized('abc-123')
     expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
   })
 
@@ -458,5 +476,320 @@ describe('useSession — 旧アカウントの完了応答が新アカウント�
 
     expect(res.stale).toBe(true)
     expect(session.completionUnknown.value).toBe(false)
+  })
+})
+
+// ══ 再レビュー §1: 完了payloadをAPI送信前にdurable化する ══════════════════════
+//
+// 旧実装は `completeSessionApi()` を呼び、**catch の中で**初めて intent を保存していた。
+// 送信中に PC・ブラウザ・タブが落ちると catch は実行されない。サーバーでは完了済みでも
+// 端末には送った body が残らず、再読込後に同じ完了要求を再送できない。
+describe('useSession — 完了requestは送信前にdurable化する', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  const savedIntent = () => {
+    const raw = localStorage.getItem(STORAGE_KEYS.completionIntent)
+    return raw ? JSON.parse(raw) : null
+  }
+
+  it('APIのPromiseが未解決のうちに、完全なbodyが端末へ保存されている', async () => {
+    // 応答が返らないまま端末が落ちる状況。resolve も reject もしない
+    mocks.completeSession.mockImplementationOnce(() => new Promise(() => {}))
+    session.complete(STOCK_REQ)
+    await Promise.resolve()
+
+    const saved = savedIntent()
+    expect(saved).not.toBeNull()
+    expect(saved.sessionId).toBe('abc-123')
+    expect(saved.shopCode).toBe('ABCDEF')
+    expect(saved.type).toBe('stock')
+    expect(saved.body).toEqual(STOCK_REQ.body)      // body 全体が残っている
+    expect(saved.v).toBeGreaterThanOrEqual(1)       // schema version
+  })
+
+  it('未解決のまま再読込しても、結果不明として復帰し同じbodyを再送できる', async () => {
+    mocks.completeSession.mockImplementationOnce(() => new Promise(() => {}))
+    session.complete(STOCK_REQ)
+    await Promise.resolve()
+
+    // ここで端末が落ちる（catch は走らない）。module を作り直して復帰する
+    const reloaded = await reloadSession()
+    reloaded.restore()
+
+    expect(reloaded.completionUnknown.value).toBe(true)
+    const kept = reloaded.pendingCompletionIntent()
+    expect(kept.body).toEqual(STOCK_REQ.body)
+
+    await reloaded.complete(kept)
+    expect(mocks.completeSession).toHaveBeenLastCalledWith('abc-123', STOCK_REQ.body)
+  })
+
+  it('保存に失敗したら完了APIを呼ばない（入力は保持する）', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation((k) => {
+      if (k === STORAGE_KEYS.completionIntent) throw new DOMException('QuotaExceededError')
+    })
+    const res = await session.complete(STOCK_REQ)
+    setItem.mockRestore()
+
+    expect(mocks.completeSession).not.toHaveBeenCalled()
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('intent_not_persisted')
+    expect(res.retryable).toBe(true)
+    // セッションは残り、完了扱いにもならない
+    expect(session.pendingSession.value.id).toBe('abc-123')
+    expect(session.pendingSession.value.status).not.toBe('completed')
+  })
+
+  it('body を落とした marker だけで送信しない', async () => {
+    let stored = null
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation((k, v) => {
+      if (k !== STORAGE_KEYS.completionIntent) return
+      const parsed = JSON.parse(v)
+      if (parsed.body) throw new DOMException('QuotaExceededError')   // 本体は入らない
+      stored = parsed                                                 // marker なら通る
+    })
+    await session.complete(STOCK_REQ)
+    setItem.mockRestore()
+
+    expect(mocks.completeSession).not.toHaveBeenCalled()
+    expect(stored).toBeNull()   // marker への切り下げもしない
+  })
+
+  // API成功 = 端末側の確定完了ではない。成功直後に端末が落ちると、履歴も後片付けも
+  // 済んでいないのに intent だけ消えている状態になる。
+  it('API成功後もackされるまでintentは残る', async () => {
+    const res = await session.complete(STOCK_REQ)
+    expect(res.ok).toBe(true)
+    expect(savedIntent()).not.toBeNull()
+    expect(savedIntent().phase).toBe('confirmed')
+    expect(session.completionUnknown.value).toBe(true)   // まだ端末側は確定していない
+  })
+
+  it('ackCompletionFinalized でだけintentが消える', async () => {
+    await session.complete(STOCK_REQ)
+    expect(savedIntent()).not.toBeNull()
+
+    const acked = session.ackCompletionFinalized('abc-123')
+    expect(acked).toBe(true)
+    expect(savedIntent()).toBeNull()
+    expect(session.completionUnknown.value).toBe(false)
+  })
+
+  it('別sessionのackではintentを消さない', async () => {
+    await session.complete(STOCK_REQ)
+    expect(session.ackCompletionFinalized('other-1')).toBe(false)
+    expect(savedIntent()).not.toBeNull()
+  })
+
+  it('API成功後に端末が落ちても、保存済みintentから再開できる', async () => {
+    await session.complete(STOCK_REQ)   // ack しないまま落ちる
+
+    const reloaded = await reloadSession()
+    reloaded.restore()
+    expect(reloaded.completionUnknown.value).toBe(true)
+    expect(reloaded.pendingCompletionIntent().body).toEqual(STOCK_REQ.body)
+  })
+
+  it('サーバーが内容を拒否した（4xx）ら保存分を消す', async () => {
+    mocks.completeSession.mockRejectedValueOnce(httpError(400, 'snapshot_mismatch'))
+    await session.complete(STOCK_REQ)
+    expect(savedIntent()).toBeNull()
+    expect(session.completionUnknown.value).toBe(false)
+  })
+})
+
+// ══ 再レビュー §2: 全てのasync lifecycle処理にgenerationを適用する ═════════════
+describe('useSession — 旧accountの非同期応答を全経路で失効させる', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  function deferred() {
+    let resolve, reject
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+
+  /** B店舗へ切り替えて新しいセッションを開始する */
+  function switchToShopB() {
+    resetLocalData()
+    mocks.shopCode.value = 'ZZZZZZ'
+    session.begin({ id: 'b-1', shopCode: 'ZZZZZZ', status: 'active', itemCount: 0 })
+  }
+
+  it('verifyCompletion: 保留中にaccount切替 → B店舗へ適用しない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+    expect(session.completionUnknown.value).toBe(true)
+
+    const gate = deferred()
+    mocks.getSessions.mockImplementationOnce(() => gate.promise)
+    const verifying = session.verifyCompletion()
+
+    switchToShopB()
+    const bIntentBefore = localStorage.getItem(STORAGE_KEYS.completionIntent)
+
+    gate.resolve([{ id: 'abc-123', status: 'completed' }])
+    const res = await verifying
+
+    expect(res.stale).toBe(true)
+    expect(res.ok).toBe(false)
+    // B店舗の状態は一切変わらない
+    expect(session.pendingSession.value.id).toBe('b-1')
+    expect(session.pendingSession.value.status).toBe('active')
+    expect(session.completionUnknown.value).toBe(false)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBe(bIntentBefore)
+    expect(mocks.completeSession).toHaveBeenCalledTimes(1)   // B店舗の完了APIは呼ばれない
+  })
+
+  it('verifyCompletion: 同一店舗でも別sessionへ移っていたら適用しない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    const gate = deferred()
+    mocks.getSessions.mockImplementationOnce(() => gate.promise)
+    const verifying = session.verifyCompletion()
+
+    session.begin({ id: 'other-1', shopCode: 'ABCDEF', status: 'active', itemCount: 0 })
+    gate.resolve([{ id: 'abc-123', status: 'completed' }])
+
+    expect((await verifying).stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('active')
+  })
+
+  it('markActive: 保留中にaccount切替 → 成功応答をB店舗へ適用しない', async () => {
+    const gate = deferred()
+    mocks.updateSession.mockImplementationOnce(() => gate.promise)
+    session.pendingSession.value.status = 'incomplete'
+    const marking = session.markActive(3)
+
+    switchToShopB()
+    gate.resolve({ ok: true })
+    const res = await marking
+
+    expect(res.stale).toBe(true)
+    expect(session.pendingSession.value.id).toBe('b-1')
+  })
+
+  it('markActive: 409 session_completed でもB店舗へ適用しない', async () => {
+    const gate = deferred()
+    mocks.updateSession.mockImplementationOnce(() => gate.promise)
+    const marking = session.markActive(3)
+
+    switchToShopB()
+    gate.reject(httpError(409, 'session_completed'))
+    const res = await marking
+
+    expect(res.stale).toBe(true)
+    expect(session.pendingSession.value.id).toBe('b-1')
+    expect(session.pendingSession.value.status).not.toBe('completed')
+  })
+
+  it('markActive: 通信エラーでもB店舗へ適用しない', async () => {
+    const gate = deferred()
+    mocks.updateSession.mockImplementationOnce(() => gate.promise)
+    const marking = session.markActive(3)
+
+    switchToShopB()
+    gate.reject(new Error('network'))
+    const res = await marking
+
+    expect(res.stale).toBe(true)
+    expect(session.pendingSession.value.id).toBe('b-1')
+    expect(session.pendingSession.value.status).toBe('active')
+  })
+
+  it('markActive: 同一店舗でも別sessionへ移っていたら適用しない', async () => {
+    const gate = deferred()
+    mocks.updateSession.mockImplementationOnce(() => gate.promise)
+    session.pendingSession.value.status = 'incomplete'
+    const marking = session.markActive(3)
+
+    session.begin({ id: 'other-1', shopCode: 'ABCDEF', status: 'incomplete', itemCount: 0 })
+    gate.resolve({ ok: true })
+
+    expect((await marking).stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('incomplete')
+  })
+})
+
+// ══ 再レビュー §3: verifyCompletionでdurable intentを早期削除しない ═══════════
+describe('useSession — verifyCompletion はintentを消さない', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  async function makeUnknown() {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+  }
+
+  it('completed を確認しても保存済みbodyを残す', async () => {
+    await makeUnknown()
+    mocks.getSessions.mockResolvedValueOnce([{ id: 'abc-123', status: 'completed' }])
+    const res = await session.verifyCompletion()
+
+    expect(res).toMatchObject({ ok: true, completed: true })
+    // 端末側の確定（履歴commit・後片付け）がまだなので消さない
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
+    expect(session.pendingCompletionIntent().body).toEqual(STOCK_REQ.body)
+    expect(session.completionUnknown.value).toBe(true)
+  })
+
+  it('active を確認したときも保存済みbodyを残す（同じbodyで再送する）', async () => {
+    await makeUnknown()
+    mocks.getSessions.mockResolvedValueOnce([{ id: 'abc-123', status: 'active' }])
+    await session.verifyCompletion()
+
+    expect(session.pendingCompletionIntent().body).toEqual(STOCK_REQ.body)
+    expect(session.completionUnknown.value).toBe(true)
+  })
+
+  it('サーバー状態を取得できなければintentもcompletionUnknownも保持する', async () => {
+    await makeUnknown()
+    mocks.getSessions.mockRejectedValueOnce(new Error('offline'))
+    const res = await session.verifyCompletion()
+
+    expect(res.ok).toBe(false)
+    expect(session.completionUnknown.value).toBe(true)
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).not.toBeNull()
+  })
+
+  it('現在の在庫が空でも、保存済みintentから同じbodyを再送できる', async () => {
+    await makeUnknown()
+    const reloaded = await reloadSession()
+    reloaded.restore()
+    // 端末の在庫・audit log が失われた状態を模す（intent だけが残っている）
+    localStorage.removeItem('inventory_v1')
+
+    mocks.getSessions.mockResolvedValueOnce([{ id: 'abc-123', status: 'completed' }])
+    await reloaded.verifyCompletion()
+
+    const kept = reloaded.pendingCompletionIntent()
+    expect(kept.body).toEqual(STOCK_REQ.body)
+    expect(kept.snapshot).toEqual(STOCK_REQ.body.snapshot)
   })
 })

@@ -142,14 +142,28 @@ function seedDevice({ session = SESSION, inventory = { トマト: { qty: 3, unit
   }))
 }
 
+// App の非同期ハンドラで投げられた例外を受け取る。
+// dev build の Vue は errorHandler が無いと再throwし、Promise chain の外へ出て
+// runner の unhandled rejection になる（false positive の温床）。
+// 握り潰さず配列へ集め、想定外のものが混ざっていないか afterEach で検査する。
+let appErrors = []
+const EXPECTED_ERRORS = ['dissolve failed']
+
 async function mountOnly() {
   const { default: App } = await import('./App.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
   app = createApp(App)
+  app.config.errorHandler = (err) => { appErrors.push(err) }
   app.mount(host)
   for (let i = 0; i < 8; i++) await nextTick()
   return host
+}
+
+/** 想定外の例外が出ていないか（各 afterEach から呼ぶ） */
+function assertNoUnexpectedAppErrors() {
+  const unexpected = appErrors.filter(e => !EXPECTED_ERRORS.includes(e?.message))
+  expect(unexpected.map(e => e?.message ?? String(e))).toEqual([])
 }
 
 async function mountApp(opts) {
@@ -188,12 +202,14 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('前提: 進行中セッションが復元され、完了ボタンが出ている', async () => {
@@ -284,12 +300,14 @@ describe('App — 完了はサーバー成功後にだけローカルへ確定�
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('完了APIが503でも入力画面・draft・sessionが残り、履歴だけが作られない', async () => {
@@ -387,12 +405,14 @@ describe('App — 完了要求が二重に走らない', () => {
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('完了ボタンの二重押しでも完了要求は1本', async () => {
@@ -480,12 +500,14 @@ describe('App — 完了処理中に離脱しようとしても active を書き
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('完了送信の直後にホームを押しても active 要求は0件', async () => {
@@ -594,12 +616,14 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('session_ended（ホスト自身の完了通知）も snapshot 付きで送る', async () => {
@@ -623,7 +647,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     // 以前 snapshot 無しで完了APIを呼んでいた経路。
     syncIsActive.value = true
     syncIsHost.value   = true
-    dissolveRoom.mockImplementationOnce(() => new Promise(() => {}))
+    dissolveRoom.mockRejectedValueOnce(new Error('dissolve failed'))
     await mountApp()
     await clickComplete()
 
@@ -631,11 +655,14 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(host.querySelector('.btn-new-session')).not.toBeNull()   // 完了済み表示
     expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
 
+    // サーバー側は完了済み（端末側の確定だけが途中で止まっている）
+    serverSessions = [{ id: 'sess-1', status: 'completed', itemCount: 1, type: 'stock' }]
     homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await settle(16)
 
-    // 2本目も同じ helper の payload（snapshot 付き）で送っている
+    // 2本目も**保存済みの同じ body**（snapshot 付き）で送っている
     expect(completeCalls).toBe(2)
+    expect(completeBodies[1]).toEqual(completeBodies[0])
     expect(completeBodies[1].snapshot).toBeTruthy()
     expect(completeBodies[1].snapshot.sessionId).toBe('sess-1')
     expect(completeBodies[1].snapshot.items.length).toBeGreaterThan(0)
@@ -646,7 +673,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
   it('完了済みセッションのホームが失敗しても active へ戻さない', async () => {
     syncIsActive.value = true
     syncIsHost.value   = true
-    dissolveRoom.mockImplementationOnce(() => new Promise(() => {}))
+    dissolveRoom.mockRejectedValueOnce(new Error('dissolve failed'))
     await mountApp()
     await clickComplete()
 
@@ -733,12 +760,14 @@ describe('App — 結果不明のあとは同じ内容で再送する', () => {
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   it('結果不明のあとに入力を変えても、再送の body は1回目と同一', async () => {
@@ -816,12 +845,14 @@ describe('App — 完了結果不明・session_ended・入力ロック', () => {
     syncIsHost.value   = false
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
   })
   afterEach(() => {
     if (app)  { app.unmount(); app = null }
     if (host) { host.remove();  host = null }
     vi.unstubAllGlobals()
     vi.resetModules()
+    assertNoUnexpectedAppErrors()
   })
 
   // 指摘1: 結果不明がメモリだけだと、再読込で active セッションとして復帰し、
@@ -917,5 +948,145 @@ describe('App — 完了結果不明・session_ended・入力ロック', () => {
 
     expect(completeCalls).toBe(1)
     expect(completeBodies[0].snapshot.sessionId).toBe('sess-1')
+  })
+})
+
+// ══ 再レビュー: 送信前のdurable化と、保存済みbodyでの収束（App level）═════════
+describe('App — 送信中に端末が落ちても保存済みbodyで収束する', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  const savedIntent = () => {
+    const raw = localStorage.getItem(STORAGE_KEYS.completionIntent)
+    return raw ? JSON.parse(raw) : null
+  }
+
+  /** 応答が返らないまま端末が落ちる（catch も finally も走らない） */
+  async function crashDuringComplete() {
+    completeGate = new Promise(() => {})       // resolve も reject もしない
+    await mountApp()
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(4)
+  }
+
+  it('APIの応答を待っている時点で、完全なbodyが端末に残っている', async () => {
+    await crashDuringComplete()
+
+    expect(completeCalls).toBe(1)
+    const saved = savedIntent()
+    expect(saved).not.toBeNull()
+    expect(saved.body).toEqual(completeBodies[0])   // 送ったものと同一
+    expect(saved.body.snapshot.items.length).toBeGreaterThan(0)
+    // 端末側はまだ何も確定していない
+    expect(historyEntries()).toHaveLength(0)
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+  })
+
+  it('再読込後、現在の在庫が送信時と違っても保存済みbodyで再送する', async () => {
+    await crashDuringComplete()
+    const sentBody = completeBodies[0]
+
+    // 端末が落ちて再起動。復帰後の在庫は送信時と違う（数量が変わっている）
+    app.unmount(); app = null
+    host.remove(); host = null
+    vi.resetModules()
+    completeGate = null
+    const inv = JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory))
+    inv.data['トマト'].qty = 99
+    localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(inv))
+    await mountOnly()
+
+    await clickComplete()
+
+    // 送るのは保存済みの版。現在の在庫（99）から作り直さない
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[1]).toEqual(sentBody)
+    expect(completeBodies[1].inventory['トマト'].qty).toBe(3)
+    // 履歴も送った版で確定する
+    const entry = historyEntries()[0]
+    expect(entry.items.find(i => i.item === 'トマト').qty).toBe(3)
+    // 端末側の確定が終わったので保存分は消える
+    expect(savedIntent()).toBeNull()
+  })
+
+  it('再読込後、在庫が失われていても保存済みbodyから収束できる', async () => {
+    await crashDuringComplete()
+    const sentBody = completeBodies[0]
+
+    app.unmount(); app = null
+    host.remove(); host = null
+    vi.resetModules()
+    completeGate = null
+    localStorage.removeItem(STORAGE_KEYS.inventory)   // 在庫キャッシュが消えた端末
+    await mountOnly()
+
+    // 在庫が無いので完了ボタンは出ない。ホーム経由で結果不明の収束へ入る
+    serverSessions = [{ id: 'sess-1', status: 'completed', itemCount: 1, type: 'stock' }]
+    const home = homeBtn()
+    expect(home).not.toBeNull()
+    home.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(20)
+
+    expect(completeCalls).toBe(2)
+    expect(completeBodies[1]).toEqual(sentBody)
+    expect(historyEntries()).toHaveLength(1)
+    expect(savedIntent()).toBeNull()
+    expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  it('API成功後・履歴確定前に落ちても、保存済みbodyから再開できる', async () => {
+    // 履歴確定の直前で失敗させる（ホストのルーム解散が失敗して後片付けが止まる）
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    dissolveRoom.mockRejectedValueOnce(new Error('dissolve failed'))
+    await mountApp()
+    await clickComplete()
+
+    // API は成功しているが、後片付けが終わっていないので保存分は残る
+    expect(completeCalls).toBe(1)
+    expect(savedIntent()).not.toBeNull()
+    expect(savedIntent().phase).toBe('confirmed')
+  })
+
+  it('端末へ保存できないときは完了APIを呼ばない（入力は残す）', async () => {
+    await mountApp()
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
+      if (k === STORAGE_KEYS.completionIntent) throw new DOMException('QuotaExceededError')
+      return Storage.prototype.setItem.wrappedMethod.call(this, k, v)
+    })
+    await clickComplete()
+    setItem.mockRestore()
+
+    expect(completeCalls).toBe(0)
+    // 画面に留まり、入力・セッションは残る
+    expect(completeBtn()).not.toBeNull()
+    expect(host.querySelector('.btn-new-session')).toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory)).data['トマト'].qty).toBe(3)
+    expect(historyEntries()).toHaveLength(0)
   })
 })

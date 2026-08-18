@@ -2,6 +2,23 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e81fad1`（ancestor確認済み）。
+- 再レビューの重大2件・高1件を修正。`worker/**` は変更していない。
+  1. **完了payloadをAPI送信前にdurable化**。旧実装は catch の中で保存していたため、
+     送信中にPC・タブが落ちると送った body が残らなかった。保存できなければ完了APIを呼ばない
+     （`body:null` marker への切り下げも廃止）
+  2. **generation照合を全promise chainへ**。`verifyCompletion()` / `markActive()` /
+     `touch()` の遅延送信と App 側の await 後にも追加。旧店舗の応答が新店舗の
+     session・draft・history・画面を変更しない
+  3. **verifyCompletion が intent を早期削除しない**。削除は端末側の確定が終わったあと
+     `ackCompletionFinalized()` だけ。API成功と端末の確定完了を分離した
+- 検証: App 91 files / 986 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSession 23件 / App 6件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用のため
+  migration → Worker → App の順で出す必要がある。
+
 ## 2026-08-17 — App第2セッション レビュー指摘の修正（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c3141e6`。

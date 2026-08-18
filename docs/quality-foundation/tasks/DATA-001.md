@@ -647,3 +647,142 @@ git diff --name-only -- worker    → 出力なし
   引き続き未実装。現状は「サーバーで別内容として確定済み」と表示するところまで。
 - 完了要求の永続化は snapshot 全体を localStorage へ書く。大規模店舗（数百品目）では
   数百KB になり、容量が逼迫している端末では marker だけの保存に落ちる。
+
+## 2026-08-18 — 再レビュー修正（完了intentのdurable化・全promise chainの世代管理）
+
+基準 `e81fad1`。`worker/**` は変更していない。重大2件・高1件。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内訳 |
+|---|---|---|
+| `src/composables/useSession.test.js` | 23 | 送信前durable化19件＋旧契約を固定していた既存4件（後述） |
+| `src/App.complete.test.js` | 6 | 未解決Promiseのまま終了・再読込収束・保存失敗・確定ack |
+
+command: `npx vitest run src/composables/useSession.test.js` /
+`npx vitest run src/App.complete.test.js`（`e81fad1` の `useSession.js` / `App.vue` へ差し戻して実行）。
+5秒 timeout で落ちた件は、決着しない完了要求へ次の test が合流していたため
+（`begin()` が `_completing` を捨てていなかった）。これ自体も修正対象に含めた。
+
+### 1. 完了payloadをAPI送信前にdurable化する（重大）
+
+旧実装は `completeSessionApi()` を呼び、**catch の中で**初めて intent を保存していた。
+送信中に PC・ブラウザ・タブが落ちると catch は実行されない。サーバーでは完了済みでも
+端末には送った body が残らず、再読込後に同じ完了要求を再送できなかった。
+
+- immutable な request を作ったら、**ネットワークへ出す前に**同期的に書く。
+  形は `{ v, sessionId, shopCode, type, body, phase, at }`（`v` = schema version）。
+- 書けなければ `intent_not_persisted` を返し、**完了APIを呼ばない**。
+  `body: null` の marker へ切り下げる旧経路は廃止した（送った内容を復元できない状態で
+  「結果不明」だけを作らない）。入力・draft・pendingSession は保持する。
+- `beforeunload` などの unload 処理には依存しない。
+- 送信した時点で `completionUnknown` を立てる（結果が確定するまで active を書かない）。
+
+### 保存・削除のタイミング（API成功 ≠ 端末の確定完了）
+
+| 順 | 処理 | intent |
+|---|---|---|
+| 1 | immutable request 作成 | — |
+| 2 | `_writeIntent()`（phase `sending`） | **作成** |
+| 3 | `completeSessionApi()` | 保持 |
+| 4 | server 成功 / replay 確認 | phase `confirmed` へ更新（**消さない**） |
+| 5 | App が snapshot を履歴へ commit | 保持 |
+| 6 | App が draft削除・room解散・遷移まで完了 | 保持 |
+| 7 | `ackCompletionFinalized(sessionId)` | **削除**・`completionUnknown` 解除 |
+
+`_finishSession` と `onGoHome` の完了済み経路が 7 を呼ぶ。4xx・`409` の各種は
+サーバー状態が分かるので即削除する。
+
+### 2. 全ての非同期lifecycle処理にgenerationを適用する（重大）
+
+`_complete()` にしか照合が無く、`verifyCompletion()` / `markActive()` / `touch()` の
+遅延送信と、それらを await する App の chain が抜けていた。A店舗の `getSessions()` が
+completed で解決すると、B店舗の `pendingSession` が completed へ変わり、
+`_resolveUnknownCompletion()` が B店舗の `_finishSession()` を走らせられた。
+
+- `_captureOrigin()` / `_isStale()` / `_staleResult()` を共通化。捕まえるのは
+  **account generation・shopCode・sessionId** の3つ。
+- 照合を追加した promise chain:
+  - `complete()`（成功・失敗の両方／既存を共通ヘルパへ統一）
+  - `verifyCompletion()`（`getSessions()` の成功・失敗の両方）
+  - `markActive()`（成功・`409 session_completed`・通信エラーの全経路）
+  - `touch()` の2秒デバウンス送信
+  - App `_resolveUnknownCompletion()`（verify 後・`_finishSession` へ進む前）
+  - App `onGoHome()` の `markSessionActive()` await 後（stale なら clear も遷移もしない）
+  - App `_finishSession()` / `onGoHome()` の `completeSessionD1()` await 後（既存を維持）
+- stale の戻り値は `{ ok:false, stale:true, reason:'stale' }` に統一。
+  `pendingSession` / `completionUnknown` / `_finalized` / durable intent /
+  現在アカウントの draft・history・currentView を**一切変更しない**。
+- `begin()` / `resume()` / `clear()` は実行中の `_completing` への合流も断つ
+  （前のライフサイクルの決着しない要求を待ち続けない）。
+
+### 3. verifyCompletionでdurable intentを早期削除しない（高）
+
+旧実装は GET が completed なら intent を消していた。直後に App は「同じ要求を再送する」
+として `_finishSession()` を呼ぶが、intent が無いので**現在の在庫・audit log から
+body を作り直す**。再読込後にローカルが違えば `409 completion_intent_conflict` になり、
+サーバーは完了済みなのに端末履歴を確定できない。
+
+- `verifyCompletion()` は `pendingSession.status` と `_finalized` を更新するだけ。
+  intent も `completionUnknown` も触らない（解除は `ackCompletionFinalized()` だけ）。
+- 取得に失敗したときも保持する。stale なら何も触らない。
+- App は `_buildCompletionRequest()` が保存済み intent を最優先で返すため、
+  **現在の在庫が空でも**保存済み body と snapshot で収束できる。
+
+### 変更file
+
+```
+app/src/composables/useSession.js
+app/src/App.vue
+app/src/composables/useSession.test.js   （23件追加・旧契約の4件を新契約へ更新）
+app/src/App.complete.test.js             （6件追加・errorHandler で unhandled rejection を解消）
+```
+
+`sessionCompletion.js` / `storageKeys.js` は変更なし（既存の deep clone・上限・
+`_completion_intent_v1` をそのまま使う）。
+
+### 旧契約を固定していた既存testの更新
+
+「API 成功で即 intent 削除・結果不明解除」を前提にしていた4件を、確定 ack の契約へ更新した。
+どれも `active` を書かないことは維持している。
+
+- `完了済みセッションを active へ戻さない`
+- `結果不明は再試行の成功＋確定ackで解除される`（旧: 成功だけで解除）
+- `サーバー状態の再確認だけでは結果不明を解除しない（確定ackで解除する）`
+- `完了が成立し、端末側の確定ackまで済んだら保存分を消す`
+
+App test の `完了済みセッションをホームで離れる経路` は、`dissolveRoom` を
+「永久に解決しない」から「reject」へ変えた。前者は `_finishing` が立ったままになり、
+本番では起こらない状態を固定していた。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/composables/useSession.test.js（修正前）→ 23 failed / 24 passed
+npx vitest run src/App.complete.test.js（修正前）        → 6 failed / 33 passed
+npx vitest run src/composables/useSession.test.js       → 47 passed
+npx vitest run src/App.complete.test.js                 → 39 passed
+npm --prefix app test -- --run                          → 91 files / 986 tests passed（1回目）
+npm --prefix app test -- --run                          → 91 files / 986 tests passed（連続2回目）
+npm --prefix app run build                              → 成功（PWA precache 17 entries / 2573.80 KiB）
+npm --prefix worker test                                → 26 files / 545 tests passed
+git diff --check                                        → 指摘なし
+git diff --name-only -- worker                          → 出力なし
+```
+
+Worker test の timeout は発生していない（全体 5.27 秒）。
+
+### 未実施・残risk
+
+- 実D1・実browser・実機は未確認。migration 0012〜0016 は未適用のままで、
+  **migration → Worker → App の順**で出す必要がある。
+- durable intent は `localStorage` へ書く。数百品目の snapshot は数百KB になり、
+  容量が逼迫した端末では `intent_not_persisted` で完了できない。
+  この場合は「保存できないので完了しない」＝入力は端末に残る（fail-closed）。
+  IndexedDB 化は Phase 3 相当。
+- `verifyCompletion()` は `GET /sessions`（最新50件）に依存する。50件より古い session は
+  確認できず、結果不明のまま再送で収束させる。
+- `409 completion_intent_conflict` の復旧導線（session を作り直して入力を引き継ぐ）は
+  引き続き未実装。
+- 端末が複数タブで開かれている場合、durable intent は共有される。別タブが同じ session を
+  完了しても内容は同一なので replay に収束するが、タブ間の排他は入れていない。

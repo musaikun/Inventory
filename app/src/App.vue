@@ -170,7 +170,7 @@ const {
   pendingSession, isCompleting: completing, completionUnknown, completionBusy,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
-  verifyCompletion, pendingCompletionIntent, clear: clearSession,
+  verifyCompletion, pendingCompletionIntent, ackCompletionFinalized, clear: clearSession,
 } = useSession()
 
 // ── 完了セッションの NEW バッジ ───────────────────────────────────────────────
@@ -1446,6 +1446,9 @@ async function _finishSession(completionCount, isHostInRoom) {
   }
 
   _clearDraft(completedId)
+  // **端末側の確定がすべて終わってから**、保存してある完了要求を捨てる（再レビュー §1）。
+  // API 成功だけで消すと、履歴 commit の前に端末が落ちたときに送った内容を復元できない。
+  ackCompletionFinalized(completedId)
   clearSession()
   showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   sessionsTab.value  = 'dashboard'
@@ -1537,6 +1540,7 @@ async function onGoHome() {
   if (syncActive.value) leaveRoom()
 
   // 状態を書き込んでから遷移（完了は completed、未完了は進行中=active のまま品目数を確定保存）
+  const completedId = pendingSession.value?.id
   if (isCompleted.value) {
     // 完了済みセッションを離れる経路でも、サーバーへ書けなければ画面を離れない。
     // ここで抜けると draft と session 参照が消え、完了を記録し直す手段が無くなる。
@@ -1560,12 +1564,16 @@ async function onGoHome() {
       // サーバーの記録を正として離脱させる（次の履歴取得で正しい内容が入る）。
       if (!completed?.conflict) return
       // 409 のときは useSession が保持していた要求を捨てている（再送しても解消しない）
-    } else if (req.type === COMPLETION_STOCK) {
-      commitSnapshot(req.snapshot, completed.result)
+    } else {
+      if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
+      ackCompletionFinalized(completedId)
     }
   } else {
     _saveDraft(pendingSession.value?.id)
-    await markSessionActive(filledCount.value)
+    const marked = await markSessionActive(filledCount.value)
+    // 応答を待つ間にアカウント・セッションが切り替わった。いまの画面を閉じない
+    // （旧店舗の結果で現在のセッションを clear すると入力が行き場を失う）。
+    if (marked?.stale) return
   }
 
   if (continuousMode.value) onForceStop()
@@ -1588,12 +1596,16 @@ async function _resolveUnknownCompletion() {
   if (_finishing) return
   _finishing = true
   try {
+    const before = pendingSession.value?.id
     const state = await verifyCompletion()
+    // 確認中にアカウント・セッションが切り替わった。いまの画面へは何も適用しない
+    if (state.stale || pendingSession.value?.id !== before) return
     if (!state.ok) {
       showToast(`${actNoun.value}の完了結果を確認できませんでした。接続が戻ってからもう一度「完了」を押してください`, 6000, 'warning')
       return
     }
-    // active でも completed でも、同じ完了要求を送り直せば端末とサーバーが揃う。
+    // active でも completed でも、**保存してある同じ body** を送り直せば端末とサーバーが揃う
+    // （server は同じ intent の再送を replay として受ける）。現在の在庫からは作り直さない。
     await _finishSession(filledCount.value, syncActive.value && syncIsHost.value)
   } finally {
     _finishing = false
