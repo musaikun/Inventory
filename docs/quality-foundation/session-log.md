@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — DATA-001 再レビュー修正7（CONNECTING中の解散）
+
+- 担当: Codex。branch `develop`、基準 `ee1ee6e`。User依頼により再レビュー残件を直接修正。
+- `dissolveRoom()`呼び出し時点ですでに自動再接続中だと、socketはまだlocal変数だけにあり
+  `_ws === null`だった。解散を送らず`ok:true`となり、Appのcleanup後に旧ルームへ遅延join
+  できたため、CONNECTING socketを明示追跡して退出・account切替時にも閉じるようにした。
+- 接続世代とsocket所有者を全callbackで再確認し、遅延`onopen`と旧Promiseが現在のroom stateを
+  変更しないようにした。修正前の新規回帰は1 failed / 12 passed、修正後は対象16件成功。
+- 検証: App 92 files / 1024 tests passed（連続2回）、build成功、
+  Worker 26 files / 545 tests passed。Worker・migration差分なし。
+- 未実施: 実D1・実browser・実機。migration 0012〜0016は未適用。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正6（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `dea4785`。P1 1件。

@@ -1100,6 +1100,49 @@ git diff --check                                 → 指摘なし
 git diff --name-only -- worker                   → 出力なし
 ```
 
+## 再レビュー修正7（2026-08-19・Codex / 基準 `ee1ee6e`）
+
+### P1 解散開始時点ですでにCONNECTINGのsocketが残る
+
+前回までの接続世代guardは「OPEN socketの解散待機150ms中に別の接続が始まる」競合を
+防いでいたが、`dissolveRoom()`を呼んだ時点ですでに自動再接続中の経路が未対応だった。
+`_connect()`はWebSocketをlocal変数で作り、`_ws`へ入れるのは`onopen`後だったため、
+CONNECTING中は`dissolveRoom()`と`leaveRoom()`の双方からsocketが見えない。
+
+その状態で完了・新規開始を行うと、解散要求を送っていないのに`{ ok:true }`を返して
+Appはsession・draft・完了intentを片付ける。その後socketがopenして旧ルームへjoinし、
+ゲストへ`session_ended` / `dissolved`が届かないまま接続だけが復活できた。
+
+修正:
+
+- CONNECTING socketを`_connectingWs`として明示的に追跡する。
+- `dissolveRoom()`から呼ばれる`leaveRoom()`と`resetAccountData()`が未open socketも閉じる。
+- 各socket callbackが接続世代と現在のsocket所有者を確認し、退出・置換後の遅延`onopen`で
+  joinやstate更新を行わない。
+- 新しい接続が旧CONNECTING試行を置換した場合、旧Promiseのrejectが現在の
+  `mode` / `roomCode`をidleへ巻き戻さない。
+
+修正前の回帰test:
+
+```
+npm --prefix app test -- --run src/composables/useSync.dissolve.test.js -t 呼び出し時点ですでに再接続中
+→ 1 failed / 12 passed（CONNECTING socketの `closed` が false）
+```
+
+修正後:
+
+```
+対象（useSync dissolve + account reset） → 2 files / 16 tests passed
+対象（上記 + App.complete）              → 3 files / 71 tests passed
+npm --prefix app test -- --run            → 92 files / 1024 tests passed（連続2回）
+npm --prefix app run build                → 成功（PWA precache 17 entries）
+npm --prefix worker test                  → 26 files / 545 tests passed
+git diff --check                          → 指摘なし
+git diff --name-only -- worker            → 出力なし
+```
+
+実D1・実browser・実機、migration 0012〜0016の適用は未実施。
+
 ## 再レビュー修正6（2026-08-18・Claude Code / 基準 `dea4785`）
 
 ### P1 自分の解散マークが正常解散・中止のあとも残る

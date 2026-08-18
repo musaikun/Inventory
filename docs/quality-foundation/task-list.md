@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-17
+最終更新: 2026-08-19
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -30,7 +30,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
 | DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側7点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-001 | P1 | レビュー待ち | Codex | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -107,6 +107,11 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19: DATA-001 の再レビュー残件をCodexが直接修正し、`進行中` →
+  `レビュー待ち / Codex`へ戻した。解散開始時点ですでにWebSocketがCONNECTINGだと、
+  未open socketを閉じられず旧ルームへ遅延joinする問題を修正。接続試行中socketの追跡、
+  接続世代による遅延callback失効、退出/account切替cleanup、旧Promiseによる新room stateの
+  巻き戻し防止と回帰testを追加した。`worker/**`・migrationは変更していない。
 - 2026-08-17: DATA-001 の App第2セッション（完了ライフサイクル・同期キュー）を実装し、
   `進行中` → `レビュー待ち / Claude Code` へ戻した。第1修正セッションが確定した
   **stock/order 別の完了契約**へ App を合わせ、snapshot なしで完了APIを呼ぶ経路を無くした

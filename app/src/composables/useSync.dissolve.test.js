@@ -251,6 +251,55 @@ describe('接続世代', () => {
 // 比較だけでは切替を検出できない。token を消して `leaveRoom()` しても接続中の socket は
 // 閉じられず、後から onopen して接続が復活する。
 describe('dissolveRoom — CONNECTING中の張り直しも切替として扱う', () => {
+  it('CONNECTING中の旧接続を置換しても新しいroom stateをidleへ戻さない', async () => {
+    const api = sync.useSync()
+    const first = api.createRoom('stock')
+    const firstRejected = expect(first).rejects.toThrow('接続が切り替わりました')
+    const ws1 = MockWebSocket.instances.at(-1)
+    expect(ws1.readyState).toBe(MockWebSocket.CONNECTING)
+
+    const second = api.joinRoom('ROOMBB')
+    await firstRejected
+    const ws2 = MockWebSocket.instances.at(-1)
+
+    expect(ws1.closed).toBe(true)
+    expect(api.state.mode).toBe('joining')
+    expect(api.state.roomCode).toBe('ROOMBB')
+
+    ws2._open()
+    ws2._recv(joined())
+    await second
+    expect(api.state.mode).toBe('joining')
+    expect(api.state.roomCode).toBe('ROOMBB')
+  })
+
+  it('呼び出し時点ですでに再接続中なら未open socketを閉じて解散する', async () => {
+    const api = sync.useSync()
+    const ws1 = await hostRoom(api, 'SHOPAA')
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+
+    // 通信断から自動再接続が始まり、新socketはまだCONNECTING。
+    // この時点では従来の実装は `_ws === null` で、dissolveRoom() から見えなかった。
+    ws1.close()
+    vi.advanceTimersByTime(1600)
+    await Promise.resolve()
+    const ws2 = MockWebSocket.instances.at(-1)
+    expect(ws2).not.toBe(ws1)
+    expect(ws2.readyState).toBe(MockWebSocket.CONNECTING)
+
+    const res = await api.dissolveRoom()
+    // closeとonopenが競合して遅延callbackが届いても、旧接続を昇格させない。
+    ws2._open()
+
+    expect(res.ok).toBe(true)
+    expect(ws2.closed).toBe(true)
+    expect(ws2.sent).toEqual([])
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBeNull()
+    expect(api.state.mode).toBe('idle')
+    expect(api.state.roomCode).toBeNull()
+    expect(api.state.isConnected).toBe(false)
+  })
+
   it('同じルームへ張り直し中（未openの新socket）なら片付けない', async () => {
     const api = sync.useSync()
     const ws1 = await hostRoom(api, 'SHOPAA')
