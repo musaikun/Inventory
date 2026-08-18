@@ -2,6 +2,22 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正2（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a20db8b`。
+- 再レビューの重大2件・中2件を修正。`worker/**` は変更していない。
+  1. `session_ended` が完了APIの await 後に stale を確認せず、切替後のルームを
+     `leaveRoom()` していた。開始時の lifecycle token と host/guest を捕まえて判定する
+  2. `_finishSession` が `dissolveRoom()` の await 後に再確認せず、現在のセッションへ
+     `clearSession()` などを実行していた
+  3. `_startFresh()` が世代を進めておらず、同一店舗・同一 sessionId の `resume()` で
+     旧 Promise が失効しなかった。account 世代を lifecycle 世代へ改め、
+     `captureLifecycle()` / `isLifecycleStale()` を公開
+  4. `intent_not_persisted`（端末へ保存できず送信していない）を専用文言へ
+- 検証: App 91 files / 994 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は App 4件 / useSession 4件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e81fad1`（ancestor確認済み）。

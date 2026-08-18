@@ -73,14 +73,19 @@ const PHASE_SENDING   = 'sending'
 const PHASE_CONFIRMED = 'confirmed'
 
 /**
- * アカウントの世代。切替のたびに増やす。
+ * セッションライフサイクルの世代。**アカウント切替でもセッション開始/再開でも増やす。**
  *
  * 完了要求は世代・店舗・sessionId を**送信開始時に捕まえ**、応答を適用する直前に
  * 突き合わせる。`_completing` の参照を消しても実行中の Promise は止まらないため、
  * 旧アカウントの応答が後から返って現在の pendingSession を completed にし、
  * 呼び出し側が旧 snapshot を現在の履歴へ確定して現在の draft を消す経路があった。
+ *
+ * アカウント世代だけでは足りない。**同一店舗・同一 sessionId で resume すると
+ * 店舗も sessionId も一致してしまい**、前のライフサイクルの応答が新しい方へ適用される
+ * （中断→再開を挟んだ完了要求が、再開後の画面を確定させてしまう）。
+ * `begin()` / `resume()` / `clear()` でも進める。
  */
-let _accountGeneration = 0
+let _lifecycleGeneration = 0
 
 /**
  * intent を端末へ書く。**書けたかどうかを返す。**
@@ -119,7 +124,7 @@ function _canWrite() {
 // アカウント切替時のローカル全消去（進行中セッション）。watch が localStorage も消す。
 // 世代を進めることで、実行中の完了要求の応答が新しいアカウントへ適用されなくなる。
 export function resetLocalData() {
-  _accountGeneration++
+  _lifecycleGeneration++     // 旧アカウントの実行中要求を失効させる
   _cancelTouch()
   _finalized = false
   _completing = null
@@ -144,7 +149,7 @@ function _cancelTouch() {
  */
 function _captureOrigin() {
   return {
-    generation: _accountGeneration,
+    generation: _lifecycleGeneration,
     shop:       shopCode.value,
     sessionId:  pendingSession.value?.id ?? null,
   }
@@ -152,10 +157,21 @@ function _captureOrigin() {
 
 /** await 後に状態を変える直前へ必ず置く。true なら**一切変更しない** */
 function _isStale(origin) {
-  return origin.generation !== _accountGeneration
+  return origin.generation !== _lifecycleGeneration
       || origin.shop       !== shopCode.value
       || origin.sessionId  !== (pendingSession.value?.id ?? null)
 }
+
+/**
+ * 呼び出し側（App）が await をまたいで同じ基準で再確認するための token。
+ *
+ * 完了APIの応答だけでなく、**ルーム解散や退出処理の await のあと**にも
+ * 「いまも同じアカウント・同じセッションか」を確かめる必要がある。
+ */
+export function captureLifecycle() { return _captureOrigin() }
+
+/** `captureLifecycle()` で取った token が失効しているか */
+export function isLifecycleStale(token) { return !token || _isStale(token) }
 
 /** stale で返す統一の結果 */
 function _staleResult(origin, where) {
@@ -184,6 +200,8 @@ export function useSession() {
    * 決着しない Promise を待ち続ける。実行中の要求自体は origin 照合で失効する。
    */
   function _startFresh() {
+    // 前のライフサイクルの実行中要求を失効させる（同じ sessionId で開き直しても）
+    _lifecycleGeneration++
     _cancelTouch()
     _finalized = false
     _completing = null
@@ -497,5 +515,6 @@ export function useSession() {
     pendingSession, isCompleting, completionUnknown, completionBusy,
     begin, resume, restore, touch, markActive, complete, verifyCompletion, clear,
     pendingCompletionIntent, ackCompletionFinalized,
+    captureLifecycle, isLifecycleStale,
   }
 }

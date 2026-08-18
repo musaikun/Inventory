@@ -786,3 +786,87 @@ Worker test の timeout は発生していない（全体 5.27 秒）。
   引き続き未実装。
 - 端末が複数タブで開かれている場合、durable intent は共有される。別タブが同じ session を
   完了しても内容は同一なので replay に収束するが、タブ間の排他は入れていない。
+
+## 2026-08-18 — 再レビュー修正2（await後のstale再確認・lifecycle世代）
+
+基準 `a20db8b`。`worker/**` は変更していない。重大2件・中2件。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内容 |
+|---|---|---|
+| `src/App.complete.test.js` | 4 | `session_ended` の await 後（退出・通知）、`dissolveRoom` の await 後、保存失敗の文言 |
+| `src/composables/useSession.test.js` | 4 | 同一 sessionId の resume で旧 Promise が失効しない |
+
+command: `npx vitest run src/App.complete.test.js -t "awaitをまたいだ旧処理"` /
+`npx vitest run src/composables/useSession.test.js`
+
+### 1. session_ended の await 後に stale を確認していなかった（重大）
+
+callback は完了APIを await するが結果を受け取らず、**その時点の** `syncIsHost` で
+退出処理へ進んでいた。待機中に別アカウント・別セッション・別ルームへ切り替わると、
+`completeSessionD1()` は `stale` を返すのに無視され、**いま参加しているルーム**を
+`leaveRoom()` していた。ゲスト経路の callback は現在の session / inventory / config を
+消せるため、現在アカウントの作業が失われる。
+
+- callback 開始時に `captureLifecycle()` と `syncIsHost` を捕まえる。
+- await 後、`completed.stale` または `isLifecycleStale(origin)` なら**何もせず返る**
+  （退出も通知もしない）。
+- 退出・通知の分岐は**通知を受けた時点の** host / guest で判断する
+  （await 中に変わった現在値に従わない）。
+
+### 2. `_finishSession` がルーム解散の await 後に再確認していなかった（重大）
+
+完了API直後の stale 確認はあったが、その後の `await dissolveRoom()` が抜けていた。
+待機中にアカウント・セッションが変わっても旧処理が続行し、`_clearDraft()` /
+`ackCompletionFinalized()` / `clearSession()` / 画面遷移を**現在のセッション**へ実行していた。
+
+- `dissolveRoom()` の前に `captureLifecycle()` を取り、解散の成功・失敗どちらの後でも
+  再確認する。stale なら後片付けを一切せずに返る。
+
+### 3. 同一sessionIdの再開で旧Promiseが失効しない（中）
+
+`_startFresh()` のコメントは「同じ id の旧ライフサイクルも失効する」としていたが、
+世代を進めていなかった。`_isStale()` が見る世代は account reset でしか変わらないため、
+**同一店舗・同一 sessionId で `resume()`** すると店舗も sessionId も一致し、
+前のライフサイクルの応答が新しい方へ適用されていた。
+
+- `_accountGeneration` を `_lifecycleGeneration` へ改め、`resetLocalData()` に加えて
+  `_startFresh()`（= `begin()` / `resume()` / `clear()`）でも進める。
+- App が await をまたいで同じ基準で確認できるよう `captureLifecycle()` /
+  `isLifecycleStale(token)` を公開した。
+
+### 4. durable保存失敗の説明が一般エラーだった（中）
+
+`intent_not_persisted` は「端末に再送用データを保存できないので**送信していない**」
+状態なのに、「サーバーへ完了を記録できませんでした」と表示していた。通信を疑って
+同じ操作を繰り返させる文言だったため、専用の案内へ分けた
+（端末の空き容量・送信していないこと・入力は残っていること）。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/App.complete.test.js -t "awaitをまたいだ旧処理"（修正前）→ 4 failed
+npx vitest run src/composables/useSession.test.js（修正前）                  → 4 failed
+npx vitest run src/composables/useSession.test.js                          → 51 passed
+npx vitest run src/App.complete.test.js                                    → 43 passed
+npm --prefix app test -- --run                → 91 files / 994 tests passed（1回目）
+npm --prefix app test -- --run                → 91 files / 994 tests passed（連続2回目）
+npm --prefix app run build                    → 成功（PWA precache 17 entries / 2574.55 KiB）
+npm --prefix worker test                      → 26 files / 545 tests passed
+git diff --check                              → 指摘なし
+git diff --name-only -- worker                → 出力なし
+```
+
+### test側で判明した制約
+
+App test の `useSync` モックは `syncIsHost` / `syncIsActive` が**プレーンオブジェクト**で、
+`computed()` が依存を追跡できない。mount 後に値を変えても App 側には反映されないため、
+ホスト/ゲストの分岐は **mount 前**に決める必要がある。§1 の回帰testはゲスト経路を
+mount 前に設定して再現している。
+
+### 残risk（前回からの差分）
+
+- `session_ended` の stale 判定は「通知を受けた時点」を基準にする。通知後に同じ
+  セッションへ戻った場合（例: 退出→即再参加）は、その通知は処理されない。
+  完了自体は `_finishSession` が主経路なので影響しない。

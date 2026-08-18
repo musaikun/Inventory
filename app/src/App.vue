@@ -170,7 +170,8 @@ const {
   pendingSession, isCompleting: completing, completionUnknown, completionBusy,
   begin: beginSession, resume: resumeSession, restore: restorePendingSession,
   touch: touchSession, markActive: markSessionActive, complete: completeSessionD1,
-  verifyCompletion, pendingCompletionIntent, ackCompletionFinalized, clear: clearSession,
+  verifyCompletion, pendingCompletionIntent, ackCompletionFinalized,
+  captureLifecycle, isLifecycleStale, clear: clearSession,
 } = useSession()
 
 // ── 完了セッションの NEW バッジ ───────────────────────────────────────────────
@@ -890,15 +891,30 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   // いま開いている別のセッションを完了させない。sessionId を持たない通知（sessionId を
   // 保存していないルーム）は、対象を特定できないので完了させない（fail-closed）。
   // ホスト自身の完了は `_finishSession` が主経路で、ここはそれへ合流するだけの保険。
+  //
+  // **await をまたぐので、通知を受けた時点の状態を捕まえておく。** 完了APIを待っている
+  // 間にアカウント・セッション・ルームが切り替わると、この続きが「いま参加している
+  // ルーム」を leaveRoom() し、現在の作業を閉じてしまう。
+  const origin = captureLifecycle()
+  const wasHost = syncIsHost.value
+
   if (status === 'completed' && sessionId && sessionId === pendingSession.value?.id) {
     const req = _buildCompletionRequest()
-    if (req.ok) await completeSessionD1(req)
-    else console.error('[App] session_ended: completion payload unavailable:', req.reason)
+    if (req.ok) {
+      const completed = await completeSessionD1(req)
+      if (completed?.stale || isLifecycleStale(origin)) {
+        console.warn('[App] session_ended: account/session changed while completing; ignoring:', sessionId)
+        return
+      }
+    } else {
+      console.error('[App] session_ended: completion payload unavailable:', req.reason)
+    }
   } else if (status === 'completed' && sessionId !== pendingSession.value?.id) {
     console.warn('[App] session_ended for another session; ignoring completion:', sessionId)
   }
 
-  if (!syncIsHost.value && status === 'completed') {
+  // 退出も通知も、通知を受けた時点のホスト/ゲストで判断する（await 中の変化に従わない）
+  if (!wasHost && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
     showToast('ホストが棚卸を完了したため、ルームを閉鎖します', 4000, 'warning')
     _hostCompletedLeave = true
@@ -1439,7 +1455,15 @@ async function _finishSession(completionCount, isHostInRoom) {
   if (isHostInRoom) {
     broadcastSessionEnd('completed')
     _hostInitiatedDissolve = true
+    // ルーム解散も await をまたぐ。ここで待っている間にアカウント・セッションが
+    // 変わると、以降の後片付け（draft削除・intent破棄・clearSession・遷移）が
+    // **現在のセッション**に対して走る。
+    const beforeDissolve = captureLifecycle()
     await dissolveRoom()
+    if (isLifecycleStale(beforeDissolve)) {
+      console.warn('[App] account/session changed while dissolving the room; skipping cleanup:', completedId)
+      return
+    }
   } else {
     track('session_completed', { item_count: completionCount, mode: 'solo' })
     _checkReviewPrompt()
@@ -1470,6 +1494,15 @@ function _warnCompleteUnsaved(result = null) {
   if (result?.conflict) {
     showToast(
       `この${actNoun.value}はサーバー上で別の内容として確定済みです。確定後にこの端末で変えた内容は保存できません。一覧から確定済みの内容を確認してください`,
+      9000, 'error',
+    )
+    return
+  }
+  // 端末へ再送用データを保存できず、**そもそも送信していない**。
+  // サーバー起因のように読める文言だと、ユーザーは通信を疑って同じ操作を繰り返す。
+  if (result?.reason === 'intent_not_persisted') {
+    showToast(
+      `この端末に再送用のデータを保存できないため、${actNoun.value}を送信していません。入力内容はこの端末に残っています。ブラウザの空き容量を空けてからもう一度お試しください`,
       9000, 'error',
     )
     return

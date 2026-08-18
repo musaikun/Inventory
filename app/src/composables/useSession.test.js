@@ -793,3 +793,75 @@ describe('useSession — verifyCompletion はintentを消さない', () => {
     expect(kept.snapshot).toEqual(STOCK_REQ.body.snapshot)
   })
 })
+
+// ══ 再レビュー: lifecycle世代（同じsessionIdの再開でも旧Promiseを失効させる）═══
+//
+// 世代を account reset でしか進めていないと、同一店舗・同一 sessionId で resume した
+// 場合に origin 照合がすべて一致し、前のライフサイクルの応答が新しい方へ適用される。
+describe('useSession — 同じsessionIdを開き直しても旧Promiseは失効する', () => {
+  let session
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mocks.isAuthenticated.value = true
+    mocks.shopCode.value = 'ABCDEF'
+    session = useSession()
+    session.begin({ ...SESSION })
+  })
+
+  function deferred() {
+    let resolve, reject
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+
+  it('complete: resume で開き直したら旧応答を適用しない', async () => {
+    const gate = deferred()
+    mocks.completeSession.mockImplementationOnce(() => gate.promise)
+    const inflight = session.complete(STOCK_REQ)
+
+    session.resume({ ...SESSION })        // 同じ sessionId で開き直す
+    gate.resolve({ ok: true, type: 'stock', snapshotSaved: true })
+
+    expect((await inflight).stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('active')
+    expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toBeNull()
+  })
+
+  it('markActive: resume で開き直したら旧応答を適用しない', async () => {
+    const gate = deferred()
+    mocks.updateSession.mockImplementationOnce(() => gate.promise)
+    session.pendingSession.value.status = 'incomplete'
+    const marking = session.markActive(3)
+
+    session.resume({ ...SESSION, status: 'incomplete' })
+    gate.resolve({ ok: true })
+
+    expect((await marking).stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('incomplete')
+  })
+
+  it('verifyCompletion: resume で開き直したら旧応答を適用しない', async () => {
+    mocks.completeSession.mockRejectedValueOnce(new Error('network'))
+    await session.complete(STOCK_REQ)
+
+    const gate = deferred()
+    mocks.getSessions.mockImplementationOnce(() => gate.promise)
+    const verifying = session.verifyCompletion()
+
+    session.resume({ ...SESSION })
+    gate.resolve([{ id: 'abc-123', status: 'completed' }])
+
+    expect((await verifying).stale).toBe(true)
+    expect(session.pendingSession.value.status).toBe('active')
+  })
+
+  it('lifecycle世代は外から確認できる（App の await 後の再確認用）', async () => {
+    const token = session.captureLifecycle()
+    expect(session.isLifecycleStale(token)).toBe(false)
+
+    session.resume({ ...SESSION })
+    expect(session.isLifecycleStale(token)).toBe(true)
+  })
+})

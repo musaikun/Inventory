@@ -89,6 +89,7 @@ const syncIsActive = { value: false }
 const syncIsHost   = { value: false }
 const broadcastSessionEnd = vi.fn()
 const dissolveRoom        = vi.fn(async () => {})
+const leaveRoom           = vi.fn()
 
 let sessionEndedCallback = null
 
@@ -104,7 +105,7 @@ vi.mock('./composables/useSync.js', async (importOriginal) => {
       isActive: computed(() => syncIsActive.value),
       isHost:   computed(() => syncIsHost.value),
       participantList: computed(() => []),
-      createRoom: vi.fn(), joinRoom: vi.fn(), leaveRoom: vi.fn(),
+      createRoom: vi.fn(), joinRoom: vi.fn(), leaveRoom,
       dissolveRoom,
       unreadCount: computed(() => 0),
       auditLog: [],
@@ -1088,5 +1089,133 @@ describe('App — 送信中に端末が落ちても保存済みbodyで収束す�
     expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory)).data['トマト'].qty).toBe(3)
     expect(historyEntries()).toHaveLength(0)
+  })
+})
+
+// ══ 再レビュー: await をまたいだ後の stale 再確認（App level）══════════════════
+//
+// 完了APIやルーム解散を待っている間にアカウント・セッションが切り替わると、
+// 旧 callback の続きが**現在のアカウントの作業**を消せる。
+describe('App — awaitをまたいだ旧処理が現在のセッションを壊さない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    syncIsActive.value = false
+    syncIsHost.value   = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  const OTHER = { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-10T00:00:00Z', status: 'active', itemCount: 1 }
+
+  /** 待機中に別セッションへ移る（アカウント切替と同じく lifecycle 世代が進む） */
+  async function switchSession() {
+    const { useSession } = await import('./composables/useSession.js')
+    useSession().begin({ ...OTHER })
+    await settle(2)
+  }
+
+  const savedSession = () => localStorage.getItem(STORAGE_KEYS.pendingSession)
+
+  // ゲスト経路は完了APIの await のあとに leaveRoom() する。待機中に別セッションへ
+  // 移っていると、**いま参加しているルーム**を閉じてしまう。
+  it('session_ended: 完了APIの待機中に別セッションへ移ったら退出処理をしない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = false      // ゲスト（mount 前に決める。mock は非reactive）
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+
+    const ended = sessionEndedCallback('completed', 'sess-1', 1)
+    await settle(3)
+    expect(completeCalls).toBe(1)
+
+    // 応答を待っている間に別セッションへ移る
+    await switchSession()
+    leaveRoom.mockClear()
+
+    release()
+    await Promise.resolve(ended).catch(() => {})
+    await settle(8)
+
+    // いまのルーム・セッションには手を出さない
+    expect(leaveRoom).not.toHaveBeenCalled()
+    expect(savedSession()).toContain('sess-2')
+  })
+
+  it('session_ended: 待機中に別セッションへ移ったら完了通知も出さない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true       // ホスト自身の通知
+    let release
+    completeGate = new Promise(r => { release = r })
+    await mountApp()
+
+    const ended = sessionEndedCallback('completed', 'sess-1', 1)
+    await settle(3)
+
+    await switchSession()
+
+    release()
+    await Promise.resolve(ended).catch(() => {})
+    await settle(8)
+
+    // 別セッションの通知を、いま開いているセッションの完了として見せない
+    const toast = host.querySelector('.toast')?.textContent ?? ''
+    expect(toast).not.toContain('棚卸セッションが完了しました')
+    expect(savedSession()).toContain('sess-2')
+  })
+
+  it('_finishSession: ルーム解散の待機中に別セッションへ移ったら、現在のセッションをclearしない', async () => {
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    let releaseDissolve
+    dissolveRoom.mockImplementationOnce(() => new Promise(r => { releaseDissolve = r }))
+    await mountApp()
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(8)
+    expect(completeCalls).toBe(1)
+
+    // 解散の応答を待っている間に別セッションへ移る
+    await switchSession()
+
+    releaseDissolve()
+    await settle(12)
+
+    // 現在（sess-2）のセッション参照が消されていない
+    expect(savedSession()).toContain('sess-2')
+  })
+
+  it('端末へ保存できない理由を専用の文言で説明する', async () => {
+    await mountApp()
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
+      if (k === STORAGE_KEYS.completionIntent) throw new DOMException('QuotaExceededError')
+      return Storage.prototype.setItem.wrappedMethod.call(this, k, v)
+    })
+    await clickComplete()
+    setItem.mockRestore()
+
+    expect(completeCalls).toBe(0)
+    const toast = host.querySelector('.toast')?.textContent ?? ''
+    expect(toast).toContain('この端末')
+    expect(toast).not.toContain('サーバーへ完了を記録できませんでした')
   })
 })
