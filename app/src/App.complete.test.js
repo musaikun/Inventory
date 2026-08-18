@@ -1497,3 +1497,96 @@ describe('App — 解散が切替で中止されたら session・intent・draft 
     expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toBeNull()
   })
 })
+
+// ══ 再レビュー6 §1: 自分の解散マークが正常解散・中止のあとも残らない ═════════
+//
+// 実 Worker（RoomDO の dissolve）は **送信元ホストを dissolved 通知から除外する**。
+// そのためホストが正常に解散しても callback は呼ばれず、boolean のマークは true の
+// まま残っていた。中止（connection_changed）でも同じ。残ったマークは、その後に
+// 別ルームへゲスト参加してそのルームが解散されたとき「自分が解散した」と誤認させ、
+// session・在庫の片付けを飛ばす（別店舗のゲストデータが画面に残る）。
+describe('App — 自分の解散マークが別ルームの解散通知に漏れない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    dissolvedCallback = null
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    syncConnectionGen  = 0
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  const toastText = () => host.querySelector('.toast')?.textContent ?? ''
+
+  it('正常解散のあと、別ルームの解散通知は通常どおり片付ける', async () => {
+    await mountApp()
+    await clickComplete()
+    expect(dissolveRoom).toHaveBeenCalledTimes(1)
+    expect(toastText()).toContain('完了しました')
+
+    // 別ルームへゲスト参加（新しい接続 = 接続世代が進む）→ そのルームが解散される
+    vi.useFakeTimers()
+    syncConnectionGen++
+    dissolvedCallback()
+    await settle(4)
+
+    expect(toastText()).toContain('セッションが破棄されました')
+    vi.advanceTimersByTime(4000)
+    await settle(8)
+    expect(host.querySelector('.lp')).not.toBeNull()
+  })
+
+  it('connection_changed で解散を中止したあとも、別ルームの解散通知を片付ける', async () => {
+    dissolveRoom.mockResolvedValueOnce({ ok: false, reason: 'connection_changed' })
+    await mountApp()
+    await clickComplete()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+
+    vi.useFakeTimers()
+    syncConnectionGen++
+    dissolvedCallback()
+    await settle(4)
+
+    expect(toastText()).toContain('セッションが破棄されました')
+    vi.advanceTimersByTime(4000)
+    await settle(8)
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toBeNull()
+    expect(host.querySelector('.lp')).not.toBeNull()
+  })
+
+  it('同じ接続のまま自分の解散通知が返ってきたら閉鎖として扱う', async () => {
+    await mountApp()
+    await clickComplete()
+
+    // HTTP 経路の解散（worker/src/RoomDO.js:137）は送信元も含めて配信する。
+    // 接続が変わっていなければ、それは自分が閉じたルームの通知。
+    vi.useFakeTimers()
+    dissolvedCallback()
+    await settle(4)
+
+    expect(toastText()).toContain('ルームが閉鎖されました')
+    vi.advanceTimersByTime(4000)
+    await settle(8)
+    expect(host.querySelector('.lp')).toBeNull()
+  })
+})

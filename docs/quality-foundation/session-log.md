@@ -2,6 +2,20 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正6（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `dea4785`。P1 1件。
+  1. 自分の解散を示す `_hostInitiatedDissolve`（boolean）が、正常解散・中止のあとも true の
+     まま残っていた。実 Worker の WS 解散（`RoomDO.js` の `case 'dissolve'`）は**送信元ホストを
+     dissolved 通知から除外する**ため、正常に解散しても false へ戻す callback が呼ばれない。
+     `connection_changed` で中止した場合も同じ。残ったフラグは、その後に別ルームへゲスト参加して
+     そのルームが解散されたとき「自分が解散した」と誤認させ、session・在庫の片付けを飛ばす
+     （別店舗のゲストデータが画面とメモリに残る）。**接続世代に紐づく self-dissolve token** へ
+     置き換え、消費は1回だけ・同じ接続の通知だけを自分の解散として扱う。中止経路では明示的に破棄する
+- 検証: App 92 files / 1021 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は新規回帰2件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正5（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a5dfcbd`。

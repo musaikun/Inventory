@@ -807,8 +807,7 @@ let _dissolvedTimer = null
 setDissolvedCallback(() => {
   showChat.value = false
   showSync.value = false
-  const selfDissolved = _hostInitiatedDissolve
-  _hostInitiatedDissolve = false
+  const selfDissolved = _consumeSelfDissolve()
   if (!selfDissolved) {
     showToast('セッションが破棄されました', 4000, 'error')
     // セッション世代だけでは足りない。**同じ pendingSession のまま新しいルームを作る**
@@ -835,7 +834,23 @@ setDissolvedCallback(() => {
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
 setParticipantLeaveCallback((name) => showToast(`${name} が退出しました`, 3000, 'leave'))
 let _hostCompletedLeave = false
-let _hostInitiatedDissolve = false
+// 自分（このホスト）が起こした解散を示すマーカー。**boolean にしてはいけない。**
+// 実 Worker の WS 解散（worker/src/RoomDO.js の `case 'dissolve'`）は
+// **送信元ホストを dissolved 通知から除外する**ため、正常に解散できても
+// このコールバックは呼ばれない。解散を中止（connection_changed）した場合も同じ。
+// boolean だと true が残り続け、その後に別ルームへゲスト参加してそのルームが
+// 解散されたとき「自分が解散した」と誤認し、session・在庫の片付けを飛ばす
+// （別店舗のゲストデータが画面とメモリに残る。再レビュー6 §1）。
+// 接続世代に紐づけて、新しい接続を張った時点で自動的に失効させる。
+let _selfDissolveToken = null
+function _markSelfDissolve()  { _selfDissolveToken = captureSyncConnection() }
+function _clearSelfDissolve() { _selfDissolveToken = null }
+// 消費は1回だけ。**同じ接続で**届いた通知だけを「自分の解散」として扱う。
+function _consumeSelfDissolve() {
+  const token = _selfDissolveToken
+  _selfDissolveToken = null
+  return !!token && !isSyncConnectionStale(token)
+}
 
 setGuestLeaveCallback(() => {
   showSync.value = false
@@ -1495,7 +1510,7 @@ async function _finishSession(completionCount, isHostInRoom) {
 
   if (isHostInRoom) {
     broadcastSessionEnd('completed')
-    _hostInitiatedDissolve = true
+    _markSelfDissolve()
     // ルーム解散も await をまたぐ。ここで待っている間にアカウント・セッションが
     // 変わると、以降の後片付け（draft削除・intent破棄・clearSession・遷移）が
     // **現在のセッション**に対して走る。
@@ -1507,6 +1522,9 @@ async function _finishSession(completionCount, isHostInRoom) {
     const beforeConnection = captureSyncConnection()
     const dissolved = await dissolveRoom()
     if (dissolved?.ok === false || isLifecycleStale(beforeDissolve) || isSyncConnectionStale(beforeConnection)) {
+      // 解散していない（または別の接続になった）以上、自分の解散マークも捨てる。
+      // 残すと、次に参加したルームの解散通知を自分の解散と誤認する。
+      _clearSelfDissolve()
       console.warn('[App] session or connection changed while dissolving the room; skipping cleanup:', completedId)
       return
     }
@@ -1697,12 +1715,13 @@ async function onStartNew() {
   // ホスト中はルームを解散してから開始（ゲストと在庫が乖離するのを防ぐ）
   if (syncIsHost.value && syncActive.value) {
     if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
-    _hostInitiatedDissolve = true
+    _markSelfDissolve()
     const origin     = captureLifecycle()
     const connection = captureSyncConnection()
     const dissolved  = await dissolveRoom()
     // 解散が中止された／待機中に切り替わったなら、reset() で現在の在庫を消さない
     if (dissolved?.ok === false || isLifecycleStale(origin) || isSyncConnectionStale(connection)) {
+      _clearSelfDissolve()
       console.warn('[App] session or connection changed while dissolving; not starting a new session')
       return
     }

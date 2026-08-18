@@ -1099,3 +1099,45 @@ npm --prefix worker test                         → 26 files / 545 tests passed
 git diff --check                                 → 指摘なし
 git diff --name-only -- worker                   → 出力なし
 ```
+
+## 再レビュー修正6（2026-08-18・Claude Code / 基準 `dea4785`）
+
+### P1 自分の解散マークが正常解散・中止のあとも残る
+
+`_hostInitiatedDissolve` は解散の直前に `true`、`dissolvedCallback` の中だけで `false` に
+戻る boolean だった。しかし実 Worker の WebSocket 解散（`worker/src/RoomDO.js` の
+`case 'dissolve'` → `this._broadcast({ type: 'dissolved' }, ws)`）は**送信元ホストを配信から
+除外する**ため、ホストが正常に解散しても callback は呼ばれない。`connection_changed` で
+解散を中止した場合も呼ばれない。結果、フラグは `true` のまま残る。
+
+その状態で別ルームへゲスト参加し、そのルームが解散されると、通知を「自分が解散した」と
+誤認して `clearSession()` / `reset()` / `clearAuditLog()` / landing 遷移を**実行しない**。
+別店舗のゲストデータが画面とメモリに残る。
+
+- boolean を廃止し、**接続世代に紐づく self-dissolve token** にした
+  （`_markSelfDissolve()` / `_consumeSelfDissolve()` / `_clearSelfDissolve()`）。
+  - 消費は1回だけ。`_consumeSelfDissolve()` は必ず token を捨ててから判定する。
+  - **同じ接続で**届いた通知だけを「自分の解散」として扱う。新しいルームを張ると
+    `_connectGeneration` が進むので、残った token は自動的に失効する。
+  - HTTP 経路の解散（`RoomDO.js:137`）は送信元も含めて配信するため、同じ接続で自分の
+    dissolved が返る経路は残る。そこは従来どおり「ルームが閉鎖されました」で扱う。
+- 解散を中止した2経路（`_finishSession()` / `onStartNew()`）では token を明示的に破棄する。
+- 回帰test（`App.complete.test.js`、修正前2件失敗）:
+  - 正常解散 → 接続世代が進む（別ルームへ参加）→ `dissolvedCallback()` が
+    「セッションが破棄されました」と3.5秒後の片付け（landing 遷移）を行う。
+  - `connection_changed` で中止 → 別ルームの解散通知で `pendingSession` が消え landing へ。
+  - 同じ接続のまま自分の解散通知が返る場合は従来どおり「ルームが閉鎖されました」で
+    片付けない（既存の意図の固定）。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/App.complete.test.js -t "自分の解散マーク"（修正前）→ 2 failed / 1 passed
+npx vitest run src/App.complete.test.js          → 56 passed
+npm --prefix app test -- --run                   → 92 files / 1021 tests passed（1回目）
+npm --prefix app test -- --run                   → 92 files / 1021 tests passed（連続2回目）
+npm --prefix app run build                       → 成功（PWA precache 17 entries / 2576.00 KiB）
+npm --prefix worker test                         → 26 files / 545 tests passed
+git diff --check                                 → 指摘なし
+git diff --name-only -- worker                   → 出力なし
+```
