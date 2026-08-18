@@ -2,6 +2,23 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-18 — App第2セッション 再レビュー修正5（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a5dfcbd`。
+  1. 接続世代を追加したのに解散処理自身と呼び出し側が使っていなかった。`_ws` への代入は
+     onopen 後なので、同じ room へ張り直した CONNECTING の socket を検出できず、token を
+     消して leaveRoom した後に接続が復活しうる。`dissolveRoom()` が開始時の接続世代を比較し、
+     結果（`{ok,reason}`）を返す。App の2経路が戻り値・lifecycle・接続世代の3つを確認する
+  2. `onStartPractice()` に解散待機後の account guard が無く、切替後に現在の在庫・セッションを
+     消して練習モードへ入れた。`onSessionStart()` と同じ guard を入れた
+  3. `App.authLoss.test.js` の「今日」が UTC 由来で、カレンダーのローカル日付判定とずれる
+     時間帯（JST 00:00〜09:00・UTC+14 終日）で2件失敗していた。ローカル日付キーへ変更し、
+     UTC+14 / UTC-11 / JST の3TZで App 全体の成功を確認
+- 検証: App 92 files / 1018 tests passed（連続2回＋UTC+14でも全件）、build 成功、
+  Worker 26 files / 545 tests passed。修正前は useSync 3件 / App.complete 2件 / App.authLoss 2件が失敗。
+- 記録: 履歴カレンダーが「今日」をローカル日付・セッション所属日を UTC 日付で決めている
+  製品側の不整合（JST 早朝の完了が前日セルに並ぶ）を DATA-001.md へ残した。今回は未修正。
+
 ## 2026-08-18 — App第2セッション 再レビュー修正4（DATA-001）
 
 - 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e87080f`。P1 3件。

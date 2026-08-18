@@ -64,7 +64,15 @@ let host = null
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 
-const TODAY = new Date().toISOString().slice(0, 10)
+// 履歴カレンダーは「今日」を**ローカル日付**（getFullYear/getMonth/getDate）で決め、
+// セッションの日付キーは ISO 文字列の先頭10文字（＝UTC日付）で作る。
+// `toISOString()` から作ると、UTC とローカルの日付がずれる時間帯（例: JST 00:00〜09:00、
+// UTC+14 の終日）で「今日」のセルに並ばず、詳細行を開けずに落ちる。
+// カレンダーが選ぶ日と必ず一致するよう、**ローカル日付**でキーを作る。
+function _localDateKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const TODAY = _localDateKey()
 const TODAY_DONE = {
   id: 'sess-9', shopCode: 'ABCDEF', type: 'stock', status: 'completed',
   startedAt: `${TODAY}T00:00:00.000Z`, endedAt: `${TODAY}T01:00:00.000Z`, itemCount: 1,
@@ -88,6 +96,7 @@ function seedActiveSession() {
   localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
   localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(SESSION))
   localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
+    // useInventory の当日判定は UTC（`toISOString`）なので、ここは UTC のまま合わせる
     date:        new Date().toISOString().slice(0, 10),
     data:        { トマト: { qty: 3, unit: '個', updatedAt: Date.now() } },
     recountFlags: {},

@@ -1417,3 +1417,83 @@ describe('App — 同じsessionで新ルームを作ったら旧解散処理を�
     expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toBeNull()
   })
 })
+
+// ══ 再レビュー4 §1: 解散が「切替」で中止されたら後片付けもしない ═════════════
+describe('App — 解散が切替で中止されたら session・intent・draft を消さない', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    completeShouldFail = false
+    completeCalls = 0
+    completeBodies = []
+    completeGate = null
+    completeResponse = null
+    completeLosesResponse = false
+    completeConflict = false
+    sessionUpdates = []
+    serverSessions = []
+    sessionEndedCallback = null
+    dissolvedCallback = null
+    syncIsActive.value = true
+    syncIsHost.value   = true
+    syncConnectionGen  = 0
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+    appErrors = []
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+    assertNoUnexpectedAppErrors()
+  })
+
+  const savedIntent = () => localStorage.getItem(STORAGE_KEYS.completionIntent)
+
+  it('dissolveRoom が connection_changed を返したら後片付けを止める', async () => {
+    dissolveRoom.mockResolvedValueOnce({ ok: false, reason: 'connection_changed' })
+    await mountApp()
+    localStorage.setItem('inv_draft_sess-1', JSON.stringify({ inv: { トマト: { qty: 3 } }, activeMs: 0 }))
+
+    await clickComplete()
+
+    expect(completeCalls).toBe(1)
+    // 完了自体は成立しているが、端末側の確定は打ち切る（intent と draft を残す）
+    expect(savedIntent()).not.toBeNull()
+    expect(localStorage.getItem('inv_draft_sess-1')).not.toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+  })
+
+  it('解散の待機中に新しいルームを張ったら後片付けを止める', async () => {
+    let release
+    dissolveRoom.mockImplementationOnce(() => new Promise(r => {
+      release = () => r({ ok: true })
+    }))
+    await mountApp()
+    localStorage.setItem('inv_draft_sess-1', JSON.stringify({ inv: { トマト: { qty: 3 } }, activeMs: 0 }))
+
+    completeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await settle(8)
+    expect(completeCalls).toBe(1)
+
+    syncConnectionGen++            // 待機中に新しいルームを張った
+    release()
+    await settle(12)
+
+    expect(savedIntent()).not.toBeNull()
+    expect(localStorage.getItem('inv_draft_sess-1')).not.toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+  })
+
+  it('切替が無ければ従来どおり後片付けまで進む', async () => {
+    await mountApp()
+    localStorage.setItem('inv_draft_sess-1', JSON.stringify({ inv: { トマト: { qty: 3 } }, activeMs: 0 }))
+
+    await clickComplete()
+
+    expect(savedIntent()).toBeNull()
+    expect(localStorage.getItem('inv_draft_sess-1')).toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toBeNull()
+  })
+})

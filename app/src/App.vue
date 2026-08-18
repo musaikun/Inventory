@@ -422,7 +422,14 @@ let _prepracticeConfig = null
 async function onStartPractice() {
   if (_blockedByCompletion()) return
   sessionMode.value = 'stock'
+  // 残存ルームの解散待ちの間にアカウントが切り替わりうる。そのまま進むと
+  // 現在の在庫・セッションを消して練習モードへ入ってしまう（onSessionStart と同じ）。
+  const origin = captureLifecycle()
   if (hasHostToken('stock')) await dissolveRoomRemote('stock')
+  if (isLifecycleStale(origin)) {
+    console.warn('[App] account/session changed while dissolving; not entering practice mode')
+    return
+  }
   if (syncActive.value) leaveRoom()
   practiceMode.value = true
   reset()
@@ -1492,10 +1499,15 @@ async function _finishSession(completionCount, isHostInRoom) {
     // ルーム解散も await をまたぐ。ここで待っている間にアカウント・セッションが
     // 変わると、以降の後片付け（draft削除・intent破棄・clearSession・遷移）が
     // **現在のセッション**に対して走る。
+    //
+    // 同期側は「解散できたか」を返す。接続が張り替わって解散を中止した場合、
+    // 旧ルーム前提の後片付けを続けると、いま使っているセッション・intent・draft を消す。
+    // セッション世代と接続世代の両方を確認する。
     const beforeDissolve = captureLifecycle()
-    await dissolveRoom()
-    if (isLifecycleStale(beforeDissolve)) {
-      console.warn('[App] account/session changed while dissolving the room; skipping cleanup:', completedId)
+    const beforeConnection = captureSyncConnection()
+    const dissolved = await dissolveRoom()
+    if (dissolved?.ok === false || isLifecycleStale(beforeDissolve) || isSyncConnectionStale(beforeConnection)) {
+      console.warn('[App] session or connection changed while dissolving the room; skipping cleanup:', completedId)
       return
     }
   } else {
@@ -1686,7 +1698,14 @@ async function onStartNew() {
   if (syncIsHost.value && syncActive.value) {
     if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
     _hostInitiatedDissolve = true
-    await dissolveRoom()
+    const origin     = captureLifecycle()
+    const connection = captureSyncConnection()
+    const dissolved  = await dissolveRoom()
+    // 解散が中止された／待機中に切り替わったなら、reset() で現在の在庫を消さない
+    if (dissolved?.ok === false || isLifecycleStale(origin) || isSyncConnectionStale(connection)) {
+      console.warn('[App] session or connection changed while dissolving; not starting a new session')
+      return
+    }
   }
   reset()
   clearAuditLog()

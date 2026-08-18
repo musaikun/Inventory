@@ -1091,10 +1091,11 @@ export function useSync() {
    * 待機前の socket・店舗・ルーム・種別を捕まえ、待機後に一致を確かめる。
    */
   async function dissolveRoom() {
-    const socket = _ws
-    const code   = shopCode.value
-    const room   = state.roomCode
-    const type   = state.roomType
+    const socket     = _ws
+    const code       = shopCode.value
+    const room       = state.roomCode
+    const type       = state.roomType
+    const connection = _connectGeneration
 
     if (socket?.readyState === WebSocket.OPEN) {
       try { socket.send(JSON.stringify({ type: 'dissolve' })) } catch (_) {}
@@ -1105,16 +1106,21 @@ export function useSync() {
       // 中止条件にすると hosting 状態・host token・再接続タイマーが残り、
       // 解散したはずのルームを作り直してしまう。
       //
-      // 中止するのは「**別の生きた接続へ張り替わった**」場合だけ。
-      const switched = (_ws && _ws !== socket)
+      // 中止するのは「**新しい接続が始まった**」場合。`_ws` への代入は onopen 後なので、
+      // 同じ shop/room/type へ張り直した socket が CONNECTING の間は `_ws` が null のまま。
+      // socket の比較だけでは検出できないため、接続世代も見る（見落とすと token を消して
+      // leaveRoom した後に、接続中の socket が onopen して接続が復活する）。
+      const switched = _connectGeneration !== connection
+        || (_ws && _ws !== socket)
         || shopCode.value !== code || state.roomCode !== room || state.roomType !== type
       if (switched) {
         console.warn('[sync] dissolveRoom: connection changed while waiting; leaving the new one intact')
-        return
+        return { ok: false, reason: 'connection_changed' }
       }
     }
     clearHostToken(type)
     leaveRoom()
+    return { ok: true }
   }
 
   function getShareUrl() {

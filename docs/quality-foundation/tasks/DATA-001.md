@@ -1032,3 +1032,70 @@ git diff --name-only -- worker    → 出力なし
   一覧からのセッション開始を駆動するtestは `SessionListPage.flow.test.js` の範囲で、
   次のセッションの課題として残す。
 - 実D1・実browser・実機は未確認。migration 0012〜0016 は未適用。
+
+## 2026-08-18 — 再レビュー修正5（接続世代の利用・練習モードguard・TZ依存test）
+
+基準 `a5dfcbd`。P1 2件＋test安定性1件。
+
+### 修正前に失敗を確認したtest
+
+| file | 件数 | 内容 |
+|---|---|---|
+| `src/composables/useSync.dissolve.test.js` | 3 | CONNECTING中の張り直しを検出しない・戻り値が無い |
+| `src/App.complete.test.js` | 2 | 解散が中止されても後片付けを続ける |
+| `src/App.authLoss.test.js` | 2 | `TZ=Pacific/Kiritimati`（UTC+14）で再現 |
+
+### 1. 接続世代を解散処理自身と呼び出し側が使っていなかった（P1）
+
+`_ws` への代入は **onopen 後**。同じ shop/room/type へ張り直した新 socket が
+CONNECTING の間は `_ws` が null のままなので、socket / shop / room / type の比較だけでは
+切替を検出できない。token を消して `leaveRoom()` しても接続中の socket は閉じられず、
+後から onopen して**接続が復活**する。逆に新 socket が既に OPEN なら `dissolveRoom()` は
+早期 return するが、App 側は lifecycle しか見ずに session・intent・draft を消していた。
+
+- `dissolveRoom()` が**開始時の接続世代**も捕まえて比較する。
+- `dissolveRoom()` が結果を返すようにした（`{ ok: true }` / `{ ok: false, reason: 'connection_changed' }`）。
+- App の呼び出し側2か所（`_finishSession` / `onStartNew`）が、
+  **戻り値・lifecycle 世代・接続世代の3つ**を確認してから後片付けへ進む。
+
+### 2. 練習モードに解散待機後の guard が無かった（P1）
+
+`onSessionStart()` には入れたが `onStartPractice()` が未対応だった。
+`dissolveRoomRemote()` の待機中にアカウントが切り替わると、その後の `reset()` /
+`clearSession()` が現在の在庫・セッションを消して練習モードへ入る。
+`onSessionStart()` と同じ lifecycle capture と await 後の確認を入れた。
+
+### 3. TZ依存でApp testが落ちていた（test安定性）
+
+`App.authLoss.test.js` の「今日」を `toISOString()`（UTC）で作っていた。
+履歴カレンダーは `todayKey` を**ローカル日付**（`getFullYear/getMonth/getDate`）で決め、
+セッションの日付キーは ISO 文字列の先頭10文字（**UTC**）で作る。UTC とローカルの日付が
+ずれる時間帯（JST 00:00〜09:00、UTC+14 の終日など）では、seed した完了セッションが
+「今日」のセルに並ばず詳細行を開けない。
+
+- fixture の日付を**ローカル日付キー**（カレンダーの `todayKey` と同じ作り方）へ変更。
+- `useInventory` の当日判定は UTC のままなので、在庫 seed の `date` は UTC を維持し、
+  なぜ2種類あるかをコメントで明記した。
+- 検証: `TZ=Pacific/Kiritimati`（UTC+14）/ `TZ=Pacific/Niue`（UTC-11）/ `TZ=Asia/Tokyo`
+  の3つで対象testと**App全体**を実行し、いずれも全件成功。
+
+**製品側の既知の不整合として記録**（今回は修正しない）: 履歴カレンダーは
+「今日」をローカル日付、セッションの所属日を UTC 日付で決めている。JST 00:00〜09:00 に
+完了した棚卸は前日のセルに並ぶ。DATA-001 の scope 外だが、UI の日付境界の課題として残す。
+
+### 実行したcommandと結果
+
+```
+npx vitest run src/composables/useSync.dissolve.test.js（修正前）→ 3 failed / 9 passed
+npx vitest run src/App.complete.test.js -t "解散が切替で中止"（修正前）→ 2 failed / 1 passed
+TZ=Pacific/Kiritimati npx vitest run src/App.authLoss.test.js（修正前）→ 2 failed / 5 passed
+npx vitest run src/composables/useSync           → 6 files / 32 passed
+npx vitest run src/App.complete.test.js          → 53 passed
+npm --prefix app test -- --run                   → 92 files / 1018 tests passed（1回目）
+npm --prefix app test -- --run                   → 92 files / 1018 tests passed（連続2回目）
+TZ=Pacific/Kiritimati npm --prefix app test -- --run → 92 files / 1018 tests passed
+npm --prefix app run build                       → 成功（PWA precache 17 entries / 2575.90 KiB）
+npm --prefix worker test                         → 26 files / 545 tests passed
+git diff --check                                 → 指摘なし
+git diff --name-only -- worker                   → 出力なし
+```

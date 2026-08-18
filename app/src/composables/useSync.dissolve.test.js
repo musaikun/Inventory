@@ -243,3 +243,58 @@ describe('接続世代', () => {
     expect(sync.isSyncConnectionStale(token)).toBe(false)
   })
 })
+
+// ── 接続世代を解散処理自身が使う（再レビュー4 §1）────────────────────────────
+//
+// `_ws` に代入されるのは **onopen 後**。同じ shop/room/type へ張り直した新 socket が
+// まだ CONNECTING の間は `_ws` が null のままなので、socket / shop / room / type の
+// 比較だけでは切替を検出できない。token を消して `leaveRoom()` しても接続中の socket は
+// 閉じられず、後から onopen して接続が復活する。
+describe('dissolveRoom — CONNECTING中の張り直しも切替として扱う', () => {
+  it('同じルームへ張り直し中（未openの新socket）なら片付けない', async () => {
+    const api = sync.useSync()
+    const ws1 = await hostRoom(api, 'SHOPAA')
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+
+    const dissolving = api.dissolveRoom()
+    await Promise.resolve()
+    ws1.close()                                   // Worker が閉じる
+
+    // 同じ店舗・同じルームへ張り直す（onopen させないので _ws は null のまま）
+    api.createRoom('stock').catch(() => {})
+    const ws2 = MockWebSocket.instances.at(-1)
+    expect(ws2).not.toBe(ws1)
+    expect(ws2.readyState).toBe(MockWebSocket.CONNECTING)
+
+    vi.advanceTimersByTime(200)
+    const res = await dissolving
+
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('connection_changed')
+    // 張り直し中の接続は閉じない。token も残す（新しいルームのもの）
+    expect(ws2.closed).toBe(false)
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBe('tok-A')
+  })
+
+  it('片付けたときは ok:true を返す（呼び出し側が判断できる）', async () => {
+    const api = sync.useSync()
+    const ws1 = await hostRoom(api, 'SHOPAA')
+    localStorage.setItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`, 'tok-A')
+
+    const dissolving = api.dissolveRoom()
+    await Promise.resolve()
+    ws1.close()
+    vi.advanceTimersByTime(200)
+    const res = await dissolving
+
+    expect(res.ok).toBe(true)
+    expect(localStorage.getItem(`${STORAGE_KEYS.hostTokenPrefix}SHOPAA`)).toBeNull()
+    expect(api.state.mode).toBe('idle')
+  })
+
+  it('接続していないときも ok:true（送るものが無い）', async () => {
+    const api = sync.useSync()
+    const res = await api.dissolveRoom()
+    expect(res.ok).toBe(true)
+  })
+})
