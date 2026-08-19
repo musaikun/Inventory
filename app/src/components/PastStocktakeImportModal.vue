@@ -17,8 +17,9 @@
  *   ・この batchId を取り消す（結果不明でも実行できる）
  * の2つの導線をここに出す。再試行では**新しい batchId を作らない**。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { registerModalBackGuard } from '../composables/appMenuState.js'
 import {
   ON_CONFLICT_ADD, ON_CONFLICT_REPLACE,
   OUTCOME_UNKNOWN, classifyCommitError,
@@ -101,6 +102,11 @@ const mustCancelList = computed(() =>
 
 // 閉じるとこの取込を取り消せなくなる状態。閉じる3経路すべてをこれで塞ぐ。
 const closeBlocked = computed(() => hasUnknown.value || mustCancelList.value.length > 0)
+
+// Android/PWA・ブラウザの「戻る」は App が直接 view を切り替えるため、
+// requestClose() を通らずにこのモーダルが unmount される（＝ batchId と計画を失う）。
+// App の戻る制御へ同じ条件を登録して、戻るでも閉じないようにする。
+onUnmounted(registerModalBackGuard(() => closeBlocked.value))
 
 const canConfirm = computed(() =>
   !importing.value && totals.value.days > 0

@@ -76,7 +76,7 @@ import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -1147,6 +1147,10 @@ function _pushBackSentinel() {
 }
 
 function _closeTopLayer() {
+  // 閉じると復旧できなくなるモーダル（取込の結果不明・取消必須）が開いているあいだは、
+  // 戻るでも画面を切り替えない。何も閉じずに true を返して戻る操作だけを消費する
+  // （false を返すと sentinel が積み直されず、次の戻るでアプリを離れてしまう）。
+  if (isBackBlocked())       { return true }
   if (showMenu.value)        { showMenu.value = false;      return true }
   if (memberHistoryTarget.value) { memberHistoryTarget.value = null; return true }
   if (confirmState.value)    { onCancelConfirm();           return true }

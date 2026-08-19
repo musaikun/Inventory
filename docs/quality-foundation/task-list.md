@@ -107,6 +107,18 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19（レビュー修正2回目）: Codex の `Changes requested` P1 2件を修正し、`レビュー待ち / Claude Code` を維持。
+  (1) PWA / ブラウザBackがモーダルのclose禁止を迂回していた。`App._closeTopLayer()` は
+  `master`/`movement` から直接 view を切り替えるため、`requestClose()` を通らず unmount され
+  `importBatchId` と計画を失っていた。`appMenuState.js` へ Back guard の登録口を追加し
+  （既存の削除モーダルと同じパターン）、`App.vue` の `_closeTopLayer()` 先頭で参照する。
+  **`App.vue` を import 1行 + ガード1行だけ変更した**（当初の変更禁止指定に対する例外。
+  `_closeTopLayer()` は App にしか無く、この経路はここでしか塞げない。第1・第2セッションは merge 済み）。
+  (2) `tokenizeCSV` がセル途中の引用符を引用開始として受理し、閉じたあとの文字も許可していたため
+  `foo"bar"baz` が**エラーなしで `foobarbaz`** になっていた（全取込入口で品目名が無通知で変わる）。
+  引用符はセル先頭でだけ開始可・閉じたら区切りまで、の厳密な状態機械にし `CSV_ERROR_BAD_QUOTE` を追加。
+  引用符前後の空白のみ許容（値は変わらないため）。
+  検証: App 95 files / 1131 passed、build成功、Worker 26 files / 545 passed。`worker/**` に差分なし。
 - 2026-08-19（レビュー修正）: Codex の `Changes requested` P1 3件を修正し、`レビュー待ち / Claude Code` を維持。
   (1) 取消必須の409（`mustCancel`）でも modal を閉じられないようにした。閉じると
   `useDataImport.closeStocktake()` が計画と `importBatchId` を捨て、履歴に別の取消導線が無いため

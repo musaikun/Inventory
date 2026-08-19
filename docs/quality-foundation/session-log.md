@@ -2,6 +2,53 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘2件の修正・2回目（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `15ecb2e`。
+- 前回3件の修正は確認済み。今回のP1 2件も、**モーダル内だけを守っても迂回できる経路**と
+  **構造解析が値を書き換える経路**で、自動testでは見えていなかった。
+
+### 1. PWA / ブラウザBackでclose禁止を迂回できる
+
+`App._closeTopLayer()` は `master` / `movement` から直接 view を切り替えるので、
+子モーダルの `requestClose()` を通らず unmount される。`importBatchId` と計画を失い、
+履歴に別の取消導線が無いため `DELETE /imports/:batchId` を呼べなくなる。
+
+- `appMenuState.js` へ `registerModalBackGuard()` / `isBackBlocked()` を追加
+  （既存の `registerDeleteAccountBackHandler` と同じパターン）。
+- モーダルが `closeBlocked` を guard として登録し、`onUnmounted` で解除。
+- `App.vue` の `_closeTopLayer()` **先頭**で参照。何も閉じずに `true` を返し、
+  sentinel を積み直して戻る操作だけを消費する。
+- **`App.vue` を変更した**（当初の変更禁止指定に対する例外）。`_closeTopLayer()` は
+  App にしか無く、この経路はここでしか塞げない。差分は import 1行 + ガード1行に限定。
+  第1・第2修正セッションは merge 済みなので、変更禁止の目的（並行作業との競合回避）とは競合しない。
+- `App.importBack.test.js`（新規）でApp実結合として固定。ガード行を外すと落ちることを確認した。
+
+### 2. 不正な引用符を削除して正常受理する
+
+`tokenizeCSV` は `"` が来たら常に引用開始とし、閉じたあとの通常文字も許可していた。
+実測で `foo"bar"baz` が**エラーなしで `foobarbaz`**、`"ab"c` が `abc`、`a"b` が `ab`。
+引用符を落として前後をつなげるので、品目名・単位が無通知で別の文字列になる。
+全取込入口が同じトークナイザを使うため4経路すべてで起きていた。
+
+- セル単位の状態（`quotedDone` / `contentSeen`）を持つ厳密な状態機械へ書き換え。
+  引用符の開始は**セル先頭だけ**、閉じたあとは**区切り・改行・EOF だけ**。
+- `CSV_ERROR_BAD_QUOTE` を追加し、行番号と理由つきの構造エラーにする（推測で直さない）。
+- 正しい引用（`"b,c"` / `"5"" 皿"` / 引用符内改行 / `""`）は従来どおり。
+- 引用符の**前後の空白だけ**は許容（`a, "b,c"`）。値は変わらないので無通知の改変にあたらない。
+
+### 検証
+
+- 追加8 testのうち6件が修正前に失敗（csvParse 5件 / App Back 1件）。
+- `npm --prefix app test -- --run`: **95 files / 1131 passed**。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **26 files / 545 passed**。
+- `git diff --check` / `worker/**` の差分: いずれも出力なし。
+
+### 次の再開地点
+
+Codex の再レビュー。**migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す。**
+
 ## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘3件の修正（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `01e7a0f`。

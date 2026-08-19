@@ -487,3 +487,60 @@ describe('「先に取消」が必要な失敗の導線（DATA-002 引継ぎ6）
     expect(events.close).toHaveLength(0)
   })
 })
+
+describe('戻る操作（Android/PWA・ブラウザBack）でも閉じない', () => {
+  // モーダル内のボタン・Escape・overlay を塞いでも、Back は App の _closeTopLayer() が
+  // 直接 view を切り替えるため requestClose() を通らずに unmount される。
+  // App の戻る制御へ登録した guard が、その経路も止めることを確認する。
+  const backBlocked = async () => (await import('../composables/appMenuState.js')).isBackBlocked()
+
+  it('取込前は戻るを止めない', async () => {
+    await mount({})
+    expect(await backBlocked()).toBe(false)
+  })
+
+  it('結果不明が残るあいだは戻るを止める', async () => {
+    await mount({ confirmImport: partialConfirm(PLAN_DAYS.map(d => d.date), { recoverAfter: Infinity }) })
+    await click('取り込む')
+    expect(await backBlocked()).toBe(true)
+  })
+
+  it('取消必須の409でも戻るを止める', async () => {
+    await mount({
+      confirmImport: async () => ({
+        importBatchId: 'imp_test', saved: [],
+        failed: [{ date: '2026-05-01', error: 'ng', outcome: OUTCOME_FAILED, retryable: false, mustCancel: true }],
+        ok: false,
+      }),
+    })
+    await click('取り込む')
+    expect(await backBlocked()).toBe(true)
+  })
+
+  it('全日成功したら戻るを止めない', async () => {
+    await mount({ confirmImport: partialConfirm([]) })
+    await click('取り込む')
+    expect(await backBlocked()).toBe(false)
+  })
+
+  it('取消に成功したら戻るを止めない', async () => {
+    await mount({
+      confirmImport: partialConfirm(PLAN_DAYS.map(d => d.date), { recoverAfter: Infinity }),
+      undoImport: async () => ({ ok: true, removedOnServer: 3, removedLocally: 0 }),
+    })
+    await click('取り込む')
+    expect(await backBlocked()).toBe(true)
+
+    await click('この取込を取り消す')
+    expect(await backBlocked()).toBe(false)
+  })
+
+  it('unmount 後は登録が残らない', async () => {
+    await mount({ confirmImport: partialConfirm(PLAN_DAYS.map(d => d.date), { recoverAfter: Infinity }) })
+    await click('取り込む')
+    expect(await backBlocked()).toBe(true)
+
+    app.unmount(); host.remove(); app = null; host = null
+    expect(await backBlocked()).toBe(false)
+  })
+})

@@ -8,6 +8,8 @@
  *   - `""` は値の中の `"` 1文字（エスケープされた引用符）として扱う
  *   - 引用符の中の改行・カンマは区切りにしない（1セルの一部）
  *   - 閉じていない引用符は黙って受理せず、開始行つきのエラーにする
+ *   - **引用符はセルの先頭でだけ開始でき、閉じたら区切り・改行・EOFまで**
+ *     （`foo"bar"baz` を黙って `foobarbaz` にしない。品目名が無通知で変わる）
  *   - CRLF / LF / CR、先頭 BOM、末尾改行なしを同じ結果へ寄せる
  *   - 空行は行番号をずらさずに捨てる（エラー表示の「N行目」をファイルと一致させる）
  *   - 桁区切りの `1,200` を 1 にしない。区切りとして妥当な形だけを 1200 と読む
@@ -15,6 +17,16 @@
 
 /** 閉じていない引用符（呼び出し側がUIの文言を選ぶためのコード） */
 export const CSV_ERROR_UNCLOSED_QUOTE = 'unclosed_quote'
+
+/**
+ * 引用符の位置が不正（セル途中で開いた／閉じたあとに文字が続く）。
+ *
+ * 修正前は「`"` が来たら常に引用開始」「閉じたら通常文字も継続」だったため、
+ * `foo"bar"baz` が**エラーなしで `foobarbaz`** になっていた。引用符を落として
+ * つなげるので、品目名・単位などが無通知で別の文字列に変わる。
+ * 直せるのは書いた本人だけなので、推測で直さず構造エラーにする。
+ */
+export const CSV_ERROR_BAD_QUOTE = 'bad_quote'
 
 /**
  * CSV全体をレコード配列へ分解する。
@@ -37,7 +49,14 @@ export function tokenizeCSV(text) {
   let started = false    // 組み立て中のレコードに文字が入ったか
   let quoteOpenLine = 0  // 未閉じ引用符の報告用
 
-  const endCol = () => { cols.push(cur); cur = '' }
+  // セル単位の状態。引用符の位置を厳密に見るために持つ。
+  //   quotedDone  … このセルの引用セクションが閉じた（以降は区切り・改行・空白だけ）
+  //   contentSeen … 引用符の外で非空白文字を見た（＝もう先頭ではない）
+  let quotedDone  = false
+  let contentSeen = false
+
+  const resetCell = () => { quotedDone = false; contentSeen = false }
+  const endCol = () => { cols.push(cur); cur = ''; resetCell() }
   const endRow = () => {
     endCol()
     // 空行（区切りも中身も無い行）は捨てる。行番号は line で別に進めているのでずれない。
@@ -46,6 +65,15 @@ export function tokenizeCSV(text) {
     started = false
   }
 
+  const badQuote = (atLine, why) => ({
+    rows: [],
+    error: {
+      code: CSV_ERROR_BAD_QUOTE,
+      line: atLine,
+      message: `${atLine}行目の引用符（"）の位置が不正です（${why}）`,
+    },
+  })
+
   for (let i = 0; i < src.length; i++) {
     const ch = src[i]
     if (!started && !inQuote) { recordLine = line; started = true }
@@ -53,7 +81,7 @@ export function tokenizeCSV(text) {
     if (inQuote) {
       if (ch === '"') {
         if (src[i + 1] === '"') { cur += '"'; i++ }   // "" → " （エスケープ）
-        else inQuote = false
+        else { inQuote = false; quotedDone = true }
       } else {
         if (ch === '\n') line++                        // 引用符内の改行は値の一部
         cur += ch
@@ -61,10 +89,26 @@ export function tokenizeCSV(text) {
       continue
     }
 
-    if (ch === '"')  { inQuote = true; quoteOpenLine = line; continue }
+    if (ch === '"') {
+      // 引用符で始められるのはセルの先頭だけ。`foo"bar"` の `"` や、
+      // 一度閉じたあとの `"ab""cd"` 相当を「引用開始」として受け入れない。
+      if (quotedDone)  return badQuote(line, '引用符が閉じたあとに再び引用符があります')
+      if (contentSeen) return badQuote(line, 'セルの途中では引用符を開始できません')
+      cur = ''                       // 引用符の前にあった空白は値に含めない
+      inQuote = true
+      quoteOpenLine = line
+      continue
+    }
     if (ch === ',')  { endCol(); continue }
     if (ch === '\r') { if (src[i + 1] === '\n') i++; endRow(); line++; continue }
     if (ch === '\n') { endRow(); line++; continue }
+
+    // 引用符の前後の空白だけは許す（手書きCSVの `a, "b,c"` を構造エラーにしない）。
+    // 値そのものは変わらないので、無通知の改変にはあたらない。
+    if (ch === ' ' || ch === '\t') { cur += ch; continue }
+
+    if (quotedDone) return badQuote(line, '引用符が閉じたあとに文字が続いています')
+    contentSeen = true
     cur += ch
   }
 

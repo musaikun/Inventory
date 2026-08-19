@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   tokenizeCSV, parseCSVLine, parseNumericCell, readNumericCell,
-  csvEscapeCell, toCSVRow, CSV_ERROR_UNCLOSED_QUOTE,
+  csvEscapeCell, toCSVRow, CSV_ERROR_UNCLOSED_QUOTE, CSV_ERROR_BAD_QUOTE,
 } from './csvParse.js'
 
 const cols = (text) => tokenizeCSV(text).rows.map(r => r.cols)
@@ -226,5 +226,50 @@ describe('csvEscapeCell / toCSVRow — 書き出しと読み戻しの往復', ()
     const cells = ['5" 皿', 'a,b', '改行\nあり', '通常', '']
     const [row] = tokenizeCSV(toCSVRow(cells)).rows
     expect(row.cols).toEqual(cells)
+  })
+})
+
+describe('引用符はセル先頭でだけ開始でき、閉じたら区切りまで（不正な引用符を削除しない）', () => {
+  const err = (text) => tokenizeCSV(text).error
+
+  it('セル途中の引用符を黙って取り除かない', () => {
+    // 修正前は foo"bar"baz が **エラーなしで foobarbaz** になっていた。
+    // 品目名が無通知で別の文字列に変わる。
+    const r = tokenizeCSV('foo"bar"baz')
+    expect(r.rows).toEqual([])
+    expect(r.error).toMatchObject({ code: CSV_ERROR_BAD_QUOTE, line: 1 })
+  })
+
+  it('閉じたあとの通常文字を許可しない', () => {
+    expect(err('"ab"c')).toMatchObject({ code: CSV_ERROR_BAD_QUOTE })
+    expect(err('品目名\n"5" 皿')).toMatchObject({ code: CSV_ERROR_BAD_QUOTE, line: 2 })
+  })
+
+  it('セル途中で開いた引用符を許可しない', () => {
+    expect(err('a"b')).toMatchObject({ code: CSV_ERROR_BAD_QUOTE })
+    expect(err('a,b"c,d')).toMatchObject({ code: CSV_ERROR_BAD_QUOTE })
+  })
+
+  it('不正な引用符の行番号を報告する', () => {
+    expect(err('a,b\nc,d\ne"f,g')).toMatchObject({ code: CSV_ERROR_BAD_QUOTE, line: 3 })
+  })
+
+  it('正しい引用符は今までどおり通す', () => {
+    expect(cols('a,"b,c",d')).toEqual([['a', 'b,c', 'd']])
+    expect(cols('"5"" 皿",箱')).toEqual([['5" 皿', '箱']])
+    expect(cols('"改行\nあり",x')).toEqual([['改行\nあり', 'x']])
+    expect(cols('"",a')).toEqual([['', 'a']])
+    expect(tokenizeCSV('a,"b,c",d').error).toBeNull()
+  })
+
+  it('引用符の前後の空白だけは許容する（値は変わらない）', () => {
+    // 手書きCSVでよくある ` "b,c"` を構造エラーにしない。
+    // 値そのものを書き換えるわけではないので、無通知の改変にはあたらない。
+    expect(cols('a, "b,c" ,d')).toEqual([['a', 'b,c ', 'd']])
+    expect(tokenizeCSV('a, "b,c" ,d').error).toBeNull()
+  })
+
+  it('閉じていない引用符は従来どおり別のコードで報告する', () => {
+    expect(err('"abc')).toMatchObject({ code: CSV_ERROR_UNCLOSED_QUOTE })
   })
 })
