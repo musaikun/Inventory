@@ -404,3 +404,46 @@ describe('結果不明が残っているあいだは閉じられない', () => {
     expect(button('同じ取込IDで再試行')).toBeTruthy()
   })
 })
+
+describe('「先に取消」が必要な失敗の導線（DATA-002 引継ぎ6）', () => {
+  const legacyFail = () => vi.fn(async () => ({
+    importBatchId: 'imp_test',
+    saved: [],
+    failed: [{
+      date: '2026-05-01',
+      error: 'この取込は記録が無いため上書きできません。取込を取り消してからやり直してください',
+      outcome: OUTCOME_FAILED, retryable: false, mustCancel: true,
+    }],
+    ok: false,
+  }))
+
+  it('再試行は出さず、取消の導線だけを出す', async () => {
+    await mount({ confirmImport: legacyFail() })
+    await click('取り込む')
+
+    expect(button('同じ取込IDで再試行')).toBeUndefined()
+    expect(button('この取込を取り消す')).toBeTruthy()
+  })
+
+  it('「先に取り消してから取り込み直す」と案内する', async () => {
+    const { text } = await mount({ confirmImport: legacyFail() })
+    await click('取り込む')
+
+    expect(text()).toContain('取り消して')
+    expect(text()).toContain('取り込み直して')
+  })
+
+  it('サーバーが返した理由をそのまま残す', async () => {
+    const { text } = await mount({ confirmImport: legacyFail() })
+    await click('取り込む')
+    expect(text()).toContain('記録が無いため上書きできません')
+  })
+
+  it('結果不明ではないので閉じられる（取込は履歴から辿れる）', async () => {
+    const { events } = await mount({ confirmImport: legacyFail() })
+    await click('取り込む')
+    button('閉じる').click()
+    await nextTick(); await nextTick()
+    expect(events.close).toHaveLength(1)
+  })
+})

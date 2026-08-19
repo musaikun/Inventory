@@ -444,3 +444,50 @@ describe('HTTP失敗と通信結果不明の分類（api.js が投げる Error �
     expect(retryableDates(result)).toEqual(['2026-05-08', '2026-05-15'])
   })
 })
+
+describe('409 legacy_import_unverified 等の「先に取消」系（DATA-002 引継ぎ6）', () => {
+  const plan1 = () => buildPastImportPlan([{ date: '2026-05-01', items: [{ item: '米', qty: 1 }] }])
+  const httpError = (status, body = {}) =>
+    Object.assign(new Error(body.error || `HTTP ${status}`), { status, code: body.code, body })
+  const commitWith = (err) => commitPastImport(plan1(), {
+    saveToServer: async () => { throw err }, applyLocal: () => {},
+  })
+
+  // サーバーが「このバッチの記録が既にあり、内容を保証できない」と答える3コード。
+  // いずれも再送では解消せず、復旧は DELETE /imports/:batchId → 再取込だけ。
+  const CODES = ['legacy_import_unverified', 'import_record_missing', 'import_intent_conflict']
+
+  it('再試行では解消しないので retryable にしない', async () => {
+    for (const code of CODES) {
+      const r = await commitWith(httpError(409, { code, error: '取込を取り消してからやり直してください', retryable: false }))
+      expect(r.failed[0], code).toMatchObject({ outcome: OUTCOME_FAILED, retryable: false })
+      expect(retryableDates(r), code).toEqual([])
+    }
+  })
+
+  it('サーバーにデータが残っているので取消の導線を消さない', async () => {
+    for (const code of CODES) {
+      const r = await commitWith(httpError(409, { code, error: 'ng' }))
+      expect(r.failed[0].mustCancel, code).toBe(true)
+      expect(canCancelBatch(r), code).toBe(true)
+    }
+  })
+
+  it('同じ409でも replace_not_allowed は取消を促さない（対象が違うだけ）', async () => {
+    const r = await commitWith(httpError(409, { code: 'replace_not_allowed', error: 'ng' }))
+    expect(r.failed[0].mustCancel).toBe(false)
+    expect(canCancelBatch(r)).toBe(false)
+  })
+
+  it('サーバーの retryable:false は尊重する（5xxでも再試行しない）', async () => {
+    const r = await commitWith(httpError(503, { code: 'x', error: 'ng', retryable: false }))
+    expect(r.failed[0].retryable).toBe(false)
+  })
+
+  it('サーバーの retryable:true でも恒久的statusを再試行可へ格上げしない', async () => {
+    for (const status of [400, 409, 413]) {
+      const r = await commitWith(httpError(status, { error: 'ng', retryable: true }))
+      expect(r.failed[0].retryable, String(status)).toBe(false)
+    }
+  })
+})

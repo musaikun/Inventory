@@ -1,8 +1,9 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-10
+最終更新: 2026-08-17
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
+最新照合: 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq@1d3cbfa` の後続差分（migration 0016 まで・すべて本番未適用）
 
 ## 公開scope
 
@@ -38,7 +39,7 @@
 | WEB-01 | canonical URL・contact | 実際に200で配信するhostと正式問い合わせ先を決定し、legal・削除URL・supportを同期 | User |
 | WEB-02 | production origin / CORS | remote Workerは2026-08-04確認時に任意Originを反射する旧状態。実hostを`ALLOWED_ORIGIN`とtestへ反映し、deploy後に許可/拒否を実probe | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
-| WEB-04 | D1 migration | 本番で未適用の0010/0011/0012/0013をpreflightし、User承認後に適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013は列追加のみでロールバック可 | Codex / User |
+| WEB-04 | D1 migration | 本番で未適用の0010〜0016をpreflightし、User承認後に**この順で**適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加のみ、0015/0016は新規table追加のみでいずれもロールバック可。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
 | WEB-07 | 取込・履歴・data integrity | 品目取込の非破壊性、DATA-001/002、過去棚卸取込を上のproduct contractへ適合させ、Codexが独立reviewする | Claude Code / Codex |
@@ -56,7 +57,7 @@ URLを推測で本番正本にしません。
 - [x] sourceにはCSP、静的privacy/terms/support、rewrite、PWA denylistがある
 - [ ] Cloudflare Pages上で`/privacy`、`/terms`、`/support`がredirect loopせず、最終200本文とCSPを返す
 - [x] account削除のWorker/D1/DO/client処理とBack/a11y回帰testがある
-- [x] `migrate.sh`は0001〜0013を列挙し、列挙testがある（0012・0013は**本番未適用**）
+- [x] `migrate.sh`は0001〜0016を列挙し、列挙testがある（0012〜0016は**本番未適用**）
 - [x] production dependency auditは直近記録で0件。spreadsheet parserに隔離・上限・timeout testがある
 - [x] develop CIはNode 24でWorker/App test、App build、preview deployに成功
 - [ ] 品目取込のpreview・非破壊default・明示的な全置換・error明細をrelease candidateで確認
@@ -75,7 +76,62 @@ URLを推測で本番正本にしません。
 1. release対象commit、resource名、canonical/contact、環境変数を固定する。
 2. clean checkoutでWorker/App test、App build、production dependency auditを実行する。
 3. 本番D1をread-only preflightし、backup/recovery条件を確認する。
-4. 0010、0011を順番に適用し、table/column/triggerをread-only確認する。
+   preflightで確認するsentinel（`scripts/migrate.sh`と同じ）は
+   `idx_movement_lines_item`（0010）、`trg_movement_lines_active_insert`（0011）、
+   `idx_history_session`（0012）、`idx_sessions_import_batch`（0013）、
+   `idx_history_revision`（0014）、`import_batch_requests`（0015）、
+   `session_completions`（0016）。
+   あわせて**既存の取込バッチ件数**を read-only で数える（切替境界の判断材料）:
+   `SELECT COUNT(*) AS n FROM sessions WHERE import_batch_id IS NOT NULL`。
+   **0012を適用する前に、D1 Time Travelの保持期間内であることを必ず確認する**
+   （`DROP TABLE store_history`を含み、適用後は戻せない）。
+4. 0010 → 0011 → 0012 → 0013 → 0014 → 0015 → 0016 を**この順で**適用し、
+   各段階で table / column / index / trigger を read-only 確認する。
+   `scripts/migrate.sh`はsentinel方式で未適用ぶんだけを当てるため、
+   途中まで適用済みの本番へ再実行しても二重適用にならない。
+
+   | migration | 変更 | rollback |
+   |---|---|---|
+   | 0012 | `store_history`を作り直し、一意制約を`(shop_code, session_id)`へ | **不可**（`DROP TABLE`を含む） |
+   | 0013 | `sessions.import_batch_id`列 + index | 可（indexをDROP。列はNULLのまま無害） |
+   | 0014 | `store_history.revision` / `updated_at`列 + index、取込sessionの一意index | 可（同上） |
+   | 0015 | `import_batch_requests` table + index + trigger | 可（`DROP TABLE import_batch_requests`） |
+   | 0016 | `session_completions` table + trigger、`idx_import_requests_session` | 可（`DROP TABLE session_completions` と index の DROP） |
+
+   後方互換: 0013〜0016はいずれも既存行の意味を変えない。0014適用前の履歴行は
+   `revision = id` / `updated_at = created_at` でバックフィルされる。
+
+### migration → Worker deploy の切替境界
+
+0015 の取込台帳と 0016 の完了 claim は、**適用後に届いた要求からしか記録されない**。
+そのため「記録の無い既存データ」が2種類できる。
+
+| 状況 | 影響 | 判断 |
+|---|---|---|
+| 0015 適用前に作られた取込バッチ（`import_batch_id IS NOT NULL` かつ台帳行なし） | 同じ `batchId` + 日付への再送は **`409 legacy_import_unverified`** で拒否される（内容を保証できないものを黙って上書きしないため）。取り込み直すには `DELETE /imports/:batchId` で明示的に取り消す | 許容。preflightの件数で影響範囲を把握し、Userへ取消→再取込の手順を伝える |
+| 0016 適用前に完了した session（claim 行なし） | 同じ内容の完了を再送しても `409 completion_intent_conflict`（`reason: already_completed`）。保存済みデータは無傷で、詳細APIから内容を確認できる | 許容。fail-closed 側 |
+
+**推測で fingerprint を作らない。** 当時の明細から再計算しても「当時の要求と同一である」
+保証がないため、偽の replay 成功を生む。自動 backfill は行わない。
+
+**maintenance条件（必須）**: migration 適用から新Worker deploy 完了までの窓では、
+旧Workerが台帳・claim を書かないまま取込・完了を処理できる。この窓の書き込みは
+上表と同じ「記録の無いデータ」を増やすため、**この間は過去棚卸取込と棚卸完了を行わせない**。
+これは必須条件であり、選択肢ではない。
+
+- 利用の少ない時間帯に migration適用 → Worker deploy を**連続して**実施し、窓を最小化する。
+- 窓を開けたまま放置しない。deployが失敗した場合はWorkerを旧版へ戻して窓を閉じてから再試行する。
+
+窓の間に発生してしまった完了・取込の扱い（**事後対応であって、事前の許可ではない**）:
+
+| 発生したもの | 状態 | 対応 |
+|---|---|---|
+| 棚卸完了 | データは正しく保存される。claim が無いだけ | data修復は不要。ただし同じ完了の再送は `409 completion_intent_conflict`（`reason: already_completed`）になる |
+| 過去棚卸取込 | データは正しく保存される。台帳が無いだけ | **同じ batchId + 日付への再取込が `409 legacy_import_unverified` で塞がる**。取り込み直すには `DELETE /imports/:batchId` で明示的に取り消してから再取込する |
+
+いずれも保存済みデータは無傷で、data修復作業は不要。
+件数を記録し、Userへ「その取込は取り消してから入れ直す必要がある」ことを伝えられるようにする。
+
 5. Workerをdeployし、health、認証、許可Origin、拒否Originをprobeする。
 6. Pagesを明示したproduction branchへdeployする。
 7. 公開URLで新規登録、品目取込、棚卸、同期、別browser履歴詳細、CSV、β境界、legal、削除、PWAをsmokeする。

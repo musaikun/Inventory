@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
 // App レベルの回帰テスト。
@@ -32,6 +32,12 @@ async function mountApp(search) {
   return host
 }
 
+// App のモジュールグラフを先に温める（既定 5 秒 testTimeout の枯渇対策）。
+// 初回 import は transform とモジュール評価で数秒かかる。test 本体でこれを払うと
+// 環境が混み合ったときに 5 秒へ届く。hook（既定 10 秒）で払い、直後に registry を
+// 捨てることで、各 test は毎回まっさらなモジュール状態から軽く始められる。
+beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+
 beforeEach(() => { localStorage.clear() })
 
 afterEach(() => {
@@ -51,7 +57,7 @@ describe('App の起動ルート', () => {
     expect(el.textContent).toContain('タナオロ')
     expect(el.querySelector('#dap-code')).toBeTruthy()
     expect(el.querySelector('#dap-pin')).toBeTruthy()
-  }, 15000)
+  })
 
   it('ログイン済みでも ?delete-account を優先し、セッション一覧を出さない', async () => {
     localStorage.setItem('_auth_token', 'tok-1')

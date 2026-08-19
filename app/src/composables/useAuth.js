@@ -145,14 +145,20 @@ export async function getSessionLines(sessionId) {
 }
 
 // POST /store/:code/sessions/:id/complete
-// 棚卸完了の一括処理（inventory_lines 展開 + sessions 更新）
-// snapshot も同じ要求へ載せる。サーバーは sessions・inventory_lines・store_history を
-// 1トランザクションで書くため、片方だけ成功した状態が残らない（DATA-001）。
-export async function completeSession(sessionId, inventory, prices, takenAt, snapshot = null) {
+//
+// 契約は `sessions.type` で分かれる（DATA-002 §1 / api-design §3.1）。
+//   stock … `{ inventory, prices, takenAt, snapshot }`。3テーブルを1トランザクションで書く
+//   order … `{ itemCount }` だけ。snapshot も非空 inventory も 400 になる
+//
+// **body は呼び出し側が組み立てたものをそのまま送る。** ここで形を固定していたため、
+// 発注セッションでも棚卸の形で送られていた。完了の再送は fingerprint が一致する必要が
+// あるので（`409 completion_intent_conflict`）、送る内容を途中で作り替えないことも重要。
+// 組み立ては services/sessionCompletion.js が一手に引き受ける。
+export async function completeSession(sessionId, body) {
   const code = shopCode.value
   if (!code || !_token.value || !sessionId) return
   return _api(`/store/${code}/sessions/${sessionId}/complete`, {
     method: 'POST',
-    body:   JSON.stringify({ inventory, prices, takenAt, snapshot }),
+    body:   JSON.stringify(body ?? {}),
   })
 }

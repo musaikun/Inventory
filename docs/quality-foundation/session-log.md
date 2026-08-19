@@ -2,6 +2,423 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — CC第3修正セッション: develop統合と引継ぎ6（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`。
+  `develop@2060090`（DATA-001/DATA-002 の第1・第2修正セッション反映後）を merge した。
+- **競合は docs 2file だけ。コードの競合はゼロ。**
+  `e095282` 以降に develop が触った file と本branchが触った file の重なりは
+  `session-log.md` と `task-list.md` の2つで、どちらも「先頭へ新記録を足す」形。
+  **両方を残し、新しい順**に並べて解決した（記録の削除・書き換えなし）。
+- merge直後の時点で App 94 files / 1087 passed、Worker 26 files / 545 passed。
+  **統合そのものはtestを1件も壊していない。**
+
+### 統合時にだけ現れる不具合を1件見つけて直した（DATA-002 引継ぎ6）
+
+develop の `task-list.md` に「引継ぎ6（`409 legacy_import_unverified` の導線）は未対応で
+`IMPORT-001` へ送る」と明記されていたため、統合と同時に対応した。
+
+- migration 0015 の replay台帳で、取込は `legacy_import_unverified` /
+  `import_record_missing` / `import_intent_conflict` の3つの 409 を返すようになった。
+  **いずれもサーバー側にデータが残っていて、再送では解消しない**（復旧は取消→再取込だけ）。
+- 本branchの 2026-08-16 の分類（409 = FAILED / retry不可）だけだと `canCancelBatch()` が
+  `false` になり、**サーバーが「取り消してください」と言っているのに取消ボタンが消える**。
+  develop単独でも branch単独でも起きず、統合したときにだけ出る。
+- `classifyCommitError()` が3コードへ `mustCancel: true` を付け、`canCancelBatch()` が
+  それを取消対象に含める。再試行は出さず、画面に
+  「再試行では解消しません。取り消してから取り込み直してください」を `role="alert"` で出す。
+- 結果不明ではない（サーバー上の状態は確定している）ので close は塞がない。
+- サーバーの `body.retryable` は**再試行不可へ下げる方向にだけ**効かせる
+  （恒久的statusを server 申告で再試行可へ格上げしない）。
+
+### 検証
+
+- 追加5 testは対応前に **5 failed**。対応後は対象2 file 71 passed。
+- `npm --prefix app test -- --run`: **94 files / 1096 passed**。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **26 files / 545 passed**。
+- `git diff origin/develop --name-only -- worker app/src/App.vue …useStore.js …useDataImport.js …api.js`: 出力なし。
+- `git diff --check`: 出力なし。
+
+### 次の再開地点
+
+Codex による独立レビュー。`WEB-001 = 進行中 / Codex`、`SEC-005 = 未着手 / Codex` は変更していない。
+**migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す。**
+
+## 2026-08-19 — DATA-001 再レビュー修正7（CONNECTING中の解散）
+
+- 担当: Codex。branch `develop`、基準 `ee1ee6e`。User依頼により再レビュー残件を直接修正。
+- `dissolveRoom()`呼び出し時点ですでに自動再接続中だと、socketはまだlocal変数だけにあり
+  `_ws === null`だった。解散を送らず`ok:true`となり、Appのcleanup後に旧ルームへ遅延join
+  できたため、CONNECTING socketを明示追跡して退出・account切替時にも閉じるようにした。
+- 接続世代とsocket所有者を全callbackで再確認し、遅延`onopen`と旧Promiseが現在のroom stateを
+  変更しないようにした。修正前の新規回帰は1 failed / 12 passed、修正後は対象16件成功。
+- 検証: App 92 files / 1024 tests passed（連続2回）、build成功、
+  Worker 26 files / 545 tests passed。Worker・migration差分なし。
+- 未実施: 実D1・実browser・実機。migration 0012〜0016は未適用。
+
+## 2026-08-18 — App第2セッション 再レビュー修正6（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `dea4785`。P1 1件。
+  1. 自分の解散を示す `_hostInitiatedDissolve`（boolean）が、正常解散・中止のあとも true の
+     まま残っていた。実 Worker の WS 解散（`RoomDO.js` の `case 'dissolve'`）は**送信元ホストを
+     dissolved 通知から除外する**ため、正常に解散しても false へ戻す callback が呼ばれない。
+     `connection_changed` で中止した場合も同じ。残ったフラグは、その後に別ルームへゲスト参加して
+     そのルームが解散されたとき「自分が解散した」と誤認させ、session・在庫の片付けを飛ばす
+     （別店舗のゲストデータが画面とメモリに残る）。**接続世代に紐づく self-dissolve token** へ
+     置き換え、消費は1回だけ・同じ接続の通知だけを自分の解散として扱う。中止経路では明示的に破棄する
+- 検証: App 92 files / 1021 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は新規回帰2件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
+## 2026-08-18 — App第2セッション 再レビュー修正5（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a5dfcbd`。
+  1. 接続世代を追加したのに解散処理自身と呼び出し側が使っていなかった。`_ws` への代入は
+     onopen 後なので、同じ room へ張り直した CONNECTING の socket を検出できず、token を
+     消して leaveRoom した後に接続が復活しうる。`dissolveRoom()` が開始時の接続世代を比較し、
+     結果（`{ok,reason}`）を返す。App の2経路が戻り値・lifecycle・接続世代の3つを確認する
+  2. `onStartPractice()` に解散待機後の account guard が無く、切替後に現在の在庫・セッションを
+     消して練習モードへ入れた。`onSessionStart()` と同じ guard を入れた
+  3. `App.authLoss.test.js` の「今日」が UTC 由来で、カレンダーのローカル日付判定とずれる
+     時間帯（JST 00:00〜09:00・UTC+14 終日）で2件失敗していた。ローカル日付キーへ変更し、
+     UTC+14 / UTC-11 / JST の3TZで App 全体の成功を確認
+- 検証: App 92 files / 1018 tests passed（連続2回＋UTC+14でも全件）、build 成功、
+  Worker 26 files / 545 tests passed。修正前は useSync 3件 / App.complete 2件 / App.authLoss 2件が失敗。
+- 記録: 履歴カレンダーが「今日」をローカル日付・セッション所属日を UTC 日付で決めている
+  製品側の不整合（JST 早朝の完了が前日セルに並ぶ）を DATA-001.md へ残した。今回は未修正。
+
+## 2026-08-18 — App第2セッション 再レビュー修正4（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e87080f`。P1 3件。
+  1. **前回修正の回帰**: `_ws !== socket` の中止条件が広すぎ、Worker が解散直後に socket を
+     閉じる正常経路まで「つなぎ替え」と誤判定していた。hosting 状態・token・再接続タイマーが
+     残り、解散したルームを作り直す。中止は「別の生きた接続へ張り替わった」場合だけに絞った
+  2. 解散の3.5秒後処理が App の session 世代しか見ておらず、**同じ session のまま新ルームを
+     作る**経路で新ルームの作業を消せた。`useSync` に接続世代を追加し、両方を確認する
+  3. `dissolveRoomRemote()` が待機後に現在の shopCode から key を作り直しており、
+     店舗切替で別店舗の host token を消せた。key も待機前に確定し、token 一致時のみ削除。
+     `onSessionStart()` も await 後に lifecycle を再確認する
+- 検証: App 92 files / 1012 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSync 5件 / App 1件が失敗。
+- 未実施: `onSessionStart` の切替後guardの end-to-end 回帰（SessionListPage 経由）。
+  実D1・実機・実browser。migration 0012〜0016 未適用。
+
+## 2026-08-18 — App第2セッション 再レビュー修正3（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c2cb281`。
+- P1 3件・P2 1件を修正。**`app/src/composables/useSync.js` を変更**（同期層の内側でしか
+  直せない競合のため）。Worker は未変更。
+  1. `dissolveRoom()` が 150ms 待機後にグローバルな `_ws`/`state`/`shopCode` へ作用し、
+     つなぎ替え後の新しい token・socket・ルーム状態を壊していた。同期層内で
+     socket/shop/room/type を捕まえて待機後に照合する。**実 useSync を使う回帰test**を追加
+  2. `_startFresh()` が未確定の durable intent を消しており、同一 session の resume で
+     再送用 body を失っていた。同じ店舗・同じ session なら保持する
+  3. `dissolved` の3.5秒後処理が無条件だったため、待機中に開始した新セッションを消せた。
+     lifecycle を capture してタイマー実行時に再確認し、unmount で解除する
+  4. 不一致・欠落 `session_ended` が guest 分岐へ進んで現在のルームを退出していた。
+     即 return する（自分のセッションを持たないゲストは従来どおり退出）
+- 検証: App 92 files / 1004 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSync 2件 / useSession 1件 / App 3件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
+## 2026-08-18 — App第2セッション 再レビュー修正2（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `a20db8b`。
+- 再レビューの重大2件・中2件を修正。`worker/**` は変更していない。
+  1. `session_ended` が完了APIの await 後に stale を確認せず、切替後のルームを
+     `leaveRoom()` していた。開始時の lifecycle token と host/guest を捕まえて判定する
+  2. `_finishSession` が `dissolveRoom()` の await 後に再確認せず、現在のセッションへ
+     `clearSession()` などを実行していた
+  3. `_startFresh()` が世代を進めておらず、同一店舗・同一 sessionId の `resume()` で
+     旧 Promise が失効しなかった。account 世代を lifecycle 世代へ改め、
+     `captureLifecycle()` / `isLifecycleStale()` を公開
+  4. `intent_not_persisted`（端末へ保存できず送信していない）を専用文言へ
+- 検証: App 91 files / 994 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は App 4件 / useSession 4件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用。
+
+## 2026-08-18 — App第2セッション 再レビュー修正（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `e81fad1`（ancestor確認済み）。
+- 再レビューの重大2件・高1件を修正。`worker/**` は変更していない。
+  1. **完了payloadをAPI送信前にdurable化**。旧実装は catch の中で保存していたため、
+     送信中にPC・タブが落ちると送った body が残らなかった。保存できなければ完了APIを呼ばない
+     （`body:null` marker への切り下げも廃止）
+  2. **generation照合を全promise chainへ**。`verifyCompletion()` / `markActive()` /
+     `touch()` の遅延送信と App 側の await 後にも追加。旧店舗の応答が新店舗の
+     session・draft・history・画面を変更しない
+  3. **verifyCompletion が intent を早期削除しない**。削除は端末側の確定が終わったあと
+     `ackCompletionFinalized()` だけ。API成功と端末の確定完了を分離した
+- 検証: App 91 files / 986 tests passed（連続2回）、build 成功、Worker 26 files / 545 tests passed。
+  修正前は useSession 23件 / App 6件が失敗。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 未適用のため
+  migration → Worker → App の順で出す必要がある。
+
+## 2026-08-17 — App第2セッション レビュー指摘の修正（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準 `c3141e6`。
+- 独立レビューの5点（重大3・中2）を修正。`worker/**` は変更していない。
+  1. 完了結果不明と完了要求を端末へ永続化（再読込しても同じ body で再送できる）。
+     `markActive()` の API エラー握り潰しも解消
+  2. 完了要求に generation / shopCode / sessionId を捕捉し、応答適用の直前に照合。
+     旧アカウントの応答で現在の履歴・draft を壊さない
+  3. 送信 body を deep clone して固定。完了中・結果不明中は入力をロック
+  4. 件数上限を Worker と同じ 500 / 2,000 へそろえ、API を呼ぶ前に拒否
+  5. `session_ended` の sessionId を検証（別セッション・不明は完了させない）
+- 付随: 409 の test が共有モックの実装を差し替えており、以降の全 test が 409 を受けていた。
+  フラグ方式へ置き換え（単体では通るのに全体で落ちる状態を解消）。
+- 検証: App 91 files / 962 tests passed（連続2回）、build 成功、
+  Worker 26 files / 545 tests passed（未変更）。
+- 未実施: 実D1・実機・実browser。migration 0012〜0016 は未適用のため
+  migration → Worker → App の順で出す必要がある。
+
+## 2026-08-17 — App第2セッション: 完了ライフサイクルと同期キュー（DATA-001）
+
+- 担当: Claude Code。branch `claude/app-completion-sync-queue-z8etdp`、基準HEAD `develop@77d6d48`。
+- **App側のみ**。`worker/**`・migration・取込 parser/UI は変更していない（`git diff --name-only -- worker` は空）。
+- 第1修正セッションの4 commit（`38cf1cc` / `1d3cbfa` / `e9b1dbe` / `77d6d48`）と
+  それ以前（`39f7776` / `e952550`）がHEADの祖先であることを確認してから着手した。
+- commit / push / deploy / migration適用は**していない**。
+- 状態は `DATA-001` を `進行中` → `レビュー待ち / Claude Code` へ戻すまで。
+  `DATA-002` / `IMPORT-001` / `WEB-07` の状態は変更していない。
+
+### 直したこと（詳細と証拠は [`tasks/DATA-001.md`](tasks/DATA-001.md)）
+
+1. 完了中・結果不明中に `active` を書き戻さない（`completionUnknown` / Home・Back・切替・破棄のguard）。
+2. 本番の完了経路を `services/sessionCompletion.js` へ集約し、**stock/order 別の確定契約**へ合わせた。
+   order は `{ itemCount }` だけを送り、在庫入力があっても snapshot / inventory を送らない。
+   `takenAt` は `snapshot.date` から1か所で決める。
+3. queue再送と直接保存を同じ key 単位レーンへ入れ、遅れて決着した古い版が新しい版を上書きしない。
+4. generation / shopCode / 認証主体を**論理要求の作成時**に確定させ、旧店舗の要求が新トークンで飛ばない。
+5. snapshot の ack を `localRev` で「送った版」に限定し、送信中に作られた訂正を clean にしない。
+6. `clearAuthBlock()` を await 可能にし、再ログインは drain → pull の順。失効直前のデバウンス
+   保存は旧店舗の durable queue へ確定する。
+7. App mount test の初回 import を `beforeAll` へ移し、既定5秒 timeout の枯渇要因を消した。
+8. **完了の再送は同じ body を送る**。server の fingerprint は canonical snapshot 全体から
+   作られるため、組み立て直すと `409 completion_intent_conflict` で確定できなくなる。
+
+### DATA-002「Appへの引継ぎ7点」
+
+1〜5・7 は対応済み。**6（`409 legacy_import_unverified` の導線）は未対応**で、
+過去棚卸取込UIが本セッションの変更禁止範囲のため第3セッション（IMPORT-001）へ送る。
+
+### 検証
+
+- `npm --prefix app test -- --run` … 91 files / 935 tests passed（連続2回とも成功）
+- `npm --prefix app run build` … 成功（PWA precache 17 entries / 2570.69 KiB）
+- `npm --prefix worker test` … 26 files / 545 tests passed（未変更・回帰確認）
+- `git diff --check` 指摘なし / `git diff --name-only -- worker` 出力なし
+
+### 未実施・次の一手
+
+- 実D1・実機・実browserは未確認。migration 0012〜0016 は未適用のまま。
+- **適用順序に注意**: App をこの契約へ合わせたため、migration 未適用の Worker では
+  完了が動かない。migration → Worker → App の順で出す判断が release gate 側に要る。
+- `409 completion_intent_conflict` の復旧導線（session 作り直し）は未実装。
+
+## 2026-08-17（追加3） — DATA-002 独立レビュー指摘（replace の孤児 claim / cancel の transaction）
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `e9b1dbe`（clean）。
+- 対象は Worker/D1・関連test・現行文書のみ。第2/第3セッションの差分には触れていない。
+- **`app/src` は差分ゼロ**。状態は `レビュー待ち / Claude Code` のまま（完了にしない）。
+- commit / push / deploy / migration適用は**していない**（追加指示待ち）。
+
+### 直したこと
+
+1. **HIGH: replace で旧 claim・旧台帳が残っていた。**
+   上書き削除が `inventory_lines` / `store_history` / `sessions` の3種類だけだったため、
+   通常棚卸を置換すると旧 `session_completions` が孤児になり、取込済みを別batchで置換すると
+   旧 `import_batch_requests` が残って旧バッチの再送が `import_record_missing` になっていた。
+   `session_completions` と `import_batch_requests` を加えた**5文**にし、
+   session 本体より先に claim・台帳を消すようにした。作成中の新しい台帳は対象外。
+2. **MEDIUM: 取消の対象取得が transaction 外だった。**
+   SELECT を削除と同じ `db.batch()` の先頭へ移し、`removed` / `sessionIds` を batch 結果から作る。
+   直前に同じバッチの取込が確定しても「消したのに `removed: 0`」を返さない。
+   事前 SELECT の失敗も `cancel_failed` / `retryable: true` に含まれるようになった。
+3. **LOW: migration 0015 のコメントが現行契約と不一致**だった。SQL は変えず、
+   台帳なし既存取込を `409 legacy_import_unverified` で fail-closed にする現行契約へ書き直した。
+
+### 修正前に失敗を確認したtest
+
+追加した回帰test のうち **6件**が `e9b1dbe` で失敗（すべて `test/ledgerLifecycle.sqlite.test.js`）。
+seed で `status='completed'` を直接 INSERT しても claim は作られないため、
+**実API経路**（`handleSessionComplete` / `handlePastImportCreate`）で claim・台帳を作る test にしている。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm test -- test/ledgerLifecycle… test/pastImportIdempotency… test/pastImport…` | 3 files / 83 passed |
+| `npm test -- test/migrationFresh… test/migrationUpgrade… test/migrationScript…` | 3 files / 20 passed |
+| `npm test`（worker 全体） | **26 files / 545 tests passed** |
+| `npm --prefix app test -- --run` | 87 files / 875 passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` / `git diff --name-only -- app/src` | 指摘なし / 出力なし |
+
+D1実行上限の実測: 取込 500行+replace 50件 = **40 queries / 99 bound params**、取消 = **6 / 3**、
+棚卸完了 500品目 = **35 / 99**。replace が3文→5文になり取込は 38 → 40 queries（Free 50 内）。
+
+### 次の再開地点
+
+Codex の再レビュー。App 側の追随は 7 点のまま（[`tasks/DATA-002.md`](tasks/DATA-002.md)）。
+migration 0012〜0016 は本番未適用。
+
+## 2026-08-17（追加2） — DATA-002 再レビュー HIGH 2件の修正
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `1d3cbfa`。
+- 追加差分のみ（amend / reset / rebase なし）。**`app/src` は差分ゼロ**。
+- 追加した回帰test **13件が `1d3cbfa` で失敗**することを確認してから修正した。
+
+1. **完了 fingerprint の対象を canonical snapshot 全体へ広げた。**
+   旧実装は明細（品目名・数量・単位・単価・小計）と件数・合計・日付しか見ておらず、
+   `code` / `category` / `flagged` / `lotSize` / `tagA` / `tagB` / `entryLog` / `auditLog` /
+   `participants` / `flaggedItems` / `axisNames` / `locked` を変えた再送が replay 成功していた
+   （**サーバー旧内容・端末新内容**の食い違い）。
+   意図的な除外は `savedAt`（server時刻・毎回変わる）と `activeMs`（再試行で増える）の2つだけで、
+   理由をコードと `api-design.md` に明記した。
+2. **台帳を持たない既存取込を 409 `legacy_import_unverified` で閉じた。**
+   `existing && !ledger` をそのまま upsert していたため、0015 適用前のバッチや
+   台帳だけ消えた状態を別内容で黙って上書きできた。推測で fingerprint を作らず fail-closed にし、
+   復旧経路を **`DELETE /imports/:batchId` → 再取込**へ一本化した。
+   これに伴い「history を消したら直接再取込できる」という前回の記述は取り下げた。
+
+合わせて、切替境界の文書矛盾（「操作停止が必須」と「発生しても許容」の並記）を解消し、
+`api-design.md` / `spec.md` / `web-release-readiness.md` の最終照合を 2026-08-17・0016 まで へ更新、
+新しい 409/400 の HTTP 伝播と `_status` 非露出を `test/routerStatus.sqlite.test.js` へ追加した。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 26 files / 534 tests passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` / `git diff --name-only -- app/src` | 指摘なし / 出力なし |
+
+### 次の再開地点
+
+App セッションでの追随は **7点**（前回5点 + `legacy_import_unverified` の案内、
+完了再送時に snapshot を変えない扱い）。詳細は [`tasks/DATA-002.md`](tasks/DATA-002.md)。
+その後 Codex が全差分を独立レビューする。
+
+## 2026-08-17 — DATA-002 第1修正セッション 追加分: 再レビュー指摘（Worker / D1）
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、基準HEAD `38cf1cc`（clean・ancestor確認済み）。
+- `38cf1cc` は既にローカル develop へ fast-forward 済みのため、**amend / reset / rebase せず追加差分**で修正した。
+- 範囲は `worker/**` と現行API/DB/削除/release文書のみ。**`app/src` は差分ゼロ**。
+- 状態は `進行中` → `レビュー待ち / Claude Code`。`DATA-001` / `IMPORT-001` / `WEB-001` / `WEB-07` は変更していない。
+- commit / push / deploy / migration適用は**していない**。
+
+### 直したこと（詳細は [`tasks/DATA-002.md`](tasks/DATA-002.md) の 2026-08-17 節）
+
+1. **汎用PUTで完了契約を迂回できないようにした**。`PUT /sessions/:id` に `completed` を送ると
+   409 `use_complete_endpoint`（書込み0件）。lines も history も無い completed session を作れなくした。
+2. **棚卸日を `takenAt` ひとつに統一**。`snapshot.date` が違えば 400 `snapshot_date_mismatch`。
+   明細が 08-09・履歴が 08-10 という分裂した記録を作れなくした。
+3. **完了は最初の1要求だけが確定できる**（**migration 0016 追加・未適用**）。
+   確定内容は server 生成 fingerprint として `session_completions` に残る。
+   同一 intent の再送は保存済み結果、内容の違う再送は 409 `completion_intent_conflict`。
+4. **時刻 marker を廃止**。`ended_at === now` は排他 token にならないため、
+   claim（PRIMARY KEY + fingerprint）へ全文を従属させる形へ統一した。取込も同じ形。
+   これに伴い `MAX_REPLACE_SESSIONS` を 40 → **50 へ戻した**（旧guard形状のための制約が消えたため）。
+5. **stale ledger / claim で嘘をつかない**。replay 成功には session と `store_history` の実在を要求。
+   あわせて `DELETE /sessions/:id` を5文の1 batch（lines / history / 台帳 / claim / session）にし、
+   `DELETE /history/:sessionId` と `DELETE /imports/:batchId` も台帳・claim を整合させた。
+6. **account削除**に `session_completions` を追加し、testで両店舗をseedして境界を固定。
+7. **migration切替境界**を `web-release-readiness.md` に明文化（preflight件数・許容判断・maintenance条件）。
+8. 現行文書（`ci-cd.md` / `spec.md` / `README.md` / `api-design.md` / 削除contract / roadmap）の
+   migration記載を 0010〜0016 へそろえた。
+
+### 修正前に失敗を確認したtest
+
+新規2ファイル（`test/completionClaim.sqlite.test.js` / `test/ledgerLifecycle.sqlite.test.js`）と
+`accountDeletion.test.js` の追加分、計41件のうち **23件が `38cf1cc` で失敗**。修正後は全件成功。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 26 files / 511 tests passed |
+| `npm --prefix app test -- --run src/App.complete.test.js` | 13 passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed（**既知のtimeoutは再現せず**） |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+D1実行上限の実測（実SQLiteハーネス・batch内statementも1本ずつ計上）:
+完了500品目 = 35 queries / 99 bound params、取込500行+replace50件 = 38 queries / 99 bound params。
+
+### 次の再開地点
+
+**App セッションで5点の追随が必要**（Worker差分だけを統合すると壊れる）。
+
+1. `App.vue:859` `setSessionEndedCallback` — snapshot なしの `completeSessionD1`
+2. `App.vue:1381` `onGoHome` の完了済み経路 — 同上
+3. order モードの完了 — `{ itemCount }` を送る分岐（`useAuth.completeSession()` に引数追加）
+4. `snapshot.date` と `takenAt` を一致させる（不一致は 400 `snapshot_date_mismatch`）
+5. 409 `completion_intent_conflict` / `use_complete_endpoint` の扱い（前者は retryable ではない）
+
+その後 Codex が全差分を独立レビューする。`SEC-005` は `未着手 / Codex` のまま。
+
+## 2026-08-16 — DATA-002 第1修正セッション: Worker / D1 / API整合性
+
+- 担当: Claude Code。branch `claude/data-002-worker-d1-api-bogzyq`、開始HEAD `e095282`（clean・ancestor確認済み）。
+- 範囲は `worker/**` と現行API/DB/リリース手順文書のみ。**`app/src` は差分ゼロ**（`git diff --name-only -- app/src` が空）。
+- 状態は `進行中` → `レビュー待ち / Claude Code`。`完了` / `WEB-07` 通過にはしていない。
+- commit / push / deploy / migration適用は**していない**。
+
+### 直したこと
+
+詳細と証拠は [`tasks/DATA-002.md`](tasks/DATA-002.md)（2026-08-16 節）。要点だけ:
+
+1. **stock / order で完了契約を分けた。** 種別を見ずに snapshot 必須にしていたため、
+   在庫入力を伴わない発注セッションは `400 snapshot_required` で**完了できなかった**。
+   order は `store_history` を書かず、正本は `orders` / `order_lines`（App の完了一覧も order を除外している）。
+2. **stock の snapshot を server 側で canonical 化。** `sessionId` / `date` / `type` / `items` /
+   `itemCount` / `totalValue` は client 値を採らない。明細と items が食い違えば `400 snapshot_mismatch` で
+   何も書かない。inventory 0件は `400 empty_inventory`。任意 metadata は allowlist + 件数・長さ制限。
+3. **completed からの巻き戻しを禁止。** 完了応答を取りこぼした端末の遅れた `touch()` が
+   `status='active'` / `ended_at=NULL` へ戻していた。`409 session_completed`。
+4. **過去棚卸 replace の応答喪失からの復帰。** 要求台帳（**migration 0015・未適用**）に
+   「日付・明細・上書き対象集合」の SHA-256 指紋を残し、まったく同じ再送は置換対象が削除済みでも
+   同じ成功を返す。内容が違えば `409 import_intent_conflict`。
+5. **replace 権限の TOCTOU を閉じた。** preflight SELECT を削除権限の根拠から外し、
+   「同店舗・同日・completed・stock がちょうどN件」を全 delete/insert 文の WHERE へ埋めた。
+   1件でも外れたら全文0行。`MAX_REPLACE_SESSIONS` は bound parameter 上限から 50 → **40**。
+6. **`POST /sessions` の不正 type が HTTP 400 で返るようにした**（router が 200 で包み直していた）。
+7. **revision 応答を自分の write と一致させた。** 読み戻し SELECT を書き込みと同じ `db.batch` へ入れ、
+   読み戻せない場合は成功にせず 503。
+8. **migration 0014 / 0015 をリリース手順へ反映**（`web-release-readiness.md` / `api-design.md` /
+   `project-status.md` / `task-list.md`）。適用順・sentinel・rollback可否・後方互換を明記。
+
+### 修正前に失敗を確認したtest
+
+新規3ファイル（`test/sessionContract.sqlite.test.js` / `test/routerStatus.sqlite.test.js` /
+`test/pastImportIdempotency.sqlite.test.js`）42件のうち、**25件が修正前の実装で失敗**した。
+修正後は42件すべて成功。
+
+### 検証
+
+| command | 結果 |
+|---|---|
+| `npm --prefix worker test` | 24 files / 481 tests passed |
+| `npm --prefix app test -- --run` | 87 files / 875 tests passed |
+| `npm --prefix app run build` | 成功 |
+| `git diff --check` | 指摘なし |
+| `git diff --name-only -- app/src` | 出力なし |
+
+### 次の再開地点
+
+**App セッションで3経路の追随が必要**（このWorker差分だけを統合すると壊れる）。
+
+1. `App.vue:859` `setSessionEndedCallback` — snapshot なしで `completeSessionD1` を呼んでいる
+2. `App.vue:1381` `onGoHome` の完了済み経路 — 同上
+3. order モードの完了 — `{ itemCount }` を送る形へ分岐が必要（`useAuth.completeSession()` に引数追加）
+
+必要な payload 例は [`tasks/DATA-002.md`](tasks/DATA-002.md) の「Appへの引継ぎ」に記録済み。
+その後 Codex が全差分を独立レビューする。`SEC-005` は `未着手 / Codex` のまま（触れていない）。
+
 ## 2026-08-16 — CC第3修正セッション: CSV・過去棚卸取込のデータ品質（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、開始HEAD `e095282`（= `develop`）。

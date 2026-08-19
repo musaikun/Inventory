@@ -146,7 +146,7 @@
 ### Wave 2.6 — Web Free版 production readiness ★現在地
 
 1. canonical/contact、Pages routing、CORS、production deploy/rollbackを固定
-2. 本番D1 0010/0011、登録濫用、Free上限、履歴data integrityを解消
+2. 本番D1 0010〜0016のmigration、登録濫用、Free上限、履歴data integrityを解消
 3. observability、critical E2E、production smoke、User承認
 4. 詳細は[Web公開準備](quality-foundation/web-release-readiness.md)
 

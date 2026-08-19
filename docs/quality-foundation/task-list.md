@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-16
+最終更新: 2026-08-19
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -28,9 +28,9 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装 | [DATA-002.md](tasks/DATA-002.md) |
+| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側7点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | レビュー待ち | Claude Code | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
+| DATA-001 | P1 | レビュー待ち | Codex | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -107,6 +107,65 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19: `IMPORT-001` の branch へ `develop@2060090` を merge し、`レビュー待ち / Claude Code` を維持。
+  競合は `session-log.md` / `task-list.md` の2fileだけで、**コード側の競合はゼロ**（両方の記録を残して解決）。
+  あわせて `DATA-002` から送られていた**引継ぎ6（`409 legacy_import_unverified` の導線）**へ対応した。
+  0015のreplay台帳が返す `legacy_import_unverified` / `import_record_missing` / `import_intent_conflict` は
+  サーバー側にデータが残るため、再試行は出さず**取消の導線を必ず残す**（統合前の分類のままだと
+  「取り消してください」と言われているのに取消ボタンが消えた。develop単独・branch単独では起きない統合時のみの不具合）。
+  検証: App 94 files / 1096 passed、build成功、Worker 26 files / 545 passed。
+  `worker/**`・`App.vue`・`useStore.js`・`useDataImport.js`・`api.js` に差分なし。
+  **migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す必要がある。**
+  詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md)。
+- 2026-08-19: DATA-001 の再レビュー残件をCodexが直接修正し、`進行中` →
+  `レビュー待ち / Codex`へ戻した。解散開始時点ですでにWebSocketがCONNECTINGだと、
+  未open socketを閉じられず旧ルームへ遅延joinする問題を修正。接続試行中socketの追跡、
+  接続世代による遅延callback失効、退出/account切替cleanup、旧Promiseによる新room stateの
+  巻き戻し防止と回帰testを追加した。`worker/**`・migrationは変更していない。
+- 2026-08-17: DATA-001 の App第2セッション（完了ライフサイクル・同期キュー）を実装し、
+  `進行中` → `レビュー待ち / Claude Code` へ戻した。第1修正セッションが確定した
+  **stock/order 別の完了契約**へ App を合わせ、snapshot なしで完了APIを呼ぶ経路を無くした
+  （発注は `{ itemCount }` だけを送る）。完了中・結果不明中に `active` を書き戻さない
+  busy/unknown状態、完了要求の同一body再送（409 `completion_intent_conflict` 対策）、
+  保存レーンの直列化、generationの作成時capture、snapshot ackの版一致、
+  再ログインの drain→pull 順序、App mount testの5秒timeout要因の除去を含む。
+  `DATA-002` の「Appへの引継ぎ7点」のうち **6（`409 legacy_import_unverified` の導線）は未対応**で、
+  過去棚卸取込UIを扱う `IMPORT-001` へ送る。`worker/**`・migrationは変更していない
+  （0012〜0016は引き続き未適用で、**migration → Worker → App の順**で出す必要がある）。
+  `DATA-002` / `IMPORT-001` / `WEB-001` / `SEC-005` / `WEB-07` の状態・担当は変更していない。
+- 2026-08-17（追加3）: 独立レビュー指摘を修正（状態は`レビュー待ち / Claude Code`のまま）。
+  過去棚卸replaceの削除を3文→**5文**にし、旧`session_completions`・旧`import_batch_requests`まで
+  同一transactionで消すようにした（孤児claim・stale台帳が通常操作で発生していた）。
+  取消の対象取得SELECTを削除と同じ`db.batch`の先頭へ移し、`removed`/`sessionIds`が
+  実際に消した対象と一致するようにした（事前SELECTの失敗も`cancel_failed`に含む）。
+  migration 0015のコメントを`legacy_import_unverified`の現行契約へ修正（SQLは不変）。
+  実測: 取込500行+replace50件=40 queries/99 binds、取消=6/3。`app/src`は差分ゼロ。
+- 2026-08-17（追加2）: 再レビューHIGH 2件を修正。完了fingerprintの対象を**canonical snapshot全体**へ広げ
+  （`code`/`category`/`auditLog` などを変えた再送が replay 成功し、server旧内容・端末新内容になる食い違いを解消。
+  除外は `savedAt` / `activeMs` の2つだけ）、台帳を持たない既存取込を
+  409 `legacy_import_unverified` で fail-closed にした（復旧は `DELETE /imports/:batchId` → 再取込）。
+  切替境界の文書矛盾（必須 vs 許容）を解消し、現行docsの最終照合を 0016 まで へ同期、
+  新しい409/400のHTTP伝播testを追加。`app/src`は差分ゼロ。
+- 2026-08-17: DATA-002 の再レビュー指摘を修正し、`レビュー待ち / Claude Code` を維持。
+  汎用PUTからの完了迂回を409 `use_complete_endpoint`で塞ぎ、棚卸日を`takenAt`ひとつに統一
+  （不一致は400 `snapshot_date_mismatch`）、完了確定をserver生成fingerprintのclaimで一意化
+  （**migration 0016 追加・未適用**／内容の違う再送は409 `completion_intent_conflict`）、
+  過去取込の所有権guardから時刻markerを廃止して同じclaim方式へ統一、
+  stale ledger/claimでの偽の成功をfail-closedにし、session/history/batch/account削除と整合させた。
+  `MAX_REPLACE_SESSIONS`はguard再設計により40→**50へ復帰**。
+  migration切替境界（preflight件数・maintenance条件）を`web-release-readiness.md`へ明文化し、
+  現行docsのmigration記載を0010〜0016へそろえた。`app/src`は差分ゼロ。
+  **App側5点の追随が必要**（詳細は [`DATA-002.md`](tasks/DATA-002.md)）。
+  `DATA-001` / `IMPORT-001` / `WEB-001` / `WEB-07` の状態・担当は変更していない。
+- 2026-08-16: DATA-002 の第1修正セッション（Worker / D1 / API整合性）を実装し、
+  `レビュー待ち / Claude Code` へ戻した。stock/orderで完了契約を分離（orderは`store_history`を書かず
+  正本は`orders`/`order_lines`）、stock snapshotをserver側でcanonical化、completed→activeの巻き戻しを409で禁止、
+  過去棚卸replaceを要求台帳（**migration 0015 追加・未適用**）で応答喪失から復帰可能にし、
+  replace権限を文中の原子guardへ移した。`POST /sessions`の不正typeがHTTP 400で返るようにし、
+  revision応答を書込みと同じ`db.batch`で確定させた。migration 0014 / 0015 をリリース手順へ反映。
+  `app/src`は差分ゼロ。**App側3経路（`session_ended`・完了済みからのホーム遷移・order完了）の追随が必要**で、
+  必要な payload は [`DATA-002.md`](tasks/DATA-002.md) に記録した。
+  `DATA-001` / `IMPORT-001` / `WEB-001` / `SEC-005` の状態・担当は変更していない。
 - 2026-08-16: CC第3修正セッション（`develop@e095282` 起点）で `IMPORT-001` の取込データ品質を6点修正し、
   **レビュー待ち / Claude Code** へ戻した。ヘッダ有無の推測を選択値へ反映しない（`商品A` `品目セット` を
   見出し扱いにしない）、結果不明が残るあいだの modal close を3経路とも塞ぐ、HTTP失敗と通信結果不明を
@@ -121,7 +180,7 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
   第2=sessionId中心の履歴identityと棚卸完了のserver原子性（migration 0012）、
   第3=品目取込のCSV厳格化・alias衝突の非破壊化・preview欠落項目の追加と、
   過去棚卸取込のsessionIdモデル接続（取込前preview・server保存確認・`importBatchId`単位の取消／
-  migration 0013）。**migration 0012・0013とも本番未適用**。実D1と実browserは未確認。
+  migration 0013）。**migration 0012〜0015はいずれも本番未適用**。実D1と実browserは未確認。
   Codex承認前に`完了`・`WEB-07`通過・release可としない。
   旧 `UI-002` は実体fileを持たず`UI-001.md`へ誤リンクしていたため`UI-001`へ統合し、統合先を記録した。
   詳細は [`IMPORT-001.md`](tasks/IMPORT-001.md) / [`DATA-001.md`](tasks/DATA-001.md) /

@@ -37,11 +37,73 @@ CC branch `claude/branch-operational-status-2lwwwu@8ff46af`で、非破壊merge�
 着手時に`task-list.md`を`進行中 / Claude Code`へ更新し、証拠提出後は`レビュー待ち`までとする。
 Codex承認前に`完了`またはWEB-07通過としない。
 
-**2026-08-16 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
+**2026-08-19 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
 2026-08-10 の実装に、2026-08-11 の追補（ヘッダなしCSV・数値契約の統一・PDF/Excel変換・
 エイリアス衝突・応答喪失からの再試行／取消）と、2026-08-16 の追補（ヘッダ選択の明示化・
 結果不明中のclose禁止・HTTP失敗とUNKNOWNの分類・数量／単価上限・通貨記号の位置・実在日付）を
 重ねている。**`完了` および WEB-07 通過は判定していない。**
+
+## develop統合と引継ぎ6の対応（2026-08-19 / Claude Code）
+
+`develop@2060090`（DATA-001 / DATA-002 の第1・第2修正セッション反映後）を
+branch `claude/csv-past-stocktake-import-a0kjl3` へ merge した。
+
+### 競合はdocs 2fileだけ。コードの競合はゼロ
+
+`e095282` 以降に develop が触った file と、本branchが触った file の重なりは
+`docs/quality-foundation/session-log.md` と `task-list.md` の2つだけだった。
+どちらも「先頭へ新しい記録を足す」形の競合なので、**両方を残し、新しい順**に並べて解決した。
+記録の削除・書き換えはしていない。
+
+### 引継ぎ6（`409 legacy_import_unverified`）へ対応した
+
+develop の [`DATA-002.md`](DATA-002.md)「Appへの引継ぎ（追加分）」6 が
+本タスクへ送られていたため、統合と同時に対応した。
+
+migration 0015 の replay台帳により、過去棚卸取込は次の3つの 409 を返すようになった。
+いずれも**サーバー側にデータが残っていて、再送では解消しない**。
+
+| code | 意味 |
+|---|---|
+| `legacy_import_unverified` | 0015適用前の取込。当時の要求と同一か照合できない |
+| `import_record_missing` | 台帳はあるが対象セッションが消えている |
+| `import_intent_conflict` | 同じ取込IDで内容の違う要求が来た |
+
+2026-08-16 の分類（409 = `FAILED` / retry不可）だけだと、`canCancelBatch()` が
+`false` を返して**取消ボタンが消える**。サーバーが「取り消してからやり直してください」と
+答えているのに、その導線が画面から無くなる状態だった。
+この不具合は develop 単独でも本branch単独でも起きず、統合時にだけ現れる。
+
+- `classifyCommitError()` が上記3コードへ `mustCancel: true` を付ける。
+- `canCancelBatch()` は結果不明に加えて `mustCancel` の日でも取消を出す。
+- 再試行は出さない（送り直しても同じ理由で拒否されるため）。
+- 画面に「再試行では解消しません。取り消してから取り込み直してください」を `role="alert"` で出し、
+  サーバーが返した理由文をそのまま残す。
+- 結果不明ではない（サーバー上の状態が確定している）ので、**closeは塞がない**。
+  取り込まれた記録は履歴・カレンダーから辿れる。
+- サーバーが `body.retryable` を明示した場合は**再試行不可へ下げる方向にだけ**効かせる。
+  恒久的な status を server 申告で再試行可へ格上げしない。
+
+### 検証（2026-08-19 / merge後）
+
+| command | 結果 |
+|---|---|
+| 追加5 testの修正前 | **5 failed**（取消導線が消える／replace_not_allowedとの区別／server retryable尊重／画面の案内） |
+| `npm --prefix app test -- --run` | **94 files / 1096 passed** |
+| `npm --prefix app run build` | 成功（PWA precache 17 entries） |
+| `npm --prefix worker test` | **26 files / 545 passed** |
+| `git diff origin/develop --name-only -- worker app/src/App.vue …useStore.js …useDataImport.js …api.js` | 出力なし |
+| `git diff --check` | 出力なし |
+
+merge直後（引継ぎ6の対応前）の時点で app 94 files / 1087 passed、worker 26 files / 545 passed。
+**コード側の統合はテストを1件も壊していない。**
+
+### 残る引継ぎ
+
+- 引継ぎ7（完了の再送で snapshot を1文字も変えない）は完了処理側の話で、
+  develop の App第2セッションで対応済み。本タスクでは扱っていない。
+- **migration 0012〜0016 はすべて本番未適用。** `migration → Worker → App` の順で
+  出す必要がある点は develop 側の記録が正本。
 
 ## 追補実装（2026-08-16 / Claude Code 第3修正セッション）
 
@@ -104,6 +166,7 @@ branch `claude/csv-past-stocktake-import-a0kjl3`。
 
 - `retryableDates()` が `retryable === false` を返さないので、永続的4xxを再送しない。
 - HTTP失敗だけなら `canCancelBatch()` は `false`（取消の導線を出さない）。
+  **2026-08-19 追記:** develop統合後は `mustCancel` の3コードだけ例外にした（上記の統合節）。
 - 失敗メッセージは `err.body.error`（サーバーの理由）を優先して残す。
 
 ### 4. 数量・単価の上限をクライアントで拒否

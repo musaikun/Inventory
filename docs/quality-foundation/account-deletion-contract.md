@@ -1,10 +1,10 @@
 # Account deletion contract
 
-最終更新: 2026-07-25  
+最終更新: 2026-08-17
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
-最新照合: 2026-08-04 / `develop@bc9fb85`
-状態: code/testは実装済み。本番D1 0011、canonical URL、実機確認は未完
+最新照合: 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq`
+状態: code/testは実装済み。本番D1 0011〜0016、canonical URL、実機確認は未完
 
 ## 目的
 
@@ -82,6 +82,8 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 |---|---|
 | `store_configs`, `store_inventory`, `store_history` | 物理削除 |
 | `sessions`, `inventory_lines`, `item_par_levels` | 物理削除 |
+| `import_batch_requests`（過去棚卸取込の要求台帳・migration 0015） | 物理削除。取込の再送判定に使う指紋と対象sessionIdを持つため業務dataとして扱う |
+| `session_completions`（棚卸完了のclaim・migration 0016） | 物理削除。確定済み完了の指紋・件数・合計・棚卸日を持つため業務dataとして扱う |
 | `orders`, `order_lines` | 物理削除 |
 | `movements`, `movement_lines` | 物理削除 |
 | `push_subscriptions` | 物理削除し、以後のPush送信を停止 |
@@ -111,5 +113,8 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 
 - 正常、誤PIN、429、confirmation不一致、別店舗、別requestId競合、同一requestId再送、
   DO失敗、D1失敗、cleanupを自動testする。
+- 削除testは`import_batch_requests` / `session_completions`を含む全業務tableへ
+  **対象店舗と別店舗の行を実際にseed**し、対象店舗だけが消えること・別店舗が残ることを固定する
+  （`worker/src/accountDeletion.test.js`）。batch途中失敗ではこれらを含めて全体がrollbackする。
 - migration適用、Worker test、App integration、公開Web URLをrelease前に記録する。
 - deployとmigration適用はUser承認後に行う。

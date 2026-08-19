@@ -81,6 +81,10 @@ const canRetry    = computed(() => retryableDates(result.value).length > 0 && !u
 const undone      = computed(() => result.value?.undone === true)
 const canCancel   = computed(() => !undone.value && canCancelBatch(result.value))
 
+// サーバーが「先に取り消してから取り込み直してください」と答えた日
+// （0015 の replay台帳で内容を保証できない既存取込。再試行では解消しない）。
+const mustCancelList = computed(() => failedList.value.filter(f => f.mustCancel === true))
+
 // 「サーバーに入ったかどうか端末から判断できない」日が残っているか。
 // **明確なHTTP失敗（保存されていないと分かっている日）はここに含めない。**
 // 取り消し済みなら、その batchId ぶんはサーバーから消えているので残らない。
@@ -272,6 +276,12 @@ async function onUndo() {
             </div>
           </div>
         </div>
+
+        <p v-if="mustCancelList.length && !undone" class="warn-inline" role="alert">
+          {{ mustCancelList.length }}日は、この取込IDにサーバー側の記録が残っているため上書きできません。
+          <b>再試行では解消しません。</b>
+          「この取込を取り消す」でサーバーから消してから、もう一度<b>取り込み直して</b>ください。
+        </p>
 
         <p v-if="hasUnknown" class="warn-inline">
           {{ unknownList.length }}日は応答が届かず、<b>サーバーに保存されている可能性があります</b>。

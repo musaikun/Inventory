@@ -180,8 +180,8 @@ describe('未送信キュー — 失敗の種類を分ける', () => {
     await store.retryPendingSaves()
     expect(spy).not.toHaveBeenCalled()
 
-    // 再ログイン後は再開する
-    expect(store.clearAuthBlock()).toBe(true)
+    // 再ログイン後は再開する（drain の完了まで await できる）
+    expect((await store.clearAuthBlock()).wasBlocked).toBe(true)
     await store.retryPendingSaves()
     expect(spy).toHaveBeenCalled()
     expect(store.saveState.value).toBe('idle')

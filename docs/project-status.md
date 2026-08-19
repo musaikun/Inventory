@@ -68,6 +68,10 @@ Codex承認前に完了・公開可としない。詳細は
   `app/src/components/PastStocktakeImportModal.vue`。
 - **migration 0013**（`sessions.import_batch_id`）を追加した。**適用は未実施**。
   列追加とindexだけなのでロールバック可能。
+- **migration 0014**（`store_history.revision` / `updated_at`、取込sessionの一意index）と
+  **0015**（過去棚卸取込の要求台帳 `import_batch_requests`）も追加済み・**適用は未実施**。
+  どちらも列・index・新規tableの追加だけでロールバック可能。適用順とpreflightは
+  [Web公開準備](quality-foundation/web-release-readiness.md)の「公開手順」を正とする。
 - 検証: App 79 files / 747 tests passed、production build 成功、Worker 20 files / 367 tests passed。
 - 未実施: 実D1（migration適用・実行時間計測）、実ブラウザ / 実機（375px・1024px以上・keyboard）。
 

@@ -9,10 +9,12 @@ function _expandRows(s, bound, fieldNames) {
   const fromIdx = s.indexOf(' FROM ')
   const rowSize = ((s.slice(fromIdx).split(' UNION ALL ')[0].match(/\? AS /g)) ?? []).length
   const prefix  = ((s.slice(0, fromIdx).match(/\?/g)) ?? []).length
-  const ownerId = bound[bound.length - 2]
-  const ownerShop = bound[bound.length - 1]
+  // claim guard（DATA-002 §3）が付く文は末尾が (id, shop, fingerprint) の3個になる
+  const tail = s.includes('session_completions') ? 3 : 2
+  const ownerId = bound[bound.length - tail]
+  const ownerShop = bound[bound.length - tail + 1]
   const fixed   = bound.slice(0, prefix)
-  const values  = bound.slice(prefix, bound.length - 2)
+  const values  = bound.slice(prefix, bound.length - tail)
   const rows    = []
   for (let i = 0; i < values.length; i += rowSize) {
     const row = {}
@@ -26,6 +28,7 @@ function _expandRows(s, bound, fieldNames) {
 function createMockD1() {
   const lines = []
   const history = []
+  const claims = []   // session_completions（migration 0016）
   const sessions = [{ id: 'sess-001', shop_code: 'ABCDEF', status: 'active' }]
 
   function prepare(sql) {
@@ -35,19 +38,35 @@ function createMockD1() {
       bind(...a) { bound = a; return stmt },
       async run() {
         let changes = 0
+        // 「この要求が勝者である」claim（DATA-002 再レビュー §3）。
+        // PRIMARY KEY(shop_code, session_id) と `status <> 'completed'` で1要求しか取れない。
+        const hasClaim = (shop, sid) => claims.some(c => c.shop_code === shop && c.session_id === sid)
+        if (s.startsWith('INSERT INTO session_completions')) {
+          const [shop, sid, fingerprint] = bound
+          const target = sessions.find(x => x.id === sid && x.shop_code === shop)
+          if (target && target.status !== 'completed' && !hasClaim(shop, sid)) {
+            claims.push({ shop_code: shop, session_id: sid, fingerprint })
+            changes = 1
+          }
+          return { success: true, results: [], meta: { changes } }
+        }
         if (s.startsWith('DELETE FROM inventory_lines')) {
           const [sessionId, shop] = bound
-          for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].session_id === sessionId && lines[i].shop_code === shop) {
-              lines.splice(i, 1)
-              changes++
+          if (!s.includes('session_completions') || hasClaim(shop, sessionId)) {
+            for (let i = lines.length - 1; i >= 0; i--) {
+              if (lines[i].session_id === sessionId && lines[i].shop_code === shop) {
+                lines.splice(i, 1)
+                changes++
+              }
             }
           }
         } else if (s.startsWith('INSERT INTO store_history')) {
-          // 存在条件つき INSERT ... SELECT。bind の末尾2つが session_id と shop_code。
-          const sid  = bound[bound.length - 2]
-          const shop = bound[bound.length - 1]
-          if (sessions.some(x => x.id === sid && x.shop_code === shop)) {
+          // 存在条件つき INSERT ... SELECT。claim guard 付きは末尾に fingerprint が入る。
+          const tail = s.includes('session_completions') ? 1 : 0
+          const sid  = bound[bound.length - 2 - tail]
+          const shop = bound[bound.length - 1 - tail]
+          if (sessions.some(x => x.id === sid && x.shop_code === shop) &&
+              (tail === 0 || hasClaim(shop, sid))) {
             const rev = Math.max(0, ...history.filter(x => x.shop_code === shop).map(x => x.revision)) + 1
             const row = {
               shop_code: shop, session_id: sid, snapshot_date: bound[0], snapshot_json: bound[1],
@@ -61,7 +80,8 @@ function createMockD1() {
         } else if (s.startsWith('INSERT INTO inventory_lines')) {
           const { rows, fixed, ownerId, ownerShop } =
             _expandRows(s, bound, ['item_name', 'qty', 'unit', 'unit_price', 'line_value'])
-          if (sessions.some(x => x.id === ownerId && x.shop_code === ownerShop)) {
+          if (sessions.some(x => x.id === ownerId && x.shop_code === ownerShop) &&
+              (!s.includes('session_completions') || hasClaim(ownerShop, ownerId))) {
             for (const r of rows) {
               lines.push({ session_id: ownerId, shop_code: ownerShop, taken_at: fixed[0], ...r })
               changes++
@@ -70,10 +90,15 @@ function createMockD1() {
         } else if (s.startsWith('UPDATE sessions')) {
           const [, itemCount, totalValue, id, shop] = bound
           const target = sessions.find(x => x.id === id && x.shop_code === shop)
-          if (target) {
+          if (target && (!s.includes('session_completions') || hasClaim(shop, id))) {
             Object.assign(target, { status: 'completed', item_count: itemCount, total_value: totalValue })
             changes = 1
           }
+        } else if (s.startsWith('SELECT revision')) {
+          // revision の読み戻しは write と同じ batch に入る（DATA-002 §5）。
+          const [shop, sid] = bound
+          const row = history.find(x => x.shop_code === shop && x.session_id === sid)
+          return { success: true, results: row ? [row] : [], meta: { changes: 0 } }
         }
         return { success: true, meta: { changes } }
       },
@@ -84,13 +109,25 @@ function createMockD1() {
             x.id === id && (s.includes('shop_code = ?') ? x.shop_code === shop : true)
           ) ?? null
         }
+        if (s.includes('FROM session_completions')) {
+          const [shop, sid] = bound
+          const c = claims.find(x => x.shop_code === shop && x.session_id === sid)
+          return c ? { ...c, type: 'stock', taken_at: null, item_count: 0, total_value: null } : null
+        }
         if (s.includes('FROM store_history')) {
           const [shop, sid] = bound
           return history.find(x => x.shop_code === shop && x.session_id === sid) ?? null
         }
         return null
       },
-      async all() { return { results: [] } },
+      async all() {
+        if (s.includes('FROM store_history')) {
+          const [shop, sid] = bound
+          const row = history.find(x => x.shop_code === shop && x.session_id === sid)
+          return { results: row ? [row] : [] }
+        }
+        return { results: [] }
+      },
     }
     return stmt
   }
@@ -102,6 +139,7 @@ function createMockD1() {
       lines: lines.map(l => ({ ...l })),
       sessions: sessions.map(x => ({ ...x })),
       history: history.map(x => ({ ...x })),
+      claims: claims.map(x => ({ ...x })),
     }
     const results = []
     for (let i = 0; i < stmts.length; i++) {
@@ -110,6 +148,7 @@ function createMockD1() {
         lines.splice(0, lines.length, ...before.lines)
         sessions.splice(0, sessions.length, ...before.sessions)
         history.splice(0, history.length, ...before.history)
+        claims.splice(0, claims.length, ...before.claims)
         throw new Error('D1_ERROR: injected failure')
       }
       results.push(await stmts[i].run())
@@ -163,8 +202,12 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
     '牛乳':       { qty: 12, unit: '本' },
   }
   const prices = { 'コーヒー豆': 2000 }
-  // 棚卸完了はスナップショット必須（第2セッション §1）
-  const SNAP = { date: takenAt, items: [{ item: '牛乳', qty: 12 }] }
+  // 棚卸完了はスナップショット必須（第2セッション §1）。
+  // DATA-002 §1 で「snapshot.items は inventory の全行を含むこと」も契約に加わった。
+  const SNAP = {
+    date: takenAt,
+    items: [{ item: 'コーヒー豆', qty: 5, unit: 'kg' }, { item: '牛乳', qty: 12, unit: '本' }],
+  }
 
   it('品目数分の inventory_lines が挿入される', async () => {
     const db  = createMockD1()

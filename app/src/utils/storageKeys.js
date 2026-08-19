@@ -25,6 +25,9 @@ export const STORAGE_KEYS = {
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
   pendingSession:   '_pending_session_v1',
+  // 結果が確認できていない完了要求。**再読込をまたいで同じbodyで再送する**ために残す
+  // （serverはcanonical snapshot全体でfingerprintを作るので、組み立て直すと確定できない）
+  completionIntent: '_completion_intent_v1',
   pendingSaves:     '_pending_saves_v1',  // D1へ未送信の保存（再起動をまたいで再送するため端末に残す）
   rejectedSaves:    '_rejected_saves_v1',  // サーバーに拒否された保存（リロードしても事実を消さない）
   authToken:        '_auth_token',

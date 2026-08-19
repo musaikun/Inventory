@@ -31,6 +31,33 @@ export function clearHostToken(type) {
   const key = _hostTokenKey(type)
   if (key) try { localStorage.removeItem(key) } catch (_) {}
 }
+
+/**
+ * 指定 key が指定 token のままなら消す（await をまたぐ解散用）。
+ * key も token も**待機前に捕まえた値**を渡すこと。
+ */
+function _clearHostTokenIf(key, token) {
+  if (!key || !token) return false
+  try {
+    if (localStorage.getItem(key) !== token) return false
+    localStorage.removeItem(key)
+    return true
+  } catch (_) { return false }
+}
+
+/**
+ * 接続世代。**新しい接続を張るたび**に進む（解散・退出では進まない）。
+ *
+ * 呼び出し側（App）が「解散通知の遅延処理を実行してよいか」を判断するために使う。
+ * App の session lifecycle 世代だけでは、**同じ pendingSession のまま新しいルームを
+ * 作る**場合を検出できない（`SyncModal` は `begin()` を呼ばないので世代が変わらない）。
+ * 旧ルームのタイマーが、新ルームで使用中のセッション・在庫を消せてしまう。
+ */
+let _connectGeneration = 0
+export function captureSyncConnection() { return { gen: _connectGeneration } }
+export function isSyncConnectionStale(token) {
+  return !token || token.gen !== _connectGeneration
+}
 export function hasHostToken(type) {
   return !!_loadHostToken(type)
 }
@@ -39,6 +66,9 @@ export function hasHostToken(type) {
 export async function dissolveRoomRemote(type = 'stock') {
   const code  = shopCode.value
   const token = _loadHostToken(type)
+  // 削除対象の key も**待機前に**確定させる。`clearHostToken()` は現在の shopCode から
+  // key を作り直すため、fetch を待つ間に店舗が変わると別店舗の token を消してしまう。
+  const key   = _hostTokenKey(type)
   if (code && token && HTTP_BASE) {
     try {
       await fetch(`${HTTP_BASE}/room/${code}/dissolve${_typeQuery(type)}`, {
@@ -48,7 +78,9 @@ export async function dissolveRoomRemote(type = 'stock') {
       })
     } catch (_) {}
   }
-  clearHostToken(type)
+  // 捕まえた key が、捕まえた token のままの場合だけ消す。
+  // 同じ店舗でも新しいルームを作っていれば token は差し替わっているので消さない。
+  _clearHostTokenIf(key, token)
 }
 
 // ルームの現在状態を取得（退室中ホストがゲストのライブ品目数を一覧表示するため）
@@ -98,6 +130,9 @@ export const lockedIngredients    = reactive(new Set())
 export const pendingItemRequests  = reactive([])  // ホスト側: ゲストからの品目追加申請キュー
 
 let _ws              = null
+// WebSocket は onopen まで `_ws` に入らない。CONNECTING中のsocketも追跡しないと、
+// 解散・退出・account resetがそれを閉じられず、後から旧ルームへjoinできてしまう。
+let _connectingWs    = null
 let _reconnectTimer  = null
 let _heartbeatTimer  = null
 let _reconnectCount  = 0
@@ -498,6 +533,11 @@ function _resetClientState() {
 export function resetAccountData() {
   state.mode = 'idle'
   state.roomCode = null
+  if (_connectingWs) {
+    const pending = _connectingWs
+    try { pending.close(1000, 'Account reset') } catch (_) {}
+    if (_connectingWs === pending) _connectingWs = null
+  }
   if (_ws) {
     try { _ws.close(1000, 'Account reset') } catch (_) {}
     _ws = null
@@ -793,6 +833,7 @@ function _handleMessage(msg) {
 }
 
 function _connect(code) {
+  const connection = ++_connectGeneration   // 新しい接続。解散通知の遅延処理を失効させる
   if (!WORKER_URL) {
     state.error = 'サーバーURLが未設定です（.env の VITE_SYNC_WORKER_URL を確認）'
     state.mode  = 'idle'
@@ -803,6 +844,13 @@ function _connect(code) {
   // ハンドラを外してから閉じる: 意図的なクローズが onclose を発火させ、
   // _ws===null を素通りして再接続タイマーを無限にスケジュールする増殖ループを防ぐ。
   _clearReconnectTimer()
+  // 前の接続試行がまだopenしていなくても失効させる。各handlerは接続世代を
+  // 確認するため、close後に旧Promiseがrejectしても現在のstateを変更しない。
+  if (_connectingWs) {
+    const stale = _connectingWs
+    _connectingWs = null
+    try { stale.close(1000, 'reconnect') } catch (_) {}
+  }
   if (_ws) {
     const stale = _ws
     _ws = null
@@ -816,6 +864,10 @@ function _connect(code) {
     let hostFallbackTimer = null
 
     const ws    = new WebSocket(`${WORKER_URL}/room/${code}/ws${_typeQuery()}`)
+    _connectingWs = ws
+    const forgetConnecting = () => {
+      if (_connectingWs === ws) _connectingWs = null
+    }
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true
@@ -827,6 +879,14 @@ function _connect(code) {
 
     ws.onopen = () => {
       clearTimeout(timer)
+      // closeとopenが同じevent loopで競合しても、退出済み・置換済みのsocketを
+      // 現役へ昇格させない。CONNECTING socketを閉じた後の遅延onopen対策。
+      if (connection !== _connectGeneration || _connectingWs !== ws || state.mode === 'idle') {
+        if (!settled) { settled = true; reject(new Error('接続が切り替わりました')) }
+        try { ws.close(1000, 'stale connection') } catch (_) {}
+        return
+      }
+      forgetConnecting()
       _ws             = ws
       _reconnectCount = 0
       state.isConnected = true
@@ -857,6 +917,7 @@ function _connect(code) {
     }
 
     ws.onmessage = (e) => {
+      if (connection !== _connectGeneration || _ws !== ws || state.mode === 'idle') return
       try {
         const data = JSON.parse(e.data)
         if (!settled) {
@@ -883,7 +944,9 @@ function _connect(code) {
     }
 
     ws.onerror = () => {
-      if (_ws !== ws && _ws !== null) return  // 旧WSのエラーは無視
+      const isCurrent = connection === _connectGeneration
+        && (_connectingWs === ws || _ws === ws)
+      if (!isCurrent) return  // 旧WSのエラーは無視
       clearTimeout(timer)
       if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
       if (!settled && !state.isConnected) {
@@ -900,9 +963,18 @@ function _connect(code) {
     }
 
     ws.onclose = () => {
-      // 自分が現役WSでない場合（_connectが新しいWSに切り替え済み）は何もしない
-      if (_ws !== ws && _ws !== null) return
-      _ws = null
+      const isCurrent = connection === _connectGeneration
+        && (_connectingWs === ws || _ws === ws)
+      // 自分が現役の接続試行でない場合は、旧Promiseだけを決着させて
+      // 現在のroom/state/reconnect timerへは触れない。
+      if (!isCurrent) {
+        clearTimeout(timer)
+        if (hostFallbackTimer) { clearTimeout(hostFallbackTimer); hostFallbackTimer = null }
+        if (!settled) { settled = true; reject(new Error('接続が切り替わりました')) }
+        return
+      }
+      forgetConnecting()
+      if (_ws === ws) _ws = null
       _stopHeartbeat()
       state.isConnected = false
 
@@ -997,11 +1069,16 @@ export function useSync() {
     state.roomType = type
     state.roomCode = code
     state.mode     = 'hosting'
+    const connecting = _connect(code)
+    const connection = _connectGeneration
     try {
-      await _connect(code)
+      await connecting
     } catch (e) {
-      state.mode     = 'idle'
-      state.roomCode = null
+      // 別の接続試行に置換された旧Promiseは、現在のroom stateを巻き戻さない。
+      if (connection === _connectGeneration) {
+        state.mode     = 'idle'
+        state.roomCode = null
+      }
       throw e
     }
     return code
@@ -1022,11 +1099,15 @@ export function useSync() {
     state.roomType = type === 'order' ? 'order' : 'stock'
     state.roomCode = normalized
     state.mode     = isOwnCode ? 'hosting' : 'joining'
+    const connecting = _connect(normalized)
+    const connection = _connectGeneration
     try {
-      await _connect(normalized)
+      await connecting
     } catch (e) {
-      state.mode     = 'idle'
-      state.roomCode = null
+      if (connection === _connectGeneration) {
+        state.mode     = 'idle'
+        state.roomCode = null
+      }
       throw e
     }
     return normalized
@@ -1037,6 +1118,13 @@ export function useSync() {
     // mode を先に idle にして _handleMessage が以後のメッセージを無視するようにする
     state.mode     = 'idle'
     state.roomCode = null
+    // onopen前のsocketも閉じる。これを残すと、leaveRoom完了後に旧ルームへ
+    // joinしてhost/guest接続だけが復活する。
+    if (_connectingWs) {
+      const pending = _connectingWs
+      try { pending.close(1000, 'User left') } catch (_) {}
+      if (_connectingWs === pending) _connectingWs = null
+    }
     if (_ws?.readyState === WebSocket.OPEN) {
       try { _ws.send(JSON.stringify({ type: 'leave' })) } catch (_) {}
     }
@@ -1045,13 +1133,49 @@ export function useSync() {
     if (wasGuest) _onGuestLeave?.()
   }
 
+  /**
+   * ルームを解散する（ホスト）。
+   *
+   * **150ms 待つ間に接続先が変わりうる。** `clearHostToken()` / `leaveRoom()` は
+   * グローバルな `_ws` / `state` / `shopCode` に対して働くため、待機中に別ルーム・
+   * 別店舗へつなぎ替えられていると
+   *   - 新しいアカウントの host token を消す
+   *   - 新しい WebSocket を close する
+   *   - 新しいルーム状態を idle へ戻し、ゲストの leave callback を実行する
+   * が起きる。呼び出し側（App）の世代確認は await の後なので間に合わない。
+   * 待機前の socket・店舗・ルーム・種別を捕まえ、待機後に一致を確かめる。
+   */
   async function dissolveRoom() {
-    if (_ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'dissolve' }))
+    const socket     = _ws
+    const code       = shopCode.value
+    const room       = state.roomCode
+    const type       = state.roomType
+    const connection = _connectGeneration
+
+    if (socket?.readyState === WebSocket.OPEN) {
+      try { socket.send(JSON.stringify({ type: 'dissolve' })) } catch (_) {}
       await new Promise(r => setTimeout(r, 150))
+      // **「socket が変わった」だけでは中止しない。**
+      // Worker（RoomDO の dissolve）はホスト自身へ dissolved を送らず、直後に socket を
+      // 閉じる。正常な解散でも onclose が `_ws = null` にするため、`_ws !== socket` を
+      // 中止条件にすると hosting 状態・host token・再接続タイマーが残り、
+      // 解散したはずのルームを作り直してしまう。
+      //
+      // 中止するのは「**新しい接続が始まった**」場合。`_ws` への代入は onopen 後なので、
+      // 同じ shop/room/type へ張り直した socket が CONNECTING の間は `_ws` が null のまま。
+      // socket の比較だけでは検出できないため、接続世代も見る（見落とすと token を消して
+      // leaveRoom した後に、接続中の socket が onopen して接続が復活する）。
+      const switched = _connectGeneration !== connection
+        || (_ws && _ws !== socket)
+        || shopCode.value !== code || state.roomCode !== room || state.roomType !== type
+      if (switched) {
+        console.warn('[sync] dissolveRoom: connection changed while waiting; leaving the new one intact')
+        return { ok: false, reason: 'connection_changed' }
+      }
     }
-    clearHostToken()
+    clearHostToken(type)
     leaveRoom()
+    return { ok: true }
   }
 
   function getShareUrl() {

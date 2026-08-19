@@ -75,6 +75,10 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM movements WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM item_par_levels WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_history WHERE shop_code = ?').bind(shopCode),
+    // 過去棚卸取込の要求台帳（migration 0015）と棚卸完了のclaim（migration 0016）。
+    // どちらも店舗の業務データなので削除範囲に含める（DATA-002 §6）。
+    db.prepare('DELETE FROM import_batch_requests WHERE shop_code = ?').bind(shopCode),
+    db.prepare('DELETE FROM session_completions WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ?').bind(shopCode),

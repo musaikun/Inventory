@@ -17,8 +17,20 @@ const OTHER = 'ZZZZZZ'
 const SESS  = '11111111-1111-4111-8111-111111111111'
 
 // 棚卸完了はスナップショット必須（第2セッション §1）。
-// sessionId は server 側が完了対象のものへ強制するので、既定形をひとつ使い回す。
-const SNAP = { date: '2026-08-09', items: [{ item: '牛乳', qty: 1 }] }
+// さらに DATA-002 §1 で、snapshot.items は **inventory の全行を含む**ことが契約になった
+// （明細と食い違う履歴＝一覧に出るのに詳細が合わない状態を、API から作らせない）。
+// sessionId / itemCount / totalValue は server 側が強制するので、ここでは指定しない。
+// 棚卸日は takenAt ひとつで決まる（DATA-002 再レビュー §2）。snapshot.date を渡す場合は
+// takenAt と一致していなければ 400 snapshot_date_mismatch。既定では date を入れない。
+function snapFor(inventory, { sessionId = SESS, date = undefined, extra = [] } = {}) {
+  return {
+    ...(date === undefined ? {} : { date }), sessionId,
+    items: [
+      ...Object.entries(inventory ?? {}).map(([item, v]) => ({ item, qty: v?.qty, unit: v?.unit ?? '' })),
+      ...extra,
+    ],
+  }
+}
 
 function setup() {
   const h = createD1()
@@ -31,7 +43,8 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
       inventory: { 牛乳: { qty: 3, unit: '本' }, 砂糖: { qty: 2, unit: 'kg' } },
-      prices: { 牛乳: 200 }, snapshot: SNAP,
+      prices: { 牛乳: 200 },
+      snapshot: snapFor({ 牛乳: { qty: 3, unit: '本' }, 砂糖: { qty: 2, unit: 'kg' } }),
     })
     expect(res.ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines WHERE session_id = ?', SESS)).toHaveLength(2)
@@ -43,7 +56,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
     const h = setup()
     h.failBatchAt(2)   // UPDATE sessions → DELETE lines の次
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: makeInventory(40), prices: {}, snapshot: SNAP,
+      inventory: makeInventory(40), prices: {}, snapshot: snapFor(makeInventory(40)),
     })
     expect(res._status).toBe(503)
     expect(res.retryable).toBe(true)
@@ -54,7 +67,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
   it('失敗後に同じ要求を送り直せば完了する（再試行可能）', async () => {
     const h = setup()
     h.failBatchAt(2)
-    const body = { inventory: makeInventory(40), prices: {}, snapshot: SNAP }
+    const body = { inventory: makeInventory(40), prices: {}, snapshot: snapFor(makeInventory(40)) }
     expect((await handleSessionComplete(h.db, SHOP, SESS, body))._status).toBe(503)
     expect((await handleSessionComplete(h.db, SHOP, SESS, body)).ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(40)
@@ -62,23 +75,30 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
 
   it('同じ完了要求の再送で明細が重複しない（冪等）', async () => {
     const h = setup()
-    const body = { inventory: makeInventory(30), prices: {}, snapshot: SNAP }
+    const body = { inventory: makeInventory(30), prices: {}, snapshot: snapFor(makeInventory(30)) }
     await handleSessionComplete(h.db, SHOP, SESS, body)
     await handleSessionComplete(h.db, SHOP, SESS, body)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(30)
   })
 
-  it('品目が減った再送では前回ぶんが残らない', async () => {
+  // DATA-002 再レビュー §3: 確定できるのは最初の1要求だけ。
+  // 内容の違う再送は 409 で、確定済みの明細を書き換えない
+  // （旧契約では「貼り直して品目が減る」だったが、それは完了済みの上書きそのもの）。
+  it('品目が減った再送は 409 で、確定済みの明細を残す', async () => {
     const h = setup()
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(10), prices: {}, snapshot: SNAP })
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
-    expect(h.rows('SELECT item_name FROM inventory_lines').map(r => r.item_name)).toEqual(['牛乳'])
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(10), prices: {}, snapshot: snapFor(makeInventory(10)) })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snapFor({ 牛乳: { qty: 1 } }) })
+
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('completion_intent_conflict')
+    expect(h.rows('SELECT item_name FROM inventory_lines')).toHaveLength(10)
+    expect(h.rows('SELECT item_name FROM inventory_lines').some(r => r.item_name === '牛乳')).toBe(false)
   })
 
   it('他店舗のsessionIdでは存在有無を漏らさず404、明細も作らない', async () => {
     const h = setup()
     h.seedStore(OTHER)
-    const res = await handleSessionComplete(h.db, OTHER, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
+    const res = await handleSessionComplete(h.db, OTHER, SESS, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snapFor({ 牛乳: { qty: 1 } }) })
     expect(res._status).toBe(404)
     expect(res.error).toBe('セッションが見つかりません')
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
@@ -87,7 +107,7 @@ describe('棚卸完了 — 実SQLiteでの原子性と冪等性', () => {
   it('存在しないsessionIdも同じ404（IDの実在を区別させない）', async () => {
     const h = setup()
     const missing = '22222222-2222-4222-8222-222222222222'
-    const res = await handleSessionComplete(h.db, SHOP, missing, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: SNAP })
+    const res = await handleSessionComplete(h.db, SHOP, missing, { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snapFor({ 牛乳: { qty: 1 } }) })
     expect(res._status).toBe(404)
     expect(res.error).toBe('セッションが見つかりません')
   })
@@ -98,7 +118,7 @@ describe('数量の業務契約（DATA-001）', () => {
     ['NaN', NaN], ['Infinity', Infinity], ['-Infinity', -Infinity], ['文字列', 'あ'], ['負数', -1],
   ])('棚卸: %s の数量は400で拒否し、0へ丸めない', async (_label, qty) => {
     const h = setup()
-    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty } }, prices: {}, snapshot: SNAP })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty } }, prices: {}, snapshot: snapFor({ 牛乳: { qty } }) })
     expect(res._status).toBe(400)
     expect(res.code).toBe('invalid_qty')
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
@@ -107,7 +127,7 @@ describe('数量の業務契約（DATA-001）', () => {
 
   it('棚卸: 在庫0は正当な記録として保存する', async () => {
     const h = setup()
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 0 } }, prices: {}, snapshot: SNAP })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: { 牛乳: { qty: 0 } }, prices: {}, snapshot: snapFor({ 牛乳: { qty: 0 } }) })
     expect(h.rows('SELECT qty FROM inventory_lines')[0].qty).toBe(0)
   })
 
@@ -139,7 +159,7 @@ describe('数量の業務契約（DATA-001）', () => {
   it('上限を超える数量は拒否する', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS,
-      { inventory: { 牛乳: { qty: 1_000_001 } }, prices: {}, snapshot: SNAP })
+      { inventory: { 牛乳: { qty: 1_000_001 } }, prices: {}, snapshot: snapFor({ 牛乳: { qty: 1_000_001 } }) })
     expect(res._status).toBe(400)
   })
 })
@@ -239,7 +259,7 @@ describe('ID・日付・件数の検証', () => {
   it('棚卸も上限+1品目を413で拒否する', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS,
-      { inventory: makeInventory(MAX_LINES_PER_REQUEST + 1), prices: {}, snapshot: SNAP })
+      { inventory: makeInventory(MAX_LINES_PER_REQUEST + 1), prices: {}, snapshot: snapFor(makeInventory(MAX_LINES_PER_REQUEST + 1)) })
     expect(res._status).toBe(413)
   })
 })
@@ -257,7 +277,7 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
   it.each([0, 1, 150, 351, MAX_LINES_PER_REQUEST])('棚卸 %i 品目の batch は41文以内', async (n) => {
     const h = setup()
     const peek = countBatchStatements(h)
-    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(n), prices: {}, snapshot: SNAP })
+    await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(n), prices: {}, snapshot: snapFor(makeInventory(n)) })
     expect(peek()).toBeLessThanOrEqual(41)
   })
 
@@ -283,7 +303,7 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
 
   it('351品目（R-001の実データ規模）が欠けずに保存される', async () => {
     const h = setup()
-    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(351), prices: {}, snapshot: SNAP })
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: makeInventory(351), prices: {}, snapshot: snapFor(makeInventory(351)) })
     expect(res.ok).toBe(true)
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(351)
   })
@@ -297,7 +317,7 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
       const h = setup()
       h.resetCounters()
       const res = await handleSessionComplete(h.db, SHOP, SESS,
-        { inventory: makeInventory(n), prices: {}, snapshot: SNAP })
+        { inventory: makeInventory(n), prices: {}, snapshot: snapFor(makeInventory(n)) })
       expect(res.ok).toBe(true)
       const c = h.counters()
       expect(c.queries + AUTH_QUERIES).toBeLessThanOrEqual(D1_QUERIES_PER_INVOCATION_FREE)
@@ -377,7 +397,9 @@ describe('order / movement の削除を原子的にする', () => {
 })
 
 describe('snapshot を完了と同じトランザクションで書く（DATA-001 / F-001）', () => {
-  const snap = (sessionId, date) => ({ date, sessionId, items: [{ item: '牛乳', qty: 1 }], totalValue: 200 })
+  // inventory と一致する snapshot（DATA-002 §1）。既定は 牛乳 1 件。
+  const snap = (sessionId, date = undefined, inventory = { 牛乳: { qty: 1 } }) =>
+    snapFor(inventory, { sessionId, date })
 
   it('完了APIひとつで sessions・inventory_lines・store_history が揃う', async () => {
     const h = setup()
@@ -396,7 +418,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     const h = setup()
     h.failBatchAt(2)
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: makeInventory(30), prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: makeInventory(30), prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09', makeInventory(30)),
     })
     expect(res._status).toBe(503)
     expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
@@ -406,7 +428,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
 
   it('同じ完了要求の再送で snapshot が重複しない', async () => {
     const h = setup()
-    const body = { inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09') }
+    const body = { inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09') }
     await handleSessionComplete(h.db, SHOP, SESS, body)
     await handleSessionComplete(h.db, SHOP, SESS, body)
     expect(h.rows('SELECT * FROM store_history')).toHaveLength(1)
@@ -420,10 +442,10 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     ).run(SESS2, SHOP, '2026-08-09T09:00:00.000Z', 'active', 'stock')
 
     await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09'),
     })
     await handleSessionComplete(h.db, SHOP, SESS2, {
-      inventory: { 砂糖: { qty: 5 } }, prices: {}, snapshot: snap(SESS2, '2026-08-09'),
+      inventory: { 砂糖: { qty: 5 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS2, '2026-08-09', { 砂糖: { qty: 5 } }),
     })
 
     const rows = h.rows('SELECT session_id, snapshot_date FROM store_history ORDER BY id')
@@ -439,7 +461,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     const h = setup()
     await handleSessionComplete(h.db, SHOP, SESS, {
       inventory: { 牛乳: { qty: 1 } }, prices: {},
-      snapshot: snap('99999999-9999-4999-8999-999999999999', '2026-08-09'),
+      takenAt: '2026-08-09', snapshot: snap('99999999-9999-4999-8999-999999999999', '2026-08-09'),
     })
     expect(h.rows('SELECT session_id FROM store_history')[0].session_id).toBe(SESS)
   })
@@ -466,7 +488,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
   it('成功応答は snapshotSaved:true と server 側 revision を返す', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09'),
     })
     expect(res.snapshotSaved).toBe(true)
     expect(res.serverRevision).toBeGreaterThan(0)
@@ -481,7 +503,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
       h.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(SESS)
     })
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09'),
     })
     expect(res._status).toBe(404)
     expect(res.code).toBe('session_not_found')
@@ -496,7 +518,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
       h.sqlite.prepare('UPDATE sessions SET shop_code = ? WHERE id = ?').run(OTHER, SESS)
     })
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09'),
     })
     expect(res._status).toBe(404)
     expect(h.rows('SELECT * FROM store_history')).toHaveLength(0)
@@ -507,7 +529,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     const h = setup()
     h.failBatchAt(failIndex)
     const res = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: makeInventory(25), prices: {}, snapshot: snap(SESS, '2026-08-09'),
+      inventory: makeInventory(25), prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09', makeInventory(25)),
     })
     expect(res._status).toBe(503)
     expect(res.retryable).toBe(true)
@@ -525,7 +547,7 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
     expect(bad).toMatchObject({ _status: 400, code: 'invalid_date' })
 
     const badSnapDate = await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {}, snapshot: snap(SESS, '2026-02-30'),
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-02-30', snapshot: snap(SESS, '2026-02-30'),
     })
     expect(badSnapDate).toMatchObject({ _status: 400, code: 'invalid_date' })
     expect(h.rows('SELECT * FROM inventory_lines')).toHaveLength(0)
@@ -533,14 +555,19 @@ describe('snapshot を完了と同じトランザクションで書く（DATA-00
 })
 
 describe('履歴の server revision（第2セッション §2）', () => {
-  const snap = (sessionId, date = '2026-08-09') => ({ date, sessionId, items: [{ item: '牛乳', qty: 1 }] })
+  // inventory と一致する snapshot（DATA-002 §1）。既定は 牛乳 1 件。
+  const snap = (sessionId, date = undefined, inventory = { 牛乳: { qty: 1 } }) =>
+    snapFor(inventory, { sessionId, date })
 
+  // 同じ session を内容を変えて完了し直すことは DATA-002 再レビュー §3 で禁止された。
+  // 同一行の upsert ごとに revision が増えることは、訂正経路（POST /history）で確認する。
   it('同じ session の upsert ごとに revision が増える', async () => {
     const h = setup()
+    const { handleHistoryPost } = await import('../src/storeHandler.js')
     const revisions = []
     for (let i = 0; i < 3; i++) {
-      const res = await handleSessionComplete(h.db, SHOP, SESS, {
-        inventory: { 牛乳: { qty: i + 1 } }, prices: {}, snapshot: snap(SESS),
+      const res = await handleHistoryPost(h.db, SHOP, {
+        date: '2026-08-09', sessionId: SESS, items: [{ item: '牛乳', qty: i + 1 }],
       })
       revisions.push(res.serverRevision)
     }
@@ -581,8 +608,8 @@ describe('履歴の server revision（第2セッション §2）', () => {
       "INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, 'active', 0, 'stock')"
     ).run(SESS2, SHOP, '2026-08-10T09:00:00.000Z')
 
-    const a = await handleSessionComplete(h.db, SHOP, SESS,  { inventory: { A: { qty: 1 } }, prices: {}, snapshot: snap(SESS) })
-    const b = await handleSessionComplete(h.db, SHOP, SESS2, { inventory: { B: { qty: 1 } }, prices: {}, snapshot: snap(SESS2, '2026-08-10') })
+    const a = await handleSessionComplete(h.db, SHOP, SESS,  { inventory: { A: { qty: 1 } }, prices: {}, takenAt: '2026-08-09', snapshot: snap(SESS, '2026-08-09', { A: { qty: 1 } }) })
+    const b = await handleSessionComplete(h.db, SHOP, SESS2, { inventory: { B: { qty: 1 } }, prices: {}, takenAt: '2026-08-10', snapshot: snap(SESS2, '2026-08-10', { B: { qty: 1 } }) })
     expect(b.serverRevision).toBeGreaterThan(a.serverRevision)
 
     const rows = h.rows('SELECT session_id, revision FROM store_history ORDER BY revision')
@@ -599,8 +626,8 @@ describe('履歴の削除は同日の別セッションを巻き込まない', (
     ).run(SESS2, SHOP, '2026-08-09T09:00:00.000Z', 'active', 'stock')
     for (const id of [SESS, SESS2]) {
       await handleSessionComplete(h.db, SHOP, id, {
-        inventory: { 牛乳: { qty: 1 } }, prices: {},
-        snapshot: { date: '2026-08-09', sessionId: id, items: [] },
+        inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-08-09',
+        snapshot: snapFor({ 牛乳: { qty: 1 } }, { sessionId: id, date: '2026-08-09' }),
       })
     }
     const { handleHistoryDelete } = await import('../src/storeHandler.js')
@@ -613,8 +640,8 @@ describe('履歴の削除は同日の別セッションを巻き込まない', (
     const { handleHistoryPost, handleHistoryDelete } = await import('../src/storeHandler.js')
     await handleHistoryPost(h.db, SHOP, { date: '2026-07-07', items: [] })          // legacy（過去取込）
     await handleSessionComplete(h.db, SHOP, SESS, {
-      inventory: { 牛乳: { qty: 1 } }, prices: {},
-      snapshot: { date: '2026-07-07', sessionId: SESS, items: [] },
+      inventory: { 牛乳: { qty: 1 } }, prices: {}, takenAt: '2026-07-07',
+      snapshot: snapFor({ 牛乳: { qty: 1 } }, { sessionId: SESS, date: '2026-07-07' }),
     })
     expect(h.rows('SELECT * FROM store_history')).toHaveLength(2)
 

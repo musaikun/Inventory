@@ -5,7 +5,7 @@
 | **Status** | 現行W1 API baseline（known gapを併記） |
 | **Role** | Web Free版で実装済みのHTTP/WebSocket境界を一覧化する派生仕様 |
 | **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
-| **Last verified** | 2026-08-04 / `develop@bc9fb85` |
+| **Last verified** | 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq`（migration 0016 まで・本番未適用） |
 
 実装と矛盾する場合は上記code/migrationを優先します。account削除の詳細は
 [account deletion contract](quality-foundation/account-deletion-contract.md)、公開可否は
@@ -45,25 +45,26 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard | soft |
 | `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは1 MB（UTF-8 byte）guard | soft |
 | `GET/POST /store/:code/history` | GETは新しい順50件で各行に`serverRevision` / `serverSavedAt`を含む。POSTは`{ok,sessionId,date,serverRevision,serverSavedAt}`。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012）。revisionは保存のたびに`shop_code`内の最大値+1（migration 0014） | soft |
-| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft |
+| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。sessionId指定では**対応する取込台帳の行も同じbatchで消す**（削除済み取込をreplayが「保存済み」と誤回答しないため）。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft |
 | `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
 | `GET/POST /store/:code/orders` | `sinceDays`は1〜1000日、default 400。header + lines | soft |
 | `DELETE /store/:code/orders/:id` | header/linesを1 batchで削除。不在/他storeは404 `order_not_found`、rollbackは503 `order_delete_failed`（retryable） | soft |
 | `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。`type`は`in` / `out`必須（不正値は400 `invalid_type`）、`orderId`の形式不正も400。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
 | `DELETE /store/:code/movements/:id` | header/linesを1 batchで削除。不在/他storeは404 `movement_not_found`、rollbackは503 `movement_delete_failed`（retryable）。**HTTP statusで返す**（旧実装は常に200） | soft |
-| `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成 | strict同store Bearer |
-| `PUT/DELETE /store/:code/sessions/:uuid` | status/itemCount更新または削除 | strict同store Bearer |
-| `POST /store/:code/sessions/:uuid/complete` | `{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。**snapshotは必須**（無ければ400 `snapshot_required`）。sessions / `inventory_lines` / `store_history` を1 batchで書き、snapshotは`sessions`を参照する`INSERT ... SELECT`なので孤児を作らない | strict同store Bearer |
+| `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成。**不正な`type`はHTTP 400 `invalid_type`**（旧実装はrouterが200で包み直していた）。省略時のdefaultは`stock` | strict同store Bearer |
+| `PUT/DELETE /store/:code/sessions/:uuid` | PUTは`active` / `incomplete`への更新だけ。**`completed`への遷移はこのAPIでは行わない**（409 `use_complete_endpoint`・書込み0件）。`completed`からの巻き戻しも409 `session_completed`。`completed`→`completed`は何も変えず冪等に200。不在/他storeは404。DELETEはsession・明細・snapshot・取込台帳・完了claimを1 batchで消す | strict同store Bearer |
+| `POST /store/:code/sessions/:uuid/complete` | **`sessions.type`で契約が分かれる**（下記「§3.1 棚卸完了API」）。`stock`は`{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,type:'stock',date,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。`order`は`{ itemCount }` → `{ok,sessionId,type:'order',itemCount,snapshotSaved:false}`で`store_history`を書かない。**確定できるのは最初の1要求だけ**。同一intentの再送は保存済み結果（`replay:true`）、内容の違う再送は409 `completion_intent_conflict`。intentの同一性は**保存するcanonical snapshot全体**（`savedAt` / `activeMs`を除く）で判定する。棚卸日は`takenAt`ひとつで決まり、`snapshot.date`が違えば400 `snapshot_date_mismatch` | strict同store Bearer |
 | `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
-| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
-| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionだけを消し、通常の棚卸（NULL）と別バッチには触れない。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
+| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
+| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
 GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
 `source` / `importBatchId`は現行API/schemaへ保存されません（**過去棚卸取込の`importBatchId`は
 migration 0013 で `sessions.import_batch_id` として保存されます**。両者は別物）。
-本番D1は0010・0011・0012・0013が未適用です。
+本番D1は0010〜0016が未適用です（適用順・rollback可否・切替境界は
+[Web公開準備](quality-foundation/web-release-readiness.md)の「公開手順」を正とします）。
 
 ### Room / utility
 
@@ -96,8 +97,8 @@ PLAY-003 / WEB-001で未決です。
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
 | [DATA-001](quality-foundation/tasks/DATA-001.md) | order/movement header-lines、棚卸完了writeの原子性とfield/array上限 |
 | [DATA-002](quality-foundation/tasks/DATA-002.md) | Phase 1（`GET /store/:code/sessions/:id/lines`）と Phase 2 は実装済み。history同日上書き（F-001）は migration 0012 の session 単位キー化で解消。孤児（F-004）・データ源二重（F-003）・`LIMIT 50`（F-002）は Phase 3 で公開後 |
-| [IMPORT-001](quality-foundation/tasks/IMPORT-001.md) | 過去棚卸取込API（`/imports/:batchId/*`）は実装済み・**migration 0013 は未適用**。実D1での確認は release gate（`WEB-04` / `WEB-07`）に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010/0011、Free server limits、E2E/smoke |
+| [IMPORT-001](quality-foundation/tasks/IMPORT-001.md) | 過去棚卸取込API（`/imports/:batchId/*`）は実装済み・**migration 0013 / 0015 / 0016 は未適用**。実D1での確認は release gate（`WEB-04` / `WEB-07`）に残る |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010〜0016のmigration、Free server limits、E2E/smoke |
 
 ### 将来A1（現行APIではない）
 
@@ -210,9 +211,9 @@ D1 データベース                               ← データを取る
 |---|---|---|---|---|
 | GET | `/store/:code/sessions` | — | `[ session, ... ]`（最新50件） | Bearer |
 | POST | `/store/:code/sessions` | `{ type? }`（`stock` / `order`） | `{ id, shopCode, startedAt, status, itemCount, type }` / 400 | Bearer |
-| PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }`（itemCountは0以上の整数のみ） | `{ ok: true }` / 400 | Bearer |
+| PUT | `/store/:code/sessions/:id` | `{ status, itemCount? }`（`active` / `incomplete` のみ。itemCountは0以上の整数） | `{ ok: true }` / 400 / 404 / 409 `use_complete_endpoint` / 409 `session_completed` | Bearer |
 | DELETE | `/store/:code/sessions/:id` | — | `{ ok: true }` | Bearer |
-| POST | `/store/:code/sessions/:id/complete` | `{ inventory, prices, takenAt?, snapshot }` | `{ ok, sessionId, itemCount, totalValue, snapshotSaved, serverRevision, serverSavedAt }` / 400 / 404 / 503 | Bearer（§3.1 の実装・✅済み） |
+| POST | `/store/:code/sessions/:id/complete` | stock: `{ inventory, prices, takenAt?, snapshot }` ／ order: `{ itemCount }` | stock: `{ ok, sessionId, type, date, itemCount, totalValue, snapshotSaved:true, serverRevision, serverSavedAt }` ／ order: `{ ok, sessionId, type, itemCount, snapshotSaved:false }` / 400 / 404 / 409 / 503 | Bearer（§3.1 の実装・✅済み） |
 | GET | `/store/:code/sessions/:id/lines` | — | `{ sessionId, date, startedAt, endedAt, status, type, itemCount, totalValue, truncated, lines[] }` / 404 | Bearer（DATA-002 Phase 1・✅済み） |
 
 ### 1.3.1 過去棚卸の取込API（`pastImport.js`・要認証 / IMPORT-001）
@@ -242,9 +243,66 @@ D1 データベース                               ← データを取る
   **同じ店舗・同じ日付・`completed`・`stock`** の4つで、1件でも外れたら `409 replace_not_allowed`
   （`reason` = `not_found` / `date_mismatch` / `not_completed` / `not_stock`）で**全体を拒否し、何も削除しません**。
   他storeのIDと存在しないIDは同じ `not_found` にして実在を漏らしません。
-  削除は件数によらず3文（`inventory_lines` / `store_history` / `sessions`）へ `IN` で集約するため、
-  上限50件でも statement 数は増えません。
+  削除は件数によらず**5文**（`inventory_lines` / `store_history` / `session_completions` /
+  `import_batch_requests` / `sessions`）へ `IN` で集約するため、上限50件でも statement 数は増えません。
+  **セッションに属するものを全部消します**。旧実装は前3つしか消しておらず、
+  通常棚卸を置換すると旧 `session_completions` が孤児として残り、取込済みを別バッチで置換すると
+  旧 `import_batch_requests` が残って旧バッチの再送が `import_record_missing` になっていました。
+  session 本体より先に関連 claim・台帳を消し、作成中の新しい台帳行（`session_id` が新セッション）は
+  対象になりません。
+- **上書き許可の判定は文中の原子guardが持ちます**（DATA-002 §3 / §4）。preflight の SELECT は
+  理由つき409を返すためだけのもので、削除権限の根拠にしません。SELECT と DELETE の間に対象が
+  `active` へ戻る隙間があり、そこで入力中の棚卸を消せていました。
+  「条件つきDELETEをcommitしてから `changes` を見る」方式も、DELETE 自体が成立してしまうため採りません。
+
+  現在の構造は「台帳への claim → 以降の全文が claim に従属」です。
+
+  1. **台帳 INSERT が唯一の判定点**。「指定IDのうち 同店舗・同日・`completed`・`stock` を
+     満たすものが**ちょうどN件**」という件数条件を、この1文だけが評価します。
+     PRIMARY KEY `(shop_code, batch_id, import_date)` により、1トランザクションで
+     claim を取れるのは1要求だけです。
+  2. session作成・明細・snapshot・上書き削除は、**自分の fingerprint の台帳行が存在すること**に
+     従属します。claim を取れなかった側は1行も書けません。
+
+  所有権 marker に**時刻を使いません**。以前は `sessions.ended_at = <この要求の時刻>` を
+  印にしていましたが、ミリ秒精度の時刻は排他的 token にならず、同じミリ秒に届いた別内容の
+  要求が同じ marker を満たします。409 を返した側の明細・snapshot だけが残る経路がありました。
+  server 生成の fingerprint を持つ台帳行なら、同一ミリ秒でも勝者が一意に決まります。
+- **応答喪失からの再送**（migration 0015）: 要求台帳 `import_batch_requests` に
+  `(shop_code, batch_id, import_date)` をキーとして「日付・明細・上書き対象集合」の
+  SHA-256 指紋を残します。まったく同じ要求の再送は、**上書き対象が既に削除済みでも**
+  同じ成功結果を返します（`replay: true`）。同じ `batchId` + 同じ日付で内容が違う要求は
+  `409 import_intent_conflict` で拒否し、既存の取込を黙って書き換えません。
+  同じ `batchId` の**別日付**は設計上の別要求単位なので通ります。
+  台帳の INSERT は取込本体と同じ batch にあり、並行した同一要求は PRIMARY KEY で
+  片方が巻き戻ってから台帳を読み直し、同じ成功へ収束します。
+  取消は台帳行も消すため、取り消したバッチは同じ内容で取り込み直せます。
+- **stale な台帳で嘘をつきません**（DATA-002 再レビュー §5）。replay 成功には、台帳の一致に加えて
+  **対応する session と `store_history` が今も存在すること**を要求します。どちらかが無ければ
+  `409 import_record_missing` で fail-closed にし、`snapshotSaved: true` を返しません。
+  合わせて、`DELETE /sessions/:id` と `DELETE /history/:sessionId` が対応する台帳行を
+  同じトランザクションで消すため、この状態は通常操作では発生しません
+  （復旧経路は `DELETE /imports/:batchId` → 再取込）。
+- **台帳を持たない既存取込は、別内容で黙って上書きできません**（`409 legacy_import_unverified`）。
+  0015 適用前に旧Workerが書いたバッチや、`DELETE /history/:sessionId` で台帳だけが消えた状態が該当します。
+  台帳が無いと「前回と同じ要求か」を判定する材料が無く、明細から fingerprint を再計算しても
+  当時の要求と同一である保証がありません。推測で replay 成功にすると取り込み済みの内容を
+  黙って差し替えることになるため、fail-closed にします。
+  取り込み直すには `DELETE /imports/:batchId` で**明示的に取り消して**から再取込します。
+  同じバッチの**別日付**は影響を受けません。
 - **取消**: `import_batch_id` の一致だけを条件に消すため、別バッチと通常の棚卸は残ります。
+  対象取得の SELECT を削除と**同じ `db.batch`（=1トランザクション）の先頭**へ置いているので、
+  SELECT と削除の間に同じバッチの取込が確定しても、応答の件数・IDが実際に消した対象とずれません。
+  batch は 6 文（SELECT 1 + 削除 5）です。
+- **D1実行上限の実測**（実SQLiteハーネス・batch 内 statement も1本ずつ計上／2026-08-17）:
+
+  | 経路 | queries | 最大 bound parameter |
+  |---|---:|---:|
+  | 取込 500行 / replace 0件 | 34 | 99 |
+  | 取込 500行 / replace 50件（上限） | 40 | 99 |
+  | 取込の取消 | 6 | 3 |
+
+  いずれも認証2本を足しても Free の 50 / bound parameter 100 に収まります。
 - **検証**: 日付は実在日（`2026-02-30` は拒否）、`items` は `MAX_LINES_PER_REQUEST`（500）まで、
   `replaceSessionIds` は `MAX_REPLACE_SESSIONS`（50）まで、
   数量は棚卸と同じ契約（`0` は正当・負数と非有限は拒否・`0` へ丸めない）、
@@ -312,34 +370,135 @@ APIから見るとどう変わるかを設計する。
 
 R2 は未導入のため、生スナップショットは D1 `store_history` へ同じ batch で書きます（現行の実装）。
 
+**契約は `sessions.type` で分かれます**（DATA-002 第1修正セッション §1）。
+種別を見ずに「snapshot 必須」を全経路へ課していたため、在庫入力を伴わない
+発注セッションは完了できませんでした。
+
+#### stock（棚卸）
+
 ```
-POST /store/:code/sessions/:id/complete        （要認証）
+POST /store/:code/sessions/:id/complete        （要認証・type=stock）
 
 リクエスト:
 {
   inventory: { "コーヒー豆": { qty: 5, unit: "kg" }, ... },
   prices:    { "コーヒー豆": 2000, ... },
   takenAt:   "2026-08-11",           // 省略時は当日。実在日でなければ 400
-  snapshot:  { date, items[], ... }  // **必須**。無ければ 400 snapshot_required
+  snapshot:  { items[], ... }        // **必須**。無ければ 400 snapshot_required
+                                     // date を入れる場合は takenAt と一致が必要
 }
 
 サーバー側の処理（1 db.batch = 1トランザクション）:
-  1. UPDATE sessions … status='completed', ended_at, item_count, total_value
-  2. DELETE + INSERT inventory_lines（複数行を1文へまとめる。持ち主は sessions への JOIN で確認）
-  3. INSERT INTO store_history … SELECT … FROM sessions WHERE id=? AND shop_code=?
+  1. INSERT INTO session_completions …（**claim**。status <> 'completed' が条件）
+  2. UPDATE sessions … status='completed', ended_at, item_count, total_value
+  3. DELETE + INSERT inventory_lines（複数行を1文へまとめる。持ち主は sessions への JOIN で確認）
+  4. INSERT INTO store_history … SELECT … FROM sessions WHERE id=? AND shop_code=?
      （sessions を参照するので、直前にセッションが消えても snapshot だけが残らない）
+  5. SELECT revision, updated_at FROM store_history …（**同じ batch 内**で読み戻す）
+
+  2〜4 はすべて「自分の fingerprint の claim 行が存在すること」に従属します。
 
 レスポンス:
-{ ok: true, sessionId, itemCount, totalValue, snapshotSaved: true, serverRevision, serverSavedAt }
+{ ok: true, sessionId, type: 'stock', date, itemCount, totalValue,
+  snapshotSaved: true, serverRevision, serverSavedAt }
 ```
+
+- **棚卸日は `takenAt` ひとつで決まります**（DATA-002 再レビュー §2）。
+  `snapshot.date` を送る場合は `takenAt` と一致していなければ **400 `snapshot_date_mismatch`**
+  （書込み0件）。省略時は `takenAt` を使います。旧実装は両方を別々に受理していたため、
+  `inventory_lines.taken_at = 08-09` と `store_history.snapshot_date = 08-10` という
+  分裂した記録を保存できました。保存後は session / lines / history / snapshot JSON /
+  一覧 / 詳細のすべてで同じ日付になります。
+- **確定できるのは最初の1要求だけです**（DATA-002 再レビュー §3）。
+  確定内容は `session_completions`（migration 0016）へ fingerprint として残ります。
+  - まったく同じ intent の再送 → 保存済みの結果を返す（`replay: true`）
+  - 数量・単価・日付・明細・件数・合計が違う再送 → **409 `completion_intent_conflict`**。
+    既存の lines / snapshot / itemCount / totalValue / endedAt / revision は変更しません。
+  - fingerprint は **server が検証・正規化した値だけ**から作ります。対象は
+    「保存する canonical snapshot **そのもの**」から下の除外鍵を落としたもの＋種別・日付・件数・合計・明細行です。
+    client が送る fingerprint は受け取りません。
+    - **除外するのは `savedAt` と `activeMs` の2つだけ**。`savedAt` は server 時刻で毎回変わり、
+      `activeMs` は同じ画面から再試行するたびに増えるため、含めると正当な再送が 409 になります。
+    - それ以外（`items` の全列 = 数量・単位・単価・小計に加え `code` / `flagged` / `category` /
+      `lotSize` / `prevMonth` / `tagA` / `tagB`、および `entryLog` / `auditLog` / `participants` /
+      `flaggedItems` / `axisNames` / `locked`）は**すべて含めます**。
+      保存対象なのに指紋から漏れていると、その項目だけを変えた再送が replay 成功になり、
+      **サーバーは旧内容・端末は新内容**という食い違いを作ります。
+  - 勝者判定に **timestamp を使いません**。claim の PRIMARY KEY と fingerprint が
+    排他 token なので、同一ミリ秒に届いた2要求でも片方だけが確定し、混合状態になりません。
+  - **0016 適用前に完了した session** は claim 行を持たないため、同じ内容の再送でも
+    `409 completion_intent_conflict`（`reason: already_completed`）で fail-closed にします。
+    保存済みデータは無傷で、詳細APIから内容を確認できます。
+  - claim はあるのに `store_history` が消えている場合は `409 completion_record_missing`。
+    `snapshotSaved: true` を返しません。
 
 - **snapshot 必須**（第2セッション §1）。明細だけ書いて表示用 snapshot が無い状態が R-001 そのもので、
   完了要求に載せさせることで3テーブルを必ず同時に揃えます。
+- **保存する snapshot は server が canonical 化します**（DATA-002 §1）。
+  `sessionId` / `date` / `type` / `items` / `itemCount` / `totalValue` / `savedAt` は
+  **client 値を採らず**、検証済みの `inventory` 行から組み立てます。
+  client が偽った件数・合計・sessionId は履歴に残りません。
+  - 数量・単位・単価・小計は明細行の値で**上書き**します（正規化）。
+  - `qty` を持つ品目の集合が明細行と一致しない場合は保存せず **400 `snapshot_mismatch`**。
+    多い＝サーバーに明細が無いものを「入力済み」と主張、少ない＝明細が履歴から欠ける。
+    どちらも「一覧と詳細が食い違う」状態になります。
+  - `qty: null`（棚卸で数えなかった品目）は表示のためそのまま残します。
+  - 任意 metadata は allowlist のみ:
+    `entryLog` / `auditLog`（各500件まで）、`participants`（50件まで）、`flaggedItems`、
+    `activeMs`、`axisNames`、`locked`。それ以外の鍵（`dirty` / `synced` / `serverRevision` など）は捨てます。
+- **inventory 0件の完了は 400 `empty_inventory`**。明細も items も無い「完了」は、
+  一覧に出るのに詳細が空という R-001 そのものになるため、公開契約として拒否します。
 - **孤児を作らない**: 事前の存在確認と batch の間にセッションが消える／他店舗のものになる競合でも、
   UPDATE が0行になり、`inventory_lines` と `store_history` も存在条件で0行になります。応答は404。
 - **冪等**: 同じ `sessionId` へ同じ payload を再送しても、明細を貼り直し snapshot を上書きするだけです。
 - **新旧判定**: `serverRevision` は `store_history` 保存のたびに `shop_code` 内の最大値+1 で採番されます。
   client の `updatedAt` / `savedAt`（端末時計）はサーバー側の判定に使いません。
+- **revision は自分の write の値だけを返します**。読み戻しの SELECT を書き込みと同じ
+  `db.batch()`（=1トランザクション）へ入れているため、batch の外で別要求が保存しても
+  その revision が混ざりません。読み戻せない場合は `serverRevision: null` で成功させず、
+  書込みごと巻き戻して 503 `complete_failed`（`retryable: true`）を返します。
+
+#### order（発注確認）
+
+```
+POST /store/:code/sessions/:id/complete        （要認証・type=order）
+
+リクエスト:
+{ itemCount: 12 }                    // 発注行の件数。0〜500
+
+レスポンス:
+{ ok: true, sessionId, type: 'order', itemCount, snapshotSaved: false }
+```
+
+- **`store_history` も `inventory_lines` も書きません。** 発注の正本は `orders` / `order_lines`
+  （`POST /store/:code/orders`）で、App の完了一覧も `type === 'order'` を除外しています。
+  架空の marker snapshot を作ると、履歴・カレンダー・分析に発注が棚卸として現れます。
+- `snapshot` または空でない `inventory` を送ると **400 `snapshot_not_allowed`**。
+  「発注なのに棚卸の snapshot を作ってしまう」経路を API 側で塞ぎます。
+- 一覧の `itemCount` は **client 値（検証済み）** を採ります。発注明細は別経路・別タイミングで
+  冪等に書かれるため、完了を `order_lines` の到着に依存させると、未送信キューが残っている間だけ
+  発注を完了できなくなります。detail の正本は `orders` 側です。
+- 状態確定は単一 UPDATE（=原子的）。同じ要求の再送は冪等です。
+
+#### 状態遷移（stock / order 共通）
+
+`PUT /store/:code/sessions/:id` は **`active` / `incomplete` への更新だけ**を扱います。
+
+- `completed` への遷移は **このAPIでは行いません**（409 `use_complete_endpoint`・書込み0件）。
+  汎用PUTで completed にできると、`inventory_lines` も `store_history` も持たない
+  completed session を作れてしまいます（＝一覧には出るのに詳細が空。R-001 そのもの）。
+  完了は必ず `POST /sessions/:id/complete` を通します。
+- 既に `completed` の session へ `completed` を送った場合は、**何も変更せず**冪等に 200。
+- `completed` → `active` / `incomplete` は 409 `session_completed`。
+  完了応答を取りこぼした端末は保留していた `touch()` をそのまま送ってくるため、
+  旧実装はそれを適用して `status='active'` / `ended_at=NULL` / `item_count=<入力途中>` に
+  巻き戻していました。`inventory_lines` と `store_history` は残るのに一覧だけ進行中へ戻るため、
+  完了済みの詳細へ到達できなくなります。
+- 不在・他店舗は 404（IDの実在を漏らしません）。
+
+`DELETE /store/:code/sessions/:id` は session 行だけでなく、
+`inventory_lines` / `store_history` / 取込台帳 / 完了 claim を**1 batch でまとめて**消します。
+旧実装は session 行だけを消しており、孤児（F-004）と stale な台帳を残していました。
 
 ### 3.2 履歴詳細API（新設・R2から取得）
 

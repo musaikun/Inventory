@@ -53,10 +53,22 @@ export const D1_BATCH_STATEMENTS_COUNT_INDIVIDUALLY = true
 // 実測ではなくコード上の本数。経路を増やしたらここも増やす。
 //
 // 経路ごとの実際の合計は batch の大きさで決まるため、この定数だけでは足りない。
-// 履歴を書く経路（棚卸完了・過去取込）は revision 読み戻しでもう1本使うが、
-// その batch は最大でも 30〜33 文なので合計は 50 を大きく下回る。
-// 最悪ケースは order_lines（1文13行 → 500行で 41 文）で、そこには読み戻しが無い。
-// 実際の合計本数は writeAtomicity.sqlite.test.js の queryCount で経路ごとに固定する。
+// 実際の合計本数は writeAtomicity.sqlite.test.js / ledgerLifecycle.sqlite.test.js の
+// counters で経路ごとに固定する。
+//
+// 実測（実SQLiteハーネス・batch 内 statement も1本ずつ計上／2026-08-17）:
+//
+//   | 経路                              | queries | maxBoundParams |
+//   |-----------------------------------|--------:|---------------:|
+//   | 棚卸完了 1品目                     |       9 |              9 |
+//   | 棚卸完了 150品目                   |      16 |             99 |
+//   | 棚卸完了 351品目（R-001の実データ） |      27 |             99 |
+//   | 棚卸完了 500品目（上限）           |      35 |             99 |
+//   | 過去取込 500行 / replace 0件        |      34 |             99 |
+//   | 過去取込 500行 / replace 50件（上限）|      40 |             99 |
+//   | 取込の取消                         |       6 |              3 |
+//
+// いずれも認証2本を足しても Free の 50 に収まる。
 export const D1_QUERIES_OVERHEAD_PER_REQUEST = 3
 
 // 明細 batch へ割り当てられる statement 数。Free の 50 から overhead を引き、
@@ -77,7 +89,11 @@ export function rowsPerStatement(perRow, fixed) {
 
 // 各明細テーブルのまとめ行数。JOIN 元（sessions / orders / movements）で持ち主を確認するため、
 // 文ごとの固定パラメータに id と shop_code を含む。
-export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 3)   // item,qty,unit,price,value ／ takenAt,id,shop = 19
+//
+// inventory_lines は加えて「この要求が勝者である」claim へ従属する（DATA-002 §3 / §4）。
+// claim は `sessions s` と相関する EXISTS なので、増える bound parameter は fingerprint の1個だけ:
+//   takenAt(1) + id(1) + shop(1) + fingerprint(1) = 4
+export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 4)   // item,qty,unit,price,value ／ takenAt,id,shop,claim = 19
 export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 4)   // item,qty,unit,stock,lot,post,excluded ／ date,createdAt,id,shop = 13
 export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty,unit ／ date,createdAt,id,shop = 32
 
@@ -93,10 +109,37 @@ export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty
 export const MAX_LINES_PER_REQUEST = 500
 
 // 過去棚卸取込で1リクエストに指定できる「上書き対象セッション」の上限。
-// 削除は3文（inventory_lines / store_history / sessions）へ IN 句で集約するので、
-// 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる:
-//   IN 句 50個 + shop_code 1個 + 日付など数個 ≦ D1_MAX_BOUND_PARAMS(100)
+// 削除は5文（inventory_lines / store_history / session_completions /
+// import_batch_requests / sessions）へ IN 句で集約するので、
+// 件数が増えても statement 数は変わらない。上限は bound parameter 側で決まる。
+//
+// 2026-08-16: 削除の権限判定を preflight SELECT から**文中の原子 guard**へ移した
+// （DATA-002 §3 / TOCTOU）。当初の guard は同じ ID 一覧をもう一度 IN 句で参照したため
+// 1文あたり 2N + 4 となり、上限を 40 まで下げていた。
+//
+// 2026-08-17: guard を**取込台帳（claim）への従属**へ置き換えた（DATA-002 再レビュー §4）。
+// 件数条件を評価するのは台帳 INSERT の1文だけで、以降の文は
+// 「自分の fingerprint の台帳行が存在するか」だけを見る。ID 一覧の二重参照が無くなり、
+// 1文あたりの bound parameter は次のとおり:
+//   台帳 INSERT   : 値9 + 件数guard(shop 1 + IN N + date 1 + count 1) = N + 12
+//   replace DELETE: shop(1) + IN(N) + 台帳EXISTS(4)                    = N + 5
+// N = 50 でも 62 / 55 で D1_MAX_BOUND_PARAMS(100) に収まるため、50 へ戻す。
+// 超過は書き込み前に 400 invalid_replace で拒否する。
+//
+// 上書き削除は件数によらず **5文**へ集約する（inventory_lines / store_history /
+// session_completions / import_batch_requests / sessions）。セッションに属するものを
+// 全部消さないと、旧 claim・旧台帳が孤児として残る（DATA-002 再レビュー HIGH）。
+// 1件5文だと 50 件で 250 文になり、Free の invocation 上限を1リクエストで超える。
 export const MAX_REPLACE_SESSIONS = 50
+
+// ── 完了 snapshot の metadata 上限（DATA-002 §1）──────────────────────────────
+// snapshot の主要項目（items / itemCount / totalValue / date / sessionId / type）は
+// server が検証済み inventory rows から canonical 化する。それ以外の任意 metadata は
+// allowlist した鍵だけを、下の件数上限まで受け付ける。
+// MAX_PAYLOAD_BYTES だけでは「短い要素を大量に並べる」形を止められないため件数でも縛る。
+export const MAX_SNAPSHOT_ITEMS        = 2_000   // 未入力ぶんを含む表示用 items
+export const MAX_SNAPSHOT_LOG_ENTRIES  = 500     // entryLog / auditLog
+export const MAX_SNAPSHOT_PARTICIPANTS = 50      // 参加者別集計（MAX_PARTICIPANTS 20 の余裕分）
 
 // ── 完了後ゲスト閲覧（result エンドポイントの有効期間）────────────────────────
 export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CORRECTION_DAYS と一致）

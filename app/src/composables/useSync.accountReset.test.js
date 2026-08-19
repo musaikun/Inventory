@@ -37,6 +37,25 @@ afterEach(() => {
 })
 
 describe('useSync: account境界の強制reset', () => {
+  it('CONNECTING中のsocketも閉じ、遅延openで旧店舗へjoinしない', async () => {
+    vi.resetModules()
+    const sync = await import('./useSync.js')
+    const api = sync.useSync()
+    const pending = api.joinRoom('ROOMBB')
+    const rejected = expect(pending).rejects.toThrow('接続が切れました')
+    const ws = MockWebSocket.instances[0]
+    expect(ws.readyState).toBe(MockWebSocket.CONNECTING)
+
+    sync.resetAccountData()
+    await rejected
+    ws.open()
+
+    expect(ws.sent).toEqual([])
+    expect(api.state.mode).toBe('idle')
+    expect(api.state.roomCode).toBeNull()
+    expect(api.state.isConnected).toBe(false)
+  })
+
   it('接続・同期data・保存sessionを消し、再接続しない', async () => {
     vi.resetModules()
     const sync = await import('./useSync.js')

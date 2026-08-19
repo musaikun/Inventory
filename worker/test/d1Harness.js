@@ -59,8 +59,14 @@ export function createD1() {
       },
       async run() {
         queries++
+        // D1 の batch() は SELECT も受け付け、その位置の D1Result に results を返す
+        // （公式: 戻り値は prepare した順の D1Result 配列）。読み戻しを同じ batch へ
+        // 入れる経路（revision 確定）を実SQLiteで検証できるよう、ここでも再現する。
+        if (/^\s*(SELECT|WITH)\b/i.test(sql)) {
+          return { success: true, results: sqlite.prepare(sql).all(...values), meta: { changes: 0 } }
+        }
         const r = sqlite.prepare(sql).run(...values)
-        return { success: true, meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }
+        return { success: true, results: [], meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }
       },
       /** bind した値の個数（bound parameter 上限の検証用） */
       boundParams() { return values.length },
@@ -68,7 +74,20 @@ export function createD1() {
     return stmt
   }
 
-  async function batch(statements) {
+  // D1 は1データベースあたり書き込みを直列化し、batch は
+  // 「execute and commit, sequentially, non-concurrently」（公式）。
+  // ここでも batch 同士を直列化する。並行要求のテストで2つの BEGIN が入れ子にならず、
+  // 「先に確定した側が勝つ」という実際の順序をそのまま再現できる。
+  let batchLock = Promise.resolve()
+
+  function batch(statements) {
+    const run = batchLock.then(() => _batch(statements), () => _batch(statements))
+    // lock 自体は失敗を伝播させない（次の batch は前の失敗に関係なく走る）
+    batchLock = run.then(() => {}, () => {})
+    return run
+  }
+
+  async function _batch(statements) {
     lastBatchSize = statements.length
     maxBatchSize  = Math.max(maxBatchSize, statements.length)
     maxBoundParams = Math.max(maxBoundParams, 0, ...statements.map(s => s.boundParams?.() ?? 0))
@@ -109,15 +128,29 @@ export function createD1() {
     /** テーブルを素の配列で読む（アサーション用） */
     rows(sql, ...params) { return sqlite.prepare(sql).all(...params) },
     /** 店舗と（任意で）セッションを用意する */
-    seedStore(code, { sessionId = null, status = 'active' } = {}) {
+    seedStore(code, { sessionId = null, status = 'active', type = 'stock', startedAt = '2026-08-09T00:00:00.000Z' } = {}) {
       sqlite.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)')
         .run(code, '2026-08-09T00:00:00.000Z', '2026-08-09T00:00:00.000Z')
       if (sessionId) {
         sqlite.prepare(
           'INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, ?, 0, ?)'
-        ).run(sessionId, code, '2026-08-09T00:00:00.000Z', status, 'stock')
+        ).run(sessionId, code, startedAt, status, type)
       }
       return code
+    },
+    /** 既存店舗へセッションを1件足す（同じ店舗に複数セッションを作るテスト用） */
+    seedSession(code, id, { status = 'active', type = 'stock', startedAt = '2026-08-09T00:00:00.000Z' } = {}) {
+      sqlite.prepare(
+        'INSERT INTO sessions (id, shop_code, started_at, status, item_count, type) VALUES (?, ?, ?, ?, 0, ?)'
+      ).run(id, code, startedAt, status, type)
+      return id
+    },
+    /** router 層のテスト用に有効な Bearer トークンを発行する */
+    seedToken(code, token = `tok_${code}`) {
+      sqlite.prepare(
+        'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
+      ).run(token, code, new Date(Date.now() + 86400_000).toISOString(), new Date().toISOString())
+      return token
     },
   }
 }

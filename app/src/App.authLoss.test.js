@@ -5,7 +5,7 @@
 //     同じ店舗へ戻れば同じ sessionId で完了できる
 //  2. 端末に中身の無いスナップショットしか無いとき、それを「詳細」として見せず
 //     sessionId でサーバーの明細を取り直す
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import { STORAGE_KEYS } from './utils/storageKeys.js'
 
@@ -57,7 +57,22 @@ vi.mock('./composables/useSync.js', async (importOriginal) => {
 let app = null
 let host = null
 
-const TODAY = new Date().toISOString().slice(0, 10)
+// App のモジュールグラフを先に温める（既定 5 秒 testTimeout の枯渇対策）。
+// 初回 import は transform とモジュール評価で数秒かかる。test 本体でこれを払うと
+// 環境が混み合ったときに 5 秒へ届く。hook（既定 10 秒）で払い、直後に registry を
+// 捨てることで、各 test は毎回まっさらなモジュール状態から軽く始められる。
+beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+
+
+// 履歴カレンダーは「今日」を**ローカル日付**（getFullYear/getMonth/getDate）で決め、
+// セッションの日付キーは ISO 文字列の先頭10文字（＝UTC日付）で作る。
+// `toISOString()` から作ると、UTC とローカルの日付がずれる時間帯（例: JST 00:00〜09:00、
+// UTC+14 の終日）で「今日」のセルに並ばず、詳細行を開けずに落ちる。
+// カレンダーが選ぶ日と必ず一致するよう、**ローカル日付**でキーを作る。
+function _localDateKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const TODAY = _localDateKey()
 const TODAY_DONE = {
   id: 'sess-9', shopCode: 'ABCDEF', type: 'stock', status: 'completed',
   startedAt: `${TODAY}T00:00:00.000Z`, endedAt: `${TODAY}T01:00:00.000Z`, itemCount: 1,
@@ -81,6 +96,7 @@ function seedActiveSession() {
   localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
   localStorage.setItem(STORAGE_KEYS.pendingSession, JSON.stringify(SESSION))
   localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
+    // useInventory の当日判定は UTC（`toISOString`）なので、ここは UTC のまま合わせる
     date:        new Date().toISOString().slice(0, 10),
     data:        { トマト: { qty: 3, unit: '個', updatedAt: Date.now() } },
     recountFlags: {},
@@ -217,5 +233,74 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     })
     expect(entry).not.toBeNull()
     expect(linesCalls).toHaveLength(0)
+  })
+})
+
+// ── 失効直前のデバウンス保存を失わない（第2セッション §6）────────────────────
+//
+// 失効ハンドラは shopCode と token を消す。デバウンス中の config / inventory の
+// timer はそのまま残り、発火しても「店舗未設定」で捨てられていた。
+// 消す前に、失効時点の店舗の未送信キューへ確定させる（送信はしない）。
+describe('App — 失効直前のデバウンス保存をキューへ残す', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    authInvalidatedHandler = null
+    linesCalls = []
+    linesResponse = null
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('scrollTo', vi.fn())
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  const pendingSaves = () => {
+    const raw = localStorage.getItem(STORAGE_KEYS.pendingSaves)
+    return raw ? (JSON.parse(raw).items ?? []) : []
+  }
+
+  it('デバウンス中の品目リスト変更が、失効後もキューに残る', async () => {
+    seedActiveSession()
+    await mountApp()
+
+    // 品目を追加する = config 変更コールバック → 2秒デバウンス
+    const { useConfig } = await import('./composables/useConfig.js')
+    useConfig().addItem('新しい品目')
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    authInvalidatedHandler()
+    for (let i = 0; i < 6; i++) await nextTick()
+
+    const queued = pendingSaves()
+    const cfg = queued.find(e => e.kind === 'config')
+    expect(cfg).toBeTruthy()
+    expect(cfg.shopCode).toBe('ABCDEF')          // 失効時点の店舗へ紐付く
+    expect(cfg.payload.order).toContain('新しい品目')
+  })
+
+  it('デバウンス中の在庫変更が、失効後もキューに残る', async () => {
+    seedActiveSession()
+    await mountApp()
+
+    const { useInventory } = await import('./composables/useInventory.js')
+    const { setItem } = useInventory()
+    // 1回目は「30秒以上経過」扱いで即時送信されるため、デバウンス待ちを作るには2回要る
+    setItem('トマト', 4, '個', false, 'tester')
+    for (let i = 0; i < 4; i++) await nextTick()
+    setItem('トマト', 5, '個', false, 'tester')
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    authInvalidatedHandler()
+    for (let i = 0; i < 6; i++) await nextTick()
+
+    const inv = pendingSaves().find(e => e.kind === 'inventory')
+    expect(inv).toBeTruthy()
+    expect(inv.shopCode).toBe('ABCDEF')
+    expect(inv.payload.inventory['トマト'].qty).toBe(5)
+    expect(inv.payload.sessionId).toBe('sess-1')
   })
 })

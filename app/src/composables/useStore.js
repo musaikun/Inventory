@@ -38,9 +38,12 @@ let _retryTimer = null
 let _saveGeneration = 0
 let _draining = null         // 実行中のdrain（同時実行を1本に束ねる）
 let _authBlocked = false     // 認証失効。再ログインまで送らない
-// 同一対象への直接保存を直列化する（key -> 実行中のPromise）。
-// 並行に投げると、A→Bの順で送ってもサーバーへ届く順が入れ替わり、
-// 古いAが新しいBを上書きしうる。
+// 同一対象への送信レーン（key -> 実行中のPromise）。
+//
+// **直接保存とキューの再送は同じレーンを通す。** 以前は `_drain` がレーンを通さずに
+// 直接送っていたため、「Aの再送が飛んでいる最中に新しいBを直接保存」すると2本が
+// 同時にサーバーへ向かい、遅れて決着したAが新しいBを最終状態として上書きできた。
+// レーンは key（kind + shopCode + resourceId）単位なので、別の対象は待たされない。
 const _inflight = new Map()
 
 // 再送の連続失敗回数。ユーザーへ「保存できていない」と伝える判断に使う（1回目の失敗では出さない）。
@@ -90,6 +93,31 @@ function _resourceId(kind, payload) {
 function _activeEntries() {
   const code = shopCode.value
   return [..._queue.values()].filter(e => e.shopCode === code)
+}
+
+/**
+ * 現在の認証主体。**論理要求を作った時点で捕まえる**ための値。
+ *
+ * 送信直前に読み直すと、レーン待ちの間に別アカウントでログインした場合に
+ * 「旧アカウントで作った保存を、新しいトークンで送る」ことができてしまう。
+ * useAuth は useStore を import しているため（循環になる）、api.js と同じく
+ * localStorage を直接読む。
+ */
+function _authIdentity() {
+  try { return localStorage.getItem(STORAGE_KEYS.authToken) ?? '' } catch (_) { return '' }
+}
+
+/**
+ * 同じ対象への送信を1本のレーンへ入れる。直接保存も再送もここを通る。
+ * 先行が無ければ待たずに実行する（要求を1tick遅らせない）。
+ * 先行の成否は問わない — 失敗はキューが引き継ぐので、ここで守るのは順序だけ。
+ */
+function _lane(key, task) {
+  const prev = _inflight.get(key)
+  const run  = prev ? prev.catch(() => {}).then(task) : task()
+  _inflight.set(key, run)
+  run.catch(() => {}).then(() => { if (_inflight.get(key) === run) _inflight.delete(key) })
+  return run
 }
 
 /**
@@ -255,6 +283,41 @@ export function retryPendingSaves() {
   return _draining
 }
 
+/**
+ * キュー1件を送る（レーンの中で実行される）。
+ *
+ * レーン待ちの間に状況が変わりうるので、**送る直前にキューを読み直す**。
+ *   - 項目が消えている = 同じ対象の直接保存が成功した → 何も送らない
+ *     （古い版を送り直して新しい版を巻き戻さない）
+ *   - 新しい版へ差し替わっている → 新しい方を送る
+ */
+async function _sendQueued(key, code, generation) {
+  if (generation !== _saveGeneration || code !== shopCode.value) return 'stale'
+  const cur = _queue.get(key)
+  if (!cur) return 'done'
+  const ep = _ENDPOINT[cur.kind]
+  if (!ep) { _queue.delete(key); return 'done' }
+  try {
+    await _api(ep.path(code), { method: ep.method, body: JSON.stringify(cur.payload) })
+    if (generation !== _saveGeneration || code !== shopCode.value) return 'stale'
+    _ack(cur.kind, code, cur.resourceId, cur.rev)
+    return 'ok'
+  } catch (err) {
+    const cls = _classify(err)
+    // 401 の判定は stale より先に行う。api.js の失効ハンドラが同期的に shopCode を
+    // 空にするため、stale で先に抜けると認証失効を検知できず再送を続けてしまう。
+    if (cls === 'auth') { _authBlocked = true; return 'auth' }
+    if (generation !== _saveGeneration || code !== shopCode.value) return 'stale'
+    if (cls === 'permanent') {
+      _queue.delete(key)
+      _syncSize()
+      _reject(cur.kind, code, cur.resourceId, err)
+      return 'permanent'
+    }
+    return 'retry'
+  }
+}
+
 async function _drain() {
   const generation = _saveGeneration
   const code = shopCode.value
@@ -267,28 +330,13 @@ async function _drain() {
   // 対象は現在の店舗ぶんだけ（別店舗の未送信データを送らない＝アカウント境界）。
   for (const entry of _activeEntries().sort((a, b) => a.rev - b.rev)) {
     if (stale()) return
-    const ep = _ENDPOINT[entry.kind]
-    if (!ep) { _queue.delete(entry.key); continue }
-    try {
-      await _api(ep.path(code), { method: ep.method, body: JSON.stringify(entry.payload) })
-      if (stale()) return
-      _ack(entry.kind, code, entry.resourceId, entry.rev)
-    } catch (err) {
-      const cls = _classify(err)
-      // 401 の判定は stale より先に行う。api.js の失効ハンドラが同期的に shopCode を
-      // 空にするため、stale で先に抜けると認証失効を検知できず再送を続けてしまう。
-      // saveState は現在の店舗ぶんの件数から決め直す。401 で shopCode が空になった
-      // 直後に 'saving' のまま残すと、ログアウト後の画面に空のバナーが出続ける。
-      if (cls === 'auth') { _authBlocked = true; _settle(); return }
-      if (stale()) return
-      if (cls === 'permanent') {
-        _queue.delete(entry.key)
-        _syncSize()
-        _reject(entry.kind, code, entry.resourceId, err)
-        continue
-      }
-      break   // retry可能な失敗。以降はまとめて次回へ
-    }
+    // 直接保存と同じレーンへ入れる。同じ対象を同時にサーバーへ向かわせない。
+    const outcome = await _lane(entry.key, () => _sendQueued(entry.key, code, generation))
+    // saveState は現在の店舗ぶんの件数から決め直す。401 で shopCode が空になった
+    // 直後に 'saving' のまま残すと、ログアウト後の画面に空のバナーが出続ける。
+    if (outcome === 'auth')  { _settle(); return }
+    if (outcome === 'stale') return
+    if (outcome === 'retry') break   // retry可能な失敗。以降はまとめて次回へ
   }
 
   _syncSize()
@@ -338,13 +386,42 @@ export function noteAuthInvalidated(code) {
  * 再ログイン後に呼ぶ。認証失効で止めていた再送を再開する。
  * 送るのは現在の店舗ぶんだけなので、別店舗へログインした場合は旧店舗の
  * 未送信データを送らない（_drain の _activeEntries）。
+ *
+ * **drain の完了を await できる。** 呼び出し側（App.onAuthDone）は、未送信を送り切る前に
+ * リモートを読み込んでローカルへ反映してはいけない。同じ店舗へ再ログインした直後は
+ * 端末側にサーバーより新しい版が残っているため、先に pull すると古いリモートで
+ * 上書きしてしまう。
+ *
+ * @returns {Promise<{ wasBlocked: boolean, drained: boolean, pending: number }>}
+ *   drained = この店舗の未送信を送り切れた
  */
 export function clearAuthBlock() {
   const wasBlocked = _authBlocked
   _authBlocked = false
   _syncSize()
-  if (_pendingSize.value > 0) { saveState.value = 'pending'; retryPendingSaves() }
-  return wasBlocked
+  const done = () => ({ wasBlocked, drained: _pendingSize.value === 0, pending: _pendingSize.value })
+  if (_pendingSize.value === 0) return Promise.resolve(done())
+  saveState.value = 'pending'
+  return Promise.resolve(retryPendingSaves()).then(done, done)
+}
+
+/**
+ * 送信せずに未送信キューへ入れる（端末へも書く）。
+ *
+ * 認証失効の瞬間に「まだ送っていないデバウンス中の変更」を、無効なトークンで
+ * 送りつけずに失効時点の店舗へ紐付けて残すために使う（App の失効ハンドラ）。
+ * 再ログイン後の drain が改めて送る。
+ *
+ * @param {string} kind    _ENDPOINT のキー（config / inventory / snapshot / order / movement）
+ * @param {object} payload 保存内容
+ * @param {object} opts    { shopCode, resourceId }
+ */
+export function queuePendingSave(kind, payload, { shopCode: code = shopCode.value, resourceId } = {}) {
+  if (!_ENDPOINT[kind] || !code || payload == null) return false
+  _enqueue(kind, code, resourceId ?? _resourceId(kind, payload), ++_rev, payload)
+  _persistPending()
+  if (code === shopCode.value) saveState.value = 'pending'
+  return true
 }
 
 /**
@@ -352,6 +429,11 @@ export function clearAuthBlock() {
  *
  * 同じ対象への保存は**直列化する**。A→Bの順に投げても応答がB→Aの順で返ると、
  * サーバーへ届く順まで入れ替わって古いAが最終値になりうる。Aが決着してからBを送る。
+ * キューの再送も同じレーンを通るので、再送と直接保存も入れ替わらない。
+ *
+ * **generation / shopCode / 認証主体は、ここ（＝論理要求を作った時点）で確定させる。**
+ * 実際の送信はレーン待ちのぶんだけ後になるため、送信開始時に読み直すと
+ * 「旧アカウントで作った保存が、新しいトークン・新しい店舗の文脈で送られる」ことが起きる。
  *
  * @returns {Promise<{ ok: boolean, result: any }>} ok = サーバーへ保存済み
  */
@@ -359,24 +441,27 @@ function _save(kind, resourceId, payload) {
   if (!shopCode.value || !BASE) return Promise.resolve({ ok: false, result: null })
   const code = shopCode.value
   const key  = _key(kind, code, resourceId)
-  const prev = _inflight.get(key)
-  // 先行が無ければ待たずに送る（要求を1tick遅らせない）。
-  // 先行があれば決着を待ってから送る。成否は問わない — 失敗はキューが引き継ぐので、
-  // ここで守るのは順序だけ。
-  const run = prev
-    ? prev.catch(() => {}).then(() => _sendOnce(kind, code, resourceId, payload))
-    : _sendOnce(kind, code, resourceId, payload)
-  _inflight.set(key, run)
-  run.finally(() => { if (_inflight.get(key) === run) _inflight.delete(key) })
-  return run
+  const ticket = {
+    kind, code, resourceId, payload,
+    rev:        ++_rev,
+    generation: _saveGeneration,
+    identity:   _authIdentity(),
+  }
+  return _lane(key, () => _sendOnce(ticket))
 }
 
-async function _sendOnce(kind, code, resourceId, payload) {
-  const generation = _saveGeneration
-  const rev = ++_rev
-  const ep  = _ENDPOINT[kind]
-  // アカウント切替で捨てられた要求は送らない（別アカウントへ書き込まない）
+async function _sendOnce({ kind, code, resourceId, payload, rev, generation, identity }) {
+  const ep = _ENDPOINT[kind]
+  // アカウント切替で捨てられた要求は送らない（別アカウントへ書き込まない）。
+  // resetAccountData が旧店舗ぶんを破棄済みなので、キューへも戻さない。
   if (generation !== _saveGeneration) return { ok: false, result: null }
+  // 店舗または認証主体が作成時から変わっている。新しい資格情報で旧要求を送らず、
+  // 作成時点の店舗の未送信キューへ確定する。同じ店舗へ戻れば drain が改めて送る。
+  if (code !== shopCode.value || identity !== _authIdentity()) {
+    _enqueue(kind, code, resourceId, rev, payload)
+    _settle()
+    return { ok: false, result: null }
+  }
   saveState.value = 'saving'
   try {
     const result = await _api(ep.path(code), { method: ep.method, body: JSON.stringify(payload) })

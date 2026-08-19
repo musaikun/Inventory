@@ -103,6 +103,22 @@ export const OUTCOME_UNKNOWN = 'unknown'  // 応答が届かなかった（保�
 const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 409, 413, 422])
 
 /**
+ * サーバーが「このバッチの記録が既にあり、内容を保証できない」と答えるコード
+ * （DATA-002 引継ぎ6 / migration 0015 の replay台帳）。
+ *
+ * いずれも**サーバー側にデータが残っている**状態で、再送では解消しない。
+ * 復旧手段は `DELETE /imports/:batchId` で取り消してから取り込み直すことだけ。
+ * したがって retry は出さず、**取消の導線は必ず残す**。
+ * ここを普通の失敗と同じ扱いにすると、サーバーが「取り消してください」と言っているのに
+ * 画面から取消ボタンが消える。
+ */
+const CANCEL_FIRST_CODES = new Set([
+  'legacy_import_unverified',  // 0015適用前の取込。当時の要求と同一か照合できない
+  'import_record_missing',     // 台帳はあるが対象セッションが消えている
+  'import_intent_conflict',    // 同じ取込IDで内容の違う要求が来た
+])
+
+/**
  * 確定要求が投げた例外を「HTTP失敗」と「結果不明」へ分類する。
  *
  * `utils/api.js` は**非2xxのときだけ** `status` と `body` を持つ Error を投げる。
@@ -122,14 +138,25 @@ export function classifyCommitError(err) {
     return {
       outcome:   OUTCOME_UNKNOWN,
       retryable: true,
+      mustCancel: false,
       error:     err?.message ?? '保存の結果を確認できませんでした',
     }
   }
+
+  // 「先に取り消してください」系は、サーバーにデータが残っているので取消を残す。
+  const mustCancel = CANCEL_FIRST_CODES.has(err?.code ?? err?.body?.code)
+
+  // 408 / 429 / 5xx は時間をおけば通る可能性がある。恒久的な4xxは送り直さない。
+  const byStatus = !PERMANENT_STATUSES.has(status) && (status === 408 || status === 429 || status >= 500)
+  // サーバーが `retryable` を明示したら、それは**再試行不可へ下げる方向にだけ**効かせる。
+  // 恒久的な status を server の申告で再試行可へ格上げしない（送っても同じ理由で拒否される）。
+  const declined = err?.body?.retryable === false
+
   return {
-    outcome:   OUTCOME_FAILED,
-    // 408 / 429 / 5xx は時間をおけば通る可能性がある。恒久的な4xxは送り直さない。
-    retryable: !PERMANENT_STATUSES.has(status) && (status === 408 || status === 429 || status >= 500),
-    error:     err?.body?.error ?? err?.message ?? `保存できませんでした（HTTP ${status}）`,
+    outcome:    OUTCOME_FAILED,
+    retryable:  byStatus && !declined && !mustCancel,
+    mustCancel,
+    error:      err?.body?.error ?? err?.message ?? `保存できませんでした（HTTP ${status}）`,
   }
 }
 
@@ -255,7 +282,9 @@ export function retryableDates(result) {
 export function canCancelBatch(result) {
   if (!result?.importBatchId) return false
   if ((result.saved ?? []).length > 0) return true
-  return (result.failed ?? []).some(f => f.outcome !== OUTCOME_FAILED)
+  // 結果不明に加えて、サーバーが「先に取り消してください」と答えた日も対象。
+  // どちらもサーバー側にデータが残っている可能性／事実がある。
+  return (result.failed ?? []).some(f => f.outcome !== OUTCOME_FAILED || f.mustCancel === true)
 }
 
 /**
