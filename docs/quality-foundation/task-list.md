@@ -107,6 +107,14 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19（レビュー修正3回目）: Codex の残P1 1件を修正し、`レビュー待ち / Claude Code` を維持。
+  `MasterManagePage` / `MovementPage` の画面内「‹ 戻る」が `@back` → App の直接 view 切替で
+  import中断guardを迂回していた（モーダルに focus trap が無く、キーボードTabで背景の戻るへ到達できる）。
+  App へ共通ハンドラ `onPageBack()` を追加して両ページの `@back` を集約し、`isBackBlocked()` が
+  true なら view を切り替えない。guard解除後は通常どおり戻れる。両ページ×2件の回帰testを
+  `App.importBack.test.js` へ追加（修正前に2件失敗を確認）。
+  focus trap / inert 化はa11yの別課題として残risk記録に留めた。
+  検証: App 95 files / 1135 passed、build成功、Worker 26 files / 545 passed。`worker/**` に差分なし。
 - 2026-08-19（レビュー修正2回目）: Codex の `Changes requested` P1 2件を修正し、`レビュー待ち / Claude Code` を維持。
   (1) PWA / ブラウザBackがモーダルのclose禁止を迂回していた。`App._closeTopLayer()` は
   `master`/`movement` から直接 view を切り替えるため、`requestClose()` を通らず unmount され

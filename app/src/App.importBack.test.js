@@ -116,3 +116,62 @@ describe('App の Back 制御は「閉じてはいけないモーダル」を最
     unregister()
   }, 15000)
 })
+
+describe('画面内の「戻る」も import中断guard を見る', () => {
+  // モーダルには focus trap が無いので、ポインタを overlay で塞いでも
+  // キーボードの Tab で背景の「‹ 戻る」へ到達して実行できる。
+  // そこで view が切り替わるとモーダルごと unmount され、確定していない
+  // importBatchId と計画を失う（履歴に別の取消導線が無い）。
+  //
+  // ページの判定は root class で行う（見出し文言はセッション一覧のカードにも出るため）。
+  //   .mp = MasterManagePage / .mv = MovementPage
+  function backButton(root) {
+    return [...root.querySelectorAll('button')].find(b => b.textContent.includes('戻る'))
+  }
+  async function clickEl(el) {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flush(8)
+  }
+
+  async function openMaster(el) {
+    await clickEl(el.querySelector('.master-card'))
+    expect(el.querySelector('.mp')).not.toBeNull()
+  }
+  async function openMovement(el) {
+    await clickEl(el.querySelector('.move-start'))
+    expect(el.querySelector('.mv')).not.toBeNull()
+  }
+
+  for (const [label, open, sel] of [
+    ['データ管理（MasterManagePage）', openMaster,   '.mp'],
+    ['入出庫（MovementPage）',        openMovement, '.mv'],
+  ]) {
+    it(`${label}: guard中は画面内の戻るで画面が変わらない`, async () => {
+      const el = await mountApp()
+      await open(el)
+
+      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
+      const unregister = registerModalBackGuard(() => true)
+
+      const before = el.textContent
+      await clickEl(backButton(el))
+
+      // ページに留まる ＝ 子のモーダルも unmount されず、batchID と計画を保持できる
+      expect(el.querySelector(sel)).not.toBeNull()
+      expect(el.textContent).toBe(before)
+
+      unregister()
+    }, 15000)
+
+    it(`${label}: guard解除後は画面内の戻るで通常どおり戻れる`, async () => {
+      const el = await mountApp()
+      await open(el)
+
+      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
+      registerModalBackGuard(() => true)()   // 登録してすぐ解除
+
+      await clickEl(backButton(el))
+      expect(el.querySelector(sel)).toBeNull()
+    }, 15000)
+  }
+})

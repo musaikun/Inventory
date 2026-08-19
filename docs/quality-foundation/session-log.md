@@ -2,6 +2,45 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘の修正・3回目（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `62b0ddc`。
+- 前回2件（PWA Back / 不正引用符）は修正確認済み。残っていたP1 1件を修正した。
+
+### 画面内の「戻る」が import中断guard を迂回する
+
+前回は `_closeTopLayer()`（PWA / ブラウザ Back）だけを塞いでいた。
+`MasterManagePage` / `MovementPage` の `‹ 戻る` は `@back` を emit し、App が
+**直接 `currentView = 'sessions'`** に変換していたため guard を通らなかった。
+モーダルに focus trap も背景の inert 化も無いので、overlay でポインタを防いでも
+**キーボードの Tab で背景の戻るボタンへ到達して実行できる**。
+
+- App へ共通ハンドラ `onPageBack()` を追加。`isBackBlocked()` が true なら view を変えない。
+- 両ページの `@back` をこのハンドラへ集約した（過去棚卸取込モーダルを載せているのはこの2つだけ）。
+- PWA Back と同じ判定を共有するので、2経路で条件がずれない。guard解除後は通常どおり戻る。
+- 両ページとも emit は `back`（+ master の `clear-master`）のみで、他に view を変える経路は無い。
+- `App.importBack.test.js` へ両ページ×2件を追加。`@back` を修正前へ戻すと2件落ちることを確認。
+
+### 判断: focus trap は入れていない
+
+今回の実害（復旧情報の喪失）は view を切り替える経路を塞げば止まる。
+背景要素への focus 移動そのものは他モーダルにも共通するa11yの別課題として、
+`IMPORT-001.md` の残riskへ記録した。
+
+### 検証
+
+- 追加4 testのうち2件が修正前に失敗。
+- `npm --prefix app test -- --run`: **95 files / 1135 passed**。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **26 files / 545 passed**。
+- `git diff --check` / `worker/**` の差分: いずれも出力なし。
+- `App.vue` の累計差分: 22 insertions(+), 3 deletions(-)。
+
+### 次の再開地点
+
+Codex の再レビュー（第3セッションの最終完了判定）。
+**migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す。**
+
 ## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘2件の修正・2回目（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `15ecb2e`。

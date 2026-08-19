@@ -1195,6 +1195,21 @@ function _onBrowserBack() {
   if (closed) _pushBackSentinel()
 }
 
+/**
+ * 画面内の「‹ 戻る」（データ管理・入出庫）の共通ハンドラ。
+ *
+ * これらのページは過去棚卸取込モーダルを載せている。モーダルには focus trap が無いので、
+ * ポインタは overlay で塞げても **キーボードの Tab / Shift+Tab で背景の戻るボタンへ到達**できる。
+ * そこで view を切り替えるとモーダルごと unmount され、確定していない importBatchId と
+ * 計画を失う（履歴画面に別の取消導線が無いため、以後その取込を取り消せない）。
+ *
+ * PWA / ブラウザ Back と同じ guard をここでも見る。guard が解除されれば通常どおり戻る。
+ */
+function onPageBack() {
+  if (isBackBlocked()) return
+  currentView.value = 'sessions'
+}
+
 onMounted(() => { _pushBackSentinel(); window.addEventListener('popstate', _onBrowserBack) })
 onUnmounted(() => {
   window.removeEventListener('popstate', _onBrowserBack)
@@ -2688,14 +2703,14 @@ function dismissReview() {
     <!-- ── 品目マスタ管理（専用ページ） ── -->
     <MasterManagePage
       v-else-if="currentView === 'master'"
-      @back="currentView = 'sessions'"
+      @back="onPageBack"
       @clear-master="onClearMaster"
     />
 
     <!-- ── 入出庫（専用ページ・品目ごとに増減） ── -->
     <MovementPage
       v-else-if="currentView === 'movement'"
-      @back="currentView = 'sessions'"
+      @back="onPageBack"
     />
 
     <!-- ── セッション詳細（完了済み） ── -->

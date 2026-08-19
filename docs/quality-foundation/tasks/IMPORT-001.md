@@ -43,6 +43,51 @@ Codex承認前に`完了`またはWEB-07通過としない。
 結果不明中のclose禁止・HTTP失敗とUNKNOWNの分類・数量／単価上限・通貨記号の位置・実在日付）を
 重ねている。**`完了` および WEB-07 通過は判定していない。**
 
+## Codexレビュー指摘1件の修正・3回目（2026-08-19 / Claude Code）
+
+### P1: 画面内の「戻る」が import中断guard を迂回する
+
+前回は PWA / ブラウザ Back（`_closeTopLayer()`）だけを塞いでいた。
+`MasterManagePage` / `MovementPage` の `‹ 戻る` は `@back` を emit し、
+App がそれを**直接 `currentView = 'sessions'` へ**変換していたため、guard を通らなかった。
+
+モーダルに focus trap も背景の inert 化も無いので、ポインタは overlay で防げても
+**キーボードの Tab / Shift+Tab で背景の戻るボタンへ到達して実行できる**。
+その結果モーダルが unmount され、確定していない `importBatchId` と計画を失う。
+
+- App へ共通ハンドラ `onPageBack()` を追加し、`isBackBlocked()` が true なら view を切り替えない。
+- `MasterManagePage` / `MovementPage` の `@back` を両方ともこのハンドラへ集約した。
+  この2ページだけが過去棚卸取込モーダルを載せている（`PastStocktakeImportModal` の
+  参照元はこの2つのみ）。
+- guard が解除されれば通常どおり戻れる。PWA Back と同じ判定を共有するので、
+  2つの経路で条件がずれることがない。
+- 両ページとも emit は `back`（+ master の `clear-master`）だけで、
+  他に view を変える経路は無いことを確認した。
+
+回帰testは `App.importBack.test.js` へApp実結合として追加（両ページ×2件）。
+`@back` を修正前の直接切替へ戻すと、両ページの「guard中は変わらない」が落ちることを確認済み。
+
+**focus trap / inert 化は入れていない。** 今回の実害（復旧情報の喪失）は
+view を切り替える経路を塞げば止まる。背景要素への focus 移動そのものの対処は
+a11y の別課題として残す（下記「未実施・残risk」）。
+
+### 検証（2026-08-19 / レビュー3回目の修正後）
+
+| command | 結果 |
+|---|---|
+| 追加4 testの修正前 | **2 failed**（両ページの「guard中は画面内の戻るで画面が変わらない」） |
+| `npm --prefix app test -- --run` | **95 files / 1135 passed** |
+| `npm --prefix app run build` | 成功 |
+| `npm --prefix worker test` | **26 files / 545 passed** |
+| `git diff --check` | 出力なし |
+| `git diff origin/develop --name-only -- worker` | 出力なし |
+| `git diff origin/develop --stat -- app/src/App.vue` | 22 insertions(+), 3 deletions(-) |
+
+### この修正で変わった契約
+
+- 過去棚卸取込が「結果不明」「取消必須」のあいだは、**PWA/ブラウザBackでも画面内の戻るでも**
+  データ管理・入出庫の画面から離れない。取消または再試行で確定させるまで計画を保持する。
+
 ## Codexレビュー指摘2件の修正・2回目（2026-08-19 / Claude Code）
 
 `Changes requested`（2回目）のP1 2件。どちらも**モーダル内だけを守っても迂回できる**経路と、
@@ -418,6 +463,14 @@ Worker の現行契約（`worker/src/constants.js`・**読み取り専用**）�
 |---|---|
 | `CsvMapperModal.test.js` | 推測を既定値にしなくなったので、各caseで明示選択してから進む形へ |
 | `SettingsModal.import.test.js` | 同上（「既定で選ばれている」前提の assertion を「未選択」へ） |
+
+### 未実施・残risk（a11y / 2026-08-19 追加）
+
+- **モーダルに focus trap と背景の inert 化が無い。** 閉じてはいけない状態でも、
+  キーボードの Tab で背景の要素へ focus を移せる。view を切り替える経路（PWA Back /
+  画面内の戻る）は塞いだので復旧情報は失われないが、スクリーンリーダー・キーボード操作の
+  体験としては正しくない。`aria-modal="true"` は付いているが実装上の拘束にはならない。
+  他のモーダルにも共通する課題のため、本タスクでは扱わずa11yの別課題として残す。
 
 ### 未実施・残risk（2026-08-16 追加分）
 
