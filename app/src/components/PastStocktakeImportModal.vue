@@ -46,11 +46,19 @@ const closeBlockedNote = ref('')
 
 function requestClose() {
   if (closed.value || importing.value || undoing.value) return
-  // 結果不明が1日でも残っているあいだは閉じない。閉じると batchId と計画が画面から消え、
-  // サーバーに入っているかもしれないデータを再試行も取消もできなくなる。
+  // 閉じると親（useDataImport.closeStocktake）が計画と importBatchId を捨てる。
+  // 履歴画面には別の取消導線が無いので、**閉じた時点で DELETE /imports/:batchId を
+  // 二度と呼べなくなる**。サーバーにデータが残っている可能性がある間は閉じない。
   if (hasUnknown.value) {
     closeBlockedNote.value =
       '結果不明が残っているため閉じられません。同じ取込IDで再試行するか、この取込を取り消してください。'
+    return
+  }
+  // サーバーが「先に取り消してください」と答えた日も同じ。ここで閉じると
+  // 取消の手段ごと失う（再試行では解消しないので、取消が唯一の復旧手段）。
+  if (mustCancelList.value.length > 0 && !undone.value) {
+    closeBlockedNote.value =
+      'サーバー側の記録が残っているため閉じられません。この取込を取り消してから閉じてください。'
     return
   }
   closed.value = true
@@ -81,14 +89,18 @@ const canRetry    = computed(() => retryableDates(result.value).length > 0 && !u
 const undone      = computed(() => result.value?.undone === true)
 const canCancel   = computed(() => !undone.value && canCancelBatch(result.value))
 
-// サーバーが「先に取り消してから取り込み直してください」と答えた日
-// （0015 の replay台帳で内容を保証できない既存取込。再試行では解消しない）。
-const mustCancelList = computed(() => failedList.value.filter(f => f.mustCancel === true))
-
 // 「サーバーに入ったかどうか端末から判断できない」日が残っているか。
 // **明確なHTTP失敗（保存されていないと分かっている日）はここに含めない。**
 // 取り消し済みなら、その batchId ぶんはサーバーから消えているので残らない。
 const hasUnknown = computed(() => !undone.value && unknownList.value.length > 0)
+
+// サーバーが「先に取り消してから取り込み直してください」と答えた日
+// （0015 の replay台帳で内容を保証できない既存取込。再試行では解消しない）。
+const mustCancelList = computed(() =>
+  undone.value ? [] : failedList.value.filter(f => f.mustCancel === true))
+
+// 閉じるとこの取込を取り消せなくなる状態。閉じる3経路すべてをこれで塞ぐ。
+const closeBlocked = computed(() => hasUnknown.value || mustCancelList.value.length > 0)
 
 const canConfirm = computed(() =>
   !importing.value && totals.value.days > 0
@@ -277,7 +289,7 @@ async function onUndo() {
           </div>
         </div>
 
-        <p v-if="mustCancelList.length && !undone" class="warn-inline" role="alert">
+        <p v-if="mustCancelList.length" class="warn-inline" role="alert">
           {{ mustCancelList.length }}日は、この取込IDにサーバー側の記録が残っているため上書きできません。
           <b>再試行では解消しません。</b>
           「この取込を取り消す」でサーバーから消してから、もう一度<b>取り込み直して</b>ください。
@@ -312,8 +324,8 @@ async function onUndo() {
         <!-- 結果不明が残っているあいだは閉じる導線を塞ぐ（batchId と計画を画面から失わないため） -->
         <button
           class="btn btn-secondary"
-          :disabled="importing || undoing || hasUnknown"
-          :title="hasUnknown ? '結果不明が残っているため閉じられません' : ''"
+          :disabled="importing || undoing || closeBlocked"
+          :title="closeBlocked ? '取込の結果が確定していないため閉じられません' : ''"
           @click="requestClose"
         >
           {{ finished ? '閉じる' : 'キャンセル' }}

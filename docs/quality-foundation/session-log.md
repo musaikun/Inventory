@@ -2,6 +2,51 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘3件の修正（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `01e7a0f`。
+- 判定は `Changes requested`。**自動testは全成功していた**ので、3件とも
+  「testが挙動を確認できていなかった範囲」だった。3件とも先に失敗するtestを追加した（10件）。
+- 状態は `レビュー待ち / Claude Code` のまま。`完了` / `WEB-07` 通過としていない。
+
+### 1. 取消必須の409で閉じると復旧手段を失う（前回判断の訂正）
+
+前回「サーバー上の状態は確定していて履歴から辿れるので close は塞がない」と書いたが**誤り**。
+`useDataImport.closeStocktake()` は close で計画と `importBatchId` を捨て、
+履歴画面に別の取消導線が無い。閉じた時点で `DELETE /imports/:batchId` を二度と呼べなくなる。
+再試行では解消しないコードなので、取消が唯一の復旧手段だった。
+→ `closeBlocked = hasUnknown || mustCancelList.length > 0` を close の3経路すべてに効かせた。
+取消成功で閉じられる／取消失敗では閉じられない。誤った期待の既存testも置き換えた。
+
+### 2. 列数不一致が正常データとして受理される
+
+`resultCsvParser` / `deliveryImportParser` にヘッダとの列数照合が無かった
+（品目取込だけが持っていた）。`日付,品目名,単位,数量,単価` に `2026-01-01,米,1,100` を渡すと
+単位=1・数量=100 として **errors 空**で通っていた。納品取込では品目名まで別列へずれる。
+→ 両parserへ `_colCountError()` を追加し、**値を読む前に**照合する。列が多い行も拒否。
+エラー形は品目取込と同じ。列数が揃った既存の正常CSV（テンプレ含む）は影響なし。
+
+### 3. 日付空欄の実データ行が無通知で消える
+
+`parseResultSnapshots` は日付空欄なら品目名・数量があっても黙って `continue` していた。
+他に正常行が1件あれば全体成功、`errors` も空。
+→ 数量が入っている行は実データ行とみなし、日付空欄でも行エラーとして出す。
+数量も空の行だけ従来どおり非データ行として飛ばす。
+既存test「有効な日付行が無ければエラー」は入力が `,豚バラ,3` でまさにこのケースであり、
+旧アサーションがバグ挙動を固定していたので更新した。
+
+### 検証
+
+- 追加10 testは修正前に **10 failed / 81 passed**。修正後は対象4 file 135 passed。
+- `npm --prefix app test -- --run`: **94 files / 1110 passed**。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **26 files / 545 passed**。
+- `git diff --check` / 変更禁止fileの差分: いずれも出力なし。
+
+### 次の再開地点
+
+Codex の再レビュー。**migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す。**
+
 ## 2026-08-19 — CC第3修正セッション: develop統合と引継ぎ6（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`。

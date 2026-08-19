@@ -35,6 +35,18 @@ const COLS = {
   lotSize:  ['入数', '入り数', 'ロット', 'ケース入数', 'lot'],
 }
 
+/**
+ * ヘッダと列数が違う行のエラー。列がずれると隣の列を別項目として読んでしまい、
+ * 納品取込では品目名まで別列へずれる。形は他の取込入口と同じ。
+ */
+function _colCountError(line, cols, header) {
+  return {
+    line, column: null, columnLabel: '列数',
+    value: `${cols.length}列`,
+    reason: `列数がヘッダ（${header.length}列）と一致しません`,
+  }
+}
+
 function _findCol(header, names) {
   const lower = header.map(h => h.toLowerCase())
   for (const n of names) {
@@ -113,6 +125,13 @@ export function parseDeliveryImportCSV(csvText) {
   let total = 0
 
   for (const { line, cols } of records.slice(1)) {
+    // 列数の照合は値を読む前に行う。ずれた行では品目名すら別の列を指す。
+    if (cols.length !== header.length) {
+      total++
+      errors.push(_colCountError(line, cols, header))
+      continue
+    }
+
     const name    = (cols[ci.name] ?? '').trim()
     const dateRaw = (cols[ci.date] ?? '').trim()
     const date    = normalizeDate(cols[ci.date])

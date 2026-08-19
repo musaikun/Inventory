@@ -200,3 +200,41 @@ describe('数量・単価の上限（Worker契約と同じ値）', () => {
     expect(errors[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '100000001' })
   })
 })
+
+describe('列数がヘッダと一致しない行を正常データとして受理しない', () => {
+  const csv = (...lines) => ['日付,品目名,単位,数量,単価', ...lines].join('\n')
+
+  it('列が足りない行は、品目名まで別列へずれる前に行エラーにする', () => {
+    // 修正前は 単位=1 / 数量=100 として黙って受理していた
+    const { rows, errors } = parseDeliveryImportCSV(csv(
+      '2026-01-01,玉ねぎ,kg,20,190',
+      '2026-01-01,米,1,100',
+    ))
+    expect(rows.map(r => r.name)).toEqual(['玉ねぎ'])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ line: 3, columnLabel: '列数', value: '4列' })
+  })
+
+  it('列が多い行も行エラーにする', () => {
+    const { errors } = parseDeliveryImportCSV(csv(
+      '2026-01-01,玉ねぎ,kg,20,190',
+      '2026-01-01,米,袋,1,100,余分',
+    ))
+    expect(errors[0]).toMatchObject({ line: 3, columnLabel: '列数', value: '6列' })
+  })
+
+  it('列数が合っている既存の正常CSVは通す', () => {
+    const { rows, errors } = parseDeliveryImportCSV(csv(
+      '2026-01-01,玉ねぎ,kg,20,190',
+      '2026-01-01,米,袋,1,100',
+    ))
+    expect(errors).toEqual([])
+    expect(rows).toHaveLength(2)
+  })
+
+  it('テンプレCSVは引き続き列数が揃っている', () => {
+    const { rows, errors } = parseDeliveryImportCSV(deliveryImportTemplateCSV())
+    expect(errors).toEqual([])
+    expect(rows).toHaveLength(3)
+  })
+})

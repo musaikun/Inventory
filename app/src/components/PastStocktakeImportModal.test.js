@@ -439,11 +439,51 @@ describe('「先に取消」が必要な失敗の導線（DATA-002 引継ぎ6）
     expect(text()).toContain('記録が無いため上書きできません')
   })
 
-  it('結果不明ではないので閉じられる（取込は履歴から辿れる）', async () => {
-    const { events } = await mount({ confirmImport: legacyFail() })
+  it('取消しないと復旧できないので閉じられない（閉じると計画とbatchIDを失う）', async () => {
+    // 親（useDataImport.closeStocktake）は close で計画と importBatchId を捨てる。
+    // 履歴画面に別の取消導線が無いので、閉じたら DELETE /imports/:batchId を二度と呼べない。
+    const { events, text } = await mount({ confirmImport: legacyFail() })
+    await click('取り込む')
+
+    const btn = button('閉じる') ?? button('キャンセル')
+    btn.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    host.querySelector('.modal-overlay').dispatchEvent(new MouseEvent('click', { bubbles: false }))
+    await nextTick(); await nextTick()
+
+    expect(events.close).toHaveLength(0)
+    expect(btn.disabled).toBe(true)
+    expect(text()).toContain('取り消して')
+    expect(text()).toContain('imp_test')
+  })
+
+  it('取消に成功したら閉じられる（close は1回だけ）', async () => {
+    const { events } = await mount({
+      confirmImport: legacyFail(),
+      undoImport: async () => ({ ok: true, removedOnServer: 1, removedLocally: 0 }),
+    })
     await click('取り込む')
     button('閉じる').click()
     await nextTick(); await nextTick()
+    expect(events.close).toHaveLength(0)
+
+    await click('この取込を取り消す')
+    button('閉じる').click()
+    await nextTick(); await nextTick()
     expect(events.close).toHaveLength(1)
+  })
+
+  it('取消に失敗したら引き続き閉じられない', async () => {
+    const { events } = await mount({
+      confirmImport: legacyFail(),
+      undoImport: () => { throw new Error('サーバーが応答しません') },
+    })
+    await click('取り込む')
+    await click('この取込を取り消す')
+
+    button('閉じる').click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick(); await nextTick()
+    expect(events.close).toHaveLength(0)
   })
 })

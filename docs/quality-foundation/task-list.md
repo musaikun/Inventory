@@ -107,6 +107,16 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19（レビュー修正）: Codex の `Changes requested` P1 3件を修正し、`レビュー待ち / Claude Code` を維持。
+  (1) 取消必須の409（`mustCancel`）でも modal を閉じられないようにした。閉じると
+  `useDataImport.closeStocktake()` が計画と `importBatchId` を捨て、履歴に別の取消導線が無いため
+  `DELETE /imports/:batchId` を二度と呼べなくなっていた（前回「閉じてよい」とした判断の訂正）。
+  (2) `resultCsvParser` / `deliveryImportParser` にヘッダとの列数照合を追加。列がずれた行を
+  正常データとして受理していた（納品取込では品目名まで別列へずれる）。
+  (3) 過去棚卸取込で、日付空欄の実データ行を無通知で捨てず行エラーとして preview へ出すようにした。
+  追加10 testが修正前に失敗することを確認済み。
+  検証: App 94 files / 1110 passed、build成功、Worker 26 files / 545 passed。
+  `worker/**`・`App.vue`・`useStore.js`・`useDataImport.js`・`api.js` に差分なし。
 - 2026-08-19: `IMPORT-001` の branch へ `develop@2060090` を merge し、`レビュー待ち / Claude Code` を維持。
   競合は `session-log.md` / `task-list.md` の2fileだけで、**コード側の競合はゼロ**（両方の記録を残して解決）。
   あわせて `DATA-002` から送られていた**引継ぎ6（`409 legacy_import_unverified` の導線）**へ対応した。

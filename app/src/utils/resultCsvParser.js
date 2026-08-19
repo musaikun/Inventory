@@ -52,6 +52,19 @@ const COLS = {
 // `2026-04-31` が通り、存在しない日の棚卸セッションを作れてしまった。
 const _normDate = normalizeImportDate
 
+/**
+ * ヘッダと列数が違う行のエラー。列がずれると、隣の列の値を別の項目として読んでしまう
+ * （`日付,品目名,単位,数量,単価` に4列の行を渡すと 単位=1 / 数量=100 になる）。
+ * 形は品目取込（itemImport）と同じ `{ line, column, columnLabel, value, reason }`。
+ */
+function _colCountError(line, cols, header) {
+  return {
+    line, column: null, columnLabel: '列数',
+    value: `${cols.length}列`,
+    reason: `列数がヘッダ（${header.length}列）と一致しません`,
+  }
+}
+
 function _findCol(header, names) {
   const lower = header.map(h => h.toLowerCase())
   for (const n of names) {
@@ -96,6 +109,9 @@ export function parseResultCSV(csvText) {
   const errors = []
 
   for (const { line, cols } of records.slice(1)) {
+    // 列数の照合は値を読む前に行う。ずれた行を読むと隣の列が別項目として通ってしまう。
+    if (cols.length !== header.length) { errors.push(_colCountError(line, cols, header)); continue }
+
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
 
@@ -164,24 +180,31 @@ export function parseResultSnapshots(csvText) {
   const errors = []
 
   for (const { line, cols } of records.slice(1)) {
+    // 列数の照合は値を読む前に行う。ずれた行を読むと隣の列が別項目として通ってしまう。
+    if (cols.length !== header.length) { errors.push(_colCountError(line, cols, header)); continue }
+
     const name = (cols[ci.name] ?? '').trim()
     if (!name || name === '【合計】' || name === '合計') continue
 
+    const qtyRaw  = (cols[ci.qty] ?? '').trim()
     const dateRaw = (cols[ci.date] ?? '').trim()
     const date    = _normDate(cols[ci.date])
     if (!date) {
-      // 日付が空の行は集計行などの可能性があるので黙って飛ばす。
-      // 書いてあるのに読めない日付は、取り込む日を1日ぶん失うのでエラーにする。
-      if (dateRaw !== '') {
+      // 数量が入っている＝実データ行。日付が無いとその1日ぶんを丸ごと失うので、
+      // 空欄でも読めない値でも**行エラーとして出す**（黙って捨てない）。
+      // 数量も空の行だけは集計行などの非データ行とみなして従来どおり飛ばす。
+      if (qtyRaw !== '') {
         errors.push({
           line, column: ci.date, columnLabel: label(ci.date, '日付'), value: dateRaw, name,
-          reason: `日付「${dateRaw}」を YYYY-MM-DD として読めません`,
+          reason: dateRaw === ''
+            ? '日付が空欄です（過去棚卸の取込には日付が必要です）'
+            : `日付「${dateRaw}」を YYYY-MM-DD として読めません`,
         })
       }
       continue
     }
 
-    if ((cols[ci.qty] ?? '').trim() === '') continue
+    if (qtyRaw === '') continue
 
     const qty = readNumericCell(cols[ci.qty], {
       line, column: ci.qty, columnLabel: label(ci.qty, '数量'), max: IMPORT_MAX_INVENTORY_QTY,

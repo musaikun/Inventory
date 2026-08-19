@@ -89,8 +89,19 @@ describe('resultCsvParser', () => {
       expect(() => parseResultSnapshots('品目名,数量\n豚バラ,3')).toThrow(/日付/)
     })
 
-    it('有効な日付行が無ければエラー', () => {
-      expect(() => parseResultSnapshots('日付,品目名,数量\n,豚バラ,3')).toThrow(/見つかりません/)
+    it('有効な日付行が無ければエラー（日付空欄の実データ行は理由つきで出す）', () => {
+      // 品目名と数量が入っているのに日付だけ空欄 = 実データ行。
+      // 以前は黙って捨てて「見つかりません」とだけ言っていたので、行番号つきの理由に変えた。
+      let err
+      try { parseResultSnapshots('日付,品目名,数量\n,豚バラ,3') } catch (e) { err = e }
+      expect(err).toBeTruthy()
+      expect(err.errors).toHaveLength(1)
+      expect(err.errors[0]).toMatchObject({ line: 2, columnLabel: '日付', value: '', name: '豚バラ' })
+      expect(err.message).toContain('2行目')
+    })
+
+    it('日付も数量も空の行しか無ければ従来どおり「見つかりません」', () => {
+      expect(() => parseResultSnapshots('日付,品目名,数量\n,豚バラ,')).toThrow(/見つかりません/)
     })
   })
 })
@@ -234,5 +245,78 @@ describe('数量・単価の上限（Worker契約と同じ値）', () => {
     try { parseResultCSV(rcsv('豚バラ,kg,2,500', 'ビール,本,1000001,200')) } catch (e) { err = e }
     expect(err.errors).toHaveLength(1)
     expect(err.errors[0]).toMatchObject({ line: 3, columnLabel: '数量', value: '1000001' })
+  })
+})
+
+describe('列数がヘッダと一致しない行を正常データとして受理しない', () => {
+  const csv  = (...lines) => ['日付,品目名,単位,数量,単価', ...lines].join('\n')
+  const rcsv = (...lines) => ['品目名,単位,数量,単価', ...lines].join('\n')
+
+  it('列が足りない行は、隣の列を読んで別の値にせず行エラーにする', () => {
+    // 単位列が抜けた行。修正前は 単位=1 / 数量=100 として黙って受理していた
+    const { snapshots, errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      '2026-01-01,米,1,100',
+    ))
+    expect(snapshots[0].items.map(i => i.item)).toEqual(['豚バラ'])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ line: 3, columnLabel: '列数', value: '4列' })
+    expect(errors[0].reason).toContain('ヘッダ')
+  })
+
+  it('列が多い行も行エラーにする', () => {
+    const { errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      '2026-01-01,米,袋,1,100,余分',
+    ))
+    expect(errors[0]).toMatchObject({ line: 3, columnLabel: '列数', value: '6列' })
+  })
+
+  it('復元（確認画面なし）は列数不一致があれば1件も取り込まない', () => {
+    let err
+    try { parseResultCSV(rcsv('豚バラ,kg,2,500', '米,1,100')) } catch (e) { err = e }
+    expect(err.errors).toHaveLength(1)
+    expect(err.errors[0]).toMatchObject({ line: 3, columnLabel: '列数' })
+  })
+
+  it('列数が合っている既存の正常CSVは通す', () => {
+    const { snapshots, errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      '2026-01-01,米,袋,1,100',
+    ))
+    expect(errors).toEqual([])
+    expect(snapshots[0].items).toHaveLength(2)
+  })
+})
+
+describe('日付が空欄の実データ行を無通知で消さない', () => {
+  const csv = (...lines) => ['日付,品目名,単位,数量,単価', ...lines].join('\n')
+
+  it('品目名と数量があるのに日付が空欄なら行エラーにする', () => {
+    const { snapshots, errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      ',米,袋,1,100',
+    ))
+    expect(snapshots[0].items.map(i => i.item)).toEqual(['豚バラ'])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ line: 3, columnLabel: '日付', value: '', name: '米' })
+  })
+
+  it('正常行があっても、消えた行を黙って成功にしない', () => {
+    const { errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      ',米,袋,1,100',
+      ',味噌,個,3,200',
+    ))
+    expect(errors.map(e => e.line)).toEqual([3, 4])
+  })
+
+  it('数量も空欄の行は非データ行として従来どおり黙って飛ばす', () => {
+    const { snapshots, errors } = parseResultSnapshots(csv(
+      '2026-01-01,豚バラ,kg,2,500',
+      ',小計,,,',
+    ))
+    expect(errors).toEqual([])
+    expect(snapshots[0].items).toHaveLength(1)
   })
 })
