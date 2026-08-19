@@ -8,6 +8,17 @@
   - payload 全体と主要文字列・配列件数の上限を server 側で強制する。
   - 中途失敗を注入し、更新前状態または一貫した再試行可能状態を確認する。
 
+## 現在の状態（2026-08-19）
+
+**完了 / Codex。** Workerの原子write契約、Appの完了ライフサイクル、保存lane、
+account generation、snapshot acknowledgement、再login時のdrain順、同期解散競合まで実装し、
+Codexの最終独立レビューでblocking findingなしと判定した。
+
+- 最終確認対象: `develop@e8f5e16`（DATA-001の最終修正 `2060090` を含む）
+- 検証: App 95 files / 1140 passed、Worker 26 files / 545 passed、production build成功
+- 実D1・実browser・実機とmigration 0012〜0016の適用は未実施。実装タスクの残件ではなく、
+  `WEB-04` / `WEB-07` / `WEB-09` / `WEB-10` のrelease gateで確認する。
+
 ## 実装（2026-08-08・Claude Code 第1セッション / S4）
 
 **状態: 実装済み。Worker 251 tests passed / App 619 tests passed / production build 成功。**

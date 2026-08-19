@@ -37,11 +37,14 @@ CC branch `claude/branch-operational-status-2lwwwu@8ff46af`で、非破壊merge�
 着手時に`task-list.md`を`進行中 / Claude Code`へ更新し、証拠提出後は`レビュー待ち`までとする。
 Codex承認前に`完了`またはWEB-07通過としない。
 
-**2026-08-19 現在: `レビュー待ち / Claude Code`。** 実装と検証は下記のとおり。Codex再レビュー待ち。
+**2026-08-19 現在: `完了 / Claude Code`。** `develop@e8f5e16`をCodexが最終独立レビューし、
+blocking findingなしで承認した。最終確認は App 95 files / 1140 passed、Worker 26 files /
+545 passed、production build成功。実D1・実browser・migration適用などの未実施事項は、
+実装タスクの残件ではなく `WEB-04` / `WEB-07` / `WEB-09` / `WEB-10` のrelease gateで扱う。
 2026-08-10 の実装に、2026-08-11 の追補（ヘッダなしCSV・数値契約の統一・PDF/Excel変換・
 エイリアス衝突・応答喪失からの再試行／取消）と、2026-08-16 の追補（ヘッダ選択の明示化・
 結果不明中のclose禁止・HTTP失敗とUNKNOWNの分類・数量／単価上限・通貨記号の位置・実在日付）を
-重ねている。**`完了` および WEB-07 通過は判定していない。**
+重ねている。タスクは完了したが、**WEB-07全体のrelease通過はまだ判定していない。**
 
 ## Codexレビュー指摘1件の修正・4回目（2026-08-19 / Claude Code）
 

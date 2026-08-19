@@ -4,6 +4,18 @@
 - **統合**: 実使用バグ `R-001` と、その調査中に発見した `F-001`〜`F-004` を、新規IDを作らず本タスクで扱う。
   報告の全文・コード根拠・本番D1の調査結果は [`../bug-reports.md`](../bug-reports.md) に保存する（削除しない）。
 
+## 現在の状態（2026-08-19）
+
+**完了 / Claude Code。** sessionIdを履歴identityの正本とし、stock/order別の完了契約、
+完了claim/fingerprint、過去棚卸取込台帳、replace/cancelの原子guard、別端末向け履歴詳細、
+保存失敗時の再送契約まで実装した。DATA-002からAppへ渡した7点は、後続の
+`DATA-001` / `IMPORT-001`ですべて対応済み。Codexの最終独立レビューでblocking findingはない。
+
+- 最終確認対象: `develop@e8f5e16`
+- 検証: App 95 files / 1140 passed、Worker 26 files / 545 passed、production build成功
+- 下記の「未実施」「Appへの引継ぎ」は各実装時点の履歴。現時点の本番D1 migration、
+  実D1・実browser、critical E2Eは `WEB-04` / `WEB-07` / `WEB-09` / `WEB-10` で扱う。
+
 ## P1 へ引き上げた理由
 
 当初は「実データ量が増えたときの設計検証」という将来課題だったが、2026-07-28 に

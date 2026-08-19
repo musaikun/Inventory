@@ -1,9 +1,9 @@
 # Web Free版 公開準備チェックリスト
 
-最終更新: 2026-08-17
+最終更新: 2026-08-19
 状態: **現在のrelease gateの正本**
 初回監査基準: `develop@bc9fb85`
-最新照合: 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq@1d3cbfa` の後続差分（migration 0016 まで・すべて本番未適用）
+最新照合: 2026-08-19 / `develop@e8f5e16`（DATA-001 / DATA-002 / IMPORT-001の実装レビュー完了。migration 0016 まで・すべて本番未適用）
 
 ## 公開scope
 
@@ -42,7 +42,7 @@
 | WEB-04 | D1 migration | 本番で未適用の0010〜0016をpreflightし、User承認後に**この順で**適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加のみ、0015/0016は新規table追加のみでいずれもロールバック可。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
-| WEB-07 | 取込・履歴・data integrity | 品目取込の非破壊性、DATA-001/002、過去棚卸取込を上のproduct contractへ適合させ、Codexが独立reviewする | Claude Code / Codex |
+| WEB-07 | 取込・履歴・data integrity | DATA-001/002・IMPORT-001の実装とCodex独立reviewは完了。release candidateで実D1・別browser・取込主経路を確認して通過判定する | Codex |
 | WEB-08 | observability | log masking、閲覧担当、最低限のalert/通知先、障害確認手順を確定 | User / Codex |
 | WEB-09 | critical E2E | 登録→品目取込→棚卸→同期/再接続→完了→別browser履歴詳細→CSV→削除を本番相当環境で安定実行 | Codex |
 | WEB-10 | production smoke / rollback | 公開URLで主経路・β境界・API・CORS・PWA・legal・削除を確認し、直前版へ戻す手順を検証 | User / Codex |

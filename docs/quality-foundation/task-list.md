@@ -27,10 +27,7 @@ D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
 | OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| IMPORT-001 | P1 | レビュー待ち | Claude Code | 品目マスタ取込・過去棚卸取込の非破壊性・preview・error明細を公開契約へ適合 | [IMPORT-001.md](tasks/IMPORT-001.md) |
-| DATA-002 | P1 | レビュー待ち | Claude Code | 別端末で履歴詳細を読めない実害と参照不整合。sessionId identityとserver原子性まで実装。stock/order別の完了契約、完了確定の一意化（claim/fingerprint）、replaceの原子guardまで修正（**App側7点の追随が必要**） | [DATA-002.md](tasks/DATA-002.md) |
 | SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
-| DATA-001 | P1 | レビュー待ち | Codex | 棚卸完了を含む複数writeの部分失敗防止。完了失敗時の状態保持とpending latest-winsを含む | [DATA-001.md](tasks/DATA-001.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
@@ -56,7 +53,8 @@ Web登録へのtrial適用とStripe/backendの単独公開順はUser判断待ち
 
 2026-07完了分の詳細は [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)。
 2026-08完了分は [`CI-001.md`](tasks/CI-001.md)、[`DEP-001.md`](tasks/DEP-001.md)、
-[`DOC-001.md`](tasks/DOC-001.md)。
+[`DOC-001.md`](tasks/DOC-001.md)、[`DATA-001.md`](tasks/DATA-001.md)、
+[`DATA-002.md`](tasks/DATA-002.md)、[`IMPORT-001.md`](tasks/IMPORT-001.md)。
 各詳細内の「未実施」は完了記録時点の状態です。
 2026-07完了分は`develop@96233d4`まで、CI-001は`develop@7d47cb4`で初回完了し、
 現在HEAD `develop@bc9fb85`のpreview CIも成功済みです。
@@ -77,6 +75,9 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 | CI-001 | P1 | 2026-08-02 | Codex | `develop` のtest/buildとPages preview自動実行 |
 | DEP-001 | P1 | 2026-08-02 | Codex | 本番依存の high 脆弱性を解消または隔離 |
 | DOC-001 | P1 | 2026-08-06 | Codex | docsの正本・現行・将来・履歴をWeb先行へ整理 |
+| DATA-001 | P1 | 2026-08-19 | Codex | 複数writeの原子性、完了ライフサイクル、同期キュー競合を修正 |
+| DATA-002 | P1 | 2026-08-19 | Claude Code | sessionId履歴identity、完了・取込の原子性と再送契約を整合 |
+| IMPORT-001 | P1 | 2026-08-19 | Claude Code | 品目・過去棚卸取込を非破壊preview、厳格解析、取消可能な契約へ適合 |
 
 ## 保留（P2 / P3）
 
@@ -107,6 +108,12 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19: Codexの最終独立レビューで `DATA-001` / `DATA-002` / `IMPORT-001` を承認し、
+  3件を `完了` へ移した。`DATA-002` からAppへの引継ぎ7点は `DATA-001` / `IMPORT-001` で
+  すべて対応済み。最終確認は `develop@e8f5e16` で App 95 files / 1140 passed、
+  Worker 26 files / 545 passed、production build成功、`git diff --check`指摘なし。
+  本番D1 migration、実D1・実browser、critical E2E、production smokeはタスク完了から分離し、
+  `WEB-04` / `WEB-07` / `WEB-09` / `WEB-10` のrelease gateとして継続する。
 - 2026-08-19（レビュー修正4回目）: Codex の残P1 1件を修正し、`レビュー待ち / Claude Code` を維持。
   1024px以上で常時表示される `DesktopNav` の `onDesktopNavigate()` が import中断guard を
   見ておらず、Tab / スクリーンリーダーから背面のサイドナビを実行して

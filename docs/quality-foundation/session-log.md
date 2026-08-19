@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — DATA-001 / DATA-002 / IMPORT-001 最終承認・完了
+
+- Codexが `develop@e8f5e16` を最終独立レビューし、3タスクともblocking findingなしで承認した。
+- `DATA-002`からAppへの引継ぎ7点は、`DATA-001` / `IMPORT-001`ですべて対応済み。
+- 最終確認: App 95 files / 1140 passed、Worker 26 files / 545 passed、
+  production build成功、`git diff --check`指摘なし、Workerの最終IMPORT修正差分なし。
+- `task-list.md`で3件を完了へ移し、各タスク詳細へ最終HEADと検証証拠を追記した。
+- 本番公開は未承認。migration 0010〜0016、実D1・実browser、critical E2E、production smokeは
+  `WEB-04` / `WEB-07` / `WEB-09` / `WEB-10`として継続する。
+
 ## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘の修正・4回目（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `8f0674b`。
