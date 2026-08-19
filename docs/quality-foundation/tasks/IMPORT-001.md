@@ -43,6 +43,56 @@ Codex承認前に`完了`またはWEB-07通過としない。
 結果不明中のclose禁止・HTTP失敗とUNKNOWNの分類・数量／単価上限・通貨記号の位置・実在日付）を
 重ねている。**`完了` および WEB-07 通過は判定していない。**
 
+## Codexレビュー指摘1件の修正・4回目（2026-08-19 / Claude Code）
+
+### P1: DesktopNav が import中断guard を迂回する
+
+1024px以上では `DesktopNav` がサイドナビとして常時表示され、各項目が `navigate` を emit する。
+`onDesktopNavigate()` は `isBackBlocked()` を見ずに `currentView` を変えていた。
+モーダルに focus trap も背景の inert 化も無いので、overlay がポインタを遮っても
+**Tab / スクリーンリーダーから背面のサイドナビを実行できる**。
+その結果 `MasterManagePage` / `MovementPage` ごと unmount され、
+確定していない `importBatchId` と計画を失う。
+
+- `onDesktopNavigate()` の先頭で `isBackBlocked()` を確認し、true なら遷移しない。
+  `session` / `sessions` / `master` / `movement` のいずれへも進まない
+  （`view === currentView` の早期returnより後、他の分岐より前に置いた）。
+- 判定は PWA Back（`_closeTopLayer`）・画面内の戻る（`onPageBack`）と**同じ関数**を共有する。
+- `matchMedia` を desktop 相当へ mock した App test を追加し、
+  両ページについて「guard中はナビの全項目を押しても画面が変わらない」
+  「guard解除後は遷移できる」を固定した。guard行を外すと2件落ちることを確認済み。
+
+### `currentView` を変える全経路の棚卸し（同種の迂回を残さないため）
+
+指摘が4回続いたので、`master` / `movement` に居るあいだに view を変えうる経路を全部数えた。
+
+| 経路 | guard | 備考 |
+|---|---|---|
+| 画面内の `‹ 戻る`（`@back` → `onPageBack`） | **あり** | 3回目の修正 |
+| PWA / ブラウザ Back（`_closeTopLayer`） | **あり** | 2回目の修正 |
+| DesktopNav（`onDesktopNavigate`） | **あり** | 今回 |
+| `DesktopNav` の `open-sync` / `open-feedback` | 不要 | モーダルを重ねるだけで `currentView` を変えない |
+| `AppMenu` | 到達不可 | `context="session"` の中だけに描画され、master / movement には無い |
+| ルーム解散・退出（`currentView = 'landing'`） | 対象外 | `session` からのみ到達。room に入っていない master / movement では起きない |
+| 練習終了・棚卸終了（`onGoHome` 系） | 対象外 | `currentView === 'session'` からのみ |
+| **401 によるauth失効**（別端末ログイン） | **意図的に対象外** | 非同期の強制ログアウト。tokenを失うと取消APIも呼べないので、ここで留めても復旧できない。作業内容は端末に保持され、同じ店舗へ再ログインすれば取込IDは計画とともに失われる（下記 残risk） |
+| account削除完了 | 意図的に対象外 | 店舗ごと消えるので取込を残す意味がない |
+
+`MasterManagePage` の emit は `back` / `clear-master`、`MovementPage` は `back` / `saved` だけで、
+ほかに view を変える出口は無い。
+
+### 検証（2026-08-19 / レビュー4回目の修正後）
+
+| command | 結果 |
+|---|---|
+| 追加5 testの修正前 | **2 failed**（両ページの「guard中はDesktopNavで画面が変わらない」） |
+| `npm --prefix app test -- --run` | **95 files / 1140 passed** |
+| `npm --prefix app run build` | 成功 |
+| `npm --prefix worker test` | **26 files / 545 passed** |
+| `git diff --check` | 出力なし |
+| `git diff origin/develop --name-only -- worker` | 出力なし |
+| `git diff origin/develop --stat -- app/src/App.vue` | 28 insertions(+), 3 deletions(-) |
+
 ## Codexレビュー指摘1件の修正・3回目（2026-08-19 / Claude Code）
 
 ### P1: 画面内の「戻る」が import中断guard を迂回する
@@ -67,9 +117,12 @@ App がそれを**直接 `currentView = 'sessions'` へ**変換していたた�
 回帰testは `App.importBack.test.js` へApp実結合として追加（両ページ×2件）。
 `@back` を修正前の直接切替へ戻すと、両ページの「guard中は変わらない」が落ちることを確認済み。
 
-**focus trap / inert 化は入れていない。** 今回の実害（復旧情報の喪失）は
-view を切り替える経路を塞げば止まる。背景要素への focus 移動そのものの対処は
-a11y の別課題として残す（下記「未実施・残risk」）。
+**focus trap / inert 化は入れていない。**
+**2026-08-19 訂正（レビュー4回目）:** この時点では「view を切り替える経路を塞げば止まる」
+と書いたが、**塞げていた経路が不完全だった**（DesktopNav が残っていた）。
+focus trap が無いこと自体は、a11y だけでなく**データ整合性のリスクでもある**。
+現在は view を変える到達可能な経路をすべて guard に通してある（上記の棚卸し表）ので
+実害は止まっているが、focus 移動そのものは残riskとして扱う（下記「未実施・残risk」）。
 
 ### 検証（2026-08-19 / レビュー3回目の修正後）
 
@@ -464,13 +517,21 @@ Worker の現行契約（`worker/src/constants.js`・**読み取り専用**）�
 | `CsvMapperModal.test.js` | 推測を既定値にしなくなったので、各caseで明示選択してから進む形へ |
 | `SettingsModal.import.test.js` | 同上（「既定で選ばれている」前提の assertion を「未選択」へ） |
 
-### 未実施・残risk（a11y / 2026-08-19 追加）
+### 未実施・残risk（focus trap / 2026-08-19 更新）
 
-- **モーダルに focus trap と背景の inert 化が無い。** 閉じてはいけない状態でも、
-  キーボードの Tab で背景の要素へ focus を移せる。view を切り替える経路（PWA Back /
-  画面内の戻る）は塞いだので復旧情報は失われないが、スクリーンリーダー・キーボード操作の
-  体験としては正しくない。`aria-modal="true"` は付いているが実装上の拘束にはならない。
-  他のモーダルにも共通する課題のため、本タスクでは扱わずa11yの別課題として残す。
+- **モーダルに focus trap と背景の inert 化が無い。**
+  これは a11y だけの問題ではなく、**データ整合性のリスクでもある**
+  （背景の操作に到達できると、view を変える経路からモーダルごと失われうる）。
+  現在は到達可能な経路（画面内の戻る / PWA・ブラウザ Back / DesktopNav）を
+  **同じ `isBackBlocked()` に通してある**ので実害は止まっている。上記の棚卸し表が根拠。
+  ただし**この方式は「新しい遷移経路が増えたら guard を足す」ことを前提にする**。
+  focus trap + `inert` で背景そのものを触れなくする方が構造的に強い。
+  他のモーダルにも共通する実装なので、本タスクの範囲外として残す。
+  新しい画面遷移を追加するときは `isBackBlocked()` の確認を忘れないこと。
+- **401 によるauth失効中の取込IDは保持しない。** 別端末ログインでtokenを失うと
+  `landing` へ戻り、モーダルと計画が消える。token が無ければ `DELETE /imports/:batchId`
+  も呼べないため、ここで画面を留めても復旧できない。再ログイン後に取込IDを引き継ぐには
+  ブラウザー更新をまたぐ永続化（下記）が必要で、同じ残riskに含まれる。
 
 ### 未実施・残risk（2026-08-16 追加分）
 

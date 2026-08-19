@@ -677,6 +677,12 @@ onUnmounted(() => {
 // サイドナビからの画面遷移。棚卸画面からの離脱は保存・確認を伴うため onGoHome を通す。
 async function onDesktopNavigate(view) {
   if (view === currentView.value) return
+  // 閉じてはいけないモーダル（取込の結果不明・取消必須）が開いているあいだは遷移しない。
+  // サイドナビは背景に居るので、overlay でポインタを遮っても Tab / スクリーンリーダーから
+  // 実行できる。ここで view を変えると MasterManagePage / MovementPage ごと unmount され、
+  // 確定していない importBatchId と計画を失う。
+  // PWA Back（_closeTopLayer）・画面内の戻る（onPageBack）と同じ判定を共有する。
+  if (isBackBlocked()) return
 
   if (currentView.value === 'session') {
     await onGoHome()

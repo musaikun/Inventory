@@ -2,6 +2,56 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘の修正・4回目（IMPORT-001）
+
+- 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `8f0674b`。
+- 前回の `onPageBack()` は確認済み。残っていた **DesktopNav 経路**を塞いだ。
+
+### DesktopNav が import中断guard を迂回する
+
+1024px以上では `DesktopNav` が背景に常時表示される。`onDesktopNavigate()` は
+`isBackBlocked()` を見ずに `currentView` を変えていた。モーダルに focus trap も
+背景の inert 化も無いので、overlay がポインタを遮っても **Tab / スクリーンリーダー**から
+サイドナビを実行でき、`MasterManagePage` / `MovementPage` ごと unmount されて
+`importBatchId` と計画を失っていた。
+
+- `onDesktopNavigate()` の先頭で `isBackBlocked()` を確認。guard中はどの view へも進まない。
+- 判定は画面内の戻る・PWA Back と**同じ関数**を共有するので、3経路で条件がずれない。
+- `matchMedia` を desktop 相当へ mock した App test を両ページぶん追加。
+  guard行を外すと2件落ちることを確認した。
+
+### 同種の指摘を4回受けたので、全経路を棚卸しした
+
+`master` / `movement` に居るあいだに `currentView` を変えうる経路を全部数え、
+`IMPORT-001.md` へ表で残した。到達可能なのは3つ（画面内の戻る / PWA Back / DesktopNav）で、
+いずれも guard 済み。`AppMenu` は `context="session"` の中だけなので master / movement には無い。
+ルーム解散・練習終了は `session` からのみ。両ページの emit は `back` / `clear-master` /
+`saved` だけで、他に view を変える出口は無い。
+
+**意図的に guard しない経路**: 401 auth失効と account削除。
+token を失うと取消APIも呼べないので、画面を留めても復旧できない（残riskへ記録）。
+
+### 残riskの記述を訂正した
+
+前回「focus trap が無いのは a11y の別課題」と書いたが、**塞げていた経路が不完全だった**ため
+誤りだった。focus trap の不在は**データ整合性のリスクでもある**と訂正し、
+現在の方式が「新しい遷移経路が増えたら guard を足す」前提であること、
+構造的には focus trap + `inert` の方が強いことを明記した。
+
+### 検証
+
+- 追加5 testのうち2件が修正前に失敗。
+- `npm --prefix app test -- --run`: **95 files / 1140 passed**。
+- `npm --prefix app run build`: 成功。
+- `npm --prefix worker test`: **26 files / 545 passed**。
+- `git diff --check` / `worker/**` の差分: いずれも出力なし。
+- `App.vue` の累計差分: 28 insertions(+), 3 deletions(-)。
+
+### 次の再開地点
+
+Codex の再レビュー（第3セッションの最終完了判定）。
+**migration 0012〜0016は本番未適用。`migration → Worker → App` の順で出す。**
+
 ## 2026-08-19 — CC第3修正セッション: Codexレビュー指摘の修正・3回目（IMPORT-001）
 
 - 担当: Claude Code。branch `claude/csv-past-stocktake-import-a0kjl3`、基準 `62b0ddc`。

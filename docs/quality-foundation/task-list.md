@@ -107,6 +107,17 @@ Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行�
 
 ## 変更履歴
 
+- 2026-08-19（レビュー修正4回目）: Codex の残P1 1件を修正し、`レビュー待ち / Claude Code` を維持。
+  1024px以上で常時表示される `DesktopNav` の `onDesktopNavigate()` が import中断guard を
+  見ておらず、Tab / スクリーンリーダーから背面のサイドナビを実行して
+  `MasterManagePage` / `MovementPage` を unmount できた（`importBatchId` と計画を失う）。
+  `isBackBlocked()` の確認を追加し、guard中は session / sessions / master / movement の
+  いずれへも遷移しない。判定は画面内の戻る・PWA Back と同じ関数を共有する。
+  `matchMedia` を desktop 相当へ mock した App test を両ページぶん追加（修正前に2件失敗を確認）。
+  あわせて **`currentView` を変える全経路を棚卸し**して `IMPORT-001.md` に表で記録し、
+  「focus trap が無いのは a11y だけの残risk」という前回の整理を
+  **データ整合性リスクでもある**と訂正した。
+  検証: App 95 files / 1140 passed、build成功、Worker 26 files / 545 passed。`worker/**` に差分なし。
 - 2026-08-19（レビュー修正3回目）: Codex の残P1 1件を修正し、`レビュー待ち / Claude Code` を維持。
   `MasterManagePage` / `MovementPage` の画面内「‹ 戻る」が `@back` → App の直接 view 切替で
   import中断guardを迂回していた（モーダルに focus trap が無く、キーボードTabで背景の戻るへ到達できる）。

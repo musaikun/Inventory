@@ -175,3 +175,75 @@ describe('画面内の「戻る」も import中断guard を見る', () => {
     }, 15000)
   }
 })
+
+describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
+  // サイドナビは背景に居る。モーダルに focus trap / inert が無いので、overlay が
+  // ポインタを遮っても Tab やスクリーンリーダーから実行できる。そこで view を変えると
+  // MasterManagePage / MovementPage ごと unmount され、importBatchId と計画を失う。
+  //
+  // jsdom は matchMedia を持たないため既定ではモバイル経路になる。desktop 相当へ mock する。
+  function mockDesktop() {
+    window.matchMedia = (query) => ({
+      matches: query === '(min-width: 1024px)',
+      media: query,
+      addEventListener() {}, removeEventListener() {},
+      addListener() {}, removeListener() {},
+      onchange: null, dispatchEvent: () => false,
+    })
+  }
+
+  function navButton(root, label) {
+    return [...root.querySelectorAll('.dt-nav-item')].find(b => b.textContent.includes(label))
+  }
+  async function clickEl(el) {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flush(8)
+  }
+
+  afterEach(() => { delete window.matchMedia })
+
+  it('デスクトップではサイドナビが出る（前提の確認）', async () => {
+    mockDesktop()
+    const el = await mountApp()
+    expect(el.querySelector('.dt-nav-list')).not.toBeNull()
+  }, 15000)
+
+  for (const [label, cardSel, pageSel, navLabel] of [
+    ['データ管理（MasterManagePage）', '.master-card', '.mp', '棚卸'],
+    ['入出庫（MovementPage）',        '.move-start',  '.mv', '棚卸'],
+  ]) {
+    it(`${label}: guard中はDesktopNavで画面が変わらない`, async () => {
+      mockDesktop()
+      const el = await mountApp()
+      await clickEl(el.querySelector(cardSel))
+      expect(el.querySelector(pageSel)).not.toBeNull()
+
+      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
+      const unregister = registerModalBackGuard(() => true)
+
+      // ナビの全項目を順に押しても、どこへも遷移しない
+      for (const btn of [...el.querySelectorAll('.dt-nav-item')]) {
+        if (btn.disabled) continue
+        await clickEl(btn)
+        expect(el.querySelector(pageSel), btn.textContent.trim()).not.toBeNull()
+      }
+
+      unregister()
+    }, 20000)
+
+    it(`${label}: guard解除後はDesktopNavで遷移できる`, async () => {
+      mockDesktop()
+      const el = await mountApp()
+      await clickEl(el.querySelector(cardSel))
+      expect(el.querySelector(pageSel)).not.toBeNull()
+
+      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
+      registerModalBackGuard(() => true)()   // 登録してすぐ解除
+
+      const btn = navButton(el, navLabel)
+      expect(btn, `nav '${navLabel}' が見つからない`).toBeTruthy()
+      await clickEl(btn)
+      expect(el.querySelector(pageSel)).toBeNull()
+    }, 20000)
+  }
+})
