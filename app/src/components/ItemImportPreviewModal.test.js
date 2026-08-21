@@ -15,12 +15,13 @@ async function mount(props) {
   const { default: Modal } = await import('./ItemImportPreviewModal.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
-  const events = { imported: [], close: [] }
+  const events = { imported: [], close: [], mapColumns: [] }
   app = createApp({
     render: () => h(Modal, {
       ...props,
-      onImported: (r) => events.imported.push(r),
-      onClose:    ()  => events.close.push(true),
+      onImported:   (r) => events.imported.push(r),
+      onClose:      ()  => events.close.push(true),
+      onMapColumns: (p) => events.mapColumns.push(p),
     }),
   })
   app.mount(host)
@@ -83,10 +84,15 @@ describe('件数と明細の表示', () => {
     expect(text()).toContain('数値として読めません')
   })
 
-  it('ヘッダ無しファイルでは列指定を案内する', async () => {
-    const { text } = await mount({ csvText: 'トマト,箱\nレタス,玉' })
+  it('ヘッダ無しファイルでは、この画面から列指定へ渡せる', async () => {
+    const csvText = 'トマト,箱\nレタス,玉'
+    const { text, events } = await mount({ csvText, filename: 'shiire.csv' })
     expect(text()).toContain('列を指定して取り込んでください')
-    expect(text()).toContain('列指定でインポート')
+
+    // 別画面のボタンを自力で探させない。ここから同じ内容のまま列指定へ移る
+    await click('列を指定して取り込む')
+    expect(events.mapColumns).toEqual([{ csvText, filename: 'shiire.csv' }])
+    expect(cfg.config.order).toEqual([])
   })
 
   it('分類コード・軸名・名称切り詰めをプレビューへ出す', async () => {

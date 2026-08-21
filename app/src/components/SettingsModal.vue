@@ -97,6 +97,18 @@ function onPreviewImported(result) {
   previewSource.value = null
   status.value = _importResultStatus(result)
 }
+
+// 取込確認画面が解析に失敗したとき、その内容をそのまま列指定インポートへ渡す。
+function onPreviewMapColumns({ csvText, filename }) {
+  previewSource.value = null
+  openMapperFromText(csvText, filename)
+}
+
+// PDF/Excel変換画面からの受け皿。Excelは列指定インポート側でCSVへ変換する。
+function onImporterMapColumns(file) {
+  onImporterClose()
+  openMapper(file)
+}
 function onUndoImport() {
   if (!undoLastImport()) return
   status.value = { type: 'success', msg: '取込前の品目リストに戻しました' }
@@ -179,6 +191,15 @@ function handleFile(file) {
     openPreview({ origin: 'csv', csvText: e.target.result, filename: file.name })
   }
   reader.readAsText(file, 'UTF-8')
+}
+
+// 解析済みのテキストから直接マッピング画面を開く（取込確認画面からの受け皿）。
+// ファイルを読み直さないので、確認画面が見ていた内容と同じものを列指定できる。
+function openMapperFromText(csvText, filename = '') {
+  mapperCsvText.value  = csvText
+  mapperFilename.value = filename
+  showMapper.value     = true
+  status.value         = null
 }
 
 async function openMapper(file) {
@@ -466,6 +487,7 @@ function onDownloadTemplate() {
     :initial-file="importerFile"
     @close="onImporterClose"
     @imported="onImporterImported"
+    @map-columns="onImporterMapColumns"
   />
 
   <!-- CSVカラムマッピングモーダル -->
@@ -487,6 +509,7 @@ function onDownloadTemplate() {
     :has-header="previewSource.hasHeader !== false"
     :filename="previewSource.filename"
     @imported="onPreviewImported"
+    @map-columns="onPreviewMapColumns"
     @close="previewSource = null"
   />
 </template>

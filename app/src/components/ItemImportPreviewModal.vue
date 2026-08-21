@@ -27,7 +27,7 @@ const props = defineProps({
   // マッピング画面 → 確認画面 → 確定処理まで同じ値を運ぶ（画面の説明と結果を一致させる）。
   hasHeader: { type: Boolean, default: true },
 })
-const emit = defineEmits(['imported', 'close'])
+const emit = defineEmits(['imported', 'close', 'mapColumns'])
 
 // キャンセル・Escape・オーバーレイクリックが重なっても、閉じる処理は1回だけ。
 // このモーダルは閉じる経路で config を一切変更しない（取込は onConfirm だけ）。
@@ -74,6 +74,17 @@ const plan      = computed(() => preview.value.plan)
 const summary   = computed(() => plan.value?.summary ?? null)
 const error     = computed(() => importError.value || preview.value.error)
 const needsMapping = computed(() => preview.value.errorCode === IMPORT_ERROR_NO_HEADER)
+
+// 解析に失敗したファイルは、この画面から列指定インポートへ渡せるようにする。
+// 「形式を確認してください」で行き止まりにすると、推奨フォーマットに合わない
+// 仕入先のCSVを取り込む手段が画面から消える（別画面のボタンを自力で探させない）。
+const canMapColumns = computed(() => !!error.value && !!props.csvText)
+const mapColumnsLabel = computed(() => (isMapped.value ? '列の指定をやり直す' : '列を指定して取り込む'))
+function onMapColumns() {
+  if (closed.value) return
+  closed.value = true
+  emit('mapColumns', { csvText: props.csvText, filename: props.filename })
+}
 
 const counts = computed(() => (summary.value ? summaryCounts(summary.value) : null))
 
@@ -146,10 +157,14 @@ function onConfirm() {
       <div v-if="error" class="msg error" role="alert" aria-live="assertive">
         ✗ {{ error }}
         <span v-if="needsMapping" class="msg-hint">
-          「フォーマット不明のCSV/Excelを列指定でインポート」を選び、
-          <b>「1行目からデータ」</b>を指定すると、1行目も品目として取り込めます。
+          列を指定して取り込み、<b>「1行目からデータ」</b>を選ぶと、1行目も品目として取り込めます。
         </span>
       </div>
+
+      <!-- 推奨フォーマットに合わないファイルの受け皿。列を自分で指定して取り込む -->
+      <button v-if="canMapColumns" class="map-columns-btn" @click="onMapColumns">
+        🗂 {{ mapColumnsLabel }}
+      </button>
 
       <!-- 1件も取り込めなかった場合でも、行番号・列・理由は出す -->
       <div v-if="!counts && errorTotal > 0" class="detail-block">
@@ -459,6 +474,16 @@ function onConfirm() {
   background: #f8fafc; color: #475569; font-size: 13px; font-weight: 700; padding: 9px 12px;
 }
 .msg-hint { display: block; font-weight: 600; font-size: 12px; margin-top: 4px; line-height: 1.6; }
+
+/* 解析に失敗したときの受け皿。エラーの直下に置き、次の操作をこの画面で完結させる */
+.map-columns-btn {
+  width: 100%; margin-bottom: 12px; padding: 12px;
+  border: 1.5px solid #bfdbfe; border-radius: 10px;
+  background: #eff6ff; color: #1d4ed8;
+  font-size: 14px; font-weight: 800; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-columns-btn:active { background: #dbeafe; }
 .blocked-note { font-size: 12px; color: #b45309; font-weight: 700; margin: 0 0 8px; }
 .err-toggle { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
 

@@ -10,7 +10,7 @@ const props = defineProps({
   initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
 })
 
-const emit = defineEmits(['close', 'imported'])
+const emit = defineEmits(['close', 'imported', 'mapColumns'])
 useEscapeKey(() => emit('close'))
 
 const dragging    = ref(false)
@@ -25,7 +25,16 @@ const debugLines  = ref([])     // PDF解析失敗時のraw行
 const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
 const pdfPages    = ref([])     // [{ tokens, rotate }] レシピ自動照合用のrawトークン
 const pdfFile     = ref(null)   // 手動マッピングでPDF実物を描画するための File
+const excelFile   = ref(null)   // 列指定インポートへ引き渡すための Excel File
 const mapperOpen  = ref(false)
+
+// Excel は自動解析だけに頼らない。業者フォーマットにも自作テンプレートにも当たらない
+// ファイルは「読めません」で行き止まりになるため、列指定インポート（CsvMapperModal）へ
+// そのまま渡せるようにする。変換は呼び出し側（SettingsModal）が行う。
+function useColumnMapper() {
+  if (!excelFile.value) return
+  emit('mapColumns', excelFile.value)
+}
 
 function cancelPdf() {
   abortCtrl.value?.abort()
@@ -73,6 +82,7 @@ async function handleFile(file) {
   pdfProgress.value = null
   pdfPages.value   = []
   pdfFile.value    = isPdf ? file : null
+  excelFile.value  = isExcel ? file : null
   loading.value    = true
 
   const ctrl = new AbortController()
@@ -104,7 +114,7 @@ async function handleFile(file) {
     } else {
       const items = await parseExcelFile(buf)
       if (!applyItems(items)) {
-        status.value = { type: 'error', msg: '品目が見つかりませんでした。ファイルの形式を確認してください' }
+        status.value = { type: 'error', msg: '自動では読み取れませんでした。「列を指定して取り込む」でお試しください' }
       }
     }
   } catch (err) {
@@ -186,6 +196,11 @@ function onImport() {
       <!-- 手動マッピング（PDFのrawトークンがあるとき） -->
       <button v-if="pdfPages.length" class="manual-map-btn" @click="openMapper">
         🎯 列を指定して読み取る（レシピ保存）
+      </button>
+
+      <!-- 手動マッピング（Excel。自動解析に当たらないフォーマットの受け皿）-->
+      <button v-if="excelFile" class="manual-map-btn" @click="useColumnMapper">
+        🗂 列を指定して取り込む
       </button>
 
       <!-- プレビュー -->

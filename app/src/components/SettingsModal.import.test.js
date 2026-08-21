@@ -66,6 +66,18 @@ async function mapField(fieldLabel, colIndex) {
   await nextTick()
 }
 
+/** 通常の取込入口（ドロップゾーン）へCSVを流し込む。確認画面まで進む */
+async function importWith(csvText, filename = 'items.csv') {
+  const input = [...host.querySelectorAll('input[type="file"]')]
+    .find(i => i.accept.includes('.pdf'))
+  const file = new File([csvText], filename, { type: 'text/csv' })
+  if (typeof file.text !== 'function') file.text = async () => csvText
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  // FileReader は非同期。読み終わるまでマクロタスクを待つ
+  for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 0)); await nextTick() }
+}
+
 /** ファイル選択の代わりに、実際の openMapper と同じ入口へ CSV を流し込む */
 async function openMapperWith(csvText, filename = 'items.csv') {
   // 列指定インポート用の input（accept に text/csv を含む2番目のもの）
@@ -161,5 +173,49 @@ describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
 
     expect(cfg.config.order).toEqual(['5" 皿', 'トマト,大玉'])
     expect(cfg.config.prices['トマト,大玉']).toBe(300)
+  })
+})
+
+// 推奨フォーマットに合わないファイルを行き止まりにしない（ユーザー報告）。
+// 「形式を確認してください」で終わると、仕入先のCSVを取り込む手段が画面から消える。
+describe('フォーマット不明のファイルから列指定インポートへ移れる', () => {
+  it('確認画面のエラーから列指定へ進み、そのまま取り込める', async () => {
+    await mountSettings()
+    await importWith('トマト,箱,120\nレタス,玉,80')
+
+    // 推奨フォーマットとして解析できず、確認画面がエラーを出している
+    expect(host.textContent).toContain('列を指定して取り込んでください')
+
+    button('列を指定して取り込む').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    // マッピング画面が同じ内容で開く（ファイルを選び直させない）
+    expect(host.textContent).toContain('1行目からデータ')
+    await pick('1行目からデータ')
+    await mapField('単位', 1)
+    await mapField('単価', 2)
+    button('このマッピングでインポート').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    button('取り込む').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    expect(cfg.config.order).toEqual(['トマト', 'レタス'])
+    expect(cfg.config.prices['トマト']).toBe(120)
+  })
+
+  it('列指定の結果が空でも、指定をやり直せる', async () => {
+    await mountSettings()
+    await openMapperWith('トマト,箱,\nレタス,玉,')
+    await pick('1行目からデータ')
+    await mapField('品目名', 2)   // 空の列を品目名に当てる＝有効な品目が1件も無い
+    button('このマッピングでインポート').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    const retry = button('列の指定をやり直す')
+    expect(retry).not.toBeUndefined()
+    retry.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    expect(button('このマッピングでインポート')).not.toBeUndefined()
+    expect(cfg.config.order).toEqual([])
   })
 })
