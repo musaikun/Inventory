@@ -197,11 +197,9 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // 履歴タブ（ダッシュボード）へ
-    const tabs = [...host.querySelectorAll('.tab-btn')]
-    const dash = tabs.find(b => !b.className.includes('active')) ?? tabs[1]
-    dash?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    for (let i = 0; i < 6; i++) await nextTick()
+    // ホームの「履歴カレンダー」から専用ページへ
+    host.querySelector('.history-link')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 8; i++) await nextTick()
     const entry = host.querySelector('.hc-entry-stock')
     entry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()

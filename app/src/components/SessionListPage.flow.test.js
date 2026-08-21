@@ -30,11 +30,11 @@ vi.mock('../composables/useWeather.js', () => ({
 let app = null
 let host = null
 
-async function mountPage() {
+async function mountPage(props = {}) {
   const { default: SessionListPage } = await import('./SessionListPage.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
-  app = createApp(SessionListPage)
+  app = createApp(SessionListPage, props)
   app.mount(host)
   await nextTick()
   await nextTick()   // onMounted の _loadSessions を待つ
@@ -115,5 +115,23 @@ describe('SessionListPage — 棚卸中心の順路', () => {
     const link = root.querySelector('.history-link')
     expect(link).not.toBeNull()
     expect(link.textContent).toContain('履歴カレンダー')
+  })
+
+  // 履歴カレンダーは専用ページへ移した。ホームはそこへの入口だけを持つ。
+  it('履歴カレンダーを押すと専用ページへの遷移を要求する', async () => {
+    const onOpenHistory = vi.fn()
+    const root = await mountPage({ onOpenHistory })
+    root.querySelector('.history-link').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(onOpenHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it('ダッシュボードタブにカレンダー関連の表示を持たない', async () => {
+    const root = await mountPage()
+    const dashboard = root.querySelectorAll('.tab-panels-track > .tab-panel')[1]
+    expect(dashboard).not.toBeUndefined()
+    expect(dashboard.querySelector('.hc')).toBeNull()        // カレンダー本体
+    expect(dashboard.querySelector('.wx-bar')).toBeNull()    // 天気の設定バー
+    expect(dashboard.textContent).not.toContain('履歴')
   })
 })

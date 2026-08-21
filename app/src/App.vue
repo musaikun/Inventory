@@ -69,11 +69,12 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _persistedTab as sessionsTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
+import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
 import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, isBackBlocked } from './composables/appMenuState.js'
@@ -163,6 +164,8 @@ function markActivity() { if (currentView.value === 'session') activeTimer.mark(
 // 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail' | 'guest-result'
 const currentView   = ref('landing')
 const detailSnapshot = ref(null)
+// 履歴詳細を開いた画面（一覧 or 履歴カレンダー）。戻るで元の画面へ返す。
+const detailReturnView = ref('sessions')
 // 完了後ゲスト閲覧（読み取り専用結果ビュー）
 const guestResult      = ref(null)   // 結果スナップショット（null = エラー表示）
 const guestResultError = ref('')
@@ -495,6 +498,7 @@ async function onViewSession(session) {
     showToast('明細が多いため一部のみ表示しています', 3500, 'warning')
   }
   detailSnapshot.value = snap
+  detailReturnView.value = currentView.value === 'history' ? 'history' : 'sessions'
   currentView.value = 'session-detail'
 }
 
@@ -655,7 +659,7 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
 // matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
 const isDesktop = useMediaQuery(DESKTOP_QUERY)
-const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'session-detail']
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'session-detail']
 const showDesktopNav = computed(() =>
   isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
 )
@@ -1179,9 +1183,10 @@ function _closeTopLayer() {
   if (settingsSection.value) { settingsSection.value = null;  return true }
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'history') { currentView.value = 'sessions'; return true }
   if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
   if (ordersOpen.value)      { ordersOpen.value = false;    return true }
-  if (currentView.value === 'session-detail') { currentView.value = 'sessions'; return true }
+  if (currentView.value === 'session-detail') { currentView.value = detailReturnView.value; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
@@ -1564,7 +1569,6 @@ async function _finishSession(completionCount, isHostInRoom) {
   ackCompletionFinalized(completedId)
   clearSession()
   showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
-  sessionsTab.value  = 'dashboard'
   _setNewSession(completedId)
   currentView.value  = 'sessions'
 }
@@ -2697,7 +2701,7 @@ function dismissReview() {
       @start-session="onSessionStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
-      @view-session="onViewSession"
+      @open-history="currentView = 'history'"
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
@@ -2719,12 +2723,21 @@ function dismissReview() {
       @back="onPageBack"
     />
 
+    <!-- ── 履歴カレンダー（専用ページ） ── -->
+    <HistoryCalendarPage
+      v-else-if="currentView === 'history'"
+      @back="currentView = 'sessions'"
+      @view-session="onViewSession"
+      @delete-session="onDeleteSession"
+      @open-upgrade="reason => openUpgrade(reason)"
+    />
+
     <!-- ── セッション詳細（完了済み） ── -->
     <SessionDetailPage
       v-else-if="currentView === 'session-detail' && detailSnapshot"
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
-      @back="currentView = 'sessions'"
+      @back="currentView = detailReturnView"
       @patched="onSnapshotPatched"
     />
 

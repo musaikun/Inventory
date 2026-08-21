@@ -11,17 +11,15 @@ import { getSessions, createSession, updateSession, deleteSession, isAuthenticat
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
 import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
-import HistoryCalendar from './HistoryCalendar.vue'
-import { useWeather, requestGeolocation } from '../composables/useWeather.js'
 import { settingsSection, showOrderSchedule } from '../composables/appMenuState.js'
 
 const props = defineProps({
@@ -29,7 +27,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
+const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots } = useHistory()
@@ -37,14 +35,6 @@ const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: 
 const { getMovements } = useMovements()
 const { getOrders } = useOrders()
 
-// 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
-const { state: weatherState } = useWeather()
-const weatherBusy = ref(false)
-async function onEnableWeather() {
-  weatherBusy.value = true
-  try { await requestGeolocation() } catch (_) { /* 拒否/失敗は state.error に反映 */ }
-  finally { weatherBusy.value = false }
-}
 // 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
 
@@ -222,28 +212,15 @@ const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order')
 )
 
-// Free プラン: 直近 FREE_HISTORY_COUNT 件のみ表示（新しい順）
-const visibleCompletedSessions = computed(() => {
-  if (isPro()) return completedSessions.value
-  return [...completedSessions.value]
-    .sort((a, b) => new Date(b.endedAt ?? b.startedAt) - new Date(a.endedAt ?? a.startedAt))
-    .slice(0, FREE_HISTORY_COUNT)
-})
-
-const hiddenByPlanCount = computed(() =>
-  completedSessions.value.length - visibleCompletedSessions.value.length
-)
-
-const CORRECTION_DAYS = 3
+// 履歴の表示（Freeプラン上限・カレンダー）は履歴カレンダーページが持つ。
+// ここは進行中セッションと導線だけを扱う。
 
 function _isSessionLocked(session) {
-  // 恒久ロック（新しい棚卸の完了で確定済み）。新しい方を削除しても外れない。
-  if (getSnapshotBySessionId(session.id)?.locked) return true
-  if (!session.endedAt) return false
-  if (Date.now() - new Date(session.endedAt).getTime() > CORRECTION_DAYS * 86400_000) return true
-  return completedSessions.value.some(s =>
-    s.id !== session.id && new Date(s.startedAt) > new Date(session.endedAt)
-  )
+  return isSessionLocked(session, {
+    // 恒久ロック（新しい棚卸の完了で確定済み）。新しい方を削除しても外れない。
+    snapshotLocked: !!getSnapshotBySessionId(session.id)?.locked,
+    completedSessions: completedSessions.value,
+  })
 }
 
 function onStartNew() {
@@ -306,14 +283,8 @@ function onResume(session) {
 }
 
 async function onDelete(session) {
-  const isActive = session.status === 'active'
-  const locked   = session.status === 'completed' && _isSessionLocked(session)
-  const msg = isActive
-    ? `進行中のセッションを削除します。\n入力中のデータも失われます。\n\nこの操作は取り消せません。本当に削除しますか？`
-    : locked
-      ? `確定済み（編集ロック）の棚卸です。\n削除すると復元できません。\n\n本当に削除しますか？`
-      : `このセッションを削除します。\n\nこの操作は取り消せません。本当に削除しますか？`
-  if (!confirm(msg)) return
+  const locked = session.status === 'completed' && _isSessionLocked(session)
+  if (!confirm(deleteConfirmMessage(session, locked))) return
   deletingId.value = session.id
   try {
     await deleteSession(session.id)
@@ -505,13 +476,13 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
-          <!-- ③ 完了した棚卸を見る。履歴はダッシュボードタブのカレンダーが正 -->
+          <!-- ③ 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
           <div class="flow-step">
             <span class="flow-num">3</span>
             <span class="flow-label">記録を見る</span>
             <span class="flow-sub">完了した棚卸の履歴・在庫金額の推移</span>
           </div>
-          <button class="history-link" type="button" @click="activeTab = 'dashboard'">
+          <button class="history-link" type="button" @click="emit('openHistory')">
             <span class="history-link-ico">📅</span>
             <span class="history-link-text">
               <span class="history-link-title">履歴カレンダー</span>
@@ -670,33 +641,7 @@ function _itemCount(session) {
         <!-- ダッシュボードパネル -->
         <div class="tab-panel">
 
-          <!-- 履歴カレンダー（日付を選ぶ → その日の棚卸/発注を見る） -->
-          <div class="section-title">📅 履歴</div>
-          <div class="wx-bar">
-            <template v-if="weatherState.loc">
-              <span class="wx-loc">🌤 天気表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
-              <span class="wx-coord">📍 {{ weatherState.loc.name || `${weatherState.loc.lat}, ${weatherState.loc.lon}` }}</span>
-              <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">現在地で更新</button>
-            </template>
-            <template v-else>
-              <span class="wx-hint">天気・気温・降水をカレンダーに表示できます</span>
-              <button class="wx-btn primary" :disabled="weatherBusy" @click="onEnableWeather">{{ weatherBusy ? '取得中…' : '📍 現在地で天気を表示' }}</button>
-            </template>
-            <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
-          </div>
-          <HistoryCalendar
-            :sessions="visibleCompletedSessions"
-            :weather="weatherState.weather"
-            @view-session="s => emit('viewSession', s)"
-            @delete-session="onDelete"
-          />
-          <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
-            <span class="plan-limit-icon">🔒</span>
-            <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴は無料プランでは表示されません</span>
-            <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸です。上限の緩和は将来提供予定です。`)">詳しく</button>
-          </div>
-
-          <div class="section-title" style="margin-top:24px">📊 分析</div>
+          <div class="section-title">📊 分析</div>
           <div class="dashboard-card" @click="showDashboard = true">
             <div class="dashboard-card-icon">📊</div>
             <div class="dashboard-card-body">
@@ -940,14 +885,6 @@ function _itemCount(session) {
   -webkit-overflow-scrolling: touch;
 }
 
-.wx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
-.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
-.wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.wx-btn.primary { border-color: #38bdf8; background: #f0f9ff; color: #0369a1; }
-.wx-btn:disabled { opacity: 0.5; cursor: default; }
-.wx-err { font-size: 11px; color: #dc2626; }
-
 .section-title {
   font-size: 12px;
   font-weight: 700;
@@ -984,7 +921,7 @@ function _itemCount(session) {
 .flow-label { font-size: 13px; font-weight: 800; color: #334155; }
 .flow-sub   { font-size: 11px; color: #94a3b8; font-weight: 600; }
 
-/* 履歴（ダッシュボードタブ）への導線。棚卸の流れの終点 */
+/* 履歴カレンダーページへの導線。棚卸の流れの終点 */
 .history-link {
   display: flex;
   align-items: center;
@@ -1912,32 +1849,6 @@ function _itemCount(session) {
   line-height: 1.7;
   padding: 32px 16px;
 }
-
-.plan-limit-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  margin-top: 6px;
-  background: #fefce8;
-  border: 1.5px solid #fde047;
-  border-radius: 10px;
-  font-size: 12px;
-}
-.plan-limit-icon { flex-shrink: 0; }
-.plan-limit-text { flex: 1; color: #854d0e; font-weight: 600; }
-.plan-limit-link {
-  flex-shrink: 0;
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 12px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-.plan-limit-link:active { opacity: 0.7; }
 
 .msg-error {
   padding: 10px 14px;
