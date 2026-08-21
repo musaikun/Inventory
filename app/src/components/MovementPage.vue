@@ -14,6 +14,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
+import RowMapperModal from './RowMapperModal.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -290,6 +291,7 @@ const {
   showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
   openDeliveryFromFile, closeDelivery, onDeliveryImported: commitDelivery, downloadDeliveryTemplate,
   showStocktakeModal, stocktakePlan, stocktakeFilename,
+  rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
   openStocktakeFromFile, closeStocktake, setStocktakeResolution,
   confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
@@ -551,7 +553,20 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       :ctx="importCtx"
       :existing-movements="existingMovements()"
       @imported="onDeliveryImported"
+      @map-columns="mapDeliveryColumns"
       @close="closeDelivery"
+    />
+
+    <!-- 自動で読み取れなかったファイルの受け皿（納品・棚卸で共通）-->
+    <RowMapperModal
+      v-if="rowMapper"
+      :csv-text="rowMapper.csvText"
+      :filename="rowMapper.filename"
+      :title="rowMapper.title"
+      :message="rowMapper.message"
+      :fields="rowMapper.fields"
+      @apply="applyRowMapping"
+      @close="closeRowMapper"
     />
   </div>
 </template>

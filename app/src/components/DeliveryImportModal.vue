@@ -13,7 +13,7 @@ const props = defineProps({
   // 重複判定用の既存入出庫レコード
   existingMovements: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['imported', 'close'])
+const emit = defineEmits(['imported', 'close', 'mapColumns'])
 
 const NEW = '__new__'   // 「この名前で新規追加」を表す choice 値
 
@@ -118,6 +118,11 @@ function onImport() {
 
       <div v-if="parseError" class="import-error">{{ parseError }}</div>
 
+      <!-- 列名で判別できないファイルの受け皿。ここから列を自分で指定して取り込む -->
+      <button v-if="parseError" class="map-columns-btn" @click="emit('mapColumns')">
+        🗂 列を指定して取り込む
+      </button>
+
       <template v-else>
         <div class="import-hint">
           <span v-if="filename" class="import-filename">{{ filename }}</span>
@@ -218,6 +223,15 @@ function onImport() {
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
   padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px;
 }
+
+.map-columns-btn {
+  width: 100%; margin-bottom: 12px; padding: 12px;
+  border: 1.5px solid #bfdbfe; border-radius: 10px;
+  background: #eff6ff; color: #1d4ed8;
+  font-size: 14px; font-weight: 800; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-columns-btn:active { background: #dbeafe; }
 
 .import-hint { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px; }
 .import-filename { font-weight: 700; color: var(--primary); margin-right: 4px; }

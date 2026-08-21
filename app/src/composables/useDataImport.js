@@ -6,6 +6,7 @@ import { saveMovementToD1, importPastSessionToD1, cancelPastImportOnD1 } from '.
 import { assertSpreadsheetFile, excelToCsv } from './usePdfImporter.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
+import { STOCKTAKE_FIELDS, DELIVERY_FIELDS } from '../utils/rowMapping.js'
 import {
   buildPastImportPlan, withResolution, commitPastImport, cancelPastImport,
 } from '../services/pastImportPlan.js'
@@ -39,6 +40,52 @@ export function useDataImport() {
     categories: config.categories || {},
   }))
   const existingMovements = () => getMovements()
+
+  // ── 列指定インポート（自動で読めなかったファイルの受け皿）──────
+  //
+  // 過去データの取込は仕入先ごとに列名が違う。ヘッダ名で列を特定する既存パーサが
+  // 弾いたファイルを「形式を確認してください」で終わらせず、ユーザーが列を指定して
+  // 中間CSVへ組み直せるようにする。組み直した後は通常の取込経路をそのまま通る。
+  const rowMapper = ref(null)   // null | { kind, csvText, filename, title, message, fields }
+
+  function openRowMapper(kind, { csvText, filename, message }) {
+    rowMapper.value = {
+      kind,
+      csvText,
+      filename,
+      message,
+      title:  kind === 'delivery' ? '過去の納品を列指定で取り込む' : '過去の棚卸を列指定で取り込む',
+      fields: kind === 'delivery' ? DELIVERY_FIELDS : STOCKTAKE_FIELDS,
+    }
+  }
+
+  function closeRowMapper() { rowMapper.value = null }
+
+  /** 納品取込の解析に失敗した画面から列指定へ移る */
+  function mapDeliveryColumns() {
+    const csvText  = deliveryCsv.value
+    const filename = deliveryFilename.value
+    showDeliveryModal.value = false
+    openRowMapper('delivery', { csvText, filename, message: '自動では列を判別できませんでした。列を指定してください。' })
+  }
+
+  /**
+   * 列指定の結果（中間CSV）を、それぞれの通常経路へ戻す。
+   * ここでも解析に失敗したら列指定画面へ戻す（対応づけの当て直しで復帰できる）。
+   * @returns {boolean} 取込画面まで進めたか
+   */
+  async function applyRowMapping({ csvText, filename } = {}) {
+    const kind = rowMapper.value?.kind
+    if (!kind || !csvText) return false
+    closeRowMapper()
+    if (kind === 'delivery') {
+      deliveryCsv.value       = csvText
+      deliveryFilename.value  = filename ?? ''
+      showDeliveryModal.value = true
+      return true
+    }
+    return _openStocktakeFromCsv(csvText, filename ?? '')
+  }
 
   async function openDeliveryFromFile(file) {
     if (!file) return
@@ -88,7 +135,14 @@ export function useDataImport() {
     let csv
     try { csv = await _fileToCsv(file) }
     catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
+    return _openStocktakeFromCsv(csv, file.name)
+  }
 
+  /**
+   * CSVテキストから計画を作る。ファイル選択と列指定の両方がここへ合流する。
+   * 解析に失敗したら列指定画面を開く（alertで終わらせない）。
+   */
+  function _openStocktakeFromCsv(csv, filename) {
     try {
       const { snapshots, errors } = parseResultSnapshots(csv)
       const plan = buildPastImportPlan(snapshots, { existing: getSnapshots() })
@@ -96,10 +150,14 @@ export function useDataImport() {
       // 明示的に「除いて取り込む」と選ぶまで確定させない。
       stocktakePlan.value = { ...plan, rowErrors: errors ?? [] }
     } catch (err) {
-      alert(err?.message || '取り込みに失敗しました')
+      openRowMapper('stocktake', {
+        csvText: csv,
+        filename,
+        message: err?.message || 'このファイルは自動で読み取れませんでした。',
+      })
       return false
     }
-    stocktakeFilename.value  = file.name
+    stocktakeFilename.value  = filename
     showStocktakeModal.value = true
     return true
   }
@@ -144,6 +202,8 @@ export function useDataImport() {
     // 納品取込
     showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
     openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
+    // 列指定インポート（納品・棚卸の受け皿）
+    rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
     // 過去棚卸取込
     showStocktakeModal, stocktakePlan, stocktakeFilename,
     openStocktakeFromFile, closeStocktake, setStocktakeResolution,
