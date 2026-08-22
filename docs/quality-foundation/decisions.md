@@ -1,6 +1,6 @@
 # 判断記録
 
-最終更新: 2026-08-04
+最終更新: 2026-08-22
 
 状態は `提案 / 採用 / 却下 / 保留 / 廃止` を使用します。採用済み判断を変える場合は
 既存項目を消さず、新しい項目から置き換え先を参照します。
@@ -269,3 +269,42 @@
   - D-016の月額2,980円確定を予定価格へ戻し、A1開始前に最終価格を再決定する。
   - W1の実装・legalは現在のFree/no-payment状態を記述し、将来機能を提供前に現在形で掲載しない。
 - 現在のrelease gate: [`web-release-readiness.md`](web-release-readiness.md)
+
+## D-022 — Claude Code は develop への push をユーザーの都度確認なしで行う
+
+- 日付: 2026-08-22
+- 状態: 採用
+- 決定者: User
+- 判断: Claude Code は、テストとビルドが通ったコミットに限り、`develop` への
+  commit / push を毎回の確認なしで実行する。統合は fast-forward を原則とする。
+- 変更前: 「デプロイ、コミット、push、マイグレーション適用は、ユーザーの明示依頼なしに
+  行わない」（[README](README.md) の「使い方」）。この判断は **push（`develop` に限る）だけ**を
+  この規定から外す。
+- 確認を残す範囲（従来どおり明示依頼が必要）:
+  - 本番デプロイ（`scripts/deploy.sh`）
+  - D1 の本番マイグレーション適用（0012〜0016 を含む。→ [WEB-04](web-release-readiness.md)）
+  - `main` への統合、および `develop` 以外のブランチへの push
+- 前提条件: push 前に `cd app && npm test` と `npm run build` が成功していること。
+  失敗している場合は push せず、結果を報告する。
+- 理由: UI 改善のように小さく反復する作業で、develop preview（Actions が Worker/App test →
+  build → Pages preview を実行）まで一続きに回したいため。preview は本番 D1・Worker・
+  本番 Pages を変更しない。
+- 適用範囲: Claude Code セッション。Codex や他セッションの作業規約は変更しない。
+
+## D-023 — アプリのバージョンは変更ごとに更新する
+
+- 日付: 2026-08-22
+- 状態: 採用
+- 決定者: User
+- 判断: `app/package.json` の `version` を、develop へ入れる変更ごとに更新する。
+  - 機能追加・画面構成の変更 → minor（`0.67.0` → `0.68.0`）
+  - 不具合修正・文言修正・内部整理 → patch（`0.67.0` → `0.67.1`）
+  - 破壊的変更（保存形式・API契約の非互換）は現状 0.x のため minor で扱い、
+    変更内容を [`session-log.md`](session-log.md) と該当 task file に必ず残す。
+- 起点: `0.67.0`。`0.66.3`（2026-08-04）以降、develop に入った未採番の変更
+  （DATA-001 / DATA-002 / IMPORT-001、履歴カレンダーの専用ページ化、取込の列指定導線、
+  入出庫の数量入力統一）をまとめて `0.67.0` とする。
+- 表示先: 設定 →「アプリ情報」のバージョン欄（`SettingsModal`）と
+  ランディング（`__APP_VERSION__`）。ビルド時に埋め込むため、更新後は再ビルドが必要。
+- 対象外: `worker/package.json` の version は配布物ではないため据え置く
+  （Worker の識別は deploy 時の commit SHA を正とする。→ [WEB-03](web-release-readiness.md)）。
