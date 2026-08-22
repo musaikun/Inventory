@@ -23,6 +23,11 @@ const props = defineProps({
   preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
   orderMode:        { type: Boolean, default: false }, // 発注セッションか（発注チップ表示の切替）
+  // ── 入出庫（棚卸・発注と同じ一覧を使うための調整。既定はすべて従来動作 ──
+  noteMap:          { type: Object,  default: null },  // { 品目: 補足文字列 } を行のヒント欄へ出す（理論在庫など）
+  hideAmount:       { type: Boolean, default: false }, // 金額列を出さない（在庫金額ではない画面用）
+  hideTapContinuous:{ type: Boolean, default: false }, // 「連続入力」トグルを出さない（未対応の画面用）
+  searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
@@ -221,6 +226,11 @@ const rows = computed(() => {
   } else if (props.categoryScope === 'supply') {
     all = all.filter(r => _isSupply(r.item))
   }
+  // 3.2 品目名の絞り込み（呼び出し元が検索欄を持つ画面のみ。既定は空＝素通り）
+  const _term = props.searchTerm.trim()
+  if (_term) {
+    all = all.filter(r => r.item.includes(_term))
+  }
 
   // 3.5 よく使う品目のみ（ON時のみ・履歴で未使用の品目を隠す）
   if (_usedActive.value) {
@@ -355,7 +365,7 @@ const hasPrices = computed(() =>
 const hasCodes = computed(() => false)
 
 // preview では金額列は出さない（数値なしの確認用途）
-const showAmount = computed(() => hasPrices.value && !props.preview)
+const showAmount = computed(() => hasPrices.value && !props.preview && !props.hideAmount)
 
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
@@ -646,7 +656,7 @@ function fmtYen(n) {
     <!-- ヘッダー行 -->
     <div class="section-header">
       <button
-        v-if="!readOnly"
+        v-if="!readOnly && !hideTapContinuous"
         :class="['tap-continuous-toggle', { active: tapContinuous }]"
         @click="emit('update:tapContinuous', !tapContinuous)"
         title="ONにすると、品目をタップして入力した後、自動で次の品目の入力画面が開きます（音声・文字検索は対象外）"
@@ -807,7 +817,8 @@ function fmtYen(n) {
               <div v-else-if="typingMap?.[row.item]" class="typing-indicator">
                 ✏️ {{ typingMap[row.item].name }}が入力中…
               </div>
-              <div v-else-if="row.lotSize || row.prevMonth" class="hints-row">
+              <div v-else-if="row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
+                <span v-if="noteMap?.[row.item]" class="prev-hint note-hint">{{ noteMap[row.item] }}</span>
                 <span v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</span>
                 <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
               </div>
@@ -1326,6 +1337,12 @@ function fmtYen(n) {
 
 .lot-hint {
   color: #7c3aed;  /* 紫: 入数は前月と区別 */
+}
+
+/* 呼び出し元が渡す補足（入出庫の理論在庫など）。入数・前月より先に出す */
+.note-hint {
+  color: #0f766e;
+  font-weight: 700;
 }
 
 .badge {

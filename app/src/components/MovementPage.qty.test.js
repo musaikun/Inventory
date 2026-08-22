@@ -1,6 +1,8 @@
-// 入出庫の記録行を「タップして NumPad」に寄せたことの回帰（棚卸・発注と同じ操作感）。
-// 行内の −/＋/＋箱 は連打用に残す。ここが行タップと二重に発火すると、
-// 数えたつもりのない数量が入る。
+// 入出庫の記録タブを棚卸・発注と同じ一覧（InventoryTable）にそろえたことの回帰。
+// 守りたいのは見た目ではなく契約:
+//   ・数量セルをタップ → NumPad シート、という導線が3画面で同じ
+//   ・入出庫に無い概念（金額列・連続入力・非表示スワイプ）を持ち込まない
+//   ・在庫タブは読み取り専用のまま（入力シートを開かない）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -29,18 +31,19 @@ async function mountPage() {
   return host
 }
 
-/** 分類グループは既定で畳まれているので開く */
-async function expandGroups() {
-  const b = button('すべて開く')
-  if (b) { b.click(); await nextTick() }
-}
-
 function button(label) {
   return [...host.querySelectorAll('button')].find(b => b.textContent.trim() === label)
 }
 async function click(el) { el.click(); await nextTick() }
-const rows = () => [...host.querySelectorAll('.mv-item')]
-const qtyChip = (row) => row.querySelector('.mv-step-val')
+async function openTab(label) {
+  await click(button(label))
+  const expand = button('全て開く') || button('すべて開く')
+  if (expand) await click(expand)
+}
+const table = () => host.querySelector('.inventory-section')
+const itemRows = () => [...host.querySelectorAll('.item-row')]
+const rowOf = (name) => itemRows().find(r => r.textContent.includes(name))
+const qtyOf = (name) => rowOf(name).querySelector('.qty-display').textContent.trim()
 
 beforeEach(async () => {
   localStorage.clear()
@@ -48,28 +51,38 @@ beforeEach(async () => {
   const { useConfig } = await import('../composables/useConfig.js')
   cfg = useConfig()
   cfg.setEmptyList()
-  cfg.addItem('トマト', null, '', '個')
-  cfg.addItem('レタス', null, '', '玉')
+  cfg.addItem('トマト', 120, '', '個')
+  cfg.addItem('レタス', 80, '', '玉')
 })
 afterEach(() => {
   app?.unmount(); host?.remove()
   app = null; host = null
 })
 
-describe('MovementPage — 数量入力', () => {
-  it('在庫タブでは数量入力シートを開かない（読み取り専用）', async () => {
+describe('MovementPage — 棚卸・発注と同じ一覧', () => {
+  it('在庫タブは従来の読み取り一覧のまま（入力シートは開かない）', async () => {
     await mountPage()
-    await expandGroups()
-    await click(rows()[0])
+    expect(table()).toBeNull()
+    const expand = button('すべて開く')
+    if (expand) await click(expand)
+    await click(host.querySelector('.mv-item'))
     expect(host.querySelector('.mq-sheet')).toBeNull()
   })
 
-  it('入庫タブで行をタップすると NumPad シートが開き、確定で行に反映される', async () => {
+  it('入庫タブは棚卸と同じ一覧を出す', async () => {
     await mountPage()
-    await click(button('📥 入庫'))
-    await expandGroups()
+    await openTab('📥 入庫')
+    expect(table()).not.toBeNull()
+    expect(rowOf('トマト')).not.toBeUndefined()
+    // 未入力は棚卸と同じ「—」表示
+    expect(qtyOf('トマト')).toBe('—')
+  })
 
-    await click(rows()[0])
+  it('行タップで NumPad シートが開き、確定すると数量セルに入る', async () => {
+    await mountPage()
+    await openTab('📥 入庫')
+
+    await click(rowOf('トマト'))
     const sheet = host.querySelector('.mq-sheet')
     expect(sheet).not.toBeNull()
     expect(sheet.textContent).toContain('トマト')
@@ -78,37 +91,38 @@ describe('MovementPage — 数量入力', () => {
     await click(button('この数量にする'))
 
     expect(host.querySelector('.mq-sheet')).toBeNull()
-    expect(qtyChip(rows()[0]).textContent.trim()).toBe('5')
+    expect(qtyOf('トマト')).toContain('5')
     expect(host.querySelector('.mv-savebar').textContent).toContain('入庫 1品目')
   })
 
-  it('行内の ＋ はシートを開かずにその場で加算する', async () => {
+  it('金額列・連続入力・非表示スワイプを持ち込まない', async () => {
     await mountPage()
-    await click(button('📥 入庫'))
-    await expandGroups()
-
-    const row = rows()[0]
-    await click([...row.querySelectorAll('.mv-step')].at(-1))   // ＋
-    expect(host.querySelector('.mq-sheet')).toBeNull()          // 行タップは発火しない
-    expect(qtyChip(rows()[0]).textContent.trim()).toBe('1')
+    await openTab('📤 出庫')
+    // 単価が入っていても在庫金額の列は出さない（入出庫は在庫金額の画面ではない）
+    expect(host.querySelector('.th-amount')).toBeNull()
+    expect(host.querySelector('.tap-continuous-toggle')).toBeNull()
+    // 一覧の管理操作（非表示スワイプ・軸の編集）は渡していない
+    expect(host.querySelector('.row-action')).toBeNull()
+    expect(host.querySelector('.seg-add')).toBeNull()
   })
 
-  it('数量チップからも同じシートを開ける', async () => {
+  it('理論在庫と記録後の値を行のヒントに出す（出庫で在庫を割り込むのに気づける）', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
+      s1: {
+        sessionId: 's1', date: '2026-08-01', savedAt: '2026-08-01T01:00:00Z',
+        items: [{ item: 'トマト', qty: 10, unit: '個', unitPrice: 120, subtotal: 1200 }],
+      },
+    }))
     await mountPage()
-    await click(button('📤 出庫'))
-    await expandGroups()
-    await click(qtyChip(rows()[1]))
-    const sheet = host.querySelector('.mq-sheet')
-    expect(sheet).not.toBeNull()
-    expect(sheet.textContent).toContain('レタス')
-    expect(sheet.textContent).toContain('出庫')
-  })
+    await openTab('📤 出庫')
 
-  it('直接入力欄（OSキーボード）は残っていない', async () => {
-    await mountPage()
-    await click(button('📥 入庫'))
-    await expandGroups()
-    const row = rows()[0]
-    expect(row.querySelector('input')).toBeNull()
+    expect(rowOf('トマト').querySelector('.note-hint').textContent).toContain('理論: 10個')
+
+    await click(rowOf('トマト'))
+    await click(button('3'))
+    await click(button('この数量にする'))
+    // 出庫は減算で見せる
+    expect(rowOf('トマト').querySelector('.note-hint').textContent).toContain('→ 7個')
   })
 })

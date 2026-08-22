@@ -16,6 +16,7 @@ import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
 import MovementQtyModal from './MovementQtyModal.vue'
+import InventoryTable from './InventoryTable.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -155,11 +156,33 @@ function _q(item) {
 function _set(item, v) {
   draft[mode.value][item] = Math.max(0, Math.round(v * 1000) / 1000)
 }
-function step(item, d) { _set(item, _q(item) + d) }
-function stepCase(item) {           // 入庫のみ: 入数ぶんのバラを足す
-  const lot = lotOf(item)
-  if (lot) step(item, lot)
-}
+// 記録タブの一覧は棚卸・発注と同じ InventoryTable を使う。
+// あちらは { 品目: { qty, unit } } を「入力済みの行」として描くので、今回の入力量を
+// その形へ写す（0 は未入力＝null）。保存に使うのは従来どおり draft のほうで、
+// ここで作るのは表示用の射影。
+const draftInventory = computed(() => {
+  const inv = {}
+  if (!isRecord.value) return inv
+  for (const item of allItems.value) {
+    const q = _q(item)
+    if (q > 0) inv[item] = { qty: q, unit: unitOf(item) }
+  }
+  return inv
+})
+
+// 行のヒント欄に出す理論在庫（記録後の値も添える）。出庫で在庫を割り込む入力に気づけるようにする。
+const theoNoteMap = computed(() => {
+  const map = {}
+  if (!isRecord.value) return map
+  for (const item of allItems.value) {
+    const t = theoOf(item)
+    if (t == null) continue
+    const q = _q(item)
+    map[item] = q > 0 ? `理論: ${t}${unitOf(item)} → ${afterQty(item)}${unitOf(item)}` : `理論: ${t}${unitOf(item)}`
+  }
+  return map
+})
+
 // 数量入力は棚卸・発注と同じ NumPad シートで行う（打鍵感をそろえ、OSキーボードを出さない）。
 // 行内の −/＋/＋箱 は連打用に残す。数量チップをタップするとここが開く。
 const qtyTarget = ref(null)   // null | 品目名
@@ -168,16 +191,6 @@ function closeQty()    { qtyTarget.value = null }
 function onQtyConfirm(v) {
   if (qtyTarget.value) _set(qtyTarget.value, Number(v) || 0)
   closeQty()
-}
-// バラ数 → ケース内訳（入庫でのみ表示）
-function caseBreakdown(item) {
-  const lot = lotOf(item)
-  const q = _q(item)
-  if (!lot || q === 0) return ''
-  const cases = Math.floor(q / lot)
-  const rem = Math.round((q - cases * lot) * 1000) / 1000
-  if (cases === 0) return ''
-  return `${cases}ケース${rem ? ` +${rem}` : ''}`
 }
 // 記録後の理論在庫プレビュー
 function afterQty(item) {
@@ -413,6 +426,23 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
         <button class="mv-unlock-btn" @click="pickStocktake">取り込む</button>
       </div>
 
+      <!-- 記録（入庫/出庫）: 棚卸・発注とまったく同じ品目一覧を使う。
+           数量セルをタップ → NumPad シート、という導線も3画面で共通。
+           金額列・連続入力は入出庫に無い概念なので出さない。
+           一覧操作（並び替えの編集・非表示スワイプ）は品目マスタ側の仕事なので渡さない。 -->
+      <InventoryTable
+        v-if="isRecord"
+        :inventory="draftInventory"
+        :filled-count="changed.length"
+        :note-map="theoNoteMap"
+        :search-term="search"
+        :can-manage-list="false"
+        hide-amount
+        hide-tap-continuous
+        @tap="openQty"
+      />
+
+      <template v-else>
       <!-- グループ（アコーディオン） -->
       <div v-if="groups.length" class="mv-groups">
         <div v-for="g in groups" :key="g.label" class="mv-group">
@@ -424,7 +454,7 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
           </button>
           <div v-if="isOpen(g.label)" class="mv-list">
             <!-- 在庫（読み取り）: 行タップで詳細を展開 -->
-            <template v-if="!isRecord">
+            <template>
               <div v-for="item in g.items" :key="item" class="mv-detail-wrap">
                 <div :class="['mv-item', 'tappable', { reorder: needsReorder(item), open: openDetail === item }]" @click="toggleDetail(item)">
                   <div class="mv-item-info">
@@ -485,46 +515,12 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
                 </div>
               </div>
             </template>
-            <!-- 入庫 / 出庫（記録） -->
-            <template v-else>
-              <div
-                v-for="item in g.items" :key="item"
-                :class="['mv-item', { changed: _q(item) > 0 }]"
-                tabindex="0"
-                @click="openQty(item)"
-                @keydown.enter.prevent="openQty(item)"
-                @keydown.space.prevent="openQty(item)"
-              >
-                <div class="mv-item-info">
-                  <span class="mv-item-name">{{ item }}</span>
-                  <span class="mv-item-theo">
-                    理論 {{ theoOf(item) != null ? theoOf(item) : '—' }}{{ unitOf(item)
-                    }}<template v-if="_q(item) > 0 && theoOf(item) != null"> → <b :class="mode === 'in' ? 'up' : 'down'">{{ afterQty(item) }}</b></template>
-                    <span v-if="hasLot(item)" class="mv-lot">入数{{ lotOf(item) }}</span>
-                    <span v-if="mode === 'in' && caseBreakdown(item)" class="mv-cases">{{ caseBreakdown(item) }}</span>
-                  </span>
-                </div>
-                <div class="mv-row-ctl">
-                  <button v-if="mode === 'in' && hasLot(item)" class="mv-case-btn" @click.stop="stepCase(item)" type="button" title="1ケース分">＋箱</button>
-                  <div class="mv-stepper">
-                    <button class="mv-step" @click.stop="step(item, -1)" type="button" :disabled="_q(item) <= 0">−</button>
-                    <!-- タップで NumPad シート（棚卸の数量欄と同じ操作）。直接入力欄は置かない -->
-                    <button
-                      class="mv-step-val"
-                      :class="{ active: _q(item) > 0 }"
-                      type="button"
-                      :aria-label="`${item} の数量を入力`"
-                      @click.stop="openQty(item)"
-                    >{{ _q(item) || '—' }}</button>
-                    <button class="mv-step" @click.stop="step(item, 1)" type="button">＋</button>
-                  </div>
-                </div>
-              </div>
-            </template>
           </div>
         </div>
       </div>
-      <div v-else class="mv-empty">
+      </template>
+
+      <div v-if="!isRecord && !groups.length" class="mv-empty">
         <template v-if="allItems.length === 0">表示中の品目がありません。品目マスタを登録してください。</template>
         <template v-else-if="mode === 'view' && stockFilter === 'reorder'">要補充（在庫0以下）の品目はありません。</template>
         <template v-else-if="mode === 'view' && stockFilter === 'has'">在庫あり（0より多い）の品目はありません。</template>
@@ -705,12 +701,6 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 
 .mv-list { display: flex; flex-direction: column; }
 .mv-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid #f1f5f9; min-height: 56px; box-sizing: border-box; }
-/* 記録モードの行は棚卸の品目行と同じく「行タップで数量入力」。フォーカス表示もそろえる */
-.mv.in .mv-item, .mv.out .mv-item { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mv.in .mv-item:active, .mv.out .mv-item:active { background: #f8fafc; }
-.mv-item:focus { outline: 2px solid #10b981; outline-offset: -2px; }
-.mv.out .mv-item:focus { outline-color: #ef4444; }
-.mv-item:focus:not(:focus-visible) { outline: none; }
 .mv-item.changed { background: #f0fdf9; }
 .mv.out .mv-item.changed { background: #fef2f2; }
 .mv-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -720,7 +710,6 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv-item-theo b.up { color: #059669; }
 .mv-item-theo b.down { color: #dc2626; }
 .mv-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 8px; padding: 1px 6px; }
-.mv-cases { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #059669; }
 
 .mv-stockfilter { display: flex; gap: 6px; margin-bottom: 8px; }
 .mv-sf { border: 1.5px solid #e2e8f0; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; -webkit-tap-highlight-color: transparent; }
@@ -769,24 +758,7 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv-d-mv-note { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mv-d-mv-empty { font-size: 12px; color: #cbd5e1; }
 
-.mv-row-ctl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.mv-case-btn { border: 1.5px solid #a7f3d0; background: #ecfdf5; color: #059669; border-radius: 9px; min-height: 44px; padding: 6px 10px; font-size: 12px; font-weight: 800; cursor: pointer; line-height: 1; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
-.mv-case-btn:active { transform: scale(0.94); }
 
-.mv-stepper { display: flex; align-items: center; gap: 6px; }
-.mv-step { width: 44px; height: 44px; border-radius: 9px; border: 1.5px solid #e2e8f0; background: #fff; font-size: 18px; font-weight: 700; cursor: pointer; line-height: 1; color: #475569; -webkit-tap-highlight-color: transparent; }
-.mv-step:disabled { opacity: 0.35; cursor: default; }
-.mv-step:active:not(:disabled) { transform: scale(0.94); }
-/* 数量チップ。タップで NumPad シートが開く（棚卸の数量欄と同じ役割・同じ見え方） */
-.mv-step-val {
-  min-width: 56px; height: 44px; padding: 0 8px;
-  border: 1.5px solid #e2e8f0; border-radius: 9px; background: #fff;
-  text-align: center; font-size: 16px; font-weight: 800; color: #cbd5e1;
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.mv-step-val:active { transform: scale(0.96); }
-.mv.in .mv-step-val.active  { color: #059669; border-color: #a7f3d0; background: #ecfdf5; }
-.mv.out .mv-step-val.active { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
 
 .mv-empty { padding: 30px 16px; text-align: center; color: #94a3b8; font-size: 13px; line-height: 1.6; }
 
