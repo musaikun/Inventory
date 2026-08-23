@@ -60,13 +60,35 @@ afterEach(() => {
 })
 
 describe('MovementPage — 棚卸・発注と同じ一覧', () => {
-  it('在庫タブは従来の読み取り一覧のまま（入力シートは開かない）', async () => {
+  it('在庫タブも同じ一覧を使い、数量セルは理論在庫を出す', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
+      s1: {
+        sessionId: 's1', date: '2026-08-01', savedAt: '2026-08-01T01:00:00Z',
+        items: [{ item: 'トマト', qty: 10, unit: '個', unitPrice: 120, subtotal: 1200 }],
+      },
+    }))
     await mountPage()
-    expect(table()).toBeNull()
-    const expand = button('すべて開く')
-    if (expand) await click(expand)
-    await click(host.querySelector('.mv-item'))
-    expect(host.querySelector('.mq-sheet')).toBeNull()
+    await openTab('在庫')
+
+    expect(table()).not.toBeNull()
+    expect(qtyOf('トマト')).toContain('10')
+    // 絞り込みと進捗は在庫の意味に差し替わる
+    expect(host.textContent).toContain('在庫あり')
+    expect(host.textContent).toContain('要補充')
+    expect(host.textContent).not.toContain('件入力済み')
+  })
+
+  it('在庫タブの行タップは数量入力ではなく詳細シートを開く', async () => {
+    await mountPage()
+    await openTab('在庫')
+    await click(rowOf('トマト'))
+
+    expect(host.querySelector('.mq-sheet')).toBeNull()      // 数量入力は開かない
+    const sheet = host.querySelector('.sd-sheet')
+    expect(sheet).not.toBeNull()
+    expect(sheet.textContent).toContain('トマト')
+    expect(sheet.textContent).toContain('発注点')
   })
 
   it('入庫タブは棚卸と同じ一覧を出す', async () => {

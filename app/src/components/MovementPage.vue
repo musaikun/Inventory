@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
@@ -17,6 +17,7 @@ import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
 import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
+import StockDetailModal from './StockDetailModal.vue'
 
 const emit = defineEmits(['back', 'saved'])
 
@@ -60,24 +61,21 @@ function needsReorder(item) {
 
 // 在庫タブ専用の状態フィルタ: 'all' | 'has'（在庫あり>0） | 'reorder'（要補充）
 const stockFilter = ref('all')
-const filteredItems = computed(() => {
-  const q = search.value.trim()
-  let list = q ? allItems.value.filter(n => n.includes(q)) : allItems.value
-  if (mode.value === 'view' && stockFilter.value !== 'all') {
-    list = list.filter(n => {
-      const t = theoOf(n)
-      if (t == null) return false            // 理論在庫なし（—）は絞り込み対象外
-      return stockFilter.value === 'has' ? t > 0 : needsReorder(n)
-    })
-  }
-  return list
-})
+// 在庫タブの絞り込みは表へ述語として渡す（品目名の検索は表の searchTerm 側が担う）
+function stockItemFilter(item) {
+  if (stockFilter.value === 'all') return true
+  const t = theoOf(item)
+  if (t == null) return false                // 理論在庫なし（—）は絞り込み対象外
+  return stockFilter.value === 'has' ? t > 0 : needsReorder(item)
+}
 // 要補充の件数 — フィルタチップのバッジ用
 const reorderCount = computed(() => allItems.value.reduce((n, item) => n + (needsReorder(item) ? 1 : 0), 0))
 
-// ── 品目詳細（在庫タブでタップ展開）─────────────────────────
-const openDetail = ref(null)   // 展開中の品目名（1つずつ）
-function toggleDetail(item) { openDetail.value = openDetail.value === item ? null : item }
+// ── 品目詳細（在庫タブ・行タップでシート）───────────────────
+// 行アコーディオンからモーダルへ移した。3タブとも「行タップ → シート」に統一し、
+// 一覧そのものは棚卸・発注と同じ見え方（行に内訳を出さない）を保つ。
+const detailTarget = ref(null)   // null | 品目名
+function closeDetail() { detailTarget.value = null }
 // その品目に関わる直近の入出庫（新しい順・最大6件）
 function itemMovements(item) {
   const out = []
@@ -88,7 +86,6 @@ function itemMovements(item) {
   }
   return out
 }
-function onReorderInput(item, e) { setReorderPoint(item, e.target.value) }
 
 // ── 推奨発注点の目安（暫定ヒューリスティック）───────────────
 // 手動発注点＝人間が決める床。ここは「データから出す目安」を横に添えるだけ（自動上書きしない）。
@@ -113,6 +110,12 @@ const reorderHorizon = computed(() => {
   }
   return maxGap
 })
+// 目安の根拠（推定消費 × 発注間隔）。算出できないときは空文字。
+function suggestBasisLabel(item) {
+  const avg = dailyConsumption(item)
+  if (avg == null || avg <= 0) return ''
+  return `推定消費 ${avg.toFixed(1)}/日 × ${reorderHorizon.value}日`
+}
 function suggestedReorder(item) {
   const avg = dailyConsumption(item)
   if (avg == null || avg <= 0) return null
@@ -145,7 +148,6 @@ function basisLabel(item) {
 
 // ── 入数（ケース）─────────────────────────────
 function lotOf(item) { return parseLot(config.lotSizes?.[item]) }
-function hasLot(item) { return (lotOf(item) ?? 1) > 1 }
 
 // ── 入力量の操作（現在の記録モード）─────────────────────────
 function _q(item) {
@@ -187,6 +189,11 @@ const theoNoteMap = computed(() => {
 // 行内の −/＋/＋箱 は連打用に残す。数量チップをタップするとここが開く。
 const qtyTarget = ref(null)   // null | 品目名
 function openQty(item) { if (isRecord.value) qtyTarget.value = item }
+// 行タップの先はタブで変わる（在庫=詳細シート / 入庫・出庫=数量シート）
+function onRowTap(item) {
+  if (isRecord.value) openQty(item)
+  else detailTarget.value = item
+}
 function closeQty()    { qtyTarget.value = null }
 function onQtyConfirm(v) {
   if (qtyTarget.value) _set(qtyTarget.value, Number(v) || 0)
@@ -198,64 +205,6 @@ function afterQty(item) {
   if (t == null) return null
   return Math.round((t + (mode.value === 'out' ? -_q(item) : _q(item))) * 1000) / 1000
 }
-
-// ── グループ化（ジャンル＝取込由来 / 軸＝自作）──────────────
-const groupMode = ref('category')
-const groupOpts = computed(() => {
-  const opts = [{ value: 'category', label: 'ジャンル' }]
-  const names = config.axisNames ?? ['', '']
-  if (names[0]) opts.push({ value: 'axisA', label: names[0] })
-  if (names[1]) opts.push({ value: 'axisB', label: names[1] })
-  return opts
-})
-const effectiveGroup = computed(() => {
-  const names = config.axisNames ?? ['', '']
-  if (groupMode.value === 'axisA' && !names[0]) return 'category'
-  if (groupMode.value === 'axisB' && !names[1]) return 'category'
-  return groupMode.value
-})
-const UNGROUPED = '未分類'
-function _groupsOf(item) {
-  if (effectiveGroup.value === 'category') {
-    const c = (config.categories?.[item] || '').trim()
-    return [c || UNGROUPED]
-  }
-  const src = effectiveGroup.value === 'axisA' ? config.tagsA : config.tagsB
-  const raw = src?.[item]
-  const arr = Array.isArray(raw) ? raw.filter(Boolean) : (raw ? [raw] : [])
-  return arr.length ? arr : [UNGROUPED]
-}
-const groups = computed(() => {
-  const map = new Map()
-  for (const item of filteredItems.value) {
-    for (const g of _groupsOf(item)) {
-      if (!map.has(g)) map.set(g, [])
-      map.get(g).push(item)
-    }
-  }
-  const entries = [...map.entries()].sort(([a], [b]) => {
-    if (a === UNGROUPED) return 1
-    if (b === UNGROUPED) return -1
-    return a.localeCompare(b, 'ja')
-  })
-  return entries.map(([label, items]) => ({
-    label,
-    items,
-    changedCount: isRecord.value ? items.filter(n => _q(n) > 0).length : 0,
-  }))
-})
-
-const expanded = reactive({})
-function _gkey(label) { return effectiveGroup.value + '::' + label }
-function isOpen(label) { return !!search.value.trim() || !!expanded[_gkey(label)] }
-function toggleGroup(label) {
-  const k = _gkey(label)
-  if (expanded[k]) delete expanded[k]
-  else expanded[k] = true
-}
-function collapseAll() { for (const k of Object.keys(expanded)) delete expanded[k] }
-function expandAll() { for (const g of groups.value) expanded[_gkey(g.label)] = true }
-const anyOpen = computed(() => groups.value.some(g => expanded[_gkey(g.label)]))
 
 // ── 記録対象の行 ─────────────────────────────
 const changed = computed(() => (isRecord.value ? allItems.value.filter(n => _q(n) > 0) : []))
@@ -348,6 +297,8 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       @touchend.passive="swipe.onTouchEnd"
     >
      <div class="mv-page" :key="mode" :class="slideDir">
+      <!-- 表の外側（日付・メモ・検索・案内）。表そのものは全幅で置き、棚卸と同じ地続きにする -->
+      <div class="mv-controls-wrap">
       <!-- 記録モード: 日付・メモ・発注取込 -->
       <template v-if="isRecord">
         <div class="mv-controls">
@@ -387,31 +338,8 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
         </div>
       </template>
 
-      <!-- 品目検索 -->
+      <!-- 品目検索。表の絞り込みへ渡す -->
       <input v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
-
-      <!-- グループ切替 -->
-      <div class="mv-groupbar">
-        <div class="mv-seg">
-          <button
-            v-for="o in groupOpts" :key="o.value"
-            :class="['mv-seg-btn', { on: effectiveGroup === o.value }]"
-            @click="groupMode = o.value"
-          >{{ o.label }}</button>
-        </div>
-        <button v-if="!search.trim()" class="mv-toggle-all" @click="anyOpen ? collapseAll() : expandAll()">
-          {{ anyOpen ? 'すべて閉じる' : 'すべて開く' }}
-        </button>
-      </div>
-
-      <!-- 在庫タブ: 状態フィルタ -->
-      <div v-if="mode === 'view'" class="mv-stockfilter">
-        <button :class="['mv-sf', { on: stockFilter === 'all' }]" @click="stockFilter = 'all'">すべて</button>
-        <button :class="['mv-sf', { on: stockFilter === 'has' }]" @click="stockFilter = 'has'">在庫あり</button>
-        <button :class="['mv-sf', 'reorder', { on: stockFilter === 'reorder' }]" @click="stockFilter = 'reorder'">
-          要補充<span v-if="reorderCount" class="mv-sf-badge">{{ reorderCount }}</span>
-        </button>
-      </div>
 
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
@@ -425,108 +353,45 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
         <span class="mv-unlock-txt">💡 {{ storeReadiness.hint }}</span>
         <button class="mv-unlock-btn" @click="pickStocktake">取り込む</button>
       </div>
+      </div><!-- /.mv-controls-wrap -->
 
-      <!-- 記録（入庫/出庫）: 棚卸・発注とまったく同じ品目一覧を使う。
-           数量セルをタップ → NumPad シート、という導線も3画面で共通。
-           金額列・連続入力は入出庫に無い概念なので出さない。
-           一覧操作（並び替えの編集・非表示スワイプ）は品目マスタ側の仕事なので渡さない。 -->
+      <!-- 品目一覧。棚卸・発注とまったく同じ表を使い、タブで数量セル・絞り込み・進捗だけを
+           差し替える。行タップの先も3タブで統一する（在庫=詳細シート / 入出庫=数量シート）。 -->
       <InventoryTable
-        v-if="isRecord"
-        :inventory="draftInventory"
+        :inventory="isRecord ? draftInventory : {}"
         :filled-count="changed.length"
-        :note-map="theoNoteMap"
+        :note-map="isRecord ? theoNoteMap : null"
         :search-term="search"
+        :item-filter="isRecord ? null : stockItemFilter"
         :can-manage-list="false"
         hide-amount
         hide-tap-continuous
-        @tap="openQty"
-      />
-
-      <template v-else>
-      <!-- グループ（アコーディオン） -->
-      <div v-if="groups.length" class="mv-groups">
-        <div v-for="g in groups" :key="g.label" class="mv-group">
-          <button class="mv-group-head" @click="toggleGroup(g.label)">
-            <span class="mv-group-arrow">{{ isOpen(g.label) ? '▾' : '▸' }}</span>
-            <span class="mv-group-name">{{ g.label }}</span>
-            <span class="mv-group-count">{{ g.items.length }}</span>
-            <span v-if="g.changedCount" class="mv-group-badge">{{ g.changedCount }}</span>
-          </button>
-          <div v-if="isOpen(g.label)" class="mv-list">
-            <!-- 在庫（読み取り）: 行タップで詳細を展開 -->
-            <template>
-              <div v-for="item in g.items" :key="item" class="mv-detail-wrap">
-                <div :class="['mv-item', 'tappable', { reorder: needsReorder(item), open: openDetail === item }]" @click="toggleDetail(item)">
-                  <div class="mv-item-info">
-                    <span class="mv-item-name">{{ item }}</span>
-                    <span class="mv-item-basis">{{ basisLabel(item) }}</span>
-                  </div>
-                  <div class="mv-stock">
-                    <template v-if="theoOf(item) != null">
-                      <span :class="['mv-stock-qty', { low: needsReorder(item) }]">{{ theoOf(item) }}<span class="mv-stock-unit">{{ unitOf(item) }}</span></span>
-                      <span v-if="needsReorder(item)" class="mv-reorder-badge">要補充</span>
-                    </template>
-                    <span v-else class="mv-stock-none">—</span>
-                  </div>
-                  <span class="mv-detail-arrow">{{ openDetail === item ? '▲' : '▼' }}</span>
-                </div>
-
-                <!-- 詳細パネル -->
-                <div v-if="openDetail === item" class="mv-detail">
-                  <!-- 内訳 -->
-                  <div class="mv-d-basis">{{ basisLabel(item) }} → 理論 <b>{{ theoOf(item) != null ? theoOf(item) : '—' }}</b>{{ unitOf(item) }}</div>
-
-                  <!-- 発注点（手動＝床）-->
-                  <div class="mv-d-reorder">
-                    <label class="mv-d-label">発注点</label>
-                    <input
-                      class="mv-d-rp-input" type="number" inputmode="numeric" min="0" placeholder="未設定"
-                      :value="reorderOf(item) != null ? reorderOf(item) : ''"
-                      @click.stop @input="onReorderInput(item, $event)"
-                    />
-                    <span class="mv-d-rp-unit">{{ unitOf(item) || '個' }}以下で要補充</span>
-                  </div>
-
-                  <!-- 推奨（目安・データから算出。タップで採用・上書きしない）-->
-                  <div v-if="suggestedReorder(item) != null" class="mv-d-suggest">
-                    <button class="mv-d-suggest-btn" @click.stop="setReorderPoint(item, suggestedReorder(item))">目安 {{ suggestedReorder(item) }} を採用</button>
-                    <span class="mv-d-suggest-basis">推定消費 {{ dailyConsumption(item).toFixed(1) }}/日 × {{ reorderHorizon }}日</span>
-                  </div>
-                  <div v-else class="mv-d-suggest-none">{{ consumptionHintOf(item) }}</div>
-
-                  <!-- マスタ情報 -->
-                  <div class="mv-d-meta">
-                    <span v-if="hasLot(item)">入数{{ lotOf(item) }}</span>
-                    <span v-if="config.prices?.[item]">単価¥{{ config.prices[item] }}</span>
-                    <span v-if="config.categories?.[item]">{{ config.categories[item] }}</span>
-                  </div>
-
-                  <!-- 直近の入出庫 -->
-                  <div class="mv-d-mv-title">直近の入出庫</div>
-                  <div v-if="itemMovements(item).length" class="mv-d-mv-list">
-                    <div v-for="mv in itemMovements(item)" :key="mv.id" class="mv-d-mv">
-                      <span class="mv-d-mv-date">{{ _md(mv.date) }}</span>
-                      <span :class="['mv-d-mv-type', mv.type]">{{ mv.type === 'out' ? '出庫' : '入庫' }}</span>
-                      <span class="mv-d-mv-qty">{{ mv.qty }}{{ mv.unit }}</span>
-                      <span v-if="mv.note" class="mv-d-mv-note">{{ mv.note }}</span>
-                    </div>
-                  </div>
-                  <div v-else class="mv-d-mv-empty">入出庫の記録はまだありません</div>
-                </div>
-              </div>
+        @tap="onRowTap"
+      >
+        <!-- 在庫タブ: 数量セルは理論在庫、絞り込みと進捗も在庫の意味に差し替える -->
+        <template v-if="!isRecord" #qty="{ row }">
+          <div :class="['qty-display', 'mv-theo-cell', { filled: theoOf(row.item) != null, low: needsReorder(row.item) }]">
+            <template v-if="theoOf(row.item) != null">
+              {{ theoOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span>
             </template>
+            <template v-else>—</template>
           </div>
-        </div>
-      </div>
-      </template>
-
-      <div v-if="!isRecord && !groups.length" class="mv-empty">
-        <template v-if="allItems.length === 0">表示中の品目がありません。品目マスタを登録してください。</template>
-        <template v-else-if="mode === 'view' && stockFilter === 'reorder'">要補充（在庫0以下）の品目はありません。</template>
-        <template v-else-if="mode === 'view' && stockFilter === 'has'">在庫あり（0より多い）の品目はありません。</template>
-        <template v-else-if="search.trim()">「{{ search }}」に一致する品目がありません。</template>
-        <template v-else>該当する品目がありません。</template>
-      </div>
+        </template>
+        <template v-if="!isRecord" #filters>
+          <div class="seg-group">
+            <button :class="['seg-btn', { active: stockFilter === 'all' }]" @click="stockFilter = 'all'">すべて</button>
+            <button :class="['seg-btn', { active: stockFilter === 'has' }]" @click="stockFilter = 'has'">在庫あり</button>
+            <button :class="['seg-btn', { active: stockFilter === 'reorder' }]" @click="stockFilter = 'reorder'">
+              要補充<span v-if="reorderCount" class="mv-sf-badge">{{ reorderCount }}</span>
+            </button>
+          </div>
+        </template>
+        <template v-if="!isRecord" #progress>
+          <span class="progress">
+            要補充 <strong>{{ reorderCount }}</strong> 件
+          </span>
+        </template>
+      </InventoryTable>
      </div>
     </div>
 
@@ -581,6 +446,25 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
     />
 
     <!-- 数量入力（棚卸・発注と同じ NumPad）-->
+    <!-- 在庫の詳細（内訳・発注点・目安・直近の入出庫）-->
+    <StockDetailModal
+      v-if="detailTarget"
+      :item="detailTarget"
+      :unit="unitOf(detailTarget)"
+      :theo="theoOf(detailTarget)"
+      :basis="basisLabel(detailTarget)"
+      :reorder="reorderOf(detailTarget)"
+      :suggested="suggestedReorder(detailTarget)"
+      :suggest-basis="suggestBasisLabel(detailTarget)"
+      :hint="consumptionHintOf(detailTarget)"
+      :lot="lotOf(detailTarget)"
+      :price="config.prices?.[detailTarget] ?? null"
+      :category="config.categories?.[detailTarget] ?? ''"
+      :movements="itemMovements(detailTarget)"
+      @update-reorder="v => setReorderPoint(detailTarget, v)"
+      @close="closeDetail"
+    />
+
     <MovementQtyModal
       v-if="qtyTarget"
       :item="qtyTarget"
@@ -650,7 +534,11 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv-tab-ind.out { background: #ef4444; }
 .mv-swipe-hint { text-align: center; font-size: 10.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.08em; padding: 5px 0 0; background: #f8fafc; }
 
-.mv-scroll { flex: 1; padding: 14px; max-width: 620px; margin: 0 auto; width: 100%; overflow-y: auto; overflow-x: hidden; }
+/* 表はページ直下に置く（棚卸・発注と同じ地続きの見え方）。
+   以前は padding + max-width + 独自スクロールの3重の入れ子で、表が「箱の中の小さい表」に見えていた。
+   左右の余白は表自身（.inventory-section の 16px）とコントロール群の wrapper が持つ。 */
+.mv-scroll { flex: 1; width: 100%; overflow-x: hidden; }
+.mv-controls-wrap { padding: 14px 16px 0; }
 .mv-page { animation: mv-slide-fwd 0.22s ease; }
 .mv-page.back { animation: mv-slide-back 0.22s ease; }
 @keyframes mv-slide-fwd  { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
@@ -682,85 +570,19 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 /* 理論在庫の誤差要因は隠さない（甘い数字を出さない） */
 .mv-hint-caveat { color: #b45309; }
 
-.mv-groupbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.mv-seg { display: inline-flex; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; padding: 2px; gap: 2px; }
-.mv-seg-btn { border: none; background: none; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mv-seg-btn.on { background: #334155; color: #fff; }
-.mv-toggle-all { margin-left: auto; border: none; background: none; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer; padding: 4px; flex-shrink: 0; }
 
-.mv-groups { display: flex; flex-direction: column; gap: 8px; }
-.mv-group { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.mv-group-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: none; border: none; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
-.mv-group-head:active { background: #f8fafc; }
-.mv-group-arrow { font-size: 12px; color: #94a3b8; width: 12px; flex-shrink: 0; }
-.mv-group-name { font-size: 14px; font-weight: 800; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mv-group-count { font-size: 12px; font-weight: 700; color: #94a3b8; }
-.mv-group-badge { margin-left: auto; font-size: 11px; font-weight: 800; color: #fff; border-radius: 10px; padding: 1px 8px; flex-shrink: 0; }
-.mv.in .mv-group-badge { background: #10b981; }
-.mv.out .mv-group-badge { background: #ef4444; }
-
-.mv-list { display: flex; flex-direction: column; }
-.mv-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid #f1f5f9; min-height: 56px; box-sizing: border-box; }
-.mv-item.changed { background: #f0fdf9; }
-.mv.out .mv-item.changed { background: #fef2f2; }
-.mv-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.mv-item-name { font-size: 14px; font-weight: 700; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mv-item-basis { font-size: 11px; color: #94a3b8; }
-.mv-item-theo { font-size: 11.5px; color: #94a3b8; }
-.mv-item-theo b.up { color: #059669; }
-.mv-item-theo b.down { color: #dc2626; }
-.mv-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 8px; padding: 1px 6px; }
-
-.mv-stockfilter { display: flex; gap: 6px; margin-bottom: 8px; }
-.mv-sf { border: 1.5px solid #e2e8f0; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; -webkit-tap-highlight-color: transparent; }
-.mv-sf.on { border-color: #334155; color: #1e293b; background: #f1f5f9; }
-.mv-sf.reorder.on { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+.mv.in .mv.out 
+.mv.out 
 .mv-sf-badge { font-size: 10px; font-weight: 800; color: #fff; background: #ef4444; border-radius: 9px; padding: 0 6px; }
 
-.mv-stock { flex-shrink: 0; display: flex; align-items: center; gap: 8px; text-align: right; }
-.mv-stock-qty { font-size: 17px; font-weight: 800; color: #1e293b; }
-.mv-stock-qty.low { color: #dc2626; }
-.mv-stock-unit { font-size: 11px; font-weight: 700; color: #94a3b8; margin-left: 2px; }
-.mv-stock-none { font-size: 15px; color: #cbd5e1; }
-.mv-item.reorder { background: #fef2f2; }
-.mv-reorder-badge { font-size: 10px; font-weight: 800; color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; border-radius: 9px; padding: 1px 7px; flex-shrink: 0; }
+/* 在庫タブの数量セル。表の qty-display と同じ形で、要補充だけ色を変える */
+.mv-theo-cell.low { color: #b91c1c; }
+
 
 /* 品目詳細（在庫タブ・タップ展開） */
-.mv-detail-wrap { border-top: 1px solid #f1f5f9; }
-.mv-detail-wrap .mv-item { border-top: none; }
-.mv-item.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mv-item.tappable:active { background: #f8fafc; }
-.mv-item.open { background: #f0fdf9; }
-.mv-detail-arrow { font-size: 11px; color: #cbd5e1; flex-shrink: 0; margin-left: 2px; }
-.mv-detail { padding: 10px 14px 14px; background: #f8fafc; display: flex; flex-direction: column; gap: 10px; }
-.mv-d-basis { font-size: 12px; color: #475569; }
-.mv-d-basis b { color: #059669; }
-.mv-d-reorder { display: flex; align-items: center; gap: 8px; }
-.mv-d-label { font-size: 12px; font-weight: 800; color: #b91c1c; flex-shrink: 0; }
-.mv-d-rp-input { width: 72px; border: 1.5px solid #fecaca; border-radius: 8px; padding: 6px 8px; font-size: 14px; font-weight: 700; text-align: right; color: #b91c1c; background: #fff; }
-.mv-d-rp-input:focus { outline: none; border-color: #ef4444; }
-.mv-d-rp-unit { font-size: 11px; color: #94a3b8; }
-.mv-d-suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.mv-d-suggest-btn { border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 16px; padding: 4px 12px; font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mv-d-suggest-btn:active { transform: scale(0.96); }
-.mv-d-suggest-basis { font-size: 10.5px; color: #94a3b8; }
-.mv-d-suggest-none { font-size: 10.5px; color: #cbd5e1; }
-.mv-d-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-.mv-d-meta span { font-size: 10.5px; font-weight: 700; color: #64748b; background: #eef2f6; border-radius: 8px; padding: 1px 7px; }
-.mv-d-mv-title { font-size: 11px; font-weight: 800; color: #94a3b8; }
-.mv-d-mv-list { display: flex; flex-direction: column; gap: 4px; }
-.mv-d-mv { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.mv-d-mv-date { color: #94a3b8; flex-shrink: 0; width: 40px; }
-.mv-d-mv-type { font-weight: 800; flex-shrink: 0; }
-.mv-d-mv-type.in { color: #059669; }
-.mv-d-mv-type.out { color: #dc2626; }
-.mv-d-mv-qty { font-weight: 700; color: #334155; flex-shrink: 0; }
-.mv-d-mv-note { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mv-d-mv-empty { font-size: 12px; color: #cbd5e1; }
 
 
 
-.mv-empty { padding: 30px 16px; text-align: center; color: #94a3b8; font-size: 13px; line-height: 1.6; }
 
 /* 保存バー。棚卸の完了バー（.app-footer + .btn-complete）と同じ構成:
    件数を1行目に中央寄せ、2行目に幅いっぱいの主ボタン。

@@ -28,6 +28,8 @@ const props = defineProps({
   hideAmount:       { type: Boolean, default: false }, // 金額列を出さない（在庫金額ではない画面用）
   hideTapContinuous:{ type: Boolean, default: false }, // 「連続入力」トグルを出さない（未対応の画面用）
   searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
+  // 親が持つ絞り込み条件（filters スロットと対で使う）。null = 内蔵フィルターを使う
+  itemFilter:       { type: Function, default: null },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
@@ -230,6 +232,10 @@ const rows = computed(() => {
   const _term = props.searchTerm.trim()
   if (_term) {
     all = all.filter(r => r.item.includes(_term))
+  }
+  // 3.3 親が持つ絞り込み（filters スロットを差した画面。既定は null＝素通り）
+  if (props.itemFilter) {
+    all = all.filter(r => props.itemFilter(r.item, r))
   }
 
   // 3.5 よく使う品目のみ（ON時のみ・履歴で未使用の品目を隠す）
@@ -666,9 +672,12 @@ function fmtYen(n) {
       </button>
       <div v-else></div>
       <div class="header-right">
-        <span v-if="!preview" class="progress">
-          <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
-        </span>
+        <!-- 進捗。入力画面以外（在庫の閲覧など）は親が差し替える -->
+        <slot name="progress" :filled="scopedFilled" :total="scopedTotal">
+          <span v-if="!preview" class="progress">
+            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
+          </span>
+        </slot>
         <button
           v-if="!hasAllExpanded"
           class="btn-expand-all"
@@ -704,14 +713,18 @@ function fmtYen(n) {
           @click="onAddAxis"
         >＋</button>
       </div>
-      <div v-if="!preview" class="seg-group">
-        <button
-          v-for="opt in filterOpts"
-          :key="opt.value"
-          :class="['seg-btn', { active: filterMode === opt.value }]"
-          @click="filterMode = opt.value"
-        >{{ opt.label }}</button>
-      </div>
+      <!-- 絞り込み。画面ごとに意味が違う（棚卸=入力済み/未入力、在庫=在庫あり/要補充）ので
+           親が差し替えられるようにする。差し替えたときは itemFilter で行も絞る。 -->
+      <slot name="filters">
+        <div v-if="!preview" class="seg-group">
+          <button
+            v-for="opt in filterOpts"
+            :key="opt.value"
+            :class="['seg-btn', { active: filterMode === opt.value }]"
+            @click="filterMode = opt.value"
+          >{{ opt.label }}</button>
+        </div>
+      </slot>
       <button
         v-if="hasUsageData && canManage && !preview"
         :class="['used-toggle', { active: usedOnly }]"
@@ -828,12 +841,15 @@ function fmtYen(n) {
                 <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
                 <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
               </div>
-              <div v-else :class="['qty-display', { filled: row.entry !== null }]">
-                <template v-if="row.entry !== null">
-                  {{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span>
-                </template>
-                <template v-else>—</template>
-              </div>
+              <!-- 数量セル。画面ごとに出す値が違う（棚卸=入力値、在庫=理論在庫）ので親が差し替える -->
+              <slot v-else name="qty" :row="row">
+                <div :class="['qty-display', { filled: row.entry !== null }]">
+                  <template v-if="row.entry !== null">
+                    {{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span>
+                  </template>
+                  <template v-else>—</template>
+                </div>
+              </slot>
             </td>
             <td v-if="showAmount" class="td-amount">
               <span v-if="subtotal(row) != null" class="amount-value">
