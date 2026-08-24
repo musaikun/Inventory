@@ -149,6 +149,13 @@ const hasExpanded = computed(() => {
   return Object.keys(expandedGroups).some(k => k.startsWith(prefix))
 })
 
+// 表ヘッダーの ▶/▼ から全開閉する。グループ行と同じ操作・同じ記号で揃える
+// （文字ボタンを2つ並べるより、開いているかどうかが一目で分かる）。
+function toggleAllGroups() {
+  if (hasAllExpanded.value) collapseAll()
+  else expandAll()
+}
+
 const hasAllExpanded = computed(() => {
   const groups = rows.value.filter(r => r.type === 'group-header')
   if (groups.length === 0) return true
@@ -678,16 +685,6 @@ function fmtYen(n) {
             <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
           </span>
         </slot>
-        <button
-          v-if="!hasAllExpanded"
-          class="btn-expand-all"
-          @click="expandAll"
-        >全て開く</button>
-        <button
-          v-if="hasExpanded"
-          class="btn-collapse-all"
-          @click="collapseAll"
-        >すべて閉じる</button>
       </div>
     </div>
 
@@ -746,9 +743,21 @@ function fmtYen(n) {
     <!-- テーブル -->
     <table class="inv-table">
       <thead>
-        <tr>
+        <!-- グループ表示のときは、この行をタップで全グループを開閉する。
+             記号はグループ行と同じ ▶/▼ で、開いているかどうかも兼ねて示す。
+             列は分けたまま（数量・金額の見出しを元の位置に残す）。 -->
+        <tr
+          :class="{ 'thead-toggle': _isGroupedMode }"
+          :role="_isGroupedMode ? 'button' : undefined"
+          :tabindex="_isGroupedMode ? 0 : undefined"
+          :aria-expanded="_isGroupedMode ? String(hasAllExpanded) : undefined"
+          :aria-label="_isGroupedMode ? (hasAllExpanded ? 'すべて閉じる' : 'すべて開く') : undefined"
+          @click="_isGroupedMode && toggleAllGroups()"
+          @keydown.enter.prevent="_isGroupedMode && toggleAllGroups()"
+          @keydown.space.prevent="_isGroupedMode && toggleAllGroups()"
+        >
           <th v-if="hasCodes" class="th-code">商品コード</th>
-          <th>品目</th>
+          <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
           <th class="th-qty">{{ preview ? '振り分け' : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
@@ -1187,6 +1196,13 @@ function fmtYen(n) {
   font-weight: 700;
   letter-spacing: 0.04em;
 }
+
+/* グループ表示のヘッダーは全開閉ボタンを兼ねる。行そのものが操作対象と分かるようにする */
+.inv-table thead tr.thead-toggle { cursor: pointer; user-select: none; }
+.inv-table thead tr.thead-toggle:hover { background: var(--primary); }
+.inv-table thead tr.thead-toggle:focus { outline: 2px solid #fff; outline-offset: -3px; }
+.inv-table thead tr.thead-toggle:focus:not(:focus-visible) { outline: none; }
+.th-arrow { display: inline-block; width: 14px; font-size: 10px; }
 
 .th-code   { width: 76px; white-space: nowrap; }
 .th-qty    { text-align: center; width: 86px; }
