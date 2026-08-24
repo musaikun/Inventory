@@ -71,3 +71,74 @@ describe('avgDailyConsumption（直近の平均日消費）', () => {
     expect(avgDailyConsumption('A', {})).toBeNull()
   })
 })
+
+// D1: 未記録入庫による過小評価を塞ぐ。
+// 部分利用（週1回だけアプリを使う）の店では、使わない曜日の発注・納品が記録されない。
+// その分が「消費」に化けると、適正在庫が低く学習されて欠品につながる。
+// 在庫が減ってさえいればマイナスにならず、negative の判定だけでは素通りする。
+describe('発注があったはずなのに入庫が無い区間', () => {
+  const snaps = [
+    snap('2026-08-05', [{ item: 'A', qty: 10 }]),   // 水
+    snap('2026-08-12', [{ item: 'A', qty: 5 }]),    // 翌週水
+  ]
+
+  it('発注レコードがあるのに入庫0件なら missing_inflow で外す', () => {
+    const orders = [order('2026-08-07', [{ item: 'A', qty: 2 }])]
+    const [iv] = consumptionIntervals('A', { snapshots: snaps, orders })
+    expect(iv.consumed).toBe(5)               // 見かけ上は素直な数字
+    expect(iv.flagged).toBe(true)             // でも記録外の納品が混ざっている
+    expect(iv.flagReason).toBe('missing_inflow')
+    expect(avgDailyConsumption('A', { snapshots: snaps, orders })).toBeNull()
+  })
+
+  it('発注曜日をまたぐのに入庫0件でも外す（アプリ外で発注していても効く）', () => {
+    const [iv] = consumptionIntervals('A', { snapshots: snaps, orderDays: [1, 5] })  // 月・金
+    expect(iv.flagReason).toBe('missing_inflow')
+  })
+
+  it('入庫が記録されていれば通常どおり数える', () => {
+    const orders = [order('2026-08-07', [{ item: 'A', qty: 2 }])]
+    const moves  = [move('2026-08-08', 'in', [{ item: 'A', qty: 20 }])]
+    const [iv] = consumptionIntervals('A', { snapshots: snaps, orders, movements: moves })
+    expect(iv.consumed).toBe(25)              // 10 + 20 − 5
+    expect(iv.flagged).toBe(false)
+    expect(iv.flagReason).toBeNull()
+  })
+
+  it('発注の予定も記録も無ければ、入庫0件でも通す（毎日発注しない品目）', () => {
+    const [iv] = consumptionIntervals('A', { snapshots: snaps })
+    expect(iv.flagged).toBe(false)
+    expect(iv.consumed).toBe(5)
+  })
+
+  it('区間の終端に発注しても数えない（納品は次の区間に来る）', () => {
+    const orders = [order('2026-08-12', [{ item: 'A', qty: 2 }])]
+    const [iv] = consumptionIntervals('A', { snapshots: snaps, orders })
+    expect(iv.flagged).toBe(false)
+  })
+
+  it('区間の外の発注は数えない', () => {
+    const orders = [order('2026-08-04', [{ item: 'A', qty: 2 }]),   // 区間の開始日より前
+                    order('2026-08-20', [{ item: 'A', qty: 2 }])]   // 区間の後
+    const [iv] = consumptionIntervals('A', { snapshots: snaps, orders })
+    expect(iv.flagged).toBe(false)
+  })
+
+  it('区間が7日以上なら、どの発注曜日でも必ずまたぐ', () => {
+    const long = [
+      snap('2026-08-01', [{ item: 'A', qty: 10 }]),
+      snap('2026-08-30', [{ item: 'A', qty: 2 }]),
+    ]
+    const [iv] = consumptionIntervals('A', { snapshots: long, orderDays: [3] })
+    expect(iv.flagReason).toBe('missing_inflow')
+  })
+
+  it('マイナス消費は従来どおり negative として外す', () => {
+    const up = [
+      snap('2026-08-05', [{ item: 'A', qty: 2 }]),
+      snap('2026-08-12', [{ item: 'A', qty: 9 }]),
+    ]
+    const [iv] = consumptionIntervals('A', { snapshots: up })
+    expect(iv.flagReason).toBe('negative')
+  })
+})

@@ -13,6 +13,7 @@ import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
 import { replenishTarget, targetBasisLabel } from '../services/replenishTarget.js'
+import { suggestReorderPoint, suggestReorderPoints } from '../services/reorderSuggestion.js'
 import { itemConsumptionAvailability, storeConsumptionReadiness } from '../services/analysisCapability.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -23,6 +24,7 @@ import RowMapperModal from './RowMapperModal.vue'
 import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
+import ReorderBulkModal from './ReorderBulkModal.vue'
 
 const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession'])
 
@@ -101,11 +103,17 @@ function itemMovements(item) {
 // 目安 = 推定日消費 × 発注間隔（発注曜日の最大ギャップ、未設定は7日）。
 // 消費は「論理出庫」＝在庫観測（棚卸・発注時在庫）＋入庫から逆算（出庫を記録しない飲食店でも出る）。
 function dailyConsumption(item) {
-  return avgDailyConsumption(item, { windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value })
+  return avgDailyConsumption(item, {
+    windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
+    orderDays: config.orderSchedule?.days ?? [],
+  })
 }
 // ゲート表示: 算出に必要なデータが揃わない場合のヒント（過去棚卸の取込を促す）
 function consumptionHintOf(item) {
-  return itemConsumptionAvailability(item, { snapshots: _snaps.value, orders: getOrders() }).hint
+  return itemConsumptionAvailability(item, {
+    snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
+    orderDays: config.orderSchedule?.days ?? [],
+  }).hint
 }
 const storeReadiness = computed(() => storeConsumptionReadiness({ snapshots: _snaps.value }))
 const reorderHorizon = computed(() => {
@@ -133,17 +141,23 @@ function replenishOf(item) {
   return { ...t, basis: targetBasisLabel(t, { reorderPoint, dailyConsumption: avg, horizonDays: reorderHorizon.value }) }
 }
 
-// 目安の根拠（推定消費 × 発注間隔）。算出できないときは空文字。
-function suggestBasisLabel(item) {
-  const avg = dailyConsumption(item)
-  if (avg == null || avg <= 0) return ''
-  return `推定消費 ${avg.toFixed(1)}/日 × ${reorderHorizon.value}日`
+// 発注点の目安。算出は services/reorderSuggestion に集約（一括設定と同じ値を出す）。
+function reorderSuggestionOf(item) {
+  return suggestReorderPoint(item, {
+    snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
+    orderDays: config.orderSchedule?.days ?? [], horizonDays: reorderHorizon.value,
+  })
 }
-function suggestedReorder(item) {
-  const avg = dailyConsumption(item)
-  if (avg == null || avg <= 0) return null
-  return Math.max(1, Math.ceil(avg * reorderHorizon.value))
-}
+function suggestedReorder(item) { return reorderSuggestionOf(item)?.value ?? null }
+function suggestBasisLabel(item) { return reorderSuggestionOf(item)?.basis ?? '' }
+
+// 発注点の一括設定（部分利用のユーザーはここが推奨発注数の土台になる）
+const showReorderBulk = ref(false)
+const reorderRows = computed(() => suggestReorderPoints(allItems.value, {
+  reorderPoints: config.reorderPoints ?? {},
+  snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
+  orderDays: config.orderSchedule?.days ?? [], horizonDays: reorderHorizon.value,
+}))
 
 // ── 理論在庫（全品目を一括算出）─────────────────────────────
 const _snaps = computed(() => getSnapshots())
@@ -527,6 +541,7 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
           </div>
         </template>
         <template v-if="!isRecord" #filters>
+          <button class="mv-rb-btn" type="button" @click="showReorderBulk = true">🎯 発注点をまとめて設定</button>
           <div class="seg-group">
             <button :class="['seg-btn', { active: stockFilter === 'all' }]" @click="stockFilter = 'all'">すべて</button>
             <button :class="['seg-btn', { active: stockFilter === 'has' }]" @click="stockFilter = 'has'">在庫あり</button>
@@ -595,6 +610,14 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
     />
 
     <!-- 数量入力（棚卸・発注と同じ NumPad）-->
+    <ReorderBulkModal
+      v-if="showReorderBulk"
+      :rows="reorderRows"
+      :unit-of="unitOf"
+      @update="(item, v) => setReorderPoint(item, v)"
+      @close="showReorderBulk = false"
+    />
+
     <!-- 在庫の詳細（内訳・発注点・目安・直近の入出庫）-->
     <StockDetailModal
       v-if="detailTarget"
@@ -767,6 +790,15 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 
 /* 在庫タブの数量セル。表の qty-display と同じ形で、要補充だけ色を変える */
 .mv-theo-cell.low { color: #b91c1c; }
+
+/* 在庫タブ: 発注点の一括設定への導線（フィルターの並びに置く） */
+.mv-rb-btn {
+  border: 1.5px solid #fecaca; background: #fff; color: #b91c1c;
+  border-radius: 16px; min-height: 34px; padding: 4px 12px;
+  font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.mv-rb-btn:active { background: #fef2f2; }
 
 
 /* 品目詳細（在庫タブ・タップ展開） */

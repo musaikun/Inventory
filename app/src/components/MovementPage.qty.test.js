@@ -79,6 +79,16 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     expect(host.textContent).not.toContain('件入力済み')
   })
 
+  it('在庫タブから発注点をまとめて設定できる', async () => {
+    await mountPage()
+    await openTab('在庫')
+    const bulk = button('🎯 発注点をまとめて設定')
+    expect(bulk).not.toBeUndefined()
+    await click(bulk)
+    expect(host.textContent).toContain('発注点をまとめて設定')
+    expect(host.textContent).toContain('この在庫を下回ったら発注する')
+  })
+
   it('在庫タブの行タップは数量入力ではなく詳細シートを開く', async () => {
     await mountPage()
     await openTab('在庫')

@@ -48,3 +48,38 @@ describe('storeConsumptionReadiness', () => {
     expect(r.hint).toMatch(/あと1回/)
   })
 })
+
+// D1/D2: 観測点が足りていても、区間がすべて弾かれていれば算出しない。
+// 「出せない理由」を分けて返す（記録漏れ／数え間違いで、次にやることが違うため）。
+describe('itemConsumptionAvailability — 出せない理由を分ける', () => {
+  const snaps = [
+    { date: '2026-08-05', items: [{ item: 'A', qty: 10 }] },
+    { date: '2026-08-12', items: [{ item: 'A', qty: 5 }] },
+  ]
+
+  it('未記録の入庫が疑われるときは、入庫を記録するよう案内する', () => {
+    const r = itemConsumptionAvailability('A', {
+      snapshots: snaps,
+      orders: [{ date: '2026-08-07', lines: [{ item: 'A', qty: 2 }] }],
+    })
+    expect(r.available).toBe(false)
+    expect(r.reason).toBe('missing_inflow')
+    expect(r.hint).toContain('入庫として記録')
+  })
+
+  it('在庫が増えている区間しか無ければ、記録漏れ・数え間違いとして案内する', () => {
+    const up = [
+      { date: '2026-08-05', items: [{ item: 'A', qty: 2 }] },
+      { date: '2026-08-12', items: [{ item: 'A', qty: 9 }] },
+    ]
+    const r = itemConsumptionAvailability('A', { snapshots: up })
+    expect(r.available).toBe(false)
+    expect(r.reason).toBe('negative')
+  })
+
+  it('使える区間が1つでもあれば算出できる', () => {
+    const r = itemConsumptionAvailability('A', { snapshots: snaps })
+    expect(r.available).toBe(true)
+    expect(r.hint).toBe('')
+  })
+})

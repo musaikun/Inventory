@@ -148,6 +148,7 @@ function _replenishFor(item) {
   const horizonDays  = _orderHorizonDays()
   const dailyConsumption = avgDailyConsumption(item, {
     windowDays: 30, snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
+    orderDays: config.orderSchedule?.days ?? [],
   })
   const target = replenishTarget({
     manual: config.replenishTargets?.[item] ?? null,
