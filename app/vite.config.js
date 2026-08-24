@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url)))
+const isProReview = process.env.VITE_DEPLOYMENT_CHANNEL === 'pro-review'
+  && process.env.VITE_REVIEW_PLAN === 'pro'
 
 // pdfjs の cMap（CJKフォント解決に必須）を配信する。node_modules から
 // dist/cmaps へコピーし、dev では /cmaps/ を直接配信。オンデマンド取得なので
@@ -44,6 +46,9 @@ export default defineConfig({
     pdfCmaps(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Cloudflare Access 配下では manifest 取得にも認証 Cookie が必要。
+      // Pro Review だけ crossorigin=use-credentials を付ける。
+      useCredentials: isProReview,
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'タナオロ',
