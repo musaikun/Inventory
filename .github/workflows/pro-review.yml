@@ -49,6 +49,17 @@ jobs:
           npm test
           npm run build
 
+      # Pro Review は Pages だけでなく専用 Worker / D1 / DO も production と分離されている
+      # （D-018）。Worker を置いていくと、config 中継の新フィールドがゲスト側から落ちるなど、
+      # Pages だけ新しい状態で不整合が出る。必ず同じ run で両方を更新する。
+      - name: Deploy Pro Review Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy --env pro_review
+
       - name: Deploy protected Pro Review preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -58,4 +69,7 @@ jobs:
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write Pro Review URL
-        run: echo 'Pro Review URL = https://pro-review.inventory-app-pro-review.pages.dev' >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo 'Pro Review URL = https://pro-review.inventory-app-pro-review.pages.dev' >> $GITHUB_STEP_SUMMARY
+          echo 'Worker = inventory-sync-pro-review（同じ run で更新済み）' >> $GITHUB_STEP_SUMMARY
+          echo "App version = $(node -p "require('./app/package.json').version")" >> $GITHUB_STEP_SUMMARY

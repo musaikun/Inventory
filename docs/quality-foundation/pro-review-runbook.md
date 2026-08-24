@@ -1,6 +1,6 @@
 # Pro Review分離環境
 
-更新日: 2026-08-01  
+更新日: 2026-08-23  
 対象: `CI-001` / `PLAY-004`
 
 ## 現在の稼働状態
@@ -46,7 +46,19 @@ Pagesへはproduction deployを作らず、`pro-review` branchのPreviewだけ�
 PagesのPreview Accessはproject内の全Previewを保護するが、production `*.pages.dev`は保護しない。
 このためproduction branchへはdeployしない。Previewは既定で`X-Robots-Tag: noindex`が付く。
 
-## 初期構築・更新
+## 更新（通常はこちら）
+
+GitHub Actions の **`Pro Review Pages`** を `workflow_dispatch` で実行する。
+**実行時に選んだブランチをbuildする**ので、`develop` の内容を入れるなら `develop` を選ぶ。
+push では動かない（自動更新は develop preview だけ）。
+
+1 回の run で **Worker → Pages の順に両方**を更新する。Pages だけ新しい状態にすると、
+config 中継の新フィールドがゲスト側から落ちるなどの不整合が出るため、分離して実行しない。
+
+D1 マイグレーションはこの workflow に含めない。schema を変える変更を入れるときは、
+先に `inventory-store-pro-review` へ適用する（現在の適用済みは `0001`〜`0011`）。
+
+## 初期構築・手動更新
 
 1. `inventory-store-pro-review`へ`0001`〜`0011`を順番に適用する。
 2. `cd worker && npx wrangler@latest deploy --env pro_review`で専用Workerだけを更新する。
