@@ -2,6 +2,26 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-23 — Pro Review D1・Worker・Pagesを復旧
+
+- User承認のもと、本番Free環境とは分離されたPro Reviewだけを更新した。本番Worker / D1 / Pagesは未変更。
+- `inventory-store-pro-review`のTime Travel bookmarkを取得し、実schemaが`0001`〜`0011`と
+  一致することを確認後、migration履歴を基準登録。`0012`〜`0016`を適用し、未適用0件を確認した。
+  適用前後とも店舗1件、session/history 0件。
+- `inventory-sync-pro-review`をWrangler 4.125.0で配信。途中でhandler/bindingを持たない並行versionに
+  上書きされ404へ戻ったため再配信し、最終version
+  `f8a063d2-4139-4081-9eb8-031d9af8e7a0`でhealth 200、固定origin CORS 204を確認した。
+- Appを`develop@4add746`（0.68.0）でPro Review buildし、Pages deployment
+  `72feca8d-d46f-4646-939c-6349e0a98912`へ配信。固定aliasの未認証Access 302を確認した。
+- Cloudflare Access配下のmanifest fetchへcookieを送るため、Pro Review buildだけ
+  `crossorigin=use-credentials`を生成するよう`app/vite.config.js`を修正。
+- 検証: App 99 files / 1106 passed。worker起動待ちで未実行だった4 filesは単独実行し
+  80 passed（合計103 files / 1186 passed）。最終更新分の関連test 5 passed、Pro Review build成功。
+  Worker全体は544 passed / 1 timeout後、対象1件の単独再実行1 passed。
+- 実ブラウザ接続は利用可能browserが無く未実施。User実機で固定URLのログイン、
+  `PRO REVIEW · テストデータ`表示、DevToolsのmanifest/Workboxエラー消失、`X-Robots-Tag`を確認する。
+- 未実施: commit、push。本番migration / deploy。
+
 ## 2026-08-19 — DATA-001 / DATA-002 / IMPORT-001 最終承認・完了
 
 - Codexが `develop@e8f5e16` を最終独立レビューし、3タスクともblocking findingなしで承認した。

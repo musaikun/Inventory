@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-08-19
+最終更新: 2026-08-23
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -59,7 +59,8 @@ Web登録へのtrial適用とStripe/backendの単独公開順はUser判断待ち
 2026-07完了分は`develop@96233d4`まで、CI-001は`develop@7d47cb4`で初回完了し、
 現在HEAD `develop@bc9fb85`のpreview CIも成功済みです。
 DEP-001、PLAY-002/003/004の直近成果は`develop@bc9fb85`までにcommit / push済みです。
-Pro Reviewは2026-08-01にdeploy済みですが、本番Pages / Workerの現行化と本番D1 migrationは未実施です。
+Pro Reviewは2026-08-23にD1 `0016`、専用Worker、Pages `develop@4add746`（App 0.68.0）まで更新済みです。
+本番Pages / Workerの現行化と本番D1 migrationは未実施です。
 
 | ID | P | 完了日 | 担当 | 概要 |
 |---|---:|---|---|---|

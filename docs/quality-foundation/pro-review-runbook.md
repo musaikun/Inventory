@@ -6,14 +6,18 @@
 ## 現在の稼働状態
 
 - 初回Pages Preview deploy: 2026-08-01 / `develop@e35c2ba`（未commit差分を含む）
+- 現行Pages Preview deploy: 2026-08-23 / `develop@4add746`（App 0.68.0）+ manifest認証の未commit差分
 - 固定URL: `https://pro-review.inventory-app-pro-review.pages.dev`
-- 固有URL: `https://4e8cedd7.inventory-app-pro-review.pages.dev`
-- Pages deployment ID: `4e8cedd7-2dbf-4ab6-b4b4-bee250fea610`
+- 現行固有URL: `https://72feca8d.inventory-app-pro-review.pages.dev`
+- 現行Pages deployment ID: `72feca8d-d46f-4646-939c-6349e0a98912`
 - 固定URL・固有URLとも、未認証アクセスがCloudflare Access loginへ`302`となることを確認済み。
-- 専用Workerのhealthは`200 OK`。固定URLのoriginだけにCORSを許可し、develop originには
+- 専用Workerの現行versionは`f8a063d2-4139-4081-9eb8-031d9af8e7a0`。healthは`200 OK`。
+  固定URLのoriginだけにCORSを許可し、旧固有URL originには
   `Access-Control-Allow-Origin`を返さないことを確認済み。
 - 専用D1は`PRO REVIEW TEST`（店舗code `EXCFGA`）1店舗のみ、`plan=pro`、削除されていない状態を
-  read-only queryで確認済み。PINはrepositoryへ記録しない。
+  read-only queryで確認済み。`0001`〜`0016`適用済み、未適用migrationは0件。PINはrepositoryへ記録しない。
+- Cloudflare Access配下でもmanifestへ認証cookieを送るため、Pro Review buildだけ
+  `<link rel=manifest ... crossorigin=use-credentials>`を生成する。
 - Cloudflare PagesはPreviewへ既定で`X-Robots-Tag: noindex`を付ける。Access外からorigin responseを
   直接取得できないため、ログイン後のheader/画面目視はUser実機確認として残す。
 
@@ -48,7 +52,8 @@ PagesのPreview Accessはproject内の全Previewを保護するが、production 
 
 ## 更新（通常はこちら）
 
-GitHub Actions の **`Pro Review Pages`** を `workflow_dispatch` で実行する。
+`.github/workflows/pro-review.yml`がdefault branchへ配置された後は、GitHub Actionsの
+**`Pro Review Pages`**を`workflow_dispatch`で実行する。
 **実行時に選んだブランチをbuildする**ので、`develop` の内容を入れるなら `develop` を選ぶ。
 push では動かない（自動更新は develop preview だけ）。
 
@@ -56,11 +61,14 @@ push では動かない（自動更新は develop preview だけ）。
 config 中継の新フィールドがゲスト側から落ちるなどの不整合が出るため、分離して実行しない。
 
 D1 マイグレーションはこの workflow に含めない。schema を変える変更を入れるときは、
-先に `inventory-store-pro-review` へ適用する（現在の適用済みは `0001`〜`0011`）。
+先に `inventory-store-pro-review` へ適用する（現在の適用済みは `0001`〜`0016`）。
+
+現時点のdefault branchは`main`で、workflowは`develop`にだけ存在する。`main`へ配置されるまでは
+`workflow_dispatch`できないため、次の手動更新を使う。
 
 ## 初期構築・手動更新
 
-1. `inventory-store-pro-review`へ`0001`〜`0011`を順番に適用する。
+1. `inventory-store-pro-review`へ`0001`〜`0016`を順番に適用する。
 2. `cd worker && npx wrangler@latest deploy --env pro_review`で専用Workerだけを更新する。
 3. 次の3変数を設定してAppをbuildする。
    - `VITE_SYNC_WORKER_URL=wss://inventory-sync-pro-review.yuya-takaki.workers.dev`
@@ -73,7 +81,14 @@ D1 マイグレーションはこの workflow に含めない。schema を変え
 2026-08-01の初回deployでは、Access、build内Worker URL、既存review店舗の`plan=pro`、専用D1への
 read-only queryを確認した。ログイン後の画面目視とDevToolsでの`X-Robots-Tag`確認は未実施。
 
-初期構築後のフロント更新は`.github/workflows/pro-review.yml`を手動実行する。WorkerとD1は自動変更しない。
+2026-08-22〜23の復旧では、Time Travel bookmarkを取得後、実schemaと一致する`0001`〜`0011`を
+`d1_migrations`へ基準登録し、`0012`〜`0016`をWranglerで適用した。店舗1件、
+session/history 0件は適用前後で不変。専用Worker、Pagesの順で更新し、health、固定origin CORS、
+Access `302`、build内Pro条件、manifest認証属性を確認した。
+
+今回の復旧時点では`.github/workflows/pro-review.yml`がdefault branchに存在せず、GitHub APIから
+`workflow_dispatch`できなかったため、上記手順2〜4をWranglerで直接実行した。workflow経路を使う場合は、
+先にworkflowをdefault branchへ配置する。現行workflowはWorkerとPagesを更新し、D1は自動変更しない。
 
 ## Free枠と制限
 
