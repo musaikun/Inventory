@@ -12,6 +12,7 @@ import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
+import { replenishTarget, targetBasisLabel } from '../services/replenishTarget.js'
 import { itemConsumptionAvailability, storeConsumptionReadiness } from '../services/analysisCapability.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -25,7 +26,7 @@ import StockDetailModal from './StockDetailModal.vue'
 
 const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession'])
 
-const { config, itemCount, setReorderPoint } = useConfig()
+const { config, itemCount, setReorderPoint, setReplenishTarget } = useConfig()
 const { getSnapshots } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
@@ -117,6 +118,21 @@ const reorderHorizon = computed(() => {
   }
   return maxGap
 })
+// 補充目標（発注してここまで戻す）。発注点はトリガーなので目標は別に決める。
+// 学習が貯まらない部分利用でも、発注点さえ入っていれば 発注点×2 が初期の目標になる。
+function replenishOf(item) {
+  const reorderPoint = reorderOf(item)
+  const avg = dailyConsumption(item)
+  const t = replenishTarget({
+    manual: config.replenishTargets?.[item] ?? null,
+    reorderPoint,
+    dailyConsumption: avg,
+    horizonDays: reorderHorizon.value,
+  })
+  if (!t) return null
+  return { ...t, basis: targetBasisLabel(t, { reorderPoint, dailyConsumption: avg, horizonDays: reorderHorizon.value }) }
+}
+
 // 目安の根拠（推定消費 × 発注間隔）。算出できないときは空文字。
 function suggestBasisLabel(item) {
   const avg = dailyConsumption(item)
@@ -590,11 +606,15 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       :suggested="suggestedReorder(detailTarget)"
       :suggest-basis="suggestBasisLabel(detailTarget)"
       :hint="consumptionHintOf(detailTarget)"
+      :target="replenishOf(detailTarget)?.value ?? null"
+      :target-manual="config.replenishTargets?.[detailTarget] ?? null"
+      :target-basis="replenishOf(detailTarget)?.basis ?? ''"
       :lot="lotOf(detailTarget)"
       :price="config.prices?.[detailTarget] ?? null"
       :category="config.categories?.[detailTarget] ?? ''"
       :movements="itemMovements(detailTarget)"
       @update-reorder="v => setReorderPoint(detailTarget, v)"
+      @update-target="v => setReplenishTarget(detailTarget, v)"
       @close="closeDetail"
     />
 

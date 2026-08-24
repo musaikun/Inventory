@@ -14,10 +14,15 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       axisGroupsB: ['八百屋'],
       hiddenItems: ['レタス'],
       reorderPoints: { トマト: 5 },
+      replenishTargets: { トマト: 12 },
+      orderInputMode: 'manual',
       isCustom: true,
     }
     const out = normalizeConfig(src)
     expect(out.reorderPoints).toEqual({ トマト: 5 })
+    // 補充目標と発注数の決め方もホスト→ゲストへ中継する（列挙漏れ＝事故B-01の再発防止）
+    expect(out.replenishTargets).toEqual({ トマト: 12 })
+    expect(out.orderInputMode).toBe('manual')
     expect(out.axisNames).toEqual(['場所', '仕入先'])
     expect(out.tagsA).toEqual({ トマト: ['冷蔵'] })
     expect(out.tagsB).toEqual({ トマト: ['八百屋'] })
@@ -32,6 +37,8 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     const out = normalizeConfig({ order: ['A'] })
     expect(out.axisNames).toEqual(['', ''])
     expect(out.reorderPoints).toEqual({})
+    expect(out.replenishTargets).toEqual({})
+    expect(out.orderInputMode).toBe('auto')
     expect(out.tagsA).toEqual({})
     expect(out.axisGroupsA).toEqual([])
     expect(out.hiddenItems).toEqual([])

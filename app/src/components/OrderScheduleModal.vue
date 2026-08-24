@@ -5,7 +5,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { weekdayLabel, scheduleSummary } from '../services/orderScheduleUtil.js'
 
 const emit = defineEmits(['close', 'saved'])
-const { config, setOrderSchedule } = useConfig()
+const { config, setOrderSchedule, setOrderInputMode } = useConfig()
 
 // デスクトップの ESC で閉じる（スマホの戻るは App の _closeTopLayer → showOrderSchedule 経由）
 useEscapeKey(() => emit('close'))
@@ -14,6 +14,8 @@ useEscapeKey(() => emit('close'))
 const DOW_ORDER = [1, 2, 3, 4, 5, 6, 0]  // 月火水木金土日
 const selected = ref(new Set(config.orderSchedule?.days ?? []))
 const deadline = ref(config.orderSchedule?.deadline ?? '')
+// 発注数の決め方（店舗の既定）。品目ごとの補充目標は在庫タブの詳細で設定する。
+const inputMode = ref(config.orderInputMode === 'manual' ? 'manual' : 'auto')
 
 function toggle(d) {
   if (selected.value.has(d)) selected.value.delete(d)
@@ -27,6 +29,7 @@ const preview = computed(() =>
 )
 
 function onSave() {
+  setOrderInputMode(inputMode.value)
   setOrderSchedule({ days: [...selected.value], deadline: deadline.value })
   emit('saved')
   emit('close')
@@ -59,7 +62,24 @@ function onClear() {
 
       <div class="os-preview">現在の設定：<b>{{ preview }}</b></div>
 
-      <button class="os-save" :disabled="selected.size === 0" @click="onSave">保存</button>
+      <div class="os-label">発注数の決め方</div>
+      <label class="os-mode" :class="{ on: inputMode === 'auto' }">
+        <input type="radio" value="auto" v-model="inputMode" />
+        <span class="os-mode-body">
+          <span class="os-mode-name">不足分を自動で入れる</span>
+          <span class="os-mode-desc">在庫を入力すると「補充目標 − 在庫」から発注数が入ります。あとから直せます。</span>
+        </span>
+      </label>
+      <label class="os-mode" :class="{ on: inputMode === 'manual' }">
+        <input type="radio" value="manual" v-model="inputMode" />
+        <span class="os-mode-body">
+          <span class="os-mode-name">自分で入力する</span>
+          <span class="os-mode-desc">推奨は参考として出すだけ。発注数は自分で決めます。</span>
+        </span>
+      </label>
+      <p class="os-mode-note">補充目標は品目ごとに、在庫タブ → 品目をタップ → 詳細で設定できます。未設定なら発注点から自動で決まります。</p>
+
+      <button class="os-save" @click="onSave">保存</button>
       <div class="os-sub-actions">
         <button class="os-clear" @click="onClear">クリア</button>
         <button class="os-cancel" @click="emit('close')">キャンセル</button>
@@ -85,6 +105,16 @@ function onClear() {
 .os-dow.sun { color: #dc2626; }
 .os-dow.sat { color: #2563eb; }
 .os-dow.on { border-color: #ea580c; background: #fff7ed; color: #c2410c; }
+
+.os-mode {
+  display: flex; align-items: flex-start; gap: 10px;
+  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; cursor: pointer;
+}
+.os-mode.on { border-color: #ea580c; background: #fff7ed; }
+.os-mode-body { display: flex; flex-direction: column; gap: 2px; }
+.os-mode-name { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.os-mode-desc { font-size: 11.5px; color: #64748b; line-height: 1.5; }
+.os-mode-note { font-size: 11px; color: #94a3b8; line-height: 1.6; margin: 0; }
 
 .os-time { border: 1.5px solid var(--border, #e2e8f0); border-radius: 10px; padding: 10px 12px; font-size: 16px; color: #1e293b; background: #fff; }
 

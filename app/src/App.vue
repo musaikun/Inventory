@@ -48,6 +48,8 @@ import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { useDayNotes } from './composables/useDayNotes.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
+import { replenishTarget, targetBasisLabel } from './services/replenishTarget.js'
+import { avgDailyConsumption } from './services/impliedConsumption.js'
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
@@ -128,6 +130,36 @@ const { getMovements, applyRemoteMovements } = useMovements()
 function _theoStockFor(item) {
   return theoreticalStock(item, getSnapshots(), getMovements())
 }
+// 補充目標（発注してここまで戻す水準）と、その根拠。
+// 発注点はトリガーであって目標ではないので、目標は replenishTarget が別に決める。
+// 学習（適正在庫）が貯まらない部分利用でも、発注点さえ入っていれば推奨が出る。
+function _orderHorizonDays() {
+  const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
+  if (days.length < 2) return 7
+  let maxGap = 0
+  for (let i = 0; i < days.length; i++) {
+    const gap = (days[(i + 1) % days.length] - days[i] + 7) % 7 || 7
+    maxGap = Math.max(maxGap, gap)
+  }
+  return maxGap
+}
+function _replenishFor(item) {
+  const reorderPoint = config.reorderPoints?.[item] ?? null
+  const horizonDays  = _orderHorizonDays()
+  const dailyConsumption = avgDailyConsumption(item, {
+    windowDays: 30, snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
+  })
+  const target = replenishTarget({
+    manual: config.replenishTargets?.[item] ?? null,
+    parLevel: _parLevelFor(item),
+    reorderPoint,
+    dailyConsumption,
+    horizonDays,
+  })
+  if (!target) return null
+  return { ...target, basis: targetBasisLabel(target, { reorderPoint, dailyConsumption, horizonDays }) }
+}
+
 // 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
 function _lastWeekQtyFor(item) {
   const wd = weekdayOf(_todayStr())
@@ -2067,6 +2099,8 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     weekdayHistory: isOrder ? _weekdayHistoryFor(ingredient) : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
     theoStock:      isOrder ? _theoStockFor(ingredient) : null,
+    replenish:      isOrder ? _replenishFor(ingredient) : null,
+    orderInputMode: isOrder ? (config.orderInputMode ?? 'auto') : 'auto',
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -3078,6 +3112,8 @@ function dismissReview() {
         :can-next="confirmCanNext"
         :order-mode="!!confirmState.orderMode"
         :par-level="confirmState.parLevel"
+        :replenish="confirmState.replenish"
+        :order-input-mode="confirmState.orderInputMode"
         :order-lot="confirmState.orderLot ?? 1"
         :last-week-qty="confirmState.lastWeekQty"
         :weekday-history="confirmState.weekdayHistory"

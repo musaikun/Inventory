@@ -43,6 +43,8 @@ export function normalizeConfig(src = {}) {
     prevMonths:    src.prevMonths    ?? {},
     lotSizes:      src.lotSizes      ?? {},
     reorderPoints: src.reorderPoints ?? {},
+    replenishTargets: src.replenishTargets ?? {},
+    orderInputMode: src.orderInputMode === 'manual' ? 'manual' : 'auto',
     orderSchedule: _normSchedule(src.orderSchedule),
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],

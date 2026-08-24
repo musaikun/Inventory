@@ -30,6 +30,10 @@ const props = defineProps({
   canNext:         { type: Boolean, default: false }, // 次の品目へ移動可能
   orderMode:       { type: Boolean, default: false }, // 発注セッション: qty=現在在庫 + 発注数入力
   parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
+  // 補充目標（発注してここまで戻す）と根拠。{ value, source, basis } | null
+  replenish:       { type: Object,  default: null },
+  // 発注数の決め方（店舗の既定）。'auto'=不足分に追従 / 'manual'=自分で入力
+  orderInputMode:  { type: String,  default: 'auto' },
   orderLot:        { type: Number,  default: 1 },     // 入数（数値）
   lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
   weekdayHistory:  { type: Object,  default: null },  // 品目×同曜の発注履歴 { lastWeek, lastMonth, median, values, samples, count }
@@ -63,18 +67,25 @@ const hasError = ref(false)
 const orderQty     = ref(props.initialOrderQty)   // null=未編集（推奨に追従）
 const orderTouched = ref(props.initialOrderQty != null)
 
-// 現在在庫から算出した推奨発注数（適正在庫が無ければ null）
+// 現在在庫から算出した推奨発注数。
+// 目標は補充目標（replenish）＝ 手動 > 学習値 > 発注点＋推定消費 > 発注点×2 の順で決まる。
+// 発注点そのものを目標にすると補充直後にまた発注点を割るため、目標は別に受け取る。
+const targetLevel = computed(() => props.replenish?.value ?? props.parLevel ?? null)
 const suggested = computed(() => {
-  if (!props.orderMode || props.parLevel == null) return null
+  if (!props.orderMode || targetLevel.value == null) return null
   const stock = qty.value === '' ? null : parseFloat(qty.value)
   if (stock == null || isNaN(stock)) return null
-  return suggestOrder(props.parLevel, stock, props.orderLot)
+  return suggestOrder(targetLevel.value, stock, props.orderLot)
 })
 
-// 実際に確定される発注数（ユーザーが触っていれば手入力値、未編集なら推奨）
+// 「不足分に追従」モードか。manual では推奨を出すだけで発注数へは自動で入れない
+// （どちらでも人が最後に直せる。学習は直した後の値で回る）。
+const autoFollow = computed(() => props.orderInputMode !== 'manual')
+
+// 実際に確定される発注数（ユーザーが触っていれば手入力値、未編集なら追従モードのみ推奨）
 const effectiveOrderQty = computed(() => {
   if (orderTouched.value && orderQty.value != null) return Math.max(0, orderQty.value)
-  return suggested.value ?? 0
+  return autoFollow.value ? (suggested.value ?? 0) : 0
 })
 
 function orderStep(delta) {
@@ -534,9 +545,12 @@ function saveEdit() {
       <div v-if="orderMode" class="order-block">
         <!-- 学習値チップ: 推奨はタップで発注数にセット（そこから微調整）-->
         <div class="order-refs">
-          <span class="ref-chip ref-par">適正在庫: {{ parLevel != null ? parLevel : '学習中' }}</span>
+          <span v-if="targetLevel != null" class="ref-chip ref-par">補充目標: {{ targetLevel }}</span>
+          <span v-else class="ref-chip ref-par">補充目標: 未設定</span>
           <button v-if="suggested != null" class="ref-chip ref-sug tappable" type="button" @click="setOrderQty(suggested)">推奨: {{ suggested }}</button>
         </div>
+        <!-- 推奨の根拠。数字だけ出しても直しようがないので、必ず理由を添える -->
+        <div v-if="replenish?.basis" class="order-basis">{{ replenish.basis }}</div>
 
         <!-- 品目×同曜の発注実績（前週・先月・直近中央値・ミニ推移）。タップで発注数にセット -->
         <div v-if="weekdayHistory && weekdayHistory.count" class="order-hist">
@@ -575,7 +589,10 @@ function saveEdit() {
             <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
           </div>
         </div>
-        <div v-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
+        <div v-if="targetLevel == null" class="order-note">
+          この品目は補充目標を出せません。<b>在庫タブで発注点を入れる</b>と、そこから推奨を出せます。
+        </div>
+        <div v-else-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
 
       <!-- ジャンル：取込元由来のみ・読み取り専用（無ければ表示しない）-->
@@ -884,6 +901,13 @@ function saveEdit() {
   font-size: 12px;
   color: #6b7280;
   margin-left: auto;
+}
+
+.order-basis {
+  font-size: 11px;
+  color: #64748b;
+  margin: 4px 0 6px;
+  line-height: 1.5;
 }
 
 .order-note {

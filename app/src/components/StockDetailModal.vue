@@ -19,6 +19,9 @@ const props = defineProps({
   basis:     { type: String, default: '' },     // 内訳（例: 8/1棚卸 10 ＋入庫3 −出庫2）
   reorder:   { type: Number, default: null },   // 発注点（未設定は null）
   suggested: { type: Number, default: null },   // 発注点の目安（算出できないときは null）
+  target:       { type: Number, default: null },  // 補充目標の現在値（自動/手動どちらでも）
+  targetManual: { type: Number, default: null },  // 手動設定されている補充目標（未設定は null）
+  targetBasis:  { type: String, default: '' },    // 補充目標の根拠
   suggestBasis: { type: String, default: '' },  // 目安の根拠（推定消費 × 発注間隔）
   hint:      { type: String, default: '' },     // 算出できない理由
   lot:       { type: Number, default: null },
@@ -26,7 +29,7 @@ const props = defineProps({
   category:  { type: String, default: '' },
   movements: { type: Array, default: () => [] }, // [{ id, date, type, qty, unit, note }]
 })
-const emit = defineEmits(['update-reorder', 'close'])
+const emit = defineEmits(['update-reorder', 'update-target', 'close'])
 useEscapeKey(() => emit('close'))
 
 const needsReorder = computed(() => {
@@ -35,6 +38,7 @@ const needsReorder = computed(() => {
 })
 
 function onReorderInput(e) { emit('update-reorder', e.target.value) }
+function onTargetInput(e) { emit('update-target', e.target.value) }
 function _md(d) {
   const [, mo, dd] = String(d || '').split('-').map(Number)
   return mo && dd ? `${mo}/${dd}` : ''
@@ -77,6 +81,21 @@ function _md(d) {
           <span v-if="suggestBasis" class="sd-suggest-basis">{{ suggestBasis }}</span>
         </div>
         <div v-else-if="hint" class="sd-hint">{{ hint }}</div>
+      </div>
+
+      <!-- 補充目標＝発注してここまで戻す水準。発注点（トリガー）とは別concept -->
+      <div class="sd-block">
+        <div class="sd-block-title">補充目標（発注してここまで戻す）</div>
+        <div class="sd-reorder">
+          <input
+            class="sd-tg-input" type="number" inputmode="numeric" min="0"
+            :placeholder="target != null ? String(target) : '自動'"
+            :value="targetManual != null ? targetManual : ''"
+            @input="onTargetInput"
+          />
+          <span class="sd-rp-unit">空欄なら自動で決まります</span>
+        </div>
+        <div v-if="targetBasis" class="sd-tg-basis">{{ targetManual != null ? '手動で設定した補充目標' : targetBasis }}</div>
       </div>
 
       <div v-if="lot || price || category" class="sd-meta">
@@ -131,6 +150,12 @@ function _md(d) {
 }
 .sd-rp-input:focus { outline: none; border-color: #ef4444; }
 .sd-rp-unit { font-size: 12px; color: #94a3b8; }
+.sd-tg-input {
+  width: 88px; border: 1.5px solid #bfdbfe; border-radius: 9px; padding: 9px 10px;
+  font-size: 15px; font-weight: 700; text-align: right; color: #1d4ed8; background: #fff;
+}
+.sd-tg-input:focus { outline: none; border-color: #3b82f6; }
+.sd-tg-basis { font-size: 11px; color: #94a3b8; margin-top: 6px; line-height: 1.5; }
 
 .sd-suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .sd-suggest-btn {
