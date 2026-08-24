@@ -2721,6 +2721,8 @@ function dismissReview() {
     <MovementPage
       v-else-if="currentView === 'movement'"
       @back="onPageBack"
+      @start-session="onSessionStart"
+      @resume-session="onSessionResume"
     />
 
     <!-- ── 履歴カレンダー（専用ページ） ── -->

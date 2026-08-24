@@ -1,10 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
+import { getSessions, createSession } from '../composables/useAuth.js'
+import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
+import { showOrderSchedule } from '../composables/appMenuState.js'
+import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
 import { avgDailyConsumption } from '../services/impliedConsumption.js'
@@ -19,18 +23,21 @@ import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
 
-const emit = defineEmits(['back', 'saved'])
+const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession'])
 
-const { config, setReorderPoint } = useConfig()
+const { config, itemCount, setReorderPoint } = useConfig()
 const { getSnapshots } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
 const { draft, clearMode } = useMovementDraft()
 
 // 画面モード: 在庫（読み取り）/ 入庫（記録）/ 出庫（記録）
-const TAB_ORDER = ['view', 'in', 'out']
-const mode = ref('view')  // 'view' | 'in' | 'out'
-const isRecord = computed(() => mode.value !== 'view')
+// 在庫 → 発注 → 入庫 → 出庫（仕入れの流れ順）。既定は在庫（出庫を主導線に上げない）。
+const TAB_ORDER = ['view', 'order', 'in', 'out']
+const mode = ref('view')  // 'view' | 'order' | 'in' | 'out'
+// 記録タブ＝数量を入力して保存する2つ。発注はセッション（別画面）へ渡す入口なので含めない。
+const isRecord = computed(() => mode.value === 'in' || mode.value === 'out')
+const isOrderTab = computed(() => mode.value === 'order')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
 // メモはモード別（入庫/出庫で混ざらない）
@@ -253,6 +260,63 @@ function onSave() {
   mode.value = 'view'
 }
 
+// ── 発注（既存の発注セッションへの入口）───────────────────────
+// 発注はルーム同期・完了確定を持つセッションなので、このページでは開始・再開だけを扱う。
+// カード内に別の発注記録を作ると「どちらが正か分からない」2経路になるため作らない。
+const orderSessions = ref([])
+const orderLoading  = ref(true)
+const orderError    = ref('')
+const startingOrder = ref(false)
+
+onMounted(async () => {
+  try {
+    const list = await getSessions()
+    orderSessions.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    orderError.value = e?.message || '発注の状態を取得できませんでした'
+  } finally {
+    orderLoading.value = false
+  }
+})
+
+const activeOrderSession = computed(() =>
+  orderSessions.value
+    .filter(s => s.status !== 'completed' && s.type === 'order')
+    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] || null)
+
+const orderSchedule = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
+const hasSched      = computed(() => hasSchedule(orderSchedule.value))
+const schedSummary  = computed(() => scheduleSummary(orderSchedule.value))
+const schedTodayCtx = computed(() => todayOrderContext(orderSchedule.value, new Date()))
+const schedDeadline = computed(() => deadlineStatus(orderSchedule.value, new Date()))
+
+// 発注タブから「入庫へ」= 入庫タブへ移動して、その発注をプリフィルする。
+// 発注（LOT数）→ 入庫（バラ）の換算は deliveryLinesFromOrder が持つ既存の契約をそのまま使う。
+function applyOrderToInbound(o) {
+  setMode('in')
+  importOrder(o)
+}
+
+function _formatDate(iso) {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
+}
+
+async function onStartOrder() {
+  if (itemCount.value === 0) { orderError.value = '先に品目マスタを登録してください'; return }
+  startingOrder.value = true
+  orderError.value = ''
+  try {
+    const session = await createSession('order')
+    emit('startSession', session, 'order')
+  } catch (e) {
+    orderError.value = e?.message || '発注を開始できませんでした'
+  } finally {
+    startingOrder.value = false
+  }
+}
+
 // ── 過去データの一括取込（納品・棚卸）は composable に集約 ─────────
 // 導線はこの画面とデータ管理画面の2箇所だが、実装は useDataImport 1つ。
 const {
@@ -277,14 +341,20 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
   <div :class="['mv', mode]">
     <header class="mv-header">
       <button class="mv-back" @click="emit('back')">‹ 戻る</button>
-      <span class="mv-title">📦 在庫・入出庫</span>
+      <span class="mv-title">🛒 仕入れ</span>
       <span v-if="isRecord && changed.length" class="mv-count">{{ changed.length }}品目</span>
+      <button class="mv-gear" :class="{ alone: !(isRecord && changed.length) }" title="発注日・締切の設定" @click="showOrderSchedule = true">⚙</button>
     </header>
 
     <!-- モードタブ（スライド下線で切替可能を示す）-->
     <div class="mv-tabs">
       <button :class="['mv-tab', { on: mode === 'view' }]" @click="setMode('view')">在庫</button>
-      <button :class="['mv-tab', 'in', { on: mode === 'in' }]" @click="setMode('in')">📥 入庫</button>
+      <button :class="['mv-tab', 'order', { on: mode === 'order' }]" @click="setMode('order')">
+        🧾 発注<span v-if="activeOrderSession" class="mv-tab-dot" title="進行中の発注があります"></span>
+      </button>
+      <button :class="['mv-tab', 'in', { on: mode === 'in' }]" @click="setMode('in')">
+        📥 入庫<span v-if="pendingOrders.length" class="mv-tab-badge">{{ pendingOrders.length }}</span>
+      </button>
       <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')">📤 出庫</button>
       <div class="mv-tab-ind" :class="mode" :style="{ transform: `translateX(${tabIndex * 100}%)` }"></div>
     </div>
@@ -338,12 +408,74 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
         </div>
       </template>
 
+      <!-- 発注タブ: 既存の発注セッションへの入口。ここでは表を出さない -->
+      <template v-if="isOrderTab">
+        <div class="mv-hint">
+          仕入先ごとに、発注する数をまとめて確認・記録します<span class="mv-beta">β</span><br>
+          <span class="mv-hint-caveat">記録するだけで、仕入先へは自動送信されません。複数人で同時に入力できます。</span>
+        </div>
+
+        <div v-if="orderError" class="mv-order-err">{{ orderError }}</div>
+
+        <!-- 発注スケジュール（⚙ から設定） -->
+        <button class="mv-sched" type="button" @click="showOrderSchedule = true">
+          <span class="mv-sched-ico">🗓</span>
+          <span class="mv-sched-text">
+            <template v-if="hasSched">
+              <span class="mv-sched-sum">
+                {{ schedSummary }}
+                <span v-if="schedDeadline.has" :class="['mv-sched-dl', { past: schedDeadline.past }]">・{{ schedDeadline.label }}</span>
+              </span>
+              <span v-if="schedTodayCtx" class="mv-sched-ctx">{{ schedTodayCtx }}</span>
+            </template>
+            <template v-else>
+              <span class="mv-sched-sum">発注スケジュールを設定</span>
+              <span class="mv-sched-ctx">発注する曜日・締切を登録（任意）</span>
+            </template>
+          </span>
+          <span class="mv-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
+        </button>
+
+        <div v-if="orderLoading" class="mv-order-loading">読み込み中...</div>
+        <template v-else>
+          <button v-if="activeOrderSession" class="mv-order-resume" @click="emit('resumeSession', activeOrderSession)">
+            <span class="mv-order-resume-title">🧾 進行中の発注があります</span>
+            <span class="mv-order-resume-sub">開始 {{ _formatDate(activeOrderSession.startedAt) }}</span>
+            <span class="mv-order-resume-go">記録を再開する →</span>
+          </button>
+          <button
+            v-else
+            class="mv-order-start"
+            :disabled="startingOrder || itemCount === 0"
+            @click="onStartOrder"
+          >
+            <span class="mv-order-start-title">{{ startingOrder ? '開始中...' : '＋ 発注を開始' }}</span>
+            <span class="mv-order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '在庫を見ながら、発注数を決めます' }}</span>
+          </button>
+        </template>
+
+        <!-- 未反映の発注（届いたら入庫へ）-->
+        <div v-if="pendingOrders.length" class="mv-orders">
+          <div class="mv-orders-title">入庫として未反映の発注</div>
+          <div class="mv-orders-list">
+            <div v-for="o in pendingOrders" :key="o.id" class="mv-order-row">
+              <div class="mv-order-info">
+                <span class="mv-order-when">{{ _md(o.date) }} {{ o.supplier || '（未分類）' }}</span>
+                <span class="mv-order-meta">{{ (o.lines || []).length }}品目</span>
+              </div>
+              <button class="mv-order-apply" @click="applyOrderToInbound(o)">入庫へ →</button>
+            </div>
+          </div>
+          <p class="mv-orders-note">届いた分を入庫として記録すると、理論在庫に反映されます。</p>
+        </div>
+      </template>
+
       <!-- 品目検索。表の絞り込みへ渡す -->
-      <input v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
+      <input v-if="!isOrderTab" v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
 
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
-      <div v-else class="mv-hint">
+      <div v-else-if="mode === 'view'" class="mv-hint">
         直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。<br>
         <span class="mv-hint-caveat">記録していない使用・ロス・納品の分だけ実際とずれます。正確な数は棚卸で確定します。</span>
       </div>
@@ -358,6 +490,7 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       <!-- 品目一覧。棚卸・発注とまったく同じ表を使い、タブで数量セル・絞り込み・進捗だけを
            差し替える。行タップの先も3タブで統一する（在庫=詳細シート / 入出庫=数量シート）。 -->
       <InventoryTable
+        v-if="!isOrderTab"
         :inventory="isRecord ? draftInventory : {}"
         :filled-count="changed.length"
         :note-map="isRecord ? theoNoteMap : null"
@@ -465,6 +598,9 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       @close="closeDetail"
     />
 
+    <!-- 発注日・締切（ヘッダーの ⚙ から）。開閉stateは App の戻る制御に載っている共有ref -->
+    <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
+
     <MovementQtyModal
       v-if="qtyTarget"
       :item="qtyTarget"
@@ -529,10 +665,44 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv-tab.on { color: #334155; }
 .mv-tab.in.on  { color: #047857; }
 .mv-tab.out.on { color: #b91c1c; }
-.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 3); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
+.mv-tab.order.on { color: #b45309; }
+.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 4); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
+.mv-tab-ind.order { background: #f59e0b; }
 .mv-tab-ind.in  { background: #10b981; }
 .mv-tab-ind.out { background: #ef4444; }
 .mv-swipe-hint { text-align: center; font-size: 10.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.08em; padding: 5px 0 0; background: #f8fafc; }
+
+.mv-gear { border: none; background: none; font-size: 18px; color: #64748b; cursor: pointer; padding: 4px 2px; -webkit-tap-highlight-color: transparent; }
+.mv-gear.alone { margin-left: auto; }
+.mv-tab-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; margin-left: 4px; vertical-align: middle; }
+.mv-tab-badge { display: inline-block; font-size: 10px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 9px; padding: 0 5px; margin-left: 4px; vertical-align: middle; }
+.mv-beta { margin-left: 6px; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 7px; padding: 1px 5px; }
+
+/* 発注タブ（既存の発注セッションへの入口） */
+.mv-order-err { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 10px; }
+.mv-order-loading { padding: 20px 0; text-align: center; color: #94a3b8; font-size: 13px; font-weight: 600; }
+.mv-sched { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 12px; margin-bottom: 10px; border: 1.5px solid #e2e8f0; border-radius: 12px; background: #fff; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
+.mv-sched-ico { flex-shrink: 0; font-size: 18px; }
+.mv-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mv-sched-sum { font-size: 13.5px; font-weight: 700; color: #334155; }
+.mv-sched-dl { color: #b45309; font-weight: 800; }
+.mv-sched-dl.past { color: #b91c1c; }
+.mv-sched-ctx { font-size: 11.5px; color: #94a3b8; }
+.mv-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #2563eb; }
+
+.mv-order-start, .mv-order-resume {
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
+  padding: 14px; margin-bottom: 12px; border-radius: 12px; border: none;
+  cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent;
+}
+.mv-order-start { background: #fff7ed; border: 1.5px solid #fed7aa; }
+.mv-order-start:disabled { opacity: 0.5; cursor: not-allowed; }
+.mv-order-start-title { font-size: 15px; font-weight: 800; color: #c2410c; }
+.mv-order-start-sub { font-size: 12px; color: #b45309; }
+.mv-order-resume { background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%); }
+.mv-order-resume-title { font-size: 14px; font-weight: 800; color: #fff; }
+.mv-order-resume-sub { font-size: 11.5px; color: #ffedd5; }
+.mv-order-resume-go { font-size: 13px; font-weight: 800; color: #fff; margin-top: 4px; }
 
 /* 表はページ直下に置く（棚卸・発注と同じ地続きの見え方）。
    以前は padding + max-width + 独自スクロールの3重の入れ子で、表が「箱の中の小さい表」に見えていた。

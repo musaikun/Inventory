@@ -76,7 +76,7 @@ describe('SessionListPage — 棚卸中心の順路', () => {
     expect(history).toBeLessThan(beta)
   })
 
-  it('入出庫・発注はβ機能の区切りより下にある', async () => {
+  it('仕入れはβ機能の区切りより下にある', async () => {
     const root = await mountPage()
     const classes = panelChildClasses(root)
     const beta  = indexOfClass(classes, 'beta-head')
@@ -86,7 +86,17 @@ describe('SessionListPage — 棚卸中心の順路', () => {
 
     const groupEl = root.querySelector('.beta-group')
     expect(groupEl.querySelector('.move-start')).not.toBeNull()
-    expect(groupEl.querySelector('.order-start')).not.toBeNull()
+  })
+
+  // 発注の開始・スケジュール設定は「仕入れ」ページ（発注タブ）へ集約した。
+  // ホームに2つ目の発注入口を残すと、どちらが正か分からなくなる。
+  it('ホームに発注の開始導線を持たない（仕入れカードへ集約）', async () => {
+    const root = await mountPage()
+    expect(root.querySelector('.order-start')).toBeNull()
+    expect(root.querySelector('.order-sched')).toBeNull()
+    const move = root.querySelector('.move-start')
+    expect(move.textContent).toContain('仕入れ')
+    expect(move.textContent).toContain('発注')
   })
 
   it('棚卸の開始が主操作として置かれている', async () => {
@@ -94,13 +104,6 @@ describe('SessionListPage — 棚卸中心の順路', () => {
     const hero = root.querySelector('.hero-start')
     expect(hero).not.toBeNull()
     expect(hero.textContent).toContain('棚卸を開始')
-  })
-
-  it('発注は「確認・記録」であり、仕入先へ自動送信されないと明示する', async () => {
-    const root = await mountPage()
-    const order = root.querySelector('.order-start')
-    expect(order.textContent).toContain('発注内容の確認・記録')
-    expect(order.textContent).toContain('自動送信されません')
   })
 
   it('在庫表示が理論在庫であることと、誤差が出ることを明示する', async () => {

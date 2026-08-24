@@ -17,10 +17,8 @@ import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.j
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
-import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
-import OrderScheduleModal from './OrderScheduleModal.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
-import { settingsSection, showOrderSchedule } from '../composables/appMenuState.js'
+import { settingsSection } from '../composables/appMenuState.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -38,19 +36,11 @@ const { getOrders } = useOrders()
 // 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
 
-// ── 発注スケジュール（頻度・締切）─────────────────────────────
-// 開閉状態は appMenuState 共有（App の戻る/ESC 制御＝_closeTopLayer に載せるため）。
-const showScheduleModal = showOrderSchedule
-const orderSchedule   = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
-const hasSched        = computed(() => hasSchedule(orderSchedule.value))
-const schedSummary    = computed(() => scheduleSummary(orderSchedule.value))
-const schedTodayCtx   = computed(() => todayOrderContext(orderSchedule.value, new Date(now.value)))
-const schedDeadline   = computed(() => deadlineStatus(orderSchedule.value, new Date(now.value)))
-// 入出庫カードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
+// 仕入れカードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
 const moveCardSub = computed(() => {
   if (hasMovementDraft.value) return '記録していない入力があります（タップで再開）'
   if (unreflectedInboundCount.value > 0) return `発注 ${unreflectedInboundCount.value}件が入庫として未反映です（タップで反映）`
-  return '現在の在庫を確認／入庫・出庫を品目ごとに記録'
+  return '在庫の確認／発注／入庫・出庫の記録'
 })
 function onDiscardMovementDraft() {
   if (!confirm('未記録の入出庫の入力を破棄しますか？')) return
@@ -503,14 +493,15 @@ function _itemCount(session) {
 
           <div class="beta-group">
 
-          <!-- 在庫確認・入庫の記録（専用ページ：在庫/入庫/出庫の3タブ）。
+          <!-- 仕入れ（専用ページ：在庫/発注/入庫/出庫の4タブ）。
+               発注の開始・再開、発注日/締切の設定もこのページへ集約した。
                出庫は初回公開の主導線から外し、ページ内のタブとしてのみ残す -->
           <div class="move-wrap">
             <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
-              <div class="move-start-icon">📥</div>
+              <div class="move-start-icon">🛒</div>
               <div class="move-start-text">
                 <div class="move-start-title">
-                  在庫の確認・入庫の記録<span class="beta-chip">β</span>
+                  仕入れ（在庫・発注・入庫）<span class="beta-chip">β</span>
                   <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
                   <span v-if="unreflectedInboundCount > 0" class="move-inbound-badge">🧾 未反映の入庫 {{ unreflectedInboundCount }}</span>
                 </div>
@@ -585,34 +576,8 @@ function _itemCount(session) {
             <div class="order-live-caveat">記録するだけで、仕入先へは自動送信されません。</div>
             <button class="order-live-resume" @click="onResume(activeOrderSession)">発注の記録を再開する →</button>
           </div>
-          <button v-else class="order-start" :class="{ disabled: itemCount === 0 }" :disabled="startingKind === 'order' || itemCount === 0" @click="onStartOrder">
-            <div class="order-start-icon">🧾</div>
-            <div class="order-start-text">
-              <div class="order-start-title">{{ startingKind === 'order' ? '開始中...' : '発注内容の確認・記録' }}<span class="beta-chip">β</span></div>
-              <div class="order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '仕入先ごとに、発注する数をまとめて確認・記録' }}</div>
-              <div class="order-start-caveat">記録するだけで、仕入先へは自動送信されません。</div>
-            </div>
-            <div class="order-start-arrow">→</div>
-          </button>
-
-          <!-- 発注スケジュール（頻度・締切）。未設定なら設定を促す -->
-          <button v-if="!activeOrderSession && itemCount > 0" class="order-sched" type="button" @click="showScheduleModal = true">
-            <span class="order-sched-ico">🗓</span>
-            <span class="order-sched-text">
-              <template v-if="hasSched">
-                <span class="order-sched-summary">
-                  {{ schedSummary }}
-                  <span v-if="schedDeadline.has" :class="['order-sched-dl', { past: schedDeadline.past }]">・{{ schedDeadline.label }}</span>
-                </span>
-                <span v-if="schedTodayCtx" class="order-sched-ctx">{{ schedTodayCtx }}</span>
-              </template>
-              <template v-else>
-                <span class="order-sched-summary">発注スケジュールを設定</span>
-                <span class="order-sched-ctx">発注する曜日・締切を登録（任意）</span>
-              </template>
-            </span>
-            <span class="order-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
-          </button>
+          <!-- 発注の開始・スケジュール設定は「仕入れ」ページ（発注タブ）へ集約した。
+               ここに残すのは進行中の発注だけ（進行中は目立たせる必要がある）。 -->
 
           </div><!-- /.beta-group -->
 
@@ -678,7 +643,6 @@ function _itemCount(session) {
 
     <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
 
-    <OrderScheduleModal v-if="showScheduleModal" @close="showScheduleModal = false" />
 
     <!-- 開始バナー: 使用する品目リストを確認 -->
     <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
@@ -1033,17 +997,6 @@ function _itemCount(session) {
 .master-btn.primary { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .master-btn:active { transform: scale(0.98); }
 
-.order-start.disabled {
-  background: #f1f5f9;
-  color: #94a3b8;
-  border-color: #e2e8f0;
-  box-shadow: none;
-  cursor: not-allowed;
-}
-.order-start.disabled .order-start-title { color: #64748b; }
-.order-start.disabled .order-start-sub,
-.order-start.disabled .order-start-arrow { color: #94a3b8; }
-.order-start.disabled .order-start-icon { filter: grayscale(1); opacity: 0.6; }
 
 /* ヒーロー: 開始カード（枠は標準カードと統一・中身は青テーマ） */
 .hero-start {
@@ -1150,65 +1103,8 @@ function _itemCount(session) {
 
 /* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
 /* 発注スケジュール行（発注カードの直下・頻度/締切/位置づけ） */
-.order-sched {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 14px;
-  margin: -2px 0 6px;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  border-radius: 12px;
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.order-sched:active { background: #ffedd5; }
-.order-sched-ico { font-size: 16px; flex-shrink: 0; }
-.order-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.order-sched-summary { font-size: 13px; font-weight: 800; color: #c2410c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.order-sched-dl { font-weight: 700; color: #b45309; }
-.order-sched-dl.past { color: #dc2626; }
-.order-sched-ctx { font-size: 11px; color: #b45309; }
-.order-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #ea580c; border: 1px solid #fed7aa; border-radius: 8px; padding: 3px 10px; background: #fff; }
 
-.order-start {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 18px;
-  background: #fff;
-  color: #9a3412;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 14px;
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: 4px;
-  text-align: left;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.order-start:active { transform: scale(0.98); }
-.order-start:disabled { opacity: 0.7; cursor: not-allowed; }
-.order-start-icon {
-  font-size: 26px;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #ffe4c4;
-  border-radius: 14px;
-  flex-shrink: 0;
-}
-.order-start-text { flex: 1; min-width: 0; }
-.order-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #c2410c; }
-.order-start-sub { font-size: 12px; color: #b45309; margin-top: 2px; }
 /* 「発注」という語から仕入先への送信を連想させないための断り書き */
-.order-start-caveat { font-size: 11px; color: #78716c; margin-top: 6px; line-height: 1.5; }
-.order-start-arrow { font-size: 22px; font-weight: 300; color: #ea580c; flex-shrink: 0; }
 
 /* 進行中の発注（淡いオレンジのヒーロー） */
 .order-live {
