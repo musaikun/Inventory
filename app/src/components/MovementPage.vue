@@ -17,16 +17,12 @@ import { suggestReorderPoint, suggestReorderPoints } from '../services/reorderSu
 import { itemConsumptionAvailability, storeConsumptionReadiness } from '../services/analysisCapability.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { useDataImport } from '../composables/useDataImport.js'
-import DeliveryImportModal from './DeliveryImportModal.vue'
-import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
-import RowMapperModal from './RowMapperModal.vue'
 import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
 import ReorderBulkModal from './ReorderBulkModal.vue'
 
-const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession'])
+const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster'])
 
 const { config, itemCount, setReorderPoint, setReplenishTarget } = useConfig()
 const { getSnapshots } = useHistory()
@@ -347,24 +343,8 @@ async function onStartOrder() {
   }
 }
 
-// ── 過去データの一括取込（納品・棚卸）は composable に集約 ─────────
-// 導線はこの画面とデータ管理画面の2箇所だが、実装は useDataImport 1つ。
-const {
-  showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
-  openDeliveryFromFile, closeDelivery, onDeliveryImported: commitDelivery, downloadDeliveryTemplate,
-  showStocktakeModal, stocktakePlan, stocktakeFilename,
-  rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
-  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
-  confirmStocktakeImport, undoStocktakeImport,
-} = useDataImport()
-
-const deliveryFileInput  = ref(null)
-const stocktakeFileInput = ref(null)
-function pickDelivery()  { deliveryFileInput.value?.click() }
-function pickStocktake() { stocktakeFileInput.value?.click() }
-function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
-function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n > 0) emit('saved') }
+// 取込（過去の納品・過去の棚卸・品目マスタ）はデータ管理へ集約した。
+// 同じ取込に2つの入口があると、どちらが正か分からなくなるためこの画面には置かない。
 </script>
 
 <template>
@@ -428,14 +408,6 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
         </div>
 
         <!-- 過去データの一括取込（入庫モードのみ）-->
-        <div v-if="mode === 'in'" class="mv-import-bar">
-          <button class="mv-import-btn" @click="pickDelivery">📥 過去の納品を取り込む（CSV/Excel）</button>
-          <button class="mv-import-tmpl" @click="downloadDeliveryTemplate">テンプレ</button>
-          <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onDeliveryFile" />
-        </div>
-        <div v-if="mode === 'in'" class="mv-import-sub">
-          <button class="mv-import-sub-btn" @click="pickStocktake">🧮 過去の棚卸を取り込む（消費・理論値の算出に必要）</button>
-        </div>
       </template>
 
       <!-- 発注タブ: 既存の発注セッションへの入口。ここでは表を出さない -->
@@ -513,7 +485,7 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       <!-- ゲート案内: 消費・理論値の算出下地が無いとき、過去棚卸の取込を促す -->
       <div v-if="mode === 'view' && !storeReadiness.ready" class="mv-unlock">
         <span class="mv-unlock-txt">💡 {{ storeReadiness.hint }}</span>
-        <button class="mv-unlock-btn" @click="pickStocktake">取り込む</button>
+        <button class="mv-unlock-btn" @click="emit('openMaster')">データ管理へ</button>
       </div>
       </div><!-- /.mv-controls-wrap -->
 
@@ -572,44 +544,6 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
       </div>
     </div>
 
-    <!-- 過去棚卸の取込ファイル入力（モード非依存で常設）-->
-    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mv-hidden-file" @change="onStocktakeFile" />
-
-    <PastStocktakeImportModal
-      v-if="showStocktakeModal && stocktakePlan"
-      :plan="stocktakePlan"
-      :filename="stocktakeFilename"
-      :confirm-import="confirmStocktakeImport"
-      :undo-import="undoStocktakeImport"
-      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
-      @imported="emit('saved')"
-      @close="closeStocktake"
-    />
-
-    <DeliveryImportModal
-      v-if="showDeliveryModal"
-      :csv-text="deliveryCsv"
-      :filename="deliveryFilename"
-      :ctx="importCtx"
-      :existing-movements="existingMovements()"
-      @imported="onDeliveryImported"
-      @map-columns="mapDeliveryColumns"
-      @close="closeDelivery"
-    />
-
-    <!-- 自動で読み取れなかったファイルの受け皿（納品・棚卸で共通）-->
-    <RowMapperModal
-      v-if="rowMapper"
-      :csv-text="rowMapper.csvText"
-      :filename="rowMapper.filename"
-      :title="rowMapper.title"
-      :message="rowMapper.message"
-      :fields="rowMapper.fields"
-      @apply="applyRowMapping"
-      @close="closeRowMapper"
-    />
-
-    <!-- 数量入力（棚卸・発注と同じ NumPad）-->
     <ReorderBulkModal
       v-if="showReorderBulk"
       :rows="reorderRows"
@@ -662,23 +596,6 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv { min-height: 100dvh; background: #f8fafc; display: flex; flex-direction: column; }
 
 /* 過去納品の一括取込バー */
-.mv-import-bar { display: flex; gap: 8px; margin: 8px 0 4px; }
-.mv-import-btn {
-  flex: 1; padding: 9px 12px; border: 1.5px dashed #10b981; border-radius: 10px;
-  background: #ecfdf5; color: #047857; font-size: 13px; font-weight: 700; cursor: pointer;
-}
-.mv-import-btn:active { background: #d1fae5; }
-.mv-import-tmpl {
-  padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 10px;
-  background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
-}
-.mv-hidden-file { display: none; }
-.mv-import-sub { margin: 0 0 8px; }
-.mv-import-sub-btn {
-  width: 100%; padding: 8px 12px; border: 1px dashed #cbd5e1; border-radius: 10px;
-  background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer;
-}
-.mv-import-sub-btn:active { background: #f1f5f9; }
 
 /* ゲート案内（消費・理論値のアンロック） */
 .mv-unlock {
@@ -764,15 +681,15 @@ function onDeliveryImported(payload) { const n = commitDelivery(payload); if (n 
 .mv-date { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: 14px; color: #1e293b; background: #fff; }
 .mv-note { border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 
-.mv-orders { margin-bottom: 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 10px 12px; }
-.mv-orders-title { font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 8px; }
-.mv-orders-list { display: flex; flex-direction: column; gap: 6px; }
 .mv-order-row { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; }
 .mv-order-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .mv-order-when { font-size: 13px; font-weight: 700; color: #c2410c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mv-order-meta { font-size: 11px; color: #b45309; }
 .mv-order-apply { flex-shrink: 0; border: none; background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%); color: #fff; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .mv-order-apply:active { transform: scale(0.97); }
+.mv-orders { margin-bottom: 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 10px 12px; }
+.mv-orders-title { font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 8px; }
+.mv-orders-list { display: flex; flex-direction: column; gap: 6px; }
 .mv-orders-note { font-size: 10.5px; color: #b45309; margin-top: 7px; line-height: 1.5; }
 .mv-linked { font-size: 12px; font-weight: 600; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mv-linked-clear { margin-left: auto; border: none; background: none; color: #ea580c; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }

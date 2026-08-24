@@ -21,11 +21,11 @@ let app = null
 let host = null
 let cfg
 
-async function mountPage() {
+async function mountPage(props = {}) {
   const { default: MovementPage } = await import('./MovementPage.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
-  app = createApp({ render: () => h(MovementPage, { onBack: () => {}, onSaved: () => {} }) })
+  app = createApp({ render: () => h(MovementPage, { onBack: () => {}, onSaved: () => {}, ...props }) })
   app.mount(host)
   await nextTick()
   return host
@@ -77,6 +77,28 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     expect(host.textContent).toContain('在庫あり')
     expect(host.textContent).toContain('要補充')
     expect(host.textContent).not.toContain('件入力済み')
+  })
+
+  // 取込はデータ管理へ集約した。同じ取込に2つの入口があると、どちらが正か分からなくなる。
+  it('取込の入口を持たない（データ管理へ集約）', async () => {
+    await mountPage()
+    for (const tab of ['在庫', '📥 入庫', '📤 出庫']) {
+      await openTab(tab)
+      // ファイル選択も「取り込む」ボタンも持たない（案内文は残ってよい）
+      expect(host.querySelector('input[type="file"]')).toBeNull()
+      const importBtns = [...host.querySelectorAll('button')].filter(b => b.textContent.includes('取り込'))
+      expect(importBtns).toEqual([])
+    }
+  })
+
+  it('算出できないときはデータ管理へ案内する（取込画面を持たない）', async () => {
+    const opened = []
+    await mountPage({ onOpenMaster: () => opened.push(true) })
+    await openTab('在庫')
+    const gate = button('データ管理へ')
+    expect(gate).not.toBeUndefined()
+    await click(gate)
+    expect(opened).toHaveLength(1)
   })
 
   it('在庫タブから発注点をまとめて設定できる', async () => {

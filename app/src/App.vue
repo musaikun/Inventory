@@ -2758,6 +2758,7 @@ function dismissReview() {
       @back="onPageBack"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
+      @open-master="currentView = 'master'"
     />
 
     <!-- ── 履歴カレンダー（専用ページ） ── -->
