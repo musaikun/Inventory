@@ -2,6 +2,30 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-25 — Pro Reviewをdevelopへ自動追随させ、workflowの2件の不具合を潰した
+
+- Pro Reviewが`v0.68.0`のまま止まっていた。更新が`workflow_dispatch`のみで、Claude Codeの
+  セッションからはdispatchできない（GitHub Appに`actions: write`が無く403）。
+  `.github/workflows/pro-review.yml`へ`push: branches: [develop]`を追加し、developへのpushで
+  Worker → Pagesが1 runで更新されるようにした（`1fa460f`）。`workflow_dispatch`も残している。
+- この workflow はこれまで一度も実行されておらず（手動更新はWranglerで直接実行していた）、
+  自動化して初めてtest stepが動いた結果、2件の潜在不具合が表面化した。
+  - **worker test の勝者依存**: `ledgerLifecycle.sqlite.test.js`の「同一ミリ秒の異内容2要求」で、
+    敗者の痕跡を`qty === 99`（B側の値）で数えていた。どちらが勝つかは競合の解決順で変わるため、
+    Bが勝ったrunではB自身の5行を数えて失敗する。ローカルは常にAが勝つため通っていた。
+    勝者側の`itemCount`と`session_id`で数える形に変更（`ee693c7`）。実行順を入れ替えて
+    Bが勝つ状態でも通ることを確認した。
+  - **Pro env が test まで漏れていた**: `VITE_DEPLOYMENT_CHANNEL=pro-review` /
+    `VITE_REVIEW_PLAN=pro`をjob全体の`env:`に置いていたため`npm test`もPro判定になり、
+    Free枠前提の`planLimits.test.js`（150品目・2台・残り枠）が全滅していた。
+    VITE_*の3変数をbuild stepへ移した（`1423ce6`）。
+- run #3（`1423ce6`）が全step成功。Worker `inventory-sync-pro-review`とPagesを同じrunで更新し、
+  Pro Reviewは`v0.74.0`になった。D1マイグレーションはworkflowに含めていない（適用済みは`0001`〜`0016`）。
+- 検証: worker 26 files / 545 passed、app 111 files / 1248 passed、通常buildとPro build両方成功。
+  Pro buildのdistに`pro-review`とPro Worker URLが埋まることを確認した。
+- 未実施: 実ブラウザでのPro Review画面確認（Access、`PRO REVIEW`表示、v0.74.0のUI）。
+  本番deploy / 本番D1マイグレーション / `main`マージはいずれも未実施・未承認。
+
 ## 2026-08-23 — Pro Review D1・Worker・Pagesを復旧
 
 - User承認のもと、本番Free環境とは分離されたPro Reviewだけを更新した。本番Worker / D1 / Pagesは未変更。
