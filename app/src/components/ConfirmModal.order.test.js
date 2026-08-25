@@ -63,18 +63,17 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await typeStock(8)
     // 不足16 → 入数12で1ケース
     expect(host.textContent).toContain('推奨: 1')
-    expect(orderValue()).toBe('1')       // auto モードは発注数へ追従する
   })
 
-  it('「自分で入力する」モードでは推奨を自動で入れない', async () => {
-    await mount({ orderInputMode: 'manual', replenish: { value: 24, source: 'reorder', basis: 'x' } })
+  it('推奨は参考として出すだけで、発注数へは自動で入れない', async () => {
+    await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(8)
     expect(host.textContent).toContain('推奨: 1')   // 参考としては出す
     expect(orderValue()).toBe('0')                 // 発注数には入れない
   })
 
   it('推奨はタップで採用でき、そこから直せる', async () => {
-    await mount({ orderInputMode: 'manual', replenish: { value: 24, source: 'reorder', basis: 'x' } })
+    await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(2)
     button('推奨: 1').click()
     await nextTick()

@@ -10,6 +10,7 @@ import {
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { toCSVRow } from '../utils/csvParse.js'
+import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import {
   parseItemCSV,
   parseMappedCSV,
@@ -44,7 +45,6 @@ const config = reactive({
   lotSizes:       {},
   reorderPoints:  {},        // 品目 → 発注点（この理論在庫以下で「要補充」）。手動設定
   replenishTargets: {},      // 品目 → 補充目標（発注してここまで戻す）。未設定は自動算出
-  orderInputMode: 'auto',    // 発注数の決め方 'auto'=不足分に追従 / 'manual'=自分で入力
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
   savedAt:        null,
@@ -58,7 +58,9 @@ const config = reactive({
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
   tagsArchiveA:   {},        // 軸1の割り当てを品目名で永続記憶（取込/一括削除をまたいで復元用）
   tagsArchiveB:   {},        // 軸2の割り当てアーカイブ
-  orderSchedule:  { days: [], deadline: '' },  // 発注スケジュール（days:0=日..6=土 / deadline:'HH:MM'）
+  // 発注スケジュール（仕入先ごとに曜日・締切が違うので配列）。
+  // [{ id, name, days:0=日..6=土, deadline:'HH:MM' }]。最大 MAX_ORDER_SCHEDULES 件。
+  orderSchedules: [],
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -105,7 +107,6 @@ function _serializeConfigData() {
     lotSizes:      config.lotSizes,
     reorderPoints: config.reorderPoints,
     replenishTargets: config.replenishTargets,
-    orderInputMode: config.orderInputMode,
     dictionary:    config.dictionary,
     axisNames:     config.axisNames,
     tagsA:         config.tagsA,
@@ -116,7 +117,7 @@ function _serializeConfigData() {
     hiddenAuto:    config.hiddenAuto,
     tagsArchiveA:  config.tagsArchiveA,
     tagsArchiveB:  config.tagsArchiveB,
-    orderSchedule: config.orderSchedule,
+    orderSchedules: config.orderSchedules,
   }
 }
 function _assignConfigData(src) {
@@ -130,7 +131,6 @@ function _assignConfigData(src) {
   config.lotSizes      = src.lotSizes      ?? {}
   config.reorderPoints = src.reorderPoints ?? {}
   config.replenishTargets = src.replenishTargets ?? {}
-  config.orderInputMode = src.orderInputMode === 'manual' ? 'manual' : 'auto'
   config.dictionary    = src.dictionary    ?? {}
   config.axisNames     = Array.isArray(src.axisNames) ? src.axisNames : ['', '']
   config.tagsA         = _normTags(src.tagsA)
@@ -141,16 +141,8 @@ function _assignConfigData(src) {
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
   config.tagsArchiveA  = _normTags(src.tagsArchiveA)
   config.tagsArchiveB  = _normTags(src.tagsArchiveB)
-  config.orderSchedule = _normSchedule(src.orderSchedule)
-}
-
-// 発注スケジュールの正規化（days は 0..6 の整数配列・重複除去、deadline は 'HH:MM'）
-function _normSchedule(s) {
-  const days = Array.isArray(s?.days)
-    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))]
-    : []
-  const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
-  return { days, deadline }
+  // src.orderSchedule = 旧・単一形式。orderSchedules が無いときだけ1件へ移行する。
+  config.orderSchedules = normalizeSchedules(src.orderSchedules, src.orderSchedule)
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -189,9 +181,10 @@ function _save() {
   _onConfigChanged?.()
 }
 
-// 発注スケジュール（頻度＝発注曜日・締切）を設定して保存（localStorage + D1）。
-function setOrderSchedule({ days, deadline } = {}) {
-  config.orderSchedule = _normSchedule({ days, deadline })
+// 発注スケジュール一覧（仕入先ごとの発注曜日・締切）を設定して保存（localStorage + D1）。
+// 曜日が空の行は normalizeSchedules が捨て、上限を超えた分は切り捨てる。
+function setOrderSchedules(list) {
+  config.orderSchedules = normalizeSchedules(list)
   config.isCustom = true
   _save()
 }
@@ -665,12 +658,6 @@ export function useConfig() {
     return true
   }
 
-  // 発注数の決め方（店舗の既定）。'auto' = 不足分に追従 / 'manual' = 自分で入力
-  function setOrderInputMode(mode) {
-    config.orderInputMode = mode === 'manual' ? 'manual' : 'auto'
-    _save()
-  }
-
   // 復元時などに入数・前月実績をまとめて設定する
   function setItemExtras(name, { lotSize, prevMonth } = {}) {
     if (!config.order.includes(name)) return false
@@ -1026,7 +1013,6 @@ export function useConfig() {
     setItemExtras,
     setReorderPoint,
     setReplenishTarget,
-    setOrderInputMode,
     setAxisName,
     clearAxis,
     setItemTag,
@@ -1041,6 +1027,6 @@ export function useConfig() {
     setAxisGroupOrder,
     copyCategoriesToAxis,
     copyCategoryToAxis,
-    setOrderSchedule,
+    setOrderSchedules,
   }
 }

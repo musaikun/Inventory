@@ -6,7 +6,7 @@ import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../comp
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
 import { getSessions, createSession } from '../composables/useAuth.js'
-import { hasSchedule, scheduleSummary, todayOrderContext, deadlineStatus } from '../services/orderScheduleUtil.js'
+import { hasAnySchedule, allOrderDays, orderIntervalDays, scheduleRows, schedulesTodayContext } from '../services/orderScheduleUtil.js'
 import { showOrderSchedule } from '../composables/appMenuState.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
@@ -101,27 +101,21 @@ function itemMovements(item) {
 function dailyConsumption(item) {
   return avgDailyConsumption(item, {
     windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-    orderDays: config.orderSchedule?.days ?? [],
+    orderDays: schedOrderDays.value,
   })
 }
 // ゲート表示: 算出に必要なデータが揃わない場合のヒント（過去棚卸の取込を促す）
 function consumptionHintOf(item) {
   return itemConsumptionAvailability(item, {
     snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-    orderDays: config.orderSchedule?.days ?? [],
+    orderDays: schedOrderDays.value,
   }).hint
 }
 const storeReadiness = computed(() => storeConsumptionReadiness({ snapshots: _snaps.value }))
-const reorderHorizon = computed(() => {
-  const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
-  if (days.length < 2) return 7
-  let maxGap = 0
-  for (let i = 0; i < days.length; i++) {
-    const gap = (days[(i + 1) % days.length] - days[i] + 7) % 7 || 7
-    maxGap = Math.max(maxGap, gap)
-  }
-  return maxGap
-})
+// 消費推定・補充目標は「店舗としていつ発注が入るか」で決まる。スケジュールが複数あっても
+// 品目とスケジュールの紐付けはまだ無いので、全スケジュールの曜日の和集合で扱う。
+const schedOrderDays = computed(() => allOrderDays(config.orderSchedules))
+const reorderHorizon = computed(() => orderIntervalDays(config.orderSchedules))
 // 補充目標（発注してここまで戻す）。発注点はトリガーなので目標は別に決める。
 // 学習が貯まらない部分利用でも、発注点さえ入っていれば 発注点×2 が初期の目標になる。
 function replenishOf(item) {
@@ -141,7 +135,7 @@ function replenishOf(item) {
 function reorderSuggestionOf(item) {
   return suggestReorderPoint(item, {
     snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-    orderDays: config.orderSchedule?.days ?? [], horizonDays: reorderHorizon.value,
+    orderDays: schedOrderDays.value, horizonDays: reorderHorizon.value,
   })
 }
 function suggestedReorder(item) { return reorderSuggestionOf(item)?.value ?? null }
@@ -152,7 +146,7 @@ const showReorderBulk = ref(false)
 const reorderRows = computed(() => suggestReorderPoints(allItems.value, {
   reorderPoints: config.reorderPoints ?? {},
   snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-  orderDays: config.orderSchedule?.days ?? [], horizonDays: reorderHorizon.value,
+  orderDays: schedOrderDays.value, horizonDays: reorderHorizon.value,
 }))
 
 // ── 理論在庫（全品目を一括算出）─────────────────────────────
@@ -310,11 +304,10 @@ const activeOrderSession = computed(() =>
     .filter(s => s.status !== 'completed' && s.type === 'order')
     .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] || null)
 
-const orderSchedule = computed(() => config.orderSchedule ?? { days: [], deadline: '' })
-const hasSched      = computed(() => hasSchedule(orderSchedule.value))
-const schedSummary  = computed(() => scheduleSummary(orderSchedule.value))
-const schedTodayCtx = computed(() => todayOrderContext(orderSchedule.value, new Date()))
-const schedDeadline = computed(() => deadlineStatus(orderSchedule.value, new Date()))
+const orderSchedules = computed(() => config.orderSchedules ?? [])
+const hasSched       = computed(() => hasAnySchedule(orderSchedules.value))
+const schedRows      = computed(() => scheduleRows(orderSchedules.value, new Date()))
+const schedTodayCtx  = computed(() => schedulesTodayContext(orderSchedules.value, new Date()))
 
 // 発注タブから「入庫へ」= 入庫タブへ移動して、その発注をプリフィルする。
 // 発注（LOT数）→ 入庫（バラ）の換算は deliveryLinesFromOrder が持つ既存の契約をそのまま使う。
@@ -424,9 +417,10 @@ async function onStartOrder() {
           <span class="mv-sched-ico">🗓</span>
           <span class="mv-sched-text">
             <template v-if="hasSched">
-              <span class="mv-sched-sum">
-                {{ schedSummary }}
-                <span v-if="schedDeadline.has" :class="['mv-sched-dl', { past: schedDeadline.past }]">・{{ schedDeadline.label }}</span>
+              <span v-for="r in schedRows" :key="r.id" class="mv-sched-sum">
+                <span class="mv-sched-name" :class="{ today: r.today }">{{ r.name }}</span>
+                {{ r.summary }}
+                <span v-if="r.deadline.has && r.today" :class="['mv-sched-dl', { past: r.deadline.past }]">・{{ r.deadline.label }}</span>
               </span>
               <span v-if="schedTodayCtx" class="mv-sched-ctx">{{ schedTodayCtx }}</span>
             </template>
@@ -645,6 +639,8 @@ async function onStartOrder() {
 .mv-sched-ico { flex-shrink: 0; font-size: 18px; }
 .mv-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mv-sched-sum { font-size: 13.5px; font-weight: 700; color: #334155; }
+.mv-sched-name { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 800; }
+.mv-sched-name.today { background: #fff7ed; color: #c2410c; }
 .mv-sched-dl { color: #b45309; font-weight: 800; }
 .mv-sched-dl.past { color: #b91c1c; }
 .mv-sched-ctx { font-size: 11.5px; color: #94a3b8; }

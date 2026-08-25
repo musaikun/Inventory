@@ -50,6 +50,7 @@ import { useDayNotes } from './composables/useDayNotes.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { replenishTarget, targetBasisLabel } from './services/replenishTarget.js'
 import { avgDailyConsumption } from './services/impliedConsumption.js'
+import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
@@ -133,22 +134,17 @@ function _theoStockFor(item) {
 // 補充目標（発注してここまで戻す水準）と、その根拠。
 // 発注点はトリガーであって目標ではないので、目標は replenishTarget が別に決める。
 // 学習（適正在庫）が貯まらない部分利用でも、発注点さえ入っていれば推奨が出る。
+// 発注間隔・発注曜日は「店舗としていつ発注が入るか」で決まる。スケジュールが複数あっても
+// 品目とスケジュールの紐付けはまだ無いので、全スケジュールの曜日の和集合で扱う。
 function _orderHorizonDays() {
-  const days = [...new Set((config.orderSchedule?.days || []).map(Number))].sort((a, b) => a - b)
-  if (days.length < 2) return 7
-  let maxGap = 0
-  for (let i = 0; i < days.length; i++) {
-    const gap = (days[(i + 1) % days.length] - days[i] + 7) % 7 || 7
-    maxGap = Math.max(maxGap, gap)
-  }
-  return maxGap
+  return orderIntervalDays(config.orderSchedules)
 }
 function _replenishFor(item) {
   const reorderPoint = config.reorderPoints?.[item] ?? null
   const horizonDays  = _orderHorizonDays()
   const dailyConsumption = avgDailyConsumption(item, {
     windowDays: 30, snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
-    orderDays: config.orderSchedule?.days ?? [],
+    orderDays: allOrderDays(config.orderSchedules),
   })
   const target = replenishTarget({
     manual: config.replenishTargets?.[item] ?? null,
@@ -2101,7 +2097,6 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
     theoStock:      isOrder ? _theoStockFor(ingredient) : null,
     replenish:      isOrder ? _replenishFor(ingredient) : null,
-    orderInputMode: isOrder ? (config.orderInputMode ?? 'auto') : 'auto',
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -3115,7 +3110,6 @@ function dismissReview() {
         :order-mode="!!confirmState.orderMode"
         :par-level="confirmState.parLevel"
         :replenish="confirmState.replenish"
-        :order-input-mode="confirmState.orderInputMode"
         :order-lot="confirmState.orderLot ?? 1"
         :last-week-qty="confirmState.lastWeekQty"
         :weekday-history="confirmState.weekdayHistory"

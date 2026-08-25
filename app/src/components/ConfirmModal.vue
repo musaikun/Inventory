@@ -32,8 +32,6 @@ const props = defineProps({
   parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
   // 補充目標（発注してここまで戻す）と根拠。{ value, source, basis } | null
   replenish:       { type: Object,  default: null },
-  // 発注数の決め方（店舗の既定）。'auto'=不足分に追従 / 'manual'=自分で入力
-  orderInputMode:  { type: String,  default: 'auto' },
   orderLot:        { type: Number,  default: 1 },     // 入数（数値）
   lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
   weekdayHistory:  { type: Object,  default: null },  // 品目×同曜の発注履歴 { lastWeek, lastMonth, median, values, samples, count }
@@ -78,14 +76,11 @@ const suggested = computed(() => {
   return suggestOrder(targetLevel.value, stock, props.orderLot)
 })
 
-// 「不足分に追従」モードか。manual では推奨を出すだけで発注数へは自動で入れない
-// （どちらでも人が最後に直せる。学習は直した後の値で回る）。
-const autoFollow = computed(() => props.orderInputMode !== 'manual')
-
-// 実際に確定される発注数（ユーザーが触っていれば手入力値、未編集なら追従モードのみ推奨）
+// 実際に確定される発注数。発注数は必ず人が入力する（推奨は参考として出すだけで、
+// 自動では入れない）。未入力＝0。推奨・前週の chip はタップで発注数へ入る。
 const effectiveOrderQty = computed(() => {
   if (orderTouched.value && orderQty.value != null) return Math.max(0, orderQty.value)
-  return autoFollow.value ? (suggested.value ?? 0) : 0
+  return 0
 })
 
 function orderStep(delta) {

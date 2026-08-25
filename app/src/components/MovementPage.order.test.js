@@ -141,4 +141,26 @@ describe('仕入れページ — 発注タブ', () => {
     await click(host.querySelector('.mv-gear'))
     expect(host.querySelector('.os-title').textContent).toContain('発注スケジュール')
   })
+
+  it('登録済みのスケジュールを名前つきで全件出す', async () => {
+    cfg.setOrderSchedules([
+      { name: '青果', days: [2, 5], deadline: '15:00' },
+      { name: '肉',   days: [1] },
+    ])
+    await mountPage()
+    await openOrderTab()
+
+    const rows = [...host.querySelectorAll('.mv-sched-sum')]
+    expect(rows).toHaveLength(2)
+    expect(rows[0].textContent).toContain('青果')
+    expect(rows[0].textContent).toContain('火・金')
+    expect(rows[1].textContent).toContain('肉')
+    expect(rows[1].textContent).toContain('月')
+  })
+
+  it('未設定なら設定を促す', async () => {
+    await mountPage()
+    await openOrderTab()
+    expect(host.querySelector('.mv-sched').textContent).toContain('発注スケジュールを設定')
+  })
 })

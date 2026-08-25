@@ -63,3 +63,121 @@ export function todayOrderContext(schedule, date = new Date()) {
   }
   return next ? `発注日ではありません（次の発注は${next}曜）` : ''
 }
+
+// ── 複数スケジュール ────────────────────────────────────────────────────────
+// 仕入先ごとに発注曜日・締切が違うため、スケジュールは配列で持つ。
+// schedules = [{ id, name, days, deadline }]（最大 MAX_ORDER_SCHEDULES 件）
+// 旧・単一形式 { days, deadline } は normalizeSchedules が1件へ移行する。
+
+export const MAX_ORDER_SCHEDULES = 5
+const NAME_MAX = 20
+
+let _idSeq = 0
+function _newId() {
+  _idSeq += 1
+  return `sch_${Date.now().toString(36)}_${_idSeq.toString(36)}`
+}
+
+// 1件の正規化。days は 0..6 の整数（重複除去・昇順）、deadline は 'HH:MM' のみ。
+export function normalizeSchedule(s) {
+  const days = Array.isArray(s?.days)
+    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b)
+    : []
+  const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
+  const name = String(s?.name ?? '').trim().slice(0, NAME_MAX)
+  const id = typeof s?.id === 'string' && s.id ? s.id : _newId()
+  return { id, name, days, deadline }
+}
+
+// 配列の正規化。曜日が1つも無い行は捨てる（空行を保存し続けない）。
+// legacy = 旧 config.orderSchedule。orderSchedules が無いときだけ1件へ移行する。
+export function normalizeSchedules(list, legacy) {
+  const src = Array.isArray(list) && list.length ? list
+    : (legacy && Array.isArray(legacy.days) && legacy.days.length ? [legacy] : [])
+  const out = []
+  const seen = new Set()
+  for (const s of src) {
+    const n = normalizeSchedule(s)
+    if (!n.days.length) continue
+    if (seen.has(n.id)) n.id = _newId()   // 取込などで id が重複しても表示キーを壊さない
+    seen.add(n.id)
+    out.push(n)
+    if (out.length >= MAX_ORDER_SCHEDULES) break
+  }
+  return out
+}
+
+// 表示名。未入力なら「発注1」「発注2」…（並び順で決まる）
+export function scheduleName(s, index = 0) {
+  return String(s?.name ?? '').trim() || `発注${index + 1}`
+}
+
+export function hasAnySchedule(list) {
+  return Array.isArray(list) && list.some(hasSchedule)
+}
+
+// 全スケジュールの発注曜日の和集合（昇順）。消費推定の orderDays に渡す。
+export function allOrderDays(list) {
+  const set = new Set()
+  for (const s of (list || [])) for (const d of (s?.days || [])) {
+    const n = Number(d)
+    if (Number.isInteger(n) && n >= 0 && n <= 6) set.add(n)
+  }
+  return [...set].sort((a, b) => a - b)
+}
+
+// 発注間隔（＝補充が効くまでの日数）。和集合の最大ギャップ。未設定・週1は7日。
+// 仕入先ごとに間隔は違うが、品目とスケジュールの紐付けはまだ無いので店舗全体で1つに寄せる。
+export function orderIntervalDays(list) {
+  const days = allOrderDays(list)
+  if (days.length < 2) return 7
+  let maxGap = 0
+  for (let i = 0; i < days.length; i++) {
+    const gap = (days[(i + 1) % days.length] - days[i] + 7) % 7 || 7
+    maxGap = Math.max(maxGap, gap)
+  }
+  return maxGap
+}
+
+// 今日が発注日のスケジュール
+export function todaySchedules(list, date = new Date()) {
+  return (list || []).filter(s => isOrderDay(s, date))
+}
+
+// 翌日以降で最も近い発注。{ dayLabel, names[] } | null（当日は含めない）
+export function nextScheduleOccurrence(list, date = new Date()) {
+  if (!hasAnySchedule(list)) return null
+  for (let i = 1; i <= 7; i++) {
+    const d = (date.getDay() + i) % 7
+    const names = (list || [])
+      .map((s, idx) => (s?.days || []).includes(d) ? scheduleName(s, idx) : null)
+      .filter(Boolean)
+    if (names.length) return { dayLabel: weekdayLabel(d), names }
+  }
+  return null
+}
+
+// 今日の位置づけ。'今日は「青果」の発注日（次は金曜の「肉」）' など。
+export function schedulesTodayContext(list, date = new Date()) {
+  if (!hasAnySchedule(list)) return ''
+  const today = (list || [])
+    .map((s, idx) => isOrderDay(s, date) ? scheduleName(s, idx) : null)
+    .filter(Boolean)
+  const next = nextScheduleOccurrence(list, date)
+  const nextText = next ? `次は${next.dayLabel}曜の「${next.names.join('・')}」` : ''
+  if (today.length) {
+    return nextText ? `今日は「${today.join('・')}」の発注日（${nextText}）` : `今日は「${today.join('・')}」の発注日`
+  }
+  return nextText ? `今日は発注日ではありません（${nextText}）` : ''
+}
+
+// 一覧表示用の行。today=今日が発注日 / deadline=締切ステータス
+export function scheduleRows(list, now = new Date()) {
+  return (list || []).map((s, idx) => ({
+    id: s.id ?? String(idx),
+    name: scheduleName(s, idx),
+    summary: scheduleSummary(s),
+    today: isOrderDay(s, now),
+    deadline: deadlineStatus(s, now),
+  }))
+}

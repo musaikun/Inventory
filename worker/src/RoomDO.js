@@ -7,14 +7,37 @@ import {
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 
-// 発注スケジュールの正規化（client useConfig の _normSchedule と一致させる）。
-// days = 0..6 の整数配列（重複除去）／deadline = 'HH:MM' 形式のみ許可。
-function _normSchedule(s) {
+// 発注スケジュールの正規化（client services/orderScheduleUtil の normalizeSchedules と
+// 一致させること）。仕入先ごとに曜日・締切が違うため配列で持つ。
+//   [{ id, name, days: 0..6 の整数配列, deadline: 'HH:MM' }]、最大 MAX_ORDER_SCHEDULES 件。
+// 曜日が空の行は捨てる。legacy = 旧・単一形式 { days, deadline }。
+const MAX_ORDER_SCHEDULES = 5
+const SCHEDULE_NAME_MAX = 20
+
+function _normSchedule(s, index) {
   const days = Array.isArray(s?.days)
-    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))]
+    ? [...new Set(s.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b)
     : []
   const deadline = /^\d{1,2}:\d{2}$/.test(s?.deadline || '') ? s.deadline : ''
-  return { days, deadline }
+  const name = String(s?.name ?? '').trim().slice(0, SCHEDULE_NAME_MAX)
+  const id = typeof s?.id === 'string' && s.id ? s.id : `sch_${index}`
+  return { id, name, days, deadline }
+}
+
+function _normSchedules(list, legacy) {
+  const src = Array.isArray(list) && list.length ? list
+    : (legacy && Array.isArray(legacy.days) && legacy.days.length ? [legacy] : [])
+  const out = []
+  const seen = new Set()
+  for (const s of src) {
+    const n = _normSchedule(s, out.length)
+    if (!n.days.length) continue
+    if (seen.has(n.id)) n.id = `sch_${out.length}`
+    seen.add(n.id)
+    out.push(n)
+    if (out.length >= MAX_ORDER_SCHEDULES) break
+  }
+  return out
 }
 
 // ホスト権限を（再）発行してよいかの判定。純関数・テスト容易化のため抽出。
@@ -44,8 +67,7 @@ export function normalizeConfig(src = {}) {
     lotSizes:      src.lotSizes      ?? {},
     reorderPoints: src.reorderPoints ?? {},
     replenishTargets: src.replenishTargets ?? {},
-    orderInputMode: src.orderInputMode === 'manual' ? 'manual' : 'auto',
-    orderSchedule: _normSchedule(src.orderSchedule),
+    orderSchedules: _normSchedules(src.orderSchedules, src.orderSchedule),
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
