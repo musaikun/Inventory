@@ -52,10 +52,15 @@ PagesのPreview Accessはproject内の全Previewを保護するが、production 
 
 ## 更新（通常はこちら）
 
-`.github/workflows/pro-review.yml`がdefault branchへ配置された後は、GitHub Actionsの
-**`Pro Review Pages`**を`workflow_dispatch`で実行する。
-**実行時に選んだブランチをbuildする**ので、`develop` の内容を入れるなら `develop` を選ぶ。
-push では動かない（自動更新は develop preview だけ）。
+`develop` へ push すると **`Pro Review Pages`** が自動で走り、Pro Reviewもdevelopに追随する。
+通常はこれだけでよく、Actionsを開く必要はない。
+
+`develop`以外の内容を入れたいときだけ`workflow_dispatch`を使う。
+**実行時に選んだブランチをbuildする**ので、入れたいブランチを選ぶ。
+ただしworkflowは`develop`にだけ存在し、default branchは`main`のままなので、
+`main`へ配置されるまで`workflow_dispatch`はUI・APIとも使えない。
+（Claude Codeのセッションからも`403 Resource not accessible by integration`になる。
+push トリガはこれを迂回するために足した。）
 
 1 回の run で **Worker → Pages の順に両方**を更新する。Pages だけ新しい状態にすると、
 config 中継の新フィールドがゲスト側から落ちるなどの不整合が出るため、分離して実行しない。
@@ -63,8 +68,7 @@ config 中継の新フィールドがゲスト側から落ちるなどの不整�
 D1 マイグレーションはこの workflow に含めない。schema を変える変更を入れるときは、
 先に `inventory-store-pro-review` へ適用する（現在の適用済みは `0001`〜`0016`）。
 
-現時点のdefault branchは`main`で、workflowは`develop`にだけ存在する。`main`へ配置されるまでは
-`workflow_dispatch`できないため、次の手動更新を使う。
+push トリガも使えない状況（`develop`以外を入れる／workflowが落ちる）では、次の手動更新を使う。
 
 ## 初期構築・手動更新
 

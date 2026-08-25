@@ -105,7 +105,11 @@ describe('過去取込の所有権guard（時刻markerを使わない）', () =>
     expect(JSON.parse(hist[0].snapshot_json).itemCount).toBe(win.itemCount)
 
     // 敗者の明細・snapshot が残っていない
-    expect(linesOf(h).filter(r => r.qty === 99)).toHaveLength(0)
+    // どちらが勝つかは競合の解決順で変わるので、勝者側の内容で数える。
+    // 「qty が敗者の値の行が無い」だと、B が勝ったときに B 自身の行を数えてしまう。
+    expect(linesOf(h)).toHaveLength(win.itemCount)
+    expect(linesOf(h).every(r => r.session_id === win.sessionId)).toBe(true)
+    expect(historyOf(h)).toHaveLength(1)
 
     // victim削除も勝者のtransactionだけで行われる（他に取り残しが無い）
     expect(sessions.some(s => s.id === victim)).toBe(false)
