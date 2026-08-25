@@ -80,12 +80,6 @@ function _cellAt(cols, idx) {
   return s === '' ? undefined : s
 }
 
-function _aliasList(cols, idx) {
-  const s = _cellAt(cols, idx)
-  if (s === undefined) return []
-  return [...new Set(s.split(',').map(a => a.trim()).filter(Boolean))]
-}
-
 function _tagList(cols, idx) {
   const s = _cellAt(cols, idx)
   if (s === undefined) return undefined
@@ -131,7 +125,6 @@ function _buildRow({ line, cols, spec, headers }) {
   if (spec.code      !== undefined) row.code      = _cellAt(cols, spec.code)
   if (spec.prevMonth !== undefined) row.prevMonth = _cellAt(cols, spec.prevMonth)
   if (spec.lotSize   !== undefined) row.lotSize   = _cellAt(cols, spec.lotSize)
-  if (spec.aliases   !== undefined) row.aliases   = _aliasList(cols, spec.aliases)
   if (spec.axisA     !== undefined) row.tagsA     = _tagList(cols, spec.axisA)
   if (spec.axisB     !== undefined) row.tagsB     = _tagList(cols, spec.axisB)
 
@@ -236,18 +229,26 @@ export function parseItemCSV(csvText) {
     axisBIdx >= 0 ? headers[axisBIdx] : null,
   ]
 
+  // 別名（エイリアス）は取り込まない。
+  //
+  // 列は位置で決めているのに、5列目が「エイリアス」かどうかを列名で確かめていなかった。
+  // 5列目が別の意味を持つファイル（規格・旧品名など）では、その値が全行の別名として
+  // 読まれ、1つの値を多数の品目が取り合う＝全件衝突になっていた（実データで1093件）。
+  // 別名は voice 入力の名寄せにしか効かないのに、取込のたびに大量の選択を強いる。
+  //
+  // 既存の別名（config.dictionary）は消さない。ここでは「ファイルから増やさない」だけ。
   const spec = { name: 0, reorderPoint: reorderIdx }
   if (isOldFormat) {
-    spec.aliases = 1
+    // 旧2列フォーマットは 品目名 + エイリアス だったので、品目名だけを読む
   } else if (hasCategoryCol) {
     Object.assign(spec, {
-      unit: 1, price: 2, category: 3, aliases: 4, code: 5,
+      unit: 1, price: 2, category: 3, code: 5,
       categoryCode: 6, prevMonth: 7, lotSize: 8, axisA: axisAIdx, axisB: axisBIdx,
     })
   } else if (hasPriceCol) {
-    Object.assign(spec, { unit: 1, price: 2, aliases: 3 })
+    Object.assign(spec, { unit: 1, price: 2 })
   } else {
-    Object.assign(spec, { unit: 1, aliases: 2 })
+    Object.assign(spec, { unit: 1 })
   }
 
   _collectRows({ records: records.slice(1), parsed, spec, headers })
@@ -358,6 +359,10 @@ function _diffItem(name, current, next, beforeAliases, afterAliases) {
  * 衝突として返して画面に出す。ALIAS_TAKEOVER が明示されたときだけ付け替える。
  *
  * 品目名そのものと同じ別名（既存品目を隠してしまう）も衝突として扱う。
+ *
+ * 現在、取込は別名を1件も持ち込まない（parseItemCSV が読まない）ため、この関数は
+ * 既存の別名をそのまま次の状態へ引き継ぐだけになる。衝突解決の規則は、別名の取込を
+ * 復活させるときのために残してある。
  *
  * 衝突は3種で、**どちらの選択でも「画面の文言どおり」の結果**にする。
  *   existing … 既存の別名が別品目を指す。keep=既存を維持 / takeover=ファイルへ付け替え

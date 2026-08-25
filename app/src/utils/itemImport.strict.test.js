@@ -146,87 +146,51 @@ describe('品目名の切り詰め', () => {
   })
 })
 
-describe('エイリアス衝突', () => {
+// 別名（エイリアス）の取込は止めた。
+// 列は位置で決めているのに5列目が「エイリアス」かどうかを列名で確かめておらず、
+// 5列目が別の意味を持つファイルでは全行の値が別名として読まれ、1つの値を多数の品目が
+// 取り合う＝全件衝突になっていた（実データで1093件）。
+// ここでは「ファイルから別名を増やさない」「既存の別名は壊さない」を固定する。
+describe('エイリアスは取り込まない', () => {
   const withAlias = () => emptyConfig({
     order: ['トマト', 'レタス'],
     dictionary: { あかいやつ: 'トマト' },
   })
 
-  it('既存品目のエイリアスを、別の品目が黙って奪わない', () => {
+  it('5列目に何が入っていても別名にしない（衝突も起きない）', () => {
     const p = plan(`${HEAD}\nレタス,玉,,,"あかいやつ"`, withAlias())
-    expect(p.dictionary['あかいやつ']).toBe('トマト')          // 既存の持ち主のまま
-    expect(p.summary.aliasConflicts).toHaveLength(1)
-    expect(p.summary.aliasConflicts[0]).toMatchObject({
-      alias: 'あかいやつ', from: 'トマト', to: 'レタス', kind: 'existing', line: 2,
-    })
+    expect(p.summary.aliasConflicts).toEqual([])
+    expect(p.dictionary['あかいやつ']).toBe('トマト')   // 既存の持ち主のまま
   })
 
-  it('明示的に takeover を選んだときだけ付け替える', () => {
-    const p = plan(`${HEAD}\nレタス,玉,,,"あかいやつ"`, withAlias(), { aliasPolicy: ALIAS_TAKEOVER })
-    expect(p.dictionary['あかいやつ']).toBe('レタス')
-    expect(p.summary.aliasConflicts).toHaveLength(1)          // 解決しても衝突は記録に残す
-  })
-
-  it('既定は「既存を守る」', () => {
-    const p = plan(`${HEAD}\nレタス,玉,,,"あかいやつ"`, withAlias(), { aliasPolicy: ALIAS_KEEP_EXISTING })
-    expect(p.dictionary['あかいやつ']).toBe('トマト')
-  })
-
-  it('既存品目名と同じエイリアスは、その品目を隠すので衝突として扱う', () => {
-    const p = plan(`${HEAD}\nレタス,玉,,,"トマト"`, withAlias())
-    expect(p.dictionary['トマト']).toBeUndefined()
-    expect(p.summary.aliasConflicts[0]).toMatchObject({ alias: 'トマト', kind: 'item' })
-  })
-
-  it('ファイル内で同じエイリアスを2品目が取り合う場合も衝突として出す', () => {
-    const p = plan(`${HEAD}\nきゅうり,本,,,"みどり"\nピーマン,個,,,"みどり"`, emptyConfig())
-    expect(p.dictionary['みどり']).toBe('きゅうり')            // 既定は先に出た行を保持
-    expect(p.summary.aliasConflicts[0]).toMatchObject({ kind: 'file', from: 'きゅうり', to: 'ピーマン' })
-  })
-
-  it('ファイル内衝突でも takeover なら画面の文言どおり「あとの行」へ付け替える', () => {
-    // 「ファイルの指定を優先する」を選んだのに先頭行だけが残ると、説明と結果がずれる
-    const p = plan(
-      `${HEAD}\nきゅうり,本,,,"みどり"\nピーマン,個,,,"みどり"`,
-      emptyConfig(), { aliasPolicy: ALIAS_TAKEOVER },
-    )
-    expect(p.dictionary['みどり']).toBe('ピーマン')
-    expect(p.summary.aliasConflicts[0]).toMatchObject({ kind: 'file' })   // 解決しても記録は残す
-  })
-
-  it('takeover は3種すべての衝突を同じ規則で解決する', () => {
-    const cfg = emptyConfig({ order: ['トマト', 'なす'], dictionary: { あかいやつ: 'トマト' } })
+  it('関係のない値が並ぶ列でも、別名が量産されない', () => {
+    // 5列目が「規格」など別の意味を持つファイル（今回の不具合の再現）
     const csv = [
       HEAD,
-      'レタス,玉,,,"あかいやつ"',    // existing: 既存の別名を奪う
-      'きゅうり,本,,,"なす"',        // item: 既存の品目名を隠す
-      'ピーマン,個,,,"みどり"',
-      'ズッキーニ,本,,,"みどり"',    // file: ファイル内で取り合う
+      'コーヒー豆,kg,,,"アイスコーヒー粉22"',
+      'ホットコーヒー豆,kg,,,"アイスコーヒー粉22"',
+      '昼ドリンク他,本,,,"ミル付きガンエン"',
     ].join('\n')
-    const keep = plan(csv, cfg, { aliasPolicy: ALIAS_KEEP_EXISTING })
-    expect(keep.dictionary['あかいやつ']).toBe('トマト')
-    expect(keep.dictionary['なす']).toBeUndefined()
-    expect(keep.dictionary['みどり']).toBe('ピーマン')
-
-    const take = plan(csv, cfg, { aliasPolicy: ALIAS_TAKEOVER })
-    expect(take.dictionary['あかいやつ']).toBe('レタス')
-    expect(take.dictionary['なす']).toBe('きゅうり')
-    expect(take.dictionary['みどり']).toBe('ズッキーニ')
-    expect(take.summary.aliasConflicts.map(c => c.kind).sort()).toEqual(['existing', 'file', 'item'])
+    const p = plan(csv, emptyConfig())
+    expect(p.summary.aliasConflicts).toEqual([])
+    expect(p.dictionary).toEqual({})
   })
 
-  it('同じ品目が自分のエイリアスを再指定するのは衝突にしない', () => {
-    const p = plan(`${HEAD}\nトマト,箱,,,"あかいやつ"`, withAlias())
-    expect(p.summary.aliasConflicts).toEqual([])
+  it('既存の別名は取込で消えない', () => {
+    const p = plan(`${HEAD}\nトマト,箱,,,""`, withAlias())
     expect(p.dictionary['あかいやつ']).toBe('トマト')
   })
 
-  it('全入れ替えで消える品目のエイリアスは衝突にせず、辞書からも落とす', () => {
-    const cfg = withAlias()
-    const p = plan(`${HEAD}\nレタス,玉,,,"あかいやつ"`, cfg, { mode: IMPORT_MODE_REPLACE })
+  it('旧2列フォーマット（品目名,エイリアス）でも品目名だけを読む', () => {
+    const p = plan('品目名,エイリアス\nトマト,あかいやつ2', emptyConfig())
+    expect(p.summary.added).toContain('トマト')
+    expect(p.dictionary['あかいやつ2']).toBeUndefined()
+  })
+
+  it('全入れ替えで消える品目の別名は辞書からも落とす', () => {
+    const p = plan(`${HEAD}\nレタス,玉,,,""`, withAlias(), { mode: IMPORT_MODE_REPLACE })
     expect(p.summary.removed).toEqual(['トマト'])
-    expect(p.dictionary['あかいやつ']).toBe('レタス')
-    expect(p.summary.aliasConflicts).toEqual([])
+    expect(p.dictionary['あかいやつ']).toBeUndefined()
   })
 })
 

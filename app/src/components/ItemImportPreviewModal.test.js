@@ -116,35 +116,41 @@ describe('件数と明細の表示', () => {
   })
 })
 
-describe('エイリアス衝突', () => {
+// 別名の取込は止めた。5列目を列名で確かめずに別名として読んでいたため、
+// 5列目が別の意味を持つファイルで全件衝突し、取込が事実上できなくなっていた。
+describe('エイリアスは取り込まない', () => {
   beforeEach(() => {
     cfg.loadFromCSV(`${HEAD}\nトマト,箱,120,野菜,"あかいやつ"\nレタス,玉,100,野菜,`)
   })
 
-  it('衝突を表示し、解決を選ぶまで取り込めない', async () => {
-    const { text } = await mount({ csvText: `${HEAD}\nレタス,玉,100,野菜,"あかいやつ"` })
-    expect(text()).toContain('エイリアスが1件ぶつかっています')
-    expect(text()).toContain('トマト → レタス')
+  it('衝突を出さず、選択なしでそのまま取り込める', async () => {
+    const { text, events } = await mount({ csvText: `${HEAD}\nレタス,玉,100,野菜,"あかいやつ"` })
+    expect(text()).not.toContain('ぶつかっています')
 
     const btn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('取り込む'))
-    expect(btn.disabled).toBe(true)
-    expect(text()).toContain('エイリアスの扱いを選ぶと取り込めます')
-  })
-
-  it('「今のままにする」を選ぶと既存品目のエイリアスを守る', async () => {
-    const { events } = await mount({ csvText: `${HEAD}\nレタス,玉,100,野菜,"あかいやつ"` })
-    await pickRadio('今のままにする')
+    expect(btn.disabled).toBe(false)
     await click('取り込む')
     expect(events.imported).toHaveLength(1)
-    expect(cfg.config.dictionary['あかいやつ']).toBe('トマト')
   })
 
-  it('「ファイルの指定を優先する」を選んだときだけ付け替える', async () => {
-    const { events } = await mount({ csvText: `${HEAD}\nレタス,玉,100,野菜,"あかいやつ"` })
-    await pickRadio('ファイルの指定を優先する')
+  it('既存の別名は取込後も残る', async () => {
+    cfg.config.dictionary = { とまと: 'トマト' }
+    await mount({ csvText: `${HEAD}\nレタス,玉,100,野菜,"あかいやつ"` })
+    await click('取り込む')
+    expect(cfg.config.dictionary['とまと']).toBe('トマト')
+    expect(cfg.config.dictionary['あかいやつ']).toBeUndefined()
+  })
+
+  it('5列目が関係のない値でも取込が止まらない（不具合の再現）', async () => {
+    const csv = [
+      HEAD,
+      'コーヒー豆,kg,,飲料,"アイスコーヒー粉22"',
+      'ホットコーヒー豆,kg,,飲料,"アイスコーヒー粉22"',
+    ].join('\n')
+    const { text, events } = await mount({ csvText: csv })
+    expect(text()).not.toContain('ぶつかっています')
     await click('取り込む')
     expect(events.imported).toHaveLength(1)
-    expect(cfg.config.dictionary['あかいやつ']).toBe('レタス')
   })
 })
 
@@ -268,39 +274,5 @@ describe('PDF/Excel 由来の不正な数値をプレビューで止める', () 
     expect(events.imported[0].added).toBe(2)
     expect(cfg.config.prices['トマト']).toBe(1200)
     expect(cfg.config.prices['レタス']).toBe(0.5)
-  })
-})
-
-describe('エイリアス衝突の解決が計画と確定で一致する', () => {
-  it('既定（今のまま）では既存の割り当てを保持する', async () => {
-    cfg.loadFromCSV(`${HEAD}\nトマト,箱,120,野菜,"あかいやつ"`)
-    const { text } = await mount({ csvText: `${HEAD}\nレタス,玉,80,野菜,"あかいやつ"` })
-    expect(text()).toContain('エイリアスが1件ぶつかっています')
-
-    // 選ぶまで取り込めない
-    const btn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('取り込む'))
-    expect(btn.disabled).toBe(true)
-
-    await pickRadio('今のままにする')
-    await click('取り込む')
-    expect(cfg.dictionary.value['あかいやつ']).toBe('トマト')
-  })
-
-  it('「ファイルの指定を優先する」を選ぶと、画面の説明どおり付け替える', async () => {
-    cfg.loadFromCSV(`${HEAD}\nトマト,箱,120,野菜,"あかいやつ"`)
-    await mount({ csvText: `${HEAD}\nレタス,玉,80,野菜,"あかいやつ"` })
-    await pickRadio('ファイルの指定を優先する')
-    await click('取り込む')
-    expect(cfg.dictionary.value['あかいやつ']).toBe('レタス')
-  })
-
-  it('ファイル内衝突でも「ファイルの指定を優先する」ならあとの行へ付け替える', async () => {
-    const { text } = await mount({
-      csvText: `${HEAD}\nきゅうり,本,,野菜,"みどり"\nピーマン,個,,野菜,"みどり"`,
-    })
-    expect(text()).toContain('ファイル内で重複')
-    await pickRadio('ファイルの指定を優先する')
-    await click('取り込む')
-    expect(cfg.dictionary.value['みどり']).toBe('ピーマン')
   })
 })

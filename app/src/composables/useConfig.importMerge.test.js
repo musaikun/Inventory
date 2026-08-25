@@ -60,14 +60,16 @@ describe('S5: 既定の取込（追加・更新）は既存品目を消さない
     expect(cfg.config.categories['トマト']).toBe('野菜')
   })
 
-  it('エイリアスは既存分を残したまま追加される', () => {
+  // 別名の取込は止めた（5列目を列名で確かめずに別名として読み、全件衝突していたため）。
+  // 既存の別名は音声入力の名寄せに使うので、取込で壊さない。
+  it('既存のエイリアスは取込で消えず、ファイルからは増えない', () => {
     resetConfig(['トマト'])
     cfg.config.dictionary = { とまと: 'トマト' }
 
     cfg.loadFromCSV('品目名,単位,単価,カテゴリ,エイリアス\nトマト,個,,,"あかいやつ"')
 
     expect(cfg.config.dictionary['とまと']).toBe('トマト')
-    expect(cfg.config.dictionary['あかいやつ']).toBe('トマト')
+    expect(cfg.config.dictionary['あかいやつ']).toBeUndefined()
   })
 
   it('手動追加した品目はファイルに無くても保持される', () => {

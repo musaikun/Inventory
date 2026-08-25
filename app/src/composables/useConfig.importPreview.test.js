@@ -73,10 +73,13 @@ describe('S6: 取込前プレビュー', () => {
     expect(changes).toContainEqual({ field: '単価', before: '100', after: '150' })
   })
 
-  it('新しく付くエイリアスも差分に出る', () => {
+  // 別名の取込は止めたので、5列目の値は差分にも出ない（＝取り込まれない）
+  it('エイリアス列は差分に出ない', () => {
     resetConfig(['トマト'])
     const preview = cfg.previewCSVImport('品目名,単位,単価,カテゴリ,エイリアス\nトマト,,,,"とまと"')
-    expect(preview.updated[0].changes).toContainEqual({ field: 'エイリアス', before: '', after: 'とまと' })
+    const changes = preview.updated[0]?.changes ?? []
+    expect(changes.some(c => c.field === 'エイリアス')).toBe(false)
+    expect(preview.aliasConflicts ?? []).toEqual([])
   })
 
   it('全入れ替えのプレビューは削除される品目を名前で挙げる', () => {

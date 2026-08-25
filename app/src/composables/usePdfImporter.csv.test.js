@@ -50,7 +50,7 @@ describe('itemsToConfigCSV — 数値を直さない', () => {
 })
 
 describe('itemsToConfigCSV — カンマ・引用符・改行のエスケープ', () => {
-  it('引用符を含む品目名・単位・エイリアスを壊さずに往復する', () => {
+  it('引用符を含む品目名・単位を壊さずに往復する', () => {
     const csv = itemsToConfigCSV([
       { name: '5" 皿 セット', unit: '5" 箱', category: 'a,b', aliases: ['さら"', 'プレート'] },
     ])
@@ -60,11 +60,12 @@ describe('itemsToConfigCSV — カンマ・引用符・改行のエスケープ'
     expect(row[3]).toBe('a,b')
     expect(row[4]).toContain('さら"')
 
-    // 取込側でも同じ値として読める（列がずれない）
+    // 取込側でも同じ値として読める（列がずれない）。
+    // 別名は取り込まないので、5列目の値は読み捨てる（列の位置はずれない）。
     const parsed = parseItemCSV(csv)
     expect(parsed.rows[0].name).toBe('5" 皿 セット')
     expect(parsed.rows[0].unit).toBe('5" 箱')
-    expect(parsed.rows[0].aliases).toContain('さら"')
+    expect(parsed.rows[0].aliases).toEqual([])
   })
 
   it('カンマを含む品目名で列がずれない', () => {
