@@ -172,12 +172,18 @@ export function schedulesTodayContext(list, date = new Date()) {
 }
 
 // 一覧表示用の行。today=今日が発注日 / deadline=締切ステータス
+//   days     … '火・金'（締切は含めない。カードで別行に出すため）
+//   deadline … 残り時間つきの締切ステータス。今日が発注日のときだけ意味を持つ
+//   deadlineAt … 'HH:MM'。今日でない日の表示に使う（「あと◯時間」は今日の話なので出さない）
 export function scheduleRows(list, now = new Date()) {
   return (list || []).map((s, idx) => ({
     id: s.id ?? String(idx),
     name: scheduleName(s, idx),
     summary: scheduleSummary(s),
+    days: [...(s?.days ?? [])].sort((a, b) => a - b).map(weekdayLabel).join('・'),
     today: isOrderDay(s, now),
     deadline: deadlineStatus(s, now),
+    deadlineAt: s?.deadline || '',
+    next: nextOrderDayLabel(s, now),
   }))
 }

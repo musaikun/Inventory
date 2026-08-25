@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { orderScheduleFocusId } from '../composables/appMenuState.js'
 import {
   weekdayLabel, scheduleSummary, scheduleName, MAX_ORDER_SCHEDULES,
 } from '../services/orderScheduleUtil.js'
@@ -28,6 +29,18 @@ const rows = ref(
 if (rows.value.length === 0) rows.value.push(newRow())
 
 const canAdd = computed(() => rows.value.length < MAX_ORDER_SCHEDULES)
+
+// 発注タブのカードから開いたときは、その1件へスクロールして目立たせる。
+// どのカードを押したのか分からなくなるのを防ぐだけで、編集自体はどの行にもできる。
+const focusId = ref(orderScheduleFocusId.value)
+const sheet = ref(null)
+onMounted(async () => {
+  if (!focusId.value) return
+  await nextTick()
+  const el = sheet.value?.querySelector('.os-card.focus')
+  el?.scrollIntoView?.({ block: 'center' })
+})
+onUnmounted(() => { orderScheduleFocusId.value = null })
 
 function addRow() {
   if (!canAdd.value) return
@@ -61,7 +74,7 @@ function onSave() {
 
 <template>
   <div class="os-overlay" @click.self="emit('close')">
-    <div class="os-sheet">
+    <div class="os-sheet" ref="sheet">
       <div class="os-handle"></div>
       <div class="os-title">🗓 発注スケジュール</div>
       <div class="os-desc">
@@ -69,7 +82,7 @@ function onSave() {
         発注セッションの位置づけ表示や締切の目安に使います。
       </div>
 
-      <div v-for="(row, i) in rows" :key="row.id" class="os-card">
+      <div v-for="(row, i) in rows" :key="row.id" class="os-card" :class="{ focus: row.id === focusId }">
         <div class="os-card-head">
           <input
             v-model="row.name"
@@ -121,6 +134,7 @@ function onSave() {
 .os-desc { font-size: 12px; color: #64748b; line-height: 1.6; }
 
 .os-card { border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.os-card.focus { border-color: #fdba74; background: #fffbf5; }
 .os-card-head { display: flex; align-items: center; gap: 8px; }
 .os-name { flex: 1; min-width: 0; border: 1.5px solid var(--border, #e2e8f0); border-radius: 10px; padding: 9px 11px; font-size: 15px; font-weight: 700; color: #1e293b; background: #fff; }
 .os-remove { border: none; background: none; color: #94a3b8; font-size: 13px; font-weight: 700; padding: 6px; cursor: pointer; flex-shrink: 0; }

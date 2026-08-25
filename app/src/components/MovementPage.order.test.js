@@ -143,7 +143,7 @@ describe('仕入れページ — 発注タブ', () => {
     expect(host.querySelector('.os-title').textContent).toContain('発注スケジュール')
   })
 
-  it('登録済みのスケジュールを名前つきで全件出す', async () => {
+  it('登録済みのスケジュールは1件＝1カードで出す', async () => {
     cfg.setOrderSchedules([
       { name: '青果', days: [2, 5], deadline: '15:00' },
       { name: '肉',   days: [1] },
@@ -151,12 +151,30 @@ describe('仕入れページ — 発注タブ', () => {
     await mountPage()
     await openOrderTab()
 
-    const rows = [...host.querySelectorAll('.mv-sched-sum')]
-    expect(rows).toHaveLength(2)
-    expect(rows[0].textContent).toContain('青果')
-    expect(rows[0].textContent).toContain('火・金')
-    expect(rows[1].textContent).toContain('肉')
-    expect(rows[1].textContent).toContain('月')
+    const cards = [...host.querySelectorAll('.mv-scheds .mv-sched')]
+    expect(cards).toHaveLength(2)
+    expect(cards[0].querySelector('.mv-sched-name').textContent.trim()).toBe('青果')
+    expect(cards[0].querySelector('.mv-sched-sum').textContent.trim()).toBe('火・金')
+    expect(cards[1].querySelector('.mv-sched-name').textContent.trim()).toBe('肉')
+    expect(cards[1].querySelector('.mv-sched-sum').textContent.trim()).toBe('月')
+  })
+
+  it('カードをタップすると、その1件が編集画面で目立つ', async () => {
+    cfg.setOrderSchedules([{ name: '青果', days: [2] }, { name: '肉', days: [1] }])
+    await mountPage()
+    await openOrderTab()
+
+    await click([...host.querySelectorAll('.mv-scheds .mv-sched')][1])
+    const focused = host.querySelector('.os-card.focus')
+    expect(focused).not.toBeNull()
+    expect(focused.querySelector('.os-name').value).toBe('肉')
+  })
+
+  it('⚙ から開いたときは特定の1件を目立たせない', async () => {
+    cfg.setOrderSchedules([{ name: '青果', days: [2] }])
+    await mountPage()
+    await click(host.querySelector('.mv-gear'))
+    expect(host.querySelector('.os-card.focus')).toBeNull()
   })
 
   // 発注セッションから戻ったとき、App が発注タブを指定して開き直す

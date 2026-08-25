@@ -146,11 +146,23 @@ describe('orderScheduleUtil（複数スケジュール）', () => {
     expect(schedulesTodayContext([], TUE)).toBe('')
   })
 
-  it('scheduleRows は名前・要約・今日か・締切を返す', () => {
+  it('scheduleRows は名前・曜日・今日か・締切を返す', () => {
     const rows = scheduleRows(multi(), TUE)
-    expect(rows[0]).toMatchObject({ name: '青果', summary: '火・金 / 締切15:00', today: true })
+    expect(rows[0]).toMatchObject({
+      name: '青果', summary: '火・金 / 締切15:00', days: '火・金',
+      today: true, deadlineAt: '15:00', next: '金',
+    })
     expect(rows[0].deadline.has).toBe(true)
-    expect(rows[1]).toMatchObject({ name: '肉', summary: '月', today: false })
+    expect(rows[1]).toMatchObject({ name: '肉', summary: '月', days: '月', today: false, deadlineAt: '' })
     expect(rows[1].deadline.has).toBe(false)
+  })
+
+  // カードは曜日と締切を別行に出すので、要約と分けた days / deadlineAt を持たせている。
+  // 「あと◯時間」は今日の話なので、今日でない行には出さない（deadlineAt を使う）
+  it('scheduleRows の days は締切を含まない', () => {
+    const [row] = scheduleRows(normalizeSchedules([{ name: 'A', days: [1], deadline: '09:00' }]), TUE)
+    expect(row.days).toBe('月')
+    expect(row.deadlineAt).toBe('09:00')
+    expect(row.today).toBe(false)
   })
 })

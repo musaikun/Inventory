@@ -7,7 +7,7 @@ import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
 import { getSessions, createSession } from '../composables/useAuth.js'
 import { hasAnySchedule, allOrderDays, orderIntervalDays, scheduleRows, schedulesTodayContext } from '../services/orderScheduleUtil.js'
-import { showOrderSchedule } from '../composables/appMenuState.js'
+import { showOrderSchedule, orderScheduleFocusId } from '../composables/appMenuState.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
@@ -313,6 +313,12 @@ const hasSched       = computed(() => hasAnySchedule(orderSchedules.value))
 const schedRows      = computed(() => scheduleRows(orderSchedules.value, new Date()))
 const schedTodayCtx  = computed(() => schedulesTodayContext(orderSchedules.value, new Date()))
 
+// カードから開いたときは、その1件を編集画面で目立たせる（⚙ からは指定なし）
+function openSchedule(id = null) {
+  orderScheduleFocusId.value = id
+  showOrderSchedule.value = true
+}
+
 // 発注タブから「入庫へ」= 入庫タブへ移動して、その発注をプリフィルする。
 // 発注（LOT数）→ 入庫（バラ）の換算は deliveryLinesFromOrder が持つ既存の契約をそのまま使う。
 function applyOrderToInbound(o) {
@@ -350,7 +356,7 @@ async function onStartOrder() {
       <button class="mv-back" @click="emit('back')">‹ 戻る</button>
       <span class="mv-title">🛒 仕入れ</span>
       <span v-if="isRecord && changed.length" class="mv-count">{{ changed.length }}品目</span>
-      <button class="mv-gear" :class="{ alone: !(isRecord && changed.length) }" title="発注日・締切の設定" @click="showOrderSchedule = true">⚙</button>
+      <button class="mv-gear" :class="{ alone: !(isRecord && changed.length) }" title="発注日・締切の設定" @click="openSchedule()">⚙</button>
     </header>
 
     <!-- モードタブ（スライド下線で切替可能を示す）-->
@@ -416,24 +422,37 @@ async function onStartOrder() {
 
         <div v-if="orderError" class="mv-order-err">{{ orderError }}</div>
 
-        <!-- 発注スケジュール（⚙ から設定） -->
-        <button class="mv-sched" type="button" @click="showOrderSchedule = true">
+        <!-- 発注スケジュール（1件＝1カード。⚙ からも設定できる）-->
+        <div v-if="hasSched" class="mv-scheds">
+          <button
+            v-for="r in schedRows" :key="r.id"
+            class="mv-sched" :class="{ today: r.today }"
+            type="button"
+            @click="openSchedule(r.id)"
+          >
+            <span class="mv-sched-ico">🗓</span>
+            <span class="mv-sched-text">
+              <span class="mv-sched-head">
+                <span class="mv-sched-name">{{ r.name }}</span>
+                <span v-if="r.today" class="mv-sched-today">今日</span>
+              </span>
+              <span class="mv-sched-sum">{{ r.days }}</span>
+              <span v-if="r.today && r.deadline.has" :class="['mv-sched-dl', { past: r.deadline.past }]">{{ r.deadline.label }}</span>
+              <span v-else class="mv-sched-ctx">
+                {{ r.deadlineAt ? `締切${r.deadlineAt}` : '締切なし' }}<template v-if="r.next">・次は{{ r.next }}曜</template>
+              </span>
+            </span>
+            <span class="mv-sched-edit">変更</span>
+          </button>
+          <p v-if="schedTodayCtx" class="mv-scheds-ctx">{{ schedTodayCtx }}</p>
+        </div>
+        <button v-else class="mv-sched" type="button" @click="openSchedule()">
           <span class="mv-sched-ico">🗓</span>
           <span class="mv-sched-text">
-            <template v-if="hasSched">
-              <span v-for="r in schedRows" :key="r.id" class="mv-sched-sum">
-                <span class="mv-sched-name" :class="{ today: r.today }">{{ r.name }}</span>
-                {{ r.summary }}
-                <span v-if="r.deadline.has && r.today" :class="['mv-sched-dl', { past: r.deadline.past }]">・{{ r.deadline.label }}</span>
-              </span>
-              <span v-if="schedTodayCtx" class="mv-sched-ctx">{{ schedTodayCtx }}</span>
-            </template>
-            <template v-else>
-              <span class="mv-sched-sum">発注スケジュールを設定</span>
-              <span class="mv-sched-ctx">発注する曜日・締切を登録（任意）</span>
-            </template>
+            <span class="mv-sched-sum">発注スケジュールを設定</span>
+            <span class="mv-sched-ctx">発注する曜日・締切を登録（任意）</span>
           </span>
-          <span class="mv-sched-edit">{{ hasSched ? '変更' : '設定' }}</span>
+          <span class="mv-sched-edit">設定</span>
         </button>
 
         <div v-if="orderLoading" class="mv-order-loading">読み込み中...</div>
@@ -643,9 +662,14 @@ async function onStartOrder() {
 .mv-sched-ico { flex-shrink: 0; font-size: 18px; }
 .mv-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mv-sched-sum { font-size: 13.5px; font-weight: 700; color: #334155; }
-.mv-sched-name { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 800; }
-.mv-sched-name.today { background: #fff7ed; color: #c2410c; }
-.mv-sched-dl { color: #b45309; font-weight: 800; }
+.mv-scheds { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.mv-scheds .mv-sched { margin-bottom: 0; }   /* 間隔は gap が持つ */
+.mv-sched.today { border-color: #fdba74; background: #fffbf5; }
+.mv-sched-head { display: flex; align-items: center; gap: 6px; }
+.mv-sched-name { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.mv-sched-today { padding: 1px 7px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: 11px; font-weight: 800; }
+.mv-scheds-ctx { font-size: 11.5px; color: #94a3b8; margin: 0; padding: 0 2px; }
+.mv-sched-dl { font-size: 12px; color: #b45309; font-weight: 800; }
 .mv-sched-dl.past { color: #b91c1c; }
 .mv-sched-ctx { font-size: 11.5px; color: #94a3b8; }
 .mv-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #2563eb; }

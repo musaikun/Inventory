@@ -10,6 +10,8 @@ export const axisAssignInitial = ref(0)   // 開いたとき最初に選択す�
 
 // 発注スケジュール設定（OrderScheduleModal）。App の戻る/ESC 制御に載せるため共有状態にする。
 export const showOrderSchedule = ref(false)
+// 開いたときに目立たせるスケジュールの id（発注タブのカードから開いたとき）。null=指定なし
+export const orderScheduleFocusId = ref(null)
 
 // アカウント削除モーダル（DeleteAccountModal）。設定内の danger 区画から開き、
 // App の戻る/ESC 制御に載せるため共有状態にする。
