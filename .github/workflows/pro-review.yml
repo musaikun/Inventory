@@ -1,6 +1,13 @@
 name: Pro Review Pages
 
 on:
+  # develop へ push されたら Pro Review も追随する。
+  # Claude Code のセッションからは workflow_dispatch を叩けない（GitHub App に
+  # actions: write が無く 403）ため、更新のたびに人が Actions を開く必要があった。
+  # Pro Review は production から分離された検証環境（D-018）なので、develop と同じ内容へ
+  # 自動で揃える。手動実行も残す。
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
