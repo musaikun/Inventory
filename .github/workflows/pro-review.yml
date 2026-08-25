@@ -19,9 +19,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VITE_SYNC_WORKER_URL: wss://inventory-sync-pro-review.yuya-takaki.workers.dev
-  VITE_DEPLOYMENT_CHANNEL: pro-review
-  VITE_REVIEW_PLAN: pro
   CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
   PAGES_PROJECT: inventory-app-pro-review
   PAGES_BRANCH: pro-review
@@ -49,12 +46,22 @@ jobs:
           npm ci
           npm test
 
-      - name: Install, test, and build Pro Review App
+      # テストは通常 build（Free）を前提にした期待値を持っている。VITE_REVIEW_PLAN=pro を
+      # job 全体へ敷くと planLimits のテストが Pro 判定になって落ちるため、Pro の env は
+      # build step にだけ渡す。
+      - name: Install and test App
         working-directory: app
         run: |
           npm ci
           npm test
-          npm run build
+
+      - name: Build Pro Review App
+        working-directory: app
+        env:
+          VITE_SYNC_WORKER_URL: wss://inventory-sync-pro-review.yuya-takaki.workers.dev
+          VITE_DEPLOYMENT_CHANNEL: pro-review
+          VITE_REVIEW_PLAN: pro
+        run: npm run build
 
       # Pro Review は Pages だけでなく専用 Worker / D1 / DO も production と分離されている
       # （D-018）。Worker を置いていくと、config 中継の新フィールドがゲスト側から落ちるなど、
