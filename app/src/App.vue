@@ -443,8 +443,21 @@ async function _pullMovements() {
   } catch (_) {}
 }
 
-// 入出庫ページを開く。最新の入出庫を D1 から取り込んでから表示する。
-function openMovement() {
+// 「仕入れ」ページを開いたときに選ぶタブ。ホームからは在庫、発注セッションから戻ったときは発注。
+const movementTab = ref('view')
+
+// 発注セッションを離れると「仕入れ」カードの発注タブへ返る（練習モードは従来どおり一覧へ）。
+// 行き先が変わるので、ヘッダーの戻るボタンの見た目と説明もそこへ合わせる。
+// 🏠 のままだと「ホームへ戻る」と読めてしまう。
+const leavesToMovement  = computed(() => sessionMode.value === 'order' && !practiceMode.value)
+const leaveSessionIcon  = computed(() => (leavesToMovement.value ? '🛒' : '🏠'))
+const leaveSessionTitle = computed(() =>
+  practiceMode.value ? '練習を終了して戻る'
+    : leavesToMovement.value ? '仕入れに戻る' : 'セッション一覧に戻る')
+
+// 「仕入れ」ページを開く。最新の入出庫を D1 から取り込んでから表示する。
+function openMovement(tab = 'view') {
+  movementTab.value = tab
   currentView.value = 'movement'
   _pullMovements()
 }
@@ -1735,7 +1748,10 @@ async function onGoHome() {
   clearSession()
   showSync.value = false
   showChat.value = false
-  currentView.value = 'sessions'
+  // 発注はホームに入口が無く「仕入れ」カードの発注タブから始める。戻るでホームへ返すと
+  // 発注一覧まで一段遠くなるので、始めた場所（発注タブ）へ返す。
+  if (leavesToMovement.value) openMovement('order')
+  else currentView.value = 'sessions'
   sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
 
@@ -2750,6 +2766,7 @@ function dismissReview() {
     <!-- ── 入出庫（専用ページ・品目ごとに増減） ── -->
     <MovementPage
       v-else-if="currentView === 'movement'"
+      :initial-tab="movementTab"
       @back="onPageBack"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
@@ -2794,7 +2811,7 @@ function dismissReview() {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onGoHome" :title="practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る'">🏠</button>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onGoHome" :title="leaveSessionTitle">{{ leaveSessionIcon }}</button>
           <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">

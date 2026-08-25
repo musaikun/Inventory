@@ -23,6 +23,10 @@ import StockDetailModal from './StockDetailModal.vue'
 import ReorderBulkModal from './ReorderBulkModal.vue'
 
 const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster'])
+// 開いたときに選んでおくタブ。発注セッションから戻ってきたときに発注タブへ返すために使う。
+const props = defineProps({
+  initialTab: { type: String, default: 'view' },   // 'view' | 'order' | 'in' | 'out'
+})
 
 const { config, itemCount, setReorderPoint, setReplenishTarget } = useConfig()
 const { getSnapshots } = useHistory()
@@ -33,7 +37,7 @@ const { draft, clearMode } = useMovementDraft()
 // 画面モード: 在庫（読み取り）/ 入庫（記録）/ 出庫（記録）
 // 在庫 → 発注 → 入庫 → 出庫（仕入れの流れ順）。既定は在庫（出庫を主導線に上げない）。
 const TAB_ORDER = ['view', 'order', 'in', 'out']
-const mode = ref('view')  // 'view' | 'order' | 'in' | 'out'
+const mode = ref(TAB_ORDER.includes(props.initialTab) ? props.initialTab : 'view')
 // 記録タブ＝数量を入力して保存する2つ。発注はセッション（別画面）へ渡す入口なので含めない。
 const isRecord = computed(() => mode.value === 'in' || mode.value === 'out')
 const isOrderTab = computed(() => mode.value === 'order')

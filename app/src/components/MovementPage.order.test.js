@@ -29,13 +29,14 @@ let host = null
 let events
 let cfg
 
-async function mountPage() {
+async function mountPage(props = {}) {
   const { default: MovementPage } = await import('./MovementPage.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
   events = { startSession: [], resumeSession: [] }
   app = createApp({
     render: () => h(MovementPage, {
+      ...props,
       onBack: () => {}, onSaved: () => {},
       onStartSession:  (s, mode) => events.startSession.push([s, mode]),
       onResumeSession: (s) => events.resumeSession.push(s),
@@ -156,6 +157,17 @@ describe('仕入れページ — 発注タブ', () => {
     expect(rows[0].textContent).toContain('火・金')
     expect(rows[1].textContent).toContain('肉')
     expect(rows[1].textContent).toContain('月')
+  })
+
+  // 発注セッションから戻ったとき、App が発注タブを指定して開き直す
+  it('initialTab で開始タブを指定できる', async () => {
+    await mountPage({ initialTab: 'order' })
+    expect(host.querySelector('.mv-tab.on').textContent).toContain('発注')
+  })
+
+  it('initialTab の既定は在庫', async () => {
+    await mountPage()
+    expect(host.querySelector('.mv-tab.on').textContent.trim()).toBe('在庫')
   })
 
   it('未設定なら設定を促す', async () => {
