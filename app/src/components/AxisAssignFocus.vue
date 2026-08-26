@@ -8,7 +8,7 @@ import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸（分類）─────────────────────────────────────────
@@ -184,11 +184,45 @@ function onRename(g) {
   }
 }
 function onDelete(g) {
-  if (confirm(`グループ「${g}」を削除します。品目の割り当ても外れます。`)) {
-    removeAxisGroup(activeAxis.value, g)
-    if (target.value === g) { target.value = ''; page.value = 'groups' }
+  if (!confirm(`グループ「${g}」を削除します。品目の割り当ても外れます。`)) return
+  // 消す前に「戻すのに要るもの」を控える。振り分け済みの品目も、一覧での位置も
+  // 削除で失われるため、ここで取らないと元に戻せない。
+  const snapshot = {
+    axis: activeAxis.value,
+    name: g,
+    index: defined.value.indexOf(g),          // -1 = 定義リストに無い（割り当てだけで現れていた）
+    items: config.order.filter(i => itemGroups(i).includes(g)),
+    wasTarget: target.value === g,
   }
+  removeAxisGroup(activeAxis.value, g)
+  if (target.value === g) { target.value = ''; page.value = 'groups' }
+  _offerUndo(snapshot)
 }
+
+// ── 削除の取り消し（Undo）────────────────────────────────────────
+// 削除の歯止めは確認ダイアログだけなので、押し間違えたときの戻り道を用意する。
+// 振り分け済みの品目ごと戻す（割り当てのやり直しが一番の損失のため）。
+const undoState = ref(null)     // { axis, name, index, items, wasTarget }
+const UNDO_MS = 9000
+let _undoT = null
+function _offerUndo(snapshot) {
+  undoState.value = snapshot
+  clearTimeout(_undoT)
+  _undoT = setTimeout(() => { undoState.value = null }, UNDO_MS)
+}
+function dismissUndo() { clearTimeout(_undoT); undoState.value = null }
+function undoDelete() {
+  const s = undoState.value
+  if (!s) return
+  dismissUndo()
+  restoreAxisGroup(s.axis, s.name, s.index, s.items)
+  if (s.wasTarget && activeAxis.value === s.axis) target.value = s.name
+  _showFlash(s.items.length
+    ? `「${s.name}」を戻しました（品目 ${s.items.length} 件の振り分けも復元）`
+    : `「${s.name}」を戻しました`, '')
+}
+// 軸を切り替えたら、その画面に属する取り消しも一緒に畳む
+watch(activeAxis, dismissUndo)
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 
 // ── ドラッグハンドルでグループ並べ替え ─────────────────────────
@@ -439,9 +473,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       </div>
     </div>
 
+    <!-- 削除の取り消し（Undo）。振り分け済みの品目ごと戻す -->
+    <transition name="af-flash">
+      <div v-if="undoState" class="af-undobar">
+        <span class="af-undo-msg">
+          「{{ undoState.name }}」を削除しました<span v-if="undoState.items.length" class="af-undo-sub">（品目 {{ undoState.items.length }} 件の振り分けも解除）</span>
+        </span>
+        <button class="af-undo-btn" @click="undoDelete">元に戻す</button>
+        <button class="af-undo-x" aria-label="閉じる" @click="dismissUndo">✕</button>
+      </div>
+    </transition>
+
     <!-- 追加フィードバック -->
     <transition name="af-flash">
-      <div v-if="flash" class="af-flashbar">{{ flash }}</div>
+      <div v-if="flash" class="af-flashbar" :class="{ lifted: undoState }">{{ flash }}</div>
     </transition>
   </div>
 </template>
@@ -593,6 +638,25 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   background: #1e293b; color: #fff; font-size: 13px; font-weight: 700;
   padding: 10px 18px; border-radius: 22px; z-index: 61; box-shadow: 0 6px 20px rgba(0,0,0,0.28);
 }
+/* Undo バーが出ているあいだ、トーストはその上へ避ける */
+.af-flashbar.lifted { bottom: 88px; }
 .af-flash-enter-active, .af-flash-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .af-flash-enter-from, .af-flash-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
+
+/* 削除の取り消しバー。押し間違えても戻せることを、消した直後にその場で示す */
+.af-undobar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  width: calc(100% - 28px); max-width: 520px; box-sizing: border-box;
+  background: #1e293b; color: #fff; border-radius: 14px;
+  padding: 10px 10px 10px 16px; z-index: 62; box-shadow: 0 6px 20px rgba(0,0,0,0.32);
+}
+.af-undo-msg { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.af-undo-sub { display: block; font-size: 11px; font-weight: 600; color: #cbd5e1; }
+.af-undo-btn {
+  flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px;
+  background: #fff; color: #1e293b; font-size: 13px; font-weight: 800; padding: 0 14px; cursor: pointer;
+}
+.af-undo-btn:active { background: #e2e8f0; }
+.af-undo-x { flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none; color: #94a3b8; font-size: 14px; cursor: pointer; }
 </style>

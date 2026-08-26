@@ -29,6 +29,8 @@ const input = () => host.querySelector('.af-gadd-input')
 const okBtn = () => host.querySelector('.af-gadd-ok')
 const cards = () => [...host.querySelectorAll('.af-gcard .af-gname')].map(e => e.textContent.trim())
 const delBtns = () => [...host.querySelectorAll('.af-gcard .af-gdel')]
+const undoBar = () => host.querySelector('.af-undobar')
+const undoBtn = () => host.querySelector('.af-undo-btn')
 
 async function click(el) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -56,6 +58,7 @@ beforeEach(async () => {
   cfg = useConfig()
   cfg.setEmptyList()
   cfg.addItem('トマト', 120, '野菜', '個')
+  cfg.addItem('豚バラ', 800, '肉', 'kg')
   cfg.setAxisName(0, '場所')
   await nextTick()
 })
@@ -98,6 +101,51 @@ describe('AxisAssignFocus — 分類先の削除導線', () => {
     expect(cfg.config.tagsA['トマト'] ?? []).not.toContain('冷蔵庫')   // 割り当ても外れる
     await flushFrames()
     expect(cards()).toEqual([])
+  })
+
+  it('消したあとに元へ戻せる。振り分け済みの品目も位置も一緒に戻る', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    cfg.addItemToGroup(0, 'トマト', '棚')
+    cfg.addItemToGroup(0, '豚バラ', '棚')
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')      // 別グループの割り当ては巻き添えにしない
+    await mount()
+
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    await click(delBtns()[1])                      // 真ん中の「棚」を消す
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '冷凍庫'])
+    expect(cfg.config.tagsA['豚バラ']).toBeUndefined()
+    expect(undoBar().textContent).toContain('品目 2 件')
+
+    await click(undoBtn())
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚', '冷凍庫'])   // 位置も戻る
+    expect(cfg.config.tagsA['豚バラ']).toEqual(['棚'])                   // 振り分けも戻る
+    expect(cfg.config.tagsA['トマト'].sort()).toEqual(['冷蔵庫', '棚'].sort())
+    await flushFrames()
+    expect(undoBar()).toBeNull()
+    expect(cards()).toEqual(['冷蔵庫', '棚', '冷凍庫'])
+  })
+
+  it('振り分けていないグループでも戻せる', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await mount()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    await click(delBtns()[0])
+    expect(undoBar().textContent).not.toContain('品目')
+    await click(undoBtn())
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫'])
+    await flushFrames()
+    expect(undoBar()).toBeNull()
+  })
+
+  it('✕で取り消しバーを畳むと、削除は確定したまま', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await mount()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    await click(delBtns()[0])
+    await click(host.querySelector('.af-undo-x'))
+    await flushFrames()
+    expect(undoBar()).toBeNull()
+    expect(cfg.config.axisGroupsA).toEqual([])
   })
 
   it('🗑を押してもそのカードは選択されない（品目一覧へ進まない）', async () => {

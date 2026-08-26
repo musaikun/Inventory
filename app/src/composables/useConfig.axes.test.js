@@ -244,3 +244,63 @@ describe('useConfig 軸は店舗の永続設定（空開始・練習で消えな
     expect(cfg.config.axisGroupsA).toEqual(['冷凍庫', '棚'])
   })
 })
+
+describe('useConfig restoreAxisGroup（削除の取り消し）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    cfg.config.order       = ['パスタ', 'トマト']
+    cfg.config.manualItems = []
+    cfg.config.axisNames   = ['場所', '']
+    cfg.config.axisGroupsA = ['冷蔵庫', '棚', '冷凍庫']
+    cfg.config.axisGroupsB = []
+    cfg.config.tagsA       = { パスタ: ['棚'], トマト: ['棚', '冷蔵庫'] }
+    cfg.config.tagsB       = {}
+    cfg.config.tagsArchiveA = {}
+    cfg.config.tagsArchiveB = {}
+    cfg.config.isCustom    = true
+  })
+
+  it('一覧での位置と、割り当てられていた品目をまとめて戻す', () => {
+    cfg.removeAxisGroup(0, '棚')
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '冷凍庫'])
+    expect(cfg.config.tagsA['パスタ']).toBeUndefined()
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫'])
+
+    cfg.restoreAxisGroup(0, '棚', 1, ['パスタ', 'トマト'])
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚', '冷凍庫'])   // 末尾ではなく元の位置
+    expect(cfg.config.tagsA['パスタ']).toEqual(['棚'])
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫', '棚'])         // 他の割り当ては保つ
+  })
+
+  it('戻した割り当てはアーカイブにも載る（再取込で復元できる）', () => {
+    cfg.removeAxisGroup(0, '棚')
+    cfg.restoreAxisGroup(0, '棚', 1, ['パスタ'])
+    expect(cfg.config.tagsArchiveA['パスタ']).toEqual(['棚'])
+  })
+
+  it('同名を作り直したあとに戻しても、カードは二重にならない', () => {
+    cfg.removeAxisGroup(0, '棚')
+    cfg.addAxisGroup(0, '棚')                                  // 末尾へ再作成
+    cfg.restoreAxisGroup(0, '棚', 1, ['パスタ'])
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '冷凍庫', '棚'])
+    expect(cfg.config.tagsA['パスタ']).toEqual(['棚'])          // 割り当てだけ戻る
+  })
+
+  it('削除後に消えた品目は戻さない', () => {
+    cfg.removeAxisGroup(0, '棚')
+    cfg.config.order = ['トマト']                               // パスタが品目マスタから消えた
+    cfg.restoreAxisGroup(0, '棚', 1, ['パスタ', 'トマト'])
+    expect(cfg.config.tagsA['パスタ']).toBeUndefined()
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫', '棚'])
+  })
+
+  it('位置が範囲外・未指定なら末尾へ戻す', () => {
+    cfg.removeAxisGroup(0, '冷凍庫')
+    cfg.restoreAxisGroup(0, '冷凍庫', 99, [])
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚', '冷凍庫'])
+
+    cfg.removeAxisGroup(0, '冷蔵庫')
+    cfg.restoreAxisGroup(0, '冷蔵庫')
+    expect(cfg.config.axisGroupsA).toEqual(['棚', '冷凍庫', '冷蔵庫'])
+  })
+})
