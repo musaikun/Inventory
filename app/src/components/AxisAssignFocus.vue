@@ -1,8 +1,9 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
 const emit = defineEmits(['close'])
@@ -153,14 +154,26 @@ function locate(item) {
 // ── グループ管理 ────────────────────────────────────────────
 const editMode = ref(false)
 
-// カード上で直接グループ名を入力して登録（連続追加できるよう入力欄は開いたまま）
+// グループ追加はモーダルで行う（カード一覧の下の「＋」から開く）
 const adding = ref(false)
 const newName = ref('')
+const addError = ref('')
+const addInputEl = ref(null)
+function openAdd() {
+  newName.value = ''
+  addError.value = ''
+  adding.value = true
+  nextTick(() => addInputEl.value?.focus())
+}
+function closeAdd() { adding.value = false; newName.value = ''; addError.value = '' }
 function submitNew() {
   const n = newName.value.trim()
   if (!n) return
+  // addAxisGroup は同名を黙って捨てるため、ここで気づけるようにする
+  if (groups.value.includes(n)) { addError.value = 'その名前は既に使われています'; return }
   addAxisGroup(activeAxis.value, n)
-  newName.value = ''
+  _showFlash(`グループ「${n}」を追加しました`, '')
+  closeAdd()
 }
 function onRename(g) {
   const n = (prompt('新しい名前', g) || '').trim()
@@ -236,6 +249,14 @@ function onCardClick(g) {
   pickGroup(g)
 }
 
+// 戻る操作は、この画面を閉じる前に開いているモーダルを1枚だけ閉じる。
+// （追加モーダルを開いたまま戻ると振り分け画面ごと消える、を防ぐ）
+onUnmounted(registerInnerLayerCloser(() => {
+  if (adding.value)       { closeAdd();               return true }
+  if (showAssigned.value) { showAssigned.value = false; return true }
+  return false
+}))
+
 // ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
 const hasGenres = computed(() => Object.keys(config.categories || {}).length > 0)
 const groupedPool = computed(() => {
@@ -265,16 +286,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <header class="af-head">
       <button class="af-back" @click="page === 'items' ? backToGroups() : emit('close')">{{ page === 'items' ? '‹ 分類一覧' : '‹ 閉じる' }}</button>
       <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
-      <button v-if="namedAxes.length && !adding" class="af-head-add" @click="adding = true">＋ グループ</button>
       <button v-if="page === 'groups'" class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
     </header>
-
-    <!-- グループ追加の入力バー（どのカードでも上部に固定表示） -->
-    <div v-if="adding" class="af-addbar">
-      <input v-model="newName" class="af-gadd-input" maxlength="20" placeholder="グループ名（例：冷蔵庫）" @keyup.enter="submitNew" />
-      <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
-      <button class="af-gadd-x" @click="adding = false; newName = ''">×</button>
-    </div>
 
     <!-- 進捗バー -->
     <div class="af-progress">
@@ -322,7 +335,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                 <span v-else class="af-garrow">→</span>
               </div>
             </TransitionGroup>
-            <div v-if="groups.length === 0 && !adding" class="af-empty">上の「＋ グループ」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            <div v-if="groups.length === 0" class="af-empty">下の「＋」で分類先を作ってください（例：冷蔵庫・棚）。</div>
+            <button class="af-gadd-card" @click="openAdd">
+              <span class="af-gadd-plus">＋</span>
+              <span class="af-gadd-label">分類先を追加</span>
+            </button>
           </section>
 
           <!-- カードB: 品目プール -->
@@ -384,6 +401,26 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       </div>
     </template>
 
+    <!-- グループ追加モーダル -->
+    <div v-if="adding" class="af-modal af-modal-center" @click.self="closeAdd">
+      <div class="af-gadd-sheet" role="dialog" aria-modal="true" aria-label="分類先を追加">
+        <div class="af-sheet-head">
+          <span class="af-sheet-title">分類先を追加</span>
+          <button class="af-sheet-close" @click="closeAdd">✕</button>
+        </div>
+        <div class="af-gadd-body">
+          <input ref="addInputEl" v-model="newName" class="af-gadd-input" maxlength="20"
+                 placeholder="グループ名（例：冷蔵庫）"
+                 @input="addError = ''" @keyup.enter="submitNew" @keyup.esc="closeAdd" />
+          <div v-if="addError" class="af-gadd-err">{{ addError }}</div>
+        </div>
+        <div class="af-gadd-actions">
+          <button class="af-gadd-cancel" @click="closeAdd">キャンセル</button>
+          <button class="af-gadd-ok" :disabled="!newName.trim()" @click="submitNew">登録</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 振り分け済みの確認モーダル -->
     <div v-if="showAssigned" class="af-modal" @click.self="showAssigned = false">
       <div class="af-sheet">
@@ -416,15 +453,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-title { font-size: 16px; font-weight: 800; color: #1e293b; }
 .af-edit { margin-left: auto; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
 .af-edit.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
-.af-head-add { margin-left: auto; flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 800; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
-.af-head-add:active { background: #dbeafe; }
-
-/* グループ追加の入力バー（ヘッダー直下に固定） */
-.af-addbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
-.af-addbar .af-gadd-input { padding: 11px 12px; }
-.af-addbar .af-gadd-ok { padding: 11px 16px; }
-.af-addbar .af-gadd-x { padding: 10px 13px; }
-
 .af-progress { padding: 10px 14px 8px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
 .af-prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #334155; margin-bottom: 6px; }
 .af-prog-text b { color: var(--primary, #2563eb); font-size: 15px; }
@@ -478,10 +506,29 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
 .af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
 .af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
-.af-gadd-input { flex: 1; min-width: 0; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
-.af-gadd-ok { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 15px 18px; cursor: pointer; }
+/* 一覧の下に置く「＋」＝ここが分類先を増やす唯一の入口 */
+.af-gadd-card {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  margin-top: 7px; background: #fff; border: 1.5px dashed var(--primary-border, #bfdbfe);
+  border-radius: 12px; padding: 13px 14px; color: var(--primary, #2563eb);
+  font-size: 14px; font-weight: 800; cursor: pointer;
+}
+.af-gadd-card:active { background: var(--primary-weak, #eff6ff); }
+.af-gadd-plus { font-size: 18px; line-height: 1; }
+.af-gadd-label { line-height: 1; }
+
+/* グループ追加モーダル */
+/* .af-modal はこの下で align-items: flex-end を指定するため、詳細度を上げて中央寄せにする */
+.af-modal.af-modal-center { align-items: center; padding: 20px; }
+.af-gadd-sheet { width: 100%; max-width: 420px; background: #fff; border-radius: 16px; box-shadow: 0 12px 36px rgba(0,0,0,0.28); animation: af-gadd-in 0.18s cubic-bezier(0.22,0.8,0.28,1); }
+@keyframes af-gadd-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+.af-gadd-body { padding: 4px 16px 0; }
+.af-gadd-err { margin-top: 8px; font-size: 12px; font-weight: 700; color: #dc2626; }
+.af-gadd-actions { display: flex; gap: 8px; padding: 14px 16px 16px; }
+.af-gadd-input { width: 100%; box-sizing: border-box; border: 1.5px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 15px 14px; font-size: 15px; }
+.af-gadd-cancel { flex: 1; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 14px 16px; cursor: pointer; }
+.af-gadd-ok { flex: 1; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 12px; font-size: 14px; font-weight: 800; padding: 14px 18px; cursor: pointer; }
 .af-gadd-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
-.af-gadd-x { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 12px; font-size: 18px; padding: 12px 15px; cursor: pointer; }
 
 .af-target-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .af-target-back { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 10px; cursor: pointer; }
