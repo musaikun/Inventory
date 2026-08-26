@@ -34,6 +34,32 @@ export function consumeDeleteAccountBack() {
   return true
 }
 
+// ── 画面内モーダルの戻る制御 ────────────────────────────────────────
+//
+// 振り分けページのように、全画面レイヤーの内側にさらにモーダルを持つ画面がある。
+// App の `_closeTopLayer()` は親レイヤー（showAxisAssign など）しか知らないため、
+// そのままでは内側のモーダルを開いたまま戻ると、モーダルではなく画面ごと閉じてしまう。
+// 画面側が「今開いている内側のモーダル」を登録し、App は親レイヤーより先にこれを見る。
+const _innerLayerClosers = new Set()
+
+/**
+ * 内側のモーダルを閉じる関数を登録する。閉じるものがあれば true を返す実装にする。
+ * @param {() => boolean} closer
+ * @returns {() => void} 解除関数（画面の unmount で必ず呼ぶ）
+ */
+export function registerInnerLayerCloser(closer) {
+  _innerLayerClosers.add(closer)
+  return () => { _innerLayerClosers.delete(closer) }
+}
+
+/** 内側のモーダルを1枚閉じたら true。戻る操作はそこで消費される */
+export function consumeInnerLayerBack() {
+  for (const closer of [..._innerLayerClosers].reverse()) {
+    try { if (closer()) return true } catch (_) { /* closer の失敗で戻るを壊さない */ }
+  }
+  return false
+}
+
 // ── 閉じてはいけないモーダルの戻る制御（IMPORT-001）────────────────────────
 //
 // モーダル内の閉じるボタン・Escape・オーバーレイだけを塞いでも、Android/PWA と

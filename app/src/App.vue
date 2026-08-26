@@ -81,7 +81,7 @@ import MovementPage from './components/MovementPage.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, isBackBlocked } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -1238,6 +1238,7 @@ function _closeTopLayer() {
   if (conflictOpen.value)    { conflictOpen.value = false; return true }
   if (showChat.value)        { showChat.value = false;    return true }
   if (showSync.value)        { showSync.value = false;    return true }
+  if (consumeInnerLayerBack()) return true   // 全画面レイヤーの内側モーダルを先に閉じる
   if (showAxisAssign.value)  { showAxisAssign.value = false;  return true }
   if (showOrderSchedule.value) { showOrderSchedule.value = false; return true }
   if (consumeDeleteAccountBack()) return true

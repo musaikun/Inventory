@@ -1,10 +1,6 @@
 // 分析の精度ガード
 // - null（未入力）と 0（在庫ゼロ）を厳格に区別する
 // - 単位変更・異常な増減を検知（消さずにフラグ）
-// - スナップショットの信頼度をシビアに採点する
-//
-// 方針: 信頼度は「完全性（入力済み割合）」を直接掛け算し、
-//       入力件数が少なければ即キャップする。甘い数字を出さない。
 
 /** 未入力(null/undefined)でなく、実数が入っているか */
 export function isEntered(item) {
@@ -61,52 +57,4 @@ export function detectAnomalies(cur, prev, opts = {}) {
     }
   }
   return flags
-}
-
-/**
- * スナップショットの信頼度（シビア設定）。
- * @param {Object} snap { items, savedAt }
- * @param {Object} opts { now, anomalyCount }
- * @returns {{score:number, label:string, completeness:number, entered:number, total:number, ageDays:number, reasons:string[]}}
- */
-export function snapshotConfidence(snap, opts = {}) {
-  const now      = opts.now ? new Date(opts.now).getTime() : Date.now()
-  const items    = snap?.items || []
-  const total    = items.length
-  const entered  = items.filter(isEntered).length
-  const completeness = total ? entered / total : 0
-  const ageDays  = snap?.savedAt ? (now - new Date(snap.savedAt).getTime()) / 86400000 : Infinity
-  const anomalyCount = opts.anomalyCount ?? 0
-  const reasons  = []
-
-  // 完全性を直接掛ける（50%入力なら即50点）
-  let score = 100 * completeness
-  if (completeness < 1) reasons.push(`入力 ${Math.round(completeness * 100)}%（未入力あり）`)
-
-  // 件数が少ないと厳しくキャップ
-  if (entered < 5)       { score = Math.min(score, 20); reasons.push('入力件数が非常に少ない') }
-  else if (entered < 10) { score = Math.min(score, 40); reasons.push('入力件数が少ない') }
-  else if (entered < 20) { score = Math.min(score, 70); reasons.push('入力件数がやや少ない') }
-
-  // 鮮度
-  if (ageDays > 400)      { score *= 0.5; reasons.push('1年以上前のデータ') }
-  else if (ageDays > 120) { score *= 0.8; reasons.push('120日以上前のデータ') }
-
-  // 異常件数の減点
-  if (anomalyCount > 0) { score -= anomalyCount * 5; reasons.push(`異常フラグ ${anomalyCount}件`) }
-
-  score = Math.max(0, Math.min(100, Math.round(score)))
-
-  let label = '不足'
-  if (score >= 90)      label = '高'
-  else if (score >= 70) label = '中'
-  else if (score >= 50) label = '低'
-
-  return {
-    score, label,
-    completeness: Math.round(completeness * 100),
-    entered, total,
-    ageDays: Number.isFinite(ageDays) ? Math.round(ageDays) : null,
-    reasons,
-  }
 }

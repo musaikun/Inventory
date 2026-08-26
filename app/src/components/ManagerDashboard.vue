@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { designateMonthEnds } from '../utils/businessDate.js'
-import { snapshotConfidence, detectAnomalies } from '../utils/analysisQuality.js'
+import { detectAnomalies } from '../utils/analysisQuality.js'
 
 const props = defineProps({
   snapshots: { type: Array, default: () => [] },
@@ -106,13 +106,10 @@ const summary = computed(() => {
   }
 })
 
-// ── 信頼度（シビア採点）＋ 異常検知 ──────────────────
+// ── 異常検知 ────────────────────────────────────────
 // 月次比較では納品は当然あるので、増加は異常としない（単位変更・桁違いのみ拾う）
 const anomalies = computed(() =>
   current.value ? detectAnomalies(current.value, prevSnap.value, { deliveryExpected: true }) : []
-)
-const confidence = computed(() =>
-  current.value ? snapshotConfidence(current.value, { anomalyCount: anomalies.value.length }) : null
 )
 
 // ── 在庫金額推移（月末在庫・古い→新しい、最大12ヶ月）──
@@ -253,55 +250,6 @@ const abc = computed(() => {
   }
   return { total, A: summarize('A'), B: summarize('B'), C: summarize('C') }
 })
-
-// ── 分析できる項目（データに応じて増える）──────────
-const showCapabilities = ref(false)
-const capabilities = computed(() => {
-  const s = current.value
-  if (!s) return []
-  const withPrice = s.items.filter(it => it.unitPrice != null).length
-  const withCat   = s.items.filter(it => it.category).length
-  const withPrev  = s.items.filter(it => it.prevMonth !== '' && it.prevMonth != null).length
-  return [
-    {
-      name: '在庫金額・推移・ABC分析',
-      ok: withPrice > 0,
-      detail: withPrice > 0 ? `${withPrice}品目に単価あり` : '単価データなし',
-      need: '各品目の単価',
-      hint: '設定 › 品目リストで単価を入力（またはCSVで取込）すると、在庫金額の合計・推移・ABC分析が使えます',
-    },
-    {
-      name: 'ジャンル別在庫金額',
-      ok: withCat > 0 && withPrice > 0,
-      detail: withCat > 0 ? `${withCat}品目にジャンルあり` : 'ジャンル未設定',
-      need: '品目のジャンル＋単価',
-      hint: '入力モーダルやCSVで品目にジャンルを設定すると、ジャンル別の在庫金額が集計されます',
-    },
-    {
-      name: '前回差アラート',
-      ok: !!prevSnap.value,
-      detail: prevSnap.value ? '前回の棚卸データあり' : '前回データなし',
-      need: '2回以上の棚卸',
-      hint: '棚卸を2回以上完了すると、前回との差（急増・急減・新規・未入力）が表示されます',
-    },
-    {
-      name: '前月実績との比較',
-      ok: withPrev > 0,
-      future: true,
-      detail: withPrev > 0 ? `${withPrev}品目に前月実績あり` : '前月実績なし',
-      need: '前月実績（CSV）',
-      hint: 'CSVで「前月実績」列を取り込むと、前月比の分析に対応予定です',
-    },
-    {
-      name: '原価率・廃棄率・在庫回転率',
-      ok: false,
-      future: true,
-      detail: '仕入・出庫・廃棄が未記録',
-      need: '仕入・出庫・廃棄の記録',
-      hint: '月次の在庫だけでは在庫の増減しか分かりません。仕入合計などを記録すると、概算の原価率が算出できるよう対応予定です',
-    },
-  ]
-})
 </script>
 
 <template>
@@ -344,12 +292,6 @@ const capabilities = computed(() => {
             <span class="dash-weekday" :class="{ sat: summary.weekday === '土', sun: summary.weekday === '日' }">
               {{ summary.weekday }}曜日
             </span>
-            <span
-              v-if="confidence"
-              class="dash-conf"
-              :class="'c-' + confidence.label"
-              :title="confidence.reasons.join(' / ') || '十分なデータ'"
-            >信頼度 {{ confidence.label }}（{{ confidence.score }}）</span>
           </div>
           <div class="dash-designate">
             {{ selectedMonth?.slice(0, 4) }}年{{ +(selectedMonth?.slice(5) || 0) }}月の月末在庫 ＝
@@ -516,31 +458,6 @@ const capabilities = computed(() => {
             </div>
           </div>
         </div>
-
-        <!-- 分析できる項目（データに応じて増える） -->
-        <div class="dash-section">
-          <button class="dash-cap-toggle" @click="showCapabilities = !showCapabilities">
-            <span>📋 分析できる項目・これがあればもっと出せます</span>
-            <span class="dash-cap-caret">{{ showCapabilities ? '▲' : '▼' }}</span>
-          </button>
-          <div v-if="showCapabilities" class="dash-cap-list">
-            <div v-for="c in capabilities" :key="c.name" class="dash-cap-row" :class="{ off: !c.ok }">
-              <div class="dash-cap-status" :class="c.ok ? 'ok' : (c.future ? 'future' : 'wait')">
-                {{ c.ok ? '✓' : (c.future ? '今後' : '🔒') }}
-              </div>
-              <div class="dash-cap-body">
-                <div class="dash-cap-name">
-                  {{ c.name }}
-                  <span class="dash-cap-badge" v-if="c.ok">利用可能</span>
-                  <span class="dash-cap-badge future" v-else-if="c.future">今後対応</span>
-                  <span class="dash-cap-badge wait" v-else>データ待ち</span>
-                </div>
-                <div class="dash-cap-detail">{{ c.detail }}</div>
-                <div class="dash-cap-hint" v-if="!c.ok">必要データ: {{ c.need }}<br>{{ c.hint }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
       </template>
     </div>
   </div>
@@ -606,11 +523,6 @@ const capabilities = computed(() => {
 
 .dash-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .dash-summary-date { font-size: 13px; color: #6b7280; }
-.dash-conf { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; margin-left: auto; }
-.dash-conf.c-高 { background: #dcfce7; color: #16a34a; }
-.dash-conf.c-中 { background: #eef2ff; color: #4338ca; }
-.dash-conf.c-低 { background: #fef9c3; color: #a16207; }
-.dash-conf.c-不足 { background: #fee2e2; color: #b91c1c; }
 .dash-designate { font-size: 11px; color: #9ca3af; margin-bottom: 8px; line-height: 1.5; }
 .dash-anomaly { font-size: 11px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; margin-top: 10px; line-height: 1.5; }
 .dash-weekday {
@@ -695,26 +607,4 @@ const capabilities = computed(() => {
 .dash-abc-name { flex: 1; font-size: 13px; color: #374151; word-break: break-all; }
 .dash-abc-val { font-size: 13px; font-weight: 700; color: #111827; }
 
-.dash-cap-toggle {
-  width: 100%; display: flex; justify-content: space-between; align-items: center;
-  background: none; border: none; padding: 0; font-size: 14px; font-weight: 700;
-  color: #374151; cursor: pointer; text-align: left;
-}
-.dash-cap-caret { font-size: 11px; color: #9ca3af; }
-.dash-cap-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
-.dash-cap-row { display: flex; gap: 10px; align-items: flex-start; }
-.dash-cap-status {
-  flex-shrink: 0; width: 30px; height: 24px; border-radius: 6px; font-size: 12px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-}
-.dash-cap-status.ok { background: #dcfce7; color: #16a34a; }
-.dash-cap-status.wait { background: #f3f4f6; }
-.dash-cap-status.future { background: #ede9fe; color: #7c3aed; font-size: 10px; }
-.dash-cap-body { flex: 1; }
-.dash-cap-name { font-size: 13px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.dash-cap-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #dcfce7; color: #16a34a; }
-.dash-cap-badge.wait { background: #f3f4f6; color: #6b7280; }
-.dash-cap-badge.future { background: #ede9fe; color: #7c3aed; }
-.dash-cap-detail { font-size: 12px; color: #9ca3af; margin-top: 2px; }
-.dash-cap-hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.5; background: #f9fafb; padding: 6px 8px; border-radius: 6px; }
 </style>
