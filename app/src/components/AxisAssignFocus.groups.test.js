@@ -1,7 +1,9 @@
-// 分類先（グループ）を増やす導線を、ヘッダーの「＋ グループ」から
-// カード一覧の下の「＋」→モーダルへ移したことの回帰。
-// ヘッダーに置くと、カードを見ながら増やす動作から視線が離れる。
-// また常時開く入力バーは、1件でもあると一覧の上を占め続けていた。
+// 分類先（グループ）を増やす・消す導線の回帰。
+// 追加: ヘッダーの「＋ グループ」→ カード一覧の下の「＋」→モーダル。
+//   ヘッダーに置くと、カードを見ながら増やす動作から視線が離れる。
+//   また常時開く入力バーは、1件でもあると一覧の上を占め続けていた。
+// 削除: ヘッダーの「編集」モード → 各カードに常設の 🗑。
+//   1つ消すために画面全体のモードを切り替えるのは、操作と対象が離れている。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -26,10 +28,19 @@ const modal = () => host.querySelector('.af-gadd-sheet')
 const input = () => host.querySelector('.af-gadd-input')
 const okBtn = () => host.querySelector('.af-gadd-ok')
 const cards = () => [...host.querySelectorAll('.af-gcard .af-gname')].map(e => e.textContent.trim())
+const delBtns = () => [...host.querySelectorAll('.af-gcard .af-gdel')]
 
 async function click(el) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
+}
+// TransitionGroup は leave するカードを次フレームまで DOM に残すため、
+// 削除後の見た目を見るときはフレームを送る。
+async function flushFrames() {
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => (globalThis.requestAnimationFrame || setTimeout)(r))
+    await nextTick()
+  }
 }
 async function type(value) {
   const el = input()
@@ -51,6 +62,52 @@ beforeEach(async () => {
 afterEach(() => {
   app?.unmount(); host?.remove()
   app = null; host = null
+})
+
+describe('AxisAssignFocus — 分類先の削除導線', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('ヘッダーに「編集」を持たない', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await mount()
+    const labels = [...head().querySelectorAll('button')].map(b => b.textContent.trim())
+    expect(labels).not.toContain('編集')
+    expect(labels).not.toContain('完了')
+  })
+
+  it('編集を押さずとも、はじめから各カードに🗑が出ている', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.addAxisGroup(0, '棚')
+    await mount()
+    expect(delBtns().length).toBe(2)
+    expect(delBtns()[0].textContent.trim()).toBe('🗑')
+  })
+
+  it('🗑は確認してから消し、品目の割り当ても外す', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
+    await mount()
+
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    await click(delBtns()[0])
+    expect(cards()).toEqual(['冷蔵庫'])            // 取り消したら消えない
+
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    await click(delBtns()[0])
+    expect(cfg.config.axisGroupsA).toEqual([])
+    expect(cfg.config.tagsA['トマト'] ?? []).not.toContain('冷蔵庫')   // 割り当ても外れる
+    await flushFrames()
+    expect(cards()).toEqual([])
+  })
+
+  it('🗑を押してもそのカードは選択されない（品目一覧へ進まない）', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.addAxisGroup(0, '棚')
+    await mount()
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    await click(delBtns()[0])
+    expect(host.querySelector('.af-track').style.transform).toContain('calc(0%')   // -50% = 品目一覧へ移動
+  })
 })
 
 describe('AxisAssignFocus — 分類先の追加導線', () => {
