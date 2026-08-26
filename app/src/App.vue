@@ -51,6 +51,7 @@ import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js
 import { replenishTarget, targetBasisLabel } from './services/replenishTarget.js'
 import { avgDailyConsumption } from './services/impliedConsumption.js'
 import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
+import { saveLastPage, readLastPage } from './services/lastPage.js'
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
@@ -446,6 +447,9 @@ async function _pullMovements() {
 // 「仕入れ」ページを開いたときに選ぶタブ。ホームからは在庫、発注セッションから戻ったときは発注。
 const movementTab = ref('view')
 
+// 起動時に復元する「最後に見ていた独立ページ」。保存を消す watchEffect より先に読む。
+const _bootPage = readLastPage()
+
 // 発注セッションを離れると「仕入れ」カードの発注タブへ返る（練習モードは従来どおり一覧へ）。
 // 行き先が変わるので、ヘッダーの戻るボタンの見た目と説明もそこへ合わせる。
 // 🏠 のままだと「ホームへ戻る」と読めてしまう。
@@ -714,6 +718,14 @@ watchEffect(() => {
   document.body.classList.toggle('dt-shell', showDesktopNav.value)
   document.body.dataset.view = currentView.value
 })
+
+// リロードしても同じページに留まるため、独立ページに居るあいだだけ行き先を覚える。
+// 対象外の画面へ移ると saveLastPage が保存を消すので、ホームでリロードすればホームに出る。
+//
+// 保存値は setup の時点で _bootPage に退避してある。この watchEffect は setup 中に
+// 一度走り、そのときの currentView（'landing'）で保存を消してしまうため、
+// 起動時の復元が localStorage を直接読むと必ず空になる。
+watchEffect(() => saveLastPage(currentView.value, movementTab.value))
 onUnmounted(() => {
   if (typeof document === 'undefined') return
   document.body.classList.remove('dt-shell')
@@ -1155,9 +1167,16 @@ onMounted(async () => {
       // 認証済み: 進行中のセッションがあれば直接復帰、なければ一覧へ
       if (isAuthenticated.value) {
         if (!isCompleted.value) restorePendingSession()
+        // 進行中セッション > 最後に見ていた独立ページ > ホーム、の順で行き先を決める。
+        // セッションを先に見るのは、数えかけの棚卸へ戻せないほうが実害が大きいため。
+        const resumePage = (pendingSession.value?.id && !isCompleted.value) ? null : _bootPage
         currentView.value = (pendingSession.value?.id && !isCompleted.value)
           ? 'session'
-          : 'sessions'
+          : (resumePage?.view ?? 'sessions')
+        if (resumePage?.view === 'movement') {
+          movementTab.value = resumePage.tab
+          _pullMovements()
+        }
         // リロード時もセッションの種類でテーマ（青=棚卸 / 橙=発注）を復元する
         sessionMode.value = pendingSession.value?.type === 'order' ? 'order' : 'stock'
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
@@ -2767,6 +2786,7 @@ function dismissReview() {
     <MovementPage
       v-else-if="currentView === 'movement'"
       :initial-tab="movementTab"
+      @tab-change="movementTab = $event"
       @back="onPageBack"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"

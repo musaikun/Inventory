@@ -44,4 +44,8 @@ export const STORAGE_KEYS = {
   // 業務データではないため accountData の全消去対象には含めない。
   weatherLoc:       'weather_loc',    // 天気表示の位置（緯度・経度・地名）
   weatherCache:     'weather_cache',  // 天気データの1hキャッシュ
+  // リロードしても同じページに留まるための最後の表示ページ。
+  // 対象は独立ページ（データ管理・履歴カレンダー・仕入れ）だけで、セッション画面は
+  // 従来どおり pendingSession から復元する（そちらが正）。業務データではない。
+  lastPage:         '_last_page_v1',
 }

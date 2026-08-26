@@ -22,7 +22,7 @@ import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
 import ReorderBulkModal from './ReorderBulkModal.vue'
 
-const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster'])
+const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster', 'tabChange'])
 // 開いたときに選んでおくタブ。発注セッションから戻ってきたときに発注タブへ返すために使う。
 const props = defineProps({
   initialTab: { type: String, default: 'view' },   // 'view' | 'order' | 'in' | 'out'
@@ -261,6 +261,8 @@ function setMode(m) {
   if (m === mode.value) return
   slideDir.value = TAB_ORDER.indexOf(m) > TAB_ORDER.indexOf(mode.value) ? 'fwd' : 'back'
   mode.value = m
+  // 再読込でこのタブへ戻れるよう、選んでいるタブを親へ伝える（親が保存を持つ）
+  emit('tabChange', m)
 }
 // 左右スワイプで在庫→入庫→出庫を切り替え
 const swipe = useHorizontalSwipe({
