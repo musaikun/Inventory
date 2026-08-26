@@ -65,14 +65,21 @@ push トリガはこれを迂回するために足した。）
 1 回の run で **Worker → Pages の順に両方**を更新する。Pages だけ新しい状態にすると、
 config 中継の新フィールドがゲスト側から落ちるなどの不整合が出るため、分離して実行しない。
 
-D1 マイグレーションはこの workflow に含めない。schema を変える変更を入れるときは、
-先に `inventory-store-pro-review` へ適用する（現在の適用済みは `0001`〜`0016`）。
+D1 マイグレーションも同じ run で当てる。`scripts/migrate.sh` をセンチネル方式で回し、
+**未適用のものだけ**を `inventory-store-pro-review` へ適用する（冪等・既存は触らない）。
+**対象は Pro Review の D1 だけで、本番 D1 には一切触れない**（D-018 の分離）。
+人手で当て忘れると、新しい Worker が存在しない table を参照して Pro Review だけ壊れるため、
+検証環境はここで自動的に揃える。**本番は `WEB-04` の手順**（preflight → User承認 → 順に適用）
+を維持し、この workflow からは適用しない。
+
+`scripts/migrate.sh` は `DB_NAME` で対象を差し替える（既定は本番）:
+`DB_NAME=inventory-store-pro-review ./scripts/migrate.sh`
 
 push トリガも使えない状況（`develop`以外を入れる／workflowが落ちる）では、次の手動更新を使う。
 
 ## 初期構築・手動更新
 
-1. `inventory-store-pro-review`へ`0001`〜`0016`を順番に適用する。
+1. `inventory-store-pro-review`へ`0001`〜`0017`を順番に適用する（`DB_NAME=inventory-store-pro-review ./scripts/migrate.sh` で未適用のみ）。
 2. `cd worker && npx wrangler@latest deploy --env pro_review`で専用Workerだけを更新する。
 3. 次の3変数を設定してAppをbuildする。
    - `VITE_SYNC_WORKER_URL=wss://inventory-sync-pro-review.yuya-takaki.workers.dev`

@@ -63,6 +63,20 @@ jobs:
           VITE_REVIEW_PLAN: pro
         run: npm run build
 
+      # Pro Review 専用 D1 の未適用マイグレーションだけを当てる（scripts/migrate.sh は
+      # センチネル方式で冪等。既に入っているものは触らない）。
+      #
+      # **対象は Pro Review の D1 だけで、本番 D1 には一切触れない**（D-018 の分離）。
+      # schema を変える変更を人手で当て忘れると、新しい Worker が存在しない table を
+      # 参照して Pro Review だけ壊れる。検証環境なので、ここは自動で揃える。
+      # 本番は WEB-04 の手順（preflight → User承認 → 順に適用）を維持する。
+      - name: Apply pending D1 migrations (Pro Review only)
+        env:
+          DB_NAME: inventory-store-pro-review
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        run: ./scripts/migrate.sh
+
       # Pro Review は Pages だけでなく専用 Worker / D1 / DO も production と分離されている
       # （D-018）。Worker を置いていくと、config 中継の新フィールドがゲスト側から落ちるなど、
       # Pages だけ新しい状態で不整合が出る。必ず同じ run で両方を更新する。

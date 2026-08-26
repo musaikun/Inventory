@@ -9,7 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/../worker"
 
-DB_NAME="inventory-store"
+# 対象DB。既定は本番。検証環境へ当てるときは環境変数で差し替える:
+#   DB_NAME=inventory-store-pro-review ./scripts/migrate.sh
+# 以前は本番名を直接埋めていたため、Pro Review へはこのscriptを使えず手作業だった。
+DB_NAME="${DB_NAME:-inventory-store}"
+
+echo "対象DB: $DB_NAME"
 
 # リモートにセンチネル（テーブル or インデックス）が無ければ、そのマイグレーションを適用する。
 # 列追加マイグレーションは新テーブルを作らないため、同時に作るインデックスをセンチネルにする。
