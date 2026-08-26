@@ -1,22 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { RoomDO } from './RoomDO.js'
+import { makeState as makeSharedState } from '../test/doState.js'
 
+// storage は監査ログのチャンク保存で list/delete/put(object) を使うため、
+// 共有モック（test/doState.js）の上に alarm/deleteAll を足して使う。
 function makeState(wsList = [], initial = {}) {
-  const store = new Map(Object.entries(initial))
+  const state = makeSharedState(wsList, initial)
   let alarmDeleted = false
-  return {
-    storage: {
-      async get(key) { return store.get(key) },
-      async put(key, value) { store.set(key, value) },
-      async setAlarm() {},
-      async getAlarm() { return null },
-      async deleteAlarm() { alarmDeleted = true },
-      async deleteAll() { store.clear() },
-    },
-    getWebSockets() { return wsList },
-    _store: store,
-    _alarmDeleted() { return alarmDeleted },
-  }
+  state.storage.deleteAlarm = async () => { alarmDeleted = true }
+  state.storage.deleteAll   = async () => { state._store.clear() }
+  state._alarmDeleted = () => alarmDeleted
+  return state
 }
 
 function makeWs(attachment = null) {

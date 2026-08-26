@@ -228,10 +228,20 @@ export function setOrdersSnapshotCallback(fn)    { _onOrdersSnapshot = fn }
 export function registerOrdersGetter(fn)         { _getOrders = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
+// 変更履歴の保持上限。参加者別の重複カウントと品目ごとの履歴の正本なので、
+// 品目数を大きく上回る件数（1品目を複数人が直す）を持てる必要がある。
+// メモリ上の配列なので実用上は上限に当たらないが、暴走時の歯止めとして残す。
+// worker 側の MAX_AUDIT_LOG と揃えること。
+export const MAX_AUDIT_ENTRIES = 5000
+
+function _capAuditLog() {
+  if (auditLog.length > MAX_AUDIT_ENTRIES) auditLog.splice(0, auditLog.length - MAX_AUDIT_ENTRIES)
+}
+
 export function addLocalAuditEntry(entry) {
   if (!entry?.id || auditLog.some(e => e.id === entry.id)) return
   auditLog.push(entry)
-  if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+  _capAuditLog()
 }
 
 export function clearAuditLog() {
@@ -257,7 +267,7 @@ export function mergeAuditLog(incoming = []) {
     auditLog.push(entry)
   }
   auditLog.sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0))
-  if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+  _capAuditLog()
 }
 
 // ── 送信 API ──────────────────────────────────────────────────────────────────
@@ -730,7 +740,7 @@ function _handleMessage(msg) {
       const entry = msg.entry
       if (entry?.id && !auditLog.some(e => e.id === entry.id)) {
         auditLog.push(entry)
-        if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+        _capAuditLog()
       }
       break
     }

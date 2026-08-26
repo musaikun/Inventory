@@ -1,22 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { RoomDO } from './RoomDO.js'
 
+// 監査ログはチャンク（audit:000000…）に分かれて保存される。testからは連結して見る。
+const auditOf = (state) =>
+  [...state._store.entries()]
+    .filter(([k]) => k.startsWith('audit:'))
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .flatMap(([, chunk]) => chunk)
+
 // R2-04: 発注数チャネル（order_update / order_remove）の DO 側の挙動を検証する。
 // storage・WebSocket を最小モックし、_handleMessage を直接駆動する。
 
-function makeState(wsList) {
-  const store = new Map()
-  return {
-    storage: {
-      async get(k)  { return store.get(k) },
-      async put(k, v) { store.set(k, v) },
-      async setAlarm() {},
-      async getAlarm() { return null },
-    },
-    getWebSockets() { return wsList },
-    _store: store,
-  }
-}
+// storage は監査ログのチャンク保存で list/delete/put(object) を使うため、
+// 共有モック（test/doState.js）を使う。
+import { makeState } from '../test/doState.js'
 
 function makeWs(att) {
   const sent = []
@@ -46,7 +43,7 @@ describe('RoomDO 発注数チャネル（order_update / order_remove）', () => 
     expect(orders['トマト']).toMatchObject({ orderQty: 5, unit: '箱', lot: 2, enteredBy: 'レジ', enteredById: 'd1' })
     expect(typeof orders['トマト'].updatedAt).toBe('number')
 
-    const audit = state._store.get('auditLog')
+    const audit = auditOf(state)
     expect(audit.at(-1)).toMatchObject({ ingredient: 'トマト', action: 'order_set', totalQty: 5 })
 
     // 送信者(ws1)は order_update を受け取らない（audit_entry は受け取る）
@@ -90,14 +87,14 @@ describe('RoomDO 発注数チャネル（order_update / order_remove）', () => 
     await room._handleMessage(ws1, { type: 'order_remove', ingredient: 'トマト' })
 
     expect(state._store.get('orders')['トマト']).toBeUndefined()
-    expect(state._store.get('auditLog').at(-1)).toMatchObject({ ingredient: 'トマト', action: 'order_clear' })
+    expect(auditOf(state).at(-1)).toMatchObject({ ingredient: 'トマト', action: 'order_clear' })
     expect(ws2._sent.find(m => m.type === 'order_remove')).toMatchObject({ ingredient: 'トマト', fromDeviceId: 'd1' })
   })
 
   it('order_remove: 存在しない品目は audit を残さず配信のみ', async () => {
     const { room, state, ws1, ws2 } = setup()
     await room._handleMessage(ws1, { type: 'order_remove', ingredient: '無い品' })
-    expect(state._store.get('auditLog')).toBeUndefined()
+    expect(auditOf(state)).toEqual([])
     expect(ws2._sent.find(m => m.type === 'order_remove')).toMatchObject({ ingredient: '無い品' })
   })
 })

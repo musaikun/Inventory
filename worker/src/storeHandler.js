@@ -6,7 +6,7 @@ import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
-  MAX_ID_LEN, MAX_DEVICE_NAME_LEN,
+  MAX_ID_LEN, MAX_DEVICE_NAME_LEN, MAX_DEVICE_ID_LEN,
   MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_ENTRY_AT_MS,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
@@ -904,6 +904,9 @@ function _snapshotMeta(snapshot) {
       totalQty:   parseOptionalNumber(e.totalQty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
       unit:       text(e.unit, MAX_UNIT_LEN),
       enteredBy:  text(e.enteredBy, MAX_DEVICE_NAME_LEN),
+      // 誰が入れたかの識別子。同名端末の区別と、将来ログを D1 の行として持つときの
+      // 集計キーになるので落とさない。
+      enteredById: text(e.enteredById, MAX_DEVICE_ID_LEN),
       timestamp:  text(e.timestamp, 40),
     }))
 

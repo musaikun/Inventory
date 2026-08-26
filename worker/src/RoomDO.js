@@ -1,11 +1,15 @@
 import {
-  ROOM_TTL_MS, MAX_PARTICIPANTS, MAX_AUDIT_LOG,
+  ROOM_TTL_MS, MAX_PARTICIPANTS, MAX_AUDIT_LOG, AUDIT_CHUNK_SIZE, MAX_CHAT_MESSAGES,
   WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN, MAX_ORDER_QTY,
   ACCOUNT_DELETION_INTERNAL_HEADER,
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
+
+// 監査ログのチャンクキー。ゼロ埋めして key の昇順＝時系列順にする。
+const AUDIT_PREFIX = 'audit:'
+const _auditKey = (i) => `${AUDIT_PREFIX}${String(i).padStart(6, '0')}`
 
 // 発注スケジュールの正規化（client services/orderScheduleUtil の normalizeSchedules と
 // 一致させること）。仕入先ごとに曜日・締切が違うため配列で持つ。
@@ -359,7 +363,7 @@ export class RoomDO {
           this.state.storage.get('recountFlags').then(v => v ?? {}),
           this.state.storage.get('config').then(v => v ?? null),
           this.state.storage.get('messages').then(v => v ?? []),
-          this.state.storage.get('auditLog').then(v => v ?? []),
+          this._readAudit(),
           this.state.storage.get('isActive').then(v => v ?? false),
           this.state.storage.get('sessionId').then(v => v ?? ''),
         ])
@@ -391,10 +395,7 @@ export class RoomDO {
         if (!ingredient || typeof qty !== 'number') return
         if (String(ingredient).length > MAX_INGREDIENT_LEN) return
 
-        const [inventory, auditLog] = await Promise.all([
-          this.state.storage.get('inventory').then(v => v ?? {}),
-          this.state.storage.get('auditLog').then(v => v ?? []),
-        ])
+        const inventory = (await this.state.storage.get('inventory')) ?? {}
 
         const prev = inventory[ingredient]
         const prevQty = prev?.qty ?? null
@@ -416,7 +417,7 @@ export class RoomDO {
         }
 
         const att = ws.deserializeAttachment() ?? {}
-        const entry = this._appendAudit(auditLog, {
+        const entry = await this._appendAudit({
           ingredient,
           action,
           delta,
@@ -426,10 +427,7 @@ export class RoomDO {
           enteredById: att.deviceId ?? '',
         })
 
-        await Promise.all([
-          this.state.storage.put('inventory', inventory),
-          this.state.storage.put('auditLog', auditLog),
-        ])
+        await this.state.storage.put('inventory', inventory)
 
         const { deviceId } = att
         this._broadcast({ type: 'audit_entry', entry })
@@ -444,15 +442,12 @@ export class RoomDO {
         const { ingredient } = msg
         if (!ingredient || String(ingredient).length > MAX_INGREDIENT_LEN) return
 
-        const [inventory, auditLog] = await Promise.all([
-          this.state.storage.get('inventory').then(v => v ?? {}),
-          this.state.storage.get('auditLog').then(v => v ?? []),
-        ])
+        const inventory = (await this.state.storage.get('inventory')) ?? {}
 
         const prev = inventory[ingredient]
         if (prev) {
           const att = ws.deserializeAttachment() ?? {}
-          const entry = this._appendAudit(auditLog, {
+          const entry = await this._appendAudit({
             ingredient,
             action:      'remove',
             delta:       -(prev.qty ?? 0),
@@ -462,7 +457,6 @@ export class RoomDO {
             enteredById: att.deviceId  ?? '',
           })
           this._broadcast({ type: 'audit_entry', entry })
-          await this.state.storage.put('auditLog', auditLog)
         }
 
         delete inventory[ingredient]
@@ -482,10 +476,7 @@ export class RoomDO {
         // （JSON化で null 化して壊れるのを防ぐ）。取り消しは order_remove を使う想定。
         if (!Number.isFinite(orderQty) || orderQty <= 0 || orderQty > MAX_ORDER_QTY) return
 
-        const [orders, auditLog] = await Promise.all([
-          this.state.storage.get('orders').then(v => v ?? {}),
-          this.state.storage.get('auditLog').then(v => v ?? []),
-        ])
+        const orders = (await this.state.storage.get('orders')) ?? {}
 
         const att      = ws.deserializeAttachment() ?? {}
         const cleanBy  = String(enteredBy ?? att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
@@ -501,7 +492,7 @@ export class RoomDO {
           updatedAt:   Date.now(),
         }
 
-        const entry = this._appendAudit(auditLog, {
+        const entry = await this._appendAudit({
           ingredient,
           action:      'order_set',
           delta:       0,
@@ -511,10 +502,7 @@ export class RoomDO {
           enteredById: att.deviceId ?? '',
         })
 
-        await Promise.all([
-          this.state.storage.put('orders', orders),
-          this.state.storage.put('auditLog', auditLog),
-        ])
+        await this.state.storage.put('orders', orders)
 
         this._broadcast({ type: 'audit_entry', entry })
         this._broadcast(
@@ -528,15 +516,12 @@ export class RoomDO {
         const { ingredient } = msg
         if (!ingredient || String(ingredient).length > MAX_INGREDIENT_LEN) return
 
-        const [orders, auditLog] = await Promise.all([
-          this.state.storage.get('orders').then(v => v ?? {}),
-          this.state.storage.get('auditLog').then(v => v ?? []),
-        ])
+        const orders = (await this.state.storage.get('orders')) ?? {}
 
         const att  = ws.deserializeAttachment() ?? {}
         const prev = orders[ingredient]
         if (prev) {
-          const entry = this._appendAudit(auditLog, {
+          const entry = await this._appendAudit({
             ingredient,
             action:      'order_clear',
             delta:       0,
@@ -547,10 +532,7 @@ export class RoomDO {
           })
           this._broadcast({ type: 'audit_entry', entry })
           delete orders[ingredient]
-          await Promise.all([
-            this.state.storage.put('orders', orders),
-            this.state.storage.put('auditLog', auditLog),
-          ])
+          await this.state.storage.put('orders', orders)
         }
 
         this._broadcast({ type: 'order_remove', ingredient, fromDeviceId: att.deviceId ?? '' }, ws)
@@ -577,8 +559,7 @@ export class RoomDO {
 
         const inventory = (await this.state.storage.get('inventory')) ?? {}
         const cur       = inventory[ingredient]
-        const auditLog  = (await this.state.storage.get('auditLog')) ?? []
-        const entry = this._appendAudit(auditLog, {
+        const entry = await this._appendAudit({
           ingredient,
           action:      on ? 'flag_recount' : 'unflag_recount',
           delta:       0,
@@ -589,10 +570,7 @@ export class RoomDO {
           timestamp:   at,
         })
 
-        await Promise.all([
-          this.state.storage.put('recountFlags', flags),
-          this.state.storage.put('auditLog', auditLog),
-        ])
+        await this.state.storage.put('recountFlags', flags)
 
         this._broadcast({ type: 'audit_entry', entry })
         this._broadcast({ type: 'recount_flag', ingredient, on, enteredBy: entry.enteredBy, at, fromDeviceId: att.deviceId ?? '' }, ws)
@@ -656,7 +634,7 @@ export class RoomDO {
 
         const messages = (await this.state.storage.get('messages')) ?? []
         messages.push(msgObj)
-        if (messages.length > MAX_AUDIT_LOG) messages.splice(0, messages.length - MAX_AUDIT_LOG)
+        if (messages.length > MAX_CHAT_MESSAGES) messages.splice(0, messages.length - MAX_CHAT_MESSAGES)
         await this.state.storage.put('messages', messages)
 
         this._broadcast({ type: 'message', ...msgObj })
@@ -746,7 +724,7 @@ export class RoomDO {
             }
           }
           puts.push(this.state.storage.put('inventory', broadcastInv))
-          puts.push(this.state.storage.put('auditLog',  []))
+          puts.push(this._clearAudit())
 
           // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
           if (msg.orders && typeof msg.orders === 'object') {
@@ -987,16 +965,72 @@ export class RoomDO {
     }
   }
 
-  // 監査ログエントリを生成して追記・上限で切り詰める（id/timestamp は fields で上書き可）
-  _appendAudit(auditLog, fields) {
+  // ── 監査ログ（変更履歴）のチャンク保存 ──────────────────────────────────
+  //
+  // 参加者別の重複カウントと品目ごとの履歴の正本なので、品目数を大きく上回る件数
+  // （1品目を複数人が直す）を保持する。DO storage は1つの値が 128KiB 上限のため、
+  // 全件を1キーへ書くと 500件前後で put が落ちて同期そのものが壊れる。
+  // AUDIT_CHUNK_SIZE 件ずつ別キーへ分け、追記は**末尾チャンクだけ**を読み書きする。
+
+  // 全チャンクを連結して返す。旧形式（1キー `auditLog` に全件）が残っていれば先頭に置く。
+  async _readAudit() {
+    const legacy = await this.state.storage.get('auditLog')
+    const out = Array.isArray(legacy) ? [...legacy] : []
+    const chunks = await this.state.storage.list({ prefix: AUDIT_PREFIX })
+    for (const chunk of chunks.values()) if (Array.isArray(chunk)) out.push(...chunk)
+    return out
+  }
+
+  // 監査ログを1件追記して保存する（put まで済ませる）。id/timestamp は fields で上書き可。
+  async _appendAudit(fields) {
     const entry = {
       id:        `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       timestamp: Date.now(),
       ...fields,
     }
-    auditLog.push(entry)
-    if (auditLog.length > MAX_AUDIT_LOG) auditLog.splice(0, auditLog.length - MAX_AUDIT_LOG)
+
+    const tail = await this.state.storage.list({ prefix: AUDIT_PREFIX, reverse: true, limit: 1 })
+    let index = 0
+    let chunk = []
+    for (const [key, value] of tail) {
+      index = Number(key.slice(AUDIT_PREFIX.length)) || 0
+      chunk = Array.isArray(value) ? [...value] : []
+    }
+
+    // 旧形式が残っている状態での初回追記: チャンクへ移してから追記する
+    if (tail.size === 0) {
+      const legacy = await this.state.storage.get('auditLog')
+      if (Array.isArray(legacy) && legacy.length > 0) {
+        const puts = {}
+        for (let i = 0; i * AUDIT_CHUNK_SIZE < legacy.length; i++) {
+          puts[_auditKey(i)] = legacy.slice(i * AUDIT_CHUNK_SIZE, (i + 1) * AUDIT_CHUNK_SIZE)
+        }
+        await this.state.storage.put(puts)
+        await this.state.storage.delete('auditLog')
+        index = Object.keys(puts).length - 1
+        chunk = [...puts[_auditKey(index)]]
+      }
+    }
+
+    if (chunk.length >= AUDIT_CHUNK_SIZE) { index += 1; chunk = [] }
+    chunk.push(entry)
+    await this.state.storage.put(_auditKey(index), chunk)
+    await this._trimAudit()
     return entry
+  }
+
+  // 上限超過分は古いチャンクごと捨てる（件数単位で切るより読み書きが軽い）
+  async _trimAudit() {
+    const maxChunks = Math.ceil(MAX_AUDIT_LOG / AUDIT_CHUNK_SIZE)
+    const keys = [...(await this.state.storage.list({ prefix: AUDIT_PREFIX })).keys()]
+    if (keys.length <= maxChunks) return
+    await this.state.storage.delete(keys.slice(0, keys.length - maxChunks))
+  }
+
+  // 新しいセッションの開始時に全消去する（前回の履歴を混ぜない）
+  async _clearAudit() {
+    const keys = [...(await this.state.storage.list({ prefix: AUDIT_PREFIX })).keys()]
+    await this.state.storage.delete([...keys, 'auditLog'])
   }
 
   _getParticipants() {

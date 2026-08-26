@@ -61,6 +61,36 @@ function _normName(v) {
  * 中身は JSON へ入る値（文字列・数値・真偽・null・配列・平objects）だけなので
  * JSON 経由で複製する。`undefined` の鍵は落ちるが、送信時に落ちるのと同じ。
  */
+/**
+ * 完了要求のバイト上限。server の MAX_PAYLOAD_BYTES（1MB）より小さく取る。
+ * 超えた要求は 413 で**完了そのものが失敗**し、ユーザーには「保存できなかった」しか残らない。
+ */
+export const MAX_COMPLETION_BYTES = 900_000
+
+function _byteLength(value) {
+  try { return new TextEncoder().encode(JSON.stringify(value)).length } catch (_) { return 0 }
+}
+
+/**
+ * 上限に収まるよう、変更履歴を**古い方から**落とす。落とした件数を返す。
+ *
+ * 落とす対象を変更履歴に限るのは、数量・参加者別・品目一覧が欠けると
+ * 棚卸の結果そのものが保存できなくなるため。変更履歴は「訂正の経緯」なので、
+ * 古い方から失われても結果は残る。
+ * 1件ずつ測り直すと大きなログで測定回数が跳ねるので、8分の1ずつ落として測り直す。
+ */
+export function fitCompletionBody(body, limit = MAX_COMPLETION_BYTES) {
+  const log = body?.snapshot?.auditLog
+  if (!Array.isArray(log) || log.length === 0) return 0
+  let dropped = 0
+  while (log.length > 0 && _byteLength(body) > limit) {
+    const cut = Math.max(1, Math.ceil(log.length / 8))
+    log.splice(0, cut)
+    dropped += cut
+  }
+  return dropped
+}
+
 function _freeze(value) {
   if (value == null) return value
   try {
@@ -171,8 +201,13 @@ function _stockRequest({ snapshot, inventory, prices }) {
   }
   if (!body.snapshot) return { ok: false, reason: 'snapshot_build_failed' }
 
+  // 品目数が多い店舗では items / inventory だけで数百KBになる。変更履歴を丸ごと載せると
+  // 1MB を超えて 413 になり、棚卸の完了そのものが失敗する。収まらない分は
+  // 変更履歴の古い方だけを落とす（結果は残す）。落ちた件数は呼び出し側へ返して知らせる。
+  const droppedAuditEntries = fitCompletionBody(body)
+
   // 端末の履歴確定にも**送ったのと同じ版**を使う（表示とサーバー内容をずらさない）。
-  return { ok: true, type: COMPLETION_STOCK, snapshot: body.snapshot, body }
+  return { ok: true, type: COMPLETION_STOCK, snapshot: body.snapshot, body, droppedAuditEntries }
 }
 
 const _MESSAGES = {

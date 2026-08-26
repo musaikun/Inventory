@@ -1594,6 +1594,11 @@ async function _finishSession(completionCount, isHostInRoom) {
     showToast(completionErrorMessage(req.reason), 6000, 'error')
     return
   }
+  // 1MB に収めるため変更履歴の古い方を落とした場合は黙って捨てない。
+  // 数量・参加者別は残っているので完了自体は続ける（ここで止める方が損失が大きい）。
+  if (req.droppedAuditEntries > 0) {
+    showToast(`変更履歴のうち古い${req.droppedAuditEntries}件は保存されません（サイズ上限）`, 6000, 'warning')
+  }
   // stock はサーバーが sessions・inventory_lines・store_history を1トランザクションで書く。
   // 成功条件には snapshotSaved を含める（useSession）。明細が入らない完了は完了ではない。
   // order は sessions だけを更新し、明細の正本は orders / order_lines に残る。

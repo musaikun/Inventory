@@ -197,22 +197,45 @@ describe('stock セッションの完了契約', () => {
     expect(snap.activeMs).toBe(1000)
   })
 
-  it('metadata の件数上限を超える配列を切り詰める', async () => {
+  // 変更履歴は参加者別の重複カウントと品目ごとの履歴の正本なので、
+  // 品目数を大きく上回る件数（1品目を複数人が直す）を保存できる必要がある。
+  it('品目数を大きく超える変更履歴でも切り捨てずに保存する', async () => {
     const h = setup()
-    // 上限（500件）を大きく超えつつ MAX_PAYLOAD_BYTES（1MB）には収まる件数。
-    // 「バイト数では止まらないが件数では止まる」ことを見るため。
-    const huge = Array.from({ length: 1200 }, (_, i) => ({
-      id: `e${i}`, ingredient: '品目0', action: 'set', delta: 1, totalQty: 1,
-      unit: '個', enteredBy: 'a', timestamp: '2026-08-09T00:00:00.000Z',
+    const log = Array.from({ length: 1200 }, (_, i) => ({
+      id: `e${i}`, ingredient: '品目0', action: 'overwrite', delta: 1, totalQty: 1,
+      unit: '個', enteredBy: `端末${i % 3}`, enteredById: `dev-${i % 3}`, timestamp: 1_700_000_000_000 + i,
     }))
     const res = await handleSessionComplete(h.db, CODE, SID, {
       inventory: inventory(3), prices: prices(3), takenAt: '2026-08-09',
-      snapshot: { ...clientSnapshot(3), auditLog: huge, entryLog: huge },
+      snapshot: { ...clientSnapshot(3), auditLog: log },
     })
     expect(res.ok).toBe(true)
     const snap = JSON.parse(historyOf(h)[0].snapshot_json)
-    expect(snap.auditLog.length).toBeLessThanOrEqual(500)
-    expect(snap.entryLog.length).toBeLessThanOrEqual(500)
+    expect(snap.auditLog).toHaveLength(1200)
+    // 誰が入れたかの識別子も残す（参加者別の集計キー・将来のD1移行のため）
+    expect(snap.auditLog[0].enteredById).toBe('dev-0')
+  })
+
+  it('metadata の件数上限を超える配列は切り詰める', async () => {
+    const h = setup()
+    // 上限（MAX_SNAPSHOT_LOG_ENTRIES = 5000）を超えつつ MAX_PAYLOAD_BYTES（1MB）には収まる件数。
+    // 「バイト数では止まらないが件数では止まる」ことを見るため。
+    const huge = Array.from({ length: 5200 }, (_, i) => ({
+      id: `e${i}`, ingredient: 'A', action: 'set', delta: 1, totalQty: 1,
+      unit: '', enteredBy: 'a', timestamp: 1_700_000_000_000 + i,
+    }))
+    const res = await handleSessionComplete(h.db, CODE, SID, {
+      inventory: inventory(3), prices: prices(3), takenAt: '2026-08-09',
+      snapshot: {
+        ...clientSnapshot(3),
+        auditLog: huge,
+        entryLog: Array.from({ length: 5200 }, (_, i) => `x${i}`),
+      },
+    })
+    expect(res.ok).toBe(true)
+    const snap = JSON.parse(historyOf(h)[0].snapshot_json)
+    expect(snap.auditLog.length).toBeLessThanOrEqual(5000)
+    expect(snap.entryLog.length).toBeLessThanOrEqual(5000)
   })
 
   it('同じ完了要求の再送は安全で結果が変わらない（冪等）', async () => {

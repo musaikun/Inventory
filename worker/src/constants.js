@@ -138,7 +138,7 @@ export const MAX_REPLACE_SESSIONS = 50
 // allowlist した鍵だけを、下の件数上限まで受け付ける。
 // MAX_PAYLOAD_BYTES だけでは「短い要素を大量に並べる」形を止められないため件数でも縛る。
 export const MAX_SNAPSHOT_ITEMS        = 2_000   // 未入力ぶんを含む表示用 items
-export const MAX_SNAPSHOT_LOG_ENTRIES  = 500     // entryLog / auditLog
+export const MAX_SNAPSHOT_LOG_ENTRIES  = 5_000   // entryLog / auditLog（MAX_AUDIT_LOG と揃える）
 export const MAX_SNAPSHOT_PARTICIPANTS = 50      // 参加者別集計（MAX_PARTICIPANTS 20 の余裕分）
 // 参加者別の品目ごとの入力時刻（epoch ms）。端末時計なので広めに許容し、
 // 桁違いの値（秒・マイクロ秒の取り違え）だけを弾く。2100-01-01 まで。
@@ -150,7 +150,16 @@ export const RESULT_WINDOW_DAYS = 3   // 訂正期間（SessionDetailPage の CO
 // ── Durable Object room ───────────────────────────────────────────────────────
 export const ROOM_TTL_MS       = 24 * 60 * 60 * 1000  // alarm / inactivity TTL
 export const MAX_PARTICIPANTS  = 20
-export const MAX_AUDIT_LOG     = 200
+// 変更履歴（操作ログ）。参加者別の重複カウントと品目ごとの履歴の**正本**なので、
+// 品目数を大きく上回る件数（1品目を複数人が直す）を保持できる必要がある。
+// DO storage は1つの値が 128KiB 上限。全件を1キーに書くと 500件前後で put が落ちるため、
+// AUDIT_CHUNK_SIZE 件ずつ別キー（audit:000000, audit:000001, …）に分ける。
+// 追記は末尾チャンクだけを読み書きするので、1入力あたりの負荷も件数に比例しない。
+export const MAX_AUDIT_LOG     = 5_000
+export const AUDIT_CHUNK_SIZE  = 100
+// チャットは1キーにまとめて保存するので 128KiB 上限が直接効く。
+// 監査ログの上限を上げたときに巻き込まれないよう、別の定数として持つ。
+export const MAX_CHAT_MESSAGES = 200
 export const WS_RATE_WINDOW_MS = 2_000              // per-connection rate window
 export const WS_RATE_MAX_MSG   = 20                 // max messages per window
 

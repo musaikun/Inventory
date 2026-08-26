@@ -54,10 +54,18 @@ describe('mergeAuditLog', () => {
     expect(auditLog.map(e => e.id)).toEqual(['srv-1'])
   })
 
-  it('200件を超えたら古い方から切る', () => {
-    sync.mergeAuditLog(Array.from({ length: 250 }, (_, i) => entry(`e-${i}`, i)))
-    expect(auditLog).toHaveLength(200)
+  // 参加者別の重複カウントと品目ごとの履歴の正本なので、品目数を大きく上回る件数
+  // （1品目を複数人が直す）を保持する。上限は暴走時の歯止めとしてだけ残す。
+  it('品目数を大きく超える件数でも切らない', () => {
+    sync.mergeAuditLog(Array.from({ length: 2000 }, (_, i) => entry(`e-${i}`, i)))
+    expect(auditLog).toHaveLength(2000)
+  })
+
+  it('上限を超えたら古い方から切る', () => {
+    const n = sync.MAX_AUDIT_ENTRIES + 50
+    sync.mergeAuditLog(Array.from({ length: n }, (_, i) => entry(`e-${i}`, i)))
+    expect(auditLog).toHaveLength(sync.MAX_AUDIT_ENTRIES)
     expect(auditLog[0].id).toBe('e-50')
-    expect(auditLog[199].id).toBe('e-249')
+    expect(auditLog.at(-1).id).toBe(`e-${n - 1}`)
   })
 })
