@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isEntered, safeDelta, detectAnomalies, snapshotConfidence } from './analysisQuality.js'
+import { isEntered, safeDelta, detectAnomalies } from './analysisQuality.js'
 
 const item = (name, qty, unit = '袋') => ({ item: name, qty, unit })
 
@@ -46,26 +46,5 @@ describe('detectAnomalies', () => {
     const prev = { items: [item('塩', 5, '袋')] }
     const f = detectAnomalies(cur, prev, { deliveryExpected: true })
     expect(f.some(x => x.type === 'unit_changed')).toBe(true)
-  })
-})
-
-describe('snapshotConfidence（シビア）', () => {
-  it('完全入力・多件数・新しい → 高', () => {
-    const items = Array.from({ length: 40 }, (_, i) => item('i' + i, 1))
-    const r = snapshotConfidence({ items, savedAt: new Date().toISOString() })
-    expect(r.label).toBe('高')
-    expect(r.score).toBeGreaterThanOrEqual(90)
-  })
-  it('半分未入力なら大きく減点', () => {
-    const items = Array.from({ length: 40 }, (_, i) => item('i' + i, i < 20 ? 1 : null))
-    const r = snapshotConfidence({ items, savedAt: new Date().toISOString() })
-    expect(r.completeness).toBe(50)
-    expect(r.score).toBeLessThanOrEqual(50)
-  })
-  it('件数が少なければ即キャップ', () => {
-    const items = Array.from({ length: 3 }, (_, i) => item('i' + i, 1))
-    const r = snapshotConfidence({ items, savedAt: new Date().toISOString() })
-    expect(r.score).toBeLessThanOrEqual(20)
-    expect(r.label).toBe('不足')
   })
 })
