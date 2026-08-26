@@ -8,7 +8,7 @@ import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
 const emit = defineEmits(['close'])
 
-const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
+const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
 const { getSnapshots } = useHistory()
 
 // ── 対象の軸（分類）─────────────────────────────────────────
@@ -152,7 +152,8 @@ function locate(item) {
 }
 
 // ── グループ管理 ────────────────────────────────────────────
-const editMode = ref(false)
+// 名前変更（✎）も削除（🗑）もカードに常設する。編集モードの切替は持たない
+// （削除の歯止めは onDelete の確認ダイアログ）。
 
 // グループ追加はモーダルで行う（カード一覧の下の「＋」から開く）
 const adding = ref(false)
@@ -183,11 +184,45 @@ function onRename(g) {
   }
 }
 function onDelete(g) {
-  if (confirm(`グループ「${g}」を削除します。品目の割り当ても外れます。`)) {
-    removeAxisGroup(activeAxis.value, g)
-    if (target.value === g) { target.value = ''; page.value = 'groups' }
+  if (!confirm(`グループ「${g}」を削除します。品目の割り当ても外れます。`)) return
+  // 消す前に「戻すのに要るもの」を控える。振り分け済みの品目も、一覧での位置も
+  // 削除で失われるため、ここで取らないと元に戻せない。
+  const snapshot = {
+    axis: activeAxis.value,
+    name: g,
+    index: defined.value.indexOf(g),          // -1 = 定義リストに無い（割り当てだけで現れていた）
+    items: config.order.filter(i => itemGroups(i).includes(g)),
+    wasTarget: target.value === g,
   }
+  removeAxisGroup(activeAxis.value, g)
+  if (target.value === g) { target.value = ''; page.value = 'groups' }
+  _offerUndo(snapshot)
 }
+
+// ── 削除の取り消し（Undo）────────────────────────────────────────
+// 削除の歯止めは確認ダイアログだけなので、押し間違えたときの戻り道を用意する。
+// 振り分け済みの品目ごと戻す（割り当てのやり直しが一番の損失のため）。
+const undoState = ref(null)     // { axis, name, index, items, wasTarget }
+const UNDO_MS = 9000
+let _undoT = null
+function _offerUndo(snapshot) {
+  undoState.value = snapshot
+  clearTimeout(_undoT)
+  _undoT = setTimeout(() => { undoState.value = null }, UNDO_MS)
+}
+function dismissUndo() { clearTimeout(_undoT); undoState.value = null }
+function undoDelete() {
+  const s = undoState.value
+  if (!s) return
+  dismissUndo()
+  restoreAxisGroup(s.axis, s.name, s.index, s.items)
+  if (s.wasTarget && activeAxis.value === s.axis) target.value = s.name
+  _showFlash(s.items.length
+    ? `「${s.name}」を戻しました（品目 ${s.items.length} 件の振り分けも復元）`
+    : `「${s.name}」を戻しました`, '')
+}
+// 軸を切り替えたら、その画面に属する取り消しも一緒に畳む
+watch(activeAxis, dismissUndo)
 function move(g, dir) { moveAxisGroup(activeAxis.value, g, dir) }
 
 // ── ドラッグハンドルでグループ並べ替え ─────────────────────────
@@ -286,7 +321,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <header class="af-head">
       <button class="af-back" @click="page === 'items' ? backToGroups() : emit('close')">{{ page === 'items' ? '‹ 分類一覧' : '‹ 閉じる' }}</button>
       <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
-      <button v-if="page === 'groups'" class="af-edit" :class="{ on: editMode }" @click="editMode = !editMode">{{ editMode ? '完了' : '編集' }}</button>
     </header>
 
     <!-- 進捗バー -->
@@ -317,7 +351,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
           <!-- カードA: 分類先（グループ）選択 -->
           <section class="af-pane">
-            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで並べ替え・✎で名前変更）</span></div>
+            <div class="af-pane-hint">振り分ける<b>分類先</b>を選んでください<span class="af-hint-sub">（長押しで並べ替え・✎で名前変更・🗑で削除）</span></div>
             <TransitionGroup tag="div" name="af-reorder" class="af-glist" :class="{ reordering: dragG }">
               <div v-for="g in renderGroups" :key="g" :data-group="g"
                    class="af-gcard" :class="{ active: g === target, dragging: g === dragG, holding: g === holdG }"
@@ -330,9 +364,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                    @mouseup="onCardUp" @mouseleave="onCardUp">
                 <span class="af-gname">{{ g }}</span>
                 <span class="af-gcount">{{ groupCount[g] || 0 }}</span>
-                <button class="af-gedit" title="名前を変更" @click.stop="onRename(g)" @touchstart.stop @mousedown.stop>✎</button>
-                <span v-if="editMode" class="af-gdel" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>削除</span>
-                <span v-else class="af-garrow">→</span>
+                <button class="af-gicon" title="名前を変更" :aria-label="`${g} の名前を変更`" @click.stop="onRename(g)" @touchstart.stop @mousedown.stop>✎</button>
+                <button class="af-gicon af-gdel" title="削除" :aria-label="`${g} を削除`" @click.stop="onDelete(g)" @touchstart.stop @mousedown.stop>🗑</button>
+                <span class="af-garrow">→</span>
               </div>
             </TransitionGroup>
             <div v-if="groups.length === 0" class="af-empty">下の「＋」で分類先を作ってください（例：冷蔵庫・棚）。</div>
@@ -439,9 +473,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       </div>
     </div>
 
+    <!-- 削除の取り消し（Undo）。振り分け済みの品目ごと戻す -->
+    <transition name="af-flash">
+      <div v-if="undoState" class="af-undobar">
+        <span class="af-undo-msg">
+          「{{ undoState.name }}」を削除しました<span v-if="undoState.items.length" class="af-undo-sub">（品目 {{ undoState.items.length }} 件の振り分けも解除）</span>
+        </span>
+        <button class="af-undo-btn" @click="undoDelete">元に戻す</button>
+        <button class="af-undo-x" aria-label="閉じる" @click="dismissUndo">✕</button>
+      </div>
+    </transition>
+
     <!-- 追加フィードバック -->
     <transition name="af-flash">
-      <div v-if="flash" class="af-flashbar">{{ flash }}</div>
+      <div v-if="flash" class="af-flashbar" :class="{ lifted: undoState }">{{ flash }}</div>
     </transition>
   </div>
 </template>
@@ -451,8 +496,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
 .af-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-title { font-size: 16px; font-weight: 800; color: #1e293b; }
-.af-edit { margin-left: auto; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
-.af-edit.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .af-progress { padding: 10px 14px 8px; background: #fff; border-bottom: 1px solid #eef2f6; flex-shrink: 0; }
 .af-prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #334155; margin-bottom: 6px; }
 .af-prog-text b { color: var(--primary, #2563eb); font-size: 15px; }
@@ -500,12 +543,18 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-reorder-move { transition: transform 0.62s cubic-bezier(0.22, 0.8, 0.28, 1); will-change: transform; }
 .af-glist { position: relative; }
 .af-gname { flex: 1; min-width: 0; }
-.af-gedit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 15px; line-height: 1; padding: 7px 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.af-gedit:active { background: #f1f5f9; color: var(--primary, #2563eb); }
+/* カードに常設する ✎ / 🗑。指で押し分けられるよう 40px 角を確保する */
+.af-gicon {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  min-width: 40px; min-height: 40px; padding: 0;
+  border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px;
+  font-size: 15px; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.af-gicon:active { background: #f1f5f9; color: var(--primary, #2563eb); }
 .af-gcount { background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 14px; padding: 2px 12px; font-size: 14px; }
 .af-garrow { color: #cbd5e1; font-size: 20px; }
-.af-gmove { color: #94a3b8; font-size: 14px; padding: 0 4px; }
-.af-gdel { color: #dc2626; font-size: 13px; font-weight: 700; }
+.af-gdel { border-color: #fecaca; color: #dc2626; }
+.af-gdel:active { background: #fef2f2; color: #dc2626; }
 /* 一覧の下に置く「＋」＝ここが分類先を増やす唯一の入口 */
 .af-gadd-card {
   display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
@@ -589,6 +638,25 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   background: #1e293b; color: #fff; font-size: 13px; font-weight: 700;
   padding: 10px 18px; border-radius: 22px; z-index: 61; box-shadow: 0 6px 20px rgba(0,0,0,0.28);
 }
+/* Undo バーが出ているあいだ、トーストはその上へ避ける */
+.af-flashbar.lifted { bottom: 88px; }
 .af-flash-enter-active, .af-flash-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .af-flash-enter-from, .af-flash-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
+
+/* 削除の取り消しバー。押し間違えても戻せることを、消した直後にその場で示す */
+.af-undobar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  width: calc(100% - 28px); max-width: 520px; box-sizing: border-box;
+  background: #1e293b; color: #fff; border-radius: 14px;
+  padding: 10px 10px 10px 16px; z-index: 62; box-shadow: 0 6px 20px rgba(0,0,0,0.32);
+}
+.af-undo-msg { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.af-undo-sub { display: block; font-size: 11px; font-weight: 600; color: #cbd5e1; }
+.af-undo-btn {
+  flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px;
+  background: #fff; color: #1e293b; font-size: 13px; font-weight: 800; padding: 0 14px; cursor: pointer;
+}
+.af-undo-btn:active { background: #e2e8f0; }
+.af-undo-x { flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none; color: #94a3b8; font-size: 14px; cursor: pointer; }
 </style>

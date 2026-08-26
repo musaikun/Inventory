@@ -771,6 +771,29 @@ export function useConfig() {
     return true
   }
 
+  // 削除したグループを元に戻す（Undo）。
+  // 名前・一覧での位置・所属していた品目の割り当てを、削除直前の状態へまとめて戻す。
+  // 追加的に動く: 同名グループが既にあれば作り直さず、割り当てだけを戻す。
+  // （消したあとに同じ名前を作り直した端末でも、Undo が二重のカードを生まないため）
+  function restoreAxisGroup(axisIndex, name, index = -1, items = []) {
+    const n = (name ?? '').trim()
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!n || !list || !map) return false
+    if (!list.includes(n)) {
+      const i = Number.isInteger(index) && index >= 0 ? Math.min(index, list.length) : list.length
+      list.splice(i, 0, n)
+    }
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!config.order.includes(item)) continue      // 削除後に消えた品目は戻さない
+      const arr = Array.isArray(map[item]) ? [...map[item]] : []
+      if (!arr.includes(n)) arr.push(n)
+      map[item] = arr
+      _syncArchive(axisIndex, item)
+    }
+    _save()
+    return true
+  }
+
   // グループの並び順を上下に移動（dir: -1=上, +1=下）
   function moveAxisGroup(axisIndex, name, dir) {
     const list = _axisList(axisIndex)
@@ -1019,6 +1042,7 @@ export function useConfig() {
     addAxisGroup,
     renameAxisGroup,
     removeAxisGroup,
+    restoreAxisGroup,
     assignItemsToGroup,
     addItemToGroup,
     removeItemFromGroup,

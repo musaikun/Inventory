@@ -73,7 +73,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
-import SessionListPage, { _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
@@ -1247,8 +1247,11 @@ function _closeTopLayer() {
   if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
   if (currentView.value === 'history') { currentView.value = 'sessions'; return true }
-  if (dashboardOpen.value)   { dashboardOpen.value = false; return true }
-  if (ordersOpen.value)      { ordersOpen.value = false;    return true }
+  // これらは SessionListPage が持つ overlay なので、ホームに居るときだけ閉じる対象になる。
+  // view を見ずに拾うと、開いたまま棚卸へ入ったときに**セッション画面での戻るを消費**して
+  // しまい、1回目の戻るでは何も起きない（画面はセッションのまま）ように見える。
+  if (currentView.value === 'sessions' && dashboardOpen.value) { dashboardOpen.value = false; return true }
+  if (currentView.value === 'sessions' && ordersOpen.value)    { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = detailReturnView.value; return true }
   if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
@@ -1715,7 +1718,21 @@ function onUndone() {
   showToast('棚卸を再開しました', 2500, 'default')
 }
 
-// メイン画面のホームアイコン → セッション一覧へ戻る
+/**
+ * 棚卸セッションを離れてホームへ返す。**「セッション」タブのメイン画面**で開く。
+ *
+ * ホームのタブ（_persistedTab）と在庫分析 overlay はモジュール側に持っていて画面を跨いで残る。
+ * ダッシュボードタブを見てから棚卸へ入ると、戻ったときもそこへ出てしまい、
+ * 「品目を準備する → 棚卸をする → 仕入れ」の主導線が見えない。棚卸から戻る先は常に主導線にする。
+ */
+function _goHomeMain() {
+  homeTab.value = 'sessions'
+  dashboardOpen.value = false
+  ordersOpen.value = false
+  currentView.value = 'sessions'
+}
+
+// メイン画面のホームアイコン／端末の戻る → ホーム（発注セッションだけ「仕入れ」の発注タブ）
 async function onGoHome() {
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
@@ -1723,7 +1740,8 @@ async function onGoHome() {
     if (continuousMode.value) onForceStop()
     _exitPractice()
     clearSession()
-    currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
+    if (isAuthenticated.value) _goHomeMain()
+    else currentView.value = 'landing'
     sessionMode.value = 'stock'
     return
   }
@@ -1795,7 +1813,7 @@ async function onGoHome() {
   // 発注はホームに入口が無く「仕入れ」カードの発注タブから始める。戻るでホームへ返すと
   // 発注一覧まで一段遠くなるので、始めた場所（発注タブ）へ返す。
   if (leavesToMovement.value) openMovement('order')
-  else currentView.value = 'sessions'
+  else _goHomeMain()
   sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
 
