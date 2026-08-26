@@ -3,6 +3,8 @@ import { ref, computed, reactive } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import InventoryTable from './InventoryTable.vue'
+import { participantStats as buildParticipantStats, sharedItemCounts, toEpochMs } from '../services/participantStats.js'
+import ItemHistoryModal from './ItemHistoryModal.vue'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
@@ -56,7 +58,7 @@ const sortedLog = computed(() => {
   return [...log].reverse()
 })
 const hasAuditLog    = computed(() => sortedLog.value.length > 0)
-const hasParticipants = computed(() => (props.snapshot.participants?.length ?? 0) > 0)
+const hasParticipants = computed(() => participantStats.value.length > 0)
 
 // ── 訂正ウィンドウ（3日間 または 次のセッション完了まで）─────────────────────
 const CORRECTION_DAYS = 3
@@ -161,9 +163,8 @@ const trackStyle = computed(() => {
 })
 
 // ── 参加者別 ──────────────────────────────────────────────────────────────────
-// 稼働時間 = その人が入力した品目の、最初〜最後の入力時刻。
-// 品目ごとの `at` から出す。auditLog は 200件で切られるので、そこから出すと
-// 品目数の多い棚卸で時間が短く見える（そもそも参照キーが誤っていて常に空だった）。
+// 集計は services/participantStats に置く（数え方の定義が要るため）。
+// 件数は**操作単位（重複あり）**。同じ品目を別の担当者が直したら、それぞれ1件と数える。
 function _durationLabel(ms) {
   const min = Math.max(1, Math.round(ms / 60000))
   if (min < 60) return `${min}分`
@@ -171,20 +172,19 @@ function _durationLabel(ms) {
   return `${h}時間${m > 0 ? `${m}分` : ''}`
 }
 
-const participantStats = computed(() =>
-  (props.snapshot.participants ?? []).map(p => {
-    const items = p.items ?? []
-    const times = items.map(it => it.at).filter(t => typeof t === 'number' && t > 0)
-    const activeDur = times.length >= 2
-      ? _durationLabel(Math.max(...times) - Math.min(...times))
-      : null
-    // 入力した順に並べる（時刻が無い古い履歴は元の順のまま）
-    const sorted = times.length
-      ? [...items].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
-      : items
-    return { name: p.name, items: sorted, totalValue: p.totalValue, activeDur }
-  })
-)
+const participantStats = computed(() => buildParticipantStats(props.snapshot))
+
+// 品目ごとの変更履歴。タイムスタンプのベタ書き（変更履歴タブ）では
+// 「この品目に何が起きたか」を追えないので、品目から引ける導線を用意する。
+const historyItem = ref(null)
+function openItemHistory(item) { historyItem.value = item }
+
+// 複数人が変更した品目。一覧で色を変えて、重複変更があったことを分かるようにする。
+const sharedItems = computed(() => {
+  const out = {}
+  for (const [item, n] of Object.entries(sharedItemCounts(props.snapshot))) if (n > 1) out[item] = true
+  return Object.keys(out).length ? out : null
+})
 
 // ── フォーマット ──────────────────────────────────────────────────────────────
 function fmtDate(dateStr) {
@@ -193,9 +193,12 @@ function fmtDate(dateStr) {
   return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
 }
 
+// server を経由すると数値の時刻が文字列で返ることがあり、そのまま Date に渡すと
+// Invalid Date になる。toEpochMs で数値へ揃えてから整形する。
 function fmtTime(ts) {
-  if (!ts) return ''
-  return new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+  const ms = toEpochMs(ts)
+  if (ms == null) return ''
+  return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtYen(n) {
@@ -277,33 +280,51 @@ function onDownload() {
 
         <!-- 品目一覧 -->
         <div class="tab-panel tab-panel-items">
+          <p class="items-hint">
+            品目をタップすると、その品目の変更履歴が見られます<template v-if="sharedItems">。<span
+              class="items-hint-shared">色つき</span>は複数人が変更した品目です</template>
+          </p>
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
             :read-only="true"
             :recount-flags="snapFlags"
+            :highlight-items="sharedItems"
             :config-source="snapConfig"
+            @tap="openItemHistory"
           />
         </div>
 
         <!-- 参加者別 -->
         <div class="tab-panel tab-panel-scroll">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
-          <div v-for="p in participantStats" :key="p.name" class="participant-section">
+          <div v-for="p in participantStats" :key="p.id" class="participant-section">
             <div class="participant-header">
               <span class="participant-name">{{ p.name }}</span>
               <div class="participant-meta">
-                <span class="pmeta-chip">{{ p.items.length }}品目</span>
-                <span v-if="p.activeDur" class="pmeta-chip">⏱ {{ p.activeDur }}</span>
+                <span class="pmeta-chip">{{ p.count }}件</span>
+                <span v-if="p.sharedCount" class="pmeta-chip pmeta-shared" title="他の担当者も変更した品目">
+                  重複 {{ p.sharedCount }}品目
+                </span>
+                <span v-if="p.activeMs" class="pmeta-chip">⏱ {{ _durationLabel(p.activeMs) }}</span>
                 <span v-if="p.totalValue != null" class="pmeta-chip pmeta-value">{{ fmtYen(p.totalValue) }}</span>
               </div>
             </div>
+            <p v-if="p.approximate" class="participant-note">
+              この棚卸には変更履歴が残っていないため、品目ごとの最終入力者だけを数えています
+            </p>
             <div class="participant-items">
-              <div v-for="it in p.items" :key="it.item" class="pi-row">
+              <button
+                v-for="(it, i) in p.entries" :key="`${it.item}-${i}`"
+                class="pi-row" :class="{ shared: it.shared }"
+                type="button"
+                @click="openItemHistory(it.item)"
+              >
                 <span v-if="it.at" class="pi-at">{{ fmtTime(it.at) }}</span>
                 <span class="pi-name">{{ it.item }}</span>
+                <span v-if="it.action" class="pi-act" :class="actionClass(it.action)">{{ actionLabel(it.action) }}</span>
                 <span class="pi-qty">{{ it.qty }}{{ it.unit }}</span>
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -363,6 +384,12 @@ function onDownload() {
       </div>
     </Transition>
 
+    <ItemHistoryModal
+      v-if="historyItem"
+      :snapshot="snapshot"
+      :item="historyItem"
+      @close="historyItem = null"
+    />
   </div>
 </template>
 
@@ -735,11 +762,56 @@ function onDownload() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 8px 14px;
   font-size: 13px;
+  border: none;
   border-bottom: 1px solid #f1f5f9;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+/* 他の担当者も変更した品目 */
+.pi-row.shared { background: #fff7ed; }
+.pi-row.shared .pi-name { font-weight: 700; color: #9a3412; }
 .pi-row:last-child { border-bottom: none; }
+
+.items-hint {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 11.5px;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.6;
+}
+.items-hint-shared {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 700;
+}
+
+.participant-note {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.6;
+}
+
+.pmeta-shared { background: #fff7ed !important; color: #c2410c !important; }
+
+.pi-act {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+.pi-act.act-new { color: #059669; }
+.pi-act.act-add { color: #2563eb; }
+.pi-act.act-over { color: #b45309; }
+.pi-act.act-remove { color: #b91c1c; }
 
 .pi-at {
   font-size: 11.5px;

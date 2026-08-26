@@ -892,6 +892,13 @@ export async function handleMovementDelete(db, code, id) {
  * ここに無い鍵（`dirty` / `synced` / `serverRevision` など client 内部の状態や、
  * 未知の任意データ）は捨てる。件数と文字列長も上限で切る。
  */
+// 監査エントリの時刻。epoch ms（数値）を第一に扱い、ISO 文字列も受ける。
+function _auditTimestamp(v) {
+  const n = parseOptionalNumber(v, { min: 0, max: MAX_ENTRY_AT_MS })
+  if (typeof n === 'number') return n
+  return text(v, 40)
+}
+
 function _snapshotMeta(snapshot) {
   const log = entries => (Array.isArray(entries) ? entries : [])
     .slice(0, MAX_SNAPSHOT_LOG_ENTRIES)
@@ -907,7 +914,10 @@ function _snapshotMeta(snapshot) {
       // 誰が入れたかの識別子。同名端末の区別と、将来ログを D1 の行として持つときの
       // 集計キーになるので落とさない。
       enteredById: text(e.enteredById, MAX_DEVICE_ID_LEN),
-      timestamp:  text(e.timestamp, 40),
+      // client は epoch ms（数値）で送る。text() に通すと "1700000000000" という
+      // 文字列になり、`new Date(...)` が Invalid Date になって時刻が表示できなくなる。
+      // 数値として解釈できるものは数値で保存し、ISO 文字列だけ文字列で残す。
+      timestamp:  _auditTimestamp(e.timestamp),
     }))
 
   const participants = Array.isArray(snapshot.participants)

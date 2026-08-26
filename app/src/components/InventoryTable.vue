@@ -11,6 +11,9 @@ const props = defineProps({
   filledCount:      { type: Number,  required: true },
   readOnly:         { type: Boolean, default: false },
   recountFlags:     { type: Object,  default: null },
+  // 目立たせたい品目 { 品目名: true }。履歴で「複数人が変更した品目」を示すのに使う。
+  // 入力の可否には影響しない（表示だけ）。
+  highlightItems:   { type: Object,  default: null },
   categoryScope:    { type: String,  default: 'all' },
   typingMap:        { type: Object,  default: null },
   conflictLocked:   { type: Object,  default: null },
@@ -464,8 +467,9 @@ function _focusRow(item) {
   }
 }
 
+// 読み取り専用でも行はタップできる（履歴の品目一覧から変更履歴を開く）。
+// 移動と tap しか行わないので readOnly でも塞がない。
 function onRowKeydown(e, item) {
-  if (props.readOnly) return
   switch (e.key) {
     case 'Enter':
     case ' ':
@@ -789,9 +793,9 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), 'swipe-dragging': swipeDragging && swipeItem === row.item }"
+              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), highlight: highlightItems?.[row.item], 'swipe-dragging': swipeDragging && swipeItem === row.item }"
               :style="swipeItem === row.item ? { transform: `translateX(${swipeDx}px)` } : null"
-              :tabindex="readOnly ? undefined : 0"
+              :tabindex="0"
               :data-item="row.item"
               class="item-row"
               @click="rowClick(row.item)"
@@ -1322,6 +1326,9 @@ function fmtYen(n) {
 .item-row.read-only:active   { background: inherit !important; }
 .item-row.typing             { background: #fefce8 !important; }
 .item-row.typing .td-name    { border-left: 2px solid #f59e0b; }
+/* 複数人が変更した品目（履歴の調査用）。入力の可否には関係しないので色だけ変える */
+.item-row.highlight          { background: #fff7ed; }
+.item-row.highlight .td-name { border-left: 2px solid #fb923c; }
 .item-row.conflict           { background: #fef2f2 !important; cursor: default; }
 .item-row.conflict .td-name  { border-left: 2px solid #ef4444; }
 
