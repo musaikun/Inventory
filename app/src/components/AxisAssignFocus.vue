@@ -6,7 +6,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
 
 const { config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup, addItemToGroup, removeItemFromGroup, moveAxisGroup, setAxisGroupOrder } = useConfig()
 const { getSnapshots } = useHistory()
@@ -78,7 +78,11 @@ const swipe = useHorizontalSwipe({
 // ── 品目プール ──────────────────────────────────────────────
 const search = ref('')
 const unassignedOnly = ref(false)
-const usedOnly = ref(false)
+const usedOnly = ref(false)        // 直近の棚卸で入力があった品目だけ
+const neverUsedOnly = ref(false)   // 逆に、一度も入力の無い品目だけ（非表示にする候補を探す用）
+// 「前回入力のみ」と「未使用のみ」は互いに素なので、片方を押したらもう片方を降ろす
+function toggleUsedOnly()      { usedOnly.value = !usedOnly.value; if (usedOnly.value) neverUsedOnly.value = false }
+function toggleNeverUsedOnly() { neverUsedOnly.value = !neverUsedOnly.value; if (neverUsedOnly.value) usedOnly.value = false }
 const USAGE = 3
 const usage = computed(() => {
   const m = {}
@@ -96,6 +100,7 @@ const poolItems = computed(() => {
     !hiddenSet.value.has(i) &&
     (!q || _norm(i).includes(q)) &&
     (!usedOnly.value || usage.value[i] > 0) &&
+    (!neverUsedOnly.value || !usage.value[i]) &&
     (!unassignedOnly.value || itemGroups(i).length === 0)
   )
   // 振り分け状態では並べ替えない（タップした品目がその場から動かないように）。
@@ -125,6 +130,19 @@ function _showFlash(msg, item) {
   _flashT = setTimeout(() => { flash.value = ''; flashItem.value = '' }, 1100)
 }
 
+// ── 一覧から非表示にする ────────────────────────────────────────
+// 使っていない食材は「品目マスタ管理」まで行かないと隠せなかった。
+// 振り分け中はどの品目を使っていないかが一番よく見えるので、その場で隠せるようにする。
+// 実際の hide/unhide は App 側（既存の onHideItem / onUnhideItem）へ渡す。
+// D1 保存・同期・ゲスト側への反映を、他の非表示導線とまったく同じ経路に乗せるため。
+function hideFromPool(item) {
+  emit('hide-item', item)
+  _offerUndo(`「${item}」を一覧から非表示にしました`, '棚卸の一覧と進捗からも外れます', () => {
+    emit('unhide-item', item)
+    _showFlash(`「${item}」を一覧に戻しました`, '')
+  })
+}
+
 // ── 振り分け済みの確認モーダル＋逆引きフォーカス ───────────────
 const listEl = ref(null)
 const showAssigned = ref(false)
@@ -138,6 +156,7 @@ function locate(item) {
   search.value = ''
   unassignedOnly.value = false
   usedOnly.value = false
+  neverUsedOnly.value = false
   if (hasGenres.value) openCat[config.categories?.[item] || 'その他'] = true
   locateName.value = item
   clearTimeout(_locateT)
@@ -196,30 +215,33 @@ function onDelete(g) {
   }
   removeAxisGroup(activeAxis.value, g)
   if (target.value === g) { target.value = ''; page.value = 'groups' }
-  _offerUndo(snapshot)
+
+  const n = snapshot.items.length
+  _offerUndo(`「${g}」を削除しました`, n ? `品目 ${n} 件の振り分けも解除` : '', () => {
+    restoreAxisGroup(snapshot.axis, snapshot.name, snapshot.index, snapshot.items)
+    if (snapshot.wasTarget && activeAxis.value === snapshot.axis) target.value = snapshot.name
+    _showFlash(n ? `「${snapshot.name}」を戻しました（品目 ${n} 件の振り分けも復元）`
+                 : `「${snapshot.name}」を戻しました`, '')
+  })
 }
 
-// ── 削除の取り消し（Undo）────────────────────────────────────────
-// 削除の歯止めは確認ダイアログだけなので、押し間違えたときの戻り道を用意する。
-// 振り分け済みの品目ごと戻す（割り当てのやり直しが一番の損失のため）。
-const undoState = ref(null)     // { axis, name, index, items, wasTarget }
+// ── 取り消し（Undo）──────────────────────────────────────────────
+// グループ削除も品目の非表示も、確認だけでは戻せない操作。
+// 押し間違えたときの戻り道を、その場（画面下）に置く。
+const undoState = ref(null)     // { msg, sub, undo }
 const UNDO_MS = 9000
 let _undoT = null
-function _offerUndo(snapshot) {
-  undoState.value = snapshot
+function _offerUndo(msg, sub, undo) {
+  undoState.value = { msg, sub, undo }
   clearTimeout(_undoT)
   _undoT = setTimeout(() => { undoState.value = null }, UNDO_MS)
 }
 function dismissUndo() { clearTimeout(_undoT); undoState.value = null }
-function undoDelete() {
+function runUndo() {
   const s = undoState.value
   if (!s) return
   dismissUndo()
-  restoreAxisGroup(s.axis, s.name, s.index, s.items)
-  if (s.wasTarget && activeAxis.value === s.axis) target.value = s.name
-  _showFlash(s.items.length
-    ? `「${s.name}」を戻しました（品目 ${s.items.length} 件の振り分けも復元）`
-    : `「${s.name}」を戻しました`, '')
+  s.undo()
 }
 // 軸を切り替えたら、その画面に属する取り消しも一緒に畳む
 watch(activeAxis, dismissUndo)
@@ -388,7 +410,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               <div class="af-tools">
                 <input v-model="search" class="af-search" type="text" placeholder="品目を検索" />
                 <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
-                <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="usedOnly = !usedOnly">前回入力のみ</button>
+                <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="toggleUsedOnly">前回入力のみ</button>
+                <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未使用のみ</button>
               </div>
             </div>
             <div class="af-list" ref="listEl">
@@ -401,34 +424,44 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                     <span class="af-cat-count">{{ grp.items.length }}</span>
                   </button>
                   <template v-if="openCat[grp.cat]">
-                    <button
+                    <div
                       v-for="item in grp.items" :key="item" :data-item="item"
                       :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
-                      @click="toggle(item)"
+                      role="button" tabindex="0"
+                      @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
                     >
                       <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                       <span class="af-item-name">{{ item }}</span>
+                      <span v-if="hasUsage && !usage[item]" class="af-item-unused">未使用</span>
                       <span v-if="itemGroups(item).length" class="af-item-tags">
                         <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                       </span>
-                    </button>
+                      <button class="af-ihide" title="一覧から非表示" :aria-label="`${item} を一覧から非表示にする`" @click.stop="hideFromPool(item)">🚫</button>
+                    </div>
                   </template>
                 </template>
               </template>
               <template v-else>
-                <button
+                <div
                   v-for="item in poolItems" :key="item" :data-item="item"
                   :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
-                  @click="toggle(item)"
+                  role="button" tabindex="0"
+                  @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
                 >
                   <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                   <span class="af-item-name">{{ item }}</span>
+                  <span v-if="hasUsage && !usage[item]" class="af-item-unused">未使用</span>
                   <span v-if="itemGroups(item).length" class="af-item-tags">
                     <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                   </span>
-                </button>
+                  <button class="af-ihide" title="一覧から非表示" :aria-label="`${item} を一覧から非表示にする`" @click.stop="hideFromPool(item)">🚫</button>
+                </div>
               </template>
-              <div v-if="poolItems.length === 0" class="af-empty">{{ unassignedOnly ? '未振り分けの品目はありません 🎉' : '該当する品目がありません。' }}</div>
+              <div v-if="poolItems.length === 0" class="af-empty">
+                {{ unassignedOnly ? '未振り分けの品目はありません 🎉'
+                 : neverUsedOnly ? '使っていない品目はありません 🎉'
+                 : '該当する品目がありません。' }}
+              </div>
             </div>
           </section>
         </div>
@@ -477,9 +510,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <transition name="af-flash">
       <div v-if="undoState" class="af-undobar">
         <span class="af-undo-msg">
-          「{{ undoState.name }}」を削除しました<span v-if="undoState.items.length" class="af-undo-sub">（品目 {{ undoState.items.length }} 件の振り分けも解除）</span>
+          {{ undoState.msg }}<span v-if="undoState.sub" class="af-undo-sub">{{ undoState.sub }}</span>
         </span>
-        <button class="af-undo-btn" @click="undoDelete">元に戻す</button>
+        <button class="af-undo-btn" @click="runUndo">元に戻す</button>
         <button class="af-undo-x" aria-label="閉じる" @click="dismissUndo">✕</button>
       </div>
     </transition>
@@ -596,12 +629,15 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-cat-arrow { color: #94a3b8; font-size: 11px; }
 .af-cat-name { font-size: 13px; font-weight: 800; color: #475569; }
 .af-cat-count { margin-left: auto; font-size: 12px; font-weight: 700; color: #94a3b8; }
+/* 行は <div role="button">。内側に「非表示」ボタンを置くため（button の入れ子は不可）。
+   div は content-box なので box-sizing を明示する（width:100% + padding ではみ出す） */
 .af-item {
-  width: 100%; display: flex; align-items: center; gap: 12px;
+  width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #eef2f6; border-radius: 12px;
-  padding: 15px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
-  transition: transform 0.12s, background 0.12s;
+  padding: 9px 8px 9px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
+  transition: transform 0.12s, background 0.12s; -webkit-tap-highlight-color: transparent;
 }
+.af-item:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
 .af-item.in { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
 .af-item.pop { animation: af-pop 0.35s ease; }
 @keyframes af-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); background: #dbeafe; } 100% { transform: scale(1); } }
@@ -615,7 +651,17 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-check { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; }
 .af-item.in .af-check { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .af-item-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
-.af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 42%; }
+.af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 34%; }
+/* 直近の棚卸で一度も入力が無い品目。隠す候補をその場で見分けるための印 */
+.af-item-unused { flex-shrink: 0; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 2px 6px; }
+/* 一覧から非表示にする。行タップ（振り分け）と押し分けられるよう 40px 角を確保する */
+.af-ihide {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  min-width: 40px; min-height: 40px; padding: 0;
+  border: 1px solid #eef2f6; background: #f8fafc; border-radius: 10px;
+  font-size: 14px; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.af-ihide:active { background: #fef2f2; border-color: #fecaca; }
 .af-item-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
 .af-item-tag.cur { color: #fff; background: var(--primary, #2563eb); }
 
