@@ -306,11 +306,14 @@ function onCardClick(g) {
   pickGroup(g)
 }
 
-// 戻る操作は、この画面を閉じる前に開いているモーダルを1枚だけ閉じる。
-// （追加モーダルを開いたまま戻ると振り分け画面ごと消える、を防ぐ）
+// 戻る操作は、この画面を閉じる前に「今いる一段」だけを畳む。
+// 上から順に、開いているモーダル → 品目一覧（カードB）。
+// 品目一覧から戻ると画面ごと閉じてデータ管理へ飛んでいたが、ヘッダーの「‹ 分類一覧」と
+// 同じく分類先の選択へスライドで返す（画面を出るのは分類先の一覧に居るときだけ）。
 onUnmounted(registerInnerLayerCloser(() => {
-  if (adding.value)       { closeAdd();               return true }
-  if (showAssigned.value) { showAssigned.value = false; return true }
+  if (adding.value)           { closeAdd();                 return true }
+  if (showAssigned.value)     { showAssigned.value = false; return true }
+  if (page.value === 'items') { backToGroups();             return true }
   return false
 }))
 

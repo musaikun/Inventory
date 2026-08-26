@@ -127,6 +127,41 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
   })
 })
 
+describe('AxisAssignFocus — 品目一覧からの戻る', () => {
+  const track = () => host.querySelector('.af-track').style.transform
+
+  it('端末の戻るは画面を閉じず、分類先の選択へスライドで返る', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+    expect(track()).toContain('calc(-50%')            // 品目一覧に居る
+
+    expect(consumeInnerLayerBack()).toBe(true)        // App まで戻るが伝わらない＝画面は閉じない
+    await nextTick()
+    expect(track()).toContain('calc(0%')              // 分類先の選択へ戻る
+    expect(host.querySelector('.af')).toBeTruthy()
+
+    expect(consumeInnerLayerBack()).toBe(false)       // 分類先の一覧では App へ渡す＝画面を出る
+  })
+
+  it('モーダルが開いていれば、そちらを先に閉じる', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+    await click(host.querySelector('.af-confirm'))    // 「確認」＝振り分け済みシート
+    expect(host.querySelector('.af-sheet')).toBeTruthy()
+
+    expect(consumeInnerLayerBack()).toBe(true)
+    await nextTick()
+    expect(host.querySelector('.af-sheet')).toBeNull()
+    expect(track()).toContain('calc(-50%')            // 品目一覧には留まる
+  })
+
+  it('ヘッダーの「‹ 分類一覧」も同じ戻り方をする', async () => {
+    await mount()
+    await click(host.querySelector('.af-back'))
+    expect(track()).toContain('calc(0%')
+  })
+})
+
 describe('AxisAssignFocus — 使っていない品目の見分け', () => {
   it('直近の棚卸で入力の無い品目に「未使用」の印がつく', async () => {
     await mount()
