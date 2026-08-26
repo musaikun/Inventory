@@ -86,6 +86,51 @@ describe('stock セッションの完了契約', () => {
     expect(snap.items.filter(i => i.qty != null)).toHaveLength(3)
   })
 
+  // 参加者別（担当者別の入力品目一覧）は品目ごとの入力時刻 at を持つ。
+  // at を落とすと「誰が何をいつ」の“いつ”が履歴から消える。
+  it('参加者別の品目ごとの入力時刻を保存する', async () => {
+    const h = setup()
+    const at = 1_700_000_000_000
+    const res = await handleSessionComplete(h.db, CODE, SID, {
+      inventory: inventory(3), prices: prices(3), takenAt: '2026-08-09',
+      snapshot: {
+        ...clientSnapshot(3),
+        participants: [{
+          name: '端末A',
+          items: [{ item: '品目0', qty: 1, unit: '個', at }, { item: '品目1', qty: 2, unit: '個', at: at + 60_000 }],
+          totalValue: 300,
+        }],
+      },
+    })
+    expect(res.ok).toBe(true)
+
+    const snap = JSON.parse(historyOf(h)[0].snapshot_json)
+    expect(snap.participants[0].items.map(i => i.at)).toEqual([at, at + 60_000])
+  })
+
+  it('参加者別の入力時刻が不正なら null に落とす（保存自体は通す）', async () => {
+    const h = setup()
+    const res = await handleSessionComplete(h.db, CODE, SID, {
+      inventory: inventory(3), prices: prices(3), takenAt: '2026-08-09',
+      snapshot: {
+        ...clientSnapshot(3),
+        participants: [{
+          name: '端末A',
+          items: [
+            { item: '品目0', qty: 1, unit: '個', at: 'あした' },
+            { item: '品目1', qty: 2, unit: '個', at: -1 },
+            { item: '品目2', qty: 3, unit: '個' },
+          ],
+          totalValue: 600,
+        }],
+      },
+    })
+    expect(res.ok).toBe(true)
+
+    const snap = JSON.parse(historyOf(h)[0].snapshot_json)
+    expect(snap.participants[0].items.map(i => i.at)).toEqual([null, null, null])
+  })
+
   it('inventory rows に無い品目を「入力済み」と主張する snapshot を拒否する（何も書かない）', async () => {
     const h = setup()
     const res = await handleSessionComplete(h.db, CODE, SID, {

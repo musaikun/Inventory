@@ -7,7 +7,7 @@ import {
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
   MAX_ID_LEN, MAX_DEVICE_NAME_LEN,
-  MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS,
+  MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_ENTRY_AT_MS,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
 import {
@@ -318,7 +318,8 @@ function _sanitizeForGuest(snap) {
   }))
   const participants = (snap.participants ?? []).map(p => ({
     name:  p.name,
-    items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '' })),
+    // at = その品目を入力した時刻。金額ではないのでゲストにも出す（「誰が何をいつ」の“いつ”）
+    items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '', at: it.at ?? null })),
   }))
   const auditLog = (snap.auditLog ?? []).map(e => ({
     id:        e.id,
@@ -919,6 +920,9 @@ function _snapshotMeta(snapshot) {
               item: text(it.item, MAX_INGREDIENT_LEN),
               qty:  parseOptionalNumber(it.qty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
               unit: text(it.unit, MAX_UNIT_LEN),
+              // at = その品目を最後に入力した時刻（epoch ms）。参加者別の「いつ」に使う。
+              // 端末時計なので順序の根拠にはしない（表示のみ）。範囲外・非数は null に落とす。
+              at:   parseOptionalNumber(it.at, { min: 0, max: MAX_ENTRY_AT_MS }) ?? null,
             })),
           totalValue: parseOptionalNumber(p.totalValue, { min: -MAX_UNIT_PRICE * MAX_INVENTORY_QTY, max: MAX_UNIT_PRICE * MAX_INVENTORY_QTY }) ?? null,
         }))

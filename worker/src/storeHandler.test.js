@@ -274,7 +274,7 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
       { item: '鶏もも', qty: 5, unit: 'kg', unitPrice: 500, subtotal: 2500, code: 'A01', flagged: false, category: '肉' },
     ],
     totalValue: 2500,
-    participants: [{ name: '田中', items: [{ item: '鶏もも', qty: 5, unit: 'kg', subtotal: 2500 }], totalValue: 2500 }],
+    participants: [{ name: '田中', items: [{ item: '鶏もも', qty: 5, unit: 'kg', subtotal: 2500, at: 1_700_000_000_000 }], totalValue: 2500 }],
     auditLog: [{ id: 'e1', ingredient: '鶏もも', action: 'new', delta: 5, totalQty: 5, unit: 'kg', enteredBy: '田中', enteredById: 'd1', timestamp: Date.now() }],
   })
 
@@ -320,6 +320,8 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     expect(res.result.participants[0].totalValue).toBeUndefined()
     expect(res.result.participants[0].items[0].subtotal).toBeUndefined()
     expect(res.result.participants[0].items[0].qty).toBe(5)
+    // 入力時刻は金額ではないので残る（「誰が何をいつ」の“いつ”）
+    expect(res.result.participants[0].items[0].at).toBe(1_700_000_000_000)
     // 変更履歴: 誰が・何を・いつ は残る
     expect(res.result.auditLog[0].enteredBy).toBe('田中')
     expect(res.result.auditLog[0].action).toBe('new')

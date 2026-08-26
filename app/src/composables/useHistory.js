@@ -138,41 +138,45 @@ export function useHistory() {
       })
     }
 
-    // 参加者別集計: auditLog の最終更新者をオーナーとして品目を割り当て
-    let participants = null
+    // 参加者別集計: 品目ごとの「最終入力者」で割り当てる。
+    //
+    // 担当は **在庫データが品目ごとに持つ enteredBy / updatedAt を正**とする。
+    // 以前は auditLog（操作の履歴）から逆算していたが、auditLog は 200件で古い方から
+    // 捨てられるため、品目数がそれを超えると古い品目の担当者が消え、参加者別から
+    // まるごと抜け落ちていた（530品目なら330品目ぶんが不明になる）。
+    // 在庫側は品目ごとに1件なので、品目数がいくつでも必ず全件に担当が付く。
+    //
+    // auditLog は enteredBy を持たない古い下書き（0.78.1 以前）のための予備に残す。
+    const lastAuthor = new Map() // ingredient -> name
     if (auditLog && auditLog.length > 0) {
-      const lastAuthor = new Map() // ingredient -> { deviceId, name }
       const _qtyAction = (a) => a && a !== 'remove' && a !== 'flag_recount' && a !== 'unflag_recount'
       for (const entry of auditLog) {
-        if (_qtyAction(entry.action)) {
-          lastAuthor.set(entry.ingredient, {
-            deviceId: entry.enteredById || '__solo__',
-            name:     entry.enteredBy   || '名前未設定',
-          })
-        }
+        if (_qtyAction(entry.action)) lastAuthor.set(entry.ingredient, entry.enteredBy || '')
       }
+    }
 
-      const authorMap = new Map() // deviceId -> { name, items[] }
-      for (const it of items) {
-        if (it.qty === null) continue  // 未入力は除外
-        const author = lastAuthor.get(it.item)
-        if (!author) continue
-        if (!authorMap.has(author.deviceId)) {
-          authorMap.set(author.deviceId, { name: author.name, items: [] })
-        }
-        authorMap.get(author.deviceId).items.push({ ...it })
-      }
+    // 同名の端末は1人として束ねる（保存する参加者は name だけを持つため）
+    const authorMap = new Map() // name -> { name, items[] }
+    for (const it of items) {
+      if (it.qty === null) continue  // 未入力は除外
+      const entry = inventory[it.item]
+      const name  = entry?.enteredBy || lastAuthor.get(it.item) || ''
+      if (!name) continue            // 誰が入れたか分からないものは割り当てない
+      if (!authorMap.has(name)) authorMap.set(name, { name, items: [] })
+      // at = その品目を最後に入力した時刻（「誰が何をいつ」の“いつ”）
+      authorMap.get(name).items.push({ ...it, at: entry?.updatedAt ?? null })
+    }
 
-      if (authorMap.size > 0) {
-        participants = [...authorMap.values()].map(({ name, items: pItems }) => {
-          let pTotal    = 0
-          let pHasPrice = false
-          for (const it of pItems) {
-            if (it.subtotal != null) { pTotal += it.subtotal; pHasPrice = true }
-          }
-          return { name, items: pItems, totalValue: pHasPrice ? pTotal : null }
-        })
-      }
+    let participants = null
+    if (authorMap.size > 0) {
+      participants = [...authorMap.values()].map(({ name, items: pItems }) => {
+        let pTotal    = 0
+        let pHasPrice = false
+        for (const it of pItems) {
+          if (it.subtotal != null) { pTotal += it.subtotal; pHasPrice = true }
+        }
+        return { name, items: pItems, totalValue: pHasPrice ? pTotal : null }
+      })
     }
 
     return {

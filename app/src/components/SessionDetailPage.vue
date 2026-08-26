@@ -161,31 +161,30 @@ const trackStyle = computed(() => {
 })
 
 // ── 参加者別 ──────────────────────────────────────────────────────────────────
-// auditLog から参加者ごとのアクティブ時間（最初〜最後のアクション）
-const participantStats = computed(() => {
-  const timeMap = new Map()
-  for (const entry of (props.snapshot.auditLog ?? [])) {
-    if (!entry.enteredById || !entry.ts) continue
-    const t = new Date(entry.ts).getTime()
-    if (!timeMap.has(entry.enteredById)) {
-      timeMap.set(entry.enteredById, { name: entry.enteredBy || '?', first: t, last: t })
-    } else {
-      const cur = timeMap.get(entry.enteredById)
-      cur.first = Math.min(cur.first, t)
-      cur.last  = Math.max(cur.last, t)
-    }
-  }
+// 稼働時間 = その人が入力した品目の、最初〜最後の入力時刻。
+// 品目ごとの `at` から出す。auditLog は 200件で切られるので、そこから出すと
+// 品目数の多い棚卸で時間が短く見える（そもそも参照キーが誤っていて常に空だった）。
+function _durationLabel(ms) {
+  const min = Math.max(1, Math.round(ms / 60000))
+  if (min < 60) return `${min}分`
+  const h = Math.floor(min / 60), m = min % 60
+  return `${h}時間${m > 0 ? `${m}分` : ''}`
+}
 
-  return (props.snapshot.participants ?? []).map(p => {
-    const timeEntry = [...timeMap.values()].find(t => t.name === p.name)
-    let activeDur = null
-    if (timeEntry) {
-      const min = Math.max(1, Math.round((timeEntry.last - timeEntry.first) / 60000))
-      activeDur = min < 60 ? `${min}分` : `${Math.floor(min / 60)}時間${min % 60 > 0 ? (min % 60) + '分' : ''}`
-    }
-    return { name: p.name, items: p.items ?? [], totalValue: p.totalValue, activeDur }
+const participantStats = computed(() =>
+  (props.snapshot.participants ?? []).map(p => {
+    const items = p.items ?? []
+    const times = items.map(it => it.at).filter(t => typeof t === 'number' && t > 0)
+    const activeDur = times.length >= 2
+      ? _durationLabel(Math.max(...times) - Math.min(...times))
+      : null
+    // 入力した順に並べる（時刻が無い古い履歴は元の順のまま）
+    const sorted = times.length
+      ? [...items].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+      : items
+    return { name: p.name, items: sorted, totalValue: p.totalValue, activeDur }
   })
-})
+)
 
 // ── フォーマット ──────────────────────────────────────────────────────────────
 function fmtDate(dateStr) {
@@ -301,6 +300,7 @@ function onDownload() {
             </div>
             <div class="participant-items">
               <div v-for="it in p.items" :key="it.item" class="pi-row">
+                <span v-if="it.at" class="pi-at">{{ fmtTime(it.at) }}</span>
                 <span class="pi-name">{{ it.item }}</span>
                 <span class="pi-qty">{{ it.qty }}{{ it.unit }}</span>
               </div>
@@ -740,6 +740,14 @@ function onDownload() {
   border-bottom: 1px solid #f1f5f9;
 }
 .pi-row:last-child { border-bottom: none; }
+
+.pi-at {
+  font-size: 11.5px;
+  color: var(--text-muted, #94a3b8);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
 
 .pi-name {
   color: var(--text-primary, #1e293b);
