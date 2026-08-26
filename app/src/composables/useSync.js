@@ -238,6 +238,28 @@ export function clearAuditLog() {
   auditLog.splice(0, auditLog.length)
 }
 
+/**
+ * 監査ログ（変更履歴）を取り込む。**置き換えではなく統合する。**
+ *
+ * ルームに入る前にソロで記録した分は `local-` id で端末にしかなく、DO 側の
+ * auditLog には入っていない。init を splice で丸ごと置き換えると、
+ * 途中でルームを作る／入り直すたびに、そこまでの変更履歴が消える。
+ * 下書きから復元した分も同じ理由でここを通す。
+ *
+ * id で重複を除き、時刻順に並べ直してから上限で切る。
+ */
+export function mergeAuditLog(incoming = []) {
+  if (!Array.isArray(incoming) || incoming.length === 0) return
+  const seen = new Set(auditLog.map(e => e.id))
+  for (const entry of incoming) {
+    if (!entry?.id || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    auditLog.push(entry)
+  }
+  auditLog.sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0))
+  if (auditLog.length > 200) auditLog.splice(0, auditLog.length - 200)
+}
+
 // ── 送信 API ──────────────────────────────────────────────────────────────────
 export function broadcastConfig(cfg) {
   if (_ws?.readyState !== WebSocket.OPEN) return
@@ -609,9 +631,7 @@ function _handleMessage(msg) {
         messages.splice(0, messages.length, ...msg.messages)
       }
       // 在庫をスキップした場合は監査ログもスキップ（ホスト自身のログを保持）
-      if (!skipInventory && Array.isArray(msg.auditLog)) {
-        auditLog.splice(0, auditLog.length, ...msg.auditLog)
-      }
+      if (!skipInventory) mergeAuditLog(msg.auditLog)
       state.isSessionActive = msg.isSessionActive ?? false
       state.sessionId       = msg.sessionId ?? null
       if (msg.hostToken) _saveHostToken(msg.hostToken)

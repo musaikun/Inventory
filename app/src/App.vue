@@ -22,7 +22,7 @@ import {
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
-  markMessagesRead, addLocalAuditEntry, clearAuditLog, restoreSession,
+  markMessagesRead, addLocalAuditEntry, clearAuditLog, mergeAuditLog, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
@@ -1181,6 +1181,7 @@ onMounted(async () => {
         sessionMode.value = pendingSession.value?.type === 'order' ? 'order' : 'stock'
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
         if (pendingSession.value?.id && !isCompleted.value) {
+          _restoreDraftAudit(pendingSession.value.id)
           _restoreInventoryFromD1().catch(() => {})
           if (sessionMode.value === 'order') _loadOrderData().then(_restoreOrderDraft)
         }
@@ -1330,11 +1331,15 @@ function _restoreOrderDraft() {
 }
 
 function _saveDraft(sessionId) {
-  if (!sessionId || Object.keys(inventory).length === 0) return
+  if (!sessionId) return
+  if (Object.keys(inventory).length === 0 && auditLog.length === 0) return
   try {
     localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({
       inv:      { ...inventory },
       activeMs: activeTimer.activeMs.value,
+      // 変更履歴はメモリにしか無い。下書きに入れておかないと、退室・再読込のたびに
+      // そこまでの履歴が消え、完了時のスナップショットにも入らない。
+      audit:    [...auditLog],
     }))
   } catch (_) {}
 }
@@ -1348,10 +1353,24 @@ function _restoreDraft(sessionId) {
     // 新形式 { inv, activeMs } と旧形式（フラットな inventory）の両対応
     const inv = saved.inv ?? saved
     if (typeof saved.activeMs === 'number') activeTimer.resume(saved.activeMs)
+    // 変更履歴を先に戻す。applyRemoteUpdate は auditLog を触らないので二重にはならない。
+    mergeAuditLog(saved.audit)
     for (const [ingredient, entry] of Object.entries(inv)) {
       if (!entry || typeof entry.qty === 'undefined') continue
       applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
     }
+  } catch (_) {}
+}
+
+// 変更履歴だけを下書きから戻す。
+// 起動時（再読込）は在庫を useInventory 側の保存から戻すので _restoreDraft を通らない。
+// auditLog はメモリにしか無いため、ここで戻さないと再読込のたびに履歴が空になる。
+function _restoreDraftAudit(sessionId) {
+  if (!sessionId) return
+  try {
+    const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
+    if (!raw) return
+    mergeAuditLog(JSON.parse(raw)?.audit)
   } catch (_) {}
 }
 
