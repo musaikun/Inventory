@@ -123,6 +123,50 @@ describe('参加者別', () => {
   })
 })
 
+describe('参加者別のアコーディオン', () => {
+  const header = (i) => sections()[i].querySelector('.participant-header')
+  // v-show は入れ物（.participant-items）に display:none を付ける。行そのものは残る
+  const body   = (i) => sections()[i].querySelector('.participant-items')
+  const isOpen = (i) => body(i).style.display !== 'none'
+
+  it('既定は開いた状態（開かないと何も見えない画面にはしない）', async () => {
+    await mount()
+    await click(tab('参加者別'))
+    expect(header(0).querySelector('.participant-arrow').textContent.trim()).toBe('▼')
+    expect(isOpen(0)).toBe(true)
+    expect(header(0).getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('見出しをタップすると畳める', async () => {
+    await mount()
+    await click(tab('参加者別'))
+    await click(header(0))
+
+    expect(header(0).querySelector('.participant-arrow').textContent.trim()).toBe('▶')
+    expect(isOpen(0)).toBe(false)
+    expect(header(0).getAttribute('aria-expanded')).toBe('false')
+    // 見出し自体（名前・件数）は畳んでも見える
+    expect(header(0).textContent).toContain('端末A')
+    expect(header(0).textContent).toContain('2件')
+  })
+
+  it('もう一度タップすると開く', async () => {
+    await mount()
+    await click(tab('参加者別'))
+    await click(header(0))
+    await click(header(0))
+    expect(isOpen(0)).toBe(true)
+  })
+
+  it('人ごとに独立して開閉する', async () => {
+    await mount()
+    await click(tab('参加者別'))
+    await click(header(0))
+    expect(isOpen(0)).toBe(false)
+    expect(isOpen(1)).toBe(true)   // 端末B は開いたまま
+  })
+})
+
 describe('品目一覧から品目ごとの変更履歴', () => {
   it('品目をタップすると、その品目の変更が新しい順で出る', async () => {
     await mount()

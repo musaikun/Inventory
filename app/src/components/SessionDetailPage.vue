@@ -179,6 +179,16 @@ const participantStats = computed(() => buildParticipantStats(props.snapshot))
 const historyItem = ref(null)
 function openItemHistory(item) { historyItem.value = item }
 
+// 参加者ごとの開閉。件数は重複ありで数えるので人によっては行が長くなる。
+// 既定は開いた状態（開かないと何も見えない画面にはしない）で、畳めるようにする。
+// 閉じた人は id を持つ ＝ 未知の参加者は開いて出る。
+const closedParticipants = reactive({})
+const isParticipantOpen = (id) => !closedParticipants[id]
+function toggleParticipant(id) {
+  if (closedParticipants[id]) delete closedParticipants[id]
+  else closedParticipants[id] = true
+}
+
 // 複数人が変更した品目。一覧で色を変えて、重複変更があったことを分かるようにする。
 const sharedItems = computed(() => {
   const out = {}
@@ -299,7 +309,13 @@ function onDownload() {
         <div class="tab-panel tab-panel-scroll">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
           <div v-for="p in participantStats" :key="p.id" class="participant-section">
-            <div class="participant-header">
+            <button
+              class="participant-header"
+              type="button"
+              :aria-expanded="String(isParticipantOpen(p.id))"
+              @click="toggleParticipant(p.id)"
+            >
+              <span class="participant-arrow">{{ isParticipantOpen(p.id) ? '▼' : '▶' }}</span>
               <span class="participant-name">{{ p.name }}</span>
               <div class="participant-meta">
                 <span class="pmeta-chip">{{ p.count }}件</span>
@@ -309,11 +325,11 @@ function onDownload() {
                 <span v-if="p.activeMs" class="pmeta-chip">⏱ {{ _durationLabel(p.activeMs) }}</span>
                 <span v-if="p.totalValue != null" class="pmeta-chip pmeta-value">{{ fmtYen(p.totalValue) }}</span>
               </div>
-            </div>
-            <p v-if="p.approximate" class="participant-note">
+            </button>
+            <p v-if="p.approximate" v-show="isParticipantOpen(p.id)" class="participant-note">
               この棚卸には変更履歴が残っていないため、品目ごとの最終入力者だけを数えています
             </p>
-            <div class="participant-items">
+            <div v-show="isParticipantOpen(p.id)" class="participant-items">
               <button
                 v-for="(it, i) in p.entries" :key="`${it.item}-${i}`"
                 class="pi-row" :class="{ shared: it.shared }"
@@ -721,10 +737,22 @@ function onDownload() {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 12px 14px;
   background: #f8fafc;
+  border: none;
   border-bottom: 1px solid #e2e8f0;
   flex-wrap: wrap;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.participant-arrow {
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted, #94a3b8);
 }
 
 .participant-name {
