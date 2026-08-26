@@ -22,7 +22,7 @@ import {
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
-  markMessagesRead, addLocalAuditEntry, clearAuditLog, mergeAuditLog, restoreSession,
+  markMessagesRead, addLocalAuditEntry, clearAuditLog, mergeAuditLog, setAuditEntryCallback, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
@@ -52,6 +52,9 @@ import { replenishTarget, targetBasisLabel } from './services/replenishTarget.js
 import { avgDailyConsumption } from './services/impliedConsumption.js'
 import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
 import { saveLastPage, readLastPage } from './services/lastPage.js'
+import {
+  queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue, loadAuditFromD1,
+} from './composables/useAuditSync.js'
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
@@ -572,6 +575,8 @@ async function onSessionResume(session) {
   practiceMode.value = false
   activeTimer.start()   // 下書きに保存済み稼働時間があれば _restoreDraft が resume() で継続する
   resumeSession(session)
+  // 別端末で記録された変更履歴を取り込む（この端末の下書きには無い）
+  _restoreAuditFromD1(session.id).catch(() => {})
   await _startSessionView()
   if (sessionMode.value === 'order') { await _loadOrderData(); _restoreOrderDraft() }
   if (shopCode.value && !syncActive.value) {
@@ -790,7 +795,7 @@ const recountOpen  = ref(false)
 
 // ── オフライン時のローカル auditLog 追記 ───────────────────────────────────────
 function _localAudit(ingredient, action, delta, totalQty, unit) {
-  addLocalAuditEntry({
+  const entry = {
     id:          `local-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     ingredient,
     action,
@@ -800,7 +805,24 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
     enteredBy:   deviceName.value || '名前未設定',
     enteredById: deviceId,
     timestamp:   Date.now(),
-  })
+  }
+  addLocalAuditEntry(entry)
+  _recordAudit(entry)
+}
+
+/**
+ * 変更履歴を D1 へ残す（migration 0017）。
+ *
+ * D1 への記録は1端末が代表して行う。ソロは自分、ルームではホスト。
+ * ゲストは店舗の認証を持たないので送れない（送っても 401 になる）。
+ * 同じ id は server 側で重複しないので、二重に送られても行は増えない。
+ */
+function _recordAudit(entry) {
+  if (!isAuthenticated.value) return
+  if (syncActive.value && !syncIsHost.value) return
+  const sessionId = pendingSession.value?.id
+  if (!sessionId) return          // 練習モードなど、セッションを持たない入力は残さない
+  queueAuditEntries(sessionId, entry)
 }
 
 // ── あとで数える フラグの切替（ソロ=ローカル監査 / 同期中=ブロードキャスト）──
@@ -819,6 +841,7 @@ function onToggleRecountFlag(item, on) {
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
 setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
+setAuditEntryCallback(_recordAudit)
 setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
 registerInventoryGetter(() => ({ ...inventory }))
@@ -1054,6 +1077,8 @@ setAccountResetHandler(() => {
   clearSession()
   reset()
   clearAuditLog()
+  // 旧アカウントで作った記録を新しいトークンで送らない
+  clearAuditQueue()
 })
 
 /**
@@ -1163,6 +1188,9 @@ onMounted(async () => {
     } else {
       // ゲストセッションなし: ホストセッションを自動復元
       restoreSession()
+      // 前回送り切れなかった変更履歴を再送する（再読込・アプリ再起動をまたぐ）
+      restoreAuditQueue()
+      flushAuditQueue()
 
       // 認証済み: 進行中のセッションがあれば直接復帰、なければ一覧へ
       if (isAuthenticated.value) {
@@ -1182,6 +1210,7 @@ onMounted(async () => {
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
         if (pendingSession.value?.id && !isCompleted.value) {
           _restoreDraftAudit(pendingSession.value.id)
+          _restoreAuditFromD1(pendingSession.value.id).catch(() => {})
           _restoreInventoryFromD1().catch(() => {})
           if (sessionMode.value === 'order') _loadOrderData().then(_restoreOrderDraft)
         }
@@ -1464,6 +1493,18 @@ function _flushDebouncedSavesToQueue(code) {
 }
 
 // 起動・セッション再開時に D1 から進行中在庫を復旧（ローカルが空 or D1 が新しい場合のみ）
+/**
+ * 進行中セッションの変更履歴を D1 から取り込む（migration 0017）。
+ *
+ * これが「別の端末が入っても確認できる」経路。DO はルームの生存期間しか持たず、
+ * 端末の下書きは1台にしか無いので、別端末で開いたときはここからしか復元できない。
+ * 既にある分とは id で突き合わせて統合する（重複しない）。
+ */
+async function _restoreAuditFromD1(sessionId) {
+  if (!sessionId || !shopCode.value) return
+  mergeAuditLog(await loadAuditFromD1(sessionId))
+}
+
 async function _restoreInventoryFromD1() {
   if (!shopCode.value || isCompleted.value) return
   const remote = await loadInventoryFromD1()
@@ -1599,6 +1640,10 @@ async function _finishSession(completionCount, isHostInRoom) {
   }
   // 1MB に収めるため変更履歴の古い方を落とした場合は黙って捨てない。
   // 数量・参加者別は残っているので完了自体は続ける（ここで止める方が損失が大きい）。
+  // 未送信の変更履歴を送り出す。**待たない** — 完了要求の前に await を挟むと、
+  // その隙にホームや session_ended が割り込めてしまう（完了は1本でなければならない）。
+  // 完了スナップショットが履歴そのものを D1 へ運ぶので、ここで送り切れなくても記録は残る。
+  flushAuditQueue()
   if (req.droppedAuditEntries > 0) {
     showToast(`変更履歴のうち古い${req.droppedAuditEntries}件は保存されません（サイズ上限）`, 6000, 'warning')
   }

@@ -560,6 +560,8 @@ export async function handlePastImportCreate(db, code, batchId, body) {
         .bind(code, ...replaceIds, ...claim.binds),
       db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
         .bind(code, ...replaceIds, ...claim.binds),
+      db.prepare(`DELETE FROM session_audit         WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
+        .bind(code, ...replaceIds, ...claim.binds),
       db.prepare(`DELETE FROM import_batch_requests WHERE shop_code = ? AND session_id IN (${ph}) AND ${claim.sql}`)
         .bind(code, ...replaceIds, ...claim.binds),
       db.prepare(`DELETE FROM sessions              WHERE shop_code = ? AND id IN (${ph}) AND ${claim.sql}`)
@@ -654,6 +656,8 @@ export async function handlePastImportCancel(db, code, batchId) {
       db.prepare(`DELETE FROM store_history         WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
       db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${target})`)
+        .bind(code, code, batch),
+      db.prepare(`DELETE FROM session_audit         WHERE shop_code = ? AND session_id IN (${target})`)
         .bind(code, code, batch),
       db.prepare('DELETE FROM sessions              WHERE shop_code = ? AND import_batch_id = ?').bind(code, batch),
       db.prepare('DELETE FROM import_batch_requests WHERE shop_code = ? AND batch_id = ?').bind(code, batch),

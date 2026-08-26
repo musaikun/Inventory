@@ -79,6 +79,8 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     // どちらも店舗の業務データなので削除範囲に含める（DATA-002 §6）。
     db.prepare('DELETE FROM import_batch_requests WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM session_completions WHERE shop_code = ?').bind(shopCode),
+    // 操作ログ（migration 0017）。誰が何を変えたかの記録も店舗の業務データ
+    db.prepare('DELETE FROM session_audit WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ?').bind(shopCode),

@@ -97,6 +97,15 @@ export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 4)   // item,qty
 export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 4)   // item,qty,unit,stock,lot,post,excluded ／ date,createdAt,id,shop = 13
 export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty,unit ／ date,createdAt,id,shop = 32
 
+// 操作ログ（migration 0017）。1行が持ち主（shop_code / session_id）を自分で持つので、
+// 文ごとの固定パラメータは createdAt の1個だけ。
+// id,shop,session,item,action,delta,total,unit,by,byId,at = 11 列/行
+export const AUDIT_ROWS_PER_STATEMENT     = rowsPerStatement(11, 1)  // = 9
+
+// 1リクエストで受け付ける操作ログの件数。端末はまとめて送るので、
+// 1入力ごとに通信しない代わりにここが実質のバッチ上限になる。
+export const MAX_AUDIT_PER_REQUEST        = 200
+
 // 1リクエストで受け付ける明細行の上限（棚卸完了 / 発注 / 入出庫 共通・DATA-001）。
 //
 // MAX_PAYLOAD_BYTES はJSON全体のバイト数しか見ないため、短い行を大量に並べると

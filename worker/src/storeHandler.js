@@ -8,6 +8,7 @@ import {
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
   MAX_ID_LEN, MAX_DEVICE_NAME_LEN, MAX_DEVICE_ID_LEN,
   MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_ENTRY_AT_MS,
+  AUDIT_ROWS_PER_STATEMENT, MAX_AUDIT_PER_REQUEST,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
 import {
@@ -286,6 +287,7 @@ export async function handleHistoryDelete(db, code, key) {
     const results = await db.batch([
       db.prepare('DELETE FROM store_history          WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
       db.prepare('DELETE FROM import_batch_requests  WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
+      db.prepare('DELETE FROM session_audit          WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
     ])
     return { ok: true, removed: results?.[0]?.meta?.changes ?? 0 }
   } catch (e) {
@@ -427,6 +429,8 @@ export async function handleSessionDelete(db, code, sessionId) {
       db.prepare('DELETE FROM store_history        WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
       db.prepare('DELETE FROM import_batch_requests WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
       db.prepare('DELETE FROM session_completions  WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+      // 操作ログ（0017）。セッションを消したら「誰が何を変えたか」も残さない
+      db.prepare('DELETE FROM session_audit        WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
       db.prepare('DELETE FROM sessions             WHERE id = ? AND shop_code = ?').bind(sessionId, code),
     ])
   } catch (e) {
@@ -1425,4 +1429,118 @@ async function _completeOrderSession(db, code, sessionId, session, body, now) {
   }
 
   return { ok: true, sessionId, type: 'order', itemCount, snapshotSaved: false }
+}
+
+// ── 操作ログ（変更履歴・migration 0017）─────────────────────────────────────
+//
+// 「誰が・何を・いつ変えたか」の記録。参加者別の重複カウントと品目ごとの履歴の正本。
+// 進行中の記録が1台の端末にも Durable Object の生存期間にも依存しないよう、D1 に持つ。
+//
+// 設計上の約束:
+//   - `id` は端末/DO が発行する監査エントリID。PRIMARY KEY にして **再送しても重複しない**
+//     （INSERT OR IGNORE）。端末は失敗時にそのまま送り直せる。
+//   - `at` は端末時計。順序の根拠にはせず表示にだけ使う。並べ替えは at → id で安定させる。
+//   - **記録の保存が棚卸そのものを止めてはならない。** 呼び出し側は失敗を握りつぶし、
+//     端末のキューに残して後で送り直す。
+
+function _auditRow(e, now) {
+  const id   = text(e?.id, MAX_ID_LEN)
+  const item = text(e?.ingredient ?? e?.item, MAX_INGREDIENT_LEN)
+  const action = text(e?.action, 32)
+  if (!id || !item || !action) return null
+  const at = parseOptionalNumber(e?.at ?? e?.timestamp, { min: 0, max: MAX_ENTRY_AT_MS })
+  return {
+    id,
+    item,
+    action,
+    delta:    parseOptionalNumber(e?.delta,    { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
+    totalQty: parseOptionalNumber(e?.totalQty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
+    unit:     text(e?.unit, MAX_UNIT_LEN),
+    by:       text(e?.enteredBy, MAX_DEVICE_NAME_LEN),
+    byId:     text(e?.enteredById, MAX_DEVICE_ID_LEN),
+    at:       typeof at === 'number' ? at : (Date.parse(now) || 0),
+  }
+}
+
+// POST /store/:code/sessions/:id/audit  body: { entries: [...] }
+export async function handleAuditAppend(db, code, sessionId, body = {}) {
+  if (!sessionId) return { _status: 400, code: 'invalid_session', error: 'セッションIDがありません' }
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const raw = Array.isArray(body.entries) ? body.entries : null
+  if (!raw) return { _status: 400, code: 'invalid_entries', error: '変更履歴がありません' }
+  if (raw.length > MAX_AUDIT_PER_REQUEST) {
+    return { _status: 413, code: 'too_many_entries', error: '変更履歴が多すぎます', limit: MAX_AUDIT_PER_REQUEST }
+  }
+
+  const now = _now()
+  const rows = []
+  const seen = new Set()
+  for (const e of raw) {
+    const row = _auditRow(e, now)
+    if (!row || seen.has(row.id)) continue   // 同じ要求の中の重複も落とす
+    seen.add(row.id)
+    rows.push(row)
+  }
+  if (rows.length === 0) return { ok: true, saved: 0 }
+
+  // セッションの持ち主を確認する。他店舗のセッションへ記録を差し込ませない。
+  const owner = await db.prepare('SELECT shop_code FROM sessions WHERE id = ?').bind(sessionId).first()
+  if (!owner) return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
+  if (owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
+  // 複数行を1文へまとめる（D1の queries/invocation 対策・constants.js 参照）。
+  // INSERT OR IGNORE なので、同じ id の再送は黙って無視される（＝冪等）。
+  const stmts = chunk(rows, AUDIT_ROWS_PER_STATEMENT).map(group => {
+    const values = group.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+    const binds = []
+    for (const r of group) {
+      binds.push(r.id, code, sessionId, r.item, r.action, r.delta, r.totalQty, r.unit, r.by, r.byId, r.at, now)
+    }
+    return db.prepare(`
+      INSERT OR IGNORE INTO session_audit
+        (id, shop_code, session_id, item_name, action, delta, total_qty, unit, entered_by, entered_by_id, at, created_at)
+      VALUES ${values}
+    `).bind(...binds)
+  })
+
+  try {
+    await db.batch(stmts)
+  } catch (e) {
+    // 記録の保存が棚卸を止めてはならないので、client 側は再送で回復する。
+    // table が無い（0017 未適用）場合もここに来る。
+    console.error('[storeHandler] audit append failed:', code, sessionId, e?.message ?? e)
+    return { _status: 503, code: 'audit_append_failed', retryable: true, error: '変更履歴を保存できませんでした' }
+  }
+  return { ok: true, saved: rows.length }
+}
+
+// GET /store/:code/sessions/:id/audit
+// 別端末から進行中・完了済みセッションの変更履歴を読む。
+export async function handleAuditGet(db, code, sessionId) {
+  if (!sessionId) return { _status: 400, code: 'invalid_session', error: 'セッションIDがありません' }
+  try {
+    const rows = await db.prepare(`
+      SELECT id, item_name, action, delta, total_qty, unit, entered_by, entered_by_id, at
+      FROM session_audit
+      WHERE shop_code = ? AND session_id = ?
+      ORDER BY at ASC, id ASC
+      LIMIT ?
+    `).bind(code, sessionId, MAX_SNAPSHOT_LOG_ENTRIES).all()
+    return (rows.results ?? []).map(r => ({
+      id:          r.id,
+      ingredient:  r.item_name,
+      action:      r.action,
+      delta:       r.delta,
+      totalQty:    r.total_qty,
+      unit:        r.unit ?? '',
+      enteredBy:   r.entered_by ?? '',
+      enteredById: r.entered_by_id ?? '',
+      timestamp:   r.at,
+    }))
+  } catch (e) {
+    // 0017 未適用の環境では table が無い。履歴が読めないだけで画面は壊さない。
+    console.error('[storeHandler] audit get failed:', code, sessionId, e?.message ?? e)
+    return []
+  }
 }

@@ -228,6 +228,10 @@ export function setOrdersSnapshotCallback(fn)    { _onOrdersSnapshot = fn }
 export function registerOrdersGetter(fn)         { _getOrders = fn }
 export function markMessagesRead()           { unreadCount.value = 0 }
 
+// ルーム経由で新しい監査エントリが確定したときの通知（D1 への保存に使う）
+let _onAuditEntry = null
+export function setAuditEntryCallback(fn) { _onAuditEntry = fn }
+
 // 変更履歴の保持上限。参加者別の重複カウントと品目ごとの履歴の正本なので、
 // 品目数を大きく上回る件数（1品目を複数人が直す）を持てる必要がある。
 // メモリ上の配列なので実用上は上限に当たらないが、暴走時の歯止めとして残す。
@@ -741,6 +745,8 @@ function _handleMessage(msg) {
       if (entry?.id && !auditLog.some(e => e.id === entry.id)) {
         auditLog.push(entry)
         _capAuditLog()
+        // ルームで発生した記録も D1 へ残す（DO はルームの生存期間しか持たない）。
+        _onAuditEntry?.(entry)
       }
       break
     }

@@ -48,4 +48,7 @@ export const STORAGE_KEYS = {
   // 対象は独立ページ（データ管理・履歴カレンダー・仕入れ）だけで、セッション画面は
   // 従来どおり pendingSession から復元する（そちらが正）。業務データではない。
   lastPage:         '_last_page_v1',
+  // D1 へ未送信の操作ログ（変更履歴）。追記専用なので pendingSaves の
+  // 「最新が勝つ」キューには載せられず、別に持つ。
+  auditQueue:       '_audit_queue_v1',
 }

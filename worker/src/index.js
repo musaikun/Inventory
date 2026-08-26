@@ -8,6 +8,7 @@ import {
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
+  handleAuditAppend, handleAuditGet,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
@@ -378,6 +379,22 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           return resultResponse(await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json()), origin, allowedOrigin)
+        }
+
+        // /store/:code/sessions/:id/audit … 操作ログ（変更履歴・migration 0017、要認証）
+        //   POST … まとめて追記（同じ id の再送は無視＝冪等）
+        //   GET  … 別端末から読む
+        const sessAuditMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/audit$/)
+        if (sessAuditMatch && (request.method === 'POST' || request.method === 'GET')) {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          if (request.method === 'GET') {
+            return resultResponse(await handleAuditGet(env.DB, code, sessAuditMatch[1]), origin, allowedOrigin)
+          }
+          return resultResponse(
+            await handleAuditAppend(env.DB, code, sessAuditMatch[1], await request.json()),
+            origin, allowedOrigin,
+          )
         }
       }
     }
