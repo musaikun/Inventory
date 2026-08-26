@@ -1,0 +1,156 @@
+// 「○○ に振り分け中」の品目一覧から、使っていない食材をその場で隠せることの回帰。
+// これまで非表示は「品目マスタ管理」だけの操作だったが、どの品目を使っていないかは
+// 振り分け中が一番よく見える。隠す判断ができる場所に、隠す操作が無かった。
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { createApp, h, nextTick } from 'vue'
+
+let app = null
+let host = null
+let cfg
+let hidden       // App 側の onHideItem / onUnhideItem を模す
+
+// 直近の棚卸履歴。トマトだけ入力があり、豚バラ・レタスは未使用。
+function seedHistory() {
+  localStorage.setItem('inventory_history_v1', JSON.stringify({
+    's1': { date: '2026-08-20', sessionId: 's1', items: [
+      { item: 'トマト', qty: 3 },
+      { item: '豚バラ', qty: null },
+      { item: 'レタス', qty: null },
+    ] },
+  }))
+}
+
+async function mount() {
+  const { default: Focus } = await import('./AxisAssignFocus.vue')
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  app = createApp({
+    render: () => h(Focus, {
+      initialAxis: 0,
+      onHideItem: n => { hidden.push(n); cfg.hideItem(n) },
+      onUnhideItem: n => { hidden = hidden.filter(x => x !== n); cfg.unhideItem(n) },
+    }),
+  })
+  app.mount(host)
+  await nextTick()
+  // カードA でグループを選び、品目一覧（カードB）へ進む
+  host.querySelector('.af-gcard').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  await openAllGenres()
+  return host
+}
+
+// 取込元にジャンルがあるとアコーディオンで畳まれている（既定は閉）。
+// 品目の行はその内側にあるので、見るには開く。
+async function openAllGenres() {
+  for (const head of host.querySelectorAll('.af-cat-head')) {
+    // 開閉はトグルなので、閉じている（▶）ものだけ押す
+    if (head.querySelector('.af-cat-arrow').textContent.trim() !== '▶') continue
+    head.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  }
+  await nextTick()
+}
+
+const rows      = () => [...host.querySelectorAll('.af-item[data-item]')]
+const rowNames  = () => rows().map(r => r.getAttribute('data-item'))
+const hideBtn   = name => rows().find(r => r.getAttribute('data-item') === name).querySelector('.af-ihide')
+const undoBar   = () => host.querySelector('.af-undobar')
+const chip      = label => [...host.querySelectorAll('.af-chip-btn')].find(b => b.textContent.trim() === label)
+
+async function click(el) {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+}
+
+beforeEach(async () => {
+  localStorage.clear()
+  seedHistory()
+  vi.resetModules()
+  hidden = []
+  const { useConfig } = await import('../composables/useConfig.js')
+  cfg = useConfig()
+  cfg.setEmptyList()
+  cfg.addItem('トマト', 120, '野菜', '個')
+  cfg.addItem('豚バラ', 800, '肉', 'kg')
+  cfg.addItem('レタス', 200, '野菜', '個')
+  cfg.setAxisName(0, '場所')
+  cfg.addAxisGroup(0, '冷蔵庫')
+  await nextTick()
+})
+afterEach(() => {
+  app?.unmount(); host?.remove()
+  app = null; host = null
+})
+
+describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
+  it('各行に非表示ボタンがある', async () => {
+    await mount()
+    expect(rowNames().sort()).toEqual(['トマト', 'レタス', '豚バラ'].sort())
+    expect(rows().every(r => r.querySelector('.af-ihide'))).toBe(true)
+  })
+
+  it('押すと一覧から消え、取り消しバーが出る', async () => {
+    await mount()
+    await click(hideBtn('豚バラ'))
+
+    expect(hidden).toEqual(['豚バラ'])
+    expect(cfg.config.hiddenItems).toContain('豚バラ')
+    expect(rowNames()).not.toContain('豚バラ')          // 一覧から消える
+    expect(undoBar().textContent).toContain('豚バラ')
+  })
+
+  it('元に戻すと一覧へ戻る', async () => {
+    await mount()
+    await click(hideBtn('豚バラ'))
+    await click(host.querySelector('.af-undo-btn'))
+
+    expect(hidden).toEqual([])
+    expect(cfg.config.hiddenItems).not.toContain('豚バラ')
+    expect(rowNames()).toContain('豚バラ')
+  })
+
+  it('非表示ボタンでは振り分けされない（行タップと押し分かれる）', async () => {
+    await mount()
+    await click(hideBtn('豚バラ'))
+    expect(cfg.config.tagsA['豚バラ']).toBeUndefined()
+
+    await click(rows().find(r => r.getAttribute('data-item') === 'トマト'))
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫'])   // 行タップは従来どおり
+  })
+
+  it('非表示は進捗の分母からも外れる', async () => {
+    await mount()
+    const before = host.querySelector('.af-prog-text').textContent
+    expect(before).toContain('/ 3')
+    await click(hideBtn('豚バラ'))
+    expect(host.querySelector('.af-prog-text').textContent).toContain('/ 2')
+  })
+})
+
+describe('AxisAssignFocus — 使っていない品目の見分け', () => {
+  it('直近の棚卸で入力の無い品目に「未使用」の印がつく', async () => {
+    await mount()
+    const marked = rows().filter(r => r.querySelector('.af-item-unused'))
+      .map(r => r.getAttribute('data-item'))
+    expect(marked.sort()).toEqual(['レタス', '豚バラ'].sort())   // トマトは入力済み
+  })
+
+  it('「未使用のみ」で隠す候補だけに絞れる', async () => {
+    await mount()
+    await click(chip('未使用のみ'))
+    await openAllGenres()
+    expect(rowNames().sort()).toEqual(['レタス', '豚バラ'].sort())
+  })
+
+  it('「前回入力のみ」と「未使用のみ」は同時に立たない', async () => {
+    await mount()
+    await click(chip('前回入力のみ'))
+    await openAllGenres()
+    expect(rowNames()).toEqual(['トマト'])
+
+    await click(chip('未使用のみ'))
+    await openAllGenres()
+    expect(chip('前回入力のみ').className).not.toContain('on')
+    expect(rowNames().sort()).toEqual(['レタス', '豚バラ'].sort())
+  })
+})

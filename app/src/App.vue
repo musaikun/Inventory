@@ -2671,10 +2671,12 @@ function onDeleteConfigItem(name) {
 }
 
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
-function onHideItem(name) {
+// silent: 呼び出し元が自前の通知（振り分け画面の取り消しバーなど）を出す場合、
+// トーストを重ねない。
+function onHideItem(name, opts = {}) {
   hideItem(name)
   if (syncActive.value) broadcastConfig(_configPayload())
-  showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
+  if (!opts.silent) showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
 }
 function onUnhideItem(name) {
   unhideItem(name)
@@ -3341,7 +3343,13 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
-    <AxisAssignFocus v-if="showAxisAssign" :initial-axis="axisAssignInitial" @close="showAxisAssign = false" />
+    <AxisAssignFocus
+      v-if="showAxisAssign"
+      :initial-axis="axisAssignInitial"
+      @close="showAxisAssign = false"
+      @hide-item="onHideItem($event, { silent: true })"
+      @unhide-item="onUnhideItem"
+    />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
     <ChatModal      v-if="showChat"     @close="showChat = false" />
