@@ -127,6 +127,60 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
   })
 })
 
+describe('AxisAssignFocus — 品目一覧からの戻る', () => {
+  const track = () => host.querySelector('.af-track').style.transform
+
+  it('端末の戻るは画面を閉じず、分類先の選択へスライドで返る', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+    expect(track()).toContain('calc(-50%')            // 品目一覧に居る
+
+    expect(consumeInnerLayerBack()).toBe(true)        // App まで戻るが伝わらない＝画面は閉じない
+    await nextTick()
+    expect(track()).toContain('calc(0%')              // 分類先の選択へ戻る
+    expect(host.querySelector('.af')).toBeTruthy()
+  })
+
+  it('何度押しても画面を出ない。品目一覧からの戻るは毎回スライドで返る', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+
+    for (let i = 0; i < 3; i++) {
+      // 分類先を選び直して品目一覧へ入る → 戻る、を繰り返す
+      await click(host.querySelector('.af-gcard'))
+      expect(track()).toContain('calc(-50%')
+      expect(consumeInnerLayerBack()).toBe(true)
+      await nextTick()
+      expect(track()).toContain('calc(0%')
+    }
+
+    // 分類先の一覧でも戻るは消費する（2回目・3回目でも画面を出ない）
+    expect(consumeInnerLayerBack()).toBe(true)
+    expect(consumeInnerLayerBack()).toBe(true)
+    await nextTick()
+    expect(host.querySelector('.af')).toBeTruthy()
+    expect(host.querySelector('.af-flashbar').textContent).toContain('‹ 閉じる')
+  })
+
+  it('モーダルが開いていれば、そちらを先に閉じる', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+    await click(host.querySelector('.af-confirm'))    // 「確認」＝振り分け済みシート
+    expect(host.querySelector('.af-sheet')).toBeTruthy()
+
+    expect(consumeInnerLayerBack()).toBe(true)
+    await nextTick()
+    expect(host.querySelector('.af-sheet')).toBeNull()
+    expect(track()).toContain('calc(-50%')            // 品目一覧には留まる
+  })
+
+  it('ヘッダーの「‹ 分類一覧」も同じ戻り方をする', async () => {
+    await mount()
+    await click(host.querySelector('.af-back'))
+    expect(track()).toContain('calc(0%')
+  })
+})
+
 describe('AxisAssignFocus — 使っていない品目の見分け', () => {
   it('直近の棚卸で入力の無い品目に「未使用」の印がつく', async () => {
     await mount()

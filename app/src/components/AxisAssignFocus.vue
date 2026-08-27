@@ -306,12 +306,19 @@ function onCardClick(g) {
   pickGroup(g)
 }
 
-// 戻る操作は、この画面を閉じる前に開いているモーダルを1枚だけ閉じる。
-// （追加モーダルを開いたまま戻ると振り分け画面ごと消える、を防ぐ）
+// 戻る操作は、この画面を閉じない。「今いる一段」だけを畳んで、必ずここに留まる。
+// 上から順に、開いているモーダル → 品目一覧（カードB）→ 分類先の一覧（カードA・留まる）。
+//
+// 振り分けは「分類先を選ぶ → 品目を入れる」の往復で、戻るは往路を1つ戻す操作として
+// 何度も押される。そこで一度でも画面ごと閉じると、データ管理から入り直しになる。
+// 分類先の一覧でも戻るを消費し、押した回数によらず外へ出さない。
+// **振り分けを終える出口はヘッダーの「‹ 閉じる」だけ**（押し方が分かるよう一言出す）。
 onUnmounted(registerInnerLayerCloser(() => {
-  if (adding.value)       { closeAdd();               return true }
-  if (showAssigned.value) { showAssigned.value = false; return true }
-  return false
+  if (adding.value)           { closeAdd();                 return true }
+  if (showAssigned.value)     { showAssigned.value = false; return true }
+  if (page.value === 'items') { backToGroups();             return true }
+  _showFlash('振り分けを終わるには左上の「‹ 閉じる」を押してください', '')
+  return true
 }))
 
 // ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
