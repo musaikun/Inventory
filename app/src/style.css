@@ -506,6 +506,9 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   animation: slideUp 0.22s ease-out;
+  /* 横スワイプ（ConfirmModal の品目送り）をこの要素が受け持つ。→ AxisAssignFocus の同注記 */
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
 }
 
 @keyframes slideUp {

@@ -644,7 +644,11 @@ function onDeleteMove(id) {
 .dot-in    { color: #10b981; }
 .dot-out   { color: #ef4444; }
 
-.hc-cal { background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; }
+/* 横スワイプはこの要素が受け持つ（pan-y = 縦だけブラウザに任せる）。
+   宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
+   一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
+   受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
+.hc-cal { background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
 .hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
 
 /* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/

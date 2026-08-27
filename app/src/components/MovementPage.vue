@@ -678,7 +678,11 @@ async function onStartOrder() {
 /* 表はページ直下に置く（棚卸・発注と同じ地続きの見え方）。
    以前は padding + max-width + 独自スクロールの3重の入れ子で、表が「箱の中の小さい表」に見えていた。
    左右の余白は表自身（.inventory-section の 16px）とコントロール群の wrapper が持つ。 */
-.mv-scroll { flex: 1; width: 100%; overflow-x: hidden; }
+/* 横スワイプはこの要素が受け持つ（pan-y = 縦だけブラウザに任せる）。
+   宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
+   一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
+   受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
+.mv-scroll { flex: 1; width: 100%; overflow-x: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
 .mv-controls-wrap { padding: 14px 16px 0; }
 .mv-page { animation: mv-slide-fwd 0.22s ease; }
 .mv-page.back { animation: mv-slide-back 0.22s ease; }
