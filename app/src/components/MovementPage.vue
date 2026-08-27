@@ -69,16 +69,7 @@ function needsReorder(item) {
   return rp != null ? t <= rp : t <= 0
 }
 
-// 在庫タブ専用の状態フィルタ: 'all' | 'has'（在庫あり>0） | 'reorder'（要補充）
-const stockFilter = ref('all')
-// 在庫タブの絞り込みは表へ述語として渡す（品目名の検索は表の searchTerm 側が担う）
-function stockItemFilter(item) {
-  if (stockFilter.value === 'all') return true
-  const t = theoOf(item)
-  if (t == null) return false                // 理論在庫なし（—）は絞り込み対象外
-  return stockFilter.value === 'has' ? t > 0 : needsReorder(item)
-}
-// 要補充の件数 — フィルタチップのバッジ用
+// 要補充の件数 — 進捗表示用
 const reorderCount = computed(() => allItems.value.reduce((n, item) => n + (needsReorder(item) ? 1 : 0), 0))
 
 // ── 品目詳細（在庫タブ・行タップでシート）───────────────────
@@ -508,7 +499,7 @@ async function onStartOrder() {
       </div>
       </div><!-- /.mv-controls-wrap -->
 
-      <!-- 品目一覧。棚卸・発注とまったく同じ表を使い、タブで数量セル・絞り込み・進捗だけを
+      <!-- 品目一覧。棚卸・発注とまったく同じ表を使い、タブで数量セル・ツールバー・進捗だけを
            差し替える。行タップの先も3タブで統一する（在庫=詳細シート / 入出庫=数量シート）。 -->
       <InventoryTable
         v-if="!isOrderTab"
@@ -516,13 +507,12 @@ async function onStartOrder() {
         :filled-count="changed.length"
         :note-map="isRecord ? theoNoteMap : null"
         :search-term="search"
-        :item-filter="isRecord ? null : stockItemFilter"
         :can-manage-list="false"
         hide-amount
         hide-tap-continuous
         @tap="onRowTap"
       >
-        <!-- 在庫タブ: 数量セルは理論在庫、絞り込みと進捗も在庫の意味に差し替える -->
+        <!-- 在庫タブ: 数量セルは理論在庫、進捗も在庫の意味に差し替える -->
         <template v-if="!isRecord" #qty="{ row }">
           <div :class="['qty-display', 'mv-theo-cell', { filled: theoOf(row.item) != null, low: needsReorder(row.item) }]">
             <template v-if="theoOf(row.item) != null">
@@ -531,15 +521,10 @@ async function onStartOrder() {
             <template v-else>—</template>
           </div>
         </template>
+        <!-- 絞り込みチップは持たない（在庫タブは常に全品目を出す）。表の既定チップも
+             在庫の意味には合わないので、slot は上書きしたまま空にしておく。 -->
         <template v-if="!isRecord" #filters>
           <button class="mv-rb-btn" type="button" @click="showReorderBulk = true">🎯 発注点をまとめて設定</button>
-          <div class="seg-group">
-            <button :class="['seg-btn', { active: stockFilter === 'all' }]" @click="stockFilter = 'all'">すべて</button>
-            <button :class="['seg-btn', { active: stockFilter === 'has' }]" @click="stockFilter = 'has'">在庫あり</button>
-            <button :class="['seg-btn', { active: stockFilter === 'reorder' }]" @click="stockFilter = 'reorder'">
-              要補充<span v-if="reorderCount" class="mv-sf-badge">{{ reorderCount }}</span>
-            </button>
-          </div>
         </template>
         <template v-if="!isRecord" #progress>
           <span class="progress">
@@ -729,7 +714,6 @@ async function onStartOrder() {
 
 .mv.in .mv.out 
 .mv.out 
-.mv-sf-badge { font-size: 10px; font-weight: 800; color: #fff; background: #ef4444; border-radius: 9px; padding: 0 6px; }
 
 /* 在庫タブの数量セル。表の qty-display と同じ形で、要補充だけ色を変える */
 .mv-theo-cell.low { color: #b91c1c; }
