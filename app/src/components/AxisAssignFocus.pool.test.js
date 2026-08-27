@@ -141,7 +141,7 @@ describe('AxisAssignFocus — 品目一覧からの戻る', () => {
     expect(host.querySelector('.af')).toBeTruthy()
   })
 
-  it('何度押しても画面を出ない。品目一覧からの戻るは毎回スライドで返る', async () => {
+  it('品目一覧からの戻るは何度でもスライドで返る', async () => {
     const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
     await mount()
 
@@ -153,13 +153,14 @@ describe('AxisAssignFocus — 品目一覧からの戻る', () => {
       await nextTick()
       expect(track()).toContain('calc(0%')
     }
+  })
 
-    // 分類先の一覧でも戻るは消費する（2回目・3回目でも画面を出ない）
-    expect(consumeInnerLayerBack()).toBe(true)
-    expect(consumeInnerLayerBack()).toBe(true)
+  it('分類先の一覧まで戻ったら、次の戻るは開いた元の画面へ返す', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+    consumeInnerLayerBack()                           // 品目一覧 → 分類先の一覧
     await nextTick()
-    expect(host.querySelector('.af')).toBeTruthy()
-    expect(host.querySelector('.af-flashbar').textContent).toContain('‹ 閉じる')
+    expect(consumeInnerLayerBack()).toBe(false)       // App へ渡す＝この画面を閉じる
   })
 
   it('モーダルが開いていれば、そちらを先に閉じる', async () => {
