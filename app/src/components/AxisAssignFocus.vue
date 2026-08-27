@@ -545,7 +545,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-tab { flex: 1; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; padding: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-tab.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 
-.af-viewport { flex: 1; overflow: hidden; }
+/* 横スワイプはこの要素が受け持つ（pan-y = 縦だけブラウザに任せる）。
+   宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
+   一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
+   受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
+.af-viewport { flex: 1; overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
 .af-track { display: flex; width: 200%; height: 100%; transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); }
 .af-track.dragging { transition: none; }
 .af-pane { width: 50%; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 14px 24px; }

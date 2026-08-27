@@ -1272,8 +1272,24 @@ onMounted(async () => {
 // ── Android/PWAの戻るボタン制御 ──────────────────────────────────────────────
 // 画面遷移ではなく「現在開いている最上位レイヤーを閉じる」動作にマップする。
 // 起動時に sentinel を1つプッシュし、何かを閉じたら再プッシュして次の戻るも捕捉。
+// 戻るの受け皿（sentinel）を1枚だけ前に積んでおく。端末の戻るはこれを消費し、
+// 画面を1つ閉じたら積み直す。受け皿が無いまま戻るを押すと、そこでアプリを離れる。
+let _backArmed = true          // onMounted で必ず1枚積むので true から始める
 function _pushBackSentinel() {
   history.pushState({ pwaLayer: true }, '')
+  _backArmed = true
+}
+// 受け皿の上に立っているか。ブラウザに聞くので、こちらの記録が実態とずれていても分かる
+// （プログラムから積んだ履歴を戻るが読み飛ばす実装があり、その場合 _backArmed だけでは
+//  「積んだつもり」のまま受け皿が無い状態になる）。
+function _hasBackSentinel() {
+  try { return !!history.state?.pwaLayer } catch (_) { return false }
+}
+// 受け皿が切れていたら積み直す。ランディングでは積まない（そこでの戻る＝アプリを離れる）。
+function _rearmBackSentinel() {
+  if (currentView.value === 'landing') return
+  if (_backArmed && _hasBackSentinel()) return
+  _pushBackSentinel()
 }
 
 function _closeTopLayer() {
@@ -1324,9 +1340,23 @@ function onAccountDeleted() {
 }
 
 function _onBrowserBack() {
+  _backArmed = false                  // この戻るで sentinel を使い切った
   const closed = _closeTopLayer()
   if (closed) _pushBackSentinel()
 }
+
+// 受け皿を積み直す機会は2つ。どちらも「戻り先ができた／できているはず」の瞬間。
+//
+// 1) view が変わったとき
+//    ランディングで戻るを受けると閉じるものが無く積み直さない（次の戻るでアプリを離れる
+//    ＝意図どおり）。そこから画面を進めると受け皿が無いままになり、進んだ先での戻るが
+//    1回でアプリを離れていた。
+// 2) 画面を触ったとき
+//    view が変わらないまま中で段が進む画面がある（振り分けの 分類先一覧 → 品目一覧 は
+//    同じ view のスライド）。view だけを見ていると、その画面だけ積み直しの機会が無い。
+//    操作の直後に積むので、利用者の操作を伴う履歴として積める（操作なしで積んだ履歴を
+//    戻るが読み飛ばすブラウザ実装への備えにもなる）。
+watch(currentView, () => _rearmBackSentinel())
 
 /**
  * 画面内の「‹ 戻る」（データ管理・入出庫）の共通ハンドラ。
@@ -1345,9 +1375,17 @@ function onPageBack() {
   currentView.value = _takePageReturn()
 }
 
-onMounted(() => { _pushBackSentinel(); window.addEventListener('popstate', _onBrowserBack) })
+onMounted(() => {
+  _pushBackSentinel()
+  window.addEventListener('popstate', _onBrowserBack)
+  // capture + passive: 画面側の処理より先に見るだけで、タップは一切邪魔しない
+  window.addEventListener('pointerdown', _rearmBackSentinel, { capture: true, passive: true })
+  window.addEventListener('keydown', _rearmBackSentinel, { capture: true, passive: true })
+})
 onUnmounted(() => {
   window.removeEventListener('popstate', _onBrowserBack)
+  window.removeEventListener('pointerdown', _rearmBackSentinel, { capture: true })
+  window.removeEventListener('keydown', _rearmBackSentinel, { capture: true })
   clearTimeout(_dissolvedTimer)
   _dissolvedTimer = null
 })

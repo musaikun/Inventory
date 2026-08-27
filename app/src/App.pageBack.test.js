@@ -58,6 +58,11 @@ async function deviceBack() {
   window.dispatchEvent(new PopStateEvent('popstate'))
   await flush()
 }
+// 戻るの受け皿（sentinel）が前に積まれているか。
+// jsdom は popstate を投げても履歴の位置が動かないため、実ブラウザの
+// 「受け皿が無ければアプリを離れる」は再現できない。積み直しの有無で代替する。
+let pushSpy = null
+const sentinelCount = () => pushSpy.mock.calls.length
 
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
@@ -93,6 +98,102 @@ async function openMasterFromMovement() {
   await click(button('データ管理へ'))
   expect(view()).toBe('master')
 }
+
+describe('戻るの受け皿を切らさない', () => {
+  // 再現: ホーム → 戻る（ランディング）→ ホームへ進む → データ管理 → 戻る。
+  // ランディングでは閉じるものが無く sentinel を積み直さないため、そこから進むと
+  // 受け皿が無いまま。データ管理での戻るが1回でアプリを離れていた。
+  it('ランディングまで戻ってから進み直しても、受け皿が積み直される', async () => {
+    await mountApp()
+    await seedItems()
+    expect(view()).toBe('sessions')
+
+    pushSpy = vi.spyOn(window.history, 'pushState')
+    await deviceBack()                       // ホーム → ランディング（閉じたので積み直す）
+    expect(view()).toBe('landing')
+    expect(sentinelCount()).toBe(1)
+
+    await deviceBack()                       // ランディングでは閉じるものが無い
+    expect(view()).toBe('landing')
+    expect(sentinelCount()).toBe(1)          // 積み直さない＝次の戻るでアプリを離れる
+
+    await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
+    await flush()
+    expect(view()).not.toBe('landing')       // 画面を進めた
+    expect(sentinelCount()).toBe(2)          // 進んだ時点で積み直す
+  }, 20000)
+
+  it('進み直したあとのデータ管理でも、戻るはホームへ返る', async () => {
+    await mountApp()
+    await seedItems()
+    await deviceBack()
+    await deviceBack()                       // 受け皿を使い切った状態にする
+    expect(view()).toBe('landing')
+
+    await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
+    await flush()
+    await click(byText('データ管理'))
+    expect(view()).toBe('master')
+
+    await deviceBack()
+    expect(view()).toBe('sessions')          // アプリを離れず、ホームへ
+  }, 20000)
+})
+
+describe('振り分け画面の中でも受け皿を切らさない', () => {
+  // User報告: 分類先一覧 → 品目一覧 → 戻る → 分類先一覧 → 品目一覧 → 戻る でアプリが閉じる。
+  // 振り分けの2カードは同じ view の中のスライドなので、view を見ているだけでは
+  // 受け皿を積み直す機会が無い。操作（pointerdown）でも積み直す。
+  async function openAssign() {
+    const { useConfig } = await import('./composables/useConfig.js')
+    const cfg = useConfig()
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '野菜', '個')
+    cfg.setAxisName(0, '場所')
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await flush()
+    const { showAxisAssign } = await import('./composables/appMenuState.js')
+    showAxisAssign.value = true
+    await flush()
+  }
+  const slide = () => host.querySelector('.af-track').style.transform
+
+  // 実機のタップは pointerdown → click の順に来る
+  async function tap(el) {
+    el.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flush()
+  }
+
+  it('分類先一覧 ⇄ 品目一覧 を繰り返しても、毎回スライドで返る', async () => {
+    await mountApp()
+    await openAssign()
+
+    for (let i = 0; i < 3; i++) {
+      await tap(host.querySelector('.af-gcard'))
+      expect(slide()).toContain('calc(-50%')      // 品目一覧へ
+      await deviceBack()
+      expect(slide()).toContain('calc(0%')        // 分類先一覧へ戻る
+      expect(host.querySelector('.af')).toBeTruthy()
+    }
+  }, 20000)
+
+  it('受け皿が失われていても、画面を触った時点で積み直す', async () => {
+    await mountApp()
+    await openAssign()
+
+    // ブラウザが受け皿を読み飛ばした状況を作る（履歴の現在地に印が無い）
+    window.history.replaceState({}, '', '/')
+    pushSpy = vi.spyOn(window.history, 'pushState')
+
+    await tap(host.querySelector('.af-gcard'))
+    expect(sentinelCount()).toBeGreaterThan(0)    // 操作の時点で積み直している
+    expect(slide()).toContain('calc(-50%')
+
+    await deviceBack()
+    expect(slide()).toContain('calc(0%')
+  }, 20000)
+})
 
 describe('戻るはひとつ前の画面へ返す', () => {
   it('ホーム → データ管理 → 戻る は ホーム', async () => {
