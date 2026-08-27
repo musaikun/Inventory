@@ -227,10 +227,7 @@ describe('AxisAssignFocus — 分類先の追加導線', () => {
     expect(modal()).toBeNull()
     expect(host.querySelector('.af')).toBeTruthy() // 画面は残る
 
-    // 分類先の一覧では戻るを消費して留まる（振り分けを出るのはヘッダーの「‹ 閉じる」だけ）
-    expect(consumeInnerLayerBack()).toBe(true)
-    await nextTick()
-    expect(host.querySelector('.af')).toBeTruthy()
+    expect(consumeInnerLayerBack()).toBe(false)    // 分類先の一覧では App へ渡す＝画面を閉じる
   })
 
   it('未作成のときは「下の「＋」」を案内する', async () => {

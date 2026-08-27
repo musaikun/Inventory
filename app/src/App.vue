@@ -462,8 +462,35 @@ const leaveSessionTitle = computed(() =>
   practiceMode.value ? '練習を終了して戻る'
     : leavesToMovement.value ? '仕入れに戻る' : 'セッション一覧に戻る')
 
+// ── 独立ページの戻り先 ────────────────────────────────────────────────────────
+// データ管理・仕入れ・履歴は複数の場所から開ける（データ管理はホームと仕入れの両方）。
+// 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
+// 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
+// （数えかけの棚卸へ戻ると作業に割り込むため）。
+const PAGE_VIEWS = ['master', 'movement', 'history']
+const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
+function _rememberPageFrom(view) {
+  const from = currentView.value
+  if (from === view) return
+  pageReturn[view] = (from === 'sessions' || PAGE_VIEWS.includes(from)) ? from : 'sessions'
+}
+function openPage(view) {
+  _rememberPageFrom(view)
+  currentView.value = view
+}
+// 戻り先を1つ取り出す。取り出したら既定（ホーム）へ戻し、
+// 独立ページ同士を行き来したあとの戻るが2画面を往復し続けないようにする。
+function _takePageReturn() {
+  const view = currentView.value
+  if (!PAGE_VIEWS.includes(view)) return 'sessions'
+  const to = pageReturn[view]
+  pageReturn[view] = 'sessions'
+  return to
+}
+
 // 「仕入れ」ページを開く。最新の入出庫を D1 から取り込んでから表示する。
 function openMovement(tab = 'view') {
+  _rememberPageFrom('movement')
   movementTab.value = tab
   currentView.value = 'movement'
   _pullMovements()
@@ -759,6 +786,7 @@ async function onDesktopNavigate(view) {
     return
   }
   if (view === 'movement') { openMovement(); return }
+  if (PAGE_VIEWS.includes(view)) { openPage(view); return }
   currentView.value = view
 }
 
@@ -1273,9 +1301,7 @@ function _closeTopLayer() {
   if (consumeDeleteAccountBack()) return true
   if (showDeleteAccount.value) { showDeleteAccount.value = false; return true }
   if (settingsSection.value) { settingsSection.value = null;  return true }
-  if (currentView.value === 'master') { currentView.value = 'sessions'; return true }
-  if (currentView.value === 'movement') { currentView.value = 'sessions'; return true }
-  if (currentView.value === 'history') { currentView.value = 'sessions'; return true }
+  if (PAGE_VIEWS.includes(currentView.value)) { currentView.value = _takePageReturn(); return true }
   // これらは SessionListPage が持つ overlay なので、ホームに居るときだけ閉じる対象になる。
   // view を見ずに拾うと、開いたまま棚卸へ入ったときに**セッション画面での戻るを消費**して
   // しまい、1回目の戻るでは何も起きない（画面はセッションのまま）ように見える。
@@ -1311,9 +1337,11 @@ function _onBrowserBack() {
  *
  * PWA / ブラウザ Back と同じ guard をここでも見る。guard が解除されれば通常どおり戻る。
  */
+// 独立ページのヘッダーにある戻る。PWA Back と同じ行き先にする
+// （同じ「戻る」で結果が2通りになるのを避ける）。
 function onPageBack() {
   if (isBackBlocked()) return
-  currentView.value = 'sessions'
+  currentView.value = _takePageReturn()
 }
 
 onMounted(() => { _pushBackSentinel(); window.addEventListener('popstate', _onBrowserBack) })
@@ -2856,11 +2884,11 @@ function dismissReview() {
       @start-session="onSessionStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
-      @open-history="currentView = 'history'"
+      @open-history="openPage('history')"
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
-      @open-master="currentView = 'master'"
+      @open-master="openPage('master')"
       @open-movement="openMovement"
       @open-upgrade="reason => openUpgrade(reason)"
     />
@@ -2880,13 +2908,13 @@ function dismissReview() {
       @back="onPageBack"
       @start-session="onSessionStart"
       @resume-session="onSessionResume"
-      @open-master="currentView = 'master'"
+      @open-master="openPage('master')"
     />
 
     <!-- ── 履歴カレンダー（専用ページ） ── -->
     <HistoryCalendarPage
       v-else-if="currentView === 'history'"
-      @back="currentView = 'sessions'"
+      @back="onPageBack"
       @view-session="onViewSession"
       @delete-session="onDeleteSession"
       @open-upgrade="reason => openUpgrade(reason)"
