@@ -728,7 +728,8 @@ body {
   font-size: 14px;
   font-weight: 600;
   z-index: 9000;
-  white-space: normal;
+  /* 失敗の内訳を改行して添えるため、\n を保ちつつ折り返す */
+  white-space: pre-line;
   text-align: center;
   pointer-events: none;
   max-width: calc(100vw - 48px);

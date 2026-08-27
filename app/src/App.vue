@@ -1804,7 +1804,10 @@ function _warnCompleteUnsaved(result = null) {
   const msg = result?.unknown
     ? `${actNoun.value}の完了結果を確認できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度「完了」を押すと、送信時と同じ内容で確定できます（それ以降の変更は含まれません）`
     : 'サーバーへ完了を記録できませんでした。入力内容はこの端末に残っています。接続が戻ってからもう一度完了してください'
-  showToast(msg, 8000, 'error')
+  // 失敗の内訳を添える。スマホ（とくにPWA）では DevTools を開けず、
+  // 「通信が悪い」のか「サーバーが 503 を返した」のかを利用者が区別できない。
+  // 同じ文言のまま押し直すしかない状況にしないため、原因を画面に出す。
+  showToast(result?.detail ? `${msg}\n［${result.detail}］` : msg, 10000, 'error')
 }
 
 /**

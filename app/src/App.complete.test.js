@@ -687,6 +687,36 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
   })
 
+  // スマホ（とくにPWA）では DevTools を開けず、原因が「通信」なのか「サーバーが 503 を
+  // 返した」のかを利用者が区別できない。同じ文言のまま押し直すしかない状況にしない。
+  describe('完了失敗の原因を画面に出す', () => {
+    const toastText = () => host.querySelector('.toast')?.textContent ?? ''
+
+    it('サーバーが返したステータスとコードを添える', async () => {
+      completeShouldFail = true          // 503 / retryable
+      await mountApp()
+      await clickComplete()
+      expect(toastText()).toContain('HTTP 503')
+    })
+
+    it('通信自体が失敗したときはそう分かるように出す', async () => {
+      completeLosesResponse = true       // status を持たない失敗
+      await mountApp()
+      await clickComplete()
+      expect(toastText()).toContain('通信エラー')
+    })
+
+    // 本番Workerは 2026-08-09 以前のコードで snapshotSaved を返さない。
+    // 正常なデータでも必ず失敗するので、通信のせいだと誤解させない。
+    it('応答に snapshotSaved が無いときは Worker が古い可能性を示す', async () => {
+      completeResponse = { ok: true, type: 'stock' }   // snapshotSaved を欠く応答
+      await mountApp()
+      await clickComplete()
+      expect(toastText()).toContain('snapshotSaved')
+      expect(toastText()).toContain('Workerが古い')
+    })
+  })
+
   // 結果不明のあいだ画面に閉じ込めない。サーバーが落ちている・通信が切れている間ずっと
   // 出られないのは、入力も再送用の body も端末に残っていることを考えると重すぎる。
   describe('結果不明のまま一覧へ戻れる', () => {

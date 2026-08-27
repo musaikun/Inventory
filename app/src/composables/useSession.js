@@ -429,10 +429,26 @@ export function useSession() {
     return typeof s === 'number' && s >= 400 && s < 500 && s !== 429
   }
 
-  function _fail(reason, { unknown, retryable = true, conflict = false } = {}) {
+  /**
+   * @param detail 失敗の技術的な内訳。**画面へ短く出す**ためのもの。
+   *   スマホ（とくにPWA）では DevTools を開けず、原因が「通信」なのか
+   *   「サーバーが 503 を返した」なのか利用者からは区別できない。
+   *   同じ文言のまま押し直すしかない状況を作らないよう、判断材料を持って返す。
+   */
+  function _fail(reason, { unknown, retryable = true, conflict = false, detail = null } = {}) {
     _finalized = false
     completionUnknown.value = !!unknown
-    return { ok: false, reason, retryable, unknown: !!unknown, conflict }
+    return { ok: false, reason, retryable, unknown: !!unknown, conflict, detail }
+  }
+
+  /** 画面へ出す失敗の内訳（HTTPステータス / サーバーのコード / 通信断） */
+  function _failureDetail(err) {
+    const status = err?.status
+    if (typeof status === 'number') {
+      return err?.code ? `HTTP ${status} / ${err.code}` : `HTTP ${status}`
+    }
+    // status を持たない = fetch 自体が失敗（通信断・CORS・中断）
+    return `通信エラー: ${err?.message ?? 'unknown'}`
   }
 
   async function _complete(request) {
@@ -482,7 +498,9 @@ export function useSession() {
       if (request.type === 'stock' && res?.snapshotSaved !== true) {
         console.error('[useSession] complete without snapshot:', id)
         _clearIntent()
-        return _fail('snapshot_missing', { unknown: false })
+        // 応答は 200 なのに明細が保存されていない。**サーバーが古い**ときにここへ来る
+        // （`snapshotSaved` を返すのは 2026-08-10 以降の Worker）。
+        return _fail('snapshot_missing', { unknown: false, detail: 'サーバー応答に snapshotSaved が無い（Workerが古い可能性）' })
       }
       // **成功しても intent は消さない。** 端末側の確定（履歴 commit・後片付け）が
       // 終わってから `ackCompletionFinalized()` で消す。成功直後に端末が落ちても、
@@ -518,6 +536,7 @@ export function useSession() {
       return _fail('save_failed', {
         unknown,
         retryable: err?.body?.retryable !== false && !_isDefiniteFailure(err),
+        detail: _failureDetail(err),
       })
     }
   }
