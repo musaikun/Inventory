@@ -139,8 +139,27 @@ describe('AxisAssignFocus — 品目一覧からの戻る', () => {
     await nextTick()
     expect(track()).toContain('calc(0%')              // 分類先の選択へ戻る
     expect(host.querySelector('.af')).toBeTruthy()
+  })
 
-    expect(consumeInnerLayerBack()).toBe(false)       // 分類先の一覧では App へ渡す＝画面を出る
+  it('何度押しても画面を出ない。品目一覧からの戻るは毎回スライドで返る', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    await mount()
+
+    for (let i = 0; i < 3; i++) {
+      // 分類先を選び直して品目一覧へ入る → 戻る、を繰り返す
+      await click(host.querySelector('.af-gcard'))
+      expect(track()).toContain('calc(-50%')
+      expect(consumeInnerLayerBack()).toBe(true)
+      await nextTick()
+      expect(track()).toContain('calc(0%')
+    }
+
+    // 分類先の一覧でも戻るは消費する（2回目・3回目でも画面を出ない）
+    expect(consumeInnerLayerBack()).toBe(true)
+    expect(consumeInnerLayerBack()).toBe(true)
+    await nextTick()
+    expect(host.querySelector('.af')).toBeTruthy()
+    expect(host.querySelector('.af-flashbar').textContent).toContain('‹ 閉じる')
   })
 
   it('モーダルが開いていれば、そちらを先に閉じる', async () => {
