@@ -1271,8 +1271,12 @@ onMounted(async () => {
 // ── Android/PWAの戻るボタン制御 ──────────────────────────────────────────────
 // 画面遷移ではなく「現在開いている最上位レイヤーを閉じる」動作にマップする。
 // 起動時に sentinel を1つプッシュし、何かを閉じたら再プッシュして次の戻るも捕捉。
+// 戻るの受け皿（sentinel）を1枚だけ前に積んでおく。端末の戻るはこれを消費し、
+// 画面を1つ閉じたら積み直す。armed = 今その1枚が前に居るか。
+let _backArmed = true          // onMounted で必ず1枚積むので true から始める
 function _pushBackSentinel() {
   history.pushState({ pwaLayer: true }, '')
+  _backArmed = true
 }
 
 function _closeTopLayer() {
@@ -1323,9 +1327,19 @@ function onAccountDeleted() {
 }
 
 function _onBrowserBack() {
+  _backArmed = false                  // この戻るで sentinel を使い切った
   const closed = _closeTopLayer()
   if (closed) _pushBackSentinel()
 }
+
+// ランディングで戻るを受けたときは閉じるものが無く、sentinel を積み直さない
+// （次の戻るでアプリを離れる＝意図どおり）。
+// ただし**そこから画面を進めると sentinel が無いまま**になり、進んだ先での戻るが
+// 1回でアプリを離れてしまっていた（ホーム→戻る→ランディング→ホーム→データ管理→戻る、で再現）。
+// 戻り先ができた時点＝ランディングから進んだ時点で積み直す。
+watch(currentView, view => {
+  if (!_backArmed && view !== 'landing') _pushBackSentinel()
+})
 
 /**
  * 画面内の「‹ 戻る」（データ管理・入出庫）の共通ハンドラ。
