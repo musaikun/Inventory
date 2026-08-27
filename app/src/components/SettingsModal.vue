@@ -134,6 +134,8 @@ function openDeleteAccount() {
 
 // ── 安全なキャッシュ削除（アプリ本体の古いファイルのみ・業務データは無傷）──────
 const appVersion = pkg.version
+// どのビルドかは commit SHA が示す。version はリリースの区切りでしか変わらない（D-025）
+const buildSha = __BUILD_SHA__
 const clearingCache = ref(false)
 const analyticsBusy = ref(false)
 const analyticsActive = computed(() => ANALYTICS_ENABLED && analyticsConsent.value === 'granted')
@@ -427,7 +429,7 @@ function onDownloadTemplate() {
       <!-- アプリ情報 -->
       <div v-if="_showGeneral" class="device-section app-info">
         <div class="device-label">アプリ情報</div>
-        <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}</span></div>
+        <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}<template v-if="buildSha"> ({{ buildSha }})</template></span></div>
       </div>
 
       <div v-if="_showGeneral" class="device-section analytics-section">

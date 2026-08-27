@@ -2,10 +2,35 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { readFileSync, existsSync, cpSync, createReadStream } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url)))
+
+/**
+ * どのビルドかを示す commit SHA（短縮7桁）。
+ *
+ * `package.json` の version は**リリースの区切りでUser/PMだけ**が上げる。
+ * セッションが変更ごとに上げていた頃は、複数セッションが同じ値を書いて採番が衝突し、
+ * 値が偶然一致すると merge で競合すらせずに別々の変更が同じ番号を名乗った（D-025）。
+ * 「どのビルドか」は SHA が持つので、version を触らずに済む。
+ * 番号と違って、画面の表示から該当コミットを直接特定できる。
+ *
+ * CI では `GITHUB_SHA` を使う（`actions/checkout` は既定 `fetch-depth: 1` だが
+ * `git rev-parse HEAD` は通る。env があるならプロセス生成を省く）。
+ * git が無い環境（tarball ビルド等）では空にして、表示側で省く。
+ */
+function buildSha() {
+  const fromEnv = process.env.GITHUB_SHA || process.env.CF_PAGES_COMMIT_SHA
+  if (fromEnv) return fromEnv.slice(0, 7)
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim()
+  } catch (_) {
+    return ''
+  }
+}
 const isProReview = process.env.VITE_DEPLOYMENT_CHANNEL === 'pro-review'
   && process.env.VITE_REVIEW_PLAN === 'pro'
 
@@ -40,6 +65,7 @@ export default defineConfig({
   base: './',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_SHA__:   JSON.stringify(buildSha()),
   },
   plugins: [
     vue(),

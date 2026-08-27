@@ -42,10 +42,10 @@ worker/src/
 
 - **ブランチ**: 固定名を前提にせず、作業開始時に `git branch --show-current` で確認
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **バージョン**: 6桁（例 `0.87.0.0.0.0`）で、**セッションごとに担当桁が違う**。
-  自分の担当桁だけを `./scripts/bump-version.sh <1-6>` で +1 する（他の桁には触らない）。
-  桁の割り当ては `docs/quality-foundation/decisions.md` の **D-025** が正。
-  `npm version` は semver しか受け付けず落ちるので使わない
+- **バージョン**: `app/package.json` の `version` は **触らない**。
+  上げるのは User / PM がリリースの区切りで行う（複数セッションが同時に上げると
+  採番が衝突し、値が同じだと merge で競合すらしないため。→ **D-025**）。
+  どのビルドかは commit SHA が示す（画面に `v0.89.0 (207ec0d)` の形で出る）
 - **現在の品質集中scope**: Web Free版の公開gateと品質基盤以外の新機能を停止。
   Stripe、trial、TWA、Google Play提出は後続
 - **共有タスク**: 着手前に `docs/quality-foundation/task-list.md` の状態・担当を更新し、

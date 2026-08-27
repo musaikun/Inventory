@@ -6,7 +6,9 @@ import { isTwaApp } from '../utils/appMode.js'
 const emit = defineEmits(['started'])
 
 const isTwa   = isTwaApp()
-const version = __APP_VERSION__
+// version はリリースの区切りでしか変わらない。どのビルドかは commit SHA が示す（D-025）
+const version  = __APP_VERSION__
+const buildSha = __BUILD_SHA__
 
 // ── 店舗コードを持つユーザーのログイン（認証ページのログインタブへ）─────────
 function onLogin() {
@@ -31,7 +33,7 @@ async function onStart() {
       <div class="lp-logo">
         <span class="lp-logo-icon">📋</span>
         <span class="lp-logo-name">タナオロ</span>
-        <span class="lp-version">v{{ version }}</span>
+        <span class="lp-version">v{{ version }}<template v-if="buildSha"> ({{ buildSha }})</template></span>
       </div>
 
       <p class="lp-tagline">棚卸作業を開始してください</p>

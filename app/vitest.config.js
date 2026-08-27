@@ -15,7 +15,12 @@ export default defineConfig({
       'virtual:pwa-register/vue': fileURLToPath(new URL('./src/test-stubs/pwaRegister.js', import.meta.url)),
     },
   },
-  define: { __APP_VERSION__: JSON.stringify('test') },
+  // ビルド時に埋める定数はテストでも定義しておく。
+  // 未定義だと参照したコンポーネントが ReferenceError でマウントに失敗する。
+  define: {
+    __APP_VERSION__: JSON.stringify('test'),
+    __BUILD_SHA__:   JSON.stringify('testsha'),
+  },
   test: {
     environment: 'jsdom',
     globals: true,
