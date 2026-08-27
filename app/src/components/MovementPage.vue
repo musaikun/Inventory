@@ -711,10 +711,6 @@ async function onStartOrder() {
 /* 理論在庫の誤差要因は隠さない（甘い数字を出さない） */
 .mv-hint-caveat { color: #b45309; }
 
-
-.mv.in .mv.out 
-.mv.out 
-
 /* 在庫タブの数量セル。表の qty-display と同じ形で、要補充だけ色を変える */
 .mv-theo-cell.low { color: #b91c1c; }
 
