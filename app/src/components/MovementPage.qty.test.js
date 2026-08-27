@@ -73,10 +73,23 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
 
     expect(table()).not.toBeNull()
     expect(qtyOf('トマト')).toContain('10')
-    // 絞り込みと進捗は在庫の意味に差し替わる
-    expect(host.textContent).toContain('在庫あり')
+    // 進捗は在庫の意味に差し替わる
     expect(host.textContent).toContain('要補充')
     expect(host.textContent).not.toContain('件入力済み')
+  })
+
+  // 状態の絞り込み（すべて / 在庫あり / 要補充）は持たない。在庫タブは常に全品目を出し、
+  // 表の既定チップ（入力済み/未入力）も在庫の意味には合わないので出さない。
+  it('在庫タブは状態の絞り込みチップを持たない', async () => {
+    await mountPage()
+    await openTab('在庫')
+
+    const labels = [...host.querySelectorAll('.seg-btn')].map(b => b.textContent.trim())
+    for (const gone of ['すべて', '在庫あり', '要補充', '入力済み', '未入力']) {
+      expect(labels).not.toContain(gone)
+    }
+    // 発注点の一括設定は残す
+    expect([...host.querySelectorAll('button')].some(b => b.textContent.includes('発注点をまとめて設定'))).toBe(true)
   })
 
   // 取込はデータ管理へ集約した。同じ取込に2つの入口があると、どちらが正か分からなくなる。
