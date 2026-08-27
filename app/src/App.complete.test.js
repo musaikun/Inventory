@@ -30,6 +30,8 @@ let completeConflict = false
 let sessionUpdates = []
 // GET /store/:code/sessions の応答（サーバー側の状態確認）
 let serverSessions = []
+// GET /store/:code/sessions を通信断にする（サーバーの状態を読めない = unreachable）
+let sessionsUnreachable = false
 
 vi.mock('./utils/api.js', () => ({
   // '' にすると useStore 側の D1 保存は no-op（本testの対象外）。
@@ -75,7 +77,10 @@ vi.mock('./utils/api.js', () => ({
     // 上書きし、以降の session API が「店舗コード無し」で黙って no-op になる。
     if (/\/store\/[A-Z0-9]+$/.test(path)) return { shopCode: 'ABCDEF', activeRoom: null, plan: 'free' }
     // 完了後はセッション一覧へ遷移する。配列を返さないと一覧の computed が落ちる
-    if (/\/sessions(\?|$)/.test(path)) return serverSessions
+    if (/\/sessions(\?|$)/.test(path)) {
+      if (sessionsUnreachable) throw new Error('Network request failed')
+      return serverSessions
+    }
     return {}
   }),
   setAuthInvalidatedHandler: vi.fn(),
@@ -204,6 +209,7 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -302,6 +308,7 @@ describe('App — 完了はサーバー成功後にだけローカルへ確定�
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -407,6 +414,7 @@ describe('App — 完了要求が二重に走らない', () => {
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -502,6 +510,7 @@ describe('App — 完了処理中に離脱しようとしても active を書き
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -618,6 +627,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -675,6 +685,61 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(completeBodies[1].snapshot.items.length).toBeGreaterThan(0)
     // 完了済みを active へ戻さない
     expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+  })
+
+  // 結果不明のあいだ画面に閉じ込めない。サーバーが落ちている・通信が切れている間ずっと
+  // 出られないのは、入力も再送用の body も端末に残っていることを考えると重すぎる。
+  describe('結果不明のまま一覧へ戻れる', () => {
+    it('サーバーへ届かないときは確認のうえ離脱できる', async () => {
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      completeLosesResponse = true
+      await mountApp()
+      await clickComplete()          // 応答喪失 → 結果不明
+      expect(homeBtn()).not.toBeNull()
+
+      sessionsUnreachable = true
+      homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await settle(16)
+
+      // 一覧へ出ている（セッション画面ではない）
+      expect(completeBtn()).toBeNull()
+      // **active は書かない**（サーバーが完了を記録済みなら巻き戻してしまう）
+      expect(sessionUpdates.filter(u => u.status === 'active')).toHaveLength(0)
+      // **再送用の body と session は残す**（同じ内容で確定し直せる）
+      expect(localStorage.getItem(STORAGE_KEYS.completionIntent)).toContain('sess-1')
+      expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
+    })
+
+    it('確認をキャンセルしたら留まる', async () => {
+      // 完了ボタン自身の confirm は通し、離脱の confirm だけ断る
+      vi.stubGlobal('confirm', vi.fn(msg => !String(msg).includes('一覧に戻りますか')))
+      completeLosesResponse = true
+      await mountApp()
+      await clickComplete()
+
+      sessionsUnreachable = true
+      homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await settle(16)
+
+      expect(completeBtn()).not.toBeNull()
+    })
+
+    it('サーバーは読めたが該当セッションが無い場合は離脱を勧めない', async () => {
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      completeLosesResponse = true
+      await mountApp()
+      await clickComplete()
+
+      serverSessions = []            // 読めるが not_found
+      homeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await settle(16)
+
+      // 通信の問題ではないので、通信復帰を促す離脱確認は出さない
+      // （confirm は完了ボタンの「棚卸を完了しますか？」で既に1回使われている）
+      expect(completeBtn()).not.toBeNull()
+      const asked = globalThis.confirm.mock.calls.map(c => String(c[0]))
+      expect(asked.some(t => t.includes('一覧に戻りますか'))).toBe(false)
+    })
   })
 
   it('完了済みセッションのホームが失敗しても active へ戻さない', async () => {
@@ -762,6 +827,7 @@ describe('App — 結果不明のあとは同じ内容で再送する', () => {
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -847,6 +913,7 @@ describe('App — 完了結果不明・session_ended・入力ロック', () => {
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -972,6 +1039,7 @@ describe('App — 送信中に端末が落ちても保存済みbodyで収束す�
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -1115,6 +1183,7 @@ describe('App — awaitをまたいだ旧処理が現在のセッションを壊
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     syncIsActive.value = false
     syncIsHost.value   = false
@@ -1240,6 +1309,7 @@ describe('App — 遅延した解散処理・不一致通知が現在の作業�
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     dissolvedCallback = null
     syncIsActive.value = false
@@ -1366,6 +1436,7 @@ describe('App — 同じsessionで新ルームを作ったら旧解散処理を�
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     dissolvedCallback = null
     syncIsActive.value = false
@@ -1432,6 +1503,7 @@ describe('App — 解散が切替で中止されたら session・intent・draft 
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     dissolvedCallback = null
     syncIsActive.value = true
@@ -1518,6 +1590,7 @@ describe('App — 自分の解散マークが別ルームの解散通知に漏�
     completeConflict = false
     sessionUpdates = []
     serverSessions = []
+    sessionsUnreachable = false
     sessionEndedCallback = null
     dissolvedCallback = null
     syncIsActive.value = true

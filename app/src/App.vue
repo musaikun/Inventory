@@ -594,7 +594,8 @@ async function onSnapshotPatched(snap) {
 
 // セッション一覧から「再開」
 async function onSessionResume(session) {
-  if (_blockedByCompletion()) return
+  // 結果不明のまま離脱したセッションへは戻れる（戻って「完了」を押し直すのが復旧手段）
+  if (_blockedByCompletion({ resumingSessionId: session?.id })) return
   sessionMode.value = session?.type === 'order' ? 'order' : 'stock'
   // 前セッションのメモリ残留を完全に断つ（共有ルーム由来の在庫汚染を防止）
   reset()
@@ -1772,13 +1773,16 @@ function _warnCompleteUnsaved(result = null) {
  * 完了処理が競合する操作（ホーム・戻る・セッション切替・破棄）を止める。
  * @returns {boolean} true = 進行中なので呼び出し側は処理を中断する
  */
-function _blockedByCompletion() {
+function _blockedByCompletion({ resumingSessionId = null } = {}) {
   if (completing.value) {
     showToast(`${actNoun.value}の完了処理中です。結果が出るまでお待ちください`, 3000, 'warning')
     return true
   }
   if (completionUnknown.value) {
-    showToast(`${actNoun.value}の完了結果が未確定です。もう一度「完了」を押して確定してください`, 4000, 'warning')
+    // 結果不明のセッション**そのもの**へ戻るのは復旧手段（戻って「完了」を押し直す）。
+    // ここを塞ぐと、離脱したあと二度と確定できなくなる。別セッションへ移るのは従来どおり止める。
+    if (resumingSessionId && resumingSessionId === pendingSession.value?.id) return false
+    showToast(`${actNoun.value}の完了結果が未確定です。一覧から再開して「完了」を押し直してください`, 5000, 'warning')
     return true
   }
   return false
@@ -1828,7 +1832,15 @@ async function onGoHome() {
   }
   // 結果不明: active は書かず、まずサーバーの状態を確認してから同じ完了要求を送り直す。
   if (completionUnknown.value) {
-    await _resolveUnknownCompletion()
+    if (await _resolveUnknownCompletion()) return
+    // ここへ来る = サーバーの状態を読めなかった。サーバーが戻るまで画面に閉じ込めない。
+    // 入力も再送用の body も端末に残っており、一覧から再開して押し直せば確定できる。
+    if (!confirm(
+      `${actNoun.value}の完了結果をまだ確認できません。\n`
+      + '入力内容と送信済みの内容はこの端末に残ります。\n\n'
+      + '一覧に戻りますか？（あとで再開して「完了」を押すと確定できます）'
+    )) return
+    _leaveUnresolvedSession()
     return
   }
 
@@ -1891,6 +1903,28 @@ async function onGoHome() {
 }
 
 /**
+ * 結果不明のまま一覧へ戻る。
+ *
+ * **`markSessionActive()` を呼ばない。** サーバーが完了を記録済みだった場合に
+ * active で巻き戻すと、明細と履歴はあるのに進行中に見えるセッションができる。
+ * **`clearSession()` も呼ばない。** clear は intent（再送用の body）ごと捨てるため、
+ * 同じ内容で確定し直す手段が無くなり、作り直した body は 409 で弾かれる。
+ *
+ * `completionUnknown` は下ろさない。別セッションの開始・削除は引き続き止まり、
+ * このセッションへの再開だけが通る（`_blockedByCompletion`）。
+ */
+function _leaveUnresolvedSession() {
+  _saveDraft(pendingSession.value?.id)
+  if (continuousMode.value) onForceStop()
+  if (syncActive.value) leaveRoom()
+  showSync.value = false
+  showChat.value = false
+  if (leavesToMovement.value) openMovement('order')
+  else _goHomeMain()
+  sessionMode.value = 'stock'
+}
+
+/**
  * 完了結果が不明なまま離脱しようとしたときの収束処理（第2セッション §1）。
  *
  * 1. サーバーの状態を読み直す。まだ active なら、同じ完了要求をそのまま送り直す
@@ -1898,21 +1932,28 @@ async function onGoHome() {
  * 2. 既に completed なら、端末側の確定（読み取り専用・履歴・後片付け）を進める。
  * 3. どちらも確認できなければ、active を書かずに画面へ留まる。
  */
+/** @returns {Promise<boolean>} true = 解決を試みた（呼び出し側は何もしない） */
 async function _resolveUnknownCompletion() {
-  if (_finishing) return
+  if (_finishing) return true
   _finishing = true
   try {
     const before = pendingSession.value?.id
     const state = await verifyCompletion()
     // 確認中にアカウント・セッションが切り替わった。いまの画面へは何も適用しない
-    if (state.stale || pendingSession.value?.id !== before) return
+    if (state.stale || pendingSession.value?.id !== before) return true
     if (!state.ok) {
+      // **サーバーへ届かなかった場合だけ**、呼び出し側に離脱を選ばせる。
+      // `not_found`（読めたが該当セッションが無い）は届いている＝別の問題なので、
+      // 従来どおり画面に留めて知らせる。ここを一緒くたにすると、消えたセッションの
+      // 結果不明を「通信が戻れば直る」と誤って案内することになる。
+      if (state.reason === 'unreachable' || state.reason === 'offline') return false
       showToast(`${actNoun.value}の完了結果を確認できませんでした。接続が戻ってからもう一度「完了」を押してください`, 6000, 'warning')
-      return
+      return true
     }
     // active でも completed でも、**保存してある同じ body** を送り直せば端末とサーバーが揃う
     // （server は同じ intent の再送を replay として受ける）。現在の在庫からは作り直さない。
     await _finishSession(filledCount.value, syncActive.value && syncIsHost.value)
+    return true
   } finally {
     _finishing = false
   }
