@@ -8,7 +8,7 @@ import {
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
-  handleAuditAppend, handleAuditGet,
+  handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
@@ -143,6 +143,9 @@ export async function purgeAccountRooms(rooms, shopCode) {
 
 export default {
   async fetch(request, env) {
+    // 検証環境だけ、失敗応答へ原因の要約を載せる（本番は DEBUG_ERRORS を設定しない）
+    setDebugErrors(env.DEBUG_ERRORS === '1')
+
     const url    = new URL(request.url)
     const origin = request.headers.get('Origin') || ''
     const allowedOrigin = env.ALLOWED_ORIGIN || ''

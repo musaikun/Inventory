@@ -16,6 +16,8 @@ import { STORAGE_KEYS } from './utils/storageKeys.js'
 
 // ── apiFetch: パスごとに応答を決める。既定は成功 ──────────────────────────────
 let completeShouldFail = false
+// 503 応答の body（検証環境の Worker が返す detail を再現する）
+let completeFailBody = { retryable: true }
 let completeCalls = 0
 let completeBodies = []
 // 完了APIを保留させる（通信中の状態を作る）。null = 保留しない
@@ -57,7 +59,7 @@ vi.mock('./utils/api.js', () => ({
       if (completeShouldFail) {
         const err = new Error('サービスが一時的に利用できません')
         err.status = 503
-        err.body   = { retryable: true }
+        err.body   = completeFailBody
         throw err
       }
       // 契約は session 種別で分かれる（DATA-002 §1）。
@@ -201,6 +203,7 @@ describe('App — 棚卸完了がサーバーへ書けなかったとき', () =>
     localStorage.clear()
     vi.clearAllMocks()
     completeShouldFail = false
+    completeFailBody = { retryable: true }
     completeCalls = 0
     completeBodies = []
     completeGate = null
@@ -697,6 +700,15 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
       await mountApp()
       await clickComplete()
       expect(toastText()).toContain('HTTP 503')
+    })
+
+    // 検証環境の Worker は原因の要約を detail に載せて返す（本番は載せない）
+    it('サーバーが原因の要約を返したらそれも出す', async () => {
+      completeShouldFail = true
+      completeFailBody = { retryable: true, detail: 'D1_ERROR: no such table: session_audit' }
+      await mountApp()
+      await clickComplete()
+      expect(toastText()).toContain('no such table')
     })
 
     it('通信自体が失敗したときはそう分かるように出す', async () => {

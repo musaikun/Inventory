@@ -17,6 +17,23 @@ import {
 } from './validate.js'
 import { entitlement } from './entitlements.js'
 
+/**
+ * 検証環境だけ、サーバー側エラーの要約を応答へ載せるためのスイッチ（`DEBUG_ERRORS`）。
+ *
+ * スマホ（とくにPWA）は DevTools が使えず Worker のログも見られないため、
+ * 利用者からは「503 でした」までしか分からず切り分けが止まる。
+ * **本番では立てない**（DBのエラー文面はスキーマの手掛かりを含む）。
+ * 値は deploy ごとに固定なので、isolate をまたいで持ち回っても取り違えない。
+ */
+let _debugErrors = false
+export function setDebugErrors(on) { _debugErrors = !!on }
+
+/** 失敗応答へ足す原因の要約。無効なら undefined（応答に鍵ごと出さない） */
+function _errDetail(e) {
+  if (!_debugErrors) return undefined
+  return String(e?.message ?? e).slice(0, 200)
+}
+
 // payload 上限は UTF-8 バイト数で判定する（第2セッション §5）。
 // JSON.stringify().length は UTF-16 code unit 数で、日本語では実バイト数の約1/3を返す。
 function _tooLarge(body) {
@@ -1223,7 +1240,10 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
     console.error('[storeHandler] session complete batch failed:', code, sessionId, e?.message ?? e)
-    return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を保存できませんでした' }
+    return {
+      _status: 503, code: 'complete_failed', retryable: true,
+      error: '完了を保存できませんでした', detail: _errDetail(e),
+    }
   }
 
   // claim を取れなかった = 直前に別要求が確定した / 既に completed だった /
@@ -1245,7 +1265,12 @@ export async function handleSessionComplete(db, code, sessionId, body) {
   const stamp = readStampResult(results[results.length - 1])
   if (!stamp) {
     console.error('[storeHandler] complete revision missing after write:', code, sessionId)
-    return { _status: 503, code: 'complete_failed', retryable: true, error: '完了を確認できませんでした' }
+    return {
+      _status: 503, code: 'complete_failed', retryable: true,
+      error: '完了を確認できませんでした',
+      // batch は通ったのに履歴の revision が読めない = snapshot 行が書かれていない
+      detail: _debugErrors ? 'snapshot row missing after batch' : undefined,
+    }
   }
 
   return {

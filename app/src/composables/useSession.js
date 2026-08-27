@@ -445,7 +445,9 @@ export function useSession() {
   function _failureDetail(err) {
     const status = err?.status
     if (typeof status === 'number') {
-      return err?.code ? `HTTP ${status} / ${err.code}` : `HTTP ${status}`
+      const head = err?.code ? `HTTP ${status} / ${err.code}` : `HTTP ${status}`
+      // 検証環境の Worker は原因の要約を `detail` に載せて返す（本番は載せない）
+      return err?.body?.detail ? `${head} — ${err.body.detail}` : head
     }
     // status を持たない = fetch 自体が失敗（通信断・CORS・中断）
     return `通信エラー: ${err?.message ?? 'unknown'}`

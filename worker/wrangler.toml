@@ -44,6 +44,11 @@ name = "inventory-sync-pro-review"
 [env.pro_review.vars]
 ALLOWED_ORIGIN = "https://pro-review.inventory-app-pro-review.pages.dev"
 DEFAULT_STORE_PLAN = "pro"
+# 検証環境だけ、サーバー側エラーの要約を応答へ載せる。
+# スマホ（とくにPWA）は DevTools が使えず Worker のログも見られないため、
+# 「503 でした」までしか分からず切り分けが止まる。**本番では設定しない**
+# （DBのエラー文面はスキーマの手掛かりを含むため）。
+DEBUG_ERRORS = "1"
 
 [env.pro_review.durable_objects]
 bindings = [
