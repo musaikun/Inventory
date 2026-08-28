@@ -55,6 +55,25 @@ jobs:
           echo "confirm が APPLY-PRODUCTION ではありません。中止します。" >&2
           exit 1
 
+      # 本番へ出す中身は **develop** の内容。`main` にもこのファイルを置いてあるのは、
+      # workflow_dispatch がデフォルトブランチに無いと Actions のUIへ出ないため
+      # （`main` のコードは develop より古い）。Run workflow では branch に develop を選ぶ。
+      - name: Guard branch
+        if: inputs.step == 'apply' && github.ref_name != 'develop'
+        run: |
+          echo "apply は develop からのみ実行できます（選択中: ${{ github.ref_name }}）。" >&2
+          echo "Actions の Run workflow で branch = develop を選び直してください。" >&2
+          exit 1
+
+      - name: Show target
+        run: |
+          {
+            echo "## 対象"
+            echo "- branch: \`${{ github.ref_name }}\`"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- step: \`${{ inputs.step }}\`"
+          } >> $GITHUB_STEP_SUMMARY
+
       # 本番の vars に DEBUG_ERRORS が入ったままdeployしない（DBのエラー文面が
       # スキーマの手掛かりを含む）。pro_review 側だけに付いていることを確かめる。
       - name: Guard DEBUG_ERRORS out of production vars
