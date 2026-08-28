@@ -34,6 +34,7 @@ export function createD1() {
   applyMigrations(sqlite, migrationFiles())
 
   let failAt = null
+  let failMessage = 'D1_ERROR: injected failure'
   let stmtIndex = 0
   let beforeBatch = null
   // D1 の「Queries per Worker invocation」に相当する本数。
@@ -98,7 +99,12 @@ export function createD1() {
     stmtIndex = 0
     try {
       for (const s of statements) {
-        if (failAt === stmtIndex) { failAt = null; throw new Error('D1_ERROR: injected failure') }
+        if (failAt === stmtIndex) {
+          failAt = null
+          const msg = failMessage
+          failMessage = 'D1_ERROR: injected failure'
+          throw new Error(msg)
+        }
         stmtIndex++
         results.push(await s.run())
       }
@@ -115,8 +121,8 @@ export function createD1() {
   return {
     db,
     sqlite,
-    /** batch の i 番目（0始まり）の statement で失敗させる */
-    failBatchAt(i) { failAt = i },
+    /** batch の i 番目（0始まり）の statement で失敗させる（message で D1 の文面を再現できる） */
+    failBatchAt(i, message = null) { failAt = i; if (message) failMessage = message },
     /**
      * 次の batch が始まる直前（BEGIN の前）に1回だけ呼ぶ。
      * 「存在確認 → batch」の隙間に別リクエストが割り込む競合を再現する。

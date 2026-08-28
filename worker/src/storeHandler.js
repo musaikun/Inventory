@@ -34,6 +34,48 @@ function _errDetail(e) {
   return String(e?.message ?? e).slice(0, 200)
 }
 
+/**
+ * `too many terms in compound SELECT` の切り分け用プローブ（検証環境のみ・**読み取りだけ**）。
+ *
+ * 明細の INSERT は `SELECT ? AS item ... UNION ALL ...` を 19 行ずつに切っているので、
+ * 1文あたりの項数は 19 でしかない。それでも本番D1がこのエラーを返すなら、
+ * 数え方が「1文あたり」ではない（batch 全体で累計されている）か、
+ * D1 側の上限が SQLite 既定の 500 より小さいかのどちらかになる。
+ * 手元の better-sqlite3 では再現しないため、**実際のD1に聞く**しかない。
+ *
+ * テーブルには一切触らない定数だけの SELECT なので、失敗した完了要求の後に
+ * 実行しても書き込みへ影響しない（再実行による部分適用が起きない）。
+ * 消費するクエリ本数は 5 + 10 + 27 + 2 = 44 で、Free の 50/invocation にも収まる。
+ */
+function _compoundSelect(db, terms) {
+  return db.prepare(Array.from({ length: terms }, (_, i) => `SELECT ${i} AS n`).join(' UNION ALL '))
+}
+
+async function _probeCompound(db) {
+  const out = []
+  try {
+    // ① 1文あたりの上限（既定は 500）
+    for (const n of [19, 100, 250, 500, 501]) {
+      try { await _compoundSelect(db, n).all(); out.push(`s${n}=ok`) }
+      catch { out.push(`s${n}=NG`); break }
+    }
+    // ② batch 全体で累計されているか（19項 × k文）
+    for (const k of [10, 27]) {
+      try { await db.batch(Array.from({ length: k }, () => _compoundSelect(db, 19))); out.push(`b${k}=ok`) }
+      catch { out.push(`b${k}=NG`); break }
+    }
+    // ③ 代替案（VALUES 形式）が同じ上限を持つか
+    for (const n of [500, 1000]) {
+      const rows = Array.from({ length: n }, () => '(1)').join(',')
+      try { await db.prepare(`SELECT count(*) AS c FROM (VALUES ${rows})`).all(); out.push(`v${n}=ok`) }
+      catch { out.push(`v${n}=NG`); break }
+    }
+  } catch (e) {
+    out.push(`probe_error=${String(e?.message ?? e).slice(0, 60)}`)
+  }
+  return out.join(' ')
+}
+
 // payload 上限は UTF-8 バイト数で判定する（第2セッション §5）。
 // JSON.stringify().length は UTF-16 code unit 数で、日本語では実バイト数の約1/3を返す。
 function _tooLarge(body) {
@@ -1240,9 +1282,23 @@ export async function handleSessionComplete(db, code, sessionId, body) {
     // 途中で落ちた場合、batch はトランザクションごと巻き戻る。
     // 完了扱いにせず、クライアントが再送できる形で返す。
     console.error('[storeHandler] session complete batch failed:', code, sessionId, e?.message ?? e)
+    // 検証環境では batch の構成も添える。エラー文面だけでは、どの文が大きすぎるのか
+    // （明細のまとめ方なのか、別の文なのか）が切り分けられない。
+    // **文を実行し直さない** — 再実行すると一部だけ適用される危険がある。
+    const shape = _debugErrors
+      ? ` | stmts=${1 + 1 + lineStatements.length + 2} lines=${lineStatements.length}`
+        + ` items=${itemCount} inv=${Object.keys(inventory ?? {}).length}`
+        + ` snapKB=${Math.round(jsonByteLength(canonical.snapshot) / 1024)}`
+      : ''
+    // compound SELECT の上限に当たった場合だけ、実D1の数え方を測って添える。
+    // 明細は 19 項ずつに切ってあるので、これが出る時点で前提が違っている。
+    const probe = _debugErrors && /compound/i.test(String(e?.message ?? ''))
+      ? ` | ${await _probeCompound(db)}`
+      : ''
     return {
       _status: 503, code: 'complete_failed', retryable: true,
-      error: '完了を保存できませんでした', detail: _errDetail(e),
+      error: '完了を保存できませんでした',
+      detail: _debugErrors ? `${_errDetail(e)}${shape}${probe}` : undefined,
     }
   }
 
