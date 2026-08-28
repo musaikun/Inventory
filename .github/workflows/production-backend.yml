@@ -111,11 +111,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
           DB_NAME: ${{ env.DB_NAME }}
+        # job summary だけに出すと API から読めない（summary は run ページでしか見えない）。
+        # tee でログにも残し、run を開けない相手にも結果を渡せるようにする。
         run: |
+          ./scripts/preflight-prod.sh 2>&1 | tee /tmp/preflight.txt
           {
             echo '## 本番D1 preflight（read-only）'
             echo '```'
-            ./scripts/preflight-prod.sh
+            cat /tmp/preflight.txt
             echo '```'
           } >> $GITHUB_STEP_SUMMARY
 
