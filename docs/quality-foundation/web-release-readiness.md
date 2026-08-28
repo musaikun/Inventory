@@ -39,7 +39,7 @@
 | WEB-01 | canonical URL・contact | 実際に200で配信するhostと正式問い合わせ先を決定し、legal・削除URL・supportを同期 | User |
 | WEB-02 | production origin / CORS | remote Workerは2026-08-04確認時に任意Originを反射する旧状態。実hostを`ALLOWED_ORIGIN`とtestへ反映し、deploy後に許可/拒否を実probe | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
-| WEB-04 | D1 migration | 本番で未適用の0010〜0017をpreflightし、User承認後に**この順で**適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加のみ、0015/0016/0017は新規table追加のみでいずれもロールバック可。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
+| WEB-04 | D1 migration | 本番で未適用の**0009〜0017**（2026-08-28のpreflightで確定。0009も未適用だった）をpreflightし、User承認後に**この順で**適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加のみ、0015/0016/0017は新規table追加のみでいずれもロールバック可。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | Free上限 | 規約の「2台」とserver挙動を一致させる。既存Pro Review・再接続・既存3台以上の扱いも決定 | User / Codex |
 | WEB-07 | 取込・履歴・data integrity | DATA-001/002・IMPORT-001の実装とCodex独立reviewは完了。release candidateで実D1・別browser・取込主経路を確認して通過判定する | Codex |

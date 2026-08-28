@@ -2,6 +2,31 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-28 — 本番D1 preflight の実測値（run #4 / read-only）
+
+`Production Backend (D1 + Worker)` workflow の `step=preflight` を develop から実行
+（[run 33156641459](https://github.com/musaikun/Inventory/actions/runs/33156641459)、
+対象 `5368a34`）。**D1もWorkerも変更していない**。
+
+- **適用済みは 0001〜0008 まで**。存在した sentinel は
+  `stores` / `auth_tokens` / `login_attempts` / `inventory_lines` / `ip_attempts` /
+  `push_subscriptions` / `idx_sessions_shop_type` / `orders` の8つ。
+  **`idx_stores_plan`（0009）が無い** = 未適用は WEB-04 が想定していた 0010〜0017 ではなく
+  **0009〜0017 の9本**。0009 は `stores.plan` を足す migration で、現行Workerのplan判定が
+  依存する。WEB-04 の記述を訂正した。
+- **データ量**: stores=3 / sessions=2 / store_history=4 / inventory_lines=357、
+  DBサイズ 839,680 bytes。0012 が作り直す `store_history` は**4行**しかなく、
+  不可逆点のデータ影響は小さい。
+- **`sessions.import_batch_id` 列が存在しない**（0013未適用）。したがって
+  「0015適用前に作られた取込バッチ」は**0件**で、`409 legacy_import_unverified` の
+  事後対応は発生しない（切替境界の表のうち取込側は該当なし）。
+- **Time Travel のブックマークを取得**:
+  `0000052e-00000000-000050d5-1ed99a2755103305e978d5d4550c5a93`
+  ← **0012 適用前の復元点**。apply で問題が出たらこれに戻す。
+- CI が使う wrangler は 3.114.17（4.x が出ている旨の警告あり）。WEB-03 の「Wrangler版」は未確定のまま。
+
+apply は未実施。**Pro Review での棚卸完了（compound SELECT 修正の実D1確認）が先**。
+
 ## 2026-08-28 — 棚卸が完了できない原因を特定：実D1のcompound SELECT上限
 
 - **症状**: Pro Reviewで棚卸を完了できない（`HTTP 503 / complete_failed`）。
