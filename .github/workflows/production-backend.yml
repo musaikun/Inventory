@@ -151,10 +151,16 @@ jobs:
         if: inputs.step == 'apply'
         run: |
           BASE=https://inventory-sync.yuya-takaki.workers.dev
+          # 新経路が載ったかを見る。**店舗コードは英字4〜8桁、セッションIDは36桁UUID**の
+          # 形でないと router の /store/:code に入らず、どのWorkerでも 404 になる
+          # （2026-08-28 に `TEST00` / `x` で確かめてしまい、deploy 済みなのに
+          #  「古いまま」と誤判定した）。401 = 経路あり・認証で弾かれた、が正しい合格。
+          CODE=TESTAA
+          SID=11111111-1111-4111-8111-111111111111
           {
             echo '## deploy後の確認'
-            echo "health: $(curl -s -o /dev/null -w '%{http_code}' $BASE/health)"
-            # 認証必須の新経路。404 なら古いWorkerのまま、401 なら経路が存在する。
-            echo "GET /store/TEST00/sessions/x/lines: $(curl -s -o /dev/null -w '%{http_code}' $BASE/store/TEST00/sessions/x/lines)"
+            echo "health: $(curl -s -o /dev/null -w '%{http_code}' $BASE/health)  （200 が正常）"
+            echo "GET /store/$CODE/sessions/$SID/lines: $(curl -s -o /dev/null -w '%{http_code}' $BASE/store/$CODE/sessions/$SID/lines)  （401 = 新経路あり / 404 = 旧Worker）"
+            echo "GET /store/$CODE/sessions/$SID/audit: $(curl -s -o /dev/null -w '%{http_code}' $BASE/store/$CODE/sessions/$SID/audit)  （401 = migration 0017 の経路あり）"
             echo "commit: ${{ github.sha }}"
           } >> $GITHUB_STEP_SUMMARY

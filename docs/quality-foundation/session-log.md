@@ -2,6 +2,36 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-28 — 本番backendを更新（migration 0009〜0017 + Worker deploy）
+
+`Production Backend (D1 + Worker)` の `step=apply` を develop（`b1381eb`）から実行
+（[run 33158311069](https://github.com/musaikun/Inventory/actions/runs/33158311069)）。**成功**。
+
+- 事前ゲートはすべて通過: 合言葉 / branch=develop / 本番varsに`DEBUG_ERRORS`なし /
+  Worker 580 passed / App 1420 passed。テストはmigrationより前に走るので、
+  失敗していればDBに触れずに止まっていた。
+- **migration 0009〜0017 を適用**。最後の 0017 適用後で `num_tables` 19 → 20、
+  DBサイズ 0.94 → 0.96 MB。最終bookmark
+  `00000530-0000003d-000050d5-cb88e0829b73391b3ad16586c17700fd`。
+- **Worker deploy 成功**。`inventory-sync` / Version ID `6e19f979-aabe-41e8-aca0-905fc14826ed`。
+  bindings は ROOMS(DO) / DB(inventory-store) / ALLOWED_ORIGIN のみ＝**本番に DEBUG_ERRORS は無い**。
+- 適用前の復元点（0012適用前）:
+  `0000052e-00000000-000050d5-1ed99a2755103305e978d5d4550c5a93`
+
+### 反省: deploy確認プローブが間違っていた
+
+`GET /store/TEST00/sessions/x/lines` の 404/401 で新旧を見分けようとしていたが、
+router は `/^\/store\/([A-Z]{4,8})(\/.*)?$/i` と36桁UUIDを要求する。
+`TEST00`（数字入り）も `x` もこれに合わず、**新旧どちらのWorkerでも 404** になる。
+そのため deploy 成功後も「まだ旧Workerのまま」と誤報告した。
+正しくは `TESTAA` + 36桁UUID で **401**（経路あり・認証で拒否）が合格。
+workflow の確認stepを直し、理由をコメントに残した。
+
+**判定に使う値は、合格側と不合格側の両方で1回ずつ確かめてから使うこと。**
+片側（旧Worker=404）しか見ずに使ったのが原因。
+
+frontend（Pages本番）は未実施。WEB-01・WEB-03 が未確定のため対象外のまま。
+
 ## 2026-08-28 — 本番D1 preflight の実測値（run #4 / read-only）
 
 `Production Backend (D1 + Worker)` workflow の `step=preflight` を develop から実行
