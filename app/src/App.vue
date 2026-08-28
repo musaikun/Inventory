@@ -1285,9 +1285,9 @@ function _pushBackSentinel() {
 function _hasBackSentinel() {
   try { return !!history.state?.pwaLayer } catch (_) { return false }
 }
-// 受け皿が切れていたら積み直す。ランディングでは積まない（そこでの戻る＝アプリを離れる）。
+// 受け皿が切れていたら積み直す。どの画面でも積む
+// （最後の1枚まで戻ったときは終了確認を出して留まるので、受け皿は常に要る）。
 function _rearmBackSentinel() {
-  if (currentView.value === 'landing') return
   if (_backArmed && _hasBackSentinel()) return
   _pushBackSentinel()
 }
@@ -1297,6 +1297,7 @@ function _closeTopLayer() {
   // 戻るでも画面を切り替えない。何も閉じずに true を返して戻る操作だけを消費する
   // （false を返すと sentinel が積み直されず、次の戻るでアプリを離れてしまう）。
   if (isBackBlocked())       { return true }
+  if (showExitConfirm.value) { showExitConfirm.value = false; return true }   // 戻る＝キャンセル
   if (showMenu.value)        { showMenu.value = false;      return true }
   if (memberHistoryTarget.value) { memberHistoryTarget.value = null; return true }
   if (confirmState.value)    { onCancelConfirm();           return true }
@@ -1339,10 +1340,37 @@ function onAccountDeleted() {
   currentView.value = 'landing'
 }
 
+// 終了確認。閉じるものが無いところまで戻ったら、いきなり離れずにここで一度止める。
+const showExitConfirm = ref(false)
+// true のあいだ戻るを横取りせず、そのままブラウザに通す（＝アプリを離れる）。
+let _allowExit = false
+let _exitHintTimer = null
+
 function _onBrowserBack() {
+  if (_allowExit) return              // 「終了する」を選んだあとの戻るは通す
   _backArmed = false                  // この戻るで sentinel を使い切った
   const closed = _closeTopLayer()
-  if (closed) _pushBackSentinel()
+  // 閉じるものが無い＝次の戻るでアプリを離れる位置。確認を出して留まる。
+  if (!closed) showExitConfirm.value = true
+  _pushBackSentinel()                 // どちらの場合も受け皿は積み直す
+}
+
+function onCancelExit() { showExitConfirm.value = false }
+
+function onConfirmExit() {
+  showExitConfirm.value = false
+  _allowExit = true
+  // 受け皿とその手前を戻ってアプリを離れる。webアプリは自分でウィンドウを閉じられないので、
+  // 「履歴を戻り切る」以外に出口が無い。
+  history.back()
+  setTimeout(() => { if (_allowExit) history.back() }, 60)
+  // ホーム画面から起動した PWA など、手前に履歴が無い環境では上の戻るが空振りする。
+  // その場合はまだ生きているので、端末の戻るで抜けられることを伝える（_allowExit は
+  // 立てたままなので、次の戻るはそのまま通る）。
+  clearTimeout(_exitHintTimer)
+  _exitHintTimer = setTimeout(() => {
+    if (_allowExit) showToast('端末の戻るをもう一度押すと終了します', 4000, 'default')
+  }, 500)
 }
 
 // 受け皿を積み直す機会は2つ。どちらも「戻り先ができた／できているはず」の瞬間。
@@ -3425,6 +3453,19 @@ function dismissReview() {
     </template>
 
     <!-- ── 名前設定モーダル（ルーム参加前） ── -->
+    <!-- 終了確認。戻るで最後の1枚まで来たときだけ出る -->
+    <div v-if="showExitConfirm" class="name-modal-overlay exit-modal-overlay" @click.self="onCancelExit">
+      <div class="name-modal-sheet" role="dialog" aria-modal="true" aria-label="アプリを終了しますか？">
+        <div class="sheet-handle"></div>
+        <div class="name-modal-title">アプリを終了しますか？</div>
+        <div class="name-modal-prev">入力した内容は保存されています</div>
+        <div class="name-modal-actions">
+          <button class="btn btn-secondary" @click="onCancelExit">キャンセル</button>
+          <button class="btn btn-primary exit-modal-ok" @click="onConfirmExit">終了する</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showNameModal" class="name-modal-overlay" @click.self="onCancelNameModal">
       <div class="name-modal-sheet">
         <div class="sheet-handle"></div>
@@ -3934,6 +3975,10 @@ function dismissReview() {
 .chat-notif-leave-to      { transform: translateY(-100%); opacity: 0; }
 
 /* ── 名前設定モーダル ── */
+/* 終了確認は、どのレイヤーが開いていても最前面に出す */
+.exit-modal-overlay { z-index: 4000; }
+.exit-modal-ok { background: var(--danger); }
+
 .name-modal-overlay {
   position: fixed;
   inset: 0;

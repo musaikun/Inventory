@@ -99,36 +99,71 @@ async function openMasterFromMovement() {
   expect(view()).toBe('master')
 }
 
-describe('戻るの受け皿を切らさない', () => {
-  // 再現: ホーム → 戻る（ランディング）→ ホームへ進む → データ管理 → 戻る。
-  // ランディングでは閉じるものが無く sentinel を積み直さないため、そこから進むと
-  // 受け皿が無いまま。データ管理での戻るが1回でアプリを離れていた。
-  it('ランディングまで戻ってから進み直しても、受け皿が積み直される', async () => {
+describe('アプリを閉じる前に確認する', () => {
+  const exitTitle = () => [...host.querySelectorAll('.name-modal-title')]
+    .find(e => e.textContent.includes('アプリを終了しますか'))
+
+  it('閉じるものが無いところまで戻ると、確認を出して留まる', async () => {
     await mountApp()
     await seedItems()
     expect(view()).toBe('sessions')
 
+    await deviceBack()                       // ホーム → ランディング（閉じるものがあった）
+    expect(view()).toBe('landing')
+    expect(exitTitle()).toBeFalsy()
+
+    await deviceBack()                       // ここから先は閉じるものが無い
+    expect(exitTitle()).toBeTruthy()         // いきなり離れず確認を出す
+    expect(view()).toBe('landing')           // 画面は残る
+  }, 20000)
+
+  it('キャンセルすると留まり、受け皿も残る', async () => {
+    await mountApp()
+    await seedItems()
+    await deviceBack()
+
     pushSpy = vi.spyOn(window.history, 'pushState')
-    await deviceBack()                       // ホーム → ランディング（閉じたので積み直す）
-    expect(view()).toBe('landing')
-    expect(sentinelCount()).toBe(1)
+    await deviceBack()
+    expect(exitTitle()).toBeTruthy()
+    expect(sentinelCount()).toBe(1)          // 確認を出したうえで受け皿は積み直す
 
-    await deviceBack()                       // ランディングでは閉じるものが無い
-    expect(view()).toBe('landing')
-    expect(sentinelCount()).toBe(1)          // 積み直さない＝次の戻るでアプリを離れる
+    await click(host.querySelector('.btn-secondary'))
+    expect(exitTitle()).toBeFalsy()
 
-    await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
-    await flush()
-    expect(view()).not.toBe('landing')       // 画面を進めた
-    expect(sentinelCount()).toBe(2)          // 進んだ時点で積み直す
+    await deviceBack()                       // もう一度戻ると、また確認が出る
+    expect(exitTitle()).toBeTruthy()
+  }, 20000)
+
+  it('確認が開いているあいだの戻るはキャンセル扱い', async () => {
+    await mountApp()
+    await seedItems()
+    await deviceBack()
+    await deviceBack()
+    expect(exitTitle()).toBeTruthy()
+
+    await deviceBack()
+    expect(exitTitle()).toBeFalsy()          // 閉じるだけでアプリは離れない
+  }, 20000)
+
+  it('「終了する」を選ぶと履歴を戻ってアプリを離れる', async () => {
+    await mountApp()
+    await seedItems()
+    await deviceBack()
+    await deviceBack()
+
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    await click(host.querySelector('.exit-modal-ok'))
+    expect(exitTitle()).toBeFalsy()
+    expect(backSpy).toHaveBeenCalled()       // 受け皿を戻って離脱へ
+    backSpy.mockRestore()
   }, 20000)
 
   it('進み直したあとのデータ管理でも、戻るはホームへ返る', async () => {
     await mountApp()
     await seedItems()
-    await deviceBack()
-    await deviceBack()                       // 受け皿を使い切った状態にする
-    expect(view()).toBe('landing')
+    await deviceBack()                       // ランディングまで戻る
+    await deviceBack()                       // 終了確認
+    await click(host.querySelector('.btn-secondary'))
 
     await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
     await flush()
