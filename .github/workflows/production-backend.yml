@@ -1,0 +1,138 @@
+name: Production Backend (D1 + Worker)
+
+# 本番の **backend だけ** を更新する（D1 マイグレーション → Worker）。
+# frontend（Pages）は含めない。production の Pages project / branch が WEB-01・WEB-03 で
+# 未確定のままで、推測でdeploy先を決めないため。
+#
+# 自動実行はしない。`workflow_dispatch` だけで、押した人の明示承認をゲートにする。
+# **0012 は `DROP TABLE store_history` を含み、適用後に戻せない**（migration 0012 の
+# コメント / web-release-readiness.md WEB-04）。
+#
+# 使い方は2段階。web-release-readiness.md の手順3→4をそのまま写している。
+#   1. step=preflight … 読むだけ。適用状況・行数・Time Travel の復元可能期間を出す
+#   2. step=apply     … confirm に APPLY-PRODUCTION を入れて、未適用ぶんを順に適用 → Worker deploy
+#
+# **maintenance条件（必須）**: migration 適用から Worker deploy 完了までの窓では、
+# 旧Workerが台帳・claim を書かないまま取込・完了を処理できる。この間は
+# 過去棚卸取込と棚卸完了を行わせないこと。apply は両方を1 run で連続実行して窓を最小化する。
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'preflight = 読むだけ / apply = D1適用してWorkerをdeploy'
+        type: choice
+        options: [preflight, apply]
+        default: preflight
+      confirm:
+        description: 'apply のときだけ必須。APPLY-PRODUCTION と入力する'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# 本番なので途中で止めない（cancel-in-progress は使わない）。
+concurrency:
+  group: production-backend
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
+  DB_NAME: inventory-store
+
+jobs:
+  backend:
+    name: Preflight, migrate, and deploy production Worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # apply を選んだのに合言葉が違う run は、何もする前にここで落とす。
+      - name: Guard apply
+        if: inputs.step == 'apply' && inputs.confirm != 'APPLY-PRODUCTION'
+        run: |
+          echo "confirm が APPLY-PRODUCTION ではありません。中止します。" >&2
+          exit 1
+
+      # 本番の vars に DEBUG_ERRORS が入ったままdeployしない（DBのエラー文面が
+      # スキーマの手掛かりを含む）。pro_review 側だけに付いていることを確かめる。
+      - name: Guard DEBUG_ERRORS out of production vars
+        run: |
+          if awk '/^\[vars\]/{p=1;next} /^\[/{p=0} p' worker/wrangler.toml | grep -q 'DEBUG_ERRORS'; then
+            echo "本番 [vars] に DEBUG_ERRORS があります。中止します。" >&2
+            exit 1
+          fi
+          echo "OK: 本番 [vars] に DEBUG_ERRORS なし"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+
+      - name: Install and test Worker
+        working-directory: worker
+        run: |
+          npm ci
+          npm test
+
+      - name: Install and test App
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+
+      # 読むだけ。適用状況・行数・Time Travel の復元可能期間を job summary へ出す。
+      - name: Preflight production D1 (read-only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          DB_NAME: ${{ env.DB_NAME }}
+        run: |
+          {
+            echo '## 本番D1 preflight（read-only）'
+            echo '```'
+            ./scripts/preflight-prod.sh
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Stop here (preflight only)
+        if: inputs.step != 'apply'
+        run: |
+          echo 'preflight のみ。D1 もWorkerも変更していません。' >> $GITHUB_STEP_SUMMARY
+          echo '適用するには step=apply / confirm=APPLY-PRODUCTION で再実行してください。' >> $GITHUB_STEP_SUMMARY
+
+      # ここから先が不可逆。migrate.sh はsentinel方式で未適用ぶんだけを順に当てる。
+      - name: Apply pending D1 migrations
+        if: inputs.step == 'apply'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          DB_NAME: ${{ env.DB_NAME }}
+        run: ./scripts/migrate.sh
+
+      # migration と同じ run で続けて deploy し、maintenance窓を最小化する。
+      - name: Deploy production Worker
+        if: inputs.step == 'apply'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
+
+      - name: Verify deployed Worker
+        if: inputs.step == 'apply'
+        run: |
+          BASE=https://inventory-sync.yuya-takaki.workers.dev
+          {
+            echo '## deploy後の確認'
+            echo "health: $(curl -s -o /dev/null -w '%{http_code}' $BASE/health)"
+            # 認証必須の新経路。404 なら古いWorkerのまま、401 なら経路が存在する。
+            echo "GET /store/TEST00/sessions/x/lines: $(curl -s -o /dev/null -w '%{http_code}' $BASE/store/TEST00/sessions/x/lines)"
+            echo "commit: ${{ github.sha }}"
+          } >> $GITHUB_STEP_SUMMARY
