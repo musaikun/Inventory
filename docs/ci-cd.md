@@ -31,25 +31,26 @@ command/step、環境、未検証範囲を残します。
 | Actionsの手動実行 | 同じdevelop preview workflowを再実行 | `develop.inventory-app-c40.pages.dev` |
 | `Pro Review Pages`を手動実行 | Worker/App test → Pro build → Access保護Preview | `pro-review.inventory-app-pro-review.pages.dev` |
 | `Production Backend`を手動実行 | test → 本番D1 preflight →（apply時のみ）migration → 本番Worker deploy | Worker `inventory-sync` / D1 `inventory-store` |
-| `main` へ push | **`main` にだけ残っている `deploy.yml` が本番deployを実行する**（下記） | 本番Worker / D1 / Pages production |
-| その他branchへpush | 現在は自動処理なし | — |
+| `main` / その他branchへpush | 自動処理なし（2026-08-28に無ゲートの `deploy.yml` を削除・下記） | — |
 | テスト失敗時 | デプロイは実行されない（ゲート） | — |
 
 - `develop` pushはfrontend previewだけを更新し、D1・Worker・本番Pagesを変更しない。
 - 固定preview URLで毎日の実機テストを行える。
 - 連続 push は古い実行を自動キャンセル（`concurrency`）。
 
-> **`main` の扱いに注意**: `.github/workflows/deploy.yml` は develop では 2026-07-26 に
-> 削除済みだが、**`main` には残っている**。push イベントは push された commit 側の
-> workflow を使うため、
-> - `main` へ push すると、その `deploy.yml` が **migration → Worker → Pages production** を
->   まとめて実行する（承認ゲート無し）。
-> - 逆に develop を `main` へ merge すると、その merge commit で `deploy.yml` が消えるため
->   **deploy は走らず**、本番deploy手段そのものが `main` から無くなる。
+> **本番backendの経路は1本だけ**: `Production Backend (D1 + Worker)` の手動実行。
+> 2段階（`preflight` → `apply`）で、`apply` は合言葉 `APPLY-PRODUCTION` と
+> **branch = develop** の両方が揃ったときだけ通る。
 >
-> どちらも意図しない結果になりうる。本番backendの更新は
-> `Production Backend` workflow（手動実行・2段階・合言葉つき）か
-> `./scripts/deploy.sh backend` を使う。
+> 以前は `.github/workflows/deploy.yml` が `main` への push で
+> migration → Worker → Pages production を**承認ゲート無しに**実行していた
+> （develop では 2026-07-26 に削除済み、`main` にだけ1か月前の版が残っていた）。
+> `main` の `scripts/migrate.sh` も 0009 までの古い版で 0010〜0017 を当てられなかった。
+> 二重の本番deploy経路を残さないため、`main` 側も 2026-08-28 に削除した。
+>
+> workflow は `main` にも置いてある。workflow_dispatch はデフォルトブランチに
+> ファイルが無いと Actions のUIへ出ないため。**実行時の branch は develop を選ぶ**
+> （`main` のコードは古い。workflow 側にもガードがある）。
 
 > **プレビューの注意**: 現状プレビューのフロントは**本番 Worker / 本番 D1** を見る
 > （`VITE_SYNC_WORKER_URL` が共通のため）。プレビューで実機テストする際は
