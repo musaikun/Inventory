@@ -90,6 +90,10 @@ export function rowsPerStatement(perRow, fixed) {
 // 各明細テーブルのまとめ行数。JOIN 元（sessions / orders / movements）で持ち主を確認するため、
 // 文ごとの固定パラメータに id と shop_code を含む。
 //
+// **決めているのは bound parameter 上限（100/query）だけ**。まとめ方は VALUES 形式で、
+// compound SELECT の項数制限には掛からない。実D1はこの制限を 19 未満まで絞っており、
+// `UNION ALL` でまとめると6品目の棚卸すら通らなかった（2026-08-28 計測 → validate.js）。
+//
 // inventory_lines は加えて「この要求が勝者である」claim へ従属する（DATA-002 §3 / §4）。
 // claim は `sessions s` と相関する EXISTS なので、増える bound parameter は fingerprint の1個だけ:
 //   takenAt(1) + id(1) + shop(1) + fingerprint(1) = 4

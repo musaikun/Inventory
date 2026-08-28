@@ -2,6 +2,31 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-28 — 棚卸が完了できない原因を特定：実D1のcompound SELECT上限
+
+- **症状**: Pro Reviewで棚卸を完了できない（`HTTP 503 / complete_failed`）。
+  同時に「セッション一覧へ戻れない」も出ていたが、これは`completionUnknown`が
+  画面遷移を塞いでいたためで別件（`8b7f36a`で解消済み）。
+- **原因**: 実D1の `SQLITE_LIMIT_COMPOUND_SELECT` が SQLite既定の 500 ではなく
+  **19未満**まで絞られている。明細のまとめ書きは
+  `SELECT ? AS item, … UNION ALL …` を19行ずつに切っていたので、
+  **6品目の棚卸でも** `too many terms in compound SELECT: SQLITE_ERROR` で落ちていた。
+- **計測方法**: 手元の実SQLite（node:sqlite）では500品目でも再現しないため、
+  検証環境（`DEBUG_ERRORS=1`）だけで動く**読み取りだけのプローブ**を仕込み、
+  失敗した完了要求の応答へ実測値を載せた（書き込みは一切やり直さない）。
+  Pro Reviewでの実測: `stmts=6 lines=2 items=6 inv=6 snapKB=206 | s19=NG b10=NG v500=ok v1000=ok`。
+  → 1文あたり19項でNG、複数行VALUESは1000行でもOK
+  （SQLiteは複数行VALUESを compound SELECT の項数制限から外す）。
+- **修正**: 明細のまとめ書きを**全経路 VALUES 形式**へ移した。
+  `(VALUES (?,…),(?,…)) v` を組み立てる `valueRows()` を `validate.js` に置き、
+  棚卸完了 / 発注 / 入出庫 / 過去取込の4経路が使う。
+  まとめ行数（`constants.js`）は今後 **bound parameter 上限 100/query だけ**で決まる。
+  `test/compoundSelectFree.sqlite.test.js` で4経路とも `UNION ALL` を組み立てないことを固定した。
+- 検証: worker 30 files / 580 passed、app build 成功。**実D1での完了成功は未確認**（利用者の実機待ち）。
+- **残: Free版の別問題**。`サーバー応答に snapshotSaved が無い` は本番Workerが約3週間古いことが原因で
+  （`/lines` が404 = 2026-08-09以前）、本番Workerのdeployが必要。WEB-04（`0010`〜`0017`、
+  うち`0012`が不可逆な`DROP TABLE`）が未解決のため未実施・未承認。
+
 ## 2026-08-25 — Pro Reviewをdevelopへ自動追随させ、workflowの2件の不具合を潰した
 
 - Pro Reviewが`v0.68.0`のまま止まっていた。更新が`workflow_dispatch`のみで、Claude Codeの

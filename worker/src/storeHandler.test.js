@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { handleConfigPut, handleInventoryPut, handleHistoryPost, handleSessionComplete, handleRoomResult, handleOrderCreate, handleOrdersGet, handleOrderDelete, handleMovementCreate, handleMovementsGet, handleMovementDelete } from './storeHandler.js'
 
 
-// 複数行まとめINSERT（`FROM parent p, (SELECT ? AS a ... UNION ALL ...) v WHERE p.id = ? AND p.shop_code = ?`）の
+// 複数行まとめINSERT（`FROM parent p, (VALUES (?,?),(?,?)) v WHERE p.id = ? AND p.shop_code = ?`）の
 // bind を行単位へ展開する。bind の並びは [SELECTリストの固定値…, 行ごとの値×N, 親id, 親shop]。
 function _expandRows(s, bound, fieldNames) {
-  // rowSize は最初の SELECT ... AS だけを数える（UNION ALL で繰り返されるため）
+  // rowSize は VALUES の最初の1行の ? を数える（同じ形が行数ぶん並ぶため）
   const fromIdx = s.indexOf(' FROM ')
-  const rowSize = ((s.slice(fromIdx).split(' UNION ALL ')[0].match(/\? AS /g)) ?? []).length
+  const rowSize = ((s.match(/\(VALUES \(([^)]*)\)/)?.[1] ?? '').match(/\?/g) ?? []).length
   const prefix  = ((s.slice(0, fromIdx).match(/\?/g)) ?? []).length
   // claim guard（DATA-002 §3）が付く文は末尾が (id, shop, fingerprint) の3個になる
   const tail = s.includes('session_completions') ? 3 : 2

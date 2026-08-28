@@ -8,6 +8,10 @@
 //   1行1 INSERT だと N+2 statements になり、Free の「Queries per Worker invocation = 50」を
 //   150品目でも超える。複数行を1文へまとめ、statement 数を ceil(N/19)+1 に抑える。
 //   まとめ行数は bound parameter 上限（100/query）から逆算している → constants.js
+//
+// まとめ方は **VALUES 形式**（`(VALUES (?,…),(?,…)) v`）。`SELECT ? AS … UNION ALL …`
+// は実D1では19項でも `too many terms in compound SELECT` で落ちる（2026-08-28計測）
+// → validate.js の valueRows()
 
 import {
   MAX_INGREDIENT_LEN,
@@ -16,7 +20,7 @@ import {
   MAX_UNIT_PRICE,
   INVENTORY_ROWS_PER_STATEMENT,
 } from './constants.js'
-import { parseQty, text, chunk } from './validate.js'
+import { parseQty, text, chunk, valueRows } from './validate.js'
 
 /**
  * 棚卸完了ぶんの inventory_lines を貼り直す文を返す。
@@ -101,8 +105,7 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
   ]
 
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
-    const values = group.map(() => 'SELECT ? AS item, ? AS qty, ? AS unit, ? AS price, ? AS value')
-      .join(' UNION ALL ')
+    const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'price', 'value'])
     const binds = []
     binds.push(takenAt)                                   // SELECT リストの ?（文ごと1個）
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
@@ -111,8 +114,8 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
         (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
-      SELECT s.id, s.shop_code, ?, v.item, NULL, v.qty, v.unit, v.price, v.value
-      FROM sessions s, (${values}) v
+      SELECT s.id, s.shop_code, ?, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
+      FROM sessions s, (VALUES ${values}) v
       WHERE s.id = ? AND s.shop_code = ?${claimSql}
     `).bind(...binds))
   }

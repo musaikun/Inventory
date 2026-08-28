@@ -13,7 +13,7 @@ import {
 } from './constants.js'
 import {
   parseClientId, parseDate, parseQty, parseOptionalNumber, parseEnum, parseCount,
-  text, chunk, isValidDate, jsonByteLength,
+  text, chunk, valueRows, isValidDate, jsonByteLength,
 } from './validate.js'
 import { entitlement } from './entitlements.js'
 
@@ -37,11 +37,18 @@ function _errDetail(e) {
 /**
  * `too many terms in compound SELECT` の切り分け用プローブ（検証環境のみ・**読み取りだけ**）。
  *
- * 明細の INSERT は `SELECT ? AS item ... UNION ALL ...` を 19 行ずつに切っているので、
- * 1文あたりの項数は 19 でしかない。それでも本番D1がこのエラーを返すなら、
- * 数え方が「1文あたり」ではない（batch 全体で累計されている）か、
- * D1 側の上限が SQLite 既定の 500 より小さいかのどちらかになる。
- * 手元の better-sqlite3 では再現しないため、**実際のD1に聞く**しかない。
+ * **2026-08-28 に Pro Review の実D1で計測済み**:
+ *
+ *     s19=NG  b10=NG  v500=ok  v1000=ok
+ *
+ * = compound SELECT の上限は SQLite 既定の 500 ではなく **19 未満**まで絞られている。
+ * 一方で複数行 VALUES は 1000 行でも通る（SQLite は VALUES を項数制限から外す）。
+ * この結果を受けて、明細のまとめ書きは全経路 VALUES 形式へ移した
+ * （validate.js の valueRows / test/compoundSelectFree.sqlite.test.js）。
+ *
+ * 残してあるのは、同じエラーがまた出たときに「上限がさらに変わったのか、
+ * 別の文が原因なのか」を現地で1往復で切り分けるため。手元の実SQLiteは既定の
+ * 500 で動くので、**実際のD1に聞く**しかない。
  *
  * テーブルには一切触らない定数だけの SELECT なので、失敗した完了要求の後に
  * 実行しても書き込みへ影響しない（再実行による部分適用が起きない）。
@@ -738,18 +745,17 @@ export async function handleOrderCreate(db, code, body = {}) {
   // Free の「Queries per Worker invocation = 50」を超える（D1公式制限・2026-08-09確認）。
   // 持ち主の確認は JOIN 元の orders 絞り込みが担う。
   const lineStmts = chunk(clean, ORDER_ROWS_PER_STATEMENT).map(group => {
-    const values = group.map(() =>
-      'SELECT ? AS item, ? AS qty, ? AS unit, ? AS stock, ? AS lot, ? AS post_stock, ? AS excluded'
-    ).join(' UNION ALL ')
+    const { sql: values, col } = valueRows(group.length,
+      ['item', 'qty', 'unit', 'stock', 'lot', 'post_stock', 'excluded'])
     // bind はSQL文中の ? の出現順。SELECTリストの2個（order_date, created_at）が先、
-    // 次にFROM内の副問い合わせ、最後にWHEREの2個。
+    // 次にFROM内の VALUES、最後にWHEREの2個。
     const binds = [date, now]
     for (const l of group) binds.push(l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded)
     binds.push(orderId, code)
     return db.prepare(`
       INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
-      SELECT o.id, o.shop_code, ?, v.item, v.qty, v.unit, v.stock, v.lot, v.post_stock, v.excluded, ?
-      FROM orders o, (${values}) v
+      SELECT o.id, o.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ${col.stock}, ${col.lot}, ${col.post_stock}, ${col.excluded}, ?
+      FROM orders o, (VALUES ${values}) v
       WHERE o.id = ? AND o.shop_code = ?
     `).bind(...binds)
   })
@@ -897,14 +903,14 @@ export async function handleMovementCreate(db, code, body = {}) {
   // 明細は複数行を1文へまとめる（D1の queries/invocation 対策・constants.js 参照）。
   // 持ち主の確認は JOIN 元の movements 絞り込みが担う。
   const lineStmts = chunk(clean, MOVEMENT_ROWS_PER_STATEMENT).map(group => {
-    const values = group.map(() => 'SELECT ? AS item, ? AS qty, ? AS unit').join(' UNION ALL ')
+    const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit'])
     const binds = [date, now]
     for (const l of group) binds.push(l.item, l.qty, l.unit)
     binds.push(moveId, code)
     return db.prepare(`
       INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
-      SELECT m.id, m.shop_code, ?, v.item, v.qty, v.unit, ?
-      FROM movements m, (${values}) v
+      SELECT m.id, m.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ?
+      FROM movements m, (VALUES ${values}) v
       WHERE m.id = ? AND m.shop_code = ?
     `).bind(...binds)
   })

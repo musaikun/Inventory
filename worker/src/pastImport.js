@@ -29,7 +29,7 @@ import {
   MAX_REPLACE_SESSIONS,
   INVENTORY_ROWS_PER_STATEMENT,
 } from './constants.js'
-import { isValidDate, parseQty, parseClientId, text, chunk, jsonByteLength } from './validate.js'
+import { isValidDate, parseQty, parseClientId, text, chunk, valueRows, jsonByteLength } from './validate.js'
 import { sessionSnapshotStatement, historyStampStatement, readStampResult } from './storeHandler.js'
 
 const _now = () => new Date().toISOString()
@@ -507,8 +507,7 @@ export async function handlePastImportCreate(db, code, batchId, body) {
   `).bind(sessionId, code, ...claim.binds))
 
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
-    const values = group.map(() => 'SELECT ? AS item, ? AS qty, ? AS unit, ? AS price, ? AS value')
-      .join(' UNION ALL ')
+    const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'price', 'value'])
     const binds = [date]
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
     binds.push(sessionId, code, ...sClaim.binds)
@@ -516,8 +515,8 @@ export async function handlePastImportCreate(db, code, batchId, body) {
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
         (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
-      SELECT s.id, s.shop_code, ?, v.item, NULL, v.qty, v.unit, v.price, v.value
-      FROM sessions s, (${values}) v
+      SELECT s.id, s.shop_code, ?, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
+      FROM sessions s, (VALUES ${values}) v
       WHERE s.id = ? AND s.shop_code = ? AND ${sClaim.sql}
     `).bind(...binds))
   }

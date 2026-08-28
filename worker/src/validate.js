@@ -116,6 +116,29 @@ export function assertParamBudget(rowsPerStatement, perRow, fixed) {
   return used
 }
 
+/**
+ * 複数行を1文へまとめるときの行ソース `(VALUES (?,?),(?,?)) v` を組み立てる。
+ *
+ * **`UNION ALL` を使わない**。実D1は `SELECT ? AS a UNION ALL ...` を19項でも
+ * `too many terms in compound SELECT` で落とす（2026-08-28 に Pro Review 上で計測。
+ * s19=NG / v1000=ok）。SQLite は複数行 VALUES を compound SELECT の項数制限から
+ * 除外するため、同じ「複数行を1文へ」を VALUES 形式でやれば上限に当たらない。
+ *
+ * VALUES を FROM に置くと列名は `column1`, `column2`, … になる（SQLite の既定）。
+ * 呼び出し側がその番号を数えなくて済むよう、列名 → 参照式の対応も返す。
+ *
+ * @param {number} rowCount まとめる行数
+ * @param {string[]} columns 行の列名（VALUES の並び順）
+ * @returns {{ sql: string, col: Record<string,string> }}
+ */
+export function valueRows(rowCount, columns) {
+  const row = `(${columns.map(() => '?').join(', ')})`
+  return {
+    sql: Array.from({ length: rowCount }, () => row).join(', '),
+    col: Object.fromEntries(columns.map((name, i) => [name, `v.column${i + 1}`])),
+  }
+}
+
 /** 配列を size ごとに分ける（明細INSERTのまとめ単位）。 */
 export function chunk(rows, size) {
   const out = []
