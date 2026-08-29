@@ -24,17 +24,31 @@ import {
 } from './constants.js'
 export { RoomDO }
 
+// 配信元の Pages project の host。**この project へ deploy できるのは所有者だけ**なので、
+// サブドメイン（preview）ごと許可する。Pages の preview URL は
+//   - 固定alias        : `develop.<project>.pages.dev`
+//   - deployment hash  : `568e490f.<project>.pages.dev`  ← 毎回変わる
+// の2種類があり、hash 側は事前に列挙できない。だからここは host 単位で持つ。
+//
+// **`inventory-app` と `inventory-app-c40` は別物**。実際に配信されているのは `-c40` 付き。
+// 2026-08-28、任意Originを反射する旧Workerから現行Workerへ入れ替えた直後、
+// `-c40` が入っていなかったせいでフロントが全滅した（`Failed to fetch` = preflight が
+// 403 で Access-Control-Allow-Origin を返さない）。旧Workerが緩く、名前も似ていたため、
+// 入れ替えるまで食い違いが表面化しなかった。→ 回帰testは test/corsOrigins.test.js
+const PAGES_HOSTS = ['inventory-app-c40.pages.dev', 'inventory-app.pages.dev']
+
 // 許可オリジン判定（フェイルクローズ・S-E）。ALLOWED_ORIGIN（カンマ区切りの完全一致）に加え、
-// 本番/プレビュー（*.inventory-app.pages.dev＝プロジェクト所有者のみが配信可能）と
-// ローカル開発（localhost / 127.0.0.1）を許可する。それ以外の Origin は拒否。
+// 上記 Pages project とそのサブドメイン、ローカル開発（localhost / 127.0.0.1）を許可する。
+// それ以外の Origin は拒否。
 // Origin ヘッダ無し（同一オリジン・WebSocket・server-to-server）は従来どおり通す。
 export function isAllowedOrigin(origin, allowedOrigin) {
   if (!origin) return true
   const list = String(allowedOrigin || '').split(',').map(s => s.trim()).filter(Boolean)
   if (list.includes(origin)) return true
   try {
-    const h = new URL(origin).hostname
-    if (h === 'inventory-app.pages.dev' || h.endsWith('.inventory-app.pages.dev')) return true
+    const { hostname: h, protocol } = new URL(origin)
+    // Pages は https のみで配信される。http を許すと、同じ host名の平文Originまで通る。
+    if (protocol === 'https:' && PAGES_HOSTS.some(p => h === p || h.endsWith(`.${p}`))) return true
     if (h === 'localhost' || h === '127.0.0.1') return true
   } catch (_) { /* 不正な Origin は不許可 */ }
   return false

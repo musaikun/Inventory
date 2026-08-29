@@ -37,10 +37,14 @@ describe('本番の許可オリジン', () => {
   const allowed = allowedOriginOf()
 
   // 実際に人が開く URL。ここが落ちるとアプリが丸ごと動かない。
+  // **deployment hash の preview URL を必ず含める**。Pages は deploy のたびに
+  // `<hash>.<project>.pages.dev` を払い出し、PWAをそのURLから入れている端末もある。
+  // 事前に列挙できないので、host のサブドメインとして許可されている必要がある。
   it.each([
-    ['production Pages',  'https://inventory-app-c40.pages.dev'],
-    ['develop preview',   'https://develop.inventory-app-c40.pages.dev'],
-    ['旧 alias',          'https://inventory-app.pages.dev'],
+    ['production Pages',      'https://inventory-app-c40.pages.dev'],
+    ['develop preview',       'https://develop.inventory-app-c40.pages.dev'],
+    ['deployment hash preview', 'https://568e490f.inventory-app-c40.pages.dev'],
+    ['旧 alias',              'https://inventory-app.pages.dev'],
   ])('%s を許可する', (_name, origin) => {
     expect(isAllowedOrigin(origin, allowed)).toBe(true)
   })
@@ -48,18 +52,31 @@ describe('本番の許可オリジン', () => {
   // フェイルクローズは維持する。緩めた結果として無関係なOriginまで通してはいけない。
   it.each([
     'https://evil.example.com',
-    'https://inventory-app-c40.pages.dev.evil.com',
-    'http://inventory-app-c40.pages.dev',          // scheme 違いは別Origin
+    'https://inventory-app-c40.pages.dev.evil.com',   // 接尾辞を装う別ドメイン
+    'https://inventory-app-c40-pages.dev',            // ハイフン違い
+    'http://inventory-app-c40.pages.dev',             // Pages は https のみ
   ])('%s は拒否する', (origin) => {
     expect(isAllowedOrigin(origin, allowed)).toBe(false)
   })
 })
 
 describe('Pro Review の許可オリジン', () => {
-  it('Pro Review の Pages を許可し、他の環境のPagesは許可しない', () => {
-    const allowed = allowedOriginOf('pro_review')
+  const allowed = allowedOriginOf('pro_review')
+
+  it('Pro Review の Pages を許可する', () => {
     expect(isAllowedOrigin('https://pro-review.inventory-app-pro-review.pages.dev', allowed)).toBe(true)
-    expect(isAllowedOrigin('https://inventory-app-c40.pages.dev', allowed)).toBe(false)
+  })
+
+  it('無関係な Origin は拒否する', () => {
+    expect(isAllowedOrigin('https://evil.example.com', allowed)).toBe(false)
+  })
+
+  // PAGES_HOSTS はenvに依らず効くため、Pro Review Worker も本番Pagesの Origin を受ける。
+  // 従来から `inventory-app.pages.dev` について同じ状態で、今回 `-c40` を足して揃えた。
+  // D-018 の分離は Worker / D1 / DO の分離であって、CORSでの相互遮断ではない。
+  // 環境ごとに閉じたい場合は PAGES_HOSTS を env 依存にする必要がある（未実施・要判断）。
+  it('本番Pagesの Origin も受ける（既知の緩さ・env非依存）', () => {
+    expect(isAllowedOrigin('https://inventory-app-c40.pages.dev', allowed)).toBe(true)
   })
 })
 
