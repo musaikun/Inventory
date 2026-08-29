@@ -65,6 +65,25 @@ jobs:
           echo "Actions の Run workflow で branch = develop を選び直してください。" >&2
           exit 1
 
+      # **Re-run（再実行）除け**。Actions の「Re-run jobs」は *その run の commit* をそのまま
+      # 流し直すので、後から直した内容は載らない。2026-08-29、CORS の修正を2回入れた後に
+      # 再実行され、修正前の Worker がもう一度本番へ出た（画面は `Failed to fetch` のまま）。
+      # 押す側からは Run workflow と見分けが付きにくいので、機械で止める。
+      - name: Guard stale commit
+        if: inputs.step == 'apply'
+        run: |
+          git fetch --depth=1 origin develop
+          TIP=$(git rev-parse FETCH_HEAD)
+          if [ "$TIP" != "${{ github.sha }}" ]; then
+            echo "この run の commit は develop の先端ではありません。中止します。" >&2
+            echo "  run : ${{ github.sha }}" >&2
+            echo "  tip : $TIP" >&2
+            echo "「Re-run jobs」は古い commit を流し直します。" >&2
+            echo "Actions の workflow ページから **Run workflow**（緑のボタン）で新規実行してください。" >&2
+            exit 1
+          fi
+          echo "OK: develop の先端 ($TIP) を出します"
+
       - name: Show target
         run: |
           {
