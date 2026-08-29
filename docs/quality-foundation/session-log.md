@@ -2,6 +2,54 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-08-29 — 本番Worker入れ替えでCORSが閉じた（復旧済み）
+
+本番Workerを新版へ入れ替えた直後、フロントが全滅した。画面は `Failed to fetch`、
+実体は **preflight が 403 で `Access-Control-Allow-Origin` を返さない**状態。
+`Production Backend` の apply を `579867c` で流し直して復旧
+（[run 33240600803](https://github.com/musaikun/Inventory/actions/runs/33240600803)）。
+
+### 原因: host名の食い違い（旧Workerの緩さで隠れていた）
+
+`isAllowedOrigin` が常に許可していたのは `*.inventory-app.pages.dev` だが、
+実際の Pages project は **`inventory-app-c40.pages.dev`**（`-c40` 付き）。
+旧本番Workerは**任意Originを反射する状態**（WEB-02 に記録あり）だったため、
+この食い違いは入れ替えるまで表面化しなかった。**fail-close 化そのものが正しく、
+設定が実態に追いついていなかった**という形。
+
+修正は2段階になった。1回目（`bb983a6`）は `ALLOWED_ORIGIN` に固定URLを列挙しただけで、
+利用者は **deployment hash の preview URL**（`568e490f.…`）から開いており直らなかった。
+hash は deploy のたびに変わり列挙できない。2回目（`3db6486`）でコード側の
+`PAGES_HOSTS` に `-c40` を入れ、**サブドメインごと許可**して解決。
+ついでに Pages host の許可を **https のみ**に絞った（従来は host名だけ見ていた）。
+
+### 復旧後の実測
+
+| Origin | health | ACAO |
+|---|---|---|
+| `568e490f.inventory-app-c40.pages.dev` | 200 | 返る |
+| `inventory-app-c40.pages.dev` | 200 | 返る |
+| `develop.inventory-app-c40.pages.dev` | 200 | 返る |
+| `evil.example.com` | **403** | **返らない**（fail-close 維持） |
+
+新経路も `lines` / `audit` ともに 401（＝経路あり）。
+
+### 再発防止
+
+- `test/corsOrigins.test.js` … wrangler.toml の値を読み、**実際に人が開く URL**
+  （hash preview を含む）が通ること、接尾辞偽装・ハイフン違い・http が拒否されることを固定。
+  `isAllowedOrigin` の単体testだけでは「設定値と実host の対応」が抜けていて防げなかった。
+- `Guard stale commit` … Actions の **Re-run は当時の commit を流し直す**ため、
+  修正後に再実行しても古いWorkerが出る（実際に2回起きた）。commit が develop の
+  先端でなければ migration にも deploy にも進まず中断するようにした。
+
+### 反省
+
+deploy の成否判定に `GET /store/TEST00/sessions/x/lines` の 404/401 を使っていたが、
+router は英字4〜8桁の店舗コードと36桁UUIDを要求する。`TEST00` も `x` も合わず
+**新旧どちらでも404**で、deploy 成功後に「まだ古い」と誤報告した。
+**判定に使う値は、合格側と不合格側の両方で確かめてから使う。**
+
 ## 2026-08-28 — 本番backendを更新（migration 0009〜0017 + Worker deploy）
 
 `Production Backend (D1 + Worker)` の `step=apply` を develop（`b1381eb`）から実行
