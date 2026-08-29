@@ -6,10 +6,21 @@ account_id = "d27afd2bc7f0a66b1275eb28d7b3d470"
 
 
 [vars]
-# 許可オリジン（カンマ区切りの完全一致）。本番/プレビュー（*.inventory-app.pages.dev）と
-# localhost はコード側（isAllowedOrigin）で常に許可されるため、ここには独自ドメイン取得時に
-# その本番ドメインを追記する。空でもフェイルクローズ（既定の許可以外は 403）。
-ALLOWED_ORIGIN = "https://inventory-app.pages.dev"
+# 許可オリジン（カンマ区切りの完全一致）。空でもフェイルクローズ（既定の許可以外は 403）。
+#
+# **実際に配信されている host を必ずここへ書く**（WEB-02）。コード側 isAllowedOrigin が
+# 常に許可するのは `*.inventory-app.pages.dev` と localhost だけで、
+# 実際の Pages project の host は **`inventory-app-c40.pages.dev`**（`-c40` 付き）である。
+# 名前が似ているため一致しない。
+#
+# 2026-08-28、旧Worker（任意Originを反射する状態）から現行Workerへ入れ替えた直後に
+# フロントが全滅した（`Failed to fetch` = 403 で CORS ヘッダが付かない）。
+# 旧Workerが緩かったせいで、host名の食い違いがそれまで表面化していなかった。
+#   → 回帰testは cors.origins.test.js（この値を読んで実hostを確かめる）
+#
+# develop preview は仕様上この本番Workerを見る（docs/ci-cd.md）。外すと日々の実機確認が
+# 止まるため許可へ含める。deployment hash の preview URL は含めない（都度変わるため）。
+ALLOWED_ORIGIN = "https://inventory-app.pages.dev,https://inventory-app-c40.pages.dev,https://develop.inventory-app-c40.pages.dev"
 
 [durable_objects]
 bindings = [
