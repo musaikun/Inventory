@@ -295,13 +295,17 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     expect(res._status).toBe(410)
   })
 
-  it('より新しい完了スナップショットがあれば 410', async () => {
+  // やり直し（同じ日に取り直す・複数回完了する）で、配ったリンクが即死しない。
+  // 以前は「より新しい完了があれば 410」にしていたが、共有相手からは理由が分からず
+  // 壊れたリンクにしか見えないため外した。範囲は完了からの経過時間だけで決める。
+  it('あとから別の棚卸が完了しても、そのリンクは閲覧できる', async () => {
     const db  = createResultMockD1([
-      { sessionId: sid,       savedAt: recent, date: '2026-06-29' },
-      { sessionId: 'sess-new', savedAt: newer,  date: '2026-06-30' },
+      { ...fullSnapshot(recent), date: '2026-06-29' },
+      { sessionId: 'sess-new', savedAt: newer, date: '2026-06-30' },
     ])
     const res = await handleRoomResult(db, code, sid)
-    expect(res._status).toBe(410)
+    expect(res._status).toBeUndefined()
+    expect(res.result.sessionId).toBe(sid)
   })
 
   it('閲覧可能なら金額を除去した結果を返す', async () => {

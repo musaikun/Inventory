@@ -5,10 +5,13 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import InventoryTable from './InventoryTable.vue'
 import { participantStats as buildParticipantStats, sharedItemCounts, toEpochMs } from '../services/participantStats.js'
 import ItemHistoryModal from './ItemHistoryModal.vue'
+import { buildResultUrl, resultShareText, viewDaysRemaining } from '../services/resultShare.js'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
   isHost:   { type: Boolean, default: true },
+  // 共有リンクの組み立てに要る。未ログイン・未設定なら空で、共有UI自体を出さない。
+  shopCode: { type: String, default: '' },
 })
 const emit = defineEmits(['back', 'patched'])
 
@@ -83,6 +86,47 @@ const correctionDaysRemaining = computed(() => {
 // ── 訂正モード ────────────────────────────────────────────────────────────────
 const isEditing = ref(false)
 const editQtys  = ref({})
+
+// ── 結果の共有（完了済みのみ・ホストのみ）─────────────────────────────────────
+// CSVではなく**アプリの画面のまま**見せるためのリンク。渡した相手には金額が出ない
+// （Worker の _sanitizeForGuest が単価・小計・在庫金額を落とす）→ services/resultShare.js
+const showShare  = ref(false)
+const urlCopied  = ref(false)
+const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+const shareUrl      = computed(() => buildResultUrl(props.shopCode, props.snapshot?.sessionId))
+const canShare      = computed(() => !!shareUrl.value)
+const shareDaysLeft = computed(() => viewDaysRemaining(props.snapshot))
+const shareExpired  = computed(() => shareDaysLeft.value === 0)
+
+async function onCopyShareUrl() {
+  if (!shareUrl.value) return
+  try {
+    await navigator.clipboard.writeText(shareUrl.value)
+    urlCopied.value = true
+    setTimeout(() => urlCopied.value = false, 1500)
+  } catch (_) { /* 権限が無い環境では黙って何もしない（URLは画面に出ている） */ }
+}
+
+async function onNativeShareResult() {
+  if (!shareUrl.value) return
+  try {
+    await navigator.share({ title: '棚卸結果', text: resultShareText(props.snapshot), url: shareUrl.value })
+  } catch (_) { /* ユーザーがキャンセル */ }
+}
+
+function onShareResultLine() {
+  if (!shareUrl.value) return
+  const text = `${resultShareText(props.snapshot)}\n${shareUrl.value}`
+  window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank', 'noopener')
+}
+
+function onShareResultMail() {
+  if (!shareUrl.value) return
+  const subject = encodeURIComponent('棚卸結果の共有')
+  const body    = encodeURIComponent(`${resultShareText(props.snapshot)}\n\n${shareUrl.value}`)
+  window.location.href = `mailto:?subject=${subject}&body=${body}`
+}
 
 function enterEdit() {
   const init = {}
@@ -260,7 +304,30 @@ function onDownload() {
           ✏️ あと{{ correctionDaysRemaining > 0 ? correctionDaysRemaining + '日' : '今日まで' }}
         </span>
         <span v-else class="lock-badge">🔒 確定</span>
+        <button v-if="isHost && canShare" class="btn-icon" @click="showShare = !showShare" title="結果を共有">📤</button>
         <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
+      </div>
+    </div>
+
+    <!-- 結果の共有（アプリの見た目のまま渡す。CSVの代わり） -->
+    <div v-if="showShare && canShare" class="share-panel">
+      <div class="share-label">結果を共有</div>
+      <p class="share-note">
+        リンクを開いた人は、この画面と同じ品目一覧を見られます。
+        <strong>単価・金額は表示されません。</strong>
+      </p>
+      <button class="share-url-row" @click="onCopyShareUrl">
+        <span class="share-url-text">{{ shareUrl }}</span>
+        <span class="share-url-copy">{{ urlCopied ? '✓' : '📋' }}</span>
+      </button>
+      <div class="share-btns">
+        <button v-if="canNativeShare" class="share-btn" @click="onNativeShareResult">📤 共有</button>
+        <button class="share-btn" @click="onShareResultLine">💬 LINE</button>
+        <button class="share-btn" @click="onShareResultMail">✉️ メール</button>
+      </div>
+      <div :class="['share-expiry', { expired: shareExpired }]">
+        <template v-if="shareExpired">⚠️ 閲覧期間が終了しています。リンクを開いても表示されません</template>
+        <template v-else-if="shareDaysLeft">閲覧できるのはあと{{ shareDaysLeft }}日です</template>
       </div>
     </div>
 
@@ -419,6 +486,32 @@ function onDownload() {
 }
 
 /* ── ヘッダー ── */
+/* ── 結果の共有 ── */
+.share-panel {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border, #e3e3e3);
+  background: var(--surface-2, #fafafa);
+}
+.share-label { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.share-note  { font-size: 12px; line-height: 1.5; margin: 0 0 8px; opacity: .85; }
+.share-url-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--border, #ddd); border-radius: 8px;
+  background: var(--surface, #fff); text-align: left; cursor: pointer;
+}
+.share-url-text {
+  flex: 1; min-width: 0; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.share-url-copy { flex: none; font-size: 14px; }
+.share-btns { display: flex; gap: 8px; margin-top: 8px; }
+.share-btn {
+  flex: 1; padding: 9px 6px; font-size: 13px; border-radius: 8px;
+  border: 1px solid var(--border, #ddd); background: var(--surface, #fff); cursor: pointer;
+}
+.share-expiry { margin-top: 8px; font-size: 12px; opacity: .8; }
+.share-expiry.expired { color: var(--danger, #c0392b); opacity: 1; font-weight: 600; }
+
 .detail-header {
   display: flex;
   align-items: center;

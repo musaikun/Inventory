@@ -431,15 +431,17 @@ export async function handleRoomResult(db, code, sessionId) {
 
   const targetTs = _snapTs(target)
 
-  // 期間チェック①: 完了から RESULT_WINDOW_DAYS 日以内
+  // 期間チェックは **完了からの経過時間だけ**（RESULT_WINDOW_DAYS 日以内）。
+  //
+  // 以前は「より新しい完了スナップショットがあれば失効」も見ていたが、これを外した。
+  // 同じ日に**やり直し**（棚卸を取り直す・複数回完了する）ことは普通にあり、その場合
+  // 配ったばかりのリンクが即座に死ぬ。共有した側からは理由が分からず、
+  // 「リンクが壊れている」としか見えない。閲覧の範囲は時間だけで決める。
+  //
+  // 個々のリンクは sessionId（UUID）を知っている相手にしか開けないので、
+  // 古いリンクが生き続けても、その1回ぶんの結果が見えるだけで範囲は広がらない。
   if (!targetTs || Date.now() - targetTs > RESULT_WINDOW_DAYS * 86400_000) {
     return { _status: 410, error: '閲覧期間が終了しました' }
-  }
-
-  // 期間チェック②: より新しい完了スナップショットが無いこと（次の棚卸が完了したら失効）
-  const hasNewer = snaps.some(s => s.sessionId !== sessionId && _snapTs(s) > targetTs)
-  if (hasNewer) {
-    return { _status: 410, error: '新しい棚卸が完了したため、この結果は閲覧できません' }
   }
 
   return { result: _sanitizeForGuest(target) }

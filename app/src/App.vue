@@ -3035,6 +3035,7 @@ function dismissReview() {
       v-else-if="currentView === 'session-detail' && detailSnapshot"
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
+      :shop-code="shopCode"
       @back="currentView = detailReturnView"
       @patched="onSnapshotPatched"
     />
