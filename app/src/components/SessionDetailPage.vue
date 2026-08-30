@@ -6,6 +6,7 @@ import InventoryTable from './InventoryTable.vue'
 import { participantStats as buildParticipantStats, sharedItemCounts, toEpochMs } from '../services/participantStats.js'
 import ItemHistoryModal from './ItemHistoryModal.vue'
 import { buildResultUrl, resultShareText, viewDaysRemaining } from '../services/resultShare.js'
+import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
@@ -167,7 +168,8 @@ function setEditQty(itemName, rawValue) {
 // ── タブ制御（3パネル固定: items / participants / history）──────────────────
 // パネルは常に3枚DOMに存在し、スムーズなスライドを実現する
 const TAB_ORDER  = ['items', 'participants', 'history']
-const activeIdx  = computed(() => TAB_ORDER.indexOf(activeTab.value))
+// 'report' はスライド対象外（下の3枚パネルとは別に描画する）。-1 のまま使わない。
+const activeIdx  = computed(() => Math.max(0, TAB_ORDER.indexOf(activeTab.value)))
 
 const swipe = useHorizontalSwipe({
   onLeft: () => {
@@ -272,6 +274,36 @@ function actionClass(action) {
   return 'act-flag'
 }
 
+// ── 完了後レポート（ホストのみ・金額を含む）───────────────────────────────────
+// 品目を1行ずつ追う前に「この棚卸が信用できるか」を判断するための面。
+// 合計金額だけを大きく出すと、単価未設定で一部しか計上されていない数字を
+// 正しい在庫金額だと誤読させるため、金額に入っていない件数を必ず並べて出す。
+const report = computed(() =>
+  buildSessionReport(props.snapshot, findPrevSnapshot(props.snapshot, getSnapshots()))
+)
+
+function fmtDuration(ms) {
+  if (!ms || ms < 0) return '—'
+  const min = Math.round(ms / 60_000)
+  if (min < 60) return `${min}分`
+  return `${Math.floor(min / 60)}時間${String(min % 60).padStart(2, '0')}分`
+}
+
+function fmtSignedYen(n) {
+  if (n == null) return '—'
+  return (n > 0 ? '+' : '') + fmtYen(n)
+}
+
+function fmtSignedPct(n) {
+  if (n == null) return ''
+  return `${n > 0 ? '+' : ''}${n}%`
+}
+
+function diffClass(n) {
+  if (n == null || n === 0) return ''
+  return n > 0 ? 'diff-up' : 'diff-down'
+}
+
 function onDownload() {
   const csv  = exportSnapshotCSV(props.snapshot)
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
@@ -333,6 +365,11 @@ function onDownload() {
 
     <!-- タブバー -->
     <div class="tab-bar">
+      <button
+        v-if="isHost"
+        :class="['tab-btn', { active: activeTab === 'report' }]"
+        @click="activeTab = 'report'"
+      >レポート</button>
       <button :class="['tab-btn', { active: activeTab === 'items' }]" @click="activeTab = 'items'">品目一覧</button>
       <button
         :class="['tab-btn', { active: activeTab === 'participants' }]"
@@ -346,8 +383,91 @@ function onDownload() {
       >変更履歴{{ hasAuditLog ? ` (${sortedLog.length})` : '' }}</button>
     </div>
 
+    <!-- 完了後レポート（ホストのみ・金額を含む） -->
+    <div v-if="activeTab === 'report'" class="report-panel">
+
+      <!-- 在庫金額。信用できる数字かどうかを、金額のすぐ隣で分かるようにする -->
+      <div class="rp-card rp-value">
+        <div class="rp-value-label">在庫金額</div>
+        <div class="rp-value-num">{{ report.value.total != null ? fmtYen(report.value.total) : '—' }}</div>
+        <div v-if="report.value.partial" class="rp-warn">
+          ⚠️ {{ report.value.unpricedCount }}品目は単価が未設定のため、この金額に含まれていません
+        </div>
+        <div v-else-if="report.value.total == null" class="rp-warn">
+          単価が設定されていないため、金額を算出できません
+        </div>
+      </div>
+
+      <!-- 概要 -->
+      <div class="rp-card">
+        <div class="rp-grid">
+          <div class="rp-cell">
+            <div class="rp-cell-num">{{ report.items.filled }}<span class="rp-cell-of">/{{ report.items.total }}</span></div>
+            <div class="rp-cell-label">入力済み品目</div>
+          </div>
+          <div class="rp-cell" :class="{ 'rp-attn': report.items.missing > 0 }">
+            <div class="rp-cell-num">{{ report.items.missing }}</div>
+            <div class="rp-cell-label">未入力</div>
+          </div>
+          <div class="rp-cell" :class="{ 'rp-attn': report.items.flagged > 0 }">
+            <div class="rp-cell-num">{{ report.items.flagged }}</div>
+            <div class="rp-cell-label">要再確認</div>
+          </div>
+          <div class="rp-cell">
+            <div class="rp-cell-num rp-cell-sm">{{ fmtDuration(report.activeMs) }}</div>
+            <div class="rp-cell-label">所要時間</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 前回比 -->
+      <div v-if="report.prev" class="rp-card">
+        <div class="rp-card-title">前回（{{ report.prev.date }}）との比較</div>
+        <div class="rp-diff-row">
+          <span :class="['rp-diff-num', diffClass(report.prev.valueDiff)]">{{ fmtSignedYen(report.prev.valueDiff) }}</span>
+          <span v-if="report.prev.valuePct != null" :class="['rp-diff-pct', diffClass(report.prev.valueDiff)]">
+            {{ fmtSignedPct(report.prev.valuePct) }}
+          </span>
+        </div>
+        <div class="rp-sub">
+          前回 {{ report.prev.totalValue != null ? fmtYen(report.prev.totalValue) : '—' }}
+          ／ 品目 {{ report.prev.addedItems }}件増・{{ report.prev.removedItems }}件減
+        </div>
+
+        <div v-if="report.prev.movers.length" class="rp-movers">
+          <div class="rp-movers-title">金額の動きが大きい品目</div>
+          <div v-for="m in report.prev.movers" :key="m.item" class="rp-mover">
+            <span class="rp-mover-name">{{ m.item }}</span>
+            <span :class="['rp-mover-diff', diffClass(m.diff)]">{{ fmtSignedYen(m.diff) }}</span>
+          </div>
+          <div v-if="report.prev.moversTruncated" class="rp-sub">
+            ほか{{ report.prev.moversTruncated }}品目
+          </div>
+        </div>
+      </div>
+      <div v-else class="rp-card rp-empty">前回の棚卸が無いため、比較はありません</div>
+
+      <!-- 担当者 -->
+      <div v-if="report.people.count" class="rp-card">
+        <div class="rp-card-title">担当者（{{ report.people.count }}名）</div>
+        <div v-if="report.people.sharedItems" class="rp-sub">
+          {{ report.people.sharedItems }}品目を複数人が入力しています
+        </div>
+        <div v-if="report.people.approximate" class="rp-warn">
+          操作の記録が残っていないため、件数は品目単位の概算です
+        </div>
+        <div v-for="p in report.people.list" :key="p.name" class="rp-person">
+          <span class="rp-person-name">{{ p.name }}</span>
+          <span class="rp-person-meta">
+            {{ p.count }}操作 / {{ p.itemCount }}品目<template v-if="p.sharedCount">（重複{{ p.sharedCount }}）</template>
+          </span>
+        </div>
+      </div>
+    </div>
+
     <!-- スライドパネル（3枚固定） -->
     <div
+      v-else
       class="tab-panels-wrapper"
       @touchstart.passive="swipe.onTouchStart"
       @touchmove.passive="swipe.onTouchMove"
@@ -486,6 +606,49 @@ function onDownload() {
 }
 
 /* ── ヘッダー ── */
+/* ── 完了後レポート ── */
+.report-panel { padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.rp-card {
+  padding: 12px 14px; border: 1px solid var(--border, #e3e3e3);
+  border-radius: 10px; background: var(--surface, #fff);
+}
+.rp-card-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.rp-sub  { font-size: 12px; opacity: .75; margin-top: 4px; }
+.rp-warn { font-size: 12px; margin-top: 6px; color: var(--danger, #c0392b); font-weight: 600; line-height: 1.5; }
+.rp-empty { font-size: 13px; opacity: .7; text-align: center; }
+
+.rp-value-label { font-size: 12px; opacity: .75; }
+.rp-value-num   { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+
+.rp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rp-cell { text-align: center; }
+.rp-cell-num   { font-size: 20px; font-weight: 700; }
+.rp-cell-sm    { font-size: 15px; }
+.rp-cell-of    { font-size: 12px; font-weight: 400; opacity: .6; }
+.rp-cell-label { font-size: 11px; opacity: .7; margin-top: 2px; }
+.rp-attn .rp-cell-num { color: var(--danger, #c0392b); }
+
+.rp-diff-row { display: flex; align-items: baseline; gap: 8px; }
+.rp-diff-num { font-size: 22px; font-weight: 700; }
+.rp-diff-pct { font-size: 14px; font-weight: 600; }
+.diff-up   { color: var(--danger, #c0392b); }
+.diff-down { color: var(--accent, #2d7d46); }
+
+.rp-movers { margin-top: 10px; }
+.rp-movers-title { font-size: 12px; font-weight: 600; opacity: .8; margin-bottom: 4px; }
+.rp-mover {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 5px 0; font-size: 13px; border-top: 1px solid var(--border, #eee);
+}
+.rp-mover-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-mover-diff { flex: none; font-weight: 600; }
+
+.rp-person {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 6px 0; font-size: 13px; border-top: 1px solid var(--border, #eee);
+}
+.rp-person-meta { flex: none; font-size: 12px; opacity: .75; }
+
 /* ── 結果の共有 ── */
 .share-panel {
   padding: 12px 14px 14px;
