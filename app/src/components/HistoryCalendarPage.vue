@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getSessions, deleteSession, logout } from '../composables/useAuth.js'
-import { isPro, FREE_HISTORY_COUNT } from '../utils/planLimits.js'
+import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useWeather, requestGeolocation } from '../composables/useWeather.js'
 import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.js'
@@ -52,12 +52,13 @@ const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order')
 )
 
-// Free プラン: 直近 FREE_HISTORY_COUNT 件のみ表示（新しい順）
+// Free プラン: 直近 historyLimit() 件のみ表示（新しい順）。上限が無ければ全件。
 const visibleCompletedSessions = computed(() => {
-  if (isPro()) return completedSessions.value
+  const limit = historyLimit()
+  if (!Number.isFinite(limit)) return completedSessions.value
   return [...completedSessions.value]
     .sort((a, b) => new Date(b.endedAt ?? b.startedAt) - new Date(a.endedAt ?? a.startedAt))
-    .slice(0, FREE_HISTORY_COUNT)
+    .slice(0, limit)
 })
 
 const hiddenByPlanCount = computed(() =>

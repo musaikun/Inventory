@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useConfig, IMPORT_MODE_REPLACE } from './useConfig.js'
-import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { FREE_ITEM_LIMIT, setFreeLimitsEnforced } from '../utils/planLimits.js'
 
 // S5: 品目マスタ取込は既定で「追加・更新」。全入れ替えは明示指定のときだけ。
 const cfg = useConfig()
@@ -25,6 +25,11 @@ function resetConfig(order = []) {
   cfg.config.hiddenItems   = []
   cfg.config.hiddenAuto    = []
 }
+
+// 無料枠の上限は 2026-08-30 に既定 off にした（実運用優先・planLimits.js 参照）。
+// 上限そのものが正しく効くかは残しておきたいので、この束では明示的に on にして検証する。
+beforeEach(() => setFreeLimitsEnforced(true))
+afterEach(()  => setFreeLimitsEnforced())
 
 describe('S5: 既定の取込（追加・更新）は既存品目を消さない', () => {
   beforeEach(() => { localStorage.clear(); resetConfig() })

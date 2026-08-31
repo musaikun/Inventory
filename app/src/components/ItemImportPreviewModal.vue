@@ -13,7 +13,7 @@ import {
   ALIAS_KEEP_EXISTING, ALIAS_TAKEOVER,
 } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
-import { FREE_ITEM_LIMIT, isPro } from '../utils/planLimits.js'
+import { FREE_ITEM_LIMIT, isPro, limitsEnforced } from '../utils/planLimits.js'
 import { confirmMasterImport } from '../utils/masterImportWarning.js'
 import { summaryCounts, IMPORT_ERROR_NO_HEADER } from '../utils/itemImport.js'
 
@@ -329,7 +329,7 @@ function onConfirm() {
             {{ counts.truncated }}件は取り込まれません。取込後も既存の品目は削除されません。
           </p>
         </div>
-        <p v-else-if="!isPro()" class="limit-note">
+        <p v-else-if="limitsEnforced()" class="limit-note">
           無料プランは{{ FREE_ITEM_LIMIT }}品目まで登録できます（取込後 {{ counts.total }}/{{ FREE_ITEM_LIMIT }}件）。
         </p>
 

@@ -8,7 +8,7 @@ import {
   SAMPLE_UNITS,
 } from '../config.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
-import { isPro, FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { isPro, FREE_ITEM_LIMIT, itemLimit, canAddItem } from '../utils/planLimits.js'
 import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import {
@@ -275,7 +275,7 @@ function _planOptions(mode, aliasPolicy = ALIAS_KEEP_EXISTING) {
   return {
     mode,
     aliasPolicy,
-    itemLimit:   isPro() ? Infinity : FREE_ITEM_LIMIT,
+    itemLimit:   itemLimit(),
     axisNameMax: AXIS_NAME_MAX,
   }
 }
@@ -592,7 +592,7 @@ export function useConfig() {
   function addItem(name, price, category, unit, code) {
     const n = name.trim()
     if (!n || config.order.includes(n)) return false
-    if (!isPro() && config.order.length >= FREE_ITEM_LIMIT) return false
+    if (!canAddItem(config.order.length)) return false
     config.order.push(n)
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     if (category?.trim()) config.categories[n] = category.trim()

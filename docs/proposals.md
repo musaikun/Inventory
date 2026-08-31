@@ -24,6 +24,37 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 ---
 
+## 2026-08-30 — Free の上限を一時的に外した（実装済み・要判断）
+
+**概要**
+無料枠の上限（**150品目 / 2台 / 履歴3回**）を、判定ロジックを残したまま既定 off にした。
+`app/src/utils/planLimits.js` の `DEFAULT_LIMITS_ENFORCED` を **true に戻すだけで復活**する。
+
+**背景・根拠**
+User の実運用が先に始まったため（2026-08-30 指示）。150品目・2台では現場が止まる。
+料金設計の決定ではなく運用上の一時措置。
+
+**影響範囲・実装状況**
+- `planLimits.js` に `limitsEnforced()` / `itemLimit()` / `historyLimit()` を追加し、
+  `canJoinRoom` / `canAddItem` / `remainingItemSlots` をこれ経由にした。
+- 呼び出し側から `isPro()` による上限判定を外した
+  （`useConfig`・`HistoryCalendarPage`・`ItemImportPreviewModal`）。
+  `isPro()` は Pro Review 判定として従来どおり残る。
+- 上限の値・判定・テストは**すべて残っている**。テストは `setFreeLimitsEnforced(true)` で
+  「効いている状態」を作って検証を継続（`HistoryCalendarPage` だけは動的importで
+  モジュール実体が共有されないため `vi.mock` で固定）。
+- off の状態そのものにも回帰testを追加（残り枠・上限が Infinity になること）。
+- 検証: app 1470 passed、build 成功。**実機は未確認**。
+
+**PM判断が要る点** ⬜
+1. **いつ戻すか**。戻す前提の一時措置なのか、Free を無制限のまま公開するのか。
+   後者なら `pricing-strategy.md` と規約（「2台」表記・WEB-06）の見直しが要る。
+2. **サーバー側に上限が無い**。`worker/src/entitlements.js` は plan を返すだけで強制しない。
+   つまり今は**クライアントにも サーバーにも上限が無い**。課金を入れるなら
+   サーバー強制が前提になる（クライアント判定はビルドを差し替えれば回避できる）。
+3. **WEB-06（規約の「2台」とserver挙動の一致）が未解決のまま**。上限を外したことで
+   規約の記載と実装の差が広がった。
+
 ## 2026-08-30 — 完了した棚卸を「アプリの見た目のまま」共有する（実装済み・要判断）
 
 **概要**

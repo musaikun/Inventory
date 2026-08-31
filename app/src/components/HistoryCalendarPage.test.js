@@ -10,6 +10,15 @@ const iso = (d, h = '02') => `${d}T${h}:00:00.000Z`
 let sessionsResponse = []
 const deleteSessionMock = vi.fn(async () => ({}))
 
+// 無料枠の上限は 2026-08-30 に既定 off にした（実運用優先・planLimits.js 参照）。
+// 上限そのものが正しく効くかは残したいので、この束だけ「効いている」状態へ固定する。
+// 実行時フラグ（setFreeLimitsEnforced）ではなく mock にしているのは、この画面を
+// 動的 import で読み込んでおり、モジュール実体が共有されるとは限らないため。
+vi.mock('../utils/planLimits.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, limitsEnforced: () => true, historyLimit: () => actual.FREE_HISTORY_COUNT }
+})
+
 vi.mock('../utils/api.js', () => ({
   HTTP_BASE: 'https://worker.test',
   apiFetch: vi.fn(async () => ({})),

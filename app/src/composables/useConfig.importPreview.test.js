@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useConfig, resetLocalData, applyRemoteConfig, IMPORT_MODE_REPLACE } from './useConfig.js'
-import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { FREE_ITEM_LIMIT, setFreeLimitsEnforced } from '../utils/planLimits.js'
 
 // S6: 取込前プレビューと取り消し。
 // プレビューは実際の取込と同じ計画を使うので、件数はそのまま取込結果と一致する。
@@ -28,6 +28,11 @@ function resetConfig(order = []) {
   cfg.config.hiddenItems   = []
   cfg.config.hiddenAuto    = []
 }
+
+// 無料枠の上限は 2026-08-30 に既定 off にした（実運用優先・planLimits.js 参照）。
+// 上限そのものが正しく効くかは残しておきたいので、この束では明示的に on にして検証する。
+beforeEach(() => setFreeLimitsEnforced(true))
+afterEach(()  => setFreeLimitsEnforced())
 
 describe('S6: 取込前プレビュー', () => {
   beforeEach(() => { localStorage.clear(); resetConfig() })

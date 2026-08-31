@@ -1,8 +1,43 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   isPro, isProReviewEnvironment, canJoinRoom, canAddItem, remainingItemSlots,
+  itemLimit, historyLimit, limitsEnforced, setFreeLimitsEnforced,
   FREE_DEVICE_LIMIT, FREE_ITEM_LIMIT, FREE_HISTORY_COUNT,
 } from './planLimits.js'
+
+// 無料枠の上限は 2026-08-30 に既定 off にした（実運用優先・planLimits.js 参照）。
+// 上限そのものが正しく効くかは残しておきたいので、この束では明示的に on にして検証する。
+beforeEach(() => setFreeLimitsEnforced(true))
+afterEach(()  => setFreeLimitsEnforced())
+
+// 2026-08-30、User の判断で無料枠の上限を一時的に外した（実運用が先に来たため）。
+// 既定が off であることと、off のとき**どの経路も止めない**ことをここで固定する。
+// 戻すときは planLimits.js の DEFAULT_LIMITS_ENFORCED を true にするだけで、
+// 上の「効いているとき」の期待値がそのまま生きる。
+describe('上限を外している状態（現在の既定）', () => {
+  beforeEach(() => setFreeLimitsEnforced())   // 既定へ戻す
+
+  it('既定では上限を効かせない', () => {
+    expect(limitsEnforced()).toBe(false)
+  })
+
+  it('台数・品目とも止めない', () => {
+    expect(canJoinRoom(99)).toBe(true)
+    expect(canAddItem(9999)).toBe(true)
+  })
+
+  it('残り枠と上限は Infinity（画面に「残り0」を出さない）', () => {
+    expect(remainingItemSlots(9999)).toBe(Infinity)
+    expect(itemLimit()).toBe(Infinity)
+    expect(historyLimit()).toBe(Infinity)
+  })
+
+  it('値そのものは消していない（戻せる）', () => {
+    expect(FREE_ITEM_LIMIT).toBe(150)
+    expect(FREE_DEVICE_LIMIT).toBe(2)
+    expect(FREE_HISTORY_COUNT).toBe(3)
+  })
+})
 
 describe('planLimits（無料プラン制限）', () => {
   beforeEach(() => localStorage.clear())

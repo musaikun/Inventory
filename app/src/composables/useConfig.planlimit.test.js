@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useConfig } from './useConfig.js'
-import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
+import { FREE_ITEM_LIMIT, setFreeLimitsEnforced } from '../utils/planLimits.js'
 
 const cfg = useConfig()
 
@@ -10,6 +10,11 @@ function makeCsv(n) {
   for (let i = 0; i < n; i++) rows.push(`品目${i},個`)
   return rows.join('\n')
 }
+
+// 無料枠の上限は 2026-08-30 に既定 off にした（実運用優先・planLimits.js 参照）。
+// 上限そのものが正しく効くかは残しておきたいので、この束では明示的に on にして検証する。
+beforeEach(() => setFreeLimitsEnforced(true))
+afterEach(()  => setFreeLimitsEnforced())
 
 describe('useConfig 無料プラン上限', () => {
   beforeEach(() => {
