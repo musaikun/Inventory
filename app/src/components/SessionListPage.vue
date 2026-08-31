@@ -354,12 +354,7 @@ function _itemCount(session) {
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
 
-          <!-- ① 棚卸の準備。データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
-          <div class="flow-step">
-            <span class="flow-num">1</span>
-            <span class="flow-label">品目を準備する</span>
-            <span class="flow-sub">棚卸で数える品目のリストをそろえる</span>
-          </div>
+          <!-- 棚卸の準備。データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
           <div class="master-card" :class="{ pulse: itemCount === 0 }" @click="emit('openMaster')">
             <div class="master-head">
               <span class="master-title">🗂 データ管理</span>
@@ -392,14 +387,8 @@ function _itemCount(session) {
             </template>
           </div>
 
-          <!-- ② 棚卸そのもの。この画面の主操作 -->
-          <div class="flow-step">
-            <span class="flow-num">2</span>
-            <span class="flow-label">棚卸をする</span>
-            <span class="flow-sub">開始 → 数量を入力 → 完了</span>
-          </div>
-
-          <!-- ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
+          <!-- 棚卸そのもの。この画面の主操作。
+               ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
           <div v-if="activeSession" class="hero-live">
             <div class="hero-live-head">
               <span class="hero-live-title">進行中の棚卸</span>
@@ -466,20 +455,14 @@ function _itemCount(session) {
             <div class="hero-start-arrow">→</div>
           </button>
 
-          <!-- ③ 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
-          <div class="flow-step">
-            <span class="flow-num">3</span>
-            <span class="flow-label">記録を見る</span>
-            <span class="flow-sub">完了した棚卸の履歴・在庫金額の推移</span>
-          </div>
+          <!-- 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
           <button class="history-link" type="button" @click="emit('openHistory')">
             <span class="history-link-ico">📅</span>
             <span class="history-link-text">
               <span class="history-link-title">履歴カレンダー</span>
-              <span class="history-link-sub">
-                <template v-if="completedSessions.length > 0">完了した棚卸 {{ completedSessions.length }}回 — 日付を選んで詳細を開く</template>
-                <template v-else>完了した棚卸はまだありません</template>
-              </span>
+              <!-- 件数と操作の説明は出さない（カレンダーを開けば分かる）。
+                   まだ1件も無いときだけ、開いても空だと分かるように案内を残す。 -->
+              <span v-if="completedSessions.length === 0" class="history-link-sub">完了した棚卸はまだありません</span>
             </span>
             <span class="history-link-arrow">→</span>
           </button>
@@ -858,32 +841,6 @@ function _itemCount(session) {
   margin-top: 8px;
   margin-bottom: 4px;
 }
-
-/* ── 棚卸の流れ（準備 → 棚卸 → 記録を見る）の見出し ──
-   何をする画面なのかを番号で示す。番号は導線の順序であって、
-   進捗（済/未）ではない（済み判定を持たせると再棚卸で嘘になる）。 */
-.flow-step {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 10px;
-}
-.flow-num {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--primary, #2563eb);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 20px;
-  text-align: center;
-  align-self: center;
-}
-.flow-label { font-size: 13px; font-weight: 800; color: #334155; }
-.flow-sub   { font-size: 11px; color: #94a3b8; font-weight: 600; }
 
 /* 履歴カレンダーページへの導線。棚卸の流れの終点 */
 .history-link {

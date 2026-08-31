@@ -521,25 +521,47 @@ function confirmDelete(item) {
   emit('delete-item', item)
 }
 
-// ── 手動非表示（左スワイプでカードが追従 → 非表示アクション → 確認ダイアログ）──────
+// ── 手動非表示（左スワイプ）──────────────────────────────────────────────────
+// 2段階にする。iOS の Mail などと同じ形で、指の移動量で意図の強さを読み分ける。
+//   浅いスワイプ … 「非表示」ボタンが出て止まる → 押すと確認ダイアログ
+//   全スワイプ   … 行の半分以上まで引いて離す   → 確認を挟まずその場で非表示
+// 非表示は破壊的な操作ではない（一覧上部の「手動非表示 N件・タップで管理」から戻せる）ので、
+// はっきり引き切った操作にまで確認を出すと、たくさん隠すときにダイアログの往復だけが残る。
 const ACTION_W  = 96   // 非表示アクションの幅(px)
 const REVEAL_AT = 40   // これ以上引いたらアクションを表示
 const OPEN_SNAP = 56   // これ以上で離すとスナップして開いたまま
+const FULL_MIN  = 160  // 全スワイプと認める最小の移動量(px)
+const FULL_RATIO = 0.5 // 行幅に対する割合（広い画面ほど深く引かせる）
 
 const swipeItem     = ref(null)   // ドラッグ/オープン中の品目名
 const swipeDx       = ref(0)      // 現在の移動量（<=0）
 const swipeDragging = ref(false)  // 指が触れている間（transition を切る）
+const swipeW        = ref(0)      // 触れている行の幅（全スワイプの判定に使う）
 const hideDialogItem = ref(null)  // 確認ダイアログ対象
 let _sx = 0, _sy = 0, _dir = null, _baseDx = 0, _suppressClick = false
+
+// 全スワイプの閾値。行幅が測れない環境でも FULL_MIN で成立させる。
+const fullAt = computed(() => Math.max(FULL_MIN, Math.round(swipeW.value * FULL_RATIO)))
+// 引き切っているか（離した瞬間に非表示になる状態）
+const swipeFull = computed(() => -swipeDx.value >= fullAt.value)
+// 抵抗をかけ始める位置。閾値より手前で重くすると全スワイプに届かなくなるので下限に入れる。
+const dragMax = computed(() => Math.max(ACTION_W, swipeW.value, fullAt.value))
+// アクションは引いた分だけ広がる（引き切ると行を覆う）。既定幅より狭くはしない。
+const swipeActionW = computed(() => Math.max(ACTION_W, -swipeDx.value))
 
 function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
 
 function onRowTouchStart(e, item) {
   if (!canManage.value) return   // ゲスト/読み取り専用は非表示スワイプ不可
+  // 前の操作で立てた抑止を持ち越さない。全スワイプでは行が消えるため、touchend 後の click が
+  // どこにも届かず（あるいは繰り上がってきた別の行に届いて）抑止が消費されないことがある。
+  // 次の指が触れた時点で必ず落とす。
+  _suppressClick = false
   if (swipeItem.value && swipeItem.value !== item) _resetSwipe()  // 別行に触れたら閉じる
   const t = e.changedTouches[0]
   _sx = t.clientX; _sy = t.clientY; _dir = null
   _baseDx = (swipeItem.value === item) ? swipeDx.value : 0
+  swipeW.value = e.currentTarget?.getBoundingClientRect?.().width || 0
   swipeItem.value = item
   swipeDragging.value = true
 }
@@ -555,17 +577,31 @@ function onRowTouchMove(e) {
   if (_dir !== 'h') return   // 縦スクロールは妨げない
   let nx = _baseDx + dx
   if (nx > 0) nx = 0
-  if (nx < -ACTION_W) nx = -ACTION_W - (-ACTION_W - nx) * 0.3  // 端で抵抗
+  const max = dragMax.value
+  if (nx < -max) nx = -max - (-max - nx) * 0.3  // 端で抵抗
   swipeDx.value = nx
 }
 function onRowTouchEnd() {
   if (!swipeDragging.value) return
   swipeDragging.value = false
-  if (_dir === 'h') {
-    _suppressClick = true
-    swipeDx.value = (-swipeDx.value >= OPEN_SNAP) ? -ACTION_W : 0   // スナップ開/閉
-    if (swipeDx.value === 0) swipeItem.value = null
-  }
+  if (_dir !== 'h') return
+  _suppressClick = true
+  if (swipeFull.value) { _commitFullSwipeHide(); return }
+  swipeDx.value = (-swipeDx.value >= OPEN_SNAP) ? -ACTION_W : 0   // スナップ開/閉
+  if (swipeDx.value === 0) swipeItem.value = null
+}
+
+/**
+ * 全スワイプで離したとき。確認ダイアログを出さずにそのまま非表示にする。
+ *
+ * 親が hiddenItems を更新するとこの行は一覧から外れるので、こちらでアニメーションは持たない
+ * （持たせると「消えたはずの行」の残骸を掴んだままになりうる）。親が受け取らなかった場合は
+ * _resetSwipe() で元の位置に戻り、何も起きなかったのと同じになる。
+ */
+function _commitFullSwipeHide() {
+  const it = swipeItem.value
+  _resetSwipe()
+  if (it) emit('hide-item', it)
 }
 
 function openHideDialog(item) { hideDialogItem.value = item }
@@ -823,10 +859,10 @@ function fmtYen(n) {
               <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
               <button
                 v-if="swipeItem === row.item && -swipeDx >= REVEAL_AT"
-                class="row-action"
-                :style="{ transform: `translateX(${-swipeDx}px)` }"
+                :class="['row-action', { full: swipeFull }]"
+                :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px' }"
                 @click.stop="openHideDialog(row.item)"
-              >非表示</button>
+              >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
@@ -1334,6 +1370,8 @@ function fmtYen(n) {
   -webkit-tap-highlight-color: transparent;
 }
 .row-action:active { background: #475569; }
+/* 引き切った状態。離すと確認を挟まず非表示になるので、色でも手前と区別する */
+.row-action.full { background: #475569; }
 .item-row:active             { background: var(--primary-weak) !important; }
 .item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }

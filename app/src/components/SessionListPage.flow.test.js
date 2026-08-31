@@ -120,6 +120,37 @@ describe('SessionListPage — 棚卸中心の順路', () => {
     expect(link.textContent).toContain('履歴カレンダー')
   })
 
+  // 順路は並びで示す。番号付きの見出し（① 品目を準備する …）は置かない。
+  it('カードの上に番号付きの見出しを持たない', async () => {
+    const root = await mountPage()
+    expect(root.querySelector('.flow-step')).toBeNull()
+    for (const label of ['品目を準備する', '棚卸をする', '記録を見る']) {
+      expect(root.textContent).not.toContain(label)
+    }
+  })
+
+  // 件数と操作の説明はカレンダーを開けば分かる。導線には出さない。
+  it('履歴カレンダーの導線に完了回数と操作の説明を出さない', async () => {
+    const { getSessions } = await import('../composables/useAuth.js')
+    getSessions.mockResolvedValueOnce([
+      { id: 'c1', type: 'stock', status: 'completed', startedAt: '2026-08-01T01:00:00Z' },
+      { id: 'c2', type: 'stock', status: 'completed', startedAt: '2026-08-02T01:00:00Z' },
+    ])
+    const root = await mountPage()
+    const link = root.querySelector('.history-link')
+
+    expect(link.textContent).toContain('履歴カレンダー')      // 完了2件でも導線自体は出る
+    expect(link.textContent).not.toContain('日付を選んで詳細を開く')
+    expect(link.textContent).not.toContain('2回')
+    expect(link.querySelector('.history-link-sub')).toBeNull()
+  })
+
+  // 1件も無いときだけ、開いても空だと分かるように案内を残す。
+  it('完了が1件も無いときは履歴カレンダーの導線に案内を出す', async () => {
+    const root = await mountPage()
+    expect(root.querySelector('.history-link').textContent).toContain('完了した棚卸はまだありません')
+  })
+
   // 履歴カレンダーは専用ページへ移した。ホームはそこへの入口だけを持つ。
   it('履歴カレンダーを押すと専用ページへの遷移を要求する', async () => {
     const onOpenHistory = vi.fn()
