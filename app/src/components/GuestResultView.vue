@@ -10,6 +10,9 @@ const emit = defineEmits(['home'])
 
 const activeTab = ref('items')
 
+// 閲覧用の品目検索。**絞り込むだけ**（ゲストは記録を変えられないので追加導線は無い）。
+const itemSearch = ref('')
+
 const snapItems = computed(() => props.result?.items ?? [])
 
 // InventoryTable 用に変換（金額は持たない＝prices 空 → 金額列は出ない）
@@ -113,6 +116,18 @@ function actionClass(action) {
         >変更履歴{{ hasAuditLog ? ` (${sortedLog.length})` : '' }}</button>
       </div>
 
+      <!-- 品目の検索（品目一覧タブのみ）。スクロールする面の外に置く -->
+      <div v-if="activeTab === 'items'" class="item-search-bar">
+        <input
+          v-model="itemSearch"
+          type="search"
+          class="item-search"
+          placeholder="品目名で絞り込み"
+          enterkeyhint="search"
+        />
+        <button v-if="itemSearch" class="item-search-clear" title="クリア" @click="itemSearch = ''">✕</button>
+      </div>
+
       <div class="guest-body">
         <!-- 品目一覧 -->
         <div v-show="activeTab === 'items'" class="panel panel-items">
@@ -123,6 +138,7 @@ function actionClass(action) {
             :recount-flags="snapFlags"
             category-scope="all"
             :config-source="snapConfig"
+            :search-term="itemSearch"
           />
         </div>
 
@@ -170,6 +186,24 @@ function actionClass(action) {
 </template>
 
 <style scoped>
+/* ── 品目の検索 ── */
+.item-search-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #e3e3e3);
+  background: var(--surface, #fff);
+}
+.item-search {
+  flex: 1; min-width: 0;
+  border: 1.5px solid #e2e8f0; border-radius: 10px;
+  padding: 9px 12px; font-size: 14px;
+}
+.item-search:focus { outline: none; border-color: #94a3b8; }
+.item-search-clear {
+  flex: none; border: none; background: transparent;
+  font-size: 15px; padding: 6px 8px; cursor: pointer; opacity: .6;
+}
+
 .guest-page {
   height: 100dvh;
   background: var(--bg-secondary, #f8fafc);

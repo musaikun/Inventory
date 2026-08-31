@@ -21,6 +21,11 @@ const { exportSnapshotCSV, getSnapshots, patchSnapshotItems } = useHistory()
 const activeTab     = ref('items')
 const dragOffset    = ref(0)
 
+// 閲覧用の品目検索。**絞り込むだけ**で、無い品目を足す導線は持たない
+// （入力画面の検索は「無ければ追加」へ繋がるが、完了済みの記録に足す意味は無い）。
+// 絞り込み自体は InventoryTable の searchTerm がやる（仕入れ画面と同じ経路）。
+const itemSearch = ref('')
+
 // ── スナップショット → InventoryTable 用データへ変換 ───────────────────────────
 const snapItems = computed(() => props.snapshot.items ?? [])
 
@@ -383,6 +388,19 @@ function onDownload() {
       >変更履歴{{ hasAuditLog ? ` (${sortedLog.length})` : '' }}</button>
     </div>
 
+    <!-- 品目の検索（品目一覧タブのみ）。スクロールする面の外に置いて、
+         長い一覧をたどっている間も消えないようにする -->
+    <div v-if="activeTab === 'items'" class="item-search-bar">
+      <input
+        v-model="itemSearch"
+        type="search"
+        class="item-search"
+        placeholder="品目名で絞り込み"
+        enterkeyhint="search"
+      />
+      <button v-if="itemSearch" class="item-search-clear" title="クリア" @click="itemSearch = ''">✕</button>
+    </div>
+
     <!-- 完了後レポート（ホストのみ・金額を含む） -->
     <div v-if="activeTab === 'report'" class="report-panel">
 
@@ -488,6 +506,7 @@ function onDownload() {
             :recount-flags="snapFlags"
             :highlight-items="sharedItems"
             :config-source="snapConfig"
+            :search-term="itemSearch"
             @tap="openItemHistory"
           />
         </div>
@@ -606,6 +625,24 @@ function onDownload() {
 }
 
 /* ── ヘッダー ── */
+/* ── 品目の検索 ── */
+.item-search-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #e3e3e3);
+  background: var(--surface, #fff);
+}
+.item-search {
+  flex: 1; min-width: 0;
+  border: 1.5px solid #e2e8f0; border-radius: 10px;
+  padding: 9px 12px; font-size: 14px;
+}
+.item-search:focus { outline: none; border-color: #94a3b8; }
+.item-search-clear {
+  flex: none; border: none; background: transparent;
+  font-size: 15px; padding: 6px 8px; cursor: pointer; opacity: .6;
+}
+
 /* ── 完了後レポート ── */
 .report-panel { padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
 .rp-card {
