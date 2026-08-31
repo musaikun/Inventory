@@ -53,6 +53,17 @@ body {
 /* 接続バナー表示中は内容を下げてヘッダーを隠さない */
 #app.has-banner { padding-top: 34px; }
 
+/* 自前で `height:100dvh; overflow:hidden` の全画面シェルを持つ画面は、
+   #app のフッター用 padding-bottom(80px) を外す。
+   付いたままだと文書全体が **100dvh + 80px** になり、画面内のスクロール（品目一覧）とは
+   別に**ページ自体も動く**。指を上下すると2つのスクロールが交互に効いて、ヘッダーが
+   流れたり下に死んだ余白が出たりする（履歴プレビューで実機確認・2026-08-31）。
+   `.app-footer` を持つのは session ビューだけなので、これらの画面に下余白は要らない。
+   `min-height:100dvh` の画面（auth / 仕入れなど）はページ自体が伸びる作りなのでそのまま。 */
+body[data-view="session-detail"] #app,
+body[data-view="guest-result"] #app,
+body[data-view="sessions"] #app { padding-bottom: 0; }
+
 /* ── Header ── */
 .app-header {
   background: var(--primary);
