@@ -1872,6 +1872,16 @@ function onUndone() {
  * 「品目を準備する → 棚卸をする → 仕入れ」の主導線が見えない。棚卸から戻る先は常に主導線にする。
  */
 function _goHomeMain() {
+  // **ルームに参加しただけのゲストは、この店舗のセッション一覧を持たない。**
+  // 一覧はホスト側の面（過去の棚卸・履歴・削除・データ管理への入口）で、
+  // 招待リンクで入っただけの端末を通してよい場所ではない。
+  // 認証していない端末はランディングへ返す（ゲストの出口はここ）。
+  if (!isAuthenticated.value) {
+    dashboardOpen.value = false
+    ordersOpen.value = false
+    currentView.value = 'landing'
+    return
+  }
   homeTab.value = 'sessions'
   dashboardOpen.value = false
   ordersOpen.value = false
