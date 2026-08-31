@@ -19,7 +19,8 @@ const SNAPSHOT = {
   date: '2026-08-30',
   savedAt: new Date().toISOString(),
   sessionId: 'sess-now',
-  items: [item('トマト'), item('冷凍カットナス'), item('スモークサーモン500g'), item('レタス')],
+  // 実データは取込元によって半角カナ・全角カナが混ざる（実店舗のマスタで確認）
+  items: [item('トマト'), item('冷凍カットナス'), item('ｽﾓｰｸｻｰﾓﾝ500g'), item('レタス')],
   totalValue: 400,
   entryLog: [], participants: null, flaggedItems: [], auditLog: [],
   activeMs: 1000, axisNames: ['', ''],
@@ -83,6 +84,31 @@ describe('閲覧用の品目検索', () => {
     host.querySelector('.item-search-clear').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 3; i++) await nextTick()
     expect(itemNames().length).toBe(before)
+  })
+
+  // 品目名は取込元によって半角カナ・全角カナが混ざる。探す側はどちらで打つか分からない。
+  it('半角カナで打っても全角カナの品目に当たる', async () => {
+    await mount()
+    await type('カットナス')
+    expect(itemNames()).toContain('冷凍カットナス')
+
+    await type('ｶｯﾄﾅｽ')
+    expect(itemNames()).toContain('冷凍カットナス')
+  })
+
+  it('全角カナで打っても半角カナの品目に当たる', async () => {
+    await mount()
+    await type('ｻｰﾓﾝ')
+    expect(itemNames()).toContain('ｽﾓｰｸｻｰﾓﾝ500g')
+
+    await type('サーモン')
+    expect(itemNames()).toContain('ｽﾓｰｸｻｰﾓﾝ500g')
+  })
+
+  it('英数字の全角半角と大文字小文字も区別しない', async () => {
+    await mount()
+    await type('500G')
+    expect(itemNames()).toContain('ｽﾓｰｸｻｰﾓﾝ500g')
   })
 
   it('該当が無ければ0件になる（勝手に候補を出さない）', async () => {

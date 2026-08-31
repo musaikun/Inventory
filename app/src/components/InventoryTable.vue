@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
-import { isSupplyItem } from '../utils/itemMatcher.js'
+import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
 const { config: liveConfig, setAxisName } = useConfig()
@@ -36,6 +36,15 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
+
+// 品目名の正規化はキャッシュする。1000品目の一覧では1打鍵ごとに全件を
+// normalize することになり、端末によっては入力が引っかかる。品目名は不変なので使い回せる。
+const _normCache = new Map()
+function _normName(name) {
+  let v = _normCache.get(name)
+  if (v === undefined) { v = normalize(name); _normCache.set(name, v) }
+  return v
+}
 
 const manualSet = computed(() => new Set(props.manualItems))
 const hiddenSet = computed(() => new Set(props.hiddenItems))
@@ -239,9 +248,15 @@ const rows = computed(() => {
     all = all.filter(r => _isSupply(r.item))
   }
   // 3.2 品目名の絞り込み（呼び出し元が検索欄を持つ画面のみ。既定は空＝素通り）
+  //
+  // 素の includes だと **ﾄﾏﾄ と トマト が別物**になる。品目名は取込元によって
+  // 半角カナ・全角カナが混在する（実データで「ｽﾓｰｸｻｰﾓﾝ500g」と「サラダ油」が同居）。
+  // 探す側はどちらで打つか分からないので、辞書マッチと同じ normalize を通して比べる。
+  // NFKC（半角カナ→全角カナ / 全角英数→半角英数）+ 小文字化 + 空白除去 + カナ→ひらがな。
   const _term = props.searchTerm.trim()
   if (_term) {
-    all = all.filter(r => r.item.includes(_term))
+    const nTerm = normalize(_term)
+    if (nTerm) all = all.filter(r => _normName(r.item).includes(nTerm))
   }
   // 3.3 親が持つ絞り込み（filters スロットを差した画面。既定は null＝素通り）
   if (props.itemFilter) {
