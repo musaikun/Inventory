@@ -417,16 +417,19 @@ function _snapTs(s) {
 export async function handleRoomResult(db, code, sessionId) {
   if (!sessionId) return { _status: 400, error: 'リンクが無効です' }
 
-  const rows = await db.prepare(
-    'SELECT snapshot_json FROM store_history WHERE shop_code = ? ORDER BY snapshot_date DESC LIMIT 50'
-  ).bind(code).all()
+  // **該当の1件だけを引く**。以前は直近50件を読んで全部 JSON.parse し、その中から
+  // sessionId で探していた。500品目のスナップショットは 200KB 前後あるので、
+  // 1リクエストで最大10MB を parse することになる。ここは**無認証**で、成功した要求は
+  // レート制限に数えない（recordIpFail は 400/404 のときだけ）ため、有効なリンクを1本
+  // 持っているだけで Worker のCPUを好きなだけ使わせられた。
+  // (shop_code, session_id) には UNIQUE index がある（migration 0012）ので直接引ける。
+  const row = await db.prepare(
+    'SELECT snapshot_json FROM store_history WHERE shop_code = ? AND session_id = ?'
+  ).bind(code, sessionId).first()
+  if (!row) return { _status: 404, error: 'この棚卸は閲覧できません' }
 
-  const snaps = []
-  for (const r of rows.results ?? []) {
-    try { snaps.push(JSON.parse(r.snapshot_json)) } catch (_) {}
-  }
-
-  const target = snaps.find(s => s.sessionId === sessionId)
+  let target = null
+  try { target = JSON.parse(row.snapshot_json) } catch (_) { target = null }
   if (!target) return { _status: 404, error: 'この棚卸は閲覧できません' }
 
   const targetTs = _snapTs(target)

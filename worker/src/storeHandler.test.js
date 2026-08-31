@@ -244,15 +244,20 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
 function createResultMockD1(snapshots = []) {
   function prepare(sql) {
     const s = sql.replace(/\s+/g, ' ').trim()
+    let bound = []
     const stmt = {
-      bind() { return stmt },
-      async first() { return null },
-      async all() {
-        if (s.includes('FROM store_history')) {
-          return { results: snapshots.map(snap => ({ snapshot_json: JSON.stringify(snap) })) }
+      bind(...v) { bound = v; return stmt },
+      // 実装は (shop_code, session_id) の UNIQUE index で1件だけ引く。
+      // mock も同じ絞り込みにする（全件返すと「該当が無い」経路を検証できない）。
+      async first() {
+        if (s.includes('FROM store_history') && s.includes('session_id = ?')) {
+          const [, sid] = bound
+          const snap = snapshots.find(x => x.sessionId === sid)
+          return snap ? { snapshot_json: JSON.stringify(snap) } : null
         }
-        return { results: [] }
+        return null
       },
+      async all() { return { results: [] } },
     }
     return stmt
   }
