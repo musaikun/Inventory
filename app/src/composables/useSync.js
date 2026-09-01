@@ -128,6 +128,9 @@ const unreadCount   = ref(0)
 export const typingMap            = reactive({})
 export const lockedIngredients    = reactive(new Set())
 export const pendingItemRequests  = reactive([])  // ホスト側: ゲストからの品目追加申請キュー
+// ホスト側: ゲストからの**非表示**申請キュー。追加申請と別に持つ（承認したときの動作が逆で、
+// 1つのキューに混ぜると承認ボタンがどちらの意味か画面から読めなくなる）。
+export const pendingHideRequests  = reactive([])
 
 let _ws              = null
 // WebSocket は onopen まで `_ws` に入らない。CONNECTING中のsocketも追跡しないと、
@@ -171,6 +174,8 @@ let _onItemUpdate     = null
 let _onItemRemove     = null
 let _onItemAddRequest  = null
 let _onItemAddResponse = null
+let _onItemHideRequest  = null
+let _onItemHideResponse = null
 let _onRecountFlag    = null
 let _getInventory     = null
 let _getRecountFlags  = null
@@ -201,6 +206,8 @@ let _getOrders           = null  // session_start 時に現在の発注下書き
 export function setInventoryCallbacks(onUpdate, onRemove) { _onItemUpdate = onUpdate; _onItemRemove = onRemove }
 export function setItemAddRequestCallback(fn)  { _onItemAddRequest  = fn }
 export function setItemAddResponseCallback(fn) { _onItemAddResponse = fn }
+export function setItemHideRequestCallback(fn)  { _onItemHideRequest  = fn }
+export function setItemHideResponseCallback(fn) { _onItemHideResponse = fn }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
 export function registerRecountFlagsGetter(fn) { _getRecountFlags = fn }
@@ -422,6 +429,24 @@ export function dismissItemAddRequest(requestId) {
   if (idx !== -1) pendingItemRequests.splice(idx, 1)
 }
 
+// 非表示の申請（ゲスト → ホスト）。ゲストは自分の端末では隠さない。
+// 品目リストの正はホストで、ゲストが勝手に隠すと次の broadcastConfig で戻るだけになり、
+// 「消えたのに戻った」ように見える。承認された結果が config で降りてくるのを待つ。
+export function broadcastItemHideRequest(name, requestId) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_hide_request', name, requestId }))
+}
+
+export function broadcastItemHideResponse(requestId, approved, name) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'item_hide_response', requestId, approved, name }))
+}
+
+export function dismissItemHideRequest(requestId) {
+  const idx = pendingHideRequests.findIndex(r => r.requestId === requestId)
+  if (idx !== -1) pendingHideRequests.splice(idx, 1)
+}
+
 // 解決済み競合をキューから除去
 let _conflictQueue = []
 
@@ -557,6 +582,7 @@ function _resetClientState() {
   messages.splice(0, messages.length)
   auditLog.splice(0, auditLog.length)
   pendingItemRequests.splice(0, pendingItemRequests.length)
+  pendingHideRequests.splice(0, pendingHideRequests.length)
   lockedIngredients.clear()
   _conflictQueue = []
   _joinSessionId = null
@@ -861,6 +887,27 @@ function _handleMessage(msg) {
     case 'item_add_response':
       // Guest receives approval/rejection from host
       _onItemAddResponse?.(msg.requestId ?? '', !!msg.approved, msg.name ?? '', msg.reason ?? '')
+      break
+
+    case 'item_hide_request': {
+      // Host receives a hide request from a guest (routed by DO)
+      const req = {
+        requestId:      msg.requestId ?? '',
+        name:           msg.name ?? '',
+        fromDeviceName: msg.fromDeviceName ?? '',
+        fromDeviceId:   msg.fromDeviceId ?? '',
+      }
+      // 同じ品目を2人が申請しても**両方積む**。DO は requestId ごとに申請元へ返すので、
+      // 間引くと2人目は返事を受け取れないまま待ち続ける。
+      // まとめて解決するのは呼び出し側（品目名でまとめて返す）。
+      pendingHideRequests.push(req)
+      _onItemHideRequest?.(req)
+      break
+    }
+
+    case 'item_hide_response':
+      // Guest receives approval/rejection from host
+      _onItemHideResponse?.(msg.requestId ?? '', !!msg.approved, msg.name ?? '', msg.reason ?? '')
       break
 
     case 'pong':

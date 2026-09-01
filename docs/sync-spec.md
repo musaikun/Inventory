@@ -89,6 +89,24 @@ DO → クライアント:   joined / update / remove / order_update / order_rem
 ```
 （他に recount_flag・typing・競合通知系あり。網羅列挙は RoomDO.js の `_handleMessage` が正）
 
+### ゲストからの申請（ホスト承認つき）
+
+ゲストは品目リストを直接変えられない。変更は**申請 → ホストの承認**を通し、
+承認された結果は config の配り直しで全員へ降りる。DO は中継だけを行い、何も書き換えない。
+
+| メッセージ | 向き | 内容 | 備考 |
+|---|---|---|---|
+| `item_add_request`  | ゲスト → DO → ホスト | `requestId` / `name` / `unit` / `code` | DO が `fromDeviceId` / `fromDeviceName` を付ける |
+| `item_add_response` | ホスト → DO → 申請者 | `requestId` / `approved` / `name` | **`_isHost` 検証あり**。ホスト不在なら DO が `reason:'host_offline'` で即返す |
+| `item_hide_request`  | ゲスト → DO → ホスト | `requestId` / `name` | 同上。**ゲスト端末では隠さない**（隠すと次の config で戻り、消えたのに復活して見える） |
+| `item_hide_response` | ホスト → DO → 申請者 | `requestId` / `approved` / `name` | 同上 |
+
+`requestId` → 申請元 WebSocket の対応は DO のメモリ（`_itemAddRequests` / `_itemHideRequests`）に
+持つ。hibernation で失われるが、失われた場合は申請が返らないだけで state は壊れない。
+
+同じ品目へ複数人が申請したとき、DO は**それぞれの `requestId` に対して申請元へ返す**。
+ホスト側は品目名でまとめて返すこと（1件にだけ答えると、もう一方は承認待ちのまま残る）。
+
 ## セッションライフサイクル
 
 ```

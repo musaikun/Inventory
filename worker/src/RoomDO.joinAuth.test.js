@@ -94,6 +94,8 @@ const JOIN_REQUIRED_TYPES = [
   'conflict_lock',
   'item_add_request',
   'item_add_response',
+  'item_hide_request',
+  'item_hide_response',
   'unknown',
 ]
 

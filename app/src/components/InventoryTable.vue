@@ -22,6 +22,9 @@ const props = defineProps({
   usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
   hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
   canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
+  // ゲストが「非表示にしてほしい」とホストへ申請できるか。並び替えや絞り込みは開けない
+  // （リストの正はホスト側にあるため、ゲストが直接変えられるものは増やさない）。
+  canRequestHide:   { type: Boolean, default: false },
   tapContinuous:    { type: Boolean, default: false },
   preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
@@ -35,7 +38,7 @@ const props = defineProps({
   itemFilter:       { type: Function, default: null },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
 
 // 品目名の正規化はキャッシュする。1000品目の一覧では1打鍵ごとに全件を
 // normalize することになり、端末によっては入力が引っかかる。品目名は不変なので使い回せる。
@@ -50,6 +53,11 @@ const manualSet = computed(() => new Set(props.manualItems))
 const hiddenSet = computed(() => new Set(props.hiddenItems))
 // リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
 const canManage = computed(() => props.canManageList && !props.readOnly)
+// 非表示スワイプを開けるか。ホストは自分で隠し、ゲストは申請だけを出せる。
+// **申請は hide-item ではなく request-hide** を出す。同じイベントで区別を親に任せると、
+// 親が分岐を落としたときにゲストの端末だけが隠れて、次の config 同期で戻る形になる。
+const canSwipeHide  = computed(() => canManage.value || (props.canRequestHide && !props.readOnly))
+const hideIsRequest = computed(() => !canManage.value)
 
 // 完了済み詳細では凍結スナップショットの config を使い、通常はライブ config を使う
 const config = computed(() => props.configSource ?? liveConfig)
@@ -567,7 +575,7 @@ const swipeActionColor = computed(() => {
 function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
 
 function onRowTouchStart(e, item) {
-  if (!canManage.value) return   // ゲスト/読み取り専用は非表示スワイプ不可
+  if (!canSwipeHide.value) return   // 読み取り専用・申請も不可な画面ではスワイプしない
   // 前の操作で立てた抑止を持ち越さない。全スワイプでは行が消えるため、touchend 後の click が
   // どこにも届かず（あるいは繰り上がってきた別の行に届いて）抑止が消費されないことがある。
   // 次の指が触れた時点で必ず落とす。
@@ -616,7 +624,7 @@ function onRowTouchEnd() {
 function _commitFullSwipeHide() {
   const it = swipeItem.value
   _resetSwipe()
-  if (it) emit('hide-item', it)
+  if (it) emit(hideIsRequest.value ? 'request-hide' : 'hide-item', it)
 }
 
 /**
@@ -639,7 +647,7 @@ function confirmHideDialog() {
   const it = hideDialogItem.value
   hideDialogItem.value = null
   _resetSwipe()
-  if (it) emit('hide-item', it)
+  if (it) emit(hideIsRequest.value ? 'request-hide' : 'hide-item', it)
 }
 function cancelHideDialog() { hideDialogItem.value = null; _resetSwipe() }  // カードは滑らかに戻る
 
@@ -893,7 +901,7 @@ function fmtYen(n) {
                 :class="['row-action', { full: swipeFull }]"
                 :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
                 @click.stop="openHideDialog(row.item)"
-              >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
+              >{{ hideIsRequest ? (swipeFull ? '離すと申請' : '申請') : (swipeFull ? '離すと非表示' : '非表示') }}</button>
               <div class="name-main">
                 {{ row.item }}
                 <span v-if="row.custom" class="badge">追加</span>
@@ -976,14 +984,21 @@ function fmtYen(n) {
       </tfoot>
     </table>
 
-    <!-- 非表示の確認ダイアログ（小さめ・中央） -->
+    <!-- 非表示の確認ダイアログ（小さめ・中央）。ゲストは「申請」になる -->
     <div v-if="hideDialogItem" class="hide-dialog-overlay" @click.self="cancelHideDialog">
       <div class="hide-dialog">
-        <div class="hide-dialog-title">この品目を非表示にしますか？</div>
+        <div class="hide-dialog-title">
+          {{ hideIsRequest ? 'この品目の非表示をホストに申請しますか？' : 'この品目を非表示にしますか？' }}
+        </div>
         <div class="hide-dialog-name">{{ hideDialogItem }}</div>
+        <div v-if="hideIsRequest" class="hide-dialog-note">
+          ホストが承認すると、参加者全員の一覧から外れます
+        </div>
         <div class="hide-dialog-actions">
           <button class="hide-dialog-cancel" @click="cancelHideDialog">キャンセル</button>
-          <button class="hide-dialog-ok" @click="confirmHideDialog">非表示にする</button>
+          <button class="hide-dialog-ok" @click="confirmHideDialog">
+            {{ hideIsRequest ? '申請する' : '非表示にする' }}
+          </button>
         </div>
       </div>
     </div>
@@ -1183,6 +1198,12 @@ function fmtYen(n) {
   justify-content: center;
   z-index: 70;
   padding: 24px;
+}
+.hide-dialog-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted, #64748b);
+  margin-top: 6px;
 }
 .hide-dialog {
   width: 100%;

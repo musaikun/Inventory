@@ -91,6 +91,7 @@ export class RoomDO {
     this.state = state
     this.env   = env
     this._itemAddRequests = new Map()  // requestId → requesting WS (in-memory only)
+    this._itemHideRequests = new Map() // requestId → requesting WS（非表示申請。同上）
   }
 
   async fetch(request) {
@@ -139,6 +140,7 @@ export class RoomDO {
       } catch (_) {}
     }
     this._itemAddRequests.clear()
+    this._itemHideRequests.clear()
     await this.state.storage.deleteAlarm()
     await this.state.storage.deleteAll()
     return new Response(JSON.stringify({ ok: true }), {
@@ -868,6 +870,50 @@ export class RoomDO {
           try {
             requesterWs.send(JSON.stringify({
               type:     'item_add_response',
+              requestId,
+              approved: !!msg.approved,
+              name:     String(msg.name ?? '').slice(0, MAX_INGREDIENT_LEN),
+            }))
+          } catch (_) {}
+        }
+        break
+      }
+
+      // ゲスト → ホスト: 品目の非表示を申請する。ここでは何も変えない。
+      // 品目リストの正はホストで、承認された結果は config の broadcast で全員へ降りる。
+      case 'item_hide_request': {
+        const att  = ws.deserializeAttachment() ?? {}
+        const name = String(msg.name ?? '').trim().slice(0, MAX_INGREDIENT_LEN)
+        const requestId = String(msg.requestId ?? '').slice(0, 64)
+        if (!name || !requestId) return
+
+        this._itemHideRequests.set(requestId, ws)
+
+        const hostWs = this.state.getWebSockets().find(w => w.deserializeAttachment()?.isHost)
+        if (!hostWs) {
+          ws.send(JSON.stringify({ type: 'item_hide_response', requestId, approved: false, reason: 'host_offline', name }))
+          this._itemHideRequests.delete(requestId)
+          return
+        }
+        hostWs.send(JSON.stringify({
+          type:           'item_hide_request',
+          requestId,
+          name,
+          fromDeviceId:   att.deviceId   ?? '',
+          fromDeviceName: att.deviceName ?? '',
+        }))
+        break
+      }
+
+      case 'item_hide_response': {
+        if (!this._isHost(ws)) return
+        const requestId   = String(msg.requestId ?? '').slice(0, 64)
+        const requesterWs = this._itemHideRequests.get(requestId)
+        this._itemHideRequests.delete(requestId)
+        if (requesterWs) {
+          try {
+            requesterWs.send(JSON.stringify({
+              type:     'item_hide_response',
               requestId,
               approved: !!msg.approved,
               name:     String(msg.name ?? '').slice(0, MAX_INGREDIENT_LEN),

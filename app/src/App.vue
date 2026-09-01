@@ -27,6 +27,8 @@ import {
   hasHostToken, dissolveRoomRemote,
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
   setItemAddRequestCallback, setItemAddResponseCallback, pendingItemRequests,
+  broadcastItemHideRequest, broadcastItemHideResponse, dismissItemHideRequest,
+  setItemHideRequestCallback, setItemHideResponseCallback, pendingHideRequests,
   fetchRoomStatus, fetchRoomResult,
   captureSyncConnection, isSyncConnectionStale,
 } from './composables/useSync.js'
@@ -228,6 +230,27 @@ const showNameModal    = ref(false)
 const pendingName      = ref('')
 const pendingNameError = ref(false)
 
+/**
+ * 招待リンクのパラメータ（?store / ?room / ?s / ?type）をURLから外す。
+ *
+ * **参加が済むまで呼ばない。** LINE などのアプリ内ブラウザで開いた直後に
+ * 「別のブラウザで開く」を選ぶと、渡されるのは受け取った元のリンクではなく
+ * **いま表示しているURL**になる。起動直後に消していると、渡るのはパラメータの無いURLで、
+ * 移った先のブラウザは名前入力に来ないままホーム（ホストとして開始）を出していた。
+ * 招待は使い切るまでURLに残す。
+ */
+function _clearInviteParams() {
+  if (typeof window === 'undefined' || typeof history?.replaceState !== 'function') return
+  const url = new URL(window.location.href)
+  let touched = false
+  for (const key of ['room', 'store', 's', 'type']) {
+    if (url.searchParams.has(key)) { url.searchParams.delete(key); touched = true }
+  }
+  if (!touched) return
+  const q = url.searchParams.toString()
+  history.replaceState({}, '', url.pathname + (q ? `?${q}` : ''))
+}
+
 function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
   pendingJoinCode.value      = code
   pendingJoinSessionId.value = joinSessionId
@@ -250,6 +273,12 @@ async function _enterStoreLink(code, sessionId, type = 'stock') {
   guestResult.value      = result
   guestResultError.value = result ? '' : 'この棚卸の閲覧期間が終了したか、まだ完了していません。'
   currentView.value      = 'guest-result'
+}
+
+// 結果ビューを閉じる。ここで招待パラメータを外さないと、リロードのたびに結果へ戻る。
+function onLeaveGuestResult() {
+  _clearInviteParams()
+  currentView.value = isAuthenticated.value ? 'sessions' : 'landing'
 }
 
 async function onConfirmName() {
@@ -278,6 +307,7 @@ async function onConfirmName() {
   currentView.value     = 'session'
   try {
     await joinRoom(code, joinSid, joinType)
+    _clearInviteParams()   // 参加できた。招待はもう使い切ったのでURLから外す
     const isRejoined = syncState.mode === 'hosting'
     showToast(
       isRejoined ? `ルーム ${code} にホストとして再接続しました` : `ルーム ${code} に参加しました`,
@@ -656,6 +686,9 @@ const showBarcode       = ref(false)
 const barcodeAddCode    = ref('')  // バーコード未登録時の自動入力コード
 const lastBarcode       = ref('')  // 直前に読み取ったコード（連続スキャン時の同一商品無視用）
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
+// ゲスト: 非表示の承認待ち { requestId, name }。追加申請とは別枠にする
+// （品目を足しながら別の品目の非表示も頼める。片方が片方を塞ぐ理由が無い）。
+const pendingHideGuestRequest = ref(null)
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
 function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
@@ -1010,6 +1043,30 @@ function rejectItemAdd(req) {
   showToast(`「${req.name}」の追加を拒否しました`, 2000, 'default')
 }
 
+/**
+ * ゲストからの非表示申請に答える。
+ *
+ * **同じ品目への申請はまとめて返す。** 2人が同じ品目を申請したとき1件にだけ答えると、
+ * もう一方の端末は「申請中…」のまま返事を待ち続ける（DO は requestId ごとに申請元へ返す）。
+ */
+function _answerHideRequests(name, approved) {
+  for (const r of pendingHideRequests.filter(r => r.name === name)) {
+    broadcastItemHideResponse(r.requestId, approved, r.name)
+    dismissItemHideRequest(r.requestId)
+  }
+}
+
+function approveItemHide(req) {
+  _answerHideRequests(req.name, true)
+  onHideItem(req.name, { silent: true })   // hideItem + config の broadcast はここが持つ
+  showToast(`「${req.name}」を一覧から非表示にしました`, 2600, 'success')
+}
+
+function rejectItemHide(req) {
+  _answerHideRequests(req.name, false)
+  showToast(`「${req.name}」の非表示を拒否しました`, 2000, 'default')
+}
+
 function onResolveConflict(c, resolution) {
   const qty  = resolution === 'sum'    ? Math.round((c.local.qty + c.remoteQty) * 10000) / 10000
              : resolution === 'mine'   ? c.local.qty
@@ -1141,6 +1198,24 @@ setItemAddRequestCallback((req) => {
   // ホスト側: ゲストからの申請を受信（pendingItemRequests に自動追加済み）
   showToast(`${req.fromDeviceName} が「${req.name}」の追加を申請`, 5000, 'info')
 })
+setItemHideRequestCallback((req) => {
+  // ホスト側: ゲストからの非表示申請を受信（pendingHideRequests に自動追加済み）
+  showToast(`${req.fromDeviceName} が「${req.name}」の非表示を申請`, 5000, 'info')
+})
+setItemHideResponseCallback((requestId, approved, name, reason) => {
+  // ゲスト側: ホストの承認/拒否を受信。実際に隠れるのは承認後に降りてくる config で、
+  // ここでは端末の一覧を触らない（ホストが正のまま1経路に保つ）。
+  if (pendingHideGuestRequest.value?.requestId === requestId) {
+    pendingHideGuestRequest.value = null
+  }
+  if (reason === 'host_offline') {
+    showToast(`ホストがオフラインのため「${name}」の申請が失敗しました`, 4000, 'warning')
+  } else if (approved) {
+    showToast(`「${name}」の非表示がホストに承認されました ✓`, 3000, 'success')
+  } else {
+    showToast(`「${name}」の非表示がホストに拒否されました`, 3000, 'warning')
+  }
+})
 setItemAddResponseCallback((requestId, approved, name, reason) => {
   // ゲスト側: ホストの承認/拒否を受信
   if (pendingGuestRequest.value?.requestId === requestId) {
@@ -1181,16 +1256,12 @@ onMounted(async () => {
     return
   }
 
+  // ここで招待パラメータを消さない（→ _clearInviteParams のコメント）。
+  // 消すのは参加が確定したとき（onConfirmName）と、結果ビューを閉じたとき。
   if (roomCode) {
-    const url = new URL(window.location.href)
-    url.searchParams.delete('room'); url.searchParams.delete('s'); url.searchParams.delete('type')
-    history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     _askNameAndJoin(roomCode, joinSid, joinType)
   } else if (storeParam) {
     // 店舗コード = ルームコード（統一済み）なので D1 経由不要で直接参加
-    const url = new URL(window.location.href)
-    url.searchParams.delete('store'); url.searchParams.delete('s'); url.searchParams.delete('type')
-    history.replaceState({}, '', url.pathname + (url.search !== '?' ? url.search : ''))
     // セッションID付きリンク: ライブ中なら参加、完了後なら読み取り専用の結果ビューへ
     if (joinSid) _enterStoreLink(storeParam, joinSid, joinType)
     else         _askNameAndJoin(storeParam, joinSid, joinType)
@@ -1326,7 +1397,7 @@ function _closeTopLayer() {
   if (currentView.value === 'sessions' && dashboardOpen.value) { dashboardOpen.value = false; return true }
   if (currentView.value === 'sessions' && ordersOpen.value)    { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = detailReturnView.value; return true }
-  if (currentView.value === 'guest-result') { currentView.value = isAuthenticated.value ? 'sessions' : 'landing'; return true }
+  if (currentView.value === 'guest-result') { onLeaveGuestResult(); return true }
   if (currentView.value === 'auth')    { currentView.value = 'landing'; return true }
   if (currentView.value === 'session') { onGoHome();                    return true }
   if (currentView.value === 'sessions') { currentView.value = 'landing'; return true }
@@ -2831,6 +2902,25 @@ function onUnhideItem(name) {
   if (syncActive.value) broadcastConfig(_configPayload())
 }
 
+/**
+ * ゲストからの非表示申請（InventoryTable の request-hide）。
+ *
+ * **ここで hideItem を呼ばない。** 品目リストの正はホストにあり、次の config 同期で
+ * 戻ってくるだけなので、隠したように見せてから復活する形になる。承認された結果は
+ * ホストの broadcastConfig で全員へ降りてくる。
+ */
+function onRequestHideItem(name) {
+  if (!syncActive.value || syncIsHost.value) return   // ホスト・ソロはこの経路へ来ない
+  if (pendingHideGuestRequest.value) {
+    showToast('前の非表示申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
+    return
+  }
+  const requestId = `hreq-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+  pendingHideGuestRequest.value = { requestId, name }
+  broadcastItemHideRequest(name, requestId)
+  showToast(`「${name}」の非表示をホストに申請しました`, 3000, 'info')
+}
+
 // 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
 function onClearMaster(opts = {}) {
   setEmptyList({ resetAssignments: opts.resetAssignments === true })
@@ -3055,7 +3145,7 @@ function dismissReview() {
       v-else-if="currentView === 'guest-result'"
       :result="guestResult"
       :error-message="guestResultError"
-      @home="currentView = isAuthenticated ? 'sessions' : 'landing'"
+      @home="onLeaveGuestResult"
     />
 
     <!-- ── 公開Web アカウント削除申請（?delete-account） ── -->
@@ -3277,11 +3367,34 @@ function dismissReview() {
         </div>
       </div>
 
+      <!-- ホスト: ゲストからの非表示申請。承認するまで誰の一覧からも消えない -->
+      <div v-if="syncIsHost && pendingHideRequests.length > 0" class="item-req-wrap">
+        <div v-for="req in pendingHideRequests" :key="req.requestId" class="item-req-card">
+          <div class="item-req-info">
+            <span class="item-req-icon">🙈</span>
+            <span class="item-req-text">
+              <strong>{{ req.fromDeviceName }}</strong> が
+              「<strong>{{ req.name }}</strong>」の非表示を申請
+            </span>
+          </div>
+          <div class="item-req-actions">
+            <button class="item-req-btn item-req-approve" @click="approveItemHide(req)">承認</button>
+            <button class="item-req-btn item-req-reject"  @click="rejectItemHide(req)">拒否</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ゲスト: ホスト承認待ち状態 -->
       <div v-if="pendingGuestRequest" class="item-req-pending-guest">
         <span class="item-req-pending-icon">⏳</span>
         「<strong>{{ pendingGuestRequest.name }}</strong>」の追加をホストに申請中…
         <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
+      </div>
+
+      <div v-if="pendingHideGuestRequest" class="item-req-pending-guest">
+        <span class="item-req-pending-icon">⏳</span>
+        「<strong>{{ pendingHideGuestRequest.name }}</strong>」の非表示をホストに申請中…
+        <button class="item-req-pending-cancel" @click="pendingHideGuestRequest = null">取消</button>
       </div>
 
       <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
@@ -3346,6 +3459,7 @@ function dismissReview() {
         :order-map="sessionMode === 'order' ? orderDraft : null"
         :order-mode="sessionMode === 'order'"
         :can-manage-list="!syncActive || syncIsHost"
+        :can-request-hide="syncActive && !syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
@@ -3354,6 +3468,7 @@ function dismissReview() {
         @delete-item="onDeleteConfigItem"
         @hide-item="onHideItem"
         @unhide-item="onUnhideItem"
+        @request-hide="onRequestHideItem"
       />
 
       <!-- 確認モーダル -->
