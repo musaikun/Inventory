@@ -25,6 +25,20 @@ export function useHorizontalSwipe({ onLeft, onRight, threshold = 55, onDrag } =
     onDrag?.(dx)
   }
 
+  /**
+   * ジェスチャがシステムに取られたとき（iOS の画面端スワイプ、通知・着信、
+   * ブラウザが横スワイプを戻る操作として拾ったとき）。touchend は来ない。
+   *
+   * 受けずにいると tracking が立ったまま、onDrag で動かした分がその位置で固定される
+   * （タブが半分ずれたまま止まる）。取り消しなので **左右の確定は呼ばず**、引きかけを戻す。
+   */
+  function onTouchCancel() {
+    if (!tracking) return
+    tracking = false
+    dragging = false
+    onDrag?.(0)
+  }
+
   function onTouchEnd(e) {
     if (!tracking) return
     tracking = false
@@ -39,5 +53,5 @@ export function useHorizontalSwipe({ onLeft, onRight, threshold = 55, onDrag } =
     else        onRight?.()
   }
 
-  return { onTouchStart, onTouchMove, onTouchEnd }
+  return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel }
 }

@@ -346,6 +346,7 @@ function _itemCount(session) {
       @touchstart.passive="swipe.onTouchStart"
       @touchmove.passive="swipe.onTouchMove"
       @touchend.passive="swipe.onTouchEnd"
+      @touchcancel.passive="swipe.onTouchCancel"
     >
       <div v-if="loading" class="loading-msg">読み込み中...</div>
       <div v-else class="tab-panels-track" :style="trackStyle">

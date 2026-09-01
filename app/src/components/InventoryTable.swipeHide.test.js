@@ -125,6 +125,42 @@ describe('InventoryTable — 左スワイプで非表示', () => {
     expect(onHideItem).not.toHaveBeenCalled()
   })
 
+  // iOS の画面端スワイプ・通知・着信などでジェスチャがシステムに取られると touchend は来ず、
+  // touchcancel だけが来る。受けずにいると行は引かれた位置で固定され、**次に触れた指が
+  // その深さを引き継ぐ**ため、数px横へ動かして離すだけで全スワイプ扱いになって
+  // 確認なしに消えていた。
+  it('ジェスチャが取り消されたら引きかけを戻す', async () => {
+    const onHideItem = vi.fn()
+    await mount({ onHideItem })
+
+    const el = await swipe('トマト', -220)
+    expect(action()).not.toBeNull()
+
+    touch(el, 'touchcancel', 80, 100)
+    await nextTick()
+
+    expect(onHideItem).not.toHaveBeenCalled()   // 取り消しは何も確定させない
+    expect(action()).toBeNull()                 // 引きかけも残さない
+  })
+
+  it('取り消しの直後に軽く触れても、確認なしで非表示にならない', async () => {
+    const onHideItem = vi.fn()
+    await mount({ onHideItem })
+
+    const el = await swipe('トマト', -220)
+    touch(el, 'touchcancel', 80, 100)
+    await nextTick()
+
+    // 取り消し後にもう一度触れて、少しだけ横へ動かして離す（スクロールの巻き添え相当）
+    touch(el, 'touchstart', 300, 100)
+    touch(el, 'touchmove', 300 - 12, 100)
+    await nextTick()
+    await release(el)
+
+    expect(onHideItem).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+  })
+
   it('ゲスト（リスト操作不可）は引き切っても非表示にならない', async () => {
     const onHideItem = vi.fn()
     await mount({ onHideItem, canManageList: false })

@@ -370,7 +370,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
       <!-- 2カード・スライド（指に追従） -->
       <div class="af-viewport" ref="vpEl"
-           @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend="swipe.onTouchEnd">
+           @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend="swipe.onTouchEnd" @touchcancel="swipe.onTouchCancel">
         <div class="af-track" :class="{ dragging }" :style="{ transform: `translateX(calc(${page === 'items' ? -50 : 0}% + ${dragPx}px))` }">
 
           <!-- カードA: 分類先（グループ）選択 -->

@@ -371,6 +371,7 @@ async function onStartOrder() {
       @touchstart.passive="swipe.onTouchStart"
       @touchmove.passive="swipe.onTouchMove"
       @touchend.passive="swipe.onTouchEnd"
+      @touchcancel.passive="swipe.onTouchCancel"
     >
      <div class="mv-page" :key="mode" :class="slideDir">
       <!-- 表の外側（日付・メモ・検索・案内）。表そのものは全幅で置き、棚卸と同じ地続きにする -->

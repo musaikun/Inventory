@@ -604,6 +604,21 @@ function _commitFullSwipeHide() {
   if (it) emit('hide-item', it)
 }
 
+/**
+ * ジェスチャがシステムに取られたとき（iOS の画面端スワイプ、通知・着信など）。
+ * touchend は来ないので、ここで受けないと **引かれた位置のまま固定**される。
+ *
+ * それ自体も見た目の壊れだが、危ないのはその次だ。触れた行の続きとして扱われるため
+ * `_baseDx` が引かれた位置（= 閾値を越えた深さ）を引き継ぎ、**指を数px横へ動かして
+ * 離すだけで「全スワイプ」と判定されて確認なしに非表示になる**。
+ * 取り消されたジェスチャは何も確定させず、閉じた状態へ戻す。
+ */
+function onRowTouchCancel() {
+  if (!swipeDragging.value) return
+  _dir = null
+  _resetSwipe()
+}
+
 function openHideDialog(item) { hideDialogItem.value = item }
 function confirmHideDialog() {
   const it = hideDialogItem.value
@@ -853,7 +868,8 @@ function fmtYen(n) {
               @keydown="onRowKeydown($event, row.item)"
               @touchstart.passive="onRowTouchStart($event, row.item)"
               @touchmove.passive="onRowTouchMove"
-              @touchend="onRowTouchEnd">
+              @touchend="onRowTouchEnd"
+              @touchcancel="onRowTouchCancel">
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
               <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->

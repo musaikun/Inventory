@@ -368,7 +368,7 @@ function navigate(dir) {
 
 // ── スワイプで前後の品目へ移動（左=次 / 右=前）─────────────────────────────────
 const dragX = ref(0)
-const { onTouchStart, onTouchMove, onTouchEnd } = useHorizontalSwipe({
+const { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel } = useHorizontalSwipe({
   onLeft:  () => { if (!props.isEdit && props.canNext) navigate('next') },
   onRight: () => { if (!props.isEdit && props.canPrev) navigate('prev') },
   onDrag:  dx => { dragX.value = props.isEdit ? 0 : Math.max(-32, Math.min(32, dx * 0.28)) },
@@ -402,6 +402,7 @@ function saveEdit() {
       @touchstart.passive="onTouchStart"
       @touchmove.passive="onTouchMove"
       @touchend="onTouchEnd"
+      @touchcancel="onTouchCancel"
     >
       <div class="sheet-handle"></div>
       <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : (orderMode ? '発注数を入力' : '数量を入力')) }}</div>

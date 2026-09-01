@@ -6,6 +6,8 @@ import InventoryTable from './InventoryTable.vue'
 import { participantStats as buildParticipantStats, sharedItemCounts, toEpochMs } from '../services/participantStats.js'
 import ItemHistoryModal from './ItemHistoryModal.vue'
 import { buildResultUrl, resultShareText, viewDaysRemaining } from '../services/resultShare.js'
+import { SNAPSHOT_SOURCE_LINES } from '../services/snapshotFromLines.js'
+import { isSnapshotDirty } from '../utils/snapshotSync.js'
 import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
 
 const props = defineProps({
@@ -101,9 +103,19 @@ const urlCopied  = ref(false)
 const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
 const shareUrl      = computed(() => buildResultUrl(props.shopCode, props.snapshot?.sessionId))
-const canShare      = computed(() => !!shareUrl.value)
 const shareDaysLeft = computed(() => viewDaysRemaining(props.snapshot))
 const shareExpired  = computed(() => shareDaysLeft.value === 0)
+
+// **この端末に記録が無く、サーバーの明細から復元して表示している詳細**（DATA-002 / R-001）。
+// 共有リンクが読むのは `store_history` のスナップショットで、そこに無いからこの復元経路に
+// 来ている。リンクを作っても相手には「この棚卸は閲覧できません」しか出ないので、
+// 共有の入口自体を出さない。壊れたリンクを渡してしまうより、渡せないほうがいい。
+const restoredFromLines = computed(() => props.snapshot?.source === SNAPSHOT_SOURCE_LINES)
+const canShare = computed(() => !!shareUrl.value && !restoredFromLines.value)
+
+// 端末で訂正したが、まだサーバーへ送れていない。リンク自体は開けるが、相手に見えるのは
+// **訂正前の内容**。送信できた時点で解消するので、共有は止めずに事実だけ書く。
+const shareStale = computed(() => isSnapshotDirty(props.snapshot))
 
 async function onCopyShareUrl() {
   if (!shareUrl.value) return
@@ -362,6 +374,9 @@ function onDownload() {
         <button class="share-btn" @click="onShareResultLine">💬 LINE</button>
         <button class="share-btn" @click="onShareResultMail">✉️ メール</button>
       </div>
+      <div v-if="shareStale" class="share-expiry expired">
+        ⚠️ この端末の訂正がまだ送信されていません。いまリンクを開くと訂正前の内容が表示されます
+      </div>
       <div :class="['share-expiry', { expired: shareExpired }]">
         <template v-if="shareExpired">⚠️ 閲覧期間が終了しています。リンクを開いても表示されません</template>
         <template v-else-if="shareDaysLeft">閲覧できるのはあと{{ shareDaysLeft }}日です</template>
@@ -490,6 +505,7 @@ function onDownload() {
       @touchstart.passive="swipe.onTouchStart"
       @touchmove.passive="swipe.onTouchMove"
       @touchend.passive="swipe.onTouchEnd"
+      @touchcancel.passive="swipe.onTouchCancel"
     >
       <div class="tab-panels-track" :style="trackStyle">
 

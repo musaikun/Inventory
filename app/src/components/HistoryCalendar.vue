@@ -448,6 +448,7 @@ function onDeleteMove(id) {
       @touchstart.stop.passive="calSwipe.onTouchStart"
       @touchmove.stop.passive="calSwipe.onTouchMove"
       @touchend.stop.passive="calSwipe.onTouchEnd"
+      @touchcancel.stop.passive="calSwipe.onTouchCancel"
     >
       <div class="hc-dow-row">
         <span v-for="(w, i) in WEEK" :key="w" :class="['hc-dow', { sun: i === 0, sat: i === 6 }]">{{ w }}</span>

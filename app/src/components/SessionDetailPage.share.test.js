@@ -109,6 +109,32 @@ describe('結果の共有リンク', () => {
     expect(expiry?.textContent ?? '').toContain('閲覧期間が終了しています')
   })
 
+  // 端末に記録が無く、サーバーの明細（inventory_lines）から復元して表示している詳細。
+  // 共有リンクが読むのは store_history のスナップショットで、そこに無いからこの経路へ来ている。
+  // 出してしまうと、相手には「この棚卸は閲覧できません」しか出ないリンクを配ることになる。
+  it('サーバーの明細から復元した詳細では共有ボタンを出さない', async () => {
+    await mount({ snapshot: { ...snapshotAt(new Date().toISOString()), source: 'd1-lines', locked: true } })
+    expect(shareBtn()).toBeFalsy()
+  })
+
+  // 訂正が未送信のあいだ、サーバーにあるのは訂正前の内容。リンクは開けるので止めないが、
+  // 「いま渡すと相手には古い数字が見える」ことは渡す前に分かるようにする。
+  it('未送信の訂正があるときは、訂正前の内容が見えると警告する', async () => {
+    await mount({ snapshot: { ...snapshotAt(new Date().toISOString()), dirty: true } })
+    await click(shareBtn())
+
+    const warns = [...host.querySelectorAll('.share-expiry')].map(el => el.textContent)
+    expect(warns.some(t => t.includes('訂正前の内容'))).toBe(true)
+  })
+
+  it('訂正が送信済みなら警告は出さない', async () => {
+    await mount({ snapshot: { ...snapshotAt(new Date().toISOString()), dirty: false, synced: true } })
+    await click(shareBtn())
+
+    const warns = [...host.querySelectorAll('.share-expiry')].map(el => el.textContent)
+    expect(warns.some(t => t.includes('訂正前の内容'))).toBe(false)
+  })
+
   it('URL行を押すとクリップボードへ入る', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
