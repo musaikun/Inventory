@@ -9,7 +9,7 @@
  *   ・閲覧期限が切れていたら、渡す前に警告する
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { createApp, h, nextTick } from 'vue'
+import { createApp, h, nextTick, ref } from 'vue'
 
 let app = null
 let host = null
@@ -133,6 +133,37 @@ describe('結果の共有リンク', () => {
 
     const warns = [...host.querySelectorAll('.share-expiry')].map(el => el.textContent)
     expect(warns.some(t => t.includes('訂正前の内容'))).toBe(false)
+  })
+
+  // 金額を出す面（レポート）と共有 panel は、開く導線と**同じ条件を面自身にも**持たせる。
+  // ホストで開いたあとに isHost が下りる（ルームへゲストとして繋がる等）ケースで、
+  // activeTab の値だけを見ていると単価・在庫金額の面がそのまま残る。
+  it('開いたあとにホストでなくなったら、レポートと共有 panel を閉じる', async () => {
+    const { default: Page } = await import('./SessionDetailPage.vue')
+    const isHost = ref(true)
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp({
+      render: () => h(Page, {
+        snapshot: snapshotAt(new Date().toISOString()),
+        isHost: isHost.value,
+        shopCode: 'ABCDEF',
+      }),
+    })
+    app.mount(host)
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    await click(shareBtn())
+    const reportTab = [...host.querySelectorAll('.tab-btn')].find(b => b.textContent.includes('レポート'))
+    await click(reportTab)
+    expect(host.querySelector('.report-panel')).not.toBeNull()
+    expect(host.querySelector('.share-panel')).not.toBeNull()
+
+    isHost.value = false
+    for (let i = 0; i < 3; i++) await nextTick()
+
+    expect(host.querySelector('.report-panel')).toBeNull()
+    expect(host.querySelector('.share-panel')).toBeNull()
   })
 
   it('URL行を押すとクリップボードへ入る', async () => {

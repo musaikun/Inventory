@@ -358,8 +358,8 @@ function onDownload() {
       </div>
     </div>
 
-    <!-- 結果の共有（アプリの見た目のまま渡す。CSVの代わり） -->
-    <div v-if="showShare && canShare" class="share-panel">
+    <!-- 結果の共有（アプリの見た目のまま渡す。CSVの代わり）。開く導線と同じくホスト限定 -->
+    <div v-if="isHost && showShare && canShare" class="share-panel">
       <div class="share-label">結果を共有</div>
       <p class="share-note">
         リンクを開いた人は、この画面と同じ品目一覧を見られます。
@@ -416,8 +416,11 @@ function onDownload() {
       <button v-if="itemSearch" class="item-search-clear" title="クリア" @click="itemSearch = ''">✕</button>
     </div>
 
-    <!-- 完了後レポート（ホストのみ・金額を含む） -->
-    <div v-if="activeTab === 'report'" class="report-panel">
+    <!-- 完了後レポート（ホストのみ・金額を含む）
+         タブの出し分けと**同じ条件をこの面自身にも持たせる**。金額を出すのはここだけで、
+         `activeTab` の値だけを見ていると、ホストで開いたあとに isHost が下りたとき
+         （ルームへゲストとして繋がる等）に単価・在庫金額の面が残る。 -->
+    <div v-if="isHost && activeTab === 'report'" class="report-panel">
 
       <!-- 在庫金額。信用できる数字かどうかを、金額のすぐ隣で分かるようにする -->
       <div class="rp-card rp-value">
