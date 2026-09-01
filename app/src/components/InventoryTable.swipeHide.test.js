@@ -25,6 +25,7 @@ async function mount(props = {}) {
 }
 
 const row      = (name) => host.querySelector(`tr.item-row[data-item="${name}"]`)
+const bg       = () => action()?.style.backgroundColor
 const action   = () => host.querySelector('.row-action')
 const dialog   = () => host.querySelector('.hide-dialog')
 
@@ -75,6 +76,26 @@ describe('InventoryTable — 左スワイプで非表示', () => {
     expect(onHideItem).toHaveBeenCalledWith('トマト')
     expect(dialog()).toBeNull()          // 確認は挟まない
     expect(action()).toBeNull()          // スワイプ状態も解除される
+  })
+
+  // 「あとどれだけ引けば確定するか」を、離す前に色で読めるようにしている。
+  it('引くほど灰から赤へ寄り、閾値で赤になる', async () => {
+    await mount({ onHideItem: vi.fn() })
+
+    const el = await swipe('トマト', -40)      // 出た瞬間（REVEAL_AT ちょうど）
+    const near0 = bg()
+    expect(near0).toBe('rgb(100, 116, 139)')   // まだ灰のまま
+
+    touch(el, 'touchmove', 300 - 100, 100)     // 途中
+    await nextTick()
+    const mid = bg()
+    expect(mid).not.toBe(near0)
+    expect(mid).not.toBe('rgb(220, 38, 38)')
+
+    touch(el, 'touchmove', 300 - 220, 100)     // 引き切り
+    await nextTick()
+    expect(bg()).toBe('rgb(220, 38, 38)')
+    expect(action().classList.contains('full')).toBe(true)
   })
 
   it('浅いスワイプは従来どおり「非表示」ボタンで止まり、確認を挟む', async () => {

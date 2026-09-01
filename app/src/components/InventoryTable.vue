@@ -549,6 +549,21 @@ const dragMax = computed(() => Math.max(ACTION_W, swipeW.value, fullAt.value))
 // アクションは引いた分だけ広がる（引き切ると行を覆う）。既定幅より狭くはしない。
 const swipeActionW = computed(() => Math.max(ACTION_W, -swipeDx.value))
 
+// アクションの色。出てきた時点（灰）から閾値（赤）へ、引いた量に比例して寄せる。
+// 「あとどれだけ引けば確定するか」を、離す前に色の濃さで読めるようにするため。
+const SWIPE_C0 = [100, 116, 139]   // #64748b 出た直後
+const SWIPE_C1 = [220,  38,  38]   // #dc2626 引き切って確定する状態
+const swipeProgress = computed(() => {
+  const span = fullAt.value - REVEAL_AT
+  if (span <= 0) return 1
+  return Math.min(1, Math.max(0, (-swipeDx.value - REVEAL_AT) / span))
+})
+const swipeActionColor = computed(() => {
+  const p = swipeProgress.value
+  const [r, g, b] = SWIPE_C0.map((v, i) => Math.round(v + (SWIPE_C1[i] - v) * p))
+  return `rgb(${r}, ${g}, ${b})`
+})
+
 function _resetSwipe() { swipeItem.value = null; swipeDx.value = 0; swipeDragging.value = false }
 
 function onRowTouchStart(e, item) {
@@ -876,7 +891,7 @@ function fmtYen(n) {
               <button
                 v-if="swipeItem === row.item && -swipeDx >= REVEAL_AT"
                 :class="['row-action', { full: swipeFull }]"
-                :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px' }"
+                :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
                 @click.stop="openHideDialog(row.item)"
               >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
               <div class="name-main">
@@ -1384,10 +1399,14 @@ function fmtYen(n) {
   cursor: pointer;
   z-index: 3;
   -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.18s linear;
 }
-.row-action:active { background: #475569; }
-/* 引き切った状態。離すと確認を挟まず非表示になるので、色でも手前と区別する */
-.row-action.full { background: #475569; }
+/* ドラッグ中は指の位置＝色。追従が遅れると「あとどれだけ引くか」が読めなくなる */
+.item-row.swipe-dragging .row-action { transition: none; }
+/* 背景色は引いた量に応じて inline style が持つので、押下は明度で示す */
+.row-action:active { filter: brightness(0.85); }
+/* 引き切った状態。離すと確認を挟まず非表示になるので、色に加えて縁でも示す */
+.row-action.full { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .item-row:active             { background: var(--primary-weak) !important; }
 .item-row:focus              { outline: 2px solid var(--primary); outline-offset: -2px; background: var(--primary-weak) !important; }
 .item-row:focus:not(:focus-visible) { outline: none; }

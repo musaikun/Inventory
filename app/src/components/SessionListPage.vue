@@ -820,7 +820,18 @@ function _itemCount(session) {
   will-change: transform;
 }
 
+/* ホームのカードは大きさをそろえる。角丸・内余白・枠線の太さ・カード間の余白を
+   1か所で決め、各カードはこれを参照する（個別に書くと少しずつずれて、
+   同じ列に並んだときに別物に見える）。
+   色・テーマ（棚卸=青 / 仕入れ=緑 / 発注=オレンジ）と、強調の影・呼吸アニメーションは
+   カードごとの役割なのでそのまま残す。 */
 .tab-panel {
+  --card-radius: 14px;
+  --card-pad-y: 14px;
+  --card-pad-x: 16px;
+  --card-border: 1.5px;
+  --card-gap: 4px;      /* パネルの gap 8px と合わせて、カード間は常に 12px */
+
   width: 50%;
   height: 100%;
   overflow-y: auto;
@@ -849,10 +860,11 @@ function _itemCount(session) {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 13px 14px;
+  padding: var(--card-pad-y) var(--card-pad-x);
   background: #fff;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 14px;
+  border: var(--card-border) solid var(--border, #e2e8f0);
+  border-radius: var(--card-radius);
+  margin-bottom: var(--card-gap);
   text-align: left;
   font-family: inherit;
   cursor: pointer;
@@ -910,10 +922,10 @@ function _itemCount(session) {
 /* 品目マスタ カード */
 .master-card {
   background: #fff;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 14px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
+  border: var(--card-border) solid var(--border, #e2e8f0);
+  border-radius: var(--card-radius);
+  padding: var(--card-pad-y) var(--card-pad-x);
+  margin-bottom: var(--card-gap);
   cursor: pointer;
   transition: transform 0.12s;
 }
@@ -962,14 +974,14 @@ function _itemCount(session) {
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 18px;
+  padding: var(--card-pad-y) var(--card-pad-x);
   background: #fff;
   color: var(--primary, #2563eb);
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 14px;
+  border: var(--card-border) solid var(--border, #e2e8f0);
+  border-radius: var(--card-radius);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: 4px;
+  margin-bottom: var(--card-gap);
   text-align: left;
   transition: transform 0.14s ease;
   -webkit-tap-highlight-color: transparent;
@@ -1017,13 +1029,13 @@ function _itemCount(session) {
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 18px;
+  padding: var(--card-pad-y) var(--card-pad-x);
   background: #fff;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 14px;
+  border: var(--card-border) solid var(--border, #e2e8f0);
+  border-radius: var(--card-radius);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: 4px;
+  margin-bottom: var(--card-gap);
   text-align: left;
   transition: transform 0.14s ease;
   -webkit-tap-highlight-color: transparent;
@@ -1067,10 +1079,10 @@ function _itemCount(session) {
 /* 進行中の発注（淡いオレンジのヒーロー） */
 .order-live {
   background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-  border: 1.5px solid #fed7aa;
-  border-radius: 18px;
-  padding: 16px 18px;
-  margin-bottom: 4px;
+  border: var(--card-border) solid #fed7aa;
+  border-radius: var(--card-radius);
+  padding: var(--card-pad-y) var(--card-pad-x);
+  margin-bottom: var(--card-gap);
   box-shadow: 0 3px 12px rgba(234,88,12,0.14);
   animation: order-breathe 3.2s ease-in-out infinite;
 }
@@ -1102,12 +1114,12 @@ function _itemCount(session) {
 /* ヒーロー: LIVE 再開カード */
 .hero-live {
   width: 100%;
-  padding: 16px 18px;
+  padding: var(--card-pad-y) var(--card-pad-x);
   background: white;
-  border: 2px solid var(--primary-bright);
-  border-radius: 18px;
+  border: var(--card-border) solid var(--primary-bright);
+  border-radius: var(--card-radius);
   box-shadow: 0 4px 16px rgba(37,99,235,0.16);
-  margin-bottom: 4px;
+  margin-bottom: var(--card-gap);
   transition: border-color 0.3s;
   animation: hero-breathe 3.2s ease-in-out infinite;
 }
@@ -1501,10 +1513,10 @@ function _itemCount(session) {
 /* セッションカード */
 .session-card {
   background: white;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: var(--card-radius);
+  padding: var(--card-pad-y) var(--card-pad-x);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  border: 1.5px solid transparent;
+  border: var(--card-border) solid transparent;
   transition: transform 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -1639,10 +1651,10 @@ function _itemCount(session) {
 /* ダッシュボードカード */
 .dashboard-card {
   background: white;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: var(--card-radius);
+  padding: var(--card-pad-y) var(--card-pad-x);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  border: 1.5px solid transparent;
+  border: var(--card-border) solid transparent;
   display: flex;
   align-items: center;
   gap: 12px;
