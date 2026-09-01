@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
@@ -114,6 +115,8 @@ const flash = ref('')
 const flashItem = ref('')
 let _flashT = null
 function toggle(item) {
+  if (consumeClick()) return                                     // 直前がスワイプ操作
+  if (swipeItem.value === item && swipeDx.value < 0) { resetSwipe(); return }  // 開いている→タップで閉じる
   if (!target.value) { _showFlash('先に振り分け先を選んでください', ''); return }
   if (itemGroups(item).includes(target.value)) {
     removeItemFromGroup(activeAxis.value, item, target.value)
@@ -130,9 +133,14 @@ function _showFlash(msg, item) {
   _flashT = setTimeout(() => { flash.value = ''; flashItem.value = '' }, 1100)
 }
 
-// ── 一覧から非表示にする ────────────────────────────────────────
+// ── 一覧から非表示にする（行の左スワイプ）──────────────────────
 // 使っていない食材は「品目マスタ管理」まで行かないと隠せなかった。
 // 振り分け中はどの品目を使っていないかが一番よく見えるので、その場で隠せるようにする。
+//
+// 操作は棚卸の表とまったく同じ左スワイプ（useRowHideSwipe）。
+// 以前は行の右端に🚫を常設していたが、行タップ（振り分けの解除）と並んでいるため
+// 「取り消し」と読み違えて押す事故があった。隠す操作は指を引く動作にだけ割り当てる。
+//
 // 実際の hide/unhide は App 側（既存の onHideItem / onUnhideItem）へ渡す。
 // D1 保存・同期・ゲスト側への反映を、他の非表示導線とまったく同じ経路に乗せるため。
 function hideFromPool(item) {
@@ -142,6 +150,13 @@ function hideFromPool(item) {
     _showFlash(`「${item}」を一覧に戻しました`, '')
   })
 }
+
+const {
+  swipeItem, swipeDx, swipeDragging, swipeFull, swipeActionW, swipeActionColor,
+  hideDialogItem,
+  onRowTouchStart, onRowTouchMove, onRowTouchEnd, onRowTouchCancel,
+  openHideDialog, confirmHideDialog, cancelHideDialog, consumeClick, resetSwipe,
+} = useRowHideSwipe({ onHide: hideFromPool })
 
 // ── 振り分け済みの確認モーダル＋逆引きフォーカス ───────────────
 const listEl = ref(null)
@@ -428,9 +443,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                   <template v-if="openCat[grp.cat]">
                     <div
                       v-for="item in grp.items" :key="item" :data-item="item"
-                      :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
+                      :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item }]"
+                      :style="swipeItem === item ? { transform: `translateX(${swipeDx}px)` } : null"
                       role="button" tabindex="0"
                       @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
+                      @touchstart.passive="onRowTouchStart($event, item)"
+                      @touchmove.passive="onRowTouchMove"
+                      @touchend="onRowTouchEnd($event)"
+                      @touchcancel="onRowTouchCancel"
                     >
                       <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                       <span class="af-item-name">{{ item }}</span>
@@ -438,7 +458,13 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                       <span v-if="itemGroups(item).length" class="af-item-tags">
                         <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                       </span>
-                      <button class="af-ihide" title="一覧から非表示" :aria-label="`${item} を一覧から非表示にする`" @click.stop="hideFromPool(item)">🚫</button>
+                      <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
+                      <button
+                        v-if="swipeItem === item && -swipeDx >= REVEAL_AT"
+                        :class="['af-row-action', { full: swipeFull }]"
+                        :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
+                        @click.stop="openHideDialog(item)"
+                      >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
                     </div>
                   </template>
                 </template>
@@ -446,9 +472,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               <template v-else>
                 <div
                   v-for="item in poolItems" :key="item" :data-item="item"
-                  :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item }]"
+                  :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item }]"
+                  :style="swipeItem === item ? { transform: `translateX(${swipeDx}px)` } : null"
                   role="button" tabindex="0"
                   @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
+                  @touchstart.passive="onRowTouchStart($event, item)"
+                  @touchmove.passive="onRowTouchMove"
+                  @touchend="onRowTouchEnd($event)"
+                  @touchcancel="onRowTouchCancel"
                 >
                   <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                   <span class="af-item-name">{{ item }}</span>
@@ -456,7 +487,13 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                   <span v-if="itemGroups(item).length" class="af-item-tags">
                     <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                   </span>
-                  <button class="af-ihide" title="一覧から非表示" :aria-label="`${item} を一覧から非表示にする`" @click.stop="hideFromPool(item)">🚫</button>
+                  <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
+                  <button
+                    v-if="swipeItem === item && -swipeDx >= REVEAL_AT"
+                    :class="['af-row-action', { full: swipeFull }]"
+                    :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
+                    @click.stop="openHideDialog(item)"
+                  >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
                 </div>
               </template>
               <div v-if="poolItems.length === 0" class="af-empty">
@@ -469,6 +506,18 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </div>
       </div>
     </template>
+
+    <!-- 浅いスワイプで出したアクションを押したときの確認（棚卸の表と同じ） -->
+    <div v-if="hideDialogItem" class="af-hide-dialog-overlay" @click.self="cancelHideDialog">
+      <div class="af-hide-dialog" role="dialog" aria-modal="true">
+        <div class="af-hide-dialog-title">この品目を非表示にしますか？</div>
+        <div class="af-hide-dialog-name">{{ hideDialogItem }}</div>
+        <div class="af-hide-dialog-actions">
+          <button class="af-hide-dialog-cancel" @click="cancelHideDialog">キャンセル</button>
+          <button class="af-hide-dialog-ok" @click="confirmHideDialog">非表示にする</button>
+        </div>
+      </div>
+    </div>
 
     <!-- グループ追加モーダル -->
     <div v-if="adding" class="af-modal af-modal-center" @click.self="closeAdd">
@@ -556,7 +605,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* カードB: ヘッダー（分類一覧/確認・検索・フィルタ）は固定、品目一覧だけスクロール */
 .af-pane-b { overflow: hidden; padding: 0; }
 .af-b-head { flex-shrink: 0; padding: 12px 14px 8px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
-.af-pane-b .af-list { flex: 1; overflow-y: auto; padding: 10px 14px 24px; -webkit-overflow-scrolling: touch; }
+/* 行を左へ引くので overflow-x は塞ぐ（引いた分だけ横スクロールが生えるのを防ぐ）*/
+.af-pane-b .af-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 14px 24px; -webkit-overflow-scrolling: touch; }
 .af-pane-b .af-tools { margin-bottom: 0; }
 
 .af-pane-hint { font-size: 14px; color: #475569; margin-bottom: 10px; }
@@ -641,8 +691,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #eef2f6; border-radius: 12px;
   padding: 9px 8px 9px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
-  transition: transform 0.12s, background 0.12s; -webkit-tap-highlight-color: transparent;
+  position: relative;   /* 非表示アクションを行の右端に置く */
+  transition: transform 0.22s cubic-bezier(0.22,0.61,0.36,1), background 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.af-item.swipe-dragging { transition: none; }   /* ドラッグ中は指に即追従 */
 .af-item:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
 .af-item.in { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
 .af-item.pop { animation: af-pop 0.35s ease; }
@@ -660,14 +713,42 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 34%; }
 /* 直近の棚卸で一度も入力が無い品目。隠す候補をその場で見分けるための印 */
 .af-item-unused { flex-shrink: 0; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 2px 6px; }
-/* 一覧から非表示にする。行タップ（振り分け）と押し分けられるよう 40px 角を確保する */
-.af-ihide {
-  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-  min-width: 40px; min-height: 40px; padding: 0;
-  border: 1px solid #eef2f6; background: #f8fafc; border-radius: 10px;
-  font-size: 14px; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent;
+/* 左スワイプで現れる非表示アクション（棚卸の表と同じ見た目・同じ2段階）。
+   色は引いた量に応じて灰→赤へ寄る（useRowHideSwipe が算出）。 */
+.af-row-action {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 96px;
+  border: none; background: #64748b; color: #fff;
+  font-size: 13px; font-weight: 800; letter-spacing: 0.04em;
+  border-radius: 12px; cursor: pointer; z-index: 3;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.18s linear;
 }
-.af-ihide:active { background: #fef2f2; border-color: #fecaca; }
+.af-item.swipe-dragging .af-row-action { transition: none; }
+.af-row-action:active { filter: brightness(0.85); }
+.af-row-action.full { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
+
+/* 非表示の確認（浅いスワイプ→アクションを押したとき）*/
+.af-hide-dialog-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center; z-index: 70; padding: 24px;
+}
+.af-hide-dialog {
+  width: 100%; max-width: 320px; background: #fff; border-radius: 16px;
+  padding: 20px 18px 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.25); text-align: center;
+}
+.af-hide-dialog-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.af-hide-dialog-name {
+  font-size: 14px; font-weight: 700; color: #475569;
+  background: #f1f5f9; border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px;
+  word-break: break-all;
+}
+.af-hide-dialog-actions { display: flex; gap: 10px; }
+.af-hide-dialog-cancel, .af-hide-dialog-ok {
+  flex: 1; border-radius: 10px; font-size: 14px; font-weight: 700; padding: 11px; cursor: pointer;
+}
+.af-hide-dialog-cancel { border: 1px solid #e2e8f0; background: #fff; color: #64748b; }
+.af-hide-dialog-ok { border: none; background: #64748b; color: #fff; }
+.af-hide-dialog-ok:active { background: #475569; }
 .af-item-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
 .af-item-tag.cur { color: #fff; background: var(--primary, #2563eb); }
 
