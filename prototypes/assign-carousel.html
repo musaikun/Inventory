@@ -126,11 +126,37 @@ body {
 .gcount.bump { animation: bump .34s cubic-bezier(.34,1.56,.64,1); }
 @keyframes bump { 0%{transform:scale(1)} 45%{transform:scale(1.35)} 100%{transform:scale(1)} }
 
+/* 掴んでいるカード。並べ替え中はこれだけが立ち上がって、他は沈む */
+.gcard.held {
+  border-color: var(--primary); background: var(--primary-weak);
+  box-shadow: 0 14px 32px rgba(37,99,235,.34);
+}
+.stage.reordering .gcard:not(.held) { opacity: .34 !important; filter: grayscale(.5); }
+.hold-badge {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) translateY(-42px);
+  background: var(--primary); color: #fff; font: 800 11px var(--font);
+  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  opacity: 0; transition: opacity .16s; pointer-events: none; z-index: 40;
+}
+.stage.reordering .hold-badge { opacity: 1; }
+
 /* 中央を指す線。どれが振り分け先かを、位置だけでなく形でも示す */
 .marker { position: absolute; left: 0; right: 64px; top: 50%; height: 58px; margin-top: -29px;
           pointer-events: none; border-top: 1px solid var(--primary-border);
           border-bottom: 1px solid var(--primary-border); opacity: .5; }
 .wheel-wrap.band .marker { display: none; }
+/* 帯＝中央のカードそのもの。別の見た目に差し替えず、同じカードが縮むので
+   開閉が1つづきの動きに見える。レールは畳んで幅を返す。 */
+.wheel-wrap.band .rail { opacity: 0; pointer-events: none; }
+.wheel-wrap.band .stage { right: 0; }
+.stage { transition: right .28s cubic-bezier(.22,.61,.36,1); }
+.rail { transition: opacity .2s; }
+.band-hint {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  font: 800 11px var(--font); color: var(--faint);
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 5;
+}
+.wheel-wrap.band .band-hint { opacity: 1; }
 
 /* 上下のフェード。回転が「続いている」ことを示す */
 .fade { position: absolute; left: 0; right: 64px; height: 34px; pointer-events: none; z-index: 2; }
@@ -154,20 +180,8 @@ body {
 .rail-btn:active { background: var(--line-soft); }
 .rail-btn.del { border-color: var(--danger-line); color: var(--danger); }
 .rail-btn.del:active { background: var(--danger-weak); }
-.rail-cap { font-size: 9px; font-weight: 800; color: var(--faint); letter-spacing: .04em; }
+.rail-cap { font-size: 9px; font-weight: 800; color: var(--faint); letter-spacing: .04em; text-align: center; line-height: 1.4; }
 
-/* 畳んだ帯。入れている最中はこれだけ残す */
-.band-row {
-  position: absolute; inset: 0 64px 0 0;
-  display: none; align-items: center; gap: 10px; padding: 0 14px;
-}
-.wheel-wrap.band .band-row { display: flex; }
-.wheel-wrap.band .stage { display: none; }
-.band-label { font-size: 11px; font-weight: 800; color: var(--faint); letter-spacing: .04em; }
-.band-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: var(--primary);
-             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.band-open { flex-shrink: 0; font-size: 11px; font-weight: 800; color: var(--muted);
-             border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--surface); }
 
 /* ── 品目プール ────────────────────────────────────────────── */
 .tools { flex-shrink: 0; display: flex; gap: 8px; padding: 8px 14px; background: var(--ground); }
@@ -276,20 +290,17 @@ body {
   <div class="wheel-wrap" id="wheelWrap">
     <div class="stage" id="stage">
       <div class="stage-inner" id="stageInner"></div>
+      <div class="hold-badge">つかみ中 — 回して位置を変える</div>
       <div class="marker"></div>
       <div class="fade t"></div>
       <div class="fade b"></div>
     </div>
-    <div class="band-row" id="bandRow">
-      <span class="band-label">振り分け先</span>
-      <span class="band-name" id="bandName">—</span>
-      <button class="band-open" type="button" id="bandOpen">変える</button>
-    </div>
+    <div class="band-hint">タップで変える</div>
     <div class="rail">
       <button class="rail-btn" type="button" id="btnEdit" aria-label="名前を変える">✎</button>
       <button class="rail-btn" type="button" id="btnNew" aria-label="分類先を足す">＋</button>
       <button class="rail-btn del" type="button" id="btnDel" aria-label="この分類先を消す">🗑</button>
-      <span class="rail-cap">中央の1枚</span>
+      <span class="rail-cap">中央の1枚<br>長押しで並べ替え</span>
     </div>
   </div>
 
@@ -388,6 +399,7 @@ let query = '';
 let wheelH = 196;
 let focusFollow = true;   // 触った方に面積を寄せる
 let banded = false;
+let reordering = false;   // 長押しでカードを掴んでいる間
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (reduce) $('wheelWrap').classList.add('reduced');
@@ -413,27 +425,58 @@ for (let i = 0; i < VISIBLE * 2 + 1; i++) {
 
 function wrapIndex(i) { const n = GROUPS.length; return ((i % n) + n) % n; }
 
+// fan = 開き具合。1 で扇状に開き、0 で中央へ重なって畳まれる。
+// 高さの変化と同じ時間で動かすので、開閉が「伸び縮み」ではなく
+// 「カードが開く/閉じる」動きに見える。
+let fan = 1;
+
 function renderWheel() {
   const base = Math.round(pos);
   for (let k = -VISIBLE; k <= VISIBLE; k++) {
     const el = cardEls[k + VISIBLE];
     const idx = wrapIndex(base + k);
     const offset = (base + k) - pos;           // 中央からの距離（小数）
-    const angle = offset * STEP;
-    const far = Math.abs(angle) > 62;
-    if (far) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; continue; }
-    el.style.opacity = String(Math.max(0, 1 - Math.abs(offset) / (VISIBLE + .4)));
-    el.style.pointerEvents = 'auto';
+    const angle = offset * STEP * fan;
+    const center = Math.abs(offset) < .5;
+    if (Math.abs(angle) > 62) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; continue; }
+    const dim = Math.max(0, 1 - Math.abs(offset) / (VISIBLE + .4));
+    el.style.opacity = String(center ? 1 : dim * fan);
+    el.style.pointerEvents = fan > .6 ? 'auto' : 'none';
     el.style.transform = `rotateX(${-angle}deg) translateZ(${radius}px)`;
     el.style.zIndex = String(100 - Math.round(Math.abs(offset) * 10));
     el.querySelector('.gname').textContent = GROUPS[idx];
     el.querySelector('.gcount').textContent = counts[idx];
-    el.classList.toggle('on', Math.abs(offset) < .5);
+    el.classList.toggle('on', center);
+    el.classList.toggle('held', center && reordering);
     el.dataset.idx = String(idx);
   }
   const next = wrapIndex(Math.round(pos));
-  if (next !== target) { target = next; renderList(); }
-  $('bandName').textContent = GROUPS[target];
+  if (next !== target) {
+    // 並べ替え中は、掴んだカードが中央に居続けるよう配列の側を動かす。
+    // 「回す」がそのまま「動かす」になるので、覚える操作が増えない。
+    if (reordering && target >= 0 && target < GROUPS.length) {
+      GROUPS.splice(next, 0, GROUPS.splice(target, 1)[0]);
+      counts.splice(next, 0, counts.splice(target, 1)[0]);
+    }
+    target = next;
+    if (!reordering) renderList();
+  }
+}
+
+// 開閉のトゥイーン。高さの transition（.28s）と同じ長さ・同じ曲線でそろえる
+let fanRaf = 0;
+function tweenFan(to) {
+  cancelAnimationFrame(fanRaf);
+  if (reduce) { fan = to; renderWheel(); return; }
+  const from = fan, t0 = performance.now(), D = 280;
+  const step = () => {
+    const t = Math.min(1, (performance.now() - t0) / D);
+    const e = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;   // ease-in-out
+    fan = from + (to - from) * e;
+    renderWheel();
+    if (t < 1) fanRaf = requestAnimationFrame(step);
+  };
+  fanRaf = requestAnimationFrame(step);
 }
 
 // ── 指で回す。慣性で遠くまで飛ばせないと19個は探せない ──────────────────
@@ -441,13 +484,34 @@ const stage = $('stage');
 let dragging = false, lastY = 0, lastT = 0, vel = 0, raf = 0;
 const PX_PER_CARD = 46;
 
+// 並べ替えは、本体アプリと同じ「長押しで掴む」を引き継ぐ。
+// 掴んだあとは回すだけ＝ホイールの操作そのままなので、覚える操作が増えない。
+// 掴む前に指が動いたら、それは回す意図なのでキャンセルする。
+const HOLD_MS = 480, HOLD_CANCEL_PX = 10;
+let holdTimer = 0, holdY = 0, movedFar = false;
+
+function startHold(y) {
+  holdY = y; movedFar = false;
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    if (movedFar || !dragging) return;
+    reordering = true;
+    stage.classList.add('reordering');
+    navigator.vibrate?.(15);
+    renderWheel();
+  }, HOLD_MS);
+}
+function cancelHold() { clearTimeout(holdTimer); }
+
 stage.addEventListener('pointerdown', e => {
   dragging = true; lastY = e.clientY; lastT = performance.now(); vel = 0;
   cancelAnimationFrame(raf);
   stage.setPointerCapture(e.pointerId);
+  startHold(e.clientY);
 });
 stage.addEventListener('pointermove', e => {
   if (!dragging) return;
+  if (!reordering && Math.abs(e.clientY - holdY) > HOLD_CANCEL_PX) { movedFar = true; cancelHold(); }
   const now = performance.now();
   const dy = e.clientY - lastY;
   const dt = Math.max(1, now - lastT);
@@ -459,7 +523,18 @@ stage.addEventListener('pointermove', e => {
 function endDrag(e) {
   if (!dragging) return;
   dragging = false;
+  cancelHold();
   try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
+  if (reordering) {
+    // 掴んだまま離した＝その位置で確定。惰性で流れると狙った位置からずれる
+    reordering = false;
+    stage.classList.remove('reordering');
+    vel = 0;
+    pos = Math.round(pos);
+    renderWheel(); renderList(); settleWheel();
+    navigator.vibrate?.(8);
+    return;
+  }
   glide();
 }
 stage.addEventListener('pointerup', endDrag);
@@ -483,6 +558,7 @@ function glide() {
 
 // 中央以外のカードをタップしたら、そこまで回す（19個を1枚ずつ送らせない）
 stage.addEventListener('click', e => {
+  if (reordering) return;
   const card = e.target.closest('.gcard');
   if (!card) return;
   const idx = Number(card.dataset.idx);
@@ -564,8 +640,8 @@ function fly(fromEl) {
   if (reduce) return;
   const a = fromEl.getBoundingClientRect();
   const wrap = $('wheelWrap').getBoundingClientRect();
-  const toX = wrap.left + (wrap.width - 64) / 2;
-  const toY = banded ? wrap.top + wrap.height / 2 : wrap.top + wrap.height / 2;
+  const toX = wrap.left + (wrap.width - (banded ? 0 : 64)) / 2;
+  const toY = wrap.top + wrap.height / 2;
   const chip = document.createElement('div');
   chip.className = 'fly';
   chip.textContent = fromEl.querySelector('.iname').textContent;
@@ -621,11 +697,13 @@ function heightFor(st) {
 }
 function setState(next) {
   if (state === next) return;
+  const wasBand = banded;
   state = next;
   banded = next === 'band';
   const wrap = $('wheelWrap');
   wrap.classList.toggle('band', banded);
   wrap.style.height = heightFor(next) + 'px';
+  if (banded !== wasBand) tweenFan(banded ? 0 : 1);   // 畳む＝重なる / 開く＝扇状に開く
   setTimeout(measureRows, 320);
 }
 function setBand(on) { setState(on ? 'band' : 'open'); }   // 計測パネルから使う
@@ -633,8 +711,6 @@ function setBand(on) { setState(on ? 'band' : 'open'); }   // 計測パネルか
 // ホイールに触れた → いきなり広げる。指が乗った瞬間に開き切って、そのまま回せる
 function grabWheel() { if (focusFollow) { clearTimeout(settleTimer); setState('spin'); } }
 stage.addEventListener('pointerdown', grabWheel, true);
-$('bandRow').addEventListener('pointerdown', grabWheel);
-$('bandOpen').addEventListener('click', () => setState('spin'));
 
 // 回り終わって少し置いたら、選び終わった大きさへ戻す
 function settleWheel() {
