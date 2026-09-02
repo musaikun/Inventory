@@ -904,13 +904,19 @@ let dragRow = null, dragY0 = 0, dragDy = 0;
 // 待たされる画面になる。
 const FLIP_MS = 620;
 const FLIP_EASE = 'cubic-bezier(.4, 0, .2, 1)';
+// 「視差効果を減らす」のときの値。0 にはしない。
+// この動きは飾りではなく「どの行がどこへ動いたか」を伝える情報で、
+// 消すと並べ替えた結果を確かめられなくなる。短く・直線的にして残す。
+const FLIP_MS_REDUCED = 180;
+const FLIP_EASE_REDUCED = 'linear';
 const DROP_MS = 280;
 const DROP_EASE = 'cubic-bezier(.22, .8, .28, 1)';
 function flipRows(mutate) {
   const rows = [...editList.children];
   const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]));
   mutate();
-  if (noAnim()) { reportFlip(0, '動きOFF'); return; }
+  const ms   = noAnim() ? FLIP_MS_REDUCED : FLIP_MS;
+  const ease = noAnim() ? FLIP_EASE_REDUCED : FLIP_EASE;
   let moved = 0;
   for (const r of rows) {
     if (r === dragRow) continue;
@@ -924,12 +930,12 @@ function flipRows(mutate) {
     r.style.transform = `translateY(${d}px)`;
     void r.offsetHeight;
     r.classList.add('shifting');
-    r.style.transition = `transform ${FLIP_MS}ms ${FLIP_EASE}`;
+    r.style.transition = `transform ${ms}ms ${ease}`;
     r.style.transform = '';
     r.addEventListener('transitionend', () => r.classList.remove('shifting'), { once: true });
     moved++;
   }
-  reportFlip(moved, `${FLIP_MS}ms`);
+  reportFlip(moved, `${ms}ms${noAnim() ? '（控えめ）' : ''}`);
 }
 
 // 「動いたはず」を数字で出す。ここが 0行 なら実装、行数が出ているのに
@@ -987,7 +993,9 @@ editList.addEventListener('pointermove', e => {
 function endRowDrag() {
   if (!dragRow) return;
   // 掴んだ行を、今いる枠へ滑らせて着地させる
-  if (!noAnim()) dragRow.style.transition = `transform ${DROP_MS}ms ${DROP_EASE}`;
+  dragRow.style.transition = noAnim()
+    ? `transform ${FLIP_MS_REDUCED}ms ${FLIP_EASE_REDUCED}`
+    : `transform ${DROP_MS}ms ${DROP_EASE}`;
   dragRow.style.transform = '';
   dragRow.classList.remove('drag');
   editList.classList.remove('dragging');
@@ -1090,9 +1098,9 @@ $('segDemo').addEventListener('click', () => {
 
 function paintMotionState() {
   const el = $('motionState');
-  if (!prefersReduce) { el.textContent = '端末は通常（動きます）'; el.style.color = '#86efac'; }
+  if (!prefersReduce) { el.textContent = '端末は通常（全部動く）'; el.style.color = '#86efac'; }
   else if (forceMotion) { el.textContent = '端末は「減らす」→ 強制ON中'; el.style.color = '#fcd34d'; }
-  else { el.textContent = '端末が「視差効果を減らす」ON', el.style.color = '#fca5a5'; }
+  else { el.textContent = '「減らす」ON → 並べ替えは180msで残す', el.style.color = '#fcd34d'; }
   $('segMotion').classList.toggle('on', forceMotion);
   $('segMotion').style.display = prefersReduce ? '' : 'none';
 }
