@@ -305,9 +305,13 @@ body {
 .sheet-ok { border: none; background: var(--primary); color: #fff; }
 .sheet-ok.danger { background: var(--danger); }
 
+/* OS の「視差効果を減らす」を尊重する。ただし試作では、その設定が入っていて
+   動きが見えないのか、こちらの実装が動いていないのかを切り分けたいので、
+   計測パネルから強制ONにできるようにしてある（.force-motion）。 */
 @media (prefers-reduced-motion: reduce) {
-  .wheel-wrap, .prog-fill { transition: none; }
-  .gcount.bump { animation: none; }
+  :root:not(.force-motion) .wheel-wrap,
+  :root:not(.force-motion) .prog-fill { transition: none; }
+  :root:not(.force-motion) .gcount.bump { animation: none; }
 }
 </style>
 </head>
@@ -405,6 +409,11 @@ body {
       <button class="seg" id="segDemo">避けるを再生（3つ動かす）</button>
     </div>
     <div class="probe-row">
+      <span class="probe-label">動き</span>
+      <span id="motionState" style="font-weight:800"></span>
+      <button class="seg" id="segMotion">強制ON</button>
+    </div>
+    <div class="probe-row">
       <span class="probe-label">粘り</span>
       <button class="seg" data-ease="cubic-bezier(.4,0,.2,1)">ふつう</button>
       <button class="seg on" data-ease="cubic-bezier(.72,0,.22,1)">ねばり</button>
@@ -415,6 +424,7 @@ body {
       <button class="seg on" id="segAuto">触った方を広げる</button>
     </div>
     <div class="stat">
+      <span>直前の避ける <b id="statFlip">–</b></span>
       <span>分類先 <b id="statGroups">0</b></span>
       <span>品目 <b id="statItems">0</b></span>
       <span id="statHint"></span>
@@ -469,8 +479,17 @@ let wheelH = 196;
 let focusFollow = true;   // 触った方に面積を寄せる
 let banded = false;
 
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-if (reduce) $('wheelWrap').classList.add('reduced');
+// OS の「視差効果を減らす」。入っていると動きは全部止まる＝調整しても何も変わらない。
+// 見えないのが設定のせいか実装のせいか分からなくなるので、状態を画面に出し、
+// 計測パネルから強制ONにできるようにする。
+const prefersReduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let forceMotion = false;
+const noAnim = () => prefersReduce && !forceMotion;
+function applyMotionMode() {
+  document.documentElement.classList.toggle('force-motion', forceMotion);
+  $('wheelWrap').classList.toggle('reduced', noAnim());
+}
+applyMotionMode();
 
 // ── ホイールの描画 ─────────────────────────────────────────────────────
 // 19枚を円周に並べるが、描くのは中央から前後4枚だけ。残りを回し続けると
@@ -529,7 +548,7 @@ function renderWheel() {
 let fanRaf = 0;
 function tweenFan(to) {
   cancelAnimationFrame(fanRaf);
-  if (reduce) { fan = to; renderWheel(); return; }
+  if (noAnim()) { fan = to; renderWheel(); return; }
   const from = fan, t0 = performance.now(), D = 280;
   const step = () => {
     const t = Math.min(1, (performance.now() - t0) / D);
@@ -669,7 +688,7 @@ function updateRow(el, item) {
 
 // 品目が分類先へ飛ぶ。何個同時でも走らせる＝連打を待たせない
 function fly(fromEl) {
-  if (reduce) return;
+  if (noAnim()) return;
   const a = fromEl.getBoundingClientRect();
   const wrap = $('wheelWrap').getBoundingClientRect();
   const toX = wrap.left + (wrap.width - (banded ? 0 : 64)) / 2;
@@ -877,7 +896,8 @@ function flipRows(mutate) {
   const rows = [...editList.children];
   const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]));
   mutate();
-  if (reduce) return;
+  if (noAnim()) { reportFlip(0, '動きOFF'); return; }
+  let moved = 0;
   for (const r of rows) {
     if (r === dragRow) continue;
     const d = before.get(r) - r.getBoundingClientRect().top;
@@ -893,7 +913,16 @@ function flipRows(mutate) {
     r.style.transition = `transform ${FLIP_MS}ms ${FLIP_EASE}`;
     r.style.transform = '';
     r.addEventListener('transitionend', () => r.classList.remove('shifting'), { once: true });
+    moved++;
   }
+  reportFlip(moved, `${FLIP_MS}ms`);
+}
+
+// 「動いたはず」を数字で出す。ここが 0行 なら実装、行数が出ているのに
+// 見た目が変わらないならブラウザ側、と切り分けられる。
+function reportFlip(n, how) {
+  const el = $('statFlip');
+  if (el) el.textContent = `${n}行 / ${how}`;
 }
 
 editList.addEventListener('pointerdown', e => {
@@ -944,7 +973,7 @@ editList.addEventListener('pointermove', e => {
 function endRowDrag() {
   if (!dragRow) return;
   // 掴んだ行を、今いる枠へ滑らせて着地させる
-  if (!reduce) dragRow.style.transition = `transform ${DROP_MS}ms ${DROP_EASE}`;
+  if (!noAnim()) dragRow.style.transition = `transform ${DROP_MS}ms ${DROP_EASE}`;
   dragRow.style.transform = '';
   dragRow.classList.remove('drag');
   editList.classList.remove('dragging');
@@ -1044,8 +1073,7 @@ document.querySelectorAll('.seg[data-flip]').forEach(btn => {
 });
 // 指を動かさずに「避ける」動きだけを見る。ドラッグと切り離して確かめられるようにする。
 // 1つ隣へ動かすと避ける行は1つだけなので、3つ動かして複数行がずれるところを見せる。
-$('segDemo').addEventListener('click', () => {
-  if (!editPage.classList.contains('on')) openEdit();
+function runDemo() {
   const rows = [...editList.children];
   if (rows.length < 4) return;
   const moving = rows[0];
@@ -1054,7 +1082,29 @@ $('segDemo').addEventListener('click', () => {
     GROUPS.splice(3, 0, GROUPS.splice(0, 1)[0]);
     counts.splice(3, 0, counts.splice(0, 1)[0]);
   });
+}
+$('segDemo').addEventListener('click', () => {
+  // 閉じた状態から押されたら、画面がせり上がり切ってから動かす。
+  // 同時に走らせると、せり上がりに紛れて「もう並び替わった状態」しか見えない。
+  if (editPage.classList.contains('on')) return runDemo();
+  openEdit();
+  setTimeout(runDemo, 380);
 });
+
+function paintMotionState() {
+  const el = $('motionState');
+  if (!prefersReduce) { el.textContent = '端末は通常（動きます）'; el.style.color = '#86efac'; }
+  else if (forceMotion) { el.textContent = '端末は「減らす」→ 強制ON中'; el.style.color = '#fcd34d'; }
+  else { el.textContent = '端末が「視差効果を減らす」ON', el.style.color = '#fca5a5'; }
+  $('segMotion').classList.toggle('on', forceMotion);
+  $('segMotion').style.display = prefersReduce ? '' : 'none';
+}
+$('segMotion').addEventListener('click', () => {
+  forceMotion = !forceMotion;
+  applyMotionMode();
+  paintMotionState();
+});
+paintMotionState();
 
 document.querySelectorAll('.seg[data-ease]').forEach(btn => {
   btn.addEventListener('click', () => {
