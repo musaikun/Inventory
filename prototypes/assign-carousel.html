@@ -398,13 +398,6 @@ body {
       <button class="seg" data-h="56">帯 56</button>
     </div>
     <div class="probe-row">
-      <span class="probe-label">避ける</span>
-      <button class="seg" data-flip="620">620</button>
-      <button class="seg on" data-flip="900">900</button>
-      <button class="seg" data-flip="1200">1200</button>
-      <button class="seg" data-flip="1600">1600</button>
-    </div>
-    <div class="probe-row">
       <span class="probe-label">確認</span>
       <button class="seg" id="segDemo">避けるを再生（3つ動かす）</button>
     </div>
@@ -412,12 +405,6 @@ body {
       <span class="probe-label">動き</span>
       <span id="motionState" style="font-weight:800"></span>
       <button class="seg" id="segMotion">強制ON</button>
-    </div>
-    <div class="probe-row">
-      <span class="probe-label">粘り</span>
-      <button class="seg" data-ease="cubic-bezier(.4,0,.2,1)">ふつう</button>
-      <button class="seg on" data-ease="cubic-bezier(.72,0,.22,1)">ねばり</button>
-      <button class="seg" data-ease="cubic-bezier(.85,0,.15,1)">とろり</button>
     </div>
     <div class="probe-row">
       <span class="probe-label">面積</span>
@@ -885,11 +872,11 @@ let dragRow = null, dragY0 = 0, dragDy = 0;
 // 2つの動きは役割が違うので、速さも曲線も分ける。
 //   避ける（FLIP）… 周りの行が場所を空ける動き。長く尾を引いて止まる曲線でヌルっと見せる
 //   着地（DROP）  … 掴んだ行が枠へ収まる動き。指の下なので、もたつくと遅れて感じる
-let FLIP_MS = 900;
-// 粘り気は速さより曲線で決まる。ease-out（出だしが速い）だと、時間を伸ばしても
-// 「パッと避けてから、ゆっくり止まる」になって軽く見える。
-// 出だしを重くした ease-in-out にすると、動き出しに抵抗がかかって粘って見える。
-let FLIP_EASE = 'cubic-bezier(.72, 0, .22, 1)';
+// 実機で 620 / 900 / 1200 / 1600 × ふつう / ねばり / とろり を試して決めた値。
+// 620ms + ふつう（標準の ease-in-out）。粘らせすぎると、並べ替えのたびに
+// 待たされる画面になる。
+const FLIP_MS = 620;
+const FLIP_EASE = 'cubic-bezier(.4, 0, .2, 1)';
 const DROP_MS = 280;
 const DROP_EASE = 'cubic-bezier(.22, .8, .28, 1)';
 function flipRows(mutate) {
@@ -1064,13 +1051,6 @@ document.querySelectorAll('.seg[data-h]').forEach(btn => {
     setTimeout(measureRows, 320);
   });
 });
-document.querySelectorAll('.seg[data-flip]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.seg[data-flip]').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    FLIP_MS = Number(btn.dataset.flip);
-  });
-});
 // 指を動かさずに「避ける」動きだけを見る。ドラッグと切り離して確かめられるようにする。
 // 1つ隣へ動かすと避ける行は1つだけなので、3つ動かして複数行がずれるところを見せる。
 function runDemo() {
@@ -1106,13 +1086,6 @@ $('segMotion').addEventListener('click', () => {
 });
 paintMotionState();
 
-document.querySelectorAll('.seg[data-ease]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.seg[data-ease]').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    FLIP_EASE = btn.dataset.ease;
-  });
-});
 $('segAuto').addEventListener('click', e => {
   focusFollow = !focusFollow;
   e.currentTarget.classList.toggle('on', focusFollow);
