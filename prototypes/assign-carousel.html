@@ -390,6 +390,12 @@ body {
       <button class="seg" data-h="56">帯 56</button>
     </div>
     <div class="probe-row">
+      <span class="probe-label">並べ替え</span>
+      <button class="seg" data-flip="260">はやい 260</button>
+      <button class="seg on" data-flip="400">400</button>
+      <button class="seg" data-flip="560">ゆっくり 560</button>
+    </div>
+    <div class="probe-row">
       <span class="probe-label">面積</span>
       <button class="seg on" id="segAuto">触った方を広げる</button>
     </div>
@@ -842,7 +848,7 @@ let dragRow = null, dragY0 = 0, dragDy = 0;
 // 入れ替えを FLIP で見せる。並べ替えは「どれがどこへ動いたか」が分からないと
 // 結果を確かめられないので、瞬間移動させず、退く行が滑って場所を空ける。
 // 掴んでいる行は指の下に居るべきなので、こちらは動かさない。
-const FLIP_MS = 260;
+let FLIP_MS = 400;   // 既定を少し遅く。計測パネルから 260 / 400 / 560 に切り替えられる
 function flipRows(mutate) {
   const rows = [...editList.children];
   const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]));
@@ -993,6 +999,13 @@ document.querySelectorAll('.seg[data-h]').forEach(btn => {
     if (wheelH === 56) setState('band');
     else { state = null; setState('open'); }
     setTimeout(measureRows, 320);
+  });
+});
+document.querySelectorAll('.seg[data-flip]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seg[data-flip]').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    FLIP_MS = Number(btn.dataset.flip);
   });
 });
 $('segAuto').addEventListener('click', e => {
