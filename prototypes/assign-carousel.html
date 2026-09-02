@@ -123,6 +123,9 @@ body {
   font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums;
 }
 .gcard.on .gcount { background: var(--primary); color: #fff; }
+/* 中央カードのカウントは押せる。ここから振り分け済みの一覧を開く */
+.gcard.on .gcount { cursor: pointer; box-shadow: 0 0 0 3px rgba(37,99,235,.18); }
+.gcard.on .gcount:active { filter: brightness(.9); }
 .gcount.bump { animation: bump .34s cubic-bezier(.34,1.56,.64,1); }
 @keyframes bump { 0%{transform:scale(1)} 45%{transform:scale(1.35)} 100%{transform:scale(1)} }
 
@@ -175,8 +178,19 @@ body {
 
 /* ── 品目プール ────────────────────────────────────────────── */
 .tools { flex-shrink: 0; display: flex; gap: 8px; padding: 8px 14px; background: var(--ground); }
-.search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px;
+/* 検索欄。文字が入っているときだけ右端に ✕ を出す（入力中に幅が動かないよう常に場所は取る）*/
+.search-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px;
+          padding: 9px 38px 9px 12px;
           font: 15px var(--font); background: var(--surface); color: var(--ink); }
+.search-x {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; display: none; align-items: center; justify-content: center;
+  border: none; background: var(--line-soft); color: var(--muted);
+  border-radius: 50%; font-size: 11px; -webkit-tap-highlight-color: transparent;
+}
+.search-wrap.has-text .search-x { display: flex; }
+.search-x:active { background: var(--line); }
 .chip { flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
         border-radius: 10px; font: 800 12px var(--font); padding: 0 12px; }
 .chip.on { background: var(--amber-bg); color: var(--amber-ink); border-color: var(--amber-line); }
@@ -332,7 +346,12 @@ body {
 .assigned-item { width: 100%; display: flex; align-items: center; gap: 10px; background: var(--ground);
                  border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px; margin-bottom: 8px;
                  font: 700 15px var(--font); color: var(--ink); text-align: left; }
-.assigned-item span:last-child { margin-left: auto; flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--primary); }
+.assigned-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assigned-off { flex-shrink: 0; border: 1px solid var(--danger-line); background: var(--surface);
+                color: var(--danger); border-radius: 9px; font: 800 12px var(--font); padding: 8px 12px;
+                -webkit-tap-highlight-color: transparent; }
+.assigned-off:active { background: var(--danger-weak); }
+.assigned-go { flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--primary); }
 
 /* 取り消しバー */
 .undobar {
@@ -408,11 +427,13 @@ body {
   </div>
 
   <div class="tools">
-    <input class="search" id="search" type="text" placeholder="品目を検索" autocomplete="off">
+    <div class="search-wrap">
+      <input class="search" id="search" type="text" placeholder="品目を検索" autocomplete="off">
+      <button class="search-x" type="button" id="searchX" aria-label="検索文字を消す">✕</button>
+    </div>
     <button class="chip" type="button" id="chipUn">未振り分けのみ</button>
     <button class="chip" type="button" id="chipUsed">前回入力のみ</button>
     <button class="chip" type="button" id="chipNever">未使用のみ</button>
-    <button class="chip confirm" type="button" id="chipConfirm">確認 <b>0</b></button>
   </div>
 
   <div class="list" id="list"></div>
@@ -650,7 +671,12 @@ const PX_PER_CARD = 46;
 // 並べ替えはホイールでは持たない。回しながら19枚の中の狙った位置に置くのは難しく、
 // 「回す」と「動かす」が同じ指の動きになって取り違える。順番の入れ替えは ⚙ の
 // 一括編集画面（一覧＋つまみ）にまとめる。ここは「回して選ぶ」だけ。
+// 中央カードのカウントは「振り分け済みを開く」ボタン。ホイールの回転にも
+// 帯からの展開にも食われないよう、ここで指を止める。
+const isCountTap = e => !!e.target.closest?.('.gcard.on .gcount');
+
 stage.addEventListener('pointerdown', e => {
+  if (isCountTap(e)) { e.stopPropagation(); return; }
   dragging = true; lastY = e.clientY; lastT = performance.now(); vel = 0;
   cancelAnimationFrame(raf);
   stage.setPointerCapture(e.pointerId);
@@ -692,6 +718,7 @@ function glide() {
 
 // 中央以外のカードをタップしたら、そこまで回す（19個を1枚ずつ送らせない）
 stage.addEventListener('click', e => {
+  if (isCountTap(e)) { openAssigned(); return; }
   const card = e.target.closest('.gcard');
   if (!card) return;
   const idx = Number(card.dataset.idx);
@@ -785,15 +812,20 @@ function renderList() {
     frag.appendChild(msg);
   }
   listEl.replaceChildren(frag);
-  paintConfirm();
   measureRows();
-}
-
-function paintConfirm() {
-  $('chipConfirm').querySelector('b').textContent = assignedOfTarget().length;
 }
 function assignedOfTarget() {
   return ITEMS.filter(i => !hiddenItems.has(i) && groupsOf(i).has(target));
+}
+
+// 非表示にすると件数が変わる。カードのカウントとシートの一覧で数が食い違わないよう、
+// 隠す/戻すのたびに数え直す（回転中に数え直すと重いので、そのときだけ）。
+function recountAll() {
+  counts.fill(0);
+  for (const item of ITEMS) {
+    if (hiddenItems.has(item)) continue;
+    for (const g of groupsOf(item)) counts[g]++;
+  }
 }
 
 listEl.addEventListener('click', e => {
@@ -826,7 +858,6 @@ function toggle(item, el) {
   assigned.set(item, gs);
   updateRow(el, item);
   updateCatHead(item);
-  paintConfirm();
   renderWheel();
   updateProgress();
 }
@@ -934,7 +965,10 @@ function setState(next) {
 function setBand(on) { setState(on ? 'band' : 'open'); }   // 計測パネルから使う
 
 // ホイールに触れた → いきなり広げる。指が乗った瞬間に開き切って、そのまま回せる
-function grabWheel() { if (focusFollow) { clearTimeout(settleTimer); setState('spin'); } }
+function grabWheel(e) {
+  if (isCountTap(e)) return;                 // カウントは開くためのボタン
+  if (focusFollow) { clearTimeout(settleTimer); setState('spin'); }
+}
 stage.addEventListener('pointerdown', grabWheel, true);
 
 // 回り終わって少し置いたら、選び終わった大きさへ戻す
@@ -1311,14 +1345,23 @@ listEl.addEventListener('touchcancel', () => { _dir = null; resetSwipe(); });
 function hideItem(item) {
   if (!item) return;
   hiddenItems.add(item);
-  renderList(); updateProgress(); renderWheel();
+  recountAll(); renderList(); updateProgress(); renderWheel();
   offerUndo(`「${item}」を一覧から非表示にしました`, '棚卸の一覧と進捗からも外れます', () => {
     hiddenItems.delete(item);
-    renderList(); updateProgress(); renderWheel();
+    recountAll(); renderList(); updateProgress(); renderWheel();
   });
 }
 
-$('search').addEventListener('input', e => { query = e.target.value; renderList(); });
+$('search').addEventListener('input', e => { query = e.target.value; paintSearchX(); renderList(); });
+function paintSearchX() {
+  $('search').parentElement.classList.toggle('has-text', $('search').value !== '');
+}
+$('searchX').addEventListener('click', () => {
+  $('search').value = ''; query = '';
+  paintSearchX(); renderList();
+  $('search').focus();
+});
+paintSearchX();
 $('chipUn').addEventListener('click', e => {
   unassignedOnly = !unassignedOnly;
   e.currentTarget.classList.toggle('on', unassignedOnly);
@@ -1365,7 +1408,7 @@ $('undoX').addEventListener('click', dismissUndo);
 $('undoBtn').addEventListener('click', () => { const f = undoFn; dismissUndo(); f?.(); });
 
 // ── 振り分け済みの確認と逆引き ─────────────────────────────────────────
-$('chipConfirm').addEventListener('click', () => {
+function openAssigned() {
   const list = assignedOfTarget();
   $('assignedCount').textContent = list.length;
   $('assignedFor').textContent = `「${GROUPS[target]}」`;
@@ -1373,7 +1416,10 @@ $('chipConfirm').addEventListener('click', () => {
   for (const item of list) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'assigned-item'; b.dataset.item = item;
-    b.innerHTML = `<span>${item}</span><span>確認 ›</span>`;
+    b.innerHTML =
+      `<span class="assigned-name">${item}</span>` +
+      `<button class="assigned-off" type="button" data-off="${item}">外す</button>` +
+      `<span class="assigned-go">確認 ›</span>`;
     frag.appendChild(b);
   }
   if (!list.length) {
@@ -1383,14 +1429,36 @@ $('chipConfirm').addEventListener('click', () => {
   }
   $('assignedList').replaceChildren(frag);
   $('assignedBg').classList.add('on');
-});
+}
 $('assignedClose').addEventListener('click', () => $('assignedBg').classList.remove('on'));
 $('assignedBg').addEventListener('click', e => { if (e.target === $('assignedBg')) $('assignedBg').classList.remove('on'); });
 $('assignedList').addEventListener('click', e => {
+  const off = e.target.closest('.assigned-off');
+  if (off) { unassign(off.dataset.off); return; }
   const b = e.target.closest('.assigned-item');
   if (!b) return;
   locate(b.dataset.item);
 });
+
+// シートから振り分けを外す。ここで外すと一覧のどこにあるか分からなくなるので、
+// 戻せることをその場に出す（取り消しバー）。
+function unassign(item) {
+  const g = target;
+  const gs = groupsOf(item);
+  if (!gs.has(g)) return;
+  gs.delete(g); counts[g]--;
+  assigned.set(item, gs);
+  refreshAfterUnassign();
+  offerUndo(`「${item}」を「${GROUPS[g]}」から外しました`, '', () => {
+    const back = groupsOf(item); back.add(g); counts[g]++;
+    assigned.set(item, back);
+    refreshAfterUnassign();
+  });
+}
+function refreshAfterUnassign() {
+  renderList(); updateProgress(); renderWheel();
+  if ($('assignedBg').classList.contains('on')) openAssigned();   // 開いたまま作り直す
+}
 
 // 一覧の該当行まで送って光らせる。絞り込みと畳んだジャンルは解除する
 function locate(item) {
