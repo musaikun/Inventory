@@ -161,14 +161,16 @@ body {
   background: linear-gradient(90deg, rgba(248,250,252,0), var(--ground));
 }
 .rail-btn {
-  width: 46px; height: 40px; display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 44px; display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
   font-size: 16px; color: var(--muted);
   -webkit-tap-highlight-color: transparent;
 }
 .rail-btn:active { background: var(--line-soft); }
-.rail-btn.gear { width: 48px; height: 48px; font-size: 20px; }
-.rail-cap { font-size: 9px; font-weight: 800; color: var(--faint); letter-spacing: .04em; text-align: center; line-height: 1.4; }
+.rail-btn.gear { font-size: 18px; }
+/* 消すだけ色を分ける。足すと消すが隣り合わないよう、間に ⚙ を置いている */
+.rail-btn.del { border-color: var(--danger-line); color: var(--danger); }
+.rail-btn.del:active { background: var(--danger-weak); }
 
 
 /* ── 品目プール ────────────────────────────────────────────── */
@@ -341,8 +343,9 @@ body {
       <div class="fade b"></div>
     </div>
     <div class="rail">
+      <button class="rail-btn" type="button" id="btnNew" aria-label="分類先を足す">＋</button>
       <button class="rail-btn gear" type="button" id="btnManage" aria-label="分類先をまとめて編集">⚙</button>
-      <span class="rail-cap">分類先を<br>まとめて編集</span>
+      <button class="rail-btn del" type="button" id="btnDel" aria-label="この分類先を消す">🗑</button>
     </div>
   </div>
 
@@ -794,6 +797,35 @@ const editPage = $('editPage'), editList = $('editList');
 let editOpenName = null;      // 開いた時に中央だった分類先。閉じるときそこへ戻す
 
 $('btnManage').addEventListener('click', openEdit);
+
+// ⚙ の一括編集は「まとめて直す」ための場所。ここでは1枚だけを足す・消す。
+// 振り分けの途中で「この棚が要る」「この棚はもう無い」と気づいたとき、
+// 一覧まで行かずに済ませられるようにする。
+$('btnNew').addEventListener('click', () => {
+  openSheet({
+    title: '分類先を足す',
+    sub: `「${GROUPS[target]}」のすぐ下に入ります`,
+    value: '', ok: '追加',
+  }, name => {
+    if (!name) return;
+    const at = target + 1;
+    GROUPS.splice(at, 0, name);
+    counts.splice(at, 0, 0);
+    pos = at; target = -1;               // 足した1枚を中央へ持ってくる
+    renderWheel(); renderList(); updateStats();
+    setState('spin'); settleWheel();     // 増えたことが見えるようにホイールを開く
+  });
+});
+
+$('btnDel').addEventListener('click', () => {
+  if (GROUPS.length <= 1) return;
+  const gone = target;
+  openSheet({
+    title: `「${GROUPS[gone]}」を消しますか？`,
+    sub: counts[gone] ? `${counts[gone]}件の割り当ても外れます` : '割り当てはありません',
+    ok: '削除する', danger: true,
+  }, () => doDelete(gone));
+});
 $('editDone').addEventListener('click', closeEdit);
 
 function openEdit() {
