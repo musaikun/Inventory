@@ -53,6 +53,9 @@
 }
 
 * { box-sizing: border-box; }
+/* display を宣言した要素は hidden 属性（UAの display:none）に勝ってしまう。
+   段ごとに出し分ける画面はどれも display を持つので、ここで一度に塞ぐ。 */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -100,39 +103,73 @@ body {
   cursor: pointer; flex-shrink: 0;
 }
 
-/* ── 1行目の扱い・使わない列 ── */
-.bar {
-  flex-shrink: 0;
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; background: var(--surface);
-  border-bottom: 1px solid var(--line-soft);
+/* ── ① 最初の1問 ──────────────────────────────────────────
+   ここでは他に何も出さない。訊いていることが1つなら、画面も1つでいい。 */
+.ask {
+  flex: 1; display: flex; flex-direction: column; justify-content: center;
+  gap: 10px; padding: 22px 20px 40px;
 }
-/* 推測で決めず必ず選ばせる契約は守る。ただし判断材料を言葉から実物へ変える
-   （切り替えると1件目のカードが増減するのが見える）。 */
+.ask-q { font-size: 19px; font-weight: 800; line-height: 1.45; }
+.ask-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.ask-opt {
+  display: block; width: 100%; text-align: left;
+  border: 1.5px solid var(--line); background: var(--surface);
+  border-radius: 14px; padding: 14px 16px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, box-shadow .15s, transform .12s;
+}
+.ask-opt:active { transform: scale(.985); }
+.ask-opt:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ask-opt-t { display: block; font-size: 15px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+/* 選択肢そのものが結果を名乗る。警告文より、この数字のほうが早く伝わる */
+.ask-opt-r { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+.ask-opt-r b { color: var(--primary); font-weight: 800; font-variant-numeric: tabular-nums; }
+.ask-opt-r .lost { color: var(--danger); font-weight: 700; }
+.ask-note { font-size: 11.5px; color: var(--faint); line-height: 1.6; margin-top: 2px; }
+
+/* ── ② 読み取りの要約。1行で、直す入口も兼ねる ── */
+.crumb {
+  flex-shrink: 0; width: 100%; display: flex; align-items: center; gap: 8px;
+  border: none; border-bottom: 1px solid var(--line); background: var(--surface);
+  padding: 9px 14px; cursor: pointer; text-align: left;
+  font-family: var(--font); font-size: 12px; color: var(--muted);
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap; overflow: hidden;
+}
+.crumb:active { background: var(--ground); }
+.crumb-main { color: var(--ink); font-weight: 700; }
+.crumb-warn { color: var(--danger); font-weight: 800; }
+.crumb-go { margin-left: auto; color: var(--primary); font-weight: 800; white-space: nowrap; }
+
+/* ── ③ 列の対応を直す面。表を上に残したまま下から出す ── */
+.msheet {
+  flex-shrink: 0; background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 20px rgba(15,23,42,.10);
+  max-height: 58%; display: flex; flex-direction: column; overflow: hidden;
+  animation: msheet-up .24s cubic-bezier(.22,.61,.36,1);
+}
+@keyframes msheet-up { from { transform: translateY(30%); opacity: .5 } to { transform: none; opacity: 1 } }
+.msheet-head {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.msheet-t { font-size: 12.5px; font-weight: 800; color: var(--ink); flex-shrink: 0; }
+.msheet-done {
+  margin-left: auto; border: none; background: var(--primary); color: #fff;
+  font-size: 12.5px; font-weight: 800; border-radius: 9px; padding: 7px 14px; cursor: pointer;
+}
 .hseg { display: flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
 .hseg-btn {
   border: none; background: none; color: var(--muted);
-  font-size: 11.5px; font-weight: 700; padding: 5px 9px; border-radius: 7px; cursor: pointer;
+  font-size: 10.5px; font-weight: 700; padding: 4px 7px; border-radius: 7px; cursor: pointer;
   white-space: nowrap; -webkit-tap-highlight-color: transparent;
 }
 .hseg-btn.on { background: var(--primary); color: #fff; }
-.hseg-btn.undecided { color: var(--amber-ink); }
-.bar-spacer { flex: 1; }
-.bar-unused { font-size: 11px; color: var(--faint); white-space: nowrap; }
-
-/* 未選択のあいだは実行させない、を画面にも出す */
-.needpick {
-  flex-shrink: 0; padding: 6px 12px; font-size: 11.5px; font-weight: 700;
-  color: var(--amber-ink); background: var(--amber-bg);
-  border-bottom: 1px solid var(--amber-line);
-}
+.bar-unused { font-size: 11px; color: var(--faint); white-space: nowrap; padding: 0 12px 6px; }
 
 /* ── 入力源：列チップ ─────────────────────────────────────── */
-.src {
-  flex-shrink: 0; background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  position: relative;
-}
+.src { flex-shrink: 0; background: var(--surface); position: relative; }
 .chips {
   display: flex; gap: 8px; padding: 9px 12px 11px;
   overflow-x: auto; overflow-y: hidden;
@@ -208,8 +245,7 @@ body {
 /* ── 入力源：PDFのページ ───────────────────────────────────── */
 .pdf {
   position: relative; background: #fff; overflow: auto;
-  height: 190px; border-bottom: 1px solid var(--line);
-  touch-action: pan-x pan-y;
+  height: 170px; touch-action: pan-x pan-y;
 }
 .pdf-page {
   position: relative; width: 460px; height: 300px; margin: 8px auto;
@@ -231,11 +267,7 @@ body {
 }
 
 /* ── 組み上がる結果 ───────────────────────────────────────── */
-.out { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 8px; touch-action: pan-y; }
-.out-lead {
-  padding: 9px 14px 4px; font-size: 11px; font-weight: 800; color: var(--faint);
-  letter-spacing: .06em;
-}
+.out { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 0; touch-action: pan-y; }
 .tablewrap { padding: 0 12px; }
 
 /* 実物の棚卸カードと同じ形にする。ここが違うと「取り込んだ後どう見えるか」の
@@ -295,24 +327,15 @@ body {
 .grp .arrow { color: var(--faint); font-size: 10px; margin-right: 6px; }
 .grp .cnt { color: var(--faint); font-weight: 700; float: right; }
 
-/* 並び替えタブ。軸列を割り当てると増える */
-.sorts { display: flex; gap: 6px; padding: 8px 12px 2px; overflow-x: auto; scrollbar-width: none; }
-.sorts::-webkit-scrollbar { display: none; }
-.seg {
-  flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
-  font-size: 11.5px; font-weight: 700; border-radius: 8px; padding: 5px 10px; cursor: pointer;
-  white-space: nowrap;
-}
-.seg.on { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 /* ── 見本カード（1件目）──────────────────────────────────────
    「見本」と「結果」を同じものにする。覚えることが「点線に列を落とす」の
    ひとつだけになり、2件目以降がそのまま答え合わせになる。 */
 .sample {
-  position: sticky; top: 0; z-index: 3;
-  margin: 8px 12px 10px; padding: 10px 12px 11px;
+  flex: 1; min-height: 0; overflow-y: auto;
+  margin: 0 12px 10px; padding: 10px 12px 11px;
   background: var(--surface); border: 1.5px solid var(--primary-border);
-  border-radius: 14px; box-shadow: 0 4px 14px rgba(37,99,235,.10);
+  border-radius: 14px;
 }
 .sample-lead {
   font-size: 10px; font-weight: 800; color: var(--primary);
@@ -421,9 +444,6 @@ body {
   position: absolute; inset: 0; z-index: 60; background: rgba(15,23,42,.42);
   display: flex; align-items: flex-end;
 }
-/* display を宣言した要素は hidden 属性（UAの display:none）に勝ってしまう。
-   閉じているつもりの覆いが全面のタップを飲み続けるので、明示的に消す。 */
-.mask[hidden] { display: none; }
 .sheet {
   width: 100%; background: var(--surface); border-radius: 18px 18px 0 0;
   padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
@@ -547,39 +567,54 @@ body {
     <button class="hd-gear" id="gear" aria-label="計測パネル">⚙</button>
   </header>
 
-  <!-- 1行目の扱い。推測で決めず必ず選ばせる契約は守り、判断材料を実物にする -->
-  <div class="bar" id="hbar">
-    <div class="hseg" id="hseg">
-      <button class="hseg-btn" data-h="head">1行目は見出し</button>
-      <button class="hseg-btn" data-h="data">1行目からデータ</button>
-    </div>
-    <div class="bar-spacer"></div>
-    <div class="bar-unused" id="unusedn"></div>
-  </div>
-  <div class="needpick" id="needpick" hidden>どちらかを選ぶまで取り込めません（1行目を消してしまわないため）</div>
-
-  <!-- 入力源 A: 列チップ -->
-  <div class="src" id="srcCols">
-    <div class="chips" id="chips"></div>
-  </div>
-
-  <!-- 入力源 B: PDFのページ -->
-  <div class="pdf" id="srcPdf" hidden>
-    <div class="pdf-hint" id="pdfHint">読みたい数字をタップすると、その列がまるごと入ります</div>
-    <div class="pdf-page" id="pdfPage"></div>
+  <!-- ① 最初に訊くのは1つだけ。選択肢そのものに結果を書いておく。
+       「1行目を消してしまう」という事故は、言葉の警告より結果の数字で伝わる。 -->
+  <div class="ask" id="ask">
+    <div class="ask-q">このファイル、1行目は何ですか？</div>
+    <div class="ask-sub" id="askSub"></div>
+    <button class="ask-opt" data-h="head">
+      <span class="ask-opt-t">列の名前（見出し）</span>
+      <span class="ask-opt-r" id="askHead"></span>
+    </button>
+    <button class="ask-opt" data-h="data">
+      <span class="ask-opt-t">もう品目のデータ</span>
+      <span class="ask-opt-r" id="askData"></span>
+    </button>
+    <div class="ask-note">どちらかで取り込む件数が変わります。あとから変えられます。</div>
   </div>
 
-  <!-- 組み上がる結果 -->
+  <!-- ② 結果の画面。既定はこれだけ。読み取りの要約が1行、あとは組み上がった表。 -->
+  <button class="crumb" id="crumb" hidden></button>
+
   <div class="out" id="out">
+    <table class="inv" id="inv"></table>
+  </div>
+
+  <!-- ③ 直したいときだけ出る面。表は上に残したまま出す
+       （直した結果がその場で見えないと、直しているものが分からない）。 -->
+  <div class="msheet" id="msheet" hidden>
+    <div class="msheet-head">
+      <span class="msheet-t">列の対応</span>
+      <div class="hseg" id="hseg">
+        <button class="hseg-btn" data-h="head">1行目は見出し</button>
+        <button class="hseg-btn" data-h="data">1行目からデータ</button>
+      </div>
+      <button class="msheet-done" id="msheetDone">完了</button>
+    </div>
+    <div class="src" id="srcCols">
+      <div class="chips" id="chips"></div>
+      <div class="bar-unused" id="unusedn"></div>
+    </div>
+    <div class="pdf" id="srcPdf" hidden>
+      <div class="pdf-hint" id="pdfHint">読みたい数字をタップすると、その列がまるごと入ります</div>
+      <div class="pdf-page" id="pdfPage"></div>
+    </div>
     <div class="sample" id="sample"></div>
-    <div class="sorts" id="sorts"></div>
-    <div class="out-lead" id="outlead"></div>
-    <div class="tablewrap"><table class="inv" id="inv"></table></div>
   </div>
 
   <!-- 取込方法は毎回変えるものではない（既定＝追加・更新）。常設の帯で高さを取らず、
        件数行の右端に出して、変えたい人だけがシートを開く。 -->
-  <div class="foot">
+  <div class="foot" id="foot">
     <div class="foot-nums">
       <div class="foot-line1" id="footl1">—</div>
       <div class="foot-line2" id="footl2"></div>
@@ -766,7 +801,7 @@ function makeRow(i) {
 function dirty(i, row) {
   if (i > 0 && i % 37 === 0)  return { ...row, name: '' }                    // 品目名が空
   if (i > 0 && i % 53 === 0)  return { ...row, name: makeRow(i - 1).name }   // 直前と重複
-  if (i > 0 && i % 71 === 0)  return { ...row, price: '¥ 1,2 8 0' }          // 読めない数値
+  if (i > 0 && i % 71 === 0)  return { ...row, price: '約1280円' }            // 読めない数値
   return row
 }
 
@@ -806,6 +841,7 @@ const state = {
   mode: 'merge',
   mapping: {},
   manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
+  sheetOpen: false,      // 列の対応を直す面が出ているか
   picked: null,          // タップ2段で選択中の列
   justFilled: null,      // 直前に埋めたフィールド（湧き上がりの対象）
   grew: {},              // 生えたばかりの列
@@ -957,14 +993,66 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>'
 function render(opts = {}) {
   const t0 = performance.now()
   PLAN = buildPlan()
-  renderChips()
-  renderSample()
-  renderSorts()
-  renderTable(opts)
-  renderFoot()
-  $('needpick').hidden = state.hasHeader !== null
+
+  // 段：1行目が未選択なら、訊くことは1つだけ。他は出さない。
+  const asking = state.hasHeader === null
+  $('ask').hidden = !asking
+  $('crumb').hidden = asking
+  $('out').hidden = asking
+  $('foot').hidden = asking
+  $('msheet').hidden = asking || !state.sheetOpen
+
+  if (asking) { renderAsk() }
+  else {
+    renderCrumb()
+    renderTable(opts)
+    renderFoot()
+    if (state.sheetOpen) {
+    renderChips(); renderSample()
+    $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
+      x.classList.toggle('on', (x.dataset.h === 'head') === (state.hasHeader === true)))
+  }
+  }
   lastDrawMs = performance.now() - t0
   renderProbeNums()
+}
+
+/* ① 訊くのは1つ。選択肢そのものに、選んだ結果を書く。
+   「1行目の品目が黙って消える」は、警告文よりこの数字のほうが早く伝わる。 */
+function renderAsk() {
+  $('askSub').textContent = `${SRC.filename} ・ ${TABLE.length.toLocaleString()}行`
+  const put = (id, h) => {
+    const r = peek(h)
+    const el = $(id)
+    if (!r.ready) { el.innerHTML = '<span class="lost">品目名の列が見つかりません（あとで指定できます）</span>'; return }
+    el.innerHTML = `取り込むのは <b>${(r.counts.add + r.counts.upd + r.counts.same).toLocaleString()}件</b>`
+      + (r.first ? ` ・ 先頭は「${esc(r.first)}」` : '')
+  }
+  put('askHead', true)
+  put('askData', false)
+}
+// 選ぶ前に結果を出すため、その解釈で1回だけ組んでみる（状態は元に戻す）
+function peek(h) {
+  const save = { h: state.hasHeader, m: { ...state.mapping }, man: { ...state.manual } }
+  state.hasHeader = h
+  autoDetect()
+  const plan = buildPlan()
+  state.hasHeader = save.h; state.mapping = save.m; state.manual = save.man
+  const first = plan.rows.find(r => r.status !== 'err' && r.status !== 'skip')
+  return { ...plan, first: first?.name ?? '' }
+}
+
+/* ② 読み取りの要約。1行で済ませ、そのまま直す入口にする。 */
+function renderCrumb() {
+  const c = $('crumb')
+  const used = fields().filter(f => has(f.key)).length
+  const missing = fields().filter(f => f.required && !has(f.key))
+  c.innerHTML = missing.length
+    ? `<span class="crumb-warn">${esc(missing.map(f => f.label).join('・'))}の列が決まっていません</span>
+       <span class="crumb-go">指定する ›</span>`
+    : `<span class="crumb-main">${used}項目</span>
+       <span>・ 1行目は${state.hasHeader ? '見出し' : 'データ'}</span>
+       <span class="crumb-go">列の対応 ›</span>`
 }
 
 /* ── 列チップ ── */
@@ -999,7 +1087,8 @@ function renderChips() {
   for (let i = 0; i < n; i++) if (!usedBy[i]) unused.push(i)
   // 使わなかった列も見せる。いまは (使用しない) が select の中に隠れていて
   // 「何を捨てたか」が画面から消える
-  $('unusedn').textContent = unused.length ? `使わない列 ${unused.length}` : '全部の列を使用中'
+  const u = $('unusedn')
+  if (u) u.textContent = unused.length ? `使わない列 ${unused.length}` : '全部の列を使用中'
 }
 
 /* ── 見本カード（1件目）── */
@@ -1060,16 +1149,6 @@ function renderSample() {
     ${opt.length ? `<div class="slots">${opt.map(slot).join('')}</div>` : ''}`
 }
 
-/* ── 並び替えタブ。軸の列を置くと増える ── */
-function renderSorts() {
-  if (!isItemMaster()) { $('sorts').innerHTML = ''; return }
-  const tabs = ['ジャンル']
-  if (has('axisA')) tabs.push(fieldOf('axisA').label)
-  if (has('axisB')) tabs.push(fieldOf('axisB').label)
-  tabs.push('五十音')
-  $('sorts').innerHTML = tabs.map((t, i) =>
-    `<button class="seg${i === 0 ? ' on' : ''}${state.grew['sort'] && i === tabs.length - 2 ? ' colgrow' : ''}">${esc(t)}</button>`).join('')
-}
 
 /* ── 組み上がる一覧 ────────────────────────────────────────
    実物の棚卸カード（InventoryTable.vue）と同じ形で出す。ここが違うと
@@ -1081,7 +1160,6 @@ function renderTable(opts = {}) {
     t.innerHTML = `<tbody><tr><td style="padding:22px 14px;color:var(--faint);font-size:12.5px;text-align:center">
       ${state.hasHeader === null ? '1行目の扱いを選ぶと、ここに結果が出ます' : '品目名の列を置くと、ここに結果が出ます'}
     </td></tr></tbody>`
-    $('outlead').textContent = ''
     return
   }
 
@@ -1154,9 +1232,7 @@ function renderTable(opts = {}) {
       continue
     }
 
-    const tag = master
-      ? (r.status === 'add' ? ['add','新規'] : r.status === 'upd' ? ['upd','更新'] : ['same','変更なし'])
-      : (r.status === 'add' ? ['add','新しい品目'] : ['same','登録済み'])
+    const tag = r.status === 'add' ? ['add', master ? '新規' : '新しい品目'] : null
     let tds = ''
     if (showCode) tds += `<td class="td-code${growAttr('code')}"><span${riseAttr('code')}>${esc(r.vals.code || '')}</span></td>`
     if (showDate) tds += `<td class="td-code"><span${riseAttr('date')}>${esc(r.vals.date || '')}</span></td>`
@@ -1167,7 +1243,7 @@ function renderTable(opts = {}) {
     if (has('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint')}>前月: ${esc(r.vals.prevMonth)}</span>`)
     if (has('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint')}>${esc(r.vals.supplier)}</span>`)
     tds += `<td class="td-name">
-      <div class="nm"><span class="rowtag ${tag[0]}">${tag[1]}</span>${esc(r.name)}</div>
+      <div class="nm">${tag ? `<span class="rowtag ${tag[0]}">${tag[1]}</span>` : ''}${esc(r.name)}</div>
       ${hints.length ? `<div class="hints">${hints.join('')}</div>` : ''}
     </td>`
 
@@ -1194,9 +1270,6 @@ function renderTable(opts = {}) {
       ほか ${restN.toLocaleString()}件（同じ形で入ります）</td></tr>`
   }
   t.innerHTML = `<thead><tr>${head.join('')}</tr></thead><tbody>${body}</tbody>`
-  $('outlead').textContent = master
-    ? `取り込んだ後の棚卸カード（${PLAN.rows.length.toLocaleString()}行を確認中）`
-    : `入庫として記録される内容（${PLAN.rows.length.toLocaleString()}行を確認中）`
 
   // 強めのときだけ、変わった行そのものが軽く光る
   if (state.fx === 3 && jf) {
@@ -1229,7 +1302,6 @@ function renderFoot() {
   l2.innerHTML = [
     `<span class="n-add num">${master ? '新規' : '新しい品目'} ${c.add.toLocaleString()}</span>`,
     master ? `<span class="n-upd num">更新 ${c.upd.toLocaleString()}</span>` : '',
-    `<span class="n-same num">${master ? '同' : '登録済み'} ${(c.same + (master ? 0 : c.upd)).toLocaleString()}</span>`,
     // 除外の件数そのものを、その行へ飛ぶボタンにする（別ボタンを置かない）
     (c.err + c.skip) ? `<button class="n-err num errjump">除外 ${(c.err + c.skip).toLocaleString()} ›</button>` : '',
   ].filter(Boolean).join('<span class="sep">・</span>')
@@ -1242,7 +1314,7 @@ function renderFoot() {
    割り当て
    ══════════════════════════════════════════════════════════════ */
 function assign(fieldKey, colIdx, fromEl) {
-  if (state.hasHeader === null) { flashNeedPick(); return }
+  if (state.hasHeader === null) { backToAsk(); return }
   const prev = state.mapping[fieldKey]
   // 同じ列を2つのフィールドへ同時に割り当てない（元の実装の select と同じ制約）
   for (const f of fields()) if (f.key !== fieldKey && state.mapping[f.key] === colIdx) { state.mapping[f.key] = null; state.manual[f.key] = false }
@@ -1291,12 +1363,9 @@ function flyTo(fromEl, fieldKey) {
     .onfinish = () => el.remove()
 }
 
-function flashNeedPick() {
-  const el = $('needpick')
-  el.hidden = false
-  el.style.background = '#fde68a'
-  setTimeout(() => { el.style.background = '' }, 420)
-}
+// 1行目が未選択のまま割り当てへ来ることはもう無い（未選択なら質問の画面に居る）。
+// 経路が残っていたときのために、静かに質問へ戻す。
+function backToAsk() { state.sheetOpen = false; state.hasHeader = null; render() }
 
 /* ══════════════════════════════════════════════════════════════
    操作1: 掴んで落とす（直接操作）
@@ -1533,23 +1602,31 @@ function reload() {
   $('srcPdf').hidden = !pdf
   // 見出しの有無はファイルの性質なので、無いと分かっているものは初期値を出さない。
   // ただし PDF は行の座標で読むため「1行目は見出し」を先に出しておく。
+  // PDFは行の座標で読むので「1行目は何か」を訊く意味が無い。質問を飛ばして、
+  // 代わりに「どの列を指すか」の面から始める。
   if (pdf) { renderPdf(); state.hasHeader = true; autoDetect() }
-  $('hseg').querySelectorAll('.hseg-btn').forEach(b => {
-    b.classList.toggle('on', (b.dataset.h === 'head') === (state.hasHeader === true) && state.hasHeader !== null)
-    b.classList.toggle('undecided', state.hasHeader === null)
-  })
+  state.sheetOpen = pdf
   render()
   if (pdf) markPdfCol()
   syncProbe()
 }
 
+// ① 質問の答え。ここで初めて結果の画面へ進む
+$('ask').addEventListener('click', e => {
+  const b = e.target.closest('.ask-opt'); if (!b) return
+  state.hasHeader = b.dataset.h === 'head'
+  autoDetect()
+  // 必須が埋まらなかったときだけ、続けて対応の面を開く（直す必要があるときだけ道具を出す）
+  state.sheetOpen = fields().some(f => f.required && !has(f.key))
+  render({ filled: 'name' })
+})
+// ②→③ 要約の行が、そのまま直す入口
+$('crumb').addEventListener('click', () => { state.sheetOpen = true; render() })
+$('msheetDone').addEventListener('click', () => { state.sheetOpen = false; state.picked = null; render() })
 $('hseg').addEventListener('click', e => {
   const b = e.target.closest('.hseg-btn'); if (!b) return
   state.hasHeader = b.dataset.h === 'head'
   autoDetect({ keepManual: true })
-  $('hseg').querySelectorAll('.hseg-btn').forEach(x => {
-    x.classList.toggle('on', x === b); x.classList.remove('undecided')
-  })
   render({ filled: 'name' })
 })
 $('footl1').addEventListener('click', e => {
