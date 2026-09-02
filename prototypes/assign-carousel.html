@@ -213,8 +213,10 @@ body {
 /* ── 計測パネル。この試作の本体 ────────────────────────────────
    決めたいのは「ホイールに何px使えるか」だけなので、その場で切り替えて
    見える行数と滑らかさを読めるようにする。 */
+/* 一括編集（z-index 85）より上に置く。下だと編集画面を開いたとたんに計測パネルへ
+   触れなくなり、並べ替えを見ながら速さを変えられない。 */
 .probe {
-  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 80;
+  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 95;
   background: rgba(15,23,42,.94); color: #fff; border-radius: 14px;
   padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
   font-size: 12px;
@@ -254,7 +256,7 @@ body {
 .edit-sub { font-size: 11px; color: var(--faint); font-weight: 700; }
 .edit-done { margin-left: auto; border: none; background: var(--primary); color: #fff;
              border-radius: 10px; font: 800 14px var(--font); padding: 9px 18px; }
-.edit-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 8px; }
+.edit-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 72px; }
 .erow {
   display: flex; align-items: center; gap: 8px;
   background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px;
@@ -264,6 +266,8 @@ body {
 .erow.drag { box-shadow: 0 12px 28px rgba(15,23,42,.22); border-color: var(--primary);
              position: relative; z-index: 5; }
 .edit-list.dragging .erow:not(.drag) { opacity: .55; }
+/* 避けている最中の行。どれが動いたか目で追えるようにする */
+.erow.shifting { border-color: var(--primary-border); background: var(--primary-weak); }
 .ehandle {
   flex-shrink: 0; width: 40px; height: 44px;
   display: flex; align-items: center; justify-content: center;
@@ -395,6 +399,10 @@ body {
       <button class="seg on" data-flip="900">900</button>
       <button class="seg" data-flip="1200">1200</button>
       <button class="seg" data-flip="1600">1600</button>
+    </div>
+    <div class="probe-row">
+      <span class="probe-label">確認</span>
+      <button class="seg" id="segDemo">避けるを再生（3つ動かす）</button>
     </div>
     <div class="probe-row">
       <span class="probe-label">粘り</span>
@@ -874,12 +882,17 @@ function flipRows(mutate) {
     if (r === dragRow) continue;
     const d = before.get(r) - r.getBoundingClientRect().top;
     if (!d) continue;
+    // 開始値（元居た場所）を一度スタイルに確定させてから、終了値へ動かす。
+    // requestAnimationFrame をはさむだけでは確定しないことがあり、その場合
+    // ブラウザは「動かす前」を知らないので補間できず、瞬間移動になる（＝見えない）。
+    // offsetHeight を読むと、その場で必ず確定する。
     r.style.transition = 'none';
     r.style.transform = `translateY(${d}px)`;
-    requestAnimationFrame(() => {
-      r.style.transition = `transform ${FLIP_MS}ms ${FLIP_EASE}`;
-      r.style.transform = '';
-    });
+    void r.offsetHeight;
+    r.classList.add('shifting');
+    r.style.transition = `transform ${FLIP_MS}ms ${FLIP_EASE}`;
+    r.style.transform = '';
+    r.addEventListener('transitionend', () => r.classList.remove('shifting'), { once: true });
   }
 }
 
@@ -1029,6 +1042,20 @@ document.querySelectorAll('.seg[data-flip]').forEach(btn => {
     FLIP_MS = Number(btn.dataset.flip);
   });
 });
+// 指を動かさずに「避ける」動きだけを見る。ドラッグと切り離して確かめられるようにする。
+// 1つ隣へ動かすと避ける行は1つだけなので、3つ動かして複数行がずれるところを見せる。
+$('segDemo').addEventListener('click', () => {
+  if (!editPage.classList.contains('on')) openEdit();
+  const rows = [...editList.children];
+  if (rows.length < 4) return;
+  const moving = rows[0];
+  flipRows(() => {
+    editList.insertBefore(moving, rows[3].nextSibling);
+    GROUPS.splice(3, 0, GROUPS.splice(0, 1)[0]);
+    counts.splice(3, 0, counts.splice(0, 1)[0]);
+  });
+});
+
 document.querySelectorAll('.seg[data-ease]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.seg[data-ease]').forEach(b => b.classList.remove('on'));
