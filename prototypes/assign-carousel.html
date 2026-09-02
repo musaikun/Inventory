@@ -391,13 +391,6 @@ body {
   </div>
   <div class="probe-body">
     <div class="probe-row">
-      <span class="probe-label">ホイール</span>
-      <button class="seg" data-h="248">5枚 248</button>
-      <button class="seg on" data-h="196">3枚 196</button>
-      <button class="seg" data-h="152">2枚 152</button>
-      <button class="seg" data-h="56">帯 56</button>
-    </div>
-    <div class="probe-row">
       <span class="probe-label">確認</span>
       <button class="seg" id="segDemo">避けるを再生（3つ動かす）</button>
     </div>
@@ -462,7 +455,9 @@ let pos = 0;                         // ホイールの位置（小数＝回転�
 let target = 0;                      // 中央にある分類先
 let unassignedOnly = false;
 let query = '';
-let wheelH = 196;
+// 実機で 248(5枚) / 196(3枚) / 152(2枚) / 帯56 を見比べて決めた高さ。
+// 静止時は 196。回している間は spinHeight() で画面の 54% まで広がる。
+const wheelH = 196;
 let focusFollow = true;   // 触った方に面積を寄せる
 let banded = false;
 
@@ -1041,16 +1036,6 @@ function updateStats() {
   $('progTotal').textContent = ITEMS.length;
 }
 
-document.querySelectorAll('.seg[data-h]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.seg[data-h]').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    wheelH = Number(btn.dataset.h);
-    if (wheelH === 56) setState('band');
-    else { state = null; setState('open'); }
-    setTimeout(measureRows, 320);
-  });
-});
 // 指を動かさずに「避ける」動きだけを見る。ドラッグと切り離して確かめられるようにする。
 // 1つ隣へ動かすと避ける行は1つだけなので、3つ動かして複数行がずれるところを見せる。
 function runDemo() {
