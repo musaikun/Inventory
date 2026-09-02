@@ -1,9 +1,8 @@
-// 分類先（グループ）を増やす・消す導線の回帰。
-// 追加: ヘッダーの「＋ グループ」→ カード一覧の下の「＋」→モーダル。
-//   ヘッダーに置くと、カードを見ながら増やす動作から視線が離れる。
-//   また常時開く入力バーは、1件でもあると一覧の上を占め続けていた。
-// 削除: ヘッダーの「編集」モード → 各カードに常設の 🗑。
-//   1つ消すために画面全体のモードを切り替えるのは、操作と対象が離れている。
+// 分類先の操作をホイールへ移したことの回帰。
+//
+// 分類先が20件近くある運用では、一覧から選ぶ形だと選ぶたびに品目一覧との往復が要る。
+// 縦に回すホイールにして往復を無くし、いま何に振り分けているかを常に画面へ出す。
+// 1枚だけの追加・削除はホイール隣のレール、順番を含めたまとめ直しは ⚙ の一括編集。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -21,34 +20,29 @@ async function mount() {
   return host
 }
 
-const head = () => host.querySelector('.af-head')
-const pane = () => host.querySelector('.af-pane')
-const addBtn = () => host.querySelector('.af-gadd-card')
-const modal = () => host.querySelector('.af-gadd-sheet')
-const input = () => host.querySelector('.af-gadd-input')
-const okBtn = () => host.querySelector('.af-gadd-ok')
-const cards = () => [...host.querySelectorAll('.af-gcard .af-gname')].map(e => e.textContent.trim())
-const delBtns = () => [...host.querySelectorAll('.af-gcard .af-gdel')]
-const undoBar = () => host.querySelector('.af-undobar')
-const undoBtn = () => host.querySelector('.af-undo-btn')
+const cards    = () => [...host.querySelectorAll('.af-gcard .af-gname')].map(e => e.textContent.trim())
+const centre   = () => host.querySelector('.af-gcard.on .af-gname')?.textContent.trim()
+const rail     = sel => host.querySelector(`.af-rail-btn${sel}`)
+const dialog   = () => host.querySelector('.af-dialog')
+const editPage = () => host.querySelector('.af-edit')
+const editRows = () => [...host.querySelectorAll('.af-erow .af-ename')].map(e => e.textContent.trim())
+const undoBar  = () => host.querySelector('.af-undobar')
 
 async function click(el) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
 }
-// TransitionGroup は leave するカードを次フレームまで DOM に残すため、
-// 削除後の見た目を見るときはフレームを送る。
-async function flushFrames() {
-  for (let i = 0; i < 5; i++) {
-    await new Promise(r => (globalThis.requestAnimationFrame || setTimeout)(r))
-    await nextTick()
-  }
-}
-async function type(value) {
-  const el = input()
+async function type(el, value) {
   el.value = value
   el.dispatchEvent(new Event('input'))
   await nextTick()
+}
+// 慣性で止まるまでフレームを送る（ホイールは rAF で減速して枠へ吸い付く）
+async function settle(n = 60) {
+  for (let i = 0; i < n; i++) {
+    await new Promise(r => (globalThis.requestAnimationFrame || setTimeout)(r))
+    await nextTick()
+  }
 }
 
 beforeEach(async () => {
@@ -67,171 +61,162 @@ afterEach(() => {
   app = null; host = null
 })
 
-describe('AxisAssignFocus — 分類先の削除導線', () => {
-  afterEach(() => { vi.unstubAllGlobals() })
-
-  it('ヘッダーに「編集」を持たない', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
-    await mount()
-    const labels = [...head().querySelectorAll('button')].map(b => b.textContent.trim())
-    expect(labels).not.toContain('編集')
-    expect(labels).not.toContain('完了')
-  })
-
-  it('編集を押さずとも、はじめから各カードに🗑が出ている', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
-    cfg.addAxisGroup(0, '棚')
-    await mount()
-    expect(delBtns().length).toBe(2)
-    expect(delBtns()[0].textContent.trim()).toBe('🗑')
-  })
-
-  it('🗑は確認してから消し、品目の割り当ても外す', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
-    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
-    await mount()
-
-    vi.stubGlobal('confirm', vi.fn(() => false))
-    await click(delBtns()[0])
-    expect(cards()).toEqual(['冷蔵庫'])            // 取り消したら消えない
-
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    await click(delBtns()[0])
-    expect(cfg.config.axisGroupsA).toEqual([])
-    expect(cfg.config.tagsA['トマト'] ?? []).not.toContain('冷蔵庫')   // 割り当ても外れる
-    await flushFrames()
-    expect(cards()).toEqual([])
-  })
-
-  it('消したあとに元へ戻せる。振り分け済みの品目も位置も一緒に戻る', async () => {
+describe('AxisAssignFocus — 分類先ホイール', () => {
+  it('分類先がホイールに並び、中央の1枚が振り分け先になる', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
-    cfg.addItemToGroup(0, 'トマト', '棚')
-    cfg.addItemToGroup(0, '豚バラ', '棚')
-    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')      // 別グループの割り当ては巻き添えにしない
     await mount()
-
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    await click(delBtns()[1])                      // 真ん中の「棚」を消す
-    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '冷凍庫'])
-    expect(cfg.config.tagsA['豚バラ']).toBeUndefined()
-    expect(undoBar().textContent).toContain('品目 2 件')
-
-    await click(undoBtn())
-    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚', '冷凍庫'])   // 位置も戻る
-    expect(cfg.config.tagsA['豚バラ']).toEqual(['棚'])                   // 振り分けも戻る
-    expect(cfg.config.tagsA['トマト'].sort()).toEqual(['冷蔵庫', '棚'].sort())
-    await flushFrames()
-    expect(undoBar()).toBeNull()
     expect(cards()).toEqual(['冷蔵庫', '棚', '冷凍庫'])
+    expect(centre()).toBe('冷蔵庫')
   })
 
-  it('振り分けていないグループでも戻せる', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
+  it('中央以外のカードをタップすると、そこまで回る（1枚ずつ送らせない）', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    await click(delBtns()[0])
-    expect(undoBar().textContent).not.toContain('品目')
-    await click(undoBtn())
-    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫'])
-    await flushFrames()
-    expect(undoBar()).toBeNull()
+    const far = [...host.querySelectorAll('.af-gcard')]
+      .find(c => c.querySelector('.af-gname').textContent.trim() === '冷凍庫')
+    await click(far)
+    await settle()
+    expect(centre()).toBe('冷凍庫')
   })
 
-  it('✕で取り消しバーを畳むと、削除は確定したまま', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
+  it('分類先が無いときは作り方を案内する', async () => {
     await mount()
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    await click(delBtns()[0])
-    await click(host.querySelector('.af-undo-x'))
-    await flushFrames()
-    expect(undoBar()).toBeNull()
-    expect(cfg.config.axisGroupsA).toEqual([])
+    expect(host.querySelector('.af-empty').textContent).toContain('「＋」で分類先を作って')
   })
 
-  it('🗑を押してもそのカードは選択されない（品目一覧へ進まない）', async () => {
+  it('カードごとの ✎ / 🗑 を持たない（行タップとの取り違えを起こさない）', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
-    cfg.addAxisGroup(0, '棚')
     await mount()
-    vi.stubGlobal('confirm', vi.fn(() => false))
-    await click(delBtns()[0])
-    expect(host.querySelector('.af-track').style.transform).toContain('calc(0%')   // -50% = 品目一覧へ移動
+    expect(host.querySelector('.af-gcard .af-gicon')).toBeNull()
+    expect(host.querySelectorAll('.af-rail-btn').length).toBe(3)   // ＋ / ⚙ / 🗑
   })
 })
 
-describe('AxisAssignFocus — 分類先の追加導線', () => {
-  it('ヘッダーに「＋ グループ」を持たない', async () => {
-    await mount()
-    const labels = [...head().querySelectorAll('button')].map(b => b.textContent.trim())
-    expect(labels).not.toContain('＋ グループ')
-  })
-
-  it('「＋」はカード一覧の下にあり、常設の入力欄は出さない', async () => {
+describe('AxisAssignFocus — レールから1枚だけ足す・消す', () => {
+  it('＋ で足すと、その1枚が中央に来る', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
-    expect(addBtn()).toBeTruthy()
-    expect(input()).toBeNull()                       // 押すまで入力欄は無い
+    await click(rail(''))                       // ＋ は最初のボタン
+    await type(host.querySelector('.af-dialog-input'), '棚')
+    await click(host.querySelector('.af-dialog-ok'))
+    await settle()
 
-    const nodes = [...pane().querySelectorAll('.af-glist, .af-gadd-card')]
-    expect(nodes[0].classList.contains('af-glist')).toBe(true)   // 一覧が先
-    expect(nodes[1]).toBe(addBtn())                              // 「＋」はその下
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚'])
+    expect(centre()).toBe('棚')
   })
 
-  it('「＋」→モーダルで名前を入れて登録するとカードが増える', async () => {
-    await mount()
-    expect(cards()).toEqual([])
-
-    await click(addBtn())
-    expect(modal()).toBeTruthy()
-
-    await type('冷蔵庫')
-    await click(okBtn())
-
-    expect(cards()).toEqual(['冷蔵庫'])
-    expect(cfg.config.axisGroupsA).toContain('冷蔵庫')
-    expect(modal()).toBeNull()                       // 登録すると閉じる
-  })
-
-  it('空欄では登録できず、同名は登録せずに理由を出す', async () => {
+  it('同名は追加せず理由を出す', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
-
-    await click(addBtn())
-    expect(okBtn().disabled).toBe(true)              // 空欄
-
-    await type('冷蔵庫')
-    await click(okBtn())
-    expect(modal()).toBeTruthy()                     // 閉じない
-    expect(host.querySelector('.af-gadd-err').textContent).toContain('既に使われています')
-    expect(cards()).toEqual(['冷蔵庫'])
+    await click(rail(''))
+    await type(host.querySelector('.af-dialog-input'), '冷蔵庫')
+    await click(host.querySelector('.af-dialog-ok'))
+    expect(dialog()).toBeTruthy()               // 閉じない
+    expect(host.querySelector('.af-dialog-err').textContent).toContain('既に使われています')
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫'])
   })
 
-  it('キャンセルで閉じ、入力は残さない', async () => {
+  it('🗑 は確認してから消し、割り当てごと戻せる', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
     await mount()
-    await click(addBtn())
-    await type('棚')
-    await click(host.querySelector('.af-gadd-cancel'))
-    expect(modal()).toBeNull()
-    expect(cards()).toEqual([])
 
-    await click(addBtn())
-    expect(input().value).toBe('')
+    await click(rail('.del'))
+    expect(dialog().textContent).toContain('1件の割り当ても外れます')
+    await click(host.querySelector('.af-dialog-cancel'))
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚'])   // 取り消したら消えない
+
+    await click(rail('.del'))
+    await click(host.querySelector('.af-dialog-ok'))
+    expect(cfg.config.axisGroupsA).toEqual(['棚'])
+    expect(cfg.config.tagsA['トマト']).toBeUndefined()
+
+    await click(undoBar().querySelector('.af-undo-btn'))
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚'])   // 位置も戻る
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫'])     // 割り当ても戻る
+  })
+})
+
+describe('AxisAssignFocus — ⚙ の一括編集', () => {
+  it('⚙ で開き、分類先が一覧になる', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    expect(editPage().classList.contains('on')).toBe(false)
+
+    await click(rail('.gear'))
+    expect(editPage().classList.contains('on')).toBe(true)
+    expect(editRows()).toEqual(['冷蔵庫', '棚'])
   })
 
-  it('戻る操作は画面ごとではなくモーダルだけを閉じる', async () => {
+  it('割り当てだけで現れているグループも、開いた時点で並べ替えの対象にする', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.setItemTag('トマト', 0, '棚')            // 定義リストに無いグループ
+    await mount()
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫'])
+
+    await click(rail('.gear'))
+    // 定義側へ取り込む。setAxisGroupOrder は定義済みの並べ替えしか受け付けないため
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚'])
+    expect(editRows()).toEqual(['冷蔵庫', '棚'])
+  })
+
+  it('一覧から名前を変えられる', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
+    await mount()
+    await click(rail('.gear'))
+    await click(host.querySelector('.af-erow .af-ebtn'))          // ✎
+    await type(host.querySelector('.af-dialog-input'), '冷蔵庫1')
+    await click(host.querySelector('.af-dialog-ok'))
+
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫1'])
+    expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫1'])       // 割り当ても追従
+  })
+
+  it('一覧から消せる', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    await click(host.querySelector('.af-erow .af-ebtn.del'))
+    await click(host.querySelector('.af-dialog-ok'))
+    expect(cfg.config.axisGroupsA).toEqual(['棚'])
+  })
+
+  it('完了で閉じ、見ていた分類先の前へ戻る', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    const far = [...host.querySelectorAll('.af-gcard')]
+      .find(c => c.querySelector('.af-gname').textContent.trim() === '棚')
+    await click(far)
+    await settle()
+    expect(centre()).toBe('棚')
+
+    await click(rail('.gear'))
+    await click(host.querySelector('.af-edit-done'))
+    expect(editPage().classList.contains('on')).toBe(false)
+    expect(centre()).toBe('棚')
+  })
+})
+
+describe('AxisAssignFocus — 戻るの段', () => {
+  it('上から順に1段だけ畳み、最後は App へ渡す', async () => {
     const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
+    cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
 
-    await click(addBtn())
-    expect(consumeInnerLayerBack()).toBe(true)     // 追加モーダルを消費
+    await click(rail('.gear'))                  // 一括編集を開く
+    await click(rail(''))                       // その上に「追加」を開く
+    expect(dialog()).toBeTruthy()
+
+    expect(consumeInnerLayerBack()).toBe(true)  // まず追加を閉じる
     await nextTick()
-    expect(modal()).toBeNull()
-    expect(host.querySelector('.af')).toBeTruthy() // 画面は残る
+    expect(dialog()).toBeNull()
+    expect(editPage().classList.contains('on')).toBe(true)
 
-    expect(consumeInnerLayerBack()).toBe(false)    // 分類先の一覧では App へ渡す＝画面を閉じる
-  })
+    expect(consumeInnerLayerBack()).toBe(true)  // 次に一括編集を閉じる
+    await nextTick()
+    expect(editPage().classList.contains('on')).toBe(false)
 
-  it('未作成のときは「下の「＋」」を案内する', async () => {
-    await mount()
-    expect(pane().querySelector('.af-empty').textContent).toContain('下の「＋」')
+    expect(consumeInnerLayerBack()).toBe(false) // 畳むものが無ければ画面を閉じる
   })
 })

@@ -176,9 +176,9 @@ describe('アプリを閉じる前に確認する', () => {
 })
 
 describe('振り分け画面の中でも受け皿を切らさない', () => {
-  // User報告: 分類先一覧 → 品目一覧 → 戻る → 分類先一覧 → 品目一覧 → 戻る でアプリが閉じる。
-  // 振り分けの2カードは同じ view の中のスライドなので、view を見ているだけでは
-  // 受け皿を積み直す機会が無い。操作（pointerdown）でも積み直す。
+  // User報告: 振り分けの中で開いて閉じてを繰り返すとアプリが閉じる。
+  // 分類先ホイール・振り分け済みシートはどれも同じ view の中の出し入れなので、
+  // view を見ているだけでは受け皿を積み直す機会が無い。操作（pointerdown）でも積み直す。
   async function openAssign() {
     const { useConfig } = await import('./composables/useConfig.js')
     const cfg = useConfig()
@@ -191,7 +191,9 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
     showAxisAssign.value = true
     await flush()
   }
-  const slide = () => host.querySelector('.af-track').style.transform
+  // 中央カードのカウント＝振り分け済みシートを開くボタン（画面内の一段深い層）
+  const sheet     = () => host.querySelector('.af-sheet')
+  const countBtn  = () => host.querySelector('.af-gcard.on .af-gcount')
 
   // 実機のタップは pointerdown → click の順に来る
   async function tap(el) {
@@ -200,16 +202,16 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
     await flush()
   }
 
-  it('分類先一覧 ⇄ 品目一覧 を繰り返しても、毎回スライドで返る', async () => {
+  it('画面の中を開け閉めしても、戻るは毎回その一段だけを閉じる', async () => {
     await mountApp()
     await openAssign()
 
     for (let i = 0; i < 3; i++) {
-      await tap(host.querySelector('.af-gcard'))
-      expect(slide()).toContain('calc(-50%')      // 品目一覧へ
+      await tap(countBtn())
+      expect(sheet()).toBeTruthy()                // 振り分け済みシートへ
       await deviceBack()
-      expect(slide()).toContain('calc(0%')        // 分類先一覧へ戻る
-      expect(host.querySelector('.af')).toBeTruthy()
+      expect(sheet()).toBeNull()                  // シートだけ閉じる
+      expect(host.querySelector('.af')).toBeTruthy()   // 振り分け画面は残る
     }
   }, 20000)
 
@@ -221,12 +223,13 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
     window.history.replaceState({}, '', '/')
     pushSpy = vi.spyOn(window.history, 'pushState')
 
-    await tap(host.querySelector('.af-gcard'))
+    await tap(countBtn())
     expect(sentinelCount()).toBeGreaterThan(0)    // 操作の時点で積み直している
-    expect(slide()).toContain('calc(-50%')
+    expect(sheet()).toBeTruthy()
 
     await deviceBack()
-    expect(slide()).toContain('calc(0%')
+    expect(sheet()).toBeNull()
+    expect(host.querySelector('.af')).toBeTruthy()
   }, 20000)
 })
 

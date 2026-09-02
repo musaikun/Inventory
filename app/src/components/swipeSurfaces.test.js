@@ -19,7 +19,7 @@ const read = rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), '
 // touch-action はヒットした要素と祖先の指定を合わせて効くので、
 // スワイプを受け取る要素そのものでも、その内側のパネルでもよい。
 const SURFACES = [
-  ['./AxisAssignFocus.vue',   '.af-viewport'],    // 分類先一覧 ⇄ 品目一覧
+  ['./AxisAssignFocus.vue',   '.af-list'],        // 品目行の左スワイプ（非表示）
   ['./MovementPage.vue',      '.mv-scroll'],      // 仕入れのタブ送り
   ['./HistoryCalendar.vue',   '.hc-cal'],         // カレンダーの月送り
   ['./SessionListPage.vue',   '.tab-panel'],      // ホームのページ送り

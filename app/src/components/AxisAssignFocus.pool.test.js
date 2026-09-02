@@ -1,6 +1,8 @@
 // 「○○ に振り分け中」の品目一覧から、使っていない食材をその場で隠せることの回帰。
 // これまで非表示は「品目マスタ管理」だけの操作だったが、どの品目を使っていないかは
 // 振り分け中が一番よく見える。隠す判断ができる場所に、隠す操作が無かった。
+//
+// 分類先はホイールへ移り、選ぶ画面と品目一覧の往復は無くなった。品目一覧は常に画面にある。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -33,9 +35,6 @@ async function mount() {
   })
   app.mount(host)
   await nextTick()
-  // カードA でグループを選び、品目一覧（カードB）へ進む
-  host.querySelector('.af-gcard').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
   await openAllGenres()
   return host
 }
@@ -56,6 +55,7 @@ const rowNames  = () => rows().map(r => r.getAttribute('data-item'))
 const rowOf     = name => rows().find(r => r.getAttribute('data-item') === name)
 const action    = () => host.querySelector('.af-row-action')
 const dialog    = () => host.querySelector('.af-hide-dialog')
+const centre    = () => host.querySelector('.af-gcard.on .af-gname')?.textContent.trim()
 
 // jsdom は TouchEvent を持たないので、ハンドラが見る changedTouches だけを載せる
 function touch(el, type, x, y = 0) {
@@ -122,7 +122,7 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
     expect(dialog()).toBeTruthy()          // 浅いスワイプは確認をはさむ
     expect(cfg.config.hiddenItems).not.toContain('豚バラ')
 
-    await click(host.querySelector('.af-hide-dialog-ok'))
+    await click(dialog().querySelector('.af-dialog-ok'))
     expect(hidden).toEqual(['豚バラ'])
     expect(cfg.config.hiddenItems).toContain('豚バラ')
     expect(rowNames()).not.toContain('豚バラ')
@@ -134,7 +134,7 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
     const el = await swipe('豚バラ', -60)
     await release(el)
     await click(action())
-    await click(host.querySelector('.af-hide-dialog-cancel'))
+    await click(dialog().querySelector('.af-dialog-cancel'))
 
     expect(dialog()).toBeNull()
     expect(cfg.config.hiddenItems).not.toContain('豚バラ')
@@ -157,6 +157,7 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
     const el = await swipe('豚バラ', -300)
     await release(el)
     await click(host.querySelector('.af-undo-btn'))
+    await openAllGenres()
 
     expect(hidden).toEqual([])
     expect(cfg.config.hiddenItems).not.toContain('豚バラ')
@@ -182,22 +183,6 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
     expect(cfg.config.hiddenItems).not.toContain('豚バラ')
   })
 
-  it('行を引いても分類先の一覧へ戻らない（親のスワイプへ渡さない）', async () => {
-    await mount()
-    const track = () => host.querySelector('.af-track').style.transform
-
-    const el = await swipe('豚バラ', -80)      // 左へ引く
-    await release(el)
-    expect(track()).toContain('calc(-50%')     // 品目一覧のまま
-
-    // 開いたアクションを右へ引いて閉じるとき、親の「右スワイプ＝分類一覧へ戻る」を誘発しない
-    touch(el, 'touchstart', 100, 100)
-    touch(el, 'touchmove', 240, 100)
-    await nextTick()
-    await release(el)
-    expect(track()).toContain('calc(-50%')
-  })
-
   it('非表示は進捗の分母からも外れる', async () => {
     await mount()
     expect(host.querySelector('.af-prog-text').textContent).toContain('/ 3')
@@ -207,58 +192,39 @@ describe('AxisAssignFocus — 振り分け中に一覧から非表示', () => {
   })
 })
 
-describe('AxisAssignFocus — 品目一覧からの戻る', () => {
-  const track = () => host.querySelector('.af-track').style.transform
-
-  it('端末の戻るは画面を閉じず、分類先の選択へスライドで返る', async () => {
+describe('AxisAssignFocus — 振り分け画面からの戻る', () => {
+  it('開いているものが無ければ、戻るはこの画面を閉じる（ひとつ前へ返す）', async () => {
     const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
     await mount()
-    expect(track()).toContain('calc(-50%')            // 品目一覧に居る
-
-    expect(consumeInnerLayerBack()).toBe(true)        // App まで戻るが伝わらない＝画面は閉じない
-    await nextTick()
-    expect(track()).toContain('calc(0%')              // 分類先の選択へ戻る
-    expect(host.querySelector('.af')).toBeTruthy()
-  })
-
-  it('品目一覧からの戻るは何度でもスライドで返る', async () => {
-    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
-    await mount()
-
-    for (let i = 0; i < 3; i++) {
-      // 分類先を選び直して品目一覧へ入る → 戻る、を繰り返す
-      await click(host.querySelector('.af-gcard'))
-      expect(track()).toContain('calc(-50%')
-      expect(consumeInnerLayerBack()).toBe(true)
-      await nextTick()
-      expect(track()).toContain('calc(0%')
-    }
-  })
-
-  it('分類先の一覧まで戻ったら、次の戻るは開いた元の画面へ返す', async () => {
-    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
-    await mount()
-    consumeInnerLayerBack()                           // 品目一覧 → 分類先の一覧
-    await nextTick()
-    expect(consumeInnerLayerBack()).toBe(false)       // App へ渡す＝この画面を閉じる
+    expect(consumeInnerLayerBack()).toBe(false)   // App へ渡す＝データ管理へ戻る
   })
 
   it('モーダルが開いていれば、そちらを先に閉じる', async () => {
     const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
     await mount()
-    await click(host.querySelector('.af-confirm'))    // 「確認」＝振り分け済みシート
+    // 中央カードのカウント＝振り分け済みシートを開くボタン
+    await click(host.querySelector('.af-gcard.on .af-gcount'))
     expect(host.querySelector('.af-sheet')).toBeTruthy()
 
     expect(consumeInnerLayerBack()).toBe(true)
     await nextTick()
     expect(host.querySelector('.af-sheet')).toBeNull()
-    expect(track()).toContain('calc(-50%')            // 品目一覧には留まる
+    expect(centre()).toBe('冷蔵庫')                // 振り分け先は変わらない
+    expect(host.querySelector('.af')).toBeTruthy() // 画面自体は閉じない
   })
 
-  it('ヘッダーの「‹ 分類一覧」も同じ戻り方をする', async () => {
+  it('非表示の確認も、戻るで先に閉じる', async () => {
+    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
     await mount()
-    await click(host.querySelector('.af-back'))
-    expect(track()).toContain('calc(0%')
+    const el = await swipe('豚バラ', -60)
+    await release(el)
+    await click(action())
+    expect(dialog()).toBeTruthy()
+
+    expect(consumeInnerLayerBack()).toBe(true)
+    await nextTick()
+    expect(dialog()).toBeNull()
+    expect(cfg.config.hiddenItems).not.toContain('豚バラ')
   })
 })
 
