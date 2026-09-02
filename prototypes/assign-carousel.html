@@ -188,9 +188,34 @@ body {
   background: var(--surface); border: 1px solid var(--line-soft); border-radius: 12px;
   padding: 9px 14px; margin-bottom: 8px; text-align: left;
   font: 15px var(--font); color: var(--ink);
+  position: relative;   /* 非表示アクションを行の右端に置く */
+  transition: transform .22s cubic-bezier(.22,.61,.36,1), background .12s;
   -webkit-tap-highlight-color: transparent;
 }
 .item.in { background: var(--primary-weak); border-color: var(--primary-border); }
+.item.swipe-dragging { transition: none; }
+.item.pop { animation: pop .35s ease; }
+@keyframes pop { 0%{transform:scale(1)} 40%{transform:scale(1.03)} 100%{transform:scale(1)} }
+.item.locate { animation: locate 1.6s ease-out; }
+@keyframes locate {
+  0% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+  18% { box-shadow: 0 0 16px 4px rgba(37,99,235,.55); border-color: var(--primary); }
+  100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+}
+/* 直近の棚卸で一度も入力が無い品目。隠す候補をその場で見分けるための印 */
+.unused { flex-shrink: 0; font-size: 10px; font-weight: 800; color: var(--amber-ink);
+          background: var(--amber-bg); border: 1px solid var(--amber-line); border-radius: 6px; padding: 2px 6px; }
+/* 左スワイプで現れる非表示アクション。棚卸の表と同じ2段階 */
+.row-action {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 96px;
+  border: none; background: #64748b; color: #fff;
+  font: 800 13px var(--font); letter-spacing: .04em; border-radius: 12px; z-index: 3;
+  -webkit-tap-highlight-color: transparent; transition: background-color .18s linear;
+}
+.item.swipe-dragging .row-action { transition: none; }
+.row-action.full { box-shadow: inset 0 0 0 2px rgba(255,255,255,.4); }
+.empty { padding: 24px 16px; color: var(--faint); font-size: 13px; text-align: center; line-height: 1.6; }
+.chip.confirm { background: var(--primary-weak); color: var(--primary); border-color: var(--primary-border); }
 .check {
   width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -291,6 +316,39 @@ body {
 .edit-add { width: 100%; border: 1.5px dashed var(--primary-border); background: var(--surface);
             color: var(--primary); border-radius: 12px; font: 800 14px var(--font); padding: 13px; }
 
+/* 振り分け済みの確認シート（下から出る）*/
+.assigned-bg { position: fixed; inset: 0; z-index: 88; background: rgba(15,23,42,.45);
+               display: none; align-items: flex-end; justify-content: center; }
+.assigned-bg.on { display: flex; }
+.assigned-sheet { width: 100%; max-width: 560px; max-height: 78vh; background: var(--surface);
+                  border-radius: 18px 18px 0 0; display: flex; flex-direction: column;
+                  box-shadow: 0 -8px 30px rgba(0,0,0,.25); }
+.assigned-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 8px; }
+.assigned-title { font-size: 15px; font-weight: 800; color: var(--ink); }
+.assigned-title b { color: var(--primary); }
+.assigned-close { margin-left: auto; border: none; background: none; font-size: 18px; color: var(--faint); padding: 2px 6px; }
+.assigned-hint { padding: 0 16px 8px; font-size: 12px; color: var(--faint); }
+.assigned-list { flex: 1; overflow-y: auto; padding: 4px 12px 20px; overscroll-behavior: contain; }
+.assigned-item { width: 100%; display: flex; align-items: center; gap: 10px; background: var(--ground);
+                 border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px; margin-bottom: 8px;
+                 font: 700 15px var(--font); color: var(--ink); text-align: left; }
+.assigned-item span:last-child { margin-left: auto; flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--primary); }
+
+/* 取り消しバー */
+.undobar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: none; align-items: center; gap: 10px;
+  width: calc(100% - 28px); max-width: 520px; box-sizing: border-box;
+  background: #1e293b; color: #fff; border-radius: 14px;
+  padding: 10px 10px 10px 16px; z-index: 92; box-shadow: 0 6px 20px rgba(0,0,0,.32);
+}
+.undobar.on { display: flex; }
+.undo-msg { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.undo-sub { display: block; font-size: 11px; font-weight: 600; color: #cbd5e1; }
+.undo-btn { flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px; background: #fff;
+            color: #1e293b; font: 800 13px var(--font); padding: 0 14px; }
+.undo-x { flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none; color: var(--faint); font-size: 14px; }
+
 /* 名前の入力・削除の確認。prompt/confirm は埋め込み環境で塞がれることがあるので画面内に持つ */
 .sheet-bg { position: fixed; inset: 0; z-index: 90; background: rgba(15,23,42,.45);
             display: none; align-items: center; justify-content: center; padding: 22px; }
@@ -352,11 +410,43 @@ body {
   <div class="tools">
     <input class="search" id="search" type="text" placeholder="品目を検索" autocomplete="off">
     <button class="chip" type="button" id="chipUn">未振り分けのみ</button>
-    <button class="chip on" type="button" id="chipGenre">ジャンル別</button>
-    <button class="chip" type="button" id="chipAll">全部開く</button>
+    <button class="chip" type="button" id="chipUsed">前回入力のみ</button>
+    <button class="chip" type="button" id="chipNever">未使用のみ</button>
+    <button class="chip confirm" type="button" id="chipConfirm">確認 <b>0</b></button>
   </div>
 
   <div class="list" id="list"></div>
+</div>
+
+<!-- 浅いスワイプのアクションを押したときの確認（棚卸の表と同じ2段階の片方）-->
+<div class="sheet-bg" id="hideBg">
+  <div class="sheet">
+    <div class="sheet-title">この品目を非表示にしますか？</div>
+    <div class="sheet-sub" id="hideName"></div>
+    <div class="sheet-acts">
+      <button class="sheet-cancel" type="button" id="hideCancel">キャンセル</button>
+      <button class="sheet-ok danger" type="button" id="hideOk">非表示にする</button>
+    </div>
+  </div>
+</div>
+
+<!-- 振り分け済みの確認。タップで一覧の該当品目へ飛ぶ（逆引き）-->
+<div class="assigned-bg" id="assignedBg">
+  <div class="assigned-sheet">
+    <div class="assigned-head">
+      <span class="assigned-title"><span id="assignedFor">—</span> の振り分け済み <b id="assignedCount">0</b></span>
+      <button class="assigned-close" type="button" id="assignedClose">✕</button>
+    </div>
+    <div class="assigned-hint">タップすると一覧の該当品目へ移動します</div>
+    <div class="assigned-list" id="assignedList"></div>
+  </div>
+</div>
+
+<!-- 取り消し。非表示は戻せることをその場で示す -->
+<div class="undobar" id="undoBar">
+  <span class="undo-msg"><span id="undoMsg"></span><span class="undo-sub" id="undoSub"></span></span>
+  <button class="undo-btn" type="button" id="undoBtn">元に戻す</button>
+  <button class="undo-x" type="button" id="undoX" aria-label="閉じる">✕</button>
 </div>
 
 <div class="edit-page" id="editPage">
@@ -455,9 +545,15 @@ const $ = id => document.getElementById(id);
 // ── 状態 ──────────────────────────────────────────────────────────────
 const counts = new Array(GROUPS.length).fill(0);
 const assigned = new Map();          // 品目 → Set(分類先index)
+// 直近3回の棚卸での入力回数（本体は履歴から作る）。ここは実データ相当のばらつきを置く
+const usage = new Map(ITEMS.map((i, n) => [i, n % 5 === 0 ? 0 : n % 3 === 0 ? 1 : n % 7 === 0 ? 0 : 2]));
+const hasUsage = [...usage.values()].some(v => v > 0);
+const hiddenItems = new Set();       // 一覧から隠した品目
 let pos = 0;                         // ホイールの位置（小数＝回転中）
 let target = 0;                      // 中央にある分類先
 let unassignedOnly = false;
+let usedOnly = false;
+let neverUsedOnly = false;
 let query = '';
 // 実機で 248(5枚) / 196(3枚) / 152(2枚) / 帯56 を見比べて決めた高さ。
 // 静止時は 196。回している間は spinHeight() で画面の 54% まで広がる。
@@ -611,18 +707,26 @@ const listEl = $('list');
 
 function groupsOf(item) { return assigned.get(item) || new Set(); }
 
+// 「前回入力のみ」と「未使用のみ」は互いに素なので、片方を立てるともう片方を降ろす
 function visibleItems() {
   const q = query.trim().toLowerCase();
-  return ITEMS.filter(i =>
+  const arr = ITEMS.filter(i =>
+    !hiddenItems.has(i) &&
     (!q || i.toLowerCase().includes(q)) &&
-    (!unassignedOnly || groupsOf(i).size === 0)
+    (!unassignedOnly || groupsOf(i).size === 0) &&
+    (!usedOnly || usage.get(i) > 0) &&
+    (!neverUsedOnly || !usage.get(i))
   );
+  // 振り分け中は並べ替えない（タップした品目がその場から動かないように）。
+  // 使用頻度は履歴由来でセッション中は不変なので、並びは動かない。
+  return [...arr].sort((a, b) => (usage.get(b) ?? 0) - (usage.get(a) ?? 0));
 }
 
 function itemEl(item) {
   const gs = groupsOf(item);
-  const el = document.createElement('button');
-  el.type = 'button';
+  const el = document.createElement('div');
+  el.setAttribute('role', 'button');
+  el.tabIndex = 0;
   el.className = 'item' + (gs.has(target) ? ' in' : '');
   el.dataset.item = item;
   const tags = [...gs].slice(0, 3)
@@ -630,15 +734,15 @@ function itemEl(item) {
   el.innerHTML =
     `<span class="check">${gs.has(target) ? '✓' : '＋'}</span>` +
     `<span class="iname">${item}</span>` +
+    (hasUsage && !usage.get(item) ? '<span class="unused">未使用</span>' : '') +
     (tags ? `<span class="tags">${tags}</span>` : '');
   return el;
 }
 
-// ジャンル別のたたみ方。既定は閉じた状態（本体の振り分け画面と同じ）。
-// ただし検索中は、閉じた見出しだけが並んで「何も出ない」ように見えるので開く。
+// ジャンル別のたたみ方。既定は閉じた状態。取込元にジャンルがあるときだけ使う。
+// 既存の振り分け画面と同じ仕様にそろえてある（検索しても勝手には開かない）。
 const openCat = new Set();
-let genreMode = true;
-const searching = () => query.trim() !== '';
+const genreMode = CATS.length > 0;
 
 function renderList() {
   const items = visibleItems();
@@ -656,7 +760,7 @@ function renderList() {
     }
     for (const [cat, list] of byCat) {
       if (!list.length) continue;
-      const open = searching() || openCat.has(cat);
+      const open = openCat.has(cat);
       const done = list.filter(i => groupsOf(i).size).length;
       const head = document.createElement('button');
       head.type = 'button';
@@ -672,32 +776,32 @@ function renderList() {
     }
   }
 
+  if (!items.length) {
+    const msg = document.createElement('div');
+    msg.className = 'empty';
+    msg.textContent = unassignedOnly ? '未振り分けの品目はありません 🎉'
+      : neverUsedOnly ? '使っていない品目はありません 🎉'
+      : '該当する品目がありません。';
+    frag.appendChild(msg);
+  }
   listEl.replaceChildren(frag);
-  paintAllChip();
+  paintConfirm();
   measureRows();
 }
 
-function paintAllChip() {
-  const btn = $('chipAll');
-  btn.style.display = genreMode ? '' : 'none';
-  const allOpen = CATS.every(c => openCat.has(c));
-  btn.textContent = allOpen ? '全部閉じる' : '全部開く';
-  btn.classList.toggle('on', allOpen);
+function paintConfirm() {
+  $('chipConfirm').querySelector('b').textContent = assignedOfTarget().length;
+}
+function assignedOfTarget() {
+  return ITEMS.filter(i => !hiddenItems.has(i) && groupsOf(i).has(target));
 }
 
-$('chipGenre').addEventListener('click', e => {
-  genreMode = !genreMode;
-  e.currentTarget.classList.toggle('on', genreMode);
-  renderList();
-});
-$('chipAll').addEventListener('click', () => {
-  const allOpen = CATS.every(c => openCat.has(c));
-  openCat.clear();
-  if (!allOpen) for (const c of CATS) openCat.add(c);
-  renderList();
-});
-
 listEl.addEventListener('click', e => {
+  const act = e.target.closest('.row-action');
+  if (act) { hideDialogItem = act.closest('.item').dataset.item; paintHideDialog(); return; }
+  if (_suppressClick) { _suppressClick = false; return; }        // 直前がスワイプ操作
+  const swiped = e.target.closest('.item');
+  if (swiped && swiped.dataset.item === swItem && swDx < 0) { resetSwipe(); return; }
   const head = e.target.closest('.cat-head');
   if (head) {
     const c = head.dataset.cat;
@@ -722,6 +826,7 @@ function toggle(item, el) {
   assigned.set(item, gs);
   updateRow(el, item);
   updateCatHead(item);
+  paintConfirm();
   renderWheel();
   updateProgress();
 }
@@ -782,14 +887,16 @@ function bumpCount() {
   bumpT = setTimeout(() => el.classList.remove('bump'), 400);
 }
 
+// 非表示にした品目は進捗の分母からも外す（既存と同じ）
 function updateProgress() {
-  let done = 0;
-  for (const i of ITEMS) if (groupsOf(i).size) done++;
-  const pct = Math.round(done / ITEMS.length * 100);
+  const live = ITEMS.filter(i => !hiddenItems.has(i));
+  const done = live.filter(i => groupsOf(i).size).length;
+  const pct = live.length ? Math.round(done / live.length * 100) : 0;
   $('progDone').textContent = done;
+  $('progTotal').textContent = live.length;
   $('progPct').textContent = pct + '%';
   $('progFill').style.width = pct + '%';
-  $('progIcon').textContent = done === ITEMS.length ? '🎉' : '📦';
+  $('progIcon').textContent = live.length && done === live.length ? '🎉' : '📦';
 }
 
 // ── 触った方が広がる ──────────────────────────────────────────────────
@@ -1119,12 +1226,186 @@ function doDelete(gone) {
 }
 
 // ── 絞り込み ───────────────────────────────────────────────────────────
+// ── 左スワイプで一覧から非表示（本体の useRowHideSwipe と同じ2段階）──────
+//   浅く引く … アクションが出て止まる → 押すと確認
+//   引き切る … 確認なしでその場で非表示
+const ACTION_W = 96, REVEAL_AT = 40, OPEN_SNAP = 56, FULL_MIN = 160, FULL_RATIO = .5;
+const SW_C0 = [100,116,139], SW_C1 = [220,38,38];
+let swItem = null, swDx = 0, swDragging = false, swW = 0;
+let _sx = 0, _sy = 0, _dir = null, _baseDx = 0, _suppressClick = false;
+let hideDialogItem = null;
+
+const fullAt = () => Math.max(FULL_MIN, Math.round(swW * FULL_RATIO));
+const swipeFull = () => -swDx >= fullAt();
+function actionColor() {
+  const span = fullAt() - REVEAL_AT;
+  const t = span <= 0 ? 1 : Math.min(1, Math.max(0, (-swDx - REVEAL_AT) / span));
+  const [r, g, b] = SW_C0.map((v, i) => Math.round(v + (SW_C1[i] - v) * t));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+function resetSwipe() { swItem = null; swDx = 0; swDragging = false; paintSwipe(); }
+
+function paintSwipe() {
+  for (const el of listEl.querySelectorAll('.item')) {
+    const it = el.dataset.item;
+    const on = it === swItem;
+    el.classList.toggle('swipe-dragging', on && swDragging);
+    el.style.transform = on ? `translateX(${swDx}px)` : '';
+    let act = el.querySelector('.row-action');
+    if (on && -swDx >= REVEAL_AT) {
+      if (!act) {
+        act = document.createElement('button');
+        act.type = 'button'; act.className = 'row-action';
+        el.appendChild(act);
+      }
+      act.classList.toggle('full', swipeFull());
+      act.textContent = swipeFull() ? '離すと非表示' : '非表示';
+      act.style.transform = `translateX(${-swDx}px)`;
+      act.style.width = Math.max(ACTION_W, -swDx) + 'px';
+      act.style.background = actionColor();
+    } else if (act) act.remove();
+  }
+}
+
+listEl.addEventListener('touchstart', e => {
+  const row = e.target.closest('.item');
+  if (!row) return;
+  _suppressClick = false;
+  if (swItem && swItem !== row.dataset.item) resetSwipe();
+  const t = e.changedTouches[0];
+  _sx = t.clientX; _sy = t.clientY; _dir = null;
+  _baseDx = (swItem === row.dataset.item) ? swDx : 0;
+  swW = row.getBoundingClientRect().width;
+  swItem = row.dataset.item; swDragging = true;
+}, { passive: true });
+
+listEl.addEventListener('touchmove', e => {
+  if (!swDragging) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - _sx, dy = t.clientY - _sy;
+  if (_dir === null) {
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+    _dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+  }
+  if (_dir !== 'h') return;              // 縦スクロールは妨げない
+  let nx = _baseDx + dx;
+  if (nx > 0) nx = 0;
+  const max = Math.max(ACTION_W, swW, fullAt());
+  if (nx < -max) nx = -max - (-max - nx) * .3;
+  swDx = nx; paintSwipe();
+}, { passive: true });
+
+function endSwipe() {
+  if (!swDragging) return;
+  swDragging = false;
+  if (_dir !== 'h') return;
+  _suppressClick = true;
+  if (swipeFull()) { const it = swItem; resetSwipe(); hideItem(it); return; }
+  swDx = (-swDx >= OPEN_SNAP) ? -ACTION_W : 0;
+  if (swDx === 0) swItem = null;
+  paintSwipe();
+}
+listEl.addEventListener('touchend', endSwipe);
+listEl.addEventListener('touchcancel', () => { _dir = null; resetSwipe(); });
+
+function hideItem(item) {
+  if (!item) return;
+  hiddenItems.add(item);
+  renderList(); updateProgress(); renderWheel();
+  offerUndo(`「${item}」を一覧から非表示にしました`, '棚卸の一覧と進捗からも外れます', () => {
+    hiddenItems.delete(item);
+    renderList(); updateProgress(); renderWheel();
+  });
+}
+
 $('search').addEventListener('input', e => { query = e.target.value; renderList(); });
 $('chipUn').addEventListener('click', e => {
   unassignedOnly = !unassignedOnly;
   e.currentTarget.classList.toggle('on', unassignedOnly);
   renderList();
 });
+$('chipUsed').addEventListener('click', e => {
+  usedOnly = !usedOnly;
+  if (usedOnly) { neverUsedOnly = false; $('chipNever').classList.remove('on'); }
+  e.currentTarget.classList.toggle('on', usedOnly);
+  renderList();
+});
+$('chipNever').addEventListener('click', e => {
+  neverUsedOnly = !neverUsedOnly;
+  if (neverUsedOnly) { usedOnly = false; $('chipUsed').classList.remove('on'); }
+  e.currentTarget.classList.toggle('on', neverUsedOnly);
+  renderList();
+});
+$('chipUsed').style.display = hasUsage ? '' : 'none';
+$('chipNever').style.display = hasUsage ? '' : 'none';
+
+// ── 非表示の確認 ───────────────────────────────────────────────────────
+function paintHideDialog() {
+  $('hideBg').classList.toggle('on', !!hideDialogItem);
+  $('hideName').textContent = hideDialogItem ?? '';
+}
+$('hideCancel').addEventListener('click', () => { hideDialogItem = null; paintHideDialog(); resetSwipe(); });
+$('hideBg').addEventListener('click', e => { if (e.target === $('hideBg')) $('hideCancel').click(); });
+$('hideOk').addEventListener('click', () => {
+  const it = hideDialogItem; hideDialogItem = null; paintHideDialog(); resetSwipe(); hideItem(it);
+});
+
+// ── 取り消し ───────────────────────────────────────────────────────────
+let undoFn = null, undoTimer = 0;
+function offerUndo(msg, sub, fn) {
+  undoFn = fn;
+  $('undoMsg').textContent = msg;
+  $('undoSub').textContent = sub || '';
+  $('undoBar').classList.add('on');
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(dismissUndo, 9000);
+}
+function dismissUndo() { clearTimeout(undoTimer); undoFn = null; $('undoBar').classList.remove('on'); }
+$('undoX').addEventListener('click', dismissUndo);
+$('undoBtn').addEventListener('click', () => { const f = undoFn; dismissUndo(); f?.(); });
+
+// ── 振り分け済みの確認と逆引き ─────────────────────────────────────────
+$('chipConfirm').addEventListener('click', () => {
+  const list = assignedOfTarget();
+  $('assignedCount').textContent = list.length;
+  $('assignedFor').textContent = `「${GROUPS[target]}」`;
+  const frag = document.createDocumentFragment();
+  for (const item of list) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'assigned-item'; b.dataset.item = item;
+    b.innerHTML = `<span>${item}</span><span>確認 ›</span>`;
+    frag.appendChild(b);
+  }
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'empty'; d.textContent = 'まだ振り分けられた品目はありません。';
+    frag.appendChild(d);
+  }
+  $('assignedList').replaceChildren(frag);
+  $('assignedBg').classList.add('on');
+});
+$('assignedClose').addEventListener('click', () => $('assignedBg').classList.remove('on'));
+$('assignedBg').addEventListener('click', e => { if (e.target === $('assignedBg')) $('assignedBg').classList.remove('on'); });
+$('assignedList').addEventListener('click', e => {
+  const b = e.target.closest('.assigned-item');
+  if (!b) return;
+  locate(b.dataset.item);
+});
+
+// 一覧の該当行まで送って光らせる。絞り込みと畳んだジャンルは解除する
+function locate(item) {
+  $('assignedBg').classList.remove('on');
+  query = ''; $('search').value = '';
+  unassignedOnly = usedOnly = neverUsedOnly = false;
+  for (const c of ['chipUn','chipUsed','chipNever']) $(c).classList.remove('on');
+  if (genreMode) openCat.add(CAT_OF.get(item) || 'その他');
+  renderList();
+  const row = [...listEl.querySelectorAll('.item')].find(r => r.dataset.item === item);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.classList.add('locate');
+  setTimeout(() => row.classList.remove('locate'), 1700);
+}
 
 // ── 計測 ───────────────────────────────────────────────────────────────
 function measureRows() {
