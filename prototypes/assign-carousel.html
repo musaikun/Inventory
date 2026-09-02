@@ -802,7 +802,7 @@ function renderEdit() {
       `<button class="ebtn rename" type="button" aria-label="名前を変える">✎</button>` +
       `<button class="ebtn del" type="button" aria-label="削除">🗑</button>`;
     row.querySelector('.ename').textContent = g;
-    frag.appendChild(row);
+    frag.appendChild(row);   // 毎回作り直すので inline の transform / transition は残らない
   });
   editList.replaceChildren(frag);
 }
@@ -839,6 +839,28 @@ $('editAdd').addEventListener('click', () => {
 // つまみだけ touch-action: none にして、ここでジェスチャを引き取る。
 let dragRow = null, dragY0 = 0, dragDy = 0;
 
+// 入れ替えを FLIP で見せる。並べ替えは「どれがどこへ動いたか」が分からないと
+// 結果を確かめられないので、瞬間移動させず、退く行が滑って場所を空ける。
+// 掴んでいる行は指の下に居るべきなので、こちらは動かさない。
+const FLIP_MS = 260;
+function flipRows(mutate) {
+  const rows = [...editList.children];
+  const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]));
+  mutate();
+  if (reduce) return;
+  for (const r of rows) {
+    if (r === dragRow) continue;
+    const d = before.get(r) - r.getBoundingClientRect().top;
+    if (!d) continue;
+    r.style.transition = 'none';
+    r.style.transform = `translateY(${d}px)`;
+    requestAnimationFrame(() => {
+      r.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.22,.8,.28,1)`;
+      r.style.transform = '';
+    });
+  }
+}
+
 editList.addEventListener('pointerdown', e => {
   const handle = e.target.closest('.ehandle');
   if (!handle) return;
@@ -853,31 +875,64 @@ editList.addEventListener('pointermove', e => {
   if (!dragRow) return;
   e.preventDefault();
   dragDy = e.clientY - dragY0;
+  dragRow.style.transition = 'none';
   dragRow.style.transform = `translateY(${dragDy}px)`;
-  // 指の位置にある行と入れ替える。DOM も配列も同時に動かすので、離した時点で確定済み
-  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.erow');
-  if (!over || over === dragRow) return;
+  edgeScrollFrom(e.clientY);
+  // 指の位置にある行と入れ替える。DOM も配列も同時に動かすので、離した時点で確定済み。
+  //
+  // 掴んだ行は指に追従しているので、いちばん上に居るのは常に自分自身。
+  // elementFromPoint（単数）だとそれしか返らず、入れ替え先が永久に見つからない
+  // ＝並べ替えが一度も起きなかった。重なり全部を取り、自分以外の最初の行を選ぶ。
+  const over = document.elementsFromPoint(e.clientX, e.clientY)
+    .map(el => el.closest?.('.erow'))
+    .find(r => r && r !== dragRow);
+  if (!over) return;
   const rows = [...editList.children];
   const from = rows.indexOf(dragRow), to = rows.indexOf(over);
   if (from < 0 || to < 0) return;
-  editList.insertBefore(dragRow, from < to ? over.nextSibling : over);
-  GROUPS.splice(to, 0, GROUPS.splice(from, 1)[0]);
-  counts.splice(to, 0, counts.splice(from, 1)[0]);
+  flipRows(() => {
+    editList.insertBefore(dragRow, from < to ? over.nextSibling : over);
+    GROUPS.splice(to, 0, GROUPS.splice(from, 1)[0]);
+    counts.splice(to, 0, counts.splice(from, 1)[0]);
+  });
   // 入れ替えた行は指の位置へ移っている。基準を今の指に取り直して、
   // ずれを持ち越さない（持ち越すと行が指から離れていく）
   dragY0 = e.clientY;
   dragRow.style.transform = '';
+  navigator.vibrate?.(6);
 });
 function endRowDrag() {
   if (!dragRow) return;
+  // 掴んだ行を、今いる枠へ滑らせて着地させる
+  if (!reduce) dragRow.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.22,.8,.28,1)`;
   dragRow.style.transform = '';
   dragRow.classList.remove('drag');
   editList.classList.remove('dragging');
   dragRow = null;
-  renderEdit();
+  stopEdgeScroll();
+  // DOM の並びは配列とすでに一致しているので作り直さない
+  // （作り直すと、走っている FLIP が捨てられて瞬間移動に見える）
 }
 editList.addEventListener('pointerup', endRowDrag);
 editList.addEventListener('pointercancel', endRowDrag);
+
+// 19件あると、下の行を上まで運ぶのに一覧のスクロールが要る。
+// 掴んだまま端に寄せたら、その向きへ流す。
+const EDGE = 64, EDGE_SPEED = 10;
+let edgeRaf = 0, edgeDir = 0;
+function edgeScrollFrom(y) {
+  const r = editList.getBoundingClientRect();
+  edgeDir = y < r.top + EDGE ? -1 : y > r.bottom - EDGE ? 1 : 0;
+  if (!edgeDir) return stopEdgeScroll();
+  if (edgeRaf) return;
+  const step = () => {
+    if (!dragRow || !edgeDir) return stopEdgeScroll();
+    editList.scrollTop += edgeDir * EDGE_SPEED;
+    edgeRaf = requestAnimationFrame(step);
+  };
+  edgeRaf = requestAnimationFrame(step);
+}
+function stopEdgeScroll() { cancelAnimationFrame(edgeRaf); edgeRaf = 0; edgeDir = 0; }
 
 function doDelete(gone) {
   GROUPS.splice(gone, 1); counts.splice(gone, 1);
