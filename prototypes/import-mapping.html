@@ -127,6 +127,73 @@ body {
 .ask-opt-r .lost { color: var(--danger); font-weight: 700; }
 .ask-note { font-size: 11.5px; color: var(--faint); line-height: 1.6; margin-top: 2px; }
 
+/* 読み込み元のファイルそのもの。question の真横に置く。 */
+.peek {
+  border: 1px solid var(--line); border-radius: 11px; overflow: hidden;
+  background: var(--surface); margin: 2px 0 6px;
+}
+.peek-cap {
+  font-size: 10px; font-weight: 800; color: var(--faint); letter-spacing: .06em;
+  padding: 7px 11px 5px; background: var(--ground); border-bottom: 1px solid var(--line-soft);
+}
+.peek-row {
+  display: flex; align-items: stretch; border-bottom: 1px solid var(--line-soft);
+  font-size: 11px; transition: background .2s, opacity .3s;
+}
+.peek-row:last-child { border-bottom: none; }
+.peek-no {
+  flex-shrink: 0; width: 22px; display: flex; align-items: center; justify-content: center;
+  color: var(--faint); background: var(--ground); font-size: 10px;
+  border-right: 1px solid var(--line-soft);
+}
+.peek-cells { display: flex; flex: 1; min-width: 0; overflow: hidden; }
+.peek-c {
+  flex: 1 1 0; min-width: 0; padding: 6px 7px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-right: 1px dotted var(--line);
+}
+.peek-c:last-child { border-right: none; }
+/* 1行目＝いま判断している行。ここが見えていないと質問が宙に浮く */
+.peek-row.first { background: var(--primary-weak); }
+.peek-row.first .peek-c { font-weight: 800; color: var(--primary-deep); }
+.peek-row.rest .peek-c { color: var(--muted); }
+/* 選んだ瞬間に、その行がどう扱われるかを見せてから次へ進む */
+.peek-row.lift  { animation: peek-lift .5s cubic-bezier(.4,0,.2,1) both; }
+.peek-row.stay  { animation: peek-stay .5s cubic-bezier(.4,0,.2,1) both; }
+@keyframes peek-lift {
+  40%  { transform: translateY(-4px); background: var(--primary-soft); }
+  100% { transform: translateY(-16px); opacity: 0; background: var(--primary-soft); }
+}
+@keyframes peek-stay {
+  40%  { transform: translateY(3px); background: var(--ok-weak); }
+  100% { transform: none; background: var(--ok-weak); }
+}
+/* 列をタップして選ぶとき */
+.peek.pickable .peek-c { cursor: pointer; }
+.peek.pickable .peek-c:active { background: var(--primary-soft); }
+.peek-head { background: var(--ground); }
+.peek-head .peek-c {
+  font-size: 10px; font-weight: 800; color: var(--muted); padding: 5px 7px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.peek-col.hot .peek-c { background: var(--primary-soft); }
+
+.peek-more {
+  flex-shrink: 0; display: flex; align-items: center; padding: 0 7px;
+  font-size: 10px; font-weight: 800; color: var(--faint); background: var(--ground);
+  border-left: 1px solid var(--line-soft);
+}
+.peek-cn {
+  display: inline-block; background: var(--line); color: var(--muted);
+  border-radius: 3px; padding: 0 3px; margin-right: 4px; font-size: 9px;
+}
+.ask-opts { display: flex; flex-direction: column; gap: 9px; }
+.ask-back {
+  display: block; margin-top: 10px; border: none; background: none;
+  color: var(--primary); font-family: var(--font); font-size: 11.5px; font-weight: 700;
+  padding: 4px 0; cursor: pointer; text-align: left;
+}
+
 /* ── ② 読み取りの要約。1行で、直す入口も兼ねる ── */
 .crumb {
   flex-shrink: 0; width: 100%; display: flex; align-items: center; gap: 8px;
@@ -570,17 +637,13 @@ body {
   <!-- ① 最初に訊くのは1つだけ。選択肢そのものに結果を書いておく。
        「1行目を消してしまう」という事故は、言葉の警告より結果の数字で伝わる。 -->
   <div class="ask" id="ask">
-    <div class="ask-q">このファイル、1行目は何ですか？</div>
+    <div class="ask-q" id="askQ"></div>
     <div class="ask-sub" id="askSub"></div>
-    <button class="ask-opt" data-h="head">
-      <span class="ask-opt-t">列の名前（見出し）</span>
-      <span class="ask-opt-r" id="askHead"></span>
-    </button>
-    <button class="ask-opt" data-h="data">
-      <span class="ask-opt-t">もう品目のデータ</span>
-      <span class="ask-opt-r" id="askData"></span>
-    </button>
-    <div class="ask-note">どちらかで取り込む件数が変わります。あとから変えられます。</div>
+    <!-- 訊く相手（ファイルの実物）を必ず一緒に出す。数字だけ見せて選ばせると、
+         ユーザーは自分のファイルを見ないまま答えることになる。 -->
+    <div class="peek" id="peek"></div>
+    <div class="ask-opts" id="askOpts"></div>
+    <div class="ask-note" id="askNote"></div>
   </div>
 
   <!-- ② 結果の画面。既定はこれだけ。読み取りの要約が1行、あとは組み上がった表。 -->
@@ -685,6 +748,15 @@ body {
       <span class="plab">湧き上がり</span>
       <input class="prange" id="pStagger" type="range" min="0" max="60" step="2">
       <b id="pStaggerV" style="width:52px;text-align:right"></b>
+    </div>
+
+    <div class="prow">
+      <span class="plab">組み上がり</span>
+      <div class="pbtns" id="pTut">
+        <button class="pbtn" data-tut="first">初回だけ</button>
+        <button class="pbtn" data-tut="always">毎回</button>
+        <button class="pbtn" data-tut="off">出さない</button>
+      </div>
     </div>
 
     <div class="prow">
@@ -842,6 +914,10 @@ const state = {
   mapping: {},
   manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
   sheetOpen: false,      // 列の対応を直す面が出ているか
+  buildingOnce: false,   // 組み上がりを見せている最中（この間は問いを出さない）
+  seenBuild: false,      // 一度でも組み上がりを最後まで見たか
+  reveal: null,          // 組み上がりの最中に「ここまで出した」項目。null = 全部
+  tutorial: 'first',     // 'first' 初回だけ / 'always' 毎回 / 'off' 出さない
   picked: null,          // タップ2段で選択中の列
   justFilled: null,      // 直前に埋めたフィールド（湧き上がりの対象）
   grew: {},              // 生えたばかりの列
@@ -995,49 +1071,105 @@ function render(opts = {}) {
   const t0 = performance.now()
   PLAN = buildPlan()
 
-  // 段：1行目が未選択なら、訊くことは1つだけ。他は出さない。
-  const asking = state.hasHeader === null
+  // 段：まだ答えの出ていない「必須の問い」があるなら、それを1つだけ訊く。
+  // 訊く数はファイルが決める。よく出来たファイルなら1問で終わる。
+  const q = nextQuestion()
+  const asking = !!q && !state.buildingOnce
   $('ask').hidden = !asking
   $('crumb').hidden = asking
   $('out').hidden = asking
   $('foot').hidden = asking
   $('msheet').hidden = asking || !state.sheetOpen
 
-  if (asking) { renderAsk() }
+  if (asking) { renderAsk(q) }
   else {
     renderCrumb()
     renderTable(opts)
     renderFoot()
     if (state.sheetOpen) {
-    renderChips(); renderSample()
-    const pdf = SRC.mode === 'pdf'
-    // PDFに1行目という概念は無いので、その選択肢自体を出さない
-    $('hseg').hidden = pdf
-    $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
-    if (!pdf) $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
-      x.classList.toggle('on', (x.dataset.h === 'head') === (state.hasHeader === true)))
-  }
+      renderChips(); renderSample()
+      const pdf = SRC.mode === 'pdf'
+      // PDFに1行目という概念は無いので、その選択肢自体を出さない
+      $('hseg').hidden = pdf
+      $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
+      if (!pdf) $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
+        x.classList.toggle('on', (x.dataset.h === 'head') === (state.hasHeader === true)))
+    }
   }
   lastDrawMs = performance.now() - t0
   renderProbeNums()
 }
 
-/* ① 訊くのは1つ。選択肢そのものに、選んだ結果を書く。
-   「1行目の品目が黙って消える」は、警告文よりこの数字のほうが早く伝わる。 */
-function renderAsk() {
-  $('askSub').textContent = `${SRC.filename} ・ ${TABLE.length.toLocaleString()}行`
-  const put = (id, h) => {
-    const r = peek(h)
-    const el = $(id)
-    if (!r.ready) { el.innerHTML = '<span class="lost">品目名の列が見つかりません（あとで指定できます）</span>'; return }
-    el.innerHTML = `取り込むのは <b>${(r.counts.add + r.counts.upd + r.counts.same).toLocaleString()}件</b>`
-      + (r.first ? ` ・ 先頭は「${esc(r.first)}」` : '')
-  }
-  put('askHead', true)
-  put('askData', false)
+/* ══════════════════════════════════════════════════════════════
+   ① 必須の問いを1つずつ。
+   自動検出で確信をもって決まったものは訊かない ── 訊く数を決めるのは
+   ファイルであって、画面の都合ではない。見出しのある普通のCSVなら1問で終わる。
+   ══════════════════════════════════════════════════════════════ */
+function nextQuestion() {
+  if (state.hasHeader === null) return { kind: 'header' }
+  const miss = fields().find(f => f.required && !has(f.key))
+  if (miss) return { kind: 'field', field: miss }
+  return null
 }
+
+function renderAsk(q) {
+  $('askSub').textContent = `${SRC.filename} ・ ${TABLE.length.toLocaleString()}行`
+  if (q.kind === 'header') {
+    $('askQ').textContent = 'このファイル、1行目は何ですか？'
+    $('peek').className = 'peek'
+    $('peek').innerHTML = peekRows({ markFirst: true })
+    const opt = (h, t) => {
+      const r = simulate(h)
+      const body = r.ready
+        ? `取り込むのは <b>${(r.counts.add + r.counts.upd + r.counts.same).toLocaleString()}件</b>`
+          + (r.first ? ` ・ 先頭は「${esc(r.first)}」` : '')
+        : '<span class="lost">品目名の列が見つかりません（次の画面で選べます）</span>'
+      return `<button class="ask-opt" data-h="${h ? 'head' : 'data'}">
+        <span class="ask-opt-t">${t}</span><span class="ask-opt-r">${body}</span></button>`
+    }
+    $('askOpts').innerHTML = opt(true, '1行目は列の名前（見出し）') + opt(false, '1行目からもう品目のデータ')
+    $('askNote').textContent = 'どちらかで取り込む件数が変わります。あとから変えられます。'
+  } else {
+    // 列を選ぶ問い。選択肢を並べるのではなく、ファイルの列そのものを押させる。
+    $('askQ').textContent = `どの列が「${q.field.label}」ですか？`
+    $('peek').className = 'peek pickable'
+    $('peek').innerHTML = peekCols()
+    $('askOpts').innerHTML = ''
+    $('askNote').innerHTML = `上の表で、その列のどこかをタップしてください。`
+      + `<button class="ask-back" id="askBack">1行目は「${state.hasHeader ? '見出し' : 'データ'}」として読んでいます ・ 変える</button>`
+  }
+}
+
+// ファイルの先頭を、そのままの並びで見せる
+const PEEK_N = 4      // 見せる行数
+const PEEK_C = 4      // 見せる列数。390pxに5列は詰めすぎで、どれも読めなくなる
+function peekRows({ markFirst = false } = {}) {
+  const rows = TABLE.slice(0, PEEK_N)
+  return `<div class="peek-cap">ファイルの中身</div>` + rows.map((r, i) => `
+    <div class="peek-row ${markFirst && i === 0 ? 'first' : 'rest'}" data-r="${i}">
+      <span class="peek-no">${i + 1}</span>
+      <span class="peek-cells">${r.slice(0, PEEK_C).map(c => `<span class="peek-c">${esc(String(c ?? '').trim()) || '&nbsp;'}</span>`).join('')}${
+        r.length > PEEK_C ? `<span class="peek-more">+${r.length - PEEK_C}</span>` : ''}</span>
+    </div>`).join('')
+}
+// 列を押させるとき。列見出しの行を出し、押した列がどれか分かるようにする
+function peekCols() {
+  const total = colCount()
+  const n = Math.min(total, PEEK_C)
+  const rows = dataRows().slice(0, PEEK_N)
+  const more = total > n ? `<span class="peek-more">+${total - n}</span>` : ''
+  // 列番号を必ず出す。見出しの無いファイルでは、番号だけが列の名前になる
+  const head = `<div class="peek-row peek-head"><span class="peek-no"></span><span class="peek-cells">${
+    Array.from({ length: n }, (_, i) =>
+      `<span class="peek-c" data-col="${i}"><span class="peek-cn">${i + 1}</span>${esc(headerName(i))}</span>`).join('')}${more}</span></div>`
+  return `<div class="peek-cap">ファイルの中身</div>` + head + rows.map((r, i) => `
+    <div class="peek-row rest"><span class="peek-no">${i + 1}</span><span class="peek-cells">${
+      Array.from({ length: n }, (_, c) => `<span class="peek-c" data-col="${c}">${esc(String(r[c] ?? '').trim()) || '&nbsp;'}</span>`).join('')
+    }${more}</span></div>`).join('')
+}
+
 // 選ぶ前に結果を出すため、その解釈で1回だけ組んでみる（状態は元に戻す）
-function peek(h) {
+function simulate(h) {
   const save = { h: state.hasHeader, m: { ...state.mapping }, man: { ...state.manual } }
   state.hasHeader = h
   autoDetect()
@@ -1046,6 +1178,48 @@ function peek(h) {
   const first = plan.rows.find(r => r.status !== 'err' && r.status !== 'skip')
   return { ...plan, first: first?.name ?? '' }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   答えた直後に、表が組み上がるところを一度だけ見せる。
+   これは飾りではなく説明で、「列を決めると表が育つ」という、このあと
+   ずっと使う言葉をここで一度だけ教える。だから初回は最後まで、
+   2回目以降は短くする（5回目の取込で待たされるのは説明ではなく邪魔）。
+   ══════════════════════════════════════════════════════════════ */
+function runBuild(filledKey) {
+  const full = state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild)
+  if (state.fx === 0 || state.tutorial === 'off') { state.reveal = null; state.buildingOnce = false; render({ filled: filledKey }); return }
+
+  state.buildingOnce = true
+  render()                      // 先に結果の画面へ切り替える（表の枠が出る）
+  state.buildingOnce = false
+
+  const out = $('out')
+  const steps = full
+    // 初回：品目名が入る → 他の項目が順に入る
+    ? [['name', 0], ...fields().filter(f => f.key !== 'name' && has(f.key)).slice(0, 6).map((f, i) => [f.key, 280 + i * 155])]
+    // 2回目以降：いま決めた項目だけ
+    : [[filledKey ?? 'name', 0]]
+
+  out.scrollTop = 0
+  state.reveal = new Set(['name'])
+  for (const [key, at] of steps) {
+    _buildT.push(setTimeout(() => { state.reveal.add(key); render({ filled: key }) }, at))
+  }
+  _buildT.push(setTimeout(finishBuild, steps[steps.length - 1][1] + 460))
+
+  // 触ったら待たせない。説明は、見たい人にだけ最後まで見せる
+  out.addEventListener('pointerdown', skipBuild, { once: true })
+}
+let _buildT = []
+function clearBuild() { for (const t of _buildT) clearTimeout(t); _buildT = [] }
+function finishBuild() {
+  clearBuild()
+  state.reveal = null           // 伏せていた項目を全部出す
+  $('out').removeEventListener('pointerdown', skipBuild)
+  state.seenBuild = true
+  render()          // 必須がまだ残っていれば、ここで次の問いへ進む（繰り返しはここで回る）
+}
+function skipBuild() { clearBuild(); finishBuild() }
 
 /* ② 読み取りの要約。1行で済ませ、そのまま直す入口にする。 */
 function renderCrumb() {
@@ -1169,11 +1343,14 @@ function renderTable(opts = {}) {
   }
 
   const master = isItemMaster()
-  const showCode  = master && has('code')
-  const showPrice = has('price')
-  const showQty   = has('qty')
-  const showDate  = has('date')
-  const grouped   = master && has('category')
+  // 組み上がりの最中だけ、まだ出していない項目を伏せる（state.reveal が null なら全部出す）
+  const rv = state.reveal
+  const vis = k => has(k) && (!rv || rv.has(k))
+  const showCode  = master && vis('code')
+  const showPrice = vis('price')
+  const showQty   = vis('qty')
+  const showDate  = vis('date')
+  const grouped   = master && vis('category')
 
   // 湧き上がりの対象と1行あたりの遅れ
   const jf = opts.filled ?? null
@@ -1243,10 +1420,10 @@ function renderTable(opts = {}) {
     if (showDate) tds += `<td class="td-code"><span${riseAttr('date')}>${esc(r.vals.date || '')}</span></td>`
 
     const hints = []
-    if (has('unit') && r.vals.unit)           hints.push(`<span${riseAttr('unit', 'hint')}>単位: ${esc(r.vals.unit)}</span>`)
-    if (has('lotSize') && r.vals.lotSize)     hints.push(`<span${riseAttr('lotSize', 'hint lot')}>入数: ${esc(r.vals.lotSize)}</span>`)
-    if (has('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint')}>前月: ${esc(r.vals.prevMonth)}</span>`)
-    if (has('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint')}>${esc(r.vals.supplier)}</span>`)
+    if (vis('unit') && r.vals.unit)           hints.push(`<span${riseAttr('unit', 'hint')}>単位: ${esc(r.vals.unit)}</span>`)
+    if (vis('lotSize') && r.vals.lotSize)     hints.push(`<span${riseAttr('lotSize', 'hint lot')}>入数: ${esc(r.vals.lotSize)}</span>`)
+    if (vis('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint')}>前月: ${esc(r.vals.prevMonth)}</span>`)
+    if (vis('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint')}>${esc(r.vals.supplier)}</span>`)
     tds += `<td class="td-name">
       <div class="nm">${tag ? `<span class="rowtag ${tag[0]}">${tag[1]}</span>` : ''}${esc(r.name)}</div>
       ${hints.length ? `<div class="hints">${hints.join('')}</div>` : ''}
@@ -1254,9 +1431,9 @@ function renderTable(opts = {}) {
 
     if (master) {
       const gs = []
-      if (has('axisA') && r.vals.axisA) gs.push(r.vals.axisA)
-      if (has('axisB') && r.vals.axisB) gs.push(r.vals.axisB)
-      tds += `<td class="td-qty"><span${riseAttr(has('axisA') ? 'axisA' : 'axisB', 'pg')}>${
+      if (vis('axisA') && r.vals.axisA) gs.push(r.vals.axisA)
+      if (vis('axisB') && r.vals.axisB) gs.push(r.vals.axisB)
+      tds += `<td class="td-qty"><span${riseAttr(vis('axisA') ? 'axisA' : 'axisB', 'pg')}>${
         gs.length ? gs.map(g => `<span class="pgchip">${esc(g)}</span>`).join('')
                   : '<span class="pgnone">未振り分け</span>'}</span></td>`
     }
@@ -1590,6 +1767,7 @@ function syncProbe() {
   set('pRows', 'rows', state.nRows)
   set('pFx', 'fx', state.fx)
   set('pConfirm', 'cf', state.confirm)
+  set('pTut', 'tut', state.tutorial)
   $('pStagger').value = state.stagger
   $('pStaggerV').textContent = state.stagger + 'ms'
   document.body.classList.toggle('reduced', state.fx === 0)
@@ -1613,20 +1791,55 @@ function reload() {
   // 代わりに「どの列を指すか」の面から始める。
   if (pdf) { renderPdf(); state.hasHeader = true; autoDetect() }
   state.sheetOpen = pdf
+  state.buildingOnce = false
+  state.reveal = null
+  clearBuild()
   render()
   if (pdf) markPdfCol()
   syncProbe()
 }
 
-// ① 質問の答え。ここで初めて結果の画面へ進む
+// ① 問いの答え。答えるたびに、その結果が表に効くところを一度見せてから次へ。
 $('ask').addEventListener('click', e => {
-  const b = e.target.closest('.ask-opt'); if (!b) return
-  state.hasHeader = b.dataset.h === 'head'
-  autoDetect()
-  // 必須が埋まらなかったときだけ、続けて対応の面を開く（直す必要があるときだけ道具を出す）
-  state.sheetOpen = fields().some(f => f.required && !has(f.key))
-  render({ filled: 'name' })
+  const opt = e.target.closest('.ask-opt')
+  if (opt) {
+    const asHead = opt.dataset.h === 'head'
+    // 選んだ瞬間に、1行目がどう扱われるかをその行の上で見せる
+    const row1 = $('peek').querySelector('.peek-row.first')
+    if (row1 && state.fx > 0) row1.classList.add(asHead ? 'lift' : 'stay')
+    const go = () => {
+      state.hasHeader = asHead
+      autoDetect()
+      runBuild('name')
+    }
+    if (row1 && state.fx > 0) setTimeout(go, 460); else go()
+    return
+  }
+  // 前の問いへ戻る。段階的に出すことが片道の廊下になってはいけない
+  if (e.target.closest('#askBack')) {
+    state.hasHeader = null
+    for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
+    render()
+    return
+  }
+  // 列を選ぶ問い：ファイルの列そのものを押させる
+  const cell = e.target.closest('.peek.pickable .peek-c[data-col]')
+  if (cell) {
+    const q = nextQuestion()
+    if (!q || q.kind !== 'field') return
+    const col = Number(cell.dataset.col)
+    $('peek').querySelectorAll(`.peek-c[data-col="${col}"]`).forEach(c => c.parentElement.parentElement.classList.add('peek-col', 'hot'))
+    assignQuiet(q.field.key, col)
+    setTimeout(() => runBuild(q.field.key), state.fx > 0 ? 260 : 0)
+  }
 })
+// 問いへの答えとしての割り当て。演出は runBuild が持つのでここでは描き直さない
+function assignQuiet(fieldKey, colIdx) {
+  for (const f of fields()) if (f.key !== fieldKey && state.mapping[f.key] === colIdx) { state.mapping[f.key] = null; state.manual[f.key] = false }
+  state.mapping[fieldKey] = colIdx
+  state.manual[fieldKey] = true
+  state.grew[fieldKey] = true
+}
 // ②→③ 要約の行が、そのまま直す入口
 $('crumb').addEventListener('click', () => { state.sheetOpen = true; render() })
 $('msheetDone').addEventListener('click', () => { state.sheetOpen = false; state.picked = null; render() })
@@ -1679,6 +1892,10 @@ $('pFx').addEventListener('click', e => {
   const b = e.target.closest('.pbtn'); if (!b) return
   state.fx = Number(b.dataset.fx); syncProbe(); render()
 })
+$('pTut').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b) return
+  state.tutorial = b.dataset.tut; state.seenBuild = false; syncProbe()
+})
 $('pConfirm').addEventListener('click', e => {
   const b = e.target.closest('.pbtn'); if (!b) return
   state.confirm = b.dataset.cf; syncProbe()
@@ -1687,7 +1904,7 @@ $('pStagger').addEventListener('input', e => {
   state.stagger = Number(e.target.value)
   $('pStaggerV').textContent = state.stagger + 'ms'
 })
-$('pReset').addEventListener('click', reload)
+$('pReset').addEventListener('click', () => { state.seenBuild = false; reload() })
 $('pAuto').addEventListener('click', () => { autoDetect(); render({ filled: 'name' }) })
 $('pClear').addEventListener('click', () => {
   for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
