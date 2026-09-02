@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>取込マッピング検証</title>
+<style>
+/* ── 本体アプリのトークンをそのまま借りる ─────────────────────────
+   目的は「実機で操作感と演出の強さを決める」こと。見た目が本体と違うと
+   判断がずれるので、色・字面は style.css / InventoryTable.vue と同じものを使う。 */
+:root {
+  --primary: #2563eb;
+  --primary-bright: #3b82f6;
+  --primary-soft: #dbeafe;
+  --primary-weak: #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-deep: #1d4ed8;
+  --primary-mid: #93c5fd;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --faint: #94a3b8;
+  --line: #e2e8f0;
+  --line-soft: #eef2f6;
+  --ground: #f8fafc;
+  --surface: #ffffff;
+  --danger: #dc2626;
+  --danger-weak: #fef2f2;
+  --danger-line: #fecaca;
+  --amber-ink: #b45309;
+  --amber-bg: #fffbeb;
+  --amber-line: #fde68a;
+  --ok: #16a34a;
+  --ok-weak: #f0fdf4;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+  /* フィールド色。PdfColumnMapper.vue が既に持っている割り当てをそのまま使う。
+     CSV経路とPDF経路で同じ色にすると、覚えることが1組で済む。 */
+  --f-name: #2563eb;
+  --f-price: #059669;
+  --f-unit: #7c3aed;
+  --f-category: #d97706;
+  --f-code: #0891b2;
+  --f-lot: #4b5563;
+  --f-prev: #9333ea;
+  --f-axisA: #db2777;
+  --f-axisB: #0d9488;
+  --f-date: #0284c7;
+  --f-qty: #db2777;
+
+  --font: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--ground);
+  color: var(--ink);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* ── 画面の骨格 ─────────────────────────────────────────────
+   どの取込元でも構造は同じ：
+     [入力源] → [組み上がる結果] → [実行]
+   上の段だけが取込元ごとに変わる（列チップ / PDFのページ）。
+   下の2段は全経路で共通にする。覚えることを1回で済ませるため。 */
+.app {
+  height: 100dvh; height: 100vh;
+  display: flex; flex-direction: column;
+  max-width: 480px; margin: 0 auto;
+  background: var(--ground);
+  position: relative; overflow: hidden;
+}
+
+/* ── ヘッダー ── */
+.hd {
+  flex-shrink: 0; height: 48px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px 0 4px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.hd-back {
+  border: none; background: none; color: var(--primary);
+  font-size: 15px; font-weight: 700; padding: 8px 10px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hd-file { flex: 1; min-width: 0; }
+.hd-name {
+  font-size: 13px; font-weight: 800; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hd-sub { font-size: 11px; color: var(--muted); }
+.hd-gear {
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 8px; width: 34px; height: 34px; font-size: 15px;
+  cursor: pointer; flex-shrink: 0;
+}
+
+/* ── 1行目の扱い・使わない列 ── */
+.bar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--line-soft);
+}
+/* 推測で決めず必ず選ばせる契約は守る。ただし判断材料を言葉から実物へ変える
+   （切り替えると1件目のカードが増減するのが見える）。 */
+.hseg { display: flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+.hseg-btn {
+  border: none; background: none; color: var(--muted);
+  font-size: 11.5px; font-weight: 700; padding: 5px 9px; border-radius: 7px; cursor: pointer;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.hseg-btn.on { background: var(--primary); color: #fff; }
+.hseg-btn.undecided { color: var(--amber-ink); }
+.bar-spacer { flex: 1; }
+.bar-unused { font-size: 11px; color: var(--faint); white-space: nowrap; }
+
+/* 未選択のあいだは実行させない、を画面にも出す */
+.needpick {
+  flex-shrink: 0; padding: 6px 12px; font-size: 11.5px; font-weight: 700;
+  color: var(--amber-ink); background: var(--amber-bg);
+  border-bottom: 1px solid var(--amber-line);
+}
+
+/* ── 入力源：列チップ ─────────────────────────────────────── */
+.src {
+  flex-shrink: 0; background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.chips {
+  display: flex; gap: 8px; padding: 9px 12px 11px;
+  overflow-x: auto; overflow-y: hidden;
+  /* 横だけ引き取る。宣言しないと Android Chrome が「進む・戻る」のエッジ操作として
+     処理して履歴を横取りする（振り分けで実際に起きた） */
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex-shrink: 0; width: 96px;
+  border: 1.5px solid var(--line); border-radius: 11px;
+  background: var(--surface); padding: 6px 8px 7px;
+  cursor: grab; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;   /* チップ自体はドラッグを引き取る */
+  position: relative;
+  transition: transform .18s cubic-bezier(.22,.61,.36,1), box-shadow .18s, border-color .15s, opacity .18s;
+}
+.chip-head {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 800; color: var(--faint);
+  margin-bottom: 4px;
+}
+.chip-no {
+  background: var(--ground); border-radius: 4px; padding: 0 4px;
+  color: var(--muted); flex-shrink: 0;
+}
+.chip-title {
+  font-size: 11.5px; font-weight: 800; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+.chip-vals { display: flex; flex-direction: column; gap: 1px; }
+.chip-val {
+  font-size: 10.5px; color: var(--muted); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 割り当て済み：上辺にフィールド色の帯。どの列がどこへ行ったかを一目で戻せる */
+.chip.used { border-color: var(--fc); background: #fff; }
+.chip.used::before {
+  content: ''; position: absolute; left: -1.5px; right: -1.5px; top: -1.5px; height: 4px;
+  background: var(--fc); border-radius: 11px 11px 0 0;
+}
+.chip-badge {
+  display: inline-block; font-size: 9.5px; font-weight: 800; color: #fff;
+  background: var(--fc); border-radius: 4px; padding: 1px 5px; margin-top: 4px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 使わなかった列も灰色で残す。いまは (使用しない) が select の中に隠れていて
+   「捨てた情報」が見えない */
+.chip.idle { opacity: .72; }
+.chip.picked {
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-weak);
+  transform: translateY(-3px);
+}
+.chip.dragging { opacity: .35; }
+.chip.empty-col { opacity: .45; }
+.chip-empty-tag { font-size: 10px; color: var(--faint); }
+
+/* 指に付いてくる分身 */
+.ghost {
+  position: fixed; z-index: 90; pointer-events: none;
+  width: 96px; border: 1.5px solid var(--primary); border-radius: 11px;
+  background: var(--surface); padding: 6px 8px 7px;
+  box-shadow: 0 10px 24px rgba(15,23,42,.22);
+  transform-origin: 50% 50%;
+}
+
+/* ── 入力源：PDFのページ ───────────────────────────────────── */
+.pdf {
+  position: relative; background: #fff; overflow: auto;
+  height: 190px; border-bottom: 1px solid var(--line);
+  touch-action: pan-x pan-y;
+}
+.pdf-page {
+  position: relative; width: 460px; height: 300px; margin: 8px auto;
+  background: #fff; box-shadow: 0 0 0 1px var(--line);
+  transform-origin: 0 0;
+}
+.tok {
+  position: absolute; font-size: 9px; color: #334155; white-space: nowrap;
+  padding: 1px 2px; border-radius: 3px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tok.head { font-weight: 800; color: #0f172a; }
+.tok.incol { box-shadow: inset 0 -2px 0 var(--fc); }
+.tok.hot { background: var(--fc); color: #fff; box-shadow: none; }
+.pdf-hint {
+  position: sticky; top: 0; z-index: 2;
+  font-size: 11px; color: var(--muted); background: rgba(255,255,255,.94);
+  padding: 5px 12px; border-bottom: 1px solid var(--line-soft);
+}
+
+/* ── 組み上がる結果 ───────────────────────────────────────── */
+.out { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 8px; touch-action: pan-y; }
+.out-lead {
+  padding: 9px 14px 4px; font-size: 11px; font-weight: 800; color: var(--faint);
+  letter-spacing: .06em;
+}
+.tablewrap { padding: 0 12px; }
+
+/* 実物の棚卸カードと同じ形にする。ここが違うと「取り込んだ後どう見えるか」の
+   判断材料にならない（InventoryTable.vue の .inv-table を写している） */
+.inv {
+  width: 100%; border-collapse: collapse; background: var(--surface);
+  border-radius: 14px; overflow: hidden; box-shadow: var(--shadow);
+  table-layout: fixed;
+}
+.inv thead tr { background: var(--primary-deep); color: #fff; }
+.inv th {
+  padding: 9px 12px; text-align: left; font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+}
+.inv th.qty, .inv th.amount { text-align: center; }
+.inv th.code { padding-left: 8px; padding-right: 4px; }
+.inv tbody tr { border-bottom: 1px solid var(--line-soft); }
+.inv tbody tr:last-child { border-bottom: none; }
+.td-code { padding: 9px 4px 9px 8px; font-size: 10px; font-family: monospace; color: var(--muted); white-space: nowrap; }
+.td-name { padding: 8px 12px; font-size: 13px; line-height: 1.4; }
+.nm { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.hints { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.hint { font-size: 10.5px; color: var(--muted); }
+.hint.lot { color: #7c3aed; }
+.td-qty { padding: 6px 8px; text-align: center; white-space: nowrap; }
+.qtybox {
+  display: inline-flex; align-items: baseline; gap: 2px; min-width: 48px;
+  border: 1.5px solid var(--line); border-radius: 8px; padding: 5px 7px;
+  font-size: 15px; font-weight: 700; color: var(--muted); background: var(--ground);
+  justify-content: center;
+}
+.td-amount { padding: 8px 10px; text-align: center; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* 行の状態。新規・更新・変更なし・取り込めない、を左の帯で示す */
+.inv tbody tr.st-add    { box-shadow: inset 3px 0 0 var(--ok); }
+.inv tbody tr.st-upd    { box-shadow: inset 3px 0 0 var(--primary); }
+.inv tbody tr.st-same   { box-shadow: inset 3px 0 0 var(--line); }
+.inv tbody tr.st-err    { background: var(--danger-weak); box-shadow: inset 3px 0 0 var(--danger); }
+.rowtag {
+  font-size: 9.5px; font-weight: 800; border-radius: 4px; padding: 1px 5px; flex-shrink: 0;
+}
+.rowtag.add  { background: var(--ok-weak); color: var(--ok); }
+.rowtag.upd  { background: var(--primary-weak); color: var(--primary); }
+.rowtag.same { background: var(--ground); color: var(--faint); }
+.rowtag.err  { background: #fee2e2; color: var(--danger); }
+.errmsg { font-size: 11px; color: var(--danger); margin-top: 2px; }
+/* 更新は変わる値だけ見せる。差分リストを読ませない */
+/* 更新は「何が何に変わるか」を縦に積む。横に並べると幅に入らない */
+.money { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.25; }
+.was { color: var(--faint); text-decoration: line-through; font-size: 10px; }
+.now { font-weight: 700; color: var(--ink); }
+
+/* ジャンル別の見出し。分類列を割り当てた瞬間にこれが生える */
+.grp {
+  background: var(--ground); font-size: 11.5px; font-weight: 800; color: #475569;
+}
+.grp td { padding: 7px 12px; }
+.grp .arrow { color: var(--faint); font-size: 10px; margin-right: 6px; }
+.grp .cnt { color: var(--faint); font-weight: 700; float: right; }
+
+/* 並び替えタブ。軸列を割り当てると増える */
+.sorts { display: flex; gap: 6px; padding: 8px 12px 2px; overflow-x: auto; scrollbar-width: none; }
+.sorts::-webkit-scrollbar { display: none; }
+.seg {
+  flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-size: 11.5px; font-weight: 700; border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  white-space: nowrap;
+}
+.seg.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* ── 見本カード（1件目）──────────────────────────────────────
+   「見本」と「結果」を同じものにする。覚えることが「点線に列を落とす」の
+   ひとつだけになり、2件目以降がそのまま答え合わせになる。 */
+.sample {
+  position: sticky; top: 0; z-index: 3;
+  margin: 8px 12px 10px; padding: 10px 12px 11px;
+  background: var(--surface); border: 1.5px solid var(--primary-border);
+  border-radius: 14px; box-shadow: 0 4px 14px rgba(37,99,235,.10);
+}
+.sample-lead {
+  font-size: 10px; font-weight: 800; color: var(--primary);
+  letter-spacing: .06em; margin-bottom: 7px;
+}
+.slot-name { margin-bottom: 8px; }
+.slots { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.slot {
+  border: 1.5px dashed var(--line); border-radius: 9px;
+  background: var(--ground); padding: 5px 9px; cursor: pointer;
+  font-size: 11.5px; color: var(--faint); font-weight: 700;
+  -webkit-tap-highlight-color: transparent; user-select: none;
+  transition: transform .16s cubic-bezier(.22,.61,.36,1), border-color .16s, background .16s, box-shadow .16s;
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px;
+}
+.slot.big { width: 100%; padding: 8px 11px; font-size: 15px; min-height: 42px; }
+.slot-lab { font-size: 9.5px; font-weight: 800; color: var(--fc); flex-shrink: 0; }
+.slot-val { color: var(--ink); font-weight: 700; }
+.slot.big .slot-val { font-size: 16px; font-weight: 800; }
+.slot.filled { border-style: solid; border-color: var(--fc); background: #fff; color: var(--ink); }
+.slot-cur { color: var(--faint); font-weight: 700; font-size: 10.5px; }
+.slot.req.empty { border-color: var(--danger-line); background: var(--danger-weak); color: var(--danger); }
+/* 置ける場所を光らせる（掴んだときだけ） */
+.slot.armed { border-color: var(--primary); background: var(--primary-weak); color: var(--primary); }
+.slot.over  { border-color: var(--primary); background: var(--primary-soft); transform: scale(1.06); box-shadow: 0 0 0 4px var(--primary-weak); }
+.slot-x {
+  border: none; background: none; color: var(--faint); font-size: 12px;
+  padding: 0 0 0 2px; cursor: pointer; line-height: 1;
+}
+/* 必須が空のあいだ、そこだけ脈打つ。最初の1手を迷わせない */
+@keyframes pulse-req {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+  50%      { box-shadow: 0 0 0 5px rgba(220,38,38,.16); }
+}
+.slot.req.empty.hint-pulse { animation: pulse-req 1.7s ease-in-out infinite; }
+
+/* ── 値が湧き上がる ──────────────────────────────────────── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(var(--rise, 9px)); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: rise var(--rise-ms, 300ms) cubic-bezier(.22,.61,.36,1) both; }
+/* 強めのときだけ、行そのものが軽く跳ねる */
+@keyframes bump {
+  0% { background: var(--primary-weak); }
+  100% { background: transparent; }
+}
+.bump { animation: bump 520ms ease-out; }
+/* 列が丸ごと生えるとき（コード列・金額列） */
+@keyframes colgrow {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.colgrow { animation: colgrow 320ms cubic-bezier(.22,.61,.36,1) both; }
+
+/* チップがスロットへ飛ぶ */
+.fly {
+  position: fixed; z-index: 95; pointer-events: none;
+  border-radius: 10px; background: var(--fc); color: #fff;
+  font-size: 11px; font-weight: 800; padding: 5px 9px;
+  box-shadow: 0 8px 20px rgba(15,23,42,.25);
+}
+
+/* ── 下部サマリーバー ─────────────────────────────────────── */
+.foot {
+  flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--line);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px;
+}
+.foot-nums { flex: 1; min-width: 0; }
+.foot-line1 { font-size: 12.5px; font-weight: 800; color: var(--ink); }
+.foot-line2 { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.num { font-variant-numeric: tabular-nums; }
+.n-add  { color: var(--ok); }
+.n-upd  { color: var(--primary); }
+.n-same { color: var(--faint); }
+.n-err  { color: var(--danger); font-weight: 800; }
+.foot-err {
+  border: none; background: var(--danger-weak); color: var(--danger);
+  font-size: 11px; font-weight: 800; border-radius: 7px; padding: 4px 8px; cursor: pointer;
+}
+.go {
+  flex-shrink: 0; border: none; border-radius: 11px;
+  background: var(--primary); color: #fff; font-size: 14px; font-weight: 800;
+  padding: 11px 18px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.go:disabled { background: #cbd5e1; }
+
+/* ── 取込方法（追加更新 / 全入れ替え）── */
+.modebar {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--surface); border-top: 1px solid var(--line-soft);
+  font-size: 11px; color: var(--muted);
+}
+.modeseg { display: flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+.modeseg button {
+  border: none; background: none; color: var(--muted); font-size: 11px; font-weight: 700;
+  padding: 4px 9px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+}
+.modeseg button.on { background: var(--primary); color: #fff; }
+.modeseg button.on.danger { background: var(--danger); }
+
+/* ── 確認シート（片方の案）── */
+.mask {
+  position: absolute; inset: 0; z-index: 60; background: rgba(15,23,42,.42);
+  display: flex; align-items: flex-end;
+}
+/* display を宣言した要素は hidden 属性（UAの display:none）に勝ってしまう。
+   閉じているつもりの覆いが全面のタップを飲み続けるので、明示的に消す。 */
+.mask[hidden] { display: none; }
+.sheet {
+  width: 100%; background: var(--surface); border-radius: 18px 18px 0 0;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 86%; overflow-y: auto;
+  animation: sheet-up .26s cubic-bezier(.22,.61,.36,1);
+}
+@keyframes sheet-up { from { transform: translateY(14%); opacity: .6 } to { transform: none; opacity: 1 } }
+.sheet-h { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+.sheet-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.kpis { display: flex; gap: 8px; margin-bottom: 12px; }
+.kpi { flex: 1; border: 1px solid var(--line); border-radius: 11px; padding: 8px; text-align: center; }
+.kpi-n { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.kpi-l { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.sheet-block { border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; margin-bottom: 10px; }
+.sheet-block.warn { border-color: var(--amber-line); background: var(--amber-bg); }
+.sheet-block-t { font-size: 12px; font-weight: 800; margin-bottom: 5px; }
+.sheet-block-b { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.sheet-acts { display: flex; gap: 10px; margin-top: 4px; }
+.sheet-acts button { flex: 1; border-radius: 11px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.btn-cancel { border: 1.5px solid var(--line); background: var(--surface); color: var(--muted); }
+.btn-ok { border: none; background: var(--primary); color: #fff; }
+.btn-ok.danger { background: var(--danger); }
+.chk { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.chk input { width: 17px; height: 17px; margin-top: 1px; flex-shrink: 0; }
+
+/* 振り分けセル。実物（InventoryTable の .preview-group-chip）と同じ、
+   チップが折り返す形。1つの箱に詰めると2軸で必ず溢れる。 */
+.pg { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
+.pgchip {
+  font-size: 9.5px; background: var(--primary-weak); color: var(--primary);
+  border: 1px solid var(--primary-border); border-radius: 5px; padding: 1px 5px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pgnone { font-size: 10.5px; color: var(--faint); }
+.grp.ng { background: var(--danger-weak); color: var(--danger); }
+.grp.ng .arrow, .grp.ng .cnt { color: var(--danger); }
+
+/* 全部埋まったときの1行。置き場は消えて一覧が画面いっぱいになる */
+.sample.done {
+  padding: 7px 12px; border-style: solid; border-color: var(--line);
+  background: var(--surface); box-shadow: none;
+}
+.done-line { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.done-ok { color: var(--ok); font-weight: 800; }
+.done-hint { margin-left: auto; font-size: 10.5px; color: var(--faint); font-weight: 700; white-space: nowrap; }
+.done-rest { color: var(--faint); font-weight: 700; }
+.sample.picking { border-color: var(--primary); box-shadow: 0 6px 20px rgba(37,99,235,.16); }
+.sample.picking .sample-lead { color: var(--primary); }
+
+/* チップの割当バッジに付く「外す」 */
+.chip-x {
+  border: none; background: none; color: rgba(255,255,255,.85);
+  font-size: 9px; padding: 0 0 0 4px; cursor: pointer; line-height: 1;
+}
+
+/* 取込方法。常設の帯を置かず、件数の隣から開く */
+.modelink {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-size: 10.5px; font-weight: 800; border-radius: 7px; padding: 2px 6px;
+  margin-left: 8px; cursor: pointer; vertical-align: 1px;
+}
+.modelink.danger { border-color: var(--danger-line); color: var(--danger); background: var(--danger-weak); }
+.modeopt {
+  border: 1.5px solid var(--line); border-radius: 11px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+}
+.modeopt-t { font-size: 13px; font-weight: 800; margin-bottom: 2px; }
+.modeopt-b { font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+.foot-line2 .sep { color: var(--line); margin: 0 5px; }
+.errjump {
+  border: none; background: var(--danger-weak); border-radius: 6px;
+  padding: 1px 6px; font-size: 11px; cursor: pointer;
+}
+.go.danger { background: var(--danger); }
+
+/* ── 計測・切替パネル ─────────────────────────────────────── */
+.probe {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 80;
+  background: rgba(255,255,255,.975); border: 1px solid var(--line);
+  border-radius: 14px; padding: 10px 12px 12px;
+  box-shadow: 0 10px 30px rgba(15,23,42,.18);
+  font-size: 11.5px; max-height: 76%; overflow-y: auto;
+}
+.probe.hide { display: none; }
+.probe-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.probe-t { font-weight: 800; font-size: 12px; flex: 1; }
+.probe-x { border: none; background: var(--ground); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; }
+.prow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.plab { width: 74px; flex-shrink: 0; color: var(--muted); font-weight: 700; }
+.pbtns { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.pbtn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.pbtn.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.pnums {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; padding-top: 8px;
+  border-top: 1px dashed var(--line); color: var(--muted);
+}
+.pnums b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.prange { flex: 1; }
+
+/* 動きを減らす設定。並べ替えと違い、ここでの演出は情報ではなく装飾なので全部止めてよい。
+   ただし「値が入った」ことは分かる必要があるので、色の変化だけ残す。 */
+@media (prefers-reduced-motion: reduce) {
+  .rise, .bump, .colgrow, .sheet { animation: none !important; }
+  .slot, .chip { transition: none !important; }
+}
+.reduced .rise, .reduced .bump, .reduced .colgrow { animation: none !important; }
+.reduced .slot, .reduced .chip { transition: none !important; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="hd">
+    <button class="hd-back">‹ 戻る</button>
+    <div class="hd-file">
+      <div class="hd-name" id="fname">仕入先リスト.csv</div>
+      <div class="hd-sub" id="fsub">312行</div>
+    </div>
+    <button class="hd-gear" id="gear" aria-label="計測パネル">⚙</button>
+  </header>
+
+  <!-- 1行目の扱い。推測で決めず必ず選ばせる契約は守り、判断材料を実物にする -->
+  <div class="bar" id="hbar">
+    <div class="hseg" id="hseg">
+      <button class="hseg-btn" data-h="head">1行目は見出し</button>
+      <button class="hseg-btn" data-h="data">1行目からデータ</button>
+    </div>
+    <div class="bar-spacer"></div>
+    <div class="bar-unused" id="unusedn"></div>
+  </div>
+  <div class="needpick" id="needpick" hidden>どちらかを選ぶまで取り込めません（1行目を消してしまわないため）</div>
+
+  <!-- 入力源 A: 列チップ -->
+  <div class="src" id="srcCols">
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <!-- 入力源 B: PDFのページ -->
+  <div class="pdf" id="srcPdf" hidden>
+    <div class="pdf-hint" id="pdfHint">読みたい数字をタップすると、その列がまるごと入ります</div>
+    <div class="pdf-page" id="pdfPage"></div>
+  </div>
+
+  <!-- 組み上がる結果 -->
+  <div class="out" id="out">
+    <div class="sample" id="sample"></div>
+    <div class="sorts" id="sorts"></div>
+    <div class="out-lead" id="outlead"></div>
+    <div class="tablewrap"><table class="inv" id="inv"></table></div>
+  </div>
+
+  <!-- 取込方法は毎回変えるものではない（既定＝追加・更新）。常設の帯で高さを取らず、
+       件数行の右端に出して、変えたい人だけがシートを開く。 -->
+  <div class="foot">
+    <div class="foot-nums">
+      <div class="foot-line1" id="footl1">—</div>
+      <div class="foot-line2" id="footl2"></div>
+    </div>
+    <button class="go" id="go" disabled>取り込む</button>
+  </div>
+
+  <!-- 取込方法 -->
+  <div class="mask" id="modeMask" hidden>
+    <div class="sheet">
+      <div class="sheet-h">取込方法</div>
+      <div class="sheet-sub">既定は「追加・更新」。既存の品目は消えません。</div>
+      <div class="modeopt" data-m="merge">
+        <div class="modeopt-t">追加・更新</div>
+        <div class="modeopt-b">ファイルに無い既存品目は<b>残ります</b>。いつもの取込。</div>
+      </div>
+      <div class="modeopt" data-m="replace">
+        <div class="modeopt-t">全入れ替え</div>
+        <div class="modeopt-b">ファイルに無い既存品目を<b>削除します</b>。発注点・振り分けも失われます。</div>
+      </div>
+      <div class="sheet-acts"><button class="btn-cancel" id="modeClose">閉じる</button></div>
+    </div>
+  </div>
+
+  <!-- 確認シート（案B：従来どおりもう一段挟む） -->
+  <div class="mask" id="mask" hidden>
+    <div class="sheet" id="sheet"></div>
+  </div>
+
+  <!-- 計測・切替 -->
+  <div class="probe hide" id="probe">
+    <div class="probe-h">
+      <span class="probe-t">試作の切替 / 計測</span>
+      <button class="probe-x" id="probeX">✕</button>
+    </div>
+
+    <div class="prow">
+      <span class="plab">取込元</span>
+      <div class="pbtns" id="pSrc">
+        <button class="pbtn" data-src="head">CSV 見出しあり</button>
+        <button class="pbtn" data-src="nohead">CSV 見出しなし</button>
+        <button class="pbtn" data-src="delivery">納品CSV</button>
+        <button class="pbtn" data-src="pdf">PDF</button>
+      </div>
+    </div>
+
+    <div class="prow">
+      <span class="plab">行数</span>
+      <div class="pbtns" id="pRows">
+        <button class="pbtn" data-rows="120">120</button>
+        <button class="pbtn" data-rows="800">800</button>
+        <button class="pbtn" data-rows="3000">3000</button>
+        <button class="pbtn" data-rows="8000">8000</button>
+      </div>
+    </div>
+
+    <div class="prow">
+      <span class="plab">演出の強さ</span>
+      <div class="pbtns" id="pFx">
+        <button class="pbtn" data-fx="0">なし</button>
+        <button class="pbtn" data-fx="1">控えめ</button>
+        <button class="pbtn" data-fx="2">標準</button>
+        <button class="pbtn" data-fx="3">強め</button>
+      </div>
+    </div>
+
+    <div class="prow">
+      <span class="plab">湧き上がり</span>
+      <input class="prange" id="pStagger" type="range" min="0" max="60" step="2">
+      <b id="pStaggerV" style="width:52px;text-align:right"></b>
+    </div>
+
+    <div class="prow">
+      <span class="plab">確認</span>
+      <div class="pbtns" id="pConfirm">
+        <button class="pbtn" data-cf="bar">バーだけ（1画面）</button>
+        <button class="pbtn" data-cf="sheet">確認を挟む</button>
+      </div>
+    </div>
+
+    <div class="prow">
+      <span class="plab">操作</span>
+      <div class="pbtns" id="pOps">
+        <button class="pbtn" id="pReset">最初から</button>
+        <button class="pbtn" id="pAuto">自動検出をやり直す</button>
+        <button class="pbtn" id="pClear">全部はずす</button>
+      </div>
+    </div>
+
+    <div class="pnums">
+      <span>再計算 <b id="mPlan">—</b></span>
+      <span>描画 <b id="mDraw">—</b></span>
+      <span>行 <b id="mRows">—</b></span>
+      <span>fps <b id="mFps">—</b></span>
+      <span>動き <b id="mMotion">—</b></span>
+    </div>
+  </div>
+
+</div>
+<script>
+'use strict'
+const $ = id => document.getElementById(id)
+
+/* ══════════════════════════════════════════════════════════════
+   フィールド定義
+   色は PdfColumnMapper.vue が既に持っている割り当てをそのまま使う。
+   CSV経路とPDF経路で色が同じなら、覚える組は1つで済む。
+   ══════════════════════════════════════════════════════════════ */
+const F_ITEM = [
+  { key:'name',      label:'品目名',   color:'var(--f-name)',     required:true,
+    hints:['品目名','商品名','品名','名称','name','item','product'] },
+  { key:'unit',      label:'単位',     color:'var(--f-unit)',     hints:['単位','unit'] },
+  { key:'price',     label:'単価',     color:'var(--f-price)',    hints:['単価','価格','金額','原価','price','cost'] },
+  { key:'category',  label:'カテゴリ', color:'var(--f-category)', hints:['カテゴリ','分類','種別','ジャンル','category'] },
+  { key:'code',      label:'コード',   color:'var(--f-code)',     hints:['商品コード','コード','jan','ean','品番','code'] },
+  { key:'lotSize',   label:'入数',     color:'var(--f-lot)',      hints:['入数','入り数','ロット','lot','pack'] },
+  { key:'prevMonth', label:'前月',     color:'var(--f-prev)',     hints:['前月実績','前月','先月','prev'] },
+  { key:'axisA',     label:'保管場所', color:'var(--f-axisA)',    hints:['保管場所','場所','ロケーション','棚','location'] },
+  { key:'axisB',     label:'仕入先',   color:'var(--f-axisB)',    hints:['仕入先','業者','取引先','supplier','vendor'] },
+]
+const F_DELIVERY = [
+  { key:'date',     label:'日付',     color:'var(--f-date)',     required:true,
+    hints:['日付','納品日','入荷日','伝票日付','取引日','date'] },
+  { key:'name',     label:'品目名',   color:'var(--f-name)',     required:true,
+    hints:['品目名','商品名','品名','名称','item'] },
+  { key:'qty',      label:'数量',     color:'var(--f-qty)',      required:true,
+    hints:['数量','入荷数','納品数','qty'] },
+  { key:'price',    label:'単価',     color:'var(--f-price)',    hints:['単価','原価','仕入単価','price'] },
+  { key:'unit',     label:'単位',     color:'var(--f-unit)',     hints:['単位','unit'] },
+  { key:'supplier', label:'仕入先',   color:'var(--f-axisB)',    hints:['仕入先','業者','取引先'] },
+  { key:'category', label:'カテゴリ', color:'var(--f-category)', hints:['カテゴリ','分類','ジャンル','部門'] },
+  { key:'code',     label:'コード',   color:'var(--f-code)',     hints:['商品コード','コード','品番','jan'] },
+]
+
+/* ══════════════════════════════════════════════════════════════
+   取込元のサンプル。実運用に近い語でないと「読めているか」の判断がつかない。
+   ══════════════════════════════════════════════════════════════ */
+const BASE = [
+  ['豚バラ','精肉','kg','冷蔵庫','山田精肉'],       ['鶏もも','精肉','kg','冷蔵庫','山田精肉'],
+  ['牛肩ロース','精肉','kg','冷蔵庫','山田精肉'],   ['豚こま','精肉','kg','冷凍庫','山田精肉'],
+  ['キャベツ','野菜','個','常温棚','丸和青果'],     ['玉ねぎ','野菜','kg','常温棚','丸和青果'],
+  ['にんじん','野菜','kg','冷蔵庫','丸和青果'],     ['じゃがいも','野菜','kg','常温棚','丸和青果'],
+  ['トマト','野菜','個','冷蔵庫','丸和青果'],       ['レタス','野菜','個','冷蔵庫','丸和青果'],
+  ['きゅうり','野菜','本','冷蔵庫','丸和青果'],     ['大根','野菜','本','冷蔵庫','丸和青果'],
+  ['白菜','野菜','個','常温棚','丸和青果'],         ['長ねぎ','野菜','束','冷蔵庫','丸和青果'],
+  ['ピーマン','野菜','袋','冷蔵庫','丸和青果'],     ['なす','野菜','袋','冷蔵庫','丸和青果'],
+  ['しめじ','野菜','パック','冷蔵庫','丸和青果'],   ['えのき','野菜','パック','冷蔵庫','丸和青果'],
+  ['真鯛','鮮魚','尾','冷蔵庫','港水産'],           ['ぶり','鮮魚','本','冷凍庫','港水産'],
+  ['サーモン','鮮魚','kg','冷蔵庫','港水産'],       ['むきえび','鮮魚','kg','冷凍庫','港水産'],
+  ['米','米・粉','kg','米庫','コメ卸センター'],     ['小麦粉','米・粉','kg','常温棚','コメ卸センター'],
+  ['サラダ油','調味料','L','常温棚','大東食品'],    ['ごま油','調味料','L','常温棚','大東食品'],
+  ['醤油','調味料','L','常温棚','大東食品'],        ['味噌','調味料','kg','冷蔵庫','大東食品'],
+  ['砂糖','調味料','kg','常温棚','大東食品'],       ['塩','調味料','kg','常温棚','大東食品'],
+  ['生ビール樽','酒類','本','酒庫','東西酒販'],     ['瓶ビール','酒類','ケース','酒庫','東西酒販'],
+  ['日本酒','酒類','本','酒庫','東西酒販'],         ['焼酎','酒類','本','酒庫','東西酒販'],
+  ['ハイボール缶','酒類','ケース','酒庫','東西酒販'],['ウーロン茶','飲料','本','カウンター下','東西酒販'],
+  ['牛乳','乳製品','L','冷蔵庫','大東食品'],        ['バター','乳製品','kg','冷蔵庫','大東食品'],
+  ['冷凍ポテト','冷凍','kg','冷凍庫','大東食品'],   ['餃子','冷凍','パック','冷凍庫','大東食品'],
+]
+const CODE_HEAD = ['4901','4902','4903','4571','4987']
+
+// 行を作る。同じ index なら常に同じ内容（切り替えても比較できるように）
+function makeRow(i) {
+  const b = BASE[i % BASE.length]
+  const gen = Math.floor(i / BASE.length)
+  const name = gen === 0 ? b[0] : `${b[0]}${gen === 1 ? '（特上）' : gen === 2 ? '（業務用）' : ' ' + gen}`
+  const price = 120 + ((i * 137) % 1800)
+  return {
+    name,
+    category: b[1],
+    unit: b[2],
+    price: String(price),
+    axisA: b[3],
+    axisB: b[4],
+    code: CODE_HEAD[i % CODE_HEAD.length] + String(100000 + (i * 7919) % 899999),
+    lotSize: String(1 + (i % 6)),
+    prevMonth: String((i * 13) % 48),
+    date: `2026/0${1 + (i % 8)}/${String(1 + (i % 27)).padStart(2, '0')}`,
+    qty: String(1 + (i % 24)),
+  }
+}
+
+// 実運用のCSVはきれいではない。壊れ方も混ぜないと「取り込めない行」の見え方を試せない
+function dirty(i, row) {
+  if (i > 0 && i % 37 === 0)  return { ...row, name: '' }                    // 品目名が空
+  if (i > 0 && i % 53 === 0)  return { ...row, name: makeRow(i - 1).name }   // 直前と重複
+  if (i > 0 && i % 71 === 0)  return { ...row, price: '¥ 1,2 8 0' }          // 読めない数値
+  return row
+}
+
+const SOURCES = {
+  head: {
+    filename: '仕入先マスタ_2026.csv', fields: F_ITEM, mode: 'csv',
+    headers: ['商品コード','商品名','分類','単位','仕入単価','入数','前月実績','保管場所','仕入先'],
+    cols: ['code','name','category','unit','price','lotSize','prevMonth','axisA','axisB'],
+  },
+  nohead: {
+    filename: '発注書_抜粋.csv', fields: F_ITEM, mode: 'csv',
+    headers: null,   // 見出し行が無いファイル
+    cols: ['name','unit','price','category','axisA'],
+  },
+  delivery: {
+    filename: '丸和青果_納品明細.csv', fields: F_DELIVERY, mode: 'csv',
+    headers: ['伝票日付','品名','数量','単位','仕入単価','取引先','部門'],
+    cols: ['date','name','qty','unit','price','axisB','category'],
+  },
+  pdf: {
+    filename: '東西酒販_請求書.pdf', fields: F_ITEM, mode: 'pdf',
+    headers: ['品名','単位','単価','分類'],
+    cols: ['name','unit','price','category'],
+  },
+}
+
+/* ══════════════════════════════════════════════════════════════
+   状態
+   ══════════════════════════════════════════════════════════════ */
+const state = {
+  srcKey: 'head',
+  nRows: 800,
+  fx: 3,                 // 0 なし / 1 控えめ / 2 標準 / 3 強め
+  stagger: 22,           // 湧き上がりの1行あたりの遅れ(ms)
+  confirm: 'bar',        // 'bar' 1画面完結 / 'sheet' 確認を挟む
+  hasHeader: null,       // null=未選択（契約どおり推測で埋めない）
+  mode: 'merge',
+  mapping: {},
+  manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
+  picked: null,          // タップ2段で選択中の列
+  justFilled: null,      // 直前に埋めたフィールド（湧き上がりの対象）
+  grew: {},              // 生えたばかりの列
+}
+let SRC = null, TABLE = [], EXISTING = new Map(), PLAN = null
+let lastPlanMs = 0, lastDrawMs = 0
+
+const fields = () => SRC.fields
+const fieldOf = k => fields().find(f => f.key === k)
+const colorOf = k => fieldOf(k)?.color ?? 'var(--primary)'
+const isItemMaster = () => SRC.fields === F_ITEM
+
+/* ── 取込元を組み立てる ───────────────────────────────────── */
+function buildSource() {
+  SRC = SOURCES[state.srcKey]
+  const rows = []
+  if (SRC.headers) rows.push(SRC.headers.slice())
+  for (let i = 0; i < state.nRows; i++) {
+    const r = dirty(i, makeRow(i))
+    rows.push(SRC.cols.map(c => r[c] ?? ''))
+  }
+  TABLE = rows
+
+  // 取込先の既存マスタ。半分は既存（更新か変更なし）、半分は新規になる形にする
+  EXISTING = new Map()
+  for (let i = 0; i < Math.floor(state.nRows * 0.55); i++) {
+    const r = makeRow(i)
+    EXISTING.set(r.name, {
+      price: (i % 3 === 0) ? String(Number(r.price) - 40) : r.price,   // 3件に1件は単価が変わる
+      unit: r.unit, category: r.category,
+      axisA: (i % 5 === 0) ? '' : r.axisA,
+    })
+  }
+  state.hasHeader = null
+  state.mapping = {}
+  state.manual = {}
+  state.picked = null
+  state.grew = {}
+  autoDetect()
+}
+
+/* ── 自動検出 ─────────────────────────────────────────────
+   見出しがあると宣言されたときだけ効かせる。見出しの無いファイルで推測すると
+   1行目のデータを列名と誤読する（既存実装と同じ規約）。 */
+function autoDetect({ keepManual = false } = {}) {
+  const head = state.hasHeader === true ? (TABLE[0] ?? []).map(s => String(s).trim().toLowerCase()) : []
+  for (const f of fields()) {
+    if (keepManual && state.manual[f.key]) continue    // 手で置いたものは残す
+    let hit = null
+    for (let i = 0; i < head.length; i++) {
+      if (f.hints.some(h => head[i].includes(String(h).toLowerCase()))) { hit = i; break }
+    }
+    state.mapping[f.key] = hit
+    state.manual[f.key] = false
+  }
+  // 品目名だけは、見出しが無くても1列目を既定にする（実装と同じ）
+  if (state.hasHeader === false && (state.mapping.name === null || state.mapping.name === undefined)) {
+    state.mapping.name = 0
+  }
+  // 自動で当てた列が他とぶつかっていたら、手で置いたほうを優先して外す
+  if (keepManual) {
+    const taken = new Set()
+    for (const f of fields()) if (state.manual[f.key]) taken.add(state.mapping[f.key])
+    for (const f of fields()) {
+      if (!state.manual[f.key] && taken.has(state.mapping[f.key])) state.mapping[f.key] = null
+    }
+  }
+}
+
+const colCount = () => TABLE.reduce((n, r) => Math.max(n, r.length), 0)
+const dataRows = () => (state.hasHeader === true ? TABLE.slice(1) : TABLE)
+const headerName = i =>
+  (state.hasHeader === true ? (TABLE[0]?.[i] ?? '').trim() : '') || `列${i + 1}`
+
+/* ══════════════════════════════════════════════════════════════
+   計画を組み立てる。
+   本体では buildImportPlan（純関数）が同じ仕事をしている。実測は
+     1000行 7.2ms / 3000行 16.9ms / 8000行 45.9ms（PC）
+   なので、列を1本置くたびに丸ごと作り直して足りる。ここでも毎回全行を通す
+   ── 端末での実コストを測るのが目的なので、手を抜くと数字が嘘になる。
+   ══════════════════════════════════════════════════════════════ */
+function buildPlan() {
+  const t0 = performance.now()
+  const m = state.mapping
+  const rows = []
+  const counts = { add: 0, upd: 0, same: 0, err: 0, skip: 0 }
+  const seen = new Set()
+
+  if (m.name === null || m.name === undefined || state.hasHeader === null) {
+    lastPlanMs = performance.now() - t0
+    return { rows: [], counts, ready: false }
+  }
+
+  const src = dataRows()
+  const cell = (r, key) => {
+    const i = m[key]
+    if (i === null || i === undefined) return ''
+    return String(r[i] ?? '').trim()
+  }
+
+  for (let k = 0; k < src.length; k++) {
+    const r = src[k]
+    const line = state.hasHeader === true ? k + 2 : k + 1
+    const name = cell(r, 'name')
+
+    if (!name) { counts.err++; rows.push({ line, status: 'err', msg: '品目名が空' }); continue }
+    if (seen.has(name)) { counts.skip++; rows.push({ line, name, status: 'skip', msg: 'ファイル内の重複（先の行を採用）' }); continue }
+    seen.add(name)
+
+    const vals = {}
+    for (const f of fields()) if (f.key !== 'name') vals[f.key] = cell(r, f.key)
+
+    // 数値として読めない値は「既存値を残す」ではなく行エラーにする（IMPORT-001の契約）
+    let bad = ''
+    for (const key of ['price', 'lotSize', 'prevMonth', 'qty']) {
+      const v = vals[key]
+      if (v && !/^[0-9]+(\.[0-9]+)?$/.test(v.replace(/[,¥￥\s]/g, ''))) {
+        bad = `${fieldOf(key)?.label ?? key}「${v}」が数値として読めません`
+        break
+      }
+    }
+    if (bad) { counts.err++; rows.push({ line, name, status: 'err', msg: bad }); continue }
+
+    const prev = EXISTING.get(name)
+    let status = 'add', diff = null
+    if (prev) {
+      diff = {}
+      for (const key of ['price', 'unit', 'category', 'axisA']) {
+        const nv = vals[key]
+        if (nv && nv !== (prev[key] ?? '')) diff[key] = prev[key] ?? ''
+      }
+      status = Object.keys(diff).length ? 'upd' : 'same'
+    }
+    counts[status === 'add' ? 'add' : status === 'upd' ? 'upd' : 'same']++
+    rows.push({ line, name, vals, status, diff })
+  }
+
+  lastPlanMs = performance.now() - t0
+  return { rows, counts, ready: true }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   描画
+   ══════════════════════════════════════════════════════════════ */
+const RENDER_MAX = 40      // 画面に出す行。計画は全行、描画は先頭だけ
+const has = k => state.mapping[k] !== null && state.mapping[k] !== undefined
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
+
+function render(opts = {}) {
+  const t0 = performance.now()
+  PLAN = buildPlan()
+  renderChips()
+  renderSample()
+  renderSorts()
+  renderTable(opts)
+  renderFoot()
+  $('needpick').hidden = state.hasHeader !== null
+  lastDrawMs = performance.now() - t0
+  renderProbeNums()
+}
+
+/* ── 列チップ ── */
+function renderChips() {
+  const wrap = $('chips')
+  if (SRC.mode === 'pdf') return
+  const n = colCount()
+  const usedBy = {}
+  for (const f of fields()) if (has(f.key)) usedBy[state.mapping[f.key]] = f
+
+  let html = ''
+  for (let i = 0; i < n; i++) {
+    const f = usedBy[i]
+    const vals = dataRows().slice(0, 3).map(r => String(r[i] ?? '').trim())
+    const empty = vals.every(v => v === '')
+    const cls = ['chip']
+    if (f) cls.push('used'); else cls.push('idle')
+    if (empty) cls.push('empty-col')
+    if (state.picked === i) cls.push('picked')
+    html += `<div class="${cls.join(' ')}" data-col="${i}" style="--fc:${f ? f.color : 'var(--line)'}">
+      <div class="chip-head"><span class="chip-no">${i + 1}</span></div>
+      <div class="chip-title">${esc(headerName(i))}</div>
+      <div class="chip-vals">${
+        vals.map(v => `<div class="chip-val">${v ? esc(v) : '<span class="chip-empty-tag">（空）</span>'}</div>`).join('')
+      }</div>
+      ${f ? `<div class="chip-badge">${esc(f.label)}<button class="chip-x" data-x="${f.key}" aria-label="外す">✕</button></div>` : ''}
+    </div>`
+  }
+  wrap.innerHTML = html
+
+  const unused = []
+  for (let i = 0; i < n; i++) if (!usedBy[i]) unused.push(i)
+  // 使わなかった列も見せる。いまは (使用しない) が select の中に隠れていて
+  // 「何を捨てたか」が画面から消える
+  $('unusedn').textContent = unused.length ? `使わない列 ${unused.length}` : '全部の列を使用中'
+}
+
+/* ── 見本カード（1件目）── */
+function renderSample() {
+  const el = $('sample')
+  // 置き場の出し方は2通り。
+  //   列を選んでいない → 「まだ空いている置き場」だけ（低くして一覧に画面を渡す）
+  //   列を選んでいる   → 全部の置き場（埋まっている所へ差し替えられないと詰む。
+  //                      特にPDFのように列が4本しか無い取込元では、空きだけ出すと行き止まる）
+  const picking = state.picked !== null
+  const open = fields().filter(f => !has(f.key))
+
+  // 残っている列より多くの置き場を勧めない。列を使い切ったら、そこが終点。
+  const usedCols = new Set(fields().map(f => state.mapping[f.key]).filter(v => v !== null && v !== undefined))
+  const freeCols = Math.max(0, colCount() - usedCols.size)
+  const missingReq = open.filter(f => f.required)
+
+  const slot = (f) => {
+    const filled = has(f.key)
+    const cls = ['slot']
+    if (f.required && !filled) cls.push('req', 'empty', 'hint-pulse', 'big')
+    if (filled) cls.push('filled')
+    if (picking) cls.push('armed')
+    return `<div class="${cls.join(' ')}" data-slot="${f.key}" style="--fc:${f.color}">
+      <span class="slot-lab">${esc(f.label)}</span>
+      <span class="${filled ? 'slot-cur' : ''}">${
+        filled ? `今: ${esc(headerName(state.mapping[f.key]))}` : (f.required ? '必須 ・ 列をここへ' : 'ここへ')}</span>
+    </div>`
+  }
+
+  if (picking) {
+    el.className = 'sample picking'
+    const req = fields().filter(f => f.required && !has(f.key))
+    const rest = fields().filter(f => !(f.required && !has(f.key)))
+    el.innerHTML = `
+      <div class="sample-lead">「${esc(headerName(state.picked))}」を置く場所をタップ</div>
+      ${req.map(slot).join('')}
+      <div class="slots">${rest.map(slot).join('')}</div>`
+    return
+  }
+
+  if (open.length === 0 || (freeCols === 0 && missingReq.length === 0)) {
+    el.className = 'sample done'
+    const usedN = fields().length - open.length
+    el.innerHTML = `<div class="done-line">
+      <span class="done-ok">✓</span>
+      <span>${usedN}項目に対応づけ済み${open.length ? `<span class="done-rest">（この取込元に無い ${open.length}項目は空のまま）</span>` : ''}</span>
+      <span class="done-hint">変えるときは上の列をタップ</span></div>`
+    return
+  }
+
+  el.className = 'sample'
+  // 置ける列が残っている数だけ勧める（勧めた先が全部埋まらないのは案内として嘘になる）
+  const opt = open.filter(f => !f.required).slice(0, Math.max(0, freeCols))
+  el.innerHTML = `
+    <div class="sample-lead">${missingReq.length ? 'これが要ります' : 'まだ置ける項目'}（${missingReq.length + opt.length}）</div>
+    ${missingReq.map(slot).join('')}
+    ${opt.length ? `<div class="slots">${opt.map(slot).join('')}</div>` : ''}`
+}
+
+/* ── 並び替えタブ。軸の列を置くと増える ── */
+function renderSorts() {
+  if (!isItemMaster()) { $('sorts').innerHTML = ''; return }
+  const tabs = ['ジャンル']
+  if (has('axisA')) tabs.push(fieldOf('axisA').label)
+  if (has('axisB')) tabs.push(fieldOf('axisB').label)
+  tabs.push('五十音')
+  $('sorts').innerHTML = tabs.map((t, i) =>
+    `<button class="seg${i === 0 ? ' on' : ''}${state.grew['sort'] && i === tabs.length - 2 ? ' colgrow' : ''}">${esc(t)}</button>`).join('')
+}
+
+/* ── 組み上がる一覧 ────────────────────────────────────────
+   実物の棚卸カード（InventoryTable.vue）と同じ形で出す。ここが違うと
+   「取り込んだ後どう見えるか」の判断材料にならない。
+   列を置くたびに列そのものが生え、分類を置くとジャンルの見出しが生える。 */
+function renderTable(opts = {}) {
+  const t = $('inv')
+  if (!PLAN.ready) {
+    t.innerHTML = `<tbody><tr><td style="padding:22px 14px;color:var(--faint);font-size:12.5px;text-align:center">
+      ${state.hasHeader === null ? '1行目の扱いを選ぶと、ここに結果が出ます' : '品目名の列を置くと、ここに結果が出ます'}
+    </td></tr></tbody>`
+    $('outlead').textContent = ''
+    return
+  }
+
+  const master = isItemMaster()
+  const showCode  = master && has('code')
+  const showPrice = has('price')
+  const showQty   = has('qty')
+  const showDate  = has('date')
+  const grouped   = master && has('category')
+
+  // 湧き上がりの対象と1行あたりの遅れ
+  const jf = opts.filled ?? null
+  const stg = state.fx === 0 ? 0 : state.fx === 1 ? 0 : state.stagger
+  const riseMs = state.fx === 0 ? 0 : state.fx === 1 ? 200 : state.fx === 2 ? 300 : 380
+  let riseIdx = 0
+  // class は必ずここで1つにまとめて返す。呼び出し側にも class を書くと
+  // 属性が二重になり、後から書いたほうが捨てられる。
+  const riseAttr = (key, extra = '') => {
+    if (!jf || jf !== key || state.fx === 0) return extra ? ` class="${extra}"` : ''
+    const d = Math.min(riseIdx++ * stg, 900)
+    return ` class="rise${extra ? ' ' + extra : ''}" style="animation-delay:${d}ms;--rise-ms:${riseMs}ms;--rise:${state.fx === 3 ? 12 : 8}px"`
+  }
+  const growAttr = (key) => (state.grew[key] && state.fx > 0 ? ' colgrow' : '')
+
+  const head = []
+  if (showCode) head.push(`<th class="code${growAttr('code')}" style="width:58px">コード</th>`)
+  if (showDate) head.push(`<th style="width:80px">日付</th>`)
+  head.push(`<th>品目</th>`)
+  if (master) head.push(`<th class="qty" style="width:92px">振り分け</th>`)
+  if (showQty) head.push(`<th class="qty" style="width:62px">数量</th>`)
+  if (showPrice) head.push(`<th class="amount${growAttr('price')}" style="width:66px">単価</th>`)
+  const ncols = head.length
+
+  let body = ''
+  let shown = 0, lastCat = null
+  // 実物の棚卸カードはジャンルでまとまって出る。分類の列を置いた瞬間に
+  // 行がその並びへ組み変わる、が「組み上がる」の見せどころになる。
+  const bad = r => r.status === 'err' || r.status === 'skip'
+  const ok = PLAN.rows.filter(r => !bad(r))
+  const ng = PLAN.rows.filter(bad)
+  const list = (grouped
+    ? ok.slice().sort((a, b) => String(a.vals?.category ?? '').localeCompare(String(b.vals?.category ?? ''), 'ja'))
+    : ok).concat(ng)
+  let ngOpened = false
+  for (const r of list) {
+    if (shown >= RENDER_MAX && !bad(r)) break
+    if (bad(r) && !ngOpened) {
+      ngOpened = true
+      body += `<tr class="grp ng"><td colspan="${ncols}">
+        <span class="arrow">▼</span>取り込めない行<span class="cnt">${ng.length}</span></td></tr>`
+    }
+    if (!bad(r) && grouped && r.vals?.category !== lastCat) {
+      lastCat = r.vals?.category
+      const cnt = ok.filter(x => x.vals?.category === lastCat).length
+      body += `<tr class="grp${growAttr('category')}"><td colspan="${ncols}">
+        <span class="arrow">▼</span>${esc(lastCat || '（分類なし）')}<span class="cnt">${cnt}</span></td></tr>`
+    }
+    shown++
+
+    if (r.status === 'err' || r.status === 'skip') {
+      const isErr = r.status === 'err'
+      body += `<tr class="${isErr ? 'st-err' : 'st-same'}" data-err="${isErr ? 1 : 0}">
+        <td class="td-name" colspan="${ncols}">
+          <div class="nm">
+            <span class="rowtag ${isErr ? 'err' : 'same'}">${isErr ? '取り込めない' : '除外'}</span>
+            <span style="color:var(--muted)">${r.name ? esc(r.name) : `${r.line}行目`}</span>
+          </div>
+          <div class="errmsg">${r.line}行目 ・ ${esc(r.msg)}</div>
+        </td></tr>`
+      continue
+    }
+
+    const tag = master
+      ? (r.status === 'add' ? ['add','新規'] : r.status === 'upd' ? ['upd','更新'] : ['same','変更なし'])
+      : (r.status === 'add' ? ['add','新しい品目'] : ['same','登録済み'])
+    let tds = ''
+    if (showCode) tds += `<td class="td-code${growAttr('code')}"><span${riseAttr('code')}>${esc(r.vals.code || '')}</span></td>`
+    if (showDate) tds += `<td class="td-code"><span${riseAttr('date')}>${esc(r.vals.date || '')}</span></td>`
+
+    const hints = []
+    if (has('unit') && r.vals.unit)           hints.push(`<span${riseAttr('unit', 'hint')}>単位: ${esc(r.vals.unit)}</span>`)
+    if (has('lotSize') && r.vals.lotSize)     hints.push(`<span${riseAttr('lotSize', 'hint lot')}>入数: ${esc(r.vals.lotSize)}</span>`)
+    if (has('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint')}>前月: ${esc(r.vals.prevMonth)}</span>`)
+    if (has('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint')}>${esc(r.vals.supplier)}</span>`)
+    tds += `<td class="td-name">
+      <div class="nm"><span class="rowtag ${tag[0]}">${tag[1]}</span>${esc(r.name)}</div>
+      ${hints.length ? `<div class="hints">${hints.join('')}</div>` : ''}
+    </td>`
+
+    if (master) {
+      const gs = []
+      if (has('axisA') && r.vals.axisA) gs.push(r.vals.axisA)
+      if (has('axisB') && r.vals.axisB) gs.push(r.vals.axisB)
+      tds += `<td class="td-qty"><span${riseAttr(has('axisA') ? 'axisA' : 'axisB', 'pg')}>${
+        gs.length ? gs.map(g => `<span class="pgchip">${esc(g)}</span>`).join('')
+                  : '<span class="pgnone">未振り分け</span>'}</span></td>`
+    }
+    if (showQty)   tds += `<td class="td-qty"><span${riseAttr('qty', 'qtybox')}>${esc(r.vals.qty || '')}</span></td>`
+    if (showPrice) {
+      const was = r.diff?.price
+      tds += `<td class="td-amount${growAttr('price')}"><span${riseAttr('price', 'money')}>${
+        was ? `<span class="was">¥${esc(was)}</span>` : ''}<span class="now">¥${esc(r.vals.price || '')}</span></span></td>`
+    }
+    body += `<tr class="st-${r.status}">${tds}</tr>`
+  }
+
+  const restN = ok.length - shown
+  if (restN > 0) {
+    body += `<tr><td colspan="${ncols}" style="padding:10px 14px;text-align:center;color:var(--faint);font-size:11.5px">
+      ほか ${restN.toLocaleString()}件（同じ形で入ります）</td></tr>`
+  }
+  t.innerHTML = `<thead><tr>${head.join('')}</tr></thead><tbody>${body}</tbody>`
+  $('outlead').textContent = master
+    ? `取り込んだ後の棚卸カード（${PLAN.rows.length.toLocaleString()}行を確認中）`
+    : `入庫として記録される内容（${PLAN.rows.length.toLocaleString()}行を確認中）`
+
+  // 強めのときだけ、変わった行そのものが軽く光る
+  if (state.fx === 3 && jf) {
+    const trs = t.querySelectorAll('tbody tr.st-add, tbody tr.st-upd')
+    for (let i = 0; i < Math.min(trs.length, 12); i++) {
+      const tr = trs[i]
+      tr.style.animationDelay = `${i * stg}ms`
+      tr.classList.add('bump')
+      tr.addEventListener('animationend', () => tr.classList.remove('bump'), { once: true })
+    }
+  }
+  state.grew = {}
+}
+
+/* ── 下部サマリーバー ── */
+function renderFoot() {
+  const c = PLAN.counts
+  const l1 = $('footl1'), l2 = $('footl2')
+  if (!PLAN.ready) {
+    l1.textContent = state.hasHeader === null ? '1行目の扱いを選んでください' : '品目名の列を置いてください'
+    l2.textContent = ''
+    $('go').disabled = true
+    return
+  }
+  const total = c.add + c.upd + c.same
+  const rep = state.mode === 'replace'
+  const master = isItemMaster()
+  l1.innerHTML = `<span class="num">${total.toLocaleString()}</span>件が${master ? '入ります' : '記録されます'}`
+    + (master ? `<button class="modelink${rep ? ' danger' : ''}" id="modelink">${rep ? '全入れ替え' : '追加・更新'} ▾</button>` : '')
+  l2.innerHTML = [
+    `<span class="n-add num">${master ? '新規' : '新しい品目'} ${c.add.toLocaleString()}</span>`,
+    master ? `<span class="n-upd num">更新 ${c.upd.toLocaleString()}</span>` : '',
+    `<span class="n-same num">${master ? '同' : '登録済み'} ${(c.same + (master ? 0 : c.upd)).toLocaleString()}</span>`,
+    // 除外の件数そのものを、その行へ飛ぶボタンにする（別ボタンを置かない）
+    (c.err + c.skip) ? `<button class="n-err num errjump">除外 ${(c.err + c.skip).toLocaleString()} ›</button>` : '',
+  ].filter(Boolean).join('<span class="sep">・</span>')
+  $('go').disabled = total === 0
+  $('go').textContent = master && rep ? '全入れ替え' : '取り込む'
+  $('go').classList.toggle('danger', master && rep)
+}
+
+/* ══════════════════════════════════════════════════════════════
+   割り当て
+   ══════════════════════════════════════════════════════════════ */
+function assign(fieldKey, colIdx, fromEl) {
+  if (state.hasHeader === null) { flashNeedPick(); return }
+  const prev = state.mapping[fieldKey]
+  // 同じ列を2つのフィールドへ同時に割り当てない（元の実装の select と同じ制約）
+  for (const f of fields()) if (f.key !== fieldKey && state.mapping[f.key] === colIdx) { state.mapping[f.key] = null; state.manual[f.key] = false }
+  state.mapping[fieldKey] = colIdx
+  state.manual[fieldKey] = true
+  state.picked = null
+  // 列が丸ごと生えるフィールドは、生えたことが分かるように印を付ける
+  if (prev === null || prev === undefined) state.grew[fieldKey] = true
+  if (fieldKey === 'axisA' || fieldKey === 'axisB') state.grew['sort'] = true
+
+  if (fromEl && state.fx >= 2) flyTo(fromEl, fieldKey)
+  render({ filled: fieldKey })
+}
+
+function unassign(fieldKey) {
+  state.mapping[fieldKey] = null
+  state.manual[fieldKey] = false
+  state.picked = null
+  render()
+}
+
+/* チップがスロットへ飛ぶ。強め(3)は弧を描く */
+function flyTo(fromEl, fieldKey) {
+  const to = document.querySelector(`[data-slot="${fieldKey}"]`)
+  if (!to) return
+  const a = fromEl.getBoundingClientRect(), b = to.getBoundingClientRect()
+  const el = document.createElement('div')
+  el.className = 'fly'
+  el.style.setProperty('--fc', colorOf(fieldKey))
+  el.textContent = fieldOf(fieldKey).label
+  document.body.appendChild(el)
+  const x0 = a.left + a.width / 2, y0 = a.top + 14
+  const x1 = b.left + b.width / 2, y1 = b.top + b.height / 2
+  const arc = state.fx === 3
+  const frames = arc
+    ? [
+        { transform: `translate(${x0}px,${y0}px) translate(-50%,-50%) scale(.9)`, opacity: 1 },
+        { transform: `translate(${(x0 + x1) / 2}px,${Math.min(y0, y1) - 34}px) translate(-50%,-50%) scale(1.12)`, opacity: 1, offset: .55 },
+        { transform: `translate(${x1}px,${y1}px) translate(-50%,-50%) scale(.7)`, opacity: 0 },
+      ]
+    : [
+        { transform: `translate(${x0}px,${y0}px) translate(-50%,-50%)`, opacity: 1 },
+        { transform: `translate(${x1}px,${y1}px) translate(-50%,-50%) scale(.8)`, opacity: 0 },
+      ]
+  el.animate(frames, { duration: arc ? 420 : 260, easing: 'cubic-bezier(.3,.7,.3,1)' })
+    .onfinish = () => el.remove()
+}
+
+function flashNeedPick() {
+  const el = $('needpick')
+  el.hidden = false
+  el.style.background = '#fde68a'
+  setTimeout(() => { el.style.background = '' }, 420)
+}
+
+/* ══════════════════════════════════════════════════════════════
+   操作1: 掴んで落とす（直接操作）
+   操作2: 列をタップ → 置き場をタップ（片手・確実）
+   どちらか片方だけだと、長い一覧やスクロール中に必ず詰まる。
+   ══════════════════════════════════════════════════════════════ */
+let drag = null, fpsRaf = 0, fpsN = 0, fpsT0 = 0
+
+function onChipDown(e) {
+  if (e.target.closest('.chip-x')) return    // ✕ は外す操作。掴みに食わせない
+  const chip = e.target.closest('.chip')
+  if (!chip) return
+  const col = Number(chip.dataset.col)
+  drag = { col, chip, x0: e.clientX, y0: e.clientY, moved: false, ghost: null, over: null }
+  chip.setPointerCapture?.(e.pointerId)
+}
+function onChipMove(e) {
+  if (!drag) return
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0
+  if (!drag.moved) {
+    if (Math.hypot(dx, dy) < 8) return
+    // 横に強く動いたときはチップ列の横スクロールに渡す（掴みと取り合わない）
+    if (Math.abs(dx) > Math.abs(dy) * 1.6) { drag = null; return }
+    drag.moved = true
+    startGhost()
+  }
+  const g = drag.ghost
+  g.style.left = (e.clientX - 48) + 'px'
+  g.style.top  = (e.clientY - 74) + 'px'
+
+  // 掴んだ本体が常に最前面に来るので elementFromPoint（単数）だと自分しか取れない
+  const under = document.elementsFromPoint(e.clientX, e.clientY)
+    .map(el => el.closest?.('[data-slot]')).find(Boolean)
+  if (under !== drag.over) {
+    drag.over?.classList.remove('over')
+    under?.classList.add('over')
+    drag.over = under || null
+  }
+}
+function onChipUp(e) {
+  if (!drag) return
+  const d = drag; drag = null
+  stopFps()
+  d.ghost?.remove()
+  d.chip.classList.remove('dragging')
+  d.over?.classList.remove('over')
+
+  if (!d.moved) {                       // 動かさなかった＝タップ
+    state.picked = state.picked === d.col ? null : d.col
+    render()
+    return
+  }
+  if (d.over) assign(d.over.dataset.slot, d.col, d.chip)
+  else render()
+}
+function startGhost() {
+  const g = drag.chip.cloneNode(true)
+  g.className = 'ghost'
+  document.body.appendChild(g)
+  drag.ghost = g
+  drag.chip.classList.add('dragging')
+  armSlots(true)
+  startFps()
+}
+function armSlots(on) {
+  document.querySelectorAll('[data-slot]').forEach(s => s.classList.toggle('armed', on))
+}
+
+function startFps() { fpsN = 0; fpsT0 = performance.now(); const l = () => { fpsN++; fpsRaf = requestAnimationFrame(l) }; fpsRaf = requestAnimationFrame(l) }
+function stopFps() {
+  if (!fpsRaf) return
+  cancelAnimationFrame(fpsRaf); fpsRaf = 0
+  const dt = performance.now() - fpsT0
+  if (dt > 200) $('mFps').textContent = Math.round(fpsN / (dt / 1000)) + ''
+}
+
+/* スロット側。タップで置く／✕で外す */
+function onOutClick(e) {
+  const x = e.target.closest('[data-x]')
+  if (x) { e.stopPropagation(); unassign(x.dataset.x); return }
+  const slot = e.target.closest('[data-slot]')
+  if (!slot) return
+  const key = slot.dataset.slot
+  if (state.picked !== null) {
+    const chip = document.querySelector(`.chip[data-col="${state.picked}"]`)
+    assign(key, state.picked, chip)
+    return
+  }
+  // 何も選んでいないのに置き場を押したとき、次に何をすればいいか出す
+  if (!has(key)) {
+    const c = $('chips')
+    c.scrollTo({ left: 0, behavior: 'smooth' })
+    c.querySelectorAll('.chip').forEach((ch, i) => {
+      ch.animate([{ transform: 'none' }, { transform: 'translateY(-5px)' }, { transform: 'none' }],
+        { duration: 340, delay: i * 26, easing: 'ease-out' })
+    })
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PDF経路。座標を指す操作は別物だが、指したあとの画面は共通にする。
+   （上＝取込元、中＝組み上がる結果、下＝実行）
+   ══════════════════════════════════════════════════════════════ */
+function renderPdf() {
+  const page = $('pdfPage')
+  const cols = SRC.cols
+  const xs = [24, 210, 280, 360]
+  let html = ''
+  SRC.headers.forEach((h, ci) => { html += `<div class="tok head" data-col="${ci}" style="left:${xs[ci]}px;top:14px">${esc(h)}</div>` })
+  for (let i = 0; i < 12; i++) {
+    const r = makeRow(i)
+    cols.forEach((c, ci) => {
+      const v = c === 'price' ? '¥' + r[c] : r[c]
+      html += `<div class="tok" data-col="${ci}" data-row="${i}" style="left:${xs[ci]}px;top:${38 + i * 20}px">${esc(v)}</div>`
+    })
+  }
+  html += `<div class="tok" style="left:24px;top:284px;color:#94a3b8">— 1 / 3 ページ —</div>`
+  page.innerHTML = html
+}
+function onPdfClick(e) {
+  const tok = e.target.closest('.tok[data-col]')
+  if (!tok) return
+  const col = Number(tok.dataset.col)
+  if (state.picked === col) { state.picked = null; render(); return }
+  state.picked = col
+  // どの列を指したかを、ページの上でも見せる
+  markPdfCol()
+  $('pdfHint').textContent = `「${headerName(col)}」を選びました。下の置き場をタップ`
+  render()
+}
+function markPdfCol() {
+  const usedBy = {}
+  for (const f of fields()) if (has(f.key)) usedBy[state.mapping[f.key]] = f
+  $('pdfPage').querySelectorAll('.tok[data-col]').forEach(t => {
+    const c = Number(t.dataset.col), f = usedBy[c]
+    t.classList.toggle('incol', !!f)
+    t.classList.toggle('hot', state.picked === c)
+    t.style.setProperty('--fc', f ? f.color : 'transparent')
+  })
+}
+
+/* ══════════════════════════════════════════════════════════════
+   確認。案A=下部バーだけで1画面完結／案B=従来どおり確認を挟む。
+   どちらでも「全入れ替え」と「未解決の衝突」だけは必ず一段挟む
+   （重い決定が軽く見えるのを防ぐ。IMPORT-001 で決めた線）。
+   ══════════════════════════════════════════════════════════════ */
+function onGo() {
+  const needsSheet = state.confirm === 'sheet' || state.mode === 'replace'
+  if (needsSheet) openSheet()
+  else finish()
+}
+function openSheet() {
+  const c = PLAN.counts
+  const rep = state.mode === 'replace'
+  const gone = rep ? Math.max(0, EXISTING.size - (c.upd + c.same)) : 0
+  $('sheet').innerHTML = `
+    <div class="sheet-h">${rep ? '全入れ替えの確認' : '取込内容の確認'}</div>
+    <div class="sheet-sub">${esc(SRC.filename)} ・ ${PLAN.rows.length.toLocaleString()}行</div>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-n n-add">${c.add.toLocaleString()}</div><div class="kpi-l">新規</div></div>
+      <div class="kpi"><div class="kpi-n n-upd">${c.upd.toLocaleString()}</div><div class="kpi-l">更新</div></div>
+      <div class="kpi"><div class="kpi-n n-same">${c.same.toLocaleString()}</div><div class="kpi-l">変更なし</div></div>
+      <div class="kpi"><div class="kpi-n n-err">${(c.err + c.skip).toLocaleString()}</div><div class="kpi-l">除外</div></div>
+    </div>
+    ${rep ? `<div class="sheet-block warn">
+      <div class="sheet-block-t">この操作は既存の品目を削除します</div>
+      <div class="sheet-block-b">ファイルに無い <b>${gone.toLocaleString()}件</b> が品目リストから消えます。
+        発注点・振り分けもその品目のぶんは失われます。取込後すぐなら「取込前に戻す」で戻せます。</div>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="repok">
+        <span>消えることを確認しました</span></label>
+    </div>` : `<div class="sheet-block">
+      <div class="sheet-block-t">ファイルに無い既存品目は残ります</div>
+      <div class="sheet-block-b">追加・更新だけを行います。取込後すぐなら「取込前に戻す」で戻せます。</div>
+    </div>`}
+    ${c.err ? `<div class="sheet-block warn">
+      <div class="sheet-block-t">取り込めない ${c.err}行</div>
+      <div class="sheet-block-b">${PLAN.rows.filter(r => r.status === 'err').slice(0, 4)
+        .map(r => `${r.line}行目 ・ ${esc(r.msg)}`).join('<br>')}${c.err > 4 ? `<br>ほか ${c.err - 4}行` : ''}</div>
+    </div>` : ''}
+    <div class="sheet-acts">
+      <button class="btn-cancel" id="sCancel">戻る</button>
+      <button class="btn-ok${rep ? ' danger' : ''}" id="sOk" ${rep ? 'disabled' : ''}>${rep ? '全入れ替えする' : '取り込む'}</button>
+    </div>`
+  $('mask').hidden = false
+  $('sCancel').onclick = () => { $('mask').hidden = true }
+  $('sOk').onclick = () => { $('mask').hidden = true; finish() }
+  const rk = $('repok')
+  if (rk) rk.onchange = () => { $('sOk').disabled = !rk.checked }
+}
+function finish() {
+  const c = PLAN.counts
+  const el = document.createElement('div')
+  el.style.cssText = `position:absolute;left:12px;right:12px;bottom:76px;z-index:70;background:#0f172a;color:#fff;
+    border-radius:12px;padding:12px 14px;font-size:12.5px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.3)`
+  el.textContent = `追加${c.add} ・ 更新${c.upd} ・ 変更なし${c.same}。登録${(EXISTING.size + c.add).toLocaleString()}件になりました（試作なので実際には書き換えません）`
+  $('app').appendChild(el)
+  el.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' })
+  setTimeout(() => {
+    el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260 }).onfinish = () => el.remove()
+  }, 2600)
+}
+
+/* ══════════════════════════════════════════════════════════════
+   計測・切替パネル
+   ══════════════════════════════════════════════════════════════ */
+const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+function renderProbeNums() {
+  $('mPlan').textContent = lastPlanMs.toFixed(1) + 'ms'
+  $('mDraw').textContent = lastDrawMs.toFixed(1) + 'ms'
+  $('mRows').textContent = state.nRows.toLocaleString()
+  $('mMotion').textContent = reduced() ? '減らす設定 ON' : 'OFF'
+}
+function syncProbe() {
+  const set = (wrap, attr, val) =>
+    $(wrap).querySelectorAll('.pbtn').forEach(b => b.classList.toggle('on', b.dataset[attr] === String(val)))
+  set('pSrc', 'src', state.srcKey)
+  set('pRows', 'rows', state.nRows)
+  set('pFx', 'fx', state.fx)
+  set('pConfirm', 'cf', state.confirm)
+  $('pStagger').value = state.stagger
+  $('pStaggerV').textContent = state.stagger + 'ms'
+  document.body.classList.toggle('reduced', state.fx === 0)
+}
+
+/* ══════════════════════════════════════════════════════════════
+   起動・配線
+   ══════════════════════════════════════════════════════════════ */
+function reload() {
+  buildSource()
+  $('fname').textContent = SRC.filename
+  $('fsub').textContent = `${state.nRows.toLocaleString()}行`
+  const pdf = SRC.mode === 'pdf'
+  $('srcCols').hidden = pdf
+  $('srcPdf').hidden = !pdf
+  // 見出しの有無はファイルの性質なので、無いと分かっているものは初期値を出さない。
+  // ただし PDF は行の座標で読むため「1行目は見出し」を先に出しておく。
+  if (pdf) { renderPdf(); state.hasHeader = true; autoDetect() }
+  $('hseg').querySelectorAll('.hseg-btn').forEach(b => {
+    b.classList.toggle('on', (b.dataset.h === 'head') === (state.hasHeader === true) && state.hasHeader !== null)
+    b.classList.toggle('undecided', state.hasHeader === null)
+  })
+  render()
+  if (pdf) markPdfCol()
+  syncProbe()
+}
+
+$('hseg').addEventListener('click', e => {
+  const b = e.target.closest('.hseg-btn'); if (!b) return
+  state.hasHeader = b.dataset.h === 'head'
+  autoDetect({ keepManual: true })
+  $('hseg').querySelectorAll('.hseg-btn').forEach(x => {
+    x.classList.toggle('on', x === b); x.classList.remove('undecided')
+  })
+  render({ filled: 'name' })
+})
+$('footl1').addEventListener('click', e => {
+  if (e.target.closest('#modelink')) $('modeMask').hidden = false
+})
+$('footl2').addEventListener('click', e => { if (e.target.closest('.errjump')) jumpToError() })
+$('modeClose').addEventListener('click', () => { $('modeMask').hidden = true })
+$('modeMask').addEventListener('click', e => {
+  const o = e.target.closest('.modeopt')
+  if (o) { state.mode = o.dataset.m; $('modeMask').hidden = true; renderFoot(); return }
+  if (e.target === $('modeMask')) $('modeMask').hidden = true
+})
+
+$('chips').addEventListener('click', e => {
+  const x = e.target.closest('.chip-x')
+  if (x) { e.stopPropagation(); unassign(x.dataset.x) }
+})
+$('chips').addEventListener('pointerdown', onChipDown)
+$('chips').addEventListener('pointermove', onChipMove)
+$('chips').addEventListener('pointerup', onChipUp)
+$('chips').addEventListener('pointercancel', onChipUp)
+$('out').addEventListener('click', onOutClick)
+$('srcPdf').addEventListener('click', onPdfClick)
+$('go').addEventListener('click', onGo)
+$('mask').addEventListener('click', e => { if (e.target === $('mask')) $('mask').hidden = true })
+function jumpToError() {
+  const row = $('inv').querySelector('tr[data-err="1"]')
+  row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  row?.animate([{ background: '#fecaca' }, { background: '' }], { duration: 900 })
+}
+
+$('gear').addEventListener('click', () => $('probe').classList.toggle('hide'))
+$('probeX').addEventListener('click', () => $('probe').classList.add('hide'))
+$('pSrc').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b) return
+  state.srcKey = b.dataset.src; reload()
+})
+$('pRows').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b) return
+  state.nRows = Number(b.dataset.rows); reload()
+})
+$('pFx').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b) return
+  state.fx = Number(b.dataset.fx); syncProbe(); render()
+})
+$('pConfirm').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b) return
+  state.confirm = b.dataset.cf; syncProbe()
+})
+$('pStagger').addEventListener('input', e => {
+  state.stagger = Number(e.target.value)
+  $('pStaggerV').textContent = state.stagger + 'ms'
+})
+$('pReset').addEventListener('click', reload)
+$('pAuto').addEventListener('click', () => { autoDetect(); render({ filled: 'name' }) })
+$('pClear').addEventListener('click', () => {
+  for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
+  state.picked = null; render()
+})
+
+reload()
+$('probe').classList.remove('hide')   // 初回だけ開いておく（切替があることを知らせる）
+</script>
+</body>
+</html>
