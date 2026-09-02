@@ -594,7 +594,7 @@ body {
        （直した結果がその場で見えないと、直しているものが分からない）。 -->
   <div class="msheet" id="msheet" hidden>
     <div class="msheet-head">
-      <span class="msheet-t">列の対応</span>
+      <span class="msheet-t" id="msheetT">列の対応</span>
       <div class="hseg" id="hseg">
         <button class="hseg-btn" data-h="head">1行目は見出し</button>
         <button class="hseg-btn" data-h="data">1行目からデータ</button>
@@ -987,6 +987,7 @@ function buildPlan() {
    描画
    ══════════════════════════════════════════════════════════════ */
 const RENDER_MAX = 40      // 画面に出す行。計画は全行、描画は先頭だけ
+const PDF_PAGES = 3        // 見本のPDFのページ数
 const has = k => state.mapping[k] !== null && state.mapping[k] !== undefined
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
 
@@ -1009,7 +1010,11 @@ function render(opts = {}) {
     renderFoot()
     if (state.sheetOpen) {
     renderChips(); renderSample()
-    $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
+    const pdf = SRC.mode === 'pdf'
+    // PDFに1行目という概念は無いので、その選択肢自体を出さない
+    $('hseg').hidden = pdf
+    $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
+    if (!pdf) $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
       x.classList.toggle('on', (x.dataset.h === 'head') === (state.hasHeader === true)))
   }
   }
@@ -1051,8 +1056,8 @@ function renderCrumb() {
     ? `<span class="crumb-warn">${esc(missing.map(f => f.label).join('・'))}の列が決まっていません</span>
        <span class="crumb-go">指定する ›</span>`
     : `<span class="crumb-main">${used}項目</span>
-       <span>・ 1行目は${state.hasHeader ? '見出し' : 'データ'}</span>
-       <span class="crumb-go">列の対応 ›</span>`
+       <span>・ ${SRC.mode === 'pdf' ? `${PDF_PAGES}ページから読み取り` : `1行目は${state.hasHeader ? '見出し' : 'データ'}`}</span>
+       <span class="crumb-go">${SRC.mode === 'pdf' ? 'どの列を読むか' : '列の対応'} ›</span>`
 }
 
 /* ── 列チップ ── */
@@ -1596,7 +1601,9 @@ function syncProbe() {
 function reload() {
   buildSource()
   $('fname').textContent = SRC.filename
-  $('fsub').textContent = `${state.nRows.toLocaleString()}行`
+  $('fsub').textContent = SRC.mode === 'pdf'
+    ? `${PDF_PAGES}ページ ・ ${state.nRows.toLocaleString()}行を検出`
+    : `${state.nRows.toLocaleString()}行`
   const pdf = SRC.mode === 'pdf'
   $('srcCols').hidden = pdf
   $('srcPdf').hidden = !pdf
