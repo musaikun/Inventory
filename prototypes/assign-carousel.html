@@ -352,6 +352,8 @@ body {
   <div class="tools">
     <input class="search" id="search" type="text" placeholder="品目を検索" autocomplete="off">
     <button class="chip" type="button" id="chipUn">未振り分けのみ</button>
+    <button class="chip on" type="button" id="chipGenre">ジャンル別</button>
+    <button class="chip" type="button" id="chipAll">全部開く</button>
   </div>
 
   <div class="list" id="list"></div>
@@ -427,27 +429,26 @@ const GROUPS = [
   '予備棚', '事務所', '外倉庫', 'パントリー',
 ];
 
-const ITEMS = [
-  '牛バラ','牛肩ロース','豚バラ','豚ロース','豚こま','鶏もも','鶏むね','鶏ささみ','鶏手羽先','合挽きミンチ',
-  'ベーコン','ロースハム','ソーセージ','生ハム','鴨ロース','ラムチョップ','牛タン','砂肝','レバー','豚足',
-  'まぐろ赤身','サーモン','ぶり','鯛','ホタテ','海老（バナメイ）','するめいか','たこ足','あさり','しじみ',
-  'いくら','明太子','ちりめんじゃこ','鰹節','煮干し','焼き海苔','わかめ','ひじき','切干大根','高野豆腐',
-  'キャベツ','レタス','玉ねぎ','人参','じゃがいも','大根','白菜','ほうれん草','小松菜','水菜',
-  'ネギ','万能ねぎ','にんにく','生姜','ピーマン','パプリカ赤','パプリカ黄','なす','きゅうり','トマト',
-  'ミニトマト','ブロッコリー','カリフラワー','アスパラ','いんげん','枝豆','とうもろこし','かぼちゃ','ごぼう','れんこん',
-  'しめじ','舞茸','えのき','エリンギ','椎茸','マッシュルーム','もやし','豆苗','三つ葉','大葉',
-  'レモン','すだち','りんご','バナナ','いちご','ブルーベリー','パイナップル','キウイ','桃缶','みかん缶',
-  '牛乳','生クリーム','バター','無塩バター','チーズ（ピザ用）','パルメザン','モッツァレラ','クリームチーズ','卵','ヨーグルト',
-  '木綿豆腐','絹豆腐','厚揚げ','油揚げ','納豆','こんにゃく','しらたき','はんぺん','ちくわ','かまぼこ',
-  '米','もち米','薄力粉','強力粉','天ぷら粉','片栗粉','パン粉','パスタ','うどん','中華麺',
-  'そば','春雨','ビーフン','食パン','バゲット','トルティーヤ','ピザ生地','餃子の皮','春巻の皮','ワンタンの皮',
-  '醤油','薄口醤油','味噌','赤味噌','みりん','料理酒','酢','米酢','バルサミコ','ポン酢',
-  '砂糖','三温糖','塩','岩塩','胡椒','黒胡椒','七味','一味','山椒','カレー粉',
-  'サラダ油','ごま油','オリーブオイル','太白ごま油','マヨネーズ','ケチャップ','ウスターソース','中濃ソース','オイスターソース','豆板醤',
-  'コチュジャン','ナンプラー','だしの素','鶏がらスープ','コンソメ','トマト缶','ツナ缶','コーン缶','デミグラス缶','ココナッツミルク',
-  '生ビール樽','瓶ビール','ハイボール用ウイスキー','焼酎（麦）','焼酎（芋）','日本酒','赤ワイン','白ワイン','スパークリング','梅酒',
-  'ウーロン茶','緑茶ティーバッグ','コーヒー豆','紅茶','オレンジジュース','コーラ','ジンジャーエール','炭酸水','ミネラルウォーター','氷',
+// 品目はジャンルを持つ（本体では取込元由来）。ジャンル別アコーディオンの検証に要る。
+const ITEM_GROUPS = [
+  { cat: '肉', items: ['牛バラ','牛肩ロース','豚バラ','豚ロース','豚こま','鶏もも','鶏むね','鶏ささみ','鶏手羽先','合挽きミンチ','ベーコン','ロースハム','ソーセージ','生ハム','鴨ロース','ラムチョップ','牛タン','砂肝','レバー','豚足'] },
+  { cat: '魚介', items: ['まぐろ赤身','サーモン','ぶり','鯛','ホタテ','海老（バナメイ）','するめいか','たこ足','あさり','しじみ','いくら','明太子','ちりめんじゃこ'] },
+  { cat: '乾物', items: ['鰹節','煮干し','焼き海苔','わかめ','ひじき','切干大根','高野豆腐'] },
+  { cat: '野菜', items: ['キャベツ','レタス','玉ねぎ','人参','じゃがいも','大根','白菜','ほうれん草','小松菜','水菜','ネギ','万能ねぎ','にんにく','生姜','ピーマン','パプリカ赤','パプリカ黄','なす','きゅうり','トマト','ミニトマト','ブロッコリー','カリフラワー','アスパラ','いんげん','枝豆','とうもろこし','かぼちゃ','ごぼう','れんこん','もやし','豆苗','三つ葉','大葉'] },
+  { cat: 'きのこ', items: ['しめじ','舞茸','えのき','エリンギ','椎茸','マッシュルーム'] },
+  { cat: '果物', items: ['レモン','すだち','りんご','バナナ','いちご','ブルーベリー','パイナップル','キウイ','桃缶','みかん缶'] },
+  { cat: '乳製品・卵', items: ['牛乳','生クリーム','バター','無塩バター','チーズ（ピザ用）','パルメザン','モッツァレラ','クリームチーズ','卵','ヨーグルト'] },
+  { cat: '豆腐・練物', items: ['木綿豆腐','絹豆腐','厚揚げ','油揚げ','納豆','こんにゃく','しらたき','はんぺん','ちくわ','かまぼこ'] },
+  { cat: '米・粉・麺', items: ['米','もち米','薄力粉','強力粉','天ぷら粉','片栗粉','パン粉','パスタ','うどん','中華麺','そば','春雨','ビーフン','食パン','バゲット','トルティーヤ','ピザ生地','餃子の皮','春巻の皮','ワンタンの皮'] },
+  { cat: '調味料', items: ['醤油','薄口醤油','味噌','赤味噌','みりん','料理酒','酢','米酢','バルサミコ','ポン酢','砂糖','三温糖','塩','岩塩','胡椒','黒胡椒','七味','一味','山椒','カレー粉'] },
+  { cat: '油・ソース', items: ['サラダ油','ごま油','オリーブオイル','太白ごま油','マヨネーズ','ケチャップ','ウスターソース','中濃ソース','オイスターソース','豆板醤','コチュジャン','ナンプラー'] },
+  { cat: '缶詰・だし', items: ['だしの素','鶏がらスープ','コンソメ','トマト缶','ツナ缶','コーン缶','デミグラス缶','ココナッツミルク'] },
+  { cat: '酒類', items: ['生ビール樽','瓶ビール','ハイボール用ウイスキー','焼酎（麦）','焼酎（芋）','日本酒','赤ワイン','白ワイン','スパークリング','梅酒'] },
+  { cat: 'ドリンク', items: ['ウーロン茶','緑茶ティーバッグ','コーヒー豆','紅茶','オレンジジュース','コーラ','ジンジャーエール','炭酸水','ミネラルウォーター','氷'] },
 ];
+const ITEMS = ITEM_GROUPS.flatMap(g => g.items);
+const CAT_OF = new Map(ITEM_GROUPS.flatMap(g => g.items.map(i => [i, g.cat])));
+const CATS = ITEM_GROUPS.map(g => g.cat);
 
 const $ = id => document.getElementById(id);
 
@@ -618,27 +619,92 @@ function visibleItems() {
   );
 }
 
+function itemEl(item) {
+  const gs = groupsOf(item);
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'item' + (gs.has(target) ? ' in' : '');
+  el.dataset.item = item;
+  const tags = [...gs].slice(0, 3)
+    .map(g => `<span class="tag${g === target ? ' cur' : ''}">${GROUPS[g]}</span>`).join('');
+  el.innerHTML =
+    `<span class="check">${gs.has(target) ? '✓' : '＋'}</span>` +
+    `<span class="iname">${item}</span>` +
+    (tags ? `<span class="tags">${tags}</span>` : '');
+  return el;
+}
+
+// ジャンル別のたたみ方。既定は閉じた状態（本体の振り分け画面と同じ）。
+// ただし検索中は、閉じた見出しだけが並んで「何も出ない」ように見えるので開く。
+const openCat = new Set();
+let genreMode = true;
+const searching = () => query.trim() !== '';
+
 function renderList() {
+  const items = visibleItems();
   const frag = document.createDocumentFragment();
-  for (const item of visibleItems()) {
-    const gs = groupsOf(item);
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'item' + (gs.has(target) ? ' in' : '');
-    el.dataset.item = item;
-    const tags = [...gs].slice(0, 3)
-      .map(g => `<span class="tag${g === target ? ' cur' : ''}">${GROUPS[g]}</span>`).join('');
-    el.innerHTML =
-      `<span class="check">${gs.has(target) ? '✓' : '＋'}</span>` +
-      `<span class="iname">${item}</span>` +
-      (tags ? `<span class="tags">${tags}</span>` : '');
-    frag.appendChild(el);
+
+  if (!genreMode) {
+    for (const item of items) frag.appendChild(itemEl(item));
+  } else {
+    // 並びは取込元の順（CATS）。該当なしのジャンルは見出しごと出さない
+    const byCat = new Map(CATS.map(c => [c, []]));
+    for (const item of items) {
+      const c = CAT_OF.get(item) || 'その他';
+      if (!byCat.has(c)) byCat.set(c, []);
+      byCat.get(c).push(item);
+    }
+    for (const [cat, list] of byCat) {
+      if (!list.length) continue;
+      const open = searching() || openCat.has(cat);
+      const done = list.filter(i => groupsOf(i).size).length;
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'cat-head';
+      head.dataset.cat = cat;
+      head.innerHTML =
+        `<span class="cat-arrow">${open ? '▼' : '▶'}</span>` +
+        `<span class="cat-name">${cat}</span>` +
+        (done === list.length ? '<span class="cat-done">済</span>' : '') +
+        `<span class="cat-count">${done} / ${list.length}</span>`;
+      frag.appendChild(head);
+      if (open) for (const item of list) frag.appendChild(itemEl(item));
+    }
   }
+
   listEl.replaceChildren(frag);
+  paintAllChip();
   measureRows();
 }
 
+function paintAllChip() {
+  const btn = $('chipAll');
+  btn.style.display = genreMode ? '' : 'none';
+  const allOpen = CATS.every(c => openCat.has(c));
+  btn.textContent = allOpen ? '全部閉じる' : '全部開く';
+  btn.classList.toggle('on', allOpen);
+}
+
+$('chipGenre').addEventListener('click', e => {
+  genreMode = !genreMode;
+  e.currentTarget.classList.toggle('on', genreMode);
+  renderList();
+});
+$('chipAll').addEventListener('click', () => {
+  const allOpen = CATS.every(c => openCat.has(c));
+  openCat.clear();
+  if (!allOpen) for (const c of CATS) openCat.add(c);
+  renderList();
+});
+
 listEl.addEventListener('click', e => {
+  const head = e.target.closest('.cat-head');
+  if (head) {
+    const c = head.dataset.cat;
+    if (openCat.has(c)) openCat.delete(c); else openCat.add(c);
+    renderList();
+    return;
+  }
   const el = e.target.closest('.item');
   if (!el) return;
   toggle(el.dataset.item, el);
@@ -655,8 +721,24 @@ function toggle(item, el) {
   }
   assigned.set(item, gs);
   updateRow(el, item);
+  updateCatHead(item);
   renderWheel();
   updateProgress();
+}
+
+function updateCatHead(item) {
+  if (!genreMode) return;
+  const cat = CAT_OF.get(item) || 'その他';
+  const head = [...listEl.querySelectorAll('.cat-head')].find(h => h.dataset.cat === cat);
+  if (!head) return;
+  const list = visibleItems().filter(i => (CAT_OF.get(i) || 'その他') === cat);
+  const done = list.filter(i => groupsOf(i).size).length;
+  head.querySelector('.cat-count').textContent = `${done} / ${list.length}`;
+  const mark = head.querySelector('.cat-done');
+  if (done === list.length && list.length) {
+    if (!mark) head.querySelector('.cat-count')
+      .insertAdjacentHTML('beforebegin', '<span class="cat-done">済</span>');
+  } else if (mark) mark.remove();
 }
 
 function updateRow(el, item) {
