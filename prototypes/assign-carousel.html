@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>振り分けホイール検証</title>
+<style>
+/* ── 本体アプリのトークンをそのまま借りる ─────────────────────────
+   プロトタイプの目的は「実機で高さ配分を決める」こと。見た目が本体と違うと
+   判断がずれるので、色・字面は AxisAssignFocus.vue と同じものを使う。 */
+:root {
+  --primary: #2563eb;
+  --primary-bright: #3b82f6;
+  --primary-weak: #eff6ff;
+  --primary-border: #bfdbfe;
+  --ink: #1e293b;
+  --ink-2: #475569;
+  --muted: #64748b;
+  --faint: #94a3b8;
+  --line: #e2e8f0;
+  --line-soft: #eef2f6;
+  --ground: #f8fafc;
+  --surface: #ffffff;
+  --danger: #dc2626;
+  --danger-weak: #fef2f2;
+  --danger-line: #fecaca;
+  --amber-ink: #b45309;
+  --amber-bg: #fffbeb;
+  --amber-line: #fde68a;
+  --ok: #16a34a;
+
+  --font: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* ── 画面の骨格。本体の振り分け画面と同じ縦の積み方 ────────────── */
+.app {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--ground);
+  overflow: hidden;
+}
+
+.head {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.head-back { border: none; background: none; color: var(--primary); font: 700 14px var(--font); padding: 0; }
+.head-title { font-size: 16px; font-weight: 800; }
+.head-note { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--faint); }
+
+/* 進捗。本体と同じ高さを占めるので、面積の計算に含める */
+.prog { flex-shrink: 0; padding: 10px 14px 8px; background: var(--surface); border-bottom: 1px solid var(--line-soft); }
+.prog-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+.prog-text b { color: var(--primary); font-size: 15px; font-variant-numeric: tabular-nums; }
+.prog-pct { margin-left: auto; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.prog-bar { height: 8px; background: var(--line-soft); border-radius: 6px; overflow: hidden; }
+.prog-fill { height: 100%; width: 0; background: var(--primary); border-radius: 6px; transition: width .35s ease; }
+
+/* ── ホイール（縦回転）＋ 右のアクションレール ──────────────────
+   横スワイプの取り合いで痛い目を見ているので、指のジェスチャは最初から
+   この要素が引き取る（touch-action: none）。 */
+.wheel-wrap {
+  flex-shrink: 0;
+  position: relative;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  transition: height .28s cubic-bezier(.22,.61,.36,1);
+  overflow: hidden;
+}
+.wheel-wrap.reduced { transition: none; }
+
+.stage {
+  position: absolute; inset: 0 64px 0 0;
+  perspective: 620px;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: grab;
+}
+.stage:active { cursor: grabbing; }
+.stage-inner { position: absolute; inset: 0; transform-style: preserve-3d; }
+
+.gcard {
+  position: absolute; left: 14px; right: 6px; top: 50%;
+  height: 56px; margin-top: -28px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+.gcard.on {
+  border-color: var(--primary);
+  background: var(--primary-weak);
+  box-shadow: 0 6px 18px rgba(37,99,235,.18);
+}
+.gname { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: var(--ink);
+         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcount {
+  flex-shrink: 0; min-width: 44px; text-align: center;
+  background: var(--line-soft); color: var(--muted);
+  border-radius: 14px; padding: 2px 10px;
+  font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.gcard.on .gcount { background: var(--primary); color: #fff; }
+.gcount.bump { animation: bump .34s cubic-bezier(.34,1.56,.64,1); }
+@keyframes bump { 0%{transform:scale(1)} 45%{transform:scale(1.35)} 100%{transform:scale(1)} }
+
+/* 中央を指す線。どれが振り分け先かを、位置だけでなく形でも示す */
+.marker { position: absolute; left: 0; right: 64px; top: 50%; height: 58px; margin-top: -29px;
+          pointer-events: none; border-top: 1px solid var(--primary-border);
+          border-bottom: 1px solid var(--primary-border); opacity: .5; }
+.wheel-wrap.band .marker { display: none; }
+
+/* 上下のフェード。回転が「続いている」ことを示す */
+.fade { position: absolute; left: 0; right: 64px; height: 34px; pointer-events: none; z-index: 2; }
+.fade.t { top: 0; background: linear-gradient(var(--surface), rgba(255,255,255,0)); }
+.fade.b { bottom: 0; background: linear-gradient(rgba(255,255,255,0), var(--surface)); }
+.wheel-wrap.band .fade { display: none; }
+
+/* 右のレール。操作は「今まん中にある1枚」に効く */
+.rail {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 64px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  border-left: 1px solid var(--line-soft);
+  background: linear-gradient(90deg, rgba(248,250,252,0), var(--ground));
+}
+.rail-btn {
+  width: 46px; height: 40px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  font-size: 16px; color: var(--muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.rail-btn:active { background: var(--line-soft); }
+.rail-btn.del { border-color: var(--danger-line); color: var(--danger); }
+.rail-btn.del:active { background: var(--danger-weak); }
+.rail-cap { font-size: 9px; font-weight: 800; color: var(--faint); letter-spacing: .04em; }
+
+/* 畳んだ帯。入れている最中はこれだけ残す */
+.band-row {
+  position: absolute; inset: 0 64px 0 0;
+  display: none; align-items: center; gap: 10px; padding: 0 14px;
+}
+.wheel-wrap.band .band-row { display: flex; }
+.wheel-wrap.band .stage { display: none; }
+.band-label { font-size: 11px; font-weight: 800; color: var(--faint); letter-spacing: .04em; }
+.band-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: var(--primary);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band-open { flex-shrink: 0; font-size: 11px; font-weight: 800; color: var(--muted);
+             border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--surface); }
+
+/* ── 品目プール ────────────────────────────────────────────── */
+.tools { flex-shrink: 0; display: flex; gap: 8px; padding: 8px 14px; background: var(--ground); }
+.search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px;
+          font: 15px var(--font); background: var(--surface); color: var(--ink); }
+.chip { flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+        border-radius: 10px; font: 800 12px var(--font); padding: 0 12px; }
+.chip.on { background: var(--amber-bg); color: var(--amber-ink); border-color: var(--amber-line); }
+
+.list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px 14px 24px;
+        -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.item {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: var(--surface); border: 1px solid var(--line-soft); border-radius: 12px;
+  padding: 9px 14px; margin-bottom: 8px; text-align: left;
+  font: 15px var(--font); color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.item.in { background: var(--primary-weak); border-color: var(--primary-border); }
+.check {
+  width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800; color: #cbd5e1; border: 1.5px solid var(--line);
+}
+.item.in .check { background: var(--primary); color: #fff; border-color: var(--primary); }
+.iname { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 42%; }
+.tag { font-size: 10px; font-weight: 700; color: var(--muted); background: var(--line-soft);
+       border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+.tag.cur { color: #fff; background: var(--primary); }
+
+/* 飛んでいく品目。入力を待たせないよう、何個でも同時に走らせる */
+.fly {
+  position: fixed; z-index: 60; pointer-events: none;
+  background: var(--primary); color: #fff;
+  font: 800 12px var(--font); padding: 5px 10px; border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(37,99,235,.35);
+  white-space: nowrap;
+}
+
+/* ── 計測パネル。この試作の本体 ────────────────────────────────
+   決めたいのは「ホイールに何px使えるか」だけなので、その場で切り替えて
+   見える行数と滑らかさを読めるようにする。 */
+.probe {
+  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 80;
+  background: rgba(15,23,42,.94); color: #fff; border-radius: 14px;
+  padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  font-size: 12px;
+}
+.probe.min { padding: 8px 12px; }
+.probe-head { display: flex; align-items: center; gap: 10px; }
+.probe-title { font-weight: 800; letter-spacing: .04em; }
+.probe-toggle { margin-left: auto; border: 1px solid rgba(255,255,255,.28); background: none; color: #fff;
+                border-radius: 8px; font: 800 11px var(--font); padding: 5px 10px; }
+.probe-body { margin-top: 10px; display: grid; gap: 8px; }
+.probe.min .probe-body { display: none; }
+.probe-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.probe-label { width: 78px; flex-shrink: 0; color: #cbd5e1; font-weight: 700; }
+.seg { border: 1px solid rgba(255,255,255,.28); background: none; color: #fff;
+       border-radius: 8px; font: 800 11px var(--font); padding: 6px 9px; }
+.seg.on { background: var(--primary-bright); border-color: var(--primary-bright); }
+.stat { display: flex; gap: 14px; padding-top: 2px; color: #cbd5e1; font-variant-numeric: tabular-nums; }
+.stat b { color: #fff; font-size: 14px; }
+.stat .warn { color: #fca5a5; }
+
+/* 名前の入力・削除の確認。prompt/confirm は埋め込み環境で塞がれることがあるので画面内に持つ */
+.sheet-bg { position: fixed; inset: 0; z-index: 90; background: rgba(15,23,42,.45);
+            display: none; align-items: center; justify-content: center; padding: 22px; }
+.sheet-bg.on { display: flex; }
+.sheet { width: 100%; max-width: 340px; background: var(--surface); border-radius: 16px;
+         padding: 18px 16px 16px; box-shadow: 0 14px 40px rgba(0,0,0,.28); }
+.sheet-title { font-size: 15px; font-weight: 800; color: var(--ink); text-align: center; }
+.sheet-sub { margin-top: 8px; font-size: 12px; color: var(--muted); text-align: center; }
+.sheet-input { width: 100%; margin-top: 14px; border: 1.5px solid var(--primary-border);
+               border-radius: 12px; padding: 13px 14px; font: 15px var(--font); color: var(--ink); }
+.sheet-acts { display: flex; gap: 10px; margin-top: 14px; }
+.sheet-acts button { flex: 1; border-radius: 10px; font: 800 14px var(--font); padding: 12px; }
+.sheet-cancel { border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.sheet-ok { border: none; background: var(--primary); color: #fff; }
+.sheet-ok.danger { background: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-wrap, .prog-fill { transition: none; }
+  .gcount.bump { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="head">
+    <button class="head-back" type="button">‹ 閉じる</button>
+    <span class="head-title">保管場所</span>
+    <span class="head-note">試作</span>
+  </header>
+
+  <div class="prog">
+    <div class="prog-text">
+      <span id="progIcon">📦</span>
+      <span>振り分け済み <b id="progDone">0</b> / <span id="progTotal">0</span></span>
+      <span class="prog-pct" id="progPct">0%</span>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+  </div>
+
+  <div class="wheel-wrap" id="wheelWrap">
+    <div class="stage" id="stage">
+      <div class="stage-inner" id="stageInner"></div>
+      <div class="marker"></div>
+      <div class="fade t"></div>
+      <div class="fade b"></div>
+    </div>
+    <div class="band-row" id="bandRow">
+      <span class="band-label">振り分け先</span>
+      <span class="band-name" id="bandName">—</span>
+      <button class="band-open" type="button" id="bandOpen">変える</button>
+    </div>
+    <div class="rail">
+      <button class="rail-btn" type="button" id="btnEdit" aria-label="名前を変える">✎</button>
+      <button class="rail-btn" type="button" id="btnNew" aria-label="分類先を足す">＋</button>
+      <button class="rail-btn del" type="button" id="btnDel" aria-label="この分類先を消す">🗑</button>
+      <span class="rail-cap">中央の1枚</span>
+    </div>
+  </div>
+
+  <div class="tools">
+    <input class="search" id="search" type="text" placeholder="品目を検索" autocomplete="off">
+    <button class="chip" type="button" id="chipUn">未振り分けのみ</button>
+  </div>
+
+  <div class="list" id="list"></div>
+</div>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-title" id="sheetTitle">分類先の名前</div>
+    <div class="sheet-sub" id="sheetSub"></div>
+    <input class="sheet-input" id="sheetInput" maxlength="20" autocomplete="off">
+    <div class="sheet-acts">
+      <button class="sheet-cancel" type="button" id="sheetCancel">キャンセル</button>
+      <button class="sheet-ok" type="button" id="sheetOk">決定</button>
+    </div>
+  </div>
+</div>
+
+<div class="probe min" id="probe">
+  <div class="probe-head">
+    <span class="probe-title">計測</span>
+    <span class="stat">
+      <span>見える行 <b id="statRows">–</b></span>
+      <span>fps <b id="statFps">–</b></span>
+    </span>
+    <button class="probe-toggle" type="button" id="probeToggle">開く</button>
+  </div>
+  <div class="probe-body">
+    <div class="probe-row">
+      <span class="probe-label">ホイール</span>
+      <button class="seg" data-h="248">5枚 248</button>
+      <button class="seg on" data-h="196">3枚 196</button>
+      <button class="seg" data-h="152">2枚 152</button>
+      <button class="seg" data-h="56">帯 56</button>
+    </div>
+    <div class="probe-row">
+      <span class="probe-label">面積</span>
+      <button class="seg on" id="segAuto">触った方を広げる</button>
+    </div>
+    <div class="stat">
+      <span>分類先 <b id="statGroups">0</b></span>
+      <span>品目 <b id="statItems">0</b></span>
+      <span id="statHint"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ── 実運用に近いデータ。19の分類先と、飲食店の実在する品目名 ───────────────
+const GROUPS = [
+  '冷蔵庫1', '冷蔵庫2', '冷凍庫', '野菜室', 'ドリンク冷蔵',
+  '冷蔵ショーケース', '乾物棚', '棚A', '棚B', '棚C',
+  '調味料棚', '米・粉', '酒類棚', '製菓材料', 'カウンター下',
+  '予備棚', '事務所', '外倉庫', 'パントリー',
+];
+
+const ITEMS = [
+  '牛バラ','牛肩ロース','豚バラ','豚ロース','豚こま','鶏もも','鶏むね','鶏ささみ','鶏手羽先','合挽きミンチ',
+  'ベーコン','ロースハム','ソーセージ','生ハム','鴨ロース','ラムチョップ','牛タン','砂肝','レバー','豚足',
+  'まぐろ赤身','サーモン','ぶり','鯛','ホタテ','海老（バナメイ）','するめいか','たこ足','あさり','しじみ',
+  'いくら','明太子','ちりめんじゃこ','鰹節','煮干し','焼き海苔','わかめ','ひじき','切干大根','高野豆腐',
+  'キャベツ','レタス','玉ねぎ','人参','じゃがいも','大根','白菜','ほうれん草','小松菜','水菜',
+  'ネギ','万能ねぎ','にんにく','生姜','ピーマン','パプリカ赤','パプリカ黄','なす','きゅうり','トマト',
+  'ミニトマト','ブロッコリー','カリフラワー','アスパラ','いんげん','枝豆','とうもろこし','かぼちゃ','ごぼう','れんこん',
+  'しめじ','舞茸','えのき','エリンギ','椎茸','マッシュルーム','もやし','豆苗','三つ葉','大葉',
+  'レモン','すだち','りんご','バナナ','いちご','ブルーベリー','パイナップル','キウイ','桃缶','みかん缶',
+  '牛乳','生クリーム','バター','無塩バター','チーズ（ピザ用）','パルメザン','モッツァレラ','クリームチーズ','卵','ヨーグルト',
+  '木綿豆腐','絹豆腐','厚揚げ','油揚げ','納豆','こんにゃく','しらたき','はんぺん','ちくわ','かまぼこ',
+  '米','もち米','薄力粉','強力粉','天ぷら粉','片栗粉','パン粉','パスタ','うどん','中華麺',
+  'そば','春雨','ビーフン','食パン','バゲット','トルティーヤ','ピザ生地','餃子の皮','春巻の皮','ワンタンの皮',
+  '醤油','薄口醤油','味噌','赤味噌','みりん','料理酒','酢','米酢','バルサミコ','ポン酢',
+  '砂糖','三温糖','塩','岩塩','胡椒','黒胡椒','七味','一味','山椒','カレー粉',
+  'サラダ油','ごま油','オリーブオイル','太白ごま油','マヨネーズ','ケチャップ','ウスターソース','中濃ソース','オイスターソース','豆板醤',
+  'コチュジャン','ナンプラー','だしの素','鶏がらスープ','コンソメ','トマト缶','ツナ缶','コーン缶','デミグラス缶','ココナッツミルク',
+  '生ビール樽','瓶ビール','ハイボール用ウイスキー','焼酎（麦）','焼酎（芋）','日本酒','赤ワイン','白ワイン','スパークリング','梅酒',
+  'ウーロン茶','緑茶ティーバッグ','コーヒー豆','紅茶','オレンジジュース','コーラ','ジンジャーエール','炭酸水','ミネラルウォーター','氷',
+];
+
+const $ = id => document.getElementById(id);
+
+// ── 状態 ──────────────────────────────────────────────────────────────
+const counts = new Array(GROUPS.length).fill(0);
+const assigned = new Map();          // 品目 → Set(分類先index)
+let pos = 0;                         // ホイールの位置（小数＝回転中）
+let target = 0;                      // 中央にある分類先
+let unassignedOnly = false;
+let query = '';
+let wheelH = 196;
+let focusFollow = true;   // 触った方に面積を寄せる
+let banded = false;
+
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduce) $('wheelWrap').classList.add('reduced');
+
+// ── ホイールの描画 ─────────────────────────────────────────────────────
+// 19枚を円周に並べるが、描くのは中央から前後4枚だけ。残りを回し続けると
+// 端末が古いほど落ちるので、見えない分は最初から作らない。
+const STEP = 19;          // 1枚あたりの角度
+const VISIBLE = 4;        // 中央から前後いくつ描くか
+const CARD_H = 56;
+const radius = Math.round((CARD_H / 2) / Math.tan((STEP / 2) * Math.PI / 180));
+
+const inner = $('stageInner');
+const cardEls = [];
+for (let i = 0; i < VISIBLE * 2 + 1; i++) {
+  const el = document.createElement('div');
+  el.className = 'gcard';
+  el.innerHTML = '<span class="gname"></span><span class="gcount"></span>';
+  inner.appendChild(el);
+  cardEls.push(el);
+}
+
+function wrapIndex(i) { const n = GROUPS.length; return ((i % n) + n) % n; }
+
+function renderWheel() {
+  const base = Math.round(pos);
+  for (let k = -VISIBLE; k <= VISIBLE; k++) {
+    const el = cardEls[k + VISIBLE];
+    const idx = wrapIndex(base + k);
+    const offset = (base + k) - pos;           // 中央からの距離（小数）
+    const angle = offset * STEP;
+    const far = Math.abs(angle) > 62;
+    if (far) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; continue; }
+    el.style.opacity = String(Math.max(0, 1 - Math.abs(offset) / (VISIBLE + .4)));
+    el.style.pointerEvents = 'auto';
+    el.style.transform = `rotateX(${-angle}deg) translateZ(${radius}px)`;
+    el.style.zIndex = String(100 - Math.round(Math.abs(offset) * 10));
+    el.querySelector('.gname').textContent = GROUPS[idx];
+    el.querySelector('.gcount').textContent = counts[idx];
+    el.classList.toggle('on', Math.abs(offset) < .5);
+    el.dataset.idx = String(idx);
+  }
+  const next = wrapIndex(Math.round(pos));
+  if (next !== target) { target = next; renderList(); }
+  $('bandName').textContent = GROUPS[target];
+}
+
+// ── 指で回す。慣性で遠くまで飛ばせないと19個は探せない ──────────────────
+const stage = $('stage');
+let dragging = false, lastY = 0, lastT = 0, vel = 0, raf = 0;
+const PX_PER_CARD = 46;
+
+stage.addEventListener('pointerdown', e => {
+  dragging = true; lastY = e.clientY; lastT = performance.now(); vel = 0;
+  cancelAnimationFrame(raf);
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const now = performance.now();
+  const dy = e.clientY - lastY;
+  const dt = Math.max(1, now - lastT);
+  pos -= dy / PX_PER_CARD;
+  vel = (-dy / PX_PER_CARD) / dt * 16;        // 1フレームあたりの移動量
+  lastY = e.clientY; lastT = now;
+  renderWheel();
+});
+function endDrag(e) {
+  if (!dragging) return;
+  dragging = false;
+  try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
+  glide();
+}
+stage.addEventListener('pointerup', endDrag);
+stage.addEventListener('pointercancel', endDrag);
+
+function glide() {
+  cancelAnimationFrame(raf);
+  const step = () => {
+    vel *= 0.94;                               // 摩擦
+    pos += vel;
+    if (Math.abs(vel) < 0.008) {               // 止まりかけたら一番近い枠へ吸い付く
+      const snap = Math.round(pos);
+      pos += (snap - pos) * 0.28;
+      if (Math.abs(snap - pos) < 0.002) { pos = snap; renderWheel(); return; }
+    }
+    renderWheel();
+    raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+}
+
+// 中央以外のカードをタップしたら、そこまで回す（19個を1枚ずつ送らせない）
+stage.addEventListener('click', e => {
+  const card = e.target.closest('.gcard');
+  if (!card) return;
+  const idx = Number(card.dataset.idx);
+  if (idx === target) return;
+  const n = GROUPS.length;
+  let d = ((idx - wrapIndex(Math.round(pos))) % n + n) % n;
+  if (d > n / 2) d -= n;
+  vel = d * 0.16; glide();
+});
+
+// ── 品目一覧 ───────────────────────────────────────────────────────────
+const listEl = $('list');
+
+function groupsOf(item) { return assigned.get(item) || new Set(); }
+
+function visibleItems() {
+  const q = query.trim().toLowerCase();
+  return ITEMS.filter(i =>
+    (!q || i.toLowerCase().includes(q)) &&
+    (!unassignedOnly || groupsOf(i).size === 0)
+  );
+}
+
+function renderList() {
+  const frag = document.createDocumentFragment();
+  for (const item of visibleItems()) {
+    const gs = groupsOf(item);
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'item' + (gs.has(target) ? ' in' : '');
+    el.dataset.item = item;
+    const tags = [...gs].slice(0, 3)
+      .map(g => `<span class="tag${g === target ? ' cur' : ''}">${GROUPS[g]}</span>`).join('');
+    el.innerHTML =
+      `<span class="check">${gs.has(target) ? '✓' : '＋'}</span>` +
+      `<span class="iname">${item}</span>` +
+      (tags ? `<span class="tags">${tags}</span>` : '');
+    frag.appendChild(el);
+  }
+  listEl.replaceChildren(frag);
+  measureRows();
+}
+
+listEl.addEventListener('click', e => {
+  const el = e.target.closest('.item');
+  if (!el) return;
+  toggle(el.dataset.item, el);
+});
+
+function toggle(item, el) {
+  const gs = assigned.get(item) || new Set();
+  if (gs.has(target)) {
+    gs.delete(target); counts[target]--;
+  } else {
+    gs.add(target); counts[target]++;
+    fly(el);                                   // すぽっと入る
+    bumpCount();
+  }
+  assigned.set(item, gs);
+  updateRow(el, item);
+  renderWheel();
+  updateProgress();
+}
+
+function updateRow(el, item) {
+  const gs = groupsOf(item);
+  el.classList.toggle('in', gs.has(target));
+  el.querySelector('.check').textContent = gs.has(target) ? '✓' : '＋';
+  const tags = [...gs].slice(0, 3)
+    .map(g => `<span class="tag${g === target ? ' cur' : ''}">${GROUPS[g]}</span>`).join('');
+  const holder = el.querySelector('.tags');
+  if (tags && holder) holder.innerHTML = tags;
+  else if (tags) el.insertAdjacentHTML('beforeend', `<span class="tags">${tags}</span>`);
+  else if (holder) holder.remove();
+}
+
+// 品目が分類先へ飛ぶ。何個同時でも走らせる＝連打を待たせない
+function fly(fromEl) {
+  if (reduce) return;
+  const a = fromEl.getBoundingClientRect();
+  const wrap = $('wheelWrap').getBoundingClientRect();
+  const toX = wrap.left + (wrap.width - 64) / 2;
+  const toY = banded ? wrap.top + wrap.height / 2 : wrap.top + wrap.height / 2;
+  const chip = document.createElement('div');
+  chip.className = 'fly';
+  chip.textContent = fromEl.querySelector('.iname').textContent;
+  document.body.appendChild(chip);
+  const anim = chip.animate([
+    { transform: `translate(${a.left + 34}px, ${a.top + 6}px) scale(1)`, opacity: 1 },
+    { transform: `translate(${(a.left + toX) / 2}px, ${(a.top + toY) / 2 - 46}px) scale(.9)`, opacity: 1, offset: .55 },
+    { transform: `translate(${toX - 30}px, ${toY - 12}px) scale(.35)`, opacity: 0 },
+  ], { duration: 380, easing: 'cubic-bezier(.4,.0,.2,1)' });
+  anim.onfinish = () => chip.remove();
+}
+
+let bumpT = 0;
+function bumpCount() {
+  const el = cardEls[VISIBLE].querySelector('.gcount');
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
+  clearTimeout(bumpT);
+  bumpT = setTimeout(() => el.classList.remove('bump'), 400);
+}
+
+function updateProgress() {
+  let done = 0;
+  for (const i of ITEMS) if (groupsOf(i).size) done++;
+  const pct = Math.round(done / ITEMS.length * 100);
+  $('progDone').textContent = done;
+  $('progPct').textContent = pct + '%';
+  $('progFill').style.width = pct + '%';
+  $('progIcon').textContent = done === ITEMS.length ? '🎉' : '📦';
+}
+
+// ── 触った方が広がる ──────────────────────────────────────────────────
+// ホイールに触れば分類先を選ぶ時間、一覧に触れば品目を入れる時間。
+// どちらを見ているかは指が知っているので、指の行き先に面積を寄せる。
+//
+// 詰まらせない工夫が2つ。
+//   ・畳むのは指を離してから（引いている最中に足元が動くと狙いが外れる）
+//   ・ホイールを回している最中は、一覧側のスクロール由来の畳みを受け付けない
+const BAND_H = 56;
+let bandTimer = 0;
+
+function setBand(on, delay = 0) {
+  clearTimeout(bandTimer);
+  const apply = () => {
+    if (banded === on) return;
+    banded = on;
+    const wrap = $('wheelWrap');
+    wrap.classList.toggle('band', on);
+    wrap.style.height = (on ? BAND_H : wheelH) + 'px';
+    setTimeout(measureRows, 320);
+  };
+  if (delay > 0) bandTimer = setTimeout(apply, delay);
+  else apply();
+}
+
+// ホイールに触れた → 開く（指が乗った瞬間に開き切って、そのまま回せる）
+stage.addEventListener('pointerdown', () => { if (focusFollow) setBand(false); }, true);
+$('bandRow').addEventListener('pointerdown', () => { if (focusFollow) setBand(false); });
+$('bandOpen').addEventListener('click', () => setBand(false));
+
+// 一覧に触れた → 畳む。回している最中は無視する
+function listTouched() {
+  if (!focusFollow) return;
+  if (dragging || Math.abs(vel) > 0.01) return;   // ホイールがまだ動いている
+  setBand(true);
+}
+listEl.addEventListener('pointerdown', listTouched);
+listEl.addEventListener('scroll', listTouched, { passive: true });
+$('search').addEventListener('focus', listTouched);
+
+// ── 画面内ダイアログ ───────────────────────────────────────────────────
+let sheetDone = null;
+function openSheet({ title, sub = '', value = null, ok = '決定', danger = false }, done) {
+  sheetDone = done;
+  $('sheetTitle').textContent = title;
+  $('sheetSub').textContent = sub;
+  const input = $('sheetInput');
+  input.style.display = value === null ? 'none' : '';
+  input.value = value ?? '';
+  const okBtn = $('sheetOk');
+  okBtn.textContent = ok;
+  okBtn.classList.toggle('danger', danger);
+  $('sheetBg').classList.add('on');
+  if (value !== null) setTimeout(() => input.focus(), 30);
+}
+function closeSheet() { $('sheetBg').classList.remove('on'); sheetDone = null; }
+$('sheetCancel').addEventListener('click', closeSheet);
+$('sheetBg').addEventListener('click', e => { if (e.target === $('sheetBg')) closeSheet(); });
+$('sheetOk').addEventListener('click', () => {
+  const fn = sheetDone;
+  const v = $('sheetInput').value.trim();
+  closeSheet();
+  fn?.(v);
+});
+$('sheetInput').addEventListener('keyup', e => { if (e.key === 'Enter') $('sheetOk').click(); });
+
+// ── 右のレール。中央の1枚に効く ────────────────────────────────────────
+$('btnEdit').addEventListener('click', () => {
+  openSheet({ title: '分類先の名前を変える', value: GROUPS[target] }, name => {
+    if (!name) return;
+    GROUPS[target] = name; renderWheel(); renderList();
+  });
+});
+$('btnNew').addEventListener('click', () => {
+  openSheet({ title: '分類先を足す', sub: '今まん中にある1枚の下に入ります', value: '', ok: '追加' }, name => {
+    if (!name) return;
+    GROUPS.splice(target + 1, 0, name);
+    counts.splice(target + 1, 0, 0);
+    pos = target + 1;
+    renderWheel(); renderList(); updateStats();
+  });
+});
+$('btnDel').addEventListener('click', () => {
+  if (GROUPS.length <= 1) return;
+  const gone = target;
+  openSheet({
+    title: `「${GROUPS[gone]}」を消しますか？`,
+    sub: '品目の割り当ても外れます', ok: '削除する', danger: true,
+  }, () => doDelete(gone));
+});
+function doDelete(gone) {
+  GROUPS.splice(gone, 1); counts.splice(gone, 1);
+  for (const [item, gs] of assigned) {
+    const next = new Set();
+    for (const g of gs) { if (g === gone) continue; next.add(g > gone ? g - 1 : g); }
+    assigned.set(item, next);
+  }
+  pos = wrapIndex(gone); target = -1;
+  renderWheel(); renderList(); updateProgress(); updateStats();
+}
+
+// ── 絞り込み ───────────────────────────────────────────────────────────
+$('search').addEventListener('input', e => { query = e.target.value; renderList(); });
+$('chipUn').addEventListener('click', e => {
+  unassignedOnly = !unassignedOnly;
+  e.currentTarget.classList.toggle('on', unassignedOnly);
+  renderList();
+});
+
+// ── 計測 ───────────────────────────────────────────────────────────────
+function measureRows() {
+  const row = listEl.querySelector('.item');
+  if (!row) { $('statRows').textContent = '0'; return; }
+  const h = row.getBoundingClientRect().height + 8;
+  const rows = Math.floor(listEl.clientHeight / h);
+  $('statRows').textContent = String(rows);
+  const hint = $('statHint');
+  hint.textContent = rows <= 4 ? '狭い' : rows >= 7 ? '余裕あり' : 'ふつう';
+  hint.className = rows <= 4 ? 'warn' : '';
+}
+
+let frames = 0, fpsT = performance.now();
+(function tickFps() {
+  frames++;
+  const now = performance.now();
+  if (now - fpsT >= 500) {
+    const fps = Math.round(frames * 1000 / (now - fpsT));
+    const el = $('statFps');
+    el.textContent = String(fps);
+    el.className = fps < 45 ? 'warn' : '';
+    frames = 0; fpsT = now;
+  }
+  requestAnimationFrame(tickFps);
+})();
+
+function updateStats() {
+  $('statGroups').textContent = GROUPS.length;
+  $('statItems').textContent = ITEMS.length;
+  $('progTotal').textContent = ITEMS.length;
+}
+
+document.querySelectorAll('.seg[data-h]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seg[data-h]').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    wheelH = Number(btn.dataset.h);
+    if (wheelH === 56) setBand(true);
+    else { setBand(false); $('wheelWrap').style.height = wheelH + 'px'; }
+    setTimeout(measureRows, 320);
+  });
+});
+$('segAuto').addEventListener('click', e => {
+  focusFollow = !focusFollow;
+  e.currentTarget.classList.toggle('on', focusFollow);
+  if (!focusFollow) setBand(false);
+});
+$('probeToggle').addEventListener('click', e => {
+  const p = $('probe');
+  p.classList.toggle('min');
+  e.currentTarget.textContent = p.classList.contains('min') ? '開く' : '閉じる';
+});
+
+// ── 起動 ───────────────────────────────────────────────────────────────
+// 何もしていない画面では判断できないので、少し振り分けた状態から始める
+[['牛バラ',2],['豚バラ',0],['鶏もも',0],['サーモン',5],['キャベツ',3],['玉ねぎ',3],
+ ['醤油',10],['味噌',0],['米',11],['生ビール樽',12],['牛乳',0],['卵',0]].forEach(([it, g]) => {
+  const gs = new Set([g]); assigned.set(it, gs); counts[g]++;
+});
+
+$('wheelWrap').style.height = wheelH + 'px';
+updateStats();
+renderWheel();
+renderList();
+updateProgress();
+window.addEventListener('resize', measureRows);
+})();
+</script>
+</body>
+</html>
