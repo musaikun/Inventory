@@ -187,6 +187,32 @@ body {
   display: inline-block; background: var(--line); color: var(--muted);
   border-radius: 3px; padding: 0 3px; margin-right: 4px; font-size: 9px;
 }
+.peek.rowpick .peek-row.pick { cursor: pointer; }
+.peek.rowpick .peek-row.pick:active { background: var(--primary-soft); }
+.peek-row.guess { background: var(--amber-bg); box-shadow: inset 3px 0 0 var(--amber-line); }
+.peek-tag {
+  flex-shrink: 0; align-self: center; margin-right: 6px;
+  font-size: 9.5px; font-weight: 800; color: var(--amber-ink);
+  background: #fff; border: 1px solid var(--amber-line); border-radius: 5px; padding: 1px 5px;
+}
+.peek-row.chosen { background: var(--primary-soft) !important; }
+.peek-row.chosen .peek-c { font-weight: 800; color: var(--primary-deep); }
+
+/* 1ページに2ページ分入っている紙。左右に同じ形の表が並ぶことが見えれば足りる */
+.sec-page { padding: 8px 9px 10px; background: #fff; }
+.sec-meta { font-size: 8.5px; color: var(--faint); margin-bottom: 5px; }
+.sec-cols { display: flex; align-items: flex-start; }
+.sec-gap { width: 14px; flex-shrink: 0; }
+.sec-tbl { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.sec-row { display: flex; font-size: 8px; border-bottom: 1px solid var(--line-soft); }
+.sec-row:last-child { border-bottom: none; }
+.sec-row.head { background: var(--ground); font-weight: 800; color: var(--muted); }
+.sec-c {
+  min-width: 0; padding: 3px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-right: 1px dotted var(--line);
+}
+.sec-c:last-child { border-right: none; }
+
 .ask-opts { display: flex; flex-direction: column; gap: 9px; }
 .ask-back {
   display: block; margin-top: 10px; border: none; background: none;
@@ -546,6 +572,13 @@ body {
 }
 .pgnone { font-size: 10.5px; color: var(--faint); }
 .grp.ng { background: var(--danger-weak); color: var(--danger); }
+.inv tbody tr.st-meta { background: var(--amber-bg); box-shadow: inset 3px 0 0 var(--amber-line); }
+.rowtag.meta { background: #fff; color: var(--amber-ink); border: 1px solid var(--amber-line); }
+.keepmeta {
+  float: right; margin-right: 8px; border: 1px solid var(--amber-line); background: #fff;
+  color: var(--amber-ink); font-size: 10px; font-weight: 800; border-radius: 6px;
+  padding: 2px 7px; cursor: pointer;
+}
 .grp.ng .arrow, .grp.ng .cnt { color: var(--danger); }
 
 /* 全部埋まったときの1行。置き場は消えて一覧が画面いっぱいになる */
@@ -721,6 +754,8 @@ body {
         <button class="pbtn" data-src="nohead">CSV 見出しなし</button>
         <button class="pbtn" data-src="delivery">納品CSV</button>
         <button class="pbtn" data-src="pdf">PDF</button>
+        <button class="pbtn" data-src="dirty">汚いCSV</button>
+        <button class="pbtn" data-src="pdf2col">2段組みPDF</button>
       </div>
     </div>
 
@@ -869,6 +904,19 @@ function makeRow(i) {
   }
 }
 
+// 全角・単位混在・記号つき。業者の帳票では珍しくない書き方
+const WIDE = '０１２３４５６７８９'
+const toWide = n => String(n).replace(/[0-9]/g, d => WIDE[+d])
+
+// 表の途中に混ざる、品目ではない行
+function junkRow(i, cols) {
+  const blank = cols.map(() => '')
+  if (i % 24 === 8)  return { row: blank.map((_, c) => c === 0 ? `【${['野菜','精肉','鮮魚','酒類'][(i / 24 | 0) % 4]}】` : ''), kind: 'genre' }
+  if (i % 24 === 23) return { row: blank.map((_, c) => c === 0 ? '小計' : c === 3 ? String(12000 + i * 7) : ''), kind: 'sum' }
+  if (i % 31 === 17) return { row: blank, kind: 'blank' }
+  return null
+}
+
 // 実運用のCSVはきれいではない。壊れ方も混ぜないと「取り込めない行」の見え方を試せない
 function dirty(i, row) {
   if (i > 0 && i % 37 === 0)  return { ...row, name: '' }                    // 品目名が空
@@ -898,6 +946,26 @@ const SOURCES = {
     headers: ['品名','単位','単価','分類'],
     cols: ['name','unit','price','category'],
   },
+  // 業者が出してくる実物。表の前に発行日・店舗名が乗り、途中に小計と
+  // ジャンルの見出しが挟まり、全角数字と「1.5kg」のような単位混在がある。
+  dirty: {
+    filename: '大東食品_請求明細（9月）.csv', fields: F_ITEM, mode: 'csv',
+    headers: ['品名','数量','単位','単価','分類'],
+    cols: ['name','lotSize','unit','price','category'],
+    preamble: [
+      ['株式会社 大東食品'],
+      ['発行日: 2026/09/01', '', '', 'お得意先: まかない亭 本店'],
+      [''],
+    ],
+    junk: true,
+  },
+  // 1ページに2ページ分。左右に同じ形の表が並ぶ帳票。
+  pdf2col: {
+    filename: '港水産_納品書（2段組み）.pdf', fields: F_ITEM, mode: 'pdf',
+    headers: ['品名','単位','単価'],
+    cols: ['name','unit','price'],
+    sections: 2,
+  },
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -909,7 +977,9 @@ const state = {
   fx: 3,                 // 0 なし / 1 控えめ / 2 標準 / 3 強め
   stagger: 22,           // 湧き上がりの1行あたりの遅れ(ms)
   confirm: 'bar',        // 'bar' 1画面完結 / 'sheet' 確認を挟む
-  hasHeader: null,       // null=未選択（契約どおり推測で埋めない）
+  headerRow: null,       // null=未回答（契約どおり推測で埋めない）/ -1=見出し無し / n=n行目が見出し
+  sections: 1,           // 段組み。1ページに表が何枚あるか（2段組み帳票で2）
+  sectionsMode: null,    // null=未回答 / 'both'=両方読む / 'left'=左だけ
   mode: 'merge',
   mapping: {},
   manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
@@ -917,6 +987,7 @@ const state = {
   buildingOnce: false,   // 組み上がりを見せている最中（この間は問いを出さない）
   seenBuild: false,      // 一度でも組み上がりを最後まで見たか
   reveal: null,          // 組み上がりの最中に「ここまで出した」項目。null = 全部
+  keepMeta: false,       // 小計・区分見出しらしい行も品目として取り込むか（既定は外す）
   tutorial: 'first',     // 'first' 初回だけ / 'always' 毎回 / 'off' 出さない
   picked: null,          // タップ2段で選択中の列
   justFilled: null,      // 直前に埋めたフィールド（湧き上がりの対象）
@@ -933,25 +1004,20 @@ const isItemMaster = () => SRC.fields === F_ITEM
 /* ── 取込元を組み立てる ───────────────────────────────────── */
 function buildSource() {
   SRC = SOURCES[state.srcKey]
-  const rows = []
-  if (SRC.headers) rows.push(SRC.headers.slice())
-  for (let i = 0; i < state.nRows; i++) {
-    const r = dirty(i, makeRow(i))
-    rows.push(SRC.cols.map(c => r[c] ?? ''))
-  }
-  TABLE = rows
-
+  buildRows()
   // 取込先の既存マスタ。半分は既存（更新か変更なし）、半分は新規になる形にする
   EXISTING = new Map()
   for (let i = 0; i < Math.floor(state.nRows * 0.55); i++) {
     const r = makeRow(i)
     EXISTING.set(r.name, {
-      price: (i % 3 === 0) ? String(Number(r.price) - 40) : r.price,   // 3件に1件は単価が変わる
+      price: (i % 3 === 0) ? String(Number(r.price) - 40) : r.price,
       unit: r.unit, category: r.category,
       axisA: (i % 5 === 0) ? '' : r.axisA,
     })
   }
-  state.hasHeader = null
+  state.headerRow = null
+  state.sections = SRC.sections ?? 1
+  state.sectionsMode = state.sections > 1 ? null : 'both'
   state.mapping = {}
   state.manual = {}
   state.picked = null
@@ -959,11 +1025,39 @@ function buildSource() {
   autoDetect()
 }
 
+function buildRows() {
+  const rows = []
+  // 表の前に乗っている前置き（発行日・店舗名・空行）。列数もそろっていない
+  for (const pre of (SRC.preamble ?? [])) {
+    rows.push(SRC.cols.map((_, c) => pre[c] ?? ''))
+  }
+  if (SRC.headers) rows.push(SRC.headers.slice())
+  for (let i = 0; i < state.nRows; i++) {
+    if (SRC.junk) {
+      const j = junkRow(i, SRC.cols)
+      if (j) { rows.push(j.row); continue }
+    }
+    const r = dirty(i, makeRow(i))
+    const cells = SRC.cols.map(c => r[c] ?? '')
+    if (SRC.junk) {
+      // 全角数字と、単位を巻き込んだ数量
+      const pi = SRC.cols.indexOf('price')
+      if (pi >= 0 && i % 9 === 4) cells[pi] = toWide(r.price)
+      if (pi >= 0 && i % 13 === 6) cells[pi] = `¥${Number(r.price).toLocaleString()}`   // 通貨記号つき＝読める
+      if (pi >= 0 && i % 17 === 11) cells[pi] = `${r.price} 円`                        // 空白混入＝読めない
+      const qi = SRC.cols.indexOf('lotSize')
+      if (qi >= 0 && i % 7 === 3) cells[qi] = `${r.lotSize}${r.unit}`
+    }
+    rows.push(cells)
+  }
+  TABLE = rows
+}
+
 /* ── 自動検出 ─────────────────────────────────────────────
    見出しがあると宣言されたときだけ効かせる。見出しの無いファイルで推測すると
    1行目のデータを列名と誤読する（既存実装と同じ規約）。 */
 function autoDetect({ keepManual = false } = {}) {
-  const head = state.hasHeader === true ? (TABLE[0] ?? []).map(s => String(s).trim().toLowerCase()) : []
+  const head = hasHeader() ? (TABLE[state.headerRow] ?? []).map(s => String(s).trim().toLowerCase()) : []
   for (const f of fields()) {
     if (keepManual && state.manual[f.key]) continue    // 手で置いたものは残す
     let hit = null
@@ -974,7 +1068,7 @@ function autoDetect({ keepManual = false } = {}) {
     state.manual[f.key] = false
   }
   // 品目名だけは、見出しが無くても1列目を既定にする（実装と同じ）
-  if (state.hasHeader === false && (state.mapping.name === null || state.mapping.name === undefined)) {
+  if (!hasHeader() && (state.mapping.name === null || state.mapping.name === undefined)) {
     state.mapping.name = 0
   }
   // 自動で当てた列が他とぶつかっていたら、手で置いたほうを優先して外す
@@ -988,9 +1082,46 @@ function autoDetect({ keepManual = false } = {}) {
 }
 
 const colCount = () => TABLE.reduce((n, r) => Math.max(n, r.length), 0)
-const dataRows = () => (state.hasHeader === true ? TABLE.slice(1) : TABLE)
+const hasHeader = () => state.headerRow !== null && state.headerRow >= 0
+// 見出し行より上（発行日・店舗名などの前置き）は取り込まない
+const dataRows = () => TABLE.slice((state.headerRow ?? -1) + 1)
 const headerName = i =>
-  (state.hasHeader === true ? (TABLE[0]?.[i] ?? '').trim() : '') || `列${i + 1}`
+  (hasHeader() ? (TABLE[state.headerRow]?.[i] ?? '').trim() : '') || `列${i + 1}`
+
+// 数値セルの読み方。utils/csvParse.js の parseNumericCell を写している。
+//   全角は半角へ ／ 先頭の通貨記号は1個だけ外す ／ 空白の混入は不正
+//   （「1 2」を 12 にしない）／ 桁区切りは正しい形のときだけ外す
+const _half = t => t.replace(/[０-９．，－]/g, c => '0123456789.,-'['０１２３４５６７８９．，－'.indexOf(c)])
+function readNum(raw) {
+  const original = String(raw ?? '').trim()
+  if (original === '') return { empty: true }
+  if (/\s/.test(original)) return { invalid: true }
+  let t = _half(original).replace(/^[¥￥]/, '')
+  if (/[¥￥]/.test(t)) return { invalid: true }
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, '')
+  else if (!/^-?\d+(\.\d+)?$/.test(t)) return { invalid: true }
+  const n = Number(t)
+  if (!Number.isFinite(n)) return { invalid: true }
+  return { value: n }
+}
+
+// 品目ではない行。業者の帳票には必ず混ざる。
+// pdfTableParser の _isMeta と同じ考え方を、CSVの経路にも持たせる。
+const META_EXACT = new Set(['小計','合計','総計','計','以上','次頁','続き','小 計','合 計'])
+function isMetaName(n) {
+  const t = String(n).normalize('NFKC').trim()
+  if (META_EXACT.has(t)) return true
+  if (/^[【〔\[(（].*[】〕\])）]$/.test(t)) return true       // 【野菜】のような区分の見出し
+  if (/^[-–—=・~〜\s]+$/.test(t)) return true                 // 区切りの罫線
+  if (/^(発行日|取引先|お得意先|店舗|ページ|p\.?\d)/i.test(t)) return true
+  return false
+}
+function metaReason(n) {
+  const t = String(n).normalize('NFKC').trim()
+  if (META_EXACT.has(t)) return '合計・小計の行に見えます'
+  if (/^[【〔\[(（].*[】〕\])）]$/.test(t)) return '区分の見出しに見えます'
+  return '品目ではない行に見えます'
+}
 
 /* ══════════════════════════════════════════════════════════════
    計画を組み立てる。
@@ -1003,10 +1134,10 @@ function buildPlan() {
   const t0 = performance.now()
   const m = state.mapping
   const rows = []
-  const counts = { add: 0, upd: 0, same: 0, err: 0, skip: 0 }
+  const counts = { add: 0, upd: 0, same: 0, err: 0, skip: 0, meta: 0 }
   const seen = new Set()
 
-  if (m.name === null || m.name === undefined || state.hasHeader === null) {
+  if (m.name === null || m.name === undefined || state.headerRow === null) {
     lastPlanMs = performance.now() - t0
     return { rows: [], counts, ready: false }
   }
@@ -1020,24 +1151,30 @@ function buildPlan() {
 
   for (let k = 0; k < src.length; k++) {
     const r = src[k]
-    const line = state.hasHeader === true ? k + 2 : k + 1
+    const line = (state.headerRow ?? -1) + 2 + k
     const name = cell(r, 'name')
 
     if (!name) { counts.err++; rows.push({ line, status: 'err', msg: '品目名が空' }); continue }
+    if (!state.keepMeta && isMetaName(name)) {
+      counts.meta++
+      rows.push({ line, name, status: 'meta', msg: metaReason(name) })
+      continue
+    }
     if (seen.has(name)) { counts.skip++; rows.push({ line, name, status: 'skip', msg: 'ファイル内の重複（先の行を採用）' }); continue }
     seen.add(name)
 
     const vals = {}
     for (const f of fields()) if (f.key !== 'name') vals[f.key] = cell(r, f.key)
 
-    // 数値として読めない値は「既存値を残す」ではなく行エラーにする（IMPORT-001の契約）
+    // 数値として読めない値は「既存値を残す」ではなく行エラーにする（IMPORT-001の契約）。
+    // 判定は本体の parseNumericCell と同じ規則にしないと、汚いファイルの見え方が嘘になる。
     let bad = ''
     for (const key of ['price', 'lotSize', 'prevMonth', 'qty']) {
       const v = vals[key]
-      if (v && !/^[0-9]+(\.[0-9]+)?$/.test(v.replace(/[,¥￥\s]/g, ''))) {
-        bad = `${fieldOf(key)?.label ?? key}「${v}」が数値として読めません`
-        break
-      }
+      if (!v) continue
+      const r = readNum(v)
+      if (r.invalid) { bad = `${fieldOf(key)?.label ?? key}「${v}」は数値として読めません`; break }
+      vals[key] = r.empty ? '' : String(r.value)   // 全角・通貨記号・桁区切りをそろえて持つ
     }
     if (bad) { counts.err++; rows.push({ line, name, status: 'err', msg: bad }); continue }
 
@@ -1093,7 +1230,7 @@ function render(opts = {}) {
       $('hseg').hidden = pdf
       $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
       if (!pdf) $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
-        x.classList.toggle('on', (x.dataset.h === 'head') === (state.hasHeader === true)))
+        x.classList.toggle('on', (x.dataset.h === 'head') === hasHeader()))
     }
   }
   lastDrawMs = performance.now() - t0
@@ -1105,8 +1242,32 @@ function render(opts = {}) {
    自動検出で確信をもって決まったものは訊かない ── 訊く数を決めるのは
    ファイルであって、画面の都合ではない。見出しのある普通のCSVなら1問で終わる。
    ══════════════════════════════════════════════════════════════ */
+// 見出しらしい行を探す。CsvMapperModal の HEADER_WORDS と同じ考え方で、
+// 「参考として出すだけ・選択値にはしない」を守る。
+const HEADER_WORDS = ['品目','商品','品名','名称','単位','単価','価格','金額','原価','分類',
+  'カテゴリ','コード','入数','数量','前月','仕入先','場所','name','item','unit','price','code']
+function looksHeader(cells) {
+  const filled = (cells ?? []).map(c => String(c ?? '').trim()).filter(Boolean)
+  if (filled.length < 2) return false
+  if (filled.every(c => /^[-0-9.,¥￥]+$/.test(c))) return false
+  return filled.filter(c => HEADER_WORDS.some(w => c.toLowerCase().includes(w))).length >= 2
+}
+// 表が1行目から始まっていないファイルでは、2択そのものが成り立たない
+// （1行目は見出しでもデータでもなく、社名や発行日だから）。行を選ばせる形に変える。
+const SCAN_ROWS = 8
+function headerQuestion() {
+  if (looksHeader(TABLE[0])) return { kind: 'header' }
+  for (let i = 1; i < Math.min(SCAN_ROWS, TABLE.length); i++) {
+    if (looksHeader(TABLE[i])) return { kind: 'headerRow', guess: i }
+  }
+  return { kind: 'header' }        // どこにも見出しらしい行が無ければ2択に戻す
+}
+
 function nextQuestion() {
-  if (state.hasHeader === null) return { kind: 'header' }
+  // 1ページに2ページ分入っている帳票。段を分けずに読むと、右側が消えるか
+  // 左の列へ吸い込まれて値が壊れる。先に何枚の表かを確かめる。
+  if (state.sectionsMode === null) return { kind: 'sections' }
+  if (state.headerRow === null) return headerQuestion()
   const miss = fields().find(f => f.required && !has(f.key))
   if (miss) return { kind: 'field', field: miss }
   return null
@@ -1129,6 +1290,28 @@ function renderAsk(q) {
     }
     $('askOpts').innerHTML = opt(true, '1行目は列の名前（見出し）') + opt(false, '1行目からもう品目のデータ')
     $('askNote').textContent = 'どちらかで取り込む件数が変わります。あとから変えられます。'
+  } else if (q.kind === 'sections') {
+    $('askQ').textContent = 'この紙、表は何枚ありますか？'
+    $('peek').className = 'peek'
+    $('peek').innerHTML = peekSections()
+    const n = state.nRows
+    $('askOpts').innerHTML = `
+      <button class="ask-opt" data-sec="both">
+        <span class="ask-opt-t">左右2つの表（1ページに2ページ分）</span>
+        <span class="ask-opt-r">両方から読む ・ <b>${n.toLocaleString()}件</b></span></button>
+      <button class="ask-opt" data-sec="left">
+        <span class="ask-opt-t">表は1つ（左だけ）</span>
+        <span class="ask-opt-r">右側は読まない ・ <b>${Math.floor(n / 2).toLocaleString()}件</b>
+          <span class="lost">・ 右の${Math.ceil(n / 2).toLocaleString()}件は取り込まれません</span></span></button>`
+    $('askNote').textContent = '同じ形の表が横に並んでいるときは「2つ」を選びます。'
+  } else if (q.kind === 'headerRow') {
+    // 前置きのあるファイル。何行目から表かを、その行の上で押させる。
+    $('askQ').textContent = 'この表、どの行から始まりますか？'
+    $('peek').className = 'peek rowpick'
+    $('peek').innerHTML = peekPickRows(q.guess)
+    $('askOpts').innerHTML = ''
+    $('askNote').innerHTML = `列の名前が並んでいる行をタップしてください。`
+      + `<button class="ask-back" id="askNoHead">見出しの行はありません（1行目からデータ）</button>`
   } else {
     // 列を選ぶ問い。選択肢を並べるのではなく、ファイルの列そのものを押させる。
     $('askQ').textContent = `どの列が「${q.field.label}」ですか？`
@@ -1136,7 +1319,7 @@ function renderAsk(q) {
     $('peek').innerHTML = peekCols()
     $('askOpts').innerHTML = ''
     $('askNote').innerHTML = `上の表で、その列のどこかをタップしてください。`
-      + `<button class="ask-back" id="askBack">1行目は「${state.hasHeader ? '見出し' : 'データ'}」として読んでいます ・ 変える</button>`
+      + `<button class="ask-back" id="askBack">${hasHeader() ? `${state.headerRow + 1}行目を見出し` : '1行目からデータ'}として読んでいます ・ 変える</button>`
   }
 }
 
@@ -1152,6 +1335,36 @@ function peekRows({ markFirst = false } = {}) {
         r.length > PEEK_C ? `<span class="peek-more">+${r.length - PEEK_C}</span>` : ''}</span>
     </div>`).join('')
 }
+// 紙の見た目を小さく出す。左右に同じ形の表が並んでいることが見えれば足りる。
+function peekSections() {
+  const cell = (t, w) => `<span class="sec-c" style="flex:${w}">${esc(t)}</span>`
+  const tbl = (rows, head) => `<div class="sec-tbl">
+    <div class="sec-row head">${head.map((h, i) => cell(h, i === 0 ? 2 : 1)).join('')}</div>
+    ${rows.map(r => `<div class="sec-row">${r.map((c, i) => cell(c, i === 0 ? 2 : 1)).join('')}</div>`).join('')}
+  </div>`
+  const L = [0, 1, 2, 3].map(i => { const r = makeRow(i); return [r.name, r.unit, r.price] })
+  const R = [20, 21, 22, 23].map(i => { const r = makeRow(i); return [r.name, r.unit, r.price] })
+  const head = ['品名', '単位', '単価']
+  return `<div class="peek-cap">紙の見た目 ・ 1ページ目</div>
+    <div class="sec-page">
+      <div class="sec-meta">港水産　納品書　2026/09/01</div>
+      <div class="sec-cols">${tbl(L, head)}<div class="sec-gap"></div>${tbl(R, head)}</div>
+    </div>`
+}
+
+// 行を押させるとき。前置きが何行あるか分からないので、少し多めに出す。
+// 「見出しらしい」行には印を付けるが、決めるのはユーザー（推測を選択値にしない）。
+function peekPickRows(guess) {
+  const n = Math.min(SCAN_ROWS, TABLE.length)
+  return `<div class="peek-cap">ファイルの中身 ・ 行をタップ</div>` + TABLE.slice(0, n).map((r, i) => `
+    <div class="peek-row pick ${i === guess ? 'guess' : 'rest'}" data-row="${i}">
+      <span class="peek-no">${i + 1}</span>
+      <span class="peek-cells">${r.slice(0, PEEK_C).map(c =>
+        `<span class="peek-c">${esc(String(c ?? '').trim()) || '&nbsp;'}</span>`).join('')}</span>
+      ${i === guess ? '<span class="peek-tag">これ？</span>' : ''}
+    </div>`).join('')
+}
+
 // 列を押させるとき。列見出しの行を出し、押した列がどれか分かるようにする
 function peekCols() {
   const total = colCount()
@@ -1169,12 +1382,12 @@ function peekCols() {
 }
 
 // 選ぶ前に結果を出すため、その解釈で1回だけ組んでみる（状態は元に戻す）
-function simulate(h) {
-  const save = { h: state.hasHeader, m: { ...state.mapping }, man: { ...state.manual } }
-  state.hasHeader = h
+function simulate(row) {
+  const save = { h: state.headerRow, m: { ...state.mapping }, man: { ...state.manual } }
+  state.headerRow = row
   autoDetect()
   const plan = buildPlan()
-  state.hasHeader = save.h; state.mapping = save.m; state.manual = save.man
+  state.headerRow = save.h; state.mapping = save.m; state.manual = save.man
   const first = plan.rows.find(r => r.status !== 'err' && r.status !== 'skip')
   return { ...plan, first: first?.name ?? '' }
 }
@@ -1230,7 +1443,9 @@ function renderCrumb() {
     ? `<span class="crumb-warn">${esc(missing.map(f => f.label).join('・'))}の列が決まっていません</span>
        <span class="crumb-go">指定する ›</span>`
     : `<span class="crumb-main">${used}項目</span>
-       <span>・ ${SRC.mode === 'pdf' ? `${PDF_PAGES}ページから読み取り` : `1行目は${state.hasHeader ? '見出し' : 'データ'}`}</span>
+       <span>・ ${SRC.mode === 'pdf'
+           ? `${PDF_PAGES}ページ${state.sections > 1 ? ` ・ ${state.sections}段` : ''}から読み取り`
+           : (state.headerRow > 0 ? `${state.headerRow + 1}行目が見出し` : hasHeader() ? '1行目は見出し' : '1行目からデータ')}</span>
        <span class="crumb-go">${SRC.mode === 'pdf' ? 'どの列を読むか' : '列の対応'} ›</span>`
 }
 
@@ -1337,7 +1552,7 @@ function renderTable(opts = {}) {
   const t = $('inv')
   if (!PLAN.ready) {
     t.innerHTML = `<tbody><tr><td style="padding:22px 14px;color:var(--faint);font-size:12.5px;text-align:center">
-      ${state.hasHeader === null ? '1行目の扱いを選ぶと、ここに結果が出ます' : '品目名の列を置くと、ここに結果が出ます'}
+      ${state.headerRow === null ? '表の始まりを選ぶと、ここに結果が出ます' : '品目名の列を置くと、ここに結果が出ます'}
     </td></tr></tbody>`
     return
   }
@@ -1379,7 +1594,7 @@ function renderTable(opts = {}) {
   let shown = 0, lastCat = null
   // 実物の棚卸カードはジャンルでまとまって出る。分類の列を置いた瞬間に
   // 行がその並びへ組み変わる、が「組み上がる」の見せどころになる。
-  const bad = r => r.status === 'err' || r.status === 'skip'
+  const bad = r => r.status === 'err' || r.status === 'skip' || r.status === 'meta'
   const ok = PLAN.rows.filter(r => !bad(r))
   const ng = PLAN.rows.filter(bad)
   const list = (grouped
@@ -1390,8 +1605,11 @@ function renderTable(opts = {}) {
     if (shown >= RENDER_MAX && !bad(r)) break
     if (bad(r) && !ngOpened) {
       ngOpened = true
+      const metaN = ng.filter(x => x.status === 'meta').length
       body += `<tr class="grp ng"><td colspan="${ncols}">
-        <span class="arrow">▼</span>取り込めない行<span class="cnt">${ng.length}</span></td></tr>`
+        <span class="arrow">▼</span>取り込まない行<span class="cnt">${ng.length}</span>
+        ${metaN ? `<button class="keepmeta" id="keepMeta">小計・見出しの${metaN}行も品目にする</button>` : ''}
+      </td></tr>`
     }
     if (!bad(r) && grouped && r.vals?.category !== lastCat) {
       lastCat = r.vals?.category
@@ -1401,12 +1619,13 @@ function renderTable(opts = {}) {
     }
     shown++
 
-    if (r.status === 'err' || r.status === 'skip') {
+    if (bad(r)) {
       const isErr = r.status === 'err'
-      body += `<tr class="${isErr ? 'st-err' : 'st-same'}" data-err="${isErr ? 1 : 0}">
+      const isMeta = r.status === 'meta'
+      body += `<tr class="${isErr ? 'st-err' : isMeta ? 'st-meta' : 'st-same'}" data-err="${isErr ? 1 : 0}">
         <td class="td-name" colspan="${ncols}">
           <div class="nm">
-            <span class="rowtag ${isErr ? 'err' : 'same'}">${isErr ? '取り込めない' : '除外'}</span>
+            <span class="rowtag ${isErr ? 'err' : isMeta ? 'meta' : 'same'}">${isErr ? '取り込めない' : isMeta ? '品目ではない' : '除外'}</span>
             <span style="color:var(--muted)">${r.name ? esc(r.name) : `${r.line}行目`}</span>
           </div>
           <div class="errmsg">${r.line}行目 ・ ${esc(r.msg)}</div>
@@ -1471,7 +1690,7 @@ function renderFoot() {
   const c = PLAN.counts
   const l1 = $('footl1'), l2 = $('footl2')
   if (!PLAN.ready) {
-    l1.textContent = state.hasHeader === null ? '1行目の扱いを選んでください' : '品目名の列を置いてください'
+    l1.textContent = state.headerRow === null ? '表の始まりを選んでください' : '品目名の列を置いてください'
     l2.textContent = ''
     $('go').disabled = true
     return
@@ -1485,7 +1704,7 @@ function renderFoot() {
     `<span class="n-add num">${master ? '新規' : '新しい品目'} ${c.add.toLocaleString()}</span>`,
     master ? `<span class="n-upd num">更新 ${c.upd.toLocaleString()}</span>` : '',
     // 除外の件数そのものを、その行へ飛ぶボタンにする（別ボタンを置かない）
-    (c.err + c.skip) ? `<button class="n-err num errjump">除外 ${(c.err + c.skip).toLocaleString()} ›</button>` : '',
+    (c.err + c.skip + c.meta) ? `<button class="n-err num errjump">除外 ${(c.err + c.skip + c.meta).toLocaleString()} ›</button>` : '',
   ].filter(Boolean).join('<span class="sep">・</span>')
   $('go').disabled = total === 0
   $('go').textContent = master && rep ? '全入れ替え' : '取り込む'
@@ -1496,7 +1715,7 @@ function renderFoot() {
    割り当て
    ══════════════════════════════════════════════════════════════ */
 function assign(fieldKey, colIdx, fromEl) {
-  if (state.hasHeader === null) { backToAsk(); return }
+  if (state.headerRow === null) { backToAsk(); return }
   const prev = state.mapping[fieldKey]
   // 同じ列を2つのフィールドへ同時に割り当てない（元の実装の select と同じ制約）
   for (const f of fields()) if (f.key !== fieldKey && state.mapping[f.key] === colIdx) { state.mapping[f.key] = null; state.manual[f.key] = false }
@@ -1547,7 +1766,7 @@ function flyTo(fromEl, fieldKey) {
 
 // 1行目が未選択のまま割り当てへ来ることはもう無い（未選択なら質問の画面に居る）。
 // 経路が残っていたときのために、静かに質問へ戻す。
-function backToAsk() { state.sheetOpen = false; state.hasHeader = null; render() }
+function backToAsk() { state.sheetOpen = false; state.headerRow = null; render() }
 
 /* ══════════════════════════════════════════════════════════════
    操作1: 掴んで落とす（直接操作）
@@ -1789,7 +2008,7 @@ function reload() {
   // ただし PDF は行の座標で読むため「1行目は見出し」を先に出しておく。
   // PDFは行の座標で読むので「1行目は何か」を訊く意味が無い。質問を飛ばして、
   // 代わりに「どの列を指すか」の面から始める。
-  if (pdf) { renderPdf(); state.hasHeader = true; autoDetect() }
+  if (pdf) { renderPdf(); state.headerRow = 0; autoDetect() }
   state.sheetOpen = pdf
   state.buildingOnce = false
   state.reveal = null
@@ -1801,6 +2020,14 @@ function reload() {
 
 // ① 問いの答え。答えるたびに、その結果が表に効くところを一度見せてから次へ。
 $('ask').addEventListener('click', e => {
+  const sec = e.target.closest('.ask-opt[data-sec]')
+  if (sec) {
+    state.sectionsMode = sec.dataset.sec
+    // 右段を読まないなら、そのぶん品目が減る（試作なので行数で表す）
+    if (state.sectionsMode === 'left') { state.nRows = Math.floor(state.nRows / 2); buildRows() }
+    render()
+    return
+  }
   const opt = e.target.closest('.ask-opt')
   if (opt) {
     const asHead = opt.dataset.h === 'head'
@@ -1808,16 +2035,28 @@ $('ask').addEventListener('click', e => {
     const row1 = $('peek').querySelector('.peek-row.first')
     if (row1 && state.fx > 0) row1.classList.add(asHead ? 'lift' : 'stay')
     const go = () => {
-      state.hasHeader = asHead
+      state.headerRow = asHead ? 0 : -1
       autoDetect()
       runBuild('name')
     }
     if (row1 && state.fx > 0) setTimeout(go, 460); else go()
     return
   }
+  // 行を押して「ここから表」を決める
+  const prow = e.target.closest('.peek.rowpick .peek-row.pick')
+  if (prow) {
+    const i = Number(prow.dataset.row)
+    prow.classList.add('chosen')
+    $('peek').querySelectorAll('.peek-row.pick').forEach(r => {
+      if (Number(r.dataset.row) < i) r.classList.add('lift')
+    })
+    setTimeout(() => { state.headerRow = i; autoDetect(); runBuild('name') }, state.fx > 0 ? 480 : 0)
+    return
+  }
+  if (e.target.closest('#askNoHead')) { state.headerRow = -1; autoDetect(); runBuild('name'); return }
   // 前の問いへ戻る。段階的に出すことが片道の廊下になってはいけない
   if (e.target.closest('#askBack')) {
-    state.hasHeader = null
+    state.headerRow = null
     for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
     render()
     return
@@ -1845,7 +2084,7 @@ $('crumb').addEventListener('click', () => { state.sheetOpen = true; render() })
 $('msheetDone').addEventListener('click', () => { state.sheetOpen = false; state.picked = null; render() })
 $('hseg').addEventListener('click', e => {
   const b = e.target.closest('.hseg-btn'); if (!b) return
-  state.hasHeader = b.dataset.h === 'head'
+  state.headerRow = b.dataset.h === 'head' ? 0 : -1
   autoDetect({ keepManual: true })
   render({ filled: 'name' })
 })
@@ -1868,7 +2107,10 @@ $('chips').addEventListener('pointerdown', onChipDown)
 $('chips').addEventListener('pointermove', onChipMove)
 $('chips').addEventListener('pointerup', onChipUp)
 $('chips').addEventListener('pointercancel', onChipUp)
-$('out').addEventListener('click', onOutClick)
+$('out').addEventListener('click', e => {
+  if (e.target.closest('#keepMeta')) { state.keepMeta = true; render(); return }
+  onOutClick(e)
+})
 $('srcPdf').addEventListener('click', onPdfClick)
 $('go').addEventListener('click', onGo)
 $('mask').addEventListener('click', e => { if (e.target === $('mask')) $('mask').hidden = true })
