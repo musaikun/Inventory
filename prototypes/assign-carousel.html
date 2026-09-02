@@ -87,16 +87,19 @@ body {
 
 .stage {
   position: absolute; inset: 0 64px 0 0;
-  perspective: 620px;
+  perspective: 460px;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
   cursor: grab;
+  overflow: hidden;            /* 回転の端が外へ出ない */
 }
 .stage:active { cursor: grabbing; }
+/* 円筒ごと半径ぶん奥へ下げる。こうしないと中央のカードが translateZ で手前に来て、
+   遠近法で拡大され左右がはみ出す（= 見切れの原因）。下げると中央が z=0 ＝原寸になる。 */
 .stage-inner { position: absolute; inset: 0; transform-style: preserve-3d; }
 
 .gcard {
-  position: absolute; left: 14px; right: 6px; top: 50%;
+  position: absolute; left: 16px; right: 16px; top: 50%;
   height: 56px; margin-top: -28px;
   display: flex; align-items: center; gap: 10px;
   padding: 0 14px;
@@ -398,6 +401,7 @@ const CARD_H = 56;
 const radius = Math.round((CARD_H / 2) / Math.tan((STEP / 2) * Math.PI / 180));
 
 const inner = $('stageInner');
+inner.style.transform = `translateZ(${-radius}px)`;
 const cardEls = [];
 for (let i = 0; i < VISIBLE * 2 + 1; i++) {
   const el = document.createElement('div');
@@ -469,7 +473,7 @@ function glide() {
     if (Math.abs(vel) < 0.008) {               // 止まりかけたら一番近い枠へ吸い付く
       const snap = Math.round(pos);
       pos += (snap - pos) * 0.28;
-      if (Math.abs(snap - pos) < 0.002) { pos = snap; renderWheel(); return; }
+      if (Math.abs(snap - pos) < 0.002) { pos = snap; renderWheel(); settleWheel(); return; }
     }
     renderWheel();
     raf = requestAnimationFrame(step);
@@ -601,33 +605,49 @@ function updateProgress() {
 // 詰まらせない工夫が2つ。
 //   ・畳むのは指を離してから（引いている最中に足元が動くと狙いが外れる）
 //   ・ホイールを回している最中は、一覧側のスクロール由来の畳みを受け付けない
+// 面積は3段階。回している間がいちばん広い。
+//   band … 入れている時間。分類先は1行だけ残す
+//   open … 選び終わって止まっている時間
+//   spin … 回している時間。探しているのだから、いちばん見せる
 const BAND_H = 56;
-let bandTimer = 0;
+let state = 'open';
+let settleTimer = 0;
 
-function setBand(on, delay = 0) {
-  clearTimeout(bandTimer);
-  const apply = () => {
-    if (banded === on) return;
-    banded = on;
-    const wrap = $('wheelWrap');
-    wrap.classList.toggle('band', on);
-    wrap.style.height = (on ? BAND_H : wheelH) + 'px';
-    setTimeout(measureRows, 320);
-  };
-  if (delay > 0) bandTimer = setTimeout(apply, delay);
-  else apply();
+function spinHeight() {
+  return Math.min(Math.round(innerHeight * 0.54), wheelH + 140);
 }
+function heightFor(st) {
+  return st === 'band' ? BAND_H : st === 'spin' ? spinHeight() : wheelH;
+}
+function setState(next) {
+  if (state === next) return;
+  state = next;
+  banded = next === 'band';
+  const wrap = $('wheelWrap');
+  wrap.classList.toggle('band', banded);
+  wrap.style.height = heightFor(next) + 'px';
+  setTimeout(measureRows, 320);
+}
+function setBand(on) { setState(on ? 'band' : 'open'); }   // 計測パネルから使う
 
-// ホイールに触れた → 開く（指が乗った瞬間に開き切って、そのまま回せる）
-stage.addEventListener('pointerdown', () => { if (focusFollow) setBand(false); }, true);
-$('bandRow').addEventListener('pointerdown', () => { if (focusFollow) setBand(false); });
-$('bandOpen').addEventListener('click', () => setBand(false));
+// ホイールに触れた → いきなり広げる。指が乗った瞬間に開き切って、そのまま回せる
+function grabWheel() { if (focusFollow) { clearTimeout(settleTimer); setState('spin'); } }
+stage.addEventListener('pointerdown', grabWheel, true);
+$('bandRow').addEventListener('pointerdown', grabWheel);
+$('bandOpen').addEventListener('click', () => setState('spin'));
+
+// 回り終わって少し置いたら、選び終わった大きさへ戻す
+function settleWheel() {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => { if (state === 'spin') setState('open'); }, 900);
+}
 
 // 一覧に触れた → 畳む。回している最中は無視する
 function listTouched() {
   if (!focusFollow) return;
   if (dragging || Math.abs(vel) > 0.01) return;   // ホイールがまだ動いている
-  setBand(true);
+  clearTimeout(settleTimer);
+  setState('band');
 }
 listEl.addEventListener('pointerdown', listTouched);
 listEl.addEventListener('scroll', listTouched, { passive: true });
@@ -739,15 +759,15 @@ document.querySelectorAll('.seg[data-h]').forEach(btn => {
     document.querySelectorAll('.seg[data-h]').forEach(b => b.classList.remove('on'));
     btn.classList.add('on');
     wheelH = Number(btn.dataset.h);
-    if (wheelH === 56) setBand(true);
-    else { setBand(false); $('wheelWrap').style.height = wheelH + 'px'; }
+    if (wheelH === 56) setState('band');
+    else { state = null; setState('open'); }
     setTimeout(measureRows, 320);
   });
 });
 $('segAuto').addEventListener('click', e => {
   focusFollow = !focusFollow;
   e.currentTarget.classList.toggle('on', focusFollow);
-  if (!focusFollow) setBand(false);
+  if (!focusFollow) setState('open');
 });
 $('probeToggle').addEventListener('click', e => {
   const p = $('probe');
