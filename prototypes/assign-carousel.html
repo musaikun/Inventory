@@ -126,20 +126,6 @@ body {
 .gcount.bump { animation: bump .34s cubic-bezier(.34,1.56,.64,1); }
 @keyframes bump { 0%{transform:scale(1)} 45%{transform:scale(1.35)} 100%{transform:scale(1)} }
 
-/* 掴んでいるカード。並べ替え中はこれだけが立ち上がって、他は沈む */
-.gcard.held {
-  border-color: var(--primary); background: var(--primary-weak);
-  box-shadow: 0 14px 32px rgba(37,99,235,.34);
-}
-.stage.reordering .gcard:not(.held) { opacity: .34 !important; filter: grayscale(.5); }
-.hold-badge {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) translateY(-42px);
-  background: var(--primary); color: #fff; font: 800 11px var(--font);
-  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
-  opacity: 0; transition: opacity .16s; pointer-events: none; z-index: 40;
-}
-.stage.reordering .hold-badge { opacity: 1; }
-
 /* 中央を指す線。どれが振り分け先かを、位置だけでなく形でも示す */
 .marker { position: absolute; left: 0; right: 64px; top: 50%; height: 58px; margin-top: -29px;
           pointer-events: none; border-top: 1px solid var(--primary-border);
@@ -151,12 +137,15 @@ body {
 .wheel-wrap.band .stage { right: 0; }
 .stage { transition: right .28s cubic-bezier(.22,.61,.36,1); }
 .rail { transition: opacity .2s; }
-.band-hint {
-  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
-  font: 800 11px var(--font); color: var(--faint);
-  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 5;
+/* 帯のときだけ出る「変える」。絶対配置で重ねると件数と被るので、
+   カードの中の要素にして flex の gap に間隔を任せる。 */
+.gchev {
+  display: none; flex-shrink: 0;
+  font-size: 11px; font-weight: 800; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px;
+  background: var(--surface); white-space: nowrap;
 }
-.wheel-wrap.band .band-hint { opacity: 1; }
+.wheel-wrap.band .gcard.on .gchev { display: block; }
 
 /* 上下のフェード。回転が「続いている」ことを示す */
 .fade { position: absolute; left: 0; right: 64px; height: 34px; pointer-events: none; z-index: 2; }
@@ -178,8 +167,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .rail-btn:active { background: var(--line-soft); }
-.rail-btn.del { border-color: var(--danger-line); color: var(--danger); }
-.rail-btn.del:active { background: var(--danger-weak); }
+.rail-btn.gear { width: 48px; height: 48px; font-size: 20px; }
 .rail-cap { font-size: 9px; font-weight: 800; color: var(--faint); letter-spacing: .04em; text-align: center; line-height: 1.4; }
 
 
@@ -247,6 +235,56 @@ body {
 .stat b { color: #fff; font-size: 14px; }
 .stat .warn { color: #fca5a5; }
 
+/* ── 分類先の一括編集。19個の順番を入れ替えるのは、回すより一覧の方が確実 ──
+   つまみ（⋮⋮）を掴んでいる間だけ行が動く。行そのものを掴ませると、
+   スクロールと取り合いになって並べ替えのつもりが画面ごと流れる。 */
+.edit-page {
+  position: fixed; inset: 0; z-index: 85;
+  background: var(--ground);
+  display: flex; flex-direction: column;
+  transform: translateY(100%);
+  transition: transform .3s cubic-bezier(.22,.61,.36,1);
+}
+.edit-page.on { transform: translateY(0); }
+.edit-head {
+  flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.edit-title { font-size: 16px; font-weight: 800; }
+.edit-sub { font-size: 11px; color: var(--faint); font-weight: 700; }
+.edit-done { margin-left: auto; border: none; background: var(--primary); color: #fff;
+             border-radius: 10px; font: 800 14px var(--font); padding: 9px 18px; }
+.edit-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 8px; }
+.erow {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px;
+  padding: 8px 10px 8px 4px; margin-bottom: 8px;
+  transition: box-shadow .16s, opacity .16s;
+}
+.erow.drag { box-shadow: 0 12px 28px rgba(15,23,42,.22); border-color: var(--primary);
+             position: relative; z-index: 5; }
+.edit-list.dragging .erow:not(.drag) { opacity: .55; }
+.ehandle {
+  flex-shrink: 0; width: 40px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--faint); font-size: 17px; letter-spacing: -2px;
+  touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent;
+}
+.erow.drag .ehandle { cursor: grabbing; color: var(--primary); }
+.ename { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: var(--ink);
+         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ecount { flex-shrink: 0; min-width: 42px; text-align: center; font-size: 13px; font-weight: 800;
+          color: var(--muted); background: var(--line-soft); border-radius: 12px; padding: 3px 8px;
+          font-variant-numeric: tabular-nums; }
+.ebtn { flex-shrink: 0; width: 38px; height: 38px; border-radius: 9px;
+        border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 14px;
+        -webkit-tap-highlight-color: transparent; }
+.ebtn.del { border-color: var(--danger-line); color: var(--danger); }
+.edit-foot { flex-shrink: 0; padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+             background: var(--surface); border-top: 1px solid var(--line); }
+.edit-add { width: 100%; border: 1.5px dashed var(--primary-border); background: var(--surface);
+            color: var(--primary); border-radius: 12px; font: 800 14px var(--font); padding: 13px; }
+
 /* 名前の入力・削除の確認。prompt/confirm は埋め込み環境で塞がれることがあるので画面内に持つ */
 .sheet-bg { position: fixed; inset: 0; z-index: 90; background: rgba(15,23,42,.45);
             display: none; align-items: center; justify-content: center; padding: 22px; }
@@ -290,17 +328,13 @@ body {
   <div class="wheel-wrap" id="wheelWrap">
     <div class="stage" id="stage">
       <div class="stage-inner" id="stageInner"></div>
-      <div class="hold-badge">つかみ中 — 回して位置を変える</div>
       <div class="marker"></div>
       <div class="fade t"></div>
       <div class="fade b"></div>
     </div>
-    <div class="band-hint">タップで変える</div>
     <div class="rail">
-      <button class="rail-btn" type="button" id="btnEdit" aria-label="名前を変える">✎</button>
-      <button class="rail-btn" type="button" id="btnNew" aria-label="分類先を足す">＋</button>
-      <button class="rail-btn del" type="button" id="btnDel" aria-label="この分類先を消す">🗑</button>
-      <span class="rail-cap">中央の1枚<br>長押しで並べ替え</span>
+      <button class="rail-btn gear" type="button" id="btnManage" aria-label="分類先をまとめて編集">⚙</button>
+      <span class="rail-cap">分類先を<br>まとめて編集</span>
     </div>
   </div>
 
@@ -310,6 +344,20 @@ body {
   </div>
 
   <div class="list" id="list"></div>
+</div>
+
+<div class="edit-page" id="editPage">
+  <header class="edit-head">
+    <div>
+      <div class="edit-title">分類先の管理</div>
+      <div class="edit-sub" id="editSub"></div>
+    </div>
+    <button class="edit-done" type="button" id="editDone">完了</button>
+  </header>
+  <div class="edit-list" id="editList"></div>
+  <div class="edit-foot">
+    <button class="edit-add" type="button" id="editAdd">＋ 分類先を追加</button>
+  </div>
 </div>
 
 <div class="sheet-bg" id="sheetBg">
@@ -399,7 +447,6 @@ let query = '';
 let wheelH = 196;
 let focusFollow = true;   // 触った方に面積を寄せる
 let banded = false;
-let reordering = false;   // 長押しでカードを掴んでいる間
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (reduce) $('wheelWrap').classList.add('reduced');
@@ -418,7 +465,8 @@ const cardEls = [];
 for (let i = 0; i < VISIBLE * 2 + 1; i++) {
   const el = document.createElement('div');
   el.className = 'gcard';
-  el.innerHTML = '<span class="gname"></span><span class="gcount"></span>';
+  el.innerHTML = '<span class="gname"></span><span class="gcount"></span>' +
+                 '<span class="gchev">変える ▾</span>';
   inner.appendChild(el);
   cardEls.push(el);
 }
@@ -447,19 +495,12 @@ function renderWheel() {
     el.querySelector('.gname').textContent = GROUPS[idx];
     el.querySelector('.gcount').textContent = counts[idx];
     el.classList.toggle('on', center);
-    el.classList.toggle('held', center && reordering);
     el.dataset.idx = String(idx);
   }
   const next = wrapIndex(Math.round(pos));
   if (next !== target) {
-    // 並べ替え中は、掴んだカードが中央に居続けるよう配列の側を動かす。
-    // 「回す」がそのまま「動かす」になるので、覚える操作が増えない。
-    if (reordering && target >= 0 && target < GROUPS.length) {
-      GROUPS.splice(next, 0, GROUPS.splice(target, 1)[0]);
-      counts.splice(next, 0, counts.splice(target, 1)[0]);
-    }
     target = next;
-    if (!reordering) renderList();
+    renderList();
   }
 }
 
@@ -484,34 +525,16 @@ const stage = $('stage');
 let dragging = false, lastY = 0, lastT = 0, vel = 0, raf = 0;
 const PX_PER_CARD = 46;
 
-// 並べ替えは、本体アプリと同じ「長押しで掴む」を引き継ぐ。
-// 掴んだあとは回すだけ＝ホイールの操作そのままなので、覚える操作が増えない。
-// 掴む前に指が動いたら、それは回す意図なのでキャンセルする。
-const HOLD_MS = 480, HOLD_CANCEL_PX = 10;
-let holdTimer = 0, holdY = 0, movedFar = false;
-
-function startHold(y) {
-  holdY = y; movedFar = false;
-  clearTimeout(holdTimer);
-  holdTimer = setTimeout(() => {
-    if (movedFar || !dragging) return;
-    reordering = true;
-    stage.classList.add('reordering');
-    navigator.vibrate?.(15);
-    renderWheel();
-  }, HOLD_MS);
-}
-function cancelHold() { clearTimeout(holdTimer); }
-
+// 並べ替えはホイールでは持たない。回しながら19枚の中の狙った位置に置くのは難しく、
+// 「回す」と「動かす」が同じ指の動きになって取り違える。順番の入れ替えは ⚙ の
+// 一括編集画面（一覧＋つまみ）にまとめる。ここは「回して選ぶ」だけ。
 stage.addEventListener('pointerdown', e => {
   dragging = true; lastY = e.clientY; lastT = performance.now(); vel = 0;
   cancelAnimationFrame(raf);
   stage.setPointerCapture(e.pointerId);
-  startHold(e.clientY);
 });
 stage.addEventListener('pointermove', e => {
   if (!dragging) return;
-  if (!reordering && Math.abs(e.clientY - holdY) > HOLD_CANCEL_PX) { movedFar = true; cancelHold(); }
   const now = performance.now();
   const dy = e.clientY - lastY;
   const dt = Math.max(1, now - lastT);
@@ -523,18 +546,7 @@ stage.addEventListener('pointermove', e => {
 function endDrag(e) {
   if (!dragging) return;
   dragging = false;
-  cancelHold();
   try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
-  if (reordering) {
-    // 掴んだまま離した＝その位置で確定。惰性で流れると狙った位置からずれる
-    reordering = false;
-    stage.classList.remove('reordering');
-    vel = 0;
-    pos = Math.round(pos);
-    renderWheel(); renderList(); settleWheel();
-    navigator.vibrate?.(8);
-    return;
-  }
   glide();
 }
 stage.addEventListener('pointerup', endDrag);
@@ -558,7 +570,6 @@ function glide() {
 
 // 中央以外のカードをタップしたら、そこまで回す（19個を1枚ずつ送らせない）
 stage.addEventListener('click', e => {
-  if (reordering) return;
   const card = e.target.closest('.gcard');
   if (!card) return;
   const idx = Number(card.dataset.idx);
@@ -755,30 +766,119 @@ $('sheetOk').addEventListener('click', () => {
 });
 $('sheetInput').addEventListener('keyup', e => { if (e.key === 'Enter') $('sheetOk').click(); });
 
-// ── 右のレール。中央の1枚に効く ────────────────────────────────────────
-$('btnEdit').addEventListener('click', () => {
-  openSheet({ title: '分類先の名前を変える', value: GROUPS[target] }, name => {
+// ── 分類先の一括編集 ───────────────────────────────────────────────────
+// 追加・名前変更・削除・並べ替えをここ1枚にまとめる。ホイールは「回して選ぶ」だけに残す。
+const editPage = $('editPage'), editList = $('editList');
+let editOpenName = null;      // 開いた時に中央だった分類先。閉じるときそこへ戻す
+
+$('btnManage').addEventListener('click', openEdit);
+$('editDone').addEventListener('click', closeEdit);
+
+function openEdit() {
+  editOpenName = GROUPS[target];
+  renderEdit();
+  editPage.classList.add('on');
+}
+function closeEdit() {
+  editPage.classList.remove('on');
+  // 編集で順番が変わっていても、見ていた分類先の前に戻す
+  const i = GROUPS.indexOf(editOpenName);
+  pos = i >= 0 ? i : Math.min(target, GROUPS.length - 1);
+  target = -1;
+  renderWheel(); renderList(); updateProgress(); updateStats();
+}
+
+function renderEdit() {
+  $('editSub').textContent = `${GROUPS.length}件 ・ つまみ ⋮⋮ を掴んで並べ替え`;
+  const frag = document.createDocumentFragment();
+  GROUPS.forEach((g, i) => {
+    const row = document.createElement('div');
+    row.className = 'erow';
+    row.dataset.i = String(i);
+    row.innerHTML =
+      `<span class="ehandle" aria-label="並べ替え">⋮⋮</span>` +
+      `<span class="ename"></span>` +
+      `<span class="ecount">${counts[i]}</span>` +
+      `<button class="ebtn rename" type="button" aria-label="名前を変える">✎</button>` +
+      `<button class="ebtn del" type="button" aria-label="削除">🗑</button>`;
+    row.querySelector('.ename').textContent = g;
+    frag.appendChild(row);
+  });
+  editList.replaceChildren(frag);
+}
+
+editList.addEventListener('click', e => {
+  const row = e.target.closest('.erow');
+  if (!row) return;
+  const i = [...editList.children].indexOf(row);
+  if (e.target.closest('.rename')) {
+    openSheet({ title: '分類先の名前を変える', value: GROUPS[i] }, name => {
+      if (!name) return;
+      GROUPS[i] = name; renderEdit();
+    });
+  } else if (e.target.closest('.del')) {
+    if (GROUPS.length <= 1) return;
+    openSheet({
+      title: `「${GROUPS[i]}」を消しますか？`,
+      sub: counts[i] ? `${counts[i]}件の割り当ても外れます` : '割り当てはありません',
+      ok: '削除する', danger: true,
+    }, () => { doDelete(i); renderEdit(); });
+  }
+});
+
+$('editAdd').addEventListener('click', () => {
+  openSheet({ title: '分類先を足す', sub: '一覧のいちばん下に入ります', value: '', ok: '追加' }, name => {
     if (!name) return;
-    GROUPS[target] = name; renderWheel(); renderList();
+    GROUPS.push(name); counts.push(0);
+    renderEdit();
+    editList.scrollTop = editList.scrollHeight;
   });
 });
-$('btnNew').addEventListener('click', () => {
-  openSheet({ title: '分類先を足す', sub: '今まん中にある1枚の下に入ります', value: '', ok: '追加' }, name => {
-    if (!name) return;
-    GROUPS.splice(target + 1, 0, name);
-    counts.splice(target + 1, 0, 0);
-    pos = target + 1;
-    renderWheel(); renderList(); updateStats();
-  });
+
+// つまみを掴んで並べ替え。行そのものを掴ませると縦スクロールと取り合いになるので、
+// つまみだけ touch-action: none にして、ここでジェスチャを引き取る。
+let dragRow = null, dragY0 = 0, dragDy = 0;
+
+editList.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('.ehandle');
+  if (!handle) return;
+  dragRow = handle.closest('.erow');
+  dragY0 = e.clientY; dragDy = 0;
+  dragRow.classList.add('drag');
+  editList.classList.add('dragging');
+  handle.setPointerCapture(e.pointerId);
+  navigator.vibrate?.(10);
 });
-$('btnDel').addEventListener('click', () => {
-  if (GROUPS.length <= 1) return;
-  const gone = target;
-  openSheet({
-    title: `「${GROUPS[gone]}」を消しますか？`,
-    sub: '品目の割り当ても外れます', ok: '削除する', danger: true,
-  }, () => doDelete(gone));
+editList.addEventListener('pointermove', e => {
+  if (!dragRow) return;
+  e.preventDefault();
+  dragDy = e.clientY - dragY0;
+  dragRow.style.transform = `translateY(${dragDy}px)`;
+  // 指の位置にある行と入れ替える。DOM も配列も同時に動かすので、離した時点で確定済み
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.erow');
+  if (!over || over === dragRow) return;
+  const rows = [...editList.children];
+  const from = rows.indexOf(dragRow), to = rows.indexOf(over);
+  if (from < 0 || to < 0) return;
+  editList.insertBefore(dragRow, from < to ? over.nextSibling : over);
+  GROUPS.splice(to, 0, GROUPS.splice(from, 1)[0]);
+  counts.splice(to, 0, counts.splice(from, 1)[0]);
+  // 入れ替えた行は指の位置へ移っている。基準を今の指に取り直して、
+  // ずれを持ち越さない（持ち越すと行が指から離れていく）
+  dragY0 = e.clientY;
+  dragRow.style.transform = '';
 });
+function endRowDrag() {
+  if (!dragRow) return;
+  dragRow.style.transform = '';
+  dragRow.classList.remove('drag');
+  editList.classList.remove('dragging');
+  dragRow = null;
+  renderEdit();
+}
+editList.addEventListener('pointerup', endRowDrag);
+editList.addEventListener('pointercancel', endRowDrag);
+
 function doDelete(gone) {
   GROUPS.splice(gone, 1); counts.splice(gone, 1);
   for (const [item, gs] of assigned) {
@@ -786,7 +886,7 @@ function doDelete(gone) {
     for (const g of gs) { if (g === gone) continue; next.add(g > gone ? g - 1 : g); }
     assigned.set(item, next);
   }
-  pos = wrapIndex(gone); target = -1;
+  pos = wrapIndex(Math.min(gone, GROUPS.length - 1)); target = -1;
   renderWheel(); renderList(); updateProgress(); updateStats();
 }
 
