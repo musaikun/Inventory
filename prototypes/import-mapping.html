@@ -229,6 +229,22 @@ body {
 .sec-c:last-child { border-right: none; }
 
 .ask-opts { display: flex; flex-direction: column; gap: 9px; }
+/* 段数：検出した数を既定にして、1〜4から選び直せる */
+.secpick { display: flex; gap: 8px; }
+.secbtn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border: 1.5px solid var(--line); background: var(--surface);
+  border-radius: 12px; padding: 11px 6px 9px; cursor: pointer;
+  font-family: var(--font); -webkit-tap-highlight-color: transparent;
+}
+.secbtn.det { border-color: var(--primary); background: var(--primary-weak); }
+.secbtn-n { font-size: 20px; font-weight: 800; color: var(--ink); line-height: 1; }
+.secbtn.det .secbtn-n { color: var(--primary); }
+.secbtn-c { font-size: 10.5px; color: var(--muted); font-weight: 700; }
+.secbtn-tag {
+  font-size: 8.5px; font-weight: 800; color: #fff; background: var(--primary);
+  border-radius: 4px; padding: 1px 4px;
+}
 .ask-back {
   display: block; margin-top: 10px; border: none; background: none;
   color: var(--primary); font-family: var(--font); font-size: 11.5px; font-weight: 700;
@@ -991,6 +1007,7 @@ body {
         <button class="pbtn" data-src="pdf">PDF</button>
         <button class="pbtn" data-src="dirty">汚いCSV</button>
         <button class="pbtn" data-src="pdf2col">2段組みPDF</button>
+        <button class="pbtn" data-src="pdf3col">3段組みPDF</button>
         <button class="pbtn" data-src="real">実物の棚卸表</button>
       </div>
     </div>
@@ -2274,6 +2291,14 @@ const SOURCES = {
     cols: ['name','unit','price'],
     sections: 2,
   },
+  // 3段。自動解析（_splitSections / rotate=90パーサ）はどちらも段数に依存しないので、
+  // 2段だけを想定した作りにしない。
+  pdf3col: {
+    filename: '丸和青果_一覧（3段組み）.pdf', fields: F_ITEM, mode: 'pdf',
+    headers: ['品名','単位','単価'],
+    cols: ['name','unit','price'],
+    sections: 3,
+  },
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2334,7 +2359,7 @@ function buildSource() {
   state.headerRow = null
   state.headerNamed = false
   state.sections = SRC.sections ?? 1
-  state.sectionsMode = state.sections > 1 ? null : 'both'
+  state.sectionsMode = state.sections > 1 ? null : 1
   state.mapping = {}
   state.manual = {}
   state.picked = null
@@ -2871,19 +2896,22 @@ function renderAsk(q) {
     $('askNote').innerHTML = '1件目の品目の名前をタップします。その列が品目名になり、そこから下がデータになります。'
       + `<button class="ask-back" id="askBackHead">見出しの行を選び直す</button>`
   } else if (q.kind === 'sections') {
+    // 段数はパーサが数えている（商品名の見出しがいくつあるか）。自動解析は
+    // 段数に依存しないので、2段だけを想定した2択にはしない。
+    // 訊いているのは「その数で合っているか」であって、ゼロから選ばせるのではない。
+    const det = SRC.sections ?? 1
+    const per = Math.round(dataRows().length / det)   // 1段あたりの件数
     $('askQ').textContent = 'この紙、表は何枚ありますか？'
     $('peek').className = 'peek'
-    $('peek').innerHTML = peekSections()
-    const n = dataRows().length
-    $('askOpts').innerHTML = `
-      <button class="ask-opt" data-sec="both">
-        <span class="ask-opt-t">左右2つの表（1ページに2ページ分）</span>
-        <span class="ask-opt-r">両方から読む ・ <b>${n.toLocaleString()}件</b></span></button>
-      <button class="ask-opt" data-sec="left">
-        <span class="ask-opt-t">表は1つ（左だけ）</span>
-        <span class="ask-opt-r">右側は読まない ・ <b>${Math.floor(n / 2).toLocaleString()}件</b>
-          <span class="lost">・ 右の${Math.ceil(n / 2).toLocaleString()}件は取り込まれません</span></span></button>`
-    $('askNote').textContent = '同じ形の表が横に並んでいるときは「2つ」を選びます。'
+    $('peek').innerHTML = peekSections(det)
+    $('askOpts').innerHTML = `<div class="secpick">${[1, 2, 3, 4].map(n => `
+      <button class="secbtn${n === det ? ' det' : ''}" data-sec="${n}">
+        <span class="secbtn-n">${n}</span>
+        <span class="secbtn-c">${(per * n).toLocaleString()}件</span>
+        ${n === det ? '<span class="secbtn-tag">自動判定</span>' : ''}
+      </button>`).join('')}</div>`
+    $('askNote').textContent = `同じ形の表が横に並んでいる数です。${det}枚と読み取りました。`
+      + '違っていればここで直せます。少なく選ぶと、その分の品目は取り込まれません。'
   } else {
     // 列を選ぶ問い。選択肢を並べるのではなく、ファイルの列そのものを押させる。
     $('askQ').textContent = `どの列が「${q.field.label}」ですか？`
@@ -2914,19 +2942,19 @@ function peekRows({ markFirst = false } = {}) {
       </div>`).join('')}</div>`
 }
 // 紙の見た目を小さく出す。左右に同じ形の表が並んでいることが見えれば足りる。
-function peekSections() {
+function peekSections(n) {
   const cell = (t, w) => `<span class="sec-c" style="flex:${w}">${esc(t)}</span>`
   const tbl = (rows, head) => `<div class="sec-tbl">
     <div class="sec-row head">${head.map((h, i) => cell(h, i === 0 ? 2 : 1)).join('')}</div>
     ${rows.map(r => `<div class="sec-row">${r.map((c, i) => cell(c, i === 0 ? 2 : 1)).join('')}</div>`).join('')}
   </div>`
-  const L = [0, 1, 2, 3].map(i => { const r = makeRow(i); return [r.name, r.unit, r.price] })
-  const R = [20, 21, 22, 23].map(i => { const r = makeRow(i); return [r.name, r.unit, r.price] })
   const head = ['品名', '単位', '単価']
+  const secs = Array.from({ length: n }, (_, s) =>
+    tbl([0, 1, 2, 3].map(i => { const r = makeRow(s * 20 + i); return [r.name, r.unit, r.price] }), head))
   return `<div class="peek-cap">紙の見た目 ・ 1ページ目</div>
     <div class="sec-page">
-      <div class="sec-meta">港水産　納品書　2026/09/01</div>
-      <div class="sec-cols">${tbl(L, head)}<div class="sec-gap"></div>${tbl(R, head)}</div>
+      <div class="sec-meta">${esc(SRC.filename.replace(/\.pdf$/, ''))}　2026/09/01</div>
+      <div class="sec-cols">${secs.join('<div class="sec-gap"></div>')}</div>
     </div>`
 }
 
@@ -3467,11 +3495,14 @@ $('ask').addEventListener('pointerup', e => {
 $('ask').addEventListener('click', e => {
   if (_peekMoved && e.target.closest('.peek-body')) { _peekMoved = false; return }
   _peekMoved = false
-  const sec = e.target.closest('.ask-opt[data-sec]')
+  const sec = e.target.closest('[data-sec]')
   if (sec) {
-    state.sectionsMode = sec.dataset.sec
-    // 右段を読まないなら、そのぶん品目が減る（試作なので行数で表す）
-    if (state.sectionsMode === 'left') { state.nRows = Math.floor(state.nRows / 2); buildRows() }
+    const det = SRC.sections ?? 1
+    const pick = Number(sec.dataset.sec)
+    state.sectionsMode = pick
+    state.sections = pick
+    // 検出より少なく読むなら、そのぶん品目が減る（試作なので行数で表す）
+    if (pick < det) { state.nRows = Math.round(state.nRows * pick / det); buildRows() }
     render()
     return
   }
