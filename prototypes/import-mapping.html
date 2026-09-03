@@ -263,6 +263,68 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .map-hint { font-size: 11px; color: var(--faint); }
+/* ── マッピング面：元データの上に対応を色で書く ── */
+.map-cap {
+  flex-shrink: 0; display: flex; align-items: baseline; gap: 8px;
+  padding: 10px 14px 6px;
+}
+.map-cap-t { font-size: 12.5px; font-weight: 800; color: var(--ink); }
+.map-cap-s { margin-left: auto; font-size: 10.5px; color: var(--faint); font-weight: 700; }
+.peek.map {
+  flex: 1 1 auto; min-height: 120px; margin: 0 12px; border-radius: 11px;
+  border: 1px solid var(--line); overflow: hidden; background: var(--surface);
+  display: flex; flex-direction: column;
+}
+.peek.map .peek-body { flex: 1; min-height: 0; max-height: none; }
+.peek-row.mhead { border-bottom: 1px solid var(--line); }
+.peek-c.mc { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* 割り当て済みの列は、見出しからデータまで縦に色が通る。どの列がどの項目かが、
+   元データを見ながら分かる。 */
+.peek-c.mc.mapped { background: var(--fw); box-shadow: inset 2px 0 0 var(--fc); }
+.peek-c.mc.picking { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary); }
+.peek-row.mhead .peek-c.mc {
+  display: flex; flex-direction: column; gap: 1px; padding: 6px 7px 5px; align-items: flex-start;
+}
+.mc-no { font-size: 9px; font-weight: 800; color: var(--faint); }
+.mc-src { font-size: 11px; font-weight: 700; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.mc-f { font-size: 9.5px; font-weight: 800; color: var(--fc); }
+.mc-none { color: var(--faint); font-weight: 700; }
+
+/* 列をタップしたら、その場で項目を選ぶ */
+.fbar {
+  flex-shrink: 0; margin: 8px 12px 0; padding: 9px 11px 10px;
+  background: var(--primary-weak); border: 1.5px solid var(--primary-border); border-radius: 11px;
+}
+.fbar[hidden] { display: none !important; }
+.fbar-t { font-size: 12px; font-weight: 800; color: var(--primary-deep); margin-bottom: 7px; }
+.fbar-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fchip {
+  border: 1.5px solid var(--line); background: var(--surface); color: var(--ink);
+  font-family: var(--font); font-size: 11.5px; font-weight: 700;
+  border-radius: 8px; padding: 5px 9px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fchip.on { background: var(--fc); border-color: var(--fc); color: #fff; }
+.fchip.none { color: var(--muted); }
+.fchip .req { color: var(--danger); font-weight: 800; margin-left: 2px; }
+.fchip.on .req { color: #fff; }
+
+/* まだ決まっていない項目 */
+.todo {
+  flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 10px 14px 4px;
+}
+.todo-t { font-size: 11px; font-weight: 800; color: var(--faint); }
+.todo-ok { font-size: 12px; font-weight: 800; color: var(--ok); }
+.tchip {
+  border: 1.5px dashed var(--line); background: var(--surface); color: var(--muted);
+  font-family: var(--font); font-size: 11.5px; font-weight: 700;
+  border-radius: 8px; padding: 4px 9px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tchip.req { border-color: var(--danger-line); background: var(--danger-weak); color: var(--danger); }
+.tchip.waiting { border-style: solid; border-color: var(--primary); background: var(--primary-weak); color: var(--primary); }
+
 /* 何と何を対応させているのかを、画面に書いておく */
 .zone-h {
   flex-shrink: 0; display: flex; align-items: center; gap: 7px;
@@ -780,27 +842,26 @@ body {
   <!-- ③ マッピング面。ここが操作の主役なので全画面を渡す。
        表を常設すると操作面が画面の半分以下に押し込まれる。 -->
   <div class="map" id="map" hidden>
-    <!-- 初めて開いた人が、何と何を対応させているのか分かるようにする。
-         「上＝ファイルにある列」「下＝棚卸カードの項目」と名前を付けて、
-         その間に矢印を置く。 -->
-    <div class="zone-h">
-      <span class="zone-n">1</span>
-      <span class="zone-t">ファイルにある列</span>
-      <span class="zone-s" id="unusedn"></span>
+    <!-- 前の画面で見ていた元データを、そのまま出し続ける。
+         列チップは元データの列を作り直したものでしかないので、元データが
+         出ているなら要らない。対応はその上に色で書く。 -->
+    <div class="map-cap">
+      <span class="map-cap-t" id="mapCapT">どの列が何かを決めます</span>
+      <span class="map-cap-s" id="unusedn"></span>
     </div>
-    <div class="src" id="srcCols">
-      <div class="chips" id="chips"></div>
-    </div>
-    <div class="zone-arrow"><span>この列を ↓ の項目へ入れます</span></div>
-    <div class="zone-h">
-      <span class="zone-n">2</span>
-      <span class="zone-t">棚卸カードの項目</span>
-    </div>
+    <div class="peek map" id="mapPeek"></div>
+
+    <!-- 列をタップしたとき、その場で項目を選ぶ -->
+    <div class="fbar" id="fbar" hidden></div>
+
+    <!-- まだ決まっていない項目 -->
+    <div class="todo" id="todo"></div>
+
     <div class="pdf" id="srcPdf" hidden>
       <div class="pdf-hint" id="pdfHint">読みたい数字をタップすると、その列がまるごと入ります</div>
       <div class="pdf-page" id="pdfPage"></div>
     </div>
-    <div class="sample" id="sample"></div>
+
     <div class="map-foot">
       <button class="map-head" id="msheetHead"></button>
       <span class="map-hint" id="msheetT"></span>
@@ -947,29 +1008,29 @@ const $ = id => document.getElementById(id)
    CSV経路とPDF経路で色が同じなら、覚える組は1つで済む。
    ══════════════════════════════════════════════════════════════ */
 const F_ITEM = [
-  { key:'name',      label:'品目名',   color:'var(--f-name)',     required:true,
+  { key:'name',      label:'品目名',   color:'var(--f-name)',     weak:'#eff6ff', required:true,
     hints:['品目名','商品名','品名','名称','name','item','product'] },
-  { key:'unit',      label:'単位',     color:'var(--f-unit)',     hints:['単位','unit'] },
-  { key:'price',     label:'単価',     color:'var(--f-price)',    hints:['単価','価格','金額','原価','price','cost'] },
-  { key:'category',  label:'カテゴリ', color:'var(--f-category)', hints:['カテゴリ','分類','種別','ジャンル','category'] },
-  { key:'code',      label:'コード',   color:'var(--f-code)',     hints:['商品コード','コード','jan','ean','品番','code'] },
-  { key:'lotSize',   label:'入数',     color:'var(--f-lot)',      hints:['入数','入り数','ロット','lot','pack'] },
-  { key:'prevMonth', label:'前月',     color:'var(--f-prev)',     hints:['前月実績','前月','先月','prev'] },
-  { key:'axisA',     label:'保管場所', color:'var(--f-axisA)',    hints:['保管場所','場所','ロケーション','棚','location'] },
-  { key:'axisB',     label:'仕入先',   color:'var(--f-axisB)',    hints:['仕入先','業者','取引先','supplier','vendor'] },
+  { key:'unit',      label:'単位',     color:'var(--f-unit)',     weak:'#f5f3ff', hints:['単位','unit'] },
+  { key:'price',     label:'単価',     color:'var(--f-price)',    weak:'#ecfdf5', hints:['単価','価格','金額','原価','price','cost'] },
+  { key:'category',  label:'カテゴリ', color:'var(--f-category)', weak:'#fffbeb', hints:['カテゴリ','分類','種別','ジャンル','category'] },
+  { key:'code',      label:'コード',   color:'var(--f-code)',     weak:'#ecfeff', hints:['商品コード','コード','jan','ean','品番','code'] },
+  { key:'lotSize',   label:'入数',     color:'var(--f-lot)',      weak:'#f3f4f6', hints:['入数','入り数','ロット','lot','pack'] },
+  { key:'prevMonth', label:'前月',     color:'var(--f-prev)',     weak:'#faf5ff', hints:['前月実績','前月','先月','prev'] },
+  { key:'axisA',     label:'保管場所', color:'var(--f-axisA)',    weak:'#fdf2f8', hints:['保管場所','場所','ロケーション','棚','location'] },
+  { key:'axisB',     label:'仕入先',   color:'var(--f-axisB)',    weak:'#f0fdfa', hints:['仕入先','業者','取引先','supplier','vendor'] },
 ]
 const F_DELIVERY = [
-  { key:'date',     label:'日付',     color:'var(--f-date)',     required:true,
+  { key:'date',     label:'日付',     color:'var(--f-date)',     weak:'#f0f9ff', required:true,
     hints:['日付','納品日','入荷日','伝票日付','取引日','date'] },
-  { key:'name',     label:'品目名',   color:'var(--f-name)',     required:true,
+  { key:'name',     label:'品目名',   color:'var(--f-name)',     weak:'#eff6ff', required:true,
     hints:['品目名','商品名','品名','名称','item'] },
-  { key:'qty',      label:'数量',     color:'var(--f-qty)',      required:true,
+  { key:'qty',      label:'数量',     color:'var(--f-qty)',      weak:'#fdf2f8', required:true,
     hints:['数量','入荷数','納品数','qty'] },
-  { key:'price',    label:'単価',     color:'var(--f-price)',    hints:['単価','原価','仕入単価','price'] },
-  { key:'unit',     label:'単位',     color:'var(--f-unit)',     hints:['単位','unit'] },
-  { key:'supplier', label:'仕入先',   color:'var(--f-axisB)',    hints:['仕入先','業者','取引先'] },
-  { key:'category', label:'カテゴリ', color:'var(--f-category)', hints:['カテゴリ','分類','ジャンル','部門'] },
-  { key:'code',     label:'コード',   color:'var(--f-code)',     hints:['商品コード','コード','品番','jan'] },
+  { key:'price',    label:'単価',     color:'var(--f-price)',    weak:'#ecfdf5', hints:['単価','原価','仕入単価','price'] },
+  { key:'unit',     label:'単位',     color:'var(--f-unit)',     weak:'#f5f3ff', hints:['単位','unit'] },
+  { key:'supplier', label:'仕入先',   color:'var(--f-axisB)',    weak:'#f0fdfa', hints:['仕入先','業者','取引先'] },
+  { key:'category', label:'カテゴリ', color:'var(--f-category)', weak:'#fffbeb', hints:['カテゴリ','分類','ジャンル','部門'] },
+  { key:'code',     label:'コード',   color:'var(--f-code)',     weak:'#ecfeff', hints:['商品コード','コード','品番','jan'] },
 ]
 
 /* ══════════════════════════════════════════════════════════════
@@ -2172,6 +2233,7 @@ const state = {
   mapping: {},
   manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
   pvSticky: false,       // プレビューが居座っているか（プレビューボタンから開いた）
+  pickCol: null,         // いま項目を選ばせている列
   replacing: null,       // 「この項目に入れ直す」で待っている項目
   sortMode: 'genre',     // プレビューの並び替え
   closedGroups: {},      // 閉じたジャンル（居座るプレビューで開閉できる）
@@ -2449,7 +2511,7 @@ function render(opts = {}) {
   if (asking) { renderAsk(q); autoPan() }
   else {
     cancelAnimationFrame(_panRaf)
-    renderChips(); renderSample()
+    renderMap()
     renderFoot()
     const pdf = SRC.mode === 'pdf'
     // PDFに1行目という概念は無いので出さない
@@ -2529,6 +2591,73 @@ function closePreview() {
   pv.classList.remove('in'); pv.classList.add('out')
   setTimeout(() => { pv.hidden = true; pv.classList.remove('out') }, 260)
 }
+/* ══════════════════════════════════════════════════════════════
+   マッピング面。前の画面で見ていた元データをそのまま出し続け、
+   その上に「どの列がどの項目か」を色で書く。
+   列チップは元データの作り直しでしかないので置かない ── 見ていたものが
+   消えて別の抽象に置き換わると、そこで一度分からなくなる。
+   ══════════════════════════════════════════════════════════════ */
+function renderMap() {
+  const n = colCount()
+  const byCol = {}
+  for (const f of fields()) if (has(f.key)) byCol[state.mapping[f.key]] = f
+  const MAP_ROWS = 40      // 面が縦に広いので多めに出す。足りないと下に白が残る
+  const rows = dataRows().slice(0, MAP_ROWS)
+
+  const headCell = (i) => {
+    const f = byCol[i]
+    const on = state.pickCol === i
+    return `<span class="peek-c mc${f ? ' mapped' : ''}${on ? ' picking' : ''}" data-col="${i}"
+      style="${f ? `--fc:${f.color};--fw:${f.weak}` : ''}">
+      <span class="mc-no">${i + 1}</span>
+      <span class="mc-src">${esc(headerName(i))}</span>
+      <span class="mc-f">${f ? esc(f.label) : '<span class="mc-none">使わない</span>'}</span>
+    </span>`
+  }
+  const dataCell = (v, i) => {
+    const f = byCol[i]
+    return `<span class="peek-c mc${f ? ' mapped' : ''}${state.pickCol === i ? ' picking' : ''}" data-col="${i}"
+      style="${f ? `--fc:${f.color};--fw:${f.weak}` : ''}">${esc(String(v ?? '').trim()) || '&nbsp;'}</span>`
+  }
+  $('mapPeek').innerHTML = `<div class="peek-body" data-cols="${n}">
+    <div class="peek-row peek-head mhead">
+      <span class="peek-no"></span>
+      <span class="peek-cells">${Array.from({ length: n }, (_, i) => headCell(i)).join('')}</span>
+    </div>
+    ${rows.map((r, i) => `<div class="peek-row rest">
+      <span class="peek-no">${i + 1}</span>
+      <span class="peek-cells">${Array.from({ length: n }, (_, c) => dataCell(r[c], c)).join('')}</span>
+    </div>`).join('')}
+  </div>`
+
+  const unused = Array.from({ length: n }, (_, i) => i).filter(i => !byCol[i])
+  $('unusedn').textContent = unused.length ? `使わない列 ${unused.length}` : '全部の列を使用中'
+
+  // 列をタップしたら、その場で項目を選ばせる（PdfColumnMapper と同じやり方）
+  const fb = $('fbar')
+  if (state.pickCol === null || state.pickCol === undefined) fb.hidden = true
+  else {
+    fb.hidden = false
+    const cur = byCol[state.pickCol]
+    fb.innerHTML = `<div class="fbar-t">「${esc(headerName(state.pickCol))}」は何の項目？</div>
+      <div class="fbar-chips">${fields().map(f => `
+        <button class="fchip${cur?.key === f.key ? ' on' : ''}" data-f="${f.key}"
+          style="--fc:${f.color}">${esc(f.label)}${f.required ? '<span class="req">*</span>' : ''}</button>`).join('')}
+        <button class="fchip none" data-f="">使わない</button>
+      </div>`
+  }
+
+  // まだ決まっていない項目。必須は目立たせる。
+  const open = fields().filter(f => !has(f.key))
+  $('mapCapT').textContent = state.replacing
+    ? `「${fieldOf(state.replacing).label}」に入れる列をタップ`
+    : (state.pickCol !== null ? '項目を選んでください' : 'どの列が何かを決めます')
+  $('todo').innerHTML = open.length
+    ? `<span class="todo-t">まだ決まっていない</span>` + open.map(f =>
+        `<button class="tchip${f.required ? ' req' : ''}${state.replacing === f.key ? ' waiting' : ''}" data-todo="${f.key}" style="--fc:${f.color}">${esc(f.label)}</button>`).join('')
+    : `<span class="todo-ok">✓ ${fields().length}項目ぜんぶ決まりました</span>`
+}
+
 /* 並び替えタブ。実物の棚卸カードと同じ並び方を、居座るプレビューでは実際に効かせる。
    「取り込んだ後どう見えるか」の確認なので、触れないと確認にならない。 */
 function renderSorts() {
@@ -2777,121 +2906,6 @@ function runBuild(filledKey) {
   openPreview({ filled: filledKey })
 }
 
-/* ── 列チップ ── */
-function renderChips() {
-  const wrap = $('chips')
-  if (SRC.mode === 'pdf') return
-  const n = colCount()
-  const usedBy = {}
-  for (const f of fields()) if (has(f.key)) usedBy[state.mapping[f.key]] = f
-
-  let html = ''
-  for (let i = 0; i < n; i++) {
-    const f = usedBy[i]
-    const vals = dataRows().slice(0, 3).map(r => String(r[i] ?? '').trim())
-    const empty = vals.every(v => v === '')
-    const cls = ['chip']
-    if (f) cls.push('used'); else cls.push('idle')
-    if (empty) cls.push('empty-col')
-    if (state.picked === i) cls.push('picked')
-    if (state.replacing) cls.push('await')
-    html += `<div class="${cls.join(' ')}" data-col="${i}" style="--fc:${f ? f.color : 'var(--line)'}">
-      <div class="chip-head"><span class="chip-no">${i + 1}</span></div>
-      <div class="chip-title">${esc(headerName(i))}</div>
-      <div class="chip-vals">${
-        vals.map(v => `<div class="chip-val">${v ? esc(v) : '<span class="chip-empty-tag">（空）</span>'}</div>`).join('')
-      }</div>
-      ${f ? `<div class="chip-badge">${esc(f.label)}<button class="chip-x" data-x="${f.key}" aria-label="外す">✕</button></div>` : ''}
-    </div>`
-  }
-  wrap.innerHTML = html
-
-  const unused = []
-  for (let i = 0; i < n; i++) if (!usedBy[i]) unused.push(i)
-  // 使わなかった列も見せる。いまは (使用しない) が select の中に隠れていて
-  // 「何を捨てたか」が画面から消える
-  const u = $('unusedn')
-  if (u) u.textContent = unused.length ? `使わない列 ${unused.length}` : '全部の列を使用中'
-}
-
-/* ── 見本カード（1件目）── */
-// その列の1件目の値。対応が合っているかは、値を見れば一目で分かる
-function firstValue(key) {
-  const i = state.mapping[key]
-  if (i === null || i === undefined) return ''
-  const r = dataRows().find(row => String(row[i] ?? '').trim())
-  return String(r?.[i] ?? '').trim().slice(0, 12)
-}
-
-function renderSample() {
-  const el = $('sample')
-  // 置き場の出し方は2通り。
-  //   列を選んでいない → 「まだ空いている置き場」だけ（低くして一覧に画面を渡す）
-  //   列を選んでいる   → 全部の置き場（埋まっている所へ差し替えられないと詰む。
-  //                      特にPDFのように列が4本しか無い取込元では、空きだけ出すと行き止まる）
-  const picking = state.picked !== null
-  const open = fields().filter(f => !has(f.key))
-
-  // 残っている列より多くの置き場を勧めない。列を使い切ったら、そこが終点。
-  const usedCols = new Set(fields().map(f => state.mapping[f.key]).filter(v => v !== null && v !== undefined))
-  const freeCols = Math.max(0, colCount() - usedCols.size)
-  const missingReq = open.filter(f => f.required)
-
-  const slot = (f) => {
-    const filled = has(f.key)
-    const cls = ['slot']
-    if (f.required && !filled) cls.push('req', 'empty', 'hint-pulse', 'big')
-    if (filled) cls.push('filled')
-    if (picking) cls.push('armed')
-    return `<div class="${cls.join(' ')}" data-slot="${f.key}" style="--fc:${f.color}">
-      <span class="slot-lab">${esc(f.label)}</span>
-      <span class="${filled ? 'slot-cur' : ''}">${
-        filled ? `今: ${esc(headerName(state.mapping[f.key]))}` : (f.required ? '必須 ・ 列をここへ' : 'ここへ')}</span>
-    </div>`
-  }
-
-  if (picking) {
-    el.className = 'sample picking'
-    const req = fields().filter(f => f.required && !has(f.key))
-    const rest = fields().filter(f => !(f.required && !has(f.key)))
-    el.innerHTML = `
-      <div class="sample-lead">「${esc(headerName(state.picked))}」を置く場所をタップ</div>
-      ${req.map(slot).join('')}
-      <div class="slots">${rest.map(slot).join('')}</div>`
-    return
-  }
-
-  if (open.length === 0 || (freeCols === 0 && missingReq.length === 0)) {
-    el.className = 'sample done'
-    const usedN = fields().length - open.length
-    const done = fields().filter(f => has(f.key))
-    el.innerHTML = `<div class="done-line">
-        <span class="done-ok">✓</span>
-        <span>${usedN}項目に対応づけ済み${open.length ? `<span class="done-rest">（この取込元に無い ${open.length}項目は空のまま）</span>` : ''}</span>
-      </div>
-      <div class="pairs">${done.map(f => `
-        <button class="pair${state.replacing === f.key ? ' waiting' : ''}" data-slot="${f.key}" style="--fc:${f.color}">
-          <span class="pair-f">${esc(f.label)}</span>
-          <span class="pair-arrow">←</span>
-          <span class="pair-c"><span class="pair-no">${state.mapping[f.key] + 1}</span>${esc(headerName(state.mapping[f.key]))}</span>
-          <span class="pair-v">${esc(firstValue(f.key))}</span>
-        </button>`).join('')}
-      </div>
-      <div class="pairs-hint">${state.replacing
-        ? `<b>「${esc(fieldOf(state.replacing).label)}」に入れる列を、上からタップしてください</b>`
-        : '行をタップすると、その項目に別の列を入れ直せます'}</div>`
-    return
-  }
-
-  el.className = 'sample'
-  // 置ける列が残っている数だけ勧める（勧めた先が全部埋まらないのは案内として嘘になる）
-  const opt = open.filter(f => !f.required).slice(0, Math.max(0, freeCols))
-  el.innerHTML = `
-    <div class="sample-lead">${missingReq.length ? 'これが要ります' : 'まだ置ける項目'}（${missingReq.length + opt.length}）</div>
-    ${missingReq.map(slot).join('')}
-    ${opt.length ? `<div class="slots">${opt.map(slot).join('')}</div>` : ''}`
-}
-
 
 /* ── 組み上がる一覧 ────────────────────────────────────────
    実物の棚卸カード（InventoryTable.vue）と同じ形で出す。ここが違うと
@@ -3080,7 +3094,15 @@ function renderFoot() {
 /* ══════════════════════════════════════════════════════════════
    割り当て
    ══════════════════════════════════════════════════════════════ */
-function assign(fieldKey, colIdx, fromEl) {
+// 列の割り当てを外す。「使わない」を選んだときに通る。
+function unassign(fieldKey) {
+  state.mapping[fieldKey] = null
+  state.manual[fieldKey] = false
+  state.picked = null
+  state.pickCol = null
+}
+
+function assign(fieldKey, colIdx) {
   if (state.headerRow === null) { backToAsk(); return }
   const prev = state.mapping[fieldKey]
   // 同じ列を2つのフィールドへ同時に割り当てない（元の実装の select と同じ制約）
@@ -3089,126 +3111,15 @@ function assign(fieldKey, colIdx, fromEl) {
   state.manual[fieldKey] = true
   state.picked = null
   state.replacing = null
+  state.pickCol = null
   // 列が丸ごと生えるフィールドは、生えたことが分かるように印を付ける
   if (prev === null || prev === undefined) state.grew[fieldKey] = true
   if (fieldKey === 'axisA' || fieldKey === 'axisB') state.grew['sort'] = true
 
-  if (fromEl && state.fx >= 2) flyTo(fromEl, fieldKey)
   render()
   // 項目を決めるたびにプレビューが出て、組み上がって、自分で消える。
   // 外したときは出さない（訂正のたびに手元を覆われると作業にならない）。
   if (state.fx > 0 && state.tutorial !== 'off') openPreview({ filled: fieldKey })
-}
-
-function unassign(fieldKey) {
-  state.mapping[fieldKey] = null
-  state.manual[fieldKey] = false
-  state.picked = null
-  render()
-}
-
-/* チップがスロットへ飛ぶ。強め(3)は弧を描く */
-function flyTo(fromEl, fieldKey) {
-  const to = document.querySelector(`[data-slot="${fieldKey}"]`)
-  if (!to) return
-  const a = fromEl.getBoundingClientRect(), b = to.getBoundingClientRect()
-  const el = document.createElement('div')
-  el.className = 'fly'
-  el.style.setProperty('--fc', colorOf(fieldKey))
-  el.textContent = fieldOf(fieldKey).label
-  document.body.appendChild(el)
-  const x0 = a.left + a.width / 2, y0 = a.top + 14
-  const x1 = b.left + b.width / 2, y1 = b.top + b.height / 2
-  const arc = state.fx === 3
-  const frames = arc
-    ? [
-        { transform: `translate(${x0}px,${y0}px) translate(-50%,-50%) scale(.9)`, opacity: 1 },
-        { transform: `translate(${(x0 + x1) / 2}px,${Math.min(y0, y1) - 34}px) translate(-50%,-50%) scale(1.12)`, opacity: 1, offset: .55 },
-        { transform: `translate(${x1}px,${y1}px) translate(-50%,-50%) scale(.7)`, opacity: 0 },
-      ]
-    : [
-        { transform: `translate(${x0}px,${y0}px) translate(-50%,-50%)`, opacity: 1 },
-        { transform: `translate(${x1}px,${y1}px) translate(-50%,-50%) scale(.8)`, opacity: 0 },
-      ]
-  el.animate(frames, { duration: arc ? 420 : 260, easing: 'cubic-bezier(.3,.7,.3,1)' })
-    .onfinish = () => el.remove()
-}
-
-// 1行目が未選択のまま割り当てへ来ることはもう無い（未選択なら質問の画面に居る）。
-// 経路が残っていたときのために、静かに質問へ戻す。
-function backToAsk() { closePreview(); state.headerRow = null; render() }
-
-/* ══════════════════════════════════════════════════════════════
-   操作1: 掴んで落とす（直接操作）
-   操作2: 列をタップ → 置き場をタップ（片手・確実）
-   どちらか片方だけだと、長い一覧やスクロール中に必ず詰まる。
-   ══════════════════════════════════════════════════════════════ */
-let drag = null, fpsRaf = 0, fpsN = 0, fpsT0 = 0
-
-function onChipDown(e) {
-  if (e.target.closest('.chip-x')) return    // ✕ は外す操作。掴みに食わせない
-  const chip = e.target.closest('.chip')
-  if (!chip) return
-  const col = Number(chip.dataset.col)
-  drag = { col, chip, x0: e.clientX, y0: e.clientY, moved: false, ghost: null, over: null }
-  chip.setPointerCapture?.(e.pointerId)
-}
-function onChipMove(e) {
-  if (!drag) return
-  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0
-  if (!drag.moved) {
-    if (Math.hypot(dx, dy) < 8) return
-    // 横に強く動いたときはチップ列の横スクロールに渡す（掴みと取り合わない）
-    if (Math.abs(dx) > Math.abs(dy) * 1.6) { drag = null; return }
-    drag.moved = true
-    startGhost()
-  }
-  const g = drag.ghost
-  g.style.left = (e.clientX - 48) + 'px'
-  g.style.top  = (e.clientY - 74) + 'px'
-
-  // 掴んだ本体が常に最前面に来るので elementFromPoint（単数）だと自分しか取れない
-  const under = document.elementsFromPoint(e.clientX, e.clientY)
-    .map(el => el.closest?.('[data-slot]')).find(Boolean)
-  if (under !== drag.over) {
-    drag.over?.classList.remove('over')
-    under?.classList.add('over')
-    drag.over = under || null
-  }
-}
-function onChipUp(e) {
-  if (!drag) return
-  const d = drag; drag = null
-  stopFps()
-  d.ghost?.remove()
-  d.chip.classList.remove('dragging')
-  d.over?.classList.remove('over')
-
-  if (!d.moved) {                       // 動かさなかった＝タップ
-    if (state.replacing) {              // 入れ直し待ちなら、その項目へ入れる
-      const key = state.replacing
-      state.replacing = null
-      assign(key, d.col, d.chip)
-      return
-    }
-    state.picked = state.picked === d.col ? null : d.col
-    render()
-    return
-  }
-  if (d.over) assign(d.over.dataset.slot, d.col, d.chip)
-  else render()
-}
-function startGhost() {
-  const g = drag.chip.cloneNode(true)
-  g.className = 'ghost'
-  document.body.appendChild(g)
-  drag.ghost = g
-  drag.chip.classList.add('dragging')
-  armSlots(true)
-  startFps()
-}
-function armSlots(on) {
-  document.querySelectorAll('[data-slot]').forEach(s => s.classList.toggle('armed', on))
 }
 
 function startFps() { fpsN = 0; fpsT0 = performance.now(); const l = () => { fpsN++; fpsRaf = requestAnimationFrame(l) }; fpsRaf = requestAnimationFrame(l) }
@@ -3217,29 +3128,6 @@ function stopFps() {
   cancelAnimationFrame(fpsRaf); fpsRaf = 0
   const dt = performance.now() - fpsT0
   if (dt > 200) $('mFps').textContent = Math.round(fpsN / (dt / 1000)) + ''
-}
-
-/* スロット側。タップで置く／✕で外す */
-function onOutClick(e) {
-  const x = e.target.closest('[data-x]')
-  if (x) { e.stopPropagation(); unassign(x.dataset.x); return }
-  const slot = e.target.closest('[data-slot]')
-  if (!slot) return
-  const key = slot.dataset.slot
-  if (state.picked !== null) {
-    const chip = document.querySelector(`.chip[data-col="${state.picked}"]`)
-    assign(key, state.picked, chip)
-    return
-  }
-  // 埋まっている項目を押したら「この項目に入れ直す」。次に押した列がそこへ入る。
-  if (has(key)) { state.replacing = state.replacing === key ? null : key; render(); return }
-  // まだ空いている置き場を押したときは、次に何をすればいいか出す
-  const c = $('chips')
-  c.scrollTo({ left: 0, behavior: 'smooth' })
-  c.querySelectorAll('.chip').forEach((ch, i) => {
-    ch.animate([{ transform: 'none' }, { transform: 'translateY(-5px)' }, { transform: 'none' }],
-      { duration: 340, delay: i * 26, easing: 'ease-out' })
-  })
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3268,20 +3156,28 @@ function onPdfClick(e) {
   const tok = e.target.closest('.tok[data-col]')
   if (!tok) return
   const col = Number(tok.dataset.col)
-  if (state.picked === col) { state.picked = null; render(); return }
-  state.picked = col
-  // どの列を指したかを、ページの上でも見せる
-  markPdfCol()
-  $('pdfHint').textContent = `「${headerName(col)}」を選びました。下の置き場をタップ`
+  // CSVと同じ形にそろえる：列を選ぶ → その場で項目を選ぶ
+  if (state.replacing) {
+    const key = state.replacing
+    state.replacing = null
+    assign(key, col)
+    return
+  }
+  state.pickCol = state.pickCol === col ? null : col
   render()
+  markPdfCol()
+  $('pdfHint').textContent = state.pickCol === null
+    ? '読みたい数字をタップすると、その列がまるごと入ります'
+    : `「${headerName(col)}」を選びました。下から項目を選んでください`
 }
+
 function markPdfCol() {
   const usedBy = {}
   for (const f of fields()) if (has(f.key)) usedBy[state.mapping[f.key]] = f
   $('pdfPage').querySelectorAll('.tok[data-col]').forEach(t => {
     const c = Number(t.dataset.col), f = usedBy[c]
     t.classList.toggle('incol', !!f)
-    t.classList.toggle('hot', state.picked === c)
+    t.classList.toggle('hot', state.pickCol === c)
     t.style.setProperty('--fc', f ? f.color : 'transparent')
   })
 }
@@ -3387,7 +3283,6 @@ function reload() {
   $('fsub').textContent = pdf
     ? `${pdfPages()}ページ ・ ${dataN.toLocaleString()}行を検出`
     : `${dataN.toLocaleString()}行`
-  $('srcCols').hidden = pdf
   $('srcPdf').hidden = !pdf
   // 見出しの有無はファイルの性質なので、無いと分かっているものは初期値を出さない。
   // ただし PDF は行の座標で読むため「1行目は見出し」を先に出しておく。
@@ -3525,16 +3420,51 @@ $('modeMask').addEventListener('click', e => {
   if (e.target === $('modeMask')) $('modeMask').hidden = true
 })
 
-$('chips').addEventListener('click', e => {
-  const x = e.target.closest('.chip-x')
-  if (x) { e.stopPropagation(); unassign(x.dataset.x) }
+// マッピング面：列をタップ → 項目を選ぶ／残りの項目をタップ → その項目に入れる列を待つ
+$('map').addEventListener('click', e => {
+  if (_peekMoved && e.target.closest('.peek-body')) { _peekMoved = false; return }
+  _peekMoved = false
+
+  const fc = e.target.closest('.fchip')
+  if (fc) {
+    const col = state.pickCol
+    state.pickCol = null
+    if (!fc.dataset.f) {                       // 「使わない」＝その列の割り当てを外す
+      for (const f of fields()) if (state.mapping[f.key] === col) unassign(f.key)
+      render(); return
+    }
+    assign(fc.dataset.f, col)
+    return
+  }
+  const td = e.target.closest('.tchip')
+  if (td) { state.replacing = state.replacing === td.dataset.todo ? null : td.dataset.todo; state.pickCol = null; render(); return }
+
+  const col = e.target.closest('.peek-c.mc')
+  if (col) {
+    const i = Number(col.dataset.col)
+    if (state.replacing) {                     // 「この項目に入れる列」を待っている
+      const key = state.replacing
+      state.replacing = null
+      assign(key, i)
+      return
+    }
+    state.pickCol = state.pickCol === i ? null : i
+    render()
+  }
 })
-$('chips').addEventListener('pointerdown', onChipDown)
-$('chips').addEventListener('pointermove', onChipMove)
-$('chips').addEventListener('pointerup', onChipUp)
-$('chips').addEventListener('pointercancel', onChipUp)
-// 置き場（スロット）はマッピング面にある
-$('map').addEventListener('click', onOutClick)
+// 元データを横に流すための指の動きを、列の選択として拾わない
+$('map').addEventListener('pointerdown', e => {
+  const body = e.target.closest('.peek-body')
+  _peekMoved = false
+  _peekDrag = body ? { x: e.clientX, y: e.clientY, sl: body.scrollLeft, st: body.scrollTop, body } : null
+}, true)
+$('map').addEventListener('pointerup', e => {
+  if (!_peekDrag) return
+  const { x, y, sl, st, body } = _peekDrag
+  _peekMoved = Math.hypot(e.clientX - x, e.clientY - y) > 8
+    || Math.abs(body.scrollLeft - sl) > 2 || Math.abs(body.scrollTop - st) > 2
+  _peekDrag = null
+}, true)
 $('srcPdf').addEventListener('click', onPdfClick)
 $('go').addEventListener('click', onGo)
 $('mask').addEventListener('click', e => { if (e.target === $('mask')) $('mask').hidden = true })
