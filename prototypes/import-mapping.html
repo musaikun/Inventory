@@ -136,19 +136,28 @@ body {
   font-size: 10px; font-weight: 800; color: var(--faint); letter-spacing: .06em;
   padding: 7px 11px 5px; background: var(--ground); border-bottom: 1px solid var(--line-soft);
 }
+/* 行ごとに別々のスクロールにすると列がずれるので、全行を1つの面に載せる */
+.peek-body {
+  overflow-x: auto; overflow-y: hidden;
+  touch-action: pan-x pan-y; overscroll-behavior-x: contain;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.peek-body::-webkit-scrollbar { display: none; }
 .peek-row {
   display: flex; align-items: stretch; border-bottom: 1px solid var(--line-soft);
   font-size: 11px; transition: background .2s, opacity .3s;
+  width: max-content; min-width: 100%;
 }
 .peek-row:last-child { border-bottom: none; }
 .peek-no {
   flex-shrink: 0; width: 22px; display: flex; align-items: center; justify-content: center;
   color: var(--faint); background: var(--ground); font-size: 10px;
   border-right: 1px solid var(--line-soft);
+  position: sticky; left: 0; z-index: 1;   /* 横へ流れても行番号は残す */
 }
-.peek-cells { display: flex; flex: 1; min-width: 0; overflow: hidden; }
+.peek-cells { display: flex; }
 .peek-c {
-  flex: 1 1 0; min-width: 0; padding: 6px 7px; color: var(--ink);
+  flex: 0 0 88px; padding: 6px 7px; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   border-right: 1px dotted var(--line);
 }
@@ -178,11 +187,12 @@ body {
 }
 .peek-col.hot .peek-c { background: var(--primary-soft); }
 
-.peek-more {
-  flex-shrink: 0; display: flex; align-items: center; padding: 0 7px;
-  font-size: 10px; font-weight: 800; color: var(--faint); background: var(--ground);
-  border-left: 1px solid var(--line-soft);
+.peek-cap { display: flex; align-items: center; }
+.peek-hint {
+  margin-left: auto; font-size: 9.5px; font-weight: 800; color: var(--faint);
+  letter-spacing: 0; text-transform: none;
 }
+.peek-hint.moving { color: var(--primary); }
 .peek-cn {
   display: inline-block; background: var(--line); color: var(--muted);
   border-radius: 3px; padding: 0 3px; margin-right: 4px; font-size: 9px;
@@ -191,7 +201,7 @@ body {
 .peek.rowpick .peek-row.pick:active { background: var(--primary-soft); }
 .peek-row.guess { background: var(--amber-bg); box-shadow: inset 3px 0 0 var(--amber-line); }
 .peek-tag {
-  flex-shrink: 0; align-self: center; margin-right: 6px;
+  flex-shrink: 0; align-self: center; margin: 0 6px 0 4px; position: sticky; right: 4px;
   font-size: 9.5px; font-weight: 800; color: var(--amber-ink);
   background: #fff; border: 1px solid var(--amber-line); border-radius: 5px; padding: 1px 5px;
 }
@@ -252,13 +262,12 @@ body {
   margin-left: auto; border: none; background: var(--primary); color: #fff;
   font-size: 12.5px; font-weight: 800; border-radius: 9px; padding: 7px 14px; cursor: pointer;
 }
-.hseg { display: flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
-.hseg-btn {
-  border: none; background: none; color: var(--muted);
-  font-size: 10.5px; font-weight: 700; padding: 4px 7px; border-radius: 7px; cursor: pointer;
-  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+.msheet-head {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-family: var(--font); font-size: 10.5px; font-weight: 700;
+  border-radius: 8px; padding: 4px 8px; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
-.hseg-btn.on { background: var(--primary); color: #fff; }
 .bar-unused { font-size: 11px; color: var(--faint); white-space: nowrap; padding: 0 12px 6px; }
 
 /* ── 入力源：列チップ ─────────────────────────────────────── */
@@ -691,10 +700,7 @@ body {
   <div class="msheet" id="msheet" hidden>
     <div class="msheet-head">
       <span class="msheet-t" id="msheetT">列の対応</span>
-      <div class="hseg" id="hseg">
-        <button class="hseg-btn" data-h="head">1行目は見出し</button>
-        <button class="hseg-btn" data-h="data">1行目からデータ</button>
-      </div>
+      <button class="msheet-head" id="msheetHead"></button>
       <button class="msheet-done" id="msheetDone">完了</button>
     </div>
     <div class="src" id="srcCols">
@@ -1218,19 +1224,20 @@ function render(opts = {}) {
   $('foot').hidden = asking
   $('msheet').hidden = asking || !state.sheetOpen
 
-  if (asking) { renderAsk(q) }
+  if (asking) { renderAsk(q); autoPan() }
   else {
+    cancelAnimationFrame(_panRaf)
     renderCrumb()
     renderTable(opts)
     renderFoot()
     if (state.sheetOpen) {
       renderChips(); renderSample()
       const pdf = SRC.mode === 'pdf'
-      // PDFに1行目という概念は無いので、その選択肢自体を出さない
-      $('hseg').hidden = pdf
       $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
-      if (!pdf) $('hseg').querySelectorAll('.hseg-btn').forEach(x =>
-        x.classList.toggle('on', (x.dataset.h === 'head') === hasHeader()))
+      // PDFに1行目という概念は無いので出さない
+      $('msheetHead').hidden = pdf
+      if (!pdf) $('msheetHead').textContent =
+        hasHeader() ? `${state.headerRow + 1}行目が見出し ・ 変える` : '1行目からデータ ・ 変える'
     }
   }
   lastDrawMs = performance.now() - t0
@@ -1279,16 +1286,18 @@ function renderAsk(q) {
     $('askQ').textContent = 'このファイル、1行目は何ですか？'
     $('peek').className = 'peek'
     $('peek').innerHTML = peekRows({ markFirst: true })
-    const opt = (h, t) => {
-      const r = simulate(h)
+    // simulate は「何行目を見出しとして読むか」を取る。真偽値を渡すと
+    // TABLE[true] = 2行目 を見出しとして読んでしまう（0 と -1 で渡す）。
+    const opt = (row, t) => {
+      const r = simulate(row)
       const body = r.ready
         ? `取り込むのは <b>${(r.counts.add + r.counts.upd + r.counts.same).toLocaleString()}件</b>`
           + (r.first ? ` ・ 先頭は「${esc(r.first)}」` : '')
         : '<span class="lost">品目名の列が見つかりません（次の画面で選べます）</span>'
-      return `<button class="ask-opt" data-h="${h ? 'head' : 'data'}">
+      return `<button class="ask-opt" data-h="${row >= 0 ? 'head' : 'data'}">
         <span class="ask-opt-t">${t}</span><span class="ask-opt-r">${body}</span></button>`
     }
-    $('askOpts').innerHTML = opt(true, '1行目は列の名前（見出し）') + opt(false, '1行目からもう品目のデータ')
+    $('askOpts').innerHTML = opt(0, '1行目は列の名前（見出し）') + opt(-1, '1行目からもう品目のデータ')
     $('askNote').textContent = 'どちらかで取り込む件数が変わります。あとから変えられます。'
   } else if (q.kind === 'sections') {
     $('askQ').textContent = 'この紙、表は何枚ありますか？'
@@ -1325,15 +1334,20 @@ function renderAsk(q) {
 
 // ファイルの先頭を、そのままの並びで見せる
 const PEEK_N = 4      // 見せる行数
-const PEEK_C = 4      // 見せる列数。390pxに5列は詰めすぎで、どれも読めなくなる
+// 列は全部出して横に流す。切り捨てると、隠れた側にある判断材料が見えない
+function peekCells(cells, n) {
+  return Array.from({ length: n }, (_, i) =>
+    `<span class="peek-c">${esc(String(cells[i] ?? '').trim()) || '&nbsp;'}</span>`).join('')
+}
 function peekRows({ markFirst = false } = {}) {
+  const n = colCount()
   const rows = TABLE.slice(0, PEEK_N)
-  return `<div class="peek-cap">ファイルの中身</div>` + rows.map((r, i) => `
-    <div class="peek-row ${markFirst && i === 0 ? 'first' : 'rest'}" data-r="${i}">
-      <span class="peek-no">${i + 1}</span>
-      <span class="peek-cells">${r.slice(0, PEEK_C).map(c => `<span class="peek-c">${esc(String(c ?? '').trim()) || '&nbsp;'}</span>`).join('')}${
-        r.length > PEEK_C ? `<span class="peek-more">+${r.length - PEEK_C}</span>` : ''}</span>
-    </div>`).join('')
+  return `<div class="peek-cap">ファイルの中身<span class="peek-hint" id="peekHint">${n}列</span></div>
+    <div class="peek-body" data-cols="${n}">${rows.map((r, i) => `
+      <div class="peek-row ${markFirst && i === 0 ? 'first' : 'rest'}" data-r="${i}">
+        <span class="peek-no">${i + 1}</span>
+        <span class="peek-cells">${peekCells(r, n)}</span>
+      </div>`).join('')}</div>`
 }
 // 紙の見た目を小さく出す。左右に同じ形の表が並んでいることが見えれば足りる。
 function peekSections() {
@@ -1355,30 +1369,74 @@ function peekSections() {
 // 行を押させるとき。前置きが何行あるか分からないので、少し多めに出す。
 // 「見出しらしい」行には印を付けるが、決めるのはユーザー（推測を選択値にしない）。
 function peekPickRows(guess) {
-  const n = Math.min(SCAN_ROWS, TABLE.length)
-  return `<div class="peek-cap">ファイルの中身 ・ 行をタップ</div>` + TABLE.slice(0, n).map((r, i) => `
-    <div class="peek-row pick ${i === guess ? 'guess' : 'rest'}" data-row="${i}">
-      <span class="peek-no">${i + 1}</span>
-      <span class="peek-cells">${r.slice(0, PEEK_C).map(c =>
-        `<span class="peek-c">${esc(String(c ?? '').trim()) || '&nbsp;'}</span>`).join('')}</span>
-      ${i === guess ? '<span class="peek-tag">これ？</span>' : ''}
-    </div>`).join('')
+  const rowsN = Math.min(SCAN_ROWS, TABLE.length)
+  const n = colCount()
+  return `<div class="peek-cap">ファイルの中身 ・ 行をタップ<span class="peek-hint" id="peekHint">${n}列</span></div>
+    <div class="peek-body" data-cols="${n}">${TABLE.slice(0, rowsN).map((r, i) => `
+      <div class="peek-row pick ${i === guess ? 'guess' : 'rest'}" data-row="${i}">
+        <span class="peek-no">${i + 1}</span>
+        <span class="peek-cells">${peekCells(r, n)}</span>
+        ${i === guess ? '<span class="peek-tag">これ？</span>' : ''}
+      </div>`).join('')}</div>`
 }
 
 // 列を押させるとき。列見出しの行を出し、押した列がどれか分かるようにする
 function peekCols() {
-  const total = colCount()
-  const n = Math.min(total, PEEK_C)
+  const n = colCount()
   const rows = dataRows().slice(0, PEEK_N)
-  const more = total > n ? `<span class="peek-more">+${total - n}</span>` : ''
   // 列番号を必ず出す。見出しの無いファイルでは、番号だけが列の名前になる
   const head = `<div class="peek-row peek-head"><span class="peek-no"></span><span class="peek-cells">${
     Array.from({ length: n }, (_, i) =>
-      `<span class="peek-c" data-col="${i}"><span class="peek-cn">${i + 1}</span>${esc(headerName(i))}</span>`).join('')}${more}</span></div>`
-  return `<div class="peek-cap">ファイルの中身</div>` + head + rows.map((r, i) => `
-    <div class="peek-row rest"><span class="peek-no">${i + 1}</span><span class="peek-cells">${
-      Array.from({ length: n }, (_, c) => `<span class="peek-c" data-col="${c}">${esc(String(r[c] ?? '').trim()) || '&nbsp;'}</span>`).join('')
-    }${more}</span></div>`).join('')
+      `<span class="peek-c" data-col="${i}"><span class="peek-cn">${i + 1}</span>${esc(headerName(i))}</span>`).join('')}</span></div>`
+  return `<div class="peek-cap">ファイルの中身 ・ 列をタップ<span class="peek-hint" id="peekHint">${n}列</span></div>
+    <div class="peek-body" data-cols="${n}">${head}${rows.map((r, i) => `
+      <div class="peek-row rest"><span class="peek-no">${i + 1}</span><span class="peek-cells">${
+        Array.from({ length: n }, (_, c) =>
+          `<span class="peek-c" data-col="${c}">${esc(String(r[c] ?? '').trim()) || '&nbsp;'}</span>`).join('')
+      }</span></div>`).join('')}</div>`
+}
+
+/* ファイルの中身を、一度だけ自動で横へ流して隠れている列を見せる。
+   延々と動かすと読めないので往復1回で止める。触った時点で即やめて指に任せる。
+   「視差効果を減らす」設定では動かさない（自分で動かせる状態にはしておく）。 */
+let _panRaf = 0
+function autoPan() {
+  cancelAnimationFrame(_panRaf)
+  const body = $('peek').querySelector('.peek-body')
+  const hint = $('peekHint')
+  if (!body) return
+  const over = () => body.scrollWidth - body.clientWidth
+  if (over() <= 8 || state.fx === 0 || reduced()) return
+
+  let stopped = false
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    cancelAnimationFrame(_panRaf)
+    hint?.classList.remove('moving')
+    if (hint) hint.textContent = `${body.dataset.cols}列 ・ 横に動かせます`
+  }
+  for (const ev of ['pointerdown', 'wheel', 'touchstart']) body.addEventListener(ev, stop, { once: true, passive: true })
+
+  // 速さではなく時間で決める。px/秒にすると、列の多いファイルほど延々と動く。
+  const OUT = 2300, HOLD = 800, BACK = 520
+  const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+  const total = OUT + HOLD + BACK
+  let t0 = 0
+  hint?.classList.add('moving')
+  const step = (now) => {
+    if (stopped) return
+    if (!t0) t0 = now
+    const t = now - t0
+    const max = over()
+    if (t < OUT)              body.scrollLeft = max * ease(t / OUT)
+    else if (t < OUT + HOLD)  body.scrollLeft = max
+    else if (t < total)       body.scrollLeft = max * (1 - ease((t - OUT - HOLD) / BACK))
+    else { body.scrollLeft = 0; stop(); return }
+    _panRaf = requestAnimationFrame(step)
+  }
+  // 画面が出た直後に動き出すと、読む前に動いて驚かせる。ひと呼吸置く
+  setTimeout(() => { if (!stopped) _panRaf = requestAnimationFrame(step) }, 650)
 }
 
 // 選ぶ前に結果を出すため、その解釈で1回だけ組んでみる（状態は元に戻す）
@@ -2082,11 +2140,11 @@ function assignQuiet(fieldKey, colIdx) {
 // ②→③ 要約の行が、そのまま直す入口
 $('crumb').addEventListener('click', () => { state.sheetOpen = true; render() })
 $('msheetDone').addEventListener('click', () => { state.sheetOpen = false; state.picked = null; render() })
-$('hseg').addEventListener('click', e => {
-  const b = e.target.closest('.hseg-btn'); if (!b) return
-  state.headerRow = b.dataset.h === 'head' ? 0 : -1
-  autoDetect({ keepManual: true })
-  render({ filled: 'name' })
+// 読み方を変えるときは、2択に潰さず最初の問いへ返す
+$('msheetHead').addEventListener('click', () => {
+  state.sheetOpen = false
+  state.headerRow = null
+  render()
 })
 $('footl1').addEventListener('click', e => {
   if (e.target.closest('#modelink')) $('modeMask').hidden = false
