@@ -126,6 +126,7 @@ body {
 .ask-opt-r b { color: var(--primary); font-weight: 800; font-variant-numeric: tabular-nums; }
 .ask-opt-r .lost { color: var(--danger); font-weight: 700; }
 .ask-note { font-size: 11.5px; color: var(--faint); line-height: 1.6; margin-top: 2px; }
+.ask-note-t { display: block; }
 
 /* 読み込み元のファイルそのもの。question の真横に置く。 */
 .peek {
@@ -245,11 +246,22 @@ body {
   font-size: 8.5px; font-weight: 800; color: #fff; background: var(--primary);
   border-radius: 4px; padding: 1px 4px;
 }
+/* 主導線ではないが、押せることは一目で分かる必要がある。
+   枠と面を与え、指で押せる高さ（44px）を確保する。 */
 .ask-back {
-  display: block; margin-top: 10px; border: none; background: none;
-  color: var(--primary); font-family: var(--font); font-size: 11.5px; font-weight: 700;
-  padding: 4px 0; cursor: pointer; text-align: left;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; min-height: 44px; margin-top: 12px;
+  border: 1.5px solid var(--primary-border); background: var(--primary-weak);
+  color: var(--primary); font-family: var(--font); font-size: 13px; font-weight: 800;
+  border-radius: 11px; padding: 11px 14px; cursor: pointer; text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s, background .15s;
 }
+.ask-back:active { transform: scale(.985); background: var(--primary-soft); }
+.ask-back:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ask-back::before { content: '↺'; font-size: 14px; font-weight: 700; opacity: .8; }
+/* 「見出しの行はありません」は戻る操作ではないので、記号を変える */
+#askNoHead::before { content: '✕'; font-size: 12px; }
 
 /* ── ② 読み取りの要約。1行で、直す入口も兼ねる ── */
 .crumb {
@@ -2884,7 +2896,7 @@ function renderAsk(q) {
     $('peek').className = 'peek rowpick'
     $('peek').innerHTML = peekPickRows(q.guess)
     $('askOpts').innerHTML = ''
-    $('askNote').innerHTML = '列の名前（品名・単価…）が並んでいる行をタップします。'
+    $('askNote').innerHTML = '<span class="ask-note-t">列の名前（品名・単価…）が並んでいる行をタップします。</span>'
       + `<button class="ask-back" id="askNoHead">見出しの行はありません</button>`
   } else if (q.kind === 'firstItem') {
     // 見出しが無いファイル。1つのセルで「どの列が品目名か」と
@@ -2893,7 +2905,7 @@ function renderAsk(q) {
     $('peek').className = 'peek cellpick'
     $('peek').innerHTML = peekPickCells()
     $('askOpts').innerHTML = ''
-    $('askNote').innerHTML = '1件目の品目の名前をタップします。その列が品目名になり、そこから下がデータになります。'
+    $('askNote').innerHTML = '<span class="ask-note-t">1件目の品目の名前をタップします。その列が品目名になり、そこから下がデータになります。</span>'
       + `<button class="ask-back" id="askBackHead">見出しの行を選び直す</button>`
   } else if (q.kind === 'sections') {
     // 段数はパーサが数えている（商品名の見出しがいくつあるか）。自動解析は
@@ -2918,7 +2930,7 @@ function renderAsk(q) {
     $('peek').className = 'peek pickable'
     $('peek').innerHTML = peekCols()
     $('askOpts').innerHTML = ''
-    $('askNote').innerHTML = `上の表で、その列のどこかをタップしてください。`
+    $('askNote').innerHTML = `<span class="ask-note-t">上の表で、その列のどこかをタップしてください。</span>`
       + `<button class="ask-back" id="askBack">${hasHeader()
           ? `${state.headerRow + 1}行目を見出し` : `${state.headerRow + 2}行目からデータ`}として読んでいます ・ 変える</button>`
   }
