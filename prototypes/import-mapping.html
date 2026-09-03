@@ -608,24 +608,71 @@ body {
 }
 .slot.req.empty.hint-pulse { animation: pulse-req 1.7s ease-in-out infinite; }
 
-/* ── 値が湧き上がる ──────────────────────────────────────── */
+/* ── 値が湧き上がる（控えめ〜標準）────────────────────────── */
 @keyframes rise {
   from { opacity: 0; transform: translateY(var(--rise, 9px)); }
   to   { opacity: 1; transform: none; }
 }
 .rise { animation: rise var(--rise-ms, 300ms) cubic-bezier(.22,.61,.36,1) both; }
-/* 強めのときだけ、行そのものが軽く跳ねる */
 @keyframes bump {
   0% { background: var(--primary-weak); }
   100% { background: transparent; }
 }
 .bump { animation: bump 520ms ease-out; }
-/* 列が丸ごと生えるとき（コード列・金額列） */
 @keyframes colgrow {
   from { opacity: 0; transform: translateX(10px); }
   to   { opacity: 1; transform: none; }
 }
 .colgrow { animation: colgrow 320ms cubic-bezier(.22,.61,.36,1) both; }
+
+/* ── 組み立て（強め）──────────────────────────────────────────
+   「浮かび上がる」ではなく「部品が飛んできて、位置で噛み合って止まる」。
+   噛み合いは overshoot → 行き過ぎ → 戻る の3段で作る。1段だと弾んだだけに見え、
+   機械が嵌まった感じにならない。 */
+@keyframes asm-cell {
+  0%   { opacity: 0; transform: perspective(460px) rotateY(-54deg) translateX(22px) scale(.9); }
+  55%  { opacity: 1; transform: perspective(460px) rotateY(7deg)  translateX(-3px) scale(1.02); }
+  78%  { opacity: 1; transform: perspective(460px) rotateY(-2.5deg) translateX(1px) scale(.995); }
+  100% { opacity: 1; transform: none; }
+}
+.asm {
+  animation: asm-cell var(--asm-ms, 460ms) cubic-bezier(.2,.7,.3,1) both;
+  transform-origin: right center;
+  display: inline-block;   /* transform を効かせるため。ただし自前の並びを持つ物は下で戻す */
+}
+/* 旧価格→新価格の縦積みと、振り分けチップの折り返しは自分の display を持っている。
+   まとめて inline-block にすると、動いている間だけ並びが壊れる。 */
+.money.asm { display: inline-flex; }
+.pg.asm { display: flex; }
+/* 列の見出しは上から降りてきて蓋をする */
+@keyframes asm-th {
+  0%   { opacity: 0; transform: perspective(560px) rotateX(-78deg) translateY(-12px); }
+  58%  { opacity: 1; transform: perspective(560px) rotateX(10deg) translateY(3px); }
+  80%  { transform: perspective(560px) rotateX(-3deg) translateY(-1px); }
+  100% { opacity: 1; transform: none; }
+}
+.asm-th { animation: asm-th 480ms cubic-bezier(.2,.7,.3,1) both; transform-origin: top center; }
+
+/* 噛み合った瞬間、その列の縁が一度光る */
+@keyframes asm-lock {
+  0%   { box-shadow: inset 0 0 0 0 rgba(37,99,235,0); }
+  30%  { box-shadow: inset 0 0 0 2px rgba(37,99,235,.5); }
+  100% { box-shadow: inset 0 0 0 0 rgba(37,99,235,0); }
+}
+.asm-lock { animation: asm-lock 620ms ease-out both; }
+
+/* 最後に、組み上がった全体を一度なぞる光 */
+@keyframes asm-sweep {
+  from { transform: translateX(-40%); opacity: 0; }
+  25%  { opacity: 1; }
+  to   { transform: translateX(240%); opacity: 0; }
+}
+.pend { opacity: 0 !important; }
+.asm-sweep {
+  position: absolute; inset: 0 auto 0 0; width: 42%; pointer-events: none; z-index: 4;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.62), transparent);
+  animation: asm-sweep 700ms cubic-bezier(.4,0,.5,1) both;
+}
 
 /* チップがスロットへ飛ぶ */
 .fly {
@@ -952,7 +999,7 @@ body {
         <button class="pbtn" data-fx="0">なし</button>
         <button class="pbtn" data-fx="1">控えめ</button>
         <button class="pbtn" data-fx="2">標準</button>
-        <button class="pbtn" data-fx="3">強め</button>
+        <button class="pbtn" data-fx="3">組み立て</button>
       </div>
     </div>
 
@@ -2555,19 +2602,35 @@ function openPreview({ sticky = false, filled = null } = {}) {
   if (sticky) { state.reveal = null; renderTable(); renderSorts(); renderPvFoot(); return }
 
   // 組み上がりを見せる。初回は最後まで、2回目以降はいま決めた項目だけ。
+  // 部品が1つずつ噛み合うのを見せたいので、列と列の間はゆったり取る。
+  // 詰めると「全部いっぺんに出た」に見えて、組み立てにならない。
   const full = state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild)
+  const asm = state.fx === 3
+  const GAP = asm ? 300 : 155          // 列と列の間
+  const LEAD = asm ? 360 : 280         // 1本目までの間
   const steps = full
-    ? [['name', 0], ...fields().filter(f => f.key !== 'name' && has(f.key)).slice(0, 6).map((f, i) => [f.key, 280 + i * 155])]
+    ? [['name', 0], ...fields().filter(f => f.key !== 'name' && has(f.key)).slice(0, 6).map((f, i) => [f.key, LEAD + i * GAP])]
     : [[filled ?? 'name', 0]]
   state.reveal = new Set(['name'])
-  renderTable(); renderSorts(); renderPvFoot()
+  renderTable({ filled: 'name' }); renderSorts(); renderPvFoot()
   for (const [key, at] of steps) {
-    _pvT.push(setTimeout(() => { state.reveal.add(key); renderTable({ filled: key }); renderSorts(); renderPvFoot() }, at))
+    if (key === 'name') continue
+    _pvT.push(setTimeout(() => {
+      state.reveal.add(key)
+      // 描き直さず、伏せてある部品にクラスを付けて出す。描き直すと
+      // 前の列の動きが途中で消えて「嵌まる」ではなく「入れ替わる」に見える。
+      revealParts(key)
+      renderSorts(); renderPvFoot()
+    }, at))
   }
-  const done = steps[steps.length - 1][1] + 420
-  _pvT.push(setTimeout(() => { state.seenBuild = true; state.reveal = null; renderTable(); renderPvFoot() }, done))
+  const done = steps[steps.length - 1][1] + (asm ? 620 : 420)
+  _pvT.push(setTimeout(() => {
+    state.seenBuild = true; state.reveal = null
+    renderTable(); renderPvFoot({ countUp: true })
+    if (asm) sweep()                   // 組み上がった全体を一度なぞる
+  }, done))
   // 見せ終わったら自分で閉じる。閉じるまでの間（HOLD）が短いと読めない
-  const HOLD = full ? 900 : 700
+  const HOLD = asm ? (full ? 1500 : 1000) : (full ? 900 : 700)
   _pvT.push(setTimeout(closePreview, done + HOLD))
   // 触ったら止めて居座る（読みたい人を追い出さない）
   pv.addEventListener('pointerdown', stayPreview, { once: true })
@@ -2671,13 +2734,66 @@ function renderSorts() {
     `<button class="seg${t.k === state.sortMode ? ' on' : ''}" data-sort="${t.k}">${esc(t.label)}</button>`).join('')
 }
 
-function renderPvFoot() {
+/* 伏せてある部品を、上から順に嵌めていく。DOMは作り直さない。 */
+function revealParts(key) {
+  const t = $('inv')
+  const asm = state.fx === 3
+  const stg = asm ? 34 : Math.max(12, state.stagger)
+  const ms  = asm ? 460 : 300
+  // 見出しが先に降りて蓋をし、そのあと値が入る
+  const th = t.querySelector(`thead th[data-fk="${key}"]`)
+  if (th) {
+    th.classList.remove('pend')
+    th.classList.add(asm ? 'asm-th' : 'colgrow')
+    if (asm) th.classList.add('asm-lock')
+    th.addEventListener('animationend', () => th.classList.remove('asm-th', 'colgrow', 'asm-lock'), { once: true })
+  }
+  const cells = [...t.querySelectorAll(`tbody [data-fk="${key}"]`)]
+  cells.forEach((el, i) => {
+    el.classList.remove('pend')
+    const inner = el.matches('td') ? (el.firstElementChild || el) : el
+    inner.style.animationDelay = `${Math.min(i * stg, asm ? 1200 : 900)}ms`
+    inner.style.setProperty('--asm-ms', ms + 'ms')
+    inner.style.setProperty('--rise-ms', ms + 'ms')
+    inner.classList.add(asm ? 'asm' : 'rise')
+    inner.addEventListener('animationend', () => inner.classList.remove('asm', 'rise'), { once: true })
+  })
+  // 振り分けの列は軸をまとめて1セルに出しているので、そこだけ組み直す
+  if (key === 'axisA' || key === 'axisB') { renderTable({ filled: key }) }
+}
+
+// 組み上がった全体を一度なぞる光。最後の1回だけ。
+function sweep() {
+  const card = $('pv').querySelector('.pv-card')
+  if (!card) return
+  const el = document.createElement('div')
+  el.className = 'asm-sweep'
+  card.style.position = 'relative'
+  card.appendChild(el)
+  el.addEventListener('animationend', () => el.remove(), { once: true })
+}
+
+function renderPvFoot({ countUp = false } = {}) {
   const c = PLAN.counts
   const total = c.add + c.upd + c.same
-  $('pvFoot').innerHTML = `<b>${total.toLocaleString()}</b>件が入ります`
+  const ex = c.err + c.skip + c.meta + c.collide
+  $('pvFoot').innerHTML = `<b id="pvN">${total.toLocaleString()}</b>件が入ります`
     + ` ・ 新規 <b>${c.add.toLocaleString()}</b>`
     + (c.upd ? ` ・ 更新 <b>${c.upd.toLocaleString()}</b>` : '')
-    + ((c.err + c.skip + c.meta + c.collide) ? ` ・ 除外 <b>${(c.err + c.skip + c.meta + c.collide).toLocaleString()}</b>` : '')
+    + (ex ? ` ・ 除外 <b>${ex.toLocaleString()}</b>` : '')
+  // 数字は最後に一度だけ回す。毎回回すと、組み立ての最中ずっと落ち着かない
+  if (countUp && state.fx === 3 && !reduced() && total > 0) countTo($('pvN'), total, 620)
+}
+function countTo(el, to, ms) {
+  if (!el) return
+  const t0 = performance.now()
+  const ease = t => 1 - Math.pow(1 - t, 3)
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / ms)
+    el.textContent = Math.round(to * ease(t)).toLocaleString()
+    if (t < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2922,8 +3038,11 @@ function renderTable(opts = {}) {
 
   const master = isItemMaster()
   // 組み上がりの最中だけ、まだ出していない項目を伏せる（state.reveal が null なら全部出す）
+  // 組み立て中も列は最初から在る（枠が先にできて、部品が後から嵌まる）。
+  // まだ来ていない部品は pend で伏せておき、時が来たらクラスで出す。
   const rv = state.reveal
-  const vis = k => has(k) && (!rv || rv.has(k))
+  const vis = k => has(k)
+  const pend = k => (rv && !rv.has(k) ? ' pend' : '')
   const showCode  = master && vis('code')
   const showPrice = vis('price')
   const showQty   = vis('qty')
@@ -2935,25 +3054,28 @@ function renderTable(opts = {}) {
 
   // 湧き上がりの対象と1行あたりの遅れ
   const jf = opts.filled ?? null
-  const stg = state.fx === 0 ? 0 : state.fx === 1 ? 0 : state.stagger
-  const riseMs = state.fx === 0 ? 0 : state.fx === 1 ? 200 : state.fx === 2 ? 300 : 380
+  const asm = state.fx === 3                    // 強め＝組み立て
+  const stg = state.fx === 0 ? 0 : state.fx === 1 ? 0 : (asm ? Math.max(state.stagger, 34) : state.stagger)
+  const riseMs = state.fx === 0 ? 0 : state.fx === 1 ? 200 : state.fx === 2 ? 300 : 460
   let riseIdx = 0
   // class は必ずここで1つにまとめて返す。呼び出し側にも class を書くと
   // 属性が二重になり、後から書いたほうが捨てられる。
   const riseAttr = (key, extra = '') => {
     if (!jf || jf !== key || state.fx === 0) return extra ? ` class="${extra}"` : ''
-    const d = Math.min(riseIdx++ * stg, 900)
-    return ` class="rise${extra ? ' ' + extra : ''}" style="animation-delay:${d}ms;--rise-ms:${riseMs}ms;--rise:${state.fx === 3 ? 12 : 8}px"`
+    const d = Math.min(riseIdx++ * stg, asm ? 1200 : 900)
+    const cls = asm ? 'asm' : 'rise'
+    return ` class="${cls}${extra ? ' ' + extra : ''}" style="animation-delay:${d}ms;--asm-ms:${riseMs}ms;--rise-ms:${riseMs}ms;--rise:8px"`
   }
-  const growAttr = (key) => (state.grew[key] && state.fx > 0 ? ' colgrow' : '')
+  // 列の見出しは上から降りてきて蓋をする。値より先に着く
+  const growAttr = (key) => (state.grew[key] && state.fx > 0 ? (asm ? ' asm-th' : ' colgrow') : '')
 
   const head = []
-  if (showCode) head.push(`<th class="code${growAttr('code')}" style="width:58px">コード</th>`)
-  if (showDate) head.push(`<th style="width:80px">日付</th>`)
+  if (showCode) head.push(`<th data-fk="code" class="code${growAttr('code')}${pend('code')}" style="width:58px">コード</th>`)
+  if (showDate) head.push(`<th data-fk="date" class="${pend('date').trim()}" style="width:80px">日付</th>`)
   head.push(`<th>品目</th>`)
   if (master) head.push(`<th class="qty" style="width:92px">振り分け</th>`)
-  if (showQty) head.push(`<th class="qty" style="width:62px">数量</th>`)
-  if (showPrice) head.push(`<th class="amount${growAttr('price')}" style="width:66px">単価</th>`)
+  if (showQty) head.push(`<th data-fk="qty" class="qty${pend('qty')}" style="width:62px">数量</th>`)
+  if (showPrice) head.push(`<th data-fk="price" class="amount${growAttr('price')}${pend('price')}" style="width:66px">単価</th>`)
   const ncols = head.length
 
   let body = ''
@@ -3011,14 +3133,14 @@ function renderTable(opts = {}) {
 
     const tag = r.status === 'add' ? ['add', master ? '新規' : '新しい品目'] : null
     let tds = ''
-    if (showCode) tds += `<td class="td-code${growAttr('code')}"><span${riseAttr('code')}>${esc(r.vals.code || '')}</span></td>`
-    if (showDate) tds += `<td class="td-code"><span${riseAttr('date')}>${esc(r.vals.date || '')}</span></td>`
+    if (showCode) tds += `<td data-fk="code" class="td-code${growAttr('code')}${pend('code')}"><span${riseAttr('code')}>${esc(r.vals.code || '')}</span></td>`
+    if (showDate) tds += `<td data-fk="date" class="td-code${pend('date')}"><span${riseAttr('date')}>${esc(r.vals.date || '')}</span></td>`
 
     const hints = []
-    if (vis('unit') && r.vals.unit)           hints.push(`<span${riseAttr('unit', 'hint')}>単位: ${esc(r.vals.unit)}</span>`)
-    if (vis('lotSize') && r.vals.lotSize)     hints.push(`<span${riseAttr('lotSize', 'hint lot')}>入数: ${esc(r.vals.lotSize)}</span>`)
-    if (vis('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint')}>前月: ${esc(r.vals.prevMonth)}</span>`)
-    if (vis('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint')}>${esc(r.vals.supplier)}</span>`)
+    if (vis('unit') && r.vals.unit)           hints.push(`<span${riseAttr('unit', 'hint' + pend('unit'))}>単位: ${esc(r.vals.unit)}</span>`)
+    if (vis('lotSize') && r.vals.lotSize)     hints.push(`<span${riseAttr('lotSize', 'hint lot' + pend('lotSize'))}>入数: ${esc(r.vals.lotSize)}</span>`)
+    if (vis('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint' + pend('prevMonth'))}>前月: ${esc(r.vals.prevMonth)}</span>`)
+    if (vis('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint' + pend('supplier'))}>${esc(r.vals.supplier)}</span>`)
     tds += `<td class="td-name">
       <div class="nm">${tag ? `<span class="rowtag ${tag[0]}">${tag[1]}</span>` : ''}${esc(r.name)}</div>
       ${hints.length ? `<div class="hints">${hints.join('')}</div>` : ''}
@@ -3026,16 +3148,16 @@ function renderTable(opts = {}) {
 
     if (master) {
       const gs = []
-      if (vis('axisA') && r.vals.axisA) gs.push(r.vals.axisA)
-      if (vis('axisB') && r.vals.axisB) gs.push(r.vals.axisB)
-      tds += `<td class="td-qty"><span${riseAttr(vis('axisA') ? 'axisA' : 'axisB', 'pg')}>${
+      if (vis('axisA') && !pend('axisA') && r.vals.axisA) gs.push(r.vals.axisA)
+      if (vis('axisB') && !pend('axisB') && r.vals.axisB) gs.push(r.vals.axisB)
+      tds += `<td class="td-qty"><span data-fk="axes"${riseAttr(vis('axisA') ? 'axisA' : 'axisB', 'pg')}>${
         gs.length ? gs.map(g => `<span class="pgchip">${esc(g)}</span>`).join('')
                   : '<span class="pgnone">未振り分け</span>'}</span></td>`
     }
-    if (showQty)   tds += `<td class="td-qty"><span${riseAttr('qty', 'qtybox')}>${esc(r.vals.qty || '')}</span></td>`
+    if (showQty)   tds += `<td data-fk="qty" class="td-qty${pend('qty')}"><span${riseAttr('qty', 'qtybox')}>${esc(r.vals.qty || '')}</span></td>`
     if (showPrice) {
       const was = r.diff?.price
-      tds += `<td class="td-amount${growAttr('price')}"><span${riseAttr('price', 'money')}>${
+      tds += `<td data-fk="price" class="td-amount${growAttr('price')}${pend('price')}"><span${riseAttr('price', 'money')}>${
         was ? `<span class="was">¥${esc(was)}</span>` : ''}<span class="now">¥${esc(r.vals.price || '')}</span></span></td>`
     }
     body += `<tr class="st-${r.status}">${tds}</tr>`
@@ -3052,8 +3174,11 @@ function renderTable(opts = {}) {
   }
   t.innerHTML = `<thead><tr>${head.join('')}</tr></thead><tbody>${body}</tbody>`
 
-  // 強めのときだけ、変わった行そのものが軽く光る
-  if (state.fx === 3 && jf) {
+  // 組み立てのときは、噛み合った列の縁が一度光る（行を光らせるより部品感が出る）
+  if (asm && jf) {
+    const th = t.querySelector('thead th.asm-th')
+    if (th) { th.classList.add('asm-lock'); th.addEventListener('animationend', () => th.classList.remove('asm-lock'), { once: true }) }
+  } else if (state.fx === 3 && jf) {
     const trs = t.querySelectorAll('tbody tr.st-add, tbody tr.st-upd')
     for (let i = 0; i < Math.min(trs.length, 12); i++) {
       const tr = trs[i]
