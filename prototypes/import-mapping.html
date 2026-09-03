@@ -647,6 +647,8 @@ body {
   border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer;
 }
 .pbtn.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.pbtn:disabled { cursor: default; }
+.pnote { align-self: center; font-size: 10.5px; font-weight: 700; color: var(--muted); }
 .pnums {
   display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; padding-top: 8px;
   border-top: 1px dashed var(--line); color: var(--muted);
@@ -773,6 +775,7 @@ body {
         <button class="pbtn" data-rows="800">800</button>
         <button class="pbtn" data-rows="3000">3000</button>
         <button class="pbtn" data-rows="8000">8000</button>
+        <span class="pnote" id="pRowsNote"></span>
       </div>
     </div>
 
@@ -2116,9 +2119,10 @@ function buildRows() {
     rows.push(SRC.cols.map((_, c) => pre[c] ?? ''))
   }
   if (SRC.headers) rows.push(SRC.headers.slice())
-  // 実物はそのまま出す（行数の切替も実データの範囲で）
+  // 実物は全件出す。件数はファイルが決めるものなので、生成データ用の
+  // 「行数」つまみで切ると、実ファイルの件数を偽ることになる。
   if (SRC.real) {
-    for (const it of REAL_ITEMS.slice(0, state.nRows)) rows.push(SRC.cols.map(c => it[c] ?? ''))
+    for (const it of REAL_ITEMS) rows.push(SRC.cols.map(c => it[c] ?? ''))
     TABLE = rows
     return
   }
@@ -3159,7 +3163,8 @@ const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').ma
 function renderProbeNums() {
   $('mPlan').textContent = lastPlanMs.toFixed(1) + 'ms'
   $('mDraw').textContent = lastDrawMs.toFixed(1) + 'ms'
-  $('mRows').textContent = state.nRows.toLocaleString()
+  $('mRows').textContent = (TABLE.length ? dataRows().length : 0).toLocaleString()
+    + (SRC?.real ? '（実物）' : '')
   $('mMotion').textContent = reduced() ? '減らす設定 ON' : 'OFF'
 }
 function syncProbe() {
@@ -3167,6 +3172,9 @@ function syncProbe() {
     $(wrap).querySelectorAll('.pbtn').forEach(b => b.classList.toggle('on', b.dataset[attr] === String(val)))
   set('pSrc', 'src', state.srcKey)
   set('pRows', 'rows', state.nRows)
+  // 実物は件数がファイルで決まっているので、つまみを触れなくする
+  $('pRows').querySelectorAll('.pbtn').forEach(b => { b.disabled = !!SRC?.real; b.style.opacity = SRC?.real ? .4 : 1 })
+  $('pRowsNote').textContent = SRC?.real ? `実物 ${REAL_ITEMS.length.toLocaleString()}件（固定）` : ''
   set('pFx', 'fx', state.fx)
   set('pConfirm', 'cf', state.confirm)
   set('pTut', 'tut', state.tutorial)
@@ -3181,10 +3189,13 @@ function syncProbe() {
 function reload() {
   buildSource()
   $('fname').textContent = SRC.filename
-  $('fsub').textContent = SRC.mode === 'pdf'
-    ? `${pdfPages()}ページ ・ ${Math.min(state.nRows, REAL_ITEMS.length).toLocaleString()}行を検出`
-    : `${state.nRows.toLocaleString()}行`
   const pdf = SRC.mode === 'pdf'
+  // 見出し行を除いた実データの行数。headerRow が決まる前に dataRows() を呼ぶと
+  // 見出しまで数えてしまうので、ファイルの構造から直接引く。
+  const dataN = TABLE.length - (SRC.headers ? 1 : 0) - (SRC.preamble?.length ?? 0)
+  $('fsub').textContent = pdf
+    ? `${pdfPages()}ページ ・ ${dataN.toLocaleString()}行を検出`
+    : `${dataN.toLocaleString()}行`
   $('srcCols').hidden = pdf
   $('srcPdf').hidden = !pdf
   // 見出しの有無はファイルの性質なので、無いと分かっているものは初期値を出さない。
@@ -3311,7 +3322,7 @@ $('pSrc').addEventListener('click', e => {
   state.srcKey = b.dataset.src; reload()
 })
 $('pRows').addEventListener('click', e => {
-  const b = e.target.closest('.pbtn'); if (!b) return
+  const b = e.target.closest('.pbtn'); if (!b || b.disabled) return
   state.nRows = Number(b.dataset.rows); reload()
 })
 $('pFx').addEventListener('click', e => {
