@@ -792,6 +792,77 @@ body {
 .chk { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; cursor: pointer; }
 .chk input { width: 17px; height: 17px; margin-top: 1px; flex-shrink: 0; }
 
+/* ── レシピ（保存した読み方）─────────────────────────────
+   同じ帳票は毎月同じ形で来る。2回目からは問いをぜんぶ飛ばして
+   「この読み方で読みました」だけを見せ、違うときにその場で外せるようにする。
+   帯は結果の宣言であって操作ではないので、高さは1行に収める。 */
+.rcp {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: var(--primary-soft);
+  border-bottom: 1px solid var(--primary-border);
+  animation: rcp-in .3s cubic-bezier(.22,.61,.36,1);
+}
+@keyframes rcp-in { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: none } }
+.rcp-t {
+  flex: 1; min-width: 0; font-size: 12px; font-weight: 800; color: var(--primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rcp-t .rcp-n { font-variant-numeric: tabular-nums; }
+.rcp-off {
+  flex-shrink: 0; border: 1px solid var(--primary-border); background: var(--surface);
+  color: var(--primary); font-size: 11px; font-weight: 800; border-radius: 7px;
+  padding: 5px 9px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.rcp-off:active { transform: scale(.97); }
+
+/* 取り込んだ後の1枚。ここで初めて「保存しますか」を訊く ──
+   合っていたと分かってからでないと、名前を付ける意味が無い。 */
+.done-card {
+  position: absolute; left: 12px; right: 12px; bottom: 76px; z-index: 55;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 13px 14px; box-shadow: 0 12px 34px rgba(15,23,42,.22);
+}
+.done-t { font-size: 14px; font-weight: 800; margin-bottom: 3px; }
+.done-b { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.done-acts { display: flex; gap: 8px; margin-top: 11px; }
+.done-acts button { flex: 1; border-radius: 10px; padding: 10px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.done-save { border: none; background: var(--primary); color: #fff; }
+.done-skip { border: 1.5px solid var(--line); background: var(--surface); color: var(--muted); }
+.done-saved { border: 1px solid var(--primary-border); background: var(--primary-soft); color: var(--primary); }
+
+/* 名前を付ける。既定はファイル名から作る（毎月同じ名前で来るので、たいてい当たる） */
+.rcp-name {
+  width: 100%; box-sizing: border-box; border: 1.5px solid var(--line); border-radius: 11px;
+  padding: 12px 13px; font-size: 15px; font-weight: 700; color: var(--ink);
+  background: var(--surface); margin-bottom: 10px;
+}
+.rcp-name:focus { outline: none; border-color: var(--primary); }
+.rcp-what { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.rcp-what .wchip {
+  font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 3px 7px;
+  background: var(--fw, var(--primary-weak)); color: var(--fc, var(--primary));
+  border: 1px solid currentColor;
+}
+/* 保存済みの一覧。名前と、どの形の紙に効くかだけ出す */
+.rcp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.rcp-row {
+  display: flex; align-items: center; gap: 9px;
+  border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px;
+}
+.rcp-row.hit { border-color: var(--primary); background: var(--primary-soft); }
+.rcp-row-b { flex: 1; min-width: 0; }
+.rcp-row-t { font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rcp-row-s { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.rcp-del {
+  border: 1px solid var(--line); background: var(--surface); color: var(--danger);
+  font-size: 11px; font-weight: 800; border-radius: 7px; padding: 6px 9px; cursor: pointer;
+}
+.rcp-use {
+  border: none; background: var(--primary); color: #fff;
+  font-size: 11px; font-weight: 800; border-radius: 7px; padding: 7px 11px; cursor: pointer;
+}
+.rcp-empty { font-size: 12px; color: var(--faint); line-height: 1.7; padding: 6px 0 12px; }
+
 /* 振り分けセル。実物（InventoryTable の .preview-group-chip）と同じ、
    チップが折り返す形。1つの箱に詰めると2軸で必ず溢れる。 */
 .pg { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
@@ -915,6 +986,13 @@ body {
     <button class="hd-gear" id="gear" aria-label="計測パネル">⚙</button>
   </header>
 
+  <!-- レシピが当たったときだけ出る1行。問いを全部飛ばした事実を、飛ばした場所に書く。
+       黙って埋まっていると「なぜ埋まっているのか」が分からず、合っているかも確かめられない。 -->
+  <div class="rcp" id="rcp" hidden>
+    <span class="rcp-t" id="rcpT"></span>
+    <button class="rcp-off" id="rcpOff">使わない</button>
+  </div>
+
   <!-- ① 最初に訊くのは1つだけ。選択肢そのものに結果を書いておく。
        「1行目を消してしまう」という事故は、言葉の警告より結果の数字で伝わる。 -->
   <div class="ask" id="ask">
@@ -979,6 +1057,11 @@ body {
     </div>
     <button class="pvbtn" id="pvOpen">プレビュー</button>
     <button class="go" id="go" disabled>取り込む</button>
+  </div>
+
+  <!-- レシピ：名前を付けて保存する／保存したものを見る -->
+  <div class="mask" id="rcpMask" hidden>
+    <div class="sheet" id="rcpSheet"></div>
   </div>
 
   <!-- 取込方法 -->
@@ -1071,6 +1154,7 @@ body {
     <div class="prow">
       <span class="plab">操作</span>
       <div class="pbtns" id="pOps">
+        <button class="pbtn" id="pRcp">保存したレシピ</button>
         <button class="pbtn" id="pReset">最初から</button>
         <button class="pbtn" id="pAuto">自動検出をやり直す</button>
         <button class="pbtn" id="pClear">全部はずす</button>
@@ -2339,6 +2423,7 @@ const state = {
   splitByCode: false,    // 同名・別コードを、名前にコードを付けて別々に登録するか
   keepMeta: false,       // 小計・区分見出しらしい行も品目として取り込むか（既定は外す）
   tutorial: 'first',     // 'first' 初回だけ / 'always' 毎回 / 'off' 出さない
+  recipe: null,          // 当たった「保存した読み方」。null = 手で決めている
   picked: null,          // タップ2段で選択中の列
   justFilled: null,      // 直前に埋めたフィールド（湧き上がりの対象）
   grew: {},              // 生えたばかりの列
@@ -2380,6 +2465,7 @@ function buildSource() {
   state.splitByCode = false
   state.sortMode = 'file'
   state.closedGroups = {}
+  state.recipe = null
   autoDetect()
 }
 
@@ -2627,6 +2713,7 @@ function render(opts = {}) {
       ? `<span class="map-warn">${esc(miss.map(f => f.label).join('・'))}が未指定</span>`
       : `${used}項目${pdf ? ` ・ ${pdfPages()}ページ${state.sections > 1 ? `・${state.sections}段` : ''}` : ''}`
   }
+  renderRcpBand()
   // 表はプレビューの中にあるので、開いているときだけ組み直す
   if (!$('pv').hidden) { renderTable(opts); renderSorts(); renderPvFoot() }
   lastDrawMs = performance.now() - t0
@@ -2643,7 +2730,7 @@ function render(opts = {}) {
 let _pvT = []
 function clearPv() { for (const t of _pvT) clearTimeout(t); _pvT = [] }
 
-function openPreview({ sticky = false, filled = null } = {}) {
+function openPreview({ sticky = false, filled = null, full: forceFull = null, title = null } = {}) {
   clearPv()
   state.pvSticky = sticky
   const pv = $('pv')
@@ -2652,14 +2739,17 @@ function openPreview({ sticky = false, filled = null } = {}) {
   pv.classList.add('in')
   $('pvClose').hidden = !sticky
   $('sorts').classList.toggle('locked', !sticky)
-  $('pvT').textContent = sticky ? '取り込んだ後の棚卸カード' : (filled ? `${fieldOf(filled)?.label ?? ''}が入りました` : '取り込んだ後の棚卸カード')
+  $('pvT').textContent = sticky ? '取り込んだ後の棚卸カード'
+    : (title ?? (filled ? `${fieldOf(filled)?.label ?? ''}が入りました` : '取り込んだ後の棚卸カード'))
 
   if (sticky) { state.reveal = null; renderTable(); renderSorts(); renderPvFoot(); return }
 
   // 組み上がりを見せる。初回は最後まで、2回目以降はいま決めた項目だけ。
   // 部品が1つずつ噛み合うのを見せたいので、列と列の間はゆったり取る。
   // 詰めると「全部いっぺんに出た」に見えて、組み立てにならない。
-  const full = state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild)
+  // レシピが当たったときは、飛ばした分をここで一度だけ見せる。
+  // 問いを1つも出さないなら、合っているかを確かめる場が他に無い。
+  const full = forceFull ?? (state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild))
   const asm = state.fx === 3
   const GAP = asm ? 300 : 155          // 列と列の間
   const LEAD = asm ? 360 : 280         // 1本目までの間
@@ -3427,17 +3517,37 @@ function openSheet() {
   const rk = $('repok')
   if (rk) rk.onchange = () => { $('sOk').disabled = !rk.checked }
 }
+// 取り込んだ直後。ここが「レシピとして保存しますか」を訊ける唯一の場所で、
+// 前もって訊くべきではない ── 合っていたと分かる前に名前を付けさせても、
+// 何に名前を付けているのか本人にも分からない。
 function finish() {
   const c = PLAN.counts
+  $('app').querySelector('.done-card')?.remove()
   const el = document.createElement('div')
-  el.style.cssText = `position:absolute;left:12px;right:12px;bottom:76px;z-index:70;background:#0f172a;color:#fff;
-    border-radius:12px;padding:12px 14px;font-size:12.5px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.3)`
-  el.textContent = `追加${c.add} ・ 更新${c.upd} ・ 変更なし${c.same}。登録${(EXISTING.size + c.add).toLocaleString()}件になりました（試作なので実際には書き換えません）`
+  el.className = 'done-card'
+  const saved = !!state.recipe
+  el.innerHTML = `
+    <div class="done-t">${(c.add + c.upd + c.same).toLocaleString()}件を取り込みました</div>
+    <div class="done-b">追加 ${c.add.toLocaleString()} ・ 更新 ${c.upd.toLocaleString()} ・ 変更なし ${c.same.toLocaleString()}。
+      登録は ${(EXISTING.size + c.add).toLocaleString()}件になりました（試作なので実際には書き換えません）。</div>
+    ${saved
+      ? `<div class="done-acts"><button class="done-saved" disabled>✓ レシピ「${esc(state.recipe.name)}」で読みました</button></div>`
+      : `<div class="done-b" style="margin-top:9px">この読み方を覚えておくと、次に同じ形のファイルを開いたとき、
+           問いを1つも出さずにここまで来ます。</div>
+         <div class="done-acts">
+           <button class="done-skip" id="doneSkip">あとで</button>
+           <button class="done-save" id="doneSave">この読み方を保存</button>
+         </div>`}`
   $('app').appendChild(el)
   el.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' })
-  setTimeout(() => {
+  const fade = () => {
     el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260 }).onfinish = () => el.remove()
-  }, 2600)
+  }
+  $('doneSkip') && ($('doneSkip').onclick = fade)
+  $('doneSave') && ($('doneSave').onclick = openRcpSave)
+  // 保存を訊いている間は消さない。消えてしまうと、その場で決められなかった人に
+  // 二度目の入口が無い（⚙の一覧は保存済みしか出せない）。
+  if (saved) setTimeout(fade, 2600)
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3470,6 +3580,239 @@ function syncProbe() {
 /* ══════════════════════════════════════════════════════════════
    起動・配線
    ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   レシピ（保存した読み方）
+   同じ帳票は毎月同じ形で来る。だから2回目以降に人が答えることは
+   1つも無いはずで、答えさせているうちは仕組みが仕事をしていない。
+
+   本体には既に pdfProfiles.js があるが、指紋が「トークンのx座標」なので
+   PDFにしか効かない。CSV/Excel には座標が無いので、ここでは
+   **見出しの名前の集合**を指紋にする（見出しの無いファイルは列の形で見る）。
+   一致判定は pdfProfiles と同じ Jaccard 0.6。しきい値を揃えておくと、
+   「PDFでは当たるのにCSVでは当たらない」という説明できない差が出ない。
+   ══════════════════════════════════════════════════════════════ */
+const RCP_KEY = 'proto.importRecipes'
+const RCP_MIN = 0.6
+
+function rcpLoad() {
+  try { const a = JSON.parse(localStorage.getItem(RCP_KEY) || '[]'); return Array.isArray(a) ? a : [] }
+  catch (_) { return [] }
+}
+function rcpStore(list) {
+  try { localStorage.setItem(RCP_KEY, JSON.stringify(list)) } catch (_) {}
+}
+function rcpUid() { return 'rc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) }
+
+// いま開いているファイルの指紋。見出し行の位置はレシピ側が持っているので、
+// 「その行を見出しとして見たらどう見えるか」を毎回作り直して比べる。
+function fpOfFile(headerRow) {
+  const head = headerRow >= 0 ? (TABLE[headerRow] ?? []).map(norm).filter(Boolean) : []
+  const shape = headerRow >= 0 ? [] : (TABLE[headerRow + 1] ?? [])
+    .map(c => { const v = norm(c); return !v ? '-' : /^[-0-9.,¥￥]+$/.test(v) ? 'n' : 't' })
+  return { mode: SRC.mode, cols: colCount(), headerRow, head, shape }
+}
+function rcpJaccard(a, b) {
+  const sa = new Set(a), sb = new Set(b)
+  if (!sa.size || !sb.size) return 0
+  let inter = 0
+  for (const v of sa) if (sb.has(v)) inter++
+  return inter / (sa.size + sb.size - inter)
+}
+function rcpScore(rec) {
+  const fp = rec.fp
+  if (!fp || fp.mode !== SRC.mode) return 0
+  // 品目マスタのレシピを納品明細に当てない。列の形が偶然そろっても、
+  // 覚えている項目がそもそも別物になる。
+  if (rec.fields && rec.fields !== (isItemMaster() ? 'item' : 'delivery')) return 0
+  const cur = fpOfFile(fp.headerRow)
+  if (cur.cols !== fp.cols) return 0
+  if (fp.head.length) return rcpJaccard(fp.head, cur.head)
+  // 見出しの無いファイル。名前が無いので列の並び（文字／数字／空）で見る。
+  // 名前で当てるより弱い根拠なので、点も割り引く。
+  if (!fp.shape.length || !cur.shape.length) return 0
+  const n = Math.max(fp.shape.length, cur.shape.length)
+  let same = 0
+  for (let i = 0; i < n; i++) if (fp.shape[i] === cur.shape[i]) same++
+  return (same / n) * 0.9
+}
+function rcpBest() {
+  let best = null
+  for (const rec of rcpLoad()) {
+    const s = rcpScore(rec)
+    if (s >= RCP_MIN && (!best || s > best.score)) best = { rec, score: s }
+  }
+  return best
+}
+
+// いまの読み方をそのまま1枚にする。列は番号だけでなく見出しの名前も控える
+// ── 来月そのファイルの列が1本増えても、名前が同じならそこへ付け直せる。
+function rcpCapture(name) {
+  const head = hasHeader() ? (TABLE[state.headerRow] ?? []).map(norm) : []
+  const columns = []
+  for (const f of fields()) {
+    if (!has(f.key)) continue
+    const col = state.mapping[f.key]
+    columns.push({ field: f.key, col, head: head[col] ?? '' })
+  }
+  return {
+    id: rcpUid(), name: name || SRC.filename, createdAt: new Date().toISOString(),
+    file: SRC.filename, fields: isItemMaster() ? 'item' : 'delivery',
+    fp: fpOfFile(state.headerRow),
+    headerRow: state.headerRow, headerNamed: state.headerNamed,
+    sections: state.sections, sectionsMode: state.sectionsMode,
+    keepMeta: state.keepMeta, splitByCode: state.splitByCode, mode: state.mode,
+    columns,
+  }
+}
+function rcpSaveRec(rec) {
+  const list = rcpLoad()
+  // 同じ紙のレシピは置き換える。同じ帳票のレシピが2枚あると、
+  // どちらが当たったのかを人が確かめられない。
+  const i = list.findIndex(p => rcpScore(p) >= 0.95)
+  if (i >= 0) list.splice(i, 1, rec); else list.push(rec)
+  rcpStore(list)
+  return rec
+}
+function rcpDelete(id) { rcpStore(rcpLoad().filter(p => p.id !== id)) }
+
+function rcpApply(rec) {
+  state.headerRow = rec.headerRow
+  state.headerNamed = rec.headerNamed
+  state.sections = rec.sections ?? 1
+  state.sectionsMode = rec.sectionsMode ?? 1
+  // 段を検出より少なく読むレシピなら、そのぶん品目が減る（試作なので行数で表す）
+  const det = SRC.sections ?? 1
+  if (!SRC.real && state.sections < det) { state.nRows = Math.round(state.nRows * state.sections / det); buildRows() }
+  state.keepMeta = !!rec.keepMeta
+  state.splitByCode = !!rec.splitByCode
+  state.mode = rec.mode ?? 'merge'
+  const head = (TABLE[rec.headerRow] ?? []).map(norm)
+  for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
+  const n = colCount()
+  for (const c of (rec.columns ?? [])) {
+    if (!fieldOf(c.field)) continue
+    let i = c.head ? head.indexOf(c.head) : -1     // 名前で探す。列が動いていても追える
+    if (i < 0) i = c.col                            // 見出しが無いファイルは番号で
+    if (typeof i !== 'number' || i < 0 || i >= n) continue
+    state.mapping[c.field] = i
+    state.manual[c.field] = true
+  }
+}
+
+// レシピを外して、いつもの問いに戻す。当たったレシピが違ったときの唯一の出口。
+function rcpDrop() {
+  state.recipe = null
+  state.headerRow = null
+  state.headerNamed = false
+  state.sectionsMode = (SRC.sections ?? 1) > 1 ? null : 1
+  state.sections = SRC.sections ?? 1
+  for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
+  clearPv(); $('pv').hidden = true
+  render()
+}
+
+// ファイル名から名前の見当を作る。拡張子と、月ごとに変わる数字を落とす
+// ── 「202708_棚卸.pdf」で保存すると、来月そのままでは名前が古くなる。
+function rcpSuggestName() {
+  let n = String(SRC.filename).replace(/\.[a-z0-9]+$/i, '')
+  n = n.replace(/(19|20)[0-9]{2}[-_/年]?[0-9]{1,2}([-_/月]?[0-9]{1,2})?[日]?/g, '')
+  n = n.replace(/(19|20)[0-9]{2}/g, '')          // 年だけ入っているもの
+  n = n.replace(/[_\-\s]{2,}/g, '_').replace(/^[_\-\s]+|[_\-\s]+$/g, '')
+  return n || SRC.filename
+}
+
+/* ── 保存シート ── */
+function openRcpSave() {
+  const cols = fields().filter(f => has(f.key))
+  $('rcpSheet').innerHTML = `
+    <div class="sheet-h">この読み方に名前を付けて保存</div>
+    <div class="sheet-sub">次に同じ形のファイルを開いたとき、問いを飛ばしてこの読み方で読みます。</div>
+    <input class="rcp-name" id="rcpName" type="text" maxlength="24" placeholder="例：東西酒販の請求書">
+    <div class="rcp-what">${cols.map(f =>
+      `<span class="wchip" style="--fc:${f.color};--fw:${f.weak}">${esc(headerName(state.mapping[f.key]))} → ${esc(f.label)}</span>`).join('')}</div>
+    <div class="sheet-block">
+      <div class="sheet-block-t">覚えるのは「読み方」だけです</div>
+      <div class="sheet-block-b">どの行から表か、どの列が何か、${SRC.mode === 'pdf' ? '何段組みか、' : ''}小計行を入れるか
+        ── ここまでを覚えます。品目の中身は覚えないので、来月の数字はそのまま新しい方が入ります。</div>
+    </div>
+    <div class="sheet-acts">
+      <button class="btn-cancel" id="rcpCancel">やめる</button>
+      <button class="btn-ok" id="rcpOk">保存する</button>
+    </div>`
+  $('rcpMask').hidden = false
+  const inp = $('rcpName')
+  inp.value = rcpSuggestName()
+  setTimeout(() => { inp.focus(); inp.select() }, 60)
+  $('rcpCancel').onclick = () => { $('rcpMask').hidden = true }
+  $('rcpOk').onclick = () => {
+    const rec = rcpSaveRec(rcpCapture(inp.value.trim()))
+    state.recipe = rec
+    $('rcpMask').hidden = true
+    const card = $('app').querySelector('.done-card')
+    if (card) {
+      card.querySelector('.done-acts').outerHTML =
+        `<div class="done-acts"><button class="done-saved" disabled>✓ 「${esc(rec.name)}」として保存しました</button></div>`
+      setTimeout(() => card.remove(), 2400)
+    }
+    renderRcpBand()
+  }
+}
+
+/* ── 保存済みの一覧（⚙から）── */
+function openRcpList() {
+  const list = rcpLoad()
+  const rows = list.map(rec => {
+    const hit = rcpScore(rec) >= RCP_MIN
+    const n = (rec.columns ?? []).length
+    return `<div class="rcp-row${hit ? ' hit' : ''}">
+      <div class="rcp-row-b">
+        <div class="rcp-row-t">${esc(rec.name)}</div>
+        <div class="rcp-row-s">${esc(rec.file)} ・ ${rec.fp?.cols ?? '?'}列 ${n}項目${hit ? ' ・ いま開いているファイルに一致' : ''}</div>
+      </div>
+      ${hit && !state.recipe ? `<button class="rcp-use" data-use="${rec.id}">使う</button>` : ''}
+      <button class="rcp-del" data-del="${rec.id}">削除</button>
+    </div>`
+  }).join('')
+  $('rcpSheet').innerHTML = `
+    <div class="sheet-h">保存したレシピ</div>
+    <div class="sheet-sub">同じ形のファイルを開いたとき、自動で当たります。</div>
+    ${list.length ? `<div class="rcp-list">${rows}</div>`
+      : `<div class="rcp-empty">まだありません。取り込んだ後に「この読み方を保存」から作れます。</div>`}
+    <div class="sheet-acts"><button class="btn-cancel" id="rcpCancel">閉じる</button></div>`
+  $('rcpMask').hidden = false
+  $('rcpCancel').onclick = () => { $('rcpMask').hidden = true }
+  // 「使わない」で外したあと、同じ画面から入れ直せるようにする。
+  // 外す道だけあって戻る道が無いと、外した瞬間にやり直しになる。
+  $('rcpSheet').querySelectorAll('[data-use]').forEach(b => {
+    b.onclick = () => {
+      const rec = rcpLoad().find(r => r.id === b.dataset.use)
+      if (!rec) return
+      rcpApply(rec); state.recipe = rec
+      $('rcpMask').hidden = true
+      render()
+      if (state.fx > 0 && state.tutorial !== 'off') {
+        openPreview({ filled: 'name', full: true, title: `レシピ「${rec.name}」で読みました` })
+      }
+    }
+  })
+  $('rcpSheet').querySelectorAll('[data-del]').forEach(b => {
+    b.onclick = () => {
+      rcpDelete(b.dataset.del)
+      if (state.recipe?.id === b.dataset.del) state.recipe = null
+      openRcpList(); renderRcpBand()
+    }
+  })
+}
+
+/* ── 帯 ── */
+function renderRcpBand() {
+  const on = !!state.recipe && !!PLAN?.ready
+  $('rcp').hidden = !on
+  if (!on) return
+  const c = PLAN.counts
+  $('rcpT').innerHTML = `レシピ「${esc(state.recipe.name)}」で <span class="rcp-n">${(c.add + c.upd + c.same).toLocaleString()}</span>件 読みました`
+}
+
 function reload() {
   buildSource()
   $('fname').textContent = SRC.filename
@@ -3489,9 +3832,19 @@ function reload() {
   state.reveal = null
   clearPv()
   $('pv').hidden = true
+
+  // 保存した読み方が当たれば、問いは1つも出さない。同じ帳票を毎月入れる人にとって、
+  // 2回目以降に答えることは本来1つも無い。
+  const hit = rcpBest()
+  if (hit) { rcpApply(hit.rec); state.recipe = hit.rec }
   render()
   if (pdf) markPdfCol()
   syncProbe()
+  // 飛ばした分を一度だけ見せる。黙って埋まっているだけだと、
+  // 合っているかを人が確かめられない。
+  if (hit && state.fx > 0 && state.tutorial !== 'off') {
+    openPreview({ filled: 'name', full: true, title: `レシピ「${hit.rec.name}」で読みました` })
+  }
 }
 
 // ① 問いの答え。答えるたびに、その結果が表に効くところを一度見せてから次へ。
@@ -3616,6 +3969,10 @@ $('footl2').addEventListener('click', e => {
   if (e.target.closest('.errjump')) jumpToError()
   if (e.target.closest('.blankjump')) jumpTo('tr.has-blank')
 })
+// レシピの帯：当たったものが違うときは、その場で外して問いに戻る
+$('rcpOff').addEventListener('click', rcpDrop)
+$('rcpMask').addEventListener('click', e => { if (e.target === $('rcpMask')) $('rcpMask').hidden = true })
+
 $('modeClose').addEventListener('click', () => { $('modeMask').hidden = true })
 $('modeMask').addEventListener('click', e => {
   const o = e.target.closest('.modeopt')
@@ -3683,6 +4040,7 @@ function jumpTo(sel) {
 }
 
 $('gear').addEventListener('click', () => $('probe').classList.toggle('hide'))
+$('pRcp').addEventListener('click', () => { $('probe').classList.add('hide'); openRcpList() })
 $('probeX').addEventListener('click', () => $('probe').classList.add('hide'))
 $('pSrc').addEventListener('click', e => {
   const b = e.target.closest('.pbtn'); if (!b) return
