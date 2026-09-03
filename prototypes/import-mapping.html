@@ -552,6 +552,19 @@ body {
 /* 更新は「何が何に変わるか」を縦に積む。横に並べると幅に入らない */
 .money { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.25; }
 .was { color: var(--faint); text-decoration: line-through; font-size: 10px; }
+/* 読めなかったので空にした欄。何が書いてあったかを必ず添える */
+.blanked {
+  font-size: 10px; font-weight: 800; color: var(--amber-ink);
+  background: var(--amber-bg); border: 1px solid var(--amber-line);
+  border-radius: 4px; padding: 0 4px;
+}
+.blanked-raw { font-size: 9px; color: var(--faint); margin-top: 1px; }
+.rowtag.blank { background: var(--amber-bg); color: var(--amber-ink); border: 1px solid var(--amber-line); }
+.inv tbody tr.has-blank { box-shadow: inset 3px 0 0 var(--amber-line); }
+.n-blank {
+  border: none; background: var(--amber-bg); color: var(--amber-ink);
+  border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 800; cursor: pointer;
+}
 .now { font-weight: 700; color: var(--ink); }
 
 /* ジャンル別の見出し。分類列を割り当てた瞬間にこれが生える */
@@ -2449,7 +2462,7 @@ function buildPlan() {
   const t0 = performance.now()
   const m = state.mapping
   const rows = []
-  const counts = { add: 0, upd: 0, same: 0, err: 0, skip: 0, meta: 0, collide: 0, split: 0 }
+  const counts = { add: 0, upd: 0, same: 0, err: 0, skip: 0, meta: 0, collide: 0, split: 0, blank: 0 }
   const seen = new Map()   // 名前 → その行の商品コード
 
   if (m.name === null || m.name === undefined || state.headerRow === null) {
@@ -2507,15 +2520,18 @@ function buildPlan() {
     // 判定は本体の parseNumericCell と同じ規則にする。対象も本体と同じで、
     // 数値検証があるのは単価だけ。入数・前月実績は文字列のまま入る（実物の帳票では
     // 入数の欄に S / M / L が入っており、いまの本体はそれを黙って受け取る）。
-    let bad = ''
+    // 読めない値は、その欄だけ空にして行は取り込む。
+    // 単価のセル1つで品目そのものが消えると、品目名も単位もコードも正常なのに
+    // 失われる。黙って壊さない契約は「空にしたことを必ず言う」で守る。
+    const blanked = []
     for (const key of ['price', 'qty']) {
       const v = vals[key]
       if (!v) continue
       const r = readNum(v)
-      if (r.invalid) { bad = `${fieldOf(key)?.label ?? key}「${v}」は数値として読めません`; break }
+      if (r.invalid) { blanked.push({ key, raw: v }); vals[key] = ''; continue }
       vals[key] = r.empty ? '' : String(r.value)   // 全角・通貨記号・桁区切りをそろえて持つ
     }
-    if (bad) { counts.err++; rows.push({ line, name, status: 'err', msg: bad }); continue }
+    if (blanked.length) counts.blank += blanked.length
 
     const prev = EXISTING.get(name)
     let status = 'add', diff = null
@@ -2528,7 +2544,7 @@ function buildPlan() {
       status = Object.keys(diff).length ? 'upd' : 'same'
     }
     counts[status === 'add' ? 'add' : status === 'upd' ? 'upd' : 'same']++
-    rows.push({ line, name, vals, status, diff })
+    rows.push({ line, name, vals, status, diff, blanked: blanked.length ? blanked : null })
   }
 
   lastPlanMs = performance.now() - t0
@@ -2781,6 +2797,7 @@ function renderPvFoot({ countUp = false } = {}) {
     + ` ・ 新規 <b>${c.add.toLocaleString()}</b>`
     + (c.upd ? ` ・ 更新 <b>${c.upd.toLocaleString()}</b>` : '')
     + (ex ? ` ・ 除外 <b>${ex.toLocaleString()}</b>` : '')
+    + (c.blank ? ` ・ 読めず空 <b>${c.blank.toLocaleString()}</b>` : '')
   // 数字は最後に一度だけ回す。毎回回すと、組み立ての最中ずっと落ち着かない
   if (countUp && state.fx === 3 && !reduced() && total > 0) countTo($('pvN'), total, 620)
 }
@@ -3142,7 +3159,8 @@ function renderTable(opts = {}) {
     if (vis('prevMonth') && r.vals.prevMonth) hints.push(`<span${riseAttr('prevMonth', 'hint' + pend('prevMonth'))}>前月: ${esc(r.vals.prevMonth)}</span>`)
     if (vis('supplier') && r.vals.supplier)   hints.push(`<span${riseAttr('supplier', 'hint' + pend('supplier'))}>${esc(r.vals.supplier)}</span>`)
     tds += `<td class="td-name">
-      <div class="nm">${tag ? `<span class="rowtag ${tag[0]}">${tag[1]}</span>` : ''}${esc(r.name)}</div>
+      <div class="nm">${tag ? `<span class="rowtag ${tag[0]}">${tag[1]}</span>` : ''}${esc(r.name)}${
+        r.blanked ? `<span class="rowtag blank" title="読めなかったので空にしました">読めず空</span>` : ''}</div>
       ${hints.length ? `<div class="hints">${hints.join('')}</div>` : ''}
     </td>`
 
@@ -3154,13 +3172,19 @@ function renderTable(opts = {}) {
         gs.length ? gs.map(g => `<span class="pgchip">${esc(g)}</span>`).join('')
                   : '<span class="pgnone">未振り分け</span>'}</span></td>`
     }
-    if (showQty)   tds += `<td data-fk="qty" class="td-qty${pend('qty')}"><span${riseAttr('qty', 'qtybox')}>${esc(r.vals.qty || '')}</span></td>`
+    if (showQty) {
+      const bq = r.blanked?.find(b => b.key === 'qty')
+      tds += `<td data-fk="qty" class="td-qty${pend('qty')}"><span${riseAttr('qty', 'qtybox')}>${
+        bq ? `<span class="blanked">空</span>` : esc(r.vals.qty || '')}</span></td>`
+    }
     if (showPrice) {
       const was = r.diff?.price
+      const bl = r.blanked?.find(b => b.key === 'price')
       tds += `<td data-fk="price" class="td-amount${growAttr('price')}${pend('price')}"><span${riseAttr('price', 'money')}>${
-        was ? `<span class="was">¥${esc(was)}</span>` : ''}<span class="now">¥${esc(r.vals.price || '')}</span></span></td>`
+        bl ? `<span class="blanked" title="${esc(bl.raw)}">空</span><span class="blanked-raw">${esc(bl.raw)}</span>`
+           : (was ? `<span class="was">¥${esc(was)}</span>` : '') + `<span class="now">¥${esc(r.vals.price || '')}</span>`}</span></td>`
     }
-    body += `<tr class="st-${r.status}">${tds}</tr>`
+    body += `<tr class="st-${r.status}${r.blanked ? ' has-blank' : ''}">${tds}</tr>`
   }
 
   const restN = Math.max(0, ok.length - Math.min(ok.length, RENDER_MAX))
@@ -3210,6 +3234,7 @@ function renderFoot() {
     master ? `<span class="n-upd num">更新 ${c.upd.toLocaleString()}</span>` : '',
     // 除外の件数そのものを、その行へ飛ぶボタンにする（別ボタンを置かない）
     (c.err + c.skip + c.meta + c.collide) ? `<button class="n-err num errjump">除外 ${(c.err + c.skip + c.meta + c.collide).toLocaleString()} ›</button>` : '',
+    c.blank ? `<button class="n-blank num blankjump">読めず空 ${c.blank.toLocaleString()} ›</button>` : '',
   ].filter(Boolean).join('<span class="sep">・</span>')
   $('go').disabled = total === 0
   $('go').textContent = master && rep ? '全入れ替え' : '取り込む'
@@ -3537,7 +3562,10 @@ $('msheetHead').addEventListener('click', () => {
 $('footl1').addEventListener('click', e => {
   if (e.target.closest('#modelink')) $('modeMask').hidden = false
 })
-$('footl2').addEventListener('click', e => { if (e.target.closest('.errjump')) jumpToError() })
+$('footl2').addEventListener('click', e => {
+  if (e.target.closest('.errjump')) jumpToError()
+  if (e.target.closest('.blankjump')) jumpTo('tr.has-blank')
+})
 $('modeClose').addEventListener('click', () => { $('modeMask').hidden = true })
 $('modeMask').addEventListener('click', e => {
   const o = e.target.closest('.modeopt')
@@ -3594,12 +3622,13 @@ $('srcPdf').addEventListener('click', onPdfClick)
 $('go').addEventListener('click', onGo)
 $('mask').addEventListener('click', e => { if (e.target === $('mask')) $('mask').hidden = true })
 // 除外の件数から飛ぶときは、表があるプレビューを開いてからそこへ送る
-function jumpToError() {
+function jumpToError() { jumpTo('tr.st-err, tr.st-meta, tr.grp.ng') }
+function jumpTo(sel) {
   openPreview({ sticky: true })
   setTimeout(() => {
-    const row = $('inv').querySelector('tr.st-err, tr.st-meta') || $('inv').querySelector('tr.grp.ng')
+    const row = $('inv').querySelector(sel)
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    row?.animate([{ background: '#fecaca' }, { background: '' }], { duration: 900 })
+    row?.animate([{ background: '#fef3c7' }, { background: '' }], { duration: 900 })
   }, 360)
 }
 
