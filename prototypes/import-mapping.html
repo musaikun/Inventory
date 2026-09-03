@@ -2332,7 +2332,7 @@ const state = {
   pvSticky: false,       // プレビューが居座っているか（プレビューボタンから開いた）
   pickCol: null,         // いま項目を選ばせている列
   replacing: null,       // 「この項目に入れ直す」で待っている項目
-  sortMode: 'genre',     // プレビューの並び替え
+  sortMode: 'file',      // プレビューの並び替え。既定はファイルの並びのまま
   closedGroups: {},      // 閉じたジャンル（居座るプレビューで開閉できる）
   seenBuild: false,      // 一度でも組み上がりを最後まで見たか
   reveal: null,          // 組み上がりの最中に「ここまで出した」項目。null = 全部
@@ -2378,6 +2378,8 @@ function buildSource() {
   state.grew = {}
   state.keepMeta = false
   state.splitByCode = false
+  state.sortMode = 'file'
+  state.closedGroups = {}
   autoDetect()
 }
 
@@ -2777,7 +2779,11 @@ function renderMap() {
 /* 並び替えタブ。実物の棚卸カードと同じ並び方を、居座るプレビューでは実際に効かせる。
    「取り込んだ後どう見えるか」の確認なので、触れないと確認にならない。 */
 function renderSorts() {
-  const tabs = [{ k: 'genre', label: 'ジャンル', on: has('category') }]
+  // 既定は「取込順」＝ファイルの並びのまま。直前まで見ていたファイルと
+  // 1行目が違うと、合っているかを確かめようがない。並べ替えは、
+  // 確かめ終わったあとに自分で選ぶもの。
+  const tabs = [{ k: 'file', label: '取込順', on: true },
+                { k: 'genre', label: 'ジャンル', on: has('category') }]
   if (has('axisA')) tabs.push({ k: 'axisA', label: fieldOf('axisA').label, on: true })
   if (has('axisB')) tabs.push({ k: 'axisB', label: fieldOf('axisB').label, on: true })
   tabs.push({ k: 'name', label: '五十音', on: true })
@@ -3106,6 +3112,7 @@ function renderTable(opts = {}) {
   const showDate  = vis('date')
   // 並び替えはプレビューのタブに従う。ジャンル以外を選んでいるときはその軸でまとめる
   const sortKey   = state.sortMode
+  // 取込順＝ファイルの並びのまま。まとめも並べ替えもしない
   const groupBy   = sortKey === 'genre' ? 'category' : (sortKey === 'axisA' || sortKey === 'axisB') ? sortKey : null
   const grouped   = master && groupBy && vis(groupBy)
 
