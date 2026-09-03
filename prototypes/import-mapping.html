@@ -244,31 +244,76 @@ body {
 .crumb-warn { color: var(--danger); font-weight: 800; }
 .crumb-go { margin-left: auto; color: var(--primary); font-weight: 800; white-space: nowrap; }
 
-/* ── ③ 列の対応を直す面。表を上に残したまま下から出す ── */
-.msheet {
-  flex-shrink: 0; background: var(--surface);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -6px 20px rgba(15,23,42,.10);
-  max-height: 58%; display: flex; flex-direction: column; overflow: hidden;
-  animation: msheet-up .24s cubic-bezier(.22,.61,.36,1);
-}
-@keyframes msheet-up { from { transform: translateY(30%); opacity: .5 } to { transform: none; opacity: 1 } }
-.msheet-head {
+/* ── ③ マッピング面。操作の主役なので全画面を渡す ── */
+.map { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
+.map-foot {
   flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px 8px; border-bottom: 1px solid var(--line-soft);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line-soft);
 }
-.msheet-t { font-size: 12.5px; font-weight: 800; color: var(--ink); flex-shrink: 0; }
-.msheet-done {
+.map-head {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-family: var(--font); font-size: 11px; font-weight: 700;
+  border-radius: 8px; padding: 5px 9px; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-hint { font-size: 11px; color: var(--faint); }
+.map-warn { color: var(--danger); font-weight: 800; }
+
+/* ── ④ 全画面プレビュー。フワッと出て、組み上がって、消える ── */
+.pv {
+  position: absolute; inset: 0; z-index: 70;
+  background: rgba(15,23,42,.34);
+  display: flex; align-items: stretch; padding: 10px;
+}
+.pv[hidden] { display: none !important; }
+.pv-card {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--ground); border-radius: 16px; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(15,23,42,.30);
+}
+/* フワッと：わずかに縮んだ状態から等倍へ。動きは小さく、時間で見せる */
+@keyframes pv-in  { from { opacity: 0; transform: scale(.965) translateY(8px) } to { opacity: 1; transform: none } }
+@keyframes pv-out { from { opacity: 1; transform: none } to { opacity: 0; transform: scale(.985) translateY(4px) } }
+.pv.in  { animation: pv-fade-in .22s ease-out both; }
+.pv.out { animation: pv-fade-out .26s ease-in both; }
+@keyframes pv-fade-in  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes pv-fade-out { from { opacity: 1 } to { opacity: 0 } }
+.pv.in  .pv-card { animation: pv-in .30s cubic-bezier(.22,.61,.36,1) both; }
+.pv.out .pv-card { animation: pv-out .26s ease-in both; }
+.pv-head {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px 8px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.pv-t { font-size: 12.5px; font-weight: 800; color: var(--ink); }
+.pv-x {
   margin-left: auto; border: none; background: var(--primary); color: #fff;
   font-size: 12.5px; font-weight: 800; border-radius: 9px; padding: 7px 14px; cursor: pointer;
 }
-.msheet-head {
-  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
-  font-family: var(--font); font-size: 10.5px; font-weight: 700;
-  border-radius: 8px; padding: 4px 8px; cursor: pointer; white-space: nowrap;
+.pv-foot {
+  flex-shrink: 0; padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+.pv-foot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* 並び替えタブ。居座るプレビューでは実際に効く */
+.sorts { flex-shrink: 0; display: flex; gap: 6px; padding: 8px 12px 4px; overflow-x: auto; scrollbar-width: none; }
+.sorts::-webkit-scrollbar { display: none; }
+.seg {
+  flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-size: 11.5px; font-weight: 700; border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.seg.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.sorts.locked .seg { pointer-events: none; opacity: .85; }
+
+.pvbtn {
+  flex-shrink: 0; border: 1.5px solid var(--primary-border); background: var(--primary-weak);
+  color: var(--primary); font-size: 12px; font-weight: 800;
+  border-radius: 10px; padding: 9px 10px; cursor: pointer; white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
 }
-.bar-unused { font-size: 11px; color: var(--faint); white-space: nowrap; padding: 0 12px 6px; }
 
 /* ── 入力源：列チップ ─────────────────────────────────────── */
 .src { flex-shrink: 0; background: var(--surface); position: relative; }
@@ -327,6 +372,7 @@ body {
 /* 使わなかった列も灰色で残す。いまは (使用しない) が select の中に隠れていて
    「捨てた情報」が見えない */
 .chip.idle { opacity: .72; }
+.chip.await { border-color: var(--primary-mid); }
 .chip.picked {
   border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-weak);
   transform: translateY(-3px);
@@ -347,7 +393,8 @@ body {
 /* ── 入力源：PDFのページ ───────────────────────────────────── */
 .pdf {
   position: relative; background: #fff; overflow: auto;
-  height: 170px; touch-action: pan-x pan-y;
+  height: 40%; min-height: 150px; touch-action: pan-x pan-y;
+  border-bottom: 1px solid var(--line-soft);
 }
 .pdf-page {
   position: relative; width: 460px; height: 300px; margin: 8px auto;
@@ -435,7 +482,7 @@ body {
    ひとつだけになり、2件目以降がそのまま答え合わせになる。 */
 .sample {
   flex: 1; min-height: 0; overflow-y: auto;
-  margin: 0 12px 10px; padding: 10px 12px 11px;
+  margin: 4px 12px 8px; padding: 12px 14px 13px;
   background: var(--surface); border: 1.5px solid var(--primary-border);
   border-radius: 14px;
 }
@@ -509,8 +556,8 @@ body {
   display: flex; align-items: center; gap: 10px;
 }
 .foot-nums { flex: 1; min-width: 0; }
-.foot-line1 { font-size: 12.5px; font-weight: 800; color: var(--ink); }
-.foot-line2 { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.foot-line1 { font-size: 12.5px; font-weight: 800; color: var(--ink); white-space: nowrap; }
+.foot-line2 { font-size: 10.5px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; }
 .num { font-variant-numeric: tabular-nums; }
 .n-add  { color: var(--ok); }
 .n-upd  { color: var(--primary); }
@@ -521,9 +568,9 @@ body {
   font-size: 11px; font-weight: 800; border-radius: 7px; padding: 4px 8px; cursor: pointer;
 }
 .go {
-  flex-shrink: 0; border: none; border-radius: 11px;
-  background: var(--primary); color: #fff; font-size: 14px; font-weight: 800;
-  padding: 11px 18px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0; border: none; border-radius: 10px;
+  background: var(--primary); color: #fff; font-size: 13px; font-weight: 800;
+  padding: 10px 13px; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .go:disabled { background: #cbd5e1; }
 
@@ -598,6 +645,22 @@ body {
 .done-line { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
 .done-ok { color: var(--ok); font-weight: 800; }
 .done-hint { margin-left: auto; font-size: 10.5px; color: var(--faint); font-weight: 700; white-space: nowrap; }
+.pairs { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.pair {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  border: 1px solid var(--line); border-left: 3px solid var(--fc);
+  background: var(--surface); border-radius: 9px; padding: 7px 9px; cursor: pointer;
+  font-family: var(--font); -webkit-tap-highlight-color: transparent;
+}
+.pair:active { background: var(--ground); }
+.pair.waiting { border-color: var(--primary); background: var(--primary-weak); box-shadow: 0 0 0 3px var(--primary-weak); }
+.pairs-hint b { color: var(--primary); }
+.pair-f { font-size: 11.5px; font-weight: 800; color: var(--fc); width: 74px; flex-shrink: 0; }
+.pair-arrow { color: var(--faint); font-size: 10px; flex-shrink: 0; }
+.pair-c { font-size: 11.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pair-no { background: var(--ground); border-radius: 4px; padding: 0 4px; margin-right: 4px; color: var(--muted); font-size: 9.5px; }
+.pair-v { margin-left: auto; font-size: 10.5px; color: var(--faint); white-space: nowrap; flex-shrink: 0; max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+.pairs-hint { font-size: 10.5px; color: var(--faint); margin-top: 8px; }
 .done-rest { color: var(--faint); font-weight: 700; }
 .sample.picking { border-color: var(--primary); box-shadow: 0 6px 20px rgba(37,99,235,.16); }
 .sample.picking .sample-lead { color: var(--primary); }
@@ -690,21 +753,9 @@ body {
     <div class="ask-note" id="askNote"></div>
   </div>
 
-  <!-- ② 結果の画面。既定はこれだけ。読み取りの要約が1行、あとは組み上がった表。 -->
-  <button class="crumb" id="crumb" hidden></button>
-
-  <div class="out" id="out">
-    <table class="inv" id="inv"></table>
-  </div>
-
-  <!-- ③ 直したいときだけ出る面。表は上に残したまま出す
-       （直した結果がその場で見えないと、直しているものが分からない）。 -->
-  <div class="msheet" id="msheet" hidden>
-    <div class="msheet-head">
-      <span class="msheet-t" id="msheetT">列の対応</span>
-      <button class="msheet-head" id="msheetHead"></button>
-      <button class="msheet-done" id="msheetDone">完了</button>
-    </div>
+  <!-- ③ マッピング面。ここが操作の主役なので全画面を渡す。
+       表を常設すると操作面が画面の半分以下に押し込まれる。 -->
+  <div class="map" id="map" hidden>
     <div class="src" id="srcCols">
       <div class="chips" id="chips"></div>
       <div class="bar-unused" id="unusedn"></div>
@@ -714,6 +765,24 @@ body {
       <div class="pdf-page" id="pdfPage"></div>
     </div>
     <div class="sample" id="sample"></div>
+    <div class="map-foot">
+      <button class="map-head" id="msheetHead"></button>
+      <span class="map-hint" id="msheetT"></span>
+    </div>
+  </div>
+
+  <!-- ④ 全画面プレビュー。項目を決めるたびにフワッと出て、組み上がって、消える。
+       「プレビュー」から開いたときは居座って、並べ替えや開閉を実際に触れる。 -->
+  <div class="pv" id="pv" hidden>
+    <div class="pv-card">
+      <div class="pv-head">
+        <span class="pv-t" id="pvT">取り込んだ後の棚卸カード</span>
+        <button class="pv-x" id="pvClose" hidden>閉じる</button>
+      </div>
+      <div class="sorts" id="sorts"></div>
+      <div class="out" id="out"><table class="inv" id="inv"></table></div>
+      <div class="pv-foot" id="pvFoot"></div>
+    </div>
   </div>
 
   <!-- 取込方法は毎回変えるものではない（既定＝追加・更新）。常設の帯で高さを取らず、
@@ -723,6 +792,7 @@ body {
       <div class="foot-line1" id="footl1">—</div>
       <div class="foot-line2" id="footl2"></div>
     </div>
+    <button class="pvbtn" id="pvOpen">プレビュー</button>
     <button class="go" id="go" disabled>取り込む</button>
   </div>
 
@@ -2064,8 +2134,10 @@ const state = {
   mode: 'merge',
   mapping: {},
   manual: {},              // 手で置いた対応（1行目の解釈が変わっても残す）
-  sheetOpen: false,      // 列の対応を直す面が出ているか
-  buildingOnce: false,   // 組み上がりを見せている最中（この間は問いを出さない）
+  pvSticky: false,       // プレビューが居座っているか（プレビューボタンから開いた）
+  replacing: null,       // 「この項目に入れ直す」で待っている項目
+  sortMode: 'genre',     // プレビューの並び替え
+  closedGroups: {},      // 閉じたジャンル（居座るプレビューで開閉できる）
   seenBuild: false,      // 一度でも組み上がりを最後まで見たか
   reveal: null,          // 組み上がりの最中に「ここまで出した」項目。null = 全部
   splitByCode: false,    // 同名・別コードを、名前にコードを付けて別々に登録するか
@@ -2332,31 +2404,113 @@ function render(opts = {}) {
   // 段：まだ答えの出ていない「必須の問い」があるなら、それを1つだけ訊く。
   // 訊く数はファイルが決める。よく出来たファイルなら1問で終わる。
   const q = nextQuestion()
-  const asking = !!q && !state.buildingOnce
+  const asking = !!q
   $('ask').hidden = !asking
-  $('crumb').hidden = asking
-  $('out').hidden = asking
+  $('map').hidden = asking
   $('foot').hidden = asking
-  $('msheet').hidden = asking || !state.sheetOpen
 
   if (asking) { renderAsk(q); autoPan() }
   else {
     cancelAnimationFrame(_panRaf)
-    renderCrumb()
-    renderTable(opts)
+    renderChips(); renderSample()
     renderFoot()
-    if (state.sheetOpen) {
-      renderChips(); renderSample()
-      const pdf = SRC.mode === 'pdf'
-      $('msheetT').textContent = pdf ? 'どの列を読むか' : '列の対応'
-      // PDFに1行目という概念は無いので出さない
-      $('msheetHead').hidden = pdf
-      if (!pdf) $('msheetHead').textContent =
-        hasHeader() ? `${state.headerRow + 1}行目が見出し ・ 変える` : '1行目からデータ ・ 変える'
-    }
+    const pdf = SRC.mode === 'pdf'
+    // PDFに1行目という概念は無いので出さない
+    $('msheetHead').hidden = pdf
+    if (!pdf) $('msheetHead').textContent =
+      hasHeader() ? `${state.headerRow + 1}行目が見出し ・ 変える` : '1行目からデータ ・ 変える'
+    const used = fields().filter(f => has(f.key)).length
+    const miss = fields().filter(f => f.required && !has(f.key))
+    $('msheetT').innerHTML = miss.length
+      ? `<span class="map-warn">${esc(miss.map(f => f.label).join('・'))}が未指定</span>`
+      : `${used}項目${pdf ? ` ・ ${pdfPages()}ページ${state.sections > 1 ? `・${state.sections}段` : ''}` : ''}`
   }
+  // 表はプレビューの中にあるので、開いているときだけ組み直す
+  if (!$('pv').hidden) { renderTable(opts); renderSorts(); renderPvFoot() }
   lastDrawMs = performance.now() - t0
   renderProbeNums()
+}
+
+/* ══════════════════════════════════════════════════════════════
+   全画面プレビュー。
+   項目を決めるたびにフワッと出て、組み上がって、自分で消える。
+   操作面（マッピング）は覆われるので、頻度は切り替えられるようにしてある
+   ── 9項目あるファイルで毎回覆われると、手元が隠れてリズムが切れる。
+   「プレビュー」から開いたときは居座り、並べ替えや開閉を実際に触れる。
+   ══════════════════════════════════════════════════════════════ */
+let _pvT = []
+function clearPv() { for (const t of _pvT) clearTimeout(t); _pvT = [] }
+
+function openPreview({ sticky = false, filled = null } = {}) {
+  clearPv()
+  state.pvSticky = sticky
+  const pv = $('pv')
+  pv.hidden = false
+  pv.classList.remove('out')
+  pv.classList.add('in')
+  $('pvClose').hidden = !sticky
+  $('sorts').classList.toggle('locked', !sticky)
+  $('pvT').textContent = sticky ? '取り込んだ後の棚卸カード' : (filled ? `${fieldOf(filled)?.label ?? ''}が入りました` : '取り込んだ後の棚卸カード')
+
+  if (sticky) { state.reveal = null; renderTable(); renderSorts(); renderPvFoot(); return }
+
+  // 組み上がりを見せる。初回は最後まで、2回目以降はいま決めた項目だけ。
+  const full = state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild)
+  const steps = full
+    ? [['name', 0], ...fields().filter(f => f.key !== 'name' && has(f.key)).slice(0, 6).map((f, i) => [f.key, 280 + i * 155])]
+    : [[filled ?? 'name', 0]]
+  state.reveal = new Set(['name'])
+  renderTable(); renderSorts(); renderPvFoot()
+  for (const [key, at] of steps) {
+    _pvT.push(setTimeout(() => { state.reveal.add(key); renderTable({ filled: key }); renderSorts(); renderPvFoot() }, at))
+  }
+  const done = steps[steps.length - 1][1] + 420
+  _pvT.push(setTimeout(() => { state.seenBuild = true; state.reveal = null; renderTable(); renderPvFoot() }, done))
+  // 見せ終わったら自分で閉じる。閉じるまでの間（HOLD）が短いと読めない
+  const HOLD = full ? 900 : 700
+  _pvT.push(setTimeout(closePreview, done + HOLD))
+  // 触ったら止めて居座る（読みたい人を追い出さない）
+  pv.addEventListener('pointerdown', stayPreview, { once: true })
+}
+function stayPreview() {
+  clearPv()
+  state.seenBuild = true
+  state.reveal = null
+  state.pvSticky = true
+  $('pvClose').hidden = false
+  $('sorts').classList.remove('locked')
+  $('pvT').textContent = '取り込んだ後の棚卸カード'
+  renderTable(); renderSorts(); renderPvFoot()
+}
+function closePreview() {
+  clearPv()
+  const pv = $('pv')
+  pv.removeEventListener('pointerdown', stayPreview)
+  state.reveal = null
+  if (state.fx === 0 || reduced()) { pv.hidden = true; pv.classList.remove('in', 'out'); return }
+  pv.classList.remove('in'); pv.classList.add('out')
+  setTimeout(() => { pv.hidden = true; pv.classList.remove('out') }, 260)
+}
+/* 並び替えタブ。実物の棚卸カードと同じ並び方を、居座るプレビューでは実際に効かせる。
+   「取り込んだ後どう見えるか」の確認なので、触れないと確認にならない。 */
+function renderSorts() {
+  const tabs = [{ k: 'genre', label: 'ジャンル', on: has('category') }]
+  if (has('axisA')) tabs.push({ k: 'axisA', label: fieldOf('axisA').label, on: true })
+  if (has('axisB')) tabs.push({ k: 'axisB', label: fieldOf('axisB').label, on: true })
+  tabs.push({ k: 'name', label: '五十音', on: true })
+  const usable = tabs.filter(t => t.on)
+  if (!usable.some(t => t.k === state.sortMode)) state.sortMode = usable[0]?.k ?? 'name'
+  $('sorts').innerHTML = usable.map(t =>
+    `<button class="seg${t.k === state.sortMode ? ' on' : ''}" data-sort="${t.k}">${esc(t.label)}</button>`).join('')
+}
+
+function renderPvFoot() {
+  const c = PLAN.counts
+  const total = c.add + c.upd + c.same
+  $('pvFoot').innerHTML = `<b>${total.toLocaleString()}</b>件が入ります`
+    + ` ・ 新規 <b>${c.add.toLocaleString()}</b>`
+    + (c.upd ? ` ・ 更新 <b>${c.upd.toLocaleString()}</b>` : '')
+    + ((c.err + c.skip + c.meta + c.collide) ? ` ・ 除外 <b>${(c.err + c.skip + c.meta + c.collide).toLocaleString()}</b>` : '')
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2572,54 +2726,9 @@ function simulate(row) {
    2回目以降は短くする（5回目の取込で待たされるのは説明ではなく邪魔）。
    ══════════════════════════════════════════════════════════════ */
 function runBuild(filledKey) {
-  const full = state.tutorial === 'always' || (state.tutorial === 'first' && !state.seenBuild)
-  if (state.fx === 0 || state.tutorial === 'off') { state.reveal = null; state.buildingOnce = false; render({ filled: filledKey }); return }
-
-  state.buildingOnce = true
-  render()                      // 先に結果の画面へ切り替える（表の枠が出る）
-  state.buildingOnce = false
-
-  const out = $('out')
-  const steps = full
-    // 初回：品目名が入る → 他の項目が順に入る
-    ? [['name', 0], ...fields().filter(f => f.key !== 'name' && has(f.key)).slice(0, 6).map((f, i) => [f.key, 280 + i * 155])]
-    // 2回目以降：いま決めた項目だけ
-    : [[filledKey ?? 'name', 0]]
-
-  out.scrollTop = 0
-  state.reveal = new Set(['name'])
-  for (const [key, at] of steps) {
-    _buildT.push(setTimeout(() => { state.reveal.add(key); render({ filled: key }) }, at))
-  }
-  _buildT.push(setTimeout(finishBuild, steps[steps.length - 1][1] + 460))
-
-  // 触ったら待たせない。説明は、見たい人にだけ最後まで見せる
-  out.addEventListener('pointerdown', skipBuild, { once: true })
-}
-let _buildT = []
-function clearBuild() { for (const t of _buildT) clearTimeout(t); _buildT = [] }
-function finishBuild() {
-  clearBuild()
-  state.reveal = null           // 伏せていた項目を全部出す
-  $('out').removeEventListener('pointerdown', skipBuild)
-  state.seenBuild = true
-  render()          // 必須がまだ残っていれば、ここで次の問いへ進む（繰り返しはここで回る）
-}
-function skipBuild() { clearBuild(); finishBuild() }
-
-/* ② 読み取りの要約。1行で済ませ、そのまま直す入口にする。 */
-function renderCrumb() {
-  const c = $('crumb')
-  const used = fields().filter(f => has(f.key)).length
-  const missing = fields().filter(f => f.required && !has(f.key))
-  c.innerHTML = missing.length
-    ? `<span class="crumb-warn">${esc(missing.map(f => f.label).join('・'))}の列が決まっていません</span>
-       <span class="crumb-go">指定する ›</span>`
-    : `<span class="crumb-main">${used}項目</span>
-       <span>・ ${SRC.mode === 'pdf'
-           ? `${pdfPages()}ページ${state.sections > 1 ? ` ・ ${state.sections}段` : ''}から読み取り`
-           : (state.headerRow > 0 ? `${state.headerRow + 1}行目が見出し` : hasHeader() ? '1行目は見出し' : '1行目からデータ')}</span>
-       <span class="crumb-go">${SRC.mode === 'pdf' ? 'どの列を読むか' : '列の対応'} ›</span>`
+  if (state.fx === 0 || state.tutorial === 'off') { render({ filled: filledKey }); return }
+  render()                 // 先にマッピング面を出してから、その上へ被せる
+  openPreview({ filled: filledKey })
 }
 
 /* ── 列チップ ── */
@@ -2639,6 +2748,7 @@ function renderChips() {
     if (f) cls.push('used'); else cls.push('idle')
     if (empty) cls.push('empty-col')
     if (state.picked === i) cls.push('picked')
+    if (state.replacing) cls.push('await')
     html += `<div class="${cls.join(' ')}" data-col="${i}" style="--fc:${f ? f.color : 'var(--line)'}">
       <div class="chip-head"><span class="chip-no">${i + 1}</span></div>
       <div class="chip-title">${esc(headerName(i))}</div>
@@ -2659,6 +2769,14 @@ function renderChips() {
 }
 
 /* ── 見本カード（1件目）── */
+// その列の1件目の値。対応が合っているかは、値を見れば一目で分かる
+function firstValue(key) {
+  const i = state.mapping[key]
+  if (i === null || i === undefined) return ''
+  const r = dataRows().find(row => String(row[i] ?? '').trim())
+  return String(r?.[i] ?? '').trim().slice(0, 12)
+}
+
 function renderSample() {
   const el = $('sample')
   // 置き場の出し方は2通り。
@@ -2700,10 +2818,22 @@ function renderSample() {
   if (open.length === 0 || (freeCols === 0 && missingReq.length === 0)) {
     el.className = 'sample done'
     const usedN = fields().length - open.length
+    const done = fields().filter(f => has(f.key))
     el.innerHTML = `<div class="done-line">
-      <span class="done-ok">✓</span>
-      <span>${usedN}項目に対応づけ済み${open.length ? `<span class="done-rest">（この取込元に無い ${open.length}項目は空のまま）</span>` : ''}</span>
-      <span class="done-hint">変えるときは上の列をタップ</span></div>`
+        <span class="done-ok">✓</span>
+        <span>${usedN}項目に対応づけ済み${open.length ? `<span class="done-rest">（この取込元に無い ${open.length}項目は空のまま）</span>` : ''}</span>
+      </div>
+      <div class="pairs">${done.map(f => `
+        <button class="pair${state.replacing === f.key ? ' waiting' : ''}" data-slot="${f.key}" style="--fc:${f.color}">
+          <span class="pair-f">${esc(f.label)}</span>
+          <span class="pair-arrow">←</span>
+          <span class="pair-c"><span class="pair-no">${state.mapping[f.key] + 1}</span>${esc(headerName(state.mapping[f.key]))}</span>
+          <span class="pair-v">${esc(firstValue(f.key))}</span>
+        </button>`).join('')}
+      </div>
+      <div class="pairs-hint">${state.replacing
+        ? `<b>「${esc(fieldOf(state.replacing).label)}」に入れる列を、上からタップしてください</b>`
+        : '行をタップすると、その項目に別の列を入れ直せます'}</div>`
     return
   }
 
@@ -2738,7 +2868,10 @@ function renderTable(opts = {}) {
   const showPrice = vis('price')
   const showQty   = vis('qty')
   const showDate  = vis('date')
-  const grouped   = master && vis('category')
+  // 並び替えはプレビューのタブに従う。ジャンル以外を選んでいるときはその軸でまとめる
+  const sortKey   = state.sortMode
+  const groupBy   = sortKey === 'genre' ? 'category' : (sortKey === 'axisA' || sortKey === 'axisB') ? sortKey : null
+  const grouped   = master && groupBy && vis(groupBy)
 
   // 湧き上がりの対象と1行あたりの遅れ
   const jf = opts.filled ?? null
@@ -2771,13 +2904,13 @@ function renderTable(opts = {}) {
   const ok = PLAN.rows.filter(r => !bad(r))
   const ng = PLAN.rows.filter(bad)
   const list = (grouped
-    ? ok.slice().sort((a, b) => String(a.vals?.category ?? '').localeCompare(String(b.vals?.category ?? ''), 'ja'))
-    : ok).concat(ng)
+    ? ok.slice().sort((a, b) => String(a.vals?.[groupBy] ?? '').localeCompare(String(b.vals?.[groupBy] ?? ''), 'ja'))
+    : sortKey === 'name' ? ok.slice().sort((a, b) => a.name.localeCompare(b.name, 'ja')) : ok)
   // 良い行を先頭から RENDER_MAX 件、そのあとに取り込まない行を必ず付ける。
   // 単純に連結して打ち切ると、良い行が40件を超えた時点で break して
   // 「取り込まない行」に一生たどり着かない（除外 N › が空振りする）。
   const NG_MAX = 30
-  const list2 = ok.slice(0, RENDER_MAX).concat(ng.slice(0, NG_MAX))
+  const list2 = list.slice(0, RENDER_MAX).concat(ng.slice(0, NG_MAX))
   let ngOpened = false
   for (const r of list2) {
     if (bad(r) && !ngOpened) {
@@ -2790,12 +2923,14 @@ function renderTable(opts = {}) {
         ${metaN ? `<button class="keepmeta" id="keepMeta">小計・見出しの${metaN}行も品目にする</button>` : ''}
       </td></tr>`
     }
-    if (!bad(r) && grouped && r.vals?.category !== lastCat) {
-      lastCat = r.vals?.category
-      const cnt = ok.filter(x => x.vals?.category === lastCat).length
-      body += `<tr class="grp${growAttr('category')}"><td colspan="${ncols}">
-        <span class="arrow">▼</span>${esc(lastCat || '（分類なし）')}<span class="cnt">${cnt}</span></td></tr>`
+    if (!bad(r) && grouped && r.vals?.[groupBy] !== lastCat) {
+      lastCat = r.vals?.[groupBy]
+      const cnt = ok.filter(x => x.vals?.[groupBy] === lastCat).length
+      const shut = !!state.closedGroups[lastCat]
+      body += `<tr class="grp${growAttr(groupBy)}" data-grp="${esc(lastCat ?? '')}"><td colspan="${ncols}">
+        <span class="arrow">${shut ? '▶' : '▼'}</span>${esc(lastCat || '（分類なし）')}<span class="cnt">${cnt}</span></td></tr>`
     }
+    if (!bad(r) && grouped && state.closedGroups[r.vals?.[groupBy]]) continue
     shown++
 
     if (bad(r)) {
@@ -2907,12 +3042,16 @@ function assign(fieldKey, colIdx, fromEl) {
   state.mapping[fieldKey] = colIdx
   state.manual[fieldKey] = true
   state.picked = null
+  state.replacing = null
   // 列が丸ごと生えるフィールドは、生えたことが分かるように印を付ける
   if (prev === null || prev === undefined) state.grew[fieldKey] = true
   if (fieldKey === 'axisA' || fieldKey === 'axisB') state.grew['sort'] = true
 
   if (fromEl && state.fx >= 2) flyTo(fromEl, fieldKey)
-  render({ filled: fieldKey })
+  render()
+  // 項目を決めるたびにプレビューが出て、組み上がって、自分で消える。
+  // 外したときは出さない（訂正のたびに手元を覆われると作業にならない）。
+  if (state.fx > 0 && state.tutorial !== 'off') openPreview({ filled: fieldKey })
 }
 
 function unassign(fieldKey) {
@@ -2951,7 +3090,7 @@ function flyTo(fromEl, fieldKey) {
 
 // 1行目が未選択のまま割り当てへ来ることはもう無い（未選択なら質問の画面に居る）。
 // 経路が残っていたときのために、静かに質問へ戻す。
-function backToAsk() { state.sheetOpen = false; state.headerRow = null; render() }
+function backToAsk() { closePreview(); state.headerRow = null; render() }
 
 /* ══════════════════════════════════════════════════════════════
    操作1: 掴んで落とす（直接操作）
@@ -3000,6 +3139,12 @@ function onChipUp(e) {
   d.over?.classList.remove('over')
 
   if (!d.moved) {                       // 動かさなかった＝タップ
+    if (state.replacing) {              // 入れ直し待ちなら、その項目へ入れる
+      const key = state.replacing
+      state.replacing = null
+      assign(key, d.col, d.chip)
+      return
+    }
     state.picked = state.picked === d.col ? null : d.col
     render()
     return
@@ -3040,15 +3185,15 @@ function onOutClick(e) {
     assign(key, state.picked, chip)
     return
   }
-  // 何も選んでいないのに置き場を押したとき、次に何をすればいいか出す
-  if (!has(key)) {
-    const c = $('chips')
-    c.scrollTo({ left: 0, behavior: 'smooth' })
-    c.querySelectorAll('.chip').forEach((ch, i) => {
-      ch.animate([{ transform: 'none' }, { transform: 'translateY(-5px)' }, { transform: 'none' }],
-        { duration: 340, delay: i * 26, easing: 'ease-out' })
-    })
-  }
+  // 埋まっている項目を押したら「この項目に入れ直す」。次に押した列がそこへ入る。
+  if (has(key)) { state.replacing = state.replacing === key ? null : key; render(); return }
+  // まだ空いている置き場を押したときは、次に何をすればいいか出す
+  const c = $('chips')
+  c.scrollTo({ left: 0, behavior: 'smooth' })
+  c.querySelectorAll('.chip').forEach((ch, i) => {
+    ch.animate([{ transform: 'none' }, { transform: 'translateY(-5px)' }, { transform: 'none' }],
+      { duration: 340, delay: i * 26, easing: 'ease-out' })
+  })
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3203,10 +3348,9 @@ function reload() {
   // PDFは行の座標で読むので「1行目は何か」を訊く意味が無い。質問を飛ばして、
   // 代わりに「どの列を指すか」の面から始める。
   if (pdf) { renderPdf(); state.headerRow = 0; autoDetect() }
-  state.sheetOpen = pdf
-  state.buildingOnce = false
   state.reveal = null
-  clearBuild()
+  clearPv()
+  $('pv').hidden = true
   render()
   if (pdf) markPdfCol()
   syncProbe()
@@ -3274,11 +3418,25 @@ function assignQuiet(fieldKey, colIdx) {
   state.grew[fieldKey] = true
 }
 // ②→③ 要約の行が、そのまま直す入口
-$('crumb').addEventListener('click', () => { state.sheetOpen = true; render() })
-$('msheetDone').addEventListener('click', () => { state.sheetOpen = false; state.picked = null; render() })
+$('pvOpen').addEventListener('click', () => openPreview({ sticky: true }))
+$('pvClose').addEventListener('click', closePreview)
+$('sorts').addEventListener('click', e => {
+  const b = e.target.closest('.seg'); if (!b) return
+  state.sortMode = b.dataset.sort
+  state.closedGroups = {}
+  renderSorts(); renderTable()
+})
+$('out').addEventListener('click', e => {
+  if (e.target.closest('#keepMeta'))  { state.keepMeta = true;  render(); renderTable(); renderPvFoot(); return }
+  if (e.target.closest('#splitCode')) { state.splitByCode = true; render(); renderTable(); renderPvFoot(); return }
+  if (!state.pvSticky) return
+  const g = e.target.closest('tr.grp[data-grp]'); if (!g) return
+  state.closedGroups[g.dataset.grp] = !state.closedGroups[g.dataset.grp]
+  renderTable()
+})
 // 読み方を変えるときは、2択に潰さず最初の問いへ返す
 $('msheetHead').addEventListener('click', () => {
-  state.sheetOpen = false
+  closePreview()
   state.headerRow = null
   render()
 })
@@ -3301,18 +3459,19 @@ $('chips').addEventListener('pointerdown', onChipDown)
 $('chips').addEventListener('pointermove', onChipMove)
 $('chips').addEventListener('pointerup', onChipUp)
 $('chips').addEventListener('pointercancel', onChipUp)
-$('out').addEventListener('click', e => {
-  if (e.target.closest('#keepMeta')) { state.keepMeta = true; render(); return }
-  if (e.target.closest('#splitCode')) { state.splitByCode = true; render(); return }
-  onOutClick(e)
-})
+// 置き場（スロット）はマッピング面にある
+$('map').addEventListener('click', onOutClick)
 $('srcPdf').addEventListener('click', onPdfClick)
 $('go').addEventListener('click', onGo)
 $('mask').addEventListener('click', e => { if (e.target === $('mask')) $('mask').hidden = true })
+// 除外の件数から飛ぶときは、表があるプレビューを開いてからそこへ送る
 function jumpToError() {
-  const row = $('inv').querySelector('tr[data-err="1"]')
-  row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  row?.animate([{ background: '#fecaca' }, { background: '' }], { duration: 900 })
+  openPreview({ sticky: true })
+  setTimeout(() => {
+    const row = $('inv').querySelector('tr.st-err, tr.st-meta') || $('inv').querySelector('tr.grp.ng')
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    row?.animate([{ background: '#fecaca' }, { background: '' }], { duration: 900 })
+  }, 360)
 }
 
 $('gear').addEventListener('click', () => $('probe').classList.toggle('hide'))
