@@ -138,8 +138,9 @@ body {
 }
 /* 行ごとに別々のスクロールにすると列がずれるので、全行を1つの面に載せる */
 .peek-body {
-  overflow-x: auto; overflow-y: hidden;
-  touch-action: pan-x pan-y; overscroll-behavior-x: contain;
+  /* 縦にも動かせる。4行では「このファイルで合っているか」の判断がつかない場面がある */
+  overflow: auto; max-height: 210px;
+  touch-action: pan-x pan-y; overscroll-behavior: contain;
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
 }
 .peek-body::-webkit-scrollbar { display: none; }
@@ -180,7 +181,10 @@ body {
 /* 列をタップして選ぶとき */
 .peek.pickable .peek-c { cursor: pointer; }
 .peek.pickable .peek-c:active { background: var(--primary-soft); }
-.peek-head { background: var(--ground); }
+.peek.cellpick .peek-c.cell { cursor: pointer; }
+.peek.cellpick .peek-c.cell:active { background: var(--primary-soft); }
+.peek.cellpick .peek-c.cell:hover { background: var(--primary-weak); }
+.peek-head { background: var(--ground); position: sticky; top: 0; z-index: 2; }
 .peek-head .peek-c {
   font-size: 10px; font-weight: 800; color: var(--muted); padding: 5px 7px;
   border-bottom: 1px solid var(--line-soft);
@@ -206,6 +210,7 @@ body {
   background: #fff; border: 1px solid var(--amber-line); border-radius: 5px; padding: 1px 5px;
 }
 .peek-row.chosen { background: var(--primary-soft) !important; }
+.peek-c.chosen { background: var(--primary) !important; color: #fff !important; font-weight: 800; }
 .peek-row.chosen .peek-c { font-weight: 800; color: var(--primary-deep); }
 
 /* 1ページに2ページ分入っている紙。左右に同じ形の表が並ぶことが見えれば足りる */
@@ -258,6 +263,25 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .map-hint { font-size: 11px; color: var(--faint); }
+/* 何と何を対応させているのかを、画面に書いておく */
+.zone-h {
+  flex-shrink: 0; display: flex; align-items: center; gap: 7px;
+  padding: 9px 14px 5px;
+}
+.zone-n {
+  width: 17px; height: 17px; border-radius: 50%; background: var(--primary);
+  color: #fff; font-size: 10px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.zone-t { font-size: 12px; font-weight: 800; color: var(--ink); }
+.zone-s { margin-left: auto; font-size: 10.5px; color: var(--faint); font-weight: 700; }
+.zone-arrow {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px 0; font-size: 10.5px; color: var(--faint); font-weight: 700;
+}
+.zone-arrow::before, .zone-arrow::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}
 .map-warn { color: var(--danger); font-weight: 800; }
 
 /* ── ④ 全画面プレビュー。フワッと出て、組み上がって、消える ── */
@@ -756,9 +780,21 @@ body {
   <!-- ③ マッピング面。ここが操作の主役なので全画面を渡す。
        表を常設すると操作面が画面の半分以下に押し込まれる。 -->
   <div class="map" id="map" hidden>
+    <!-- 初めて開いた人が、何と何を対応させているのか分かるようにする。
+         「上＝ファイルにある列」「下＝棚卸カードの項目」と名前を付けて、
+         その間に矢印を置く。 -->
+    <div class="zone-h">
+      <span class="zone-n">1</span>
+      <span class="zone-t">ファイルにある列</span>
+      <span class="zone-s" id="unusedn"></span>
+    </div>
     <div class="src" id="srcCols">
       <div class="chips" id="chips"></div>
-      <div class="bar-unused" id="unusedn"></div>
+    </div>
+    <div class="zone-arrow"><span>この列を ↓ の項目へ入れます</span></div>
+    <div class="zone-h">
+      <span class="zone-n">2</span>
+      <span class="zone-t">棚卸カードの項目</span>
     </div>
     <div class="pdf" id="srcPdf" hidden>
       <div class="pdf-hint" id="pdfHint">読みたい数字をタップすると、その列がまるごと入ります</div>
@@ -2128,7 +2164,8 @@ const state = {
   fx: 3,                 // 0 なし / 1 控えめ / 2 標準 / 3 強め
   stagger: 22,           // 湧き上がりの1行あたりの遅れ(ms)
   confirm: 'bar',        // 'bar' 1画面完結 / 'sheet' 確認を挟む
-  headerRow: null,       // null=未回答（契約どおり推測で埋めない）/ -1=見出し無し / n=n行目が見出し
+  headerRow: null,       // null=未回答（契約どおり推測で埋めない）/ データが始まる直前の行
+  headerNamed: false,    // その行を「見出し」として選んだか（見出し無しの経路では false）
   sections: 1,           // 段組み。1ページに表が何枚あるか（2段組み帳票で2）
   sectionsMode: null,    // null=未回答 / 'both'=両方読む / 'left'=左だけ
   mode: 'merge',
@@ -2173,6 +2210,7 @@ function buildSource() {
     })
   }
   state.headerRow = null
+  state.headerNamed = false
   state.sections = SRC.sections ?? 1
   state.sectionsMode = state.sections > 1 ? null : 'both'
   state.mapping = {}
@@ -2236,10 +2274,8 @@ function autoDetect({ keepManual = false } = {}) {
     state.mapping[f.key] = hit
     state.manual[f.key] = false
   }
-  // 品目名だけは、見出しが無くても1列目を既定にする（実装と同じ）
-  if (!hasHeader() && (state.mapping.name === null || state.mapping.name === undefined)) {
-    state.mapping.name = 0
-  }
+  // 見出しが無いときの品目名は既定で埋めない。「最初の品目名を選んでください」で
+  // 明示的に訊く（推測を選択値にしない契約でもある）。
   // 自動で当てた列が他とぶつかっていたら、手で置いたほうを優先して外す
   if (keepManual) {
     const taken = new Set()
@@ -2251,7 +2287,8 @@ function autoDetect({ keepManual = false } = {}) {
 }
 
 const colCount = () => TABLE.reduce((n, r) => Math.max(n, r.length), 0)
-const hasHeader = () => state.headerRow !== null && state.headerRow >= 0
+// 列名として使えるのは、ユーザーが「この行が見出し」と選んだときだけ
+const hasHeader = () => state.headerNamed && state.headerRow !== null && state.headerRow >= 0
 // 見出し行より上（発行日・店舗名などの前置き）は取り込まない
 const dataRows = () => TABLE.slice((state.headerRow ?? -1) + 1)
 const headerName = i =>
@@ -2417,8 +2454,9 @@ function render(opts = {}) {
     const pdf = SRC.mode === 'pdf'
     // PDFに1行目という概念は無いので出さない
     $('msheetHead').hidden = pdf
-    if (!pdf) $('msheetHead').textContent =
-      hasHeader() ? `${state.headerRow + 1}行目が見出し ・ 変える` : '1行目からデータ ・ 変える'
+    if (!pdf) $('msheetHead').textContent = hasHeader()
+      ? `${state.headerRow + 1}行目が見出し ・ 変える`
+      : `${state.headerRow + 2}行目からデータ ・ 変える`
     const used = fields().filter(f => has(f.key)).length
     const miss = fields().filter(f => f.required && !has(f.key))
     $('msheetT').innerHTML = miss.length
@@ -2530,20 +2568,21 @@ function looksHeader(cells) {
 }
 // 表が1行目から始まっていないファイルでは、2択そのものが成り立たない
 // （1行目は見出しでもデータでもなく、社名や発行日だから）。行を選ばせる形に変える。
-const SCAN_ROWS = 8
-function headerQuestion() {
-  if (looksHeader(TABLE[0])) return { kind: 'header' }
-  for (let i = 1; i < Math.min(SCAN_ROWS, TABLE.length); i++) {
-    if (looksHeader(TABLE[i])) return { kind: 'headerRow', guess: i }
-  }
-  return { kind: 'header' }        // どこにも見出しらしい行が無ければ2択に戻す
+const SCAN_ROWS = 14  // 見出しを探して出す行数
+// 見出しらしい行の見当。**印を付けるためだけに使い、問いの形は変えない。**
+function guessHeaderRow() {
+  for (let i = 0; i < Math.min(SCAN_ROWS, TABLE.length); i++) if (looksHeader(TABLE[i])) return i
+  return -1
 }
 
 function nextQuestion() {
   // 1ページに2ページ分入っている帳票。段を分けずに読むと、右側が消えるか
   // 左の列へ吸い込まれて値が壊れる。先に何枚の表かを確かめる。
   if (state.sectionsMode === null) return { kind: 'sections' }
-  if (state.headerRow === null) return headerQuestion()
+  if (state.headerRow === null) return { kind: 'headerRow', guess: guessHeaderRow() }
+  // 見出しが無いと答えたときだけ、続けて「最初の品目名」を訊く。
+  // セルを1つ押せば、品目名の列と、データが始まる行の両方が決まる。
+  if (state.headerRow === -1 && !has('name')) return { kind: 'firstItem' }
   const miss = fields().find(f => f.required && !has(f.key))
   if (miss) return { kind: 'field', field: miss }
   return null
@@ -2551,23 +2590,24 @@ function nextQuestion() {
 
 function renderAsk(q) {
   $('askSub').textContent = `${SRC.filename} ・ ${TABLE.length.toLocaleString()}行`
-  if (q.kind === 'header') {
-    $('askQ').textContent = 'このファイル、1行目は何ですか？'
-    $('peek').className = 'peek'
-    $('peek').innerHTML = peekRows({ markFirst: true })
-    // simulate は「何行目を見出しとして読むか」を取る。真偽値を渡すと
-    // TABLE[true] = 2行目 を見出しとして読んでしまう（0 と -1 で渡す）。
-    const opt = (row, t) => {
-      const r = simulate(row)
-      const body = r.ready
-        ? `取り込むのは <b>${(r.counts.add + r.counts.upd + r.counts.same).toLocaleString()}件</b>`
-          + (r.first ? ` ・ 先頭は「${esc(r.first)}」` : '')
-        : '<span class="lost">品目名の列が見つかりません（次の画面で選べます）</span>'
-      return `<button class="ask-opt" data-h="${row >= 0 ? 'head' : 'data'}">
-        <span class="ask-opt-t">${t}</span><span class="ask-opt-r">${body}</span></button>`
-    }
-    $('askOpts').innerHTML = opt(0, '1行目は列の名前（見出し）') + opt(-1, '1行目からもう品目のデータ')
-    $('askNote').textContent = 'どちらかで取り込む件数が変わります。あとから変えられます。'
+  if (q.kind === 'headerRow') {
+    // いつも同じ問いから始める。ファイルの形で画面が変わると、使うたびに
+    // 「今回はどの画面だっけ」から始まることになる。
+    $('askQ').textContent = '見出しの行を選んでください'
+    $('peek').className = 'peek rowpick'
+    $('peek').innerHTML = peekPickRows(q.guess)
+    $('askOpts').innerHTML = ''
+    $('askNote').innerHTML = '列の名前（品名・単価…）が並んでいる行をタップします。'
+      + `<button class="ask-back" id="askNoHead">見出しの行はありません</button>`
+  } else if (q.kind === 'firstItem') {
+    // 見出しが無いファイル。1つのセルで「どの列が品目名か」と
+    // 「どの行からデータか」が同時に決まる。
+    $('askQ').textContent = '最初の品目名を選んでください'
+    $('peek').className = 'peek cellpick'
+    $('peek').innerHTML = peekPickCells()
+    $('askOpts').innerHTML = ''
+    $('askNote').innerHTML = '1件目の品目の名前をタップします。その列が品目名になり、そこから下がデータになります。'
+      + `<button class="ask-back" id="askBackHead">見出しの行を選び直す</button>`
   } else if (q.kind === 'sections') {
     $('askQ').textContent = 'この紙、表は何枚ありますか？'
     $('peek').className = 'peek'
@@ -2582,14 +2622,6 @@ function renderAsk(q) {
         <span class="ask-opt-r">右側は読まない ・ <b>${Math.floor(n / 2).toLocaleString()}件</b>
           <span class="lost">・ 右の${Math.ceil(n / 2).toLocaleString()}件は取り込まれません</span></span></button>`
     $('askNote').textContent = '同じ形の表が横に並んでいるときは「2つ」を選びます。'
-  } else if (q.kind === 'headerRow') {
-    // 前置きのあるファイル。何行目から表かを、その行の上で押させる。
-    $('askQ').textContent = 'この表、どの行から始まりますか？'
-    $('peek').className = 'peek rowpick'
-    $('peek').innerHTML = peekPickRows(q.guess)
-    $('askOpts').innerHTML = ''
-    $('askNote').innerHTML = `列の名前が並んでいる行をタップしてください。`
-      + `<button class="ask-back" id="askNoHead">見出しの行はありません（1行目からデータ）</button>`
   } else {
     // 列を選ぶ問い。選択肢を並べるのではなく、ファイルの列そのものを押させる。
     $('askQ').textContent = `どの列が「${q.field.label}」ですか？`
@@ -2597,12 +2629,13 @@ function renderAsk(q) {
     $('peek').innerHTML = peekCols()
     $('askOpts').innerHTML = ''
     $('askNote').innerHTML = `上の表で、その列のどこかをタップしてください。`
-      + `<button class="ask-back" id="askBack">${hasHeader() ? `${state.headerRow + 1}行目を見出し` : '1行目からデータ'}として読んでいます ・ 変える</button>`
+      + `<button class="ask-back" id="askBack">${hasHeader()
+          ? `${state.headerRow + 1}行目を見出し` : `${state.headerRow + 2}行目からデータ`}として読んでいます ・ 変える</button>`
   }
 }
 
 // ファイルの先頭を、そのままの並びで見せる
-const PEEK_N = 4      // 見せる行数
+const PEEK_N = 14     // 出す行数。縦にスクロールして残りも見られる
 // 列は全部出して横に流す。切り捨てると、隠れた側にある判断材料が見えない
 function peekCells(cells, n) {
   return Array.from({ length: n }, (_, i) =>
@@ -2646,6 +2679,19 @@ function peekPickRows(guess) {
         <span class="peek-no">${i + 1}</span>
         <span class="peek-cells">${peekCells(r, n)}</span>
         ${i === guess ? '<span class="peek-tag">これ？</span>' : ''}
+      </div>`).join('')}</div>`
+}
+
+// セルを1つ押させる。押したセルで「品目名の列」と「データの始まる行」が同時に決まる。
+function peekPickCells() {
+  const n = colCount()
+  const rowsN = Math.min(PEEK_N, TABLE.length)
+  return `<div class="peek-cap">ファイルの中身 ・ 1件目の品目名をタップ<span class="peek-hint" id="peekHint">${n}列</span></div>
+    <div class="peek-body" data-cols="${n}">${TABLE.slice(0, rowsN).map((r, i) => `
+      <div class="peek-row rest" data-row="${i}">
+        <span class="peek-no">${i + 1}</span>
+        <span class="peek-cells">${Array.from({ length: n }, (_, c) =>
+          `<span class="peek-c cell" data-row="${i}" data-col="${c}">${esc(String(r[c] ?? '').trim()) || '&nbsp;'}</span>`).join('')}</span>
       </div>`).join('')}</div>`
 }
 
@@ -3347,7 +3393,7 @@ function reload() {
   // ただし PDF は行の座標で読むため「1行目は見出し」を先に出しておく。
   // PDFは行の座標で読むので「1行目は何か」を訊く意味が無い。質問を飛ばして、
   // 代わりに「どの列を指すか」の面から始める。
-  if (pdf) { renderPdf(); state.headerRow = 0; autoDetect() }
+  if (pdf) { renderPdf(); state.headerRow = 0; state.headerNamed = true; autoDetect() }
   state.reveal = null
   clearPv()
   $('pv').hidden = true
@@ -3357,27 +3403,31 @@ function reload() {
 }
 
 // ① 問いの答え。答えるたびに、その結果が表に効くところを一度見せてから次へ。
+// 横スクロールのための指の動きを、行・列の選択として拾わない。
+// 実物の帳票は9列あって横に流して読むので、これが無いと読もうとして選んでしまう。
+let _peekDrag = null, _peekMoved = false
+$('ask').addEventListener('pointerdown', e => {
+  const body = e.target.closest('.peek-body')
+  _peekMoved = false
+  _peekDrag = body ? { x: e.clientX, y: e.clientY, sl: body.scrollLeft, st: body.scrollTop, body } : null
+}, true)
+$('ask').addEventListener('pointerup', e => {
+  if (!_peekDrag) return
+  const { x, y, sl, st, body } = _peekDrag
+  _peekMoved = Math.hypot(e.clientX - x, e.clientY - y) > 8
+    || Math.abs(body.scrollLeft - sl) > 2 || Math.abs(body.scrollTop - st) > 2
+  _peekDrag = null
+}, true)
+
 $('ask').addEventListener('click', e => {
+  if (_peekMoved && e.target.closest('.peek-body')) { _peekMoved = false; return }
+  _peekMoved = false
   const sec = e.target.closest('.ask-opt[data-sec]')
   if (sec) {
     state.sectionsMode = sec.dataset.sec
     // 右段を読まないなら、そのぶん品目が減る（試作なので行数で表す）
     if (state.sectionsMode === 'left') { state.nRows = Math.floor(state.nRows / 2); buildRows() }
     render()
-    return
-  }
-  const opt = e.target.closest('.ask-opt')
-  if (opt) {
-    const asHead = opt.dataset.h === 'head'
-    // 選んだ瞬間に、1行目がどう扱われるかをその行の上で見せる
-    const row1 = $('peek').querySelector('.peek-row.first')
-    if (row1 && state.fx > 0) row1.classList.add(asHead ? 'lift' : 'stay')
-    const go = () => {
-      state.headerRow = asHead ? 0 : -1
-      autoDetect()
-      runBuild('name')
-    }
-    if (row1 && state.fx > 0) setTimeout(go, 460); else go()
     return
   }
   // 行を押して「ここから表」を決める
@@ -3388,10 +3438,34 @@ $('ask').addEventListener('click', e => {
     $('peek').querySelectorAll('.peek-row.pick').forEach(r => {
       if (Number(r.dataset.row) < i) r.classList.add('lift')
     })
-    setTimeout(() => { state.headerRow = i; autoDetect(); runBuild('name') }, state.fx > 0 ? 480 : 0)
+    setTimeout(() => { state.headerRow = i; state.headerNamed = true; autoDetect(); runBuild('name') }, state.fx > 0 ? 480 : 0)
     return
   }
-  if (e.target.closest('#askNoHead')) { state.headerRow = -1; autoDetect(); runBuild('name'); return }
+  if (e.target.closest('#askNoHead')) {
+    state.headerRow = -1
+    state.headerNamed = false
+    state.mapping = {}; state.manual = {}   // 見出しが無いので当たる対応は無い
+    render(); return
+  }
+  if (e.target.closest('#askBackHead')) {
+    state.headerRow = null
+    state.headerNamed = false
+    for (const f of fields()) { state.mapping[f.key] = null; state.manual[f.key] = false }
+    render(); return
+  }
+  // 1件目の品目名のセル：その列が品目名、その行からデータ
+  const cellPick = e.target.closest('.peek.cellpick .peek-c.cell')
+  if (cellPick) {
+    const row = Number(cellPick.dataset.row), col = Number(cellPick.dataset.col)
+    cellPick.classList.add('chosen')
+    state.headerRow = row - 1        // その行から下がデータ
+    state.headerNamed = false        // 見出しとして選んだ行ではない
+    state.mapping = {}; state.manual = {}
+    state.mapping.name = col
+    state.manual.name = true
+    setTimeout(() => runBuild('name'), state.fx > 0 ? 320 : 0)
+    return
+  }
   // 前の問いへ戻る。段階的に出すことが片道の廊下になってはいけない
   if (e.target.closest('#askBack')) {
     state.headerRow = null
