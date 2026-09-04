@@ -53,12 +53,64 @@ beforeEach(() => { applied = [] })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.resetModules() })
 
 function hits() { return [...host.querySelectorAll('.hit')] }
+/** 最初の問い「この紙、表は何枚ありますか？」に答える */
+async function answerSections(n) {
+  const btn = [...host.querySelectorAll('.secbtn')][n - 1]
+  if (!btn) throw new Error('段数の選択肢が出ていない')
+  btn.click()
+  await nextTick()
+}
 function fieldButton(label) {
   return [...host.querySelectorAll('.field-bar button')].find(b => b.textContent.trim().startsWith(label))
 }
 describe('2段組みPDFを手動で指定できる', () => {
+  it('列を触らせる前に、まず段の数を訊く', async () => {
+    await mount()
+    // 読んだ後では「右半分が無い」ことに気づけないので、読む前に紙を見せて確かめる
+    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(hits()).toHaveLength(0)
+    // 自動判定は「印」であって選択値ではない
+    const det = [...host.querySelectorAll('.secbtn.det')]
+    expect(det).toHaveLength(1)
+    expect(det[0].textContent).toContain('2')
+
+    await answerSections(2)
+    expect(host.textContent).not.toContain('この紙、表は何枚ありますか？')
+    expect(hits().length).toBeGreaterThan(3)
+  })
+
+  it('答えた枚数ぶんの「品目名」を、1つずつ案内する', async () => {
+    await mount()
+    await answerSections(2)
+    expect(host.querySelector('.mapper-guide').textContent).toContain('1枚目')
+
+    const boxes = hits()
+    boxes[0].click(); await nextTick()
+    fieldButton('品目名').click(); await nextTick()
+    expect(host.querySelector('.mapper-guide').textContent).toContain('2枚目')
+
+    boxes[2].click(); await nextTick()
+    fieldButton('品目名').click(); await nextTick()
+    expect(host.querySelector('.mapper-guide').textContent).toContain('任意')
+  })
+
+  it('段の数は選び直せる（選び直すと列の指定も白紙に戻す）', async () => {
+    await mount()
+    await answerSections(2)
+    hits()[0].click(); await nextTick()
+    fieldButton('品目名').click(); await nextTick()
+    expect(host.querySelectorAll('.assigned-chip')).toHaveLength(1)
+
+    ;[...host.querySelectorAll('button')].find(b => b.textContent.includes('変える')).click()
+    await nextTick()
+    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    await answerSections(1)
+    expect(host.querySelectorAll('.assigned-chip')).toHaveLength(0)
+  })
+
   it('同じ項目を2か所に割り当てられ、チップも2つ出る', async () => {
     await mount()
+    await answerSections(2)
     const boxes = hits()
     expect(boxes.length, 'セルの当たり判定が出ている').toBeGreaterThan(3)
 
@@ -74,6 +126,7 @@ describe('2段組みPDFを手動で指定できる', () => {
 
   it('同じ列をもう一度選ぶと外れる（付け外しが対称）', async () => {
     await mount()
+    await answerSections(2)
     const boxes = hits()
     boxes[0].click(); await nextTick()
     fieldButton('品目名').click(); await nextTick()

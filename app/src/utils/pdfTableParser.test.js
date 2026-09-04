@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseGenericTable, extractRows, detectSectionCount } from './pdfTableParser.js'
+import { parseGenericTable, extractRows, detectSectionCount, toReadingCoords } from './pdfTableParser.js'
 
 // 実サンプルPDF（テキスト層あり・rotate=0）から抽出した座標を使う
 
@@ -171,6 +171,19 @@ describe('2段組みの手動指定', () => {
     expect(detectSectionCount([])).toBe(0)
   })
 
+  it('回転した帳票（rotate=90）でも、品目名の見出しの数で段を数える', () => {
+    // 実物の棚卸記入表がこれ。行クラスタリングも見出し検出も効かないので、
+    // 見出し語の出現数をそのまま段の数とみなす。ここで0を返すと、
+    // いちばん段数を知りたい帳票で「分からない」になる。
+    const rotated = [
+      { text: '商品ｺｰﾄﾞ', x: 700, y: 539 }, { text: '商品名', x: 700, y: 500 },
+      { text: '単位', x: 700, y: 420 }, { text: '入数', x: 700, y: 380 },
+      { text: '商品ｺｰﾄﾞ', x: 700, y: 141 }, { text: '商品名', x: 700, y: 102 },
+      { text: '単位', x: 700, y: 22 }, { text: '入数', x: 700, y: -18 },
+    ]
+    expect(detectSectionCount(rotated)).toBe(2)
+  })
+
   it('段が1つのファイルの読み方は変えない', () => {
     const it = [
       { text: '品名', x: 30, y: 750 }, { text: '単価', x: 155, y: 750 },
@@ -180,5 +193,67 @@ describe('2段組みの手動指定', () => {
     const out = extractRows(it, [{ field: 'name', x: 30 }, { field: 'price', x: 155 }], { fromY: 750 })
     expect(out.map(p => `${p.name}:${p.price}`)).toEqual(['豚バラ:1200', '鶏もも:980'])
     expect(detectSectionCount(it)).toBe(1)
+  })
+})
+
+// 回転して刷られた帳票（実物の棚卸記入表は rotate=90）。
+// そのままでは x が行・y が列なので、列を x で束ねる仕組みが全部ずれる。
+// 「2枚目の表の商品名」が1枚目と同じ列に見えて、タップしても付かずに外れていた。
+describe('回転した紙の座標をそろえる', () => {
+  // 実測値（PRONTO 棚卸記入表・1ページ目）
+  const HEAD_Y = 129            // 見出しの行
+  const ROW1_Y = 143, ROW2_Y = 157
+  const COL = { no: 46, code: 74, name: 107, pack: 228, unit: 246, prev: 376 }
+  const SEC2 = { no: 439, code: 457, name: 539 }
+
+  it('列は左から右へ、行は上から下へ並ぶ向きになる', () => {
+    const r = (x, y) => toReadingCoords(x, y, 90)
+    // 列（同じ行の中）: 行番号 → コード → 商品名 → 単位 の順に x が増える
+    const cols = [COL.no, COL.code, COL.name, COL.unit].map(y => r(HEAD_Y, y).x)
+    expect(cols).toEqual([...cols].sort((a, b) => a - b))
+    // 2枚目の表は1枚目より右
+    expect(r(HEAD_Y, SEC2.name).x).toBeGreaterThan(r(HEAD_Y, COL.name).x)
+    // 行: 見出しがいちばん上（y が大きい）で、下へ行くほど小さくなる
+    expect(r(HEAD_Y, COL.name).y).toBeGreaterThan(r(ROW1_Y, COL.name).y)
+    expect(r(ROW1_Y, COL.name).y).toBeGreaterThan(r(ROW2_Y, COL.name).y)
+  })
+
+  it('2枚の表の「商品名」が別の列として区別できる', () => {
+    // 直す前は x（＝行の位置）で比べていたので、この2つは同じ列に見えていた
+    const a = toReadingCoords(HEAD_Y, COL.name, 90)
+    const b = toReadingCoords(HEAD_Y, SEC2.name, 90)
+    expect(Math.abs(a.x - b.x)).toBeGreaterThan(14)   // COL_TOL より離れている
+  })
+
+  it('回っていない紙は何も変えない', () => {
+    expect(toReadingCoords(30, 750, 0)).toEqual({ x: 30, y: 750 })
+    expect(toReadingCoords(30, 750, undefined)).toEqual({ x: 30, y: 750 })
+    expect(toReadingCoords(30, 750, 180)).toEqual({ x: 30, y: 750 })
+  })
+
+  it('270度は90度の鏡像', () => {
+    const a = toReadingCoords(129, 107, 90)
+    const b = toReadingCoords(129, 107, 270)
+    expect(b).toEqual({ x: -a.x, y: -a.y })
+  })
+
+  it('回転した紙の見出し行を、そろえたあとの座標で読める', () => {
+    const raw = [
+      [HEAD_Y, COL.code, '商品ｺｰﾄﾞ'], [HEAD_Y, COL.name, '商品名'], [HEAD_Y, COL.unit, '単位'],
+      [HEAD_Y, SEC2.code, '商品ｺｰﾄﾞ'], [HEAD_Y, SEC2.name, '商品名'], [HEAD_Y, 647, '単位'],
+      [ROW1_Y, COL.code, '60588'], [ROW1_Y, COL.name, 'アイスコーヒー粉22'], [ROW1_Y, COL.unit, 'p'],
+      [ROW1_Y, SEC2.code, '13546'], [ROW1_Y, SEC2.name, 'ミル付きガンエン'], [ROW1_Y, 647, 'ホン'],
+    ]
+    const items = raw.map(([x, y, text]) => {
+      const c = toReadingCoords(x, y, 90)
+      return { text, x: c.x, y: c.y }
+    })
+    const cols = [
+      { field: 'code', x: COL.code }, { field: 'name', x: COL.name }, { field: 'unit', x: COL.unit },
+      { field: 'code', x: SEC2.code }, { field: 'name', x: SEC2.name }, { field: 'unit', x: 647 },
+    ]
+    const out = extractRows(items, cols, { fromY: -HEAD_Y })
+    expect(out.map(r => `${r.code}/${r.name}/${r.unit}`))
+      .toEqual(['60588/アイスコーヒー粉22/p', '13546/ミル付きガンエン/ホン'])
   })
 })

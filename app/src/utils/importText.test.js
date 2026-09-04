@@ -1,7 +1,7 @@
 // 取込の「文字の読み方」。実運用の帳票は半角カナで書かれるので、
 // 字形をそろえずに突き合わせると、読めている列が「無い列」になる。
 import { describe, it, expect } from 'vitest'
-import { normText, normHeader, headerMatches, isMetaName, metaReason } from './importText.js'
+import { normText, normHeader, headerMatches, isMetaName, isHeaderish, metaReason } from './importText.js'
 
 describe('normHeader', () => {
   it('半角カナ・全角英数・大小・空白の違いを消す', () => {
@@ -49,5 +49,19 @@ describe('isMetaName', () => {
     expect(metaReason('小計')).toContain('小計')
     expect(metaReason('【野菜】')).toContain('区分')
     expect(metaReason('品名')).toContain('列の名前')
+  })
+})
+
+describe('isHeaderish', () => {
+  // 座標で読むPDFでは、隣り合う見出しが1つのセルに連結されて入ってくる。
+  // 完全一致でしか見分けないと、連結されたとたん品目として通ってしまう。
+  it('見出し語だけでできた連結を見分ける', () => {
+    expect(isHeaderish('商品名 入数')).toBe(true)
+    expect(isHeaderish('単位 在庫 前月実績')).toBe(true)
+  })
+  it('品目名は巻き込まない', () => {
+    expect(isHeaderish('ホットコーヒー豆 22')).toBe(false)
+    expect(isHeaderish('ミル付きガンエン')).toBe(false)
+    expect(isHeaderish('商品名')).toBe(false)   // 単語1つは isMetaName の担当
   })
 })

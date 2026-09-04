@@ -57,6 +57,21 @@ export function isMetaName(name) {
   return false
 }
 
+/**
+ * 見出し語だけでできている文字列か（`商品名 入数` のように連結されたもの）。
+ *
+ * 座標で読むPDFでは、見出しの行を指しても読み取り範囲に入ることがあり、
+ * 隣の見出しどうしが1つのセルに連結されて入ってくる。`isMetaName` は
+ * 完全一致でしか見出しを見分けないので、連結されたとたん品目として通ってしまう。
+ */
+export function isHeaderish(text) {
+  const t = normText(text)
+  if (!t) return false
+  const parts = t.split(/[\s　]+/).filter(Boolean)
+  if (parts.length < 2) return false
+  return parts.every(w => HEADER_LABELS.has(w) || HEADER_LABELS.has(w.toLowerCase()))
+}
+
 /** 外した理由を人の言葉で返す（画面にそのまま出す。理由が無いと戻す判断ができない）。 */
 export function metaReason(name) {
   const t = normText(name)

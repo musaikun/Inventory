@@ -4,7 +4,7 @@
 // 各データ行を列に割り当て。既存の決め打ちパーサー（rotate=90帳票）とは独立で、
 // そちらが0件だったページのフォールバックとして使う。座標は読み方向（rotate=0）前提。
 
-import { normText, isMetaName } from './importText.js'
+import { normText, isMetaName, isHeaderish } from './importText.js'
 
 const ROW_TOL = 4      // 同一行とみなす y の許容差(px)
 const LEFT_SLACK = 12  // 右寄せ数値を左隣の列に取り込むための境界オフセット
@@ -133,10 +133,31 @@ export function extractRows(items, columns, { fromY = Infinity } = {}) {
         : row.cells.filter(c => c.x >= sec.xMin - 2 && c.x < sec.xMax)
       if (!cells.length) continue
       const rec = _mapRow(cells, sec.columns)
-      if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
+      if (rec && rec.name && !isMetaName(rec.name) && !isHeaderish(rec.name)) products.push(rec)
     }
   }
   return products
+}
+
+/**
+ * トークンの座標を「読み方向」へそろえる。
+ *
+ * 実物の棚卸記入表は rotate=90 で刷られていて、そのままでは
+ * **x が行の位置・y が列の位置**になる。列を x で束ねる仕組み（この file 全体と
+ * PdfColumnMapper）は、回転した紙では2枚目の表の商品名を1枚目と同じ列と判定して
+ * しまい、タップしても付かずに外れる。入口で1度そろえておく。
+ *
+ * 実測（PRONTO 棚卸記入表・rotate=90・1ページ目）:
+ *   x = 行の位置で、**下へ行くほど増える**（見出し129 → 1行目143 → 2行目157 …）
+ *   y = 列の位置で、**右へ行くほど増える**（行番号46 → コード74 → 商品名107 → 単位246 …）
+ * 読み方向は「y が右・x が下」なので、列軸は +y、行軸は -x（大きいほど上）になる。
+ * 270度はその鏡像（90度ぶんは実測、270度は対称から導いた）。
+ */
+export function toReadingCoords(x, y, rotate) {
+  const r = ((rotate ?? 0) % 360 + 360) % 360
+  if (r === 90)  return { x: y, y: -x }
+  if (r === 270) return { x: -y, y: x }
+  return { x, y }
 }
 
 /**
@@ -144,11 +165,15 @@ export function extractRows(items, columns, { fromY = Infinity } = {}) {
  * 手動で列を指定する画面が「右の表の列も指定してください」と言えるようにするためのもの。
  * 見出しが見つからなければ 0（分からない）を返す ── 推測で断定しない。
  */
+const NAME_HEADER_RE = /^(品目名|商品名|品名|名称)$/
 export function detectSectionCount(items) {
   if (!Array.isArray(items) || items.length < 6) return 0
   const header = _findHeader(_clusterRows(items))
-  if (!header) return 0
-  return _splitSections(header.cells).length
+  if (header) return _splitSections(header.cells).length
+  // 回転している帳票（rotate=90）では、行クラスタリングも見出し検出も効かない。
+  // 実物の棚卸記入表がこれで、そこでこそ段の数を知りたい。
+  // 「商品名」のような品目名の見出しが1ページに何度出るかを、そのまま段の数とみなす。
+  return items.filter(i => NAME_HEADER_RE.test(normText(i.text))).length
 }
 
 /**
@@ -168,7 +193,7 @@ export function parseGenericTable(items) {
       const cells = row.cells.filter(c => c.x >= sec.xMin - 2 && c.x < sec.xMax)
       if (!cells.length) continue
       const rec = _mapRow(cells, sec.columns)
-      if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
+      if (rec && rec.name && !isMetaName(rec.name) && !isHeaderish(rec.name)) products.push(rec)
     }
   }
   return products

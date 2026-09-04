@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { extractRows, detectSectionCount } from '../utils/pdfTableParser.js'
+import { extractRows, detectSectionCount, toReadingCoords } from '../utils/pdfTableParser.js'
 import { fingerprintPdf, saveRecipe, suggestRecipeName } from '../composables/importRecipes.js'
+import ImportBuildPreview from './ImportBuildPreview.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
@@ -58,6 +59,12 @@ let _baseW = 600                // scale=1 でのページ幅（フィット計�
 const assign = ref({})
 const picking = ref(null)       // タップ中のbox
 
+// 段組みの数。**読む前に必ず一度訊く。**
+// 1ページに表が2枚並ぶ帳票を段を分けずに読むと、右段の値が左段の列へ吸い込まれて
+// 単価が連結され、右段の品目はまるごと消える。読んだ後では「右半分が無い」ことに
+// 気づけないので、紙を見せながら先に確かめる。null = まだ答えていない。
+const sectionsMode = ref(null)
+
 onMounted(async () => {
   try {
     _pdfjsLib = await getPdfjs()
@@ -70,7 +77,10 @@ onMounted(async () => {
       const page = await _pdf.getPage(p)
       const tc = await page.getTextContent()
       toks.push(tc.items
-        .map(i => ({ text: (i.str ?? '').trim(), x: i.transform[4], y: i.transform[5] }))
+        .map(i => {
+          const c = toReadingCoords(i.transform[4], i.transform[5], page.rotate)
+          return { text: (i.str ?? '').trim(), x: c.x, y: c.y }
+        })
         .filter(i => i.text))
     }
     allTokens.value = toks
@@ -111,7 +121,9 @@ async function renderPage() {
       const tm = _pdfjsLib.Util.transform(viewport.transform, it.transform)
       const h = (it.height || 10) * scale
       const w = Math.max((it.width || 0) * scale, 8)
-      bs.push({ text: s, x: it.transform[4], y: it.transform[5], left: tm[4], top: tm[5] - h, w, h: Math.max(h, 11) })
+      // x/y は「読み方向」の論理座標（列の判定用）。left/top は画面上の位置。
+      const c = toReadingCoords(it.transform[4], it.transform[5], page.rotate)
+      bs.push({ text: s, x: c.x, y: c.y, left: tm[4], top: tm[5] - h, w, h: Math.max(h, 11) })
     }
     boxes.value = bs
   } catch (e) {
@@ -145,6 +157,10 @@ function pickField(field) {
   else delete all[field]
   assign.value = all
   picking.value = null
+  // 組み上がりを見せるのは「その項目が初めて付いたとき」だけ。
+  // 2段組みでは同じ項目を段の数だけ指定するので、位置が増えるたびに全画面が
+  // 被さると、10か所タップする間ずっと手元が隠れてリズムが切れる。
+  if (at < 0 && list.length === 0) openBuild(field)
 }
 function removeAt(field, x) {
   const next = (assign.value[field] ?? []).filter(a => a.x !== x)
@@ -164,13 +180,24 @@ const fromY = computed(() => {
   const ys = Object.values(assign.value).flat().map(a => a.y)
   return ys.length ? Math.max(...ys) : Infinity
 })
-// 指定した「品目名」の数＝ユーザーが宣言した段の数
+// 指定した「品目名」の数＝いま指定できている段の数
 const nameCols = computed(() => (assign.value.name ?? []).length)
-// 紙の見た目から見積もった段の数。足りないまま読むと右段が消えるので、その前に言う。
+// 紙の見た目からの見積もり。**訊くための材料**であって、勝手に決める値ではない。
 const sectionGuess = computed(() => detectSectionCount(allTokens.value[0] ?? []))
-const missingSections = computed(() =>
-  nameCols.value >= 1 && sectionGuess.value > nameCols.value
-    ? sectionGuess.value - nameCols.value : 0)
+const sections = computed(() => sectionsMode.value ?? 1)
+const missingSections = computed(() => Math.max(0, sections.value - nameCols.value))
+// いま何を訊いているか。案内は1つずつ出す（手順を並べても、どれが今かは分からない）
+const guide = computed(() => {
+  if (!nameCols.value) {
+    return sections.value > 1
+      ? `1枚目（いちばん左）の表の「品目名」の列をタップしてください`
+      : `「品目名」の列をどこか1か所タップしてください（見出しでもデータでもOK）`
+  }
+  if (missingSections.value) {
+    return `${nameCols.value + 1}枚目の表の「品目名」もタップしてください（残り${missingSections.value}枚）`
+  }
+  return '単価・単位なども指定できます（任意）。指定した列は全ページに適用されます'
+})
 const hasName = computed(() => columns.value.some(c => c.field === 'name'))
 
 // 現在ページで、各割り当て列を縦帯としてハイライト（列全体＝全行が対象だと視覚化）
@@ -195,6 +222,28 @@ const preview = computed(() => {
   return all
 })
 
+// 組み上がるプレビュー。項目を決めるたびに一度だけ見せる（CSV経路と同じ説明）。
+const previewOpen = ref(false)
+const previewMode = ref('build')
+const filledKey   = ref(null)
+const PV_FIELDS = FIELDS.map(f => ({ key: f.field === 'packQty' ? 'lotSize' : f.field, label: f.label }))
+const previewRows = computed(() => preview.value.slice(0, 60).map(r => ({
+  name: r.name, code: r.code, unit: r.unit, category: r.category,
+  price: r.price ? `¥${Number(r.price).toLocaleString()}` : '',
+  lotSize: r.packQty, prevMonth: r.prevMonth,
+})))
+function openBuild(key = null) {
+  if (!preview.value.length) return
+  filledKey.value = key === 'packQty' ? 'lotSize' : key
+  previewMode.value = 'build'
+  previewOpen.value = true
+}
+function openStay() {
+  filledKey.value = null
+  previewMode.value = 'stay'
+  previewOpen.value = true
+}
+
 const saveName = ref('')
 const wantSave = ref(true)
 
@@ -207,6 +256,7 @@ function onApply() {
       fp: fingerprintPdf(allTokens.value[0]),
       columns: columns.value,
       fromY: fromY.value,
+      sections: sections.value,
     })
   }
   emit('apply', preview.value)
@@ -219,21 +269,35 @@ function onApply() {
       <div class="sheet-handle"></div>
       <div class="sheet-title">列を指定して読み取る</div>
 
-      <!-- 手順 -->
-      <ol class="mapper-steps">
-        <li>下のPDFで、<b>取り込みたい列を1か所タップ</b>します（見出しでもデータのセルでもOK）。</li>
-        <li>その列が<b>何の項目か</b>（品目名・単価…）を選びます。<b>品目名は必須</b>。</li>
-      </ol>
-      <p v-if="pageCount > 1" class="mapper-note">🗂 指定した列は<b>全 {{ pageCount }} ページ</b>に自動で適用されます。</p>
-      <!-- 段組みの取りこぼし。読んだ後では「右half が消えた」と気づけないので、読む前に言う -->
-      <p v-if="missingSections" class="mapper-warn">
-        この紙は同じ表が<b>{{ sectionGuess }}枚</b>並んでいるように見えます。
-        右の表の<b>「品目名」もタップして</b>指定してください
-        （指定しないと右側の{{ missingSections }}枚ぶんが取り込まれず、値が左の列に混ざります）。
-      </p>
+      <!-- ① 最初の問い。紙を見せながら、段の数だけ先に確かめる。
+           読んだ後では「右半分が無い」ことに気づけない。 -->
+      <template v-if="sectionsMode === null">
+        <div class="mapper-q">この紙、表は何枚ありますか？</div>
+        <p class="mapper-qnote">
+          同じ形の表が横に並んでいる数です。下の紙を見て選んでください。
+          <template v-if="sectionGuess >= 1">読み取りでは<b>{{ sectionGuess }}枚</b>と見えています。</template>
+          少なく選ぶと、その分の品目は取り込まれません。
+        </p>
+        <div class="secpick">
+          <button v-for="n in 4" :key="n" class="secbtn" :class="{ det: n === sectionGuess }"
+                  @click="sectionsMode = n">
+            <span class="secbtn-n">{{ n }}</span>
+            <span class="secbtn-l">{{ n === 1 ? '1枚' : `${n}枚` }}</span>
+            <span v-if="n === sectionGuess" class="secbtn-tag">自動判定</span>
+          </button>
+        </div>
+      </template>
+
+      <!-- ② 列を指定する。案内は1つずつ出す -->
+      <template v-else>
+        <p class="mapper-guide">{{ guide }}</p>
+        <button class="mapper-back" @click="sectionsMode = null; clearAll()">
+          {{ sections }}枚の表として読んでいます ・ 変える
+        </button>
+      </template>
 
       <!-- 割り当て済み -->
-      <div class="assigned-row">
+      <div v-if="sectionsMode !== null" class="assigned-row">
         <span v-if="columns.length === 0" class="assigned-empty">まだ列を指定していません</span>
         <span v-for="c in columns" :key="c.field + '@' + c.x" class="assigned-chip" :style="{ background: colorOf(c.field) }">
           {{ labelOf(c.field) }}<button class="chip-x" @click="removeAt(c.field, c.x)">×</button>
@@ -242,7 +306,7 @@ function onApply() {
       </div>
 
       <!-- ページ送り -->
-      <div class="topbar">
+      <div class="topbar" :class="{ dim: sectionsMode === null }">
         <div v-if="pageCount > 1" class="page-nav">
           <button :disabled="pageIndex === 0" @click="pageIndex--">◀</button>
           <span>{{ pageIndex + 1 }} / {{ pageCount }}</span>
@@ -266,15 +330,18 @@ function onApply() {
                :style="{ left: b.left + 'px', width: b.width + 'px', background: b.color + '22', borderColor: b.color }">
             <span class="col-band-label" :style="{ background: b.color }">{{ labelOf(b.field) }}</span>
           </div>
-          <!-- 当たり判定 -->
-          <button
-            v-for="(b, i) in boxes" :key="i"
-            class="hit"
-            :class="{ picking: picking && picking.x === b.x && picking.y === b.y, assigned: fieldOfBox(b) }"
-            :style="{ left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px',
-                      '--fc': fieldOfBox(b) ? colorOf(fieldOfBox(b)) : 'transparent' }"
-            @click="onBoxTap(b)"
-          ></button>
+          <!-- 当たり判定。段の数を答えるまでは触らせない（紙は見せる） -->
+          <template v-if="sectionsMode !== null">
+            <button
+              v-for="(b, i) in boxes" :key="i"
+              class="hit"
+              :class="{ picking: picking && picking.x === b.x && picking.y === b.y, assigned: fieldOfBox(b) }"
+              :style="{ left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px',
+                        '--fc': fieldOfBox(b) ? colorOf(fieldOfBox(b)) : 'transparent' }"
+              :aria-label="`${b.text} の列`"
+              @click="onBoxTap(b)"
+            ></button>
+          </template>
         </div>
       </div>
 
@@ -292,11 +359,12 @@ function onApply() {
       </div>
 
       <!-- プレビュー -->
-      <div class="preview-line" :class="{ ok: preview.length }">
+      <div v-if="sectionsMode !== null" class="preview-line" :class="{ ok: preview.length }">
         <template v-if="!hasName">▲ 「品目名」の列を指定してください</template>
         <template v-else-if="preview.length">✓ 全 {{ pageCount }} ページから <b>{{ preview.length }}</b> 件を抽出</template>
         <template v-else>該当する行がありません（列の指定を見直してください）</template>
       </div>
+      <button v-if="preview.length" class="pv-btn" @click="openStay">取り込んだ後の棚卸カードを見る</button>
       <ul v-if="preview.length" class="mini-preview">
         <li v-for="(p, i) in preview.slice(0, 6)" :key="i">
           <span class="mp-name">{{ p.name }}</span>
@@ -306,17 +374,29 @@ function onApply() {
       </ul>
 
       <!-- レシピ保存 -->
-      <label class="save-row" :class="{ disabled: !preview.length }">
+      <label v-if="sectionsMode !== null" class="save-row" :class="{ disabled: !preview.length }">
         <input type="checkbox" v-model="wantSave" :disabled="!preview.length" />
         <span>このレイアウトを「レシピ」として保存（次回同じ形式なら自動で読み取り）</span>
       </label>
-      <input v-if="wantSave" v-model="saveName" class="save-name" placeholder="レシピ名（例: ○○商店 仕入表）" :disabled="!preview.length" />
+      <input v-if="wantSave && sectionsMode !== null" v-model="saveName" class="save-name"
+             placeholder="レシピ名（例: ○○商店 仕入表）" :disabled="!preview.length" />
 
       <div class="actions">
         <button class="btn btn-secondary" @click="$emit('close')">キャンセル</button>
         <button class="btn btn-primary" :disabled="!preview.length" @click="onApply">この内容で読み込む</button>
       </div>
     </div>
+
+    <ImportBuildPreview
+      v-if="previewOpen"
+      :rows="previewRows"
+      :total="preview.length"
+      :fields="PV_FIELDS"
+      :mode="previewMode"
+      :filled="filledKey"
+      @close="previewOpen = false"
+      @stay="previewMode = 'stay'"
+    />
   </div>
 </template>
 
@@ -326,6 +406,34 @@ function onApply() {
 .mapper-steps b { color: var(--primary); }
 .mapper-note { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; margin: 0 0 10px; }
 .mapper-warn { font-size: 12px; line-height: 1.6; color: #7f1d1d; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; }
+
+/* 段の数を訊く面。ここでは他に何も出さない */
+.mapper-q { font-size: 17px; font-weight: 800; line-height: 1.45; color: var(--text); margin-bottom: 6px; }
+.mapper-qnote { font-size: 11.5px; line-height: 1.6; color: var(--text-muted); margin: 0 0 10px; }
+.mapper-qnote b { color: var(--primary); }
+.secpick { display: flex; gap: 8px; margin-bottom: 12px; }
+.secbtn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px;
+  padding: 10px 4px; cursor: pointer; position: relative; }
+.secbtn:active { transform: scale(.98); }
+.secbtn.det { border-color: var(--primary); background: var(--primary-weak); }
+.secbtn-n { font-size: 20px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+.secbtn-l { font-size: 10.5px; color: var(--text-muted); }
+.secbtn-tag { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  background: var(--primary); color: #fff; font-size: 9px; font-weight: 800;
+  border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+
+/* 案内は1つずつ。手順を並べても「いまどれか」は分からない */
+.mapper-guide { font-size: 13px; font-weight: 700; line-height: 1.55; color: var(--text);
+  background: var(--primary-weak); border: 1px solid var(--primary-border);
+  border-radius: 9px; padding: 8px 10px; margin: 0 0 8px; }
+.mapper-back { display: block; width: 100%; border: 1.5px solid var(--primary-border);
+  background: var(--surface); color: var(--primary); border-radius: 10px;
+  padding: 9px; font-size: 11.5px; font-weight: 800; cursor: pointer; margin-bottom: 10px; }
+.topbar.dim { opacity: .4; pointer-events: none; }
+.pv-btn { display: block; width: 100%; border: 1.5px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 10px; padding: 10px; font-size: 12.5px; font-weight: 800;
+  cursor: pointer; margin: 8px 0; }
 .mapper-note b { color: #92400e; }
 
 .assigned-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; min-height: 26px; }

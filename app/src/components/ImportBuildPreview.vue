@@ -12,61 +12,23 @@
  * 触ったら止めて居座る（読みたい人を追い出さない）。
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { isMetaName } from '../utils/importText.js'
-import { readNumericCell } from '../utils/csvParse.js'
 
 const props = defineProps({
-  records:     { type: Array,  required: true },
-  headerRow:   { type: Number, default: -1 },
-  headerNamed: { type: Boolean, default: false },
-  mapping:     { type: Object, required: true },
-  fields:      { type: Array,  required: true },
-  mode:        { type: String, default: 'build' },   // 'build' | 'stay'
-  filled:      { type: String, default: null },      // 直前に決めた項目
-  title:       { type: String, default: '' },
+  // 取り込んだ後に入る品目そのもの。
+  // 元がCSVかPDFかをここへ持ち込まない ── 経路ごとに読み方が枝分かれすると、
+  // 「取り込んだ後どう見えるか」の答えが経路ごとに変わってしまう。
+  rows:   { type: Array,  required: true },   // [{ name, code, unit, price, category, lotSize, prevMonth, axisA, axisB }]
+  total:  { type: Number, default: null },    // 全件数（rows は先頭だけでよい）
+  fields: { type: Array,  required: true },   // [{ key, label }] 画面に出る項目
+  mode:   { type: String, default: 'build' }, // 'build' | 'stay'
+  filled: { type: String, default: null },    // 直前に決めた項目
+  title:  { type: String, default: '' },
 })
 const emit = defineEmits(['close', 'stay'])
 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-const has = (k) => props.mapping[k] !== null && props.mapping[k] !== undefined
-
-const RENDER_MAX = 60      // 画面に出す行。全件は数えるが、描くのは先頭だけ
-const cell = (cols, key) => {
-  const i = props.mapping[key]
-  if (i === null || i === undefined) return ''
-  return String(cols?.[i] ?? '').trim()
-}
-
-/** 表示用に読む。読めない数値はその欄だけ空にする（取込本体と同じ扱い） */
-function money(raw) {
-  if (!raw) return ''
-  const r = readNumericCell(raw, {})
-  return r.value === undefined ? '' : `¥${r.value.toLocaleString()}`
-}
-
-const dataRows = computed(() => props.records.slice(props.headerRow + 1))
-const rows = computed(() => {
-  const out = []
-  let total = 0
-  for (const r of dataRows.value) {
-    const name = cell(r.cols, 'name')
-    if (!name || isMetaName(name)) continue
-    total++
-    if (out.length >= RENDER_MAX) continue
-    out.push({
-      name,
-      code:      cell(r.cols, 'code'),
-      unit:      cell(r.cols, 'unit'),
-      price:     money(cell(r.cols, 'price')),
-      category:  cell(r.cols, 'category'),
-      lotSize:   cell(r.cols, 'lotSize'),
-      prevMonth: cell(r.cols, 'prevMonth'),
-      axisA:     cell(r.cols, 'axisA'),
-      axisB:     cell(r.cols, 'axisB'),
-    })
-  }
-  return { list: out, total }
-})
+const has = (k) => props.fields.some(f => f.key === k) && props.rows.some(r => r[k] !== undefined && r[k] !== '')
+const totalCount = computed(() => props.total ?? props.rows.length)
 
 // 並び替え。既定は「取込順」＝ファイルの並びのまま。直前まで見ていたファイルと
 // 1行目が違うと、合っているかを確かめようがない。並べ替えは確かめ終わってから選ぶもの。
@@ -82,7 +44,7 @@ const sortTabs = computed(() => {
 watch(sortTabs, (tabs) => { if (!tabs.some(t => t.k === sortMode.value)) sortMode.value = 'file' })
 
 const shown = computed(() => {
-  const list = [...rows.value.list]
+  const list = [...props.rows]
   if (sortMode.value === 'file') return list
   if (sortMode.value === 'name') return list.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
   return list.sort((a, b) => String(a[sortMode.value]).localeCompare(String(b[sortMode.value]), 'ja'))
@@ -189,8 +151,8 @@ watch(() => props.mode, (m) => { sticky.value = m === 'stay'; run() })
       </div>
 
       <div class="bpv-foot">
-        <b>{{ rows.total.toLocaleString() }}</b>件が入ります
-        <span v-if="rows.total > shown.length" class="bpv-more">（先頭{{ shown.length }}件を表示）</span>
+        <b>{{ totalCount.toLocaleString() }}</b>件が入ります
+        <span v-if="totalCount > shown.length" class="bpv-more">（先頭{{ shown.length }}件を表示）</span>
         <span v-if="!sticky" class="bpv-tap">触ると止まります</span>
       </div>
     </div>

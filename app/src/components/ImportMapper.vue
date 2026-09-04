@@ -15,6 +15,7 @@
 import { ref, computed, reactive, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
 import { headerMatches, isMetaName } from '../utils/importText.js'
+import { readNumericCell } from '../utils/csvParse.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import {
   fingerprintTable, matchRecipe, applyRecipeColumns,
@@ -259,16 +260,34 @@ const peekRows = computed(() => records.slice(0, PEEK_N))
 const mapRows  = computed(() => dataRows.value.slice(0, MAP_ROWS))
 const cellText = (cols, i) => String(cols?.[i] ?? '').trim()
 
-// 取り込める件数の見込み（品目に見えない行は数えない）
-const rowGuess = computed(() => {
-  if (!has('name')) return 0
-  let n = 0
+/**
+ * プレビューに渡す品目。取込本体と同じ判断（品目に見えない行は外す・
+ * 読めない数値はその欄だけ空にする）で作らないと、見せているものが嘘になる。
+ */
+const PV_MAX = 60
+const previewRows = computed(() => {
+  const list = []
+  let total = 0
+  if (!has('name')) return { list, total }
   for (const r of dataRows.value) {
-    const nm = cellText(r.cols, mapping.name)
-    if (nm && !isMetaName(nm)) n++
+    const name = cellText(r.cols, mapping.name)
+    if (!name || isMetaName(name)) continue
+    total++
+    if (list.length >= PV_MAX) continue
+    const row = { name }
+    for (const f of FIELDS.value) {
+      if (f.key === 'name' || !has(f.key)) continue
+      const v = cellText(r.cols, mapping[f.key])
+      if (f.key === 'price') {
+        const n = readNumericCell(v, {})
+        row.price = n.value === undefined ? '' : `¥${n.value.toLocaleString()}`
+      } else row[f.key] = v
+    }
+    list.push(row)
   }
-  return n
+  return { list, total }
 })
+const rowGuess = computed(() => previewRows.value.total)
 
 watch(headerRow, () => { if (headerNamed.value) autoDetect() })
 
@@ -417,10 +436,8 @@ tryRecipe()
 
     <ImportBuildPreview
       v-if="previewOpen"
-      :records="records"
-      :header-row="headerRow ?? -1"
-      :header-named="headerNamed"
-      :mapping="mapping"
+      :rows="previewRows.list"
+      :total="previewRows.total"
       :fields="FIELDS"
       :mode="previewMode"
       :filled="filledKey"
