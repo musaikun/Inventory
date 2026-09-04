@@ -13,6 +13,13 @@ describe('detectColumn', () => {
     expect(detectColumn(['伝票日付', '商品名称', '数量'], ['日付', 'date'])).toBe(0)
     expect(detectColumn(['伝票日付', '商品名称', '数量'], ['品名', '名称'])).toBe(1)
   })
+  it('実物の帳票の半角カナ見出しに当てる（商品ｺｰﾄﾞ）', () => {
+    // PRONTO の棚卸記入表は見出しが半角カナ。字形をそろえずに比べていたため、
+    // コード列だけが自動検出から漏れて手作業になっていた。
+    const head = ['商品ｺｰﾄﾞ', '商品名', '単位', '入数', '前月実績']
+    expect(detectColumn(head, ['商品コード', 'コード'])).toBe(0)
+    expect(detectColumn(head, ['入数', 'ロット'])).toBe(3)
+  })
   it('当たらなければ null（推測で埋めない）', () => {
     expect(detectColumn(['A', 'B'], ['日付'])).toBeNull()
     expect(detectColumn(null, ['日付'])).toBeNull()

@@ -7,6 +7,7 @@
 // 検証・日付正規化・上限・重複判定は既存パーサのままにする（取込の契約を二重化しない）。
 
 import { toCSVRow } from './csvParse.js'
+import { headerMatches } from './importText.js'
 
 /**
  * 列名から対応する列を推測する。**見出し行があると宣言されたときだけ**使う。
@@ -15,9 +16,9 @@ import { toCSVRow } from './csvParse.js'
 export function detectColumn(headerCols, hints) {
   if (!Array.isArray(headerCols) || !Array.isArray(hints)) return null
   for (let i = 0; i < headerCols.length; i++) {
-    const h = String(headerCols[i] ?? '').trim().toLowerCase()
-    if (!h) continue
-    if (hints.some(hint => hint && h.includes(String(hint).toLowerCase()))) return i
+    // 実運用の帳票は半角カナで書かれる（`商品ｺｰﾄﾞ`）。字形をそろえてから比べないと、
+    // 読めているのに「その列は無い」ことになって手作業へ落ちる。
+    if (headerMatches(headerCols[i], hints)) return i
   }
   return null
 }

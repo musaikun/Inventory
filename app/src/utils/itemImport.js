@@ -13,6 +13,7 @@
  */
 
 import { tokenizeCSV, readNumericCell, parseCSVLine as _parseCSVLine } from './csvParse.js'
+import { normHeader } from './importText.js'
 import { IMPORT_MAX_REORDER_POINT, IMPORT_MAX_UNIT_PRICE } from './importLimits.js'
 
 export const IMPORT_MODE_MERGE   = 'merge'    // 追加・更新（既定）。ファイルに無い既存品目は残す
@@ -68,8 +69,7 @@ export const parseCSVLine = _parseCSVLine
 
 /** 先頭行がヘッダ行として使えるか（1列目が「品目名」相当か） */
 export function looksLikeHeaderRow(cols) {
-  const first = String(cols?.[0] ?? '').trim().toLowerCase().replace(/\s+/g, '')
-  return NAME_HEADERS.includes(first)
+  return NAME_HEADERS.includes(normHeader(cols?.[0]))
 }
 
 function _cellAt(cols, idx) {

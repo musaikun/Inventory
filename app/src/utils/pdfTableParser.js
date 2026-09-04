@@ -4,6 +4,8 @@
 // 各データ行を列に割り当て。既存の決め打ちパーサー（rotate=90帳票）とは独立で、
 // そちらが0件だったページのフォールバックとして使う。座標は読み方向（rotate=0）前提。
 
+import { normText, isMetaName } from './importText.js'
+
 const ROW_TOL = 4      // 同一行とみなす y の許容差(px)
 const LEFT_SLACK = 12  // 右寄せ数値を左隣の列に取り込むための境界オフセット
 const SEC_SLACK = 6    // 段（セクション）境界の許容差
@@ -20,33 +22,13 @@ const HEADER_RULES = [
   { field: 'name',      re: /品目名|商品名|品名|名称|品目|商品|item|name|product/i },
 ]
 
-function _norm(s) { return (s || '').normalize('NFKC').trim() }
+const _norm = normText
 
 function _fieldOf(text) {
   const t = _norm(text)
   if (!t) return null
   for (const rule of HEADER_RULES) if (rule.re.test(t)) return rule.field
   return null
-}
-
-// 列見出しラベル（そのままの値なら品目ではない＝除外）。手動マッピングで見出し行を
-// タップしても、その行が品目として混入しないようにする。
-const HEADER_LABELS = new Set([
-  '品目名', '商品名', '品名', '名称', '品目', '商品', '品目コード', '商品コード', 'コード', '品番',
-  '単価', '価格', '金額', '値段', '数量', '在庫', '個数', '分類', 'カテゴリ', 'ジャンル', '区分',
-  '単位', '入数', '前月', '前月実績',
-  'item', 'name', 'product', 'qty', 'quantity', 'stock', 'unit', 'price', 'category', 'code',
-])
-
-// 行以外のメタ情報（発行日・取引先・ページ番号・見出し・合計）を品目から除外
-function _isMeta(name) {
-  const t = _norm(name)
-  if (!t) return true
-  if (/^[\d,.\s]+$/.test(t)) return true                     // 数字だけ
-  if (HEADER_LABELS.has(t) || HEADER_LABELS.has(t.toLowerCase())) return true  // 列見出しそのもの
-  if (/発行日|取引先|作成|店舗|業態|棚卸|ページ|^p\.?\d|合計|小計|見出|注意|※|社外秘/i.test(t)) return true
-  if (/^[【〔\[(（].*[】〕\])）]$/.test(t)) return true        // 【飲料】等の見出し行
-  return false
 }
 
 // y でクラスタリングして行を作る（上→下）
@@ -136,7 +118,7 @@ export function extractRows(items, columns, { fromY = Infinity } = {}) {
   const products = []
   for (const row of rows) {
     const rec = _mapRow(row.cells, cols)
-    if (rec && rec.name && !_isMeta(rec.name)) products.push(rec)
+    if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
   }
   return products
 }
@@ -158,7 +140,7 @@ export function parseGenericTable(items) {
       const cells = row.cells.filter(c => c.x >= sec.xMin - 2 && c.x < sec.xMax)
       if (!cells.length) continue
       const rec = _mapRow(cells, sec.columns)
-      if (rec && rec.name && !_isMeta(rec.name)) products.push(rec)
+      if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
     }
   }
   return products

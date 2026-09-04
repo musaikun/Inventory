@@ -200,3 +200,20 @@ describe('字句解析は共通トークナイザを使う', () => {
     expect(text()).toContain('トマト')
   })
 })
+
+describe('見出しの自動検出は字形の違いで取りこぼさない', () => {
+  // 実物の帳票（PRONTO の棚卸記入表）は見出しが半角カナ。
+  // 突き合わせの前に字形をそろえないと、読めている列が「無い列」になる。
+  const KANA = '商品ｺｰﾄﾞ,商品名,単位,入数\n12687,サラダ用カップ,個,S'
+
+  it('半角カナの見出しでも列を当てる', async () => {
+    const { text } = await mount({ csvText: KANA })
+    await pick('1行目は見出し')
+    const selects = [...host.querySelectorAll('select')]
+    const codeSel = selects.find(sel =>
+      sel.closest('label,div,tr')?.textContent.includes('商品コード'))
+    expect(codeSel, 'コードの選択欄').toBeTruthy()
+    expect(codeSel.value).toBe('0')
+    expect(text()).toContain('サラダ用カップ')
+  })
+})

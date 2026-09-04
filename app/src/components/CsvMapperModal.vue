@@ -18,6 +18,7 @@
  */
 import { ref, computed, reactive, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
+import { headerMatches } from '../utils/importText.js'
 
 const props = defineProps({
   csvText:  { type: String, required: true },
@@ -44,7 +45,7 @@ function _looksLikeHeader(cols) {
   if (!filled.length) return false
   // 全部が数値のような行は見出しではない
   if (filled.every(c => /^[-0-9.,¥￥]+$/.test(c))) return false
-  return filled.some(c => HEADER_WORDS.some(w => c.toLowerCase().includes(w)))
+  return filled.some(c => headerMatches(c, HEADER_WORDS))
 }
 
 // null = 未選択。ユーザーが選ぶまでどちらでもない（推測で埋めない）。
@@ -95,9 +96,10 @@ const HINTS = {
 // 見出しが無い／未選択のあいだは全て未選択にし、品目名だけ1列目を既定にする。
 function _detect(hints) {
   if (hasHeader.value !== true) return null
+  // 半角カナの見出し（`商品ｺｰﾄﾞ`）も当てる。字形をそろえずに比べると、
+  // 読めている列が「無い列」になって手作業へ落ちる。
   for (let i = 0; i < firstCols.length; i++) {
-    const h = firstCols[i].toLowerCase()
-    if (hints.some(hint => h.includes(hint.toLowerCase()))) return i
+    if (headerMatches(firstCols[i], hints)) return i
   }
   return null
 }
