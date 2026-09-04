@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { extractRows, detectSectionCount } from '../utils/pdfTableParser.js'
-import { fingerprintTokens, saveProfile } from '../composables/pdfProfiles.js'
+import { fingerprintPdf, saveRecipe, suggestRecipeName } from '../composables/importRecipes.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
@@ -201,11 +201,12 @@ const wantSave = ref(true)
 function onApply() {
   if (!preview.value.length) return
   if (wantSave.value && allTokens.value[0]?.length) {
-    saveProfile({
-      name: saveName.value.trim() || '無名レシピ',
+    saveRecipe({
+      name: saveName.value.trim() || suggestRecipeName(props.file?.name ?? ''),
+      kind: 'pdf',
+      fp: fingerprintPdf(allTokens.value[0]),
       columns: columns.value,
       fromY: fromY.value,
-      fingerprint: fingerprintTokens(allTokens.value[0]),
     })
   }
   emit('apply', preview.value)

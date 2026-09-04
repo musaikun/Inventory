@@ -241,3 +241,63 @@ describe('フォーマット不明のファイルから列指定インポート�
     expect(cfg.config.order).toEqual([])
   })
 })
+
+// レシピ（保存した読み方）。同じ帳票は毎月同じ形で来るので、2回目以降に
+// 人が答えることは本来1つも無い。答えさせているうちは仕組みが仕事をしていない。
+describe('読み方をレシピとして保存し、次回は問いを飛ばす', () => {
+  const FILE = '商品ｺｰﾄﾞ,商品名,単位,仕入単価\n12687,サラダ用カップ,個,20\n12690,コーヒー豆,kg,1800'
+
+  it('取り込んだ後に訊かれ、保存すると次のファイルで問いが出ない', async () => {
+    await mountSettings()
+    await openMapperWith(FILE, '仕入先マスタ_2026.csv')
+    await tapHeaderRow(0)
+    await finishImport()
+    expect(cfg.config.order).toEqual(['サラダ用カップ', 'コーヒー豆'])
+
+    // 合っていたと分かった後で初めて訊く（前もって名前を付けさせない）
+    expect(host.textContent).toContain('この読み方に名前を付けて保存しますか？')
+    const input = host.querySelector('.recipe-name')
+    expect(input.value).toBe('仕入先マスタ')      // ファイル名から年を落とした見当
+    input.value = '仕入先マスタ'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    button('保存する').click()
+    await settle()
+    expect(host.textContent).toContain('レシピ「仕入先マスタ」として保存しました')
+
+    // 来月の同じ帳票（中身は違う・形は同じ）
+    await openMapperWith('商品ｺｰﾄﾞ,商品名,単位,仕入単価\n99,ミルク,本,240', '仕入先マスタ_2026.csv')
+    expect(questionText()).toBe('')                 // 問いは1つも出ない
+    expect(host.textContent).toContain('レシピ「仕入先マスタ」で読みました')
+  })
+
+  it('レシピで読んだファイルでは、保存をもう一度訊かない', async () => {
+    await mountSettings()
+    await openMapperWith(FILE, '仕入先マスタ.csv')
+    await tapHeaderRow(0)
+    await finishImport()
+    button('保存する').click()
+    await settle()
+
+    await openMapperWith(FILE, '仕入先マスタ.csv')
+    host.querySelector('.imp-go').click()
+    await settle()
+    button('取り込む').click()
+    await settle()
+    expect(host.textContent).not.toContain('この読み方に名前を付けて保存しますか？')
+  })
+
+  it('保存したレシピは設定から消せる', async () => {
+    await mountSettings()
+    await openMapperWith(FILE, '仕入先マスタ.csv')
+    await tapHeaderRow(0)
+    await finishImport()
+    button('保存する').click()
+    await settle()
+
+    expect(host.textContent).toContain('保存したレシピ（1）')
+    button('削除').click()
+    await settle()
+    expect(host.textContent).not.toContain('保存したレシピ')
+  })
+})

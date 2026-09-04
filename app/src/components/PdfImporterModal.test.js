@@ -13,7 +13,7 @@ vi.mock('../composables/usePdfImporter.js', () => ({
   itemsToConfigCSV: vi.fn(() => ''),
 }))
 vi.mock('../utils/pdfTableParser.js', () => ({ extractRows: vi.fn(() => []) }))
-vi.mock('../composables/pdfProfiles.js', () => ({ matchProfile: vi.fn(() => null) }))
+vi.mock('../composables/importRecipes.js', () => ({ matchRecipe: vi.fn(() => null), fingerprintPdf: vi.fn(() => ({ kind: 'pdf', x: [] })) }))
 
 let app = null
 let host = null

@@ -48,6 +48,7 @@ export function clearLocalAccountData() {
       STORAGE_KEYS.pendingSaves,  // resetStore でも消えるが、reset が壊れても残さない
       STORAGE_KEYS.rejectedSaves, // 同上（前アカウントの拒否通知を跨がせない）
       STORAGE_KEYS.pdfProfiles,
+      STORAGE_KEYS.importRecipes,   // 取込レシピも店舗の持ち物。別アカウントへ跨がせない
       STORAGE_KEYS.deleteRequestId, // 別アカウントへ跨る削除requestId残存を防ぐ
     ]) {
       try { localStorage.removeItem(key) } catch (_) {}

@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { assertSpreadsheetFile, parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { extractRows } from '../utils/pdfTableParser.js'
-import { matchProfile } from '../composables/pdfProfiles.js'
+import { matchRecipe, fingerprintPdf } from '../composables/importRecipes.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfColumnMapper from './PdfColumnMapper.vue'
 
@@ -98,7 +98,7 @@ async function handleFile(file) {
       })
       pdfPages.value = pages || []
       // 保存済みレシピがあれば優先適用（同一フォーマットの再取込を自動化）
-      const profile = pdfPages.value.length ? matchProfile(pdfPages.value[0].tokens) : null
+      const profile = pdfPages.value.length ? matchRecipe(fingerprintPdf(pdfPages.value[0].tokens)) : null
       const byProfile = profile ? applyProfile(profile, pdfPages.value) : []
       if (byProfile.length && applyItems(byProfile)) {
         status.value = { type: 'success', msg: `レシピ「${profile.name}」で${byProfile.length}件を検出` }

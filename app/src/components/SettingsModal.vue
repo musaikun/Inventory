@@ -6,6 +6,9 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import ImportMapper from './ImportMapper.vue'
+import {
+  listRecipes, saveRecipe, deleteRecipe, suggestRecipeName,
+} from '../composables/importRecipes.js'
 import ItemImportPreviewModal from './ItemImportPreviewModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
@@ -99,9 +102,38 @@ function openPreview(src) {
   status.value        = null
   previewSource.value = src
 }
+
+// ── レシピ（保存した読み方）───────────────────────────────────────────────────
+// 訊くのは**取り込んだ後**。合っていたと分かる前に名前を付けさせても、
+// 何に名前を付けているのか本人にも分からない。
+const askRecipe   = ref(null)     // { shape, filename } 保存を訊いている最中
+const recipeName  = ref('')
+const savedRecipe = ref('')       // 保存できたレシピの名前（1回だけ出す）
+const recipes     = ref(listRecipes())
+
 function onPreviewImported(result) {
+  const src = previewSource.value
   previewSource.value = null
   status.value = _importResultStatus(result)
+  savedRecipe.value = ''
+  // レシピで読んだファイルは訊かない（もう保存されている）
+  if (src?.recipeShape && !src?.matchedRecipe) {
+    askRecipe.value  = { shape: src.recipeShape, filename: src.filename }
+    recipeName.value = suggestRecipeName(src.filename)
+  } else {
+    askRecipe.value = null
+  }
+}
+function confirmSaveRecipe() {
+  if (!askRecipe.value) return
+  const rec = saveRecipe({ ...askRecipe.value.shape, name: recipeName.value.trim() || '無題のレシピ' })
+  savedRecipe.value = rec.name
+  askRecipe.value   = null
+  recipes.value     = listRecipes()
+}
+function removeRecipe(id) {
+  deleteRecipe(id)
+  recipes.value = listRecipes()
 }
 
 // 取込確認画面が解析に失敗したとき、その内容をそのまま列指定インポートへ渡す。
@@ -320,6 +352,24 @@ function onDownloadTemplate() {
           {{ status.type === 'success' ? '✓' : status.type === 'warning' ? '⚠' : '✗' }} {{ status.msg }}
           <button v-if="importUndoAvailable" class="undo-btn" @click="onUndoImport">取込前に戻す</button>
         </div>
+
+        <!-- 取り込んだ後にだけ訊く。合っていたと分かる前に名前を付けさせない -->
+        <div v-if="askRecipe" class="recipe-ask">
+          <div class="recipe-ask-t">この読み方に名前を付けて保存しますか？</div>
+          <p class="recipe-ask-b">
+            次に同じ形のファイルを開いたとき、<b>問いを1つも出さずに</b>ここまで来ます。
+            覚えるのは読み方（表の始まり・どの列が何か）だけで、品目の中身は覚えません。
+          </p>
+          <input v-model="recipeName" class="recipe-name" type="text" maxlength="24"
+                 placeholder="例：東西酒販の請求書" />
+          <div class="recipe-acts">
+            <button class="recipe-skip" @click="askRecipe = null">あとで</button>
+            <button class="recipe-save" @click="confirmSaveRecipe">保存する</button>
+          </div>
+        </div>
+        <div v-if="savedRecipe" class="msg success">
+          ✓ レシピ「{{ savedRecipe }}」として保存しました
+        </div>
       </template>
 
       <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
@@ -329,6 +379,21 @@ function onDownloadTemplate() {
         </button>
         <input ref="mapperInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
       </div>
+
+      <!-- 保存したレシピ。当たったかどうかは取込画面が言うので、ここは持ち物の管理だけ -->
+      <details v-if="!props.isGuest && recipes.length" class="recipe-list">
+        <summary>📗 保存したレシピ（{{ recipes.length }}）</summary>
+        <p class="recipe-list-b">同じ形のファイルを開いたとき、自動で当たります。</p>
+        <div v-for="r in recipes" :key="r.id" class="recipe-row">
+          <div class="recipe-row-b">
+            <div class="recipe-row-t">{{ r.name }}</div>
+            <div class="recipe-row-s">
+              {{ r.kind === 'pdf' ? 'PDF' : `${r.fp?.cols ?? '?'}列` }} ・ {{ (r.columns ?? []).length }}項目
+            </div>
+          </div>
+          <button class="recipe-del" @click="removeRecipe(r.id)">削除</button>
+        </div>
+      </details>
 
       <!-- 棚卸結果CSVから入力を復元（進行中セッション中のみ・ゲスト非表示）-->
       <div v-if="!props.isGuest && canRestore" class="mapper-row">
@@ -530,6 +595,31 @@ function onDownloadTemplate() {
 </template>
 
 <style scoped>
+/* レシピ（保存した読み方）*/
+.recipe-ask { border: 1px solid var(--primary-border); background: var(--primary-weak);
+  border-radius: 11px; padding: 11px 12px; margin-top: 10px; }
+.recipe-ask-t { font-size: 13px; font-weight: 800; color: var(--primary); margin-bottom: 4px; }
+.recipe-ask-b { font-size: 11.5px; line-height: 1.6; color: var(--text-muted); margin: 0 0 9px; }
+.recipe-name { width: 100%; box-sizing: border-box; border: 1.5px solid var(--border);
+  border-radius: 9px; padding: 10px 11px; font-size: 14px; font-weight: 700;
+  color: var(--text); background: var(--surface); }
+.recipe-name:focus { outline: none; border-color: var(--primary); }
+.recipe-acts { display: flex; gap: 8px; margin-top: 9px; }
+.recipe-acts button { flex: 1; border-radius: 9px; padding: 9px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.recipe-skip { border: 1.5px solid var(--border); background: var(--surface); color: var(--text-muted); }
+.recipe-save { border: none; background: var(--primary); color: #fff; }
+
+.recipe-list { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; margin-top: 10px; }
+.recipe-list summary { font-size: 12.5px; font-weight: 700; color: var(--text); cursor: pointer; }
+.recipe-list-b { font-size: 11px; color: var(--text-muted); margin: 7px 0 8px; }
+.recipe-row { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--border); padding: 8px 0; }
+.recipe-row-b { flex: 1; min-width: 0; }
+.recipe-row-t { font-size: 12.5px; font-weight: 800; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recipe-row-s { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+.recipe-del { border: 1px solid var(--border); background: var(--surface); color: var(--danger);
+  font-size: 11px; font-weight: 800; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+
 .modal-sheet {
   max-height: 88vh;
   overflow-y: auto;
