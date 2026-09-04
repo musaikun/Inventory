@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseGenericTable, extractRows } from './pdfTableParser.js'
+import { parseGenericTable, extractRows, detectSectionCount } from './pdfTableParser.js'
 
 // 実サンプルPDF（テキスト層あり・rotate=0）から抽出した座標を使う
 
@@ -129,5 +129,56 @@ describe('extractRows（手動マッピング/プロファイル適用）', () =
     expect(extractRows([], columns, {})).toEqual([])
     expect(extractRows([{ text: 'x', x: 1, y: 1 }], [{ field: 'name', x: 1 }], {})).toEqual([])
     expect(extractRows(null, columns, {})).toEqual([])
+  })
+})
+
+// 1ページに同じ表が2枚並ぶ帳票（港水産の納品書のような形）。
+// 自動解析は段を分けて正しく読めていたのに、手動指定（PdfColumnMapper・保存済みレシピ）が
+// 通る extractRows だけ段を分けていなかった。右段の値が左段の列へ吸い込まれ、
+// 単価が 1200 と 280 で `1200280` に連結され、右段の4品目はまるごと消えていた。
+// 壊れた値は数値として読めてしまうので、取込の検証も素通りする。
+describe('2段組みの手動指定', () => {
+  const page = () => {
+    const it = []
+    const push = (t, x, y) => it.push({ text: t, x, y })
+    const L = [['豚バラ', 'kg', '1200'], ['鶏もも', 'kg', '980'], ['牛肩ロース', 'kg', '2400']]
+    const R = [['キャベツ', '個', '280'], ['玉ねぎ', 'kg', '320'], ['にんじん', 'kg', '410']]
+    push('品名', 30, 750); push('単位', 110, 750); push('単価', 155, 750)
+    push('品名', 300, 750); push('単位', 380, 750); push('単価', 425, 750)
+    L.forEach((r, i) => { const y = 720 - i * 20; push(r[0], 30, y); push(r[1], 110, y); push(r[2], 155, y) })
+    R.forEach((r, i) => { const y = 720 - i * 20; push(r[0], 300, y); push(r[1], 380, y); push(r[2], 425, y) })
+    return it
+  }
+  const LEFT  = [{ field: 'name', x: 30 }, { field: 'unit', x: 110 }, { field: 'price', x: 155 }]
+  const BOTH  = [...LEFT, { field: 'name', x: 300 }, { field: 'unit', x: 380 }, { field: 'price', x: 425 }]
+
+  it('同じフィールドを2か所に指定すると、段ごとに読んで全品目が入る', () => {
+    const out = extractRows(page(), BOTH, { fromY: 750 })
+    expect(out.map(p => `${p.name}:${p.price}`)).toEqual([
+      '豚バラ:1200', '鶏もも:980', '牛肩ロース:2400',
+      'キャベツ:280', '玉ねぎ:320', 'にんじん:410',
+    ])
+  })
+
+  it('自動解析と同じ結果になる（経路で答えが変わらない）', () => {
+    const auto = parseGenericTable(page()).map(p => `${p.name}:${p.price}`).sort()
+    const manual = extractRows(page(), BOTH, { fromY: 750 }).map(p => `${p.name}:${p.price}`).sort()
+    expect(manual).toEqual(auto)
+  })
+
+  it('段の数を見出しから見積もれる（指定不足をユーザーに言うため）', () => {
+    expect(detectSectionCount(page())).toBe(2)
+    expect(detectSectionCount([])).toBe(0)
+  })
+
+  it('段が1つのファイルの読み方は変えない', () => {
+    const it = [
+      { text: '品名', x: 30, y: 750 }, { text: '単価', x: 155, y: 750 },
+      { text: '豚バラ', x: 30, y: 720 }, { text: '1200', x: 155, y: 720 },
+      { text: '鶏もも', x: 30, y: 700 }, { text: '980', x: 155, y: 700 },
+    ]
+    const out = extractRows(it, [{ field: 'name', x: 30 }, { field: 'price', x: 155 }], { fromY: 750 })
+    expect(out.map(p => `${p.name}:${p.price}`)).toEqual(['豚バラ:1200', '鶏もも:980'])
+    expect(detectSectionCount(it)).toBe(1)
   })
 })

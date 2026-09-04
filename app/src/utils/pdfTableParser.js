@@ -108,19 +108,47 @@ function _mapRow(cells, columns) {
  * 手動マッピング/プロファイルで指定した列に沿って抽出する（汎用検出に頼らない）。
  * columns = [{ field, x }]（見本行でユーザーがタップした列）。
  * fromY = データ開始行の y（この y 以下＝表の下方向をデータとみなす）。省略時は全行。
+ *
+ * **同じフィールドを複数のxで指定できる**＝1ページに表が2枚以上並ぶ帳票（2段組み）。
+ * 段を分けずに読むと、右段の値が左段の列へ吸い込まれて単価が `1200280` のように
+ * 連結され、右段の品目はまるごと消える。自動解析 `parseGenericTable` は
+ * `_splitSections` で段を分けていたのに、手動経路（PdfColumnMapper・保存済みレシピ）
+ * だけが分けていなかった。「自動で読めなかったから手動へ」という経路なので、
+ * 自動が失敗しがちな汚いPDFほどこの壊れ方に当たっていた。
+ *
  * @returns {Array<{name,unit,price,category,code,packQty,prevMonth}>}
  */
 export function extractRows(items, columns, { fromY = Infinity } = {}) {
   if (!Array.isArray(items) || !Array.isArray(columns) || columns.length < 2) return []
   if (!columns.some(c => c.field === 'name')) return []
   const rows = _clusterRows(items).filter(r => r.y <= fromY + ROW_TOL)
-  const cols = [...columns].sort((a, b) => a.x - b.x)
+  const sections = _splitSections(columns)
   const products = []
-  for (const row of rows) {
-    const rec = _mapRow(row.cells, cols)
-    if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
+  for (const sec of sections) {
+    for (const row of rows) {
+      // 段が1つのときは左端より外のセルも今までどおり左の列へ寄せる
+      // （行番号や記号を落とすかどうかは、この修正で変える話ではない）
+      const cells = sections.length === 1
+        ? row.cells
+        : row.cells.filter(c => c.x >= sec.xMin - 2 && c.x < sec.xMax)
+      if (!cells.length) continue
+      const rec = _mapRow(cells, sec.columns)
+      if (rec && rec.name && !isMetaName(rec.name)) products.push(rec)
+    }
   }
   return products
+}
+
+/**
+ * この紙に同じ形の表が何枚並んでいるか（段組みの数）を、見出しから見積もる。
+ * 手動で列を指定する画面が「右の表の列も指定してください」と言えるようにするためのもの。
+ * 見出しが見つからなければ 0（分からない）を返す ── 推測で断定しない。
+ */
+export function detectSectionCount(items) {
+  if (!Array.isArray(items) || items.length < 6) return 0
+  const header = _findHeader(_clusterRows(items))
+  if (!header) return 0
+  return _splitSections(header.cells).length
 }
 
 /**

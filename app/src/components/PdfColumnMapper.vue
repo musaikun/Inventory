@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { extractRows } from '../utils/pdfTableParser.js'
+import { extractRows, detectSectionCount } from '../utils/pdfTableParser.js'
 import { fingerprintTokens, saveProfile } from '../composables/pdfProfiles.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
@@ -49,7 +49,12 @@ let _pdf = null
 let _pdfjsLib = null
 let _baseW = 600                // scale=1 でのページ幅（フィット計算用）
 
-// 割り当て: field -> { x, y }（PDF座標）
+// 割り当て: field -> [{ x, y }, ...]（PDF座標）
+//
+// 1つのフィールドに複数のxを持てる。1ページに同じ表が2枚並ぶ帳票（2段組み）では
+// 「品名」の列が2か所にあり、1対1では**構造上そもそも指定できなかった**。
+// 指定できないまま読むと、右段の値が左段の列へ吸い込まれて単価が連結され
+// （1200 と 280 → 1200280）、右段の品目はまるごと消える。
 const assign = ref({})
 const picking = ref(null)       // タップ中のbox
 
@@ -120,8 +125,8 @@ watch([pageIndex, zoom], renderPage)
 // ── 列の割り当て ────────────────────────────────────────────
 const COL_TOL = 14   // 同じ列とみなすx許容差（PDF座標）
 function fieldOfBox(b) {
-  for (const [field, a] of Object.entries(assign.value)) {
-    if (Math.abs(a.x - b.x) < COL_TOL) return field
+  for (const [field, list] of Object.entries(assign.value)) {
+    if (list.some(a => Math.abs(a.x - b.x) < COL_TOL)) return field
   }
   return null
 }
@@ -131,34 +136,54 @@ function onBoxTap(b) {
 function pickField(field) {
   const b = picking.value
   if (!b) return
-  if (fieldOfBox(b) === field && Math.abs((assign.value[field]?.x ?? 1e9) - b.x) < COL_TOL) {
-    delete assign.value[field]; assign.value = { ...assign.value }
-  } else {
-    assign.value = { ...assign.value, [field]: { x: b.x, y: b.y } }
-  }
+  const list = assign.value[field] ?? []
+  const at = list.findIndex(a => Math.abs(a.x - b.x) < COL_TOL)
+  // 同じ列をもう一度選んだら外す。別の位置なら足す（2段組みの右側の列がこれ）。
+  const next = at >= 0 ? list.filter((_, i) => i !== at) : [...list, { x: b.x, y: b.y }]
+  const all = { ...assign.value }
+  if (next.length) all[field] = next.sort((p, q) => p.x - q.x)
+  else delete all[field]
+  assign.value = all
   picking.value = null
 }
-function removeField(field) { delete assign.value[field]; assign.value = { ...assign.value } }
+function removeAt(field, x) {
+  const next = (assign.value[field] ?? []).filter(a => a.x !== x)
+  const all = { ...assign.value }
+  if (next.length) all[field] = next
+  else delete all[field]
+  assign.value = all
+}
 function clearAll() { assign.value = {}; picking.value = null }
 
 const columns = computed(() =>
-  Object.entries(assign.value).map(([field, a]) => ({ field, x: a.x })).sort((a, b) => a.x - b.x))
-// 代表行のy（見出しでもデータでもOK。見出しは _isMeta で除外される）
+  Object.entries(assign.value)
+    .flatMap(([field, list]) => list.map(a => ({ field, x: a.x })))
+    .sort((a, b) => a.x - b.x))
+// 代表行のy（見出しでもデータでもOK。見出しは isMetaName で除外される）
 const fromY = computed(() => {
-  const ys = Object.values(assign.value).map(a => a.y)
+  const ys = Object.values(assign.value).flat().map(a => a.y)
   return ys.length ? Math.max(...ys) : Infinity
 })
+// 指定した「品目名」の数＝ユーザーが宣言した段の数
+const nameCols = computed(() => (assign.value.name ?? []).length)
+// 紙の見た目から見積もった段の数。足りないまま読むと右段が消えるので、その前に言う。
+const sectionGuess = computed(() => detectSectionCount(allTokens.value[0] ?? []))
+const missingSections = computed(() =>
+  nameCols.value >= 1 && sectionGuess.value > nameCols.value
+    ? sectionGuess.value - nameCols.value : 0)
 const hasName = computed(() => columns.value.some(c => c.field === 'name'))
 
 // 現在ページで、各割り当て列を縦帯としてハイライト（列全体＝全行が対象だと視覚化）
 const bands = computed(() => {
   const out = []
-  for (const [field, a] of Object.entries(assign.value)) {
-    const matched = boxes.value.filter(b => Math.abs(b.x - a.x) < COL_TOL)
-    if (!matched.length) continue
-    let l = Infinity, r = -Infinity
-    for (const b of matched) { l = Math.min(l, b.left); r = Math.max(r, b.left + b.w) }
-    out.push({ field, left: l - 3, width: (r - l) + 6, color: colorOf(field) })
+  for (const [field, list] of Object.entries(assign.value)) {
+    for (const a of list) {
+      const matched = boxes.value.filter(b => Math.abs(b.x - a.x) < COL_TOL)
+      if (!matched.length) continue
+      let l = Infinity, r = -Infinity
+      for (const b of matched) { l = Math.min(l, b.left); r = Math.max(r, b.left + b.w) }
+      out.push({ key: `${field}@${a.x}`, field, left: l - 3, width: (r - l) + 6, color: colorOf(field) })
+    }
   }
   return out
 })
@@ -199,12 +224,18 @@ function onApply() {
         <li>その列が<b>何の項目か</b>（品目名・単価…）を選びます。<b>品目名は必須</b>。</li>
       </ol>
       <p v-if="pageCount > 1" class="mapper-note">🗂 指定した列は<b>全 {{ pageCount }} ページ</b>に自動で適用されます。</p>
+      <!-- 段組みの取りこぼし。読んだ後では「右half が消えた」と気づけないので、読む前に言う -->
+      <p v-if="missingSections" class="mapper-warn">
+        この紙は同じ表が<b>{{ sectionGuess }}枚</b>並んでいるように見えます。
+        右の表の<b>「品目名」もタップして</b>指定してください
+        （指定しないと右側の{{ missingSections }}枚ぶんが取り込まれず、値が左の列に混ざります）。
+      </p>
 
       <!-- 割り当て済み -->
       <div class="assigned-row">
         <span v-if="columns.length === 0" class="assigned-empty">まだ列を指定していません</span>
-        <span v-for="c in columns" :key="c.field" class="assigned-chip" :style="{ background: colorOf(c.field) }">
-          {{ labelOf(c.field) }}<button class="chip-x" @click="removeField(c.field)">×</button>
+        <span v-for="c in columns" :key="c.field + '@' + c.x" class="assigned-chip" :style="{ background: colorOf(c.field) }">
+          {{ labelOf(c.field) }}<button class="chip-x" @click="removeAt(c.field, c.x)">×</button>
         </span>
         <button v-if="columns.length" class="clear-btn" @click="clearAll">全クリア</button>
       </div>
@@ -230,7 +261,7 @@ function onApply() {
         <div class="pdf-stage">
           <canvas ref="canvasEl" class="pdf-canvas"></canvas>
           <!-- 列ハイライト帯 -->
-          <div v-for="b in bands" :key="'band-' + b.field" class="col-band"
+          <div v-for="b in bands" :key="'band-' + b.key" class="col-band"
                :style="{ left: b.left + 'px', width: b.width + 'px', background: b.color + '22', borderColor: b.color }">
             <span class="col-band-label" :style="{ background: b.color }">{{ labelOf(b.field) }}</span>
           </div>
@@ -293,6 +324,7 @@ function onApply() {
 .mapper-steps { margin: 0 0 8px; padding-left: 20px; font-size: 12.5px; color: var(--text); line-height: 1.6; }
 .mapper-steps b { color: var(--primary); }
 .mapper-note { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; margin: 0 0 10px; }
+.mapper-warn { font-size: 12px; line-height: 1.6; color: #7f1d1d; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; }
 .mapper-note b { color: #92400e; }
 
 .assigned-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; min-height: 26px; }
