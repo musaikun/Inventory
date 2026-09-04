@@ -1,10 +1,9 @@
 /**
- * IMPORT-001 — 列指定インポートの画面間の受け渡し（配線）テスト。
+ * 列指定インポートの画面間の受け渡し（配線）テスト。
  *
- * CsvMapperModal と ItemImportPreviewModal がそれぞれ正しくても、
- * 画面をつなぐ SettingsModal が `hasHeader` を落とせば、
- * 「1行目からデータ」を選んだのに1行目の品目が消える。
- * ここは**実際の画面を通して**ヘッダ無しCSVを取り込み、config に何が入ったかを見る。
+ * ImportMapper と ItemImportPreviewModal がそれぞれ正しくても、画面をつなぐ
+ * SettingsModal が「表がどこから始まるか」を落とせば、選んだのに1行目の品目が消える。
+ * ここは**実際の画面を通して**取り込み、config に何が入ったかを見る。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
@@ -40,30 +39,46 @@ afterEach(() => {
 function button(label) {
   return [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
 }
-function radioInput(labelText) {
-  const label = [...host.querySelectorAll('label')].find(l => l.textContent.includes(labelText))
-  if (!label) throw new Error(`label not found: ${labelText}`)
-  return label.querySelector('input')
-}
-async function pick(labelText) {
-  const input = radioInput(labelText)
-  input.checked = true
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-  await nextTick()
-}
+const settle = async (n = 6) => { for (let i = 0; i < n; i++) await nextTick() }
 
-/**
- * マッピング画面で列を選ぶ。見出しが無いファイルでは列名から自動検出できないので、
- * 実際のユーザーと同じく select を操作して対応づける。
- */
-async function mapField(fieldLabel, colIndex) {
-  const row = [...host.querySelectorAll('.mapping-row')]
-    .find(r => r.querySelector('.mapping-field-name')?.textContent.trim() === fieldLabel)
-  if (!row) throw new Error(`mapping row not found: ${fieldLabel}`)
-  const select = row.querySelector('select')
-  select.value = String(colIndex)
-  select.dispatchEvent(new Event('change', { bubbles: true }))
-  await nextTick()
+/** いま出ている問い（無ければ空文字） */
+function questionText() { return host.querySelector('.imp-q')?.textContent.trim() ?? '' }
+
+/** 「見出しの行を選んでください」で、ファイルの ri 行目をタップする */
+async function tapHeaderRow(ri) {
+  const rows = [...host.querySelectorAll('.peek.headerRow .peek-row')]
+  if (!rows[ri]) throw new Error(`header row ${ri} not found`)
+  rows[ri].click()
+  await settle()
+}
+async function tapNoHeader() {
+  [...host.querySelectorAll('button')].find(b => b.textContent.includes('見出しの行はありません')).click()
+  await settle()
+}
+/** 「最初の品目名を選んでください」で (行, 列) のセルをタップする */
+async function tapCell(ri, ci) {
+  const row = [...host.querySelectorAll('.peek.firstItem .peek-row')][ri]
+  if (!row) throw new Error(`row ${ri} not found`)
+  row.querySelectorAll('.peek-c')[ci].click()
+  await settle()
+}
+/** マッピング面で列をタップして項目を割り当てる */
+async function mapColumn(ci, fieldLabel) {
+  const headCells = [...host.querySelectorAll('.peek.mapped .peek-head .peek-c')]
+  if (!headCells[ci]) throw new Error(`column ${ci} not found`)
+  headCells[ci].click()
+  await settle(2)
+  const chip = [...host.querySelectorAll('.fbar .fchip')].find(b => b.textContent.trim().startsWith(fieldLabel))
+  if (!chip) throw new Error(`field chip not found: ${fieldLabel}`)
+  chip.click()
+  await settle()
+}
+/** マッピング面の「取り込む」→ 確認画面の「取り込む」 */
+async function finishImport() {
+  host.querySelector('.imp-go').click()
+  await settle()
+  button('取り込む').click()
+  await settle()
 }
 
 /** 通常の取込入口（ドロップゾーン）へCSVを流し込む。確認画面まで進む */
@@ -92,94 +107,82 @@ async function openMapperWith(csvText, filename = 'items.csv') {
   for (let i = 0; i < 6; i++) await nextTick()
 }
 
-describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
-  it('1行目の扱いを選ぶまで実行できない', async () => {
+describe('列指定インポートを実UI経由で通す', () => {
+  it('問いに答えるまで取り込みへ進めない', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,120\nレタス,玉,80')
 
-    expect(radioInput('1行目は見出し').checked).toBe(false)
-    expect(radioInput('1行目からデータ').checked).toBe(false)
-    expect(button('このマッピングでインポート').disabled).toBe(true)
-
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    // 確認画面へ進んでいない ＝ 取り込む導線も出ない
-    expect(button('取り込む')).toBeUndefined()
+    // 最初の問いは常に同じ。ファイルの形で画面が変わらない
+    expect(questionText()).toContain('見出しの行を選んでください')
+    expect(host.querySelector('.imp-go')).toBeNull()
     expect(cfg.config.order).toEqual([])
   })
 
-  it('「1行目からデータ」を選ぶと1行目の品目が残る', async () => {
+  it('「見出しの行はありません」→ 最初の品目名を選ぶと1行目の品目が残る', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,120\nレタス,玉,80')
 
-    await pick('1行目からデータ')
-    await mapField('単位', 1)
-    await mapField('単価', 2)
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await tapNoHeader()
+    expect(questionText()).toContain('最初の品目名')
+    await tapCell(0, 0)          // 1行目・1列目の「トマト」
 
-    // 確認画面へ hasHeader が渡っている
-    expect(host.textContent).toContain('1行目からデータ')
-    button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await mapColumn(1, '単位')
+    await mapColumn(2, '単価')
+    await finishImport()
 
     expect(cfg.config.order).toEqual(['トマト', 'レタス'])
     expect(cfg.config.prices['トマト']).toBe(120)
     expect(cfg.config.units['トマト']).toBe('箱')
   })
 
-  it('「1行目は見出し」を選ぶと1行目は列名として扱われる', async () => {
+  it('見出しの行を選ぶと、その行は列名として扱われる', async () => {
     await mountSettings()
-    await openMapperWith('トマト,箱,120\nレタス,玉,80')
+    await openMapperWith('品名,単位,単価\nトマト,箱,120\nレタス,玉,80')
 
-    await pick('1行目は見出し')
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await tapHeaderRow(0)
+    await finishImport()
 
-    expect(host.textContent).toContain('1行目は見出し')
-    button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    expect(cfg.config.order).toEqual(['トマト', 'レタス'])
+    expect(cfg.config.prices['トマト']).toBe(120)   // 見出し名から自動で当たっている
+  })
 
-    expect(cfg.config.order).toEqual(['レタス'])
+  it('表がファイルの途中から始まっても、前置きを取り込まない', async () => {
+    await mountSettings()
+    await openMapperWith('株式会社 東西酒販\n発行日 2026/08/01\n品名,単位,単価\nトマト,箱,120')
+
+    // 空行が無いので、見出しは3行目（index 2）
+    await tapHeaderRow(2)
+    await finishImport()
+
+    expect(cfg.config.order).toEqual(['トマト'])
   })
 
   it('見出しらしいファイルでも、選ぶまでは推測で確定しない', async () => {
     await mountSettings()
-    await openMapperWith('品目名,単位,単価\nトマト,箱,120\nレタス,玉,80')
-
-    expect(radioInput('1行目は見出し').checked).toBe(false)
-    expect(button('このマッピングでインポート').disabled).toBe(true)
-
-    // 「1行目からデータ」を選ぶと、その行もデータとして解析へ渡る。
-    // ただし品目名が列の名前そのもの（「品目名」）なので、確認画面が
-    // 「品目ではない行」として外し、外したことと理由をその場に出す。
-    await pick('1行目からデータ')
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    expect(host.textContent).toContain('1行を品目ではないと判断して外しました')
-    expect(host.textContent).toContain('列の名前に見えます')
-
-    button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    expect(cfg.config.order).toEqual(['トマト', 'レタス'])
+    await openMapperWith('品名,単位,単価\nトマト,箱,120')
+    // 見当は出すが、選択値にはしない
+    expect(questionText()).toContain('見出しの行を選んでください')
+    expect(host.querySelector('.peek-row.guess')).not.toBeNull()
+    expect(cfg.config.order).toEqual([])
   })
 
   it('外した行は確認画面から戻せる（本当に「小計」という品目のため）', async () => {
     await mountSettings()
     await openMapperWith('小計,箱,120\nトマト,箱,120')
-    await pick('1行目からデータ')
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await tapNoHeader()
+    await tapCell(0, 0)
+    host.querySelector('.imp-go').click()
+    await settle()
 
     const back = [...host.querySelectorAll('label')]
       .find(l => l.textContent.includes('これらも品目として取り込む'))?.querySelector('input')
     expect(back, '戻すチェックボックス').toBeTruthy()
     back.checked = true
     back.dispatchEvent(new Event('change', { bubbles: true }))
-    for (let i = 0; i < 4; i++) await nextTick()
+    await settle()
 
     button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await settle()
     expect(cfg.config.order).toEqual(['小計', 'トマト'])
   })
 
@@ -187,12 +190,10 @@ describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
     await mountSettings()
     await openMapperWith('"5"" 皿",箱,120\r\n"トマト,大玉",ケース,300\r\n')
 
-    await pick('1行目からデータ')
-    await mapField('単価', 2)
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await tapNoHeader()
+    await tapCell(0, 0)
+    await mapColumn(2, '単価')
+    await finishImport()
 
     expect(cfg.config.order).toEqual(['5" 皿', 'トマト,大玉'])
     expect(cfg.config.prices['トマト,大玉']).toBe(300)
@@ -210,17 +211,15 @@ describe('フォーマット不明のファイルから列指定インポート�
     expect(host.textContent).toContain('列を指定して取り込んでください')
 
     button('列を指定して取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await settle()
 
     // マッピング画面が同じ内容で開く（ファイルを選び直させない）
-    expect(host.textContent).toContain('1行目からデータ')
-    await pick('1行目からデータ')
-    await mapField('単位', 1)
-    await mapField('単価', 2)
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    button('取り込む').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    expect(questionText()).toContain('見出しの行を選んでください')
+    await tapNoHeader()
+    await tapCell(0, 0)
+    await mapColumn(1, '単位')
+    await mapColumn(2, '単価')
+    await finishImport()
 
     expect(cfg.config.order).toEqual(['トマト', 'レタス'])
     expect(cfg.config.prices['トマト']).toBe(120)
@@ -229,16 +228,16 @@ describe('フォーマット不明のファイルから列指定インポート�
   it('列指定の結果が空でも、指定をやり直せる', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,\nレタス,玉,')
-    await pick('1行目からデータ')
-    await mapField('品目名', 2)   // 空の列を品目名に当てる＝有効な品目が1件も無い
-    button('このマッピングでインポート').click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    await tapNoHeader()
+    await tapCell(0, 2)          // 空の列を品目名に当てる＝有効な品目が1件も無い
+    host.querySelector('.imp-go').click()
+    await settle()
 
     const retry = button('列の指定をやり直す')
     expect(retry).not.toBeUndefined()
     retry.click()
-    for (let i = 0; i < 4; i++) await nextTick()
-    expect(button('このマッピングでインポート')).not.toBeUndefined()
+    await settle()
+    expect(questionText()).toContain('見出しの行を選んでください')
     expect(cfg.config.order).toEqual([])
   })
 })

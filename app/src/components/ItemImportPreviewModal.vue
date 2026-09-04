@@ -26,6 +26,12 @@ const props = defineProps({
   // 列指定取込で「1行目は見出し／データ」のどちらを選んだか。
   // マッピング画面 → 確認画面 → 確定処理まで同じ値を運ぶ（画面の説明と結果を一致させる）。
   hasHeader: { type: Boolean, default: true },
+  // 表がファイルの途中から始まるファイル用。hasHeader より優先する。
+  headerRow:   { type: Number, default: null },
+  headerNamed: { type: Boolean, default: null },
+  // 取込のあと「この読み方を保存」でレシピにする材料（列指定経路から渡る）
+  recipeShape:   { type: Object, default: null },
+  matchedRecipe: { type: Object, default: null },
 })
 const emit = defineEmits(['imported', 'close', 'mapColumns'])
 
@@ -72,7 +78,12 @@ const preview = computed(() => {
       splitByCode: splitByCode.value,
     }
     const plan = isMapped.value
-      ? planMappedImport(props.csvText, props.mapping, { ...opts, hasHeader: props.hasHeader })
+      ? planMappedImport(props.csvText, props.mapping, {
+          ...opts,
+          hasHeader: props.hasHeader,
+          ...(props.headerRow   !== null ? { headerRow: props.headerRow } : {}),
+          ...(props.headerNamed !== null ? { headerNamed: props.headerNamed } : {}),
+        })
       : planCSVImport(props.csvText, opts)
     return {
       plan, error: '', errorCode: '', rowErrors: [], skippedRows: [],

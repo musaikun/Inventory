@@ -337,15 +337,26 @@ export function parseItemCSV(csvText, { keepMeta = false, splitByCode = false } 
  * @param {object} [opts]
  * @param {boolean} [opts.hasHeader=true] false なら1行目もデータ行として扱う（ヘッダ無しファイル）
  */
-export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMeta = false, splitByCode = false } = {}) {
+export function parseMappedCSV(csvText, mapping = {}, opts = {}) {
   const nameCol = mapping.name
   if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
 
+  const { hasHeader = true, keepMeta = false, splitByCode = false } = opts
+  // 表がファイルの1行目から始まるとは限らない。実物の帳票は社名・発行日・空行が
+  // 上に乗っていて、見出しは5行目だったりする。`hasHeader` の2択では
+  // 「1行目が見出し」か「1行目からデータ」しか言えず、前置きのあるファイルは
+  // どちらを選んでも先頭の数行がゴミとして混ざる。
+  //   headerRow   … データが始まる直前の行（0始まり）。-1 = 1行目からデータ
+  //   headerNamed … その行を列名として使うか（使わないなら前置きとして捨てるだけ）
+  const headerRow   = opts.headerRow   ?? (hasHeader ? 0 : -1)
+  const headerNamed = opts.headerNamed ?? hasHeader
+
   const { rows: records, error } = tokenizeCSV(csvText)
   if (error) throw Object.assign(new Error(error.message), { code: error.code, line: error.line })
-  if (records.length < (hasHeader ? 2 : 1)) throw new Error('データ行がありません')
+  if (records.length <= headerRow + 1) throw new Error('データ行がありません')
 
-  const headers = hasHeader ? records[0].cols.map(h => h.trim()) : []
+  const named   = headerNamed && headerRow >= 0
+  const headers = named ? records[headerRow].cols.map(h => h.trim()) : []
   const parsed  = _emptyParsed()
   parsed.headers     = headers
   parsed.axisHeaders = [
@@ -359,10 +370,10 @@ export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMe
   }
 
   _collectRows({
-    records: hasHeader ? records.slice(1) : records,
+    records: records.slice(headerRow + 1),
     parsed, spec, keepMeta, splitByCode,
-    // ヘッダ無しでは列数の基準が無いので、列数不一致の判定はしない
-    headers: hasHeader ? headers : [],
+    // 見出し名が無いときは列数の基準も無いので、列数不一致の判定はしない
+    headers,
   })
 
   if (parsed.rows.length === 0) throw _noValidRowsError(parsed)

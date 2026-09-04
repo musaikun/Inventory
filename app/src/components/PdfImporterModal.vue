@@ -29,7 +29,7 @@ const excelFile   = ref(null)   // 列指定インポートへ引き渡すため
 const mapperOpen  = ref(false)
 
 // Excel は自動解析だけに頼らない。業者フォーマットにも自作テンプレートにも当たらない
-// ファイルは「読めません」で行き止まりになるため、列指定インポート（CsvMapperModal）へ
+// ファイルは「読めません」で行き止まりになるため、列指定インポート（ImportMapper）へ
 // そのまま渡せるようにする。変換は呼び出し側（SettingsModal）が行う。
 function useColumnMapper() {
   if (!excelFile.value) return

@@ -95,6 +95,41 @@ describe('数値セル — 黙って別の値にしない', () => {
   })
 })
 
+describe('表がファイルの途中から始まるファイル', () => {
+  // 実物の帳票は社名・発行日・空行が上に乗っていて、見出しは数行目にある。
+  // `hasHeader` の2択では「1行目が見出し」か「1行目からデータ」しか言えず、
+  // どちらを選んでも前置きがゴミとして混ざっていた。
+  const PRE = ['株式会社 東西酒販', '発行日 2026/08/01', '', '品名,単位,単価',
+               '豚バラ,kg,1200', '鶏もも,kg,980'].join('\n')
+  const MAP = { name: 0, unit: 1, price: 2 }
+
+  it('見出しの行を指定すると、その上の前置きは丸ごと無視される', () => {
+    // 空行は records から落ちるので、見出しは3件目（index 2）
+    const p = parseMappedCSV(PRE, MAP, { headerRow: 2, headerNamed: true })
+    expect(p.rows.map(r => `${r.name}:${r.price}`)).toEqual(['豚バラ:1200', '鶏もも:980'])
+    expect(p.rows.map(r => r.line)).toEqual([5, 6])   // 行番号はファイルのまま
+    expect(p.headers).toEqual(['品名', '単位', '単価'])
+  })
+
+  it('その行を見出しとして使わない指定もできる（前置きを捨てるだけ）', () => {
+    const p = parseMappedCSV(PRE, MAP, { headerRow: 2, headerNamed: false })
+    expect(p.rows.map(r => r.name)).toEqual(['豚バラ', '鶏もも'])
+    expect(p.headers).toEqual([])
+  })
+
+  it('従来の hasHeader は同じ意味のまま動く', () => {
+    const withHead = parseMappedCSV('品名,単位,単価\n豚バラ,kg,1200', MAP, { hasHeader: true })
+    expect(withHead.rows.map(r => r.name)).toEqual(['豚バラ'])
+    const noHead = parseMappedCSV('豚バラ,kg,1200', MAP, { hasHeader: false })
+    expect(noHead.rows.map(r => r.name)).toEqual(['豚バラ'])
+  })
+
+  it('指定した行より下にデータが無ければ、今までどおり弾く', () => {
+    expect(() => parseMappedCSV(PRE, MAP, { headerRow: 4, headerNamed: true }))
+      .toThrow(/データ行がありません/)
+  })
+})
+
 describe('同じ名前・違う商品コード', () => {
   // 実物（PRONTO 棚卸記入表）は品目名を印字幅で切り詰めるため、サイズ違いの別商品が
   // 同じ名前になる。名前だけの重複判定で 22件が「ファイル内の重複」として黙って落ちていた。

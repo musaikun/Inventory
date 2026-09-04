@@ -954,9 +954,15 @@ export function useConfig() {
   }
 
   /** loadFromCSVMapped の取込計画（config は変更しない） */
-  function planMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader, keepMeta = false, splitByCode = false } = {}) {
-    const parsed = parseMappedCSV(csvText, mapping,
-      hasHeader === undefined ? { keepMeta, splitByCode } : { hasHeader, keepMeta, splitByCode })
+  function planMappedImport(csvText, mapping, opts = {}) {
+    const { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader, headerRow, headerNamed,
+            keepMeta = false, splitByCode = false } = opts
+    const parsed = parseMappedCSV(csvText, mapping, {
+      keepMeta, splitByCode,
+      ...(hasHeader   !== undefined ? { hasHeader }   : {}),
+      ...(headerRow   !== undefined ? { headerRow }   : {}),
+      ...(headerNamed !== undefined ? { headerNamed } : {}),
+    })
     return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy))
   }
 
