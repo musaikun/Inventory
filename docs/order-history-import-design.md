@@ -29,7 +29,7 @@
 |---|---|---|
 | PDFレシピ（複数保存・指紋で自動判定） | `composables/pdfProfiles.js`（`matchProfile`/`saveProfile`）＋ `components/PdfColumnMapper.vue` | ✅ |
 | PDF表パーサ（汎用・座標） | `utils/pdfTableParser.js`（旧 `usePdfImporter` の単一レイアウトを一般化） | ✅ |
-| CSV列マッピング取込 | `composables/useConfig.js`（`loadFromCSVMapped`）＋ `components/CsvMapperModal.vue` | ✅ |
+| CSV列マッピング取込 | `composables/useConfig.js`（`loadFromCSVMapped`）＋ `components/ImportMapper.vue` | ✅ |
 | 名寄せ（入力→品目候補） | `utils/itemMatcher.js`（`findCandidates`）＋辞書3層（`dictionary`/`learnedAliases`/`masterDict`） | ✅ |
 | 入庫＝納品（フロー記録） | `composables/useMovements.js`（`type:'in'`）＋ migration `0010_movements` | ✅ |
 | 発注→入庫ワンタップ取込 | `useMovements.deliveryLinesFromOrder` / `unreflectedOrders` | ✅ |
@@ -103,7 +103,7 @@
 
 ```
 [業者PDF] ─pdfProfiles(レシピ)＋pdfTableParser─┐
-[業者Excel/CSV]─CsvMapperModal─────────────────┤→ 中間フォーマット → [名寄せ:itemMatcher] → [ステージング] → movements(in)/orders
+[業者Excel/CSV]─ImportMapper──────────────────┤→ 中間フォーマット → [名寄せ:itemMatcher] → [ステージング] → movements(in)/orders
 [自己CSV(中間形式)]─そのまま───────────────────┤                                          （§6 冪等）
 [写真]  ─OCR(後段・保留)────────────────────────┤
 [LLM抽出]─opt-in(§7)───────────────────────────┘
@@ -221,7 +221,7 @@
 2. 中間フォーマットCSVの列確定（`種別` 列の要否、単位・入数の表現、複数仕入先の1ファイル同居）。
 3. 消費逆算の遡及には過去棚卸が要る（§3）。過去棚卸の入力を取込フローに組み込むか、別導線のままにするか。
 4. `orderSchedule` 拡張の後方互換（既存 `days/deadline` を保ちつつ納品側フィールドを追加する移行）。
-5. ステージングUIの置き場所（既存 `PdfImporterModal` / `CsvMapperModal` の拡張か、新規取込ページか）。
+5. ステージングUIの置き場所（既存 `PdfImporterModal` / `ImportMapper` の拡張か、新規取込ページか）。
 6. D1 バルクIngestのAPI形と冪等キー（`importBatchId` をサーバ側でも一意制約にするか）。
 7. LLM抽出を将来入れる場合のプライバシー設計（自前Worker・マスキング・同意UX）。
 

@@ -26,11 +26,16 @@ app/src/
     useConfig.js            # 品目リスト・辞書・CSV取込
     useAuth.js              # 認証・セッションAPI
     useStore.js             # 店舗コード・D1連携
+    importRecipes.js        # 取込レシピ（読み方の保存・自動適用／CSV・Excel・PDF共通）
   components/
     SyncModal.vue           # ルーム管理・変更履歴タブ
     ConfirmModal.vue        # 数量入力確認
     ChatModal.vue           # チャット
-  utils/storageKeys.js      # localStorageキー一元管理
+    ImportMapper.vue        # 列指定（問いを1つずつ→元データの上に色で対応を書く）
+    ImportBuildPreview.vue  # 組み上がる棚卸カードの全画面プレビュー
+  utils/
+    storageKeys.js          # localStorageキー一元管理
+    importText.js           # 取込の文字の読み方（見出しの正規化・品目でない行の判定）
 worker/src/
   index.js                  # Cloudflare Worker ルーター
   RoomDO.js                 # Durable Object（WS・在庫・auditLog）
