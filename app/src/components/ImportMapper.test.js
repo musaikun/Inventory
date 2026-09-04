@@ -29,6 +29,10 @@ async function mount(csvText, filename = 'shiire.csv') {
 const settle = async (n = 6) => { for (let i = 0; i < n; i++) await nextTick() }
 const qText = () => host.querySelector('.imp-q')?.textContent.trim() ?? ''
 const btn = (t) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(t))
+// 実機と同じく**セルを押す**（行の余白ではなく）。セルは行を覆っているので、
+// ここで止まると行のタップが届かない
+const tapHeadRow = (ri) =>
+  host.querySelectorAll('.peek.headerRow .peek-row')[ri].querySelectorAll('.peek-c')[0].click()
 
 beforeEach(() => localStorage.clear())
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
@@ -46,7 +50,7 @@ describe('問いは順番が固定されている', () => {
 
   it('見出しの行を選ぶと、半角カナの見出しからでも列が当たってマッピング面へ進む', async () => {
     await mount(HEADED)
-    host.querySelectorAll('.peek.headerRow .peek-row')[0].click()
+    tapHeadRow(0)
     await settle()
     expect(host.querySelector('.imp-q')).toBeNull()          // 問いは終わっている
     const labels = [...host.querySelectorAll('.peek-head .mc-f')].map(e => e.textContent.trim())
@@ -68,7 +72,7 @@ describe('問いは順番が固定されている', () => {
 
   it('見出しの選び直しができる', async () => {
     await mount(HEADED)
-    host.querySelectorAll('.peek.headerRow .peek-row')[0].click()
+    tapHeadRow(0)
     await settle()
     btn('変える').click()
     await settle()
@@ -96,7 +100,7 @@ describe('マッピング面', () => {
 
   it('取り込むと、読み方をレシピにできる形で渡す', async () => {
     await mount(HEADED)
-    host.querySelectorAll('.peek.headerRow .peek-row')[0].click()
+    tapHeadRow(0)
     await settle()
     host.querySelector('.imp-go').click()
     await settle()

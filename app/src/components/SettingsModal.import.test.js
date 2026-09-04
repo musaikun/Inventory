@@ -48,7 +48,8 @@ function questionText() { return host.querySelector('.imp-q')?.textContent.trim(
 async function tapHeaderRow(ri) {
   const rows = [...host.querySelectorAll('.peek.headerRow .peek-row')]
   if (!rows[ri]) throw new Error(`header row ${ri} not found`)
-  rows[ri].click()
+  // 実機と同じくセルを押す。セルは行を覆っているので、ここで止まると行に届かない
+  rows[ri].querySelectorAll('.peek-c')[0].click()
   await settle()
 }
 async function tapNoHeader() {

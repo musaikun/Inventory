@@ -158,6 +158,18 @@ function chooseFirstItem(rowIdx, colIdx) {
   manual.name = true
   openBuild()
 }
+/**
+ * 問いの面でセルを押したとき。
+ * 「見出しの行」を訊いているあいだは**セルでは何もしない** ── 行そのものが答えなので、
+ * ここで stopPropagation すると行のタップが届かなくなる（セルは行を覆っている）。
+ */
+function onPeekCell(ri, ci, ev) {
+  const q = question.value
+  if (!q || q.kind === 'headerRow') return
+  ev.stopPropagation()
+  if (q.kind === 'firstItem') chooseFirstItem(ri, ci)
+  else assign(q.field.key, ci)
+}
 function backToHeaderRow() {
   headerRow.value = null
   headerNamed.value = false
@@ -304,9 +316,7 @@ tryRecipe()
               <span class="peek-cells">
                 <span v-for="ci in colCount" :key="ci" class="peek-c"
                       :class="{ pick: question.kind !== 'headerRow' }"
-                      @click.stop="question.kind === 'firstItem'
-                        ? chooseFirstItem(ri, ci - 1)
-                        : question.kind === 'field' ? assign(question.field.key, ci - 1) : null">
+                      @click="onPeekCell(ri, ci - 1, $event)">
                   {{ cellText(r.cols, ci - 1) || '　' }}
                 </span>
               </span>
