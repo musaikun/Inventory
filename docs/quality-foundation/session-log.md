@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-04 — UI-003 循環ホイール・面積遷移・並べ替え補間
+
+- `develop@e704b5f`上の既存worktree差分から再開し、UI-003の実装とテストを照合。既存差分は保持した。
+- 分類先を仮想slotの剰余写像にし、先頭・末尾を両方向へ循環。複数周回後も中央表示と品目の保存先が一致する回帰testを追加した。
+- ホイール高さ・カード開閉・操作レール・補助表示を420msに同期。reduced motionでは即時反映。回転中の一覧操作は中央へsnapし、Pointer Captureのclick retargetもdown時slotで復元する。
+- 分類先管理はドラッグ中のDOM順とFLIP補間を分類データから分け、pointerup時に1回保存。上下移動、連続反転、pointer中断、キーボード操作を回帰化した。
+- 検証: 対象4 files / 62 passed。最新`origin/develop`統合後もApp全体142 files / 1588 passed、production build成功（491 modules、PWA 17 entries / 2695.34 KiB）、`git diff --check`指摘なし。既知のVite CJS・chunk size warningのみ。
+- 検証環境補足: forks worker起動timeoutと単一threads workerの停滞があり、後者は中断。並列threadsのApp全体で全件成功した。
+- Browserが接続されておらず実機目視は未実施。タスクは`レビュー待ち / User`とし、手動台本U-1〜U-8へ引き継いだ。
+- 他セッションの取込機能更新を含む最新`origin/develop`へrebase。UI code / testは非競合で、重複した`docs/proposals.md`も双方の記録を保持した。
+- API / DB / 認可 / 保存形式 / Workerは無変更。UI-003はcommit / pushを実施し、deployとversion変更は行っていない。
+
 ## 2026-09-01 — 招待リンクが別ブラウザで死ぬ問題と、ゲストの非表示申請
 
 User報告2件。どちらも実機での使用中に出たもの。
