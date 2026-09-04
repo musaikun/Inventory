@@ -25,7 +25,9 @@ describe('useConfig インポート時の同名品目の統合', () => {
     expect(r.merged).toBe(1)
   })
 
-  it('loadFromCSV: カテゴリ付き形式でも同名は統合（括弧付与しない）', () => {
+  it('loadFromCSV: 同名はまとめたまま、括弧を勝手に付けない', () => {
+    // コードが違うので「別の商品かもしれない」行として数える（既定では名前を変えない）。
+    // 品目名に括弧を足すのは、確認画面で明示的に選んだときだけ。
     const csv = '品目名,単位,単価,カテゴリ,エイリアス,商品コード\n'
       + 'トマト,個,100,野菜,,A1\n'
       + 'トマト,個,120,乾物,,B2'
@@ -33,7 +35,8 @@ describe('useConfig インポート時の同名品目の統合', () => {
     expect(cfg.config.order).toEqual(['トマト'])
     expect(cfg.config.categories['トマト']).toBe('野菜')
     expect(cfg.config.prices['トマト']).toBe(100)
-    expect(r.merged).toBe(1)
+    expect(r.merged).toBe(0)
+    expect(r.codeCollisions).toBe(1)
   })
 
   it('loadFromCSVMapped: 品目名が完全一致する行は1件に統合される', () => {

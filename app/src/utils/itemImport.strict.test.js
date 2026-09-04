@@ -95,6 +95,51 @@ describe('数値セル — 黙って別の値にしない', () => {
   })
 })
 
+describe('同じ名前・違う商品コード', () => {
+  // 実物（PRONTO 棚卸記入表）は品目名を印字幅で切り詰めるため、サイズ違いの別商品が
+  // 同じ名前になる。名前だけの重複判定で 22件が「ファイル内の重複」として黙って落ちていた。
+  // コードが全員違う＝確実に別商品で、棚卸でサイズ違いを1件に潰すと在庫数が合わなくなる。
+  const CODE_HEAD = '品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数'
+  const SIZES = `${CODE_HEAD}
+サラダ用カップ,個,20,資材,,12687,,,
+サラダ用カップ,個,22,資材,,12688,,,
+サラダ用カップ,個,24,資材,,12689,,,
+キャベツ,個,180,野菜,,900,,,
+キャベツ,個,180,野菜,,900,,,`
+
+  it('「重複」に混ぜず、専用の理由で必ず見せる', () => {
+    const p = parseItemCSV(SIZES)
+    expect(p.rows.map(r => r.name)).toEqual(['サラダ用カップ', 'キャベツ'])
+    expect(p.codeCollisions.map(c => [c.line, c.code])).toEqual([[3, '12688'], [4, '12689']])
+    expect(p.codeCollisions[0].reason).toContain('別の商品')
+    // 同じ名前・同じコードは、今までどおりただの重複
+    expect(p.skipped.map(sk => sk.line)).toEqual([6])
+    expect(p.duplicates).toBe(1)
+  })
+
+  it('splitByCode でコードを名前に付けて全部登録できる', () => {
+    const p = parseItemCSV(SIZES, { splitByCode: true })
+    expect(p.rows.map(r => r.name)).toEqual([
+      'サラダ用カップ（12687）', 'サラダ用カップ（12688）', 'サラダ用カップ（12689）', 'キャベツ',
+    ])
+    expect(p.codeCollisions).toEqual([])
+    expect(p.rows[0].code).toBe('12687')      // コードそのものは列の値のまま
+    // 同名・同コードの重複はコードを付けても1件のまま（別商品ではない）
+    expect(p.duplicates).toBe(1)
+  })
+
+  it('コード列が無いファイルでは今までどおりの重複判定', () => {
+    const p = parseItemCSV(`${HEAD}\nトマト,箱,120,野菜,\nトマト,玉,130,野菜,`)
+    expect(p.rows.map(r => r.name)).toEqual(['トマト'])
+    expect(p.codeCollisions).toEqual([])
+    expect(p.duplicates).toBe(1)
+  })
+
+  it('summaryCounts に同名・別コードの件数が出る', () => {
+    expect(summaryCounts(plan(SIZES).summary)).toMatchObject({ added: 2, codeCollisions: 2 })
+  })
+})
+
 describe('品目ではない行（小計・区分見出し）', () => {
   // 業者の請求明細をそのまま入れると、「小計」が単価つきの品目として登録され、
   // 品目リスト・棚卸カード・発注点に残って手で消すことになる。

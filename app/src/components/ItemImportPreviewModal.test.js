@@ -83,6 +83,25 @@ describe('件数と明細の表示', () => {
     expect(text()).toContain('2行目')
   })
 
+  it('同名・別コードは「重複」に混ぜず、コードで分けて登録できる', async () => {
+    const head = '品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数'
+    const csv = `${head}\nサラダ用カップ,個,20,資材,,12687,,,\nサラダ用カップ,個,22,資材,,12688,,,`
+    const { text } = await mount({ csvText: csv })
+    expect(text()).toContain('1行が同じ名前・違う商品コードでした')
+    expect(text()).toContain('12688')
+
+    const box = [...host.querySelectorAll('label')]
+      .find(l => l.textContent.includes('コードを名前に付けて'))?.querySelector('input')
+    expect(box, 'コードで分ける選択').toBeTruthy()
+    expect(host.querySelector('.count-cell.add .count-num').textContent).toBe('1')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
+    expect(text()).toContain('コードを付けて別々に登録します')
+    expect(host.querySelector('.count-cell.add .count-num').textContent).toBe('2')
+  })
+
   it('読めなかった欄は、行を捨てずに件数と理由で知らせる', async () => {
     // 2026-09-02 の判断で「読めない＝行ごと除外」をやめた。捨てない代わりに、
     // 何をどう扱ったかを必ず画面に出す（黙って残すと、直したはずの値が

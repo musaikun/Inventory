@@ -52,6 +52,9 @@ const showErrors       = ref(true)  // エラーは既定で開く（黙って�
 // 小計・区分見出しらしい行を品目として取り込むか。既定は外す（黙って足さない）。
 // 本当に「小計」という名前の品目がある店のために、ここから戻せる（黙って捨てもしない）。
 const keepMeta         = ref(false)
+// 同名・別コードの行を、名前にコードを付けて別々に登録するか。
+// 帳票が品目名を印字幅で切り詰めるせいで、サイズ違いの別商品が同じ名前になる。
+const splitByCode      = ref(false)
 
 const isMapped  = computed(() => props.origin === 'mapped')
 const isReplace = computed(() => mode.value === IMPORT_MODE_REPLACE)
@@ -66,17 +69,21 @@ const preview = computed(() => {
       mode: mode.value,
       aliasPolicy: aliasPolicy.value ?? ALIAS_KEEP_EXISTING,
       keepMeta: keepMeta.value,
+      splitByCode: splitByCode.value,
     }
     const plan = isMapped.value
       ? planMappedImport(props.csvText, props.mapping, { ...opts, hasHeader: props.hasHeader })
       : planCSVImport(props.csvText, opts)
-    return { plan, error: '', errorCode: '', rowErrors: [], skippedRows: [], unreadable: [], metaRows: [] }
+    return {
+      plan, error: '', errorCode: '', rowErrors: [], skippedRows: [],
+      unreadable: [], metaRows: [], codeCollisions: [],
+    }
   } catch (err) {
     // 1行も取り込めない場合も、行番号・列・理由は出す（何が悪かったのか消さない）
     return {
       plan: null, error: err.message, errorCode: err.code ?? '',
       rowErrors: err.errors ?? [], skippedRows: err.skipped ?? [], unreadable: err.unreadable ?? [],
-      metaRows: err.metaRows ?? [],
+      metaRows: err.metaRows ?? [], codeCollisions: err.codeCollisions ?? [],
     }
   }
 })
@@ -132,6 +139,8 @@ const unreadableSample = computed(() => cap(unreadable.value))
 const columnMismatch  = computed(() => summary.value?.columnMismatch ?? [])
 const metaRows        = computed(() => summary.value?.metaRows ?? preview.value.metaRows ?? [])
 const metaSample      = computed(() => cap(metaRows.value))
+const codeCollisions  = computed(() => summary.value?.codeCollisions ?? preview.value.codeCollisions ?? [])
+const collisionSample = computed(() => cap(codeCollisions.value))
 const truncatedNames  = computed(() => summary.value?.truncatedNames ?? [])
 const categoryCodeChanges = computed(() => cap(summary.value?.categoryCodeChanges))
 const axisNameChanges = computed(() => summary.value?.axisNameChanges ?? [])
@@ -282,6 +291,31 @@ function onConfirm() {
           <label class="alias-opt">
             <input type="radio" :value="ALIAS_TAKEOVER" v-model="aliasPolicy" />
             ファイルの指定を優先する（別名をあとの行の品目へ付け替える）
+          </label>
+        </div>
+
+        <!-- 同名・別コード。「重複」に混ぜると、別商品が消えたことに気づけない -->
+        <div v-if="codeCollisions.length || splitByCode" class="warn unread-warn">
+          <p class="warn-title">
+            {{ splitByCode
+               ? '同じ名前・違うコードの品目に、コードを付けて別々に登録します'
+               : `${codeCollisions.length}行が同じ名前・違う商品コードでした` }}
+          </p>
+          <p class="warn-body">
+            帳票が品目名を途中で切って印字していると、サイズ違いの別商品が同じ名前になります。
+            コードが違うので別の商品の可能性が高く、1件にまとめると棚卸の数が合わなくなります。
+          </p>
+          <ul v-if="!splitByCode" class="name-list">
+            <li v-for="(c, i) in collisionSample" :key="i">
+              {{ c.line }}行目: {{ c.name }}（コード {{ c.code }}）
+            </li>
+            <li v-if="codeCollisions.length > collisionSample.length" class="more">
+              ほか{{ codeCollisions.length - collisionSample.length }}行
+            </li>
+          </ul>
+          <label class="meta-opt">
+            <input type="checkbox" v-model="splitByCode" />
+            コードを名前に付けて、別々の品目として登録する
           </label>
         </div>
 

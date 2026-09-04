@@ -59,6 +59,9 @@ function _importResultStatus(result) {
   parts.push(`追加${result.added}件・更新${result.updated}件`)
   if (result.unchanged  > 0) parts.push(`変更なし${result.unchanged}件`)
   if (result.merged     > 0) parts.push(`ファイル内の重複${result.merged}行を統合`)
+  // 同名・別コードは「重複」と言い切れない。別商品が入らなかった可能性として別に出す。
+  if (result.codeCollisions > 0) parts.push(`同名・別コード${result.codeCollisions}行は未取込`)
+  if (result.metaRows   > 0) parts.push(`小計・見出しらしい${result.metaRows}行を除外`)
   if (result.skipped    > 0) parts.push(`${result.skipped}行を除外`)
   // 読めなかった欄は行ごと捨てずに残している。黙って残すと、直したつもりの値が
   // 変わっていない理由が分からなくなるので、取込後の1行にも必ず出す。

@@ -352,6 +352,7 @@ function _importResult(plan) {
     merged:       s.duplicates,         // ファイル内の同名重複行
     unreadable:   (s.unreadable ?? []).length,      // 読めなくて、その欄だけ変えなかった数
     metaRows:     (s.metaRows ?? []).length,        // 品目に見えないので外した行（小計・区分見出し）
+    codeCollisions: (s.codeCollisions ?? []).length, // 同名・別コードで入らなかった行
 
     restoredTags: plan.restoredTags,
   }
@@ -397,8 +398,8 @@ export function useConfig() {
    * 画面はこの計画をプレビューへ出し、**同じ計画オブジェクト**を applyImportPlan へ渡す。
    * プレビューと取込で解析・計画を2回作らないので、両者がずれる余地が無い。
    */
-  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy, keepMeta = false } = {}) {
-    return buildImportPlan(parseItemCSV(csvText, { keepMeta }), config, _planOptions(mode, aliasPolicy))
+  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy, keepMeta = false, splitByCode = false } = {}) {
+    return buildImportPlan(parseItemCSV(csvText, { keepMeta, splitByCode }), config, _planOptions(mode, aliasPolicy))
   }
 
   /** loadFromCSV の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
@@ -953,9 +954,9 @@ export function useConfig() {
   }
 
   /** loadFromCSVMapped の取込計画（config は変更しない） */
-  function planMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader, keepMeta = false } = {}) {
+  function planMappedImport(csvText, mapping, { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader, keepMeta = false, splitByCode = false } = {}) {
     const parsed = parseMappedCSV(csvText, mapping,
-      hasHeader === undefined ? { keepMeta } : { hasHeader, keepMeta })
+      hasHeader === undefined ? { keepMeta, splitByCode } : { hasHeader, keepMeta, splitByCode })
     return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy))
   }
 

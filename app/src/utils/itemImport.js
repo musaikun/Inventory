@@ -43,12 +43,14 @@ function _noValidRowsError(parsed) {
     skipped:    parsed.skipped,
     unreadable: parsed.unreadable,
     metaRows:   parsed.metaRows,
+    codeCollisions: parsed.codeCollisions,
   })
 }
 
 // スキップ理由（UI と テストで文字列を共有する）
 export const SKIP_NO_NAME   = '品目名が空'
 export const SKIP_DUPLICATE = 'ファイル内の重複（先に出てきた行を採用）'
+export const SKIP_SAME_NAME_OTHER_CODE = '同じ名前・違う商品コード（別の商品かもしれません）'
 
 // 差分表示の対象フィールド（label は画面表示、map は config のマップ名）
 export const DIFF_FIELDS = [
@@ -96,6 +98,8 @@ function _emptyParsed() {
     unreadable: [], columnMismatch: [],
     // 品目に見えない行（小計・合計・【野菜】等）。既定で外し、理由つきで返して戻せるようにする
     metaRows: [],
+    // 同じ名前だが商品コードが違う行。「重複」として黙って消してはいけないもの
+    codeCollisions: [],
     duplicates: 0, hasReorderColumn: false, headers: [], axisHeaders: [null, null],
   }
 }
@@ -163,16 +167,41 @@ function _buildRow({ line, cols, spec, headers }) {
 }
 
 /**
+ * 同じ品目名に、違う商品コードが振られている組を先に洗い出す。
+ *
+ * 帳票が品目名を印字幅で切り詰めるため、サイズ違いの別商品が同じ名前になる
+ * （実物では `ｷｯｻｶﾊﾞTｼｬﾂ` にコード 85279/85280/85281/85282 の4商品）。
+ * 名前だけで重複判定すると、棚卸でサイズ違いが1件に潰れて在庫数が合わなくなる。
+ * コードが全員違う＝確実に別商品なので、ここは「重複」と別の扱いにする。
+ */
+function _codeCollisions(records, spec) {
+  if (spec.code === undefined) return new Set()
+  const byName = new Map()
+  for (const { cols } of records) {
+    const n = _cellAt(cols, spec.name)
+    const c = _cellAt(cols, spec.code)
+    if (!n || !c) continue
+    if (!byName.has(n)) byName.set(n, new Set())
+    byName.get(n).add(c)
+  }
+  const out = new Set()
+  for (const [n, codes] of byName) if (codes.size > 1) out.add(n)
+  return out
+}
+
+/**
  * 行を1本のパイプラインで詰める。ヘッダ解釈以外は推奨形式も列指定も同じ扱いにする。
  *
+ * @param {boolean} [splitByCode=false] 同名・別コードの行を、名前にコードを付けて別々に登録するか。
  * @param {boolean} [keepMeta=false] 小計・区分見出しらしい行も品目として取り込むか。
  *   既定で外すのは、業者の請求明細をそのまま入れると「小計」が単価つきの品目として
  *   登録され、品目リスト・棚卸カード・発注点に残るため（`pdfTableParser` は元から
  *   外していたのに、CSV経路にだけ同じ仕組みが無かった）。
  *   本当に「小計」という名前の品目がある店のために、外した行は理由つきで返して戻せるようにする。
  */
-function _collectRows({ records, parsed, spec, headers, keepMeta = false }) {
+function _collectRows({ records, parsed, spec, headers, keepMeta = false, splitByCode = false }) {
   const seen = new Set()
+  const collide = _codeCollisions(records, spec)
 
   for (const { line, cols } of records) {
     // 列数がヘッダと違う行も捨てない。**読めた列だけ使う**。
@@ -200,9 +229,22 @@ function _collectRows({ records, parsed, spec, headers, keepMeta = false }) {
       parsed.truncatedNames.push({ line, before: rawName, after: name })
     }
 
+    // 同名・別コードの行は、コードを付けた別の名前で登録できる。
+    // 既定は付けない（品目名を勝手に変えない）が、そのぶん後の行が落ちるので、
+    // 「重複」ではなく専用の理由で必ず見せる。
+    const code = spec.code === undefined ? undefined : _cellAt(cols, spec.code)
+    const collided = collide.has(name) && !!code
+    if (collided && splitByCode) {
+      const withCode = `${name}（${code}）`
+      name = withCode.length > ITEM_NAME_MAX ? withCode.slice(0, ITEM_NAME_MAX) : withCode
+    }
+
     if (seen.has(name)) {
-      parsed.duplicates++
-      parsed.skipped.push({ line, name, reason: SKIP_DUPLICATE })
+      if (collided) parsed.codeCollisions.push({ line, name, code, reason: SKIP_SAME_NAME_OTHER_CODE })
+      else {
+        parsed.duplicates++
+        parsed.skipped.push({ line, name, reason: SKIP_DUPLICATE })
+      }
       continue
     }
 
@@ -230,7 +272,7 @@ function _records(csvText) {
  * 先頭行がヘッダでないファイルは throw する。黙ってヘッダ扱いにすると先頭の品目が消えるため、
  * 呼び出し側は列指定（parseMappedCSV）へ誘導する。
  */
-export function parseItemCSV(csvText, { keepMeta = false } = {}) {
+export function parseItemCSV(csvText, { keepMeta = false, splitByCode = false } = {}) {
   const records = _records(csvText)
 
   const headers = records[0].cols.map(h => h.trim())
@@ -282,7 +324,7 @@ export function parseItemCSV(csvText, { keepMeta = false } = {}) {
     Object.assign(spec, { unit: 1 })
   }
 
-  _collectRows({ records: records.slice(1), parsed, spec, headers, keepMeta })
+  _collectRows({ records: records.slice(1), parsed, spec, headers, keepMeta, splitByCode })
 
   if (parsed.rows.length === 0) throw _noValidRowsError(parsed)
   return parsed
@@ -295,7 +337,7 @@ export function parseItemCSV(csvText, { keepMeta = false } = {}) {
  * @param {object} [opts]
  * @param {boolean} [opts.hasHeader=true] false なら1行目もデータ行として扱う（ヘッダ無しファイル）
  */
-export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMeta = false } = {}) {
+export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMeta = false, splitByCode = false } = {}) {
   const nameCol = mapping.name
   if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
 
@@ -318,7 +360,7 @@ export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMe
 
   _collectRows({
     records: hasHeader ? records.slice(1) : records,
-    parsed, spec, keepMeta,
+    parsed, spec, keepMeta, splitByCode,
     // ヘッダ無しでは列数の基準が無いので、列数不一致の判定はしない
     headers: hasHeader ? headers : [],
   })
@@ -592,6 +634,8 @@ export function buildImportPlan(parsed, current, opts = {}) {
       columnMismatch: parsed.columnMismatch ?? [],
       // 品目に見えないので外した行。件数だけでなく理由も渡す（戻す判断ができるように）
       metaRows:       parsed.metaRows ?? [],
+      // 同名・別コード。「重複」に混ぜると、別商品が消えたことに気づけない
+      codeCollisions: parsed.codeCollisions ?? [],
       truncatedNames: parsed.truncatedNames ?? [],
       aliasConflicts,
       categoryCodeChanges,
@@ -621,6 +665,7 @@ export function summaryCounts(summary) {
     errors:         (summary.errors ?? []).length,
     unreadable:     (summary.unreadable ?? []).length,
     metaRows:       (summary.metaRows ?? []).length,
+    codeCollisions: (summary.codeCollisions ?? []).length,
     columnMismatch: (summary.columnMismatch ?? []).length,
     aliasConflicts: (summary.aliasConflicts ?? []).length,
     truncatedNames: (summary.truncatedNames ?? []).length,
