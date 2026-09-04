@@ -49,6 +49,9 @@ const importError      = ref('')   // 取込実行時のエラー（解析エラ
 const showDiff         = ref(false)
 const showSkipped      = ref(false)
 const showErrors       = ref(true)  // エラーは既定で開く（黙って除外しない）
+// 小計・区分見出しらしい行を品目として取り込むか。既定は外す（黙って足さない）。
+// 本当に「小計」という名前の品目がある店のために、ここから戻せる（黙って捨てもしない）。
+const keepMeta         = ref(false)
 
 const isMapped  = computed(() => props.origin === 'mapped')
 const isReplace = computed(() => mode.value === IMPORT_MODE_REPLACE)
@@ -59,16 +62,21 @@ watch(mode, () => { replaceConfirmed.value = false; aliasPolicy.value = null })
 // 解析できないファイルはここでエラーになる。計画と一緒に1つの computed で持つ。
 const preview = computed(() => {
   try {
-    const opts = { mode: mode.value, aliasPolicy: aliasPolicy.value ?? ALIAS_KEEP_EXISTING }
+    const opts = {
+      mode: mode.value,
+      aliasPolicy: aliasPolicy.value ?? ALIAS_KEEP_EXISTING,
+      keepMeta: keepMeta.value,
+    }
     const plan = isMapped.value
       ? planMappedImport(props.csvText, props.mapping, { ...opts, hasHeader: props.hasHeader })
       : planCSVImport(props.csvText, opts)
-    return { plan, error: '', errorCode: '', rowErrors: [], skippedRows: [], unreadable: [] }
+    return { plan, error: '', errorCode: '', rowErrors: [], skippedRows: [], unreadable: [], metaRows: [] }
   } catch (err) {
     // 1行も取り込めない場合も、行番号・列・理由は出す（何が悪かったのか消さない）
     return {
       plan: null, error: err.message, errorCode: err.code ?? '',
       rowErrors: err.errors ?? [], skippedRows: err.skipped ?? [], unreadable: err.unreadable ?? [],
+      metaRows: err.metaRows ?? [],
     }
   }
 })
@@ -122,6 +130,8 @@ const conflictKinds = computed(() => {
 const unreadable      = computed(() => summary.value?.unreadable ?? preview.value.unreadable ?? [])
 const unreadableSample = computed(() => cap(unreadable.value))
 const columnMismatch  = computed(() => summary.value?.columnMismatch ?? [])
+const metaRows        = computed(() => summary.value?.metaRows ?? preview.value.metaRows ?? [])
+const metaSample      = computed(() => cap(metaRows.value))
 const truncatedNames  = computed(() => summary.value?.truncatedNames ?? [])
 const categoryCodeChanges = computed(() => cap(summary.value?.categoryCodeChanges))
 const axisNameChanges = computed(() => summary.value?.axisNameChanges ?? [])
@@ -272,6 +282,27 @@ function onConfirm() {
           <label class="alias-opt">
             <input type="radio" :value="ALIAS_TAKEOVER" v-model="aliasPolicy" />
             ファイルの指定を優先する（別名をあとの行の品目へ付け替える）
+          </label>
+        </div>
+
+        <!-- 品目に見えない行。既定で外し、理由を出して1タップで戻せるようにする -->
+        <div v-if="metaRows.length || keepMeta" class="warn unread-warn">
+          <p class="warn-title">
+            {{ keepMeta ? '小計・見出しらしい行も取り込みます' : `${metaRows.length}行を品目ではないと判断して外しました` }}
+          </p>
+          <p class="warn-body">
+            小計・合計・【野菜】のような区分の見出しは、そのまま入れると単価つきの品目として
+            品目リストに残ります。本当に品目ならここで戻せます。
+          </p>
+          <ul v-if="!keepMeta" class="name-list">
+            <li v-for="(m, i) in metaSample" :key="i">{{ m.line }}行目: {{ m.name }}（{{ m.reason }}）</li>
+            <li v-if="metaRows.length > metaSample.length" class="more">
+              ほか{{ metaRows.length - metaSample.length }}行
+            </li>
+          </ul>
+          <label class="meta-opt">
+            <input type="checkbox" v-model="keepMeta" />
+            これらも品目として取り込む
           </label>
         </div>
 
@@ -499,6 +530,9 @@ function onConfirm() {
 .unread-warn .warn-title { color: #b45309; }
 .unread-warn .warn-body  { color: #78350f; }
 .unread-warn .name-list  { color: #78350f; }
+.meta-opt { display: flex; align-items: center; gap: 7px; margin-top: 9px; font-size: 12px;
+  font-weight: 700; color: #78350f; cursor: pointer; }
+.meta-opt input { width: 16px; height: 16px; }
 .limit-warn { background: #fffbeb; border: 1px solid #fde68a; }
 .limit-warn .warn-title { color: #b45309; }
 .limit-warn .warn-body  { color: #78350f; }

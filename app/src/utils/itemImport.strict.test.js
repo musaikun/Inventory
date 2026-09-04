@@ -95,6 +95,41 @@ describe('数値セル — 黙って別の値にしない', () => {
   })
 })
 
+describe('品目ではない行（小計・区分見出し）', () => {
+  // 業者の請求明細をそのまま入れると、「小計」が単価つきの品目として登録され、
+  // 品目リスト・棚卸カード・発注点に残って手で消すことになる。
+  // pdfTableParser は元から外していたのに、CSV経路にだけ同じ仕組みが無かった。
+  const DIRTY = `${HEAD}\n【野菜】,,,,\nキャベツ,個,180,野菜,\n玉ねぎ,kg,240,野菜,\n小計,,420,,\n【精肉】,,,,\n豚バラ,kg,980,精肉,\n合計,,1400,,`
+
+  it('既定では品目として取り込まず、理由つきで返す', () => {
+    const p = parseItemCSV(DIRTY)
+    expect(p.rows.map(r => r.name)).toEqual(['キャベツ', '玉ねぎ', '豚バラ'])
+    expect(p.metaRows.map(m => m.name)).toEqual(['【野菜】', '小計', '【精肉】', '合計'])
+    expect(p.metaRows[0]).toMatchObject({ line: 2, reason: '区分の見出しに見えます' })
+    expect(p.metaRows[1].reason).toContain('小計')
+    // 「重複」として黙って落ちるのではなく、外したことが件数に出る
+    expect(p.duplicates).toBe(0)
+  })
+
+  it('keepMeta を立てれば元どおり全部入る（本当に「小計」という品目のため）', () => {
+    const p = parseItemCSV(DIRTY, { keepMeta: true })
+    expect(p.rows.map(r => r.name)).toEqual(
+      ['【野菜】', 'キャベツ', '玉ねぎ', '小計', '【精肉】', '豚バラ', '合計'])
+    expect(p.metaRows).toEqual([])
+  })
+
+  it('列指定取込でも同じ判断が効く', () => {
+    const p = parseMappedCSV('小計,420\nキャベツ,180', { name: 0, price: 1 }, { hasHeader: false })
+    expect(p.rows.map(r => r.name)).toEqual(['キャベツ'])
+    expect(p.metaRows[0]).toMatchObject({ line: 1, name: '小計' })
+  })
+
+  it('summaryCounts に外した行数が出る', () => {
+    const c = summaryCounts(plan(DIRTY).summary)
+    expect(c).toMatchObject({ added: 3, metaRows: 4 })
+  })
+})
+
 describe('CSV の字句解析', () => {
   it('エスケープされた引用符を値の中の " として保つ', () => {
     const p = parseItemCSV(`${HEAD}\n"5"" 皿",枚,100,食器,`)

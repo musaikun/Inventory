@@ -150,14 +150,37 @@ describe('ヘッダ無しCSVを実UI経由で取り込む', () => {
     expect(radioInput('1行目は見出し').checked).toBe(false)
     expect(button('このマッピングでインポート').disabled).toBe(true)
 
-    // 「1行目からデータ」を選べば、見出しに見える行も品目として取り込む
+    // 「1行目からデータ」を選ぶと、その行もデータとして解析へ渡る。
+    // ただし品目名が列の名前そのもの（「品目名」）なので、確認画面が
+    // 「品目ではない行」として外し、外したことと理由をその場に出す。
     await pick('1行目からデータ')
     button('このマッピングでインポート').click()
     for (let i = 0; i < 4; i++) await nextTick()
+    expect(host.textContent).toContain('1行を品目ではないと判断して外しました')
+    expect(host.textContent).toContain('列の名前に見えます')
+
     button('取り込む').click()
     for (let i = 0; i < 4; i++) await nextTick()
+    expect(cfg.config.order).toEqual(['トマト', 'レタス'])
+  })
 
-    expect(cfg.config.order).toEqual(['品目名', 'トマト', 'レタス'])
+  it('外した行は確認画面から戻せる（本当に「小計」という品目のため）', async () => {
+    await mountSettings()
+    await openMapperWith('小計,箱,120\nトマト,箱,120')
+    await pick('1行目からデータ')
+    button('このマッピングでインポート').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    const back = [...host.querySelectorAll('label')]
+      .find(l => l.textContent.includes('これらも品目として取り込む'))?.querySelector('input')
+    expect(back, '戻すチェックボックス').toBeTruthy()
+    back.checked = true
+    back.dispatchEvent(new Event('change', { bubbles: true }))
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    button('取り込む').click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    expect(cfg.config.order).toEqual(['小計', 'トマト'])
   })
 
   it('引用符・カンマ・改行を含むセルが画面を通しても壊れない', async () => {

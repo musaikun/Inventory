@@ -13,7 +13,7 @@
  */
 
 import { tokenizeCSV, readNumericCell, parseCSVLine as _parseCSVLine } from './csvParse.js'
-import { normHeader } from './importText.js'
+import { normHeader, isMetaName, metaReason } from './importText.js'
 import { IMPORT_MAX_REORDER_POINT, IMPORT_MAX_UNIT_PRICE } from './importLimits.js'
 
 export const IMPORT_MODE_MERGE   = 'merge'    // 追加・更新（既定）。ファイルに無い既存品目は残す
@@ -42,6 +42,7 @@ function _noValidRowsError(parsed) {
     errors:     parsed.errors,
     skipped:    parsed.skipped,
     unreadable: parsed.unreadable,
+    metaRows:   parsed.metaRows,
   })
 }
 
@@ -93,6 +94,8 @@ function _emptyParsed() {
     rows: [], skipped: [], errors: [], truncatedNames: [],
     // 読めなかった欄。行は取り込み、**その欄だけ**触らない（下の _buildRow を参照）
     unreadable: [], columnMismatch: [],
+    // 品目に見えない行（小計・合計・【野菜】等）。既定で外し、理由つきで返して戻せるようにする
+    metaRows: [],
     duplicates: 0, hasReorderColumn: false, headers: [], axisHeaders: [null, null],
   }
 }
@@ -159,8 +162,16 @@ function _buildRow({ line, cols, spec, headers }) {
   return { row, unreadable }
 }
 
-/** 行を1本のパイプラインで詰める。ヘッダ解釈以外は推奨形式も列指定も同じ扱いにする。 */
-function _collectRows({ records, parsed, spec, headers }) {
+/**
+ * 行を1本のパイプラインで詰める。ヘッダ解釈以外は推奨形式も列指定も同じ扱いにする。
+ *
+ * @param {boolean} [keepMeta=false] 小計・区分見出しらしい行も品目として取り込むか。
+ *   既定で外すのは、業者の請求明細をそのまま入れると「小計」が単価つきの品目として
+ *   登録され、品目リスト・棚卸カード・発注点に残るため（`pdfTableParser` は元から
+ *   外していたのに、CSV経路にだけ同じ仕組みが無かった）。
+ *   本当に「小計」という名前の品目がある店のために、外した行は理由つきで返して戻せるようにする。
+ */
+function _collectRows({ records, parsed, spec, headers, keepMeta = false }) {
   const seen = new Set()
 
   for (const { line, cols } of records) {
@@ -177,6 +188,11 @@ function _collectRows({ records, parsed, spec, headers }) {
 
     const rawName = _cellAt(cols, spec.name)
     if (!rawName) { parsed.skipped.push({ line, name: '', reason: SKIP_NO_NAME }); continue }
+
+    if (!keepMeta && isMetaName(rawName)) {
+      parsed.metaRows.push({ line, name: rawName, reason: metaReason(rawName) })
+      continue
+    }
 
     let name = rawName
     if (name.length > ITEM_NAME_MAX) {
@@ -214,7 +230,7 @@ function _records(csvText) {
  * 先頭行がヘッダでないファイルは throw する。黙ってヘッダ扱いにすると先頭の品目が消えるため、
  * 呼び出し側は列指定（parseMappedCSV）へ誘導する。
  */
-export function parseItemCSV(csvText) {
+export function parseItemCSV(csvText, { keepMeta = false } = {}) {
   const records = _records(csvText)
 
   const headers = records[0].cols.map(h => h.trim())
@@ -266,7 +282,7 @@ export function parseItemCSV(csvText) {
     Object.assign(spec, { unit: 1 })
   }
 
-  _collectRows({ records: records.slice(1), parsed, spec, headers })
+  _collectRows({ records: records.slice(1), parsed, spec, headers, keepMeta })
 
   if (parsed.rows.length === 0) throw _noValidRowsError(parsed)
   return parsed
@@ -279,7 +295,7 @@ export function parseItemCSV(csvText) {
  * @param {object} [opts]
  * @param {boolean} [opts.hasHeader=true] false なら1行目もデータ行として扱う（ヘッダ無しファイル）
  */
-export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true } = {}) {
+export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true, keepMeta = false } = {}) {
   const nameCol = mapping.name
   if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
 
@@ -302,7 +318,7 @@ export function parseMappedCSV(csvText, mapping = {}, { hasHeader = true } = {})
 
   _collectRows({
     records: hasHeader ? records.slice(1) : records,
-    parsed, spec,
+    parsed, spec, keepMeta,
     // ヘッダ無しでは列数の基準が無いので、列数不一致の判定はしない
     headers: hasHeader ? headers : [],
   })
@@ -574,6 +590,8 @@ export function buildImportPlan(parsed, current, opts = {}) {
       // どちらも行は入っている。件数を出さないと「黙って」に戻る。
       unreadable:     parsed.unreadable ?? [],
       columnMismatch: parsed.columnMismatch ?? [],
+      // 品目に見えないので外した行。件数だけでなく理由も渡す（戻す判断ができるように）
+      metaRows:       parsed.metaRows ?? [],
       truncatedNames: parsed.truncatedNames ?? [],
       aliasConflicts,
       categoryCodeChanges,
@@ -602,6 +620,7 @@ export function summaryCounts(summary) {
     skipped:        summary.skipped.length,
     errors:         (summary.errors ?? []).length,
     unreadable:     (summary.unreadable ?? []).length,
+    metaRows:       (summary.metaRows ?? []).length,
     columnMismatch: (summary.columnMismatch ?? []).length,
     aliasConflicts: (summary.aliasConflicts ?? []).length,
     truncatedNames: (summary.truncatedNames ?? []).length,

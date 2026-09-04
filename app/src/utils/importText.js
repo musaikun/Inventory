@@ -49,7 +49,10 @@ export function isMetaName(name) {
   if (!t) return true
   if (/^[\d,.\s]+$/.test(t)) return true                                     // 数字だけ
   if (HEADER_LABELS.has(t) || HEADER_LABELS.has(t.toLowerCase())) return true // 列見出しそのもの
-  if (/発行日|取引先|作成|店舗|業態|棚卸|ページ|^p\.?\d|合計|小計|見出|注意|※|社外秘/i.test(t)) return true
+  // 帳票の見出しは行の先頭に来る（`発行日 2026/08/01` `ページ 1 / 26`）。
+  // ここを部分一致にすると、`棚卸用ラベル` のような実在の品目まで巻き込む。
+  if (/^(発行日|取引先|作成|店舗|業態|棚卸|ページ|p\.?\s*\d|注意|※|社外秘)/i.test(t)) return true
+  if (/合計|小計/.test(t)) return true                        // 集計行はどこに書かれても品目ではない
   if (/^[【〔[(（].*[】〕\])）]$/.test(t)) return true                        // 【飲料】等の区分見出し
   return false
 }
@@ -59,7 +62,7 @@ export function metaReason(name) {
   const t = normText(name)
   if (/^[【〔[(（].*[】〕\])）]$/.test(t)) return '区分の見出しに見えます'
   if (/合計|小計/.test(t)) return '合計・小計の行に見えます'
-  if (/発行日|取引先|作成|店舗|業態|ページ|^p\.?\d/i.test(t)) return '帳票の見出しに見えます'
+  if (/^(発行日|取引先|作成|店舗|業態|棚卸|ページ|p\.?\s*\d|注意|※|社外秘)/i.test(t)) return '帳票の見出しに見えます'
   if (HEADER_LABELS.has(t) || HEADER_LABELS.has(t.toLowerCase())) return '列の名前に見えます'
   if (/^[\d,.\s]+$/.test(t)) return '数字だけの行です'
   return '品目ではない行に見えます'

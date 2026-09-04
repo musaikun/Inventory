@@ -36,6 +36,15 @@ describe('isMetaName', () => {
       expect(isMetaName(n), n).toBe(false)
     }
   })
+  it('帳票の見出し語は行頭のときだけ外す（実在の品目を巻き込まない）', () => {
+    expect(isMetaName('発行日 2026/08/01')).toBe(true)
+    expect(isMetaName('ページ 1 / 26')).toBe(true)
+    expect(isMetaName('棚卸記入表')).toBe(true)
+    // 部分一致にすると、こういう実在しうる品目まで消える
+    expect(isMetaName('業務用棚卸シール')).toBe(false)
+    expect(isMetaName('作業用手袋')).toBe(false)
+  })
+
   it('理由を人の言葉で返す（戻す判断ができるように）', () => {
     expect(metaReason('小計')).toContain('小計')
     expect(metaReason('【野菜】')).toContain('区分')
