@@ -40,7 +40,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
-| UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機の循環操作・面積遷移・並べ替え目視待ち | [UI-003.md](tasks/UI-003.md) |
+| UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-12（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段）を目視待ち | [UI-003.md](tasks/UI-003.md) |
 
 `UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。

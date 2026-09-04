@@ -37,6 +37,16 @@ const pointer  = (el, type, x, y, pointerId = 1) => {
   })
   return el.dispatchEvent(event)
 }
+const touchPointer = (el, type, x, y, timeStamp, pointerId = 1) => {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y })
+  Object.defineProperties(event, {
+    pointerId: { configurable: true, value: pointerId },
+    pointerType: { configurable: true, value: 'touch' },
+    isPrimary: { configurable: true, value: true },
+    timeStamp: { configurable: true, value: timeStamp },
+  })
+  return el.dispatchEvent(event)
+}
 const key = (el, value) => el.dispatchEvent(new KeyboardEvent('keydown', {
   bubbles: true, cancelable: true, key: value,
 }))
@@ -139,6 +149,35 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(centre()).toBe('冷凍庫')
   })
 
+  it('スマホで最後の移動量が小さくても、直近の指の速度を保って慣性回転する', async () => {
+    for (let i = 0; i < 12; i++) cfg.addAxisGroup(0, `場所${i}`)
+    await mount()
+    const stage = host.querySelector('.af-stage')
+
+    touchPointer(stage, 'pointerdown', 40, 240, 100, 31)
+    touchPointer(stage, 'pointermove', 40, 180, 130, 31)
+    touchPointer(stage, 'pointermove', 40, 178, 160, 31)
+    touchPointer(stage, 'pointerup', 40, 178, 162, 31)
+    await settle(100)
+
+    // 指が動かしたのは約1.3枠。最後の2pxだけで速度を決める旧実装なら2枠で
+    // 止まるが、直近120msの速度を使えばその先まで自然に流れる。
+    expect(Number(host.querySelector('.af-gcard.on').dataset.slot)).toBeGreaterThan(3)
+  })
+
+  it('ホイールの文字選択と要素ドラッグを開始させない', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    const name = host.querySelector('.af-gname')
+    const selectStart = new Event('selectstart', { bubbles: true, cancelable: true })
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true })
+
+    expect(name.dispatchEvent(selectStart)).toBe(false)
+    expect(selectStart.defaultPrevented).toBe(true)
+    expect(name.dispatchEvent(dragStart)).toBe(false)
+    expect(dragStart.defaultPrevented).toBe(true)
+  })
+
   it('分類先が1件だけなら同じカードを複製しない', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
@@ -228,7 +267,7 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     const marker = host.querySelector('.af-marker')
     const fades = [...host.querySelectorAll('.af-fade')]
 
-    expect(parseFloat(getComputedStyle(wheel).transitionDuration)).toBeGreaterThanOrEqual(0.4)
+    expect(parseFloat(getComputedStyle(wheel).transitionDuration)).toBeGreaterThanOrEqual(0.7)
     pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
     await nextTick()
     expect(wheel.classList.contains('band')).toBe(false)
@@ -276,6 +315,86 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
 
     expect(centre()).toBe(selected)
     expect(host.querySelector('.af-sheet-title').textContent).toContain(selected)
+  })
+
+  it('畳んだままでも中央の件数を押して振り分け済みを開き、ホイールは広げない', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
+    await mount()
+    const wheel = host.querySelector('.af-wheel')
+
+    // 品目を入れている最中＝帯に畳んだ状態。カードの扇が閉じきるまで送る。
+    pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
+    await click(host.querySelector('.af-list'))
+    for (let i = 0; i < 200; i++) {
+      if (host.querySelectorAll('.af-gcard').length === 1) break
+      await settle(1)
+    }
+    expect(wheel.classList.contains('band')).toBe(true)
+
+    // 重なって見えないカードはDOMごと外し、押せる相手を中央の1枚に絞る。
+    expect(host.querySelectorAll('.af-gcard').length).toBe(1)
+    expect(host.querySelector('.af-gcard.on').style.pointerEvents).toBe('auto')
+
+    const count = host.querySelector('.af-gcard.on .af-gcount')
+    pointer(count, 'pointerdown', 220, 98)
+    pointer(count, 'pointerup', 220, 98)
+    await click(count)
+    await nextTick()
+
+    expect(host.querySelector('.af-sheet-title').textContent).toContain('冷蔵庫')
+    // 押しても展開しない。閉じた時に一覧の位置が変わらないこと。
+    expect(wheel.classList.contains('band')).toBe(true)
+    expect(wheel.style.height).toBe('56px')
+  })
+
+  it('clickがstageへ置き換わっても、件数の押下で振り分け済みが開く', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
+    await mount()
+    const stage = host.querySelector('.af-stage')
+    const count = host.querySelector('.af-gcard.on .af-gcount')
+
+    // 実機ではPointer Captureや3Dの重なりでclickのtargetがstageへ移り、件数へ届かない
+    pointer(count, 'pointerdown', 220, 98)
+    pointer(stage, 'pointerup', 220, 100)
+    await nextTick()
+
+    expect(host.querySelector('.af-sheet-title').textContent).toContain('冷蔵庫')
+  })
+
+  it('件数を押したまま指を大きく動かして離したら開かない', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    const stage = host.querySelector('.af-stage')
+    const count = host.querySelector('.af-gcard.on .af-gcount')
+
+    pointer(count, 'pointerdown', 220, 98)
+    pointer(stage, 'pointerup', 220, 160)
+    await nextTick()
+
+    expect(host.querySelector('.af-sheet-title')).toBeNull()
+  })
+
+  it('面積は帯と全体の2段だけで、途中の高さを取らない', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    const wheel = host.querySelector('.af-wheel')
+    const full = `${Math.max(196, Math.min(Math.round(window.innerHeight * 0.54), 336))}px`
+    expect(wheel.style.height).toBe(full)
+
+    pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
+    await click(host.querySelector('.af-list'))
+    expect(wheel.style.height).toBe('56px')
+
+    // 回して指を離した後、待っても途中の高さへ落ちない（旧実装は900ms後に196pxへ戻した）
+    const stage = host.querySelector('.af-stage')
+    pointer(stage, 'pointerdown', 40, 100)
+    pointer(stage, 'pointermove', 40, 154)
+    pointer(stage, 'pointerup', 40, 154)
+    await settle()
+
+    expect(wheel.style.height).toBe(full)
   })
 
   it('動きを減らす設定では自動回転と領域変更を即時にする', async () => {
@@ -478,6 +597,49 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(editRows()).toEqual(order)
   })
 
+  it('一覧側でpointerを捕捉し、1回のドラッグで複数段を続けて移動できる', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫', '倉庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+
+    const list = host.querySelector('.af-edit-list')
+    const rows = [...host.querySelectorAll('.af-erow')]
+    const handle = rows[0].querySelector('.af-ehandle')
+    list.setPointerCapture = vi.fn()
+    list.releasePointerCapture = vi.fn()
+    handle.setPointerCapture = vi.fn()
+    list.getBoundingClientRect = () => ({ top: -200, bottom: 800, height: 1000 })
+    for (const row of rows) {
+      row.getBoundingClientRect = () => {
+        const i = [...list.children].indexOf(row)
+        return { top: i * 60, bottom: i * 60 + 56, height: 56 }
+      }
+      row.animate = vi.fn(() => ({ cancel: vi.fn(), onfinish: null, oncancel: null }))
+    }
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: vi.fn()
+        .mockReturnValueOnce([rows[1]])
+        .mockReturnValueOnce([rows[2]])
+        .mockReturnValueOnce([rows[3]]),
+    })
+
+    pointer(handle, 'pointerdown', 20, 28, 41)
+    expect(list.setPointerCapture).toHaveBeenCalledWith(41)
+    expect(handle.setPointerCapture).not.toHaveBeenCalled()
+
+    pointer(list, 'pointermove', 20, 100, 41)
+    pointer(list, 'pointermove', 20, 160, 41)
+    pointer(list, 'pointermove', 20, 220, 41)
+    expect(editRows()).toEqual(['棚', '冷凍庫', '倉庫', '冷蔵庫'])
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚', '冷凍庫', '倉庫'])
+
+    pointer(list, 'pointerup', 20, 220, 41)
+    await nextTick()
+    expect(list.releasePointerCapture).toHaveBeenCalledWith(41)
+    expect(cfg.config.axisGroupsA).toEqual(['棚', '冷凍庫', '倉庫', '冷蔵庫'])
+  })
+
   it('流れている途中のカードをすぐ掴み直しても、前の補間を止めて指へ追従できる', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
@@ -503,7 +665,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
 
     pointer(rows[1].querySelector('.af-ehandle'), 'pointerdown', 20, 28, 22)
     expect(previousShift.cancel).toHaveBeenCalledOnce()
-    pointer(rows[1].querySelector('.af-ehandle'), 'lostpointercapture', 20, 28, 22)
+    pointer(list, 'lostpointercapture', 20, 28, 22)
   })
 
   it('つまみ以外を押しても並べ替えを開始しない', async () => {
@@ -531,7 +693,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(row.classList.contains('drag')).toBe(true)
     expect(row.style.transform).toBe('')
 
-    pointer(handle, 'lostpointercapture', 20, 28, 11)
+    pointer(list, 'lostpointercapture', 20, 28, 11)
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.classList.contains('dragging')).toBe(false)
   })

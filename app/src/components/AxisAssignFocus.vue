@@ -87,9 +87,13 @@ const wheelCards = computed(() => {
   const out = []
   // 1件だけは同じ名前を上下へ複製しない。2件以上は現在位置の前後に仮想枠を
   // 描き、実際のindexへ剰余で写像することで先頭と末尾をつなぐ。
+  // 畳みきった帯では周りのカードが中央へ完全に重なる。透明でも同じ3D位置に居ると
+  // 手前後の判定が曖昧になり、中央の件数を押しても後ろのカードへ吸われる。
+  // 見えていない間はDOMからも外し、押せる相手を中央の1枚だけにする。
+  const single = n === 1 || fan.value <= 0.001
   const base = Math.round(pos.value)
-  const from = n === 1 ? 0 : -VISIBLE
-  const to   = n === 1 ? 0 : VISIBLE
+  const from = single ? 0 : -VISIBLE
+  const to   = single ? 0 : VISIBLE
   for (let k = from; k <= to; k++) {
     const slot = n === 1 ? 0 : base + k
     const idx = n === 1 ? 0 : wrapIndex(slot, n)
@@ -105,26 +109,28 @@ const wheelCards = computed(() => {
         transform: `rotateX(${-angle}deg) translateZ(${RADIUS}px)`,
         opacity: centre ? 1 : Math.max(0, 1 - Math.abs(offset) / (VISIBLE + 0.4)) * fan.value,
         zIndex: 100 - Math.round(Math.abs(offset) * 10),
-        pointerEvents: fan.value > 0.6 ? 'auto' : 'none',
+        // 畳んでいる間、重なって見えない周りのカードは触らせない。中央の1枚だけは常に
+        // 押せるままにして、展開しなくても件数から振り分け済みを開けるようにする。
+        pointerEvents: centre || fan.value > 0.6 ? 'auto' : 'none',
       },
     })
   }
   return out
 })
 
-// 面積は3段階。触った方へ寄せる。
+// 面積は2段階。触った方へ寄せる。
 //   band … 品目を入れている時間。分類先は1枚だけ残す
-//   open … 選び終わって止まっている時間
-//   spin … 回している時間。探しているのだから一番見せる
-const WHEEL_H = 196, BAND_H = 56, PANEL_MS = 420
-const wheelState = ref('open')                       // 'band' | 'open' | 'spin'
+//   open … 分類先を探している時間。探しているのだから広く見せる
+// 途中の高さを挟むと、回し終わりに「一度縮んでまた動く」段が増え、どこで
+// 止まったのかが読み取りにくい。段は「入れている」「探している」の2つだけにする。
+const BAND_H = 56, OPEN_MIN = 196, OPEN_MAX = 336, PANEL_MS = 700
+const wheelState = ref('open')                       // 'band' | 'open'
 const banded = computed(() => wheelState.value === 'band')
-function spinHeight() {
+function openHeight() {
   const h = typeof window === 'undefined' ? 640 : window.innerHeight
-  return Math.max(WHEEL_H, Math.min(Math.round(h * 0.54), WHEEL_H + 140))
+  return Math.max(OPEN_MIN, Math.min(Math.round(h * 0.54), OPEN_MAX))
 }
-const wheelH = computed(() =>
-  wheelState.value === 'band' ? BAND_H : wheelState.value === 'spin' ? spinHeight() : WHEEL_H)
+const wheelH = computed(() => banded.value ? BAND_H : openHeight())
 
 let _fanRaf = 0
 function tweenFan(to) {
@@ -139,24 +145,25 @@ function tweenFan(to) {
   }
   _fanRaf = requestAnimationFrame(step)
 }
-let _settleT = null
 function setWheelState(next) {
   if (wheelState.value === next) return
   const wasBand = banded.value
   wheelState.value = next
   if (banded.value !== wasBand) tweenFan(banded.value ? 0 : 1)
 }
-function settleWheel() {
-  clearTimeout(_settleT)
-  if (reduceMotion) { setWheelState('open'); return }
-  _settleT = setTimeout(() => { if (wheelState.value === 'spin') setWheelState('open') }, 900)
-}
 
 // 指で回す。慣性が無いと20件近くを探せない。
 const PX_PER_CARD = 46
 const TAP_SLOP = 7
-let _dragging = false, _lastY = 0, _lastT = 0, _vel = 0, _glideRaf = 0
+const FRAME_MS = 1000 / 60
+const VELOCITY_WINDOW_MS = 120
+const MAX_GLIDE_SPEED = 1.45
+const TOUCH_FLING_BOOST = 1.25
+const GLIDE_FRICTION = 0.94
+let _dragging = false, _vel = 0, _glideRaf = 0
 let _wheelPointerId = null, _wheelTapSlot = null, _wheelTravel = 0
+let _wheelPointerType = '', _wheelSamples = []
+let _countDownY = null                               // 件数buttonを押している間の開始位置
 // 中央カードのカウントは「振り分け済みを開く」ボタン。回転にも展開にも食わせない。
 const isCountTap = e => !!e.target?.closest?.('.af-gcard.on .af-gcount')
 const pointerMatches = (e, id) => id == null || e.pointerId == null || e.pointerId === id
@@ -166,15 +173,69 @@ function slotFromTarget(targetEl) {
   return Number.isFinite(slot) ? slot : null
 }
 
+function wheelEventTime(e) {
+  const t = Number(e?.timeStamp)
+  return Number.isFinite(t) && t >= 0 ? t : performance.now()
+}
+function rememberWheelPoint(y, time) {
+  if (!Number.isFinite(y)) return
+  const previous = _wheelSamples[_wheelSamples.length - 1]
+  const t = previous ? Math.max(previous.time, time) : time
+  if (previous && previous.y === y && previous.time === t) return
+  _wheelSamples.push({ y, time: t })
+  const cutoff = t - VELOCITY_WINDOW_MS
+  // 窓の直前を1点残す。スマホがpointermoveをまとめて通知しても、窓の端から
+  // 指を離すまでの距離を失わず速度へ換算できる。
+  while (_wheelSamples.length > 2 && _wheelSamples[1].time < cutoff) _wheelSamples.shift()
+}
+function estimateWheelVelocity() {
+  if (_wheelSamples.length < 2) return 0
+  const last = _wheelSamples[_wheelSamples.length - 1]
+  const cutoff = last.time - VELOCITY_WINDOW_MS
+  let first = _wheelSamples[0]
+  for (const sample of _wheelSamples) {
+    if (sample.time >= cutoff) { first = sample; break }
+  }
+  const dt = last.time - first.time
+  if (dt < 8) return 0
+  const slots = -(last.y - first.y) / PX_PER_CARD
+  const boost = _wheelPointerType === 'touch' ? TOUCH_FLING_BOOST : 1
+  return Math.max(-MAX_GLIDE_SPEED, Math.min(MAX_GLIDE_SPEED, slots / (dt / FRAME_MS) * boost))
+}
+function applyWheelPoint(point) {
+  const y = Number(point?.clientY)
+  if (!Number.isFinite(y)) return
+  const previous = _wheelSamples[_wheelSamples.length - 1]
+  if (previous) {
+    const dy = y - previous.y
+    _wheelTravel += Math.abs(dy)
+    if (groups.value.length > 1) pos.value -= dy / PX_PER_CARD
+  }
+  rememberWheelPoint(y, wheelEventTime(point))
+  _vel = groups.value.length > 1 ? estimateWheelVelocity() : 0
+}
+function wheelMovePoints(e) {
+  let points = []
+  try { points = e.getCoalescedEvents?.() ?? [] } catch (_) { /* 未対応WebView */ }
+  if (!points.length) return [e]
+  const last = points[points.length - 1]
+  return last.clientY === e.clientY && wheelEventTime(last) === wheelEventTime(e)
+    ? points
+    : [...points, e]
+}
+
 function onWheelDown(e) {
   // 押下中に高さまで変えるとpointerup時のhit targetがずれるため、件数buttonでは
-  // 回転位置だけを固定し、領域の変更はclick成立後に行う。
-  if (isCountTap(e)) { stopWheelAtNearest(); clearTimeout(_settleT); return }
+  // 回転位置だけを固定し、領域の変更は押し切ってから行う。
+  if (isCountTap(e)) { stopWheelAtNearest(); _countDownY = Number(e.clientY); return }
+  _countDownY = null
   if (_dragging || e.isPrimary === false) return
-  setWheelState('spin')
-  clearTimeout(_settleT)
-  _dragging = true; _lastY = e.clientY; _lastT = performance.now(); _vel = 0
+  setWheelState('open')
+  _dragging = true; _vel = 0
   _wheelPointerId = e.pointerId ?? null
+  _wheelPointerType = e.pointerType || 'mouse'
+  _wheelSamples = []
+  rememberWheelPoint(Number(e.clientY), wheelEventTime(e))
   _wheelTapSlot = slotFromTarget(e.target)
   _wheelTravel = 0
   cancelAnimationFrame(_glideRaf)
@@ -184,25 +245,20 @@ function onWheelDown(e) {
 function onWheelMove(e) {
   if (!_dragging || !pointerMatches(e, _wheelPointerId)) return
   if (e.cancelable) e.preventDefault()
-  const now = performance.now()
-  const dy = e.clientY - _lastY
-  const dt = Math.max(1, now - _lastT)
-  _wheelTravel += Math.abs(dy)
-  if (groups.value.length > 1) {
-    pos.value -= dy / PX_PER_CARD
-    // 極端に短いpointer間隔でも何百周も飛ばないよう、慣性だけ上限を持たせる。
-    _vel = Math.max(-1.35, Math.min(1.35, (-dy / PX_PER_CARD) / dt * 16))
-  } else {
-    _vel = 0
-  }
-  _lastY = e.clientY; _lastT = now
+  for (const point of wheelMovePoints(e)) applyWheelPoint(point)
 }
 function finishWheelGesture(e, cancelled) {
   if (!_dragging || !pointerMatches(e, _wheelPointerId)) return
+  // pointerupの座標と時刻も速度窓へ入れる。指を止めてから離した場合は慣性を
+  // 弱めつつ、pointermoveの最後の1pxだけで全速度が消えるスマホ特有の偏りを避ける。
+  if (!cancelled) applyWheelPoint(e)
   const pointerId = _wheelPointerId
   const tapSlot = !cancelled && _wheelTravel <= TAP_SLOP ? _wheelTapSlot : null
+  const releaseVelocity = _vel
   _dragging = false
   _wheelPointerId = null
+  _wheelPointerType = ''
+  _wheelSamples = []
   _wheelTapSlot = null
   _wheelTravel = 0
   try { if (pointerId != null) e.currentTarget.releasePointerCapture?.(pointerId) } catch (_) { /* 既に外れている */ }
@@ -214,54 +270,66 @@ function finishWheelGesture(e, cancelled) {
   }
   if (cancelled) {
     stopWheelAtNearest()
-    settleWheel()
     return
   }
+  _vel = releaseVelocity
   glide()
 }
-function onWheelUp(e) { finishWheelGesture(e, false) }
-function onWheelCancel(e) { finishWheelGesture(e, true) }
+// 件数の押下をclickだけに頼らない。3Dで重ねたカードやPointer Captureが絡むと、
+// 端末によってはclickのtargetがstageへ置き換わり、件数buttonまで届かない。
+// 押し始めが件数で、指がほとんど動かずに離れたなら、その時点で開く。
+function takeCountTap(e) {
+  const from = _countDownY
+  _countDownY = null
+  if (from == null) return false
+  const y = Number(e?.clientY)
+  return !Number.isFinite(y) || Math.abs(y - from) <= TAP_SLOP
+}
+function onWheelUp(e) {
+  if (takeCountTap(e)) { openAssigned(); return }
+  finishWheelGesture(e, false)
+}
+function onWheelCancel(e) { _countDownY = null; finishWheelGesture(e, true) }
 
 function stopWheelAtNearest() {
   cancelAnimationFrame(_glideRaf)
   _glideRaf = 0
   _vel = 0
+  _wheelSamples = []
   pos.value = groups.value.length <= 1 ? 0 : Math.round(pos.value)
-}
-function stopWheelForControl() {
-  stopWheelAtNearest()
-  clearTimeout(_settleT)
-  setWheelState('open')
 }
 // 一覧のpointerdownでは回転位置だけを固定する。ここで高さも畳むと、特に
 // reduced-motion時に押した行がpointerup前に移動しclickを失う。
 function onListPointerDown() {
   if (_dragging) return
   stopWheelAtNearest()
-  clearTimeout(_settleT)
 }
 function onListCommit() {
   if (_dragging) return
   stopWheelAtNearest()
-  clearTimeout(_settleT)
   setWheelState('band')
 }
 function glide() {
   cancelAnimationFrame(_glideRaf)
   if (groups.value.length <= 1) {
-    pos.value = 0; _vel = 0; _glideRaf = 0; settleWheel(); return
+    pos.value = 0; _vel = 0; _glideRaf = 0; return
   }
   if (reduceMotion) {
-    pos.value = Math.round(pos.value); _vel = 0; _glideRaf = 0; settleWheel(); return
+    pos.value = Math.round(pos.value); _vel = 0; _glideRaf = 0; return
   }
-  const step = () => {
-    _vel *= 0.94
-    pos.value += _vel
+  let lastFrame = performance.now()
+  const step = now => {
+    const elapsed = Number.isFinite(now) ? now - lastFrame : FRAME_MS
+    const frameScale = Math.max(0.5, Math.min(2, elapsed / FRAME_MS || 1))
+    lastFrame = Number.isFinite(now) ? now : lastFrame + FRAME_MS
+    pos.value += _vel * frameScale
+    _vel *= Math.pow(GLIDE_FRICTION, frameScale)
     if (Math.abs(_vel) < 0.008) {                    // 止まりかけたら一番近い枠へ吸い付く
       const snap = Math.round(pos.value)
-      pos.value += (snap - pos.value) * 0.28
+      const snapRate = 1 - Math.pow(1 - 0.28, frameScale)
+      pos.value += (snap - pos.value) * snapRate
       if (Math.abs(snap - pos.value) < 0.002) {
-        pos.value = snap; _vel = 0; _glideRaf = 0; settleWheel(); return
+        pos.value = snap; _vel = 0; _glideRaf = 0; return
       }
     }
     _glideRaf = requestAnimationFrame(step)
@@ -273,26 +341,26 @@ function spinTo(slot) {
   cancelAnimationFrame(_glideRaf)
   _glideRaf = 0
   _vel = 0
-  if (groups.value.length <= 1) { pos.value = 0; settleWheel(); return }
+  if (groups.value.length <= 1) { pos.value = 0; return }
   const dest = slot
-  if (reduceMotion) { pos.value = dest; settleWheel(); return }
+  if (reduceMotion) { pos.value = dest; return }
   const step = () => {
     pos.value += (dest - pos.value) * 0.18
     if (Math.abs(dest - pos.value) < 0.002) {
-      pos.value = dest; _glideRaf = 0; settleWheel(); return
+      pos.value = dest; _glideRaf = 0; return
     }
     _glideRaf = requestAnimationFrame(step)
   }
   _glideRaf = requestAnimationFrame(step)
 }
 function selectWheelSlot(slot) {
-  if (!Number.isFinite(slot) || Math.abs(slot - pos.value) < 0.002) { settleWheel(); return }
-  setWheelState('spin')
+  setWheelState('open')
+  if (!Number.isFinite(slot) || Math.abs(slot - pos.value) < 0.002) return
   spinTo(slot)
 }
 // 中央以外をタップしたらそこまで回す（1枚ずつ送らせない）
 function onWheelClick(e) {
-  if (isCountTap(e)) { stopWheelForControl(); showAssigned.value = true; return }
+  if (isCountTap(e)) { openAssigned(); return }
   const slot = slotFromTarget(e.target)
   if (slot != null) selectWheelSlot(slot)
 }
@@ -392,6 +460,12 @@ const {
 // 件数を持っている場所が、そのまま中身を開く入口になる。
 const listEl = ref(null)
 const showAssigned = ref(false)
+// 件数は畳んだ帯でも押せる。ここで面積を広げると、シートを閉じた後に品目一覧の
+// 位置が変わり、次に押す行を探し直すことになるので、回転だけ止めて開く。
+function openAssigned() {
+  stopWheelAtNearest()
+  showAssigned.value = true
+}
 const assignedItems = computed(() =>
   target.value ? config.order.filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
 )
@@ -452,7 +526,7 @@ const newName = ref('')
 const addError = ref('')
 const addInputEl = ref(null)
 function openAdd() {
-  stopWheelForControl()
+  stopWheelAtNearest()
   newName.value = ''
   addError.value = ''
   addOpen.value = true
@@ -469,14 +543,14 @@ function submitNew() {
   nextTick(() => {                       // 足した1枚を中央へ持ってくる
     const at = groups.value.indexOf(n)
     if (at >= 0) pos.value = at
-    setWheelState('spin'); settleWheel()
+    setWheelState('open')
   })
   _showFlash(`分類先「${n}」を追加しました`, '')
 }
 
 const delTarget = ref('')
 function askDelete(g) {
-  stopWheelForControl()
+  stopWheelAtNearest()
   if (g) delTarget.value = g
 }
 function cancelDelete() { delTarget.value = '' }
@@ -520,7 +594,7 @@ const editDoneEl = ref(null)
 const editTriggerEl = ref(null)
 const editReturn = ref('')      // 開いた時に中央だった分類先。閉じるときそこへ戻す
 function openEdit() {
-  stopWheelForControl()
+  stopWheelAtNearest()
   // 割り当てだけで現れているグループ（定義リストに無い分）を先に取り込む。
   // setAxisGroupOrder は定義済みの並べ替えしか受け付けないため、
   // これをやらないと一部のカードだけ動かせない一覧になる。
@@ -580,7 +654,7 @@ const DROP_MS = 280
 const DROP_EASE = 'cubic-bezier(.22, .8, .28, 1)'
 
 const editListEl = ref(null)
-let _dragRow = null, _dragHandle = null, _dragPointerId = null, _dragY0 = 0, _dragOrder = null
+let _dragRow = null, _dragCaptureEl = null, _dragPointerId = null, _dragY0 = 0, _dragOrder = null
 const _rowShift = new WeakMap()
 const _shiftAnimations = new Set()
 
@@ -593,13 +667,15 @@ function onHandleDown(e) {
   // inline transformより優先される前に、その補間を終点へ戻す。
   cancelRowShift(row)
   _dragRow = row
-  _dragHandle = handle
+  // 動かす行やその子へcaptureを置くと、DOM順を入れ替えた瞬間にスマホが
+  // lostpointercaptureを発火し、1段目でドラッグが終わる。移動しない一覧側で捕捉する。
+  _dragCaptureEl = editListEl.value
   _dragPointerId = e.pointerId ?? null
   _dragY0 = e.clientY
   _dragOrder = [...groups.value]
   row.classList.add('drag')
   editListEl.value?.classList.add('dragging')
-  if (_dragPointerId != null) handle.setPointerCapture?.(_dragPointerId)
+  if (_dragPointerId != null) _dragCaptureEl?.setPointerCapture?.(_dragPointerId)
   navigator.vibrate?.(10)
 }
 function onHandleMove(e) {
@@ -634,7 +710,7 @@ function onHandleMove(e) {
 function onHandleUp(e) {
   if (!_dragRow || (e && !pointerMatches(e, _dragPointerId))) return
   const row = _dragRow
-  const handle = _dragHandle
+  const captureEl = _dragCaptureEl
   const pointerId = _dragPointerId
   const order = _dragOrder
   row.style.transition = `transform ${reduceMotion ? FLIP_MS_REDUCED : DROP_MS}ms ${reduceMotion ? FLIP_EASE_REDUCED : DROP_EASE}`
@@ -642,12 +718,12 @@ function onHandleUp(e) {
   row.classList.remove('drag')
   editListEl.value?.classList.remove('dragging')
   _dragRow = null
-  _dragHandle = null
+  _dragCaptureEl = null
   _dragPointerId = null
   _dragOrder = null
   stopEdgeScroll()
   // stateを先に片付ける。release直後のlostpointercaptureが同期発火しても二重確定しない。
-  try { if (pointerId != null) handle?.releasePointerCapture?.(pointerId) } catch (_) { /* 既に解放済み */ }
+  try { if (pointerId != null) captureEl?.releasePointerCapture?.(pointerId) } catch (_) { /* 既に解放済み */ }
   // DOMの並びを先に完成させ、保存は指を離した時に1回だけ行う。ドラッグ中に
   // Vueのkeyed patchを走らせると、周囲のFLIP animationと競合して片方向が飛ぶ。
   if (order && order.join('\u0001') !== groups.value.join('\u0001')) {
@@ -772,15 +848,18 @@ onUnmounted(() => {
   if (_dragRow) onHandleUp()
   _dragging = false
   _wheelPointerId = null
+  _wheelPointerType = ''
+  _wheelSamples = []
   _wheelTapSlot = null
   _wheelTravel = 0
+  _countDownY = null
   _vel = 0
   cancelAnimationFrame(_fanRaf); cancelAnimationFrame(_glideRaf); stopEdgeScroll()
   for (const animation of _shiftAnimations) {
     try { animation.cancel() } catch (_) { /* 既に終了済み */ }
   }
   _shiftAnimations.clear()
-  clearTimeout(_flashT); clearTimeout(_undoT); clearTimeout(_locateT); clearTimeout(_settleT)
+  clearTimeout(_flashT); clearTimeout(_undoT); clearTimeout(_locateT)
 })
 
 // ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
@@ -857,6 +936,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           @lostpointercapture="onWheelCancel"
           @click="onWheelClick"
           @keydown="onWheelKeydown"
+          @selectstart.prevent
+          @dragstart.prevent
         >
           <div class="af-stage-inner" :style="{ transform: `translateZ(${-RADIUS}px)` }">
             <!-- 円筒ごと半径ぶん奥へ下げる。下げないと中央のカードが手前に出て、
@@ -1140,7 +1221,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: absolute; inset: 0 64px 0 0;
   perspective: 460px; overflow: hidden;
   touch-action: none; -webkit-tap-highlight-color: transparent;
-  transition: right var(--af-panel-ms, 420ms) cubic-bezier(0.4,0,0.2,1);
+  transition: right var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1);
+}
+.af-stage, .af-stage * {
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
 .af-stage:focus-visible { outline: 3px solid var(--primary-border, #bfdbfe); outline-offset: -3px; }
 .af-wheel.band .af-stage { right: 0; }
@@ -1165,17 +1249,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* 中央カードのカウントは押せる。ここから振り分け済みを開く */
 .af-gcard.on .af-gcount { background: var(--primary, #2563eb); color: #fff; cursor: pointer; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
 .af-gcard.on .af-gcount:active { filter: brightness(0.9); }
+/* 畳んでいる間、これが「振り分け済みを開く」唯一の入口になる。56pxの帯の中で
+   カードのタップ（＝ホイールを開く）と押し分けられるよう、指の当たりを広げる。 */
+.af-wheel.band .af-gcard.on .af-gcount { min-height: 44px; padding: 2px 14px; }
 .af-gchev { flex-shrink: 0; font-size: 11px; font-weight: 800; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 9px; background: #fff; white-space: nowrap; }
 
-.af-marker { position: absolute; left: 0; right: 0; top: 50%; height: 58px; margin-top: -29px; pointer-events: none; border-top: 1px solid var(--primary-border, #bfdbfe); border-bottom: 1px solid var(--primary-border, #bfdbfe); opacity: 0.5; transition: opacity var(--af-panel-ms, 420ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
-.af-fade { position: absolute; left: 0; right: 0; height: 34px; pointer-events: none; z-index: 2; opacity: 1; transition: opacity var(--af-panel-ms, 420ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
+.af-marker { position: absolute; left: 0; right: 0; top: 50%; height: 58px; margin-top: -29px; pointer-events: none; border-top: 1px solid var(--primary-border, #bfdbfe); border-bottom: 1px solid var(--primary-border, #bfdbfe); opacity: 0.5; transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
+.af-fade { position: absolute; left: 0; right: 0; height: 34px; pointer-events: none; z-index: 2; opacity: 1; transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
 .af-fade.t { top: 0; background: linear-gradient(#fff, rgba(255,255,255,0)); }
 .af-fade.b { bottom: 0; background: linear-gradient(rgba(255,255,255,0), #fff); }
 .af-wheel.band .af-marker,
 .af-wheel.band .af-fade {
   opacity: 0; visibility: hidden;
-  transition: opacity var(--af-panel-ms, 420ms) cubic-bezier(0.4,0,0.2,1),
-              visibility 0s linear var(--af-panel-ms, 420ms);
+  transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1),
+              visibility 0s linear var(--af-panel-ms, 700ms);
 }
 
 /* 操作は「今まん中にある1枚」に効く。足すと消すが隣り合わないよう間に ⚙ を置く */
@@ -1183,7 +1270,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: absolute; top: 0; right: 0; bottom: 0; width: 64px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   border-left: 1px solid #eef2f6; background: linear-gradient(90deg, rgba(248,250,252,0), #f8fafc);
-  transition: opacity var(--af-panel-ms, 420ms) cubic-bezier(0.4,0,0.2,1);
+  transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1);
 }
 .af-wheel.band .af-rail { opacity: 0; pointer-events: none; }
 .af-rail-btn {

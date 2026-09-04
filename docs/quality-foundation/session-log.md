@@ -2,6 +2,36 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-04 — UI-003 面積を2段へ、件数の押下をpointerupでも成立させる
+
+- Userから2件。(1)面積の「1枚だけ / 3枚のホイール / 全体」の中間をなくす。(2)前回の対応後も、閉じた状態で件数をタップしても振り分け済みが開かない。
+- (1) `wheelState`を`'band' | 'open'`の2値にし、`'spin'`・`WHEEL_H`(196px)・`settleWheel()`・`_settleT`（回し終わり900msで1段縮める）を削除。`open`は画面の54%を196〜336pxで挟む。初期表示も全体になる。触っていないのに面積が動く場面が無くなった。
+- (2) 原因は「pointer-eventsを開けただけでは押下が届かない」こと。畳むと周りのカードが中央と同じ3D位置へ完全に重なり、透明でも手前後の判定が曖昧になる。加えて実機ではPointer Captureや3Dの重なりで`click`のtargetがstageへ置き換わり、`isCountTap()`が成立しない。対応は2つ: 畳みきったら（`fan <= 0.001`）中央以外をDOMごと描かない／`pointerdown`が件数で指がTAP_SLOP以内で離れたら`pointerup`で開く（`takeCountTap()`）。
+- `stopWheelForControl()`は面積を動かさない`stopWheelAtNearest()`と同義になったため廃止し、開く処理は`openAssigned()`へ集約した。
+- 検証: 対象1 file / 38 passed、対象回帰4 files / 69 passed、App全体143 files / 1610 passed、production build成功（PWA 17 entries / 2700.72 KiB）、`git diff --check`指摘なし。
+- 実機の押下成立はU-11、2段の面積はU-12としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
+## 2026-09-04 — UI-003 畳んだホイールから件数を押せるようにする
+
+- Userから「ホイールを展開しなくても中央の件数を押せるようにしたい」。押下先はレール（＋⚙🗑）ではなく**件数バッジ**とUserが明示。
+- 原因は`wheelCards`のカードstyleが`pointerEvents: fan > 0.6 ? 'auto' : 'none'`で、畳んで扇が閉じるとカードごと不感になっていたこと。中央カードだけ常時`auto`にし、非中央は従来どおりfan依存のままとした（畳むと周りのカードが中央へ重なるため、一律に開けると見えないカードを踏んで意図しない分類先へ回る）。
+- 併せて`stopWheelForControl()`が無条件で`open`へ広げていたのをやめ、畳んでいる時は帯のままにした。件数を押してもシートの裏で面積が変わらず、閉じた後の品目一覧の位置が動かない。同関数を使うレールは帯では`inert`のため挙動は不変。
+- 帯の中だけ件数バッジを44px高へ。56pxの帯ではカードのタップ（＝開く）と押し分けが要る。開いている時の見た目は変えていない。
+- 修正前のコードで新regressionが`expected 'none' to be 'auto'`で落ちることを確認してから通した。
+- 検証: 対象1 file / 35 passed、対象回帰4 files / 66 passed、App全体143 files / 1607 passed、production build成功（492 modules、PWA 17 entries / 2700.79 KiB）、`git diff --check`指摘なし。既知warningのみ。
+- 実機の押し分けはU-11としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
+## 2026-09-04 — UI-003 スマホ慣性・開閉テンポの再調整
+
+- User実機で「localhostのPCでは慣性を感じるがスマホでは感じない」「開閉をもっとゆっくり」と報告。
+- 原因は慣性初速を最後の`pointermove` 1回だけから算出していたこと。スマホのイベント集約や離す直前の微小移動で初速が消えるため、直近120msの履歴と`getCoalescedEvents()`から算出するよう変更した。
+- touch入力へ1.25倍の初速補正を加え、最大速度を制限。摩擦と移動量は経過時間基準にし、60Hz / 120Hz端末での差を抑えた。指を止めて離した場合は静止時間を含めて慣性を弱める。
+- ホイール高さ・扇・操作レール・マーカー・フェードの開閉を420msから700msへ統一。reduced motionは即時のまま。
+- 追加報告の「1回のドラッグで1段しか動かない」は、移動するつまみにPointer Captureを置き、最初のDOM入れ替え時にスマホがcaptureを失うことが原因。固定された一覧へcaptureを移し、1回のpointerdownで3段連続移動する回帰testを追加した。
+- さらにホイールの文字が選択されて回転が止まる報告へ、ホイール限定の`user-select` / iOS長押し抑止と`selectstart` / `dragstart`キャンセルを追加した。
+- 検証: 慣性・開閉の対象4 files / 63 passed、複数段ドラッグ追加後1 file / 33 passed、文字選択防止追加後1 file / 34 passed、App全体143 files / 1606 passed、production build成功（492 modules、PWA 17 entries / 2700.69 KiB）。既知warningのみ。
+- 自動操作用browserが未接続のため、スマホ実機の感触はUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
 ## 2026-09-04 — 採番 v0.92.0（取込の刷新と振り分けホイール）
 
 ここまでを **v0.92.0** とした（User 指示。D-025 のとおり採番は User / PM のリリース区切り）。
