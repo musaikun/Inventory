@@ -350,6 +350,8 @@ function _importResult(plan) {
     skipped:      s.skipped.length,     // 取り込めなかった行数
     truncated:    s.truncated.length,   // Free上限で入らなかった品目数
     merged:       s.duplicates,         // ファイル内の同名重複行
+    unreadable:   (s.unreadable ?? []).length,      // 読めなくて、その欄だけ変えなかった数
+
     restoredTags: plan.restoredTags,
   }
 }

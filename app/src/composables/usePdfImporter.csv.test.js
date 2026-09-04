@@ -29,14 +29,17 @@ describe('itemsToConfigCSV — 数値を直さない', () => {
     expect(rows[2][2]).toBe('12abc')
   })
 
-  it('不正な単価は共通の数値契約で行エラーになり、黙って取り込まれない', () => {
+  it('不正な単価は共通の数値契約でその欄だけ落ち、黙って取り込まれない', () => {
     const csv = itemsToConfigCSV([
       { name: 'トマト', unit: '箱', price: '-100' },
       { name: 'レタス', unit: '玉', price: '120' },
     ])
     const parsed = parseItemCSV(csv)
-    expect(parsed.rows.map(r => r.name)).toEqual(['レタス'])
-    expect(parsed.errors[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '-100' })
+    // PDFから読んだ品目名・単位は正しいので、単価が読めないだけで品目を消さない
+    expect(parsed.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(parsed.rows[0].price).toBeUndefined()
+    expect(parsed.rows[0].unit).toBe('箱')
+    expect(parsed.unreadable[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '-100' })
   })
 
   it('正しい桁区切り・小数は通す', () => {

@@ -38,9 +38,10 @@ export const IMPORT_ERROR_NO_VALID_ROWS = 'no_valid_rows'
  */
 function _noValidRowsError(parsed) {
   return Object.assign(new Error('有効な品目が見つかりませんでした'), {
-    code:    IMPORT_ERROR_NO_VALID_ROWS,
-    errors:  parsed.errors,
-    skipped: parsed.skipped,
+    code:       IMPORT_ERROR_NO_VALID_ROWS,
+    errors:     parsed.errors,
+    skipped:    parsed.skipped,
+    unreadable: parsed.unreadable,
   })
 }
 
@@ -90,6 +91,8 @@ function _tagList(cols, idx) {
 function _emptyParsed() {
   return {
     rows: [], skipped: [], errors: [], truncatedNames: [],
+    // 読めなかった欄。行は取り込み、**その欄だけ**触らない（下の _buildRow を参照）
+    unreadable: [], columnMismatch: [],
     duplicates: 0, hasReorderColumn: false, headers: [], axisHeaders: [null, null],
   }
 }
@@ -105,16 +108,22 @@ function _numCell(cols, idx, opts = {}) {
 }
 
 /**
- * 行を1件組み立てる。列の読み取りで1つでも不正があれば、その行はエラーとして返す。
- * （不正な単価を黙って捨てて他の列だけ取り込むと、画面の「更新」と実データがずれる）
+ * 行を1件組み立てる。読めない値があっても**行は捨てない**。その欄だけ触らずに残し、
+ * 「読めなかった」を呼び出し側へ返す。
+ *
+ * IMPORT-001 で直したのは「読めない数値を*既存値の維持として黙って扱っていた*」こと。
+ * エラーにしたのは正しかったが、そこから「エラー＝行ごと捨てる」まで踏み込んでいて、
+ * 単価が `約980円` と書かれているだけで品目名も単位もカテゴリも正常な行が丸ごと消えていた。
+ * **黙って壊さない契約は、捨てることではなく言うことで守る**（User判断 2026-09-02）。
+ * 読めなかった欄は必ず件数・行番号・元の値つきで画面に出す。
  */
 function _buildRow({ line, cols, spec, headers }) {
-  const errors = []
+  const unreadable = []
   const label = (idx, fallback) => headers?.[idx]?.trim() || fallback
 
   const num = (idx, fallback, opts) => {
     const r = _numCell(cols, idx, { line, columnLabel: label(idx, fallback), ...opts })
-    if (r.error) errors.push(r.error)
+    if (r.error) unreadable.push(r.error)
     return r
   }
 
@@ -140,10 +149,14 @@ function _buildRow({ line, cols, spec, headers }) {
   if (spec.reorderPoint !== undefined && spec.reorderPoint >= 0) {
     const r = num(spec.reorderPoint, '発注点', { max: IMPORT_MAX_REORDER_POINT })
     // 発注点列があるとき、空欄は「解除」を意味する。undefined（列なし）と区別して null にする。
-    row.reorderPoint = r.empty ? null : (r.value ?? null)
+    // 読めない値は「解除」ではない。発注点の列を持つファイルは既存の発注点を
+    // いったん全部捨てて置き直すので、undefined のままだと結局その品目の発注点が消える。
+    // 「読めなかったから触らない」を計画側で実行できるよう、印だけ立てる。
+    if (r.error) row.reorderPointUnreadable = true
+    else row.reorderPoint = r.empty ? null : (r.value ?? null)
   }
 
-  return { row, errors }
+  return { row, unreadable }
 }
 
 /** 行を1本のパイプラインで詰める。ヘッダ解釈以外は推奨形式も列指定も同じ扱いにする。 */
@@ -151,13 +164,15 @@ function _collectRows({ records, parsed, spec, headers }) {
   const seen = new Set()
 
   for (const { line, cols } of records) {
+    // 列数がヘッダと違う行も捨てない。**読めた列だけ使う**。
+    // 前置き（社名だけの行・空行）のある帳票では必ず出るもので、そこで行ごと弾くと
+    // 表本体まで巻き添えになる。名前の列が取れなければ、下の「品目名が空」で外れる。
     if (headers.length && cols.length !== headers.length) {
-      parsed.errors.push({
+      parsed.columnMismatch.push({
         line, column: null, columnLabel: '列数',
         value: `${cols.length}列`,
-        reason: `列数がヘッダ（${headers.length}列）と一致しません`,
+        reason: `列数がヘッダ（${headers.length}列）と一致しません。読めた列だけ使います`,
       })
-      continue
     }
 
     const rawName = _cellAt(cols, spec.name)
@@ -175,8 +190,8 @@ function _collectRows({ records, parsed, spec, headers }) {
       continue
     }
 
-    const { row, errors } = _buildRow({ line, cols, spec, headers })
-    if (errors.length) { parsed.errors.push(...errors.map(e => ({ ...e, name }))); continue }
+    const { row, unreadable } = _buildRow({ line, cols, spec, headers })
+    if (unreadable.length) parsed.unreadable.push(...unreadable.map(e => ({ ...e, name })))
 
     seen.add(name)
     row.name = name
@@ -484,7 +499,13 @@ export function buildImportPlan(parsed, current, opts = {}) {
     if (row.lotSize   !== undefined) next.lotSizes[row.name]   = row.lotSize
     if (row.categoryCode !== undefined && row.category) next.categoryCodes[row.category] = row.categoryCode
     if (parsed.hasReorderColumn) {
-      if (row.reorderPoint === null) delete next.reorderPoints[row.name]
+      if (row.reorderPointUnreadable) {
+        // 読めなかった欄は変えない。この列を持つファイルは発注点を置き直すので、
+        // 何もしないと「読めなかった」が「解除」に化ける。
+        const prev = current.reorderPoints?.[row.name]
+        if (prev !== undefined) next.reorderPoints[row.name] = prev
+      }
+      else if (row.reorderPoint === null) delete next.reorderPoints[row.name]
       else if (row.reorderPoint !== undefined) next.reorderPoints[row.name] = row.reorderPoint
     }
     if (row.tagsA !== undefined) fileTagsA[row.name] = row.tagsA
@@ -549,6 +570,10 @@ export function buildImportPlan(parsed, current, opts = {}) {
       added, updated, unchanged, removed, truncated,
       skipped:        parsed.skipped,
       errors:         parsed.errors ?? [],
+      // 読めなくてその欄だけ触らなかったもの／列数が合わなかった行。
+      // どちらも行は入っている。件数を出さないと「黙って」に戻る。
+      unreadable:     parsed.unreadable ?? [],
+      columnMismatch: parsed.columnMismatch ?? [],
       truncatedNames: parsed.truncatedNames ?? [],
       aliasConflicts,
       categoryCodeChanges,
@@ -576,6 +601,8 @@ export function summaryCounts(summary) {
     truncated:      summary.truncated.length,
     skipped:        summary.skipped.length,
     errors:         (summary.errors ?? []).length,
+    unreadable:     (summary.unreadable ?? []).length,
+    columnMismatch: (summary.columnMismatch ?? []).length,
     aliasConflicts: (summary.aliasConflicts ?? []).length,
     truncatedNames: (summary.truncatedNames ?? []).length,
     duplicates:     summary.duplicates,

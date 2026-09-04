@@ -63,10 +63,13 @@ const preview = computed(() => {
     const plan = isMapped.value
       ? planMappedImport(props.csvText, props.mapping, { ...opts, hasHeader: props.hasHeader })
       : planCSVImport(props.csvText, opts)
-    return { plan, error: '', errorCode: '', rowErrors: [] }
+    return { plan, error: '', errorCode: '', rowErrors: [], skippedRows: [], unreadable: [] }
   } catch (err) {
     // 1行も取り込めない場合も、行番号・列・理由は出す（何が悪かったのか消さない）
-    return { plan: null, error: err.message, errorCode: err.code ?? '', rowErrors: err.errors ?? [] }
+    return {
+      plan: null, error: err.message, errorCode: err.code ?? '',
+      rowErrors: err.errors ?? [], skippedRows: err.skipped ?? [], unreadable: err.unreadable ?? [],
+    }
   }
 })
 
@@ -93,8 +96,14 @@ const cap = (list) => (list ?? []).slice(0, LIST_CAP)
 const updatedSample   = computed(() => cap(summary.value?.updated))
 const removedSample   = computed(() => cap(summary.value?.removed))
 const skippedSample   = computed(() => cap(summary.value?.skipped))
-const errorSample     = computed(() => cap(summary.value?.errors ?? preview.value.rowErrors))
-const errorTotal      = computed(() => (summary.value?.errors ?? preview.value.rowErrors ?? []).length)
+const errorSample     = computed(() => cap(summary.value?.errors))
+// 1件も取り込めなかったときの明細。読めない値では行を捨てなくなったので、
+// ここへ来る理由は「品目名が空」などの除外が主になる。理由を出さないと直しようがない。
+const failRows = computed(() => [
+  ...(preview.value.rowErrors ?? []).map(e => ({ line: e.line, what: e.columnLabel, reason: e.reason })),
+  ...(preview.value.skippedRows ?? []).map(sk => ({ line: sk.line, what: sk.name || '—', reason: sk.reason })),
+].sort((a, b) => a.line - b.line))
+const failSample = computed(() => cap(failRows.value))
 const conflicts       = computed(() => summary.value?.aliasConflicts ?? [])
 const conflictSample  = computed(() => cap(conflicts.value))
 // 衝突の種類ごとに文言を変える（「既存を守る」と「先頭行を守る」は別の話なので混ぜない）
@@ -108,6 +117,11 @@ const conflictKinds = computed(() => {
   for (const c of conflicts.value) if (c.kind in kinds) kinds[c.kind] = true
   return kinds
 })
+// 読めなかった欄。行は入っているが、その欄だけ触っていない。
+// 件数と元の値を出さないと「黙って壊さない」が守れない（捨てるのをやめた代わりに、言う）。
+const unreadable      = computed(() => summary.value?.unreadable ?? preview.value.unreadable ?? [])
+const unreadableSample = computed(() => cap(unreadable.value))
+const columnMismatch  = computed(() => summary.value?.columnMismatch ?? [])
 const truncatedNames  = computed(() => summary.value?.truncatedNames ?? [])
 const categoryCodeChanges = computed(() => cap(summary.value?.categoryCodeChanges))
 const axisNameChanges = computed(() => summary.value?.axisNameChanges ?? [])
@@ -167,15 +181,15 @@ function onConfirm() {
       </button>
 
       <!-- 1件も取り込めなかった場合でも、行番号・列・理由は出す -->
-      <div v-if="!counts && errorTotal > 0" class="detail-block">
-        <div class="detail-head">取り込めなかった行（{{ errorTotal }}行）</div>
+      <div v-if="!counts && failRows.length > 0" class="detail-block">
+        <div class="detail-head">取り込めなかった行（{{ failRows.length }}行）</div>
         <div class="skip-list">
-          <div v-for="(e, i) in errorSample" :key="i" class="skip-row">
+          <div v-for="(e, i) in failSample" :key="i" class="skip-row">
             <span class="skip-line">{{ e.line }}行目</span>
-            <span class="skip-name">{{ e.columnLabel }}</span>
+            <span class="skip-name">{{ e.what }}</span>
             <span class="skip-reason">{{ e.reason }}</span>
           </div>
-          <p v-if="errorTotal > errorSample.length" class="more">ほか{{ errorTotal - errorSample.length }}行</p>
+          <p v-if="failRows.length > failSample.length" class="more">ほか{{ failRows.length - failSample.length }}行</p>
         </div>
       </div>
 
@@ -222,6 +236,9 @@ function onConfirm() {
           <div class="count-cell err">
             <span class="count-num">{{ counts.errors }}</span><span class="count-label">エラー</span>
           </div>
+          <div v-if="counts.unreadable" class="count-cell warnc">
+            <span class="count-num">{{ counts.unreadable }}</span><span class="count-label">読めず</span>
+          </div>
           <div v-if="isReplace" class="count-cell del">
             <span class="count-num">{{ counts.removed }}</span><span class="count-label">削除</span>
           </div>
@@ -256,6 +273,33 @@ function onConfirm() {
             <input type="radio" :value="ALIAS_TAKEOVER" v-model="aliasPolicy" />
             ファイルの指定を優先する（別名をあとの行の品目へ付け替える）
           </label>
+        </div>
+
+        <!-- 読めなかった欄。行は取り込むが、その欄は変えていない -->
+        <div v-if="unreadable.length" class="warn unread-warn">
+          <p class="warn-title">{{ unreadable.length }}件の値が読めませんでした</p>
+          <p class="warn-body">
+            その行は取り込みます。<b>読めなかった欄だけ</b>を変更せずに残します
+            （新しい品目なら、その欄は空のままになります）。
+          </p>
+          <ul class="name-list">
+            <li v-for="(u, i) in unreadableSample" :key="i">
+              {{ u.line }}行目<span v-if="u.name">・{{ u.name }}</span>：{{ u.reason }}
+            </li>
+            <li v-if="unreadable.length > unreadableSample.length" class="more">
+              ほか{{ unreadable.length - unreadableSample.length }}件
+            </li>
+          </ul>
+        </div>
+
+        <!-- 列数がヘッダと違う行。読めた列だけ使っている -->
+        <div v-if="columnMismatch.length" class="warn unread-warn">
+          <p class="warn-title">{{ columnMismatch.length }}行は列数がヘッダと違います</p>
+          <p class="warn-body">読めた列だけを使って取り込みます（前置きや区切りの行はここに出ます）。</p>
+          <ul class="name-list">
+            <li v-for="(c, i) in columnMismatch.slice(0, 5)" :key="i">{{ c.line }}行目: {{ c.value }}</li>
+            <li v-if="columnMismatch.length > 5" class="more">ほか{{ columnMismatch.length - 5 }}行</li>
+          </ul>
         </div>
 
         <!-- 品目名の切り詰め -->
@@ -440,6 +484,7 @@ function onConfirm() {
 .count-cell.skip .count-num { color: #b45309; }
 .count-cell.err  .count-num { color: #dc2626; }
 .count-cell.del  .count-num { color: #dc2626; }
+.count-cell.warnc .count-num { color: #b45309; }
 
 .total-line { font-size: 13px; color: #475569; margin: 0 0 12px; }
 
@@ -449,6 +494,11 @@ function onConfirm() {
 .danger-warn { background: #fef2f2; border: 1px solid #fecaca; }
 .danger-warn .warn-title { color: #dc2626; }
 .danger-warn .warn-body  { color: #7f1d1d; }
+/* 読めなかった欄・列数違い。行は入っているので危険色ではなく注意色にする */
+.unread-warn { background: #fffbeb; border: 1px solid #fde68a; }
+.unread-warn .warn-title { color: #b45309; }
+.unread-warn .warn-body  { color: #78350f; }
+.unread-warn .name-list  { color: #78350f; }
 .limit-warn { background: #fffbeb; border: 1px solid #fde68a; }
 .limit-warn .warn-title { color: #b45309; }
 .limit-warn .warn-body  { color: #78350f; }

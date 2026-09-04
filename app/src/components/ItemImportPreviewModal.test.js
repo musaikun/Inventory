@@ -78,10 +78,21 @@ describe('件数と明細の表示', () => {
   })
 
   it('1行も取り込めないファイルでも、行番号つきの理由を出す', async () => {
-    const { text } = await mount({ csvText: `${HEAD}\nトマト,箱,あ,野菜,` })
+    const { text } = await mount({ csvText: `${HEAD}\n,箱,120,野菜,` })
     expect(text()).toContain('有効な品目が見つかりませんでした')
     expect(text()).toContain('2行目')
+  })
+
+  it('読めなかった欄は、行を捨てずに件数と理由で知らせる', async () => {
+    // 2026-09-02 の判断で「読めない＝行ごと除外」をやめた。捨てない代わりに、
+    // 何をどう扱ったかを必ず画面に出す（黙って残すと、直したはずの値が
+    // 変わっていない理由が分からなくなる）。
+    const { text } = await mount({ csvText: `${HEAD}\nトマト,箱,あ,野菜,` })
+    expect(text()).toContain('1件の値が読めませんでした')
+    expect(text()).toContain('2行目')
     expect(text()).toContain('数値として読めません')
+    expect(text()).toContain('読めなかった欄だけ')
+    expect(text()).toContain('トマト')      // 行そのものは取り込まれる
   })
 
   it('ヘッダ無しファイルでは、この画面から列指定へ渡せる', async () => {

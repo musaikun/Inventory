@@ -60,6 +60,9 @@ function _importResultStatus(result) {
   if (result.unchanged  > 0) parts.push(`変更なし${result.unchanged}件`)
   if (result.merged     > 0) parts.push(`ファイル内の重複${result.merged}行を統合`)
   if (result.skipped    > 0) parts.push(`${result.skipped}行を除外`)
+  // 読めなかった欄は行ごと捨てずに残している。黙って残すと、直したつもりの値が
+  // 変わっていない理由が分からなくなるので、取込後の1行にも必ず出す。
+  if (result.unreadable > 0) parts.push(`${result.unreadable}件は値が読めず未変更`)
   if (result.restoredTags > 0) parts.push(`振り分けを${result.restoredTags}品目復元`)
   const head = `${parts.join(' / ')}。登録${result.count}件になりました`
 

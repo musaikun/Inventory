@@ -36,41 +36,62 @@ describe('数値セル — 黙って別の値にしない', () => {
     expect(p.errors).toEqual([])
   })
 
-  it('不正な単価を「既存値を維持」にすり替えず、行番号・列・理由つきのエラーにする', () => {
+  // 2026-09-02 の User判断で契約が1段変わった。
+  //   旧: 読めない値 → その行を丸ごと捨てる
+  //   新: 読めない値 → **その欄だけ**触らず、行は取り込み、読めなかったことを必ず出す
+  // 守りたかったものは同じ（読めない値を「既存値の維持」へ黙ってすり替えない）。
+  // 守り方が「捨てる」から「言う」に変わっただけで、黙るのは今も禁じ手。
+  it('不正な単価でも行は取り込み、単価の欄だけ触らずに理由を残す', () => {
     const p = parseItemCSV(`${HEAD}\nトマト,箱,あ,野菜,\nレタス,玉,120,野菜,`)
-    expect(p.rows.map(r => r.name)).toEqual(['レタス'])
-    expect(p.errors).toHaveLength(1)
-    expect(p.errors[0]).toMatchObject({ line: 2, columnLabel: '単価', name: 'トマト' })
-    expect(p.errors[0].reason).toContain('数値として読めません')
+    expect(p.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(p.rows[0].price).toBeUndefined()       // 読めなかった欄は値を持たない
+    expect(p.rows[0].unit).toBe('箱')             // 同じ行の読めた列は入る
+    expect(p.unreadable).toHaveLength(1)
+    expect(p.unreadable[0]).toMatchObject({ line: 2, columnLabel: '単価', name: 'トマト' })
+    expect(p.unreadable[0].reason).toContain('数値として読めません')
+    expect(p.errors).toEqual([])                  // 行としてはエラーではない
   })
 
-  it('不正な単価の行は既存の単価も書き換えない', () => {
+  it('不正な単価は既存の単価を書き換えない（読めた列だけ更新する）', () => {
     const cfg = emptyConfig({ order: ['トマト', 'レタス'], prices: { トマト: 500 }, units: { トマト: '箱' } })
     const p = plan(`${HEAD}\nトマト,ケース,あ,野菜,\nレタス,玉,120,野菜,`, cfg)
-    expect(p.prices['トマト']).toBe(500)
-    expect(p.units['トマト']).toBe('箱')       // 同じ行の他の列も適用しない
-    expect(p.summary.errors).toHaveLength(1)
+    expect(p.prices['トマト']).toBe(500)          // ここが崩れると IMPORT-001 の逆戻り
+    expect(p.units['トマト']).toBe('ケース')      // 読めた列は更新する（行を捨てないので）
+    expect(p.summary.unreadable).toHaveLength(1)
   })
 
-  it('0以下の単価を拒否して理由を残す', () => {
+  it('0以下の単価も欄だけ落として理由を残す', () => {
     const p = parseItemCSV(`${HEAD}\nトマト,箱,0,野菜,\nレタス,玉,-5,野菜,\nきゅうり,本,90,野菜,`)
-    expect(p.rows.map(r => r.name)).toEqual(['きゅうり'])
-    expect(p.errors.map(e => e.line)).toEqual([2, 3])
+    expect(p.rows.map(r => r.name)).toEqual(['トマト', 'レタス', 'きゅうり'])
+    expect(p.rows.map(r => r.price)).toEqual([undefined, undefined, 90])
+    expect(p.unreadable.map(e => e.line)).toEqual([2, 3])
   })
 
-  it('負の発注点を拒否する', () => {
+  it('読めない発注点を「解除」に化けさせない（既存の発注点を守る）', () => {
     const head = '品目名,単位,単価,カテゴリ,エイリアス,商品コード,分類コード,前月実績,入数,場所,仕入先,発注点'
-    const p = parseItemCSV(`${head}\nトマト,箱,120,野菜,,,,,,,,-3\nレタス,玉,90,野菜,,,,,,,,4`)
-    expect(p.rows.map(r => r.name)).toEqual(['レタス'])
-    expect(p.errors[0]).toMatchObject({ columnLabel: '発注点', line: 2 })
+    const cfg = emptyConfig({ order: ['トマト', 'レタス'], reorderPoints: { トマト: 7 } })
+    const parsed = parseItemCSV(`${head}\nトマト,箱,120,野菜,,,,,,,,-3\nレタス,玉,90,野菜,,,,,,,,4`)
+    expect(parsed.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(parsed.unreadable[0]).toMatchObject({ columnLabel: '発注点', line: 2 })
+    // 発注点列を持つファイルは発注点を置き直す。読めなかった行だけは既存を残す。
+    const p = buildImportPlan(parsed, cfg, {})
+    expect(p.reorderPoints['トマト']).toBe(7)
+    expect(p.reorderPoints['レタス']).toBe(4)
+    expect(p.summary.reorderPointsCleared).toEqual([])
   })
 
-  it('1行も取り込めないときも、除外理由を例外へ載せてプレビューが出せるようにする', () => {
+  it('1行も取り込めないときは、除外理由を例外へ載せてプレビューが出せるようにする', () => {
     let thrown
-    try { parseItemCSV(`${HEAD}\nトマト,箱,あ,野菜,`) } catch (e) { thrown = e }
+    try { parseItemCSV(`${HEAD}\n,箱,120,野菜,`) } catch (e) { thrown = e }
     expect(thrown.code).toBe(IMPORT_ERROR_NO_VALID_ROWS)
-    expect(thrown.errors).toHaveLength(1)
-    expect(thrown.errors[0]).toMatchObject({ line: 2, columnLabel: '単価' })
+    expect(thrown.skipped).toHaveLength(1)
+    expect(thrown.skipped[0]).toMatchObject({ line: 2 })
+  })
+
+  it('単価が読めないだけのファイルは、もう「1件も取り込めない」にならない', () => {
+    const p = parseItemCSV(`${HEAD}\nトマト,箱,あ,野菜,`)
+    expect(p.rows.map(r => r.name)).toEqual(['トマト'])
+    expect(p.unreadable).toHaveLength(1)
   })
 })
 
@@ -85,11 +106,23 @@ describe('CSV の字句解析', () => {
       .toThrow(/引用符/)
   })
 
-  it('列数がヘッダと一致しない行を行番号つきで除外する', () => {
+  it('列数がヘッダと一致しない行は、読めた列だけ使って取り込み、行番号を残す', () => {
+    // 前置き（社名だけの行）のある帳票では必ず出る。ここで行ごと弾くと表本体まで巻き添えになる。
     const p = parseItemCSV(`${HEAD}\nトマト,箱,120,野菜,\nレタス,玉,120`)
-    expect(p.rows.map(r => r.name)).toEqual(['トマト'])
-    expect(p.errors[0]).toMatchObject({ line: 3, columnLabel: '列数' })
-    expect(p.errors[0].reason).toContain('列数')
+    expect(p.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(p.rows[1].price).toBe(120)
+    expect(p.columnMismatch[0]).toMatchObject({ line: 3, columnLabel: '列数' })
+    expect(p.columnMismatch[0].reason).toContain('読めた列だけ')
+    expect(p.errors).toEqual([])
+  })
+
+  it('名前の列すら取れない前置きの行は「品目名が空」で外れる', () => {
+    const p = parseItemCSV(`${HEAD}\n東西酒販\nトマト,箱,120,野菜,`)
+    expect(p.rows.map(r => r.name)).toEqual(['東西酒販', 'トマト'])
+    // 1列だけの行でも名前は取れるので品目になる。名前が空の行だけが外れる。
+    const q = parseItemCSV(`${HEAD}\n,,,,\nトマト,箱,120,野菜,`)
+    expect(q.rows.map(r => r.name)).toEqual(['トマト'])
+    expect(q.skipped[0]).toMatchObject({ line: 2 })
   })
 
   it('CRLF・BOM・日本語・空行を仕様どおり処理する', () => {
@@ -218,10 +251,11 @@ describe('プレビューに出す変更', () => {
     expect(p.summary.truncated).toEqual(['C'])
   })
 
-  it('summaryCounts が error・alias衝突・切り詰めも数える', () => {
+  it('summaryCounts が読めなかった欄・alias衝突・切り詰めも数える', () => {
     const p = plan(`${HEAD}\nトマト,箱,あ,野菜,\nレタス,玉,120,野菜,`)
     const c = summaryCounts(p.summary)
-    expect(c).toMatchObject({ added: 1, errors: 1, aliasConflicts: 0, truncatedNames: 0 })
+    // 行は2件とも入る。読めなかったのは欄1つぶん
+    expect(c).toMatchObject({ added: 2, errors: 0, unreadable: 1, aliasConflicts: 0, truncatedNames: 0 })
   })
 })
 
@@ -276,34 +310,35 @@ describe('数量・単価の上限（Worker契約と同じ値）', () => {
     expect(p.rows[0].price).toBe(100_000_000)
   })
 
-  it('単価が上限+1なら行番号・列・元の値・理由つきで拒否する', () => {
+  it('単価が上限+1なら、その欄だけ落として元の値・理由を残す', () => {
     const p = parseItemCSV(`${HEAD}\nトマト,箱,100000001,野菜,\nレタス,玉,120,野菜,`)
-    expect(p.rows.map(r => r.name)).toEqual(['レタス'])
-    expect(p.errors[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '100000001', name: 'トマト' })
+    expect(p.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(p.rows[0].price).toBeUndefined()
+    expect(p.unreadable[0]).toMatchObject({ line: 2, columnLabel: '単価', value: '100000001', name: 'トマト' })
   })
 
-  it('上限超過の行は既存の単価を書き換えない（計画にも反映しない）', () => {
+  it('上限超過の単価は既存の単価を書き換えない（計画にも反映しない）', () => {
     const cfg = emptyConfig({ order: ['トマト'], prices: { トマト: 500 } })
     const p = plan(`${HEAD}\nトマト,箱,100000001,野菜,\nレタス,玉,120,野菜,`, cfg)
     expect(p.prices['トマト']).toBe(500)
-    expect(p.summary.errors).toHaveLength(1)
+    expect(p.summary.unreadable).toHaveLength(1)
   })
 
-  it('発注点の上限ちょうどは受理し、上限+1は拒否する', () => {
+  it('発注点の上限ちょうどは受理し、上限+1はその欄だけ落とす', () => {
     const ok = parseItemCSV(`${REORDER_HEAD}\nトマト,箱,120,野菜,,,,,,,,1000000`)
-    expect(ok.errors).toEqual([])
+    expect(ok.unreadable).toEqual([])
     expect(ok.rows[0].reorderPoint).toBe(1_000_000)
 
     const ng = parseItemCSV(`${REORDER_HEAD}\nトマト,箱,120,野菜,,,,,,,,1000001\nレタス,玉,90,野菜,,,,,,,,4`)
-    expect(ng.rows.map(r => r.name)).toEqual(['レタス'])
-    expect(ng.errors[0]).toMatchObject({ line: 2, columnLabel: '発注点', value: '1000001' })
+    expect(ng.rows.map(r => r.name)).toEqual(['トマト', 'レタス'])
+    expect(ng.unreadable[0]).toMatchObject({ line: 2, columnLabel: '発注点', value: '1000001' })
   })
 
-  it('列指定取込でも同じ上限が効く', () => {
-    const p = () => parseMappedCSV('トマト,箱,100000001', { name: 0, unit: 1, price: 2 }, { hasHeader: false })
-    let thrown
-    try { p() } catch (e) { thrown = e }
-    expect(thrown.code).toBe(IMPORT_ERROR_NO_VALID_ROWS)
-    expect(thrown.errors[0]).toMatchObject({ line: 1, columnLabel: '単価', value: '100000001' })
+  it('列指定取込でも同じ上限が効く（欄だけ落ちる）', () => {
+    const p = parseMappedCSV('トマト,箱,100000001', { name: 0, unit: 1, price: 2 }, { hasHeader: false })
+    expect(p.rows.map(r => r.name)).toEqual(['トマト'])
+    expect(p.rows[0].price).toBeUndefined()
+    expect(p.rows[0].unit).toBe('箱')
+    expect(p.unreadable[0]).toMatchObject({ line: 1, columnLabel: '単価', value: '100000001' })
   })
 })
