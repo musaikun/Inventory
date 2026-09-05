@@ -90,9 +90,11 @@ const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイ�
 const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
+const mapperExpectRecipe = ref(false)   // 「保存した読み方」の入口から開いたか
 const dragging       = ref(false)
+const recipeDragging = ref(false)
 const fileInput      = ref(null)
-const mapperInput    = ref(null)
+const recipeInput    = ref(null)
 
 // ── 取込確認（プレビュー）─────────────────────────────────────────────────────
 // CSV / 列指定 / PDF・Excel のどの経路でも、確定前に必ずこの画面を通す。
@@ -110,6 +112,12 @@ const askRecipe   = ref(null)     // { shape, filename } 保存を訊いてい�
 const recipeName  = ref('')
 const savedRecipe = ref('')       // 保存できたレシピの名前（1回だけ出す）
 const recipes     = ref(listRecipes())
+// 入口に「何を覚えているか」を出す。名前が読めないと、どのファイルを入れる
+// 場所なのか分からず、結局はじめての入口へ戻ってしまう。
+const recipeNames = computed(() => {
+  const names = recipes.value.map(r => r.name)
+  return names.length <= 3 ? names.join('・') : `${names.slice(0, 3).join('・')} ほか${names.length - 3}件`
+})
 
 function onPreviewImported(result) {
   const src = previewSource.value
@@ -204,52 +212,51 @@ async function clearAppCache() {
   location.reload()
 }
 
-// ── ファイル読み込み（CSV / PDF / Excel 自動判別）─────────────────────────────
-function handleFile(file) {
+// ── ファイル読み込み ────────────────────────────────────────────────────────
+// 取込は形式を問わず列指定フローを1本通す。推奨フォーマットだけ別の道にすると、
+// 通った道でその後の画面が変わり、「前はこうだった」が次に効かない。
+// 同じ形を一度通せばレシピが当たるので、2回目からは問いが1つも出ない。
+// PDFだけは先にページを解析しないと列が取れないため、専用画面を挟む。
+function handleFile(file, { fromRecipe = false } = {}) {
   if (!file) return
 
-  const isCsv   = /\.csv$/i.test(file.name)
   const isPdf   = /\.pdf$/i.test(file.name)
-  const isExcel = /\.(xlsx|xls)$/i.test(file.name)
+  const isTable = /\.(csv|txt|xlsx|xls)$/i.test(file.name)
 
-  if (!isCsv && !isPdf && !isExcel) {
+  if (!isPdf && !isTable) {
     status.value = { type: 'error', msg: 'CSV / PDF / Excel ファイルを選択してください' }
     return
   }
 
-  // PDF / Excel → プレビューモーダルで確認
-  if (isPdf || isExcel) {
+  if (isPdf) {
     status.value       = null
     importerFile.value = file
     showImporter.value = true
     return
   }
 
-  // CSV → 取込内容を確認してから反映する
-  const reader = new FileReader()
-  reader.onload = e => {
-    openPreview({ origin: 'csv', csvText: e.target.result, filename: file.name })
-  }
-  reader.readAsText(file, 'UTF-8')
+  openMapper(file, { fromRecipe })
 }
 
 // 解析済みのテキストから直接マッピング画面を開く（取込確認画面からの受け皿）。
 // ファイルを読み直さないので、確認画面が見ていた内容と同じものを列指定できる。
 function openMapperFromText(csvText, filename = '') {
-  mapperCsvText.value  = csvText
-  mapperFilename.value = filename
-  showMapper.value     = true
-  status.value         = null
+  mapperCsvText.value      = csvText
+  mapperFilename.value     = filename
+  mapperExpectRecipe.value = false
+  showMapper.value         = true
+  status.value             = null
 }
 
-async function openMapper(file) {
+async function openMapper(file, { fromRecipe = false } = {}) {
   const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   try {
     if (isExcel) assertSpreadsheetFile(file)
-    mapperCsvText.value  = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
-    mapperFilename.value = file.name
-    showMapper.value     = true
-    status.value         = null
+    mapperCsvText.value      = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
+    mapperFilename.value     = file.name
+    mapperExpectRecipe.value = fromRecipe
+    showMapper.value         = true
+    status.value             = null
   } catch (err) {
     status.value = { type: 'error', msg: err.message }
   }
@@ -269,6 +276,9 @@ function onMapperImported({ mapping, csvText, headerRow, headerNamed, recipeShap
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
 function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
+// 保存した読み方の入口。通る道は同じで、当たらなかったときに理由を出せるようにするだけ。
+function onRecipeFileChange(e) { handleFile(e.target.files[0], { fromRecipe: true }) }
+function onRecipeDrop(e)       { recipeDragging.value = false; handleFile(e.dataTransfer.files[0], { fromRecipe: true }) }
 
 function onImporterClose() {
   showImporter.value = false
@@ -327,7 +337,8 @@ function onDownloadTemplate() {
         参加中はホストが品目リストを管理します。<br>品目の変更はホスト端末から行ってください。
       </div>
 
-      <!-- ドロップゾーン（CSV / PDF / Excel 全対応）※ゲストには非表示 -->
+      <!-- 入口は2つ。「はじめての形」と「覚えている形」で道を分ける ※ゲストには非表示。
+           どちらも通る先は同じ列指定フローで、違うのは問いが出るかどうかだけ。 -->
       <template v-else>
         <div
           class="drop-zone"
@@ -338,14 +349,40 @@ function onDownloadTemplate() {
           @click="fileInput.click()"
         >
           <div class="drop-icon">📂</div>
-          <div class="drop-label">ドラッグ or タップしてアップロード</div>
-          <div class="drop-hint">CSV / Excel（.csv / .xlsx）・PDF はβ</div>
-          <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
+          <div class="drop-label">はじめて取り込む形</div>
+          <div class="drop-hint">ドラッグ or タップして選ぶ ・ CSV / Excel ・ PDF はβ</div>
+          <div class="drop-sub">どの列が何かを1つずつ決めます。決めた読み方は、取り込んだ後に保存できます</div>
+          <!-- 拡張子だけを並べると、iOSやAndroidのpickerが対応する種類を見つけられず
+               「PDFしか選べない」状態になる。MIMEも併記して選択肢を出す。実際に受け
+               付ける種類は handleFile() がファイル名の拡張子で判定する。 -->
+          <input
+            ref="fileInput" type="file" class="hidden-input import-file"
+            accept=".csv,.txt,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            @change="onFileChange"
+          />
         </div>
-        <p class="import-policy">
-          取り込むと、<b>同じ品目名は上書き、無い品目は追加</b>されます。ファイルに載っていない品目は消えません。
-          全入れ替えにしたいときは、次の確認画面で選べます。
-        </p>
+
+        <!-- 2回目以降の入口。覚えている名前を出しておかないと、どのファイルを
+             入れる場所なのか分からず、結局はじめての入口へ戻ってしまう。 -->
+        <div
+          v-if="recipes.length"
+          class="drop-zone recipe-zone"
+          :class="{ over: recipeDragging }"
+          @dragover.prevent="recipeDragging = true"
+          @dragleave="recipeDragging = false"
+          @drop.prevent="onRecipeDrop"
+          @click="recipeInput.click()"
+        >
+          <div class="drop-icon">📗</div>
+          <div class="drop-label">保存した読み方で取り込む</div>
+          <div class="drop-hint">{{ recipeNames }}</div>
+          <div class="drop-sub">前と同じ形のファイルなら、問いは1つも出ません</div>
+          <input
+            ref="recipeInput" type="file" class="hidden-input recipe-file"
+            accept=".csv,.txt,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            @change="onRecipeFileChange"
+          />
+        </div>
 
         <!-- ステータスメッセージ -->
         <div v-if="status" class="msg" :class="status.type">
@@ -372,18 +409,10 @@ function onDownloadTemplate() {
         </div>
       </template>
 
-      <!-- フォーマット不明CSVのマッピング取込（ゲストには非表示） -->
-      <div v-if="!props.isGuest" class="mapper-row">
-        <button class="mapper-trigger" @click="mapperInput.click()">
-          🗂 フォーマット不明のCSV/Excelを列指定でインポート
-        </button>
-        <input ref="mapperInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) openMapper(e.target.files[0]) }" />
-      </div>
-
-      <!-- 保存したレシピ。当たったかどうかは取込画面が言うので、ここは持ち物の管理だけ -->
+      <!-- 保存したレシピ。取込の入口は上の📗なので、ここは持ち物の管理だけ -->
       <details v-if="!props.isGuest && recipes.length" class="recipe-list">
-        <summary>📗 保存したレシピ（{{ recipes.length }}）</summary>
-        <p class="recipe-list-b">同じ形のファイルを開いたとき、自動で当たります。</p>
+        <summary>📗 保存した読み方の管理（{{ recipes.length }}）</summary>
+        <p class="recipe-list-b">上の📗から取り込むと、同じ形のファイルには自動で当たります。</p>
         <div v-for="r in recipes" :key="r.id" class="recipe-row">
           <div class="recipe-row-b">
             <div class="recipe-row-t">{{ r.name }}</div>
@@ -400,7 +429,7 @@ function onDownloadTemplate() {
         <button class="mapper-trigger" @click="restoreInput.click()">
           🔧 棚卸結果CSV/Excelから入力を復元
         </button>
-        <input ref="restoreInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
+        <input ref="restoreInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/comma-separated-values,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input restore-file" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>
       </div>
 
@@ -572,6 +601,7 @@ function onDownloadTemplate() {
     :csv-text="mapperCsvText"
     :filename="mapperFilename"
     :axis-names="config.axisNames"
+    :expect-recipe="mapperExpectRecipe"
     @imported="onMapperImported"
     @close="showMapper = false"
   />
@@ -650,7 +680,10 @@ function onDownloadTemplate() {
 .drop-zone.over,
 .drop-zone:hover { border-color: var(--primary); background: var(--primary-weak); }
 
+.drop-zone.recipe-zone { border-style: solid; border-color: var(--primary-border); background: var(--primary-weak); }
+.drop-zone.recipe-zone:hover { border-color: var(--primary); }
 .drop-icon  { font-size: 36px; margin-bottom: 8px; }
+.drop-sub   { font-size: 11px; line-height: 1.6; color: var(--text-muted); margin-top: 6px; }
 .drop-label { font-size: 15px; font-weight: 600; color: var(--text); }
 .drop-hint  { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 .hidden-input { display: none; }
@@ -666,12 +699,6 @@ function onDownloadTemplate() {
 .msg.error   { background: #fef2f2; color: var(--danger); }
 .msg.warning { background: #fffbeb; color: #b45309; }
 
-.import-policy {
-  font-size: 12px; line-height: 1.6; color: #475569;
-  background: #f8fafc; border: 1px solid #e2e8f0;
-  border-left: 3px solid var(--primary, #2563eb);
-  border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
-}
 
 .undo-btn {
   display: block; margin-top: 8px;

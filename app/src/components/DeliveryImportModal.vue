@@ -54,6 +54,10 @@ try {
 
 const orderOptions = computed(() => props.ctx.order ?? [])
 
+// 種別列に出庫がある取込ファイルか。出庫は出庫として記録するので、
+// 何がどちらとして入るのかを明細で見せる（列は必要なときだけ増やす）。
+const hasOut = computed(() => rows.value.some(r => r.type === 'out'))
+
 function resolvedItem(r) {
   return r.choice === NEW ? r.name.trim() : r.choice
 }
@@ -127,6 +131,7 @@ function onImport() {
         <div class="import-hint">
           <span v-if="filename" class="import-filename">{{ filename }}</span>
           {{ summary.total }}件を確認して取り込みます。
+          <span v-if="hasOut" class="import-outnote">種別が出庫の行は出庫として記録します。</span>
           <span v-if="skipped > 0" class="import-skip">（{{ skipped }}件は日付・品目名・数量が空のためスキップ）</span>
         </div>
 
@@ -161,7 +166,7 @@ function onImport() {
           <table class="import-table">
             <thead>
               <tr>
-                <th>取込</th><th>日付</th><th>仕入先</th><th>取込元の名前</th>
+                <th>取込</th><th>日付</th><th v-if="hasOut">種別</th><th>仕入先</th><th>取込元の名前</th>
                 <th>数量</th><th>品目への対応づけ</th><th>状態</th>
               </tr>
             </thead>
@@ -171,6 +176,9 @@ function onImport() {
                   <input type="checkbox" :checked="!r.excluded" @change="r.excluded = !$event.target.checked" />
                 </td>
                 <td class="c-date">{{ r.date }}</td>
+                <td v-if="hasOut" class="c-type">
+                  <span class="type-chip" :class="r.type === 'out' ? 't-out' : 't-in'">{{ r.type === 'out' ? '出庫' : '入庫' }}</span>
+                </td>
                 <td class="c-sup">{{ r.supplier || '—' }}</td>
                 <td class="c-name">{{ r.name }}</td>
                 <td class="c-qty">{{ r.qty }}<span class="u">{{ r.unit }}</span></td>
@@ -205,6 +213,11 @@ function onImport() {
 </template>
 
 <style scoped>
+.type-chip { display: inline-block; font-size: 10px; font-weight: 800; border-radius: 10px; padding: 1px 6px; white-space: nowrap; }
+.type-chip.t-in  { color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; }
+.type-chip.t-out { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+.import-outnote { color: #b45309; font-weight: 700; }
+
 .err-block { border: 1px solid #fecaca; background: #fef2f2; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .err-head { font-size: 13px; font-weight: 800; color: #b91c1c; margin-bottom: 6px; }
 .err-list { max-height: 180px; overflow-y: auto; }

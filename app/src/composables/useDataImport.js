@@ -99,7 +99,8 @@ export function useDataImport() {
   function closeDelivery() { showDeliveryModal.value = false; deliveryCsv.value = '' }
 
   // DeliveryImportModal の @imported ペイロードを受けて確定保存する。
-  // @returns 保存した入庫レコード数
+  // 種別が出庫の行は出庫として保存される（ペイロードの type をそのまま使う）。
+  // @returns 保存した入出庫レコード数
   function onDeliveryImported({ movements = [], aliasPairs = [], newItems = [] } = {}) {
     for (const it of newItems) addItem(it.name, it.price, it.category, it.unit)
     for (const p of aliasPairs) registerAlias(p.term, p.canonical)

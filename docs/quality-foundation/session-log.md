@@ -2,6 +2,91 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-05 — 取り込んだ過去データが履歴カレンダーの星に出ない
+
+- Userから「過去の棚卸・納品・入出庫を取り込んだとき、履歴カレンダーにその対象のマーク（星）が出るようにしたい」。
+- 原因は2つ。どちらも「取り込んだ日」と「実施日」の取り違え。
+  - **棚卸**: サーバーは取込セッションの `started_at` に実施日、`ended_at` に**取り込んだ時刻**を入れる（`pastImport.js`）。カレンダーは`_keyOf(endedAt ?? startedAt)`で束ねるため、星が取込日のマスに出て、実施日のマスは空のままだった。
+  - **出庫**: `deliveryImportCommit.buildImportMovements()`が`type === 'out'`の行を黙って捨てていた。確認画面は種別を問わず「N件を取り込む」と数えるので、押した件数がどこにも残らず、その日の星も出ない。
+- 対応:
+  - `HistoryCalendar.vue`に`_isImported()` / `_stockKey()`を追加。取込セッションは`startedAt`の日付部分（`YYYY-MM-DD`）をそのまま使う。`_keyOf()`を通さないのは実施日が`T00:00:00.000Z`で入っており、UTCより西の端末では前日へずれるため。判定は**サーバーの`importBatchId`と端末スナップショットの`source: 'import'`の両方**を見る（片方しか無い端末でも当たる）。
+  - `storeHandler.handleSessionsGet()`が`import_batch_id`をSELECTし`importBatchId`として返すようにした（読み取りのみ・スキーマ変更なし）。取込直後や別端末でスナップショットが無くても実施日に載る。
+  - 詳細シートの取込行は、時刻（＝取り込んだ時刻）ではなく「取込」バッジを出す。別の日の時刻が並ぶのを避ける。
+  - `buildImportMovements()`を日付×**種別**×仕入先で畳むようにし、出庫は出庫レコードとして保存する。納品取込モーダルは、出庫を含むファイルのときだけ明細に「種別」列と注記を出す。
+- 納品（入庫）の星は元から実施日に出ていた（`movements.date`が実施日のため）。回帰として残した。
+- 検証: 新規`HistoryCalendar.import.test.js` 4 passed、`deliveryImportCommit.test.js` 5 passed、`DeliveryImportModal.test.js` 6 passed、Worker 32 files / 601 passed、App全体144 files / 1624 passed（`AxisAssignFocus.groups.test.js`の回転1件が全体実行時のみ5秒timeout。単体では40 passed・本変更と無関係）、production build成功。
+- 出庫を取り込めるようにしたのは仕様変更のため`proposals.md`へ投稿。実機確認はT-2-12 / T-4-3としてUser待ち。
+- DoDセルフチェック: 同期・WSメッセージ・権限・プラン境界・通知・戻る操作・localStorageキー・スキーマはいずれも無変更のためN/A。sessions APIは読み取り列の追加のみで認可・店舗分離（`WHERE shop_code = ?`）は既存のまま。`project-status.md`は過去versionの機能棚卸しのため直接更新せず、仕様変更2件を`proposals.md`へ投稿した。version（`app/package.json`）は変更していない。
+
+## 2026-09-05 — 品目取込の入口を2つに分ける（はじめての形／保存した読み方）
+
+- User指示。(1)ドロップゾーンのファイルは`button.mapper-trigger`と同じ列指定フローへ回す。(2)保存レシピ専用の入口を別に設け、一度マッピングした形はそこから取り込ませる。(3)初回か2回目かで経路を変える。
+- 確認した仕様: 推奨フォーマットも**例外なく**列指定へ／レシピ未一致でも止めずに列指定へ進む／PDFは従来どおり専用画面（`ImportMapper`はテキストしか受け取れず、先にページ解析が要るため）。
+- `SettingsModal.vue`: `handleFile()`をCSV/txt/Excel→`openMapper()`、PDF→`PdfImporterModal`に。`origin: 'csv'`の素通し経路は削除。ドロップゾーンを「はじめて取り込む形」、その下に`.drop-zone.recipe-zone`「保存した読み方で取り込む」（覚えている名前を表示、レシピ0件なら非表示）を追加。「🗂 フォーマット不明の…」ボタンは重複するため削除し、レシピの`details`は管理だけに縮めた。
+- `ImportMapper.vue`: `expectRecipe` propを追加。レシピ入口から来て当たらなかったときだけ「この形はまだ覚えていません」を出す。`tryRecipe()`の自動照合は元からあるので、当たれば問いは0のまま。
+- test: 入口が2つになったので helper を`dropInto(selector, ...)`へ整理し、`importWith`（素通し経路）は廃止。回帰6件を追加（推奨フォーマットも列指定へ／レシピ0件なら入口を出さない／保存すると入口に名前が出る／同じ形なら問い0／未一致は理由を出して問いへ／はじめての入口では理由を出さない）。レシピ`details`の見出し変更に伴い既存1件も更新。
+- 検証: `SettingsModal.import.test.js` → 18 passed、App全体143 files / 1619 passed、production build成功。
+- 実機確認はT-1-10としてUser待ち。設計判断（推奨フォーマットにも問いが1回出ること）は`proposals.md`へ投稿。
+
+## 2026-09-05 — 取込のファイル選択でPDFしか選べない
+
+- Userから「品目のインポートで`div.drop-zone`からファイルを選ぶとPDFしか選べない」。
+- 原因は`accept`が拡張子だけだったこと。iOSやAndroidのpickerは拡張子をUTI / MIMEへ落として候補を作るため、対応表に無い拡張子（`.csv` / `.xlsx`）が落ち、MIMEが自明な`.pdf`だけが残る。デスクトップのファイルダイアログでは拡張子だけでも効くので、実機でしか出ない。
+- 4つのinputへMIMEを併記した。`SettingsModal.vue`のドロップゾーン（CSV/Excel/PDF）、`PdfImporterModal.vue`（PDF/Excel）、`MasterManagePage.vue`の納品・過去棚卸（CSV/Excel）。受け付ける種類の判定は従来どおり`handleFile()`がファイル名の拡張子で行うため、取り込める種類自体は変えていない。
+- `SettingsModal.import.test.js`が file input を`accept.includes('text/csv')`で探しており、ドロップゾーンにも`text/csv`が入ると取り違える。inputへ`import-file` / `mapper-file` / `restore-file`のclassを付け、testはclassで引くようにした。
+- 回帰「取込のドロップゾーンは拡張子とMIMEの両方を並べる」を追加。
+- 検証: `SettingsModal.import.test.js` → 13 passed、App全体143 files / 1614 passed、production build成功。
+- 実機での見え方はT-1-9としてUser確認待ち。このセッションからiOS / Androidを操作できないため再現確認はしていない。
+
+## 2026-09-05 — 履歴カレンダーが深夜の棚卸を前日のマスへ入れていた
+
+- UI-003の作業中、App全体testで`HistoryCalendarPage.test.js`が1件落ちた。`TZ=UTC`では通り、JSTの00:00〜09:00だけ落ちる。
+- 原因はtestではなくApp側。`HistoryCalendar.vue`の`_keyOf()`が`endedAt`のISO文字列の先頭10文字＝**UTCの日付**でセッションを束ねる一方、今日・表示月・選択日は`getFullYear()`系＝**ローカル日付**で数えていた。JSTの00:00〜09:00に終えた棚卸は前日のマスへ入る。閉店後・開店前の作業がまさにこの時間帯に当たる。
+- `_keyOf()`をローカル日付へそろえた。時刻を持たない日付だけの値（`T`を含まない）は解釈し直さずそのまま使う。
+- testの`TODAY`と`iso()`もUTC由来をやめ、ローカル日付・ローカル時刻から組み立てるようにした。回帰「日付が変わった直後に終えた棚卸も、その日のマスへ載る」を追加。修正前のコードでJSTで落ちることを確認済み（offsetが0の環境では差が出ない）。
+- 検証: `HistoryCalendarPage.test.js` → 6 passed（JST / `TZ=UTC` / `TZ=America/New_York` すべて）。App全体143 files / 1613 passed。production build成功。
+- **未対応**: 同じUTC/ローカルの取り違えが`App.vue`・`useInventory.js`・`useOrders.js`・`useMovements.js`・`useHistory.js`など約12箇所の`new Date().toISOString().slice(0, 10)`に残る。棚卸・発注・入出庫の「今日」がUTC基準なので、深夜の記録が前日の日付で保存されうる。範囲が広いため`proposals.md`へ投稿しPM判断待ち。
+
+## 2026-09-04 — UI-003 分類先0件の案内をホイールの場所へ
+
+- Userから「振り分け先の登録が0件のとき、その旨をホイールがある場所に表示する」。
+- `.af-wheel-empty`（「分類先がまだありません」／「右の『＋』で作ってください」）を**中央カードと同じ枠**（`.af-gcard`と同じ`left/right 16px`・`top 50%`・`height 56px`・`margin-top -28px`、破線）へ置き、ホイール下にあった同内容の`.af-empty`は削除した。案内は`pointer-events: none`で回転判定に関わらない。
+- 最初はホイール全面の中央寄せで出したが、Userから位置が悪いと指摘があり、カードが座る枠へ寄せた。1行に収めるため（例：冷蔵庫・棚）は落とした。
+- 0件のあいだは`.af-wheel.empty`で中央マーカーと上下フェードを消す。選択枠の線が残ると、回せば何か選べるように見えるため。
+- 0件のときは`onListCommit()`で帯へ畳まない。畳んでも見せる1枚が無く、案内だけが潰れる。
+- 検証: 対象1 file / 40 passed、対象回帰4 files / 71 passed、App全体143 files / 1612 passed、production build成功（PWA 17 entries / 2701.37 KiB）、`git diff --check`指摘なし。
+- 実機の見え方はU-13としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
+
+## 2026-09-04 — UI-003 面積を2段へ、件数の押下をpointerupでも成立させる
+
+- Userから2件。(1)面積の「1枚だけ / 3枚のホイール / 全体」の中間をなくす。(2)前回の対応後も、閉じた状態で件数をタップしても振り分け済みが開かない。
+- (1) `wheelState`を`'band' | 'open'`の2値にし、`'spin'`・`WHEEL_H`(196px)・`settleWheel()`・`_settleT`（回し終わり900msで1段縮める）を削除。`open`は画面の54%を196〜336pxで挟む。初期表示も全体になる。触っていないのに面積が動く場面が無くなった。
+- (2) 原因は「pointer-eventsを開けただけでは押下が届かない」こと。畳むと周りのカードが中央と同じ3D位置へ完全に重なり、透明でも手前後の判定が曖昧になる。加えて実機ではPointer Captureや3Dの重なりで`click`のtargetがstageへ置き換わり、`isCountTap()`が成立しない。対応は2つ: 畳みきったら（`fan <= 0.001`）中央以外をDOMごと描かない／`pointerdown`が件数で指がTAP_SLOP以内で離れたら`pointerup`で開く（`takeCountTap()`）。
+- `stopWheelForControl()`は面積を動かさない`stopWheelAtNearest()`と同義になったため廃止し、開く処理は`openAssigned()`へ集約した。
+- 検証: 対象1 file / 38 passed、対象回帰4 files / 69 passed、App全体143 files / 1610 passed、production build成功（PWA 17 entries / 2700.72 KiB）、`git diff --check`指摘なし。
+- 実機の押下成立はU-11、2段の面積はU-12としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
+## 2026-09-04 — UI-003 畳んだホイールから件数を押せるようにする
+
+- Userから「ホイールを展開しなくても中央の件数を押せるようにしたい」。押下先はレール（＋⚙🗑）ではなく**件数バッジ**とUserが明示。
+- 原因は`wheelCards`のカードstyleが`pointerEvents: fan > 0.6 ? 'auto' : 'none'`で、畳んで扇が閉じるとカードごと不感になっていたこと。中央カードだけ常時`auto`にし、非中央は従来どおりfan依存のままとした（畳むと周りのカードが中央へ重なるため、一律に開けると見えないカードを踏んで意図しない分類先へ回る）。
+- 併せて`stopWheelForControl()`が無条件で`open`へ広げていたのをやめ、畳んでいる時は帯のままにした。件数を押してもシートの裏で面積が変わらず、閉じた後の品目一覧の位置が動かない。同関数を使うレールは帯では`inert`のため挙動は不変。
+- 帯の中だけ件数バッジを44px高へ。56pxの帯ではカードのタップ（＝開く）と押し分けが要る。開いている時の見た目は変えていない。
+- 修正前のコードで新regressionが`expected 'none' to be 'auto'`で落ちることを確認してから通した。
+- 検証: 対象1 file / 35 passed、対象回帰4 files / 66 passed、App全体143 files / 1607 passed、production build成功（492 modules、PWA 17 entries / 2700.79 KiB）、`git diff --check`指摘なし。既知warningのみ。
+- 実機の押し分けはU-11としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
+## 2026-09-04 — UI-003 スマホ慣性・開閉テンポの再調整
+
+- User実機で「localhostのPCでは慣性を感じるがスマホでは感じない」「開閉をもっとゆっくり」と報告。
+- 原因は慣性初速を最後の`pointermove` 1回だけから算出していたこと。スマホのイベント集約や離す直前の微小移動で初速が消えるため、直近120msの履歴と`getCoalescedEvents()`から算出するよう変更した。
+- touch入力へ1.25倍の初速補正を加え、最大速度を制限。摩擦と移動量は経過時間基準にし、60Hz / 120Hz端末での差を抑えた。指を止めて離した場合は静止時間を含めて慣性を弱める。
+- ホイール高さ・扇・操作レール・マーカー・フェードの開閉を420msから700msへ統一。reduced motionは即時のまま。
+- 追加報告の「1回のドラッグで1段しか動かない」は、移動するつまみにPointer Captureを置き、最初のDOM入れ替え時にスマホがcaptureを失うことが原因。固定された一覧へcaptureを移し、1回のpointerdownで3段連続移動する回帰testを追加した。
+- さらにホイールの文字が選択されて回転が止まる報告へ、ホイール限定の`user-select` / iOS長押し抑止と`selectstart` / `dragstart`キャンセルを追加した。
+- 検証: 慣性・開閉の対象4 files / 63 passed、複数段ドラッグ追加後1 file / 33 passed、文字選択防止追加後1 file / 34 passed、App全体143 files / 1606 passed、production build成功（492 modules、PWA 17 entries / 2700.69 KiB）。既知warningのみ。
+- 自動操作用browserが未接続のため、スマホ実機の感触はUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。commit / push / deployは未実施。
+
 ## 2026-09-04 — 採番 v0.92.0（取込の刷新と振り分けホイール）
 
 ここまでを **v0.92.0** とした（User 指示。D-025 のとおり採番は User / PM のリリース区切り）。

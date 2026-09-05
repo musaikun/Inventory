@@ -26,6 +26,9 @@ const props = defineProps({
   csvText:   { type: String, required: true },
   filename:  { type: String, default: '' },
   axisNames: { type: Array,  default: () => ['', ''] },
+  // 「保存した読み方で取り込む」入口から来たか。当たらなかったときに、
+  // なぜ問いが出るのかをその場で言うためだけに使う。
+  expectRecipe: { type: Boolean, default: false },
 })
 const emit = defineEmits(['imported', 'close'])
 useEscapeKey(() => emit('close'))
@@ -313,6 +316,11 @@ tryRecipe()
         <span class="imp-recipe-t">レシピ「{{ recipe.name }}」で読みました</span>
         <button class="imp-recipe-off" @click="dropRecipe">使わない</button>
       </div>
+      <!-- 保存した読み方の入口から来たのに当たらなかったとき。行き止まりにはせず、
+           覚えていないことだけ言って、いつもの問いへ落とす -->
+      <div v-else-if="expectRecipe" class="imp-unknown">
+        この形はまだ覚えていません。読み方を決めると、取り込んだ後に保存できます。
+      </div>
 
       <div v-if="parseError" class="imp-error" role="alert">✗ {{ parseError.message }}</div>
 
@@ -459,6 +467,9 @@ tryRecipe()
 .imp-x { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
   border-radius: 8px; width: 32px; height: 32px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
 
+.imp-unknown { padding: 8px 10px; margin-bottom: 10px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface-weak, #f8fafc);
+  font-size: 12px; font-weight: 700; line-height: 1.6; color: var(--text-muted); }
 .imp-recipe { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 10px;
   background: var(--primary-weak); border: 1px solid var(--primary-border); border-radius: 10px; }
 .imp-recipe-t { flex: 1; min-width: 0; font-size: 12px; font-weight: 800; color: var(--primary);

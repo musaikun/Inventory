@@ -4,8 +4,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
-const TODAY = new Date().toISOString().slice(0, 10)
-const iso = (d, h = '02') => `${d}T${h}:00:00.000Z`
+// カレンダーはローカル日付でマスを割り当てる。UTC由来の日付・時刻を渡すと、UTCと
+// ローカルで日付が変わる時間帯（JSTなら00:00〜09:00）だけ別の日に載って落ちる。
+const _pad = n => String(n).padStart(2, '0')
+const _localDate = d => `${d.getFullYear()}-${_pad(d.getMonth() + 1)}-${_pad(d.getDate())}`
+const TODAY = _localDate(new Date())
+// 時刻もローカル基準で組み立てる。どのtimezoneでも同じローカル日のマスに載る。
+const iso = (d, h = 12) => {
+  const [y, m, day] = d.split('-').map(Number)
+  return new Date(y, m - 1, day, h).toISOString()
+}
 
 let sessionsResponse = []
 const deleteSessionMock = vi.fn(async () => ({}))
@@ -50,7 +58,7 @@ async function mountPage(props = {}) {
 }
 
 function completed(id, date) {
-  return { id, status: 'completed', type: 'stock', startedAt: iso(date, '01'), endedAt: iso(date) }
+  return { id, status: 'completed', type: 'stock', startedAt: iso(date, 9), endedAt: iso(date) }
 }
 
 describe('HistoryCalendarPage', () => {
@@ -84,8 +92,8 @@ describe('HistoryCalendarPage', () => {
   it('発注・進行中はカレンダーの棚卸として数えない', async () => {
     sessionsResponse = [
       completed('s1', TODAY),
-      { id: 's2', status: 'completed', type: 'order', startedAt: iso(TODAY, '01'), endedAt: iso(TODAY) },
-      { id: 's3', status: 'active',    type: 'stock', startedAt: iso(TODAY, '01') },
+      { id: 's2', status: 'completed', type: 'order', startedAt: iso(TODAY, 9), endedAt: iso(TODAY) },
+      { id: 's3', status: 'active',    type: 'stock', startedAt: iso(TODAY, 9) },
     ]
     const root = await mountPage()
     expect(root.querySelector('.hcp-count').textContent).toContain('1回')
@@ -98,6 +106,18 @@ describe('HistoryCalendarPage', () => {
     const notice = root.querySelector('.plan-limit-notice')
     expect(notice).not.toBeNull()
     expect(notice.textContent).toContain('過去 1件')
+  })
+
+  it('日付が変わった直後に終えた棚卸も、その日のマスへ載る', async () => {
+    // UTCの日付で束ねると、ローカルと日付が違う時間帯（JSTなら00:00〜09:00）に
+    // 終えた棚卸が前日へ回る。ローカルのoffsetが0の環境では差が出ない。
+    const justAfterMidnight = new Date()
+    justAfterMidnight.setHours(0, 30, 0, 0)
+    const at = justAfterMidnight.toISOString()
+    sessionsResponse = [{ id: 's1', status: 'completed', type: 'stock', startedAt: at, endedAt: at }]
+    const root = await mountPage()
+
+    expect(root.querySelector('.hc-entry-del')).not.toBeNull()
   })
 
   it('削除は確認を挟み、拒否すればAPIを呼ばない', async () => {
