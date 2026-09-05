@@ -2,6 +2,42 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-05 — 取り込んだ過去データが履歴カレンダーの星に出ない
+
+- Userから「過去の棚卸・納品・入出庫を取り込んだとき、履歴カレンダーにその対象のマーク（星）が出るようにしたい」。
+- 原因は2つ。どちらも「取り込んだ日」と「実施日」の取り違え。
+  - **棚卸**: サーバーは取込セッションの `started_at` に実施日、`ended_at` に**取り込んだ時刻**を入れる（`pastImport.js`）。カレンダーは`_keyOf(endedAt ?? startedAt)`で束ねるため、星が取込日のマスに出て、実施日のマスは空のままだった。
+  - **出庫**: `deliveryImportCommit.buildImportMovements()`が`type === 'out'`の行を黙って捨てていた。確認画面は種別を問わず「N件を取り込む」と数えるので、押した件数がどこにも残らず、その日の星も出ない。
+- 対応:
+  - `HistoryCalendar.vue`に`_isImported()` / `_stockKey()`を追加。取込セッションは`startedAt`の日付部分（`YYYY-MM-DD`）をそのまま使う。`_keyOf()`を通さないのは実施日が`T00:00:00.000Z`で入っており、UTCより西の端末では前日へずれるため。判定は**サーバーの`importBatchId`と端末スナップショットの`source: 'import'`の両方**を見る（片方しか無い端末でも当たる）。
+  - `storeHandler.handleSessionsGet()`が`import_batch_id`をSELECTし`importBatchId`として返すようにした（読み取りのみ・スキーマ変更なし）。取込直後や別端末でスナップショットが無くても実施日に載る。
+  - 詳細シートの取込行は、時刻（＝取り込んだ時刻）ではなく「取込」バッジを出す。別の日の時刻が並ぶのを避ける。
+  - `buildImportMovements()`を日付×**種別**×仕入先で畳むようにし、出庫は出庫レコードとして保存する。納品取込モーダルは、出庫を含むファイルのときだけ明細に「種別」列と注記を出す。
+- 納品（入庫）の星は元から実施日に出ていた（`movements.date`が実施日のため）。回帰として残した。
+- 検証: 新規`HistoryCalendar.import.test.js` 4 passed、`deliveryImportCommit.test.js` 5 passed、`DeliveryImportModal.test.js` 6 passed、Worker 32 files / 601 passed、App全体144 files / 1624 passed（`AxisAssignFocus.groups.test.js`の回転1件が全体実行時のみ5秒timeout。単体では40 passed・本変更と無関係）、production build成功。
+- 出庫を取り込めるようにしたのは仕様変更のため`proposals.md`へ投稿。実機確認はT-2-12 / T-4-3としてUser待ち。
+- DoDセルフチェック: 同期・WSメッセージ・権限・プラン境界・通知・戻る操作・localStorageキー・スキーマはいずれも無変更のためN/A。sessions APIは読み取り列の追加のみで認可・店舗分離（`WHERE shop_code = ?`）は既存のまま。`project-status.md`は過去versionの機能棚卸しのため直接更新せず、仕様変更2件を`proposals.md`へ投稿した。version（`app/package.json`）は変更していない。
+
+## 2026-09-05 — 品目取込の入口を2つに分ける（はじめての形／保存した読み方）
+
+- User指示。(1)ドロップゾーンのファイルは`button.mapper-trigger`と同じ列指定フローへ回す。(2)保存レシピ専用の入口を別に設け、一度マッピングした形はそこから取り込ませる。(3)初回か2回目かで経路を変える。
+- 確認した仕様: 推奨フォーマットも**例外なく**列指定へ／レシピ未一致でも止めずに列指定へ進む／PDFは従来どおり専用画面（`ImportMapper`はテキストしか受け取れず、先にページ解析が要るため）。
+- `SettingsModal.vue`: `handleFile()`をCSV/txt/Excel→`openMapper()`、PDF→`PdfImporterModal`に。`origin: 'csv'`の素通し経路は削除。ドロップゾーンを「はじめて取り込む形」、その下に`.drop-zone.recipe-zone`「保存した読み方で取り込む」（覚えている名前を表示、レシピ0件なら非表示）を追加。「🗂 フォーマット不明の…」ボタンは重複するため削除し、レシピの`details`は管理だけに縮めた。
+- `ImportMapper.vue`: `expectRecipe` propを追加。レシピ入口から来て当たらなかったときだけ「この形はまだ覚えていません」を出す。`tryRecipe()`の自動照合は元からあるので、当たれば問いは0のまま。
+- test: 入口が2つになったので helper を`dropInto(selector, ...)`へ整理し、`importWith`（素通し経路）は廃止。回帰6件を追加（推奨フォーマットも列指定へ／レシピ0件なら入口を出さない／保存すると入口に名前が出る／同じ形なら問い0／未一致は理由を出して問いへ／はじめての入口では理由を出さない）。レシピ`details`の見出し変更に伴い既存1件も更新。
+- 検証: `SettingsModal.import.test.js` → 18 passed、App全体143 files / 1619 passed、production build成功。
+- 実機確認はT-1-10としてUser待ち。設計判断（推奨フォーマットにも問いが1回出ること）は`proposals.md`へ投稿。
+
+## 2026-09-05 — 取込のファイル選択でPDFしか選べない
+
+- Userから「品目のインポートで`div.drop-zone`からファイルを選ぶとPDFしか選べない」。
+- 原因は`accept`が拡張子だけだったこと。iOSやAndroidのpickerは拡張子をUTI / MIMEへ落として候補を作るため、対応表に無い拡張子（`.csv` / `.xlsx`）が落ち、MIMEが自明な`.pdf`だけが残る。デスクトップのファイルダイアログでは拡張子だけでも効くので、実機でしか出ない。
+- 4つのinputへMIMEを併記した。`SettingsModal.vue`のドロップゾーン（CSV/Excel/PDF）、`PdfImporterModal.vue`（PDF/Excel）、`MasterManagePage.vue`の納品・過去棚卸（CSV/Excel）。受け付ける種類の判定は従来どおり`handleFile()`がファイル名の拡張子で行うため、取り込める種類自体は変えていない。
+- `SettingsModal.import.test.js`が file input を`accept.includes('text/csv')`で探しており、ドロップゾーンにも`text/csv`が入ると取り違える。inputへ`import-file` / `mapper-file` / `restore-file`のclassを付け、testはclassで引くようにした。
+- 回帰「取込のドロップゾーンは拡張子とMIMEの両方を並べる」を追加。
+- 検証: `SettingsModal.import.test.js` → 13 passed、App全体143 files / 1614 passed、production build成功。
+- 実機での見え方はT-1-9としてUser確認待ち。このセッションからiOS / Androidを操作できないため再現確認はしていない。
+
 ## 2026-09-05 — 履歴カレンダーが深夜の棚卸を前日のマスへ入れていた
 
 - UI-003の作業中、App全体testで`HistoryCalendarPage.test.js`が1件落ちた。`TZ=UTC`では通り、JSTの00:00〜09:00だけ落ちる。
