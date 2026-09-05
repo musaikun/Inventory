@@ -2,6 +2,25 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-05 — 履歴カレンダーが深夜の棚卸を前日のマスへ入れていた
+
+- UI-003の作業中、App全体testで`HistoryCalendarPage.test.js`が1件落ちた。`TZ=UTC`では通り、JSTの00:00〜09:00だけ落ちる。
+- 原因はtestではなくApp側。`HistoryCalendar.vue`の`_keyOf()`が`endedAt`のISO文字列の先頭10文字＝**UTCの日付**でセッションを束ねる一方、今日・表示月・選択日は`getFullYear()`系＝**ローカル日付**で数えていた。JSTの00:00〜09:00に終えた棚卸は前日のマスへ入る。閉店後・開店前の作業がまさにこの時間帯に当たる。
+- `_keyOf()`をローカル日付へそろえた。時刻を持たない日付だけの値（`T`を含まない）は解釈し直さずそのまま使う。
+- testの`TODAY`と`iso()`もUTC由来をやめ、ローカル日付・ローカル時刻から組み立てるようにした。回帰「日付が変わった直後に終えた棚卸も、その日のマスへ載る」を追加。修正前のコードでJSTで落ちることを確認済み（offsetが0の環境では差が出ない）。
+- 検証: `HistoryCalendarPage.test.js` → 6 passed（JST / `TZ=UTC` / `TZ=America/New_York` すべて）。App全体143 files / 1613 passed。production build成功。
+- **未対応**: 同じUTC/ローカルの取り違えが`App.vue`・`useInventory.js`・`useOrders.js`・`useMovements.js`・`useHistory.js`など約12箇所の`new Date().toISOString().slice(0, 10)`に残る。棚卸・発注・入出庫の「今日」がUTC基準なので、深夜の記録が前日の日付で保存されうる。範囲が広いため`proposals.md`へ投稿しPM判断待ち。
+
+## 2026-09-04 — UI-003 分類先0件の案内をホイールの場所へ
+
+- Userから「振り分け先の登録が0件のとき、その旨をホイールがある場所に表示する」。
+- `.af-wheel-empty`（「分類先がまだありません」／「右の『＋』で作ってください」）を**中央カードと同じ枠**（`.af-gcard`と同じ`left/right 16px`・`top 50%`・`height 56px`・`margin-top -28px`、破線）へ置き、ホイール下にあった同内容の`.af-empty`は削除した。案内は`pointer-events: none`で回転判定に関わらない。
+- 最初はホイール全面の中央寄せで出したが、Userから位置が悪いと指摘があり、カードが座る枠へ寄せた。1行に収めるため（例：冷蔵庫・棚）は落とした。
+- 0件のあいだは`.af-wheel.empty`で中央マーカーと上下フェードを消す。選択枠の線が残ると、回せば何か選べるように見えるため。
+- 0件のときは`onListCommit()`で帯へ畳まない。畳んでも見せる1枚が無く、案内だけが潰れる。
+- 検証: 対象1 file / 40 passed、対象回帰4 files / 71 passed、App全体143 files / 1612 passed、production build成功（PWA 17 entries / 2701.37 KiB）、`git diff --check`指摘なし。
+- 実機の見え方はU-13としてUser確認待ち。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
+
 ## 2026-09-04 — UI-003 面積を2段へ、件数の押下をpointerupでも成立させる
 
 - Userから2件。(1)面積の「1枚だけ / 3枚のホイール / 全体」の中間をなくす。(2)前回の対応後も、閉じた状態で件数をタップしても振り分け済みが開かない。
