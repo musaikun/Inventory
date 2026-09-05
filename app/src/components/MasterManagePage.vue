@@ -354,8 +354,9 @@ function onClear() {
     </div>
 
     <!-- 取込ファイル入力（常設・非表示）-->
-    <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onDeliveryFile" />
-    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv" class="mm-hidden-file" @change="onStocktakeFile" />
+    <!-- 拡張子だけだと、iOSやAndroidのpickerがCSV/Excelを候補に出せないことがある。MIMEも併記する -->
+    <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onDeliveryFile" />
+    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onStocktakeFile" />
 
     <PastStocktakeImportModal
       v-if="showStocktakeModal && stocktakePlan"

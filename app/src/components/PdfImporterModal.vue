@@ -185,7 +185,13 @@ function onImport() {
           <div class="drop-label">PDFまたはExcelをドラッグ or タップして選択</div>
           <div class="drop-hint">.pdf / .xlsx（30ページ一括対応）</div>
         </template>
-        <input ref="fileInput" type="file" accept=".pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
+        <!-- 拡張子だけだと、iOSやAndroidのpickerがExcelを候補に出せずPDFだけになる。
+             MIMEも併記する。受け付ける種類は handleFile() が拡張子で判定する。 -->
+        <input
+          ref="fileInput" type="file" class="hidden-input"
+          accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          @change="onFileChange"
+        />
       </div>
 
       <!-- ステータス -->
