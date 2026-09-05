@@ -162,67 +162,71 @@ function onClear() {
     <div class="mp-scroll">
       <!-- 取り込む -->
       <div class="mm-section-label">取り込む</div>
-      <div class="mm-row-wrap">
-        <button class="mm-row" @click="settingsSection = 'import'">
-          <span class="mm-row-ico">📥</span>
-          <span class="mm-row-body">
-            <span class="mm-row-title">品目を取込む / 更新</span>
-            <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
-          </span>
-          <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
-          <span class="mm-row-arrow">→</span>
-        </button>
-        <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
-      </div>
-      <div class="mm-row-wrap">
-        <button class="mm-row" @click="pickDelivery">
-          <span class="mm-row-ico">🧾</span>
-          <span class="mm-row-body">
-            <span class="mm-row-title">過去の納品を取り込む</span>
-            <span class="mm-row-sub">CSV・Excel から（入庫として記録）</span>
-          </span>
-          <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
-          <span class="mm-row-arrow">→</span>
-        </button>
-        <div v-if="activeHelp === 'delivery'" class="mm-help">
-          {{ HELP.delivery }}
-          <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
+      <div class="mm-card">
+        <div class="mm-row-wrap">
+          <button class="mm-row" @click="settingsSection = 'import'">
+            <span class="mm-row-ico">📥</span>
+            <span class="mm-row-body">
+              <span class="mm-row-title">品目を取込む / 更新</span>
+              <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
+            </span>
+            <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
+            <span class="mm-row-arrow">→</span>
+          </button>
+          <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
         </div>
-      </div>
-      <div class="mm-row-wrap">
-        <button class="mm-row" @click="pickStocktake">
-          <span class="mm-row-ico">🧮</span>
-          <span class="mm-row-body">
-            <span class="mm-row-title">過去の棚卸を取り込む</span>
-            <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
-          </span>
-          <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
-          <span class="mm-row-arrow">→</span>
-        </button>
-        <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
+        <div class="mm-row-wrap">
+          <button class="mm-row" @click="pickDelivery">
+            <span class="mm-row-ico">🧾</span>
+            <span class="mm-row-body">
+              <span class="mm-row-title">過去の納品を取り込む</span>
+              <span class="mm-row-sub">CSV・Excel から（入庫として記録）</span>
+            </span>
+            <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
+            <span class="mm-row-arrow">→</span>
+          </button>
+          <div v-if="activeHelp === 'delivery'" class="mm-help">
+            {{ HELP.delivery }}
+            <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
+          </div>
+        </div>
+        <div class="mm-row-wrap">
+          <button class="mm-row" @click="pickStocktake">
+            <span class="mm-row-ico">🧮</span>
+            <span class="mm-row-body">
+              <span class="mm-row-title">過去の棚卸を取り込む</span>
+              <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
+            </span>
+            <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
+            <span class="mm-row-arrow">→</span>
+          </button>
+          <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
+        </div>
       </div>
 
       <!-- 書き出す -->
       <div class="mm-section-label">書き出す</div>
-      <div class="mm-row-wrap">
-        <button class="mm-row" @click="exportMasterCsv">
-          <span class="mm-row-ico">📤</span>
-          <span class="mm-row-body">
-            <span class="mm-row-title">品目リストを出力</span>
-            <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
-          </span>
-          <span class="mm-row-arrow">↓</span>
-        </button>
-      </div>
-      <div class="mm-row-wrap">
-        <button class="mm-row" @click="exportLatestSnapshotCsv">
-          <span class="mm-row-ico">📤</span>
-          <span class="mm-row-body">
-            <span class="mm-row-title">棚卸結果を出力</span>
-            <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
-          </span>
-          <span class="mm-row-arrow">↓</span>
-        </button>
+      <div class="mm-card">
+        <div class="mm-row-wrap">
+          <button class="mm-row" @click="exportMasterCsv">
+            <span class="mm-row-ico">📤</span>
+            <span class="mm-row-body">
+              <span class="mm-row-title">品目リストを出力</span>
+              <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
+            </span>
+            <span class="mm-row-arrow">↓</span>
+          </button>
+        </div>
+        <div class="mm-row-wrap">
+          <button class="mm-row" @click="exportLatestSnapshotCsv">
+            <span class="mm-row-ico">📤</span>
+            <span class="mm-row-body">
+              <span class="mm-row-title">棚卸結果を出力</span>
+              <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
+            </span>
+            <span class="mm-row-arrow">↓</span>
+          </button>
+        </div>
       </div>
 
       <!-- 整える -->
@@ -414,6 +418,16 @@ function onClear() {
 
 .mm-row-wrap { margin-bottom: 12px; }
 .mm-row-wrap .mm-row { margin-bottom: 0; }
+
+/* 同じ用途の行は1枚のカードにまとめ、区切り線だけで分ける */
+.mm-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  overflow: hidden; margin-bottom: 12px;
+}
+.mm-card .mm-row-wrap { margin-bottom: 0; }
+.mm-card .mm-row-wrap + .mm-row-wrap { border-top: 1px solid #f1f5f9; }
+.mm-card .mm-row { border: none; border-radius: 0; background: transparent; }
+.mm-card .mm-help { margin: 0 14px 12px; }
 
 .mm-section-label {
   font-size: 12px; font-weight: 800; color: #94a3b8;
