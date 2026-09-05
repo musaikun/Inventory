@@ -407,6 +407,18 @@ const hasCodes = computed(() => false)
 // preview では金額列は出さない（数値なしの確認用途）
 const showAmount = computed(() => hasPrices.value && !props.preview && !props.hideAmount)
 
+// 「誰が発注したか」は、2人以上が発注しているときだけ出す。
+// 1台で回している店ではどの行も同じ名前になり、狭い列で名前を削るだけの表示になる。
+const showOrderBy = computed(() => {
+  if (!props.orderMode || !props.orderMap) return false
+  const who = new Set()
+  for (const v of Object.values(props.orderMap)) {
+    if (v?.orderQty > 0 && v.by) who.add(v.by)
+    if (who.size > 1) return true
+  }
+  return false
+})
+
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
   let n = 2 // 品目 + 数量
@@ -743,7 +755,8 @@ function fmtYen(n) {
         >
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
-          <th class="th-qty">{{ preview ? '振り分け' : '数量' }}</th>
+          <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
+            preview ? '振り分け' : orderMode ? '発注 / 在庫' : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
@@ -803,12 +816,6 @@ function fmtYen(n) {
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
-                <span
-                  v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
-                  class="order-chip"
-                  :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
-                >🧾 発注 {{ orderMap[row.item].orderQty }}<span
-                  v-if="orderMap[row.item].by" class="order-chip-by">・{{ orderMap[row.item].by }}</span></span>
                 <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
                   <button class="manual-btn-edit" @click="emit('edit-item', row.item)">編集</button>
                   <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
@@ -831,7 +838,21 @@ function fmtYen(n) {
                 <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
               </div>
             </td>
-            <td class="td-qty">
+            <td class="td-qty" :class="{ 'td-qty-order': orderMode }">
+              <!-- 発注セッションでは、入力済みの発注数を在庫の欄の左に数字で出す。
+                   品目名の隣のチップだと、名前が長い行で折り返して行の高さが揃わず、
+                   「いくつ発注したか」を列として上から下へ読めなかった。 -->
+              <span
+                v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
+                class="order-qty"
+                :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
+              >
+                <span class="order-qty-n">{{ orderMap[row.item].orderQty }}</span>
+                <span v-if="showOrderBy && orderMap[row.item].by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
+              </span>
+              <!-- まだ発注していない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
+                   在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
+              <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
               <div v-if="preview" class="preview-groups">
                 <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
                 <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
@@ -1505,22 +1526,36 @@ function fmtYen(n) {
   flex-shrink: 0;
 }
 
-/* 発注セッション: 品目ごとの発注数チップ（誰が発注したかを一覧で可視化） */
-.order-chip {
+/* 発注セッション: 発注数を在庫の欄の左に、数字として置く。
+   上から下へ「いくつ発注したか」を1列として読めるようにする。 */
+.td-qty-order { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.th-qty-order { width: 130px; }
+.order-qty {
   display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #047857;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  padding: 1px 8px;
-  margin-left: 4px;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  min-width: 34px;
   flex-shrink: 0;
+}
+.order-qty-n {
+  font-size: 17px;
+  font-weight: 800;
+  color: #047857;
+  font-variant-numeric: tabular-nums;
+}
+.order-qty-by {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #059669;
+  opacity: 0.8;
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.order-chip-by { font-weight: 600; color: #059669; opacity: 0.85; }
+/* まだ発注していない行も、桁の位置をそろえるために場所だけ取る */
+.order-qty.empty { min-height: 1px; }
 
 /* ── 手動品目 編集・削除ボタン ── */
 .manual-actions {
