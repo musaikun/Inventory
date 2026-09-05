@@ -12,7 +12,7 @@ import RowMapperModal from './RowMapperModal.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis, exportConfigCSV } = useConfig()
+const { config, itemCount, unhideItem, setAxisName, clearAxis, exportConfigCSV } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -88,24 +88,9 @@ function restoreAllAuto() {
   for (const n of [...autoHiddenList.value]) unhideItem(n)
 }
 
-const USAGE_SESSIONS = 3
-const usedNames = computed(() => {
-  const s = new Set()
-  for (const snap of getSnapshots().slice(0, USAGE_SESSIONS)) {
-    for (const it of (snap.items ?? [])) {
-      if (it.qty !== null && it.qty !== undefined) s.add(it.item)
-    }
-  }
-  return s
-})
-const hasHistory = computed(() => usedNames.value.size > 0)
-const unusedCandidates = computed(() =>
-  config.order.filter(i => !hiddenSet.value.has(i) && !usedNames.value.has(i))
-)
-
 const listOpen = ref(false)
+
 const hiddenOpen = ref(false)
-const unusedOpen = ref(false)
 
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
@@ -113,7 +98,6 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
-  unused: 'インポートされた品目のうち、前回までの棚卸で未入力だったものが候補に挙がります。使わないものは非表示にでき、進捗の分母（残り件数）から外れます。',
   hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。いつでも戻せます。',
   list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。数値入力欄の位置には、現在の分類先の割り当てが表示されます。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
@@ -149,12 +133,6 @@ function deleteAxis(idx) {
   if (!confirm(`分類「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
   clearAxis(idx)
   if (idx === 1) show2.value = false
-}
-
-function hideAllUnused() {
-  if (!unusedCandidates.value.length) return
-  if (!confirm(`前回まで未入力の ${unusedCandidates.value.length} 件をまとめて非表示にします。\nいつでも戻せます。よろしいですか？`)) return
-  for (const n of [...unusedCandidates.value]) hideItem(n, true)
 }
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
@@ -300,29 +278,6 @@ function onClear() {
         <button v-else-if="config.axisNames[0]" class="mm-axis-add" @click="show2 = true">＋ 分類を追加</button>
 
         <div class="mm-block-sub">分類（例：保管場所・仕入先）を追加すると、品目を分類先に振り分けられます。ジャンルは取込元由来（編集不可）。</div>
-      </div>
-
-      <!-- 使っていない候補（前回まで未入力） -->
-      <div class="mm-block">
-        <div class="mm-head-row">
-          <button class="mm-block-head mm-toggle" @click="unusedOpen = !unusedOpen">
-            <span class="mm-block-title">使っていない候補</span>
-            <span class="mm-block-note">{{ unusedOpen ? '▲' : '▼' }} {{ hasHistory ? unusedCandidates.length + '件' : '前回まで未入力' }}</span>
-          </button>
-          <button class="mm-help-btn" :class="{ on: activeHelp === 'unused' }" @click="toggleHelp('unused')">?</button>
-        </div>
-        <div v-if="activeHelp === 'unused'" class="mm-help">{{ HELP.unused }}</div>
-        <template v-if="unusedOpen">
-          <div v-if="!hasHistory" class="mm-empty">棚卸の履歴がまだありません。数回の棚卸のあとに候補が出ます。</div>
-          <div v-else-if="unusedCandidates.length === 0" class="mm-empty">直近の棚卸で全ての品目に入力があります。候補はありません。</div>
-          <template v-else>
-            <div class="mm-block-sub">{{ unusedCandidates.length }}件。要らないものは非表示にできます（進捗の分母から外れます）。</div>
-            <button class="mm-bulk" @click="hideAllUnused">まとめて非表示にする（{{ unusedCandidates.length }}件）</button>
-            <div class="mm-chiplist">
-              <button v-for="n in unusedCandidates" :key="n" class="mm-chip" @click="hideItem(n, true)">{{ n }}<span class="mm-chip-x">×</span></button>
-            </div>
-          </template>
-        </template>
       </div>
 
       <!-- 非表示中の管理 -->
@@ -517,11 +472,6 @@ function onClear() {
 .mm-axis-cancel { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
 .mm-axis-add { width: 100%; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; margin-top: 8px; }
 
-.mm-bulk { width: 100%; border: none; border-radius: 10px; padding: 10px; background: #64748b; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }
-.mm-bulk:active { background: #475569; }
-.mm-chiplist { display: flex; flex-wrap: wrap; gap: 6px; }
-.mm-chip { border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; border-radius: 20px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
-.mm-chip-x { color: #cbd5e1; margin-left: 4px; }
 
 .mm-hfilter { display: flex; gap: 6px; margin: 8px 0; }
 .mm-hf { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }

@@ -342,10 +342,6 @@ function onDownloadTemplate() {
           <div class="drop-hint">CSV / Excel（.csv / .xlsx）・PDF はβ</div>
           <input ref="fileInput" type="file" accept=".csv,.pdf,.xlsx,.xls" class="hidden-input" @change="onFileChange" />
         </div>
-        <p class="import-policy">
-          取り込むと、<b>同じ品目名は上書き、無い品目は追加</b>されます。ファイルに載っていない品目は消えません。
-          全入れ替えにしたいときは、次の確認画面で選べます。
-        </p>
 
         <!-- ステータスメッセージ -->
         <div v-if="status" class="msg" :class="status.type">
@@ -666,12 +662,6 @@ function onDownloadTemplate() {
 .msg.error   { background: #fef2f2; color: var(--danger); }
 .msg.warning { background: #fffbeb; color: #b45309; }
 
-.import-policy {
-  font-size: 12px; line-height: 1.6; color: #475569;
-  background: #f8fafc; border: 1px solid #e2e8f0;
-  border-left: 3px solid var(--primary, #2563eb);
-  border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
-}
 
 .undo-btn {
   display: block; margin-top: 8px;
