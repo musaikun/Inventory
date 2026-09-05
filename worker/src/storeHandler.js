@@ -455,7 +455,7 @@ export async function handleRoomResult(db, code, sessionId) {
 // GET /store/:code/sessions
 export async function handleSessionsGet(db, code) {
   const rows = await db.prepare(`
-    SELECT id, shop_code, started_at, ended_at, status, item_count, type
+    SELECT id, shop_code, started_at, ended_at, status, item_count, type, import_batch_id
     FROM sessions WHERE shop_code = ? ORDER BY started_at DESC LIMIT 50
   `).bind(code).all()
   return rows.results.map(r => ({
@@ -466,6 +466,9 @@ export async function handleSessionsGet(db, code) {
     status:    r.status,
     itemCount: r.item_count,
     type:      r.type ?? 'stock',
+    // 取込で作ったセッションだけが値を持つ。ended_at は「取り込んだ時刻」なので、
+    // 履歴カレンダーはこれを見て started_at（実施日）のマスへ載せる。
+    importBatchId: r.import_batch_id ?? null,
   }))
 }
 

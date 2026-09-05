@@ -59,6 +59,29 @@ function cellBand(cell) {
   if (f.longWeekend) return 'long'     // 3連休以上
   return ''
 }
+
+// 取込で作った棚卸か。サーバーは importBatchId を返し、端末のスナップショットは
+// source='import' を持つ。片方しか無い端末（取込直後・別端末での取込）でも判るよう両方見る。
+function _isImported(s) {
+  if (!s) return false
+  if (s.importBatchId) return true
+  const snap = getSnapshotBySessionId(s.id)
+  return snap?.source === 'import' || !!snap?.importBatchId
+}
+
+// 棚卸セッションが載る日。通常は endedAt（深夜に終えた棚卸を作業日のマスへ寄せるため）。
+// ただし取込は endedAt が「取り込んだ日時」なので、そのまま束ねると星が取込日に出て、
+// 入れたはずの実施日のマスは空のまま見える。取込は startedAt に実施日を持つのでそれを使う。
+// _keyOf を通さないのは、実施日が `YYYY-MM-DDT00:00:00.000Z` で入っており、
+// UTCより西の端末ではローカルへ読み替えると前日へずれるため（日付だけを取る）。
+function _stockKey(s) {
+  if (_isImported(s)) {
+    const d = String(s.startedAt || '').slice(0, 10) || getSnapshotBySessionId(s.id)?.date || ''
+    if (d) return d
+  }
+  return _keyOf(s.endedAt ?? s.startedAt)
+}
+
 const showStock = computed(() => filter.value === 'all' || filter.value === 'stock')
 const showOrder = computed(() => filter.value === 'all' || filter.value === 'order')
 const showMove  = computed(() => filter.value === 'all' || filter.value === 'move')
@@ -67,7 +90,7 @@ const showMove  = computed(() => filter.value === 'all' || filter.value === 'mov
 const stockByDate = computed(() => {
   const map = {}
   for (const s of props.sessions) {
-    const k = _keyOf(s.endedAt ?? s.startedAt)
+    const k = _stockKey(s)
     if (!k) continue
     ;(map[k] ||= []).push(s)
   }
@@ -307,7 +330,7 @@ const selDaysSinceStock = computed(() => {
   if (!selectedKey.value) return null
   let best = null
   for (const s of props.sessions) {
-    const k = _keyOf(s.endedAt ?? s.startedAt)
+    const k = _stockKey(s)
     if (k && k <= selectedKey.value && (!best || k > best)) best = k
   }
   if (!best) return null
@@ -554,7 +577,8 @@ function onDeleteMove(id) {
           @click="emit('view-session', r.s)"
         >
           <div class="hc-entry-main">
-            <span class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
+            <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込</span>
+            <span v-else class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
             <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
             <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
             <button class="hc-entry-del" @click.stop="emit('delete-session', r.s)" title="削除">🗑</button>
@@ -575,7 +599,8 @@ function onDeleteMove(id) {
           </div>
           <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move">
             <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
-              <span class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
+              <span v-if="r.m.source === 'import'" class="hc-entry-imported" title="取り込んだ記録">取込</span>
+              <span v-else class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
               <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目</span>
               <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
               <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
@@ -779,6 +804,7 @@ function onDeleteMove(id) {
 .hc-entry-order .hc-entry-main,
 .hc-entry-move .hc-entry-main { cursor: pointer; }
 .hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-entry-imported { font-size: 10px; font-weight: 700; color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-ord-done { font-size: 10px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
