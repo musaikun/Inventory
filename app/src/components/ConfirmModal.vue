@@ -134,13 +134,11 @@ function useTheoStock() {
   qty.value = String(props.theoStock.qty)
   hasError.value = false
 }
-// 入力値と理論在庫のズレ（0 は「一致」表示に使うため null と区別する）
-const stockDrift = computed(() => {
-  if (!props.orderMode || !props.theoStock || qty.value === '') return null
-  const v = parseFloat(qty.value)
-  if (isNaN(v)) return null
-  return Math.round((v - props.theoStock.qty) * 1000) / 1000
-})
+// 入力値と理論在庫のズレは**出さない**（User報告 2026-09-05）。
+// 数量表示とテンキーの上にあったため、1文字打つたびに行が出入りし、
+// 文字数によっては2行になって、下のテンキーが指の下で動いていた。
+// 「打っている最中に画面が動く」ことの代償が、ズレを知らせる価値を上回る。
+// ズレを見せるなら、入力が終わったあと（確定後の一覧や在庫タブ）に置く。
 
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
 const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
@@ -496,12 +494,6 @@ function saveEdit() {
         <button class="theo-chip" type="button" @click="useTheoStock">理論在庫 {{ theoStock.qty }}{{ unit }} を使う</button>
         <span class="theo-basis">{{ theoBasis }}</span>
       </div>
-      <div v-if="stockDrift != null" :class="['theo-drift', stockDrift === 0 ? 'ok' : '']">
-        <template v-if="stockDrift === 0">✓ 理論在庫と一致</template>
-        <template v-else-if="stockDrift < 0">理論在庫より {{ Math.abs(stockDrift) }} 少ない（未記録の使用・ロスの可能性）</template>
-        <template v-else>理論在庫より {{ stockDrift }} 多い（入庫の記録漏れや数え直しの可能性）</template>
-      </div>
-
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">
         <div
@@ -641,6 +633,20 @@ function saveEdit() {
         >{{ presetLabel(n) }}</button>
       </div>
 
+      <!-- テンキーと確定は、シートの下に貼り付けたまま動かさない。
+           発注セッションではシートが画面より高くなる（学習値・同曜実績・根拠）ので、
+           キーの一部が画面外に出る。そこを押すとブラウザが「押された要素を見せる」ために
+           シートをスクロールし、**キー全体が指の下でずれる**。次の一打が別のキーに当たる。
+           打つ場所が動かないことを、参考情報を全部見せることより優先する。 -->
+      <div class="keypad-dock">
+        <!-- いま打っている欄と、その値。テンキーを下に貼り付けると、
+             編集中の行がキーの裏に隠れることがあるので、ここに出し続ける。 -->
+        <div v-if="orderMode" class="dock-now" :class="{ order: editingOrder }">
+          <span class="dock-now-label">{{ editingOrder ? '発注数' : '現在在庫' }}</span>
+          <span class="dock-now-value">{{ editingOrder ? effectiveOrderQty : (qty !== '' ? qty : '—') }}</span>
+          <span v-if="!editingOrder && unit" class="dock-now-unit">{{ unit }}</span>
+          <span v-else-if="editingOrder && orderLot > 1" class="dock-now-unit">×{{ orderLot }}{{ unit }}</span>
+        </div>
       <!-- テンキー（発注数フォーカス時は小数点なし）-->
       <NumPad :integer="editingOrder" @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
@@ -672,11 +678,45 @@ function saveEdit() {
         @click="handleRevert"
         type="button"
       >{{ undoLabel }}</button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* テンキー・確定を、シートの下端に貼り付ける。
+   シートがスクロールしても、打つ場所は動かない。 */
+.keypad-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface);
+  margin: 0 -20px -40px;
+  padding: 8px 20px calc(40px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 16px -12px rgba(15, 23, 42, 0.35);
+}
+/* いま打っている欄と値。キーの上に固定して、打った数字が見えなくならないようにする */
+.dock-now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1.5px solid var(--border);
+}
+.dock-now.order { background: #ecfdf5; border-color: #a7f3d0; }
+.dock-now-label { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
+.dock-now.order .dock-now-label { color: #047857; }
+.dock-now-value {
+  margin-left: auto;
+  font-size: 22px; font-weight: 800; line-height: 1.2;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.dock-now.order .dock-now-value { color: #047857; }
+.dock-now-unit { font-size: 12px; font-weight: 700; color: var(--text-muted); }
+
 .typing-user-banner {
   background: #fefce8;
   border: 1px solid #fde68a;
@@ -796,8 +836,6 @@ function saveEdit() {
 }
 .theo-chip:active { background: #d1fae5; }
 .theo-basis { font-size: 11px; color: #94a3b8; }
-.theo-drift { font-size: 11.5px; font-weight: 600; color: #b45309; margin-bottom: 6px; }
-.theo-drift.ok { color: #059669; }
 
 .order-block {
   background: var(--primary-weak);

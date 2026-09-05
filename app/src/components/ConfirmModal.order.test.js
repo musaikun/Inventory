@@ -96,3 +96,41 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     expect(host.querySelector('.order-note').textContent).toContain('発注点を入れる')
   })
 })
+
+// User報告 2026-09-05:「数字の入力中にモーダル内の表示がずれて誤操作が頻発」。
+// 実機（390×740）で測ると、最初の1打でシートが 289px 自動スクロールしていた。
+// テンキーの一部が画面外にあるので、そこを押すとブラウザが「押された要素を見せる」ために
+// シートを送り、キー全体が指の下でずれる。次の一打が別のキーに当たる。
+describe('打つ場所が動かない', () => {
+  it('理論在庫とのズレは出さない（1打ごとに行が出入りしていた）', async () => {
+    await mount({ theoStock: { qty: 8 }, targetLevel: 14 })
+    // 在庫を入れてもズレの行は出ない
+    await typeStock(9)
+    expect(host.querySelector('.theo-drift')).toBeNull()
+    expect(host.textContent).not.toContain('理論在庫より')
+  })
+
+  it('テンキーと確定は、シートの下に貼り付けた1つの塊にまとまっている', async () => {
+    await mount({ targetLevel: 14 })
+    const dock = host.querySelector('.keypad-dock')
+    expect(dock, 'ドックがある').not.toBeNull()
+    expect(dock.querySelector('.numpad'), 'テンキーが入っている').not.toBeNull()
+    expect(dock.querySelector('.actions'), '確定が入っている').not.toBeNull()
+  })
+
+  it('いま打っている欄と値を、キーの上に出し続ける', async () => {
+    // キーを下に貼り付けると、編集中の行がキーの裏に隠れることがある
+    await mount({ targetLevel: 14, orderLot: 12 })
+    const now = () => host.querySelector('.dock-now').textContent.replace(/\s+/g, '')
+    expect(now()).toContain('発注数')
+
+    button('3').click(); await nextTick()
+    expect(now()).toContain('3')
+
+    await typeStock(9)                       // 在庫欄へ切り替えて入力
+    expect(now()).toContain('現在在庫')
+    expect(now()).toContain('9')
+    // 切り替えても発注数は保たれている
+    expect(orderValue()).toBe('3')
+  })
+})
