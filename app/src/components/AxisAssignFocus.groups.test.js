@@ -278,6 +278,48 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(host.querySelector('.af-sheet-title').textContent).toContain(selected)
   })
 
+  // User報告 2026-09-04:「振り分け件数をタップすると、開くものと開かないものがある」。
+  // 慣性で回っている最中は、指が着いた瞬間にはもう別のカードが中央になっている。
+  // 人は**見えている数字**を狙って押しているのに、判定が「いま中央か」だったので、
+  // 押した数字とは無関係に外れていた（clickも、押した要素と離した要素が違うと出ない）。
+  it('中央でないカードの件数を押しても、その分類先の振り分け済みが開く', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    cfg.addItemToGroup(0, 'トマト', '棚')
+    await mount()
+    await settle()
+
+    const card = host.querySelector('.af-gcard[data-slot="1"]')
+    expect(card.classList.contains('on'), '隣のカードであること').toBe(false)
+    const name = card.querySelector('.af-gname').textContent.trim()
+    const count = card.querySelector('.af-gcount')
+
+    // 押して離すだけ（click は出ない前提で pointerup が確定させる）
+    pointer(count, 'pointerdown', 220, 98)
+    pointer(count, 'pointerup', 220, 98)
+    await settle()
+
+    expect(host.querySelector('.af-sheet-title').textContent).toContain(name)
+    expect(centre(), '押した分類先が中央に来る').toBe(name)
+    expect([...host.querySelectorAll('.af-sheet-item-name')].map(e => e.textContent.trim()))
+      .toEqual(['トマト'])
+  })
+
+  it('件数の上から指を滑らせたら、シートは開かずにホイールが回る', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    await settle()
+    const before = centre()
+    const count = host.querySelector('.af-gcard.on .af-gcount')
+
+    pointer(count, 'pointerdown', 220, 120)
+    for (let i = 1; i <= 6; i++) pointer(count, 'pointermove', 220, 120 - i * 12)
+    pointer(count, 'pointerup', 220, 48)
+    await settle()
+
+    expect(host.querySelector('.af-sheet')).toBeNull()
+    expect(centre()).not.toBe(before)
+  })
+
   it('動きを減らす設定では自動回転と領域変更を即時にする', async () => {
     Object.defineProperty(globalThis, 'matchMedia', {
       configurable: true,
