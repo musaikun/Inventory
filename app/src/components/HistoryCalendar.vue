@@ -28,8 +28,16 @@ const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 function _key(y, m, d) {
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
+// endedAt / startedAt はUTCのISO文字列。先頭10文字はUTCの日付なので、そのまま束ねると
+// JSTの00:00〜09:00に終えた棚卸が前日のマスへ入る（閉店後・開店前の作業がまさにこの時間）。
+// このカレンダーは今日・表示月・選択日をすべてローカル日付で数えているので、ここも
+// ローカルへそろえる。時刻を持たない日付だけの値は、解釈し直さずそのまま使う。
 function _keyOf(iso) {
-  return (iso || '').slice(0, 10)
+  const s = String(iso || '')
+  if (!s) return ''
+  if (!s.includes('T')) return s.slice(0, 10)
+  const t = new Date(s)
+  return Number.isNaN(t.getTime()) ? s.slice(0, 10) : _key(t.getFullYear(), t.getMonth(), t.getDate())
 }
 
 const _now = new Date()
