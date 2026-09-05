@@ -248,9 +248,39 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(centre()).toBe('冷凍庫')
   })
 
-  it('分類先が無いときは作り方を案内する', async () => {
+  it('分類先が無いときはホイールの場所で作り方を案内する', async () => {
     await mount()
-    expect(host.querySelector('.af-empty').textContent).toContain('「＋」で分類先を作って')
+    const empty = host.querySelector('.af-wheel .af-wheel-empty')
+
+    expect(empty).toBeTruthy()
+    expect(empty.textContent).toContain('分類先がまだありません')
+    expect(empty.textContent).toContain('「＋」で作ってください')
+    expect(host.querySelector('.af-wheel').classList.contains('empty')).toBe(true)
+    expect(host.querySelectorAll('.af-gcard').length).toBe(0)
+    // カードと同じ土俵（回す面）に置く。位置と大きさは .af-gcard と同じ枠をCSSで与える
+    expect(host.querySelector('.af-stage > .af-wheel-empty')).toBe(empty)
+  })
+
+  it('分類先が0件なら品目一覧へ触れてもホイールを畳まない', async () => {
+    await mount()
+    const wheel = host.querySelector('.af-wheel')
+
+    pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
+    await click(host.querySelector('.af-list'))
+
+    expect(wheel.classList.contains('band')).toBe(false)
+    expect(host.querySelector('.af-wheel-empty')).toBeTruthy()
+  })
+
+  it('分類先を1件作ると案内が消えてカードが出る', async () => {
+    await mount()
+    await click(rail(''))                       // ＋
+    await type(host.querySelector('.af-dialog-input'), '冷蔵庫')
+    await click(host.querySelector('.af-dialog-ok'))
+    await settle()
+
+    expect(host.querySelector('.af-wheel-empty')).toBeNull()
+    expect(centre()).toBe('冷蔵庫')
   })
 
   it('カードごとの ✎ / 🗑 を持たない（行タップとの取り違えを起こさない）', async () => {

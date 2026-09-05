@@ -307,7 +307,8 @@ function onListPointerDown() {
 function onListCommit() {
   if (_dragging) return
   stopWheelAtNearest()
-  setWheelState('band')
+  // 分類先が0件のときは畳まない。畳んでも見せる1枚が無く、案内だけが潰れる。
+  if (groups.value.length) setWheelState('band')
 }
 function glide() {
   cancelAnimationFrame(_glideRaf)
@@ -917,7 +918,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
       <div
         class="af-wheel"
-        :class="{ band: banded, reduced: reduceMotion }"
+        :class="{ band: banded, reduced: reduceMotion, empty: !groups.length }"
         :style="{
           height: wheelH + 'px',
           transitionDuration: reduceMotion ? '0ms' : PANEL_MS + 'ms',
@@ -956,6 +957,13 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               <span v-if="c.centre && banded" class="af-gchev">変える ▾</span>
             </div>
           </div>
+          <!-- 0件のときは回す物が無い。空の円筒を見せる代わりに、カードが座るはずの
+               場所へそのまま置いて作り方を言う。ホイールの場所は「いま何に振り分けて
+               いるか」を出す場所なので、まだ無いことも同じ位置で分かるようにする。 -->
+          <div v-if="!groups.length" class="af-wheel-empty">
+            <span class="af-wheel-empty-title">分類先がまだありません</span>
+            <span class="af-wheel-empty-hint">右の「＋」で作ってください</span>
+          </div>
           <div class="af-marker"></div>
           <div class="af-fade t"></div>
           <div class="af-fade b"></div>
@@ -968,10 +976,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           <button ref="editTriggerEl" class="af-rail-btn gear" aria-label="分類先をまとめて編集" @click="openEdit">⚙</button>
           <button class="af-rail-btn del" aria-label="この分類先を消す" :disabled="!target" @click="askDelete(target)">🗑</button>
         </div>
-      </div>
-
-      <div v-if="groups.length === 0" class="af-empty">
-        右の「＋」で分類先を作ってください（例：冷蔵庫・棚）。
       </div>
 
       <!-- 品目プール -->
@@ -1202,6 +1206,19 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-prog-fill.done { background: #16a34a; }
 
 .af-empty { padding: 24px 16px; color: #94a3b8; font-size: 13px; text-align: center; line-height: 1.6; }
+/* 0件の案内。中央カードと同じ枠（left/right/top/height）に置き、まだ何も無いことを
+   カードが来る場所そのもので伝える。破線にして「空いている枠」と分かるようにする */
+.af-wheel-empty {
+  position: absolute; left: 16px; right: 16px; top: 50%;
+  height: 56px; margin-top: -28px; z-index: 3; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 0 12px; text-align: center;
+  background: #fff; border: 1.5px dashed #cbd5e1; border-radius: 12px;
+}
+.af-wheel-empty-title { font-size: 14px; font-weight: 800; color: #64748b; }
+.af-wheel-empty-hint { font-size: 11px; color: #94a3b8; }
+/* 案内の後ろに中央マーカーや端のフェードが残ると、選べる物があるように見える */
+.af-wheel.empty .af-marker, .af-wheel.empty .af-fade { opacity: 0; }
 .af-tabs { display: flex; gap: 6px; padding: 10px 14px 0; flex-shrink: 0; }
 .af-tab { flex: 1; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; padding: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-tab.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
