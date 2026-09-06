@@ -11,7 +11,17 @@
 - `ConfirmModal.layout.test.js` を新規作成（9件）。高さはjsdomで測れないので「低頻度のものが行を占めていないこと」を構造で押さえた。
 - 検証: 対象2 files / 17 passed、App全体146 files / 1644 passed、production build成功。
 
-### Part 2（発注）の設計と、着手前に分かっていること
+### Part 2（発注）— 実装済み
+
+- 打つのは在庫ひとつ。`orderFocus` 既定を `'stock'` へ。発注数は `orderDecide` が立つまで `.order-guide`（読むだけの目安）で、「自分で決める」でだけ入力欄になる。
+- 「あとで決める」を確定と同じ大きさで置いた。在庫が未入力なら確定しない（残すものが無い）。
+- 保留を残す: `orderSync.js` に `hasCountedStock()` / `isPendingLine()`。発注が取り消されても在庫があれば残し、サーバのスナップショットでも消さない。`App.vue` の `_applyOrderConfirm()` も同様。同期ペイロードと発注の記録（`upsertOrder`）には載せない。
+- `InventoryTable` の発注列に「保留」を出す。触っていない行とは見た目を分ける。
+- **既存契約との衝突を1件、契約側を優先して直した**: 最初 `decideOrderSelf()` で推奨を初期値に入れたが、`ConfirmModal` には「推奨は参考として出すだけで発注数へは自動で入れない（読まずに確定できてしまうため）」という明示の契約があった。自動投入をやめ、既存testの意図はそのまま残した。
+- 検証: `ConfirmModal.order.test.js` 13 passed（新規4件）、`orderSync.test.js` 16 passed（新規5件）、`InventoryTable.order.test.js` 8 passed（新規3件）、App全体146 files / 1653 passed、production build成功。
+- 未決3点（`proposals.md` 2026-09-06 参照）: 入数の外側の単位名が無い／保留は端末内のみ（DO は発注数>0 のみ配る）／保留の印は D1 に残らない。
+
+### Part 2 着手前に分かっていたこと（記録）
 
 - **Userの実運用**: 発注セッションでは在庫数を入れることが多かった。その場で適正発注量を判断できず、在庫を記録して後から有識者や社内の入出庫情報と突き合わせて決めていた。
 - コードは逆を向いている。(1)`ConfirmModal.vue`の`orderFocus`既定値が`'order'`＝最初の一打は発注数に入る。(2)`App.vue`の`_applyOrderConfirm()`は`orderQty > 0`のときだけ発注下書きへ残す（`orderSync.js`の`applyOrderLine`も同じ）。在庫は在庫表には入るが、**判断を保留した品目は発注一覧から消える**。後で見たいのはまさにその品目。

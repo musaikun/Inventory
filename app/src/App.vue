@@ -2550,9 +2550,13 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
     if (syncActive.value) broadcastUpdate(ingredient, stock, unit, deviceName.value || '名前未設定', false)
     else _localAudit(ingredient, inventory[ingredient] ? 'overwrite' : 'new', stock, stock, unit)
   }
-  // 発注下書きを更新（発注数 0 は下書きから外す＝発注なし）
+  // 発注下書きを更新。発注数0でも在庫を数えていれば「保留」として残す。
+  // 棚の前で適正な発注量まで判断できないことは多く、そこで落とすと後から
+  // 詳しい人や入出庫情報と突き合わせたい品目ほど一覧から消える。
   const draft = { ...orderDraft.value }
-  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
+  const counted = stock != null && Number.isFinite(stock)
+  if (orderQty > 0)   draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
+  else if (counted)   draft[ingredient] = { orderQty: 0, stock, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
   // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
@@ -2597,9 +2601,13 @@ function _persistOrderDraftLocal() {
 // 発注下書きをセッション単位で 1 レコードに集約し、localStorage + useOrders + D1 へ保存する。
 function _persistOrderDraft() {
   _persistOrderDraftLocal()
-  const lines = Object.entries(orderDraft.value).map(([item, d]) => ({
-    item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
-  }))
+  // 保留（発注数0）は発注の記録には載せない。数えた在庫は棚卸と同じ経路で
+  // 既に保存されており、保留の印はこのセッションの下書きが持つ。
+  const lines = Object.entries(orderDraft.value)
+    .filter(([, d]) => Number(d.orderQty) > 0)
+    .map(([item, d]) => ({
+      item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
+    }))
   const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
   if (rec) saveOrderToD1(rec)
 }

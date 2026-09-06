@@ -850,7 +850,15 @@ function fmtYen(n) {
                 <span class="order-qty-n">{{ orderMap[row.item].orderQty }}</span>
                 <span v-if="showOrderBy && orderMap[row.item].by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
               </span>
-              <!-- まだ発注していない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
+              <!-- 保留＝在庫は数えたが発注数はまだ決めていない行。後から詳しい人や
+                   入出庫情報と突き合わせて決めるのはこの行なので、数えていない行と
+                   同じ見た目にすると、まさに見たい行が一覧で埋もれる。 -->
+              <span
+                v-else-if="orderMode && orderMap?.[row.item] && orderMap[row.item].stock != null"
+                class="order-qty pending"
+                title="在庫は記録済み。発注数はあとで決める"
+              >保留</span>
+              <!-- まだ触っていない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
                    在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
               <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
               <div v-if="preview" class="preview-groups">
@@ -1537,6 +1545,11 @@ function fmtYen(n) {
   line-height: 1.2;
   min-width: 34px;
   flex-shrink: 0;
+}
+.order-qty.pending {
+  font-size: 10.5px; font-weight: 800;
+  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 7px; padding: 1px 5px;
 }
 .order-qty-n {
   font-size: 17px;

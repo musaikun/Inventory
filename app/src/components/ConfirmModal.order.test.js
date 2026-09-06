@@ -69,7 +69,12 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(8)
     expect(host.textContent).toContain('推奨: 1')   // 参考としては出す
-    expect(orderValue()).toBe('0')                 // 発注数には入れない
+    // 発注数はまだ入力欄ですらない（読むだけの目安）。確定しても発注は付かない
+    expect(host.querySelector('.order-qty-value'), '入力欄は出ていない').toBeNull()
+    expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
+
+    button('自分で決める').click(); await nextTick()
+    expect(orderValue()).toBe('0')                 // 切り替えても推奨は入らない
   })
 
   it('推奨はタップで採用でき、そこから直せる', async () => {
@@ -86,6 +91,9 @@ describe('ConfirmModal — 発注モードの推奨', () => {
   it('足りていれば発注しない', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(24)
+    expect(button('発注なしで確定')).not.toBeUndefined()
+
+    button('自分で決める').click(); await nextTick()
     expect(orderValue()).toBe('0')
   })
 
@@ -101,6 +109,48 @@ describe('ConfirmModal — 発注モードの推奨', () => {
 // 実機（390×740）で測ると、最初の1打でシートが 289px 自動スクロールしていた。
 // テンキーの一部が画面外にあるので、そこを押すとブラウザが「押された要素を見せる」ために
 // シートを送り、キー全体が指の下でずれる。次の一打が別のキーに当たる。
+// Userの実運用: 発注セッションでは在庫数を入れることが多かった。棚の前で適正な
+// 発注量までは判断できず、在庫を記録して後から詳しい人や社内の入出庫情報と
+// 突き合わせて決めていた。打つのは在庫ひとつ、発注数は読むだけの目安にする。
+describe('打つのは在庫ひとつ', () => {
+  it('既定の入力先は在庫（最初の一打が在庫へ入る）', async () => {
+    await mount({ targetLevel: 14 })
+    button('7').click(); await nextTick()
+    expect(host.querySelector('.qty-display').textContent.trim()).toBe('7')
+    expect(host.querySelector('.order-qty-value'), '発注数は入力欄ではない').toBeNull()
+  })
+
+  it('発注数は読むだけの目安で、自分で決めるまで入力欄にならない', async () => {
+    await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' }, orderLot: 12 })
+    await typeStock(0)
+
+    const guide = host.querySelector('.order-guide')
+    expect(guide, '目安の行が出る').not.toBeNull()
+    expect(guide.textContent).toContain('目安')
+
+    button('自分で決める').click(); await nextTick()
+    expect(host.querySelector('.order-guide')).toBeNull()
+    expect(host.querySelector('.order-qty-value')).not.toBeNull()
+  })
+
+  it('「あとで決める」は在庫つきの保留として確定する', async () => {
+    const events = await mount({ targetLevel: 14 })
+    await typeStock(6)
+    button('あとで決める').click(); await nextTick()
+
+    expect(events.confirm.length).toBe(1)
+    expect(events.confirm[0]).toMatchObject({ orderQty: 0, stock: 6 })
+  })
+
+  it('在庫を入れずに「あとで決める」は確定しない（残すものが無い）', async () => {
+    const events = await mount({ targetLevel: 14 })
+    button('あとで決める').click(); await nextTick()
+
+    expect(events.confirm.length).toBe(0)
+    expect(host.querySelector('.qty-display').classList.contains('error')).toBe(true)
+  })
+})
+
 describe('打つ場所が動かない', () => {
   it('理論在庫とのズレは出さない（1打ごとに行が出入りしていた）', async () => {
     await mount({ theoStock: { qty: 8 }, targetLevel: 14 })
@@ -122,14 +172,20 @@ describe('打つ場所が動かない', () => {
     // キーを下に貼り付けると、編集中の行がキーの裏に隠れることがある
     await mount({ targetLevel: 14, orderLot: 12 })
     const now = () => host.querySelector('.dock-now').textContent.replace(/\s+/g, '')
-    expect(now()).toContain('発注数')
+    // 既定は在庫。棚の前で先に分かるのは「いま何個あるか」
+    expect(now()).toContain('現在在庫')
 
+    button('9').click(); await nextTick()
+    expect(now()).toContain('9')
+
+    button('自分で決める').click(); await nextTick()  // 発注数を自分で決める
     button('3').click(); await nextTick()
+    expect(now()).toContain('発注数')
     expect(now()).toContain('3')
 
-    await typeStock(9)                       // 在庫欄へ切り替えて入力
+    await typeStock(8)                       // 在庫欄へ戻して入力
     expect(now()).toContain('現在在庫')
-    expect(now()).toContain('9')
+    expect(now()).toContain('98')
     // 切り替えても発注数は保たれている
     expect(orderValue()).toBe('3')
   })

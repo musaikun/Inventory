@@ -97,15 +97,43 @@ function orderStep(delta) {
   orderFocus.value   = 'order'
 }
 
-// 発注モードで NumPad/プリセットが編集する対象。初期は発注数（主役）。
-// 'order' = 発注数（整数）／'stock' = 現在在庫（小数OK・従来どおり）
-const orderFocus = ref('order')
+// 発注モードで NumPad/プリセットが編集する対象。
+// 'stock' = 現在在庫（棚卸単位・小数OK）／'order' = 発注数（入数単位・整数）
+//
+// 初期は在庫。実運用では棚の前で適正な発注量までは判断できず、在庫を数えて記録し、
+// 後から詳しい人や社内の入出庫情報と突き合わせて決めていた。最初の一打が発注数へ
+// 入る作りは、多数派に毎回まず画面を読ませていた。発注数を自分で決めるのは
+// 「自分で決める」を押した時だけにする。
+const orderFocus = ref('stock')
+// 入数の外側の単位名は持っていない（config の lotSizes は "24本" のように内側だけ）。
+// 入数が1なら発注単位＝棚卸単位なのでその名前を使い、まとめて頼む形のときは
+// 数え方だけを示す「口」を置く。名前を持たせるかは提案箱で PM 判断待ち。
+const lotUnitLabel = computed(() => (props.orderLot > 1 ? '口' : (unit.value || '')))
+
+// 発注数を人が直接決めるモードに入ったか。入るまで発注数は「目安」として読むだけ。
+const orderDecide = ref(props.initialOrderQty != null)
+// 発注数の入力欄へ切り替えるだけ。**推奨をここで入れてはいけない**。
+// 入れておくと、読まずに確定できてしまう。採用するなら推奨のチップを押す。
+function decideOrderSelf() {
+  orderDecide.value = true
+  orderFocus.value  = 'order'
+}
+// 在庫だけ記録して、発注数は後で決める
+function deferOrder() {
+  const stock = qty.value === '' ? null : parseFloat(qty.value)
+  if (stock === null || isNaN(stock) || stock < 0) { hasError.value = true; return }
+  hasError.value = false
+  orderQty.value     = 0
+  orderTouched.value = true
+  emit('confirm', { ..._orderPayload(), orderQty: 0 })
+}
 
 // 学習値（推奨・前週）をタップして発注数にセット（そこから微調整できる）
 function setOrderQty(v) {
   if (v == null || isNaN(v)) return
   orderQty.value     = Math.max(0, Math.round(v))
   orderTouched.value = true
+  orderDecide.value  = true      // 参考値を選ぶのも「自分で決めた」うち
   orderFocus.value   = 'order'
 }
 
@@ -584,13 +612,30 @@ function saveEdit() {
           </div>
         </div>
 
-        <div v-if="suggested != null || (weekdayHistory && weekdayHistory.count)" class="order-refs-hint">↑ タップで発注数にセット・下のテンキーで微調整</div>
-        <div class="order-qty-block" @click="orderFocus = 'order'">
+        <div v-if="suggested != null || (weekdayHistory && weekdayHistory.count)" class="order-refs-hint">
+          {{ orderDecide ? '↑ タップで発注数にセット・下のテンキーで微調整' : '↑ タップすると、その数で自分で決められます' }}
+        </div>
+
+        <!-- 打つのは在庫ひとつ。発注数は読むだけの目安にしておき、その場で決められる
+             ときだけ「自分で決める」で入力欄へ変える。1画面で2つの欄に打てると、
+             どちらへ入るのかを毎回画面から読み取らせることになる。 -->
+        <div v-if="!orderDecide" class="order-guide">
+          <div class="order-guide-line">
+            <span class="order-guide-arrow">→</span>
+            <span v-if="suggested != null" class="order-guide-main">
+              <b>{{ suggested }}</b>{{ lotUnitLabel }}<span v-if="orderLot > 1" class="order-guide-sub">（{{ suggested * orderLot }}{{ unit }}）</span>が目安
+            </span>
+            <span v-else class="order-guide-main muted">目安は出せません</span>
+            <button class="order-guide-self" type="button" @click="decideOrderSelf">自分で決める</button>
+          </div>
+        </div>
+
+        <div v-else class="order-qty-block">
           <div class="order-qty-head">
             <span class="order-qty-label">発注数</span>
             <span v-if="orderFocus === 'order'" class="focus-badge">⌨ 入力中</span>
           </div>
-          <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]">
+          <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]" @click="orderFocus = 'order'">
             <button class="order-step" @click.stop="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
             <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
             <button class="order-step" @click.stop="orderStep(1)" type="button">＋</button>
@@ -669,10 +714,12 @@ function saveEdit() {
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
         <button class="btn btn-success" @click="saveEdit">保存</button>
       </div>
+      <!-- 在庫を数えただけで確定できる道を、確定と同じ大きさで置く。実際にはここが
+           多数派で、発注数は後から詳しい人や入出庫情報と突き合わせて決めている。 -->
       <div v-else-if="orderMode" class="actions">
-        <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
+        <button class="btn btn-secondary" @click="deferOrder">あとで決める</button>
         <button class="btn btn-success" @click="submitOrder">
-          {{ effectiveOrderQty > 0 ? `発注 ${effectiveOrderQty} を確定` : '発注なしで確定' }}
+          {{ effectiveOrderQty > 0 ? `発注 ${effectiveOrderQty}${lotUnitLabel} を確定` : '発注なしで確定' }}
         </button>
       </div>
       <div v-else class="actions" :class="{ 'three-col': hasDuplicate }">
@@ -886,6 +933,27 @@ function saveEdit() {
 .ref-chip.tappable:active { transform: scale(0.95); }
 .ref-last.tappable { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
 .order-refs-hint { font-size: 10.5px; color: var(--primary); opacity: 0.85; margin: -3px 0 8px; }
+
+/* 発注数の目安。読むだけの行なので、入力欄には見せない（枠も影も持たせない） */
+.order-guide { margin: 8px 0; }
+.order-guide-line { display: flex; align-items: center; gap: 8px; }
+.order-guide-arrow { flex-shrink: 0; font-size: 14px; color: var(--primary); }
+.order-guide-main { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: var(--text); }
+.order-guide-main b { font-size: 20px; color: var(--primary); }
+.order-guide-main.muted { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.order-guide-sub { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.order-guide-self {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  font-size: 12px; font-weight: 700;
+  color: var(--primary);
+  background: var(--surface);
+  border: 1.5px solid var(--primary-border);
+  border-radius: 9px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.order-guide-self:active { background: var(--primary-weak); }
 
 /* 品目×同曜の発注実績 */
 .order-hist { background: #fff; border: 1px solid var(--primary-border); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
