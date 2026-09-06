@@ -45,6 +45,14 @@ const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-sa
 // ジャンルは取込元由来のみ＝常に読み取り専用（ユーザー分類はユーザー軸で行う）。
 const unitEditable = computed(() => props.isEdit || !props.unitLocked)
 
+// 見出し。通常の数量入力だけは持たない（すぐ下に品目名が出るので重複する）。
+const sheetTitle = computed(() => {
+  if (props.isEdit)   return '品目を編集'
+  if (props.isNew)    return '新しい品目を登録'
+  if (props.orderMode) return '発注数を入力'
+  return ''
+})
+
 // 編集モード: 品目名・単価
 const editName = ref(props.ingredient)
 const price    = ref(props.initialPrice !== '' && props.initialPrice != null ? String(props.initialPrice) : '')
@@ -403,7 +411,9 @@ function saveEdit() {
       @touchcancel="onTouchCancel"
     >
       <div class="sheet-handle"></div>
-      <div class="sheet-title">{{ isEdit ? '品目を編集' : (isNew ? '新しい品目を登録' : (orderMode ? '発注数を入力' : '数量を入力')) }}</div>
+      <!-- 通常の数量入力では見出しを持たない。すぐ下に品目名が出ており、
+           「数量を入力」は画面から自明。1行ぶんの高さはテンキーへ回す。 -->
+      <div v-if="sheetTitle" class="sheet-title">{{ sheetTitle }}</div>
 
       <!-- 新規登録の注意（誤登録防止・何をしているかの明確化）-->
       <div v-if="isNew" class="new-item-notice">
@@ -435,6 +445,18 @@ function saveEdit() {
             aria-label="前の品目"
           >◀</button>
           <span class="name-text">{{ ingredient }}</span>
+          <!-- あとで数えるは全幅の1行を持たない。低頻度の操作に行を割くと、
+               その分テンキーが画面の外へ出て、打つ場所が動く原因になる。 -->
+          <button
+            v-if="!isEdit"
+            class="name-flag"
+            :class="{ on: isFlagged }"
+            @click="$emit('toggle-flag', !isFlagged)"
+            type="button"
+            :aria-pressed="isFlagged ? 'true' : 'false'"
+            :aria-label="isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える'"
+            :title="isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える'"
+          >🔖</button>
           <button
             class="name-nav next"
             :disabled="!canNext"
@@ -443,20 +465,22 @@ function saveEdit() {
             aria-label="次の品目"
           >▶</button>
         </div>
+        <!-- 参考情報はすべてこの1行に集める。1つずつ行を持つと、見る回数の少ない
+             ものほど画面の上を占める。 -->
         <div class="name-hints">
+          <span v-if="isFlagged && !isEdit" class="hint-chip hint-flag">🔖 あとで数える</span>
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
+          <span v-if="!orderMode && category" class="hint-chip hint-genre">{{ category }} 🔒</span>
+          <button
+            v-if="itemHistory.length > 0 && !isEdit"
+            class="hint-chip hint-history"
+            type="button"
+            :aria-expanded="historyOpen ? 'true' : 'false'"
+            @click="historyOpen = !historyOpen"
+          >履歴 {{ itemHistory.length }}件 {{ historyOpen ? '▲' : '▼' }}</button>
         </div>
       </div>
-
-      <!-- あとで数えるフラグ -->
-      <button
-        v-if="!isEdit"
-        class="recount-toggle"
-        :class="{ on: isFlagged }"
-        @click="$emit('toggle-flag', !isFlagged)"
-        type="button"
-      >🔖 {{ isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える' }}</button>
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate && !isEdit" class="dup-warn">
@@ -464,12 +488,8 @@ function saveEdit() {
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
       </div>
 
-      <!-- 変更履歴アコーディオン -->
+      <!-- 変更履歴。開く操作はヒント行のチップが持つ -->
       <div v-if="itemHistory.length > 0 && !isEdit" class="history-accordion">
-        <button class="history-toggle" @click="historyOpen = !historyOpen" type="button">
-          <span class="history-toggle-label">変更履歴 ({{ itemHistory.length }}件)</span>
-          <span class="history-toggle-arrow">{{ historyOpen ? '▲' : '▼' }}</span>
-        </button>
         <div v-if="historyOpen" class="history-list">
           <div
             v-for="entry in [...itemHistory].reverse()"
@@ -583,12 +603,6 @@ function saveEdit() {
         <div v-else-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
       </div>
 
-      <!-- ジャンル：取込元由来のみ・読み取り専用（無ければ表示しない）-->
-      <div v-if="!orderMode && category" class="genre-row">
-        <span class="genre-label">ジャンル</span>
-        <span class="genre-locked-badge">{{ category }}<span class="unit-lock-icon">🔒</span></span>
-      </div>
-
       <!-- 単価（編集モードのみ） -->
       <div v-if="isEdit" class="price-row">
         <span class="price-label">単価</span>
@@ -638,7 +652,7 @@ function saveEdit() {
            キーの一部が画面外に出る。そこを押すとブラウザが「押された要素を見せる」ために
            シートをスクロールし、**キー全体が指の下でずれる**。次の一打が別のキーに当たる。
            打つ場所が動かないことを、参考情報を全部見せることより優先する。 -->
-      <div class="keypad-dock">
+      <div class="keypad-dock" :class="{ stuck: orderMode }">
         <!-- いま打っている欄と、その値。テンキーを下に貼り付けると、
              編集中の行がキーの裏に隠れることがあるので、ここに出し続ける。 -->
         <div v-if="orderMode" class="dock-now" :class="{ order: editingOrder }">
@@ -687,12 +701,18 @@ function saveEdit() {
 /* テンキー・確定を、シートの下端に貼り付ける。
    シートがスクロールしても、打つ場所は動かない。 */
 .keypad-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
   background: var(--surface);
   margin: 0 -20px -40px;
   padding: 8px 20px calc(40px + env(safe-area-inset-bottom));
+}
+/* 貼り付けが要るのは、シートが画面より高いときだけ。通常の数量入力は
+   低頻度の行をたたんで1枚に収まったので、ここは普通に流す。貼り付けたままだと
+   影の帯が常に出て、1枚の紙が2つに割れて見える。
+   発注はまだ参考情報でシートが伸びるため、そちらだけ貼り付けを残す。 */
+.keypad-dock.stuck {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   box-shadow: 0 -8px 16px -12px rgba(15, 23, 42, 0.35);
 }
 /* いま打っている欄と値。キーの上に固定して、打った数字が見えなくならないようにする */
@@ -1145,19 +1165,6 @@ function saveEdit() {
   flex-shrink: 0;
 }
 .genre-select-wrap { flex: 1; }
-.genre-locked-badge {
-  flex: 1;
-  border: 2px solid #d1fae5;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 700;
-  background: #f0fdf4;
-  color: var(--success);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
 
 /* プリセットボタン */
 .preset-row {
@@ -1221,26 +1228,6 @@ function saveEdit() {
   overflow: hidden;
 }
 
-.history-toggle {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.history-toggle:active { background: #f1f5f9; }
-
-.history-toggle-label { flex: 1; text-align: left; }
-.history-toggle-arrow { font-size: 10px; }
-
 .history-list {
   background: #fff;
   max-height: 160px;
@@ -1273,24 +1260,32 @@ function saveEdit() {
 .action-flag_recount   { background: #ffedd5; color: #9a3412; }
 .action-unflag_recount { background: #f1f5f9; color: #475569; }
 
-/* あとで数える トグル */
-.recount-toggle {
-  width: 100%;
-  padding: 9px 12px;
-  margin-bottom: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #9a3412;
+/* あとで数える。全幅の行をやめ、品目名の隣の印にした */
+/* 前後送り（.name-nav）と同じ 34px。並びの中で1つだけ大きさが違うと、
+   同じ行の同じ役割の押し物に見えなくなる */
+.name-flag {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1;
   background: #fff7ed;
   border: 1.5px solid #fdba74;
-  border-radius: 10px;
+  border-radius: 9px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.recount-toggle.on {
-  color: #fff;
-  background: #f97316;
-  border-color: #f97316;
+.name-flag.on { background: #f97316; border-color: #f97316; }
+.name-flag:active { opacity: 0.8; }
+
+/* ヒント行のチップ。ジャンル・履歴・フラグはここに集める */
+.hint-flag  { background: #fff7ed; color: #9a3412; }
+.hint-genre { background: #f0fdf4; color: var(--success); }
+.hint-history {
+  font-family: inherit;
+  padding: 6px 12px;
+  background: #f8fafc; color: var(--text-muted);
+  border: 1px solid var(--border); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.recount-toggle:active { opacity: 0.8; }
+.hint-history:active { background: #f1f5f9; }
 </style>
