@@ -46,10 +46,11 @@ const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-sa
 const unitEditable = computed(() => props.isEdit || !props.unitLocked)
 
 // 見出し。通常の数量入力だけは持たない（すぐ下に品目名が出るので重複する）。
+// 見出しを持つのは編集と新規登録だけ。棚卸も発注も、すぐ下に品目名が出るので重複する。
+// 発注であることは、単位の位置の「在庫／発注」と確定ボタンの文言が示す。
 const sheetTitle = computed(() => {
-  if (props.isEdit)   return '品目を編集'
-  if (props.isNew)    return '新しい品目を登録'
-  if (props.orderMode) return '発注数を入力'
+  if (props.isEdit) return '品目を編集'
+  if (props.isNew)  return '新しい品目を登録'
   return ''
 })
 
@@ -110,13 +111,13 @@ const orderFocus = ref('stock')
 // 数え方だけを示す「口」を置く。名前を持たせるかは提案箱で PM 判断待ち。
 const lotUnitLabel = computed(() => (props.orderLot > 1 ? '口' : (unit.value || '')))
 
-// 発注数を人が直接決めるモードに入ったか。入るまで発注数は「目安」として読むだけ。
-const orderDecide = ref(props.initialOrderQty != null)
-// 発注数の入力欄へ切り替えるだけ。**推奨をここで入れてはいけない**。
-// 入れておくと、読まずに確定できてしまう。採用するなら推奨のチップを押す。
-function decideOrderSelf() {
-  orderDecide.value = true
-  orderFocus.value  = 'order'
+// 上の欄がいま何を映しているか。打つ欄は1つで、単位の位置の切替で入れ替える。
+const displayQty = computed(() => {
+  if (editingOrder.value) return String(effectiveOrderQty.value)
+  return qty.value !== '' ? qty.value : '—'
+})
+function toggleOrderBasis() {
+  orderFocus.value = orderFocus.value === 'order' ? 'stock' : 'order'
 }
 // 在庫だけ記録して、発注数は後で決める
 function deferOrder() {
@@ -133,8 +134,7 @@ function setOrderQty(v) {
   if (v == null || isNaN(v)) return
   orderQty.value     = Math.max(0, Math.round(v))
   orderTouched.value = true
-  orderDecide.value  = true      // 参考値を選ぶのも「自分で決めた」うち
-  orderFocus.value   = 'order'
+  orderFocus.value   = 'order'   // 参考値を選んだら、上の欄を発注数へ切り替える
 }
 
 // 品目×同曜の発注履歴（前週・先月・中央値・ミニ推移）
@@ -376,6 +376,31 @@ function onPrimary() {
   else                 submit(false)
 }
 
+// 確定の文言。棚卸と発注で同じ位置・同じ大きさに置き、言葉だけを変える。
+const primaryLabel = computed(() => {
+  if (props.isNew)       return '新規登録'
+  if (hasDuplicate.value) return '上書き'
+  if (props.orderMode) {
+    return effectiveOrderQty.value > 0
+      ? `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
+      : '発注なしで確定'
+  }
+  return '確定'
+})
+
+// 「後で」= いま分かっていることは残して、決められないことだけ後に回す。
+//   棚卸 … いま数えられない。あとで数える印を付けて閉じる
+//   発注 … 在庫は数えた。発注数はここでは決めない（保留として残す）
+// 前回のテストで「あとで数える」が使われなかったのは、抜ける瞬間（▶・キャンセル）に
+// この道が無く、印が画面の上の飾りに見えていたため。決める場所と同じ行へ置く。
+function deferItem() {
+  if (props.orderMode) { deferOrder(); return }
+  if (!props.isFlagged) emit('toggle-flag', true)
+  // 数を打ってあれば捨てない。「数えたが自信が無い」も同じ道で拾える
+  if (qty.value === '') { emit('cancel'); return }
+  submit(false)
+}
+
 // 前後の品目へ移動（現在の入力を保存してから移動先を開く。空欄=変更なしで移動）
 function navigate(dir) {
   if (props.orderMode) {
@@ -499,6 +524,26 @@ function saveEdit() {
           <span v-if="isFlagged && !isEdit" class="hint-chip hint-flag">🔖 あとで数える</span>
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
+          <!-- 発注の参考値。専用の塊を持たず、棚卸と同じこの1行に入れる。
+               タップした値は発注数へ入り、上の欄がそのまま発注の表示へ切り替わる。 -->
+          <template v-if="orderMode">
+            <button v-if="theoStock" class="hint-chip hint-ref" type="button" :title="theoBasis" @click="useTheoStock">
+              理論在庫 {{ theoStock.qty }}{{ unit }}
+            </button>
+            <span
+              class="hint-chip hint-ref flat"
+              :title="targetLevel == null ? '在庫タブで発注点を入れると、そこから推奨を出せます' : ''"
+            >補充目標 {{ targetLevel != null ? `${targetLevel}${unit}` : '未設定' }}</span>
+            <button v-if="suggested != null" class="hint-chip hint-ref" type="button" :title="replenish?.basis || ''" @click="setOrderQty(suggested)">
+              推奨 {{ suggested }}{{ lotUnitLabel }}
+            </button>
+            <button v-if="weekdayHistory?.lastWeek" class="hint-chip hint-ref" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
+              前週 {{ weekdayHistory.lastWeek.qty }}{{ lotUnitLabel }}
+            </button>
+            <button v-if="weekdayHistory?.median != null" class="hint-chip hint-ref" type="button" @click="setOrderQty(weekdayHistory.median)">
+              中央値 {{ weekdayHistory.median }}{{ lotUnitLabel }}
+            </button>
+          </template>
           <span v-if="!orderMode && category" class="hint-chip hint-genre">{{ category }} 🔒</span>
           <button
             v-if="itemHistory.length > 0 && !isEdit"
@@ -533,25 +578,28 @@ function saveEdit() {
         </div>
       </div>
 
-      <!-- 発注モード: 現在在庫のラベル＋理論在庫 -->
-      <div v-if="orderMode" class="stock-label">
-        現在在庫（任意）
-        <span v-if="orderFocus === 'stock'" class="focus-badge">⌨ 入力中</span>
-      </div>
-      <div v-if="orderMode && theoStock" class="theo-row">
-        <button class="theo-chip" type="button" @click="useTheoStock">理論在庫 {{ theoStock.qty }}{{ unit }} を使う</button>
-        <span class="theo-basis">{{ theoBasis }}</span>
-      </div>
-      <!-- 数量表示 + 単位 -->
+      <!-- 数量表示 + 単位。棚卸と発注で同じ1つの欄。発注では単位の枠が
+           「在庫／発注」の切替を兼ねる。打つ欄を2つ並べると、どちらへ入るのかを
+           毎回画面から読み取らせることになる。 -->
       <div class="qty-row">
-        <div
-          :class="['qty-display', { error: hasError, filled: qty !== '', 'focus-on': orderMode && orderFocus === 'stock' }]"
-          @click="orderMode && (orderFocus = 'stock')"
-        >
-          {{ qty !== '' ? qty : '—' }}
+        <div :class="['qty-display', { error: hasError, filled: displayQty !== '—' }]">
+          {{ displayQty }}
         </div>
+        <!-- 発注：何を打っているかを単位の位置で示し、タップで入れ替える -->
+        <button
+          v-if="orderMode"
+          class="basis-toggle"
+          :class="{ order: editingOrder }"
+          type="button"
+          @click="toggleOrderBasis"
+          :aria-label="editingOrder ? '発注数を入力中。タップで在庫へ' : '在庫を入力中。タップで発注数へ'"
+        >
+          <span class="basis-what">{{ editingOrder ? '発注' : '在庫' }}</span>
+          <span class="basis-unit">{{ editingOrder ? lotUnitLabel : (unit || '—') }}</span>
+          <span class="select-arrow">⇄</span>
+        </button>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
-        <div v-if="!unitEditable" class="unit-locked-badge">
+        <div v-else-if="!unitEditable" class="unit-locked-badge">
           {{ unit }}<span class="unit-lock-icon">🔒</span>
         </div>
         <div v-else class="select-wrap unit-select-wrap">
@@ -565,7 +613,7 @@ function saveEdit() {
       </div>
       <!-- 単位：その他（手入力）-->
       <input
-        v-if="unitEditable && unitCustom"
+        v-if="unitEditable && unitCustom && !orderMode"
         ref="unitCustomRef"
         type="text"
         v-model="unit"
@@ -576,77 +624,6 @@ function saveEdit() {
 
       <!-- 単位警告 -->
       <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
-
-      <!-- 発注ブロック: 発注数（推奨プリセット）＋ 適正在庫/前週参考 -->
-      <div v-if="orderMode" class="order-block">
-        <!-- 学習値チップ: 推奨はタップで発注数にセット（そこから微調整）-->
-        <div class="order-refs">
-          <span v-if="targetLevel != null" class="ref-chip ref-par">補充目標: {{ targetLevel }}</span>
-          <span v-else class="ref-chip ref-par">補充目標: 未設定</span>
-          <button v-if="suggested != null" class="ref-chip ref-sug tappable" type="button" @click="setOrderQty(suggested)">推奨: {{ suggested }}</button>
-        </div>
-        <!-- 推奨の根拠。数字だけ出しても直しようがないので、必ず理由を添える -->
-        <div v-if="replenish?.basis" class="order-basis">{{ replenish.basis }}</div>
-
-        <!-- 品目×同曜の発注実績（前週・先月・直近中央値・ミニ推移）。タップで発注数にセット -->
-        <div v-if="weekdayHistory && weekdayHistory.count" class="order-hist">
-          <div class="oh-title">{{ orderWeekdayLabel }}曜の発注実績（タップで発注数に）</div>
-          <div class="oh-row">
-            <button v-if="weekdayHistory.lastWeek" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
-              前週 {{ _md(weekdayHistory.lastWeek.date) }} <b>{{ weekdayHistory.lastWeek.qty }}</b>
-            </button>
-            <button v-if="weekdayHistory.lastMonth" class="oh-chip" type="button" @click="setOrderQty(weekdayHistory.lastMonth.qty)">
-              先月 {{ _md(weekdayHistory.lastMonth.date) }} <b>{{ weekdayHistory.lastMonth.qty }}</b>
-            </button>
-            <button v-if="weekdayHistory.median != null" class="oh-chip oh-median" type="button" @click="setOrderQty(weekdayHistory.median)">
-              直近中央値 <b>{{ weekdayHistory.median }}</b>
-            </button>
-          </div>
-          <div v-if="spark.length" class="oh-spark">
-            <span
-              v-for="(h, i) in spark" :key="i"
-              class="oh-bar"
-              :style="{ height: h + '%' }"
-              :title="`${_md(weekdayHistory.samples[i].date)}: ${weekdayHistory.samples[i].qty}`"
-            ></span>
-          </div>
-        </div>
-
-        <div v-if="suggested != null || (weekdayHistory && weekdayHistory.count)" class="order-refs-hint">
-          {{ orderDecide ? '↑ タップで発注数にセット・下のテンキーで微調整' : '↑ タップすると、その数で自分で決められます' }}
-        </div>
-
-        <!-- 打つのは在庫ひとつ。発注数は読むだけの目安にしておき、その場で決められる
-             ときだけ「自分で決める」で入力欄へ変える。1画面で2つの欄に打てると、
-             どちらへ入るのかを毎回画面から読み取らせることになる。 -->
-        <div v-if="!orderDecide" class="order-guide">
-          <div class="order-guide-line">
-            <span class="order-guide-arrow">→</span>
-            <span v-if="suggested != null" class="order-guide-main">
-              <b>{{ suggested }}</b>{{ lotUnitLabel }}<span v-if="orderLot > 1" class="order-guide-sub">（{{ suggested * orderLot }}{{ unit }}）</span>が目安
-            </span>
-            <span v-else class="order-guide-main muted">目安は出せません</span>
-            <button class="order-guide-self" type="button" @click="decideOrderSelf">自分で決める</button>
-          </div>
-        </div>
-
-        <div v-else class="order-qty-block">
-          <div class="order-qty-head">
-            <span class="order-qty-label">発注数</span>
-            <span v-if="orderFocus === 'order'" class="focus-badge">⌨ 入力中</span>
-          </div>
-          <div :class="['order-qty-row', { 'focus-on': orderFocus === 'order' }]" @click="orderFocus = 'order'">
-            <button class="order-step" @click.stop="orderStep(-1)" :disabled="effectiveOrderQty <= 0" type="button">−</button>
-            <span :class="['order-qty-value', { auto: !orderTouched }]">{{ effectiveOrderQty }}</span>
-            <button class="order-step" @click.stop="orderStep(1)" type="button">＋</button>
-            <span class="order-qty-hint">×{{ orderLot }}{{ unit ? unit : '' }}{{ orderLot > 1 ? ' 納品' : '' }}</span>
-          </div>
-        </div>
-        <div v-if="targetLevel == null" class="order-note">
-          この品目は補充目標を出せません。<b>在庫タブで発注点を入れる</b>と、そこから推奨を出せます。
-        </div>
-        <div v-else-if="parLevel == null" class="order-note">まだ学習データがありません。発注を続けると適正在庫を学習します。</div>
-      </div>
 
       <!-- 単価（編集モードのみ） -->
       <div v-if="isEdit" class="price-row">
@@ -697,15 +674,9 @@ function saveEdit() {
            キーの一部が画面外に出る。そこを押すとブラウザが「押された要素を見せる」ために
            シートをスクロールし、**キー全体が指の下でずれる**。次の一打が別のキーに当たる。
            打つ場所が動かないことを、参考情報を全部見せることより優先する。 -->
-      <div class="keypad-dock" :class="{ stuck: orderMode }">
-        <!-- いま打っている欄と、その値。テンキーを下に貼り付けると、
-             編集中の行がキーの裏に隠れることがあるので、ここに出し続ける。 -->
-        <div v-if="orderMode" class="dock-now" :class="{ order: editingOrder }">
-          <span class="dock-now-label">{{ editingOrder ? '発注数' : '現在在庫' }}</span>
-          <span class="dock-now-value">{{ editingOrder ? effectiveOrderQty : (qty !== '' ? qty : '—') }}</span>
-          <span v-if="!editingOrder && unit" class="dock-now-unit">{{ unit }}</span>
-          <span v-else-if="editingOrder && orderLot > 1" class="dock-now-unit">×{{ orderLot }}{{ unit }}</span>
-        </div>
+      <!-- 棚卸と同じ。1枚に収まるので貼り付けない。貼り付けると影の帯が常に出て、
+           見出しのシートとテンキーのシートが重なって見える。 -->
+      <div class="keypad-dock">
       <!-- テンキー（発注数フォーカス時は小数点なし）-->
       <NumPad :integer="editingOrder" @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
@@ -714,23 +685,25 @@ function saveEdit() {
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
         <button class="btn btn-success" @click="saveEdit">保存</button>
       </div>
-      <!-- 在庫を数えただけで確定できる道を、確定と同じ大きさで置く。実際にはここが
-           多数派で、発注数は後から詳しい人や入出庫情報と突き合わせて決めている。 -->
-      <div v-else-if="orderMode" class="actions">
-        <button class="btn btn-secondary" @click="deferOrder">あとで決める</button>
-        <button class="btn btn-success" @click="submitOrder">
-          {{ effectiveOrderQty > 0 ? `発注 ${effectiveOrderQty}${lotUnitLabel} を確定` : '発注なしで確定' }}
-        </button>
-      </div>
-      <div v-else class="actions" :class="{ 'three-col': hasDuplicate }">
-        <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
-        <button v-if="hasDuplicate" class="btn btn-primary" @click="submit(true)">
+      <!-- 棚卸と発注で同じ並び。「後で」を確定の隣に、同じ大きさで置く。
+           数えられない／決められない品目から抜ける道は、ここにしか無い。 -->
+      <template v-else>
+        <!-- 既に誰かが入れている時の「足す」。確定の仲間なので確定の側へ寄せ、
+             キャンセル・後で・確定の3つ並びは崩さない。 -->
+        <button v-if="hasDuplicate" class="btn btn-primary btn-add" @click="submit(true)" type="button">
           {{ addLabel }}
         </button>
-        <button class="btn btn-success" @click="submit(false)">
-          {{ isNew ? '新規登録' : (hasDuplicate ? '上書き' : '確定') }}
-        </button>
-      </div>
+        <div class="actions three-col">
+          <button class="btn btn-secondary" @click="$emit('cancel')" type="button">キャンセル</button>
+          <button
+            class="btn btn-later"
+            @click="deferItem"
+            type="button"
+            :title="orderMode ? '在庫だけ記録して、発注数は後で決める' : 'いま数えられない。あとで数える一覧に入れる'"
+          >後で</button>
+          <button class="btn btn-success" @click="onPrimary" type="button">{{ primaryLabel }}</button>
+        </div>
+      </template>
 
       <!-- ひとつ前の状態に戻す（入力済みの場合のみ） -->
       <button
@@ -762,27 +735,6 @@ function saveEdit() {
   z-index: 2;
   box-shadow: 0 -8px 16px -12px rgba(15, 23, 42, 0.35);
 }
-/* いま打っている欄と値。キーの上に固定して、打った数字が見えなくならないようにする */
-.dock-now {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 6px 12px;
-  margin-bottom: 8px;
-  border-radius: 10px;
-  background: #f1f5f9;
-  border: 1.5px solid var(--border);
-}
-.dock-now.order { background: #ecfdf5; border-color: #a7f3d0; }
-.dock-now-label { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
-.dock-now.order .dock-now-label { color: #047857; }
-.dock-now-value {
-  margin-left: auto;
-  font-size: 22px; font-weight: 800; line-height: 1.2;
-  font-variant-numeric: tabular-nums; color: var(--text);
-}
-.dock-now.order .dock-now-value { color: #047857; }
-.dock-now-unit { font-size: 12px; font-weight: 700; color: var(--text-muted); }
 
 .typing-user-banner {
   background: #fefce8;
@@ -877,166 +829,16 @@ function saveEdit() {
   margin-top: 6px;
 }
 
-.stock-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  margin: 2px 0 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
-}
-
-.theo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-.theo-chip {
-  border: 1px solid #a7f3d0;
-  background: #ecfdf5;
-  color: #047857;
-  border-radius: 16px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-.theo-chip:active { background: #d1fae5; }
-.theo-basis { font-size: 11px; color: #94a3b8; }
-
-.order-block {
-  background: var(--primary-weak);
-  border: 1px solid var(--primary-border);
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-
-.order-refs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.ref-chip {
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 20px;
-  padding: 3px 10px;
-  background: #fff;
-  color: var(--primary);
-  border: 1px solid var(--primary-border);
-}
 .ref-sug { background: var(--primary); color: #fff; border-color: var(--primary); }
-.ref-chip.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.ref-chip.tappable:active { transform: scale(0.95); }
 .ref-last.tappable { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
-.order-refs-hint { font-size: 10.5px; color: var(--primary); opacity: 0.85; margin: -3px 0 8px; }
 
 /* 発注数の目安。読むだけの行なので、入力欄には見せない（枠も影も持たせない） */
-.order-guide { margin: 8px 0; }
-.order-guide-line { display: flex; align-items: center; gap: 8px; }
-.order-guide-arrow { flex-shrink: 0; font-size: 14px; color: var(--primary); }
-.order-guide-main { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: var(--text); }
-.order-guide-main b { font-size: 20px; color: var(--primary); }
-.order-guide-main.muted { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
-.order-guide-sub { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.order-guide-self {
-  flex-shrink: 0;
-  padding: 7px 12px;
-  font-size: 12px; font-weight: 700;
-  color: var(--primary);
-  background: var(--surface);
-  border: 1.5px solid var(--primary-border);
-  border-radius: 9px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.order-guide-self:active { background: var(--primary-weak); }
 
 /* 品目×同曜の発注実績 */
-.order-hist { background: #fff; border: 1px solid var(--primary-border); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
-.oh-title { font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 6px; }
-.oh-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.oh-chip { border: 1px solid var(--primary-border); background: var(--primary-weak); color: var(--primary); border-radius: 16px; padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.oh-chip b { font-weight: 800; margin-left: 2px; }
-.oh-chip:active { transform: scale(0.96); }
-.oh-chip.oh-median { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
-.oh-spark { display: flex; align-items: flex-end; gap: 3px; height: 28px; margin-top: 8px; }
-.oh-bar { flex: 1; min-width: 4px; max-width: 16px; background: var(--primary); opacity: 0.55; border-radius: 2px 2px 0 0; }
-.oh-bar:last-child { opacity: 0.9; }
 
 /* NumPad が編集中の欄を示すバッジ・枠 */
-.focus-badge { font-size: 10px; font-weight: 800; color: #fff; background: var(--primary); border-radius: 8px; padding: 1px 6px; margin-left: 6px; letter-spacing: 0.02em; }
 .qty-display { transition: box-shadow 0.12s; }
 .qty-display.focus-on { box-shadow: 0 0 0 2px var(--primary); }
-
-.order-qty-block { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.order-qty-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 18px;   /* 入力中バッジの出入りで高さがガタつかないよう予約 */
-  margin-bottom: 6px;
-}
-.order-qty-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 10px;
-  padding: 4px;
-  transition: box-shadow 0.12s;
-}
-.order-qty-row.focus-on { box-shadow: inset 0 0 0 2px var(--primary); }
-
-.order-qty-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #374151;
-}
-
-.order-step {
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 10px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-.order-step:disabled { opacity: 0.3; cursor: default; }
-
-.order-qty-value {
-  min-width: 46px;
-  text-align: center;
-  font-size: 26px;
-  font-weight: 800;
-  color: #111827;
-}
-.order-qty-value.auto { color: var(--primary); }
-
-.order-qty-hint {
-  font-size: 12px;
-  color: #6b7280;
-  margin-left: auto;
-}
-
-.order-basis {
-  font-size: 11px;
-  color: #64748b;
-  margin: 4px 0 6px;
-  line-height: 1.5;
-}
-
-.order-note {
-  font-size: 11px;
-  color: #6b7280;
-  margin-top: 8px;
-}
 
 .hint-chip {
   font-size: 11px;
@@ -1271,6 +1073,16 @@ function saveEdit() {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
 }
+/* 「後で」。キャンセル（灰）とも確定（緑）とも違う三つ目の道だと分かる色にする。
+   あとで数える印の色（#f97316 系）と揃え、一覧に出る🔖と結び付ける。 */
+.btn-later {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1.5px solid #fdba74;
+}
+.btn-later:active { background: #ffedd5; }
+/* 既に入っている時の「足す」。3つ並びの上に置く */
+.btn-add { width: 100%; margin-top: 10px; }
 
 .btn-undo-entry {
   display: block;
@@ -1348,6 +1160,36 @@ function saveEdit() {
 /* ヒント行のチップ。ジャンル・履歴・フラグはここに集める */
 .hint-flag  { background: #fff7ed; color: #9a3412; }
 .hint-genre { background: #f0fdf4; color: var(--success); }
+/* 発注の参考値。押せるものは棚卸のヒントと同じ大きさで、押せると分かる縁を持たせる */
+.hint-ref {
+  font-family: inherit;
+  padding: 6px 10px;
+  background: var(--primary-weak);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hint-ref:active { background: var(--primary-soft); }
+.hint-ref.flat { border-style: dashed; cursor: default; }
+
+/* 何を打っているかを単位の位置で示す。欄を2つ並べない代わりに、ここで入れ替える */
+.basis-toggle {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 5px;
+  font-family: inherit; font-size: 13px; font-weight: 800;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--primary-weak);
+  color: var(--primary);
+  border: 1.5px solid var(--primary-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.basis-toggle.order { background: var(--primary); border-color: var(--primary); color: #fff; }
+.basis-toggle:active { opacity: 0.85; }
+.basis-what { font-size: 11px; opacity: 0.85; }
+.basis-unit { font-size: 14px; }
+
 .hint-history {
   font-family: inherit;
   padding: 6px 12px;

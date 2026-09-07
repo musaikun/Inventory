@@ -32,16 +32,26 @@ async function mount(props) {
 function button(label) {
   return [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
 }
-const orderValue = () => host.querySelector('.order-qty-value').textContent.trim()
-async function typeStock(digits) {
-  // 発注モードのテンキーは既定で発注数を編集する。在庫欄をタップして対象を切り替える
-  host.querySelector('.qty-row .qty-display').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
+// 打つ欄は1つ。単位の位置の切替が、いま在庫と発注数のどちらを映しているかを示す。
+const shown = () => host.querySelector('.qty-display').textContent.trim()
+const basis = () => host.querySelector('.basis-toggle')
+const onOrder = () => basis().classList.contains('order')
+const chip = label =>
+  [...host.querySelectorAll('.hint-ref')].find(b => b.textContent.trim().startsWith(label))
+
+async function type(digits) {
   for (const d of String(digits)) {
     button(d).click()
     await nextTick()
   }
 }
+/** 既定は在庫。念のため在庫側へ寄せてから打つ */
+async function typeStock(digits) {
+  if (onOrder()) { basis().click(); await nextTick() }
+  await type(digits)
+}
+/** 発注数の表示値（切替が発注側にある前提） */
+const orderValue = () => (onOrder() ? shown() : null)
 
 afterEach(() => {
   app?.unmount(); host?.remove()
@@ -54,38 +64,40 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await mount({
       replenish: { value: 24, source: 'reorder', basis: '発注点 12 × 2（学習が貯まると自動で切り替わります）' },
     })
-    expect(host.textContent).toContain('補充目標: 24')
-    expect(host.querySelector('.order-basis').textContent).toContain('発注点 12 × 2')
+    expect(chip('補充目標').textContent).toContain('24')
+    await typeStock(8)
+    // 根拠は数字の隣に持たせる。専用の行を作ると、その1行のためにシートが伸びる
+    expect(chip('推奨').getAttribute('title')).toContain('発注点 12 × 2')
   })
 
   it('学習が無くても、補充目標と在庫から推奨が出る', async () => {
     await mount({ parLevel: null, replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(8)
     // 不足16 → 入数12で1ケース
-    expect(host.textContent).toContain('推奨: 1')
+    expect(chip('推奨').textContent).toContain('1')
   })
 
   it('推奨は参考として出すだけで、発注数へは自動で入れない', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(8)
-    expect(host.textContent).toContain('推奨: 1')   // 参考としては出す
-    // 発注数はまだ入力欄ですらない（読むだけの目安）。確定しても発注は付かない
-    expect(host.querySelector('.order-qty-value'), '入力欄は出ていない').toBeNull()
+    expect(chip('推奨'), '参考としては出す').not.toBeUndefined()
+    expect(onOrder(), '打っているのは在庫のまま').toBe(false)
     expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
 
-    button('自分で決める').click(); await nextTick()
+    basis().click(); await nextTick()
     expect(orderValue()).toBe('0')                 // 切り替えても推奨は入らない
   })
 
   it('推奨はタップで採用でき、そこから直せる', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(2)
-    button('推奨: 1').click()
+    chip('推奨').click()
     await nextTick()
+    expect(onOrder(), '採用すると上の欄が発注数へ切り替わる').toBe(true)
     expect(orderValue()).toBe('1')
-    button('＋').click()
-    await nextTick()
-    expect(orderValue()).toBe('2')
+
+    await type(3)                                   // そのままテンキーで直せる
+    expect(orderValue()).toBe('13')
   })
 
   it('足りていれば発注しない', async () => {
@@ -93,15 +105,16 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await typeStock(24)
     expect(button('発注なしで確定')).not.toBeUndefined()
 
-    button('自分で決める').click(); await nextTick()
+    basis().click(); await nextTick()
     expect(orderValue()).toBe('0')
   })
 
   it('補充目標が無ければ推奨を出さず、発注点を入れるよう案内する', async () => {
     await mount({ replenish: null, parLevel: null })
     await typeStock(8)
-    expect(host.textContent).not.toContain('推奨:')
-    expect(host.querySelector('.order-note').textContent).toContain('発注点を入れる')
+    expect(chip('推奨')).toBeUndefined()
+    expect(chip('補充目標').textContent).toContain('未設定')
+    expect(chip('補充目標').getAttribute('title')).toContain('発注点を入れる')
   })
 })
 
@@ -116,35 +129,39 @@ describe('打つのは在庫ひとつ', () => {
   it('既定の入力先は在庫（最初の一打が在庫へ入る）', async () => {
     await mount({ targetLevel: 14 })
     button('7').click(); await nextTick()
-    expect(host.querySelector('.qty-display').textContent.trim()).toBe('7')
-    expect(host.querySelector('.order-qty-value'), '発注数は入力欄ではない').toBeNull()
+    expect(shown()).toBe('7')
+    expect(onOrder(), '発注数ではない').toBe(false)
   })
 
-  it('発注数は読むだけの目安で、自分で決めるまで入力欄にならない', async () => {
+  it('打つ欄は1つで、単位の位置の切替で在庫と発注数を入れ替える', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' }, orderLot: 12 })
-    await typeStock(0)
+    await typeStock(8)
+    expect(shown()).toBe('8')
+    expect(basis().textContent).toContain('在庫')
 
-    const guide = host.querySelector('.order-guide')
-    expect(guide, '目安の行が出る').not.toBeNull()
-    expect(guide.textContent).toContain('目安')
+    basis().click(); await nextTick()
+    expect(basis().textContent).toContain('発注')
+    expect(shown(), '発注数はまだ0（推奨は自動で入らない）').toBe('0')
 
-    button('自分で決める').click(); await nextTick()
-    expect(host.querySelector('.order-guide')).toBeNull()
-    expect(host.querySelector('.order-qty-value')).not.toBeNull()
+    await type(2)
+    expect(shown()).toBe('2')
+
+    basis().click(); await nextTick()
+    expect(shown(), '在庫へ戻すと打った在庫がそのまま出る').toBe('8')
   })
 
-  it('「あとで決める」は在庫つきの保留として確定する', async () => {
+  it('「後で」は在庫つきの保留として確定する', async () => {
     const events = await mount({ targetLevel: 14 })
     await typeStock(6)
-    button('あとで決める').click(); await nextTick()
+    button('後で').click(); await nextTick()
 
     expect(events.confirm.length).toBe(1)
     expect(events.confirm[0]).toMatchObject({ orderQty: 0, stock: 6 })
   })
 
-  it('在庫を入れずに「あとで決める」は確定しない（残すものが無い）', async () => {
+  it('在庫を入れずに「後で」は確定しない（残すものが無い）', async () => {
     const events = await mount({ targetLevel: 14 })
-    button('あとで決める').click(); await nextTick()
+    button('後で').click(); await nextTick()
 
     expect(events.confirm.length).toBe(0)
     expect(host.querySelector('.qty-display').classList.contains('error')).toBe(true)
@@ -168,25 +185,26 @@ describe('打つ場所が動かない', () => {
     expect(dock.querySelector('.actions'), '確定が入っている').not.toBeNull()
   })
 
-  it('いま打っている欄と値を、キーの上に出し続ける', async () => {
-    // キーを下に貼り付けると、編集中の行がキーの裏に隠れることがある
+  // 元は貼り付けたキーの上に「いま打っている欄」を出していた（キーの裏に隠れるため）。
+  // 欄を1つにして貼り付けをやめたので、その役目は上の欄そのものが果たす。
+  it('打っている値は常に上の欄に出ており、切り替えても失われない', async () => {
     await mount({ targetLevel: 14, orderLot: 12 })
-    const now = () => host.querySelector('.dock-now').textContent.replace(/\s+/g, '')
     // 既定は在庫。棚の前で先に分かるのは「いま何個あるか」
-    expect(now()).toContain('現在在庫')
+    expect(basis().textContent).toContain('在庫')
 
     button('9').click(); await nextTick()
-    expect(now()).toContain('9')
+    expect(shown()).toBe('9')
 
-    button('自分で決める').click(); await nextTick()  // 発注数を自分で決める
-    button('3').click(); await nextTick()
-    expect(now()).toContain('発注数')
-    expect(now()).toContain('3')
+    basis().click(); await nextTick()
+    await type(3)
+    expect(basis().textContent).toContain('発注')
+    expect(shown()).toBe('3')
 
-    await typeStock(8)                       // 在庫欄へ戻して入力
-    expect(now()).toContain('現在在庫')
-    expect(now()).toContain('98')
-    // 切り替えても発注数は保たれている
-    expect(orderValue()).toBe('3')
+    await typeStock(8)                       // 在庫へ戻して続きを打つ
+    expect(basis().textContent).toContain('在庫')
+    expect(shown()).toBe('98')
+
+    basis().click(); await nextTick()
+    expect(shown(), '切り替えても発注数は保たれている').toBe('3')
   })
 })
