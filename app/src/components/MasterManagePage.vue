@@ -5,6 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
+import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
@@ -52,7 +53,10 @@ function exportLatestSnapshotCsv() {
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
-const hiddenList = computed(() => [...config.hiddenItems])
+// 「最後に隠した順」。誤って隠したときに探す場所なので、直前のものを先頭に置く。
+// 時刻を持たない品目（この記録より前に隠したもの）は後ろへ回る。
+const hiddenList = computed(() => sortHiddenByRecent(config.hiddenItems, config.hiddenAt))
+function hiddenAt(n) { return hiddenAtLabel(config.hiddenAt?.[n]) }
 
 // ── 非表示の由来（自動＝前回まで未入力 / 手動）と絞り込み ───────
 const autoSet        = computed(() => new Set(config.hiddenAuto))
@@ -98,7 +102,7 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
-  hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。いつでも戻せます。',
+  hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。最後に隠したものから順に、隠した時刻つきで並びます。誤って隠したときは上から探して戻せます。',
   list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。数値入力欄の位置には、現在の分類先の割り当てが表示されます。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
@@ -312,6 +316,7 @@ function onClear() {
           <div v-else>
             <div v-for="n in filteredHidden" :key="n" class="mm-hidden-row">
               <span class="mm-hidden-name">{{ n }}</span>
+              <span v-if="hiddenAt(n)" class="mm-hidden-at">{{ hiddenAt(n) }}</span>
               <span v-if="isAuto(n)" class="mm-src" :class="'lv' + srcLevel(n)">{{ srcLabel(n) }}</span>
               <span v-else class="mm-src manual">手動</span>
               <button class="mm-restore" @click="unhideItem(n)">戻す</button>
@@ -496,6 +501,7 @@ function onClear() {
 
 .mm-hidden-row { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
 .mm-hidden-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
+.mm-hidden-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; white-space: nowrap; }
 .mm-src { flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 3px 8px; white-space: nowrap; }
 .mm-src.lv1 { color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; }
 .mm-src.lv2 { color: #fff; background: #1e3a8a; border: 1px solid #1e3a8a; }

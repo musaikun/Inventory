@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-07 — 非表示の誤操作に戻り道をつける（Undo・非表示の時刻）
+
+- Userから3件。(1)スワイプの押し込み距離で確認なしに隠せる速さは残す。(2)直前の非表示をすぐ戻せるようにする。(3)手動非表示の一覧を「最後に隠した順」にし、時刻も出す。2件続けて誤操作しても目視で辿れるようにするため。
+- `useConfig`に`hiddenAt`（品目 → 非表示にした時刻ISO）を追加。`hideItem()`で記録、`unhideItem()`と`removeConfigItem()`で削除。名前の変更では移さない（`hiddenItems`が旧名のままなので、時刻だけ新名へ移すと行と時刻が離れる）。**シリアライズ・`_assignConfigData`・空リスト化/サンプルの初期化・`RoomDO.normalizeConfig`の4箇所すべてに追加**（B-01の再発防止）。
+- `App.vue`に取り消しバー（`.undo-bar`）。非表示のトーストを置き換え、「元に戻す」「✕」を出す。9秒で自動的に消える。読むだけの通知から押す先のある通知へ変えただけで、スワイプの閾値・確認ダイアログの条件は触っていない。振り分け画面（`AxisAssignFocus`）は自前の取り消しバーを持つため、従来どおり`silent`で重ねない。トーストが同時に出るときは上へ逃がす（`.toast.lifted`）。
+- 並びと時刻表示は`utils/hiddenItems.js`（`sortHiddenByRecent` / `hiddenAtLabel`）に純関数として置き、棚卸表の管理シート（`InventoryTable`）とデータ管理の「非表示中」（`MasterManagePage`）で共用。時刻を持たない品目（この記録より前に隠したもの）は後ろへ回り、時刻欄は空にする。表示は 今日 13:24 / 昨日 22:05 / 9/5 18:02 / 2025/9/5。
+- ゲストは非表示を申請するだけで自分では隠せないため、取り消しバーは出ない（従来どおり申請中の表示）。
+- 検証: 新規`hiddenItems.test.js` 11、`App.hideUndo.test.js` 5、`InventoryTable.hiddenList.test.js` 4、`MasterManagePage.hidden.test.js` 2、`useConfig.hidden.test.js` 10 passed。App全体150 files / 1687 passed、Worker 32 files / 601 passed、production build成功、`git diff --check`指摘なし。
+- 実機確認はX-1〜X-4としてUser待ち。config項目を1つ増やしたので、旧versionのホストと同期した場合は`hiddenAt`が空（時刻なしとして後ろへ回る）になる。
+
 ## 2026-09-06 — 数量シートの作り直し（Part 1: 棚卸を1枚に）
 
 - Userと数値入力モーダルを設計し直す話。棚卸については不満は出ておらず、要望は「テンキー固定を解除して1つのモーダルに統一」。

@@ -2,6 +2,7 @@
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
+import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
@@ -52,6 +53,13 @@ function _normName(name) {
 
 const manualSet = computed(() => new Set(props.manualItems))
 const hiddenSet = computed(() => new Set(props.hiddenItems))
+// 非表示シートの並びは「最後に隠した順」。引き切ったスワイプは確認なしで決まるので、
+// 誤操作に気づいて開いたとき、直前に隠れたものが必ず先頭に来るようにする。
+// 時刻を持たない品目（この記録より前に隠したもの）は後ろへ回り、時刻は出さない。
+const hiddenRows = computed(() => {
+  const at = config.value.hiddenAt ?? {}
+  return sortHiddenByRecent(props.hiddenItems, at).map(name => ({ name, at: hiddenAtLabel(at[name]) }))
+})
 // リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
 const canManage = computed(() => props.canManageList && !props.readOnly)
 // 非表示スワイプを開けるか。ホストは自分で隠し、ゲストは申請だけを出せる。
@@ -931,11 +939,12 @@ function fmtYen(n) {
           <span class="hidden-sheet-title">手動非表示の品目（{{ hiddenSet.size }}）</span>
           <button class="hidden-sheet-close" @click="manageHiddenOpen = false">閉じる</button>
         </div>
-        <p class="hidden-sheet-sub">戻すと一覧・進捗に再び含まれます。</p>
+        <p class="hidden-sheet-sub">最後に隠したものが上です。戻すと一覧・進捗に再び含まれます。</p>
         <div class="hidden-list">
-          <div v-for="name in hiddenItems" :key="name" class="hidden-row">
-            <span class="hidden-row-name">{{ name }}</span>
-            <button class="hidden-row-restore" @click="emit('unhide-item', name)">戻す</button>
+          <div v-for="r in hiddenRows" :key="r.name" class="hidden-row">
+            <span class="hidden-row-name">{{ r.name }}</span>
+            <span v-if="r.at" class="hidden-row-at">{{ r.at }}</span>
+            <button class="hidden-row-restore" @click="emit('unhide-item', r.name)">戻す</button>
           </div>
           <div v-if="hiddenSet.size === 0" class="hidden-empty">非表示の品目はありません</div>
         </div>
@@ -1189,7 +1198,8 @@ function fmtYen(n) {
   padding: 10px 4px;
   border-bottom: 1px solid #f1f5f9;
 }
-.hidden-row-name { font-size: 14px; color: #334155; }
+.hidden-row-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
+.hidden-row-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; margin-right: 8px; white-space: nowrap; }
 .hidden-row-restore {
   border: 1px solid var(--primary-border, #bfdbfe);
   background: #fff;

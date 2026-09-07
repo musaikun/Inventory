@@ -2897,13 +2897,35 @@ function onDeleteConfigItem(name) {
   if (editingItem.value === name) cancelEditItem()
 }
 
+// ── 直前の非表示を戻す（Undo）────────────────────────────────────────────────
+// 非表示は引き切った左スワイプなら確認なしに決まる。速さはそのままにしたいので、
+// 確認を足す代わりに**戻り道**を出す。誤って隠しても、指を離した場所のすぐ下で戻せる。
+// 出るのは直前の1件だけ（それ以前は「非表示中」の一覧が最後に隠した順で持つ）。
+const hideUndo = ref(null)     // { name } 直前に非表示にした品目
+const HIDE_UNDO_MS = 9000
+let _hideUndoTimer = null
+function _offerHideUndo(name) {
+  hideUndo.value = { name }
+  clearTimeout(_hideUndoTimer)
+  _hideUndoTimer = setTimeout(() => { hideUndo.value = null }, HIDE_UNDO_MS)
+}
+function dismissHideUndo() { clearTimeout(_hideUndoTimer); hideUndo.value = null }
+function runHideUndo() {
+  const name = hideUndo.value?.name
+  dismissHideUndo()
+  if (!name) return
+  onUnhideItem(name)
+  showToast(`「${name}」を一覧に戻しました`, 2200, 'success')
+}
+
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
 // silent: 呼び出し元が自前の通知（振り分け画面の取り消しバーなど）を出す場合、
-// トーストを重ねない。
+// 取り消しバーを重ねない。
 function onHideItem(name, opts = {}) {
   hideItem(name)
   if (syncActive.value) broadcastConfig(_configPayload())
-  if (!opts.silent) showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
+  // トーストではなく取り消しバーを出す。読むだけの通知と違い、押す先がある。
+  if (!opts.silent) _offerHideUndo(name)
 }
 function onUnhideItem(name) {
   unhideItem(name)
@@ -3657,9 +3679,18 @@ function dismissReview() {
       </div>
     </Transition>
 
-    <!-- トースト -->
+    <!-- 直前の非表示を戻す（確認を挟まない非表示の戻り道）-->
     <Transition name="toast">
-      <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
+      <div v-if="hideUndo" class="undo-bar">
+        <span class="undo-msg">「{{ hideUndo.name }}」を一覧から非表示にしました</span>
+        <button class="undo-btn" @click="runHideUndo">元に戻す</button>
+        <button class="undo-x" aria-label="閉じる" @click="dismissHideUndo">✕</button>
+      </div>
+    </Transition>
+
+    <!-- トースト（取り消しバーが出ている間はその上へ逃がす）-->
+    <Transition name="toast">
+      <div v-if="toastShow" class="toast" :class="{ lifted: !!hideUndo }" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
     <!-- 初回オンボーディング -->
