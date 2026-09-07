@@ -17,6 +17,7 @@ import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.j
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
+import { useDayNotes } from '../composables/useDayNotes.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import { settingsSection } from '../composables/appMenuState.js'
 
@@ -32,6 +33,7 @@ const { getSnapshotBySessionId, getSnapshots } = useHistory()
 const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
 const { getMovements } = useMovements()
 const { getOrders } = useOrders()
+const { getNote } = useDayNotes()
 
 // 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
 const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
@@ -293,6 +295,51 @@ async function onLogout() {
   emit('back')
 }
 
+// ── カードの余白に置く「今の状況」──────────────────────────────────────────
+// データ管理・棚卸・履歴カレンダーの3枚は同じ大きさに揃えている。データ管理に合わせると
+// 他の2枚に余白が余るので、そこを飾りではなく**開く前に知りたいこと**で埋める。
+//   棚卸       … 前回いつ数えたか（次に数える判断そのもの）
+//   カレンダー … 今日の日付と今日のメモ（開かなくても今日の予定が読める）
+const _WEEK = ['日', '月', '火', '水', '木', '金', '土']
+function _mdw(d) { return `${d.getMonth() + 1}/${d.getDate()}（${_WEEK[d.getDay()]}）` }
+// 日付の差は「暦の日数」で数える。経過時間(ms)で割ると、昨日の夜と今朝が同じ0日になる。
+function _daysApart(from, to) {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate())
+  return Math.round((b - a) / 86400000)
+}
+
+// now は5秒ごとに更新される（経過時間の表示と共用）。日付をまたいでも表示が古びない。
+const todayKey = computed(() => {
+  const d = new Date(now.value)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+})
+const todayLabel = computed(() => {
+  const d = new Date(now.value)
+  return `${d.getMonth() + 1}月${d.getDate()}日（${_WEEK[d.getDay()]}）`
+})
+// 今日のメモ（履歴カレンダーの日別メモと同じもの）。タグと本文を1行に畳む。
+const todayNote = computed(() => getNote(todayKey.value))
+const todayMemoTags = computed(() => todayNote.value?.tags ?? [])
+const todayMemoText = computed(() => (todayNote.value?.text ?? '').trim())
+const hasTodayMemo  = computed(() => todayMemoTags.value.length > 0 || !!todayMemoText.value)
+
+// 前回の棚卸（完了済みのうち最新）。終了時刻が無い行は開始時刻で数える。
+const lastStock = computed(() => {
+  let best = null
+  for (const s of completedSessions.value) {
+    const t = new Date(s.endedAt ?? s.startedAt)
+    if (Number.isNaN(t.getTime())) continue
+    if (!best || t > best) best = t
+  }
+  if (!best) return null
+  const days = _daysApart(best, new Date(now.value))
+  return {
+    date: _mdw(best),
+    ago:  days <= 0 ? '今日' : days === 1 ? '昨日' : `${days}日前`,
+  }
+})
+
 function _formatDate(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -354,6 +401,11 @@ function _itemCount(session) {
         <!-- セッションパネル -->
         <div class="tab-panel">
           <div v-if="error" class="msg-error">{{ error }}</div>
+
+          <!-- ホームの3枚（データ管理・棚卸・履歴カレンダー）。初期状態では高さを揃える。
+               進行中の棚卸があるときは真ん中が別のカード（hero-live・中身の量が違う）に
+               なるため揃えない。揃えると他の2枚が引き伸ばされて空白だらけになる。 -->
+          <div class="top-cards" :class="{ equal: !activeSession }">
 
           <!-- 棚卸の準備。データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
           <div class="master-card" :class="{ pulse: itemCount === 0 }" @click="emit('openMaster')">
@@ -448,25 +500,52 @@ function _itemCount(session) {
           </div>
 
           <button v-else class="hero-start" :disabled="startingKind === 'stock'" @click="onStartNew">
-            <div class="hero-start-icon">👥</div>
-            <div class="hero-start-text">
-              <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
-              <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
+            <div class="hero-start-main">
+              <div class="hero-start-icon">👥</div>
+              <div class="hero-start-text">
+                <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
+                <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
+              </div>
+              <div class="hero-start-arrow">→</div>
             </div>
-            <div class="hero-start-arrow">→</div>
+            <!-- 余白は「次に数えるかどうか」の判断材料で埋める -->
+            <div class="card-foot">
+              <span class="card-foot-k">前回</span>
+              <span v-if="lastStock" class="card-foot-v">{{ lastStock.date }}<span class="card-foot-sub">{{ lastStock.ago }}</span></span>
+              <span v-else class="card-foot-v none">まだ実施していません</span>
+            </div>
           </button>
 
           <!-- 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
           <button class="history-link" type="button" @click="emit('openHistory')">
-            <span class="history-link-ico">📅</span>
-            <span class="history-link-text">
-              <span class="history-link-title">履歴カレンダー</span>
-              <!-- 件数と操作の説明は出さない（カレンダーを開けば分かる）。
-                   まだ1件も無いときだけ、開いても空だと分かるように案内を残す。 -->
-              <span v-if="completedSessions.length === 0" class="history-link-sub">完了した棚卸はまだありません</span>
+            <span class="history-link-main">
+              <span class="history-link-ico">📅</span>
+              <span class="history-link-text">
+                <span class="history-link-title">履歴カレンダー</span>
+                <!-- 件数と操作の説明は出さない（カレンダーを開けば分かる）。
+                     まだ1件も無いときだけ、開いても空だと分かるように案内を残す。 -->
+                <span v-if="completedSessions.length === 0" class="history-link-sub">完了した棚卸はまだありません</span>
+              </span>
+              <span class="history-link-arrow">→</span>
             </span>
-            <span class="history-link-arrow">→</span>
+            <!-- 今日の日付と今日のメモ。開かなくても今日の予定が読めるようにする。
+                 メモの実体は履歴カレンダーの日別メモと同じもの（この画面では読むだけ）。 -->
+            <span class="card-foot">
+              <span class="card-foot-k">今日</span>
+              <span class="card-foot-v">{{ todayLabel }}</span>
+            </span>
+            <span class="card-foot">
+              <span class="card-foot-k">メモ</span>
+              <span v-if="hasTodayMemo" class="card-foot-v memo-line">
+                <span v-for="t in todayMemoTags" :key="t" class="memo-tag">{{ t }}</span>
+                <span v-if="todayMemoText" class="memo-text">{{ todayMemoText }}</span>
+              </span>
+              <span v-else class="card-foot-v none">まだありません（タップして書けます）</span>
+            </span>
           </button>
+
+          </div>
+          <!-- /top-cards -->
 
           <!-- ここから下は棚卸の主導線ではない。初回公開ではβ機能として二段目に置く -->
           <div class="beta-head">
@@ -854,11 +933,46 @@ function _itemCount(session) {
   margin-bottom: 4px;
 }
 
+/* ── ホームの3枚（データ管理・棚卸・履歴カレンダー）──
+   幅は元から同じ（パネル幅いっぱい）。高さは中身の量でばらついていたので、
+   いちばん高いカード（＝データ管理）に合わせて3枚とも同じ高さにする。
+   grid-auto-rows: 1fr は「全部の行を同じ高さにする」指定で、いちばん高い1枚に合う。
+   固定の px を置かないので、データ管理の中身が増減しても3枚は揃ったままになる。
+
+   進行中の棚卸があるとき（.equal を外す）は真ん中が hero-live に変わる。
+   あちらは参加者・進捗を持つ別物なので、揃えると他の2枚が空白だらけになる。
+   カード間は gap 8px ＋ 各カードの margin-bottom 4px = 従来と同じ12px。 */
+.top-cards { display: flex; flex-direction: column; gap: 8px; }
+.top-cards.equal { display: grid; grid-auto-rows: 1fr; }
+
+/* カード下部の「今の状況」。データ管理の .md-row と同じ読み方（見出し56px＋値）に
+   そろえる。3枚が同じ形の情報を持つと、揃えた高さが余白ではなく面に見える。 */
+.card-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  text-align: left;
+  min-width: 0;
+}
+.card-foot-k { flex-shrink: 0; width: 56px; color: #94a3b8; font-weight: 700; }
+.card-foot-v { flex: 1; min-width: 0; color: #334155; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-foot-v.none { color: #94a3b8; font-weight: 600; }
+.card-foot-sub { color: #94a3b8; font-weight: 700; margin-left: 8px; }
+.memo-line { display: flex; align-items: baseline; gap: 6px; }
+.memo-tag {
+  flex-shrink: 0; font-size: 11px; font-weight: 700;
+  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 12px; padding: 1px 8px;
+}
+.memo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
 /* 履歴カレンダーページへの導線。棚卸の流れの終点 */
 .history-link {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   padding: var(--card-pad-y) var(--card-pad-x);
   background: #fff;
@@ -872,6 +986,7 @@ function _itemCount(session) {
   -webkit-tap-highlight-color: transparent;
 }
 .history-link:active { transform: scale(0.99); }
+.history-link-main { display: flex; align-items: center; gap: 12px; }
 .history-link-ico { font-size: 22px; flex-shrink: 0; }
 .history-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .history-link-title { font-size: 15px; font-weight: 800; color: #334155; }
@@ -971,8 +1086,9 @@ function _itemCount(session) {
 /* ヒーロー: 開始カード（枠は標準カードと統一・中身は青テーマ） */
 .hero-start {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   padding: var(--card-pad-y) var(--card-pad-x);
   background: #fff;
@@ -988,6 +1104,8 @@ function _itemCount(session) {
 }
 .hero-start:active { transform: scale(0.98); }
 .hero-start:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.hero-start-main { display: flex; align-items: center; gap: 14px; }
 
 .hero-start-icon {
   font-size: 26px;
