@@ -12,7 +12,8 @@
 - `PdfGridSetup.vue` を2段の画面にした。①枚数を訊く（紙を見せながら）②**組み上がった表をその場に出す**。行のボタン2つ、列をタップして合わせる/分ける、元のPDF、行数・列数、「この表で進む」。渡す前に確かめられるので、ずれに気づくのが列を当てた後にならない。
 - レシピを1本にまとめた。`ImportMapper` が作る表のレシピに `pdfFp`（紙の指紋）と `grid`（作り方）を同梱し、`matchPdfGridRecipe()` でPDFを開いた時点で照合する。当たれば**枚数の問いも列指定も出さず**に取込確認画面まで進む。当たらなければ従来どおり訊く。旧 `kind:'pdf'` レシピ（紙の上で指定）も従来どおり効く。
 - 検証: `pdfGrid.test.js` に5件追加（行の高さで割れ/まとまり、境界の往復、切りどころ、切れない列は null）、`PdfImporterModal.grid.test.js` を新しい流れへ書き直し6件（表が出る／直せる／作り方が渡る／レシピで問いゼロ／紙の上への逃げ道）。App全体 155 files / 1733 passed、production build成功。
-- 手動確認は `test-checklist-new-features.md` W-1〜W-15（実機未実施）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
+- 手動確認は `test-checklist-new-features.md` W-1〜W-15（実機未実施）。API / DB / 認可 / 保存形式 / Workerは無変更。
+- User指示で `app/package.json` の version を **0.92.0 → 0.93.0** へ（リリースの区切り・D-025）。
 
 ## 2026-09-08 — PDFの列指定をCSV・Excelと同じ画面へ
 
