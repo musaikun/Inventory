@@ -16,6 +16,23 @@
 - 手動確認は `test-checklist-new-features.md` の W-1〜W-11（実機未実施）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
 - **未対応**: 段の数の問いは毎回出る（レシピに覚えさせていない）。`PdfColumnMapper` を将来畳むかは `proposals.md` でPM判断待ち。
 
+## 2026-09-08 — WEB-001: push後の更新停止を調査、ホーム順路testを修正
+
+- 担当: Codex（WEB-001はtask boardで進行中・Codexのまま）。対象: `develop@ed4d9bc97cca236b4f53e2b99b011199b6ef2c68`。
+- User報告: pushしてもスマホのアプリが更新されない。GitHub Actionsの最新develop preview run `34182651873` とPro Review run `34182651868`は、共に`SessionListPage.flow.test.js`の同じ1件で失敗しdeploy未実行。直近3pushとも両workflow失敗。直前の両workflow成功は`e31e67f`。
+- 原因: `ae1a0b4`が3枚のカードを`.top-cards`へまとめたが、testが旧構造のパネル直下だけを探索していた。カード順は保持されている。
+- 修正: testの探索をパネル内の対象導線へ変更。準備・棚卸・履歴・β区切りの存在、件数、DOM順を配列の完全一致で検証する。製品画面・PWA・workflowは変更していない。
+- 検証（app、上記HEAD + test修正）:
+  - 修正前 `.\node_modules\.bin\vitest.cmd run src/components/SessionListPage.flow.test.js`: CIと同じ1失敗 / 10成功を再現。
+  - 修正後 `npm.cmd test -- --reporter=dot`: 対象test成功。全体は1703成功 / 別ファイル`AxisAssignFocus.groups.test.js`で3件の5秒timeout。
+  - `npm.cmd test -- --reporter=dot --maxWorkers=2`: 152 files / 1706 tests passed。
+  - `npm.cmd run build`: 成功（493 modules、既存CJS・chunk size警告）。
+  - `git diff --check`: whitespaceエラーなし（CRLF変換警告のみ）。
+- 検証中に別作業の`HistoryCalendar.vue`差分と`HistoryCalendar.plan.test.js`未追跡fileが出現。保持しており、今回の修正には含めない。clean release candidateの検証ではない。
+- 現行workflowの確認: develop pushでdevelop Pagesを更新。Pro Reviewは専用D1 migration・Worker・Pagesも自動更新。本番Worker/D1/Pagesはこのpush経路で更新しない。古いCI/CD文書の「Pro Reviewは手動・Pagesのみ」とは差がある。
+- Userが本修正と作業記録のcommit・developへのpush・自動更新結果の確認を明示承認。反映結果はGitHub Actionsの対象commit/runを証拠として確認する。
+- この記録時点で未実施: commit、push、deploy、migration、スマホ実機での反映確認。全体の公開gateは完了扱いにしない。
+
 ## 2026-09-07 — 非表示の誤操作に戻り道をつける（Undo・非表示の時刻）
 
 - Userから3件。(1)スワイプの押し込み距離で確認なしに隠せる速さは残す。(2)直前の非表示をすぐ戻せるようにする。(3)手動非表示の一覧を「最後に隠した順」にし、時刻も出す。2件続けて誤操作しても目視で辿れるようにするため。
