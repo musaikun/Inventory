@@ -90,6 +90,7 @@ const importerFile   = ref(null)  // PdfImporterModal に渡す事前ファイ�
 const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
+const mapperPdfFile  = ref(null)  // PDF由来の表のときだけ入る（列指定画面から元の紙を出す）
 const dragging       = ref(false)
 const fileInput      = ref(null)
 const mapperInput    = ref(null)
@@ -137,15 +138,20 @@ function removeRecipe(id) {
 }
 
 // 取込確認画面が解析に失敗したとき、その内容をそのまま列指定インポートへ渡す。
+// 元のPDFも一緒に戻す（当て直す場面でこそ、紙を見たくなる）。
 function onPreviewMapColumns({ csvText, filename }) {
+  const pdf = previewSource.value?.pdfFile ?? null
   previewSource.value = null
-  openMapperFromText(csvText, filename)
+  openMapperFromText(csvText, filename, pdf)
 }
 
-// PDF/Excel変換画面からの受け皿。Excelは列指定インポート側でCSVへ変換する。
-function onImporterMapColumns(file) {
+// PDF/Excel変換画面からの受け皿。
+// Excel は File のまま受けてここでCSVへ変換し、PDF は既に表へ均された状態で届く。
+function onImporterMapColumns(payload) {
   onImporterClose()
-  openMapper(file)
+  if (payload?.file) { openMapper(payload.file); return }
+  if (!payload?.csvText) return
+  openMapperFromText(payload.csvText, payload.filename ?? '', payload.pdfFile ?? null)
 }
 function onUndoImport() {
   if (!undoLastImport()) return
@@ -235,9 +241,10 @@ function handleFile(file) {
 
 // 解析済みのテキストから直接マッピング画面を開く（取込確認画面からの受け皿）。
 // ファイルを読み直さないので、確認画面が見ていた内容と同じものを列指定できる。
-function openMapperFromText(csvText, filename = '') {
+function openMapperFromText(csvText, filename = '', pdfFile = null) {
   mapperCsvText.value  = csvText
   mapperFilename.value = filename
+  mapperPdfFile.value  = pdfFile
   showMapper.value     = true
   status.value         = null
 }
@@ -248,6 +255,7 @@ async function openMapper(file) {
     if (isExcel) assertSpreadsheetFile(file)
     mapperCsvText.value  = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
     mapperFilename.value = file.name
+    mapperPdfFile.value  = null
     showMapper.value     = true
     status.value         = null
   } catch (err) {
@@ -263,7 +271,7 @@ function onMapperImported({ mapping, csvText, headerRow, headerNamed, recipeShap
   showMapper.value = false
   openPreview({
     origin: 'mapped', csvText, mapping, headerRow, headerNamed,
-    filename: mapperFilename.value, recipeShape, matchedRecipe,
+    filename: mapperFilename.value, pdfFile: mapperPdfFile.value, recipeShape, matchedRecipe,
   })
 }
 
@@ -571,6 +579,7 @@ function onDownloadTemplate() {
     v-if="showMapper"
     :csv-text="mapperCsvText"
     :filename="mapperFilename"
+    :pdf-file="mapperPdfFile"
     :axis-names="config.axisNames"
     @imported="onMapperImported"
     @close="showMapper = false"

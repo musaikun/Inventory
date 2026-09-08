@@ -188,10 +188,12 @@ export function downloadItemTemplate() {
 }
 
 // ── PDF テキスト抽出 ──────────────────────────────────────────────────────────
+// w（文字の幅）も持って出る。列を「開始xの近さ」ではなく**区間の重なり**で束ねられると、
+// 折り返した品目名（`豆乳` / `２００ｍｌ`）が別々の列に割れない（utils/pdfGrid.js）。
 async function getPdfPageItems(page) {
   const tc = await page.getTextContent()
   return tc.items
-    .map(i => ({ text: (i.str ?? '').trim(), x: i.transform[4], y: i.transform[5] }))
+    .map(i => ({ text: (i.str ?? '').trim(), x: i.transform[4], y: i.transform[5], w: i.width ?? 0 }))
     .filter(i => i.text)
 }
 
