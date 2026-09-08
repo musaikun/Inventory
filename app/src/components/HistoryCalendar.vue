@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, onMounted, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
@@ -7,6 +7,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
+import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
@@ -46,12 +47,9 @@ const todayKey = _key(_now.getFullYear(), _now.getMonth(), _now.getDate())
 const viewYear  = ref(_now.getFullYear())
 const viewMonth = ref(_now.getMonth())
 
-const filter = ref('all')  // 'all' | 'stock' | 'order' | 'move'
-const showFactors = ref(true)  // 暦の需要要因（帯・マーカー）の表示ON/OFF
-
-// セル背景の帯（優先: スパン＞祝日＞長期休暇＞連休）。要因表示OFFなら空。
+// セル背景の帯（優先: スパン＞祝日＞長期休暇＞連休）
 function cellBand(cell) {
-  if (!showFactors.value || !cell) return ''
+  if (!cell) return ''
   const f = cell.factors
   if (f.span) return 'span'            // お盆・年末年始（短期・強い）
   if (f.holiday) return 'holiday'      // 祝日・振替・国民の休日
@@ -81,10 +79,6 @@ function _stockKey(s) {
   }
   return _keyOf(s.endedAt ?? s.startedAt)
 }
-
-const showStock = computed(() => filter.value === 'all' || filter.value === 'stock')
-const showOrder = computed(() => filter.value === 'all' || filter.value === 'order')
-const showMove  = computed(() => filter.value === 'all' || filter.value === 'move')
 
 // 日付キー → 棚卸セッション配列
 const stockByDate = computed(() => {
@@ -164,14 +158,14 @@ const weeks = computed(() => {
   return out
 })
 
-// セルに出る実績ドット数（棚卸/発注/入庫/出庫）。4つのとき 2×2 折り返しにする。
+// マスに出る星の数（棚卸/発注/入庫/出庫）。4つのとき 2×2 に折り返す。
 function dotCount(cell) {
   if (!cell) return 0
   let n = 0
-  if (showStock.value && cell.stock.length) n++
-  if (showOrder.value && cell.orders.length) n++
-  if (showMove.value && cell.moves.some(m => m.type === 'in')) n++
-  if (showMove.value && cell.moves.some(m => m.type === 'out')) n++
+  if (cell.stock.length) n++
+  if (cell.orders.length) n++
+  if (cell.moves.some(m => m.type === 'in')) n++
+  if (cell.moves.some(m => m.type === 'out')) n++
   return n
 }
 
@@ -218,12 +212,12 @@ function goToday() {
   selectedKey.value = todayKey
 }
 
-// フィルタ考慮で最も新しいデータのある日付
+// 最も新しいデータのある日付
 const recentKey = computed(() => {
   const keys = new Set()
-  if (showStock.value) for (const k of Object.keys(stockByDate.value)) keys.add(k)
-  if (showOrder.value) for (const k of Object.keys(orderByDate.value)) keys.add(k)
-  if (showMove.value)  for (const k of Object.keys(moveByDate.value)) keys.add(k)
+  for (const k of Object.keys(stockByDate.value)) keys.add(k)
+  for (const k of Object.keys(orderByDate.value)) keys.add(k)
+  for (const k of Object.keys(moveByDate.value)) keys.add(k)
   const sorted = [...keys].sort((a, b) => b.localeCompare(a))
   return sorted[0] || null
 })
@@ -237,10 +231,29 @@ function goRecent() {
 }
 
 // ── 選択日 ─────────────────────────────────
+// 日をタップ → その日の詳細をモーダルで開く。カレンダーの下に敷くと、月のマスを
+// 見ながらでは読めず、スクロールすると選んだ日が画面の外へ出てしまう。
 const selectedKey = ref(null)
+const dayOpen = ref(false)
 function onCellTap(cell) {
   // 記録の有無に関わらず、どの日でも詳細を開ける（暦・比較を確認するため）
-  selectedKey.value = cell.key === selectedKey.value ? null : cell.key
+  selectedKey.value = cell.key
+  dayOpen.value = true
+}
+function closeDay() { dayOpen.value = false }
+
+// 端末の戻るは「開いている最上位を1枚だけ閉じる」。App の _closeTopLayer より先にここが見る
+// （登録しないと、モーダルを開いたまま戻ったとき履歴カレンダー画面ごと閉じてしまう）。
+onUnmounted(registerInnerLayerCloser(() => {
+  if (!dayOpen.value) return false
+  closeDay()
+  return true
+}))
+
+// 棚卸の確認ページへ移る。モーダルは畳んでから渡す（戻ったときに開いたままにしない）
+function onViewSession(s) {
+  closeDay()
+  emit('view-session', s)
 }
 
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
@@ -377,58 +390,12 @@ function fmtYen(v) {
   return v == null ? '' : `¥${v.toLocaleString()}`
 }
 
-// セル用の短縮表記（例: 12,400 → 1.2万）
-function fmtYenShort(v) {
-  if (v == null) return ''
-  if (v >= 1e8) return `${(v / 1e8).toFixed(v < 1e9 ? 1 : 0).replace(/\.0$/, '')}億`
-  if (v >= 1e4) return `${(v / 1e4).toFixed(v < 1e5 ? 1 : 0).replace(/\.0$/, '')}万`
-  return `¥${v.toLocaleString()}`
-}
-
 const UNPRICED_MAX = 8
 function _fmtUnpriced(list) {
   if (list.length <= UNPRICED_MAX) return list.join('、')
   return `${list.slice(0, UNPRICED_MAX).join('、')} 他${list.length - UNPRICED_MAX}品目`
 }
 
-// 単一フィルタ時のみ: 日付キー → { count, amount }。count は「件数」ではなく
-// その日に扱った品目数（棚卸=入力済み品目・発注/入出庫=行数の合計）。
-// 入出庫は方向別の品目数（inCount/outCount）を出す（合算金額は意味が無いためセルでは出さない）。
-const cellInfo = computed(() => {
-  if (filter.value === 'all') return null
-  if (filter.value === 'move') {
-    const map = {}
-    for (const [k, arr] of Object.entries(moveByDate.value)) {
-      let inCount = 0
-      let outCount = 0
-      for (const m of arr) {
-        const n = (m.lines || []).length
-        if (m.type === 'out') outCount += n
-        else inCount += n
-      }
-      map[k] = { count: inCount + outCount, inCount, outCount, amount: null }
-    }
-    return map
-  }
-  const src = filter.value === 'stock' ? stockByDate.value : orderByDate.value
-  const calc = filter.value === 'stock' ? _stockValue : _orderValue
-  const countItems = filter.value === 'stock'
-    ? (rec) => _stockItemCount(rec)
-    : (rec) => (rec.lines || []).length
-  const map = {}
-  for (const [k, arr] of Object.entries(src)) {
-    let total = 0
-    let has = false
-    let items = 0
-    for (const rec of arr) {
-      const v = calc(rec)
-      if (v.amount != null) { total += v.amount; has = true }
-      items += countItems(rec)
-    }
-    map[k] = { count: items, amount: has ? total : null }
-  }
-  return map
-})
 function _timeLabel(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -461,16 +428,16 @@ function onDeleteMove(id) {
       <span class="hc-month">{{ monthLabel }}</span>
       <button class="hc-nav-btn" @click="nextMonth">›</button>
       <button class="hc-today" @click="goToday">今日</button>
+      <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
 
-    <!-- 凡例＝フィルタ -->
-    <div class="hc-legend">
-      <button :class="['hc-leg', { on: filter === 'all' }]" @click="filter = 'all'">すべて</button>
-      <button :class="['hc-leg', { on: filter === 'stock' }]" @click="filter = 'stock'"><span class="dot dot-stock"></span>棚卸</button>
-      <button :class="['hc-leg', { on: filter === 'order' }]" @click="filter = 'order'"><span class="dot dot-order"></span>発注</button>
-      <button :class="['hc-leg', { on: filter === 'move' }]" @click="filter = 'move'"><span class="dot dot-in"></span><span class="dot dot-out"></span>入出庫</button>
-      <button :class="['hc-leg', 'hc-factor-toggle', { on: showFactors }]" @click="showFactors = !showFactors" title="祝日・連休・給料日などの表示切替">🗓 条件</button>
-      <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
+    <!-- 星の読み方。切替ボタンではなく説明なので、押せる見た目にしない -->
+    <div class="hc-key">
+      <span class="hc-key-i"><span class="dot dot-stock"></span>棚卸</span>
+      <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
+      <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
+      <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
+      <span class="hc-key-hint">日付をタップで詳細</span>
     </div>
 
     <!-- カレンダー（内スワイプで月移動・親のタブ切替へは伝播させない）-->
@@ -494,33 +461,24 @@ function onDeleteMove(id) {
             today: cell && cell.isToday,
             selected: cell && cell.key === selectedKey,
             tappable: !!cell,
-            'eve-weekday': cell && showFactors && !cell.run && cell.factors.holidayEveKind === 'weekday',
-            'eve-weekend': cell && showFactors && !cell.run && cell.factors.holidayEveKind === 'weekend',
+            'eve-weekday': cell && !cell.run && cell.factors.holidayEveKind === 'weekday',
+            'eve-weekend': cell && !cell.run && cell.factors.holidayEveKind === 'weekend',
           }]"
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
-            <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: showFactors && cell.factors.holiday }]">{{ cell.d }}</span>
-            <span v-if="showFactors && cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
+            <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
+            <span v-if="cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
-            <span v-if="showFactors && cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
-            <span v-if="showFactors && cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
+            <span v-if="cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
+            <span v-if="cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
-            <span v-if="!cellInfo" :class="['hc-dots', { 'dots-grid': dotCount(cell) === 4 }]">
-              <span v-if="showStock && cell.stock.length" class="dot dot-stock"></span>
-              <span v-if="showOrder && cell.orders.length" class="dot dot-order"></span>
-              <span v-if="showMove && cell.moves.some(m => m.type === 'in')" class="dot dot-in"></span>
-              <span v-if="showMove && cell.moves.some(m => m.type === 'out')" class="dot dot-out"></span>
-            </span>
-            <span v-else-if="cellInfo[cell.key]" :class="['hc-cell-info', filter]">
-              <template v-if="filter === 'move'">
-                <span v-if="cellInfo[cell.key].inCount" class="hc-ci-count ci-in">入{{ cellInfo[cell.key].inCount }}</span>
-                <span v-if="cellInfo[cell.key].outCount" class="hc-ci-count ci-out">出{{ cellInfo[cell.key].outCount }}</span>
-              </template>
-              <template v-else>
-                <span class="hc-ci-count">{{ cellInfo[cell.key].count }}品目</span>
-                <span v-if="cellInfo[cell.key].amount != null" class="hc-ci-amt">{{ fmtYenShort(cellInfo[cell.key].amount) }}</span>
-              </template>
+            <span v-if="cell.factors.holidayName" class="hc-hol-name">{{ cell.factors.holidayName }}</span>
+            <span v-if="dotCount(cell)" :class="['hc-dots', { 'dots-grid': dotCount(cell) === 4 }]">
+              <span v-if="cell.stock.length" class="dot dot-stock" title="棚卸"></span>
+              <span v-if="cell.orders.length" class="dot dot-order" title="発注"></span>
+              <span v-if="cell.moves.some(m => m.type === 'in')" class="dot dot-in" title="入庫"></span>
+              <span v-if="cell.moves.some(m => m.type === 'out')" class="dot dot-out" title="出庫"></span>
             </span>
           </template>
         </div>
@@ -528,8 +486,10 @@ function onDeleteMove(id) {
       </div>
     </div>
 
-    <!-- 選択日の履歴 -->
-    <div v-if="selectedKey" class="hc-sheet">
+    <!-- 選択日の詳細。日付をタップしたときだけ開く（カレンダーの下には敷かない）-->
+    <div v-if="dayOpen && selectedKey" class="modal-overlay" @click.self="closeDay">
+    <div class="modal-sheet hc-day-sheet">
+      <div class="sheet-handle"></div>
       <div class="hc-sheet-head">
         <span class="hc-sheet-date">{{ selectedLabel }}</span>
         <span v-if="selectedWeather" class="hc-sheet-wx">
@@ -537,7 +497,7 @@ function onDeleteMove(id) {
           <template v-if="selectedWeather.tempHi != null">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</template>
           <template v-if="selectedWeather.pop != null"> ☔{{ selectedWeather.pop }}%</template>
         </span>
-        <button class="hc-sheet-close" @click="selectedKey = null">✕</button>
+        <button class="hc-sheet-close" @click="closeDay">✕</button>
       </div>
       <div v-if="selectedFactors.length" class="hc-sheet-factors">
         <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
@@ -565,7 +525,7 @@ function onDeleteMove(id) {
       </div>
 
       <!-- 棚卸 -->
-      <template v-if="showStock && selectedStock.length">
+      <template v-if="selectedStock.length">
         <div class="hc-sec-title">
           <span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）
           <span v-if="selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
@@ -574,7 +534,7 @@ function onDeleteMove(id) {
           v-for="r in selectedStockRows"
           :key="r.s.id"
           class="hc-entry hc-entry-stock"
-          @click="emit('view-session', r.s)"
+          @click="onViewSession(r.s)"
         >
           <div class="hc-entry-main">
             <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込</span>
@@ -591,7 +551,7 @@ function onDeleteMove(id) {
       </template>
 
       <!-- 入庫 / 出庫 -->
-      <template v-if="showMove">
+      <template v-if="moveSections.length">
         <template v-for="sec in moveSections" :key="sec.type">
           <div class="hc-sec-title">
             <span :class="['dot', sec.dot]"></span>{{ sec.label }}（{{ sec.rows.length }}件）
@@ -619,7 +579,7 @@ function onDeleteMove(id) {
       </template>
 
       <!-- 発注 -->
-      <template v-if="showOrder && selectedOrders.length">
+      <template v-if="selectedOrders.length">
         <div class="hc-sec-title">
           <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
           <span v-if="selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
@@ -646,29 +606,36 @@ function onDeleteMove(id) {
       <div v-if="anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
 
       <div
-        v-if="!(showStock && selectedStock.length) && !(showOrder && selectedOrders.length) && !(showMove && selectedMoves.length)"
+        v-if="!selectedStock.length && !selectedOrders.length && !selectedMoves.length"
         class="hc-empty"
       >
         この日はアプリの記録はありません
       </div>
+
+      <button class="btn btn-secondary hc-day-close" @click="closeDay">閉じる</button>
+    </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.hc { display: flex; flex-direction: column; gap: 10px; }
+/* 1画面で完結させるため、カレンダーが縦の余りを吸う（下に余白を残さない）。
+   親が高さを決めていない場所に置いても、マスの min-height で潰れずに出る */
+.hc { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 
-.hc-nav { display: flex; align-items: center; gap: 8px; }
+.hc-nav { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; }
 .hc-nav-btn:active { background: #f0f9ff; }
 .hc-month { flex: 1; text-align: center; font-weight: 700; font-size: 16px; color: #1f2937; }
 .hc-today { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; flex-shrink: 0; }
 .hc-today:active { background: #f0f9ff; }
 
-.hc-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hc-leg { display: inline-flex; align-items: center; gap: 5px; border: 1.5px solid #d1d5db; background: #fff; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #6b7280; cursor: pointer; }
-.hc-leg.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
-.hc-recent { margin-left: auto; border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 4px; }
+.hc-recent { border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 6px 2px; flex-shrink: 0; }
+
+/* 星の凡例。マスの星は色だけで種別を表すので、その対応をここで一度だけ示す */
+.hc-key { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: -2px 0 -2px; }
+.hc-key-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b; }
+.hc-key-hint { margin-left: auto; font-size: 11px; font-weight: 600; color: #94a3b8; }
 
 /* 実績マーカーは★（星）。glyphで描画（Safariの clip-path+transform 不具合を回避）。色は種別ごと */
 .dot { display: inline-block; font-size: 10px; line-height: 1; color: #94a3b8; }
@@ -682,11 +649,11 @@ function onDeleteMove(id) {
    宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
    一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
    受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
-.hc-cal { background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
-.hc-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+.hc-cal { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
+.hc-dow-row { flex-shrink: 0; display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
 
 /* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/
-.hc-weeks { border-top: 1px solid #dfe4ea; border-left: 1px solid #dfe4ea; border-radius: 8px; overflow: hidden; animation-duration: 0.22s; animation-timing-function: ease-out; }
+.hc-weeks { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #dfe4ea; border-left: 1px solid #dfe4ea; border-radius: 8px; overflow: hidden; animation-duration: 0.22s; animation-timing-function: ease-out; }
 .hc-weeks.anim-next { animation-name: hcSlideNext; }
 .hc-weeks.anim-prev { animation-name: hcSlidePrev; }
 @keyframes hcSlideNext { from { transform: translateX(26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
@@ -695,8 +662,13 @@ function onDeleteMove(id) {
 .hc-dow.sun { color: #ef4444; }
 .hc-dow.sat { color: #3b82f6; }
 
-.hc-week { display: grid; grid-template-columns: repeat(7, 1fr); }
-.hc-cell { position: relative; aspect-ratio: 1 / 1.28; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 6px; border-right: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
+/* 週の行は残りの高さを等分する。min-height はタップ領域（44px）の下限、
+   max-height は縦に長いPC窓でマスが間延びしないための上限 */
+.hc-week { flex: 1; min-height: 44px; max-height: 110px; display: grid; grid-template-columns: repeat(7, 1fr); }
+/* 高さは週の行から受け取る（aspect-ratio で決めると画面の高さに合わせられない）。
+   overflow: hidden = 祝日名が狭いマスに収まらないとき隣へはみ出させずに切る。
+   マス内の目印（天気・給料日・メモ・五十日・連休の下線）はすべてこの枠の内側にある */
+.hc-cell { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 6px 1px 5px; border-right: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
 .hc-cell.empty { background: #fafbfc; }
 .hc-cell.tappable { cursor: pointer; }
 .hc-cell.tappable:active { background: #f0f9ff; }
@@ -706,9 +678,10 @@ function onDeleteMove(id) {
 .hc-day.sun { color: #ef4444; }
 .hc-day.sat { color: #3b82f6; }
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }
-.hc-dots { position: absolute; bottom: 6px; display: flex; gap: 3px; justify-content: center; }
-/* 4つのときだけ 2×2 に折り返す（3つまでは横並び）*/
-.hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 3px; }
+/* マスの星は「その日に何をしたか」だけを示す（件数・金額は日をタップした詳細で読む）。
+   4つ揃う日だけ 2×2 に折り返し、3つまでは横1列に並べる */
+.hc-dots { margin-top: auto; display: flex; gap: 3px; justify-content: center; }
+.hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 2px 3px; }
 /* セルの実績スターはゲーム風: 発光＋光沢＋3D回転（コインのように自軸で回る）＋わずかな点滅 */
 .hc-dots .dot {
   font-size: 15px;
@@ -726,13 +699,13 @@ function onDeleteMove(id) {
 @keyframes hcStarTwinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
 /* 注: 実績スターの回転は演出として常時再生する（端末の「視差効果を減らす」設定でも止めない） */
 
-.hc-cell-info { position: absolute; bottom: 4px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
-.hc-cell-info.stock { color: #2563eb; }
-.hc-cell-info.order { color: #d97706; }
-.hc-ci-count { font-size: 9px; font-weight: 700; line-height: 1; }
-.hc-ci-amt { font-size: 9px; font-weight: 800; line-height: 1; white-space: nowrap; }
-.hc-ci-count.ci-in  { color: #059669; }
-.hc-ci-count.ci-out { color: #dc2626; }
+/* 祝日名。日付のすぐ下に小さく1行で置く。2行にすると星の位置を押し下げてしまうので、
+   入り切らない名前（勤労感謝の日など・狭い端末）は末尾を … で切る */
+.hc-hol-name {
+  font-size: 8px; font-weight: 700; line-height: 1.2; color: #dc2626; letter-spacing: -0.3px;
+  text-align: center; margin-top: 1px; width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* 暦の需要要因レイヤー（帯＝背景・祝前日＝下線・給料日＝マーカー） */
 .hc-cell.band-holiday:not(.today):not(.selected) { background: #fef2f2; }  /* 祝日 薄赤 */
@@ -750,7 +723,6 @@ function onDeleteMove(id) {
 .hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
 .hc-gotobi-mark { position: absolute; bottom: 3px; left: 3px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
-.hc-factor-toggle.on { border-color: #ea580c; color: #c2410c; background: #fff7ed; }
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
 .hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
@@ -780,7 +752,8 @@ function onDeleteMove(id) {
 .hc-memo-excl input { width: 16px; height: 16px; }
 .hc-memo-save { border: none; background: var(--primary); color: #fff; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
-.hc-sheet { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+/* 選択日の詳細。枠・余白・せり上がりは共通の .modal-sheet（style.css）に任せる */
+.hc-day-close { width: 100%; margin-top: 12px; }
 .hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
 .hc-sheet-date { font-weight: 700; font-size: 15px; color: #1f2937; }
 .hc-sheet-wx { font-size: 12px; color: #6b7280; }

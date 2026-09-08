@@ -114,24 +114,29 @@ function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value 
 // ── 分類（第1レイヤー）の登録 ─────────────────────────────
 const draft = ref(['', ''])
 const show2 = ref(false)
+// 同名で弾いたことは、打った行のすぐ下で伝える（どちらの分類の話か迷わせない）
+const axisErrorAt = ref(-1)
+function clearAxisError() { axisErrorAt.value = -1 }
 function confirmAxis(idx) {
   const name = draft.value[idx].trim()
   if (!name) return
-  setAxisName(idx, name)
+  if (!setAxisName(idx, name)) { axisErrorAt.value = idx; return }
   draft.value[idx] = ''
+  clearAxisError()
 }
 
 // 設定済みの分類名をその場で再編集する
 const editingAxis = ref(-1)
 const editDraft = ref('')
-function startEditAxis(idx) { editingAxis.value = idx; editDraft.value = config.axisNames[idx] || '' }
+function startEditAxis(idx) { editingAxis.value = idx; editDraft.value = config.axisNames[idx] || ''; clearAxisError() }
 function confirmEditAxis(idx) {
   const name = editDraft.value.trim()
   if (!name) return
-  setAxisName(idx, name)
+  if (!setAxisName(idx, name)) { axisErrorAt.value = idx; return }
   editingAxis.value = -1
+  clearAxisError()
 }
-function cancelEditAxis() { editingAxis.value = -1 }
+function cancelEditAxis() { editingAxis.value = -1; clearAxisError() }
 function deleteAxis(idx) {
   const name = config.axisNames[idx]
   if (!confirm(`分類「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
@@ -254,15 +259,16 @@ function onClear() {
             <button class="mm-axis-del" @click="deleteAxis(0)">削除</button>
           </template>
           <template v-else-if="editingAxis === 0">
-            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @keyup.enter="confirmEditAxis(0)" />
+            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(0)" />
             <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(0)">確定</button>
             <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
           </template>
           <template v-else>
-            <input class="mm-axis-input" v-model="draft[0]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：保管場所）" @keyup.enter="confirmAxis(0)" />
+            <input class="mm-axis-input" v-model="draft[0]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：保管場所）" @input="clearAxisError" @keyup.enter="confirmAxis(0)" />
             <button class="mm-axis-confirm" :disabled="!draft[0].trim()" @click="confirmAxis(0)">確定</button>
           </template>
         </div>
+        <div v-if="axisErrorAt === 0" class="mm-axis-err">「分類②」と同じ名前です。別の名前にしてください</div>
 
         <!-- 分類②: 設定済み or ＋で表示 -->
         <div v-if="config.axisNames[1] || show2" class="mm-axis-row">
@@ -274,16 +280,17 @@ function onClear() {
             <button class="mm-axis-del" @click="deleteAxis(1)">削除</button>
           </template>
           <template v-else-if="editingAxis === 1">
-            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @keyup.enter="confirmEditAxis(1)" />
+            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(1)" />
             <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(1)">確定</button>
             <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
           </template>
           <template v-else>
-            <input class="mm-axis-input" v-model="draft[1]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：仕入先）" @keyup.enter="confirmAxis(1)" />
+            <input class="mm-axis-input" v-model="draft[1]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：仕入先）" @input="clearAxisError" @keyup.enter="confirmAxis(1)" />
             <button class="mm-axis-confirm" :disabled="!draft[1].trim()" @click="confirmAxis(1)">確定</button>
           </template>
         </div>
         <button v-else-if="config.axisNames[0]" class="mm-axis-add" @click="show2 = true">＋ 分類を追加</button>
+        <div v-if="axisErrorAt === 1" class="mm-axis-err">「分類①」と同じ名前です。別の名前にしてください</div>
 
         <div class="mm-block-sub">分類（例：保管場所・仕入先）を追加すると、品目を分類先に振り分けられます。ジャンルは取込元由来（編集不可）。</div>
       </div>
@@ -491,6 +498,7 @@ function onClear() {
 .mm-axis-edit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 6px 9px; cursor: pointer; }
 .mm-axis-cancel { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
 .mm-axis-add { width: 100%; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; margin-top: 8px; }
+.mm-axis-err { font-size: 12px; font-weight: 700; color: #dc2626; margin: 6px 0 0 40px; line-height: 1.5; }
 
 
 .mm-hfilter { display: flex; gap: 6px; margin: 8px 0; }

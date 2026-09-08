@@ -62,6 +62,7 @@ body {
    `min-height:100dvh` の画面（auth / 仕入れなど）はページ自体が伸びる作りなのでそのまま。 */
 body[data-view="session-detail"] #app,
 body[data-view="guest-result"] #app,
+body[data-view="history"] #app,
 body[data-view="sessions"] #app { padding-bottom: 0; }
 
 /* ── Header ── */

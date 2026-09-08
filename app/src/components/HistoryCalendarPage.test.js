@@ -61,6 +61,16 @@ function completed(id, date) {
   return { id, status: 'completed', type: 'stock', startedAt: iso(date, 9), endedAt: iso(date) }
 }
 
+// その日のマスをタップして詳細モーダルを開く（詳細はタップで開く・最初は出ていない）
+async function openDay(root, dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  const firstDow = new Date(y, m - 1, 1).getDay()
+  const cell = root.querySelectorAll('.hc-weeks .hc-cell')[firstDow + d - 1]
+  cell.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+  return root.querySelector('.hc-day-sheet')
+}
+
 describe('HistoryCalendarPage', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -117,14 +127,15 @@ describe('HistoryCalendarPage', () => {
     sessionsResponse = [{ id: 's1', status: 'completed', type: 'stock', startedAt: at, endedAt: at }]
     const root = await mountPage()
 
-    expect(root.querySelector('.hc-entry-del')).not.toBeNull()
+    const sheet = await openDay(root, _localDate(justAfterMidnight))
+    expect(sheet.querySelector('.hc-entry-del')).not.toBeNull()
   })
 
   it('削除は確認を挟み、拒否すればAPIを呼ばない', async () => {
     sessionsResponse = [completed('s1', TODAY)]
     vi.stubGlobal('confirm', vi.fn(() => false))
     const root = await mountPage()
-    const del = root.querySelector('.hc-entry-del')
+    const del = (await openDay(root, TODAY)).querySelector('.hc-entry-del')
     expect(del).not.toBeNull()
     del.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 4; i++) await nextTick()

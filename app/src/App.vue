@@ -199,8 +199,19 @@ function markActivity() { if (currentView.value === 'session') activeTimer.mark(
 // 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail' | 'guest-result'
 const currentView   = ref('landing')
 const detailSnapshot = ref(null)
+// 詳細を開いたセッション行（D1）。開始・終了時刻はここにしか無く、レポートの
+// 所要時間（ルームを開いてから終了するまで）に要る。スナップショットへは混ぜない
+// ＝ 端末の記録の正本を、表示のために書き換えない。
+const detailSession    = ref(null)
 // 履歴詳細を開いた画面（一覧 or 履歴カレンダー）。戻るで元の画面へ返す。
 const detailReturnView = ref('sessions')
+// 取込で作った過去棚卸はルームを開いていない（startedAt は実施日の0時、endedAt は
+// 取り込んだ時刻）。その差を所要時間として渡すと嘘の数字になるので渡さない。
+const detailSessionSpan = computed(() => {
+  const s = detailSession.value
+  if (!s || s.importBatchId) return { startedAt: '', endedAt: '' }
+  return { startedAt: s.startedAt ?? '', endedAt: s.endedAt ?? '' }
+})
 // 完了後ゲスト閲覧（読み取り専用結果ビュー）
 const guestResult      = ref(null)   // 結果スナップショット（null = エラー表示）
 const guestResultError = ref('')
@@ -604,6 +615,7 @@ async function onViewSession(session) {
     showToast('明細が多いため一部のみ表示しています', 3500, 'warning')
   }
   detailSnapshot.value = snap
+  detailSession.value  = session ?? null
   detailReturnView.value = currentView.value === 'history' ? 'history' : 'sessions'
   currentView.value = 'session-detail'
 }
@@ -3166,6 +3178,8 @@ function dismissReview() {
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
       :shop-code="shopCode"
+      :started-at="detailSessionSpan.startedAt"
+      :ended-at="detailSessionSpan.endedAt"
       @back="currentView = detailReturnView"
       @patched="onSnapshotPatched"
     />

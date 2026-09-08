@@ -97,7 +97,7 @@ describe('HistoryCalendar 取込データの星', () => {
     cellOf(root, PAST).dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
 
-    const sheet = root.querySelector('.hc-sheet')
+    const sheet = root.querySelector('.hc-day-sheet')
     expect(sheet.textContent).toContain('9月5日')
     expect(sheet.querySelectorAll('.hc-entry-imported').length).toBe(2)   // 棚卸・入庫
     expect(sheet.querySelector('.hc-entry-time')).toBeNull()

@@ -128,7 +128,8 @@ function onAddAxis() {
   if (idx < 0) return
   const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
   if (!name) return
-  setAxisName(idx, name)
+  // もう一方の並び替えと同じ名前は付けられない（タブが見分けられなくなる）
+  if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return }
   sortMode.value = idx === 0 ? 'axisA' : 'axisB'  // 追加した並び替えに切替
   axisAssignInitial.value = idx
   showAxisAssign.value = true                      // 振り分けページへ

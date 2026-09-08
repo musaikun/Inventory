@@ -683,10 +683,15 @@ export function useConfig() {
   }
 
   // 汎用軸の名前を設定する（index: 0=軸A, 1=軸B）。空文字で未使用に戻す
+  // もう一方の軸と同じ名前は受け付けない（false を返す）。分類は名前でしか
+  // 見分けられず、同名だと並べ替えタブも振り分けページもどちらか分からなくなる
   function setAxisName(index, name) {
     if (index !== 0 && index !== 1) return false
     const arr = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
-    arr[index] = (name ?? '').trim().slice(0, AXIS_NAME_MAX)
+    const n = (name ?? '').trim().slice(0, AXIS_NAME_MAX)
+    const other = (arr[index === 0 ? 1 : 0] ?? '').trim()
+    if (n && n === other) return false
+    arr[index] = n
     config.axisNames = [arr[0] ?? '', arr[1] ?? '']
     _save()
     return true
