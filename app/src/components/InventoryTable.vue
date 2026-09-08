@@ -2,6 +2,7 @@
 import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
+import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
@@ -52,6 +53,13 @@ function _normName(name) {
 
 const manualSet = computed(() => new Set(props.manualItems))
 const hiddenSet = computed(() => new Set(props.hiddenItems))
+// 非表示シートの並びは「最後に隠した順」。引き切ったスワイプは確認なしで決まるので、
+// 誤操作に気づいて開いたとき、直前に隠れたものが必ず先頭に来るようにする。
+// 時刻を持たない品目（この記録より前に隠したもの）は後ろへ回り、時刻は出さない。
+const hiddenRows = computed(() => {
+  const at = config.value.hiddenAt ?? {}
+  return sortHiddenByRecent(props.hiddenItems, at).map(name => ({ name, at: hiddenAtLabel(at[name]) }))
+})
 // リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
 const canManage = computed(() => props.canManageList && !props.readOnly)
 // 非表示スワイプを開けるか。ホストは自分で隠し、ゲストは申請だけを出せる。
@@ -120,7 +128,8 @@ function onAddAxis() {
   if (idx < 0) return
   const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
   if (!name) return
-  setAxisName(idx, name)
+  // もう一方の並び替えと同じ名前は付けられない（タブが見分けられなくなる）
+  if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return }
   sortMode.value = idx === 0 ? 'axisA' : 'axisB'  // 追加した並び替えに切替
   axisAssignInitial.value = idx
   showAxisAssign.value = true                      // 振り分けページへ
@@ -406,6 +415,18 @@ const hasCodes = computed(() => false)
 
 // preview では金額列は出さない（数値なしの確認用途）
 const showAmount = computed(() => hasPrices.value && !props.preview && !props.hideAmount)
+
+// 「誰が発注したか」は、2人以上が発注しているときだけ出す。
+// 1台で回している店ではどの行も同じ名前になり、狭い列で名前を削るだけの表示になる。
+const showOrderBy = computed(() => {
+  if (!props.orderMode || !props.orderMap) return false
+  const who = new Set()
+  for (const v of Object.values(props.orderMap)) {
+    if (v?.orderQty > 0 && v.by) who.add(v.by)
+    if (who.size > 1) return true
+  }
+  return false
+})
 
 // 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
@@ -743,7 +764,8 @@ function fmtYen(n) {
         >
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
-          <th class="th-qty">{{ preview ? '振り分け' : '数量' }}</th>
+          <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
+            preview ? '振り分け' : orderMode ? '発注 / 在庫' : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
@@ -803,12 +825,6 @@ function fmtYen(n) {
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
                 >🔖</span>
-                <span
-                  v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
-                  class="order-chip"
-                  :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
-                >🧾 発注 {{ orderMap[row.item].orderQty }}<span
-                  v-if="orderMap[row.item].by" class="order-chip-by">・{{ orderMap[row.item].by }}</span></span>
                 <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
                   <button class="manual-btn-edit" @click="emit('edit-item', row.item)">編集</button>
                   <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
@@ -831,7 +847,29 @@ function fmtYen(n) {
                 <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
               </div>
             </td>
-            <td class="td-qty">
+            <td class="td-qty" :class="{ 'td-qty-order': orderMode }">
+              <!-- 発注セッションでは、入力済みの発注数を在庫の欄の左に数字で出す。
+                   品目名の隣のチップだと、名前が長い行で折り返して行の高さが揃わず、
+                   「いくつ発注したか」を列として上から下へ読めなかった。 -->
+              <span
+                v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
+                class="order-qty"
+                :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
+              >
+                <span class="order-qty-n">{{ orderMap[row.item].orderQty }}</span>
+                <span v-if="showOrderBy && orderMap[row.item].by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
+              </span>
+              <!-- 保留＝在庫は数えたが発注数はまだ決めていない行。後から詳しい人や
+                   入出庫情報と突き合わせて決めるのはこの行なので、数えていない行と
+                   同じ見た目にすると、まさに見たい行が一覧で埋もれる。 -->
+              <span
+                v-else-if="orderMode && orderMap?.[row.item] && orderMap[row.item].stock != null"
+                class="order-qty pending"
+                title="在庫は記録済み。発注数はあとで決める"
+              >保留</span>
+              <!-- まだ触っていない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
+                   在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
+              <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
               <div v-if="preview" class="preview-groups">
                 <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
                 <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
@@ -902,11 +940,12 @@ function fmtYen(n) {
           <span class="hidden-sheet-title">手動非表示の品目（{{ hiddenSet.size }}）</span>
           <button class="hidden-sheet-close" @click="manageHiddenOpen = false">閉じる</button>
         </div>
-        <p class="hidden-sheet-sub">戻すと一覧・進捗に再び含まれます。</p>
+        <p class="hidden-sheet-sub">最後に隠したものが上です。戻すと一覧・進捗に再び含まれます。</p>
         <div class="hidden-list">
-          <div v-for="name in hiddenItems" :key="name" class="hidden-row">
-            <span class="hidden-row-name">{{ name }}</span>
-            <button class="hidden-row-restore" @click="emit('unhide-item', name)">戻す</button>
+          <div v-for="r in hiddenRows" :key="r.name" class="hidden-row">
+            <span class="hidden-row-name">{{ r.name }}</span>
+            <span v-if="r.at" class="hidden-row-at">{{ r.at }}</span>
+            <button class="hidden-row-restore" @click="emit('unhide-item', r.name)">戻す</button>
           </div>
           <div v-if="hiddenSet.size === 0" class="hidden-empty">非表示の品目はありません</div>
         </div>
@@ -1160,7 +1199,8 @@ function fmtYen(n) {
   padding: 10px 4px;
   border-bottom: 1px solid #f1f5f9;
 }
-.hidden-row-name { font-size: 14px; color: #334155; }
+.hidden-row-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
+.hidden-row-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; margin-right: 8px; white-space: nowrap; }
 .hidden-row-restore {
   border: 1px solid var(--primary-border, #bfdbfe);
   background: #fff;
@@ -1505,22 +1545,41 @@ function fmtYen(n) {
   flex-shrink: 0;
 }
 
-/* 発注セッション: 品目ごとの発注数チップ（誰が発注したかを一覧で可視化） */
-.order-chip {
+/* 発注セッション: 発注数を在庫の欄の左に、数字として置く。
+   上から下へ「いくつ発注したか」を1列として読めるようにする。 */
+.td-qty-order { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.th-qty-order { width: 130px; }
+.order-qty {
   display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #047857;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  padding: 1px 8px;
-  margin-left: 4px;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  min-width: 34px;
   flex-shrink: 0;
+}
+.order-qty.pending {
+  font-size: 10.5px; font-weight: 800;
+  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 7px; padding: 1px 5px;
+}
+.order-qty-n {
+  font-size: 17px;
+  font-weight: 800;
+  color: #047857;
+  font-variant-numeric: tabular-nums;
+}
+.order-qty-by {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #059669;
+  opacity: 0.8;
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.order-chip-by { font-weight: 600; color: #059669; opacity: 0.85; }
+/* まだ発注していない行も、桁の位置をそろえるために場所だけ取る */
+.order-qty.empty { min-height: 1px; }
 
 /* ── 手動品目 編集・削除ボタン ── */
 .manual-actions {

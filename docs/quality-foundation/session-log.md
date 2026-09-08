@@ -16,6 +16,78 @@
 - 手動確認は `test-checklist-new-features.md` の W-1〜W-11（実機未実施）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
 - **未対応**: 段の数の問いは毎回出る（レシピに覚えさせていない）。`PdfColumnMapper` を将来畳むかは `proposals.md` でPM判断待ち。
 
+## 2026-09-07 — 非表示の誤操作に戻り道をつける（Undo・非表示の時刻）
+
+- Userから3件。(1)スワイプの押し込み距離で確認なしに隠せる速さは残す。(2)直前の非表示をすぐ戻せるようにする。(3)手動非表示の一覧を「最後に隠した順」にし、時刻も出す。2件続けて誤操作しても目視で辿れるようにするため。
+- `useConfig`に`hiddenAt`（品目 → 非表示にした時刻ISO）を追加。`hideItem()`で記録、`unhideItem()`と`removeConfigItem()`で削除。名前の変更では移さない（`hiddenItems`が旧名のままなので、時刻だけ新名へ移すと行と時刻が離れる）。**シリアライズ・`_assignConfigData`・空リスト化/サンプルの初期化・`RoomDO.normalizeConfig`の4箇所すべてに追加**（B-01の再発防止）。
+- `App.vue`に取り消しバー（`.undo-bar`）。非表示のトーストを置き換え、「元に戻す」「✕」を出す。9秒で自動的に消える。読むだけの通知から押す先のある通知へ変えただけで、スワイプの閾値・確認ダイアログの条件は触っていない。振り分け画面（`AxisAssignFocus`）は自前の取り消しバーを持つため、従来どおり`silent`で重ねない。トーストが同時に出るときは上へ逃がす（`.toast.lifted`）。
+- 並びと時刻表示は`utils/hiddenItems.js`（`sortHiddenByRecent` / `hiddenAtLabel`）に純関数として置き、棚卸表の管理シート（`InventoryTable`）とデータ管理の「非表示中」（`MasterManagePage`）で共用。時刻を持たない品目（この記録より前に隠したもの）は後ろへ回り、時刻欄は空にする。表示は 今日 13:24 / 昨日 22:05 / 9/5 18:02 / 2025/9/5。
+- ゲストは非表示を申請するだけで自分では隠せないため、取り消しバーは出ない（従来どおり申請中の表示）。
+- 検証: 新規`hiddenItems.test.js` 11、`App.hideUndo.test.js` 5、`InventoryTable.hiddenList.test.js` 4、`MasterManagePage.hidden.test.js` 2、`useConfig.hidden.test.js` 10 passed。App全体150 files / 1687 passed、Worker 32 files / 601 passed、production build成功、`git diff --check`指摘なし。
+- 実機確認はX-1〜X-4としてUser待ち。config項目を1つ増やしたので、旧versionのホストと同期した場合は`hiddenAt`が空（時刻なしとして後ろへ回る）になる。
+
+## 2026-09-06 — 数量シートの作り直し（Part 1: 棚卸を1枚に）
+
+- Userと数値入力モーダルを設計し直す話。棚卸については不満は出ておらず、要望は「テンキー固定を解除して1つのモーダルに統一」。
+- 積算（CSS値から）: 見出し28 + 品目名100 + あとで数える45 + 履歴34 + 数量63 + ジャンル38 + プリセット36 + テンキー246 + 確定56 + 余白72 = **718px**。iPhone SE2 は667pxなので約50px溢れる。溢れの正体は低頻度の要素が全幅の行を持っていたこと。
+- 対応: 見出しは編集・新規登録・発注のみ（`sheetTitle`）。あとで数えるは`.name-flag`（34px・`.name-nav`と同寸）へ。ジャンル・履歴・フラグONはヒント行のチップへ。**-145px → 約573px**。
+- 貼り付けは`.keypad-dock.stuck`として発注モードにだけ残した。発注はまだ参考情報で伸びるので、Part 2で縮めてから外す。順番を逆にすると2026-09-05の「打つ場所が動く」報告が戻る。
+- `ConfirmModal.layout.test.js` を新規作成（9件）。高さはjsdomで測れないので「低頻度のものが行を占めていないこと」を構造で押さえた。
+- 検証: 対象2 files / 17 passed、App全体146 files / 1644 passed、production build成功。
+
+### Part 2（発注）— 実装済み
+
+- 打つのは在庫ひとつ。`orderFocus` 既定を `'stock'` へ。発注数は `orderDecide` が立つまで `.order-guide`（読むだけの目安）で、「自分で決める」でだけ入力欄になる。
+- 「あとで決める」を確定と同じ大きさで置いた。在庫が未入力なら確定しない（残すものが無い）。
+- 保留を残す: `orderSync.js` に `hasCountedStock()` / `isPendingLine()`。発注が取り消されても在庫があれば残し、サーバのスナップショットでも消さない。`App.vue` の `_applyOrderConfirm()` も同様。同期ペイロードと発注の記録（`upsertOrder`）には載せない。
+- `InventoryTable` の発注列に「保留」を出す。触っていない行とは見た目を分ける。
+- **既存契約との衝突を1件、契約側を優先して直した**: 最初 `decideOrderSelf()` で推奨を初期値に入れたが、`ConfirmModal` には「推奨は参考として出すだけで発注数へは自動で入れない（読まずに確定できてしまうため）」という明示の契約があった。自動投入をやめ、既存testの意図はそのまま残した。
+- 検証: `ConfirmModal.order.test.js` 13 passed（新規4件）、`orderSync.test.js` 16 passed（新規5件）、`InventoryTable.order.test.js` 8 passed（新規3件）、App全体146 files / 1653 passed、production build成功。
+- 未決3点（`proposals.md` 2026-09-06 参照）: 入数の外側の単位名が無い／保留は端末内のみ（DO は発注数>0 のみ配る）／保留の印は D1 に残らない。
+
+### Part 2 着手前に分かっていたこと（記録）
+
+- **Userの実運用**: 発注セッションでは在庫数を入れることが多かった。その場で適正発注量を判断できず、在庫を記録して後から有識者や社内の入出庫情報と突き合わせて決めていた。
+- コードは逆を向いている。(1)`ConfirmModal.vue`の`orderFocus`既定値が`'order'`＝最初の一打は発注数に入る。(2)`App.vue`の`_applyOrderConfirm()`は`orderQty > 0`のときだけ発注下書きへ残す（`orderSync.js`の`applyOrderLine`も同じ）。在庫は在庫表には入るが、**判断を保留した品目は発注一覧から消える**。後で見たいのはまさにその品目。
+- 方針: 発注セッションを「在庫を記録するセッション」として組み直す。打つのは在庫ひとつ（棚卸単位）、発注数は読むだけの目安行＋「自分で決める」（入数単位）。「あとで決める」で在庫つきの**保留**として下書きに残す。
+- 未決: 保留を下書きにどう持たせるか（`orderQty: null` + `stock`）、同期（`broadcastOrderUpdate`/`Remove`）とDOのpayload、発注一覧での見せ方。`orderDraftToPayload`は現在`>0`のみ。
+
+## 2026-09-05 — 取り込んだ過去データが履歴カレンダーの星に出ない
+
+- Userから「過去の棚卸・納品・入出庫を取り込んだとき、履歴カレンダーにその対象のマーク（星）が出るようにしたい」。
+- 原因は2つ。どちらも「取り込んだ日」と「実施日」の取り違え。
+  - **棚卸**: サーバーは取込セッションの `started_at` に実施日、`ended_at` に**取り込んだ時刻**を入れる（`pastImport.js`）。カレンダーは`_keyOf(endedAt ?? startedAt)`で束ねるため、星が取込日のマスに出て、実施日のマスは空のままだった。
+  - **出庫**: `deliveryImportCommit.buildImportMovements()`が`type === 'out'`の行を黙って捨てていた。確認画面は種別を問わず「N件を取り込む」と数えるので、押した件数がどこにも残らず、その日の星も出ない。
+- 対応:
+  - `HistoryCalendar.vue`に`_isImported()` / `_stockKey()`を追加。取込セッションは`startedAt`の日付部分（`YYYY-MM-DD`）をそのまま使う。`_keyOf()`を通さないのは実施日が`T00:00:00.000Z`で入っており、UTCより西の端末では前日へずれるため。判定は**サーバーの`importBatchId`と端末スナップショットの`source: 'import'`の両方**を見る（片方しか無い端末でも当たる）。
+  - `storeHandler.handleSessionsGet()`が`import_batch_id`をSELECTし`importBatchId`として返すようにした（読み取りのみ・スキーマ変更なし）。取込直後や別端末でスナップショットが無くても実施日に載る。
+  - 詳細シートの取込行は、時刻（＝取り込んだ時刻）ではなく「取込」バッジを出す。別の日の時刻が並ぶのを避ける。
+  - `buildImportMovements()`を日付×**種別**×仕入先で畳むようにし、出庫は出庫レコードとして保存する。納品取込モーダルは、出庫を含むファイルのときだけ明細に「種別」列と注記を出す。
+- 納品（入庫）の星は元から実施日に出ていた（`movements.date`が実施日のため）。回帰として残した。
+- 検証: 新規`HistoryCalendar.import.test.js` 4 passed、`deliveryImportCommit.test.js` 5 passed、`DeliveryImportModal.test.js` 6 passed、Worker 32 files / 601 passed、App全体144 files / 1624 passed（`AxisAssignFocus.groups.test.js`の回転1件が全体実行時のみ5秒timeout。単体では40 passed・本変更と無関係）、production build成功。
+- 出庫を取り込めるようにしたのは仕様変更のため`proposals.md`へ投稿。実機確認はT-2-12 / T-4-3としてUser待ち。
+- DoDセルフチェック: 同期・WSメッセージ・権限・プラン境界・通知・戻る操作・localStorageキー・スキーマはいずれも無変更のためN/A。sessions APIは読み取り列の追加のみで認可・店舗分離（`WHERE shop_code = ?`）は既存のまま。`project-status.md`は過去versionの機能棚卸しのため直接更新せず、仕様変更2件を`proposals.md`へ投稿した。version（`app/package.json`）は変更していない。
+
+## 2026-09-05 — 品目取込の入口を2つに分ける（はじめての形／保存した読み方）
+
+- User指示。(1)ドロップゾーンのファイルは`button.mapper-trigger`と同じ列指定フローへ回す。(2)保存レシピ専用の入口を別に設け、一度マッピングした形はそこから取り込ませる。(3)初回か2回目かで経路を変える。
+- 確認した仕様: 推奨フォーマットも**例外なく**列指定へ／レシピ未一致でも止めずに列指定へ進む／PDFは従来どおり専用画面（`ImportMapper`はテキストしか受け取れず、先にページ解析が要るため）。
+- `SettingsModal.vue`: `handleFile()`をCSV/txt/Excel→`openMapper()`、PDF→`PdfImporterModal`に。`origin: 'csv'`の素通し経路は削除。ドロップゾーンを「はじめて取り込む形」、その下に`.drop-zone.recipe-zone`「保存した読み方で取り込む」（覚えている名前を表示、レシピ0件なら非表示）を追加。「🗂 フォーマット不明の…」ボタンは重複するため削除し、レシピの`details`は管理だけに縮めた。
+- `ImportMapper.vue`: `expectRecipe` propを追加。レシピ入口から来て当たらなかったときだけ「この形はまだ覚えていません」を出す。`tryRecipe()`の自動照合は元からあるので、当たれば問いは0のまま。
+- test: 入口が2つになったので helper を`dropInto(selector, ...)`へ整理し、`importWith`（素通し経路）は廃止。回帰6件を追加（推奨フォーマットも列指定へ／レシピ0件なら入口を出さない／保存すると入口に名前が出る／同じ形なら問い0／未一致は理由を出して問いへ／はじめての入口では理由を出さない）。レシピ`details`の見出し変更に伴い既存1件も更新。
+- 検証: `SettingsModal.import.test.js` → 18 passed、App全体143 files / 1619 passed、production build成功。
+- 実機確認はT-1-10としてUser待ち。設計判断（推奨フォーマットにも問いが1回出ること）は`proposals.md`へ投稿。
+
+## 2026-09-05 — 取込のファイル選択でPDFしか選べない
+
+- Userから「品目のインポートで`div.drop-zone`からファイルを選ぶとPDFしか選べない」。
+- 原因は`accept`が拡張子だけだったこと。iOSやAndroidのpickerは拡張子をUTI / MIMEへ落として候補を作るため、対応表に無い拡張子（`.csv` / `.xlsx`）が落ち、MIMEが自明な`.pdf`だけが残る。デスクトップのファイルダイアログでは拡張子だけでも効くので、実機でしか出ない。
+- 4つのinputへMIMEを併記した。`SettingsModal.vue`のドロップゾーン（CSV/Excel/PDF）、`PdfImporterModal.vue`（PDF/Excel）、`MasterManagePage.vue`の納品・過去棚卸（CSV/Excel）。受け付ける種類の判定は従来どおり`handleFile()`がファイル名の拡張子で行うため、取り込める種類自体は変えていない。
+- `SettingsModal.import.test.js`が file input を`accept.includes('text/csv')`で探しており、ドロップゾーンにも`text/csv`が入ると取り違える。inputへ`import-file` / `mapper-file` / `restore-file`のclassを付け、testはclassで引くようにした。
+- 回帰「取込のドロップゾーンは拡張子とMIMEの両方を並べる」を追加。
+- 検証: `SettingsModal.import.test.js` → 13 passed、App全体143 files / 1614 passed、production build成功。
+- 実機での見え方はT-1-9としてUser確認待ち。このセッションからiOS / Androidを操作できないため再現確認はしていない。
+
 ## 2026-09-05 — 履歴カレンダーが深夜の棚卸を前日のマスへ入れていた
 
 - UI-003の作業中、App全体testで`HistoryCalendarPage.test.js`が1件落ちた。`TZ=UTC`では通り、JSTの00:00〜09:00だけ落ちる。

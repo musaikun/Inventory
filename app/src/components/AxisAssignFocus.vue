@@ -163,9 +163,15 @@ const GLIDE_FRICTION = 0.94
 let _dragging = false, _vel = 0, _glideRaf = 0
 let _wheelPointerId = null, _wheelTapSlot = null, _wheelTravel = 0
 let _wheelPointerType = '', _wheelSamples = []
-let _countDownY = null                               // 件数buttonを押している間の開始位置
-// 中央カードのカウントは「振り分け済みを開く」ボタン。回転にも展開にも食わせない。
-const isCountTap = e => !!e.target?.closest?.('.af-gcard.on .af-gcount')
+let _countTapSlot = null            // 押した瞬間に触れていた件数のカード
+let _countJustOpened = false        // pointerupで開いた直後のclickを二重に効かせない
+// 件数は「その分類先の振り分け済みを開く」入口。**どのカードのものでも**開く。
+//
+// もとは中央カードの件数だけを入口にしていたが、慣性で回っている最中は、指が着いた
+// 瞬間にはもう別のカードが中央になっていることがある。人は**見えている数字**を狙って
+// 押しているのに、判定を「いま中央か」で行うので、押した数字とは無関係に外れていた。
+// 触った数字がその人の意図なので、そのカードの一覧を開く（User報告 2026-09-04）。
+const isCountTap = e => !!e.target?.closest?.('.af-gcount')
 const pointerMatches = (e, id) => id == null || e.pointerId == null || e.pointerId === id
 function slotFromTarget(targetEl) {
   const card = targetEl?.closest?.('[data-slot]')
@@ -225,12 +231,18 @@ function wheelMovePoints(e) {
 }
 
 function onWheelDown(e) {
-  // 押下中に高さまで変えるとpointerup時のhit targetがずれるため、件数buttonでは
-  // 回転位置だけを固定し、領域の変更は押し切ってから行う。
-  if (isCountTap(e)) { stopWheelAtNearest(); _countDownY = Number(e.clientY); return }
-  _countDownY = null
   if (_dragging || e.isPrimary === false) return
-  setWheelState('open')
+  _countJustOpened = false
+  // 件数を押したかどうかは、ここで（押した瞬間の要素で）控える。
+  // click は Pointer Capture で target が stage へ置き換わるうえ、回転中はカードが
+  // 指の下から動くので、click では「どの数字を押したか」が分からない。
+  // ここで早期returnせずに通常の経路へ乗せるのは、件数の上から指を滑らせたときに
+  // ホイールが回らなくなるのを避けるため（押し切ったかどうかは pointerup で決める）。
+  _countTapSlot = isCountTap(e) ? slotFromTarget(e.target) : null
+  // 件数を押しただけでは面積を変えない。帯に畳んで品目を入れている最中に
+  // 開いても、閉じたときに一覧の位置がずれないようにする。
+  // 指が滑って本当の回転になったら、そこで広げる（onWheelMove）。
+  if (_countTapSlot == null) setWheelState('open')
   _dragging = true; _vel = 0
   _wheelPointerId = e.pointerId ?? null
   _wheelPointerType = e.pointerType || 'mouse'
@@ -246,6 +258,11 @@ function onWheelMove(e) {
   if (!_dragging || !pointerMatches(e, _wheelPointerId)) return
   if (e.cancelable) e.preventDefault()
   for (const point of wheelMovePoints(e)) applyWheelPoint(point)
+  // 件数から指が滑ったら、そこからは普通の回転として扱う
+  if (_countTapSlot != null && _wheelTravel > TAP_SLOP) {
+    _countTapSlot = null
+    setWheelState('open')
+  }
 }
 function finishWheelGesture(e, cancelled) {
   if (!_dragging || !pointerMatches(e, _wheelPointerId)) return
@@ -253,17 +270,24 @@ function finishWheelGesture(e, cancelled) {
   // 弱めつつ、pointermoveの最後の1pxだけで全速度が消えるスマホ特有の偏りを避ける。
   if (!cancelled) applyWheelPoint(e)
   const pointerId = _wheelPointerId
-  const tapSlot = !cancelled && _wheelTravel <= TAP_SLOP ? _wheelTapSlot : null
+  const tap = !cancelled && _wheelTravel <= TAP_SLOP
+  const tapSlot   = tap ? _wheelTapSlot : null
+  const countSlot = tap ? _countTapSlot : null
   const releaseVelocity = _vel
   _dragging = false
   _wheelPointerId = null
   _wheelPointerType = ''
   _wheelSamples = []
   _wheelTapSlot = null
+  _countTapSlot = null
   _wheelTravel = 0
   try { if (pointerId != null) e.currentTarget.releasePointerCapture?.(pointerId) } catch (_) { /* 既に外れている */ }
   // Pointer Capture中のtapはclickのtargetがstageへ置き換わるため、down時の
   // 物理slotをpointerupで確定する。
+  if (countSlot != null) {
+    openAssigned(countSlot)
+    return
+  }
   if (tapSlot != null) {
     selectWheelSlot(tapSlot)
     return
@@ -277,25 +301,21 @@ function finishWheelGesture(e, cancelled) {
 }
 // 件数の押下をclickだけに頼らない。3Dで重ねたカードやPointer Captureが絡むと、
 // 端末によってはclickのtargetがstageへ置き換わり、件数buttonまで届かない。
-// 押し始めが件数で、指がほとんど動かずに離れたなら、その時点で開く。
-function takeCountTap(e) {
-  const from = _countDownY
-  _countDownY = null
-  if (from == null) return false
-  const y = Number(e?.clientY)
-  return !Number.isFinite(y) || Math.abs(y - from) <= TAP_SLOP
-}
-function onWheelUp(e) {
-  if (takeCountTap(e)) { openAssigned(); return }
-  finishWheelGesture(e, false)
-}
-function onWheelCancel(e) { _countDownY = null; finishWheelGesture(e, true) }
+// 押し始めが件数で、指がほとんど動かずに離れたなら、その時点で開く
+// （判定は finishWheelGesture の countSlot）。
+function onWheelUp(e) { finishWheelGesture(e, false) }
+function onWheelCancel(e) { finishWheelGesture(e, true) }
 
-function stopWheelAtNearest() {
+// 位置は動かさずに、回転だけ止める。指が触れている最中に pos を動かすと、
+// カードが指の下から逃げる。
+function freezeWheel() {
   cancelAnimationFrame(_glideRaf)
   _glideRaf = 0
   _vel = 0
   _wheelSamples = []
+}
+function stopWheelAtNearest() {
+  freezeWheel()
   pos.value = groups.value.length <= 1 ? 0 : Math.round(pos.value)
 }
 // 一覧のpointerdownでは回転位置だけを固定する。ここで高さも畳むと、特に
@@ -359,9 +379,30 @@ function selectWheelSlot(slot) {
   if (!Number.isFinite(slot) || Math.abs(slot - pos.value) < 0.002) return
   spinTo(slot)
 }
+/**
+ * 押した件数の分類先を中央に据えて、振り分け済みを開く。
+ * 回さずに合わせるのは、開いた一覧と中央のカードが食い違わないようにするため。
+ */
+function openAssigned(slot) {
+  _countJustOpened = true
+  freezeWheel()
+  // 押した数字の分類先を中央に据える。回さずに合わせるのは、開いた一覧と
+  // 中央のカードが食い違わないようにするため。
+  if (Number.isFinite(slot) && groups.value.length > 1) pos.value = slot
+  // 面積は変えない。帯に畳んで品目を入れている最中に開いても、
+  // 閉じたときに一覧の位置がずれない（畳んだままでも開ける、の一部）。
+  showAssigned.value = true
+}
 // 中央以外をタップしたらそこまで回す（1枚ずつ送らせない）
 function onWheelClick(e) {
-  if (isCountTap(e)) { openAssigned(); return }
+  if (isCountTap(e)) {
+    // 指の操作は pointerup で確定済み。同じタップの click まで拾うと二重に効く。
+    // ただしキーボード（Enter / Space）は click しか来ないので、そこは通す。
+    if (_countJustOpened) { _countJustOpened = false; return }
+    openAssigned(slotFromTarget(e.target))
+    _countJustOpened = false
+    return
+  }
   const slot = slotFromTarget(e.target)
   if (slot != null) selectWheelSlot(slot)
 }
@@ -463,10 +504,6 @@ const listEl = ref(null)
 const showAssigned = ref(false)
 // 件数は畳んだ帯でも押せる。ここで面積を広げると、シートを閉じた後に品目一覧の
 // 位置が変わり、次に押す行を探し直すことになるので、回転だけ止めて開く。
-function openAssigned() {
-  stopWheelAtNearest()
-  showAssigned.value = true
-}
 const assignedItems = computed(() =>
   target.value ? config.order.filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
 )
@@ -853,7 +890,7 @@ onUnmounted(() => {
   _wheelSamples = []
   _wheelTapSlot = null
   _wheelTravel = 0
-  _countDownY = null
+  _countTapSlot = null
   _vel = 0
   cancelAnimationFrame(_fanRaf); cancelAnimationFrame(_glideRaf); stopEdgeScroll()
   for (const animation of _shiftAnimations) {
@@ -1259,10 +1296,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-gcard.on { border-color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); box-shadow: 0 6px 18px rgba(37,99,235,0.18); }
 .af-gname { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-gcount {
+  position: relative;
   flex-shrink: 0; min-width: 48px; min-height: 32px; border: none;
   background: #eef2f6; color: #64748b; border-radius: 14px; padding: 2px 12px;
   font-size: 14px; font-weight: 800; -webkit-tap-highlight-color: transparent;
 }
+/* 見た目は丸い数字のまま、指が触れる範囲だけカードの高さいっぱいに広げる。
+   回っている最中に狙うと数ピクセル外してカード本体を踏み、「回る」だけになる。 */
+.af-gcount::before { content: ''; position: absolute; inset: -9px -6px; }
 /* 中央カードのカウントは押せる。ここから振り分け済みを開く */
 .af-gcard.on .af-gcount { background: var(--primary, #2563eb); color: #fff; cursor: pointer; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
 .af-gcard.on .af-gcount:active { filter: brightness(0.9); }

@@ -199,8 +199,19 @@ function markActivity() { if (currentView.value === 'session') activeTimer.mark(
 // 'landing' | 'auth' | 'sessions' | 'session' | 'session-detail' | 'guest-result'
 const currentView   = ref('landing')
 const detailSnapshot = ref(null)
+// 詳細を開いたセッション行（D1）。開始・終了時刻はここにしか無く、レポートの
+// 所要時間（ルームを開いてから終了するまで）に要る。スナップショットへは混ぜない
+// ＝ 端末の記録の正本を、表示のために書き換えない。
+const detailSession    = ref(null)
 // 履歴詳細を開いた画面（一覧 or 履歴カレンダー）。戻るで元の画面へ返す。
 const detailReturnView = ref('sessions')
+// 取込で作った過去棚卸はルームを開いていない（startedAt は実施日の0時、endedAt は
+// 取り込んだ時刻）。その差を所要時間として渡すと嘘の数字になるので渡さない。
+const detailSessionSpan = computed(() => {
+  const s = detailSession.value
+  if (!s || s.importBatchId) return { startedAt: '', endedAt: '' }
+  return { startedAt: s.startedAt ?? '', endedAt: s.endedAt ?? '' }
+})
 // 完了後ゲスト閲覧（読み取り専用結果ビュー）
 const guestResult      = ref(null)   // 結果スナップショット（null = エラー表示）
 const guestResultError = ref('')
@@ -604,6 +615,7 @@ async function onViewSession(session) {
     showToast('明細が多いため一部のみ表示しています', 3500, 'warning')
   }
   detailSnapshot.value = snap
+  detailSession.value  = session ?? null
   detailReturnView.value = currentView.value === 'history' ? 'history' : 'sessions'
   currentView.value = 'session-detail'
 }
@@ -2550,9 +2562,13 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
     if (syncActive.value) broadcastUpdate(ingredient, stock, unit, deviceName.value || '名前未設定', false)
     else _localAudit(ingredient, inventory[ingredient] ? 'overwrite' : 'new', stock, stock, unit)
   }
-  // 発注下書きを更新（発注数 0 は下書きから外す＝発注なし）
+  // 発注下書きを更新。発注数0でも在庫を数えていれば「保留」として残す。
+  // 棚の前で適正な発注量まで判断できないことは多く、そこで落とすと後から
+  // 詳しい人や入出庫情報と突き合わせたい品目ほど一覧から消える。
   const draft = { ...orderDraft.value }
-  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
+  const counted = stock != null && Number.isFinite(stock)
+  if (orderQty > 0)   draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
+  else if (counted)   draft[ingredient] = { orderQty: 0, stock, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
   // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
@@ -2597,9 +2613,13 @@ function _persistOrderDraftLocal() {
 // 発注下書きをセッション単位で 1 レコードに集約し、localStorage + useOrders + D1 へ保存する。
 function _persistOrderDraft() {
   _persistOrderDraftLocal()
-  const lines = Object.entries(orderDraft.value).map(([item, d]) => ({
-    item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
-  }))
+  // 保留（発注数0）は発注の記録には載せない。数えた在庫は棚卸と同じ経路で
+  // 既に保存されており、保留の印はこのセッションの下書きが持つ。
+  const lines = Object.entries(orderDraft.value)
+    .filter(([, d]) => Number(d.orderQty) > 0)
+    .map(([item, d]) => ({
+      item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
+    }))
   const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
   if (rec) saveOrderToD1(rec)
 }
@@ -2889,13 +2909,35 @@ function onDeleteConfigItem(name) {
   if (editingItem.value === name) cancelEditItem()
 }
 
+// ── 直前の非表示を戻す（Undo）────────────────────────────────────────────────
+// 非表示は引き切った左スワイプなら確認なしに決まる。速さはそのままにしたいので、
+// 確認を足す代わりに**戻り道**を出す。誤って隠しても、指を離した場所のすぐ下で戻せる。
+// 出るのは直前の1件だけ（それ以前は「非表示中」の一覧が最後に隠した順で持つ）。
+const hideUndo = ref(null)     // { name } 直前に非表示にした品目
+const HIDE_UNDO_MS = 9000
+let _hideUndoTimer = null
+function _offerHideUndo(name) {
+  hideUndo.value = { name }
+  clearTimeout(_hideUndoTimer)
+  _hideUndoTimer = setTimeout(() => { hideUndo.value = null }, HIDE_UNDO_MS)
+}
+function dismissHideUndo() { clearTimeout(_hideUndoTimer); hideUndo.value = null }
+function runHideUndo() {
+  const name = hideUndo.value?.name
+  dismissHideUndo()
+  if (!name) return
+  onUnhideItem(name)
+  showToast(`「${name}」を一覧に戻しました`, 2200, 'success')
+}
+
 // 手動非表示（一覧から隠す・進捗の分母から除外）。config 変更で D1 保存＋同期は自動。
 // silent: 呼び出し元が自前の通知（振り分け画面の取り消しバーなど）を出す場合、
-// トーストを重ねない。
+// 取り消しバーを重ねない。
 function onHideItem(name, opts = {}) {
   hideItem(name)
   if (syncActive.value) broadcastConfig(_configPayload())
-  if (!opts.silent) showToast(`「${name}」を一覧から非表示にしました`, 2600, 'default')
+  // トーストではなく取り消しバーを出す。読むだけの通知と違い、押す先がある。
+  if (!opts.silent) _offerHideUndo(name)
 }
 function onUnhideItem(name) {
   unhideItem(name)
@@ -3136,6 +3178,8 @@ function dismissReview() {
       :snapshot="detailSnapshot"
       :is-host="!syncActive || syncIsHost"
       :shop-code="shopCode"
+      :started-at="detailSessionSpan.startedAt"
+      :ended-at="detailSessionSpan.endedAt"
       @back="currentView = detailReturnView"
       @patched="onSnapshotPatched"
     />
@@ -3649,9 +3693,18 @@ function dismissReview() {
       </div>
     </Transition>
 
-    <!-- トースト -->
+    <!-- 直前の非表示を戻す（確認を挟まない非表示の戻り道）-->
     <Transition name="toast">
-      <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
+      <div v-if="hideUndo" class="undo-bar">
+        <span class="undo-msg">「{{ hideUndo.name }}」を一覧から非表示にしました</span>
+        <button class="undo-btn" @click="runHideUndo">元に戻す</button>
+        <button class="undo-x" aria-label="閉じる" @click="dismissHideUndo">✕</button>
+      </div>
+    </Transition>
+
+    <!-- トースト（取り消しバーが出ている間はその上へ逃がす）-->
+    <Transition name="toast">
+      <div v-if="toastShow" class="toast" :class="{ lifted: !!hideUndo }" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
     <!-- 初回オンボーディング -->

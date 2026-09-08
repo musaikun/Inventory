@@ -17,9 +17,55 @@ const e = (id, name, by, action, totalQty, at) => ({
 
 const T = 1_700_000_000_000
 
-function snap({ items = [], totalValue = null, auditLog = [], flaggedItems = [], date = '2026-08-30', savedAt = '2026-08-30T10:00:00.000Z', sessionId = 'sess-now', activeMs = null } = {}) {
-  return { date, savedAt, sessionId, items, totalValue, auditLog, flaggedItems, activeMs, participants: null }
+function snap({ items = [], totalValue = null, auditLog = [], flaggedItems = [], date = '2026-08-30', savedAt = '2026-08-30T10:00:00.000Z', sessionId = 'sess-now', activeMs = null, ...rest } = {}) {
+  return { date, savedAt, sessionId, items, totalValue, auditLog, flaggedItems, activeMs, participants: null, ...rest }
 }
+
+// 所要時間は「ルームを開いてから終了するまで」。稼働時間（中断を除いた activeMs）は
+// 「何分手を動かしたか」であって、棚卸に何時間かかったかではない。
+describe('所要時間', () => {
+  it('ルームの開始から終了までの実時間を出す', () => {
+    const r = buildSessionReport(snap({
+      startedAt: '2026-08-30T08:00:00.000Z',
+      endedAt:   '2026-08-30T10:30:00.000Z',
+      activeMs:  40 * 60_000,   // 中断を除いた稼働時間には引きずられない
+    }))
+    expect(r.durationMs).toBe(150 * 60_000)
+  })
+
+  it('終了時刻が無ければ端末が保存した時刻で代用する', () => {
+    const r = buildSessionReport(snap({
+      startedAt: '2026-08-30T09:00:00.000Z',
+      savedAt:   '2026-08-30T10:00:00.000Z',
+      endedAt:   null,
+    }))
+    expect(r.durationMs).toBe(60 * 60_000)
+  })
+
+  it('開始時刻を持たない古い記録は稼働時間へ落とす', () => {
+    const r = buildSessionReport(snap({ activeMs: 25 * 60_000 }))
+    expect(r.durationMs).toBe(25 * 60_000)
+  })
+
+  // 取込は startedAt が実施日の0時・endedAt が取り込んだ時刻。その差は作業時間ではない
+  it('過去データの取込では所要時間を出さない', () => {
+    const r = buildSessionReport(snap({
+      source:    'import',
+      startedAt: '2026-08-30T00:00:00.000Z',
+      endedAt:   '2026-08-30T15:00:00.000Z',
+    }))
+    expect(r.durationMs).toBe(null)
+  })
+
+  // 時計のずれ・取り違えで終了が開始より前になった記録に、負の時間を出さない
+  it('終了が開始より前なら出さない', () => {
+    const r = buildSessionReport(snap({
+      startedAt: '2026-08-30T10:00:00.000Z',
+      endedAt:   '2026-08-30T09:00:00.000Z',
+    }))
+    expect(r.durationMs).toBe(null)
+  })
+})
 
 describe('件数の集計', () => {
   it('未入力と入力済みを数える', () => {

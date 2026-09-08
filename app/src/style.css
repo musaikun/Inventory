@@ -62,6 +62,7 @@ body {
    `min-height:100dvh` の画面（auth / 仕入れなど）はページ自体が伸びる作りなのでそのまま。 */
 body[data-view="session-detail"] #app,
 body[data-view="guest-result"] #app,
+body[data-view="history"] #app,
 body[data-view="sessions"] #app { padding-bottom: 0; }
 
 /* ── Header ── */
@@ -763,6 +764,40 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.25s, transform 0.25s; }
 .toast-enter-from, .toast-leave-to       { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
+/* ── 直前の非表示を戻すバー ──
+   トーストと同じ場所（フッターの上）に出す。押す先があるので pointer-events は殺さない。
+   両方出るときはトーストを上へ逃がす（.toast.lifted）。 */
+.undo-bar {
+  position: fixed;
+  bottom: 82px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100vw - 28px);
+  max-width: 520px;
+  box-sizing: border-box;
+  background: #1e293b;
+  color: #fff;
+  border-radius: 14px;
+  padding: 10px 10px 10px 16px;
+  z-index: 9001;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.32);
+}
+.undo-msg { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.undo-btn {
+  flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px;
+  background: #fff; color: #1e293b; font-size: 13px; font-weight: 800; padding: 0 14px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.undo-btn:active { background: #e2e8f0; }
+.undo-x {
+  flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none;
+  color: #94a3b8; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.toast.lifted { bottom: 150px; }
+
 /* ── PWA 更新バナー ── */
 .pwa-update-banner {
   position: fixed;
@@ -1022,6 +1057,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   body.dt-shell .pwa-update-banner,
   body.dt-shell .chat-notif-banner { left: var(--dt-nav-w); }
   body.dt-shell .toast,
+  body.dt-shell .undo-bar,
   body.dt-shell .od-flash { left: calc(50% + var(--dt-nav-w) / 2); }
 
   /* 全画面テイクオーバー型（暗転しない実質ページ）はナビを隠さない */

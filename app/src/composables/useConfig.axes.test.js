@@ -33,6 +33,22 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     expect(cfg.config.tagsB['パスタ']).toEqual(['八百屋'])
   })
 
+  it('もう一方の分類と同じ名前は付けられない', () => {
+    cfg.setAxisName(0, '場所')
+    expect(cfg.setAxisName(1, '場所')).toBe(false)
+    expect(cfg.config.axisNames).toEqual(['場所', ''])
+    // 前後の空白だけ違う名前も同じ名前として扱う
+    expect(cfg.setAxisName(1, ' 場所 ')).toBe(false)
+    // 自分自身の付け直しは通す（名前変更でそのまま確定しても弾かない）
+    expect(cfg.setAxisName(0, '場所')).toBe(true)
+    // 別の名前なら通る
+    expect(cfg.setAxisName(1, '仕入先')).toBe(true)
+    expect(cfg.config.axisNames).toEqual(['場所', '仕入先'])
+    // 設定済みの分類①を、分類②と同じ名前へは変えられない
+    expect(cfg.setAxisName(0, '仕入先')).toBe(false)
+    expect(cfg.config.axisNames).toEqual(['場所', '仕入先'])
+  })
+
   it('空文字で軸値を削除できる', () => {
     cfg.setItemTag('パスタ', 0, '冷凍庫')
     cfg.setItemTag('パスタ', 0, '')

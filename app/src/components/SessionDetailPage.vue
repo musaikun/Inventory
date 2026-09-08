@@ -15,6 +15,10 @@ const props = defineProps({
   isHost:   { type: Boolean, default: true },
   // 共有リンクの組み立てに要る。未ログイン・未設定なら空で、共有UI自体を出さない。
   shopCode: { type: String, default: '' },
+  // ルームの開始・終了時刻（D1 の sessions 行）。所要時間はこの差で出す。
+  // スナップショットは savedAt（端末が保存した時刻）しか持たないため、外から渡す。
+  startedAt: { type: String, default: '' },
+  endedAt:   { type: String, default: '' },
 })
 const emit = defineEmits(['back', 'patched'])
 
@@ -242,14 +246,16 @@ const participantStats = computed(() => buildParticipantStats(props.snapshot))
 const historyItem = ref(null)
 function openItemHistory(item) { historyItem.value = item }
 
-// 参加者ごとの開閉。件数は重複ありで数えるので人によっては行が長くなる。
-// 既定は開いた状態（開かないと何も見えない画面にはしない）で、畳めるようにする。
-// 閉じた人は id を持つ ＝ 未知の参加者は開いて出る。
-const closedParticipants = reactive({})
-const isParticipantOpen = (id) => !closedParticipants[id]
+// 参加者ごとの開閉。件数は重複ありで数えるので、人によっては数百行になる。
+// **既定は閉じた状態**にする。全員ぶんを開いて並べると、見出し（誰が何件やったか）が
+// 縦に散って一覧できず、見たい人の品目に辿り着くまで他人の品目をスクロールすることになる。
+// まず「誰が何件」を並べ、開いた人の品目だけを読む。
+// 開いた人だけ id を持つ ＝ 未知の参加者は閉じて出る。
+const openParticipants = reactive({})
+const isParticipantOpen = (id) => !!openParticipants[id]
 function toggleParticipant(id) {
-  if (closedParticipants[id]) delete closedParticipants[id]
-  else closedParticipants[id] = true
+  if (openParticipants[id]) delete openParticipants[id]
+  else openParticipants[id] = true
 }
 
 // 複数人が変更した品目。一覧で色を変えて、重複変更があったことを分かるようにする。
@@ -295,8 +301,17 @@ function actionClass(action) {
 // 品目を1行ずつ追う前に「この棚卸が信用できるか」を判断するための面。
 // 合計金額だけを大きく出すと、単価未設定で一部しか計上されていない数字を
 // 正しい在庫金額だと誤読させるため、金額に入っていない件数を必ず並べて出す。
+
+// セッション行の開始・終了時刻をスナップショットへ重ねてから集計する。
+// props.snapshot 自体は書き換えない（端末の記録の正本なので、表示のために触らない）。
+const reportInput = computed(() => ({
+  ...props.snapshot,
+  startedAt: props.startedAt || props.snapshot?.startedAt || null,
+  endedAt:   props.endedAt   || props.snapshot?.endedAt   || null,
+}))
+
 const report = computed(() =>
-  buildSessionReport(props.snapshot, findPrevSnapshot(props.snapshot, getSnapshots()))
+  buildSessionReport(reportInput.value, findPrevSnapshot(props.snapshot, getSnapshots()))
 )
 
 function fmtDuration(ms) {
@@ -450,7 +465,7 @@ function onDownload() {
             <div class="rp-cell-label">要再確認</div>
           </div>
           <div class="rp-cell">
-            <div class="rp-cell-num rp-cell-sm">{{ fmtDuration(report.activeMs) }}</div>
+            <div class="rp-cell-num rp-cell-sm">{{ fmtDuration(report.durationMs) }}</div>
             <div class="rp-cell-label">所要時間</div>
           </div>
         </div>
@@ -533,6 +548,7 @@ function onDownload() {
         <!-- 参加者別 -->
         <div class="tab-panel tab-panel-scroll">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
+          <p v-else class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</p>
           <div v-for="p in participantStats" :key="p.id" class="participant-section">
             <button
               class="participant-header"
@@ -1043,6 +1059,9 @@ function onDownload() {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  /* 親は縦フレックス。既定の flex-shrink のままだと、角丸のための overflow:hidden と
+     あわさって**中身が縮められて切れる**（品目が最後まで出ない）。縮めない。 */
+  flex-shrink: 0;
 }
 
 .participant-header {
@@ -1094,8 +1113,15 @@ function onDownload() {
   background: var(--primary-weak);
 }
 
+/* 開いた担当者の品目。担当者の見出し（名前・件数・金額）を画面に残したまま、
+   ここだけをスクロールして全品目を見られるようにする。
+   面の高さを超えるぶんは切らずに、この入れ物の中で送る。 */
 .participant-items {
   padding: 4px 0;
+  max-height: 55dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pi-row {
@@ -1130,6 +1156,14 @@ function onDownload() {
   background: #fff7ed;
   color: #c2410c;
   font-weight: 700;
+}
+
+.participant-hint {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 11.5px;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.6;
 }
 
 .participant-note {
