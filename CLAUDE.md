@@ -33,13 +33,13 @@ app/src/
     ChatModal.vue           # チャット
     ImportMapper.vue        # 列指定（問いを1つずつ→元データの上に色で対応を書く。PDF由来なら元の紙も出せる）
     ImportBuildPreview.vue  # 組み上がる棚卸カードの全画面プレビュー
-    PdfGridSetup.vue        # PDF取込の前段（「この紙、表は何枚？」だけ訊いて表に均す）
+    PdfGridSetup.vue        # PDFを表に均す画面（枚数を訊き、組んだ表を人がその場で直す）
     PdfPageViewer.vue       # PDFの描画・ページ送り・拡大（元の紙を見せる共通部品）
     PdfColumnMapper.vue     # 紙の上で直接列を指定する（表に組み立てられない紙の逃げ道）
   utils/
     storageKeys.js          # localStorageキー一元管理
     importText.js           # 取込の文字の読み方（見出しの正規化・品目でない行の判定）
-    pdfGrid.js              # PDFのトークンを行×列の表へ（段組みもここで解く。以降はCSVと同じ経路）
+    pdfGrid.js              # PDFのトークンを行×列の表へ（段組み・行の高さ・列の境界。以降はCSVと同じ経路）
 worker/src/
   index.js                  # Cloudflare Worker ルーター
   RoomDO.js                 # Durable Object（WS・在庫・auditLog）

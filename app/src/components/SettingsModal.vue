@@ -91,6 +91,7 @@ const showMapper     = ref(false)
 const mapperCsvText  = ref('')
 const mapperFilename = ref('')
 const mapperPdfFile  = ref(null)  // PDF由来の表のときだけ入る（列指定画面から元の紙を出す）
+const mapperPdf      = ref(null)  // { fp, grid } PDFを表にした作り方。列の対応づけと1枚のレシピにする
 const mapperExpectRecipe = ref(false)   // 「保存した読み方」の入口から開いたか
 const dragging       = ref(false)
 const recipeDragging = ref(false)
@@ -127,7 +128,11 @@ function onPreviewImported(result) {
   savedRecipe.value = ''
   // レシピで読んだファイルは訊かない（もう保存されている）
   if (src?.recipeShape && !src?.matchedRecipe) {
-    askRecipe.value  = { shape: src.recipeShape, filename: src.filename }
+    // PDF由来なら「紙を表にした作り方」も同じレシピへ。次に同じ紙が来たら問いが出ない
+    const shape = src.pdf?.grid
+      ? { ...src.recipeShape, pdfFp: src.pdf.fp, grid: src.pdf.grid }
+      : src.recipeShape
+    askRecipe.value  = { shape, filename: src.filename }
     recipeName.value = suggestRecipeName(src.filename)
   } else {
     askRecipe.value = null
@@ -148,9 +153,10 @@ function removeRecipe(id) {
 // 取込確認画面が解析に失敗したとき、その内容をそのまま列指定インポートへ渡す。
 // 元のPDFも一緒に戻す（当て直す場面でこそ、紙を見たくなる）。
 function onPreviewMapColumns({ csvText, filename }) {
-  const pdf = previewSource.value?.pdfFile ?? null
+  const file = previewSource.value?.pdfFile ?? null
+  const pdf  = previewSource.value?.pdf ?? null
   previewSource.value = null
-  openMapperFromText(csvText, filename, pdf)
+  openMapperFromText(csvText, filename, file, pdf)
 }
 
 // PDF/Excel変換画面からの受け皿。
@@ -159,7 +165,7 @@ function onImporterMapColumns(payload) {
   onImporterClose()
   if (payload?.file) { openMapper(payload.file); return }
   if (!payload?.csvText) return
-  openMapperFromText(payload.csvText, payload.filename ?? '', payload.pdfFile ?? null)
+  openMapperFromText(payload.csvText, payload.filename ?? '', payload.pdfFile ?? null, payload.pdf ?? null)
 }
 function onUndoImport() {
   if (!undoLastImport()) return
@@ -246,10 +252,11 @@ function handleFile(file, { fromRecipe = false } = {}) {
 
 // 解析済みのテキストから直接マッピング画面を開く（取込確認画面からの受け皿）。
 // ファイルを読み直さないので、確認画面が見ていた内容と同じものを列指定できる。
-function openMapperFromText(csvText, filename = '', pdfFile = null) {
+function openMapperFromText(csvText, filename = '', pdfFile = null, pdf = null) {
   mapperCsvText.value      = csvText
   mapperFilename.value     = filename
   mapperPdfFile.value      = pdfFile
+  mapperPdf.value          = pdf
   mapperExpectRecipe.value = false
   showMapper.value         = true
   status.value             = null
@@ -262,6 +269,7 @@ async function openMapper(file, { fromRecipe = false } = {}) {
     mapperCsvText.value      = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
     mapperFilename.value     = file.name
     mapperPdfFile.value      = null
+    mapperPdf.value          = null
     mapperExpectRecipe.value = fromRecipe
     showMapper.value         = true
     status.value             = null
@@ -278,7 +286,8 @@ function onMapperImported({ mapping, csvText, headerRow, headerNamed, recipeShap
   showMapper.value = false
   openPreview({
     origin: 'mapped', csvText, mapping, headerRow, headerNamed,
-    filename: mapperFilename.value, pdfFile: mapperPdfFile.value, recipeShape, matchedRecipe,
+    filename: mapperFilename.value, pdfFile: mapperPdfFile.value, pdf: mapperPdf.value,
+    recipeShape, matchedRecipe,
   })
 }
 

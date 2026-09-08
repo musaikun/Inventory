@@ -28,7 +28,6 @@ import { toCSVRow } from './csvParse.js'
 import { toReadingCoords } from './pdfTableParser.js'
 import { normText } from './importText.js'
 
-const ROW_TOL     = 4     // 同じ行とみなす y の差(px)
 const COL_GAP     = 3     // これ未満しか空いていない隣どうしは同じセル
 const SEC_SLACK   = 6     // 段の境界の許容差
 const WIDE_RATIO  = 0.4   // 段の幅のこれ以上を占めるセル（表題・注記）は列決めに使わない
@@ -36,6 +35,9 @@ const DENSE_CELLS = 3     // 「表の行」とみなす最小セル数
 const MODAL_MIN   = 0.4   // 同じセル数の行がこれ以上を占めたら、番号で列にする
                           // （折り返した品目名の行は文字数が1つ多いので、過半数は求めない）
 const CHAR_W      = 6     // 幅の無いトークンの見積り（テストや古い呼び出し向け）
+const CHAR_H      = 10    // 高さの無いトークンの見積り
+const ROW_FACTOR  = 0.5   // 行の高さ＝文字の高さ×これ。人が画面で上げ下げできる（レシピに残る）
+const ROW_MIN     = 2
 
 const NAME_HEADER_RE = /^(品目名|商品名|品名|名称)$/
 
@@ -48,7 +50,8 @@ function readingTokens(page) {
     if (!text) continue
     const c = toReadingCoords(t.x, t.y, rotate)
     const w = Number.isFinite(t.w) && t.w > 0 ? t.w : text.length * CHAR_W
-    out.push({ text, x: c.x, y: c.y, w })
+    const h = Number.isFinite(t.h) && t.h > 0 ? t.h : CHAR_H
+    out.push({ text, x: c.x, y: c.y, w, h })
   }
   return out
 }
@@ -119,16 +122,29 @@ function gutterBefore(tokens, anchor, pitch, lead) {
  * 列の詰まった帳票では**隣の列の見出しまで1つのセルになる**（`商品ｺｰﾄﾞ 商品名`）。
  * 折り返した品目名を1つに戻すのは、列が決まったあと（同じ列に入った文字を合流させる）。
  */
-function rowsOf(tokens) {
+function rowsOf(tokens, rowTol) {
   const sorted = [...tokens].sort((a, b) => b.y - a.y || a.x - b.x)
   const lines = []
   let cur = null
   for (const t of sorted) {
-    if (!cur || Math.abs(cur.y - t.y) > ROW_TOL) { cur = { y: t.y, cells: [] }; lines.push(cur) }
+    if (!cur || Math.abs(cur.y - t.y) > rowTol) { cur = { y: t.y, cells: [] }; lines.push(cur) }
     cur.cells.push({ text: t.text, left: t.x, right: t.x + t.w })
   }
   for (const l of lines) l.cells.sort((a, b) => a.left - b.left)
   return lines.map(l => l.cells)
+}
+
+/**
+ * 行としてまとめる y の許容差を、**その紙の文字の高さ**から決める。
+ *
+ * 固定値（4px）だと紙ごとに外れる。行間の広い帳票では1行が2行に割れて品目名と
+ * 数量が別の行になり、詰まった紙では2行がくっつく。どちらも「表がめちゃくちゃ」に
+ * 見える正体で、直すつまみはこの1つ。人が画面で上げ下げした値（factor）はレシピに残す。
+ */
+function rowTolOf(tokens, factor) {
+  const hs = tokens.map(t => t.h).filter(h => h > 0).sort((a, b) => a - b)
+  const median = hs.length ? hs[Math.floor(hs.length / 2)] : CHAR_H
+  return Math.max(ROW_MIN, median * (factor > 0 ? factor : ROW_FACTOR))
 }
 
 function _dist(col, cell) {
@@ -197,13 +213,26 @@ function geometricColumns(cells, secWidth) {
   return cols
 }
 
-/** どの行も空のままだった列を落とす（列が増えるほど指定の手が増える） */
-function dropEmptyColumns(rows) {
-  if (!rows.length) return rows
-  const keep = []
-  for (let i = 0; i < rows[0].length; i++) if (rows.some(r => r[i] !== '')) keep.push(i)
-  if (keep.length === rows[0].length) return rows
-  return rows.map(r => keep.map(i => r[i]))
+/**
+ * 自動で決めた列を、**人が直せる形**＝境界線の並びに落とす。
+ *
+ * 「この列とこの列を合わせる」「ここで分ける」は、境界を1本消す・足すだけで表せる。
+ * 値そのものを書き換える直し方と違って、**同じ紙なら翌月も同じように効く**ので
+ * レシピに残せる（`edges`）。列の区間が重なっていても、中間で切れば右寄せの数字と
+ * 左寄せの見出しは同じ側に落ちる。
+ */
+export function edgesOfColumns(cols) {
+  const out = []
+  for (let i = 0; i + 1 < cols.length; i++) out.push((cols[i].right + cols[i + 1].left) / 2)
+  return out
+}
+
+/** 境界の並びからセルの入る列番号を出す（境界方式。人が直したときはこちらを使う） */
+function columnAtEdges(edges, cell) {
+  const mid = (cell.left + cell.right) / 2
+  let i = 0
+  while (i < edges.length && mid >= edges[i]) i++
+  return i
 }
 
 /**
@@ -213,32 +242,104 @@ function dropEmptyColumns(rows) {
  * @param {{sections?: number}} opts sections = 1枚の紙に並ぶ表の数（人が答えた値）
  * @returns {string[][]} 行の配列。ページ順 → 段順（左→右）に縦へ積む
  */
-export function pdfPagesToRows(pages, { sections = 1 } = {}) {
-  const all = []        // ページ順・段順に並べた行（セルの配列）
+/**
+ * ページのトークンを、段ごと・行ごとのセルに集める（列を決める前の段階）。
+ * 表を組むときと、画面で「ここで分ける」と言われたときの両方から呼ぶ。
+ */
+function collectCells(pages, sections, rowFactor) {
+  const all = []
   let secWidth = 0
   const n = Math.max(1, Math.round(sections) || 1)
 
   for (const page of pages ?? []) {
     const tokens = readingTokens(page)
     if (!tokens.length) continue
+    const rowTol = rowTolOf(tokens, rowFactor)
     for (const band of sectionsOf(tokens, n)) {
       const inBand = []
       for (const t of tokens) {
         if (t.x < band.xMin || t.x >= band.xMax) continue
-        inBand.push({ text: t.text, x: t.x - band.origin, y: t.y, w: t.w })
+        inBand.push({ text: t.text, x: t.x - band.origin, y: t.y, w: t.w, h: t.h })
       }
       if (!inBand.length) continue
       const left  = Math.min(...inBand.map(c => c.x))
       const right = Math.max(...inBand.map(c => c.x + c.w))
       secWidth = Math.max(secWidth, right - left)
-      all.push(...rowsOf(inBand))
+      all.push(...rowsOf(inBand, rowTol))
     }
+  }
+  return { all, secWidth, n }
+}
+
+/**
+ * 「この列をここで分ける」と言われたときの切りどころ。
+ *
+ * その列に入っている文字の区間をつないで、**いちばん広く空いているところ**を返す。
+ * 位置を人に指定させるより、紙の上の空白に合わせたほうが速くて外れない。
+ * 分けられる空白が無ければ null（画面はボタンを出さない）。
+ */
+export function suggestEdge(pages, { sections = 1, rowFactor = ROW_FACTOR, edges = [] } = {}, colIndex = 0) {
+  const { all } = collectCells(pages, sections, rowFactor)
+  const inCol = []
+  for (const cells of all) {
+    for (const c of cells) if (columnAtEdges(edges, c) === colIndex) inCol.push(c)
+  }
+  if (inCol.length < 2) return null
+  inCol.sort((a, b) => a.left - b.left)
+  let cur = inCol[0].right, bestGap = 0, bestAt = null
+  for (const c of inCol.slice(1)) {
+    if (c.left > cur) {
+      const gap = c.left - cur
+      if (gap > bestGap) { bestGap = gap; bestAt = (cur + c.left) / 2 }
+    }
+    cur = Math.max(cur, c.right)
+  }
+  return bestGap >= COL_GAP ? bestAt : null
+}
+
+export function pdfPagesToRows(pages, opts) {
+  return pdfPagesToTable(pages, opts).rows
+}
+
+/**
+ * PDFの全ページを1枚の表にする。**組み上がった表と、その作り方**を返す。
+ *
+ * 作り方（`sections` / `rowFactor` / `edges`）はすべて数値なので、画面で直した結果を
+ * そのままレシピに保存できる。専用の解析を持たない見知らぬ帳票では、一度で正しく
+ * 組み上がる前提を置かない ── 人が画面で直し、その直し方が次回に効くことを前提にする。
+ *
+ * @param {Array<{tokens: Array<{text,x,y,w,h}>, rotate: number}>} pages `parsePdfFile` が返すページ
+ * @param {{sections?: number, rowFactor?: number, edges?: number[]}} opts
+ *   sections  = 1枚の紙に並ぶ表の数（人が答えた値）
+ *   rowFactor = 行としてまとめる高さ（文字の高さに対する倍率）
+ *   edges     = 列の境界（段の原点からの相対x）。人が直したときだけ入る
+ * @returns {{rows: string[][], edges: number[], rowFactor: number, sections: number}}
+ */
+export function pdfPagesToTable(pages, { sections = 1, rowFactor = ROW_FACTOR, edges = null } = {}) {
+  const { all, secWidth, n } = collectCells(pages, sections, rowFactor)
+  const empty = { rows: [], edges: edges ?? [], rowFactor, sections: n }
+  if (!all.length) return empty
+
+  // 人が境界を直していればそれが正。直していなければ自動で列を決める
+  if (Array.isArray(edges) && edges.length) {
+    const width = edges.length + 1
+    const rows = []
+    for (const cells of all) {
+      const row = new Array(width).fill('')
+      for (const c of cells) {
+        const i = columnAtEdges(edges, c)
+        row[i] = row[i] ? `${row[i]} ${c.text}` : c.text
+      }
+      if (row.some(v => v !== '')) rows.push(row)
+    }
+    // 空の列も残す ── 人が引いた線を黙って消すと、直した手応えと画面が食い違う
+    return { rows, edges: [...edges], rowFactor, sections: n }
   }
 
   const dense = all.filter(cells => cells.length >= DENSE_CELLS)
   const byOrdinal = ordinalColumns(dense)
   const cols = byOrdinal ? byOrdinal.cols : geometricColumns(all.flat(), secWidth)
-  if (!cols.length) return []
+  if (!cols.length) return empty
 
   const out = []
   for (const cells of all) {
@@ -253,7 +354,12 @@ export function pdfPagesToRows(pages, { sections = 1 } = {}) {
     })
     if (row.some(v => v !== '')) out.push(row)
   }
-  return dropEmptyColumns(out)
+
+  // 空の列を落とし、残った列から境界を作る（この境界が画面での直しの出発点になる）
+  const keep = []
+  for (let i = 0; i < cols.length; i++) if (out.some(r => r[i] !== '')) keep.push(i)
+  const rows = keep.length === cols.length ? out : out.map(r => keep.map(i => r[i]))
+  return { rows, edges: edgesOfColumns(keep.map(i => cols[i])), rowFactor, sections: n }
 }
 
 /** 組み直した表をCSVテキストにする。以降は CSV・Excel とまったく同じ経路を通る。 */

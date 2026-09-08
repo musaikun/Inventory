@@ -3,7 +3,7 @@
  * 「列が1本足りない」「右段が消えた」という形で人の側に出てくる。
  */
 import { describe, it, expect } from 'vitest'
-import { pdfPagesToRows, pdfPagesToCsv } from './pdfGrid.js'
+import { pdfPagesToRows, pdfPagesToCsv, pdfPagesToTable, suggestEdge } from './pdfGrid.js'
 
 /** 読み方向(rotate=0)のトークンを作る。w は pdfjs の item.width 相当 */
 const t = (text, x, y, w) => ({ text, x, y, w: w ?? text.length * 6 })
@@ -202,5 +202,53 @@ describe('pdfPagesToRows — 紙のくせ', () => {
   it('カンマを含む品目名でも列が割れない', () => {
     const page = { rotate: 0, tokens: [t('レモン,国産', 30, 720, 60), t('個', 150, 720), t('80', 220, 720)] }
     expect(pdfPagesToCsv([page])).toBe('"レモン,国産",個,80')
+  })
+})
+
+// 専用の解析を持たない紙は、一度で正しく組み上がらない。直すつまみは
+// 「行の高さ」と「列の境界」の2つで、どちらも数値なのでレシピに残せる。
+describe('組み上がった表を人が直す', () => {
+  // 行間20px・文字の高さ10pxの紙。品目名だけ少し上にずれて刷られている
+  const SHIFTED = {
+    rotate: 0,
+    tokens: [
+      { text: '豚バラ', x: 30, y: 726, w: 27, h: 10 }, { text: 'kg', x: 150, y: 720, w: 12, h: 10 },
+      { text: '1200',  x: 220, y: 720, w: 24, h: 10 },
+      { text: 'キャベツ', x: 30, y: 706, w: 36, h: 10 }, { text: '玉', x: 150, y: 700, w: 9, h: 10 },
+      { text: '280',   x: 220, y: 700, w: 18, h: 10 },
+    ],
+  }
+
+  it('行が2つに割れていたら、行の高さを上げるとまとまる', () => {
+    // 既定（文字の高さ×0.5＝5px）では 6px のずれを別の行として読む
+    expect(pdfPagesToRows([SHIFTED]).length).toBe(4)
+    // 上げると同じ行になる
+    const merged = pdfPagesToRows([SHIFTED], { rowFactor: 1.0 })
+    expect(merged.length).toBe(2)
+    expect(merged[0]).toEqual(['豚バラ', 'kg', '1200'])
+  })
+
+  it('自動で決めた列は境界の並びとして返る（そこから人が直せる）', () => {
+    const t = pdfPagesToTable([PLAIN])
+    expect(t.rows.length).toBe(3)
+    expect(t.edges.length).toBe(2)                       // 3列 = 境界2本
+    expect(t.edges[0]).toBeGreaterThan(30)
+    expect(t.edges[0]).toBeLessThan(150)
+  })
+
+  it('境界を渡すと、その線のとおりに列が分かれる', () => {
+    const t = pdfPagesToTable([PLAIN], { edges: [200] })  // 1本だけ＝2列
+    expect(t.rows[1]).toEqual(['豚バラ kg', '1200'])
+  })
+
+  it('くっついた列の切りどころは、紙のいちばん広い空白から出す', () => {
+    const at = suggestEdge([PLAIN], { edges: [200] }, 0)  // 品名+単位が同じ列にいる
+    expect(at).toBeGreaterThan(48)                        // 品名の右端より右
+    expect(at).toBeLessThan(150)                          // 単位の左端より左
+    expect(pdfPagesToTable([PLAIN], { edges: [at, 200] }).rows[1]).toEqual(['豚バラ', 'kg', '1200'])
+  })
+
+  it('切りどころが無い列では null を返す（画面はボタンを出さない）', () => {
+    expect(suggestEdge([PLAIN], { edges: [45] }, 0)).toBe(null)
   })
 })

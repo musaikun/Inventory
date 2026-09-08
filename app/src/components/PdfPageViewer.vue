@@ -59,7 +59,7 @@ onMounted(async () => {
         const text = (i.str ?? '').trim()
         if (!text) continue
         const c = toReadingCoords(i.transform[4], i.transform[5], page.rotate)
-        tokens.push({ text, x: c.x, y: c.y, w: i.width ?? 0 })
+        tokens.push({ text, x: c.x, y: c.y, w: i.width ?? 0, h: i.height ?? 0 })
       }
       pages.push({ tokens, rotate: page.rotate })
     }
