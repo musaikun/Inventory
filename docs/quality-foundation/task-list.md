@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-09-05
+最終更新: 2026-09-10
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -46,7 +46,9 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
+| UI-004 | P2 | 進行中 | Codex | Userのpush依頼に対応中。Rive試作・公開準備をcommitしリモート更新を取り込んで検証する。素材の書き出しはプラン制限、実機確認待ち | [UI-004.md](tasks/UI-004.md) |
 | UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-13（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段・0件の案内）を目視待ち | [UI-003.md](tasks/UI-003.md) |
+| UI-005 | P2 | レビュー待ち | Claude Code | Riveを公開面で動かす前提。CSPへ`'wasm-unsafe-eval'`、ランタイム/WASM/`.riv`をrun-time cacheへ。build検証済み・実機（Android Chrome / iOS Safari）未確認。製品画面への組み込みは.rivが1つ揃うまで待つ（User判断 2026-09-09） | [UI-005.md](tasks/UI-005.md) |
 
 `UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。

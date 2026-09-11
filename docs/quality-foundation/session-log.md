@@ -2,6 +2,35 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-10 — UI-004: Rive Editorでホイールを制作、書き出しはプラン制限
+
+- 担当Codex。Userのインストール完了後にDesktop MCPへ接続成功。空の[Untitled](https://editor.rive.app/file/untitled/2564146)へ`AssignWheel`アートボードを作成、図形・仮英字Text・数量を編集可能な状態で配置。
+- 既定を再利用した`Wheel`ステートマシン、`Open` / `Closed`、Boolean `AssignWheel.isOpen`で両方向700msのcubic補間を設定。160frames/60fpsのheadless検証で無入力Closed、true→falseでClosed→Open→Closedを確認。遷移・曲線・未確認事項を`app/dev/rive/verification/wheel-editor.json`へ保存。
+- Riveの開閉PNGを目視確認し、試験ページへEditorリンク・静止画像・ガイドを追加。英字は仮データ。TTFのMCP uploadは利用不可だったため、日本語はEditorでフォント設定が必要。
+- `.riv` exportはworkspaceプランにより拒否（`.rev`も対象）。再試行・他形式への迂回・契約変更なし。アプリに読み込めるファイルは未生成で、Web/スマホでの実再生・性能は未確認。停止後の再始動・早い反転・画面高連動・動的データも後続。
+- 対象`develop@bfb4c9a` + working tree。`npm.cmd run build:rive`成功（25 modules）、HTML/PNG/ガイドHTTP 200、PNG検査成功、`git diff --check`指摘なし。今回App全体testは再実行していない。
+- UI-004をレビュー待ち / Userへ。別担当UI-005のheader/Vite設定とHistoryCalendar差分を保持。READMEから公開準備はUI-005を参照。製品UI・業務処理は本作業で変更せず、commit / push / deployなし。
+
+## 2026-09-08 — UI-004: 既存UIを参考にSVG素材とホイール開閉の試作を準備
+
+- Userの「素材を用意できるか」を受け、`AxisAssignFocus.vue`の色・寸法・扇の補間を基準にSVG素材2点と開閉試作を作成。対象`develop@bfb4c9acac5273720f055f7c5f890f4d60cf38f9` + working tree。
+- `dev/rive/WheelDraft.vue`、`wheelDraft.mjs`、`export-wheel-draft.mjs`、`public/assets/wheel-{open,closed}.svg`と制作ガイドを追加。試験ページの上部で400/700/1000ms、展開・収納、スライダー比較を行える。
+- 2D近似のSVG試作と明示し、Rive再生の結果とは混同しない。文字・件数は仮データで、取り込み用SVGには含めない。演出の採否・追加調整はUser判断。
+- 公式MCPでDesktop Editorから図形・アニメーションを作成できることを確認。ただしlocalhost:9791はECONNREFUSED、browser一覧も0件。`.riv`の制作とEditorでの取り込み・表示確認は未実施。MCP対応Editorを起動して接続することが次の前提。
+- 検証: `npm.cmd run build:rive`成功（23 modules）、SVG XML/ID/不要ノード検査、101段階の座標検査、試験ページと素材HTTP 200・SVG MIME確認、`git diff --check`指摘なし。変更はdev試作とdocsのみでApp全体testは前回1723件成功から再実行していない。
+- UI-004をレビュー待ち / Userへ戻した。製品UI・業務データ・Worker・既存差分は保持。commit / push / deployなし。
+
+## 2026-09-08 — UI-004: Riveのローカル試験環境を準備
+
+- 担当: Codex。Userの「環境を整えます」を受け、演出の判断をUserへ残したままランタイムと試験ページを実装。対象`develop@bfb4c9acac5273720f055f7c5f890f4d60cf38f9` + working tree。
+- `@rive-app/webgl2@2.42.0`をexact指定。`RiveCanvas.vue`で遅延読込・cleanup・旧通知の無効化・非表示停止・reduced motion・resize・エラー回復に対応。主WASMと旧端末用fallbackを同一packageから自己配信する。
+- `npm run dev:rive` → `http://127.0.0.1:5174/`。`.riv`選択、アートボード・ステートマシン、再生・一時停止・読み直し、幅変更を試せる。手順は`app/dev/rive/README.md`。`npm run build:rive`の出力はGit対象外の`app/dist-rive/`。
+- 検証: `npm.cmd test -- --reporter=dot --pool=threads --maxWorkers=2` → **154 files / 1723 tests passed**（Riveの6件を含む）。初回forksはworker起動timeoutが4件あり再実行。`npm.cmd run build`と`npm.cmd run build:rive`成功。HTTP 200、WASMのMIMEと`WebAssembly.validate()`を確認。`git diff --check`指摘なし。
+- `npm audit --omit=dev`は既存依存にhigh 2件（nanoid / pdfjs-dist）、moderate 1件（dompurify）。Riveへの指摘なし。`npm outdated`の既存9件も記録し、scope外の依存更新は行っていない。詳細・コマンドは`tasks/UI-004.md`。
+- 未確認: `.riv`実描画、スマホ操作・性能。Browserスキルの接続・診断後も利用可能browserが0件のため未実施。Userが素材を選んで実表示を確認する。UI-004はレビュー待ち / User。
+- 振り分け画面・業務処理・Worker・DB・API・認可・app version・公開CSPは無変更。製品適用時のCSP/WASM許可とPWAキャッシュは別途判断。設計判断を`docs/proposals.md`へ投稿。
+- 開始前からの`HistoryCalendar.vue` / `HistoryCalendar.plan.test.js`差分を保持。commit / push / deploy / migrationは未実施。試験用dev serverのみ起動。
+
 ## 2026-09-08 — WEB-001: push後の更新停止を調査、ホーム順路testを修正
 
 - 担当: Codex（WEB-001はtask boardで進行中・Codexのまま）。対象: `develop@ed4d9bc97cca236b4f53e2b99b011199b6ef2c68`。

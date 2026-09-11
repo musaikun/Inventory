@@ -1,6 +1,6 @@
 # セッション提案箱（PMトリアージ用）
 
-最終更新: 2026-09-08
+最終更新: 2026-09-10
 位置づけ: 各実装/戦略セッションから **PMセッションへの「提案・設計判断・要検討」の集約箱**。
 `intake-reviews.md`（PM→実装のレビュー＝下り）に対して、これは **実装/戦略→PM（提案＝上り）**。
 PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄に記入する。
@@ -21,6 +21,63 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 - **背景・根拠**: なぜそうすべきか
 - **影響範囲 / 実装状況**: 触る場所・すでに実装したか
 - **PM判断**: ⬜未トリアージ
+
+---
+
+## 2026-09-10: Rive Editorのホイール試作をレビューする（提案元: Codex / UI-004）
+
+- **概要**: [Editor上の試作](https://editor.rive.app/file/untitled/2564146)で開閉のたたき台を用意。採否・演出調整はUserが判断する。
+- **背景・根拠**: Desktop MCP接続成功により、SVG参照から実際のRive図形・Text・ステートマシンへ進めた。`AssignWheel`アートボード、`Wheel` SM、Boolean `isOpen`で両方向700ms。headless往復遷移・静止画像は確認済みだが、Web/スマホ再生は未確認。
+- **影響範囲 / 実装状況**: Editor制作物、dev試験ページ・画像・ガイド・検証JSON。workspaceプランが`.riv`/`.rev`書き出しを拒否したためアプリ用素材は未生成。日本語フォント追加もMCPでは利用不可で、仮英字。固定サイズ・固定データの試作で、画面高の連動・ドラッグ・動的データ・連打は後続。製品UIへは未適用。公開準備はUI-005に委ねる。
+- **PM判断**: ⬜未トリアージ。Userによる見た目のレビューと書き出しプランの判断待ち。契約変更はしていない。
+
+## 2026-09-08: Rive素材の最初のたたき台を既存ホイールから作成（提案元: Codex / UI-004）
+
+- **概要**: 既存UIの青・角丸カード・件数バッジを元に、展開/収納のSVG素材と操作できる試作を用意した。
+- **背景・根拠**: Userが未制作の素材をこちらで用意できるか相談。初稿は現在のホイールの開閉を基準にし、Userが時間・開き具合を見て判断できる形にした。
+- **影響範囲 / 実装状況**: `app/dev/rive/`のみ。SVGは28の名前付きレイヤー、動的ラベルは未焼込。3Dの2D近似で影・上下フェードは未収録。SVGによる試作でありRive実行結果ではない。Rive Desktop MCPを確認したが未接続のため`.riv`生成は未実施。
+- **PM判断**: ⬜未トリアージ
+
+## 2026-09-08: Riveを独立した試験ページで評価する（提案元: Codex / UI-004）
+
+- **概要**: Userが演出内容と採否を判断できるよう、Riveのローカル試験環境を用意した。振り分け画面への適用は次の段階で判断する。
+- **背景・根拠**: Userの「環境を整えます」という依頼。公式推奨の`@rive-app/webgl2@2.42.0`を使用し、`.riv`の選択、アートボード・ステートマシン切替、再生・停止、表示幅変更を試せる。
+- **影響範囲 / 実装状況**: Appの依存追加、`RiveCanvas.vue`、ローカルWASM配信、`dev/rive/`、専用Vite configと起動・buildコマンドを実装。主WASMと旧端末用fallbackを同一packageから配信し、素材内の外部Rive Asset CDNを無効化。通常のApp build/PWAは試験ページを含まない。製品画面・業務データ・Worker・DB・公開CSPは無変更。
+- **後続判断**: 採用する演出、素材、データ連携、エラー時の代替表示、実機性能、PWAのWASM/素材キャッシュ、公開CSPでのWASM許可。今回の準備はWeb release gateへの追加や公開承認を意味しない。
+- **PM判断**: ⬜未トリアージ
+
+## 2026-09-09: Riveを公開面で動かすためCSPに`'wasm-unsafe-eval'`を足す（実装済み・User指示のRive導入に伴う／UI-005）
+
+**概要**
+公開面のCSP `script-src 'self'` に `'wasm-unsafe-eval'` を1つだけ足す。あわせてRiveの
+ランタイム（JS 195KB・WASM 2.05MB）と `.riv` をプリキャッシュに載せず、初回取得→以後
+キャッシュ（CacheFirst）にする。演出そのもの・素材は `UI-004`（Codex）の範囲で、本件は前提だけ。
+
+**背景・根拠**
+- Chromium系はChrome 97以降、WASMの実体化に `'wasm-unsafe-eval'` か `'unsafe-eval'` を要求する。
+  現行CSPはどちらも無いため、**素材が完成してもPagesでは演出だけが落ちる**。
+  vite devは `public/_headers` を適用しないので、ローカルでは最後まで気づけない種類の差。
+- `'unsafe-eval'`（JSのeval全許可）ではなく `'wasm-unsafe-eval'` に限定する。後者はWASMの
+  コンパイルだけを開け、`eval` / `new Function` は塞いだまま。XSSの踏み台になる面は増やさない。
+  Riveのwasmは同一originから配信（`riveRuntime.js` がnpm packageのURLをimport）で、
+  CDNへは出ないため `connect-src` の追加も不要。
+- キャッシュ方針は「演出を見ない人に払わせない」を優先。WASM 2MBはプリキャッシュに載せると
+  初回インストールが2.7MB→4.8MB以上になり、workboxの既定上限(2MB)も超える。
+  逆にrun-time cacheが無いと、電波の悪い店で毎回失敗する。両者の間を取る。
+
+**影響範囲 / 実装状況**
+- `app/public/_headers`: `script-src` のみ変更。他directiveは無変更。
+- `app/vite.config.js`: `globIgnores: ['**/riveRuntime-*.js']` と runtimeCaching `rive-runtime`
+  （CacheFirst・1年・maxEntries 8）。対象は `riveRuntime-*.js` / `*.wasm` / `*.riv`。
+- 検証: 一時的な動的importでビルドし、プリキャッシュが 17 → 19 entries（+3KB＝`RiveCanvas`の
+  js/cssのみ）でランタイムJS・WASMが載らないことを確認して元に戻した。詳細は `UI-005.md`。
+- 画面・業務データ・同期・認可・app versionは無変更。
+
+**PM判断**: ⬜ (1) CSPを1段緩めることの可否（`'wasm-unsafe-eval'` 限定・`'unsafe-eval'` は入れない）。
+Web release gate（`WEB-01`〜`WEB-10`）にCSPの項があるなら、その再確認要否も。
+(2) 製品画面へ組み込むときの条件として「Riveが落ちても画面が使える（静的アイコンへfallback）」を
+共通DoDに足すか。演出が操作そのものを担うと、2MBのWASMが読めない端末で操作不能になる。
+(3) 実機確認（Android Chrome / iOS Safari でのCSP違反の有無・オフライン再訪）は未実施。
 
 ---
 
