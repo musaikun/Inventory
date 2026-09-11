@@ -2,9 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { assertSpreadsheetFile, parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { extractRows } from '../utils/pdfTableParser.js'
-import { matchRecipe, fingerprintPdf } from '../composables/importRecipes.js'
+import { matchRecipe, matchPdfGridRecipe, fingerprintPdf } from '../composables/importRecipes.js'
+import { pdfPagesToTable, rowsToCsv } from '../utils/pdfGrid.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfColumnMapper from './PdfColumnMapper.vue'
+import PdfGridSetup from './PdfGridSetup.vue'
 
 const props = defineProps({
   initialFile: { type: Object, default: null },  // File|null: 起動時に自動で処理するファイル
@@ -26,14 +28,28 @@ const showDetail  = ref(false)  // true=詳細一覧, false=カテゴリ集計
 const pdfPages    = ref([])     // [{ tokens, rotate }] レシピ自動照合用のrawトークン
 const pdfFile     = ref(null)   // 手動マッピングでPDF実物を描画するための File
 const excelFile   = ref(null)   // 列指定インポートへ引き渡すための Excel File
-const mapperOpen  = ref(false)
+const gridOpen    = ref(false)   // PDF → 表 → いつもの列指定（既定の道）
+const gridInitial = ref(null)    // 当たったレシピの「表の作り方」（問いを飛ばす）
+const pdfFp       = ref(null)    // この紙の指紋。取込後にレシピへ一緒に残す
+const mapperOpen  = ref(false)   // 紙の上で直接指定（表に均せなかったときの逃げ道）
 
 // Excel は自動解析だけに頼らない。業者フォーマットにも自作テンプレートにも当たらない
 // ファイルは「読めません」で行き止まりになるため、列指定インポート（ImportMapper）へ
 // そのまま渡せるようにする。変換は呼び出し側（SettingsModal）が行う。
 function useColumnMapper() {
   if (!excelFile.value) return
-  emit('mapColumns', excelFile.value)
+  emit('mapColumns', { file: excelFile.value })
+}
+
+// PDFは「表」に均してから、CSV・Excel と同じ列指定画面へ渡す。
+// 元のPDFも一緒に渡す（表になったものと紙を見比べられないと、列の当て方に確信が持てない）。
+function onGridReady({ csvText, grid }) {
+  gridOpen.value = false
+  emit('mapColumns', {
+    csvText, filename: pdfFile.value?.name ?? '', pdfFile: pdfFile.value,
+    // 「この表の作り方」と紙の指紋。取込後、列の対応づけと**1枚のレシピ**にまとまる
+    pdf: { fp: pdfFp.value, grid },
+  })
 }
 
 function cancelPdf() {
@@ -47,7 +63,8 @@ function applyProfile(profile, pages) {
   return all
 }
 
-function openMapper() { mapperOpen.value = true }
+function openGrid()   { gridOpen.value = true }
+function openMapper() { gridOpen.value = false; mapperOpen.value = true }
 
 function onMapperApply(items) {
   mapperOpen.value = false
@@ -97,16 +114,30 @@ async function handleFile(file) {
         onProgress: (p) => { pdfProgress.value = p },
       })
       pdfPages.value = pages || []
+      pdfFp.value = pdfPages.value.length ? fingerprintPdf(pdfPages.value[0].tokens) : null
+
+      // 表の作り方まで覚えているレシピが当たったら、問いを出さずにそのまま列指定へ渡す
+      const gridRec = pdfFp.value ? matchPdfGridRecipe(pdfFp.value) : null
+      if (gridRec) {
+        const built = pdfPagesToTable(pdfPages.value, gridRec.grid)
+        if (built.rows.length >= 2) {
+          gridInitial.value = gridRec.grid
+          onGridReady({ csvText: rowsToCsv(built.rows), grid: gridRec.grid })
+          return
+        }
+        gridInitial.value = gridRec.grid   // 作り直せなかったら、その作り方を初期値にして訊く
+      }
+
       // 保存済みレシピがあれば優先適用（同一フォーマットの再取込を自動化）
-      const profile = pdfPages.value.length ? matchRecipe(fingerprintPdf(pdfPages.value[0].tokens)) : null
+      const profile = pdfPages.value.length ? matchRecipe(pdfFp.value) : null
       const byProfile = profile ? applyProfile(profile, pdfPages.value) : []
       if (byProfile.length && applyItems(byProfile)) {
         status.value = { type: 'success', msg: `レシピ「${profile.name}」で${byProfile.length}件を検出` }
       } else if (!applyItems(items)) {
         debugLines.value = dl
         if (pdfPages.value.length) {
-          status.value = { type: 'error', msg: '自動では読み取れませんでした。「列を指定して読み取る」でお試しください' }
-          mapperOpen.value = true
+          status.value = { type: 'error', msg: '自動では読み取れませんでした。「列を指定して取り込む」でお試しください' }
+          gridOpen.value = true
         } else {
           status.value = { type: 'error', msg: '品目が見つかりませんでした。下記の解析結果を確認してください' }
         }
@@ -199,9 +230,9 @@ function onImport() {
         {{ status.type === 'success' ? '✓' : '✗' }} {{ status.msg }}
       </div>
 
-      <!-- 手動マッピング（PDFのrawトークンがあるとき） -->
-      <button v-if="pdfPages.length" class="manual-map-btn" @click="openMapper">
-        🎯 列を指定して読み取る（レシピ保存）
+      <!-- 手動マッピング（PDFのrawトークンがあるとき）。CSV・Excel と同じ画面へ入る -->
+      <button v-if="pdfPages.length" class="manual-map-btn" @click="openGrid">
+        🗂 列を指定して取り込む
       </button>
 
       <!-- 手動マッピング（Excel。自動解析に当たらないフォーマットの受け皿）-->
@@ -271,6 +302,16 @@ function onImport() {
         </button>
       </div>
     </div>
+
+    <PdfGridSetup
+      v-if="gridOpen && pdfFile"
+      :file="pdfFile"
+      :pages="pdfPages"
+      :initial="gridInitial"
+      @close="gridOpen = false"
+      @ready="onGridReady"
+      @manual="openMapper"
+    />
 
     <PdfColumnMapper
       v-if="mapperOpen && pdfFile"

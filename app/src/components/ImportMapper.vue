@@ -21,17 +21,24 @@ import {
   fingerprintTable, matchRecipe, applyRecipeColumns,
 } from '../composables/importRecipes.js'
 import ImportBuildPreview from './ImportBuildPreview.vue'
+import PdfPageViewer from './PdfPageViewer.vue'
 
 const props = defineProps({
   csvText:   { type: String, required: true },
   filename:  { type: String, default: '' },
   axisNames: { type: Array,  default: () => ['', ''] },
+  // PDFから来た表のときだけ渡る元ファイル。表に均したあとでも
+  // 「紙ではどう書いてあったか」を確かめられないと、列の当て方に確信が持てない。
+  pdfFile:   { type: Object, default: null },
   // 「保存した読み方で取り込む」入口から来たか。当たらなかったときに、
   // なぜ問いが出るのかをその場で言うためだけに使う。
   expectRecipe: { type: Boolean, default: false },
 })
 const emit = defineEmits(['imported', 'close'])
-useEscapeKey(() => emit('close'))
+
+// 元のPDFを見ている最中の Esc は、そちらだけ閉じる（画面ごと消えると見失う）
+const pdfOpen = ref(false)
+useEscapeKey(() => { if (pdfOpen.value) pdfOpen.value = false; else emit('close') })
 
 const { rows: records, error: parseError } = tokenizeCSV(props.csvText)
 
@@ -308,6 +315,7 @@ tryRecipe()
           <div class="imp-name">{{ filename || '取り込むファイル' }}</div>
           <div class="imp-sub">{{ records.length.toLocaleString() }}行</div>
         </div>
+        <button v-if="pdfFile" class="imp-pdf" @click="pdfOpen = true">📄 元のPDF</button>
         <button class="imp-x" @click="emit('close')" aria-label="閉じる">✕</button>
       </div>
 
@@ -442,6 +450,17 @@ tryRecipe()
       </template>
     </div>
 
+    <!-- 元のPDF。表に均したものと見比べられるように、この画面の上に重ねて出す -->
+    <div v-if="pdfOpen && pdfFile" class="pdfview" @click.self="pdfOpen = false">
+      <div class="pdfview-sheet">
+        <div class="pdfview-head">
+          <span class="pdfview-t">元のPDF（{{ filename || 'PDF' }}）</span>
+          <button class="imp-x" @click="pdfOpen = false" aria-label="閉じる">✕</button>
+        </div>
+        <PdfPageViewer :file="pdfFile" />
+      </div>
+    </div>
+
     <ImportBuildPreview
       v-if="previewOpen"
       :rows="previewRows.list"
@@ -466,6 +485,17 @@ tryRecipe()
 .imp-sub { font-size: 11.5px; color: var(--text-muted); }
 .imp-x { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
   border-radius: 8px; width: 32px; height: 32px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+.imp-pdf { border: 1.5px solid var(--primary-border); background: var(--surface); color: var(--primary);
+  border-radius: 8px; padding: 7px 10px; font-size: 11.5px; font-weight: 800; cursor: pointer; flex-shrink: 0; }
+
+/* 元のPDF。取込の画面より前に出す（見比べている最中に後ろへ回ると探し直しになる） */
+.pdfview { position: fixed; inset: 0; z-index: 60; background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 12px; }
+.pdfview-sheet { background: var(--surface); border-radius: 14px; padding: 12px;
+  width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto; }
+.pdfview-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pdfview-t { flex: 1; min-width: 0; font-size: 13px; font-weight: 800; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .imp-unknown { padding: 8px 10px; margin-bottom: 10px; border-radius: 9px;
   border: 1px solid var(--border); background: var(--surface-weak, #f8fafc);

@@ -2,6 +2,14 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-11 — UI-004: User依頼のcommitとリモート統合
+
+- Userがここまでのpushを依頼。Rive環境・素材・公開準備（UI-005）を`ec4adca`（`feat(rive): add wheel animation lab and runtime preparation`）でcommit。commit前build成功。ステージ後に検出したSVG末尾空白は生成処理から除去。
+- `origin/develop@95f2b25`の5件を取り込み、PDF取込改善とUser決定のversion 0.93.0を保持。lockfileの自アプリ情報だけ同じ版へ整合。`proposals.md` / 本ログの追記競合は双方を保持して解消。
+- 対象は`ec4adca`と`95f2b25`のmerge作業ツリー（別件HistoryCalendar差分あり）。全体testは151 files / 1622件成功だが、hook timeout 2件・worker起動timeout 4件でexit 1。該当6ファイルを`--pool=threads --maxWorkers=1 --hookTimeout=30000`で再確認し128件成功。コマンド全文はUI-004詳細。全体の一括成功とは表現しない。
+- 統合後の通常build成功（498 modules / PWA 17 entries / 2724.99 KiB）、Rive build成功（25 modules）。別件HistoryCalendarのファイル・ステージ状態を保持してRive関連を通常pushする。手動deploy/migrationは実行しない。
+- `.riv`本体の書き出し・製品UI反映・実機検証は未完了。UI-004はレビュー待ち / Userへ戻す。GitHub側の最終push SHA・workflow状態は実行結果で確認する。
+
 ## 2026-09-10 — UI-004: Rive Editorでホイールを制作、書き出しはプラン制限
 
 - 担当Codex。Userのインストール完了後にDesktop MCPへ接続成功。空の[Untitled](https://editor.rive.app/file/untitled/2564146)へ`AssignWheel`アートボードを作成、図形・仮英字Text・数量を編集可能な状態で配置。
@@ -30,6 +38,33 @@
 - 未確認: `.riv`実描画、スマホ操作・性能。Browserスキルの接続・診断後も利用可能browserが0件のため未実施。Userが素材を選んで実表示を確認する。UI-004はレビュー待ち / User。
 - 振り分け画面・業務処理・Worker・DB・API・認可・app version・公開CSPは無変更。製品適用時のCSP/WASM許可とPWAキャッシュは別途判断。設計判断を`docs/proposals.md`へ投稿。
 - 開始前からの`HistoryCalendar.vue` / `HistoryCalendar.plan.test.js`差分を保持。commit / push / deploy / migrationは未実施。試験用dev serverのみ起動。
+
+## 2026-09-08 — PDFの表は「直せる」ものにする（つまみをレシピへ）
+
+- Userから「特定形式（PRONTO棚卸記入表）は専用解析があるからいいが、**それが無いのが普通**。取り込んだPDFの変換後CSVを簡単に直せて、その一連の流れをレシピにしたい」。実際、専用解析のある紙を列指定へ回すと表がずれた（読めた結果を捨てて生トークンから組み直していたため）。
+- 方針を変えた。**一度で正しく組み上がる前提を置かない。** 直せるのは値ではなく**読み方**（段の数・行の高さ・列の境界）。値の書き換えはその場しか直らないが、読み方は数値なのでレシピに残り、翌月の同じ紙に効く。
+- `pdfGrid` に3つのつまみを通した。(1) `sections`（既存）(2) `rowFactor` … 行としてまとめる y の許容差を**その紙の文字の高さ×倍率**で決める（固定4pxをやめた。行間の広い紙で1行が2行に割れ、詰まった紙でくっつく。「表がめちゃくちゃ」の主因）(3) `edges` … 列の境界の並び。人が触ったらこちらが正になる。
+- 自動で決めた列は `edgesOfColumns()` で境界の並びに落として返す（`pdfPagesToTable`）。人の直しは「境界を1本消す＝左と合わせる」「1本足す＝分ける」の2操作だけで表せる。足す位置は `suggestEdge()` が**その列の中でいちばん広い空白**から出すので、人は位置を指定しなくていい。
+- トークンに `h`（文字の高さ）を追加（`usePdfImporter` / `PdfPageViewer` の両方）。行の高さの基準に要る。
+- `PdfGridSetup.vue` を2段の画面にした。①枚数を訊く（紙を見せながら）②**組み上がった表をその場に出す**。行のボタン2つ、列をタップして合わせる/分ける、元のPDF、行数・列数、「この表で進む」。渡す前に確かめられるので、ずれに気づくのが列を当てた後にならない。
+- レシピを1本にまとめた。`ImportMapper` が作る表のレシピに `pdfFp`（紙の指紋）と `grid`（作り方）を同梱し、`matchPdfGridRecipe()` でPDFを開いた時点で照合する。当たれば**枚数の問いも列指定も出さず**に取込確認画面まで進む。当たらなければ従来どおり訊く。旧 `kind:'pdf'` レシピ（紙の上で指定）も従来どおり効く。
+- 検証: `pdfGrid.test.js` に5件追加（行の高さで割れ/まとまり、境界の往復、切りどころ、切れない列は null）、`PdfImporterModal.grid.test.js` を新しい流れへ書き直し6件（表が出る／直せる／作り方が渡る／レシピで問いゼロ／紙の上への逃げ道）。App全体 155 files / 1733 passed、production build成功。
+- 手動確認は `test-checklist-new-features.md` W-1〜W-15（実機未実施）。API / DB / 認可 / 保存形式 / Workerは無変更。
+- User指示で `app/package.json` の version を **0.92.0 → 0.93.0** へ（リリースの区切り・D-025）。
+
+## 2026-09-08 — PDFの列指定をCSV・Excelと同じ画面へ
+
+- Userから「PDFのマッピングも現在のCSV、EXCELと同様の見た目、操作感にしたい」「元のPDFも見れるようにして／マッピングも確実にしたい」。
+- 方針: PDFを先に**行×列の表**へ均し、そのあとは `ImportMapper`（CSV・Excelと同じ列指定画面）へ流す。`ImportMapper` の入力は `csvText` だけなので、**画面側は無改造**で共通化できる。段組みは変換の中で右段を左段の下へ縦に積んで解き、「1列＝1項目」という前提に触れない。
+- 追加: `utils/pdfGrid.js`（トークン→表・CSV）、`PdfGridSetup.vue`（「この紙、表は何枚ありますか？」だけを訊く前段。紙を見せながら）、`PdfPageViewer.vue`（PDF描画・ページ送り・拡大の共通部品。`overlay` スロットで上に重ねられる）。
+- 変更: `PdfImporterModal.vue`（既定の道を新経路へ。`mapColumns` の payload を `{file}` / `{csvText, filename, pdfFile}` に）、`ImportMapper.vue`（`pdfFile` を受け「📄 元のPDF」で紙を重ねて表示。Escは紙だけ閉じる）、`SettingsModal.vue`（受け渡し）、`usePdfImporter.js`（トークンに `w`＝文字幅を追加）、`PdfColumnMapper.vue`（描画を `PdfPageViewer` へ移し、pdfjsを開くのを1箇所に）。
+- 表の作り方でいちばん効いたのは**列の決め方**。x座標だけで束ねると、帳票の見出しは左寄せ・単価や数量は右寄せで刷られるため、`単価` の見出しは価格の左、`数量` の見出しは価格に重なり、**単価の列は全行空・価格は数量の列**という表になる。列指定画面では見出しの名前と中身が食い違ったまま人が選ぶことになるので、「行ごとのセル数がそろっていれば**何番目のセルか**で列にする」を主にし、そろわない行（表題・欠けのある行）だけ位置から当てる。位置から当てるときも左右の順番は崩さない（隣り合う見出しが1マスへ潰れない）。
+- 行の中で「近い文字をセルにまとめる」前処理は入れてから外した。隙間の大きさで決めると、列の詰まった帳票で `商品ｺｰﾄﾞ 商品名` のように**隣の列の見出しまで1つのセル**になる。折り返した品目名（`豆乳` / `２００ｍｌ`）を1つに戻すのは、列が決まったあと同じ列に入った文字を合流させる形にした。
+- 段の切れ目は「品目名の見出しから左へ一定距離」ではなく、**その手前で本当に何も刷られていない帯**を探して切る。段ごとに左端の列の位置が少しずれている紙で、右の表の行番号が左の表の行に混ざるのを避けるため。
+- 旧経路は残した: 保存済みの `kind:'pdf'` レシピは従来どおり自動適用され（移行不要）、表に組み立てられない紙は「紙の上で直接指定する」で `PdfColumnMapper` へ行ける。
+- 検証: 新規19件（`pdfGrid.test.js` 14 / `PdfImporterModal.grid.test.js` 3 / `ImportMapper.pdf.test.js` 2）。App全体 146 files / 1632 passed、production build成功（PWA 17 entries / 2710.73 KiB）。pdfjsは動的importのままで初期バンドルに載っていない。
+- 手動確認は `test-checklist-new-features.md` の W-1〜W-11（実機未実施）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
+- **未対応**: 段の数の問いは毎回出る（レシピに覚えさせていない）。`PdfColumnMapper` を将来畳むかは `proposals.md` でPM判断待ち。
 
 ## 2026-09-08 — WEB-001: push後の更新停止を調査、ホーム順路testを修正
 

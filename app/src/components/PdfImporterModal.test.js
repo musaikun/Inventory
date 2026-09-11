@@ -56,7 +56,7 @@ describe('PdfImporterModal — Excel の受け皿', () => {
 
     button('列を指定して取り込む').click()
     await nextTick()
-    expect(mapped).toEqual([file])
+    expect(mapped).toEqual([{ file }])
   })
 
   it('自動で読み取れたExcelでも、列指定へ切り替えられる', async () => {
