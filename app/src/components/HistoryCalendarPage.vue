@@ -127,15 +127,19 @@ async function onDelete(session) {
 </template>
 
 <style scoped>
+/* この画面は1画面で完結させる（下にスクロールする余白を作らない）。
+   高さを 100dvh に固定し、余った高さはカレンダー自身が吸う。
+   → #app の padding-bottom(80px) も style.css 側で 0 にしてある */
 .hcp {
-  min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #f8fafc;
 }
 
 .hcp-header {
-  position: sticky; top: 0; z-index: 2;
+  z-index: 2; flex-shrink: 0;
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
 }
@@ -143,15 +147,22 @@ async function onDelete(session) {
 .hcp-title { font-size: 16px; font-weight: 800; color: #065f46; }
 .hcp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: #059669; }
 
-.hcp-scroll { flex: 1; padding: 14px; max-width: 620px; margin: 0 auto; width: 100%; }
+/* 通常は overflow が出ない（カレンダーが余りを吸う）。横画面など極端に低いときだけ
+   スクロールへ逃がす＝マスを 44px 未満に潰さないための保険 */
+.hcp-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: 14px; max-width: 620px; margin: 0 auto; width: 100%;
+}
 
 .hcp-loading { text-align: center; padding: 40px 0; color: #94a3b8; font-size: 14px; font-weight: 600; }
 .hcp-error {
+  flex-shrink: 0;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
   border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 10px;
 }
 
-.wx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.wx-bar { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
 .wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
 .wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -160,6 +171,7 @@ async function onDelete(session) {
 .wx-err { font-size: 11px; color: #dc2626; }
 
 .plan-limit-notice {
+  flex-shrink: 0;
   display: flex; align-items: center; gap: 8px;
   margin-top: 6px; padding: 10px 14px;
   background: #fefce8; border: 1.5px solid #fde047; border-radius: 10px;

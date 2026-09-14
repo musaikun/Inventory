@@ -129,41 +129,43 @@ describe('参加者別のアコーディオン', () => {
   const body   = (i) => sections()[i].querySelector('.participant-items')
   const isOpen = (i) => body(i).style.display !== 'none'
 
-  it('既定は開いた状態（開かないと何も見えない画面にはしない）', async () => {
+  // 全員ぶんを開いて並べると「誰が何件やったか」の見出しが縦に散り、
+  // 見たい人の品目へ辿り着くまで他人の品目をスクロールすることになる。
+  it('既定は閉じた状態（まず担当者の一覧を見せる）', async () => {
     await mount()
     await click(tab('参加者別'))
+    expect(header(0).querySelector('.participant-arrow').textContent.trim()).toBe('▶')
+    expect(isOpen(0)).toBe(false)
+    expect(header(0).getAttribute('aria-expanded')).toBe('false')
+    // 閉じていても見出し（名前・件数）は見える
+    expect(header(0).textContent).toContain('端末A')
+    expect(header(0).textContent).toContain('2件')
+  })
+
+  it('見出しをタップすると開く', async () => {
+    await mount()
+    await click(tab('参加者別'))
+    await click(header(0))
+
     expect(header(0).querySelector('.participant-arrow').textContent.trim()).toBe('▼')
     expect(isOpen(0)).toBe(true)
     expect(header(0).getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('見出しをタップすると畳める', async () => {
+  it('もう一度タップすると畳める', async () => {
     await mount()
     await click(tab('参加者別'))
     await click(header(0))
-
-    expect(header(0).querySelector('.participant-arrow').textContent.trim()).toBe('▶')
+    await click(header(0))
     expect(isOpen(0)).toBe(false)
-    expect(header(0).getAttribute('aria-expanded')).toBe('false')
-    // 見出し自体（名前・件数）は畳んでも見える
-    expect(header(0).textContent).toContain('端末A')
-    expect(header(0).textContent).toContain('2件')
-  })
-
-  it('もう一度タップすると開く', async () => {
-    await mount()
-    await click(tab('参加者別'))
-    await click(header(0))
-    await click(header(0))
-    expect(isOpen(0)).toBe(true)
   })
 
   it('人ごとに独立して開閉する', async () => {
     await mount()
     await click(tab('参加者別'))
     await click(header(0))
-    expect(isOpen(0)).toBe(false)
-    expect(isOpen(1)).toBe(true)   // 端末B は開いたまま
+    expect(isOpen(0)).toBe(true)
+    expect(isOpen(1)).toBe(false)   // 端末B は閉じたまま
   })
 })
 

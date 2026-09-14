@@ -56,6 +56,7 @@ const config = reactive({
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
   hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
+  hiddenAt:       {},        // 品目 → 非表示にした時刻(ISO)。一覧を「最後に隠した順」で出すために持つ
   tagsArchiveA:   {},        // 軸1の割り当てを品目名で永続記憶（取込/一括削除をまたいで復元用）
   tagsArchiveB:   {},        // 軸2の割り当てアーカイブ
   // 発注スケジュール（仕入先ごとに曜日・締切が違うので配列）。
@@ -115,6 +116,7 @@ function _serializeConfigData() {
     axisGroupsB:   config.axisGroupsB,
     hiddenItems:   config.hiddenItems,
     hiddenAuto:    config.hiddenAuto,
+    hiddenAt:      config.hiddenAt,
     tagsArchiveA:  config.tagsArchiveA,
     tagsArchiveB:  config.tagsArchiveB,
     orderSchedules: config.orderSchedules,
@@ -139,6 +141,7 @@ function _assignConfigData(src) {
   config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
+  config.hiddenAt      = src.hiddenAt      ?? {}
   config.tagsArchiveA  = _normTags(src.tagsArchiveA)
   config.tagsArchiveB  = _normTags(src.tagsArchiveB)
   // src.orderSchedule = 旧・単一形式。orderSchedules が無いときだけ1件へ移行する。
@@ -485,6 +488,7 @@ export function useConfig() {
     if (opts.resetAssignments === true) { config.tagsArchiveA = {}; config.tagsArchiveB = {} }
     config.hiddenItems   = []
     config.hiddenAuto    = []
+    config.hiddenAt      = {}
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -508,6 +512,7 @@ export function useConfig() {
     config.tagsB         = {}
     config.hiddenItems   = []
     config.hiddenAuto    = []
+    config.hiddenAt      = {}
     config.isCustom      = false
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)
@@ -678,10 +683,15 @@ export function useConfig() {
   }
 
   // 汎用軸の名前を設定する（index: 0=軸A, 1=軸B）。空文字で未使用に戻す
+  // もう一方の軸と同じ名前は受け付けない（false を返す）。分類は名前でしか
+  // 見分けられず、同名だと並べ替えタブも振り分けページもどちらか分からなくなる
   function setAxisName(index, name) {
     if (index !== 0 && index !== 1) return false
     const arr = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
-    arr[index] = (name ?? '').trim().slice(0, AXIS_NAME_MAX)
+    const n = (name ?? '').trim().slice(0, AXIS_NAME_MAX)
+    const other = (arr[index === 0 ? 1 : 0] ?? '').trim()
+    if (n && n === other) return false
+    arr[index] = n
     config.axisNames = [arr[0] ?? '', arr[1] ?? '']
     _save()
     return true
@@ -934,7 +944,7 @@ export function useConfig() {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
     config.order.splice(idx, 1)
-    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.tagsA, config.tagsB]) {
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.tagsA, config.tagsB, config.hiddenAt]) {
       delete obj[name]
     }
     const mi = config.manualItems.indexOf(name)
@@ -1003,6 +1013,10 @@ export function useConfig() {
     if (!config.hiddenItems.includes(name)) config.hiddenItems.push(name)
     if (auto) { if (!config.hiddenAuto.includes(name)) config.hiddenAuto.push(name) }
     else      { const j = config.hiddenAuto.indexOf(name); if (j >= 0) config.hiddenAuto.splice(j, 1) }
+    // いつ隠したか。非表示は引き切った左スワイプで確認なしに決まるので、誤操作に
+    // 気づいた人が一覧で「直前に隠したもの」から辿れるように時刻を残す。
+    // 隠し直したときは新しい時刻で上書きする（一覧の先頭へ来る）。
+    config.hiddenAt[name] = new Date().toISOString()
     _save()
   }
   function unhideItem(name) {
@@ -1011,6 +1025,7 @@ export function useConfig() {
     if (i < 0 && j < 0) return
     if (i >= 0) config.hiddenItems.splice(i, 1)
     if (j >= 0) config.hiddenAuto.splice(j, 1)
+    delete config.hiddenAt[name]
     _save()
   }
 

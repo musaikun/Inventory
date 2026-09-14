@@ -88,6 +88,24 @@ describe('読めない値を黙って通さない', () => {
     expect(importButton().disabled).toBe(false)
   })
 
+  // 種別列の出庫は、確認画面で数えたまま出庫として記録する（黙って捨てない）
+  it('種別が出庫の行は出庫レコードとして取り込む', async () => {
+    const { events, text } = await mount({
+      csvText: [
+        '日付,種別,品目名,数量,単位',
+        '2026-06-01,入庫,玉ねぎ,20,kg',
+        '2026-06-02,出庫,玉ねぎ,3,kg',
+      ].join('\n'),
+    })
+    expect(text()).toContain('出庫')
+    expect(text()).toContain('2件を取り込む')
+
+    importButton().click()
+    await nextTick()
+    expect(events.imported[0].movements.map(m => m.type)).toEqual(['in', 'out'])
+    expect(events.imported[0].movements[1]).toMatchObject({ date: '2026-06-02', source: 'import' })
+  })
+
   it('正しい 1,200 と小数は受理する', async () => {
     const { events } = await mount({
       csvText: `${HEAD}\n2026-06-01,玉ねぎ,"1,200",kg,"1,500"\n2026-06-02,玉ねぎ,0.5,kg,80`,

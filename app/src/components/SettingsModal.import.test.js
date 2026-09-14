@@ -82,23 +82,10 @@ async function finishImport() {
   await settle()
 }
 
-/** 通常の取込入口（ドロップゾーン）へCSVを流し込む。確認画面まで進む */
-async function importWith(csvText, filename = 'items.csv') {
-  const input = [...host.querySelectorAll('input[type="file"]')]
-    .find(i => i.accept.includes('.pdf'))
-  const file = new File([csvText], filename, { type: 'text/csv' })
-  if (typeof file.text !== 'function') file.text = async () => csvText
-  Object.defineProperty(input, 'files', { value: [file], configurable: true })
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-  // FileReader は非同期。読み終わるまでマクロタスクを待つ
-  for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 0)); await nextTick() }
-}
-
-/** ファイル選択の代わりに、実際の openMapper と同じ入口へ CSV を流し込む */
-async function openMapperWith(csvText, filename = 'items.csv') {
-  // 列指定インポート用の input（accept に text/csv を含む2番目のもの）
-  const input = [...host.querySelectorAll('input[type="file"]')]
-    .find(i => i.accept.includes('text/csv'))
+/** 入口の input へ、ファイル選択と同じ形で CSV を流し込む */
+async function dropInto(selector, csvText, filename) {
+  const input = host.querySelector(selector)
+  if (!input) throw new Error(`input not found: ${selector}`)
   const file = new File([csvText], filename, { type: 'text/csv' })
   // jsdom の File.text() は環境によって未実装なので、必要な API だけ差し替える
   if (typeof file.text !== 'function') file.text = async () => csvText
@@ -107,6 +94,40 @@ async function openMapperWith(csvText, filename = 'items.csv') {
   // ファイル読み込み（await）を挟むので、マイクロタスクを数回流す
   for (let i = 0; i < 6; i++) await nextTick()
 }
+
+/** 「はじめて取り込む形」の入口。どんなファイルもここから列指定フローへ入る */
+const openMapperWith = (csvText, filename = 'items.csv') =>
+  dropInto('input.import-file', csvText, filename)
+
+/** 「保存した読み方で取り込む」の入口 */
+const openRecipeZoneWith = (csvText, filename = 'items.csv') =>
+  dropInto('input.recipe-file', csvText, filename)
+
+/** レシピを1つ保存した状態を作る（保存した読み方の入口が出る条件） */
+const RECIPE_FILE = '商品ｺｰﾄﾞ,商品名,単位,仕入単価\n12687,サラダ用カップ,個,20'
+async function saveOneRecipe(name = '仕入先マスタ') {
+  await openMapperWith(RECIPE_FILE, `${name}.csv`)
+  await tapHeaderRow(0)
+  await finishImport()
+  button('保存する').click()
+  await settle()
+}
+
+describe('ファイル選択に出す種類', () => {
+  // 拡張子だけを並べると、iOSやAndroidのpickerが対応する種類へ落とせず、
+  // 「PDFしか選べない」picker になる端末がある。MIMEも併記しておく。
+  it('取込のドロップゾーンは拡張子とMIMEの両方を並べる', async () => {
+    await mountSettings()
+    const accept = host.querySelector('input.import-file').accept
+
+    for (const type of [
+      '.csv', '.pdf', '.xlsx', '.xls',
+      'text/csv', 'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ]) expect(accept).toContain(type)
+  })
+})
 
 describe('列指定インポートを実UI経由で通す', () => {
   it('問いに答えるまで取り込みへ進めない', async () => {
@@ -201,31 +222,74 @@ describe('列指定インポートを実UI経由で通す', () => {
   })
 })
 
-// 推奨フォーマットに合わないファイルを行き止まりにしない（ユーザー報告）。
-// 「形式を確認してください」で終わると、仕入先のCSVを取り込む手段が画面から消える。
-describe('フォーマット不明のファイルから列指定インポートへ移れる', () => {
-  it('確認画面のエラーから列指定へ進み、そのまま取り込める', async () => {
+// 入口を「はじめての形」と「覚えている形」の2つに分けたことの回帰。
+// 推奨フォーマットだけ別の道にすると、通った道でその後の画面が変わり、
+// 「前はこうだった」が次に効かない。道は1本にして、違いは問いの有無だけにする。
+describe('取込の入口は2つ（はじめての形／保存した読み方）', () => {
+  it('推奨フォーマットのファイルでも列指定フローへ入る', async () => {
     await mountSettings()
-    await importWith('トマト,箱,120\nレタス,玉,80')
+    await openMapperWith('品名,単位,単価\nトマト,箱,120\nレタス,玉,80')
 
-    // 推奨フォーマットとして解析できず、確認画面がエラーを出している
-    expect(host.textContent).toContain('列を指定して取り込んでください')
-
-    button('列を指定して取り込む').click()
-    await settle()
-
-    // マッピング画面が同じ内容で開く（ファイルを選び直させない）
     expect(questionText()).toContain('見出しの行を選んでください')
-    await tapNoHeader()
-    await tapCell(0, 0)
-    await mapColumn(1, '単位')
-    await mapColumn(2, '単価')
+    await tapHeaderRow(0)
     await finishImport()
 
     expect(cfg.config.order).toEqual(['トマト', 'レタス'])
     expect(cfg.config.prices['トマト']).toBe(120)
   })
 
+  it('保存した読み方が1つも無いうちは、その入口を出さない', async () => {
+    await mountSettings()
+
+    expect(host.querySelector('input.import-file')).not.toBeNull()
+    expect(host.querySelector('.drop-zone.recipe-zone')).toBeNull()
+    expect(host.querySelector('input.recipe-file')).toBeNull()
+  })
+
+  it('レシピを保存すると入口が出て、覚えている名前が読める', async () => {
+    await mountSettings()
+    await saveOneRecipe('仕入先マスタ')
+
+    const zone = host.querySelector('.drop-zone.recipe-zone')
+    expect(zone).not.toBeNull()
+    expect(zone.textContent).toContain('仕入先マスタ')
+  })
+
+  it('保存した読み方の入口なら、同じ形のファイルで問いが出ない', async () => {
+    await mountSettings()
+    await saveOneRecipe('仕入先マスタ')
+
+    await openRecipeZoneWith('商品ｺｰﾄﾞ,商品名,単位,仕入単価\n99,ミルク,本,240', '仕入先マスタ.csv')
+
+    expect(questionText()).toBe('')
+    expect(host.textContent).toContain('レシピ「仕入先マスタ」で読みました')
+  })
+
+  it('保存した読み方の入口で当たらないファイルは、覚えていないと言って問いへ進む', async () => {
+    await mountSettings()
+    await saveOneRecipe('仕入先マスタ')
+
+    await openRecipeZoneWith('トマト,箱,120\nレタス,玉,80', 'べつの帳票.csv')
+
+    expect(host.textContent).toContain('この形はまだ覚えていません')
+    expect(questionText()).toContain('見出しの行を選んでください')
+    await tapNoHeader()
+    await tapCell(0, 0)
+    await mapColumn(2, '単価')
+    await finishImport()
+
+    expect(cfg.config.order).toContain('トマト')
+  })
+
+  it('はじめての入口から入った時は、覚えていないと言わない', async () => {
+    await mountSettings()
+    await saveOneRecipe('仕入先マスタ')
+
+    await openMapperWith('トマト,箱,120', 'べつの帳票.csv')
+
+    expect(host.textContent).not.toContain('この形はまだ覚えていません')
+    expect(questionText()).toContain('見出しの行を選んでください')
+  })
   it('列指定の結果が空でも、指定をやり直せる', async () => {
     await mountSettings()
     await openMapperWith('トマト,箱,\nレタス,玉,')
@@ -296,9 +360,12 @@ describe('読み方をレシピとして保存し、次回は問いを飛ばす'
     button('保存する').click()
     await settle()
 
-    expect(host.textContent).toContain('保存したレシピ（1）')
+    expect(host.textContent).toContain('保存した読み方の管理（1）')
     button('削除').click()
     await settle()
-    expect(host.textContent).not.toContain('保存したレシピ')
+
+    // 消したら管理の一覧も、取込の入口も残らない
+    expect(host.textContent).not.toContain('保存した読み方の管理')
+    expect(host.querySelector('.drop-zone.recipe-zone')).toBeNull()
   })
 })

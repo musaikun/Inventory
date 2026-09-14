@@ -139,6 +139,23 @@ export function renameRecipe(id, name) {
   return r
 }
 
+/**
+ * PDFの指紋で、**表の作り方（段の数・行の高さ・列の境界）まで覚えている**レシピを探す。
+ *
+ * 専用の解析を持たない帳票は、一度で正しく組み上がらない。人が画面で直した読み方を
+ * ここに残しておけば、翌月の同じ紙では問いが1つも出ない ── 直しと列の対応づけが
+ * 1枚のレシピに入っているため。
+ */
+export function matchPdfGridRecipe(fp) {
+  let best = null, bestScore = 0
+  for (const r of _load()) {
+    if (!r?.grid || !r?.pdfFp) continue
+    const s = _jaccard(r.pdfFp.x ?? [], fp?.x ?? [])
+    if (s > bestScore) { best = r; bestScore = s }
+  }
+  return bestScore >= MATCH_MIN ? best : null
+}
+
 /** 指紋に最も近い保存済みレシピ（しきい値未満は null） */
 export function matchRecipe(fp) {
   let best = null, bestScore = 0

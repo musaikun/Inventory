@@ -81,6 +81,7 @@ export function normalizeConfig(src = {}) {
     axisGroupsB:   Array.isArray(src.axisGroupsB) ? src.axisGroupsB : [],
     hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
     hiddenAuto:    Array.isArray(src.hiddenAuto) ? src.hiddenAuto : [],
+    hiddenAt:      src.hiddenAt      ?? {},
     tagsArchiveA:  src.tagsArchiveA ?? {},
     tagsArchiveB:  src.tagsArchiveB ?? {},
   }

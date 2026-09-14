@@ -17,6 +17,159 @@
 - 検証: 新規`AxisAssignFocus.pick.test.js` 10 passed、App全体144 files / 1623 passed、production build成功。
 - **未実施**: 実機確認（375px / タブレット / PC、長押しとスクロール・横スワイプの競合、iOSの選択・コールアウト抑止）。config / localStorageキー / D1 / migration / Worker / WSメッセージ / versionは無変更。設計判断は`proposals.md` 2026-09-14へ投稿しPM判断待ち。
 
+## 2026-09-11 — UI-004: User依頼のcommitとリモート統合
+
+- Userがここまでのpushを依頼。Rive環境・素材・公開準備（UI-005）を`ec4adca`（`feat(rive): add wheel animation lab and runtime preparation`）でcommit。commit前build成功。ステージ後に検出したSVG末尾空白は生成処理から除去。
+- `origin/develop@95f2b25`の5件を取り込み、PDF取込改善とUser決定のversion 0.93.0を保持。lockfileの自アプリ情報だけ同じ版へ整合。`proposals.md` / 本ログの追記競合は双方を保持して解消。
+- 対象は`ec4adca`と`95f2b25`のmerge作業ツリー（別件HistoryCalendar差分あり）。全体testは151 files / 1622件成功だが、hook timeout 2件・worker起動timeout 4件でexit 1。該当6ファイルを`--pool=threads --maxWorkers=1 --hookTimeout=30000`で再確認し128件成功。コマンド全文はUI-004詳細。全体の一括成功とは表現しない。
+- 統合後の通常build成功（498 modules / PWA 17 entries / 2724.99 KiB）、Rive build成功（25 modules）。別件HistoryCalendarのファイル・ステージ状態を保持してRive関連を通常pushする。手動deploy/migrationは実行しない。
+- `.riv`本体の書き出し・製品UI反映・実機検証は未完了。UI-004はレビュー待ち / Userへ戻す。GitHub側の最終push SHA・workflow状態は実行結果で確認する。
+
+## 2026-09-10 — UI-004: Rive Editorでホイールを制作、書き出しはプラン制限
+
+- 担当Codex。Userのインストール完了後にDesktop MCPへ接続成功。空の[Untitled](https://editor.rive.app/file/untitled/2564146)へ`AssignWheel`アートボードを作成、図形・仮英字Text・数量を編集可能な状態で配置。
+- 既定を再利用した`Wheel`ステートマシン、`Open` / `Closed`、Boolean `AssignWheel.isOpen`で両方向700msのcubic補間を設定。160frames/60fpsのheadless検証で無入力Closed、true→falseでClosed→Open→Closedを確認。遷移・曲線・未確認事項を`app/dev/rive/verification/wheel-editor.json`へ保存。
+- Riveの開閉PNGを目視確認し、試験ページへEditorリンク・静止画像・ガイドを追加。英字は仮データ。TTFのMCP uploadは利用不可だったため、日本語はEditorでフォント設定が必要。
+- `.riv` exportはworkspaceプランにより拒否（`.rev`も対象）。再試行・他形式への迂回・契約変更なし。アプリに読み込めるファイルは未生成で、Web/スマホでの実再生・性能は未確認。停止後の再始動・早い反転・画面高連動・動的データも後続。
+- 対象`develop@bfb4c9a` + working tree。`npm.cmd run build:rive`成功（25 modules）、HTML/PNG/ガイドHTTP 200、PNG検査成功、`git diff --check`指摘なし。今回App全体testは再実行していない。
+- UI-004をレビュー待ち / Userへ。別担当UI-005のheader/Vite設定とHistoryCalendar差分を保持。READMEから公開準備はUI-005を参照。製品UI・業務処理は本作業で変更せず、commit / push / deployなし。
+
+## 2026-09-08 — UI-004: 既存UIを参考にSVG素材とホイール開閉の試作を準備
+
+- Userの「素材を用意できるか」を受け、`AxisAssignFocus.vue`の色・寸法・扇の補間を基準にSVG素材2点と開閉試作を作成。対象`develop@bfb4c9acac5273720f055f7c5f890f4d60cf38f9` + working tree。
+- `dev/rive/WheelDraft.vue`、`wheelDraft.mjs`、`export-wheel-draft.mjs`、`public/assets/wheel-{open,closed}.svg`と制作ガイドを追加。試験ページの上部で400/700/1000ms、展開・収納、スライダー比較を行える。
+- 2D近似のSVG試作と明示し、Rive再生の結果とは混同しない。文字・件数は仮データで、取り込み用SVGには含めない。演出の採否・追加調整はUser判断。
+- 公式MCPでDesktop Editorから図形・アニメーションを作成できることを確認。ただしlocalhost:9791はECONNREFUSED、browser一覧も0件。`.riv`の制作とEditorでの取り込み・表示確認は未実施。MCP対応Editorを起動して接続することが次の前提。
+- 検証: `npm.cmd run build:rive`成功（23 modules）、SVG XML/ID/不要ノード検査、101段階の座標検査、試験ページと素材HTTP 200・SVG MIME確認、`git diff --check`指摘なし。変更はdev試作とdocsのみでApp全体testは前回1723件成功から再実行していない。
+- UI-004をレビュー待ち / Userへ戻した。製品UI・業務データ・Worker・既存差分は保持。commit / push / deployなし。
+
+## 2026-09-08 — UI-004: Riveのローカル試験環境を準備
+
+- 担当: Codex。Userの「環境を整えます」を受け、演出の判断をUserへ残したままランタイムと試験ページを実装。対象`develop@bfb4c9acac5273720f055f7c5f890f4d60cf38f9` + working tree。
+- `@rive-app/webgl2@2.42.0`をexact指定。`RiveCanvas.vue`で遅延読込・cleanup・旧通知の無効化・非表示停止・reduced motion・resize・エラー回復に対応。主WASMと旧端末用fallbackを同一packageから自己配信する。
+- `npm run dev:rive` → `http://127.0.0.1:5174/`。`.riv`選択、アートボード・ステートマシン、再生・一時停止・読み直し、幅変更を試せる。手順は`app/dev/rive/README.md`。`npm run build:rive`の出力はGit対象外の`app/dist-rive/`。
+- 検証: `npm.cmd test -- --reporter=dot --pool=threads --maxWorkers=2` → **154 files / 1723 tests passed**（Riveの6件を含む）。初回forksはworker起動timeoutが4件あり再実行。`npm.cmd run build`と`npm.cmd run build:rive`成功。HTTP 200、WASMのMIMEと`WebAssembly.validate()`を確認。`git diff --check`指摘なし。
+- `npm audit --omit=dev`は既存依存にhigh 2件（nanoid / pdfjs-dist）、moderate 1件（dompurify）。Riveへの指摘なし。`npm outdated`の既存9件も記録し、scope外の依存更新は行っていない。詳細・コマンドは`tasks/UI-004.md`。
+- 未確認: `.riv`実描画、スマホ操作・性能。Browserスキルの接続・診断後も利用可能browserが0件のため未実施。Userが素材を選んで実表示を確認する。UI-004はレビュー待ち / User。
+- 振り分け画面・業務処理・Worker・DB・API・認可・app version・公開CSPは無変更。製品適用時のCSP/WASM許可とPWAキャッシュは別途判断。設計判断を`docs/proposals.md`へ投稿。
+- 開始前からの`HistoryCalendar.vue` / `HistoryCalendar.plan.test.js`差分を保持。commit / push / deploy / migrationは未実施。試験用dev serverのみ起動。
+
+## 2026-09-08 — PDFの表は「直せる」ものにする（つまみをレシピへ）
+
+- Userから「特定形式（PRONTO棚卸記入表）は専用解析があるからいいが、**それが無いのが普通**。取り込んだPDFの変換後CSVを簡単に直せて、その一連の流れをレシピにしたい」。実際、専用解析のある紙を列指定へ回すと表がずれた（読めた結果を捨てて生トークンから組み直していたため）。
+- 方針を変えた。**一度で正しく組み上がる前提を置かない。** 直せるのは値ではなく**読み方**（段の数・行の高さ・列の境界）。値の書き換えはその場しか直らないが、読み方は数値なのでレシピに残り、翌月の同じ紙に効く。
+- `pdfGrid` に3つのつまみを通した。(1) `sections`（既存）(2) `rowFactor` … 行としてまとめる y の許容差を**その紙の文字の高さ×倍率**で決める（固定4pxをやめた。行間の広い紙で1行が2行に割れ、詰まった紙でくっつく。「表がめちゃくちゃ」の主因）(3) `edges` … 列の境界の並び。人が触ったらこちらが正になる。
+- 自動で決めた列は `edgesOfColumns()` で境界の並びに落として返す（`pdfPagesToTable`）。人の直しは「境界を1本消す＝左と合わせる」「1本足す＝分ける」の2操作だけで表せる。足す位置は `suggestEdge()` が**その列の中でいちばん広い空白**から出すので、人は位置を指定しなくていい。
+- トークンに `h`（文字の高さ）を追加（`usePdfImporter` / `PdfPageViewer` の両方）。行の高さの基準に要る。
+- `PdfGridSetup.vue` を2段の画面にした。①枚数を訊く（紙を見せながら）②**組み上がった表をその場に出す**。行のボタン2つ、列をタップして合わせる/分ける、元のPDF、行数・列数、「この表で進む」。渡す前に確かめられるので、ずれに気づくのが列を当てた後にならない。
+- レシピを1本にまとめた。`ImportMapper` が作る表のレシピに `pdfFp`（紙の指紋）と `grid`（作り方）を同梱し、`matchPdfGridRecipe()` でPDFを開いた時点で照合する。当たれば**枚数の問いも列指定も出さず**に取込確認画面まで進む。当たらなければ従来どおり訊く。旧 `kind:'pdf'` レシピ（紙の上で指定）も従来どおり効く。
+- 検証: `pdfGrid.test.js` に5件追加（行の高さで割れ/まとまり、境界の往復、切りどころ、切れない列は null）、`PdfImporterModal.grid.test.js` を新しい流れへ書き直し6件（表が出る／直せる／作り方が渡る／レシピで問いゼロ／紙の上への逃げ道）。App全体 155 files / 1733 passed、production build成功。
+- 手動確認は `test-checklist-new-features.md` W-1〜W-15（実機未実施）。API / DB / 認可 / 保存形式 / Workerは無変更。
+- User指示で `app/package.json` の version を **0.92.0 → 0.93.0** へ（リリースの区切り・D-025）。
+
+## 2026-09-08 — PDFの列指定をCSV・Excelと同じ画面へ
+
+- Userから「PDFのマッピングも現在のCSV、EXCELと同様の見た目、操作感にしたい」「元のPDFも見れるようにして／マッピングも確実にしたい」。
+- 方針: PDFを先に**行×列の表**へ均し、そのあとは `ImportMapper`（CSV・Excelと同じ列指定画面）へ流す。`ImportMapper` の入力は `csvText` だけなので、**画面側は無改造**で共通化できる。段組みは変換の中で右段を左段の下へ縦に積んで解き、「1列＝1項目」という前提に触れない。
+- 追加: `utils/pdfGrid.js`（トークン→表・CSV）、`PdfGridSetup.vue`（「この紙、表は何枚ありますか？」だけを訊く前段。紙を見せながら）、`PdfPageViewer.vue`（PDF描画・ページ送り・拡大の共通部品。`overlay` スロットで上に重ねられる）。
+- 変更: `PdfImporterModal.vue`（既定の道を新経路へ。`mapColumns` の payload を `{file}` / `{csvText, filename, pdfFile}` に）、`ImportMapper.vue`（`pdfFile` を受け「📄 元のPDF」で紙を重ねて表示。Escは紙だけ閉じる）、`SettingsModal.vue`（受け渡し）、`usePdfImporter.js`（トークンに `w`＝文字幅を追加）、`PdfColumnMapper.vue`（描画を `PdfPageViewer` へ移し、pdfjsを開くのを1箇所に）。
+- 表の作り方でいちばん効いたのは**列の決め方**。x座標だけで束ねると、帳票の見出しは左寄せ・単価や数量は右寄せで刷られるため、`単価` の見出しは価格の左、`数量` の見出しは価格に重なり、**単価の列は全行空・価格は数量の列**という表になる。列指定画面では見出しの名前と中身が食い違ったまま人が選ぶことになるので、「行ごとのセル数がそろっていれば**何番目のセルか**で列にする」を主にし、そろわない行（表題・欠けのある行）だけ位置から当てる。位置から当てるときも左右の順番は崩さない（隣り合う見出しが1マスへ潰れない）。
+- 行の中で「近い文字をセルにまとめる」前処理は入れてから外した。隙間の大きさで決めると、列の詰まった帳票で `商品ｺｰﾄﾞ 商品名` のように**隣の列の見出しまで1つのセル**になる。折り返した品目名（`豆乳` / `２００ｍｌ`）を1つに戻すのは、列が決まったあと同じ列に入った文字を合流させる形にした。
+- 段の切れ目は「品目名の見出しから左へ一定距離」ではなく、**その手前で本当に何も刷られていない帯**を探して切る。段ごとに左端の列の位置が少しずれている紙で、右の表の行番号が左の表の行に混ざるのを避けるため。
+- 旧経路は残した: 保存済みの `kind:'pdf'` レシピは従来どおり自動適用され（移行不要）、表に組み立てられない紙は「紙の上で直接指定する」で `PdfColumnMapper` へ行ける。
+- 検証: 新規19件（`pdfGrid.test.js` 14 / `PdfImporterModal.grid.test.js` 3 / `ImportMapper.pdf.test.js` 2）。App全体 146 files / 1632 passed、production build成功（PWA 17 entries / 2710.73 KiB）。pdfjsは動的importのままで初期バンドルに載っていない。
+- 手動確認は `test-checklist-new-features.md` の W-1〜W-11（実機未実施）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。
+- **未対応**: 段の数の問いは毎回出る（レシピに覚えさせていない）。`PdfColumnMapper` を将来畳むかは `proposals.md` でPM判断待ち。
+
+## 2026-09-08 — WEB-001: push後の更新停止を調査、ホーム順路testを修正
+
+- 担当: Codex（WEB-001はtask boardで進行中・Codexのまま）。対象: `develop@ed4d9bc97cca236b4f53e2b99b011199b6ef2c68`。
+- User報告: pushしてもスマホのアプリが更新されない。GitHub Actionsの最新develop preview run `34182651873` とPro Review run `34182651868`は、共に`SessionListPage.flow.test.js`の同じ1件で失敗しdeploy未実行。直近3pushとも両workflow失敗。直前の両workflow成功は`e31e67f`。
+- 原因: `ae1a0b4`が3枚のカードを`.top-cards`へまとめたが、testが旧構造のパネル直下だけを探索していた。カード順は保持されている。
+- 修正: testの探索をパネル内の対象導線へ変更。準備・棚卸・履歴・β区切りの存在、件数、DOM順を配列の完全一致で検証する。製品画面・PWA・workflowは変更していない。
+- 検証（app、上記HEAD + test修正）:
+  - 修正前 `.\node_modules\.bin\vitest.cmd run src/components/SessionListPage.flow.test.js`: CIと同じ1失敗 / 10成功を再現。
+  - 修正後 `npm.cmd test -- --reporter=dot`: 対象test成功。全体は1703成功 / 別ファイル`AxisAssignFocus.groups.test.js`で3件の5秒timeout。
+  - `npm.cmd test -- --reporter=dot --maxWorkers=2`: 152 files / 1706 tests passed。
+  - `npm.cmd run build`: 成功（493 modules、既存CJS・chunk size警告）。
+  - `git diff --check`: whitespaceエラーなし（CRLF変換警告のみ）。
+- 検証中に別作業の`HistoryCalendar.vue`差分と`HistoryCalendar.plan.test.js`未追跡fileが出現。保持しており、今回の修正には含めない。clean release candidateの検証ではない。
+- 現行workflowの確認: develop pushでdevelop Pagesを更新。Pro Reviewは専用D1 migration・Worker・Pagesも自動更新。本番Worker/D1/Pagesはこのpush経路で更新しない。古いCI/CD文書の「Pro Reviewは手動・Pagesのみ」とは差がある。
+- Userが本修正と作業記録のcommit・developへのpush・自動更新結果の確認を明示承認。反映結果はGitHub Actionsの対象commit/runを証拠として確認する。
+- この記録時点で未実施: commit、push、deploy、migration、スマホ実機での反映確認。全体の公開gateは完了扱いにしない。
+
+## 2026-09-07 — 非表示の誤操作に戻り道をつける（Undo・非表示の時刻）
+
+- Userから3件。(1)スワイプの押し込み距離で確認なしに隠せる速さは残す。(2)直前の非表示をすぐ戻せるようにする。(3)手動非表示の一覧を「最後に隠した順」にし、時刻も出す。2件続けて誤操作しても目視で辿れるようにするため。
+- `useConfig`に`hiddenAt`（品目 → 非表示にした時刻ISO）を追加。`hideItem()`で記録、`unhideItem()`と`removeConfigItem()`で削除。名前の変更では移さない（`hiddenItems`が旧名のままなので、時刻だけ新名へ移すと行と時刻が離れる）。**シリアライズ・`_assignConfigData`・空リスト化/サンプルの初期化・`RoomDO.normalizeConfig`の4箇所すべてに追加**（B-01の再発防止）。
+- `App.vue`に取り消しバー（`.undo-bar`）。非表示のトーストを置き換え、「元に戻す」「✕」を出す。9秒で自動的に消える。読むだけの通知から押す先のある通知へ変えただけで、スワイプの閾値・確認ダイアログの条件は触っていない。振り分け画面（`AxisAssignFocus`）は自前の取り消しバーを持つため、従来どおり`silent`で重ねない。トーストが同時に出るときは上へ逃がす（`.toast.lifted`）。
+- 並びと時刻表示は`utils/hiddenItems.js`（`sortHiddenByRecent` / `hiddenAtLabel`）に純関数として置き、棚卸表の管理シート（`InventoryTable`）とデータ管理の「非表示中」（`MasterManagePage`）で共用。時刻を持たない品目（この記録より前に隠したもの）は後ろへ回り、時刻欄は空にする。表示は 今日 13:24 / 昨日 22:05 / 9/5 18:02 / 2025/9/5。
+- ゲストは非表示を申請するだけで自分では隠せないため、取り消しバーは出ない（従来どおり申請中の表示）。
+- 検証: 新規`hiddenItems.test.js` 11、`App.hideUndo.test.js` 5、`InventoryTable.hiddenList.test.js` 4、`MasterManagePage.hidden.test.js` 2、`useConfig.hidden.test.js` 10 passed。App全体150 files / 1687 passed、Worker 32 files / 601 passed、production build成功、`git diff --check`指摘なし。
+- 実機確認はX-1〜X-4としてUser待ち。config項目を1つ増やしたので、旧versionのホストと同期した場合は`hiddenAt`が空（時刻なしとして後ろへ回る）になる。
+
+## 2026-09-06 — 数量シートの作り直し（Part 1: 棚卸を1枚に）
+
+- Userと数値入力モーダルを設計し直す話。棚卸については不満は出ておらず、要望は「テンキー固定を解除して1つのモーダルに統一」。
+- 積算（CSS値から）: 見出し28 + 品目名100 + あとで数える45 + 履歴34 + 数量63 + ジャンル38 + プリセット36 + テンキー246 + 確定56 + 余白72 = **718px**。iPhone SE2 は667pxなので約50px溢れる。溢れの正体は低頻度の要素が全幅の行を持っていたこと。
+- 対応: 見出しは編集・新規登録・発注のみ（`sheetTitle`）。あとで数えるは`.name-flag`（34px・`.name-nav`と同寸）へ。ジャンル・履歴・フラグONはヒント行のチップへ。**-145px → 約573px**。
+- 貼り付けは`.keypad-dock.stuck`として発注モードにだけ残した。発注はまだ参考情報で伸びるので、Part 2で縮めてから外す。順番を逆にすると2026-09-05の「打つ場所が動く」報告が戻る。
+- `ConfirmModal.layout.test.js` を新規作成（9件）。高さはjsdomで測れないので「低頻度のものが行を占めていないこと」を構造で押さえた。
+- 検証: 対象2 files / 17 passed、App全体146 files / 1644 passed、production build成功。
+
+### Part 2（発注）— 実装済み
+
+- 打つのは在庫ひとつ。`orderFocus` 既定を `'stock'` へ。発注数は `orderDecide` が立つまで `.order-guide`（読むだけの目安）で、「自分で決める」でだけ入力欄になる。
+- 「あとで決める」を確定と同じ大きさで置いた。在庫が未入力なら確定しない（残すものが無い）。
+- 保留を残す: `orderSync.js` に `hasCountedStock()` / `isPendingLine()`。発注が取り消されても在庫があれば残し、サーバのスナップショットでも消さない。`App.vue` の `_applyOrderConfirm()` も同様。同期ペイロードと発注の記録（`upsertOrder`）には載せない。
+- `InventoryTable` の発注列に「保留」を出す。触っていない行とは見た目を分ける。
+- **既存契約との衝突を1件、契約側を優先して直した**: 最初 `decideOrderSelf()` で推奨を初期値に入れたが、`ConfirmModal` には「推奨は参考として出すだけで発注数へは自動で入れない（読まずに確定できてしまうため）」という明示の契約があった。自動投入をやめ、既存testの意図はそのまま残した。
+- 検証: `ConfirmModal.order.test.js` 13 passed（新規4件）、`orderSync.test.js` 16 passed（新規5件）、`InventoryTable.order.test.js` 8 passed（新規3件）、App全体146 files / 1653 passed、production build成功。
+- 未決3点（`proposals.md` 2026-09-06 参照）: 入数の外側の単位名が無い／保留は端末内のみ（DO は発注数>0 のみ配る）／保留の印は D1 に残らない。
+
+### Part 2 着手前に分かっていたこと（記録）
+
+- **Userの実運用**: 発注セッションでは在庫数を入れることが多かった。その場で適正発注量を判断できず、在庫を記録して後から有識者や社内の入出庫情報と突き合わせて決めていた。
+- コードは逆を向いている。(1)`ConfirmModal.vue`の`orderFocus`既定値が`'order'`＝最初の一打は発注数に入る。(2)`App.vue`の`_applyOrderConfirm()`は`orderQty > 0`のときだけ発注下書きへ残す（`orderSync.js`の`applyOrderLine`も同じ）。在庫は在庫表には入るが、**判断を保留した品目は発注一覧から消える**。後で見たいのはまさにその品目。
+- 方針: 発注セッションを「在庫を記録するセッション」として組み直す。打つのは在庫ひとつ（棚卸単位）、発注数は読むだけの目安行＋「自分で決める」（入数単位）。「あとで決める」で在庫つきの**保留**として下書きに残す。
+- 未決: 保留を下書きにどう持たせるか（`orderQty: null` + `stock`）、同期（`broadcastOrderUpdate`/`Remove`）とDOのpayload、発注一覧での見せ方。`orderDraftToPayload`は現在`>0`のみ。
+
+## 2026-09-05 — 取り込んだ過去データが履歴カレンダーの星に出ない
+
+- Userから「過去の棚卸・納品・入出庫を取り込んだとき、履歴カレンダーにその対象のマーク（星）が出るようにしたい」。
+- 原因は2つ。どちらも「取り込んだ日」と「実施日」の取り違え。
+  - **棚卸**: サーバーは取込セッションの `started_at` に実施日、`ended_at` に**取り込んだ時刻**を入れる（`pastImport.js`）。カレンダーは`_keyOf(endedAt ?? startedAt)`で束ねるため、星が取込日のマスに出て、実施日のマスは空のままだった。
+  - **出庫**: `deliveryImportCommit.buildImportMovements()`が`type === 'out'`の行を黙って捨てていた。確認画面は種別を問わず「N件を取り込む」と数えるので、押した件数がどこにも残らず、その日の星も出ない。
+- 対応:
+  - `HistoryCalendar.vue`に`_isImported()` / `_stockKey()`を追加。取込セッションは`startedAt`の日付部分（`YYYY-MM-DD`）をそのまま使う。`_keyOf()`を通さないのは実施日が`T00:00:00.000Z`で入っており、UTCより西の端末では前日へずれるため。判定は**サーバーの`importBatchId`と端末スナップショットの`source: 'import'`の両方**を見る（片方しか無い端末でも当たる）。
+  - `storeHandler.handleSessionsGet()`が`import_batch_id`をSELECTし`importBatchId`として返すようにした（読み取りのみ・スキーマ変更なし）。取込直後や別端末でスナップショットが無くても実施日に載る。
+  - 詳細シートの取込行は、時刻（＝取り込んだ時刻）ではなく「取込」バッジを出す。別の日の時刻が並ぶのを避ける。
+  - `buildImportMovements()`を日付×**種別**×仕入先で畳むようにし、出庫は出庫レコードとして保存する。納品取込モーダルは、出庫を含むファイルのときだけ明細に「種別」列と注記を出す。
+- 納品（入庫）の星は元から実施日に出ていた（`movements.date`が実施日のため）。回帰として残した。
+- 検証: 新規`HistoryCalendar.import.test.js` 4 passed、`deliveryImportCommit.test.js` 5 passed、`DeliveryImportModal.test.js` 6 passed、Worker 32 files / 601 passed、App全体144 files / 1624 passed（`AxisAssignFocus.groups.test.js`の回転1件が全体実行時のみ5秒timeout。単体では40 passed・本変更と無関係）、production build成功。
+- 出庫を取り込めるようにしたのは仕様変更のため`proposals.md`へ投稿。実機確認はT-2-12 / T-4-3としてUser待ち。
+- DoDセルフチェック: 同期・WSメッセージ・権限・プラン境界・通知・戻る操作・localStorageキー・スキーマはいずれも無変更のためN/A。sessions APIは読み取り列の追加のみで認可・店舗分離（`WHERE shop_code = ?`）は既存のまま。`project-status.md`は過去versionの機能棚卸しのため直接更新せず、仕様変更2件を`proposals.md`へ投稿した。version（`app/package.json`）は変更していない。
+
+## 2026-09-05 — 品目取込の入口を2つに分ける（はじめての形／保存した読み方）
+
+- User指示。(1)ドロップゾーンのファイルは`button.mapper-trigger`と同じ列指定フローへ回す。(2)保存レシピ専用の入口を別に設け、一度マッピングした形はそこから取り込ませる。(3)初回か2回目かで経路を変える。
+- 確認した仕様: 推奨フォーマットも**例外なく**列指定へ／レシピ未一致でも止めずに列指定へ進む／PDFは従来どおり専用画面（`ImportMapper`はテキストしか受け取れず、先にページ解析が要るため）。
+- `SettingsModal.vue`: `handleFile()`をCSV/txt/Excel→`openMapper()`、PDF→`PdfImporterModal`に。`origin: 'csv'`の素通し経路は削除。ドロップゾーンを「はじめて取り込む形」、その下に`.drop-zone.recipe-zone`「保存した読み方で取り込む」（覚えている名前を表示、レシピ0件なら非表示）を追加。「🗂 フォーマット不明の…」ボタンは重複するため削除し、レシピの`details`は管理だけに縮めた。
+- `ImportMapper.vue`: `expectRecipe` propを追加。レシピ入口から来て当たらなかったときだけ「この形はまだ覚えていません」を出す。`tryRecipe()`の自動照合は元からあるので、当たれば問いは0のまま。
+- test: 入口が2つになったので helper を`dropInto(selector, ...)`へ整理し、`importWith`（素通し経路）は廃止。回帰6件を追加（推奨フォーマットも列指定へ／レシピ0件なら入口を出さない／保存すると入口に名前が出る／同じ形なら問い0／未一致は理由を出して問いへ／はじめての入口では理由を出さない）。レシピ`details`の見出し変更に伴い既存1件も更新。
+- 検証: `SettingsModal.import.test.js` → 18 passed、App全体143 files / 1619 passed、production build成功。
+- 実機確認はT-1-10としてUser待ち。設計判断（推奨フォーマットにも問いが1回出ること）は`proposals.md`へ投稿。
+
+## 2026-09-05 — 取込のファイル選択でPDFしか選べない
+
+- Userから「品目のインポートで`div.drop-zone`からファイルを選ぶとPDFしか選べない」。
+- 原因は`accept`が拡張子だけだったこと。iOSやAndroidのpickerは拡張子をUTI / MIMEへ落として候補を作るため、対応表に無い拡張子（`.csv` / `.xlsx`）が落ち、MIMEが自明な`.pdf`だけが残る。デスクトップのファイルダイアログでは拡張子だけでも効くので、実機でしか出ない。
+- 4つのinputへMIMEを併記した。`SettingsModal.vue`のドロップゾーン（CSV/Excel/PDF）、`PdfImporterModal.vue`（PDF/Excel）、`MasterManagePage.vue`の納品・過去棚卸（CSV/Excel）。受け付ける種類の判定は従来どおり`handleFile()`がファイル名の拡張子で行うため、取り込める種類自体は変えていない。
+- `SettingsModal.import.test.js`が file input を`accept.includes('text/csv')`で探しており、ドロップゾーンにも`text/csv`が入ると取り違える。inputへ`import-file` / `mapper-file` / `restore-file`のclassを付け、testはclassで引くようにした。
+- 回帰「取込のドロップゾーンは拡張子とMIMEの両方を並べる」を追加。
+- 検証: `SettingsModal.import.test.js` → 13 passed、App全体143 files / 1614 passed、production build成功。
+- 実機での見え方はT-1-9としてUser確認待ち。このセッションからiOS / Androidを操作できないため再現確認はしていない。
+
 ## 2026-09-05 — 履歴カレンダーが深夜の棚卸を前日のマスへ入れていた
 
 - UI-003の作業中、App全体testで`HistoryCalendarPage.test.js`が1件落ちた。`TZ=UTC`では通り、JSTの00:00〜09:00だけ落ちる。

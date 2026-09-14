@@ -68,6 +68,7 @@ describe('完了後レポート', () => {
     const text = host.querySelector('.report-panel').textContent
 
     expect(host.querySelector('.rp-value-num').textContent).toContain('650')
+    // 開始時刻を渡していない記録は稼働時間へ落ちる（活きた数字を残す）
     expect(text).toContain('1時間30分')
     // 3品目中2品目入力、1品目未入力
     const cells = [...host.querySelectorAll('.rp-cell')].map(c => c.textContent)
@@ -93,6 +94,18 @@ describe('完了後レポート', () => {
     await mount()
     await openReport()
     expect(host.querySelector('.rp-value .rp-warn')).toBeFalsy()
+  })
+
+  // 所要時間は「ルームを開いてから終了するまで」。中断を除いた稼働時間（activeMs）は
+  // 「何分手を動かしたか」で、棚卸に何時間かかったかではない。
+  it('所要時間はルームの開始〜終了で出す（稼働時間ではなく）', async () => {
+    await mount({
+      startedAt: '2026-08-30T08:00:00.000Z',   // activeMs は 1時間30分
+      endedAt:   '2026-08-30T11:00:00.000Z',
+    })
+    await openReport()
+    const cell = [...host.querySelectorAll('.rp-cell')].find(c => c.textContent.includes('所要時間'))
+    expect(cell.textContent).toContain('3時間00分')
   })
 
   it('前回が無ければ比較欄に「比較はありません」と出す（0や∞を出さない）', async () => {

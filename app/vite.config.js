@@ -108,6 +108,13 @@ export default defineConfig({
       workbox: {
         importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+        // Riveのランタイム（約195KB）はプリキャッシュに載せない。演出を出す画面へ入った
+        // ときだけ読む物なので、載せると一度も見ない人の初回インストールにも乗る。
+        // 相方のWASM（約2MB）はそもそも globPatterns の対象外（拡張子 .wasm）で、
+        // workboxの既定上限2MBも超える。両方まとめて下の runtimeCaching で面倒を見る。
+        // ファイル名は `src/utils/riveRuntime.js` に由来する（改名したらここも直す。
+        // 外れてもプリキャッシュに載るだけで壊れない）。
+        globIgnores: ['**/riveRuntime-*.js'],
         // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
         // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。
         cleanupOutdatedCaches: true,
@@ -131,6 +138,19 @@ export default defineConfig({
             urlPattern: /\/cmaps\/.*\.bcmap$/,
             handler: 'CacheFirst',
             options: { cacheName: 'pdf-cmaps', expiration: { maxAgeSeconds: 60 * 60 * 24 * 365 } },
+          },
+          {
+            // Riveのランタイム（JS + WASM）と素材（.riv）。演出を初めて出すときに取得し、
+            // 以後はキャッシュから。厨房や地下で電波が切れても2回目からは動く。
+            // ファイル名はビルドのハッシュ付きなので、更新は別URLとして落ちてくる
+            // （古い版は maxEntries を超えた時点で捨てる）。
+            urlPattern: /(?:riveRuntime-[^/]*\.js|\.wasm|\.riv)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'rive-runtime',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
           },
         ],
       },

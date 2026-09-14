@@ -9,6 +9,7 @@ describe('useConfig 手動非表示', () => {
     cfg.config.order = ['トマト', 'レタス', 'なす']
     cfg.config.hiddenItems = []
     cfg.config.hiddenAuto = []
+    cfg.config.hiddenAt = {}
   })
 
   it('hideItem で非表示に追加され、activeItemCount が減る', () => {
@@ -50,6 +51,28 @@ describe('useConfig 手動非表示', () => {
     cfg.unhideItem('トマト')
     expect(cfg.config.hiddenItems).not.toContain('トマト')
     expect(cfg.config.hiddenAuto).not.toContain('トマト')
+  })
+
+  // 非表示は確認なしで決まるので、あとから「いつ隠したか」を一覧で辿れるようにしている。
+  it('hideItem は非表示にした時刻を残し、unhideItem で消す', () => {
+    cfg.hideItem('レタス')
+    expect(cfg.config.hiddenAt['レタス']).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    cfg.unhideItem('レタス')
+    expect(cfg.config.hiddenAt['レタス']).toBeUndefined()
+  })
+
+  it('隠し直すと時刻が新しくなる（一覧の先頭へ来る）', () => {
+    cfg.hideItem('なす')
+    const first = cfg.config.hiddenAt['なす']
+    cfg.unhideItem('なす')
+    cfg.hideItem('なす')
+    expect(cfg.config.hiddenAt['なす'] >= first).toBe(true)
+  })
+
+  it('自動非表示にも時刻を残す（由来の区別は hiddenAuto が持つ）', () => {
+    cfg.hideItem('トマト', true)
+    expect(cfg.config.hiddenAt['トマト']).toBeTruthy()
+    expect(cfg.config.hiddenAuto).toContain('トマト')
   })
 
   it('自動非表示を手動 hideItem で呼び直すと手動へ再分類される', () => {

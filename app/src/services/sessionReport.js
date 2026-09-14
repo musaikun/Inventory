@@ -18,6 +18,33 @@ function _num(v) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
+function _ms(v) {
+  if (v == null || v === '') return null
+  const t = typeof v === 'number' ? v : new Date(v).getTime()
+  return Number.isFinite(t) ? t : null
+}
+
+/**
+ * 所要時間 ＝ **ルームを開いてから終了するまで**の実時間。
+ *
+ * 以前は activeMs（5分以上の中断を除いた稼働時間）をそのまま「所要時間」として出していた。
+ * 中断を引いた値は「何分手を動かしたか」であって、棚卸に何時間かかったかではない。
+ * 2時間の棚卸が40分と出るため、次回の段取り（何時から始めれば閉店に間に合うか）に使えない。
+ *
+ * 開始・終了はセッション行（D1 の sessions）が持つ。終了が無い記録では、端末が
+ * 保存した時刻（savedAt ≒ 完了した時刻）で代用する。
+ */
+function _spanMs(snapshot) {
+  // 過去データの取込にはルームが無い（startedAt は実施日の0時、endedAt は取り込んだ時刻）。
+  // その差は作業時間ではないので、所要時間として出さない。
+  if (snapshot?.source === 'import' || snapshot?.importBatchId) return null
+  const start = _ms(snapshot?.startedAt)
+  if (start == null) return null
+  const end = _ms(snapshot?.endedAt) ?? _ms(snapshot?.savedAt)
+  if (end == null || end < start) return null
+  return end - start
+}
+
 /** 品目 → 小計。金額のある品目だけ入る。 */
 function _subtotals(snapshot) {
   const m = new Map()
@@ -87,6 +114,9 @@ export function buildSessionReport(snapshot, prev = null) {
     date:     snapshot?.date ?? null,
     savedAt:  snapshot?.savedAt ?? null,
     activeMs: _num(snapshot?.activeMs),
+    // 画面に出す所要時間。開始時刻を持たない古い記録だけ、従来どおり稼働時間へ落とす
+    // （出せる数字が他に無い。null にすると「—」になり、かえって分からなくなる）。
+    durationMs: _spanMs(snapshot) ?? _num(snapshot?.activeMs),
 
     items: {
       total:   items.length,

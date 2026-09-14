@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { extractRows, detectSectionCount, toReadingCoords } from '../utils/pdfTableParser.js'
+import { ref, computed } from 'vue'
+import { extractRows, detectSectionCount } from '../utils/pdfTableParser.js'
 import { fingerprintPdf, saveRecipe, suggestRecipeName } from '../composables/importRecipes.js'
 import ImportBuildPreview from './ImportBuildPreview.vue'
+import PdfPageViewer from './PdfPageViewer.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
@@ -24,31 +25,16 @@ const FIELDS = [
 const labelOf = (f) => FIELDS.find(x => x.field === f)?.label ?? f
 const colorOf = (f) => FIELDS.find(x => x.field === f)?.color ?? '#2563eb'
 
-// ── pdfjs ロード ────────────────────────────────────────────
-let _pdfjs = null
-async function getPdfjs() {
-  if (_pdfjs) return _pdfjs
-  const lib = await import('pdfjs-dist')
-  lib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
-  _pdfjs = lib
-  return lib
-}
-function cMapUrl() { try { return new URL('cmaps/', document.baseURI).href } catch (_) { return undefined } }
-
 // ── 状態 ────────────────────────────────────────────────────
-const busy      = ref(true)
-const errorMsg  = ref('')
+// PDFを開くのも描くのも PdfPageViewer の仕事。ここは「どの文字がどの列か」だけを持つ。
 const pageCount = ref(0)
-const pageIndex = ref(0)
-const zoom      = ref(1)
 const boxes     = ref([])       // 現在ページの当たり判定 [{ text, x, y, left, top, w, h }]
 const allTokens = ref([])       // 全ページのトークン [[{text,x,y}], ...]（抽出プレビュー用）
-const canvasEl  = ref(null)
-const wrapEl    = ref(null)
 
-let _pdf = null
-let _pdfjsLib = null
-let _baseW = 600                // scale=1 でのページ幅（フィット計算用）
+function onLoaded({ pageCount: n, readingPages }) {
+  pageCount.value = n
+  allTokens.value = (readingPages ?? []).map(p => p.tokens)
+}
 
 // 割り当て: field -> [{ x, y }, ...]（PDF座標）
 //
@@ -64,75 +50,6 @@ const picking = ref(null)       // タップ中のbox
 // 単価が連結され、右段の品目はまるごと消える。読んだ後では「右半分が無い」ことに
 // 気づけないので、紙を見せながら先に確かめる。null = まだ答えていない。
 const sectionsMode = ref(null)
-
-onMounted(async () => {
-  try {
-    _pdfjsLib = await getPdfjs()
-    const data = new Uint8Array(await props.file.arrayBuffer())
-    _pdf = await _pdfjsLib.getDocument({ data, cMapUrl: cMapUrl(), cMapPacked: true }).promise
-    pageCount.value = _pdf.numPages
-    // 全ページのテキストを取得（抽出プレビュー用・描画はしない）
-    const toks = []
-    for (let p = 1; p <= _pdf.numPages; p++) {
-      const page = await _pdf.getPage(p)
-      const tc = await page.getTextContent()
-      toks.push(tc.items
-        .map(i => {
-          const c = toReadingCoords(i.transform[4], i.transform[5], page.rotate)
-          return { text: (i.str ?? '').trim(), x: c.x, y: c.y }
-        })
-        .filter(i => i.text))
-    }
-    allTokens.value = toks
-    await renderPage()
-  } catch (e) {
-    errorMsg.value = 'PDFの表示に失敗しました。' + (e?.message || '')
-  } finally {
-    busy.value = false
-  }
-})
-onBeforeUnmount(() => { try { _pdf?.destroy() } catch (_) {} })
-
-async function renderPage() {
-  if (!_pdf) return
-  busy.value = true
-  try {
-    const page = await _pdf.getPage(pageIndex.value + 1)
-    _baseW = page.getViewport({ scale: 1 }).width
-    const wrapW = (wrapEl.value?.clientWidth || 340) - 2
-    const fit = wrapW / _baseW
-    const scale = fit * zoom.value
-    const viewport = page.getViewport({ scale })
-    await nextTick()
-    const canvas = canvasEl.value
-    const dpr = window.devicePixelRatio || 1
-    canvas.width  = Math.floor(viewport.width * dpr)
-    canvas.height = Math.floor(viewport.height * dpr)
-    canvas.style.width  = viewport.width + 'px'
-    canvas.style.height = viewport.height + 'px'
-    const ctx = canvas.getContext('2d')
-    await page.render({ canvasContext: ctx, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined }).promise
-    // 当たり判定（テキストの画面上の矩形）
-    const tc = await page.getTextContent()
-    const bs = []
-    for (const it of tc.items) {
-      const s = (it.str ?? '').trim()
-      if (!s) continue
-      const tm = _pdfjsLib.Util.transform(viewport.transform, it.transform)
-      const h = (it.height || 10) * scale
-      const w = Math.max((it.width || 0) * scale, 8)
-      // x/y は「読み方向」の論理座標（列の判定用）。left/top は画面上の位置。
-      const c = toReadingCoords(it.transform[4], it.transform[5], page.rotate)
-      bs.push({ text: s, x: c.x, y: c.y, left: tm[4], top: tm[5] - h, w, h: Math.max(h, 11) })
-    }
-    boxes.value = bs
-  } catch (e) {
-    errorMsg.value = 'ページの描画に失敗しました。' + (e?.message || '')
-  } finally {
-    busy.value = false
-  }
-}
-watch([pageIndex, zoom], renderPage)
 
 // ── 列の割り当て ────────────────────────────────────────────
 const COL_TOL = 14   // 同じ列とみなすx許容差（PDF座標）
@@ -305,26 +222,14 @@ function onApply() {
         <button v-if="columns.length" class="clear-btn" @click="clearAll">全クリア</button>
       </div>
 
-      <!-- ページ送り -->
-      <div class="topbar" :class="{ dim: sectionsMode === null }">
-        <div v-if="pageCount > 1" class="page-nav">
-          <button :disabled="pageIndex === 0" @click="pageIndex--">◀</button>
-          <span>{{ pageIndex + 1 }} / {{ pageCount }}</span>
-          <button :disabled="pageIndex >= pageCount - 1" @click="pageIndex++">▶</button>
-        </div>
-        <div class="zoom-nav">
-          <button :disabled="zoom <= 0.6" @click="zoom = Math.max(0.6, +(zoom - 0.2).toFixed(2))">－</button>
-          <span>{{ Math.round(zoom * 100) }}%</span>
-          <button :disabled="zoom >= 3" @click="zoom = Math.min(3, +(zoom + 0.2).toFixed(2))">＋</button>
-        </div>
-      </div>
-
-      <!-- PDF実物＋オーバーレイ -->
-      <div class="pdf-wrap" ref="wrapEl">
-        <div v-if="busy" class="pdf-busy">読み込み中…</div>
-        <div v-if="errorMsg" class="pdf-error">{{ errorMsg }}</div>
-        <div class="pdf-stage">
-          <canvas ref="canvasEl" class="pdf-canvas"></canvas>
+      <!-- 元のPDFそのもの。列の帯と当たり判定だけを上に重ねる -->
+      <PdfPageViewer
+        :file="file"
+        :dim="sectionsMode === null"
+        @loaded="onLoaded"
+        @boxes="boxes = $event"
+      >
+        <template #overlay>
           <!-- 列ハイライト帯 -->
           <div v-for="b in bands" :key="'band-' + b.key" class="col-band"
                :style="{ left: b.left + 'px', width: b.width + 'px', background: b.color + '22', borderColor: b.color }">
@@ -342,8 +247,8 @@ function onApply() {
               @click="onBoxTap(b)"
             ></button>
           </template>
-        </div>
-      </div>
+        </template>
+      </PdfPageViewer>
 
       <!-- フィールド選択（タップ時） -->
       <div v-if="picking" class="field-bar">
@@ -430,7 +335,6 @@ function onApply() {
 .mapper-back { display: block; width: 100%; border: 1.5px solid var(--primary-border);
   background: var(--surface); color: var(--primary); border-radius: 10px;
   padding: 9px; font-size: 11.5px; font-weight: 800; cursor: pointer; margin-bottom: 10px; }
-.topbar.dim { opacity: .4; pointer-events: none; }
 .pv-btn { display: block; width: 100%; border: 1.5px solid var(--border); background: var(--surface);
   color: var(--text); border-radius: 10px; padding: 10px; font-size: 12.5px; font-weight: 800;
   cursor: pointer; margin: 8px 0; }
@@ -442,16 +346,6 @@ function onApply() {
 .chip-x { border: none; background: rgba(255,255,255,0.25); color: #fff; border-radius: 50%; width: 16px; height: 16px; line-height: 1; cursor: pointer; font-size: 12px; }
 .clear-btn { margin-left: auto; font-size: 11px; color: var(--danger); background: none; border: none; cursor: pointer; }
 
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.page-nav, .zoom-nav { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
-.page-nav button, .zoom-nav button { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; min-width: 30px; padding: 4px 8px; cursor: pointer; font-size: 14px; }
-.page-nav button:disabled, .zoom-nav button:disabled { opacity: 0.4; }
-
-.pdf-wrap { position: relative; border: 1px solid var(--border); border-radius: 10px; background: #f1f5f9; overflow: auto; max-height: 52vh; margin-bottom: 10px; -webkit-overflow-scrolling: touch; }
-.pdf-busy, .pdf-error { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; font-size: 12px; font-weight: 700; color: var(--text-muted); background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; }
-.pdf-error { color: var(--danger); }
-.pdf-stage { position: relative; width: max-content; }
-.pdf-canvas { display: block; }
 
 .col-band { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed; border-right: 1.5px dashed; pointer-events: none; z-index: 1; }
 .col-band-label { position: sticky; top: 0; display: inline-block; font-size: 10px; font-weight: 800; color: #fff; padding: 1px 6px; border-radius: 0 0 6px 0; }

@@ -189,8 +189,8 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     vi.resetModules()
   })
 
-  // 履歴カレンダーは既定で「今日」を選ぶので、完了セッションを今日に置くと
-  // その明細行（.hc-entry-stock）が描画され、クリックで onViewSession へ入る。
+  // 履歴カレンダーの詳細は日付をタップして開く。完了セッションを今日に置き、
+  // 今日のマスを叩くと明細行（.hc-entry-stock）が出て、クリックで onViewSession へ入る。
   async function openTodayCompletedSession(localHistory) {
     localStorage.setItem(STORAGE_KEYS.authToken, 'test-token')
     localStorage.setItem(STORAGE_KEYS.shopCode, 'ABCDEF')
@@ -200,6 +200,8 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     // ホームの「履歴カレンダー」から専用ページへ
     host.querySelector('.history-link')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
+    host.querySelector('.hc-cell.today')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 4; i++) await nextTick()
     const entry = host.querySelector('.hc-entry-stock')
     entry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()

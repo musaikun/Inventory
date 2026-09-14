@@ -1,0 +1,389 @@
+{
+  "date": "2026-09-10",
+  "sourceCommit": "bfb4c9acac5273720f055f7c5f890f4d60cf38f9",
+  "sourceWorkingTree": true,
+  "fileUrl": "https://editor.rive.app/file/untitled/2564146",
+  "artboard": "AssignWheel",
+  "stateMachine": {
+    "success": true,
+    "stateMachineId": "0-7",
+    "stateMachineName": "Wheel",
+    "isDefault": true,
+    "inputs": [],
+    "listeners": [],
+    "layers": [
+      {
+        "layerId": "0-8",
+        "layerName": "Layer 1",
+        "isDisabled": false,
+        "snappingEnabled": false,
+        "entryStateId": "0-11",
+        "anyStateId": "0-9",
+        "exitStateId": "0-10",
+        "states": [
+          {
+            "id": "0-9",
+            "type": "any",
+            "name": "",
+            "stateName": "",
+            "stateCaption": "",
+            "x": 400,
+            "y": 0,
+            "flags": 0,
+            "events": [],
+            "listenerActions": []
+          },
+          {
+            "id": "0-10",
+            "type": "exit",
+            "name": "",
+            "stateName": "",
+            "stateCaption": "",
+            "x": 480,
+            "y": 0,
+            "flags": 0,
+            "events": [],
+            "listenerActions": []
+          },
+          {
+            "id": "0-306",
+            "type": "animation",
+            "name": "Open",
+            "stateName": "Open",
+            "stateCaption": "",
+            "x": 440,
+            "y": 150,
+            "flags": 0,
+            "events": [],
+            "listenerActions": [],
+            "animationId": "0-208",
+            "animationName": "Open"
+          },
+          {
+            "id": "0-12",
+            "type": "animation",
+            "name": "Closed",
+            "stateName": "",
+            "stateCaption": "",
+            "x": 223,
+            "y": 26,
+            "flags": 0,
+            "events": [],
+            "listenerActions": [],
+            "animationId": "0-6",
+            "animationName": "Closed"
+          },
+          {
+            "id": "0-11",
+            "type": "entry",
+            "name": "",
+            "stateName": "",
+            "stateCaption": "",
+            "x": 0,
+            "y": 0,
+            "flags": 0,
+            "events": [],
+            "listenerActions": []
+          }
+        ],
+        "transitions": [
+          {
+            "id": "0-13",
+            "fromStateId": "0-11",
+            "toStateId": "0-12",
+            "duration": 0,
+            "durationIsPercentage": false,
+            "exitTime": 0,
+            "exitTimeIsPercentage": false,
+            "isDisabled": false,
+            "pauseOnExit": false,
+            "enableExitTime": false,
+            "enableEarlyExit": false,
+            "randomWeight": 1,
+            "interpolation": "linear",
+            "conditions": [],
+            "events": [],
+            "listenerActions": []
+          },
+          {
+            "id": "0-662",
+            "fromStateId": "0-12",
+            "toStateId": "0-306",
+            "duration": 700,
+            "durationIsPercentage": false,
+            "exitTime": 0,
+            "exitTimeIsPercentage": false,
+            "isDisabled": false,
+            "pauseOnExit": false,
+            "enableExitTime": false,
+            "enableEarlyExit": false,
+            "randomWeight": 1,
+            "interpolation": "cubic",
+            "conditions": [
+              {
+                "id": "0-664",
+                "type": "viewModelComparison",
+                "operation": "equal",
+                "leftComparator": {
+                  "type": "property-viewModel",
+                  "id": "0-665",
+                  "bindablePropertyId": "0-666",
+                  "viewModelPropertyId": "0-211",
+                  "viewModelPropertyName": "isOpen",
+                  "viewModelId": "0-209",
+                  "viewModelName": "AssignWheel"
+                },
+                "rightComparator": {
+                  "type": "value-boolean",
+                  "id": "0-668",
+                  "value": true
+                }
+              }
+            ],
+            "events": [],
+            "listenerActions": [],
+            "interpolator": {
+              "id": "0-674",
+              "kind": "cubic",
+              "x1": 0.65,
+              "y1": 0,
+              "x2": 0.35,
+              "y2": 1
+            }
+          },
+          {
+            "id": "0-663",
+            "fromStateId": "0-306",
+            "toStateId": "0-12",
+            "duration": 700,
+            "durationIsPercentage": false,
+            "exitTime": 0,
+            "exitTimeIsPercentage": false,
+            "isDisabled": false,
+            "pauseOnExit": false,
+            "enableExitTime": false,
+            "enableEarlyExit": false,
+            "randomWeight": 1,
+            "interpolation": "cubic",
+            "conditions": [
+              {
+                "id": "0-669",
+                "type": "viewModelComparison",
+                "operation": "equal",
+                "leftComparator": {
+                  "type": "property-viewModel",
+                  "id": "0-670",
+                  "bindablePropertyId": "0-671",
+                  "viewModelPropertyId": "0-211",
+                  "viewModelPropertyName": "isOpen",
+                  "viewModelId": "0-209",
+                  "viewModelName": "AssignWheel"
+                },
+                "rightComparator": {
+                  "type": "value-boolean",
+                  "id": "0-673",
+                  "value": false
+                }
+              }
+            ],
+            "events": [],
+            "listenerActions": [],
+            "interpolator": {
+              "id": "0-674",
+              "kind": "cubic",
+              "x1": 0.65,
+              "y1": 0,
+              "x2": 0.35,
+              "y2": 1
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "interpolator": {
+    "success": true,
+    "values": {
+      "0-674": {
+        "63": 0.65,
+        "64": 0,
+        "65": 0.35,
+        "66": 1
+      }
+    }
+  },
+  "checks": {
+    "idle": {
+      "stateMachineId": "0-7",
+      "stateMachineName": "Wheel",
+      "success": true,
+      "framesAdvanced": 61,
+      "settled": true,
+      "transitionsObserved": 1,
+      "finalStates": [
+        {
+          "layerId": "0-8",
+          "layerName": "Layer 1",
+          "stateId": "0-12",
+          "stateName": "Closed"
+        }
+      ],
+      "trace": [
+        {
+          "kind": "frame",
+          "frame": 1
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "transition",
+          "line": 1,
+          "transitionId": "0-13",
+          "fromStateId": "0-11",
+          "fromStateName": "Entry",
+          "toStateId": "0-12",
+          "toStateName": "Closed"
+        },
+        {
+          "kind": "state",
+          "line": 2,
+          "stateId": "0-12",
+          "stateName": "Closed",
+          "stateType": "animation"
+        },
+        {
+          "kind": "frame",
+          "frame": 61
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "message",
+          "line": 3,
+          "message": "Done"
+        }
+      ]
+    },
+    "cycle": {
+      "stateMachineId": "0-7",
+      "stateMachineName": "Wheel",
+      "success": true,
+      "framesAdvanced": 111,
+      "settled": true,
+      "transitionsObserved": 3,
+      "finalStates": [
+        {
+          "layerId": "0-8",
+          "layerName": "Layer 1",
+          "stateId": "0-12",
+          "stateName": "Closed"
+        }
+      ],
+      "trace": [
+        {
+          "kind": "frame",
+          "frame": 1
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "transition",
+          "line": 1,
+          "transitionId": "0-13",
+          "fromStateId": "0-11",
+          "fromStateName": "Entry",
+          "toStateId": "0-12",
+          "toStateName": "Closed"
+        },
+        {
+          "kind": "state",
+          "line": 2,
+          "stateId": "0-12",
+          "stateName": "Closed",
+          "stateType": "animation"
+        },
+        {
+          "kind": "frame",
+          "frame": 6
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "transition",
+          "line": 3,
+          "transitionId": "0-662",
+          "fromStateId": "0-12",
+          "fromStateName": "Closed",
+          "toStateId": "0-306",
+          "toStateName": "Open"
+        },
+        {
+          "kind": "state",
+          "line": 4,
+          "stateId": "0-306",
+          "stateName": "Open",
+          "stateType": "animation"
+        },
+        {
+          "kind": "frame",
+          "frame": 51
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "transition",
+          "line": 5,
+          "transitionId": "0-663",
+          "fromStateId": "0-306",
+          "fromStateName": "Open",
+          "toStateId": "0-12",
+          "toStateName": "Closed"
+        },
+        {
+          "kind": "state",
+          "line": 6,
+          "stateId": "0-12",
+          "stateName": "Closed",
+          "stateType": "animation"
+        },
+        {
+          "kind": "frame",
+          "frame": 111
+        },
+        {
+          "kind": "layer",
+          "layerId": "0-8",
+          "layerName": "Layer 1"
+        },
+        {
+          "kind": "message",
+          "line": 7,
+          "message": "Done"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Rive Editor headless simulation only; web and mobile runtime not tested",
+    "Workspace plan rejected exportRiv; no .riv or .rev exported",
+    "Font upload unavailable; English sample labels use Inter",
+    "Fixed 375 x 336 artboard; page collapse, dynamic data and drag not implemented",
+    "Late input after simulator settlement did not restart playback; validate wake-up in Editor and runtime",
+    "Early reversal waits for the current 700ms transition to complete"
+  ]
+}
