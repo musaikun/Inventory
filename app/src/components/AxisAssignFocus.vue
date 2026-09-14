@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
+import { useLongPressPick } from '../composables/useLongPressPick.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
@@ -304,6 +305,11 @@ function onListPointerDown() {
   if (_dragging) return
   stopWheelAtNearest()
 }
+// 一覧がスクロールし始めたら長押しは成立させない（browser 側のスクロールに譲る）
+function onListScroll() {
+  cancelLongPress()
+  onListCommit()
+}
 function onListCommit() {
   if (_dragging) return
   stopWheelAtNearest()
@@ -373,6 +379,8 @@ function onWheelKeydown(e) {
 watch(activeAxis, () => {
   stopWheelAtNearest()
   pos.value = 0; search.value = ''; setWheelState('open')
+  // 「直近に使った分類先」は軸ごとの話。持ち越すと別の軸の名前が推薦に混ざる
+  closePick(); recentGroups.value = []
 })
 
 // ── 品目プール ──────────────────────────────────────────────
@@ -417,6 +425,7 @@ const flashItem = ref('')
 let _flashT = null
 function toggle(item) {
   if (consumeClick()) return                                     // 直前がスワイプ操作
+  if (consumeLongPress()) return                                 // 直前が長押し（分類先を選ぶを開いた）
   if (swipeItem.value === item && swipeDx.value < 0) { resetSwipe(); return }  // 開いている→タップで閉じる
   if (_dragging) return
   stopWheelAtNearest()
@@ -428,6 +437,7 @@ function toggle(item) {
     _showFlash(`「${item}」を ${destination} から外しました`, '')
   } else {
     addItemToGroup(activeAxis.value, item, destination)
+    rememberGroup(destination)
     _showFlash(`「${item}」を ${destination} に追加`, item)
   }
 }
@@ -456,6 +466,166 @@ const {
   onRowTouchStart, onRowTouchMove, onRowTouchEnd, onRowTouchCancel,
   openHideDialog, confirmHideDialog, cancelHideDialog, consumeClick, resetSwipe,
 } = useRowHideSwipe({ onHide: hideFromPool })
+
+// ── 品目から分類先を選ぶ（行を長押し）────────────────────────────
+// ここまでの振り分けは「分類先を決めて品目を連打する」向き。同じ分類先が続く限りは
+// それが最速なので置き換えない。長押しは、分類先がばらばらな品目が続くときに
+// ホイールを回し直す往復だけを消すための逆向きの入口。
+//
+// 掴んで運ぶ形（ドラッグ）にしなかったのは速さのため。接触時間が長いうえ、
+// 運んでいる最中に分類先を作り直す（ホイール→カード）ことになり、指の下で
+// 落とし先が生まれる。20件近い分類先はどのみち1画面に並ばないので、
+// ドラッグ中のスクロールまで要る。長押し＋タップならどれも要らない。
+const PICK_HINT_MAX = 3      // ジャンルからの推測を何件まで上へ出すか
+const PICK_RECENT_MAX = 5    // 直近に使った分類先を何件覚えるか
+const PICK_MIN_H = 120       // 行の上下どちらに出しても、これだけは高さを取る
+const PICK_GAP = 6
+// 複数所属が日常になったら true にする（1タップで閉じる → 開いたまま連続で入れる）
+const PICK_KEEP_OPEN = false
+
+const pickItem = ref('')
+const pickStyle = ref(null)
+const pickEl = ref(null)
+
+// 直近に使った分類先。この画面を開いている間だけ覚える。永続させると config →
+// 同期・D1 まで巻き込むが、速さに効くのは「いまの作業での直近」なので持ち出さない。
+const recentGroups = ref([])
+function rememberGroup(g) {
+  if (!g) return
+  recentGroups.value = [g, ...recentGroups.value.filter(x => x !== g)].slice(0, PICK_RECENT_MAX)
+}
+
+// 同じジャンルの他の品目が、どの分類先に集まっているか。ジャンルは取込元由来で
+// 1品目に1つあり（config.categories）、実際の保管場所や仕入先と相関が強い。
+// 20件のうち正解が1タップ目で目に入れば、探している時間がそのまま消える。
+function genreHint(item) {
+  const cat = config.categories?.[item]
+  if (!cat) return []
+  const tally = {}
+  for (const other of config.order) {
+    if (other === item || hiddenSet.value.has(other)) continue
+    if ((config.categories?.[other] || '') !== cat) continue
+    for (const g of itemGroups(other)) tally[g] = (tally[g] || 0) + 1
+  }
+  return Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([g]) => g)
+}
+
+// 並び順がこの機能の速さの本体。上から
+//   1. いま入っている分類先（＝ここで外せる）
+//   2. 同じジャンルの品目が集まっている分類先
+//   3. 直近に使った分類先
+//   4. 残りはホイールと同じ順（覚えた位置が崩れない）
+const pickOptions = computed(() => {
+  const item = pickItem.value
+  if (!item) return []
+  const cat = config.categories?.[item] || ''
+  const mine = new Set(itemGroups(item))
+  const hint = genreHint(item).slice(0, PICK_HINT_MAX)
+  const hintSet = new Set(hint)
+  const recentSet = new Set(recentGroups.value)
+  const out = []
+  const seen = new Set()
+  const push = g => {
+    if (!g || seen.has(g) || !groups.value.includes(g)) return
+    seen.add(g)
+    out.push({
+      name: g,
+      on: mine.has(g),
+      count: groupCount.value[g] || 0,
+      why: mine.has(g) ? '' : hintSet.has(g) ? (cat ? `${cat}が多い` : 'よく使う') : recentSet.has(g) ? '直近' : '',
+    })
+  }
+  for (const g of itemGroups(item)) push(g)
+  for (const g of hint) push(g)
+  for (const g of recentGroups.value) push(g)
+  for (const g of groups.value) push(g)
+  return out
+})
+
+// 押した行のすぐ下（入らなければ上）へ出す。画面下端に固定すると親指の移動距離が
+// 毎回そのまま乗るので、速さを狙う機能としては置き場所を変えている。
+function pickAnchorStyle(row) {
+  const vh = typeof window === 'undefined' ? 640 : window.innerHeight
+  const r = row?.getBoundingClientRect?.()
+  if (!r || !r.height) return null              // 位置が取れない環境は CSS 側の既定（画面下）
+  const below = vh - r.bottom - PICK_GAP
+  const above = r.top - PICK_GAP
+  const useBelow = below >= above
+  const space = Math.max(PICK_MIN_H, Math.round(useBelow ? below : above))
+  return useBelow
+    ? { top: `${Math.round(r.bottom + PICK_GAP)}px`, maxHeight: `${space - 8}px` }
+    : { bottom: `${Math.round(vh - r.top + PICK_GAP)}px`, maxHeight: `${space - 8}px` }
+}
+
+// 長押しは見えない操作なので、一度使うまでは一覧の上に一行だけ出す
+const pickHinted = ref(false)
+function openPick(item, row) {
+  if (!groups.value.length) { _showFlash('先に分類先を作ってください', ''); return }
+  pickHinted.value = true
+  resetSwipe()
+  stopWheelAtNearest()
+  pickStyle.value = pickAnchorStyle(row)
+  pickItem.value = item
+  nextTick(() => pickEl.value?.querySelector('.af-pick-opt')?.focus())
+}
+function closePick() { pickItem.value = ''; pickStyle.value = null }
+
+function choosePick(g) {
+  // 長押しで開いた直後に降ってくる click を、選択として拾わない
+  if (pickGuarded()) return
+  const item = pickItem.value
+  if (!item || !g) return
+  if (itemGroups(item).includes(g)) {
+    removeItemFromGroup(activeAxis.value, item, g)
+    _showFlash(`「${item}」を ${g} から外しました`, '')
+  } else {
+    addItemToGroup(activeAxis.value, item, g)
+    rememberGroup(g)
+    _showFlash(`「${item}」を ${g} に追加`, item)
+  }
+  if (!PICK_KEEP_OPEN) closePick()
+}
+function onPickBackdrop() {
+  if (pickGuarded()) return
+  closePick()
+}
+function trapPickFocus(e) {
+  if (!pickItem.value || e.key !== 'Tab') return
+  const focusable = [...(pickEl.value?.querySelectorAll('button:not(:disabled)') ?? [])]
+  if (!focusable.length) return
+  const first = focusable[0], last = focusable[focusable.length - 1]
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+}
+
+const {
+  pressing, onRowPressStart, onRowPressMove, onRowPressEnd,
+  cancelLongPress, consumeLongPress, pickGuarded,
+} = useLongPressPick({ onPick: openPick })
+
+// 行のジェスチャは1本にまとめる。左スワイプ（非表示）と長押しは同じ pointer から
+// 分かれるので、片方だけ template に生えていると取り合いが見えなくなる。
+function onRowDown(e, item) { onRowTouchStart(e, item); onRowPressStart(e, item, e.currentTarget) }
+function onRowMove(e)       { onRowTouchMove(e); onRowPressMove(e) }
+function onRowUp(e)         { onRowTouchEnd(e); onRowPressEnd() }
+function onRowCancel(e)     { onRowTouchCancel(e); onRowPressEnd() }
+// 長押しは touch だけの操作。デスクトップと Android の context menu は
+// そのまま「分類先を選ぶ」に充てる（放っておくと長押しで選択メニューが出る）。
+function onRowContextMenu(e, item) {
+  e.preventDefault()
+  cancelLongPress()
+  // Android は長押し 500ms 前後で自前の menu を出す。こちらは 250ms で開いているので、
+  // 指を離す前に二度目が来る。開いているものを開き直すと焦点と位置だけが飛ぶ。
+  if (pickItem.value === item) return
+  openPick(item, e.currentTarget)
+}
+function onRowKeydown(e, item) {
+  if (e.key === 'ContextMenu') { e.preventDefault(); openPick(item, e.currentTarget); return }
+  if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return
+  e.preventDefault()
+  if (e.shiftKey) openPick(item, e.currentTarget)
+  else toggle(item)
+}
 
 // ── 振り分け済みの確認（中央カードのカウントから開く）＋逆引き ─────────
 // 件数を持っている場所が、そのまま中身を開く入口になる。
@@ -835,18 +1005,20 @@ function edgeScroll(y) {
 function stopEdgeScroll() { cancelAnimationFrame(_edgeRaf); _edgeRaf = 0; _edgeDir = 0 }
 
 // 戻るは常に「ひとつ前」へ返す。この画面の中にも段があるので、上から順に1段だけ畳む。
-//   開いているモーダル → 一括編集 → 画面を閉じて開いた元の画面（データ管理）へ
+//   開いているモーダル → 分類先を選ぶ → 振り分け済み → 一括編集 → 画面を閉じて元の画面（データ管理）へ
 onUnmounted(registerInnerLayerCloser(() => {
   if (delTarget.value)    { cancelDelete();            return true }
   if (renameTarget.value) { closeRename();             return true }
   if (addOpen.value)      { closeAdd();                return true }
   if (hideDialogItem.value) { cancelHideDialog();      return true }
+  if (pickItem.value)     { closePick();               return true }
   if (showAssigned.value) { showAssigned.value = false; return true }
   if (editOpen.value)     { closeEdit();               return true }
   return false
 }))
 onUnmounted(() => {
   if (_dragRow) onHandleUp()
+  cancelLongPress()
   _dragging = false
   _wheelPointerId = null
   _wheelPointerType = ''
@@ -989,9 +1161,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未使用のみ</button>
       </div>
 
+      <!-- 長押しの導線。逆向き（品目 → 分類先）は見えない操作なので、使うまでは出しておく -->
+      <div v-if="!pickHinted && groups.length && poolItems.length" class="af-pickhint">
+        品目を<b>長押し</b>すると、分類先をその場で選べます
+      </div>
+
       <div
         class="af-list" ref="listEl"
-        @pointerdown="onListPointerDown" @click="onListCommit" @scroll.passive="onListCommit"
+        @pointerdown="onListPointerDown" @click="onListCommit" @scroll.passive="onListScroll"
       >
         <!-- ジャンルがあればアコーディオン、無ければフラット -->
         <template v-if="hasGenres">
@@ -1004,14 +1181,15 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             <template v-if="openCat[grp.cat]">
               <div
                 v-for="item in grp.items" :key="item" :data-item="item"
-                :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item }]"
+                :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item, pressing: pressing === item }]"
                 :style="swipeItem === item ? { transform: `translateX(${swipeDx}px)` } : null"
                 role="button" tabindex="0"
-                @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
-                @touchstart.passive="onRowTouchStart($event, item)"
-                @touchmove.passive="onRowTouchMove"
-                @touchend="onRowTouchEnd($event)"
-                @touchcancel="onRowTouchCancel"
+                @click="toggle(item)" @keydown="onRowKeydown($event, item)"
+                @contextmenu="onRowContextMenu($event, item)"
+                @touchstart.passive="onRowDown($event, item)"
+                @touchmove.passive="onRowMove"
+                @touchend="onRowUp($event)"
+                @touchcancel="onRowCancel($event)"
               >
                 <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                 <span class="af-item-name">{{ item }}</span>
@@ -1032,14 +1210,15 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <template v-else>
           <div
             v-for="item in poolItems" :key="item" :data-item="item"
-            :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item }]"
+            :class="['af-item', { in: itemGroups(item).includes(target), pop: flashItem === item, locate: locateName === item, 'swipe-dragging': swipeDragging && swipeItem === item, pressing: pressing === item }]"
             :style="swipeItem === item ? { transform: `translateX(${swipeDx}px)` } : null"
             role="button" tabindex="0"
-            @click="toggle(item)" @keydown.enter.prevent="toggle(item)" @keydown.space.prevent="toggle(item)"
-            @touchstart.passive="onRowTouchStart($event, item)"
-            @touchmove.passive="onRowTouchMove"
-            @touchend="onRowTouchEnd($event)"
-            @touchcancel="onRowTouchCancel"
+            @click="toggle(item)" @keydown="onRowKeydown($event, item)"
+            @contextmenu="onRowContextMenu($event, item)"
+            @touchstart.passive="onRowDown($event, item)"
+            @touchmove.passive="onRowMove"
+            @touchend="onRowUp($event)"
+            @touchcancel="onRowCancel($event)"
           >
             <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
             <span class="af-item-name">{{ item }}</span>
@@ -1168,6 +1347,33 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             <button class="af-sheet-item-go" @click="locate(item)">確認 ›</button>
           </div>
           <div v-if="assignedItems.length === 0" class="af-empty">まだ振り分けられた品目はありません。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 品目から分類先を選ぶ（行の長押し）。押した行の近くへ出す -->
+    <div v-if="pickItem" class="af-pick-back" @click.self="onPickBackdrop">
+      <div
+        ref="pickEl" class="af-pick" :class="{ float: !pickStyle }" :style="pickStyle"
+        role="dialog" aria-modal="true" :aria-label="`${pickItem} の分類先`"
+        @keydown.esc.prevent="closePick" @keydown="trapPickFocus"
+      >
+        <div class="af-pick-head">
+          <span class="af-pick-name">{{ pickItem }}</span>
+          <button class="af-pick-close" aria-label="閉じる" @click="closePick">✕</button>
+        </div>
+        <div class="af-pick-list">
+          <button
+            v-for="o in pickOptions" :key="o.name"
+            :class="['af-pick-opt', { on: o.on }]"
+            :aria-pressed="o.on ? 'true' : 'false'"
+            @click="choosePick(o.name)"
+          >
+            <span class="af-pick-mark">{{ o.on ? '✓' : '＋' }}</span>
+            <span class="af-pick-gname">{{ o.name }}</span>
+            <span v-if="o.why" class="af-pick-why">{{ o.why }}</span>
+            <span class="af-pick-count">{{ o.count }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1330,9 +1536,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   background: #fff; border: 1px solid #eef2f6; border-radius: 12px;
   padding: 9px 8px 9px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
   position: relative;
-  transition: transform 0.22s cubic-bezier(0.22,0.61,0.36,1), background 0.12s;
+  transition: transform 0.22s cubic-bezier(0.22,0.61,0.36,1), background 0.12s, box-shadow 0.12s;
   -webkit-tap-highlight-color: transparent;
+  /* 長押しで iOS の選択・コールアウトが割り込むと、そのままジェスチャを持って行かれる */
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
+/* 長押しの判定中。待ち時間そのものは消せないので、掴めていることを先に見せる。
+   transform は横スワイプの追従が使っているので触らない。 */
+.af-item.pressing { background: #eef2ff; box-shadow: inset 0 0 0 2px #c7d2fe; }
 .af-item.swipe-dragging { transition: none; }
 .af-item:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
 .af-item.in { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
@@ -1426,6 +1637,40 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-sheet-off:active { background: #fef2f2; }
 .af-sheet-item-go { flex-shrink: 0; border: none; background: none; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); cursor: pointer; }
 
+/* 品目から分類先を選ぶ（行の長押し）。画面下端に固定せず押した行の近くへ出す。
+   下端固定だと親指の移動距離が毎回そのまま乗り、速さを狙った機能の意味が薄れる。 */
+.af-pickhint { margin: 0 14px 6px; padding: 7px 10px; background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 9px; font-size: 12px; color: #4338ca; }
+.af-pickhint b { font-weight: 800; }
+.af-pick-back { position: fixed; inset: 0; z-index: 68; background: rgba(15, 23, 42, 0.18); }
+.af-pick {
+  position: fixed; left: 14px; right: 14px; max-width: 560px; margin-inline: auto;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.28);
+  animation: af-pick-in 0.14s ease-out;
+}
+/* 行の位置が取れない環境（測れない WebView）では画面下から出す */
+.af-pick.float { bottom: 16px; max-height: 60vh; }
+@keyframes af-pick-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.af-pick-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px; border-bottom: 1px solid #f1f5f9; flex-shrink: 0; }
+.af-pick-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-pick-close { flex-shrink: 0; border: none; background: none; font-size: 16px; color: #94a3b8; cursor: pointer; padding: 4px 8px; }
+.af-pick-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.af-pick-opt {
+  width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 9px;
+  background: #fff; border: 1px solid #eef2f6; border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 5px; cursor: pointer; text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.af-pick-opt:active { background: #f1f5f9; }
+.af-pick-opt:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
+.af-pick-opt.on { background: #eff6ff; border-color: var(--primary-border, #bfdbfe); }
+.af-pick-mark { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; }
+.af-pick-opt.on .af-pick-mark { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.af-pick-gname { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-pick-why { flex-shrink: 0; font-size: 10px; font-weight: 800; color: #4338ca; background: #eef2ff; border-radius: 6px; padding: 2px 7px; }
+.af-pick-count { flex-shrink: 0; min-width: 20px; text-align: right; font-size: 12px; font-weight: 700; color: #94a3b8; }
+
 /* ── 取り消しバーとトースト ──────────────────────────────────── */
 .af-undobar {
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -1452,6 +1697,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 @media (prefers-reduced-motion: reduce) {
   .af-wheel, .af-edit, .af-item { transition: none; }
   .af-stage, .af-rail, .af-marker, .af-fade { transition: none; }
-  .af-item.pop, .af-item.locate, .af-sheet { animation: none; }
+  .af-item.pop, .af-item.locate, .af-sheet, .af-pick { animation: none; }
 }
 </style>
