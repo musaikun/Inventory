@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -449,7 +450,7 @@ async function onStartOrder() {
           <span class="mv-sched-edit">設定</span>
         </button>
 
-        <div v-if="orderLoading" class="mv-order-loading">読み込み中...</div>
+        <LoadingSpinner v-if="orderLoading" />
         <template v-else>
           <button v-if="activeOrderSession" class="mv-order-resume" @click="emit('resumeSession', activeOrderSession)">
             <span class="mv-order-resume-title">🧾 進行中の発注があります</span>
@@ -645,7 +646,6 @@ async function onStartOrder() {
 
 /* 発注タブ（既存の発注セッションへの入口） */
 .mv-order-err { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 10px; }
-.mv-order-loading { padding: 20px 0; text-align: center; color: #94a3b8; font-size: 13px; font-weight: 600; }
 .mv-sched { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 12px; margin-bottom: 10px; border: 1.5px solid #e2e8f0; border-radius: 12px; background: #fff; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
 .mv-sched-ico { flex-shrink: 0; font-size: 18px; }
 .mv-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

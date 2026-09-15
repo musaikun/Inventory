@@ -8,6 +8,7 @@ export const _showOrders    = ref(false)
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { shopCode } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -395,7 +396,7 @@ function _itemCount(session) {
       @touchend.passive="swipe.onTouchEnd"
       @touchcancel.passive="swipe.onTouchCancel"
     >
-      <div v-if="loading" class="loading-msg">読み込み中...</div>
+      <LoadingSpinner v-if="loading" />
       <div v-else class="tab-panels-track" :style="trackStyle">
 
         <!-- セッションパネル -->
@@ -1840,13 +1841,6 @@ function _itemCount(session) {
   border: 1px solid #fecaca;
   border-radius: 10px;
   color: #ef4444;
-  font-size: 13px;
-}
-
-.loading-msg {
-  text-align: center;
-  color: var(--text-muted, #64748b);
-  padding: 32px;
   font-size: 13px;
 }
 

@@ -6,6 +6,7 @@ import { ref } from 'vue'
 import { isAuthenticated, storeName, login, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
 import DeleteAccountModal from './DeleteAccountModal.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 // Google Play の公開Web削除リソースは store listing 上のアプリ名（＝PWA manifest の name）と
 // 一致している必要がある。表示名を変える場合は vite.config.js の manifest と併せて更新する。
@@ -112,7 +113,8 @@ function onDeleted() {
           />
           <div v-if="loginError" class="dap-error" role="alert">{{ loginError }}</div>
           <button class="dap-btn dap-btn-primary" :disabled="loginLoading" @click="onLogin">
-            {{ loginLoading ? 'ログイン中…' : 'ログイン' }}
+            <LoadingSpinner v-if="loginLoading" size="sm" inline label="ログイン中" />
+            <span>{{ loginLoading ? 'ログイン中…' : 'ログイン' }}</span>
           </button>
         </template>
 

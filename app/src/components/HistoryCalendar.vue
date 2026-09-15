@@ -308,8 +308,9 @@ const selectedFactors = computed(() => {
 
 // ── 日別メモ（内部イベント要因＋学習除外）───────────────────
 const { getNote, hasNote, setNote } = useDayNotes()
-const MEMO_TAGS = ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']
 const memoText = ref('')
+// 決め打ちのチップ（貸切・イベント等）は廃止した。以前のメモに保存されている tags は
+// 上書き保存で消さないよう、読んだものをそのまま持ち回るだけにする。
 const memoTags = ref([])
 const memoExcluded = ref(false)
 watch(selectedKey, (k) => {
@@ -318,11 +319,6 @@ watch(selectedKey, (k) => {
   memoTags.value = n?.tags ? [...n.tags] : []
   memoExcluded.value = !!n?.excluded
 }, { immediate: true })
-function toggleMemoTag(t) {
-  const i = memoTags.value.indexOf(t)
-  if (i >= 0) memoTags.value.splice(i, 1)
-  else memoTags.value.push(t)
-}
 function saveMemo() {
   if (!selectedKey.value) return
   setNote(selectedKey.value, { text: memoText.value, tags: memoTags.value, excluded: memoExcluded.value })
@@ -513,9 +509,6 @@ function onDeleteMove(id) {
 
       <!-- 日別メモ（内部イベント要因＋学習除外）-->
       <div class="hc-memo">
-        <div class="hc-memo-tags">
-          <button v-for="t in MEMO_TAGS" :key="t" type="button" :class="['hc-memo-tag', { on: memoTags.includes(t) }]" @click="toggleMemoTag(t)">{{ t }}</button>
-        </div>
         <textarea v-model="memoText" class="hc-memo-text" rows="2" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
         <label class="hc-memo-excl">
           <input type="checkbox" v-model="memoExcluded" />
@@ -744,9 +737,6 @@ function onDeleteMove(id) {
 
 /* 日別メモ */
 .hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.hc-memo-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
-.hc-memo-tag { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 14px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.hc-memo-tag.on { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
 .hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
 .hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; margin: 7px 0; cursor: pointer; }
 .hc-memo-excl input { width: 16px; height: 16px; }

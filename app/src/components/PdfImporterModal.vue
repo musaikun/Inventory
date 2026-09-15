@@ -5,6 +5,7 @@ import { extractRows } from '../utils/pdfTableParser.js'
 import { matchRecipe, matchPdfGridRecipe, fingerprintPdf } from '../composables/importRecipes.js'
 import { pdfPagesToTable, rowsToCsv } from '../utils/pdfGrid.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import PdfColumnMapper from './PdfColumnMapper.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 
@@ -209,7 +210,7 @@ function onImport() {
             </div>
             <button class="pdf-cancel-btn" @click.stop="cancelPdf">キャンセル</button>
           </template>
-          <div v-else class="drop-label">読み込み中...</div>
+          <LoadingSpinner v-else />
         </template>
         <template v-else>
           <div class="drop-icon">📄</div>

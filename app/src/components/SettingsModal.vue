@@ -11,6 +11,7 @@ import {
 } from '../composables/importRecipes.js'
 import ItemImportPreviewModal from './ItemImportPreviewModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
@@ -542,7 +543,8 @@ function onDownloadTemplate() {
         <div class="device-label">表示の不具合をリセット</div>
         <p class="cache-note">アプリの表示が古い・崩れる・更新が反映されないときに使います。<b>設定・品目・発注点・履歴などのデータは消えません。</b></p>
         <button class="cache-btn" :disabled="clearingCache" @click="clearAppCache">
-          {{ clearingCache ? '再読み込み中…' : '表示キャッシュを削除して再読込' }}
+          <LoadingSpinner v-if="clearingCache" size="sm" inline label="再読み込み中" />
+          <span>{{ clearingCache ? '再読み込み中…' : '表示キャッシュを削除して再読込' }}</span>
         </button>
       </div>
 

@@ -11,6 +11,7 @@
  */
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { toReadingCoords } from '../utils/pdfTableParser.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
   file: { type: Object, default: null },   // File（PDF本体）
@@ -139,7 +140,7 @@ watch([pageIndex, zoom], renderPage)
     </div>
 
     <div class="pdf-wrap" ref="wrapEl">
-      <div v-if="busy" class="pdf-busy">読み込み中…</div>
+      <div v-if="busy" class="pdf-busy"><LoadingSpinner /></div>
       <div v-if="errorMsg" class="pdf-error">{{ errorMsg }}</div>
       <div class="pdf-stage">
         <canvas ref="canvasEl" class="pdf-canvas"></canvas>
