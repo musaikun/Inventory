@@ -4,6 +4,7 @@
 
 ## 2026-09-17 — REPO-002: User依頼のcommit / pushと追加リモート統合
 
+- 続報: `0dc97d3`の通常pushは、同時にリモートが進んだためnon-fast-forwardで拒否。`41bc55d`の振り分け済み一覧・並べ替えを通常pullで追加統合し、ログ追記は双方保持。`0dc97d3` + `41bc55d`作業ツリーで振り分け3 files / 74 testsとbuild成功（502 modules、PWA 17 entries / 2743.12 KiB）。追加統合後の全体testは未再実行。コマンド全文はREPO-002詳細。merge commitして通常pushを再実施する。
 - Userがcommit / pushを依頼。競合解消済みmergeを`615a671`でcommit後、`origin/develop@54cd378`までの追加3件を取り込んだ。version 0.94.0・カード長押し・ホイール端止めを保持。session-logの追記競合は双方を残して解消。
 - 対象は`615a671` + `54cd378`のmerge作業ツリー。追加統合後の振り分けtestはpick 10件成功、groups worker起動timeout（初回exit 1）後に単独再確認で50件成功。コマンド全文はREPO-002詳細。追加統合後の全体testは再実行していない（615a671の前段は159 files / 1779 tests成功）。
 - `npm.cmd run build`成功（501 modules、PWA 17 entries / 2735.51 KiB）。mergeをcommitして通常pushする。未追跡`.claude/`を保持し、手動deploy / migrationは行わない。REPO-002をレビュー待ち / Userへ戻す。
@@ -16,6 +17,19 @@
 - `npm.cmd test -- --pool=threads --maxWorkers=2 --hookTimeout=30000 --reporter=dot`: 159 files / 1779 tests成功。`npm.cmd run build`: 成功（501 modules、PWA 17 entries / 2734.30 KiB、chunkサイズ警告あり）。
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
+
+## 2026-09-17 — 振り分け済みの確認と、その中の並び替え
+
+- Userから3件。(1)件数を長押ししないと振り分け済みが開けない（分類先管理の件数チップも同様） (2)そこで品目を分類先と同じ手順で並び替えたい (3)品目は数が多く運ぶと時間がかかるので、タップした順に並ぶ簡易並び替えも欲しい。
+- **件数がタップで開かなかった原因**。タップ判定が `_wheelTravel`＝**指の移動距離の合計（経路長）**だった。`getCoalescedEvents` は同じ場所を押さえている間も細かい揺れを刻み続けるため、指が動いていなくても合計はすぐ `TAP_SLOP=7` を超え、件数のタップが回転として処理されていた。**押した点からの変位**（`_wheelShift`）で見るように変え、閾値も 12px へ。経路長は「行って戻る回し方」を弾く保険として `TAP_PATH_MAX=48` で併用する。
+- **分類先管理（⚙）の件数チップ**を `span` から button にし、押すとその分類先を中央へ据えて同じシートを開く。「件数を持っている場所が中身を開く入口」をホイールと揃えた。カード長押しの掴みからは `.af-ecount` も除外（`.af-ebtn` と同じ扱い）。
+- **並べ替えのジェスチャを `composables/useListDragReorder.js` へ切り出した**。分類先の並べ替えと品目の並べ替えで同じ操作にするため（`useRowHideSwipe` と同じ理由）。長押し220ms・slop14px・FLIP・端オートスクロール・pointer capture・「掴んだ後だけ touchmove を preventDefault」まで含めて丸ごと移設し、挙動は変えていない（分類先側の既存test 74件がそのまま通る）。
+- **シートの並び替え**。ヘッダの「⇅ 並び替え」でモードに入ると、つまみが出て「外す・確認」が引っ込む。保存先は `config.order`（棚卸・発注カードの「分類先の中の並び」はこれがそのまま出る）。`useConfig.reorderItemsInPlace(names)` を追加し、**渡した品目が今いる位置の集合へ新しい順で置き直す**形にした。その分類先に属さない品目は1つも動かない。
+- **タップ順の簡易並び替え**。並び替えモードの中の「① タップ順で並べる」。上にしたい順にタップすると 1,2,3… が付き、もう一度タップで外れて後ろが繰り上がる。「この順で確定」で、タップしたものが上・触らなかったものは今の順のまま後ろへ。品目は分類先より数が多く、全部を1件ずつ運ぶと時間がかかるため、ドラッグと並存させた。
+- どちらの並び替えも `_offerUndo` で元に戻せる（並び順は見た目だけでは戻し方が分からないため）。
+- 戻るの段を増やした: モーダル → 分類先を選ぶ → **タップ順 → 並び替え** → 振り分け済み → 一括編集 → 画面を閉じる。並び替えの途中で戻るを押してシートごと消えると、やりかけが失われるため。
+- 検証: 新規 `AxisAssignFocus.sheet.test.js` 14件。App全体159 files / 1786 passed、production build成功。
+- **未実施**: 実機確認（件数のタップ、シートでのドラッグ、タップ順の押し心地）。API / DB / 認可 / 保存形式 / Worker / versionは無変更。`config.order` の中身の並びだけが変わる。
 
 ## 2026-09-17 — 掴む相手をカードへ、ホイールは一周させない
 

@@ -23,3 +23,9 @@ User依頼（2026-09-17）。`develop@1c9729885aaf399d0b44acb0d9b18210c5f70298` 
 - 対象は`615a671`と`54cd378`のmerge作業ツリー。`npm.cmd test -- src/components/AxisAssignFocus.groups.test.js src/components/AxisAssignFocus.pick.test.js --pool=threads --maxWorkers=1 --hookTimeout=30000 --reporter=dot`はpick 10件成功、groupsのworker起動timeoutでexit 1。
 - `npm.cmd test -- src/components/AxisAssignFocus.groups.test.js --pool=threads --maxWorkers=1 --hookTimeout=30000 --reporter=dot`で再確認し50件成功（exit 0）。追加統合後のApp全体testは再実行していない。
 - `npm.cmd run build`成功（501 modules、PWA 17 entries / 2735.51 KiB）。通常のmerge commitとpushを実施する。手動deploy / migrationなし。未追跡の`.claude/`は今回のcommit対象外。
+
+### push中のリモート追加更新
+
+- `0dc97d3`で上記統合をcommitしたが、push時にリモートが進んでおりnon-fast-forwardで拒否された。通常pullで`41bc55d622fa1a18a89363ee3fa69dae4062d329`の振り分け済み一覧・並べ替えを取り込んだ。session-logは再び双方の追記を保持。
+- 対象は`0dc97d3` + `41bc55d`のmerge作業ツリー。`npm.cmd test -- src/components/AxisAssignFocus.groups.test.js src/components/AxisAssignFocus.pick.test.js src/components/AxisAssignFocus.sheet.test.js --pool=threads --maxWorkers=1 --hookTimeout=30000 --reporter=dot`: 3 files / 74 tests成功（exit 0）。
+- `npm.cmd run build`: 成功（502 modules、PWA 17 entries / 2743.12 KiB）。この追加統合後の全体testは再実行していない。通常merge commit後にpushを再実施する。

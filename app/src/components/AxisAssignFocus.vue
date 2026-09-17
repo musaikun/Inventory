@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
+import { useListDragReorder } from '../composables/useListDragReorder.js'
 import { useLongPressPick } from '../composables/useLongPressPick.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
@@ -11,7 +12,7 @@ const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
 
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
-  addItemToGroup, removeItemFromGroup, setAxisGroupOrder,
+  addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderItemsInPlace,
 } = useConfig()
 const { getSnapshots } = useHistory()
 
@@ -172,7 +173,13 @@ function setWheelState(next) {
 
 // 指で回す。慣性が無いと20件近くを探せない。
 const PX_PER_CARD = 46
-const TAP_SLOP = 7
+// タップかどうかは「押した点からどれだけ離れたか」で見る。
+// 以前は指の移動距離の合計（経路長）で見ていたが、coalesced events は同じ場所を
+// 押さえている間も細かい揺れを刻み続けるため、指が動いていなくても合計はすぐ伸びる。
+// 件数のタップがそれで回転扱いになり、長く押さないと開かなかった。
+// 経路長は「行って戻る回し方」を弾く保険としてだけ併用する。
+const TAP_SLOP = 12
+const TAP_PATH_MAX = 48
 const FRAME_MS = 1000 / 60
 const VELOCITY_WINDOW_MS = 120
 const MAX_GLIDE_SPEED = 1.45
@@ -180,6 +187,7 @@ const TOUCH_FLING_BOOST = 1.25
 const GLIDE_FRICTION = 0.94
 let _dragging = false, _vel = 0, _glideRaf = 0
 let _wheelPointerId = null, _wheelTapSlot = null, _wheelTravel = 0
+let _wheelDownY = 0, _wheelShift = 0     // 押した位置と、そこからの変位
 let _wheelPointerType = '', _wheelSamples = []
 let _countTapSlot = null            // 押した瞬間に触れていた件数のカード
 let _countJustOpened = false        // pointerupで開いた直後のclickを二重に効かせない
@@ -233,6 +241,7 @@ function applyWheelPoint(point) {
   if (previous) {
     const dy = y - previous.y
     _wheelTravel += Math.abs(dy)
+    _wheelShift = Math.abs(y - _wheelDownY)
     if (groups.value.length > 1) nudgePos(-dy / PX_PER_CARD)
   }
   rememberWheelPoint(y, wheelEventTime(point))
@@ -267,6 +276,8 @@ function onWheelDown(e) {
   _wheelSamples = []
   rememberWheelPoint(Number(e.clientY), wheelEventTime(e))
   _wheelTapSlot = slotFromTarget(e.target)
+  _wheelDownY = Number(e.clientY) || 0
+  _wheelShift = 0
   _wheelTravel = 0
   cancelAnimationFrame(_glideRaf)
   _glideRaf = 0
@@ -277,7 +288,7 @@ function onWheelMove(e) {
   if (e.cancelable) e.preventDefault()
   for (const point of wheelMovePoints(e)) applyWheelPoint(point)
   // 件数から指が滑ったら、そこからは普通の回転として扱う
-  if (_countTapSlot != null && _wheelTravel > TAP_SLOP) {
+  if (_countTapSlot != null && _wheelShift > TAP_SLOP) {
     _countTapSlot = null
     setWheelState('open')
   }
@@ -288,7 +299,7 @@ function finishWheelGesture(e, cancelled) {
   // 弱めつつ、pointermoveの最後の1pxだけで全速度が消えるスマホ特有の偏りを避ける。
   if (!cancelled) applyWheelPoint(e)
   const pointerId = _wheelPointerId
-  const tap = !cancelled && _wheelTravel <= TAP_SLOP
+  const tap = !cancelled && _wheelShift <= TAP_SLOP && _wheelTravel <= TAP_PATH_MAX
   const tapSlot   = tap ? _wheelTapSlot : null
   const countSlot = tap ? _countTapSlot : null
   const releaseVelocity = _vel
@@ -299,6 +310,7 @@ function finishWheelGesture(e, cancelled) {
   _wheelTapSlot = null
   _countTapSlot = null
   _wheelTravel = 0
+  _wheelShift = 0
   try { if (pointerId != null) e.currentTarget.releasePointerCapture?.(pointerId) } catch (_) { /* 既に外れている */ }
   // Pointer Capture中のtapはclickのtargetがstageへ置き換わるため、down時の
   // 物理slotをpointerupで確定する。
@@ -419,6 +431,20 @@ function selectWheelSlot(slot) {
  * 押した件数の分類先を中央に据えて、振り分け済みを開く。
  * 回さずに合わせるのは、開いた一覧と中央のカードが食い違わないようにするため。
  */
+// 分類先管理（⚙）の件数チップから開く。件数を持っている場所が中身を開く入口、
+// という約束をホイールと揃える。開いたシートの対象は中央のカードなので、
+// 押した分類先をホイールの中央へ据えてから開く。
+function openAssignedFor(name) {
+  const at = groups.value.indexOf(name)
+  if (at < 0) return
+  openAssigned(at)
+}
+function closeAssigned() {
+  sheetDrag.cleanup()
+  sheetSorting.value = false
+  exitTapOrder()
+  showAssigned.value = false
+}
 function openAssigned(slot) {
   _countJustOpened = true
   freezeWheel()
@@ -707,6 +733,69 @@ const showAssigned = ref(false)
 const assignedItems = computed(() =>
   target.value ? config.order.filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
 )
+// ── 振り分け済みシートの並び替え ─────────────────────────────
+// 棚卸・発注カードの「分類先の中の並び」は config.order の順がそのまま出る。
+// ここで並べ替えると、その分類先の品目が今いる位置の集合へ新しい順で置き直される
+// （他の分類先の並びは動かない）。
+const sheetListEl = ref(null)
+const sheetSorting = ref(false)     // 並び替えモードか
+const tapOrderOn = ref(false)       // その中の「タップ順で並べる」
+const tapSeq = ref([])              // タップした順の品目名
+
+function _applyItemOrder(next) {
+  const before = [...assignedItems.value]
+  if (next.join('|') === before.join('|')) return
+  if (!reorderItemsInPlace(next)) return
+  _offerUndo('並び順を変えました', `${target.value} の中の ${next.length} 件`, () => {
+    reorderItemsInPlace(before)
+    _showFlash('並び順を戻しました', '')
+  })
+}
+
+const sheetDrag = useListDragReorder({
+  listEl: sheetListEl,
+  rowSelector: '.af-sheet-item',
+  // 「外す」「確認」は押せるままにする（押し続けても掴みにしない）
+  ignoreSelector: '.af-sheet-off, .af-sheet-item-go',
+  keyAttr: 'item',
+  currentOrder: () => assignedItems.value,
+  commitOrder: _applyItemOrder,
+  focusAfterKeyboard: row => nextTick(() => row.querySelector('.af-sheet-handle')?.focus()),
+})
+
+function toggleSheetSorting() {
+  sheetSorting.value = !sheetSorting.value
+  if (!sheetSorting.value) exitTapOrder()
+}
+// 品目は分類先より数が多く、1件ずつ運ぶと時間がかかる。
+// 上から順にタップしていくだけで並ぶ道を別に用意する。
+function toggleTapOrder() {
+  if (tapOrderOn.value) { exitTapOrder(); return }
+  sheetDrag.cleanup()
+  tapSeq.value = []
+  tapOrderOn.value = true
+}
+function exitTapOrder() { tapOrderOn.value = false; tapSeq.value = [] }
+function tapOrderNo(item) {
+  const i = tapSeq.value.indexOf(item)
+  return i < 0 ? 0 : i + 1
+}
+function tapOrderPick(item) {
+  const i = tapSeq.value.indexOf(item)
+  // もう一度タップしたら列から外す。後ろの番号は自動で繰り上がる
+  if (i >= 0) tapSeq.value.splice(i, 1)
+  else tapSeq.value.push(item)
+}
+function applyTapOrder() {
+  if (!tapSeq.value.length) { exitTapOrder(); return }
+  // タップした順が上。触らなかったものは今の順のまま後ろへ回す
+  const picked = tapSeq.value.filter(n => assignedItems.value.includes(n))
+  const rest = assignedItems.value.filter(n => !picked.includes(n))
+  _applyItemOrder([...picked, ...rest])
+  _showFlash(`${picked.length}件をタップした順に並べました`, '')
+  exitTapOrder()
+}
+
 const locateName = ref('')
 let _locateT = null
 function locate(item) {
@@ -842,8 +931,7 @@ function openEdit() {
   nextTick(() => editDoneEl.value?.focus())
 }
 function closeEdit() {
-  _clearHold()
-  if (_dragRow) onHandleUp()
+  groupDrag.cleanup()
   editOpen.value = false
   const i = groups.value.indexOf(editReturn.value)      // 順番が変わっていても見ていた1枚へ戻す
   pos.value = i >= 0 ? i : 0
@@ -883,256 +971,20 @@ function submitRename() {
   closeRename()
 }
 
-// つまみ（⋮⋮）を掴んで並べ替え。行そのものを掴ませると縦スクロールと取り合いになるので、
-// つまみだけ touch-action: none にしてここでジェスチャを引き取る。
-const FLIP_MS = 620
-const FLIP_EASE = 'cubic-bezier(.4, 0, .2, 1)'
-const FLIP_MS_REDUCED = 180                 // 「視差効果を減らす」でも 0 にはしない。
-const FLIP_EASE_REDUCED = 'linear'          // どの行がどこへ動いたかは飾りではなく情報のため
-const DROP_MS = 280
-const DROP_EASE = 'cubic-bezier(.22, .8, .28, 1)'
-
+// 分類先の並べ替え（カードを長押し → 上下へ運ぶ）。操作そのものは useListDragReorder が持つ。
+// 分類先の中の品目を並べ替えるシートでも同じ操作を使うため、片方だけ手を入れて
+// 操作感がずれないように1つにまとめてある。
 const editListEl = ref(null)
-let _dragRow = null, _dragCaptureEl = null, _dragPointerId = null, _dragY0 = 0, _dragOrder = null
-const _rowShift = new WeakMap()
-const _shiftAnimations = new Set()
-
-// 掴むのは「並べ替えたいカードそのもの」を長押ししたとき。つまみ(⋮⋮)だけを掴ませると
-// 狙いが 44px の細い柱になり、一覧をなぞる指が当たって意図しない入れ替えが起きていた。
-// カード全体なら狙いは外さないが、その代わり触れた瞬間に掴んではいけないので長押しにする。
-//
-// スクロールとの関係: 一覧にも行にも touch-action を置かない＝待っている間は
-// ブラウザが普通にスクロールする（指が流れればブラウザが pointercancel を投げ、
-// こちらは待つのをやめる）。掴み切った後だけ touchmove を preventDefault して
-// こちらがジェスチャを引き取る。長押しの間は指が止まっているので、この時点では
-// まだスクロールが始まっておらず、preventDefault が間に合う。
-const HANDLE_HOLD_MS = 220
-// 指の震えで持ち損なわないよう、判定はやや緩くする（8pxだと押し続けているつもりでも外れる）
-const HANDLE_HOLD_SLOP = 14
-let _holdTimer = null, _holdRow = null, _holdPointerId = null
-let _holdX = 0, _holdY = 0, _holdLastY = 0
-
-// 待つのをやめる
-function _stopHoldTimer() {
-  clearTimeout(_holdTimer)
-  _holdTimer = null
-  _holdRow?.classList.remove('holding')
-  _holdRow = null
-}
-// 指が離れた／掴んだ。この指の話を終わりにする
-function _clearHold() {
-  _stopHoldTimer()
-  _holdPointerId = null
-}
-// 持ち切ったところで掴む。開始位置はここでの指の位置にする（押した場所を基準にすると、
-// 持っている間のわずかなぶれの分だけ行が最初に跳ねる）。
-function _armDrag(y) {
-  const row = _holdRow
-  row?.classList.remove('holding')
-  _clearHold()
-  if (!row || _dragRow) return
-  // 直前のswapでこの行自身がまだ移動中なら、WAAPIのtransformが指追従の
-  // inline transformより優先される前に、その補間を終点へ戻す。
-  cancelRowShift(row)
-  _dragRow = row
-  // 動かす行やその子へcaptureを置くと、DOM順を入れ替えた瞬間にスマホが
-  // lostpointercaptureを発火し、1段目でドラッグが終わる。移動しない一覧側で捕捉する。
-  _dragCaptureEl = editListEl.value
-  _dragY0 = y
-  _dragOrder = [...groups.value]
-  row.classList.add('drag')
-  editListEl.value?.classList.add('dragging')
-  if (_dragPointerId != null) _dragCaptureEl?.setPointerCapture?.(_dragPointerId)
-  navigator.vibrate?.(10)
-}
-
-function onHandleDown(e) {
-  if (_dragRow || _holdTimer || e.isPrimary === false) return
-  // 名前の変更・削除はカードの上のボタン。押し続けても掴みにはしない
-  if (e.target.closest?.('.af-ebtn')) return
-  const row = e.target.closest?.('.af-erow')
-  if (!row) return
-  _holdRow = row
-  _holdPointerId = e.pointerId ?? null
-  _dragPointerId = _holdPointerId
-  _holdX = e.clientX; _holdY = e.clientY; _holdLastY = e.clientY
-  row.classList.add('holding')
-  _holdTimer = setTimeout(() => _armDrag(_holdLastY), HANDLE_HOLD_MS)
-}
-function onHandleMove(e) {
-  // まだ掴んでいない指。動いたら掴む意図ではなかったとみて降り、スクロールはブラウザに任せる
-  if (!_dragRow && _holdPointerId != null && pointerMatches(e, _holdPointerId)) {
-    if (_holdTimer
-        && (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP)) {
-      _clearHold()
-      _dragPointerId = null
-    }
-    _holdLastY = e.clientY
-    return
-  }
-  if (!_dragRow || !pointerMatches(e, _dragPointerId)) return
-  if (e.cancelable) e.preventDefault()
-  _dragRow.style.transition = 'none'
-  _dragRow.style.transform = `translateY(${e.clientY - _dragY0}px)`
-  edgeScroll(e.clientY)
-  // 掴んだ行は指に追従しているので、指の位置でいちばん上に居るのは常に自分自身。
-  // 重なり全部から自分以外の最初の行を選ばないと、入れ替え先が永久に見つからない。
-  const over = document.elementsFromPoint(e.clientX, e.clientY)
-    .map(el => el.closest?.('.af-erow'))
-    .find(r => r && r !== _dragRow)
-  if (!over) return
-  const rows = [...(editListEl.value?.children ?? [])]
-  const from = rows.indexOf(_dragRow), to = rows.indexOf(over)
-  if (from < 0 || to < 0) return
-  // 触れた時点では入れ替えない。中点を越えてから動かす（触れただけで避けると
-  // 「避けすぎ」に見えるうえ、境界で行ったり来たりしてぶれる）。
-  const box = over.getBoundingClientRect()
-  const mid = box.top + box.height / 2
-  if (to > from ? e.clientY < mid : e.clientY > mid) return
-
-  flipRows(() => {
-    editListEl.value.insertBefore(_dragRow, from < to ? over.nextSibling : over)
-  })
-  _dragOrder = [...(editListEl.value?.children ?? [])].map(r => r.dataset.group)
-  _dragY0 = e.clientY                      // 入れ替えた行は指の位置へ移っている
-  _dragRow.style.transform = ''
-  navigator.vibrate?.(6)
-}
-// touchmove は passive にしない。掴んでいる間だけ既定の動作（一覧のスクロール）を止める。
-// 長押しの間は指が止まっていてスクロールがまだ始まっていないので、ここで間に合う。
-function onEditTouchMove(e) {
-  if (_dragRow && e.cancelable) e.preventDefault()
-}
-function onHandleUp(e) {
-  if (_holdPointerId != null && (!e || pointerMatches(e, _holdPointerId))) {
-    // 持ち切る前に離した＝掴む意図ではなかった。何も起こさない
-    _clearHold()
-    if (!_dragRow) _dragPointerId = null
-  }
-  if (!_dragRow || (e && !pointerMatches(e, _dragPointerId))) return
-  const row = _dragRow
-  const captureEl = _dragCaptureEl
-  const pointerId = _dragPointerId
-  const order = _dragOrder
-  row.style.transition = `transform ${reduceMotion ? FLIP_MS_REDUCED : DROP_MS}ms ${reduceMotion ? FLIP_EASE_REDUCED : DROP_EASE}`
-  row.style.transform = ''
-  row.classList.remove('drag')
-  editListEl.value?.classList.remove('dragging')
-  _dragRow = null
-  _dragCaptureEl = null
-  _dragPointerId = null
-  _dragOrder = null
-  stopEdgeScroll()
-  // stateを先に片付ける。release直後のlostpointercaptureが同期発火しても二重確定しない。
-  try { if (pointerId != null) captureEl?.releasePointerCapture?.(pointerId) } catch (_) { /* 既に解放済み */ }
-  // DOMの並びを先に完成させ、保存は指を離した時に1回だけ行う。ドラッグ中に
-  // Vueのkeyed patchを走らせると、周囲のFLIP animationと競合して片方向が飛ぶ。
-  if (order && order.join('\u0001') !== groups.value.join('\u0001')) {
-    setAxisGroupOrder(activeAxis.value, order)
-  }
-}
-
-function moveGroupByKeyboard(group, delta) {
-  if (_dragRow || !delta) return
-  const rows = [...(editListEl.value?.children ?? [])]
-  const from = rows.findIndex(row => row.dataset.group === group)
-  const to = Math.max(0, Math.min(rows.length - 1, from + delta))
-  if (from < 0 || to === from) return
-  const row = rows[from]
-  const over = rows[to]
-  flipRows(() => {
-    editListEl.value.insertBefore(row, from < to ? over.nextSibling : over)
-  })
-  const order = [...editListEl.value.children].map(r => r.dataset.group)
-  setAxisGroupOrder(activeAxis.value, order)
-  nextTick(() => row.querySelector('.af-ehandle')?.focus())
-}
-function onHandleKeydown(e, group) {
-  if (!['ArrowUp', 'ArrowDown'].includes(e.key)) return
-  e.preventDefault()
-  e.stopPropagation()
-  moveGroupByKeyboard(group, e.key === 'ArrowUp' ? -1 : 1)
-}
-
-// 入れ替えを FLIP で見せる。並べ替えは「どれがどこへ動いたか」が分からないと結果を
-// 確かめられないので、瞬間移動させず、退く行が滑って場所を空ける。
-// 掴んでいる行は指の下に居るべきなので動かさない。
-function flipRows(mutate) {
-  const rows = [...(editListEl.value?.children ?? [])]
-  // 走っているanimation込みの「いま目に見えている位置」を先に取る。DOMを動かした後で
-  // 以前のanimationを外し、新しい終点との差を取り直すと、連続swapや反転でも瞬間移動しない。
-  const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]))
-  mutate()
-  const ms   = reduceMotion ? FLIP_MS_REDUCED : FLIP_MS
-  const ease = reduceMotion ? FLIP_EASE_REDUCED : FLIP_EASE
-  for (const r of rows) {
-    if (r === _dragRow) continue
-    cancelRowShift(r)
-    const d = before.get(r) - r.getBoundingClientRect().top
-    if (!d) continue
-    animateRowShift(r, d, ms, ease)
-  }
-}
-
-function cancelRowShift(row) {
-  const animation = _rowShift.get(row)
-  if (animation) {
-    _rowShift.delete(row)
-    _shiftAnimations.delete(animation)
-    try { animation.cancel() } catch (_) { /* 既に終了済み */ }
-  }
-  // Web Animations API が無い環境で使うfallbackのinline styleも終点へ戻す。
-  if (row !== _dragRow) {
-    row.style.transition = ''
-    row.style.transform = ''
-  }
-}
-
-function animateRowShift(row, delta, ms, ease) {
-  const frames = [
-    { transform: `translateY(${delta}px)` },
-    { transform: 'translateY(0)' },
-  ]
-  if (typeof row.animate === 'function') {
-    const animation = row.animate(frames, { duration: ms, easing: ease })
-    if (animation) {
-      _rowShift.set(row, animation)
-      _shiftAnimations.add(animation)
-      const clear = () => {
-        if (_rowShift.get(row) === animation) _rowShift.delete(row)
-        _shiftAnimations.delete(animation)
-      }
-      animation.onfinish = clear
-      animation.oncancel = clear
-    }
-    return
-  }
-  // 古いWebView向けfallback。開始位置を確定してから終点へ補間する。
-  row.style.transition = 'none'
-  row.style.transform = frames[0].transform
-  void row.offsetHeight
-  row.style.transition = `transform ${ms}ms ${ease}`
-  row.style.transform = frames[1].transform
-}
-
-// 20件近くあると、下の行を上まで運ぶのに一覧のスクロールが要る。
-const EDGE = 64, EDGE_SPEED = 10
-let _edgeRaf = 0, _edgeDir = 0
-function edgeScroll(y) {
-  const el = editListEl.value
-  if (!el) return
-  const r = el.getBoundingClientRect()
-  _edgeDir = y < r.top + EDGE ? -1 : y > r.bottom - EDGE ? 1 : 0
-  if (!_edgeDir) return stopEdgeScroll()
-  if (_edgeRaf) return
-  const step = () => {
-    if (!_dragRow || !_edgeDir) return stopEdgeScroll()
-    el.scrollTop += _edgeDir * EDGE_SPEED
-    _edgeRaf = requestAnimationFrame(step)
-  }
-  _edgeRaf = requestAnimationFrame(step)
-}
-function stopEdgeScroll() { cancelAnimationFrame(_edgeRaf); _edgeRaf = 0; _edgeDir = 0 }
+const groupDrag = useListDragReorder({
+  listEl: editListEl,
+  rowSelector: '.af-erow',
+  // カードの上のボタン（件数・名前の変更・削除）は、押し続けても掴みにはしない
+  ignoreSelector: '.af-ebtn, .af-ecount',
+  keyAttr: 'group',
+  currentOrder: () => groups.value,
+  commitOrder: order => setAxisGroupOrder(activeAxis.value, order),
+  focusAfterKeyboard: row => nextTick(() => row.querySelector('.af-ehandle')?.focus()),
+})
 
 // 戻るは常に「ひとつ前」へ返す。この画面の中にも段があるので、上から順に1段だけ畳む。
 //   開いているモーダル → 分類先を選ぶ → 振り分け済み → 一括編集 → 画面を閉じて元の画面（データ管理）へ
@@ -1142,13 +994,16 @@ onUnmounted(registerInnerLayerCloser(() => {
   if (addOpen.value)      { closeAdd();                return true }
   if (hideDialogItem.value) { cancelHideDialog();      return true }
   if (pickItem.value)     { closePick();               return true }
-  if (showAssigned.value) { showAssigned.value = false; return true }
+  // 並び替えの途中なら、まず並び替えを畳む（シートごと閉じてしまうと途中が消える）
+  if (tapOrderOn.value)   { exitTapOrder();             return true }
+  if (sheetSorting.value) { sheetSorting.value = false; return true }
+  if (showAssigned.value) { closeAssigned();            return true }
   if (editOpen.value)     { closeEdit();               return true }
   return false
 }))
 onUnmounted(() => {
-  _clearHold()
-  if (_dragRow) onHandleUp()
+  groupDrag.cleanup()
+  sheetDrag.cleanup()
   cancelLongPress()
   _dragging = false
   _wheelPointerId = null
@@ -1156,13 +1011,10 @@ onUnmounted(() => {
   _wheelSamples = []
   _wheelTapSlot = null
   _wheelTravel = 0
+  _wheelShift = 0
   _countTapSlot = null
   _vel = 0
-  cancelAnimationFrame(_fanRaf); cancelAnimationFrame(_glideRaf); stopEdgeScroll()
-  for (const animation of _shiftAnimations) {
-    try { animation.cancel() } catch (_) { /* 既に終了済み */ }
-  }
-  _shiftAnimations.clear()
+  cancelAnimationFrame(_fanRaf); cancelAnimationFrame(_glideRaf)
   clearTimeout(_flashT); clearTimeout(_undoT); clearTimeout(_locateT)
 })
 
@@ -1388,19 +1240,23 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <button ref="editDoneEl" class="af-edit-done" @click="closeEdit">完了</button>
       </header>
       <div class="af-edit-list" ref="editListEl"
-           @pointerdown="onHandleDown" @pointermove="onHandleMove"
-           @pointerup="onHandleUp" @pointercancel="onHandleUp"
-           @lostpointercapture="onHandleUp"
-           @touchmove="onEditTouchMove"
+           @pointerdown="groupDrag.onDown" @pointermove="groupDrag.onMove"
+           @pointerup="groupDrag.onUp" @pointercancel="groupDrag.onUp"
+           @lostpointercapture="groupDrag.onUp"
+           @touchmove="groupDrag.onTouchMove"
            @contextmenu.prevent>
         <div v-for="g in groups" :key="g" :data-group="g" class="af-erow" @dragstart.prevent>
           <button
             type="button" class="af-ehandle" draggable="false"
             :aria-label="`${g} を並べ替え。現在 ${groups.indexOf(g) + 1} 番目。上下矢印キーで移動`"
-            @keydown="onHandleKeydown($event, g)"
+            @keydown="groupDrag.onKeydown($event, g)"
           >⋮⋮</button>
           <span class="af-ename">{{ g }}</span>
-          <span class="af-ecount">{{ groupCount[g] || 0 }}</span>
+          <button
+            type="button" class="af-ecount"
+            :aria-label="`${g} の振り分け済み ${groupCount[g] || 0}件を見る`"
+            @click="openAssignedFor(g)"
+          >{{ groupCount[g] || 0 }}</button>
           <button class="af-ebtn" :aria-label="`${g} の名前を変える`" @click="openRename(g)">✎</button>
           <button class="af-ebtn del" :aria-label="`${g} を削除`" @click="askDelete(g)">🗑</button>
         </div>
@@ -1466,18 +1322,70 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     </div>
 
     <!-- 振り分け済みの確認（中央カードのカウントから開く）-->
-    <div v-if="showAssigned" class="af-modal" @click.self="showAssigned = false">
+    <div v-if="showAssigned" class="af-modal" @click.self="closeAssigned">
       <div class="af-sheet">
         <div class="af-sheet-head">
           <span class="af-sheet-title">{{ target }} の振り分け済み <b>{{ assignedItems.length }}</b></span>
-          <button class="af-sheet-close" @click="showAssigned = false">✕</button>
+          <button
+            v-if="assignedItems.length > 1"
+            :class="['af-sheet-sort', { on: sheetSorting }]"
+            :aria-pressed="sheetSorting ? 'true' : 'false'"
+            @click="toggleSheetSorting"
+          >{{ sheetSorting ? '並び替えを終える' : '⇅ 並び替え' }}</button>
+          <button class="af-sheet-close" aria-label="閉じる" @click="closeAssigned">✕</button>
         </div>
-        <div class="af-sheet-hint">タップすると一覧の該当品目へ移動します</div>
-        <div class="af-sheet-list">
-          <div v-for="item in assignedItems" :key="item" class="af-sheet-item">
-            <button class="af-sheet-item-name" @click="locate(item)">{{ item }}</button>
-            <button class="af-sheet-off" @click="unassign(item)">外す</button>
-            <button class="af-sheet-item-go" @click="locate(item)">確認 ›</button>
+
+        <!-- 並び替えの道は2つ。1件ずつ運ぶドラッグと、上から順にタップしていくだけの簡易。
+             品目は分類先より数が多く、全部運ぶと時間がかかるので後者を用意している。 -->
+        <div v-if="sheetSorting" class="af-sheet-sortbar">
+          <button
+            :class="['af-sheet-tap', { on: tapOrderOn }]"
+            :aria-pressed="tapOrderOn ? 'true' : 'false'"
+            @click="toggleTapOrder"
+          >{{ tapOrderOn ? 'タップ順をやめる' : '① タップ順で並べる' }}</button>
+          <button v-if="tapOrderOn" class="af-sheet-apply" :disabled="!tapSeq.length" @click="applyTapOrder">
+            この順で確定{{ tapSeq.length ? `（${tapSeq.length}）` : '' }}
+          </button>
+        </div>
+
+        <div class="af-sheet-hint">
+          <template v-if="tapOrderOn">上にしたい順にタップしてください。もう一度タップで外せます。</template>
+          <template v-else-if="sheetSorting">カードを長押しして上下へ運ぶと、棚卸カードの並びが変わります。</template>
+          <template v-else>タップすると一覧の該当品目へ移動します。</template>
+        </div>
+
+        <div
+          class="af-sheet-list" ref="sheetListEl"
+          :class="{ sorting: sheetSorting, tapping: tapOrderOn }"
+          @pointerdown="sheetSorting && !tapOrderOn ? sheetDrag.onDown($event) : null"
+          @pointermove="sheetDrag.onMove"
+          @pointerup="sheetDrag.onUp"
+          @pointercancel="sheetDrag.onUp"
+          @lostpointercapture="sheetDrag.onUp"
+          @touchmove="sheetDrag.onTouchMove"
+          @contextmenu="sheetSorting ? $event.preventDefault() : null"
+        >
+          <div
+            v-for="item in assignedItems" :key="item" :data-item="item"
+            :class="['af-sheet-item', { picked: tapOrderNo(item) > 0 }]"
+          >
+            <span v-if="tapOrderOn" class="af-sheet-no">{{ tapOrderNo(item) || '–' }}</span>
+            <button
+              v-else-if="sheetSorting"
+              type="button" class="af-sheet-handle" draggable="false"
+              :aria-label="`${item} を並べ替え。現在 ${assignedItems.indexOf(item) + 1} 番目。上下矢印キーで移動`"
+              @keydown="sheetDrag.onKeydown($event, item)"
+            >⋮⋮</button>
+            <button
+              v-if="tapOrderOn"
+              class="af-sheet-item-name" @click="tapOrderPick(item)"
+            >{{ item }}</button>
+            <button v-else-if="sheetSorting" class="af-sheet-item-name as-text">{{ item }}</button>
+            <button v-else class="af-sheet-item-name" @click="locate(item)">{{ item }}</button>
+            <template v-if="!sheetSorting">
+              <button class="af-sheet-off" @click="unassign(item)">外す</button>
+              <button class="af-sheet-item-go" @click="locate(item)">確認 ›</button>
+            </template>
           </div>
           <div v-if="assignedItems.length === 0" class="af-empty">まだ振り分けられた品目はありません。</div>
         </div>
@@ -1751,7 +1659,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-erow.holding { border-color: var(--primary-border, #bfdbfe); background: #f8fbff; }
 .af-erow.holding .af-ehandle { color: var(--primary, #2563eb); }
 .af-ename { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.af-ecount { flex-shrink: 0; min-width: 42px; text-align: center; font-size: 13px; font-weight: 800; color: #64748b; background: #eef2f6; border-radius: 12px; padding: 3px 8px; }
+.af-ecount { flex-shrink: 0; min-width: 44px; min-height: 34px; text-align: center; font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border: 1px solid var(--primary-border, #bfdbfe); border-radius: 12px; padding: 5px 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.af-ecount:active { background: #dbeafe; }
 .af-ebtn { flex-shrink: 0; width: 44px; height: 44px; border-radius: 9px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .af-ebtn.del { border-color: #fecaca; color: #dc2626; }
 .af-edit-foot { flex-shrink: 0; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #e2e8f0; }
@@ -1787,6 +1696,29 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-sheet-off { flex-shrink: 0; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 9px; font-size: 12px; font-weight: 800; padding: 8px 12px; cursor: pointer; }
 .af-sheet-off:active { background: #fef2f2; }
 .af-sheet-item-go { flex-shrink: 0; border: none; background: none; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); cursor: pointer; }
+
+/* 振り分け済みシートの並び替え */
+.af-sheet-sort { margin-left: auto; flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 9px; font-size: 12px; font-weight: 800; padding: 7px 11px; cursor: pointer; white-space: nowrap; }
+.af-sheet-sort.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.af-sheet-head .af-sheet-close { margin-left: 0; }
+.af-sheet-sortbar { display: flex; gap: 8px; padding: 0 16px 8px; }
+.af-sheet-tap { flex: 1; min-width: 0; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 9px; font-size: 12px; font-weight: 800; padding: 9px; cursor: pointer; }
+.af-sheet-tap.on { border-style: solid; background: var(--primary-weak, #eff6ff); }
+.af-sheet-apply { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 9px; font-size: 12px; font-weight: 800; padding: 9px 14px; cursor: pointer; }
+.af-sheet-apply:disabled { background: #cbd5e1; cursor: not-allowed; }
+/* 並び替え中は、行を掴むまでの間もブラウザにスクロールさせる（touch-action を置かない） */
+.af-sheet-list.sorting { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.af-sheet-list.sorting .af-sheet-item { cursor: grab; }
+.af-sheet-item.drag { cursor: grabbing; box-shadow: 0 12px 28px rgba(15,23,42,0.22); border-color: var(--primary, #2563eb); position: relative; z-index: 5; }
+.af-sheet-item.holding { border-color: var(--primary-border, #bfdbfe); background: #f8fbff; }
+.af-sheet-list.dragging .af-sheet-item:not(.drag) { opacity: 0.55; }
+.af-sheet-handle { flex-shrink: 0; width: 34px; height: 38px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 16px; letter-spacing: -2px; cursor: grab; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.af-sheet-handle:focus-visible { outline: 3px solid var(--primary-border, #bfdbfe); outline-offset: -3px; border-radius: 9px; }
+.af-sheet-item-name.as-text { cursor: inherit; }
+/* タップ順。押した順の番号がそのまま上からの並びになる */
+.af-sheet-no { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; background: #fff; }
+.af-sheet-item.picked .af-sheet-no { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.af-sheet-item.picked { background: var(--primary-weak, #eff6ff); border-color: var(--primary-border, #bfdbfe); }
 
 /* 品目から分類先を選ぶ（行の長押し）。画面下端に固定せず押した行の近くへ出す。
    下端固定だと親指の移動距離が毎回そのまま乗り、速さを狙った機能の意味が薄れる。 */
