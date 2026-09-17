@@ -9,6 +9,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
+import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // 日を選ぶ → その日の履歴（種類別）を見る。
@@ -113,6 +114,32 @@ const moveByDate = computed(() => {
   return map
 })
 
+// ── 発注スケジュール（仕入れ管理で設定した「発注する曜日」）────────────────
+// 予定は曜日の繰り返しなので、曜日 → その日に発注するスケジュール名・締切 に畳んで持つ。
+//
+// **今日以降のマスにだけ出す。** 予定は「これから何をするか」で、過去のマスに出すと
+// 実際に発注した日（★）と読み分けられない（予定は後から変えられるので、過去の日に
+// 今の設定を重ねると「その日に発注日だった」という嘘にもなる）。
+const schedulesByDow = computed(() => {
+  const map = {}
+  ;(config.orderSchedules ?? []).forEach((sch, i) => {
+    if (!hasSchedule(sch)) return
+    for (const d of sch.days) (map[d] ||= []).push({ name: scheduleName(sch, i), deadline: sch.deadline || '' })
+  })
+  return map
+})
+const hasAnyPlan = computed(() => Object.keys(schedulesByDow.value).length > 0)
+
+function _plannedOrders(key, dow) {
+  if (key < todayKey) return []
+  return schedulesByDow.value[dow] ?? []
+}
+
+// マスの帯・詳細に出す文言（「青果 ・ 締切15:00」）
+function planLabel(p) {
+  return p.deadline ? `${p.name}（締切${p.deadline}）` : p.name
+}
+
 const monthLabel = computed(() => `${viewYear.value}年${viewMonth.value + 1}月`)
 
 // 連休（週末＋祝日が3日以上連続）の連結情報。連休でなければ null。
@@ -150,6 +177,7 @@ const weeks = computed(() => {
       wx: props.weather[key] || null,
       factors: dayFactors(key),   // 暦の需要要因（祝日・祝前日・給料日・連休・スパン…）
       run: _runInfo(y, m, d),     // 連休（3連休以上）の連結情報
+      planned: _plannedOrders(key, new Date(y, m, d).getDay()),  // 発注スケジュールの予定日
     })
   }
   while (cells.length % 7 !== 0) cells.push(null)
@@ -287,6 +315,13 @@ const moveSections = computed(() => {
 const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
 
+// 選択日の発注予定。マスの帯と同じ規則（今日以降のみ）で出す
+const selectedPlanned = computed(() => {
+  const k = selectedKey.value
+  if (!k) return []
+  return _plannedOrders(k, new Date(k + 'T12:00:00').getDay())
+})
+
 // 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）
 const selectedFactors = computed(() => {
   if (!selectedKey.value) return []
@@ -307,25 +342,21 @@ const selectedFactors = computed(() => {
 })
 
 // ── 日別メモ（内部イベント要因＋学習除外）───────────────────
+// 記録するのは自由記述と学習除外の2つだけ。定型チップ（貸切・イベント…）は置かない。
+// 選べる言葉を先に並べると、その日に実際に起きたことではなく**用意された言葉のどれか**を
+// 選ぶ記録になる。読み返して意味があるのは店の言葉で書いた1行のほう。
+// 旧データの tags は読み書きしない（保存し直した時点で落ちる）。
 const { getNote, hasNote, setNote } = useDayNotes()
-const MEMO_TAGS = ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']
 const memoText = ref('')
-const memoTags = ref([])
 const memoExcluded = ref(false)
 watch(selectedKey, (k) => {
   const n = k ? getNote(k) : null
   memoText.value = n?.text || ''
-  memoTags.value = n?.tags ? [...n.tags] : []
   memoExcluded.value = !!n?.excluded
 }, { immediate: true })
-function toggleMemoTag(t) {
-  const i = memoTags.value.indexOf(t)
-  if (i >= 0) memoTags.value.splice(i, 1)
-  else memoTags.value.push(t)
-}
 function saveMemo() {
   if (!selectedKey.value) return
-  setNote(selectedKey.value, { text: memoText.value, tags: memoTags.value, excluded: memoExcluded.value })
+  setNote(selectedKey.value, { text: memoText.value, excluded: memoExcluded.value })
 }
 
 const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))
@@ -437,6 +468,7 @@ function onDeleteMove(id) {
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
+      <span v-if="hasAnyPlan" class="hc-key-i"><span class="hc-plan-key"></span>発注予定</span>
       <span class="hc-key-hint">日付をタップで詳細</span>
     </div>
 
@@ -467,6 +499,11 @@ function onDeleteMove(id) {
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
+            <span
+              v-if="cell.planned.length"
+              class="hc-plan-bar"
+              :title="'発注予定: ' + cell.planned.map(planLabel).join(' / ')"
+            ></span>
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
@@ -503,6 +540,12 @@ function onDeleteMove(id) {
         <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
       </div>
 
+      <!-- 発注スケジュールの予定（仕入れ管理で設定した発注曜日）-->
+      <div v-if="selectedPlanned.length" class="hc-plan">
+        <span class="hc-plan-head">🧾 発注予定</span>
+        <span v-for="(pl, i) in selectedPlanned" :key="i" class="hc-plan-chip">{{ planLabel(pl) }}</span>
+      </div>
+
       <!-- この日の基本情報 -->
       <div v-if="selWeekInfo" class="hc-facts">
         <div class="hc-fact"><span class="hc-fact-k">週</span><span class="hc-fact-v">第{{ selWeekInfo.weekOfMonth }}週 ・ 第{{ selWeekInfo.nth }}{{ WEEK[selWeekInfo.weekday] }}曜</span></div>
@@ -513,9 +556,6 @@ function onDeleteMove(id) {
 
       <!-- 日別メモ（内部イベント要因＋学習除外）-->
       <div class="hc-memo">
-        <div class="hc-memo-tags">
-          <button v-for="t in MEMO_TAGS" :key="t" type="button" :class="['hc-memo-tag', { on: memoTags.includes(t) }]" @click="toggleMemoTag(t)">{{ t }}</button>
-        </div>
         <textarea v-model="memoText" class="hc-memo-text" rows="2" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
         <label class="hc-memo-excl">
           <input type="checkbox" v-model="memoExcluded" />
@@ -723,6 +763,10 @@ function onDeleteMove(id) {
 .hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
 .hc-gotobi-mark { position: absolute; bottom: 3px; left: 3px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
+/* 発注予定はマスの左端の帯。実績（★）と同じ形にすると「発注した日」と読めてしまうので、
+   星ではなく帯にして、予定と実績を形で見分けられるようにする。色は発注の橙に揃える */
+.hc-plan-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #fbbf24; }
+.hc-plan-key { display: inline-block; width: 3px; height: 11px; border-radius: 1px; background: #fbbf24; }
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
 .hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
@@ -742,11 +786,13 @@ function onDeleteMove(id) {
 .hc-fact-k { color: #94a3b8; font-weight: 700; flex-shrink: 0; min-width: 48px; }
 .hc-fact-v { color: #334155; font-weight: 600; }
 
+/* 発注予定（詳細モーダル）*/
+.hc-plan { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: -2px 0 10px; }
+.hc-plan-head { font-size: 11px; font-weight: 700; color: #b45309; }
+.hc-plan-chip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+
 /* 日別メモ */
 .hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.hc-memo-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
-.hc-memo-tag { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 14px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.hc-memo-tag.on { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
 .hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
 .hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; margin: 7px 0; cursor: pointer; }
 .hc-memo-excl input { width: 16px; height: 16px; }
