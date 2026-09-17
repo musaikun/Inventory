@@ -867,6 +867,32 @@ export function useConfig() {
   // 定義済みグループの並び順を指定配列で置き換える（ドラッグ確定用）
   // names は displayGroups（定義済み＋孤立値）を許容し、定義済みの並び替えのみ反映。
   // 定義済みを過不足なく含まない場合は拒否。
+  /**
+   * 品目の並び順（`config.order`）のうち、渡した品目の位置だけを入れ替える。
+   *
+   * 棚卸・発注カードの「グループの中の並び」は `config.order` の順がそのまま出る。
+   * 分類先の中だけを並べ替えたいとき、全体の並びを作り直させると他の分類先の並びまで
+   * 巻き添えになるので、**渡した品目が今いる位置の集合**へ、新しい順で置き直す。
+   * その分類先に属さない品目は1つも動かない。
+   *
+   * @param {string[]} names 並べ替えたい品目を、新しい順で
+   */
+  function reorderItemsInPlace(names) {
+    if (!Array.isArray(names) || names.length < 2) return false
+    const known = new Set(config.order)
+    const next = names.filter(n => known.has(n))
+    if (next.length !== names.length || new Set(next).size !== next.length) return false
+    // 対象が今いる位置（昇順）。ここへ新しい順で入れ直す
+    const slots = []
+    for (let i = 0; i < config.order.length; i++) {
+      if (next.includes(config.order[i])) slots.push(i)
+    }
+    if (slots.length !== next.length) return false
+    for (let i = 0; i < slots.length; i++) config.order[slots[i]] = next[i]
+    _save()
+    return true
+  }
+
   function setAxisGroupOrder(axisIndex, names) {
     const list = _axisList(axisIndex)
     if (!list || !Array.isArray(names)) return false
@@ -1075,6 +1101,7 @@ export function useConfig() {
     moveAxisGroup,
     moveAxisGroupToTop,
     setAxisGroupOrder,
+    reorderItemsInPlace,
     copyCategoriesToAxis,
     copyCategoryToAxis,
     setOrderSchedules,
