@@ -67,11 +67,26 @@ const VISIBLE = 4        // 中央から前後いくつ描くか
 const CARD_H = 56
 const RADIUS = Math.round((CARD_H / 2) / Math.tan((STEP / 2) * Math.PI / 180))
 
-const pos = ref(0)                                   // 仮想位置。端を持たず、小数＝回転中
-function wrapIndex(i, n = groups.value.length) {
-  return n > 0 ? ((i % n) + n) % n : -1
+// 端の外へどれだけ出せるか（カード何枚分）と、その間の重さ。
+// 一周させると「どこから見始めたか」が消え、20件近い分類先では同じ名前が
+// 何度も通り過ぎて探し疲れる。端は端として止める。湾曲は残す。
+const OVER_MAX = 0.5, OVER_DAMP = 0.34
+const pos = ref(0)                                   // 位置。0〜件数-1の間。小数＝回転中
+function maxPos() { return Math.max(0, groups.value.length - 1) }
+function clampPos(p) { return Math.max(0, Math.min(maxPos(), p)) }
+function clampIndex(i) {
+  const n = groups.value.length
+  return n > 0 ? Math.max(0, Math.min(n - 1, i)) : -1
 }
-const targetIdx = computed(() => wrapIndex(Math.round(pos.value)))
+const targetIdx = computed(() => clampIndex(Math.round(pos.value)))
+// 端を越えた分はゴムのように重くし、離したら必ず端へ戻す
+function nudgePos(d) {
+  const max = maxPos()
+  let p = pos.value + d
+  if (p < 0)        p = pos.value <= 0   ? pos.value + d * OVER_DAMP : p * OVER_DAMP
+  else if (p > max) p = pos.value >= max ? pos.value + d * OVER_DAMP : max + (p - max) * OVER_DAMP
+  pos.value = Math.max(-OVER_MAX, Math.min(max + OVER_MAX, p))
+}
 const target = computed(() => targetIdx.value >= 0 ? (groups.value[targetIdx.value] ?? '') : '')
 const wheelAriaLabel = computed(() => {
   if (!groups.value.length) return '分類先は未設定です'
@@ -86,8 +101,9 @@ const wheelCards = computed(() => {
   const n = groups.value.length
   if (!n) return []
   const out = []
-  // 1件だけは同じ名前を上下へ複製しない。2件以上は現在位置の前後に仮想枠を
-  // 描き、実際のindexへ剰余で写像することで先頭と末尾をつなぐ。
+  // 1件だけは同じ名前を上下へ複製しない。2件以上は現在位置の前後の枠を描くが、
+  // 端の外は描かない（先頭と末尾はつながない）。上や下にカードが無いことが、
+  // そのまま「ここが端」の合図になる。
   // 畳みきった帯では周りのカードが中央へ完全に重なる。透明でも同じ3D位置に居ると
   // 手前後の判定が曖昧になり、中央の件数を押しても後ろのカードへ吸われる。
   // 見えていない間はDOMからも外し、押せる相手を中央の1枚だけにする。
@@ -97,7 +113,8 @@ const wheelCards = computed(() => {
   const to   = single ? 0 : VISIBLE
   for (let k = from; k <= to; k++) {
     const slot = n === 1 ? 0 : base + k
-    const idx = n === 1 ? 0 : wrapIndex(slot, n)
+    if (slot < 0 || slot > n - 1) continue            // 端の外は無い
+    const idx = n === 1 ? 0 : slot
     const name = groups.value[idx]
     const offset = n === 1 ? 0 : slot - pos.value
     const angle = offset * STEP * fan.value
@@ -216,7 +233,7 @@ function applyWheelPoint(point) {
   if (previous) {
     const dy = y - previous.y
     _wheelTravel += Math.abs(dy)
-    if (groups.value.length > 1) pos.value -= dy / PX_PER_CARD
+    if (groups.value.length > 1) nudgePos(-dy / PX_PER_CARD)
   }
   rememberWheelPoint(y, wheelEventTime(point))
   _vel = groups.value.length > 1 ? estimateWheelVelocity() : 0
@@ -317,7 +334,7 @@ function freezeWheel() {
 }
 function stopWheelAtNearest() {
   freezeWheel()
-  pos.value = groups.value.length <= 1 ? 0 : Math.round(pos.value)
+  pos.value = groups.value.length <= 1 ? 0 : clampPos(Math.round(pos.value))
 }
 // 一覧のpointerdownでは回転位置だけを固定する。ここで高さも畳むと、特に
 // reduced-motion時に押した行がpointerup前に移動しclickを失う。
@@ -342,8 +359,9 @@ function glide() {
     pos.value = 0; _vel = 0; _glideRaf = 0; return
   }
   if (reduceMotion) {
-    pos.value = Math.round(pos.value); _vel = 0; _glideRaf = 0; return
+    pos.value = clampPos(Math.round(pos.value)); _vel = 0; _glideRaf = 0; return
   }
+  const max = maxPos()
   let lastFrame = performance.now()
   const step = now => {
     const elapsed = Number.isFinite(now) ? now - lastFrame : FRAME_MS
@@ -351,8 +369,20 @@ function glide() {
     lastFrame = Number.isFinite(now) ? now : lastFrame + FRAME_MS
     pos.value += _vel * frameScale
     _vel *= Math.pow(GLIDE_FRICTION, frameScale)
+    // 端の外まで流れたら、そこで勢いを捨てて端へ戻す（跳ね返さず、寄せて止める）
+    if (pos.value < 0 || pos.value > max) {
+      const edge = pos.value < 0 ? 0 : max
+      _vel = 0
+      const backRate = 1 - Math.pow(1 - 0.3, frameScale)
+      pos.value += (edge - pos.value) * backRate
+      if (Math.abs(edge - pos.value) < 0.002) {
+        pos.value = edge; _glideRaf = 0; return
+      }
+      _glideRaf = requestAnimationFrame(step)
+      return
+    }
     if (Math.abs(_vel) < 0.008) {                    // 止まりかけたら一番近い枠へ吸い付く
-      const snap = Math.round(pos.value)
+      const snap = clampPos(Math.round(pos.value))
       const snapRate = 1 - Math.pow(1 - 0.28, frameScale)
       pos.value += (snap - pos.value) * snapRate
       if (Math.abs(snap - pos.value) < 0.002) {
@@ -369,7 +399,7 @@ function spinTo(slot) {
   _glideRaf = 0
   _vel = 0
   if (groups.value.length <= 1) { pos.value = 0; return }
-  const dest = slot
+  const dest = clampPos(slot)
   if (reduceMotion) { pos.value = dest; return }
   const step = () => {
     pos.value += (dest - pos.value) * 0.18
@@ -394,7 +424,7 @@ function openAssigned(slot) {
   freezeWheel()
   // 押した数字の分類先を中央に据える。回さずに合わせるのは、開いた一覧と
   // 中央のカードが食い違わないようにするため。
-  if (Number.isFinite(slot) && groups.value.length > 1) pos.value = slot
+  if (Number.isFinite(slot) && groups.value.length > 1) pos.value = clampPos(slot)
   // 面積は変えない。帯に畳んで品目を入れている最中に開いても、
   // 閉じたときに一覧の位置がずれない（畳んだままでも開ける、の一部）。
   showAssigned.value = true
@@ -415,7 +445,7 @@ function onWheelClick(e) {
 function onWheelKeydown(e) {
   if (e.target !== e.currentTarget || !['ArrowUp', 'ArrowDown'].includes(e.key)) return
   e.preventDefault()
-  selectWheelSlot(Math.round(pos.value) + (e.key === 'ArrowUp' ? -1 : 1))
+  selectWheelSlot(clampPos(Math.round(pos.value) + (e.key === 'ArrowUp' ? -1 : 1)))
 }
 watch(activeAxis, () => {
   stopWheelAtNearest()
@@ -780,10 +810,10 @@ function confirmDelete() {
   _glideRaf = 0
   _vel = 0
   removeAxisGroup(activeAxis.value, g)
-  // 仮想位置は循環用なので、削除後はいったん実indexへ戻す。見ていた分類先が
+  // 件数が1つ減るので、位置は必ず範囲へ入れ直す。見ていた分類先が
   // 残っていれば維持し、中央を消した場合は同じ位置に詰まった次の分類先を選ぶ。
   const kept = groups.value.indexOf(previousTarget)
-  pos.value = kept >= 0 ? kept : Math.max(0, wrapIndex(snapshot.wheelIndex, groups.value.length))
+  pos.value = kept >= 0 ? kept : clampIndex(snapshot.wheelIndex)
   setWheelState('open')
   const n = snapshot.items.length
   _offerUndo(`「${g}」を削除しました`, n ? `品目 ${n} 件の振り分けも解除` : '', () => {
@@ -867,25 +897,38 @@ let _dragRow = null, _dragCaptureEl = null, _dragPointerId = null, _dragY0 = 0, 
 const _rowShift = new WeakMap()
 const _shiftAnimations = new Set()
 
-// つまみに触れた瞬間に掴むと、一覧を眺めるつもりの指でも行が持ち上がる。
-// 少し持ってから掴む。持っている間に指が動いたら、掴む意図ではなかったとみて降りる。
+// 掴むのは「並べ替えたいカードそのもの」を長押ししたとき。つまみ(⋮⋮)だけを掴ませると
+// 狙いが 44px の細い柱になり、一覧をなぞる指が当たって意図しない入れ替えが起きていた。
+// カード全体なら狙いは外さないが、その代わり触れた瞬間に掴んではいけないので長押しにする。
+//
+// スクロールとの関係: 一覧にも行にも touch-action を置かない＝待っている間は
+// ブラウザが普通にスクロールする（指が流れればブラウザが pointercancel を投げ、
+// こちらは待つのをやめる）。掴み切った後だけ touchmove を preventDefault して
+// こちらがジェスチャを引き取る。長押しの間は指が止まっているので、この時点では
+// まだスクロールが始まっておらず、preventDefault が間に合う。
 const HANDLE_HOLD_MS = 220
-const HANDLE_HOLD_SLOP = 8
-let _holdTimer = null, _holdRow = null, _holdHandle = null, _holdPointerId = null
+// 指の震えで持ち損なわないよう、判定はやや緩くする（8pxだと押し続けているつもりでも外れる）
+const HANDLE_HOLD_SLOP = 14
+let _holdTimer = null, _holdRow = null, _holdPointerId = null
 let _holdX = 0, _holdY = 0, _holdLastY = 0
 
-function _clearHold() {
+// 待つのをやめる
+function _stopHoldTimer() {
   clearTimeout(_holdTimer)
   _holdTimer = null
-  _holdHandle?.classList.remove('holding')
+  _holdRow?.classList.remove('holding')
   _holdRow = null
-  _holdHandle = null
+}
+// 指が離れた／掴んだ。この指の話を終わりにする
+function _clearHold() {
+  _stopHoldTimer()
   _holdPointerId = null
 }
 // 持ち切ったところで掴む。開始位置はここでの指の位置にする（押した場所を基準にすると、
 // 持っている間のわずかなぶれの分だけ行が最初に跳ねる）。
 function _armDrag(y) {
   const row = _holdRow
+  row?.classList.remove('holding')
   _clearHold()
   if (!row || _dragRow) return
   // 直前のswapでこの行自身がまだ移動中なら、WAAPIのtransformが指追従の
@@ -904,24 +947,25 @@ function _armDrag(y) {
 }
 
 function onHandleDown(e) {
-  const handle = e.target.closest('.af-ehandle')
-  if (!handle || _dragRow || _holdTimer || e.isPrimary === false) return
-  const row = handle.closest('.af-erow')
+  if (_dragRow || _holdTimer || e.isPrimary === false) return
+  // 名前の変更・削除はカードの上のボタン。押し続けても掴みにはしない
+  if (e.target.closest?.('.af-ebtn')) return
+  const row = e.target.closest?.('.af-erow')
   if (!row) return
   _holdRow = row
-  _holdHandle = handle
   _holdPointerId = e.pointerId ?? null
   _dragPointerId = _holdPointerId
   _holdX = e.clientX; _holdY = e.clientY; _holdLastY = e.clientY
-  handle.classList.add('holding')
+  row.classList.add('holding')
   _holdTimer = setTimeout(() => _armDrag(_holdLastY), HANDLE_HOLD_MS)
 }
 function onHandleMove(e) {
-  if (_holdTimer && pointerMatches(e, _holdPointerId)) {
-    if (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP) {
+  // まだ掴んでいない指。動いたら掴む意図ではなかったとみて降り、スクロールはブラウザに任せる
+  if (!_dragRow && _holdPointerId != null && pointerMatches(e, _holdPointerId)) {
+    if (_holdTimer
+        && (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP)) {
       _clearHold()
       _dragPointerId = null
-      return
     }
     _holdLastY = e.clientY
     return
@@ -954,11 +998,16 @@ function onHandleMove(e) {
   _dragRow.style.transform = ''
   navigator.vibrate?.(6)
 }
+// touchmove は passive にしない。掴んでいる間だけ既定の動作（一覧のスクロール）を止める。
+// 長押しの間は指が止まっていてスクロールがまだ始まっていないので、ここで間に合う。
+function onEditTouchMove(e) {
+  if (_dragRow && e.cancelable) e.preventDefault()
+}
 function onHandleUp(e) {
-  if (_holdTimer && (!e || pointerMatches(e, _holdPointerId))) {
+  if (_holdPointerId != null && (!e || pointerMatches(e, _holdPointerId))) {
     // 持ち切る前に離した＝掴む意図ではなかった。何も起こさない
     _clearHold()
-    _dragPointerId = null
+    if (!_dragRow) _dragPointerId = null
   }
   if (!_dragRow || (e && !pointerMatches(e, _dragPointerId))) return
   const row = _dragRow
@@ -1334,17 +1383,19 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <header class="af-edit-head">
         <div>
           <div class="af-edit-title">分類先の管理</div>
-          <div class="af-edit-sub">{{ groups.length }}件 ・ つまみ ⋮⋮ を長押しして並べ替え</div>
+          <div class="af-edit-sub">{{ groups.length }}件 ・ カードを長押しして並べ替え</div>
         </div>
         <button ref="editDoneEl" class="af-edit-done" @click="closeEdit">完了</button>
       </header>
       <div class="af-edit-list" ref="editListEl"
            @pointerdown="onHandleDown" @pointermove="onHandleMove"
            @pointerup="onHandleUp" @pointercancel="onHandleUp"
-           @lostpointercapture="onHandleUp">
-        <div v-for="g in groups" :key="g" :data-group="g" class="af-erow">
+           @lostpointercapture="onHandleUp"
+           @touchmove="onEditTouchMove"
+           @contextmenu.prevent>
+        <div v-for="g in groups" :key="g" :data-group="g" class="af-erow" @dragstart.prevent>
           <button
-            type="button" class="af-ehandle"
+            type="button" class="af-ehandle" draggable="false"
             :aria-label="`${g} を並べ替え。現在 ${groups.indexOf(g) + 1} 番目。上下矢印キーで移動`"
             @keydown="onHandleKeydown($event, g)"
           >⋮⋮</button>
@@ -1667,7 +1718,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: fixed; inset: 0; z-index: 65; background: #f8fafc;
   display: flex; flex-direction: column;
   transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1);
+  /* つまみを長押しすると、ブラウザは文字選択のジェスチャを始める。選択が始まると
+     そのジェスチャがポインタを奪い、pointercancel / lostpointercapture が飛んで
+     掴んだ瞬間にドラッグが外れる。選択ハンドルやコールアウトも出る。
+     並べ替えの面に読ませたい文字はあっても、選ばせたい文字は無いので面ごと止める。 */
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
+/* 名前の変更だけは打てる必要がある */
+.af-edit input { user-select: text; -webkit-user-select: text; }
 .af-edit.on { transform: translateY(0); }
 .af-edit-head { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; background: #fff; border-bottom: 1px solid #e2e8f0; }
 .af-edit-title { font-size: 16px; font-weight: 800; color: #1e293b; }
@@ -1678,15 +1736,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   display: flex; align-items: center; gap: 8px;
   background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px;
   padding: 8px 10px 8px 4px; margin-bottom: 8px;
-  transition: box-shadow 0.16s, opacity 0.16s;
+  transition: box-shadow 0.16s, opacity 0.16s, background 0.16s, border-color 0.16s;
+  cursor: grab;
 }
+.af-erow.drag { cursor: grabbing; }
 .af-erow.drag { box-shadow: 0 12px 28px rgba(15,23,42,0.22); border-color: var(--primary, #2563eb); position: relative; z-index: 5; }
 .af-edit-list.dragging .af-erow:not(.drag) { opacity: 0.55; }
-.af-ehandle { flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 17px; letter-spacing: -2px; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; }
+/* つまみは「掴める場所」の目印とキーボード操作の受け口。指の掴みはカード全体が受けるので、
+   ここで touch-action を奪わない（待っている間はブラウザに普通にスクロールさせる）。 */
+.af-ehandle { flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 17px; letter-spacing: -2px; cursor: grab; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
 .af-ehandle:focus-visible { outline: 3px solid var(--primary-border, #bfdbfe); outline-offset: -3px; border-radius: 9px; }
 .af-erow.drag .af-ehandle { cursor: grabbing; color: var(--primary, #2563eb); }
 /* 掴むまでの間。まだ動かないことと、待てば掴めることを同時に見せる */
-.af-ehandle.holding { color: var(--primary, #2563eb); background: #eff6ff; border-radius: 9px; }
+.af-erow.holding { border-color: var(--primary-border, #bfdbfe); background: #f8fbff; }
+.af-erow.holding .af-ehandle { color: var(--primary, #2563eb); }
 .af-ename { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-ecount { flex-shrink: 0; min-width: 42px; text-align: center; font-size: 13px; font-weight: 800; color: #64748b; background: #eef2f6; border-radius: 12px; padding: 3px 8px; }
 .af-ebtn { flex-shrink: 0; width: 44px; height: 44px; border-radius: 9px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }

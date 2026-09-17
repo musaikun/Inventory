@@ -38,7 +38,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | ID | P | 状態 | 担当 | 対象 | 詳細 |
 |---|---:|---|---|---|---|
 | EVAL-001 | P2 | 進行中 | Codex | User依頼による現行アプリの機能・商業評価。実装変更なし | [EVAL-001.md](tasks/EVAL-001.md) |
-| REPO-002 | P2 | レビュー待ち | User | develop競合解消・stage済み。発注予定と既存メモ保持。App 159 files / 1779 tests・build成功、merge commit未実施 | [REPO-002.md](tasks/REPO-002.md) |
+| REPO-002 | P2 | レビュー待ち | User | 615a671をcommit、リモート54cd378を統合。追加test計60件・build成功。User依頼により通常pushする | [REPO-002.md](tasks/REPO-002.md) |
 
 ## 次のマイルストーン
 
