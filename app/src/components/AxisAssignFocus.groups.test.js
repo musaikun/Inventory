@@ -113,47 +113,68 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(centre()).toBe('冷蔵庫')
   })
 
-  it('先頭の上に末尾が続き、触れた側へ一周できる', async () => {
+  // 一周させると「どこから見始めたか」が消え、20件近い分類先では同じ名前が
+  // 何度も通り過ぎる。端は端として止める（湾曲した見た目はそのまま）。
+  it('先頭では上にカードが無い（一周しない）', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
 
-    const previous = host.querySelector('.af-gcard[data-slot="-1"]')
-    expect(previous?.querySelector('.af-gname').textContent.trim()).toBe('冷凍庫')
-    await click(previous)
-    await settle()
-    expect(centre()).toBe('冷凍庫')
+    expect(host.querySelector('.af-gcard[data-slot="-1"]')).toBeNull()
+    expect(host.querySelector('.af-gcard[data-slot="1"] .af-gname').textContent.trim()).toBe('棚')
+    expect(host.querySelector('.af-gcard[data-slot="2"] .af-gname').textContent.trim()).toBe('冷凍庫')
+  })
 
-    const firstAgain = host.querySelector('.af-gcard[data-slot="0"]')
-    expect(firstAgain?.querySelector('.af-gname').textContent.trim()).toBe('冷蔵庫')
-    await click(firstAgain)
+  it('末尾では下にカードが無い', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(host.querySelector('.af-gcard[data-slot="2"]'))
     await settle()
-    expect(centre()).toBe('冷蔵庫')
+
+    expect(centre()).toBe('冷凍庫')
+    expect(host.querySelector('.af-gcard[data-slot="3"]')).toBeNull()
+    expect(host.querySelector('.af-gcard[data-slot="1"] .af-gname').textContent.trim()).toBe('棚')
   })
 
   it('Pointer Captureでclick先がstageになっても、押したカードまで回る', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     const stage = host.querySelector('.af-stage')
-    const previous = host.querySelector('.af-gcard[data-slot="-1"]')
+    const next = host.querySelector('.af-gcard[data-slot="1"]')
 
     // 実ブラウザではcapture後のpointerup/clickがstageへretargetされる。
-    pointer(previous, 'pointerdown', 40, 72, 7)
+    pointer(next, 'pointerdown', 40, 72, 7)
     pointer(stage, 'pointerup', 40, 72, 7)
     await settle()
 
-    expect(centre()).toBe('冷凍庫')
+    expect(centre()).toBe('棚')
   })
 
-  it('先頭から下へ回しても端で止まらず末尾へつながる', async () => {
+  it('先頭より先へは回らない（端で止まる）', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     const stage = host.querySelector('.af-stage')
 
     pointer(stage, 'pointerdown', 40, 100)
-    pointer(stage, 'pointermove', 40, 154)
-    await nextTick()
+    pointer(stage, 'pointermove', 40, 300)     // 先頭よりさらに上へ強く引く
+    pointer(stage, 'pointerup', 40, 300)
+    await settle()
+
+    expect(centre()).toBe('冷蔵庫')
+    expect(host.querySelector('.af-gcard[data-slot="-1"]')).toBeNull()
+  })
+
+  it('末尾より先へも回らない', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    const stage = host.querySelector('.af-stage')
+
+    pointer(stage, 'pointerdown', 40, 400)
+    pointer(stage, 'pointermove', 40, 0)       // 末尾よりさらに下へ強く引く
+    pointer(stage, 'pointerup', 40, 0)
+    await settle()
 
     expect(centre()).toBe('冷凍庫')
+    expect(host.querySelector('.af-gcard[data-slot="3"]')).toBeNull()
   })
 
   it('スマホで最後の移動量が小さくても、直近の指の速度を保って慣性回転する', async () => {
@@ -191,18 +212,19 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(cards()).toEqual(['冷蔵庫'])
   })
 
-  it('分類先が2件でも前後が途切れず、反対側の1件へ回れる', async () => {
+  it('分類先が2件なら、先頭の下に1枚だけ出る', async () => {
     for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
     await mount()
 
-    expect(host.querySelector('.af-gcard[data-slot="-1"] .af-gname').textContent.trim()).toBe('棚')
+    expect(host.querySelector('.af-gcard[data-slot="-1"]')).toBeNull()
     expect(host.querySelector('.af-gcard[data-slot="1"] .af-gname').textContent.trim()).toBe('棚')
     await click(host.querySelector('.af-gcard[data-slot="1"]'))
     await settle()
     expect(centre()).toBe('棚')
+    expect(host.querySelector('.af-gcard[data-slot="2"]')).toBeNull()
   })
 
-  it('中央以外の循環カードは読み上げから外し、上下キーでも循環できる', async () => {
+  it('中央以外のカードは読み上げから外し、上下キーは端で止まる', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     const stage = host.querySelector('.af-stage')
@@ -210,12 +232,15 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(stage.tabIndex).toBe(0)
     expect([...host.querySelectorAll('.af-gcard:not(.on)')]
       .every(card => card.getAttribute('aria-hidden') === 'true')).toBe(true)
-    key(stage, 'ArrowUp')
+    key(stage, 'ArrowUp')                       // 先頭より上は無い
     await settle()
-    expect(centre()).toBe('冷凍庫')
+    expect(centre()).toBe('冷蔵庫')
+    key(stage, 'ArrowDown')
+    await settle()
+    expect(centre()).toBe('棚')
   })
 
-  it('両方向へ複数周回した後も、中央表示と品目の保存先が一致する', async () => {
+  it('端まで押し続けても行き過ぎず、中央表示と品目の保存先が一致する', async () => {
     Object.defineProperty(globalThis, 'matchMedia', {
       configurable: true,
       value: vi.fn(query => ({
@@ -228,21 +253,21 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     await mount()
     const stage = host.querySelector('.af-stage')
 
-    for (let i = 0; i < 7; i++) key(stage, 'ArrowDown')
-    await nextTick()
-    expect(centre()).toBe('棚')
-
-    for (let i = 0; i < 8; i++) key(stage, 'ArrowUp')
+    for (let i = 0; i < 7; i++) key(stage, 'ArrowDown')   // 末尾で止まる
     await nextTick()
     expect(centre()).toBe('冷凍庫')
+
+    for (let i = 0; i < 8; i++) key(stage, 'ArrowUp')     // 先頭で止まる
+    await nextTick()
+    expect(centre()).toBe('冷蔵庫')
 
     for (const head of [...host.querySelectorAll('.af-cat-head')]) await click(head)
     const item = host.querySelector('.af-item')
     const itemName = item.dataset.item
     await click(item)
 
-    expect(centre()).toBe('冷凍庫')
-    expect(cfg.config.tagsA[itemName]).toContain('冷凍庫')
+    expect(centre()).toBe('冷蔵庫')
+    expect(cfg.config.tagsA[itemName]).toContain('冷蔵庫')
   })
 
   it('中央以外のカードをタップすると、そこまで回る（1枚ずつ送らせない）', async () => {
@@ -489,11 +514,11 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     await mount()
     const stage = host.querySelector('.af-stage')
 
-    pointer(host.querySelector('.af-gcard[data-slot="-1"]'), 'pointerdown', 40, 72)
+    pointer(host.querySelector('.af-gcard[data-slot="1"]'), 'pointerdown', 40, 72)
     pointer(stage, 'pointerup', 40, 72)
     await nextTick()
 
-    expect(centre()).toBe('冷凍庫')
+    expect(centre()).toBe('棚')
     expect(host.querySelector('.af-wheel').style.transitionDuration).toBe('0ms')
   })
 })
@@ -542,7 +567,7 @@ describe('AxisAssignFocus — レールから1枚だけ足す・消す', () => {
     expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫'])     // 割り当ても戻る
   })
 
-  it('末尾を消したら循環上の次である先頭を中央にする', async () => {
+  it('末尾を消したら、詰まってきた1つ前を中央にする', async () => {
     Object.defineProperty(globalThis, 'matchMedia', {
       configurable: true,
       value: vi.fn(query => ({
@@ -560,7 +585,7 @@ describe('AxisAssignFocus — レールから1枚だけ足す・消す', () => {
     await click(host.querySelector('.af-dialog-ok'))
 
     expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '棚'])
-    expect(centre()).toBe('冷蔵庫')
+    expect(centre()).toBe('棚')
   })
 })
 
@@ -748,7 +773,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
   })
 
   // 触れた瞬間に掴むと、一覧を眺めるつもりの指でも行が持ち上がる。
-  it('つまみに触れただけでは掴まない（持ち切って初めて動く）', async () => {
+  it('カードに触れただけでは掴まない（持ち切って初めて動く）', async () => {
     for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
     await mount()
     await click(rail('.gear'))
@@ -767,7 +792,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     pointer(list, 'pointerup', 20, 28, 51)
   })
 
-  it('持ち切る前に指が動いたら掴まない（一覧を眺める指で行が持ち上がらない）', async () => {
+  it('持ち切る前に指が動いたら掴まない（一覧を眺める指でカードが持ち上がらない）', async () => {
     for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
     await mount()
     await click(rail('.gear'))
@@ -782,9 +807,9 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(list.setPointerCapture).not.toHaveBeenCalled()
   })
 
-  // つまみは touch-action: none でジェスチャを引き取っているので、掴まなかった指の
-  // 縦移動はこちらで一覧へ流す。そうしないと「何も起きない」死に領域になる。
-  it('掴まなかった指でも、つまみの上から一覧をスクロールできる', async () => {
+  // 掴む前のスクロールはブラウザの仕事。こちらは touch-action を奪わず、
+  // 指が流れたら掴むのをやめるだけにする（自前でscrollTopを動かさない）。
+  it('持ち切る前に指が流れたら掴まず、スクロールにも手を出さない', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫', '倉庫']) cfg.addAxisGroup(0, g)
     await mount()
     await click(rail('.gear'))
@@ -793,14 +818,14 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     list.scrollTop = 100
     const row = host.querySelector('.af-erow')
 
-    pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 200, 61)
-    pointer(list, 'pointermove', 20, 180, 61)          // 持ち切る前に動いた＝スクロールへ回す
+    pointer(row, 'pointerdown', 20, 200, 61)
+    pointer(list, 'pointermove', 20, 180, 61)
     pointer(list, 'pointermove', 20, 160, 61)
     await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
 
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.setPointerCapture).not.toHaveBeenCalled()
-    expect(list.scrollTop).toBe(140)                   // 指を上へ40px動かした分だけ送られた
+    expect(list.scrollTop).toBe(100)                   // ブラウザに任せる＝こちらは触らない
     pointer(list, 'pointerup', 20, 160, 61)
   })
 
@@ -819,15 +844,50 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(list.setPointerCapture).not.toHaveBeenCalled()
   })
 
-  it('つまみ以外を押しても並べ替えを開始しない', async () => {
-    cfg.addAxisGroup(0, '冷蔵庫')
+  // 掴む相手は「並べ替えたいカード」そのもの。つまみだけを掴ませると狙いが
+  // 44pxの細い柱になり、一覧をなぞる指が当たって意図しない入れ替えが起きていた。
+  it('カードのどこを長押ししても掴める（つまみに限らない）', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    const row = host.querySelector('.af-erow')
+
+    await grab(row.querySelector('.af-ename'), 80, 28, 71)
+    expect(row.classList.contains('drag')).toBe(true)
+    pointer(list, 'pointerup', 80, 28, 71)
+  })
+
+  it('名前の変更・削除のボタンは押し続けても掴みにならない', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
     await mount()
     await click(rail('.gear'))
     const row = host.querySelector('.af-erow')
 
-    pointer(row.querySelector('.af-ename'), 'pointerdown', 80, 28)
-
+    await grab(row.querySelector('.af-ebtn'), 200, 28, 72)
     expect(row.classList.contains('drag')).toBe(false)
+  })
+
+  // 掴んだ後だけ、ブラウザのスクロールをこちらが引き取る。
+  // 掴む前に止めると、待っている間に一覧をスクロールできなくなる。
+  it('掴んでいる間だけ touchmove の既定動作を止める', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    const row = host.querySelector('.af-erow')
+
+    const before = new Event('touchmove', { bubbles: true, cancelable: true })
+    list.dispatchEvent(before)
+    expect(before.defaultPrevented).toBe(false)
+
+    await grab(row, 80, 28, 73)
+    const during = new Event('touchmove', { bubbles: true, cancelable: true })
+    list.dispatchEvent(during)
+    expect(during.defaultPrevented).toBe(true)
+    pointer(list, 'pointerup', 80, 28, 73)
   })
 
   it('別の指のmove/upは無視し、captureを失ったらドラッグ状態を片付ける', async () => {
