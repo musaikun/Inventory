@@ -29,7 +29,12 @@ const pointer = (el, type, x, y, pointerId = 1) => {
   return el.dispatchEvent(event)
 }
 async function click(el) {
+  // 押す相手が居ないまま進むと、失敗が「undefined.dispatchEvent」になって
+  // どの導線が欠けたのか分からなくなる。ここで何を押そうとしたかを残す。
+  if (!el) throw new Error('押そうとした要素が見つかりません')
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  // v-if で入れ替わる部分は、1回の flush では描き切らないことがある
+  await nextTick()
   await nextTick()
 }
 const HOLD_WAIT_MS = 300
@@ -52,6 +57,22 @@ async function tapCount() {
   pointer(el, 'pointerdown', 220, 98, 5)
   pointer(el, 'pointerup', 220, 98, 5)
   await nextTick()
+}
+// 開いたうえで、次の操作ができる状態にする。
+// 実機では指を離した後の click が1回降ってくるので、ここでも同じように1回出す
+// （これが食べられて、以降は普通に操作できる）。
+async function openSheet() {
+  await tapCount()
+  await click(host.querySelector('.af-modal'))
+}
+// 並び替えそのものを見るテスト用。開き方（指のタップと ghost click）はここの主題ではないので、
+// ジェスチャを経由しない入口＝分類先管理の件数チップから開く。
+async function openSheetViaChip(group = '冷蔵庫') {
+  await click(host.querySelector('.af-rail-btn.gear'))
+  const chip = [...host.querySelectorAll('.af-erow')]
+    .find(r => r.querySelector('.af-ename').textContent.trim() === group)
+    .querySelector('.af-ecount')
+  await click(chip)
 }
 
 beforeEach(async () => {
@@ -81,6 +102,53 @@ describe('振り分け済みシート — 開き方', () => {
     await tapCount()
     expect(sheet()).toBeTruthy()
     expect(sheetNames()).toEqual(['トマト', 'レタス', '人参'])
+  })
+
+  // 開いたのと同じ指の click が、開いたばかりのシートの上に降ってくる。
+  // 背景に当たれば即閉じ、行に当たれば別の品目へ飛ぶ。どちらも「タップでは反応しない」に見える。
+  // 長押しだと端末が click を出さないので、そちらだけ動いているように見えていた。
+  it('開いた直後に降ってくる click で閉じない', async () => {
+    await mount()
+    await tapCount()
+    await click(host.querySelector('.af-modal'))     // 同じタップの click が背景に落ちる
+    expect(sheet()).toBeTruthy()
+  })
+
+  it('開いた直後の click は中の行にも効かせない', async () => {
+    await mount()
+    await tapCount()
+    await click(rowOf('トマト').querySelector('.af-sheet-item-name'))
+    expect(sheet()).toBeTruthy()                      // locate で閉じて一覧へ飛んでいない
+  })
+
+  it('ghost click を食べた後は、背景のタップで閉じる', async () => {
+    await mount()
+    await openSheet()
+    await click(host.querySelector('.af-modal'))
+    expect(sheet()).toBeNull()
+  })
+
+  // 食べるのは1回だけ。時間の窓で塞ぐと、その間は本当の操作まで死ぬ。
+  it('食べるのは1回だけで、次の click はすぐ効く', async () => {
+    await mount()
+    await tapCount()
+    await click(host.querySelector('.af-modal'))   // ghost
+    expect(sheet()).toBeTruthy()
+    await click(host.querySelector('.af-modal'))   // 本当のタップ
+    expect(sheet()).toBeNull()
+  })
+
+  // 件数チップ（分類先管理）からは本物の click で開くので、食べる相手がいない
+  it('管理の件数チップから開いたときは、次の click を食べない', async () => {
+    await mount()
+    await click(host.querySelector('.af-rail-btn.gear'))
+    const chip = [...host.querySelectorAll('.af-erow')]
+      .find(r => r.querySelector('.af-ename').textContent.trim() === '常温棚')
+      .querySelector('.af-ecount')
+    await click(chip)
+    expect(sheet()).toBeTruthy()
+    await click(host.querySelector('.af-modal'))
+    expect(sheet()).toBeNull()
   })
 
   it('指が少し動いてもタップとして開く（実際の指は数px動く）', async () => {
@@ -118,14 +186,14 @@ describe('振り分け済みシート — 開き方', () => {
 describe('振り分け済みシート — 並び替え', () => {
   it('既定では並び替えモードではなく、確認の導線が出ている', async () => {
     await mount()
-    await tapCount()
+    await openSheetViaChip()
     expect(host.querySelector('.af-sheet-handle')).toBeNull()
     expect(rowOf('トマト').querySelector('.af-sheet-off')).toBeTruthy()
   })
 
   it('並び替えに入るとつまみが出て、外す・確認は引っ込む', async () => {
     await mount()
-    await tapCount()
+    await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
     expect(host.querySelectorAll('.af-sheet-handle').length).toBe(3)
     expect(rowOf('トマト').querySelector('.af-sheet-off')).toBeNull()
@@ -133,7 +201,7 @@ describe('振り分け済みシート — 並び替え', () => {
 
   it('カードを長押しして運ぶと config.order のその分類先の位置だけが入れ替わる', async () => {
     await mount()
-    await tapCount()
+    await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
     const list = host.querySelector('.af-sheet-list')
     list.setPointerCapture = vi.fn()
@@ -164,7 +232,7 @@ describe('振り分け済みシート — 並び替え', () => {
 
   it('掴むまでの間に指が流れたら並べ替えない', async () => {
     await mount()
-    await tapCount()
+    await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
     const list = host.querySelector('.af-sheet-list')
     list.setPointerCapture = vi.fn()
@@ -181,9 +249,17 @@ describe('振り分け済みシート — 並び替え', () => {
 describe('振り分け済みシート — タップ順の簡易並び替え', () => {
   async function enterTapOrder() {
     await mount()
-    await tapCount()
+    await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
+    expect(host.querySelector('.af-sheet-tap')).toBeTruthy()      // 並び替えに入れた
     await click(btn('① タップ順で並べる'))
+    expect(host.querySelector('.af-sheet-apply')).toBeTruthy()    // タップ順に入れた
+  }
+  // タップして番号が付くまでを1つの手順にする（付かないまま先へ進むと、
+  // 失敗が「並びが変わらない」になって、どこで落ちたのか読めない）
+  async function tapPick(name) {
+    await click(rowOf(name).querySelector('.af-sheet-item-name'))
+    expect(rowOf(name).querySelector('.af-sheet-no').textContent.trim()).not.toBe('–')
   }
 
   it('タップした順に番号が付く', async () => {
@@ -208,7 +284,7 @@ describe('振り分け済みシート — タップ順の簡易並び替え', ()
 
   it('確定するとタップした順が上、触らなかったものは今の順で後ろへ', async () => {
     await enterTapOrder()
-    await click(rowOf('人参').querySelector('.af-sheet-item-name'))
+    await tapPick('人参')
     await click(btn('この順で確定'))
 
     expect(cfg.config.order.filter(n => ['トマト', 'レタス', '人参'].includes(n)))
@@ -223,7 +299,7 @@ describe('振り分け済みシート — タップ順の簡易並び替え', ()
 
   it('確定した並びは元に戻せる', async () => {
     await enterTapOrder()
-    await click(rowOf('人参').querySelector('.af-sheet-item-name'))
+    await tapPick('人参')
     await click(btn('この順で確定'))
     expect(sheetNames()).toEqual(['人参', 'トマト', 'レタス'])
 

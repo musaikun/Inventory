@@ -315,7 +315,7 @@ function finishWheelGesture(e, cancelled) {
   // Pointer Capture中のtapはclickのtargetがstageへ置き換わるため、down時の
   // 物理slotをpointerupで確定する。
   if (countSlot != null) {
-    openAssigned(countSlot)
+    openAssigned(countSlot, { fromPointer: true })
     return
   }
   if (tapSlot != null) {
@@ -439,14 +439,44 @@ function openAssignedFor(name) {
   if (at < 0) return
   openAssigned(at)
 }
+// 件数を pointerup で開いた後、同じ指の click が「開いたばかりのシート」の上に降ってくる。
+// 背景に当たれば即閉じ、行に当たれば別の品目へ飛ぶ。どちらも「タップでは反応しない」に見える。
+// 長押しだと端末が click を出さない（長押しは別ジェスチャ扱い）ので、そちらだけ動いていた。
+//
+// 食べるのは「その1回」だけ。時間の窓で塞ぐと、窓の間は本当の操作まで死ぬし、
+// 端末やアニメーションの速さで当たり外れが出る。指が離れた後に来る click は多くて1回なので、
+// 1回だけ食べて即座に戻す。click が来ないまま（長押しなど）のときのために保険の時限も置く。
+const GHOST_CLICK_MS = 500
+let _swallowNextClick = false
+let _swallowT = null
+function armGhostSwallow() {
+  _swallowNextClick = true
+  clearTimeout(_swallowT)
+  _swallowT = setTimeout(() => { _swallowNextClick = false }, GHOST_CLICK_MS)
+}
+function disarmGhostSwallow() {
+  _swallowNextClick = false
+  clearTimeout(_swallowT)
+  _swallowT = null
+}
+function swallowAssignedGhost(e) {
+  if (!_swallowNextClick) return
+  disarmGhostSwallow()
+  e.stopPropagation()
+  e.stopImmediatePropagation?.()
+  e.preventDefault()
+}
 function closeAssigned() {
+  disarmGhostSwallow()
   sheetDrag.cleanup()
   sheetSorting.value = false
   exitTapOrder()
   showAssigned.value = false
 }
-function openAssigned(slot) {
+// fromPointer: 指のタップ（pointerup）で開いたとき。その指の click が後から降ってくる
+function openAssigned(slot, { fromPointer = false } = {}) {
   _countJustOpened = true
+  if (fromPointer) armGhostSwallow(); else disarmGhostSwallow()
   freezeWheel()
   // 押した数字の分類先を中央に据える。回さずに合わせるのは、開いた一覧と
   // 中央のカードが食い違わないようにするため。
@@ -763,14 +793,11 @@ const sheetDrag = useListDragReorder({
   focusAfterKeyboard: row => nextTick(() => row.querySelector('.af-sheet-handle')?.focus()),
 })
 
-function toggleSheetSorting() {
-  sheetSorting.value = !sheetSorting.value
-  if (!sheetSorting.value) exitTapOrder()
-}
+function enterSheetSorting() { sheetSorting.value = true }
+function exitSheetSorting()  { sheetSorting.value = false; exitTapOrder() }
 // 品目は分類先より数が多く、1件ずつ運ぶと時間がかかる。
 // 上から順にタップしていくだけで並ぶ道を別に用意する。
-function toggleTapOrder() {
-  if (tapOrderOn.value) { exitTapOrder(); return }
+function enterTapOrder() {
   sheetDrag.cleanup()
   tapSeq.value = []
   tapOrderOn.value = true
@@ -1015,7 +1042,7 @@ onUnmounted(() => {
   _countTapSlot = null
   _vel = 0
   cancelAnimationFrame(_fanRaf); cancelAnimationFrame(_glideRaf)
-  clearTimeout(_flashT); clearTimeout(_undoT); clearTimeout(_locateT)
+  clearTimeout(_flashT); clearTimeout(_undoT); clearTimeout(_locateT); clearTimeout(_swallowT)
 })
 
 // ── ジャンル別アコーディオン（取込元にジャンルがある場合）───────
@@ -1152,6 +1179,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <div
         class="af-list" ref="listEl"
         @pointerdown="onListPointerDown" @click="onListCommit" @scroll.passive="onListScroll"
+        @selectstart.prevent
+        @dragstart.prevent
       >
         <!-- ジャンルがあればアコーディオン、無ければフラット -->
         <template v-if="hasGenres">
@@ -1322,27 +1351,26 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     </div>
 
     <!-- 振り分け済みの確認（中央カードのカウントから開く）-->
-    <div v-if="showAssigned" class="af-modal" @click.self="closeAssigned">
+    <div
+      v-if="showAssigned" class="af-modal"
+      @click.capture="swallowAssignedGhost"
+      @click.self="closeAssigned"
+    >
       <div class="af-sheet">
         <div class="af-sheet-head">
           <span class="af-sheet-title">{{ target }} の振り分け済み <b>{{ assignedItems.length }}</b></span>
-          <button
-            v-if="assignedItems.length > 1"
-            :class="['af-sheet-sort', { on: sheetSorting }]"
-            :aria-pressed="sheetSorting ? 'true' : 'false'"
-            @click="toggleSheetSorting"
-          >{{ sheetSorting ? '並び替えを終える' : '⇅ 並び替え' }}</button>
+          <template v-if="assignedItems.length > 1">
+            <button v-if="sheetSorting" class="af-sheet-sort on" aria-pressed="true" @click="exitSheetSorting">並び替えを終える</button>
+            <button v-else class="af-sheet-sort" aria-pressed="false" @click="enterSheetSorting">⇅ 並び替え</button>
+          </template>
           <button class="af-sheet-close" aria-label="閉じる" @click="closeAssigned">✕</button>
         </div>
 
         <!-- 並び替えの道は2つ。1件ずつ運ぶドラッグと、上から順にタップしていくだけの簡易。
              品目は分類先より数が多く、全部運ぶと時間がかかるので後者を用意している。 -->
         <div v-if="sheetSorting" class="af-sheet-sortbar">
-          <button
-            :class="['af-sheet-tap', { on: tapOrderOn }]"
-            :aria-pressed="tapOrderOn ? 'true' : 'false'"
-            @click="toggleTapOrder"
-          >{{ tapOrderOn ? 'タップ順をやめる' : '① タップ順で並べる' }}</button>
+          <button v-if="tapOrderOn" class="af-sheet-tap on" aria-pressed="true" @click="exitTapOrder">タップ順をやめる</button>
+          <button v-else class="af-sheet-tap" aria-pressed="false" @click="enterTapOrder">① タップ順で並べる</button>
           <button v-if="tapOrderOn" class="af-sheet-apply" :disabled="!tapSeq.length" @click="applyTapOrder">
             この順で確定{{ tapSeq.length ? `（${tapSeq.length}）` : '' }}
           </button>
@@ -1571,7 +1599,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
    横ジェスチャは touch-action で最初からこちらが引き取る。宣言しないと Android Chrome が
    同じ指の動きを「進む・戻る」のエッジ操作としても処理し、履歴を横取りする。
    このアプリは戻るを履歴の受け皿で捕まえているので、横取りされると受け皿が消える。 */
-.af-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 14px 24px; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior-x: contain; }
+/* 行だけに user-select: none を置いても、Android Chrome は長押しで「近くの選べる文字」
+   （ジャンルの見出しなど）を探して選択を始める。面ごと選ばせない。
+   検索欄は .af-tools 側にあるのでここには含まれない。 */
+.af-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 14px 24px; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior-x: contain; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .af-cat-head { width: 100%; display: flex; align-items: center; gap: 8px; background: #f1f5f9; border: none; border-radius: 8px; padding: 9px 12px; margin: 6px 0 4px; cursor: pointer; }
 .af-cat-arrow { color: #94a3b8; font-size: 11px; }
 .af-cat-name { font-size: 13px; font-weight: 800; color: #475569; }
