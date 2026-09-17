@@ -868,19 +868,32 @@ const _rowShift = new WeakMap()
 const _shiftAnimations = new Set()
 
 // つまみに触れた瞬間に掴むと、一覧を眺めるつもりの指でも行が持ち上がる。
-// 少し持ってから掴む。持っている間に指が動いたら、掴む意図ではなかったとみて降りる。
+// 少し持ってから掴む。
+//
+// つまみは touch-action: none でジェスチャを引き取っているので、持っている間に
+// 指が動いてもブラウザは一覧をスクロールしてくれない。掴むのをやめるだけだと
+// 「何も起きない」死に領域になるため、掴まなかった分の縦移動はこちらで一覧へ流す。
+// ＝ つまみの上から始めた指でも、掴まずに一覧をスクロールできる。
 const HANDLE_HOLD_MS = 220
-const HANDLE_HOLD_SLOP = 8
+// 指の震えで持ち損なわないよう、判定はやや緩くする（8pxだと押し続けているつもりでも外れる）
+const HANDLE_HOLD_SLOP = 14
 let _holdTimer = null, _holdRow = null, _holdHandle = null, _holdPointerId = null
 let _holdX = 0, _holdY = 0, _holdLastY = 0
+let _holdScrolling = false     // 持つのをやめ、この指を一覧のスクロールに回している
 
-function _clearHold() {
+// 待つのをやめる。指はまだ触れているので、_holdPointerId はここでは落とさない
+function _stopHoldTimer() {
   clearTimeout(_holdTimer)
   _holdTimer = null
   _holdHandle?.classList.remove('holding')
   _holdRow = null
   _holdHandle = null
+}
+// 指が離れた／掴んだ。この指の話を終わりにする
+function _clearHold() {
+  _stopHoldTimer()
   _holdPointerId = null
+  _holdScrolling = false
 }
 // 持ち切ったところで掴む。開始位置はここでの指の位置にする（押した場所を基準にすると、
 // 持っている間のわずかなぶれの分だけ行が最初に跳ねる）。
@@ -908,6 +921,7 @@ function onHandleDown(e) {
   if (!handle || _dragRow || _holdTimer || e.isPrimary === false) return
   const row = handle.closest('.af-erow')
   if (!row) return
+  _holdScrolling = false
   _holdRow = row
   _holdHandle = handle
   _holdPointerId = e.pointerId ?? null
@@ -917,11 +931,17 @@ function onHandleDown(e) {
   _holdTimer = setTimeout(() => _armDrag(_holdLastY), HANDLE_HOLD_MS)
 }
 function onHandleMove(e) {
-  if (_holdTimer && pointerMatches(e, _holdPointerId)) {
-    if (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP) {
-      _clearHold()
+  // まだ掴んでいない指。持ち切るのを待つか、一覧のスクロールに回すかのどちらか
+  if (!_dragRow && _holdPointerId != null && pointerMatches(e, _holdPointerId)) {
+    if (_holdTimer
+        && (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP)) {
+      _stopHoldTimer()
       _dragPointerId = null
-      return
+      _holdScrolling = true
+    }
+    if (_holdScrolling && editListEl.value) {
+      if (e.cancelable) e.preventDefault()
+      editListEl.value.scrollTop -= e.clientY - _holdLastY
     }
     _holdLastY = e.clientY
     return
@@ -955,10 +975,10 @@ function onHandleMove(e) {
   navigator.vibrate?.(6)
 }
 function onHandleUp(e) {
-  if (_holdTimer && (!e || pointerMatches(e, _holdPointerId))) {
+  if (_holdPointerId != null && (!e || pointerMatches(e, _holdPointerId))) {
     // 持ち切る前に離した＝掴む意図ではなかった。何も起こさない
     _clearHold()
-    _dragPointerId = null
+    if (!_dragRow) _dragPointerId = null
   }
   if (!_dragRow || (e && !pointerMatches(e, _dragPointerId))) return
   const row = _dragRow
@@ -1344,9 +1364,12 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
            @lostpointercapture="onHandleUp">
         <div v-for="g in groups" :key="g" :data-group="g" class="af-erow">
           <button
-            type="button" class="af-ehandle"
+            type="button" class="af-ehandle" draggable="false"
             :aria-label="`${g} を並べ替え。現在 ${groups.indexOf(g) + 1} 番目。上下矢印キーで移動`"
             @keydown="onHandleKeydown($event, g)"
+            @touchstart.prevent
+            @contextmenu.prevent
+            @dragstart.prevent
           >⋮⋮</button>
           <span class="af-ename">{{ g }}</span>
           <span class="af-ecount">{{ groupCount[g] || 0 }}</span>
@@ -1667,7 +1690,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: fixed; inset: 0; z-index: 65; background: #f8fafc;
   display: flex; flex-direction: column;
   transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1);
+  /* つまみを長押しすると、ブラウザは文字選択のジェスチャを始める。選択が始まると
+     そのジェスチャがポインタを奪い、pointercancel / lostpointercapture が飛んで
+     掴んだ瞬間にドラッグが外れる。選択ハンドルやコールアウトも出る。
+     並べ替えの面に読ませたい文字はあっても、選ばせたい文字は無いので面ごと止める。 */
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
+/* 名前の変更だけは打てる必要がある */
+.af-edit input { user-select: text; -webkit-user-select: text; }
 .af-edit.on { transform: translateY(0); }
 .af-edit-head { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; background: #fff; border-bottom: 1px solid #e2e8f0; }
 .af-edit-title { font-size: 16px; font-weight: 800; color: #1e293b; }
@@ -1682,7 +1712,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 }
 .af-erow.drag { box-shadow: 0 12px 28px rgba(15,23,42,0.22); border-color: var(--primary, #2563eb); position: relative; z-index: 5; }
 .af-edit-list.dragging .af-erow:not(.drag) { opacity: 0.55; }
-.af-ehandle { flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 17px; letter-spacing: -2px; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; }
+.af-ehandle { flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 17px; letter-spacing: -2px; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
 .af-ehandle:focus-visible { outline: 3px solid var(--primary-border, #bfdbfe); outline-offset: -3px; border-radius: 9px; }
 .af-erow.drag .af-ehandle { cursor: grabbing; color: var(--primary, #2563eb); }
 /* 掴むまでの間。まだ動かないことと、待てば掴めることを同時に見せる */

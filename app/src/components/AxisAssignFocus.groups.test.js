@@ -782,6 +782,28 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(list.setPointerCapture).not.toHaveBeenCalled()
   })
 
+  // つまみは touch-action: none でジェスチャを引き取っているので、掴まなかった指の
+  // 縦移動はこちらで一覧へ流す。そうしないと「何も起きない」死に領域になる。
+  it('掴まなかった指でも、つまみの上から一覧をスクロールできる', async () => {
+    for (const g of ['冷蔵庫', '棚', '冷凍庫', '倉庫']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    list.scrollTop = 100
+    const row = host.querySelector('.af-erow')
+
+    pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 200, 61)
+    pointer(list, 'pointermove', 20, 180, 61)          // 持ち切る前に動いた＝スクロールへ回す
+    pointer(list, 'pointermove', 20, 160, 61)
+    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+
+    expect(row.classList.contains('drag')).toBe(false)
+    expect(list.setPointerCapture).not.toHaveBeenCalled()
+    expect(list.scrollTop).toBe(140)                   // 指を上へ40px動かした分だけ送られた
+    pointer(list, 'pointerup', 20, 160, 61)
+  })
+
   it('持ち切る前に離したら何も起こらない', async () => {
     for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
     await mount()
