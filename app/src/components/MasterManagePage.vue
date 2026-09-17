@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
-import { showAxisAssign, axisAssignInitial, settingsSection } from '../composables/appMenuState.js'
+import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import InventoryTable from './InventoryTable.vue'
@@ -13,7 +13,7 @@ import RowMapperModal from './RowMapperModal.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, unhideItem, setAxisName, clearAxis, exportConfigCSV } = useConfig()
+const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis, exportConfigCSV, setReorderPoint, setReplenishTarget } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -58,58 +58,66 @@ const hiddenSet  = computed(() => new Set(config.hiddenItems))
 const hiddenList = computed(() => sortHiddenByRecent(config.hiddenItems, config.hiddenAt))
 function hiddenAt(n) { return hiddenAtLabel(config.hiddenAt?.[n]) }
 
-// ── 非表示の由来（自動＝前回まで未入力 / 手動）と絞り込み ───────
-const autoSet        = computed(() => new Set(config.hiddenAuto))
-const autoHiddenList = computed(() => hiddenList.value.filter(n => autoSet.value.has(n)))
-const manualHiddenList = computed(() => hiddenList.value.filter(n => !autoSet.value.has(n)))
-const hFilter = ref('all')  // 'all' | 'auto' | 'manual'
-const filteredHidden = computed(() =>
-  hFilter.value === 'auto' ? autoHiddenList.value
-  : hFilter.value === 'manual' ? manualHiddenList.value
-  : hiddenList.value
-)
-function isAuto(n) { return autoSet.value.has(n) }
-
-// 直近スナップショットの入力済み集合（新しい順）→ 未入力の連続数で由来の深さを出す
-const enteredSets = computed(() =>
-  getSnapshots().map(snap => {
-    const s = new Set()
-    for (const it of (snap.items ?? [])) if (it.qty !== null && it.qty !== undefined) s.add(it.item)
-    return s
-  })
-)
-function unusedStreak(item) {
-  let n = 0
-  for (const set of enteredSets.value) { if (set.has(item)) break; n++ }
-  return n
-}
-// 1 = 前回のみ未入力（青）/ 2 = 前回・前々回とも未入力（濃い青）
-function srcLevel(n)  { return Math.min(2, Math.max(1, unusedStreak(n))) }
-function srcLabel(n)  { return srcLevel(n) >= 2 ? '前回・前々回 未入力' : '前回 未入力' }
-function restoreAllAuto() {
-  if (!autoHiddenList.value.length) return
-  if (!confirm(`自動で非表示にした ${autoHiddenList.value.length} 件をすべて戻します。よろしいですか？`)) return
-  for (const n of [...autoHiddenList.value]) unhideItem(n)
-}
-
-const listOpen = ref(false)
-
 const hiddenOpen = ref(false)
+
+// ── 品目表からその場で設定する ─────────────────────────────
+// この画面の表では数量は打てない。代わりに、棚卸のたびに変わらない値
+// （発注点・補充目標）と、表に出す / 出さないをここで決める。
+// 打つそばから保存する（「保存」を押し忘れて消えるのが一番困る画面なので）。
+function reorderPointOf(item)   { return config.reorderPoints?.[item] ?? '' }
+function replenishTargetOf(item){ return config.replenishTargets?.[item] ?? '' }
+function onReorderPoint(item, e)    { setReorderPoint(item, e.target.value) }
+function onReplenishTarget(item, e) { setReplenishTarget(item, e.target.value) }
+function toggleHidden(item) {
+  if (hiddenSet.value.has(item)) unhideItem(item)
+  else hideItem(item)
+}
 
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
   import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
-  axis: '「保管場所」「仕入先」などの分類を作り、品目を分類先へ振り分けられます。棚卸カードの並び順もここで整います。ジャンルは取込元データ由来で編集できません。',
-  hidden: '棚卸・発注カードに表示しない品目の一覧です。「自動」＝前回まで未入力で自動的に隠れたもの、「手動」＝自分で非表示にしたもの。最後に隠したものから順に、隠した時刻つきで並びます。誤って隠したときは上から探して戻せます。',
-  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。数値入力欄の位置には、現在の分類先の割り当てが表示されます。',
+  axis: '棚卸・発注カードの並び順に使うグループの一覧です。「保管場所」「仕入先」などのグループを作り、品目をその中の分類先へ振り分けられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
+  hidden: '棚卸・発注カードに表示しない品目の一覧です。最後に隠したものから順に、隠した時刻つきで並びます。誤って隠したときは上から探して戻せます。',
+  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。この表では数量は打てません。代わりに、棚卸のたびには変わらない「発注点」「目標（補充してここまで戻す数）」と、表に出す / 出さないをその場で設定できます。打った値はすぐ保存されます。分類先の割り当ては品目名の下に出ます。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
 function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
 
+// ── 取り込む / 書き出す（押してから種類を選ぶ）──────────────
+// 入口を1つずつにしたので、種類の選択はここで受ける。
+const picker = ref('')   // '' | 'import' | 'export'
+function openPicker(kind) { activeHelp.value = ''; picker.value = kind }
+function closePicker()    { picker.value = ''; activeHelp.value = '' }
+// 選んだらシートは閉じる。取込はこの後それぞれの確認画面が開く
+function runPick(fn) { closePicker(); fn() }
+// 戻るは、この画面を閉じる前にシートを閉じる（独自実装せず既存の段に乗せる）
+onUnmounted(registerInnerLayerCloser(() => {
+  if (picker.value) { closePicker(); return true }
+  return false
+}))
+
 function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
+
+// ── 並び順のグループ ────────────────────────────────────────
+// ジャンルも1つのグループとして同じ列に並べる。取込元データ由来なので名前も中身も
+// 編集できないが、「並び順の選択肢」としては自作のものと同格。番号は上から通しで振る
+// （ジャンルが無い店ではグループ1が自作の1つ目になる）。
+const hasGenres  = computed(() => Object.keys(config.categories || {}).length > 0)
+const genreCount = computed(() => new Set(Object.values(config.categories || {}).filter(Boolean)).size)
+// 画面に出る順。番号はこの配列の位置で決まる
+const groupSlots = computed(() => {
+  const slots = []
+  if (hasGenres.value) slots.push({ kind: 'genre' })
+  slots.push({ kind: 'axis', idx: 0 })
+  if (config.axisNames[1] || show2.value) slots.push({ kind: 'axis', idx: 1 })
+  return slots
+})
+// 「＋ グループを追加」を出すか（自作の2つ目がまだ無いとき）
+const canAddGroup = computed(() => !!config.axisNames[0] && !config.axisNames[1] && !show2.value)
+const nextGroupNo = computed(() => groupSlots.value.length + 1)
 
 // ── 分類（第1レイヤー）の登録 ─────────────────────────────
 const draft = ref(['', ''])
@@ -139,7 +147,7 @@ function confirmEditAxis(idx) {
 function cancelEditAxis() { editingAxis.value = -1; clearAxisError() }
 function deleteAxis(idx) {
   const name = config.axisNames[idx]
-  if (!confirm(`分類「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
+  if (!confirm(`グループ「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
   clearAxis(idx)
   if (idx === 1) show2.value = false
 }
@@ -169,69 +177,25 @@ function onClear() {
     </header>
 
     <div class="mp-scroll">
-      <!-- 取り込む -->
-      <div class="mm-section-label">取り込む</div>
+      <!-- 取り込む / 書き出す。入口は1つずつにして、押してから種類を選ぶ。
+           以前は5つの行が並んでいて、画面の最初に出るものが一番迷う場所になっていた。 -->
       <div class="mm-card">
         <div class="mm-row-wrap">
-          <button class="mm-row" @click="settingsSection = 'import'">
+          <button class="mm-row" @click="openPicker('import')">
             <span class="mm-row-ico">📥</span>
             <span class="mm-row-body">
-              <span class="mm-row-title">品目を取込む / 更新</span>
-              <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
+              <span class="mm-row-title">取り込む</span>
+              <span class="mm-row-sub">品目リスト／過去の納品／過去の棚卸（CSV・Excel・PDF）</span>
             </span>
-            <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
             <span class="mm-row-arrow">→</span>
           </button>
-          <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
         </div>
         <div class="mm-row-wrap">
-          <button class="mm-row" @click="pickDelivery">
-            <span class="mm-row-ico">🧾</span>
-            <span class="mm-row-body">
-              <span class="mm-row-title">過去の納品を取り込む</span>
-              <span class="mm-row-sub">CSV・Excel から（既定は入庫・種別列で出庫も）</span>
-            </span>
-            <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
-            <span class="mm-row-arrow">→</span>
-          </button>
-          <div v-if="activeHelp === 'delivery'" class="mm-help">
-            {{ HELP.delivery }}
-            <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
-          </div>
-        </div>
-        <div class="mm-row-wrap">
-          <button class="mm-row" @click="pickStocktake">
-            <span class="mm-row-ico">🧮</span>
-            <span class="mm-row-body">
-              <span class="mm-row-title">過去の棚卸を取り込む</span>
-              <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
-            </span>
-            <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
-            <span class="mm-row-arrow">→</span>
-          </button>
-          <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
-        </div>
-      </div>
-
-      <!-- 書き出す -->
-      <div class="mm-section-label">書き出す</div>
-      <div class="mm-card">
-        <div class="mm-row-wrap">
-          <button class="mm-row" @click="exportMasterCsv">
+          <button class="mm-row" @click="openPicker('export')">
             <span class="mm-row-ico">📤</span>
             <span class="mm-row-body">
-              <span class="mm-row-title">品目リストを出力</span>
-              <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
-            </span>
-            <span class="mm-row-arrow">↓</span>
-          </button>
-        </div>
-        <div class="mm-row-wrap">
-          <button class="mm-row" @click="exportLatestSnapshotCsv">
-            <span class="mm-row-ico">📤</span>
-            <span class="mm-row-body">
-              <span class="mm-row-title">棚卸結果を出力</span>
-              <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
+              <span class="mm-row-title">書き出す</span>
+              <span class="mm-row-sub">品目リスト／棚卸結果（CSV）</span>
             </span>
             <span class="mm-row-arrow">↓</span>
           </button>
@@ -241,58 +205,55 @@ function onClear() {
       <!-- 整える -->
       <div class="mm-section-label">整える・確認</div>
 
-      <!-- 分類の追加（並び順） -->
+      <!-- 並び順設定（グループ） -->
       <div class="mm-block">
         <div class="mm-block-head">
-          <span class="mm-block-title">分類の追加（並び順）</span>
+          <span class="mm-block-title">並び順設定</span>
           <button class="mm-help-btn" :class="{ on: activeHelp === 'axis' }" @click="toggleHelp('axis')">?</button>
         </div>
         <div v-if="activeHelp === 'axis'" class="mm-help">{{ HELP.axis }}</div>
 
-        <!-- 分類① -->
-        <div class="mm-axis-row">
-          <span class="mm-axis-label">分類①</span>
-          <template v-if="config.axisNames[0] && editingAxis !== 0">
-            <span class="mm-axis-name">{{ config.axisNames[0] }}</span>
-            <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(0)">✎</button>
-            <button class="mm-axis-go" @click="openReorder(0)">振り分け →</button>
-            <button class="mm-axis-del" @click="deleteAxis(0)">削除</button>
-          </template>
-          <template v-else-if="editingAxis === 0">
-            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(0)" />
-            <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(0)">確定</button>
-            <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
-          </template>
-          <template v-else>
-            <input class="mm-axis-input" v-model="draft[0]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：保管場所）" @input="clearAxisError" @keyup.enter="confirmAxis(0)" />
-            <button class="mm-axis-confirm" :disabled="!draft[0].trim()" @click="confirmAxis(0)">確定</button>
-          </template>
-        </div>
-        <div v-if="axisErrorAt === 0" class="mm-axis-err">「分類②」と同じ名前です。別の名前にしてください</div>
+        <template v-for="(slot, no) in groupSlots" :key="slot.kind + (slot.idx ?? '')">
+          <!-- ジャンル: 取込元データ由来。並び順の選択肢としては自作と同格なので同じ列に置く -->
+          <div v-if="slot.kind === 'genre'" class="mm-axis-row">
+            <span class="mm-axis-label">グループ{{ no + 1 }}</span>
+            <span class="mm-axis-name">ジャンル別</span>
+            <span class="mm-axis-fixed">取込元由来 ・ {{ genreCount }}種</span>
+          </div>
 
-        <!-- 分類②: 設定済み or ＋で表示 -->
-        <div v-if="config.axisNames[1] || show2" class="mm-axis-row">
-          <span class="mm-axis-label">分類②</span>
-          <template v-if="config.axisNames[1] && editingAxis !== 1">
-            <span class="mm-axis-name">{{ config.axisNames[1] }}</span>
-            <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(1)">✎</button>
-            <button class="mm-axis-go" @click="openReorder(1)">振り分け →</button>
-            <button class="mm-axis-del" @click="deleteAxis(1)">削除</button>
-          </template>
-          <template v-else-if="editingAxis === 1">
-            <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(1)" />
-            <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(1)">確定</button>
-            <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
-          </template>
           <template v-else>
-            <input class="mm-axis-input" v-model="draft[1]" :maxlength="AXIS_NAME_MAX" placeholder="分類名（例：仕入先）" @input="clearAxisError" @keyup.enter="confirmAxis(1)" />
-            <button class="mm-axis-confirm" :disabled="!draft[1].trim()" @click="confirmAxis(1)">確定</button>
+            <div class="mm-axis-row">
+              <span class="mm-axis-label">グループ{{ no + 1 }}</span>
+              <template v-if="config.axisNames[slot.idx] && editingAxis !== slot.idx">
+                <span class="mm-axis-name">{{ config.axisNames[slot.idx] }}</span>
+                <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(slot.idx)">✎</button>
+                <button class="mm-axis-go" @click="openReorder(slot.idx)">振り分け →</button>
+                <button class="mm-axis-del" @click="deleteAxis(slot.idx)">削除</button>
+              </template>
+              <template v-else-if="editingAxis === slot.idx">
+                <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(slot.idx)" />
+                <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(slot.idx)">確定</button>
+                <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
+              </template>
+              <template v-else>
+                <input
+                  class="mm-axis-input" v-model="draft[slot.idx]" :maxlength="AXIS_NAME_MAX"
+                  :placeholder="slot.idx === 0 ? 'グループ名（例：保管場所）' : 'グループ名（例：仕入先）'"
+                  @input="clearAxisError" @keyup.enter="confirmAxis(slot.idx)"
+                />
+                <button class="mm-axis-confirm" :disabled="!draft[slot.idx].trim()" @click="confirmAxis(slot.idx)">確定</button>
+              </template>
+            </div>
+            <div v-if="axisErrorAt === slot.idx" class="mm-axis-err">ほかのグループと同じ名前です。別の名前にしてください</div>
           </template>
-        </div>
-        <button v-else-if="config.axisNames[0]" class="mm-axis-add" @click="show2 = true">＋ 分類を追加</button>
-        <div v-if="axisErrorAt === 1" class="mm-axis-err">「分類①」と同じ名前です。別の名前にしてください</div>
+        </template>
 
-        <div class="mm-block-sub">分類（例：保管場所・仕入先）を追加すると、品目を分類先に振り分けられます。ジャンルは取込元由来（編集不可）。</div>
+        <div v-if="canAddGroup" class="mm-axis-row">
+          <span class="mm-axis-label">グループ{{ nextGroupNo }}</span>
+          <button class="mm-axis-add" @click="show2 = true">＋ グループを追加</button>
+        </div>
+
+        <div class="mm-block-sub">グループ（例：保管場所・仕入先）を追加すると、品目をその中の分類先に振り分けられます。棚卸・発注カードの並び順はここで選んだグループで決まります。</div>
       </div>
 
       <!-- 非表示中の管理 -->
@@ -306,45 +267,60 @@ function onClear() {
         </div>
         <div v-if="activeHelp === 'hidden'" class="mm-help">{{ HELP.hidden }}</div>
         <template v-if="hiddenOpen">
-          <!-- 由来で絞り込み -->
-          <div v-if="hiddenList.length > 0" class="mm-hfilter">
-            <button :class="['mm-hf', { on: hFilter === 'all' }]" @click="hFilter = 'all'">すべて {{ hiddenList.length }}</button>
-            <button :class="['mm-hf', { on: hFilter === 'auto' }]" @click="hFilter = 'auto'">自動 {{ autoHiddenList.length }}</button>
-            <button :class="['mm-hf', { on: hFilter === 'manual' }]" @click="hFilter = 'manual'">手動 {{ manualHiddenList.length }}</button>
-          </div>
-          <button
-            v-if="(hFilter === 'all' || hFilter === 'auto') && autoHiddenList.length > 0"
-            class="mm-restore-all" @click="restoreAllAuto">
-            自動非表示をまとめて戻す（{{ autoHiddenList.length }}件）
-          </button>
-          <div v-if="filteredHidden.length === 0" class="mm-empty">
-            {{ hiddenList.length === 0 ? '非表示の品目はありません。' : '該当する品目はありません。' }}
-          </div>
+          <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
           <div v-else>
-            <div v-for="n in filteredHidden" :key="n" class="mm-hidden-row">
+            <div v-for="n in hiddenList" :key="n" class="mm-hidden-row">
               <span class="mm-hidden-name">{{ n }}</span>
               <span v-if="hiddenAt(n)" class="mm-hidden-at">{{ hiddenAt(n) }}</span>
-              <span v-if="isAuto(n)" class="mm-src" :class="'lv' + srcLevel(n)">{{ srcLabel(n) }}</span>
-              <span v-else class="mm-src manual">手動</span>
               <button class="mm-restore" @click="unhideItem(n)">戻す</button>
             </div>
           </div>
         </template>
       </div>
 
-      <!-- 品目一覧（閲覧） -->
+      <!-- 品目一覧。畳まず常に出す。この画面へ来る理由の多くが「一覧を見て直す」ことなので、
+           1手挟むと毎回そこから始まることになる。 -->
       <div class="mm-block">
         <div class="mm-head-row">
-          <button class="mm-block-head mm-toggle" @click="listOpen = !listOpen">
-            <span class="mm-block-title">品目一覧を見る</span>
-            <span class="mm-block-note">{{ listOpen ? '▲' : '▼' }} {{ itemCount }}件</span>
-          </button>
+          <div class="mm-block-head">
+            <span class="mm-block-title">品目一覧</span>
+            <span class="mm-block-note">{{ itemCount }}件</span>
+          </div>
           <button class="mm-help-btn" :class="{ on: activeHelp === 'list' }" @click="toggleHelp('list')">?</button>
         </div>
         <div v-if="activeHelp === 'list'" class="mm-help">{{ HELP.list }}</div>
-        <div v-if="listOpen" class="mm-preview">
-          <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。上の並び替えで分類先の割り当てを確認できます。</div>
-          <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" />
+        <div class="mm-preview">
+          <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。数量は打てません。発注点・目標と、表に出すかどうかをここで設定できます。</div>
+          <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems">
+            <template #qty="{ row }">
+              <div class="mm-set">
+                <label class="mm-set-field">
+                  <span class="mm-set-k">発注点</span>
+                  <input
+                    class="mm-set-input" type="number" min="0" step="any" inputmode="decimal"
+                    :value="reorderPointOf(row.item)"
+                    :aria-label="`${row.item} の発注点`"
+                    @change="onReorderPoint(row.item, $event)"
+                  />
+                </label>
+                <label class="mm-set-field">
+                  <span class="mm-set-k">目標</span>
+                  <input
+                    class="mm-set-input" type="number" min="0" step="any" inputmode="decimal"
+                    :value="replenishTargetOf(row.item)"
+                    :aria-label="`${row.item} の補充目標`"
+                    @change="onReplenishTarget(row.item, $event)"
+                  />
+                </label>
+                <button
+                  :class="['mm-set-eye', { off: hiddenSet.has(row.item) }]"
+                  :aria-pressed="hiddenSet.has(row.item) ? 'true' : 'false'"
+                  :title="hiddenSet.has(row.item) ? '棚卸・発注カードに出す' : '棚卸・発注カードから外す'"
+                  @click.stop="toggleHidden(row.item)"
+                >{{ hiddenSet.has(row.item) ? '出さない' : '出す' }}</button>
+              </div>
+            </template>
+          </InventoryTable>
         </div>
       </div>
 
@@ -362,6 +338,81 @@ function onClear() {
         <input class="mm-del-input" v-model="delCode" placeholder="店舗コードを入力" autocapitalize="characters" />
         <label class="mm-del-reset"><input type="checkbox" v-model="resetAssign" />振り分け（分類先の割り当て）の記憶も消す</label>
         <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
+      </div>
+    </div>
+
+    <!-- 取り込む / 書き出す の種類を選ぶ -->
+    <div v-if="picker" class="mm-pick-back" @click.self="closePicker">
+      <div class="mm-pick" role="dialog" aria-modal="true" :aria-label="picker === 'import' ? '取り込む種類を選ぶ' : '書き出す種類を選ぶ'">
+        <div class="mm-pick-head">
+          <span class="mm-pick-title">{{ picker === 'import' ? '何を取り込みますか？' : '何を書き出しますか？' }}</span>
+          <button class="mm-pick-close" aria-label="閉じる" @click="closePicker">✕</button>
+        </div>
+
+        <template v-if="picker === 'import'">
+          <div class="mm-row-wrap">
+            <button class="mm-row" @click="runPick(() => settingsSection = 'import')">
+              <span class="mm-row-ico">📋</span>
+              <span class="mm-row-body">
+                <span class="mm-row-title">品目リスト</span>
+                <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
+              </span>
+              <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
+              <span class="mm-row-arrow">→</span>
+            </button>
+            <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
+          </div>
+          <div class="mm-row-wrap">
+            <button class="mm-row" @click="runPick(pickDelivery)">
+              <span class="mm-row-ico">🧾</span>
+              <span class="mm-row-body">
+                <span class="mm-row-title">過去の納品</span>
+                <span class="mm-row-sub">CSV・Excel から（既定は入庫・種別列で出庫も）</span>
+              </span>
+              <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
+              <span class="mm-row-arrow">→</span>
+            </button>
+            <div v-if="activeHelp === 'delivery'" class="mm-help">
+              {{ HELP.delivery }}
+              <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
+            </div>
+          </div>
+          <div class="mm-row-wrap">
+            <button class="mm-row" @click="runPick(pickStocktake)">
+              <span class="mm-row-ico">🧮</span>
+              <span class="mm-row-body">
+                <span class="mm-row-title">過去の棚卸</span>
+                <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
+              </span>
+              <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
+              <span class="mm-row-arrow">→</span>
+            </button>
+            <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="mm-row-wrap">
+            <button class="mm-row" @click="runPick(exportMasterCsv)">
+              <span class="mm-row-ico">📋</span>
+              <span class="mm-row-body">
+                <span class="mm-row-title">品目リスト</span>
+                <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
+              </span>
+              <span class="mm-row-arrow">↓</span>
+            </button>
+          </div>
+          <div class="mm-row-wrap">
+            <button class="mm-row" @click="runPick(exportLatestSnapshotCsv)">
+              <span class="mm-row-ico">🧮</span>
+              <span class="mm-row-body">
+                <span class="mm-row-title">棚卸結果</span>
+                <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
+              </span>
+              <span class="mm-row-arrow">↓</span>
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -487,8 +538,26 @@ function onClear() {
 .mm-block-sub { font-size: 12px; color: #64748b; margin: 8px 0; line-height: 1.6; }
 .mm-empty { font-size: 12px; color: #94a3b8; margin-top: 8px; }
 
+/* 取り込む / 書き出す の種類を選ぶシート */
+.mm-pick-back { position: fixed; inset: 0; z-index: 40; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+.mm-pick { width: 100%; max-width: 560px; max-height: 84vh; overflow-y: auto; background: #fff; border-radius: 18px 18px 0 0; padding: 4px 12px 22px; box-shadow: 0 -8px 30px rgba(0,0,0,0.25); animation: mm-pick-up 0.22s cubic-bezier(0.22,0.8,0.28,1); }
+@keyframes mm-pick-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.mm-pick-head { display: flex; align-items: center; gap: 10px; padding: 12px 4px 10px; }
+.mm-pick-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.mm-pick-close { margin-left: auto; border: none; background: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 2px 6px; }
+@media (prefers-reduced-motion: reduce) { .mm-pick { animation: none; } }
+
+/* 品目表の中でその場に置く設定。数量欄の位置をそのまま使う */
+.mm-set { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.mm-set-field { display: flex; align-items: center; gap: 4px; }
+.mm-set-k { font-size: 10px; font-weight: 800; color: #94a3b8; white-space: nowrap; }
+.mm-set-input { width: 52px; min-width: 0; border: 1px solid #e2e8f0; border-radius: 7px; padding: 5px 6px; font-size: 13px; text-align: right; font-family: inherit; }
+.mm-set-input:focus { outline: none; border-color: var(--primary, #2563eb); }
+.mm-set-eye { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 7px; font-size: 11px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; }
+.mm-set-eye.off { border-color: #e2e8f0; background: #f1f5f9; color: #94a3b8; }
+
 .mm-axis-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.mm-axis-label { font-size: 13px; font-weight: 800; color: #64748b; width: 32px; flex-shrink: 0; }
+.mm-axis-label { font-size: 12px; font-weight: 800; color: #64748b; width: 58px; flex-shrink: 0; }
 .mm-axis-input { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 .mm-axis-go { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
 .mm-axis-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: #1e293b; }
@@ -497,23 +566,16 @@ function onClear() {
 .mm-axis-del { flex-shrink: 0; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
 .mm-axis-edit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 6px 9px; cursor: pointer; }
 .mm-axis-cancel { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
-.mm-axis-add { width: 100%; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; margin-top: 8px; }
-.mm-axis-err { font-size: 12px; font-weight: 700; color: #dc2626; margin: 6px 0 0 40px; line-height: 1.5; }
+.mm-axis-add { flex: 1; min-width: 0; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; }
+/* ジャンルは名前も中身も編集できない。触れるものが無いことを、空白ではなく言葉で出す */
+.mm-axis-fixed { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 7px; padding: 5px 9px; white-space: nowrap; }
+.mm-axis-err { font-size: 12px; font-weight: 700; color: #dc2626; margin: 6px 0 0 66px; line-height: 1.5; }
 
 
-.mm-hfilter { display: flex; gap: 6px; margin: 8px 0; }
-.mm-hf { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.mm-hf.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
-.mm-restore-all { width: 100%; border: 1px solid var(--primary-border, #bfdbfe); background: var(--primary-weak, #eff6ff); color: var(--primary, #2563eb); border-radius: 10px; padding: 9px; font-size: 13px; font-weight: 800; cursor: pointer; margin-bottom: 8px; }
-.mm-restore-all:active { background: #dbeafe; }
 
 .mm-hidden-row { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f1f5f9; }
 .mm-hidden-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
 .mm-hidden-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; white-space: nowrap; }
-.mm-src { flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 3px 8px; white-space: nowrap; }
-.mm-src.lv1 { color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; }
-.mm-src.lv2 { color: #fff; background: #1e3a8a; border: 1px solid #1e3a8a; }
-.mm-src.manual { color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; }
 .mm-restore { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
 
 .mm-preview { margin-top: 10px; }

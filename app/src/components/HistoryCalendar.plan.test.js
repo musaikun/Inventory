@@ -72,7 +72,7 @@ describe('日別メモ', () => {
     expect(memo.querySelector('.hc-memo-excl')).not.toBeNull()
   })
 
-  it('保存すると本文と学習除外だけが残る', async () => {
+  it('新しいメモには本文を保存し、タグは追加しない', async () => {
     const root = await mountCal()
     await tapDay(root, '2026-09-15')
 
@@ -86,6 +86,33 @@ describe('日別メモ', () => {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
     expect(saved['2026-09-15'].text).toBe('近隣で花火大会')
     expect(saved['2026-09-15'].tags).toEqual([])
+  })
+
+  it('既存メモを書き直しても以前のタグと学習除外を失わず、別の日にはタグを持ち越さない', async () => {
+    localStorage.setItem(STORAGE_KEYS.dayNotes, JSON.stringify({
+      '2026-09-15': { text: '以前の記録', tags: ['貸切'], excluded: true },
+    }))
+    const root = await mountCal()
+    await tapDay(root, '2026-09-15')
+
+    const ta = root.querySelector('.hc-memo-text')
+    ta.value = '貸切の詳細を追記'
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    root.querySelector('.hc-memo-save').click()
+    await nextTick()
+
+    let saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
+    expect(saved['2026-09-15']).toEqual({ text: '貸切の詳細を追記', tags: ['貸切'], excluded: true })
+
+    root.querySelector('.hc-day-close').click()
+    await nextTick()
+    await tapDay(root, '2026-09-16')
+    root.querySelector('.hc-memo-save').click()
+    await nextTick()
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
+    expect(saved['2026-09-16']).toBeUndefined()
+    expect(saved['2026-09-15'].tags).toEqual(['貸切'])
   })
 })
 

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { getSessions, deleteSession, logout } from '../composables/useAuth.js'
 import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useWeather, requestGeolocation } from '../composables/useWeather.js'
 import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.js'
@@ -108,7 +109,7 @@ async function onDelete(session) {
         <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
       </div>
 
-      <div v-if="loading" class="hcp-loading">読み込み中...</div>
+      <LoadingSpinner v-if="loading" />
       <HistoryCalendar
         v-else
         :sessions="visibleCompletedSessions"
@@ -155,7 +156,6 @@ async function onDelete(session) {
   padding: 14px; max-width: 620px; margin: 0 auto; width: 100%;
 }
 
-.hcp-loading { text-align: center; padding: 40px 0; color: #94a3b8; font-size: 14px; font-weight: 600; }
 .hcp-error {
   flex-shrink: 0;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;

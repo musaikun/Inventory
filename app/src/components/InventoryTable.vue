@@ -21,7 +21,6 @@ const props = defineProps({
   conflictLocked:   { type: Object,  default: null },
   configSource:     { type: Object,  default: null },
   manualItems:      { type: Array,   default: () => [] },
-  usageMap:         { type: Object,  default: null }, // { 品目: 直近N回で入力された回数 }
   hiddenItems:      { type: Array,   default: () => [] }, // 手動で非表示にした品目名
   canManageList:    { type: Boolean, default: true },  // 並び替え/非表示/絞り込みの操作可否（ゲストは false）
   // ゲストが「非表示にしてほしい」とホストへ申請できるか。並び替えや絞り込みは開けない
@@ -73,32 +72,6 @@ const config = computed(() => props.configSource ?? liveConfig)
 
 function _isSupply(item) {
   return isSupplyItem(item, config.value.categories)
-}
-
-// ── よく使う品目に絞る（履歴ベース・表示のみ／マスタは不変）─────────────────────
-// 直近N回で一度も入力されていない品目を隠し、よく使う順に並べる。
-// 検索は常に全品目対象、今回入力済みの品目は必ず表示、いつでも全表示に戻せる。
-const usage        = computed(() => props.usageMap ?? {})
-const hasUsageData = computed(() => !props.readOnly && Object.keys(usage.value).length > 0)
-const usedOnly     = ref(false)
-try { usedOnly.value = localStorage.getItem('inv_used_only') === '1' } catch (_) {}
-function toggleUsedOnly() {
-  usedOnly.value = !usedOnly.value
-  try { localStorage.setItem('inv_used_only', usedOnly.value ? '1' : '0') } catch (_) {}
-}
-const _usedActive = computed(() => usedOnly.value && hasUsageData.value && props.canManageList)
-// 表示対象か: 今回入力済み / カスタム品目 / 直近N回で1回でも入力あり
-function _isUsed(row) {
-  return row.custom || row.entry !== null || (usage.value[row.item] ?? 0) >= 1
-}
-// 名前ベースの「使う品目」判定（進捗集計用・filterMode非依存）
-function _isUsedName(item) {
-  return props.inventory[item] != null || (usage.value[item] ?? 0) >= 1
-}
-// グループ内をよく使う順に並べ替え（絞り込みON時のみ・元の順は安定ソートで保持）
-function _sortByUsage(arr) {
-  if (!_usedActive.value) return arr
-  return [...arr].sort((a, b) => (usage.value[b.item] ?? 0) - (usage.value[a.item] ?? 0))
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
@@ -203,7 +176,6 @@ const catRealStats = computed(() => {
     if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
-    if (_usedActive.value && !_isUsedName(item)) continue
     const cat = config.value.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
@@ -281,11 +253,6 @@ const rows = computed(() => {
     all = all.filter(r => props.itemFilter(r.item, r))
   }
 
-  // 3.5 よく使う品目のみ（ON時のみ・履歴で未使用の品目を隠す）
-  if (_usedActive.value) {
-    all = all.filter(_isUsed)
-  }
-
   // 4. 入力済み/未入力フィルター適用
   let items
   if (filterMode.value === 'filled') {
@@ -320,7 +287,7 @@ const rows = computed(() => {
     for (const [grp, groupRows] of sorted) {
       const real = kanaRealStats.value[grp] ?? { total: groupRows.length, filled: 0 }
       result.push({ type: 'group-header', label: grp, count: real.total, filled: real.filled, isKana: true })
-      result.push(..._sortByUsage(groupRows))
+      result.push(...groupRows)
     }
     return result
   }
@@ -373,7 +340,7 @@ const rows = computed(() => {
     for (const [key, groupRows] of sorted) {
       const real = statsMap[key] ?? { total: groupRows.length, filled: 0 }
       result.push({ type: 'group-header', label: key, count: real.total, filled: real.filled, isKana: false })
-      result.push(..._sortByUsage(groupRows))
+      result.push(...groupRows)
     }
     return result
   }
@@ -386,23 +353,6 @@ const rows = computed(() => {
 const visibleItemCount = computed(() =>
   rows.value.filter(r => r.type === 'item').length
 )
-
-// よく使う絞り込みで隠れている品目数（スコープ適用後・filterMode非依存）
-const hiddenCount = computed(() => {
-  if (!_usedActive.value) return 0
-  let hidden = 0
-  const all = [
-    ...config.value.order.map(item => ({ item, entry: props.inventory[item] ?? null, custom: false })),
-    ...Object.keys(props.inventory).filter(k => !config.value.order.includes(k))
-      .map(item => ({ item, entry: props.inventory[item], custom: true })),
-  ]
-  for (const r of all) {
-    if (props.categoryScope === 'food'   && _isSupply(r.item)) continue
-    if (props.categoryScope === 'supply' && !_isSupply(r.item)) continue
-    if (!_isUsed(r)) hidden++
-  }
-  return hidden
-})
 
 // ── 価格・金額 ────────────────────────────────────────────────────────────────
 const hasPrices = computed(() =>
@@ -609,7 +559,6 @@ const kanaRealStats = computed(() => {
     if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
-    if (_usedActive.value && !_isUsedName(item)) continue
     const grp = _kanaGroup(item)
     if (!map[grp]) map[grp] = { total: 0, filled: 0 }
     map[grp].total++
@@ -629,7 +578,6 @@ function _axisStats(tagMap) {
     if (!props.readOnly && hiddenSet.value.has(item)) continue
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
-    if (_usedActive.value && !_isUsedName(item)) continue
     const arr = tagMap?.[item]
     const groups = (Array.isArray(arr) && arr.length) ? arr : ['その他']
     for (const grp of groups) {
@@ -643,12 +591,12 @@ function _axisStats(tagMap) {
 const axisAStats = computed(() => _axisStats(config.value.tagsA))
 const axisBStats = computed(() => _axisStats(config.value.tagsB))
 
-// スコープ対応の品目数（ヘッダー表示用・絞り込み中は使う品目のみ）
+// スコープ対応の品目数（ヘッダー表示用）
 const scopedTotal = computed(() => {
   const inScope = props.categoryScope === 'all'
     ? config.value.order
     : config.value.order.filter(item => props.categoryScope === 'food' ? !_isSupply(item) : _isSupply(item))
-  return _usedActive.value ? inScope.filter(_isUsedName).length : inScope.length
+  return inScope.length
 })
 
 const scopedFilled = computed(() => {
@@ -728,22 +676,11 @@ function fmtYen(n) {
           >{{ opt.label }}</button>
         </div>
       </slot>
-      <button
-        v-if="hasUsageData && canManage && !preview"
-        :class="['used-toggle', { active: usedOnly }]"
-        @click="toggleUsedOnly"
-        title="直近3回の棚卸で入力があった品目だけを表示（検索は全品目対象）"
-      >{{ usedOnly ? '✓ ' : '' }}前回までに入力した品目のみ表示</button>
     </div>
 
-    <!-- 絞り込み中インジケータ（いつでも全表示に戻せる） -->
-    <div v-if="_usedActive && hiddenCount > 0" class="used-notice" @click="toggleUsedOnly">
-      前回まで入力の無い {{ hiddenCount }}件を非表示中 ・ <strong>タップで全表示</strong>（検索は全品目が対象）
-    </div>
-
-    <!-- 手動非表示の管理（左スワイプで隠した品目。ゲストは操作不可） -->
+    <!-- 非表示の管理（左スワイプで隠した品目。ゲストは操作不可） -->
     <div v-if="canManage && hiddenSet.size > 0" class="hidden-notice" @click="manageHiddenOpen = true">
-      手動非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
+      非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
     </div>
 
     <!-- テーブル -->
@@ -765,7 +702,7 @@ function fmtYen(n) {
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
           <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
-            preview ? '振り分け' : orderMode ? '発注 / 在庫' : '数量' }}</th>
+            preview ? ($slots.qty ? '設定' : '振り分け') : orderMode ? '発注 / 在庫' : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
@@ -841,7 +778,11 @@ function fmtYen(n) {
               <div v-else-if="typingMap?.[row.item]" class="typing-indicator">
                 ✏️ {{ typingMap[row.item].name }}が入力中…
               </div>
-              <div v-else-if="row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
+              <div v-else-if="(preview && $slots.qty) || row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
+                <template v-if="preview && $slots.qty">
+                  <span v-for="g in previewGroups(row)" :key="g" class="prev-hint group-hint">{{ g }}</span>
+                  <span v-if="previewGroups(row).length === 0" class="prev-hint">未振り分け</span>
+                </template>
                 <span v-if="noteMap?.[row.item]" class="prev-hint note-hint">{{ noteMap[row.item] }}</span>
                 <span v-if="row.lotSize"   class="prev-hint lot-hint">入数: {{ row.lotSize }}</span>
                 <span v-if="row.prevMonth" class="prev-hint">前月: {{ row.prevMonth }}</span>
@@ -870,7 +811,7 @@ function fmtYen(n) {
               <!-- まだ触っていない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
                    在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
               <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
-              <div v-if="preview" class="preview-groups">
+              <div v-if="preview && !$slots.qty" class="preview-groups">
                 <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
                 <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
               </div>
@@ -937,7 +878,7 @@ function fmtYen(n) {
     <div v-if="manageHiddenOpen" class="hidden-overlay" @click.self="manageHiddenOpen = false">
       <div class="hidden-sheet">
         <div class="hidden-sheet-head">
-          <span class="hidden-sheet-title">手動非表示の品目（{{ hiddenSet.size }}）</span>
+          <span class="hidden-sheet-title">非表示の品目（{{ hiddenSet.size }}）</span>
           <button class="hidden-sheet-close" @click="manageHiddenOpen = false">閉じる</button>
         </div>
         <p class="hidden-sheet-sub">最後に隠したものが上です。戻すと一覧・進捗に再び含まれます。</p>
@@ -1076,35 +1017,9 @@ function fmtYen(n) {
 }
 
 /* ── よく使う品目トグル ── */
-.used-toggle {
-  flex: 1 0 100%;
-  padding: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  border: 1.5px solid var(--border);
-  background: #fff;
-  border-radius: 10px;
-  color: var(--text-muted);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.used-toggle.active {
-  border-color: var(--primary);
-  background: var(--primary-weak);
-  color: var(--primary);
-}
-.used-notice {
-  font-size: 12px;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1.5px solid #fde68a;
-  border-radius: 8px;
-  padding: 7px 12px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  line-height: 1.5;
-}
-.used-notice strong { color: #b45309; }
+
+
+
 
 .hidden-notice {
   font-size: 12px;
@@ -1482,7 +1397,7 @@ function fmtYen(n) {
 }
 
 /* ── preview: 数量欄に振り分け先グループを表示 ── */
-.inv-preview .th-qty { width: 132px; text-align: left; padding-left: 10px; }
+.inv-preview .th-qty { width: 168px; text-align: left; padding-left: 10px; }
 .inv-preview .td-qty { text-align: left; padding: 7px 8px; }
 .preview-groups { display: flex; flex-wrap: wrap; gap: 4px; }
 .preview-group-chip {
@@ -1491,6 +1406,8 @@ function fmtYen(n) {
   border-radius: 6px; padding: 2px 7px; white-space: nowrap;
 }
 .preview-group-none { font-size: 11px; color: var(--text-muted); }
+/* 数量欄を親へ明け渡したときの振り分け先（品目名の下のヒント欄に出る） */
+.group-hint { color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); }
 
 /* ── 金額セル ── */
 .td-amount {

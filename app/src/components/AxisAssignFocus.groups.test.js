@@ -37,6 +37,13 @@ const pointer  = (el, type, x, y, pointerId = 1) => {
   })
   return el.dispatchEvent(event)
 }
+// つまみは「少し持ってから」掴む形になった（触れた瞬間に行が持ち上がらないように）。
+// テストからは押してから持ち切るまで待つ。AxisAssignFocus の HANDLE_HOLD_MS より長くする。
+const HOLD_WAIT_MS = 300
+const grab = async (handle, x, y, pointerId = 1) => {
+  pointer(handle, 'pointerdown', x, y, pointerId)
+  await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+}
 const touchPointer = (el, type, x, y, timeStamp, pointerId = 1) => {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y })
   Object.defineProperties(event, {
@@ -652,7 +659,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
       configurable: true, value: vi.fn(() => [rows[over]]),
     })
 
-    pointer(rows[drag].querySelector('.af-ehandle'), 'pointerdown', 20, drag * 60 + 28)
+    await grab(rows[drag].querySelector('.af-ehandle'), 20, drag * 60 + 28)
     pointer(list, 'pointermove', 20, y)
 
     const shifted = rows[over === drag ? 0 : 1]
@@ -696,7 +703,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
         .mockReturnValueOnce([rows[3]]),
     })
 
-    pointer(handle, 'pointerdown', 20, 28, 41)
+    await grab(handle, 20, 28, 41)
     expect(list.setPointerCapture).toHaveBeenCalledWith(41)
     expect(handle.setPointerCapture).not.toHaveBeenCalled()
 
@@ -730,14 +737,64 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
       configurable: true, value: vi.fn(() => [rows[1]]),
     })
 
-    pointer(rows[0].querySelector('.af-ehandle'), 'pointerdown', 20, 28, 21)
+    await grab(rows[0].querySelector('.af-ehandle'), 20, 28, 21)
     pointer(list, 'pointermove', 20, 100, 21)
     const previousShift = rows[1].animate.mock.results[0].value
     pointer(list, 'pointerup', 20, 100, 21)
 
-    pointer(rows[1].querySelector('.af-ehandle'), 'pointerdown', 20, 28, 22)
+    await grab(rows[1].querySelector('.af-ehandle'), 20, 28, 22)
     expect(previousShift.cancel).toHaveBeenCalledOnce()
     pointer(list, 'lostpointercapture', 20, 28, 22)
+  })
+
+  // 触れた瞬間に掴むと、一覧を眺めるつもりの指でも行が持ち上がる。
+  it('つまみに触れただけでは掴まない（持ち切って初めて動く）', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    const row = host.querySelector('.af-erow')
+    const handle = row.querySelector('.af-ehandle')
+
+    pointer(handle, 'pointerdown', 20, 28, 51)
+    expect(row.classList.contains('drag')).toBe(false)
+    expect(list.setPointerCapture).not.toHaveBeenCalled()
+
+    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    expect(row.classList.contains('drag')).toBe(true)
+    expect(list.setPointerCapture).toHaveBeenCalledWith(51)
+    pointer(list, 'pointerup', 20, 28, 51)
+  })
+
+  it('持ち切る前に指が動いたら掴まない（一覧を眺める指で行が持ち上がらない）', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    const row = host.querySelector('.af-erow')
+
+    pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 28, 52)
+    pointer(list, 'pointermove', 20, 90, 52)          // 持ち切る前に動いた
+    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    expect(row.classList.contains('drag')).toBe(false)
+    expect(list.setPointerCapture).not.toHaveBeenCalled()
+  })
+
+  it('持ち切る前に離したら何も起こらない', async () => {
+    for (const g of ['冷蔵庫', '棚']) cfg.addAxisGroup(0, g)
+    await mount()
+    await click(rail('.gear'))
+    const list = host.querySelector('.af-edit-list')
+    list.setPointerCapture = vi.fn()
+    const row = host.querySelector('.af-erow')
+
+    pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 28, 53)
+    pointer(list, 'pointerup', 20, 28, 53)
+    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    expect(row.classList.contains('drag')).toBe(false)
+    expect(list.setPointerCapture).not.toHaveBeenCalled()
   })
 
   it('つまみ以外を押しても並べ替えを開始しない', async () => {
@@ -759,7 +816,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     const row = host.querySelector('.af-erow')
     const handle = row.querySelector('.af-ehandle')
 
-    pointer(handle, 'pointerdown', 20, 28, 11)
+    await grab(handle, 20, 28, 11)
     pointer(list, 'pointermove', 20, 100, 12)
     pointer(list, 'pointerup', 20, 100, 12)
     expect(row.classList.contains('drag')).toBe(true)

@@ -1,5 +1,5 @@
-// データ管理の「分類の追加」。分類は名前でしか見分けられないため、
-// 分類①と分類②に同じ名前は付けさせない。弾いたことはその場で読めること。
+// データ管理の「並び順設定」。グループは名前でしか見分けられないため、
+// 自作の2つに同じ名前は付けさせない。弾いたことはその場で読めること。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
@@ -26,7 +26,7 @@ async function mountPage() {
 const axisRows = () => [...host.querySelectorAll('.mm-axis-row')]
 const err      = () => host.querySelector('.mm-axis-err')?.textContent.trim() ?? ''
 
-// 分類②の行の入力欄へ打って「確定」を押す
+// 2つ目のグループの行の入力欄へ打って「確定」を押す
 async function typeAndConfirm(row, text) {
   const input = row.querySelector('.mm-axis-input')
   input.value = text
@@ -49,19 +49,19 @@ afterEach(() => {
   app = null; host = null
 })
 
-describe('MasterManagePage — 分類の追加（同名の禁止）', () => {
-  it('分類①と同じ名前は分類②に付けられず、理由がその場に出る', async () => {
+describe('MasterManagePage — 並び順設定（同名の禁止）', () => {
+  it('ほかのグループと同じ名前は付けられず、理由がその場に出る', async () => {
     cfg.setAxisName(0, '保管場所')
     await mountPage()
 
-    // ＋ 分類を追加 → 分類②の行を出す
+    // ＋ グループを追加 → 2つ目の行を出す
     host.querySelector('.mm-axis-add').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
 
     await typeAndConfirm(axisRows()[1], '保管場所')
 
     expect(cfg.config.axisNames).toEqual(['保管場所', ''])
-    expect(err()).toContain('分類①')
+    expect(err()).toContain('ほかのグループと同じ名前')
   })
 
   it('別の名前なら確定でき、理由の表示も消える', async () => {
@@ -83,12 +83,12 @@ describe('MasterManagePage — 分類の追加（同名の禁止）', () => {
     cfg.setAxisName(1, '仕入先')
     await mountPage()
 
-    // 分類②の ✎ から名前を変える
+    // 2つ目のグループの ✎ から名前を変える
     axisRows()[1].querySelector('.mm-axis-edit').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
     await typeAndConfirm(axisRows()[1], '保管場所')
 
     expect(cfg.config.axisNames).toEqual(['保管場所', '仕入先'])
-    expect(err()).toContain('分類①')
+    expect(err()).toContain('ほかのグループと同じ名前')
   })
 })

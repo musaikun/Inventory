@@ -812,6 +812,7 @@ function openEdit() {
   nextTick(() => editDoneEl.value?.focus())
 }
 function closeEdit() {
+  _clearHold()
   if (_dragRow) onHandleUp()
   editOpen.value = false
   const i = groups.value.indexOf(editReturn.value)      // 順番が変わっていても見ていた1枚へ戻す
@@ -866,11 +867,27 @@ let _dragRow = null, _dragCaptureEl = null, _dragPointerId = null, _dragY0 = 0, 
 const _rowShift = new WeakMap()
 const _shiftAnimations = new Set()
 
-function onHandleDown(e) {
-  const handle = e.target.closest('.af-ehandle')
-  if (!handle || _dragRow || e.isPrimary === false) return
-  const row = handle.closest('.af-erow')
-  if (!row) return
+// つまみに触れた瞬間に掴むと、一覧を眺めるつもりの指でも行が持ち上がる。
+// 少し持ってから掴む。持っている間に指が動いたら、掴む意図ではなかったとみて降りる。
+const HANDLE_HOLD_MS = 220
+const HANDLE_HOLD_SLOP = 8
+let _holdTimer = null, _holdRow = null, _holdHandle = null, _holdPointerId = null
+let _holdX = 0, _holdY = 0, _holdLastY = 0
+
+function _clearHold() {
+  clearTimeout(_holdTimer)
+  _holdTimer = null
+  _holdHandle?.classList.remove('holding')
+  _holdRow = null
+  _holdHandle = null
+  _holdPointerId = null
+}
+// 持ち切ったところで掴む。開始位置はここでの指の位置にする（押した場所を基準にすると、
+// 持っている間のわずかなぶれの分だけ行が最初に跳ねる）。
+function _armDrag(y) {
+  const row = _holdRow
+  _clearHold()
+  if (!row || _dragRow) return
   // 直前のswapでこの行自身がまだ移動中なら、WAAPIのtransformが指追従の
   // inline transformより優先される前に、その補間を終点へ戻す。
   cancelRowShift(row)
@@ -878,15 +895,37 @@ function onHandleDown(e) {
   // 動かす行やその子へcaptureを置くと、DOM順を入れ替えた瞬間にスマホが
   // lostpointercaptureを発火し、1段目でドラッグが終わる。移動しない一覧側で捕捉する。
   _dragCaptureEl = editListEl.value
-  _dragPointerId = e.pointerId ?? null
-  _dragY0 = e.clientY
+  _dragY0 = y
   _dragOrder = [...groups.value]
   row.classList.add('drag')
   editListEl.value?.classList.add('dragging')
   if (_dragPointerId != null) _dragCaptureEl?.setPointerCapture?.(_dragPointerId)
   navigator.vibrate?.(10)
 }
+
+function onHandleDown(e) {
+  const handle = e.target.closest('.af-ehandle')
+  if (!handle || _dragRow || _holdTimer || e.isPrimary === false) return
+  const row = handle.closest('.af-erow')
+  if (!row) return
+  _holdRow = row
+  _holdHandle = handle
+  _holdPointerId = e.pointerId ?? null
+  _dragPointerId = _holdPointerId
+  _holdX = e.clientX; _holdY = e.clientY; _holdLastY = e.clientY
+  handle.classList.add('holding')
+  _holdTimer = setTimeout(() => _armDrag(_holdLastY), HANDLE_HOLD_MS)
+}
 function onHandleMove(e) {
+  if (_holdTimer && pointerMatches(e, _holdPointerId)) {
+    if (Math.abs(e.clientX - _holdX) > HANDLE_HOLD_SLOP || Math.abs(e.clientY - _holdY) > HANDLE_HOLD_SLOP) {
+      _clearHold()
+      _dragPointerId = null
+      return
+    }
+    _holdLastY = e.clientY
+    return
+  }
   if (!_dragRow || !pointerMatches(e, _dragPointerId)) return
   if (e.cancelable) e.preventDefault()
   _dragRow.style.transition = 'none'
@@ -916,6 +955,11 @@ function onHandleMove(e) {
   navigator.vibrate?.(6)
 }
 function onHandleUp(e) {
+  if (_holdTimer && (!e || pointerMatches(e, _holdPointerId))) {
+    // 持ち切る前に離した＝掴む意図ではなかった。何も起こさない
+    _clearHold()
+    _dragPointerId = null
+  }
   if (!_dragRow || (e && !pointerMatches(e, _dragPointerId))) return
   const row = _dragRow
   const captureEl = _dragCaptureEl
@@ -1054,6 +1098,7 @@ onUnmounted(registerInnerLayerCloser(() => {
   return false
 }))
 onUnmounted(() => {
+  _clearHold()
   if (_dragRow) onHandleUp()
   cancelLongPress()
   _dragging = false
@@ -1289,7 +1334,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <header class="af-edit-head">
         <div>
           <div class="af-edit-title">分類先の管理</div>
-          <div class="af-edit-sub">{{ groups.length }}件 ・ つまみ ⋮⋮ を掴んで並べ替え</div>
+          <div class="af-edit-sub">{{ groups.length }}件 ・ つまみ ⋮⋮ を長押しして並べ替え</div>
         </div>
         <button ref="editDoneEl" class="af-edit-done" @click="closeEdit">完了</button>
       </header>
@@ -1640,6 +1685,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-ehandle { flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 17px; letter-spacing: -2px; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; }
 .af-ehandle:focus-visible { outline: 3px solid var(--primary-border, #bfdbfe); outline-offset: -3px; border-radius: 9px; }
 .af-erow.drag .af-ehandle { cursor: grabbing; color: var(--primary, #2563eb); }
+/* 掴むまでの間。まだ動かないことと、待てば掴めることを同時に見せる */
+.af-ehandle.holding { color: var(--primary, #2563eb); background: #eff6ff; border-radius: 9px; }
 .af-ename { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-ecount { flex-shrink: 0; min-width: 42px; text-align: center; font-size: 13px; font-weight: 800; color: #64748b; background: #eef2f6; border-radius: 12px; padding: 3px 8px; }
 .af-ebtn { flex-shrink: 0; width: 44px; height: 44px; border-radius: 9px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }

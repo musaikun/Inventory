@@ -345,18 +345,21 @@ const selectedFactors = computed(() => {
 // 記録するのは自由記述と学習除外の2つだけ。定型チップ（貸切・イベント…）は置かない。
 // 選べる言葉を先に並べると、その日に実際に起きたことではなく**用意された言葉のどれか**を
 // 選ぶ記録になる。読み返して意味があるのは店の言葉で書いた1行のほう。
-// 旧データの tags は読み書きしない（保存し直した時点で落ちる）。
 const { getNote, hasNote, setNote } = useDayNotes()
 const memoText = ref('')
+// 決め打ちのチップ（貸切・イベント等）は廃止した。以前のメモに保存されている tags は
+// 上書き保存で消さないよう、読んだものをそのまま持ち回るだけにする。
+const memoTags = ref([])
 const memoExcluded = ref(false)
 watch(selectedKey, (k) => {
   const n = k ? getNote(k) : null
   memoText.value = n?.text || ''
+  memoTags.value = n?.tags ? [...n.tags] : []
   memoExcluded.value = !!n?.excluded
 }, { immediate: true })
 function saveMemo() {
   if (!selectedKey.value) return
-  setNote(selectedKey.value, { text: memoText.value, excluded: memoExcluded.value })
+  setNote(selectedKey.value, { text: memoText.value, tags: memoTags.value, excluded: memoExcluded.value })
 }
 
 const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))

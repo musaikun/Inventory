@@ -179,18 +179,6 @@ function _weekdayHistoryFor(item) {
   return weekdayOrderHistory(getOrders(), item, weekdayOf(_todayStr()), { window: 6, before: _todayStr() })
 }
 
-// 直近N回の履歴で各品目が「入力された(数量!=null／0含む)」回数。よく使う品目の絞り込み・並べ替えに使う。
-const USAGE_SESSIONS = 3
-const itemUsageMap = computed(() => {
-  const map = {}
-  for (const snap of getSnapshots().slice(0, USAGE_SESSIONS)) {
-    for (const it of (snap.items ?? [])) {
-      if (it.qty !== null && it.qty !== undefined) map[it.item] = (map[it.item] ?? 0) + 1
-    }
-  }
-  return map
-})
-
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
 function markActivity() { if (currentView.value === 'session') activeTimer.mark() }
@@ -3289,12 +3277,6 @@ function dismissReview() {
           <button class="continuous-stop-btn" @click="onForceStop">■ 停止</button>
         </div>
 
-        <VoiceButton
-          :is-listening="isListening"
-          :continuous-mode="continuousMode"
-          @toggle="onVoiceButtonTap"
-        />
-
         <div class="search-row">
           <input
             ref="searchInputRef"
@@ -3304,6 +3286,11 @@ function dismissReview() {
             placeholder="例：コーヒー　（音声 or 入力）"
             @keyup.enter="onTextSearch"
             @focus="onSearchFocus"
+          />
+          <VoiceButton
+            :is-listening="isListening"
+            :continuous-mode="continuousMode"
+            @toggle="onVoiceButtonTap"
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
         </div>
@@ -3498,7 +3485,6 @@ function dismissReview() {
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
         :manual-items="config.manualItems"
-        :usage-map="itemUsageMap"
         :hidden-items="config.hiddenItems"
         :order-map="sessionMode === 'order' ? orderDraft : null"
         :order-mode="sessionMode === 'order'"
