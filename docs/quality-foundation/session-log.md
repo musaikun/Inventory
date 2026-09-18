@@ -32,7 +32,13 @@
   - `AxisAssignFocus.sheet.test.js`（今回追加分）: `v-if` で入れ替わるモードの描画を待たずに次を押していた。
   - どちらも **待つのを「回数」から「条件」へ**変えた（`waitFor(get, label)`。満たされないまま尽きたら「待っても現れませんでした: ○○」で落ちる）。`settle` も macrotask へ譲るようにした。
 - 検証: App 160 files / 1803 passed（フルスイート3回連続）、production build成功。
-- **未確認**: Worker再deployでhostが戻るかは、runが成功するまで分からない。Workerのscript自体が消えているならdeployで戻る。account側で `workers.dev` が無効化されている場合はdeployでは戻らず、Cloudflare Dashboardでの確認が要る（このセッションからCloudflareへは入れない）。
+- **解消**: run #103（`ed5843f`）が成功し、同じrunでWorkerとPagesが再deployされた。直後の確認で
+  - `https://inventory-sync-pro-review.yuya-takaki.workers.dev/health` → **200 `OK`**（404から復帰）
+  - 固定originへのpreflight → `204` ＋ `access-control-allow-origin: https://pro-review.inventory-app-pro-review.pages.dev`
+  - 別originへは `Access-Control-Allow-Origin` を返さない（fail-close）
+  つまり**Workerのscriptが消えていただけ**で、deployで戻った。account側の`workers.dev`無効化ではなかった。
+- 待ち方の修正は2段構えになった。1回目（`9126f87`）の `waitFor` は `setTimeout(0)` を60回＝実時間で数十msにしかならず、CIではまだ間に合わなかった。2回目（`ed5843f`）で10ms刻み・最大3秒の実時間待ちにして通った。
+- **残る論点**: Pro Reviewは「testが落ちるとWorkerごと落ちたまま」になる。testの失敗がPro Reviewの停止に直結する構造なので、deployをtestと切り離すか、Workerだけ先に更新するかは`proposals.md`でPM判断を仰ぐ。
 - API / DB / 認可 / 保存形式 / Worker code / versionは無変更。testとCIの安定化のみ。
 
 ## 2026-09-17 — 件数のタップと、品目の長押しの文字選択（実機報告の再修正）
