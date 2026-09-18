@@ -39,7 +39,23 @@ afterEach(() => {
 function button(label) {
   return [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
 }
-const settle = async (n = 6) => { for (let i = 0; i < n; i++) await nextTick() }
+// 取込はファイル読み込み・表の組み立てと非同期が挟まる。microtask を決まった回数
+// 回すだけだと、遅いCIでは解析が終わる前に次の操作へ進んで「ボタンが無い」で落ちる。
+// macrotask へも譲り、待つのは回数ではなく**条件**にする。
+const macrotask = () => new Promise(r => setTimeout(r, 0))
+const settle = async (n = 6) => {
+  for (let i = 0; i < n; i++) { await nextTick(); await macrotask() }
+}
+/** 条件が満たされるまで待つ。満たされないまま尽きたら、何を待っていたかを出して落ちる */
+async function waitFor(get, label, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    const v = get()
+    if (v) return v
+    await nextTick()
+    await macrotask()
+  }
+  throw new Error(`待っても現れませんでした: ${label}`)
+}
 
 /** いま出ている問い（無ければ空文字） */
 function questionText() { return host.querySelector('.imp-q')?.textContent.trim() ?? '' }
@@ -76,9 +92,11 @@ async function mapColumn(ci, fieldLabel) {
 }
 /** マッピング面の「取り込む」→ 確認画面の「取り込む」 */
 async function finishImport() {
-  host.querySelector('.imp-go').click()
+  const go = await waitFor(() => host.querySelector('.imp-go'), 'マッピング面の「取り込む」')
+  go.click()
   await settle()
-  button('取り込む').click()
+  const confirm = await waitFor(() => button('取り込む'), '確認画面の「取り込む」')
+  confirm.click()
   await settle()
 }
 

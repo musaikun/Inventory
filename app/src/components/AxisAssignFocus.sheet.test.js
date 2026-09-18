@@ -28,14 +28,25 @@ const pointer = (el, type, x, y, pointerId = 1) => {
   })
   return el.dispatchEvent(event)
 }
+const macrotask = () => new Promise(r => setTimeout(r, 0))
 async function click(el) {
   // 押す相手が居ないまま進むと、失敗が「undefined.dispatchEvent」になって
   // どの導線が欠けたのか分からなくなる。ここで何を押そうとしたかを残す。
   if (!el) throw new Error('押そうとした要素が見つかりません')
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  // v-if で入れ替わる部分は、1回の flush では描き切らないことがある
   await nextTick()
-  await nextTick()
+  await macrotask()
+}
+/** 条件が満たされるまで待つ。満たされないまま尽きたら、何を待っていたかを出して落ちる。
+ *  決まった回数の tick で待つと、遅いCIでは描き切る前に次の操作へ進んでしまう。 */
+async function waitFor(get, label, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    const v = get()
+    if (v) return v
+    await nextTick()
+    await macrotask()
+  }
+  throw new Error(`待っても現れませんでした: ${label}`)
 }
 const HOLD_WAIT_MS = 300
 const grab = async (el, x, y, pointerId = 1) => {
@@ -195,6 +206,7 @@ describe('振り分け済みシート — 並び替え', () => {
     await mount()
     await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
+    await waitFor(() => host.querySelector('.af-sheet-handle'), '並び替えモード')
     expect(host.querySelectorAll('.af-sheet-handle').length).toBe(3)
     expect(rowOf('トマト').querySelector('.af-sheet-off')).toBeNull()
   })
@@ -203,6 +215,7 @@ describe('振り分け済みシート — 並び替え', () => {
     await mount()
     await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
+    await waitFor(() => host.querySelector('.af-sheet-handle'), '並び替えモード')
     const list = host.querySelector('.af-sheet-list')
     list.setPointerCapture = vi.fn()
     list.getBoundingClientRect = () => ({ top: -200, bottom: 800, height: 1000 })
@@ -234,6 +247,7 @@ describe('振り分け済みシート — 並び替え', () => {
     await mount()
     await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
+    await waitFor(() => host.querySelector('.af-sheet-handle'), '並び替えモード')
     const list = host.querySelector('.af-sheet-list')
     list.setPointerCapture = vi.fn()
     const rows = sheetRows()
@@ -251,15 +265,18 @@ describe('振り分け済みシート — タップ順の簡易並び替え', ()
     await mount()
     await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
-    expect(host.querySelector('.af-sheet-tap')).toBeTruthy()      // 並び替えに入れた
+    await waitFor(() => host.querySelector('.af-sheet-tap'), '並び替えモード')
     await click(btn('① タップ順で並べる'))
-    expect(host.querySelector('.af-sheet-apply')).toBeTruthy()    // タップ順に入れた
+    await waitFor(() => host.querySelector('.af-sheet-apply'), 'タップ順モード')
   }
   // タップして番号が付くまでを1つの手順にする（付かないまま先へ進むと、
   // 失敗が「並びが変わらない」になって、どこで落ちたのか読めない）
   async function tapPick(name) {
     await click(rowOf(name).querySelector('.af-sheet-item-name'))
-    expect(rowOf(name).querySelector('.af-sheet-no').textContent.trim()).not.toBe('–')
+    await waitFor(
+      () => rowOf(name).querySelector('.af-sheet-no')?.textContent.trim() !== '–',
+      `${name} に番号が付く`,
+    )
   }
 
   it('タップした順に番号が付く', async () => {

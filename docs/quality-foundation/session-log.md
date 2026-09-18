@@ -18,6 +18,23 @@
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
 
+## 2026-09-18 — Pro版の「Failed to fetch」調査と、CIを止めていたtestの修正
+
+- Userから「Pro版がFailed to fetchになっている」と報告。
+- **切り分け**: Pro Review専用Workerのhostが応答していない。
+  - production `https://inventory-sync.yuya-takaki.workers.dev/health` → **200 `OK`**
+  - Pro Review `https://inventory-sync-pro-review.yuya-takaki.workers.dev/health` → **404 / `content-length: 0` / Workerのheaderなし**
+  - この404は**そのhostにWorkerが載っていない**ときにCloudflareが返す形。うちのWorkerなら `/health` は `OK`(200)、未知pathでも `{"error":"Not found"}` をCORS header付きで返す。CORS headerの無い応答はブラウザが読めないので、fetchは `Failed to fetch`（TypeError）になる。つまり画面の症状と一致する。
+  - `wrangler.toml` の `[env.pro_review]`（name / ALLOWED_ORIGIN / D1 / DO）とworkflowの `VITE_SYNC_WORKER_URL` は正しい。設定の誤りではなく、**そのhostに実体が無い**。
+- **なぜ直っていないか**: `Pro Review Pages` workflowは1つのjobでWorkerとPagesを同じrunで更新する。直近2回（run #97 `54cd378` / run #101 `b34ce85`）が**App testで落ちてdeploy手前で止まっていた**ため、Workerの再deployが走っていない。最後に成功したのはrun #100（`7215ca5` / 0.95.0）。
+- **落ちていたtest2つはどちらも「非同期の描画を固定回数のtickで待っていた」もの**。ローカルでは通り、遅いCIでだけ落ちる。
+  - `SettingsModal.import.test.js`（**既存のflake。今回の変更とは無関係**）: `settle()` が microtask を6回回すだけで、ファイル読み込み・表の組み立ての非同期を待てていない。`.imp-go` が出る前に `.click()` して null 参照。
+  - `AxisAssignFocus.sheet.test.js`（今回追加分）: `v-if` で入れ替わるモードの描画を待たずに次を押していた。
+  - どちらも **待つのを「回数」から「条件」へ**変えた（`waitFor(get, label)`。満たされないまま尽きたら「待っても現れませんでした: ○○」で落ちる）。`settle` も macrotask へ譲るようにした。
+- 検証: App 160 files / 1803 passed（フルスイート3回連続）、production build成功。
+- **未確認**: Worker再deployでhostが戻るかは、runが成功するまで分からない。Workerのscript自体が消えているならdeployで戻る。account側で `workers.dev` が無効化されている場合はdeployでは戻らず、Cloudflare Dashboardでの確認が要る（このセッションからCloudflareへは入れない）。
+- API / DB / 認可 / 保存形式 / Worker code / versionは無変更。testとCIの安定化のみ。
+
 ## 2026-09-17 — 件数のタップと、品目の長押しの文字選択（実機報告の再修正）
 
 - Userから実機報告2件。(1)ホイールの件数チップはやはり長押ししないと反応しない (2)品目の長押し（分類先を選ぶ）で文字列の選択が出る。前回のtap判定の修正では(1)は直っていなかった。
