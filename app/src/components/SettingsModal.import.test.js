@@ -47,12 +47,13 @@ const settle = async (n = 6) => {
   for (let i = 0; i < n; i++) { await nextTick(); await macrotask() }
 }
 /** 条件が満たされるまで待つ。満たされないまま尽きたら、何を待っていたかを出して落ちる */
-async function waitFor(get, label, tries = 60) {
-  for (let i = 0; i < tries; i++) {
+async function waitFor(get, label, timeoutMs = 3000) {
+  const step = 10
+  for (let waited = 0; waited <= timeoutMs; waited += step) {
     const v = get()
     if (v) return v
     await nextTick()
-    await macrotask()
+    await new Promise(r => setTimeout(r, step))
   }
   throw new Error(`待っても現れませんでした: ${label}`)
 }
