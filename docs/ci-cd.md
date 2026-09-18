@@ -11,6 +11,39 @@
 D1、Worker、本番Pagesは自動変更しません。現在のscriptはproduction手順として未確定であり、
 User承認だけでなく[Web公開準備](quality-foundation/web-release-readiness.md)のgate解消が必要です。
 
+
+## 公開中のWorkerの死活確認（`Worker Health Check`）
+
+フロントから見た障害は、原因が何であれ `Failed to fetch` の一語になる。ブラウザはCORSヘッダーの
+無い応答を読めないため、**Workerが消えていても、originの許可が外れていても、画面上は同じに見える**。
+実際に2回起きている。
+
+| 日 | 対象 | 実際に起きていたこと |
+|---|---|---|
+| 2026-08-28 | 本番 | `ALLOWED_ORIGIN` と実host名の食い違い（403にCORSが付かない） |
+| 2026-09-18 | Pro Review | Workerのscriptが消え、Cloudflareの404が返っていた |
+
+どちらも「誰かが画面を開くまで気付けなかった」。`scripts/health-check.sh` を定期実行し、
+**runが失敗すること自体を通知**にする。secretsは使わず、外側から公開エンドポイントを叩くだけ。
+
+確認する内容（1つでも欠ければ非ゼロ終了）:
+
+1. 本番 / Pro Review それぞれの `/health` が `200 OK` を返す
+   （Workerがそのhostに載っていなければ、Cloudflareが本文の無い404を返す）
+2. それぞれの許可originへのpreflightで `Access-Control-Allow-Origin` が返る
+3. 許可していないoriginへは返さない（fail-closeの緩みの検知）
+
+手元でも同じものを走らせられる。
+
+```
+./scripts/health-check.sh
+PRO_REVIEW_WORKER=https://example.workers.dev ./scripts/health-check.sh   # 対象の差し替え
+```
+
+> **既知の制約**: GitHubの`schedule`は**default branchのworkflowしか動かさない**。
+> このrepositoryのdefault branchは`main`で、workflowは`develop`にある。`main`へ入るまで
+> 定期実行は始まらない（手動実行はできる）。
+
 ## 証拠と文書の責務
 
 | 種別 | 正本 / 記録先 |
@@ -31,6 +64,7 @@ command/step、環境、未検証範囲を残します。
 | Actionsの手動実行 | 同じdevelop preview workflowを再実行 | `develop.inventory-app-c40.pages.dev` |
 | `Pro Review Pages`を手動実行 | Worker/App test → Pro build → Access保護Preview | `pro-review.inventory-app-pro-review.pages.dev` |
 | `Production Backend`を手動実行 | test → 本番D1 preflight →（apply時のみ）migration → 本番Worker deploy | Worker `inventory-sync` / D1 `inventory-store` |
+| `Worker Health Check`（6時間ごと / 手動） | 公開中のWorkerを外から確認。落ちていたらrunが失敗し、それが通知になる | 変更しない（読むだけ） |
 | `main` / その他branchへpush | 自動処理なし（2026-08-28に無ゲートの `deploy.yml` を削除・下記） | — |
 | テスト失敗時 | デプロイは実行されない（ゲート） | — |
 

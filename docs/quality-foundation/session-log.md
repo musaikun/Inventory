@@ -18,6 +18,18 @@
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
 
+## 2026-09-18 — 公開中のWorkerの死活確認を入れる（提案3をUserが選択）
+
+- 「testが落ちるとPro Reviewごと止まる」への対応として、Userは**(3) 現状維持＋定期確認**を選択。testの厳しさは緩めず、「知らないうちに落ちている」だけを潰す。
+- `scripts/health-check.sh` と `.github/workflows/health-check.yml`（6時間ごと＋手動）を追加。secretsは使わず、外側から公開エンドポイントを叩くだけ。**runが失敗すること自体が通知**になる。
+- 確認するのは3種。1つでも欠ければ非ゼロ終了。
+  1. 本番 / Pro Review の `/health` が `200 OK`（Workerがhostに載っていなければCloudflareが本文の無い404を返す＝今回の症状）
+  2. それぞれの許可originへのpreflightで `Access-Control-Allow-Origin` が返る（2026-08-28の本番障害の形）
+  3. 許可外originへは返さない（旧Workerが任意originを反射していてhost名の食い違いが隠れていた反省）
+- 実行確認: 現状6件すべてOK。`PRO_REVIEW_WORKER` を存在しないhostへ差し替えると、今回の障害と同じ出方（`/health が 404` ＋ `CORSを返さない`）で2件NG・exit 1 になることも確認した。
+- **既知の制約（要判断）**: GitHubの`schedule`は**default branchのworkflowしか動かさない**。このrepositoryのdefault branchは`main`、workflowは`develop`にある。**`main`へ入るまで定期実行は始まらない**（手動実行はできる）。`main`への反映はUserの許可が要るため未実施。
+- `docs/ci-cd.md` に節と表の行を追加。API / DB / 認可 / 保存形式 / Worker code / App / versionは無変更。
+
 ## 2026-09-18 — Pro版の「Failed to fetch」調査と、CIを止めていたtestの修正
 
 - Userから「Pro版がFailed to fetchになっている」と報告。
