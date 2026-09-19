@@ -1,0 +1,50 @@
+name: Worker Health Check
+
+# 公開中のWorkerを外から定期的に叩く。
+#
+# フロントから見た障害は、原因が何であれ `Failed to fetch` の一語になる。
+# ブラウザはCORSヘッダーの無い応答を読めないため、Workerが消えていても、
+# originの許可が外れていても、画面上は同じに見える。実際に2回起きている。
+#   - 2026-08-28 本番: ALLOWED_ORIGIN と実host名の食い違い
+#   - 2026-09-18 Pro Review: Workerのscriptが消え、Cloudflareの404が返っていた
+# どちらも「誰かが画面を開くまで気付けなかった」。
+#
+# このworkflowが落ちること自体が通知になる（GitHubが失敗を知らせる）。
+# **schedule はdefault branchのworkflowしか動かない。** このrepositoryのdefault branchは
+# `main` なので、`develop` に置いただけでは定期実行は始まらない（手動実行はできる）。
+on:
+  schedule:
+    # 6時間ごと。検証環境の停止に気付くにはこれで足り、Actionsの消費も小さい。
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-health-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check public Workers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # secretsは要らない。すべて公開エンドポイントへの外側からの確認。
+      - name: Probe Workers
+        run: ./scripts/health-check.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ '${{ job.status }}' = 'success' ]; then
+            echo '公開中のWorkerはすべて正常です。' >> $GITHUB_STEP_SUMMARY
+          else
+            echo '**公開中のWorkerに異常があります。** 上のログで、どれが落ちているか確認してください。' >> $GITHUB_STEP_SUMMARY
+            echo '' >> $GITHUB_STEP_SUMMARY
+            echo 'Workerが消えている場合は、`develop` への push か、該当 workflow の手動実行で' >> $GITHUB_STEP_SUMMARY
+            echo '同じ run のなかで再 deploy されます（Pro Review は `Pro Review Pages`）。' >> $GITHUB_STEP_SUMMARY
+          fi
