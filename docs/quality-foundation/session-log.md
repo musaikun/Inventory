@@ -18,6 +18,32 @@
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
 
+## 2026-09-19 — Pro Reviewの再発は「Workerが別物に上書きされている」／CIの落ちる原因はNodeのversion差
+
+- 死活確認を`main`へ置いた直後、その場の実行でPro Reviewが**また落ちていた**（前日04:25Zは200 OK）。入れた翌日に初回で検知した形。
+- **今回は「消えた」ではなく「上書きされた」**。指紋を取ると、`inventory-sync-pro-review` のhostは**`app/` ディレクトリをそのまま配る静的Worker**になっていた。
+  | path | 応答 | 意味 |
+  |---|---|---|
+  | `/` | 200 html（`<script src="/src/main.js">`＝**ビルド前**） | `app/index.html` |
+  | `/src/main.js` | 200 text/javascript（生のVueソース） | `app/src/main.js` |
+  | `/package.json` | 200 application/json | `app/package.json` |
+  | `/index.html` | 307 | Workers Assets が `/` へ転送する挙動 |
+  | `/icon-192.png` | 404 | 実体は `app/public/` なので `app/` 直下に無い |
+  | `/health` `/auth/login` | 404 | API が存在しない |
+- **この上書きはrepository内のどこからも行われていない**。`develop`にこの24時間の新しいcommitは無く、`wrangler.toml`に`assets`/`site`の指定も無く、`inventory-sync-pro-review`を触るのは`pro-review.yml`（API Workerのdeploy）と`health-check.sh`だけ。**CI外で`wrangler deploy`が走っている**（手元の実行か、別のセッション/ツール）。このセッションからCloudflareへは入れないため、止められるのはUserだけ。→ Userへ確認中。
+- 9/18の「復旧」は、workflowがうちのWorkerを上書きし直しただけだった。根本はまだ止まっていない。
+- **CIが落ちていた本当の原因はNodeのversion差**。`SettingsModal.import.test.js` の `dropInto` が
+  `if (typeof file.text !== 'function') file.text = async () => csvText` と**環境依存の分岐**をしていた。
+  手元のNode 22 + jsdomでは`File.text()`が未実装なので差し替えが効き、`async () => csvText`は
+  microtaskで解決する。**CIのNode 24にはnative実装があるので差し替えがスキップ**され、
+  macrotaskを挟む非同期経路に入る。その後ろが「microtask N回」前提だったため崩れていた。
+  `SettingsModal.vue`は実際に`await file.text()`を使っている。
+  → 読み取りは**常に**差し替える形にし（環境の差を持ち込まない）、待ちも`settle()`（macrotaskへも譲る）へ。
+  同じ分岐は他のtestには無いことを確認した。
+- 3秒の`waitFor`でも落ちたことが、「少し遅い」ではなく「完了していない」の切り分けになった。待ち時間を伸ばすだけでは直らない種類だった。
+- 検証: 対象1 file / 18 passed、App全体160 files / 1803 passed。
+- App / Worker / D1 / 認可 / 保存形式 / versionは無変更。testのみ。
+
 ## 2026-09-18 — 公開中のWorkerの死活確認を入れる（提案3をUserが選択）
 
 - 「testが落ちるとPro Reviewごと止まる」への対応として、Userは**(3) 現状維持＋定期確認**を選択。testの厳しさは緩めず、「知らないうちに落ちている」だけを潰す。

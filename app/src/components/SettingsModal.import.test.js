@@ -106,12 +106,16 @@ async function dropInto(selector, csvText, filename) {
   const input = host.querySelector(selector)
   if (!input) throw new Error(`input not found: ${selector}`)
   const file = new File([csvText], filename, { type: 'text/csv' })
-  // jsdom の File.text() は環境によって未実装なので、必要な API だけ差し替える
-  if (typeof file.text !== 'function') file.text = async () => csvText
+  // File.text() の実装は環境で変わる。Node 22 + jsdom では未実装なので差し替えが効くが、
+  // Node 24 には native 実装があり、そちらは macrotask を挟んだ非同期経路を通る。
+  // 「未実装のときだけ差し替える」にしていたため、同じtestが手元（22）では通り
+  // CI（24）では落ちていた。testが見たいのは「このCSVを渡したら何が起きるか」なので、
+  // 読み取りは**常に**こちらで差し替え、環境による非同期の差を持ち込まない。
+  file.text = async () => csvText
   Object.defineProperty(input, 'files', { value: [file], configurable: true })
   input.dispatchEvent(new Event('change', { bubbles: true }))
-  // ファイル読み込み（await）を挟むので、マイクロタスクを数回流す
-  for (let i = 0; i < 6; i++) await nextTick()
+  // 読み込みの await を挟むので、microtask だけでなく macrotask にも譲る
+  await settle()
 }
 
 /** 「はじめて取り込む形」の入口。どんなファイルもここから列指定フローへ入る */
