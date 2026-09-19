@@ -15,7 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VITE_SYNC_WORKER_URL: wss://inventory-sync.yuya-takaki.workers.dev
   CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
   PAGES_PROJECT: inventory-app
   PAGES_BRANCH: develop
@@ -43,12 +42,23 @@ jobs:
           npm ci
           npm test
 
-      - name: Install, test, and build App
+      - name: Install and test App
         working-directory: app
         run: |
           npm ci
           npm test
-          npm run build
+
+      # VITE_SYNC_WORKER_URL は **build にだけ** 渡す。job全体のenvに置くとtestにも入り、
+      # `utils/api.js` の HTTP_BASE が埋まって jsdom から本番Workerへ実際に fetch が飛ぶ
+      # （api.js をmockしていないtestは、未設定なら即rejectする別の経路を通る）。
+      # Pro Review 側は最初から build step だけに渡していたため、**同じcommitで
+      # develop preview は通り Pro Review だけ落ちる**という非対称が生まれていた。
+      # 手元も未設定なので、この形なら手元・develop・Pro Review の3つが揃う。
+      - name: Build App
+        working-directory: app
+        env:
+          VITE_SYNC_WORKER_URL: wss://inventory-sync.yuya-takaki.workers.dev
+        run: npm run build
 
       - name: Deploy develop preview to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

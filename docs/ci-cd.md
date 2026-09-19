@@ -44,6 +44,37 @@ PRO_REVIEW_WORKER=https://example.workers.dev ./scripts/health-check.sh   # 対�
 > このrepositoryのdefault branchは`main`で、workflowは`develop`にある。`main`へ入るまで
 > 定期実行は始まらない（手動実行はできる）。
 
+
+## 「Proだけ反映されない」の正体（workflow間の非対称）
+
+無料版とProは**別々にdeployされる**。同じ`develop`への push で2つのworkflowが同時に走り、
+それぞれ別のPages project・別のWorker・別のD1へ出る（D-018の分離）。
+
+| | 無料版（`Develop Pages Preview`） | Pro（`Pro Review Pages`） |
+|---|---|---|
+| Pages | `inventory-app` / `develop` | `inventory-app-pro-review` / `pro-review` |
+| Worker | 触らない（**本番Workerを参照**） | `inventory-sync-pro-review` を同じrunでdeploy |
+| D1 | 触らない | `inventory-store-pro-review` の未適用migrationを適用 |
+
+**Pro側のjobのほうが工程が多い**（D1 migration → Worker deploy → Pages deploy）。
+片方だけ落ちるのは、まずこの非対称を疑う。
+
+さらに2026-09-19まで、**testに渡る環境変数が2つのworkflowで違っていた**。
+
+- `Develop Pages Preview` は `VITE_SYNC_WORKER_URL` を**job全体のenv**に置いていた
+  → testにも入り、`utils/api.js` の `HTTP_BASE` が埋まる。`api.js` をmockしていないtestは
+  jsdomから**本番Workerへ実際に fetch を飛ばす**
+- `Pro Review Pages` は最初から**build stepだけ**に渡していた
+  → `HTTP_BASE` が空で、`apiFetch` は即 reject する
+
+同じtestが別の非同期経路を通るため、**同じcommitで無料版は通りProだけ落ちる**ことが続いていた
+（run #97 / #101 / #102 / #105）。`VITE_SYNC_WORKER_URL` をbuild stepだけへ移し、
+**手元・無料版・Proの3つが同じ条件でtestを走らせる**形に揃えた。testから本番Workerへ
+fetchが飛ぶこと自体も無くなる。
+
+> 原則: **testに影響する環境変数をjob全体のenvへ置かない。** build/deployに要るものは
+> そのstepにだけ渡す。片方のworkflowだけに置くと、この形の非対称が生まれる。
+
 ## 証拠と文書の責務
 
 | 種別 | 正本 / 記録先 |

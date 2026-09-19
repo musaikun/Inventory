@@ -18,6 +18,19 @@
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
 
+## 2026-09-19 — 「Proだけ反映されない」の原因はworkflow間の非対称だった
+
+- Userから「プロと無料版で別々にデプロイしているかもしれない／変更のたびにProだけ反映されていないことがある」。これが決定的な手がかりになった。run履歴を見ると、**同じcommitで `Develop Pages Preview` は成功し `Pro Review Pages` だけ失敗**が4回続いていた（#97 / #101 / #102 / #105）。flakeなら片方に偏らない。
+- **testに渡る環境変数が2つのworkflowで違っていた**。
+  - `develop-preview.yml` は `VITE_SYNC_WORKER_URL` を**job全体のenv**に置いていた → testにも入り、`utils/api.js` の `HTTP_BASE` が埋まる。`api.js` をmockしていないtest（`SettingsModal.import.test.js` など）は jsdom から**本番Workerへ実際に fetch を飛ばす**。
+  - `pro-review.yml` は最初から**build stepだけ**に渡していた → `HTTP_BASE` が空で `apiFetch` は即 reject。
+  - 同じtestが別の非同期経路を通るため、無料版だけ通ってProが落ちる状態が続いていた。
+- `VITE_SYNC_WORKER_URL` を build step だけへ移し、**手元・無料版・Proの3つが同じ条件**でtestを走らせるようにした。`HTTP_BASE` を気にするtestはすべて `api.js` を mock しており、実envに依存するtestは1つも無いことを確認済み（手元は元から未設定で全部通る）。testから本番Workerへfetchが飛ぶこと自体も無くなる。
+- 前日に直した `File.text()` の環境依存（Node 22 / 24）は**別の原因**で、こちらは「手元では通るがCIで落ちる」を説明するもの。2つが重なっていた。
+- 検証: App 160 files / 1803 passed、`VITE_SYNC_WORKER_URL` を渡したbuildで URL が成果物へ埋まることも確認。
+- `docs/ci-cd.md` に「無料版とProは別々にdeployされる」対応表と、**testに影響する環境変数をjob全体のenvへ置かない**という原則を追記した。
+- **まだ未解決**: Pro Review Worker が「`app/` を配る静的Worker」へ上書きされる件は、repository内に出どころが無く原因不明のまま。Pro側のCIが安定したので、再発すれば死活確認が拾う。
+
 ## 2026-09-19 — Pro Reviewの再発は「Workerが別物に上書きされている」／CIの落ちる原因はNodeのversion差
 
 - 死活確認を`main`へ置いた直後、その場の実行でPro Reviewが**また落ちていた**（前日04:25Zは200 OK）。入れた翌日に初回で検知した形。
