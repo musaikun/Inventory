@@ -12,6 +12,7 @@ import {
 import ItemImportPreviewModal from './ItemImportPreviewModal.vue'
 import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
 import LoadingSpinner from './LoadingSpinner.vue'
+import { runBusy } from '../composables/useBusy.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
@@ -46,7 +47,9 @@ async function onRestoreFile(file) {
   const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   try {
     if (isExcel) assertSpreadsheetFile(file)
-    const csvText = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
+    // Excelは表へ変換してから読む。大きいファイルでは数秒かかる
+    const csvText = await runBusy('ファイルを読み込み中…', async () =>
+      isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text())
     const rows = parseResultCSV(csvText)
     emit('restoreInventory', rows)
     emit('close')
@@ -267,7 +270,8 @@ async function openMapper(file, { fromRecipe = false } = {}) {
   const isExcel = /\.(xlsx|xls)$/i.test(file.name)
   try {
     if (isExcel) assertSpreadsheetFile(file)
-    mapperCsvText.value      = isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text()
+    mapperCsvText.value      = await runBusy('ファイルを読み込み中…', async () =>
+      isExcel ? await excelToCsv(await file.arrayBuffer()) : await file.text())
     mapperFilename.value     = file.name
     mapperPdfFile.value      = null
     mapperPdf.value          = null

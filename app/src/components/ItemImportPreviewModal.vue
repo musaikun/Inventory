@@ -16,6 +16,8 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { FREE_ITEM_LIMIT, isPro, limitsEnforced } from '../utils/planLimits.js'
 import { confirmMasterImport } from '../utils/masterImportWarning.js'
 import { summaryCounts, IMPORT_ERROR_NO_HEADER } from '../utils/itemImport.js'
+import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
   // origin: 'csv'（推奨フォーマット）| 'mapped'（列指定）| 'pdf'（PDF/Excelから変換済み）
@@ -165,7 +167,7 @@ const canImport = computed(() =>
   && (!isReplace.value || replaceConfirmed.value)
 )
 
-function onConfirm() {
+async function onConfirm() {
   if (!canImport.value) return
   // 全置換だけは最後にもう一段の同意を取る（S2 の確認をこの操作にだけ残した）。
   // 追加・更新は既存品目を消さないため確認を挟まない。
@@ -173,8 +175,12 @@ function onConfirm() {
   importing.value   = true
   importError.value = ''
   try {
+    // 適用は同期で、品目が多いと数百ms止まる。止まっている間は旗を立てても描画されない
+    // ので、多いときだけ先に描いてから始める（少ないときに待たせないため）。
     // プレビューで見せたものと同じ計画をそのまま適用する
-    emit('imported', applyImportPlan(plan.value))
+    await runBusy('取り込み中…', () => {
+      emit('imported', applyImportPlan(plan.value))
+    }, { paintFirst: itemCount.value >= HEAVY_ROWS })
   } catch (err) {
     importError.value = err.message
   } finally {
@@ -515,7 +521,8 @@ function onConfirm() {
       <div class="actions">
         <button class="btn btn-secondary" @click="requestClose">キャンセル</button>
         <button class="btn btn-primary" :class="{ danger: isReplace }" :disabled="!canImport" @click="onConfirm">
-          {{ isReplace ? '全入れ替えする' : '取り込む' }}
+          <LoadingSpinner v-if="importing" size="sm" inline label="取り込み中" />
+          <span>{{ importing ? '取り込み中…' : (isReplace ? '全入れ替えする' : '取り込む') }}</span>
         </button>
       </div>
     </div>

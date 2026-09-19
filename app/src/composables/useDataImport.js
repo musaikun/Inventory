@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { runBusy, HEAVY_ROWS } from './useBusy.js'
 import { useConfig } from './useConfig.js'
 import { useMovements } from './useMovements.js'
 import { useHistory } from './useHistory.js'
@@ -90,7 +91,8 @@ export function useDataImport() {
   async function openDeliveryFromFile(file) {
     if (!file) return
     try {
-      deliveryCsv.value = await _fileToCsv(file)
+      // Excelはここで表へ変換する。大きいファイルでは数秒かかる
+      deliveryCsv.value = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file))
     } catch (_) { alert('ファイルの読み込みに失敗しました'); return }
     deliveryFilename.value = file.name
     showDeliveryModal.value = true
@@ -101,7 +103,14 @@ export function useDataImport() {
   // DeliveryImportModal の @imported ペイロードを受けて確定保存する。
   // 種別が出庫の行は出庫として保存される（ペイロードの type をそのまま使う）。
   // @returns 保存した入出庫レコード数
-  function onDeliveryImported({ movements = [], aliasPairs = [], newItems = [] } = {}) {
+  function onDeliveryImported(payload = {}) {
+    // 保存件数を返す契約は変えない。待ちの表示だけ被せる。
+    // 件数が多いときだけ先に描く（少ないときに待たせないため）
+    const rows = (payload.movements ?? []).length
+    return runBusy('取り込み中…', () => _applyDeliveryImport(payload),
+      { paintFirst: rows >= HEAVY_ROWS })
+  }
+  function _applyDeliveryImport({ movements = [], aliasPairs = [], newItems = [] } = {}) {
     for (const it of newItems) addItem(it.name, it.price, it.category, it.unit)
     for (const p of aliasPairs) registerAlias(p.term, p.canonical)
     let n = 0
@@ -134,9 +143,12 @@ export function useDataImport() {
   async function openStocktakeFromFile(file) {
     if (!file) return false
     let csv
-    try { csv = await _fileToCsv(file) }
+    try { csv = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file)) }
     catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
-    return _openStocktakeFromCsv(csv, file.name)
+    // 解析と計画づくりは同期。行が多いと数百ms止まるので、そのときだけ先に描く
+    const rows = csv.split('\n').length
+    return await runBusy('読み込んだ内容を確認中…', () => _openStocktakeFromCsv(csv, file.name),
+      { paintFirst: rows >= HEAVY_ROWS })
   }
 
   /**
@@ -184,19 +196,20 @@ export function useDataImport() {
    */
   async function confirmStocktakeImport(onlyDates) {
     if (!stocktakePlan.value) return { saved: [], failed: [], ok: false }
-    return commitPastImport(stocktakePlan.value, {
+    // 日付ごとにサーバーへ往復する。件数が多いと明確に待たされる
+    return runBusy('取り込み中…', () => commitPastImport(stocktakePlan.value, {
       saveToServer: importPastSessionToD1,
       applyLocal:   importPastSnapshot,
       onlyDates,
-    })
+    }))
   }
 
   /** 取込バッチを取り消す（サーバー結果を確認してから端末を消す） */
   async function undoStocktakeImport(importBatchId) {
-    return cancelPastImport(importBatchId, {
+    return runBusy('取り消し中…', () => cancelPastImport(importBatchId, {
       cancelOnServer: cancelPastImportOnD1,
       deleteLocal:    deleteImportBatchLocal,
-    })
+    }))
   }
 
   return {

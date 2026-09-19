@@ -5,6 +5,7 @@ import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
+import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
@@ -41,14 +42,20 @@ function _download(text, filename) {
   a.click()
   URL.revokeObjectURL(a.href)
 }
+// CSVの組み立ては同期で、品目が多いと数百ms止まる。止まっている間は旗を立てても
+// 描画されないので、多いときだけ先に描いてから始める（少ないときに待たせないため）。
 function exportMasterCsv() {
   if (itemCount.value === 0) { alert('出力する品目がありません。'); return }
-  _download(exportConfigCSV(), `品目マスタ_${new Date().toISOString().slice(0, 10)}.csv`)
+  return runBusy('書き出し中…', () => {
+    _download(exportConfigCSV(), `品目マスタ_${new Date().toISOString().slice(0, 10)}.csv`)
+  }, { paintFirst: itemCount.value >= HEAVY_ROWS })
 }
 function exportLatestSnapshotCsv() {
   const snap = getSnapshots()[0]
   if (!snap) { alert('棚卸の履歴がまだありません。'); return }
-  _download(exportSnapshotCSV(snap), `棚卸結果_${snap.date}.csv`)
+  return runBusy('書き出し中…', () => {
+    _download(exportSnapshotCSV(snap), `棚卸結果_${snap.date}.csv`)
+  }, { paintFirst: (snap.items ?? []).length >= HEAVY_ROWS })
 }
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 

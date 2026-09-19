@@ -85,6 +85,7 @@ import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
+import BusyOverlay from './components/BusyOverlay.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
 import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
@@ -3817,6 +3818,10 @@ function dismissReview() {
         </template>
       </div>
     </div>
+
+    <!-- 取込・書き出し・読み込みのあいだの表示。どの画面・どのモーダルの中から始めても
+         ここ1つが受けるので、経路ごとに旗を立てずに済む（立て忘れが起きない）。 -->
+    <BusyOverlay />
 
   </div>
 </template>

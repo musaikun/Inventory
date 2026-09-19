@@ -20,6 +20,7 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { registerModalBackGuard } from '../composables/appMenuState.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 import {
   ON_CONFLICT_ADD, ON_CONFLICT_REPLACE,
   OUTCOME_UNKNOWN, classifyCommitError,
@@ -337,14 +338,17 @@ async function onUndo() {
           {{ finished ? '閉じる' : 'キャンセル' }}
         </button>
         <button v-if="!finished" class="btn btn-primary" :disabled="!canConfirm" @click="onConfirm">
-          {{ importing ? '保存中…' : '取り込む' }}
+          <LoadingSpinner v-if="importing" size="sm" inline label="保存中" />
+          <span>{{ importing ? '保存中…' : '取り込む' }}</span>
         </button>
         <template v-else>
           <button v-if="canRetry" class="btn btn-primary" :disabled="importing || undoing" @click="onRetry">
-            {{ importing ? '再試行中…' : '同じ取込IDで再試行' }}
+            <LoadingSpinner v-if="importing" size="sm" inline label="再試行中" />
+            <span>{{ importing ? '再試行中…' : '同じ取込IDで再試行' }}</span>
           </button>
           <button v-if="canCancel" class="btn btn-primary danger" :disabled="undoing || importing" @click="onUndo">
-            {{ undoing ? '取り消し中…' : 'この取込を取り消す' }}
+            <LoadingSpinner v-if="undoing" size="sm" inline label="取り消し中" />
+            <span>{{ undoing ? '取り消し中…' : 'この取込を取り消す' }}</span>
           </button>
         </template>
       </div>
