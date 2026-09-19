@@ -18,6 +18,17 @@
 - 競合ファイルとtestをstageし、`git ls-files --unmerged`出力なし・`git diff --cached --check` exit 0を確認。既存の他ファイルのstage差分を保持。version / Worker / DB無変更。
 - REPO-002をレビュー待ち / Userへ。commit / push / deploy未実施。origin/developの追加更新は今回取り込まず、既に開始されていたmergeの解消だけを行った。
 
+## 2026-09-19 — version 0.96.0（User指示）
+
+- User指示で `app/package.json` の version を **0.95.0 → 0.96.0** へ（リリースの区切り・D-025）。lockfileの自アプリ情報2箇所も同じ版へ整合。依存の追加更新はなし。
+- 0.95.0 以降の区切りに入るもの:
+  - 機能: 取込・書き出し・読み込みに待ちの表示（`f838df5`）
+  - 修正: 件数のタップ（ghost click）と品目の長押しの文字選択（`b34ce85`）
+  - CI: 公開中Workerの死活確認を定期実行（`25544b9` ＋ `main`へ `7d15e90`）、testに渡る環境変数を2つのworkflowで揃える（`90909d5`）
+  - test: 非同期の待ちを「回数」から「条件」へ（`9126f87` / `ed5843f`）、取込testの環境依存の分岐をやめる（`27eb748`）
+- この区切りの途中で、Pro Review Workerが2度落ちて復旧している（原因はworkflowの停止と、CI外からの上書き）。詳細は同日の各entry。
+- 検証: App 161 files / 1810 passed、production build 成功。API / DB / 認可 / 保存形式 / Worker は無変更。手動deploy / migrationは実行しない。
+
 ## 2026-09-19 — 取込・書き出し・読み込みに待ちの表示を入れる
 
 - Userから「取り込み中・読み込み中・書き出し中など、時間がかかる場合にロードアニメーションを入れたい」。9/15に作った`LoadingSpinner`は文字だけだった7箇所の置き換えに使っただけで、**実際に時間がかかる処理には何も出ていなかった**。
