@@ -79,10 +79,10 @@ describe('PdfGridSetup — 進み方', () => {
     await mount()
     nums()[0].click()
     await nextTick()
-    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).toContain('1ページの中に、同じ形の表がいくつありますか？')
     button('次へ').click()
     await nextTick()
-    expect(host.textContent).not.toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).not.toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(host.textContent).toContain('豚バラ')
   })
 
@@ -94,7 +94,7 @@ describe('PdfGridSetup — 進み方', () => {
     await nextTick()
     button('戻る').click()
     await nextTick()
-    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(nums()[2].className).toContain('on')
   })
 
@@ -178,7 +178,7 @@ describe('PdfGridSetup — 枚数と割り方', () => {
 
   it('覚えているレシピがあるときは枚数を訊かない', async () => {
     await mount({ layout: { cols: 1, rows: 2 }, rowFactor: 0.5, edges: [] })
-    expect(host.textContent).not.toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).not.toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(host.textContent).toContain('豚バラ')
     expect(button('戻る')).toBeUndefined()      // 訊かれていないので戻り先も無い
   })

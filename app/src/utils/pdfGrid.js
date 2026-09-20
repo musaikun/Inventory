@@ -653,10 +653,11 @@ export function pdfPagesToRows(pages, opts) {
  *   rowFactor = 行としてまとめる高さ（文字の高さに対する倍率）
  *   edges     = 列の境界（段の原点からの相対x）。人が直したときだけ入る
  *   heads     = 見出し帯から足す列の**位置**（値ではなく位置を覚える）
- * @returns {{rows, edges, rowFactor, sections, layout, heads}}
+ *   byPosition = セルを並び順ではなく**紙の上の位置**で列へ入れる（→ 下の注記）
+ * @returns {{rows, edges, rowFactor, sections, layout, heads, byPosition}}
  */
 export function pdfPagesToTable(pages, opts = {}) {
-  const { rowFactor = ROW_FACTOR, edges = null } = opts
+  const { rowFactor = ROW_FACTOR, edges = null, byPosition = false } = opts
   const layout = normLayout(opts)
   const heads = Array.isArray(opts.heads) ? opts.heads : []
   const { all, secWidth } = collectCells(pages, layout, rowFactor)
@@ -671,7 +672,7 @@ export function pdfPagesToTable(pages, opts = {}) {
   }
   const made = (rows, rowPages, eg) => ({
     rows: withHeads(rows, rowPages), edges: eg,
-    rowFactor, sections: layout.cols, layout, heads: heads.map(h => ({ ...h })),
+    rowFactor, sections: layout.cols, layout, heads: heads.map(h => ({ ...h })), byPosition,
   })
   const empty = made([], [], edges ?? [])
   if (!all.length) return empty
@@ -693,18 +694,40 @@ export function pdfPagesToTable(pages, opts = {}) {
   }
 
   const dense = all.filter(r => r.cells.length >= DENSE_CELLS).map(r => r.cells)
-  const byOrdinal = ordinalColumns(dense)
+  // 位置で入れるときは、多数決（並び順）で決めた列は使わない。
+  // 並び順の列は**ずれている行そのものに引きずられて広がる** ── 割れた品目名の右半分が
+  // 「2列目」の一員として数えられ、列の範囲がそこまで伸びてしまう。紙の上の区間だけで
+  // 列を作れば、割れた名前は**別の列として目に見える**ので「左の列と合わせる」で直せる。
+  const byOrdinal = byPosition ? null : ordinalColumns(dense)
   const cols = byOrdinal ? byOrdinal.cols : geometricColumns(all.flatMap(r => r.cells), secWidth)
   if (!cols.length) return empty
+
+  /**
+   * **紙の上の位置だけで入れる**ときの列の境界。
+   *
+   * 並び順で入れると、セルの数が多数派とずれた行だけが横にずれる ── 品目名に空白が
+   * あって2つに割れた行、値の欠けた行がそれで、**その行だけ1列分ずれる**形で出てくる。
+   * しかも他の行は正しいので、先頭を見ただけでは気づけない。
+   *
+   * 位置で入れれば、どの行も紙に刷られているところへ入る。欠けたところは空のまま残り、
+   * 割れた名前は別の列に出るので「左の列と合わせる」でまとめられる。
+   *
+   * 既定にしないのは、見出しが左寄せ・数字が右寄せで刷られる帳票では、位置だけだと
+   * 見出しの名前と中身が食い違うことがあるため（`ordinalColumns` の注記）。
+   * 画面で「この行だけ横にずれている」と分かったときに、人が切り替える。
+   */
+  const posEdges = byPosition ? edgesOfColumns(cols) : null
 
   const out = [], outPages = []
   for (const { cells, page } of all) {
     const row = new Array(cols.length).fill('')
     // 多数派と同じセル数の行は並び順そのままに入れる。それ以外は位置から当てる
     // （欠けのある行を番号で入れると、そこから右がまるごと1つずれる）。
-    const at = byOrdinal && cells.length === byOrdinal.modal
-      ? cells.map((_, i) => i)
-      : placeInOrder(cols, cells)
+    const at = posEdges
+      ? cells.map(c => columnAtEdges(posEdges, c))
+      : byOrdinal && cells.length === byOrdinal.modal
+        ? cells.map((_, i) => i)
+        : placeInOrder(cols, cells)
     cells.forEach((c, i) => {
       row[at[i]] = row[at[i]] ? `${row[at[i]]} ${c.text}` : c.text
     })
@@ -716,6 +739,81 @@ export function pdfPagesToTable(pages, opts = {}) {
   for (let i = 0; i < cols.length; i++) if (out.some(r => r[i] !== '')) keep.push(i)
   const rows = keep.length === cols.length ? out : out.map(r => keep.map(i => r[i]))
   return made(rows, outPages, edgesOfColumns(keep.map(i => cols[i])))
+}
+
+const NUMERIC_RE = /^[-+]?[\d,]+(\.\d+)?$/
+const isNumberish = (v) => NUMERIC_RE.test(String(v ?? '').trim()) && /\d/.test(String(v))
+
+/**
+ * そろっていない行（＝ずれている可能性が高い行）の番号。
+ *
+ * **ずれは目で探させない。** 1000行の表を上から見て「この行だけ1列ずれている」を
+ * 見つけるのは人の仕事ではない。しかも先頭だけ見て安心すると、後ろのページで
+ * ずれていても気づけない。
+ *
+ * 見ているのは2つ。
+ *   ① 値の入っているセルの数が多数派と違う
+ *      品目名に空白があって2つに割れた行（1つ多い）、値の欠けた行（1つ少ない）。
+ *      これが「1行だけ1列分ずれる」の正体。見出しの行は多数派と同じ数なので出ない。
+ *   ② いつも数字が入っている列に、数字でない値が入っている
+ *      ①をすり抜けるずれ（多い側と少ない側が同じ行で起きたとき）を拾う。
+ *
+ * 見出しの行だけは対象外にする（当てると見出しがぜんぶ「あやしい」になり、印が
+ * 意味を失う）。見出しは**数字を1つも持たない最初の行**とその同じ並びの行 ── 段組みの
+ * 紙では同じ見出しが何度も出るため。「数字を持たない行はぜんぶ見出し」にはしない。
+ * 数字がまるごと隣へ押し出された行こそが、いちばん見つけたいずれだから。
+ *
+ * @param {string[][]} rows
+ * @param {{ignoreRight?: number}} [opts] ignoreRight = 右端から見ない列の数（見出しから足した列）
+ * @returns {number[]} 行番号（0始まり）
+ */
+export function oddRowIndexes(rows, { ignoreRight = 0 } = {}) {
+  const list = rows ?? []
+  if (list.length < 3) return []
+  const width = Math.max(0, list.reduce((n, r) => Math.max(n, r.length), 0) - ignoreRight)
+  if (width < 2) return []
+
+  const body = list.map(r => r.slice(0, width))
+  const filledOf = (r) => r.filter(v => v !== '' && v != null).length
+
+  // 値の入っているセルの数の多数派。見出しの行も同じ数なので一緒に数えてよい
+  const count = new Map()
+  for (const r of body) {
+    const n = filledOf(r)
+    if (n) count.set(n, (count.get(n) ?? 0) + 1)
+  }
+  let modal = 0, modalN = 0
+  for (const [n, k] of count) if (k > modalN || (k === modalN && n > modal)) { modal = n; modalN = k }
+
+  // いつも数字の列。そろっている行のうち、数字を持つ行（＝データの行）だけで見る
+  const dataRows = body.filter(r => filledOf(r) === modal && r.some(isNumberish))
+  const numericCol = []
+  for (let c = 0; c < width; c++) {
+    let filled = 0, num = 0
+    for (const r of dataRows) {
+      if (r[c] === '' || r[c] == null) continue
+      filled++
+      if (isNumberish(r[c])) num++
+    }
+    numericCol.push(filled >= 3 && num / filled >= 0.8)
+  }
+
+  // 見出しの行。数字を1つも持たない最初の行と、それと同じ並びの行（段組みの再掲）
+  const KEY = String.fromCharCode(1)
+  let headerKey = null
+  for (const r of body) {
+    if (filledOf(r) > 0 && !r.some(isNumberish)) { headerKey = r.join(KEY); break }
+  }
+
+  const out = []
+  body.forEach((r, i) => {
+    const n = filledOf(r)
+    if (!n) return
+    if (headerKey !== null && r.join(KEY) === headerKey) return
+    if (modalN > 0 && n !== modal) { out.push(i); return }
+    if (r.some((v, c) => numericCol[c] && v !== '' && v != null && !isNumberish(v))) out.push(i)
+  })
+  return out
 }
 
 /** 組み直した表をCSVテキストにする。以降は CSV・Excel とまったく同じ経路を通る。 */

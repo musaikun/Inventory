@@ -78,7 +78,7 @@ afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.re
 describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
   it('自動で読めなかったPDFは、まず「表は何枚か」を訊く', async () => {
     await mount()
-    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).toContain('1ページの中に、同じ形の表がいくつありますか？')
     // 9枚まで選べる（実物で3×3を見ている）。4枚で切ると、それ以上の紙で詰む
     expect(host.querySelectorAll('.gs-num').length).toBe(9)
   })
@@ -87,7 +87,7 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
     await mount()
     host.querySelectorAll('.gs-num')[0].click()
     await nextTick()
-    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(host.textContent).not.toContain('豚バラ')
   })
 
@@ -144,7 +144,7 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
     })
 
     await mount()
-    expect(host.textContent).not.toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).not.toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(mapped.length).toBe(1)
     expect(mapped[0].csvText.split('\r\n')[1]).toBe('豚バラ,kg,1200')
   })

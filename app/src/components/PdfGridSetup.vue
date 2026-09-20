@@ -18,8 +18,8 @@
  * という状態になっていた。押す＝選ぶ、進む＝次へ、に分ける。
  */
 import { ref, computed, watch, nextTick } from 'vue'
-import { pdfPagesToTable, rowsToCsv, suggestEdge, planLayout, detectLayout, pageHeads, GRID_MAX }
-  from '../utils/pdfGrid.js'
+import { pdfPagesToTable, rowsToCsv, suggestEdge, planLayout, detectLayout, pageHeads,
+         oddRowIndexes, GRID_MAX } from '../utils/pdfGrid.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfPageViewer from './PdfPageViewer.vue'
 
@@ -32,7 +32,6 @@ const emit = defineEmits(['close', 'ready'])
 
 // 行の高さの段階。文字の高さに対する倍率で持つので、紙が変わっても同じ手応えになる
 const ROW_STEPS = [0.25, 0.35, 0.5, 0.7, 1.0, 1.4]
-const PREVIEW_ROWS = 30
 
 // 段階。1 = 枚数と割り方 / 2 = 組み上がった表の直し
 const step = ref(props.initial ? 2 : 1)
@@ -42,6 +41,8 @@ const pickIdx = ref(0)        // 候補のどれを使っているか（図を�
 const rowStep = ref(Math.max(0, ROW_STEPS.indexOf(props.initial?.rowFactor ?? 0.5)))
 const edges   = ref(props.initial?.edges ?? null)   // null = 自動のまま
 const heads   = ref((props.initial?.heads ?? []).map(h => ({ x: h.x, y: h.y })))
+const byPos   = ref(!!props.initial?.byPosition)   // セルを紙の上の位置で列へ入れる
+const oddOnly = ref(false)                          // そろっていない行だけを見る
 const detected = ref(null)    // 紙から見当てた割り方（当たれば人は数えなくていい）
 const pdfOpen  = ref(false)
 const countEl  = ref(null)
@@ -123,13 +124,29 @@ function toggleHead(t) {
 const build = computed(() => (step.value < 2
   ? { rows: [], edges: [] }
   : pdfPagesToTable(props.pages, {
-      layout: layout.value, rowFactor: rowFactor.value, edges: edges.value, heads: heads.value,
+      layout: layout.value, rowFactor: rowFactor.value, edges: edges.value,
+      heads: heads.value, byPosition: byPos.value,
     })))
 
 const rows     = computed(() => build.value.rows)
 const colCount = computed(() => rows.value.reduce((n, r) => Math.max(n, r.length), 0))
-const preview  = computed(() => rows.value.slice(0, PREVIEW_ROWS))
 const cell     = (r, i) => r[i] ?? ''
+
+/**
+ * そろっていない行。ずれを目で探させないための印。
+ *
+ * 先頭の数十行だけ見せていたときは、**後ろのページでずれていても気づけなかった**
+ * （紙は何ページもあるのに、確かめられるのは1ページ目だけだった）。全行出したうえで、
+ * あやしい行に印を付け、そこだけ見られるようにする。
+ */
+const oddSet = computed(() => new Set(oddRowIndexes(rows.value, { ignoreRight: heads.value.length })))
+const isOdd  = (i) => oddSet.value.has(i)
+
+// 表に出す行。番号は「全体の何行目か」を持ったまま絞る（絞ってから探せる）
+const shown = computed(() => {
+  const all = rows.value.map((r, i) => ({ r, i }))
+  return oddOnly.value ? all.filter(x => oddSet.value.has(x.i)) : all
+})
 
 // 直した内容は「自動で決まった境界」から始める。触るまでは自動のまま任せる
 function currentEdges() { return edges.value ?? [...build.value.edges] }
@@ -192,12 +209,14 @@ function next() {
       rowFactor: rowFactor.value, edges: build.value.edges,
       // 値ではなく**位置**を残す。「○月」は翌月変わるので、毎回そこから読む
       heads: heads.value.map(h => ({ ...h })),
+      byPosition: byPos.value,
     },
   })
 }
 
 // 枚数や割り方を変えたら、表はその場で組み直る（段階を戻らなくても結果が見える）
 watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
+watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = null })
 </script>
 
 <template>
@@ -212,9 +231,10 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
       <div class="gs-body">
         <!-- ① 枚数。読んだ後では「右半分が無いこと」に気づけないので、紙を見せながら先に訊く -->
         <template v-if="step === 1">
-          <div class="gs-q">この紙、表は何枚ありますか？</div>
+          <div class="gs-q">1ページの中に、同じ形の表がいくつありますか？</div>
           <p class="gs-note">
-            同じ形の表がいくつ刷られているかです。<b>縦に並んでいても横に並んでいても、数だけ答えてください。</b>
+            <b>PDFのページ数ではありません。</b>1枚の紙の中に、同じ形の表が何個刷られているかです。
+            縦に並んでいても横に並んでいても、数だけ答えてください。
             少なく選ぶと、その分の品目は取り込まれません。
           </p>
 
@@ -222,7 +242,7 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
             <button v-for="n in GRID_MAX" :key="n" class="gs-num" :class="{ on: count === n }"
                     :aria-pressed="count === n" @click="pickCount(n)">
               <span class="gs-num-n">{{ n }}</span>
-              <span class="gs-num-l">枚</span>
+              <span class="gs-num-l">個</span>
             </button>
           </div>
 
@@ -247,7 +267,7 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
         <!-- ② 組み上がった表。ずれていたらここで直す -->
         <template v-else>
           <div class="gs-bar">
-            <span class="gs-bar-t">横{{ layout.cols }} × 縦{{ layout.rows }}（{{ count }}枚）で読んだ表</span>
+            <span class="gs-bar-t">横{{ layout.cols }} × 縦{{ layout.rows }}（1ページに{{ count }}個）で読んだ表</span>
             <button class="gs-back" @click="pdfOpen = true">📄 元のPDF</button>
           </div>
 
@@ -277,6 +297,22 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
             <button class="gs-tool-b" :disabled="rowStep >= ROW_STEPS.length - 1" @click="rowStep++">2行が1行にくっついている</button>
           </div>
 
+          <!-- ずれの直し。行によって1列ずれるのは、セルの数が多数派と違う行が
+               並び順で入っているため。位置で入れれば、割れた名前は1つに戻り、
+               欠けたところは空のまま残る -->
+          <div class="gs-tool">
+            <span class="gs-tool-t">ずれ</span>
+            <button class="gs-tool-b" :class="{ on: byPos }" :aria-pressed="byPos"
+                    @click="byPos = !byPos">
+              紙の位置で入れる{{ byPos ? '（いま）' : '' }}
+            </button>
+            <span class="gs-tool-n">
+              <b>行によって1列ずれるとき</b>に押してください。左から順に詰めるのをやめて、
+              紙に刷られている位置へ入れます。割れた品目名は別の列に出るので、
+              その列をタップして「左の列と合わせる」でまとめられます。
+            </span>
+          </div>
+
           <!-- 表 -->
           <div class="gs-table-wrap">
             <table class="gs-table">
@@ -290,11 +326,11 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(r, ri) in preview" :key="ri">
-                  <td class="gs-no">{{ ri + 1 }}</td>
+                <tr v-for="x in shown" :key="x.i" :class="{ odd: isOdd(x.i) }">
+                  <td class="gs-no">{{ x.i + 1 }}</td>
                   <td v-for="i in colCount" :key="i"
                       :class="{ on: picked === i - 1, add: i - 1 >= paperCols }" @click="tapCol(i - 1)">
-                    {{ cell(r, i - 1) || '　' }}
+                    {{ cell(x.r, i - 1) || '　' }}
                   </td>
                 </tr>
               </tbody>
@@ -302,7 +338,10 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
           </div>
           <div class="gs-count">
             全 {{ rows.length.toLocaleString() }}行 / {{ colCount }}列
-            <span v-if="rows.length > PREVIEW_ROWS">（先頭{{ PREVIEW_ROWS }}行を表示）</span>
+            <button v-if="oddSet.size" class="gs-odd" :class="{ on: oddOnly }" :aria-pressed="oddOnly"
+                    @click="oddOnly = !oddOnly">
+              そろっていない行 {{ oddSet.size.toLocaleString() }}件{{ oddOnly ? ' ・ 全部見る' : ' ・ だけ見る' }}
+            </button>
             <button v-if="edges" class="gs-reset" @click="resetEdges">列の直しを取り消す</button>
           </div>
 
@@ -410,6 +449,9 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
 .gs-tool-b { flex: 1; border: 1px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 9px; padding: 8px 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .gs-tool-b:disabled { opacity: .35; cursor: not-allowed; }
+.gs-tool-b.on { border-color: var(--primary); background: var(--primary); color: #fff; }
+.gs-tool-n { flex: 1 1 100%; font-size: 10.5px; line-height: 1.55; color: var(--text-muted); }
+.gs-tool-n b { color: var(--text); }
 
 .gs-table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto;
   max-height: 42vh; -webkit-overflow-scrolling: touch; }
@@ -417,6 +459,11 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
 .gs-table th, .gs-table td { border: 1px solid var(--border); padding: 4px 7px; text-align: left;
   max-width: 190px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .gs-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+/* 全行出すので、画面の外の行は描かせない（1000行でも重くならない） */
+.gs-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 25px; }
+/* そろっていない行。ずれは目で探させない */
+.gs-table tbody tr.odd td { background: #fff7ed; }
+.gs-table tbody tr.odd td.gs-no { background: #fed7aa; color: #9a3412; font-weight: 800; }
 .gs-table th.on, .gs-table td.on { background: var(--primary-weak); }
 .gs-table th.on { border-color: var(--primary); }
 /* 見出しから足した列。紙の上に境界が無いので、合わせる・分けるの対象にしない */
@@ -426,6 +473,9 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
 
 .gs-count { display: flex; align-items: center; gap: 8px; font-size: 11px;
   color: var(--text-muted); margin: 6px 0 8px; }
+.gs-odd { border: 1px solid #fdba74; background: #fff7ed; color: #9a3412;
+  border-radius: 14px; padding: 3px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+.gs-odd.on { background: #ea580c; border-color: #ea580c; color: #fff; }
 .gs-reset { margin-left: auto; border: none; background: none; color: var(--danger);
   font-size: 11px; cursor: pointer; }
 
