@@ -57,39 +57,82 @@ function readingTokens(page) {
 }
 
 /**
- * 段の境界と原点。
+ * 紙を「格子」に割る（横の段 × 縦の積み）。
  *
- * 原点を「品目名の見出し」にそろえるのがこの関数の肝で、段ごとの相対xが一致するから
- * 右段の値が左段と同じ列に収まる。段の左端（行番号の列）は見出しより左にあるので、
- * その分（lead）だけ境界を左へ広げておく。
+ * 段組み（同じ形の表が1枚の紙に横に並ぶ帳票）だけでなく、**縦に積まれた表**も
+ * 帯として明示的に割る。縦は割らなくても行が上から下へ続くので表にはなるが、
+ * 帯にすると2つ得がある ── 帯ごとに x の原点を持てるので**下の表が横にずれている紙でも
+ * 列が揃い**、帯ごとに見出しの再掲を扱えるようになる。
+ *
+ * 人に訊くのは**枚数だけ**。それを横×縦のどう割るかは紙に訊く（`planLayout`）。
+ * 縦か横かを人に選ばせると、3枚が縦並びの紙・4枚が2×2の紙で必ず迷う。
  */
-function sectionsOf(tokens, sections) {
-  if (sections <= 1 || !tokens.length) return [{ xMin: -Infinity, xMax: Infinity, origin: 0 }]
 
-  const minX = Math.min(...tokens.map(t => t.x))
-  const anchors = []
-  for (const t of tokens.filter(t => NAME_HEADER_RE.test(normText(t.text))).sort((a, b) => a.x - b.x)) {
-    if (!anchors.length || t.x - anchors[anchors.length - 1] > COL_GAP * 4) anchors.push(t.x)
+/** 1枚の紙に並ぶ表の上限。実物で9枚（3×3）まで見ている */
+export const GRID_MAX = 9
+
+/**
+ * 軸に沿った占有区間（重なりを潰して昇順）。切れ目を探す土台。
+ *
+ * 横は**文字の幅**で測る（字を割ってはいけない）。縦は**baseline だけ**で測る ──
+ * 行は `rowsOf` が baseline を束ねて決めるので、字の高さぶんを占有とみなすと、
+ * 行のすぐ上を切る正しい切れ目が「字の上を切っている」ことになってしまう。
+ */
+function spansOf(tokens, axis) {
+  const raw = tokens
+    .map(t => (axis === 'x' ? { lo: t.x, hi: t.x + t.w } : { lo: t.y, hi: t.y }))
+    .sort((a, b) => a.lo - b.lo)
+  const out = []
+  for (const s of raw) {
+    const last = out[out.length - 1]
+    if (last && s.lo <= last.hi) last.hi = Math.max(last.hi, s.hi)
+    else out.push({ ...s })
   }
+  return out
+}
 
-  let starts, lead
-  if (anchors.length === sections) {
-    starts = anchors
-    lead   = anchors[0] - minX          // 表の左端から品目名の列までの距離
-  } else {
-    // 見出しが見つからない紙は、トークンのx範囲を段の数で等分する
-    const maxX = Math.max(...tokens.map(t => t.x + t.w))
-    const w    = (maxX - minX) / sections
-    starts = Array.from({ length: sections }, (_, i) => minX + w * i)
-    lead   = 0
+/**
+ * `at` の近くの空白へ切れ目を寄せる。
+ *
+ * 等分した位置でそのまま切ると文字を貫く。紙の上で本当に何も刷られていない帯へ
+ * 寄せれば、右（下）の表の行が左（上）の表に混ざらない。横も縦も同じ理屈なので1つで済ます。
+ */
+function snapToGap(spans, at, reach) {
+  let bestAt = null, bestGap = 0
+  for (let i = 0; i + 1 < spans.length; i++) {
+    const gap = spans[i + 1].lo - spans[i].hi
+    if (gap < SEC_SLACK) continue
+    const mid = (spans[i].hi + spans[i + 1].lo) / 2
+    if (Math.abs(mid - at) > reach) continue
+    if (gap > bestGap) { bestGap = gap; bestAt = mid }
   }
+  return bestAt ?? at
+}
 
-  const cuts = starts.map((s, i) => (i === 0 ? -Infinity : gutterBefore(tokens, s, s - starts[i - 1], lead)))
-  return starts.map((s, i) => ({
-    xMin:   cuts[i],
-    xMax:   i + 1 < cuts.length ? cuts[i + 1] : Infinity,
-    origin: s,
-  }))
+/** 軸を n 等分して、それぞれの切れ目を空白へ寄せる（昇順の n-1 本） */
+function axisCuts(tokens, axis, n) {
+  if (n <= 1) return []
+  const spans = spansOf(tokens, axis)
+  if (spans.length < 2) return []
+  const min = spans[0].lo, max = spans[spans.length - 1].hi
+  const pitch = (max - min) / n
+  const cuts = []
+  for (let i = 1; i < n; i++) cuts.push(snapToGap(spans, min + pitch * i, pitch * 0.45))
+  return cuts
+}
+
+/** 品目名の見出しトークン。格子の基準になる（これが並んでいる数＝枚数） */
+function anchorTokens(tokens) {
+  return tokens.filter(t => NAME_HEADER_RE.test(normText(t.text)))
+}
+
+/** 近い値をまとめて昇順に返す（同じ位置の見出しを1つに数える） */
+function distinct(values, tol) {
+  const out = []
+  for (const v of [...values].sort((a, b) => a - b)) {
+    if (!out.length || v - out[out.length - 1] > tol) out.push(v)
+  }
+  return out
 }
 
 /**
@@ -113,6 +156,216 @@ function gutterBefore(tokens, anchor, pitch, lead) {
   }
   if (bestAt !== null && bestGap >= SEC_SLACK) return bestAt
   return anchor - lead - SEC_SLACK    // 空白が見つからない紙は、見出しからの距離で切る
+}
+
+/**
+ * 縦の切れ目を、見出しのすぐ上の空白から探す（`gutterBefore` の縦版）。
+ *
+ * 下の表の見出しより上は上の表なので、見出しの行と、その上の行のあいだで切る。
+ * y は上へ向かって増える（`toReadingCoords` で読み方向へそろえた座標）。
+ */
+function gutterAbove(tokens, anchor, pitch) {
+  const winT = anchor + pitch * 0.45
+  const inWin = tokens.filter(t => t.y + t.h > anchor && t.y < winT).sort((a, b) => a.y - b.y)
+  let cur = anchor, bestGap = 0, bestAt = null
+  for (const t of inWin) {
+    if (t.y > cur) {
+      const gap = t.y - cur
+      if (gap > bestGap) { bestGap = gap; bestAt = (cur + t.y) / 2 }
+    }
+    cur = Math.max(cur, t.y + t.h)
+  }
+  if (bestAt !== null && bestGap >= SEC_SLACK) return bestAt
+  return anchor + SEC_SLACK
+}
+
+/**
+ * 横 `cols` × 縦 `rows` に割るときの切れ目。
+ *
+ * 見出しの数が枚数と合っていればその手前の空白で切り（いちばん外れない）、
+ * 合わなければ等分から空白へ寄せる。**採点も実際の割りも同じここを通す**ので、
+ * 「良いと採点した割り方」と「実際に割った結果」が食い違わない。
+ */
+function cutsOf(tokens, cols, rows) {
+  const anchors = anchorTokens(tokens)
+  const ax = distinct(anchors.map(t => t.x), COL_GAP * 4)
+  const ay = distinct(anchors.map(t => t.y), CHAR_H)
+
+  let xCuts
+  if (cols > 1 && ax.length === cols) {
+    const minX = Math.min(...tokens.map(t => t.x))
+    const lead = ax[0] - minX          // 表の左端から品目名の列までの距離
+    xCuts = ax.slice(1).map((s, i) => gutterBefore(tokens, s, s - ax[i], lead))
+  } else {
+    xCuts = axisCuts(tokens, 'x', cols)
+  }
+
+  let yCuts
+  if (rows > 1 && ay.length === rows) {
+    // ay は昇順（下→上）。切れ目は、下の表の見出しのすぐ上
+    yCuts = ay.slice(0, -1).map((s, i) => gutterAbove(tokens, s, ay[i + 1] - s))
+  } else {
+    yCuts = axisCuts(tokens, 'y', rows)
+  }
+  return { xCuts, yCuts, anchors }
+}
+
+/** 切れ目の並びを区間の並びにする（昇順・両端は無限） */
+function rangesFromCuts(cuts) {
+  const out = []
+  let lo = -Infinity
+  for (const c of cuts) { out.push({ lo, hi: c }); lo = c }
+  out.push({ lo, hi: Infinity })
+  return out
+}
+
+/**
+ * 帯の並びと、帯ごとの x の原点。
+ *
+ * 並びは **左の段を下まで使ってから次の段へ**（新聞の段組みと同じ）。
+ * 行の順番がそのまま品目の並び順になるので、ここを変えると棚卸カードの並びが崩れる。
+ *
+ * 原点は「1つ目の帯の取り方は今までと同じ、残りの帯は自分の見出しが1つ目と同じ相対位置に
+ * 来るようにずらす」。こうすると保存済みレシピの `edges` の座標系が変わらないまま、
+ * 下の表が横にずれている紙でも列が揃う。
+ */
+function bandsOf(tokens, cols, rows) {
+  if (cols <= 1 && rows <= 1) {
+    return [{ xMin: -Infinity, xMax: Infinity, yMin: -Infinity, yMax: Infinity, origin: 0 }]
+  }
+  const { xCuts, yCuts, anchors } = cutsOf(tokens, cols, rows)
+  const xs = rangesFromCuts(xCuts)
+  const ys = rangesFromCuts(yCuts).reverse()      // 上から下へ
+  const minX = tokens.length ? Math.min(...tokens.map(t => t.x)) : 0
+
+  const out = []
+  for (const xr of xs) {
+    const colAnchors = anchors.filter(t => t.x >= xr.lo && t.x < xr.hi)
+    const anchorIn = (yr) => {
+      const own = colAnchors.filter(t => t.y >= yr.lo && t.y < yr.hi)
+      return own.length ? Math.min(...own.map(t => t.x)) : null
+    }
+    // 段の基準は、その段のいちばん上の帯の見出し
+    let ref = null
+    for (const yr of ys) { ref = anchorIn(yr); if (ref !== null) break }
+    const colOrigin = cols > 1
+      ? (ref ?? (Number.isFinite(xr.lo) ? xr.lo : minX))
+      : 0
+    for (const yr of ys) {
+      const own = anchorIn(yr)
+      out.push({
+        xMin: xr.lo, xMax: xr.hi, yMin: yr.lo, yMax: yr.hi,
+        origin: colOrigin + (own !== null && ref !== null ? own - ref : 0),
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * 切れ目が乗っている空白の広さ。**広い空白に乗っているほど、そこが表の切れ目**。
+ *
+ * 「いちばん近い文字までの距離」では測れない。正しい切れ目でも、見出しのすぐ手前に
+ * 寄せてあれば近い文字はすぐ隣にある。乗っている空白の帯そのものの広さで見る。
+ *
+ * 字の上を切っているとき、帯が空になる位置（内容の外）のときは 0。
+ */
+function cutGap(spans, cut) {
+  if (!spans.length) return 0
+  if (cut <= spans[0].lo || cut >= spans[spans.length - 1].hi) return 0
+  let prev = spans[0].hi
+  for (const sp of spans.slice(1)) {
+    if (cut < sp.lo) return cut > prev ? sp.lo - prev : 0
+    prev = sp.hi
+  }
+  return 0
+}
+
+/** 紙の1枚目のトークン（割り方はページごとに同じ前提。問いも1枚目を見て出す） */
+function firstPageTokens(pages) {
+  for (const p of pages ?? []) {
+    const tokens = readingTokens(p)
+    if (tokens.length) return tokens
+  }
+  return []
+}
+
+/**
+ * 「N枚」を横×縦にどう割るのが自然か、**紙に訊く**。
+ *
+ * N の約数の組み合わせ（4枚なら 4×1 / 2×2 / 1×4）を全部試し、切れ目が
+ * **文字を貫かない**・**空白に余裕がある**ものを上にする。人が答えるのは枚数だけで、
+ * 縦か横かは紙が決める ── 縦横を人に選ばせると、3枚が縦並びの紙で必ず迷う。
+ *
+ * 自動が外したときは画面で候補を切り替えられるように、順番をつけた一覧で返す。
+ *
+ * @returns {{best: {cols,rows}, candidates: Array<{cols,rows,pierced,clear}>}}
+ */
+export function planLayout(pages, count) {
+  const n = Math.max(1, Math.min(GRID_MAX, Math.round(count) || 1))
+  const tokens = firstPageTokens(pages)
+  const anchors = anchorTokens(tokens)
+  const ax = distinct(anchors.map(t => t.x), COL_GAP * 4).length
+  const ay = distinct(anchors.map(t => t.y), CHAR_H).length
+  const spansX = spansOf(tokens, 'x')
+  const spansY = spansOf(tokens, 'y')
+
+  const candidates = []
+  for (let cols = 1; cols <= n; cols++) {
+    if (n % cols) continue
+    const rows = n / cols
+    const gaps = []
+    if (tokens.length && (cols > 1 || rows > 1)) {
+      const { xCuts, yCuts } = cutsOf(tokens, cols, rows)
+      for (const c of xCuts) gaps.push(cutGap(spansX, c))
+      for (const c of yCuts) gaps.push(cutGap(spansY, c))
+    }
+    candidates.push({
+      cols, rows,
+      // 品目名の見出しの並びと合っているか。これがいちばん強い手がかりで、
+      // 空白の広さだけで決めると**列のあいだの空白を表の切れ目と見間違える**
+      // （縦に積まれた紙が「横2枚」に化ける）。
+      // 横を重く見るのは、**下に続く表は見出しを繰り返さないことがある**ため。
+      // 「見出しが1つのyにしか無い」は縦1枚の証拠として弱いが、
+      // 「見出しが2つのxに並んでいる」は横2枚の証拠として強い。
+      fit:   (anchors.length ? (ax === cols ? 2 : 0) + (ay === rows ? 1 : 0) : 0),
+      worst: gaps.length ? Math.min(...gaps) : Infinity,
+      clear: gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : Infinity,
+    })
+  }
+  candidates.sort((a, b) => b.fit - a.fit || b.worst - a.worst || b.clear - a.clear)
+  const top = candidates[0]
+  return { best: { cols: top?.cols ?? 1, rows: top?.rows ?? 1 }, candidates }
+}
+
+/**
+ * 紙から枚数と割り方を見当てる。**9枚を目で数えさせたら負け**なので、ここを当てにいく。
+ *
+ * 品目名の見出しが x にいくつ散っているかで横の数、y にいくつ散っているかで縦の数。
+ * 見出しが無い紙は分からないので null（人が枚数を選ぶ）。
+ *
+ * @returns {{cols:number, rows:number, count:number}|null}
+ */
+export function detectLayout(pages) {
+  const tokens = firstPageTokens(pages)
+  if (!tokens.length) return null
+  const anchors = anchorTokens(tokens)
+  if (!anchors.length) return null
+  const cols = distinct(anchors.map(t => t.x), COL_GAP * 4).length
+  const rows = distinct(anchors.map(t => t.y), CHAR_H).length
+  const count = cols * rows
+  if (count < 1 || count > GRID_MAX) return null
+  return { cols, rows, count }
+}
+
+/** 呼び出し側が持っている値（古いレシピは `sections` だけ）を格子に正す */
+function normLayout({ sections, layout } = {}) {
+  const cols = Math.round(layout?.cols ?? sections ?? 1) || 1
+  const rows = Math.round(layout?.rows ?? 1) || 1
+  return {
+    cols: Math.max(1, Math.min(GRID_MAX, cols)),
+    rows: Math.max(1, Math.min(GRID_MAX, rows)),
+  }
 }
 
 /**
@@ -239,26 +492,26 @@ function columnAtEdges(edges, cell) {
  * PDFの全ページを1枚の表にする。
  *
  * @param {Array<{tokens: Array<{text,x,y,w}>, rotate: number}>} pages `parsePdfFile` が返すページ
- * @param {{sections?: number}} opts sections = 1枚の紙に並ぶ表の数（人が答えた値）
- * @returns {string[][]} 行の配列。ページ順 → 段順（左→右）に縦へ積む
+ * @param {{layout?: {cols,rows}, sections?: number}} opts 紙の割り方
+ * @returns {string[][]} 行の配列。ページ順 → 段順（左の段を下まで → 次の段）に縦へ積む
  */
 /**
  * ページのトークンを、段ごと・行ごとのセルに集める（列を決める前の段階）。
  * 表を組むときと、画面で「ここで分ける」と言われたときの両方から呼ぶ。
  */
-function collectCells(pages, sections, rowFactor) {
+function collectCells(pages, layout, rowFactor) {
   const all = []
   let secWidth = 0
-  const n = Math.max(1, Math.round(sections) || 1)
 
   for (const page of pages ?? []) {
     const tokens = readingTokens(page)
     if (!tokens.length) continue
     const rowTol = rowTolOf(tokens, rowFactor)
-    for (const band of sectionsOf(tokens, n)) {
+    for (const band of bandsOf(tokens, layout.cols, layout.rows)) {
       const inBand = []
       for (const t of tokens) {
         if (t.x < band.xMin || t.x >= band.xMax) continue
+        if (t.y < band.yMin || t.y >= band.yMax) continue
         inBand.push({ text: t.text, x: t.x - band.origin, y: t.y, w: t.w, h: t.h })
       }
       if (!inBand.length) continue
@@ -268,7 +521,7 @@ function collectCells(pages, sections, rowFactor) {
       all.push(...rowsOf(inBand, rowTol))
     }
   }
-  return { all, secWidth, n }
+  return { all, secWidth }
 }
 
 /**
@@ -278,8 +531,9 @@ function collectCells(pages, sections, rowFactor) {
  * 位置を人に指定させるより、紙の上の空白に合わせたほうが速くて外れない。
  * 分けられる空白が無ければ null（画面はボタンを出さない）。
  */
-export function suggestEdge(pages, { sections = 1, rowFactor = ROW_FACTOR, edges = [] } = {}, colIndex = 0) {
-  const { all } = collectCells(pages, sections, rowFactor)
+export function suggestEdge(pages, opts = {}, colIndex = 0) {
+  const { rowFactor = ROW_FACTOR, edges = [] } = opts
+  const { all } = collectCells(pages, normLayout(opts), rowFactor)
   const inCol = []
   for (const cells of all) {
     for (const c of cells) if (columnAtEdges(edges, c) === colIndex) inCol.push(c)
@@ -309,15 +563,19 @@ export function pdfPagesToRows(pages, opts) {
  * 組み上がる前提を置かない ── 人が画面で直し、その直し方が次回に効くことを前提にする。
  *
  * @param {Array<{tokens: Array<{text,x,y,w,h}>, rotate: number}>} pages `parsePdfFile` が返すページ
- * @param {{sections?: number, rowFactor?: number, edges?: number[]}} opts
- *   sections  = 1枚の紙に並ぶ表の数（人が答えた値）
+ * @param {{layout?: {cols:number,rows:number}, sections?: number, rowFactor?: number, edges?: number[]}} opts
+ *   layout    = 紙の割り方（横×縦）。人が答えた枚数から `planLayout` が決める
+ *   sections  = 横の段の数（`layout` の無い古いレシピ向け。横だけを意味する）
  *   rowFactor = 行としてまとめる高さ（文字の高さに対する倍率）
  *   edges     = 列の境界（段の原点からの相対x）。人が直したときだけ入る
  * @returns {{rows: string[][], edges: number[], rowFactor: number, sections: number}}
  */
-export function pdfPagesToTable(pages, { sections = 1, rowFactor = ROW_FACTOR, edges = null } = {}) {
-  const { all, secWidth, n } = collectCells(pages, sections, rowFactor)
-  const empty = { rows: [], edges: edges ?? [], rowFactor, sections: n }
+export function pdfPagesToTable(pages, opts = {}) {
+  const { rowFactor = ROW_FACTOR, edges = null } = opts
+  const layout = normLayout(opts)
+  const { all, secWidth } = collectCells(pages, layout, rowFactor)
+  const made = (rows, eg) => ({ rows, edges: eg, rowFactor, sections: layout.cols, layout })
+  const empty = made([], edges ?? [])
   if (!all.length) return empty
 
   // 人が境界を直していればそれが正。直していなければ自動で列を決める
@@ -333,7 +591,7 @@ export function pdfPagesToTable(pages, { sections = 1, rowFactor = ROW_FACTOR, e
       if (row.some(v => v !== '')) rows.push(row)
     }
     // 空の列も残す ── 人が引いた線を黙って消すと、直した手応えと画面が食い違う
-    return { rows, edges: [...edges], rowFactor, sections: n }
+    return made(rows, [...edges])
   }
 
   const dense = all.filter(cells => cells.length >= DENSE_CELLS)
@@ -359,7 +617,7 @@ export function pdfPagesToTable(pages, { sections = 1, rowFactor = ROW_FACTOR, e
   const keep = []
   for (let i = 0; i < cols.length; i++) if (out.some(r => r[i] !== '')) keep.push(i)
   const rows = keep.length === cols.length ? out : out.map(r => keep.map(i => r[i]))
-  return { rows, edges: edgesOfColumns(keep.map(i => cols[i])), rowFactor, sections: n }
+  return made(rows, edgesOfColumns(keep.map(i => cols[i])))
 }
 
 /** 組み直した表をCSVテキストにする。以降は CSV・Excel とまったく同じ経路を通る。 */
