@@ -64,6 +64,14 @@ async function mount() {
   return file
 }
 
+/** 枚数を選んで「次へ」。押す＝選ぶ、進む＝次へ に分かれている */
+async function pickSheets(n) {
+  host.querySelectorAll('.gs-num')[n - 1].click()
+  await nextTick()
+  button('次へ').click()
+  await nextTick()
+}
+
 beforeEach(() => { mapped = []; localStorage.clear() })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.resetModules() })
 
@@ -71,13 +79,21 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
   it('自動で読めなかったPDFは、まず「表は何枚か」を訊く', async () => {
     await mount()
     expect(host.textContent).toContain('この紙、表は何枚ありますか？')
-    expect(host.querySelectorAll('.gs-btn').length).toBe(4)
+    // 9枚まで選べる（実物で3×3を見ている）。4枚で切ると、それ以上の紙で詰む
+    expect(host.querySelectorAll('.gs-num').length).toBe(9)
+  })
+
+  it('枚数を押しただけでは進まない（押す＝選ぶ、進む＝次へ）', async () => {
+    await mount()
+    host.querySelectorAll('.gs-num')[0].click()
+    await nextTick()
+    expect(host.textContent).toContain('この紙、表は何枚ありますか？')
+    expect(host.textContent).not.toContain('豚バラ')
   })
 
   it('枚数に答えると、組み上がった表をその場で見せる（渡す前に確かめられる）', async () => {
     await mount()
-    host.querySelectorAll('.gs-btn')[0].click()   // 1枚
-    await nextTick()
+    await pickSheets(1)
 
     expect(mapped.length).toBe(0)                 // まだ渡さない
     expect(host.textContent).toContain('豚バラ')
@@ -86,8 +102,7 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
 
   it('「この表で進む」で、表にしたCSV・元のPDF・表の作り方が列指定画面へ渡る', async () => {
     const file = await mount()
-    host.querySelectorAll('.gs-btn')[0].click()
-    await nextTick()
+    await pickSheets(1)
     button('この表で進む').click()
     await nextTick()
 
@@ -97,13 +112,13 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
     expect(payload.filename).toBe('tanaoroshi_2026-04.pdf')
     expect(payload.pdfFile).toBe(file)            // 列を当てる画面から元の紙を見られる
     expect(payload.pdf.grid.sections).toBe(1)     // この作り方がレシピに残る
+    expect(payload.pdf.grid.layout).toEqual({ cols: 1, rows: 1 })
     expect(payload.pdf.grid.edges.length).toBe(2) // 3列＝境界2本
   })
 
   it('列がくっついていたら、その場で分けられる（直した内容は作り方として渡る）', async () => {
     await mount()
-    host.querySelectorAll('.gs-btn')[0].click()
-    await nextTick()
+    await pickSheets(1)
 
     // 1列目を選んで「合わせる」→ 2列になり、境界は1本
     ;[...host.querySelectorAll('.gs-table th')][2].click()   // 2列目（先頭は行番号の列）
@@ -136,8 +151,7 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
 
   it('紙の上で直接指定する道も残っている', async () => {
     await mount()
-    host.querySelectorAll('.gs-btn')[0].click()
-    await nextTick()
+    await pickSheets(1)
     const btn = button('紙の上で直接指定する')
     expect(btn).not.toBeUndefined()
     btn.click()
