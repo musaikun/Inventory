@@ -149,13 +149,9 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
     expect(mapped[0].csvText.split('\r\n')[1]).toBe('豚バラ,kg,1200')
   })
 
-  it('紙の上で直接指定する道も残っている', async () => {
+  it('紙の上で直接指定する別の画面は無い（同じ仕事に考え方を2つ持たない）', async () => {
     await mount()
     await pickSheets(1)
-    const btn = button('紙の上で直接指定する')
-    expect(btn).not.toBeUndefined()
-    btn.click()
-    await nextTick()
-    expect(host.textContent).toContain('列を指定して読み取る')
+    expect(button('紙の上で直接指定する')).toBeUndefined()
   })
 })

@@ -28,7 +28,7 @@ const props = defineProps({
   pages:   { type: Array,  default: () => [] },  // parsePdfFile が返すページ（生座標＋rotate）
   initial: { type: Object, default: null },      // 当たったレシピの作り方（あれば問いを飛ばす）
 })
-const emit = defineEmits(['close', 'ready', 'manual'])
+const emit = defineEmits(['close', 'ready'])
 
 // 行の高さの段階。文字の高さに対する倍率で持つので、紙が変わっても同じ手応えになる
 const ROW_STEPS = [0.25, 0.35, 0.5, 0.7, 1.0, 1.4]
@@ -270,7 +270,13 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
           </div>
           <p v-else class="gs-hint">列がずれているときは、その列をタップして「合わせる／分ける」。</p>
 
-          <button class="gs-manual" @click="emit('manual')">紙の上で直接指定する</button>
+          <!-- 行き止まりの答え。以前はここから「紙の上で直接指定する」別の画面へ逃げていたが、
+               同じ仕事に考え方が2つあると、片方で覚えたことがもう片方で効かない -->
+          <p v-if="!canGo" class="gs-dead">
+            この紙は表に組み立てられませんでした。<b>枚数を変える</b>か<b>行の高さを直す</b>と
+            読めることがあります。それでも表にならない紙は、自動では読み取れません
+            （品目をCSVで用意するか、手で登録してください）。
+          </p>
         </template>
       </div>
 
@@ -376,9 +382,9 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
 .gs-colb:disabled { opacity: .35; cursor: not-allowed; }
 .gs-hint { font-size: 11px; line-height: 1.6; color: var(--text-muted); margin: 0 0 10px; }
 
-.gs-manual { width: 100%; border: 1px solid var(--border); background: var(--surface);
-  color: var(--text-muted); border-radius: 10px; padding: 9px; font-size: 11.5px;
-  font-weight: 700; cursor: pointer; margin-bottom: 4px; }
+.gs-dead { font-size: 12px; line-height: 1.6; color: #b91c1c; background: #fef2f2;
+  border: 1px solid #fecaca; border-radius: 10px; padding: 9px 11px; margin: 0 0 4px; }
+.gs-dead b { color: #b91c1c; }
 
 .gs-foot { display: flex; align-items: center; gap: 10px; padding-top: 10px; margin-top: 8px;
   border-top: 1px solid var(--border); flex-shrink: 0; }

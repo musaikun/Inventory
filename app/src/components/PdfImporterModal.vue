@@ -6,7 +6,6 @@ import { matchRecipe, matchPdfGridRecipe, fingerprintPdf } from '../composables/
 import { pdfPagesToTable, rowsToCsv } from '../utils/pdfGrid.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import LoadingSpinner from './LoadingSpinner.vue'
-import PdfColumnMapper from './PdfColumnMapper.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 
 const props = defineProps({
@@ -32,7 +31,6 @@ const excelFile   = ref(null)   // 列指定インポートへ引き渡すため
 const gridOpen    = ref(false)   // PDF → 表 → いつもの列指定（既定の道）
 const gridInitial = ref(null)    // 当たったレシピの「表の作り方」（問いを飛ばす）
 const pdfFp       = ref(null)    // この紙の指紋。取込後にレシピへ一緒に残す
-const mapperOpen  = ref(false)   // 紙の上で直接指定（表に均せなかったときの逃げ道）
 
 // Excel は自動解析だけに頼らない。業者フォーマットにも自作テンプレートにも当たらない
 // ファイルは「読めません」で行き止まりになるため、列指定インポート（ImportMapper）へ
@@ -64,13 +62,7 @@ function applyProfile(profile, pages) {
   return all
 }
 
-function openGrid()   { gridOpen.value = true }
-function openMapper() { gridOpen.value = false; mapperOpen.value = true }
-
-function onMapperApply(items) {
-  mapperOpen.value = false
-  if (applyItems(items)) debugLines.value = []
-}
+function openGrid() { gridOpen.value = true }
 
 function applyItems(items) {
   if (items.length === 0) return false
@@ -311,14 +303,6 @@ function onImport() {
       :initial="gridInitial"
       @close="gridOpen = false"
       @ready="onGridReady"
-      @manual="openMapper"
-    />
-
-    <PdfColumnMapper
-      v-if="mapperOpen && pdfFile"
-      :file="pdfFile"
-      @close="mapperOpen = false"
-      @apply="onMapperApply"
     />
   </div>
 </template>
