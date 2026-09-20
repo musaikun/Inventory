@@ -33,8 +33,11 @@ const props = defineProps({
   // 「保存した読み方で取り込む」入口から来たか。当たらなかったときに、
   // なぜ問いが出るのかをその場で言うためだけに使う。
   expectRecipe: { type: Boolean, default: false },
+  // ひとつ前（PDFを表にする画面）へ戻れるか。PDFから来たときだけ立つ。
+  // ここは人から見ると一続きの流れの3つめなので、行き止まりにしない。
+  canBack:   { type: Boolean, default: false },
 })
-const emit = defineEmits(['imported', 'close'])
+const emit = defineEmits(['imported', 'close', 'back'])
 
 // 元のPDFを見ている最中の Esc は、そちらだけ閉じる（画面ごと消えると見失う）
 const pdfOpen = ref(false)
@@ -334,6 +337,7 @@ tryRecipe()
 
       <!-- ① 問い。ここでは他に何も出さない -->
       <template v-else-if="question">
+        <div v-if="canBack" class="imp-step">3 / 3</div>
         <div class="imp-q">
           <template v-if="question.kind === 'headerRow'">見出しの行を選んでください</template>
           <template v-else-if="question.kind === 'firstItem'">最初の品目名を選んでください</template>
@@ -370,9 +374,10 @@ tryRecipe()
           <template v-else>上の表で、その列のどこかをタップしてください。</template>
         </p>
 
-        <button v-if="question.kind === 'headerRow'" class="imp-back" @click="chooseNoHeader">
-          見出しの行はありません
-        </button>
+        <div v-if="question.kind === 'headerRow'" class="imp-row">
+          <button v-if="canBack" class="imp-prev" @click="emit('back')">戻る</button>
+          <button class="imp-back" @click="chooseNoHeader">見出しの行はありません</button>
+        </div>
         <button v-else class="imp-back" @click="backToHeaderRow">
           {{ headerNamed ? `${headerRow + 1}行目を見出し` : `${headerRow + 2}行目からデータ` }}として読んでいます ・ 変える
         </button>
@@ -517,6 +522,12 @@ tryRecipe()
   padding: 12px; font-size: 12.5px; font-weight: 800; cursor: pointer; margin-bottom: 12px; }
 .imp-back:active { transform: scale(.99); }
 .imp-back.small { padding: 8px 10px; font-size: 11.5px; margin-bottom: 8px; }
+.imp-row { display: flex; gap: 8px; align-items: stretch; }
+.imp-row .imp-back { flex: 1; }
+.imp-prev { flex-shrink: 0; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-muted); border-radius: 11px; padding: 11px 18px; font-size: 12.5px;
+  font-weight: 800; cursor: pointer; }
+.imp-step { font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 4px; }
 
 /* 元データの表。列は全部出して横に流す（切り捨てると判断材料が隠れる） */
 .peek { border: 1px solid var(--border); border-radius: 10px; overflow: hidden;

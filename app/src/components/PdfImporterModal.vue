@@ -48,6 +48,9 @@ function onGridReady({ csvText, grid }) {
     csvText, filename: pdfFile.value?.name ?? '', pdfFile: pdfFile.value,
     // 「この表の作り方」と紙の指紋。取込後、列の対応づけと**1枚のレシピ**にまとまる
     pdf: { fp: pdfFp.value, grid },
+    // 表に均したあとのトークン。列指定から**表の画面へ戻れる**ようにするために渡す
+    // （ここで渡さないと、戻るたびにPDFを開き直すことになる）
+    pdfPages: pdfPages.value,
   })
 }
 

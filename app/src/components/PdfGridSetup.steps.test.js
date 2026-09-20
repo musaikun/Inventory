@@ -107,10 +107,11 @@ describe('PdfGridSetup — 進み方', () => {
 
   it('いまどこにいるかを出す', async () => {
     await mount()
-    expect(host.querySelector('.gs-foot-step').textContent).toContain('1 / 2')
+    // 番号は列指定（見出しの行）まで通しで数える。人から見ると一続きの流れ
+    expect(host.querySelector('.gs-foot-step').textContent).toContain('1 / 3')
     button('次へ').click()
     await nextTick()
-    expect(host.querySelector('.gs-foot-step').textContent).toContain('2 / 2')
+    expect(host.querySelector('.gs-foot-step').textContent).toContain('2 / 3')
   })
 
   it('進めないときは理由を出す（押せないだけだと手が止まる）', async () => {
@@ -176,10 +177,13 @@ describe('PdfGridSetup — 枚数と割り方', () => {
     expect(ready[0].grid.sections).toBe(1)     // layout を知らない古い読み手向け
   })
 
-  it('覚えているレシピがあるときは枚数を訊かない', async () => {
+  it('覚えているレシピがあるときは枚数を訊かない（それでも戻れる）', async () => {
     await mount({ layout: { cols: 1, rows: 2 }, rowFactor: 0.5, edges: [] })
     expect(host.textContent).not.toContain('1ページの中に、同じ形の表がいくつありますか？')
     expect(host.textContent).toContain('豚バラ')
-    expect(button('戻る')).toBeUndefined()      // 訊かれていないので戻り先も無い
+    // 覚えている枚数がこの紙では違うこともあるので、戻り道は塞がない
+    button('戻る').click()
+    await nextTick()
+    expect(host.textContent).toContain('1ページの中に、同じ形の表がいくつありますか？')
   })
 })

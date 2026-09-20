@@ -30,6 +30,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'ready'])
 
+// この画面の2つと、このあとの列指定（見出しの行）で3つ。人から見ると一続きの流れなので、
+// 番号も通しで出す
+const TOTAL_STEPS = 3
+
 // 行の高さの段階。文字の高さに対する倍率で持つので、紙が変わっても同じ手応えになる
 const ROW_STEPS = [0.25, 0.35, 0.5, 0.7, 1.0, 1.4]
 
@@ -209,10 +213,11 @@ const blockedWhy = computed(() => {
   return '列が1本しかありません'
 })
 const nextLabel = computed(() => (step.value < 2 ? '次へ' : 'この表で進む'))
-const backLabel = computed(() => (step.value > 1 && !props.initial ? '戻る' : 'やめる'))
+const backLabel = computed(() => (step.value > 1 ? '戻る' : 'やめる'))
 
 function back() {
-  if (step.value > 1 && !props.initial) { step.value--; picked.value = null; scrollCountIntoView() }
+  // 覚えている読み方で開いたときも、枚数へは戻れる（その紙で枚数が違うことがある）
+  if (step.value > 1) { step.value--; picked.value = null; scrollCountIntoView() }
   else emit('close')
 }
 function next() {
@@ -371,7 +376,7 @@ watch([rowStep, edges], () => { oddOnly.value = false })
         <button class="btn btn-secondary" @click="back">{{ backLabel }}</button>
         <div class="gs-foot-mid">
           <span v-if="blockedWhy" class="gs-foot-why" role="alert">{{ blockedWhy }}</span>
-          <span v-else class="gs-foot-step">{{ step }} / 2</span>
+          <span v-else class="gs-foot-step">{{ step }} / {{ TOTAL_STEPS }}</span>
         </div>
         <button class="btn btn-primary" :disabled="step >= 2 && !canGo" @click="next">{{ nextLabel }}</button>
       </div>

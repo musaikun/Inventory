@@ -5,6 +5,7 @@ import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
+import PdfGridSetup from './PdfGridSetup.vue'
 import ImportMapper from './ImportMapper.vue'
 import {
   listRecipes, saveRecipe, deleteRecipe, suggestRecipeName,
@@ -96,6 +97,8 @@ const mapperCsvText  = ref('')
 const mapperFilename = ref('')
 const mapperPdfFile  = ref(null)  // PDF由来の表のときだけ入る（列指定画面から元の紙を出す）
 const mapperPdf      = ref(null)  // { fp, grid } PDFを表にした作り方。列の対応づけと1枚のレシピにする
+const mapperPdfPages = ref([])    // 表に均す画面へ**戻る**ためのトークン（PDFを開き直さない）
+const showGridBack   = ref(false) // 列指定から戻ってきた「表にする画面」
 const mapperExpectRecipe = ref(false)   // 「保存した読み方」の入口から開いたか
 const dragging       = ref(false)
 const recipeDragging = ref(false)
@@ -169,7 +172,8 @@ function onImporterMapColumns(payload) {
   onImporterClose()
   if (payload?.file) { openMapper(payload.file); return }
   if (!payload?.csvText) return
-  openMapperFromText(payload.csvText, payload.filename ?? '', payload.pdfFile ?? null, payload.pdf ?? null)
+  openMapperFromText(payload.csvText, payload.filename ?? '', payload.pdfFile ?? null,
+                     payload.pdf ?? null, payload.pdfPages ?? [])
 }
 function onUndoImport() {
   if (!undoLastImport()) return
@@ -256,14 +260,33 @@ function handleFile(file, { fromRecipe = false } = {}) {
 
 // 解析済みのテキストから直接マッピング画面を開く（取込確認画面からの受け皿）。
 // ファイルを読み直さないので、確認画面が見ていた内容と同じものを列指定できる。
-function openMapperFromText(csvText, filename = '', pdfFile = null, pdf = null) {
+function openMapperFromText(csvText, filename = '', pdfFile = null, pdf = null, pdfPages = []) {
   mapperCsvText.value      = csvText
   mapperFilename.value     = filename
   mapperPdfFile.value      = pdfFile
   mapperPdf.value          = pdf
+  mapperPdfPages.value     = pdfPages ?? []
   mapperExpectRecipe.value = false
   showMapper.value         = true
   status.value             = null
+}
+
+/**
+ * 列指定から「表にする画面」へ戻る。
+ *
+ * 人から見ると 枚数 → 表 → 見出しの行 は一続きの流れなので、3つめだけ行き止まりに
+ * しない。PDFを開き直さずに戻れるよう、均したあとのトークンを持っておく。
+ */
+function backToGrid() {
+  if (!mapperPdfFile.value || !mapperPdfPages.value.length) return
+  showMapper.value   = false
+  showGridBack.value = true
+}
+function onGridBackReady({ csvText, grid }) {
+  showGridBack.value  = false
+  mapperCsvText.value = csvText
+  mapperPdf.value     = { ...(mapperPdf.value ?? {}), grid }
+  showMapper.value    = true
 }
 
 async function openMapper(file, { fromRecipe = false } = {}) {
@@ -275,6 +298,7 @@ async function openMapper(file, { fromRecipe = false } = {}) {
     mapperFilename.value     = file.name
     mapperPdfFile.value      = null
     mapperPdf.value          = null
+    mapperPdfPages.value     = []
     mapperExpectRecipe.value = fromRecipe
     showMapper.value         = true
     status.value             = null
@@ -626,8 +650,20 @@ function onDownloadTemplate() {
     :pdf-file="mapperPdfFile"
     :axis-names="config.axisNames"
     :expect-recipe="mapperExpectRecipe"
+    :can-back="!!mapperPdfFile && mapperPdfPages.length > 0"
     @imported="onMapperImported"
+    @back="backToGrid"
     @close="showMapper = false"
+  />
+
+  <!-- 列指定から戻ってきた「PDFを表にする画面」。作り方はそのまま引き継ぐ -->
+  <PdfGridSetup
+    v-if="showGridBack"
+    :file="mapperPdfFile"
+    :pages="mapperPdfPages"
+    :initial="mapperPdf?.grid ?? null"
+    @ready="onGridBackReady"
+    @close="showGridBack = false; showMapper = true"
   />
 
   <!-- 取込内容の確認（CSV / 列指定 / PDF・Excel 共通）-->
