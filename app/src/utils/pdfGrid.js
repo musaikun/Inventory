@@ -303,7 +303,9 @@ function firstPageTokens(pages) {
  */
 export function planLayout(pages, count) {
   const n = Math.max(1, Math.min(GRID_MAX, Math.round(count) || 1))
-  const tokens = firstPageTokens(pages)
+  const raw = firstPageTokens(pages)
+  // 見出し帯は紙いっぱいに広がるので、入れたままだと切れ目の見え方を狂わせる
+  const tokens = raw.length ? tableBodyTokens(raw, rowTolOf(raw, ROW_FACTOR)) : raw
   const anchors = anchorTokens(tokens)
   const ax = distinct(anchors.map(t => t.x), COL_GAP * 4).length
   const ay = distinct(anchors.map(t => t.y), CHAR_H).length
@@ -398,6 +400,85 @@ function rowTolOf(tokens, factor) {
   const hs = tokens.map(t => t.h).filter(h => h > 0).sort((a, b) => a - b)
   const median = hs.length ? hs[Math.floor(hs.length / 2)] : CHAR_H
   return Math.max(ROW_MIN, median * (factor > 0 ? factor : ROW_FACTOR))
+}
+
+/**
+ * 「表の1行目」の y。ここより上が**見出し帯**。
+ *
+ * 品目名の見出しがあればそこ。無ければ、上から見てセルが揃っている最初の行。
+ */
+function topTableY(tokens, rowTol) {
+  const anchors = anchorTokens(tokens)
+  if (anchors.length) return Math.max(...anchors.map(t => t.y))
+  let cur = null
+  for (const t of [...tokens].sort((a, b) => b.y - a.y)) {
+    if (!cur || Math.abs(cur.y - t.y) > rowTol) cur = { y: t.y, n: 0 }
+    cur.n++
+    if (cur.n >= DENSE_CELLS) return cur.y
+  }
+  return null
+}
+
+/**
+ * 見出し帯の語（上から下・左から右）。
+ *
+ * 帳票には「○○店　○月　冷凍」のように、**そのページの品目ぜんぶに効く情報が
+ * 1ヵ所だけ**書かれていることがある。品目の行には無いので、表にしただけでは
+ * 落ちてしまう。ここを拾って列に変えれば、以降はCSVとまったく同じに扱える。
+ */
+function headTokensOf(tokens, rowTol) {
+  const topY = topTableY(tokens, rowTol)
+  if (topY === null) return []
+  return tokens.filter(t => t.y > topY + rowTol).sort((a, b) => b.y - a.y || a.x - b.x)
+}
+
+/**
+ * 表として読む範囲のトークン。**見出し帯は落とす。**
+ *
+ * 「○○店　4月　冷凍」は表の行ではないのに、座標だけで組むと1行として混ざる
+ * （列の数も合わないので、そこだけ列がずれて見える）。見出し帯は `pageHeads` から
+ * 別に取れるので、表からは外す。
+ *
+ * 落とすのは**品目名の見出しが見つかったときだけ**。それが無い紙で当てずっぽうに
+ * 切ると、本物の行が消える（消えたことには誰も気づけない）。
+ */
+function tableBodyTokens(tokens, rowTol) {
+  if (!anchorTokens(tokens).length) return tokens
+  const topY = topTableY(tokens, rowTol)
+  if (topY === null) return tokens
+  return tokens.filter(t => t.y <= topY + rowTol)
+}
+
+/** ページごとの見出し帯の語。画面は1ページ目を出し、値はページごとに読む */
+export function pageHeads(pages, { rowFactor = ROW_FACTOR } = {}) {
+  const out = []
+  for (const page of pages ?? []) {
+    const tokens = readingTokens(page)
+    out.push(tokens.length ? headTokensOf(tokens, rowTolOf(tokens, rowFactor)) : [])
+  }
+  return out
+}
+
+/** 覚えた位置からこれだけ離れていたら、別のものと見なす（翌月の紙で取り違えない） */
+const HEAD_SNAP = 30
+
+/**
+ * 覚えた位置から、そのページの見出しの語を読む。
+ *
+ * **値は固定しない。** 「○月」は翌月変わるので、覚えるのは位置のほう。
+ * ページごとに読むので、1ページ目=冷凍 / 2ページ目=乾物 のように**分類が混ざらない**
+ * （ファイル単位の固定値にすると、ここで使えなくなる）。
+ */
+function headValuesOf(pages, heads, rowFactor) {
+  const perPage = pageHeads(pages, { rowFactor })
+  return perPage.map(tokens => (heads ?? []).map(h => {
+    let best = null, bestD = Infinity
+    for (const t of tokens) {
+      const d = Math.hypot(t.x - h.x, t.y - h.y)
+      if (d < bestD) { bestD = d; best = t }
+    }
+    return best && bestD <= HEAD_SNAP ? best.text : ''
+  }))
 }
 
 function _dist(col, cell) {
@@ -503,10 +584,12 @@ function collectCells(pages, layout, rowFactor) {
   const all = []
   let secWidth = 0
 
-  for (const page of pages ?? []) {
-    const tokens = readingTokens(page)
+  for (let pi = 0; pi < (pages?.length ?? 0); pi++) {
+    const raw = readingTokens(pages[pi])
+    if (!raw.length) continue
+    const rowTol = rowTolOf(raw, rowFactor)
+    const tokens = tableBodyTokens(raw, rowTol)
     if (!tokens.length) continue
-    const rowTol = rowTolOf(tokens, rowFactor)
     for (const band of bandsOf(tokens, layout.cols, layout.rows)) {
       const inBand = []
       for (const t of tokens) {
@@ -518,7 +601,8 @@ function collectCells(pages, layout, rowFactor) {
       const left  = Math.min(...inBand.map(c => c.x))
       const right = Math.max(...inBand.map(c => c.x + c.w))
       secWidth = Math.max(secWidth, right - left)
-      all.push(...rowsOf(inBand, rowTol))
+      // 見出しから足す列はページごとに値が変わるので、行がどのページ由来かを持って回る
+      for (const cells of rowsOf(inBand, rowTol)) all.push({ cells, page: pi })
     }
   }
   return { all, secWidth }
@@ -535,7 +619,7 @@ export function suggestEdge(pages, opts = {}, colIndex = 0) {
   const { rowFactor = ROW_FACTOR, edges = [] } = opts
   const { all } = collectCells(pages, normLayout(opts), rowFactor)
   const inCol = []
-  for (const cells of all) {
+  for (const { cells } of all) {
     for (const c of cells) if (columnAtEdges(edges, c) === colIndex) inCol.push(c)
   }
   if (inCol.length < 2) return null
@@ -568,39 +652,53 @@ export function pdfPagesToRows(pages, opts) {
  *   sections  = 横の段の数（`layout` の無い古いレシピ向け。横だけを意味する）
  *   rowFactor = 行としてまとめる高さ（文字の高さに対する倍率）
  *   edges     = 列の境界（段の原点からの相対x）。人が直したときだけ入る
- * @returns {{rows: string[][], edges: number[], rowFactor: number, sections: number}}
+ *   heads     = 見出し帯から足す列の**位置**（値ではなく位置を覚える）
+ * @returns {{rows, edges, rowFactor, sections, layout, heads}}
  */
 export function pdfPagesToTable(pages, opts = {}) {
   const { rowFactor = ROW_FACTOR, edges = null } = opts
   const layout = normLayout(opts)
+  const heads = Array.isArray(opts.heads) ? opts.heads : []
   const { all, secWidth } = collectCells(pages, layout, rowFactor)
-  const made = (rows, eg) => ({ rows, edges: eg, rowFactor, sections: layout.cols, layout })
-  const empty = made([], edges ?? [])
+
+  // 見出しから足す列は、紙の列をぜんぶ決めたあとで右端に足す。
+  // ページごとに値が違うので、行ごとに由来のページを見て入れる。
+  const headVals = heads.length ? headValuesOf(pages, heads, rowFactor) : []
+  const withHeads = (rows, rowPages) => {
+    if (!heads.length) return rows
+    const blank = heads.map(() => '')
+    return rows.map((r, i) => [...r, ...(headVals[rowPages[i]] ?? blank)])
+  }
+  const made = (rows, rowPages, eg) => ({
+    rows: withHeads(rows, rowPages), edges: eg,
+    rowFactor, sections: layout.cols, layout, heads: heads.map(h => ({ ...h })),
+  })
+  const empty = made([], [], edges ?? [])
   if (!all.length) return empty
 
   // 人が境界を直していればそれが正。直していなければ自動で列を決める
   if (Array.isArray(edges) && edges.length) {
     const width = edges.length + 1
-    const rows = []
-    for (const cells of all) {
+    const rows = [], rowPages = []
+    for (const { cells, page } of all) {
       const row = new Array(width).fill('')
       for (const c of cells) {
         const i = columnAtEdges(edges, c)
         row[i] = row[i] ? `${row[i]} ${c.text}` : c.text
       }
-      if (row.some(v => v !== '')) rows.push(row)
+      if (row.some(v => v !== '')) { rows.push(row); rowPages.push(page) }
     }
     // 空の列も残す ── 人が引いた線を黙って消すと、直した手応えと画面が食い違う
-    return made(rows, [...edges])
+    return made(rows, rowPages, [...edges])
   }
 
-  const dense = all.filter(cells => cells.length >= DENSE_CELLS)
+  const dense = all.filter(r => r.cells.length >= DENSE_CELLS).map(r => r.cells)
   const byOrdinal = ordinalColumns(dense)
-  const cols = byOrdinal ? byOrdinal.cols : geometricColumns(all.flat(), secWidth)
+  const cols = byOrdinal ? byOrdinal.cols : geometricColumns(all.flatMap(r => r.cells), secWidth)
   if (!cols.length) return empty
 
-  const out = []
-  for (const cells of all) {
+  const out = [], outPages = []
+  for (const { cells, page } of all) {
     const row = new Array(cols.length).fill('')
     // 多数派と同じセル数の行は並び順そのままに入れる。それ以外は位置から当てる
     // （欠けのある行を番号で入れると、そこから右がまるごと1つずれる）。
@@ -610,14 +708,14 @@ export function pdfPagesToTable(pages, opts = {}) {
     cells.forEach((c, i) => {
       row[at[i]] = row[at[i]] ? `${row[at[i]]} ${c.text}` : c.text
     })
-    if (row.some(v => v !== '')) out.push(row)
+    if (row.some(v => v !== '')) { out.push(row); outPages.push(page) }
   }
 
   // 空の列を落とし、残った列から境界を作る（この境界が画面での直しの出発点になる）
   const keep = []
   for (let i = 0; i < cols.length; i++) if (out.some(r => r[i] !== '')) keep.push(i)
   const rows = keep.length === cols.length ? out : out.map(r => keep.map(i => r[i]))
-  return made(rows, edgesOfColumns(keep.map(i => cols[i])))
+  return made(rows, outPages, edgesOfColumns(keep.map(i => cols[i])))
 }
 
 /** 組み直した表をCSVテキストにする。以降は CSV・Excel とまったく同じ経路を通る。 */

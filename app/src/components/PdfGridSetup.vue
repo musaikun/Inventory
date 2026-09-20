@@ -18,7 +18,7 @@
  * という状態になっていた。押す＝選ぶ、進む＝次へ、に分ける。
  */
 import { ref, computed, watch, nextTick } from 'vue'
-import { pdfPagesToTable, rowsToCsv, suggestEdge, planLayout, detectLayout, GRID_MAX }
+import { pdfPagesToTable, rowsToCsv, suggestEdge, planLayout, detectLayout, pageHeads, GRID_MAX }
   from '../utils/pdfGrid.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import PdfPageViewer from './PdfPageViewer.vue'
@@ -41,6 +41,7 @@ const count   = ref(sizeOf(layoutOf(props.initial)))
 const pickIdx = ref(0)        // 候補のどれを使っているか（図をタップで次へ）
 const rowStep = ref(Math.max(0, ROW_STEPS.indexOf(props.initial?.rowFactor ?? 0.5)))
 const edges   = ref(props.initial?.edges ?? null)   // null = 自動のまま
+const heads   = ref((props.initial?.heads ?? []).map(h => ({ x: h.x, y: h.y })))
 const detected = ref(null)    // 紙から見当てた割り方（当たれば人は数えなくていい）
 const pdfOpen  = ref(false)
 const countEl  = ref(null)
@@ -102,9 +103,28 @@ function cycleLayout() {
 }
 
 const rowFactor = computed(() => ROW_STEPS[rowStep.value] ?? 0.5)
+
+/**
+ * 紙の見出し帯（表の1行目より上）の語。
+ *
+ * 「○○店　○月　冷凍」のように、**そのページの品目ぜんぶに効く情報が1ヵ所だけ**
+ * 書かれていることがある。品目の行には無いので、表にするだけでは落ちる。
+ * ここをタップして列に変えてしまえば、以降はCSVとまったく同じに扱える。
+ */
+const headCands = computed(() => (pageHeads(props.pages, { rowFactor: rowFactor.value })[0] ?? []))
+const headOn = (t) => heads.value.some(h => h.x === t.x && h.y === t.y)
+function toggleHead(t) {
+  heads.value = headOn(t)
+    ? heads.value.filter(h => !(h.x === t.x && h.y === t.y))
+    : [...heads.value, { x: t.x, y: t.y }]
+  picked.value = null
+}
+
 const build = computed(() => (step.value < 2
   ? { rows: [], edges: [] }
-  : pdfPagesToTable(props.pages, { layout: layout.value, rowFactor: rowFactor.value, edges: edges.value })))
+  : pdfPagesToTable(props.pages, {
+      layout: layout.value, rowFactor: rowFactor.value, edges: edges.value, heads: heads.value,
+    })))
 
 const rows     = computed(() => build.value.rows)
 const colCount = computed(() => rows.value.reduce((n, r) => Math.max(n, r.length), 0))
@@ -135,8 +155,14 @@ const canSplit = (i) => step.value >= 2 &&
 
 function resetEdges() { edges.value = null; picked.value = null }
 
+const paperCols = computed(() => Math.max(0, colCount.value - heads.value.length))
+
 const picked = ref(null)      // いま操作している列
-function tapCol(i) { picked.value = picked.value === i ? null : i }
+function tapCol(i) {
+  // 見出しから足した列は紙の上に境界が無いので、合わせる・分けるができない
+  if (i >= paperCols.value) return
+  picked.value = picked.value === i ? null : i
+}
 
 /* ---------------- 下の 戻る / 次へ ---------------- */
 
@@ -164,6 +190,8 @@ function next() {
     grid: {
       layout: { ...layout.value }, sections: layout.value.cols,
       rowFactor: rowFactor.value, edges: build.value.edges,
+      // 値ではなく**位置**を残す。「○月」は翌月変わるので、毎回そこから読む
+      heads: heads.value.map(h => ({ ...h })),
     },
   })
 }
@@ -228,6 +256,20 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
             直した内容は「読み方」として次回にも効きます。
           </p>
 
+          <!-- 紙の見出しにしか書いていない情報を、列に変える -->
+          <div v-if="headCands.length" class="gs-heads">
+            <div class="gs-heads-t">
+              紙の見出しにある言葉を、<b>全行に付けられます</b>
+              <span class="gs-heads-n">（分類などが1ヵ所にしか書かれていないとき）</span>
+            </div>
+            <div class="gs-heads-row">
+              <button v-for="(t, i) in headCands" :key="i" class="gs-head"
+                      :class="{ on: headOn(t) }" :aria-pressed="headOn(t)" @click="toggleHead(t)">
+                {{ t.text }}
+              </button>
+            </div>
+          </div>
+
           <!-- 行の高さ -->
           <div class="gs-tool">
             <span class="gs-tool-t">行</span>
@@ -241,15 +283,17 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
               <thead>
                 <tr>
                   <th class="gs-no"></th>
-                  <th v-for="i in colCount" :key="i" :class="{ on: picked === i - 1 }" @click="tapCol(i - 1)">
-                    <span class="gs-cn">{{ i }}</span>
+                  <th v-for="i in colCount" :key="i"
+                      :class="{ on: picked === i - 1, add: i - 1 >= paperCols }" @click="tapCol(i - 1)">
+                    <span class="gs-cn">{{ i - 1 >= paperCols ? '見出し' : i }}</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(r, ri) in preview" :key="ri">
                   <td class="gs-no">{{ ri + 1 }}</td>
-                  <td v-for="i in colCount" :key="i" :class="{ on: picked === i - 1 }" @click="tapCol(i - 1)">
+                  <td v-for="i in colCount" :key="i"
+                      :class="{ on: picked === i - 1, add: i - 1 >= paperCols }" @click="tapCol(i - 1)">
                     {{ cell(r, i - 1) || '　' }}
                   </td>
                 </tr>
@@ -351,6 +395,16 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
   border: 1px solid var(--primary-border); border-radius: 9px; padding: 8px 10px; margin: 0 0 8px; }
 .gs-guide b { color: var(--primary); }
 
+.gs-heads { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+.gs-heads-t { font-size: 11.5px; line-height: 1.5; color: var(--text-muted); margin-bottom: 6px; }
+.gs-heads-t b { color: var(--text); }
+.gs-heads-n { display: block; font-size: 10.5px; }
+.gs-heads-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.gs-head { border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 16px; padding: 5px 11px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-head.on { border-color: var(--primary); background: var(--primary); color: #fff; }
+
 .gs-tool { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .gs-tool-t { font-size: 11.5px; font-weight: 800; color: var(--text-muted); flex-shrink: 0; }
 .gs-tool-b { flex: 1; border: 1px solid var(--border); background: var(--surface); color: var(--text);
@@ -365,6 +419,8 @@ watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
 .gs-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .gs-table th.on, .gs-table td.on { background: var(--primary-weak); }
 .gs-table th.on { border-color: var(--primary); }
+/* 見出しから足した列。紙の上に境界が無いので、合わせる・分けるの対象にしない */
+.gs-table th.add, .gs-table td.add { background: #f8fafc; color: var(--text-muted); cursor: default; }
 .gs-cn { font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
 .gs-no { width: 30px; color: var(--text-muted); text-align: right; background: var(--surface); cursor: default; }
 

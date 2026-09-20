@@ -83,14 +83,16 @@ describe('pdfPagesToRows — 紙のくせ', () => {
     expect(rows[1][0]).toBe('牛乳 成分無調整 1L')
   })
 
-  it('表の上の帳票見出しも行として残す（どの行からデータかは人が選ぶ）', () => {
+  it('表の上の帳票見出しは表から外す（行でも列でもないものを行にしない）', () => {
     const page = {
       rotate: 0,
       tokens: [t('棚卸記入表', 30, 800, 60), ...PLAIN.tokens],
     }
+    // 表題は表の行ではないのに、座標だけで組むと1行として混ざる（列の数も合わない）。
+    // 必要なら `pageHeads` から拾って列に変えられる（→ pdfGrid.heads.test.js）
     const rows = pdfPagesToRows([page])
-    expect(rows[0][0]).toBe('棚卸記入表')
-    expect(rows[1]).toEqual(['品名', '単位', '単価'])   // 表題で列が増えない
+    expect(rows[0]).toEqual(['品名', '単位', '単価'])
+    expect(rows.some(r => r.includes('棚卸記入表'))).toBe(false)
   })
 
   it('rotate=90 の帳票は読み方向へそろえてから表にする', () => {
