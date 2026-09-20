@@ -51,10 +51,14 @@ worker/src/
 
 - **ブランチ**: 固定名を前提にせず、作業開始時に `git branch --show-current` で確認
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **バージョン**: `app/package.json` の `version` は **触らない**。
-  上げるのは User / PM がリリースの区切りで行う（複数セッションが同時に上げると
-  採番が衝突し、値が同じだと merge で競合すらしないため。→ **D-025**）。
-  どのビルドかは commit SHA が示す（画面に `v0.89.0 (207ec0d)` の形で出る）
+- **バージョン**: `app/package.json` の `version` は **変更を push するたびに上げる**
+  （User指示 2026-09-20 → **D-026**。D-025 の「セッションは触らない」を置き換え）。
+  - 上げ幅: 修正・微調整 = patch ／ まとまった機能・仕様変更 = minor
+  - **上げる前に必ず `git fetch origin develop` して、origin の値を見てから +1 する。**
+    複数セッションが同時に上げると採番が衝突し、**値が同じだと merge で競合すら
+    しない**（過去に4回起きている。→ D-025 の背景）。手元の値を起点にしない
+  - lockfile の自アプリ情報2箇所（先頭と `packages.""` ）も同じ値へ合わせる
+  - どのビルドかは引き続き commit SHA が示す（画面に `v0.97.1 (ff708a6)` の形で出る）
 - **現在の品質集中scope**: Web Free版の公開gateと品質基盤以外の新機能を停止。
   Stripe、trial、TWA、Google Play提出は後続
 - **共有タスク**: 着手前に `docs/quality-foundation/task-list.md` の状態・担当を更新し、
