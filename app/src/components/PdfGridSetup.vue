@@ -41,8 +41,7 @@ const pickIdx = ref(0)        // 候補のどれを使っているか（図を�
 const rowStep = ref(Math.max(0, ROW_STEPS.indexOf(props.initial?.rowFactor ?? 0.5)))
 const edges   = ref(props.initial?.edges ?? null)   // null = 自動のまま
 const heads   = ref((props.initial?.heads ?? []).map(h => ({ x: h.x, y: h.y })))
-const byPos   = ref(!!props.initial?.byPosition)   // セルを紙の上の位置で列へ入れる
-const oddOnly = ref(false)                          // そろっていない行だけを見る
+const oddOnly = ref(false)   // そろっていない行だけを見る
 const detected = ref(null)    // 紙から見当てた割り方（当たれば人は数えなくていい）
 const pdfOpen  = ref(false)
 const countEl  = ref(null)
@@ -124,8 +123,7 @@ function toggleHead(t) {
 const build = computed(() => (step.value < 2
   ? { rows: [], edges: [] }
   : pdfPagesToTable(props.pages, {
-      layout: layout.value, rowFactor: rowFactor.value, edges: edges.value,
-      heads: heads.value, byPosition: byPos.value,
+      layout: layout.value, rowFactor: rowFactor.value, edges: edges.value, heads: heads.value,
     })))
 
 const rows     = computed(() => build.value.rows)
@@ -172,13 +170,33 @@ const canSplit = (i) => step.value >= 2 &&
 
 function resetEdges() { edges.value = null; picked.value = null }
 
+/**
+ * 行の高さ。**向きに注意** ── 倍率を上げるほど、近い行どうしが1行にまとまる
+ * （`rowTolOf` が「文字の高さ×倍率」を同じ行とみなす幅にしている）。
+ * 以前のボタンはここが逆で、「2行に割れている」を押すとさらに割れていた。
+ */
+function fixRowSplit()  { if (rowStep.value < ROW_STEPS.length - 1) rowStep.value++; picked.value = null }
+function fixRowStuck()  { if (rowStep.value > 0) rowStep.value--; picked.value = null }
+
 const paperCols = computed(() => Math.max(0, colCount.value - heads.value.length))
 
-const picked = ref(null)      // いま操作している列
-function tapCol(i) {
-  // 見出しから足した列は紙の上に境界が無いので、合わせる・分けるができない
-  if (i >= paperCols.value) return
-  picked.value = picked.value === i ? null : i
+/**
+ * いま選んでいるセル `{ row, col }`。
+ *
+ * 直し方のボタンを常に並べておくのをやめ、**ずれている場所をタップしてから**選ぶ形にした。
+ * 「1行が2行に割れている」「2行が1行にくっついている」を常時出していたときは、
+ * どちらが自分の紙の話なのか画面の前で考えることになり、そこで止まっていた。
+ * 先に場所を指させば、あとは「それをどうしたいか」だけを選べばよくなる。
+ */
+const picked = ref(null)
+const pickedText = computed(() => {
+  const p = picked.value
+  if (!p) return ''
+  return rows.value[p.row]?.[p.col] ?? ''
+})
+function tapCell(row, col) {
+  const p = picked.value
+  picked.value = p && p.row === row && p.col === col ? null : { row, col }
 }
 
 /* ---------------- 下の 戻る / 次へ ---------------- */
@@ -209,14 +227,13 @@ function next() {
       rowFactor: rowFactor.value, edges: build.value.edges,
       // 値ではなく**位置**を残す。「○月」は翌月変わるので、毎回そこから読む
       heads: heads.value.map(h => ({ ...h })),
-      byPosition: byPos.value,
     },
   })
 }
 
 // 枚数や割り方を変えたら、表はその場で組み直る（段階を戻らなくても結果が見える）
 watch([count, pickIdx], () => { if (step.value >= 2) picked.value = null })
-watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = null })
+watch([rowStep, edges], () => { oddOnly.value = false })
 </script>
 
 <template>
@@ -272,45 +289,18 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
           </div>
 
           <p class="gs-guide">
-            この表のまま取り込みます。<b>ずれていたら下のボタンで直してください。</b>
-            直した内容は「読み方」として次回にも効きます。
+            この表のまま取り込みます。ずれている場所があれば、<b>そのセルをタップ</b>してください。
           </p>
 
           <!-- 紙の見出しにしか書いていない情報を、列に変える -->
           <div v-if="headCands.length" class="gs-heads">
-            <div class="gs-heads-t">
-              紙の見出しにある言葉を、<b>全行に付けられます</b>
-              <span class="gs-heads-n">（分類などが1ヵ所にしか書かれていないとき）</span>
-            </div>
+            <div class="gs-heads-t">紙の見出しにある言葉。<b>タップすると全行に付きます</b></div>
             <div class="gs-heads-row">
               <button v-for="(t, i) in headCands" :key="i" class="gs-head"
                       :class="{ on: headOn(t) }" :aria-pressed="headOn(t)" @click="toggleHead(t)">
                 {{ t.text }}
               </button>
             </div>
-          </div>
-
-          <!-- 行の高さ -->
-          <div class="gs-tool">
-            <span class="gs-tool-t">行</span>
-            <button class="gs-tool-b" :disabled="rowStep <= 0" @click="rowStep--">1行が2行に割れている</button>
-            <button class="gs-tool-b" :disabled="rowStep >= ROW_STEPS.length - 1" @click="rowStep++">2行が1行にくっついている</button>
-          </div>
-
-          <!-- ずれの直し。行によって1列ずれるのは、セルの数が多数派と違う行が
-               並び順で入っているため。位置で入れれば、割れた名前は1つに戻り、
-               欠けたところは空のまま残る -->
-          <div class="gs-tool">
-            <span class="gs-tool-t">ずれ</span>
-            <button class="gs-tool-b" :class="{ on: byPos }" :aria-pressed="byPos"
-                    @click="byPos = !byPos">
-              紙の位置で入れる{{ byPos ? '（いま）' : '' }}
-            </button>
-            <span class="gs-tool-n">
-              <b>行によって1列ずれるとき</b>に押してください。左から順に詰めるのをやめて、
-              紙に刷られている位置へ入れます。割れた品目名は別の列に出るので、
-              その列をタップして「左の列と合わせる」でまとめられます。
-            </span>
           </div>
 
           <!-- 表 -->
@@ -320,7 +310,7 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
                 <tr>
                   <th class="gs-no"></th>
                   <th v-for="i in colCount" :key="i"
-                      :class="{ on: picked === i - 1, add: i - 1 >= paperCols }" @click="tapCol(i - 1)">
+                      :class="{ on: picked && picked.col === i - 1, add: i - 1 >= paperCols }">
                     <span class="gs-cn">{{ i - 1 >= paperCols ? '見出し' : i }}</span>
                   </th>
                 </tr>
@@ -329,7 +319,10 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
                 <tr v-for="x in shown" :key="x.i" :class="{ odd: isOdd(x.i) }">
                   <td class="gs-no">{{ x.i + 1 }}</td>
                   <td v-for="i in colCount" :key="i"
-                      :class="{ on: picked === i - 1, add: i - 1 >= paperCols }" @click="tapCol(i - 1)">
+                      :class="{ on: picked && picked.col === i - 1,
+                                here: picked && picked.col === i - 1 && picked.row === x.i,
+                                add: i - 1 >= paperCols }"
+                      @click="tapCell(x.i, i - 1)">
                     {{ cell(x.r, i - 1) || '　' }}
                   </td>
                 </tr>
@@ -345,13 +338,23 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
             <button v-if="edges" class="gs-reset" @click="resetEdges">列の直しを取り消す</button>
           </div>
 
-          <!-- 列の直し -->
-          <div v-if="picked !== null" class="gs-colbar">
-            <div class="gs-colbar-t">{{ picked + 1 }}列目</div>
-            <button class="gs-colb" :disabled="picked === 0" @click="mergeLeft(picked)">← 左の列と合わせる</button>
-            <button class="gs-colb" :disabled="!canSplit(picked)" @click="splitCol(picked)">ここで2つに分ける</button>
+          <!-- 選んだセルから、どう直すかを選ぶ -->
+          <div v-if="picked" class="gs-fix">
+            <div class="gs-fix-t">
+              {{ picked.row + 1 }}行目 {{ picked.col + 1 }}列目
+              <b>{{ pickedText || '（空）' }}</b>
+            </div>
+            <button class="gs-fixb" :disabled="picked.col === 0 || picked.col >= paperCols"
+                    @click="mergeLeft(picked.col)">この値は左の列のもの</button>
+            <button class="gs-fixb" :disabled="picked.col >= paperCols || !canSplit(picked.col)"
+                    @click="splitCol(picked.col)">この列に2つ入っている</button>
+            <button class="gs-fixb" :disabled="rowStep >= ROW_STEPS.length - 1"
+                    @click="fixRowSplit">1つの品目が2行に割れている</button>
+            <button class="gs-fixb" :disabled="rowStep <= 0"
+                    @click="fixRowStuck">2つの品目が1行になっている</button>
+            <p class="gs-fix-n">どの直しも表ぜんぶに効きます（1行だけは直せません）</p>
+            <button class="gs-fix-x" @click="picked = null">閉じる</button>
           </div>
-          <p v-else class="gs-hint">列がずれているときは、その列をタップして「合わせる／分ける」。</p>
 
           <!-- 行き止まりの答え。以前はここから「紙の上で直接指定する」別の画面へ逃げていたが、
                同じ仕事に考え方が2つあると、片方で覚えたことがもう片方で効かない -->
@@ -444,27 +447,19 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-head.on { border-color: var(--primary); background: var(--primary); color: #fff; }
 
-.gs-tool { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.gs-tool-t { font-size: 11.5px; font-weight: 800; color: var(--text-muted); flex-shrink: 0; }
-.gs-tool-b { flex: 1; border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  border-radius: 9px; padding: 8px 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
-.gs-tool-b:disabled { opacity: .35; cursor: not-allowed; }
-.gs-tool-b.on { border-color: var(--primary); background: var(--primary); color: #fff; }
-.gs-tool-n { flex: 1 1 100%; font-size: 10.5px; line-height: 1.55; color: var(--text-muted); }
-.gs-tool-n b { color: var(--text); }
-
 .gs-table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto;
   max-height: 42vh; -webkit-overflow-scrolling: touch; }
 .gs-table { border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
 .gs-table th, .gs-table td { border: 1px solid var(--border); padding: 4px 7px; text-align: left;
   max-width: 190px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.gs-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.gs-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; cursor: default; }
 /* 全行出すので、画面の外の行は描かせない（1000行でも重くならない） */
 .gs-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 25px; }
 /* そろっていない行。ずれは目で探させない */
 .gs-table tbody tr.odd td { background: #fff7ed; }
 .gs-table tbody tr.odd td.gs-no { background: #fed7aa; color: #9a3412; font-weight: 800; }
 .gs-table th.on, .gs-table td.on { background: var(--primary-weak); }
+.gs-table td.here { outline: 2px solid var(--primary); outline-offset: -2px; }
 .gs-table th.on { border-color: var(--primary); }
 /* 見出しから足した列。紙の上に境界が無いので、合わせる・分けるの対象にしない */
 .gs-table th.add, .gs-table td.add { background: #f8fafc; color: var(--text-muted); cursor: default; }
@@ -479,14 +474,17 @@ watch([byPos, rowStep, edges], () => { oddOnly.value = false; picked.value = nul
 .gs-reset { margin-left: auto; border: none; background: none; color: var(--danger);
   font-size: 11px; cursor: pointer; }
 
-.gs-colbar { display: flex; align-items: center; gap: 6px;
-  background: var(--surface); border: 1.5px solid var(--primary); border-radius: 10px;
-  padding: 8px 10px; margin-bottom: 10px; }
-.gs-colbar-t { font-size: 11.5px; font-weight: 800; color: var(--primary); flex-shrink: 0; }
-.gs-colb { flex: 1; border: 1px solid var(--border); background: #fff; color: var(--text);
-  border-radius: 9px; padding: 8px 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
-.gs-colb:disabled { opacity: .35; cursor: not-allowed; }
-.gs-hint { font-size: 11px; line-height: 1.6; color: var(--text-muted); margin: 0 0 10px; }
+.gs-fix { border: 1.5px solid var(--primary); border-radius: 12px; background: var(--surface);
+  padding: 10px 11px; margin-bottom: 10px; }
+.gs-fix-t { font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px; }
+.gs-fix-t b { color: var(--primary); font-size: 13px; margin-left: 4px; }
+.gs-fixb { display: block; width: 100%; text-align: left; border: 1px solid var(--border);
+  background: #fff; color: var(--text); border-radius: 9px; padding: 10px 12px;
+  font-size: 12.5px; font-weight: 700; cursor: pointer; margin-bottom: 6px; }
+.gs-fixb:disabled { opacity: .3; cursor: not-allowed; }
+.gs-fix-n { font-size: 10.5px; color: var(--text-muted); margin: 8px 0 6px; }
+.gs-fix-x { width: 100%; border: none; background: none; color: var(--text-muted);
+  font-size: 11.5px; font-weight: 700; padding: 4px; cursor: pointer; }
 
 .gs-dead { font-size: 12px; line-height: 1.6; color: #b91c1c; background: #fef2f2;
   border: 1px solid #fecaca; border-radius: 10px; padding: 9px 11px; margin: 0 0 4px; }

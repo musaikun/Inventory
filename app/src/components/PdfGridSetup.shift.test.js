@@ -1,16 +1,19 @@
 /**
- * ずれの直しと、ずれの見つけ方（画面側）。
+ * 表の直し方。**ずれている場所をタップしてから**、どう直すかを選ぶ。
  *
- * ずれは**目で探させない**。先頭の数十行だけを見せていたときは、後ろのページで
- * ずれていても最後まで気づけなかった（紙は何ページもあるのに、確かめられるのは
- * 1ページ目だけだった）。全行出したうえで印を付け、そこだけ見られるようにする。
+ * 直し方のボタンを常に並べておくのをやめた。「1行が2行に割れている」
+ * 「2行が1行にくっついている」を常時出していたときは、どちらが自分の紙の話なのかを
+ * 画面の前で考えることになり、そこで止まっていた（しかも向きが逆に配線されていた）。
+ * 先に場所を指させば、あとは「それをどうしたいか」だけを選べばよくなる。
+ *
+ * ずれ自体も目で探させない。全行出して、そろっていない行に印を付ける。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
 const t = (text, x, y, w) => ({ text, x, y, w: w ?? text.length * 6, h: 10 })
 
-// 「牛乳 1L」だけ名前が2つに割れ、単価が無い。そこだけ1列ずれる
+// 「牛乳 1L」だけ名前が2つに割れ、単価が無い紙
 const TOKENS = [
   t('品名', 30, 750), t('単位', 150, 750), t('単価', 230, 750),
   t('豚バラ', 30, 730), t('kg', 150, 730), t('1200', 230, 730),
@@ -20,6 +23,15 @@ const TOKENS = [
   t('白菜', 30, 650), t('玉', 150, 650), t('200', 230, 650),
 ]
 const PAGE = { rotate: 0, tokens: TOKENS }
+
+// 「人参」だけ、名前と値が 8 離れた2行に割れている紙
+const SPLIT = { rotate: 0, tokens: [
+  t('品名', 30, 750), t('単位', 150, 750), t('単価', 230, 750),
+  t('豚バラ', 30, 730), t('kg', 150, 730), t('1200', 230, 730),
+  t('キャベツ', 30, 710), t('玉', 150, 710), t('280', 230, 710),
+  t('人参', 30, 690), t('本', 150, 682), t('90', 230, 682),
+  t('白菜', 30, 650), t('玉', 150, 650), t('200', 230, 650),
+]}
 
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
@@ -43,9 +55,11 @@ vi.mock('pdfjs-dist', () => ({
 let app = null, host = null, ready = []
 
 const button = (txt) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(txt))
-const bodyRows = () => [...host.querySelectorAll('.gs-table tbody tr')]
-  .map(tr => [...tr.children].slice(1).map(td => td.textContent.trim()))
-const rowNos = () => [...host.querySelectorAll('.gs-table tbody tr .gs-no')].map(td => td.textContent.trim())
+const trs = () => [...host.querySelectorAll('.gs-table tbody tr')]
+const bodyRows = () => trs().map(tr => [...tr.children].slice(1).map(td => td.textContent.trim()))
+const rowNos = () => trs().map(tr => tr.querySelector('.gs-no').textContent.trim())
+/** 表のセルをタップする（行・列とも0始まり。先頭の行番号の列は飛ばす） */
+const tapCell = (row, col) => trs()[row].children[col + 1].click()
 
 async function mount(pages = [PAGE]) {
   const { default: PdfGridSetup } = await import('./PdfGridSetup.vue')
@@ -71,12 +85,11 @@ describe('PdfGridSetup — ずれを見つける', () => {
     expect(bodyRows().length).toBe(6)
   })
 
-  it('そろっていない行に印を付け、件数を出す', async () => {
+  it('値の欠けた行に印を付け、件数を出す', async () => {
     await mount()
     expect(host.textContent).toContain('そろっていない行 1件')
-    const marked = [...host.querySelectorAll('.gs-table tbody tr')]
-      .map(tr => tr.className.includes('odd'))
-    expect(marked).toEqual([false, false, false, true, false, false])
+    expect(trs().map(tr => tr.className.includes('odd')))
+      .toEqual([false, false, false, true, false, false])
   })
 
   it('その行だけを見られる（行番号は全体の何行目かのまま）', async () => {
@@ -84,51 +97,95 @@ describe('PdfGridSetup — ずれを見つける', () => {
     button('そろっていない行').click()
     await nextTick()
     expect(bodyRows().length).toBe(1)
-    expect(rowNos()).toEqual(['4'])        // 4行目であることが分かる
-    expect(bodyRows()[0].slice(0, 3)).toEqual(['牛乳', '1L', '本'])
+    expect(rowNos()).toEqual(['4'])
   })
 })
 
-describe('PdfGridSetup — ずれを直す', () => {
-  it('「紙の位置で入れる」で、どの値も刷られている位置へ入る', async () => {
+describe('PdfGridSetup — 直し方はセルから選ぶ', () => {
+  it('直し方のボタンは常設しない（案内はタップの一言だけ）', async () => {
     await mount()
-    expect(bodyRows()[3].slice(0, 3)).toEqual(['牛乳', '1L', '本'])   // ずれている
-    button('紙の位置で入れる').click()
-    await nextTick()
-    expect(bodyRows()[3]).toEqual(['牛乳', '1L', '本', ''])
-    expect(bodyRows()[1]).toEqual(['豚バラ', '', 'kg', '1200'])
+    expect(host.textContent).toContain('そのセルをタップ')
+    expect(button('1つの品目が2行に割れている')).toBeUndefined()
+    expect(button('この値は左の列のもの')).toBeUndefined()
   })
 
-  it('割れた名前は別の列に出て、「左の列と合わせる」で元に戻る', async () => {
+  it('セルをタップすると、その場所と直し方が出る', async () => {
     await mount()
-    button('紙の位置で入れる').click()
+    tapCell(1, 1)          // 2行目2列目「kg」
     await nextTick()
-    expect(host.textContent).toContain('全 6行 / 4列')
-    ;[...host.querySelectorAll('.gs-table th')][2].click()   // 2列目
-    await nextTick()
-    button('左の列と合わせる').click()
-    await nextTick()
-    expect(host.textContent).toContain('全 6行 / 3列')
-    expect(bodyRows()[3]).toEqual(['牛乳 1L', '本', ''])
-    expect(bodyRows()[1]).toEqual(['豚バラ', 'kg', '1200'])
+    expect(host.querySelector('.gs-fix-t').textContent).toContain('2行目 2列目')
+    expect(host.querySelector('.gs-fix-t').textContent).toContain('kg')
+    expect(button('この値は左の列のもの')).not.toBeUndefined()
   })
 
-  it('切り替えは作り方として渡る（次に同じ紙が来ても同じように読む）', async () => {
+  it('もう一度同じセルをタップすると閉じる', async () => {
     await mount()
-    button('紙の位置で入れる').click()
+    tapCell(1, 1)
     await nextTick()
-    button('この表で進む').click()
+    tapCell(1, 1)
     await nextTick()
-    expect(ready[0].grid.byPosition).toBe(true)
+    expect(host.querySelector('.gs-fix')).toBe(null)
   })
 
-  it('切り替えると絞り込みは解除する（別の表になっているので引きずらない）', async () => {
+  it('「この値は左の列のもの」で列が合わさる', async () => {
     await mount()
-    button('そろっていない行').click()
+    tapCell(1, 1)
     await nextTick()
-    expect(bodyRows().length).toBe(1)
-    button('紙の位置で入れる').click()
+    button('この値は左の列のもの').click()
     await nextTick()
+    expect(host.textContent).toContain('全 6行 / 2列')
+    expect(bodyRows()[1]).toEqual(['豚バラ kg', '1200'])
+  })
+
+  it('1列目では「左の列のもの」は押せない', async () => {
+    await mount()
+    tapCell(1, 0)
+    await nextTick()
+    expect(button('この値は左の列のもの').disabled).toBe(true)
+  })
+
+  it('直したら選択は閉じる（結果がすぐ見える）', async () => {
+    await mount()
+    tapCell(1, 1)
+    await nextTick()
+    button('この値は左の列のもの').click()
+    await nextTick()
+    expect(host.querySelector('.gs-fix')).toBe(null)
+  })
+})
+
+describe('PdfGridSetup — 行の高さの向き', () => {
+  it('「2行に割れている」で行がまとまる（以前は逆に配線されていた）', async () => {
+    await mount([SPLIT])
+    // 人参の名前と値が別の行になっている
+    expect(bodyRows().length).toBe(6)
+    expect(bodyRows()[3]).toEqual(['人参', '', ''])
+
+    tapCell(3, 0)
+    await nextTick()
+    button('1つの品目が2行に割れている').click()
+    await nextTick()
+    tapCell(3, 0)
+    await nextTick()
+    button('1つの品目が2行に割れている').click()
+    await nextTick()
+
+    expect(bodyRows().length).toBe(5)
+    expect(bodyRows()[3]).toEqual(['人参', '本', '90'])
+  })
+
+  it('「1行になっている」は逆向きに効く（戻せる）', async () => {
+    await mount([SPLIT])
+    const press = async (label) => {
+      tapCell(3, 0)
+      await nextTick()
+      button(label).click()
+      await nextTick()
+    }
+    await press('1つの品目が2行に割れている')
+    await press('1つの品目が2行に割れている')
+    expect(bodyRows().length).toBe(5)
+    await press('2つの品目が1行になっている')
     expect(bodyRows().length).toBe(6)
   })
 })

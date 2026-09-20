@@ -1,13 +1,13 @@
 /**
- * 「この行だけ1列ずれている」を直せるようにする。
+ * 「この行だけ1列ずれている」を起こさない。
  *
  * 紙から組んだ表でいちばん質の悪い壊れ方がこれ。他の行は正しいので、**先頭を見ただけでは
  * 気づけない**。しかも何ページもある紙で、確かめられるのが1ページ目だけだと、
  * 後ろでずれていても最後まで分からない。
  *
- * 起きる理由は、セルの数が多数派と同じでも中身の並びが違う行があるから。
- * 品目名に空白があって2つに割れ、かわりに値が1つ欠けると、数はそろったまま
- * 全部が1つずつ右へ寄る。
+ * 起きる理由は、セルを**左から順に詰めて**いたから。品目名に空白があって2つに割れ、
+ * かわりに値が1つ欠けると、数はそろったまま全部が1つずつ右へ寄る。
+ * 紙の上の位置で入れれば起きない ── それを既定にしたので、人が選ぶ設定は無い。
  */
 import { describe, it, expect } from 'vitest'
 import { pdfPagesToRows, oddRowIndexes } from './pdfGrid.js'
@@ -26,42 +26,37 @@ const PAGE = {
   ],
 }
 
-describe('並び順で入れると、その行だけずれる', () => {
-  it('数はそろっているのに、単位の列に大きさ・単価の列に単位が入る', () => {
+describe('セルは紙の上の位置で列へ入れる', () => {
+  it('品目名が2つに割れて値が欠けた行でも、ずれない', () => {
     const rows = pdfPagesToRows([PAGE])
-    expect(rows[3]).toEqual(['牛乳', '1L', '本'])   // ← ずれている行
+    // 左から順に詰めると ['牛乳','1L','本'] になり、単位の列に大きさ・
+    // 単価の列に単位が入る。しかも他の行は正しいので先頭を見ても気づけない
+    expect(rows[3]).toEqual(['牛乳 1L', '本', ''])
     expect(rows[1]).toEqual(['豚バラ', 'kg', '1200'])
   })
-})
 
-describe('位置で入れる（byPosition）', () => {
-  it('どの値も紙に刷られているところへ入る（欠けたところは空のまま）', () => {
-    const rows = pdfPagesToRows([PAGE], { byPosition: true })
-    expect(rows[3]).toEqual(['牛乳', '1L', '本', ''])
-    expect(rows[1]).toEqual(['豚バラ', '', 'kg', '1200'])
+  it('列の位置は、壊れた行に引きずられない（中央値で取る）', () => {
+    // min/max で取ると、割れた名前の右半分（x=60）で2列目が名前のところまで伸び、
+    // 位置で入れても直らなくなる
+    const rows = pdfPagesToRows([PAGE])
+    expect(rows.every(r => r.length === 3)).toBe(true)
+    expect(rows.map(r => r[0])).toEqual(['品名', '豚バラ', 'キャベツ', '牛乳 1L', '人参'])
   })
 
-  it('割れた名前は別の列に出る（「左の列と合わせる」でまとめられる）', () => {
-    const rows = pdfPagesToRows([PAGE], { byPosition: true })
-    expect(rows[0].length).toBe(4)
-    // 2列目は割れた名前の右半分だけ。ここを左と合わせれば元に戻る
-    expect(rows.map(r => r[1])).toEqual(['', '', '', '1L', ''])
+  it('見出しの行だけは並び順で入れる（左寄せの見出しが右寄せの数字に引かれない）', () => {
+    const rows = pdfPagesToRows([PAGE])
+    expect(rows[0]).toEqual(['品名', '単位', '単価'])
   })
 
-  it('合わせたあとは、ずれのない3列の表になる', () => {
-    const { pdfPagesToTable } = { pdfPagesToTable: null } // 読みやすさのための目印
-    const auto = pdfPagesToRows([PAGE], { byPosition: true })
-    expect(auto[0].length).toBe(4)
-    // 画面の「左の列と合わせる」は境界を1本消す。ここではその結果を直接確かめる
-    const merged = pdfPagesToRows([PAGE], { byPosition: true, edges: [111, 199] })
-    expect(merged[3]).toEqual(['牛乳 1L', '本', ''])
-    expect(merged[1]).toEqual(['豚バラ', 'kg', '1200'])
-  })
-
-  it('ずれていない紙では、列の数も中身も変わらない', () => {
+  it('ずれていない紙では今までどおり', () => {
     const clean = { rotate: 0, tokens: PAGE.tokens.filter(k => k.text !== '1L') }
-    expect(pdfPagesToRows([clean], { byPosition: true }))
-      .toEqual(pdfPagesToRows([clean]))
+    expect(pdfPagesToRows([clean])).toEqual([
+      ['品名', '単位', '単価'],
+      ['豚バラ', 'kg', '1200'],
+      ['キャベツ', '玉', '280'],
+      ['牛乳', '本', ''],
+      ['人参', '本', '90'],
+    ])
   })
 })
 

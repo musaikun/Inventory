@@ -40,6 +40,10 @@ const ROW_FACTOR  = 0.5   // 行の高さ＝文字の高さ×これ。人が画�
 const ROW_MIN     = 2
 
 const NAME_HEADER_RE = /^(品目名|商品名|品名|名称)$/
+const NUMERIC_RE = /^[-+]?[\d,]+(\.\d+)?$/
+const isNumberish = (v) => NUMERIC_RE.test(String(v ?? '').trim()) && /\d/.test(String(v))
+/** 行の同一性を見るための連結記号（本文に出ない文字） */
+const ROW_KEY = String.fromCharCode(1)
 
 /** ページのトークンを読み方向へそろえる（rotate=90 の帳票をここで吸収する） */
 function readingTokens(page) {
@@ -487,36 +491,27 @@ function _dist(col, cell) {
   return mid < col.left ? col.left - mid : mid - col.right
 }
 
-/**
- * セル数が多数派とそろわない行を、**左から右の順番を崩さずに**列へ入れる。
- *
- * 単に「いちばん近い列」へ入れると、隣り合う見出しが同じ列に落ちて連結される
- * （`単価 数量` が1マスに入り、その左の列は全行空になる）。見出しの行はまさに
- * これが起きやすい ── 見出しは左寄せ、数字は右寄せで刷られるため。
- * 順番を守り、右に残るセルのぶんだけ列を空けておけば、その潰れ方をしない。
- */
-function placeInOrder(cols, cells) {
-  if (cells.length > cols.length) return cells.map(c => {
-    let best = 0, bestD = Infinity
-    cols.forEach((col, i) => { const d = _dist(col, c); if (d < bestD) { bestD = d; best = i } })
-    return best
-  })
-  const out = []
-  let lo = 0
-  cells.forEach((c, k) => {
-    const hi = cols.length - (cells.length - k)   // 右に残すセルのぶんは空けておく
-    let best = lo, bestD = Infinity
-    for (let i = lo; i <= Math.max(lo, hi); i++) {
-      const d = _dist(cols[i], c)
-      if (d < bestD) { bestD = d; best = i }
-    }
-    out.push(best)
-    lo = best + 1
-  })
-  return out
+const median = (xs) => {
+  if (!xs.length) return 0
+  const a = [...xs].sort((p, q) => p - q)
+  const i = a.length >> 1
+  return a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2
 }
 
-/** セル数がそろっている行が多数派なら、その並びを列にする（見出しと数字がずれない） */
+/**
+ * セル数がそろっている行が多数派なら、その並びから列の位置を決める。
+ *
+ * 位置を **min/max ではなく中央値** で取るのがここの肝。min/max は**たった1行の
+ * 壊れた行で列が広がる** ── 品目名に空白があって2つに割れた行があると、その右半分が
+ * 「2列目」の一員として数えられ、2列目の範囲が名前のところまで伸びる。そうなると
+ * 位置で入れ直しても直らない（境界がもう動いてしまっている）。
+ * 中央値なら、そういう行が数行あっても列の位置は紙に刷られたとおりに出る。
+ *
+ * 並び順ではなく位置で決めるのは、x座標だけで束ねると**見出しと数字がずれる**ため。
+ * 帳票の見出しは左寄せ、数量・単価は右寄せで刷られるので、`単価` の見出しは価格の
+ * 少し左に来る。そろっている行から「何番目のセルか」で列を作れば、見出しも数字も
+ * 同じ列に入る。
+ */
 function ordinalColumns(dense) {
   const count = new Map()
   for (const cells of dense) count.set(cells.length, (count.get(cells.length) ?? 0) + 1)
@@ -524,14 +519,16 @@ function ordinalColumns(dense) {
   for (const [len, n] of count) if (n > modalN || (n === modalN && len > modal)) { modal = len; modalN = n }
   if (!modal || modalN < Math.max(2, dense.length * MODAL_MIN)) return null
 
-  const cols = Array.from({ length: modal }, () => ({ left: Infinity, right: -Infinity }))
+  const lefts  = Array.from({ length: modal }, () => [])
+  const rights = Array.from({ length: modal }, () => [])
   for (const cells of dense) {
     if (cells.length !== modal) continue
-    cells.forEach((c, i) => {
-      cols[i].left  = Math.min(cols[i].left, c.left)
-      cols[i].right = Math.max(cols[i].right, c.right)
-    })
+    cells.forEach((c, i) => { lefts[i].push(c.left); rights[i].push(c.right) })
   }
+  const cols = lefts.map((ls, i) => {
+    const l = median(ls), r = median(rights[i])
+    return { left: l, right: Math.max(l, r) }
+  })
   return { cols, modal }
 }
 
@@ -557,7 +554,12 @@ function geometricColumns(cells, secWidth) {
  */
 export function edgesOfColumns(cols) {
   const out = []
-  for (let i = 0; i + 1 < cols.length; i++) out.push((cols[i].right + cols[i + 1].left) / 2)
+  for (let i = 0; i + 1 < cols.length; i++) {
+    const at = (cols[i].right + cols[i + 1].left) / 2
+    // 必ず左から右へ。列の範囲が重なっている紙で境界が前後すると、
+    // `columnAtEdges` の走査が破綻して列がまるごと空になる
+    out.push(out.length && at <= out[out.length - 1] ? out[out.length - 1] : at)
+  }
   return out
 }
 
@@ -653,11 +655,10 @@ export function pdfPagesToRows(pages, opts) {
  *   rowFactor = 行としてまとめる高さ（文字の高さに対する倍率）
  *   edges     = 列の境界（段の原点からの相対x）。人が直したときだけ入る
  *   heads     = 見出し帯から足す列の**位置**（値ではなく位置を覚える）
- *   byPosition = セルを並び順ではなく**紙の上の位置**で列へ入れる（→ 下の注記）
- * @returns {{rows, edges, rowFactor, sections, layout, heads, byPosition}}
+ * @returns {{rows, edges, rowFactor, sections, layout, heads}}
  */
 export function pdfPagesToTable(pages, opts = {}) {
-  const { rowFactor = ROW_FACTOR, edges = null, byPosition = false } = opts
+  const { rowFactor = ROW_FACTOR, edges = null } = opts
   const layout = normLayout(opts)
   const heads = Array.isArray(opts.heads) ? opts.heads : []
   const { all, secWidth } = collectCells(pages, layout, rowFactor)
@@ -672,7 +673,7 @@ export function pdfPagesToTable(pages, opts = {}) {
   }
   const made = (rows, rowPages, eg) => ({
     rows: withHeads(rows, rowPages), edges: eg,
-    rowFactor, sections: layout.cols, layout, heads: heads.map(h => ({ ...h })), byPosition,
+    rowFactor, sections: layout.cols, layout, heads: heads.map(h => ({ ...h })),
   })
   const empty = made([], [], edges ?? [])
   if (!all.length) return empty
@@ -694,40 +695,51 @@ export function pdfPagesToTable(pages, opts = {}) {
   }
 
   const dense = all.filter(r => r.cells.length >= DENSE_CELLS).map(r => r.cells)
-  // 位置で入れるときは、多数決（並び順）で決めた列は使わない。
-  // 並び順の列は**ずれている行そのものに引きずられて広がる** ── 割れた品目名の右半分が
-  // 「2列目」の一員として数えられ、列の範囲がそこまで伸びてしまう。紙の上の区間だけで
-  // 列を作れば、割れた名前は**別の列として目に見える**ので「左の列と合わせる」で直せる。
-  const byOrdinal = byPosition ? null : ordinalColumns(dense)
+  const byOrdinal = ordinalColumns(dense)
   const cols = byOrdinal ? byOrdinal.cols : geometricColumns(all.flatMap(r => r.cells), secWidth)
   if (!cols.length) return empty
 
   /**
-   * **紙の上の位置だけで入れる**ときの列の境界。
+   * セルは**紙の上の位置**で列へ入れる。左から順に詰めない。
    *
-   * 並び順で入れると、セルの数が多数派とずれた行だけが横にずれる ── 品目名に空白が
-   * あって2つに割れた行、値の欠けた行がそれで、**その行だけ1列分ずれる**形で出てくる。
-   * しかも他の行は正しいので、先頭を見ただけでは気づけない。
+   * 順に詰めると、セルの数が多数派とずれた行だけが横にずれる ── 品目名に空白があって
+   * 2つに割れた行、値の欠けた行がそれで、**その行だけ1列分ずれる**形で出てくる。
+   * しかも他の行は正しいので、先頭を見ただけでは気づけない。何ページもある紙では
+   * 最後まで分からない。位置で入れれば、どの行も紙に刷られているところへ入り、
+   * 欠けたところは空のまま残る。
    *
-   * 位置で入れれば、どの行も紙に刷られているところへ入る。欠けたところは空のまま残り、
-   * 割れた名前は別の列に出るので「左の列と合わせる」でまとめられる。
-   *
-   * 既定にしないのは、見出しが左寄せ・数字が右寄せで刷られる帳票では、位置だけだと
-   * 見出しの名前と中身が食い違うことがあるため（`ordinalColumns` の注記）。
-   * 画面で「この行だけ横にずれている」と分かったときに、人が切り替える。
+   * 列の位置そのものは `ordinalColumns`（そろっている行の何番目か＋中央値）で決めるので、
+   * 左寄せの見出しと右寄せの数字は同じ列に入る。位置で入れることと両立する。
    */
-  const posEdges = byPosition ? edgesOfColumns(cols) : null
+  const posEdges = edgesOfColumns(cols)
+
+  /**
+   * **見出しの行だけは並び順で入れる。**
+   *
+   * 帳票の見出しは左寄せ、数量・単価は右寄せで刷られる。`数量` の見出しは自分の列の
+   * ずっと左に来るので、位置で入れると `単価` と同じマスに落ち、右の列が全行空になる。
+   * 見出しはセルの数がそろっているので、何番目かで入れれば必ず正しい列に入る。
+   *
+   * 見出しは**数字を1つも持たない最初の行**とその同じ並びの行（段組みの再掲）。
+   * 「数字の無い行はぜんぶ見出し」にはしない ── 数字が隣へ押し出された壊れた行まで
+   * 並び順で入れてしまい、直したかったずれがそのまま残る。
+   */
+  let headerKey = null
+  for (const { cells } of all) {
+    if (cells.length && !cells.some(c => isNumberish(c.text))) {
+      headerKey = cells.map(c => c.text).join(ROW_KEY)
+      break
+    }
+  }
 
   const out = [], outPages = []
   for (const { cells, page } of all) {
     const row = new Array(cols.length).fill('')
-    // 多数派と同じセル数の行は並び順そのままに入れる。それ以外は位置から当てる
-    // （欠けのある行を番号で入れると、そこから右がまるごと1つずれる）。
-    const at = posEdges
-      ? cells.map(c => columnAtEdges(posEdges, c))
-      : byOrdinal && cells.length === byOrdinal.modal
-        ? cells.map((_, i) => i)
-        : placeInOrder(cols, cells)
+    const isHeaderRow = headerKey !== null && cells.length === cols.length &&
+      cells.map(c => c.text).join(ROW_KEY) === headerKey
+    const at = isHeaderRow
+      ? cells.map((_, i) => i)
+      : cells.map(c => columnAtEdges(posEdges, c))
     cells.forEach((c, i) => {
       row[at[i]] = row[at[i]] ? `${row[at[i]]} ${c.text}` : c.text
     })
@@ -740,9 +752,6 @@ export function pdfPagesToTable(pages, opts = {}) {
   const rows = keep.length === cols.length ? out : out.map(r => keep.map(i => r[i]))
   return made(rows, outPages, edgesOfColumns(keep.map(i => cols[i])))
 }
-
-const NUMERIC_RE = /^[-+]?[\d,]+(\.\d+)?$/
-const isNumberish = (v) => NUMERIC_RE.test(String(v ?? '').trim()) && /\d/.test(String(v))
 
 /**
  * そろっていない行（＝ずれている可能性が高い行）の番号。
@@ -799,7 +808,7 @@ export function oddRowIndexes(rows, { ignoreRight = 0 } = {}) {
   }
 
   // 見出しの行。数字を1つも持たない最初の行と、それと同じ並びの行（段組みの再掲）
-  const KEY = String.fromCharCode(1)
+  const KEY = ROW_KEY
   let headerKey = null
   for (const r of body) {
     if (filledOf(r) > 0 && !r.some(isNumberish)) { headerKey = r.join(KEY); break }

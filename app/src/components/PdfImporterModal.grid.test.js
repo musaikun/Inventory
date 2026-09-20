@@ -120,10 +120,10 @@ describe('PdfImporterModal — PDFを表にして列指定へ渡す', () => {
     await mount()
     await pickSheets(1)
 
-    // 1列目を選んで「合わせる」→ 2列になり、境界は1本
-    ;[...host.querySelectorAll('.gs-table th')][2].click()   // 2列目（先頭は行番号の列）
+    // ずれている場所（2列目のセル）をタップ →「この値は左の列のもの」
+    ;[...host.querySelectorAll('.gs-table tbody tr')][1].children[2].click()
     await nextTick()
-    button('左の列と合わせる').click()
+    button('この値は左の列のもの').click()
     await nextTick()
     expect(host.textContent).toContain('全 2行 / 2列')
 
