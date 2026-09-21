@@ -124,14 +124,15 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(host.querySelector('.af-gcard[data-slot="2"] .af-gname').textContent.trim()).toBe('冷凍庫')
   })
 
-  it('末尾では下にカードが無い', async () => {
+  it('末尾の下は「＋ 分類先を追加」の1枠だけ（その先は無い）', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     await click(host.querySelector('.af-gcard[data-slot="2"]'))
     await settle()
 
     expect(centre()).toBe('冷凍庫')
-    expect(host.querySelector('.af-gcard[data-slot="3"]')).toBeNull()
+    expect(host.querySelector('.af-gcard[data-slot="3"]').classList.contains('add')).toBe(true)
+    expect(host.querySelector('.af-gcard[data-slot="4"]')).toBeNull()
     expect(host.querySelector('.af-gcard[data-slot="1"] .af-gname').textContent.trim()).toBe('棚')
   })
 
@@ -163,7 +164,7 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(host.querySelector('.af-gcard[data-slot="-1"]')).toBeNull()
   })
 
-  it('末尾より先へも回らない', async () => {
+  it('末尾より先へも回らない（止まるのは「＋」の枠）', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     const stage = host.querySelector('.af-stage')
@@ -173,8 +174,8 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     pointer(stage, 'pointerup', 40, 0)
     await settle()
 
-    expect(centre()).toBe('冷凍庫')
-    expect(host.querySelector('.af-gcard[data-slot="3"]')).toBeNull()
+    expect(host.querySelector('.af-gcard.on').classList.contains('add')).toBe(true)
+    expect(host.querySelector('.af-gcard[data-slot="4"]')).toBeNull()
   })
 
   it('スマホで最後の移動量が小さくても、直近の指の速度を保って慣性回転する', async () => {
@@ -221,7 +222,8 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     await click(host.querySelector('.af-gcard[data-slot="1"]'))
     await settle()
     expect(centre()).toBe('棚')
-    expect(host.querySelector('.af-gcard[data-slot="2"]')).toBeNull()
+    expect(host.querySelector('.af-gcard[data-slot="2"]').classList.contains('add')).toBe(true)
+    expect(host.querySelector('.af-gcard[data-slot="3"]')).toBeNull()
   })
 
   it('中央以外のカードは読み上げから外し、上下キーは端で止まる', async () => {
@@ -253,9 +255,9 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     await mount()
     const stage = host.querySelector('.af-stage')
 
-    for (let i = 0; i < 7; i++) key(stage, 'ArrowDown')   // 末尾で止まる
+    for (let i = 0; i < 7; i++) key(stage, 'ArrowDown')   // 末尾（＋の枠）で止まる
     await nextTick()
-    expect(centre()).toBe('冷凍庫')
+    expect(host.querySelector('.af-gcard.on').classList.contains('add')).toBe(true)
 
     for (let i = 0; i < 8; i++) key(stage, 'ArrowUp')     // 先頭で止まる
     await nextTick()
@@ -280,17 +282,28 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(centre()).toBe('冷凍庫')
   })
 
-  it('分類先が無いときはホイールの場所で作り方を案内する', async () => {
+  /**
+   * 追加はホイールの末尾の枠から（User指示 2026-09-21）。
+   *
+   * 以前はホイール右のレールに「＋」を置いていた。**回している指の外**にあるので、
+   * 作りたくなるたびに指を移すことになる。回した先に「次はここに足せる」が
+   * 見えているほうが、探す・作るがひと続きになる。
+   */
+  it('分類先が0件でも、空の円筒ではなく「＋」のカードが1枚座る', async () => {
     await mount()
-    const empty = host.querySelector('.af-wheel .af-wheel-empty')
+    const cardsNow = [...host.querySelectorAll('.af-gcard')]
 
-    expect(empty).toBeTruthy()
-    expect(empty.textContent).toContain('分類先がまだありません')
-    expect(empty.textContent).toContain('「＋」で作ってください')
-    expect(host.querySelector('.af-wheel').classList.contains('empty')).toBe(true)
-    expect(host.querySelectorAll('.af-gcard').length).toBe(0)
-    // カードと同じ土俵（回す面）に置く。位置と大きさは .af-gcard と同じ枠をCSSで与える
-    expect(host.querySelector('.af-stage > .af-wheel-empty')).toBe(empty)
+    expect(cardsNow.length).toBe(1)
+    expect(cardsNow[0].classList.contains('add')).toBe(true)
+    expect(cardsNow[0].textContent).toContain('分類先を追加')
+    expect(host.querySelector('.af-wheel-empty')).toBeNull()
+  })
+
+  it('右のレールに「＋」は持たない（回している指の外へ出さない）', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await mount()
+    const railBtns = [...host.querySelectorAll('.af-rail-btn')].map(b => b.getAttribute('aria-label'))
+    expect(railBtns).not.toContain('分類先を足す')
   })
 
   it('分類先が0件なら品目一覧へ触れてもホイールを畳まない', async () => {
@@ -301,25 +314,28 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     await click(host.querySelector('.af-list'))
 
     expect(wheel.classList.contains('band')).toBe(false)
-    expect(host.querySelector('.af-wheel-empty')).toBeTruthy()
   })
 
-  it('分類先を1件作ると案内が消えてカードが出る', async () => {
+  it('「＋」のカードをタップすると追加できる', async () => {
     await mount()
-    await click(rail(''))                       // ＋
+    await click(host.querySelector('.af-gcard.add'))
+    await settle()
+
+    expect(host.querySelector('.af-dialog-input')).not.toBeNull()
     await type(host.querySelector('.af-dialog-input'), '冷蔵庫')
     await click(host.querySelector('.af-dialog-ok'))
     await settle()
 
-    expect(host.querySelector('.af-wheel-empty')).toBeNull()
     expect(centre()).toBe('冷蔵庫')
+    // 作ったら、その下にまた空の枠が続く
+    expect(host.querySelector('.af-gcard[data-slot="1"]').classList.contains('add')).toBe(true)
   })
 
   it('カードごとの ✎ / 🗑 を持たない（行タップとの取り違えを起こさない）', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
     expect(host.querySelector('.af-gcard .af-gicon')).toBeNull()
-    expect(host.querySelectorAll('.af-rail-btn').length).toBe(3)   // ＋ / ⚙ / 🗑
+    expect(host.querySelectorAll('.af-rail-btn').length).toBe(2)   // ⚙ / 🗑（＋はホイールの末尾へ）
   })
 
   it('領域を畳んでも補助表示をDOMから抜かず、同じ画面のまま滑らかに縮める', async () => {
@@ -527,7 +543,7 @@ describe('AxisAssignFocus — レールから1枚だけ足す・消す', () => {
   it('＋ で足すと、その1枚が中央に来る', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
-    await click(rail(''))                       // ＋ は最初のボタン
+    await click(host.querySelector('.af-gcard.add'))
     await type(host.querySelector('.af-dialog-input'), '棚')
     await click(host.querySelector('.af-dialog-ok'))
     await settle()
@@ -539,7 +555,7 @@ describe('AxisAssignFocus — レールから1枚だけ足す・消す', () => {
   it('同名は追加せず理由を出す', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     await mount()
-    await click(rail(''))
+    await click(host.querySelector('.af-gcard.add'))
     await type(host.querySelector('.af-dialog-input'), '冷蔵庫')
     await click(host.querySelector('.af-dialog-ok'))
     expect(dialog()).toBeTruthy()               // 閉じない
@@ -932,7 +948,7 @@ describe('AxisAssignFocus — 戻るの段', () => {
     await mount()
 
     await click(rail('.gear'))                  // 一括編集を開く
-    await click(rail(''))                       // その上に「追加」を開く
+    await click(host.querySelector('.af-edit-add'))   // その上に「追加」を開く
     expect(dialog()).toBeTruthy()
 
     expect(consumeInnerLayerBack()).toBe(true)  // まず追加を閉じる

@@ -117,14 +117,27 @@ const RADIUS = Math.round((CARD_H / 2) / Math.tan((STEP / 2) * Math.PI / 180))
 // 一周させると「どこから見始めたか」が消え、20件近い分類先では同じ名前が
 // 何度も通り過ぎて探し疲れる。端は端として止める。湾曲は残す。
 const OVER_MAX = 0.5, OVER_DAMP = 0.34
-const pos = ref(0)                                   // 位置。0〜件数-1の間。小数＝回転中
-function maxPos() { return Math.max(0, groups.value.length - 1) }
+const pos = ref(0)                                   // 位置。0〜枠数-1の間。小数＝回転中
+
+/**
+ * ホイールの枠は「分類先の数 ＋ 1」。**末尾の1枠が「＋ 分類先を追加」**。
+ *
+ * 追加はホイール右のレールに置いていたが、**回している指の外**にあるので、
+ * 作りたくなるたびに指を移す。回した先に「次はここに足せる」が見えているほうが、
+ * 探す・作るがひと続きになる。0件のときも同じ ── 空の円筒ではなく、
+ * 最初から1枚だけ「＋」のカードが座っている。
+ */
+const slotCount = computed(() => groups.value.length + 1)
+const addSlot   = computed(() => groups.value.length)
+function maxPos() { return Math.max(0, slotCount.value - 1) }
 function clampPos(p) { return Math.max(0, Math.min(maxPos(), p)) }
 function clampIndex(i) {
   const n = groups.value.length
   return n > 0 ? Math.max(0, Math.min(n - 1, i)) : -1
 }
-const targetIdx = computed(() => clampIndex(Math.round(pos.value)))
+// 「＋」の枠に居る間は振り分け先が無い（品目を入れる相手ではない）
+const onAddSlot = computed(() => Math.round(pos.value) >= addSlot.value)
+const targetIdx = computed(() => (onAddSlot.value ? -1 : clampIndex(Math.round(pos.value))))
 // 端を越えた分はゴムのように重くし、離したら必ず端へ戻す
 function nudgePos(d) {
   const max = maxPos()
@@ -135,7 +148,8 @@ function nudgePos(d) {
 }
 const target = computed(() => targetIdx.value >= 0 ? (groups.value[targetIdx.value] ?? '') : '')
 const wheelAriaLabel = computed(() => {
-  if (!groups.value.length) return '分類先は未設定です'
+  if (!groups.value.length) return '分類先はまだありません。回すと追加の枠が出ます'
+  if (onAddSlot.value) return '分類先ホイール。現在 分類先を追加。上下矢印キーで変更'
   if (groups.value.length === 1) return `分類先。現在 ${target.value}`
   return `分類先ホイール。現在 ${target.value}。上下矢印キーで変更`
 })
@@ -144,8 +158,7 @@ const wheelAriaLabel = computed(() => {
 // 開閉が「伸び縮み」ではなく「カードが開く／閉じる」動きに見える。
 const fan = ref(1)
 const wheelCards = computed(() => {
-  const n = groups.value.length
-  if (!n) return []
+  const n = slotCount.value                          // 末尾の1枠は「＋ 分類先を追加」
   const out = []
   // 1件だけは同じ名前を上下へ複製しない。2件以上は現在位置の前後の枠を描くが、
   // 端の外は描かない（先頭と末尾はつながない）。上や下にカードが無いことが、
@@ -161,14 +174,15 @@ const wheelCards = computed(() => {
     const slot = n === 1 ? 0 : base + k
     if (slot < 0 || slot > n - 1) continue            // 端の外は無い
     const idx = n === 1 ? 0 : slot
-    const name = groups.value[idx]
+    const add = idx >= addSlot.value
+    const name = add ? '' : groups.value[idx]
     const offset = n === 1 ? 0 : slot - pos.value
     const angle = offset * STEP * fan.value
     if (Math.abs(angle) > 62) continue
     const centre = Math.abs(offset) < 0.5
     out.push({
-      name, idx, slot, centre,
-      count: groupCount.value[name] || 0,
+      name, idx, slot, centre, add,
+      count: add ? 0 : (groupCount.value[name] || 0),
       style: {
         transform: `rotateX(${-angle}deg) translateZ(${RADIUS}px)`,
         opacity: centre ? 1 : Math.max(0, 1 - Math.abs(offset) / (VISIBLE + 0.4)) * fan.value,
@@ -364,6 +378,7 @@ function finishWheelGesture(e, cancelled) {
     return
   }
   if (tapSlot != null) {
+    if (tapSlot >= addSlot.value) { selectWheelSlot(tapSlot); openAdd(); return }
     selectWheelSlot(tapSlot)
     return
   }
@@ -391,7 +406,7 @@ function freezeWheel() {
 }
 function stopWheelAtNearest() {
   freezeWheel()
-  pos.value = groups.value.length <= 1 ? 0 : clampPos(Math.round(pos.value))
+  pos.value = slotCount.value <= 1 ? 0 : clampPos(Math.round(pos.value))
 }
 // 一覧のpointerdownでは回転位置だけを固定する。ここで高さも畳むと、特に
 // reduced-motion時に押した行がpointerup前に移動しclickを失う。
@@ -455,7 +470,7 @@ function spinTo(slot) {
   cancelAnimationFrame(_glideRaf)
   _glideRaf = 0
   _vel = 0
-  if (groups.value.length <= 1) { pos.value = 0; return }
+  if (slotCount.value <= 1) { pos.value = 0; return }
   const dest = clampPos(slot)
   if (reduceMotion) { pos.value = dest; return }
   const step = () => {
@@ -525,7 +540,7 @@ function openAssigned(slot, { fromPointer = false } = {}) {
   freezeWheel()
   // 押した数字の分類先を中央に据える。回さずに合わせるのは、開いた一覧と
   // 中央のカードが食い違わないようにするため。
-  if (Number.isFinite(slot) && groups.value.length > 1) pos.value = clampPos(slot)
+  if (Number.isFinite(slot) && slotCount.value > 1) pos.value = clampPos(slot)
   // 面積は変えない。帯に畳んで品目を入れている最中に開いても、
   // 閉じたときに一覧の位置がずれない（畳んだままでも開ける、の一部）。
   showAssigned.value = true
@@ -541,7 +556,9 @@ function onWheelClick(e) {
     return
   }
   const slot = slotFromTarget(e.target)
-  if (slot != null) selectWheelSlot(slot)
+  if (slot == null) return
+  selectWheelSlot(slot)
+  if (slot >= addSlot.value) openAdd()
 }
 function onWheelKeydown(e) {
   if (e.target !== e.currentTarget || !['ArrowUp', 'ArrowDown'].includes(e.key)) return
@@ -1156,7 +1173,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
       <div
         class="af-wheel"
-        :class="{ band: banded, reduced: reduceMotion, empty: !groups.length }"
+        :class="{ band: banded, reduced: reduceMotion }"
         :style="{
           height: wheelH + 'px',
           transitionDuration: reduceMotion ? '0ms' : PANEL_MS + 'ms',
@@ -1183,24 +1200,23 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                  遠近法で拡大され左右が見切れる -->
             <div
               v-for="c in wheelCards" :key="c.slot" :data-gidx="c.idx" :data-slot="c.slot" :data-group="c.name"
-              class="af-gcard" :class="{ on: c.centre }" :style="c.style"
+              class="af-gcard" :class="{ on: c.centre, add: c.add }" :style="c.style"
               :aria-hidden="c.centre ? undefined : 'true'"
             >
-              <span class="af-gname">{{ c.name }}</span>
-              <button
-                class="af-gcount"
-                :aria-label="c.centre ? `${c.name} の振り分け済みを見る` : undefined"
-                :tabindex="c.centre ? 0 : -1"
-              >{{ c.count }}</button>
-              <span v-if="c.centre && banded" class="af-gchev">変える ▾</span>
+              <!-- 末尾の1枠。回した先に「次はここに足せる」が見えている -->
+              <template v-if="c.add">
+                <span class="af-gadd">＋ 分類先を追加</span>
+              </template>
+              <template v-else>
+                <span class="af-gname">{{ c.name }}</span>
+                <button
+                  class="af-gcount"
+                  :aria-label="c.centre ? `${c.name} の振り分け済みを見る` : undefined"
+                  :tabindex="c.centre ? 0 : -1"
+                >{{ c.count }}</button>
+                <span v-if="c.centre && banded" class="af-gchev">変える ▾</span>
+              </template>
             </div>
-          </div>
-          <!-- 0件のときは回す物が無い。空の円筒を見せる代わりに、カードが座るはずの
-               場所へそのまま置いて作り方を言う。ホイールの場所は「いま何に振り分けて
-               いるか」を出す場所なので、まだ無いことも同じ位置で分かるようにする。 -->
-          <div v-if="!groups.length" class="af-wheel-empty">
-            <span class="af-wheel-empty-title">分類先がまだありません</span>
-            <span class="af-wheel-empty-hint">右の「＋」で作ってください</span>
           </div>
           <div class="af-marker"></div>
           <div class="af-fade t"></div>
@@ -1210,7 +1226,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           class="af-rail"
           :aria-hidden="banded ? 'true' : 'false'" :inert="banded ? '' : null"
         >
-          <button class="af-rail-btn" aria-label="分類先を足す" @click="openAdd">＋</button>
           <button ref="editTriggerEl" class="af-rail-btn gear" aria-label="分類先をまとめて編集" @click="openEdit">⚙</button>
           <button class="af-rail-btn del" aria-label="この分類先を消す" :disabled="!target" @click="askDelete(target)">🗑</button>
         </div>
@@ -1559,19 +1574,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-prog-fill.done { background: #16a34a; }
 
 .af-empty { padding: 24px 16px; color: #94a3b8; font-size: 13px; text-align: center; line-height: 1.6; }
-/* 0件の案内。中央カードと同じ枠（left/right/top/height）に置き、まだ何も無いことを
-   カードが来る場所そのもので伝える。破線にして「空いている枠」と分かるようにする */
-.af-wheel-empty {
-  position: absolute; left: 16px; right: 16px; top: 50%;
-  height: 56px; margin-top: -28px; z-index: 3; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  padding: 0 12px; text-align: center;
-  background: #fff; border: 1.5px dashed #cbd5e1; border-radius: 12px;
-}
-.af-wheel-empty-title { font-size: 14px; font-weight: 800; color: #64748b; }
-.af-wheel-empty-hint { font-size: 11px; color: #94a3b8; }
-/* 案内の後ろに中央マーカーや端のフェードが残ると、選べる物があるように見える */
-.af-wheel.empty .af-marker, .af-wheel.empty .af-fade { opacity: 0; }
+/* 末尾の「＋ 分類先を追加」の枠。破線にして「まだ空いている枠」と分かるようにする。
+   0件のときはこの1枚だけが座る（空の円筒を見せない） */
+.af-gcard.add { border-style: dashed; background: #f8fafc; justify-content: center; }
+.af-gadd { font-size: 15px; font-weight: 800; color: var(--primary, #2563eb); }
 .af-tabs { display: flex; gap: 6px; padding: 10px 14px 0; flex-shrink: 0; }
 .af-tab { flex: 1; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 10px; padding: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-tab.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
