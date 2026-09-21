@@ -499,6 +499,7 @@ function onClear() {
 
     <RowMapperModal
       v-if="rowMapper"
+      :kind="rowMapper.kind"
       :csv-text="rowMapper.csvText"
       :filename="rowMapper.filename"
       :title="rowMapper.title"

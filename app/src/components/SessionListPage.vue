@@ -216,6 +216,24 @@ function _isSessionLocked(session) {
   })
 }
 
+/**
+ * その日すでに終わっている棚卸（まだ編集できるもの）。
+ *
+ * 同じ日に2回棚卸すると、以前は**別のセッションとして2本できていた**。
+ * 数え直しのつもりで始めた2回目が、1回目と並んで履歴に残り、消費の計算も
+ * 「同じ日に2回棚卸した」ものとして扱われる。たいていは**続きか数え直し**なので、
+ * まず続きから開けるように訊く。
+ */
+const _localDateKey = (d) => new Date(d).toLocaleDateString('sv-SE')   // YYYY-MM-DD（ローカル日）
+const todayDone = computed(() => {
+  const key = _localDateKey(Date.now())
+  return completedSessions.value.find(sess => {
+    const at = sess.endedAt ?? sess.startedAt
+    if (!at) return false
+    return _localDateKey(at) === key && !_isSessionLocked(sess)
+  }) ?? null
+})
+
 function onStartNew() {
   // マスタが正なので、実データがあれば確認を挟まず即開始。
   // 開始バナーは「空マスタ / サンプル」の誘導だけに縮小。
@@ -225,6 +243,14 @@ function onStartNew() {
 
 async function confirmStart() {
   showStartModal.value = false
+  // 同じ日の2回目は、まず「続きから」を勧める。別の棚卸として増やすこともできる
+  const done = todayDone.value
+  if (done) {
+    if (confirm('本日すでに棚卸は行われています。\n\n再編集でいいですか？\n\nOK … その棚卸の続きから（数量・変更履歴・時間もそのまま）\nキャンセル … 別の棚卸として新しく始める')) {
+      emit('resumeSession', done)
+      return
+    }
+  }
   startingKind.value = 'stock'
   try {
     const session = await createSession()

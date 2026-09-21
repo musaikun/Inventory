@@ -116,76 +116,30 @@ describe('日別メモ', () => {
   })
 })
 
-describe('発注スケジュールの反映', () => {
-  it('今日以降の発注曜日のマスに予定の帯を出す', async () => {
+/**
+ * 発注スケジュールの「予定」は履歴カレンダーに出さない（User指示 2026-09-21）。
+ *
+ * カレンダーは**実際に起きたこと**を見る場所。予定は後から変えられるので、過去のマスに
+ * 今の設定を重ねると「その日が発注日だった」という嘘になる。これから何をするかは
+ * 仕入れ管理の画面の仕事。
+ */
+describe('発注スケジュールの予定は出さない', () => {
+  it('設定してあっても、マスにも凡例にも詳細にも出ない', async () => {
     seedSchedule()
-    const root = await mountCal()
-    expect(cellOf(root, '2026-09-20').querySelector('.hc-plan-bar')).not.toBeNull()  // 今日（日）
-    expect(cellOf(root, '2026-09-22').querySelector('.hc-plan-bar')).not.toBeNull()  // 火
-    expect(cellOf(root, '2026-09-27').querySelector('.hc-plan-bar')).not.toBeNull()  // 日
-  })
-
-  it('過去のマスには出さない（実績の★と読み分けられなくなる）', async () => {
-    seedSchedule()
-    const root = await mountCal()
-    expect(cellOf(root, '2026-09-13').querySelector('.hc-plan-bar')).toBeNull()  // 過去の日曜
-    expect(cellOf(root, '2026-09-15').querySelector('.hc-plan-bar')).toBeNull()  // 過去の火曜
-  })
-
-  it('発注日でない曜日には出さない', async () => {
-    seedSchedule()
-    const root = await mountCal()
-    expect(cellOf(root, '2026-09-23').querySelector('.hc-plan-bar')).toBeNull()  // 水
-  })
-
-  it('スケジュール未設定なら帯も凡例も出さない', async () => {
     const root = await mountCal()
     expect(root.querySelector('.hc-plan-bar')).toBeNull()
     expect(root.querySelector('.hc-plan-key')).toBeNull()
-  })
+    expect(root.querySelector('.hc-key').textContent).not.toContain('発注予定')
 
-  it('設定していれば凡例に「発注予定」を足す（★の凡例は4つのまま）', async () => {
-    seedSchedule()
-    const root = await mountCal()
-    const key = root.querySelector('.hc-key')
-    expect(key.textContent).toContain('発注予定')
-    expect(key.querySelectorAll('.dot').length).toBe(4)
-  })
-
-  it('詳細モーダルに予定の名前と締切を出す', async () => {
-    seedSchedule()
-    const root = await mountCal()
-    await tapDay(root, '2026-09-22')
-
-    const plan = root.querySelector('.hc-day-sheet .hc-plan')
-    expect(plan).not.toBeNull()
-    expect(plan.textContent).toContain('発注予定')
-    expect(plan.textContent).toContain('青果（締切15:00）')
-  })
-
-  it('締切が未設定なら名前だけを出す', async () => {
-    seedSchedule([{ id: 'sc1', name: '肉屋', days: [2], deadline: '' }])
-    const root = await mountCal()
-    await tapDay(root, '2026-09-22')
-    expect(root.querySelector('.hc-day-sheet .hc-plan').textContent).toContain('肉屋')
-    expect(root.querySelector('.hc-day-sheet .hc-plan').textContent).not.toContain('締切')
-  })
-
-  it('複数のスケジュールが同じ日に重なれば両方出す', async () => {
-    seedSchedule([
-      { id: 'sc1', name: '青果', days: [2], deadline: '15:00' },
-      { id: 'sc2', name: '肉屋', days: [2], deadline: '10:00' },
-    ])
-    const root = await mountCal()
-    await tapDay(root, '2026-09-22')
-    const chips = [...root.querySelectorAll('.hc-day-sheet .hc-plan-chip')].map(c => c.textContent.trim())
-    expect(chips).toEqual(['青果（締切15:00）', '肉屋（締切10:00）'])
-  })
-
-  it('過去の発注曜日を開いても予定は出さない', async () => {
-    seedSchedule()
-    const root = await mountCal()
-    await tapDay(root, '2026-09-15')
+    await tapDay(root, '2026-09-22')       // 発注曜日として設定した火曜
     expect(root.querySelector('.hc-day-sheet .hc-plan')).toBeNull()
+    expect(root.querySelector('.hc-day-sheet').textContent).not.toContain('発注予定')
+  })
+
+  it('実際の発注（★）はそのまま出る（予定を消しただけ）', async () => {
+    seedSchedule()
+    const root = await mountCal()
+    expect(root.querySelector('.hc-key').textContent).toContain('発注')
+    expect(root.querySelectorAll('.hc-key .dot').length).toBe(4)
   })
 })

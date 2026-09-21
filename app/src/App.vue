@@ -1543,11 +1543,40 @@ function _saveDraft(sessionId) {
   } catch (_) {}
 }
 
+/**
+ * 完了済みセッションを開き直したときの復元。
+ *
+ * 完了すると下書きは消える（`_clearDraft`）。同じ日の2回目の棚卸を「続きから」にする以上、
+ * **完了したときの姿へ戻す**必要がある。スナップショットは sessionId で引けて、
+ * 数量・変更履歴・稼働時間・誰が入れたかを全部持っているので、そこから戻す。
+ *
+ * 戻さないと、続きのはずが空の在庫と 0 分から始まり、完了したときに前の記録を
+ * 上書きしてしまう（スナップショットは sessionId が正本キーなので、同じ枠に入る）。
+ */
+function _restoreFromSnapshot(sessionId) {
+  const snap = getSnapshotBySessionId(sessionId)
+  if (!snap) return false
+  if (typeof snap.activeMs === 'number') activeTimer.resume(snap.activeMs)
+  mergeAuditLog(snap.auditLog)
+  // 「誰が・いつ」は participants 側にしか無い。ここで品目へ引き直す
+  const by = new Map()
+  for (const p of snap.participants ?? []) {
+    for (const it of p.items ?? []) by.set(it.item, { name: p.name, at: it.at })
+  }
+  for (const it of snap.items ?? []) {
+    if (it?.qty === null || it?.qty === undefined) continue
+    const a = by.get(it.item)
+    applyRemoteUpdate(it.item, it.qty, it.unit ?? '', a?.name ?? '', a?.at ?? snap.savedAt)
+  }
+  return true
+}
+
 function _restoreDraft(sessionId) {
   if (!sessionId) return
   try {
     const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
-    if (!raw) return
+    // 下書きが無い＝完了済みを開き直した。完了したときの姿へ戻す
+    if (!raw) { _restoreFromSnapshot(sessionId); return }
     const saved = JSON.parse(raw)
     // 新形式 { inv, activeMs } と旧形式（フラットな inventory）の両対応
     const inv = saved.inv ?? saved

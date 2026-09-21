@@ -30,21 +30,36 @@ export function detectColumn(headerCols, hints) {
  * @param {Object} mapping { fieldKey: columnIndex|null }
  * @param {Array}  fields  [{ key, header }] header = 既存パーサが認識する列名
  * @param {boolean} hasHeader 1行目を見出しとして捨てるか
+ * @param {Object} [constants] { fieldKey: 値 } 列ではなく**全行に同じ値**を入れる項目
  * @returns {string} ヘッダ1行 + データ行のCSV。データが無ければヘッダのみ。
  *
  * 値は加工しない（空白の trim までに留める）。数値・日付の解釈は既存パーサの仕事で、
  * ここで先に整形すると「画面で見た値」と「取り込まれた値」がずれる。
+ *
+ * `constants` は、**紙の帳票に日付の列が無い**場合のためにある。納品書の日付は
+ * 表の中ではなく見出しに1回しか書かれていないので、列としては取れない。
+ * 人がその場で入れた日付を全行に配って、以降は普通の日付列として扱う。
  */
-export function buildMappedCSV(records, mapping, fields, hasHeader) {
-  const used = fields.filter(f => mapping[f.key] !== null && mapping[f.key] !== undefined)
+export function buildMappedCSV(records, mapping, fields, hasHeader, constants = {}) {
+  const fixed = (f) => {
+    const v = constants?.[f.key]
+    return v === null || v === undefined || v === '' ? null : String(v)
+  }
+  const used = fields.filter(f =>
+    fixed(f) !== null || (mapping[f.key] !== null && mapping[f.key] !== undefined))
   const lines = [toCSVRow(used.map(f => f.header))]
   const dataRows = hasHeader ? records.slice(1) : records
 
   for (const rec of dataRows) {
     const cols = rec?.cols ?? []
-    // 全項目が空の行は出さない（元ファイルの空行・区切り行をデータ行に見せない）
-    const cells = used.map(f => String(cols[mapping[f.key]] ?? '').trim())
-    if (cells.every(c => c === '')) continue
+    // 全項目が空の行は出さない（元ファイルの空行・区切り行をデータ行に見せない）。
+    // 全行に同じ値を入れる項目は「空でない」の判定に使わない ── それを数えると、
+    // 元が空の行まで日付だけ入った行として取り込んでしまう
+    const cells = used.map(f => fixed(f) ?? String(cols[mapping[f.key]] ?? '').trim())
+    const fromFile = used
+      .filter(f => fixed(f) === null)
+      .map(f => String(cols[mapping[f.key]] ?? '').trim())
+    if (fromFile.every(c => c === '')) continue
     lines.push(toCSVRow(cells))
   }
   return lines.join('\n')

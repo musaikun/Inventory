@@ -13,7 +13,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
 import { buildMappedCSV, detectColumn } from '../utils/rowMapping.js'
-import { fingerprintTable } from '../composables/importRecipes.js'
+import { fingerprintTable, matchRecipe, applyRecipeColumns } from '../composables/importRecipes.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
@@ -23,6 +23,8 @@ const props = defineProps({
   // なぜこの画面に来たのか（自動で読めなかった理由）
   message:  { type: String, default: '' },
   fields:   { type: Array, required: true },
+  // どの取込の列指定か（'delivery' | 'stocktake'）。レシピを取り違えないために要る
+  kind:     { type: String, default: '' },
 })
 const emit = defineEmits(['apply', 'close'])
 useEscapeKey(() => emit('close'))
@@ -47,6 +49,17 @@ const totalRows   = computed(() => dataRecords.value.length)
 const mapping = reactive({})
 for (const f of props.fields) mapping[f.key] = null
 
+/**
+ * 列ではなく**全行に同じ値**を入れる項目。いまは日付だけ。
+ *
+ * 紙の納品書・棚卸表は、日付が表の中ではなく**見出しに1回しか書かれていない**。
+ * 列としては取れないので、日付が必須のこの画面では取り込めずに詰んでいた。
+ * その場で日付を入れて全行に配れば、以降は普通の日付列として扱える。
+ */
+const fixedDate = ref('')
+const hasDateField = computed(() => props.fields.some(f => f.key === 'date'))
+const constants = computed(() => (fixedDate.value ? { date: fixedDate.value } : {}))
+
 // 見出し／データの選択を切り替えたら自動検出もやり直す
 // （「1行目はデータ」に変えた瞬間、見出し語で当てた対応が残ると誤対応になる）。
 function autoDetect() {
@@ -55,11 +68,38 @@ function autoDetect() {
   }
 }
 autoDetect()
-watch(hasHeader, autoDetect)
+watch(hasHeader, () => { if (!recipe.value) autoDetect() })
+tryRecipe()
+
+// ── レシピ（保存した読み方）─────────────────────────────────
+// 品目リストの列指定（`ImportMapper`）と同じ扱いにする。仕入先の帳票は毎月同じ形で
+// 来るので、2回目以降に答えることは本来1つも無い。当たったことはその場に書く ──
+// 黙って埋まっていると、自分が選んだのかレシピが選んだのか分からない。
+const recipe = ref(null)
+function tryRecipe() {
+  if (parseError || !records.length) return
+  for (const r of [0, -1]) {
+    const hit = matchRecipe(fingerprintTable(records, r))
+    if (!hit || (hit.for ?? 'items') !== props.kind) continue
+    hasHeader.value = r === 0
+    const cols = applyRecipeColumns(hit, r >= 0 ? (records[r]?.cols ?? []) : [])
+    for (const f of props.fields) mapping[f.key] = cols[f.key] ?? null
+    recipe.value = hit
+    return
+  }
+}
+/** 当たったレシピが違ったとき、その場で外していつもの問いに戻る */
+function dropRecipe() {
+  recipe.value = null
+  hasHeader.value = null
+  for (const f of props.fields) mapping[f.key] = null
+  fixedDate.value = ''
+}
 
 const requiredFields = computed(() => props.fields.filter(f => f.required))
 const missingRequired = computed(() =>
-  requiredFields.value.filter(f => mapping[f.key] === null || mapping[f.key] === undefined))
+  requiredFields.value.filter(f =>
+    !constants.value[f.key] && (mapping[f.key] === null || mapping[f.key] === undefined)))
 
 const canApply = computed(() =>
   !parseError && headerChosen.value && missingRequired.value.length === 0 && totalRows.value > 0)
@@ -73,7 +113,7 @@ function onApply() {
   if (!canApply.value) return
   const named = hasHeader.value === true
   emit('apply', {
-    csvText: buildMappedCSV(records, mapping, props.fields, named),
+    csvText: buildMappedCSV(records, mapping, props.fields, named, constants.value),
     filename: props.filename,
     // 保存できる形の「読み方」。取り込んだあと、名前を付けてレシピにできる。
     // 列番号だけでなく見出しの名前も控える ── 来月そのファイルの列が1本増えても、
@@ -89,6 +129,9 @@ function onApply() {
           field: f.key, col: mapping[f.key],
           head: named ? (firstCols[mapping[f.key]] ?? '') : '',
         })),
+      // 日付を手で入れたことは覚えておく。**日付そのものは覚えない** ── 翌月は
+      // 別の日なので、値を焼き付けると去年の日付で取り込んでしまう
+      askDate: !!constants.value.date && mapping.date === null,
     },
   })
 }
@@ -100,7 +143,12 @@ function onApply() {
       <div class="sheet-handle"></div>
       <div class="sheet-title">{{ title }}</div>
 
-      <div v-if="message" class="rm-why">{{ message }}</div>
+      <!-- レシピが当たったときだけ出る1行。問いを飛ばした事実を、飛ばした場所に書く -->
+      <div v-if="recipe" class="rm-recipe">
+        <span class="rm-recipe-t">読み方「{{ recipe.name }}」で当てました</span>
+        <button class="rm-recipe-off" @click="dropRecipe">使わない</button>
+      </div>
+      <div v-else-if="message" class="rm-why">{{ message }}</div>
 
       <div class="rm-hint">
         ファイルの列を、取込に必要な項目へ対応づけてください。
@@ -175,6 +223,13 @@ function onApply() {
               {{ preview(mapping[def.key], ri) || '…' }}
             </span>
           </div>
+
+          <!-- 紙の帳票は日付が見出しに1回しか書かれていない。列が無くても進めるように -->
+          <div v-if="def.key === 'date' && mapping[def.key] === null" class="rm-fixed">
+            <label class="rm-fixed-l" :for="'rm-date'">日付の列が無いときは、ここで指定</label>
+            <input id="rm-date" v-model="fixedDate" class="rm-fixed-in" type="date" />
+            <span class="rm-fixed-n">入れた日付を、取り込む全部の行に付けます。</span>
+          </div>
         </div>
       </div>
 
@@ -200,6 +255,19 @@ function onApply() {
 }
 .rm-hint { font-size: 13px; color: var(--text-muted, #64748b); line-height: 1.5; margin-bottom: 12px; }
 .rm-file { display: inline-block; font-weight: 700; color: var(--primary, #2563eb); margin-left: 4px; }
+.rm-recipe { display: flex; align-items: center; gap: 8px; background: var(--primary-weak);
+  border: 1px solid var(--primary-border); border-radius: 10px; padding: 7px 10px; margin-bottom: 10px; }
+.rm-recipe-t { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 800; color: var(--primary); }
+.rm-recipe-off { flex-shrink: 0; border: 1px solid var(--primary-border); background: var(--surface);
+  color: var(--primary); border-radius: 8px; padding: 4px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+
+.rm-fixed { grid-column: 1 / -1; border: 1px dashed var(--primary-border);
+  background: var(--primary-weak); border-radius: 10px; padding: 8px 10px; margin-top: 6px; }
+.rm-fixed-l { display: block; font-size: 11px; font-weight: 800; color: var(--primary); margin-bottom: 5px; }
+.rm-fixed-in { border: 1.5px solid var(--border); border-radius: 9px; padding: 8px 10px;
+  font-size: 14px; background: #fff; }
+.rm-fixed-n { display: block; font-size: 10.5px; color: var(--text-muted); margin-top: 5px; }
+
 .rm-error {
   background: #fef2f2; color: var(--danger, #dc2626); border-radius: 10px;
   padding: 10px 14px; font-size: 13px; font-weight: 700; margin-bottom: 12px;

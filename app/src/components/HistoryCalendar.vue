@@ -9,9 +9,11 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
-import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
+// **実際に起きたことだけを出す**（発注スケジュールの「予定」は出さない ── 予定は
+// 後から変えられるので、過去のマスに今の設定を重ねると「その日が発注日だった」という
+// 嘘になる。これから何をするかは仕入れ管理の画面の仕事）。
 // 日を選ぶ → その日の履歴（種類別）を見る。
 // weather プロップは将来の天気表示用スロット。{ 'YYYY-MM-DD': { icon, label, tempHi, tempLo } }
 const props = defineProps({
@@ -114,32 +116,6 @@ const moveByDate = computed(() => {
   return map
 })
 
-// ── 発注スケジュール（仕入れ管理で設定した「発注する曜日」）────────────────
-// 予定は曜日の繰り返しなので、曜日 → その日に発注するスケジュール名・締切 に畳んで持つ。
-//
-// **今日以降のマスにだけ出す。** 予定は「これから何をするか」で、過去のマスに出すと
-// 実際に発注した日（★）と読み分けられない（予定は後から変えられるので、過去の日に
-// 今の設定を重ねると「その日に発注日だった」という嘘にもなる）。
-const schedulesByDow = computed(() => {
-  const map = {}
-  ;(config.orderSchedules ?? []).forEach((sch, i) => {
-    if (!hasSchedule(sch)) return
-    for (const d of sch.days) (map[d] ||= []).push({ name: scheduleName(sch, i), deadline: sch.deadline || '' })
-  })
-  return map
-})
-const hasAnyPlan = computed(() => Object.keys(schedulesByDow.value).length > 0)
-
-function _plannedOrders(key, dow) {
-  if (key < todayKey) return []
-  return schedulesByDow.value[dow] ?? []
-}
-
-// マスの帯・詳細に出す文言（「青果 ・ 締切15:00」）
-function planLabel(p) {
-  return p.deadline ? `${p.name}（締切${p.deadline}）` : p.name
-}
-
 const monthLabel = computed(() => `${viewYear.value}年${viewMonth.value + 1}月`)
 
 // 連休（週末＋祝日が3日以上連続）の連結情報。連休でなければ null。
@@ -177,7 +153,6 @@ const weeks = computed(() => {
       wx: props.weather[key] || null,
       factors: dayFactors(key),   // 暦の需要要因（祝日・祝前日・給料日・連休・スパン…）
       run: _runInfo(y, m, d),     // 連休（3連休以上）の連結情報
-      planned: _plannedOrders(key, new Date(y, m, d).getDay()),  // 発注スケジュールの予定日
     })
   }
   while (cells.length % 7 !== 0) cells.push(null)
@@ -314,13 +289,6 @@ const moveSections = computed(() => {
 })
 const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
-
-// 選択日の発注予定。マスの帯と同じ規則（今日以降のみ）で出す
-const selectedPlanned = computed(() => {
-  const k = selectedKey.value
-  if (!k) return []
-  return _plannedOrders(k, new Date(k + 'T12:00:00').getDay())
-})
 
 // 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）
 const selectedFactors = computed(() => {
@@ -471,7 +439,6 @@ function onDeleteMove(id) {
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
-      <span v-if="hasAnyPlan" class="hc-key-i"><span class="hc-plan-key"></span>発注予定</span>
       <span class="hc-key-hint">日付をタップで詳細</span>
     </div>
 
@@ -502,11 +469,6 @@ function onDeleteMove(id) {
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
-            <span
-              v-if="cell.planned.length"
-              class="hc-plan-bar"
-              :title="'発注予定: ' + cell.planned.map(planLabel).join(' / ')"
-            ></span>
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
@@ -541,12 +503,6 @@ function onDeleteMove(id) {
       </div>
       <div v-if="selectedFactors.length" class="hc-sheet-factors">
         <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
-      </div>
-
-      <!-- 発注スケジュールの予定（仕入れ管理で設定した発注曜日）-->
-      <div v-if="selectedPlanned.length" class="hc-plan">
-        <span class="hc-plan-head">🧾 発注予定</span>
-        <span v-for="(pl, i) in selectedPlanned" :key="i" class="hc-plan-chip">{{ planLabel(pl) }}</span>
       </div>
 
       <!-- この日の基本情報 -->
@@ -768,8 +724,6 @@ function onDeleteMove(id) {
 .hc-gotobi-mark { position: absolute; bottom: 3px; left: 3px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
 /* 発注予定はマスの左端の帯。実績（★）と同じ形にすると「発注した日」と読めてしまうので、
    星ではなく帯にして、予定と実績を形で見分けられるようにする。色は発注の橙に揃える */
-.hc-plan-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #fbbf24; }
-.hc-plan-key { display: inline-block; width: 3px; height: 11px; border-radius: 1px; background: #fbbf24; }
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
 .hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
@@ -790,9 +744,6 @@ function onDeleteMove(id) {
 .hc-fact-v { color: #334155; font-weight: 600; }
 
 /* 発注予定（詳細モーダル）*/
-.hc-plan { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: -2px 0 10px; }
-.hc-plan-head { font-size: 11px; font-weight: 700; color: #b45309; }
-.hc-plan-chip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
 
 /* 日別メモ */
 .hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
