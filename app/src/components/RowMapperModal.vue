@@ -13,6 +13,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
 import { buildMappedCSV, detectColumn } from '../utils/rowMapping.js'
+import { fingerprintTable } from '../composables/importRecipes.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
@@ -70,9 +71,25 @@ function preview(colIdx, rowIdx) {
 
 function onApply() {
   if (!canApply.value) return
+  const named = hasHeader.value === true
   emit('apply', {
-    csvText: buildMappedCSV(records, mapping, props.fields, hasHeader.value === true),
+    csvText: buildMappedCSV(records, mapping, props.fields, named),
     filename: props.filename,
+    // 保存できる形の「読み方」。取り込んだあと、名前を付けてレシピにできる。
+    // 列番号だけでなく見出しの名前も控える ── 来月そのファイルの列が1本増えても、
+    // 名前が同じならそこへ付け直せる
+    recipeShape: {
+      kind: 'table',
+      fp: fingerprintTable(records, named ? 0 : -1),
+      headerRow: named ? 0 : -1,
+      headerNamed: named,
+      columns: props.fields
+        .filter(f => mapping[f.key] !== null && mapping[f.key] !== undefined)
+        .map(f => ({
+          field: f.key, col: mapping[f.key],
+          head: named ? (firstCols[mapping[f.key]] ?? '') : '',
+        })),
+    },
   })
 }
 </script>

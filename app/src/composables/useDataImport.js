@@ -7,7 +7,13 @@ import { saveMovementToD1, importPastSessionToD1, cancelPastImportOnD1 } from '.
 import { assertSpreadsheetFile, excelToCsv, parsePdfFile } from './usePdfImporter.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
-import { STOCKTAKE_FIELDS, DELIVERY_FIELDS } from '../utils/rowMapping.js'
+import { STOCKTAKE_FIELDS, DELIVERY_FIELDS, buildMappedCSV } from '../utils/rowMapping.js'
+import { tokenizeCSV } from '../utils/csvParse.js'
+import { pdfPagesToTable, rowsToCsv } from '../utils/pdfGrid.js'
+import {
+  fingerprintTable, fingerprintPdf, matchRecipe, matchPdfGridRecipe,
+  applyRecipeColumns, saveRecipe, listRecipes, suggestRecipeName,
+} from './importRecipes.js'
 import {
   buildPastImportPlan, withResolution, commitPastImport, cancelPastImport,
 } from '../services/pastImportPlan.js'
@@ -44,6 +50,83 @@ export function useDataImport() {
   }))
   const existingMovements = () => getMovements()
 
+  // ── レシピ（保存した読み方）──────────────────────────────────
+  //
+  // 仕入先の帳票は**毎月同じ形で来る**。2回目以降に答えることは本来1つも無いのに、
+  // 覚える仕組みは品目リストの取込にしか繋がっていなかった。紙やExcelから過去の
+  // 納品・棚卸を入れるたびに、同じ列指定をやり直すことになっていた。
+  //
+  // 覚えるのは「どの列が何か」と、PDFなら「紙をどう表にしたか」。訊くのは**取り込んだ後**
+  // （合っていたと分かる前に名前を付けさせても、何に名前を付けているのか分からない）。
+  const pdfContext    = ref(null)   // { fp, grid } 紙を表にした作り方
+  const pendingShape  = ref(null)   // 列指定の結果。取り込めたら保存を訊く
+  const matchedRecipe = ref(null)   // 当たったレシピ（当たった回は保存を訊かない）
+  const askRecipe     = ref(null)   // { shape, filename } 保存を訊いている最中
+  const recipeName    = ref('')
+  const savedRecipe   = ref('')     // 保存できたレシピの名前（1回だけ出す）
+  const recipes       = ref(listRecipes())
+
+  const _fieldsOf = (kind) => (kind === 'delivery' ? DELIVERY_FIELDS : STOCKTAKE_FIELDS)
+
+  /**
+   * 保存済みレシピで、このCSVをそのまま中間フォーマットへ組み直せるか試す。
+   *
+   * 見出しのある形／無い形の両方で照合する（どちらで保存したかは人が覚えていない）。
+   * **必須の列が1つでも欠けるレシピは使わない** ── 半端に当てると、日付の無い行が
+   * まとめて捨てられて「数が合わない」だけが残る。
+   */
+  function _tryRecipe(kind, csv) {
+    let records
+    try { records = tokenizeCSV(csv).rows } catch (_) { return null }
+    if (!records?.length) return null
+    const fields = _fieldsOf(kind)
+    for (const r of [0, -1]) {
+      const rec = matchRecipe(fingerprintTable(records, r))
+      if (!rec || (rec.for ?? 'items') !== kind) continue
+      const cols = applyRecipeColumns(rec, r >= 0 ? (records[r]?.cols ?? []) : [])
+      if (fields.some(f => f.required && cols[f.key] === undefined)) continue
+      return { csvText: buildMappedCSV(records, cols, fields, r === 0), recipe: rec }
+    }
+    return null
+  }
+
+  /** ファイルの中身を、レシピがあれば当ててから、それぞれの通常経路へ流す */
+  function _ingest(kind, csv, filename) {
+    const hit = _tryRecipe(kind, csv)
+    matchedRecipe.value = hit?.recipe ?? null
+    const text = hit ? hit.csvText : csv
+    if (kind === 'delivery') {
+      deliveryCsv.value       = text
+      deliveryFilename.value  = filename ?? ''
+      showDeliveryModal.value = true
+      return true
+    }
+    return _openStocktakeFromCsv(text, filename ?? '')
+  }
+
+  /** 取り込めたので「この読み方を保存しますか」と訊く。当たった回は訊かない */
+  function _offerRecipe(kind, filename) {
+    const ctx = pdfContext.value
+    if (matchedRecipe.value || (!pendingShape.value && !ctx)) { askRecipe.value = null; return }
+    const shape = {
+      kind: 'table', columns: [], headerRow: 0, headerNamed: true,
+      ...(pendingShape.value ?? {}),
+      for: kind,
+      ...(ctx ? { pdfFp: ctx.fp, grid: ctx.grid } : {}),
+    }
+    askRecipe.value  = { shape, filename: filename ?? '' }
+    recipeName.value = suggestRecipeName(filename ?? '')
+  }
+
+  function confirmSaveRecipe() {
+    if (!askRecipe.value) return
+    const rec = saveRecipe({ ...askRecipe.value.shape, name: recipeName.value.trim() || '無題のレシピ' })
+    savedRecipe.value = rec.name
+    askRecipe.value   = null
+    recipes.value     = listRecipes()
+  }
+  function dismissRecipe() { askRecipe.value = null }
+
   // ── PDF（紙の納品書・棚卸表）────────────────────────────────
   //
   // **PDFだけは、そのままCSVにできない。** 何枚の表が刷られているか・行の高さ・列の
@@ -68,24 +151,32 @@ export function useDataImport() {
       alert('このPDFからは文字を取り出せませんでした。写真やスキャンの画像だけのPDFは読み取れません。')
       return false
     }
-    pdfSetup.value = { kind, file, pages }
+    // 表の作り方まで覚えているレシピが当たったら、問いを出さずにそのまま流す
+    const fp  = fingerprintPdf(pages[0]?.tokens ?? [])
+    const rec = matchPdfGridRecipe(fp)
+    if (rec?.grid && (rec.for ?? 'items') === kind) {
+      const built = pdfPagesToTable(pages, rec.grid)
+      if (built.rows.length >= 2) {
+        pdfContext.value = { fp, grid: rec.grid }
+        return _ingest(kind, rowsToCsv(built.rows), file.name)
+      }
+    }
+    pdfContext.value = null
+    pdfSetup.value = { kind, file, pages, fp, initial: rec?.grid ?? null }
     return true
   }
   function closePdfSetup() { pdfSetup.value = null }
 
   /** 表にする画面の結果（CSV）を、それぞれの通常経路へ流す */
-  async function applyPdfSetup({ csvText } = {}) {
+  async function applyPdfSetup({ csvText, grid } = {}) {
     const kind = pdfSetup.value?.kind
     const filename = pdfSetup.value?.file?.name ?? ''
+    const fp = pdfSetup.value?.fp ?? null
     if (!kind || !csvText) return false
     pdfSetup.value = null
-    if (kind === 'delivery') {
-      deliveryCsv.value       = csvText
-      deliveryFilename.value  = filename
-      showDeliveryModal.value = true
-      return true
-    }
-    return _openStocktakeFromCsv(csvText, filename)
+    // 紙をどう表にしたかは、このあとレシピへ一緒に残す（翌月は問いが1つも出ない）
+    pdfContext.value = grid ? { fp, grid } : null
+    return _ingest(kind, csvText, filename)
   }
 
   // ── 列指定インポート（自動で読めなかったファイルの受け皿）──────
@@ -121,10 +212,12 @@ export function useDataImport() {
    * ここでも解析に失敗したら列指定画面へ戻す（対応づけの当て直しで復帰できる）。
    * @returns {boolean} 取込画面まで進めたか
    */
-  async function applyRowMapping({ csvText, filename } = {}) {
+  async function applyRowMapping({ csvText, filename, recipeShape } = {}) {
     const kind = rowMapper.value?.kind
     if (!kind || !csvText) return false
     closeRowMapper()
+    // 取り込めたら「この読み方を保存しますか」と訊くための控え
+    pendingShape.value = recipeShape ?? null
     if (kind === 'delivery') {
       deliveryCsv.value       = csvText
       deliveryFilename.value  = filename ?? ''
@@ -137,12 +230,13 @@ export function useDataImport() {
   async function openDeliveryFromFile(file) {
     if (!file) return
     if (isPdf(file)) { await _openPdfSetup('delivery', file); return }
+    let csv
     try {
       // Excelはここで表へ変換する。大きいファイルでは数秒かかる
-      deliveryCsv.value = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file))
+      csv = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file))
     } catch (_) { alert('ファイルの読み込みに失敗しました'); return }
-    deliveryFilename.value = file.name
-    showDeliveryModal.value = true
+    pdfContext.value = null
+    _ingest('delivery', csv, file.name)
   }
 
   function closeDelivery() { showDeliveryModal.value = false; deliveryCsv.value = '' }
@@ -166,6 +260,7 @@ export function useDataImport() {
       if (rec) { saveMovementToD1(rec); n++ }
     }
     closeDelivery()
+    if (n > 0) _offerRecipe('delivery', deliveryFilename.value)
     return n
   }
 
@@ -195,7 +290,8 @@ export function useDataImport() {
     catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
     // 解析と計画づくりは同期。行が多いと数百ms止まるので、そのときだけ先に描く
     const rows = csv.split('\n').length
-    return await runBusy('読み込んだ内容を確認中…', () => _openStocktakeFromCsv(csv, file.name),
+    pdfContext.value = null
+    return await runBusy('読み込んだ内容を確認中…', () => _ingest('stocktake', csv, file.name),
       { paintFirst: rows >= HEAVY_ROWS })
   }
 
@@ -245,11 +341,14 @@ export function useDataImport() {
   async function confirmStocktakeImport(onlyDates) {
     if (!stocktakePlan.value) return { saved: [], failed: [], ok: false }
     // 日付ごとにサーバーへ往復する。件数が多いと明確に待たされる
-    return runBusy('取り込み中…', () => commitPastImport(stocktakePlan.value, {
+    const filename = stocktakeFilename.value
+    const res = await runBusy('取り込み中…', () => commitPastImport(stocktakePlan.value, {
       saveToServer: importPastSessionToD1,
       applyLocal:   importPastSnapshot,
       onlyDates,
     }))
+    if (res?.saved?.length) _offerRecipe('stocktake', filename)
+    return res
   }
 
   /** 取込バッチを取り消す（サーバー結果を確認してから端末を消す） */
@@ -268,6 +367,9 @@ export function useDataImport() {
     rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
     // PDF（紙の納品書・棚卸表）を表にしてから同じ経路へ流す
     pdfSetup, closePdfSetup, applyPdfSetup,
+    // レシピ（保存した読み方）
+    askRecipe, recipeName, savedRecipe, recipes, matchedRecipe,
+    confirmSaveRecipe, dismissRecipe,
     // 過去棚卸取込
     showStocktakeModal, stocktakePlan, stocktakeFilename,
     openStocktakeFromFile, closeStocktake, setStocktakeResolution,

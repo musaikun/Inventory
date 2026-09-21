@@ -25,6 +25,7 @@ const {
   showStocktakeModal, stocktakePlan, stocktakeFilename,
   rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
   pdfSetup, closePdfSetup, applyPdfSetup,
+  askRecipe, recipeName, savedRecipe, recipes, confirmSaveRecipe, dismissRecipe,
   openStocktakeFromFile, closeStocktake, setStocktakeResolution,
   confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
@@ -97,6 +98,16 @@ function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
 
 // ── 取り込む / 書き出す（押してから種類を選ぶ）──────────────
 // 入口を1つずつにしたので、種類の選択はここで受ける。
+// 入口に「何を覚えているか」を出す。名前が読めないと、どのファイルを入れる場所なのか
+// 分からず、結局はじめての入口へ戻ってしまう
+const _recipeNames = (kind) => {
+  const names = (recipes.value ?? []).filter(r => (r.for ?? 'items') === kind).map(r => r.name)
+  if (!names.length) return ''
+  return names.length <= 2 ? names.join('・') : `${names.slice(0, 2).join('・')} ほか${names.length - 2}件`
+}
+const deliveryRecipes  = computed(() => _recipeNames('delivery'))
+const stocktakeRecipes = computed(() => _recipeNames('stocktake'))
+
 const picker = ref('')   // '' | 'import' | 'export'
 function openPicker(kind) { activeHelp.value = ''; picker.value = kind }
 function closePicker()    { picker.value = ''; activeHelp.value = '' }
@@ -376,7 +387,10 @@ function onClear() {
               <span class="mm-row-ico">🧾</span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の納品</span>
-                <span class="mm-row-sub">CSV・Excel・PDF から（既定は入庫・種別列で出庫も）</span>
+                <span class="mm-row-sub">
+                  CSV・Excel・PDF から（既定は入庫・種別列で出庫も）
+                  <template v-if="deliveryRecipes">・覚えている読み方: {{ deliveryRecipes }}</template>
+                </span>
               </span>
               <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
               <span class="mm-row-arrow">→</span>
@@ -391,7 +405,10 @@ function onClear() {
               <span class="mm-row-ico">🧮</span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の棚卸</span>
-                <span class="mm-row-sub">CSV・Excel・PDF から。消費・適正在庫・発注の理論値に必要</span>
+                <span class="mm-row-sub">
+                  CSV・Excel・PDF から。消費・適正在庫・発注の理論値に必要
+                  <template v-if="stocktakeRecipes">・覚えている読み方: {{ stocktakeRecipes }}</template>
+                </span>
               </span>
               <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
               <span class="mm-row-arrow">→</span>
@@ -457,9 +474,28 @@ function onClear() {
       v-if="pdfSetup"
       :file="pdfSetup.file"
       :pages="pdfSetup.pages"
+      :initial="pdfSetup.initial"
       @ready="applyPdfSetup"
       @close="closePdfSetup"
     />
+
+    <!-- 取り込めたあとで、この読み方に名前を付けて覚える。訊くのは**取り込んだ後**
+         （合っていたと分かる前に名前を付けさせても、何に名前を付けているのか分からない） -->
+    <div v-if="askRecipe" class="mm-rec-back" @click.self="dismissRecipe">
+      <div class="mm-rec" role="dialog" aria-modal="true" aria-label="読み方を保存">
+        <div class="mm-rec-t">この読み方を覚えますか？</div>
+        <p class="mm-rec-n">
+          同じ形のファイルなら、次からは問いが出ません。
+          <span v-if="askRecipe.filename" class="mm-rec-f">{{ askRecipe.filename }}</span>
+        </p>
+        <input v-model="recipeName" class="mm-rec-in" type="text" placeholder="読み方の名前" maxlength="40" />
+        <div class="mm-rec-btns">
+          <button class="btn btn-secondary" @click="dismissRecipe">覚えない</button>
+          <button class="btn btn-primary" @click="confirmSaveRecipe">覚える</button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="savedRecipe" class="mm-rec-done">✓ 読み方「{{ savedRecipe }}」を覚えました</div>
 
     <RowMapperModal
       v-if="rowMapper"
@@ -521,6 +557,20 @@ function onClear() {
   color: var(--primary, #2563eb); font-size: 12px; font-weight: 700;
   text-decoration: underline; cursor: pointer; padding: 0;
 }
+.mm-rec-back { position: fixed; inset: 0; z-index: 70; background: rgba(15, 23, 42, 0.5);
+  display: flex; align-items: center; justify-content: center; padding: 18px; }
+.mm-rec { background: var(--surface); border-radius: 14px; padding: 16px; width: 100%; max-width: 380px; }
+.mm-rec-t { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+.mm-rec-n { font-size: 11.5px; line-height: 1.6; color: var(--text-muted); margin: 0 0 10px; }
+.mm-rec-f { display: block; font-weight: 700; color: var(--text); }
+.mm-rec-in { width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+.mm-rec-btns { display: flex; gap: 10px; }
+.mm-rec-btns .btn { flex: 1; }
+.mm-rec-done { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 70;
+  background: var(--primary); color: #fff; border-radius: 20px; padding: 8px 16px;
+  font-size: 12px; font-weight: 800; }
+
 .mm-hidden-file { display: none; }
 
 .mm-head-row { display: flex; align-items: center; gap: 8px; }
