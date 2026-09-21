@@ -114,11 +114,32 @@ describe('データ管理 — 並び順設定（グループ）', () => {
     expect(first.querySelector('.mm-axis-name').textContent.trim()).toBe('保管場所')
   })
 
-  it('見出しは「並び順設定」で、追加は「グループを追加」', async () => {
+  it('見出しは「品目リスト整理」で、追加は「グループを追加」', async () => {
     cfg.setAxisName(0, '保管場所')
     await mountPage()
-    expect(host.textContent).toContain('並び順設定')
+    expect(host.textContent).toContain('品目リスト整理')
     expect(host.querySelector('.mm-axis-add').textContent).toContain('グループを追加')
+  })
+
+  /**
+   * 入口は1つにする（User指示 2026-09-21）。
+   *
+   * 以前はグループの行ごとに「振り分け →」があった。グループが2つあると入口も2つになり、
+   * **どちらを押すかを決めてからでないと入れない**。開く画面は同じで、中にグループの
+   * タブがあるのだから、入口は1つでいい。
+   */
+  it('「グループ化・並び替え」の1つだけが入口。グループの行に入口は持たない', async () => {
+    cfg.setAxisName(0, '保管場所')
+    cfg.setAxisName(1, '仕入先')
+    await mountPage()
+    expect(host.querySelectorAll('.mm-organize').length).toBe(1)
+    expect(host.querySelector('.mm-organize').textContent).toContain('グループ化・並び替え')
+    expect(host.querySelectorAll('.mm-axis-go').length).toBe(0)
+  })
+
+  it('グループがまだ無いときは、先に作るよう案内する', async () => {
+    await mountPage()
+    expect(host.querySelector('.mm-organize-sub').textContent).toContain('グループを作って')
   })
 })
 

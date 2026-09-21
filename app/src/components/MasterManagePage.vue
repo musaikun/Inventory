@@ -88,7 +88,7 @@ const HELP = {
   import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
-  axis: '棚卸・発注カードの並び順に使うグループの一覧です。「保管場所」「仕入先」などのグループを作り、品目をその中の分類先へ振り分けられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
+  axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
   hidden: '棚卸・発注カードに表示しない品目の一覧です。最後に隠したものから順に、隠した時刻つきで並びます。誤って隠したときは上から探して戻せます。',
   list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。この表では数量は打てません。代わりに、棚卸のたびには変わらない「発注点」「目標（補充してここまで戻す数）」と、表に出す / 出さないをその場で設定できます。打った値はすぐ保存されます。分類先の割り当ては品目名の下に出ます。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
@@ -120,6 +120,17 @@ onUnmounted(registerInnerLayerCloser(() => {
 }))
 
 function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
+
+/**
+ * 「グループ化・並び替え」の入口。
+ *
+ * 以前はグループの行ごとに「振り分け →」を置いていた。グループが2つあると入口も2つに
+ * なり、**どちらを押すかを決めてからでないと入れない**。開く画面は同じで、中に
+ * グループのタブがあるのだから、入口は1つでいい。名前の付いた最初のグループで開く。
+ */
+const firstNamedAxis = computed(() => ((config.axisNames ?? [])[0] ? 0 : 1))
+function openListOrganize() { openReorder(firstNamedAxis.value) }
+const hasNamedAxis = computed(() => (config.axisNames ?? []).some(n => (n || '').trim()))
 
 // ── 並び順のグループ ────────────────────────────────────────
 // ジャンルも1つのグループとして同じ列に並べる。取込元データ由来なので名前も中身も
@@ -228,10 +239,22 @@ function onClear() {
       <!-- 並び順設定（グループ） -->
       <div class="mm-block">
         <div class="mm-block-head">
-          <span class="mm-block-title">並び順設定</span>
+          <span class="mm-block-title">品目リスト整理</span>
           <button class="mm-help-btn" :class="{ on: activeHelp === 'axis' }" @click="toggleHelp('axis')">?</button>
         </div>
         <div v-if="activeHelp === 'axis'" class="mm-help">{{ HELP.axis }}</div>
+
+        <!-- 入口は1つ。開く画面は同じで、中にグループのタブがある -->
+        <button class="mm-organize" @click="openListOrganize">
+          <span class="mm-organize-ico">⇅</span>
+          <span class="mm-organize-body">
+            <span class="mm-organize-title">グループ化・並び替え</span>
+            <span class="mm-organize-sub">
+              {{ hasNamedAxis ? '品目をまとめて、棚卸で数える順番に並べる' : 'まず下でグループを作ってください' }}
+            </span>
+          </span>
+          <span class="mm-organize-arrow">→</span>
+        </button>
 
         <template v-for="(slot, no) in groupSlots" :key="slot.kind + (slot.idx ?? '')">
           <!-- ジャンル: 取込元データ由来。並び順の選択肢としては自作と同格なので同じ列に置く -->
@@ -247,7 +270,6 @@ function onClear() {
               <template v-if="config.axisNames[slot.idx] && editingAxis !== slot.idx">
                 <span class="mm-axis-name">{{ config.axisNames[slot.idx] }}</span>
                 <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(slot.idx)">✎</button>
-                <button class="mm-axis-go" @click="openReorder(slot.idx)">振り分け →</button>
                 <button class="mm-axis-del" @click="deleteAxis(slot.idx)">削除</button>
               </template>
               <template v-else-if="editingAxis === slot.idx">
@@ -273,7 +295,7 @@ function onClear() {
           <button class="mm-axis-add" @click="show2 = true">＋ グループを追加</button>
         </div>
 
-        <div class="mm-block-sub">グループ（例：保管場所・仕入先）を追加すると、品目をその中の分類先に振り分けられます。棚卸・発注カードの並び順はここで選んだグループで決まります。</div>
+        <div class="mm-block-sub">グループ（例：保管場所・仕入先）を追加すると、上の「グループ化・並び替え」で品目をその中へまとめられます。棚卸・発注カードの並び順はここで選んだグループで決まります。</div>
       </div>
 
       <!-- 非表示中の管理 -->
@@ -558,6 +580,16 @@ function onClear() {
   color: var(--primary, #2563eb); font-size: 12px; font-weight: 700;
   text-decoration: underline; cursor: pointer; padding: 0;
 }
+.mm-organize { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  border: 1.5px solid var(--primary-border); background: var(--primary-weak);
+  border-radius: 12px; padding: 12px 13px; margin-bottom: 12px; cursor: pointer; }
+.mm-organize:active { transform: scale(.995); }
+.mm-organize-ico { font-size: 19px; color: var(--primary); flex-shrink: 0; }
+.mm-organize-body { flex: 1; min-width: 0; }
+.mm-organize-title { display: block; font-size: 14px; font-weight: 800; color: var(--text); }
+.mm-organize-sub { display: block; font-size: 11px; line-height: 1.5; color: var(--text-muted); margin-top: 2px; }
+.mm-organize-arrow { flex-shrink: 0; color: var(--primary); font-weight: 800; }
+
 .mm-rec-back { position: fixed; inset: 0; z-index: 70; background: rgba(15, 23, 42, 0.5);
   display: flex; align-items: center; justify-content: center; padding: 18px; }
 .mm-rec { background: var(--surface); border-radius: 14px; padding: 16px; width: 100%; max-width: 380px; }
