@@ -53,15 +53,16 @@ describe('ImportMapper — ひとつ前へ戻る', () => {
     expect(host.querySelector('.imp-step')).toBe(null)
   })
 
-  it('「見出しの行はありません」は戻ると並べても消えない', async () => {
+  it('進むボタンと並べても、戻るは残る', async () => {
     await mount(true)
-    expect(btn('見出しの行はありません')).not.toBeUndefined()
+    expect(host.querySelector('.imp-next')).not.toBeNull()
+    expect(btn('戻る')).not.toBeUndefined()
   })
 
   it('見出しの行を選んだあとは出さない（そこからは画面の中の「変える」で戻る）', async () => {
     await mount(true)
-    host.querySelectorAll('.peek-row')[0].click()
-    for (let i = 0; i < 4; i++) await nextTick()
+    host.querySelector('.imp-next').click()
+    for (let i = 0; i < 6; i++) await nextTick()
     expect(host.textContent).not.toContain('見出しの行を選んでください')
     expect(btn('戻る')).toBeUndefined()
     expect(host.textContent).toContain('として読んでいます')

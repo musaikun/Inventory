@@ -123,6 +123,7 @@ function applyRecipe(rec, row) {
 /** 当たったレシピが違ったとき、その場で外していつもの問いに戻る */
 function dropRecipe() {
   recipe.value = null
+  headerPick.value = headerGuess.value >= 0 ? headerGuess.value : null
   headerRow.value = null
   headerNamed.value = false
   for (const f of FIELDS.value) { mapping[f.key] = null; manual[f.key] = false }
@@ -152,6 +153,21 @@ const headerGuess = computed(() => {
   }
   return -1
 })
+
+/**
+ * 見出しの行の問いで、いま選んでいる行。
+ *
+ * 以前はタップした瞬間に決まって次へ進んでいた。速いが、**どこを選んだのかを見る間が
+ * 無い**うえ、見当（「これ？」）が付いているのを選択済みと取り違える。枚数の問いと
+ * 同じく「押す＝選ぶ、進む＝ボタン」に分ける。見当があれば選択済みで始める。
+ */
+const headerPick = ref(headerGuess.value >= 0 ? headerGuess.value : null)
+function tapHeaderRow(i) { headerPick.value = headerPick.value === i ? null : i }
+/** 選んでいなければ「見出しの行なし」として進む。何も選ばせないまま止めない */
+function goHeaderRow() {
+  if (headerPick.value === null) chooseNoHeader()
+  else chooseHeaderRow(headerPick.value)
+}
 
 function chooseHeaderRow(i) {
   headerRow.value = i
@@ -185,6 +201,8 @@ function onPeekCell(ri, ci, ev) {
   else assign(q.field.key, ci)
 }
 function backToHeaderRow() {
+  // いま読んでいる行を選択済みにして戻る（戻った先で「どこだったか」を探させない）
+  headerPick.value = headerRow.value >= 0 ? headerRow.value : null
   headerRow.value = null
   headerNamed.value = false
   for (const f of FIELDS.value) { mapping[f.key] = null; manual[f.key] = false }
@@ -349,8 +367,9 @@ tryRecipe()
           <div class="peek-cap">ファイルの中身</div>
           <div class="peek-body">
             <div v-for="(r, ri) in peekRows" :key="ri" class="peek-row"
-                 :class="{ guess: question.kind === 'headerRow' && ri === headerGuess }"
-                 @click="question.kind === 'headerRow' ? chooseHeaderRow(ri) : null">
+                 :class="{ picked: question.kind === 'headerRow' && ri === headerPick,
+                           guess: question.kind === 'headerRow' && ri === headerGuess && ri !== headerPick }"
+                 @click="question.kind === 'headerRow' ? tapHeaderRow(ri) : null">
               <span class="peek-no">{{ ri + 1 }}</span>
               <span class="peek-cells">
                 <span v-for="ci in colCount" :key="ci" class="peek-c"
@@ -359,14 +378,15 @@ tryRecipe()
                   {{ cellText(r.cols, ci - 1) || '　' }}
                 </span>
               </span>
-              <span v-if="question.kind === 'headerRow' && ri === headerGuess" class="peek-flag">これ？</span>
+              <span v-if="question.kind === 'headerRow' && ri === headerPick" class="peek-flag on">見出しの行</span>
+              <span v-else-if="question.kind === 'headerRow' && ri === headerGuess" class="peek-flag">これ？</span>
             </div>
           </div>
         </div>
 
         <p class="imp-note">
           <template v-if="question.kind === 'headerRow'">
-            列の名前（品名・単価…）が並んでいる行をタップします。
+            列の名前（品名・単価…）が並んでいる行をタップしてから、下のボタンで進みます。
           </template>
           <template v-else-if="question.kind === 'firstItem'">
             1件目の品目の名前をタップします。その列が品目名になり、そこから下がデータになります。
@@ -376,7 +396,9 @@ tryRecipe()
 
         <div v-if="question.kind === 'headerRow'" class="imp-row">
           <button v-if="canBack" class="imp-prev" @click="emit('back')">戻る</button>
-          <button class="imp-back" @click="chooseNoHeader">見出しの行はありません</button>
+          <button class="imp-next" @click="goHeaderRow">
+            {{ headerPick === null ? '見出しの行なしで進む' : '進む' }}
+          </button>
         </div>
         <button v-else class="imp-back" @click="backToHeaderRow">
           {{ headerNamed ? `${headerRow + 1}行目を見出し` : `${headerRow + 2}行目からデータ` }}として読んでいます ・ 変える
@@ -527,6 +549,9 @@ tryRecipe()
 .imp-prev { flex-shrink: 0; border: 1px solid var(--border); background: var(--surface);
   color: var(--text-muted); border-radius: 11px; padding: 11px 18px; font-size: 12.5px;
   font-weight: 800; cursor: pointer; }
+.imp-next { flex: 1; border: none; background: var(--primary); color: #fff;
+  border-radius: 11px; padding: 12px 10px; font-size: 13px; font-weight: 800; cursor: pointer; }
+.imp-next:active { transform: scale(.99); }
 .imp-step { font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 4px; }
 
 /* 元データの表。列は全部出して横に流す（切り捨てると判断材料が隠れる） */
@@ -551,9 +576,14 @@ tryRecipe()
 .peek.headerRow .peek-row { cursor: pointer; }
 .peek.headerRow .peek-row:active { background: var(--primary-soft); }
 .peek-row.guess { background: var(--primary-weak); }
+/* 選んでいる行。見当（これ？）と見分けがつく強さにする ── そこが分からないまま
+   進むと、1行ずれた読み方で取り込んでしまう */
+.peek-row.picked { background: var(--primary-weak); box-shadow: inset 3px 0 0 var(--primary); }
+.peek-row.picked .peek-no { color: var(--primary); font-weight: 800; }
 .peek-flag { position: sticky; right: 4px; align-self: center; margin-left: auto;
   background: var(--primary); color: #fff; font-size: 9.5px; font-weight: 800;
-  border-radius: 5px; padding: 2px 6px; flex-shrink: 0; }
+  border-radius: 5px; padding: 2px 6px; flex-shrink: 0; opacity: .55; }
+.peek-flag.on { opacity: 1; }
 .peek-c.pick { cursor: pointer; }
 .peek-c.pick:active { background: var(--primary-soft); }
 

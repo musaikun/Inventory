@@ -30,9 +30,22 @@ const settle = async (n = 6) => { for (let i = 0; i < n; i++) await nextTick() }
 const qText = () => host.querySelector('.imp-q')?.textContent.trim() ?? ''
 const btn = (t) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(t))
 // 実機と同じく**セルを押す**（行の余白ではなく）。セルは行を覆っているので、
-// ここで止まると行のタップが届かない
+// ここで止まると行のタップが届かない。押すのは「選ぶ」だけで、進むのは下のボタン
 const tapHeadRow = (ri) =>
   host.querySelectorAll('.peek.headerRow .peek-row')[ri].querySelectorAll('.peek-c')[0].click()
+const goHead = () => host.querySelector('.imp-next').click()
+/** その行を見出しにして進む（見当で既に選ばれていれば押さない ── 人と同じ動き） */
+const useHeadRow = async (ri) => {
+  const row = host.querySelectorAll('.peek.headerRow .peek-row')[ri]
+  if (!row.classList.contains('picked')) { tapHeadRow(ri); await settle(2) }
+  goHead(); await settle()
+}
+/** 見出しの行なしで進む（見当で選ばれている行があれば外してから） */
+const noHeadRow = async () => {
+  const picked = host.querySelector('.peek.headerRow .peek-row.picked')
+  if (picked) { picked.querySelector('.peek-c').click(); await settle(2) }
+  goHead(); await settle()
+}
 
 beforeEach(() => localStorage.clear())
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
@@ -50,8 +63,7 @@ describe('問いは順番が固定されている', () => {
 
   it('見出しの行を選ぶと、半角カナの見出しからでも列が当たってマッピング面へ進む', async () => {
     await mount(HEADED)
-    tapHeadRow(0)
-    await settle()
+    await useHeadRow(0)
     expect(host.querySelector('.imp-q')).toBeNull()          // 問いは終わっている
     const labels = [...host.querySelectorAll('.peek-head .mc-f')].map(e => e.textContent.trim())
     expect(labels).toEqual(['商品コード', '品目名', '単位', '単価'])
@@ -59,8 +71,7 @@ describe('問いは順番が固定されている', () => {
 
   it('見出しが無ければ、続けて「最初の品目名」を訊く', async () => {
     await mount(BARE)
-    btn('見出しの行はありません').click()
-    await settle()
+    await noHeadRow()
     expect(qText()).toContain('最初の品目名')
 
     // 1つのセルで「品目名の列」と「データの開始行」が同時に決まる
@@ -72,8 +83,7 @@ describe('問いは順番が固定されている', () => {
 
   it('見出しの選び直しができる', async () => {
     await mount(HEADED)
-    tapHeadRow(0)
-    await settle()
+    await useHeadRow(0)
     btn('変える').click()
     await settle()
     expect(qText()).toContain('見出しの行を選んでください')
@@ -83,7 +93,7 @@ describe('問いは順番が固定されている', () => {
 describe('マッピング面', () => {
   it('列をタップすると項目を選べ、選んだ色がその列に付く', async () => {
     await mount(BARE)
-    btn('見出しの行はありません').click(); await settle()
+    await noHeadRow()
     host.querySelectorAll('.peek.firstItem .peek-row')[0].querySelectorAll('.peek-c')[0].click()
     await settle()
 
@@ -100,8 +110,7 @@ describe('マッピング面', () => {
 
   it('取り込むと、読み方をレシピにできる形で渡す', async () => {
     await mount(HEADED)
-    tapHeadRow(0)
-    await settle()
+    await useHeadRow(0)
     host.querySelector('.imp-go').click()
     await settle()
 

@@ -61,16 +61,26 @@ async function waitFor(get, label, timeoutMs = 3000) {
 /** いま出ている問い（無ければ空文字） */
 function questionText() { return host.querySelector('.imp-q')?.textContent.trim() ?? '' }
 
-/** 「見出しの行を選んでください」で、ファイルの ri 行目をタップする */
+/**
+ * 「見出しの行を選んでください」で ri 行目を見出しにして進む。
+ * タップは**選ぶだけ**で、進むのは下のボタン（見当で既に選ばれていれば押さない）。
+ */
 async function tapHeaderRow(ri) {
   const rows = [...host.querySelectorAll('.peek.headerRow .peek-row')]
   if (!rows[ri]) throw new Error(`header row ${ri} not found`)
-  // 実機と同じくセルを押す。セルは行を覆っているので、ここで止まると行に届かない
-  rows[ri].querySelectorAll('.peek-c')[0].click()
+  if (!rows[ri].classList.contains('picked')) {
+    // 実機と同じくセルを押す。セルは行を覆っているので、ここで止まると行に届かない
+    rows[ri].querySelectorAll('.peek-c')[0].click()
+    await settle()
+  }
+  host.querySelector('.imp-next').click()
   await settle()
 }
+/** 見出しの行なしで進む（見当で選ばれている行があれば外してから） */
 async function tapNoHeader() {
-  [...host.querySelectorAll('button')].find(b => b.textContent.includes('見出しの行はありません')).click()
+  const picked = host.querySelector('.peek.headerRow .peek-row.picked')
+  if (picked) { picked.querySelector('.peek-c').click(); await settle() }
+  host.querySelector('.imp-next').click()
   await settle()
 }
 /** 「最初の品目名を選んでください」で (行, 列) のセルをタップする */
@@ -205,9 +215,9 @@ describe('列指定インポートを実UI経由で通す', () => {
   it('見出しらしいファイルでも、選ぶまでは推測で確定しない', async () => {
     await mountSettings()
     await openMapperWith('品名,単位,単価\nトマト,箱,120')
-    // 見当は出すが、選択値にはしない
+    // 見当の行は選択済みにしておく。ただし**押して進むまで確定しない**
     expect(questionText()).toContain('見出しの行を選んでください')
-    expect(host.querySelector('.peek-row.guess')).not.toBeNull()
+    expect(host.querySelector('.peek-row.picked')).not.toBeNull()
     expect(cfg.config.order).toEqual([])
   })
 
