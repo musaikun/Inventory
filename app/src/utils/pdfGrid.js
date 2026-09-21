@@ -45,19 +45,61 @@ const isNumberish = (v) => NUMERIC_RE.test(String(v ?? '').trim()) && /\d/.test(
 /** 行の同一性を見るための連結記号（本文に出ない文字） */
 const ROW_KEY = String.fromCharCode(1)
 
-/** ページのトークンを読み方向へそろえる（rotate=90 の帳票をここで吸収する） */
+/**
+ * 字間をベタ空けで組んだ文字列を戻す。
+ *
+ * 帳票の見出しや品目名は「カ ラ ー テ レ ビ」「東 京 都 港 区」のように、
+ * **1文字ずつ離して**組まれていることがある（組版の字送りで、文字と文字のあいだに
+ * 空白が入っているわけではない）。そのまま扱うと、品目名が「電 気 掃 除 機」になって
+ * 辞書にも品目リストにも一致しない。
+ *
+ * 落とすのは**すべての区切りが1文字ずつのとき**だけ。「2003 年 12 月 21 日」のように
+ * 2文字以上の塊があるものは触らない ── そこで詰めると、本当に離れている語
+ * （`商品コード 商品名`）まで1語にしてしまう。
+ */
+function unspace(text) {
+  if (!text.includes(' ')) return text
+  const parts = text.split(' ').filter(p => p !== '')
+  if (parts.length < 2 || parts.some(p => [...p].length !== 1)) return text
+  return parts.join('')
+}
+
+/**
+ * ページのトークンを読み方向へそろえる（rotate=90 の帳票をここで吸収する）。
+ *
+ * ついでに**同じ位置に重なっている同じ文字**を1つにする。太字を「2回刷る」で作っている
+ * 帳票があり（`売 売 上 上 伝 伝 票 票`）、そのままでは品目名や見出しが倍になる。
+ */
 function readingTokens(page) {
   const rotate = page?.rotate ?? 0
   const out = []
+  const seen = new Set()
   for (const t of page?.tokens ?? []) {
-    const text = String(t?.text ?? '').trim()
+    const text = unspace(String(t?.text ?? '').trim())
     if (!text) continue
     const c = toReadingCoords(t.x, t.y, rotate)
+    const key = `${text}@${Math.round(c.x)},${Math.round(c.y)}`
+    if (seen.has(key)) continue
+    seen.add(key)
     const w = Number.isFinite(t.w) && t.w > 0 ? t.w : text.length * CHAR_W
     const h = Number.isFinite(t.h) && t.h > 0 ? t.h : CHAR_H
     out.push({ text, x: c.x, y: c.y, w, h })
   }
   return out
+}
+
+/**
+ * 同じマスに入った文字をつなぐ。
+ *
+ * **1文字だけのトークンは空白を挟まずにつなぐ。** 字送りで1文字ずつ別のトークンに
+ * なっている見出し（`商`｜`品`｜`名`）が、そのままでは `商 品 名` になり、
+ * 「品目名の見出し」として認識できない ── 段組みの判定も見出し帯の切り離しも
+ * ここに乗っているので、1か所の空白が取込ぜんぶに響く。
+ * 2文字以上のトークン（折り返した品目名の続き `２００ｍｌ`）は空白で区切る。
+ */
+function joinCell(prev, text) {
+  if (!prev) return text
+  return [...text].length === 1 ? prev + text : `${prev} ${text}`
 }
 
 /**
@@ -125,9 +167,50 @@ function axisCuts(tokens, axis, n) {
   return cuts
 }
 
-/** 品目名の見出しトークン。格子の基準になる（これが並んでいる数＝枚数） */
+/**
+ * 品目名の見出し。格子の基準になる（これが並んでいる数＝枚数）。
+ *
+ * **1文字ずつ離れて組まれた見出しも拾う。** 帳票の見出しは字送りで
+ * `商`｜`品`｜`名` と別のトークンになっていることがあり、1トークンずつ見ていると
+ * 「品目名の見出しが無い紙」に見える。そうなると段組みも見出し帯も判定できず、
+ * 宛名や住所まで表の行として混ざる（実物の納品書がこれだった）。
+ *
+ * 字送りの隙間は一定ではない（同じ行で 15pt と 38pt が混ざる）ので、隙間の幅では
+ * 決められない。**同じ行の並びをつないで見出しの語になるか**で見る。
+ * 位置は先頭の文字の x ── そこが品目名の列の左端。
+ */
 function anchorTokens(tokens) {
-  return tokens.filter(t => NAME_HEADER_RE.test(normText(t.text)))
+  const hit = (t) => NAME_HEADER_RE.test(normText(t.text))
+  const out = tokens.filter(hit)
+
+  // 行ごとに、隣り合う1文字のトークンをつないで見出しになるか試す。
+  // 行にまとめる幅は紙ぜんぶの文字の高さから取る ── トークンごとの高さで割ると、
+  // 大きな表題（h=24）と表の見出し（h=14）が同じ行に落ちて並び順が混ざる
+  const singles = tokens.filter(t => [...t.text].length === 1)
+  const tol = rowTolOf(tokens, ROW_FACTOR)
+  const lines = []
+  let cur = null
+  for (const t of [...singles].sort((a, b) => b.y - a.y)) {
+    if (!cur || Math.abs(cur.y - t.y) > tol) { cur = { y: t.y, items: [] }; lines.push(cur) }
+    cur.items.push(t)
+  }
+  for (const { items: line } of lines) {
+    line.sort((a, b) => a.x - b.x)
+    for (let i = 0; i < line.length; i++) {
+      let joined = ''
+      for (let n = 0; n < 4 && i + n < line.length; n++) {
+        joined += line[i + n].text
+        if (n === 0) continue
+        if (NAME_HEADER_RE.test(normText(joined))) {
+          const first = line[i], last = line[i + n]
+          out.push({ text: joined, x: first.x, y: first.y, w: last.x + last.w - first.x, h: first.h })
+          i += n
+          n = 4
+        }
+      }
+    }
+  }
+  return out
 }
 
 /** 近い値をまとめて昇順に返す（同じ位置の見出しを1つに数える） */
@@ -285,13 +368,23 @@ function cutGap(spans, cut) {
   return 0
 }
 
-/** 紙の1枚目のトークン（割り方はページごとに同じ前提。問いも1枚目を見て出す） */
+/**
+ * 割り方を見るためのページのトークン。
+ *
+ * **品目名の見出しがある最初のページ**を使う。1ページ目が送付状や表紙で、表は
+ * 2ページ目から始まる帳票が実在する（FAX送付状＋売上伝票）。1ページ目だけを見ると
+ * 「見出しの無い紙」と判断して、段組みも見出し帯も分からなくなる。
+ * どのページにも見出しが無ければ、最初の文字のあるページ。
+ */
 function firstPageTokens(pages) {
+  let fallback = null
   for (const p of pages ?? []) {
     const tokens = readingTokens(p)
-    if (tokens.length) return tokens
+    if (!tokens.length) continue
+    if (anchorTokens(tokens).length) return tokens
+    if (!fallback) fallback = tokens
   }
-  return []
+  return fallback ?? []
 }
 
 /**
@@ -593,12 +686,16 @@ function collectCells(pages, layout, rowFactor) {
     const tokens = tableBodyTokens(raw, rowTol)
     if (!tokens.length) continue
     for (const band of bandsOf(tokens, layout.cols, layout.rows)) {
-      const inBand = []
+      const raw2 = []
       for (const t of tokens) {
         if (t.x < band.xMin || t.x >= band.xMax) continue
         if (t.y < band.yMin || t.y >= band.yMax) continue
-        inBand.push({ text: t.text, x: t.x - band.origin, y: t.y, w: t.w, h: t.h })
+        raw2.push(t)
       }
+      // 帯ごとにも見出し帯を落とす。1枚の紙に「正」と「控」が縦に並ぶ帳票では、
+      // 2つめの帯が自分の宛名・住所・表題を持っている（紙ぜんぶで1回だけ削っても残る）
+      const inBand = tableBodyTokens(raw2, rowTol)
+        .map(t => ({ text: t.text, x: t.x - band.origin, y: t.y, w: t.w, h: t.h }))
       if (!inBand.length) continue
       const left  = Math.min(...inBand.map(c => c.x))
       const right = Math.max(...inBand.map(c => c.x + c.w))
@@ -686,7 +783,7 @@ export function pdfPagesToTable(pages, opts = {}) {
       const row = new Array(width).fill('')
       for (const c of cells) {
         const i = columnAtEdges(edges, c)
-        row[i] = row[i] ? `${row[i]} ${c.text}` : c.text
+        row[i] = joinCell(row[i], c.text)
       }
       if (row.some(v => v !== '')) { rows.push(row); rowPages.push(page) }
     }
@@ -741,7 +838,7 @@ export function pdfPagesToTable(pages, opts = {}) {
       ? cells.map((_, i) => i)
       : cells.map(c => columnAtEdges(posEdges, c))
     cells.forEach((c, i) => {
-      row[at[i]] = row[at[i]] ? `${row[at[i]]} ${c.text}` : c.text
+      row[at[i]] = joinCell(row[at[i]], c.text)
     })
     if (row.some(v => v !== '')) { out.push(row); outPages.push(page) }
   }
