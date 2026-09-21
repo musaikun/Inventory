@@ -88,56 +88,35 @@ describe('データ管理 — 取り込む / 書き出す', () => {
   })
 })
 
-describe('データ管理 — 並び順設定（グループ）', () => {
-  it('ジャンルも取込元由来のグループとして、自作より先に並ぶ', async () => {
-    cfg.setAxisName(0, '保管場所')
-    await mountPage()
-    const labels = groupRows().map(r => [
-      r.querySelector('.mm-axis-label').textContent.trim(),
-      r.querySelector('.mm-axis-name')?.textContent.trim() ?? '',
-    ])
-    expect(labels[0]).toEqual(['グループ1', 'ジャンル別'])
-    expect(labels[1]).toEqual(['グループ2', '保管場所'])
-    // ジャンルは名前も中身も編集できない
-    expect(groupRows()[0].querySelector('.mm-axis-edit')).toBeNull()
-    expect(groupRows()[0].querySelector('.mm-axis-del')).toBeNull()
-    expect(groupRows()[0].querySelector('.mm-axis-fixed').textContent).toContain('取込元由来')
-  })
-
-  it('ジャンルが無い店では、自作の1つ目がグループ1になる', async () => {
-    cfg.setEmptyList()
-    cfg.addItem('トマト', 120, '', '個')      // ジャンルなし
-    cfg.setAxisName(0, '保管場所')
-    await mountPage()
-    const first = groupRows()[0]
-    expect(first.querySelector('.mm-axis-label').textContent.trim()).toBe('グループ1')
-    expect(first.querySelector('.mm-axis-name').textContent.trim()).toBe('保管場所')
-  })
-
-  it('見出しは「品目リスト整理」で、追加は「グループを追加」', async () => {
+/**
+ * 品目リスト整理はカード1枚だけにする（User指示 2026-09-21）。
+ *
+ * グループの行・追加欄をこの画面から外し、**開いた先で作る**ようにした。
+ * 設定する場所と使う場所が離れていると、作りに戻って、また開き直して、の往復になる。
+ */
+describe('データ管理 — 品目リスト整理', () => {
+  it('カード1枚だけ。グループの行も追加欄もここには無い', async () => {
     cfg.setAxisName(0, '保管場所')
     await mountPage()
     expect(host.textContent).toContain('品目リスト整理')
-    expect(host.querySelector('.mm-axis-add').textContent).toContain('グループを追加')
-  })
-
-  /**
-   * 入口は1つにする（User指示 2026-09-21）。
-   *
-   * 以前はグループの行ごとに「振り分け →」があった。グループが2つあると入口も2つになり、
-   * **どちらを押すかを決めてからでないと入れない**。開く画面は同じで、中にグループの
-   * タブがあるのだから、入口は1つでいい。
-   */
-  it('「グループ化・並び替え」の1つだけが入口。グループの行に入口は持たない', async () => {
-    cfg.setAxisName(0, '保管場所')
-    cfg.setAxisName(1, '仕入先')
-    await mountPage()
     expect(host.querySelectorAll('.mm-organize').length).toBe(1)
     expect(host.querySelector('.mm-organize').textContent).toContain('グループ化・並び替え')
-    expect(host.querySelectorAll('.mm-axis-go').length).toBe(0)
+    expect(host.querySelectorAll('.mm-axis-row').length).toBe(0)
+    expect(host.querySelector('.mm-axis-add')).toBeNull()
+    expect(host.querySelector('.mm-axis-go')).toBeNull()
   })
 
-  it('グループがまだ無いときは、先に作るよう案内する', async () => {
+  it('いま何でまとめているかをカードに出す（ジャンルも同格に並べる）', async () => {
+    cfg.setAxisName(0, '保管場所')
+    await mountPage()
+    const sub = host.querySelector('.mm-organize-sub').textContent
+    expect(sub).toContain('ジャンル別')
+    expect(sub).toContain('保管場所')
+  })
+
+  it('まとめ方がまだ無いときは、作るところからだと分かる', async () => {
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '', '個')      // ジャンルなし・グループなし
     await mountPage()
     expect(host.querySelector('.mm-organize-sub').textContent).toContain('グループを作って')
   })

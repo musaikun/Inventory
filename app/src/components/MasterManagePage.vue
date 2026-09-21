@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
-import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
+import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -15,7 +15,7 @@ import PdfGridSetup from './PdfGridSetup.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, hideItem, unhideItem, setAxisName, clearAxis, exportConfigCSV, setReorderPoint, setReplenishTarget } = useConfig()
+const { config, itemCount, hideItem, unhideItem, exportConfigCSV, setReorderPoint, setReplenishTarget } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -130,58 +130,19 @@ function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value 
  */
 const firstNamedAxis = computed(() => ((config.axisNames ?? [])[0] ? 0 : 1))
 function openListOrganize() { openReorder(firstNamedAxis.value) }
-const hasNamedAxis = computed(() => (config.axisNames ?? []).some(n => (n || '').trim()))
 
-// ── 並び順のグループ ────────────────────────────────────────
-// ジャンルも1つのグループとして同じ列に並べる。取込元データ由来なので名前も中身も
-// 編集できないが、「並び順の選択肢」としては自作のものと同格。番号は上から通しで振る
-// （ジャンルが無い店ではグループ1が自作の1つ目になる）。
-const hasGenres  = computed(() => Object.keys(config.categories || {}).length > 0)
-const genreCount = computed(() => new Set(Object.values(config.categories || {}).filter(Boolean)).size)
-// 画面に出る順。番号はこの配列の位置で決まる
-const groupSlots = computed(() => {
-  const slots = []
-  if (hasGenres.value) slots.push({ kind: 'genre' })
-  slots.push({ kind: 'axis', idx: 0 })
-  if (config.axisNames[1] || show2.value) slots.push({ kind: 'axis', idx: 1 })
-  return slots
+// ── 品目リスト整理 ──────────────────────────────────────────
+// ここはカード1枚だけにする。グループの作成・名前の変更・削除は
+// **開いた先（グループ化・並び替え）で行う** ── 設定する場所と使う場所が離れていると、
+// 「未設定です。管理画面で追加してください」と突き放されて往復することになる。
+const namedAxes = computed(() => (config.axisNames ?? []).filter(n => (n || '').trim()))
+const hasGenres = computed(() => Object.keys(config.categories || {}).length > 0)
+const organizeSub = computed(() => {
+  const names = [...(hasGenres.value ? ['ジャンル別'] : []), ...namedAxes.value]
+  return names.length
+    ? `${names.join(' ・ ')} でまとめて、数える順番に並べる`
+    : 'グループを作って、品目をまとめる'
 })
-// 「＋ グループを追加」を出すか（自作の2つ目がまだ無いとき）
-const canAddGroup = computed(() => !!config.axisNames[0] && !config.axisNames[1] && !show2.value)
-const nextGroupNo = computed(() => groupSlots.value.length + 1)
-
-// ── 分類（第1レイヤー）の登録 ─────────────────────────────
-const draft = ref(['', ''])
-const show2 = ref(false)
-// 同名で弾いたことは、打った行のすぐ下で伝える（どちらの分類の話か迷わせない）
-const axisErrorAt = ref(-1)
-function clearAxisError() { axisErrorAt.value = -1 }
-function confirmAxis(idx) {
-  const name = draft.value[idx].trim()
-  if (!name) return
-  if (!setAxisName(idx, name)) { axisErrorAt.value = idx; return }
-  draft.value[idx] = ''
-  clearAxisError()
-}
-
-// 設定済みの分類名をその場で再編集する
-const editingAxis = ref(-1)
-const editDraft = ref('')
-function startEditAxis(idx) { editingAxis.value = idx; editDraft.value = config.axisNames[idx] || ''; clearAxisError() }
-function confirmEditAxis(idx) {
-  const name = editDraft.value.trim()
-  if (!name) return
-  if (!setAxisName(idx, name)) { axisErrorAt.value = idx; return }
-  editingAxis.value = -1
-  clearAxisError()
-}
-function cancelEditAxis() { editingAxis.value = -1; clearAxisError() }
-function deleteAxis(idx) {
-  const name = config.axisNames[idx]
-  if (!confirm(`グループ「${name}」を削除します。振り分け（分類先・割り当て）もすべて外れます。よろしいですか？`)) return
-  clearAxis(idx)
-  if (idx === 1) show2.value = false
-}
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
 const delCode = ref('')
@@ -236,7 +197,7 @@ function onClear() {
       <!-- 整える -->
       <div class="mm-section-label">整える・確認</div>
 
-      <!-- 並び順設定（グループ） -->
+      <!-- 品目リスト整理。カード1枚だけ。グループの作成・変更は開いた先で行う -->
       <div class="mm-block">
         <div class="mm-block-head">
           <span class="mm-block-title">品目リスト整理</span>
@@ -244,58 +205,14 @@ function onClear() {
         </div>
         <div v-if="activeHelp === 'axis'" class="mm-help">{{ HELP.axis }}</div>
 
-        <!-- 入口は1つ。開く画面は同じで、中にグループのタブがある -->
         <button class="mm-organize" @click="openListOrganize">
           <span class="mm-organize-ico">⇅</span>
           <span class="mm-organize-body">
             <span class="mm-organize-title">グループ化・並び替え</span>
-            <span class="mm-organize-sub">
-              {{ hasNamedAxis ? '品目をまとめて、棚卸で数える順番に並べる' : 'まず下でグループを作ってください' }}
-            </span>
+            <span class="mm-organize-sub">{{ organizeSub }}</span>
           </span>
           <span class="mm-organize-arrow">→</span>
         </button>
-
-        <template v-for="(slot, no) in groupSlots" :key="slot.kind + (slot.idx ?? '')">
-          <!-- ジャンル: 取込元データ由来。並び順の選択肢としては自作と同格なので同じ列に置く -->
-          <div v-if="slot.kind === 'genre'" class="mm-axis-row">
-            <span class="mm-axis-label">グループ{{ no + 1 }}</span>
-            <span class="mm-axis-name">ジャンル別</span>
-            <span class="mm-axis-fixed">取込元由来 ・ {{ genreCount }}種</span>
-          </div>
-
-          <template v-else>
-            <div class="mm-axis-row">
-              <span class="mm-axis-label">グループ{{ no + 1 }}</span>
-              <template v-if="config.axisNames[slot.idx] && editingAxis !== slot.idx">
-                <span class="mm-axis-name">{{ config.axisNames[slot.idx] }}</span>
-                <button class="mm-axis-edit" title="名前を変更" @click="startEditAxis(slot.idx)">✎</button>
-                <button class="mm-axis-del" @click="deleteAxis(slot.idx)">削除</button>
-              </template>
-              <template v-else-if="editingAxis === slot.idx">
-                <input class="mm-axis-input" v-model="editDraft" :maxlength="AXIS_NAME_MAX" @input="clearAxisError" @keyup.enter="confirmEditAxis(slot.idx)" />
-                <button class="mm-axis-confirm" :disabled="!editDraft.trim()" @click="confirmEditAxis(slot.idx)">確定</button>
-                <button class="mm-axis-cancel" @click="cancelEditAxis">×</button>
-              </template>
-              <template v-else>
-                <input
-                  class="mm-axis-input" v-model="draft[slot.idx]" :maxlength="AXIS_NAME_MAX"
-                  :placeholder="slot.idx === 0 ? 'グループ名（例：保管場所）' : 'グループ名（例：仕入先）'"
-                  @input="clearAxisError" @keyup.enter="confirmAxis(slot.idx)"
-                />
-                <button class="mm-axis-confirm" :disabled="!draft[slot.idx].trim()" @click="confirmAxis(slot.idx)">確定</button>
-              </template>
-            </div>
-            <div v-if="axisErrorAt === slot.idx" class="mm-axis-err">ほかのグループと同じ名前です。別の名前にしてください</div>
-          </template>
-        </template>
-
-        <div v-if="canAddGroup" class="mm-axis-row">
-          <span class="mm-axis-label">グループ{{ nextGroupNo }}</span>
-          <button class="mm-axis-add" @click="show2 = true">＋ グループを追加</button>
-        </div>
-
-        <div class="mm-block-sub">グループ（例：保管場所・仕入先）を追加すると、上の「グループ化・並び替え」で品目をその中へまとめられます。棚卸・発注カードの並び順はここで選んだグループで決まります。</div>
       </div>
 
       <!-- 非表示中の管理 -->

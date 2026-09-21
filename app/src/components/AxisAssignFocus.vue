@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
-import { useConfig } from '../composables/useConfig.js'
+import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { useListDragReorder } from '../composables/useListDragReorder.js'
@@ -13,6 +13,7 @@ const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
   addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderItemsInPlace,
+  setAxisName, clearAxis,
 } = useConfig()
 const { getSnapshots } = useHistory()
 
@@ -31,6 +32,50 @@ const activeAxis = ref(props.initialAxis ?? 0)
 watch(namedAxes, arr => {
   if (!arr.some(a => a.index === activeAxis.value)) activeAxis.value = arr[0]?.index ?? 0
 }, { immediate: true })
+
+/**
+ * グループ（保管場所・仕入先など）そのものの作成・名前の変更・削除。
+ *
+ * 以前はデータ管理の画面にあり、ここは未設定だと「管理画面で追加してください」と
+ * 突き放すだけだった。**設定する場所と使う場所が離れている**と、作りに戻って、
+ * また開き直して、の往復になる。作るのも使うのもここで完結させる。
+ */
+const axisPanel = ref(false)
+const axisDraft = ref('')
+const axisErr   = ref('')
+const editingAxis = ref(-1)   // -1 = 追加中 / 0,1 = その番号の名前を変更中
+const freeAxisSlot = computed(() => {
+  const names = config.axisNames ?? []
+  if (!(names[0] || '').trim()) return 0
+  if (!(names[1] || '').trim()) return 1
+  return -1
+})
+// ジャンルは取込元データ由来。並び順の選択肢としては同格だが、名前も中身も編集できない
+const genreCount = computed(() =>
+  new Set(Object.values(config.categories || {}).filter(Boolean)).size)
+
+function openAxisPanel(idx = -1) {
+  editingAxis.value = idx
+  axisDraft.value = idx >= 0 ? (config.axisNames?.[idx] ?? '') : ''
+  axisErr.value = ''
+  axisPanel.value = true
+}
+function closeAxisPanel() { axisPanel.value = false; axisErr.value = ''; editingAxis.value = -1 }
+function saveAxis() {
+  const n = axisDraft.value.trim()
+  if (!n) return
+  const idx = editingAxis.value >= 0 ? editingAxis.value : freeAxisSlot.value
+  if (idx < 0) { axisErr.value = 'グループは2つまでです'; return }
+  if (!setAxisName(idx, n)) { axisErr.value = 'ほかのグループと同じ名前です'; return }
+  activeAxis.value = idx
+  closeAxisPanel()
+}
+function dropAxis(idx) {
+  const name = config.axisNames?.[idx]
+  if (!confirm(`グループ「${name}」を削除します。\n分類先も、品目の振り分けもすべて外れます。\n\nよろしいですか？`)) return
+  clearAxis(idx)
+  closeAxisPanel()
+}
 
 const tagMap  = computed(() => activeAxis.value === 0 ? (config.tagsA ?? {}) : (config.tagsB ?? {}))
 const defined = computed(() => activeAxis.value === 0 ? (config.axisGroupsA ?? []) : (config.axisGroupsB ?? []))
@@ -1087,14 +1132,25 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <div class="af-prog-bar"><div class="af-prog-fill" :class="{ done: allDone }" :style="{ width: progressPct + '%' }"></div></div>
     </div>
 
+    <!-- グループが1つも無いとき。ここで作れる（管理画面へ往復させない） -->
     <div v-if="namedAxes.length === 0" class="af-empty">
-      分類が未設定です。「品目マスタ管理」で分類を追加してください。
+      <div class="af-empty-t">まず、まとめ方を1つ決めます</div>
+      <p class="af-empty-n">
+        「保管場所」「仕入先」のように、<b>品目を何でまとめるか</b>の名前です。
+        決めたら、その中に分類先（冷蔵庫・常温棚…）を作って品目を入れていきます。
+      </p>
+      <button class="af-empty-go" @click="openAxisPanel(-1)">＋ グループを作る</button>
+      <p v-if="genreCount" class="af-empty-g">
+        取込元データ由来の「ジャンル別」（{{ genreCount }}種）は、作らなくてもそのまま並び順に使えます。
+      </p>
     </div>
 
     <template v-else>
-      <!-- 軸（分類）タブ -->
-      <div v-if="namedAxes.length > 1" class="af-tabs">
+      <!-- グループのタブ。名前の変更・追加もここから（使う場所で設定まで済ませる） -->
+      <div class="af-tabs">
         <button v-for="a in namedAxes" :key="a.index" :class="['af-tab', { on: activeAxis === a.index }]" @click="activeAxis = a.index">{{ a.name }}</button>
+        <button class="af-tab-edit" aria-label="グループの名前を変える" @click="openAxisPanel(activeAxis)">✎</button>
+        <button v-if="freeAxisSlot >= 0" class="af-tab-add" aria-label="グループを追加" @click="openAxisPanel(-1)">＋</button>
       </div>
 
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
@@ -1253,6 +1309,28 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </div>
       </div>
     </template>
+
+    <!-- グループ（まとめ方）そのものの設定 -->
+    <div v-if="axisPanel" class="af-dialog-bg" @click.self="closeAxisPanel">
+      <div class="af-dialog af-axis-dialog" role="dialog" aria-modal="true" aria-label="グループの設定">
+        <div class="af-dialog-t">{{ editingAxis >= 0 ? 'グループの名前' : 'グループを作る' }}</div>
+        <p class="af-dialog-n">品目を何でまとめるかの名前です（例：保管場所・仕入先）。</p>
+        <input
+          v-model="axisDraft" class="af-axis-in" type="text" :maxlength="AXIS_NAME_MAX"
+          placeholder="保管場所" @input="axisErr = ''" @keyup.enter="saveAxis"
+        />
+        <div v-if="axisErr" class="af-axis-err" role="alert">{{ axisErr }}</div>
+        <div class="af-dialog-btns">
+          <button class="af-dialog-cancel" @click="closeAxisPanel">やめる</button>
+          <button class="af-dialog-ok" :disabled="!axisDraft.trim()" @click="saveAxis">
+            {{ editingAxis >= 0 ? '変える' : '作る' }}
+          </button>
+        </div>
+        <button v-if="editingAxis >= 0" class="af-axis-del" @click="dropAxis(editingAxis)">
+          このグループを削除
+        </button>
+      </div>
+    </div>
 
     <!-- 分類先の一括編集（追加・名前変更・削除・並べ替え）-->
     <div
@@ -1653,6 +1731,21 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* ── 分類先の一括編集 ─────────────────────────────────────────
    つまみ（⋮⋮）を掴んでいる間だけ行が動く。行そのものを掴ませると縦スクロールと
    取り合いになり、並べ替えのつもりが画面ごと流れる。 */
+.af-tab-edit, .af-tab-add { flex-shrink: 0; border: 1px solid #cbd5e1; background: #fff; color: #475569;
+  border-radius: 9px; padding: 6px 11px; font-size: 13px; font-weight: 800; cursor: pointer; }
+.af-empty-t { font-size: 16px; font-weight: 800; color: #1e293b; margin-bottom: 6px; }
+.af-empty-n { font-size: 12.5px; line-height: 1.65; color: #64748b; margin: 0 0 14px; }
+.af-empty-n b { color: #1e293b; }
+.af-empty-go { border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 11px;
+  padding: 12px 20px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.af-empty-g { font-size: 11px; line-height: 1.6; color: #94a3b8; margin: 14px 0 0; }
+.af-axis-dialog { text-align: left; }
+.af-axis-in { width: 100%; border: 1.5px solid #cbd5e1; border-radius: 10px;
+  padding: 11px 12px; font-size: 16px; margin-bottom: 4px; }
+.af-axis-err { font-size: 11.5px; font-weight: 700; color: #b91c1c; margin: 4px 0 0; }
+.af-axis-del { display: block; width: 100%; border: none; background: none; color: #b91c1c;
+  font-size: 12px; font-weight: 700; padding: 10px 4px 0; cursor: pointer; }
+
 .af-edit {
   position: fixed; inset: 0; z-index: 65; background: #f8fafc;
   display: flex; flex-direction: column;
