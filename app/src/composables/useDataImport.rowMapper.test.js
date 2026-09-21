@@ -11,6 +11,7 @@ vi.mock('./useStore.js', () => ({
 vi.mock('./usePdfImporter.js', () => ({
   assertSpreadsheetFile: vi.fn(),
   excelToCsv:            vi.fn(async () => ''),
+  parsePdfFile:          vi.fn(async () => ({ pages: [] })),
 }))
 
 function csvFile(text, name = 'shiire.csv') {

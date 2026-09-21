@@ -11,6 +11,7 @@ import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
+import PdfGridSetup from './PdfGridSetup.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
@@ -23,6 +24,7 @@ const {
   openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
   showStocktakeModal, stocktakePlan, stocktakeFilename,
   rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
+  pdfSetup, closePdfSetup, applyPdfSetup,
   openStocktakeFromFile, closeStocktake, setStocktakeResolution,
   confirmStocktakeImport, undoStocktakeImport,
 } = useDataImport()
@@ -374,7 +376,7 @@ function onClear() {
               <span class="mm-row-ico">🧾</span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の納品</span>
-                <span class="mm-row-sub">CSV・Excel から（既定は入庫・種別列で出庫も）</span>
+                <span class="mm-row-sub">CSV・Excel・PDF から（既定は入庫・種別列で出庫も）</span>
               </span>
               <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
               <span class="mm-row-arrow">→</span>
@@ -389,7 +391,7 @@ function onClear() {
               <span class="mm-row-ico">🧮</span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の棚卸</span>
-                <span class="mm-row-sub">消費・適正在庫・発注の理論値の算出に必要</span>
+                <span class="mm-row-sub">CSV・Excel・PDF から。消費・適正在庫・発注の理論値に必要</span>
               </span>
               <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
               <span class="mm-row-arrow">→</span>
@@ -425,8 +427,8 @@ function onClear() {
 
     <!-- 取込ファイル入力（常設・非表示）-->
     <!-- 拡張子だけだと、iOSやAndroidのpickerがCSV/Excelを候補に出せないことがある。MIMEも併記する -->
-    <input ref="deliveryFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onDeliveryFile" />
-    <input ref="stocktakeFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onStocktakeFile" />
+    <input ref="deliveryFileInput" type="file" accept=".csv,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onDeliveryFile" />
+    <input ref="stocktakeFileInput" type="file" accept=".csv,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onStocktakeFile" />
 
     <PastStocktakeImportModal
       v-if="showStocktakeModal && stocktakePlan"
@@ -450,6 +452,15 @@ function onClear() {
     />
 
     <!-- 自動で読み取れなかったファイルの受け皿（納品・棚卸で共通）-->
+    <!-- 紙の納品書・棚卸表。表に均してから、CSV・Excel とまったく同じ経路へ合流する -->
+    <PdfGridSetup
+      v-if="pdfSetup"
+      :file="pdfSetup.file"
+      :pages="pdfSetup.pages"
+      @ready="applyPdfSetup"
+      @close="closePdfSetup"
+    />
+
     <RowMapperModal
       v-if="rowMapper"
       :csv-text="rowMapper.csvText"

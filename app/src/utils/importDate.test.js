@@ -61,3 +61,29 @@ describe('既存の表記ゆれを引き続き正規化する', () => {
     expect(normalizeImportDate('20260601')).toBe('')
   })
 })
+
+/**
+ * 紙の帳票から取り込む日付。
+ *
+ * 納品書・売上伝票は日付も**字送り**で組まれていて、PDFから取り出すと
+ * `2003 年 12 月 21 日` のように文字のあいだが空く。全角で組まれた紙もある。
+ * ここで弾くと、紙から取り込んだ納品・棚卸が**すべて**「日付が読めない」で止まる。
+ */
+describe('紙の帳票の書き方', () => {
+  it('字送りで空いた日付を受ける', () => {
+    expect(normalizeImportDate('2003 年 12 月 21 日')).toBe('2003-12-21')
+    expect(normalizeImportDate('2026 / 6 / 1')).toBe('2026-06-01')
+    expect(normalizeImportDate('2026 - 06 - 01')).toBe('2026-06-01')
+  })
+
+  it('全角で組まれた日付を受ける', () => {
+    expect(normalizeImportDate('２０２６年６月１日')).toBe('2026-06-01')
+    expect(normalizeImportDate('２０２６／６／１')).toBe('2026-06-01')
+  })
+
+  it('空白を詰めても、日付でないものは通さない', () => {
+    expect(normalizeImportDate('合 計')).toBe('')
+    expect(normalizeImportDate('2026 年 13 月 1 日')).toBe('')
+    expect(normalizeImportDate('2026 年 2 月 30 日')).toBe('')
+  })
+})

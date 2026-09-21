@@ -4,7 +4,7 @@ import { useConfig } from './useConfig.js'
 import { useMovements } from './useMovements.js'
 import { useHistory } from './useHistory.js'
 import { saveMovementToD1, importPastSessionToD1, cancelPastImportOnD1 } from './useStore.js'
-import { assertSpreadsheetFile, excelToCsv } from './usePdfImporter.js'
+import { assertSpreadsheetFile, excelToCsv, parsePdfFile } from './usePdfImporter.js'
 import { deliveryImportTemplateCSV } from '../utils/deliveryImportParser.js'
 import { parseResultSnapshots } from '../utils/resultCsvParser.js'
 import { STOCKTAKE_FIELDS, DELIVERY_FIELDS } from '../utils/rowMapping.js'
@@ -15,6 +15,8 @@ import {
 // 過去データ（納品・棚卸）の取込フローを1箇所に集約する composable。
 // 入出庫画面・データ管理画面の両方から同じ動作で使う（導線が2箇所でも実装は1つ）。
 // 状態（モーダル表示・CSV）は呼び出しごとに独立。
+
+const isPdf = (file) => /\.pdf$/i.test(file?.name ?? '')
 
 async function _fileToCsv(file) {
   if (/\.(xlsx|xls)$/i.test(file.name)) {
@@ -41,6 +43,50 @@ export function useDataImport() {
     categories: config.categories || {},
   }))
   const existingMovements = () => getMovements()
+
+  // ── PDF（紙の納品書・棚卸表）────────────────────────────────
+  //
+  // **PDFだけは、そのままCSVにできない。** 何枚の表が刷られているか・行の高さ・列の
+  // 境界を人が決めて初めて表になる（`PdfGridSetup`）。そこを通したあとは、CSV・Excel と
+  // まったく同じ経路へ合流する ── 納品なら `DeliveryImportModal`、棚卸なら計画づくり。
+  // どちらも自動で読めなければ列指定へ落ちるので、紙の帳票でも行き止まりにならない。
+  const pdfSetup = ref(null)   // null | { kind: 'delivery'|'stocktake', file, pages }
+
+  /** PDFを開いて「表にする画面」を出す。ここでは何も取り込まない */
+  async function _openPdfSetup(kind, file) {
+    let pages = []
+    try {
+      pages = await runBusy('PDFを読み込み中…', async () => {
+        const { pages: pg } = await parsePdfFile(await file.arrayBuffer())
+        return pg ?? []
+      })
+    } catch (err) {
+      alert(err?.message || 'PDFの読み込みに失敗しました')
+      return false
+    }
+    if (!pages.length) {
+      alert('このPDFからは文字を取り出せませんでした。写真やスキャンの画像だけのPDFは読み取れません。')
+      return false
+    }
+    pdfSetup.value = { kind, file, pages }
+    return true
+  }
+  function closePdfSetup() { pdfSetup.value = null }
+
+  /** 表にする画面の結果（CSV）を、それぞれの通常経路へ流す */
+  async function applyPdfSetup({ csvText } = {}) {
+    const kind = pdfSetup.value?.kind
+    const filename = pdfSetup.value?.file?.name ?? ''
+    if (!kind || !csvText) return false
+    pdfSetup.value = null
+    if (kind === 'delivery') {
+      deliveryCsv.value       = csvText
+      deliveryFilename.value  = filename
+      showDeliveryModal.value = true
+      return true
+    }
+    return _openStocktakeFromCsv(csvText, filename)
+  }
 
   // ── 列指定インポート（自動で読めなかったファイルの受け皿）──────
   //
@@ -90,6 +136,7 @@ export function useDataImport() {
 
   async function openDeliveryFromFile(file) {
     if (!file) return
+    if (isPdf(file)) { await _openPdfSetup('delivery', file); return }
     try {
       // Excelはここで表へ変換する。大きいファイルでは数秒かかる
       deliveryCsv.value = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file))
@@ -142,6 +189,7 @@ export function useDataImport() {
   /** ファイルから計画を作ってプレビューを開く。config・履歴は変更しない。 */
   async function openStocktakeFromFile(file) {
     if (!file) return false
+    if (isPdf(file)) return await _openPdfSetup('stocktake', file)
     let csv
     try { csv = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file)) }
     catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
@@ -218,6 +266,8 @@ export function useDataImport() {
     openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
     // 列指定インポート（納品・棚卸の受け皿）
     rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
+    // PDF（紙の納品書・棚卸表）を表にしてから同じ経路へ流す
+    pdfSetup, closePdfSetup, applyPdfSetup,
     // 過去棚卸取込
     showStocktakeModal, stocktakePlan, stocktakeFilename,
     openStocktakeFromFile, closeStocktake, setStocktakeResolution,
