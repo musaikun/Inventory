@@ -1328,20 +1328,20 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <!-- グループ（まとめ方）そのものの設定 -->
     <div v-if="axisPanel" class="af-dialog-bg" @click.self="closeAxisPanel">
       <div class="af-dialog af-axis-dialog" role="dialog" aria-modal="true" aria-label="グループの設定">
-        <div class="af-dialog-t">{{ editingAxis >= 0 ? 'グループの名前' : 'グループを作る' }}</div>
-        <p class="af-dialog-n">品目を何でまとめるかの名前です（例：保管場所・仕入先）。</p>
+        <div class="af-dialog-title">{{ editingAxis >= 0 ? 'グループの名前' : 'グループを作る' }}</div>
+        <div class="af-dialog-sub">品目を何でまとめるかの名前です（例：保管場所・仕入先）。</div>
         <input
-          v-model="axisDraft" class="af-axis-in" type="text" :maxlength="AXIS_NAME_MAX"
+          v-model="axisDraft" class="af-dialog-input" type="text" :maxlength="AXIS_NAME_MAX"
           placeholder="保管場所" @input="axisErr = ''" @keyup.enter="saveAxis"
         />
-        <div v-if="axisErr" class="af-axis-err" role="alert">{{ axisErr }}</div>
-        <div class="af-dialog-btns">
+        <div v-if="axisErr" class="af-dialog-err" role="alert">{{ axisErr }}</div>
+        <div class="af-dialog-acts">
           <button class="af-dialog-cancel" @click="closeAxisPanel">やめる</button>
           <button class="af-dialog-ok" :disabled="!axisDraft.trim()" @click="saveAxis">
             {{ editingAxis >= 0 ? '変える' : '作る' }}
           </button>
         </div>
-        <button v-if="editingAxis >= 0" class="af-axis-del" @click="dropAxis(editingAxis)">
+        <button v-if="editingAxis >= 0" class="af-dialog-sub-act" @click="dropAxis(editingAxis)">
           このグループを削除
         </button>
       </div>
@@ -1745,12 +1745,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-empty-go { border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 11px;
   padding: 12px 20px; font-size: 14px; font-weight: 800; cursor: pointer; }
 .af-empty-g { font-size: 11px; line-height: 1.6; color: #94a3b8; margin: 14px 0 0; }
-.af-axis-dialog { text-align: left; }
-.af-axis-in { width: 100%; border: 1.5px solid #cbd5e1; border-radius: 10px;
-  padding: 11px 12px; font-size: 16px; margin-bottom: 4px; }
-.af-axis-err { font-size: 11.5px; font-weight: 700; color: #b91c1c; margin: 4px 0 0; }
-.af-axis-del { display: block; width: 100%; border: none; background: none; color: #b91c1c;
-  font-size: 12px; font-weight: 700; padding: 10px 4px 0; cursor: pointer; }
 
 .af-edit {
   position: fixed; inset: 0; z-index: 65; background: #f8fafc;
@@ -1810,6 +1804,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-dialog-ok { border: none; background: var(--primary, #2563eb); color: #fff; }
 .af-dialog-ok.danger { background: #dc2626; }
 .af-dialog-ok:disabled { background: #cbd5e1; cursor: not-allowed; }
+.af-dialog-ok:active:not(:disabled), .af-dialog-cancel:active { transform: scale(.98); }
+/* 主な2つの下に置く脇役（削除など）。同じ並びに入れると重さが同じに見えてしまう */
+.af-dialog-sub-act { display: block; width: 100%; margin-top: 4px; border: none; background: none;
+  color: #dc2626; font-size: 12.5px; font-weight: 700; padding: 11px 4px 2px; cursor: pointer; }
 
 /* ── 振り分け済みシート ──────────────────────────────────────── */
 .af-modal { position: fixed; inset: 0; z-index: 70; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-end; justify-content: center; }

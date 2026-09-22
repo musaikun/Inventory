@@ -26,7 +26,7 @@ async function mount(initialAxis = 0) {
 }
 const btn    = (t) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(t))
 const dialog = () => host.querySelector('.af-axis-dialog')
-const input  = () => host.querySelector('.af-axis-in')
+const input  = () => host.querySelector('.af-axis-dialog .af-dialog-input')
 const tabs   = () => [...host.querySelectorAll('.af-tab')].map(b => b.textContent.trim())
 // ダイアログの決定ボタン。画面には「＋ グループを作る」も出ているので、文言で拾わない
 const ok     = () => dialog().querySelector('.af-dialog-ok')
@@ -99,12 +99,12 @@ describe('グループの名前', () => {
     await type(input(), '仕入先')
     await click(ok())
 
-    expect(host.querySelector('.af-axis-err').textContent).toContain('同じ名前')
+    expect(host.querySelector('.af-axis-dialog .af-dialog-err').textContent).toContain('同じ名前')
     expect(cfg.config.axisNames[0]).toBe('保管場所')   // 変わっていない
     expect(dialog()).not.toBeNull()                    // 閉じない
 
     await type(input(), '置き場')
-    expect(host.querySelector('.af-axis-err')).toBeNull()   // 直したら理由は消える
+    expect(host.querySelector('.af-axis-dialog .af-dialog-err')).toBeNull()   // 直したら理由は消える
     await click(ok())
     expect(cfg.config.axisNames[0]).toBe('置き場')
   })
