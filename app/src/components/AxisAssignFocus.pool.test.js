@@ -228,30 +228,81 @@ describe('AxisAssignFocus — 振り分け画面からの戻る', () => {
   })
 })
 
-describe('AxisAssignFocus — 使っていない品目の見分け', () => {
-  it('直近の棚卸で入力の無い品目に「未使用」の印がつく', async () => {
+/**
+ * 数えていない品目の見分け（User指示 2026-09-21）。
+ *
+ * 以前は `未使用` の1種類しか無く、**何が未使用なのか読めなかった**。実際に見ているのは
+ * 消費ではなく計測の有無なので `未計測` にし、窓（直近3回）も印に添える。
+ * そのうえで理由を2つに分ける ── 前回リストに無かった品目（新規）は、数えようが無い。
+ */
+describe('AxisAssignFocus — 数えていない品目の見分け', () => {
+  it('直近3回とも数量の無い品目に「直近3回 未計測」の印がつく', async () => {
     await mount()
     const marked = rows().filter(r => r.querySelector('.af-item-unused'))
       .map(r => r.getAttribute('data-item'))
     expect(marked.sort()).toEqual(['レタス', '豚バラ'].sort())   // トマトは入力済み
+    const badge = rows().find(r => r.getAttribute('data-item') === '豚バラ')
+      .querySelector('.af-item-unused')
+    expect(badge.textContent).toContain('直近3回')
+    expect(badge.textContent).toContain('未計測')
   })
 
-  it('「未使用のみ」で隠す候補だけに絞れる', async () => {
+  it('「未計測のみ」で隠す候補だけに絞れる', async () => {
     await mount()
-    await click(chip('未使用のみ'))
+    await click(chip('未計測のみ'))
     await openAllGenres()
     expect(rowNames().sort()).toEqual(['レタス', '豚バラ'].sort())
   })
 
-  it('「前回入力のみ」と「未使用のみ」は同時に立たない', async () => {
+  it('絞り込みの意味をその場に1行出す（チップの言葉だけでは読めない）', async () => {
+    await mount()
+    await click(chip('未計測のみ'))
+    expect(host.querySelector('.af-filter-note').textContent).toContain('直近3回の棚卸で、一度も数量が入っていない')
+  })
+
+  it('3つの絞り込みは同時に立たない', async () => {
     await mount()
     await click(chip('前回入力のみ'))
     await openAllGenres()
     expect(rowNames()).toEqual(['トマト'])
 
-    await click(chip('未使用のみ'))
+    await click(chip('未計測のみ'))
     await openAllGenres()
     expect(chip('前回入力のみ').className).not.toContain('on')
     expect(rowNames().sort()).toEqual(['レタス', '豚バラ'].sort())
+
+    await click(chip('新規のみ'))
+    expect(chip('未計測のみ').className).not.toContain('on')
+  })
+})
+
+describe('AxisAssignFocus — 新規（前回の棚卸には無かった品目）', () => {
+  it('前回のリストに無かった品目は「新規」。未計測にはしない', async () => {
+    cfg.addItem('新玉ねぎ', 100, '野菜', '個')
+    await mount()
+    await openAllGenres()
+    const row = rows().find(r => r.getAttribute('data-item') === '新玉ねぎ')
+
+    expect(row.querySelector('.af-item-new')).not.toBeNull()
+    // 数えようが無かったのだから「ずっと数えていない」とは言わない
+    expect(row.querySelector('.af-item-unused')).toBeNull()
+  })
+
+  it('「新規のみ」で、増えた品目だけに絞れる', async () => {
+    cfg.addItem('新玉ねぎ', 100, '野菜', '個')
+    await mount()
+    await click(chip('新規のみ'))
+    await openAllGenres()
+    expect(rowNames()).toEqual(['新玉ねぎ'])
+    expect(host.querySelector('.af-filter-note').textContent).toContain('前回の棚卸の時点では、リストに無かった')
+  })
+
+  it('棚卸が1度も無ければ、印も絞り込みも出さない（比べる相手が無い）', async () => {
+    localStorage.removeItem('inventory_history_v1')
+    await mount()
+    await openAllGenres()
+    expect(host.querySelector('.af-item-new')).toBeNull()
+    expect(host.querySelector('.af-item-unused')).toBeNull()
+    expect(chip('新規のみ')).toBeUndefined()
   })
 })

@@ -576,10 +576,17 @@ watch(activeAxis, () => {
 const search = ref('')
 const unassignedOnly = ref(false)
 const usedOnly = ref(false)        // 直近の棚卸で入力があった品目だけ
-const neverUsedOnly = ref(false)   // 逆に、一度も入力の無い品目だけ（非表示にする候補を探す用）
-// 「前回入力のみ」と「未使用のみ」は互いに素なので、片方を押したらもう片方を降ろす
-function toggleUsedOnly()      { usedOnly.value = !usedOnly.value; if (usedOnly.value) neverUsedOnly.value = false }
-function toggleNeverUsedOnly() { neverUsedOnly.value = !neverUsedOnly.value; if (neverUsedOnly.value) usedOnly.value = false }
+const neverUsedOnly = ref(false)   // 逆に、一度も数えていない品目だけ（非表示にする候補を探す用）
+const newOnly = ref(false)         // 前回の棚卸の時点でリストに無かった品目だけ
+// この3つは互いに素。1つ押したら他は降ろす
+function _onlyFilter(which) {
+  usedOnly.value      = which === 'used'
+  neverUsedOnly.value = which === 'never'
+  newOnly.value       = which === 'new'
+}
+function toggleUsedOnly()      { _onlyFilter(usedOnly.value ? '' : 'used') }
+function toggleNeverUsedOnly() { _onlyFilter(neverUsedOnly.value ? '' : 'never') }
+function toggleNewOnly()       { _onlyFilter(newOnly.value ? '' : 'new') }
 function clearSearch() { search.value = ''; nextTick(() => searchEl.value?.focus()) }
 const searchEl = ref(null)
 const USAGE = 3
@@ -591,6 +598,36 @@ const usage = computed(() => {
   return m
 })
 const hasUsage = computed(() => Object.keys(usage.value).length > 0)
+
+/**
+ * 「新規」と「未計測」の見分け。
+ *
+ * 以前は `未使用` の1種類しか無く、**何が未使用なのか読めなかった**。実際に見ているのは
+ * 消費ではなく**計測の有無**なので、名前を `未計測` にし、窓（直近3回）も画面に出す。
+ *
+ * そのうえで、数えていない理由は2つに分かれる:
+ *   新規   … 前回の棚卸の時点で**リストに無かった**（だから数えようが無い）
+ *   未計測 … リストには居たのに、直近3回とも数量が入っていない
+ * 両方とも `usage` は0なので、分けないと新しく入れた品目まで「ずっと数えていない」に
+ * 見える。**前回のスナップショットに居たかどうか**で先に切り分ける。
+ *
+ * 棚卸が1度も無ければ、どちらも比べる相手が無いので出さない。
+ */
+const lastSnapItems = computed(() => {
+  const s = getSnapshots()[0]
+  return s ? new Set((s.items || []).map(it => it.item)) : null
+})
+const isNew = (item) => (lastSnapItems.value ? !lastSnapItems.value.has(item) : false)
+const isUnmeasured = (item) => hasUsage.value && !usage.value[item] && !isNew(item)
+/** いま掛けている絞り込みの意味。短いチップだけでは読めないので、押したときに1行出す */
+const filterNote = computed(() => {
+  if (neverUsedOnly.value) return '直近3回の棚卸で、一度も数量が入っていない品目です。'
+  if (newOnly.value)       return '前回の棚卸の時点では、リストに無かった品目です。'
+  if (usedOnly.value)      return '直近3回の棚卸で、1回でも数量が入った品目です。'
+  if (unassignedOnly.value) return 'まだどの分類先にも入れていない品目です。'
+  return ''
+})
+
 const _norm = s => (s || '').normalize('NFKC').toLowerCase()
 
 const poolItems = computed(() => {
@@ -599,7 +636,8 @@ const poolItems = computed(() => {
     !hiddenSet.value.has(i) &&
     (!q || _norm(i).includes(q)) &&
     (!usedOnly.value || usage.value[i] > 0) &&
-    (!neverUsedOnly.value || !usage.value[i]) &&
+    (!neverUsedOnly.value || isUnmeasured(i)) &&
+    (!newOnly.value || isNew(i)) &&
     (!unassignedOnly.value || itemGroups(i).length === 0)
   )
   // 振り分け状態では並べ替えない（タップした品目がその場から動かないように）。
@@ -893,6 +931,7 @@ function locate(item) {
   unassignedOnly.value = false
   usedOnly.value = false
   neverUsedOnly.value = false
+  newOnly.value = false
   if (hasGenres.value) openCat[config.categories?.[item] || 'その他'] = true
   locateName.value = item
   clearTimeout(_locateT)
@@ -1239,8 +1278,13 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </div>
         <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
         <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="toggleUsedOnly">前回入力のみ</button>
-        <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未使用のみ</button>
+        <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未計測のみ</button>
+        <button v-if="lastSnapItems" :class="['af-chip-btn', { on: newOnly }]" @click="toggleNewOnly">新規のみ</button>
       </div>
+
+      <!-- 絞り込みの意味は、押したときにその場で言う。チップの短い言葉だけでは
+           「何が未計測なのか」「いつと比べた新規なのか」が読めない -->
+      <p v-if="filterNote" class="af-filter-note">{{ filterNote }}</p>
 
       <!-- 長押しの導線。逆向き（品目 → 分類先）は見えない操作なので、使うまでは出しておく -->
       <div v-if="!pickHinted && groups.length && poolItems.length" class="af-pickhint">
@@ -1276,7 +1320,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               >
                 <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                 <span class="af-item-name">{{ item }}</span>
-                <span v-if="hasUsage && !usage[item]" class="af-item-unused">未使用</span>
+                <span v-if="isNew(item)" class="af-item-new">新規</span>
+                <span v-else-if="isUnmeasured(item)" class="af-item-unused"><i>直近3回</i>未計測</span>
                 <span v-if="itemGroups(item).length" class="af-item-tags">
                   <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                 </span>
@@ -1305,7 +1350,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           >
             <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
             <span class="af-item-name">{{ item }}</span>
-            <span v-if="hasUsage && !usage[item]" class="af-item-unused">未使用</span>
+            <span v-if="isNew(item)" class="af-item-new">新規</span>
+            <span v-else-if="isUnmeasured(item)" class="af-item-unused"><i>直近3回</i>未計測</span>
             <span v-if="itemGroups(item).length" class="af-item-tags">
               <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
             </span>
@@ -1319,7 +1365,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </template>
         <div v-if="poolItems.length === 0" class="af-empty">
           {{ unassignedOnly ? '未振り分けの品目はありません 🎉'
-           : neverUsedOnly ? '使っていない品目はありません 🎉'
+           : neverUsedOnly ? '直近3回とも数えていない品目はありません 🎉'
+           : newOnly ? '前回の棚卸のあとに増えた品目はありません'
            : '該当する品目がありません。' }}
         </div>
       </div>
@@ -1718,7 +1765,12 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-check { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #cbd5e1; border: 1.5px solid #e2e8f0; }
 .af-item.in .af-check { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
 .af-item-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
+/* 数えていない理由は2つ。色で役割を分ける（新規＝これから／未計測＝ずっと無い）。
+   窓（直近3回）を添えるのは、何と比べた話なのかがバッジだけでは読めないため */
 .af-item-unused { flex-shrink: 0; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 2px 6px; }
+.af-item-unused i { font-style: normal; font-weight: 700; opacity: .72; margin-right: 3px; }
+.af-item-new { flex-shrink: 0; font-size: 10px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 6px; }
+.af-filter-note { margin: -2px 14px 6px; font-size: 11px; line-height: 1.5; color: #64748b; }
 .af-item-tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 34%; }
 .af-item-tag { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 2px 7px; }
 .af-item-tag.cur { color: #fff; background: var(--primary, #2563eb); }
