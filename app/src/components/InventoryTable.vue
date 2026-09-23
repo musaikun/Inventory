@@ -37,6 +37,9 @@ const props = defineProps({
   searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
   // 親が持つ絞り込み条件（filters スロットと対で使う）。null = 内蔵フィルターを使う
   itemFilter:       { type: Function, default: null },
+  // 並び替えに「非表示にした順」を足し、それを既定にする（データ管理の非表示中の表）。
+  // 誤って隠したものを遡って探す場所なので、直前に隠したものが先頭に来る並びから始める。
+  hiddenOrderSort:  { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
@@ -75,12 +78,13 @@ function _isSupply(item) {
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'category' | 'alpha' | 'axisA' | 'axisB'
+const sortMode     = ref(props.hiddenOrderSort ? 'hiddenAt' : 'category')  // 'category' | 'alpha' | 'axisA' | 'axisB' | 'hiddenAt'
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 
 // 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
 const sortOpts = computed(() => {
   const opts = [
+    ...(props.hiddenOrderSort ? [{ value: 'hiddenAt', label: '非表示にした順' }] : []),
     { value: 'category', label: 'ジャンル' },
   ]
   const names = config.value.axisNames ?? ['', '']
@@ -343,6 +347,12 @@ const rows = computed(() => {
       result.push(...groupRows)
     }
     return result
+  }
+
+  // 非表示にした順（新しい順・グループなし）。時刻の無い品目は元の順のまま後ろへ
+  if (mode === 'hiddenAt') {
+    const byName = new Map(items.map(r => [r.item, r]))
+    return sortHiddenByRecent([...byName.keys()], config.value.hiddenAt ?? {}).map(n => byName.get(n))
   }
 
   // その他（フォールバック）: config.value.order 順のまま

@@ -1,5 +1,6 @@
 // データ管理の「非表示中」。誤って隠した品目を探して戻す場所なので、
 // 最後に隠したものが先頭に来て、隠した時刻が読めることを固定する。
+// 表は棚卸・発注と同じ InventoryTable。既定の並びは「非表示にした順」。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
@@ -27,8 +28,8 @@ async function mountPage() {
   return host
 }
 
-const rows  = () => [...host.querySelectorAll('.mm-hidden-row')]
-const names = () => rows().map(r => r.querySelector('.mm-hidden-name').textContent.trim())
+const rows  = () => [...host.querySelectorAll('.item-row')]
+const names = () => rows().map(r => r.dataset.item)
 
 beforeEach(async () => {
   localStorage.clear()
@@ -56,6 +57,31 @@ describe('MasterManagePage — 非表示中の一覧', () => {
     expect(rows()[1].querySelector('.mm-hidden-at').textContent).toMatch(/^\d/)   // 9/5 …
   })
 
+  it('棚卸・発注と同じ表で、非表示の品目だけが出る', async () => {
+    cfg.hideItem('トマト')
+    await mountPage()
+    expect(host.querySelector('.inv-table')).toBeTruthy()
+    expect(names()).toEqual(['トマト'])
+  })
+
+  it('ジャンルの並びにも切り替えられ、また非表示にした順へ戻せる', async () => {
+    cfg.hideItem('トマト')
+    cfg.config.hiddenAt['トマト'] = '2026-09-05T10:00:00.000Z'
+    cfg.hideItem('なす')
+    await mountPage()
+    const seg = label => [...host.querySelectorAll('.seg-btn')].find(b => b.textContent.trim() === label)
+    expect(seg('非表示にした順').classList.contains('active')).toBe(true)
+
+    seg('ジャンル').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('.group-header-row')).toBeTruthy()
+
+    seg('非表示にした順').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('.group-header-row')).toBeNull()
+    expect(names()).toEqual(['なす', 'トマト'])
+  })
+
   it('戻すと一覧から消える', async () => {
     cfg.hideItem('トマト')
     await mountPage()
@@ -66,5 +92,6 @@ describe('MasterManagePage — 非表示中の一覧', () => {
 
     expect(cfg.config.hiddenItems).not.toContain('トマト')
     expect(rows()).toHaveLength(0)
+    expect(host.textContent).toContain('非表示の品目はありません')
   })
 })

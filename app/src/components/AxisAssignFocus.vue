@@ -201,7 +201,7 @@ const wheelCards = computed(() => {
 //   open … 分類先を探している時間。探しているのだから広く見せる
 // 途中の高さを挟むと、回し終わりに「一度縮んでまた動く」段が増え、どこで
 // 止まったのかが読み取りにくい。段は「入れている」「探している」の2つだけにする。
-const BAND_H = 56, OPEN_MIN = 196, OPEN_MAX = 336, PANEL_MS = 700
+const BAND_H = 56, OPEN_MIN = 196, OPEN_MAX = 336, PANEL_MS = 350
 const wheelState = ref('open')                       // 'band' | 'open'
 const banded = computed(() => wheelState.value === 'band')
 function openHeight() {
@@ -1253,7 +1253,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                   :aria-label="c.centre ? `${c.name} の振り分け済みを見る` : undefined"
                   :tabindex="c.centre ? 0 : -1"
                 >{{ c.count }}</button>
-                <span v-if="c.centre && banded" class="af-gchev">変える ▾</span>
               </template>
             </div>
           </div>
@@ -1644,7 +1643,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: absolute; inset: 0 64px 0 0;
   perspective: 460px; overflow: hidden;
   touch-action: none; -webkit-tap-highlight-color: transparent;
-  transition: right var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1);
+  transition: right var(--af-panel-ms, 350ms) cubic-bezier(0.4,0,0.2,1);
 }
 .af-stage, .af-stage * {
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -1679,17 +1678,16 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* 畳んでいる間、これが「振り分け済みを開く」唯一の入口になる。56pxの帯の中で
    カードのタップ（＝ホイールを開く）と押し分けられるよう、指の当たりを広げる。 */
 .af-wheel.band .af-gcard.on .af-gcount { min-height: 44px; padding: 2px 14px; }
-.af-gchev { flex-shrink: 0; font-size: 11px; font-weight: 800; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 9px; background: #fff; white-space: nowrap; }
 
-.af-marker { position: absolute; left: 0; right: 0; top: 50%; height: 58px; margin-top: -29px; pointer-events: none; border-top: 1px solid var(--primary-border, #bfdbfe); border-bottom: 1px solid var(--primary-border, #bfdbfe); opacity: 0.5; transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
-.af-fade { position: absolute; left: 0; right: 0; height: 34px; pointer-events: none; z-index: 2; opacity: 1; transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
+.af-marker { position: absolute; left: 0; right: 0; top: 50%; height: 58px; margin-top: -29px; pointer-events: none; border-top: 1px solid var(--primary-border, #bfdbfe); border-bottom: 1px solid var(--primary-border, #bfdbfe); opacity: 0.5; transition: opacity var(--af-panel-ms, 350ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
+.af-fade { position: absolute; left: 0; right: 0; height: 34px; pointer-events: none; z-index: 2; opacity: 1; transition: opacity var(--af-panel-ms, 350ms) cubic-bezier(0.4,0,0.2,1), visibility 0s; }
 .af-fade.t { top: 0; background: linear-gradient(#fff, rgba(255,255,255,0)); }
 .af-fade.b { bottom: 0; background: linear-gradient(rgba(255,255,255,0), #fff); }
 .af-wheel.band .af-marker,
 .af-wheel.band .af-fade {
   opacity: 0; visibility: hidden;
-  transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1),
-              visibility 0s linear var(--af-panel-ms, 700ms);
+  transition: opacity var(--af-panel-ms, 350ms) cubic-bezier(0.4,0,0.2,1),
+              visibility 0s linear var(--af-panel-ms, 350ms);
 }
 
 /* 操作は「今まん中にある1枚」に効く。足すと消すが隣り合わないよう間に ⚙ を置く */
@@ -1697,7 +1695,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   position: absolute; top: 0; right: 0; bottom: 0; width: 64px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   border-left: 1px solid #eef2f6; background: linear-gradient(90deg, rgba(248,250,252,0), #f8fafc);
-  transition: opacity var(--af-panel-ms, 700ms) cubic-bezier(0.4,0,0.2,1);
+  transition: opacity var(--af-panel-ms, 350ms) cubic-bezier(0.4,0,0.2,1);
 }
 .af-wheel.band .af-rail { opacity: 0; pointer-events: none; }
 .af-rail-btn {
