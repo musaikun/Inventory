@@ -82,14 +82,9 @@ describe('MasterManagePage — 非表示の品目（設定済み品目一覧の�
     expect(rows()[1].textContent).toMatch(/9\/5 \d+:\d{2} に非表示/)
   })
 
-  it('「出さない」を押すと戻り、一覧から消える。0件なら言葉で出す', async () => {
-    cfg.hideItem('トマト')
+  it('非表示の品目が無ければ言葉で出す', async () => {
     await mountPage()
     await click(seg('非表示にした順'))
-    expect(names()).toEqual(['トマト'])
-
-    await click(rows()[0].querySelector('.mm-set-eye'))
-    expect(cfg.config.hiddenItems).not.toContain('トマト')
     expect(rows()).toHaveLength(0)
     expect(host.querySelector('.mm-page').textContent).toContain('非表示の品目はありません')
   })

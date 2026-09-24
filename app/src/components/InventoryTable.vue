@@ -724,7 +724,7 @@ function fmtYen(n) {
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
           <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
-            preview ? ($slots.qty ? '設定' : '振り分け') : orderMode ? '発注 / 在庫' : '数量' }}</th>
+            preview ? ($slots.qty ? '設定' : _isHiddenMode ? '非表示日時' : '振り分け') : orderMode ? '発注 / 在庫' : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
@@ -804,10 +804,7 @@ function fmtYen(n) {
                 ✏️ {{ typingMap[row.item].name }}が入力中…
               </div>
               <div v-else-if="(preview && $slots.qty) || row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
-                <template v-if="preview && $slots.qty && _isHiddenMode">
-                  <span v-if="hiddenAtOf(row.item)" class="prev-hint">{{ hiddenAtOf(row.item) }} に非表示</span>
-                </template>
-                <template v-else-if="preview && $slots.qty">
+                <template v-if="preview && $slots.qty">
                   <span v-for="g in previewGroups(row)" :key="g" class="prev-hint group-hint">{{ g }}</span>
                   <span v-if="previewGroups(row).length === 0" class="prev-hint">未振り分け</span>
                 </template>
@@ -839,7 +836,10 @@ function fmtYen(n) {
               <!-- まだ触っていない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
                    在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
               <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
-              <div v-if="preview && !$slots.qty" class="preview-groups">
+              <div v-if="preview && !$slots.qty && _isHiddenMode" class="preview-groups">
+                <span class="preview-hidden-at">{{ hiddenAtOf(row.item) ? `${hiddenAtOf(row.item)} に非表示` : '非表示' }}</span>
+              </div>
+              <div v-else-if="preview && !$slots.qty" class="preview-groups">
                 <span v-for="g in previewGroups(row)" :key="g" class="preview-group-chip">{{ g }}</span>
                 <span v-if="previewGroups(row).length === 0" class="preview-group-none">未振り分け</span>
               </div>
@@ -1154,6 +1154,7 @@ function fmtYen(n) {
   padding: 5px 14px;
   cursor: pointer;
 }
+.preview-hidden-at { font-size: 11px; font-weight: 700; color: #dc2626; white-space: nowrap; }
 .hidden-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 20px 0; }
 
 /* ── テーブル ── */

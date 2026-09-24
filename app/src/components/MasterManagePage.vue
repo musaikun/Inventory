@@ -14,7 +14,7 @@ import PdfGridSetup from './PdfGridSetup.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, hideItem, unhideItem, exportConfigCSV, setReorderPoint, setReplenishTarget } = useConfig()
+const { config, itemCount, exportConfigCSV } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -69,18 +69,6 @@ const listOpen = ref(false)
 function openList()  { activeHelp.value = ''; listOpen.value = true }
 function closeList() { listOpen.value = false }
 
-// ── 品目表からその場で設定する ─────────────────────────────
-// この画面の表では数量は打てない。代わりに、棚卸のたびに変わらない値
-// （発注点・補充目標）と、表に出す / 出さないをここで決める。
-// 打つそばから保存する（「保存」を押し忘れて消えるのが一番困る画面なので）。
-function reorderPointOf(item)   { return config.reorderPoints?.[item] ?? '' }
-function replenishTargetOf(item){ return config.replenishTargets?.[item] ?? '' }
-function onReorderPoint(item, e)    { setReorderPoint(item, e.target.value) }
-function onReplenishTarget(item, e) { setReplenishTarget(item, e.target.value) }
-function toggleHidden(item) {
-  if (hiddenSet.value.has(item)) unhideItem(item)
-  else hideItem(item)
-}
 
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
@@ -88,7 +76,7 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
-  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。タブでジャンル・作ったグループ・非表示設定品目・非表示にした順を切り替えられます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表では数量は打てません。代わりに、棚卸のたびには変わらない「発注点」「目標（補充してここまで戻す数）」と、表に出す / 出さないをその場で設定できます。打った値はすぐ保存されます。',
+  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。タブでジャンル・作ったグループ・非表示設定品目・非表示にした順を切り替えられます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
@@ -228,7 +216,7 @@ function onClear() {
           <span class="mm-organize-ico">📋</span>
           <span class="mm-organize-body">
             <span class="mm-organize-title">品目一覧を開く（{{ itemCount }}件）</span>
-            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をタブで切り替えて確認し、発注点・目標・表示をその場で設定</span>
+            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をタブで切り替えて確認</span>
           </span>
           <span class="mm-organize-arrow">→</span>
         </button>
@@ -259,37 +247,8 @@ function onClear() {
         <span class="mp-count">{{ itemCount }}件</span>
       </header>
       <div class="mp-scroll">
-        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。数量は打てません。発注点・目標と、表に出すかどうかをここで設定できます。</div>
-        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true">
-          <template #qty="{ row }">
-            <div class="mm-set">
-              <label class="mm-set-field">
-                <span class="mm-set-k">発注点</span>
-                <input
-                  class="mm-set-input" type="number" min="0" step="any" inputmode="decimal"
-                  :value="reorderPointOf(row.item)"
-                  :aria-label="`${row.item} の発注点`"
-                  @change="onReorderPoint(row.item, $event)"
-                />
-              </label>
-              <label class="mm-set-field">
-                <span class="mm-set-k">目標</span>
-                <input
-                  class="mm-set-input" type="number" min="0" step="any" inputmode="decimal"
-                  :value="replenishTargetOf(row.item)"
-                  :aria-label="`${row.item} の補充目標`"
-                  @change="onReplenishTarget(row.item, $event)"
-                />
-              </label>
-              <button
-                :class="['mm-set-eye', { off: hiddenSet.has(row.item) }]"
-                :aria-pressed="hiddenSet.has(row.item) ? 'true' : 'false'"
-                :title="hiddenSet.has(row.item) ? '棚卸・発注カードに出す' : '棚卸・発注カードから外す'"
-                @click.stop="toggleHidden(row.item)"
-              >{{ hiddenSet.has(row.item) ? '出さない' : '出す' }}</button>
-            </div>
-          </template>
-        </InventoryTable>
+        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。</div>
+        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" />
       </div>
     </div>
 
@@ -558,14 +517,6 @@ function onClear() {
 .mm-pick-close { margin-left: auto; border: none; background: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 2px 6px; }
 @media (prefers-reduced-motion: reduce) { .mm-pick { animation: none; } }
 
-/* 品目表の中でその場に置く設定。数量欄の位置をそのまま使う */
-.mm-set { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.mm-set-field { display: flex; align-items: center; gap: 4px; }
-.mm-set-k { font-size: 10px; font-weight: 800; color: #94a3b8; white-space: nowrap; }
-.mm-set-input { width: 52px; min-width: 0; border: 1px solid #e2e8f0; border-radius: 7px; padding: 5px 6px; font-size: 13px; text-align: right; font-family: inherit; }
-.mm-set-input:focus { outline: none; border-color: var(--primary, #2563eb); }
-.mm-set-eye { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 7px; font-size: 11px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; }
-.mm-set-eye.off { border-color: #e2e8f0; background: #f1f5f9; color: #94a3b8; }
 
 .mm-axis-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .mm-axis-label { font-size: 12px; font-weight: 800; color: #64748b; width: 58px; flex-shrink: 0; }

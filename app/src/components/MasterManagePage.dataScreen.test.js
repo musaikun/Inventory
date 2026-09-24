@@ -1,8 +1,8 @@
 // データ管理の作り直し（2026-09-15）。
 //   - 取り込む / 書き出す の入口を1つずつにし、押してから種類を選ぶ
 //   - 並び順は「グループ」で数える。ジャンルも取込元由来のグループとして同じ列に並ぶ
-//   - 品目一覧は数量は打てないが、発注点・目標・表示/非表示をその場で決める
 //   - 2026-09-23: 品目一覧は常設をやめ「設定済み品目一覧」のボタンから別ページで開く
+//   - 2026-09-24: 設定済み品目一覧は確認用にする（発注点・目標・出す/出さないの欄を外す）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
@@ -128,7 +128,7 @@ describe('データ管理 — 品目リスト整理', () => {
   })
 })
 
-describe('データ管理 — 品目一覧はその場で設定できる', () => {
+describe('データ管理 — 設定済み品目一覧（確認用）', () => {
   it('最初は出ておらず、ボタンで別ページとして開き、戻るで閉じる', async () => {
     await mountPage()
     expect(host.querySelector('.mm-page')).toBeNull()
@@ -150,63 +150,26 @@ describe('データ管理 — 品目一覧はその場で設定できる', () =>
     expect(consumeInnerLayerBack()).toBe(false)
   })
 
-  it('数量は打てない（数量の入力欄を持たない）', async () => {
+  it('確認用で、数量・発注点・目標・出す/出さないの欄を持たない', async () => {
     await mountPage()
     await openList()
-    expect(host.querySelector('.qty-display')).toBeNull()
-    expect(invRow('トマト').querySelector('.mm-set')).toBeTruthy()
+    expect(host.querySelector('.mm-page .qty-display')).toBeNull()
+    expect(host.querySelector('.mm-page input')).toBeNull()
+    expect(host.querySelector('.mm-page .mm-set-eye')).toBeNull()
+    expect(host.querySelector('.mm-page').textContent).not.toContain('発注点')
   })
 
-  it('発注点を打つとその場で保存される', async () => {
-    await mountPage()
-    await openList()
-    const input = invRow('トマト').querySelectorAll('.mm-set-input')[0]
-    await setInput(input, '3')
-    expect(cfg.config.reorderPoints['トマト']).toBe(3)
-  })
-
-  it('目標（補充してここまで戻す数）を打つとその場で保存される', async () => {
-    await mountPage()
-    await openList()
-    const input = invRow('トマト').querySelectorAll('.mm-set-input')[1]
-    await setInput(input, '12')
-    expect(cfg.config.replenishTargets['トマト']).toBe(12)
-  })
-
-  it('空にすると設定が解除される（自動算出へ戻る）', async () => {
-    cfg.setReorderPoint('トマト', 3)
-    await mountPage()
-    await openList()
-    await setInput(invRow('トマト').querySelectorAll('.mm-set-input')[0], '')
-    expect(cfg.config.reorderPoints['トマト']).toBeUndefined()
-  })
-
-  it('表に出す / 出さないをその場で切り替えられる', async () => {
-    await mountPage()
-    await openList()
-    const eye = () => invRow('豚バラ').querySelector('.mm-set-eye')
-    expect(eye().textContent.trim()).toBe('出す')
-    await click(eye())
-    expect(cfg.config.hiddenItems).toContain('豚バラ')
-    expect(eye().textContent.trim()).toBe('出さない')
-    await click(eye())
-    expect(cfg.config.hiddenItems).not.toContain('豚バラ')
-  })
-
-  it('非表示にした品目もこの表からは消えない（戻せなくなるため）', async () => {
+  it('非表示にした品目もジャンルの表からは消えない', async () => {
     cfg.hideItem('豚バラ')
     await mountPage()
     await openList()
     expect(invRow('豚バラ')).toBeTruthy()
   })
 
-  it('振り分け先は品目名の下に出る（数量欄を設定に明け渡しても失わない）', async () => {
-    cfg.setAxisName(0, '保管場所')
-    cfg.addAxisGroup(0, '冷蔵庫')
-    cfg.addItemToGroup(0, 'トマト', '冷蔵庫')
+  it('振り分け先は右の欄にチップで出る', async () => {
     await mountPage()
     await openList()
-    // 既定の並び替えはジャンル。ジャンル名がヒントに出る
-    expect(invRow('トマト').querySelector('.group-hint').textContent.trim()).toBe('野菜')
+    // 既定の並び替えはジャンル。ジャンル名がチップで出る
+    expect(invRow('トマト').querySelector('.preview-group-chip').textContent.trim()).toBe('野菜')
   })
 })
