@@ -6,7 +6,6 @@ import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
-import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import InventoryTable from './InventoryTable.vue'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
@@ -63,15 +62,9 @@ function exportLatestSnapshotCsv() {
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
-// 「最後に隠した順」。誤って隠したときに探す場所なので、直前のものを先頭に置く。
-// 時刻を持たない品目（この記録より前に隠したもの）は後ろへ回る。
-const hiddenList = computed(() => sortHiddenByRecent(config.hiddenItems, config.hiddenAt))
-function hiddenAt(n) { return hiddenAtLabel(config.hiddenAt?.[n]) }
 
-const hiddenOpen = ref(false)
-const isHidden = (item) => hiddenSet.value.has(item)
-
-// 設定済み品目一覧はページとして開く
+// 設定済み品目一覧はページとして開く。非表示の品目もここのタブ
+// （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
 const listOpen = ref(false)
 function openList()  { activeHelp.value = ''; listOpen.value = true }
 function closeList() { listOpen.value = false }
@@ -95,8 +88,7 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
-  hidden: '棚卸・発注カードに表示しない品目を、棚卸・発注と同じ表で見られます。既定は「非表示にした順」で、最後に隠したものから隠した時刻つきで並びます。誤って隠したときは上から遡って「戻す」で戻せます。ジャンルやグループの並びにも切り替えられます。',
-  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。この表では数量は打てません。代わりに、棚卸のたびには変わらない「発注点」「目標（補充してここまで戻す数）」と、表に出す / 出さないをその場で設定できます。打った値はすぐ保存されます。分類先の割り当ては品目名の下に出ます。',
+  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。タブでジャンル・作ったグループ・非表示設定品目・非表示にした順を切り替えられます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表では数量は打てません。代わりに、棚卸のたびには変わらない「発注点」「目標（補充してここまで戻す数）」と、表に出す / 出さないをその場で設定できます。打った値はすぐ保存されます。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
@@ -222,36 +214,8 @@ function onClear() {
         </button>
       </div>
 
-      <!-- 非表示中の管理 -->
-      <div class="mm-block">
-        <div class="mm-head-row">
-          <button class="mm-block-head mm-toggle" @click="hiddenOpen = !hiddenOpen">
-            <span class="mm-block-title">非表示中</span>
-            <span class="mm-block-note">{{ hiddenOpen ? '▲' : '▼' }} {{ hiddenList.length }}件</span>
-          </button>
-          <button class="mm-help-btn" :class="{ on: activeHelp === 'hidden' }" @click="toggleHelp('hidden')">?</button>
-        </div>
-        <div v-if="activeHelp === 'hidden'" class="mm-help">{{ HELP.hidden }}</div>
-        <template v-if="hiddenOpen">
-          <div v-if="hiddenList.length === 0" class="mm-empty">非表示の品目はありません。</div>
-          <!-- 棚卸・発注と同じ表で見る。既定は「非表示にした順」（直前に隠したものが先頭） -->
-          <div v-else class="mm-preview">
-            <InventoryTable
-              :preview="true" :inventory="{}" :filled-count="0" :read-only="true"
-              :hidden-items="config.hiddenItems" :item-filter="isHidden" :hidden-order-sort="true"
-            >
-              <template #qty="{ row }">
-                <div class="mm-set">
-                  <span v-if="hiddenAt(row.item)" class="mm-hidden-at">{{ hiddenAt(row.item) }}</span>
-                  <button class="mm-restore" @click.stop="unhideItem(row.item)">戻す</button>
-                </div>
-              </template>
-            </InventoryTable>
-          </div>
-        </template>
-      </div>
-
-      <!-- 設定済み品目一覧。表は別ページで開く（常に出すと、この画面の他の操作の邪魔になる） -->
+      <!-- 設定済み品目一覧。表は別ページで開く（常に出すと、この画面の他の操作の邪魔になる）。
+           非表示の品目もこの中のタブで見る -->
       <div class="mm-block">
         <div class="mm-head-row">
           <div class="mm-block-head">
@@ -264,7 +228,7 @@ function onClear() {
           <span class="mm-organize-ico">📋</span>
           <span class="mm-organize-body">
             <span class="mm-organize-title">品目一覧を開く（{{ itemCount }}件）</span>
-            <span class="mm-organize-sub">棚卸・発注と同じ表で確認し、発注点・目標・表示をその場で設定</span>
+            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をタブで切り替えて確認し、発注点・目標・表示をその場で設定</span>
           </span>
           <span class="mm-organize-arrow">→</span>
         </button>
@@ -296,7 +260,7 @@ function onClear() {
       </header>
       <div class="mp-scroll">
         <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示です。数量は打てません。発注点・目標と、表に出すかどうかをここで設定できます。</div>
-        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems">
+        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true">
           <template #qty="{ row }">
             <div class="mm-set">
               <label class="mm-set-field">
@@ -620,8 +584,6 @@ function onClear() {
 
 
 
-.mm-hidden-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; white-space: nowrap; }
-.mm-restore { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
 
 .mm-preview { margin-top: 10px; }
 .mm-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }

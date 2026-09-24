@@ -26,6 +26,10 @@ const otherItems = computed(() =>
   config.order.filter(item => !props.matched.includes(item))
 )
 
+// 非表示中の品目も検索には出す（数えたいときに探せないと困る）。ただし表には居ないので、
+// 選ぶ前に「非表示中」だと分かるよう印を付ける
+const hiddenSet = computed(() => new Set(config.hiddenItems ?? []))
+
 const hasQty        = computed(() => props.qty !== null)
 const qtyLabel      = computed(() => hasQty.value ? `${props.qty}${props.unit}` : '')
 const hasMatch      = computed(() => props.matched.length > 0)
@@ -75,7 +79,7 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
             class="item item-matched"
             @click="$emit('select', item)"
           >
-            <span class="item-name">{{ item }}</span>
+            <span class="item-name">{{ item }}<span v-if="hiddenSet.has(item)" class="hidden-mark">非表示</span></span>
             <span v-if="hasQty" class="item-qty-badge">{{ qtyLabel }}</span>
           </button>
 
@@ -89,7 +93,7 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
           class="item"
           @click="$emit('select', item)"
         >
-          {{ item }}
+          <span class="item-name">{{ item }}<span v-if="hiddenSet.has(item)" class="hidden-mark">非表示</span></span>
         </button>
 
       </div>
@@ -235,6 +239,11 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 }
 
 .item-name { flex: 1; }
+.hidden-mark {
+  margin-left: 6px; padding: 1px 6px; border-radius: 6px;
+  font-size: 10px; font-weight: 700; vertical-align: 1px;
+  background: #fef2f2; color: #dc2626;
+}
 
 .item-qty-badge {
   font-size: 13px;

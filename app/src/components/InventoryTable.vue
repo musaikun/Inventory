@@ -37,9 +37,9 @@ const props = defineProps({
   searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
   // 親が持つ絞り込み条件（filters スロットと対で使う）。null = 内蔵フィルターを使う
   itemFilter:       { type: Function, default: null },
-  // 並び替えに「非表示にした順」を足し、それを既定にする（データ管理の非表示中の表）。
-  // 誤って隠したものを遡って探す場所なので、直前に隠したものが先頭に来る並びから始める。
-  hiddenOrderSort:  { type: Boolean, default: false },
+  // タブに「非表示設定品目」「非表示にした順」を足す（データ管理の設定済み品目一覧）。
+  // どちらも非表示の品目だけを出す。後者は直前に隠したものが先頭で、誤って隠したものを遡って探せる。
+  hiddenTabs:       { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
@@ -78,18 +78,21 @@ function _isSupply(item) {
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref(props.hiddenOrderSort ? 'hiddenAt' : 'category')  // 'category' | 'alpha' | 'axisA' | 'axisB' | 'hiddenAt'
+const sortMode     = ref('category')  // 'category' | 'alpha' | 'axisA' | 'axisB' | 'hidden' | 'hiddenAt'
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 
 // 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
 const sortOpts = computed(() => {
   const opts = [
-    ...(props.hiddenOrderSort ? [{ value: 'hiddenAt', label: '非表示にした順' }] : []),
     { value: 'category', label: 'ジャンル' },
   ]
   const names = config.value.axisNames ?? ['', '']
   if (names[0]) opts.push({ value: 'axisA', label: names[0] })
   if (names[1]) opts.push({ value: 'axisB', label: names[1] })
+  if (props.hiddenTabs) {
+    opts.push({ value: 'hidden',   label: '非表示設定品目' })
+    opts.push({ value: 'hiddenAt', label: '非表示にした順' })
+  }
   return opts
 })
 
@@ -125,6 +128,8 @@ const _effectiveSort = computed(() => {
   if (m === 'axisB' && !names[1]) return 'order'
   return m
 })
+// 非表示の品目だけを見るタブ（hiddenTabs のときだけ選べる）
+const _isHiddenMode = computed(() => _effectiveSort.value === 'hidden' || _effectiveSort.value === 'hiddenAt')
 const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB'].includes(_effectiveSort.value))
 
 // アコーディオン展開状態は「モード + ラベル」でキー化し、軸切替時の同名グループ混線を防ぐ
@@ -252,6 +257,10 @@ const rows = computed(() => {
     const nTerm = normalize(_term)
     if (nTerm) all = all.filter(r => _normName(r.item).includes(nTerm))
   }
+  // 3.25 非表示タブは非表示の品目だけ
+  if (_isHiddenMode.value) {
+    all = all.filter(r => hiddenSet.value.has(r.item))
+  }
   // 3.3 親が持つ絞り込み（filters スロットを差した画面。既定は null＝素通り）
   if (props.itemFilter) {
     all = all.filter(r => props.itemFilter(r.item, r))
@@ -349,7 +358,8 @@ const rows = computed(() => {
     return result
   }
 
-  // 非表示にした順（新しい順・グループなし）。時刻の無い品目は元の順のまま後ろへ
+  // 非表示にした順（新しい順・グループなし）。時刻の無い品目は元の順のまま後ろへ。
+  // 「非表示設定品目」は下のフォールバック（config の順・グループなし）で出す
   if (mode === 'hiddenAt') {
     const byName = new Map(items.map(r => [r.item, r]))
     return sortHiddenByRecent([...byName.keys()], config.value.hiddenAt ?? {}).map(n => byName.get(n))
@@ -420,6 +430,8 @@ function previewGroups(row) {
   if (m === 'category') return row.category ? [row.category] : []
   return []
 }
+
+function hiddenAtOf(item) { return hiddenAtLabel(config.value.hiddenAt?.[item]) }
 
 function rowClick(item) {
   if (props.preview) return
@@ -717,6 +729,9 @@ function fmtYen(n) {
         </tr>
       </thead>
       <tbody>
+        <tr v-if="_isHiddenMode && visibleItemCount === 0" class="hidden-empty-row">
+          <td :colspan="totalCols" class="hidden-empty">非表示の品目はありません。</td>
+        </tr>
         <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
           <!-- グループヘッダー行（クリックでアコーディオン開閉・ジャンル/五十音共通） -->
@@ -789,7 +804,10 @@ function fmtYen(n) {
                 ✏️ {{ typingMap[row.item].name }}が入力中…
               </div>
               <div v-else-if="(preview && $slots.qty) || row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
-                <template v-if="preview && $slots.qty">
+                <template v-if="preview && $slots.qty && _isHiddenMode">
+                  <span v-if="hiddenAtOf(row.item)" class="prev-hint">{{ hiddenAtOf(row.item) }} に非表示</span>
+                </template>
+                <template v-else-if="preview && $slots.qty">
                   <span v-for="g in previewGroups(row)" :key="g" class="prev-hint group-hint">{{ g }}</span>
                   <span v-if="previewGroups(row).length === 0" class="prev-hint">未振り分け</span>
                 </template>
@@ -1359,6 +1377,7 @@ function fmtYen(n) {
   vertical-align: middle;
 }
 .badge-hidden { background: #fef2f2; color: #dc2626; }
+.hidden-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #94a3b8; }
 
 /* ── 商品コードセル ── */
 .td-code {

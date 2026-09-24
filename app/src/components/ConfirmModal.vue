@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
 import { suggestOrder } from '../services/orderSuggestion.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { useConfig } from '../composables/useConfig.js'
 
 const props = defineProps({
   ingredient:      { type: String,  required: true },
@@ -38,6 +39,10 @@ const props = defineProps({
   initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
   theoStock:       { type: Object,  default: null },  // 理論在庫 { qty, baseQty, baseDate, inQty, outQty }
 })
+
+// 検索で開いた品目が非表示中なら、名前に印を付ける（表には居ない品目を数えている、と分かるように）
+const { config: _config } = useConfig()
+const isHiddenItem = computed(() => (_config.hiddenItems ?? []).includes(props.ingredient))
 
 const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
 
@@ -497,7 +502,7 @@ function saveEdit() {
             type="button"
             aria-label="前の品目"
           >◀</button>
-          <span class="name-text">{{ ingredient }}</span>
+          <span class="name-text">{{ ingredient }}<span v-if="isHiddenItem" class="hidden-mark">非表示</span></span>
           <!-- あとで数えるは全幅の1行を持たない。低頻度の操作に行を割くと、
                その分テンキーが画面の外へ出て、打つ場所が動く原因になる。 -->
           <button
@@ -793,6 +798,11 @@ function saveEdit() {
 .name-text {
   flex: 1;
   min-width: 0;
+}
+.hidden-mark {
+  margin-left: 6px; padding: 1px 6px; border-radius: 6px;
+  font-size: 10px; font-weight: 700; vertical-align: 2px;
+  background: #fef2f2; color: #dc2626;
 }
 
 .name-nav {
