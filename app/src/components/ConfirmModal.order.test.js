@@ -73,8 +73,22 @@ describe('ConfirmModal — 発注モードの推奨', () => {
   it('学習が無くても、補充目標と在庫から推奨が出る', async () => {
     await mount({ parLevel: null, replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(8)
-    // 不足16 → 入数12で1ケース
-    expect(chip('推奨').textContent).toContain('1')
+    // 不足16 → 入数12で切り上げて2ケース。24入って8余るので知らせる
+    expect(chip('推奨').textContent).toContain('推奨 2')
+    expect(chip('推奨').textContent).toContain('切り上げで +8')
+  })
+
+  it('余りが入数の半分未満なら注記しない', async () => {
+    await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
+    await typeStock(1)
+    // 不足23 → 2ケース(24) → 1余る
+    expect(chip('推奨').textContent).toContain('推奨 2')
+    expect(chip('推奨').textContent).not.toContain('切り上げ')
+  })
+
+  it('仮の補充目標には（仮）を添える', async () => {
+    await mount({ replenish: { value: 24, source: 'assumed', basis: '仮: …' } })
+    expect(chip('補充目標').textContent).toContain('（仮）')
   })
 
   it('推奨は参考として出すだけで、発注数へは自動で入れない', async () => {
@@ -94,10 +108,10 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     chip('推奨').click()
     await nextTick()
     expect(onOrder(), '採用すると上の欄が発注数へ切り替わる').toBe(true)
-    expect(orderValue()).toBe('1')
+    expect(orderValue()).toBe('2')                  // 不足22 → 切り上げ2
 
     await type(3)                                   // そのままテンキーで直せる
-    expect(orderValue()).toBe('13')
+    expect(orderValue()).toBe('23')
   })
 
   it('足りていれば発注しない', async () => {

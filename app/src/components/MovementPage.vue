@@ -12,16 +12,15 @@ import { showOrderSchedule, orderScheduleFocusId } from '../composables/appMenuS
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { theoreticalStock } from '../services/theoreticalStock.js'
-import { avgDailyConsumption } from '../services/impliedConsumption.js'
-import { replenishTarget, targetBasisLabel } from '../services/replenishTarget.js'
-import { suggestReorderPoint, suggestReorderPoints } from '../services/reorderSuggestion.js'
+import { suggestReorderPoint } from '../services/reorderSuggestion.js'
+import { orderBaseFor } from '../services/orderBase.js'
 import { itemConsumptionAvailability, storeConsumptionReadiness } from '../services/analysisCapability.js'
 import { parseLot } from '../services/lot.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
-import ReorderBulkModal from './ReorderBulkModal.vue'
+import OrderBaseModal from './OrderBaseModal.vue'
 
 const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster', 'tabChange'])
 // 開いたときに選んでおくタブ。発注セッションから戻ってきたときに発注タブへ返すために使う。
@@ -29,7 +28,7 @@ const props = defineProps({
   initialTab: { type: String, default: 'view' },   // 'view' | 'order' | 'in' | 'out'
 })
 
-const { config, itemCount, setReorderPoint, setReplenishTarget } = useConfig()
+const { config, itemCount, setReorderPoint, setReplenishTarget, setOrderAssumptions } = useConfig()
 const { getSnapshots } = useHistory()
 const { saveMovement, getMovements } = useMovements()
 const { getOrders } = useOrders()
@@ -62,11 +61,11 @@ function reorderOf(item) {
   const v = Number(config.reorderPoints?.[item])
   return Number.isFinite(v) && v >= 0 ? v : null
 }
-// 要補充判定: 発注点が設定されていれば「理論在庫 ≤ 発注点」、無ければ「0以下」
+// 要補充判定: 発注点（手動、または仮定がある店では目安）があれば「理論在庫 ≤ 発注点」、無ければ「0以下」
 function needsReorder(item) {
   const t = theoOf(item)
   if (t == null) return false
-  const rp = reorderOf(item)
+  const rp = baseOf(item).reorder?.value ?? null
   return rp != null ? t <= rp : t <= 0
 }
 
@@ -89,17 +88,6 @@ function itemMovements(item) {
   return out
 }
 
-// ── 推奨発注点の目安（暫定ヒューリスティック）───────────────
-// 手動発注点＝人間が決める床。ここは「データから出す目安」を横に添えるだけ（自動上書きしない）。
-// 将来は曜日別・外的/内的要因の予測モデルに置き換える。
-// 目安 = 推定日消費 × 発注間隔（発注曜日の最大ギャップ、未設定は7日）。
-// 消費は「論理出庫」＝在庫観測（棚卸・発注時在庫）＋入庫から逆算（出庫を記録しない飲食店でも出る）。
-function dailyConsumption(item) {
-  return avgDailyConsumption(item, {
-    windowDays: 30, snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-    orderDays: schedOrderDays.value,
-  })
-}
 // ゲート表示: 算出に必要なデータが揃わない場合のヒント（過去棚卸の取込を促す）
 function consumptionHintOf(item) {
   return itemConsumptionAvailability(item, {
@@ -112,38 +100,41 @@ const storeReadiness = computed(() => storeConsumptionReadiness({ snapshots: _sn
 // 品目とスケジュールの紐付けはまだ無いので、全スケジュールの曜日の和集合で扱う。
 const schedOrderDays = computed(() => allOrderDays(config.orderSchedules))
 const reorderHorizon = computed(() => orderIntervalDays(config.orderSchedules))
-// 補充目標（発注してここまで戻す）。発注点はトリガーなので目標は別に決める。
-// 学習が貯まらない部分利用でも、発注点さえ入っていれば 発注点×2 が初期の目標になる。
-function replenishOf(item) {
-  const reorderPoint = reorderOf(item)
-  const avg = dailyConsumption(item)
-  const t = replenishTarget({
-    manual: config.replenishTargets?.[item] ?? null,
-    reorderPoint,
-    dailyConsumption: avg,
-    horizonDays: reorderHorizon.value,
-  })
-  if (!t) return null
-  return { ...t, basis: targetBasisLabel(t, { reorderPoint, dailyConsumption: avg, horizonDays: reorderHorizon.value }) }
+// 発注基準（発注点・補充目標）。手動 → 学習/消費 → 仮 の順は services/orderBase に集約。
+// 仮定（config.orderAssumptions）が無い店は従来どおり手動の発注点だけで決まる。
+const baseMap = computed(() => {
+  const ctx = {
+    reorderPoints: config.reorderPoints ?? {}, replenishTargets: config.replenishTargets ?? {},
+    assumptions: config.orderAssumptions ?? null,
+    snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
+    orderDays: schedOrderDays.value, horizonDays: reorderHorizon.value,
+  }
+  const m = {}
+  for (const item of allItems.value) m[item] = orderBaseFor(item, { ...ctx, category: config.categories?.[item] ?? '' })
+  return m
+})
+function baseOf(item) {
+  return baseMap.value[item] ?? { reorder: null, target: null }
 }
+// 補充目標（発注してここまで戻す）。発注点はトリガーなので目標は別に決める。
+function replenishOf(item) { return baseOf(item).target }
 
-// 発注点の目安。算出は services/reorderSuggestion に集約（一括設定と同じ値を出す）。
+// 発注点の目安（詳細シートの「目安」）。仮定がある店では仮も出す。
 function reorderSuggestionOf(item) {
   return suggestReorderPoint(item, {
     snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
     orderDays: schedOrderDays.value, horizonDays: reorderHorizon.value,
+    assumptions: config.orderAssumptions ?? null, category: config.categories?.[item] ?? '',
   })
 }
 function suggestedReorder(item) { return reorderSuggestionOf(item)?.value ?? null }
 function suggestBasisLabel(item) { return reorderSuggestionOf(item)?.basis ?? '' }
 
-// 発注点の一括設定（部分利用のユーザーはここが推奨発注数の土台になる）
-const showReorderBulk = ref(false)
-const reorderRows = computed(() => suggestReorderPoints(allItems.value, {
-  reorderPoints: config.reorderPoints ?? {},
-  snapshots: _snaps.value, orders: getOrders(), movements: _moves.value,
-  orderDays: schedOrderDays.value, horizonDays: reorderHorizon.value,
-}))
+// 発注基準の設定（旧・発注点をまとめて設定）
+const showOrderBase = ref(false)
+const orderBaseRows = computed(() => allItems.value.map(item => ({
+  item, category: config.categories?.[item] ?? '', ...baseOf(item),
+})))
 
 // ── 理論在庫（全品目を一括算出）─────────────────────────────
 const _snaps = computed(() => getSnapshots())
@@ -526,7 +517,7 @@ async function onStartOrder() {
         <!-- 絞り込みチップは持たない（在庫タブは常に全品目を出す）。表の既定チップも
              在庫の意味には合わないので、slot は上書きしたまま空にしておく。 -->
         <template v-if="!isRecord" #filters>
-          <button class="mv-rb-btn" type="button" @click="showReorderBulk = true">🎯 発注点をまとめて設定</button>
+          <button class="mv-rb-btn" type="button" @click="showOrderBase = true">🎯 発注基準を設定</button>
         </template>
         <template v-if="!isRecord" #progress>
           <span class="progress">
@@ -550,12 +541,15 @@ async function onStartOrder() {
       </div>
     </div>
 
-    <ReorderBulkModal
-      v-if="showReorderBulk"
-      :rows="reorderRows"
+    <OrderBaseModal
+      v-if="showOrderBase"
+      :rows="orderBaseRows"
       :unit-of="unitOf"
-      @update="(item, v) => setReorderPoint(item, v)"
-      @close="showReorderBulk = false"
+      :assumptions="config.orderAssumptions ?? null"
+      :interval-days="reorderHorizon"
+      @save-assumptions="setOrderAssumptions"
+      @set-reorder="(item, v) => setReorderPoint(item, v)"
+      @close="showOrderBase = false"
     />
 
     <!-- 在庫の詳細（内訳・発注点・目安・直近の入出庫）-->

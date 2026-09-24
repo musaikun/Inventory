@@ -10,12 +10,16 @@
 //   2. stocktakeMin … 在庫観測（棚卸・発注時在庫）の最小値。
 //                     「これまでで最も少なかったときの在庫」＝実際にそこまで減らして
 //                     回っていた水準。消費が出せない店でも、記録された事実から出せる。
-//   どちらも出せなければ null（推測で埋めない。理由は analysisCapability が返す）
+//   3. assumed      … 店舗が仮定（届くまで・余裕・何日分）を保存したときだけ。
+//                     直近在庫1つからの仮の値（assumedOrderBase）。実績が貯まれば 1・2 に替わる。
+//   どれも出せなければ null（推測で埋めない。理由は analysisCapability が返す）
 
 import { avgDailyConsumption, stockObservations } from './impliedConsumption.js'
+import { assumedBase } from './assumedOrderBase.js'
 
 export function suggestReorderPoint(item, {
   snapshots = [], orders = [], movements = [], orderDays = [], horizonDays = 7,
+  assumptions = null, category = '',
 } = {}) {
   const avg = avgDailyConsumption(item, { windowDays: 30, snapshots, orders, movements, orderDays })
   if (avg != null && avg > 0) {
@@ -37,6 +41,8 @@ export function suggestReorderPoint(item, {
       }
     }
   }
+  const a = assumedBase(item, { snapshots, orders, assumptions, category, intervalDays: horizonDays })
+  if (a) return { value: a.reorderPoint, source: 'assumed', basis: a.basis }
   return null
 }
 
@@ -44,9 +50,9 @@ export function suggestReorderPoint(item, {
  * 一括設定用に、品目ごとの提案をまとめて出す。
  * @returns {Array} [{ item, current, suggested, source, basis }]（提案が無い品目も含む）
  */
-export function suggestReorderPoints(items, { reorderPoints = {}, ...ctx } = {}) {
+export function suggestReorderPoints(items, { reorderPoints = {}, categoryOf = () => '', ...ctx } = {}) {
   return (items || []).map(item => {
-    const s = suggestReorderPoint(item, ctx)
+    const s = suggestReorderPoint(item, { ...ctx, category: categoryOf(item) })
     return {
       item,
       current:   reorderPoints?.[item] ?? null,

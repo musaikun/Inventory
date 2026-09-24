@@ -28,7 +28,7 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 
 - **概要**: 実績（消費推定・在庫の最小値）がまだ無い品目に、**直近の棚卸数量と店舗の仮定3つ**
   （届くまでの日数・余裕の日数・何日分置いているか）から「仮」の発注点と補充目標を出す。
-  仕入れカード在庫タブの「🎯 発注点をまとめて設定」をこの画面に差し替える。**設計のみ・未実装**。
+  仕入れカード在庫タブの「🎯 発注点をまとめて設定」をこの画面に差し替える。**v0.108.0 で実装済み**（下記「実装メモ」）。
 - **User決定（2026-09-24）**:
   1. **AIは使わない**（元案の商品特性解析は外す。数字に効く値はどれもAIで確定できないため）
   2. **推奨発注数は入数の切り上げ**にする（D4 の「切り捨て」を置き換える。下記 §4）
@@ -111,9 +111,21 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 2. `orderAssumptions` の保存・同期、発注基準シート（`ReorderBulkModal` 置き換え）、`ConfirmModal` の切り上げ注記
 3. 後続候補: 未納の追跡、仕入先別 L
 
-- **影響範囲 / 実装状況**: 未実装。触る予定: `services/reorderSuggestion.js`・`replenishTarget.js`・
-  `orderSuggestion.js`、`composables/useConfig.js`、`components/ReorderBulkModal.vue`（置換）・
-  `MovementPage.vue`・`ConfirmModal.vue`・`App.vue`（`_replenishFor`）。
+- **影響範囲 / 実装状況**: v0.108.0 で段階1・2を実装。
+  - 新規: `services/assumedOrderBase.js`（仮の計算）、`services/orderBase.js`（手動→学習/消費→仮→×2 を
+    1か所で決める。`App.vue` と `MovementPage.vue` の重複していた目標計算をここへ寄せた）、
+    `components/OrderBaseModal.vue`（`ReorderBulkModal.vue` を削除して置換）
+  - 変更: `reorderSuggestion`（3段目 `assumed`）、`replenishTarget`（`assumed`）、`orderSuggestion`
+    （ceil＋`roundUpExcess`）、`useConfig`（`orderAssumptions`・`setOrderAssumptions`）、
+    `worker/src/RoomDO.js normalizeConfig`（中継。B-01 対策）、`ConfirmModal`（補充目標に「（仮）」、推奨に余りの注記）
+  - 在庫タブの「要補充」も、仮定がある店では手動が無い品目に目安の発注点を使う。
+  - **Worker の再デプロイまでは、ゲストへの中継で `orderAssumptions` が落ちる**（ホスト端末と D1 には残る）。
+- **実装メモ（未決・PM確認）**:
+  1. **発注点の定義が段で違う**。既存の `consumption` は `日消費 × 発注間隔`、仮は `日消費 × (届くまで＋余裕)`
+     （User承認済みの式）。週1発注だと、実績に切り替わった瞬間に発注点が約3.5倍になる。
+     どちらかに揃えるか要判断（既存側を変えると D4 の合意を変えることになるので今回は触っていない）。
+  2. 仮定を保存すると、手動の発注点が無い品目は消費推定・在庫の最小値も**自動で使う**ようになる
+     （以前は「目安」ボタンで採用したときだけ）。仮定の無い店は従来どおり。
 - **スコープ**: 品質集中中の新機能。D-024（仕入れカードを公開gateより優先）の範囲と読めるが要判断。
 - **PM判断**: ⬜未トリアージ
 

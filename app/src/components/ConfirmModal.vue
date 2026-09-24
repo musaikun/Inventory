@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
-import { suggestOrder } from '../services/orderSuggestion.js'
+import { suggestOrder, roundUpExcess } from '../services/orderSuggestion.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
 
@@ -88,6 +88,11 @@ const suggested = computed(() => {
   const stock = qty.value === '' ? null : parseFloat(qty.value)
   if (stock == null || isNaN(stock)) return null
   return suggestOrder(targetLevel.value, stock, props.orderLot)
+})
+// 入数の切り上げで目標を大きく超える量（在庫単位）。0 = 知らせるほどではない
+const suggestedExcess = computed(() => {
+  if (!suggested.value) return 0
+  return roundUpExcess(targetLevel.value, parseFloat(qty.value), props.orderLot)
 })
 
 // 実際に確定される発注数。発注数は必ず人が入力する（推奨は参考として出すだけで、
@@ -538,9 +543,9 @@ function saveEdit() {
             <span
               class="hint-chip hint-ref flat"
               :title="targetLevel == null ? '在庫タブで発注点を入れると、そこから推奨を出せます' : ''"
-            >補充目標 {{ targetLevel != null ? `${targetLevel}${unit}` : '未設定' }}</span>
+            >補充目標 {{ targetLevel != null ? `${targetLevel}${unit}` : '未設定' }}<template v-if="replenish?.source === 'assumed'">（仮）</template></span>
             <button v-if="suggested != null" class="hint-chip hint-ref" type="button" :title="replenish?.basis || ''" @click="setOrderQty(suggested)">
-              推奨 {{ suggested }}{{ lotUnitLabel }}
+              推奨 {{ suggested }}{{ lotUnitLabel }}<template v-if="suggestedExcess">（切り上げで +{{ suggestedExcess }}{{ unit }} 余ります）</template>
             </button>
             <button v-if="weekdayHistory?.lastWeek" class="hint-chip hint-ref" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
               前週 {{ weekdayHistory.lastWeek.qty }}{{ lotUnitLabel }}

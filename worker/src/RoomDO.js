@@ -72,6 +72,9 @@ export function normalizeConfig(src = {}) {
     reorderPoints: src.reorderPoints ?? {},
     replenishTargets: src.replenishTargets ?? {},
     orderSchedules: _normSchedules(src.orderSchedules, src.orderSchedule),
+    // 値の検証は受け取った端末（normalizeAssumptions）が行う。ここは形だけ守って中継する。
+    orderAssumptions: src.orderAssumptions && typeof src.orderAssumptions === 'object' && !Array.isArray(src.orderAssumptions)
+      ? src.orderAssumptions : null,
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],

@@ -87,3 +87,20 @@ describe('発注スケジュール（複数）', () => {
     expect(list[0].name).toBe('')
   })
 })
+
+describe('仮の発注基準の仮定（orderAssumptions）', () => {
+  it('既定は null（仮の基準を使わない）', () => {
+    expect(cfg.config.orderAssumptions).toBeNull()
+  })
+
+  it('保存・再読み込み・解除', async () => {
+    cfg.setOrderAssumptions({ leadDays: 2, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 3 } })
+    vi.resetModules()
+    const { useConfig } = await import('./useConfig.js')
+    const again = useConfig()
+    expect(again.config.orderAssumptions).toEqual({ leadDays: 2, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 3 } })
+
+    again.setOrderAssumptions(null)
+    expect(again.config.orderAssumptions).toBeNull()
+  })
+})

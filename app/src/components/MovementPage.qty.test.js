@@ -88,8 +88,8 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     for (const gone of ['すべて', '在庫あり', '要補充', '入力済み', '未入力']) {
       expect(labels).not.toContain(gone)
     }
-    // 発注点の一括設定は残す
-    expect([...host.querySelectorAll('button')].some(b => b.textContent.includes('発注点をまとめて設定'))).toBe(true)
+    // 発注基準の設定は残す
+    expect([...host.querySelectorAll('button')].some(b => b.textContent.includes('発注基準を設定'))).toBe(true)
   })
 
   // 取込はデータ管理へ集約した。同じ取込に2つの入口があると、どちらが正か分からなくなる。
@@ -114,14 +114,32 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     expect(opened).toHaveLength(1)
   })
 
-  it('在庫タブから発注点をまとめて設定できる', async () => {
+  it('在庫タブから発注基準を設定でき、仮定を保存すると棚卸1回でも仮の発注点が出る', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
+      s1: {
+        sessionId: 's1', date: '2026-08-01', savedAt: '2026-08-01T01:00:00Z',
+        items: [{ item: 'トマト', qty: 40, unit: '個', unitPrice: 120, subtotal: 4800 }],
+      },
+    }))
     await mountPage()
     await openTab('在庫')
-    const bulk = button('🎯 発注点をまとめて設定')
-    expect(bulk).not.toBeUndefined()
-    await click(bulk)
-    expect(host.textContent).toContain('発注点をまとめて設定')
-    expect(host.textContent).toContain('この在庫を下回ったら発注する')
+    await click(button('🎯 発注基準を設定'))
+    const sheet = host.querySelector('.ob-sheet')
+    expect(sheet).not.toBeNull()
+    expect(sheet.textContent).toContain('仮の')
+
+    await click(button('この仮定で出す'))
+    // 既定: 届くまで1日・余裕1日・週1 → 5日分。40 ÷ 5 × 2 = 16
+    expect(cfg.config.orderAssumptions).toMatchObject({ leadDays: 1, safetyDays: 1 })
+    const row = [...host.querySelectorAll('.ob-row')].find(r => r.textContent.includes('トマト'))
+    expect(row.textContent).toContain('仮')
+    expect(row.querySelector('.ob-input').getAttribute('placeholder')).toBe('16')
+    // 在庫の記録が無い品目は出さない
+    const lettuce = [...host.querySelectorAll('.ob-row')].find(r => r.textContent.includes('レタス'))
+    expect(lettuce.textContent).toContain('未設定')
+    // 仮の値は保存しない
+    expect(cfg.config.reorderPoints['トマト']).toBeUndefined()
   })
 
   it('在庫タブの行タップは数量入力ではなく詳細シートを開く', async () => {

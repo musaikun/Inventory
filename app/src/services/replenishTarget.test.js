@@ -46,12 +46,12 @@ describe('targetBasisLabel', () => {
   })
 })
 
-// 発注数は既存の suggestOrder（LOT 単位・切り捨て）をそのまま使う。
+// 発注数は suggestOrder（LOT 単位・切り上げ / User決定 2026-09-24）を使う。
 describe('補充目標から発注数を出す', () => {
-  it('不足を入数で割った整数部（過剰発注しない）', () => {
+  it('不足を入数で割って切り上げ', () => {
     const t = replenishTarget({ reorderPoint: 12 })     // 24
     expect(t.value).toBe(24)
-    expect(suggestOrder(t.value, 8, 12)).toBe(1)        // 不足16 → 1ケース(12)
+    expect(suggestOrder(t.value, 8, 12)).toBe(2)        // 不足16 → 2ケース(24)
     expect(suggestOrder(t.value, 0, 12)).toBe(2)
     expect(suggestOrder(t.value, 24, 12)).toBe(0)       // 足りていれば発注しない
   })

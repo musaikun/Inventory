@@ -16,6 +16,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       reorderPoints: { トマト: 5 },
       replenishTargets: { トマト: 12 },
       orderSchedules: [{ id: 'a', name: '青果', days: [2, 5], deadline: '15:00' }],
+      orderAssumptions: { leadDays: 1, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 2 } },
       isCustom: true,
     }
     const out = normalizeConfig(src)
@@ -23,6 +24,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     // 補充目標と発注スケジュールもホスト→ゲストへ中継する（列挙漏れ＝事故B-01の再発防止）
     expect(out.replenishTargets).toEqual({ トマト: 12 })
     expect(out.orderSchedules).toEqual([{ id: 'a', name: '青果', days: [2, 5], deadline: '15:00' }])
+    expect(out.orderAssumptions).toEqual({ leadDays: 1, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 2 } })
     expect(out.axisNames).toEqual(['場所', '仕入先'])
     expect(out.tagsA).toEqual({ トマト: ['冷蔵'] })
     expect(out.tagsB).toEqual({ トマト: ['八百屋'] })
@@ -39,6 +41,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     expect(out.reorderPoints).toEqual({})
     expect(out.replenishTargets).toEqual({})
     expect(out.orderSchedules).toEqual([])
+    expect(out.orderAssumptions).toBeNull()
     expect(out.tagsA).toEqual({})
     expect(out.axisGroupsA).toEqual([])
     expect(out.hiddenItems).toEqual([])

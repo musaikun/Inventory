@@ -11,6 +11,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isPro, FREE_ITEM_LIMIT, itemLimit, canAddItem } from '../utils/planLimits.js'
 import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
+import { normalizeAssumptions } from '../services/assumedOrderBase.js'
 import {
   parseItemCSV,
   parseMappedCSV,
@@ -62,6 +63,8 @@ const config = reactive({
   // 発注スケジュール（仕入先ごとに曜日・締切が違うので配列）。
   // [{ id, name, days:0=日..6=土, deadline:'HH:MM' }]。最大 MAX_ORDER_SCHEDULES 件。
   orderSchedules: [],
+  // 仮の発注基準の仮定（届くまで・余裕・何日分）。null = 未設定＝仮の基準を使わない。
+  orderAssumptions: null,
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -120,6 +123,7 @@ function _serializeConfigData() {
     tagsArchiveA:  config.tagsArchiveA,
     tagsArchiveB:  config.tagsArchiveB,
     orderSchedules: config.orderSchedules,
+    orderAssumptions: config.orderAssumptions,
   }
 }
 function _assignConfigData(src) {
@@ -146,6 +150,7 @@ function _assignConfigData(src) {
   config.tagsArchiveB  = _normTags(src.tagsArchiveB)
   // src.orderSchedule = 旧・単一形式。orderSchedules が無いときだけ1件へ移行する。
   config.orderSchedules = normalizeSchedules(src.orderSchedules, src.orderSchedule)
+  config.orderAssumptions = normalizeAssumptions(src.orderAssumptions)
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -188,6 +193,13 @@ function _save() {
 // 曜日が空の行は normalizeSchedules が捨て、上限を超えた分は切り捨てる。
 function setOrderSchedules(list) {
   config.orderSchedules = normalizeSchedules(list)
+  config.isCustom = true
+  _save()
+}
+
+// 仮の発注基準の仮定を保存。null で解除（従来どおり手動の発注点だけに戻る）。
+function setOrderAssumptions(src) {
+  config.orderAssumptions = normalizeAssumptions(src)
   config.isCustom = true
   _save()
 }
@@ -1105,5 +1117,6 @@ export function useConfig() {
     copyCategoriesToAxis,
     copyCategoryToAxis,
     setOrderSchedules,
+    setOrderAssumptions,
   }
 }

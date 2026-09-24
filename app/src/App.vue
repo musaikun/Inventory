@@ -50,8 +50,7 @@ import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { useDayNotes } from './composables/useDayNotes.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
-import { replenishTarget, targetBasisLabel } from './services/replenishTarget.js'
-import { avgDailyConsumption } from './services/impliedConsumption.js'
+import { orderBaseFor } from './services/orderBase.js'
 import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
 import { saveLastPage, readLastPage } from './services/lastPage.js'
 import {
@@ -139,7 +138,7 @@ function _theoStockFor(item) {
   return theoreticalStock(item, getSnapshots(), getMovements())
 }
 // 補充目標（発注してここまで戻す水準）と、その根拠。
-// 発注点はトリガーであって目標ではないので、目標は replenishTarget が別に決める。
+// 発注点はトリガーであって目標ではないので、目標は別に決める（services/orderBase）。
 // 学習（適正在庫）が貯まらない部分利用でも、発注点さえ入っていれば推奨が出る。
 // 発注間隔・発注曜日は「店舗としていつ発注が入るか」で決まる。スケジュールが複数あっても
 // 品目とスケジュールの紐付けはまだ無いので、全スケジュールの曜日の和集合で扱う。
@@ -147,21 +146,13 @@ function _orderHorizonDays() {
   return orderIntervalDays(config.orderSchedules)
 }
 function _replenishFor(item) {
-  const reorderPoint = config.reorderPoints?.[item] ?? null
-  const horizonDays  = _orderHorizonDays()
-  const dailyConsumption = avgDailyConsumption(item, {
-    windowDays: 30, snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
-    orderDays: allOrderDays(config.orderSchedules),
-  })
-  const target = replenishTarget({
-    manual: config.replenishTargets?.[item] ?? null,
+  return orderBaseFor(item, {
+    reorderPoints: config.reorderPoints ?? {}, replenishTargets: config.replenishTargets ?? {},
+    assumptions: config.orderAssumptions ?? null, category: config.categories?.[item] ?? '',
+    snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
+    orderDays: allOrderDays(config.orderSchedules), horizonDays: _orderHorizonDays(),
     parLevel: _parLevelFor(item),
-    reorderPoint,
-    dailyConsumption,
-    horizonDays,
-  })
-  if (!target) return null
-  return { ...target, basis: targetBasisLabel(target, { reorderPoint, dailyConsumption, horizonDays }) }
+  }).target
 }
 
 // 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。

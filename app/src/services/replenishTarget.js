@@ -9,7 +9,8 @@
 //   1. manual        … 品目ごとの手動設定。人が決めたものは常に優先する
 //   2. par           … 曜日別の学習値（orderLearning.parLevel）。その店の実績そのもの
 //   3. consumption   … 発注点 ＋ 発注間隔ぶんの推定消費。消費が算出できるようになったら使う
-//   4. reorder       … 発注点 × REORDER_MULTIPLIER。学習も消費も無い初期状態の既定
+//   4. assumed       … 直近在庫と店舗の仮定からの仮の目標（assumedOrderBase）。発注点も仮のときだけ渡される
+//   5. reorder       … 発注点 × REORDER_MULTIPLIER。学習も消費も無い初期状態の既定
 //   materials が何も無ければ null（＝目標を出せない。推奨も出さない）
 //
 // 部分利用（週1回・不定期）のユーザーは 2 も 3 も長く貯まらないため、4 が実質の初期値になる。
@@ -31,11 +32,12 @@ const _num = (v) => {
  * @param {number|null} m.reorderPoint  発注点
  * @param {number|null} m.dailyConsumption 推定日消費
  * @param {number}      m.horizonDays   発注間隔（日）
- * @returns {{ value:number, source:'manual'|'par'|'consumption'|'reorder' }|null}
+ * @param {number|null} m.assumedTarget 仮の補充目標
+ * @returns {{ value:number, source:'manual'|'par'|'consumption'|'assumed'|'reorder' }|null}
  */
 export function replenishTarget({
   manual = null, parLevel = null, reorderPoint = null,
-  dailyConsumption = null, horizonDays = 7,
+  dailyConsumption = null, horizonDays = 7, assumedTarget = null,
 } = {}) {
   const man = _num(manual)
   if (man != null && man >= 0) return { value: man, source: 'manual' }
@@ -49,18 +51,21 @@ export function replenishTarget({
   if (rp != null && avg != null && avg > 0 && days > 0) {
     return { value: Math.round(rp + Math.ceil(avg * days)), source: 'consumption' }
   }
+  const as = _num(assumedTarget)
+  if (as != null && as > 0) return { value: as, source: 'assumed' }
   if (rp != null && rp > 0) return { value: rp * REORDER_MULTIPLIER, source: 'reorder' }
 
   return null
 }
 
 // 根拠の文言。推奨の数字だけ出しても直しようがないので、必ず理由を添えられるようにする。
-export function targetBasisLabel(target, { reorderPoint = null, dailyConsumption = null, horizonDays = 7 } = {}) {
+export function targetBasisLabel(target, { reorderPoint = null, dailyConsumption = null, horizonDays = 7, assumedBasis = '' } = {}) {
   if (!target) return ''
   switch (target.source) {
     case 'manual':      return '手動で設定した補充目標'
     case 'par':         return '同じ曜日の実績から学習した適正在庫'
     case 'consumption': return `発注点 ${reorderPoint} ＋ 推定消費 ${Number(dailyConsumption).toFixed(1)}/日 × ${horizonDays}日`
+    case 'assumed':     return assumedBasis || '仮の補充目標'
     case 'reorder':     return `発注点 ${reorderPoint} × ${REORDER_MULTIPLIER}（学習が貯まると自動で切り替わります）`
     default:            return ''
   }
