@@ -31,6 +31,20 @@ async function mountPage() {
   return host
 }
 
+function touch(type, x, y = 100) {
+  const ev = new Event(type, { bubbles: true })
+  ev.changedTouches = [{ clientX: x, clientY: y }]
+  return ev
+}
+async function swipe(dx) {
+  const el = host.querySelector('.mm-page .inventory-section')
+  el.dispatchEvent(touch('touchstart', 200))
+  el.dispatchEvent(touch('touchmove', 200 + dx / 2))
+  el.dispatchEvent(touch('touchend', 200 + dx))
+  await nextTick()
+}
+const activeTab = () => host.querySelector('.mm-page .seg-btn.active')?.textContent.trim()
+
 const rows  = () => [...host.querySelectorAll('.mm-page .item-row')]
 const names = () => rows().map(r => r.dataset.item)
 
@@ -93,5 +107,36 @@ describe('MasterManagePage — 非表示の品目（設定済み品目一覧の�
     cfg.hideItem('トマト')
     await mountPage()
     expect(host.querySelector('.mm-page [data-item="トマト"]')).toBeTruthy()
+  })
+
+  it('左右にスワイプでタブが隣へ移り、端では止まる', async () => {
+    cfg.setAxisName(0, '保管場所')
+    cfg.hideItem('トマト')
+    await mountPage()
+    expect(activeTab()).toBe('ジャンル')
+    await swipe(80)                       // 右へ払う＝左隣。先頭なので動かない
+    expect(activeTab()).toBe('ジャンル')
+    await swipe(-80)
+    expect(activeTab()).toBe('保管場所')
+    await swipe(-80)
+    await swipe(-80)
+    expect(activeTab()).toBe('非表示にした順')
+    expect(names()).toEqual(['トマト'])
+    await swipe(-80)                      // 末尾なので動かない
+    expect(activeTab()).toBe('非表示にした順')
+    await swipe(80)
+    expect(activeTab()).toBe('非表示設定品目')
+  })
+
+  it('短い横移動や縦スクロールではタブは変わらない', async () => {
+    await mountPage()
+    await swipe(-20)
+    expect(activeTab()).toBe('ジャンル')
+    const el = host.querySelector('.mm-page .inventory-section')
+    el.dispatchEvent(touch('touchstart', 200, 100))
+    el.dispatchEvent(touch('touchmove', 190, 200))
+    el.dispatchEvent(touch('touchend', 140, 400))
+    await nextTick()
+    expect(activeTab()).toBe('ジャンル')
   })
 })

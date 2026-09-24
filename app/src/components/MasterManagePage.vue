@@ -247,8 +247,8 @@ function onClear() {
         <span class="mp-count">{{ itemCount }}件</span>
       </header>
       <div class="mp-scroll">
-        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。</div>
-        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" />
+        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。左右にスワイプでタブを切り替えられます。</div>
+        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
       </div>
     </div>
 

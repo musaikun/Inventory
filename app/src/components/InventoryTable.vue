@@ -3,6 +3,7 @@ import { ref, computed, reactive } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 
@@ -40,6 +41,9 @@ const props = defineProps({
   // タブに「非表示設定品目」「非表示にした順」を足す（データ管理の設定済み品目一覧）。
   // どちらも非表示の品目だけを出す。後者は直前に隠したものが先頭で、誤って隠したものを遡って探せる。
   hiddenTabs:       { type: Boolean, default: false },
+  // 表の上を左右にスワイプして並び替えのタブを切り替える（データ管理の設定済み品目一覧）。
+  // 行の左スワイプ（非表示）と取り合うので、行を操作できない確認用の表でだけ使う
+  swipeTabs:        { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
@@ -119,6 +123,27 @@ function openAxisEdit(value) {
   axisAssignInitial.value = value === 'axisA' ? 0 : 1
   showAxisAssign.value = true
 }
+
+// ── スワイプでタブを切り替える（swipeTabs のときだけ）──────────────
+// 左へ払う＝右隣のタブ、右へ払う＝左隣のタブ。端では止まる（ループさせると今どこか見失う）
+const tabSlide = ref('')   // 'fwd' | 'back' | ''（スワイプで切り替えた向き。表の入り方に使う）
+function stepTab(d) {
+  const opts = sortOpts.value
+  const i = opts.findIndex(o => o.value === sortMode.value)
+  const next = opts[i + d]
+  if (!next) return
+  tabSlide.value = d > 0 ? 'fwd' : 'back'
+  sortMode.value = next.value
+}
+const _tabSwipe = useHorizontalSwipe({ onLeft: () => stepTab(1), onRight: () => stepTab(-1) })
+const tabSwipe = {
+  onTouchStart:  e => { if (props.swipeTabs) _tabSwipe.onTouchStart(e) },
+  onTouchMove:   e => { if (props.swipeTabs) _tabSwipe.onTouchMove(e) },
+  onTouchEnd:    e => { if (props.swipeTabs) _tabSwipe.onTouchEnd(e) },
+  onTouchCancel: e => { if (props.swipeTabs) _tabSwipe.onTouchCancel(e) },
+}
+// タブを押して切り替えたときは向きの演出を付けない
+function selectSort(v) { tabSlide.value = ''; sortMode.value = v }
 
 // 未設定の軸を選んだ状態でも壊れないよう、実効モードにフォールバック
 const _effectiveSort = computed(() => {
@@ -641,7 +666,13 @@ function fmtYen(n) {
 </script>
 
 <template>
-  <section class="inventory-section" :class="{ 'inv-preview': preview }">
+  <section
+    class="inventory-section" :class="{ 'inv-preview': preview }"
+    @touchstart.passive="tabSwipe.onTouchStart"
+    @touchmove.passive="tabSwipe.onTouchMove"
+    @touchend.passive="tabSwipe.onTouchEnd"
+    @touchcancel.passive="tabSwipe.onTouchCancel"
+  >
     <!-- ヘッダー行 -->
     <div class="section-header">
       <button
@@ -672,7 +703,7 @@ function fmtYen(n) {
           v-for="opt in sortOpts"
           :key="opt.value"
           :class="['seg-btn', { active: sortMode === opt.value }]"
-          @click="sortMode = opt.value"
+          @click="selectSort(opt.value)"
         >{{ opt.label }}<span
             v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canManage"
             class="seg-edit"
@@ -706,7 +737,10 @@ function fmtYen(n) {
     </div>
 
     <!-- テーブル -->
-    <table class="inv-table">
+    <table
+      :key="swipeTabs ? sortMode : undefined"
+      :class="['inv-table', swipeTabs && tabSlide ? `tab-in-${tabSlide}` : '']"
+    >
       <thead>
         <!-- グループ表示のときは、この行をタップで全グループを開閉する。
              記号はグループ行と同じ ▶/▼ で、開いているかどうかも兼ねて示す。
@@ -729,8 +763,8 @@ function fmtYen(n) {
         </tr>
       </thead>
       <tbody>
-        <tr v-if="_isHiddenMode && visibleItemCount === 0" class="hidden-empty-row">
-          <td :colspan="totalCols" class="hidden-empty">非表示の品目はありません。</td>
+        <tr v-if="_isHiddenMode && visibleItemCount === 0" class="hidden-tab-empty-row">
+          <td :colspan="totalCols" class="hidden-tab-empty">非表示の品目はありません。</td>
         </tr>
         <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
@@ -1378,7 +1412,12 @@ function fmtYen(n) {
   vertical-align: middle;
 }
 .badge-hidden { background: #fef2f2; color: #dc2626; }
-.hidden-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #94a3b8; }
+.tab-in-fwd  { animation: tab-in-fwd  0.18s ease-out; }
+.tab-in-back { animation: tab-in-back 0.18s ease-out; }
+@keyframes tab-in-fwd  { from { transform: translateX(24px);  opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes tab-in-back { from { transform: translateX(-24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tab-in-fwd, .tab-in-back { animation: none; } }
+.hidden-tab-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #94a3b8; }
 
 /* ── 商品コードセル ── */
 .td-code {
