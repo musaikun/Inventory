@@ -28,6 +28,7 @@ export function useDayNotes() {
   function getNote(date)   { return _data.notes[date] || null }
   function hasNote(date)   { const n = _data.notes[date]; return !!(n && (n.text || (n.tags && n.tags.length) || n.excluded)) }
   function isExcluded(date) { return !!_data.notes[date]?.excluded }
+  function noteDates()     { return Object.keys(_data.notes).filter(hasNote) }
 
   function setNote(date, { text = '', tags = [], excluded = false } = {}) {
     if (!date) return
@@ -38,5 +39,5 @@ export function useDayNotes() {
     _persist()
   }
 
-  return { getNote, hasNote, isExcluded, setNote }
+  return { getNote, hasNote, isExcluded, setNote, noteDates }
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
@@ -9,12 +9,16 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
+import { calendarTodos } from '../services/calendarTodos.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // **実際に起きたことだけを出す**（発注スケジュールの「予定」は出さない ── 予定は
 // 後から変えられるので、過去のマスに今の設定を重ねると「その日が発注日だった」という
 // 嘘になる。これから何をするかは仕入れ管理の画面の仕事）。
 // 日を選ぶ → その日の履歴（種類別）を見る。
+// 上に「今日のやること」（記録から自動で出す分だけ・今日の話だけ）を置き、マスには載せない。
+// 業務ごとに日付を探すのは「一覧」表示の仕事。カレンダー自体は暦として読む形のまま、フィルタを持たない
+// （2026-09-08 に種別フィルタを外した理由＝読むのに操作が要る、を崩さないため）。
 // weather プロップは将来の天気表示用スロット。{ 'YYYY-MM-DD': { icon, label, tempHi, tempLo } }
 const props = defineProps({
   sessions: { type: Array, default: () => [] }, // 完了済み棚卸セッション
@@ -259,6 +263,87 @@ function onViewSession(s) {
   emit('view-session', s)
 }
 
+// ── 今日のやること（自動）──────────────────────
+const todos = computed(() => calendarTodos({
+  today: todayKey,
+  orderSchedules: config.orderSchedules ?? [],
+  orders: getOrders(),
+  movements: getMovements(),
+  stockKeys: props.sessions.map(_stockKey),
+}))
+function onTodoTap(t) {
+  if (t.kind === 'delivery') openDay(t.date, 'order', t.id.slice('delivery:'.length))
+  else openDay(todayKey, t.kind === 'stock' ? 'stock' : 'order')
+}
+
+// ── 一覧（業務ごとに日付を探す）────────────────
+const viewMode = ref('cal')              // 'cal' | 'list'
+const KINDS = [
+  { key: 'all',   label: 'すべて' },
+  { key: 'stock', label: '棚卸', dot: 'dot-stock' },
+  { key: 'order', label: '発注', dot: 'dot-order' },
+  { key: 'in',    label: '入庫', dot: 'dot-in' },
+  { key: 'out',   label: '出庫', dot: 'dot-out' },
+  { key: 'memo',  label: 'メモ' },
+]
+const listKind = ref('all')
+const listRows = computed(() => {
+  const rows = []
+  const want = k => listKind.value === 'all' || listKind.value === k
+  if (want('stock')) for (const [k, arr] of Object.entries(stockByDate.value)) for (const x of arr) {
+    const v = _stockValue(x)
+    rows.push({ id: 's:' + x.id, key: k, kind: 'stock', s: x, info: `${_stockItemCount(x)}品目`, amount: v.amount })
+  }
+  if (want('order')) for (const [k, arr] of Object.entries(orderByDate.value)) for (const o of arr) {
+    rows.push({ id: 'o:' + o.id, key: k, kind: 'order', recId: o.id, info: `${o.supplier ? o.supplier + '・' : ''}${o.lines.length}品目`, amount: _orderValue(o).amount })
+  }
+  for (const [k, arr] of Object.entries(moveByDate.value)) for (const m of arr) {
+    if (!want(m.type)) continue
+    rows.push({ id: 'm:' + m.id, key: k, kind: m.type, recId: m.id, info: `${m.lines.length}品目${m.note ? '・' + m.note : ''}`, amount: _orderValue(m).amount })
+  }
+  if (want('memo')) for (const k of noteDates()) {
+    const n = getNote(k)
+    rows.push({ id: 'n:' + k, key: k, kind: 'memo', info: n?.text || (n?.excluded ? '発注学習から除外' : 'メモ'), amount: null })
+  }
+  const ORDER = { stock: 0, order: 1, in: 2, out: 3, memo: 4 }
+  rows.sort((a, b) => b.key.localeCompare(a.key) || ORDER[a.kind] - ORDER[b.kind])
+  // 月ごとの見出し
+  const out = []
+  let month = ''
+  for (const r of rows) {
+    const m = r.key.slice(0, 7)
+    if (m !== month) { month = m; out.push({ id: 'h:' + m, head: `${Number(m.slice(0, 4))}年${Number(m.slice(5, 7))}月` }) }
+    out.push(r)
+  }
+  return out
+})
+const KIND_META = Object.fromEntries(KINDS.map(k => [k.key, k]))
+function listDateLabel(k) {
+  const dt = new Date(k + 'T00:00:00')
+  return `${dt.getMonth() + 1}/${dt.getDate()}（${WEEK[dt.getDay()]}）`
+}
+function onListTap(r) {
+  if (r.kind === 'stock') { emit('view-session', r.s); return }
+  openDay(r.key, r.kind, r.recId)
+}
+
+// その日のシートを開き、該当の記録まで送る（発注・入出庫は専用ページが無いのでここが詳細）
+const sheetEl = ref(null)
+function openDay(key, focus = '', recId = '') {
+  if (!key) return
+  viewYear.value = Number(key.slice(0, 4))
+  viewMonth.value = Number(key.slice(5, 7)) - 1
+  selectedKey.value = key
+  dayOpen.value = true
+  if (recId) expanded[recId] = true
+  if (!focus) return
+  nextTick(() => {
+    const el = sheetEl.value?.querySelector(recId ? `[data-rec="${recId}"]` : `[data-sec="${focus}"]`)
+      || sheetEl.value?.querySelector(`[data-sec="${focus}"]`)
+    el?.scrollIntoView?.({ block: 'start' })
+  })
+}
+
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
 const selectedOrders = computed(() => (selectedKey.value ? orderByDate.value[selectedKey.value] || [] : []))
 
@@ -313,7 +398,7 @@ const selectedFactors = computed(() => {
 // 記録するのは自由記述と学習除外の2つだけ。定型チップ（貸切・イベント…）は置かない。
 // 選べる言葉を先に並べると、その日に実際に起きたことではなく**用意された言葉のどれか**を
 // 選ぶ記録になる。読み返して意味があるのは店の言葉で書いた1行のほう。
-const { getNote, hasNote, setNote } = useDayNotes()
+const { getNote, hasNote, setNote, noteDates } = useDayNotes()
 const memoText = ref('')
 // 決め打ちのチップ（貸切・イベント等）は廃止した。以前のメモに保存されている tags は
 // 上書き保存で消さないよう、読んだものをそのまま持ち回るだけにする。
@@ -424,7 +509,51 @@ function onDeleteMove(id) {
 
 <template>
   <div class="hc">
-    <!-- 月ナビ -->
+    <!-- 今日のやること（記録から自動で出す分だけ。済んだものは ✓ で残る）-->
+    <div v-if="todos.length" class="hc-todo">
+      <div class="hc-todo-title">今日のやること</div>
+      <button
+        v-for="t in todos" :key="t.id" type="button"
+        :class="['hc-todo-row', 'k-' + t.kind, { done: t.done }]" @click="onTodoTap(t)"
+      >
+        <span class="hc-todo-check" aria-hidden="true">{{ t.done ? '✓' : '' }}</span>
+        <span class="hc-todo-body">
+          <span class="hc-todo-label">{{ t.label }}</span>
+          <span v-if="t.sub" class="hc-todo-sub">{{ t.sub }}</span>
+        </span>
+        <span class="hc-todo-arrow">›</span>
+      </button>
+    </div>
+
+    <div class="hc-mode" role="tablist" aria-label="表示の切り替え">
+      <button type="button" role="tab" :aria-selected="viewMode === 'cal'" :class="['hc-mode-btn', { on: viewMode === 'cal' }]" @click="viewMode = 'cal'">カレンダー</button>
+      <button type="button" role="tab" :aria-selected="viewMode === 'list'" :class="['hc-mode-btn', { on: viewMode === 'list' }]" @click="viewMode = 'list'">一覧</button>
+    </div>
+
+    <!-- 一覧: 業務ごとに日付を探し、詳細へ飛ぶ -->
+    <template v-if="viewMode === 'list'">
+      <div class="hc-kinds">
+        <button
+          v-for="k in KINDS" :key="k.key" type="button"
+          :class="['hc-kind', { on: listKind === k.key }]" @click="listKind = k.key"
+        ><span v-if="k.dot" :class="['dot', k.dot]"></span>{{ k.label }}</button>
+      </div>
+      <div class="hc-list">
+        <div v-if="!listRows.length" class="hc-empty">記録はありません</div>
+        <template v-for="r in listRows" :key="r.id">
+          <div v-if="r.head" class="hc-list-month">{{ r.head }}</div>
+          <button v-else type="button" class="hc-list-row" @click="onListTap(r)">
+            <span class="hc-list-date">{{ listDateLabel(r.key) }}</span>
+            <span class="hc-list-kind"><span v-if="KIND_META[r.kind].dot" :class="['dot', KIND_META[r.kind].dot]"></span>{{ r.kind === 'memo' ? '📝 メモ' : KIND_META[r.kind].label }}</span>
+            <span class="hc-list-info">{{ r.info }}</span>
+            <span v-if="r.amount != null" class="hc-list-amt">{{ fmtYen(r.amount) }}</span>
+            <span class="hc-list-arrow">›</span>
+          </button>
+        </template>
+      </div>
+    </template>
+
+    <template v-else>
     <div class="hc-nav">
       <button class="hc-nav-btn" @click="prevMonth">‹</button>
       <span class="hc-month">{{ monthLabel }}</span>
@@ -488,9 +617,11 @@ function onDeleteMove(id) {
       </div>
     </div>
 
+    </template>
+
     <!-- 選択日の詳細。日付をタップしたときだけ開く（カレンダーの下には敷かない）-->
     <div v-if="dayOpen && selectedKey" class="modal-overlay" @click.self="closeDay">
-    <div class="modal-sheet hc-day-sheet">
+    <div ref="sheetEl" class="modal-sheet hc-day-sheet">
       <div class="sheet-handle"></div>
       <div class="hc-sheet-head">
         <span class="hc-sheet-date">{{ selectedLabel }}</span>
@@ -514,7 +645,7 @@ function onDeleteMove(id) {
       </div>
 
       <!-- 日別メモ（内部イベント要因＋学習除外）-->
-      <div class="hc-memo">
+      <div class="hc-memo" data-sec="memo">
         <textarea v-model="memoText" class="hc-memo-text" rows="2" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
         <label class="hc-memo-excl">
           <input type="checkbox" v-model="memoExcluded" />
@@ -525,7 +656,7 @@ function onDeleteMove(id) {
 
       <!-- 棚卸 -->
       <template v-if="selectedStock.length">
-        <div class="hc-sec-title">
+        <div class="hc-sec-title" data-sec="stock">
           <span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）
           <span v-if="selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
         </div>
@@ -552,11 +683,11 @@ function onDeleteMove(id) {
       <!-- 入庫 / 出庫 -->
       <template v-if="moveSections.length">
         <template v-for="sec in moveSections" :key="sec.type">
-          <div class="hc-sec-title">
+          <div class="hc-sec-title" :data-sec="sec.type">
             <span :class="['dot', sec.dot]"></span>{{ sec.label }}（{{ sec.rows.length }}件）
             <span v-if="sec.total != null" class="hc-sec-total">{{ fmtYen(sec.total) }}</span>
           </div>
-          <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move">
+          <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move" :data-rec="r.m.id">
             <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
               <span v-if="r.m.source === 'import'" class="hc-entry-imported" title="取り込んだ記録">取込</span>
               <span v-else class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
@@ -579,11 +710,11 @@ function onDeleteMove(id) {
 
       <!-- 発注 -->
       <template v-if="selectedOrders.length">
-        <div class="hc-sec-title">
+        <div class="hc-sec-title" data-sec="order">
           <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
           <span v-if="selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
         </div>
-        <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order">
+        <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order" :data-rec="r.o.id">
           <div class="hc-entry-main" @click="toggleOrder(r.o.id)">
             <span class="hc-order-sup">{{ r.o.supplier || '（未分類）' }}</span>
             <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
@@ -621,6 +752,51 @@ function onDeleteMove(id) {
 /* 1画面で完結させるため、カレンダーが縦の余りを吸う（下に余白を残さない）。
    親が高さを決めていない場所に置いても、マスの min-height で潰れずに出る */
 .hc { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.hc-todo { flex-shrink: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px 10px; }
+.hc-todo-title { font-size: 12px; font-weight: 800; color: #475569; margin-bottom: 4px; }
+.hc-todo-row {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 2px;
+  border: none; border-top: 1px solid #f1f5f9; background: none; text-align: left; cursor: pointer; font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.hc-todo-row:first-of-type { border-top: none; }
+.hc-todo-check {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; border: 2px solid #cbd5e1;
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; color: #fff;
+}
+.hc-todo-row.done .hc-todo-check { background: #10b981; border-color: #10b981; }
+.hc-todo-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hc-todo-label { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.hc-todo-row.k-delivery .hc-todo-label { color: #b45309; }
+.hc-todo-row.done .hc-todo-label { color: #94a3b8; text-decoration: line-through; }
+.hc-todo-sub { font-size: 11px; color: #64748b; }
+.hc-todo-arrow { flex-shrink: 0; color: #cbd5e1; font-size: 16px; }
+
+.hc-mode { flex-shrink: 0; display: flex; background: #f1f5f9; border-radius: 10px; padding: 3px; gap: 2px; }
+.hc-mode-btn { flex: 1; min-height: 36px; border: none; background: transparent; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; }
+.hc-mode-btn.on { background: #fff; color: var(--primary, #2563eb); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+
+.hc-kinds { flex-shrink: 0; display: flex; gap: 5px; }
+.hc-kind {
+  flex: 1 1 0; min-width: 0; justify-content: center; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 2px; min-height: 36px; padding: 4px 2px;
+  border: 1.5px solid #cbd5e1; border-radius: 16px; background: #fff; color: #475569;
+  font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.hc-kind.on { border-color: var(--primary, #2563eb); background: #eff6ff; color: var(--primary, #2563eb); }
+.hc-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.hc-list-month { font-size: 11.5px; font-weight: 800; color: #64748b; padding: 10px 2px 4px; }
+.hc-list-row {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 10px; margin-bottom: 6px;
+  border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.hc-list-date { flex-shrink: 0; width: 76px; white-space: nowrap; font-size: 13px; font-weight: 800; color: #1e293b; }
+.hc-list-kind { flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: #475569; }
+.hc-list-info { flex: 1; min-width: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-list-amt { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #334155; }
+.hc-list-arrow { flex-shrink: 0; color: #cbd5e1; font-size: 16px; }
 
 .hc-nav { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; }
