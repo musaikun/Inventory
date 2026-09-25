@@ -62,6 +62,17 @@ function exportLatestSnapshotCsv() {
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
+// 設定済み品目一覧の上に出す件数。品目リスト（config.order）が母数
+const listStats = computed(() => {
+  const order = config.order ?? []
+  const autoSet = new Set(config.hiddenAuto ?? [])
+  let hidden = 0, auto = 0, noGenre = 0
+  for (const n of order) {
+    if (hiddenSet.value.has(n)) { hidden++; if (autoSet.has(n)) auto++ }
+    if (!config.categories?.[n]) noGenre++
+  }
+  return { total: order.length, shown: order.length - hidden, hidden, auto, noGenre }
+})
 
 // 設定済み品目一覧はページとして開く。非表示の品目もここのチップ
 // （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
@@ -247,6 +258,15 @@ function onClear() {
         <span class="mp-count">{{ itemCount }}件</span>
       </header>
       <div class="mp-scroll">
+        <div class="mm-stats" aria-label="品目の件数">
+          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.total }}</span><span class="mm-stat-label">全体の品目</span></div>
+          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.shown }}</span><span class="mm-stat-label">表示中</span></div>
+          <div class="mm-stat hidden">
+            <span class="mm-stat-num">{{ listStats.hidden }}</span><span class="mm-stat-label">非表示</span>
+            <span v-if="listStats.auto" class="mm-stat-sub">うち自動 {{ listStats.auto }}</span>
+          </div>
+          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.noGenre }}</span><span class="mm-stat-label">ジャンル未設定</span></div>
+        </div>
         <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。上のチップか、左右にスワイプで表示を切り替えられます。</div>
         <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
       </div>
@@ -538,6 +558,12 @@ function onClear() {
 
 .mm-preview { margin-top: 10px; }
 .mm-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }
+.mm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.mm-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 2px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; min-width: 0; }
+.mm-stat-num { font-size: 18px; font-weight: 800; color: #1e293b; line-height: 1.2; }
+.mm-stat-label { font-size: 10.5px; font-weight: 700; color: #64748b; white-space: nowrap; }
+.mm-stat-sub { font-size: 10px; color: #94a3b8; white-space: nowrap; }
+.mm-stat.hidden .mm-stat-num { color: #dc2626; }
 .mm-preview-hint { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
 
 .mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }

@@ -165,3 +165,19 @@ describe('MasterManagePage — 非表示の品目（設定済み品目一覧の�
     expect(activeTab()).toBe('ジャンル')
   })
 })
+
+describe('MasterManagePage — 設定済み品目一覧の件数', () => {
+  it('全体・表示中・非表示（うち自動）・ジャンル未設定を出す', async () => {
+    cfg.addItem('塩', 100, '', '個')
+    cfg.hideItem('トマト')
+    cfg.hideItem('塩', true)
+    await mountPage()
+    const stat = label => [...host.querySelectorAll('.mm-page .mm-stat')]
+      .find(e => e.querySelector('.mm-stat-label').textContent === label)
+    expect(stat('全体の品目').querySelector('.mm-stat-num').textContent).toBe('4')
+    expect(stat('表示中').querySelector('.mm-stat-num').textContent).toBe('2')
+    expect(stat('非表示').querySelector('.mm-stat-num').textContent).toBe('2')
+    expect(stat('非表示').textContent).toContain('うち自動 1')
+    expect(stat('ジャンル未設定').querySelector('.mm-stat-num').textContent).toBe('1')
+  })
+})
