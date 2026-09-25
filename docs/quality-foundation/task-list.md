@@ -50,6 +50,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | UI-004 | P2 | レビュー待ち | User | Rive試作・公開準備をec4adcaでcommit、リモート95f2b25と統合検証済み。Editorでの見た目判断待ち。素材書き出しはプラン制限、Web/実機確認は未完了 | [UI-004.md](tasks/UI-004.md) |
 | UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-13（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段・0件の案内）を目視待ち | [UI-003.md](tasks/UI-003.md) |
 | UI-005 | P2 | レビュー待ち | Claude Code | Riveを公開面で動かす前提。CSPへ`'wasm-unsafe-eval'`、ランタイム/WASM/`.riv`をrun-time cacheへ。build検証済み・実機（Android Chrome / iOS Safari）未確認。製品画面への組み込みは.rivが1つ揃うまで待つ（User判断 2026-09-09） | [UI-005.md](tasks/UI-005.md) |
+| DM-001 | P2 | レビュー待ち | User | データ管理・振り分け・発注基準の改良（v0.105.0〜v0.113.0）。自動test・build済み、画面は一時ページのみ確認。実機・複数端末（Worker再デプロイ後）の確認待ち | [DM-001.md](tasks/DM-001.md) |
 
 `UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。
 gateへ追加するか公開後へ送るかは[提案箱](../proposals.md)のPMトリアージ待ちです。
