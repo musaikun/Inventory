@@ -15,6 +15,7 @@ import { ref, computed } from 'vue'
  * @param {object}   opts
  * @param {Function} opts.enabled 操作を受け付けるか（ゲスト・読み取り専用は false）
  * @param {Function} opts.onHide  非表示が確定したとき呼ぶ（品目名）
+ * @param {Function} opts.accent  確定色 [r,g,b] を返す（既定は赤。表示に戻す操作では青を渡す）
  */
 export const REVEAL_AT = 40   // これ以上引いたらアクションを表示
 
@@ -28,7 +29,7 @@ const FULL_RATIO = 0.5   // 行幅に対する割合（広い画面ほど深く�
 const SWIPE_C0 = [100, 116, 139]   // #64748b 出た直後
 const SWIPE_C1 = [220,  38,  38]   // #dc2626 引き切って確定する状態
 
-export function useRowHideSwipe({ enabled = () => true, onHide } = {}) {
+export function useRowHideSwipe({ enabled = () => true, onHide, accent = () => SWIPE_C1 } = {}) {
   const swipeItem     = ref(null)   // ドラッグ/オープン中の品目名
   const swipeDx       = ref(0)      // 現在の移動量（<=0）
   const swipeDragging = ref(false)  // 指が触れている間（transition を切る）
@@ -52,7 +53,8 @@ export function useRowHideSwipe({ enabled = () => true, onHide } = {}) {
   })
   const swipeActionColor = computed(() => {
     const p = swipeProgress.value
-    const [r, g, b] = SWIPE_C0.map((v, i) => Math.round(v + (SWIPE_C1[i] - v) * p))
+    const to = accent() || SWIPE_C1
+    const [r, g, b] = SWIPE_C0.map((v, i) => Math.round(v + (to[i] - v) * p))
     return `rgb(${r}, ${g}, ${b})`
   })
 

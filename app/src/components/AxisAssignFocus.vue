@@ -579,15 +579,20 @@ const unassignedOnly = ref(false)
 const usedOnly = ref(false)        // 直近の棚卸で入力があった品目だけ
 const neverUsedOnly = ref(false)   // 逆に、一度も数えていない品目だけ（非表示にする候補を探す用）
 const newOnly = ref(false)         // 前回の棚卸の時点でリストに無かった品目だけ
-// この3つは互いに素。1つ押したら他は降ろす
+// 非表示にした品目だけ。ここでは左スワイプが「表示に戻す」（青）になる
+const hiddenOnly = ref(false)
+// この4つは互いに素。1つ押したら他は降ろす
 function _onlyFilter(which) {
   usedOnly.value      = which === 'used'
   neverUsedOnly.value = which === 'never'
   newOnly.value       = which === 'new'
+  hiddenOnly.value    = which === 'hidden'
+  resetSwipe()
 }
 function toggleUsedOnly()      { _onlyFilter(usedOnly.value ? '' : 'used') }
 function toggleNeverUsedOnly() { _onlyFilter(neverUsedOnly.value ? '' : 'never') }
 function toggleNewOnly()       { _onlyFilter(newOnly.value ? '' : 'new') }
+function toggleHiddenOnly()    { _onlyFilter(hiddenOnly.value ? '' : 'hidden') }
 function clearSearch() { search.value = ''; nextTick(() => searchEl.value?.focus()) }
 const searchEl = ref(null)
 const USAGE = 3
@@ -622,6 +627,7 @@ const isNew = (item) => (lastSnapItems.value ? !lastSnapItems.value.has(item) : 
 const isUnmeasured = (item) => hasUsage.value && !usage.value[item] && !isNew(item)
 /** いま掛けている絞り込みの意味。短いチップだけでは読めないので、押したときに1行出す */
 const filterNote = computed(() => {
+  if (hiddenOnly.value)    return '非表示にした品目です。左にスワイプすると一覧に戻せます。'
   if (neverUsedOnly.value) return '直近3回の棚卸で、一度も数量が入っていない品目です。'
   if (newOnly.value)       return '前回の棚卸の時点では、リストに無かった品目です。'
   if (usedOnly.value)      return '直近3回の棚卸で、1回でも数量が入った品目です。'
@@ -634,7 +640,7 @@ const _norm = s => (s || '').normalize('NFKC').toLowerCase()
 const poolItems = computed(() => {
   const q = _norm(search.value.trim())
   let arr = config.order.filter(i =>
-    !hiddenSet.value.has(i) &&
+    (hiddenOnly.value ? hiddenSet.value.has(i) : !hiddenSet.value.has(i)) &&
     (!q || _norm(i).includes(q)) &&
     (!usedOnly.value || usage.value[i] > 0) &&
     (!neverUsedOnly.value || isUnmeasured(i)) &&
@@ -656,6 +662,8 @@ function toggle(item) {
   if (consumeLongPress()) return                                 // 直前が長押し（分類先を選ぶを開いた）
   if (swipeItem.value === item && swipeDx.value < 0) { resetSwipe(); return }  // 開いている→タップで閉じる
   if (_dragging) return
+  // 非表示の品目は振り分けの対象外。入れようとしても進捗にも棚卸にも出ないので、戻し方を言う
+  if (hiddenOnly.value) { _showFlash('非表示の品目です。左にスワイプすると一覧に戻せます', ''); return }
   stopWheelAtNearest()
   const destination = target.value
   setWheelState('band')
@@ -681,6 +689,7 @@ function _showFlash(msg, item) {
 // 既存の onHideItem / onUnhideItem へ渡す。D1 保存・同期・ゲスト側への反映を、
 // 他の非表示導線とまったく同じ経路に乗せるため。
 function hideFromPool(item) {
+  if (hiddenOnly.value) { restoreToPool(item); return }
   emit('hide-item', item)
   _offerUndo(`「${item}」を一覧から非表示にしました`, '棚卸の一覧と進捗からも外れます', () => {
     emit('unhide-item', item)
@@ -688,12 +697,22 @@ function hideFromPool(item) {
   })
 }
 
+// 「非表示のみ」で左スワイプしたとき。隠すのと対称に、取り消しも出す
+function restoreToPool(item) {
+  emit('unhide-item', item)
+  _offerUndo(`「${item}」を一覧に戻しました`, '棚卸の一覧と進捗にも戻ります', () => {
+    emit('hide-item', item)
+    _showFlash(`「${item}」を非表示に戻しました`, '')
+  })
+}
+
+const SWIPE_BLUE = [37, 99, 235]   // #2563eb 表示に戻す
 const {
   swipeItem, swipeDx, swipeDragging, swipeFull, swipeActionW, swipeActionColor,
   hideDialogItem,
   onRowTouchStart, onRowTouchMove, onRowTouchEnd, onRowTouchCancel,
   openHideDialog, confirmHideDialog, cancelHideDialog, consumeClick, resetSwipe,
-} = useRowHideSwipe({ onHide: hideFromPool })
+} = useRowHideSwipe({ onHide: hideFromPool, accent: () => (hiddenOnly.value ? SWIPE_BLUE : null) })
 
 // ── 品目から分類先を選ぶ（行を長押し）────────────────────────────
 // ここまでの振り分けは「分類先を決めて品目を連打する」向き。同じ分類先が続く限りは
@@ -788,6 +807,7 @@ function pickAnchorStyle(row) {
 // 長押しは見えない操作なので、一度使うまでは一覧の上に一行だけ出す
 const pickHinted = ref(false)
 function openPick(item, row) {
+  if (hiddenOnly.value) return   // 非表示の品目は振り分けない（長押しでも開かない）
   if (!groups.value.length) { _showFlash('先に分類先を作ってください', ''); return }
   pickHinted.value = true
   resetSwipe()
@@ -933,6 +953,7 @@ function locate(item) {
   usedOnly.value = false
   neverUsedOnly.value = false
   newOnly.value = false
+  hiddenOnly.value = false
   if (hasGenres.value) openCat[config.categories?.[item] || 'その他'] = true
   locateName.value = item
   clearTimeout(_locateT)
@@ -1280,6 +1301,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="toggleUsedOnly">前回入力のみ</button>
         <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未計測のみ</button>
         <button v-if="lastSnapItems" :class="['af-chip-btn', { on: newOnly }]" @click="toggleNewOnly">新規のみ</button>
+        <button v-if="hiddenSet.size || hiddenOnly" :class="['af-chip-btn', { on: hiddenOnly }]" @click="toggleHiddenOnly">非表示のみ</button>
       </div>
 
       <!-- 絞り込みの意味は、押したときにその場で言う。チップの短い言葉だけでは
@@ -1287,7 +1309,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <p v-if="filterNote" class="af-filter-note">{{ filterNote }}</p>
 
       <!-- 長押しの導線。逆向き（品目 → 分類先）は見えない操作なので、使うまでは出しておく -->
-      <div v-if="!pickHinted && groups.length && poolItems.length" class="af-pickhint">
+      <div v-if="!pickHinted && !hiddenOnly && groups.length && poolItems.length" class="af-pickhint">
         品目を<b>長押し</b>すると、分類先をその場で選べます
       </div>
 
@@ -1330,7 +1352,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                   :class="['af-row-action', { full: swipeFull }]"
                   :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
                   @click.stop="openHideDialog(item)"
-                >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
+                >{{ hiddenOnly ? (swipeFull ? '離すと表示' : '表示に戻す') : (swipeFull ? '離すと非表示' : '非表示') }}</button>
               </div>
             </template>
           </template>
@@ -1360,13 +1382,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               :class="['af-row-action', { full: swipeFull }]"
               :style="{ transform: `translateX(${-swipeDx}px)`, width: swipeActionW + 'px', background: swipeActionColor }"
               @click.stop="openHideDialog(item)"
-            >{{ swipeFull ? '離すと非表示' : '非表示' }}</button>
+            >{{ hiddenOnly ? (swipeFull ? '離すと表示' : '表示に戻す') : (swipeFull ? '離すと非表示' : '非表示') }}</button>
           </div>
         </template>
         <div v-if="poolItems.length === 0" class="af-empty">
           {{ unassignedOnly ? '未振り分けの品目はありません 🎉'
            : neverUsedOnly ? '直近3回とも数えていない品目はありません 🎉'
            : newOnly ? '前回の棚卸のあとに増えた品目はありません'
+           : hiddenOnly ? '非表示の品目はありません'
            : '該当する品目がありません。' }}
         </div>
       </div>
@@ -1438,11 +1461,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <!-- 浅いスワイプで出したアクションを押したときの確認（棚卸の表と同じ） -->
     <div v-if="hideDialogItem" class="af-dialog-bg" @click.self="cancelHideDialog">
       <div class="af-dialog af-hide-dialog" role="dialog" aria-modal="true">
-        <div class="af-dialog-title">この品目を非表示にしますか？</div>
+        <div class="af-dialog-title">{{ hiddenOnly ? 'この品目を一覧に戻しますか？' : 'この品目を非表示にしますか？' }}</div>
         <div class="af-dialog-name">{{ hideDialogItem }}</div>
         <div class="af-dialog-acts">
           <button class="af-dialog-cancel" @click="cancelHideDialog">キャンセル</button>
-          <button class="af-dialog-ok danger" @click="confirmHideDialog">非表示にする</button>
+          <button :class="['af-dialog-ok', { danger: !hiddenOnly }]" @click="confirmHideDialog">{{ hiddenOnly ? '一覧に戻す' : '非表示にする' }}</button>
         </div>
       </div>
     </div>

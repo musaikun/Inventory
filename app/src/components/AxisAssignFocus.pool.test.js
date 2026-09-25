@@ -306,3 +306,71 @@ describe('AxisAssignFocus — 新規（前回の棚卸には無かった品目�
     expect(chip('新規のみ')).toBeUndefined()
   })
 })
+
+describe('AxisAssignFocus — 非表示のみ（左スワイプで一覧に戻す）', () => {
+  it('非表示の品目があるときだけチップを出し、押すと非表示の品目だけになる', async () => {
+    await mount()
+    expect(chip('非表示のみ')).toBeUndefined()
+    app.unmount(); host.remove()
+    cfg.hideItem('豚バラ')
+    await mount()
+    await click(chip('非表示のみ'))
+    await openAllGenres()
+    expect(rowNames()).toEqual(['豚バラ'])
+    expect(host.textContent).toContain('左にスワイプすると一覧に戻せます')
+  })
+
+  it('他の絞り込みと同時には掛からない', async () => {
+    cfg.hideItem('豚バラ')
+    await mount()
+    await click(chip('未計測のみ'))
+    await click(chip('非表示のみ'))
+    expect(chip('未計測のみ').classList.contains('on')).toBe(false)
+    expect(chip('非表示のみ').classList.contains('on')).toBe(true)
+  })
+
+  it('引くと青い「表示に戻す」、引き切って離すとその場で一覧に戻り、取り消せる', async () => {
+    cfg.hideItem('豚バラ')
+    await mount()
+    await click(chip('非表示のみ'))
+    await openAllGenres()
+    const el = await swipe('豚バラ', -300)
+    expect(action().textContent.trim()).toBe('離すと表示')
+    expect(action().style.background).toBe('rgb(37, 99, 235)')
+    await release(el)
+    expect(cfg.config.hiddenItems).not.toContain('豚バラ')
+    expect(undoBar().textContent).toContain('一覧に戻しました')
+
+    await click(host.querySelector('.af-undo-btn'))
+    expect(cfg.config.hiddenItems).toContain('豚バラ')
+  })
+
+  it('浅く引いて押すと確認してから戻す', async () => {
+    cfg.hideItem('豚バラ')
+    await mount()
+    await click(chip('非表示のみ'))
+    await openAllGenres()
+    const el = await swipe('豚バラ', -60)
+    await release(el)
+    expect(action().textContent.trim()).toBe('表示に戻す')
+    await click(action())
+    expect(dialog().textContent).toContain('一覧に戻しますか')
+    await click([...dialog().querySelectorAll('button')].find(b => b.textContent.trim() === '一覧に戻す'))
+    expect(cfg.config.hiddenItems).not.toContain('豚バラ')
+  })
+
+  it('非表示の品目はタップしても振り分けない', async () => {
+    cfg.hideItem('豚バラ')
+    await mount()
+    await click(chip('非表示のみ'))
+    await openAllGenres()
+    await click(rowOf('豚バラ'))
+    expect(cfg.config.tagsA['豚バラ']).toBeUndefined()
+  })
+
+  it('通常の表示では従来どおり赤で非表示にする', async () => {
+    await mount()
+    await swipe('豚バラ', -300)
+    expect(action().style.background).toBe('rgb(220, 38, 38)')
+  })
+})
