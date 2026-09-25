@@ -38,8 +38,10 @@ const props = defineProps({
   searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
   // 親が持つ絞り込み条件（filters スロットと対で使う）。null = 内蔵フィルターを使う
   itemFilter:       { type: Function, default: null },
-  // タブに「非表示設定品目」「非表示にした順」を足す（データ管理の設定済み品目一覧）。
-  // どちらも非表示の品目だけを出す。後者は直前に隠したものが先頭で、誤って隠したものを遡って探せる。
+  // 「非表示設定品目」「非表示にした順」を足し、並び替えをタブではなくチップで出す
+  // （データ管理の設定済み品目一覧）。作ったグループは「設定済みグループ」の枠の中で切り替える。
+  // どちらも非表示の品目だけを出す。前者は取込由来のジャンル別、後者は直前に隠したものが先頭で、
+  // 誤って隠したものを遡って探せる。
   hiddenTabs:       { type: Boolean, default: false },
   // 表の上を左右にスワイプして並び替えのタブを切り替える（データ管理の設定済み品目一覧）。
   // 行の左スワイプ（非表示）と取り合うので、行を操作できない確認用の表でだけ使う
@@ -155,7 +157,10 @@ const _effectiveSort = computed(() => {
 })
 // 非表示の品目だけを見るタブ（hiddenTabs のときだけ選べる）
 const _isHiddenMode = computed(() => _effectiveSort.value === 'hidden' || _effectiveSort.value === 'hiddenAt')
-const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB'].includes(_effectiveSort.value))
+const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB', 'hidden'].includes(_effectiveSort.value))
+// チップ表示（hiddenTabs）用: 作ったグループだけを枠に入れ、それ以外は並べて出す
+const axisChipOpts  = computed(() => sortOpts.value.filter(o => o.value === 'axisA' || o.value === 'axisB'))
+const plainChipOpts = computed(() => sortOpts.value.filter(o => o.value !== 'axisA' && o.value !== 'axisB'))
 
 // アコーディオン展開状態は「モード + ラベル」でキー化し、軸切替時の同名グループ混線を防ぐ
 const expandedGroups = reactive({})
@@ -330,16 +335,18 @@ const rows = computed(() => {
     return result
   }
 
-  if (mode === 'category' || mode === 'axisA' || mode === 'axisB') {
-    // ジャンル / 汎用軸によるグループ化（共通ロジック）
+  if (mode === 'category' || mode === 'axisA' || mode === 'axisB' || mode === 'hidden') {
+    // ジャンル / 汎用軸によるグループ化（共通ロジック）。非表示設定品目は取込由来のジャンル別
     // 軸は多ロケーション対応: 1品目が複数グループに属する場合、各グループに複製して出す
     const emptyLabel = 'その他'
     const groupsOf = (row) => {
-      if (mode === 'category') return [row.category ?? 'その他']
+      if (mode === 'category' || mode === 'hidden') return [row.category ?? 'その他']
       const arr = mode === 'axisA' ? row.tagA : row.tagB
       return (Array.isArray(arr) && arr.length) ? arr : ['その他']
     }
-    const statsMap = mode === 'category' ? catRealStats.value
+    // 非表示設定品目は見えている行（非表示の品目だけ）が件数そのもの
+    const statsMap = mode === 'hidden' ? {}
+      : mode === 'category' ? catRealStats.value
       : mode === 'axisA' ? axisAStats.value
       :                    axisBStats.value
 
@@ -358,7 +365,7 @@ const rows = computed(() => {
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
       if (a === emptyLabel) return 1
       if (b === emptyLabel) return -1
-      if (mode === 'category') {
+      if (mode === 'category' || mode === 'hidden') {
         const codeA = config.value.categoryCodes?.[a]
         const codeB = config.value.categoryCodes?.[b]
         if (codeA != null && codeB != null) return codeA - codeB
@@ -384,7 +391,6 @@ const rows = computed(() => {
   }
 
   // 非表示にした順（新しい順・グループなし）。時刻の無い品目は元の順のまま後ろへ。
-  // 「非表示設定品目」は下のフォールバック（config の順・グループなし）で出す
   if (mode === 'hiddenAt') {
     const byName = new Map(items.map(r => [r.item, r]))
     return sortHiddenByRecent([...byName.keys()], config.value.hiddenAt ?? {}).map(n => byName.get(n))
@@ -698,7 +704,32 @@ function fmtYen(n) {
     <!-- 並べ替え / フィルター ツールバー -->
     <div class="toolbar">
       <!-- 並べ替え（軸の切替はゲストも可。作成・編集＝✎/＋ はホストのみ） -->
-      <div class="seg-group">
+      <div v-if="hiddenTabs" class="sort-chips">
+        <button
+          v-for="opt in plainChipOpts.slice(0, 1)" :key="opt.value" type="button"
+          :class="['sort-chip', { active: sortMode === opt.value }]" :aria-pressed="sortMode === opt.value"
+          @click="selectSort(opt.value)"
+        >{{ opt.label }}</button>
+        <div v-if="axisChipOpts.length" class="sort-chip-box" role="group" aria-label="設定済みグループ">
+          <span class="sort-chip-box-label">設定済みグループ</span>
+          <button
+            v-for="opt in axisChipOpts" :key="opt.value" type="button"
+            :class="['sort-chip', { active: sortMode === opt.value }]" :aria-pressed="sortMode === opt.value"
+            @click="selectSort(opt.value)"
+          >{{ opt.label }}<span
+              v-if="sortMode === opt.value && canManage"
+              class="seg-edit"
+              title="この並び替えのグループを編集"
+              @click.stop="openAxisEdit(opt.value)"
+            >✎</span></button>
+        </div>
+        <button
+          v-for="opt in plainChipOpts.slice(1)" :key="opt.value" type="button"
+          :class="['sort-chip', { active: sortMode === opt.value }]" :aria-pressed="sortMode === opt.value"
+          @click="selectSort(opt.value)"
+        >{{ opt.label }}</button>
+      </div>
+      <div v-else class="seg-group">
         <button
           v-for="opt in sortOpts"
           :key="opt.value"
@@ -1061,6 +1092,47 @@ function fmtYen(n) {
   background: white;
   color: var(--primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.sort-chips {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.sort-chip {
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sort-chip.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+  color: var(--primary);
+}
+.sort-chip-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.sort-chip-box-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94a3b8;
 }
 
 .seg-add {

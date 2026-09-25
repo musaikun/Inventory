@@ -63,7 +63,7 @@ const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 const hiddenSet  = computed(() => new Set(config.hiddenItems))
 
-// 設定済み品目一覧はページとして開く。非表示の品目もここのタブ
+// 設定済み品目一覧はページとして開く。非表示の品目もここのチップ
 // （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
 const listOpen = ref(false)
 function openList()  { activeHelp.value = ''; listOpen.value = true }
@@ -76,7 +76,7 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
-  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。タブでジャンル・作ったグループ・非表示設定品目・非表示にした順を切り替えられます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
+  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。上のチップでジャンル・作ったグループ（設定済みグループの枠の中）・非表示設定品目・非表示にした順を切り替えられます。非表示設定品目はジャンル別に出ます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
@@ -203,7 +203,7 @@ function onClear() {
       </div>
 
       <!-- 設定済み品目一覧。表は別ページで開く（常に出すと、この画面の他の操作の邪魔になる）。
-           非表示の品目もこの中のタブで見る -->
+           非表示の品目もこの中のチップで見る -->
       <div class="mm-block">
         <div class="mm-head-row">
           <div class="mm-block-head">
@@ -216,7 +216,7 @@ function onClear() {
           <span class="mm-organize-ico">📋</span>
           <span class="mm-organize-body">
             <span class="mm-organize-title">品目一覧を開く（{{ itemCount }}件）</span>
-            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をタブで切り替えて確認</span>
+            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をチップで切り替えて確認</span>
           </span>
           <span class="mm-organize-arrow">→</span>
         </button>
@@ -247,7 +247,7 @@ function onClear() {
         <span class="mp-count">{{ itemCount }}件</span>
       </header>
       <div class="mp-scroll">
-        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。左右にスワイプでタブを切り替えられます。</div>
+        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。上のチップか、左右にスワイプで表示を切り替えられます。</div>
         <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
       </div>
     </div>

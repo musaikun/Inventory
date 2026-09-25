@@ -1,4 +1,4 @@
-// データ管理の非表示の品目。設定済み品目一覧のタブ（非表示設定品目・非表示にした順）で見る。
+// データ管理の非表示の品目。設定済み品目一覧のチップ（非表示設定品目・非表示にした順）で見る。
 // 誤って隠した品目を探して戻す場所なので、「非表示にした順」では最後に隠したものが先頭に来て、
 // 隠した時刻が読めることを固定する。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -18,7 +18,7 @@ async function click(el) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
 }
-const seg = label => [...host.querySelectorAll('.mm-page .seg-btn')].find(b => b.textContent.trim() === label)
+const seg = label => [...host.querySelectorAll('.mm-page .sort-chip')].find(b => b.textContent.trim() === label)
 
 async function mountPage() {
   const { default: Page } = await import('./MasterManagePage.vue')
@@ -43,7 +43,7 @@ async function swipe(dx) {
   el.dispatchEvent(touch('touchend', 200 + dx))
   await nextTick()
 }
-const activeTab = () => host.querySelector('.mm-page .seg-btn.active')?.textContent.trim()
+const activeTab = () => host.querySelector('.mm-page .sort-chip.active')?.textContent.trim()
 
 const rows  = () => [...host.querySelectorAll('.mm-page .item-row')]
 const names = () => rows().map(r => r.dataset.item)
@@ -68,20 +68,45 @@ describe('MasterManagePage — 非表示の品目（設定済み品目一覧の�
     expect(titles).not.toContain('非表示中')
   })
 
-  it('タブは ジャンル → 作ったグループ → 非表示設定品目 → 非表示にした順', async () => {
+  it('チップは ジャンル → 作ったグループ → 非表示設定品目 → 非表示にした順（タブは出さない）', async () => {
     cfg.setAxisName(0, '保管場所')
+    cfg.setAxisName(1, '仕入先')
     await mountPage()
-    const labels = [...host.querySelectorAll('.mm-page .seg-btn')].map(b => b.textContent.trim())
-    expect(labels).toEqual(['ジャンル', '保管場所', '非表示設定品目', '非表示にした順'])
+    const labels = [...host.querySelectorAll('.mm-page .sort-chip')].map(b => b.textContent.trim())
+    expect(labels).toEqual(['ジャンル', '保管場所', '仕入先', '非表示設定品目', '非表示にした順'])
     expect(seg('ジャンル').classList.contains('active')).toBe(true)
+    expect(host.querySelector('.mm-page .seg-btn')).toBeNull()
   })
 
-  it('非表示設定品目: 非表示の品目だけが、リストの順で出る', async () => {
+  it('作ったグループは「設定済みグループ」の枠の中で切り替える', async () => {
+    cfg.setAxisName(0, '保管場所')
+    cfg.setAxisName(1, '仕入先')
+    await mountPage()
+    const box = host.querySelector('.mm-page .sort-chip-box')
+    expect(box.textContent).toContain('設定済みグループ')
+    expect([...box.querySelectorAll('.sort-chip')].map(b => b.textContent.trim())).toEqual(['保管場所', '仕入先'])
+    await click(seg('仕入先'))
+    expect(activeTab()).toBe('仕入先')
+  })
+
+  it('作ったグループが無ければ枠を出さない', async () => {
+    await mountPage()
+    expect(host.querySelector('.mm-page .sort-chip-box')).toBeNull()
+  })
+
+  it('非表示設定品目: 非表示の品目だけが、取込由来のジャンル別に出る', async () => {
+    cfg.addItem('牛肉', 100, '肉', '個')
     cfg.hideItem('なす')
     cfg.hideItem('トマト')
+    cfg.hideItem('牛肉')
     await mountPage()
     await click(seg('非表示設定品目'))
-    expect(names()).toEqual(['トマト', 'なす'])
+    const heads = [...host.querySelectorAll('.mm-page .group-header-row')]
+      .map(e => e.textContent)
+    expect(heads.some(t => t.includes('野菜'))).toBe(true)
+    expect(heads.some(t => t.includes('肉'))).toBe(true)
+    await click(host.querySelector('.mm-page .thead-toggle'))   // すべて開く
+    expect(names()).toEqual(['牛肉', 'トマト', 'なす'])   // ジャンルのチップと同じ並び（コード無しは五十音）
   })
 
   it('非表示にした順: 最後に隠した品目が先頭に並び、時刻が出る', async () => {
