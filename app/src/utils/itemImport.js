@@ -684,3 +684,21 @@ export function summaryCounts(summary) {
     total:          summary.total,
   }
 }
+
+export const IMPORT_EXCLUDED_MAX = 300
+export const EXCLUDED_BY_LIMIT = '品目数の上限で入りませんでした'
+
+/**
+ * 取込で品目にならなかった行を、あとから一覧で確かめられる形にする（直近1回分だけ残す）。
+ * 名前の無い行（空行）は数えない。見せても何の行か分からず、戻しようもない。
+ * @returns {{ at:string, total:number, rows:Array<{name:string, reason:string}> }}
+ */
+export function importExcludedRecord(summary, at = new Date().toISOString()) {
+  const rows = []
+  const push = (name, reason) => { if (name) rows.push({ name: String(name), reason }) }
+  for (const r of summary?.metaRows ?? [])       push(r.name, r.reason)
+  for (const r of summary?.skipped ?? [])        push(r.name, r.reason)
+  for (const r of summary?.codeCollisions ?? []) push(r.code ? `${r.name}（${r.code}）` : r.name, r.reason)
+  for (const n of summary?.truncated ?? [])      push(n, EXCLUDED_BY_LIMIT)
+  return { at, total: rows.length, rows: rows.slice(0, IMPORT_EXCLUDED_MAX) }
+}

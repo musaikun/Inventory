@@ -16,6 +16,7 @@ import {
   parseItemCSV,
   parseMappedCSV,
   buildImportPlan,
+  importExcludedRecord,
   parseCSVLine,
   IMPORT_MODE_MERGE,
   IMPORT_MODE_REPLACE,
@@ -65,6 +66,8 @@ const config = reactive({
   orderSchedules: [],
   // 仮の発注基準の仮定（届くまで・余裕・何日分）。null = 未設定＝仮の基準を使わない。
   orderAssumptions: null,
+  // 直近の取込で品目にならなかった行 { at, total, rows:[{ name, reason }] }。null = 記録なし
+  importExcluded: null,
 })
 
 // 自動学習エイリアス（別ストレージ）
@@ -124,6 +127,7 @@ function _serializeConfigData() {
     tagsArchiveB:  config.tagsArchiveB,
     orderSchedules: config.orderSchedules,
     orderAssumptions: config.orderAssumptions,
+    importExcluded: config.importExcluded,
   }
 }
 function _assignConfigData(src) {
@@ -151,6 +155,7 @@ function _assignConfigData(src) {
   // src.orderSchedule = 旧・単一形式。orderSchedules が無いときだけ1件へ移行する。
   config.orderSchedules = normalizeSchedules(src.orderSchedules, src.orderSchedule)
   config.orderAssumptions = normalizeAssumptions(src.orderAssumptions)
+  config.importExcluded = src.importExcluded && Array.isArray(src.importExcluded.rows) ? src.importExcluded : null
 }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
@@ -336,6 +341,7 @@ function _applyImportPlan(plan) {
   config.tagsB         = plan.tagsB
   config.axisNames     = [plan.axisNames[0] ?? '', plan.axisNames[1] ?? '']
   config.manualItems   = plan.manualItems
+  config.importExcluded = importExcludedRecord(plan.summary)
 
   // 復元した割り当てを再びアーカイブへ記憶（取込をまたいで復元できるように）
   for (const nm of plan.order) {
@@ -501,6 +507,7 @@ export function useConfig() {
     config.hiddenItems   = []
     config.hiddenAuto    = []
     config.hiddenAt      = {}
+    config.importExcluded = null
     config.isCustom      = true   // 意図的な空リスト（セットアップ完了扱い）
     config.savedAt       = null
     localStorage.removeItem(CONFIG_KEY)

@@ -457,3 +457,19 @@ describe('数量・単価の上限（Worker契約と同じ値）', () => {
     expect(p.unreadable[0]).toMatchObject({ line: 1, columnLabel: '単価', value: '100000001' })
   })
 })
+
+describe('importExcludedRecord（取込で除外した行の記録）', () => {
+  it('見出し・重複・同名別コード・上限超えを理由つきで残し、名前の無い行は数えない', async () => {
+    const { importExcludedRecord, EXCLUDED_BY_LIMIT } = await import('./itemImport.js')
+    const rec = importExcludedRecord({
+      metaRows: [{ name: '小計', reason: '合計・小計の行に見えます' }],
+      skipped: [{ name: '', reason: '品目名が空' }, { name: 'トマト', reason: 'ファイル内の重複（先に出てきた行を採用）' }],
+      codeCollisions: [{ name: '牛肉', code: 'B2', reason: '同じ名前・違う商品コード（別の商品かもしれません）' }],
+      truncated: ['豚バラ'],
+    }, '2026-09-25T00:00:00Z')
+    expect(rec.at).toBe('2026-09-25T00:00:00Z')
+    expect(rec.total).toBe(4)
+    expect(rec.rows.map(r => r.name)).toEqual(['小計', 'トマト', '牛肉（B2）', '豚バラ'])
+    expect(rec.rows[3].reason).toBe(EXCLUDED_BY_LIMIT)
+  })
+})

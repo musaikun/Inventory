@@ -17,6 +17,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       replenishTargets: { トマト: 12 },
       orderSchedules: [{ id: 'a', name: '青果', days: [2, 5], deadline: '15:00' }],
       orderAssumptions: { leadDays: 1, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 2 } },
+      importExcluded: { at: '2026-09-25T00:00:00Z', total: 1, rows: [{ name: '小計', reason: '合計・小計の行に見えます' }] },
       isCustom: true,
     }
     const out = normalizeConfig(src)
@@ -25,6 +26,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     expect(out.replenishTargets).toEqual({ トマト: 12 })
     expect(out.orderSchedules).toEqual([{ id: 'a', name: '青果', days: [2, 5], deadline: '15:00' }])
     expect(out.orderAssumptions).toEqual({ leadDays: 1, safetyDays: 1, stockDays: 4, stockDaysByCategory: { 野菜: 2 } })
+    expect(out.importExcluded.rows).toEqual([{ name: '小計', reason: '合計・小計の行に見えます' }])
     expect(out.axisNames).toEqual(['場所', '仕入先'])
     expect(out.tagsA).toEqual({ トマト: ['冷蔵'] })
     expect(out.tagsB).toEqual({ トマト: ['八百屋'] })
@@ -42,6 +44,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     expect(out.replenishTargets).toEqual({})
     expect(out.orderSchedules).toEqual([])
     expect(out.orderAssumptions).toBeNull()
+    expect(out.importExcluded).toBeNull()
     expect(out.tagsA).toEqual({})
     expect(out.axisGroupsA).toEqual([])
     expect(out.hiddenItems).toEqual([])

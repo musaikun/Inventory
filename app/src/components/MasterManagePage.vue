@@ -7,6 +7,7 @@ import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerC
 import { useDataImport } from '../composables/useDataImport.js'
 import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
 import InventoryTable from './InventoryTable.vue'
+import { hiddenAtLabel } from '../utils/hiddenItems.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
@@ -73,6 +74,10 @@ const listStats = computed(() => {
   }
   return { total: order.length, shown: order.length - hidden, hidden, auto, noGenre }
 })
+// 直近の取込で品目にならなかった行。品目リストに居ないので表では見せられず、ここで一覧にする
+const excluded = computed(() => config.importExcluded ?? null)
+const excludedOpen = ref(false)
+const excludedAt = computed(() => hiddenAtLabel(excluded.value?.at))
 
 // 設定済み品目一覧はページとして開く。非表示の品目もここのチップ
 // （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
@@ -265,7 +270,26 @@ function onClear() {
             <span class="mm-stat-num">{{ listStats.hidden }}</span><span class="mm-stat-label">非表示</span>
             <span v-if="listStats.auto" class="mm-stat-sub">うち自動 {{ listStats.auto }}</span>
           </div>
-          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.noGenre }}</span><span class="mm-stat-label">ジャンル未設定</span></div>
+          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.noGenre }}</span><span class="mm-stat-label">ジャンルなし</span></div>
+          <button
+            type="button" class="mm-stat excluded" :class="{ on: excludedOpen }"
+            :aria-expanded="excludedOpen ? 'true' : 'false'" :disabled="!excluded?.total"
+            @click="excludedOpen = !excludedOpen"
+          >
+            <span class="mm-stat-num">{{ excluded?.total ?? 0 }}</span><span class="mm-stat-label">取込で除外</span>
+            <span v-if="excluded?.total" class="mm-stat-sub">{{ excludedOpen ? '▲ 閉じる' : '▼ 見る' }}</span>
+          </button>
+        </div>
+        <div v-if="excludedOpen && excluded?.total" class="mm-excluded">
+          <div class="mm-excluded-head">
+            直近の取込（{{ excludedAt }}）で品目にしなかった行です。必要なものは、もう一度取り込んで
+            確認画面の「これらも品目として取り込む」を選ぶか、品目を追加してください。
+          </div>
+          <div v-for="(r, i) in excluded.rows" :key="i" class="mm-excluded-row">
+            <span class="mm-excluded-name">{{ r.name }}</span>
+            <span class="mm-excluded-reason">{{ r.reason }}</span>
+          </div>
+          <div v-if="excluded.total > excluded.rows.length" class="mm-excluded-more">ほか {{ excluded.total - excluded.rows.length }}行</div>
         </div>
         <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。上のチップか、左右にスワイプで表示を切り替えられます。</div>
         <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
@@ -558,10 +582,20 @@ function onClear() {
 
 .mm-preview { margin-top: 10px; }
 .mm-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }
-.mm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
-.mm-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 2px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; min-width: 0; }
+.mm-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 10px; }
+.mm-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 2px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; min-width: 0; font: inherit; }
 .mm-stat-num { font-size: 18px; font-weight: 800; color: #1e293b; line-height: 1.2; }
-.mm-stat-label { font-size: 10.5px; font-weight: 700; color: #64748b; white-space: nowrap; }
+.mm-stat-label { font-size: 10px; font-weight: 700; color: #64748b; text-align: center; line-height: 1.3; }
+button.mm-stat { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.mm-stat:disabled { cursor: default; }
+.mm-stat.excluded.on { border-color: #f59e0b; background: #fffbeb; }
+.mm-stat.excluded:not(:disabled) .mm-stat-num { color: #b45309; }
+.mm-excluded { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
+.mm-excluded-head { font-size: 11.5px; color: #92400e; line-height: 1.6; margin-bottom: 6px; }
+.mm-excluded-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-top: 1px solid #fde68a; }
+.mm-excluded-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: #334155; overflow-wrap: anywhere; }
+.mm-excluded-reason { flex-shrink: 0; max-width: 55%; font-size: 11px; color: #92400e; text-align: right; }
+.mm-excluded-more { font-size: 11px; color: #92400e; padding-top: 6px; }
 .mm-stat-sub { font-size: 10px; color: #94a3b8; white-space: nowrap; }
 .mm-stat.hidden .mm-stat-num { color: #dc2626; }
 .mm-preview-hint { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }

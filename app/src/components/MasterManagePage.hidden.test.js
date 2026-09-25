@@ -167,7 +167,7 @@ describe('MasterManagePage — 非表示の品目（設定済み品目一覧の�
 })
 
 describe('MasterManagePage — 設定済み品目一覧の件数', () => {
-  it('全体・表示中・非表示（うち自動）・ジャンル未設定を出す', async () => {
+  it('全体・表示中・非表示（うち自動）・ジャンルなしを出す', async () => {
     cfg.addItem('塩', 100, '', '個')
     cfg.hideItem('トマト')
     cfg.hideItem('塩', true)
@@ -178,6 +178,36 @@ describe('MasterManagePage — 設定済み品目一覧の件数', () => {
     expect(stat('表示中').querySelector('.mm-stat-num').textContent).toBe('2')
     expect(stat('非表示').querySelector('.mm-stat-num').textContent).toBe('2')
     expect(stat('非表示').textContent).toContain('うち自動 1')
-    expect(stat('ジャンル未設定').querySelector('.mm-stat-num').textContent).toBe('1')
+    expect(stat('ジャンルなし').querySelector('.mm-stat-num').textContent).toBe('1')
+  })
+})
+
+describe('MasterManagePage — 取込で除外した行', () => {
+  it('直近の取込で品目にしなかった行を件数で出し、押すと理由つきで開く', async () => {
+    cfg.loadFromCSV('品目名,単位\nキャベツ,玉\n小計,\nキャベツ,玉')
+    expect(cfg.config.importExcluded.total).toBe(2)
+    await mountPage()
+    const tile = host.querySelector('.mm-page .mm-stat.excluded')
+    expect(tile.querySelector('.mm-stat-num').textContent).toBe('2')
+    expect(host.querySelector('.mm-page .mm-excluded')).toBeNull()
+    await click(tile)
+    const rows = [...host.querySelectorAll('.mm-page .mm-excluded-row')].map(r => r.textContent)
+    expect(rows[0]).toContain('小計')
+    expect(rows[0]).toContain('合計・小計')
+    expect(rows[1]).toContain('キャベツ')
+    expect(rows[1]).toContain('重複')
+  })
+
+  it('取込の記録が無ければ0で、押せない', async () => {
+    await mountPage()
+    const tile = host.querySelector('.mm-page .mm-stat.excluded')
+    expect(tile.querySelector('.mm-stat-num').textContent).toBe('0')
+    expect(tile.disabled).toBe(true)
+  })
+
+  it('全品目を削除すると記録も消える', async () => {
+    cfg.loadFromCSV('品目名,単位\n小計,\nキャベツ,玉')
+    cfg.setEmptyList()
+    expect(cfg.config.importExcluded).toBeNull()
   })
 })
