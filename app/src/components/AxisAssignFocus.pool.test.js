@@ -374,3 +374,23 @@ describe('AxisAssignFocus — 非表示のみ（左スワイプで一覧に戻�
     expect(action().style.background).toBe('rgb(220, 38, 38)')
   })
 })
+
+describe('AxisAssignFocus — 絞り込みの並びと左スワイプの案内', () => {
+  it('「〜のみ」の4つは未振り分けのみとは別の1段に並ぶ', async () => {
+    cfg.hideItem('レタス')
+    await mount()
+    const tools = host.querySelector('.af-tools')
+    expect([...tools.querySelectorAll('.af-chip-btn')].map(b => b.textContent.trim())).toEqual(['未振り分けのみ'])
+    const row = host.querySelector('.af-only-row')
+    expect([...row.querySelectorAll('.af-chip-btn')].map(b => b.textContent.trim()))
+      .toEqual(['前回入力のみ', '未計測のみ', '新規のみ', '非表示のみ'])
+  })
+
+  it('左スワイプで非表示にできると案内し、一度非表示にしたら消える', async () => {
+    await mount()
+    expect(host.querySelector('.af-pickhint').textContent).toContain('左にスワイプ')
+    const el = await swipe('豚バラ', -300)
+    await release(el)
+    expect(host.querySelector('.af-pickhint')?.textContent ?? '').not.toContain('左にスワイプ')
+  })
+})

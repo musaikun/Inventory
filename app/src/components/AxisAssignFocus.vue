@@ -690,6 +690,7 @@ function _showFlash(msg, item) {
 // 他の非表示導線とまったく同じ経路に乗せるため。
 function hideFromPool(item) {
   if (hiddenOnly.value) { restoreToPool(item); return }
+  swipeHinted.value = true
   emit('hide-item', item)
   _offerUndo(`「${item}」を一覧から非表示にしました`, '棚卸の一覧と進捗からも外れます', () => {
     emit('unhide-item', item)
@@ -806,6 +807,7 @@ function pickAnchorStyle(row) {
 
 // 長押しは見えない操作なので、一度使うまでは一覧の上に一行だけ出す
 const pickHinted = ref(false)
+const swipeHinted = ref(false)   // 左スワイプで一度でも非表示にしたら案内を消す
 function openPick(item, row) {
   if (hiddenOnly.value) return   // 非表示の品目は振り分けない（長押しでも開かない）
   if (!groups.value.length) { _showFlash('先に分類先を作ってください', ''); return }
@@ -1298,6 +1300,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           <button v-if="search" class="af-search-x" aria-label="検索文字を消す" @click="clearSearch">✕</button>
         </div>
         <button :class="['af-chip-btn', { on: unassignedOnly }]" @click="unassignedOnly = !unassignedOnly">未振り分けのみ</button>
+      </div>
+      <!-- 互いに排他の「〜のみ」は1段に並べる（折り返すと段の高さが変わり、一覧が上下に動く） -->
+      <div v-if="hasUsage || lastSnapItems || hiddenSet.size || hiddenOnly" class="af-only-row">
         <button v-if="hasUsage" :class="['af-chip-btn', { on: usedOnly }]" @click="toggleUsedOnly">前回入力のみ</button>
         <button v-if="hasUsage" :class="['af-chip-btn', { on: neverUsedOnly }]" @click="toggleNeverUsedOnly">未計測のみ</button>
         <button v-if="lastSnapItems" :class="['af-chip-btn', { on: newOnly }]" @click="toggleNewOnly">新規のみ</button>
@@ -1308,9 +1313,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
            「何が未計測なのか」「いつと比べた新規なのか」が読めない -->
       <p v-if="filterNote" class="af-filter-note">{{ filterNote }}</p>
 
-      <!-- 長押しの導線。逆向き（品目 → 分類先）は見えない操作なので、使うまでは出しておく -->
-      <div v-if="!pickHinted && !hiddenOnly && groups.length && poolItems.length" class="af-pickhint">
-        品目を<b>長押し</b>すると、分類先をその場で選べます
+      <!-- 長押し・左スワイプの導線。どちらも見えない操作なので、一度使うまでは出しておく -->
+      <div v-if="!hiddenOnly && poolItems.length && ((!pickHinted && groups.length) || !swipeHinted)" class="af-pickhint">
+        <div v-if="!pickHinted && groups.length">品目を<b>長押し</b>すると、分類先をその場で選べます</div>
+        <div v-if="!swipeHinted">品目を<b>左にスワイプ</b>すると、非表示にします</div>
       </div>
 
       <div
@@ -1734,7 +1740,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-rail-btn:disabled { opacity: 0.4; }
 
 /* ── 品目プール ─────────────────────────────────────────────── */
-.af-tools { display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap; flex-shrink: 0; }
+.af-tools { display: flex; gap: 8px; padding: 8px 14px; flex-shrink: 0; }
+.af-only-row { display: flex; gap: 6px; padding: 0 14px 8px; flex-shrink: 0; }
+.af-only-row .af-chip-btn { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 0 2px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.02em; }
 .af-search-wrap { position: relative; flex: 1; min-width: 120px; display: flex; }
 .af-search { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 38px 10px 12px; font-size: 15px; }
 /* 文字が入っているときだけ ✕ を出す（入力中に幅が動かないよう場所は常に取る）*/
@@ -1926,6 +1934,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
    下端固定だと親指の移動距離が毎回そのまま乗り、速さを狙った機能の意味が薄れる。 */
 .af-pickhint { margin: 0 14px 6px; padding: 7px 10px; background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 9px; font-size: 12px; color: #4338ca; }
 .af-pickhint b { font-weight: 800; }
+.af-pickhint div + div { margin-top: 2px; }
 .af-pick-back { position: fixed; inset: 0; z-index: 68; background: rgba(15, 23, 42, 0.18); }
 .af-pick {
   position: fixed; left: 14px; right: 14px; max-width: 560px; margin-inline: auto;
