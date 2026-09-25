@@ -105,7 +105,7 @@ describe('データ管理 — 品目リスト整理', () => {
     cfg.setAxisName(0, '保管場所')
     await mountPage()
     expect(host.textContent).toContain('品目リスト整理')
-    expect(host.querySelectorAll('.mm-organize:not(.mm-listopen)').length).toBe(1)
+    expect(host.querySelectorAll('.mm-organize:not(.mm-listopen):not(.mm-checkopen)').length).toBe(1)
     expect(host.querySelector('.mm-organize').textContent).toContain('グループ化・並び替え')
     expect(host.querySelectorAll('.mm-axis-row').length).toBe(0)
     expect(host.querySelector('.mm-axis-add')).toBeNull()

@@ -686,6 +686,32 @@ export function useConfig() {
     return true
   }
 
+  // 品目の点検から、空欄だけを埋める。渡した欄だけ変える（undefined は触らない）。
+  function patchItem(name, { unit, price, category, lotSize } = {}) {
+    if (!config.order.includes(name)) return false
+    const put = (obj, v) => { const t = String(v ?? '').trim(); if (t) obj[name] = t; else delete obj[name] }
+    if (unit !== undefined)     put(config.units, unit)
+    if (category !== undefined) put(config.categories, category)
+    if (lotSize !== undefined)  put(config.lotSizes, lotSize)
+    if (price !== undefined) {
+      const v = Number(price)
+      if (price !== '' && price != null && Number.isFinite(v) && v > 0) config.prices[name] = v
+      else delete config.prices[name]
+    }
+    _save()
+    return true
+  }
+
+  // 取込で除外した行を1つ記録から外す（品目にした・もう要らない）
+  function dropImportExcluded(index) {
+    const rec = config.importExcluded
+    if (!rec || !rec.rows?.[index]) return false
+    const rows = rec.rows.filter((_, i) => i !== index)
+    config.importExcluded = { ...rec, rows, total: Math.max(0, (rec.total ?? rows.length + 1) - 1) }
+    _save()
+    return true
+  }
+
   // 復元時などに入数・前月実績をまとめて設定する
   function setItemExtras(name, { lotSize, prevMonth } = {}) {
     if (!config.order.includes(name)) return false
@@ -1125,5 +1151,7 @@ export function useConfig() {
     copyCategoryToAxis,
     setOrderSchedules,
     setOrderAssumptions,
+    patchItem,
+    dropImportExcluded,
   }
 }

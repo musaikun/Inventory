@@ -7,6 +7,8 @@ import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerC
 import { useDataImport } from '../composables/useDataImport.js'
 import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
 import InventoryTable from './InventoryTable.vue'
+import ItemCheckPage from './ItemCheckPage.vue'
+import { itemCheckRows } from '../utils/itemCheck.js'
 import { hiddenAtLabel } from '../utils/hiddenItems.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
@@ -15,7 +17,7 @@ import PdfGridSetup from './PdfGridSetup.vue'
 
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, exportConfigCSV } = useConfig()
+const { config, itemCount, exportConfigCSV, addItem, dropImportExcluded } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -78,6 +80,20 @@ const listStats = computed(() => {
 const excluded = computed(() => config.importExcluded ?? null)
 const excludedOpen = ref(false)
 const excludedAt = computed(() => hiddenAtLabel(excluded.value?.at))
+const orderSet = computed(() => new Set(config.order ?? []))
+const excludedMsg = ref('')
+// 除外した行を品目にする。上限や同名で入らなければ理由を出す（黙って何も起きないのを避ける）
+function adoptExcluded(i) {
+  const r = excluded.value?.rows?.[i]
+  if (!r) return
+  if (!addItem(r.name)) { excludedMsg.value = `「${r.name}」は追加できませんでした（品目数の上限か、同じ名前があります）`; return }
+  dropImportExcluded(i)
+  excludedMsg.value = `「${r.name}」を品目にしました`
+}
+
+// 品目の点検（空欄のある品目）。直す操作は設定済み品目一覧（確認専用）とは別ページ
+const checkCount = computed(() => itemCheckRows(config).length)
+const checkOpen = ref(false)
 
 // 設定済み品目一覧はページとして開く。非表示の品目もここのチップ
 // （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
@@ -92,6 +108,7 @@ const HELP = {
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
+  check: '入数・単位・単価・ジャンルが空の品目を一覧にして、その場で埋められます。入数が空だと推奨発注数が1個単位で出て、単価が空だと在庫金額に入りません。非表示の品目は数えません。',
   list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。上のチップでジャンル・作ったグループ（設定済みグループの枠の中）・非表示設定品目・非表示にした順を切り替えられます。非表示設定品目はジャンル別に出ます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
@@ -119,6 +136,7 @@ function runPick(fn) { closePicker(); fn() }
 onUnmounted(registerInnerLayerCloser(() => {
   if (picker.value) { closePicker(); return true }
   if (listOpen.value) { closeList(); return true }
+  if (checkOpen.value) { checkOpen.value = false; return true }
   return false
 }))
 
@@ -238,6 +256,27 @@ function onClear() {
         </button>
       </div>
 
+      <!-- 品目の点検。空欄のある品目をその場で埋める -->
+      <div class="mm-block">
+        <div class="mm-head-row">
+          <div class="mm-block-head">
+            <span class="mm-block-title">品目の点検</span>
+          </div>
+          <button class="mm-help-btn" :class="{ on: activeHelp === 'check' }" @click="toggleHelp('check')">?</button>
+        </div>
+        <div v-if="activeHelp === 'check'" class="mm-help">{{ HELP.check }}</div>
+        <button class="mm-organize mm-checkopen" @click="activeHelp = ''; checkOpen = true">
+          <span class="mm-organize-ico">🔍</span>
+          <span class="mm-organize-body">
+            <span class="mm-organize-title">
+              要確認の品目 <span :class="['mm-check-count', { zero: !checkCount }]">{{ checkCount }}件</span>
+            </span>
+            <span class="mm-organize-sub">入数・単位・単価・ジャンルが空の品目を埋める</span>
+          </span>
+          <span class="mm-organize-arrow">→</span>
+        </button>
+      </div>
+
       <!-- 一括削除（危険操作・店舗コードゲート） -->
       <div v-if="itemCount > 0" class="mm-block danger">
         <div class="mm-block-head">
@@ -282,12 +321,17 @@ function onClear() {
         </div>
         <div v-if="excludedOpen && excluded?.total" class="mm-excluded">
           <div class="mm-excluded-head">
-            直近の取込（{{ excludedAt }}）で品目にしなかった行です。必要なものは、もう一度取り込んで
-            確認画面の「これらも品目として取り込む」を選ぶか、品目を追加してください。
+            直近の取込（{{ excludedAt }}）で品目にしなかった行です。必要なものは「品目にする」で
+            追加できます（名前だけで入るので、単位や入数は「品目の点検」で埋めてください）。
           </div>
-          <div v-for="(r, i) in excluded.rows" :key="i" class="mm-excluded-row">
-            <span class="mm-excluded-name">{{ r.name }}</span>
-            <span class="mm-excluded-reason">{{ r.reason }}</span>
+          <div v-if="excludedMsg" class="mm-excluded-msg" role="status">{{ excludedMsg }}</div>
+          <div v-for="(r, i) in excluded.rows" :key="i + r.name" class="mm-excluded-row">
+            <span class="mm-excluded-main">
+              <span class="mm-excluded-name">{{ r.name }}</span>
+              <span class="mm-excluded-reason">{{ r.reason }}</span>
+            </span>
+            <span v-if="orderSet.has(r.name)" class="mm-excluded-done">登録済み</span>
+            <button v-else type="button" class="mm-excluded-adopt" @click="adoptExcluded(i)">品目にする</button>
           </div>
           <div v-if="excluded.total > excluded.rows.length" class="mm-excluded-more">ほか {{ excluded.total - excluded.rows.length }}行</div>
         </div>
@@ -295,6 +339,8 @@ function onClear() {
         <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
       </div>
     </div>
+
+    <ItemCheckPage v-if="checkOpen" @close="checkOpen = false" />
 
     <!-- 取り込む / 書き出す の種類を選ぶ -->
     <div v-if="picker" class="mm-pick-back" @click.self="closePicker">
@@ -592,9 +638,18 @@ button.mm-stat:disabled { cursor: default; }
 .mm-stat.excluded:not(:disabled) .mm-stat-num { color: #b45309; }
 .mm-excluded { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
 .mm-excluded-head { font-size: 11.5px; color: #92400e; line-height: 1.6; margin-bottom: 6px; }
-.mm-excluded-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-top: 1px solid #fde68a; }
-.mm-excluded-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: #334155; overflow-wrap: anywhere; }
-.mm-excluded-reason { flex-shrink: 0; max-width: 55%; font-size: 11px; color: #92400e; text-align: right; }
+.mm-excluded-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #fde68a; }
+.mm-excluded-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mm-excluded-name { font-size: 13px; font-weight: 700; color: #334155; overflow-wrap: anywhere; }
+.mm-excluded-reason { font-size: 11px; color: #92400e; }
+.mm-excluded-adopt {
+  flex-shrink: 0; min-height: 40px; padding: 4px 10px; border: 1.5px solid #f59e0b; border-radius: 9px;
+  background: #fff; color: #b45309; font-size: 12px; font-weight: 800; cursor: pointer;
+}
+.mm-excluded-done { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; }
+.mm-excluded-msg { font-size: 12px; font-weight: 700; color: #1e293b; background: #fff; border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
+.mm-check-count { font-size: 12px; font-weight: 800; color: #b45309; background: #fef3c7; border-radius: 8px; padding: 1px 7px; margin-left: 4px; }
+.mm-check-count.zero { color: #64748b; background: #f1f5f9; }
 .mm-excluded-more { font-size: 11px; color: #92400e; padding-top: 6px; }
 .mm-stat-sub { font-size: 10px; color: #94a3b8; white-space: nowrap; }
 .mm-stat.hidden .mm-stat-num { color: #dc2626; }
