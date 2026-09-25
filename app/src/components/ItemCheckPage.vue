@@ -1,17 +1,24 @@
 <script setup>
 /**
- * 品目の点検。入数・単位・単価・ジャンルが空の品目を出し、その場で埋める。
- * 設定済み品目一覧は確認専用なので、直す操作はこのページに分けている。
+ * 品目の点検。入数・単位・単価・ジャンルが空の品目と、しばらく数えていない品目を出し、
+ * その場で埋める／非表示にする。設定済み品目一覧は確認専用なので、直す操作はこのページに分けている。
  */
 import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { useHistory } from '../composables/useHistory.js'
 import { ITEM_CHECKS, itemCheckRows } from '../utils/itemCheck.js'
 
 const emit = defineEmits(['close'])
-const { config, patchItem } = useConfig()
+const { config, patchItem, hideItem } = useConfig()
+const { getSnapshots } = useHistory()
 
 const LABEL = Object.fromEntries(ITEM_CHECKS.map(c => [c.key, c.label]))
-const allRows = computed(() => itemCheckRows(config))
+const allRows = computed(() => itemCheckRows(config, { snapshots: getSnapshots() }))
+function lastLabel(d) {
+  if (!d) return '一度も数えていません'
+  const [, m, dd] = d.split('-').map(Number)
+  return `最後に数えたのは ${m}/${dd}`
+}
 const counts = computed(() => {
   const c = Object.fromEntries(ITEM_CHECKS.map(k => [k.key, 0]))
   for (const r of allRows.value) for (const k of r.missing) c[k]++
@@ -39,11 +46,20 @@ function open(r) {
   }
 }
 const saved = ref('')
+function flash(msg) {
+  saved.value = msg
+  setTimeout(() => { if (saved.value === msg) saved.value = '' }, 1600)
+}
 function save(item) {
   patchItem(item, { ...draft.value })
   openItem.value = ''
-  saved.value = item
-  setTimeout(() => { if (saved.value === item) saved.value = '' }, 1600)
+  flash(`「${item}」を保存しました`)
+}
+// 使っていない品目を隠す。消さないので、設定済み品目一覧の「非表示設定品目」から戻せる
+function hide(item) {
+  hideItem(item)
+  openItem.value = ''
+  flash(`「${item}」を非表示にしました`)
 }
 </script>
 
@@ -56,8 +72,8 @@ function save(item) {
     </header>
     <div class="ic-scroll">
       <p class="ic-desc">
-        入数・単位・単価・ジャンルが空の品目です。行を押すと、その場で埋められます。
-        非表示の品目は数えていません。
+        入数・単位・単価・ジャンルが空の品目と、しばらく数えていない品目です。行を押すと、
+        その場で埋めたり非表示にしたりできます。非表示の品目は数えていません。
       </p>
 
       <div class="ic-chips">
@@ -66,24 +82,28 @@ function save(item) {
           v-for="c in ITEM_CHECKS" :key="c.key" type="button"
           :class="['ic-chip', { on: filter === c.key }]" :disabled="!counts[c.key]"
           @click="filter = c.key"
-        >{{ c.label }}なし {{ counts[c.key] }}</button>
+        >{{ c.chip }} {{ counts[c.key] }}</button>
       </div>
       <p v-if="filter !== 'all'" class="ic-why">{{ ITEM_CHECKS.find(c => c.key === filter)?.why }}</p>
 
       <div v-if="allRows.length === 0" class="ic-empty">空欄のある品目はありません。</div>
       <div v-else-if="rows.length === 0" class="ic-empty">この条件の品目はありません。</div>
 
-      <div v-if="saved" class="ic-toast" role="status">「{{ saved }}」を保存しました</div>
+      <div v-if="saved" class="ic-toast" role="status">{{ saved }}</div>
 
       <div v-for="r in rows" :key="r.item" :class="['ic-row', { open: openItem === r.item }]">
         <button type="button" class="ic-row-head" :aria-expanded="openItem === r.item ? 'true' : 'false'" @click="open(r)">
           <span class="ic-name">{{ r.item }}</span>
           <span class="ic-tags">
-            <span v-for="k in r.missing" :key="k" class="ic-tag">{{ LABEL[k] }}</span>
+            <span v-for="k in r.missing" :key="k" :class="['ic-tag', { stale: k === 'stale' }]">{{ LABEL[k] }}</span>
           </span>
           <span class="ic-arrow">{{ openItem === r.item ? '▲' : '▼' }}</span>
         </button>
         <div v-if="openItem === r.item" class="ic-form">
+          <div v-if="r.missing.includes('stale')" class="ic-stale">
+            <span class="ic-stale-text">{{ lastLabel(r.last) }}。使っていなければ非表示にできます（消えずに戻せます）。</span>
+            <button type="button" class="ic-hide" @click="hide(r.item)">非表示にする</button>
+          </div>
           <label class="ic-field">
             <span class="ic-label">単位</span>
             <input v-model="draft.unit" class="ic-input" type="text" placeholder="個・kg・本 など" />
@@ -143,6 +163,13 @@ function save(item) {
 .ic-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ic-tags { display: flex; gap: 4px; flex-shrink: 0; }
 .ic-tag { font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border-radius: 6px; padding: 1px 5px; }
+.ic-tag.stale { color: #475569; background: #e2e8f0; }
+.ic-stale { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f1f5f9; }
+.ic-stale-text { flex: 1; min-width: 0; font-size: 12px; color: #475569; line-height: 1.5; }
+.ic-hide {
+  flex-shrink: 0; min-height: 40px; padding: 4px 10px; border: 1.5px solid #fecaca; border-radius: 9px;
+  background: #fff; color: #dc2626; font-size: 12px; font-weight: 800; cursor: pointer;
+}
 .ic-arrow { font-size: 10px; color: #94a3b8; flex-shrink: 0; }
 .ic-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 12px 12px; }
 .ic-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }

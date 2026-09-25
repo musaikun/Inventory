@@ -91,3 +91,30 @@ describe('取込で除外した行を品目にする', () => {
     expect(host.textContent).toContain('「小計」を品目にしました')
   })
 })
+
+describe('しばらく数えていない品目', () => {
+  it('最後に数えた日を出し、その場で非表示にできる', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    const s = (id, date, saltQty) => ({
+      sessionId: id, date, savedAt: `${date}T01:00:00Z`,
+      items: [{ item: 'トマト', qty: 5, unit: '個', unitPrice: 100, subtotal: 500 }, { item: '塩', qty: saltQty, unit: '', unitPrice: 0, subtotal: 0 }],
+    })
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
+      s1: s('s1', '2026-08-01', 2), s2: s('s2', '2026-08-08', null), s3: s('s3', '2026-08-15', null), s4: s('s4', '2026-08-22', null),
+    }))
+    // トマトは全部埋まっているので、未計測だけで出るかを見るために塩も埋める
+    cfg.patchItem('塩', { unit: 'kg', lotSize: '1', price: 300, category: '調味料' })
+    await mountPage()
+    await click(host.querySelector('.mm-checkopen'))
+    const page = host.querySelector('.ic-page')
+    expect(btn(page, 'しばらく数えていない').textContent).toContain('1')
+    const row = page.querySelector('.ic-row')
+    expect(row.textContent).toContain('塩')
+    expect(row.textContent).toContain('未計測')
+    await click(row.querySelector('.ic-row-head'))
+    expect(row.textContent).toContain('最後に数えたのは 8/1')
+    await click(btn(row, '非表示にする'))
+    expect(cfg.config.hiddenItems).toContain('塩')
+    expect(page.querySelector('.ic-row')).toBeNull()
+  })
+})
