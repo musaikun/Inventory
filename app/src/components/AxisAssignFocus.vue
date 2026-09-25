@@ -201,12 +201,13 @@ const wheelCards = computed(() => {
 //   open … 分類先を探している時間。探しているのだから広く見せる
 // 途中の高さを挟むと、回し終わりに「一度縮んでまた動く」段が増え、どこで
 // 止まったのかが読み取りにくい。段は「入れている」「探している」の2つだけにする。
-const BAND_H = 56, OPEN_MIN = 196, OPEN_MAX = 336, PANEL_MS = 350
+// 開いた高さはカード3枚分（中央＋前後1枚）。5枚見えると品目一覧が狭くなりすぎる（User指示 2026-09-25）。
+const BAND_H = 56, OPEN_MIN = 168, OPEN_MAX = 184, PANEL_MS = 350
 const wheelState = ref('open')                       // 'band' | 'open'
 const banded = computed(() => wheelState.value === 'band')
 function openHeight() {
   const h = typeof window === 'undefined' ? 640 : window.innerHeight
-  return Math.max(OPEN_MIN, Math.min(Math.round(h * 0.54), OPEN_MAX))
+  return Math.max(OPEN_MIN, Math.min(Math.round(h * 0.3), OPEN_MAX))
 }
 const wheelH = computed(() => banded.value ? BAND_H : openHeight())
 
@@ -422,8 +423,8 @@ function onListScroll() {
 function onListCommit() {
   if (_dragging) return
   stopWheelAtNearest()
-  // 分類先が0件のときは畳まない。畳んでも見せる1枚が無く、案内だけが潰れる。
-  if (groups.value.length) setWheelState('band')
+  // 分類先が0件でも畳む。帯には「＋ 分類先を追加」の1枚が残るので、追加の入口は消えない。
+  setWheelState('band')
 }
 function glide() {
   cancelAnimationFrame(_glideRaf)
@@ -657,8 +658,8 @@ function toggle(item) {
   if (_dragging) return
   stopWheelAtNearest()
   const destination = target.value
-  if (!destination) { _showFlash('先に分類先を作ってください', ''); return }
   setWheelState('band')
+  if (!destination) { _showFlash('先に分類先を作ってください', ''); return }
   if (itemGroups(item).includes(destination)) {
     removeItemFromGroup(activeAxis.value, item, destination)
     _showFlash(`「${item}」を ${destination} から外しました`, '')

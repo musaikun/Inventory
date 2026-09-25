@@ -306,13 +306,20 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(railBtns).not.toContain('分類先を足す')
   })
 
-  it('分類先が0件なら品目一覧へ触れてもホイールを畳まない', async () => {
+  // 分類先が0件でも開閉は同じ（User指示 2026-09-25）。帯には「＋」の1枚が残る。
+  it('分類先が0件でも品目一覧へ触れるとホイールを畳み、ホイールを触ると開く', async () => {
     await mount()
     const wheel = host.querySelector('.af-wheel')
 
     pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
     await click(host.querySelector('.af-list'))
+    expect(wheel.classList.contains('band')).toBe(true)
+    expect(host.querySelector('.af-gcard.add')).not.toBeNull()
 
+    const stage = host.querySelector('.af-stage')
+    pointer(stage, 'pointerdown', 40, 20)
+    pointer(stage, 'pointerup', 40, 20)
+    await settle()
     expect(wheel.classList.contains('band')).toBe(false)
   })
 
@@ -500,7 +507,7 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
     const wheel = host.querySelector('.af-wheel')
-    const full = `${Math.max(196, Math.min(Math.round(window.innerHeight * 0.54), 336))}px`
+    const full = `${Math.max(168, Math.min(Math.round(window.innerHeight * 0.3), 184))}px`
     expect(wheel.style.height).toBe(full)
 
     pointer(host.querySelector('.af-list'), 'pointerdown', 40, 400)
