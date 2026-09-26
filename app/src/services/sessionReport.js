@@ -13,6 +13,39 @@ import { participantStats, sharedItemCounts } from './participantStats.js'
 
 /** 金額差の大きい品目を何件まで出すか */
 export const MOVER_LIMIT = 5
+/** 数量の比較で「多すぎ／少なすぎ」とみなす倍率（前回比で2倍以上／半分以下） */
+export const QTY_OVER_RATIO = 2
+/** 数量比較の一覧を何件まで出すか */
+export const QTY_LIST_LIMIT = 10
+
+/**
+ * 前回と数量で比べる。金額と違い、単価が無くても出せる。
+ *   zeroNow   … 前回は数量を入れたのに、今回は 0（使い切った・入れ忘れ・品切れ）
+ *   tooMuch   … 前回の2倍以上（納品の二重記録・桁違い・発注しすぎ）
+ *   tooLittle … 前回の半分以下（0 は zeroNow に出す）
+ * 単位が変わった品目は数量を比べられないので外す。未入力（null）は「数えていない」なので比べない。
+ */
+function _qtyCompare(snapshot, prev) {
+  const before = new Map()
+  for (const it of (prev?.items ?? [])) if (it?.item && typeof it.qty === 'number') before.set(it.item, it)
+  const zeroNow = [], tooMuch = [], tooLittle = []
+  for (const it of (snapshot?.items ?? [])) {
+    if (!it?.item || typeof it.qty !== 'number') continue
+    const p = before.get(it.item)
+    if (!p || !(p.qty > 0)) continue
+    if (p.unit && it.unit && p.unit !== it.unit) continue
+    const row = { item: it.item, prev: p.qty, curr: it.qty, unit: it.unit || p.unit || '' }
+    if (it.qty === 0) { zeroNow.push(row); continue }
+    const ratio = it.qty / p.qty
+    if (ratio >= QTY_OVER_RATIO) tooMuch.push({ ...row, ratio: Math.round(ratio * 10) / 10 })
+    else if (ratio <= 1 / QTY_OVER_RATIO) tooLittle.push({ ...row, ratio: Math.round(ratio * 10) / 10 })
+  }
+  zeroNow.sort((a, b) => b.prev - a.prev || a.item.localeCompare(b.item, 'ja'))
+  tooMuch.sort((a, b) => b.ratio - a.ratio || a.item.localeCompare(b.item, 'ja'))
+  tooLittle.sort((a, b) => a.ratio - b.ratio || a.item.localeCompare(b.item, 'ja'))
+  const cut = arr => ({ list: arr.slice(0, QTY_LIST_LIMIT), more: Math.max(0, arr.length - QTY_LIST_LIMIT), count: arr.length })
+  return { zeroNow: cut(zeroNow), tooMuch: cut(tooMuch), tooLittle: cut(tooLittle) }
+}
 
 function _num(v) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -91,6 +124,7 @@ function _compare(snapshot, prev) {
     removedItems: [...prevItems].filter(i => !currItems.has(i)).length,
     movers: movers.slice(0, MOVER_LIMIT),
     moversTruncated: Math.max(0, movers.length - MOVER_LIMIT),
+    qty: _qtyCompare(snapshot, prev),
   }
 }
 

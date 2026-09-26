@@ -204,6 +204,8 @@ const swipe = useHorizontalSwipe({
   },
   onRight: () => {
     const idx = activeIdx.value
+    // 品目一覧から右へ払うとレポート（タブの並びで左隣）。レポートはホストにだけある
+    if (activeTab.value === 'items' && props.isHost) { activeTab.value = 'report'; return }
     if (idx === 2) {
       activeTab.value = hasParticipants.value ? 'participants' : 'items'
     } else if (idx === 1) {
@@ -213,13 +215,16 @@ const swipe = useHorizontalSwipe({
   onDrag: (dx) => {
     if (dx === 0) { dragOffset.value = 0; return }
     const idx = activeIdx.value
-    if (dx > 0 && idx === 0) return
+    if (dx > 0 && idx === 0) return   // レポートへは払い切ったときだけ移る（パネルの外なので引きずらない）
     if (dx < 0 && idx === 2) return
     if (dx < 0 && idx === 1 && !hasAuditLog.value) return
     if (dx > 0 && idx === 2 && !hasParticipants.value) return
     dragOffset.value = dx
   },
 })
+
+// レポートで左へ払うと品目一覧へ（右隣）。レポートはスライドの3枚とは別に描いているので、ここだけ別に持つ
+const reportSwipe = useHorizontalSwipe({ onLeft: () => { activeTab.value = 'items' } })
 
 const trackStyle = computed(() => {
   const base = -activeIdx.value * (100 / 3)
@@ -313,6 +318,16 @@ const reportInput = computed(() => ({
 const report = computed(() =>
   buildSessionReport(reportInput.value, findPrevSnapshot(props.snapshot, getSnapshots()))
 )
+// 前回と数量で比べた3つの一覧。該当の無いものは出さない
+const qtyGroups = computed(() => {
+  const q = report.value.prev?.qty
+  if (!q) return []
+  return [
+    { key: 'zero',   title: '前回は入力、今回0の品目',       cls: 'diff-down', data: q.zeroNow },
+    { key: 'much',   title: '前回より多すぎる品目（2倍以上）', cls: 'diff-up',   data: q.tooMuch },
+    { key: 'little', title: '前回より少なすぎる品目（半分以下）', cls: 'diff-down', data: q.tooLittle },
+  ].filter(g => g.data.count > 0)
+})
 
 function fmtDuration(ms) {
   if (!ms || ms < 0) return '—'
@@ -435,7 +450,13 @@ function onDownload() {
          タブの出し分けと**同じ条件をこの面自身にも持たせる**。金額を出すのはここだけで、
          `activeTab` の値だけを見ていると、ホストで開いたあとに isHost が下りたとき
          （ルームへゲストとして繋がる等）に単価・在庫金額の面が残る。 -->
-    <div v-if="isHost && activeTab === 'report'" class="report-panel">
+    <div
+      v-if="isHost && activeTab === 'report'" class="report-panel"
+      @touchstart.passive="reportSwipe.onTouchStart"
+      @touchmove.passive="reportSwipe.onTouchMove"
+      @touchend.passive="reportSwipe.onTouchEnd"
+      @touchcancel.passive="reportSwipe.onTouchCancel"
+    >
 
       <!-- 在庫金額。信用できる数字かどうかを、金額のすぐ隣で分かるようにする -->
       <div class="rp-card rp-value">
@@ -494,6 +515,18 @@ function onDownload() {
           <div v-if="report.prev.moversTruncated" class="rp-sub">
             ほか{{ report.prev.moversTruncated }}品目
           </div>
+        </div>
+
+        <!-- 数量で比べた一覧（単価が無くても出る）-->
+        <div v-for="g in qtyGroups" :key="g.key" :class="['rp-qty', g.key]">
+          <div class="rp-movers-title">{{ g.title }}（{{ g.data.count }}件）</div>
+          <div v-for="r in g.data.list" :key="r.item" class="rp-mover">
+            <span class="rp-mover-name">{{ r.item }}</span>
+            <span :class="['rp-mover-diff', g.cls]">
+              {{ r.prev }} → {{ r.curr }}{{ r.unit }}<template v-if="r.ratio != null"> ×{{ r.ratio }}</template>
+            </span>
+          </div>
+          <div v-if="g.data.more" class="rp-sub">ほか{{ g.data.more }}品目</div>
         </div>
       </div>
       <div v-else class="rp-card rp-empty">前回の棚卸が無いため、比較はありません</div>
@@ -707,6 +740,7 @@ function onDownload() {
 .diff-down { color: var(--accent, #2d7d46); }
 
 .rp-movers { margin-top: 10px; }
+.rp-qty { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(148,163,184,.25); }
 .rp-movers-title { font-size: 12px; font-weight: 600; opacity: .8; margin-bottom: 4px; }
 .rp-mover {
   display: flex; justify-content: space-between; gap: 10px;

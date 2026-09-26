@@ -214,3 +214,32 @@ describe('findPrevSnapshot', () => {
     expect(findPrevSnapshot(target, [target, dup])).toBeNull()
   })
 })
+
+describe('前回と数量で比べる（単価が無くても出る）', () => {
+  const prev = snap({ date: '2026-08-23', items: [
+    item('トマト', 5, null), item('レタス', 4, null), item('キャベツ', 2, null), item('玉ねぎ', 10, null),
+    item('牛肉', 3, null), item('塩', null, null),
+  ] })
+  const now = snap({ items: [
+    item('トマト', 0, null),        // 前回入力 → 今回0
+    item('レタス', 9, null),        // ×2.3 多すぎ
+    item('キャベツ', 3, null),      // ×1.5 普通
+    item('玉ねぎ', 4, null),        // ×0.4 少なすぎ
+    { ...item('牛肉', 3000, null), unit: 'g' },   // 単位が変わった → 比べない
+    item('塩', 0, null),            // 前回未入力 → 比べない
+  ] })
+  const q = buildSessionReport(now, prev).prev.qty
+
+  it('前回は入力したのに今回0の品目', () => {
+    expect(q.zeroNow.list).toEqual([{ item: 'トマト', prev: 5, curr: 0, unit: '個' }])
+  })
+  it('2倍以上は多すぎ、半分以下は少なすぎ', () => {
+    expect(q.tooMuch.list.map(r => [r.item, r.ratio])).toEqual([['レタス', 2.3]])
+    expect(q.tooLittle.list.map(r => [r.item, r.ratio])).toEqual([['玉ねぎ', 0.4]])
+  })
+  it('単位が変わった品目・前回未入力の品目は比べない', () => {
+    const names = [...q.zeroNow.list, ...q.tooMuch.list, ...q.tooLittle.list].map(r => r.item)
+    expect(names).not.toContain('牛肉')
+    expect(names).not.toContain('塩')
+  })
+})
