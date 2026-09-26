@@ -99,3 +99,16 @@ describe('missingSnapshots（履歴バックフィルの差分判定）', () => 
     expect(missingSnapshots(null, [])).toEqual([])
   })
 })
+
+describe('削除された棚卸を送り直さない', () => {
+  it('サーバーが一度受け付けた記録（synced）がリモートに無いときは送らない', () => {
+    const deleted = { ...snap('2026-09-10', '2026-09-10T10:00:00Z'), sessionId: 'gone', synced: true, dirty: false }
+    const neverSent = { ...snap('2026-09-12', '2026-09-12T10:00:00Z'), sessionId: 'new' }
+    const out = missingSnapshots([deleted, neverSent], [])
+    expect(out.map(s => s.sessionId)).toEqual(['new'])
+  })
+  it('端末でだけ訂正した記録（dirty）は synced でも送る', () => {
+    const edited = { ...snap('2026-09-10', '2026-09-10T10:00:00Z'), sessionId: 'e', synced: false, dirty: true, updatedAt: '2026-09-11T00:00:00Z' }
+    expect(missingSnapshots([edited], [{ ...edited, dirty: false }]).map(s => s.sessionId)).toEqual(['e'])
+  })
+})

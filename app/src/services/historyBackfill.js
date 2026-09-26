@@ -14,7 +14,8 @@
  * 「古い」と見なされて送られなくなるため、送るかどうかは
  *   1. リモートに無い
  *   2. 端末でだけ訂正した（dirty）
- * の2つだけで決める。
+ * の2つだけで決める。ただしサーバーが一度受け付けた（synced）記録は、リモートに無くても送らない
+ * （サーバーで削除されたもの。送ると削除した棚卸が復活する）。
  */
 
 import { isSnapshotDirty, isSnapshotComplete } from '../utils/snapshotSync.js'
@@ -55,7 +56,12 @@ export function missingSnapshots(localSnapshots, remoteSnapshots, options = {}) 
     if (snap.sessionId && active.has(String(snap.sessionId))) continue
     const k = _key(snap)
     if (!k) continue
-    if (!remoteByKey.has(k) || isSnapshotDirty(snap)) missing.push(snap)
+    if (isSnapshotDirty(snap)) { missing.push(snap); continue }
+    // サーバーが一度受け付けた記録（synced）がリモートに無い＝サーバー側で消されたもの。
+    // 送り直すと、別端末で削除した棚卸が記録だけ復活し、カレンダー（sessions）に無い日付が
+    // 在庫分析にだけ出る。送り直すのは「まだ一度も届いていない」記録だけにする。
+    if (snap.synced === true) continue
+    if (!remoteByKey.has(k)) missing.push(snap)
   }
 
   return missing

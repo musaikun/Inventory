@@ -83,3 +83,31 @@ describe('在庫分析 — トップは要約と項目カード', () => {
     expect(host.textContent).toContain('単位が変わりました（kg → g）')
   })
 })
+
+describe('在庫分析 — カレンダーに無い棚卸', () => {
+  it('sessions に無い記録をカードで知らせ、中身から削除を依頼できる', async () => {
+    const deleted = []
+    const snaps = [
+      { ...TWO_MONTHS[0], sessionId: 'gone' },
+      { ...TWO_MONTHS[1], sessionId: 'kept' },
+    ]
+    const { default: Dash } = await import('./ManagerDashboard.vue')
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp({ render: () => h(Dash, { snapshots: snaps, sessions: [{ id: 'kept', startedAt: '2026-09-30T10:00:00Z' }], onDeleteOrphan: s => deleted.push(s.sessionId) }) })
+    app.mount(host)
+    await nextTick()
+    const c = card('カレンダーに無い棚卸')
+    expect(c.querySelector('.dash-card-value').textContent).toBe('1件')
+    await click(c)
+    expect(host.textContent).toContain('2026/8/31')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await click(host.querySelector('.dash-orphan-del'))
+    expect(deleted).toEqual(['gone'])
+  })
+
+  it('sessions が渡されなければカードを出さない', async () => {
+    await mount(TWO_MONTHS.map((x, i) => ({ ...x, sessionId: 'z' + i })))
+    expect(card('カレンダーに無い棚卸')).toBeUndefined()
+  })
+})

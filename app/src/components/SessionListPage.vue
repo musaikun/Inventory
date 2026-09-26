@@ -9,7 +9,7 @@ export const _showOrders    = ref(false)
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import LoadingSpinner from './LoadingSpinner.vue'
-import { shopCode } from '../composables/useStore.js'
+import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -30,7 +30,15 @@ const props = defineProps({
 const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
-const { getSnapshotBySessionId, getSnapshots } = useHistory()
+const { getSnapshotBySessionId, getSnapshots, deleteSnapshotLocal } = useHistory()
+// 在庫分析の「カレンダーに無い棚卸」から削除。セッション行は無いので、記録（端末＋D1 store_history）だけを消す
+function onDeleteOrphan(snap) {
+  const key = snap?.sessionId
+  if (!key) return
+  deleteSnapshotLocal(key)
+  deleteSnapshotFromD1(key)
+  historyTick.value++
+}
 const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
 const { getMovements } = useMovements()
 const { getOrders } = useOrders()
@@ -50,7 +58,9 @@ function onDiscardMovementDraft() {
   discardMovementDraft()
 }
 const showDashboard = _showDashboard
-const dashboardSnapshots = computed(() => getSnapshots())
+// 記録を消したら分析へ入る一覧も作り直す（getSnapshots は端末の保存を読むだけなので、きっかけを明示する）
+const historyTick = ref(0)
+const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 
 const sessions       = ref([])
 const loading        = ref(true)
@@ -744,7 +754,11 @@ function _itemCount(session) {
       </div>
     </div>
 
-    <ManagerDashboard v-if="showDashboard" :snapshots="dashboardSnapshots" @close="showDashboard = false" />
+    <ManagerDashboard
+      v-if="showDashboard" :snapshots="dashboardSnapshots"
+      :sessions="loading || error ? null : sessions"
+      @delete-orphan="onDeleteOrphan" @close="showDashboard = false"
+    />
 
 
     <!-- 開始バナー: 使用する品目リストを確認 -->

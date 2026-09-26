@@ -3,11 +3,22 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { designateMonthEnds } from '../utils/businessDate.js'
 import { detectAnomalies } from '../utils/analysisQuality.js'
+import { orphanSnapshots } from '../services/historyOrphans.js'
 
 const props = defineProps({
   snapshots: { type: Array, default: () => [] },
+  // D1 の sessions（カレンダーが見ている一覧）。null = 取得できていない → 食い違いを判定しない
+  sessions:  { type: Array, default: null },
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'delete-orphan'])
+
+// カレンダーに無い棚卸（記録だけ残っている）。分析には入ってしまうので、ここで見せて消せるようにする
+const orphans = computed(() => orphanSnapshots(props.snapshots, props.sessions))
+function orphanItems(s) { return (s.items || []).filter(i => i.qty != null).length }
+function onDeleteOrphan(s) {
+  if (!confirm(`${s.date} の棚卸の記録を削除しますか？\nカレンダーには無い記録です。この操作は取り消せません。`)) return
+  emit('delete-orphan', s)
+}
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -307,6 +318,11 @@ const cards = computed(() => {
       value: abc.value ? `A ${abc.value.A.count}品目` : '',
       sub: abc.value ? `A品目で在庫金額の${abc.value.A.pctOfValue}%` : '単価が未設定です',
     },
+    ...(orphans.value.length ? [{
+      key: 'orphan', icon: '🧩', title: 'カレンダーに無い棚卸', warn: true, ok: true,
+      value: `${orphans.value.length}件`,
+      sub: '記録だけ残っています。確認して削除できます',
+    }] : []),
     ...(anomalies.value.length ? [{
       key: 'anomaly', icon: '⚠️', title: '要確認', warn: true, ok: true,
       value: `${anomalies.value.length}件`,
@@ -314,7 +330,7 @@ const cards = computed(() => {
     }] : []),
   ]
 })
-const VIEW_TITLE = { trend: '在庫金額の推移', genre: 'ジャンル別在庫金額', diff: '前回差アラート', abc: 'ABC分析', anomaly: '要確認' }
+const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金額の推移', genre: 'ジャンル別在庫金額', diff: '前回差アラート', abc: 'ABC分析', anomaly: '要確認' }
 </script>
 
 <template>
@@ -410,6 +426,20 @@ const VIEW_TITLE = { trend: '在庫金額の推移', genre: 'ジャンル別在�
           </button>
         </div>
         </template>
+
+        <!-- カレンダーに無い棚卸（sessions に行が無く、記録だけ残っているもの）-->
+        <div class="dash-section" v-if="view === 'orphan'">
+          <div class="dash-abc-desc">
+            履歴カレンダーには無いのに、棚卸の記録だけが残っているものです。以前の削除で記録が消えきらなかったか、
+            別の端末で削除した棚卸の記録です。在庫分析の計算に入ってしまうので、心当たりが無ければ削除してください。
+          </div>
+          <div v-if="!orphans.length" class="dash-alert-empty">ありません</div>
+          <div v-for="s in orphans" :key="s.sessionId" class="dash-alert-row">
+            <span class="dash-alert-item">{{ _fmtDate(s.date) }}（{{ _weekday(s.date) }}）{{ s.source === 'import' ? '・取込' : '' }}</span>
+            <span class="dash-alert-change">{{ orphanItems(s) }}品目{{ s.totalValue != null ? ' ' + _yen(s.totalValue) : '' }}</span>
+            <button type="button" class="dash-orphan-del" @click="onDeleteOrphan(s)">削除</button>
+          </div>
+        </div>
 
         <!-- 要確認（異常値）-->
         <div class="dash-section" v-if="view === 'anomaly'">
@@ -610,6 +640,7 @@ const VIEW_TITLE = { trend: '在庫金額の推移', genre: 'ジャンル別在�
 .dash-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .dash-summary-date { font-size: 13px; color: #6b7280; }
 .dash-designate { font-size: 11px; color: #9ca3af; margin-bottom: 8px; line-height: 1.5; }
+.dash-orphan-del { flex-shrink: 0; margin-left: 8px; min-height: 36px; padding: 4px 10px; border: 1.5px solid #fecaca; border-radius: 8px; background: #fff; color: #dc2626; font-size: 12px; font-weight: 800; cursor: pointer; }
 .dash-context { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 10px; }
 .dash-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .dash-card {
