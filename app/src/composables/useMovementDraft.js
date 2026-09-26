@@ -1,3 +1,4 @@
+import { localDateKey } from '../utils/localDate.js'
 import { reactive, computed, watch } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
@@ -7,7 +8,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 // メモはモード別（noteIn/noteOut）。orderId/orderLabel は入庫（発注→入庫の紐付け）専用。
 const _draft = reactive({ in: {}, out: {}, date: '', noteIn: '', noteOut: '', orderId: null, orderLabel: '' })
 
-function _today() { return new Date().toISOString().slice(0, 10) }
+function _today() { return localDateKey() }   // UTC だと日本時間の朝9時まで前日になる
 
 function _load() {
   try {

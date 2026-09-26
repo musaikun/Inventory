@@ -1,3 +1,4 @@
+import { localDateKey } from '../utils/localDate.js'
 import { reactive } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { effectiveLot } from '../services/lot.js'
@@ -31,7 +32,7 @@ export function resetLocalData() {
   try { localStorage.removeItem(STORAGE_KEYS.movements) } catch (_) {}
 }
 
-function _today() { return new Date().toISOString().slice(0, 10) }
+function _today() { return localDateKey() }   // UTC だと日本時間の朝9時まで前日になる
 function _uid() { return 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }
 
 function _cleanLines(lines) {

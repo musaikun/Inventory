@@ -3,6 +3,7 @@ import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } f
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
+import { localDateKey } from './utils/localDate.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import { useActiveTimer, computeActive } from './composables/useActiveTimer.js'
@@ -123,7 +124,8 @@ const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrde
 // 進行中発注の下書き（品目→行）。セッション単位で 1 発注レコードに集約して D1 へ。
 const orderDraft = ref({})
 function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
-function _todayStr() { return new Date().toISOString().slice(0, 10) }
+// 発注の日付・曜日学習の「今日」。UTC だと日本時間の朝9時まで前日になり、完了した発注が昨日のマスに入っていた
+function _todayStr() { return localDateKey() }
 
 // この品目・今日の曜日の適正在庫（学習不足なら null）。
 // 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
