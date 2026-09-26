@@ -225,9 +225,22 @@ function _isSessionLocked(session) {
  * まず続きから開けるように訊く。
  */
 const _localDateKey = (d) => new Date(d).toLocaleDateString('sv-SE')   // YYYY-MM-DD（ローカル日）
+// 過去の棚卸の取込。endedAt は「取り込んだ時刻」で、実施日は startedAt が持つ（日付だけを使う）。
+function _isImportedSession(s) {
+  return !!s?.importBatchId || getSnapshotBySessionId(s?.id)?.source === 'import'
+}
+// 棚卸を実施した時点。取込は実施日の正午として扱う（取り込んだ日を「前回」にしない）
+function _stockAt(s) {
+  if (_isImportedSession(s)) {
+    const d = String(s.startedAt || '').slice(0, 10) || getSnapshotBySessionId(s.id)?.date
+    return d ? `${d}T12:00:00` : null
+  }
+  return s.endedAt ?? s.startedAt
+}
 const todayDone = computed(() => {
   const key = _localDateKey(Date.now())
   return completedSessions.value.find(sess => {
+    if (_isImportedSession(sess)) return false   // 取り込んだ過去の棚卸は「今日の棚卸」ではない
     const at = sess.endedAt ?? sess.startedAt
     if (!at) return false
     return _localDateKey(at) === key && !_isSessionLocked(sess)
@@ -355,7 +368,7 @@ const hasTodayMemo  = computed(() => todayMemoTags.value.length > 0 || !!todayMe
 const lastStock = computed(() => {
   let best = null
   for (const s of completedSessions.value) {
-    const t = new Date(s.endedAt ?? s.startedAt)
+    const t = new Date(_stockAt(s))
     if (Number.isNaN(t.getTime())) continue
     if (!best || t > best) best = t
   }

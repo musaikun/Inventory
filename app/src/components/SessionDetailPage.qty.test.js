@@ -71,3 +71,13 @@ describe('品目一覧 ⇄ レポートのスワイプ', () => {
     expect(host.querySelector('.report-panel')).toBeNull()
   })
 })
+
+describe('取り込んだ棚卸の取込日', () => {
+  it('実施日の下に「○○ に取込」を出す。通常の棚卸には出さない', async () => {
+    await mount({ snapshot: { ...PREV, source: 'import', savedAt: '2026-09-25T10:00:00.000Z' } })
+    expect(host.querySelector('.header-imported').textContent).toBe('2026/9/25 に取込')
+    app.unmount(); host.remove()
+    await mount()
+    expect(host.querySelector('.header-imported')).toBeNull()
+  })
+})

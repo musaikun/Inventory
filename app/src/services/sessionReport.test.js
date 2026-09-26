@@ -243,3 +243,13 @@ describe('前回と数量で比べる（単価が無くても出る）', () => {
     expect(names).not.toContain('塩')
   })
 })
+
+describe('findPrevSnapshot — 過去の棚卸の取込', () => {
+  it('取込は実施日で並べる（後から取り込んだ古い棚卸を「前回」にしない）', () => {
+    const imported = snap({ date: '2026-06-30', savedAt: '2026-09-25T10:00:00.000Z', sessionId: 'imp', source: 'import' })
+    const last     = snap({ date: '2026-09-19', savedAt: '2026-09-19T12:00:00.000Z', sessionId: 'last' })
+    const now      = snap({ date: '2026-09-26', savedAt: '2026-09-26T12:00:00.000Z', sessionId: 'now' })
+    expect(findPrevSnapshot(now, [imported, last, now]).sessionId).toBe('last')
+    expect(findPrevSnapshot(last, [imported, last, now]).sessionId).toBe('imp')
+  })
+})

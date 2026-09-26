@@ -68,7 +68,8 @@ function _monthLabel(mk) {
   const d = designation.value[mk]
   const snap = byDate.value[d?.date]
   const y = mk.slice(0, 4), m = +mk.slice(5)
-  const dt = d ? `（実測 ${_fmtDate(d.date).slice(5)} ${_weekday(d.date)}${d.manual ? '・手動' : ''}）` : ''
+  const imported = snap?.source === 'import' || !!snap?.importBatchId
+  const dt = d ? `（実測 ${_fmtDate(d.date).slice(5)} ${_weekday(d.date)}${imported ? '・取込' : ''}${d.manual ? '・手動' : ''}）` : ''
   const val = snap?.totalValue != null ? ' ' + _yen(snap.totalValue) : ''
   return `${y}年${m}月${dt}${val}`
 }

@@ -75,6 +75,14 @@ const sortedLog = computed(() => {
 const hasAuditLog    = computed(() => sortedLog.value.length > 0)
 const hasParticipants = computed(() => participantStats.value.length > 0)
 
+// 過去の棚卸を取り込んだ日。日付（実施日）とは別に、いつ入れた記録かを小さく添える
+const importedAtLabel = computed(() => {
+  const s = props.snapshot
+  if (!(s?.source === 'import' || s?.importBatchId) || !s.savedAt) return ''
+  const d = new Date(s.savedAt)
+  return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+})
+
 // ── 訂正ウィンドウ（3日間 または 次のセッション完了まで）─────────────────────
 const CORRECTION_DAYS = 3
 
@@ -373,6 +381,7 @@ function onDownload() {
       <button class="btn-back" @click="emit('back')">‹ 戻る</button>
       <div class="header-center">
         <div class="header-date">{{ fmtDate(snapshot.date) }}</div>
+        <div v-if="importedAtLabel" class="header-imported">{{ importedAtLabel }} に取込</div>
         <div class="header-meta">
           {{ filledCount }}/{{ totalCount }}品目入力済み
           <span v-if="snapshot.totalValue != null" class="header-total">{{ fmtYen(snapshot.totalValue) }}</span>
@@ -810,6 +819,7 @@ function onDownload() {
   min-width: 0;
 }
 
+.header-imported { font-size: 11px; font-weight: 700; color: #64748b; }
 .header-date {
   font-size: 14px;
   font-weight: 700;

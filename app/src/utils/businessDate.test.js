@@ -71,3 +71,16 @@ describe('monthEndLabelFor', () => {
     expect(monthEndLabelFor('2026-07-10', designation)).toBe(null)
   })
 })
+
+describe('designateMonthEnds — 過去の棚卸の取込', () => {
+  it('取り込んだ月ではなく実施日の月に入る', async () => {
+    const { designateMonthEnds } = await import('./businessDate.js')
+    const d = designateMonthEnds([
+      { date: '2026-06-30', savedAt: '2026-09-25T10:00:00', sessionId: 'imp', source: 'import' },
+      { date: '2026-09-20', savedAt: '2026-09-20T22:00:00', sessionId: 'now' },
+    ])
+    expect(Object.keys(d).sort()).toEqual(['2026-06', '2026-09'])
+    expect(d['2026-06'].date).toBe('2026-06-30')
+    expect(d['2026-09'].date).toBe('2026-09-20')   // 取込（9/25保存）に9月の月末を奪われない
+  })
+})

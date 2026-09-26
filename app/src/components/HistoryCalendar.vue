@@ -292,7 +292,7 @@ const listRows = computed(() => {
   const want = k => listKind.value === 'all' || listKind.value === k
   if (want('stock')) for (const [k, arr] of Object.entries(stockByDate.value)) for (const x of arr) {
     const v = _stockValue(x)
-    rows.push({ id: 's:' + x.id, key: k, kind: 'stock', s: x, info: `${_stockItemCount(x)}品目`, amount: v.amount })
+    rows.push({ id: 's:' + x.id, key: k, kind: 'stock', s: x, info: `${_stockItemCount(x)}品目${_isImported(x) ? `・${_importedMd(x)}に取込` : ''}`, amount: v.amount })
   }
   if (want('order')) for (const [k, arr] of Object.entries(orderByDate.value)) for (const o of arr) {
     rows.push({ id: 'o:' + o.id, key: k, kind: 'order', recId: o.id, info: `${o.supplier ? o.supplier + '・' : ''}${o.lines.length}品目`, amount: _orderValue(o).amount })
@@ -471,6 +471,12 @@ function _orderValue(o) {
     else unpriced.push(l.item)
   }
   return { amount: has ? total : null, noData: false, unpriced }
+}
+
+// 取り込んだ日（M/D）。取込の endedAt は「取り込んだ時刻」
+function _importedMd(s) {
+  const t = new Date(s?.endedAt || getSnapshotBySessionId(s?.id)?.savedAt || '')
+  return Number.isNaN(t.getTime()) ? '' : `${t.getMonth() + 1}/${t.getDate()}`
 }
 
 function fmtYen(v) {
@@ -667,7 +673,7 @@ function onDeleteMove(id) {
           @click="onViewSession(r.s)"
         >
           <div class="hc-entry-main">
-            <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込</span>
+            <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込 {{ _importedMd(r.s) }}</span>
             <span v-else class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
             <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
             <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>

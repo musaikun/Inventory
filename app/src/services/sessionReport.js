@@ -186,8 +186,12 @@ export function buildSessionReport(snapshot, prev = null) {
  * 同じセッションは除く。日付が同じでも保存時刻で前後を決める（同日2回に対応する）。
  */
 export function findPrevSnapshot(snapshot, all = []) {
+  // 取込の savedAt は「取り込んだ時刻」。実施日で並べないと、6月分を取り込んだ直後の
+  // 9月の棚卸が、前回として6月と比べられてしまう。
   const ts = (s) => {
-    const raw = s?.savedAt ? new Date(s.savedAt).getTime()
+    const imported = s?.source === 'import' || !!s?.importBatchId
+    const raw = imported && s?.date ? new Date(`${s.date}T12:00:00`).getTime()
+              : s?.savedAt ? new Date(s.savedAt).getTime()
               : s?.date    ? new Date(`${s.date}T00:00:00`).getTime()
               : NaN
     return Number.isFinite(raw) ? raw : null

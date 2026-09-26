@@ -42,13 +42,18 @@ export function monthKeyOf(dateStr) {
  * @param {number} cutoverHour
  * @returns {Object} { 'YYYY-MM': { date, bizDate, sessionId, manual } }
  */
+// 過去の棚卸の取込。savedAt は「取り込んだ時刻」なので、営業日は実施日（date）から取る。
+// savedAt で数えると、6月の棚卸を9月に取り込んだとき「9月の月末在庫＝6/30」になる。
+function _isImported(s) { return s?.source === 'import' || !!s?.importBatchId }
+
 export function designateMonthEnds(snapshots, overrides = {}, cutoverHour = DEFAULT_CUTOVER_HOUR) {
   const byMonth = new Map()
   for (const s of snapshots || []) {
-    const biz = businessDate(s.savedAt ?? s.date, cutoverHour) || s.date || null
+    const imported = _isImported(s)
+    const biz = (imported ? s.date : businessDate(s.savedAt ?? s.date, cutoverHour)) || s.date || null
     if (!biz) continue
     const mk = monthKeyOf(biz)
-    const ts = new Date(s.savedAt ?? s.date).getTime() || 0
+    const ts = imported ? (new Date(`${s.date}T12:00:00`).getTime() || 0) : (new Date(s.savedAt ?? s.date).getTime() || 0)
     const cur = byMonth.get(mk)
     // 営業日が新しい方を採用。同一営業日なら実登録時刻が後のものを優先。
     if (!cur || biz > cur.bizDate || (biz === cur.bizDate && ts > cur.ts)) {
@@ -65,7 +70,7 @@ export function designateMonthEnds(snapshots, overrides = {}, cutoverHour = DEFA
     const snap = (snapshots || []).find(s => s.date === wantedDate)
     result[mk] = {
       date:      wantedDate,
-      bizDate:   snap ? (businessDate(snap.savedAt ?? snap.date, cutoverHour) || snap.date) : wantedDate,
+      bizDate:   snap ? ((_isImported(snap) ? snap.date : businessDate(snap.savedAt ?? snap.date, cutoverHour)) || snap.date) : wantedDate,
       sessionId: snap?.sessionId ?? null,
       manual:    true,
     }
