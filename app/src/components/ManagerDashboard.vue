@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { designateMonthEnds } from '../utils/businessDate.js'
 import { detectAnomalies } from '../utils/analysisQuality.js'
 
@@ -250,13 +251,76 @@ const abc = computed(() => {
   }
   return { total, A: summarize('A'), B: summarize('B'), C: summarize('C') }
 })
+
+// ── 画面の切り替え ─────────────────────────────────
+// トップは要約と項目カードだけ。全部を1画面に並べると、見たい分析まで長くスクロールすることになる。
+// カードを押すとその分析だけの画面へ。戻る（端末の戻るも）でトップへ戻る。
+const view = ref('hub')   // 'hub' | 'trend' | 'genre' | 'diff' | 'abc' | 'anomaly'
+function openView(v) { view.value = v; window.scrollTo?.(0, 0) }
+function back() { if (view.value !== 'hub') view.value = 'hub'; else emit('close') }
+onUnmounted(registerInnerLayerCloser(() => {
+  if (view.value === 'hub') return false
+  view.value = 'hub'
+  return true
+}))
+
+const ANOMALY_TEXT = {
+  unit_changed:        a => `単位が変わりました（${a.prevUnit || '—'} → ${a.curUnit || '—'}）`,
+  unexpected_increase: a => `思わぬ増加（${a.prev} → ${a.cur}）`,
+  extreme_ratio:       a => `桁違いの可能性（${a.prev} → ${a.cur}、×${a.ratio}）`,
+}
+function anomalyText(a) { return ANOMALY_TEXT[a.type]?.(a) ?? '要確認' }
+
+// 項目カード。使えないものも隠さず、理由を添えて灰色で出す（何を揃えれば見られるか分かるように）
+const cards = computed(() => {
+  const d = diffRows.value
+  const top = genreBreakdown.value[0]
+  const last = trend.value[trend.value.length - 1]
+  const first = trend.value[0]
+  return [
+    {
+      key: 'trend', icon: '📈', title: '在庫金額の推移',
+      ok: trend.value.length >= 2,
+      value: trend.value.length >= 2 ? `${trend.value.length}か月` : '',
+      sub: trend.value.length >= 2
+        ? `${first.label} ${_yen(first.value)} → ${last.label} ${_yen(last.value)}`
+        : '金額のある月末在庫が2か月分必要です',
+    },
+    {
+      key: 'genre', icon: '🗂', title: 'ジャンル別在庫金額',
+      ok: genreBreakdown.value.length > 0,
+      value: top ? `${top.genre} ${top.pctOfTotal}%` : '',
+      sub: top ? `${genreBreakdown.value.length}ジャンル・最多は${top.genre}` : '単価が未設定です',
+    },
+    {
+      key: 'diff', icon: '🔔', title: '前回差アラート',
+      ok: !!prevSnap.value,
+      value: prevSnap.value ? `${d.increases.length + d.decreases.length + d.appeared.length + d.gone.length}件` : '',
+      sub: prevSnap.value
+        ? `急増${d.increases.length}・急減${d.decreases.length}・新規${d.appeared.length}・未入力${d.gone.length}`
+        : '前の月の棚卸が必要です',
+    },
+    {
+      key: 'abc', icon: '🅰', title: 'ABC分析',
+      ok: !!abc.value,
+      value: abc.value ? `A ${abc.value.A.count}品目` : '',
+      sub: abc.value ? `A品目で在庫金額の${abc.value.A.pctOfValue}%` : '単価が未設定です',
+    },
+    ...(anomalies.value.length ? [{
+      key: 'anomaly', icon: '⚠️', title: '要確認', warn: true, ok: true,
+      value: `${anomalies.value.length}件`,
+      sub: '単位変更・桁違いの可能性',
+    }] : []),
+  ]
+})
+const VIEW_TITLE = { trend: '在庫金額の推移', genre: 'ジャンル別在庫金額', diff: '前回差アラート', abc: 'ABC分析', anomaly: '要確認' }
 </script>
 
 <template>
   <div class="dash-overlay">
     <div class="dash-header">
-      <button class="dash-back" @click="emit('close')">‹ 戻る</button>
-      <div class="dash-title">📊 在庫分析</div>
+      <button class="dash-back" @click="back">‹ 戻る</button>
+      <div class="dash-title">{{ view === 'hub' ? '📊 在庫分析' : VIEW_TITLE[view] }}</div>
       <div class="dash-header-spacer"></div>
     </div>
 
@@ -268,6 +332,12 @@ const abc = computed(() => {
       </div>
 
       <template v-else>
+        <!-- 詳細画面では、どの月を見ているかだけを1行で出す -->
+        <div v-if="view !== 'hub'" class="dash-context">
+          {{ selectedMonth?.slice(0, 4) }}年{{ +(selectedMonth?.slice(5) || 0) }}月の月末在庫（{{ _fmtDate(summary.date) }}）
+        </div>
+
+        <template v-if="view === 'hub'">
         <!-- 分析する月（月末在庫を自動選択）-->
         <div class="dash-picker">
           <label class="dash-picker-label">分析する月（月末在庫を自動選択）</label>
@@ -324,15 +394,33 @@ const abc = computed(() => {
               <span class="dash-meta-icon">📦</span>{{ summary.entered }}品目
             </div>
           </div>
-          <div v-if="anomalies.length" class="dash-anomaly">
-            ⚠️ 要確認 {{ anomalies.length }}件（単位変更・桁違いの可能性）：
-            {{ anomalies.slice(0, 5).map(a => a.item).join('、') }}{{ anomalies.length > 5 ? ' ほか' : '' }}
+        </div>
+
+        <!-- 分析の項目。押すとその分析だけの画面へ -->
+        <div class="dash-cards">
+          <button
+            v-for="c in cards" :key="c.key" type="button"
+            :class="['dash-card', { off: !c.ok, warn: c.warn }]" :disabled="!c.ok"
+            @click="openView(c.key)"
+          >
+            <span class="dash-card-head"><span class="dash-card-icon">{{ c.icon }}</span>{{ c.title }}</span>
+            <span v-if="c.value" class="dash-card-value">{{ c.value }}</span>
+            <span class="dash-card-sub">{{ c.sub }}</span>
+          </button>
+        </div>
+        </template>
+
+        <!-- 要確認（異常値）-->
+        <div class="dash-section" v-if="view === 'anomaly'">
+          <div class="dash-abc-desc">前回の棚卸と比べて、単位が変わった・桁が違う可能性がある品目です。入力ミスでないか確かめてください。</div>
+          <div v-for="a in anomalies" :key="a.item + a.type" class="dash-alert-row">
+            <span class="dash-alert-item">{{ a.item }}</span>
+            <span class="dash-alert-change gone">{{ anomalyText(a) }}</span>
           </div>
         </div>
 
         <!-- 在庫金額推移 -->
-        <div class="dash-section" v-if="trend.length >= 2">
-          <div class="dash-section-title">在庫金額の推移</div>
+        <div class="dash-section" v-if="view === 'trend' && trend.length >= 2">
           <div class="dash-trend">
             <div v-for="t in trend" :key="t.date" class="dash-trend-col">
               <div class="dash-trend-bar-wrap">
@@ -345,8 +433,7 @@ const abc = computed(() => {
         </div>
 
         <!-- ジャンル別在庫金額 -->
-        <div class="dash-section" v-if="genreBreakdown.length">
-          <div class="dash-section-title">ジャンル別在庫金額</div>
+        <div class="dash-section" v-if="view === 'genre' && genreBreakdown.length">
           <div v-for="g in genreBreakdown" :key="g.genre" class="dash-genre-row">
             <div class="dash-genre-head">
               <span class="dash-genre-name">{{ g.genre }}</span>
@@ -359,8 +446,7 @@ const abc = computed(() => {
         </div>
 
         <!-- 前回差アラート -->
-        <div class="dash-section" v-if="prevSnap">
-          <div class="dash-section-title">前回差アラート</div>
+        <div class="dash-section" v-if="view === 'diff' && prevSnap">
           <div class="dash-controls">
             <div class="dash-toggle">
               <button :class="{ on: effectiveMode === 'value' }" :disabled="!canValue" @click="alertMode = 'value'">金額</button>
@@ -428,13 +514,12 @@ const abc = computed(() => {
             しきい値を超える差はありません
           </div>
         </div>
-        <div class="dash-section dash-note" v-else>
+        <div class="dash-section dash-note" v-else-if="view === 'diff'">
           この棚卸より前のデータがないため、差異アラートは表示できません
         </div>
 
         <!-- ABC分析 -->
-        <div class="dash-section" v-if="abc">
-          <div class="dash-section-title">在庫金額ABC分析</div>
+        <div class="dash-section" v-if="view === 'abc' && abc">
           <div class="dash-abc-desc">
             在庫金額の大きい順に A（上位70%）／B（〜90%）／C（残り）に分類。
             <b>A品目は少数でも金額の大半を占める重点管理対象</b>です。
@@ -524,7 +609,23 @@ const abc = computed(() => {
 .dash-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .dash-summary-date { font-size: 13px; color: #6b7280; }
 .dash-designate { font-size: 11px; color: #9ca3af; margin-bottom: 8px; line-height: 1.5; }
-.dash-anomaly { font-size: 11px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; margin-top: 10px; line-height: 1.5; }
+.dash-context { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 10px; }
+.dash-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dash-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 104px;
+  padding: 12px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; text-align: left;
+  font: inherit; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); -webkit-tap-highlight-color: transparent;
+}
+.dash-card:active:not(:disabled) { background: #f8fafc; }
+.dash-card-head { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 800; color: #374151; }
+.dash-card-icon { font-size: 14px; }
+.dash-card-value { font-size: 19px; font-weight: 800; color: #1e293b; line-height: 1.2; }
+.dash-card-sub { font-size: 11px; color: #6b7280; line-height: 1.45; }
+.dash-card.warn { border-color: #fde68a; background: #fffbeb; }
+.dash-card.warn .dash-card-value { color: #b45309; }
+.dash-card.off { cursor: default; background: #f9fafb; }
+.dash-card.off .dash-card-head { color: #9ca3af; }
+.dash-card.off .dash-card-sub { color: #9ca3af; }
 .dash-weekday {
   font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
   background: #eef2ff; color: #4338ca;
