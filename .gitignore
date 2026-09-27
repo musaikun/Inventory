@@ -6,7 +6,7 @@ worker/node_modules/
 node_modules/
 
 # ローカルの Cloudflare / build 生成物
-/.wrangler/
+.wrangler/
 /worker/dist/
 
 # ルートには package.json がなく、package 単位の lockfile を使用する
