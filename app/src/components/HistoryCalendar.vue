@@ -22,6 +22,7 @@ import { calendarTodos } from '../services/calendarTodos.js'
 // weather プロップは将来の天気表示用スロット。{ 'YYYY-MM-DD': { icon, label, tempHi, tempLo } }
 const props = defineProps({
   sessions: { type: Array, default: () => [] }, // 完了済み棚卸セッション
+  orderSessions: { type: Array, default: () => [] }, // 完了済み発注セッション
   weather:  { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['view-session', 'delete-session'])
@@ -109,6 +110,28 @@ const orderByDate = computed(() => {
   return map
 })
 
+// 完了した発注セッションのうち、発注の記録（orders）が無いもの。
+// 発注の記録は発注数が1件以上あるときだけ作られるので、在庫だけ数えて（保留のまま）完了した
+// 発注はカレンダーのどこにも出なかった。棚卸・入出庫と同じく「完了した」ことは残す（User報告 2026-09-27）。
+const ORDER_DRAFT_PREFIX = 'order_draft_ord_'
+function _heldCount(sessionId) {
+  try {
+    const d = JSON.parse(localStorage.getItem(ORDER_DRAFT_PREFIX + sessionId) || 'null')
+    return d && typeof d === 'object' ? Object.keys(d).length : null
+  } catch (_) { return null }
+}
+const bareOrderByDate = computed(() => {
+  const withRecord = new Set(getOrders().map(o => o.sessionId).filter(Boolean))
+  const map = {}
+  for (const s of props.orderSessions || []) {
+    if (!s?.id || withRecord.has(s.id)) continue
+    const k = _keyOf(s.endedAt ?? s.startedAt)
+    if (!k) continue
+    ;(map[k] ||= []).push({ s, held: _heldCount(s.id) })
+  }
+  return map
+})
+
 // 日付キー → 入出庫レコード配列
 const moveByDate = computed(() => {
   const map = {}
@@ -153,6 +176,7 @@ const weeks = computed(() => {
       isToday: key === todayKey,
       stock: stockByDate.value[key] || [],
       orders: orderByDate.value[key] || [],
+      bareOrders: bareOrderByDate.value[key] || [],
       moves: moveByDate.value[key] || [],
       wx: props.weather[key] || null,
       factors: dayFactors(key),   // 暦の需要要因（祝日・祝前日・給料日・連休・スパン…）
@@ -170,7 +194,7 @@ function dotCount(cell) {
   if (!cell) return 0
   let n = 0
   if (cell.stock.length) n++
-  if (cell.orders.length) n++
+  if (cell.orders.length || cell.bareOrders.length) n++
   if (cell.moves.some(m => m.type === 'in')) n++
   if (cell.moves.some(m => m.type === 'out')) n++
   return n
@@ -224,6 +248,7 @@ const recentKey = computed(() => {
   const keys = new Set()
   for (const k of Object.keys(stockByDate.value)) keys.add(k)
   for (const k of Object.keys(orderByDate.value)) keys.add(k)
+  for (const k of Object.keys(bareOrderByDate.value)) keys.add(k)
   for (const k of Object.keys(moveByDate.value)) keys.add(k)
   const sorted = [...keys].sort((a, b) => b.localeCompare(a))
   return sorted[0] || null
@@ -297,6 +322,9 @@ const listRows = computed(() => {
   if (want('order')) for (const [k, arr] of Object.entries(orderByDate.value)) for (const o of arr) {
     rows.push({ id: 'o:' + o.id, key: k, kind: 'order', recId: o.id, info: `${o.supplier ? o.supplier + '・' : ''}${o.lines.length}品目`, amount: _orderValue(o).amount })
   }
+  if (want('order')) for (const [k, arr] of Object.entries(bareOrderByDate.value)) for (const b of arr) {
+    rows.push({ id: 'ob:' + b.s.id, key: k, kind: 'order', recId: 'ob:' + b.s.id, info: _bareInfo(b), amount: null })
+  }
   for (const [k, arr] of Object.entries(moveByDate.value)) for (const m of arr) {
     if (!want(m.type)) continue
     rows.push({ id: 'm:' + m.id, key: k, kind: m.type, recId: m.id, info: `${m.lines.length}品目${m.note ? '・' + m.note : ''}`, amount: _orderValue(m).amount })
@@ -346,6 +374,10 @@ function openDay(key, focus = '', recId = '') {
 
 const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
 const selectedOrders = computed(() => (selectedKey.value ? orderByDate.value[selectedKey.value] || [] : []))
+const selectedBareOrders = computed(() => (selectedKey.value ? bareOrderByDate.value[selectedKey.value] || [] : []))
+function _bareInfo(b) {
+  return b.held ? `発注数の入力なし（在庫のみ ${b.held}品目）` : '発注数の入力なし'
+}
 
 const selectedStockRows = computed(() => selectedStock.value.map(s => ({ s, ..._stockValue(s) })))
 const selectedOrderRows = computed(() => selectedOrders.value.map(o => ({ o, ..._orderValue(o) })))
@@ -613,7 +645,7 @@ function onDeleteMove(id) {
             <span v-if="cell.factors.holidayName" class="hc-hol-name">{{ cell.factors.holidayName }}</span>
             <span v-if="dotCount(cell)" :class="['hc-dots', { 'dots-grid': dotCount(cell) === 4 }]">
               <span v-if="cell.stock.length" class="dot dot-stock" title="棚卸"></span>
-              <span v-if="cell.orders.length" class="dot dot-order" title="発注"></span>
+              <span v-if="cell.orders.length || cell.bareOrders.length" class="dot dot-order" title="発注"></span>
               <span v-if="cell.moves.some(m => m.type === 'in')" class="dot dot-in" title="入庫"></span>
               <span v-if="cell.moves.some(m => m.type === 'out')" class="dot dot-out" title="出庫"></span>
             </span>
@@ -715,9 +747,9 @@ function onDeleteMove(id) {
       </template>
 
       <!-- 発注 -->
-      <template v-if="selectedOrders.length">
+      <template v-if="selectedOrders.length || selectedBareOrders.length">
         <div class="hc-sec-title" data-sec="order">
-          <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
+          <span class="dot dot-order"></span>発注（{{ selectedOrders.length + selectedBareOrders.length }}件）
           <span v-if="selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
         </div>
         <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order" :data-rec="r.o.id">
@@ -737,12 +769,19 @@ function onDeleteMove(id) {
             </div>
           </div>
         </div>
+        <div v-for="b in selectedBareOrders" :key="b.s.id" class="hc-entry hc-entry-order hc-entry-bare" :data-rec="'ob:' + b.s.id">
+          <div class="hc-entry-main">
+            <span class="hc-order-sup">発注を完了</span>
+            <span class="hc-entry-time">{{ _timeLabel(b.s.endedAt ?? b.s.startedAt) }}</span>
+          </div>
+          <div class="hc-entry-warn">{{ _bareInfo(b) }}。発注数を入れた品目が無いため、明細はありません</div>
+        </div>
       </template>
 
       <div v-if="anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
 
       <div
-        v-if="!selectedStock.length && !selectedOrders.length && !selectedMoves.length"
+        v-if="!selectedStock.length && !selectedOrders.length && !selectedBareOrders.length && !selectedMoves.length"
         class="hc-empty"
       >
         この日はアプリの記録はありません

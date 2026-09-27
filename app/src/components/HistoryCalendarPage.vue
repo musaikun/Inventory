@@ -53,6 +53,11 @@ const completedSessions = computed(() =>
   sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order')
 )
 
+// 完了した発注セッション。発注の記録が無い（在庫だけで完了した）ものもカレンダーに残すために渡す
+const completedOrderSessions = computed(() =>
+  sessions.value.filter(s => s.status === 'completed' && s.type === 'order')
+)
+
 // Free プラン: 直近 historyLimit() 件のみ表示（新しい順）。上限が無ければ全件。
 const visibleCompletedSessions = computed(() => {
   const limit = historyLimit()
@@ -113,6 +118,7 @@ async function onDelete(session) {
       <HistoryCalendar
         v-else
         :sessions="visibleCompletedSessions"
+        :order-sessions="completedOrderSessions"
         :weather="weatherState.weather"
         @view-session="s => emit('viewSession', s)"
         @delete-session="onDelete"

@@ -1754,11 +1754,12 @@ async function onComplete() {
   const confirmMsg = isHostInRoom
     ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
-  // 発注数が1件も無い（保留だけ）の発注は、完了しても発注の記録が残らない＝履歴カレンダーにも出ない。
+  // 発注数が1件も無い（保留だけ）の発注は、完了しても発注の記録（明細）が残らない。
+  // カレンダーには「発注を完了」とだけ出る（HistoryCalendar の bareOrderByDate）。
   // 完了できること自体は変えず、押す前にそう言う（User報告 2026-09-27）。
   const noOrderLines = isOrderMode && !Object.values(orderDraft.value).some(d => Number(d?.orderQty) > 0)
   const noOrderNote = noOrderLines
-    ? '\n\n※ 発注数が1件も入っていません（在庫だけの保留）。このまま完了すると発注の記録は残らず、履歴カレンダーにも出ません。'
+    ? '\n\n※ 発注数が1件も入っていません（在庫だけの保留）。このまま完了すると、履歴カレンダーには「発注を完了」とだけ残り、発注の明細は残りません。'
     : ''
   if (!confirm(confirmMsg + noOrderNote)) return
 
