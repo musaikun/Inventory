@@ -742,7 +742,8 @@ export async function handleOrderCreate(db, code, body = {}) {
   const headStmt = db.prepare(`
     INSERT INTO orders (id, shop_code, order_date, supplier, axis, session_id, saved_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis
+    ON CONFLICT(id) DO UPDATE SET order_date = excluded.order_date, supplier = excluded.supplier, axis = excluded.axis,
+      saved_at = excluded.saved_at
     WHERE orders.shop_code = excluded.shop_code
   `).bind(orderId, code, date, text(body.supplier, MAX_SUPPLIER_LEN), text(body.axis, MAX_SUPPLIER_LEN),
           linkedSessionId, body.savedAt ?? now)

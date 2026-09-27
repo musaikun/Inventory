@@ -147,14 +147,22 @@ export function useOrders() {
     return map
   }
 
-  /** D1 等から取得した発注配列をローカルへ反映（id で重複排除） */
+  /**
+   * D1 等から取得した発注配列をローカルへ反映（id で重複排除）。
+   * 同じ id でも向こうの方が新しければ差し替える。発注は1セッション=1レコードを
+   * 入力のたびに書き直すので、先に途中の版を持っている端末は、捨てると古いまま残る。
+   */
   function applyRemoteOrders(orders) {
     if (!Array.isArray(orders)) return
-    const seen = new Set(_data.list.map(o => o.id))
+    const at = new Map(_data.list.map((o, i) => [o.id, i]))
+    let changed = false
     for (const o of orders) {
-      if (o?.id && !seen.has(o.id)) { _data.list.push(o); seen.add(o.id) }
+      if (!o?.id) continue
+      const i = at.get(o.id)
+      if (i == null) { at.set(o.id, _data.list.length); _data.list.push(o); changed = true; continue }
+      if ((o.savedAt || '') > (_data.list[i].savedAt || '')) { _data.list.splice(i, 1, o); changed = true }
     }
-    _persist()
+    if (changed) _persist()
   }
 
   /**

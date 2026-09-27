@@ -399,6 +399,7 @@ async function _pullAccountConfig() {
     // ネットワークエラーは無視してローカルデータで継続
   }
   await _pullMovements()  // 入出庫（ホームの未反映バッジ・カレンダー表示で使用）
+  await _loadOrderData()  // 発注（履歴カレンダーの★・未反映の入庫）。発注を始めた端末以外にも出す
 }
 
 // 認証後にセッション一覧へ
@@ -453,7 +454,9 @@ async function onSessionStart(session, mode = 'stock') {
   if (isOrder) { await _loadOrderData(); _restoreOrderDraft(); showToast('発注確認を開始しました', 2600, 'default') }
 }
 
-// 発注セッション用: D1 の過去発注を取り込み（学習データ）、下書きを復元する。
+// D1 の発注を取り込む（学習データ・履歴カレンダー・未反映の入庫）。
+// 以前は発注セッションの開始時にしか読まなかったため、発注した端末以外（ホーム画面の
+// PWA とブラウザは保存領域が別）では、完了した発注が履歴カレンダーに出なかった。
 async function _loadOrderData() {
   try {
     const remote = await loadOrdersFromD1()
@@ -500,6 +503,7 @@ function _rememberPageFrom(view) {
 function openPage(view) {
   _rememberPageFrom(view)
   currentView.value = view
+  if (view === 'history') { _loadOrderData(); _pullMovements() }
 }
 // 戻り先を1つ取り出す。取り出したら既定（ホーム）へ戻し、
 // 独立ページ同士を行き来したあとの戻るが2画面を往復し続けないようにする。
@@ -517,6 +521,7 @@ function openMovement(tab = 'view') {
   movementTab.value = tab
   currentView.value = 'movement'
   _pullMovements()
+  _loadOrderData()
 }
 
 // セッション一覧から「練習モードで開始」（テスト用リスト・履歴に残さない・D1非永続）
@@ -1749,7 +1754,13 @@ async function onComplete() {
   const confirmMsg = isHostInRoom
     ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
-  if (!confirm(confirmMsg)) return
+  // 発注数が1件も無い（保留だけ）の発注は、完了しても発注の記録が残らない＝履歴カレンダーにも出ない。
+  // 完了できること自体は変えず、押す前にそう言う（User報告 2026-09-27）。
+  const noOrderLines = isOrderMode && !Object.values(orderDraft.value).some(d => Number(d?.orderQty) > 0)
+  const noOrderNote = noOrderLines
+    ? '\n\n※ 発注数が1件も入っていません（在庫だけの保留）。このまま完了すると発注の記録は残らず、履歴カレンダーにも出ません。'
+    : ''
+  if (!confirm(confirmMsg + noOrderNote)) return
 
   // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は
   // ここにしかない。合流した2本目が同じ後片付けを走らせないよう、入口でも締める。
@@ -2596,12 +2607,14 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
 function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot, by) {
   orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot, by })
   _persistOrderDraftLocal()
+  _upsertOrderRecord()
 }
 
 function applyRemoteOrderRemove(ingredient) {
   if (!orderDraft.value[ingredient]) return
   orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty: 0 })
   _persistOrderDraftLocal()
+  _upsertOrderRecord()
 }
 
 // 参加/新セッション時の一括同期: DO の発注数を正として揃える（在庫は別ルートで保持）。
@@ -2609,6 +2622,7 @@ function applyOrdersSnapshot(orders) {
   if (!orders || typeof orders !== 'object') return
   orderDraft.value = mergeOrderSnapshot(orderDraft.value, orders)
   _persistOrderDraftLocal()
+  _upsertOrderRecord()
 }
 
 // session_start でホストが送る発注数ペイロード。
@@ -2624,15 +2638,23 @@ function _persistOrderDraftLocal() {
 // 発注下書きをセッション単位で 1 レコードに集約し、localStorage + useOrders + D1 へ保存する。
 function _persistOrderDraft() {
   _persistOrderDraftLocal()
-  // 保留（発注数0）は発注の記録には載せない。数えた在庫は棚卸と同じ経路で
-  // 既に保存されており、保留の印はこのセッションの下書きが持つ。
+  const rec = _upsertOrderRecord()
+  if (rec) saveOrderToD1(rec)
+}
+
+// 下書きから発注の記録（orders）を組み直す。D1 へは書かない（書くのは入力した端末）。
+// 他の端末が入れた発注数もここで記録に載せる。以前は自分で確定したときしか組み直さず、
+// ゲストだけが入力した発注はホストの記録（＝履歴カレンダー）に出なかった。
+// 保留（発注数0）は発注の記録には載せない。数えた在庫は棚卸と同じ経路で
+// 既に保存されており、保留の印はこのセッションの下書きが持つ。
+function _upsertOrderRecord() {
+  if (sessionMode.value !== 'order') return null
   const lines = Object.entries(orderDraft.value)
     .filter(([, d]) => Number(d.orderQty) > 0)
     .map(([item, d]) => ({
       item, qty: d.orderQty, unit: d.unit || '', stock: d.stock, lot: d.lot,
     }))
-  const rec = upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
-  if (rec) saveOrderToD1(rec)
+  return upsertOrder({ id: _orderId(), date: _todayStr(), sessionId: pendingSession.value?.id ?? null, lines })
 }
 
 function onConfirm(payload) {
