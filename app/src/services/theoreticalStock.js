@@ -6,6 +6,8 @@
 // 記録されない消費（営業中の使用等）は含まれないため、値は「参考値」であり
 // 実地の入力（棚卸・発注時在庫）とのズレ検出に使う。
 
+import { findLine, linesOf } from '../utils/lineIndex.js'
+
 function _round(v) { return Math.round(v * 1000) / 1000 }
 
 /**
@@ -19,7 +21,7 @@ function _round(v) { return Math.round(v * 1000) / 1000 }
 export function theoreticalStock(item, snapshots = [], movements = [], { asOf = null } = {}) {
   let base = null
   for (const s of snapshots) {
-    const it = (s?.items || []).find(i => i.item === item && i.qty != null)
+    const it = findLine(s?.items, item, i => i.qty != null)
     if (!it) continue
     const d = s.date || ''
     const at = s.savedAt || ''
@@ -42,8 +44,7 @@ export function theoreticalStock(item, snapshots = [], movements = [], { asOf = 
       if (cmp === 0 && (m.savedAt || '').localeCompare(base.savedAt) <= 0) continue
     }
     let touched = false
-    for (const l of m.lines) {
-      if (l.item !== item) continue
+    for (const l of linesOf(m.lines, item)) {
       const q = Number(l.qty)
       if (!Number.isFinite(q) || q <= 0) continue
       if (m.type === 'out') outQty += q

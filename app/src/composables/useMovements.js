@@ -1,5 +1,5 @@
 import { localDateKey } from '../utils/localDate.js'
-import { reactive } from 'vue'
+import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { effectiveLot } from '../services/lot.js'
 
@@ -9,6 +9,11 @@ import { effectiveLot } from '../services/lot.js'
 // source        = 'import' なら過去履歴の一括取込由来（手入力と区別）。既定 null。
 // importBatchId = 取込単位のID（一括取消・再取込の追跡）。既定 null。
 const _data = reactive({ list: [] })
+// 読み出しは素のデータ（toRaw）で返し、変更の検知は _rev（版数）で行う。
+// 分析・仕入れの計算は全品目×全記録を読むので、リアクティブの Proxy 越しだと約20倍遅い
+// （品目357×棚卸40回で 仕入れの発注基準 2〜5秒 → 0.1〜0.2秒）。
+// 書き換えは必ず _persist（またはリセット）を通るので、そこで _rev を進める。
+const _rev = ref(0)
 
 function _load() {
   try {
@@ -21,6 +26,7 @@ function _load() {
 }
 
 function _persist() {
+  _rev.value++
   try { localStorage.setItem(STORAGE_KEYS.movements, JSON.stringify(_data.list)) } catch (_) {}
 }
 
@@ -29,6 +35,7 @@ _load()
 // アカウント切替時のローカル全消去（入出庫レコード）。
 export function resetLocalData() {
   _data.list = []
+  _rev.value++
   try { localStorage.removeItem(STORAGE_KEYS.movements) } catch (_) {}
 }
 
@@ -87,7 +94,8 @@ export function useMovements() {
 
   /** 全入出庫を新しい順（date desc, savedAt desc）で返す */
   function getMovements() {
-    return [..._data.list].sort((a, b) =>
+    void _rev.value
+    return [...toRaw(_data.list)].sort((a, b) =>
       (b.date || '').localeCompare(a.date || '') || (b.savedAt || '').localeCompare(a.savedAt || '')
     )
   }

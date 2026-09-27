@@ -1,5 +1,5 @@
 import { localDateKey } from '../utils/localDate.js'
-import { reactive } from 'vue'
+import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { postOrderStock } from '../services/orderLearning.js'
 import { effectiveLot } from '../services/lot.js'
@@ -9,6 +9,11 @@ import { effectiveLot } from '../services/lot.js'
 // stock=発注時の現在在庫 / lot=入数(数値) / postStock=発注後在庫（学習対象）/ excluded=学習除外。
 // supplier/axis は「仕入先」や「場所」など、グルーピングに使った軸の値と名前。
 const _data = reactive({ list: [] })
+// 読み出しは素のデータ（toRaw）で返し、変更の検知は _rev（版数）で行う。
+// 分析・仕入れの計算は全品目×全記録を読むので、リアクティブの Proxy 越しだと約20倍遅い
+// （品目357×棚卸40回で 仕入れの発注基準 2〜5秒 → 0.1〜0.2秒）。
+// 書き換えは必ず _persist（またはリセット）を通るので、そこで _rev を進める。
+const _rev = ref(0)
 
 function _load() {
   try {
@@ -22,6 +27,7 @@ function _load() {
 }
 
 function _persist() {
+  _rev.value++
   try { localStorage.setItem(STORAGE_KEYS.orders, JSON.stringify(_data.list)) } catch (_) {}
 }
 
@@ -30,6 +36,7 @@ _load()
 // アカウント切替時のローカル全消去（発注レコード）。
 export function resetLocalData() {
   _data.list = []
+  _rev.value++
   try { localStorage.removeItem(STORAGE_KEYS.orders) } catch (_) {}
 }
 
@@ -107,7 +114,8 @@ export function useOrders() {
 
   /** 全発注を新しい順（date desc, savedAt desc）で返す */
   function getOrders() {
-    return [..._data.list].sort((a, b) =>
+    void _rev.value
+    return [...toRaw(_data.list)].sort((a, b) =>
       (b.date || '').localeCompare(a.date || '') || (b.savedAt || '').localeCompare(a.savedAt || '')
     )
   }

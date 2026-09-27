@@ -13,6 +13,8 @@
 //                    過小評価は適正在庫を低くし、欠品につながる。
 // あくまで推定値。棚卸で定期的に基準点をリセットして精度を保つ前提。
 
+import { findLine } from '../utils/lineIndex.js'
+
 function _ymd(s) { return (s || '').slice(0, 10) }
 
 /**
@@ -24,11 +26,11 @@ function _ymd(s) { return (s || '').slice(0, 10) }
 export function stockObservations(item, snapshots = [], orders = []) {
   const obs = []
   for (const s of snapshots) {
-    const it = (s?.items || []).find(i => i.item === item && i.qty != null)
+    const it = findLine(s?.items, item, i => i.qty != null)
     if (it) obs.push({ date: _ymd(s.date), qty: Number(it.qty), src: 'stocktake' })
   }
   for (const o of orders) {
-    const line = (o?.lines || []).find(l => l.item === item && l.stock != null && l.stock !== '')
+    const line = findLine(o?.lines, item, l => l.stock != null && l.stock !== '')
     if (line) obs.push({ date: _ymd(o.date), qty: Number(line.stock), src: 'order' })
   }
   return obs
@@ -41,7 +43,7 @@ function _flowByDate(item, movements, type) {
   const map = {}
   for (const mv of movements || []) {
     if (mv?.type !== type) continue
-    const line = (mv.lines || []).find(l => l.item === item)
+    const line = findLine(mv.lines, item)
     if (!line) continue
     const k = _ymd(mv.date)
     const q = Number(line.qty)

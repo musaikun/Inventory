@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import {
   clientSavedMs, serverSavedMs, serverRevision, isSnapshotDirty,
@@ -7,6 +7,11 @@ import {
 // reactive にすることで getSnapshots/getEntryLogs を参照する computed が
 // 保存・削除のたびに自動再計算される
 const _data = reactive({})
+// 読み出しは素のデータ（toRaw）で返し、変更の検知は _rev（版数）で行う。
+// 分析・仕入れの計算は全品目×全記録を読むので、リアクティブの Proxy 越しだと約20倍遅い
+// （品目357×棚卸40回で 仕入れの発注基準 2〜5秒 → 0.1〜0.2秒）。
+// 書き換えは必ず _persist（またはリセット）を通るので、そこで _rev を進める。
+const _rev = ref(0)
 
 /**
  * スナップショットの保管キー（DATA-002 / F-001）。
@@ -42,6 +47,7 @@ function _load() {
 }
 
 function _persist() {
+  _rev.value++
   try {
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({ ..._data }))
   } catch (_) {}
@@ -79,6 +85,7 @@ _seedLocalRev()
 // アカウント切替時のローカル全消去（棚卸スナップショット履歴）。
 export function resetLocalData() {
   for (const k of Object.keys(_data)) delete _data[k]
+  _rev.value++
   try { localStorage.removeItem(STORAGE_KEYS.history) } catch (_) {}
 }
 
@@ -319,7 +326,8 @@ export function useHistory() {
    * 同じ日に複数セッションがある場合は保存時刻の新しい方を先にする（一覧で潰さない）。
    */
   function getSnapshots() {
-    return Object.values(_data).sort((a, b) =>
+    void _rev.value
+    return Object.values(toRaw(_data)).sort((a, b) =>
       b.date.localeCompare(a.date) || (_savedAtMs(b) - _savedAtMs(a))
     )
   }
