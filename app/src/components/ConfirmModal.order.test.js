@@ -96,7 +96,7 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await typeStock(8)
     expect(chip('推奨'), '参考としては出す').not.toBeUndefined()
     expect(onOrder(), '打っているのは在庫のまま').toBe(false)
-    expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
+    expect(button('在庫のみ記録'), '確定しても0のまま').not.toBeUndefined()
 
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')                 // 切り替えても推奨は入らない
@@ -117,7 +117,7 @@ describe('ConfirmModal — 発注モードの推奨', () => {
   it('足りていれば発注しない', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(24)
-    expect(button('発注なしで確定')).not.toBeUndefined()
+    expect(button('在庫のみ記録')).not.toBeUndefined()
 
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')
@@ -220,5 +220,19 @@ describe('打つ場所が動かない', () => {
 
     basis().click(); await nextTick()
     expect(shown(), '切り替えても発注数は保たれている').toBe('3')
+  })
+
+  // User報告 2026-09-27: 数を打っても右端が「発注なしで確定」のままで、確定できないように見えた
+  it('在庫を打つと「在庫のみ記録」と、発注数へ移る入口が出る', async () => {
+    await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
+    expect(button('発注なしで確定')).not.toBeUndefined()           // まだ何も打っていない
+    expect(host.querySelector('.to-order-btn')).toBeNull()
+    await typeStock(5)
+    expect(button('在庫のみ記録')).not.toBeUndefined()
+    host.querySelector('.to-order-btn').click(); await nextTick()
+    expect(onOrder()).toBe(true)
+    await type(3)
+    expect(button('発注 3口 を確定')).not.toBeUndefined()
+    expect(host.querySelector('.to-order-btn')).toBeNull()
   })
 })

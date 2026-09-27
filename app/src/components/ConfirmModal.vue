@@ -391,9 +391,10 @@ const primaryLabel = computed(() => {
   if (props.isNew)       return '新規登録'
   if (hasDuplicate.value) return '上書き'
   if (props.orderMode) {
-    return effectiveOrderQty.value > 0
-      ? `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
-      : '発注なしで確定'
+    if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
+    // 在庫だけ打った状態。「発注なし」だけだと、打った数が発注に入っていないことが読めず
+    // 確定できないように見えた（User報告 2026-09-27）。何が記録されるかをそのまま言う。
+    return qty.value !== '' ? '在庫のみ記録' : '発注なしで確定'
   }
   return '確定'
 })
@@ -621,6 +622,12 @@ function saveEdit() {
           <span class="select-arrow">▾</span>
         </div>
       </div>
+      <!-- 発注：在庫を打ったあと、発注数へ移る入口を言葉で出す。単位の枠の ⇄ だけでは気づかれなかった -->
+      <button
+        v-if="orderMode && !editingOrder && qty !== '' && effectiveOrderQty === 0"
+        type="button" class="to-order-btn" @click="orderFocus = 'order'"
+      >発注数を入れる ⇄</button>
+
       <!-- 単位：その他（手入力）-->
       <input
         v-if="unitEditable && unitCustom && !orderMode"
@@ -1189,6 +1196,12 @@ function saveEdit() {
 .hint-ref.flat { border-style: dashed; cursor: default; }
 
 /* 何を打っているかを単位の位置で示す。欄を2つ並べない代わりに、ここで入れ替える */
+.to-order-btn {
+  display: block; width: 100%; margin: 6px 0 2px; min-height: 40px;
+  border: 1.5px dashed #f59e0b; border-radius: 10px; background: #fffbeb; color: #b45309;
+  font-size: 13px; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.to-order-btn:active { background: #fef3c7; }
 .basis-toggle {
   flex-shrink: 0;
   display: flex; align-items: center; gap: 5px;
@@ -1203,6 +1216,8 @@ function saveEdit() {
 .basis-toggle.order { background: var(--primary); border-color: var(--primary); color: #fff; }
 .basis-toggle:active { opacity: 0.85; }
 .basis-what { font-size: 11px; opacity: 0.85; }
+/* ⇄ はボタンの中に並べる（select 用の絶対配置のままだと、ボタンの外へ出ていた） */
+.basis-toggle .select-arrow { position: static; transform: none; color: inherit; }
 .basis-unit { font-size: 14px; }
 
 .hint-history {
