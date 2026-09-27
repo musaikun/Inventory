@@ -379,7 +379,7 @@ function finishWheelGesture(e, cancelled) {
     return
   }
   if (tapSlot != null) {
-    if (tapSlot >= addSlot.value) { selectWheelSlot(tapSlot); openAdd(); return }
+    if (tapSlot >= addSlot.value) { selectWheelSlot(tapSlot); openAdd({ fromPointer: true }); return }
     selectWheelSlot(tapSlot)
     return
   }
@@ -1004,14 +1004,17 @@ const addOpen = ref(false)
 const newName = ref('')
 const addError = ref('')
 const addInputEl = ref(null)
-function openAdd() {
+// fromPointer: ホイールの「＋」を指で押したとき（pointerup で開く）。その指の click が
+// 開いたばかりの背景に落ちて即閉じるので、件数と同じく1回だけ食べる（User報告 2026-09-27）。
+function openAdd({ fromPointer = false } = {}) {
+  if (fromPointer === true) armGhostSwallow(); else disarmGhostSwallow()
   stopWheelAtNearest()
   newName.value = ''
   addError.value = ''
   addOpen.value = true
   nextTick(() => addInputEl.value?.focus())
 }
-function closeAdd() { addOpen.value = false; newName.value = ''; addError.value = '' }
+function closeAdd() { disarmGhostSwallow(); addOpen.value = false; newName.value = ''; addError.value = '' }
 function submitNew() {
   const n = newName.value.trim()
   if (!n) return
@@ -1477,7 +1480,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     </div>
 
     <!-- 分類先を足す -->
-    <div v-if="addOpen" class="af-dialog-bg" @click.self="closeAdd">
+    <div v-if="addOpen" class="af-dialog-bg" @click.capture="swallowAssignedGhost" @click.self="closeAdd">
       <div class="af-dialog" role="dialog" aria-modal="true" aria-label="分類先を追加">
         <div class="af-dialog-title">分類先を追加</div>
         <input ref="addInputEl" v-model="newName" class="af-dialog-input" maxlength="20"

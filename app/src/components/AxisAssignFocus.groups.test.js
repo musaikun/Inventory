@@ -136,6 +136,23 @@ describe('AxisAssignFocus — 分類先ホイール', () => {
     expect(host.querySelector('.af-gcard[data-slot="1"] .af-gname').textContent.trim()).toBe('棚')
   })
 
+  it('「＋ 分類先を追加」を指で押すと、同じ指の click が落ちても入力欄が閉じない', async () => {
+    // 分類先0件（棚卸の ジャンル+ から開いた直後など）。入力欄は pointerup で開くので、
+    // 後から降ってくる click が開いたばかりの背景に当たると即閉じていた（一瞬光るだけ）。
+    await mount()
+    const stage = host.querySelector('.af-stage')
+    const add = host.querySelector('.af-gcard.add')
+    pointer(add, 'pointerdown', 40, 72, 9)
+    pointer(stage, 'pointerup', 40, 72, 9)
+    await nextTick()
+    expect(host.querySelector('.af-dialog-input')).not.toBeNull()
+    await click(host.querySelector('.af-dialog-bg'))
+    expect(host.querySelector('.af-dialog-input')).not.toBeNull()
+    // 2回目以降の背景タップは従来どおり閉じる
+    await click(host.querySelector('.af-dialog-bg'))
+    expect(host.querySelector('.af-dialog-input')).toBeNull()
+  })
+
   it('Pointer Captureでclick先がstageになっても、押したカードまで回る', async () => {
     for (const g of ['冷蔵庫', '棚', '冷凍庫']) cfg.addAxisGroup(0, g)
     await mount()
