@@ -45,7 +45,7 @@ async function type(digits) {
     await nextTick()
   }
 }
-/** 既定は在庫。念のため在庫側へ寄せてから打つ */
+/** 既定は発注数。在庫側へ切り替えてから打つ */
 async function typeStock(digits) {
   if (onOrder()) { basis().click(); await nextTick() }
   await type(digits)
@@ -96,7 +96,7 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await typeStock(8)
     expect(chip('推奨'), '参考としては出す').not.toBeUndefined()
     expect(onOrder(), '打っているのは在庫のまま').toBe(false)
-    expect(button('在庫のみ記録'), '確定しても0のまま').not.toBeUndefined()
+    expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
 
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')                 // 切り替えても推奨は入らない
@@ -117,7 +117,7 @@ describe('ConfirmModal — 発注モードの推奨', () => {
   it('足りていれば発注しない', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(24)
-    expect(button('在庫のみ記録')).not.toBeUndefined()
+    expect(button('発注なしで確定')).not.toBeUndefined()
 
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')
@@ -139,12 +139,15 @@ describe('ConfirmModal — 発注モードの推奨', () => {
 // Userの実運用: 発注セッションでは在庫数を入れることが多かった。棚の前で適正な
 // 発注量までは判断できず、在庫を記録して後から詳しい人や社内の入出庫情報と
 // 突き合わせて決めていた。打つのは在庫ひとつ、発注数は読むだけの目安にする。
-describe('打つのは在庫ひとつ', () => {
-  it('既定の入力先は在庫（最初の一打が在庫へ入る）', async () => {
-    await mount({ targetLevel: 14 })
+describe('打つ欄はひとつ', () => {
+  // 発注セッションは発注数を入れる場所（User判断 2026-09-28）。在庫が先だった頃は、
+  // 打った数が在庫に入ったまま完了し、発注が1件も記録されなかった
+  it('既定の入力先は発注数（最初の一打が発注数へ入る）', async () => {
+    await mount({ targetLevel: 14, orderLot: 12 })
     button('7').click(); await nextTick()
     expect(shown()).toBe('7')
-    expect(onOrder(), '発注数ではない').toBe(false)
+    expect(onOrder()).toBe(true)
+    expect(button('発注 7口 を確定')).not.toBeUndefined()
   })
 
   it('打つ欄は1つで、単位の位置の切替で在庫と発注数を入れ替える', async () => {
@@ -164,21 +167,10 @@ describe('打つのは在庫ひとつ', () => {
     expect(shown(), '在庫へ戻すと打った在庫がそのまま出る').toBe('8')
   })
 
-  it('「後で」は在庫つきの保留として確定する', async () => {
-    const events = await mount({ targetLevel: 14 })
-    await typeStock(6)
-    button('後で').click(); await nextTick()
-
-    expect(events.confirm.length).toBe(1)
-    expect(events.confirm[0]).toMatchObject({ orderQty: 0, stock: 6 })
-  })
-
-  it('在庫を入れずに「後で」は確定しない（残すものが無い）', async () => {
-    const events = await mount({ targetLevel: 14 })
-    button('後で').click(); await nextTick()
-
-    expect(events.confirm.length).toBe(0)
-    expect(host.querySelector('.qty-display').classList.contains('error')).toBe(true)
+  it('発注には「後で」（保留）が無く、キャンセルと確定の2つ', async () => {
+    await mount({ targetLevel: 14 })
+    expect(button('後で')).toBeUndefined()
+    expect(host.querySelector('.actions.two-col')).not.toBeNull()
   })
 })
 
@@ -203,36 +195,25 @@ describe('打つ場所が動かない', () => {
   // 欄を1つにして貼り付けをやめたので、その役目は上の欄そのものが果たす。
   it('打っている値は常に上の欄に出ており、切り替えても失われない', async () => {
     await mount({ targetLevel: 14, orderLot: 12 })
-    // 既定は在庫。棚の前で先に分かるのは「いま何個あるか」
-    expect(basis().textContent).toContain('在庫')
-
-    button('9').click(); await nextTick()
-    expect(shown()).toBe('9')
-
-    basis().click(); await nextTick()
-    await type(3)
     expect(basis().textContent).toContain('発注')
+
+    await type(3)
     expect(shown()).toBe('3')
 
-    await typeStock(8)                       // 在庫へ戻して続きを打つ
+    await typeStock(9)                       // 在庫は任意。切り替えて打つ
     expect(basis().textContent).toContain('在庫')
-    expect(shown()).toBe('98')
+    expect(shown()).toBe('9')
 
     basis().click(); await nextTick()
     expect(shown(), '切り替えても発注数は保たれている').toBe('3')
   })
 
-  // User報告 2026-09-27: 数を打っても右端が「発注なしで確定」のままで、確定できないように見えた
-  it('在庫を打つと「在庫のみ記録」と、発注数へ移る入口が出る', async () => {
+  it('発注数へ移る入口（発注数を入れる ⇄）は無い。最初から発注数に入る', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
-    expect(button('発注なしで確定')).not.toBeUndefined()           // まだ何も打っていない
+    expect(button('発注なしで確定')).not.toBeUndefined()
     expect(host.querySelector('.to-order-btn')).toBeNull()
-    await typeStock(5)
-    expect(button('在庫のみ記録')).not.toBeUndefined()
-    host.querySelector('.to-order-btn').click(); await nextTick()
-    expect(onOrder()).toBe(true)
     await type(3)
     expect(button('発注 3口 を確定')).not.toBeUndefined()
-    expect(host.querySelector('.to-order-btn')).toBeNull()
   })
+
 })

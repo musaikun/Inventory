@@ -111,11 +111,10 @@ function orderStep(delta) {
 // 発注モードで NumPad/プリセットが編集する対象。
 // 'stock' = 現在在庫（棚卸単位・小数OK）／'order' = 発注数（入数単位・整数）
 //
-// 初期は在庫。実運用では棚の前で適正な発注量までは判断できず、在庫を数えて記録し、
-// 後から詳しい人や社内の入出庫情報と突き合わせて決めていた。最初の一打が発注数へ
-// 入る作りは、多数派に毎回まず画面を読ませていた。発注数を自分で決めるのは
-// 「自分で決める」を押した時だけにする。
-const orderFocus = ref('stock')
+// 初期は発注数。発注セッションは発注数を入れる場所（User判断 2026-09-28）。
+// 以前は在庫が先で、打った数が在庫に入ったまま「保留」で完了し、発注が1件も
+// 記録されない事故が起きた（180品目ぶん）。在庫は単位の枠の ⇄ で任意に入れる。
+const orderFocus = ref('order')
 // 入数の外側の単位名は持っていない（config の lotSizes は "24本" のように内側だけ）。
 // 入数が1なら発注単位＝棚卸単位なのでその名前を使い、まとめて頼む形のときは
 // 数え方だけを示す「口」を置く。名前を持たせるかは提案箱で PM 判断待ち。
@@ -128,15 +127,6 @@ const displayQty = computed(() => {
 })
 function toggleOrderBasis() {
   orderFocus.value = orderFocus.value === 'order' ? 'stock' : 'order'
-}
-// 在庫だけ記録して、発注数は後で決める
-function deferOrder() {
-  const stock = qty.value === '' ? null : parseFloat(qty.value)
-  if (stock === null || isNaN(stock) || stock < 0) { hasError.value = true; return }
-  hasError.value = false
-  orderQty.value     = 0
-  orderTouched.value = true
-  emit('confirm', { ..._orderPayload(), orderQty: 0 })
 }
 
 // 学習値（推奨・前週）をタップして発注数にセット（そこから微調整できる）
@@ -392,20 +382,15 @@ const primaryLabel = computed(() => {
   if (hasDuplicate.value) return '上書き'
   if (props.orderMode) {
     if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
-    // 在庫だけ打った状態。「発注なし」だけだと、打った数が発注に入っていないことが読めず
-    // 確定できないように見えた（User報告 2026-09-27）。何が記録されるかをそのまま言う。
-    return qty.value !== '' ? '在庫のみ記録' : '発注なしで確定'
+    return '発注なしで確定'
   }
   return '確定'
 })
 
-// 「後で」= いま分かっていることは残して、決められないことだけ後に回す。
-//   棚卸 … いま数えられない。あとで数える印を付けて閉じる
-//   発注 … 在庫は数えた。発注数はここでは決めない（保留として残す）
+// 「後で」= いま数えられない。あとで数える印を付けて閉じる（棚卸のみ。発注には保留を置かない）
 // 前回のテストで「あとで数える」が使われなかったのは、抜ける瞬間（▶・キャンセル）に
 // この道が無く、印が画面の上の飾りに見えていたため。決める場所と同じ行へ置く。
 function deferItem() {
-  if (props.orderMode) { deferOrder(); return }
   if (!props.isFlagged) emit('toggle-flag', true)
   // 数を打ってあれば捨てない。「数えたが自信が無い」も同じ道で拾える
   if (qty.value === '') { emit('cancel'); return }
@@ -622,11 +607,6 @@ function saveEdit() {
           <span class="select-arrow">▾</span>
         </div>
       </div>
-      <!-- 発注：在庫を打ったあと、発注数へ移る入口を言葉で出す。単位の枠の ⇄ だけでは気づかれなかった -->
-      <button
-        v-if="orderMode && !editingOrder && qty !== '' && effectiveOrderQty === 0"
-        type="button" class="to-order-btn" @click="orderFocus = 'order'"
-      >発注数を入れる ⇄</button>
 
       <!-- 単位：その他（手入力）-->
       <input
@@ -710,13 +690,14 @@ function saveEdit() {
         <button v-if="hasDuplicate" class="btn btn-primary btn-add" @click="submit(true)" type="button">
           {{ addLabel }}
         </button>
-        <div class="actions three-col">
+        <div :class="['actions', orderMode ? 'two-col' : 'three-col']">
           <button class="btn btn-secondary" @click="$emit('cancel')" type="button">キャンセル</button>
           <button
+            v-if="!orderMode"
             class="btn btn-later"
             @click="deferItem"
             type="button"
-            :title="orderMode ? '在庫だけ記録して、発注数は後で決める' : 'いま数えられない。あとで数える一覧に入れる'"
+            title="いま数えられない。あとで数える一覧に入れる"
           >後で</button>
           <button class="btn btn-success" @click="onPrimary" type="button">{{ primaryLabel }}</button>
         </div>
@@ -1095,6 +1076,10 @@ function saveEdit() {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
 }
+.actions.two-col {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+}
 /* 「後で」。キャンセル（灰）とも確定（緑）とも違う三つ目の道だと分かる色にする。
    あとで数える印の色（#f97316 系）と揃え、一覧に出る🔖と結び付ける。 */
 .btn-later {
@@ -1196,12 +1181,6 @@ function saveEdit() {
 .hint-ref.flat { border-style: dashed; cursor: default; }
 
 /* 何を打っているかを単位の位置で示す。欄を2つ並べない代わりに、ここで入れ替える */
-.to-order-btn {
-  display: block; width: 100%; margin: 6px 0 2px; min-height: 40px;
-  border: 1.5px dashed #f59e0b; border-radius: 10px; background: #fffbeb; color: #b45309;
-  font-size: 13px; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.to-order-btn:active { background: #fef3c7; }
 .basis-toggle {
   flex-shrink: 0;
   display: flex; align-items: center; gap: 5px;

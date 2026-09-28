@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, isPendingLine } from './orderSync.js'
+import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './orderSync.js'
 
 describe('mergeOrderSnapshot（DO発注数スナップショット → 下書き）', () => {
   it('発注数>0 の品目だけ残し、ローカルの stock は品目ごとに引き継ぐ・enteredBy を by へ', () => {
@@ -77,35 +77,28 @@ describe('orderDraftToPayload（下書き → session_start ペイロード）',
 // 実運用では棚の前で適正な発注量まで判断できず、在庫だけ記録して後から詳しい人や
 // 社内の入出庫情報と突き合わせて決めていた。以前は発注数0の行を落としていたため、
 // **後で見たい品目ほど発注一覧から消えていた**。
-describe('保留（在庫だけ数えた行）を落とさない', () => {
-  const pending = { orderQty: 0, stock: 6, unit: '本', lot: 24, by: '田中' }
+describe('保留（在庫だけ・発注数0）は持たない（2026-09-28 廃止）', () => {
+  const held = { orderQty: 0, stock: 6, unit: '本', lot: 24, by: '田中' }
 
-  it('在庫があれば保留と見なし、無ければ見なさない', () => {
-    expect(isPendingLine(pending)).toBe(true)
-    expect(isPendingLine({ orderQty: 0, stock: null, unit: '本' })).toBe(false)
-    expect(isPendingLine({ orderQty: 2, stock: 6, unit: '本' })).toBe(false)
-    expect(isPendingLine(undefined)).toBe(false)
+  it('以前の版が端末に残した保留は、読み込み時に落とす', () => {
+    const out = dropHeldLines({ トマト: held, レタス: { orderQty: 3, stock: 2, unit: '玉', lot: 1 } })
+    expect(Object.keys(out)).toEqual(['レタス'])
   })
 
-  it('発注が取り消されても、数えた在庫は残す', () => {
+  it('発注が取り消されたら、在庫を数えていても下書きから外す', () => {
     const next = applyOrderLine({ トマト: { orderQty: 2, stock: 6, unit: '本', lot: 24 } }, 'トマト', { orderQty: 0 })
-    expect(next.トマト).toMatchObject({ orderQty: 0, stock: 6 })
-  })
-
-  it('在庫を数えていない行の取り消しは、これまでどおり落とす', () => {
-    const next = applyOrderLine({ トマト: { orderQty: 2, stock: null, unit: '本' } }, 'トマト', { orderQty: 0 })
     expect(next.トマト).toBeUndefined()
   })
 
-  it('サーバのスナップショットで上書きしても保留は残る', () => {
-    const next = mergeOrderSnapshot({ トマト: pending, レタス: { orderQty: 1, stock: 2, unit: '玉', lot: 1 } },
+  it('サーバのスナップショットに無い保留は残さない', () => {
+    const next = mergeOrderSnapshot({ トマト: held, レタス: { orderQty: 1, stock: 2, unit: '玉', lot: 1 } },
                                     { レタス: { orderQty: 3, unit: '玉', lot: 1, enteredBy: '佐藤' } })
-    expect(next.レタス).toMatchObject({ orderQty: 3, by: '佐藤' })
-    expect(next.トマト, '保留はこの端末だけが持っている').toMatchObject({ orderQty: 0, stock: 6 })
+    expect(next.レタス).toMatchObject({ orderQty: 3, by: '佐藤', stock: 2 })
+    expect(next.トマト).toBeUndefined()
   })
 
-  it('同期ペイロードには保留を載せない（発注する数を配るチャネルのため）', () => {
-    const out = orderDraftToPayload({ トマト: pending, レタス: { orderQty: 3, unit: '玉', lot: 1 } }, '田中')
+  it('同期ペイロードには発注数>0 だけを載せる', () => {
+    const out = orderDraftToPayload({ トマト: held, レタス: { orderQty: 3, unit: '玉', lot: 1 } }, '田中')
     expect(Object.keys(out)).toEqual(['レタス'])
   })
 })

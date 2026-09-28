@@ -84,15 +84,11 @@ describe('発注数の置き場所', () => {
   })
 })
 
-// 保留＝在庫は数えたが発注数はまだ決めていない行。棚の前で適正な発注量まで判断できず、
-// 後から詳しい人や社内の入出庫情報と突き合わせて決めるのはこの行なので、
-// 触っていない行と同じ見た目にすると、まさに見たい行が一覧で埋もれる。
-describe('保留の行が一覧で分かる', () => {
-  it('在庫だけ入っている行は「保留」と出す', async () => {
+describe('発注数の列（保留は廃止 2026-09-28）', () => {
+  it('発注数0の行に「保留」は出さない', async () => {
     await mount({ プロントワッフル: { orderQty: 0, stock: 6, unit: '個', lot: 1 } })
-    const cell = host.querySelector('.order-qty.pending')
-    expect(cell).not.toBeNull()
-    expect(cell.textContent.trim()).toBe('保留')
+    expect(host.textContent).not.toContain('保留')
+    expect(host.querySelector('.order-qty.empty')).not.toBeNull()
   })
 
   it('発注数が入っている行は保留にしない', async () => {

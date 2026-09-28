@@ -131,13 +131,13 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
 
   // 前回のテストで「あとで数える」が使われなかったのは、抜ける瞬間（▶・キャンセル）に
   // その道が無く、印が画面の上の飾りに見えていたため。決める場所と同じ行へ置く。
-  it('棚卸も発注も、下部は キャンセル / 後で / 確定 の3つ', async () => {
+  it('棚卸は キャンセル / 後で / 確定、発注は キャンセル / 確定（保留は廃止）', async () => {
     await mount()
     expect(actionLabels()).toEqual(['キャンセル', '後で', '確定'])
     app.unmount(); host.remove(); vi.resetModules()
 
     await mount({ orderMode: true })
-    expect(actionLabels()).toEqual(['キャンセル', '後で', '発注なしで確定'])
+    expect(actionLabels()).toEqual(['キャンセル', '発注なしで確定'])
   })
 
   it('棚卸の「後で」は、あとで数える印を付けて閉じる', async () => {

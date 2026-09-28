@@ -3,18 +3,14 @@
 // { orderQty, unit, lot, enteredBy, enteredById, updatedAt }。stock は在庫チャネル側で
 // 保持するため同期ペイロードには含めない（ローカル下書きの stock は保全する）。
 //
-// 「保留」= 在庫は数えたが、発注数はまだ決めていない行（orderQty 0 + stock あり）。
-// 実運用では棚の前で適正な発注量まで判断できないことが多く、在庫だけ記録して後から
-// 詳しい人や社内の入出庫情報と突き合わせて決める。以前は orderQty 0 の行を落として
-// いたため、**後で見たい品目ほど発注一覧から消えていた**。保留は下書きに残す。
+// 下書きに載るのは発注数>0 の品目だけ。「保留」（在庫だけ・発注数0）は廃止した
+// （User判断 2026-09-28）。保留のまま完了すると発注が1件も記録されず、履歴にも残らなかった。
 
-/** 在庫を数えてある行か（発注数がいくつかは問わない） */
-export function hasCountedStock(d) {
-  return !!d && d.stock != null && Number.isFinite(Number(d.stock))
-}
-/** 在庫だけ入っていて、発注数がまだ決まっていない行か */
-export function isPendingLine(d) {
-  return hasCountedStock(d) && !(Number(d.orderQty) > 0)
+/** 発注数が入っている行だけにする（以前の版が端末に残した保留を落とす） */
+export function dropHeldLines(draft = {}) {
+  const out = {}
+  for (const [item, d] of Object.entries(draft || {})) if (d && Number(d.orderQty) > 0) out[item] = d
+  return out
 }
 
 // DO の orders スナップショットを下書きへ揃える。発注数>0 の品目だけ残し、
@@ -34,11 +30,6 @@ export function mergeOrderSnapshot(prevDraft = {}, serverOrders = {}) {
       }
     }
   }
-  // 保留はこの端末だけが持っている（同期ペイロードに発注数0は載らない）。
-  // サーバ側のスナップショットで上書きすると、数えた在庫ごと消える。
-  for (const [item, d] of Object.entries(prevDraft || {})) {
-    if (!next[item] && hasCountedStock(d)) next[item] = { ...d, orderQty: 0 }
-  }
   return next
 }
 
@@ -55,9 +46,6 @@ export function applyOrderLine(prevDraft = {}, ingredient, { orderQty, unit, lot
       lot:      lot ?? prev?.lot ?? 1,
       by:       by ?? prev?.by ?? '',
     }
-  } else if (hasCountedStock(prev)) {
-    // 発注は取り消されたが、数えた在庫は残す。もう一度数えに行かせない。
-    next[ingredient] = { ...prev, orderQty: 0 }
   } else {
     delete next[ingredient]
   }
@@ -65,8 +53,6 @@ export function applyOrderLine(prevDraft = {}, ingredient, { orderQty, unit, lot
 }
 
 // 下書き → session_start で DO へ送る orders ペイロード。発注数>0 のみ。
-// 保留（発注数0）は載せない。DO の orders は「発注する数」を配るチャネルで、
-// 在庫は在庫チャネルが配る。保留は端末内の下書きに留める。
 export function orderDraftToPayload(draft = {}, enteredBy = '') {
   const out = {}
   for (const [item, d] of Object.entries(draft || {})) {

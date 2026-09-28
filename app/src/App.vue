@@ -60,7 +60,7 @@ import {
 import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
-import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload } from './services/orderSync.js'
+import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines } from './composables/useAuth.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
@@ -1523,7 +1523,7 @@ const _ORDER_DRAFT_PREFIX = 'order_draft_'
 function _restoreOrderDraft() {
   try {
     const raw = localStorage.getItem(_ORDER_DRAFT_PREFIX + _orderId())
-    orderDraft.value = raw ? (JSON.parse(raw) || {}) : {}
+    orderDraft.value = raw ? dropHeldLines(JSON.parse(raw) || {}) : {}
   } catch (_) { orderDraft.value = {} }
 }
 
@@ -1754,13 +1754,7 @@ async function onComplete() {
   const confirmMsg = isHostInRoom
     ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
-  // 発注数が1件も無い（保留だけ）の発注は、完了しても発注の記録が残らない＝履歴カレンダーにも出ない。
-  // 完了できること自体は変えず、押す前にそう言う（User報告 2026-09-27）。
-  const noOrderLines = isOrderMode && !Object.values(orderDraft.value).some(d => Number(d?.orderQty) > 0)
-  const noOrderNote = noOrderLines
-    ? '\n\n※ 発注数が1件も入っていません（在庫だけの保留）。このまま完了すると発注の記録は残らず、履歴カレンダーにも出ません。'
-    : ''
-  if (!confirm(confirmMsg + noOrderNote)) return
+  if (!confirm(confirmMsg)) return
 
   // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は
   // ここにしかない。合流した2本目が同じ後片付けを走らせないよう、入口でも締める。
@@ -2584,13 +2578,10 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
     if (syncActive.value) broadcastUpdate(ingredient, stock, unit, deviceName.value || '名前未設定', false)
     else _localAudit(ingredient, inventory[ingredient] ? 'overwrite' : 'new', stock, stock, unit)
   }
-  // 発注下書きを更新。発注数0でも在庫を数えていれば「保留」として残す。
-  // 棚の前で適正な発注量まで判断できないことは多く、そこで落とすと後から
-  // 詳しい人や入出庫情報と突き合わせたい品目ほど一覧から消える。
+  // 発注下書きを更新。発注数0は「発注しない」＝下書きから外す（保留は廃止 2026-09-28）。
+  // 数えた在庫は上の setItem で在庫として残る。
   const draft = { ...orderDraft.value }
-  const counted = stock != null && Number.isFinite(stock)
-  if (orderQty > 0)   draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
-  else if (counted)   draft[ingredient] = { orderQty: 0, stock, unit, lot, by: deviceName.value || '' }
+  if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
   // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
@@ -2645,8 +2636,6 @@ function _persistOrderDraft() {
 // 下書きから発注の記録（orders）を組み直す。D1 へは書かない（書くのは入力した端末）。
 // 他の端末が入れた発注数もここで記録に載せる。以前は自分で確定したときしか組み直さず、
 // ゲストだけが入力した発注はホストの記録（＝履歴カレンダー）に出なかった。
-// 保留（発注数0）は発注の記録には載せない。数えた在庫は棚卸と同じ経路で
-// 既に保存されており、保留の印はこのセッションの下書きが持つ。
 function _upsertOrderRecord() {
   if (sessionMode.value !== 'order') return null
   const lines = Object.entries(orderDraft.value)
