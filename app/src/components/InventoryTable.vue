@@ -204,6 +204,13 @@ const hasAllExpanded = computed(() => {
   return groups.every(r => isGroupExpanded(r))
 })
 
+// 「入力済み」の意味。棚卸＝在庫を入れた／発注＝発注数を入れた（在庫は任意の参考値）。
+// 発注で在庫を数えても「入力済み」に数えると、発注していない品目が済みに見える（User報告 2026-09-29）。
+function _isFilled(item) {
+  if (props.orderMode) return Number(props.orderMap?.[item]?.orderQty) > 0
+  return props.inventory[item] != null
+}
+
 // ── カテゴリごとの実際の進捗（フィルターに依存しない・スコープ反映）──────────
 const catRealStats = computed(() => {
   const map = {}
@@ -218,16 +225,22 @@ const catRealStats = computed(() => {
     const cat = config.value.categories?.[item] ?? 'その他'
     if (!map[cat]) map[cat] = { total: 0, filled: 0 }
     map[cat].total++
-    if (props.inventory[item] != null) map[cat].filled++
+    if (_isFilled(item)) map[cat].filled++
   }
   return map
 })
 
-const filterOpts = [
-  { value: 'all',    label: 'すべて' },
-  { value: 'filled', label: '入力済み' },
-  { value: 'empty',  label: '未入力' },
-]
+const filterOpts = computed(() => props.orderMode
+  ? [
+      { value: 'all',    label: 'すべて' },
+      { value: 'filled', label: '発注済み' },
+      { value: 'empty',  label: '未発注' },
+    ]
+  : [
+      { value: 'all',    label: 'すべて' },
+      { value: 'filled', label: '入力済み' },
+      { value: 'empty',  label: '未入力' },
+    ])
 
 // ── 行データ生成 ──────────────────────────────────────────────────────────────
 const rows = computed(() => {
@@ -298,7 +311,11 @@ const rows = computed(() => {
 
   // 4. 入力済み/未入力フィルター適用
   let items
-  if (filterMode.value === 'filled') {
+  if (props.orderMode && filterMode.value === 'filled') {
+    items = all.filter(r => _isFilled(r.item))
+  } else if (props.orderMode && filterMode.value === 'empty') {
+    items = all.filter(r => !_isFilled(r.item))
+  } else if (filterMode.value === 'filled') {
     items = all.filter(r => r.entry !== null)
   } else if (filterMode.value === 'empty') {
     // 未入力は config.value.order 内のみ（カスタム品目は常に入力済みなので対象外）
@@ -653,12 +670,22 @@ const scopedTotal = computed(() => {
 })
 
 const scopedFilled = computed(() => {
-  return Object.entries(props.inventory).filter(([item]) => {
+  const src = props.orderMode
+    ? Object.entries(props.orderMap || {}).filter(([, d]) => Number(d?.orderQty) > 0)
+    : Object.entries(props.inventory)
+  return src.filter(([item]) => {
     if (props.categoryScope === 'food')   return !_isSupply(item)
     if (props.categoryScope === 'supply') return _isSupply(item)
     return true
   }).length
 })
+
+// 発注数の単位。入数が2以上なら「口」（まとめて頼む単位）、1なら棚卸の単位
+function _orderUnit(row) {
+  const d = props.orderMap?.[row.item]
+  const lot = Number(d?.lot) || 1
+  return lot > 1 ? '口' : (d?.unit || row.entry?.unit || '')
+}
 
 function subtotal(row) {
   if (!row.entry || row.unitPrice == null) return null
@@ -695,7 +722,7 @@ function fmtYen(n) {
         <!-- 進捗。入力画面以外（在庫の閲覧など）は親が差し替える -->
         <slot name="progress" :filled="scopedFilled" :total="scopedTotal">
           <span v-if="!preview" class="progress">
-            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件入力済み
+            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '発注済み' : '入力済み' }}
           </span>
         </slot>
       </div>
@@ -789,7 +816,7 @@ function fmtYen(n) {
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
           <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
-            preview ? ($slots.qty ? '設定' : _isHiddenMode ? '非表示日時' : '振り分け') : orderMode ? '発注 / 在庫' : '数量' }}</th>
+            preview ? ($slots.qty ? '設定' : _isHiddenMode ? '非表示日時' : '振り分け') : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
         </tr>
       </thead>
@@ -823,7 +850,7 @@ function fmtYen(n) {
           <!-- 品目行（展開中のみ表示） -->
           <tr v-else
               v-show="_isRowVisible(row)"
-              :class="{ filled: row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), highlight: highlightItems?.[row.item], 'swipe-dragging': swipeDragging && swipeItem === row.item }"
+              :class="{ filled: orderMode ? _isFilled(row.item) : row.entry !== null, 'read-only': readOnly, typing: typingMap?.[row.item], conflict: conflictLocked?.has(row.item), highlight: highlightItems?.[row.item], 'swipe-dragging': swipeDragging && swipeItem === row.item }"
               :style="swipeItem === row.item ? { transform: `translateX(${swipeDx}px)` } : null"
               :tabindex="0"
               :data-item="row.item"
@@ -879,21 +906,31 @@ function fmtYen(n) {
               </div>
             </td>
             <td class="td-qty" :class="{ 'td-qty-order': orderMode }">
-              <!-- 発注セッションでは、入力済みの発注数を在庫の欄の左に数字で出す。
-                   品目名の隣のチップだと、名前が長い行で折り返して行の高さが揃わず、
-                   「いくつ発注したか」を列として上から下へ読めなかった。 -->
-              <span
-                v-if="orderMode && orderMap?.[row.item]?.orderQty > 0"
-                class="order-qty"
-                :title="orderMap[row.item].by ? `${orderMap[row.item].by} が発注` : '発注済み'"
+              <!-- 発注セッション: 発注数と在庫を1つの枠に、それぞれ名前を付けて並べる。
+                   数字だけを2か所に置くと、どちらが発注でどちらが在庫か一瞬読めなかった（User報告 2026-09-29）。 -->
+              <div
+                v-if="orderMode && !preview"
+                :class="['oq-box', { filled: orderMap?.[row.item]?.orderQty > 0 }]"
+                :title="orderMap?.[row.item]?.by ? `${orderMap[row.item].by} が発注` : undefined"
               >
-                <span class="order-qty-n">{{ orderMap[row.item].orderQty }}</span>
-                <span v-if="showOrderBy && orderMap[row.item].by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
-              </span>
-              <!-- まだ触っていない行は、桁の位置をそろえるために場所だけ取る（記号は出さない。
-                   在庫の欄が既に「—」と言っているので、同じ意味の記号を2つ並べない） -->
-              <span v-else-if="orderMode" class="order-qty empty" aria-hidden="true"></span>
-              <div v-if="preview && !$slots.qty && _isHiddenMode" class="preview-groups">
+                <span class="oq-cell oq-order">
+                  <span class="oq-label">発注</span>
+                  <span class="oq-val">
+                    <template v-if="orderMap?.[row.item]?.orderQty > 0">{{ orderMap[row.item].orderQty }}<span class="qty-unit">{{ _orderUnit(row) }}</span></template>
+                    <template v-else>—</template>
+                  </span>
+                  <span v-if="showOrderBy && orderMap?.[row.item]?.by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
+                </span>
+                <span class="oq-sep" aria-hidden="true"></span>
+                <span class="oq-cell oq-stock">
+                  <span class="oq-label">在庫</span>
+                  <span class="oq-val">
+                    <template v-if="row.entry !== null">{{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span></template>
+                    <template v-else>—</template>
+                  </span>
+                </span>
+              </div>
+              <div v-else-if="preview && !$slots.qty && _isHiddenMode" class="preview-groups">
                 <span class="preview-hidden-at">{{ hiddenAtOf(row.item) ? `${hiddenAtOf(row.item)} に非表示` : '非表示' }}</span>
               </div>
               <div v-else-if="preview && !$slots.qty" class="preview-groups">
@@ -924,8 +961,8 @@ function fmtYen(n) {
         <tr v-if="visibleItemCount === 0" class="empty-row">
           <td :colspan="totalCols" class="empty-cell">
             <template v-if="config.order.length === 0">上のフォームから品目を追加してください</template>
-            <template v-else-if="filterMode === 'filled'">入力済みの品目がありません</template>
-            <template v-else-if="filterMode === 'empty'">すべての品目が入力済みです 🎉</template>
+            <template v-else-if="filterMode === 'filled'">{{ orderMode ? '発注済みの品目がありません' : '入力済みの品目がありません' }}</template>
+            <template v-else-if="filterMode === 'empty'">{{ orderMode ? 'すべての品目に発注数が入っています' : 'すべての品目が入力済みです 🎉' }}</template>
             <template v-else>品目がありません</template>
           </td>
         </tr>
@@ -1623,8 +1660,19 @@ function fmtYen(n) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* まだ発注していない行も、桁の位置をそろえるために場所だけ取る */
-.order-qty.empty { min-height: 1px; }
+/* 発注と在庫を1つの枠に。発注が主（大きく・緑）、在庫は参考（小さく・灰） */
+.oq-box {
+  display: inline-flex; align-items: stretch;
+  border: 1.5px solid var(--border); border-radius: 8px; background: #f8fafc;
+  padding: 3px 0; min-width: 112px;
+}
+.oq-box.filled { border-color: #86efac; background: #f0fdf4; }
+.oq-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 0 8px; min-width: 48px; }
+.oq-label { font-size: 9.5px; font-weight: 700; color: var(--text-muted); line-height: 1.2; }
+.oq-val { font-size: 16px; font-weight: 800; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.oq-box.filled .oq-order .oq-val { color: #047857; }
+.oq-stock .oq-val { font-size: 14px; font-weight: 700; }
+.oq-sep { width: 1px; background: var(--border); margin: 2px 0; }
 
 /* ── 手動品目 編集・削除ボタン ── */
 .manual-actions {

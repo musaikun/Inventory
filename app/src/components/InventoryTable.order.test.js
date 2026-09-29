@@ -1,9 +1,9 @@
 /**
- * 発注セッションの一覧で、入力済みの発注数をどこに出すか。
+ * 発注セッションの一覧で、発注数と在庫をどう出すか・どう絞り込むか。
  *
- * User報告 2026-09-05: 発注数が品目名の隣の緑タグに出ていた。名前が長い行では
- * 折り返して行の高さが揃わず、「いくつ発注したか」を列として上から下へ読めない。
- * 在庫を入れる欄の左に、数字として置く。
+ * User報告 2026-09-05: 発注数が品目名の隣の緑タグで、長い名前の行で折り返して列として読めなかった。
+ * User報告 2026-09-29: 数字だけが2か所に並び、どちらが発注でどちらが在庫か一瞬分からなかった。
+ * → 1つの枠に「発注」「在庫」と名前を付けて並べる。絞り込みは発注数の有無で行う。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
@@ -37,69 +37,62 @@ beforeEach(async () => {
 })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 
-const qtyCells = () => [...host.querySelectorAll('.td-qty')]
-const orderNums = () => [...host.querySelectorAll('.order-qty-n')].map(e => e.textContent.trim())
+const rowOf = name => [...host.querySelectorAll('tr')].find(tr => tr.querySelector('.td-item, td')?.textContent.includes(name) && tr.querySelector('.oq-box'))
+const val = (tr, cls) => tr.querySelector(`.${cls} .oq-val`).textContent.trim()
+const segBtn = label => [...host.querySelectorAll('.seg-btn')].find(b => b.textContent.trim() === label)
 
-describe('発注数の置き場所', () => {
-  it('在庫の欄の左に、数字として出す（品目名の隣のタグではない）', async () => {
-    await mount({ 新: { orderQty: 1, by: 'タカキスマホ' } })
-    expect(host.querySelector('.order-chip'), '名前の隣のタグは無くなった').toBeNull()
-
-    const cell = qtyCells()[0]
-    const num = cell.querySelector('.order-qty-n')
-    const box = cell.querySelector('.qty-display')
-    expect(num.textContent.trim()).toBe('1')
-    // 同じセルの中で、発注数が在庫の欄より先に来る＝左に出る
-    expect(num.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+describe('発注と在庫を1つの枠に名前付きで出す', () => {
+  it('発注数と在庫がそれぞれ「発注」「在庫」の名前付きで並ぶ', async () => {
+    await mount({ プロントワッフル: { orderQty: 3, unit: '個', lot: 1, by: 'A' } })
+    const tr = rowOf('プロントワッフル')
+    expect([...tr.querySelectorAll('.oq-label')].map(e => e.textContent.trim())).toEqual(['発注', '在庫'])
+    expect(val(tr, 'oq-order')).toBe('3個')
+    expect(val(tr, 'oq-stock')).toBe('4個')
+    expect(tr.querySelector('.oq-box').classList.contains('filled')).toBe(true)
   })
 
-  it('見出しが、2つ並んだ数字のどちらが何かを言う', async () => {
+  it('入数が2以上なら発注数は「口」で出す', async () => {
+    await mount({ 新: { orderQty: 2, unit: '個', lot: 12 } })
+    expect(val(rowOf('新'), 'oq-order')).toBe('2口')
+  })
+
+  it('発注していない行は「—」で、枠は緑にしない', async () => {
     await mount({})
-    expect(host.querySelector('.th-qty').textContent.trim()).toBe('発注 / 在庫')
+    const tr = rowOf('プロントワッフル')
+    expect(val(tr, 'oq-order')).toBe('—')
+    expect(val(tr, 'oq-stock')).toBe('4個')
+    expect(tr.querySelector('.oq-box').classList.contains('filled')).toBe(false)
   })
 
-  it('未発注の行は記号を重ねず、場所だけ取って桁をそろえる', async () => {
-    await mount({ 新: { orderQty: 1, by: 'A' } })
-    const empty = qtyCells()[1].querySelector('.order-qty.empty')
-    expect(empty, '場所は取る').not.toBeNull()
-    expect(empty.textContent.trim()).toBe('')   // 在庫欄が既に「—」と言っている
+  it('1人だけで発注しているときは端末名を出さない。2人なら出す', async () => {
+    await mount({ 新: { orderQty: 1, by: 'A' }, プロントワッフル: { orderQty: 2, by: 'A' } })
+    expect(host.querySelector('.order-qty-by')).toBeNull()
+    app.unmount(); host.remove()
+    await mount({ 新: { orderQty: 1, by: 'A' }, プロントワッフル: { orderQty: 2, by: 'B' } })
+    expect(host.querySelectorAll('.order-qty-by').length).toBe(2)
   })
 
-  it('1人だけで発注しているときは、端末名を出さない', async () => {
-    await mount({
-      新: { orderQty: 1, by: 'タカキスマホ' },
-      プロントワッフル: { orderQty: 2, by: 'タカキスマホ' },
-    })
-    expect(orderNums()).toEqual(['1', '2'])
-    expect(host.querySelectorAll('.order-qty-by')).toHaveLength(0)
-  })
-
-  it('2人以上が発注したときだけ、誰が発注したかを出す', async () => {
-    await mount({
-      新: { orderQty: 1, by: 'タカキスマホ' },
-      プロントワッフル: { orderQty: 2, by: '厨房タブレット' },
-    })
-    expect([...host.querySelectorAll('.order-qty-by')].map(e => e.textContent.trim()))
-      .toEqual(['タカキスマホ', '厨房タブレット'])
+  it('「保留」は出さない（2026-09-28 廃止）', async () => {
+    await mount({ プロントワッフル: { orderQty: 0, stock: 6, unit: '個', lot: 1 } })
+    expect(host.textContent).not.toContain('保留')
   })
 })
 
-describe('発注数の列（保留は廃止 2026-09-28）', () => {
-  it('発注数0の行に「保留」は出さない', async () => {
-    await mount({ プロントワッフル: { orderQty: 0, stock: 6, unit: '個', lot: 1 } })
-    expect(host.textContent).not.toContain('保留')
-    expect(host.querySelector('.order-qty.empty')).not.toBeNull()
+describe('発注の入力状況で絞り込む', () => {
+  it('発注済み／未発注で絞る（在庫を入れただけの品目は未入力）', async () => {
+    // プロントワッフルは在庫4があるが発注していない
+    await mount({ 新: { orderQty: 1, unit: '個', lot: 1 } })
+    segBtn('発注済み').click(); await nextTick()
+    expect(host.querySelectorAll('.oq-box').length).toBe(1)
+    expect(rowOf('新')).toBeTruthy()
+
+    segBtn('未発注').click(); await nextTick()
+    expect(host.querySelectorAll('.oq-box').length).toBe(2)
+    expect(rowOf('新')).toBeUndefined()
   })
 
-  it('発注数が入っている行は保留にしない', async () => {
-    await mount({ プロントワッフル: { orderQty: 2, stock: 6, unit: '個', lot: 1 } })
-    expect(host.querySelector('.order-qty.pending')).toBeNull()
-    expect(host.querySelector('.order-qty-n').textContent.trim()).toBe('2')
-  })
-
-  it('まだ触っていない行は場所だけ取る', async () => {
-    await mount({})
-    expect(host.querySelector('.order-qty.pending')).toBeNull()
-    expect(host.querySelector('.order-qty.empty')).not.toBeNull()
+  it('進捗は発注数を入れた品目の数', async () => {
+    await mount({ 新: { orderQty: 1 } })
+    expect(host.querySelector('.progress').textContent.replace(/\s+/g, '')).toBe('1/3件発注済み')
   })
 })
