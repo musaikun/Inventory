@@ -27,7 +27,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement'])
+const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openStock'])
 
 const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
 const { getSnapshotBySessionId, getSnapshots, deleteSnapshotLocal } = useHistory()
@@ -566,6 +566,18 @@ function _itemCount(session) {
             </div>
           </button>
 
+          <!-- 品目・在庫。品目の一覧と今の見込み、1品目ずつの追加（User相談 2026-09-29） -->
+          <button class="stock-link" type="button" @click="emit('openStock')">
+            <span class="history-link-main">
+              <span class="history-link-ico">📦</span>
+              <span class="history-link-text">
+                <span class="history-link-title">品目・在庫</span>
+                <span class="history-link-sub">{{ itemCount > 0 ? `品目 ${activeItemCount}・＋で追加` : 'まだ品目がありません。1つずつ追加できます' }}</span>
+              </span>
+              <span class="history-link-arrow">→</span>
+            </span>
+          </button>
+
           <!-- 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
           <button class="history-link" type="button" @click="emit('openHistory')">
             <span class="history-link-main">
@@ -998,6 +1010,8 @@ function _itemCount(session) {
    カード間は gap 8px ＋ 各カードの margin-bottom 4px = 従来と同じ12px。 */
 .top-cards { display: flex; flex-direction: column; gap: 8px; }
 .top-cards.equal { display: grid; grid-auto-rows: 1fr; }
+/* 品目・在庫は1行の入口。3枚（データ管理・棚卸・履歴）と同じ高さに引き伸ばさない */
+.top-cards.equal { grid-template-rows: 1fr 1fr auto 1fr; }
 
 /* カード下部の「今の状況」。データ管理の .md-row と同じ読み方（見出し56px＋値）に
    そろえる。3枚が同じ形の情報を持つと、揃えた高さが余白ではなく面に見える。 */
@@ -1039,7 +1053,25 @@ function _itemCount(session) {
   transition: transform 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.history-link:active { transform: scale(0.99); }
+/* 品目・在庫（履歴と同じ形の1枚） */
+.stock-link {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: var(--card-pad-y) var(--card-pad-x);
+  background: #fff;
+  border: var(--card-border) solid var(--border, #e2e8f0);
+  border-radius: var(--card-radius);
+  margin-bottom: var(--card-gap);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.history-link:active, .stock-link:active { transform: scale(0.99); }
 .history-link-main { display: flex; align-items: center; gap: 12px; }
 .history-link-ico { font-size: 22px; flex-shrink: 0; }
 .history-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

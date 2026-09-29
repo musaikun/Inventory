@@ -28,8 +28,9 @@ const props = defineProps({
   price:     { type: [Number, String], default: null },
   category:  { type: String, default: '' },
   movements: { type: Array, default: () => [] }, // [{ id, date, type, qty, unit, note }]
+  editable:  { type: Boolean, default: false },  // 「品目・在庫」から開いたとき、品目の情報を直す入口を出す
 })
-const emit = defineEmits(['update-reorder', 'update-target', 'close'])
+const emit = defineEmits(['update-reorder', 'update-target', 'edit', 'close'])
 useEscapeKey(() => emit('close'))
 
 const needsReorder = computed(() => {
@@ -98,10 +99,11 @@ function _md(d) {
         <div v-if="targetBasis" class="sd-tg-basis">{{ targetManual != null ? '手動で設定した補充目標' : targetBasis }}</div>
       </div>
 
-      <div v-if="lot || price || category" class="sd-meta">
+      <div v-if="lot || price || category || editable" class="sd-meta">
         <span v-if="lot">入数{{ lot }}</span>
         <span v-if="price">単価¥{{ price }}</span>
         <span v-if="category">{{ category }}</span>
+        <button v-if="editable" type="button" class="sd-edit" @click="emit('edit')">✏️ 品目の情報を直す</button>
       </div>
 
       <div class="sd-block">
@@ -168,6 +170,10 @@ function _md(d) {
 .sd-hint { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 9px; padding: 8px 10px; line-height: 1.6; }
 
 .sd-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.sd-edit {
+  margin-left: auto; border: 1.5px solid #cbd5e1; background: #fff; color: #334155;
+  border-radius: 9px; padding: 5px 10px; font-size: 12px; font-weight: 800; cursor: pointer;
+}
 .sd-meta span { font-size: 11px; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 8px; padding: 2px 8px; }
 
 .sd-mv-list { display: flex; flex-direction: column; gap: 5px; }

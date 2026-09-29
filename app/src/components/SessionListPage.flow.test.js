@@ -64,7 +64,7 @@ describe('SessionListPage — 棚卸中心の順路', () => {
   it('準備 → 棚卸 → 記録 → β機能 の順に並ぶ', async () => {
     const root = await mountPage()
     const panel = root.querySelector('.tab-panels-track > .tab-panel')
-    const route = ['master-card', 'hero-start', 'history-link', 'beta-head']
+    const route = ['master-card', 'hero-start', 'stock-link', 'history-link', 'beta-head']
     // 高さを揃えるラッパーの有無に依存せず、全導線の存在・件数・DOM順を検証する。
     const cards = [...panel.querySelectorAll(route.map(name => `.${name}`).join(', '))]
     expect(cards.map(el => route.find(name => el.classList.contains(name)))).toEqual(route)

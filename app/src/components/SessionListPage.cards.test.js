@@ -18,6 +18,7 @@ const CARDS = [
   '.master-card',      // データ管理
   '.hero-live',        // 進行中の棚卸
   '.hero-start',       // 棚卸を開始
+  '.stock-link',       // 品目・在庫
   '.history-link',     // 履歴
   '.move-start',       // 仕入れ
   '.order-live',       // 進行中の発注

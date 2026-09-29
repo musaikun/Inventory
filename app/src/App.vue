@@ -82,6 +82,7 @@ import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardO
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
+import StockPage from './components/StockPage.vue'
 import MovementPage from './components/MovementPage.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
@@ -493,8 +494,8 @@ const leaveSessionTitle = computed(() =>
 // 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
 // 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
 // （数えかけの棚卸へ戻ると作業に割り込むため）。
-const PAGE_VIEWS = ['master', 'movement', 'history']
-const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
+const PAGE_VIEWS = ['master', 'movement', 'history', 'stock']
+const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions', stock: 'sessions' }   // 描画には使わないので素のオブジェクト
 function _rememberPageFrom(view) {
   const from = currentView.value
   if (from === view) return
@@ -770,7 +771,7 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
 // matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
 const isDesktop = useMediaQuery(DESKTOP_QUERY)
-const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'session-detail']
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'stock', 'session-detail']
 const showDesktopNav = computed(() =>
   isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
 )
@@ -3163,8 +3164,17 @@ function dismissReview() {
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="openPage('master')"
+      @open-stock="openPage('stock')"
       @open-movement="openMovement"
       @open-upgrade="reason => openUpgrade(reason)"
+    />
+
+    <!-- ── 品目・在庫（専用ページ・品目の一覧と1品目ずつの追加） ── -->
+    <StockPage
+      v-else-if="currentView === 'stock'"
+      @back="onPageBack"
+      @open-master="openPage('master')"
+      @start-session="currentView = 'sessions'"
     />
 
     <!-- ── 品目マスタ管理（専用ページ） ── -->

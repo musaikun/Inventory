@@ -9,7 +9,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
  *
  * 仕入れはタブで見ているものが変わるので、タブまで含めて1つのページ状態として持つ。
  */
-export const RESTORABLE_PAGES = ['master', 'history', 'movement']
+export const RESTORABLE_PAGES = ['master', 'history', 'movement', 'stock']
 const MOVEMENT_TABS = ['view', 'order', 'in', 'out']
 
 export function saveLastPage(view, tab = null) {

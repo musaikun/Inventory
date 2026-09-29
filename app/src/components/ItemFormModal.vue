@@ -1,0 +1,157 @@
+<script setup>
+/**
+ * 品目を1つずつ追加する／1品目の情報を直すシート（「品目・在庫」ページから開く）。
+ *
+ * 一括取込が前提の作りでは、ファイルを持たない店や新メニューを1つ足したいときに
+ * 棚卸を始めるしか道が無かった（User相談 2026-09-29）。一般的な在庫アプリと同じく、
+ * 一覧の「＋」から1品目ずつ足せるようにする。
+ *
+ * - 必須は名前だけ。保存したら名前だけ空にして次の入力を待つ（ジャンル等は続けて使う）
+ * - 似た名前があれば、保存前に知らせる（表記ゆれで同じ品目が2つできるのを防ぐ）
+ * - 在庫数はここでは入れない。最初の数は棚卸で数える（一覧の数字の根拠を崩さない）
+ */
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { useConfig } from '../composables/useConfig.js'
+import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { findSimilarNames } from '../utils/itemMatcher.js'
+
+const props = defineProps({
+  mode:            { type: String, default: 'add' },   // 'add' | 'edit'
+  item:            { type: String, default: '' },      // edit のときの品目名
+  initialCategory: { type: String, default: '' },
+})
+const emit = defineEmits(['added', 'saved', 'close'])
+useEscapeKey(() => emit('close'))
+
+const { config, addItem, patchItem } = useConfig()
+const isEdit = computed(() => props.mode === 'edit')
+
+const name     = ref('')
+const unit     = ref(isEdit.value ? (config.units?.[props.item] ?? '') : '')
+const lotSize  = ref(isEdit.value ? (config.lotSizes?.[props.item] ?? '') : '')
+const category = ref(isEdit.value ? (config.categories?.[props.item] ?? '') : props.initialCategory)
+const price    = ref(isEdit.value ? (config.prices?.[props.item] ?? '') : '')
+const error    = ref('')
+const added    = ref([])          // このシートで追加した品目（直近が先頭）
+const confirmedSimilar = ref('')  // 似た名前の警告を見たうえで押し直した名前
+const nameEl = ref(null)
+
+const categoryOptions = computed(() => [...new Set(Object.values(config.categories || {}).filter(Boolean))].sort())
+const unitOptions = computed(() => [...new Set(Object.values(config.units || {}).filter(Boolean))].sort())
+
+const trimmed = computed(() => name.value.trim())
+const exists  = computed(() => !isEdit.value && !!trimmed.value && (config.order || []).includes(trimmed.value))
+const similar = computed(() => (isEdit.value || !trimmed.value || exists.value) ? [] : findSimilarNames(trimmed.value, config.order || []).slice(0, 3))
+const canSave = computed(() => isEdit.value || (!!trimmed.value && !exists.value))
+
+onMounted(() => { if (!isEdit.value) nextTick(() => nameEl.value?.focus()) })
+
+function onNameInput() { error.value = ''; confirmedSimilar.value = '' }
+
+function submit() {
+  error.value = ''
+  if (isEdit.value) {
+    patchItem(props.item, { unit: unit.value, lotSize: lotSize.value, category: category.value, price: price.value })
+    emit('saved', props.item)
+    return
+  }
+  const n = trimmed.value
+  if (!n) return
+  if (exists.value) { error.value = 'その名前は既に登録されています'; return }
+  // 似た名前は1回だけ止める。同じ名前でもう一度押せば追加する（別の品目のことはある）
+  if (similar.value.length && confirmedSimilar.value !== n) { confirmedSimilar.value = n; return }
+  const p = Number(price.value)
+  const ok = addItem(n, Number.isFinite(p) && p > 0 ? p : null, category.value, unit.value)
+  if (!ok) { error.value = '追加できませんでした（無料プランの品目数の上限に達している可能性があります）'; return }
+  if (String(lotSize.value).trim()) patchItem(n, { lotSize: lotSize.value })
+  added.value = [n, ...added.value]
+  emit('added', n)
+  // 続けて入れられるよう、名前・入数・単価だけ空にする（ジャンル・単位は同じものが続きやすい）
+  name.value = ''; lotSize.value = ''; price.value = ''; confirmedSimilar.value = ''
+  nextTick(() => nameEl.value?.focus())
+}
+</script>
+
+<template>
+  <div class="modal-overlay" @click.self="emit('close')">
+    <div class="modal-sheet if-sheet" role="dialog" aria-modal="true" :aria-label="isEdit ? '品目の情報' : '品目を追加'">
+      <div class="sheet-handle"></div>
+      <div class="if-title">{{ isEdit ? '品目の情報' : '品目を追加' }}</div>
+
+      <label class="if-label" for="if-name">品目名{{ isEdit ? '' : '（必須）' }}</label>
+      <div v-if="isEdit" class="if-fixed">{{ item }}</div>
+      <input
+        v-else id="if-name" ref="nameEl" v-model="name" class="if-input req" maxlength="60"
+        placeholder="例：ベーコンスライス" enterkeyhint="done"
+        @input="onNameInput" @keyup.enter="submit"
+      />
+      <div v-if="exists" class="if-err">その名前は既に登録されています</div>
+      <div v-else-if="similar.length" :class="['if-similar', { armed: confirmedSimilar === trimmed }]">
+        似た品目があります：<b>{{ similar.join('・') }}</b>
+        <span v-if="confirmedSimilar === trimmed">。別の品目なら、もう一度「追加」を押してください</span>
+        <span v-else>。同じものなら追加せず、そちらを使ってください</span>
+      </div>
+
+      <div class="if-two">
+        <div>
+          <label class="if-label" for="if-unit">単位</label>
+          <input id="if-unit" v-model="unit" class="if-input" maxlength="6" list="if-units" placeholder="個・kg・本" />
+          <datalist id="if-units"><option v-for="u in unitOptions" :key="u" :value="u" /></datalist>
+        </div>
+        <div>
+          <label class="if-label" for="if-lot">入数</label>
+          <input id="if-lot" v-model="lotSize" class="if-input" maxlength="12" inputmode="numeric" placeholder="1" />
+        </div>
+      </div>
+      <div class="if-two">
+        <div>
+          <label class="if-label" for="if-cat">ジャンル</label>
+          <input id="if-cat" v-model="category" class="if-input" maxlength="20" list="if-cats" placeholder="未設定" />
+          <datalist id="if-cats"><option v-for="c in categoryOptions" :key="c" :value="c" /></datalist>
+        </div>
+        <div>
+          <label class="if-label" for="if-price">単価（円）</label>
+          <input id="if-price" v-model="price" class="if-input" type="number" min="0" inputmode="numeric" placeholder="任意" />
+        </div>
+      </div>
+
+      <p v-if="!isEdit" class="if-note">在庫数はここでは入れません。最初の数は棚卸で数えます。</p>
+      <div v-if="error" class="if-err">{{ error }}</div>
+      <div v-if="added.length" class="if-added" role="status">✓ 追加しました：{{ added.slice(0, 3).join('・') }}<span v-if="added.length > 3"> ほか{{ added.length - 3 }}件</span></div>
+
+      <div class="if-acts">
+        <button class="if-btn sec" type="button" @click="emit('close')">{{ added.length ? '完了' : '閉じる' }}</button>
+        <button class="if-btn pri" type="button" :disabled="!canSave" @click="submit">
+          {{ isEdit ? '保存' : (confirmedSimilar && confirmedSimilar === trimmed ? '別の品目として追加' : '追加して次へ') }}
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.if-sheet { max-height: 92vh; overflow-y: auto; }
+.if-title { font-size: 17px; font-weight: 800; color: #1e293b; margin-bottom: 6px; }
+.if-label { display: block; font-size: 12px; font-weight: 700; color: #475569; margin: 10px 0 4px; }
+.if-input {
+  width: 100%; box-sizing: border-box; border: 1.5px solid #cbd5e1; border-radius: 10px;
+  padding: 10px 12px; font-size: 16px; background: #fff; color: #0f172a;
+}
+.if-input.req { border-color: var(--primary, #2563eb); }
+.if-input:focus { outline: none; border-color: var(--primary, #2563eb); }
+.if-fixed { font-size: 16px; font-weight: 800; color: #0f172a; padding: 4px 0; }
+.if-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.if-similar {
+  margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: #92400e;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 8px 10px;
+}
+.if-similar.armed { border-color: #f59e0b; }
+.if-err { margin-top: 8px; font-size: 12.5px; color: #b91c1c; }
+.if-note { font-size: 11.5px; color: #94a3b8; margin: 10px 0 0; }
+.if-added { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #047857; background: #f0fdf4; border-radius: 10px; padding: 8px 10px; }
+.if-acts { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
+.if-btn { border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 800; cursor: pointer; }
+.if-btn.sec { background: #f1f5f9; color: #475569; }
+.if-btn.pri { background: var(--primary, #2563eb); color: #fff; }
+.if-btn.pri:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
