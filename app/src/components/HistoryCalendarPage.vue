@@ -12,6 +12,8 @@ import HistoryCalendar from './HistoryCalendar.vue'
 // 以前はホームのダッシュボードタブに埋まっていたが、日付を選ぶ・月を送る操作が
 // タブのスワイプと競合し、カレンダーを見る目的で来た人が余分な導線を通っていた。
 // ここでは「日付から履歴を開く」ことだけを行う。
+// embedded: ホームの「履歴」タブに置くとき。見出しと戻るを出さず、高さはホームの見出しと下部ナビを除いた分
+const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'viewSession', 'deleteSession', 'openUpgrade'])
 
 const { getSnapshotBySessionId } = useHistory()
@@ -86,8 +88,8 @@ async function onDelete(session) {
 </script>
 
 <template>
-  <div class="hcp">
-    <header class="hcp-header">
+  <div :class="['hcp', { embedded }]">
+    <header v-if="!embedded" class="hcp-header">
       <button class="hcp-back" @click="emit('back')">‹ 戻る</button>
       <span class="hcp-title">📅 履歴カレンダー</span>
       <span v-if="completedSessions.length > 0" class="hcp-count">{{ completedSessions.length }}回</span>
@@ -131,6 +133,7 @@ async function onDelete(session) {
 /* この画面は1画面で完結させる（下にスクロールする余白を作らない）。
    高さを 100dvh に固定し、余った高さはカレンダー自身が吸う。
    → #app の padding-bottom(80px) も style.css 側で 0 にしてある */
+.hcp.embedded { height: calc(100dvh - var(--home-chrome, 112px)); }
 .hcp {
   height: 100dvh;
   display: flex;

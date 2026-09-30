@@ -38,7 +38,7 @@ async function mountApp(search) {
 // 捨てることで、各 test は毎回まっさらなモジュール状態から軽く始められる。
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
-beforeEach(() => { localStorage.clear() })
+beforeEach(() => { localStorage.clear(); sessionStorage.clear() })
 
 afterEach(() => {
   if (app) { app.unmount(); app = null }

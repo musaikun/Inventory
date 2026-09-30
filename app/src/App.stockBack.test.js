@@ -81,7 +81,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()
+  localStorage.clear(); sessionStorage.clear()
   localStorage.setItem('_auth_token', 'tok-1')
   localStorage.setItem('_auth_store_name', 'A店')
   localStorage.setItem('_shop_code', 'STOREA')

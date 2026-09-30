@@ -55,7 +55,7 @@ const btn = (root, label) => [...root.querySelectorAll('button')].find(b => b.te
 const sheet = () => host.querySelector('.sh')
 
 beforeEach(() => {
-  localStorage.clear()
+  localStorage.clear(); sessionStorage.clear()
   vi.resetModules()
   sessionList = []
   createSession.mockClear(); deleteSession.mockClear()
@@ -78,10 +78,11 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.acts')).toBeNull()
   })
 
-  it('履歴は専用ページへ、管理はタブで開く', async () => {
+  it('履歴・管理はホームのタブ（下部ナビは出たまま）', async () => {
     await mountPage()
     await click(btn(host.querySelector('.bnav'), '履歴'))
-    expect(events).toContainEqual(['openHistory'])
+    expect(host.querySelector('.hcp')).not.toBeNull()
+    expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
     await click(btn(host.querySelector('.bnav'), '管理'))
     for (const label of ['データ管理', '在庫分析', '仕入れ', '各種設定', '練習モード', 'フィードバック']) {
       expect(host.querySelector('.manage').textContent).toContain(label)

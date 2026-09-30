@@ -107,7 +107,7 @@ function seedActiveSession() {
 
 describe('App — 401（別端末ログイン）で作業を消さない', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); sessionStorage.clear()
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []

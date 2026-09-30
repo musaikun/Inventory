@@ -75,7 +75,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()
+  localStorage.clear(); sessionStorage.clear()
   localStorage.setItem('tanaoro_onboarded', '1')
   if (syncFlags) { syncFlags.active = false; syncFlags.host = false }
   broadcastItemHideResponse.mockClear()

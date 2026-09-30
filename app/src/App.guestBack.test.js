@@ -71,7 +71,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()          // ゲストは**ログインしていない**
+  localStorage.clear(); sessionStorage.clear()          // ゲストは**ログインしていない**
   // 初回オンボーディングは戻るを1回消費する。ここで見たいのはその先なので、
   // 「once 見た」状態から始める（実機でも2回目以降はこの状態）。
   localStorage.setItem('tanaoro_onboarded', '1')

@@ -66,7 +66,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()
+  localStorage.clear(); sessionStorage.clear()
   localStorage.setItem('_auth_token', 'tok-1')
   localStorage.setItem('_auth_store_name', 'A店')
   localStorage.setItem('_shop_code', 'STOREA')
@@ -111,14 +111,17 @@ describe('再読込しても同じページに留まる', () => {
     expect(host.querySelector('.mv-tab.on').textContent).toContain('発注')
   }, 20000)
 
-  it('履歴カレンダー', async () => {
+  // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま
+  it('履歴カレンダー（ホームの履歴タブ）', async () => {
     await mountApp()
     await seedItems()
-    await click(button('履歴'))
-    expect(view()).toBe('history')
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('履歴')))
+    expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
 
     await reload()
-    expect(view()).toBe('history')
+    expect(view()).toBe('sessions')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
+    expect(host.querySelector('.hcp')).not.toBeNull()
   }, 20000)
 
   it('データ管理', async () => {

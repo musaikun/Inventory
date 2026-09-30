@@ -90,7 +90,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()
+  localStorage.clear(); sessionStorage.clear()
   seedAuthenticatedAccount()
 })
 

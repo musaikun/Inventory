@@ -3166,6 +3166,7 @@ function dismissReview() {
       @open-master="openPage('master')"
       @open-movement="openMovement"
       @open-feedback="openFeedback"
+      @view-session="onViewSession"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 

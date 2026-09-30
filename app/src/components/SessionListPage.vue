@@ -1,8 +1,14 @@
 <script>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'sessions' = 在庫（ホーム） / 'dashboard' = 管理
-export const _persistedTab  = ref('sessions')
+// _persistedTab: 'sessions' = 在庫（ホーム） / 'history' = 履歴 / 'dashboard' = 管理
+// 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
+const _TAB_KEY = 'tanaoro_home_tab'
+function _readTab() {
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'history', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
+}
+export const _persistedTab  = ref(_readTab())
+watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
 export const _showDashboard = ref(false)
 export const _showOrders    = ref(false)
 </script>
@@ -32,6 +38,8 @@ import { settingsSection, registerInnerLayerCloser } from '../composables/appMen
 import { calendarTodos } from '../services/calendarTodos.js'
 import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 import StockPage from './StockPage.vue'
+import HistoryCalendarPage from './HistoryCalendarPage.vue'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
@@ -40,7 +48,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback'])
+const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback'])
 
 const { config, itemCount, setEmptyList } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
@@ -50,6 +58,22 @@ const { getOrders } = useOrders()
 
 const tab = _persistedTab
 const showDashboard = _showDashboard
+
+// ── 下部ナビのタブ（在庫 → 履歴 → 管理）。下部ナビは常に出し、左右のスワイプでも移る ──
+// 履歴は以前は別ページで、開くと下部ナビが消えた（User 2026-09-30）。ホームのタブにした。
+const TABS = ['sessions', 'history', 'dashboard']
+const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
+const visitedHistory = ref(tab.value === 'history')   // 履歴は初めて開くまで読み込まない
+function goTab(next) {
+  if (!TABS.includes(next) || next === tab.value) return
+  slideDir.value = TABS.indexOf(next) > TABS.indexOf(tab.value) ? 'l' : 'r'
+  if (next === 'history') visitedHistory.value = true
+  tab.value = next
+}
+const tabSwipe = useHorizontalSwipe({
+  onLeft:  () => goTab(TABS[TABS.indexOf(tab.value) + 1]),
+  onRight: () => goTab(TABS[TABS.indexOf(tab.value) - 1]),
+})
 
 // セッションの一覧・開始・再開・破棄・ルーム状態（共通の部品）
 const launcher = useSessionLauncher()
@@ -172,7 +196,7 @@ async function onLogout() {
 // 端末の戻る操作は、ページを閉じる前にシートから閉じる
 onUnmounted(registerInnerLayerCloser(() => {
   if (sheet.value) { closeSheet(); return true }
-  if (tab.value === 'dashboard') { tab.value = 'sessions'; return true }
+  if (tab.value !== 'sessions') { goTab('sessions'); return true }
   return false
 }))
 </script>
@@ -186,9 +210,17 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <LoadingSpinner v-if="loading" />
 
+    <div
+      class="home-panels"
+      @touchstart.passive="tabSwipe.onTouchStart"
+      @touchmove.passive="tabSwipe.onTouchMove"
+      @touchend.passive="tabSwipe.onTouchEnd"
+      @touchcancel.passive="tabSwipe.onTouchCancel"
+    >
     <!-- ── 在庫（ホーム）── -->
     <StockPage
       v-show="!loading && tab === 'sessions'"
+      :class="['home-panel', slideDir && `slide-${slideDir}`]"
       ref="stockRef"
       embedded
       @open-master="emit('openMaster')"
@@ -211,7 +243,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           </div>
 
           <!-- 今日のやること（1行・タップで履歴カレンダー） -->
-          <button v-if="!empty && todos.length" class="strip today" type="button" @click="emit('openHistory')">
+          <button v-if="!empty && todos.length" class="strip today" type="button" @click="goTab('history')">
             <span class="strip-t">📋 今日：<b>{{ todos[0].label }}</b><small v-if="todos.length > 1"> ほか{{ todos.length - 1 }}件</small></span>
             <span class="strip-arrow">›</span>
           </button>
@@ -234,8 +266,19 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </StockPage>
 
+    <!-- ── 履歴 ── -->
+    <HistoryCalendarPage
+      v-if="visitedHistory"
+      v-show="tab === 'history'"
+      :class="['home-panel', slideDir && `slide-${slideDir}`]"
+      embedded
+      @view-session="s => emit('viewSession', s)"
+      @delete-session="id => emit('deleteSession', id)"
+      @open-upgrade="r => emit('openUpgrade', r)"
+    />
+
     <!-- ── 管理 ── -->
-    <div v-if="!loading && tab === 'dashboard'" class="manage">
+    <div v-if="!loading && tab === 'dashboard'" :class="['manage', 'home-panel', slideDir && `slide-${slideDir}`]">
       <div class="m-h">品目データ</div>
       <button class="m-card" type="button" @click="emit('openMaster')">📥<span>データ管理<small>取込・書出・振り分け・品目の点検</small></span><i>›</i></button>
       <div class="m-h">分析・仕入れ</div>
@@ -256,11 +299,13 @@ onUnmounted(registerInnerLayerCloser(() => {
       <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
     </div>
 
-    <!-- ── 下部ナビ ── -->
+    </div><!-- /.home-panels -->
+
+    <!-- ── 下部ナビ（常に出す）── -->
     <nav class="bnav" aria-label="ホームのメニュー">
-      <button :class="{ on: tab === 'sessions' }" type="button" @click="tab = 'sessions'"><b>📦</b>在庫</button>
-      <button type="button" @click="emit('openHistory')"><b>📅</b>履歴</button>
-      <button :class="{ on: tab === 'dashboard' }" type="button" @click="tab = 'dashboard'"><b>🗂</b>管理</button>
+      <button :class="{ on: tab === 'sessions' }" type="button" @click="goTab('sessions')"><b>📦</b>在庫</button>
+      <button :class="{ on: tab === 'history' }" type="button" @click="goTab('history')"><b>📅</b>履歴</button>
+      <button :class="{ on: tab === 'dashboard' }" type="button" @click="goTab('dashboard')"><b>🗂</b>管理</button>
     </nav>
 
     <ManagerDashboard
@@ -351,7 +396,14 @@ onUnmounted(registerInnerLayerCloser(() => {
 </template>
 
 <style scoped>
-.home { min-height: 100vh; min-height: 100dvh; background: var(--bg, #f1f5f9); }
+.home { min-height: 100vh; min-height: 100dvh; background: var(--bg, #f1f5f9); --home-chrome: calc(112px + env(safe-area-inset-bottom)); }
+/* 横スワイプでタブを移る面。縦スクロールはブラウザに任せ、横だけこちらで受ける */
+.home-panels { touch-action: pan-y; }
+.home-panel.slide-l { animation: home-slide-l .22s ease-out; }
+.home-panel.slide-r { animation: home-slide-r .22s ease-out; }
+@keyframes home-slide-l { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes home-slide-r { from { transform: translateX(-24px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .home-panel.slide-l, .home-panel.slide-r { animation: none; } }
 .home-head {
   position: sticky; top: 0; z-index: 3; display: flex; align-items: baseline; gap: 8px;
   padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;

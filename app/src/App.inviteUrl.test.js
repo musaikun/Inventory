@@ -72,7 +72,7 @@ beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
 beforeEach(() => {
   vi.resetModules()
-  localStorage.clear()                             // 招待された端末はログインしていない
+  localStorage.clear(); sessionStorage.clear()                             // 招待された端末はログインしていない
   localStorage.setItem('tanaoro_onboarded', '1')   // 初回オンボーディングは対象外
   roomStatus = { isActive: true, sessionId: SID }
   roomResult = null

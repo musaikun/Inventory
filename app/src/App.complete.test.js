@@ -200,7 +200,7 @@ const historyEntries = () => Object.values(JSON.parse(localStorage.getItem(HISTO
 
 describe('App — 棚卸完了がサーバーへ書けなかったとき', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); sessionStorage.clear()
     vi.clearAllMocks()
     completeShouldFail = false
     completeFailBody = { retryable: true }
