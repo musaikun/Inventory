@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import InventoryTable from './InventoryTable.vue'
 
 const props = defineProps({
@@ -45,6 +45,14 @@ const totalCount  = computed(() => snapItems.value.length)
 
 const participants = computed(() => props.result?.participants ?? [])
 const hasParticipants = computed(() => participants.value.length > 0)
+// 参加者ごとの開閉。**既定は閉じた状態**（まず「誰が何品目」を並べ、開いた人の品目だけを読む）。
+// 以前は全員ぶんを開いたまま並べ、枠が縦に縮められて品目が途中で切れ、送って見られなかった（User報告 2026-09-30）。
+const openParticipants = reactive({})
+const isParticipantOpen = (name) => !!openParticipants[name]
+function toggleParticipant(name) {
+  if (openParticipants[name]) delete openParticipants[name]
+  else openParticipants[name] = true
+}
 
 const sortedLog = computed(() => {
   const log = props.result?.auditLog
@@ -145,12 +153,19 @@ function actionClass(action) {
         <!-- 参加者別 -->
         <div v-show="activeTab === 'participants'" class="panel panel-scroll">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
+          <p v-else class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</p>
           <div v-for="p in participants" :key="p.name" class="participant-section">
-            <div class="participant-header">
+            <button
+              class="participant-header"
+              type="button"
+              :aria-expanded="String(isParticipantOpen(p.name))"
+              @click="toggleParticipant(p.name)"
+            >
+              <span class="participant-arrow">{{ isParticipantOpen(p.name) ? '▼' : '▶' }}</span>
               <span class="participant-name">{{ p.name }}</span>
               <span class="pmeta-chip">{{ p.items.length }}品目</span>
-            </div>
-            <div class="participant-items">
+            </button>
+            <div v-if="isParticipantOpen(p.name)" class="participant-items">
               <div v-for="it in p.items" :key="it.item" class="pi-row">
                 <span class="pi-name">{{ it.item }}</span>
                 <span class="pi-qty">{{ it.qty }}{{ it.unit }}</span>
@@ -339,15 +354,25 @@ function actionClass(action) {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  /* 親は縦フレックス。縮められると overflow:hidden で品目が途中で切れる */
+  flex-shrink: 0;
 }
 .participant-header {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 12px 14px;
   background: #f8fafc;
+  border: none;
   border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+.participant-arrow { font-size: 10px; width: 12px; flex-shrink: 0; color: var(--text-muted, #94a3b8); }
+.participant-hint { margin: 0; padding: 0 4px; font-size: 11.5px; color: var(--text-muted, #94a3b8); line-height: 1.6; }
 .participant-name { font-size: 14px; font-weight: 700; color: var(--text-primary, #1e293b); flex: 1; }
 .pmeta-chip {
   font-size: 11px;
@@ -357,7 +382,14 @@ function actionClass(action) {
   padding: 2px 8px;
   border-radius: 10px;
 }
-.participant-items { padding: 4px 0; }
+.participant-items {
+  padding: 4px 0;
+  /* 見出しを残したまま、開いた人の品目だけをこの中で送る */
+  max-height: 55dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .pi-row {
   display: flex;
   align-items: center;

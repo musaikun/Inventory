@@ -3193,7 +3193,6 @@ function dismissReview() {
       v-else-if="currentView === 'history'"
       @back="onPageBack"
       @view-session="onViewSession"
-      @delete-session="onDeleteSession"
       @open-upgrade="reason => openUpgrade(reason)"
     />
 

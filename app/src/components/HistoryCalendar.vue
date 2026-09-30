@@ -6,7 +6,6 @@ import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
-import { deleteOrderFromD1, deleteMovementFromD1 } from '../composables/useStore.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 import { calendarTodos } from '../services/calendarTodos.js'
@@ -24,11 +23,11 @@ const props = defineProps({
   sessions: { type: Array, default: () => [] }, // 完了済み棚卸セッション
   weather:  { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['view-session', 'delete-session'])
+const emit = defineEmits(['view-session'])
 
 const { getSnapshotBySessionId } = useHistory()
-const { getOrders, deleteOrder } = useOrders()
-const { getMovements, deleteMovement } = useMovements()
+const { getOrders } = useOrders()
+const { getMovements } = useMovements()
 const { config } = useConfig()
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
@@ -501,16 +500,7 @@ onMounted(() => {
 
 const expanded = reactive({})
 function toggleOrder(id) { expanded[id] = !expanded[id] }
-function onDeleteOrder(id) {
-  if (!confirm('この発注記録を削除しますか？')) return
-  deleteOrder(id)          // ローカル（未反映バッジ・学習の元データ）から除去
-  deleteOrderFromD1(id)    // D1 からも削除。しないと次回のD1取込で復活し「未反映の入庫」に再表示される
-}
-function onDeleteMove(id) {
-  if (!confirm('この入出庫記録を削除しますか？')) return
-  deleteMovement(id)          // ローカルから除去
-  deleteMovementFromD1(id)    // D1 からも削除（次回取込での復活を防ぐ）
-}
+// 記録（棚卸・入出庫・発注）はここから消さない。完了した棚卸が誤操作で丸ごと消えた（User報告 2026-09-30）
 </script>
 
 <template>
@@ -677,7 +667,6 @@ function onDeleteMove(id) {
             <span v-else class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
             <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
             <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-            <button class="hc-entry-del" @click.stop="emit('delete-session', r.s)" title="削除">🗑</button>
             <span class="hc-entry-arrow">詳細 ›</span>
           </div>
           <div v-if="r.noData" class="hc-entry-warn">この端末に明細データが無いため、金額を計算できません</div>
@@ -700,7 +689,6 @@ function onDeleteMove(id) {
               <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目</span>
               <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
               <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-              <button class="hc-entry-del" @click.stop="onDeleteMove(r.m.id)" title="削除">🗑</button>
               <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>
             </div>
             <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
@@ -726,7 +714,6 @@ function onDeleteMove(id) {
             <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
             <span v-if="importedOrderIds.has(r.o.id)" class="hc-ord-done">入庫済み</span>
             <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-            <button class="hc-entry-del" @click.stop="onDeleteOrder(r.o.id)" title="削除">🗑</button>
             <span class="hc-entry-arrow">{{ expanded[r.o.id] ? '▲' : '▼' }}</span>
           </div>
           <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
@@ -954,7 +941,6 @@ function onDeleteMove(id) {
 .hc-entry-info { font-size: 13px; color: #4b5563; }
 .hc-entry-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: #1f2937; flex-shrink: 0; white-space: nowrap; }
 .hc-entry-amt.none { font-size: 11px; font-weight: 600; color: #9ca3af; }
-.hc-entry-del { border: none; background: none; cursor: pointer; font-size: 14px; }
 .hc-entry-arrow { font-size: 12px; color: #9ca3af; flex-shrink: 0; }
 .hc-entry-order .hc-entry-main,
 .hc-entry-move .hc-entry-main { cursor: pointer; }

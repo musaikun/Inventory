@@ -128,18 +128,15 @@ describe('HistoryCalendarPage', () => {
     const root = await mountPage()
 
     const sheet = await openDay(root, _localDate(justAfterMidnight))
-    expect(sheet.querySelector('.hc-entry-del')).not.toBeNull()
+    expect(sheet.querySelector('.hc-entry-stock')).not.toBeNull()
   })
 
-  it('削除は確認を挟み、拒否すればAPIを呼ばない', async () => {
+  it('履歴から記録は消せない（削除ボタンを出さない）', async () => {
     sessionsResponse = [completed('s1', TODAY)]
-    vi.stubGlobal('confirm', vi.fn(() => false))
     const root = await mountPage()
-    const del = (await openDay(root, TODAY)).querySelector('.hc-entry-del')
-    expect(del).not.toBeNull()
-    del.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    for (let i = 0; i < 4; i++) await nextTick()
-    expect(confirm).toHaveBeenCalled()
+    const sheet = await openDay(root, TODAY)
+    expect(sheet.querySelector('.hc-entry-stock')).not.toBeNull()
+    expect(sheet.querySelector('.hc-entry-del')).toBeNull()
     expect(deleteSessionMock).not.toHaveBeenCalled()
   })
 })

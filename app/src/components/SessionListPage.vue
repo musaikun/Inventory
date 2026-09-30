@@ -281,7 +281,6 @@ onUnmounted(registerInnerLayerCloser(() => {
       :class="['home-panel', slideDir && `slide-${slideDir}`]"
       embedded
       @view-session="s => emit('viewSession', s)"
-      @delete-session="id => emit('deleteSession', id)"
       @open-upgrade="r => emit('openUpgrade', r)"
     />
 

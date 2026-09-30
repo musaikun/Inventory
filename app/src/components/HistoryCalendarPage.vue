@@ -1,11 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getSessions, deleteSession, logout } from '../composables/useAuth.js'
+import { getSessions, logout } from '../composables/useAuth.js'
 import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
 import LoadingSpinner from './LoadingSpinner.vue'
-import { useHistory } from '../composables/useHistory.js'
 import { useWeather, requestGeolocation } from '../composables/useWeather.js'
-import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.js'
 import HistoryCalendar from './HistoryCalendar.vue'
 
 // 履歴カレンダー専用ページ。
@@ -14,9 +12,7 @@ import HistoryCalendar from './HistoryCalendar.vue'
 // ここでは「日付から履歴を開く」ことだけを行う。
 // embedded: ホームの「履歴」タブに置くとき。見出しと戻るを出さず、高さはホームの見出しと下部ナビを除いた分
 const props = defineProps({ embedded: { type: Boolean, default: false } })
-const emit = defineEmits(['back', 'viewSession', 'deleteSession', 'openUpgrade'])
-
-const { getSnapshotBySessionId } = useHistory()
+const emit = defineEmits(['back', 'viewSession', 'openUpgrade'])
 
 // 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
 const { state: weatherState } = useWeather()
@@ -30,7 +26,6 @@ async function onEnableWeather() {
 const sessions   = ref([])
 const loading    = ref(true)
 const error      = ref('')
-const deletingId = ref(null)
 
 onMounted(_loadSessions)
 
@@ -68,23 +63,6 @@ const hiddenByPlanCount = computed(() =>
   completedSessions.value.length - visibleCompletedSessions.value.length
 )
 
-async function onDelete(session) {
-  const locked = session.status === 'completed' && isSessionLocked(session, {
-    snapshotLocked: !!getSnapshotBySessionId(session.id)?.locked,
-    completedSessions: completedSessions.value,
-  })
-  if (!confirm(deleteConfirmMessage(session, locked))) return
-  deletingId.value = session.id
-  try {
-    await deleteSession(session.id)
-    sessions.value = sessions.value.filter(s => s.id !== session.id)
-    emit('deleteSession', session.id)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    deletingId.value = null
-  }
-}
 </script>
 
 <template>
@@ -117,7 +95,6 @@ async function onDelete(session) {
         :sessions="visibleCompletedSessions"
         :weather="weatherState.weather"
         @view-session="s => emit('viewSession', s)"
-        @delete-session="onDelete"
       />
 
       <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
