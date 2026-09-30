@@ -108,7 +108,7 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null) {
+  function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null, layout = null) {
     if (Object.keys(inventory).length === 0) return null
 
     const today = new Date().toISOString().slice(0, 10)
@@ -198,6 +198,10 @@ export function useHistory() {
       auditLog:     auditLog ? [...auditLog] : [],
       activeMs:     typeof activeMs === 'number' ? activeMs : null,
       axisNames:    Array.isArray(axisNames) ? [...axisNames] : ['', ''],
+      // ホームと同じ並びで見せるための順（ジャンル・振り分けのグループ）。services/snapshotView.js
+      categoryOrder: Array.isArray(layout?.categoryOrder) ? [...layout.categoryOrder] : [],
+      axisGroupsA:   Array.isArray(layout?.axisGroupsA) ? [...layout.axisGroupsA] : [],
+      axisGroupsB:   Array.isArray(layout?.axisGroupsB) ? [...layout.axisGroupsB] : [],
     }
   }
 

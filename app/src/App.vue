@@ -45,6 +45,7 @@ import {
 } from './composables/useStore.js'
 import { buildCompletionRequest, completionErrorMessage, COMPLETION_STOCK } from './services/sessionCompletion.js'
 import { resumeAfterLogin } from './services/authResume.js'
+import { categoryOrderOf } from './services/snapshotView.js'
 import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
@@ -502,6 +503,8 @@ function _rememberPageFrom(view) {
   pageReturn[view] = (from === 'sessions' || PAGE_VIEWS.includes(from)) ? from : 'sessions'
 }
 function openPage(view) {
+  // 完了の結果が確定するまで、品目・在庫を変える画面へは入らない（履歴は見られる）
+  if (view !== 'history' && _blockedByCompletion()) return
   _rememberPageFrom(view)
   currentView.value = view
   if (view === 'history') { _loadOrderData(); _pullMovements() }
@@ -518,6 +521,7 @@ function _takePageReturn() {
 
 // 「仕入れ」ページを開く。最新の入出庫を D1 から取り込んでから表示する。
 function openMovement(tab = 'view') {
+  if (_blockedByCompletion()) return
   _rememberPageFrom('movement')
   movementTab.value = tab
   currentView.value = 'movement'
@@ -1793,7 +1797,8 @@ function _buildCompletionRequest() {
   // 端末へは書かない。完了APIと同じ要求で送るためだけの組み立て（DATA-001 / 第2セッション）。
   // 発注セッションでは snapshot 自体を作らない（送れないので作る意味が無い）。
   const snapshot = type === 'order' ? null
-    : buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, sessionId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames)
+    : buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, sessionId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames,
+        { categoryOrder: categoryOrderOf(config), axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB })
 
   const request = buildCompletionRequest({
     sessionType: type,

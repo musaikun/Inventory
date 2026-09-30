@@ -16,6 +16,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useStockView } from '../composables/useStockView.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { completionBusy } from '../composables/useSession.js'
 import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
 import ItemFormModal from './ItemFormModal.vue'
@@ -41,8 +42,11 @@ defineExpose({ reorderCount, openAdd: () => openAdd() })
 // ── シート ───────────────────────────────
 const detailTarget = ref(null)   // 品目シート
 const form = ref(null)           // null | { mode: 'add' } | { mode: 'edit', item }
-function openAdd()  { form.value = { mode: 'add' } }
-function openEdit() { form.value = { mode: 'edit', item: detailTarget.value } }
+// 完了の結果がサーバーで確定するまでは、品目・在庫の設定を変えない（User指示 2026-09-30）。
+// 完了要求と端末の品目がずれた状態で確定させない＝完了は「確定するまで何も動かさない」
+const locked = computed(() => completionBusy.value)
+function openAdd()  { if (!locked.value) form.value = { mode: 'add' } }
+function openEdit() { if (!locked.value) form.value = { mode: 'edit', item: detailTarget.value } }
 function closeForm() { form.value = null }
 // 端末の戻る操作は、ページを閉じる前に上のシートから閉じる（既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
@@ -60,6 +64,10 @@ onUnmounted(registerInnerLayerCloser(() => {
     </header>
 
     <slot name="top" :empty="isEmpty" />
+
+    <div v-if="locked" class="sp-locked" role="status">
+      ⏳ 棚卸・発注の完了をサーバーで確認しています。確定するまで品目の追加・変更はできません。
+    </div>
 
     <!-- 品目が0件：一覧の代わりに、登録の入口を大きく出す -->
     <div v-if="isEmpty" class="sp-empty">
@@ -105,7 +113,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         </template>
       </InventoryTable>
 
-      <button class="sp-fab" type="button" aria-label="品目を追加" @click="openAdd">＋</button>
+      <button v-if="!locked" class="sp-fab" type="button" aria-label="品目を追加" @click="openAdd">＋</button>
     </div>
 
     <StockDetailModal
@@ -125,9 +133,9 @@ onUnmounted(registerInnerLayerCloser(() => {
       :price="config.prices?.[detailTarget] ?? null"
       :category="config.categories?.[detailTarget] ?? ''"
       :movements="itemMovements(detailTarget)"
-      editable
-      @update-reorder="v => setReorderPoint(detailTarget, v)"
-      @update-target="v => setReplenishTarget(detailTarget, v)"
+      :editable="!locked"
+      @update-reorder="v => { if (!locked) setReorderPoint(detailTarget, v) }"
+      @update-target="v => { if (!locked) setReplenishTarget(detailTarget, v) }"
       @edit="openEdit"
       @close="detailTarget = null"
     />
@@ -145,6 +153,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 <style scoped>
 .sp.embedded { min-height: 0; padding-bottom: 88px; }
 /* ホームでは下部ナビの上に出す */
+.sp-locked { margin: 0 12px 8px; padding: 9px 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
 .sp.embedded .sp-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
 .sp { min-height: 100vh; background: var(--bg, #f1f5f9); padding-bottom: 96px; }
 .sp-header {

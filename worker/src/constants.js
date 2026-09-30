@@ -153,6 +153,7 @@ export const MAX_REPLACE_SESSIONS = 50
 export const MAX_SNAPSHOT_ITEMS        = 2_000   // 未入力ぶんを含む表示用 items
 export const MAX_SNAPSHOT_LOG_ENTRIES  = 5_000   // entryLog / auditLog（MAX_AUDIT_LOG と揃える）
 export const MAX_SNAPSHOT_PARTICIPANTS = 50      // 参加者別集計（MAX_PARTICIPANTS 20 の余裕分）
+export const MAX_SNAPSHOT_LABELS = 500           // 表示順のラベル（ジャンル・振り分けグループ）
 // 参加者別の品目ごとの入力時刻（epoch ms）。端末時計なので広めに許容し、
 // 桁違いの値（秒・マイクロ秒の取り違え）だけを弾く。2100-01-01 まで。
 export const MAX_ENTRY_AT_MS           = 4_102_444_800_000

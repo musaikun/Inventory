@@ -7,7 +7,7 @@ import {
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
   MAX_ID_LEN, MAX_DEVICE_NAME_LEN, MAX_DEVICE_ID_LEN,
-  MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_ENTRY_AT_MS,
+  MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_SNAPSHOT_LABELS, MAX_ENTRY_AT_MS,
   AUDIT_ROWS_PER_STATEMENT, MAX_AUDIT_PER_REQUEST,
   ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
 } from './constants.js'
@@ -350,10 +350,20 @@ export async function handleHistoryDelete(db, code, key) {
     // （DATA-002 再レビュー §5）。残すと、snapshot が無いのに replay が
     // `snapshotSaved: true` を返す「保存済みだと嘘をつく」状態になる。
     // 台帳が消えることで、同じ batchId + 日付での取り込み直しもできる。
+    // 完了したセッションの記録（中身）は消さない（User指示 2026-09-30）。
+    // 一覧に完了が残ったまま中身だけ消えると、詳細が開けない棚卸になる。
+    // 消せるのはセッション行を持たない記録（孤児）だけ。判定と削除は同じ文で行う（原子的）。
+    const done = await db.prepare("SELECT 1 AS x FROM sessions WHERE id = ? AND shop_code = ? AND status = 'completed'")
+      .bind(sessionId, code).first()
+    if (done) {
+      console.warn('[storeHandler] refused to delete history of completed session:', code, sessionId)
+      return { _status: 409, code: 'session_completed', retryable: false, error: '完了した記録は削除できません' }
+    }
+    const notCompleted = "AND NOT EXISTS (SELECT 1 FROM sessions c WHERE c.id = ? AND c.shop_code = ? AND c.status = 'completed')"
     const results = await db.batch([
-      db.prepare('DELETE FROM store_history          WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
-      db.prepare('DELETE FROM import_batch_requests  WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
-      db.prepare('DELETE FROM session_audit          WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
+      db.prepare(`DELETE FROM store_history          WHERE shop_code = ? AND session_id = ? ${notCompleted}`).bind(code, sessionId, sessionId, code),
+      db.prepare(`DELETE FROM import_batch_requests  WHERE shop_code = ? AND session_id = ? ${notCompleted}`).bind(code, sessionId, sessionId, code),
+      db.prepare(`DELETE FROM session_audit          WHERE shop_code = ? AND session_id = ? ${notCompleted}`).bind(code, sessionId, sessionId, code),
     ])
     return { ok: true, removed: results?.[0]?.meta?.changes ?? 0 }
   } catch (e) {
@@ -383,6 +393,9 @@ function _sanitizeForGuest(snap) {
     code:     it.code ?? '',
     flagged:  !!it.flagged,
     category: it.category ?? null,
+    // 振り分け（保管場所など）。金額ではないのでゲストにも出す
+    tagA:     it.tagA ?? '',
+    tagB:     it.tagB ?? '',
   }))
   const participants = (snap.participants ?? []).map(p => ({
     name:  p.name,
@@ -399,7 +412,14 @@ function _sanitizeForGuest(snap) {
     enteredBy: e.enteredBy ?? '',
     timestamp: e.timestamp ?? null,
   }))
-  return { date: snap.date, sessionId: snap.sessionId ?? null, items, participants, auditLog }
+  return {
+    date: snap.date, sessionId: snap.sessionId ?? null, items, participants, auditLog,
+    // 並びと振り分けの名前（ホームと同じ順・同じ分け方で見せる）
+    axisNames:     Array.isArray(snap.axisNames) ? snap.axisNames : ['', ''],
+    categoryOrder: Array.isArray(snap.categoryOrder) ? snap.categoryOrder : [],
+    axisGroupsA:   Array.isArray(snap.axisGroupsA) ? snap.axisGroupsA : [],
+    axisGroupsB:   Array.isArray(snap.axisGroupsB) ? snap.axisGroupsB : [],
+  }
 }
 
 // スナップショットの完了時刻（ms）。savedAt 優先、無ければ snapshot_date を 0時として扱う。
@@ -497,21 +517,49 @@ export async function handleSessionCreate(db, code, body = {}) {
 //   - 完了 claim（0016）が残り、同じセッションIDでの再完了を塞ぎ続ける
 // という状態を作っていた。全 SQL を `shop_code` で絞るので他店舗には触れない。
 export async function handleSessionDelete(db, code, sessionId) {
+  // ── 完了済みは消さない（User指示 2026-09-30）─────────────────────────────
+  // 完了した棚卸が、別端末に残った古い「中断中」表示や履歴の🗑から消され、記録ごと失われた。
+  // 端末の画面は古いことがあるので、判定はサーバーが持つ。消せるのは進行中（破棄）だけ。
+  // 判定と削除の間に完了が確定する競合も塞ぐため、各文に「完了済みでない」条件を付ける
+  // （sessions は最後に消すので、どの文も削除前の status を見る）。
+  const row = await db.prepare('SELECT status, item_count FROM sessions WHERE id = ? AND shop_code = ?')
+    .bind(sessionId, code).first()
+  if (!row) return { ok: true }   // 既に無い（冪等）。他店舗のIDも同じ扱いで存在を漏らさない
+  if (row.status === 'completed') {
+    console.warn('[storeHandler] refused to delete completed session:', code, sessionId)
+    return {
+      _status: 409, code: 'session_completed', retryable: false,
+      error: '完了した記録は削除できません',
+    }
+  }
+  const notCompleted = "AND NOT EXISTS (SELECT 1 FROM sessions c WHERE c.id = ? AND c.shop_code = ? AND c.status = 'completed')"
+  const g = [sessionId, code]
+  let results
   try {
-    await db.batch([
-      db.prepare('DELETE FROM inventory_lines      WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
-      db.prepare('DELETE FROM store_history        WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
-      db.prepare('DELETE FROM import_batch_requests WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
-      db.prepare('DELETE FROM session_completions  WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
+    results = await db.batch([
+      db.prepare(`DELETE FROM inventory_lines      WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
+      db.prepare(`DELETE FROM store_history        WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
+      db.prepare(`DELETE FROM import_batch_requests WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
+      db.prepare(`DELETE FROM session_completions  WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
       // 操作ログ（0017）。セッションを消したら「誰が何を変えたか」も残さない
-      db.prepare('DELETE FROM session_audit        WHERE session_id = ? AND shop_code = ?').bind(sessionId, code),
-      db.prepare('DELETE FROM sessions             WHERE id = ? AND shop_code = ?').bind(sessionId, code),
+      db.prepare(`DELETE FROM session_audit        WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
+      db.prepare("DELETE FROM sessions             WHERE id = ? AND shop_code = ? AND status <> 'completed'").bind(sessionId, code),
     ])
   } catch (e) {
     // 途中で落ちれば batch ごと巻き戻る。一部だけ消えた状態を成功として返さない。
     console.error('[storeHandler] session delete batch failed:', code, sessionId, e?.message ?? e)
     return { _status: 503, code: 'session_delete_failed', retryable: true, error: '削除できませんでした' }
   }
+  if (results?.[5]?.meta?.changes !== 1) {
+    // 確認の後に完了した（または消えた）。何も消していない
+    const now = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).first()
+    if (now?.status === 'completed') {
+      return { _status: 409, code: 'session_completed', retryable: false, error: '完了した記録は削除できません' }
+    }
+    return { ok: true }
+  }
+  // 誰がいつ何を消したかを Workers Logs に残す（後から「消えた」を辿れるように）
+  console.warn('[storeHandler] session deleted:', code, sessionId, row.status, row.item_count)
   return { ok: true }
 }
 
@@ -1030,8 +1078,26 @@ function _snapshotMeta(snapshot) {
     activeMs:  parseOptionalNumber(snapshot.activeMs, { min: 0, max: 366 * 86400_000 }) ?? null,
     axisNames: (Array.isArray(snapshot.axisNames) ? snapshot.axisNames : ['', ''])
       .slice(0, 2).map(v => text(v, MAX_SUPPLIER_LEN)),
+    // 表示の並び（ホームと同じ順で見せるため）。ジャンルの順と、振り分けのグループ順。
+    categoryOrder: _labelList(snapshot.categoryOrder, MAX_INGREDIENT_LEN),
+    axisGroupsA:   _labelList(snapshot.axisGroupsA, MAX_SUPPLIER_LEN),
+    axisGroupsB:   _labelList(snapshot.axisGroupsB, MAX_SUPPLIER_LEN),
     locked: snapshot.locked === true,
   }
+}
+
+/** 表示順のラベル一覧（文字列だけ・重複なし・件数上限つき）。 */
+function _labelList(v, maxLen) {
+  if (!Array.isArray(v)) return []
+  const out = []
+  const seen = new Set()
+  for (const raw of v.slice(0, MAX_SNAPSHOT_LABELS)) {
+    const t = text(raw, maxLen)
+    if (!t || seen.has(t)) continue
+    seen.add(t)
+    out.push(t)
+  }
+  return out
 }
 
 /**

@@ -176,8 +176,8 @@ function askDiscard(session) { sheet.value = { discard: session } }
 async function confirmDiscard() {
   const s = sheet.value?.discard
   if (!s) return
-  // 中断中の破棄。消す直前にサーバーを読み直し、完了済みなら消さない（onlyIfActive）
-  if (await launcher.remove(s, { confirmed: true, onlyIfActive: true })) emit('deleteSession', s.id)
+  // 中断中の破棄。消す直前にサーバーを読み直し、完了済みなら消さない（launcher.remove）
+  if (await launcher.remove(s, { confirmed: true })) emit('deleteSession', s.id)
   closeSheet()
 }
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))

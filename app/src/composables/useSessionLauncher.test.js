@@ -103,16 +103,26 @@ describe('useSessionLauncher', () => {
     await L.load()
     // 別の端末で完了した
     sessionList = [{ ...ACTIVE_ORDER, status: 'completed', endedAt: iso(now) }]
-    expect(await L.remove(ACTIVE_ORDER, { confirmed: true, onlyIfActive: true })).toBe(false)
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(false)
     expect(deleteSession).not.toHaveBeenCalled()
     expect(L.error.value).toContain('すでに完了')
     expect(L.sessions.value[0].status).toBe('completed')
   })
 
+  it('完了した記録は削除しない（確認も出さない）', async () => {
+    const done = { ...ACTIVE_ORDER, status: 'completed', endedAt: iso(now) }
+    sessionList = [done]
+    await L.load()
+    const spy = vi.spyOn(window, 'confirm'); spy.mockClear()
+    expect(await L.remove(done)).toBe(false)
+    expect(spy).not.toHaveBeenCalled()
+    expect(deleteSession).not.toHaveBeenCalled()
+  })
+
   it('中断中のままなら破棄できる', async () => {
     sessionList = [ACTIVE_ORDER]
     await L.load()
-    expect(await L.remove(ACTIVE_ORDER, { confirmed: true, onlyIfActive: true })).toBe(true)
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(true)
     expect(deleteSession).toHaveBeenCalledWith('o1')
   })
 })

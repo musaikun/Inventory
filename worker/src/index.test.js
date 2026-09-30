@@ -163,6 +163,8 @@ function createMockD1({ failTables = [] } = {}) {
       if (i >= 0) movements.splice(i, 1)
       return { success: true, meta: { changes: i >= 0 ? 1 : 0 } }
     }
+    // 完了済みの記録は消さない判定（handleHistoryDelete）。このモックはセッション行を持たない
+    if (s.startsWith('SELECT 1 AS x FROM sessions')) return null
     if (s.startsWith('DELETE FROM store_history')) {
       const before = history.length
       const [shop, key] = args

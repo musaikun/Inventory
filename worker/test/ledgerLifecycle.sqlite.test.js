@@ -184,44 +184,33 @@ describe('stale ledger で replay 成功にしない', () => {
     expect(res.snapshotSaved).toBeUndefined()
   })
 
-  it('通常の session 削除で、対応する台帳と明細・履歴も処理される', async () => {
+  it('完了済み（取込）の session は削除APIで消せない。台帳・明細・履歴もそのまま', async () => {
     const h = setup()
     const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
-    expect(ledgerOf(h)).toHaveLength(1)
 
     const res = await handleSessionDelete(h.db, CODE, first.sessionId)
-    expect(res.ok).toBe(true)
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('session_completed')
 
-    expect(sessionsOf(h)).toHaveLength(0)
-    expect(linesOf(h)).toHaveLength(0)
-    expect(historyOf(h)).toHaveLength(0)
-    expect(ledgerOf(h)).toHaveLength(0)
-
-    // 台帳が消えているので、同じ内容で取り込み直せる
-    const again = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
-    expect(again.ok).toBe(true)
+    expect(sessionsOf(h)).toHaveLength(1)
     expect(linesOf(h)).toHaveLength(3)
+    expect(historyOf(h)).toHaveLength(1)
+    expect(ledgerOf(h)).toHaveLength(1)
   })
 
-  it('history 削除で stale な台帳を残さない', async () => {
+  it('完了済み（取込）の history は削除APIで消せない。台帳も残る', async () => {
     const h = setup()
     const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
 
     const res = await handleHistoryDelete(h.db, CODE, first.sessionId)
-    expect(res.ok).toBe(true)
-    expect(historyOf(h)).toHaveLength(0)
-    expect(ledgerOf(h)).toHaveLength(0)
+    expect(res._status).toBe(409)
+    expect(historyOf(h)).toHaveLength(1)
+    expect(ledgerOf(h)).toHaveLength(1)
   })
 
-  it('history 削除後の再取込は、明示的な取消を経てからだけ成功する', async () => {
+  it('取込の取消は専用の経路（batch 取消）で行い、その後に取り込み直せる', async () => {
     const h = setup()
-    const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
-    await handleHistoryDelete(h.db, CODE, first.sessionId)
-
-    // session は残っているのに台帳が無い＝内容を保証できない。黙って上書きしない。
-    const blocked = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
-    expect(blocked._status).toBe(409)
-    expect(blocked.code).toBe('legacy_import_unverified')
+    await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
 
     expect((await handlePastImportCancel(h.db, CODE, BATCH)).ok).toBe(true)
 
@@ -230,15 +219,15 @@ describe('stale ledger で replay 成功にしない', () => {
     expect(historyOf(h)).toHaveLength(1)
   })
 
-  it('別店舗の台帳は残る', async () => {
+  it('進行中の削除は自店舗だけ。別店舗の記録は残る', async () => {
     const h = setup()
-    const mine  = await handlePastImportCreate(h.db, CODE,  BATCH, { date: DATE, items: items(2) })
+    h.seedSession(CODE, SID)
     const yours = await handlePastImportCreate(h.db, OTHER, BATCH, { date: DATE, items: items(2) })
-    expect(mine.ok && yours.ok).toBe(true)
+    expect(yours.ok).toBe(true)
 
-    await handleSessionDelete(h.db, CODE, mine.sessionId)
+    expect((await handleSessionDelete(h.db, CODE, SID)).ok).toBe(true)
 
-    expect(ledgerOf(h, CODE)).toHaveLength(0)
+    expect(sessionsOf(h, CODE)).toHaveLength(0)
     expect(ledgerOf(h, OTHER)).toHaveLength(1)
     expect(sessionsOf(h, OTHER)).toHaveLength(1)
     expect(historyOf(h, OTHER)).toHaveLength(1)
@@ -246,38 +235,35 @@ describe('stale ledger で replay 成功にしない', () => {
 
   it('session 削除の途中失敗は全体 rollback する', async () => {
     const h = setup()
-    const first = await handlePastImportCreate(h.db, CODE, BATCH, { date: DATE, items: items(3) })
+    h.seedSession(CODE, SID)
 
     h.failBatchAt(1)
-    const res = await handleSessionDelete(h.db, CODE, first.sessionId)
+    const res = await handleSessionDelete(h.db, CODE, SID)
 
     expect(res.ok).toBeUndefined()
     expect(res._status).toBe(503)
     expect(res.retryable).toBe(true)
     expect(sessionsOf(h)).toHaveLength(1)
-    expect(linesOf(h)).toHaveLength(3)
-    expect(historyOf(h)).toHaveLength(1)
-    expect(ledgerOf(h)).toHaveLength(1)
 
     // 再試行で完了する
-    expect((await handleSessionDelete(h.db, CODE, first.sessionId)).ok).toBe(true)
+    expect((await handleSessionDelete(h.db, CODE, SID)).ok).toBe(true)
     expect(sessionsOf(h)).toHaveLength(0)
-    expect(ledgerOf(h)).toHaveLength(0)
   })
 
-  it('通常の棚卸セッションの削除でも、完了claimごと消える', async () => {
+  it('完了した棚卸は削除できない（完了claim・明細・履歴を残す）', async () => {
     const h = setup()
     h.seedSession(CODE, SID)
     await handleSessionComplete(h.db, CODE, SID, {
       inventory: { 牛乳: { qty: 1, unit: '本' } }, prices: {}, takenAt: '2026-08-09',
       snapshot: { sessionId: SID, items: [{ item: '牛乳', qty: 1, unit: '本' }] },
     })
-    expect(h.rows('SELECT * FROM session_completions WHERE shop_code = ?', CODE)).toHaveLength(1)
 
-    expect((await handleSessionDelete(h.db, CODE, SID)).ok).toBe(true)
-    expect(h.rows('SELECT * FROM session_completions WHERE shop_code = ?', CODE)).toHaveLength(0)
-    expect(linesOf(h)).toHaveLength(0)
-    expect(historyOf(h)).toHaveLength(0)
+    const res = await handleSessionDelete(h.db, CODE, SID)
+    expect(res._status).toBe(409)
+    expect(res.code).toBe('session_completed')
+    expect(h.rows('SELECT * FROM session_completions WHERE shop_code = ?', CODE)).toHaveLength(1)
+    expect(linesOf(h)).toHaveLength(1)
+    expect(historyOf(h)).toHaveLength(1)
   })
 
   it('batch 取消は台帳も消し、取消後の再取込を成功させる', async () => {

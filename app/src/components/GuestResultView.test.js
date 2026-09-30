@@ -41,3 +41,21 @@ describe('GuestResultView 参加者別', () => {
     expect(r.querySelectorAll('.participant-items')).toHaveLength(0)
   })
 })
+
+describe('GuestResultView レポート・振り分け', () => {
+  it('レポートは金額を出さず、件数と担当者を出す', async () => {
+    const r = mount({ ...result, items: [...result.items, { item: 'なし', qty: null, unit: '', flagged: true }] })
+    const tab = [...r.querySelectorAll('.tab-btn')].find(b => b.textContent.includes('レポート'))
+    tab.click(); await nextTick()
+    const text = r.querySelector('.guest-body').textContent
+    expect(text).toContain('入力済み品目')
+    expect(text).toContain('要再確認の品目')
+    expect(text).toContain('Aさん')
+    expect(text).not.toContain('¥')
+  })
+  it('セッションで使った振り分けを選べる', async () => {
+    const r = mount({ ...result, axisNames: ['保管場所', ''], items: result.items.map(it => ({ ...it, category: '果物', tagA: '冷蔵庫' })) })
+    const btn = [...r.querySelectorAll('.seg-btn')].find(b => b.textContent.includes('保管場所'))
+    expect(btn).toBeTruthy()
+  })
+})

@@ -335,6 +335,22 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     expect(res.result.auditLog[0].enteredBy).toBe('田中')
     expect(res.result.auditLog[0].action).toBe('new')
   })
+
+  it('ホームと同じ並び・振り分けで見せるための情報を渡す（金額ではない）', async () => {
+    const snap = {
+      ...fullSnapshot(recent),
+      items: [{ ...fullSnapshot(recent).items[0], tagA: '冷蔵庫|棚', tagB: '' }],
+      axisNames: ['保管場所', ''],
+      categoryOrder: ['野菜', '肉'],
+      axisGroupsA: ['棚', '冷蔵庫'],
+    }
+    const res = await handleRoomResult(createResultMockD1([snap]), code, sid)
+    expect(res.result.items[0].tagA).toBe('冷蔵庫|棚')
+    expect(res.result.axisNames).toEqual(['保管場所', ''])
+    expect(res.result.categoryOrder).toEqual(['野菜', '肉'])
+    expect(res.result.axisGroupsA).toEqual(['棚', '冷蔵庫'])
+    expect(res.result.axisGroupsB).toEqual([])
+  })
 })
 
 // ── 発注（handleOrderCreate / handleOrdersGet / handleOrderDelete）─────────────

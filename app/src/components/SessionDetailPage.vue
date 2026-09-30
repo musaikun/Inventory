@@ -9,6 +9,8 @@ import { buildResultUrl, resultShareText, viewDaysRemaining } from '../services/
 import { SNAPSHOT_SOURCE_LINES } from '../services/snapshotFromLines.js'
 import { isSnapshotDirty } from '../utils/snapshotSync.js'
 import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
+import { snapshotViewConfig } from '../services/snapshotView.js'
+import { useConfig } from '../composables/useConfig.js'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },
@@ -45,16 +47,9 @@ const snapInventory = computed(() => {
   return inv
 })
 
-const snapConfig = computed(() => {
-  const order = [], categories = {}, prices = {}, codes = {}
-  for (const it of snapItems.value) {
-    order.push(it.item)
-    if (it.category != null)  categories[it.item] = it.category
-    if (it.unitPrice != null) prices[it.item]     = it.unitPrice
-    if (it.code)              codes[it.item]       = it.code
-  }
-  return { order, categories, prices, codes, categoryCodes: {}, prevMonths: {}, lotSizes: {}, units: {} }
-})
+// 並び・振り分けはホームに揃える（ホストはこの店舗の設定を正とする）。services/snapshotView.js
+const { config: liveConfig } = useConfig()
+const snapConfig = computed(() => snapshotViewConfig(props.snapshot, { live: props.isHost ? liveConfig : null, withPrices: true }))
 
 const snapFlags = computed(() => {
   const f = {}

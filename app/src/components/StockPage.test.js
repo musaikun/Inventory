@@ -104,3 +104,19 @@ describe('一覧と品目シート', () => {
     expect(cfg.config.units['Pスライスベーコン']).toBe('袋')
   })
 })
+
+describe('完了の結果が確定するまで', () => {
+  beforeEach(() => { cfg.addItem('Pスライスベーコン', 420, '昼食材冷凍', 'p') })
+
+  it('品目の追加・変更はできない（＋を出さず、理由を出す）', async () => {
+    const { completionUnknown } = await import('../composables/useSession.js')
+    completionUnknown.value = true
+    try {
+      await mount()
+      expect(host.querySelector('.sp-fab')).toBeNull()
+      expect(host.querySelector('.sp-locked')?.textContent).toContain('確定するまで')
+    } finally {
+      completionUnknown.value = false
+    }
+  })
+})

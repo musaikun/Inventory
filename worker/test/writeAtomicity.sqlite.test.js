@@ -631,6 +631,11 @@ describe('履歴の削除は同日の別セッションを巻き込まない', (
       })
     }
     const { handleHistoryDelete } = await import('../src/storeHandler.js')
+    // 完了した記録は消せない（User指示 2026-09-30）。どちらも残る
+    expect((await handleHistoryDelete(h.db, SHOP, SESS))._status).toBe(409)
+    expect(h.rows('SELECT session_id FROM store_history ORDER BY session_id').map(r => r.session_id)).toEqual([SESS, SESS2].sort())
+    // セッション行の無い記録（孤児）だけは消せる。同日の別セッションは巻き込まない
+    h.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(SESS)
     expect((await handleHistoryDelete(h.db, SHOP, SESS)).ok).toBe(true)
     expect(h.rows('SELECT session_id FROM store_history').map(r => r.session_id)).toEqual([SESS2])
   })
