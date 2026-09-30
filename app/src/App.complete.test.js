@@ -801,10 +801,11 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(localStorage.getItem(STORAGE_KEYS.pendingSession)).toContain('sess-1')
   })
 
-  // 発注は `{ itemCount }` だけを完了APIへ送る（DATA-002 §1 order）。
+  // 発注は `{ itemCount, order }` を完了APIへ送る（DATA-002 §1 order）。order は発注の記録そのもので、
+  // server が完了と同じトランザクションで orders / order_lines を書く（User報告 2026-09-30）。
   // 汎用 PUT で completed にすると server が 409 use_complete_endpoint を返し、
   // snapshot / 非空 inventory を送ると 400 snapshot_not_allowed になる。
-  it('発注のみのセッションは itemCount だけを完了APIへ送る', async () => {
+  it('発注のみのセッションは itemCount と発注の記録を完了APIへ送る', async () => {
     localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
       トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
     }))
@@ -817,7 +818,8 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     await clickComplete()
 
     expect(completeCalls).toBe(1)
-    expect(completeBodies[0]).toEqual({ itemCount: 1 })
+    expect(completeBodies[0].itemCount).toBe(1)
+    expect(completeBodies[0].order).toMatchObject({ id: 'ord_sess-2', sessionId: 'sess-2', lines: [{ item: 'トマト', qty: 2, unit: '箱' }] })
     // 汎用 PUT で completed にしない
     expect(sessionUpdates.filter(u => u.status === 'completed')).toHaveLength(0)
     expect(completeBtn()).toBeNull()             // 一覧へ遷移した
@@ -837,7 +839,8 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(completeCalls).toBe(1)
     expect(completeBodies[0]).not.toHaveProperty('snapshot')
     expect(completeBodies[0]).not.toHaveProperty('inventory')
-    expect(completeBodies[0]).toEqual({ itemCount: 1 })
+    expect(completeBodies[0].itemCount).toBe(1)
+    expect(completeBodies[0].order.lines).toHaveLength(1)
   })
 
   it('棚卸で明細が組み立てられない場合は完了APIを呼ばない', async () => {

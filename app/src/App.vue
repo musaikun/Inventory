@@ -1806,6 +1806,8 @@ function _buildCompletionRequest() {
     inventory,
     prices:     config.prices ?? {},
     orderCount: Object.keys(orderDraft.value).length,
+    // 発注の記録を完了と一緒に送る（サーバーが同じトランザクションで確定する）
+    order:      type === 'order' ? _upsertOrderRecord() : null,
   })
   return request
 }

@@ -727,21 +727,21 @@ export async function handleOrdersGet(db, code, sinceDays) {
 
 // POST /store/:code/orders  body: 発注レコード { id, date, supplier, axis, sessionId, savedAt, lines[] }
 // 同一 id の再送は冪等（行を貼り直す）。
-export async function handleOrderCreate(db, code, body = {}) {
-  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
-
-  const now = _now()
-
+/**
+ * 発注1件を書く文（ヘッダ・明細の削除・明細の追加）を組む。検証に失敗したら { error }。
+ * 発注の保存（POST /orders）と、発注セッションの完了（同じトランザクションで記録を確定）の共通部品。
+ */
+async function _orderWrite(db, code, body, now) {
   const id = parseClientId(body.id)
-  if (id === undefined) return { _status: 400, code: 'invalid_id', error: 'IDの形式が不正です' }
+  if (id === undefined) return { error: { _status: 400, code: 'invalid_id', error: 'IDの形式が不正です' } }
   const orderId = id ?? crypto.randomUUID()
 
   const date = parseDate(body.date, now.slice(0, 10))
-  if (date === null) return { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' }
+  if (date === null) return { error: { _status: 400, code: 'invalid_date', error: '日付の形式が不正です' } }
 
-  if (!Array.isArray(body.lines)) return { _status: 400, error: '発注行がありません' }
+  if (!Array.isArray(body.lines)) return { error: { _status: 400, error: '発注行がありません' } }
   const rawLines = body.lines
-  if (rawLines.length > MAX_LINES_PER_REQUEST) return { _status: 413, error: '発注行が多すぎます' }
+  if (rawLines.length > MAX_LINES_PER_REQUEST) return { error: { _status: 413, error: '発注行が多すぎます' } }
 
   // 数量は「発注しない行は送らない」契約。0・負数・NaN・Infinity・桁外れは拒否し、
   // 黙って0や1へ丸めない（DATA-001）。
@@ -752,13 +752,13 @@ export async function handleOrderCreate(db, code, body = {}) {
     // 0 は「確認したが発注しない」行として正当（excluded と併用される）。
     // 負数・NaN・Infinity・桁外れだけを拒否する。
     const qty = parseQty(l?.qty, { min: 0, max: MAX_ORDER_QTY })
-    if (qty === null) return { _status: 400, code: 'invalid_qty', error: `発注数が不正です: ${item}` }
+    if (qty === null) return { error: { _status: 400, code: 'invalid_qty', error: `発注数が不正です: ${item}` } }
     const stock = parseOptionalNumber(l?.stock, { min: -MAX_ORDER_QTY, max: MAX_ORDER_QTY })
-    if (stock === undefined) return { _status: 400, code: 'invalid_qty', error: `在庫数が不正です: ${item}` }
+    if (stock === undefined) return { error: { _status: 400, code: 'invalid_qty', error: `在庫数が不正です: ${item}` } }
     const postStock = parseOptionalNumber(l?.postStock, { min: -MAX_ORDER_QTY, max: MAX_ORDER_QTY })
-    if (postStock === undefined) return { _status: 400, code: 'invalid_qty', error: `発注後在庫が不正です: ${item}` }
+    if (postStock === undefined) return { error: { _status: 400, code: 'invalid_qty', error: `発注後在庫が不正です: ${item}` } }
     const lotNum = parseOptionalNumber(l?.lot, { min: Number.MIN_VALUE, max: MAX_ORDER_QTY })
-    if (lotNum === undefined) return { _status: 400, code: 'invalid_qty', error: `入数が不正です: ${item}` }
+    if (lotNum === undefined) return { error: { _status: 400, code: 'invalid_qty', error: `入数が不正です: ${item}` } }
     clean.push({
       item, qty, stock, postStock,
       unit:     text(l?.unit, MAX_UNIT_LEN),
@@ -766,19 +766,19 @@ export async function handleOrderCreate(db, code, body = {}) {
       excluded: l?.excluded ? 1 : 0,
     })
   }
-  if (clean.length === 0) return { _status: 400, error: '有効な発注行がありません' }
+  if (clean.length === 0) return { error: { _status: 400, error: '有効な発注行がありません' } }
 
   // 紐付け先セッションIDは形式不正なら拒否する。旧実装は `?? null` で黙って
   // 「紐付けなし」へ倒しており、発注が棚卸セッションから切り離されていた。
   const linkedSessionId = parseClientId(body.sessionId)
   if (linkedSessionId === undefined) {
-    return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
+    return { error: { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' } }
   }
 
   // テナント境界: orders.id はグローバルPK。同じidを別店舗が指定しても、
   // 他店のヘッダ・明細を更新できないようownerを確認する。
   const owner = await db.prepare('SELECT shop_code FROM orders WHERE id = ?').bind(orderId).first()
-  if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+  if (owner && owner.shop_code !== code) return { error: { _status: 409, error: '保存できませんでした' } }
 
   // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
   // 以前はヘッダ→削除→N回INSERTが独立したwriteで、途中で落ちると
@@ -817,9 +817,20 @@ export async function handleOrderCreate(db, code, body = {}) {
     `).bind(...binds)
   })
 
+  return { orderId, statements: [headStmt, delStmt, ...lineStmts], lines: clean }
+}
+
+export async function handleOrderCreate(db, code, body = {}) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+
+  const now = _now()
+  const w = await _orderWrite(db, code, body, now)
+  if (w.error) return w.error
+  const { orderId } = w
+
   let results
   try {
-    results = await db.batch([headStmt, delStmt, ...lineStmts])
+    results = await db.batch(w.statements)
   } catch (e) {
     console.error('[storeHandler] order create batch failed:', code, orderId, e?.message ?? e)
     return { _status: 503, code: 'order_save_failed', retryable: true, error: '保存できませんでした' }
@@ -1548,7 +1559,25 @@ async function _completeOrderSession(db, code, sessionId, session, body, now) {
   if (parsed === undefined) return { _status: 400, code: 'invalid_count', error: '品目数が不正です' }
   const itemCount = parsed ?? 0
 
-  const fingerprint = await _completionFingerprint({ type: 'order', date: null, itemCount, totalValue: null })
+  // 発注の記録（orders / order_lines）を**完了と同じトランザクション**で確定する（User報告 2026-09-30）。
+  // 以前は入力のたびの保存（POST /orders）だけに頼り、完了はセッションの状態しか書かなかった。
+  // 保存が届かないまま完了すると「完了した発注」なのに記録が無い（本番で9件中8件）状態が残った。
+  // order を持たない要求（旧版の端末）はこれまでどおりセッションだけを完了する。
+  let orderWrite = null
+  if (body?.order != null) {
+    if (typeof body.order !== 'object' || Array.isArray(body.order)) {
+      return { _status: 400, code: 'invalid_order', error: '発注の記録の形式が不正です' }
+    }
+    if (Array.isArray(body.order.lines) && body.order.lines.length > 0) {
+      orderWrite = await _orderWrite(db, code, { ...body.order, sessionId }, now)
+      if (orderWrite.error) return orderWrite.error
+    }
+  }
+
+  const fingerprint = await _completionFingerprint({
+    type: 'order', date: null, itemCount, totalValue: null,
+    rows: orderWrite ? orderWrite.lines.map(l => ({ item: l.item, qty: l.qty, unit: l.unit, price: null, value: null })) : [],
+  })
 
   const settled = await _settledCompletion(db, code, sessionId, fingerprint, {
     type: 'order', requireHistory: false,
@@ -1573,6 +1602,8 @@ async function _completeOrderSession(db, code, sessionId, session, body, now) {
         UPDATE sessions SET status = 'completed', ended_at = ?, item_count = ?
         WHERE id = ? AND shop_code = ? AND deleted_at IS NULL AND ${claimExists.sql}
       `).bind(now, itemCount, sessionId, code, ...claimExists.binds),
+      // 失敗すれば batch ごと巻き戻る＝「完了したのに記録が無い」を作らない
+      ...(orderWrite ? orderWrite.statements : []),
     ])
   } catch (e) {
     console.error('[storeHandler] order session complete failed:', code, sessionId, e?.message ?? e)
@@ -1590,7 +1621,11 @@ async function _completeOrderSession(db, code, sessionId, session, body, now) {
     return { _status: 404, code: 'session_not_found', error: 'セッションが見つかりません' }
   }
 
-  return { ok: true, sessionId, type: 'order', itemCount, snapshotSaved: false }
+  return {
+    ok: true, sessionId, type: 'order', itemCount, snapshotSaved: false,
+    orderSaved: !!orderWrite && results?.[2]?.meta?.changes === 1,
+    orderId: orderWrite?.orderId ?? null,
+  }
 }
 
 // ── 操作ログ（変更履歴・migration 0017）─────────────────────────────────────

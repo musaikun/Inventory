@@ -447,3 +447,54 @@ describe('revision は自分の write が確定させた値を返す', () => {
     expect(historyOf(h)).toHaveLength(0)
   })
 })
+
+// ── 発注セッションの完了は、発注の記録を同じトランザクションで確定する（User報告 2026-09-30）──
+describe('発注の完了と発注の記録は1つのトランザクション', () => {
+  const order = { id: `ord_${OID}`, date: '2026-09-30', lines: [
+    { item: '牛乳', qty: 3, unit: '本', stock: 1, lot: 1 },
+    { item: '卵',   qty: 2, unit: 'P',  stock: null, lot: 10 },
+  ] }
+  const ordersOf = h => h.rows('SELECT id, session_id FROM orders WHERE shop_code = ?', CODE)
+  const orderLinesOf = h => h.rows('SELECT item, qty FROM order_lines WHERE shop_code = ? ORDER BY item', CODE)
+
+  it('完了と一緒に発注の記録が保存される', async () => {
+    const h = setup()
+    h.seedSession(CODE, OID, { type: 'order' })
+    const res = await handleSessionComplete(h.db, CODE, OID, { itemCount: 2, order })
+    expect(res.ok).toBe(true)
+    expect(res.orderSaved).toBe(true)
+    expect(ordersOf(h)).toEqual([{ id: `ord_${OID}`, session_id: OID }])
+    expect(orderLinesOf(h)).toHaveLength(2)
+  })
+
+  it('途中で落ちれば、完了も記録も残らない（再試行できる）', async () => {
+    const h = setup()
+    h.seedSession(CODE, OID, { type: 'order' })
+    h.failBatchAt(3)
+    const res = await handleSessionComplete(h.db, CODE, OID, { itemCount: 2, order })
+    expect(res._status).toBe(503)
+    expect(h.rows('SELECT status FROM sessions WHERE id = ?', OID)[0].status).toBe('active')
+    expect(ordersOf(h)).toHaveLength(0)
+
+    const again = await handleSessionComplete(h.db, CODE, OID, { itemCount: 2, order })
+    expect(again.ok).toBe(true)
+    expect(orderLinesOf(h)).toHaveLength(2)
+  })
+
+  it('同じ内容の再送は冪等に成功する', async () => {
+    const h = setup()
+    h.seedSession(CODE, OID, { type: 'order' })
+    expect((await handleSessionComplete(h.db, CODE, OID, { itemCount: 2, order })).ok).toBe(true)
+    expect((await handleSessionComplete(h.db, CODE, OID, { itemCount: 2, order })).ok).toBe(true)
+    expect(orderLinesOf(h)).toHaveLength(2)
+  })
+
+  it('発注の記録が不正なら何も書かない', async () => {
+    const h = setup()
+    h.seedSession(CODE, OID, { type: 'order' })
+    const res = await handleSessionComplete(h.db, CODE, OID, { itemCount: 1, order: { ...order, lines: [{ item: '牛乳', qty: -1 }] } })
+    expect(res._status).toBe(400)
+    expect(h.rows('SELECT status FROM sessions WHERE id = ?', OID)[0].status).toBe('active')
+    expect(ordersOf(h)).toHaveLength(0)
+  })
+})

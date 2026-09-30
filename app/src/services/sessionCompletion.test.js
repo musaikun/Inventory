@@ -137,6 +137,21 @@ describe('buildCompletionRequest — order', () => {
     expect(JSON.stringify(r.body)).not.toContain('items')
   })
 
+  it('発注の記録を一緒に送る（完了と同じトランザクションで保存させる）', () => {
+    const order = { id: 'ord_x', date: '2026-09-30', sessionId: 'x', savedAt: 'ignored', lines: [{ item: '牛乳', qty: 3, unit: '本', stock: 1, lot: 1 }] }
+    const r = buildCompletionRequest({ sessionType: 'order', orderCount: 1, order })
+    expect(r.ok).toBe(true)
+    expect(r.body.order).toEqual({ id: 'ord_x', date: '2026-09-30', sessionId: 'x', lines: [{ item: '牛乳', qty: 3, unit: '本', stock: 1, lot: 1, postStock: null }] })
+    // 送った後に端末の記録が変わっても、要求の中身は変わらない
+    order.lines[0].qty = 99
+    expect(r.body.order.lines[0].qty).toBe(3)
+  })
+
+  it('発注行が無ければ記録は送らない', () => {
+    const r = buildCompletionRequest({ sessionType: 'order', orderCount: 0, order: { id: 'ord_x', lines: [] } })
+    expect(r.body).toEqual({ itemCount: 0 })
+  })
+
   it('件数が数値でなければ送らない', () => {
     const r = buildCompletionRequest({ sessionType: 'order', orderCount: NaN })
     expect(r.ok).toBe(false)

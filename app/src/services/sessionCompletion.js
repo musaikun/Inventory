@@ -131,24 +131,34 @@ function _normalizedInventoryNames(inventory) {
  * @param {object} arg.inventory   完了時点の在庫（stock のみ使用）
  * @param {object} arg.prices      単価（stock のみ使用）
  * @param {number} arg.orderCount  発注行の件数（order のみ使用）
+ * @param {object} arg.order       発注の記録 { id, date, sessionId, lines }（order のみ・完了と同じトランザクションで保存）
  * @returns {{ ok: true, type: string, body: object, snapshot: object|null }
  *          | { ok: false, reason: string }}
  */
 export function buildCompletionRequest({
-  sessionType = 'stock', snapshot = null, inventory = {}, prices = {}, orderCount = 0,
+  sessionType = 'stock', snapshot = null, inventory = {}, prices = {}, orderCount = 0, order = null,
 } = {}) {
-  if (sessionType === 'order') return _orderRequest(orderCount)
+  if (sessionType === 'order') return _orderRequest(orderCount, order)
   return _stockRequest({ snapshot, inventory, prices })
 }
 
 // ── order ────────────────────────────────────────────────────────────────────
-// 送るのは件数だけ。発注明細は `POST /store/:code/orders` が別経路で冪等に書く。
-function _orderRequest(orderCount) {
+// 件数と**発注の記録そのもの**を送る。server は完了と同じトランザクションで orders / order_lines を書く
+// （User報告 2026-09-30：入力ごとの保存が届かないまま完了し、完了した発注に記録が無かった）。
+function _orderRequest(orderCount, order) {
   const n = Number(orderCount)
   if (!Number.isFinite(n) || n < 0 || n > MAX_LINES_PER_REQUEST || !Number.isInteger(n)) {
     return { ok: false, reason: 'invalid_order_count' }
   }
-  return { ok: true, type: COMPLETION_ORDER, snapshot: null, body: { itemCount: n } }
+  const body = { itemCount: n }
+  if (order?.id && Array.isArray(order.lines) && order.lines.length > 0) {
+    if (order.lines.length > MAX_LINES_PER_REQUEST) return { ok: false, reason: 'too_many_items', limit: MAX_LINES_PER_REQUEST }
+    body.order = _freeze({
+      id: order.id, date: order.date ?? null, sessionId: order.sessionId ?? null,
+      lines: order.lines.map(l => ({ item: l.item, qty: l.qty, unit: l.unit ?? '', stock: l.stock ?? null, lot: l.lot ?? null, postStock: l.postStock ?? null })),
+    })
+  }
+  return { ok: true, type: COMPLETION_ORDER, snapshot: null, body }
 }
 
 // ── stock ────────────────────────────────────────────────────────────────────
