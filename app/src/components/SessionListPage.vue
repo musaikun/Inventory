@@ -42,6 +42,7 @@ import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import DataInspector from './DataInspector.vue'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -178,6 +179,7 @@ const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'obj
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
 
 // ── 管理タブ ─────────────────────────────────────────────
+const showInspector = ref(false)   // 記録の確認（サーバーと端末の記録を並べる）
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 function onDeleteOrphan(snap) {
@@ -195,6 +197,7 @@ async function onLogout() {
 
 // 端末の戻る操作は、ページを閉じる前にシートから閉じる
 onUnmounted(registerInnerLayerCloser(() => {
+  if (showInspector.value) { showInspector.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
   if (tab.value !== 'sessions') { goTab('sessions'); return true }
   return false
@@ -287,6 +290,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       <div class="m-h">その他</div>
       <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
       <button class="m-card" type="button" @click="emit('startPractice')">🎓<span>練習モード<small>テスト用の品目で試す（履歴に残りません）</small></span><i>›</i></button>
+      <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
       <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
       <template v-if="otherActiveSessions.length">
         <div class="m-h">その他の未完了（古い）</div>
@@ -307,6 +311,8 @@ onUnmounted(registerInnerLayerCloser(() => {
       <button :class="{ on: tab === 'history' }" type="button" @click="goTab('history')"><b>📅</b>履歴</button>
       <button :class="{ on: tab === 'dashboard' }" type="button" @click="goTab('dashboard')"><b>🗂</b>管理</button>
     </nav>
+
+    <DataInspector v-if="showInspector" @close="showInspector = false" />
 
     <ManagerDashboard
       v-if="showDashboard" :snapshots="dashboardSnapshots"
