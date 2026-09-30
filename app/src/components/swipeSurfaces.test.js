@@ -24,6 +24,7 @@ const SURFACES = [
   ['./HistoryCalendar.vue',   '.hc-cal'],         // カレンダーの月送り
   ['./SessionListPage.vue',   '.home-panels'],    // ホームの下部ナビのタブ送り（在庫・履歴・管理）
   ['./SessionDetailPage.vue', '.tab-panel'],      // セッション詳細のタブ送り
+  ['./GuestResultView.vue',   '.guest-body'],     // 共有結果（閲覧用）のタブ送り
   ['../style.css',            '.modal-sheet'],    // ConfirmModal の品目送り
 ]
 

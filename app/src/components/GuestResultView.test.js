@@ -59,3 +59,28 @@ describe('GuestResultView レポート・振り分け', () => {
     expect(btn).toBeTruthy()
   })
 })
+
+describe('GuestResultView スワイプでタブ送り', () => {
+  const swipe = async (el, dx) => {
+    const t = (x) => ({ changedTouches: [{ clientX: x, clientY: 100 }] })
+    el.dispatchEvent(Object.assign(new Event('touchstart'), t(200)))
+    el.dispatchEvent(Object.assign(new Event('touchmove'), t(200 + dx)))
+    el.dispatchEvent(Object.assign(new Event('touchend'), t(200 + dx)))
+    await nextTick()
+  }
+  const active = r => r.querySelector('.tab-btn.active').textContent
+
+  it('左へ払うと右のタブ、右へ払うと左のタブ。端では止まる', async () => {
+    const r = mount(result)   // 変更履歴なし＝参加者別が右端
+    const body = r.querySelector('.guest-body')
+    expect(active(r)).toContain('品目一覧')
+    await swipe(body, -120)
+    expect(active(r)).toContain('参加者別')
+    await swipe(body, -120)
+    expect(active(r)).toContain('参加者別')
+    await swipe(body, 120); await swipe(body, 120)
+    expect(active(r)).toContain('レポート')
+    await swipe(body, 120)
+    expect(active(r)).toContain('レポート')
+  })
+})

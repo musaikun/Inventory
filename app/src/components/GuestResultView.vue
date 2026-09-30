@@ -1,6 +1,7 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import InventoryTable from './InventoryTable.vue'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { snapshotViewConfig } from '../services/snapshotView.js'
 import { buildSessionReport } from '../services/sessionReport.js'
 
@@ -60,6 +61,28 @@ const sortedLog = computed(() => {
   return [...log].reverse()
 })
 const hasAuditLog = computed(() => sortedLog.value.length > 0)
+
+// 左右スワイプでタブを移る（User指示 2026-09-30）。中身の無いタブ（押せないタブ）は飛ばす。
+const tabs = computed(() => [
+  'report', 'items',
+  ...(hasParticipants.value ? ['participants'] : []),
+  ...(hasAuditLog.value ? ['history'] : []),
+])
+const slideDir = ref('')   // 'l' = 右のタブへ ／ 'r' = 左のタブへ（移った面の入り方）
+function goTab(step) {
+  const list = tabs.value
+  const next = list[list.indexOf(activeTab.value) + step]
+  if (!next) return
+  slideDir.value = step > 0 ? 'l' : 'r'
+  _swiping = true
+  activeTab.value = next
+}
+// 移った面にだけ付ける（v-show で出た瞬間にアニメーションが走る）
+const slideClass = name => (activeTab.value === name && slideDir.value ? `slide-${slideDir.value}` : '')
+// タブを押して移ったときは滑らせない
+let _swiping = false
+watch(activeTab, () => { if (!_swiping) slideDir.value = ''; _swiping = false })
+const swipe = useHorizontalSwipe({ onLeft: () => goTab(1), onRight: () => goTab(-1) })
 
 function fmtDate(dateStr) {
   if (!dateStr) return ''
@@ -137,9 +160,15 @@ function actionClass(action) {
         <button v-if="itemSearch" class="item-search-clear" title="クリア" @click="itemSearch = ''">✕</button>
       </div>
 
-      <div class="guest-body">
+      <div
+        class="guest-body"
+        @touchstart.passive="swipe.onTouchStart"
+        @touchmove.passive="swipe.onTouchMove"
+        @touchend.passive="swipe.onTouchEnd"
+        @touchcancel.passive="swipe.onTouchCancel"
+      >
         <!-- レポート（金額なし）-->
-        <div v-show="activeTab === 'report'" class="panel panel-scroll">
+        <div v-show="activeTab === 'report'" :class="['panel panel-scroll', slideClass('report')]">
           <div class="rp-card">
             <div class="rp-grid">
               <div class="rp-cell">
@@ -173,7 +202,7 @@ function actionClass(action) {
         </div>
 
         <!-- 品目一覧 -->
-        <div v-show="activeTab === 'items'" class="panel panel-items">
+        <div v-show="activeTab === 'items'" :class="['panel panel-items', slideClass('items')]">
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
@@ -186,7 +215,7 @@ function actionClass(action) {
         </div>
 
         <!-- 参加者別 -->
-        <div v-show="activeTab === 'participants'" class="panel panel-scroll">
+        <div v-show="activeTab === 'participants'" :class="['panel panel-scroll', slideClass('participants')]">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
           <p v-else class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</p>
           <div v-for="p in participants" :key="p.name" class="participant-section">
@@ -210,7 +239,7 @@ function actionClass(action) {
         </div>
 
         <!-- 変更履歴 -->
-        <div v-show="activeTab === 'history'" class="panel panel-scroll">
+        <div v-show="activeTab === 'history'" :class="['panel panel-scroll', slideClass('history')]">
           <div v-if="!hasAuditLog" class="empty-msg">変更履歴がありません</div>
           <div v-for="entry in sortedLog" :key="entry.id" class="log-entry">
             <div class="log-left">
@@ -367,7 +396,12 @@ function actionClass(action) {
 .tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── 本文 ── */
-.guest-body { flex: 1; overflow: hidden; min-height: 0; position: relative; }
+.guest-body { flex: 1; overflow: hidden; min-height: 0; position: relative; touch-action: pan-y; }
+/* スワイプで移ったタブの入り方（移った向きから少し滑り込む） */
+.panel.slide-l { animation: guest-slide-l 0.22s ease-out; }
+.panel.slide-r { animation: guest-slide-r 0.22s ease-out; }
+@keyframes guest-slide-l { from { transform: translateX(24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes guest-slide-r { from { transform: translateX(-24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
 .panel { height: 100%; box-sizing: border-box; padding: 12px 0 24px; overflow: hidden; }
 /* 品目一覧タブも縦スクロールできるようにする（最後の品目まで見える） */
 .panel-items {
