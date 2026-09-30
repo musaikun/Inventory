@@ -5,7 +5,7 @@ import LoadingSpinner from './LoadingSpinner.vue'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
-import { getSessions, createSession } from '../composables/useAuth.js'
+import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { hasAnySchedule, scheduleRows, schedulesTodayContext } from '../services/orderScheduleUtil.js'
 import { showOrderSchedule, orderScheduleFocusId } from '../composables/appMenuState.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
@@ -180,26 +180,11 @@ function onSave() {
 // ── 発注（既存の発注セッションへの入口）───────────────────────
 // 発注はルーム同期・完了確定を持つセッションなので、このページでは開始・再開だけを扱う。
 // カード内に別の発注記録を作ると「どちらが正か分からない」2経路になるため作らない。
-const orderSessions = ref([])
-const orderLoading  = ref(true)
-const orderError    = ref('')
-const startingOrder = ref(false)
-
-onMounted(async () => {
-  try {
-    const list = await getSessions()
-    orderSessions.value = Array.isArray(list) ? list : []
-  } catch (e) {
-    orderError.value = e?.message || '発注の状態を取得できませんでした'
-  } finally {
-    orderLoading.value = false
-  }
-})
-
-const activeOrderSession = computed(() =>
-  orderSessions.value
-    .filter(s => s.status !== 'completed' && s.type === 'order')
-    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] || null)
+// 発注の開始・再開はホームと同じ共通の部品（以前はここに別の実装があった）
+const launcher = useSessionLauncher()
+const { loading: orderLoading, error: orderError, activeOrderSession } = launcher
+const startingOrder = computed(() => launcher.startingKind.value === 'order')
+onMounted(async () => { if (await launcher.load() === 'unauthorized') emit('back') })
 
 const orderSchedules = computed(() => config.orderSchedules ?? [])
 const hasSched       = computed(() => hasAnySchedule(orderSchedules.value))
@@ -226,17 +211,8 @@ function _formatDate(iso) {
 }
 
 async function onStartOrder() {
-  if (itemCount.value === 0) { orderError.value = '先に品目マスタを登録してください'; return }
-  startingOrder.value = true
-  orderError.value = ''
-  try {
-    const session = await createSession('order')
-    emit('startSession', session, 'order')
-  } catch (e) {
-    orderError.value = e?.message || '発注を開始できませんでした'
-  } finally {
-    startingOrder.value = false
-  }
+  const session = await launcher.startOrder()
+  if (session) emit('startSession', session, 'order')
 }
 
 // 取込（過去の納品・過去の棚卸・品目マスタ）はデータ管理へ集約した。

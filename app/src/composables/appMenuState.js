@@ -4,7 +4,7 @@ import { ref } from 'vue'
 // null = 閉じている / 'all' | 'import' | 'device' | 'push' | 'general'
 export const settingsSection = ref(null)
 
-// 振り分けページ（AxisAssignModal）をアプリ全体で開く
+// 振り分けページ（AxisAssignFocus）をアプリ全体で開く
 export const showAxisAssign  = ref(false)
 export const axisAssignInitial = ref(0)   // 開いたとき最初に選択する並び替え（0=①, 1=②）
 

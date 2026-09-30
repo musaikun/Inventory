@@ -7,14 +7,13 @@ export const _showOrders    = ref(false)
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { getSessions, createSession, updateSession, deleteSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+import { updateSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
-import { fetchRoomStatus } from '../composables/useSync.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
-import { isSessionLocked, deleteConfirmMessage } from '../services/sessionLock.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -62,14 +61,14 @@ const showDashboard = _showDashboard
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 
-const sessions       = ref([])
-const loading        = ref(true)
-const error          = ref('')
-// どのカードを開始処理中か（null | 'stock' | 'order'）。棚卸・発注は独立したセッション
-// なので、開始中の「開始中…」表示も disabled も自カードの種別のときだけに閉じる
-// （もう一方のカードを薄く/無効化しない＝互いに影響しないことを見た目でも保証）。
-const startingKind   = ref(null)
-const deletingId     = ref(null)
+// セッションの一覧・開始・再開・破棄・ルーム状態は共通の部品（ホーム以外からも開始できるように）
+const launcher = useSessionLauncher()
+const {
+  sessions, loading, error, startingKind, deletingId,
+  inProgressSessions, activeSession, otherActiveSessions, activeOrderSession, completedSessions,
+  todayDone, now, liveRoom, liveStatus, orderLiveStatus,
+} = launcher
+const _stockAt = launcher.stockAt
 const dragOffset     = ref(0)
 const showStartModal = ref(false)
 
@@ -105,33 +104,6 @@ const trackStyle = computed(() => {
   return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
 })
 
-const liveRoom      = ref(null)   // 棚卸ルーム /status
-const liveOrderRoom = ref(null)   // 発注ルーム /status（type=order）
-const now      = ref(Date.now())
-let _statusTimer = null
-
-async function _pollRoomStatus() {
-  now.value = Date.now()
-  if (!shopCode.value) { liveRoom.value = null; liveOrderRoom.value = null; return }
-  liveRoom.value = await fetchRoomStatus(shopCode.value, 'stock')
-  liveOrderRoom.value = activeOrderSession.value ? await fetchRoomStatus(shopCode.value, 'order') : null
-}
-
-// 指定セッションに対応するライブルーム状態に正規化（別セッションのルームは無視）
-function _normStatus(r, session) {
-  if (!r || !session) return null
-  if (r.sessionId && r.sessionId !== session.id) return null
-  return {
-    ...r,
-    participants: Array.isArray(r.participants) ? r.participants : [],
-    clientCount:  typeof r.clientCount === 'number' ? r.clientCount : 0,
-    roomExists:   r.roomExists ?? r.isActive ?? false,
-    totalItems:   typeof r.totalItems === 'number' ? r.totalItems : null,
-  }
-}
-
-const liveStatus       = computed(() => _normStatus(liveRoom.value, activeSession.value))
-const orderLiveStatus  = computed(() => _normStatus(liveOrderRoom.value, activeOrderSession.value))
 const isRoomConnected      = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
 const isOrderRoomConnected = computed(() => (orderLiveStatus.value?.clientCount ?? 0) > 0)
 // 進捗率（入力済み / 総品目）。総品目はルーム状態が無ければローカルの品目数で補完し、
@@ -170,92 +142,12 @@ function _formatElapsed(iso) {
 }
 
 onMounted(async () => {
-  await _loadSessions()
-  _pollRoomStatus()
-  _statusTimer = setInterval(_pollRoomStatus, 5000)
+  if (await launcher.load() === 'unauthorized') { emit('back'); return }
+  launcher.startRoomPolling()
 })
 
-onUnmounted(() => {
-  if (_statusTimer) clearInterval(_statusTimer)
-})
+onUnmounted(() => launcher.stopRoomPolling())
 
-async function _loadSessions() {
-  loading.value = true
-  error.value   = ''
-  try {
-    sessions.value = await getSessions()
-  } catch (e) {
-    if (e.message.includes('401') || e.message.toLowerCase().includes('unauthorized')) {
-      await logout()
-      emit('back')
-      return
-    }
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
-}
-
-const inProgressSessions = computed(() =>
-  sessions.value
-    .filter(s => s.status !== 'completed')
-    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))
-)
-// 種類で振り分け（棚卸=stock / 発注=order）。type未設定の旧行は棚卸扱い。
-const stockInProgress = computed(() => inProgressSessions.value.filter(s => (s.type ?? 'stock') !== 'order'))
-const orderInProgress = computed(() => inProgressSessions.value.filter(s => s.type === 'order'))
-
-// 棚卸: 1店舗=同時に1棚卸。最新の進行中をヒーローに、残りはレガシー整理用に下へ
-const activeSession = computed(() => stockInProgress.value[0] || null)
-const otherActiveSessions = computed(() => stockInProgress.value.slice(1))
-// 発注: 進行中の発注セッション（あれば発注カードをヒーロー表示）
-const activeOrderSession = computed(() => orderInProgress.value[0] || null)
-
-const completedSessions = computed(() =>
-  sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order')
-)
-
-// 履歴の表示（Freeプラン上限・カレンダー）は履歴カレンダーページが持つ。
-// ここは進行中セッションと導線だけを扱う。
-
-function _isSessionLocked(session) {
-  return isSessionLocked(session, {
-    // 恒久ロック（新しい棚卸の完了で確定済み）。新しい方を削除しても外れない。
-    snapshotLocked: !!getSnapshotBySessionId(session.id)?.locked,
-    completedSessions: completedSessions.value,
-  })
-}
-
-/**
- * その日すでに終わっている棚卸（まだ編集できるもの）。
- *
- * 同じ日に2回棚卸すると、以前は**別のセッションとして2本できていた**。
- * 数え直しのつもりで始めた2回目が、1回目と並んで履歴に残り、消費の計算も
- * 「同じ日に2回棚卸した」ものとして扱われる。たいていは**続きか数え直し**なので、
- * まず続きから開けるように訊く。
- */
-const _localDateKey = (d) => new Date(d).toLocaleDateString('sv-SE')   // YYYY-MM-DD（ローカル日）
-// 過去の棚卸の取込。endedAt は「取り込んだ時刻」で、実施日は startedAt が持つ（日付だけを使う）。
-function _isImportedSession(s) {
-  return !!s?.importBatchId || getSnapshotBySessionId(s?.id)?.source === 'import'
-}
-// 棚卸を実施した時点。取込は実施日の正午として扱う（取り込んだ日を「前回」にしない）
-function _stockAt(s) {
-  if (_isImportedSession(s)) {
-    const d = String(s.startedAt || '').slice(0, 10) || getSnapshotBySessionId(s.id)?.date
-    return d ? `${d}T12:00:00` : null
-  }
-  return s.endedAt ?? s.startedAt
-}
-const todayDone = computed(() => {
-  const key = _localDateKey(Date.now())
-  return completedSessions.value.find(sess => {
-    if (_isImportedSession(sess)) return false   // 取り込んだ過去の棚卸は「今日の棚卸」ではない
-    const at = sess.endedAt ?? sess.startedAt
-    if (!at) return false
-    return _localDateKey(at) === key && !_isSessionLocked(sess)
-  }) ?? null
-})
 
 function onStartNew() {
   // マスタが正なので、実データがあれば確認を挟まず即開始。
@@ -266,23 +158,10 @@ function onStartNew() {
 
 async function confirmStart() {
   showStartModal.value = false
-  // 同じ日の2回目は、まず「続きから」を勧める。別の棚卸として増やすこともできる
-  const done = todayDone.value
-  if (done) {
-    if (confirm('本日すでに棚卸は行われています。\n\n再編集でいいですか？\n\nOK … その棚卸の続きから（数量・変更履歴・時間もそのまま）\nキャンセル … 別の棚卸として新しく始める')) {
-      emit('resumeSession', done)
-      return
-    }
-  }
-  startingKind.value = 'stock'
-  try {
-    const session = await createSession()
-    emit('startSession', session)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    startingKind.value = null
-  }
+  // 同じ日の2回目は、まず「続きから」を勧める（useSessionLauncher.startStock）
+  const r = await launcher.startStock()
+  if (r?.resume) emit('resumeSession', r.resume)
+  else if (r?.session) emit('startSession', r.session)
 }
 
 function onImportList() {
@@ -296,16 +175,8 @@ function onImportList() {
 
 // 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
 async function onStartOrder() {
-  if (itemCount.value === 0) { error.value = '先に品目マスタを登録してください（取込む、または棚卸で追加）'; return }
-  startingKind.value = 'order'
-  try {
-    const session = await createSession('order')
-    emit('startSession', session, 'order')
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    startingKind.value = null
-  }
+  const session = await launcher.startOrder()
+  if (session) emit('startSession', session, 'order')
 }
 
 // 空のリストで開始（棚卸しながら品目を追加）
@@ -325,18 +196,7 @@ function onResume(session) {
 }
 
 async function onDelete(session) {
-  const locked = session.status === 'completed' && _isSessionLocked(session)
-  if (!confirm(deleteConfirmMessage(session, locked))) return
-  deletingId.value = session.id
-  try {
-    await deleteSession(session.id)
-    sessions.value = sessions.value.filter(s => s.id !== session.id)
-    emit('deleteSession', session.id)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    deletingId.value = null
-  }
+  if (await launcher.remove(session)) emit('deleteSession', session.id)
 }
 
 async function onLogout() {

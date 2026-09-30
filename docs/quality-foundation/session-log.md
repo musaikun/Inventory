@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-09-30 — version 0.118.2 / 再設計の段階1・2：開始・再開の共通化と、使われていない部品の削除
+
+proposals.md 2026-09-30「表がホーム」の準備。見た目・動きは変えていない。
+- 段階1: 棚卸・発注の一覧・開始（同じ日の2回目は「続きから」を訊く）・破棄・ルーム状態の取得を
+  `composables/useSessionLauncher.js` へ切り出し。ホーム（SessionListPage）と仕入れ（MovementPage）の両方から使う。
+  仕入れにあった発注開始の別実装（重複）を削除。401 はログアウトして 'unauthorized' を返し、画面は戻る。
+- 段階2: どこからも使われていない `HomeScreen`・`OrderModal`・`AxisAssignModal`・`StoreSetupModal`・`TextPasteParserModal`（計1645行）と、
+  それだけが使っていた `utils/textParser.js`（とテスト12件）を削除。`RiveCanvas` は dev/rive で使うので残した。
+- 検証: `useSessionLauncher.test.js` 6件追加。App **185 files / 2023 passed**、build 成功。
+  実アプリ（ローカル Worker）で「仕入れから発注を開始」「別端末のホームに進行中の発注カード」「ホームから棚卸を開始」を確認。
+- 次: 段階3（新しいホームを切り替え式で作る）。
+- version: 0.118.1 → **0.118.2**（patch）。
+
 ## 2026-09-30 — version 0.118.1 / 方針変更（D-027）と画面の再設計の提案（docsのみ）
 
 - User判断: 機能の不足と実使用の不具合の修正を、品質集中（公開gate）より優先する → decisions.md **D-027**。
