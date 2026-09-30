@@ -23,7 +23,7 @@ const props = defineProps({
 const emit = defineEmits(['added', 'saved', 'close'])
 useEscapeKey(() => emit('close'))
 
-const { config, addItem, patchItem } = useConfig()
+const { config, addItem, patchItem, setEmptyList } = useConfig()
 const isEdit = computed(() => props.mode === 'edit')
 
 const name     = ref('')
@@ -60,6 +60,8 @@ function submit() {
   if (exists.value) { error.value = 'その名前は既に登録されています'; return }
   // 似た名前は1回だけ止める。同じ名前でもう一度押せば追加する（別の品目のことはある）
   if (similar.value.length && confirmedSimilar.value !== n) { confirmedSimilar.value = n; return }
+  // サンプルの品目リストのまま足すと、サンプルと自分の品目が混ざる。最初の1品目で空のリストに切り替える
+  if (!config.isCustom) setEmptyList()
   const p = Number(price.value)
   const ok = addItem(n, Number.isFinite(p) && p > 0 ? p : null, category.value, unit.value)
   if (!ok) { error.value = '追加できませんでした（無料プランの品目数の上限に達している可能性があります）'; return }

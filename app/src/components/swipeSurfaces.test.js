@@ -7,7 +7,7 @@
 // このアプリは戻るを履歴の受け皿で捕まえているので、横取りされると受け皿が消えて
 // 次の戻るでアプリごと閉じる。タップ経由では履歴に触らないので起きなかった。
 //
-// SessionListPage / SessionDetailPage は最初から宣言していて問題が出ていなかった。
+// SessionDetailPage は最初から宣言していて問題が出ていなかった（ホームは再設計で横スワイプをやめた）。
 // 漏れていた側を揃え、以後の追加でも漏れないようこのテストで固定する。
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -22,7 +22,6 @@ const SURFACES = [
   ['./AxisAssignFocus.vue',   '.af-list'],        // 品目行の左スワイプ（非表示）
   ['./MovementPage.vue',      '.mv-scroll'],      // 仕入れのタブ送り
   ['./HistoryCalendar.vue',   '.hc-cal'],         // カレンダーの月送り
-  ['./SessionListPage.vue',   '.tab-panel'],      // ホームのページ送り
   ['./SessionDetailPage.vue', '.tab-panel'],      // セッション詳細のタブ送り
   ['../style.css',            '.modal-sheet'],    // ConfirmModal の品目送り
 ]

@@ -46,8 +46,6 @@ async function mountApp() {
 
 const view   = () => document.body.dataset.view
 const button = label => [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
-const byText = label => [...host.querySelectorAll('button, .master-card, .flow-card')]
-  .find(el => el.textContent.includes(label))
 
 async function click(el) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -90,8 +88,14 @@ async function seedItems() {
   await flush()
 }
 
+// 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
+async function openFromManage(label) {
+  const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
+  if (nav) await click(nav)
+  await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
+}
 async function openMovement() {
-  await click(button('入出庫') || button('仕入れ'))
+  await openFromManage('仕入れ')
   expect(view()).toBe('movement')
 }
 async function openMasterFromMovement() {
@@ -167,7 +171,7 @@ describe('アプリを閉じる前に確認する', () => {
 
     await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
     await flush()
-    await click(byText('データ管理'))
+    await openFromManage('データ管理')
     expect(view()).toBe('master')
 
     await deviceBack()
@@ -237,7 +241,7 @@ describe('戻るはひとつ前の画面へ返す', () => {
   it('ホーム → データ管理 → 戻る は ホーム', async () => {
     await mountApp()
     await seedItems()
-    await click(byText('データ管理'))
+    await openFromManage('データ管理')
     expect(view()).toBe('master')
 
     await deviceBack()

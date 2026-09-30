@@ -48,7 +48,7 @@ describe('lastPage', () => {
     expect(readLastPage()).toBe(null)
   })
 
-  it('復元対象は独立ページ4つだけ', () => {
-    expect(RESTORABLE_PAGES).toEqual(['master', 'history', 'movement', 'stock'])
+  it('復元対象は独立ページ3つだけ', () => {
+    expect(RESTORABLE_PAGES).toEqual(['master', 'history', 'movement'])
   })
 })

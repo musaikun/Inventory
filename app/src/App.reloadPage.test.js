@@ -124,8 +124,9 @@ describe('再読込しても同じページに留まる', () => {
   it('データ管理', async () => {
     await mountApp()
     await seedItems()
-    // データ管理はカード（品目マスタ）から開く
-    await click(host.querySelector('.master-card') || button('データ管理'))
+    // データ管理はホームの「管理」タブから開く
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
+    await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes('データ管理')))
     expect(view()).toBe('master')
 
     await reload()

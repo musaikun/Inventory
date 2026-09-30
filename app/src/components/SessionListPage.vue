@@ -1,36 +1,161 @@
 <script>
 import { ref } from 'vue'
+// App から参照する（戻る操作・ホームへ戻るときのリセット）。
+// _persistedTab: 'sessions' = 在庫（ホーム） / 'dashboard' = 管理
 export const _persistedTab  = ref('sessions')
 export const _showDashboard = ref(false)
 export const _showOrders    = ref(false)
 </script>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { updateSession, isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+/**
+ * ホーム（画面の再設計「表がホーム」・proposals.md 2026-09-30）。
+ *
+ * 起動したら品目・在庫の表（InventoryTable）が見える。棚卸・発注を始めると同じ表が
+ * 青・橙に変わる（セッション画面）。上の段は、中断中のセッション → 今日のやること →
+ * 操作ボタン（棚卸・発注・入出庫）。下部ナビは 在庫（ここ）／履歴／管理。
+ *
+ * 以前は縦長のカード（データ管理・棚卸・品目・履歴・β仕入れ）とダッシュボードタブで、
+ * 最初の画面が「とっつきにくい」（User 2026-09-30）。確認はブラウザの confirm をやめて
+ * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
+ */
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { isAuthenticated, storeName, logout } from '../composables/useAuth.js'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
-import LoadingSpinner from './LoadingSpinner.vue'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
-import { useDayNotes } from '../composables/useDayNotes.js'
+import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { calendarTodos } from '../services/calendarTodos.js'
+import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
+import StockPage from './StockPage.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
-import { settingsSection } from '../composables/appMenuState.js'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openStock'])
+const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback'])
 
-const { config, itemCount, activeItemCount, setEmptyList } = useConfig()
-const { getSnapshotBySessionId, getSnapshots, deleteSnapshotLocal } = useHistory()
-// 在庫分析の「カレンダーに無い棚卸」から削除。セッション行は無いので、記録（端末＋D1 store_history）だけを消す
+const { config, itemCount, setEmptyList } = useConfig()
+const { getSnapshots, deleteSnapshotLocal } = useHistory()
+const { hasDraft: hasMovementDraft } = useMovementDraft()
+const { getMovements } = useMovements()
+const { getOrders } = useOrders()
+
+const tab = _persistedTab
+const showDashboard = _showDashboard
+
+// セッションの一覧・開始・再開・破棄・ルーム状態（共通の部品）
+const launcher = useSessionLauncher()
+const {
+  loading, error, startingKind, deletingId,
+  activeSession, otherActiveSessions, activeOrderSession, completedSessions, liveRoom,
+} = launcher
+
+onMounted(async () => {
+  if (await launcher.load() === 'unauthorized') { emit('back'); return }
+  launcher.startRoomPolling()
+})
+onUnmounted(() => launcher.stopRoomPolling())
+
+const stockRef = ref(null)   // StockPage（要補充の件数・＋の追加を借りる）
+
+// ── 中断中のセッション（帯）────────────────────────────────
+function _itemCount(session) {
+  if (!session) return 0
+  if (session.id === props.liveSessionId && props.liveItemCount > 0) return props.liveItemCount
+  const r = liveRoom.value
+  if (r?.isActive && session.id === r.sessionId && r.itemCount > 0) return r.itemCount
+  return session.itemCount ?? 0
+}
+const _WEEK = ['日', '月', '火', '水', '木', '金', '土']
+function _hm(iso) {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+function _mdw(d) { return `${d.getMonth() + 1}/${d.getDate()}（${_WEEK[d.getDay()]}）` }
+
+// ── 今日のやること（1行）──────────────────────────────────
+const _todayKey = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const todos = computed(() => calendarTodos({
+  today: _todayKey(),
+  orderSchedules: config.orderSchedules ?? [],
+  orders: getOrders(),
+  movements: getMovements(),
+  stockKeys: completedSessions.value.map(s => String(launcher.stockAt(s) || '').slice(0, 10)),
+}).filter(t => !t.done))
+
+// ── 前回の棚卸（開始シート）─────────────────────────────────
+const lastStock = computed(() => {
+  let best = null
+  for (const s of completedSessions.value) {
+    const t = new Date(launcher.stockAt(s))
+    if (!Number.isNaN(t.getTime()) && (!best || t > best)) best = t
+  }
+  return best ? _mdw(best) : null
+})
+const todaySchedules = computed(() => {
+  const dow = new Date().getDay()
+  return (config.orderSchedules ?? []).map((s, i) => ({ s, i }))
+    .filter(({ s }) => hasSchedule(s) && s.days.includes(dow))
+    .map(({ s, i }) => `${scheduleName(s, i)}${s.deadline ? `（${s.deadline}締切）` : ''}`)
+})
+
+// 入出庫ボタンのしるし（未記録の入力・入庫として未反映の発注）
+const unreflectedCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
+
+// ── シート ───────────────────────────────────────────────
+// null | 'stock' | 'order' | { discard: session }
+const sheet = ref(null)
+const sameDay = ref(null)     // 同じ日の2回目のとき、今日の棚卸
+function closeSheet() { sheet.value = null; sameDay.value = null }
+
+const hasOwnList = computed(() => config.isCustom && itemCount.value > 0)
+
+function openStockSheet()  { sameDay.value = null; sheet.value = 'stock' }
+function openOrderSheet()  { sheet.value = 'order' }
+
+async function startStock({ room = false, force = false } = {}) {
+  const r = await launcher.startStock({ force })
+  if (r?.sameDay) { sameDay.value = r.sameDay; return }
+  if (r?.session) { closeSheet(); emit('startSession', r.session, 'stock', { room }) }
+}
+async function startStockEmpty() {
+  // 品目が無い（またはサンプル）→ 空のリストで始めて、数えながら登録する
+  setEmptyList()
+  await startStock({ force: true })
+}
+function resumeSameDay() { const s = sameDay.value; closeSheet(); emit('resumeSession', s) }
+function startPractice() { closeSheet(); emit('startPractice') }
+
+async function startOrder({ room = false } = {}) {
+  const s = await launcher.startOrder()
+  if (s) { closeSheet(); emit('startSession', s, 'order', { room }) }
+}
+
+function resume(session) { closeSheet(); emit('resumeSession', session) }
+function askDiscard(session) { sheet.value = { discard: session } }
+async function confirmDiscard() {
+  const s = sheet.value?.discard
+  if (!s) return
+  if (await launcher.remove(s, { confirmed: true })) emit('deleteSession', s.id)
+  closeSheet()
+}
+const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))
+const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
+
+// ── 管理タブ ─────────────────────────────────────────────
+const historyTick = ref(0)
+const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 function onDeleteOrphan(snap) {
   const key = snap?.sessionId
   if (!key) return
@@ -38,1922 +163,285 @@ function onDeleteOrphan(snap) {
   deleteSnapshotFromD1(key)
   historyTick.value++
 }
-const { hasDraft: hasMovementDraft, draftCount: movementDraftCount, discardAll: discardMovementDraft } = useMovementDraft()
-const { getMovements } = useMovements()
-const { getOrders } = useOrders()
-const { getNote } = useDayNotes()
-
-// 入庫として未反映の発注件数（直近30日で入庫が未記録のもの）。ホームカードのバッジ用。
-const unreflectedInboundCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
-
-// 仕入れカードのサブ文言（未記録ドラフト＞未反映の入庫＞既定の順で表示）。
-const moveCardSub = computed(() => {
-  if (hasMovementDraft.value) return '記録していない入力があります（タップで再開）'
-  if (unreflectedInboundCount.value > 0) return `発注 ${unreflectedInboundCount.value}件が入庫として未反映です（タップで反映）`
-  return '在庫の確認／発注／入庫・出庫の記録'
-})
-function onDiscardMovementDraft() {
-  if (!confirm('未記録の入出庫の入力を破棄しますか？')) return
-  discardMovementDraft()
-}
-const showDashboard = _showDashboard
-// 記録を消したら分析へ入る一覧も作り直す（getSnapshots は端末の保存を読むだけなので、きっかけを明示する）
-const historyTick = ref(0)
-const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
-
-// セッションの一覧・開始・再開・破棄・ルーム状態は共通の部品（ホーム以外からも開始できるように）
-const launcher = useSessionLauncher()
-const {
-  sessions, loading, error, startingKind, deletingId,
-  inProgressSessions, activeSession, otherActiveSessions, activeOrderSession, completedSessions,
-  todayDone, now, liveRoom, liveStatus, orderLiveStatus,
-} = launcher
-const _stockAt = launcher.stockAt
-const dragOffset     = ref(0)
-const showStartModal = ref(false)
-
-const listSavedLabel = computed(() => {
-  if (!config.savedAt) return ''
-  const d = new Date(config.savedAt)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-})
-const hiddenCount   = computed(() => Math.max(0, itemCount.value - activeItemCount.value))
-const axisNamesSet  = computed(() => (config.axisNames || []).filter(Boolean))
-// 分類は最大2枠。登録済み＝チップ、未登録＝破線の丸で「あと何枠か」を可視化。
-const axisSlots     = computed(() => [0, 1].map(i => (config.axisNames?.[i] || '').trim()))
-
-const activeTab    = _persistedTab
-
-const swipe = useHorizontalSwipe({
-  onLeft:  () => { if (activeTab.value === 'sessions')  activeTab.value = 'dashboard' },
-  onRight: () => { if (activeTab.value === 'dashboard') activeTab.value = 'sessions' },
-  onDrag: (dx) => {
-    if (dx === 0) { dragOffset.value = 0; return }
-    if (activeTab.value === 'sessions'  && dx > 0) return
-    if (activeTab.value === 'dashboard' && dx < 0) return
-    dragOffset.value = dx
-  },
-})
-
-const trackStyle = computed(() => {
-  const base = activeTab.value === 'sessions' ? 0 : -50
-  if (dragOffset.value === 0) {
-    return { transform: `translateX(${base}%)`, transition: 'transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)' }
-  }
-  return { transform: `translateX(calc(${base}% + ${dragOffset.value}px))`, transition: 'none' }
-})
-
-const isRoomConnected      = computed(() => (liveStatus.value?.clientCount ?? 0) > 0)
-const isOrderRoomConnected = computed(() => (orderLiveStatus.value?.clientCount ?? 0) > 0)
-// 進捗率（入力済み / 総品目）。総品目はルーム状態が無ければローカルの品目数で補完し、
-// ルームの有無に依らず 0/100 品目・ゲージを表示できるようにする。
-function _pct(count, total) {
-  if (!total) return null
-  return Math.min(100, Math.round((count / total) * 100))
-}
-
-// 進捗の分母は手動非表示を除いた実効品目数（ローカル）。ルームの totalItems は
-// 非表示を反映しないため、ホームの進捗はローカルの activeItemCount を優先する。
-// 発注は「発注数が決まった品目数」を数える（在庫入力数ではない）。ルームがあれば
-// DO の orderItemCount を正とし、オフライン時のみ保存済みセッションの件数で補完する。
-const orderItemCount = computed(() => {
-  const s = orderLiveStatus.value
-  if (s && typeof s.orderItemCount === 'number' && (s.clientCount > 0 || s.roomExists)) return s.orderItemCount
-  return activeOrderSession.value ? _itemCount(activeOrderSession.value) : 0
-})
-const orderTotalItems = computed(() => (activeItemCount.value || orderLiveStatus.value?.totalItems || null))
-const orderProgressPct = computed(() => _pct(orderItemCount.value, orderTotalItems.value))
-
-const liveItemCount = computed(() => (activeSession.value ? _itemCount(activeSession.value) : 0))
-const liveTotalItems = computed(() => (activeItemCount.value || liveStatus.value?.totalItems || null))
-const liveProgressPct = computed(() => _pct(liveItemCount.value, liveTotalItems.value))
-
-function _formatElapsed(iso) {
-  if (!iso) return ''
-  const ms = now.value - new Date(iso).getTime()
-  if (ms < 0) return ''
-  const min = Math.floor(ms / 60000)
-  if (min < 1)  return 'まもなく'
-  if (min < 60) return `${min}分`
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return m > 0 ? `${h}時間${m}分` : `${h}時間`
-}
-
-onMounted(async () => {
-  if (await launcher.load() === 'unauthorized') { emit('back'); return }
-  launcher.startRoomPolling()
-})
-
-onUnmounted(() => launcher.stopRoomPolling())
-
-
-function onStartNew() {
-  // マスタが正なので、実データがあれば確認を挟まず即開始。
-  // 開始バナーは「空マスタ / サンプル」の誘導だけに縮小。
-  if (config.isCustom && itemCount.value > 0) { confirmStart(); return }
-  showStartModal.value = true
-}
-
-async function confirmStart() {
-  showStartModal.value = false
-  // 同じ日の2回目は、まず「続きから」を勧める（useSessionLauncher.startStock）
-  const r = await launcher.startStock()
-  if (r?.resume) emit('resumeSession', r.resume)
-  else if (r?.session) emit('startSession', r.session)
-}
-
-function onImportList() {
-  // 進行中セッションがあるまま品目リストを一括変更すると、その対象リストが変わる。
-  if (activeSession.value || activeOrderSession.value) {
-    if (!confirm('進行中のセッションがあります。\n品目リストを変更すると、進行中の棚卸／発注の対象リストも変わります。\n続けますか？')) return
-  }
-  showStartModal.value = false
-  emit('openSettings')
-}
-
-// 発注確認を開始（type=order の型付きセッションを作成。棚卸カードは type=stock で振り分けるため汚さない）
-async function onStartOrder() {
-  const session = await launcher.startOrder()
-  if (session) emit('startSession', session, 'order')
-}
-
-// 空のリストで開始（棚卸しながら品目を追加）
-async function onStartEmpty() {
-  setEmptyList()
-  await confirmStart()
-}
-
-// 練習モードで開始（テスト用リスト・履歴に残さない）
-function onStartPractice() {
-  showStartModal.value = false
-  emit('startPractice')
-}
-
-function onResume(session) {
-  emit('resumeSession', session)
-}
-
-async function onDelete(session) {
-  if (await launcher.remove(session)) emit('deleteSession', session.id)
-}
-
 async function onLogout() {
   if (!confirm('ログアウトしますか？')) return
   await logout()
   emit('back')
 }
 
-// ── カードの余白に置く「今の状況」──────────────────────────────────────────
-// データ管理・棚卸・履歴カレンダーの3枚は同じ大きさに揃えている。データ管理に合わせると
-// 他の2枚に余白が余るので、そこを飾りではなく**開く前に知りたいこと**で埋める。
-//   棚卸       … 前回いつ数えたか（次に数える判断そのもの）
-//   カレンダー … 今日の日付と今日のメモ（開かなくても今日の予定が読める）
-const _WEEK = ['日', '月', '火', '水', '木', '金', '土']
-function _mdw(d) { return `${d.getMonth() + 1}/${d.getDate()}（${_WEEK[d.getDay()]}）` }
-// 日付の差は「暦の日数」で数える。経過時間(ms)で割ると、昨日の夜と今朝が同じ0日になる。
-function _daysApart(from, to) {
-  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate())
-  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate())
-  return Math.round((b - a) / 86400000)
-}
-
-// now は5秒ごとに更新される（経過時間の表示と共用）。日付をまたいでも表示が古びない。
-const todayKey = computed(() => {
-  const d = new Date(now.value)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-})
-const todayLabel = computed(() => {
-  const d = new Date(now.value)
-  return `${d.getMonth() + 1}月${d.getDate()}日（${_WEEK[d.getDay()]}）`
-})
-// 今日のメモ（履歴カレンダーの日別メモと同じもの）。タグと本文を1行に畳む。
-const todayNote = computed(() => getNote(todayKey.value))
-const todayMemoTags = computed(() => todayNote.value?.tags ?? [])
-const todayMemoText = computed(() => (todayNote.value?.text ?? '').trim())
-const hasTodayMemo  = computed(() => todayMemoTags.value.length > 0 || !!todayMemoText.value)
-
-// 前回の棚卸（完了済みのうち最新）。終了時刻が無い行は開始時刻で数える。
-const lastStock = computed(() => {
-  let best = null
-  for (const s of completedSessions.value) {
-    const t = new Date(_stockAt(s))
-    if (Number.isNaN(t.getTime())) continue
-    if (!best || t > best) best = t
-  }
-  if (!best) return null
-  const days = _daysApart(best, new Date(now.value))
-  return {
-    date: _mdw(best),
-    ago:  days <= 0 ? '今日' : days === 1 ? '昨日' : `${days}日前`,
-  }
-})
-
-function _formatDate(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function _statusLabel(status) {
-  return status === 'completed' ? '完了' : '進行中'
-}
-
-function _statusClass(status) {
-  return status === 'completed' ? 'status-done' : 'status-active'
-}
-
-function _itemCount(session) {
-  if (session.id === props.liveSessionId && props.liveItemCount > 0) return props.liveItemCount
-  if (liveRoom.value?.isActive && session.id === liveRoom.value.sessionId && liveRoom.value.itemCount > 0) {
-    return liveRoom.value.itemCount
-  }
-  return session.itemCount
-}
+// 端末の戻る操作は、ページを閉じる前にシートから閉じる
+onUnmounted(registerInnerLayerCloser(() => {
+  if (sheet.value) { closeSheet(); return true }
+  if (tab.value === 'dashboard') { tab.value = 'sessions'; return true }
+  return false
+}))
 </script>
 
 <template>
-  <div class="sessions-page">
+  <div class="home">
+    <header class="home-head">
+      <span class="home-logo">🧮 タナオロ</span>
+      <span class="home-store">{{ storeName || '' }}<small v-if="shopCode"> {{ shopCode }}</small></span>
+    </header>
 
-    <!-- ヘッダー -->
-    <div class="sessions-header">
-      <button class="btn-back" @click="emit('back')">‹ 戻る</button>
-      <div class="sessions-title">
-        <div class="store-name">{{ storeName || '店舗' }}</div>
-        <div class="shop-code-badge">{{ shopCode }}</div>
-      </div>
-      <button class="btn-logout" @click="onLogout">ログアウト</button>
-    </div>
+    <LoadingSpinner v-if="loading" />
 
-    <!-- タブバー -->
-    <div class="tab-bar">
-      <button :class="['tab-btn', { active: activeTab === 'sessions' }]" @click="activeTab = 'sessions'">
-        セッション
-        <span v-if="inProgressSessions.length > 0" class="tab-badge">{{ inProgressSessions.length }}</span>
-      </button>
-      <button :class="['tab-btn', { active: activeTab === 'dashboard' }]" @click="activeTab = 'dashboard'">
-        ダッシュボード
-      </button>
-    </div>
-
-    <!-- スライドパネル -->
-    <div
-      class="tab-panels-wrapper"
-      @touchstart.passive="swipe.onTouchStart"
-      @touchmove.passive="swipe.onTouchMove"
-      @touchend.passive="swipe.onTouchEnd"
-      @touchcancel.passive="swipe.onTouchCancel"
+    <!-- ── 在庫（ホーム）── -->
+    <StockPage
+      v-show="!loading && tab === 'sessions'"
+      ref="stockRef"
+      embedded
+      @open-master="emit('openMaster')"
+      @start-session="startStockEmpty"
     >
-      <LoadingSpinner v-if="loading" />
-      <div v-else class="tab-panels-track" :style="trackStyle">
+      <template #top="{ empty }">
+        <div class="home-top">
+          <div v-if="error" class="home-err">{{ error }}</div>
 
-        <!-- セッションパネル -->
-        <div class="tab-panel">
-          <div v-if="error" class="msg-error">{{ error }}</div>
-
-          <!-- ホームの3枚（データ管理・棚卸・履歴カレンダー）。初期状態では高さを揃える。
-               進行中の棚卸があるときは真ん中が別のカード（hero-live・中身の量が違う）に
-               なるため揃えない。揃えると他の2枚が引き伸ばされて空白だらけになる。 -->
-          <div class="top-cards" :class="{ equal: !activeSession }">
-
-          <!-- 棚卸の準備。データ管理（品目マスタ＋過去データ取込／書き出し）。カード全体タップで管理へ -->
-          <div class="master-card" :class="{ pulse: itemCount === 0 }" @click="emit('openMaster')">
-            <div class="master-head">
-              <span class="master-title">🗂 データ管理</span>
-              <span v-if="itemCount > 0 && !config.isCustom" class="master-sample">サンプル</span>
-              <span class="master-open">管理 →</span>
-            </div>
-            <template v-if="itemCount > 0">
-              <div class="master-detail">
-                <div class="md-row">
-                  <span class="md-k">最終更新</span>
-                  <span class="md-v">{{ listSavedLabel || '—' }}</span>
-                </div>
-                <div class="md-row">
-                  <span class="md-k">品目数</span>
-                  <span class="md-v">全 <b>{{ itemCount }}</b> ・ 表示中 <b>{{ activeItemCount }}</b><span v-if="hiddenCount > 0" class="md-sub">（非表示 {{ hiddenCount }}）</span></span>
-                </div>
-                <div class="md-row">
-                  <span class="md-k">分類</span>
-                  <span class="md-v md-axes">
-                    <template v-for="(name, i) in axisSlots" :key="i">
-                      <span v-if="name" class="md-chip">{{ name }}</span>
-                      <span v-else class="md-slot" title="未登録の分類枠"></span>
-                    </template>
-                  </span>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <div class="master-empty">まだ品目がありません。タップして取込むか、下の「棚卸を開始」で数えながら追加できます。</div>
-            </template>
+          <!-- 中断中のセッション（今日のやることより先） -->
+          <div v-if="activeSession" class="strip pause stock">
+            <span class="strip-t">⏸ 棚卸（中断中）<small>{{ _itemCount(activeSession) }}品目 ・ {{ _hm(activeSession.startedAt) }}〜</small></span>
+            <button class="strip-go" type="button" @click="resume(activeSession)">再開</button>
+            <button class="strip-more" type="button" aria-label="棚卸を破棄" :disabled="deletingId === activeSession.id" @click="askDiscard(activeSession)">⋯</button>
+          </div>
+          <div v-if="activeOrderSession" class="strip pause order">
+            <span class="strip-t">⏸ 発注（中断中）<small>{{ _itemCount(activeOrderSession) }}品目 ・ {{ _hm(activeOrderSession.startedAt) }}〜</small></span>
+            <button class="strip-go" type="button" @click="resume(activeOrderSession)">再開</button>
+            <button class="strip-more" type="button" aria-label="発注を破棄" :disabled="deletingId === activeOrderSession.id" @click="askDiscard(activeOrderSession)">⋯</button>
           </div>
 
-          <!-- 棚卸そのもの。この画面の主操作。
-               ヒーロー: 進行中があれば LIVE 再開、なければ開始 -->
-          <div v-if="activeSession" class="hero-live">
-            <div class="hero-live-head">
-              <span class="hero-live-title">進行中の棚卸</span>
-              <button class="hero-live-discard" :disabled="deletingId === activeSession.id" @click="onDelete(activeSession)">破棄</button>
-            </div>
-
-            <!-- 開始時刻・経過 -->
-            <div class="hl-row hl-times">
-              <span class="hl-label">開始</span>
-              <span class="hl-value">{{ _formatDate(activeSession.startedAt) }}</span>
-              <span class="hl-elapsed">経過 {{ _formatElapsed(activeSession.startedAt) }}</span>
-            </div>
-
-            <!-- ルーム状態 -->
-            <div class="hl-row hl-room">
-              <template v-if="isRoomConnected">
-                <span class="room-badge online">🟢 ルーム接続中</span>
-                <span class="room-people">{{ liveStatus.clientCount }}人が参加中</span>
-              </template>
-              <template v-else-if="liveStatus && liveStatus.roomExists">
-                <span class="room-badge idle">🟡 ルーム保持中</span>
-                <span class="room-people">接続中の端末はありません</span>
-              </template>
-              <template v-else>
-                <span class="room-badge off">⚪ ルーム未接続</span>
-                <span class="room-people">オフライン（端末内に保存済み）</span>
-              </template>
-            </div>
-
-            <!-- 参加者 -->
-            <div v-if="liveStatus?.participants?.length" class="hl-people">
-              <span
-                v-for="(p, i) in liveStatus.participants"
-                :key="i"
-                class="person-chip"
-                :class="{ host: p.isHost, done: p.isDone }"
-              >
-                <span v-if="p.isHost" class="person-crown">👑</span>{{ p.name }}<span v-if="p.isDone" class="person-check">✓</span>
-              </span>
-            </div>
-
-            <!-- 品目進捗 -->
-            <div class="hl-progress">
-              <div class="hl-prog-text">
-                <span class="hl-prog-count">{{ liveItemCount }}</span><span
-                  v-if="liveTotalItems" class="hl-prog-total"> / {{ liveTotalItems }} 品目</span><span
-                  v-else class="hl-prog-total"> 品目入力済み</span>
-                <span v-if="liveProgressPct != null" class="hl-prog-pct">{{ liveProgressPct }}%</span>
-              </div>
-              <div v-if="liveProgressPct != null" class="hl-prog-bar">
-                <div class="hl-prog-fill" :style="{ width: liveProgressPct + '%' }"></div>
-              </div>
-            </div>
-
-            <button class="hero-live-resume" @click="onResume(activeSession)">再開する →</button>
-          </div>
-
-          <button v-else class="hero-start" :disabled="startingKind === 'stock'" @click="onStartNew">
-            <div class="hero-start-main">
-              <div class="hero-start-icon">👥</div>
-              <div class="hero-start-text">
-                <div class="hero-start-title">{{ startingKind === 'stock' ? '開始中...' : '棚卸を開始' }}</div>
-                <div class="hero-start-sub">みんなで一緒に、その場で記録</div>
-              </div>
-              <div class="hero-start-arrow">→</div>
-            </div>
-            <!-- 余白は「次に数えるかどうか」の判断材料で埋める -->
-            <div class="card-foot">
-              <span class="card-foot-k">前回</span>
-              <span v-if="lastStock" class="card-foot-v">{{ lastStock.date }}<span class="card-foot-sub">{{ lastStock.ago }}</span></span>
-              <span v-else class="card-foot-v none">まだ実施していません</span>
-            </div>
+          <!-- 今日のやること（1行・タップで履歴カレンダー） -->
+          <button v-if="!empty && todos.length" class="strip today" type="button" @click="emit('openHistory')">
+            <span class="strip-t">📋 今日：<b>{{ todos[0].label }}</b><small v-if="todos.length > 1"> ほか{{ todos.length - 1 }}件</small></span>
+            <span class="strip-arrow">›</span>
           </button>
 
-          <!-- 品目・在庫。品目の一覧と今の見込み、1品目ずつの追加（User相談 2026-09-29） -->
-          <button class="stock-link" type="button" @click="emit('openStock')">
-            <span class="history-link-main">
-              <span class="history-link-ico">📦</span>
-              <span class="history-link-text">
-                <span class="history-link-title">品目・在庫</span>
-                <span class="history-link-sub">{{ itemCount > 0 ? `品目 ${activeItemCount}・＋で追加` : 'まだ品目がありません。1つずつ追加できます' }}</span>
-              </span>
-              <span class="history-link-arrow">→</span>
-            </span>
-          </button>
-
-          <!-- 完了した棚卸を見る。履歴は専用ページ（履歴カレンダー）が正 -->
-          <button class="history-link" type="button" @click="emit('openHistory')">
-            <span class="history-link-main">
-              <span class="history-link-ico">📅</span>
-              <span class="history-link-text">
-                <span class="history-link-title">履歴カレンダー</span>
-                <!-- 件数と操作の説明は出さない（カレンダーを開けば分かる）。
-                     まだ1件も無いときだけ、開いても空だと分かるように案内を残す。 -->
-                <span v-if="completedSessions.length === 0" class="history-link-sub">完了した棚卸はまだありません</span>
-              </span>
-              <span class="history-link-arrow">→</span>
-            </span>
-            <!-- 今日の日付と今日のメモ。開かなくても今日の予定が読めるようにする。
-                 メモの実体は履歴カレンダーの日別メモと同じもの（この画面では読むだけ）。 -->
-            <span class="card-foot">
-              <span class="card-foot-k">今日</span>
-              <span class="card-foot-v">{{ todayLabel }}</span>
-            </span>
-            <span class="card-foot">
-              <span class="card-foot-k">メモ</span>
-              <span v-if="hasTodayMemo" class="card-foot-v memo-line">
-                <span v-for="t in todayMemoTags" :key="t" class="memo-tag">{{ t }}</span>
-                <span v-if="todayMemoText" class="memo-text">{{ todayMemoText }}</span>
-              </span>
-              <span v-else class="card-foot-v none">まだありません（タップして書けます）</span>
-            </span>
-          </button>
-
-          </div>
-          <!-- /top-cards -->
-
-          <!-- ここから下は棚卸の主導線ではない。初回公開ではβ機能として二段目に置く -->
-          <div class="beta-head">
-            <span class="beta-badge">β</span>
-            <span class="beta-title">試用中の機能</span>
-            <span class="beta-note">棚卸とは別の記録です。まだ検証中のため、結果は参考値として扱ってください。</span>
-          </div>
-
-          <div class="beta-group">
-
-          <!-- 仕入れ（専用ページ：在庫/発注/入庫/出庫の4タブ）。
-               発注の開始・再開、発注日/締切の設定もこのページへ集約した。
-               出庫は初回公開の主導線から外し、ページ内のタブとしてのみ残す -->
-          <div class="move-wrap">
-            <button class="move-start" :class="{ 'has-draft': hasMovementDraft }" @click="emit('openMovement')">
-              <div class="move-start-icon">🛒</div>
-              <div class="move-start-text">
-                <div class="move-start-title">
-                  仕入れ（在庫・発注・入庫）<span class="beta-chip">β</span>
-                  <span v-if="hasMovementDraft" class="move-draft-badge">未記録 {{ movementDraftCount }}</span>
-                  <span v-if="unreflectedInboundCount > 0" class="move-inbound-badge">🧾 未反映の入庫 {{ unreflectedInboundCount }}</span>
-                </div>
-                <div class="move-start-sub">
-                  {{ moveCardSub }}
-                </div>
-                <div class="move-start-caveat">
-                  在庫の表示は直近の棚卸に入出庫を加減算した理論在庫です。記録していない使用・ロスの分だけ実際とずれます。
-                </div>
-              </div>
-              <div class="move-start-arrow">→</div>
+          <!-- 操作ボタン -->
+          <div v-if="!empty" class="acts">
+            <button class="act stock" type="button" :disabled="startingKind === 'stock'" @click="openStockSheet">
+              <b>👥</b>{{ startingKind === 'stock' ? '開始中…' : '棚卸' }}
             </button>
-            <button
-              v-if="hasMovementDraft"
-              class="move-discard"
-              @click.stop="onDiscardMovementDraft"
-              title="未記録の入力を破棄"
-            >破棄</button>
+            <button class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
+              <b>🧾</b>{{ startingKind === 'order' ? '開始中…' : '発注' }}
+            </button>
+            <button class="act" type="button" @click="emit('openMovement', 'in')">
+              <b>📥</b>入出庫
+              <span v-if="unreflectedCount > 0" class="act-badge" :title="`入庫として未反映の発注 ${unreflectedCount}件`">{{ unreflectedCount }}</span>
+              <span v-else-if="hasMovementDraft" class="act-dot" title="記録していない入力があります"></span>
+            </button>
           </div>
-
-          <!-- 発注内容の確認・記録（淡いオレンジ）── 棚卸とは別のセッション -->
-          <div v-if="activeOrderSession" class="order-live">
-            <div class="order-live-top">
-              <span class="order-live-badge">🧾 進行中の発注記録<span class="beta-chip">β</span></span>
-              <button class="order-live-discard" :disabled="deletingId === activeOrderSession.id" @click="onDelete(activeOrderSession)">破棄</button>
-            </div>
-            <div class="order-live-row">
-              <span class="hl-label">開始</span>
-              <span class="hl-value">{{ _formatDate(activeOrderSession.startedAt) }}</span>
-              <span class="hl-elapsed">経過 {{ _formatElapsed(activeOrderSession.startedAt) }}</span>
-            </div>
-
-            <!-- ルーム状態（棚卸カードと同じ） -->
-            <div class="order-live-row hl-room">
-              <template v-if="isOrderRoomConnected">
-                <span class="room-badge online">🟢 ルーム接続中</span>
-                <span class="room-people">{{ orderLiveStatus.clientCount }}人が参加中</span>
-              </template>
-              <template v-else-if="orderLiveStatus && orderLiveStatus.roomExists">
-                <span class="room-badge idle">🟡 ルーム保持中</span>
-                <span class="room-people">接続中の端末はありません</span>
-              </template>
-              <template v-else>
-                <span class="room-badge off">⚪ ルーム未接続</span>
-                <span class="room-people">オフライン（端末内に保存済み）</span>
-              </template>
-            </div>
-
-            <!-- 参加者 -->
-            <div v-if="orderLiveStatus?.participants?.length" class="hl-people">
-              <span
-                v-for="(p, i) in orderLiveStatus.participants" :key="i"
-                class="person-chip" :class="{ host: p.isHost, done: p.isDone }"
-              >
-                <span v-if="p.isHost" class="person-crown">👑</span>{{ p.name }}<span v-if="p.isDone" class="person-check">✓</span>
-              </span>
-            </div>
-
-            <!-- 品目進捗（棚卸カードと統一）-->
-            <div class="hl-progress">
-              <div class="hl-prog-text">
-                <span class="hl-prog-count">{{ orderItemCount }}</span><span
-                  v-if="orderTotalItems" class="hl-prog-total"> / {{ orderTotalItems }} 品目</span><span
-                  v-else class="hl-prog-total"> 品目入力済み</span>
-                <span v-if="orderProgressPct != null" class="hl-prog-pct">{{ orderProgressPct }}%</span>
-              </div>
-              <div v-if="orderProgressPct != null" class="hl-prog-bar">
-                <div class="hl-prog-fill" :style="{ width: orderProgressPct + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="order-live-caveat">記録するだけで、仕入先へは自動送信されません。</div>
-            <button class="order-live-resume" @click="onResume(activeOrderSession)">発注の記録を再開する →</button>
-          </div>
-          <!-- 発注の開始・スケジュール設定は「仕入れ」ページ（発注タブ）へ集約した。
-               ここに残すのは進行中の発注だけ（進行中は目立たせる必要がある）。 -->
-
-          </div><!-- /.beta-group -->
-
-          <!-- レガシー: 古い未完了セッション（整理用） -->
-          <template v-if="otherActiveSessions.length > 0">
-            <div class="section-title">その他の未完了（古い）</div>
-            <div
-              v-for="s in otherActiveSessions"
-              :key="s.id"
-              class="session-card"
-            >
-              <div class="session-main">
-                <span class="session-status status-active">進行中</span>
-                <span class="session-date">開始: {{ _formatDate(s.startedAt) }}</span>
-                <button class="btn-delete" :disabled="deletingId === s.id" @click.stop="onDelete(s)" title="削除">🗑</button>
-              </div>
-              <div class="session-sub">
-                <span class="session-count">{{ _itemCount(s) }}品目入力済み</span>
-              </div>
-              <button class="btn btn-primary session-resume-btn" @click="onResume(s)">再開する</button>
-            </div>
-          </template>
-
         </div>
+      </template>
+    </StockPage>
 
-        <!-- ダッシュボードパネル -->
-        <div class="tab-panel">
-
-          <div class="section-title">📊 分析</div>
-          <div class="dashboard-card" @click="showDashboard = true">
-            <div class="dashboard-card-icon">📊</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">在庫分析</div>
-              <div class="dashboard-card-desc">在庫金額・前回差・ABC分析・棚卸メタ</div>
-            </div>
-            <span class="dashboard-card-arrow">›</span>
-          </div>
-
-          <div class="section-title" style="margin-top:16px">⚙️ 設定</div>
-          <div class="dashboard-card" @click="settingsSection = 'general'">
-            <div class="dashboard-card-icon">⚙️</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">各種設定</div>
-              <div class="dashboard-card-desc">端末名・プッシュ通知・アプリ情報</div>
-            </div>
-            <span class="dashboard-card-arrow">›</span>
-          </div>
-
-          <div class="section-title" style="margin-top:16px">❓ ヘルプ</div>
-          <div class="dashboard-card dashboard-card-disabled">
-            <div class="dashboard-card-icon">📖</div>
-            <div class="dashboard-card-body">
-              <div class="dashboard-card-title">使い方ガイド</div>
-              <div class="dashboard-card-desc">操作マニュアルを準備中</div>
-            </div>
-            <span class="coming-badge">準備中</span>
-          </div>
-
+    <!-- ── 管理 ── -->
+    <div v-if="!loading && tab === 'dashboard'" class="manage">
+      <div class="m-h">品目データ</div>
+      <button class="m-card" type="button" @click="emit('openMaster')">📥<span>データ管理<small>取込・書出・振り分け・品目の点検</small></span><i>›</i></button>
+      <div class="m-h">分析・仕入れ</div>
+      <button class="m-card" type="button" @click="showDashboard = true">📊<span>在庫分析<small>在庫金額・前回差・ABC分析</small></span><i>›</i></button>
+      <button class="m-card" type="button" @click="emit('openMovement', 'view')">🛒<span>仕入れ<small>発注基準・発注日・入庫・出庫の記録（β）</small></span><i>›</i></button>
+      <div class="m-h">その他</div>
+      <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
+      <button class="m-card" type="button" @click="emit('startPractice')">🎓<span>練習モード<small>テスト用の品目で試す（履歴に残りません）</small></span><i>›</i></button>
+      <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
+      <template v-if="otherActiveSessions.length">
+        <div class="m-h">その他の未完了（古い）</div>
+        <div v-for="s in otherActiveSessions" :key="s.id" class="m-old">
+          <span>{{ _hm(s.startedAt) }} 開始 ・ {{ _itemCount(s) }}品目</span>
+          <button type="button" class="m-old-btn" @click="resume(s)">再開</button>
+          <button type="button" class="m-old-btn ng" :disabled="deletingId === s.id" @click="askDiscard(s)">破棄</button>
         </div>
-
-      </div>
+      </template>
+      <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
     </div>
+
+    <!-- ── 下部ナビ ── -->
+    <nav class="bnav" aria-label="ホームのメニュー">
+      <button :class="{ on: tab === 'sessions' }" type="button" @click="tab = 'sessions'"><b>📦</b>在庫</button>
+      <button type="button" @click="emit('openHistory')"><b>📅</b>履歴</button>
+      <button :class="{ on: tab === 'dashboard' }" type="button" @click="tab = 'dashboard'"><b>🗂</b>管理</button>
+    </nav>
 
     <ManagerDashboard
       v-if="showDashboard" :snapshots="dashboardSnapshots"
-      :sessions="loading || error ? null : sessions"
+      :sessions="loading || error ? null : launcher.sessions.value"
       @delete-orphan="onDeleteOrphan" @close="showDashboard = false"
     />
 
-
-    <!-- 開始バナー: 使用する品目リストを確認 -->
-    <div v-if="showStartModal" class="start-overlay" @click.self="showStartModal = false">
-      <div class="start-sheet">
-        <div class="start-handle"></div>
-
-        <!-- カスタムリスト -->
-        <template v-if="config.isCustom">
-          <div class="start-icon ok">✓</div>
-          <div class="start-title">この品目リストで開始します</div>
-          <div class="start-listbox">
-            <span class="start-count">{{ itemCount }}件</span>
-            <span v-if="listSavedLabel" class="start-date">最終更新：{{ listSavedLabel }}</span>
-          </div>
-          <button class="start-btn primary" :disabled="startingKind === 'stock'" @click="confirmStart">このまま開始</button>
-          <button class="start-btn ghost" @click="onImportList">最新リストに更新</button>
+    <!-- ── 棚卸の開始シート ── -->
+    <div v-if="sheet === 'stock'" class="sh-bg" @click.self="closeSheet">
+      <div class="sh" role="dialog" aria-modal="true" aria-label="棚卸を始める">
+        <div class="sh-handle"></div>
+        <!-- 中断中の棚卸がある：新しく始めずに再開を勧める（同時に1つ） -->
+        <template v-if="activeSession">
+          <div class="sh-t">中断中の棚卸があります</div>
+          <div class="sh-s">{{ _hm(activeSession.startedAt) }} 開始 ・ {{ _itemCount(activeSession) }}品目入力済み</div>
+          <button class="bb stock" type="button" @click="resume(activeSession)">▶︎<span>続きから再開</span></button>
+          <button class="bb ng" type="button" @click="askDiscard(activeSession)">🗑<span>破棄する<small>入力した品目は消えます</small></span></button>
         </template>
-
-        <!-- 未設定（品目ゼロ） -->
-        <template v-else-if="itemCount === 0">
-          <div class="start-icon warn">📋</div>
-          <div class="start-title">品目リストが未設定です</div>
-          <div class="start-desc">
-            実際の棚卸を始める前に、お店の品目リストをインポートしてください。<br>
-            まず動作を確認したい場合は、下の「サンプルで試す（練習）」で試せます。
-          </div>
-          <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
+        <!-- 同じ日の2回目 -->
+        <template v-else-if="sameDay">
+          <div class="sh-t">今日はもう棚卸をしています</div>
+          <div class="sh-s">{{ _hm(sameDay.startedAt) }} 開始 ・ 完了済み</div>
+          <div class="note blue">たいていは続きか数え直しです。続きから開くと、数量・変更履歴・時間がそのまま残ります。</div>
+          <button class="bb stock" type="button" @click="resumeSameDay">↩︎<span>続きから開く<small>今日の棚卸を直す</small></span></button>
+          <button class="bb" type="button" :disabled="startingKind === 'stock'" @click="startStock({ force: true })">＋<span>別の棚卸として新しく始める<small>本当に2回数える日だけ</small></span></button>
         </template>
-
-        <!-- サンプルデータ読み込み済み -->
+        <!-- 品目がまだ無い（サンプルのまま） -->
+        <template v-else-if="!hasOwnList">
+          <div class="sh-t">品目がまだありません</div>
+          <div class="sh-s">数えながら、その場で品目を登録できます。</div>
+          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStockEmpty">👥<span>数えながら登録して始める</span></button>
+          <button class="bb" type="button" @click="closeSheet(); emit('openMaster')">📄<span>ファイルから品目を取り込む</span></button>
+        </template>
         <template v-else>
-          <div class="start-icon warn">⚠️</div>
-          <div class="start-title">サンプルデータで試します</div>
-          <div class="start-desc">
-            品目名に【テスト】が付いた仮データです。<br>
-            実際の棚卸ではお店の品目リストをインポートしてください。
-          </div>
-          <div class="start-listbox warn">
-            <span class="start-count">{{ itemCount }}件</span>
-            <span class="start-date">サンプル</span>
-          </div>
-          <button class="start-btn primary" @click="onImportList">品目リストをインポート</button>
-          <button class="start-btn ghost-weak" :disabled="startingKind === 'stock'" @click="confirmStart">このままサンプルで開始</button>
+          <div class="sh-t">棚卸を始める</div>
+          <div class="sh-s">数えた数が、今の在庫として確定します。</div>
+          <div class="info"><div>前回<b>{{ lastStock || 'まだありません' }}</b></div><div>数える品目<b>{{ itemCount }}</b></div></div>
+          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStock()">👤<span>ひとりで始める<small>この端末だけで数える</small></span></button>
+          <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })">👥<span>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
         </template>
-
-        <!-- その他の開始方法（常時） -->
-        <div class="start-alt">
-          <div class="start-alt-divider"><span>その他の開始方法</span></div>
-          <button class="start-alt-btn" :disabled="startingKind === 'stock'" @click="onStartEmpty">
-            <span class="start-alt-ico">➕</span>
-            <span class="start-alt-body">
-              <span class="start-alt-title">空のリストで開始</span>
-              <span class="start-alt-sub">棚卸しながら品目を追加していく</span>
-            </span>
-          </button>
-          <button class="start-alt-btn" @click="onStartPractice">
-            <span class="start-alt-ico">🎯</span>
-            <span class="start-alt-body">
-              <span class="start-alt-title">サンプルで試す（練習モード）</span>
-              <span class="start-alt-sub">テスト用リストで操作を試す・履歴には残りません</span>
-            </span>
-          </button>
-        </div>
-
-        <button class="start-cancel" @click="showStartModal = false">キャンセル</button>
+        <button class="sh-link" type="button" @click="startPractice">練習してみる（履歴に残りません） ›</button>
+        <div v-if="error" class="home-err">{{ error }}</div>
       </div>
     </div>
 
+    <!-- ── 発注の開始シート ── -->
+    <div v-if="sheet === 'order'" class="sh-bg" @click.self="closeSheet">
+      <div class="sh" role="dialog" aria-modal="true" aria-label="発注を始める">
+        <div class="sh-handle"></div>
+        <template v-if="activeOrderSession">
+          <div class="sh-t">中断中の発注があります</div>
+          <div class="sh-s">{{ _hm(activeOrderSession.startedAt) }} 開始 ・ {{ _itemCount(activeOrderSession) }}品目</div>
+          <button class="bb order" type="button" @click="resume(activeOrderSession)">▶︎<span>続きから再開</span></button>
+          <button class="bb ng" type="button" @click="askDiscard(activeOrderSession)">🗑<span>破棄する</span></button>
+        </template>
+        <template v-else>
+          <div class="sh-t">発注を始める</div>
+          <!-- 発注は確認・記録まで（仕入先へ送らない）。誤解すると実害が出るので、ここで1回はっきり言う -->
+          <div class="note orange">📝 <b>このアプリは発注内容の確認と記録までです。</b>仕入先へは送信されません。完了後に CSV やコピーで共有できます。</div>
+          <div class="info">
+            <div>要補充<b class="warn">{{ stockRef?.reorderCount ?? 0 }}品目</b></div>
+            <div>今日の発注日<b>{{ todaySchedules.length ? todaySchedules.join('・') : 'なし' }}</b></div>
+          </div>
+          <button class="bb order" type="button" :disabled="startingKind === 'order'" @click="startOrder()">🧾<span>ひとりで始める</span></button>
+          <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })">👥<span>みんなで発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+        </template>
+        <div v-if="error" class="home-err">{{ error }}</div>
+      </div>
+    </div>
+
+    <!-- ── 破棄の確認 ── -->
+    <div v-if="discardTarget" class="sh-bg" @click.self="closeSheet">
+      <div class="sh" role="alertdialog" aria-modal="true" :aria-label="`${discardKind}を破棄`">
+        <div class="sh-handle"></div>
+        <div class="sh-t ng">この{{ discardKind }}を破棄しますか？</div>
+        <div class="note red">
+          <b>入力済みの {{ _itemCount(discardTarget) }}品目</b>と変更履歴が消え、元に戻せません。履歴カレンダーにも残りません。
+        </div>
+        <div class="note blue">あとで続けるだけなら、破棄せずにそのまま置いておけます（「再開」で続きから）。</div>
+        <div class="two">
+          <button class="btn" type="button" @click="closeSheet">やめる</button>
+          <button class="btn ng" type="button" :disabled="deletingId === discardTarget.id" @click="confirmDiscard">破棄する</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.sessions-page {
-  height: 100dvh;
-  background: var(--bg-secondary, #f8fafc);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sessions-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 16px 12px;
-  background: white;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-
-.btn-back {
-  background: none;
-  border: none;
-  font-size: 18px;
-  color: var(--primary, var(--primary-bright));
-  cursor: pointer;
-  padding: 4px 8px;
-  transition: opacity 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.btn-back:active { opacity: 0.5; }
-
-.sessions-title { text-align: center; }
-
-.store-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.shop-code-badge {
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
-  font-family: monospace;
-  letter-spacing: 0.1em;
-}
-
-.btn-logout {
-  background: none;
-  border: none;
-  font-size: 12px;
-  color: #ef4444;
-  cursor: pointer;
-  padding: 4px 6px;
-  transition: opacity 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.btn-logout:active { opacity: 0.5; }
-
-/* タブバー */
-.tab-bar {
-  display: flex;
-  background: white;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-
-.tab-btn {
-  flex: 1;
-  padding: 12px 8px;
-  background: none;
-  border: none;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-muted, #64748b);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s, transform 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.tab-btn.active {
-  color: var(--primary, var(--primary-bright));
-  border-bottom-color: var(--primary, var(--primary-bright));
-  font-weight: 600;
-}
-
-.tab-btn:active { transform: scale(0.95); }
-
-.tab-badge {
-  background: var(--primary-bright);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  line-height: 1.6;
-}
-
-.tab-badge-gray { background: #94a3b8; }
-
-/* スライドパネル */
-.tab-panels-wrapper {
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-  position: relative;
-}
-
-.tab-panels-track {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  width: 200%;
-  height: 100%;
-  will-change: transform;
-}
-
-/* ホームのカードは大きさをそろえる。角丸・内余白・枠線の太さ・カード間の余白を
-   1か所で決め、各カードはこれを参照する（個別に書くと少しずつずれて、
-   同じ列に並んだときに別物に見える）。
-   色・テーマ（棚卸=青 / 仕入れ=緑 / 発注=オレンジ）と、強調の影・呼吸アニメーションは
-   カードごとの役割なのでそのまま残す。 */
-.tab-panel {
-  --card-radius: 14px;
-  --card-pad-y: 14px;
-  --card-pad-x: 16px;
-  --card-border: 1.5px;
-  --card-gap: 4px;      /* パネルの gap 8px と合わせて、カード間は常に 12px */
-
-  width: 50%;
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  touch-action: pan-y;
-  box-sizing: border-box;
-  -webkit-overflow-scrolling: touch;
-}
-
-.section-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted, #64748b);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-top: 8px;
-  margin-bottom: 4px;
-}
-
-/* ── ホームの3枚（データ管理・棚卸・履歴カレンダー）──
-   幅は元から同じ（パネル幅いっぱい）。高さは中身の量でばらついていたので、
-   いちばん高いカード（＝データ管理）に合わせて3枚とも同じ高さにする。
-   grid-auto-rows: 1fr は「全部の行を同じ高さにする」指定で、いちばん高い1枚に合う。
-   固定の px を置かないので、データ管理の中身が増減しても3枚は揃ったままになる。
-
-   進行中の棚卸があるとき（.equal を外す）は真ん中が hero-live に変わる。
-   あちらは参加者・進捗を持つ別物なので、揃えると他の2枚が空白だらけになる。
-   カード間は gap 8px ＋ 各カードの margin-bottom 4px = 従来と同じ12px。 */
-.top-cards { display: flex; flex-direction: column; gap: 8px; }
-.top-cards.equal { display: grid; grid-auto-rows: 1fr; }
-/* 品目・在庫は1行の入口。3枚（データ管理・棚卸・履歴）と同じ高さに引き伸ばさない */
-.top-cards.equal { grid-template-rows: 1fr 1fr auto 1fr; }
-
-/* カード下部の「今の状況」。データ管理の .md-row と同じ読み方（見出し56px＋値）に
-   そろえる。3枚が同じ形の情報を持つと、揃えた高さが余白ではなく面に見える。 */
-.card-foot {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  text-align: left;
-  min-width: 0;
-}
-.card-foot-k { flex-shrink: 0; width: 56px; color: #94a3b8; font-weight: 700; }
-.card-foot-v { flex: 1; min-width: 0; color: #334155; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-foot-v.none { color: #94a3b8; font-weight: 600; }
-.card-foot-sub { color: #94a3b8; font-weight: 700; margin-left: 8px; }
-.memo-line { display: flex; align-items: baseline; gap: 6px; }
-.memo-tag {
-  flex-shrink: 0; font-size: 11px; font-weight: 700;
-  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
-  border-radius: 12px; padding: 1px 8px;
-}
-.memo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-
-/* 履歴カレンダーページへの導線。棚卸の流れの終点 */
-.history-link {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: var(--card-pad-y) var(--card-pad-x);
-  background: #fff;
-  border: var(--card-border) solid var(--border, #e2e8f0);
-  border-radius: var(--card-radius);
-  margin-bottom: var(--card-gap);
-  text-align: left;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-/* 品目・在庫（履歴と同じ形の1枚） */
-.stock-link {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: var(--card-pad-y) var(--card-pad-x);
-  background: #fff;
-  border: var(--card-border) solid var(--border, #e2e8f0);
-  border-radius: var(--card-radius);
-  margin-bottom: var(--card-gap);
-  text-align: left;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.history-link:active, .stock-link:active { transform: scale(0.99); }
-.history-link-main { display: flex; align-items: center; gap: 12px; }
-.history-link-ico { font-size: 22px; flex-shrink: 0; }
-.history-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.history-link-title { font-size: 15px; font-weight: 800; color: #334155; }
-.history-link-sub { font-size: 12px; color: #64748b; }
-.history-link-arrow { font-size: 20px; font-weight: 300; color: #94a3b8; flex-shrink: 0; }
-
-/* ── β機能の仕切り ──
-   入出庫・発注は初回公開の主導線ではない。棚卸と同じ強さで並べると
-   「どれもやらないといけない」ように見えるため、ここから下だと明示する。 */
-.beta-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 22px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border, #e2e8f0);
-}
-.beta-badge {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 800;
-  color: #7c3aed;
-  background: #f5f3ff;
-  border: 1px solid #ddd6fe;
-  border-radius: 20px;
-  padding: 1px 8px;
-  align-self: center;
-}
-.beta-title { font-size: 13px; font-weight: 800; color: #334155; }
-.beta-note  { font-size: 11px; color: #94a3b8; font-weight: 600; flex-basis: 100%; line-height: 1.5; }
-/* β機能のカード群。モバイルでは .tab-panel と同じ縦積み、
-   デスクトップでは style.css 側で2列に組む（並列の選択肢なので横に並べてよい）。 */
-.beta-group { display: flex; flex-direction: column; gap: 8px; }
-.beta-chip {
-  display: inline-block;
-  margin-left: 6px;
-  font-size: 10px;
-  font-weight: 800;
-  color: #7c3aed;
-  background: #f5f3ff;
-  border: 1px solid #ddd6fe;
-  border-radius: 20px;
-  padding: 0 6px;
-  vertical-align: middle;
-}
-
-/* 品目マスタ カード */
-.master-card {
-  background: #fff;
-  border: var(--card-border) solid var(--border, #e2e8f0);
-  border-radius: var(--card-radius);
-  padding: var(--card-pad-y) var(--card-pad-x);
-  margin-bottom: var(--card-gap);
-  cursor: pointer;
-  transition: transform 0.12s;
-}
-.master-card:active { transform: scale(0.99); }
-.master-card.pulse { animation: master-pulse 3s ease-in-out infinite; }
-@keyframes master-pulse {
-  0%, 100% { border-color: var(--border, #e2e8f0); box-shadow: 0 1px 4px rgba(37,99,235,0.05); }
-  50%      { border-color: var(--primary-bright, #60a5fa); box-shadow: 0 3px 16px rgba(37,99,235,0.22); }
-}
-@media (prefers-reduced-motion: reduce) { .master-card.pulse { animation: none; } }
-.master-head { display: flex; align-items: center; gap: 8px; }
-.master-title { font-size: 14px; font-weight: 800; color: #334155; }
-.master-open { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--primary, #2563eb); }
-.master-count { font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); }
-.master-sample { font-size: 11px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 20px; padding: 1px 9px; }
-.master-empty { font-size: 12px; color: #64748b; margin-top: 6px; line-height: 1.5; }
-
-.master-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
-.md-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
-.md-k { flex-shrink: 0; width: 56px; color: #94a3b8; font-weight: 700; }
-.md-v { color: #334155; }
-.md-v b { color: #1e293b; }
-.md-sub { color: #94a3b8; margin-left: 4px; }
-.md-none { color: #b45309; }
-.md-axes { display: inline-flex; align-items: center; gap: 6px; }
-.md-chip { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); border-radius: 12px; padding: 1px 9px; }
-.md-slot { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 1.5px dashed #cbd5e1; flex-shrink: 0; }
-.master-actions { display: flex; gap: 8px; margin-top: 10px; }
-.master-btn {
-  border: 1px solid var(--primary-border, #bfdbfe);
-  background: #fff;
-  color: var(--primary, #2563eb);
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 8px 14px;
-  cursor: pointer;
-}
-.master-btn.primary { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
-.master-btn:active { transform: scale(0.98); }
-
-
-/* ヒーロー: 開始カード（枠は標準カードと統一・中身は青テーマ） */
-.hero-start {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: var(--card-pad-y) var(--card-pad-x);
-  background: #fff;
-  color: var(--primary, #2563eb);
-  border: var(--card-border) solid var(--border, #e2e8f0);
-  border-radius: var(--card-radius);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: var(--card-gap);
-  text-align: left;
-  transition: transform 0.14s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-.hero-start:active { transform: scale(0.98); }
-.hero-start:disabled { opacity: 0.7; cursor: not-allowed; }
-
-.hero-start-main { display: flex; align-items: center; gap: 14px; }
-
-.hero-start-icon {
-  font-size: 26px;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary-weak, #eff6ff);
-  border-radius: 14px;
-  flex-shrink: 0;
-}
-
-.hero-start-text { flex: 1; min-width: 0; }
-
-.hero-start-title {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--primary, #2563eb);
-}
-
-.hero-start-sub {
-  font-size: 12px;
-  color: var(--primary-bright, #3b82f6);
-  margin-top: 2px;
-}
-
-.hero-start-arrow {
-  font-size: 22px;
-  font-weight: 300;
-  color: var(--primary-mid, #93c5fd);
-  flex-shrink: 0;
-}
-
-/* 入出庫カード（枠は標準カードと統一・中身はグリーンテーマ） */
-.move-start {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: var(--card-pad-y) var(--card-pad-x);
-  background: #fff;
-  border: var(--card-border) solid var(--border, #e2e8f0);
-  border-radius: var(--card-radius);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  margin-bottom: var(--card-gap);
-  text-align: left;
-  transition: transform 0.14s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-.move-start:active { transform: scale(0.98); }
-.move-start-icon {
-  font-size: 26px;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #d1fae5;
-  border-radius: 14px;
-  flex-shrink: 0;
-}
-.move-start-text { flex: 1; min-width: 0; }
-.move-start-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #047857; display: flex; align-items: center; gap: 8px; }
-.move-start-sub { font-size: 12px; color: #059669; margin-top: 2px; }
-/* 理論在庫の誤差はユーザーに見える形で残す（甘い数字を出さない） */
-.move-start-caveat { font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.5; }
-.move-start-arrow { font-size: 22px; font-weight: 300; color: #10b981; flex-shrink: 0; }
-.move-wrap { position: relative; }
-.move-start.has-draft { border-color: #fbbf24; box-shadow: 0 1px 4px rgba(217,119,6,0.16); }
-.move-draft-badge { font-size: 11px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
-.move-inbound-badge { font-size: 11px; font-weight: 800; color: #fff; background: #ea580c; border-radius: 10px; padding: 1px 8px; letter-spacing: 0; }
-.move-start.has-draft .move-start-sub { color: #b45309; }
-.move-discard {
-  position: absolute; top: 8px; right: 10px; z-index: 1;
-  border: 1px solid #fecaca; background: #fff; color: #dc2626;
-  border-radius: 8px; font-size: 11px; font-weight: 700; padding: 3px 9px;
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.move-discard:active { color: #ef4444; }
-
-/* 発注確認カード（枠は標準カードと統一・中身はオレンジテーマのまま） */
-/* 発注スケジュール行（発注カードの直下・頻度/締切/位置づけ） */
-
-/* 「発注」という語から仕入先への送信を連想させないための断り書き */
-
-/* 進行中の発注（淡いオレンジのヒーロー） */
-.order-live {
-  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-  border: var(--card-border) solid #fed7aa;
-  border-radius: var(--card-radius);
-  padding: var(--card-pad-y) var(--card-pad-x);
-  margin-bottom: var(--card-gap);
-  box-shadow: 0 3px 12px rgba(234,88,12,0.14);
-  animation: order-breathe 3.2s ease-in-out infinite;
-}
-@keyframes order-breathe {
-  0%, 100% { border-color: #fed7aa; box-shadow: 0 3px 12px rgba(234,88,12,0.14); }
-  50%      { border-color: #fb923c; box-shadow: 0 6px 24px rgba(234,88,12,0.40); }
-}
-
-/* アクセシビリティ: モーション低減設定では点滅を止める */
-@media (prefers-reduced-motion: reduce) {
-  .hero-live, .order-live { animation: none; }
-}
-.order-live-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.order-live-badge { font-size: 15px; font-weight: 800; color: #c2410c; }
-.order-live-discard { border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; }
-.order-live-discard:disabled { opacity: 0.4; cursor: default; }
-.order-live-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #b45309; margin-bottom: 12px; }
-.order-live-row .hl-label { font-weight: 700; }
-.order-live-row .hl-elapsed { margin-left: auto; }
-.order-live-caveat { font-size: 11px; color: #78716c; line-height: 1.5; margin-bottom: 10px; }
-.order-live-resume {
-  width: 100%; border: none; border-radius: 12px; padding: 12px;
-  background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%);
-  color: #fff; font-size: 15px; font-weight: 800; cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.order-live-resume:active { transform: scale(0.98); }
-
-/* ヒーロー: LIVE 再開カード */
-.hero-live {
-  width: 100%;
-  padding: var(--card-pad-y) var(--card-pad-x);
-  background: white;
-  border: var(--card-border) solid var(--primary-bright);
-  border-radius: var(--card-radius);
-  box-shadow: 0 4px 16px rgba(37,99,235,0.16);
-  margin-bottom: var(--card-gap);
-  transition: border-color 0.3s;
-  animation: hero-breathe 3.2s ease-in-out infinite;
-}
-@keyframes hero-breathe {
-  0%, 100% { border-color: var(--primary-bright); box-shadow: 0 4px 16px rgba(37,99,235,0.16); }
-  50%      { border-color: var(--primary);        box-shadow: 0 6px 26px rgba(37,99,235,0.42); }
-}
-.hero-live-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.hero-live-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.hero-live-discard {
-  margin-left: auto;
-  border: 1px solid #fecaca;
-  background: #fff;
-  color: #dc2626;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: color 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.hero-live-discard:active { color: #ef4444; }
-.hero-live-discard:disabled { opacity: 0.4; cursor: default; }
-
-/* 情報行 */
-.hl-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-
-.hl-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted, #94a3b8);
-  background: #f1f5f9;
-  padding: 1px 7px;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-.hl-value {
-  font-weight: 600;
-  color: var(--text-primary, #1e293b);
-}
-
-.hl-elapsed {
-  margin-left: auto;
-  color: var(--text-muted, #64748b);
-  font-variant-numeric: tabular-nums;
-}
-
-.room-badge {
-  font-size: 12px;
-  font-weight: 700;
-}
-.room-badge.online { color: #15803d; }
-.room-badge.idle   { color: #b45309; }
-.room-badge.off    { color: #94a3b8; }
-
-.room-people {
-  margin-left: auto;
-  color: var(--text-muted, #64748b);
-  font-size: 11px;
-}
-
-/* 参加者チップ */
-.hl-people {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.person-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary-deep);
-  background: var(--primary-weak);
-  border: 1px solid var(--primary-soft);
-  padding: 3px 9px;
-  border-radius: 14px;
-}
-.person-chip.host {
-  color: #92400e;
-  background: #fffbeb;
-  border-color: #fde68a;
-}
-.person-chip.done {
-  color: #15803d;
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-}
-
-.person-crown { font-size: 11px; }
-.person-check { font-size: 11px; font-weight: 800; }
-
-/* 品目進捗 */
-.hl-progress { margin-bottom: 14px; }
-
-.hl-prog-text {
-  display: flex;
-  align-items: baseline;
-  margin-bottom: 6px;
-}
-
-.hl-prog-count {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--text-primary, #1e293b);
-  line-height: 1;
-}
-
-.hl-prog-total {
-  font-size: 13px;
-  color: var(--text-muted, #64748b);
-  margin-left: 2px;
-}
-
-.hl-prog-pct {
-  margin-left: auto;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--primary, var(--primary-bright));
-}
-
-.hl-prog-bar {
-  height: 7px;
-  background: #eef2f7;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.hl-prog-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--primary-bright), var(--primary));
-  border-radius: 4px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.hero-live-resume {
-  width: 100%;
-  padding: 13px;
-  background: var(--primary, var(--primary-bright));
-  color: white;
-  border: none;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(59,130,246,0.3);
-  transition: transform 0.12s ease, opacity 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.hero-live-resume:active { transform: scale(0.97); opacity: 0.9; }
-
-.hero-hint {
-  text-align: center;
-  color: var(--text-muted, #94a3b8);
-  font-size: 12px;
-  line-height: 1.7;
-  padding: 24px 16px;
-}
-
-/* セットアップバナー */
-.setup-banner {
-  background: white;
-  border: 1.5px solid var(--primary-border);
-  border-radius: 18px;
-  padding: 16px;
-  box-shadow: 0 2px 12px rgba(37,99,235,0.10);
-}
-
-.setup-banner-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.setup-banner-icon { font-size: 28px; flex-shrink: 0; }
-
-.setup-banner-title {
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--primary, var(--primary));
-  margin-bottom: 2px;
-}
-
-.setup-banner-sub {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-  line-height: 1.4;
-}
-
-.setup-paths {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.setup-path {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: #f8fafc;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 12px;
-  cursor: pointer;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s, border-color 0.12s;
-}
-.setup-path.primary {
-  background: linear-gradient(135deg, var(--primary-weak) 0%, var(--primary-soft) 100%);
-  border-color: var(--primary-mid);
-}
-.setup-path.weak {
-  background: #fafafa;
-  border-color: #e5e7eb;
-}
-.setup-path:active { opacity: 0.8; }
-
-.sp-icon { font-size: 20px; flex-shrink: 0; }
-
-.sp-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sp-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.setup-path.primary .sp-title { color: var(--primary, var(--primary)); }
-.setup-path.weak .sp-title    { color: var(--text-muted, #64748b); }
-
-.sp-sub {
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
-}
-.setup-path.primary .sp-sub { color: var(--primary-bright); }
-
-.sp-arr {
-  font-size: 18px;
-  color: var(--text-muted, #94a3b8);
-  flex-shrink: 0;
-}
-
-/* 年カード（完了済み一覧） */
-.year-card {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: white;
-  border: 1.5px solid transparent;
-  border-radius: 14px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  cursor: pointer;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease;
-}
-.year-card:active { transform: scale(0.98); background: #f0f9ff; border-color: var(--primary-soft); }
-
-.year-card-info { flex: 1; min-width: 0; }
-
-.year-card-year {
-  display: block;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.year-card-range {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-}
-
-.year-count {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted, #64748b);
-  background: #f1f5f9;
-  padding: 3px 10px;
-  border-radius: 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.year-card-arrow {
-  font-size: 18px;
-  color: var(--primary, var(--primary-bright));
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-/* 年詳細ビュー */
-.year-back-btn {
-  background: none;
-  border: none;
-  font-size: 15px;
-  color: var(--primary, var(--primary-bright));
-  cursor: pointer;
-  padding: 4px 0;
-  text-align: left;
-  font-weight: 600;
-  -webkit-tap-highlight-color: transparent;
-  align-self: flex-start;
-}
-.year-back-btn:active { opacity: 0.6; }
-
-.year-detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 4px 0 4px;
-}
-
-.year-detail-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-/* 月ごとの見出し */
-.month-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 2px 8px;
-}
-.month-header:first-of-type { margin-top: 8px; }
-.month-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-.month-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted, #64748b);
-  background: #f1f5f9;
-  padding: 1px 8px;
-  border-radius: 10px;
-}
-
-/* NEW バッジ */
-.badge-new {
-  font-size: 10px;
-  font-weight: 800;
-  color: white;
-  background: #ef4444;
-  padding: 2px 7px;
-  border-radius: 10px;
-  letter-spacing: 0.04em;
-  flex-shrink: 0;
-  animation: badge-pulse 2s infinite;
-}
-
-@keyframes badge-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.65; }
-}
-
-/* セッションカード */
-.session-card {
-  background: white;
-  border-radius: var(--card-radius);
-  padding: var(--card-pad-y) var(--card-pad-x);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  border: var(--card-border) solid transparent;
-  transition: transform 0.12s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-.session-card.active { border-color: var(--primary-bright); }
-
-.session-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.btn-delete {
-  margin-left: auto;
-  background: none;
-  border: none;
-  font-size: 15px;
-  cursor: pointer;
-  opacity: 0.4;
-  padding: 2px 4px;
-  line-height: 1;
-  transition: opacity 0.15s;
-  min-width: 28px;
-  min-height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.btn-delete:hover  { opacity: 0.8; }
-.btn-delete:disabled { opacity: 0.2; cursor: not-allowed; }
-
-.session-status {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 20px;
-  white-space: nowrap;
-}
-
-.status-active { background: var(--primary-soft); color: var(--primary-deep); }
-.status-done   { background: #dcfce7; color: #15803d; }
-
-.session-date {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-}
-
-.session-sub {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-  align-items: center;
-}
-
-.session-resume-btn {
-  width: 100%;
-  margin-top: 10px;
-  padding: 10px;
-  font-size: 14px;
-}
-
-.session-card-completed {
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.session-card-completed:active { transform: scale(0.99); background: #f0f9ff; }
-
-.badge-correction {
-  font-size: 10px;
-  font-weight: 700;
-  color: #d97706;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  padding: 2px 7px;
-  border-radius: 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.badge-locked {
-  font-size: 10px;
-  font-weight: 700;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  padding: 2px 7px;
-  border-radius: 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.session-detail-arrow {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--primary, var(--primary-bright));
-  font-weight: 600;
-}
-
-.session-stats-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.sstat {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-  font-weight: 500;
-}
-
-.session-parts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.part-chip {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary-deep);
-  background: var(--primary-weak);
-  border: 1px solid var(--primary-soft);
-  padding: 3px 10px;
-  border-radius: 14px;
-  white-space: nowrap;
-}
-
-/* ダッシュボードカード */
-.dashboard-card {
-  background: white;
-  border-radius: var(--card-radius);
-  padding: var(--card-pad-y) var(--card-pad-x);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  border: var(--card-border) solid transparent;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease;
-}
-.dashboard-card:active { transform: scale(0.98); background: #f0f9ff; }
-
-.dashboard-card-disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.dashboard-card-disabled:active { transform: none; background: white; }
-
-.dashboard-card-icon {
-  font-size: 24px;
-  width: 36px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.dashboard-card-body { flex: 1; min-width: 0; }
-
-.dashboard-card-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary, #1e293b);
-}
-
-.dashboard-card-desc {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-  margin-top: 2px;
-}
-
-.dashboard-card-arrow {
-  font-size: 18px;
-  color: var(--primary, var(--primary-bright));
-  font-weight: 600;
-}
-
-.coming-badge {
-  font-size: 10px;
-  font-weight: 700;
-  background: #f1f5f9;
-  color: #64748b;
-  padding: 3px 8px;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-
-/* その他 */
-.no-sessions {
-  text-align: center;
-  color: var(--text-muted, #64748b);
-  font-size: 13px;
-  line-height: 1.7;
-  padding: 32px 16px;
-}
-
-.msg-error {
-  padding: 10px 14px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 10px;
-  color: #ef4444;
-  font-size: 13px;
-}
-
-/* 開始バナー */
-.start-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  z-index: 100;
-  animation: start-fade 0.18s ease;
-}
-@keyframes start-fade { from { opacity: 0; } to { opacity: 1; } }
-
-.start-sheet {
-  width: 100%;
-  max-width: 480px;
-  background: white;
-  border-radius: 20px 20px 0 0;
-  padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  animation: start-up 0.26s cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes start-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-
-.start-handle {
-  width: 40px;
-  height: 4px;
-  border-radius: 2px;
-  background: #cbd5e1;
-  margin-bottom: 6px;
-}
-
-.start-icon {
-  font-size: 30px;
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-.start-icon.ok   { background: #ecfdf5; }
-.start-icon.warn { background: #fffbeb; }
-
-.start-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-  text-align: center;
-}
-
-.start-desc {
-  font-size: 13px;
-  color: var(--text-muted, #64748b);
-  text-align: center;
-  line-height: 1.7;
-}
-
-.start-listbox {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #f1f5f9;
-  border-radius: 12px;
-  padding: 10px 16px;
-  margin: 2px 0 4px;
-}
-.start-listbox.warn { background: #fef3c7; }
-
-.start-count {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
-}
-
-.start-date {
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
-}
-
-.start-btn {
-  width: 100%;
-  padding: 14px;
-  border: none;
-  border-radius: 14px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s, opacity 0.12s;
-}
-.start-btn:active { transform: scale(0.97); }
-.start-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-.start-btn.primary {
-  background: linear-gradient(135deg, var(--primary-bright) 0%, var(--primary) 100%);
-  color: white;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
-}
-.start-btn.ghost {
-  background: var(--primary-weak);
-  color: var(--primary);
-}
-.start-btn.ghost-weak {
-  background: none;
-  color: var(--text-muted, #64748b);
-  font-weight: 600;
-  padding: 10px;
-}
-
-.start-cancel {
-  background: none;
-  border: none;
-  color: var(--text-muted, #94a3b8);
-  font-size: 13px;
-  padding: 8px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* ── その他の開始方法 ── */
-.start-alt {
-  width: 100%;
-  margin-top: 8px;
-}
-.start-alt-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: var(--text-muted, #94a3b8);
-  font-size: 11px;
-  font-weight: 700;
-  margin: 4px 0 10px;
-}
-.start-alt-divider::before,
-.start-alt-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border, #e2e8f0);
-}
-.start-alt-divider span { padding: 0 10px; }
-
-.start-alt-btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  background: #f8fafc;
-  border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 12px;
-  cursor: pointer;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s;
-}
-.start-alt-btn:active { background: #f1f5f9; }
-.start-alt-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.start-alt-ico { font-size: 20px; flex-shrink: 0; }
-.start-alt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.start-alt-title { font-size: 14px; font-weight: 700; color: var(--text, #0f172a); }
-.start-alt-sub { font-size: 11px; color: var(--text-muted, #64748b); }
+.home { min-height: 100vh; min-height: 100dvh; background: var(--bg, #f1f5f9); }
+.home-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: baseline; gap: 8px;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+}
+.home-logo { font-size: 16px; font-weight: 800; color: #1e293b; }
+.home-store { font-size: 12px; font-weight: 700; color: #64748b; }
+.home-store small { font-weight: 600; color: #94a3b8; letter-spacing: .5px; margin-left: 6px; }
+.home-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 0; }
+.home-err { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 10px; }
+
+.strip { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 8px 10px; font-size: 13px; font-weight: 700; border: none; text-align: left; font-family: inherit; cursor: pointer; }
+.strip-t { flex: 1; min-width: 0; }
+.strip-t small { font-weight: 600; opacity: .85; margin-left: 4px; }
+.strip.today { background: #fff; border: 1px solid #e2e8f0; color: #334155; }
+.strip.today b { color: #c2410c; }
+.strip-arrow { color: #94a3b8; font-size: 18px; }
+.strip.pause.stock { background: #dbeafe; color: #1d4ed8; cursor: default; }
+.strip.pause.order { background: #ffedd5; color: #c2410c; cursor: default; }
+.strip-go { border: none; border-radius: 9px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #fff; cursor: pointer; }
+.stock .strip-go { background: #2563eb; }
+.order .strip-go { background: #ea580c; }
+.strip-more { border: none; background: none; font-size: 20px; font-weight: 800; color: inherit; padding: 0 4px; cursor: pointer; }
+
+.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.act {
+  position: relative; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
+  padding: 9px 0 8px; font-size: 12.5px; font-weight: 800; color: #334155; cursor: pointer; font-family: inherit;
+}
+.act b { display: block; font-size: 22px; margin-bottom: 2px; }
+.act.stock { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
+.act.order { border-color: #fdba74; color: #c2410c; background: #fff7ed; }
+.act:disabled { opacity: .6; cursor: default; }
+.act-badge { position: absolute; top: 5px; right: 8px; background: #059669; color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; }
+.act-dot { position: absolute; top: 8px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
+
+.manage { padding: 10px 12px 96px; }
+.m-h { font-size: 12px; font-weight: 800; color: #64748b; margin: 14px 2px 6px; }
+.m-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
+  font-size: 20px; cursor: pointer;
+}
+.m-card span { flex: 1; font-size: 14.5px; font-weight: 800; color: #1e293b; display: flex; flex-direction: column; gap: 2px; }
+.m-card small { font-size: 11.5px; font-weight: 600; color: #64748b; }
+.m-card i { font-style: normal; color: #94a3b8; font-size: 18px; }
+.m-old { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px; color: #334155; }
+.m-old span { flex: 1; }
+.m-old-btn { border: 1.5px solid #cbd5e1; background: #fff; border-radius: 8px; padding: 5px 10px; font-weight: 800; font-size: 12px; cursor: pointer; }
+.m-old-btn.ng { border-color: #fca5a5; color: #b91c1c; }
+.m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
+
+.bnav {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 6;
+  width: 100%; max-width: 600px; display: flex; background: #fff; border-top: 1px solid #e2e8f0;
+  padding: 6px 0 calc(8px + env(safe-area-inset-bottom));
+}
+.bnav button { flex: 1; border: none; background: none; font-size: 11px; font-weight: 700; color: #94a3b8; cursor: pointer; font-family: inherit; }
+.bnav button b { display: block; font-size: 20px; filter: grayscale(1); opacity: .55; }
+.bnav button.on { color: var(--primary, #2563eb); }
+.bnav button.on b { filter: none; opacity: 1; }
+
+.sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
+.sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }
+.sh-handle { width: 40px; height: 4px; border-radius: 2px; background: #cbd5e1; margin: 0 auto 12px; }
+.sh-t { font-size: 18px; font-weight: 800; color: #1e293b; }
+.sh-t.ng { color: #b91c1c; }
+.sh-s { font-size: 12.5px; color: #64748b; margin: 4px 0 12px; line-height: 1.5; }
+.info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.info div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: 11.5px; color: #64748b; font-weight: 700; }
+.info b { display: block; font-size: 15px; color: #0f172a; margin-top: 2px; }
+.info b.warn { color: #c2410c; }
+.bb {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit;
+  border-radius: 13px; padding: 13px 14px; margin-bottom: 9px; font-size: 22px; cursor: pointer;
+  background: #fff; color: #334155; border: 1.5px solid #cbd5e1;
+}
+.bb span { flex: 1; font-size: 15px; font-weight: 800; display: flex; flex-direction: column; gap: 2px; }
+.bb small { font-size: 11.5px; font-weight: 600; opacity: .85; }
+.bb:disabled { opacity: .6; cursor: default; }
+.bb.stock { background: #2563eb; color: #fff; border-color: #2563eb; }
+.bb.stock-soft { background: #eff6ff; color: #1d4ed8; border-color: #93c5fd; }
+.bb.order { background: #ea580c; color: #fff; border-color: #ea580c; }
+.bb.order-soft { background: #fff7ed; color: #c2410c; border-color: #fdba74; }
+.bb.ng { color: #b91c1c; border-color: #fca5a5; }
+.sh-link { display: block; margin: 4px auto 0; border: none; background: none; color: #64748b; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.note { border-radius: 10px; padding: 9px 11px; font-size: 12.5px; line-height: 1.6; margin-bottom: 12px; }
+.note.orange { background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; }
+.note.blue { background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a; }
+.note.red { background: #fef2f2; border: 1px solid #fca5a5; color: #7f1d1d; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn { border: 1.5px solid #cbd5e1; background: #f1f5f9; color: #334155; border-radius: 11px; padding: 13px 0; font-weight: 800; font-size: 15px; cursor: pointer; font-family: inherit; }
+.btn.ng { background: #b91c1c; color: #fff; border-color: #b91c1c; }
 </style>

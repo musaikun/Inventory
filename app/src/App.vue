@@ -82,7 +82,6 @@ import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardO
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
-import StockPage from './components/StockPage.vue'
 import MovementPage from './components/MovementPage.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
@@ -425,7 +424,7 @@ async function onAuthDone() {
 }
 
 // セッション一覧から「セッション開始」（棚卸=stock / 発注=order の型付きセッション）
-async function onSessionStart(session, mode = 'stock') {
+async function onSessionStart(session, mode = 'stock', { room = false } = {}) {
   // 完了処理の最中に別セッションへ移ると、完了要求の対象と端末の状態がずれる
   if (_blockedByCompletion()) return
   const isOrder = mode === 'order'
@@ -453,6 +452,8 @@ async function onSessionStart(session, mode = 'stock') {
   track('session_started')
   await _startSessionView({ loadConfig: false })
   if (isOrder) { await _loadOrderData(); _restoreOrderDraft(); showToast('発注確認を開始しました', 2600, 'default') }
+  // ホームの開始シートで「みんなで」を選んだ：開始したらそのままルームを作る（QRを出す）
+  if (room) onCreateRoomFromMain()
 }
 
 // D1 の発注を取り込む（学習データ・履歴カレンダー・未反映の入庫）。
@@ -480,22 +481,21 @@ const movementTab = ref('view')
 // 起動時に復元する「最後に見ていた独立ページ」。保存を消す watchEffect より先に読む。
 const _bootPage = readLastPage()
 
-// 発注セッションを離れると「仕入れ」カードの発注タブへ返る（練習モードは従来どおり一覧へ）。
-// 行き先が変わるので、ヘッダーの戻るボタンの見た目と説明もそこへ合わせる。
-// 🏠 のままだと「ホームへ戻る」と読めてしまう。
-const leavesToMovement  = computed(() => sessionMode.value === 'order' && !practiceMode.value)
+// 発注セッションから離れる先。以前は仕入れの発注タブへ返していたが、発注の入口はホームの
+// 操作ボタンへ移った（画面の再設計・2026-09-30）ので、棚卸と同じくホームへ返す。
+const leavesToMovement  = computed(() => false)
 const leaveSessionIcon  = computed(() => (leavesToMovement.value ? '🛒' : '🏠'))
 const leaveSessionTitle = computed(() =>
   practiceMode.value ? '練習を終了して戻る'
-    : leavesToMovement.value ? '仕入れに戻る' : 'セッション一覧に戻る')
+    : leavesToMovement.value ? '仕入れに戻る' : 'ホームに戻る')
 
 // ── 独立ページの戻り先 ────────────────────────────────────────────────────────
 // データ管理・仕入れ・履歴は複数の場所から開ける（データ管理はホームと仕入れの両方）。
 // 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
 // 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
 // （数えかけの棚卸へ戻ると作業に割り込むため）。
-const PAGE_VIEWS = ['master', 'movement', 'history', 'stock']
-const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions', stock: 'sessions' }   // 描画には使わないので素のオブジェクト
+const PAGE_VIEWS = ['master', 'movement', 'history']
+const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
 function _rememberPageFrom(view) {
   const from = currentView.value
   if (from === view) return
@@ -771,7 +771,7 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
 // matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
 const isDesktop = useMediaQuery(DESKTOP_QUERY)
-const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'stock', 'session-detail']
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'session-detail']
 const showDesktopNav = computed(() =>
   isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
 )
@@ -3164,17 +3164,9 @@ function dismissReview() {
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="openPage('master')"
-      @open-stock="openPage('stock')"
       @open-movement="openMovement"
+      @open-feedback="openFeedback"
       @open-upgrade="reason => openUpgrade(reason)"
-    />
-
-    <!-- ── 品目・在庫（専用ページ・品目の一覧と1品目ずつの追加） ── -->
-    <StockPage
-      v-else-if="currentView === 'stock'"
-      @back="onPageBack"
-      @open-master="openPage('master')"
-      @start-session="currentView = 'sessions'"
     />
 
     <!-- ── 品目マスタ管理（専用ページ） ── -->
@@ -3777,9 +3769,9 @@ function dismissReview() {
       </div>
     </Transition>
 
-    <!-- フィードバックボタン（セッション・一覧画面で表示） -->
+    <!-- フィードバックボタン（セッション画面で表示）。ホームでは右下の＋と開始シートに重なるので、管理タブのカードから開く -->
     <button
-      v-if="currentView === 'session' || currentView === 'sessions'"
+      v-if="currentView === 'session'"
       class="feedback-fab"
       @click="openFeedback"
       title="フィードバックを送る"

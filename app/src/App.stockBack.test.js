@@ -62,8 +62,8 @@ async function browserBack() {
 }
 
 const inSession   = () => !!host.querySelector('.home-btn')
-const onHomeMain  = () => !!host.querySelector('.hero-start')     // ホームの「棚卸を開始」
-const homeTabName = () => host.querySelector('.tab-btn.active')?.textContent.trim()
+const onHomeMain  = () => !!host.querySelector('.act.stock')       // ホームの操作ボタン「棚卸」
+const homeTabName = () => host.querySelector('.bnav button.on')?.textContent.trim()
 
 async function startStockSession() {
   const { useConfig } = await import('./composables/useConfig.js')
@@ -72,9 +72,8 @@ async function startStockSession() {
   cfg.addItem('トマト', 120, '野菜', '個')
   await flush()
 
-  await click(host.querySelector('.hero-start'))
-  const confirm = host.querySelector('.start-btn.primary')
-  if (confirm) await click(confirm)
+  await click(host.querySelector('.act.stock'))          // 開始シートを開く
+  await click(host.querySelector('.sh .bb.stock'))       // ひとりで始める
   expect(inSession()).toBe(true)
 }
 
@@ -98,7 +97,7 @@ afterEach(() => {
 })
 
 describe('棚卸セッションでブラウザの戻る', () => {
-  it('ホームのメイン画面（セッションタブ）へ戻る', async () => {
+  it('ホームのメイン画面（在庫タブ）へ戻る', async () => {
     await mountApp()
     await startStockSession()
 
@@ -106,17 +105,17 @@ describe('棚卸セッションでブラウザの戻る', () => {
 
     expect(inSession()).toBe(false)
     expect(onHomeMain()).toBe(true)
-    expect(homeTabName()).toContain('セッション')
+    expect(homeTabName()).toContain('在庫')
   }, 20000)
 
-  it('ダッシュボードタブを見てから始めても、戻るとセッションタブに出る', async () => {
+  it('管理タブを見てから始めても、戻ると在庫タブに出る', async () => {
     await mountApp()
     const list = await import('./components/SessionListPage.vue')
 
-    // ホームでダッシュボードタブへ切り替えてから棚卸を開始する
+    // ホームで管理タブへ切り替えてから棚卸を開始する
     list._persistedTab.value = 'dashboard'
     await flush()
-    expect(homeTabName()).toContain('ダッシュボード')
+    expect(homeTabName()).toContain('管理')
     list._persistedTab.value = 'sessions'
     await flush()
     await startStockSession()
@@ -125,7 +124,7 @@ describe('棚卸セッションでブラウザの戻る', () => {
     await browserBack()
 
     expect(onHomeMain()).toBe(true)
-    expect(homeTabName()).toContain('セッション')
+    expect(homeTabName()).toContain('在庫')
     expect(list._persistedTab.value).toBe('sessions')
   }, 20000)
 

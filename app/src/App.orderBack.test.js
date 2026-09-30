@@ -1,8 +1,7 @@
 // 発注セッションから「戻る」を押したときの行き先。
 //
-// 発注はホームに入口が無く、「仕入れ」カードの発注タブからしか始められない。
-// 戻るでホームへ返すと、発注一覧まで（ホーム → 仕入れ → 発注タブ）と一段遠くなり、
-// 続けて発注を見るのが手間になる。始めた場所＝発注タブへ返す。
+// 画面の再設計（2026-09-30）で、発注はホームの操作ボタンから始めるようになった。
+// 以前は「仕入れ」の発注タブからしか始められず、戻る先も発注タブだった。今は棚卸と同じくホームへ返す。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
@@ -58,12 +57,11 @@ async function click(el) {
 const movementPage = () => host.querySelector('.mv')
 const activeTab = () => host.querySelector('.mv-tab.on')?.textContent.trim()
 
-// ホーム → 仕入れ → 発注タブ → 発注を開始
+// ホームの操作ボタン「発注」→ 開始シート →「ひとりで始める」
 async function startOrderSession() {
-  await click(button('入出庫') || button('仕入れ'))
-  expect(movementPage()).not.toBeNull()
-  await click(button('発注'))
-  await click(host.querySelector('.mv-order-start'))
+  await click(host.querySelector('.act.order'))
+  expect(host.querySelector('.sh').textContent).toContain('仕入先へは送信されません')   // 記録のみであることを開始前に言う
+  await click(host.querySelector('.sh .bb.order'))
 }
 
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
@@ -85,58 +83,50 @@ afterEach(() => {
 })
 
 describe('発注セッションの戻る', () => {
-  it('「仕入れ」カードの発注タブへ返る（ホームではない）', async () => {
-    await mountApp()
+  async function seed() {
     const { useConfig } = await import('./composables/useConfig.js')
     const cfg = useConfig()
     cfg.setEmptyList()
     cfg.addItem('トマト', 120, '野菜', '個')
     await flush()
+  }
 
+  it('発注もホームから始め、離れるとホームへ返る（仕入れの発注タブではない）', async () => {
+    await mountApp()
+    await seed()
     await startOrderSession()
-    // 発注セッション画面にいる（仕入れページは閉じている）
     expect(movementPage()).toBeNull()
-
-    // セッションを離れるボタン（ヘッダー左）。発注中は行き先が「仕入れ」なので 🛒 になる
-    const leave = host.querySelector('.home-btn')
-    expect(leave.textContent.trim()).toBe('🛒')
-    expect(leave.getAttribute('title')).toBe('仕入れに戻る')
-    await click(leave)
-
-    expect(movementPage()).not.toBeNull()
-    expect(activeTab()).toContain('発注')
-  }, 20000)
-
-  it('棚卸セッションは従来どおりホーム（セッション一覧）へ返る', async () => {
-    await mountApp()
-    const { useConfig } = await import('./composables/useConfig.js')
-    const cfg = useConfig()
-    cfg.setEmptyList()
-    cfg.addItem('トマト', 120, '野菜', '個')
-    await flush()
-
-    await click(host.querySelector('.hero-start'))
-    const confirm = host.querySelector('.start-btn.primary')
-    if (confirm) await click(confirm)
 
     const leave = host.querySelector('.home-btn')
     expect(leave.textContent.trim()).toBe('🏠')
-    expect(leave.getAttribute('title')).toBe('セッション一覧に戻る')
+    expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
 
     expect(movementPage()).toBeNull()
-    expect(host.querySelector('.hero-start')).not.toBeNull()   // ホームに戻っている
+    expect(host.querySelector('.act.order')).not.toBeNull()   // ホームに戻っている
   }, 20000)
 
-  it('ホームから開いた「仕入れ」は在庫タブから始まる', async () => {
+  it('棚卸セッションもホームへ返る', async () => {
     await mountApp()
-    const { useConfig } = await import('./composables/useConfig.js')
-    const cfg = useConfig()
-    cfg.setEmptyList()
-    cfg.addItem('トマト', 120, '野菜', '個')
-    await flush()
+    await seed()
+    await click(host.querySelector('.act.stock'))
+    await click(host.querySelector('.sh .bb.stock'))
 
-    await click(button('入出庫') || button('仕入れ'))
+    const leave = host.querySelector('.home-btn')
+    expect(leave.getAttribute('title')).toBe('ホームに戻る')
+    await click(leave)
+    expect(host.querySelector('.act.stock')).not.toBeNull()
+  }, 20000)
+
+  it('ホームの「入出庫」は仕入れの入庫タブ、管理の「仕入れ」は在庫タブから開く', async () => {
+    await mountApp()
+    await seed()
+    await click(host.querySelector('.act:not(.stock):not(.order)'))
+    expect(activeTab()).toContain('入庫')
+
+    await click(host.querySelector('.mv-back'))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
+    await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes('仕入れ')))
     expect(activeTab()).toBe('在庫')
   }, 20000)
 })

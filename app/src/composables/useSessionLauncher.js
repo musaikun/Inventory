@@ -106,14 +106,14 @@ export function useSessionLauncher() {
   })
 
   /**
-   * 棚卸を始める。同じ日の2回目は、まず「続きから」を勧める（別の棚卸として増やすこともできる）。
-   * @returns {{ resume: object } | { session: object } | null}  null = 失敗（error に理由）
+   * 棚卸を始める。同じ日の2回目は作らずに { sameDay } を返す（続きから開くか、新しく始めるかは
+   * 画面が訊く。以前はブラウザの confirm で、OK/キャンセルの意味が読みにくかった）。
+   * 新しく始めると決めたら force: true で呼ぶ。
+   * @returns {{ sameDay: object } | { session: object } | null}  null = 失敗（error に理由）
    */
-  async function startStock() {
+  async function startStock({ force = false } = {}) {
     const done = todayDone.value
-    if (done && confirm('本日すでに棚卸は行われています。\n\n再編集でいいですか？\n\nOK … その棚卸の続きから（数量・変更履歴・時間もそのまま）\nキャンセル … 別の棚卸として新しく始める')) {
-      return { resume: done }
-    }
+    if (done && !force) return { sameDay: done }
     startingKind.value = 'stock'
     try {
       return { session: await createSession() }
@@ -143,10 +143,10 @@ export function useSessionLauncher() {
     }
   }
 
-  /** セッションを削除（確認つき）。消したら true */
-  async function remove(session) {
+  /** セッションを削除。confirmed でなければブラウザの確認を出す。消したら true */
+  async function remove(session, { confirmed = false } = {}) {
     const locked = session.status === 'completed' && isLocked(session)
-    if (!confirm(deleteConfirmMessage(session, locked))) return false
+    if (!confirmed && !confirm(deleteConfirmMessage(session, locked))) return false
     deletingId.value = session.id
     try {
       await deleteSession(session.id)

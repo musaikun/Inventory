@@ -20,6 +20,8 @@ import InventoryTable from './InventoryTable.vue'
 import StockDetailModal from './StockDetailModal.vue'
 import ItemFormModal from './ItemFormModal.vue'
 
+// embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
+const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
 const { config, setReorderPoint, setReplenishTarget } = useConfig()
@@ -31,7 +33,10 @@ const {
 const search = ref('')
 const onlyLow = ref(false)
 const itemFilter = computed(() => (onlyLow.value ? (item => needsReorder(item)) : null))
-const isEmpty = computed(() => (config.order || []).length === 0)
+// サンプルの品目リスト（まだ自分のリストを持っていない）も「0件」として扱う。
+// サンプルを在庫として並べると、自分の店の品目と区別がつかない
+const isEmpty = computed(() => (config.order || []).length === 0 || !config.isCustom)
+defineExpose({ reorderCount, openAdd: () => openAdd() })
 
 // ── シート ───────────────────────────────
 const detailTarget = ref(null)   // 品目シート
@@ -48,11 +53,13 @@ onUnmounted(registerInnerLayerCloser(() => {
 </script>
 
 <template>
-  <div class="sp">
-    <header class="sp-header">
+  <div :class="['sp', { embedded }]">
+    <header v-if="!embedded" class="sp-header">
       <button class="sp-back" @click="emit('back')">‹ 戻る</button>
       <span class="sp-title">📦 品目・在庫</span>
     </header>
+
+    <slot name="top" :empty="isEmpty" />
 
     <!-- 品目が0件：一覧の代わりに、登録の入口を大きく出す -->
     <div v-if="isEmpty" class="sp-empty">
@@ -136,6 +143,9 @@ onUnmounted(registerInnerLayerCloser(() => {
 </template>
 
 <style scoped>
+.sp.embedded { min-height: 0; padding-bottom: 88px; }
+/* ホームでは下部ナビの上に出す */
+.sp.embedded .sp-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
 .sp { min-height: 100vh; background: var(--bg, #f1f5f9); padding-bottom: 96px; }
 .sp-header {
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;

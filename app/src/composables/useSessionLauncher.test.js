@@ -53,19 +53,17 @@ describe('useSessionLauncher', () => {
     expect(logout).toHaveBeenCalledTimes(1)
   })
 
-  it('同じ日の2回目は「続きから」を選べば再開を返し、新しく作らない', async () => {
+  it('同じ日の2回目は作らずに sameDay を返す（続きか新しくかは画面が訊く）', async () => {
     sessionList = [DONE_TODAY]
     await L.load()
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    expect(await L.startStock()).toEqual({ resume: DONE_TODAY })
+    expect(await L.startStock()).toEqual({ sameDay: DONE_TODAY })
     expect(createSession).not.toHaveBeenCalled()
   })
 
-  it('「新しく始める」を選べば新しい棚卸を作る', async () => {
+  it('「新しく始める」と決めたら force で新しい棚卸を作る', async () => {
     sessionList = [DONE_TODAY]
     await L.load()
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    const r = await L.startStock()
+    const r = await L.startStock({ force: true })
     expect(r.session.id).toBe('stk-new')
     expect(L.startingKind.value).toBeNull()
   })
@@ -90,5 +88,13 @@ describe('useSessionLauncher', () => {
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
     expect(await L.remove(ACTIVE_ORDER)).toBe(true)
     expect(L.sessions.value).toEqual([])
+  })
+
+  it('画面で確認済み（confirmed）ならブラウザの確認を出さない', async () => {
+    sessionList = [ACTIVE_ORDER]
+    await L.load()
+    const spy = vi.spyOn(window, 'confirm'); spy.mockClear()
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(true)
+    expect(spy).not.toHaveBeenCalled()
   })
 })

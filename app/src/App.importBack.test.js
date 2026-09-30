@@ -70,6 +70,14 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
+async function openFromManage(el, label) {
+  const fire = async (node) => { node.dispatchEvent(new MouseEvent('click', { bubbles: true })); for (let i = 0; i < 8; i++) await nextTick() }
+  const nav = [...el.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
+  if (nav) await fire(nav)
+  await fire([...el.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
+}
+
 describe('App の Back 制御は「閉じてはいけないモーダル」を最優先で見る', () => {
   it('guard 登録中は Back で画面が変わらず、戻る操作だけを消費する', async () => {
     const el = await mountApp()
@@ -134,11 +142,11 @@ describe('画面内の「戻る」も import中断guard を見る', () => {
   }
 
   async function openMaster(el) {
-    await clickEl(el.querySelector('.master-card'))
+    await openFromManage(el, 'データ管理')
     expect(el.querySelector('.mp')).not.toBeNull()
   }
   async function openMovement(el) {
-    await clickEl(el.querySelector('.move-start'))
+    await openFromManage(el, '仕入れ')
     expect(el.querySelector('.mv')).not.toBeNull()
   }
 
@@ -209,13 +217,13 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
   }, 15000)
 
   for (const [label, cardSel, pageSel, navLabel] of [
-    ['データ管理（MasterManagePage）', '.master-card', '.mp', '棚卸'],
-    ['入出庫（MovementPage）',        '.move-start',  '.mv', '棚卸'],
+    ['データ管理（MasterManagePage）', 'データ管理', '.mp', '棚卸'],
+    ['入出庫（MovementPage）',        '仕入れ',      '.mv', '棚卸'],
   ]) {
     it(`${label}: guard中はDesktopNavで画面が変わらない`, async () => {
       mockDesktop()
       const el = await mountApp()
-      await clickEl(el.querySelector(cardSel))
+      await openFromManage(el, cardSel)
       expect(el.querySelector(pageSel)).not.toBeNull()
 
       const { registerModalBackGuard } = await import('./composables/appMenuState.js')
@@ -234,7 +242,7 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
     it(`${label}: guard解除後はDesktopNavで遷移できる`, async () => {
       mockDesktop()
       const el = await mountApp()
-      await clickEl(el.querySelector(cardSel))
+      await openFromManage(el, cardSel)
       expect(el.querySelector(pageSel)).not.toBeNull()
 
       const { registerModalBackGuard } = await import('./composables/appMenuState.js')
