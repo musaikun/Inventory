@@ -1,0 +1,160 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>表がホーム 4状態</title>
+<style>
+:root{--pri:#2563eb;--bd:#e2e8f0;--mut:#64748b;--txt:#0f172a;--ok:#047857;--okbg:#ecfdf5;--okbd:#86efac;--ng:#b91c1c;--warn:#c2410c;--warnbg:#fff7ed;--warnbd:#fdba74}
+*{box-sizing:border-box}
+body{margin:0;background:#e5e7eb;font-family:"Noto Sans CJK JP","Hiragino Sans",sans-serif;color:var(--txt);padding:26px;width:1560px}
+h1{font-size:25px;margin:0 0 4px}.lead{margin:0 0 18px;color:#475569;font-size:14px;line-height:1.6}
+.row{display:flex;gap:20px;align-items:flex-start}
+.col{width:355px}.cap{font-weight:800;font-size:16px;margin:0 0 4px}.sub{font-size:12px;color:#475569;margin:0 0 10px;line-height:1.55;min-height:76px}
+.ph{width:355px;height:740px;border-radius:28px;border:8px solid #0f172a;overflow:hidden;position:relative;display:flex;flex-direction:column;background:#f1f5f9}
+/* テーマ：見る=白、棚卸=青、発注=橙 */
+.hd{padding:10px 12px 8px;display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;background:#fff;border-bottom:1px solid var(--bd)}
+.hd small{font-size:10.5px;color:var(--mut);font-weight:600}
+.hd .r{margin-left:auto;display:flex;gap:10px;font-size:16px;color:var(--mut)}
+.t-stock .hd{background:#2563eb;color:#fff;border:none}.t-stock .hd small,.t-stock .hd .r{color:#dbeafe}
+.t-order .hd{background:#ea580c;color:#fff;border:none}.t-order .hd small,.t-order .hd .r{color:#ffedd5}
+.strip{margin:8px 10px 0;border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px}
+.strip span:last-child{margin-left:auto}
+.strip.live{background:#dbeafe;color:#1d4ed8}.strip.today{background:#fff;border:1px solid var(--bd);color:#334155}
+.strip.today b{color:var(--warn)}
+.acts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 10px 0}
+.act{background:#fff;border:1.5px solid var(--bd);border-radius:12px;padding:7px 0 6px;text-align:center;font-size:11px;font-weight:800;color:#334155}
+.act b{display:block;font-size:19px;margin-bottom:1px}
+.act.s{border-color:#93c5fd;color:#1d4ed8;background:#eff6ff}.act.o{border-color:#fdba74;color:#c2410c;background:#fff7ed}
+.sess{margin:8px 10px 0;display:flex;gap:6px;align-items:center}
+.sess .prog{flex:1;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:6px 10px;font-size:11.5px;font-weight:700}
+.sess .bar{height:5px;border-radius:3px;background:#e2e8f0;margin-top:4px;overflow:hidden}.sess .bar i{display:block;height:100%}
+.sess .room{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:6px 8px;font-size:11px;font-weight:800;text-align:center}
+.srch{margin:8px 10px 0;display:flex;gap:6px}
+.srch .in{flex:1;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;font-size:12px;color:#94a3b8}
+.srch .ic{width:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;background:#fff;border:1px solid var(--bd)}
+.t-stock .srch .ic.m{background:#2563eb;border:none}.t-order .srch .ic.m{background:#ea580c;border:none}
+.chips{display:flex;gap:5px;margin:8px 10px 0;overflow:hidden}
+.chip{border:1.5px solid #cbd5e1;border-radius:14px;padding:3px 9px;font-size:11px;font-weight:700;color:#475569;background:#fff;white-space:nowrap}
+.chip.on{border-color:var(--pri);color:var(--pri);background:#eff6ff}.chip.w{border-color:var(--warnbd);color:var(--warn);background:var(--warnbg)}
+.t-order .chip.on{border-color:#ea580c;color:#c2410c;background:#fff7ed}
+.tbl{margin:8px 10px 0;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--bd);flex:1}
+.th{display:flex;padding:7px 10px;font-size:11.5px;font-weight:800;color:#fff;background:#334155}
+.t-stock .th{background:#1e40af}.t-order .th{background:#c2410c}
+.th span:first-child{flex:1}
+.grp{padding:5px 10px;font-weight:800;font-size:11.5px;color:#475569;background:#f8fafc;border-bottom:1px solid var(--bd);display:flex}
+.grp span:last-child{margin-left:auto;font-weight:700}
+.tr{display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid #f1f5f9;gap:8px}
+.tr.done{background:#f0fdf4}.tr.low{background:var(--warnbg)}
+.thm{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.a{background:#fee2e2}.b{background:#fef3c7}.c{background:#dcfce7}.d{background:#f1f5f9;color:#94a3b8;font-size:9px;font-weight:800}
+.nm{flex:1;min-width:0;font-size:12.5px;font-weight:700;line-height:1.3}.nm small{display:block;font-size:9.5px;color:var(--mut);font-weight:600}.nm small.w{color:var(--warn)}
+.cell{min-width:70px;border:1.5px solid var(--bd);border-radius:8px;padding:2px 6px;text-align:center;background:#f8fafc}
+.cell .l{display:block;font-size:8.5px;color:#94a3b8;font-weight:700;line-height:1.2}.cell .v{font-size:15px;font-weight:800;color:#334155}.cell .u{font-size:9px;color:var(--mut)}
+.cell.low{border-color:var(--warnbd);background:var(--warnbg)}.cell.low .v,.cell.low .l{color:var(--warn)}
+.cell.in{border-color:var(--okbd);background:#f0fdf4}.cell.in .v{color:var(--ok)}
+.cell.todo .v{color:#cbd5e1}
+.oq{display:flex;border:1.5px solid var(--bd);border-radius:8px;background:#f8fafc;min-width:104px}
+.oq div{flex:1;text-align:center;padding:2px 4px}.oq div+div{border-left:1px solid var(--bd)}
+.oq .l{display:block;font-size:8.5px;color:#94a3b8;font-weight:700}.oq .v{font-size:14px;font-weight:800;color:#94a3b8}
+.oq.in{border-color:var(--okbd);background:#f0fdf4}.oq.in .o .v{color:var(--ok);font-size:15px}.oq .s .v{font-size:12px}
+.foot{padding:8px 10px;display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.fb{border-radius:12px;padding:11px 0;text-align:center;font-weight:800;font-size:14px;color:#fff;background:#16a34a}
+.fb.g{background:#fff;color:#334155;border:1.5px solid #cbd5e1}
+.nav{background:#fff;border-top:1px solid var(--bd);display:flex;justify-content:space-around;padding:6px 0 8px}
+.nav div{text-align:center;font-size:10px;color:#94a3b8;font-weight:700;width:33%}.nav div b{display:block;font-size:18px;filter:grayscale(1);opacity:.55}
+.nav div.on{color:var(--pri)}.nav div.on b{filter:none;opacity:1}
+.nav.lock div{opacity:.35}
+.fab{position:absolute;right:14px;bottom:70px;width:50px;height:50px;border-radius:50%;background:var(--pri);color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px #2563eb55}
+.empty{flex:1;text-align:center;padding:40px 18px 0}
+.empty .bx{font-size:64px}.empty h3{margin:6px 0 4px;font-size:19px}.empty p{color:var(--mut);font-size:12px;margin:0 0 16px;line-height:1.6}
+.eb{border-radius:12px;padding:13px;font-weight:800;font-size:14px;margin-bottom:9px;display:flex;align-items:center;gap:10px;text-align:left}
+.eb small{display:block;font-size:10.5px;font-weight:600;opacity:.85}
+.eb.p{background:var(--pri);color:#fff}.eb.s{background:#fff;color:#334155;border:1.5px solid #cbd5e1}
+.eb .ico{font-size:20px}
+.later{margin-top:14px;font-size:11px;color:#94a3b8;line-height:1.6;border-top:1px dashed #cbd5e1;padding-top:10px}
+.later span{display:inline-block;border:1.5px dashed #cbd5e1;border-radius:9px;padding:3px 8px;margin:3px 2px;color:#94a3b8;font-weight:700}
+.dis .act{opacity:.35}
+.flow{display:flex;align-items:center;gap:8px;margin:0 0 14px;font-size:13px;font-weight:800;color:#334155}
+.flow i{font-style:normal;color:#94a3b8}
+.pill{border-radius:999px;padding:4px 12px;font-size:12px}
+.p0{background:#fff;border:1px solid #cbd5e1}.p1{background:#fff;border:1px solid #cbd5e1}.p2{background:#dbeafe;color:#1d4ed8}.p3{background:#ffedd5;color:#c2410c}
+.dec{margin-top:22px;background:#fff;border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.75}
+.dec b{color:#b91c1c}.dec ol{margin:4px 0 0;padding-left:20px}
+.same{margin-top:14px;background:#fff;border-radius:14px;padding:12px 18px;font-size:12.5px;line-height:1.7}
+</style></head><body>
+<h1>「表がホーム」4つの状態</h1>
+<p class="lead">起動したら InventoryTable が見える。同じ表が「見る → 数える（棚卸）→ 発注数を入れる（発注）」に色と右側のセルだけ変わる。静的モックでアプリ本体は変更していません。</p>
+<div class="flow"><span class="pill p0">⓪ 品目0件</span><i>→ 登録すると</i><span class="pill p1">① 見るとき</span><i>→ 👥棚卸</i><span class="pill p2">② 棚卸中</span><i>／ 🧾発注</i><span class="pill p3">③ 発注中</span><i>→ 完了で①へ戻る</i></div>
+<div class="row">
+
+<!-- 0 空 -->
+<div class="col"><p class="cap">⓪ 初めて（品目0件）</p><p class="sub">表の代わりに登録の入口。上の操作ボタンは、品目が無いと意味が無いので薄く（押すと「先に品目を追加」）。下に「登録すると使えるようになること」を点線で予告。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="acts dis"><div class="act"><b>👥</b>棚卸</div><div class="act"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div><div class="act"><b>📷</b>読む</div></div>
+<div class="empty"><div class="bx">📦</div><h3>最初の品目を追加</h3><p>在庫を数える品目を登録します。<br>あとからいつでも足せます。</p>
+<div class="eb p"><span class="ico">＋</span><div>1つずつ追加<small>名前だけでOK・バーコードも使える</small></div></div>
+<div class="eb s"><span class="ico">📄</span><div>ファイルからまとめて追加<small>CSV・Excel・PDF</small></div></div>
+<div class="eb s"><span class="ico">👥</span><div>棚卸をしながら追加<small>数えながら、その場で登録</small></div></div>
+<div class="later">登録すると使えるようになります<br><span>👥 棚卸</span><span>🧾 発注</span><span>📥 入出庫</span><span>📅 履歴</span></div>
+</div>
+<div class="nav"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- 1 見る -->
+<div class="col"><p class="cap">① 見るとき（ふだんの起動画面）</p><p class="sub">白基調。上に「今日」の細い帯（無い日は出ない）と操作ボタン4つ。表の数字は今の見込み（根拠つき）。＋で品目追加。行タップで品目シート。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="strip today">📋 今日：<b>青果の発注日</b> ほか2件<span>›</span></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div><div class="act"><b>📷</b>読む</div></div>
+<div class="srch"><div class="in">🔍 品目名で絞り込み</div></div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip w">要補充 12</span><span class="chip">ジャンル</span><span class="chip">保管場所</span></div>
+<div class="tbl"><div class="th"><span>品目 1034</span><span>今の見込み</span></div>
+<div class="grp"><span>▼ 昼食材冷凍</span><span>49</span></div>
+<div class="tr"><div class="thm a">🍋</div><div class="nm">レモンピューレ26<small>入数 1</small></div><div class="cell"><span class="l">9/20 棚卸 6</span><span class="v">5</span><span class="u">p</span></div></div>
+<div class="tr low"><div class="thm b">🥓</div><div class="nm">Pスライスベーコン<small class="w">要補充</small></div><div class="cell low"><span class="l">9/20 棚卸 8</span><span class="v">1</span><span class="u">p</span></div></div>
+<div class="tr"><div class="thm c">🍖</div><div class="nm">ボンレスハム200gN<small>入数 11</small></div><div class="cell"><span class="l">9/20 棚卸 18</span><span class="v">14</span><span class="u">p</span></div></div>
+<div class="tr"><div class="thm d">画像<br>なし</div><div class="nm">パティバター<small>入数 8</small></div><div class="cell"><span class="l">9/20 棚卸 5</span><span class="v">5</span><span class="u">ﾏｲ</span></div></div>
+<div class="grp"><span>▶ 昼食材チルド</span><span>12</span></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- 2 棚卸中 -->
+<div class="col"><p class="cap">② 棚卸中</p><p class="sub">同じ表が青に。操作ボタンの列は「進捗＋ルーム」に置き換わる。右のセルは入力欄（数えた数）。下は「棚卸完了」。下部ナビは薄く（離れるときは確認）。</p>
+<div class="ph t-stock"><div class="hd">👥 棚卸中 <small>9/30 開始 14:02 ・ 経過 18分</small><div class="r">☰</div></div>
+<div class="sess"><div class="prog">412 / 1034 品目<div class="bar"><i style="width:40%;background:#2563eb"></i></div></div><div class="room">🟢 3人<br>ルーム</div></div>
+<div class="srch"><div class="in">例：ベーコン 3（音声 or 入力）</div><div class="ic m">🎤</div><div class="ic">📷</div></div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">入力済み</span><span class="chip">未入力</span><span class="chip">ジャンル</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>数量</span></div>
+<div class="grp"><span>▼ 昼食材冷凍</span><span>2 / 49</span></div>
+<div class="tr done"><div class="thm a">🍋</div><div class="nm">レモンピューレ26<small>前回 6</small></div><div class="cell in"><span class="l">入力済み</span><span class="v">5</span><span class="u">p</span></div></div>
+<div class="tr done"><div class="thm b">🥓</div><div class="nm">Pスライスベーコン<small>前回 8</small></div><div class="cell in"><span class="l">入力済み</span><span class="v">1</span><span class="u">p</span></div></div>
+<div class="tr"><div class="thm c">🍖</div><div class="nm">ボンレスハム200gN<small>前回 18</small></div><div class="cell todo"><span class="l">未入力</span><span class="v">—</span></div></div>
+<div class="tr"><div class="thm d">画像<br>なし</div><div class="nm">パティバター<small>前回 5</small></div><div class="cell todo"><span class="l">未入力</span><span class="v">—</span></div></div>
+<div class="grp"><span>▶ 昼食材チルド</span><span>0 / 12</span></div>
+</div>
+<div class="foot"><div class="fb">✓ 棚卸完了</div><div class="fb g">💾 CSV</div></div>
+<div class="nav lock"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- 3 発注中 -->
+<div class="col"><p class="cap">③ 発注中</p><p class="sub">同じ表が橙に。右のセルは「発注｜在庫」の枠（今の実装どおり）。絞り込みは発注済み／未発注。要補充から始められるよう「要補充」チップも。下は「発注完了」。</p>
+<div class="ph t-order"><div class="hd">🧾 発注中 <small>9/30 開始 15:10</small><div class="r">☰</div></div>
+<div class="sess"><div class="prog">発注 8 / 要補充 12<div class="bar"><i style="width:66%;background:#ea580c"></i></div></div><div class="room">⚪ 1人<br>ルーム</div></div>
+<div class="srch"><div class="in">例：ベーコン 10（音声 or 入力）</div><div class="ic m">🎤</div><div class="ic">📷</div></div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">発注済み</span><span class="chip">未発注</span><span class="chip w">要補充 12</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>数量</span></div>
+<div class="grp"><span>▼ 昼食材冷凍</span><span>2 / 49</span></div>
+<div class="tr"><div class="thm a">🍋</div><div class="nm">レモンピューレ26<small>見込み 5</small></div><div class="oq"><div class="o"><span class="l">発注</span><span class="v">—</span></div><div class="s"><span class="l">在庫</span><span class="v">5p</span></div></div></div>
+<div class="tr done"><div class="thm b">🥓</div><div class="nm">Pスライスベーコン<small class="w">要補充 ・ 推奨 10</small></div><div class="oq in"><div class="o"><span class="l">発注</span><span class="v">10p</span></div><div class="s"><span class="l">在庫</span><span class="v">1p</span></div></div></div>
+<div class="tr done"><div class="thm c">🍖</div><div class="nm">ボンレスハム200gN<small>入数 11</small></div><div class="oq in"><div class="o"><span class="l">発注</span><span class="v">2口</span></div><div class="s"><span class="l">在庫</span><span class="v">14p</span></div></div></div>
+<div class="tr"><div class="thm d">画像<br>なし</div><div class="nm">パティバター<small>見込み 5</small></div><div class="oq"><div class="o"><span class="l">発注</span><span class="v">—</span></div><div class="s"><span class="l">在庫</span><span class="v">—</span></div></div></div>
+</div>
+<div class="foot"><div class="fb">✓ 発注完了</div><div class="fb g">💾 CSV</div></div>
+<div class="nav lock"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+</div>
+
+<div class="same"><b>変わるのは3か所だけ</b>：①上の段（今日の帯＋操作ボタン ⇄ 進捗＋ルーム）②色（白 ⇄ 青 ⇄ 橙）③右のセル（見込み ⇄ 数えた数 ⇄ 発注｜在庫）。品目名・画像・ジャンルの並び・検索・絞り込みの位置は4状態で同じ。</div>
+
+<div class="dec"><b>決めること</b>
+<ol>
+<li>下部ナビは「在庫／履歴／管理」の3つ（在庫＝ホーム）でよいか。今の「セッション／ダッシュボード」タブと縦長のカードはなくなる</li>
+<li>操作ボタンは「棚卸／発注／入出庫／読む」の4つでよいか（入出庫＝①で±して記録する形を後で。それまでは今の仕入れ画面へ）</li>
+<li>棚卸中・発注中の下部ナビ：押せるが離れるときに確認（今の「ホームへ戻る」と同じ）でよいか</li>
+<li>「今日」の帯は1行に畳み、タップで今日のやること（今は履歴カレンダーの上）を開く形でよいか</li>
+<li>画像は当面「画像なし」枠（またはジャンルの色）で出し、R2 の準備ができてから本物に</li>
+</ol></div>
+</body></html>

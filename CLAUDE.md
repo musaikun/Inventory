@@ -59,8 +59,8 @@ worker/src/
     しない**（過去に4回起きている。→ D-025 の背景）。手元の値を起点にしない
   - lockfile の自アプリ情報2箇所（先頭と `packages.""` ）も同じ値へ合わせる
   - どのビルドかは引き続き commit SHA が示す（画面に `v0.97.1 (ff708a6)` の形で出る）
-- **現在の品質集中scope**: Web Free版の公開gateと品質基盤以外の新機能を停止。
-  Stripe、trial、TWA、Google Play提出は後続
+- **現在の優先（2026-09-30 User → D-027）**: 機能の不足と実使用の不具合の修正を、品質集中（公開gate）より優先する。
+  以前の「公開gateと品質基盤以外の新機能を停止」は当面外す（廃止ではなく後回し）。Stripe、trial、TWA、Google Play提出は後続
 - **共有タスク**: 着手前に `docs/quality-foundation/task-list.md` の状態・担当を更新し、
   完了時に検証結果と `docs/quality-foundation/session-log.md` を更新
 - **新機能・仕様変更は `docs/feature-checklist.md`（共通DoD）でセルフチェック**してから完了とする。

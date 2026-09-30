@@ -1,0 +1,234 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>タナオロ 再設計モック</title>
+<style>
+:root{--pri:#2563eb;--pri-soft:#eff6ff;--bd:#e2e8f0;--mut:#64748b;--txt:#0f172a;--ok:#047857;--okbg:#ecfdf5;--okbd:#6ee7b7;--ng:#b91c1c;--ngbg:#fef2f2;--ngbd:#fca5a5;--warn:#c2410c;--warnbg:#fff7ed;--warnbd:#fdba74;--ord:#ea580c}
+*{box-sizing:border-box}
+body{margin:0;background:#e5e7eb;font-family:"Noto Sans CJK JP","Hiragino Sans",sans-serif;color:var(--txt);padding:26px;width:1560px}
+h1{font-size:25px;margin:0 0 4px}.lead{margin:0 0 18px;color:#475569;font-size:14px;line-height:1.6}
+h2{font-size:17px;margin:26px 0 10px;padding-left:10px;border-left:5px solid var(--pri)}
+.row{display:flex;gap:20px;align-items:flex-start}
+.col{width:355px}.cap{font-weight:800;font-size:15px;margin:0 0 4px}.sub{font-size:12px;color:#475569;margin:0 0 10px;line-height:1.55;min-height:58px}
+.ph{width:355px;height:720px;background:#f1f5f9;border-radius:28px;border:8px solid #0f172a;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.top{background:#fff;padding:12px 14px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px;font-weight:800;font-size:15px}
+.top .r{margin-left:auto;display:flex;gap:12px;font-size:17px;color:var(--mut)}
+.body{padding:10px 12px;flex:1;overflow:hidden;position:relative}
+.nav{background:#fff;border-top:1px solid var(--bd);display:flex;justify-content:space-around;padding:6px 0 8px}
+.nav div{text-align:center;font-size:10px;color:#94a3b8;font-weight:700;width:25%}.nav div b{display:block;font-size:19px;margin-bottom:1px;filter:grayscale(1);opacity:.6}
+.nav div.on{color:var(--pri)}.nav div.on b{filter:none;opacity:1}
+.todo{background:#fff;border:1px solid var(--bd);border-radius:14px;padding:10px 12px;margin-bottom:10px}
+.todo .t{font-size:12px;font-weight:800;color:var(--mut);margin-bottom:4px}
+.todo .i{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;border-top:1px solid #f1f5f9}
+.todo .i:first-of-type{border-top:none}.todo .i .ck{width:16px;height:16px;border:2px solid #cbd5e1;border-radius:5px}
+.todo .i small{color:var(--mut);margin-left:auto}
+.big{border-radius:16px;padding:16px;margin-bottom:10px;color:#fff;display:flex;align-items:center;gap:12px}
+.big .ic{font-size:30px}.big b{display:block;font-size:17px}.big small{font-size:11.5px;opacity:.9}
+.big.stock{background:linear-gradient(135deg,#2563eb,#1d4ed8)}.big.order{background:linear-gradient(135deg,#f97316,#ea580c)}
+.kpis{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.kpi{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:8px;text-align:center}
+.kpi b{display:block;font-size:19px}.kpi small{font-size:10.5px;color:var(--mut)}
+.kpi.w b{color:var(--warn)}
+.search{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;font-size:12.5px;color:#94a3b8;margin-bottom:8px;display:flex;gap:8px}
+.search span:last-child{margin-left:auto;color:var(--mut)}
+.chips{display:flex;gap:6px;margin-bottom:8px;overflow:hidden}
+.chip{border:1.5px solid #cbd5e1;border-radius:16px;padding:3px 10px;font-size:11.5px;font-weight:700;color:#475569;background:#fff;white-space:nowrap}
+.chip.on{border-color:var(--pri);color:var(--pri);background:var(--pri-soft)}.chip.w{border-color:var(--warnbd);color:var(--warn);background:var(--warnbg)}
+.banner{background:var(--okbg);border:1px solid var(--okbd);color:var(--ok);border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;margin-bottom:8px;display:flex}
+.banner span:last-child{margin-left:auto}
+.grp{font-size:11.5px;font-weight:800;color:var(--pri);margin:8px 2px 4px}
+.it{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:7px 8px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.it.chg{border-color:var(--pri);box-shadow:0 0 0 1px var(--pri) inset}
+.it.low{background:var(--warnbg)}
+.th{width:42px;height:42px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px}
+.th.a{background:#fee2e2}.th.b{background:#fef3c7}.th.c{background:#dcfce7}.th.d{background:#e0e7ff}.th.e{background:#f1f5f9;color:#94a3b8;font-size:11px;font-weight:800}
+.nm{flex:1;min-width:0;font-size:13px;font-weight:700;line-height:1.3}.nm small{display:block;font-size:10px;color:var(--mut);font-weight:600}
+.nm small.w{color:var(--warn)}
+.stp{display:flex;align-items:center;gap:4px}
+.stp .b{width:28px;height:28px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#334155}
+.stp .v{min-width:40px;text-align:center;font-weight:800;font-size:16px}.stp .v small{font-size:9.5px;color:var(--mut);font-weight:700;display:block;line-height:1}
+.stp .v .d{font-size:10px;font-weight:800}.d.up{color:var(--ok)}.d.dn{color:var(--ng)}
+.savebar{position:absolute;left:10px;right:10px;bottom:10px;background:var(--pri);color:#fff;border-radius:14px;padding:11px 14px;display:flex;align-items:center;font-weight:800;font-size:14px;box-shadow:0 6px 16px #2563eb55}
+.savebar small{font-weight:600;opacity:.9;font-size:11px;display:block}
+.savebar span:last-child{margin-left:auto;background:#fff;color:var(--pri);border-radius:9px;padding:6px 12px;font-size:13px}
+.fab{position:absolute;right:14px;bottom:14px;width:52px;height:52px;border-radius:50%;background:var(--pri);color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px #2563eb55}
+.dim{position:absolute;inset:0;background:#0f172a66}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:12px 14px 14px}
+.handle{width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto 10px}
+.sh-t{font-size:16px;font-weight:800;margin-bottom:2px}.sh-s{font-size:11.5px;color:var(--mut);margin-bottom:10px}
+.cl{border:1px solid var(--bd);border-radius:11px;padding:8px 10px;margin-bottom:7px}
+.cl .h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700}
+.tag{font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 6px}
+.tag.in{background:var(--okbg);color:var(--ok)}.tag.out{background:var(--ngbg);color:var(--ng)}.tag.fix{background:#f1f5f9;color:#475569}
+.cl .h .q{margin-left:auto;font-weight:800}
+.rs{display:flex;gap:5px;margin-top:6px}
+.rs span{flex:1;text-align:center;font-size:11.5px;font-weight:700;border:1.5px solid #cbd5e1;border-radius:8px;padding:4px 0;color:#475569}
+.rs span.on{border-color:var(--pri);background:var(--pri-soft);color:var(--pri)}
+.btn{border-radius:11px;padding:11px 0;text-align:center;font-weight:800;font-size:14px}
+.btn.pri{background:var(--pri);color:#fff}.btn.sec{background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1}
+.btn.in{background:var(--okbg);color:var(--ok);border:1.5px solid var(--okbd)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.note{font-size:10.5px;color:var(--mut);line-height:1.5;margin:6px 2px}
+.photo{height:130px;border-radius:14px;background:linear-gradient(135deg,#fecaca,#fde68a);display:flex;align-items:center;justify-content:center;font-size:60px;position:relative;margin-bottom:10px}
+.photo .ed{position:absolute;right:8px;bottom:8px;background:#fff;border-radius:8px;font-size:11px;font-weight:800;padding:3px 8px;color:#334155}
+.basis{background:#f8fafc;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;font-size:12px;margin-bottom:8px}
+.basis .bg{font-size:22px;font-weight:800}.basis .fx{color:var(--mut);font-size:10.5px;margin-top:2px}
+.hist{font-size:11.5px;border-top:1px solid var(--bd);padding-top:6px}
+.hist div{display:flex;justify-content:space-between;padding:2px 0}.hist .h{font-weight:800;color:var(--mut);font-size:10.5px}
+.meta{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}.meta span{font-size:10.5px;font-weight:700;background:#f1f5f9;border-radius:7px;padding:2px 7px;color:#475569}
+.cam{position:absolute;inset:0;background:#111827;display:flex;flex-direction:column;align-items:center}
+.cam .fr{margin-top:120px;width:250px;height:150px;border:3px solid #fff;border-radius:16px;position:relative}
+.cam .fr:after{content:"";position:absolute;left:10px;right:10px;top:50%;height:2px;background:#ef4444}
+.cam .bc{margin-top:22px;color:#fff;font-size:12px;opacity:.8}
+.res{position:absolute;left:10px;right:10px;bottom:12px;background:#fff;border-radius:16px;padding:12px}
+.res .code{font-family:monospace;font-size:15px;font-weight:800;letter-spacing:1px}
+.res .st{font-size:12px;margin:4px 0 8px;color:var(--mut)}
+.sbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+.sbtns span{border:1.5px solid #cbd5e1;border-radius:9px;padding:7px 0;text-align:center;font-size:11.5px;font-weight:800;color:#334155}
+.form label{display:block;font-size:11px;font-weight:700;color:#475569;margin:7px 0 3px}
+.inp{border:1.5px solid #cbd5e1;border-radius:9px;padding:7px 10px;font-size:13.5px;background:#fff;display:flex;align-items:center}
+.inp.req{border-color:var(--pri)}.inp.ph2{color:#94a3b8}.inp .x{margin-left:auto;font-size:11px;font-weight:800;color:var(--pri);border:1.5px solid #bfdbfe;background:var(--pri-soft);border-radius:7px;padding:2px 7px}
+.addtop{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:center}
+.addph{height:84px;border-radius:12px;border:2px dashed #cbd5e1;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:24px;color:#94a3b8}
+.addph small{font-size:10px;font-weight:700}
+.scanbtn{border:1.5px solid var(--pri);color:var(--pri);background:var(--pri-soft);border-radius:10px;padding:9px;text-align:center;font-weight:800;font-size:13px}
+.ok{background:var(--okbg);border:1px solid var(--okbd);color:var(--ok);border-radius:9px;padding:6px 9px;font-size:11.5px;font-weight:700;margin-top:6px}
+.menu .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:11px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:800}
+.menu .card small{display:block;font-size:10.5px;color:var(--mut);font-weight:600}.menu .card .a{margin-left:auto;color:#94a3b8}
+.menu .h{font-size:11px;font-weight:800;color:var(--mut);margin:10px 2px 6px}
+.dec{margin-top:24px;background:#fff;border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.75}
+.dec b{color:#b91c1c}.dec ol{margin:4px 0 0;padding-left:20px}
+.map{background:#fff;border-radius:14px;padding:14px 18px;font-size:12.5px;line-height:1.7;margin-bottom:6px}
+.map table{border-collapse:collapse;width:100%}.map td,.map th{border-bottom:1px solid var(--bd);padding:5px 8px;text-align:left;vertical-align:top}
+.map th{font-size:11.5px;color:var(--mut)}
+</style></head><body>
+<h1>タナオロ 再設計モック（見た目の整理）</h1>
+<p class="lead">これまでの相談（品目・在庫を主役に／増減で入出庫を自動記録／バーコード追加／品目画像／納品の反映／ホームの整理）をまとめた静的モックです。アプリ本体は変更していません。数字・画像は例です。</p>
+
+<div class="map"><table>
+<tr><th>いまの場所</th><th>→ この案での場所</th></tr>
+<tr><td>ホームの縦長カード（データ管理・棚卸・履歴・β仕入れ）＋ダッシュボードタブ</td><td>下部ナビ4つ：<b>ホーム ／ 在庫 ／ 履歴 ／ 管理</b></td></tr>
+<tr><td>仕入れ：在庫タブ・入庫タブ・出庫タブ</td><td><b>在庫</b>タブに統合（±で増減 → 記録で入庫/出庫を自動判定・納品の反映もここ）</td></tr>
+<tr><td>仕入れ：発注タブ</td><td>ホームの「発注を開始」（セッションはそのまま）</td></tr>
+<tr><td>データ管理・在庫分析・設定</td><td><b>管理</b>タブにまとめる</td></tr>
+</table></div>
+
+<h2>1. 毎日の入口と在庫の一覧</h2>
+<div class="row">
+
+<!-- A ホーム -->
+<div class="col"><p class="cap">① ホーム</p><p class="sub">今日やることが先頭。主操作は「棚卸」「発注」の2つだけを大きく。数字は要補充・未反映の納品など「いま手を打つもの」だけ。</p>
+<div class="ph"><div class="top">🧮 タナオロ<span style="font-size:11px;color:var(--mut);font-weight:600">テスト店</span><div class="r">💬</div></div><div class="body">
+<div class="todo"><div class="t">今日のやること</div>
+<div class="i"><span class="ck"></span>青果の発注日<small>締切 15:00</small></div>
+<div class="i"><span class="ck"></span>9/28 の発注が入庫未記録<small>2品目</small></div>
+<div class="i"><span class="ck"></span>棚卸の目安日を過ぎています<small>前回 9/20</small></div></div>
+<div class="big stock"><div class="ic">👥</div><div><b>棚卸を開始</b><small>前回 9/20 ・ 1034品目</small></div></div>
+<div class="big order"><div class="ic">🧾</div><div><b>発注を開始</b><small>要補充 12品目</small></div></div>
+<div class="kpis"><div class="kpi w"><b>12</b><small>要補充</small></div><div class="kpi"><b>2</b><small>未反映の納品</small></div><div class="kpi"><b>¥1.2M</b><small>在庫金額</small></div></div>
+</div><div class="nav"><div class="on"><b>🏠</b>ホーム</div><div><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- B 在庫一覧 -->
+<div class="col"><p class="cap">② 在庫（一覧）</p><p class="sub">画像つきの一覧。数字は「今の見込み」。±で直接増減でき、変えた行は青枠。下のバーで「記録」。未反映の納品は上の帯から1タップで入庫へ。</p>
+<div class="ph"><div class="top">📦 在庫<div class="r">📷 ＋</div></div><div class="body">
+<div class="search">🔍 品目・バーコードで探す<span>▦</span></div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip w">要補充 12</span><span class="chip">ジャンル</span><span class="chip">保管場所</span></div>
+<div class="banner">📥 未反映の納品 2件（9/28 肉屋・9/29 青果）<span>反映 ›</span></div>
+<div class="grp">▼ 昼食材冷凍</div>
+<div class="it"><div class="th a">🍋</div><div class="nm">レモンピューレ26<small>9/20 棚卸 6</small></div><div class="stp"><span class="b">−</span><span class="v">5<small>p</small></span><span class="b">＋</span></div></div>
+<div class="it chg low"><div class="th b">🥓</div><div class="nm">Pスライスベーコン<small class="w">要補充 ・ 9/20 棚卸 8</small></div><div class="stp"><span class="b">−</span><span class="v">1<small class="d dn">−1</small></span><span class="b">＋</span></div></div>
+<div class="it chg"><div class="th c">🍖</div><div class="nm">ボンレスハム200gN<small>入数 11 ・ 9/20 棚卸 18</small></div><div class="stp"><span class="b">−</span><span class="v">25<small class="d up">＋11</small></span><span class="b">＋</span></div></div>
+<div class="it"><div class="th e">画像<br>なし</div><div class="nm">パティバター<small>入数 8 ・ 9/20 棚卸 5</small></div><div class="stp"><span class="b">−</span><span class="v">5<small>ﾏｲ</small></span><span class="b">＋</span></div></div>
+<div class="savebar"><div>変更 2品目<small>入庫 1 ・ 出庫 1（記録前に確認）</small></div><span>記録 ›</span></div>
+</div><div class="nav"><div><b>🏠</b>ホーム</div><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- C 記録確認 -->
+<div class="col"><p class="cap">③ 記録の確認</p><p class="sub">増えた＝入庫、減った＝出庫を自動で判定。減った行だけ理由を選ぶ（既定は使用）。「数え直し」は入出庫でなく修正として別扱い（消費・ロスの集計に混ぜない）。</p>
+<div class="ph"><div class="top">📦 在庫</div><div class="body">
+<div class="it chg low" style="opacity:.4"><div class="th b">🥓</div><div class="nm">Pスライスベーコン</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">この内容で記録します</div><div class="sh-s">9/30（火） ・ 端末：タカキスマホ</div>
+<div class="cl"><div class="h"><span class="tag in">入庫</span>ボンレスハム200gN<span class="q" style="color:var(--ok)">＋11 p</span></div><div class="note" style="margin:3px 0 0">18 → 25 ・ 1ケース（入数11）</div></div>
+<div class="cl"><div class="h"><span class="tag out">出庫</span>Pスライスベーコン<span class="q" style="color:var(--ng)">−1 p</span></div>
+<div class="rs"><span class="on">使用</span><span>ロス</span><span>数え直し</span></div></div>
+<div class="cl"><div class="h"><span class="tag fix">修正</span>宇治抹茶ベース26<span class="q">3 → 2 本</span></div><div class="note" style="margin:3px 0 0">「数え直し」を選ぶと、この品目だけの実測として残ります</div></div>
+<div class="note">メモ（任意）：<span style="color:#94a3b8">例：朝の仕込み分</span></div>
+<div class="two" style="margin-top:6px"><div class="btn sec">戻る</div><div class="btn pri">記録する</div></div>
+</div></div><div class="nav"><div><b>🏠</b>ホーム</div><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- D 品目シート -->
+<div class="col"><p class="cap">④ 品目シート（行をタップ）</p><p class="sub">画像・数の根拠・発注基準・最近の動き。画像はタップで撮影／差し替え（端末で縮小してから保存）。</p>
+<div class="ph"><div class="top">📦 在庫</div><div class="body">
+<div class="dim"></div>
+<div class="sheet" style="top:40px"><div class="handle"></div>
+<div class="photo">🥓<span class="ed">📷 変更</span></div>
+<div class="sh-t">Pスライスベーコン</div>
+<div class="meta"><span>昼食材冷凍</span><span>冷凍庫</span><span>入数 1</span><span>¥420</span><span>JAN 4902160211622</span></div>
+<div class="basis">今の見込み <span class="bg">1</span> p <span class="tag out">要補充</span><div class="fx">9/20 棚卸 8 ＋ 入庫 0 − 出庫 7 ＝ 1（発注点 4）</div></div>
+<div class="two" style="margin-bottom:8px"><div class="btn sec">✏️ 情報を直す</div><div class="btn sec">🎯 発注基準</div></div>
+<div class="hist"><div class="h"><span>最近の動き</span></div>
+<div><span>9/30 出庫（使用）</span><span>−1</span></div><div><span>9/26 出庫（ロス）</span><span>−2</span></div><div><span>9/24 出庫（使用）</span><span>−4</span></div><div><span>9/20 棚卸</span><span>8</span></div></div>
+</div></div><div class="nav"><div><b>🏠</b>ホーム</div><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+</div>
+
+<h2>2. 品目を足す（バーコード・画像）と管理</h2>
+<div class="row">
+
+<!-- E スキャン -->
+<div class="col"><p class="cap">⑤ バーコードを読む</p><p class="sub">一覧の📷から。①自分の品目にあればその品目を開く ②無ければ番号を入れた追加画面へ。外部検索は人が見るボタン（Web／楽天／Amazon）。</p>
+<div class="ph"><div class="body" style="padding:0">
+<div class="cam"><div class="fr"></div><div class="bc">バーコードを枠に合わせてください</div>
+<div class="res"><div class="code">4902160211622</div><div class="st">登録済みの品目にはありません</div>
+<div class="sbtns"><span>🔍 Web</span><span>🛍 楽天</span><span>📦 Amazon</span></div>
+<div class="btn pri">この番号で品目を追加 ›</div>
+<div class="note" style="text-align:center">登録済みなら「Pスライスベーコン を開く」になります</div></div></div>
+</div></div></div>
+
+<!-- F 追加 -->
+<div class="col"><p class="cap">⑥ 品目を追加</p><p class="sub">写真・バーコード・名前。検索結果で名前をコピーして戻り「📋貼り付け」（通販の長い名前は自動で整える）。在庫数はここでは入れない。</p>
+<div class="ph"><div class="top">‹ 品目を追加</div><div class="body form">
+<div class="addtop"><div class="addph">📷<small>写真</small></div><div><div class="scanbtn">▦ バーコードを読む</div><div class="inp" style="margin-top:6px;font-family:monospace">4902160211622</div></div></div>
+<label>品目名（必須）</label><div class="inp req">ﾊﾟｽｺ 超熟 6枚切<span class="x">📋 貼り付け</span></div>
+<div class="ok">✓ 貼り付けた名前を整えました：「【送料無料】…×12個」→「ﾊﾟｽｺ 超熟 6枚切」</div>
+<div class="two"><div><label>単位</label><div class="inp">袋</div></div><div><label>入数</label><div class="inp ph2">1</div></div></div>
+<div class="two"><div><label>ジャンル</label><div class="inp">パン</div></div><div><label>単価（任意）</label><div class="inp ph2">¥</div></div></div>
+<div class="note">🔍 名前が分からないとき：<b style="color:var(--pri)">Web ・ 楽天 ・ Amazon で調べる</b></div>
+<div class="two" style="margin-top:10px"><div class="btn sec">閉じる</div><div class="btn pri">追加して次へ</div></div>
+</div></div></div>
+
+<!-- G 納品の反映 -->
+<div class="col"><p class="cap">⑦ 納品の反映</p><p class="sub">②の帯から。発注した内容がそのまま入庫の候補になり、届いた数だけ直して記録。仕入れの入庫タブの役目をここへ移す。</p>
+<div class="ph"><div class="top">📦 在庫</div><div class="body">
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">9/28 肉屋の発注を入庫にする</div><div class="sh-s">発注 3品目 ・ 届いた数に直して記録</div>
+<div class="it"><div class="th c">🍖</div><div class="nm">ボンレスハム200gN<small>発注 2口（22p）</small></div><div class="stp"><span class="b">−</span><span class="v">22</span><span class="b">＋</span></div></div>
+<div class="it chg"><div class="th b">🥓</div><div class="nm">Pスライスベーコン<small class="w">発注 10p → 届いたのは 8p</small></div><div class="stp"><span class="b">−</span><span class="v">8</span><span class="b">＋</span></div></div>
+<div class="it"><div class="th e">画像<br>なし</div><div class="nm">豚バラ<small>発注 3kg</small></div><div class="stp"><span class="b">−</span><span class="v">3</span><span class="b">＋</span></div></div>
+<div class="two" style="margin-top:8px"><div class="btn sec">あとで</div><div class="btn in">入庫を記録</div></div>
+</div></div><div class="nav"><div><b>🏠</b>ホーム</div><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div></div></div>
+
+<!-- H 管理 -->
+<div class="col"><p class="cap">⑧ 管理</p><p class="sub">毎日は触らないものを1か所に。データ管理（取込・整理）、分析、設定。今のダッシュボードタブとデータ管理カードの中身をここへ。</p>
+<div class="ph"><div class="top">🗂 管理</div><div class="body menu">
+<div class="h">品目データ</div>
+<div class="card">📥<div>取り込む・書き出す<small>CSV・Excel・PDF ・ 過去の棚卸</small></div><span class="a">›</span></div>
+<div class="card">🗂<div>振り分け・並び替え<small>ジャンル・保管場所</small></div><span class="a">›</span></div>
+<div class="card">🩺<div>品目の点検<small>要確認 14件</small></div><span class="a">›</span></div>
+<div class="h">分析</div>
+<div class="card">📊<div>在庫分析<small>在庫金額・前回差・ABC</small></div><span class="a">›</span></div>
+<div class="card">🎯<div>発注基準<small>発注点・補充目標・発注日</small></div><span class="a">›</span></div>
+<div class="h">その他</div>
+<div class="card">⚙️<div>設定<small>端末名・通知・店舗・アカウント</small></div><span class="a">›</span></div>
+<div class="card">📖<div>使い方ガイド</div><span class="a">›</span></div>
+</div><div class="nav"><div><b>🏠</b>ホーム</div><div><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div class="on"><b>🗂</b>管理</div></div></div></div>
+</div>
+
+<div class="dec"><b>整理のために決めること</b>
+<ol>
+<li>下部ナビ4つ（ホーム／在庫／履歴／管理）にするか。今の「セッション／ダッシュボード」タブはなくなる</li>
+<li>在庫一覧で±して記録 → 入庫・出庫を自動判定（③）。減ったときの理由（使用／ロス／数え直し）はこの3つでよいか</li>
+<li>仕入れカードをなくし、入庫・出庫・納品の反映を「在庫」へ、発注をホームへ移すか</li>
+<li>画像を持つか（R2 の準備＝あなたの作業と Worker 再デプロイが必要）。持たない間は「画像なし」の枠かジャンル色で代用</li>
+<li>バーコードは「読む → 自分の品目と照合 → 無ければ追加画面（Web／楽天／Amazon で調べる＋貼り付け）」でよいか</li>
+<li>公開方針（入出庫はβ・主導線外）を変えることになる → 提案箱（proposals.md）で PM 判断に回す</li>
+</ol></div>
+</body></html>
