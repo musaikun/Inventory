@@ -37,6 +37,7 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
   品目画像（R2 に保存・D1 は名前だけ）。いずれも未実装。
   モック: [`mocks/2026-09-30-table-home.html`](mocks/2026-09-30-table-home.html)（4状態）、
   [`mocks/2026-09-30-redesign-overview.html`](mocks/2026-09-30-redesign-overview.html)（関連案を含む全体像8画面）。
+  開始・中断・破棄／発注の「記録のみ」の明示／読むの置き場所: [`mocks/2026-09-30-session-start-discard.html`](mocks/2026-09-30-session-start-discard.html)（User方針: 切り替え式にせず刷新）。
 - **影響範囲 / 実装状況**: 未実装。重い（ホーム `SessionListPage` の開始・再開・ルーム・破棄・練習・発注セッションの処理を取り出す必要）。
   棚卸の開始・再開・完了は公開gateの主経路のため、段階に分ける:
   1. 開始・再開の処理を共通の部品へ移す（見た目は変えない・既存テストで回帰を確認）

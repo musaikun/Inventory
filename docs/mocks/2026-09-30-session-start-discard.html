@@ -1,0 +1,235 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>開始と破棄</title>
+<style>
+:root{--pri:#2563eb;--bd:#e2e8f0;--mut:#64748b;--txt:#0f172a;--ok:#047857;--okbg:#ecfdf5;--okbd:#86efac;--ng:#b91c1c;--ngbg:#fef2f2;--ngbd:#fca5a5;--warn:#c2410c;--warnbg:#fff7ed;--warnbd:#fdba74;--ord:#ea580c}
+*{box-sizing:border-box}
+body{margin:0;background:#e5e7eb;font-family:"Noto Sans CJK JP","Hiragino Sans",sans-serif;color:var(--txt);padding:26px;width:1560px}
+h1{font-size:25px;margin:0 0 4px}.lead{margin:0 0 16px;color:#475569;font-size:14px;line-height:1.6}
+h2{font-size:17px;margin:24px 0 10px;padding-left:10px;border-left:5px solid var(--pri)}
+.row{display:flex;gap:20px;align-items:flex-start}
+.col{width:355px}.cap{font-weight:800;font-size:15px;margin:0 0 4px}.sub{font-size:12px;color:#475569;margin:0 0 10px;line-height:1.55;min-height:58px}
+.ph{width:355px;height:700px;border-radius:28px;border:8px solid #0f172a;overflow:hidden;position:relative;display:flex;flex-direction:column;background:#f1f5f9}
+.hd{padding:10px 12px 8px;display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;background:#fff;border-bottom:1px solid var(--bd)}
+.hd small{font-size:10.5px;color:var(--mut);font-weight:600}.hd .r{margin-left:auto;font-size:17px;color:var(--mut)}
+.t-stock .hd{background:#2563eb;color:#fff;border:none}.t-stock .hd small,.t-stock .hd .r{color:#dbeafe}
+.t-order .hd{background:#ea580c;color:#fff;border:none}.t-order .hd small,.t-order .hd .r{color:#ffedd5}
+.rec{background:#fff;color:#c2410c;border-radius:6px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:4px}
+.strip{margin:8px 10px 0;border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px}
+.strip.today{background:#fff;border:1px solid var(--bd);color:#334155}.strip.today b{color:var(--warn)}
+.strip.pause{background:#dbeafe;color:#1d4ed8}.strip.pause .go{margin-left:auto;background:#2563eb;color:#fff;border-radius:8px;padding:3px 10px}.strip.pause .more{color:#1d4ed8;font-size:15px}
+.strip.opause{background:#ffedd5;color:#c2410c}.strip.opause .go{margin-left:auto;background:#ea580c;color:#fff;border-radius:8px;padding:3px 10px}
+.acts{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 10px 0}
+.act{background:#fff;border:1.5px solid var(--bd);border-radius:12px;padding:8px 0 7px;text-align:center;font-size:11.5px;font-weight:800;color:#334155}
+.act b{display:block;font-size:20px;margin-bottom:1px}
+.act.s{border-color:#93c5fd;color:#1d4ed8;background:#eff6ff}.act.o{border-color:#fdba74;color:#c2410c;background:#fff7ed}
+.srch{margin:8px 10px 0;display:flex;gap:6px}
+.srch .in{flex:1;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;font-size:12px;color:#94a3b8}
+.srch .ic{width:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;background:#fff;border:1px solid var(--bd)}
+.t-stock .srch .ic.m{background:#2563eb;border:none}.t-order .srch .ic.m{background:#ea580c;border:none}
+.srch .ic.hl{outline:3px solid #facc15;outline-offset:1px}
+.sess{margin:8px 10px 0;display:flex;gap:6px}
+.sess .prog{flex:1;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:6px 10px;font-size:11.5px;font-weight:700}
+.sess .bar{height:5px;border-radius:3px;background:#e2e8f0;margin-top:4px;overflow:hidden}.sess .bar i{display:block;height:100%}
+.sess .room{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:6px 8px;font-size:11px;font-weight:800;text-align:center}
+.tbl{margin:8px 10px 0;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--bd);flex:1}
+.th{display:flex;padding:7px 10px;font-size:11.5px;font-weight:800;color:#fff;background:#334155}.th span:first-child{flex:1}
+.t-stock .th{background:#1e40af}.t-order .th{background:#c2410c}
+.tr{display:flex;align-items:center;padding:7px 10px;border-bottom:1px solid #f1f5f9;gap:8px;font-size:12.5px;font-weight:700}
+.tr .nm{flex:1}.tr .cell{min-width:62px;border:1.5px solid var(--bd);border-radius:8px;padding:3px 6px;text-align:center;font-weight:800;background:#f8fafc;color:#94a3b8}
+.tr.done{background:#f0fdf4}.tr.done .cell{border-color:var(--okbd);color:var(--ok);background:#f0fdf4}
+.nav{background:#fff;border-top:1px solid var(--bd);display:flex;justify-content:space-around;padding:6px 0 8px;margin-top:auto}
+.nav div{text-align:center;font-size:10px;color:#94a3b8;font-weight:700;width:33%}.nav div b{display:block;font-size:18px;filter:grayscale(1);opacity:.55}
+.nav div.on{color:var(--pri)}.nav div.on b{filter:none;opacity:1}
+.dim{position:absolute;inset:0;background:#0f172a66}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:12px 14px 16px}
+.handle{width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto 10px}
+.sh-t{font-size:17px;font-weight:800}.sh-s{font-size:12px;color:var(--mut);margin:3px 0 12px;line-height:1.5}
+.info{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.info div{background:#f8fafc;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;font-size:11px;color:var(--mut);font-weight:700}
+.info b{display:block;font-size:15px;color:var(--txt)}
+.bigbtn{border-radius:13px;padding:13px 14px;margin-bottom:9px;display:flex;align-items:center;gap:12px;font-weight:800;font-size:15px}
+.bigbtn small{display:block;font-size:11px;font-weight:600;opacity:.85}
+.bigbtn .ic{font-size:22px}
+.bigbtn.s{background:#2563eb;color:#fff}.bigbtn.s2{background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd}
+.bigbtn.o{background:#ea580c;color:#fff}.bigbtn.o2{background:#fff7ed;color:#c2410c;border:1.5px solid #fdba74}
+.bigbtn.g{background:#fff;color:#334155;border:1.5px solid #cbd5e1}
+.bigbtn.ng{background:#fff;color:var(--ng);border:1.5px solid var(--ngbd)}
+.link{text-align:center;font-size:12px;font-weight:700;color:var(--mut);margin-top:4px}
+.note{border-radius:10px;padding:9px 11px;font-size:12px;line-height:1.6;margin-bottom:12px}
+.note.o{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}
+.note.b{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a}
+.note.r{background:var(--ngbg);border:1px solid var(--ngbd);color:#7f1d1d}
+.twob{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{border-radius:11px;padding:12px 0;text-align:center;font-weight:800;font-size:14px}
+.btn.g{background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1}.btn.ng{background:var(--ng);color:#fff}
+.cam{position:absolute;left:10px;right:10px;top:150px;height:170px;background:#111827;border-radius:16px;display:flex;align-items:center;justify-content:center}
+.cam .fr{width:220px;height:100px;border:3px solid #fff;border-radius:12px;position:relative}.cam .fr:after{content:"";position:absolute;left:8px;right:8px;top:50%;height:2px;background:#ef4444}
+.cam .x{position:absolute;right:10px;top:8px;color:#fff;font-size:12px;font-weight:800}
+.qsheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:12px 14px}
+.qrow{display:flex;gap:8px;align-items:center;margin:8px 0}
+.qv{flex:1;border:2px solid #2563eb;border-radius:12px;padding:10px;text-align:center;font-size:26px;font-weight:800}
+.qu{background:#eff6ff;color:#1d4ed8;border-radius:10px;padding:12px;font-weight:800}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.keys span{background:#f8fafc;border:1px solid var(--bd);border-radius:9px;padding:9px 0;text-align:center;font-weight:800}
+.form label{display:block;font-size:11px;font-weight:700;color:#475569;margin:8px 0 3px}
+.inp{border:1.5px solid #cbd5e1;border-radius:9px;padding:8px 10px;font-size:13.5px;background:#fff;display:flex;align-items:center}
+.inp.req{border-color:var(--pri)}.inp.ph2{color:#94a3b8}.inp .x{margin-left:auto;font-size:11px;font-weight:800;color:var(--pri);border:1.5px solid #bfdbfe;background:#eff6ff;border-radius:7px;padding:2px 7px}
+.scan{border:1.5px solid var(--pri);color:var(--pri);background:#eff6ff;border-radius:10px;padding:10px;text-align:center;font-weight:800;font-size:13.5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.found{background:var(--okbg);border:1px solid var(--okbd);color:var(--ok);border-radius:9px;padding:7px 9px;font-size:11.5px;font-weight:700;margin-top:6px}
+.sbt{display:flex;gap:6px;margin-top:6px}.sbt span{flex:1;border:1.5px solid #cbd5e1;border-radius:9px;padding:6px 0;text-align:center;font-size:11.5px;font-weight:800;color:#334155}
+.dec{margin-top:22px;background:#fff;border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.75}.dec b{color:#b91c1c}.dec ol{margin:4px 0 0;padding-left:20px}
+</style></head><body>
+<h1>セッションの開始・中断・破棄 ／ 発注の明示 ／ 読むの置き場所</h1>
+<p class="lead">「表がホーム」の続き。操作ボタンは <b>棚卸・発注・入出庫の3つ</b>（読むは外した）。確認ダイアログ（ブラウザの confirm）はやめて、すべて下から出るシートにする。静的モックでアプリ本体は変更していません。</p>
+
+<h2>1. 始める</h2>
+<div class="row">
+
+<div class="col"><p class="cap">① 👥 棚卸を押す → 開始シート</p><p class="sub">前回と品目数を見せて、ひとりか・みんなか を選ぶだけ。開始したら画面は移らず、同じ表がそのまま青になる。練習は小さく。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="tbl" style="opacity:.5"><div class="th"><span>品目 1034</span><span>今の見込み</span></div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">棚卸を始める</div><div class="sh-s">数えた数が、今の在庫として確定します。</div>
+<div class="info"><div>前回<b>9/20（土）</b></div><div>数える品目<b>1034</b></div></div>
+<div class="bigbtn s"><span class="ic">👤</span><div>ひとりで始める<small>この端末だけで数える</small></div></div>
+<div class="bigbtn s2"><span class="ic">👥</span><div>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></div></div>
+<div class="link">練習してみる（履歴に残りません） ›</div>
+</div><div class="nav" style="position:absolute;bottom:0;left:0;right:0;visibility:hidden"></div></div></div>
+
+<div class="col"><p class="cap">② 同じ日の2回目</p><p class="sub">今のブラウザの確認ダイアログ（OK/キャンセルの意味が読みにくい）を、同じ開始シートの中の選択に置き換える。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">今日はもう棚卸をしています</div><div class="sh-s">14:02〜14:48 ・ 1034品目 ・ 完了済み</div>
+<div class="note b">たいていは続きか数え直しです。続きから開くと、数量・変更履歴・時間がそのまま残ります。</div>
+<div class="bigbtn s"><span class="ic">↩︎</span><div>続きから開く<small>今日の棚卸を直す</small></div></div>
+<div class="bigbtn g"><span class="ic">＋</span><div>別の棚卸として新しく始める<small>本当に2回数える日だけ</small></div></div>
+<div class="link">やめる</div>
+</div></div></div>
+
+<div class="col"><p class="cap">③ 🧾 発注を押す → 開始シート</p><p class="sub">「仕入先へは送信されない」をここで1回だけはっきり言う。要補充の件数を見せて、要補充から始めるか全部から始めるかを選べる。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">発注を始める</div>
+<div class="note o">📝 <b>このアプリは発注内容の確認と記録までです。</b>仕入先へは送信されません。完了後に CSV やコピーで共有できます。</div>
+<div class="info"><div>要補充<b style="color:#c2410c">12品目</b></div><div>今日の発注日<b>青果（15:00締切）</b></div></div>
+<div class="bigbtn o"><span class="ic">⚠️</span><div>要補充の12品目から始める<small>表を「要補充」で絞った状態で開く</small></div></div>
+<div class="bigbtn o2"><span class="ic">📋</span><div>全品目から始める</div></div>
+<div class="link">みんなで発注する（QR） ›</div>
+</div></div></div>
+
+<div class="col"><p class="cap">④ 発注中の見出し</p><p class="sub">毎回の注意書きは出さない。見出しに小さく「記録のみ」の印だけ残し、完了時の画面で共有（CSV・コピー）を案内する。</p>
+<div class="ph t-order"><div class="hd">🧾 発注中 <span class="rec">記録のみ</span><small>15:10〜</small><div class="r">☰</div></div>
+<div class="sess"><div class="prog">発注 8 / 要補充 12<div class="bar"><i style="width:66%;background:#ea580c"></i></div></div><div class="room">⚪ 1人</div></div>
+<div class="srch"><div class="in">例：ベーコン 10（音声 or 入力）</div><div class="ic m">🎤</div><div class="ic">📷</div></div>
+<div class="tbl"><div class="th"><span>品目</span><span>数量</span></div>
+<div class="tr done"><span class="nm">Pスライスベーコン</span><span class="cell">10p</span></div>
+<div class="tr done"><span class="nm">ボンレスハム200gN</span><span class="cell">2口</span></div>
+<div class="tr"><span class="nm">レモンピューレ26</span><span class="cell">—</span></div></div>
+<div style="padding:8px 10px;display:grid;grid-template-columns:2fr 1fr;gap:8px"><div class="btn" style="background:#16a34a;color:#fff">✓ 発注完了</div><div class="btn g">💾 CSV</div></div>
+</div></div>
+</div>
+
+<h2>2. 中断・破棄</h2>
+<div class="row">
+
+<div class="col"><p class="cap">⑤ 棚卸中に ☰ を押す</p><p class="sub">離れ方を2つに分ける。「中断」は安全（入力は残る）。「破棄」は赤で別枠。完了もここに並べない（下のボタンのまま）。</p>
+<div class="ph t-stock"><div class="hd">👥 棚卸中 <small>14:02〜 ・ 18分</small><div class="r">☰</div></div>
+<div class="sess"><div class="prog">412 / 1034 品目<div class="bar"><i style="width:40%;background:#2563eb"></i></div></div><div class="room">🟢 3人</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">棚卸（412 / 1034 品目）</div><div class="sh-s">14:02 開始 ・ 3人が参加中</div>
+<div class="bigbtn g"><span class="ic">⏸</span><div>中断してホームへ<small>入力は残ります。いつでも続きから再開</small></div></div>
+<div class="bigbtn g"><span class="ic">👥</span><div>参加者・QRを表示</div></div>
+<div class="bigbtn g"><span class="ic">🕘</span><div>変更履歴</div></div>
+<div style="height:8px"></div>
+<div class="bigbtn ng"><span class="ic">🗑</span><div>この棚卸を破棄<small>入力した412品目は消えます</small></div></div>
+</div></div></div>
+
+<div class="col"><p class="cap">⑥ 破棄の確認</p><p class="sub">消える量を数字で見せる。ルームの参加者がいるときは、全員の画面が閉じることも言う。押し間違えない位置（左）に「やめる」。</p>
+<div class="ph t-stock"><div class="hd">👥 棚卸中 <small>14:02〜 ・ 18分</small><div class="r">☰</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t" style="color:#b91c1c">この棚卸を破棄しますか？</div>
+<div class="note r"><b>入力済みの 412品目</b>と変更履歴が消え、元に戻せません。<br>参加中の <b>2人</b> の画面も閉じます。<br>履歴カレンダーにも残りません。</div>
+<div class="note b">あとで続けるだけなら「中断」で十分です。</div>
+<div class="twob"><div class="btn g">やめる</div><div class="btn ng">破棄する</div></div>
+</div></div></div>
+
+<div class="col"><p class="cap">⑦ 中断中のホーム</p><p class="sub">「今日」の帯の場所に、中断中のセッションを出す（今日のやることより優先）。再開は1タップ。⋯ から破棄（⑥と同じ確認）。発注も同じ形でオレンジ。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="strip pause">⏸ 棚卸（中断中） 412 / 1034<span class="go">再開</span><span class="more">⋯</span></div>
+<div class="strip opause">⏸ 発注（中断中） 8品目<span class="go">再開</span><span class="more">⋯</span></div>
+<div class="acts"><div class="act s" style="opacity:.45"><b>👥</b>棚卸</div><div class="act o" style="opacity:.45"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="tbl"><div class="th"><span>品目 1034</span><span>今の見込み</span></div>
+<div class="tr"><span class="nm">レモンピューレ26</span><span class="cell" style="color:#334155">5p</span></div>
+<div class="tr"><span class="nm">Pスライスベーコン</span><span class="cell" style="color:#c2410c;border-color:#fdba74;background:#fff7ed">1p</span></div></div>
+<div class="nav"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div>
+</div></div>
+
+<div class="col"><p class="cap">補足：同時に1つ</p><p class="sub">棚卸・発注はそれぞれ同時に1つ（今と同じ）。中断中に 👥棚卸 を押すと、新しく始めずに「中断中の棚卸を再開しますか？」の開始シートになる（ボタンを薄くしているのはその合図）。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="strip pause">⏸ 棚卸（中断中） 412 / 1034<span class="go">再開</span><span class="more">⋯</span></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="handle"></div>
+<div class="sh-t">中断中の棚卸があります</div><div class="sh-s">14:02 開始 ・ 412 / 1034 品目</div>
+<div class="bigbtn s"><span class="ic">▶︎</span><div>続きから再開</div></div>
+<div class="bigbtn ng"><span class="ic">🗑</span><div>破棄して新しく始める<small>⑥の確認が出ます</small></div></div>
+<div class="link">やめる</div>
+</div></div></div>
+</div>
+
+<h2>3. 読む（バーコード）の置き場所</h2>
+<div class="row">
+
+<div class="col"><p class="cap">⑧ 棚卸中：読みながら数える</p><p class="sub">入力欄の 🎤 の隣に 📷。押すとカメラが上に開き、読めた品目の数量入力がすぐ出る。数えたら閉じずに次の品を読める（連続）。</p>
+<div class="ph t-stock"><div class="hd">👥 棚卸中 <small>14:02〜</small><div class="r">☰</div></div>
+<div class="sess"><div class="prog">412 / 1034 品目<div class="bar"><i style="width:40%;background:#2563eb"></i></div></div><div class="room">🟢 3人</div></div>
+<div class="srch"><div class="in">例：ベーコン 3（音声 or 入力）</div><div class="ic m">🎤</div><div class="ic hl">📷</div></div>
+<div class="cam"><div class="fr"></div><span class="x">✕ 閉じる</span></div>
+<div class="dim" style="top:340px"></div>
+<div class="qsheet"><div class="handle"></div>
+<div style="font-weight:800;font-size:15px">Pスライスベーコン <span style="font-size:11px;color:#047857">▦ 読み取り</span></div>
+<div class="qrow"><div class="qv">3</div><div class="qu">p</div></div>
+<div class="keys"><span>7</span><span>8</span><span>9</span><span>4</span><span>5</span><span>6</span><span>1</span><span>2</span><span>3</span></div>
+<div class="twob" style="margin-top:8px"><div class="btn g">キャンセル</div><div class="btn" style="background:#2563eb;color:#fff">確定して次を読む</div></div>
+</div></div></div>
+
+<div class="col"><p class="cap">⑨ ＋ 品目を追加：読んで登録</p><p class="sub">一覧の＋の中に「バーコードを読む」。登録済みならその品目を開く。無ければ番号が入り、名前を調べる（Web／楽天／Amazon）＋📋貼り付け。</p>
+<div class="ph"><div class="hd">‹ 品目を追加</div><div style="padding:10px 12px" class="form">
+<div class="scan">▦ バーコードを読む</div>
+<div class="found">▦ 4902160211622 ・ 登録済みの品目にはありません</div>
+<div class="sbt"><span>🔍 Web</span><span>🛍 楽天</span><span>📦 Amazon</span></div>
+<label>品目名（必須）</label><div class="inp req">ﾊﾟｽｺ 超熟 6枚切<span class="x">📋 貼り付け</span></div>
+<div class="two"><div><label>単位</label><div class="inp">袋</div></div><div><label>入数</label><div class="inp ph2">1</div></div></div>
+<div class="two"><div><label>ジャンル</label><div class="inp">パン</div></div><div><label>単価（任意）</label><div class="inp ph2">¥</div></div></div>
+<div class="twob" style="margin-top:14px"><div class="btn g">閉じる</div><div class="btn" style="background:#2563eb;color:#fff">追加して次へ</div></div>
+</div></div></div>
+
+<div class="col"><p class="cap">⑩ 見るとき（読むは置かない）</p><p class="sub">操作ボタンは3つ。バーコードで品目を探したいときは、検索欄の右端の小さな ▦（入力欄の一部として）。独立したボタンにはしない。</p>
+<div class="ph"><div class="hd">🧮 タナオロ <small>テスト店</small><div class="r">💬</div></div>
+<div class="strip today">📋 今日：<b>青果の発注日</b> ほか2件<span style="margin-left:auto">›</span></div>
+<div class="acts"><div class="act s"><b>👥</b>棚卸</div><div class="act o"><b>🧾</b>発注</div><div class="act"><b>📥</b>入出庫</div></div>
+<div class="srch"><div class="in" style="display:flex">🔍 品目名で絞り込み<span style="margin-left:auto;color:#64748b">▦</span></div></div>
+<div class="tbl"><div class="th"><span>品目 1034</span><span>今の見込み</span></div>
+<div class="tr"><span class="nm">レモンピューレ26</span><span class="cell" style="color:#334155">5p</span></div>
+<div class="tr"><span class="nm">Pスライスベーコン</span><span class="cell" style="color:#c2410c;border-color:#fdba74;background:#fff7ed">1p</span></div>
+<div class="tr"><span class="nm">ボンレスハム200gN</span><span class="cell" style="color:#334155">14p</span></div></div>
+<div class="nav"><div class="on"><b>📦</b>在庫</div><div><b>📅</b>履歴</div><div><b>🗂</b>管理</div></div>
+</div></div>
+</div>
+
+<div class="dec"><b>決めること</b>
+<ol>
+<li>開始は「ひとりで／みんなで」を最初に選ぶ形でよいか（今は開始後にルームを作る）。練習は開始シートの小さなリンクでよいか</li>
+<li>発注の「記録のみ」の明示は、開始シートで1回＋見出しの小さな印、でよいか</li>
+<li>発注の開始で「要補充から始める」を選べるようにするか</li>
+<li>離れ方は「中断（入力は残る）」と「破棄（赤・件数つき確認）」の2つでよいか。破棄の入口は ☰ とホームの帯の ⋯ の2か所</li>
+<li>読むは「棚卸中・発注中の入力欄（連続で読んで数える）」と「＋の追加画面」の2か所、見るときは検索欄の小さな ▦ だけ、でよいか</li>
+</ol></div>
+</body></html>
