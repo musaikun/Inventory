@@ -143,12 +143,30 @@ export function useSessionLauncher() {
     }
   }
 
-  /** セッションを削除。confirmed でなければブラウザの確認を出す。消したら true */
-  async function remove(session, { confirmed = false } = {}) {
+  /**
+   * セッションを削除。confirmed でなければブラウザの確認を出す。消したら true。
+   *
+   * onlyIfActive: 「中断中の破棄」として消すとき。消す直前にサーバーの最新を読み直し、
+   * **もう完了していたら消さない**。画面の一覧は開いたときの状態のままなので、別の端末で
+   * 完了した棚卸が、この端末では「中断中」の帯に残って見えることがある。そこから破棄すると
+   * 完了済みの棚卸（履歴・記録ごと）が消えていた（User報告 2026-09-30・実データ消失）。
+   */
+  async function remove(session, { confirmed = false, onlyIfActive = false } = {}) {
     const locked = session.status === 'completed' && isLocked(session)
     if (!confirmed && !confirm(deleteConfirmMessage(session, locked))) return false
     deletingId.value = session.id
     try {
+      if (onlyIfActive) {
+        const latest = await getSessions()
+        if (Array.isArray(latest)) sessions.value = latest
+        const now = Array.isArray(latest) ? latest.find(s => s.id === session.id) : null
+        if (!now || now.status === 'completed') {
+          error.value = now
+            ? 'この棚卸は別の端末ですでに完了しています。消さずに残しました（履歴で見られます）。'
+            : 'このセッションはもうありません。'
+          return false
+        }
+      }
       await deleteSession(session.id)
       sessions.value = sessions.value.filter(s => s.id !== session.id)
       return true

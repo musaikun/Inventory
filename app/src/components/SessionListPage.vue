@@ -87,7 +87,11 @@ onMounted(async () => {
   if (await launcher.load() === 'unauthorized') { emit('back'); return }
   launcher.startRoomPolling()
 })
-onUnmounted(() => launcher.stopRoomPolling())
+// アプリに戻ってきたら一覧を読み直す。開いたままの画面では、別の端末で完了した棚卸が
+// 「中断中」のまま残って見える（そこから破棄すると完了済みを消してしまう）
+function _onVisible() { if (document.visibilityState === 'visible') launcher.load() }
+onMounted(() => document.addEventListener('visibilitychange', _onVisible))
+onUnmounted(() => { launcher.stopRoomPolling(); document.removeEventListener('visibilitychange', _onVisible) })
 
 const stockRef = ref(null)   // StockPage（要補充の件数・＋の追加を借りる）
 
@@ -172,7 +176,8 @@ function askDiscard(session) { sheet.value = { discard: session } }
 async function confirmDiscard() {
   const s = sheet.value?.discard
   if (!s) return
-  if (await launcher.remove(s, { confirmed: true })) emit('deleteSession', s.id)
+  // 中断中の破棄。消す直前にサーバーを読み直し、完了済みなら消さない（onlyIfActive）
+  if (await launcher.remove(s, { confirmed: true, onlyIfActive: true })) emit('deleteSession', s.id)
   closeSheet()
 }
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))

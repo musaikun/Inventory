@@ -97,4 +97,22 @@ describe('useSessionLauncher', () => {
     expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(true)
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it('中断中の破棄は、消す直前にサーバーで完了済みになっていたら消さない（実データ消失の再発防止）', async () => {
+    sessionList = [ACTIVE_ORDER]
+    await L.load()
+    // 別の端末で完了した
+    sessionList = [{ ...ACTIVE_ORDER, status: 'completed', endedAt: iso(now) }]
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true, onlyIfActive: true })).toBe(false)
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(L.error.value).toContain('すでに完了')
+    expect(L.sessions.value[0].status).toBe('completed')
+  })
+
+  it('中断中のままなら破棄できる', async () => {
+    sessionList = [ACTIVE_ORDER]
+    await L.load()
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true, onlyIfActive: true })).toBe(true)
+    expect(deleteSession).toHaveBeenCalledWith('o1')
+  })
 })
