@@ -3,7 +3,8 @@ import { ref, reactive, computed, watch } from 'vue'
 import InventoryTable from './InventoryTable.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { snapshotViewConfig } from '../services/snapshotView.js'
-import { buildSessionReport } from '../services/sessionReport.js'
+import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
+import SessionReportPanel from './SessionReportPanel.vue'
 
 const props = defineProps({
   result:       { type: Object, default: null },   // null = エラー（期間切れ・未完了・未発見）
@@ -30,10 +31,12 @@ const snapInventory = computed(() => {
 // 金額は持たない（prices 空 → 金額列は出ない）。並び・振り分けはホームと同じ（services/snapshotView.js）
 const snapConfig = computed(() => snapshotViewConfig(props.result))
 
-// レポート（金額なし）。ホストの詳細画面のレポートから、金額に関わる面を除いたもの。
-// 共有URLは店舗の外にも渡りうるので、単価・在庫金額は出さない（サーバーも返さない）。
-const report = computed(() => buildSessionReport(props.result ?? {}, null))
-const flaggedNames = computed(() => snapItems.value.filter(it => it.flagged).map(it => it.item))
+// レポート。履歴から開く詳細画面のレポートと同じもの（User指示 2026-09-30）。
+// 前回は、サーバーが返す候補（この棚卸より前の記録）から履歴と同じ決め方で選ぶ。
+const report = computed(() => buildSessionReport(
+  props.result ?? {},
+  findPrevSnapshot(props.result ?? {}, props.result?.prevCandidates ?? []),
+))
 
 const snapFlags = computed(() => {
   const f = {}
@@ -167,38 +170,9 @@ function actionClass(action) {
         @touchend.passive="swipe.onTouchEnd"
         @touchcancel.passive="swipe.onTouchCancel"
       >
-        <!-- レポート（金額なし）-->
+        <!-- レポート（履歴のレポートと同じ）-->
         <div v-show="activeTab === 'report'" :class="['panel panel-scroll', slideClass('report')]">
-          <div class="rp-card">
-            <div class="rp-grid">
-              <div class="rp-cell">
-                <div class="rp-cell-num">{{ report.items.filled }}<span class="rp-cell-of">/{{ report.items.total }}</span></div>
-                <div class="rp-cell-label">入力済み品目</div>
-              </div>
-              <div class="rp-cell" :class="{ 'rp-attn': report.items.missing > 0 }">
-                <div class="rp-cell-num">{{ report.items.missing }}</div>
-                <div class="rp-cell-label">未入力</div>
-              </div>
-              <div class="rp-cell" :class="{ 'rp-attn': report.items.flagged > 0 }">
-                <div class="rp-cell-num">{{ report.items.flagged }}</div>
-                <div class="rp-cell-label">要再確認</div>
-              </div>
-            </div>
-          </div>
-          <div v-if="flaggedNames.length" class="rp-card">
-            <div class="rp-card-title">要再確認の品目（{{ flaggedNames.length }}件）</div>
-            <div v-for="n in flaggedNames" :key="n" class="rp-person"><span class="rp-person-name">{{ n }}</span></div>
-          </div>
-          <div v-if="report.people.count" class="rp-card">
-            <div class="rp-card-title">担当者（{{ report.people.count }}名）</div>
-            <div v-if="report.people.sharedItems" class="rp-sub">{{ report.people.sharedItems }}品目を複数人が入力しています</div>
-            <div v-if="report.people.approximate" class="rp-sub">操作の記録が残っていないため、件数は品目単位の概算です</div>
-            <div v-for="p in report.people.list" :key="p.name" class="rp-person">
-              <span class="rp-person-name">{{ p.name }}</span>
-              <span class="rp-person-meta">{{ p.count }}操作 / {{ p.itemCount }}品目<template v-if="p.sharedCount">（重複{{ p.sharedCount }}）</template></span>
-            </div>
-          </div>
-          <p class="rp-sub rp-note">共有用の画面のため、金額は表示しません。</p>
+          <SessionReportPanel :report="report" />
         </div>
 
         <!-- 品目一覧 -->
@@ -479,23 +453,6 @@ function actionClass(action) {
   margin-right: 8px;
 }
 .pi-qty { font-size: 13px; font-weight: 700; color: var(--primary, var(--primary-bright)); white-space: nowrap; flex-shrink: 0; }
-
-/* ── レポート ── */
-.rp-card { background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); flex-shrink: 0; }
-.rp-card-title { font-size: 13px; font-weight: 800; color: #1e293b; margin-bottom: 6px; }
-.rp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.rp-cell { text-align: center; padding: 6px 0; border-radius: 10px; background: #f8fafc; }
-.rp-cell-num { font-size: 20px; font-weight: 800; color: #1e293b; font-variant-numeric: tabular-nums; }
-.rp-cell-of { font-size: 12px; color: #64748b; font-weight: 700; }
-.rp-cell-label { font-size: 11px; color: #64748b; font-weight: 700; }
-.rp-attn { background: #fff7ed; }
-.rp-attn .rp-cell-num { color: #c2410c; }
-.rp-sub { font-size: 12px; color: #64748b; margin: 0 0 4px; }
-.rp-note { text-align: center; margin-top: 4px; }
-.rp-person { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
-.rp-person:last-child { border-bottom: none; }
-.rp-person-name { font-weight: 700; color: #1e293b; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rp-person-meta { color: #64748b; font-size: 12px; white-space: nowrap; }
 
 /* ── 変更履歴 ── */
 .empty-msg { text-align: center; color: var(--text-muted, #64748b); font-size: 13px; padding: 32px 16px; }

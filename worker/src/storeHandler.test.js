@@ -257,7 +257,19 @@ function createResultMockD1(snapshots = []) {
         }
         return null
       },
-      async all() { return { results: [] } },
+      // 前回比較の候補（同じ店舗の他の記録。日付の新しい順・件数上限）
+      async all() {
+        if (s.includes('FROM store_history') && s.includes('snapshot_date <= ?')) {
+          const [, date, sid, limit] = bound
+          const rows = snapshots
+            .filter(x => x.sessionId !== sid && (x.date ?? '') <= date)
+            .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+            .slice(0, limit)
+            .map(x => ({ snapshot_json: JSON.stringify(x) }))
+          return { results: rows }
+        }
+        return { results: [] }
+      },
     }
     return stmt
   }
@@ -313,27 +325,30 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     expect(res.result.sessionId).toBe(sid)
   })
 
-  it('閲覧可能なら金額を除去した結果を返す', async () => {
+  // 金額も返す（User指示 2026-09-30：閲覧用のレポートを履歴のレポートと同等に）
+  it('閲覧可能なら、金額を含むレポート用の結果を返す', async () => {
     const db  = createResultMockD1([fullSnapshot(recent)])
     const res = await handleRoomResult(db, code, sid)
     expect(res._status).toBeUndefined()
     expect(res.result.sessionId).toBe(sid)
-    // 品目: 数量・単位は残り、金額は消える
     const item = res.result.items[0]
     expect(item.qty).toBe(5)
     expect(item.unit).toBe('kg')
-    expect(item.unitPrice).toBeUndefined()
-    expect(item.subtotal).toBeUndefined()
-    expect(res.result.totalValue).toBeUndefined()
-    // 参加者: 金額は消える
-    expect(res.result.participants[0].totalValue).toBeUndefined()
-    expect(res.result.participants[0].items[0].subtotal).toBeUndefined()
-    expect(res.result.participants[0].items[0].qty).toBe(5)
-    // 入力時刻は金額ではないので残る（「誰が何をいつ」の“いつ”）
+    expect(item.unitPrice).toBe(500)
+    expect(item.subtotal).toBe(2500)
+    expect(res.result.totalValue).toBe(2500)
+    expect(res.result.participants[0].totalValue).toBe(2500)
     expect(res.result.participants[0].items[0].at).toBe(1_700_000_000_000)
-    // 変更履歴: 誰が・何を・いつ は残る
     expect(res.result.auditLog[0].enteredBy).toBe('田中')
     expect(res.result.auditLog[0].action).toBe('new')
+  })
+
+  it('前回比較の候補（この棚卸より前の記録）を数件だけ返す', async () => {
+    const prev  = { sessionId: 'p1', date: '2026-06-01', savedAt: recent, totalValue: 2000, items: [{ item: '鶏もも', qty: 4, unit: 'kg', unitPrice: 500, subtotal: 2000 }] }
+    const later = { sessionId: 'p2', date: '2026-07-10', savedAt: recent, items: [] }
+    const res = await handleRoomResult(createResultMockD1([fullSnapshot(recent), prev, later]), code, sid)
+    expect(res.result.prevCandidates.map(p => p.sessionId)).toEqual(['p1'])
+    expect(res.result.prevCandidates[0].items[0]).toEqual({ item: '鶏もも', qty: 4, unit: 'kg', subtotal: 2000 })
   })
 
   it('ホームと同じ並び・振り分けで見せるための情報を渡す（金額ではない）', async () => {

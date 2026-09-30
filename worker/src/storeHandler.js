@@ -383,8 +383,9 @@ export async function handleRoomUpdate(db, code, body) {
 }
 
 // ── 完了後ゲスト閲覧（result）─────────────────────────────────────────────────
-// スナップショットから金額（単価・在庫金額）を除去してゲスト向けに整形する。
-// 返すのは品目・数量・単位、参加者、変更履歴（誰が・何を・いつ）のみ。
+// 共有URLの閲覧画面に出すものだけを取り出す。
+// 金額（単価・小計・在庫金額）も含める（User指示 2026-09-30：閲覧用のレポートを履歴のレポートと同等に）。
+// 以前は金額を除いていた。リンクを受け取った人は店の在庫金額まで見られる。
 function _sanitizeForGuest(snap) {
   const items = (snap.items ?? []).map(it => ({
     item:     it.item,
@@ -393,14 +394,17 @@ function _sanitizeForGuest(snap) {
     code:     it.code ?? '',
     flagged:  !!it.flagged,
     category: it.category ?? null,
-    // 振り分け（保管場所など）。金額ではないのでゲストにも出す
+    unitPrice: it.unitPrice ?? null,
+    subtotal:  it.subtotal ?? null,
+    // 振り分け（保管場所など）
     tagA:     it.tagA ?? '',
     tagB:     it.tagB ?? '',
   }))
   const participants = (snap.participants ?? []).map(p => ({
     name:  p.name,
     // at = その品目を入力した時刻。金額ではないのでゲストにも出す（「誰が何をいつ」の“いつ”）
-    items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '', at: it.at ?? null })),
+    items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '', subtotal: it.subtotal ?? null, at: it.at ?? null })),
+    totalValue: p.totalValue ?? null,
   }))
   const auditLog = (snap.auditLog ?? []).map(e => ({
     id:        e.id,
@@ -414,6 +418,13 @@ function _sanitizeForGuest(snap) {
   }))
   return {
     date: snap.date, sessionId: snap.sessionId ?? null, items, participants, auditLog,
+    // レポート（在庫金額・要再確認・所要時間）に使う
+    savedAt:      snap.savedAt ?? null,
+    totalValue:   snap.totalValue ?? null,
+    flaggedItems: Array.isArray(snap.flaggedItems) ? snap.flaggedItems : [],
+    activeMs:     snap.activeMs ?? null,
+    source:       snap.source ?? null,
+    importBatchId: snap.importBatchId ?? null,
     // 並びと振り分けの名前（ホームと同じ順・同じ分け方で見せる）
     axisNames:     Array.isArray(snap.axisNames) ? snap.axisNames : ['', ''],
     categoryOrder: Array.isArray(snap.categoryOrder) ? snap.categoryOrder : [],
@@ -467,8 +478,43 @@ export async function handleRoomResult(db, code, sessionId) {
     return { _status: 410, error: '閲覧期間が終了しました' }
   }
 
-  return { result: _sanitizeForGuest(target) }
+  const result = _sanitizeForGuest(target)
+
+  // 所要時間（開始〜終了）はセッション行が持つ。無い店舗（未ログインの旧データ）もあるので任意
+  try {
+    const sess = await db.prepare('SELECT started_at, ended_at FROM sessions WHERE id = ? AND shop_code = ?')
+      .bind(sessionId, code).first()
+    if (sess) { result.startedAt = sess.started_at ?? null; result.endedAt = sess.ended_at ?? null }
+  } catch (_) { /* 時刻が無くてもレポートは出せる */ }
+
+  // 前回との比較に使う候補（直前に完了した棚卸）。どれを前回とするかは画面が決める
+  // （履歴のレポートと同じ findPrevSnapshot）。**件数を絞る**：ここは無認証なので、
+  // 全件を読んで parse させない（上のコメント参照）。同じ日の2回目に備えて数件だけ。
+  result.prevCandidates = []
+  try {
+    const rows = (await db.prepare(`
+      SELECT snapshot_json FROM store_history
+      WHERE shop_code = ? AND snapshot_date <= ? AND (session_id IS NULL OR session_id <> ?)
+      ORDER BY snapshot_date DESC, updated_at DESC LIMIT ?
+    `).bind(code, target.date ?? '9999-12-31', sessionId, PREV_CANDIDATE_LIMIT).all()).results ?? []
+    for (const r of rows) {
+      let p = null
+      try { p = JSON.parse(r.snapshot_json) } catch (_) { continue }
+      if (!p) continue
+      result.prevCandidates.push({
+        sessionId: p.sessionId ?? null, date: p.date ?? null, savedAt: p.savedAt ?? null,
+        source: p.source ?? null, importBatchId: p.importBatchId ?? null,
+        totalValue: p.totalValue ?? null,
+        items: (p.items ?? []).map(it => ({ item: it.item, qty: it.qty ?? null, unit: it.unit ?? '', subtotal: it.subtotal ?? null })),
+      })
+    }
+  } catch (_) { /* 比較が出せないだけ */ }
+
+  return { result }
 }
+
+/** 共有結果で前回比較の候補として読む履歴の件数（無認証の経路なので少なく） */
+const PREV_CANDIDATE_LIMIT = 5
 
 // ── セッション API ─────────────────────────────────────────────────────────────
 

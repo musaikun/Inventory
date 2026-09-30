@@ -89,7 +89,7 @@ describe('結果の共有リンク', () => {
     expect(url).toContain(`s=${SID}`)
 
     const note = host.querySelector('.share-note')?.textContent ?? ''
-    expect(note).toContain('単価・金額は表示されません')
+    expect(note).toContain('在庫金額・前回比の金額も見えます')
   })
 
   it('残り日数を出す', async () => {
