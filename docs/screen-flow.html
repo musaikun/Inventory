@@ -1,0 +1,133 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>画面遷移図</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+body{margin:0;background:#fff;font-family:"Noto Sans CJK JP","Hiragino Sans",sans-serif;color:#0f172a;padding:24px;width:1500px}
+h1{font-size:24px;margin:0 0 4px}.lead{margin:0 0 14px;color:#475569;font-size:14px;line-height:1.6}
+.legend{display:flex;gap:18px;font-size:13px;margin-bottom:10px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:18px;height:12px;border-radius:3px;border:2px solid}
+.notes{margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 18px;font-size:13px;line-height:1.75}
+.notes b{color:#b91c1c}
+</style></head><body>
+<h1>タナオロ 画面遷移図（v0.119.1 時点）</h1>
+<p class="lead">develop の実装から起こした現状の遷移。実線＝画面の移動、点線＝上に重なるシート・モーダル（閉じると元の画面）。</p>
+<div class="legend">
+<span><i style="background:#dbeafe;border-color:#2563eb"></i>ホーム（下部ナビのタブ）</span>
+<span><i style="background:#fff;border-color:#334155"></i>画面</span>
+<span><i style="background:#fef9c3;border-color:#ca8a04"></i>シート・モーダル</span>
+<span><i style="background:#ffedd5;border-color:#ea580c"></i>セッション（棚卸＝青の表／発注＝橙の表）</span>
+<span><i style="background:#f1f5f9;border-color:#94a3b8"></i>起動の入口</span>
+</div>
+<h2>① 全体（画面の移動）</h2><pre class="mermaid">
+flowchart LR
+  classDef entry fill:#f1f5f9,stroke:#94a3b8,color:#334155
+  classDef page fill:#fff,stroke:#334155,color:#0f172a
+  classDef home fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+  classDef sheet fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef sess fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+
+  BOOT([起動]):::entry
+  INV([招待URL・QR]):::entry
+  DELURL([削除申請URL]):::entry
+  LAND[ランディング]:::page
+  AUTH[登録／ログイン]:::page
+  DELP[アカウント削除]:::page
+  subgraph HOME[ホーム ・ 下部ナビは常に表示 ・ 左右スワイプで移動]
+    direction LR
+    TSTOCK[在庫タブ]:::home <--> THIST[履歴タブ]:::home <--> TMANAGE[管理タブ]:::home
+  end
+  SESS[セッション<br/>棚卸・発注・練習]:::sess
+  MASTER[データ管理]:::page
+  MOVE[仕入れ・β<br/>在庫／発注／入庫／出庫]:::page
+  DETAIL[セッション詳細]:::page
+  GRES[ゲストの結果]:::page
+
+  BOOT -->|未ログイン| LAND --> AUTH --> TSTOCK
+  BOOT -->|ログイン済み| TSTOCK
+  BOOT -.->|進行中あり| SESS
+  DELURL --> DELP
+  INV --> SESS --> |ゲストの完了| GRES --> LAND
+  TSTOCK -->|開始・再開| SESS
+  SESS -->|完了／🏠＝中断| TSTOCK
+  TSTOCK -->|📥 入出庫| MOVE
+  TMANAGE --> MOVE
+  TMANAGE --> MASTER
+  TSTOCK -->|品目0件：ファイルから| MASTER
+  MOVE -->|データ管理へ| MASTER
+  MOVE -->|発注タブ| SESS
+  THIST --> DETAIL -->|戻る| THIST
+  TMANAGE -->|ログアウト| LAND
+</pre><h2>② ホームの中（点線＝シート・モーダル）</h2><pre class="mermaid">
+flowchart LR
+  classDef entry fill:#f1f5f9,stroke:#94a3b8,color:#334155
+  classDef page fill:#fff,stroke:#334155,color:#0f172a
+  classDef home fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+  classDef sheet fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef sess fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+
+  TSTOCK[在庫タブ<br/>表・中断中の帯・今日の帯<br/>操作ボタン 棚卸／発注／入出庫]:::home
+  EMPTY{{品目0件の案内}}:::sheet
+  ADD{{＋ 品目を追加}}:::sheet
+  ITEM{{品目シート}}:::sheet
+  EDIT{{品目の情報を直す}}:::sheet
+  SSTART{{棚卸の開始シート<br/>ひとりで・みんなで・練習<br/>同日2回目・中断中・品目なし}}:::sheet
+  OSTART{{発注の開始シート<br/>記録のみの明示}}:::sheet
+  DISC{{破棄の確認}}:::sheet
+  TSTOCK -.-> EMPTY -.-> ADD
+  TSTOCK -.->|＋| ADD
+  TSTOCK -.->|行| ITEM -.-> EDIT
+  TSTOCK -.->|👥| SSTART
+  TSTOCK -.->|🧾| OSTART
+  TSTOCK -.->|帯の ⋯| DISC
+
+  THIST[履歴タブ<br/>今日のやること・カレンダー⇄一覧]:::home
+  DAY{{その日のシート}}:::sheet
+  THIST -.-> DAY
+  TSTOCK -->|今日の帯| THIST
+
+  TMANAGE[管理タブ]:::home
+  DASH{{在庫分析}}:::sheet
+  SETT{{各種設定}}:::sheet
+  FB{{フィードバック}}:::sheet
+  TMANAGE -.-> DASH
+  TMANAGE -.-> SETT
+  TMANAGE -.-> FB
+</pre><h2>③ セッション・データ管理・仕入れの中</h2><pre class="mermaid">
+flowchart LR
+  classDef entry fill:#f1f5f9,stroke:#94a3b8,color:#334155
+  classDef page fill:#fff,stroke:#334155,color:#0f172a
+  classDef home fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+  classDef sheet fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef sess fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+
+  SESS[セッション<br/>音声・検索・表・完了]:::sess
+  SESS -.-> QTY{{数量入力}}:::sheet
+  SESS -.-> ROOM{{ルーム・QR・参加者}}:::sheet
+  SESS -.-> CHAT{{チャット}}:::sheet
+  SESS -.->|☰| SCAN{{バーコードスキャン}}:::sheet
+
+  MASTER[データ管理]:::page
+  MASTER -.-> IMP{{取込<br/>品目・過去の棚卸・過去の納品}}:::sheet
+  MASTER -.-> EXP{{書き出す}}:::sheet
+  MASTER -.-> AXIS{{振り分け・並び替え}}:::sheet
+  MASTER -.-> LIST{{設定済み品目一覧}}:::sheet
+  MASTER -.-> CHECK{{品目の点検}}:::sheet
+
+  MOVE[仕入れ・β]:::page
+  MOVE -.-> OBASE{{発注基準}}:::sheet
+  MOVE -.-> OSCHED{{発注日・締切}}:::sheet
+  MOVE -.-> MQTY{{入出庫の数量}}:::sheet
+  MOVE -.->|在庫タブの行| ITEM2{{品目シート}}:::sheet
+
+  DETAIL[セッション詳細<br/>レポート／品目一覧／参加者／変更履歴]:::page
+</pre>
+<div class="notes">
+<b>現状で気になる点（整理の候補）</b><br/>
+① 仕入れ（β）は「管理タブ」と「入出庫ボタン」の2か所から入り、中にさらに在庫タブ・発注タブがある（在庫はホームと、発注の開始はホームの操作ボタンと重複）。<br/>
+② 品目シート（品目の情報）が、ホームの在庫タブと仕入れの在庫タブの両方から開ける（同じシート）。<br/>
+③ 棚卸中・発注中の ☰ に「中断」「破棄」がまだ無い（今は 🏠 で離れる＝中断。破棄はホームの帯の ⋯ から）。<br/>
+④ 履歴カレンダーの独立ページ（戻る付き）が PC のサイドナビ用に残っている。スマホではホームの履歴タブ。<br/>
+⑤ データ管理の「設定済み品目一覧」と、ホームの在庫タブの表が、ほぼ同じものを見せている。
+</div>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'base', flowchart: { curve: 'basis', nodeSpacing: 28, rankSpacing: 50, htmlLabels: true }, themeVariables: { fontFamily: '"Noto Sans CJK JP", sans-serif', fontSize: '14px' } })</script>
+</body></html>
