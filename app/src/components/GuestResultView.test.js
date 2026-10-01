@@ -123,3 +123,21 @@ describe('GuestResultView 前回との差の知らせ', () => {
     expect(r.querySelector('.qty-alert')).toBeNull()
   })
 })
+
+describe('GuestResultView ジャンルの並び', () => {
+  it('店舗のいまのホームの並び（homeLayout）を、完了時の並び・品目の並びより優先する', async () => {
+    const r = mount({
+      ...result,
+      items: [
+        { item: 'a', qty: 1, unit: '', category: 'ビール' },
+        { item: 'b', qty: 1, unit: '', category: 'コーヒー豆' },
+        { item: 'c', qty: 1, unit: '', category: 'パスタ' },
+      ],
+      categoryOrder: ['ビール', 'パスタ', 'コーヒー豆'],
+      homeLayout: { categoryOrder: ['コーヒー豆', 'パスタ', 'ビール'], axisGroupsA: [], axisGroupsB: [] },
+    })
+    await nextTick()
+    const labels = [...r.querySelectorAll('.cat-label')].map(e => e.textContent.trim())
+    expect(labels).toEqual(['コーヒー豆', 'パスタ', 'ビール'])
+  })
+})

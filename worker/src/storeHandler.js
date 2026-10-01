@@ -480,6 +480,15 @@ export async function handleRoomResult(db, code, sessionId) {
 
   const result = _sanitizeForGuest(target)
 
+  // ホーム（タナオロのトップ）と同じ並びで見せるため、店舗の**いまの**品目設定から並びを渡す
+  // （User報告 2026-10-01：閲覧画面のジャンル順がトップと違った）。スナップショットに残した並びは
+  // 完了した時点のもので、古い記録には無い（無いと品目リストの並び順で代用になり、ずれる）。
+  try {
+    const cfgRow = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(code).first()
+    const cfg = cfgRow ? JSON.parse(cfgRow.config_json) : null
+    if (cfg) result.homeLayout = _homeLayout(cfg)
+  } catch (_) { /* 並びが取れなくても結果は見せる */ }
+
   // 所要時間（開始〜終了）はセッション行が持つ。無い店舗（未ログインの旧データ）もあるので任意
   try {
     const sess = await db.prepare('SELECT started_at, ended_at FROM sessions WHERE id = ? AND shop_code = ?')
@@ -511,6 +520,28 @@ export async function handleRoomResult(db, code, sessionId) {
   } catch (_) { /* 比較が出せないだけ */ }
 
   return { result }
+}
+
+/**
+ * ホームの表と同じ並び（ジャンル＝分類コード順・コードの無いものは五十音順／振り分け＝定義したグループ順）。
+ * 端末の InventoryTable・services/snapshotView.categoryOrderOf と同じ決め方。名前（ラベル）だけを返す。
+ */
+function _homeLayout(cfg) {
+  const codes = cfg?.categoryCodes && typeof cfg.categoryCodes === 'object' ? cfg.categoryCodes : {}
+  const cats = new Set()
+  for (const c of Object.values(cfg?.categories ?? {})) if (typeof c === 'string' && c) cats.add(c)
+  const categoryOrder = [...cats].sort((a, b) => {
+    const ca = codes[a], cb = codes[b]
+    const na = Number(ca), nb = Number(cb)
+    const ha = ca != null && ca !== '' && Number.isFinite(na)
+    const hb = cb != null && cb !== '' && Number.isFinite(nb)
+    if (ha && hb && na !== nb) return na - nb
+    if (ha && !hb) return -1
+    if (hb && !ha) return 1
+    return a.localeCompare(b, 'ja')
+  }).slice(0, MAX_SNAPSHOT_LABELS)
+  const list = v => (Array.isArray(v) ? v.filter(x => typeof x === 'string' && x).slice(0, MAX_SNAPSHOT_LABELS) : [])
+  return { categoryOrder, axisGroupsA: list(cfg?.axisGroupsA), axisGroupsB: list(cfg?.axisGroupsB) }
 }
 
 /** 共有結果で前回比較の候補として読む履歴の件数（無認証の経路なので少なく） */

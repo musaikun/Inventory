@@ -29,7 +29,17 @@ const snapInventory = computed(() => {
 })
 
 // 金額は持たない（prices 空 → 金額列は出ない）。並び・振り分けはホームと同じ（services/snapshotView.js）
-const snapConfig = computed(() => snapshotViewConfig(props.result))
+// 並びは「店舗のいまのホームの並び」（サーバーが homeLayout で渡す）を最優先。無ければ完了時に残した並び
+const snapConfig = computed(() => {
+  const r = props.result ?? {}
+  const h = r.homeLayout
+  return snapshotViewConfig(h ? {
+    ...r,
+    categoryOrder: h.categoryOrder?.length ? h.categoryOrder : r.categoryOrder,
+    axisGroupsA:   h.axisGroupsA?.length ? h.axisGroupsA : r.axisGroupsA,
+    axisGroupsB:   h.axisGroupsB?.length ? h.axisGroupsB : r.axisGroupsB,
+  } : r)
+})
 
 // レポート。履歴から開く詳細画面のレポートと同じもの（User指示 2026-09-30）。
 // 前回は、サーバーが返す候補（この棚卸より前の記録）から履歴と同じ決め方で選ぶ。

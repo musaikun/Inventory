@@ -241,7 +241,7 @@ describe('handleSessionComplete — inventory_lines 展開', () => {
 
 // ── 完了後ゲスト閲覧（handleRoomResult）────────────────────────────────────────
 // データ源は store_history スナップショットのみ（sessions テーブルには依存しない）
-function createResultMockD1(snapshots = []) {
+function createResultMockD1(snapshots = [], storeConfig = null) {
   function prepare(sql) {
     const s = sql.replace(/\s+/g, ' ').trim()
     let bound = []
@@ -250,6 +250,7 @@ function createResultMockD1(snapshots = []) {
       // 実装は (shop_code, session_id) の UNIQUE index で1件だけ引く。
       // mock も同じ絞り込みにする（全件返すと「該当が無い」経路を検証できない）。
       async first() {
+        if (s.includes('FROM store_configs')) return storeConfig ? { config_json: JSON.stringify(storeConfig) } : null
         if (s.includes('FROM store_history') && s.includes('session_id = ?')) {
           const [, sid] = bound
           const snap = snapshots.find(x => x.sessionId === sid)
@@ -341,6 +342,17 @@ describe('handleRoomResult — 完了後ゲスト閲覧', () => {
     expect(res.result.participants[0].items[0].at).toBe(1_700_000_000_000)
     expect(res.result.auditLog[0].enteredBy).toBe('田中')
     expect(res.result.auditLog[0].action).toBe('new')
+  })
+
+  it('店舗のいまのホームの並び（分類コード順・コード無しは五十音）を返す', async () => {
+    const cfg = {
+      categories: { a: 'ビール', b: 'コーヒー豆', c: 'パスタ', d: '雑貨' },
+      categoryCodes: { 'コーヒー豆': 1, 'パスタ': 6, 'ビール': 11 },
+      axisGroupsA: ['冷蔵庫', '棚'],
+    }
+    const res = await handleRoomResult(createResultMockD1([fullSnapshot(recent)], cfg), code, sid)
+    expect(res.result.homeLayout.categoryOrder).toEqual(['コーヒー豆', 'パスタ', 'ビール', '雑貨'])
+    expect(res.result.homeLayout.axisGroupsA).toEqual(['冷蔵庫', '棚'])
   })
 
   it('前回比較の候補（この棚卸より前の記録）を数件だけ返す', async () => {
