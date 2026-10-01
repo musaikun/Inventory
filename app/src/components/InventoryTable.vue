@@ -1018,7 +1018,8 @@ function fmtYen(n) {
 </template>
 
 <style scoped>
-.inventory-section { padding: 0 16px; overflow-x: clip; }
+/* 表は横いっぱいに（棚卸・発注・ホームで同じ・User 2026-10-01）。左右の余白は 6px だけ */
+.inventory-section { padding: 0 6px; overflow-x: clip; }
 .inventory-section.inv-preview { padding: 0; }
 
 /* ── セクションヘッダー ── */

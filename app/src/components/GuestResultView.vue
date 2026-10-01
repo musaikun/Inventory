@@ -200,7 +200,7 @@ function actionClass(action) {
       >
         <!-- レポート（履歴のレポートと同じ）-->
         <div v-show="activeTab === 'report'" :class="['panel panel-scroll', slideClass('report')]">
-          <SessionReportPanel :report="report" />
+          <SessionReportPanel :report="report" fold-lists />
         </div>
 
         <!-- 品目一覧 -->

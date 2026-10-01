@@ -594,7 +594,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   display: block; width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px;
   border: 1.5px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-weight: 800; font-size: 13.5px; cursor: pointer;
 }
-.dash-embedded .dash-body { overflow: visible; }
+.dash-embedded .dash-body { overflow: visible; padding: 8px 0; }   /* カードは横いっぱいに（User 2026-10-01） */
 .dash-header {
   display: flex;
   align-items: center;

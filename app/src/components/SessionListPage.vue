@@ -509,7 +509,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 
 /* レポートタブ */
-.report-tab { padding: 4px 12px calc(80px + env(safe-area-inset-bottom)); }
+.report-tab { padding: 4px 6px calc(80px + env(safe-area-inset-bottom)); }
 
 .sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
 .sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }

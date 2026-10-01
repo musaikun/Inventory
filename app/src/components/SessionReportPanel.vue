@@ -9,9 +9,16 @@
  *
  * @prop report services/sessionReport.buildSessionReport の戻り値
  */
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 
-const props = defineProps({ report: { type: Object, required: true } })
+// foldLists: 品目の一覧（金額の動き・数量の比較）を開閉式にし、閉じた状態で出す（閲覧用・User 2026-10-01）
+const props = defineProps({
+  report:    { type: Object,  required: true },
+  foldLists: { type: Boolean, default: false },
+})
+const openLists = reactive({})
+const isOpen = key => !props.foldLists || !!openLists[key]
+function toggleList(key) { if (props.foldLists) openLists[key] = !openLists[key] }
 
 // 前回と数量で比べた3つの一覧。該当の無いものは出さない
 const qtyGroups = computed(() => {
@@ -103,21 +110,31 @@ function fmtYen(n) {
       </div>
 
       <div v-if="report.prev.movers.length" class="rp-movers">
-        <div class="rp-movers-title">金額の動きが大きい品目</div>
-        <div v-for="m in report.prev.movers" :key="m.item" class="rp-mover">
-          <span class="rp-mover-name">{{ m.item }}</span>
-          <span :class="['rp-mover-diff', diffClass(m.diff)]">{{ fmtSignedYen(m.diff) }}</span>
-        </div>
-        <div v-if="report.prev.moversTruncated" class="rp-sub">
-          ほか{{ report.prev.moversTruncated }}品目
-        </div>
+        <component :is="foldLists ? 'button' : 'div'" :type="foldLists ? 'button' : undefined"
+          :class="['rp-movers-title', { 'rp-fold': foldLists }]" :aria-expanded="foldLists ? String(isOpen('movers')) : undefined"
+          @click="toggleList('movers')">
+          金額の動きが大きい品目（{{ report.prev.movers.length }}件）<span v-if="foldLists" class="rp-fold-arrow">{{ isOpen('movers') ? '▲' : '▼' }}</span>
+        </component>
+        <template v-if="isOpen('movers')">
+          <div v-for="m in report.prev.movers" :key="m.item" class="rp-mover">
+            <span class="rp-mover-name">{{ m.item }}</span>
+            <span :class="['rp-mover-diff', diffClass(m.diff)]">{{ fmtSignedYen(m.diff) }}</span>
+          </div>
+          <div v-if="report.prev.moversTruncated" class="rp-sub">
+            ほか{{ report.prev.moversTruncated }}品目
+          </div>
+        </template>
       </div>
 
       <!-- 数量で比べた一覧（単価が無くても出る）-->
       <div v-for="g in qtyGroups" :key="g.key" :class="['rp-qty', g.key]">
-        <div class="rp-movers-title">{{ g.title }}（{{ g.data.count }}件）</div>
+        <component :is="foldLists ? 'button' : 'div'" :type="foldLists ? 'button' : undefined"
+          :class="['rp-movers-title', { 'rp-fold': foldLists }]" :aria-expanded="foldLists ? String(isOpen(g.key)) : undefined"
+          @click="toggleList(g.key)">
+          {{ g.title }}（{{ g.data.count }}件）<span v-if="foldLists" class="rp-fold-arrow">{{ isOpen(g.key) ? '▲' : '▼' }}</span>
+        </component>
         <!-- 全件をこの枠の中で送って見る（以前は10件まで＋「ほかN品目」で残りが見られなかった） -->
-        <div class="rp-qty-list">
+        <div v-if="isOpen(g.key)" class="rp-qty-list">
           <div v-for="r in (g.data.all ?? g.data.list)" :key="r.item" class="rp-mover">
             <span class="rp-mover-name">{{ r.item }}</span>
             <span :class="['rp-mover-diff', g.cls]">
@@ -179,6 +196,11 @@ function fmtYen(n) {
 .rp-movers { margin-top: 10px; }
 .rp-qty { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(148,163,184,.25); }
 /* 件数が多いときは枠の中だけを縦に送る（見出しは残したまま全件を見られる） */
+.rp-fold {
+  display: flex; align-items: center; width: 100%; border: none; background: none; padding: 4px 0;
+  text-align: left; font-family: inherit; cursor: pointer; color: inherit;
+}
+.rp-fold-arrow { margin-left: auto; font-size: 11px; opacity: .7; }
 .rp-qty-list { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .rp-movers-title { font-size: 12px; font-weight: 600; opacity: .8; margin-bottom: 4px; }
 .rp-mover {
