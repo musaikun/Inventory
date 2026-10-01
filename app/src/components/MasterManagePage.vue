@@ -109,7 +109,7 @@ const HELP = {
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
   check: '入数・単位・単価・ジャンルが空の品目を一覧にして、その場で埋められます。入数が空だと推奨発注数が1個単位で出て、単価が空だと在庫金額に入りません。直近3回の棚卸で一度も数えていない品目も出るので、使っていなければその場で非表示にできます（消えずに戻せます）。非表示の品目は数えません。',
-  list: '登録済みの全品目を、実際の棚卸・発注カードと同じ表示で確認できます。上のチップでジャンル・作ったグループ（設定済みグループの枠の中）・非表示設定品目・非表示にした順を切り替えられます。非表示設定品目はジャンル別に出ます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
+  list: 'ホームに出てこない品目を探すところです。非表示にした品目と、取込で品目にしなかった行（「取込で除外」）を確認できます。全品目の一覧はホームの在庫タブです。表では上のチップでジャンル・作ったグループ（設定済みグループの枠の中）・非表示設定品目・非表示にした順を切り替えられます。非表示設定品目はジャンル別に出ます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
@@ -236,12 +236,13 @@ function onClear() {
         </button>
       </div>
 
-      <!-- 設定済み品目一覧。表は別ページで開く（常に出すと、この画面の他の操作の邪魔になる）。
-           非表示の品目もこの中のチップで見る -->
+      <!-- 非表示・取込で除外した品目。全品目の一覧はホームの在庫タブが持つので、ここは
+           ホームに出てこない品目（非表示・取込で品目にしなかった行）を探す入口にする
+           （画面遷移図の課題⑤・2026-10-01：以前の「設定済み品目一覧」はホームの表と重複していた） -->
       <div class="mm-block">
         <div class="mm-head-row">
           <div class="mm-block-head">
-            <span class="mm-block-title">設定済み品目一覧</span>
+            <span class="mm-block-title">非表示・除外した品目</span>
           </div>
           <button class="mm-help-btn" :class="{ on: activeHelp === 'list' }" @click="toggleHelp('list')">?</button>
         </div>
@@ -249,8 +250,8 @@ function onClear() {
         <button class="mm-organize mm-listopen" @click="openList">
           <span class="mm-organize-ico">📋</span>
           <span class="mm-organize-body">
-            <span class="mm-organize-title">品目一覧を開く（{{ itemCount }}件）</span>
-            <span class="mm-organize-sub">ジャンル・グループ・非表示（{{ hiddenSet.size }}件）をチップで切り替えて確認</span>
+            <span class="mm-organize-title">非表示 {{ hiddenSet.size }}件・取込で除外 {{ excluded?.total ?? 0 }}件</span>
+            <span class="mm-organize-sub">誤って隠した品目・品目にしなかった行を探す（全品目はホームの在庫タブ）</span>
           </span>
           <span class="mm-organize-arrow">→</span>
         </button>
@@ -295,10 +296,10 @@ function onClear() {
     </div>
 
     <!-- 設定済み品目一覧（ページ）。戻るで閉じる -->
-    <div v-if="listOpen" class="mm-page" role="dialog" aria-modal="true" aria-label="設定済み品目一覧">
+    <div v-if="listOpen" class="mm-page" role="dialog" aria-modal="true" aria-label="非表示・除外した品目">
       <header class="mp-header">
         <button class="mp-back" @click="closeList">‹ 戻る</button>
-        <span class="mp-title">設定済み品目一覧</span>
+        <span class="mp-title">非表示・除外した品目</span>
         <span class="mp-count">{{ itemCount }}件</span>
       </header>
       <div class="mp-scroll">

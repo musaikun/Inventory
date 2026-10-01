@@ -84,11 +84,10 @@ import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import MasterManagePage from './components/MasterManagePage.vue'
 import MovementPage from './components/MovementPage.vue'
-import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -477,7 +476,7 @@ async function _pullMovements() {
 }
 
 // 「仕入れ」ページを開いたときに選ぶタブ。ホームからは在庫、発注セッションから戻ったときは発注。
-const movementTab = ref('view')
+const movementTab = ref('in')
 
 // 起動時に復元する「最後に見ていた独立ページ」。保存を消す watchEffect より先に読む。
 const _bootPage = readLastPage()
@@ -495,7 +494,7 @@ const leaveSessionTitle = computed(() =>
 // 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
 // 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
 // （数えかけの棚卸へ戻ると作業に割り込むため）。
-const PAGE_VIEWS = ['master', 'movement', 'history']
+const PAGE_VIEWS = ['master', 'movement']
 const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
 function _rememberPageFrom(view) {
   const from = currentView.value
@@ -503,11 +502,12 @@ function _rememberPageFrom(view) {
   pageReturn[view] = (from === 'sessions' || PAGE_VIEWS.includes(from)) ? from : 'sessions'
 }
 function openPage(view) {
+  // 履歴はホームの「履歴」タブ（独立ページは廃止・画面遷移図の課題④・2026-10-01）
+  if (view === 'history') { homeTab.value = 'history'; currentView.value = 'sessions'; _loadOrderData(); _pullMovements(); return }
   // 完了の結果が確定するまで、品目・在庫を変える画面へは入らない（履歴は見られる）
-  if (view !== 'history' && _blockedByCompletion()) return
+  if (_blockedByCompletion()) return
   _rememberPageFrom(view)
   currentView.value = view
-  if (view === 'history') { _loadOrderData(); _pullMovements() }
 }
 // 戻り先を1つ取り出す。取り出したら既定（ホーム）へ戻し、
 // 独立ページ同士を行き来したあとの戻るが2画面を往復し続けないようにする。
@@ -520,7 +520,7 @@ function _takePageReturn() {
 }
 
 // 「仕入れ」ページを開く。最新の入出庫を D1 から取り込んでから表示する。
-function openMovement(tab = 'view') {
+function openMovement(tab = 'in') {
   if (_blockedByCompletion()) return
   _rememberPageFrom('movement')
   movementTab.value = tab
@@ -608,7 +608,7 @@ async function onViewSession(session) {
   }
   detailSnapshot.value = snap
   detailSession.value  = session ?? null
-  detailReturnView.value = currentView.value === 'history' ? 'history' : 'sessions'
+  detailReturnView.value = 'sessions'
   currentView.value = 'session-detail'
 }
 
@@ -775,7 +775,7 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
 // matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
 const isDesktop = useMediaQuery(DESKTOP_QUERY)
-const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'session-detail']
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'session-detail']
 const showDesktopNav = computed(() =>
   isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
 )
@@ -2083,7 +2083,7 @@ async function onGoHome() {
   showChat.value = false
   // 発注はホームに入口が無く「仕入れ」カードの発注タブから始める。戻るでホームへ返すと
   // 発注一覧まで一段遠くなるので、始めた場所（発注タブ）へ返す。
-  if (leavesToMovement.value) openMovement('order')
+  if (leavesToMovement.value) openMovement('in')
   else _goHomeMain()
   sessionMode.value = 'stock'   // 画面遷移後にテーマを戻す（発注→ホームで一瞬青くなるのを防ぐ）
 }
@@ -2105,7 +2105,7 @@ function _leaveUnresolvedSession() {
   if (syncActive.value) leaveRoom()
   showSync.value = false
   showChat.value = false
-  if (leavesToMovement.value) openMovement('order')
+  if (leavesToMovement.value) openMovement('in')
   else _goHomeMain()
   sessionMode.value = 'stock'
 }
@@ -2143,6 +2143,21 @@ async function _resolveUnknownCompletion() {
   } finally {
     _finishing = false
   }
+}
+
+// ☰「この棚卸を破棄…」。ここでは消さない。中断してホームへ戻り、ホームの破棄の確認
+// （件数の表示・消す直前にサーバーの状態を確かめる）を開く。破棄の実装を1つに保つため。
+const canDiscardFromMenu = computed(() =>
+  isAuthenticated.value && !practiceMode.value && !isCompleted.value && !!pendingSession.value?.id
+  && !(syncActive.value && !syncIsHost.value))
+async function onDiscardFromMenu() {
+  if (_blockedByCompletion()) return
+  const id = pendingSession.value?.id
+  if (!id) return
+  pendingDiscardId.value = id
+  await onGoHome()
+  // ホームへ戻れなかった（確認で取りやめ等）なら、破棄の予約も取り消す
+  if (currentView.value === 'session') pendingDiscardId.value = null
 }
 
 // 完了後に新規棚卸を開始
@@ -3190,18 +3205,8 @@ function dismissReview() {
       :initial-tab="movementTab"
       @tab-change="movementTab = $event"
       @back="onPageBack"
-      @start-session="onSessionStart"
-      @resume-session="onSessionResume"
-      @open-master="openPage('master')"
     />
 
-    <!-- ── 履歴カレンダー（専用ページ） ── -->
-    <HistoryCalendarPage
-      v-else-if="currentView === 'history'"
-      @back="onPageBack"
-      @view-session="onViewSession"
-      @open-upgrade="reason => openUpgrade(reason)"
-    />
 
     <!-- ── セッション詳細（完了済み） ── -->
     <SessionDetailPage
@@ -3256,7 +3261,10 @@ function dismissReview() {
             <AppMenu context="session">
               <template #default="{ close }">
                 <button v-if="isAuthenticated" class="am-item" :disabled="completing" @click="close(); onGoHome()">
-                  <span class="am-ico">🏠</span> {{ practiceMode ? '練習を終了して戻る' : 'セッション一覧に戻る' }}
+                  <span class="am-ico">{{ practiceMode ? '🏠' : '⏸' }}</span> {{ practiceMode ? '練習を終了して戻る' : '中断してホームへ' }}
+                </button>
+                <button v-if="canDiscardFromMenu" class="am-item am-danger" :disabled="completing" @click="close(); onDiscardFromMenu()">
+                  <span class="am-ico">🗑</span> この{{ actNoun }}を破棄…
                 </button>
                 <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
                   <span class="am-ico">📷</span> バーコードスキャン

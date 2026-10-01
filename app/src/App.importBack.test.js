@@ -70,9 +70,19 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-// 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
+// 画面の再設計（2026-09-30）で、データ管理はホームの「管理」タブから開く。
+// 入出庫（旧・仕入れ）はホームの操作ボタンから開く（2026-10-01）
 async function openFromManage(el, label) {
   const fire = async (node) => { node.dispatchEvent(new MouseEvent('click', { bubbles: true })); for (let i = 0; i < 8; i++) await nextTick() }
+  if (label === '入出庫') {
+    // 操作ボタンは自分の品目リストがあるときに出る
+    const { useConfig } = await import('./composables/useConfig.js')
+    const cfg = useConfig()
+    if (!cfg.config.isCustom) { cfg.setEmptyList(); cfg.addItem('トマト', 100, '野菜', '個') }
+    for (let i = 0; i < 4; i++) await nextTick()
+    await fire([...el.querySelectorAll('.acts button')].find(b => b.textContent.includes('入出庫')))
+    return
+  }
   const nav = [...el.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
   if (nav) await fire(nav)
   await fire([...el.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
@@ -146,7 +156,7 @@ describe('画面内の「戻る」も import中断guard を見る', () => {
     expect(el.querySelector('.mp')).not.toBeNull()
   }
   async function openMovement(el) {
-    await openFromManage(el, '仕入れ')
+    await openFromManage(el, '入出庫')
     expect(el.querySelector('.mv')).not.toBeNull()
   }
 
@@ -217,8 +227,8 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
   }, 15000)
 
   for (const [label, cardSel, pageSel, navLabel] of [
-    ['データ管理（MasterManagePage）', 'データ管理', '.mp', '棚卸'],
-    ['入出庫（MovementPage）',        '仕入れ',      '.mv', '棚卸'],
+    ['データ管理（MasterManagePage）', 'データ管理', '.mp', 'ホーム'],
+    ['入出庫（MovementPage）',        '入出庫',      '.mv', 'ホーム'],
   ]) {
     it(`${label}: guard中はDesktopNavで画面が変わらない`, async () => {
       mockDesktop()

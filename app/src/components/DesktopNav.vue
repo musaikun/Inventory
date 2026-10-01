@@ -35,9 +35,9 @@ const items = computed(() => {
   }
   // 並びは棚卸の順路に合わせる（棚卸 → 準備 → β機能）。
   // 入出庫は初回公開の主導線ではないので最後・β表記にする。
-  list.push({ view: 'sessions', icon: '🏠', label: '棚卸',       sub: '開始・履歴' })
+  list.push({ view: 'sessions', icon: '🏠', label: 'ホーム',     sub: '在庫・履歴・管理' })
   list.push({ view: 'master',   icon: '📚', label: '品目マスタ', sub: '棚卸の準備・リスト管理' })
-  list.push({ view: 'movement', icon: '🔄', label: '在庫・入庫', sub: '確認と記録（β）' })
+  list.push({ view: 'movement', icon: '📥', label: '入出庫',     sub: '入庫・出庫の記録' })
   return list
 })
 

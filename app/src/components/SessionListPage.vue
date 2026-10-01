@@ -34,7 +34,10 @@ import { useHistory } from '../composables/useHistory.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
 import { useOrders } from '../composables/useOrders.js'
-import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderScheduleFocusId, pendingDiscardId } from '../composables/appMenuState.js'
+import OrderScheduleModal from './OrderScheduleModal.vue'
+import OrderBaseModal from './OrderBaseModal.vue'
+import { useStockView } from '../composables/useStockView.js'
 import { calendarTodos } from '../services/calendarTodos.js'
 import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 import StockPage from './StockPage.vue'
@@ -86,6 +89,11 @@ const {
 onMounted(async () => {
   if (await launcher.load() === 'unauthorized') { emit('back'); return }
   launcher.startRoomPolling()
+  // 棚卸中・発注中の ☰「破棄」から戻ってきた：その場で破棄の確認を開く
+  const id = pendingDiscardId.value
+  pendingDiscardId.value = null
+  const target = id ? launcher.sessions.value.find(x => x.id === id && x.status !== 'completed') : null
+  if (target) askDiscard(target)
 })
 // アプリに戻ってきたら一覧を読み直す。開いたままの画面では、別の端末で完了した棚卸が
 // 「中断中」のまま残って見える（そこから破棄すると完了済みを消してしまう）
@@ -184,6 +192,14 @@ const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'obj
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
 
 // ── 管理タブ ─────────────────────────────────────────────
+// 発注の設定（以前は「仕入れ」ページの中。入出庫の画面を記録だけにしたため管理タブへ）
+const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
+const { setReorderPoint, setOrderAssumptions } = useConfig()
+const showOrderBase = ref(false)
+const orderBaseRows = computed(() => allItems.value.map(item => ({
+  item, category: config.categories?.[item] ?? '', ...baseOf(item),
+})))
+function openSchedule() { orderScheduleFocusId.value = null; showOrderSchedule.value = true }
 const showInspector = ref(false)   // 記録の確認（サーバーと端末の記録を並べる）
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
@@ -203,6 +219,7 @@ async function onLogout() {
 // 端末の戻る操作は、ページを閉じる前にシートから閉じる
 onUnmounted(registerInnerLayerCloser(() => {
   if (showInspector.value) { showInspector.value = false; return true }
+  if (showOrderBase.value) { showOrderBase.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
   if (tab.value !== 'sessions') { goTab('sessions'); return true }
   return false
@@ -288,9 +305,11 @@ onUnmounted(registerInnerLayerCloser(() => {
     <div v-if="!loading && tab === 'dashboard'" :class="['manage', 'home-panel', slideDir && `slide-${slideDir}`]">
       <div class="m-h">品目データ</div>
       <button class="m-card" type="button" @click="emit('openMaster')">📥<span>データ管理<small>取込・書出・振り分け・品目の点検</small></span><i>›</i></button>
-      <div class="m-h">分析・仕入れ</div>
+      <div class="m-h">分析</div>
       <button class="m-card" type="button" @click="showDashboard = true">📊<span>在庫分析<small>在庫金額・前回差・ABC分析</small></span><i>›</i></button>
-      <button class="m-card" type="button" @click="emit('openMovement', 'view')">🛒<span>仕入れ<small>発注基準・発注日・入庫・出庫の記録（β）</small></span><i>›</i></button>
+      <div class="m-h">発注の設定</div>
+      <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
+      <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注基準<small>要補充の判定に使う発注点・補充の目安</small></span><i>›</i></button>
       <div class="m-h">その他</div>
       <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
       <button class="m-card" type="button" @click="emit('startPractice')">🎓<span>練習モード<small>テスト用の品目で試す（履歴に残りません）</small></span><i>›</i></button>
@@ -317,6 +336,17 @@ onUnmounted(registerInnerLayerCloser(() => {
     </nav>
 
     <DataInspector v-if="showInspector" @close="showInspector = false" />
+    <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
+    <OrderBaseModal
+      v-if="showOrderBase"
+      :rows="orderBaseRows"
+      :unit-of="unitOf"
+      :assumptions="config.orderAssumptions ?? null"
+      :interval-days="reorderHorizon"
+      @save-assumptions="setOrderAssumptions"
+      @set-reorder="(item, v) => setReorderPoint(item, v)"
+      @close="showOrderBase = false"
+    />
 
     <ManagerDashboard
       v-if="showDashboard" :snapshots="dashboardSnapshots"
@@ -333,7 +363,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-t">中断中の棚卸があります</div>
           <div class="sh-s">{{ _hm(activeSession.startedAt) }} 開始 ・ {{ _itemCount(activeSession) }}品目入力済み</div>
           <button class="bb stock" type="button" @click="resume(activeSession)">▶︎<span>続きから再開</span></button>
-          <button class="bb ng" type="button" @click="askDiscard(activeSession)">🗑<span>破棄する<small>入力した品目は消えます</small></span></button>
+          <div class="note">やめる場合は、ホームの「中断中」の帯の ⋯ か、棚卸の画面の ☰ から破棄できます。</div>
         </template>
         <!-- 同じ日の2回目 -->
         <template v-else-if="sameDay">
@@ -370,7 +400,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-t">中断中の発注があります</div>
           <div class="sh-s">{{ _hm(activeOrderSession.startedAt) }} 開始 ・ {{ _itemCount(activeOrderSession) }}品目</div>
           <button class="bb order" type="button" @click="resume(activeOrderSession)">▶︎<span>続きから再開</span></button>
-          <button class="bb ng" type="button" @click="askDiscard(activeOrderSession)">🗑<span>破棄する</span></button>
+          <div class="note">やめる場合は、ホームの「中断中」の帯の ⋯ か、発注の画面の ☰ から破棄できます。</div>
         </template>
         <template v-else>
           <div class="sh-t">発注を始める</div>

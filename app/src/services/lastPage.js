@@ -3,14 +3,14 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 /**
  * リロードしても同じページに留まるための「最後に見ていたページ」。
  *
- * 対象は独立ページ（データ管理・履歴カレンダー・仕入れ）だけ。
+ * 対象は独立ページ（データ管理・入出庫）だけ。履歴はホームのタブ（タブはホーム側が覚える）。
  * セッション画面は pendingSession からの復元が正なので、ここでは扱わない
  * （両方が行き先を決めると、進行中セッションより古いページが勝つことがある）。
  *
- * 仕入れはタブで見ているものが変わるので、タブまで含めて1つのページ状態として持つ。
+ * 入出庫はタブ（入庫・出庫）まで含めて1つのページ状態として持つ。
  */
-export const RESTORABLE_PAGES = ['master', 'history', 'movement']
-const MOVEMENT_TABS = ['view', 'order', 'in', 'out']
+export const RESTORABLE_PAGES = ['master', 'movement']
+const MOVEMENT_TABS = ['in', 'out']
 
 export function saveLastPage(view, tab = null) {
   try {
@@ -28,7 +28,7 @@ export function readLastPage() {
     if (!raw) return null
     const saved = JSON.parse(raw)
     if (!RESTORABLE_PAGES.includes(saved?.view)) return null
-    const tab = saved.view === 'movement' && MOVEMENT_TABS.includes(saved.tab) ? saved.tab : 'view'
+    const tab = saved.view === 'movement' && MOVEMENT_TABS.includes(saved.tab) ? saved.tab : 'in'
     return { view: saved.view, tab }
   } catch (_) {
     return null

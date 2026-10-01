@@ -13,6 +13,11 @@ export const showOrderSchedule = ref(false)
 // 開いたときに目立たせるスケジュールの id（発注タブのカードから開いたとき）。null=指定なし
 export const orderScheduleFocusId = ref(null)
 
+// 棚卸中・発注中の ☰「破棄」から来たとき、ホームで破棄の確認を開くセッションの id。
+// 破棄そのものはホームの確認シート（件数の表示・消す直前のサーバー確認）だけが行う。
+// 破棄の入口を増やしても、確認と削除の実装は1つにする（画面遷移図の課題③・2026-10-01）。
+export const pendingDiscardId = ref(null)
+
 // アカウント削除モーダル（DeleteAccountModal）。設定内の danger 区画から開き、
 // App の戻る/ESC 制御に載せるため共有状態にする。
 export const showDeleteAccount = ref(false)

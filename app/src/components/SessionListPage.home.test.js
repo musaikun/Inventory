@@ -84,14 +84,23 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.hcp')).not.toBeNull()
     expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
     await click(btn(host.querySelector('.bnav'), '管理'))
-    for (const label of ['データ管理', '在庫分析', '仕入れ', '各種設定', '練習モード', 'フィードバック']) {
+    for (const label of ['データ管理', '在庫分析', '発注日・締切', '発注基準', '各種設定', '練習モード', 'フィードバック']) {
       expect(host.querySelector('.manage').textContent).toContain(label)
     }
+    // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ
+    expect(host.querySelector('.manage').textContent).not.toContain('仕入れ')
     await click(btn(host.querySelector('.manage'), 'データ管理'))
     expect(events).toContainEqual(['openMaster'])
   })
 
-  it('入出庫は仕入れの入庫タブを開く', async () => {
+  it('管理タブから発注基準・発注日の設定を開ける', async () => {
+    await mountPage()
+    await click(btn(host.querySelector('.bnav'), '管理'))
+    await click(btn(host.querySelector('.manage'), '🎯'))
+    expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
+  })
+
+  it('入出庫は入庫タブを開く', async () => {
     await mountPage()
     await click(btn(host.querySelector('.acts'), '入出庫'))
     expect(events).toContainEqual(['openMovement', 'in'])

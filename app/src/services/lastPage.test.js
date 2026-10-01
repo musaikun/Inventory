@@ -9,19 +9,22 @@ beforeEach(() => localStorage.clear())
 describe('lastPage', () => {
   it('対象ページを保存して読み戻せる', () => {
     saveLastPage('master')
-    expect(readLastPage()).toEqual({ view: 'master', tab: 'view' })
+    expect(readLastPage()).toEqual({ view: 'master', tab: 'in' })
+    // 履歴はホームのタブになった（独立ページは廃止）。保存しない
     saveLastPage('history')
-    expect(readLastPage()).toEqual({ view: 'history', tab: 'view' })
+    expect(readLastPage()).toBe(null)
   })
 
-  it('仕入れはタブまで覚える', () => {
-    saveLastPage('movement', 'order')
-    expect(readLastPage()).toEqual({ view: 'movement', tab: 'order' })
+  it('入出庫はタブまで覚える', () => {
+    saveLastPage('movement', 'out')
+    expect(readLastPage()).toEqual({ view: 'movement', tab: 'out' })
   })
 
-  it('未知のタブは在庫に落とす', () => {
+  it('未知のタブ・廃止したタブ（在庫・発注）は入庫に落とす', () => {
     saveLastPage('movement', 'なにか')
-    expect(readLastPage()).toEqual({ view: 'movement', tab: 'view' })
+    expect(readLastPage()).toEqual({ view: 'movement', tab: 'in' })
+    localStorage.setItem('_last_page_v1', JSON.stringify({ view: 'movement', tab: 'order' }))
+    expect(readLastPage()).toEqual({ view: 'movement', tab: 'in' })
   })
 
   it('対象外のページは保存せず、保存済みも消す', () => {
@@ -43,12 +46,12 @@ describe('lastPage', () => {
   })
 
   it('clearLastPage で消える', () => {
-    saveLastPage('history')
+    saveLastPage('master')
     clearLastPage()
     expect(readLastPage()).toBe(null)
   })
 
-  it('復元対象は独立ページ3つだけ', () => {
-    expect(RESTORABLE_PAGES).toEqual(['master', 'history', 'movement'])
+  it('復元対象は独立ページ2つだけ（データ管理・入出庫）', () => {
+    expect(RESTORABLE_PAGES).toEqual(['master', 'movement'])
   })
 })

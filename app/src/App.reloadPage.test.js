@@ -103,12 +103,12 @@ describe('再読込しても同じページに留まる', () => {
     await mountApp()
     await seedItems()
     await click(button('入出庫') || button('仕入れ'))
-    await click(button('発注'))
-    expect(host.querySelector('.mv-tab.on').textContent).toContain('発注')
+    await click(button('出庫'))
+    expect(host.querySelector('.mv-tab.on').textContent).toContain('出庫')
 
     await reload()
     expect(view()).toBe('movement')
-    expect(host.querySelector('.mv-tab.on').textContent).toContain('発注')
+    expect(host.querySelector('.mv-tab.on').textContent).toContain('出庫')
   }, 20000)
 
   // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま

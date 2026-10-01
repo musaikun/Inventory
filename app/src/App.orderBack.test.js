@@ -118,7 +118,7 @@ describe('発注セッションの戻る', () => {
     expect(host.querySelector('.act.stock')).not.toBeNull()
   }, 20000)
 
-  it('ホームの「入出庫」は仕入れの入庫タブ、管理の「仕入れ」は在庫タブから開く', async () => {
+  it('ホームの「入出庫」は入庫タブから開く。管理タブに「仕入れ」は無い（入口は1つ）', async () => {
     await mountApp()
     await seed()
     await click(host.querySelector('.act:not(.stock):not(.order)'))
@@ -126,7 +126,63 @@ describe('発注セッションの戻る', () => {
 
     await click(host.querySelector('.mv-back'))
     await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
-    await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes('仕入れ')))
-    expect(activeTab()).toBe('在庫')
+    expect([...host.querySelectorAll('.m-card')].some(b => b.textContent.includes('仕入れ'))).toBe(false)
+  }, 20000)
+})
+
+// 棚卸中・発注中の ☰ に「中断してホームへ」「破棄…」（画面遷移図の課題③・2026-10-01）。
+// 破棄はその場で消さず、ホームの破棄の確認（件数・消す直前のサーバー確認）を開く。
+describe('セッションの ☰ から中断・破棄', () => {
+  let created = []
+  async function mountWithSessions() {
+    window.history.replaceState({}, '', '/')
+    const { default: App } = await import('./App.vue')
+    created = []
+    apiFetchMock.mockImplementation((path, opts = {}) => {
+      if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
+      if (path === '/store/STOREA/sessions' && opts.method === 'POST') {
+        const s = { id: '11111111-1111-4111-8111-111111111111', type: 'stock', status: 'active', itemCount: 0, startedAt: new Date().toISOString() }
+        created.push(s)
+        return Promise.resolve(s)
+      }
+      if (path === '/store/STOREA/sessions') return Promise.resolve(created)
+      if (typeof path === 'string' && path.endsWith('/history')) return Promise.resolve([])
+      return Promise.resolve({})
+    })
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp(App)
+    app.mount(host)
+    await flush()
+    const { useConfig } = await import('./composables/useConfig.js')
+    const cfg = useConfig()
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '野菜', '個')
+    await flush()
+  }
+  async function openMenu() { await click(host.querySelector('.am-btn')) }
+
+  it('☰ の「中断してホームへ」でホームに戻り、中断中の帯が出る', async () => {
+    await mountWithSessions()
+    await click(host.querySelector('.act.stock'))
+    await click(host.querySelector('.sh .bb.stock'))
+    await openMenu()
+    await click(button('中断してホームへ'))
+    await flush(10)
+    expect(host.querySelector('.act.stock')).not.toBeNull()
+    expect(host.querySelector('.strip.pause')).not.toBeNull()
+  }, 20000)
+
+  it('☰ の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {
+    await mountWithSessions()
+    await click(host.querySelector('.act.stock'))
+    await click(host.querySelector('.sh .bb.stock'))
+    await openMenu()
+    await click(button('この棚卸を破棄'))
+    await flush(10)
+    expect(host.querySelector('.act.stock')).not.toBeNull()
+    expect(host.querySelector('.sh').textContent).toContain('破棄')
+    const deletes = apiFetchMock.mock.calls.filter(([, o]) => o?.method === 'DELETE')
+    expect(deletes).toHaveLength(0)
   }, 20000)
 })

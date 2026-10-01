@@ -58,4 +58,5 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
 }
 :slotted(.am-item:active) { background: #f1f5f9; }
 :slotted(.am-ico) { width: 20px; text-align: center; }
+:slotted(.am-danger) { color: #b91c1c; border-top: 1px solid #f1f5f9; border-radius: 0 0 8px 8px; }
 </style>

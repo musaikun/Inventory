@@ -1,6 +1,6 @@
 // 戻るは常に「ひとつ前の画面」＝その画面へ来る前に居た画面へ返す。
 //
-// データ管理はホームと仕入れの両方から開けるのに、戻り先がホーム固定だった。
+// データ管理の戻り先（開いた元の画面へ返す）。
 // 仕入れ → データ管理 → 戻る で仕入れではなくホームへ飛び、入り直しになっていた。
 // 端末の戻るとページ内の戻るは、同じ「戻る」なので必ず同じ行き先にする。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
@@ -94,15 +94,6 @@ async function openFromManage(label) {
   if (nav) await click(nav)
   await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
 }
-async function openMovement() {
-  await openFromManage('仕入れ')
-  expect(view()).toBe('movement')
-}
-async function openMasterFromMovement() {
-  await click(button('データ管理へ'))
-  expect(view()).toBe('master')
-}
-
 describe('アプリを閉じる前に確認する', () => {
   const exitTitle = () => [...host.querySelectorAll('.name-modal-title')]
     .find(e => e.textContent.includes('アプリを終了しますか'))
@@ -248,37 +239,4 @@ describe('戻るはひとつ前の画面へ返す', () => {
     expect(view()).toBe('sessions')
   }, 20000)
 
-  it('仕入れ → データ管理 → 戻る は 仕入れ。もう一度でホーム', async () => {
-    await mountApp()
-    await seedItems()
-    await openMovement()
-    await openMasterFromMovement()
-
-    await deviceBack()
-    expect(view()).toBe('movement')     // 開いた元の画面へ返る（ホームではない）
-
-    await deviceBack()
-    expect(view()).toBe('sessions')     // 仕入れはホームから開いたのでホームへ
-  }, 20000)
-
-  it('往復したあとも戻るは行き止まりにならずホームへ抜ける', async () => {
-    await mountApp()
-    await seedItems()
-    await openMovement()
-    await openMasterFromMovement()
-
-    // master ⇄ movement を行き来しても、戻るを続ければ必ずホームに着く
-    for (let i = 0; i < 4 && view() !== 'sessions'; i++) await deviceBack()
-    expect(view()).toBe('sessions')
-  }, 20000)
-
-  it('ページ内の戻るボタンも端末の戻ると同じ行き先', async () => {
-    await mountApp()
-    await seedItems()
-    await openMovement()
-    await openMasterFromMovement()
-
-    await click(host.querySelector('.mm-back') || button('戻る') || button('‹'))
-    expect(view()).toBe('movement')
-  }, 20000)
 })

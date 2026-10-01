@@ -1,40 +1,37 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
-import LoadingSpinner from './LoadingSpinner.vue'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
 import { useOrders } from '../composables/useOrders.js'
-import { useSessionLauncher } from '../composables/useSessionLauncher.js'
-import { hasAnySchedule, scheduleRows, schedulesTodayContext } from '../services/orderScheduleUtil.js'
-import { showOrderSchedule, orderScheduleFocusId } from '../composables/appMenuState.js'
-import OrderScheduleModal from './OrderScheduleModal.vue'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import MovementQtyModal from './MovementQtyModal.vue'
 import InventoryTable from './InventoryTable.vue'
-import StockDetailModal from './StockDetailModal.vue'
 import { useStockView } from '../composables/useStockView.js'
-import OrderBaseModal from './OrderBaseModal.vue'
 
-const emit = defineEmits(['back', 'saved', 'startSession', 'resumeSession', 'openMaster', 'tabChange'])
-// 開いたときに選んでおくタブ。発注セッションから戻ってきたときに発注タブへ返すために使う。
+/**
+ * 入出庫の記録（入庫・出庫）。
+ *
+ * 以前は「仕入れ」として在庫・発注・入庫・出庫の4タブを持っていたが、在庫と発注は
+ * ホーム（品目・在庫の表と開始シート）と重複し、入口も2つあった（画面遷移図の課題①・2026-10-01）。
+ * ここは**記録するだけ**の画面にする。在庫の確認・発注の開始はホーム、
+ * 発注基準・発注日の設定は管理タブ。
+ */
+const emit = defineEmits(['back', 'saved', 'tabChange'])
+// 開いたときに選んでおくタブ（'in' | 'out'）
 const props = defineProps({
-  initialTab: { type: String, default: 'view' },   // 'view' | 'order' | 'in' | 'out'
+  initialTab: { type: String, default: 'in' },
 })
 
-const { config, itemCount, setReorderPoint, setReplenishTarget, setOrderAssumptions } = useConfig()
+const { config } = useConfig()
 const { saveMovement } = useMovements()
 const { getOrders } = useOrders()
 const { draft, clearMode } = useMovementDraft()
 
-// 画面モード: 在庫（読み取り）/ 入庫（記録）/ 出庫（記録）
-// 在庫 → 発注 → 入庫 → 出庫（仕入れの流れ順）。既定は在庫（出庫を主導線に上げない）。
-const TAB_ORDER = ['view', 'order', 'in', 'out']
-const mode = ref(TAB_ORDER.includes(props.initialTab) ? props.initialTab : 'view')
-// 記録タブ＝数量を入力して保存する2つ。発注はセッション（別画面）へ渡す入口なので含めない。
-const isRecord = computed(() => mode.value === 'in' || mode.value === 'out')
-const isOrderTab = computed(() => mode.value === 'order')
+// 画面モード: 入庫 / 出庫（どちらも記録）
+const TAB_ORDER = ['in', 'out']
+const mode = ref(TAB_ORDER.includes(props.initialTab) ? props.initialTab : 'in')
 const slideDir = ref('fwd')  // タブ切替時のスライド方向（アニメーション用）
 const tabIndex = computed(() => TAB_ORDER.indexOf(mode.value))  // スライド下線の位置
 // メモはモード別（入庫/出庫で混ざらない）
@@ -48,32 +45,14 @@ const search = ref('')
 // 未記録のままホームへ戻っても入力が残り、ホームカードに「未記録の入力あり」を出せる。
 
 // 理論在庫・発注基準・要補充の判定は「品目・在庫」ページと共通（composables/useStockView）
-const {
-  allItems, reorderOf, needsReorder, reorderCount, itemMovements, consumptionHintOf, storeReadiness,
-  schedOrderDays, reorderHorizon, baseOf, replenishOf, suggestedReorder, suggestBasisLabel,
-  _snaps, _moves, theoOf, unitOf, basisLabel, lotOf,
-} = useStockView()
+const { allItems, _moves, theoOf, unitOf, lotOf } = useStockView()
 function _md(d) {
   const [, mo, dd] = String(d || '').split('-').map(Number)
   return mo && dd ? `${mo}/${dd}` : ''
 }
 
-// ── 品目詳細（在庫タブ・行タップでシート）───────────────────
-// 行アコーディオンからモーダルへ移した。3タブとも「行タップ → シート」に統一し、
-// 一覧そのものは棚卸・発注と同じ見え方（行に内訳を出さない）を保つ。
-const detailTarget = ref(null)   // null | 品目名
-function closeDetail() { detailTarget.value = null }
-
-// 発注基準の設定（旧・発注点をまとめて設定）
-const showOrderBase = ref(false)
-const orderBaseRows = computed(() => allItems.value.map(item => ({
-  item, category: config.categories?.[item] ?? '', ...baseOf(item),
-})))
-
-
 // ── 入力量の操作（現在の記録モード）─────────────────────────
 function _q(item) {
-  if (!isRecord.value) return 0
   const v = Number(draft[mode.value][item])
   return Number.isFinite(v) && v > 0 ? v : 0
 }
@@ -86,7 +65,6 @@ function _set(item, v) {
 // ここで作るのは表示用の射影。
 const draftInventory = computed(() => {
   const inv = {}
-  if (!isRecord.value) return inv
   for (const item of allItems.value) {
     const q = _q(item)
     if (q > 0) inv[item] = { qty: q, unit: unitOf(item) }
@@ -97,7 +75,6 @@ const draftInventory = computed(() => {
 // 行のヒント欄に出す理論在庫（記録後の値も添える）。出庫で在庫を割り込む入力に気づけるようにする。
 const theoNoteMap = computed(() => {
   const map = {}
-  if (!isRecord.value) return map
   for (const item of allItems.value) {
     const t = theoOf(item)
     if (t == null) continue
@@ -110,12 +87,8 @@ const theoNoteMap = computed(() => {
 // 数量入力は棚卸・発注と同じ NumPad シートで行う（打鍵感をそろえ、OSキーボードを出さない）。
 // 行内の −/＋/＋箱 は連打用に残す。数量チップをタップするとここが開く。
 const qtyTarget = ref(null)   // null | 品目名
-function openQty(item) { if (isRecord.value) qtyTarget.value = item }
-// 行タップの先はタブで変わる（在庫=詳細シート / 入庫・出庫=数量シート）
-function onRowTap(item) {
-  if (isRecord.value) openQty(item)
-  else detailTarget.value = item
-}
+function openQty(item) { qtyTarget.value = item }
+function onRowTap(item) { openQty(item) }
 function closeQty()    { qtyTarget.value = null }
 function onQtyConfirm(v) {
   if (qtyTarget.value) _set(qtyTarget.value, Number(v) || 0)
@@ -129,7 +102,7 @@ function afterQty(item) {
 }
 
 // ── 記録対象の行 ─────────────────────────────
-const changed = computed(() => (isRecord.value ? allItems.value.filter(n => _q(n) > 0) : []))
+const changed = computed(() => allItems.value.filter(n => _q(n) > 0))
 const recordLines = computed(() => changed.value.map(n => ({ item: n, qty: _q(n), unit: unitOf(n) })))
 const canSave = computed(() => recordLines.value.length > 0)
 
@@ -155,7 +128,7 @@ function setMode(m) {
   // 再読込でこのタブへ戻れるよう、選んでいるタブを親へ伝える（親が保存を持つ）
   emit('tabChange', m)
 }
-// 左右スワイプで在庫→入庫→出庫を切り替え
+// 左右スワイプで入庫⇄出庫を切り替え
 const swipe = useHorizontalSwipe({
   onLeft:  () => { const i = TAB_ORDER.indexOf(mode.value); if (i < TAB_ORDER.length - 1) setMode(TAB_ORDER[i + 1]) },
   onRight: () => { const i = TAB_ORDER.indexOf(mode.value); if (i > 0) setMode(TAB_ORDER[i - 1]) },
@@ -171,48 +144,9 @@ function onSave() {
     lines: recordLines.value,
   })
   if (rec) saveMovementToD1(rec)   // D1 にも永続化（端末間共有・キャッシュ削除からの復旧）
-  // 保存したモードのドラフトをクリアし、在庫（確認）に戻って結果を見せる
+  // 保存したモードのドラフトをクリアする（同じタブに残る。結果はホームの表と履歴で見る）
   clearMode(m)
   emit('saved')
-  mode.value = 'view'
-}
-
-// ── 発注（既存の発注セッションへの入口）───────────────────────
-// 発注はルーム同期・完了確定を持つセッションなので、このページでは開始・再開だけを扱う。
-// カード内に別の発注記録を作ると「どちらが正か分からない」2経路になるため作らない。
-// 発注の開始・再開はホームと同じ共通の部品（以前はここに別の実装があった）
-const launcher = useSessionLauncher()
-const { loading: orderLoading, error: orderError, activeOrderSession } = launcher
-const startingOrder = computed(() => launcher.startingKind.value === 'order')
-onMounted(async () => { if (await launcher.load() === 'unauthorized') emit('back') })
-
-const orderSchedules = computed(() => config.orderSchedules ?? [])
-const hasSched       = computed(() => hasAnySchedule(orderSchedules.value))
-const schedRows      = computed(() => scheduleRows(orderSchedules.value, new Date()))
-const schedTodayCtx  = computed(() => schedulesTodayContext(orderSchedules.value, new Date()))
-
-// カードから開いたときは、その1件を編集画面で目立たせる（⚙ からは指定なし）
-function openSchedule(id = null) {
-  orderScheduleFocusId.value = id
-  showOrderSchedule.value = true
-}
-
-// 発注タブから「入庫へ」= 入庫タブへ移動して、その発注をプリフィルする。
-// 発注（LOT数）→ 入庫（バラ）の換算は deliveryLinesFromOrder が持つ既存の契約をそのまま使う。
-function applyOrderToInbound(o) {
-  setMode('in')
-  importOrder(o)
-}
-
-function _formatDate(iso) {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
-}
-
-async function onStartOrder() {
-  const session = await launcher.startOrder()
-  if (session) emit('startSession', session, 'order')
 }
 
 // 取込（過去の納品・過去の棚卸・品目マスタ）はデータ管理へ集約した。
@@ -223,17 +157,12 @@ async function onStartOrder() {
   <div :class="['mv', mode]">
     <header class="mv-header">
       <button class="mv-back" @click="emit('back')">‹ 戻る</button>
-      <span class="mv-title">🛒 仕入れ</span>
-      <span v-if="isRecord && changed.length" class="mv-count">{{ changed.length }}品目</span>
-      <button class="mv-gear" :class="{ alone: !(isRecord && changed.length) }" title="発注日・締切の設定" @click="openSchedule()">⚙</button>
+      <span class="mv-title">📥 入出庫</span>
+      <span v-if="changed.length" class="mv-count">{{ changed.length }}品目</span>
     </header>
 
     <!-- モードタブ（スライド下線で切替可能を示す）-->
     <div class="mv-tabs">
-      <button :class="['mv-tab', { on: mode === 'view' }]" @click="setMode('view')">在庫</button>
-      <button :class="['mv-tab', 'order', { on: mode === 'order' }]" @click="setMode('order')">
-        🧾 発注<span v-if="activeOrderSession" class="mv-tab-dot" title="進行中の発注があります"></span>
-      </button>
       <button :class="['mv-tab', 'in', { on: mode === 'in' }]" @click="setMode('in')">
         📥 入庫<span v-if="pendingOrders.length" class="mv-tab-badge">{{ pendingOrders.length }}</span>
       </button>
@@ -252,8 +181,8 @@ async function onStartOrder() {
      <div class="mv-page" :key="mode" :class="slideDir">
       <!-- 表の外側（日付・メモ・検索・案内）。表そのものは全幅で置き、棚卸と同じ地続きにする -->
       <div class="mv-controls-wrap">
-      <!-- 記録モード: 日付・メモ・発注取込 -->
-      <template v-if="isRecord">
+      <!-- 日付・メモ・発注取込 -->
+      <template v-if="mode">
         <div class="mv-controls">
           <div class="mv-ctl-row">
             <label class="mv-ctl-label">日付</label>
@@ -283,137 +212,29 @@ async function onStartOrder() {
         <!-- 過去データの一括取込（入庫モードのみ）-->
       </template>
 
-      <!-- 発注タブ: 既存の発注セッションへの入口。ここでは表を出さない -->
-      <template v-if="isOrderTab">
-        <div class="mv-hint">
-          仕入先ごとに、発注する数をまとめて確認・記録します<span class="mv-beta">β</span><br>
-          <span class="mv-hint-caveat">記録するだけで、仕入先へは自動送信されません。複数人で同時に入力できます。</span>
-        </div>
-
-        <div v-if="orderError" class="mv-order-err">{{ orderError }}</div>
-
-        <!-- 発注スケジュール（1件＝1カード。⚙ からも設定できる）-->
-        <div v-if="hasSched" class="mv-scheds">
-          <button
-            v-for="r in schedRows" :key="r.id"
-            class="mv-sched" :class="{ today: r.today }"
-            type="button"
-            @click="openSchedule(r.id)"
-          >
-            <span class="mv-sched-ico">🗓</span>
-            <span class="mv-sched-text">
-              <span class="mv-sched-head">
-                <span class="mv-sched-name">{{ r.name }}</span>
-                <span v-if="r.today" class="mv-sched-today">今日</span>
-              </span>
-              <span class="mv-sched-sum">{{ r.days }}</span>
-              <span v-if="r.today && r.deadline.has" :class="['mv-sched-dl', { past: r.deadline.past }]">{{ r.deadline.label }}</span>
-              <span v-else class="mv-sched-ctx">
-                {{ r.deadlineAt ? `締切${r.deadlineAt}` : '締切なし' }}<template v-if="r.next">・次は{{ r.next }}曜</template>
-              </span>
-            </span>
-            <span class="mv-sched-edit">変更</span>
-          </button>
-          <p v-if="schedTodayCtx" class="mv-scheds-ctx">{{ schedTodayCtx }}</p>
-        </div>
-        <button v-else class="mv-sched" type="button" @click="openSchedule()">
-          <span class="mv-sched-ico">🗓</span>
-          <span class="mv-sched-text">
-            <span class="mv-sched-sum">発注スケジュールを設定</span>
-            <span class="mv-sched-ctx">発注する曜日・締切を登録（任意）</span>
-          </span>
-          <span class="mv-sched-edit">設定</span>
-        </button>
-
-        <LoadingSpinner v-if="orderLoading" />
-        <template v-else>
-          <button v-if="activeOrderSession" class="mv-order-resume" @click="emit('resumeSession', activeOrderSession)">
-            <span class="mv-order-resume-title">🧾 進行中の発注があります</span>
-            <span class="mv-order-resume-sub">開始 {{ _formatDate(activeOrderSession.startedAt) }}</span>
-            <span class="mv-order-resume-go">記録を再開する →</span>
-          </button>
-          <button
-            v-else
-            class="mv-order-start"
-            :disabled="startingOrder || itemCount === 0"
-            @click="onStartOrder"
-          >
-            <span class="mv-order-start-title">{{ startingOrder ? '開始中...' : '＋ 発注を開始' }}</span>
-            <span class="mv-order-start-sub">{{ itemCount === 0 ? '先に品目マスタを登録してください' : '在庫を見ながら、発注数を決めます' }}</span>
-          </button>
-        </template>
-
-        <!-- 未反映の発注（届いたら入庫へ）-->
-        <div v-if="pendingOrders.length" class="mv-orders">
-          <div class="mv-orders-title">入庫として未反映の発注</div>
-          <div class="mv-orders-list">
-            <div v-for="o in pendingOrders" :key="o.id" class="mv-order-row">
-              <div class="mv-order-info">
-                <span class="mv-order-when">{{ _md(o.date) }} {{ o.supplier || '（未分類）' }}</span>
-                <span class="mv-order-meta">{{ (o.lines || []).length }}品目</span>
-              </div>
-              <button class="mv-order-apply" @click="applyOrderToInbound(o)">入庫へ →</button>
-            </div>
-          </div>
-          <p class="mv-orders-note">届いた分を入庫として記録すると、理論在庫に反映されます。</p>
-        </div>
-      </template>
-
       <!-- 品目検索。表の絞り込みへ渡す -->
-      <input v-if="!isOrderTab" v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
+      <input v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
 
       <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
       <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
-      <div v-else-if="mode === 'view'" class="mv-hint">
-        直近の棚卸を基準に、入出庫を加減算した理論在庫です。0以下は要補充。<br>
-        <span class="mv-hint-caveat">記録していない使用・ロス・納品の分だけ実際とずれます。正確な数は棚卸で確定します。</span>
-      </div>
-
-      <!-- ゲート案内: 消費・理論値の算出下地が無いとき、過去棚卸の取込を促す -->
-      <div v-if="mode === 'view' && !storeReadiness.ready" class="mv-unlock">
-        <span class="mv-unlock-txt">💡 {{ storeReadiness.hint }}</span>
-        <button class="mv-unlock-btn" @click="emit('openMaster')">データ管理へ</button>
-      </div>
       </div><!-- /.mv-controls-wrap -->
 
-      <!-- 品目一覧。棚卸・発注とまったく同じ表を使い、タブで数量セル・ツールバー・進捗だけを
-           差し替える。行タップの先も3タブで統一する（在庫=詳細シート / 入出庫=数量シート）。 -->
+      <!-- 品目一覧。棚卸・発注とまったく同じ表を使う。行タップで数量シート -->
       <InventoryTable
-        v-if="!isOrderTab"
-        :inventory="isRecord ? draftInventory : {}"
+        :inventory="draftInventory"
         :filled-count="changed.length"
-        :note-map="isRecord ? theoNoteMap : null"
+        :note-map="theoNoteMap"
         :search-term="search"
         :can-manage-list="false"
         hide-amount
         hide-tap-continuous
         @tap="onRowTap"
-      >
-        <!-- 在庫タブ: 数量セルは理論在庫、進捗も在庫の意味に差し替える -->
-        <template v-if="!isRecord" #qty="{ row }">
-          <div :class="['qty-display', 'mv-theo-cell', { filled: theoOf(row.item) != null, low: needsReorder(row.item) }]">
-            <template v-if="theoOf(row.item) != null">
-              {{ theoOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span>
-            </template>
-            <template v-else>—</template>
-          </div>
-        </template>
-        <!-- 絞り込みチップは持たない（在庫タブは常に全品目を出す）。表の既定チップも
-             在庫の意味には合わないので、slot は上書きしたまま空にしておく。 -->
-        <template v-if="!isRecord" #filters>
-          <button class="mv-rb-btn" type="button" @click="showOrderBase = true">🎯 発注基準を設定</button>
-        </template>
-        <template v-if="!isRecord" #progress>
-          <span class="progress">
-            要補充 <strong>{{ reorderCount }}</strong> 件
-          </span>
-        </template>
-      </InventoryTable>
+      />
      </div>
     </div>
 
-    <!-- 保存バー（記録モードのみ）-->
-    <div v-if="isRecord" class="mv-savebar">
+    <!-- 保存バー -->
+    <div class="mv-savebar">
       <div class="mv-save-summary">
         <span v-if="changed.length" :class="['mv-sum', mode]">{{ mode === 'in' ? '入庫' : '出庫' }} {{ changed.length }}品目</span>
         <span v-else class="mv-sum none">数量を入力してください</span>
@@ -424,43 +245,6 @@ async function onStartOrder() {
         </button>
       </div>
     </div>
-
-    <OrderBaseModal
-      v-if="showOrderBase"
-      :rows="orderBaseRows"
-      :unit-of="unitOf"
-      :assumptions="config.orderAssumptions ?? null"
-      :interval-days="reorderHorizon"
-      @save-assumptions="setOrderAssumptions"
-      @set-reorder="(item, v) => setReorderPoint(item, v)"
-      @close="showOrderBase = false"
-    />
-
-    <!-- 在庫の詳細（内訳・発注点・目安・直近の入出庫）-->
-    <StockDetailModal
-      v-if="detailTarget"
-      :item="detailTarget"
-      :unit="unitOf(detailTarget)"
-      :theo="theoOf(detailTarget)"
-      :basis="basisLabel(detailTarget)"
-      :reorder="reorderOf(detailTarget)"
-      :suggested="suggestedReorder(detailTarget)"
-      :suggest-basis="suggestBasisLabel(detailTarget)"
-      :hint="consumptionHintOf(detailTarget)"
-      :target="replenishOf(detailTarget)?.value ?? null"
-      :target-manual="config.replenishTargets?.[detailTarget] ?? null"
-      :target-basis="replenishOf(detailTarget)?.basis ?? ''"
-      :lot="lotOf(detailTarget)"
-      :price="config.prices?.[detailTarget] ?? null"
-      :category="config.categories?.[detailTarget] ?? ''"
-      :movements="itemMovements(detailTarget)"
-      @update-reorder="v => setReorderPoint(detailTarget, v)"
-      @update-target="v => setReplenishTarget(detailTarget, v)"
-      @close="closeDetail"
-    />
-
-    <!-- 発注日・締切（ヘッダーの ⚙ から）。開閉stateは App の戻る制御に載っている共有ref -->
-    <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
 
     <MovementQtyModal
       v-if="qtyTarget"
@@ -510,7 +294,7 @@ async function onStartOrder() {
 .mv-tab.in.on  { color: #047857; }
 .mv-tab.out.on { color: #b91c1c; }
 .mv-tab.order.on { color: #b45309; }
-.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 4); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
+.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 2); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
 .mv-tab-ind.order { background: #f59e0b; }
 .mv-tab-ind.in  { background: #10b981; }
 .mv-tab-ind.out { background: #ef4444; }
