@@ -43,7 +43,8 @@ function _qtyCompare(snapshot, prev) {
   zeroNow.sort((a, b) => b.prev - a.prev || a.item.localeCompare(b.item, 'ja'))
   tooMuch.sort((a, b) => b.ratio - a.ratio || a.item.localeCompare(b.item, 'ja'))
   tooLittle.sort((a, b) => a.ratio - b.ratio || a.item.localeCompare(b.item, 'ja'))
-  const cut = arr => ({ list: arr.slice(0, QTY_LIST_LIMIT), more: Math.max(0, arr.length - QTY_LIST_LIMIT), count: arr.length })
+  // all = 全件（レポートでは枠の中で送って全部見られる・User 2026-10-01）。list / more は先頭だけ使う所のため
+  const cut = arr => ({ list: arr.slice(0, QTY_LIST_LIMIT), more: Math.max(0, arr.length - QTY_LIST_LIMIT), count: arr.length, all: arr })
   return { zeroNow: cut(zeroNow), tooMuch: cut(tooMuch), tooLittle: cut(tooLittle) }
 }
 

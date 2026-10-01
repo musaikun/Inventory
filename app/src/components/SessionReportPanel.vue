@@ -116,13 +116,15 @@ function fmtYen(n) {
       <!-- 数量で比べた一覧（単価が無くても出る）-->
       <div v-for="g in qtyGroups" :key="g.key" :class="['rp-qty', g.key]">
         <div class="rp-movers-title">{{ g.title }}（{{ g.data.count }}件）</div>
-        <div v-for="r in g.data.list" :key="r.item" class="rp-mover">
-          <span class="rp-mover-name">{{ r.item }}</span>
-          <span :class="['rp-mover-diff', g.cls]">
-            {{ r.prev }} → {{ r.curr }}{{ r.unit }}<template v-if="r.ratio != null"> ×{{ r.ratio }}</template>
-          </span>
+        <!-- 全件をこの枠の中で送って見る（以前は10件まで＋「ほかN品目」で残りが見られなかった） -->
+        <div class="rp-qty-list">
+          <div v-for="r in (g.data.all ?? g.data.list)" :key="r.item" class="rp-mover">
+            <span class="rp-mover-name">{{ r.item }}</span>
+            <span :class="['rp-mover-diff', g.cls]">
+              {{ r.prev }} → {{ r.curr }}{{ r.unit }}<template v-if="r.ratio != null"> ×{{ r.ratio }}</template>
+            </span>
+          </div>
         </div>
-        <div v-if="g.data.more" class="rp-sub">ほか{{ g.data.more }}品目</div>
       </div>
     </div>
     <div v-else class="rp-card rp-empty">前回の棚卸が無いため、比較はありません</div>
@@ -176,6 +178,8 @@ function fmtYen(n) {
 
 .rp-movers { margin-top: 10px; }
 .rp-qty { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(148,163,184,.25); }
+/* 件数が多いときは枠の中だけを縦に送る（見出しは残したまま全件を見られる） */
+.rp-qty-list { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .rp-movers-title { font-size: 12px; font-weight: 600; opacity: .8; margin-bottom: 4px; }
 .rp-mover {
   display: flex; justify-content: space-between; gap: 10px;

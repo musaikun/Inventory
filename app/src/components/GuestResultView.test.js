@@ -141,3 +141,22 @@ describe('GuestResultView ジャンルの並び', () => {
     expect(labels).toEqual(['コーヒー豆', 'パスタ', 'ビール'])
   })
 })
+
+describe('GuestResultView レポートの数量比較は全件見られる', () => {
+  it('10件を超えても全件を枠の中に出す（「ほか N品目」で切らない）', async () => {
+    const names = Array.from({ length: 15 }, (_, i) => `品目${i + 1}`)
+    const r = mount({
+      ...result,
+      savedAt: '2026-09-30T10:00:00Z',
+      items: names.map(n => ({ item: n, qty: 10, unit: '個' })),
+      prevCandidates: [{ sessionId: 'p', date: '2026-08-31', savedAt: '2026-08-31T10:00:00Z',
+        items: names.map(n => ({ item: n, qty: 1, unit: '個' })) }],
+    })
+    ;[...r.querySelectorAll('.tab-btn')].find(b => b.textContent.includes('レポート')).click()
+    await nextTick()
+    const box = r.querySelector('.rp-qty.much .rp-qty-list')
+    expect(box).not.toBeNull()
+    expect(box.querySelectorAll('.rp-mover')).toHaveLength(15)
+    expect(r.querySelector('.rp-qty.much').textContent).not.toContain('ほか')
+  })
+})
