@@ -46,7 +46,7 @@ async function mountPage({ items = true } = {}) {
   app = createApp(Page, {
     onStartSession: on('startSession'), onResumeSession: on('resumeSession'), onOpenHistory: on('openHistory'),
     onDeleteSession: on('deleteSession'), onOpenMaster: on('openMaster'), onOpenMovement: on('openMovement'),
-    onStartPractice: on('startPractice'), onOpenFeedback: on('openFeedback'),
+    onStartPractice: on('startPractice'), onOpenFeedback: on('openFeedback'), onViewSession: on('viewSession'),
   })
   app.mount(host)
   for (let i = 0; i < 6; i++) await nextTick()
@@ -88,7 +88,7 @@ describe('ホームの骨組み', () => {
     await click(host.querySelector('.rt-hist'))
     expect(events).toContainEqual(['openHistory'])
     expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
-    expect(host.querySelector('.report-tab').textContent).toContain('直近の棚卸')
+    expect(host.querySelector('.report-tab').textContent).not.toContain('直近の棚卸')   // 詳細で見られる情報は出さない
     // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）
     await click(btn(host.querySelector('.bnav'), '管理'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
@@ -229,5 +229,21 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
     await click(fold)
     expect(host.querySelectorAll('.strip.discard.inner')).toHaveLength(2)
     discardedList = []
+  })
+})
+
+describe('レポートタブ（整理後）', () => {
+  it('金額なしの黄色い注意は出さず、分析の月の棚卸から詳細へ行ける', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
+      s1: { sessionId: 's1', date: '2026-09-30', savedAt: '2026-09-30T10:00:00Z', items: [{ item: 'トマト', qty: 3, unit: '個' }] },
+    }))
+    sessionList = [{ id: 's1', type: 'stock', status: 'completed', startedAt: '2026-09-30T05:00:00Z', endedAt: '2026-09-30T10:00:00Z' }]
+    await mountPage()
+    await click(btn(host.querySelector('.bnav'), 'レポート'))
+    expect(host.querySelector('.dash-warn')).toBeNull()
+    await click(host.querySelector('.dash-open'))
+    expect(events.find(e => e[0] === 'viewSession')?.[1]?.id).toBe('s1')
+    sessionList = []
   })
 })

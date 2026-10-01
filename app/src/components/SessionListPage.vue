@@ -46,8 +46,6 @@ import LoadingSpinner from './LoadingSpinner.vue'
 import DataInspector from './DataInspector.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import MasterManagePage from './MasterManagePage.vue'
-import SessionReportPanel from './SessionReportPanel.vue'
-import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -204,22 +202,13 @@ const showInspector = ref(false)   // 記録の確認（サーバーと端末の
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 
-// レポートの一番上：直近の棚卸のレポート（完了した棚卸のレポートと同じもの・User決定 2026-10-01）
-const latestStock = computed(() => {
-  const done = completedSessions.value
-    .filter(s => (s.type ?? 'stock') !== 'order' && !s.importBatchId)
-    .sort((a, b) => new Date(b.endedAt ?? b.startedAt) - new Date(a.endedAt ?? a.startedAt))[0]
-  if (!done) return null
-  const snap = dashboardSnapshots.value.find(x => x.sessionId === done.id)
-  return snap ? { session: done, snap } : null
-})
-const latestReport = computed(() => {
-  const l = latestStock.value
-  if (!l) return null
-  const input = { ...l.snap, startedAt: l.session.startedAt ?? l.snap.startedAt, endedAt: l.session.endedAt ?? l.snap.endedAt }
-  return buildSessionReport(input, findPrevSnapshot(l.snap, dashboardSnapshots.value))
-})
-const _md = d => { const x = new Date(d); return Number.isNaN(x.getTime()) ? '' : `${x.getMonth() + 1}/${x.getDate()}` }
+// レポート：分析の月の棚卸から、その棚卸の詳細（品目一覧・参加者・変更履歴・レポート）へ
+function openSnapshot(snap) {
+  const id = snap?.sessionId
+  if (!id) return
+  const sess = launcher.sessions.value.find(x => x.id === id)
+  emit('viewSession', sess ?? { id, status: 'completed', type: 'stock', startedAt: snap.date, endedAt: snap.savedAt ?? null })
+}
 function onDeleteOrphan(snap) {
   const key = snap?.sessionId
   if (!key) return
@@ -317,20 +306,11 @@ onUnmounted(registerInnerLayerCloser(() => {
     <!-- ── レポート（在庫分析）── -->
     <div v-if="!loading && tab === 'report'" :class="['report-tab', 'home-panel', slideDir && `slide-${slideDir}`]">
       <button class="m-card rt-hist" type="button" @click="emit('openHistory')">📅<span>履歴カレンダー<small>棚卸・発注・入出庫の記録を日付から開く</small></span><i>›</i></button>
-      <div class="m-h">直近の棚卸</div>
-      <div v-if="latestReport" class="rt-latest">
-        <div class="rt-latest-head">
-          <span>{{ _md(latestStock.session.endedAt ?? latestStock.session.startedAt) }} の棚卸</span>
-          <button type="button" class="rt-open" @click="emit('viewSession', latestStock.session)">詳細を開く ›</button>
-        </div>
-        <SessionReportPanel :report="latestReport" />
-      </div>
-      <div v-else class="rt-empty">完了した棚卸がまだありません。棚卸を完了すると、ここにレポートが出ます。</div>
-      <div class="m-h">在庫分析</div>
       <ManagerDashboard
         embedded :snapshots="dashboardSnapshots"
         :sessions="loading || error ? null : launcher.sessions.value"
         @delete-orphan="onDeleteOrphan"
+        @view-snapshot="openSnapshot"
       />
     </div>
 
@@ -530,10 +510,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 
 /* レポートタブ */
 .report-tab { padding: 4px 12px calc(80px + env(safe-area-inset-bottom)); }
-.rt-latest { background: #fff; border-radius: 14px; padding: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-.rt-latest-head { display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 14px; color: #1e293b; margin: 2px 4px 8px; }
-.rt-open { border: none; background: none; color: var(--primary, #2563eb); font-weight: 800; font-size: 13px; cursor: pointer; }
-.rt-empty { background: #fff; border-radius: 14px; padding: 16px; font-size: 13px; color: #64748b; }
 
 .sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
 .sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }

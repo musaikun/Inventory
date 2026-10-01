@@ -13,7 +13,7 @@ const props = defineProps({
   // embedded: ホームの「レポート」タブに置くとき。重ねて開かず、一覧では戻るを出さない
   embedded:  { type: Boolean, default: false },
 })
-const emit = defineEmits(['close', 'delete-orphan'])
+const emit = defineEmits(['close', 'delete-orphan', 'view-snapshot'])
 
 // カレンダーに無い棚卸（記録だけ残っている）。分析には入ってしまうので、ここで見せて消せるようにする
 const orphans = computed(() => orphanSnapshots(props.snapshots, props.sessions))
@@ -369,14 +369,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           </select>
         </div>
 
-        <!-- 金額データなしの注意 -->
-        <div v-if="!curHasPrices" class="dash-warn">
-          <span class="dash-warn-icon">⚠️</span>
-          <div>
-            <div class="dash-warn-title">この棚卸データには金額（単価）が含まれていません</div>
-            <div class="dash-warn-desc">数量ベースの分析のみ表示します。単価を設定すると在庫金額・ABC分析が使えます。</div>
-          </div>
-        </div>
+        <!-- 金額データなしの黄色い注意は出さない（User 2026-10-01。下のカードに「金額データなし」が出る） -->
 
         <!-- サマリー -->
         <div class="dash-section">
@@ -417,6 +410,8 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
               <span class="dash-meta-icon">📦</span>{{ summary.entered }}品目
             </div>
           </div>
+          <!-- この棚卸の詳細（品目一覧・参加者・変更履歴・レポート）へ -->
+          <button v-if="current?.sessionId" type="button" class="dash-open" @click="emit('view-snapshot', current)">この棚卸の詳細を見る ›</button>
         </div>
 
         <!-- 分析の項目。押すとその分析だけの画面へ -->
@@ -595,6 +590,10 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   flex-direction: column;
 }
 .dash-embedded { display: flex; flex-direction: column; background: #f5f6f8; }
+.dash-open {
+  display: block; width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px;
+  border: 1.5px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-weight: 800; font-size: 13.5px; cursor: pointer;
+}
 .dash-embedded .dash-body { overflow: visible; }
 .dash-header {
   display: flex;
