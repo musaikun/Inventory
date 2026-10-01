@@ -84,7 +84,7 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.hcp')).not.toBeNull()
     expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
     await click(btn(host.querySelector('.bnav'), '管理'))
-    for (const label of ['データ管理', '在庫分析', '発注日・締切', '発注基準', '各種設定', '練習モード', 'フィードバック']) {
+    for (const label of ['データ管理', '在庫分析', '発注日・締切', '発注基準', '各種設定', 'フィードバック']) {
       expect(host.querySelector('.manage').textContent).toContain(label)
     }
     // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ

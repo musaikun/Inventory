@@ -1,4 +1,5 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 /**
  * 取り込んだ後の棚卸カードが「組み上がる」ところを見せる全画面プレビュー。
  *
@@ -25,6 +26,8 @@ const props = defineProps({
   title:  { type: String, default: '' },
 })
 const emit = defineEmits(['close', 'stay'])
+// 戻る・Escape で閉じる（モーダルの層）
+useEscapeKey(() => emit('close'))
 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 const has = (k) => props.fields.some(f => f.key === k) && props.rows.some(r => r[k] !== undefined && r[k] !== '')

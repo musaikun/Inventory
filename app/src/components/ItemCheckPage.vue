@@ -1,4 +1,5 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 /**
  * 品目の点検。入数・単位・単価・ジャンルが空の品目と、しばらく数えていない品目を出し、
  * その場で埋める／非表示にする。設定済み品目一覧は確認専用なので、直す操作はこのページに分けている。
@@ -9,6 +10,8 @@ import { useHistory } from '../composables/useHistory.js'
 import { ITEM_CHECKS, itemCheckRows } from '../utils/itemCheck.js'
 
 const emit = defineEmits(['close'])
+// 戻る・Escape で閉じる（モーダルの層）
+useEscapeKey(() => emit('close'))
 const { config, patchItem, hideItem } = useConfig()
 const { getSnapshots } = useHistory()
 

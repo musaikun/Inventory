@@ -65,6 +65,35 @@ export function consumeInnerLayerBack() {
   return false
 }
 
+// ── モーダルの層（戻るで閉じる順）────────────────────────────────────
+//
+// 表示中のモーダルを開いた順に積む。戻るは最後に開いた1枚を閉じる（useEscapeKey が積む）。
+// 画面ごとの戻る（ホームのタブ移動・独立ページの戻り）より先に見るので、
+// モーダルを開いたまま裏の画面が戻ることが無くなる。
+const _modalLayers = []
+
+/** @returns {{ layer: object, release: () => void }} */
+export function pushModalLayer(close) {
+  const layer = { close }
+  _modalLayers.push(layer)
+  return {
+    layer,
+    release: () => { const i = _modalLayers.indexOf(layer); if (i >= 0) _modalLayers.splice(i, 1) },
+  }
+}
+
+export function isTopModalLayer(layer) {
+  return _modalLayers[_modalLayers.length - 1] === layer
+}
+
+/** いちばん上のモーダルを閉じたら true（戻る操作はそこで消費） */
+export function consumeModalLayerBack() {
+  const top = _modalLayers[_modalLayers.length - 1]
+  if (!top) return false
+  try { top.close() } catch (_) { /* 閉じる処理の失敗で戻るを壊さない */ }
+  return true
+}
+
 // ── 閉じてはいけないモーダルの戻る制御（IMPORT-001）────────────────────────
 //
 // モーダル内の閉じるボタン・Escape・オーバーレイだけを塞いでも、Android/PWA と

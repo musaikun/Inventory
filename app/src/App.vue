@@ -87,7 +87,7 @@ import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeModalLayerBack, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -1374,6 +1374,9 @@ function _closeTopLayer() {
   if (isBackBlocked())       { return true }
   if (showExitConfirm.value) { showExitConfirm.value = false; return true }   // 戻る＝キャンセル
   if (showMenu.value)        { showMenu.value = false;      return true }
+  // 表示中のモーダル（useEscapeKey で積まれる）を、最後に開いたものから1枚ずつ閉じる。
+  // 画面ごとの戻り（ホームのタブ・独立ページ）より必ず先に見る（User報告 2026-10-01）
+  if (consumeModalLayerBack()) return true
   if (memberHistoryTarget.value) { memberHistoryTarget.value = null; return true }
   if (confirmState.value)    { onCancelConfirm();           return true }
   if (candidateState.value)  { onCancelCandidate();         return true }

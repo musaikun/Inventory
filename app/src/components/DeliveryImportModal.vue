@@ -1,4 +1,5 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, computed } from 'vue'
 import { parseDeliveryImportCSV } from '../utils/deliveryImportParser.js'
 import { matchRow } from '../services/deliveryImportMatch.js'
@@ -14,6 +15,8 @@ const props = defineProps({
   existingMovements: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['imported', 'close', 'mapColumns'])
+// 戻る・Escape で閉じる（モーダルの層）
+useEscapeKey(() => emit('close'))
 
 const NEW = '__new__'   // 「この名前で新規追加」を表す choice 値
 

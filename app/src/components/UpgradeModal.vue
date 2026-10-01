@@ -1,10 +1,14 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 defineProps({
   reason:  { type: String,  default: '' },
   // 呼び出し側との互換用。初回公開は全環境で価格・決済導線を出さない。
   twaMode: { type: Boolean, default: false },
 })
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+// 戻る・Escape で閉じる（モーダルの層）
+useEscapeKey(() => emit('close'))
+
 </script>
 
 <template>

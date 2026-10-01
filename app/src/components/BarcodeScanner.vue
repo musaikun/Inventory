@@ -1,7 +1,10 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['scanned', 'close'])
+// 戻る・Escape で閉じる（モーダルの層）
+useEscapeKey(() => emit('close'))
 
 // recentCode: 直前に読み取ったコード。連続スキャンで同じ商品を即再検出しないよう、
 // カメラ再起動から一定時間このコードだけ無視する（別コードは即読み取り可能）。

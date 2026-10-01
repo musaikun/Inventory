@@ -1,4 +1,5 @@
 <script setup>
+import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { designateMonthEnds } from '../utils/businessDate.js'
@@ -270,6 +271,8 @@ const abc = computed(() => {
 const view = ref('hub')   // 'hub' | 'trend' | 'genre' | 'diff' | 'abc' | 'anomaly'
 function openView(v) { view.value = v; window.scrollTo?.(0, 0) }
 function back() { if (view.value !== 'hub') view.value = 'hub'; else emit('close') }
+// 戻る・Escape: 分析の中の画面なら一覧へ、一覧なら閉じる（モーダルの層）
+useEscapeKey(() => back())
 onUnmounted(registerInnerLayerCloser(() => {
   if (view.value === 'hub') return false
   view.value = 'hub'

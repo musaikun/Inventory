@@ -14,7 +14,8 @@ vi.mock('./utils/api.js', () => ({
   apiFetch: apiFetchMock,
   setAuthInvalidatedHandler: vi.fn(),
 }))
-vi.mock('./utils/analytics.js', () => ({
+vi.mock('./utils/analytics.js', async (orig) => ({
+  ...(await orig()),
   initAnalytics: vi.fn(), track: vi.fn(), resetAnalytics: vi.fn(),
 }))
 
@@ -239,4 +240,28 @@ describe('戻るはひとつ前の画面へ返す', () => {
     expect(view()).toBe('sessions')
   }, 20000)
 
+})
+
+// モーダルが出ているときの戻るは、まずモーダルを閉じる（共通・User報告 2026-10-01）。
+// 以前はホームの管理タブで各種設定を開いて戻ると、設定は開いたまま裏のタブが在庫へ戻った。
+describe('モーダルが出ているときの戻るは、まずモーダルを閉じる', () => {
+  it('管理タブで各種設定を開いて戻る → 設定だけが閉じ、管理タブのまま', async () => {
+    await mountApp()
+    await seedItems()
+    await openFromManage('各種設定')
+    expect(host.querySelector('.modal-overlay')).toBeTruthy()
+
+    await deviceBack()
+    expect(host.querySelector('.modal-overlay')).toBeNull()
+    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
+    expect(host.querySelector('.manage')).toBeTruthy()
+  }, 20000)
+
+  it('重なったモーダルは上から1枚ずつ閉じる（在庫分析 → 戻る → 管理タブ）', async () => {
+    await mountApp()
+    await seedItems()
+    await openFromManage('在庫分析')
+    await deviceBack()
+    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
+  }, 20000)
 })

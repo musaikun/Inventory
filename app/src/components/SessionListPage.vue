@@ -312,7 +312,6 @@ onUnmounted(registerInnerLayerCloser(() => {
       <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注基準<small>要補充の判定に使う発注点・補充の目安</small></span><i>›</i></button>
       <div class="m-h">その他</div>
       <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
-      <button class="m-card" type="button" @click="emit('startPractice')">🎓<span>練習モード<small>テスト用の品目で試す（履歴に残りません）</small></span><i>›</i></button>
       <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
       <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
       <template v-if="otherActiveSessions.length">
