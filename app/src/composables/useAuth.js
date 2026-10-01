@@ -129,10 +129,29 @@ export async function updateSession(sessionId, status, itemCount = 0) {
 }
 
 // DELETE /store/:code/sessions/:id
-export async function deleteSession(sessionId) {
+// 進行中だけを破棄する（完了済みはサーバーが 409 で拒否）。破棄は24時間取り戻せるので、
+// 取り戻したときに数量を戻すための下書き（端末にあれば）を一緒に送る。
+export async function deleteSession(sessionId, { draft = null } = {}) {
   const code = shopCode.value
   if (!code || !_token.value || !sessionId) return
-  return _api(`/store/${code}/sessions/${sessionId}`, { method: 'DELETE' })
+  return _api(`/store/${code}/sessions/${sessionId}`, {
+    method: 'DELETE',
+    ...(draft ? { body: JSON.stringify({ draft }) } : {}),
+  })
+}
+
+// GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション
+export async function getDiscardedSessions() {
+  const code = shopCode.value
+  if (!code || !_token.value) return []
+  return _api(`/store/${code}/sessions/discarded`)
+}
+
+// POST /store/:code/sessions/:id/restore … 破棄を取り消す。{ ok, session, payload }
+export async function restoreSession(sessionId) {
+  const code = shopCode.value
+  if (!code || !_token.value || !sessionId) return null
+  return _api(`/store/${code}/sessions/${sessionId}/restore`, { method: 'POST' })
 }
 
 // GET /store/:code/sessions/:id/lines

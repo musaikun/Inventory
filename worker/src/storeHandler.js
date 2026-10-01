@@ -522,7 +522,7 @@ const PREV_CANDIDATE_LIMIT = 5
 export async function handleSessionsGet(db, code) {
   const rows = await db.prepare(`
     SELECT id, shop_code, started_at, ended_at, status, item_count, type, import_batch_id
-    FROM sessions WHERE shop_code = ? ORDER BY started_at DESC LIMIT 50
+    FROM sessions WHERE shop_code = ? AND deleted_at IS NULL ORDER BY started_at DESC LIMIT 50
   `).bind(code).all()
   return rows.results.map(r => ({
     id:        r.id,
@@ -562,51 +562,148 @@ export async function handleSessionCreate(db, code, body = {}) {
 //   - 取込台帳（0015）が残り、削除済みの取込を replay が「保存済み」と誤回答する
 //   - 完了 claim（0016）が残り、同じセッションIDでの再完了を塞ぎ続ける
 // という状態を作っていた。全 SQL を `shop_code` で絞るので他店舗には触れない。
-export async function handleSessionDelete(db, code, sessionId) {
+export async function handleSessionDelete(db, code, sessionId, body = {}) {
   // ── 完了済みは消さない（User指示 2026-09-30）─────────────────────────────
   // 完了した棚卸が、別端末に残った古い「中断中」表示や履歴の🗑から消され、記録ごと失われた。
   // 端末の画面は古いことがあるので、判定はサーバーが持つ。消せるのは進行中（破棄）だけ。
-  // 判定と削除の間に完了が確定する競合も塞ぐため、各文に「完了済みでない」条件を付ける
-  // （sessions は最後に消すので、どの文も削除前の status を見る）。
-  const row = await db.prepare('SELECT status, item_count FROM sessions WHERE id = ? AND shop_code = ?')
+  //
+  // ── 破棄は24時間取り戻せる（User要望 2026-10-01・migration 0018）──────────
+  // その場では消さず deleted_at を立て、取り戻すための下書きを discarded_sessions に残す。
+  // 24時間を過ぎたものは purgeExpiredDiscarded が関連の行ごと消す。
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+  const row = await db.prepare('SELECT status, deleted_at FROM sessions WHERE id = ? AND shop_code = ?')
     .bind(sessionId, code).first()
   if (!row) return { ok: true }   // 既に無い（冪等）。他店舗のIDも同じ扱いで存在を漏らさない
   if (row.status === 'completed') {
     console.warn('[storeHandler] refused to delete completed session:', code, sessionId)
-    return {
-      _status: 409, code: 'session_completed', retryable: false,
-      error: '完了した記録は削除できません',
-    }
+    return { _status: 409, code: 'session_completed', retryable: false, error: '完了した記録は削除できません' }
   }
-  const notCompleted = "AND NOT EXISTS (SELECT 1 FROM sessions c WHERE c.id = ? AND c.shop_code = ? AND c.status = 'completed')"
-  const g = [sessionId, code]
+  if (row.deleted_at) return { ok: true }   // 破棄済み（冪等）
+
+  const now = _now()
+  const payload = await _discardPayload(db, code, sessionId, body)
   let results
   try {
+    // 判定と書き込みは同じ条件を各文に持たせる（確認の後に完了した場合は何も書かない）
     results = await db.batch([
-      db.prepare(`DELETE FROM inventory_lines      WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
-      db.prepare(`DELETE FROM store_history        WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
-      db.prepare(`DELETE FROM import_batch_requests WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
-      db.prepare(`DELETE FROM session_completions  WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
-      // 操作ログ（0017）。セッションを消したら「誰が何を変えたか」も残さない
-      db.prepare(`DELETE FROM session_audit        WHERE session_id = ? AND shop_code = ? ${notCompleted}`).bind(sessionId, code, ...g),
-      db.prepare("DELETE FROM sessions             WHERE id = ? AND shop_code = ? AND status <> 'completed'").bind(sessionId, code),
+      db.prepare(`
+        INSERT OR REPLACE INTO discarded_sessions (shop_code, session_id, type, item_count, started_at, discarded_at, payload_json)
+        SELECT shop_code, id, type, item_count, started_at, ?, ?
+        FROM sessions WHERE id = ? AND shop_code = ? AND status <> 'completed' AND deleted_at IS NULL
+      `).bind(now, payload, sessionId, code),
+      db.prepare(`
+        UPDATE sessions SET deleted_at = ?
+        WHERE id = ? AND shop_code = ? AND status <> 'completed' AND deleted_at IS NULL
+      `).bind(now, sessionId, code),
     ])
   } catch (e) {
-    // 途中で落ちれば batch ごと巻き戻る。一部だけ消えた状態を成功として返さない。
-    console.error('[storeHandler] session delete batch failed:', code, sessionId, e?.message ?? e)
+    console.error('[storeHandler] session discard failed:', code, sessionId, e?.message ?? e)
     return { _status: 503, code: 'session_delete_failed', retryable: true, error: '削除できませんでした' }
   }
-  if (results?.[5]?.meta?.changes !== 1) {
-    // 確認の後に完了した（または消えた）。何も消していない
-    const now = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).first()
-    if (now?.status === 'completed') {
+  if (results?.[1]?.meta?.changes !== 1) {
+    const now2 = await db.prepare('SELECT status FROM sessions WHERE id = ? AND shop_code = ?').bind(sessionId, code).first()
+    if (now2?.status === 'completed') {
       return { _status: 409, code: 'session_completed', retryable: false, error: '完了した記録は削除できません' }
     }
     return { ok: true }
   }
   // 誰がいつ何を消したかを Workers Logs に残す（後から「消えた」を辿れるように）
-  console.warn('[storeHandler] session deleted:', code, sessionId, row.status, row.item_count)
-  return { ok: true }
+  console.warn('[storeHandler] session discarded (restorable 24h):', code, sessionId)
+  await purgeExpiredDiscarded(db, code).catch(() => {})
+  return { ok: true, restorableUntil: new Date(Date.parse(now) + DISCARD_KEEP_MS).toISOString() }
+}
+
+/** 破棄したセッションを取り戻せる時間 */
+export const DISCARD_KEEP_MS = 24 * 3600_000
+
+/**
+ * 取り戻すときに数量を戻すための下書き。端末が送る下書き（inv / activeMs / audit）を優先し、
+ * 無ければ店舗の進行中在庫（store_inventory）が**このセッションのものなら**それを残す
+ * （別の端末から破棄したとき、その端末には下書きが無い）。
+ */
+async function _discardPayload(db, code, sessionId, body) {
+  const draft = body?.draft && typeof body.draft === 'object' && !Array.isArray(body.draft) ? body.draft : null
+  let storeInventory = null
+  if (!draft) {
+    try {
+      const inv = await db.prepare('SELECT inventory_json FROM store_inventory WHERE shop_code = ?').bind(code).first()
+      const parsed = inv ? JSON.parse(inv.inventory_json) : null
+      if (parsed?.sessionId === sessionId) storeInventory = parsed
+    } catch (_) { /* 下書きが無くてもセッションは取り戻せる */ }
+  }
+  return JSON.stringify({ draft, storeInventory })
+}
+
+/**
+ * 24時間を過ぎた破棄を完全に消す（関連の行ごと・1トランザクション）。
+ * 破棄のたび・一覧を読むたびに、その店舗の分だけ掃除する。
+ */
+export async function purgeExpiredDiscarded(db, code, nowMs = Date.now()) {
+  const cutoff = new Date(nowMs - DISCARD_KEEP_MS).toISOString()
+  const target = 'SELECT session_id FROM discarded_sessions WHERE shop_code = ? AND discarded_at < ?'
+  await db.batch([
+    db.prepare(`DELETE FROM inventory_lines       WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code, cutoff),
+    db.prepare(`DELETE FROM store_history         WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code, cutoff),
+    db.prepare(`DELETE FROM import_batch_requests WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code, cutoff),
+    db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code, cutoff),
+    db.prepare(`DELETE FROM session_audit         WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code, cutoff),
+    db.prepare(`DELETE FROM sessions WHERE shop_code = ? AND deleted_at IS NOT NULL AND status <> 'completed' AND id IN (${target})`).bind(code, code, cutoff),
+    db.prepare('DELETE FROM discarded_sessions WHERE shop_code = ? AND discarded_at < ?').bind(code, cutoff),
+  ])
+}
+
+// GET /store/:code/sessions/discarded … 取り戻せる破棄（24時間以内・新しい順）
+export async function handleDiscardedList(db, code) {
+  await purgeExpiredDiscarded(db, code).catch(() => {})
+  const cutoff = new Date(Date.now() - DISCARD_KEEP_MS).toISOString()
+  const rows = (await db.prepare(`
+    SELECT session_id, type, item_count, started_at, discarded_at FROM discarded_sessions
+    WHERE shop_code = ? AND discarded_at >= ? ORDER BY discarded_at DESC
+  `).bind(code, cutoff).all()).results ?? []
+  return rows.map(r => ({
+    id: r.session_id, type: r.type ?? 'stock', itemCount: r.item_count ?? 0,
+    startedAt: r.started_at, discardedAt: r.discarded_at,
+    restorableUntil: new Date(Date.parse(r.discarded_at) + DISCARD_KEEP_MS).toISOString(),
+  }))
+}
+
+// POST /store/:code/sessions/:id/restore … 破棄を取り消して「中断中」に戻す
+export async function handleSessionRestore(db, code, sessionId) {
+  const row = await db.prepare(`
+    SELECT d.type, d.discarded_at, d.payload_json, s.started_at, s.item_count, s.status
+    FROM discarded_sessions d JOIN sessions s ON s.id = d.session_id AND s.shop_code = d.shop_code
+    WHERE d.shop_code = ? AND d.session_id = ?
+  `).bind(code, sessionId).first()
+  if (!row || Date.now() - Date.parse(row.discarded_at) > DISCARD_KEEP_MS) {
+    return { _status: 410, code: 'discard_expired', error: '取り戻せる期間（24時間）を過ぎています' }
+  }
+  const type = row.type === 'order' ? 'order' : 'stock'
+  // 進行中は種類ごとに1つ。別の進行中があるまま戻すと、どちらが正か分からなくなる
+  const other = await db.prepare(`
+    SELECT id FROM sessions WHERE shop_code = ? AND type = ? AND status <> 'completed' AND deleted_at IS NULL AND id <> ?
+  `).bind(code, type, sessionId).first()
+  if (other) {
+    return {
+      _status: 409, code: 'active_exists',
+      error: `進行中の${type === 'order' ? '発注' : '棚卸'}があります。完了するか破棄してから取り戻してください`,
+    }
+  }
+  try {
+    await db.batch([
+      db.prepare('UPDATE sessions SET deleted_at = NULL WHERE id = ? AND shop_code = ? AND deleted_at IS NOT NULL').bind(sessionId, code),
+      db.prepare('DELETE FROM discarded_sessions WHERE shop_code = ? AND session_id = ?').bind(code, sessionId),
+    ])
+  } catch (e) {
+    console.error('[storeHandler] session restore failed:', code, sessionId, e?.message ?? e)
+    return { _status: 503, code: 'restore_failed', retryable: true, error: '取り戻せませんでした' }
+  }
+  let payload = null
+  try { payload = JSON.parse(row.payload_json) } catch (_) { payload = null }
+  return {
+    ok: true,
+    session: { id: sessionId, type, status: row.status, itemCount: row.item_count ?? 0, startedAt: row.started_at, endedAt: null },
+    payload,
+  }
 }
 
 // GET /store/:code/sessions/:id/lines
@@ -713,7 +810,7 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
   // 旧実装はそれを適用して完了済みセッションを進行中へ巻き戻していた。
   const res = await db.prepare(`
     UPDATE sessions SET status = ?, ended_at = ?, item_count = ?
-    WHERE id = ? AND shop_code = ? AND status <> 'completed'
+    WHERE id = ? AND shop_code = ? AND status <> 'completed' AND deleted_at IS NULL
   `).bind(status, status === 'active' ? null : now, itemCount, sessionId, code).run()
 
   if (res?.meta?.changes === 1) return { ok: true }

@@ -227,7 +227,8 @@ describe('stale ledger で replay 成功にしない', () => {
 
     expect((await handleSessionDelete(h.db, CODE, SID)).ok).toBe(true)
 
-    expect(sessionsOf(h, CODE)).toHaveLength(0)
+    // 破棄は24時間取り戻せる（行は残り、破棄の印が付く）
+    expect(sessionsOf(h, CODE)[0].deleted_at).toBeTruthy()
     expect(ledgerOf(h, OTHER)).toHaveLength(1)
     expect(sessionsOf(h, OTHER)).toHaveLength(1)
     expect(historyOf(h, OTHER)).toHaveLength(1)
@@ -245,9 +246,11 @@ describe('stale ledger で replay 成功にしない', () => {
     expect(res.retryable).toBe(true)
     expect(sessionsOf(h)).toHaveLength(1)
 
+    expect(sessionsOf(h)[0].deleted_at).toBeNull()
+
     // 再試行で完了する
     expect((await handleSessionDelete(h.db, CODE, SID)).ok).toBe(true)
-    expect(sessionsOf(h)).toHaveLength(0)
+    expect(sessionsOf(h)[0].deleted_at).toBeTruthy()
   })
 
   it('完了した棚卸は削除できない（完了claim・明細・履歴を残す）', async () => {

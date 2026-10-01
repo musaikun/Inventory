@@ -12,11 +12,15 @@ let getSessionsImpl = async () => sessionList
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active' }))
 const deleteSession = vi.fn(async () => ({}))
 const logout = vi.fn(async () => {})
+let discardedList = []
+let restoreImpl = async () => ({ ok: false })
 vi.mock('./useAuth.js', () => ({
   getSessions:   (...a) => getSessionsImpl(...a),
   createSession: (...a) => createSession(...a),
   deleteSession: (...a) => deleteSession(...a),
   logout:        (...a) => logout(...a),
+  getDiscardedSessions: async () => discardedList,
+  restoreSession: (...a) => restoreImpl(...a),
 }))
 vi.mock('./useSync.js', () => ({ fetchRoomStatus: vi.fn(async () => null) }))
 
@@ -31,6 +35,8 @@ beforeEach(async () => {
   vi.resetModules()
   createSession.mockClear(); deleteSession.mockClear(); logout.mockClear()
   sessionList = []
+  discardedList = []
+  restoreImpl = async () => ({ ok: false })
   getSessionsImpl = async () => sessionList
   const { useConfig } = await import('./useConfig.js')
   const cfg = useConfig(); cfg.setEmptyList(); cfg.addItem('トマト', 0, '', '個')
@@ -123,6 +129,40 @@ describe('useSessionLauncher', () => {
     sessionList = [ACTIVE_ORDER]
     await L.load()
     expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(true)
-    expect(deleteSession).toHaveBeenCalledWith('o1')
+    expect(deleteSession).toHaveBeenCalledWith('o1', { draft: null })
+  })
+
+  // 破棄は24時間取り戻せる（User要望 2026-10-01）
+  it('破棄のとき、端末の下書きを一緒に送る（取り戻したときに数量を戻すため）', async () => {
+    localStorage.setItem('inv_draft_o1', JSON.stringify({ inv: { トマト: { qty: 2 } }, activeMs: 5, audit: [] }))
+    localStorage.setItem('order_draft_ord_o1', JSON.stringify({ トマト: { orderQty: 3 } }))
+    sessionList = [ACTIVE_ORDER]
+    await L.load()
+    expect(await L.remove(ACTIVE_ORDER, { confirmed: true })).toBe(true)
+    const [, opts] = deleteSession.mock.calls[0]
+    expect(opts.draft.inv.トマト.qty).toBe(2)
+    expect(opts.draft.orderDraft.トマト.orderQty).toBe(3)
+  })
+
+  it('取り戻すと、端末に下書きが無ければサーバーの下書きを書き戻し、一覧を読み直す', async () => {
+    discardedList = [{ id: 'o1', type: 'order', itemCount: 1, startedAt: iso(now), restorableUntil: iso(new Date(+now + 3600_000)) }]
+    await L.load()
+    await Promise.resolve(); await Promise.resolve()
+    expect(L.discarded.value.map(d => d.id)).toEqual(['o1'])
+    restoreImpl = async () => {
+      sessionList = [ACTIVE_ORDER]; discardedList = []
+      return { ok: true, session: ACTIVE_ORDER, payload: { draft: { inv: { トマト: { qty: 4 } }, orderDraft: { トマト: { orderQty: 1 } } } } }
+    }
+    const s = await L.restore(L.discarded.value[0])
+    expect(s.id).toBe('o1')
+    expect(JSON.parse(localStorage.getItem('inv_draft_o1')).inv.トマト.qty).toBe(4)
+    expect(JSON.parse(localStorage.getItem('order_draft_ord_o1')).トマト.orderQty).toBe(1)
+    expect(L.activeOrderSession.value.id).toBe('o1')
+  })
+
+  it('取り戻せないとき（期限切れ・別の進行中あり）は理由を出す', async () => {
+    restoreImpl = async () => { throw new Error('進行中の発注があります。完了するか破棄してから取り戻してください') }
+    expect(await L.restore({ id: 'o1' })).toBeNull()
+    expect(L.error.value).toContain('進行中の発注があります')
   })
 })

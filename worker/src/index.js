@@ -7,6 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
+  handleDiscardedList, handleSessionRestore,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
@@ -338,6 +339,20 @@ export default {
           return resultResponse(await handleSessionCreate(env.DB, code, body), origin, allowedOrigin)
         }
 
+        // GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション（要認証）
+        if (subpath === '/sessions/discarded' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleDiscardedList(env.DB, code), origin, allowedOrigin)
+        }
+        // POST /store/:code/sessions/:id/restore … 破棄を取り消す（要認証）
+        const restoreMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/restore$/)
+        if (restoreMatch && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleSessionRestore(env.DB, code, restoreMatch[1]), origin, allowedOrigin)
+        }
+
         // PUT/DELETE /store/:code/sessions/:id （要認証）
         const sessMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})$/)
         if (sessMatch && request.method === 'PUT') {
@@ -348,7 +363,10 @@ export default {
         if (sessMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return resultResponse(await handleSessionDelete(env.DB, code, sessMatch[1]), origin, allowedOrigin)
+          // 本文（取り戻すための下書き）は任意。無い・読めないときは空として扱う
+          let body = {}
+          try { const t = await request.text(); body = t ? JSON.parse(t) : {} } catch (_) { body = {} }
+          return resultResponse(await handleSessionDelete(env.DB, code, sessMatch[1], body), origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/:id/lines （要認証）

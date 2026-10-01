@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createD1 } from './d1Harness.js'
-import { handleAuditAppend, handleAuditGet, handleSessionDelete, handleHistoryDelete } from '../src/storeHandler.js'
+import { handleAuditAppend, handleAuditGet, handleSessionDelete, handleHistoryDelete, purgeExpiredDiscarded } from '../src/storeHandler.js'
 import { MAX_AUDIT_PER_REQUEST } from '../src/constants.js'
 
 const CODE  = 'SHOPAA'
@@ -157,10 +157,12 @@ describe('店舗境界', () => {
 })
 
 describe('削除で記録も消える', () => {
-  it('セッション削除で操作ログも消える', async () => {
+  it('破棄では操作ログを残し（24時間は取り戻せる）、期限を過ぎて完全に消すときに一緒に消える', async () => {
     const h = setup()
     await handleAuditAppend(h.db, CODE, SID, { entries: [entry('e1', 'トマト', '端末A', 'dev-a', 1000)] })
     await handleSessionDelete(h.db, CODE, SID)
+    expect(auditRows(h)).toHaveLength(1)
+    await purgeExpiredDiscarded(h.db, CODE, Date.now() + 25 * 3600_000)
     expect(auditRows(h)).toHaveLength(0)
   })
 

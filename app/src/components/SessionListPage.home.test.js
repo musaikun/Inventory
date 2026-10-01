@@ -184,7 +184,7 @@ describe('中断中のセッションと破棄', () => {
     expect(sheet().textContent).toContain('12品目')
     await click(btn(sheet(), '破棄する'))
     expect(spy).not.toHaveBeenCalled()
-    expect(deleteSession).toHaveBeenCalledWith('s1')
+    expect(deleteSession).toHaveBeenCalledWith('s1', expect.anything())
     expect(events).toContainEqual(['deleteSession', 's1'])
   })
 

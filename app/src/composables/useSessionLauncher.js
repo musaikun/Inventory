@@ -7,7 +7,7 @@
 // 画面ごとに呼ぶ（呼ぶたびに独立した状態を持つ）。画面遷移（emit）は呼ぶ側の仕事で、
 // ここは「何が起きたか」を返すだけにする。
 import { ref, computed } from 'vue'
-import { getSessions, createSession, deleteSession, logout } from './useAuth.js'
+import { getSessions, createSession, deleteSession, logout, getDiscardedSessions, restoreSession } from './useAuth.js'
 import { useConfig } from './useConfig.js'
 import { useHistory } from './useHistory.js'
 import { shopCode } from './useStore.js'
@@ -27,6 +27,9 @@ export function useSessionLauncher() {
   // 「開始中…」表示も disabled も自分の種別のときだけに閉じる
   const startingKind = ref(null)
   const deletingId   = ref(null)
+  // 24時間以内に破棄した（取り戻せる）セッション。読めなくても一覧そのものは出す
+  const discarded    = ref([])
+  const restoringId  = ref(null)
 
   /** 一覧を読む。認証切れ（401）ならログアウトして 'unauthorized' を返す（戻り先は呼ぶ側が決める） */
   async function load() {
@@ -35,6 +38,7 @@ export function useSessionLauncher() {
     try {
       const list = await getSessions()
       sessions.value = Array.isArray(list) ? list : []
+      loadDiscarded()
       return 'ok'
     } catch (e) {
       const msg = String(e?.message ?? '')
@@ -46,6 +50,57 @@ export function useSessionLauncher() {
       return 'error'
     } finally {
       loading.value = false
+    }
+  }
+
+  async function loadDiscarded() {
+    try {
+      const list = await getDiscardedSessions()
+      discarded.value = Array.isArray(list) ? list : []
+    } catch (_) {
+      discarded.value = []   // サーバーが未対応（0018 未適用）でもホームは壊さない
+    }
+  }
+
+  // 端末に残っている下書き（数量・変更履歴・稼働時間）。破棄のとき一緒に送り、取り戻すときに戻す
+  const _DRAFT = id => `inv_draft_${id}`
+  const _ORDER_DRAFT = id => `order_draft_ord_${id}`
+  function _readJson(key) { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null } catch (_) { return null } }
+  function _localDraft(id) {
+    const inv = _readJson(_DRAFT(id))
+    const order = _readJson(_ORDER_DRAFT(id))
+    if (!inv && !order) return null
+    return { ...(inv ?? {}), ...(order ? { orderDraft: order } : {}) }
+  }
+
+  /**
+   * 破棄を取り消して「中断中」に戻す。端末に下書きが無ければ、サーバーが預かっていた下書きを書き戻す。
+   * @returns {object|null} 戻したセッション。null = 失敗（error に理由）
+   */
+  async function restore(item) {
+    if (!item?.id) return null
+    restoringId.value = item.id
+    error.value = ''
+    try {
+      const res = await restoreSession(item.id)
+      if (!res?.ok) { error.value = res?.error || '取り戻せませんでした'; return null }
+      const p = res.payload ?? {}
+      try {
+        if (!localStorage.getItem(_DRAFT(item.id))) {
+          const d = p.draft ?? (p.storeInventory?.inventory ? { inv: p.storeInventory.inventory } : null)
+          if (d?.inv) localStorage.setItem(_DRAFT(item.id), JSON.stringify({ inv: d.inv, activeMs: d.activeMs ?? 0, audit: d.audit ?? [] }))
+        }
+        if (p.draft?.orderDraft && !localStorage.getItem(_ORDER_DRAFT(item.id))) {
+          localStorage.setItem(_ORDER_DRAFT(item.id), JSON.stringify(p.draft.orderDraft))
+        }
+      } catch (_) { /* 下書きを書けなくてもセッションは戻っている（数量はルーム・サーバーから戻る場合がある） */ }
+      await load()
+      return res.session
+    } catch (e) {
+      error.value = e?.message || '取り戻せませんでした'
+      return null
+    } finally {
+      restoringId.value = null
     }
   }
 
@@ -170,8 +225,9 @@ export function useSessionLauncher() {
           : 'このセッションはもうありません。'
         return false
       }
-      await deleteSession(session.id)
+      await deleteSession(session.id, { draft: _localDraft(session.id) })
       sessions.value = sessions.value.filter(s => s.id !== session.id)
+      loadDiscarded()
       return true
     } catch (e) {
       error.value = e?.message || '削除できませんでした'
@@ -223,6 +279,7 @@ export function useSessionLauncher() {
     load, inProgressSessions, stockInProgress, orderInProgress,
     activeSession, otherActiveSessions, activeOrderSession, completedSessions,
     isLocked, stockAt, todayDone, startStock, startOrder, remove,
+    discarded, restoringId, loadDiscarded, restore,
     now, liveRoom, liveOrderRoom, pollRooms, startRoomPolling, stopRoomPolling, liveStatus, orderLiveStatus,
   }
 }

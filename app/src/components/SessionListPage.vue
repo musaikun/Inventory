@@ -82,7 +82,7 @@ const tabSwipe = useHorizontalSwipe({
 // セッションの一覧・開始・再開・破棄・ルーム状態（共通の部品）
 const launcher = useSessionLauncher()
 const {
-  loading, error, startingKind, deletingId,
+  loading, error, startingKind, deletingId, discarded, restoringId,
   activeSession, otherActiveSessions, activeOrderSession, completedSessions, liveRoom,
 } = launcher
 
@@ -188,6 +188,14 @@ async function confirmDiscard() {
   if (await launcher.remove(s, { confirmed: true })) emit('deleteSession', s.id)
   closeSheet()
 }
+// 破棄して24時間以内のもの（元に戻せる）。残り時間は在庫の帯と同じ間隔で更新される launcher.now で数える
+function discardRemain(d) {
+  const ms = Date.parse(d.restorableUntil) - launcher.now.value
+  if (!(ms > 0)) return 'まもなく'
+  const h = Math.floor(ms / 3600_000), m = Math.floor((ms % 3600_000) / 60_000)
+  return h > 0 ? `あと${h}時間` : `あと${Math.max(1, m)}分`
+}
+async function restoreDiscarded(d) { await launcher.restore(d) }
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
 
@@ -265,6 +273,11 @@ onUnmounted(registerInnerLayerCloser(() => {
             <span class="strip-t">⏸ 発注（中断中）<small>{{ _itemCount(activeOrderSession) }}品目 ・ {{ _hm(activeOrderSession.startedAt) }}〜</small></span>
             <button class="strip-go" type="button" @click="resume(activeOrderSession)">再開</button>
             <button class="strip-more" type="button" aria-label="発注を破棄" :disabled="deletingId === activeOrderSession.id" @click="askDiscard(activeOrderSession)">⋯</button>
+          </div>
+          <!-- 破棄して24時間以内（元に戻せる）。過ぎるとサーバーが完全に消す -->
+          <div v-for="d in discarded" :key="d.id" class="strip discard">
+            <span class="strip-t">🗑 破棄した{{ d.type === 'order' ? '発注' : '棚卸' }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
+            <button class="strip-go" type="button" :disabled="restoringId === d.id" @click="restoreDiscarded(d)">{{ restoringId === d.id ? '戻しています…' : '元に戻す' }}</button>
           </div>
 
           <!-- 今日のやること（1行・タップで履歴カレンダー） -->
@@ -422,7 +435,8 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="sh-handle"></div>
         <div class="sh-t ng">この{{ discardKind }}を破棄しますか？</div>
         <div class="note red">
-          <b>入力済みの {{ _itemCount(discardTarget) }}品目</b>と変更履歴が消え、元に戻せません。履歴カレンダーにも残りません。
+          <b>入力済みの {{ _itemCount(discardTarget) }}品目</b>と変更履歴を破棄します。履歴カレンダーには残りません。<br>
+          <b>24時間以内なら、ホームの「破棄した{{ discardKind }}」から元に戻せます。</b>過ぎると完全に消えます。
         </div>
         <div class="note blue">あとで続けるだけなら、破棄せずにそのまま置いておけます（「再開」で続きから）。</div>
         <div class="two">
@@ -461,6 +475,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 .strip-arrow { color: #94a3b8; font-size: 18px; }
 .strip.pause.stock { background: #dbeafe; color: #1d4ed8; cursor: default; }
 .strip.pause.order { background: #ffedd5; color: #c2410c; cursor: default; }
+.strip.discard { background: #f1f5f9; color: #475569; cursor: default; border: 1px dashed #cbd5e1; }
+.strip.discard .strip-go { background: #fff; color: #334155; border: 1.5px solid #94a3b8; }
 .strip-go { border: none; border-radius: 9px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #fff; cursor: pointer; }
 .stock .strip-go { background: #2563eb; }
 .order .strip-go { background: #ea580c; }
