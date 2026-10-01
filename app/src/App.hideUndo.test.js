@@ -66,7 +66,7 @@ let config = null
 const flush = async (n = 8) => { for (let i = 0; i < n; i++) await nextTick() }
 // jsdom は transitionend を出さないので、閉じたバーは leave クラスを着けたまま DOM に残る。
 // 「出ている」と数えるのは退場中でないものだけ。
-const undoBar = () => host.querySelector('.undo-bar:not(.toast-leave-active)')
+const undoBar = () => host.querySelector('.undo-bar:not(.undo-leave-active)')
 
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 

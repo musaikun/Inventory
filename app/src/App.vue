@@ -696,7 +696,10 @@ const lastBarcode       = ref('')  // 直前に読み取ったコード（連続
 const pendingGuestRequest = ref(null)  // ゲスト: ホスト承認待ち中の申請 { requestId, name }
 // ゲスト: 非表示の承認待ち { requestId, name }。追加申請とは別枠にする
 // （品目を足しながら別の品目の非表示も頼める。片方が片方を塞ぐ理由が無い）。
-const pendingHideGuestRequest = ref(null)
+// ゲストが出した非表示の申請（承認待ち）。何件でも続けて出せる（User 2026-10-01。以前は1件ずつ）
+const pendingHideGuestRequests = ref([])
+const hideGuestOpen = ref(false)   // 2件以上のとき一覧を開いているか
+const hideHostOpen  = ref(false)   // ホスト：申請が2件以上のとき一覧を開いているか
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
 function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
@@ -1224,9 +1227,7 @@ setItemHideRequestCallback((req) => {
 setItemHideResponseCallback((requestId, approved, name, reason) => {
   // ゲスト側: ホストの承認/拒否を受信。実際に隠れるのは承認後に降りてくる config で、
   // ここでは端末の一覧を触らない（ホストが正のまま1経路に保つ）。
-  if (pendingHideGuestRequest.value?.requestId === requestId) {
-    pendingHideGuestRequest.value = null
-  }
+  pendingHideGuestRequests.value = pendingHideGuestRequests.value.filter(r => r.requestId !== requestId)
   if (reason === 'host_offline') {
     showToast(`ホストがオフラインのため「${name}」の申請が失敗しました`, 4000, 'warning')
   } else if (approved) {
@@ -3016,12 +3017,13 @@ function onUnhideItem(name) {
  */
 function onRequestHideItem(name) {
   if (!syncActive.value || syncIsHost.value) return   // ホスト・ソロはこの経路へ来ない
-  if (pendingHideGuestRequest.value) {
-    showToast('前の非表示申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
+  // 同じ品目の申請だけは重ねない（返事は1つで足りる）。別の品目は承認を待たずに続けて出せる
+  if (pendingHideGuestRequests.value.some(r => r.name === name)) {
+    showToast(`「${name}」はすでに申請中です`, 2500, 'warning')
     return
   }
   const requestId = `hreq-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
-  pendingHideGuestRequest.value = { requestId, name }
+  pendingHideGuestRequests.value = [...pendingHideGuestRequests.value, { requestId, name }]
   broadcastItemHideRequest(name, requestId)
   showToast(`「${name}」の非表示をホストに申請しました`, 3000, 'info')
 }
@@ -3475,21 +3477,32 @@ function dismissReview() {
         </div>
       </div>
 
-      <!-- ホスト: ゲストからの非表示申請。承認するまで誰の一覧からも消えない -->
+      <!-- ホスト: ゲストからの非表示申請。承認するまで誰の一覧からも消えない。
+           2件以上は1行にまとめ、開くと申請の一覧（1件ずつ承認・拒否） -->
       <div v-if="syncIsHost && pendingHideRequests.length > 0" class="item-req-wrap">
-        <div v-for="req in pendingHideRequests" :key="req.requestId" class="item-req-card">
-          <div class="item-req-info">
-            <span class="item-req-icon">🙈</span>
-            <span class="item-req-text">
-              <strong>{{ req.fromDeviceName }}</strong> が
-              「<strong>{{ req.name }}</strong>」の非表示を申請
-            </span>
+        <button
+          v-if="pendingHideRequests.length >= 2" type="button" class="item-req-fold"
+          :aria-expanded="String(hideHostOpen)" @click="hideHostOpen = !hideHostOpen"
+        >
+          <span class="item-req-icon">🙈</span>
+          <span class="item-req-text">非表示の申請 <strong>{{ pendingHideRequests.length }}件</strong></span>
+          <span class="item-req-fold-arrow">{{ hideHostOpen ? '▲ 閉じる' : '▼ 一覧' }}</span>
+        </button>
+        <template v-if="pendingHideRequests.length === 1 || hideHostOpen">
+          <div v-for="req in pendingHideRequests" :key="req.requestId" class="item-req-card">
+            <div class="item-req-info">
+              <span class="item-req-icon">🙈</span>
+              <span class="item-req-text">
+                <strong>{{ req.fromDeviceName }}</strong> が
+                「<strong>{{ req.name }}</strong>」の非表示を申請
+              </span>
+            </div>
+            <div class="item-req-actions">
+              <button class="item-req-btn item-req-approve" @click="approveItemHide(req)">承認</button>
+              <button class="item-req-btn item-req-reject"  @click="rejectItemHide(req)">拒否</button>
+            </div>
           </div>
-          <div class="item-req-actions">
-            <button class="item-req-btn item-req-approve" @click="approveItemHide(req)">承認</button>
-            <button class="item-req-btn item-req-reject"  @click="rejectItemHide(req)">拒否</button>
-          </div>
-        </div>
+        </template>
       </div>
 
       <!-- ゲスト: ホスト承認待ち状態 -->
@@ -3499,11 +3512,22 @@ function dismissReview() {
         <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
       </div>
 
-      <div v-if="pendingHideGuestRequest" class="item-req-pending-guest">
+      <!-- ゲスト: 非表示の申請（承認待ち）。2件以上は1行にまとめて開閉 -->
+      <button
+        v-if="pendingHideGuestRequests.length >= 2" type="button" class="item-req-pending-guest item-req-fold-guest"
+        :aria-expanded="String(hideGuestOpen)" @click="hideGuestOpen = !hideGuestOpen"
+      >
         <span class="item-req-pending-icon">⏳</span>
-        「<strong>{{ pendingHideGuestRequest.name }}</strong>」の非表示をホストに申請中…
-        <button class="item-req-pending-cancel" @click="pendingHideGuestRequest = null">取消</button>
-      </div>
+        非表示をホストに申請中 <strong>{{ pendingHideGuestRequests.length }}件</strong>
+        <span class="item-req-fold-arrow">{{ hideGuestOpen ? '▲' : '▼' }}</span>
+      </button>
+      <template v-if="pendingHideGuestRequests.length === 1 || hideGuestOpen">
+        <div v-for="r in pendingHideGuestRequests" :key="r.requestId" class="item-req-pending-guest">
+          <span class="item-req-pending-icon">⏳</span>
+          「<strong>{{ r.name }}</strong>」の非表示をホストに申請中…
+          <button class="item-req-pending-cancel" @click="pendingHideGuestRequests = pendingHideGuestRequests.filter(x => x.requestId !== r.requestId)">取消</button>
+        </div>
+      </template>
 
       <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
       <div v-if="recountItems.length > 0" class="recount-notice">
@@ -3757,7 +3781,7 @@ function dismissReview() {
     </Transition>
 
     <!-- 直前の非表示を戻す（確認を挟まない非表示の戻り道）-->
-    <Transition name="toast">
+    <Transition name="undo">
       <div v-if="hideUndo" class="undo-bar">
         <span class="undo-msg">「{{ hideUndo.name }}」を一覧から非表示にしました</span>
         <button class="undo-btn" @click="runHideUndo">元に戻す</button>
@@ -3765,9 +3789,9 @@ function dismissReview() {
       </div>
     </Transition>
 
-    <!-- トースト（取り消しバーが出ている間はその上へ逃がす）-->
+    <!-- トースト（画面の上・弾むように出る）-->
     <Transition name="toast">
-      <div v-if="toastShow" class="toast" :class="{ lifted: !!hideUndo }" :data-type="toastType">{{ toastMsg }}</div>
+      <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
     </Transition>
 
     <!-- 初回オンボーディング -->
@@ -4438,6 +4462,15 @@ function dismissReview() {
 }
 
 .item-req-pending-icon { font-size: 16px; }
+.item-req-fold, .item-req-fold-guest {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
+}
+.item-req-fold {
+  background: #fff; border: 2px solid var(--primary); border-radius: 14px; padding: 10px 14px;
+  box-shadow: 0 2px 10px rgba(99,102,241,0.12); font-size: 13px;
+}
+.item-req-fold-guest { width: calc(100% - 32px); }
+.item-req-fold-arrow { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--primary-deep); }
 
 .item-req-pending-cancel {
   margin-left: auto;

@@ -62,23 +62,22 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
     expect(host.querySelector('.sheet-title').textContent).toBe('新しい品目を登録')
   })
 
-  it('あとで数えるは品目名の行にあり、全幅の行を持たない', async () => {
-    const events = await mount()
-
+  // 印だけにした（User 2026-10-01）。入っていないときは出さず、押しても入れ外しできない
+  it('あとで数えるに入っていなければ印を出さない（全幅の行も持たない）', async () => {
+    await mount()
     expect(host.querySelector('.recount-toggle'), '全幅の行は無い').toBeNull()
-    const flag = host.querySelector('.name-row .name-flag')
-    expect(flag, '品目名の行にある').not.toBeNull()
-    expect(flag.getAttribute('aria-pressed')).toBe('false')
-    expect(flag.getAttribute('aria-label')).toContain('あとで数える')
-
-    flag.click()
-    await nextTick()
-    expect(events.flag).toEqual([true])
+    expect(host.querySelector('.name-flag')).toBeNull()
   })
 
-  it('ONのときは印が変わり、ヒント行にも状態が出る', async () => {
-    await mount({ isFlagged: true })
-    expect(host.querySelector('.name-flag').classList.contains('on')).toBe(true)
+  it('入っているときは品目名の行に印だけを出し、押しても外れない', async () => {
+    const events = await mount({ isFlagged: true })
+    const flag = host.querySelector('.name-row .name-flag')
+    expect(flag).not.toBeNull()
+    expect(flag.tagName).toBe('SPAN')
+    expect(flag.getAttribute('aria-label')).toContain('あとで数える')
+    flag.click()
+    await nextTick()
+    expect(events.flag ?? []).toEqual([])
     expect(chips().some(t => t.includes('あとで数える'))).toBe(true)
   })
 

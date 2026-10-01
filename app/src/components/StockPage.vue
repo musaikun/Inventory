@@ -162,7 +162,10 @@ onUnmounted(registerInnerLayerCloser(() => {
 }
 .sp-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
 .sp-title { font-size: 16px; font-weight: 800; color: #1e293b; }
-.sp-body { padding: 12px 12px 0; }
+.sp-body { padding: 12px 0 0; }
+.sp-body > .sp-search, .sp-body > .sp-hint { margin-left: 12px; margin-right: 12px; width: calc(100% - 24px); }
+/* 表は横いっぱいに（User 2026-10-01）。左右の余白は表の外側の 6px だけ */
+.sp-body :deep(.inventory-section) { padding: 0 6px; }
 .sp-search { width: 100%; box-sizing: border-box; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 6px; background: #fff; }
 .sp-search:focus { outline: none; border-color: #94a3b8; }
 .sp-hint { font-size: 11.5px; color: #94a3b8; margin: 0 2px 8px; line-height: 1.6; }

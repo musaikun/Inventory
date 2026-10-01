@@ -727,10 +727,12 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   gap: 10px;
 }
 
-/* ── Toast ── */
+/* ── Toast ──
+   画面の上に出す（User 2026-10-01：誰が何を入力したかの知らせは下だと操作の手元と重なって読めない）。
+   出るときは弾むように大きく、消えるときは上へすっと抜ける。 */
 .toast {
   position: fixed;
-  bottom: 82px;
+  top: calc(10px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   background: #1e293b;
@@ -745,7 +747,8 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   text-align: center;
   pointer-events: none;
   max-width: calc(100vw - 48px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  transform-origin: 50% 0;
 }
 
 /* 入室 */
@@ -761,12 +764,28 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 /* 警告・競合 */
 .toast[data-type="warning"] { background: #d97706; }
 
-.toast-enter-active, .toast-leave-active { transition: opacity 0.25s, transform 0.25s; }
-.toast-enter-from, .toast-leave-to       { opacity: 0; transform: translateX(-50%) translateY(8px); }
+.toast-enter-active { animation: toast-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.toast-leave-active { animation: toast-pop-out 0.22s ease-in both; }
+@keyframes toast-pop-in {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-28px) scale(0.6); }
+  55%  { opacity: 1; transform: translateX(-50%) translateY(4px) scale(1.08); }
+  75%  { transform: translateX(-50%) translateY(-2px) scale(0.97); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes toast-pop-out {
+  from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(0.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter-active, .toast-leave-active { animation-duration: 0.01s; }
+}
+
+/* 取り消しバーは下のまま（押す先が手元にあるほうがよい） */
+.undo-enter-active, .undo-leave-active { transition: opacity 0.25s, transform 0.25s; }
+.undo-enter-from, .undo-leave-to       { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
 /* ── 直前の非表示を戻すバー ──
-   トーストと同じ場所（フッターの上）に出す。押す先があるので pointer-events は殺さない。
-   両方出るときはトーストを上へ逃がす（.toast.lifted）。 */
+   フッターの上に出す。押す先があるので pointer-events は殺さない。トーストは画面の上なので重ならない。 */
 .undo-bar {
   position: fixed;
   bottom: 82px;
@@ -796,7 +815,6 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none;
   color: #94a3b8; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.toast.lifted { bottom: 150px; }
 
 /* ── PWA 更新バナー ── */
 .pwa-update-banner {

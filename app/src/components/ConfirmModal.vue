@@ -494,18 +494,15 @@ function saveEdit() {
             aria-label="前の品目"
           >◀</button>
           <span class="name-text">{{ ingredient }}<span v-if="isHiddenItem" class="hidden-mark">非表示</span></span>
-          <!-- あとで数えるは全幅の1行を持たない。低頻度の操作に行を割くと、
-               その分テンキーが画面の外へ出て、打つ場所が動く原因になる。 -->
-          <button
-            v-if="!isEdit"
-            class="name-flag"
-            :class="{ on: isFlagged }"
-            @click="$emit('toggle-flag', !isFlagged)"
-            type="button"
-            :aria-pressed="isFlagged ? 'true' : 'false'"
-            :aria-label="isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える'"
-            :title="isFlagged ? 'あとで数える：ON（タップで解除）' : 'あとで数える'"
-          >🔖</button>
+          <!-- あとで数える：印だけ。入っているときにだけ出し、押しても何も起きない
+               （入れるのは下の「後で」、外すのは数えて確定したとき・User 2026-10-01） -->
+          <span
+            v-if="!isEdit && isFlagged"
+            class="name-flag on"
+            role="img"
+            aria-label="あとで数えるに入っています"
+            title="あとで数えるに入っています"
+          >🔖</span>
           <button
             class="name-nav next"
             :disabled="!canNext"
@@ -1158,11 +1155,9 @@ function saveEdit() {
   background: #fff7ed;
   border: 1.5px solid #fdba74;
   border-radius: 9px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 .name-flag.on { background: #f97316; border-color: #f97316; }
-.name-flag:active { opacity: 0.8; }
 
 /* ヒント行のチップ。ジャンル・履歴・フラグはここに集める */
 .hint-flag  { background: #fff7ed; color: #9a3412; }

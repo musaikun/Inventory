@@ -70,6 +70,14 @@ let config = null
 const flush = async (n = 8) => { for (let i = 0; i < n; i++) await nextTick() }
 const cards = () => [...host.querySelectorAll('.item-req-card')]
   .filter(c => c.textContent.includes('非表示を申請'))
+// 2件以上は1行にまとまる（User 2026-10-01）。一覧を開いてから1件ずつ答える
+async function openHideList() {
+  const fold = host.querySelector('.item-req-fold')
+  if (fold && fold.getAttribute('aria-expanded') !== 'true') {
+    fold.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flush()
+  }
+}
 
 beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
 
@@ -163,6 +171,9 @@ describe('ホスト: ゲストからの非表示申請', () => {
     pendingHideRequests.push(request('r1', 'トマト', 'Aさん'))
     pendingHideRequests.push(request('r2', 'トマト', 'Bさん'))
     await flush()
+    expect(host.querySelector('.item-req-fold').textContent).toContain('2件')
+    expect(cards()).toHaveLength(0)   // まとまっている
+    await openHideList()
     expect(cards()).toHaveLength(2)
 
     cards()[0].querySelector('.item-req-approve').dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -179,6 +190,7 @@ describe('ホスト: ゲストからの非表示申請', () => {
     pendingHideRequests.push(request('r1', 'トマト', 'Aさん'))
     pendingHideRequests.push(request('r2', '豚バラ', 'Bさん'))
     await flush()
+    await openHideList()
 
     cards()[0].querySelector('.item-req-approve').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
@@ -195,6 +207,7 @@ describe('ゲスト: 非表示の申請', () => {
     const cfg = cfgMod.useConfig()
     cfg.setEmptyList()
     cfg.addItem('トマト', 120, '野菜', '個')
+    cfg.addItem('レタス', 80, '野菜', '玉')
     config = cfg.config
 
     window.history.replaceState({}, '', '/?store=ABCDEF')
@@ -248,7 +261,17 @@ describe('ゲスト: 非表示の申請', () => {
     expect(host.textContent).toContain('非表示をホストに申請中')
   })
 
-  it('承認待ちのあいだは次の申請を出さない', async () => {
+  // 承認を待たずに別の品目を続けて申請できる（User 2026-10-01）
+  it('承認を待たずに、別の品目を続けて申請できる。2件以上は1行にまとまる', async () => {
+    await openSessionAsGuest()
+    await fullSwipe('トマト')
+    await fullSwipe('レタス')
+    expect(broadcastItemHideRequest).toHaveBeenCalledTimes(2)
+    expect(broadcastItemHideRequest.mock.calls.map(c => c[0])).toEqual(['トマト', 'レタス'])
+    expect(host.querySelector('.item-req-fold-guest').textContent).toContain('2件')
+  })
+
+  it('同じ品目は重ねて申請しない', async () => {
     await openSessionAsGuest()
     await fullSwipe('トマト')
     broadcastItemHideRequest.mockClear()
