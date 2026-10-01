@@ -93,3 +93,33 @@ describe('GuestResultView スワイプでタブ送り', () => {
     expect(active(r)).toContain('レポート')
   })
 })
+
+describe('GuestResultView 前回との差の知らせ', () => {
+  const withPrev = {
+    ...result,
+    savedAt: '2026-09-30T10:00:00Z',
+    items: [
+      { item: 'りんご', qty: 10, unit: '個' },
+      { item: 'みかん', qty: 1, unit: '個' },
+      { item: 'ぶどう', qty: 0, unit: '房' },
+    ],
+    prevCandidates: [{ sessionId: 'p', date: '2026-08-31', savedAt: '2026-08-31T10:00:00Z',
+      items: [{ item: 'りんご', qty: 2, unit: '個' }, { item: 'みかん', qty: 5, unit: '個' }, { item: 'ぶどう', qty: 3, unit: '房' }] }],
+  }
+
+  it('前回より多い・少ない品目があれば、目立つ知らせを出し、押すとレポートへ', async () => {
+    const r = mount(withPrev)
+    const a = r.querySelector('.qty-alert')
+    expect(a).not.toBeNull()
+    expect(a.textContent).toContain('前回より多い品目 1件・少ない品目 2件があります')
+    expect(a.textContent).toContain('レポートから確認してください')
+    a.click(); await nextTick()
+    expect(r.querySelector('.tab-btn.active').textContent).toContain('レポート')
+    expect(r.querySelector('.qty-alert')).toBeNull()   // レポートを開いている間は出さない
+  })
+
+  it('大きな動きが無ければ出さない', () => {
+    const r = mount(result)
+    expect(r.querySelector('.qty-alert')).toBeNull()
+  })
+})

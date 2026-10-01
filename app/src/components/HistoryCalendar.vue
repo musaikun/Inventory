@@ -8,7 +8,6 @@ import { useDayNotes } from '../composables/useDayNotes.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
-import { calendarTodos } from '../services/calendarTodos.js'
 
 // 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
 // **実際に起きたことだけを出す**（発注スケジュールの「予定」は出さない ── 予定は
@@ -262,18 +261,7 @@ function onViewSession(s) {
   emit('view-session', s)
 }
 
-// ── 今日のやること（自動）──────────────────────
-const todos = computed(() => calendarTodos({
-  today: todayKey,
-  orderSchedules: config.orderSchedules ?? [],
-  orders: getOrders(),
-  movements: getMovements(),
-  stockKeys: props.sessions.map(_stockKey),
-}))
-function onTodoTap(t) {
-  if (t.kind === 'delivery') openDay(t.date, 'order', t.id.slice('delivery:'.length))
-  else openDay(todayKey, t.kind === 'stock' ? 'stock' : 'order')
-}
+// 今日のやること（自動）は出さない（User決定 2026-10-01。ホームも履歴も）。services/calendarTodos は残す
 
 // ── 一覧（業務ごとに日付を探す）────────────────
 const viewMode = ref('cal')              // 'cal' | 'list'
@@ -505,22 +493,6 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
 <template>
   <div class="hc">
-    <!-- 今日のやること（記録から自動で出す分だけ。済んだものは ✓ で残る）-->
-    <div v-if="todos.length" class="hc-todo">
-      <div class="hc-todo-title">今日のやること</div>
-      <button
-        v-for="t in todos" :key="t.id" type="button"
-        :class="['hc-todo-row', 'k-' + t.kind, { done: t.done }]" @click="onTodoTap(t)"
-      >
-        <span class="hc-todo-check" aria-hidden="true">{{ t.done ? '✓' : '' }}</span>
-        <span class="hc-todo-body">
-          <span class="hc-todo-label">{{ t.label }}</span>
-          <span v-if="t.sub" class="hc-todo-sub">{{ t.sub }}</span>
-        </span>
-        <span class="hc-todo-arrow">›</span>
-      </button>
-    </div>
-
     <div class="hc-mode" role="tablist" aria-label="表示の切り替え">
       <button type="button" role="tab" :aria-selected="viewMode === 'cal'" :class="['hc-mode-btn', { on: viewMode === 'cal' }]" @click="viewMode = 'cal'">カレンダー</button>
       <button type="button" role="tab" :aria-selected="viewMode === 'list'" :class="['hc-mode-btn', { on: viewMode === 'list' }]" @click="viewMode = 'list'">一覧</button>

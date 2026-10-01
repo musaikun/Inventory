@@ -83,6 +83,7 @@ import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardO
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
+import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
@@ -494,7 +495,7 @@ const leaveSessionTitle = computed(() =>
 // 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
 // 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
 // （数えかけの棚卸へ戻ると作業に割り込むため）。
-const PAGE_VIEWS = ['movement']
+const PAGE_VIEWS = ['movement', 'history']
 const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
 function _rememberPageFrom(view) {
   const from = currentView.value
@@ -502,8 +503,9 @@ function _rememberPageFrom(view) {
   pageReturn[view] = (from === 'sessions' || PAGE_VIEWS.includes(from)) ? from : 'sessions'
 }
 function openPage(view) {
-  // 履歴はホームの「履歴」タブ（独立ページは廃止・画面遷移図の課題④・2026-10-01）
-  if (view === 'history') { homeTab.value = 'history'; currentView.value = 'sessions'; _loadOrderData(); _pullMovements(); return }
+  // 履歴カレンダーは独立した画面（下部ナビから外した・User 2026-10-01。タブ送りと月送りのスワイプが重なる）。
+  // レポートの一番上から開く。完了の結果が未確定でも見られる
+  if (view === 'history') { _rememberPageFrom('history'); currentView.value = 'history'; _loadOrderData(); _pullMovements(); return }
   // データ管理はホームの「管理」タブに統合した（独立ページは廃止・User決定 2026-10-01）
   if (view === 'master') { homeTab.value = 'dashboard'; currentView.value = 'sessions'; return }
   // 完了の結果が確定するまで、品目・在庫を変える画面へは入らない（履歴は見られる）
@@ -610,7 +612,7 @@ async function onViewSession(session) {
   }
   detailSnapshot.value = snap
   detailSession.value  = session ?? null
-  detailReturnView.value = 'sessions'
+  detailReturnView.value = currentView.value === 'history' ? 'history' : 'sessions'
   currentView.value = 'session-detail'
 }
 
@@ -777,7 +779,7 @@ const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantL
 // ランディング・認証・削除申請・ゲスト結果はナビを持たない単独画面のまま残す。
 // matchMedia 非対応環境（jsdom）では isDesktop が常に false になり、モバイル表示になる。
 const isDesktop = useMediaQuery(DESKTOP_QUERY)
-const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'session-detail']
+const DESKTOP_NAV_VIEWS = ['sessions', 'session', 'master', 'movement', 'history', 'session-detail']
 const showDesktopNav = computed(() =>
   isDesktop.value && isAuthenticated.value && DESKTOP_NAV_VIEWS.includes(currentView.value)
 )
@@ -788,7 +790,7 @@ const showDesktopNav = computed(() =>
 watchEffect(() => {
   if (typeof document === 'undefined') return
   // 下部ナビが出ている独立ページ（入出庫・棚卸の詳細）は、下の操作をナビの上へ逃がす
-  const footer = isAuthenticated.value && !showDesktopNav.value && (currentView.value === 'movement' || currentView.value === 'session-detail')
+  const footer = isAuthenticated.value && !showDesktopNav.value && (currentView.value === 'movement' || currentView.value === 'session-detail' || currentView.value === 'history')
   document.body.style.setProperty('--app-footer-h', footer ? 'calc(58px + env(safe-area-inset-bottom))' : '0px')
   document.body.classList.toggle('dt-shell', showDesktopNav.value)
   document.body.dataset.view = currentView.value
@@ -3217,6 +3219,14 @@ function dismissReview() {
       @back="onPageBack"
     />
 
+    <!-- ── 履歴カレンダー（独立した画面・レポートの一番上から）── -->
+    <HistoryCalendarPage
+      v-else-if="currentView === 'history'"
+      @back="onPageBack"
+      @view-session="onViewSession"
+      @open-upgrade="reason => openUpgrade(reason)"
+    />
+
 
     <!-- ── セッション詳細（完了済み） ── -->
     <SessionDetailPage
@@ -3232,7 +3242,7 @@ function dismissReview() {
 
     <!-- 下部ナビ（全画面共通）。ホームは SessionListPage が自分で出す。棚卸中・発注中には出さない -->
     <HomeFooterNav
-      v-if="isAuthenticated && !showDesktopNav && (currentView === 'movement' || currentView === 'session-detail')"
+      v-if="isAuthenticated && !showDesktopNav && (currentView === 'movement' || currentView === 'session-detail' || currentView === 'history')"
       @go="onFooterGo"
     />
 

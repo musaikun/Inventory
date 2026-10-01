@@ -3,13 +3,13 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 /**
  * リロードしても同じページに留まるための「最後に見ていたページ」。
  *
- * 対象は独立ページ（入出庫）だけ。履歴・レポート・管理（データ管理）はホームのタブ（タブはホーム側が覚える）。
+ * 対象は独立ページ（入出庫・履歴カレンダー）だけ。レポート・管理（データ管理）はホームのタブ（タブはホーム側が覚える）。
  * セッション画面は pendingSession からの復元が正なので、ここでは扱わない
  * （両方が行き先を決めると、進行中セッションより古いページが勝つことがある）。
  *
  * 入出庫はタブ（入庫・出庫）まで含めて1つのページ状態として持つ。
  */
-export const RESTORABLE_PAGES = ['movement']
+export const RESTORABLE_PAGES = ['movement', 'history']
 const MOVEMENT_TABS = ['in', 'out']
 
 export function saveLastPage(view, tab = null) {

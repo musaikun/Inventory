@@ -112,7 +112,8 @@ const hiddenByPlanCount = computed(() =>
    → #app の padding-bottom(80px) も style.css 側で 0 にしてある */
 .hcp.embedded { height: calc(100dvh - var(--home-chrome, 112px)); }
 .hcp {
-  height: 100dvh;
+  /* 下部ナビ（全画面共通）の分だけ縮める */
+  height: calc(100dvh - var(--app-footer-h, 0px));
   display: flex;
   flex-direction: column;
   overflow: hidden;

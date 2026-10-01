@@ -57,25 +57,11 @@ afterEach(() => {
 })
 
 describe('今日のやること', () => {
-  it('発注日と入庫の未記録を出し、マスには予定を載せない', async () => {
+  // 表示しない（User決定 2026-10-01。ホームも履歴も）
+  it('発注日・入庫の未記録があっても出さない', async () => {
     const root = await mountCal(seed())
-    const todo = root.querySelector('.hc-todo')
-    expect(todo.textContent).toContain('青果の発注日')
-    expect(todo.textContent).toContain('9/18 の発注の入庫が未記録')
-    expect(root.querySelector('.hc-key').querySelectorAll('button').length).toBe(0)   // 凡例は押せないまま
-  })
-
-  it('入庫の未記録を押すと、その発注の日のシートが開く', async () => {
-    const root = await mountCal(seed())
-    await click([...root.querySelectorAll('.hc-todo-row')].find(r => r.textContent.includes('9/18')))
-    const sheet = root.querySelector('.hc-day-sheet')
-    expect(sheet.textContent).toContain('9月18日')
-    expect(sheet.querySelector('[data-rec="o1"] .hc-order-lines')).not.toBeNull()   // 該当の発注が開いている
-  })
-
-  it('やることが無ければ枠を出さない', async () => {
-    const root = await mountCal([])
     expect(root.querySelector('.hc-todo')).toBeNull()
+    expect(root.textContent).not.toContain('今日のやること')
   })
 })
 

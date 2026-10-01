@@ -197,8 +197,10 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // ホームの下部ナビ「履歴」から専用ページへ
-    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('履歴'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // 履歴カレンダーはレポートタブの一番上から開く独立した画面（2026-10-01）
+    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('レポート'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 4; i++) await nextTick()
+    host.querySelector('.rt-hist')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
     host.querySelector('.hc-cell.today')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 4; i++) await nextTick()

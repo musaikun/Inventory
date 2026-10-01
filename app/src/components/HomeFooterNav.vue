@@ -1,6 +1,7 @@
 <script setup>
 /**
- * 下部ナビ（全画面共通・User決定 2026-10-01）。在庫／履歴／レポート／管理。
+ * 下部ナビ（全画面共通・User決定 2026-10-01）。在庫／レポート／管理。
+ * 履歴カレンダーはナビから外した（タブ送りのスワイプとカレンダーの月送りが重なる）。レポートの一番上から開く。
  *
  * ホームではタブを切り替え、入出庫・棚卸の詳細などからはホームの該当タブへ移る。
  * 棚卸中・発注中の画面には出さない（下の「完了」と並び、押し間違えて途中で離れやすい）。
@@ -8,12 +9,11 @@
  */
 import { modalLayerCount } from '../composables/appMenuState.js'
 
-defineProps({ active: { type: String, default: null } })   // 'sessions' | 'history' | 'report' | 'dashboard' | null
+defineProps({ active: { type: String, default: null } })   // 'sessions' | 'report' | 'dashboard' | null
 const emit = defineEmits(['go'])
 
 const ITEMS = [
   { tab: 'sessions',  icon: '📦', label: '在庫' },
-  { tab: 'history',   icon: '📅', label: '履歴' },
   { tab: 'report',    icon: '📊', label: 'レポート' },
   { tab: 'dashboard', icon: '🗂', label: '管理' },
 ]

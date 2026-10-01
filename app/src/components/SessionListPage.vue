@@ -1,11 +1,11 @@
 <script>
 import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'sessions' = 在庫（ホーム） / 'history' = 履歴 / 'report' = レポート / 'dashboard' = 管理
+// _persistedTab: 'sessions' = 在庫（ホーム） / 'report' = レポート / 'dashboard' = 管理（履歴は独立した画面）
 // 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
 const _TAB_KEY = 'tanaoro_home_tab'
 function _readTab() {
-  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'history', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
 }
 export const _persistedTab  = ref(_readTab())
 watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
@@ -38,10 +38,8 @@ import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderSche
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import OrderBaseModal from './OrderBaseModal.vue'
 import { useStockView } from '../composables/useStockView.js'
-import { calendarTodos } from '../services/calendarTodos.js'
 import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 import StockPage from './StockPage.vue'
-import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
@@ -69,13 +67,13 @@ const tab = _persistedTab
 // ── 下部ナビのタブ（在庫 → 履歴 → レポート → 管理）。左右のスワイプでも移る ──
 // 履歴は以前は別ページで、開くと下部ナビが消えた（User 2026-09-30）。ホームのタブにした。
 // レポート（在庫分析）と、データ管理を統合した管理を加えた（User決定 2026-10-01）。
-const TABS = ['sessions', 'history', 'report', 'dashboard']
+// 履歴カレンダーは下部ナビから外し、レポートの一番上から開く独立した画面にした。タブ送りのスワイプと
+// カレンダーの月送りのスワイプが重なって使いにくかった（User 2026-10-01）
+const TABS = ['sessions', 'report', 'dashboard']
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
-const visitedHistory = ref(tab.value === 'history')   // 履歴は初めて開くまで読み込まない
 function goTab(next) {
   if (!TABS.includes(next) || next === tab.value) return
   slideDir.value = TABS.indexOf(next) > TABS.indexOf(tab.value) ? 'l' : 'r'
-  if (next === 'history') visitedHistory.value = true
   tab.value = next
 }
 const tabSwipe = useHorizontalSwipe({
@@ -122,18 +120,7 @@ function _hm(iso) {
 }
 function _mdw(d) { return `${d.getMonth() + 1}/${d.getDate()}（${_WEEK[d.getDay()]}）` }
 
-// ── 今日のやること（1行）──────────────────────────────────
-const _todayKey = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-const todos = computed(() => calendarTodos({
-  today: _todayKey(),
-  orderSchedules: config.orderSchedules ?? [],
-  orders: getOrders(),
-  movements: getMovements(),
-  stockKeys: completedSessions.value.map(s => String(launcher.stockAt(s) || '').slice(0, 10)),
-}).filter(t => !t.done))
+// （今日のやることは出さない・User決定 2026-10-01）
 
 // ── 前回の棚卸（開始シート）─────────────────────────────────
 const lastStock = computed(() => {
@@ -200,6 +187,7 @@ function discardRemain(d) {
   return h > 0 ? `あと${h}時間` : `あと${Math.max(1, m)}分`
 }
 async function restoreDiscarded(d) { await launcher.restore(d) }
+const discardOpen = ref(false)
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
 
@@ -295,17 +283,18 @@ onUnmounted(registerInnerLayerCloser(() => {
             <button class="strip-go" type="button" @click="resume(activeOrderSession)">再開</button>
             <button class="strip-more" type="button" aria-label="発注を破棄" :disabled="deletingId === activeOrderSession.id" @click="askDiscard(activeOrderSession)">⋯</button>
           </div>
-          <!-- 破棄して24時間以内（元に戻せる）。過ぎるとサーバーが完全に消す -->
-          <div v-for="d in discarded" :key="d.id" class="strip discard">
-            <span class="strip-t">🗑 破棄した{{ d.type === 'order' ? '発注' : '棚卸' }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
-            <button class="strip-go" type="button" :disabled="restoringId === d.id" @click="restoreDiscarded(d)">{{ restoringId === d.id ? '戻しています…' : '元に戻す' }}</button>
-          </div>
-
-          <!-- 今日のやること（1行・タップで履歴カレンダー） -->
-          <button v-if="!empty && todos.length" class="strip today" type="button" @click="goTab('history')">
-            <span class="strip-t">📋 今日：<b>{{ todos[0].label }}</b><small v-if="todos.length > 1"> ほか{{ todos.length - 1 }}件</small></span>
-            <span class="strip-arrow">›</span>
+          <!-- 破棄して24時間以内（元に戻せる）。過ぎるとサーバーが完全に消す。
+               2件以上は1行にまとめ、開くと一覧（User決定 2026-10-01） -->
+          <button v-if="discarded.length >= 2" class="strip discard fold" type="button" :aria-expanded="String(discardOpen)" @click="discardOpen = !discardOpen">
+            <span class="strip-t">🗑 破棄したセッション {{ discarded.length }}件<small>24時間以内なら元に戻せます</small></span>
+            <span class="strip-arrow">{{ discardOpen ? '▲' : '▼' }}</span>
           </button>
+          <template v-if="discarded.length === 1 || discardOpen">
+            <div v-for="d in discarded" :key="d.id" :class="['strip', 'discard', { inner: discarded.length >= 2 }]">
+              <span class="strip-t">🗑 破棄した{{ d.type === 'order' ? '発注' : '棚卸' }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
+              <button class="strip-go" type="button" :disabled="restoringId === d.id" @click="restoreDiscarded(d)">{{ restoringId === d.id ? '戻しています…' : '元に戻す' }}</button>
+            </div>
+          </template>
 
           <!-- 操作ボタン -->
           <div v-if="!empty" class="acts">
@@ -325,18 +314,9 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </StockPage>
 
-    <!-- ── 履歴 ── -->
-    <HistoryCalendarPage
-      v-if="visitedHistory"
-      v-show="tab === 'history'"
-      :class="['home-panel', slideDir && `slide-${slideDir}`]"
-      embedded
-      @view-session="s => emit('viewSession', s)"
-      @open-upgrade="r => emit('openUpgrade', r)"
-    />
-
     <!-- ── レポート（在庫分析）── -->
     <div v-if="!loading && tab === 'report'" :class="['report-tab', 'home-panel', slideDir && `slide-${slideDir}`]">
+      <button class="m-card rt-hist" type="button" @click="emit('openHistory')">📅<span>履歴カレンダー<small>棚卸・発注・入出庫の記録を日付から開く</small></span><i>›</i></button>
       <div class="m-h">直近の棚卸</div>
       <div v-if="latestReport" class="rt-latest">
         <div class="rt-latest-head">
@@ -512,6 +492,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 .strip.pause.stock { background: #dbeafe; color: #1d4ed8; cursor: default; }
 .strip.pause.order { background: #ffedd5; color: #c2410c; cursor: default; }
 .strip.discard { background: #f1f5f9; color: #475569; cursor: default; border: 1px dashed #cbd5e1; }
+.strip.discard.fold { cursor: pointer; }
+.strip.discard.inner { margin-left: 14px; }
 .strip.discard .strip-go { background: #fff; color: #334155; border: 1.5px solid #94a3b8; }
 .strip-go { border: none; border-radius: 9px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #fff; cursor: pointer; }
 .stock .strip-go { background: #2563eb; }

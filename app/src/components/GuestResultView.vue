@@ -33,6 +33,15 @@ const snapConfig = computed(() => snapshotViewConfig(props.result))
 
 // レポート。履歴から開く詳細画面のレポートと同じもの（User指示 2026-09-30）。
 // 前回は、サーバーが返す候補（この棚卸より前の記録）から履歴と同じ決め方で選ぶ。
+// 前回と比べて数量が大きく動いた品目（多い＝2倍以上 / 少ない＝半分以下か0）。閲覧した人に、
+// まずレポートを見てもらうための目立つ知らせにする（User 2026-10-01）
+const qtyAlert = computed(() => {
+  const q = report.value.prev?.qty
+  if (!q) return null
+  const more = q.tooMuch.count
+  const fewer = q.tooLittle.count + q.zeroNow.count
+  return more + fewer > 0 ? { more, fewer } : null
+})
 const report = computed(() => buildSessionReport(
   props.result ?? {},
   findPrevSnapshot(props.result ?? {}, props.result?.prevCandidates ?? []),
@@ -135,6 +144,15 @@ function actionClass(action) {
         </div>
         <button class="btn-home" @click="emit('home')">ホーム</button>
       </div>
+
+      <button v-if="qtyAlert && activeTab !== 'report'" type="button" class="qty-alert" role="alert" @click="activeTab = 'report'">
+        <span class="qa-ico">⚠️</span>
+        <span class="qa-body">
+          <b>前回より多い品目 {{ qtyAlert.more }}件・少ない品目 {{ qtyAlert.fewer }}件があります</b>
+          <small>レポートから確認してください</small>
+        </span>
+        <span class="qa-go">レポート ›</span>
+      </button>
 
       <div class="tab-bar">
         <button :class="['tab-btn', { active: activeTab === 'report' }]" @click="activeTab = 'report'">レポート</button>
@@ -368,6 +386,20 @@ function actionClass(action) {
   border-bottom-color: var(--primary, var(--primary-bright));
 }
 .tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── 前回との差の知らせ ── */
+.qty-alert {
+  display: flex; align-items: center; gap: 10px; width: calc(100% - 24px); margin: 8px 12px 0;
+  padding: 10px 12px; border-radius: 12px; border: 2px solid #f59e0b; background: #fffbeb;
+  color: #92400e; text-align: left; font-family: inherit; cursor: pointer;
+  animation: qa-pulse 1.6s ease-in-out 2;
+}
+.qa-ico { font-size: 22px; flex-shrink: 0; }
+.qa-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.qa-body b { font-size: 14px; line-height: 1.4; }
+.qa-body small { font-size: 12px; font-weight: 700; color: #b45309; }
+.qa-go { flex-shrink: 0; font-size: 12.5px; font-weight: 800; color: #b45309; }
+@keyframes qa-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); } 50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, .25); } }
 
 /* ── 本文 ── */
 .guest-body { flex: 1; overflow: hidden; min-height: 0; position: relative; touch-action: pan-y; }

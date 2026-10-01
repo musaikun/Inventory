@@ -15,9 +15,9 @@ describe('lastPage', () => {
     expect(readLastPage()).toBe(null)
     localStorage.setItem('_last_page_v1', JSON.stringify({ view: 'master' }))
     expect(readLastPage()).toBe(null)
-    // 履歴はホームのタブになった（独立ページは廃止）。保存しない
+    // 履歴カレンダーは独立した画面（レポートの一番上から）。再読み込みしても同じ画面
     saveLastPage('history')
-    expect(readLastPage()).toBe(null)
+    expect(readLastPage()).toEqual({ view: 'history', tab: 'in' })
   })
 
   it('入出庫はタブまで覚える', () => {
@@ -56,7 +56,7 @@ describe('lastPage', () => {
     expect(readLastPage()).toBe(null)
   })
 
-  it('復元対象は独立ページ（入出庫）だけ', () => {
-    expect(RESTORABLE_PAGES).toEqual(['movement'])
+  it('復元対象は独立ページ（入出庫・履歴カレンダー）だけ', () => {
+    expect(RESTORABLE_PAGES).toEqual(['movement', 'history'])
   })
 })

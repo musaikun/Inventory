@@ -10,6 +10,7 @@ vi.mock('../utils/api.js', () => ({
   setAuthInvalidatedHandler: vi.fn(),
 }))
 let sessionList = []
+let discardedList = []
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
@@ -17,6 +18,8 @@ vi.mock('../composables/useAuth.js', () => ({
   createSession:   (...a) => createSession(...a),
   deleteSession:   (...a) => deleteSession(...a),
   updateSession:   vi.fn(),
+  getDiscardedSessions: vi.fn(async () => discardedList),
+  restoreSession:  vi.fn(async () => ({ ok: false })),
   logout:          vi.fn(),
   isAuthenticated: { value: true },
   storeName:       { value: 'テスト店' },
@@ -63,11 +66,11 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン3つ（読むは置かない）・下部ナビ（在庫／履歴／レポート／管理）', async () => {
+  it('表・操作ボタン3つ（読むは置かない）・下部ナビ（在庫／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注', '📥入出庫'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📅履歴', '📊レポート', '🗂管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📊レポート', '🗂管理'])
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -78,13 +81,12 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.acts')).toBeNull()
   })
 
-  it('履歴・レポート・管理はホームのタブ（下部ナビは出たまま）', async () => {
+  it('レポート・管理はホームのタブ。履歴カレンダーはレポートの一番上から開く', async () => {
     await mountPage()
-    await click(btn(host.querySelector('.bnav'), '履歴'))
-    expect(host.querySelector('.hcp')).not.toBeNull()
-    expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
     // レポート＝在庫分析（重ねて開かず、タブの中）
     await click(btn(host.querySelector('.bnav'), 'レポート'))
+    await click(host.querySelector('.rt-hist'))
+    expect(events).toContainEqual(['openHistory'])
     expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
     expect(host.querySelector('.report-tab').textContent).toContain('直近の棚卸')
     // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）
@@ -202,5 +204,30 @@ describe('中断中のセッションと破棄', () => {
     await click(btn(sheet(), 'やめる'))
     expect(deleteSession).not.toHaveBeenCalled()
     expect(sheet()).toBeNull()
+  })
+})
+
+describe('破棄したセッション（24時間は元に戻せる）', () => {
+  const later = new Date(Date.now() + 3600_000 * 5).toISOString()
+  const d = (id, type = 'stock') => ({ id, type, itemCount: 3, startedAt: new Date().toISOString(), restorableUntil: later })
+  const flushAll = async () => { for (let i = 0; i < 8; i++) await nextTick() }
+
+  it('1件なら帯をそのまま出す', async () => {
+    discardedList = [d('a')]
+    await mountPage(); await flushAll()
+    expect(host.querySelectorAll('.strip.discard')).toHaveLength(1)
+    expect(host.querySelector('.strip.discard').textContent).toContain('元に戻す')
+    discardedList = []
+  })
+
+  it('2件以上は1行にまとめ、押すと一覧が開く', async () => {
+    discardedList = [d('a'), d('b', 'order')]
+    await mountPage(); await flushAll()
+    const fold = host.querySelector('.strip.discard.fold')
+    expect(fold.textContent).toContain('破棄したセッション 2件')
+    expect(host.querySelectorAll('.strip.discard.inner')).toHaveLength(0)
+    await click(fold)
+    expect(host.querySelectorAll('.strip.discard.inner')).toHaveLength(2)
+    discardedList = []
   })
 })
