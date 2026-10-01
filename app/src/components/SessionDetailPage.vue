@@ -568,7 +568,8 @@ function onDownload() {
 
 <style scoped>
 .detail-page {
-  height: 100dvh;
+  /* 下部ナビ（全画面共通）の分だけ縮める。ナビが無いところでは 0 */
+  height: calc(100dvh - var(--app-footer-h, 0px));
   background: var(--bg-secondary, #f8fafc);
   display: flex;
   flex-direction: column;

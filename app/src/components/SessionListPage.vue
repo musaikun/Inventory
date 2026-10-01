@@ -1,11 +1,11 @@
 <script>
 import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'sessions' = 在庫（ホーム） / 'history' = 履歴 / 'dashboard' = 管理
+// _persistedTab: 'sessions' = 在庫（ホーム） / 'history' = 履歴 / 'report' = レポート / 'dashboard' = 管理
 // 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
 const _TAB_KEY = 'tanaoro_home_tab'
 function _readTab() {
-  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'history', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'history', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
 }
 export const _persistedTab  = ref(_readTab())
 watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
@@ -46,13 +46,17 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import DataInspector from './DataInspector.vue'
+import HomeFooterNav from './HomeFooterNav.vue'
+import MasterManagePage from './MasterManagePage.vue'
+import SessionReportPanel from './SessionReportPanel.vue'
+import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback'])
+const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback', 'clearMaster'])
 
 const { config, itemCount, setEmptyList } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
@@ -61,11 +65,11 @@ const { getMovements } = useMovements()
 const { getOrders } = useOrders()
 
 const tab = _persistedTab
-const showDashboard = _showDashboard
 
-// ── 下部ナビのタブ（在庫 → 履歴 → 管理）。下部ナビは常に出し、左右のスワイプでも移る ──
+// ── 下部ナビのタブ（在庫 → 履歴 → レポート → 管理）。左右のスワイプでも移る ──
 // 履歴は以前は別ページで、開くと下部ナビが消えた（User 2026-09-30）。ホームのタブにした。
-const TABS = ['sessions', 'history', 'dashboard']
+// レポート（在庫分析）と、データ管理を統合した管理を加えた（User決定 2026-10-01）。
+const TABS = ['sessions', 'history', 'report', 'dashboard']
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 const visitedHistory = ref(tab.value === 'history')   // 履歴は初めて開くまで読み込まない
 function goTab(next) {
@@ -211,6 +215,23 @@ function openSchedule() { orderScheduleFocusId.value = null; showOrderSchedule.v
 const showInspector = ref(false)   // 記録の確認（サーバーと端末の記録を並べる）
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
+
+// レポートの一番上：直近の棚卸のレポート（完了した棚卸のレポートと同じもの・User決定 2026-10-01）
+const latestStock = computed(() => {
+  const done = completedSessions.value
+    .filter(s => (s.type ?? 'stock') !== 'order' && !s.importBatchId)
+    .sort((a, b) => new Date(b.endedAt ?? b.startedAt) - new Date(a.endedAt ?? a.startedAt))[0]
+  if (!done) return null
+  const snap = dashboardSnapshots.value.find(x => x.sessionId === done.id)
+  return snap ? { session: done, snap } : null
+})
+const latestReport = computed(() => {
+  const l = latestStock.value
+  if (!l) return null
+  const input = { ...l.snap, startedAt: l.session.startedAt ?? l.snap.startedAt, endedAt: l.session.endedAt ?? l.snap.endedAt }
+  return buildSessionReport(input, findPrevSnapshot(l.snap, dashboardSnapshots.value))
+})
+const _md = d => { const x = new Date(d); return Number.isNaN(x.getTime()) ? '' : `${x.getMonth() + 1}/${x.getDate()}` }
 function onDeleteOrphan(snap) {
   const key = snap?.sessionId
   if (!key) return
@@ -314,38 +335,58 @@ onUnmounted(registerInnerLayerCloser(() => {
       @open-upgrade="r => emit('openUpgrade', r)"
     />
 
-    <!-- ── 管理 ── -->
-    <div v-if="!loading && tab === 'dashboard'" :class="['manage', 'home-panel', slideDir && `slide-${slideDir}`]">
-      <div class="m-h">品目データ</div>
-      <button class="m-card" type="button" @click="emit('openMaster')">📥<span>データ管理<small>取込・書出・振り分け・品目の点検</small></span><i>›</i></button>
-      <div class="m-h">分析</div>
-      <button class="m-card" type="button" @click="showDashboard = true">📊<span>在庫分析<small>在庫金額・前回差・ABC分析</small></span><i>›</i></button>
-      <div class="m-h">発注の設定</div>
-      <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
-      <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注基準<small>要補充の判定に使う発注点・補充の目安</small></span><i>›</i></button>
-      <div class="m-h">その他</div>
-      <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
-      <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
-      <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
-      <template v-if="otherActiveSessions.length">
-        <div class="m-h">その他の未完了（古い）</div>
-        <div v-for="s in otherActiveSessions" :key="s.id" class="m-old">
-          <span>{{ _hm(s.startedAt) }} 開始 ・ {{ _itemCount(s) }}品目</span>
-          <button type="button" class="m-old-btn" @click="resume(s)">再開</button>
-          <button type="button" class="m-old-btn ng" :disabled="deletingId === s.id" @click="askDiscard(s)">破棄</button>
+    <!-- ── レポート（在庫分析）── -->
+    <div v-if="!loading && tab === 'report'" :class="['report-tab', 'home-panel', slideDir && `slide-${slideDir}`]">
+      <div class="m-h">直近の棚卸</div>
+      <div v-if="latestReport" class="rt-latest">
+        <div class="rt-latest-head">
+          <span>{{ _md(latestStock.session.endedAt ?? latestStock.session.startedAt) }} の棚卸</span>
+          <button type="button" class="rt-open" @click="emit('viewSession', latestStock.session)">詳細を開く ›</button>
+        </div>
+        <SessionReportPanel :report="latestReport" />
+      </div>
+      <div v-else class="rt-empty">完了した棚卸がまだありません。棚卸を完了すると、ここにレポートが出ます。</div>
+      <div class="m-h">在庫分析</div>
+      <ManagerDashboard
+        embedded :snapshots="dashboardSnapshots"
+        :sessions="loading || error ? null : launcher.sessions.value"
+        @delete-orphan="onDeleteOrphan"
+      />
+    </div>
+
+    <!-- ── 管理（データ管理を統合）── -->
+    <MasterManagePage
+      v-if="!loading && tab === 'dashboard'"
+      :class="['home-panel', slideDir && `slide-${slideDir}`]"
+      embedded
+      @clear-master="p => emit('clearMaster', p)"
+    >
+      <template #extra>
+        <div class="manage">
+          <div class="m-h">発注の設定</div>
+          <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
+          <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注基準<small>要補充の判定に使う発注点・補充の目安</small></span><i>›</i></button>
+          <div class="m-h">その他</div>
+          <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
+          <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
+          <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
+          <template v-if="otherActiveSessions.length">
+            <div class="m-h">その他の未完了（古い）</div>
+            <div v-for="s in otherActiveSessions" :key="s.id" class="m-old">
+              <span>{{ _hm(s.startedAt) }} 開始 ・ {{ _itemCount(s) }}品目</span>
+              <button type="button" class="m-old-btn" @click="resume(s)">再開</button>
+              <button type="button" class="m-old-btn ng" :disabled="deletingId === s.id" @click="askDiscard(s)">破棄</button>
+            </div>
+          </template>
+          <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
         </div>
       </template>
-      <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
-    </div>
+    </MasterManagePage>
 
     </div><!-- /.home-panels -->
 
-    <!-- ── 下部ナビ（常に出す）── -->
-    <nav class="bnav" aria-label="ホームのメニュー">
-      <button :class="{ on: tab === 'sessions' }" type="button" @click="goTab('sessions')"><b>📦</b>在庫</button>
-      <button :class="{ on: tab === 'history' }" type="button" @click="goTab('history')"><b>📅</b>履歴</button>
-      <button :class="{ on: tab === 'dashboard' }" type="button" @click="goTab('dashboard')"><b>🗂</b>管理</button>
-    </nav>
+    <!-- ── 下部ナビ（全画面共通の部品）── -->
+    <HomeFooterNav :active="tab" @go="goTab" />
 
     <DataInspector v-if="showInspector" @close="showInspector = false" />
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
@@ -360,11 +401,6 @@ onUnmounted(registerInnerLayerCloser(() => {
       @close="showOrderBase = false"
     />
 
-    <ManagerDashboard
-      v-if="showDashboard" :snapshots="dashboardSnapshots"
-      :sessions="loading || error ? null : launcher.sessions.value"
-      @delete-orphan="onDeleteOrphan" @close="showDashboard = false"
-    />
 
     <!-- ── 棚卸の開始シート ── -->
     <div v-if="sheet === 'stock'" class="sh-bg" @click.self="closeSheet">
@@ -494,7 +530,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .act-badge { position: absolute; top: 5px; right: 8px; background: #059669; color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; }
 .act-dot { position: absolute; top: 8px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
 
-.manage { padding: 10px 12px 96px; }
+.manage { padding: 0 0 12px; }
 .m-h { font-size: 12px; font-weight: 800; color: #64748b; margin: 14px 2px 6px; }
 .m-card {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit;
@@ -510,15 +546,12 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-old-btn.ng { border-color: #fca5a5; color: #b91c1c; }
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 
-.bnav {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 6;
-  width: 100%; max-width: 600px; display: flex; background: #fff; border-top: 1px solid #e2e8f0;
-  padding: 6px 0 calc(8px + env(safe-area-inset-bottom));
-}
-.bnav button { flex: 1; border: none; background: none; font-size: 11px; font-weight: 700; color: #94a3b8; cursor: pointer; font-family: inherit; }
-.bnav button b { display: block; font-size: 20px; filter: grayscale(1); opacity: .55; }
-.bnav button.on { color: var(--primary, #2563eb); }
-.bnav button.on b { filter: none; opacity: 1; }
+/* レポートタブ */
+.report-tab { padding: 4px 12px calc(80px + env(safe-area-inset-bottom)); }
+.rt-latest { background: #fff; border-radius: 14px; padding: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.rt-latest-head { display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 14px; color: #1e293b; margin: 2px 4px 8px; }
+.rt-open { border: none; background: none; color: var(--primary, #2563eb); font-weight: 800; font-size: 13px; cursor: pointer; }
+.rt-empty { background: #fff; border-radius: 14px; padding: 16px; font-size: 13px; color: #64748b; }
 
 .sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
 .sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }

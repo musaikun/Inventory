@@ -71,14 +71,21 @@ export function consumeInnerLayerBack() {
 // 画面ごとの戻る（ホームのタブ移動・独立ページの戻り）より先に見るので、
 // モーダルを開いたまま裏の画面が戻ることが無くなる。
 const _modalLayers = []
+// 表示中のモーダルの数。下部ナビはモーダル（取込の途中を含む）が出ているあいだは隠す
+export const modalLayerCount = ref(0)
 
 /** @returns {{ layer: object, release: () => void }} */
 export function pushModalLayer(close) {
   const layer = { close }
   _modalLayers.push(layer)
+  modalLayerCount.value = _modalLayers.length
   return {
     layer,
-    release: () => { const i = _modalLayers.indexOf(layer); if (i >= 0) _modalLayers.splice(i, 1) },
+    release: () => {
+      const i = _modalLayers.indexOf(layer)
+      if (i >= 0) _modalLayers.splice(i, 1)
+      modalLayerCount.value = _modalLayers.length
+    },
   }
 }
 

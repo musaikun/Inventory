@@ -63,11 +63,11 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン3つ（読むは置かない）・下部ナビ（在庫／履歴／管理）', async () => {
+  it('表・操作ボタン3つ（読むは置かない）・下部ナビ（在庫／履歴／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注', '📥入出庫'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📅履歴', '🗂管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📅履歴', '📊レポート', '🗂管理'])
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -78,19 +78,25 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.acts')).toBeNull()
   })
 
-  it('履歴・管理はホームのタブ（下部ナビは出たまま）', async () => {
+  it('履歴・レポート・管理はホームのタブ（下部ナビは出たまま）', async () => {
     await mountPage()
     await click(btn(host.querySelector('.bnav'), '履歴'))
     expect(host.querySelector('.hcp')).not.toBeNull()
     expect(host.querySelector('.bnav button.on').textContent).toContain('履歴')
+    // レポート＝在庫分析（重ねて開かず、タブの中）
+    await click(btn(host.querySelector('.bnav'), 'レポート'))
+    expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
+    expect(host.querySelector('.report-tab').textContent).toContain('直近の棚卸')
+    // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）
     await click(btn(host.querySelector('.bnav'), '管理'))
-    for (const label of ['データ管理', '在庫分析', '発注日・締切', '発注基準', '各種設定', 'フィードバック']) {
-      expect(host.querySelector('.manage').textContent).toContain(label)
+    expect(host.querySelector('.mp.embedded')).not.toBeNull()
+    expect(host.querySelector('.mp-header')).toBeNull()
+    for (const label of ['取り込む', '発注日・締切', '発注基準', '各種設定', 'フィードバック']) {
+      expect(host.querySelector('.mp').textContent).toContain(label)
     }
-    // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ
+    // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ。練習モードは管理に置かない
     expect(host.querySelector('.manage').textContent).not.toContain('仕入れ')
-    await click(btn(host.querySelector('.manage'), 'データ管理'))
-    expect(events).toContainEqual(['openMaster'])
+    expect(host.querySelector('.manage').textContent).not.toContain('練習')
   })
 
   it('管理タブから発注基準・発注日の設定を開ける', async () => {

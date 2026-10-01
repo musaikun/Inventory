@@ -90,11 +90,14 @@ async function seedItems() {
 }
 
 // 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
+// データ管理は「管理」タブそのものになった（2026-10-01）
 async function openFromManage(label) {
   const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
   if (nav) await click(nav)
+  if (label === 'データ管理') return
   await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
 }
+const activeTab = () => host.querySelector('.bnav button.on')?.textContent ?? ''
 describe('アプリを閉じる前に確認する', () => {
   const exitTitle = () => [...host.querySelectorAll('.name-modal-title')]
     .find(e => e.textContent.includes('アプリを終了しますか'))
@@ -164,10 +167,11 @@ describe('アプリを閉じる前に確認する', () => {
     await click(button('はじめる') || button('使ってみる') || host.querySelector('button'))
     await flush()
     await openFromManage('データ管理')
-    expect(view()).toBe('master')
+    expect(host.querySelector('.mp')).toBeTruthy()
 
     await deviceBack()
-    expect(view()).toBe('sessions')          // アプリを離れず、ホームへ
+    expect(view()).toBe('sessions')          // アプリを離れず、ホームの在庫タブへ
+    expect(activeTab()).toContain('在庫')
   }, 20000)
 })
 
@@ -230,14 +234,16 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
 })
 
 describe('戻るはひとつ前の画面へ返す', () => {
-  it('ホーム → データ管理 → 戻る は ホーム', async () => {
+  it('管理タブ（データ管理）→ 戻る は 在庫タブ', async () => {
     await mountApp()
     await seedItems()
     await openFromManage('データ管理')
-    expect(view()).toBe('master')
+    expect(host.querySelector('.mp')).toBeTruthy()
+    expect(activeTab()).toContain('管理')
 
     await deviceBack()
     expect(view()).toBe('sessions')
+    expect(activeTab()).toContain('在庫')
   }, 20000)
 
 })
@@ -257,11 +263,13 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
     expect(host.querySelector('.manage')).toBeTruthy()
   }, 20000)
 
-  it('重なったモーダルは上から1枚ずつ閉じる（在庫分析 → 戻る → 管理タブ）', async () => {
+  it('設定 → 中の画面 の順に重なっても、戻るは上から1枚ずつ', async () => {
     await mountApp()
     await seedItems()
-    await openFromManage('在庫分析')
+    await openFromManage('記録の確認')
+    expect(document.body.querySelector('.di')).toBeTruthy()
     await deviceBack()
-    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
+    expect(document.body.querySelector('.di')).toBeNull()
+    expect(activeTab()).toContain('管理')
   }, 20000)
 })

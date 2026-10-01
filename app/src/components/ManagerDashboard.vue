@@ -10,6 +10,8 @@ const props = defineProps({
   snapshots: { type: Array, default: () => [] },
   // D1 の sessions（カレンダーが見ている一覧）。null = 取得できていない → 食い違いを判定しない
   sessions:  { type: Array, default: null },
+  // embedded: ホームの「レポート」タブに置くとき。重ねて開かず、一覧では戻るを出さない
+  embedded:  { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'delete-orphan'])
 
@@ -271,8 +273,9 @@ const abc = computed(() => {
 const view = ref('hub')   // 'hub' | 'trend' | 'genre' | 'diff' | 'abc' | 'anomaly'
 function openView(v) { view.value = v; window.scrollTo?.(0, 0) }
 function back() { if (view.value !== 'hub') view.value = 'hub'; else emit('close') }
-// 戻る・Escape: 分析の中の画面なら一覧へ、一覧なら閉じる（モーダルの層）
-useEscapeKey(() => back())
+// 戻る・Escape: 分析の中の画面なら一覧へ、一覧なら閉じる（モーダルの層）。
+// タブに置いたときはモーダルではないので層に積まない（中の画面→一覧は下の内側の戻るが受ける）
+if (!props.embedded) useEscapeKey(() => back())
 onUnmounted(registerInnerLayerCloser(() => {
   if (view.value === 'hub') return false
   view.value = 'hub'
@@ -337,8 +340,8 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
 </script>
 
 <template>
-  <div class="dash-overlay">
-    <div class="dash-header">
+  <div :class="embedded ? 'dash-embedded' : 'dash-overlay'">
+    <div v-if="!embedded || view !== 'hub'" class="dash-header">
       <button class="dash-back" @click="back">‹ 戻る</button>
       <div class="dash-title">{{ view === 'hub' ? '📊 在庫分析' : VIEW_TITLE[view] }}</div>
       <div class="dash-header-spacer"></div>
@@ -591,6 +594,8 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   display: flex;
   flex-direction: column;
 }
+.dash-embedded { display: flex; flex-direction: column; background: #f5f6f8; }
+.dash-embedded .dash-body { overflow: visible; }
 .dash-header {
   display: flex;
   align-items: center;

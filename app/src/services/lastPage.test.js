@@ -8,8 +8,13 @@ beforeEach(() => localStorage.clear())
 
 describe('lastPage', () => {
   it('対象ページを保存して読み戻せる', () => {
+    saveLastPage('movement', 'out')
+    expect(readLastPage()).toEqual({ view: 'movement', tab: 'out' })
+    // データ管理はホームの「管理」タブになった（独立ページは廃止）。保存しない・古い保存値も読まない
     saveLastPage('master')
-    expect(readLastPage()).toEqual({ view: 'master', tab: 'in' })
+    expect(readLastPage()).toBe(null)
+    localStorage.setItem('_last_page_v1', JSON.stringify({ view: 'master' }))
+    expect(readLastPage()).toBe(null)
     // 履歴はホームのタブになった（独立ページは廃止）。保存しない
     saveLastPage('history')
     expect(readLastPage()).toBe(null)
@@ -46,12 +51,12 @@ describe('lastPage', () => {
   })
 
   it('clearLastPage で消える', () => {
-    saveLastPage('master')
+    saveLastPage('movement', 'in')
     clearLastPage()
     expect(readLastPage()).toBe(null)
   })
 
-  it('復元対象は独立ページ2つだけ（データ管理・入出庫）', () => {
-    expect(RESTORABLE_PAGES).toEqual(['master', 'movement'])
+  it('復元対象は独立ページ（入出庫）だけ', () => {
+    expect(RESTORABLE_PAGES).toEqual(['movement'])
   })
 })

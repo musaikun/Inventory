@@ -151,17 +151,13 @@ describe('画面内の「戻る」も import中断guard を見る', () => {
     await flush(8)
   }
 
-  async function openMaster(el) {
-    await openFromManage(el, 'データ管理')
-    expect(el.querySelector('.mp')).not.toBeNull()
-  }
   async function openMovement(el) {
     await openFromManage(el, '入出庫')
     expect(el.querySelector('.mv')).not.toBeNull()
   }
 
   for (const [label, open, sel] of [
-    ['データ管理（MasterManagePage）', openMaster,   '.mp'],
+    // データ管理はホームの「管理」タブになり、画面ごと切り替わる独立ページではなくなった（2026-10-01）
     ['入出庫（MovementPage）',        openMovement, '.mv'],
   ]) {
     it(`${label}: guard中は画面内の戻るで画面が変わらない`, async () => {
@@ -227,7 +223,7 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
   }, 15000)
 
   for (const [label, cardSel, pageSel, navLabel] of [
-    ['データ管理（MasterManagePage）', 'データ管理', '.mp', 'ホーム'],
+    // データ管理はホームの「管理」タブになり、画面ごと切り替わる独立ページではなくなった（2026-10-01）
     ['入出庫（MovementPage）',        '入出庫',      '.mv', 'ホーム'],
   ]) {
     it(`${label}: guard中はDesktopNavで画面が変わらない`, async () => {

@@ -82,7 +82,7 @@ import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
-import MasterManagePage from './components/MasterManagePage.vue'
+import HomeFooterNav from './components/HomeFooterNav.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
@@ -494,7 +494,7 @@ const leaveSessionTitle = computed(() =>
 // 戻るは常に「その画面へ来る前に居た画面」へ返したいので、開くときに出発点を覚える。
 // 覚えるのはホームと独立ページ3つだけ。棚卸中・起動直後から開いた場合はホームへ返す
 // （数えかけの棚卸へ戻ると作業に割り込むため）。
-const PAGE_VIEWS = ['master', 'movement']
+const PAGE_VIEWS = ['movement']
 const pageReturn = { master: 'sessions', movement: 'sessions', history: 'sessions' }   // 描画には使わないので素のオブジェクト
 function _rememberPageFrom(view) {
   const from = currentView.value
@@ -504,6 +504,8 @@ function _rememberPageFrom(view) {
 function openPage(view) {
   // 履歴はホームの「履歴」タブ（独立ページは廃止・画面遷移図の課題④・2026-10-01）
   if (view === 'history') { homeTab.value = 'history'; currentView.value = 'sessions'; _loadOrderData(); _pullMovements(); return }
+  // データ管理はホームの「管理」タブに統合した（独立ページは廃止・User決定 2026-10-01）
+  if (view === 'master') { homeTab.value = 'dashboard'; currentView.value = 'sessions'; return }
   // 完了の結果が確定するまで、品目・在庫を変える画面へは入らない（履歴は見られる）
   if (_blockedByCompletion()) return
   _rememberPageFrom(view)
@@ -785,6 +787,9 @@ const showDesktopNav = computed(() =>
 // data-view はサイドナビを持たない単独画面（ランディング等）をCSSから識別するために出す。
 watchEffect(() => {
   if (typeof document === 'undefined') return
+  // 下部ナビが出ている独立ページ（入出庫・棚卸の詳細）は、下の操作をナビの上へ逃がす
+  const footer = isAuthenticated.value && !showDesktopNav.value && (currentView.value === 'movement' || currentView.value === 'session-detail')
+  document.body.style.setProperty('--app-footer-h', footer ? 'calc(58px + env(safe-area-inset-bottom))' : '0px')
   document.body.classList.toggle('dt-shell', showDesktopNav.value)
   document.body.dataset.view = currentView.value
 })
@@ -801,6 +806,13 @@ onUnmounted(() => {
   document.body.classList.remove('dt-shell')
   delete document.body.dataset.view
 })
+
+// 下部ナビ（入出庫・棚卸の詳細から）→ ホームの該当タブへ
+function onFooterGo(tab) {
+  if (isBackBlocked()) return
+  homeTab.value = tab
+  currentView.value = 'sessions'
+}
 
 // サイドナビからの画面遷移。棚卸画面からの離脱は保存・確認を伴うため onGoHome を通す。
 async function onDesktopNavigate(view) {
@@ -824,6 +836,7 @@ async function onDesktopNavigate(view) {
     return
   }
   if (view === 'movement') { openMovement(); return }
+  if (view === 'master') { openPage('master'); return }   // ホームの「管理」タブ
   if (PAGE_VIEWS.includes(view)) { openPage(view); return }
   currentView.value = view
 }
@@ -3193,12 +3206,6 @@ function dismissReview() {
       @open-feedback="openFeedback"
       @view-session="onViewSession"
       @open-upgrade="reason => openUpgrade(reason)"
-    />
-
-    <!-- ── 品目マスタ管理（専用ページ） ── -->
-    <MasterManagePage
-      v-else-if="currentView === 'master'"
-      @back="onPageBack"
       @clear-master="onClearMaster"
     />
 
@@ -3221,6 +3228,12 @@ function dismissReview() {
       :ended-at="detailSessionSpan.endedAt"
       @back="currentView = detailReturnView"
       @patched="onSnapshotPatched"
+    />
+
+    <!-- 下部ナビ（全画面共通）。ホームは SessionListPage が自分で出す。棚卸中・発注中には出さない -->
+    <HomeFooterNav
+      v-if="isAuthenticated && !showDesktopNav && (currentView === 'movement' || currentView === 'session-detail')"
+      @go="onFooterGo"
     />
 
     <!-- ── 完了後ゲスト閲覧（読み取り専用・金額なし） ── -->

@@ -124,16 +124,16 @@ describe('再読込しても同じページに留まる', () => {
     expect(host.querySelector('.hcp')).not.toBeNull()
   }, 20000)
 
-  it('データ管理', async () => {
+  it('管理タブ（データ管理）', async () => {
     await mountApp()
     await seedItems()
-    // データ管理はホームの「管理」タブから開く
+    // データ管理はホームの「管理」タブそのもの（2026-10-01）
     await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
-    await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes('データ管理')))
-    expect(view()).toBe('master')
+    expect(host.querySelector('.mp')).toBeTruthy()
 
     await reload()
-    expect(view()).toBe('master')
+    expect(view()).toBe('sessions')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
   }, 20000)
 
   it('進行中セッションは保存ページより優先する', async () => {

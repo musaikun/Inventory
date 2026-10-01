@@ -400,7 +400,7 @@ function onSave() {
    件数を1行目に中央寄せ、2行目に幅いっぱいの主ボタン。
    ラベルは「記録」のまま（「完了」は確定・ロックを意味するので使わない）。 */
 .mv-savebar {
-  position: sticky; bottom: 0;
+  position: sticky; bottom: var(--app-footer-h, 0px);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
   background: #fff; border-top: 1px solid #e2e8f0;
   max-width: 620px; margin: 0 auto; width: 100%; box-sizing: border-box;

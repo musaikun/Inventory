@@ -15,6 +15,9 @@ import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 
+// embedded: ホームの「管理」タブに置くとき（管理とデータ管理を統合・User決定 2026-10-01）。
+// 見出しと戻るを出さず、品目データの下に #extra（発注の設定・各種設定など）を差し込む
+const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'clear-master'])
 
 const { config, itemCount, exportConfigCSV, addItem, dropImportExcluded } = useConfig()
@@ -182,8 +185,8 @@ function onClear() {
 </script>
 
 <template>
-  <div class="mp">
-    <header class="mp-header">
+  <div :class="['mp', { embedded }]">
+    <header v-if="!embedded" class="mp-header">
       <button class="mp-back" @click="emit('back')">‹ 戻る</button>
       <span class="mp-title">🗂 データ管理</span>
       <span class="mp-count">{{ itemCount }}件</span>
@@ -278,7 +281,10 @@ function onClear() {
         </button>
       </div>
 
-      <!-- 一括削除（危険操作・店舗コードゲート） -->
+      <!-- 管理タブに置いたときの、品目データ以外の項目（発注の設定・各種設定など） -->
+      <slot name="extra" />
+
+      <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
       <div v-if="itemCount > 0" class="mm-block danger">
         <div class="mm-block-head">
           <span class="mm-block-title danger">品目マスタを一括削除</span>
@@ -495,6 +501,7 @@ function onClear() {
 
 <style scoped>
 .mp { min-height: 100vh; background: #f8fafc; }
+.mp.embedded { min-height: 0; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 .mp-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
