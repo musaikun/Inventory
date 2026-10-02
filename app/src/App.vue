@@ -704,6 +704,10 @@ const hideHostOpen  = ref(false)   // ホスト：申請が2件以上のとき�
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
 function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
+// ルームを作らずに数えているときの「自分の変更履歴」。記録（_localAudit）はこの端末の id で残る
+function _myIdentity() { return { id: deviceId, name: deviceName.value || '名前未設定', isMe: true } }
+function openMyHistory() { memberHistoryTarget.value = _myIdentity() }
+const myAuditCount = computed(() => auditLog.filter(e => (e.enteredById ? e.enteredById === deviceId : e.enteredBy === (deviceName.value || '名前未設定'))).length)
 // メンバー履歴の品目タップ → その品目の数量編集モーダルを開く
 function onMemberHistoryEdit(ingredient) {
   if (inputLocked.value || !ingredient) return
@@ -3334,6 +3338,10 @@ function dismissReview() {
                 <button v-if="canDiscardFromMenu" class="am-item am-danger" :disabled="completing" @click="close(); onDiscardFromMenu()">
                   <span class="am-ico">🗑</span> この{{ actNoun }}を破棄…
                 </button>
+                <!-- ひとりの棚卸でも、ルームで名前をタップしたときと同じ「担当者ごとの変更履歴」を見る（User 2026-10-02） -->
+                <button v-if="!syncActive" class="am-item" @click="close(); openMyHistory()">
+                  <span class="am-ico">📝</span> 自分の変更履歴<span v-if="myAuditCount" class="am-count">{{ myAuditCount }}</span>
+                </button>
                 <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
                   <span class="am-ico">📷</span> バーコードスキャン
                 </button>
@@ -4523,6 +4531,7 @@ function dismissReview() {
 .item-req-approved { background: #f0fdf4; border-color: #86efac; color: #166534; }
 .item-req-go { margin-left: auto; background: #16a34a !important; color: #fff !important; border-color: #16a34a !important; font-weight: 800; }
 .item-req-go + .item-req-pending-cancel { margin-left: 4px; }
+.am-count { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 800; text-align: center; }
 .item-req-fold, .item-req-fold-guest {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
 }

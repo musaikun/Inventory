@@ -185,4 +185,22 @@ describe('セッションの ☰ から中断・破棄', () => {
     const deletes = apiFetchMock.mock.calls.filter(([, o]) => o?.method === 'DELETE')
     expect(deletes).toHaveLength(0)
   }, 20000)
+
+  // ルームを作らなくても、名前をタップしたときと同じ「担当者ごとの変更履歴」を見られる（User 2026-10-02）
+  it('ひとりの棚卸では ☰ の「自分の変更履歴」で自分の入力が見られる', async () => {
+    await mountWithSessions()
+    await click(host.querySelector('.act.stock'))
+    await click(host.querySelector('.sh .bb.stock'))
+    const { deviceId } = await import('./composables/useDeviceId.js')
+    const { addLocalAuditEntry } = await import('./composables/useSync.js')
+    addLocalAuditEntry({ id: 'local-1', ingredient: 'トマト', action: 'new', delta: 5, totalQty: 5, unit: '個', enteredBy: 'テスト', enteredById: deviceId, timestamp: Date.now() })
+    await flush()
+    await openMenu()
+    const item = button('自分の変更履歴')
+    expect(item).toBeTruthy()
+    expect(item.textContent).toContain('1')
+    await click(item)
+    await flush()
+    expect(document.body.textContent).toContain('トマト')
+  }, 20000)
 })
