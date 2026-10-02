@@ -21,6 +21,17 @@
 - Cloudflare PagesはPreviewへ既定で`X-Robots-Tag: noindex`を付ける。Access外からorigin responseを
   直接取得できないため、ログイン後のheader/画面目視はUser実機確認として残す。
 
+## Worker が消える（`Failed to fetch`）
+
+症状: Pro Review の画面がすべて `Failed to fetch`。`https://inventory-sync-pro-review.yuya-takaki.workers.dev/health` が
+**本文の無い Cloudflare の 404**（CORS ヘッダーも無い）を返す＝Worker の script がそのホストに載っていない。
+
+- 2026-09-18、2026-09-30、2026-10-01 に発生。死活確認（`health-check.yml`・6時間ごと）が **22時台（UTC）だけ失敗**し、
+  その日の昼の deploy 直後は成功している。日中の deploy のあと、夜までのどこかで消えている（毎日同じ頃の可能性）。
+- リポジトリと Claude の Routines には、Worker を消す処理は無い（2026-10-02 確認）。Cloudflare 側（ダッシュボードの操作・
+  別の自動化・アカウントの設定）を User が確認する必要がある。
+- 戻し方: `develop` へ push（`Pro Review Pages` が同じ run で Worker を deploy し直す）か、Actions から手動実行。
+
 ## 目的
 
 無料版の`develop` Reviewとは別に、PRO制限解除後の挙動を確認する。productionの店舗・D1・
