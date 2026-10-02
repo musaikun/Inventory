@@ -617,6 +617,33 @@ export function useConfig() {
     _saveMaster()
   }
 
+  /**
+   * 1品目を品目リストの決まった位置へ置き直す（手で追加・編集したとき。User指示 2026-10-02）。
+   * - 同じジャンルの中で、商品コードがあればコード順の位置（コードの無い品目より前）
+   * - コードが無ければ、そのジャンルの末尾
+   * - ジャンルが無い（またはまだそのジャンルの品目が無い）ときは一番下
+   * ファイル取込はこれを使わない（ファイルの並びをそのまま再現する）。
+   */
+  function _placeItem(n) {
+    const i = config.order.indexOf(n)
+    if (i < 0) return
+    config.order.splice(i, 1)
+    const cat = config.categories[n]
+    const code = config.codes[n]
+    const same = cat ? config.order.filter(x => config.categories[x] === cat) : []
+    if (!same.length) { config.order.push(n); return }
+    let before = null
+    if (code != null && code !== '') {
+      before = same.find(x => {
+        const c = config.codes[x]
+        if (c == null || c === '') return true          // コード無しより前
+        return String(c).localeCompare(String(code), 'ja', { numeric: true }) > 0
+      }) ?? null
+    }
+    if (before) config.order.splice(config.order.indexOf(before), 0, n)
+    else config.order.splice(config.order.indexOf(same[same.length - 1]) + 1, 0, n)
+  }
+
   function addItem(name, price, category, unit, code) {
     const n = name.trim()
     if (!n || config.order.includes(n)) return false
@@ -627,6 +654,7 @@ export function useConfig() {
     if (unit?.trim())     config.units[n]       = unit.trim()
     if (code?.trim())     config.codes[n]        = code.trim()
     if (!config.manualItems.includes(n)) config.manualItems.push(n)
+    _placeItem(n)
     // 同名品目が過去に振り分けられていれば復元（削除→再追加・個人利用の積み上げに対応）
     if (config.tagsA[n] === undefined && Array.isArray(config.tagsArchiveA[n])) config.tagsA[n] = [...config.tagsArchiveA[n]]
     if (config.tagsB[n] === undefined && Array.isArray(config.tagsArchiveB[n])) config.tagsB[n] = [...config.tagsArchiveB[n]]
@@ -654,8 +682,10 @@ export function useConfig() {
     }
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     else delete config.prices[n]
+    const prevCat = config.categories[n]
     if (category?.trim()) config.categories[n] = category.trim()
     else delete config.categories[n]
+    if (config.categories[n] !== prevCat) _placeItem(n)   // ジャンルが変わったら移った先の位置へ
     if (unit !== undefined) {
       const u = (unit ?? '').trim()
       if (u) config.units[n] = u
@@ -691,7 +721,11 @@ export function useConfig() {
     if (!config.order.includes(name)) return false
     const put = (obj, v) => { const t = String(v ?? '').trim(); if (t) obj[name] = t; else delete obj[name] }
     if (unit !== undefined)     put(config.units, unit)
-    if (category !== undefined) put(config.categories, category)
+    if (category !== undefined) {
+      const prevCat = config.categories[name]
+      put(config.categories, category)
+      if (config.categories[name] !== prevCat) _placeItem(name)
+    }
     if (lotSize !== undefined)  put(config.lotSizes, lotSize)
     if (price !== undefined) {
       const v = Number(price)

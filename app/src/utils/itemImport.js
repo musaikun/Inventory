@@ -499,6 +499,26 @@ function _planAliases({ rows, orderSet, baseDictionary, removedSet, policy }) {
  * @param {object}  opts     { mode, itemLimit, axisNameMax, aliasPolicy }
  * @returns {object} 適用に必要な全マップ＋summary（件数と差分）
  */
+function _mergeOrder(existingOrder, incoming, acceptedNew) {
+  const existingSet = new Set(existingOrder)
+  const file = [...new Set(incoming)].filter(n => existingSet.has(n) || acceptedNew.has(n))
+  const fileExisting = file.filter(n => existingSet.has(n))
+  const fileExistingSet = new Set(fileExisting)
+  // 1. 既存品目の並べ直し
+  let k = 0
+  const out = existingOrder.map(n => fileExistingSet.has(n) ? fileExisting[k++] : n)
+  // 2. 新しい品目を差し込む
+  for (let i = 0; i < file.length; i++) {
+    const n = file[i]
+    if (!acceptedNew.has(n)) continue
+    if (i > 0) { out.splice(out.indexOf(file[i - 1]) + 1, 0, n); continue }
+    const next = file.find(x => existingSet.has(x))
+    if (next) out.splice(out.indexOf(next), 0, n)
+    else out.push(n)
+  }
+  return out
+}
+
 export function buildImportPlan(parsed, current, opts = {}) {
   const {
     mode        = IMPORT_MODE_MERGE,
@@ -525,7 +545,12 @@ export function buildImportPlan(parsed, current, opts = {}) {
   const acceptedNew   = newNames.length > room ? newNames.slice(0, room) : newNames
   const truncated     = newNames.length > room ? newNames.slice(room)    : []
 
-  const order    = isMerge ? [...existingOrder, ...acceptedNew] : acceptedNew
+  // 並びは**ファイルの並びを再現する**（User指示 2026-10-02）。以前はマージで既存品目の位置を
+  // 動かさず、最初に別の順で入った品目リストの並び（逆順など）がそのまま残っていた。
+  //   1. ファイルにある既存品目は、いま居る位置の集合の中でファイルの順に並べ直す
+  //   2. 新しい品目は、ファイルで直前にある品目のすぐ後ろへ（先頭なら次の既存品目の前、無ければ末尾）
+  //   3. ファイルに無い既存品目は動かさない
+  const order = isMerge ? _mergeOrder(existingOrder, incoming, new Set(acceptedNew)) : acceptedNew
   const orderSet = new Set(order)
   const removed  = isMerge ? [] : existingOrder.filter(n => !orderSet.has(n))
 

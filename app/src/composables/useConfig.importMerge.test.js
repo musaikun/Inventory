@@ -34,14 +34,14 @@ afterEach(()  => setFreeLimitsEnforced())
 describe('S5: 既定の取込（追加・更新）は既存品目を消さない', () => {
   beforeEach(() => { localStorage.clear(); resetConfig() })
 
-  it('ファイルに無い既存品目は残り、新しい品目は末尾に追加される', () => {
+  it('ファイルに無い既存品目は残り、新しい品目はファイルで直前の品目の後ろに入る', () => {
     resetConfig(['トマト', 'レタス', 'なす'])
     cfg.config.units  = { トマト: '個', レタス: '玉', なす: '本' }
     cfg.config.prices = { なす: 80 }
 
     const r = cfg.loadFromCSV('品目名,単位\nトマト,箱\nきゅうり,本')
 
-    expect(cfg.config.order).toEqual(['トマト', 'レタス', 'なす', 'きゅうり'])
+    expect(cfg.config.order).toEqual(['トマト', 'きゅうり', 'レタス', 'なす'])
     expect(cfg.config.units['レタス']).toBe('玉')   // ファイルに無くても消えない
     expect(cfg.config.prices['なす']).toBe(80)      // 属性も消えない
     expect(cfg.config.units['トマト']).toBe('箱')   // 同名はファイルの値で更新
@@ -49,6 +49,18 @@ describe('S5: 既定の取込（追加・更新）は既存品目を消さない
     expect(r.updated).toBe(1)
     expect(r.removed).toBe(0)
     expect(r.count).toBe(4)
+  })
+
+  it('追加・更新でもファイルの並びを再現する（逆順に入っていた品目リストが直る）', () => {
+    resetConfig(['C', 'B', 'A', '手入力'])
+    cfg.loadFromCSV('品目名\nA\n新1\nB\nC\n新2')
+    expect(cfg.config.order).toEqual(['A', '新1', 'B', 'C', '新2', '手入力'])
+  })
+
+  it('新しい品目だけのファイルは末尾に、ファイルの順で入る', () => {
+    resetConfig(['A', 'B'])
+    cfg.loadFromCSV('品目名\n新2\n新1')
+    expect(cfg.config.order).toEqual(['A', 'B', '新2', '新1'])
   })
 
   it('同名品目は空欄の列で既存値を消さない', () => {
@@ -267,5 +279,36 @@ describe('S5: 推奨フォーマット（エクスポートCSV）の往復', () 
               + 'トマト,個,,,,,,,,冷蔵庫,,'
     cfg.loadFromCSV(csv)
     expect(cfg.config.tagsA['トマト']).toEqual(['冷蔵庫'])
+  })
+})
+
+describe('手で追加・編集した品目の位置（ジャンル内のコード順 → ジャンルの末尾 → 一番下）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    resetConfig(['人参', '玉ねぎ', '牛乳', 'バター', 'チーズ', '塩'])
+    cfg.config.categories = { 人参: '野菜', 玉ねぎ: '野菜', 牛乳: '乳製品', バター: '乳製品', チーズ: '乳製品' }
+    cfg.config.codes      = { 人参: '1', 玉ねぎ: '5', 牛乳: '2', バター: '10' }
+  })
+
+  it('コードがあれば同じジャンルのコード順の位置へ', () => {
+    cfg.addItem('キャベツ', null, '野菜', '', '3')
+    cfg.addItem('生クリーム', null, '乳製品', '', '9')
+    expect(cfg.config.order).toEqual(['人参', 'キャベツ', '玉ねぎ', '牛乳', '生クリーム', 'バター', 'チーズ', '塩'])
+  })
+
+  it('コードがジャンル内で一番大きければ、コードの無い品目より前', () => {
+    cfg.addItem('ヨーグルト', null, '乳製品', '', '20')
+    expect(cfg.config.order).toEqual(['人参', '玉ねぎ', '牛乳', 'バター', 'ヨーグルト', 'チーズ', '塩'])
+  })
+
+  it('コードが無ければそのジャンルの末尾、ジャンルも無ければ一番下', () => {
+    cfg.addItem('ピーマン', null, '野菜', '', '')
+    cfg.addItem('こしょう', null, '', '', '')
+    expect(cfg.config.order).toEqual(['人参', '玉ねぎ', 'ピーマン', '牛乳', 'バター', 'チーズ', '塩', 'こしょう'])
+  })
+
+  it('編集でジャンルを変えたら、移った先の位置へ', () => {
+    cfg.updateConfigItem('塩', '塩', null, '野菜')
+    expect(cfg.config.order).toEqual(['人参', '玉ねぎ', '塩', '牛乳', 'バター', 'チーズ'])
   })
 })

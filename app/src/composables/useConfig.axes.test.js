@@ -229,7 +229,7 @@ describe('useConfig 汎用2軸（A-1配線）', () => {
     cfg.config.axisGroupsA = ['冷凍庫']
     cfg.config.tagsA = { パスタ: ['冷凍庫'], トマト: ['冷凍庫'] }
     cfg.loadFromCSVMapped('品目名\nパスタ\nレタス', { name: 0 })
-    expect(cfg.config.order).toEqual(['パスタ', 'トマト', 'レタス'])
+    expect(cfg.config.order).toEqual(['パスタ', 'レタス', 'トマト'])  // 新規はファイルで直前の品目の後ろ
     expect(cfg.config.tagsA['トマト']).toEqual(['冷凍庫'])  // ファイルに無くても消えない
     expect(cfg.config.tagsA['レタス']).toBeUndefined()
   })
