@@ -280,7 +280,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           </button>
           <template v-if="discarded.length === 1 || discardOpen">
             <div v-for="d in discarded" :key="d.id" :class="['strip', 'discard', { inner: discarded.length >= 2 }]">
-              <span class="strip-t">🗑 破棄した{{ d.type === 'order' ? '発注' : '棚卸' }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
+              <span class="strip-t">🗑 破棄した<span :class="['strip-kind', d.type === 'order' ? 'k-order' : 'k-stock']">{{ d.type === 'order' ? '発注' : '棚卸' }}</span><small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
               <button class="strip-go" type="button" :disabled="restoringId === d.id" @click="restoreDiscarded(d)">{{ restoringId === d.id ? '戻しています…' : '元に戻す' }}</button>
             </div>
           </template>
@@ -473,6 +473,10 @@ onUnmounted(registerInnerLayerCloser(() => {
 .strip.pause.order { background: #ffedd5; color: #c2410c; cursor: default; }
 .strip.discard { background: #f1f5f9; color: #475569; cursor: default; border: 1px dashed #cbd5e1; }
 .strip.discard.fold { cursor: pointer; }
+/* 棚卸と発注を色で見分ける（ホームのボタンと同じ 青／オレンジ） */
+.strip-kind { font-weight: 800; }
+.strip-kind.k-stock { color: #2563eb; }
+.strip-kind.k-order { color: #ea580c; }
 .strip.discard.inner { margin-left: 14px; }
 .strip.discard .strip-go { background: #fff; color: #334155; border: 1.5px solid #94a3b8; }
 .strip-go { border: none; border-radius: 9px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #fff; cursor: pointer; }
