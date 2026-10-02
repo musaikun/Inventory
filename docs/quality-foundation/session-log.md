@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-02 — version 0.129.2 / アプリのアイコンを差し替え
+
+User: 添付のイラスト（倉庫で端末を持って数える3人・×24 ✓）をアイコンにする。
+- `app/public/icon-192.png`・`icon-512.png`（角丸の外は透明）を差し替え。
+- 新規 `icon-maskable-512.png`（Android の maskable 用。角の透明を紺 #1e3a8a で塗る）・`apple-touch-icon.png`（180px、iOS は透明が黒になるため同じく塗る）。
+  manifest の maskable と index.html の apple-touch-icon をそれぞれへ向けた。
+- 既にホーム画面へ追加した端末は、アイコンがすぐには変わらないことがある（追加し直すと確実）。
+- version: 0.129.1 → **0.129.2**。
+
 ## 履歴archive
 
 - [2026-08](archive/session-log-2026-08.md)

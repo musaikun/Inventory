@@ -75,7 +75,7 @@ export default defineConfig({
       // Cloudflare Access 配下では manifest 取得にも認証 Cookie が必要。
       // Pro Review だけ crossorigin=use-credentials を付ける。
       useCredentials: isProReview,
-      includeAssets: ['icon-192.png', 'icon-512.png'],
+      includeAssets: ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'タナオロ',
         short_name: 'タナオロ',
@@ -98,7 +98,8 @@ export default defineConfig({
             type: 'image/png',
           },
           {
-            src: 'icon-512.png',
+            // Android は端末ごとの形（丸など）に切り抜くので、角の透明を塗った版を渡す
+            src: 'icon-maskable-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
