@@ -6,6 +6,8 @@ import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
+import { itemImageUrl } from '../services/itemImages.js'
+import ItemImageViewer from './ItemImageViewer.vue'
 
 const { config: liveConfig, setAxisName } = useConfig()
 
@@ -446,9 +448,19 @@ const showOrderBy = computed(() => {
   return false
 })
 
-// 列数（商品コード列 + 品目列 + 数量列 [+ 金額列]）
+// 品目の画像（LINE のアイコンのような丸）。店舗に1枚も画像が無いうちは列ごと出さない
+// （全行に「no image」が並ぶだけになるため）。画像はタップで大きく見る。
+const hasImages = computed(() => {
+  const m = config.value.images
+  return !!m && typeof m === 'object' && Object.keys(m).length > 0
+})
+const imageUrlOf = (item, v = 't') => itemImageUrl(config.value.images?.[item], v)
+const viewImage = ref(null)   // 大きく見ている品目
+
+// 列数（[画像列 +] 商品コード列 + 品目列 + 数量列 [+ 金額列]）
 const totalCols = computed(() => {
   let n = 2 // 品目 + 数量
+  if (hasImages.value)  n++
   if (hasCodes.value)   n++
   if (showAmount.value) n++
   return n
@@ -813,6 +825,7 @@ function fmtYen(n) {
           @keydown.enter.prevent="_isGroupedMode && toggleAllGroups()"
           @keydown.space.prevent="_isGroupedMode && toggleAllGroups()"
         >
+          <th v-if="hasImages" class="th-avatar" aria-label="写真"></th>
           <th v-if="hasCodes" class="th-code">商品コード</th>
           <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
           <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
@@ -861,6 +874,12 @@ function fmtYen(n) {
               @touchmove.passive="onRowTouchMove"
               @touchend="onRowTouchEnd($event)"
               @touchcancel="onRowTouchCancel">
+            <td v-if="hasImages" class="td-avatar">
+              <button v-if="imageUrlOf(row.item)" type="button" class="row-avatar" :aria-label="`${row.item}の写真を見る`" @click.stop="viewImage = row.item">
+                <img :src="imageUrlOf(row.item)" alt="" loading="lazy" decoding="async" />
+              </button>
+              <span v-else class="row-avatar row-noimg" aria-hidden="true">no<br>image</span>
+            </td>
             <td v-if="hasCodes" class="td-code">{{ row.code ?? '' }}</td>
             <td class="td-name">
               <!-- 左スワイプで現れる非表示アクション（右端に固定表示） -->
@@ -1014,6 +1033,9 @@ function fmtYen(n) {
         </div>
       </div>
     </div>
+
+    <!-- 写真を大きく見る -->
+    <ItemImageViewer v-if="viewImage && config.images?.[viewImage]" :item="viewImage" :image-ref="config.images[viewImage]" @close="viewImage = null" />
   </section>
 </template>
 
@@ -1522,6 +1544,15 @@ function fmtYen(n) {
 .hidden-tab-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #94a3b8; }
 
 /* ── 商品コードセル ── */
+.th-avatar { width: 44px; padding: 0; }
+.td-avatar { width: 44px; padding: 6px 0 6px 8px; vertical-align: middle; }
+.row-avatar {
+  width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: flex;
+  align-items: center; justify-content: center; border: 1px solid #e2e8f0; background: #f1f5f9; padding: 0;
+}
+button.row-avatar { cursor: zoom-in; }
+.row-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.row-noimg { font-size: 7.5px; line-height: 1.05; font-weight: 700; color: #94a3b8; text-align: center; }
 .td-code {
   padding: 11px 8px 11px 14px;
   font-size: 11px;

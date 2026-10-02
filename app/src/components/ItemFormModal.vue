@@ -16,10 +16,11 @@
  *             親がすぐ数量の画面を開く。棚卸を遅くしないため、名前以外は「詳しく」に畳む
  *   request … ルームのゲスト。登録はせず、ホストへの申請として送る（承認後に数量を入れる）
  */
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { findSimilarNames } from '../utils/itemMatcher.js'
+import { compressItemImage, uploadItemImage, deleteItemImage, itemImageUrl, canUploadItemImage } from '../services/itemImages.js'
 
 const props = defineProps({
   mode:            { type: String, default: 'add' },   // 'add' | 'edit'
@@ -31,9 +32,9 @@ const props = defineProps({
 })
 // added(name) / saved(name) / request({ name, unit, category }) / unhide(name) / use-existing(name)
 const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing'])
-useEscapeKey(() => emit('close'))
+useEscapeKey(() => close())
 
-const { config, addItem, patchItem, setEmptyList } = useConfig()
+const { config, addItem, patchItem, setEmptyList, setItemImage } = useConfig()
 const isEdit = computed(() => props.mode === 'edit')
 
 const name     = ref(props.initialName || '')
@@ -61,12 +62,71 @@ const canSave = computed(() => isEdit.value || (!!trimmed.value && !exists.value
 
 onMounted(() => { if (!isEdit.value) nextTick(() => nameEl.value?.focus()) })
 
+// ── 画像（R2）。選んだ時点で圧縮して保存し、品目へ付けるのは「追加・保存」を押したとき。
+// 付けずに閉じたら、保存した画像は消す（どの品目からも指されない画像を残さない）。
+// ゲストの申請では出さない（画像の保存は店舗のメンバーだけ）。
+const imageEnabled = computed(() => !isRequest.value && canUploadItemImage())
+const currentRef = isEdit.value ? (config.images?.[props.item] ?? null) : null
+const imgRef     = ref(currentRef)    // 保存したときに付く画像
+const pendingRef = ref(null)          // このシートで保存した、まだ品目に付けていない画像
+const imgLocal   = ref('')            // 選んだ画像の手元のプレビュー
+const imgBusy    = ref(false)
+const imgErr     = ref('')
+const imgInput   = ref(null)
+const imgSrc     = computed(() => imgLocal.value || (imgRef.value ? itemImageUrl(imgRef.value, 't') : ''))
+
+function _dropLocal() { if (imgLocal.value) URL.revokeObjectURL(imgLocal.value); imgLocal.value = '' }
+function _discardPending() {
+  if (pendingRef.value) deleteItemImage(pendingRef.value)
+  pendingRef.value = null
+}
+
+async function onPickImage(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  imgErr.value = ''
+  imgBusy.value = true
+  try {
+    const blobs = await compressItemImage(file)
+    const ref_ = await uploadItemImage(blobs)
+    _discardPending()
+    _dropLocal()
+    imgLocal.value = URL.createObjectURL(blobs.thumb)
+    pendingRef.value = ref_
+    imgRef.value = ref_
+  } catch (err) {
+    imgErr.value = err?.message ? `画像を保存できませんでした（${err.message}）` : '画像を保存できませんでした'
+  } finally {
+    imgBusy.value = false
+  }
+}
+function removeImage() {
+  _discardPending()
+  _dropLocal()
+  imgRef.value = null
+}
+// 品目へ付ける。前の画像は保存先から消す
+function _commitImage(itemName) {
+  if (imgRef.value === (config.images?.[itemName] ?? null)) { pendingRef.value = null; return }
+  const prev = setItemImage(itemName, imgRef.value)
+  if (prev && prev !== imgRef.value) deleteItemImage(prev)
+  pendingRef.value = null
+}
+
+function close() {
+  _discardPending()
+  emit('close')
+}
+onBeforeUnmount(() => { _discardPending(); _dropLocal() })
+
 function onNameInput() { error.value = ''; confirmedSimilar.value = '' }
 
 function submit() {
   error.value = ''
   if (isEdit.value) {
     patchItem(props.item, { unit: unit.value, lotSize: lotSize.value, category: category.value, price: price.value })
+    if (imageEnabled.value) _commitImage(props.item)
     emit('saved', props.item)
     return
   }
@@ -83,17 +143,19 @@ function submit() {
   const ok = addItem(n, Number.isFinite(p) && p > 0 ? p : null, category.value, unit.value)
   if (!ok) { error.value = '追加できませんでした（無料プランの品目数の上限に達している可能性があります）'; return }
   if (String(lotSize.value).trim()) patchItem(n, { lotSize: lotSize.value })
+  if (imgRef.value) _commitImage(n)
   added.value = [n, ...added.value]
   emit('added', n)
   if (single.value) return   // 棚卸・発注中は1品目だけ。親が数量の画面を開く
   // 続けて入れられるよう、名前・入数・単価だけ空にする（ジャンル・単位は同じものが続きやすい）
   name.value = ''; lotSize.value = ''; price.value = ''; confirmedSimilar.value = ''
+  _dropLocal(); imgRef.value = null
   nextTick(() => nameEl.value?.focus())
 }
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div class="modal-overlay" @click.self="close">
     <div class="modal-sheet if-sheet" role="dialog" aria-modal="true" :aria-label="isEdit ? '品目の情報' : '品目を追加'">
       <div class="sheet-handle"></div>
       <div class="if-title">{{ isEdit ? '品目の情報' : isRequest ? '品目の追加をホストに申請' : context === 'session' ? '新しい品目を登録' : '品目を追加' }}</div>
@@ -120,9 +182,22 @@ function submit() {
       </div>
 
       <button v-if="!isEdit && !showDetails" type="button" class="if-more" @click="showDetails = true">
-        ＋ 詳しく（単位・入数・ジャンル・単価）
+        ＋ 詳しく（{{ imageEnabled ? '写真・' : '' }}単位・入数・ジャンル・単価）
       </button>
       <template v-if="isEdit || showDetails">
+      <div v-if="imageEnabled" class="if-photo">
+        <button type="button" class="if-avatar" :disabled="imgBusy" aria-label="写真を選ぶ" @click="imgInput?.click()">
+          <img v-if="imgSrc" :src="imgSrc" alt="" />
+          <span v-else class="if-noimg">no image</span>
+          <span v-if="imgBusy" class="if-busy">保存中…</span>
+        </button>
+        <div class="if-photo-acts">
+          <button type="button" class="if-inline" :disabled="imgBusy" @click="imgInput?.click()">{{ imgSrc ? '写真を変える' : '写真を付ける' }}</button>
+          <button v-if="imgSrc" type="button" class="if-inline if-inline-sub" :disabled="imgBusy" @click="removeImage">外す</button>
+          <div v-if="imgErr" class="if-err">{{ imgErr }}</div>
+        </div>
+        <input ref="imgInput" type="file" accept="image/*" class="if-file" @change="onPickImage" />
+      </div>
       <div class="if-two">
         <div>
           <label class="if-label" for="if-unit">単位</label>
@@ -156,8 +231,8 @@ function submit() {
       <div v-if="added.length" class="if-added" role="status">✓ 追加しました：{{ added.slice(0, 3).join('・') }}<span v-if="added.length > 3"> ほか{{ added.length - 3 }}件</span></div>
 
       <div class="if-acts">
-        <button class="if-btn sec" type="button" @click="emit('close')">{{ added.length ? '完了' : single ? 'キャンセル' : '閉じる' }}</button>
-        <button class="if-btn pri" type="button" :disabled="!canSave" @click="submit">
+        <button class="if-btn sec" type="button" @click="close">{{ added.length ? '完了' : single ? 'キャンセル' : '閉じる' }}</button>
+        <button class="if-btn pri" type="button" :disabled="!canSave || imgBusy" @click="submit">
           {{ isEdit ? '保存'
             : (confirmedSimilar && confirmedSimilar === trimmed ? '別の品目として追加'
             : isRequest ? 'ホストに申請する'
@@ -195,5 +270,17 @@ function submit() {
 .if-btn.pri { background: var(--primary, #2563eb); color: #fff; }
 .if-btn.pri:disabled { opacity: 0.4; cursor: not-allowed; }
 .if-more { display: block; margin-top: 10px; border: none; background: none; color: var(--primary, #2563eb); font-weight: 700; font-size: 13px; padding: 4px 0; cursor: pointer; }
+.if-photo { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.if-avatar {
+  position: relative; width: 64px; height: 64px; flex: none; border-radius: 50%; overflow: hidden;
+  border: 1.5px solid #cbd5e1; background: #f1f5f9; padding: 0; cursor: pointer;
+}
+.if-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.if-noimg { font-size: 10px; font-weight: 700; color: #94a3b8; }
+.if-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.8); font-size: 10px; font-weight: 800; color: #475569; }
+.if-photo-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.if-photo-acts .if-inline { margin-left: 0; }
+.if-inline-sub { color: #64748b; }
+.if-file { display: none; }
 .if-inline { display: inline-block; margin-left: 6px; border: 1.5px solid currentColor; background: #fff; border-radius: 8px; padding: 3px 8px; font-weight: 800; font-size: 12px; cursor: pointer; color: var(--primary, #2563eb); }
 </style>

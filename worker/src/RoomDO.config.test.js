@@ -99,3 +99,11 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       .toEqual([])
   })
 })
+
+describe('normalizeConfig: 品目の画像', () => {
+  it('images（品目→画像の参照）を中継で落とさない・形が違えば空にする', () => {
+    expect(normalizeConfig({ images: { トマト: 'ABCD/' + 'a'.repeat(32) } }).images).toEqual({ トマト: 'ABCD/' + 'a'.repeat(32) })
+    expect(normalizeConfig({ images: ['x'] }).images).toEqual({})
+    expect(normalizeConfig({}).images).toEqual({})
+  })
+})

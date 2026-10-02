@@ -47,6 +47,7 @@ const config = reactive({
   lotSizes:       {},
   reorderPoints:  {},        // 品目 → 発注点（この理論在庫以下で「要補充」）。手動設定
   replenishTargets: {},      // 品目 → 補充目標（発注してここまで戻す）。未設定は自動算出
+  images:         {},        // 品目 → 画像の参照 '<店舗コード>/<id>'（R2。services/itemImages.js）
   dictionary:     { ...DEFAULT_DICT },
   isCustom:       false,
   savedAt:        null,
@@ -114,6 +115,7 @@ function _serializeConfigData() {
     lotSizes:      config.lotSizes,
     reorderPoints: config.reorderPoints,
     replenishTargets: config.replenishTargets,
+    images:        config.images,
     dictionary:    config.dictionary,
     axisNames:     config.axisNames,
     tagsA:         config.tagsA,
@@ -141,6 +143,7 @@ function _assignConfigData(src) {
   config.lotSizes      = src.lotSizes      ?? {}
   config.reorderPoints = src.reorderPoints ?? {}
   config.replenishTargets = src.replenishTargets ?? {}
+  config.images        = src.images && typeof src.images === 'object' && !Array.isArray(src.images) ? src.images : {}
   config.dictionary    = src.dictionary    ?? {}
   config.axisNames     = Array.isArray(src.axisNames) ? src.axisNames : ['', '']
   config.tagsA         = _normTags(src.tagsA)
@@ -498,6 +501,7 @@ export function useConfig() {
     config.lotSizes      = {}
     config.reorderPoints = {}
     config.replenishTargets = {}
+    config.images        = {}
     config.dictionary    = {}
     config.manualItems   = []
     // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
@@ -525,6 +529,7 @@ export function useConfig() {
     config.lotSizes      = {}
     config.reorderPoints = {}
     config.replenishTargets = {}
+    config.images        = {}
     config.dictionary    = { ...SAMPLE_DICTIONARY }
     // 軸（軸名・グループ定義）は店舗の永続設定。練習でも消さない（終了時に復元もされる）。
     config.tagsA         = {}
@@ -671,7 +676,7 @@ export function useConfig() {
     if (n !== oldName && config.order.includes(n)) return false
     if (n !== oldName) {
       config.order[idx] = n
-      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.tagsA, config.tagsB]) {
+      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB]) {
         if (obj[oldName] !== undefined) { obj[n] = obj[oldName]; delete obj[oldName] }
       }
       for (const [alias, target] of Object.entries(config.dictionary)) {
@@ -693,6 +698,19 @@ export function useConfig() {
     }
     _save()
     return n
+  }
+
+  /**
+   * 品目の画像を付け替える（ref = '<店舗コード>/<id>'、null で外す）。
+   * 前の参照を返す（呼び出し側が R2 から消す）。
+   */
+  function setItemImage(name, ref) {
+    if (!config.order.includes(name)) return undefined
+    const prev = config.images[name] ?? null
+    if (ref) config.images[name] = ref
+    else delete config.images[name]
+    _save()
+    return prev
   }
 
   // 発注点（この理論在庫以下で「要補充」）を設定。空/不正なら解除。
@@ -1049,7 +1067,7 @@ export function useConfig() {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
     config.order.splice(idx, 1)
-    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.tagsA, config.tagsB, config.hiddenAt]) {
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB, config.hiddenAt]) {
       delete obj[name]
     }
     const mi = config.manualItems.indexOf(name)
@@ -1143,6 +1161,7 @@ export function useConfig() {
     hideItem,
     unhideItem,
     serializeConfigData: _serializeConfigData,
+    setItemImage,
     learnedAliasCount,
     loadFromCSV,
     loadFromCSVMapped,

@@ -2,6 +2,24 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-02 — version 0.129.0 / 品目の写真（R2）
+
+User合意: 写真は登録後に圧縮、品目表の左端に LINE のような丸で出す。R2 を使う。画像が無いときは no image。全ユーザー。
+User 側: R2 バケット `inventory-images`（本番）・`inventory-images-pro-review` を作成（自動・APAC ヒント、Standard、公開なし）。
+- Worker（`imageHandler.js`）: `POST /store/:code/images`（要認証・multipart の thumb / full）→ id（128bit 乱数）。
+  `DELETE /store/:code/images/:id`（要認証）。`GET /img/:code/:id/:t|f` は認証なし（<img> はヘッダーを付けられない。id が推測できないことで守る）、
+  1年 immutable キャッシュ。中身で JPEG / WebP を確かめる・サイズ上限（thumb 64KB / full 700KB）。アカウント削除で店舗の写真を全部消す。
+  `wrangler.toml` に binding `IMAGES`（本番・pro_review）。`normalizeConfig` に `images` を追加（ゲストへの中継で落とさない）。
+- App: `services/itemImages.js`（端末で圧縮：一覧用 128px 正方形・大きく見る用 長辺800px、WebP→不可なら JPEG）。
+  `config.images`（品目→'<店舗コード>/<id>'）。名前を変えても付いたまま、品目を消すと外れる。
+  `ItemFormModal`: 写真を付ける／変える／外す（選んだ時点で保存、付けずに閉じたら消す、差し替えたら前の写真を消す。ゲストの申請では出さない。棚卸中は「詳しく」の中）。
+  `InventoryTable`: 店舗に写真が1枚でもあれば左端に丸い写真の列（無い品目は no image）。タップで大きく見る（`ItemImageViewer`、戻る・Escape で閉じる）。
+- プライバシーポリシー: 品目の写真・Cloudflare R2・保存期間を追記（最終改定 2026-10-02）。
+- 検証: App **2029 passed**、Worker **621 passed**。ローカル Worker（R2 はローカル）＋vite で、写真を付けて追加 → 一覧の丸（128px）→ タップで 800×600 → Escape で閉じる、を確認。build 成功。
+- 本番: Worker の手動 deploy が要る（R2 binding を含む）。Pro Review は develop への push で自動。
+- 未対応（後続）: 品目を消したときの R2 の写真の掃除（アカウント削除では全部消える）、共有URL閲覧画面での写真。
+- version: 0.128.0 → **0.129.0**。
+
 ## 2026-10-02 — version 0.128.0 / 品目リストの並び：取込はファイルの並びを再現、手で追加はジャンル内のコード順
 
 原因（User報告「中身が逆」）: 「追加・更新」の取込は既存品目の位置を動かさなかったため、最初に逆順で入った品目リストの並びが残っていた。

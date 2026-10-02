@@ -16,6 +16,7 @@ import {
 import { handlePastImportCreate, handlePastImportCancel } from './pastImport.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { handleAccountDelete } from './accountDeletion.js'
+import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { savePushSubscription, deletePushSubscription, handleCron } from './pushHandler.js'
 import {
@@ -184,6 +185,12 @@ export default {
     // ── 全ルートを try/catch で包む（例外時も必ずCORSヘッダーを返す）─────────
     try {
 
+    // ── 品目の画像（読み出し）── 認証なし。id が推測できない乱数であることで守る（imageHandler.js）
+    const imgMatch = path.match(/^\/img\/([A-Z]{4,8})\/([0-9a-f]{32})\/([tf])$/)
+    if (imgMatch && request.method === 'GET') {
+      return await handleImageGet(env.IMAGES, imgMatch[1], imgMatch[2], imgMatch[3])
+    }
+
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
@@ -212,7 +219,8 @@ export default {
           env.DB,
           request,
           body,
-          shopCode => purgeAccountRooms(env.ROOMS, shopCode),
+          // 画像（R2）も同じ削除で消す。失敗したら部屋の削除と同じく失敗として返す
+          shopCode => Promise.all([purgeAccountRooms(env.ROOMS, shopCode), purgeShopImages(env.IMAGES, shopCode)]),
         )
         return resultResponse(result, origin, allowedOrigin)
       }
@@ -320,6 +328,20 @@ export default {
             ? await savePushSubscription(env.DB, code, parsed.body)
             : await deletePushSubscription(env.DB, code, parsed.body?.endpoint)
           return resultResponse(result, origin, allowedOrigin)
+        }
+
+        // POST /store/:code/images … 品目の画像を保存（要認証・端末で圧縮済みの thumb / full）
+        if (subpath === '/images' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleImageUpload(env.IMAGES, code, request), origin, allowedOrigin)
+        }
+        // DELETE /store/:code/images/:id （要認証）
+        const imageDelMatch = subpath.match(/^\/images\/([0-9a-f]{32})$/)
+        if (imageDelMatch && request.method === 'DELETE') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleImageDelete(env.IMAGES, code, imageDelMatch[1]), origin, allowedOrigin)
         }
 
         // GET/POST /store/:code/sessions （要認証）

@@ -13,7 +13,9 @@ export function setAuthInvalidatedHandler(fn) { _onAuthInvalidated = fn }
 
 export function apiFetch(path, options = {}) {
   if (!HTTP_BASE) return Promise.reject(new Error('WORKER_URL未設定'))
-  const headers = { 'Content-Type': 'application/json', ...(options.headers ?? {}) }
+  // FormData（画像）は境界つきの Content-Type をブラウザに付けさせる
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
+  const headers = { ...(isForm ? {} : { 'Content-Type': 'application/json' }), ...(options.headers ?? {}) }
   const token = localStorage.getItem(STORAGE_KEYS.authToken)
   if (token) headers['Authorization'] = `Bearer ${token}`
   return fetch(`${HTTP_BASE}${path}`, { ...options, headers }).then(async r => {
