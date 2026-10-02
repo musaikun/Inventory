@@ -9,7 +9,7 @@ import { buildResultUrl, resultShareText, viewDaysRemaining } from '../services/
 import { SNAPSHOT_SOURCE_LINES } from '../services/snapshotFromLines.js'
 import { isSnapshotDirty } from '../utils/snapshotSync.js'
 import { buildSessionReport, findPrevSnapshot } from '../services/sessionReport.js'
-import { snapshotViewConfig } from '../services/snapshotView.js'
+import { snapshotViewConfig, categoryOrderOf } from '../services/snapshotView.js'
 import SessionReportPanel from './SessionReportPanel.vue'
 import { useConfig } from '../composables/useConfig.js'
 
@@ -323,7 +323,7 @@ const report = computed(() =>
   buildSessionReport(reportInput.value, findPrevSnapshot(props.snapshot, getSnapshots()))
 )
 function onDownload() {
-  const csv  = exportSnapshotCSV(props.snapshot)
+  const csv  = exportSnapshotCSV(props.snapshot, { categoryOrder: categoryOrderOf(liveConfig) })
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')

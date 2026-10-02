@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
+import { useConfig } from '../composables/useConfig.js'
+import { categoryOrderOf } from '../services/snapshotView.js'
 
 const emit = defineEmits(['close'])
 
@@ -80,7 +82,7 @@ function fmtYen(n) {
 }
 
 function onDownload(snapshot) {
-  const csv  = exportSnapshotCSV(snapshot)
+  const csv  = exportSnapshotCSV(snapshot, { categoryOrder: categoryOrderOf(useConfig().config) })
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')

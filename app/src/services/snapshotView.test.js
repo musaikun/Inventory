@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { snapshotViewConfig, categoryOrderOf } from './snapshotView.js'
+import { snapshotViewConfig, categoryOrderOf, sortByCategoryAndCode } from './snapshotView.js'
 
 const snap = {
   items: [
@@ -30,5 +30,29 @@ describe('snapshotViewConfig（閲覧の並びをホームに揃える）', () =
   })
   it('categoryOrderOf はコードの無いジャンルを五十音順で後ろへ', () => {
     expect(categoryOrderOf({ categories: { a: '野菜', b: '肉', c: '酒' }, categoryCodes: { '酒': 1 } })).toEqual(['酒', '肉', '野菜'])
+  })
+})
+
+describe('sortByCategoryAndCode（CSV・閲覧・詳細の並び）', () => {
+  const categories = { 牛乳: '乳製品', バター: '乳製品', 玉ねぎ: '野菜', 人参: '野菜', 塩: undefined, チーズ: '乳製品' }
+  const codes = { 牛乳: '10', バター: '9', 玉ねぎ: 'A-2', 人参: 'A-1' }
+
+  it('ジャンル順 → コード順（数字は数として）→ コード無しは元の順', () => {
+    const out = sortByCategoryAndCode(['塩', '牛乳', 'チーズ', '玉ねぎ', 'バター', '人参'],
+      { categories, codes, categoryOrder: ['野菜', '乳製品'] })
+    expect(out).toEqual(['人参', '玉ねぎ', 'バター', '牛乳', 'チーズ', '塩'])
+  })
+
+  it('並びに無いジャンルは見た順で後ろ', () => {
+    const out = sortByCategoryAndCode(['牛乳', '玉ねぎ'], { categories, codes, categoryOrder: [] })
+    expect(out).toEqual(['牛乳', '玉ねぎ'])
+  })
+
+  it('閲覧画面の order もコード順になる', () => {
+    const cfg = snapshotViewConfig({ categoryOrder: ['乳製品'], items: [
+      { item: '牛乳', category: '乳製品', code: '10' },
+      { item: 'バター', category: '乳製品', code: '9' },
+    ] })
+    expect(cfg.order).toEqual(['バター', '牛乳'])
   })
 })

@@ -1,6 +1,7 @@
 import { reactive, computed, ref } from 'vue'
 import { useConfig } from './useConfig.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { sortByCategoryAndCode, categoryOrderOf } from '../services/snapshotView.js'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
 const inventory   = reactive({})
@@ -184,10 +185,11 @@ export function useInventory() {
     const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]
 
-    const orderedItems = [
+    // ジャンル順（ホームと同じ）→ 商品コード順（User指示 2026-10-02）
+    const orderedItems = sortByCategoryAndCode([
       ...config.order,
       ...Object.keys(inventory).filter(k => !config.order.includes(k)),
-    ]
+    ], { categories: config.categories, codes: config.codes, categoryOrder: categoryOrderOf(config) })
 
     let grandTotal  = 0
     let hasAnyPrice = false

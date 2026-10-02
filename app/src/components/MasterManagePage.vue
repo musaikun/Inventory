@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { categoryOrderOf } from '../services/snapshotView.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
 import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -62,7 +63,7 @@ function exportLatestSnapshotCsv() {
   const snap = getSnapshots()[0]
   if (!snap) { alert('棚卸の履歴がまだありません。'); return }
   return runBusy('書き出し中…', () => {
-    _download(exportSnapshotCSV(snap), `棚卸結果_${snap.date}.csv`)
+    _download(exportSnapshotCSV(snap, { categoryOrder: categoryOrderOf(config) }), `棚卸結果_${snap.date}.csv`)
   }, { paintFirst: (snap.items ?? []).length >= HEAVY_ROWS })
 }
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)

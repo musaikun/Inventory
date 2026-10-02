@@ -80,7 +80,8 @@ export function snapshotViewConfig(snap, { live = null, withPrices = false } = {
   }
   const names = Array.isArray(snap?.axisNames) ? snap.axisNames : ['', '']
   return {
-    order, categories, prices, codes, categoryCodes,
+    // ジャンルの中は商品コード順（InventoryTable はジャンル内を order の順で出す）
+    order: sortByCategoryAndCode(order, { categories, codes, categoryOrder: catOrder }), categories, prices, codes, categoryCodes,
     prevMonths: {}, lotSizes: {}, units: {},
     // 振り分け（セッションで使ったもの）。名前が無い軸は出さない（InventoryTable の sortOpts）
     axisNames: [names[0] || '', names[1] || ''],
@@ -88,4 +89,43 @@ export function snapshotViewConfig(snap, { live = null, withPrices = false } = {
     axisGroupsA: pickGroups('axisGroupsA'),
     axisGroupsB: pickGroups('axisGroupsB'),
   }
+}
+
+// 商品コードの比べ方。数字だけのコードは数として（"9" < "10"）、それ以外は文字として。
+function _cmpCode(a, b) {
+  return String(a).localeCompare(String(b), 'ja', { numeric: true })
+}
+
+/**
+ * 品目名を「ジャンル順 → 商品コード順」に並べる（CSV出力・閲覧画面・完了済みの詳細で共通）。
+ * User指示 2026-10-02: CSV の並びがバラバラ。ジャンル別、商品コードがあれば商品コード順にする。
+ *
+ * - ジャンルは categoryOrder の順（ホームと同じ並び）。並びに無いジャンルは見た順で後ろ、ジャンル無しは最後
+ * - 同じジャンルの中は、コードのある品目をコード順 → コードの無い品目を元の順
+ * @param {string[]} names
+ * @param {{ categories?: object, codes?: object, categoryOrder?: string[] }} opts
+ * @returns {string[]} 新しい配列
+ */
+export function sortByCategoryAndCode(names, { categories = {}, codes = {}, categoryOrder = [] } = {}) {
+  const rank = new Map()
+  for (const c of categoryOrder) if (c && !rank.has(c)) rank.set(c, rank.size)
+  for (const n of names) {
+    const c = categories?.[n]
+    if (c && !rank.has(c)) rank.set(c, rank.size)
+  }
+  const catRank = (n) => {
+    const c = categories?.[n]
+    return c && c !== 'その他' ? rank.get(c) : Number.MAX_SAFE_INTEGER
+  }
+  const idx = new Map(names.map((n, i) => [n, i]))
+  return [...names].sort((a, b) => {
+    const r = catRank(a) - catRank(b)
+    if (r) return r
+    const ca = codes?.[a], cb = codes?.[b]
+    const ha = ca != null && ca !== '', hb = cb != null && cb !== ''
+    if (ha && hb) { const c = _cmpCode(ca, cb); if (c) return c }
+    else if (ha) return -1
+    else if (hb) return 1
+    return idx.get(a) - idx.get(b)
+  })
 }

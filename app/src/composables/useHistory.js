@@ -1,5 +1,6 @@
 import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { sortByCategoryAndCode } from '../services/snapshotView.js'
 import {
   clientSavedMs, serverSavedMs, serverRevision, isSnapshotDirty,
 } from '../utils/snapshotSync.js'
@@ -373,8 +374,10 @@ export function useHistory() {
    * スナップショットをCSV文字列に変換
    * TOP画面のexportCSVと同一フォーマット:
    * 日付,商品コード,品目名,単位,数量,単価,在庫金額
+   * 並びはジャンル順 → 商品コード順（sortByCategoryAndCode）。ジャンルの順は opts.categoryOrder
+   * （ホームの並び）→ 完了時に残した並び。
    */
-  function exportSnapshotCSV(snapshot) {
+  function exportSnapshotCSV(snapshot, { categoryOrder } = {}) {
     // CSVフォーミュラインジェクション対策
     function csvSafe(val) {
       if (typeof val !== 'string' || val === '') return val
@@ -385,7 +388,19 @@ export function useHistory() {
     const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]
 
+    const byName = new Map(), categories = {}, codes = {}
     for (const it of snapshot.items) {
+      if (!it?.item || byName.has(it.item)) continue
+      byName.set(it.item, it)
+      if (it.category) categories[it.item] = it.category
+      if (it.code) codes[it.item] = it.code
+    }
+    const order = sortByCategoryAndCode([...byName.keys()], {
+      categories, codes,
+      categoryOrder: categoryOrder?.length ? categoryOrder : (snapshot.categoryOrder ?? []),
+    })
+    for (const name of order) {
+      const it = byName.get(name)
       const code     = csvSafe(it.code ?? '')
       const safeItem = csvSafe(it.item)
       const category = csvSafe(it.category ?? '')
