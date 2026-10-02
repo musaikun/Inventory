@@ -1,10 +1,23 @@
 # PLAY-003 / PRIV-001 実装整合監査
 
-最終更新: 2026-08-04
+最終更新: 2026-10-02
 担当: Codex
 状態: code対応・回答draft作成済み、DS-02整合完了、実環境/公開前 gate の確認待ち
 役割: W1のprivacy/data flow根拠。Play Console回答はA1までdraftとして扱う
-最新照合: 2026-08-04 / `develop@bc9fb85`（各証拠行の過去commitは履歴として保持）
+最新repository照合: 2026-10-02 / `develop@49227ff`（各証拠行の過去commitは履歴として保持）
+
+## 2026-10-02 現行差分
+
+- 品目写真は端末で縮小しmetadataを落としてから、非公開Cloudflare R2へthumb/fullを保存する。
+  `config.images`に参照を持ち、画像readは推測困難なURLを鍵とする無認証endpoint。共有結果には現在含めない。
+  写真の削除・差替えまたはaccount削除でR2から削除するが、品目削除時の孤児cleanupは後続課題。
+
+- 完了結果の共有URLは、ログインなしで3日間、品目・数量・単価・小計・合計金額・参加者別入力・
+  操作履歴を表示する。利用者が共有を開始する経路だが、A1のData Safety最終回答では
+  「user-initiated sharing」の例外条件を公開buildとpolicyで再確認する。
+- migration 0017の`session_audit`と0018の`discarded_sessions`は業務dataとしてD1へ保存し、
+  account削除時に物理削除する。破棄下書きは通常24時間で関連dataごとpurgeする。
+- 固定Free上限は現在無効。これはdata collection分類を変えないが、公開termsと機能説明を一致させる。
 
 ## 1. 目的と監査基準
 
@@ -49,7 +62,7 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 |---|---|---|---|---|---|---|
 | 店舗code・店舗名（User ID候補） | 登録/login | Cloudflare Worker / D1 / localStorage | account識別、同期 | 必須 | D1はaccount削除時に店舗を匿名tombstone化し7日後削除。local authは削除成功時に消去 | collected / app functionality。`useAuth.js`、`stores` migration、`accountDeletion.js` |
 | PIN hash・auth token | 登録/login | D1、tokenはlocalStorageにも保存 | 認証・security | 必須 | token有効期間30日。account削除で全token削除 | collected / account management, security。`authHandler.js`、`constants.js` |
-| 棚卸・品目・価格・注文・移動・設定・履歴 | 利用者入力/import | D1、localStorage、同期中はDurable Objects | 主機能、同期 | 必須 | D1はaccount削除まで。DOは明示終了/削除または最終activityから24時間。local業務dataはaccount境界/削除時に消去 | collected / app functionality。migrations 0001〜0010、`RoomDO.js`、`accountData.js` |
+| 棚卸・品目・価格・注文・移動・設定・履歴・session操作履歴・破棄下書き | 利用者入力/import | D1、localStorage、同期中はDurable Objects | 主機能、同期、24時間の破棄復元 | 必須 | D1はaccount削除まで。破棄下書きは通常24時間。DOは明示終了/削除または最終activityから24時間。local業務dataはaccount境界/削除時に消去 | collected / app functionality。migrations 0001〜0018、`RoomDO.js`、`accountData.js` |
 | 端末名（Personal info候補） | 利用者が任意入力 | localStorage、DO接続attachment、audit/chat、他参加者 | 複数端末の識別 | 任意 | account削除成功時にlocalStorageとmemoryを消去。logout/account切替では保持。DOはaccount削除時にpurgeし、通常時も最大200件/24時間TTL | collected / app functionality。`useDeviceId.js`、`accountData.js`、`RoomDO.js` |
 | 端末ID（Device or other IDs） | browserで生成 | localStorage、DO、他参加者への同期event | 再接続・参加者識別・監査 | 自動 | account削除成功時に保存値を消去しmemory上は別IDへ交換。次回起動で新IDを保存。logout/account切替では保持。DOはaccount削除時にpurge | collected / app functionality, fraud/security候補。`useDeviceId.js`、`accountData.js`、`useSync.js`、`RoomDO.js` |
 | chat自由記述（Other user-generated content） | 同期roomで利用者入力 | Durable Objects、同室参加者 | collaboration | 任意 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | collected / app functionality。`ChatModal.vue`、`RoomDO.js` |

@@ -3,8 +3,8 @@
 - 状態の正本は [`../task-list.md`](../task-list.md)
 - **現在の扱い（2026-08-04 / D-021）**: Web Free版の公開中は保留。TWA、reviewer、Play Console、
   store listing、screenshotsはA1マイルストーンで再開する。
-- Free 2台制限はWeb利用規約にも影響するため、現在の公開gate
-  [`WEB-001`](WEB-001.md)へ移した。以下の過去監査記録は削除しない。
+- **2026-10-01補足:** 固定Free上限は2026-08-30のUser判断で現在無効。規約・App・Workerの整合は
+  [`WEB-001`](WEB-001.md)へ移した。以下の料金上限に関する記述は当時の監査記録として削除しない。
 
 - 着手: 2026-07-26 / Claude Code（前半＝TWA・reviewer導線・名称・store metadata の監査）
 - 分割: 前半は監査のみ（コード変更は指摘として起票）。公開legalページとURL導線は `PLAY-003` 完了後に実装。

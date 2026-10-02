@@ -1,6 +1,6 @@
 # ドキュメント案内
 
-最終整理: 2026-08-06 / 実装照合基準: `develop@bc9fb85`
+最終整理: 2026-10-02 / 実装照合基準: `develop@49227ff` / App `0.129.1`
 
 このファイルを `docs/` 全体の唯一の総合索引とします。公開目標は
 **Web Free版を安全に公開できる状態にすること**です。ただし**2026-09-30 から当面は、機能の不足と
@@ -31,8 +31,8 @@ Stripe契約は後続マイルストーンであり、現在のWeb公開判定�
 | 削除API契約 | [account deletion contract](quality-foundation/account-deletion-contract.md) | App / Worker / D1 / DO境界 |
 | デプロイ方式 | [CI/CD](ci-cd.md) | preview、本番release、rollback |
 
-コード・migrationと現行仕様書が矛盾する場合、仕様書を根拠に実装を推測しません。
-差分をタスク化し、どちらを直すか判断記録へ残します。
+コード・migrationと現行仕様書が矛盾する場合は、D-028により現在のApp / Worker / migrationを正として
+文書を合わせます。選択によって製品の挙動が変わる不明点だけUserへ確認します。
 
 ## 現行仕様・設計
 
@@ -45,7 +45,7 @@ Stripe契約は後続マイルストーンであり、現在のWeb公開判定�
 | [db-design-v2.md](db-design-v2.md) | 現行と将来設計が混在。実schemaの正はmigration |
 | [feature-checklist.md](feature-checklist.md) | 新機能・仕様変更の共通DoD |
 | [test-cases.md](test-cases.md) | 同期・競合・offlineの恒久手動回帰 |
-| [test-checklist-new-features.md](test-checklist-new-features.md) | 2026-07-28までの履歴snapshot。Web release gateには使わない |
+| [test-checklist-new-features.md](test-checklist-new-features.md) | 2026-09まで追記された新機能確認の履歴snapshot。現行release gateには使わない |
 
 鮮度の詳細と更新順は
 [ドキュメント鮮度台帳](quality-foundation/documentation-inventory.md)を参照します。
@@ -93,7 +93,9 @@ Play専用資料は削除せず、A1着手時に公式要件を再確認して�
 - `docs/quality-foundation/tasks/completed-*.md`
 - `docs/export/**`
 
-`session-log.md`、`intake-reviews.md`、`proposals.md`も過去entryを改変せず、新しい記録を上に追記します。
+`session-log.md`と`proposals.md`は2026-09以降を現行fileに残し、2026-08以前を
+`quality-foundation/archive/`の月別snapshotに保存します。`intake-reviews.md`を含め、
+過去entryは改変せず、新しい記録を現行fileの上に追記します。
 
 ## 整理ルール
 

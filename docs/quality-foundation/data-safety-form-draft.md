@@ -4,6 +4,9 @@
 担当: Codex
 状態: Play Console転記前のdraft（`DS-02`・`DS-05`整合済み、`DS-04`・`DS-06`〜`DS-10`の確認待ち）
 
+> 2026-10-01以後、完了結果の共有URLは金額を含み、`session_audit` / `discarded_sessions`もD1へ保存する。
+> A1着手時は[`data-safety-audit.md`](data-safety-audit.md)の現行差分を反映してから転記する。
+
 ## 1. このdraftの前提
 
 - 対象はGoogle Playへ提出するタナオロの公開build。

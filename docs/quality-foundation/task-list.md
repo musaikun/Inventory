@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-09-17
+最終更新: 2026-10-01
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -9,14 +9,10 @@
 - 担当: `未割当` / `Codex` / `Claude Code` / `User`
 - P0 は認可・データ境界または**現在のWeb公開**を直接blockする項目
 
-現在は[Web公開準備](web-release-readiness.md)に含まれるP0/P1と品質基盤だけを実装し、
-新機能、Stripe、trial、TWA、Google Play提出作業は原則保留します。
-D-021以前の2週間計画は[履歴](sprint-plan-2026-07-27.md)として保持します。
-
-> **CCセッションの実行計画は [`cc-session-plan.md`](cc-session-plan.md) にあります。**
-> Codexレビューの修正を3セッションへ分け、各回の範囲、受入条件、必須test、
-> 引き渡し方法をまとめた**指示出し用の一時文書**です。
-> CC側の作業を始めるときは、まずそちらを読んでください（状態の正本は本ファイルのままです）。
+現在は[D-027](decisions.md#d-027--機能の不足と実使用の不具合を品質集中公開gateより優先する)により、
+実使用で不足している機能と不具合修正を公開gateより優先します。公開gateは廃止せず後回しです。
+Stripe、trial、TWA、Google Play提出は引き続き保留し、D-021以前の2週間計画は
+[履歴](sprint-plan-2026-07-27.md)として保持します。
 
 ## 現在のマイルストーン: Web Free版
 
@@ -68,8 +64,8 @@ Web登録へのtrial適用とStripe/backendの単独公開順はUser判断待ち
 [`DATA-002.md`](tasks/DATA-002.md)、[`IMPORT-001.md`](tasks/IMPORT-001.md)。
 各詳細内の「未実施」は完了記録時点の状態です。
 2026-07完了分は`develop@96233d4`まで、CI-001は`develop@7d47cb4`で初回完了し、
-現在HEAD `develop@bc9fb85`のpreview CIも成功済みです。
-DEP-001、PLAY-002/003/004の直近成果は`develop@bc9fb85`までにcommit / push済みです。
+2026-08-04基準の`develop@bc9fb85`ではpreview CI成功済みです（現在HEADのproduction証拠ではありません）。
+DEP-001、PLAY-002/003/004の当時の成果は`develop@bc9fb85`までにcommit / push済みです。
 Pro Reviewは2026-08-23にD1 `0016`、専用Worker、Pages `develop@4add746`（App 0.68.0）まで更新済みです。
 本番Pages / Workerの現行化と本番D1 migrationは未実施です。
 
@@ -87,6 +83,7 @@ Pro Reviewは2026-08-23にD1 `0016`、専用Worker、Pages `develop@4add746`（A
 | CI-001 | P1 | 2026-08-02 | Codex | `develop` のtest/buildとPages preview自動実行 |
 | DEP-001 | P1 | 2026-08-02 | Codex | 本番依存の high 脆弱性を解消または隔離 |
 | DOC-001 | P1 | 2026-08-06 | Codex | docsの正本・現行・将来・履歴をWeb先行へ整理 |
+| DOC-002 | P1 | 2026-10-01 | Codex | 現行実装へ文書を再同期し、2026-08以前のsession/proposal logを月別archive化 |
 | DATA-001 | P1 | 2026-08-19 | Codex | 複数writeの原子性、完了ライフサイクル、同期キュー競合を修正 |
 | DATA-002 | P1 | 2026-08-19 | Claude Code | sessionId履歴identity、完了・取込の原子性と再送契約を整合 |
 | IMPORT-001 | P1 | 2026-08-19 | Claude Code | 品目・過去棚卸取込を非破壊preview、厳格解析、取消可能な契約へ適合 |
@@ -112,7 +109,7 @@ Pro Reviewは2026-08-23にD1 `0016`、専用Worker、Pages `develop@4add746`（A
 | AppのVitestがWorkerテストを重複実行する問題（分離済み。critical E2E等は未完） | [TEST-002](tasks/TEST-002.md) |
 | `postcss` / `xlsx` の production high 脆弱性 | [DEP-001](tasks/DEP-001.md) |
 | TWAでの価格・購入面（D-021のP1） | [PLAY-004](tasks/PLAY-004.md) |
-| Free 2台制限のserver整合（D-016のW1公開面） | [WEB-001](tasks/WEB-001.md) |
+| plan境界と公開文面の整合（固定Free上限は現在無効） | [WEB-001](tasks/WEB-001.md) |
 | 履歴の端末依存とデータ源の不整合（`R-001` / `F-001`〜`F-004`） | [DATA-002](tasks/DATA-002.md) |
 | ホームを棚卸中心の順路へ戻す画面再編（旧 `UI-002`。実体fileを持たず`UI-001.md`へ誤リンクしていた） | [UI-001](tasks/UI-001.md) |
 

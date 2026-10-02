@@ -1,10 +1,27 @@
 # ドキュメント鮮度台帳
 
-最終監査: 2026-08-06
-実装基準: `develop@bc9fb85` / app `0.66.2`
+最終監査: 2026-10-02
+実装基準: `develop@49227ff` / app `0.129.1` / migration `0018`
 役割: 機械的な棚卸しと鮮度負債。総合索引は[`../README.md`](../README.md)を正とする。
 
-## 2026-08-04〜2026-08-06 棚卸し
+## 2026-10-01 再監査
+
+- 対象: 110 files（`export/` 30、`legal/` 2、`mocks/` 3、quality core 22、tasks 25、
+  quality archive 5、top-level 23）。
+- ローカルMarkdown file targetのリンク切れ: 0件。section anchorと外部URLの到達性は別途release確認する。
+- 現行実装を正として文書を再同期する判断は[D-028](decisions.md#d-028--実装と文書の差は現行アプリを正とし文書を再同期する)。
+- release-criticalな再同期は[`DOC-002`](tasks/DOC-002.md)で追跡する。
+
+| 優先 | 鮮度差 | 処理 |
+|---|---|---|
+| P0 | 共有resultの金額公開、migration 0018、account削除対象、D-027の作業優先順位 | API/security/legal/release/agent入口を現行実装へ同期 |
+| 対応済み | 3タブ画面、履歴の独立画面化、破棄・復元、固定Free上限の無効化、恒久手動回帰 | spec/画面図/料金/testを同期 |
+| P1 | 品目写真のR2保存、認証なし画像read、account削除、共有結果非対応 | API/security/privacy/削除契約/release確認へ同期 |
+| 対応済み | project status/roadmapの履歴混在、完了済みCC plan、巨大なsession/proposal log | 現行baselineを分離し、2026-08以前のlogを月別archiveへ移動 |
+
+以下の2026-08台帳は当時の監査履歴として保持する。
+
+## 2026-08-04〜2026-08-06 棚卸し（履歴）
 
 - 対象: 92 files（Markdown 91、export ZIP 1）。8/5に並行追加された`tasks/UI-001.md`を含む
 - `docs/export/`: 30 files。すべて履歴

@@ -5,7 +5,7 @@
 | Status | **Current security baseline**。W1 Web Free版は未公開判定 |
 | Role | 実装済みsecurity境界と、Web公開前に閉じるgapの台帳。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
 | Source of truth | Worker/App code、migration、関連test、[task board](quality-foundation/task-list.md)、[decisions](quality-foundation/decisions.md) |
-| Last verified | **2026-08-04 / `develop@bc9fb85`**（repositoryとread-only production監査。deploy済みを意味しない） |
+| Last verified | **2026-10-02 / `develop@49227ff`**（repository baseline。production状態はrelease前に再probeする） |
 
 ## 現行baseline
 
@@ -17,36 +17,38 @@
 | 総当たり | 店舗単位15分5失敗、IP単位15分30失敗。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
 | HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/pushはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
 | WebSocket | Workerがactive店舗をD1確認してからDOへ転送。join前はping以外を遮断し、PIN設定店舗のhost再発行は同店舗Bearer必須。D1障害・binding欠落は503/auth失敗で閉じる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js) |
-| guest data | guest宛てconfigから単価を除去し、完了結果APIも金額を除外。未参加socketにはbroadcastしない | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
+| guest data | 進行中WSのguest configから単価を除去し、未参加socketにはbroadcastしない。完了後の共有resultはUser判断により単価・小計・合計金額を含む。店舗code + session UUIDのURLを知る人が3日間閲覧できる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`room-url-design.md`](room-url-design.md) |
 | account削除 | Bearer + PIN + 店舗code + UUID requestId。削除中は通常accessを遮断し、stock/order DOの接続・alarm・storageを破棄後、D1関連data/tokenをbatch削除。匿名receipt/tombstoneは7日 | [account deletion contract](quality-foundation/account-deletion-contract.md)、[`accountDeletion.js`](../worker/src/accountDeletion.js) |
 | payload / Push | config/inventory/history/order/movementは約1MB guard。Pushはstrict auth、8KiB、HTTPS endpoint/key形式、owner境界。PDFはauth、5MiB、IP rate limit | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`pushHandler.js`](../worker/src/pushHandler.js) |
+| 品目写真 | upload/deleteはstrict同店舗Bearer。thumb 64KiB/full 700KiB、JPEG/WebPの実byteを検証し、非公開R2へ保存。readは`<store>/<128-bit id>/<variant>`を鍵とする無認証URLで1年cache。account削除は店舗prefixをpurgeする | [`imageHandler.js`](../worker/src/imageHandler.js)、[`imageHandler.test.js`](../worker/src/imageHandler.test.js) |
 | browser policy | Pages sourceにCSP、`nosniff`、frame拒否、referrer/permission policyがある。scriptはself、接続先はWorker、weather、PostHog EUへ限定 | [`_headers`](../app/public/_headers) |
 | PostHog | SDKは3つのbuild条件（enabled/key/EU host）と明示同意が揃う場合だけ遅延初期化し、custom event/property allowlistを二重検証。自動capture/replay/error/logはoff | [`analytics.js`](../app/src/utils/analytics.js)、[`PRIV-001`](quality-foundation/tasks/PRIV-001.md) |
 
-### repository CORSとproductionの差
+### repository CORSとproduction確認
 
 - repositoryの`isAllowedOrigin()`はallowlist完全一致、旧project suffix、localhostだけを許可し、
   未知Originを403で拒否する。許可Originだけを`Access-Control-Allow-Origin`へ反映する回帰testがある。
-- ただし`worker/wrangler.toml`の`ALLOWED_ORIGIN=https://inventory-app.pages.dev`と組み込みsuffix
-  `*.inventory-app.pages.dev`は、実project host `inventory-app-c40.pages.dev`と一致しない。
-- 2026-08-04のread-only probeではremote Workerが任意Originを反射する旧挙動だった。
-  したがってrepositoryのfail-closed実装を**production対策済みとは判定しない**。canonical確定、
-  config/test更新、Worker deploy、許可/拒否Originの実probeはWEB-02で行う。
+- `worker/wrangler.toml`は`inventory-app-c40.pages.dev`、`develop.inventory-app-c40.pages.dev`を
+  明示allowlistへ含める。2026-08-29の記録では固定originとpreview originの200を確認した。
+- これは現在のrelease candidateのproduction証拠ではない。canonical確定後、対象SHAのWorker deployと
+  許可/拒否Originの実probeをWEB-02で再実行する。
 
 ## Web公開前の既知gap
 
 | 優先 | Gap / release影響 | 追跡先 |
 |---|---|---|
-| P0 | production CORSが旧fail-open。repository設定も実host不一致 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
+| P0 | canonicalとrelease candidateを固定し、productionの許可/拒否Originを対象SHA付きで再確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
 | P1 | `/auth/register`にrate limit/bot対策がなく、legacy `/store/create`も無認証で店舗を作成できる | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
-| P1 | Free 2台・150品目・履歴3件は主にclient表示制御。DOはplan非依存で20台、server entitlementは上限を強制しない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
-| P1 | 棚卸完了、注文、移動のheader/linesやsnapshotが単一transactionでなく、部分成功を注入した回帰が未完 | [`DATA-001`](quality-foundation/tasks/DATA-001.md) / WEB-07 |
-| P1 | 履歴一覧・snapshot・`inventory_lines`のdata源が分裂し、別端末で詳細を読めない実害と孤児dataが確認済み | [`DATA-002`](quality-foundation/tasks/DATA-002.md) / WEB-07 |
+| P1 | 共有resultは無認証URLで金額を含む。UI・privacy・運用説明を一致させ、URL漏洩時の扱いをrelease確認する | [`DOC-002`](quality-foundation/tasks/DOC-002.md) / WEB-09〜10 |
+| P1 | 品目写真readは認証なしで、推測困難なURLをaccess境界とする。production R2 binding、別店舗upload/delete拒否、URL漏洩、account削除後404を実環境で確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-09〜10 |
+| P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
+| P1 | DATA-001/002・IMPORT-001の原子性/履歴修正は完了したが、release candidateの実D1・別browser確認は未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-07 |
 | P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
-| P1 | account削除に必要なproduction D1 0011と現行Workerは未反映。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P1 | production migrationは0018までpreflightが必要。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
 | P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |
 
-code test/buildは本更新で未実行。remote事実は2026-08-04の
+本更新ではlegal page契約test（59件）とApp production buildを実行して成功した。
+App全test、Worker test、browser/remote probeは未実行。remote事実は2026-08-04および2026-08-29の
 [WEB-001 read-only preflight](quality-foundation/tasks/WEB-001.md)を参照する。過去の成功件数は
 [session log](quality-foundation/session-log.md)に対象commitとcommandを残しており、現在HEADやproductionの
 成功へ読み替えない。

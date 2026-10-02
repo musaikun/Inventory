@@ -1,6 +1,6 @@
 # ロードマップ（実行計画）
 
-最終方針更新: 2026-07-25 / 機能棚卸し本文の基準 v0.48 系
+最終方針更新: 2026-10-02 / 現行基準 App 0.129.1
 位置づけ: 「何を・どの順で・なぜ」を1枚にした実行計画。戦略（`strategy-10yr.md`）と
 現在地（`project-status.md`）の下に立つ、near-term の“地図”。
 `👉` は Claude の意見（採否は要判断）。状態: ✅完了 / 🔧一部 / 📄設計のみ / ⬜未着手
@@ -17,6 +17,9 @@
 > Web登録へのtrial適用とStripe/backendの単独公開順は未決。現在の実行順とgateは
 > [`quality-foundation/web-release-readiness.md`](quality-foundation/web-release-readiness.md)を正とし、
 > 以下の旧Waveは長期優先度の参考として読む。
+
+> **2026-09-30 方針変更（D-027）:** 当面は実使用で不足している機能と不具合修正を公開gateより優先する。
+> 状態・担当はtask board、公開gateはweb-release-readiness、実装事実は現行code/migrationを正とする。
 
 ---
 
@@ -57,7 +60,7 @@
 ### C. マネタイズ基盤
 | 項目 | 状態 | 目的 / 依存 / 規模 |
 |---|---|---|
-| E0: サーバー側プラン管理（`isPro()` をサーバー判定へ） | 🔧 | `stores.plan`列あり。2026-07-28に14日トライアルと`LIMITS_DISABLED`/`tanaoro_is_pro`自己申告を撤去し、無料枠を2台・150品目・履歴3回に決定。**残**: 認証APIのentitlementをAppへ配線し、Worker/DOでも上限を強制 → `pricing-strategy.md` |
+| E0: サーバー側プラン管理（`isPro()` をサーバー判定へ） | 🔧 | `stores.plan`列あり。trial/Stripeは未実装。2026-08-30以後、2台・150品目・履歴3回の固定上限は一時無効。再導入時は認証APIのentitlementをAppへ配線し、Worker/DOでも強制 → `pricing-strategy.md` |
 | B2B料金体系（組織契約・席数/店舗数・請求書払い） | ⬜ | 現行は消費者型。3000店舗の契約形態が未設計 / 中。👉インボイス（適格請求書）発行可否もここで決める |
 | 決済（Stripe） | 📄保留 | サンドボックス検証待ち。👉導入時はメール収集が実質必須 → プライバシーポリシー改定・特商法表記とセット（→G法務） |
 | **ドメイン取得** | ⬜ | B2B信用の最低条件（今は `*.pages.dev`）/ 小・即 |
@@ -67,7 +70,7 @@
 |---|---|---|
 | 棚卸スナップショット（在庫断面） | ✅ | 既存の主データ |
 | 行動ログ・実働時間（誰が/何を/いつ/何個/何分） | ✅ | 取得＆履歴永続化済み。分析面が無いだけ（→B） |
-| **仕入（入出庫）の捕捉** | ✅ | v0.48 `useMovements`＋`MovementPage`。発注→入庫のワンタップ取込・理論在庫（`theoreticalStock`）まで実装。**残: D1同期（現状 localStorage 専用・下記F参照）** |
+| **仕入（入出庫）の捕捉** | ✅ | `useMovements`＋`MovementPage`。入出庫はlocal cacheへ即時保存しD1へ再送・取得する。v0.122以後は入庫／出庫の記録に絞り、発注開始や在庫表と重複させない |
 | 天気タグ付き履歴 | 🔧 | 表示スロットのみ（→A天気と同源） |
 
 ### E. 発注アシスト（数値獲得の楔）
@@ -88,7 +91,7 @@
 | 認証テーブル掃除 cron（auth_tokens/login_attempts/ip_attempts） | ⬜ | 肥大化防止（S-H）/ 小 |
 | inventory_lines の R2 アーカイブ | ⬜ | D1 10GB上限＝最初に来る天井。指標で発火 / 中 |
 | ライブ在庫の書き込み削減（`saveInventoryToD1`） | ⬜ | 最大の無駄書き込み源。安価な即効策 / 小 |
-| store_history に session_id 列（全件パース排除） | ⬜ | 無認証 result エンドポイントの DoS 耐性にも直結（監査 スケール#3）/ 小 |
+| store_history に session_id列・直接取得 | ✅ | migration 0012と`handleRoomResult`の`(shop_code, session_id)`直接取得で対応済み |
 | 組織ごとD1分割（サイロ型・10倍成長時） | 📄 | → `db-design-v2.md` / 大 |
 | 監視・障害復旧 runbook・ステータスページ | ⬜ | 運用の空白。契約前に整える / 中 |
 | 前提: Workers Paid プラン | — | 無料は書込10万/日で即オーバー |
@@ -98,7 +101,7 @@
 |---|---|---|
 | **セキュリティ小改修3点**（CORSフェイルクローズ / CSP `_headers` / `/pdf` ガード） | ✅ | 2026-07-21 実装（S-E/S-07/S-D）。CORSは isAllowedOrigin でフェイルクローズ、CSPは実ブラウザ検証済み、/pdfは認証+5MB+レート制限。テスト計10件 |
 | **WSゲスト向け prices サニタイズ** | ✅ | 2026-07-21 実装（S-G）。DOで接続ごとisHost判定・ゲストは prices 空。テスト3件。C-02 商業懸念も解消 |
-| **退会・アカウント削除フロー** | ⬜**必須** | `stores.deleted_at` はあるが API/UI 無し（C-03）。**Google Play はアカウント削除手段（アプリ内＋Web URL）を義務化**＝Play公開のブロッカー / 中 |
+| **退会・アカウント削除フロー** | ✅ | App内＋公開Web、再認証、DO/D1/local削除を実装済み。production migration・canonical・実機確認はrelease gateに残る |
 | **法務: 特商法表記・ポリシー改定（メール収集・**位置情報/Open-Meteo外部送信 R4-01**）・総額表示** | ⬜**必須** | 位置情報の記載は天気機能を含むビルドの本番リリース前（それ以外は課金開始時） / 小 |
 | PIN 強化第2弾（6桁化 or 頻出PIN拒否・shopCode×IP併用カウント） | ⬜ | S-04 残課題（スプレー攻撃）/ 小 |
 | アカウント復旧手段（リカバリーコード or メール） | ⬜ | PIN忘れ＝完全ロックアウト（C-07）。課金開始前に / 中 |
@@ -137,7 +140,7 @@
 9. セキュリティ小改修3点＋WS prices サニタイズ（G）✅ 2026-07-21
 10. 入出庫の D1 同期（F・料金戦略の前提）✅（R5-01 テナント境界も修正済み）
 11. 日次バックアップ cron→R2＋リストア検証（F）
-12. 退会・アカウント削除フロー（G・Play要件）
+12. 退会・アカウント削除フロー（G・Play要件）✅
 13. 最小監視（F）／認証テーブル掃除cron（F）
 13a. WS参加前操作、注文tenant境界、Push認証、fail-closed、cron schema不整合の修正
 13b. develop CI、critical integration/E2E、dependency high脆弱性の解消
@@ -146,7 +149,7 @@
 ### Wave 2.6 — Web Free版 production readiness ★現在地
 
 1. canonical/contact、Pages routing、CORS、production deploy/rollbackを固定
-2. 本番D1 0010〜0016のmigration、登録濫用、Free上限、履歴data integrityを解消
+2. production D1をpreflightして0018まで適用、登録濫用、plan文面、履歴data integrityを確認
 3. observability、critical E2E、production smoke、User承認
 4. 詳細は[Web公開準備](quality-foundation/web-release-readiness.md)
 
@@ -161,8 +164,8 @@
 
 ## 3. 判断メモ
 
-- **課金基盤(E0)**: サーバー側プラン列は導入済み。無料/PRO境界を2026-07-28に確定し、14日トライアルと
-  クライアントの一時解除は撤去済み。認証API配線とserver enforcementは将来のPro/Play準備で行う。
+- **課金基盤(E0)**: サーバー側プラン列は導入済み。14日trialと決済は未実装で、固定Free上限は
+  2026-08-30のUser判断により現在無効。認証API配線とserver enforcementは将来のPro/Play準備で行う。
 - **Wave 2.5 の現行方針**: 収益化・Play公開・企業商談のいずれにも必要な認可、data integrity、
   削除、CI、privacyを先に固める。2026-07-25の判断により期間中の機能追加は凍結し、
   **mandatory release gatesを通過するまでWave 3へ入らない**。

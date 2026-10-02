@@ -4,8 +4,8 @@
 |---|---|
 | **Status** | 現行W1 API baseline（known gapを併記） |
 | **Role** | Web Free版で実装済みのHTTP/WebSocket境界を一覧化する派生仕様 |
-| **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
-| **Last verified** | 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq`（migration 0016 まで・本番未適用） |
+| **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`imageHandler.js`](../worker/src/imageHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
+| **Last verified** | 2026-10-02 / `develop@49227ff`（App 0.129.1・migration 0018まで。production適用状態はrelease前preflightが正） |
 
 実装と矛盾する場合は上記code/migrationを優先します。account削除の詳細は
 [account deletion contract](quality-foundation/account-deletion-contract.md)、公開可否は
@@ -32,11 +32,11 @@
 | `POST /store/create` | PINなしlegacy store codeを作る旧経路 | 不要。廃止/保護をSEC-005で未解消 |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
 
-`DELETE /auth/account`は棚卸/発注の2 Durable Objectsを内部認証付きでpurgeし、D1の
+`DELETE /auth/account`は棚卸/発注の2 Durable Objectsと店舗prefixのR2品目写真をpurgeし、D1の
 inventory/session/history/order/movement/config/Push/token等を削除します。store rowは匿名tombstone、
 requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功扱いにせず503を返し、同じrequestIdで
 再試行します。200/replay成功後だけAppがlocal業務data、端末ID/名、天気位置/cache、Push、authを消します。
-本番利用にはmigration 0011が必要で、現時点のproductionには未適用です。
+本番利用にはmigration 0011が必要です。productionの適用状態はrelease前のread-only preflightで確認します。
 
 ### Store data
 
@@ -44,6 +44,8 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 |---|---|---|
 | `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard | soft |
 | `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは1 MB（UTF-8 byte）guard | soft |
+| `POST /store/:code/images` | `multipart/form-data`の`thumb`（64 KiB以下）と`full`（700 KiB以下）をJPEG/WebPとして検証し、非公開R2へ保存して128-bit乱数の`id`を返す | strict同store Bearer |
+| `DELETE /store/:code/images/:id` | 同店舗prefixのthumb/fullをR2から削除。`id`は32桁hexのみ | strict同store Bearer |
 | `GET/POST /store/:code/history` | GETは新しい順50件で各行に`serverRevision` / `serverSavedAt`を含む。POSTは`{ok,sessionId,date,serverRevision,serverSavedAt}`。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012）。revisionは保存のたびに`shop_code`内の最大値+1（migration 0014） | soft |
 | `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。sessionId指定では**対応する取込台帳の行も同じbatchで消す**（削除済み取込をreplayが「保存済み」と誤回答しないため）。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft |
 | `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
@@ -52,9 +54,13 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。`type`は`in` / `out`必須（不正値は400 `invalid_type`）、`orderId`の形式不正も400。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
 | `DELETE /store/:code/movements/:id` | header/linesを1 batchで削除。不在/他storeは404 `movement_not_found`、rollbackは503 `movement_delete_failed`（retryable）。**HTTP statusで返す**（旧実装は常に200） | soft |
 | `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成。**不正な`type`はHTTP 400 `invalid_type`**（旧実装はrouterが200で包み直していた）。省略時のdefaultは`stock` | strict同store Bearer |
-| `PUT/DELETE /store/:code/sessions/:uuid` | PUTは`active` / `incomplete`への更新だけ。**`completed`への遷移はこのAPIでは行わない**（409 `use_complete_endpoint`・書込み0件）。`completed`からの巻き戻しも409 `session_completed`。`completed`→`completed`は何も変えず冪等に200。不在/他storeは404。DELETEはsession・明細・snapshot・取込台帳・完了claimを1 batchで消す | strict同store Bearer |
+| `PUT /store/:code/sessions/:uuid` | `active` / `incomplete`への更新だけ。**`completed`への遷移はこのAPIでは行わない**（409 `use_complete_endpoint`・書込み0件）。`completed`からの巻き戻しも409 `session_completed`。`completed`→`completed`は何も変えず冪等に200。不在/他storeは404 | strict同store Bearer |
+| `DELETE /store/:code/sessions/:uuid` | 完了済みは409 `session_completed`で拒否。進行中だけを破棄し、`sessions.deleted_at`と`discarded_sessions`へ下書きを保存する。24時間以内は復元可能で、期限後は関連明細・履歴・取込台帳・完了claim・auditとともに完全削除。任意bodyの`draft`を復元用に保持する（migration 0018） | strict同store Bearer |
+| `GET /store/:code/sessions/discarded` | 24時間以内に破棄したセッションを新しい順で返す。取得時に期限切れを関連dataごとpurgeする | strict同store Bearer |
+| `POST /store/:code/sessions/:uuid/restore` | 破棄を取り消して中断中へ戻し、保存した下書きを返す。同じ種類の別の進行中sessionがあれば409 `active_exists`、期限切れは410 `discard_expired` | strict同store Bearer |
 | `POST /store/:code/sessions/:uuid/complete` | **`sessions.type`で契約が分かれる**（下記「§3.1 棚卸完了API」）。`stock`は`{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,type:'stock',date,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。`order`は`{ itemCount }` → `{ok,sessionId,type:'order',itemCount,snapshotSaved:false}`で`store_history`を書かない。**確定できるのは最初の1要求だけ**。同一intentの再送は保存済み結果（`replay:true`）、内容の違う再送は409 `completion_intent_conflict`。intentの同一性は**保存するcanonical snapshot全体**（`savedAt` / `activeMs`を除く）で判定する。棚卸日は`takenAt`ひとつで決まり、`snapshot.date`が違えば400 `snapshot_date_mismatch` | strict同store Bearer |
 | `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
+| `GET/POST /store/:code/sessions/:uuid/audit` | migration 0017の`session_audit`へ操作履歴を追記・取得する。POSTはentry idで冪等、GETは同一店舗のsessionに限定 | strict同store Bearer |
 | `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
 | `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
@@ -63,8 +69,8 @@ movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保�
 GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
 `source` / `importBatchId`は現行API/schemaへ保存されません（**過去棚卸取込の`importBatchId`は
 migration 0013 で `sessions.import_batch_id` として保存されます**。両者は別物）。
-本番D1は0010〜0016が未適用です（適用順・rollback可否・切替境界は
-[Web公開準備](quality-foundation/web-release-readiness.md)の「公開手順」を正とします）。
+production D1の適用状態は固定値として断定せず、release前のread-only preflightで確認します。
+適用順・rollback可否・切替境界は[Web公開準備](quality-foundation/web-release-readiness.md)の「公開手順」を正とします。
 
 ### Room / utility
 
@@ -73,7 +79,8 @@ migration 0013 で `sessions.import_batch_id` として保存されます**。�
 | `GET /room/:code/ws` | WebSocket upgrade。join成功前はping以外を拒否 | store存在gate + join時のD1 token/session条件 |
 | `GET /room/:code/status` | item/order件数、participants、room状態 | store存在 + IP probe制限 |
 | `POST /room/:code/dissolve` | `{hostToken}`一致でroom破棄 | store存在 + DO hostToken |
-| `GET /room/:code/result?s=:sessionId` | 最新完了結果の数量等を金額抜きで返す。3日または次回完了まで | 無認証。URL token相当 + IP probe制限 |
+| `GET /room/:code/result?s=:sessionId` | 指定した完了結果を3日間返す。数量、単価、小計、合計金額、参加者別金額、前回比較に必要な直前候補を含む。共有URLを受け取った人は店舗の在庫金額を閲覧できる | 無認証。店舗code + session UUIDのURLが鍵 + IP probe制限 |
+| `GET /img/:code/:id/:t\|f` | R2の一覧用thumbまたは拡大用fullを返す。1年immutable cache。共有結果には現在画像参照を含めない | 無認証。店舗code + 推測困難な128-bit image idがURLの鍵 |
 | `GET /api/push/vapid-key` | `{key}` | 不要 |
 | `POST /pdf` | raw PDFを解析。active Bearer、宣言/実byteとも5 MiB以下 | Bearer + IP 30回/15分。全試行を計上 |
 | `GET /health` | text `OK` | 不要 |
@@ -87,18 +94,17 @@ PLAY-003 / WEB-001で未決です。
 - backend entitlementは保存planを`free|pro`へ正規化しますが、trialは常に
   `inTrial=false` / `trialEndsAt=null`で、Stripe/webhook/subscription処理はありません。
 - migration 0009は適用時点の既存storeを`pro`へ更新するため、DB上の既存値まで一律Freeとは断定しません。
-- 通常AppはAPI entitlementを機能gateへ保存せず、Pro Review用build変数以外をFree扱いします。
-  150品目/履歴3回はclient gate、2台制限はserver未強制です。
+- 通常AppはAPI entitlementを機能gateへ保存せず、Pro Review用build変数以外をFree表示にします。
+  ただし2026-08-30のUser判断により`DEFAULT_LIMITS_ENFORCED=false`で、2台・150品目・履歴3回の
+  client制限も現在は無効です。serverもこれらの上限を強制しません。
 
 ### Known gaps
 
 | Task | API上の未解消事項 |
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
-| [DATA-001](quality-foundation/tasks/DATA-001.md) | order/movement header-lines、棚卸完了writeの原子性とfield/array上限 |
-| [DATA-002](quality-foundation/tasks/DATA-002.md) | Phase 1（`GET /store/:code/sessions/:id/lines`）と Phase 2 は実装済み。history同日上書き（F-001）は migration 0012 の session 単位キー化で解消。孤児（F-004）・データ源二重（F-003）・`LIMIT 50`（F-002）は Phase 3 で公開後 |
-| [IMPORT-001](quality-foundation/tasks/IMPORT-001.md) | 過去棚卸取込API（`/imports/:batchId/*`）は実装済み・**migration 0013 / 0015 / 0016 は未適用**。実D1での確認は release gate（`WEB-04` / `WEB-07`）に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番0010〜0016のmigration、Free server limits、E2E/smoke |
+| [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0018までの適用、E2E/smoke |
 
 ### 将来A1（現行APIではない）
 
@@ -321,7 +327,7 @@ D1 データベース                               ← データを取る
 | GET | `/room/:code/ws` | WebSocket接続（同期の本体・Durable Object）。店舗存在チェック＋probeレート制限（S-06） |
 | GET | `/room/:code/status` | 退室中ホストのライブ品目数（`orderItemCount`＝発注済み品目数も返す） |
 | POST | `/room/:code/dissolve` | 残存ルームの掃除 |
-| GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・金額除去 → `room-url-design.md`） |
+| GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・単価/小計/合計を含む → `room-url-design.md`） |
 | GET | `/api/push/vapid-key` | プッシュ公開鍵 |
 | POST | `/pdf` | PDFから品目テキスト抽出。**active Bearer必須・5 MiB・IP 30回/15分**（現行Appは未使用） |
 | GET | `/health` | 死活監視 |

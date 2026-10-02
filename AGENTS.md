@@ -21,7 +21,8 @@ Google Playへ着手する場合だけ、`docs/quality-foundation/google-play-re
 
 - `docs/quality-foundation/` を Codex、Claude Code、ユーザー間の共同品質基盤とする。
 - 着手前に対象タスクを `進行中` にし、担当を記録する。
-- 現在の公開目標はWeb Free版。`web-release-readiness.md`のgateと品質基盤以外の新機能を追加しない。
+- 現在の公開目標はWeb Free版。ただしD-027により、当面は実使用で不足している機能と不具合修正を
+  公開gateより優先する。公開gateは廃止せず後回しとし、Stripe、trial、TWA、Google Play提出は保留する。
 - 現在 branch は Git で確認し、文書に固定された古い branch 名を前提にしない。
 - dated audit と `docs/export/` は履歴であり、現在仕様へ上書きしない。
 - API、DB、認可、動作、運用を変えた場合は、関連する現行文書も同じタスクで更新する。

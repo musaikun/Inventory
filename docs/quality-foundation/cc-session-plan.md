@@ -1,7 +1,7 @@
-# CCレビュー修正 3セッション計画（指示出し用）
+# CCレビュー修正 3セッション計画（2026-08完了・履歴）
 
-- **Status:** 一時文書。Codexレビューで `Changes requested` となったCC実装の修正計画
-- **Role:** Userが3つのCCセッションへ順番に渡す作業台本
+- **Status:** 履歴。DATA-001 / DATA-002 / IMPORT-001は2026-08-19に完了済み
+- **Role:** 当時Userが3つのCCセッションへ順番に渡した作業台本。現在の実装指示には使用しない
 - **Source of truth:** 状態は [`task-list.md`](task-list.md)、製品受入条件と公開可否は
   [`web-release-readiness.md`](web-release-readiness.md)、詳細は
   [`tasks/DATA-001.md`](tasks/DATA-001.md) / [`tasks/DATA-002.md`](tasks/DATA-002.md) /

@@ -1,10 +1,10 @@
 # Account deletion contract
 
-最終更新: 2026-08-17
+最終更新: 2026-10-02
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
-最新照合: 2026-08-17 / `claude/data-002-worker-d1-api-bogzyq`
-状態: code/testは実装済み。本番D1 0011〜0016、canonical URL、実機確認は未完
+最新照合: 2026-10-02 / `develop@49227ff`
+状態: code/testはmigration 0018まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
 
 ## 目的
 
@@ -70,10 +70,11 @@ Success / replay:
    store参照、room gateを遮断し、0011のtriggerでaccount子dataの新規INSERTも拒否する。
 4. Worker内部から `X-Inventory-Internal-Action: account-delete-v1` を付け、棚卸用・発注用の
    2つのDurable Objectをcloseする。互換日を考慮してalarmを消し、storageを `deleteAll()` する。
+   同時に非公開R2の`<shopCode>/` prefixを列挙し、品目写真をすべて削除する。
 5. D1 `batch()` で関連data削除、全token失効、store匿名化、receipt作成を原子的に行う。
 6. 日次cronで7日後に匿名tombstoneとreceiptを削除する。
 
-DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成功を返しません。
+DO/R2削除またはD1 batchが失敗した場合は `503 retryable` とし、成功を返しません。
 途中まで消えたDOは同じrequestIdで安全に再削除できます。
 
 ## Data map
@@ -84,6 +85,8 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 | `sessions`, `inventory_lines`, `item_par_levels` | 物理削除 |
 | `import_batch_requests`（過去棚卸取込の要求台帳・migration 0015） | 物理削除。取込の再送判定に使う指紋と対象sessionIdを持つため業務dataとして扱う |
 | `session_completions`（棚卸完了のclaim・migration 0016） | 物理削除。確定済み完了の指紋・件数・合計・棚卸日を持つため業務dataとして扱う |
+| `session_audit`（操作履歴・migration 0017） | 物理削除。誰がいつ何を変更したかを持つ業務dataとして扱う |
+| `discarded_sessions`（24時間復元用下書き・migration 0018） | 物理削除。破棄した棚卸・発注の数量、変更履歴、稼働時間等を復元できるため業務dataとして扱う |
 | `orders`, `order_lines` | 物理削除 |
 | `movements`, `movement_lines` | 物理削除 |
 | `push_subscriptions` | 物理削除し、以後のPush送信を停止 |
@@ -91,7 +94,7 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 | `stores` | 店名・PIN hash・plan・active roomを消去したtombstoneを7日保持後に物理削除 |
 | account deletion receipt | account識別子を持たないrequestIdと完了時刻だけを7日保持 |
 | stock/order Durable Objects | 接続を閉じ、全storageを削除 |
-| R2 | 現在binding・保存実装なし。削除対象なし |
+| R2 `IMAGES` | 店舗prefixの品目写真（thumb/full）をすべて物理削除。R2削除失敗時はaccount削除を成功扱いにしない |
 | PostHog | shopCode/emailをidentifyしていない。端末identity resetと保持方針は `PLAY-003` / `PRIV-001` |
 | localStorage（業務data、端末ID・端末名、天気位置/cache）/ PushSubscription | 削除成功後にclientで消去 |
 | Cache API / Service Worker | app shell・font・PDF cMapの公開静的assetだけを保持し、account/API dataは保存しない。account削除時のcache削除・SW解除は不要 |
@@ -113,7 +116,7 @@ DO削除またはD1 batchが失敗した場合は `503 retryable` とし、成�
 
 - 正常、誤PIN、429、confirmation不一致、別店舗、別requestId競合、同一requestId再送、
   DO失敗、D1失敗、cleanupを自動testする。
-- 削除testは`import_batch_requests` / `session_completions`を含む全業務tableへ
+- 削除testは`import_batch_requests` / `session_completions` / `session_audit` / `discarded_sessions`を含む全業務tableへ
   **対象店舗と別店舗の行を実際にseed**し、対象店舗だけが消えること・別店舗が残ることを固定する
   （`worker/src/accountDeletion.test.js`）。batch途中失敗ではこれらを含めて全体がrollbackする。
 - migration適用、Worker test、App integration、公開Web URLをrelease前に記録する。

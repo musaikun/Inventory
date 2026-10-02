@@ -1,11 +1,11 @@
 # テスト項目一覧 — 新機能（このフェーズの追加分）
 
 - **Status:** 履歴snapshot（現行release checklistではない）
-- **Role:** 2026-07-28までの追加機能について、task固有の手動確認候補を保存する
+- **Role:** 2026-07〜09に追記された新機能について、task固有の手動確認候補を保存する
 - **Source of truth:** なし（履歴）。現在の期待値はcode/test、採用済み
   [`decisions.md`](quality-foundation/decisions.md)、対象task fileを照合し、Web公開判定は
   [`web-release-readiness.md`](quality-foundation/web-release-readiness.md)を正とする
-- **Last verified:** 2026-08-04 / `develop@bc9fb85`
+- **Frozen as history:** 2026-10-01。今後の恒久回帰は`test-cases.md`、task固有確認はtask fileへ記録する
 
 既存のcheck項目と未check状態は、作成時点の作業記録として保持します。未checkは現在のtask状態や
 release blockerを意味しません。D-016 / D-021などで置き換わった価格、PRO誘導、TWA判定を、

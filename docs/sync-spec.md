@@ -5,7 +5,7 @@
 | Status | **Current baseline**。W1 Web Free版の同期・認可境界。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
 | Role | App / Worker / Durable Objects / D1の責務と、実装済み境界・既知gapを結ぶ現行仕様 |
 | Source of truth | [`useSync.js`](../app/src/composables/useSync.js)、[`RoomDO.js`](../worker/src/RoomDO.js)、[`index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、migration、関連test |
-| Last verified | **2026-08-04 / `develop@bc9fb85`**（code review。production反映済みを意味しない） |
+| Last verified | **2026-10-02 / `develop@49227ff`**（repository baseline。production反映済みを意味しない） |
 
 ## 現行baseline
 
@@ -18,8 +18,10 @@
   `deviceId`、`isHost`を正とし、hibernation後も復元できる。
 - account、Bearer token、店舗data、session一覧、完了明細はD1が正。localStorageは端末cache、
   host token、接続復元情報、未送信queueの一部を持つが、accountやserver entitlementの正ではない。
+- 品目写真のbinaryはR2、品目名から画像参照への対応は`config.images`に持つ。`config.images`は
+  host/guestのconfig同期対象だが、単価と異なりguest向けsanitizeで除去しない。
 - DOは一律20 device ID、24時間inactivity TTL、chat/audit各200件を上限とする。
-  この20台上限はplan-awareではなく、W1のFree 2台契約を強制していない。
+  この20台上限はroomの技術的上限で、plan-awareではない。固定Free上限は現在無効。
 
 ### 接続・join認可
 

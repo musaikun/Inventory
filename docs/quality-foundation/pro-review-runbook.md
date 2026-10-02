@@ -15,7 +15,7 @@
   固定URLのoriginだけにCORSを許可し、旧固有URL originには
   `Access-Control-Allow-Origin`を返さないことを確認済み。
 - 専用D1は`PRO REVIEW TEST`（店舗code `EXCFGA`）1店舗のみ、`plan=pro`、削除されていない状態を
-  read-only queryで確認済み。`0001`〜`0016`適用済み、未適用migrationは0件。PINはrepositoryへ記録しない。
+  2026-08-23時点のread-only queryでは`0001`〜`0016`適用済みだった。現在は0017/0018を含め、使用前に未適用migrationを再確認する。PINはrepositoryへ記録しない。
 - Cloudflare Access配下でもmanifestへ認証cookieを送るため、Pro Review buildだけ
   `<link rel=manifest ... crossorigin=use-credentials>`を生成する。
 - Cloudflare PagesはPreviewへ既定で`X-Robots-Tag: noindex`を付ける。Access外からorigin responseを
@@ -90,7 +90,7 @@ push トリガも使えない状況（`develop`以外を入れる／workflowが�
 
 ## 初期構築・手動更新
 
-1. `inventory-store-pro-review`へ`0001`〜`0017`を順番に適用する（`DB_NAME=inventory-store-pro-review ./scripts/migrate.sh` で未適用のみ）。
+1. `inventory-store-pro-review`へ`0001`〜`0018`を順番に適用する（`DB_NAME=inventory-store-pro-review ./scripts/migrate.sh` で未適用のみ）。
 2. `cd worker && npx wrangler@latest deploy --env pro_review`で専用Workerだけを更新する。
 3. 次の3変数を設定してAppをbuildする。
    - `VITE_SYNC_WORKER_URL=wss://inventory-sync-pro-review.yuya-takaki.workers.dev`

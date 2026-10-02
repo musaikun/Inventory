@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-02
 担当: Codex
-状態: `PLAY-003`監査draft。CCが公開legal文面へ反映する前にUser判断と実環境確認が必要
+状態: 履歴draft。採用内容は`docs/legal/privacy-policy.md`へ反映済み。現行文面の正本には使用しない
 
 ## 1. 反映方針
 

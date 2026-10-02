@@ -101,6 +101,23 @@ describe('公開legalページ: 実装事実の記載', () => {
     expect(text).toContain('端末ID')              // 端末に保存される情報として列挙する
   })
 
+  it.each(privacyCopies)('%s が共有URLで金額を含む完了結果を公開することを説明している', (p) => {
+    const text = read(p)
+    expect(text).toContain('共有URLを知っている人')
+    expect(text).toContain('単価')
+    expect(text).toContain('合計金額')
+    expect(text).toContain('ログインなしで3日間')
+  })
+
+  it.each(privacyCopies)('%s が品目写真のR2保存と認証なし画像URLを説明している', (p) => {
+    const text = read(p)
+    expect(text).toContain('Cloudflare R2')
+    expect(text).toContain('品目の写真')
+    expect(text).toContain('推測困難な画像ID')
+    expect(text).toContain('ログインを要求しない')
+    expect(text).toContain('共有画面には、現在、品目の写真を表示しません')
+  })
+
 
   const termsCopies = ['app/public/terms.html', 'landing/terms.html', 'docs/legal/terms.md']
 
@@ -108,9 +125,10 @@ describe('公開legalページ: 実装事実の記載', () => {
     const text = read(p)
     expect(text).toContain('無料プランのみ')
     expect(text).toContain('店舗コードを1つ発行')
-    expect(text).toContain('接続端末2台')
-    expect(text).toContain('登録品目150件')
-    expect(text).toContain('直近3回')
+    expect(text).toContain('固定上限を設けていません')
+    expect(text).not.toContain('接続端末2台')
+    expect(text).not.toContain('登録品目150件')
+    expect(text).not.toContain('直近3回を上限')
     expect(text).toContain('決済機能を提供しておらず')
     expect(text).toContain('自動的に有料へ切り替わることもありません')
     expect(text).not.toContain('前払い')

@@ -1,6 +1,6 @@
 # プロジェクト現況と方向性
 
-最終方針更新: 2026-08-04 / docs整理完了: 2026-08-06 / 最新実装照合: 2026-09-15（データ管理・棚卸一覧のUI整理）
+最終方針更新・実装照合: 2026-10-02 / `develop@49227ff` / App `0.129.1`
 位置づけ: product overview。タスク状態の正本ではありません。
 
 > 現在の公開判定は[Web公開準備](quality-foundation/web-release-readiness.md)、
@@ -17,7 +17,21 @@
 W1ではtrial、Stripe、Pro販売、PostHog有効化、TWA/Play提出を行いません。
 Web登録者へのtrial適用と、Stripe/backendをPlayより先に単独公開するかは未決です。
 
-## 実装スナップショット（2026-08-04）
+D-027により、当面は実使用で不足している機能と不具合修正を公開gateより優先します。
+固定Free上限は現在無効です。D-028により、本文と実装が異なる場合は現行App / Worker / migrationを正とします。
+
+## 現在の実装スナップショット（2026-10-02）
+
+- 下部ナビは在庫／レポート／管理の3タブ。履歴カレンダーはレポート先頭から開く独立画面で、棚卸・発注・取込の作業中はナビを表示しない。
+- レポートは履歴入口と在庫分析に絞り、各月の棚卸カードから詳細へ移動する。管理は品目・発注基準・取込/書出しを統合する。
+- 品目写真は端末で一覧用・拡大用へ圧縮し、非公開R2 bucketへ保存する。品目表から表示できるが、共有結果には現在含めない。
+- 完了済みsessionは削除不可。進行中の破棄はmigration 0018で24時間復元でき、期限後に関連dataごとpurgeする。
+- 共有結果は完了から3日間、URLを知る人へ単価・小計・合計を含む読み取り専用レポートを表示する。
+- migrationは0018まで存在する。productionの適用状態、Pages/Worker、CORS、smokeはrelease前に再確認する。
+- 直近の自動test/build実績は[`session-log.md`](quality-foundation/session-log.md)を対象commit付きで参照し、
+  このoverviewへ固定件数を複製しない。
+
+## 実装スナップショット（2026-08-04・履歴）
 
 - HEAD `bc9fb85`まで、account削除のWorker/D1/DO/client、local data消去、Back制御、
   focus/a11y回帰がcommit / push済み。
@@ -228,7 +242,7 @@ Codex承認前に完了・公開可としない。詳細は
 
 ### 品質
 - 自動test/buildの現在証拠は対象commit付きで`web-release-readiness.md`へ記録する。
-- `develop@bc9fb85`のpreview CIは成功。本番自動deployはなく、production release経路はWEB-001で整備中。
+- 2026-08-04基準の`develop@bc9fb85`ではpreview CI成功。本番自動deployはなく、現在HEADはrelease前に再検証する。
 
 ### 開発ブランチ
 - 固定しない。`git branch --show-current`で確認する。
@@ -239,7 +253,7 @@ Codex承認前に完了・公開可としない。詳細は
 
 | テーマ | 決定 | 理由 |
 |---|---|---|
-| 無料プラン | 1店舗コード / 150品目 / 履歴直近3回 / 同期2台 / 取込は無料 | 中核機能を体験でき、履歴・規模で課金転換 |
+| 無料プラン | 1店舗コード / 固定の端末・品目・履歴上限は現在無効 / 取込は無料 | 将来課金境界を再導入するときはserver enforcementと公開文面を同時更新 |
 | 課金基盤 | Web=Stripe主体（実装は保留） | 手数料・全デバイス対応 |
 | アプリ版(Play) | A1でconsumption-only。Android登録trialとWeb契約済みserver entitlementを利用 | D-021 |
 | 配布面の境界 | URL query/localStorageをpolicy境界にしない。Stripe開始前にWeb購入面とPlay artifact/originを分離 | client判定漏洩を防ぐ |

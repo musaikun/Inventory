@@ -1,6 +1,6 @@
 # 共同品質基盤ハブ
 
-最終更新: 2026-08-09
+最終更新: 2026-10-02
 
 このディレクトリは、プロジェクト全体の監査・公開準備・バグ修正を、
 ユーザー、Codex、Claude Codeの間で継続するための共有入口です。
@@ -20,13 +20,13 @@
    実使用バグの報告台帳は [`bug-reports.md`](bug-reports.md)）
 4. [`decisions.md`](decisions.md) — 採用・変更・廃止と未決事項
 5. [`working-agreement.md`](working-agreement.md) — 並行作業と引き継ぎのルール
-6. [`session-log.md`](session-log.md) — 直近の作業と次の再開地点
+6. [`session-log.md`](session-log.md) — 2026-09以降の作業と次の再開地点。以前の記録は冒頭の月別archive索引を参照
 
-**Claude Code（CC）として製品機能・データ処理・画面構成を実装する場合は、
-上記に加えて [`cc-session-plan.md`](cc-session-plan.md) を読みます。**
-Codexレビューの修正を3セッションへ分けた実行順、受入条件、必須test、引き渡し方法を持つ
-**指示出し用の一時文書**です。各セッションを順番に参照して着手できるよう書いてあります
-（状態の正本は [`task-list.md`](task-list.md) のままです）。
+2026-08の3セッション用[`cc-session-plan.md`](cc-session-plan.md)は完了済み作業の履歴です。
+現在の実装指示には使用せず、対象タスクと[`session-log.md`](session-log.md)の証拠を参照します。
+
+`session-log.md`と[`../proposals.md`](../proposals.md)は現行fileの肥大化を避けるため、2026-08以前を
+[`archive/`](archive/)へ月別保存しています。archiveは履歴証拠であり、現在仕様へ書き換えません。
 
 Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-readiness.md)、
 [`play-reviewer-guide.md`](play-reviewer-guide.md)、
@@ -64,16 +64,7 @@ Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-r
 
 ## 現在の再開地点
 
-最終更新: 2026-08-06
-
-- 基準HEAD: `develop@bc9fb85`。文書整理開始時のworktreeはclean。
-- develop Actions run `30882005257`はWorker/App test、App build、develop Pages preview deployに成功。
-  production公開の証拠ではありません。
-- account削除のdata消去、Back制御、focus/a11yはcode/testまで反映済み。実機確認と本番migrationは未実施。
-- 現在のP0は[WEB-001](tasks/WEB-001.md)と[PLAY-002](tasks/PLAY-002.md)。
-- canonical/contact、本番origin/CORS、legal route、0010〜0016のmigration、登録濫用、Free 2台制限、
-  履歴data integrity、observability、critical E2E、production smokeが主なWeb blockerです。
-- deploy、production migration、commit、pushはUserの明示依頼なしに行いません。
-
-最新のblocker、owner、公開順は[Web公開準備](web-release-readiness.md)だけを更新し、
-この節へ詳細を複製しません。
+- 状態・担当は[task board](task-list.md)、公開blockerは[Web公開準備](web-release-readiness.md)を正とし、
+  このREADMEへ複製しません。
+- [`DOC-002`](tasks/DOC-002.md)でApp `0.129.1` / migration `0018`までの現行実装へ文書を再同期済みです。
+- 2026-10-02にUserがproduction Workerだけのdeployを承認。D1 migrationとPages deployは対象外です。

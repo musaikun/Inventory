@@ -1,6 +1,6 @@
 # D1 Time Travel 復元・削除再適用runbook
 
-最終更新: 2026-08-02
+最終更新: 2026-10-01
 担当: Codex
 状態: 運用draft。maintenance modeと削除抑止listの外部保管が整うまで本番実行不可
 
@@ -88,6 +88,8 @@ write trafficを再開する前に実施する。
    - `movement_lines` / `movements`
    - `item_par_levels`
    - `store_history` / `store_inventory` / `store_configs`
+   - `import_batch_requests` / `session_completions`
+   - `session_audit` / `discarded_sessions`
    - `push_subscriptions`
    - `login_attempts`
    - `auth_tokens`
