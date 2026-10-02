@@ -7,7 +7,7 @@
 User報告: Pro版が Failed to fetch。`inventory-sync-pro-review` の /health が本文の無い Cloudflare 404（＝script が無い）。
 本番 Worker は正常。直前の `Pro Review Pages`（10/01 15:12Z）は Worker の deploy まで成功していた。
 死活確認は 9/30・10/01 とも 22時台（UTC）だけ失敗 → 日中の deploy のあと夜までに消えている。repo と Routines に削除処理は無い。
-- 対応: develop へ push して Pro Review を deploy し直す（このコミット）。runbook に症状・頻度・戻し方を追記。
+- 対応: develop へ push して Pro Review を deploy し直す。runbook に症状・頻度・戻し方を追記。version: 0.126.4 → **0.126.5**（docs のみ）。
 - 未解決: 消える原因（Cloudflare 側の確認が必要・User）。
 
 ## 2026-10-01 — version 0.126.4 / 表とレポートのカードを横いっぱいに・閲覧用レポートの品目一覧を開閉式に
