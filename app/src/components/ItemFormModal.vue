@@ -9,6 +9,12 @@
  * - 必須は名前だけ。保存したら名前だけ空にして次の入力を待つ（ジャンル等は続けて使う）
  * - 似た名前があれば、保存前に知らせる（表記ゆれで同じ品目が2つできるのを防ぐ）
  * - 在庫数はここでは入れない。最初の数は棚卸で数える（一覧の数字の根拠を崩さない）
+ *
+ * 品目を足す画面はこれ1つに統一した（User決定 2026-10-02）。context で場面を分ける:
+ *   home    … 品目・在庫の「＋」。続けて何品目でも入れる
+ *   session … 棚卸・発注の最中に、検索・音声で見つからなかった名前を登録する。1品目だけ登録し、
+ *             親がすぐ数量の画面を開く。棚卸を遅くしないため、名前以外は「詳しく」に畳む
+ *   request … ルームのゲスト。登録はせず、ホストへの申請として送る（承認後に数量を入れる）
  */
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
@@ -19,15 +25,22 @@ const props = defineProps({
   mode:            { type: String, default: 'add' },   // 'add' | 'edit'
   item:            { type: String, default: '' },      // edit のときの品目名
   initialCategory: { type: String, default: '' },
+  initialName:     { type: String, default: '' },
+  initialUnit:     { type: String, default: '' },
+  context:         { type: String, default: 'home' },  // 'home' | 'session' | 'request'
 })
-const emit = defineEmits(['added', 'saved', 'close'])
+// added(name) / saved(name) / request({ name, unit, category }) / unhide(name) / use-existing(name)
+const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing'])
 useEscapeKey(() => emit('close'))
 
 const { config, addItem, patchItem, setEmptyList } = useConfig()
 const isEdit = computed(() => props.mode === 'edit')
 
-const name     = ref('')
-const unit     = ref(isEdit.value ? (config.units?.[props.item] ?? '') : '')
+const name     = ref(props.initialName || '')
+const single   = computed(() => props.context !== 'home')     // 1品目だけ（続けて入れない）
+const isRequest = computed(() => props.context === 'request')
+const showDetails = ref(props.context === 'home')             // 名前以外の欄（棚卸中は畳む）
+const unit     = ref(isEdit.value ? (config.units?.[props.item] ?? '') : props.initialUnit)
 const lotSize  = ref(isEdit.value ? (config.lotSizes?.[props.item] ?? '') : '')
 const category = ref(isEdit.value ? (config.categories?.[props.item] ?? '') : props.initialCategory)
 const price    = ref(isEdit.value ? (config.prices?.[props.item] ?? '') : '')
@@ -41,6 +54,8 @@ const unitOptions = computed(() => [...new Set(Object.values(config.units || {})
 
 const trimmed = computed(() => name.value.trim())
 const exists  = computed(() => !isEdit.value && !!trimmed.value && (config.order || []).includes(trimmed.value))
+// 非表示にしている品目と同じ名前。新しく作らず「表示に戻す」を勧める（同じ品目が2つできるのを防ぐ）
+const hiddenMatch = computed(() => exists.value && (config.hiddenItems || []).includes(trimmed.value))
 const similar = computed(() => (isEdit.value || !trimmed.value || exists.value) ? [] : findSimilarNames(trimmed.value, config.order || []).slice(0, 3))
 const canSave = computed(() => isEdit.value || (!!trimmed.value && !exists.value))
 
@@ -60,6 +75,8 @@ function submit() {
   if (exists.value) { error.value = 'その名前は既に登録されています'; return }
   // 似た名前は1回だけ止める。同じ名前でもう一度押せば追加する（別の品目のことはある）
   if (similar.value.length && confirmedSimilar.value !== n) { confirmedSimilar.value = n; return }
+  // ゲスト：ここでは登録しない。品目リストの正はホスト（承認されたら config で降りてくる）
+  if (isRequest.value) { emit('request', { name: n, unit: unit.value.trim(), category: category.value.trim() }); return }
   // サンプルの品目リストのまま足すと、サンプルと自分の品目が混ざる。最初の1品目で空のリストに切り替える
   if (!config.isCustom) setEmptyList()
   const p = Number(price.value)
@@ -68,6 +85,7 @@ function submit() {
   if (String(lotSize.value).trim()) patchItem(n, { lotSize: lotSize.value })
   added.value = [n, ...added.value]
   emit('added', n)
+  if (single.value) return   // 棚卸・発注中は1品目だけ。親が数量の画面を開く
   // 続けて入れられるよう、名前・入数・単価だけ空にする（ジャンル・単位は同じものが続きやすい）
   name.value = ''; lotSize.value = ''; price.value = ''; confirmedSimilar.value = ''
   nextTick(() => nameEl.value?.focus())
@@ -78,7 +96,7 @@ function submit() {
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal-sheet if-sheet" role="dialog" aria-modal="true" :aria-label="isEdit ? '品目の情報' : '品目を追加'">
       <div class="sheet-handle"></div>
-      <div class="if-title">{{ isEdit ? '品目の情報' : '品目を追加' }}</div>
+      <div class="if-title">{{ isEdit ? '品目の情報' : isRequest ? '品目の追加をホストに申請' : context === 'session' ? '新しい品目を登録' : '品目を追加' }}</div>
 
       <label class="if-label" for="if-name">品目名{{ isEdit ? '' : '（必須）' }}</label>
       <div v-if="isEdit" class="if-fixed">{{ item }}</div>
@@ -87,13 +105,24 @@ function submit() {
         placeholder="例：ベーコンスライス" enterkeyhint="done"
         @input="onNameInput" @keyup.enter="submit"
       />
-      <div v-if="exists" class="if-err">その名前は既に登録されています</div>
+      <div v-if="hiddenMatch" class="if-similar armed">
+        「<b>{{ trimmed }}</b>」は非表示にしている品目です。新しく作らずに表示へ戻せます。
+        <button v-if="!isRequest" type="button" class="if-inline" @click="emit('unhide', trimmed)">表示に戻して使う</button>
+      </div>
+      <div v-else-if="exists" class="if-err">
+        その名前は既に登録されています
+        <button v-if="single && !isRequest" type="button" class="if-inline" @click="emit('use-existing', trimmed)">この品目に数量を入れる</button>
+      </div>
       <div v-else-if="similar.length" :class="['if-similar', { armed: confirmedSimilar === trimmed }]">
         似た品目があります：<b>{{ similar.join('・') }}</b>
         <span v-if="confirmedSimilar === trimmed">。別の品目なら、もう一度「追加」を押してください</span>
         <span v-else>。同じものなら追加せず、そちらを使ってください</span>
       </div>
 
+      <button v-if="!isEdit && !showDetails" type="button" class="if-more" @click="showDetails = true">
+        ＋ 詳しく（単位・入数・ジャンル・単価）
+      </button>
+      <template v-if="isEdit || showDetails">
       <div class="if-two">
         <div>
           <label class="if-label" for="if-unit">単位</label>
@@ -116,15 +145,24 @@ function submit() {
           <input id="if-price" v-model="price" class="if-input" type="number" min="0" inputmode="numeric" placeholder="任意" />
         </div>
       </div>
+      </template>
 
-      <p v-if="!isEdit" class="if-note">在庫数はここでは入れません。最初の数は棚卸で数えます。</p>
+      <p v-if="!isEdit" class="if-note">
+        <template v-if="isRequest">ホストが承認すると、数量を入れられます。</template>
+        <template v-else-if="context === 'session'">登録すると、続けて数量を入れます。</template>
+        <template v-else>在庫数はここでは入れません。最初の数は棚卸で数えます。</template>
+      </p>
       <div v-if="error" class="if-err">{{ error }}</div>
       <div v-if="added.length" class="if-added" role="status">✓ 追加しました：{{ added.slice(0, 3).join('・') }}<span v-if="added.length > 3"> ほか{{ added.length - 3 }}件</span></div>
 
       <div class="if-acts">
-        <button class="if-btn sec" type="button" @click="emit('close')">{{ added.length ? '完了' : '閉じる' }}</button>
+        <button class="if-btn sec" type="button" @click="emit('close')">{{ added.length ? '完了' : single ? 'キャンセル' : '閉じる' }}</button>
         <button class="if-btn pri" type="button" :disabled="!canSave" @click="submit">
-          {{ isEdit ? '保存' : (confirmedSimilar && confirmedSimilar === trimmed ? '別の品目として追加' : '追加して次へ') }}
+          {{ isEdit ? '保存'
+            : (confirmedSimilar && confirmedSimilar === trimmed ? '別の品目として追加'
+            : isRequest ? 'ホストに申請する'
+            : context === 'session' ? '登録して数量へ'
+            : '追加して次へ') }}
         </button>
       </div>
     </div>
@@ -156,4 +194,6 @@ function submit() {
 .if-btn.sec { background: #f1f5f9; color: #475569; }
 .if-btn.pri { background: var(--primary, #2563eb); color: #fff; }
 .if-btn.pri:disabled { opacity: 0.4; cursor: not-allowed; }
+.if-more { display: block; margin-top: 10px; border: none; background: none; color: var(--primary, #2563eb); font-weight: 700; font-size: 13px; padding: 4px 0; cursor: pointer; }
+.if-inline { display: inline-block; margin-left: 6px; border: 1.5px solid currentColor; background: #fff; border-radius: 8px; padding: 3px 8px; font-weight: 800; font-size: 12px; cursor: pointer; color: var(--primary, #2563eb); }
 </style>

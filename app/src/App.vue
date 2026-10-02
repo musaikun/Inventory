@@ -83,6 +83,7 @@ import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardO
 import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
+import ItemFormModal from './components/ItemFormModal.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
@@ -1245,10 +1246,20 @@ setItemAddResponseCallback((requestId, approved, name, reason) => {
     showToast(`ホストがオフラインのため「${name}」の申請が失敗しました`, 4000, 'warning')
   } else if (approved) {
     showToast(`「${name}」がホストに承認されました ✓`, 3000, 'success')
+    approvedAddItem.value = name   // 「数量を入れる」を出す（承認前は数量を入れさせない）
   } else {
     showToast(`「${name}」の追加がホストに拒否されました`, 3000, 'warning')
   }
 })
+// ゲスト: 追加が承認された品目（数量を入れる入口を出す）
+const approvedAddItem = ref(null)
+function onApprovedAddQty() {
+  const n = approvedAddItem.value
+  if (!n) return
+  if (!config.order.includes(n)) { showToast('品目リストの更新を待っています。少ししてからもう一度押してください', 2500, 'warning'); return }
+  approvedAddItem.value = null
+  openConfirm(n, null, config.units?.[n] || '', 'search')
+}
 
 // URL パラメータ ?room=CODE / ?store=CODE があれば自動参加（ホーム画面をスキップ）
 // ConnectionBanner の表示条件と対で保つ（本文をバナー分だけ下げるため）。
@@ -2375,23 +2386,52 @@ function _walkRegister(name, qty = null, unit = '') {
     openUpgrade(`無料プランの上限（${FREE_ITEM_LIMIT}品目）に達しました。上限の緩和は将来提供予定です。`)
     return
   }
-  // ゲスト: 品目追加はホスト承認が必要
-  if (syncActive.value && !syncIsHost.value) {
-    if (pendingGuestRequest.value) {
-      showToast('前の申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
-      return
-    }
-    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
-    pendingGuestRequest.value = { requestId, name: n }
-    broadcastItemAddRequest(n, unit || '', '', requestId)
-    showToast(`「${n}」の追加をホストに申請しました`, 3000, 'info')
-    searchText.value = ''
-    nextTick(() => searchInputRef.value?.focus())
+  // ゲスト: 品目追加はホスト承認が必要（申請は1件ずつ）
+  if (syncActive.value && !syncIsHost.value && pendingGuestRequest.value) {
+    showToast('前の申請がホストの承認待ちです。しばらくお待ちください。', 3000, 'warning')
     return
   }
-  // ホスト/ソロ: まだ登録しない。数量モーダルを「新規登録」モードで開き、
-  // 「新規登録」ボタンが押されたときだけ登録する（部分一致のつもりの誤登録を防ぐ）
-  openConfirm(n, qty, unit || '', 'search', { isNew: true })
+  // 品目を足す画面は1つ（ItemFormModal）に統一した（User決定 2026-10-02）。
+  // まず登録画面（名前だけ必須・他は「詳しく」に畳む）、登録したらすぐ数量の画面を開く。
+  // 声・検索で言った数量と単位は引き継ぐ（2回打たせない）。ゲストは登録画面の送信がホストへの申請になる。
+  itemForm.value = { name: n, qty, unit: unit || '', request: syncActive.value && !syncIsHost.value }
+}
+
+// ── 棚卸・発注中の品目登録（ItemFormModal）──────────────────────
+const itemForm = ref(null)   // null | { name, qty, unit, request }
+function _afterItemForm() {
+  searchText.value = ''
+}
+function _openQtyAfterForm(n, f) {
+  itemForm.value = null
+  _afterItemForm()
+  openConfirm(n, f?.qty ?? null, f?.unit || config.units?.[n] || '', 'search')
+}
+function onSessionItemAdded(n) {
+  const f = itemForm.value
+  track('item_added_walk')
+  if (syncActive.value && syncIsHost.value) broadcastConfig(_configPayload())
+  _openQtyAfterForm(n, f)
+}
+function onSessionItemUnhide(n) {
+  const f = itemForm.value
+  onUnhideItem(n)
+  _openQtyAfterForm(n, f)
+}
+function onSessionItemUseExisting(n) { _openQtyAfterForm(n, itemForm.value) }
+function onSessionItemRequest({ name, unit }) {
+  itemForm.value = null
+  _afterItemForm()
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+  pendingGuestRequest.value = { requestId, name }
+  broadcastItemAddRequest(name, unit || '', '', requestId)
+  showToast(`「${name}」の追加をホストに申請しました`, 3000, 'info')
+  nextTick(() => searchInputRef.value?.focus())
+}
+function onSessionItemFormClose() {
+  itemForm.value = null
+  _afterItemForm()
+  _restartIfContinuous()
 }
 
 // CandidateModal から「新規登録」を選んだとき
@@ -3506,6 +3546,13 @@ function dismissReview() {
       </div>
 
       <!-- ゲスト: ホスト承認待ち状態 -->
+      <div v-if="approvedAddItem" class="item-req-pending-guest item-req-approved">
+        <span class="item-req-pending-icon">✅</span>
+        「<strong>{{ approvedAddItem }}</strong>」の追加が承認されました
+        <button class="item-req-pending-cancel item-req-go" @click="onApprovedAddQty">数量を入れる</button>
+        <button class="item-req-pending-cancel" aria-label="閉じる" @click="approvedAddItem = null">✕</button>
+      </div>
+
       <div v-if="pendingGuestRequest" class="item-req-pending-guest">
         <span class="item-req-pending-icon">⏳</span>
         「<strong>{{ pendingGuestRequest.name }}</strong>」の追加をホストに申請中…
@@ -3603,7 +3650,18 @@ function dismissReview() {
       />
 
       <!-- 確認モーダル -->
-      <ConfirmModal
+      <ItemFormModal
+      v-if="itemForm"
+      :context="itemForm.request ? 'request' : 'session'"
+      :initial-name="itemForm.name"
+      :initial-unit="itemForm.unit"
+      @added="onSessionItemAdded"
+      @request="onSessionItemRequest"
+      @unhide="onSessionItemUnhide"
+      @use-existing="onSessionItemUseExisting"
+      @close="onSessionItemFormClose"
+    />
+    <ConfirmModal
         v-if="confirmState"
         :key="confirmState.ingredient"
         :ingredient="confirmState.ingredient"
@@ -4462,6 +4520,9 @@ function dismissReview() {
 }
 
 .item-req-pending-icon { font-size: 16px; }
+.item-req-approved { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.item-req-go { margin-left: auto; background: #16a34a !important; color: #fff !important; border-color: #16a34a !important; font-weight: 800; }
+.item-req-go + .item-req-pending-cancel { margin-left: 4px; }
 .item-req-fold, .item-req-fold-guest {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
 }
