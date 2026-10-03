@@ -10,7 +10,7 @@
  *   （仕入れの在庫タブと同じ計算＝composables/useStockView）。何を元にした数かを添える
  * - ここでは在庫数を書き換えない。数を変えるのは棚卸（実測）か入出庫の記録だけ
  *   （一覧で書き換えられると、見込みの根拠も発注の推奨も崩れる）
- * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（発注点・品目の情報）
+ * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
 import { ref, computed, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
@@ -18,18 +18,36 @@ import { useStockView } from '../composables/useStockView.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { completionBusy } from '../composables/useSession.js'
 import InventoryTable from './InventoryTable.vue'
-import StockDetailModal from './StockDetailModal.vue'
+import ItemStockSheet from './ItemStockSheet.vue'
+import { useMovements } from '../composables/useMovements.js'
+import { saveMovementToD1 } from '../composables/useStore.js'
+import { deviceName } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
 
 // embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
-const props = defineProps({ embedded: { type: Boolean, default: false } })
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  stocktakeOpen: { type: Boolean, default: false },   // 棚卸の最中（中断中を含む）。品目シートの入出庫を止める
+})
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
-const { config, setReorderPoint, setReplenishTarget } = useConfig()
+const { config } = useConfig()
 const {
-  allItems, reorderOf, needsReorder, reorderCount, itemMovements, consumptionHintOf,
-  replenishOf, suggestedReorder, suggestBasisLabel, theoOf, unitOf, basisLabel, baseShort, lotOf,
+  allItems, needsReorder, reorderCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
 } = useStockView()
+const { saveMovement } = useMovements()
+
+// 品目シートの入庫・出庫。両方に入れたら差し引かず、入庫1件・出庫1件として記録する（User決定 2026-10-03）。
+// 記録は入出庫ページと同じ形なので、理論在庫・履歴カレンダーにもそのまま反映される。
+function onRegister(item, { in: inQ = 0, out: outQ = 0 } = {}) {
+  if (locked.value || props.stocktakeOpen) return
+  const unit = unitOf(item)
+  for (const [type, qty] of [['in', inQ], ['out', outQ]]) {
+    if (!(qty > 0)) continue
+    const rec = saveMovement({ type, by: deviceName.value || '', lines: [{ item, qty, unit }] })
+    if (rec) saveMovementToD1(rec)
+  }
+}
 
 const search = ref('')
 const onlyLow = ref(false)
@@ -116,26 +134,22 @@ onUnmounted(registerInnerLayerCloser(() => {
       <button v-if="!locked" class="sp-fab" type="button" aria-label="品目を追加" @click="openAdd">＋</button>
     </div>
 
-    <StockDetailModal
+    <ItemStockSheet
       v-if="detailTarget && !form"
       :item="detailTarget"
       :unit="unitOf(detailTarget)"
       :theo="theoOf(detailTarget)"
       :basis="basisLabel(detailTarget)"
-      :reorder="reorderOf(detailTarget)"
-      :suggested="suggestedReorder(detailTarget)"
-      :suggest-basis="suggestBasisLabel(detailTarget)"
-      :hint="consumptionHintOf(detailTarget)"
-      :target="replenishOf(detailTarget)?.value ?? null"
-      :target-manual="config.replenishTargets?.[detailTarget] ?? null"
-      :target-basis="replenishOf(detailTarget)?.basis ?? ''"
-      :lot="lotOf(detailTarget)"
+      :lot="config.lotSizes?.[detailTarget] ?? null"
       :price="config.prices?.[detailTarget] ?? null"
       :category="config.categories?.[detailTarget] ?? ''"
-      :movements="itemMovements(detailTarget)"
+      :code="config.codes?.[detailTarget] ?? ''"
+      :image-ref="config.images?.[detailTarget] ?? ''"
+      :movements="_moves"
+      :snapshots="_snaps"
       :editable="!locked"
-      @update-reorder="v => { if (!locked) setReorderPoint(detailTarget, v) }"
-      @update-target="v => { if (!locked) setReplenishTarget(detailTarget, v) }"
+      :stocktake-open="stocktakeOpen"
+      @register="p => onRegister(detailTarget, p)"
       @edit="openEdit"
       @close="detailTarget = null"
     />

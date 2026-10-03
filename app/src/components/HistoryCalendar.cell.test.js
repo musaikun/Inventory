@@ -181,3 +181,37 @@ describe('HistoryCalendar 日の詳細モーダル', () => {
     expect(consumeInnerLayerBack()).toBe(false)
   })
 })
+
+// 品目シートで1品目ずつ登録した入出庫は、同じ日・同じ種別なら1つにまとめて見せる（User決定 2026-10-03）
+describe('HistoryCalendar 品目シートの入出庫をまとめる', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    if (app)  { app.unmount(); app = null }
+    if (host) { host.remove();  host = null }
+    vi.useRealTimers()
+    vi.resetModules()
+  })
+
+  it('同じ日の1品目ずつの入庫は1件にまとめ、品目ごとに数量を足す', async () => {
+    localStorage.setItem(STORAGE_KEYS.config, JSON.stringify({ order: ['豆', '牛乳'] }))
+    localStorage.setItem(STORAGE_KEYS.movements, JSON.stringify([
+      { id: 'q1', date: DAY, type: 'in', savedAt: `${DAY}T01:00:00.000Z`, lines: [{ item: '豆', qty: 2, unit: 'p' }] },
+      { id: 'q2', date: DAY, type: 'in', savedAt: `${DAY}T02:00:00.000Z`, lines: [{ item: '豆', qty: 3, unit: 'p' }] },
+      { id: 'q3', date: DAY, type: 'in', savedAt: `${DAY}T03:00:00.000Z`, lines: [{ item: '牛乳', qty: 1, unit: '本' }] },
+      { id: 'd1', date: DAY, type: 'in', savedAt: `${DAY}T04:00:00.000Z`, orderId: 'o9', lines: [{ item: '豆', qty: 10, unit: 'p' }] },
+    ]))
+    const root = await mountCal()
+    await tapDay(root, DAY)
+    const entries = [...document.querySelectorAll('.hc-entry-move')]
+    expect(entries.length).toBe(2)   // まとめた1件 ＋ 発注からの入庫1件
+    expect(entries[0].textContent).toContain('2品目（3回の登録）')
+    entries[0].querySelector('.hc-entry-main').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    const lines = [...entries[0].querySelectorAll('.hc-order-line')].map(l => l.textContent.replace(/\s/g, ''))
+    expect(lines.sort()).toEqual(['牛乳1本', '豆5p'])
+  })
+})

@@ -73,7 +73,7 @@ export function useMovements() {
    * @param {object} opts { type: 'in'|'out', date, note, lines:[{item,qty,unit}] }
    * @returns {object|null} 保存したレコード（有効行が無ければ null）
    */
-  function saveMovement({ type = 'in', date = null, note = '', orderId = null, source = null, importBatchId = null, lines = [] } = {}) {
+  function saveMovement({ type = 'in', date = null, note = '', orderId = null, source = null, importBatchId = null, by = '', lines = [] } = {}) {
     const cleanLines = _cleanLines(lines)
     if (cleanLines.length === 0) return null
     const rec = {
@@ -84,6 +84,7 @@ export function useMovements() {
       orderId: type !== 'out' && orderId ? orderId : null,
       source:  source || null,
       importBatchId: importBatchId || null,
+      by:      (by || '').trim() || null,   // 登録した端末の名前（品目シートの明細に出す）
       savedAt: new Date().toISOString(),
       lines:   cleanLines,
     }

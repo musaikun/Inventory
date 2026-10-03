@@ -347,11 +347,31 @@ function _sumRows(rows) {
 const selStockTotal = computed(() => _sumRows(selectedStockRows.value))
 const selOrderTotal = computed(() => _sumRows(selectedOrderRows.value))
 
+// 品目シートでその場で登録した入出庫（1品目ずつの記録）は、同じ日・同じ種別なら1つにまとめ、
+// 品目ごとに数量を足して見せる（User決定 2026-10-03：同日に何度登録しても統合して表示）。
+// 納品取込・入出庫ページでまとめて入れた記録（複数品目・発注紐付け・取込）はそのまま。
+function _isQuick(m) { return Array.isArray(m?.lines) && m.lines.length === 1 && !m.orderId && m.source !== 'import' && !m.note }
+function _mergeQuick(list, type) {
+  const quick = list.filter(_isQuick)
+  if (quick.length < 2) return list
+  const byItem = new Map()
+  for (const m of quick) {
+    const l = m.lines[0]
+    const cur = byItem.get(l.item)
+    if (cur) cur.qty = Math.round((cur.qty + Number(l.qty)) * 1000) / 1000
+    else byItem.set(l.item, { item: l.item, qty: Number(l.qty), unit: l.unit || '' })
+  }
+  const merged = {
+    id: `quick-${type}-${quick[0].date}`, date: quick[0].date, type, note: '', merged: quick.length,
+    savedAt: quick.map(m => m.savedAt || '').sort().pop(), lines: [...byItem.values()],
+  }
+  return [merged, ...list.filter(m => !_isQuick(m))]
+}
 const selectedMoves = computed(() => (selectedKey.value ? moveByDate.value[selectedKey.value] || [] : []))
 // 入庫/出庫のセクション定義（rows: 金額付き、_orderValue は lines を持つレコード共通で使える）
 const moveSections = computed(() => {
   const mk = (type, label, icon, dot) => {
-    const rows = selectedMoves.value.filter(m => m.type === type).map(m => ({ m, ..._orderValue(m) }))
+    const rows = _mergeQuick(selectedMoves.value.filter(m => m.type === type), type).map(m => ({ m, ..._orderValue(m) }))
     return { type, label, icon, dot, rows, total: _sumRows(rows) }
   }
   return [
@@ -658,7 +678,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
               <span v-if="r.m.source === 'import'" class="hc-entry-imported" title="取り込んだ記録">取込</span>
               <span v-else class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
-              <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目</span>
+              <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目<template v-if="r.m.merged">（{{ r.m.merged }}回の登録）</template></span>
               <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
               <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
               <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>

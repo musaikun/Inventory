@@ -10,12 +10,13 @@ vi.mock('../utils/api.js', () => ({
 
 let app = null, host = null, cfg, events
 
-async function mount() {
+async function mount(props = {}) {
   const { default: Page } = await import('./StockPage.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
   events = { openMaster: 0, startSession: 0 }
   app = createApp({ render: () => h(Page, {
+    ...props,
     onOpenMaster: () => events.openMaster++, onStartSession: () => events.startSession++,
   }) })
   app.mount(host)
@@ -96,12 +97,47 @@ describe('一覧と品目シート', () => {
 
     const row = [...host.querySelectorAll('tr')].find(tr => tr.textContent.includes('Pスライスベーコン') && tr.querySelector('.sp-cell'))
     await click(row.querySelector('td'))
-    await click(btn('✏️ 品目の情報を直す'))
+    await click(btn('直す'))
     const unit = host.querySelector('#if-unit')
     expect(unit.value).toBe('p')
     await type(unit, '袋')
     await click(btn('保存'))
     expect(cfg.config.units['Pスライスベーコン']).toBe('袋')
+  })
+})
+
+// 品目シートで入庫・出庫をその場で登録する（User決定 2026-10-03）
+describe('品目シートの入庫・出庫', () => {
+  beforeEach(() => { cfg.addItem('Pスライスベーコン', 420, '昼食材冷凍', 'p') })
+  const openSheet = async () => {
+    const row = [...host.querySelectorAll('tr')].find(tr => tr.textContent.includes('Pスライスベーコン') && tr.querySelector('.sp-cell'))
+    await click(row.querySelector('td'))
+  }
+
+  it('数を入れると登録ボタンが出て、入庫と出庫を別々の記録にする', async () => {
+    await mount()
+    await openSheet()
+    expect(host.querySelector('.is-reg')).toBeNull()
+    await type(host.querySelector('#is-in'), '6')
+    await type(host.querySelector('#is-out'), '2')
+    const reg = host.querySelector('.is-reg')
+    expect(reg.textContent).toContain('0 → 4')
+    await click(reg)
+    const { useMovements } = await import('../composables/useMovements.js')
+    const moves = useMovements().getMovements()
+    expect(moves.map(m => [m.type, m.lines[0].item, m.lines[0].qty]).sort()).toEqual([['in', 'Pスライスベーコン', 6], ['out', 'Pスライスベーコン', 2]])
+    expect(host.querySelector('.is-val').textContent).toContain('4')
+    // 今日のマスに +6 / −2 の2段
+    const today = host.querySelector('.is-cell.sel')
+    expect(today.textContent).toContain('+6')
+    expect(today.textContent).toContain('−2')
+  })
+
+  it('棚卸の最中は入出庫の欄を出さない', async () => {
+    await mount({ stocktakeOpen: true })
+    await openSheet()
+    expect(host.querySelector('#is-in')).toBeNull()
+    expect(host.querySelector('.is-locked').textContent).toContain('棚卸の最中')
   })
 })
 

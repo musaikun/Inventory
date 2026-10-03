@@ -254,6 +254,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       :class="['home-panel', slideDir && `slide-${slideDir}`]"
       ref="stockRef"
       embedded
+      :stocktake-open="!!activeSession"
       @open-master="emit('openMaster')"
       @start-session="startStockEmpty"
     >
