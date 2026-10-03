@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.132.3 / 店舗コードが "undefined" に壊れてホームが「Not found」になる不具合
+
+User報告（本番・スクショ）: ヘッダーの店舗コードが「undefined」、ホームに赤い「Not found」。
+- 原因: `loadStore` がサーバーの返事に店舗コードが無いとき（deploy 中の一時的な返事など）も `shopCode = store.shopCode` を保存していた。
+  以降は `/store/undefined`（英字4〜8桁でないので Worker の店舗ルートに入らない）を読み、404「Not found」。本番 Worker 自体は正常（KEJPFC を返す）。
+- 対策: 返事に正しい店舗コードが無ければ保存値を書き換えず失敗にする。起動時に保存値が壊れていたら、この端末のデータの持ち主（`_data_owner`）の店舗コードで直す（`isValidShopCode`）。
+- 検証: App **2046 passed**（+2）、build 成功。
+- version: 0.132.2 → **0.132.3**。
+
 ## 2026-10-03 — version 0.132.2 / URL を共有したときのカード（OGP）に新しいアイコン
 
 User報告: 閲覧用・ルームの URL を共有すると古いアイコンが出る。原因: OGP が無く、LINE 等がサイトのアイコン（本番 Pages は未 deploy で古い）を拾っていた。

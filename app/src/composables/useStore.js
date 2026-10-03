@@ -4,7 +4,24 @@ import { HTTP_BASE as BASE, apiFetch as _api } from '../utils/api.js'
 import { onReconnect } from './useConnectivity.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
-export const shopCode  = ref(localStorage.getItem(STORAGE_KEYS.shopCode) ?? '')
+// 店舗コードは英字4〜8桁（Worker の /store/:code と同じ形）。
+const _SHOP_CODE_RE = /^[A-Z]{4,8}$/i
+export function isValidShopCode(code) { return typeof code === 'string' && _SHOP_CODE_RE.test(code) }
+
+// 保存された店舗コードが壊れていたら（"undefined" など）、この端末のデータの持ち主（dataOwner）から直す。
+// 2026-10-03 本番で、サーバーの返事に店舗コードが無いまま "undefined" を保存し、ホームが「Not found」になった。
+function _initialShopCode() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.shopCode)
+    if (saved == null || isValidShopCode(saved)) return saved ?? ''
+    const owner = localStorage.getItem(STORAGE_KEYS.dataOwner)
+    const fixed = isValidShopCode(owner) ? owner : ''
+    if (fixed) localStorage.setItem(STORAGE_KEYS.shopCode, fixed)
+    else localStorage.removeItem(STORAGE_KEYS.shopCode)
+    return fixed
+  } catch (_) { return '' }
+}
+export const shopCode  = ref(_initialShopCode())
 export const activeRoom = ref(null)  // D1 に記録されている進行中ルームコード
 
 // ── D1保存の状態と未送信の再送 ────────────────────────────────────────────────
@@ -501,6 +518,8 @@ export async function createStore() {
 // ── 店舗コード 確認・読み込み ──────────────────────────────────────────────────
 export async function loadStore(code) {
   const store = await _api(`/store/${code}`)
+  // 返事に店舗コードが無い（途中のエラーページなど）ときは、保存している店舗コードを書き換えない
+  if (!isValidShopCode(store?.shopCode)) throw new Error('店舗の情報を読み取れませんでした')
   shopCode.value  = store.shopCode
   activeRoom.value = store.activeRoom
   localStorage.setItem(STORAGE_KEYS.shopCode, store.shopCode)
