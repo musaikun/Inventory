@@ -262,7 +262,7 @@ function onSave() {
 </template>
 
 <style scoped>
-.mv { min-height: 100dvh; background: #f8fafc; display: flex; flex-direction: column; }
+.mv { min-height: 100dvh; background: #f6fafb; display: flex; flex-direction: column; }
 
 /* 過去納品の一括取込バー */
 
@@ -281,7 +281,7 @@ function onSave() {
 .mv-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
 .mv-back { border: none; background: none; color: #059669; font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
 .mv-title { font-size: 16px; font-weight: 800; color: #065f46; }
@@ -289,19 +289,19 @@ function onSave() {
 .mv.out .mv-back, .mv.out .mv-count { color: #dc2626; }
 .mv.out .mv-title { color: #991b1b; }
 
-.mv-tabs { position: sticky; top: 49px; z-index: 2; display: flex; padding: 0 8px; background: #fff; border-bottom: 1px solid #e2e8f0; }
-.mv-tab { flex: 1; border: none; background: none; padding: 13px 4px; font-size: 14px; font-weight: 800; color: #94a3b8; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color 0.18s; }
-.mv-tab.on { color: #334155; }
+.mv-tabs { position: sticky; top: 49px; z-index: 2; display: flex; padding: 0 8px; background: #fff; border-bottom: 1px solid #d6e6ea; }
+.mv-tab { flex: 1; border: none; background: none; padding: 13px 4px; font-size: 14px; font-weight: 800; color: #7d969c; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color 0.18s; }
+.mv-tab.on { color: #1f3d45; }
 .mv-tab.in.on  { color: #047857; }
 .mv-tab.out.on { color: #b91c1c; }
 .mv-tab.order.on { color: #b45309; }
-.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 2); height: 3px; border-radius: 3px 3px 0 0; background: #334155; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
+.mv-tab-ind { position: absolute; bottom: -1px; left: 8px; width: calc((100% - 16px) / 2); height: 3px; border-radius: 3px 3px 0 0; background: #1f3d45; transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), background-color 0.18s; }
 .mv-tab-ind.order { background: #f59e0b; }
 .mv-tab-ind.in  { background: #10b981; }
 .mv-tab-ind.out { background: #ef4444; }
-.mv-swipe-hint { text-align: center; font-size: 10.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.08em; padding: 5px 0 0; background: #f8fafc; }
+.mv-swipe-hint { text-align: center; font-size: 10.5px; font-weight: 700; color: #bfd6dc; letter-spacing: 0.08em; padding: 5px 0 0; background: #f6fafb; }
 
-.mv-gear { border: none; background: none; font-size: 18px; color: #64748b; cursor: pointer; padding: 4px 2px; -webkit-tap-highlight-color: transparent; }
+.mv-gear { border: none; background: none; font-size: 18px; color: #4c6a72; cursor: pointer; padding: 4px 2px; -webkit-tap-highlight-color: transparent; }
 .mv-gear.alone { margin-left: auto; }
 .mv-tab-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; margin-left: 4px; vertical-align: middle; }
 .mv-tab-badge { display: inline-block; font-size: 10px; font-weight: 800; color: #fff; background: #f59e0b; border-radius: 9px; padding: 0 5px; margin-left: 4px; vertical-align: middle; }
@@ -309,21 +309,21 @@ function onSave() {
 
 /* 発注タブ（既存の発注セッションへの入口） */
 .mv-order-err { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 10px; }
-.mv-sched { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 12px; margin-bottom: 10px; border: 1.5px solid #e2e8f0; border-radius: 12px; background: #fff; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
+.mv-sched { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 12px; margin-bottom: 10px; border: 1.5px solid #d6e6ea; border-radius: 12px; background: #fff; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
 .mv-sched-ico { flex-shrink: 0; font-size: 18px; }
 .mv-sched-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.mv-sched-sum { font-size: 13.5px; font-weight: 700; color: #334155; }
+.mv-sched-sum { font-size: 13.5px; font-weight: 700; color: #1f3d45; }
 .mv-scheds { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .mv-scheds .mv-sched { margin-bottom: 0; }   /* 間隔は gap が持つ */
 .mv-sched.today { border-color: #fdba74; background: #fffbf5; }
 .mv-sched-head { display: flex; align-items: center; gap: 6px; }
-.mv-sched-name { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.mv-sched-name { font-size: 13.5px; font-weight: 800; color: #12303a; }
 .mv-sched-today { padding: 1px 7px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: 11px; font-weight: 800; }
-.mv-scheds-ctx { font-size: 11.5px; color: #94a3b8; margin: 0; padding: 0 2px; }
+.mv-scheds-ctx { font-size: 11.5px; color: #7d969c; margin: 0; padding: 0 2px; }
 .mv-sched-dl { font-size: 12px; color: #b45309; font-weight: 800; }
 .mv-sched-dl.past { color: #b91c1c; }
-.mv-sched-ctx { font-size: 11.5px; color: #94a3b8; }
-.mv-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #2563eb; }
+.mv-sched-ctx { font-size: 11.5px; color: #7d969c; }
+.mv-sched-edit { flex-shrink: 0; font-size: 12px; font-weight: 800; color: #0e7490; }
 
 .mv-order-start, .mv-order-resume {
   display: flex; flex-direction: column; gap: 3px; width: 100%;
@@ -356,9 +356,9 @@ function onSave() {
 
 .mv-controls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .mv-ctl-row { display: flex; align-items: center; gap: 10px; }
-.mv-ctl-label { font-size: 13px; font-weight: 700; color: #64748b; flex-shrink: 0; }
-.mv-date { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: 14px; color: #1e293b; background: #fff; }
-.mv-note { border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.mv-ctl-label { font-size: 13px; font-weight: 700; color: #4c6a72; flex-shrink: 0; }
+.mv-date { flex: 1; border: 1.5px solid #d6e6ea; border-radius: 10px; padding: 8px 10px; font-size: 14px; color: #12303a; background: #fff; }
+.mv-note { border: 1.5px solid #d6e6ea; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 
 .mv-order-row { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; }
 .mv-order-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -373,9 +373,9 @@ function onSave() {
 .mv-linked { font-size: 12px; font-weight: 600; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mv-linked-clear { margin-left: auto; border: none; background: none; color: #ea580c; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
 
-.mv-search { width: 100%; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
-.mv-search:focus { outline: none; border-color: #94a3b8; }
-.mv-hint { font-size: 11.5px; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
+.mv-search { width: 100%; border: 1.5px solid #d6e6ea; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
+.mv-search:focus { outline: none; border-color: #7d969c; }
+.mv-hint { font-size: 11.5px; color: #7d969c; margin-bottom: 10px; line-height: 1.6; }
 /* 理論在庫の誤差要因は隠さない（甘い数字を出さない） */
 .mv-hint-caveat { color: #b45309; }
 
@@ -403,13 +403,13 @@ function onSave() {
 .mv-savebar {
   position: sticky; bottom: var(--app-footer-h, 0px);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-  background: #fff; border-top: 1px solid #e2e8f0;
+  background: #fff; border-top: 1px solid #d6e6ea;
   max-width: 620px; margin: 0 auto; width: 100%; box-sizing: border-box;
 }
 .mv-save-summary { text-align: center; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
 .mv-sum.in { color: #059669; }
 .mv-sum.out { color: #dc2626; }
-.mv-sum.none { color: #94a3b8; }
+.mv-sum.none { color: #7d969c; }
 .mv-save-actions { display: flex; gap: 10px; }
 .mv-save {
   flex: 1; border: none; border-radius: 12px; padding: 14px;

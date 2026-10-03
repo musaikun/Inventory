@@ -84,7 +84,7 @@ describe('InventoryTable — 左スワイプで非表示', () => {
 
     const el = await swipe('トマト', -40)      // 出た瞬間（REVEAL_AT ちょうど）
     const near0 = bg()
-    expect(near0).toBe('rgb(100, 116, 139)')   // まだ灰のまま
+    expect(near0).toBe('rgb(76, 106, 114)')   // まだ灰のまま
 
     touch(el, 'touchmove', 300 - 100, 100)     // 途中
     await nextTick()

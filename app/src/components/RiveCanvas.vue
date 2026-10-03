@@ -123,5 +123,5 @@ onBeforeUnmount(() => {
 <style scoped>
 .rive-surface { position: relative; width: 100%; height: 100%; }
 canvas { display: block; width: 100%; height: 100%; }
-.rive-message { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; padding: 16px; text-align: center; background: #f8fafce8; color: #334155; }
+.rive-message { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; padding: 16px; text-align: center; background: #f8fafce8; color: #1f3d45; }
 </style>

@@ -460,7 +460,7 @@ function onImport() {
 .detail-table thead {
   position: sticky;
   top: 0;
-  background: #f1f5f9;
+  background: #edf5f7;
   z-index: 1;
 }
 .detail-table th {
@@ -497,8 +497,8 @@ function onImport() {
 .debug-section summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 .debug-pre {
   margin-top: 8px;
-  background: #1e293b;
-  color: #e2e8f0;
+  background: #12303a;
+  color: #d6e6ea;
   padding: 10px;
   border-radius: 8px;
   font-size: 11px;

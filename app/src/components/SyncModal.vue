@@ -156,7 +156,7 @@ async function _generateQR() {
     qrDataUrl.value = await QRCode.toDataURL(url, {
       width: 200,
       margin: 1,
-      color: { dark: '#1e293b', light: '#ffffff' },
+      color: { dark: '#12303a', light: '#ffffff' },
     })
   } catch (_) {}
 }
@@ -465,7 +465,7 @@ function onShareMail() {
   gap: 8px;
   width: 100%;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: #f6fafb;
   border: 1.5px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
@@ -473,7 +473,7 @@ function onShareMail() {
   -webkit-tap-highlight-color: transparent;
   text-align: left;
 }
-.share-url-row:active { background: #f1f5f9; }
+.share-url-row:active { background: #edf5f7; }
 
 .share-url-text {
   flex: 1;
@@ -513,9 +513,9 @@ function onShareMail() {
 }
 .share-btn:active { opacity: 0.8; }
 
-.share-btn-native { background: #e0e7ff; color: #3730a3; }
+.share-btn-native { background: #cffafe; color: #3730a3; }
 .share-btn-line   { background: #06c755; color: #fff; }
-.share-btn-mail   { background: #f1f5f9; color: #334155; }
+.share-btn-mail   { background: #edf5f7; color: #1f3d45; }
 .share-btn-ico    { font-size: 13px; }
 
 /* ── QR ── */
@@ -581,7 +581,7 @@ function onShareMail() {
 .participants-list {
   border: 1.5px solid var(--border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: #f6fafb;
   overflow: hidden;
 }
 .participant-item {
@@ -599,10 +599,10 @@ function onShareMail() {
   -webkit-tap-highlight-color: transparent;
 }
 .participant-item:last-child { border-bottom: none; }
-.participant-item:active { background: #f1f5f9; }
+.participant-item:active { background: #edf5f7; }
 .participant-chevron {
   margin-left: auto;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   font-size: 18px;
   font-weight: 700;
 }
@@ -637,7 +637,7 @@ function onShareMail() {
 }
 .participant-status.working {
   color: var(--text-muted);
-  background: #f1f5f9;
+  background: #edf5f7;
 }
 
 /* ── 名前入力 ── */

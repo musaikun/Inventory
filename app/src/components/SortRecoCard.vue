@@ -97,7 +97,7 @@ const pct = computed(() => (props.total ? Math.round((props.assigned / props.tot
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   transition: left .7s cubic-bezier(.3, .7, .2, 1), top .7s cubic-bezier(.3, .7, .2, 1), background .4s ease;
 }
-.sr-demo.sorted .sr-it.c0 { background: #dbeafe; }
+.sr-demo.sorted .sr-it.c0 { background: #cffafe; }
 .sr-demo.sorted .sr-it.c1 { background: #cffafe; }
 .sr-demo.sorted .sr-it.c2 { background: #d1fae5; }
 .sr-cap { position: absolute; right: 8px; bottom: 5px; font-size: 10.5px; font-weight: 700; color: var(--text-muted); }

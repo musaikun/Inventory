@@ -1079,7 +1079,7 @@ function fmtYen(n) {
   width: 34px;
   height: 20px;
   border-radius: 10px;
-  background: #cbd5e1;
+  background: #bfd6dc;
   position: relative;
   transition: background 0.18s;
   flex-shrink: 0;
@@ -1129,7 +1129,7 @@ function fmtYen(n) {
 .seg-group {
   display: flex;
   flex: 1;
-  background: #f1f5f9;
+  background: #edf5f7;
   border-radius: 10px;
   padding: 3px;
   gap: 2px;
@@ -1166,7 +1166,7 @@ function fmtYen(n) {
 .sort-chip {
   min-height: 36px;
   padding: 4px 12px;
-  border: 1.5px solid #cbd5e1;
+  border: 1.5px solid #bfd6dc;
   border-radius: 16px;
   background: #fff;
   color: var(--text-muted);
@@ -1178,7 +1178,7 @@ function fmtYen(n) {
 }
 .sort-chip.active {
   border-color: var(--primary);
-  background: #eff6ff;
+  background: #ecfeff;
   color: var(--primary);
 }
 .sort-chip-box {
@@ -1187,14 +1187,14 @@ function fmtYen(n) {
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed #bfd6dc;
   border-radius: 12px;
-  background: #f8fafc;
+  background: #f6fafb;
 }
 .sort-chip-box-label {
   font-size: 10.5px;
   font-weight: 700;
-  color: #94a3b8;
+  color: #7d969c;
 }
 
 .seg-add {
@@ -1209,7 +1209,7 @@ function fmtYen(n) {
   padding: 0 4px;
   font-size: 12px;
   border-radius: 5px;
-  background: rgba(37, 99, 235, 0.12);
+  background: rgba(14, 116, 144, 0.12);
 }
 
 /* ── よく使う品目トグル ── */
@@ -1219,16 +1219,16 @@ function fmtYen(n) {
 
 .hidden-notice {
   font-size: 12px;
-  color: #475569;
-  background: #f1f5f9;
-  border: 1.5px solid #cbd5e1;
+  color: #3d5a62;
+  background: #edf5f7;
+  border: 1.5px solid #bfd6dc;
   border-radius: 8px;
   padding: 7px 12px;
   margin-bottom: 8px;
   cursor: pointer;
   line-height: 1.5;
 }
-.hidden-notice strong { color: #334155; }
+.hidden-notice strong { color: #1f3d45; }
 
 /* 非表示の確認ダイアログ（小さめ・中央） */
 .hide-dialog-overlay {
@@ -1244,7 +1244,7 @@ function fmtYen(n) {
 .hide-dialog-note {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   margin-top: 6px;
 }
 .hide-dialog {
@@ -1256,19 +1256,19 @@ function fmtYen(n) {
   box-shadow: 0 12px 40px rgba(0,0,0,0.25);
   text-align: center;
 }
-.hide-dialog-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hide-dialog-title { font-size: 15px; font-weight: 800; color: #12303a; }
 .hide-dialog-name {
-  font-size: 14px; font-weight: 700; color: #475569;
-  background: #f1f5f9; border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px;
+  font-size: 14px; font-weight: 700; color: #3d5a62;
+  background: #edf5f7; border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px;
   word-break: break-all;
 }
 .hide-dialog-actions { display: flex; gap: 10px; }
 .hide-dialog-cancel, .hide-dialog-ok {
   flex: 1; border-radius: 10px; font-size: 14px; font-weight: 700; padding: 11px; cursor: pointer;
 }
-.hide-dialog-cancel { border: 1px solid #e2e8f0; background: #fff; color: #64748b; }
-.hide-dialog-ok { border: none; background: #64748b; color: #fff; }
-.hide-dialog-ok:active { background: #475569; }
+.hide-dialog-cancel { border: 1px solid #d6e6ea; background: #fff; color: #4c6a72; }
+.hide-dialog-ok { border: none; background: #4c6a72; color: #fff; }
+.hide-dialog-ok:active { background: #3d5a62; }
 
 /* 管理シート */
 .hidden-overlay {
@@ -1296,26 +1296,26 @@ function fmtYen(n) {
   justify-content: space-between;
   margin-bottom: 4px;
 }
-.hidden-sheet-title { font-size: 15px; font-weight: 800; color: #1e293b; }
+.hidden-sheet-title { font-size: 15px; font-weight: 800; color: #12303a; }
 .hidden-sheet-close {
-  border: none; background: none; color: #64748b;
+  border: none; background: none; color: #4c6a72;
   font-size: 13px; font-weight: 700; cursor: pointer; padding: 4px 6px;
 }
-.hidden-sheet-sub { font-size: 12px; color: #94a3b8; margin: 0 0 10px; }
+.hidden-sheet-sub { font-size: 12px; color: #7d969c; margin: 0 0 10px; }
 .hidden-list { overflow-y: auto; }
 .hidden-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 4px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
 }
-.hidden-row-name { flex: 1; min-width: 0; font-size: 14px; color: #334155; }
-.hidden-row-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; margin-right: 8px; white-space: nowrap; }
+.hidden-row-name { flex: 1; min-width: 0; font-size: 14px; color: #1f3d45; }
+.hidden-row-at { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #7d969c; margin-right: 8px; white-space: nowrap; }
 .hidden-row-restore {
-  border: 1px solid var(--primary-border, #bfdbfe);
+  border: 1px solid var(--primary-border, #a5f3fc);
   background: #fff;
-  color: var(--primary, #2563eb);
+  color: var(--primary, #0e7490);
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
@@ -1323,7 +1323,7 @@ function fmtYen(n) {
   cursor: pointer;
 }
 .preview-hidden-at { font-size: 11px; font-weight: 700; color: #dc2626; white-space: nowrap; }
-.hidden-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 20px 0; }
+.hidden-empty { font-size: 13px; color: #7d969c; text-align: center; padding: 20px 0; }
 
 /* ── テーブル ── */
 .inv-table {
@@ -1369,7 +1369,7 @@ function fmtYen(n) {
 
 /* ── ジャンルヘッダー行 ── */
 .group-header-row {
-  background: #f8fafc !important;
+  background: #f6fafb !important;
   cursor: pointer;
   user-select: none;
 }
@@ -1456,7 +1456,7 @@ function fmtYen(n) {
   right: 0;
   width: 96px;
   border: none;
-  background: #64748b;
+  background: #4c6a72;
   color: #fff;
   font-size: 13px;
   font-weight: 800;
@@ -1551,18 +1551,18 @@ function fmtYen(n) {
 @keyframes tab-in-fwd  { from { transform: translateX(24px);  opacity: 0.4; } to { transform: none; opacity: 1; } }
 @keyframes tab-in-back { from { transform: translateX(-24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .tab-in-fwd, .tab-in-back { animation: none; } }
-.hidden-tab-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #94a3b8; }
+.hidden-tab-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: #7d969c; }
 
 /* ── 商品コードセル ── */
 .th-avatar { width: 44px; padding: 0; }
 .td-avatar { width: 44px; padding: 6px 0 6px 8px; vertical-align: middle; }
 .row-avatar {
   width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: flex;
-  align-items: center; justify-content: center; border: 1px solid #e2e8f0; background: #f1f5f9; padding: 0;
+  align-items: center; justify-content: center; border: 1px solid #d6e6ea; background: #edf5f7; padding: 0;
 }
 button.row-avatar { cursor: zoom-in; }
 .row-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.row-noimg { font-size: 7.5px; line-height: 1.05; font-weight: 700; color: #94a3b8; text-align: center; }
+.row-noimg { font-size: 7.5px; line-height: 1.05; font-weight: 700; color: #7d969c; text-align: center; }
 .td-code {
   padding: 11px 8px 11px 14px;
   font-size: 11px;
@@ -1591,7 +1591,7 @@ button.row-avatar { cursor: zoom-in; }
   font-size: 16px;
   font-weight: 700;
   color: var(--text-muted);
-  background: #f8fafc;
+  background: #f6fafb;
   justify-content: center;
 }
 
@@ -1619,7 +1619,7 @@ button.row-avatar { cursor: zoom-in; }
 }
 .preview-group-none { font-size: 11px; color: var(--text-muted); }
 /* 数量欄を親へ明け渡したときの振り分け先（品目名の下のヒント欄に出る） */
-.group-hint { color: var(--primary, #2563eb); background: var(--primary-weak, #eff6ff); }
+.group-hint { color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); }
 
 /* ── 金額セル ── */
 .td-amount {
@@ -1705,7 +1705,7 @@ button.row-avatar { cursor: zoom-in; }
 /* 発注と在庫を1つの枠に。発注が主（大きく・緑）、在庫は参考（小さく・灰） */
 .oq-box {
   display: inline-flex; align-items: stretch;
-  border: 1.5px solid var(--border); border-radius: 8px; background: #f8fafc;
+  border: 1.5px solid var(--border); border-radius: 8px; background: #f6fafb;
   padding: 3px 0; min-width: 112px;
 }
 .oq-box.filled { border-color: #86efac; background: #f0fdf4; }
@@ -1781,8 +1781,8 @@ button.row-avatar { cursor: zoom-in; }
 
 .delete-confirm-no {
   padding: 4px 10px;
-  background: #f1f5f9;
-  color: #475569;
+  background: #edf5f7;
+  color: #3d5a62;
   border: none;
   border-radius: 5px;
   font-size: 12px;

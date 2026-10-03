@@ -848,7 +848,7 @@ function saveEdit() {
 }
 
 .hint-lot  { background: #ede9fe; color: #6d28d9; }  /* 紫: 入数 */
-.hint-prev { background: #f1f5f9; color: #64748b; }  /* グレー: 前月 */
+.hint-prev { background: #edf5f7; color: #4c6a72; }  /* グレー: 前月 */
 
 .dup-warn {
   background: #fefce8;
@@ -882,7 +882,7 @@ function saveEdit() {
   font-weight: 700;
   text-align: center;
   color: var(--text-muted);
-  background: #f8fafc;
+  background: #f6fafb;
   min-height: 58px;
   display: flex;
   align-items: center;
@@ -1024,7 +1024,7 @@ function saveEdit() {
 }
 .genre-hint {
   font-size: 11px;
-  color: #94a3b8;
+  color: #7d969c;
   margin: -2px 0 10px;
   line-height: 1.4;
 }
@@ -1126,7 +1126,7 @@ function saveEdit() {
   gap: 4px;
   padding: 5px 10px;
   font-size: 12px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid #edf5f7;
 }
 
 .history-row:first-child { border-top: none; }
@@ -1142,7 +1142,7 @@ function saveEdit() {
 .action-overwrite { background: #fef9c3; color: #854d0e; }
 .action-remove    { background: #fee2e2; color: #991b1b; }
 .action-flag_recount   { background: #ffedd5; color: #9a3412; }
-.action-unflag_recount { background: #f1f5f9; color: #475569; }
+.action-unflag_recount { background: #edf5f7; color: #3d5a62; }
 
 /* あとで数える。全幅の行をやめ、品目名の隣の印にした */
 /* 前後送り（.name-nav）と同じ 34px。並びの中で1つだけ大きさが違うと、
@@ -1197,9 +1197,9 @@ function saveEdit() {
 .hint-history {
   font-family: inherit;
   padding: 6px 12px;
-  background: #f8fafc; color: var(--text-muted);
+  background: #f6fafb; color: var(--text-muted);
   border: 1px solid var(--border); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.hint-history:active { background: #f1f5f9; }
+.hint-history:active { background: #edf5f7; }
 </style>

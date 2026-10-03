@@ -284,20 +284,20 @@ onUnmounted(registerInnerLayerCloser(() => {
 /* ホームでは下部ナビの上に出す */
 .sp-locked { margin: 0 12px 8px; padding: 9px 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
 .sp.embedded .sp-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
-.sp { min-height: 100vh; background: var(--bg, #f1f5f9); padding-bottom: 96px; }
+.sp { min-height: 100vh; background: var(--bg, #edf5f7); padding-bottom: 96px; }
 .sp-header {
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
-.sp-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
-.sp-title { font-size: 16px; font-weight: 800; color: #1e293b; }
+.sp-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
+.sp-title { font-size: 16px; font-weight: 800; color: #12303a; }
 .sp-body { padding: 12px 0 0; }
 .sp-body > .sp-search, .sp-body > .sp-hint { margin-left: 12px; margin-right: 12px; width: calc(100% - 24px); }
 /* 表の左右の余白は InventoryTable 側（6px） */
-.sp-search { width: 100%; box-sizing: border-box; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 6px; background: #fff; }
-.sp-search:focus { outline: none; border-color: #94a3b8; }
-.sp-hint { font-size: 11.5px; color: #94a3b8; margin: 0 2px 8px; line-height: 1.6; }
-.sp-hint b { color: #64748b; }
+.sp-search { width: 100%; box-sizing: border-box; border: 1.5px solid #d6e6ea; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 6px; background: #fff; }
+.sp-search:focus { outline: none; border-color: #7d969c; }
+.sp-hint { font-size: 11.5px; color: #7d969c; margin: 0 2px 8px; line-height: 1.6; }
+.sp-hint b { color: #4c6a72; }
 
 .sp-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 12px 8px; padding: 2px 0; }
 .sp-chips::-webkit-scrollbar { display: none; }
@@ -324,27 +324,27 @@ onUnmounted(registerInnerLayerCloser(() => {
 /* 数量セル：数字に「何を元にした数か」を添える（素の数字だと実測か見込みか分からない） */
 .sp-cell {
   display: inline-flex; flex-direction: column; align-items: center; min-width: 84px;
-  border: 1.5px solid var(--border, #e2e8f0); border-radius: 8px; padding: 3px 8px; background: #f8fafc;
+  border: 1.5px solid var(--border, #d6e6ea); border-radius: 8px; padding: 3px 8px; background: #f6fafb;
 }
-.sp-cell-basis { font-size: 9.5px; font-weight: 700; color: #94a3b8; line-height: 1.2; white-space: nowrap; }
-.sp-cell-val { font-size: 16px; font-weight: 800; color: #334155; white-space: nowrap; }
+.sp-cell-basis { font-size: 9.5px; font-weight: 700; color: #7d969c; line-height: 1.2; white-space: nowrap; }
+.sp-cell-val { font-size: 16px; font-weight: 800; color: #1f3d45; white-space: nowrap; }
 .sp-cell.low { border-color: #fdba74; background: #fff7ed; }
 .sp-cell.low .sp-cell-basis, .sp-cell.low .sp-cell-val { color: #c2410c; }
-.sp-cell.none .sp-cell-val { color: #cbd5e1; }
+.sp-cell.none .sp-cell-val { color: #bfd6dc; }
 
 .sp-fab {
   position: fixed; right: max(16px, calc(50vw - 320px)); bottom: calc(20px + env(safe-area-inset-bottom));
   width: 58px; height: 58px; border-radius: 50%; border: none; z-index: 5;
-  background: var(--primary, #2563eb); color: #fff; font-size: 32px; line-height: 1; cursor: pointer;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+  background: var(--btn-bg); color: var(--btn-fg); font-size: 32px; line-height: 1; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(34, 211, 238, 0.45);
 }
 
 .sp-empty { text-align: center; padding: 64px 20px 0; }
 .sp-empty-ico { font-size: 64px; }
-.sp-empty-title { font-size: 19px; font-weight: 800; color: #1e293b; margin-top: 8px; }
-.sp-empty-sub { font-size: 13px; color: #64748b; margin: 4px 0 20px; }
+.sp-empty-title { font-size: 19px; font-weight: 800; color: #12303a; margin-top: 8px; }
+.sp-empty-sub { font-size: 13px; color: #4c6a72; margin: 4px 0 20px; }
 .sp-btn { display: block; width: 100%; max-width: 360px; margin: 0 auto 10px; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 800; cursor: pointer; }
-.sp-btn.pri { border: none; background: var(--primary, #2563eb); color: #fff; }
-.sp-btn.sec { border: 1.5px solid #cbd5e1; background: #fff; color: #334155; }
-.sp-link { border: none; background: none; color: var(--primary, #2563eb); font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+.sp-btn.pri { border: none; background: var(--btn-bg); color: var(--btn-fg); }
+.sp-btn.sec { border: 1.5px solid #bfd6dc; background: #fff; color: #1f3d45; }
+.sp-link { border: none; background: none; color: var(--primary, #0e7490); font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
 </style>

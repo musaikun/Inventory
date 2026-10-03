@@ -109,38 +109,38 @@ const cases = computed(() => {
 .mq-badge { flex-shrink: 0; font-size: 11px; font-weight: 800; border-radius: 8px; padding: 3px 8px; }
 .mq-badge.in  { background: #ecfdf5; color: #047857; }
 .mq-badge.out { background: #fef2f2; color: #b91c1c; }
-.mq-item { font-size: 17px; font-weight: 800; color: #1e293b; line-height: 1.3; }
+.mq-item { font-size: 17px; font-weight: 800; color: #12303a; line-height: 1.3; }
 
-.mq-theo { font-size: 12px; color: #64748b; font-weight: 600; margin-bottom: 10px; }
+.mq-theo { font-size: 12px; color: #4c6a72; font-weight: 600; margin-bottom: 10px; }
 .mq-theo .up   { color: #047857; }
 .mq-theo .down { color: #b91c1c; }
-.mq-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border-radius: 8px; padding: 1px 6px; }
+.mq-lot { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #4c6a72; background: #edf5f7; border-radius: 8px; padding: 1px 6px; }
 
 .mq-value {
   display: flex; align-items: baseline; gap: 6px;
-  border: 1.5px solid #e2e8f0; border-radius: 12px;
-  padding: 12px 14px; margin-bottom: 10px; background: #f8fafc;
+  border: 1.5px solid #d6e6ea; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 10px; background: #f6fafb;
 }
 .mq-value.on { border-color: #10b981; background: #ecfdf5; }
 .mq-sheet.out .mq-value.on { border-color: #ef4444; background: #fef2f2; }
-.mq-num  { font-size: 30px; font-weight: 800; color: #1e293b; line-height: 1; }
-.mq-unit { font-size: 14px; font-weight: 700; color: #64748b; }
-.mq-cases { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #475569; }
+.mq-num  { font-size: 30px; font-weight: 800; color: #12303a; line-height: 1; }
+.mq-unit { font-size: 14px; font-weight: 700; color: #4c6a72; }
+.mq-cases { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #3d5a62; }
 
 .mq-quick { display: flex; gap: 6px; margin-bottom: 10px; }
 .mq-q {
-  flex: 1; min-height: 44px; border: 1.5px solid #e2e8f0; border-radius: 10px;
-  background: #fff; color: #334155; font-size: 13px; font-weight: 800; cursor: pointer;
+  flex: 1; min-height: 44px; border: 1.5px solid #d6e6ea; border-radius: 10px;
+  background: #fff; color: #1f3d45; font-size: 13px; font-weight: 800; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .mq-q.lot { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
-.mq-q.ghost { color: #94a3b8; }
+.mq-q.ghost { color: #7d969c; }
 .mq-q:disabled { opacity: 0.45; cursor: default; }
 .mq-q:active { transform: scale(0.97); }
 
 .mq-actions { display: flex; gap: 10px; margin-top: 12px; }
 .btn { flex: 1; border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 800; cursor: pointer; }
-.btn-secondary { background: #f1f5f9; color: #475569; }
+.btn-secondary { background: #edf5f7; color: #3d5a62; }
 .btn-primary { color: #fff; background: #10b981; }
 .btn-primary.out { background: #ef4444; }
 </style>

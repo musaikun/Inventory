@@ -32,7 +32,7 @@ import LoadingSpinner from './LoadingSpinner.vue'
   box-shadow: 0 16px 44px rgba(15, 23, 42, 0.3);
   text-align: center;
 }
-.busy-note { margin: 2px 0 0; font-size: 11px; color: #94a3b8; }
+.busy-note { margin: 2px 0 0; font-size: 11px; color: #7d969c; }
 
 .busy-fade-enter-active, .busy-fade-leave-active { transition: opacity 0.16s linear; }
 .busy-fade-enter-from, .busy-fade-leave-to { opacity: 0; }

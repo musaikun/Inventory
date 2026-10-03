@@ -130,37 +130,37 @@ function onSave() {
 <style scoped>
 .os-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 100; display: flex; align-items: flex-end; }
 .os-sheet { background: #fff; width: 100%; border-radius: 18px 18px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom)); max-height: 88dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.os-handle { width: 40px; height: 4px; border-radius: 2px; background: #e2e8f0; margin: 0 auto; flex-shrink: 0; }
-.os-title { font-size: 17px; font-weight: 800; color: #1e293b; text-align: center; }
-.os-desc { font-size: 12px; color: #64748b; line-height: 1.6; }
+.os-handle { width: 40px; height: 4px; border-radius: 2px; background: #d6e6ea; margin: 0 auto; flex-shrink: 0; }
+.os-title { font-size: 17px; font-weight: 800; color: #12303a; text-align: center; }
+.os-desc { font-size: 12px; color: #4c6a72; line-height: 1.6; }
 
-.os-card { border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.os-card { border: 1.5px solid #d6e6ea; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .os-card.focus { border-color: #fdba74; background: #fffbf5; }
 .os-card-head { display: flex; align-items: center; gap: 8px; }
-.os-name { flex: 1; min-width: 0; border: 1.5px solid var(--border, #e2e8f0); border-radius: 10px; padding: 9px 11px; font-size: 15px; font-weight: 700; color: #1e293b; background: #fff; }
-.os-remove { border: none; background: none; color: #94a3b8; font-size: 13px; font-weight: 700; padding: 6px; cursor: pointer; flex-shrink: 0; }
+.os-name { flex: 1; min-width: 0; border: 1.5px solid var(--border, #d6e6ea); border-radius: 10px; padding: 9px 11px; font-size: 15px; font-weight: 700; color: #12303a; background: #fff; }
+.os-remove { border: none; background: none; color: #7d969c; font-size: 13px; font-weight: 700; padding: 6px; cursor: pointer; flex-shrink: 0; }
 .os-card-sum { font-size: 12.5px; color: #c2410c; font-weight: 700; }
 
 .os-dows { display: flex; gap: 6px; }
 .os-dow {
-  flex: 1; height: 44px; border: 1.5px solid var(--border, #e2e8f0); background: #fff;
-  border-radius: 10px; font-size: 15px; font-weight: 800; color: #64748b; cursor: pointer;
+  flex: 1; height: 44px; border: 1.5px solid var(--border, #d6e6ea); background: #fff;
+  border-radius: 10px; font-size: 15px; font-weight: 800; color: #4c6a72; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .os-dow.sun { color: #dc2626; }
-.os-dow.sat { color: #2563eb; }
+.os-dow.sat { color: #0e7490; }
 .os-dow.on { border-color: #ea580c; background: #fff7ed; color: #c2410c; }
 
 .os-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.os-row-label { font-size: 13px; font-weight: 700; color: #475569; }
-.os-time { border: 1.5px solid var(--border, #e2e8f0); border-radius: 10px; padding: 9px 11px; font-size: 16px; color: #1e293b; background: #fff; }
+.os-row-label { font-size: 13px; font-weight: 700; color: #3d5a62; }
+.os-time { border: 1.5px solid var(--border, #d6e6ea); border-radius: 10px; padding: 9px 11px; font-size: 16px; color: #12303a; background: #fff; }
 
-.os-add { border: 1.5px dashed #cbd5e1; background: #f8fafc; border-radius: 12px; padding: 12px; font-size: 14px; font-weight: 800; color: #475569; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.os-max { font-size: 11.5px; color: #94a3b8; margin: 0; }
-.os-note { font-size: 11.5px; color: #94a3b8; line-height: 1.6; margin: 0; }
+.os-add { border: 1.5px dashed #bfd6dc; background: #f6fafb; border-radius: 12px; padding: 12px; font-size: 14px; font-weight: 800; color: #3d5a62; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.os-max { font-size: 11.5px; color: #7d969c; margin: 0; }
+.os-note { font-size: 11.5px; color: #7d969c; line-height: 1.6; margin: 0; }
 
 .os-save { border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 800; color: #fff; cursor: pointer; background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%); -webkit-tap-highlight-color: transparent; }
 .os-save:active { transform: scale(0.98); }
 .os-sub-actions { display: flex; justify-content: flex-end; }
-.os-cancel { border: none; background: none; color: #64748b; font-size: 14px; font-weight: 700; padding: 6px; cursor: pointer; }
+.os-cancel { border: none; background: none; color: #4c6a72; font-size: 14px; font-weight: 700; padding: 6px; cursor: pointer; }
 </style>

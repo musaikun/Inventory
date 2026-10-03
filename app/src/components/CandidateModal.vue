@@ -223,8 +223,8 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 }
 
 .item:active {
-  background: #f8fafc;
-  border-color: #94a3b8;
+  background: #f6fafb;
+  border-color: #7d969c;
 }
 
 /* 一致品目：青ハイライト */

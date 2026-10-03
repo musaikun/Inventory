@@ -67,22 +67,22 @@ function actionClass(a) {
 <style scoped>
 .ih-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 120; display: flex; align-items: flex-end; }
 .ih-sheet { background: #fff; width: 100%; border-radius: 18px 18px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom)); max-height: 80dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.ih-handle { width: 40px; height: 4px; border-radius: 2px; background: #e2e8f0; margin: 0 auto; flex-shrink: 0; }
-.ih-title { font-size: 17px; font-weight: 800; color: #1e293b; text-align: center; }
-.ih-sub { font-size: 12px; color: #64748b; text-align: center; }
+.ih-handle { width: 40px; height: 4px; border-radius: 2px; background: #d6e6ea; margin: 0 auto; flex-shrink: 0; }
+.ih-title { font-size: 17px; font-weight: 800; color: #12303a; text-align: center; }
+.ih-sub { font-size: 12px; color: #4c6a72; text-align: center; }
 .ih-shared { color: #c2410c; }
 
-.ih-list { display: flex; flex-direction: column; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
-.ih-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+.ih-list { display: flex; flex-direction: column; border: 1px solid #d6e6ea; border-radius: 10px; overflow: hidden; }
+.ih-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #edf5f7; }
 .ih-row:last-child { border-bottom: none; }
-.ih-when { font-size: 11.5px; color: #94a3b8; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.ih-by { flex: 1; min-width: 0; color: #1e293b; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ih-act { font-size: 11px; font-weight: 800; color: #64748b; flex-shrink: 0; }
+.ih-when { font-size: 11.5px; color: #7d969c; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ih-by { flex: 1; min-width: 0; color: #12303a; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ih-act { font-size: 11px; font-weight: 800; color: #4c6a72; flex-shrink: 0; }
 .ih-act.act-new { color: #059669; }
-.ih-act.act-add { color: #2563eb; }
+.ih-act.act-add { color: #0e7490; }
 .ih-act.act-over { color: #b45309; }
 .ih-act.act-remove { color: #b91c1c; }
-.ih-qty { font-weight: 800; color: #1e293b; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ih-qty { font-weight: 800; color: #12303a; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
-.ih-close { border: none; border-radius: 12px; padding: 13px; font-size: 15px; font-weight: 800; color: #475569; background: #f1f5f9; cursor: pointer; }
+.ih-close { border: none; border-radius: 12px; padding: 13px; font-size: 15px; font-weight: 800; color: #3d5a62; background: #edf5f7; cursor: pointer; }
 </style>

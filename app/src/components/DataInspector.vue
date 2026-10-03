@@ -139,22 +139,22 @@ async function copyAll() {
 </template>
 
 <style scoped>
-.di-bg { position: fixed; inset: 0; z-index: 60; background: #f1f5f9; display: flex; justify-content: center; }
+.di-bg { position: fixed; inset: 0; z-index: 60; background: #edf5f7; display: flex; justify-content: center; }
 .di { width: 100%; max-width: 640px; display: flex; flex-direction: column; height: 100dvh; }
-.di-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; }
-.di-back { border: none; background: none; color: var(--primary, #2563eb); font-weight: 700; font-size: 14px; cursor: pointer; }
+.di-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea; }
+.di-back { border: none; background: none; color: var(--primary, #0e7490); font-weight: 700; font-size: 14px; cursor: pointer; }
 .di-title { font-weight: 800; font-size: 16px; flex: 1; }
-.di-copy { border: 1.5px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 9px; padding: 6px 10px; font-weight: 800; font-size: 12.5px; cursor: pointer; }
+.di-copy { border: 1.5px solid #67e8f9; background: #ecfeff; color: #155e75; border-radius: 9px; padding: 6px 10px; font-weight: 800; font-size: 12.5px; cursor: pointer; }
 .di-body { flex: 1; overflow-y: auto; padding: 12px 14px 40px; }
-.di-note { font-size: 12.5px; color: #475569; line-height: 1.6; margin: 0 0 8px; }
-.di-loading { font-size: 13px; color: #64748b; margin: 8px 0; }
-h3 { font-size: 14px; margin: 16px 0 6px; color: #1e293b; }
-h3 small { font-weight: 700; color: #64748b; }
+.di-note { font-size: 12.5px; color: #3d5a62; line-height: 1.6; margin: 0 0 8px; }
+.di-loading { font-size: 13px; color: #4c6a72; margin: 8px 0; }
+h3 { font-size: 14px; margin: 16px 0 6px; color: #12303a; }
+h3 small { font-weight: 700; color: #4c6a72; }
 .di-err { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 9px; }
 .di-t { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 12px; }
-.di-t th, .di-t td { border-bottom: 1px solid #f1f5f9; padding: 6px 8px; text-align: left; vertical-align: top; }
-.di-t th { background: #f8fafc; color: #64748b; font-weight: 700; white-space: nowrap; }
+.di-t th, .di-t td { border-bottom: 1px solid #edf5f7; padding: 6px 8px; text-align: left; vertical-align: top; }
+.di-t th { background: #f6fafb; color: #4c6a72; font-weight: 700; white-space: nowrap; }
 .di-t tr.open td { background: #fff7ed; }
-.di-id { font-family: monospace; color: #94a3b8; }
-.di-reload { margin: 16px auto 0; display: block; border: 1.5px solid #cbd5e1; background: #fff; border-radius: 10px; padding: 9px 16px; font-weight: 800; cursor: pointer; }
+.di-id { font-family: monospace; color: #7d969c; }
+.di-reload { margin: 16px auto 0; display: block; border: 1.5px solid #bfd6dc; background: #fff; border-radius: 10px; padding: 9px 16px; font-weight: 800; cursor: pointer; }
 </style>

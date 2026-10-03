@@ -226,10 +226,10 @@ function onImport() {
 .err-list { max-height: 180px; overflow-y: auto; }
 .err-row { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; line-height: 1.6; padding: 3px 0; }
 .err-line { color: #b45309; font-weight: 800; min-width: 56px; }
-.err-col  { color: #334155; }
+.err-col  { color: #1f3d45; }
 .err-val  { color: #7f1d1d; font-weight: 700; word-break: break-all; }
-.err-why  { color: #94a3b8; }
-.err-more { font-size: 12px; color: #94a3b8; margin: 4px 0 0; }
+.err-why  { color: #7d969c; }
+.err-more { font-size: 12px; color: #7d969c; margin: 4px 0 0; }
 .err-ack { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #7f1d1d; margin-top: 8px; cursor: pointer; }
 .err-ack input { width: 16px; height: 16px; }
 
@@ -242,12 +242,12 @@ function onImport() {
 
 .map-columns-btn {
   width: 100%; margin-bottom: 12px; padding: 12px;
-  border: 1.5px solid #bfdbfe; border-radius: 10px;
-  background: #eff6ff; color: #1d4ed8;
+  border: 1.5px solid #a5f3fc; border-radius: 10px;
+  background: #ecfeff; color: #155e75;
   font-size: 14px; font-weight: 800; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.map-columns-btn:active { background: #dbeafe; }
+.map-columns-btn:active { background: #cffafe; }
 
 .import-hint { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px; }
 .import-filename { font-weight: 700; color: var(--primary); margin-right: 4px; }
@@ -263,10 +263,10 @@ function onImport() {
 }
 .import-table { border-collapse: collapse; font-size: 12px; width: 100%; white-space: nowrap; }
 .import-table th {
-  background: #f1f5f9; font-weight: 700; color: var(--text);
+  background: #edf5f7; font-weight: 700; color: var(--text);
   padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; position: sticky; top: 0;
 }
-.import-table td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; color: var(--text); }
+.import-table td { padding: 5px 8px; border-bottom: 1px solid #edf5f7; color: var(--text); }
 .row-off { opacity: 0.42; }
 .c-chk { text-align: center; }
 .c-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }

@@ -57,7 +57,7 @@ function press(key) {
   font-weight: 600;
   border: 1.5px solid var(--border);
   border-radius: 12px;
-  background: #f8fafc;
+  background: #f6fafb;
   color: var(--text);
   cursor: pointer;
   transition: background 0.1s, transform 0.08s;
@@ -69,7 +69,7 @@ function press(key) {
 }
 
 .numpad-btn:active {
-  background: #e2e8f0;
+  background: #d6e6ea;
   transform: scale(0.95);
 }
 

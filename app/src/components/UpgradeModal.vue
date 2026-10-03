@@ -143,15 +143,15 @@ useEscapeKey(() => emit('close'))
 
 .upgrade-coming-wrap {
   padding: 16px;
-  background: #f8fafc;
+  background: #f6fafb;
   border-radius: 12px;
   margin-bottom: 16px;
 }
 
 .upgrade-coming-badge {
   display: inline-block;
-  background: #e2e8f0;
-  color: #64748b;
+  background: #d6e6ea;
+  color: #4c6a72;
   font-size: 11px;
   font-weight: 700;
   padding: 3px 10px;
@@ -170,7 +170,7 @@ useEscapeKey(() => emit('close'))
   font-size: 14px;
   color: var(--text);
   line-height: 1.7;
-  background: #f8fafc;
+  background: #f6fafb;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
@@ -190,5 +190,5 @@ useEscapeKey(() => emit('close'))
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.upgrade-dismiss:active { background: #f1f5f9; }
+.upgrade-dismiss:active { background: #edf5f7; }
 </style>

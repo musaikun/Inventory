@@ -35,7 +35,7 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
   background: none; border: none; font-size: 20px; line-height: 1; cursor: pointer;
   padding: 6px 8px; border-radius: 8px; color: #374151;
 }
-.am-btn.open { background: #eef2ff; color: var(--primary); }
+.am-btn.open { background: #ecfeff; color: var(--primary); }
 .am-backdrop { position: fixed; inset: 0; z-index: 40; }
 .am-dropdown {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 41;
@@ -47,7 +47,7 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
   padding: 11px 12px; border: none; background: none; border-radius: 8px;
   font-size: 14px; color: #374151; cursor: pointer; text-align: left;
 }
-.am-item:active { background: #f1f5f9; }
+.am-item:active { background: #edf5f7; }
 .am-ico { width: 20px; text-align: center; }
 
 /* slot で差し込まれる画面固有の項目にも同じ見た目を当てる */
@@ -56,7 +56,7 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
   padding: 11px 12px; border: none; background: none; border-radius: 8px;
   font-size: 14px; color: #374151; cursor: pointer; text-align: left;
 }
-:slotted(.am-item:active) { background: #f1f5f9; }
+:slotted(.am-item:active) { background: #edf5f7; }
 :slotted(.am-ico) { width: 20px; text-align: center; }
-:slotted(.am-danger) { color: #b91c1c; border-top: 1px solid #f1f5f9; border-radius: 0 0 8px 8px; }
+:slotted(.am-danger) { color: #b91c1c; border-top: 1px solid #edf5f7; border-radius: 0 0 8px 8px; }
 </style>

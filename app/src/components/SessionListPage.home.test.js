@@ -70,7 +70,7 @@ describe('ホームの骨組み', () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📊レポート', '🗂管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['在庫', 'レポート', '管理'])
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {

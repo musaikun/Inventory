@@ -25,7 +25,7 @@ defineProps({
   justify-content: center;
   gap: 10px;
   padding: 18px 12px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   font-size: 13px;
 }
 .ld.inline { display: inline-flex; padding: 0; gap: 0; vertical-align: middle; margin-right: 7px; }
@@ -34,8 +34,8 @@ defineProps({
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border: 2.5px solid var(--primary-border, #bfdbfe);
-  border-top-color: var(--primary, #2563eb);
+  border: 2.5px solid var(--primary-border, #a5f3fc);
+  border-top-color: var(--primary, #0e7490);
   border-radius: 50%;
   animation: ld-spin 0.8s linear infinite;
 }

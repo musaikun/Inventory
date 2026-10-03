@@ -467,7 +467,7 @@ watch([rowStep, edges], () => { oddOnly.value = false })
 .gs-table td.here { outline: 2px solid var(--primary); outline-offset: -2px; }
 .gs-table th.on { border-color: var(--primary); }
 /* 見出しから足した列。紙の上に境界が無いので、合わせる・分けるの対象にしない */
-.gs-table th.add, .gs-table td.add { background: #f8fafc; color: var(--text-muted); cursor: default; }
+.gs-table th.add, .gs-table td.add { background: #f6fafb; color: var(--text-muted); cursor: default; }
 .gs-cn { font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
 .gs-no { width: 30px; color: var(--text-muted); text-align: right; background: var(--surface); cursor: default; }
 

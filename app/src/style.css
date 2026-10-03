@@ -6,27 +6,30 @@
 }
 
 :root {
-  --primary:        #2563eb;
-  --primary-bright: #3b82f6;
-  --primary-soft:   #dbeafe;
-  --primary-weak:   #eff6ff;
-  --primary-border: #bfdbfe;
-  --primary-deep:   #1d4ed8;
-  --primary-mid:    #93c5fd;
-  --primary-grad:   #4f46e5;
+  --primary:        #0e7490;
+  --primary-bright: #0891b2;
+  --primary-soft:   #cffafe;
+  --primary-weak:   #ecfeff;
+  --primary-border: #a5f3fc;
+  --primary-deep:   #155e75;
+  --primary-mid:    #67e8f9;
+  --primary-grad:   #0891b2;
   --success:      #16a34a;
   --danger:       #dc2626;
-  --bg:           #f1f5f9;
+  --bg:           #edf5f7;
   --surface:      #ffffff;
-  --border:       #e2e8f0;
-  --text:         #1e293b;
-  --text-muted:   #64748b;
+  --border:       #d6e6ea;
+  --text:         #12303a;
+  --text-muted:   #4c6a72;
   --shadow:       0 2px 8px rgba(0,0,0,0.08);
   /* アイコンの光る輪（青→水色→緑）。輪・進み具合・選択中の印に使う */
   --grad-ring:    linear-gradient(90deg, #2563eb, #22d3ee 55%, #34d399);
   /* 主なボタン（水色→緑）。上の文字は暗い色（白だと読めない） */
   --grad-btn:     linear-gradient(90deg, #22d3ee, #34d399);
   --on-grad:      #04212a;
+  /* 主なボタンの地と文字。発注（オレンジ）の画面では単色に戻す */
+  --btn-bg:       var(--grad-btn);
+  --btn-fg:       var(--on-grad);
 }
 
 /* 発注確認セッションのオレンジテーマ（このクラスが付いた要素配下だけ変色） */
@@ -39,6 +42,8 @@
   --primary-deep:   #c2410c;
   --primary-mid:    #fdba74;
   --primary-grad:   #f97316;
+  --btn-bg:         var(--primary);
+  --btn-fg:         #fff;
 }
 
 body {
@@ -81,8 +86,14 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   position: sticky;
   top: 0;
   z-index: 10;
-  box-shadow: 0 2px 8px rgba(37,99,235,0.3);
+  box-shadow: 0 2px 8px rgba(14, 116, 144,0.3);
 }
+/* 見出しの下に、アイコンの光る輪の色の細い線（発注のオレンジの画面には付けない） */
+.app-header::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: var(--grad-ring); pointer-events: none;
+}
+.theme-order .app-header::after, .app-header.theme-order::after { display: none; }
 
 .header-left {
   display: flex;
@@ -172,7 +183,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.18);
-  border: 1px solid #e2e8f0;
+  border: 1px solid #d6e6ea;
   padding: 6px;
   min-width: 230px;
   display: flex;
@@ -190,12 +201,12 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: #0b2229;
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.menu-item:active { background: #f1f5f9; }
+.menu-item:active { background: #edf5f7; }
 .menu-ico { font-size: 17px; width: 22px; text-align: center; flex-shrink: 0; }
 
 /* ── 品目追加フォームのトグル ── */
@@ -205,17 +216,17 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   justify-content: space-between;
   width: 100%;
   padding: 9px 14px;
-  background: #f8fafc;
-  border: 1.5px dashed #cbd5e1;
+  background: #f6fafb;
+  border: 1.5px dashed #bfd6dc;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #475569;
+  color: #3d5a62;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.add-item-toggle:active { background: #f1f5f9; }
-.add-item-toggle-arrow { font-size: 11px; color: #94a3b8; font-weight: 600; }
+.add-item-toggle:active { background: #edf5f7; }
+.add-item-toggle-arrow { font-size: 11px; color: #7d969c; font-weight: 600; }
 
 
 /* ── 同期中バナー ── */
@@ -246,12 +257,12 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   color: #fff;
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 6px 20px rgba(37,99,235,0.32);
+  box-shadow: 0 6px 20px rgba(14, 116, 144,0.32);
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s, box-shadow 0.12s;
   animation: room-cta-in 0.35s ease both;
 }
-.room-cta:active { transform: scale(0.985); box-shadow: 0 3px 12px rgba(37,99,235,0.3); }
+.room-cta:active { transform: scale(0.985); box-shadow: 0 3px 12px rgba(14, 116, 144,0.3); }
 .room-cta:disabled { opacity: 0.7; cursor: default; }
 
 @keyframes room-cta-in {
@@ -296,7 +307,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 }
 .sync-banner.offline {
   background: #fafafa;
-  border-bottom-color: #cbd5e1;
+  border-bottom-color: #bfd6dc;
 }
 .sync-banner.offline .sync-banner-dot {
   background: var(--text-muted);
@@ -372,10 +383,10 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 }
 
 .sync-participant-chip.left {
-  background: #f1f5f9;
-  color: #94a3b8;
+  background: #edf5f7;
+  color: #7d969c;
 }
-.sync-participant-chip.left:hover { border-color: #cbd5e1; }
+.sync-participant-chip.left:hover { border-color: #bfd6dc; }
 
 .chip-check {
   font-weight: 700;
@@ -565,7 +576,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 }
 
 .btn:active { opacity: 0.8; }
-.btn-primary   { background: var(--primary); color: white; }
+.btn-primary   { background: var(--btn-bg); color: var(--btn-fg); }
 .btn-success   { background: var(--success); color: white; }
 .btn-secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); }
 .btn-danger-sm {
@@ -593,7 +604,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 .btn-collapse-all { color: var(--text-muted); }
 .btn-expand-all   { color: var(--primary); border-color: var(--primary-border); }
 
-.btn-collapse-all:active { background: #f1f5f9; }
+.btn-collapse-all:active { background: #edf5f7; }
 .btn-expand-all:active   { background: var(--primary-weak); }
 
 /* ── 棚卸完了バナー ── */
@@ -740,7 +751,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   top: calc(10px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  background: #1e293b;
+  background: #12303a;
   color: #fff;
   padding: 10px 22px;
   border-radius: 24px;
@@ -802,7 +813,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
   width: calc(100vw - 28px);
   max-width: 520px;
   box-sizing: border-box;
-  background: #1e293b;
+  background: #12303a;
   color: #fff;
   border-radius: 14px;
   padding: 10px 10px 10px 16px;
@@ -812,13 +823,13 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 .undo-msg { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
 .undo-btn {
   flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px;
-  background: #fff; color: #1e293b; font-size: 13px; font-weight: 800; padding: 0 14px; cursor: pointer;
+  background: #fff; color: #12303a; font-size: 13px; font-weight: 800; padding: 0 14px; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.undo-btn:active { background: #e2e8f0; }
+.undo-btn:active { background: #d6e6ea; }
 .undo-x {
   flex-shrink: 0; min-width: 32px; min-height: 40px; border: none; background: none;
-  color: #94a3b8; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  color: #7d969c; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 
 /* ── PWA 更新バナー ── */
@@ -880,7 +891,7 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 /* ── 音声ヒント ── */
 .voice-hint {
   font-size: 11px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   text-align: center;
   padding: 2px 16px 4px;
 }
@@ -889,8 +900,8 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 .add-item-form {
   margin: 10px 16px 4px;
   padding: 12px 14px;
-  background: #f8fafc;
-  border: 1.5px dashed #cbd5e1;
+  background: #f6fafb;
+  border: 1.5px dashed #bfd6dc;
   border-radius: 12px;
 }
 
@@ -914,19 +925,19 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 }
 
 .add-input {
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid #d6e6ea;
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 14px;
   background: white;
-  color: #1e293b;
+  color: #12303a;
   outline: none;
   min-width: 0;
 }
 
 .add-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+  box-shadow: 0 0 0 2px rgba(14, 116, 144,0.15);
 }
 
 .add-input-name { flex: 2; min-width: 120px; }
@@ -956,9 +967,9 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 
 .add-item-btn-cancel {
   padding: 8px 12px;
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1.5px solid #e2e8f0;
+  background: #edf5f7;
+  color: #4c6a72;
+  border: 1.5px solid #d6e6ea;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -983,12 +994,12 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 .empty-items-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text, #1e293b);
+  color: var(--text, #12303a);
 }
 
 .empty-items-desc {
   font-size: 13px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   text-align: center;
 }
 
@@ -1202,10 +1213,10 @@ body[data-view="sessions"] #app { padding-bottom: 0; }
 
     body.dt-shell .room-cta:hover {
       transform: translateY(-1px);
-      box-shadow: 0 10px 26px rgba(37, 99, 235, 0.38);
+      box-shadow: 0 10px 26px rgba(14, 116, 144, 0.38);
     }
     body.dt-shell .menu-item:hover,
-    body.dt-shell .add-item-toggle:hover { background: #f1f5f9; }
+    body.dt-shell .add-item-toggle:hover { background: #edf5f7; }
     body.dt-shell .continuous-stop-btn:hover { background: #fef2f2; }
   }
 

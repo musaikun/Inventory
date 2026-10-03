@@ -735,7 +735,7 @@ function onDownloadTemplate() {
   font-weight: 600;
   margin-bottom: 16px;
 }
-.status-bar.default { background: #f1f5f9; color: var(--text-muted); }
+.status-bar.default { background: #edf5f7; color: var(--text-muted); }
 .status-bar.custom  { background: var(--primary-weak); color: var(--primary); }
 
 .drop-zone {
@@ -794,7 +794,7 @@ function onDownloadTemplate() {
 .format-body {
   margin-top: 10px;
   padding: 12px;
-  background: #f8fafc;
+  background: #f6fafb;
   border-radius: 8px;
 }
 .format-body p { margin: 4px 0; line-height: 1.5; }
@@ -822,7 +822,7 @@ function onDownloadTemplate() {
   border-right: 1px solid var(--border);
 }
 .col-row > span:last-child { border-right: none; }
-.col-head { background: #f1f5f9; font-weight: 700; color: var(--text); }
+.col-head { background: #edf5f7; font-weight: 700; color: var(--text); }
 .col-row:not(.col-head) > span:first-child { color: var(--text-muted); text-align: center; }
 .col-row:not(.col-head) > span:nth-child(2) { font-weight: 700; color: var(--primary); }
 
@@ -849,7 +849,7 @@ function onDownloadTemplate() {
   text-overflow: ellipsis;
 }
 .ex-row > span:last-child { border-right: none; }
-.ex-head { background: #f1f5f9; font-weight: 700; color: var(--text); }
+.ex-head { background: #edf5f7; font-weight: 700; color: var(--text); }
 .ex-row:not(.ex-head) > span:nth-child(2),
 .ex-row:not(.ex-head) > span:nth-child(3) {
   color: var(--success);
@@ -865,7 +865,7 @@ function onDownloadTemplate() {
   background: #fff; color: var(--text); border-radius: 10px;
   font-size: 13px; font-weight: 700; cursor: pointer;
 }
-.cache-btn:active { background: #f1f5f9; }
+.cache-btn:active { background: #edf5f7; }
 .cache-btn:disabled { opacity: 0.5; cursor: default; }
 /* PRIV-001 analytics同意 */
 .analytics-note,
@@ -907,7 +907,7 @@ function onDownloadTemplate() {
 .device-section {
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: #f8fafc;
+  background: #f6fafb;
   border: 1.5px solid var(--border);
   border-radius: 12px;
 }
@@ -974,7 +974,7 @@ function onDownloadTemplate() {
 .mapper-trigger {
   width: 100%;
   padding: 10px 14px;
-  background: #f8fafc;
+  background: #f6fafb;
   border: 1.5px dashed var(--border);
   border-radius: 10px;
   font-size: 13px;
@@ -996,7 +996,7 @@ function onDownloadTemplate() {
 
 .guest-notice {
   padding: 14px 16px;
-  background: #f0f9ff;
+  background: #ecfeff;
   border: 1.5px solid #bae6fd;
   border-radius: 10px;
   font-size: 13px;
@@ -1011,7 +1011,7 @@ function onDownloadTemplate() {
 .notif-section {
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: #f8fafc;
+  background: #f6fafb;
   border: 1.5px solid var(--border);
   border-radius: 12px;
 }

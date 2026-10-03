@@ -740,69 +740,69 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
    親が高さを決めていない場所に置いても、マスの min-height で潰れずに出る */
 .hc { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 
-.hc-todo { flex-shrink: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px 10px; }
-.hc-todo-title { font-size: 12px; font-weight: 800; color: #475569; margin-bottom: 4px; }
+.hc-todo { flex-shrink: 0; background: #fff; border: 1px solid #d6e6ea; border-radius: 12px; padding: 8px 10px; }
+.hc-todo-title { font-size: 12px; font-weight: 800; color: #3d5a62; margin-bottom: 4px; }
 .hc-todo-row {
   width: 100%; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 2px;
-  border: none; border-top: 1px solid #f1f5f9; background: none; text-align: left; cursor: pointer; font: inherit;
+  border: none; border-top: 1px solid #edf5f7; background: none; text-align: left; cursor: pointer; font: inherit;
   -webkit-tap-highlight-color: transparent;
 }
 .hc-todo-row:first-of-type { border-top: none; }
 .hc-todo-check {
-  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; border: 2px solid #cbd5e1;
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; border: 2px solid #bfd6dc;
   display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; color: #fff;
 }
 .hc-todo-row.done .hc-todo-check { background: #10b981; border-color: #10b981; }
 .hc-todo-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.hc-todo-label { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.hc-todo-label { font-size: 13.5px; font-weight: 800; color: #12303a; }
 .hc-todo-row.k-delivery .hc-todo-label { color: #b45309; }
-.hc-todo-row.done .hc-todo-label { color: #94a3b8; text-decoration: line-through; }
-.hc-todo-sub { font-size: 11px; color: #64748b; }
-.hc-todo-arrow { flex-shrink: 0; color: #cbd5e1; font-size: 16px; }
+.hc-todo-row.done .hc-todo-label { color: #7d969c; text-decoration: line-through; }
+.hc-todo-sub { font-size: 11px; color: #4c6a72; }
+.hc-todo-arrow { flex-shrink: 0; color: #bfd6dc; font-size: 16px; }
 
-.hc-mode { flex-shrink: 0; display: flex; background: #f1f5f9; border-radius: 10px; padding: 3px; gap: 2px; }
-.hc-mode-btn { flex: 1; min-height: 36px; border: none; background: transparent; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: #64748b; cursor: pointer; }
-.hc-mode-btn.on { background: #fff; color: var(--primary, #2563eb); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.hc-mode { flex-shrink: 0; display: flex; background: #edf5f7; border-radius: 10px; padding: 3px; gap: 2px; }
+.hc-mode-btn { flex: 1; min-height: 36px; border: none; background: transparent; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: #4c6a72; cursor: pointer; }
+.hc-mode-btn.on { background: #fff; color: var(--primary, #0e7490); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
 
 .hc-kinds { flex-shrink: 0; display: flex; gap: 5px; }
 .hc-kind {
   flex: 1 1 0; min-width: 0; justify-content: center; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 2px; min-height: 36px; padding: 4px 2px;
-  border: 1.5px solid #cbd5e1; border-radius: 16px; background: #fff; color: #475569;
+  border: 1.5px solid #bfd6dc; border-radius: 16px; background: #fff; color: #3d5a62;
   font-size: 12px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.hc-kind.on { border-color: var(--primary, #2563eb); background: #eff6ff; color: var(--primary, #2563eb); }
+.hc-kind.on { border-color: var(--primary, #0e7490); background: #ecfeff; color: var(--primary, #0e7490); }
 .hc-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.hc-list-month { font-size: 11.5px; font-weight: 800; color: #64748b; padding: 10px 2px 4px; }
+.hc-list-month { font-size: 11.5px; font-weight: 800; color: #4c6a72; padding: 10px 2px 4px; }
 .hc-list-row {
   display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 10px; margin-bottom: 6px;
-  border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; font: inherit;
+  border: 1px solid #d6e6ea; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; font: inherit;
   -webkit-tap-highlight-color: transparent;
 }
-.hc-list-date { flex-shrink: 0; width: 76px; white-space: nowrap; font-size: 13px; font-weight: 800; color: #1e293b; }
-.hc-list-kind { flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: #475569; }
-.hc-list-info { flex: 1; min-width: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-list-amt { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #334155; }
-.hc-list-arrow { flex-shrink: 0; color: #cbd5e1; font-size: 16px; }
+.hc-list-date { flex-shrink: 0; width: 76px; white-space: nowrap; font-size: 13px; font-weight: 800; color: #12303a; }
+.hc-list-kind { flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: #3d5a62; }
+.hc-list-info { flex: 1; min-width: 0; font-size: 12px; color: #4c6a72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-list-amt { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #1f3d45; }
+.hc-list-arrow { flex-shrink: 0; color: #bfd6dc; font-size: 16px; }
 
 .hc-nav { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; }
-.hc-nav-btn:active { background: #f0f9ff; }
+.hc-nav-btn:active { background: #ecfeff; }
 .hc-month { flex: 1; text-align: center; font-weight: 700; font-size: 16px; color: #1f2937; }
 .hc-today { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; flex-shrink: 0; }
-.hc-today:active { background: #f0f9ff; }
+.hc-today:active { background: #ecfeff; }
 
 .hc-recent { border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 6px 2px; flex-shrink: 0; }
 
 /* 星の凡例。マスの星は色だけで種別を表すので、その対応をここで一度だけ示す */
 .hc-key { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: -2px 0 -2px; }
-.hc-key-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b; }
-.hc-key-hint { margin-left: auto; font-size: 11px; font-weight: 600; color: #94a3b8; }
+.hc-key-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #4c6a72; }
+.hc-key-hint { margin-left: auto; font-size: 11px; font-weight: 600; color: #7d969c; }
 
 /* 実績マーカーは★（星）。glyphで描画（Safariの clip-path+transform 不具合を回避）。色は種別ごと */
-.dot { display: inline-block; font-size: 10px; line-height: 1; color: #94a3b8; }
+.dot { display: inline-block; font-size: 10px; line-height: 1; color: #7d969c; }
 .dot::before { content: '★'; display: block; }
-.dot-stock { color: #3b82f6; }
+.dot-stock { color: #0891b2; }
 .dot-order { color: #f59e0b; }
 .dot-in    { color: #10b981; }
 .dot-out   { color: #ef4444; }
@@ -811,7 +811,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
    宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
    一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
    受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
-.hc-cal { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #cbd5e1; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
+.hc-cal { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #bfd6dc; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
 .hc-dow-row { flex-shrink: 0; display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
 
 /* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/
@@ -822,7 +822,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 @keyframes hcSlidePrev { from { transform: translateX(-26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
 .hc-dow { text-align: center; font-size: 11px; font-weight: 700; color: #9ca3af; padding: 4px 0; }
 .hc-dow.sun { color: #ef4444; }
-.hc-dow.sat { color: #3b82f6; }
+.hc-dow.sat { color: #0891b2; }
 
 /* 週の行は残りの高さを等分する。min-height はタップ領域（44px）の下限、
    max-height は縦に長いPC窓でマスが間延びしないための上限 */
@@ -833,12 +833,12 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-cell { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 6px 1px 5px; border-right: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
 .hc-cell.empty { background: #fafbfc; }
 .hc-cell.tappable { cursor: pointer; }
-.hc-cell.tappable:active { background: #f0f9ff; }
+.hc-cell.tappable:active { background: #ecfeff; }
 .hc-cell.today { box-shadow: inset 0 0 0 2px #111827; }        /* 今日＝黒枠 */
 .hc-cell.selected { background: var(--primary-weak); box-shadow: inset 0 0 0 2px var(--primary); }  /* 選択中＝青枠（今日より優先）*/
 .hc-day { font-size: 14px; font-weight: 600; color: #374151; line-height: 1; }
 .hc-day.sun { color: #ef4444; }
-.hc-day.sat { color: #3b82f6; }
+.hc-day.sat { color: #0891b2; }
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }
 /* マスの星は「その日に何をしたか」だけを示す（件数・金額は日をタップした詳細で読む）。
    4つ揃う日だけ 2×2 に折り返し、3つまでは横1列に並べる */
@@ -896,22 +896,22 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
-.hc-fchip.f-pension { background: #eff6ff; color: #1d4ed8; }
+.hc-fchip.f-pension { background: #ecfeff; color: #155e75; }
 .hc-fchip.f-gotobi  { background: #ecfeff; color: #0e7490; }
-.hc-fchip.f-weekday { background: #f1f5f9; color: #475569; }
+.hc-fchip.f-weekday { background: #edf5f7; color: #3d5a62; }
 
 /* この日の基本情報・比較 */
 .hc-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; }
 .hc-fact { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
-.hc-fact-k { color: #94a3b8; font-weight: 700; flex-shrink: 0; min-width: 48px; }
-.hc-fact-v { color: #334155; font-weight: 600; }
+.hc-fact-k { color: #7d969c; font-weight: 700; flex-shrink: 0; min-width: 48px; }
+.hc-fact-v { color: #1f3d45; font-weight: 600; }
 
 /* 発注予定（詳細モーダル）*/
 
 /* 日別メモ */
 .hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
-.hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; margin: 7px 0; cursor: pointer; }
+.hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #d6e6ea; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
+.hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #3d5a62; margin: 7px 0; cursor: pointer; }
 .hc-memo-excl input { width: 16px; height: 16px; }
 .hc-memo-save { border: none; background: var(--primary); color: #fff; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
@@ -928,7 +928,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
 .hc-entry { border: 1px solid #eef0f2; border-radius: 10px; margin-bottom: 6px; overflow: hidden; }
 .hc-entry-stock { cursor: pointer; }
-.hc-entry-stock:active { background: #f0f9ff; }
+.hc-entry-stock:active { background: #ecfeff; }
 .hc-entry-main { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .hc-entry-time { font-size: 12px; color: #6b7280; flex-shrink: 0; }
 .hc-order-sup { font-size: 14px; font-weight: 700; color: #374151; }
@@ -939,13 +939,13 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-entry-order .hc-entry-main,
 .hc-entry-move .hc-entry-main { cursor: pointer; }
 .hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-entry-imported { font-size: 10px; font-weight: 700; color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
+.hc-entry-imported { font-size: 10px; font-weight: 700; color: #3d5a62; background: #edf5f7; border: 1px solid #bfd6dc; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-ord-done { font-size: 10px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 
 .hc-order-lines { border-top: 1px solid #f3f4f6; }
-.hc-order-line { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #f8fafc; }
+.hc-order-line { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #f6fafb; }
 
 .hc-empty { padding: 20px; text-align: center; color: #9ca3af; font-size: 13px; }
 </style>

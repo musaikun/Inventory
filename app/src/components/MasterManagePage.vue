@@ -318,46 +318,46 @@ function onClear() {
 </template>
 
 <style scoped>
-.mp { min-height: 100vh; background: #f8fafc; }
+.mp { min-height: 100vh; background: #f6fafb; }
 .mp.embedded { min-height: 0; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 .mp-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
-.mp-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
-.mp-title { font-size: 16px; font-weight: 800; color: #1e293b; }
-.mp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--primary, #2563eb); }
+.mp-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
+.mp-title { font-size: 16px; font-weight: 800; color: #12303a; }
+.mp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); }
 .mp-scroll { padding: 14px; max-width: 620px; margin: 0 auto; }
 
 .mm-row {
   width: 100%; display: flex; align-items: center; gap: 12px;
-  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  background: #fff; border: 1px solid #d6e6ea; border-radius: 12px;
   padding: 14px; margin-bottom: 12px; cursor: pointer; text-align: left;
 }
-.mm-row:active { background: #f1f5f9; }
+.mm-row:active { background: #edf5f7; }
 .mm-row-ico { font-size: 20px; }
 .mm-row-body { flex: 1; min-width: 0; }
-.mm-row-title { display: block; font-size: 15px; font-weight: 700; color: #334155; }
-.mm-row-sub { display: block; font-size: 12px; color: #94a3b8; margin-top: 2px; }
-.mm-row-arrow { color: #cbd5e1; font-size: 18px; }
+.mm-row-title { display: block; font-size: 15px; font-weight: 700; color: #1f3d45; }
+.mm-row-sub { display: block; font-size: 12px; color: #7d969c; margin-top: 2px; }
+.mm-row-arrow { color: #bfd6dc; font-size: 18px; }
 
 .mm-row-wrap { margin-bottom: 12px; }
 .mm-row-wrap .mm-row { margin-bottom: 0; }
 
 /* 同じ用途の行は1枚のカードにまとめ、区切り線だけで分ける */
 .mm-card {
-  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  background: #fff; border: 1px solid #d6e6ea; border-radius: 12px;
   overflow: hidden; margin-bottom: 12px;
 }
 .mm-card .mm-row-wrap { margin-bottom: 0; }
-.mm-card .mm-row-wrap + .mm-row-wrap { border-top: 1px solid #f1f5f9; }
+.mm-card .mm-row-wrap + .mm-row-wrap { border-top: 1px solid #edf5f7; }
 .mm-card .mm-row { border: none; border-radius: 0; background: transparent; }
 .mm-card .mm-help { margin: 0 14px 12px; }
 
 .mm-tmpl-link {
   display: block; margin-top: 8px; border: none; background: none;
-  color: var(--primary, #2563eb); font-size: 12px; font-weight: 700;
+  color: var(--primary, #0e7490); font-size: 12px; font-weight: 700;
   text-decoration: underline; cursor: pointer; padding: 0;
 }
 
@@ -383,66 +383,66 @@ function onClear() {
   width: 22px; height: 22px;
   display: inline-flex; align-items: center; justify-content: center;
   margin-left: auto;
-  border: 1px solid #cbd5e1; border-radius: 50%;
-  background: #fff; color: #94a3b8;
+  border: 1px solid #bfd6dc; border-radius: 50%;
+  background: #fff; color: #7d969c;
   font-size: 12px; font-weight: 800; line-height: 1;
   cursor: pointer;
 }
-.mm-help-btn.on { background: var(--primary, #2563eb); color: #fff; border-color: var(--primary, #2563eb); }
+.mm-help-btn.on { background: var(--primary, #0e7490); color: #fff; border-color: var(--primary, #0e7490); }
 .mm-help-btn.danger.on { background: #dc2626; border-color: #dc2626; }
 
 .mm-help {
-  font-size: 12px; line-height: 1.7; color: #475569;
-  background: #f8fafc; border: 1px solid #e2e8f0;
-  border-left: 3px solid var(--primary, #2563eb);
+  font-size: 12px; line-height: 1.7; color: #3d5a62;
+  background: #f6fafb; border: 1px solid #d6e6ea;
+  border-left: 3px solid var(--primary, #0e7490);
   border-radius: 8px; padding: 9px 12px; margin: 8px 0 2px;
 }
 
-.mm-block { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.mm-block { background: #fff; border: 1px solid #d6e6ea; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
 .mm-block.danger { border-color: #fecaca; }
 .mm-block-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: none; padding: 0; }
 .mm-toggle { cursor: pointer; }
-.mm-block-title { font-size: 14px; font-weight: 800; color: #334155; }
+.mm-block-title { font-size: 14px; font-weight: 800; color: #1f3d45; }
 .mm-block-title.danger { color: #dc2626; }
-.mm-block-note { margin-left: auto; font-size: 12px; font-weight: 700; color: #94a3b8; }
-.mm-block-sub { font-size: 12px; color: #64748b; margin: 8px 0; line-height: 1.6; }
-.mm-empty { font-size: 12px; color: #94a3b8; margin-top: 8px; }
+.mm-block-note { margin-left: auto; font-size: 12px; font-weight: 700; color: #7d969c; }
+.mm-block-sub { font-size: 12px; color: #4c6a72; margin: 8px 0; line-height: 1.6; }
+.mm-empty { font-size: 12px; color: #7d969c; margin-top: 8px; }
 
 /* 取り込む / 書き出す の種類を選ぶシート */
 .mm-pick-back { position: fixed; inset: 0; z-index: 40; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-end; justify-content: center; }
 .mm-pick { width: 100%; max-width: 560px; max-height: 84vh; overflow-y: auto; background: #fff; border-radius: 18px 18px 0 0; padding: 4px 12px 22px; box-shadow: 0 -8px 30px rgba(0,0,0,0.25); animation: mm-pick-up 0.22s cubic-bezier(0.22,0.8,0.28,1); }
 @keyframes mm-pick-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .mm-pick-head { display: flex; align-items: center; gap: 10px; padding: 12px 4px 10px; }
-.mm-pick-title { font-size: 15px; font-weight: 800; color: #1e293b; }
-.mm-pick-close { margin-left: auto; border: none; background: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 2px 6px; }
+.mm-pick-title { font-size: 15px; font-weight: 800; color: #12303a; }
+.mm-pick-close { margin-left: auto; border: none; background: none; font-size: 18px; color: #7d969c; cursor: pointer; padding: 2px 6px; }
 @media (prefers-reduced-motion: reduce) { .mm-pick { animation: none; } }
 
 
 .mm-axis-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.mm-axis-label { font-size: 12px; font-weight: 800; color: #64748b; width: 58px; flex-shrink: 0; }
-.mm-axis-input { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
-.mm-axis-go { flex-shrink: 0; border: 1px solid var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
-.mm-axis-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: #1e293b; }
-.mm-axis-confirm { flex-shrink: 0; border: none; background: var(--primary, #2563eb); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 8px 16px; cursor: pointer; }
-.mm-axis-confirm:disabled { background: #cbd5e1; cursor: not-allowed; }
+.mm-axis-label { font-size: 12px; font-weight: 800; color: #4c6a72; width: 58px; flex-shrink: 0; }
+.mm-axis-input { flex: 1; min-width: 0; border: 1px solid #d6e6ea; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+.mm-axis-go { flex-shrink: 0; border: 1px solid var(--primary-border, #a5f3fc); background: #fff; color: var(--primary, #0e7490); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+.mm-axis-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; color: #12303a; }
+.mm-axis-confirm { flex-shrink: 0; border: none; background: var(--primary, #0e7490); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 8px 16px; cursor: pointer; }
+.mm-axis-confirm:disabled { background: #bfd6dc; cursor: not-allowed; }
 .mm-axis-del { flex-shrink: 0; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
-.mm-axis-edit { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 6px 9px; cursor: pointer; }
-.mm-axis-cancel { flex-shrink: 0; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
-.mm-axis-add { flex: 1; min-width: 0; border: 1px dashed var(--primary-border, #bfdbfe); background: #fff; color: var(--primary, #2563eb); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; }
+.mm-axis-edit { flex-shrink: 0; border: 1px solid #d6e6ea; background: #fff; color: #4c6a72; border-radius: 8px; font-size: 13px; font-weight: 700; padding: 6px 9px; cursor: pointer; }
+.mm-axis-cancel { flex-shrink: 0; border: 1px solid #d6e6ea; background: #fff; color: #7d969c; border-radius: 8px; font-size: 16px; line-height: 1; padding: 6px 11px; cursor: pointer; }
+.mm-axis-add { flex: 1; min-width: 0; border: 1px dashed var(--primary-border, #a5f3fc); background: #fff; color: var(--primary, #0e7490); border-radius: 8px; font-size: 13px; font-weight: 700; padding: 10px; cursor: pointer; }
 /* ジャンルは名前も中身も編集できない。触れるものが無いことを、空白ではなく言葉で出す */
-.mm-axis-fixed { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 7px; padding: 5px 9px; white-space: nowrap; }
+.mm-axis-fixed { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #7d969c; background: #edf5f7; border: 1px solid #d6e6ea; border-radius: 7px; padding: 5px 9px; white-space: nowrap; }
 .mm-axis-err { font-size: 12px; font-weight: 700; color: #dc2626; margin: 6px 0 0 66px; line-height: 1.5; }
 
 
 
 
 .mm-preview { margin-top: 10px; }
-.mm-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }
+.mm-page { position: fixed; inset: 0; z-index: 30; background: #f6fafb; overflow-y: auto; }
 button.mm-stat { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 button.mm-stat:disabled { cursor: default; }
 
 .mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
-.mm-del-reset { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #64748b; margin-bottom: 10px; cursor: pointer; }
+.mm-del-reset { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #4c6a72; margin-bottom: 10px; cursor: pointer; }
 .mm-del-reset input { width: 16px; height: 16px; }
 .mm-del-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: #dc2626; color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; }
 .mm-del-btn:disabled { background: #fca5a5; cursor: not-allowed; }

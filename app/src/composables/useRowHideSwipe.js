@@ -26,7 +26,7 @@ const FULL_RATIO = 0.5   // 行幅に対する割合（広い画面ほど深く�
 
 // アクションの色。出てきた時点（灰）から閾値（赤）へ、引いた量に比例して寄せる。
 // 「あとどれだけ引けば確定するか」を、離す前に色の濃さで読めるようにするため。
-const SWIPE_C0 = [100, 116, 139]   // #64748b 出た直後
+const SWIPE_C0 = [76, 106, 114]   // #4c6a72 出た直後
 const SWIPE_C1 = [220,  38,  38]   // #dc2626 引き切って確定する状態
 
 export function useRowHideSwipe({ enabled = () => true, onHide, accent = () => SWIPE_C1 } = {}) {

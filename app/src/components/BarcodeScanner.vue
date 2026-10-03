@@ -142,7 +142,7 @@ onUnmounted(stop)
   width: 32px;
   height: 32px;
   border: none;
-  background: #f1f5f9;
+  background: #edf5f7;
   border-radius: 50%;
   font-size: 14px;
   cursor: pointer;

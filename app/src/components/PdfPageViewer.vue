@@ -415,7 +415,7 @@ function onTouchCancel() {
 /* 高さは **固定**。`max-height` だと拡大・縮小やページ送りのたびに枠が伸び縮みして、
    下にある操作（戻る・次へ）が押し出されたり隠れたりする。紙の見え方が変わるだけで
    画面の骨組みが動くのは、いちばん落ち着かない。 */
-.pdf-wrap { position: relative; border: 1px solid var(--border); border-radius: 10px; background: #f1f5f9;
+.pdf-wrap { position: relative; border: 1px solid var(--border); border-radius: 10px; background: #edf5f7;
   overflow: auto; height: 52vh; -webkit-overflow-scrolling: touch;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .pdf-busy, .pdf-error { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5;

@@ -109,7 +109,7 @@ function actionClass(action) {
   align-items: center;
   gap: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  border-bottom: 1px solid var(--border, #d6e6ea);
   margin-bottom: 10px;
 }
 
@@ -132,7 +132,7 @@ function actionClass(action) {
 .member-name {
   font-size: 16px;
   font-weight: 800;
-  color: var(--text, #0f172a);
+  color: var(--text, #0b2229);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -147,7 +147,7 @@ function actionClass(action) {
 }
 .member-sub {
   font-size: 12px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   margin-top: 2px;
 }
 
@@ -170,8 +170,8 @@ function actionClass(action) {
 .member-left {
   font-size: 10px;
   font-weight: 700;
-  color: #94a3b8;
-  background: #f1f5f9;
+  color: #7d969c;
+  background: #edf5f7;
   border-radius: 6px;
   padding: 2px 7px;
   flex-shrink: 0;
@@ -189,7 +189,7 @@ function actionClass(action) {
 
 .member-empty {
   text-align: center;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   font-size: 13px;
   padding: 32px 0;
 }
@@ -198,7 +198,7 @@ function actionClass(action) {
   display: flex;
   gap: 10px;
   padding: 9px 2px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
 }
 .log-entry:last-child { border-bottom: none; }
 
@@ -206,7 +206,7 @@ function actionClass(action) {
 .log-time {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   font-variant-numeric: tabular-nums;
 }
 
@@ -214,7 +214,7 @@ function actionClass(action) {
 .log-item {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text, #0f172a);
+  color: var(--text, #0b2229);
 }
 .log-item-edit {
   background: none;
@@ -246,12 +246,12 @@ function actionClass(action) {
 .act-add    { background: var(--primary-soft); color: var(--primary-deep); }
 .act-over   { background: #fef3c7; color: #b45309; }
 .act-remove { background: #fee2e2; color: #991b1b; }
-.act-flag   { background: #f1f5f9; color: #475569; }
+.act-flag   { background: #edf5f7; color: #3d5a62; }
 
 .log-qty {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text, #0f172a);
+  color: var(--text, #0b2229);
 }
 .log-delta {
   font-size: 12px;

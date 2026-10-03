@@ -117,13 +117,13 @@ const hiddenByPlanCount = computed(() =>
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f8fafc;
+  background: #f6fafb;
 }
 
 .hcp-header {
   z-index: 2; flex-shrink: 0;
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
 .hcp-back { border: none; background: none; color: #059669; font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
 .hcp-title { font-size: 16px; font-weight: 800; color: #065f46; }
@@ -144,10 +144,10 @@ const hiddenByPlanCount = computed(() =>
 }
 
 .wx-bar { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.wx-hint, .wx-loc { font-size: 12px; color: #64748b; font-weight: 600; }
-.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
+.wx-hint, .wx-loc { font-size: 12px; color: #4c6a72; font-weight: 600; }
+.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #ecfeff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
 .wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.wx-btn.primary { border-color: #38bdf8; background: #f0f9ff; color: #0369a1; }
+.wx-btn.primary { border-color: #38bdf8; background: #ecfeff; color: #0369a1; }
 .wx-btn:disabled { opacity: 0.5; cursor: default; }
 .wx-err { font-size: 11px; color: #dc2626; }
 

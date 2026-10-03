@@ -137,7 +137,7 @@ function onDeleted() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary, #f8fafc);
+  background: var(--bg-secondary, #f6fafb);
   padding: 24px 16px;
 }
 

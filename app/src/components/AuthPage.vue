@@ -221,7 +221,7 @@ function onLoginPinInput(e) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary, #f8fafc);
+  background: var(--bg-secondary, #f6fafb);
   padding: 24px 16px;
 }
 
@@ -245,13 +245,13 @@ function onLoginPinInput(e) {
 .auth-title {
   font-size: 22px;
   font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   margin: 0 0 6px;
 }
 
 .auth-subtitle {
   font-size: 13px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   text-align: center;
   line-height: 1.6;
   margin: 0 0 24px;
@@ -261,7 +261,7 @@ function onLoginPinInput(e) {
   display: flex;
   gap: 0;
   width: 100%;
-  background: #f1f5f9;
+  background: #edf5f7;
   border-radius: 10px;
   padding: 3px;
   margin-bottom: 20px;
@@ -275,14 +275,14 @@ function onLoginPinInput(e) {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .auth-tab.active {
   background: white;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
 
@@ -296,7 +296,7 @@ function onLoginPinInput(e) {
 .form-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   margin-top: 10px;
   margin-bottom: 2px;
 }
@@ -304,7 +304,7 @@ function onLoginPinInput(e) {
 .form-input {
   width: 100%;
   padding: 12px 14px;
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid #d6e6ea;
   border-radius: 10px;
   font-size: 16px;
   outline: none;
@@ -336,7 +336,7 @@ function onLoginPinInput(e) {
   margin-top: 20px;
   background: none;
   border: none;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
@@ -358,7 +358,7 @@ function onLoginPinInput(e) {
 .reg-success-msg {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   margin: 0 0 16px;
 }
 
@@ -401,7 +401,7 @@ function onLoginPinInput(e) {
   .auth-page {
     background:
       radial-gradient(1100px 520px at 50% -10%, var(--primary-weak) 0%, transparent 62%),
-      var(--bg-secondary, #f8fafc);
+      var(--bg-secondary, #f6fafb);
     padding: 40px;
   }
 

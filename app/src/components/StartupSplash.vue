@@ -102,7 +102,7 @@ onBeforeUnmount(() => { timers.forEach(clearTimeout) })
       <svg class="ss-ringsvg" viewBox="0 0 320 320">
         <defs>
           <linearGradient id="ssRingGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" />
+            <stop offset="0" stop-color="#0e7490" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" />
           </linearGradient>
           <filter id="ssGlow" x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation="3" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>

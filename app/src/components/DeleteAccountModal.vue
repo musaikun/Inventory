@@ -419,11 +419,11 @@ function onOverlay() {
 .da-btn-danger:disabled { opacity: 0.45; cursor: default; }
 
 .da-btn-secondary {
-  background: #f1f5f9;
+  background: #edf5f7;
   color: var(--text);
   border: 1.5px solid var(--border);
 }
-.da-btn-secondary:active { background: #e2e8f0; }
+.da-btn-secondary:active { background: #d6e6ea; }
 
 .da-btn-primary {
   width: 100%;

@@ -165,7 +165,7 @@ const activeView = computed(() =>
   font-family: inherit;
   transition: background 0.13s, color 0.13s;
 }
-.dt-nav-item:hover:not(:disabled) { background: #f1f5f9; }
+.dt-nav-item:hover:not(:disabled) { background: #edf5f7; }
 .dt-nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .dt-nav-item:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -225,7 +225,7 @@ const activeView = computed(() =>
 }
 .dt-nav-sync:hover { background: var(--primary-soft); }
 .dt-nav-sync:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
-.dt-nav-sync.offline { background: #f8fafc; border-color: var(--border); }
+.dt-nav-sync.offline { background: #f6fafb; border-color: var(--border); }
 
 .dt-nav-sync-dot {
   width: 8px;
@@ -271,7 +271,7 @@ const activeView = computed(() =>
   cursor: pointer;
   transition: background 0.13s, color 0.13s;
 }
-.dt-nav-mini:hover:not(:disabled) { background: #f1f5f9; color: var(--text); }
+.dt-nav-mini:hover:not(:disabled) { background: #edf5f7; color: var(--text); }
 .dt-nav-mini:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .dt-nav-mini:disabled { opacity: 0.4; cursor: not-allowed; }
 

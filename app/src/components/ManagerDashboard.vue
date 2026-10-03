@@ -592,7 +592,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
 .dash-embedded { display: flex; flex-direction: column; background: #f5f6f8; }
 .dash-open {
   display: block; width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px;
-  border: 1.5px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-weight: 800; font-size: 13.5px; cursor: pointer;
+  border: 1.5px solid #a5f3fc; background: #ecfeff; color: #155e75; font-weight: 800; font-size: 13.5px; cursor: pointer;
 }
 .dash-embedded .dash-body { overflow: visible; padding: 8px 0; }   /* カードは横いっぱいに（User 2026-10-01） */
 .dash-header {
@@ -648,17 +648,17 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
 .dash-summary-date { font-size: 13px; color: #6b7280; }
 .dash-designate { font-size: 11px; color: #9ca3af; margin-bottom: 8px; line-height: 1.5; }
 .dash-orphan-del { flex-shrink: 0; margin-left: 8px; min-height: 36px; padding: 4px 10px; border: 1.5px solid #fecaca; border-radius: 8px; background: #fff; color: #dc2626; font-size: 12px; font-weight: 800; cursor: pointer; }
-.dash-context { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 10px; }
+.dash-context { font-size: 12px; font-weight: 700; color: #4c6a72; margin-bottom: 10px; }
 .dash-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .dash-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 104px;
   padding: 12px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; text-align: left;
   font: inherit; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); -webkit-tap-highlight-color: transparent;
 }
-.dash-card:active:not(:disabled) { background: #f8fafc; }
+.dash-card:active:not(:disabled) { background: #f6fafb; }
 .dash-card-head { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 800; color: #374151; }
 .dash-card-icon { font-size: 14px; }
-.dash-card-value { font-size: 19px; font-weight: 800; color: #1e293b; line-height: 1.2; }
+.dash-card-value { font-size: 19px; font-weight: 800; color: #12303a; line-height: 1.2; }
 .dash-card-sub { font-size: 11px; color: #6b7280; line-height: 1.45; }
 .dash-card.warn { border-color: #fde68a; background: #fffbeb; }
 .dash-card.warn .dash-card-value { color: #b45309; }
@@ -667,7 +667,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
 .dash-card.off .dash-card-sub { color: #9ca3af; }
 .dash-weekday {
   font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
-  background: #eef2ff; color: #4338ca;
+  background: #ecfeff; color: #4338ca;
 }
 .dash-weekday.sat { background: var(--primary-weak); color: var(--primary); }
 .dash-weekday.sun { background: #fef2f2; color: #dc2626; }
@@ -685,7 +685,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
 .dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
 .dash-trend-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
 .dash-trend-bar { width: 100%; background: linear-gradient(180deg, var(--primary-mid), var(--primary-border)); border-radius: 4px 4px 0 0; min-height: 4px; }
-.dash-trend-bar.sel { background: linear-gradient(180deg, #60a5fa, var(--primary)); }
+.dash-trend-bar.sel { background: linear-gradient(180deg, #22d3ee, var(--primary)); }
 .dash-trend-label { font-size: 10px; color: #9ca3af; margin-top: 4px; }
 .dash-trend-label.sel { color: var(--primary); font-weight: 700; }
 .dash-trend-note { text-align: right; font-size: 11px; color: #9ca3af; margin-top: 6px; }

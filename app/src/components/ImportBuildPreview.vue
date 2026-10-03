@@ -200,13 +200,13 @@ watch(() => props.mode, (m) => { sticky.value = m === 'stay'; run() })
 .pg { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
 .pgchip { font-size: 9.5px; background: var(--primary-weak); color: var(--primary);
   border: 1px solid var(--primary-border); border-radius: 5px; padding: 1px 5px; }
-.pgnone { font-size: 10.5px; color: #94a3b8; }
+.pgnone { font-size: 10.5px; color: #7d969c; }
 
 .bpv-foot { padding: 9px 13px calc(9px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); }
 .bpv-foot b { font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
 .bpv-more { margin-left: 6px; }
-.bpv-tap { float: right; color: #94a3b8; }
+.bpv-tap { float: right; color: #7d969c; }
 
 /* 部品が1つずつ噛み合って嵌まる。詰めると「入れ替わった」に見えて組み立てにならない */
 @keyframes asm-cell {

@@ -78,7 +78,7 @@ async function onStart() {
 <style scoped>
 .lp {
   min-height: 100vh;
-  background: #f8fafc;
+  background: #f6fafb;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -107,11 +107,11 @@ async function onStart() {
   margin-top: 18px;
   text-align: center;
   font-size: 12px;
-  color: #94a3b8;
+  color: #7d969c;
   line-height: 2;
 }
 .lp-legal a {
-  color: #64748b;
+  color: #4c6a72;
   text-decoration: underline;
   -webkit-tap-highlight-color: transparent;
 }
@@ -121,14 +121,14 @@ async function onStart() {
 .lp-logo-name {
   font-size: 22px;
   font-weight: 900;
-  color: #0f172a;
+  color: #0b2229;
   letter-spacing: -0.02em;
 }
 .lp-version {
   font-size: 11px;
   font-weight: 700;
-  color: #94a3b8;
-  background: #f1f5f9;
+  color: #7d969c;
+  background: #edf5f7;
   border-radius: 6px;
   padding: 2px 6px;
   align-self: flex-start;
@@ -138,14 +138,14 @@ async function onStart() {
 .lp-tagline {
   text-align: center;
   font-size: 13px;
-  color: #64748b;
+  color: #4c6a72;
   margin: 0 0 8px;
 }
 
 /* ── アプリ版（TWA）バナー ── */
 .lp-twa-banner {
   background: #fff;
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid #d6e6ea;
   border-radius: 14px;
   padding: 14px 16px;
   display: flex;
@@ -158,7 +158,7 @@ async function onStart() {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: #0b2229;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -175,16 +175,16 @@ async function onStart() {
   gap: 8px;
   width: 100%;
   padding: 11px 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #f6fafb;
+  border: 1px solid #d6e6ea;
   border-radius: 10px;
   font-size: 13px;
-  color: #475569;
+  color: #3d5a62;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background 0.15s;
 }
-.lp-twa-login:active { background: #f1f5f9; }
+.lp-twa-login:active { background: #edf5f7; }
 .lp-twa-login-strong {
   font-weight: 800;
   color: var(--primary);
@@ -212,11 +212,11 @@ async function onStart() {
 .lp-card-host {
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 4px 20px rgba(37,99,235,0.28);
+  box-shadow: 0 4px 20px rgba(14, 116, 144,0.28);
 }
 .lp-card-host:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 28px rgba(37,99,235,0.36);
+  box-shadow: 0 8px 28px rgba(14, 116, 144,0.36);
 }
 
 .lp-card-icon { font-size: 26px; flex-shrink: 0; }
@@ -254,7 +254,7 @@ async function onStart() {
   background: none;
   border: none;
   font-size: 18px;
-  color: #94a3b8;
+  color: #7d969c;
   cursor: pointer;
   padding: 2px 4px;
   flex-shrink: 0;
@@ -268,7 +268,7 @@ async function onStart() {
   .lp {
     background:
       radial-gradient(1100px 520px at 50% -10%, var(--primary-weak) 0%, transparent 62%),
-      #f8fafc;
+      #f6fafb;
     padding: 40px;
   }
 
@@ -288,7 +288,7 @@ async function onStart() {
 
   .lp-card { padding: 20px 22px; }
   .lp-legal { margin-top: 22px; }
-  .lp-legal a { text-decoration-color: #cbd5e1; }
+  .lp-legal a { text-decoration-color: #bfd6dc; }
   .lp-legal a:hover { color: var(--primary); text-decoration-color: currentColor; }
 
   .lp-card:focus-visible,

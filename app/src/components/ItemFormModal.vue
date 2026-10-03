@@ -246,15 +246,15 @@ function submit() {
 
 <style scoped>
 .if-sheet { max-height: 92vh; overflow-y: auto; }
-.if-title { font-size: 17px; font-weight: 800; color: #1e293b; margin-bottom: 6px; }
-.if-label { display: block; font-size: 12px; font-weight: 700; color: #475569; margin: 10px 0 4px; }
+.if-title { font-size: 17px; font-weight: 800; color: #12303a; margin-bottom: 6px; }
+.if-label { display: block; font-size: 12px; font-weight: 700; color: #3d5a62; margin: 10px 0 4px; }
 .if-input {
-  width: 100%; box-sizing: border-box; border: 1.5px solid #cbd5e1; border-radius: 10px;
-  padding: 10px 12px; font-size: 16px; background: #fff; color: #0f172a;
+  width: 100%; box-sizing: border-box; border: 1.5px solid #bfd6dc; border-radius: 10px;
+  padding: 10px 12px; font-size: 16px; background: #fff; color: #0b2229;
 }
-.if-input.req { border-color: var(--primary, #2563eb); }
-.if-input:focus { outline: none; border-color: var(--primary, #2563eb); }
-.if-fixed { font-size: 16px; font-weight: 800; color: #0f172a; padding: 4px 0; }
+.if-input.req { border-color: var(--primary, #0e7490); }
+.if-input:focus { outline: none; border-color: var(--primary, #0e7490); }
+.if-fixed { font-size: 16px; font-weight: 800; color: #0b2229; padding: 4px 0; }
 .if-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .if-similar {
   margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: #92400e;
@@ -262,25 +262,25 @@ function submit() {
 }
 .if-similar.armed { border-color: #f59e0b; }
 .if-err { margin-top: 8px; font-size: 12.5px; color: #b91c1c; }
-.if-note { font-size: 11.5px; color: #94a3b8; margin: 10px 0 0; }
+.if-note { font-size: 11.5px; color: #7d969c; margin: 10px 0 0; }
 .if-added { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #047857; background: #f0fdf4; border-radius: 10px; padding: 8px 10px; }
 .if-acts { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
 .if-btn { border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 800; cursor: pointer; }
-.if-btn.sec { background: #f1f5f9; color: #475569; }
-.if-btn.pri { background: var(--primary, #2563eb); color: #fff; }
+.if-btn.sec { background: #edf5f7; color: #3d5a62; }
+.if-btn.pri { background: var(--primary, #0e7490); color: #fff; }
 .if-btn.pri:disabled { opacity: 0.4; cursor: not-allowed; }
-.if-more { display: block; margin-top: 10px; border: none; background: none; color: var(--primary, #2563eb); font-weight: 700; font-size: 13px; padding: 4px 0; cursor: pointer; }
+.if-more { display: block; margin-top: 10px; border: none; background: none; color: var(--primary, #0e7490); font-weight: 700; font-size: 13px; padding: 4px 0; cursor: pointer; }
 .if-photo { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .if-avatar {
   position: relative; width: 64px; height: 64px; flex: none; border-radius: 50%; overflow: hidden;
-  border: 1.5px solid #cbd5e1; background: #f1f5f9; padding: 0; cursor: pointer;
+  border: 1.5px solid #bfd6dc; background: #edf5f7; padding: 0; cursor: pointer;
 }
 .if-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.if-noimg { font-size: 10px; font-weight: 700; color: #94a3b8; }
-.if-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.8); font-size: 10px; font-weight: 800; color: #475569; }
+.if-noimg { font-size: 10px; font-weight: 700; color: #7d969c; }
+.if-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.8); font-size: 10px; font-weight: 800; color: #3d5a62; }
 .if-photo-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .if-photo-acts .if-inline { margin-left: 0; }
-.if-inline-sub { color: #64748b; }
+.if-inline-sub { color: #4c6a72; }
 .if-file { display: none; }
-.if-inline { display: inline-block; margin-left: 6px; border: 1.5px solid currentColor; background: #fff; border-radius: 8px; padding: 3px 8px; font-weight: 800; font-size: 12px; cursor: pointer; color: var(--primary, #2563eb); }
+.if-inline { display: inline-block; margin-left: 6px; border: 1.5px solid currentColor; background: #fff; border-radius: 8px; padding: 3px 8px; font-weight: 800; font-size: 12px; cursor: pointer; color: var(--primary, #0e7490); }
 </style>

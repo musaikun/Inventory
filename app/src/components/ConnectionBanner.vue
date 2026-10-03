@@ -103,7 +103,7 @@ const rejectedLabel = computed(() => {
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 .cb.offline     { background: #78350f; color: #fde68a; }
-.cb.pending     { background: #1e3a8a; color: var(--primary-soft); }
+.cb.pending     { background: #164e63; color: var(--primary-soft); }
 .cb.failed      { background: #7f1d1d; color: #fecaca; }
 .cb.unpersisted { background: #450a0a; color: #fecaca; }
 .cb.rejected    { background: #7f1d1d; color: #fecaca; }

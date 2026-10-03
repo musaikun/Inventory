@@ -135,56 +135,56 @@ function hide(item) {
 </template>
 
 <style scoped>
-.ic-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }
+.ic-page { position: fixed; inset: 0; z-index: 30; background: #f6fafb; overflow-y: auto; }
 .ic-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
-.ic-back { border: none; background: none; color: var(--primary, #2563eb); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
-.ic-title { font-size: 16px; font-weight: 800; color: #1e293b; }
+.ic-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
+.ic-title { font-size: 16px; font-weight: 800; color: #12303a; }
 .ic-count { margin-left: auto; font-size: 13px; font-weight: 800; color: #b45309; }
 .ic-scroll { padding: 14px; max-width: 620px; margin: 0 auto; }
-.ic-desc { font-size: 12px; color: #64748b; line-height: 1.6; margin: 0 0 10px; }
+.ic-desc { font-size: 12px; color: #4c6a72; line-height: 1.6; margin: 0 0 10px; }
 .ic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .ic-chip {
-  min-height: 36px; padding: 4px 12px; border: 1.5px solid #cbd5e1; border-radius: 16px;
-  background: #fff; color: #475569; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  min-height: 36px; padding: 4px 12px; border: 1.5px solid #bfd6dc; border-radius: 16px;
+  background: #fff; color: #3d5a62; font-size: 12.5px; font-weight: 700; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .ic-chip.on { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
 .ic-chip:disabled { opacity: 0.45; cursor: default; }
 .ic-why { font-size: 11.5px; color: #92400e; margin: 2px 0 8px; }
-.ic-empty { padding: 28px 8px; text-align: center; color: #94a3b8; font-size: 13px; }
-.ic-toast { position: sticky; top: 56px; z-index: 3; margin-bottom: 8px; padding: 8px 12px; border-radius: 10px; background: #1e293b; color: #fff; font-size: 12.5px; font-weight: 700; }
-.ic-row { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
+.ic-empty { padding: 28px 8px; text-align: center; color: #7d969c; font-size: 13px; }
+.ic-toast { position: sticky; top: 56px; z-index: 3; margin-bottom: 8px; padding: 8px 12px; border-radius: 10px; background: #12303a; color: #fff; font-size: 12.5px; font-weight: 700; }
+.ic-row { background: #fff; border: 1px solid #d6e6ea; border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
 .ic-row.open { border-color: #fcd34d; }
 .ic-row-head {
   width: 100%; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px;
   border: none; background: none; text-align: left; cursor: pointer; font: inherit;
   -webkit-tap-highlight-color: transparent;
 }
-.ic-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ic-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: #12303a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ic-tags { display: flex; gap: 4px; flex-shrink: 0; }
 .ic-tag { font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border-radius: 6px; padding: 1px 5px; }
-.ic-tag.stale { color: #475569; background: #e2e8f0; }
-.ic-stale { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f1f5f9; }
-.ic-stale-text { flex: 1; min-width: 0; font-size: 12px; color: #475569; line-height: 1.5; }
+.ic-tag.stale { color: #3d5a62; background: #d6e6ea; }
+.ic-stale { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #edf5f7; }
+.ic-stale-text { flex: 1; min-width: 0; font-size: 12px; color: #3d5a62; line-height: 1.5; }
 .ic-hide {
   flex-shrink: 0; min-height: 40px; padding: 4px 10px; border: 1.5px solid #fecaca; border-radius: 9px;
   background: #fff; color: #dc2626; font-size: 12px; font-weight: 800; cursor: pointer;
 }
-.ic-arrow { font-size: 10px; color: #94a3b8; flex-shrink: 0; }
+.ic-arrow { font-size: 10px; color: #7d969c; flex-shrink: 0; }
 .ic-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 12px 12px; }
 .ic-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.ic-label { font-size: 11px; font-weight: 700; color: #64748b; }
+.ic-label { font-size: 11px; font-weight: 700; color: #4c6a72; }
 .ic-input {
-  min-height: 44px; border: 1.5px solid #cbd5e1; border-radius: 9px; padding: 6px 10px;
-  font-size: 15px; color: #1e293b; background: #fff; min-width: 0;
+  min-height: 44px; border: 1.5px solid #bfd6dc; border-radius: 9px; padding: 6px 10px;
+  font-size: 15px; color: #12303a; background: #fff; min-width: 0;
 }
-.ic-input:focus { outline: none; border-color: #2563eb; }
+.ic-input:focus { outline: none; border-color: #0e7490; }
 .ic-save {
   grid-column: 1 / -1; min-height: 44px; border: none; border-radius: 10px;
-  background: var(--primary, #2563eb); color: #fff; font-size: 14px; font-weight: 800; cursor: pointer;
+  background: var(--primary, #0e7490); color: #fff; font-size: 14px; font-weight: 800; cursor: pointer;
 }
 </style>

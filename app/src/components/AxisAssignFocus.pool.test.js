@@ -336,7 +336,7 @@ describe('AxisAssignFocus — 非表示のみ（左スワイプで一覧に戻�
     await openAllGenres()
     const el = await swipe('豚バラ', -300)
     expect(action().textContent.trim()).toBe('離すと表示')
-    expect(action().style.background).toBe('rgb(37, 99, 235)')
+    expect(action().style.background).toBe('rgb(14, 116, 144)')
     await release(el)
     expect(cfg.config.hiddenItems).not.toContain('豚バラ')
     expect(undoBar().textContent).toContain('一覧に戻しました')

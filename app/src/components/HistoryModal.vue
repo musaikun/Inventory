@@ -358,7 +358,7 @@ function onDelete(snap) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
   cursor: pointer;
   background: #fafafa;
   transition: background 0.12s;
@@ -493,7 +493,7 @@ function onDelete(snap) {
 }
 
 .detail-table th {
-  background: #1e3a8a;
+  background: #164e63;
   color: white;
   padding: 8px 10px;
   text-align: left;
@@ -539,7 +539,7 @@ function onDelete(snap) {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: var(--surface, #f8fafc);
+  background: var(--surface, #f6fafb);
   border: none;
   cursor: pointer;
   text-align: left;

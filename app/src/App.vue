@@ -4116,7 +4116,7 @@ function dismissReview() {
   justify-content: space-between;
   align-items: center;
   padding: 8px 14px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
   gap: 8px;
 }
 
@@ -4200,7 +4200,7 @@ function dismissReview() {
   justify-content: space-between;
   align-items: center;
   padding: 8px 14px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
   cursor: pointer;
   gap: 8px;
   -webkit-tap-highlight-color: transparent;
@@ -4301,7 +4301,7 @@ function dismissReview() {
   z-index: 4000;
   background: rgba(15, 23, 42, 0.93);
   backdrop-filter: blur(6px);
-  color: #f8fafc;
+  color: #f6fafb;
   padding: 14px 18px calc(14px + env(safe-area-inset-top, 0px));
   padding-top: calc(14px + env(safe-area-inset-top, 0px));
   display: flex;
@@ -4552,7 +4552,7 @@ function dismissReview() {
 .item-req-approved { background: #f0fdf4; border-color: #86efac; color: #166534; }
 .item-req-go { margin-left: auto; background: #16a34a !important; color: #fff !important; border-color: #16a34a !important; font-weight: 800; }
 .item-req-go + .item-req-pending-cancel { margin-left: 4px; }
-.am-count { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 800; text-align: center; }
+.am-count { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #ecfeff; color: #3730a3; font-size: 12px; font-weight: 800; text-align: center; }
 .item-req-fold, .item-req-fold-guest {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
 }
@@ -4689,7 +4689,7 @@ function dismissReview() {
   border: none;
   font-size: 18px;
   cursor: pointer;
-  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 3px 12px rgba(14, 116, 144, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4699,7 +4699,7 @@ function dismissReview() {
 }
 .feedback-fab:active {
   transform: scale(0.92);
-  box-shadow: 0 1px 6px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 1px 6px rgba(14, 116, 144, 0.25);
 }
 
 /* ── フィードバック / レビュー モーダル ── */

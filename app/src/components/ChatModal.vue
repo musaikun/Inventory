@@ -397,7 +397,7 @@ function needsDateSep(idx) {
   text-align: center;
   font-size: 12px;
   color: var(--text-muted);
-  background: #f1f5f9;
+  background: #edf5f7;
   padding: 4px 14px;
   border-radius: 20px;
   margin: 6px auto;
@@ -415,7 +415,7 @@ function needsDateSep(idx) {
 .date-sep span {
   font-size: 11px;
   color: var(--text-muted);
-  background: #f1f5f9;
+  background: #edf5f7;
   padding: 3px 12px;
   border-radius: 20px;
   font-weight: 600;
@@ -455,7 +455,7 @@ function needsDateSep(idx) {
 }
 
 .msg-bubble {
-  background: #f1f5f9;
+  background: #edf5f7;
   border-radius: 18px 18px 18px 4px;
   padding: 10px 14px;
   max-width: 100%;
@@ -574,7 +574,7 @@ function needsDateSep(idx) {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.action-item:active { background: #f1f5f9; }
+.action-item:active { background: #edf5f7; }
 .action-item.danger { color: var(--danger, #dc2626); }
 .action-item.cancel { color: var(--text-muted); text-align: center; }
 

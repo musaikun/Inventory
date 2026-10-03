@@ -12,10 +12,11 @@ import { modalLayerCount } from '../composables/appMenuState.js'
 defineProps({ active: { type: String, default: null } })   // 'sessions' | 'report' | 'dashboard' | null
 const emit = defineEmits(['go'])
 
+// アイコンは線画（アプリのアイコンの雰囲気に揃える・User決定 2026-10-03）
 const ITEMS = [
-  { tab: 'sessions',  icon: '📦', label: '在庫' },
-  { tab: 'report',    icon: '📊', label: 'レポート' },
-  { tab: 'dashboard', icon: '🗂', label: '管理' },
+  { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
+  { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
+  { tab: 'dashboard', label: '管理',     d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
 ]
 </script>
 
@@ -26,18 +27,22 @@ const ITEMS = [
       :class="{ on: active === it.tab }" type="button"
       :aria-current="active === it.tab ? 'page' : undefined"
       @click="emit('go', it.tab)"
-    ><b>{{ it.icon }}</b>{{ it.label }}</button>
+    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}</button>
   </nav>
 </template>
 
 <style scoped>
 .bnav {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 6;
-  width: 100%; max-width: 600px; display: flex; background: #fff; border-top: 1px solid #e2e8f0;
+  width: 100%; max-width: 600px; display: flex; background: #fff; border-top: 1px solid #d6e6ea;
   padding: 6px 0 calc(8px + env(safe-area-inset-bottom));
 }
-.bnav button { flex: 1; border: none; background: none; font-size: 11px; font-weight: 700; color: #94a3b8; cursor: pointer; font-family: inherit; }
-.bnav button b { display: block; font-size: 20px; filter: grayscale(1); opacity: .55; }
-.bnav button.on { color: var(--primary, #2563eb); }
-.bnav button.on b { filter: none; opacity: 1; }
+.bnav button {
+  position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 4px;
+  border: none; background: none; font-size: 11px; font-weight: 700; color: #7d969c; cursor: pointer; font-family: inherit;
+}
+.bnav button.on { color: var(--primary, #0e7490); font-weight: 800; }
+/* 選んでいるタブの上に、アイコンの光る輪の色の線 */
+.bnav-bar { position: absolute; top: -7px; width: 36px; height: 3px; border-radius: 3px; background: transparent; }
+.bnav button.on .bnav-bar { background: var(--grad-ring); box-shadow: 0 0 10px rgba(34, 211, 238, .55); }
 </style>

@@ -571,7 +571,7 @@ function onDownload() {
 .detail-page {
   /* 下部ナビ（全画面共通）の分だけ縮める。ナビが無いところでは 0 */
   height: calc(100dvh - var(--app-footer-h, 0px));
-  background: var(--bg-secondary, #f8fafc);
+  background: var(--bg-secondary, #f6fafb);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -587,10 +587,10 @@ function onDownload() {
 }
 .item-search {
   flex: 1; min-width: 0;
-  border: 1.5px solid #e2e8f0; border-radius: 10px;
+  border: 1.5px solid #d6e6ea; border-radius: 10px;
   padding: 9px 12px; font-size: 14px;
 }
-.item-search:focus { outline: none; border-color: #94a3b8; }
+.item-search:focus { outline: none; border-color: #7d969c; }
 .item-search-clear {
   flex: none; border: none; background: transparent;
   font-size: 15px; padding: 6px 8px; cursor: pointer; opacity: .6;
@@ -631,7 +631,7 @@ function onDownload() {
   gap: 10px;
   padding: 14px 16px 12px;
   background: white;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #d6e6ea;
   flex-shrink: 0;
 }
 
@@ -654,11 +654,11 @@ function onDownload() {
   min-width: 0;
 }
 
-.header-imported { font-size: 11px; font-weight: 700; color: #64748b; }
+.header-imported { font-size: 11px; font-weight: 700; color: #4c6a72; }
 .header-date {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -666,7 +666,7 @@ function onDownload() {
 
 .header-meta {
   font-size: 11px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -720,9 +720,9 @@ function onDownload() {
 .lock-badge {
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  color: #4c6a72;
+  background: #edf5f7;
+  border: 1px solid #d6e6ea;
   padding: 3px 9px;
   border-radius: 20px;
   white-space: nowrap;
@@ -732,7 +732,7 @@ function onDownload() {
 .edit-overlay {
   position: absolute;
   inset: 0;
-  background: #f8fafc;
+  background: #f6fafb;
   display: flex;
   flex-direction: column;
   z-index: 50;
@@ -744,14 +744,14 @@ function onDownload() {
   justify-content: space-between;
   padding: 14px 16px;
   background: white;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #d6e6ea;
   flex-shrink: 0;
 }
 
 .edit-header-title {
   font-size: 15px;
   font-weight: 700;
-  color: #1e293b;
+  color: #12303a;
 }
 
 .edit-header-btn {
@@ -787,8 +787,8 @@ function onDownload() {
 .edit-cat-header {
   font-size: 11px;
   font-weight: 700;
-  color: var(--text-muted, #64748b);
-  background: #f1f5f9;
+  color: var(--text-muted, #4c6a72);
+  background: #edf5f7;
   padding: 6px 16px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -800,7 +800,7 @@ function onDownload() {
   gap: 10px;
   padding: 10px 16px;
   background: white;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
   transition: background 0.15s;
 }
 
@@ -813,7 +813,7 @@ function onDownload() {
   flex: 1;
   font-size: 13px;
   font-weight: 500;
-  color: #1e293b;
+  color: #12303a;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -823,12 +823,12 @@ function onDownload() {
 .edit-qty-input {
   width: 72px;
   padding: 6px 8px;
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid #d6e6ea;
   border-radius: 8px;
   font-size: 15px;
   font-weight: 600;
   text-align: right;
-  color: #1e293b;
+  color: #12303a;
   background: white;
   -webkit-appearance: none;
   appearance: none;
@@ -842,7 +842,7 @@ function onDownload() {
 
 .edit-unit {
   font-size: 12px;
-  color: #64748b;
+  color: #4c6a72;
   min-width: 28px;
   flex-shrink: 0;
 }
@@ -858,7 +858,7 @@ function onDownload() {
 .tab-bar {
   display: flex;
   background: white;
-  border-bottom: 1.5px solid #e2e8f0;
+  border-bottom: 1.5px solid #d6e6ea;
   padding: 0 8px;
   flex-shrink: 0;
 }
@@ -871,7 +871,7 @@ function onDownload() {
   border-bottom: 2.5px solid transparent;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
@@ -949,9 +949,9 @@ function onDownload() {
   gap: 10px;
   width: 100%;
   padding: 12px 14px;
-  background: #f8fafc;
+  background: #f6fafb;
   border: none;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #d6e6ea;
   flex-wrap: wrap;
   text-align: left;
   cursor: pointer;
@@ -962,13 +962,13 @@ function onDownload() {
   font-size: 10px;
   width: 12px;
   flex-shrink: 0;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
 }
 
 .participant-name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   flex-shrink: 0;
 }
 
@@ -981,8 +981,8 @@ function onDownload() {
 .pmeta-chip {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted, #64748b);
-  background: #e2e8f0;
+  color: var(--text-muted, #4c6a72);
+  background: #d6e6ea;
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -1011,7 +1011,7 @@ function onDownload() {
   padding: 8px 14px;
   font-size: 13px;
   border: none;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #edf5f7;
   background: none;
   text-align: left;
   cursor: pointer;
@@ -1026,7 +1026,7 @@ function onDownload() {
   margin: 0;
   padding: 8px 14px 0;
   font-size: 11.5px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   line-height: 1.6;
 }
 .items-hint-shared {
@@ -1041,14 +1041,14 @@ function onDownload() {
   margin: 0;
   padding: 0 4px;
   font-size: 11.5px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   line-height: 1.6;
 }
 
 .participant-note {
   margin: 0 0 6px;
   font-size: 11.5px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   line-height: 1.6;
 }
 
@@ -1057,25 +1057,25 @@ function onDownload() {
 .pi-act {
   font-size: 11px;
   font-weight: 800;
-  color: #64748b;
+  color: #4c6a72;
   flex-shrink: 0;
   margin-right: 8px;
 }
 .pi-act.act-new { color: #059669; }
-.pi-act.act-add { color: #2563eb; }
+.pi-act.act-add { color: #0e7490; }
 .pi-act.act-over { color: #b45309; }
 .pi-act.act-remove { color: #b91c1c; }
 
 .pi-at {
   font-size: 11.5px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #7d969c);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   margin-right: 8px;
 }
 
 .pi-name {
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   font-weight: 500;
   flex: 1;
   min-width: 0;
@@ -1096,7 +1096,7 @@ function onDownload() {
 /* ── 変更履歴 ── */
 .empty-msg {
   text-align: center;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   font-size: 13px;
   padding: 32px 16px;
 }
@@ -1122,13 +1122,13 @@ function onDownload() {
 .log-time {
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   font-variant-numeric: tabular-nums;
 }
 
 .log-person {
   font-size: 11px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, #4c6a72);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1140,7 +1140,7 @@ function onDownload() {
 .log-item {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1170,7 +1170,7 @@ function onDownload() {
 .log-qty {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary, #12303a);
 }
 
 .log-delta {

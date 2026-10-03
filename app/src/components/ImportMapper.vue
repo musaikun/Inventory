@@ -46,7 +46,7 @@ useEscapeKey(() => { if (pdfOpen.value) pdfOpen.value = false; else emit('close'
 const { rows: records, error: parseError } = tokenizeCSV(props.csvText)
 
 const FIELDS = computed(() => [
-  { key: 'name',      label: '品目名',   required: true, color: '#2563eb', weak: '#eff6ff',
+  { key: 'name',      label: '品目名',   required: true, color: '#0e7490', weak: '#ecfeff',
     hints: ['品目名', '商品名', '品名', '名称', 'name', 'item', 'product'] },
   { key: 'unit',      label: '単位',     color: '#7c3aed', weak: '#f5f3ff', hints: ['単位', 'unit'] },
   { key: 'price',     label: '単価',     color: '#059669', weak: '#ecfdf5',
@@ -55,7 +55,7 @@ const FIELDS = computed(() => [
     hints: ['カテゴリ', '分類', '種別', 'ジャンル', 'category'] },
   { key: 'code',      label: '商品コード', color: '#0891b2', weak: '#ecfeff',
     hints: ['商品コード', 'コード', 'jan', 'ean', '品番', 'code'] },
-  { key: 'lotSize',   label: '入数',     color: '#4b5563', weak: '#f8fafc',
+  { key: 'lotSize',   label: '入数',     color: '#4b5563', weak: '#f6fafb',
     hints: ['入数', '入り数', 'ロット', 'lot', 'pack'] },
   { key: 'prevMonth', label: '前月実績', color: '#9333ea', weak: '#faf5ff',
     hints: ['前月実績', '前月', '先月', 'prev'] },
@@ -525,7 +525,7 @@ tryRecipe()
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .imp-unknown { padding: 8px 10px; margin-bottom: 10px; border-radius: 9px;
-  border: 1px solid var(--border); background: var(--surface-weak, #f8fafc);
+  border: 1px solid var(--border); background: var(--surface-weak, #f6fafb);
   font-size: 12px; font-weight: 700; line-height: 1.6; color: var(--text-muted); }
 .imp-recipe { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 10px;
   background: var(--primary-weak); border: 1px solid var(--primary-border); border-radius: 10px; }
@@ -565,7 +565,7 @@ tryRecipe()
   font-size: 11.5px; position: relative; }
 .peek-row:last-child { border-bottom: none; }
 .peek-no { flex-shrink: 0; width: 30px; padding: 6px 4px; text-align: right;
-  color: #94a3b8; font-size: 10px; background: var(--bg); position: sticky; left: 0; z-index: 1;
+  color: #7d969c; font-size: 10px; background: var(--bg); position: sticky; left: 0; z-index: 1;
   border-right: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .peek-cells { display: flex; }
 .peek-c { flex-shrink: 0; width: 96px; padding: 6px 7px; border-right: 1px solid var(--border);
@@ -592,10 +592,10 @@ tryRecipe()
 .peek-c.mc { cursor: pointer; }
 .peek-head .peek-c.mc { display: flex; flex-direction: column; gap: 1px; padding: 5px 7px;
   background: var(--bg); border-bottom: 1px solid var(--border); }
-.mc-no { font-size: 9px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.mc-no { font-size: 9px; color: #7d969c; font-variant-numeric: tabular-nums; }
 .mc-src { font-size: 11px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mc-f { font-size: 10px; font-weight: 800; color: #94a3b8;
+.mc-f { font-size: 10px; font-weight: 800; color: #7d969c;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .peek-c.mc.mapped { background: var(--fw); box-shadow: inset 0 -2px 0 var(--fc); }
 .peek-head .peek-c.mc.mapped .mc-f { color: var(--fc); }
@@ -631,5 +631,5 @@ tryRecipe()
   border-radius: 10px; padding: 10px 12px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .imp-go { border: none; background: var(--primary); color: #fff; border-radius: 10px;
   padding: 10px 16px; font-size: 13px; font-weight: 800; cursor: pointer; }
-.imp-go:disabled { background: #cbd5e1; cursor: not-allowed; }
+.imp-go:disabled { background: #bfd6dc; cursor: not-allowed; }
 </style>
