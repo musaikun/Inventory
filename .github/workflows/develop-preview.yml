@@ -58,6 +58,7 @@ jobs:
         working-directory: app
         env:
           VITE_SYNC_WORKER_URL: wss://inventory-sync.yuya-takaki.workers.dev
+          VITE_PUBLIC_ORIGIN: https://develop.inventory-app-c40.pages.dev
         run: npm run build
 
       - name: Deploy develop preview to Cloudflare Pages

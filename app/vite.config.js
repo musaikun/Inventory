@@ -61,6 +61,13 @@ function pdfCmaps() {
   }
 }
 
+// LINE などで URL を共有したときのカード（OGP）。画像の URL は絶対パスでないと拾われないので、
+// 配信先の origin を build 時に埋める（develop preview / Pro Review は workflow が VITE_PUBLIC_ORIGIN を渡す。既定は本番）
+const PUBLIC_ORIGIN = (process.env.VITE_PUBLIC_ORIGIN || 'https://inventory-app-c40.pages.dev').replace(/\/$/, '')
+function ogOrigin() {
+  return { name: 'og-origin', transformIndexHtml: html => html.replaceAll('%PUBLIC_ORIGIN%', PUBLIC_ORIGIN) }
+}
+
 export default defineConfig({
   base: './',
   define: {
@@ -70,6 +77,7 @@ export default defineConfig({
   plugins: [
     vue(),
     pdfCmaps(),
+    ogOrigin(),
     VitePWA({
       registerType: 'autoUpdate',
       // Cloudflare Access 配下では manifest 取得にも認証 Cookie が必要。
@@ -115,7 +123,7 @@ export default defineConfig({
         // workboxの既定上限2MBも超える。両方まとめて下の runtimeCaching で面倒を見る。
         // ファイル名は `src/utils/riveRuntime.js` に由来する（改名したらここも直す。
         // 外れてもプリキャッシュに載るだけで壊れない）。
-        globIgnores: ['**/riveRuntime-*.js'],
+        globIgnores: ['**/riveRuntime-*.js', '**/og-image.png'],   // og-image は共有カード用（端末に持たない）
         // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
         // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。
         cleanupOutdatedCaches: true,

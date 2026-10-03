@@ -11,6 +11,16 @@
     <link rel="icon" href="icon-192.png" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <title>タナオロ</title>
+    <!-- URL を LINE などで共有したときのカード（OGP）。%PUBLIC_ORIGIN% は build 時に配信先へ置き換わる（vite.config.js） -->
+    <meta name="description" content="みんなで、はやく、数える。飲食店の棚卸アプリ" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="タナオロ" />
+    <meta property="og:title" content="タナオロ" />
+    <meta property="og:description" content="みんなで、はやく、数える。飲食店の棚卸アプリ" />
+    <meta property="og:image" content="%PUBLIC_ORIGIN%/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <!-- JS が読み込まれるまでの間も起動画面と同じ地色にする（白く光らない）。Vue がマウントで置き換える -->

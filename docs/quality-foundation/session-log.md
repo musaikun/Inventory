@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.132.2 / URL を共有したときのカード（OGP）に新しいアイコン
+
+User報告: 閲覧用・ルームの URL を共有すると古いアイコンが出る。原因: OGP が無く、LINE 等がサイトのアイコン（本番 Pages は未 deploy で古い）を拾っていた。
+- `public/og-image.png`（1200×630・新しいアイコン＋名前＋一言）。`index.html` に og:title / og:description / og:image（絶対URL）/ twitter:card。
+- 画像の origin は build 時に埋める（`vite.config.js` の `%PUBLIC_ORIGIN%`。develop preview・Pro Review は workflow の `VITE_PUBLIC_ORIGIN`、既定は本番 `inventory-app-c40.pages.dev`）。PWA のプリキャッシュには入れない。
+- 注意: 本番 URL の共有は本番 Pages（フロント）の deploy まで古いまま。Pro Review は保護下のため LINE からは読めない。LINE は同じ URL のプレビューをしばらく保存する。
+- 検証: App **2044 passed**、build 後の index.html に og:image の絶対URLを確認。
+- version: 0.132.1 → **0.132.2**。
+
 ## 2026-10-03 — version 0.132.1 / 起動画面：再読み込みでは出さない・輪を読み込みの進み具合に合わせる
 
 User: 再読み込みのたびに出るのか → 出ていた。初めての読み込みの時だけにし、ロードと周りのラインを同期させたい。
