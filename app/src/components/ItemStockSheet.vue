@@ -18,6 +18,7 @@ import { itemDayLog } from '../services/itemDayLog.js'
 import { itemImageUrl } from '../services/itemImages.js'
 import { localDateKey } from '../utils/localDate.js'
 import { canRestoreMovement } from '../composables/useMovements.js'
+import MovementQtyModal from './MovementQtyModal.vue'
 
 const props = defineProps({
   item:      { type: String, required: true },
@@ -49,6 +50,20 @@ const outN = computed(() => _num(outQty.value))
 const canInput = computed(() => props.editable && !props.stocktakeOpen)
 const showRegister = computed(() => canInput.value && (inN.value > 0 || outN.value > 0))
 const after = computed(() => (props.theo ?? 0) + inN.value - outN.value)
+// 数は棚卸と同じテンキー（NumPad）のシートで入れる（User 2026-10-03）。OS キーボードは出さない
+const pad = ref(null)   // null | 'in' | 'out'
+const lotNum = computed(() => { const n = parseFloat(props.lot); return Number.isFinite(n) && n > 1 ? n : null })
+// テンキーの「理論 → 記録後」は、もう片方の欄に入れた数も含めた見込みから出す
+const padTheo = computed(() => {
+  if (props.theo == null && !inN.value && !outN.value) return null
+  const base = props.theo ?? 0
+  return Math.round((pad.value === 'in' ? base - outN.value : base + inN.value) * 1000) / 1000
+})
+function onPad(v) {
+  if (pad.value === 'in') inQty.value = v > 0 ? String(v) : ''
+  else if (pad.value === 'out') outQty.value = v > 0 ? String(v) : ''
+  pad.value = null
+}
 function register() {
   if (!showRegister.value) return
   const payload = { in: inN.value, out: outN.value }
@@ -130,10 +145,10 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
       <template v-else-if="editable">
         <div class="is-io">
           <label class="in" for="is-in">入庫（増やす）
-            <input id="is-in" v-model="inQty" inputmode="decimal" placeholder="0" autocomplete="off" />
+            <button id="is-in" type="button" :class="['is-field', { on: inN > 0 }]" @click="pad = 'in'">{{ inN > 0 ? fmt(inN) : '0' }}</button>
           </label>
           <label class="out" for="is-out">出庫（減らす）
-            <input id="is-out" v-model="outQty" inputmode="decimal" placeholder="0" autocomplete="off" />
+            <button id="is-out" type="button" :class="['is-field', { on: outN > 0 }]" @click="pad = 'out'">{{ outN > 0 ? fmt(outN) : '0' }}</button>
           </label>
         </div>
         <button v-if="showRegister" class="is-reg" type="button" @click="register">
@@ -195,6 +210,17 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
         </div>
       </section>
     </div>
+    <MovementQtyModal
+      v-if="pad"
+      :item="item"
+      :mode="pad"
+      :qty="pad === 'in' ? inN : outN"
+      :unit="unit"
+      :lot="lotNum"
+      :theo="padTheo"
+      @confirm="onPad"
+      @cancel="pad = null"
+    />
   </div>
 </template>
 
@@ -215,9 +241,10 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 .is-io { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .is-io label { display: grid; gap: 4px; font-size: 12px; font-weight: 800; }
 .is-io label.in { color: #15803d; } .is-io label.out { color: #dc2626; }
-.is-io input { width: 100%; box-sizing: border-box; font-size: 22px; padding: 10px 12px; border-radius: 12px; border: 2px solid #e2e8f0; text-align: right; background: #fff; color: #0f172a; }
-.is-io label.in input:focus { outline: none; border-color: #15803d; background: #f0fdf4; }
-.is-io label.out input:focus { outline: none; border-color: #dc2626; background: #fef2f2; }
+.is-field { width: 100%; box-sizing: border-box; font-size: 22px; font-weight: 700; padding: 10px 12px; border-radius: 12px; border: 2px solid #e2e8f0; text-align: right; background: #fff; color: #cbd5e1; cursor: pointer; font-variant-numeric: tabular-nums; }
+.is-field.on { color: #0f172a; }
+.is-io label.in .is-field.on { border-color: #15803d; background: #f0fdf4; }
+.is-io label.out .is-field.on { border-color: #dc2626; background: #fef2f2; }
 .is-reg { border: none; border-radius: 12px; padding: 13px; font-size: 16px; font-weight: 800; background: var(--primary, #2563eb); color: #fff; cursor: pointer; }
 .is-reg small { display: block; font-size: 12px; font-weight: 600; opacity: .9; margin-top: 2px; }
 .is-done { background: #f0fdf4; color: #15803d; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }

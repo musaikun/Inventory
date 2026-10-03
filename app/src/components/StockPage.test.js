@@ -25,6 +25,12 @@ async function mount(props = {}) {
 const tick = async () => { for (let i = 0; i < 3; i++) await nextTick() }
 async function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
 async function type(el, v) { el.value = v; el.dispatchEvent(new Event('input')); await tick() }
+// 品目シートの入庫・出庫はテンキーのシートで入れる
+async function padEnter(sel, digits) {
+  await click(host.querySelector(sel))
+  for (const d of String(digits)) await click([...host.querySelectorAll('.mq-sheet .numpad-btn')].find(b => b.textContent === d))
+  await click(host.querySelector('.mq-sheet .btn-primary'))
+}
 const btn = label => [...host.querySelectorAll('button')].find(b => b.textContent.trim().startsWith(label))
 
 beforeEach(async () => {
@@ -118,8 +124,8 @@ describe('品目シートの入庫・出庫', () => {
     await mount()
     await openSheet()
     expect(host.querySelector('.is-reg')).toBeNull()
-    await type(host.querySelector('#is-in'), '6')
-    await type(host.querySelector('#is-out'), '2')
+    await padEnter('#is-in', 6)
+    await padEnter('#is-out', 2)
     const reg = host.querySelector('.is-reg')
     expect(reg.textContent).toContain('0 → 4')
     await click(reg)
@@ -136,7 +142,7 @@ describe('品目シートの入庫・出庫', () => {
   it('明細の「取り消す」で見込みから外れ、記録は「取り消し済み」で残り、「元に戻す」で戻る', async () => {
     await mount()
     await openSheet()
-    await type(host.querySelector('#is-in'), '5')
+    await padEnter('#is-in', 5)
     await click(host.querySelector('.is-reg'))
     expect(host.querySelector('.is-val').textContent).toContain('5')
     await click([...host.querySelectorAll('.is-act')].find(b => b.textContent === '取り消す'))

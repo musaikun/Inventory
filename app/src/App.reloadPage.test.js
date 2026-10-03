@@ -92,7 +92,7 @@ describe('再読込しても同じページに留まる', () => {
   it('仕入れ', async () => {
     await mountApp()
     await seedItems()
-    await click(button('入出庫') || button('仕入れ'))
+    await click(button('管理')); await click(button('入出庫の記録'))
     expect(view()).toBe('movement')
 
     await reload()
@@ -102,7 +102,7 @@ describe('再読込しても同じページに留まる', () => {
   it('仕入れはタブまで戻る', async () => {
     await mountApp()
     await seedItems()
-    await click(button('入出庫') || button('仕入れ'))
+    await click(button('管理')); await click(button('入出庫の記録'))
     await click(button('出庫'))
     expect(host.querySelector('.mv-tab.on').textContent).toContain('出庫')
 
@@ -139,7 +139,7 @@ describe('再読込しても同じページに留まる', () => {
   it('進行中セッションは保存ページより優先する', async () => {
     await mountApp()
     await seedItems()
-    await click(button('入出庫') || button('仕入れ'))
+    await click(button('管理')); await click(button('入出庫の記録'))
     expect(view()).toBe('movement')
 
     // 仕入れページに居るあいだに、別端末などで進行中の棚卸が残った状態を作る
@@ -155,7 +155,7 @@ describe('再読込しても同じページに留まる', () => {
   it('ホームで再読込したらホームのまま', async () => {
     await mountApp()
     await seedItems()
-    await click(button('入出庫') || button('仕入れ'))
+    await click(button('管理')); await click(button('入出庫の記録'))
     await click(button('戻る'))
     expect(view()).toBe('sessions')
 

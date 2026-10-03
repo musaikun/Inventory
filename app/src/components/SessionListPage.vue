@@ -294,11 +294,6 @@ onUnmounted(registerInnerLayerCloser(() => {
             <button class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
               <b>🧾</b>{{ startingKind === 'order' ? '開始中…' : '発注' }}
             </button>
-            <button class="act" type="button" @click="emit('openMovement', 'in')">
-              <b>📥</b>入出庫
-              <span v-if="unreflectedCount > 0" class="act-badge" :title="`入庫として未反映の発注 ${unreflectedCount}件`">{{ unreflectedCount }}</span>
-              <span v-else-if="hasMovementDraft" class="act-dot" title="記録していない入力があります"></span>
-            </button>
           </div>
         </div>
       </template>
@@ -326,6 +321,10 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="manage">
           <div class="m-h">発注の設定</div>
           <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
+          <!-- 入出庫は品目シートでその場で入れる（User 2026-10-03）。発注の入庫反映・まとめて入力・記録の一覧はここから -->
+          <button class="m-card" type="button" @click="emit('openMovement', 'in')">📥<span>入出庫の記録<small>発注を入庫に反映・まとめて入力・記録の一覧</small></span>
+            <em v-if="unreflectedCount > 0" class="m-badge" :title="`入庫として未反映の発注 ${unreflectedCount}件`">{{ unreflectedCount }}</em>
+            <em v-else-if="hasMovementDraft" class="m-dot" title="記録していない入力があります"></em><i>›</i></button>
           <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
           <div class="m-h">その他</div>
           <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
@@ -485,7 +484,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .order .strip-go { background: #ea580c; }
 .strip-more { border: none; background: none; font-size: 20px; font-weight: 800; color: inherit; padding: 0 4px; cursor: pointer; }
 
-.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.acts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .act {
   position: relative; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
   padding: 9px 0 8px; font-size: 12.5px; font-weight: 800; color: #334155; cursor: pointer; font-family: inherit;
@@ -506,6 +505,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 }
 .m-card span { flex: 1; font-size: 14.5px; font-weight: 800; color: #1e293b; display: flex; flex-direction: column; gap: 2px; }
 .m-card small { font-size: 11.5px; font-weight: 600; color: #64748b; }
+.m-badge { font-style: normal; background: #059669; color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800; padding: 1px 7px; }
+.m-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
 .m-card i { font-style: normal; color: #94a3b8; font-size: 18px; }
 .m-old { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px; color: #334155; }
 .m-old span { flex: 1; }

@@ -80,8 +80,7 @@ async function openFromManage(el, label) {
     const cfg = useConfig()
     if (!cfg.config.isCustom) { cfg.setEmptyList(); cfg.addItem('トマト', 100, '野菜', '個') }
     for (let i = 0; i < 4; i++) await nextTick()
-    await fire([...el.querySelectorAll('.acts button')].find(b => b.textContent.includes('入出庫')))
-    return
+    label = '入出庫の記録'   // その場の入出庫は品目シート。記録の画面は管理から開く（2026-10-03）
   }
   const nav = [...el.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
   if (nav) await fire(nav)

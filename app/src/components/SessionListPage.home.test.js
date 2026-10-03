@@ -66,10 +66,10 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン3つ（読むは置かない）・下部ナビ（在庫／レポート／管理）', async () => {
+  it('表・操作ボタン2つ（入出庫は品目シートで入れる）・下部ナビ（在庫／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
-    expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注', '📥入出庫'])
+    expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
     expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['📦在庫', '📊レポート', '🗂管理'])
   })
 
@@ -93,10 +93,10 @@ describe('ホームの骨組み', () => {
     await click(btn(host.querySelector('.bnav'), '管理'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
     expect(host.querySelector('.mp-header')).toBeNull()
-    for (const label of ['取り込む', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
+    for (const label of ['取り込む', '入出庫の記録', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
       expect(host.querySelector('.mp').textContent).toContain(label)
     }
-    // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ。練習モードは管理に置かない
+    // 入出庫（旧・仕入れ）の記録は管理から開く（その場の入出庫は品目シート）。練習モードは管理に置かない
     expect(host.querySelector('.manage').textContent).not.toContain('仕入れ')
     expect(host.querySelector('.manage').textContent).not.toContain('練習')
   })
@@ -108,9 +108,10 @@ describe('ホームの骨組み', () => {
     expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
   })
 
-  it('入出庫は入庫タブを開く', async () => {
+  it('管理の「入出庫の記録」は入庫タブを開く', async () => {
     await mountPage()
-    await click(btn(host.querySelector('.acts'), '入出庫'))
+    await click(btn(host.querySelector('.bnav'), '管理'))
+    await click(btn(host.querySelector('.manage'), '📥'))
     expect(events).toContainEqual(['openMovement', 'in'])
   })
 })
