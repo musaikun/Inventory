@@ -70,6 +70,8 @@ describe('1品目ずつ追加', () => {
     expect(host.querySelector('#if-name').value).toBe('')
     expect(host.querySelector('#if-cat').value, 'ジャンルは続けて使う').toBe('野菜')
     expect(host.querySelector('.if-added').textContent).toContain('トマト')
+    // 登録できたことをポップアップでも知らせる（棚卸の品目登録と同じ見た目）
+    expect(document.body.querySelector('.toast[data-type="success"]').textContent).toBe('「トマト」を登録しました')
   })
 
   it('似た名前があれば1回止め、もう一度押せば別の品目として追加する', async () => {

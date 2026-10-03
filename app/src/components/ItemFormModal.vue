@@ -120,6 +120,18 @@ function close() {
 }
 onBeforeUnmount(() => { _discardPending(); _dropLocal() })
 
+// 「追加して次へ」で名前の欄が空に戻るだけだと、登録できたのか体感で分からない（User 2026-10-03）。
+// 棚卸の品目登録と同じポップアップで知らせる
+const addedPop = ref('')
+let _popTimer = null
+function _popAdded(n) {
+  clearTimeout(_popTimer)
+  addedPop.value = ''
+  nextTick(() => { addedPop.value = `「${n}」を登録しました` })
+  _popTimer = setTimeout(() => { addedPop.value = '' }, 2200)
+}
+onBeforeUnmount(() => clearTimeout(_popTimer))
+
 function onNameInput() { error.value = ''; confirmedSimilar.value = '' }
 
 function submit() {
@@ -146,6 +158,7 @@ function submit() {
   if (imgRef.value) _commitImage(n)
   added.value = [n, ...added.value]
   emit('added', n)
+  _popAdded(n)
   if (single.value) return   // 棚卸・発注中は1品目だけ。親が数量の画面を開く
   // 続けて入れられるよう、名前・入数・単価だけ空にする（ジャンル・単位は同じものが続きやすい）
   name.value = ''; lotSize.value = ''; price.value = ''; confirmedSimilar.value = ''
@@ -155,6 +168,11 @@ function submit() {
 </script>
 
 <template>
+  <Teleport to="body">
+    <Transition name="toast">
+      <div v-if="addedPop" class="toast" data-type="success" role="status">{{ addedPop }}</div>
+    </Transition>
+  </Teleport>
   <div class="modal-overlay" @click.self="close">
     <div class="modal-sheet if-sheet" role="dialog" aria-modal="true" :aria-label="isEdit ? '品目の情報' : '品目を追加'">
       <div class="sheet-handle"></div>
