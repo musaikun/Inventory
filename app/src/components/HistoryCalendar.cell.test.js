@@ -84,7 +84,7 @@ describe('HistoryCalendar マスの読み方', () => {
     expect(key.querySelectorAll('.dot').length).toBe(4)   // 棚卸・発注・入庫・出庫
     expect(key.textContent).toContain('棚卸')
     expect(key.textContent).toContain('入庫')
-    expect(key.querySelectorAll('button').length).toBe(0)
+    expect(key.querySelectorAll('button:not(.dh-x)').length).toBe(0)
     expect(root.querySelectorAll('button.hc-leg').length).toBe(0)
   })
 

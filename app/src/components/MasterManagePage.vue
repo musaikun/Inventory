@@ -4,13 +4,9 @@ import { useConfig } from '../composables/useConfig.js'
 import { categoryOrderOf } from '../services/snapshotView.js'
 import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
-import { showAxisAssign, axisAssignInitial, settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
 import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
-import InventoryTable from './InventoryTable.vue'
-import ItemCheckPage from './ItemCheckPage.vue'
-import { itemCheckRows } from '../utils/itemCheck.js'
-import { hiddenAtLabel } from '../utils/hiddenItems.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
@@ -21,7 +17,7 @@ import PdfGridSetup from './PdfGridSetup.vue'
 const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'clear-master'])
 
-const { config, itemCount, exportConfigCSV, addItem, dropImportExcluded } = useConfig()
+const { config, itemCount, exportConfigCSV } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
@@ -68,52 +64,11 @@ function exportLatestSnapshotCsv() {
 }
 const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
-const hiddenSet  = computed(() => new Set(config.hiddenItems))
-// 設定済み品目一覧の上に出す件数。品目リスト（config.order）が母数
-const listStats = computed(() => {
-  const order = config.order ?? []
-  const autoSet = new Set(config.hiddenAuto ?? [])
-  let hidden = 0, auto = 0, noGenre = 0
-  for (const n of order) {
-    if (hiddenSet.value.has(n)) { hidden++; if (autoSet.has(n)) auto++ }
-    if (!config.categories?.[n]) noGenre++
-  }
-  return { total: order.length, shown: order.length - hidden, hidden, auto, noGenre }
-})
-// 直近の取込で品目にならなかった行。品目リストに居ないので表では見せられず、ここで一覧にする
-const excluded = computed(() => config.importExcluded ?? null)
-const excludedOpen = ref(false)
-const excludedAt = computed(() => hiddenAtLabel(excluded.value?.at))
-const orderSet = computed(() => new Set(config.order ?? []))
-const excludedMsg = ref('')
-// 除外した行を品目にする。上限や同名で入らなければ理由を出す（黙って何も起きないのを避ける）
-function adoptExcluded(i) {
-  const r = excluded.value?.rows?.[i]
-  if (!r) return
-  if (!addItem(r.name)) { excludedMsg.value = `「${r.name}」は追加できませんでした（品目数の上限か、同じ名前があります）`; return }
-  dropImportExcluded(i)
-  excludedMsg.value = `「${r.name}」を品目にしました`
-}
-
-// 品目の点検（空欄のある品目）。直す操作は設定済み品目一覧（確認専用）とは別ページ
-const checkCount = computed(() => itemCheckRows(config, { snapshots: getSnapshots() }).length)
-const checkOpen = ref(false)
-
-// 設定済み品目一覧はページとして開く。非表示の品目もここのチップ
-// （非表示設定品目・非表示にした順）で見る。以前は別の「非表示中」ブロックがあった
-const listOpen = ref(false)
-function openList()  { activeHelp.value = ''; listOpen.value = true }
-function closeList() { listOpen.value = false }
-
-
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
   import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
-  axis: '棚卸・発注カードに品目が出てくる順番を決めるところです。「保管場所」「仕入先」などのグループを作り、「グループ化・並び替え」で品目をその中へまとめ、まとまりの中の順番も変えられます。ジャンルは取込元データ由来のグループで、名前も中身も編集できません。',
-  check: '入数・単位・単価・ジャンルが空の品目を一覧にして、その場で埋められます。入数が空だと推奨発注数が1個単位で出て、単価が空だと在庫金額に入りません。直近3回の棚卸で一度も数えていない品目も出るので、使っていなければその場で非表示にできます（消えずに戻せます）。非表示の品目は数えません。',
-  list: 'ホームに出てこない品目を探すところです。非表示にした品目と、取込で品目にしなかった行（「取込で除外」）を確認できます。全品目の一覧はホームの在庫タブです。表では上のチップでジャンル・作ったグループ（設定済みグループの枠の中）・非表示設定品目・非表示にした順を切り替えられます。非表示設定品目はジャンル別に出ます。「非表示にした順」は最後に隠したものが先頭に来るので、誤って隠したものを遡って探せます。この表は確認用で、数量や設定は変えられません。',
   delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
@@ -139,35 +94,8 @@ function runPick(fn) { closePicker(); fn() }
 // 戻るは、この画面を閉じる前にシートを閉じる（独自実装せず既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
   if (picker.value) { closePicker(); return true }
-  if (listOpen.value) { closeList(); return true }
-  if (checkOpen.value) { checkOpen.value = false; return true }
   return false
 }))
-
-function openReorder(idx) { axisAssignInitial.value = idx; showAxisAssign.value = true }
-
-/**
- * 「グループ化・並び替え」の入口。
- *
- * 以前はグループの行ごとに「振り分け →」を置いていた。グループが2つあると入口も2つに
- * なり、**どちらを押すかを決めてからでないと入れない**。開く画面は同じで、中に
- * グループのタブがあるのだから、入口は1つでいい。名前の付いた最初のグループで開く。
- */
-const firstNamedAxis = computed(() => ((config.axisNames ?? [])[0] ? 0 : 1))
-function openListOrganize() { openReorder(firstNamedAxis.value) }
-
-// ── 品目リスト整理 ──────────────────────────────────────────
-// ここはカード1枚だけにする。グループの作成・名前の変更・削除は
-// **開いた先（グループ化・並び替え）で行う** ── 設定する場所と使う場所が離れていると、
-// 「未設定です。管理画面で追加してください」と突き放されて往復することになる。
-const namedAxes = computed(() => (config.axisNames ?? []).filter(n => (n || '').trim()))
-const hasGenres = computed(() => Object.keys(config.categories || {}).length > 0)
-const organizeSub = computed(() => {
-  const names = [...(hasGenres.value ? ['ジャンル別'] : []), ...namedAxes.value]
-  return names.length
-    ? `${names.join(' ・ ')} でまとめて、数える順番に並べる`
-    : 'グループを作って、品目をまとめる'
-})
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
 const delCode = ref('')
@@ -219,69 +147,6 @@ function onClear() {
         </div>
       </div>
 
-      <!-- 整える -->
-      <div class="mm-section-label">整える・確認</div>
-
-      <!-- 品目リスト整理。カード1枚だけ。グループの作成・変更は開いた先で行う -->
-      <div class="mm-block">
-        <div class="mm-block-head">
-          <span class="mm-block-title">品目リスト整理</span>
-          <button class="mm-help-btn" :class="{ on: activeHelp === 'axis' }" @click="toggleHelp('axis')">?</button>
-        </div>
-        <div v-if="activeHelp === 'axis'" class="mm-help">{{ HELP.axis }}</div>
-
-        <button class="mm-organize" @click="openListOrganize">
-          <span class="mm-organize-ico">⇅</span>
-          <span class="mm-organize-body">
-            <span class="mm-organize-title">グループ化・並び替え</span>
-            <span class="mm-organize-sub">{{ organizeSub }}</span>
-          </span>
-          <span class="mm-organize-arrow">→</span>
-        </button>
-      </div>
-
-      <!-- 非表示・取込で除外した品目。全品目の一覧はホームの在庫タブが持つので、ここは
-           ホームに出てこない品目（非表示・取込で品目にしなかった行）を探す入口にする
-           （画面遷移図の課題⑤・2026-10-01：以前の「設定済み品目一覧」はホームの表と重複していた） -->
-      <div class="mm-block">
-        <div class="mm-head-row">
-          <div class="mm-block-head">
-            <span class="mm-block-title">非表示・除外した品目</span>
-          </div>
-          <button class="mm-help-btn" :class="{ on: activeHelp === 'list' }" @click="toggleHelp('list')">?</button>
-        </div>
-        <div v-if="activeHelp === 'list'" class="mm-help">{{ HELP.list }}</div>
-        <button class="mm-organize mm-listopen" @click="openList">
-          <span class="mm-organize-ico">📋</span>
-          <span class="mm-organize-body">
-            <span class="mm-organize-title">非表示 {{ hiddenSet.size }}件・取込で除外 {{ excluded?.total ?? 0 }}件</span>
-            <span class="mm-organize-sub">誤って隠した品目・品目にしなかった行を探す（全品目はホームの在庫タブ）</span>
-          </span>
-          <span class="mm-organize-arrow">→</span>
-        </button>
-      </div>
-
-      <!-- 品目の点検。空欄のある品目をその場で埋める -->
-      <div class="mm-block">
-        <div class="mm-head-row">
-          <div class="mm-block-head">
-            <span class="mm-block-title">品目の点検</span>
-          </div>
-          <button class="mm-help-btn" :class="{ on: activeHelp === 'check' }" @click="toggleHelp('check')">?</button>
-        </div>
-        <div v-if="activeHelp === 'check'" class="mm-help">{{ HELP.check }}</div>
-        <button class="mm-organize mm-checkopen" @click="activeHelp = ''; checkOpen = true">
-          <span class="mm-organize-ico">🔍</span>
-          <span class="mm-organize-body">
-            <span class="mm-organize-title">
-              要確認の品目 <span :class="['mm-check-count', { zero: !checkCount }]">{{ checkCount }}件</span>
-            </span>
-            <span class="mm-organize-sub">空欄のある品目・しばらく数えていない品目を直す</span>
-          </span>
-          <span class="mm-organize-arrow">→</span>
-        </button>
-      </div>
-
       <!-- 管理タブに置いたときの、品目データ以外の項目（発注の設定・各種設定など） -->
       <slot name="extra" />
 
@@ -301,54 +166,6 @@ function onClear() {
         <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
       </div>
     </div>
-
-    <!-- 設定済み品目一覧（ページ）。戻るで閉じる -->
-    <div v-if="listOpen" class="mm-page" role="dialog" aria-modal="true" aria-label="非表示・除外した品目">
-      <header class="mp-header">
-        <button class="mp-back" @click="closeList">‹ 戻る</button>
-        <span class="mp-title">非表示・除外した品目</span>
-        <span class="mp-count">{{ itemCount }}件</span>
-      </header>
-      <div class="mp-scroll">
-        <div class="mm-stats" aria-label="品目の件数">
-          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.total }}</span><span class="mm-stat-label">全体の品目</span></div>
-          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.shown }}</span><span class="mm-stat-label">表示中</span></div>
-          <div class="mm-stat hidden">
-            <span class="mm-stat-num">{{ listStats.hidden }}</span><span class="mm-stat-label">非表示</span>
-            <span v-if="listStats.auto" class="mm-stat-sub">うち自動 {{ listStats.auto }}</span>
-          </div>
-          <div class="mm-stat"><span class="mm-stat-num">{{ listStats.noGenre }}</span><span class="mm-stat-label">ジャンルなし</span></div>
-          <button
-            type="button" class="mm-stat excluded" :class="{ on: excludedOpen }"
-            :aria-expanded="excludedOpen ? 'true' : 'false'" :disabled="!excluded?.total"
-            @click="excludedOpen = !excludedOpen"
-          >
-            <span class="mm-stat-num">{{ excluded?.total ?? 0 }}</span><span class="mm-stat-label">取込で除外</span>
-            <span v-if="excluded?.total" class="mm-stat-sub">{{ excludedOpen ? '▲ 閉じる' : '▼ 見る' }}</span>
-          </button>
-        </div>
-        <div v-if="excludedOpen && excluded?.total" class="mm-excluded">
-          <div class="mm-excluded-head">
-            直近の取込（{{ excludedAt }}）で品目にしなかった行です。必要なものは「品目にする」で
-            追加できます（名前だけで入るので、単位や入数は「品目の点検」で埋めてください）。
-          </div>
-          <div v-if="excludedMsg" class="mm-excluded-msg" role="status">{{ excludedMsg }}</div>
-          <div v-for="(r, i) in excluded.rows" :key="i + r.name" class="mm-excluded-row">
-            <span class="mm-excluded-main">
-              <span class="mm-excluded-name">{{ r.name }}</span>
-              <span class="mm-excluded-reason">{{ r.reason }}</span>
-            </span>
-            <span v-if="orderSet.has(r.name)" class="mm-excluded-done">登録済み</span>
-            <button v-else type="button" class="mm-excluded-adopt" @click="adoptExcluded(i)">品目にする</button>
-          </div>
-          <div v-if="excluded.total > excluded.rows.length" class="mm-excluded-more">ほか {{ excluded.total - excluded.rows.length }}行</div>
-        </div>
-        <div class="mm-preview-hint">実際の棚卸・発注カードと同じ表示で、品目と振り分け先を確認できます。上のチップか、左右にスワイプで表示を切り替えられます。</div>
-        <InventoryTable :preview="true" :inventory="{}" :filled-count="0" :read-only="true" :hidden-items="config.hiddenItems" :hidden-tabs="true" :swipe-tabs="true" />
-      </div>
-    </div>
-
-    <ItemCheckPage v-if="checkOpen" @close="checkOpen = false" />
 
     <!-- 取り込む / 書き出す の種類を選ぶ -->
     <div v-if="picker" class="mm-pick-back" @click.self="closePicker">
@@ -538,25 +355,11 @@ function onClear() {
 .mm-card .mm-row { border: none; border-radius: 0; background: transparent; }
 .mm-card .mm-help { margin: 0 14px 12px; }
 
-.mm-section-label {
-  font-size: 12px; font-weight: 800; color: #94a3b8;
-  letter-spacing: 0.04em; margin: 4px 2px 8px; text-transform: none;
-}
-.mm-section-label:not(:first-child) { margin-top: 6px; }
 .mm-tmpl-link {
   display: block; margin-top: 8px; border: none; background: none;
   color: var(--primary, #2563eb); font-size: 12px; font-weight: 700;
   text-decoration: underline; cursor: pointer; padding: 0;
 }
-.mm-organize { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-  border: 1.5px solid var(--primary-border); background: var(--primary-weak);
-  border-radius: 12px; padding: 12px 13px; margin-bottom: 12px; cursor: pointer; }
-.mm-organize:active { transform: scale(.995); }
-.mm-organize-ico { font-size: 19px; color: var(--primary); flex-shrink: 0; }
-.mm-organize-body { flex: 1; min-width: 0; }
-.mm-organize-title { display: block; font-size: 14px; font-weight: 800; color: var(--text); }
-.mm-organize-sub { display: block; font-size: 11px; line-height: 1.5; color: var(--text-muted); margin-top: 2px; }
-.mm-organize-arrow { flex-shrink: 0; color: var(--primary); font-weight: 800; }
 
 .mm-rec-back { position: fixed; inset: 0; z-index: 70; background: rgba(15, 23, 42, 0.5);
   display: flex; align-items: center; justify-content: center; padding: 18px; }
@@ -574,8 +377,6 @@ function onClear() {
 
 .mm-hidden-file { display: none; }
 
-.mm-head-row { display: flex; align-items: center; gap: 8px; }
-.mm-head-row .mm-block-head { flex: 1; }
 
 .mm-help-btn {
   flex-shrink: 0;
@@ -637,32 +438,8 @@ function onClear() {
 
 .mm-preview { margin-top: 10px; }
 .mm-page { position: fixed; inset: 0; z-index: 30; background: #f8fafc; overflow-y: auto; }
-.mm-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 10px; }
-.mm-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 2px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; min-width: 0; font: inherit; }
-.mm-stat-num { font-size: 18px; font-weight: 800; color: #1e293b; line-height: 1.2; }
-.mm-stat-label { font-size: 10px; font-weight: 700; color: #64748b; text-align: center; line-height: 1.3; }
 button.mm-stat { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 button.mm-stat:disabled { cursor: default; }
-.mm-stat.excluded.on { border-color: #f59e0b; background: #fffbeb; }
-.mm-stat.excluded:not(:disabled) .mm-stat-num { color: #b45309; }
-.mm-excluded { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
-.mm-excluded-head { font-size: 11.5px; color: #92400e; line-height: 1.6; margin-bottom: 6px; }
-.mm-excluded-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #fde68a; }
-.mm-excluded-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mm-excluded-name { font-size: 13px; font-weight: 700; color: #334155; overflow-wrap: anywhere; }
-.mm-excluded-reason { font-size: 11px; color: #92400e; }
-.mm-excluded-adopt {
-  flex-shrink: 0; min-height: 40px; padding: 4px 10px; border: 1.5px solid #f59e0b; border-radius: 9px;
-  background: #fff; color: #b45309; font-size: 12px; font-weight: 800; cursor: pointer;
-}
-.mm-excluded-done { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #94a3b8; }
-.mm-excluded-msg { font-size: 12px; font-weight: 700; color: #1e293b; background: #fff; border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
-.mm-check-count { font-size: 12px; font-weight: 800; color: #b45309; background: #fef3c7; border-radius: 8px; padding: 1px 7px; margin-left: 4px; }
-.mm-check-count.zero { color: #64748b; background: #f1f5f9; }
-.mm-excluded-more { font-size: 11px; color: #92400e; padding-top: 6px; }
-.mm-stat-sub { font-size: 10px; color: #94a3b8; white-space: nowrap; }
-.mm-stat.hidden .mm-stat-num { color: #dc2626; }
-.mm-preview-hint { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
 
 .mm-del-input { width: 100%; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
 .mm-del-reset { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #64748b; margin-bottom: 10px; cursor: pointer; }

@@ -53,4 +53,6 @@ export const STORAGE_KEYS = {
   // D1 へ未送信の操作ログ（変更履歴）。追記専用なので pendingSaves の
   // 「最新が勝つ」キューには載せられず、別に持つ。
   auditQueue:       '_audit_queue_v1',
+  // ✕ で消した操作の説明・おすすめ（端末ごと。業務データではない）。各種設定から戻せる
+  hints:            '_hints_v1',
 }

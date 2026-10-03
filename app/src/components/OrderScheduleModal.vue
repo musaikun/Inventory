@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { orderScheduleFocusId } from '../composables/appMenuState.js'
@@ -77,10 +78,10 @@ function onSave() {
     <div class="os-sheet" ref="sheet">
       <div class="os-handle"></div>
       <div class="os-title">🗓 発注スケジュール</div>
-      <div class="os-desc">
+      <DismissibleHint id="order-schedule" class="os-desc">
         発注する曜日と締め切り時間を設定します。仕入先ごとに分けたい場合は{{ MAX_ORDER_SCHEDULES }}件まで登録できます。
         発注セッションの位置づけ表示や締切の目安に使います。
-      </div>
+      </DismissibleHint>
 
       <div v-for="(row, i) in rows" :key="row.id" class="os-card" :class="{ focus: row.id === focusId }">
         <div class="os-card-head">

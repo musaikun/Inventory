@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
@@ -564,6 +565,15 @@ function onDownloadTemplate() {
             @click="pushSubscribed ? unsubscribePush() : subscribePush()"
           >{{ pushSubscribed ? 'ON' : 'OFF' }}</button>
         </div>
+      </div>
+
+      <!-- ✕ で消した操作の説明・おすすめを戻す（端末ごとの記憶） -->
+      <div v-if="_showGeneral" class="device-section">
+        <div class="device-label">操作の説明</div>
+        <p class="cache-note">✕ で消した説明や「あとで」にしたおすすめを、この端末でもう一度表示します。</p>
+        <button class="cache-btn" :disabled="!hiddenHintCount" @click="restoreHints">
+          <span>{{ hiddenHintCount ? `消した説明 ${hiddenHintCount}件を元に戻す` : '消した説明はありません' }}</span>
+        </button>
       </div>
 
       <!-- 表示キャッシュの削除（安全版・業務データは消えません） -->

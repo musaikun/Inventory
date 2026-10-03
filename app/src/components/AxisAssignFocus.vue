@@ -1,5 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
+import { isHintShown } from '../composables/useHints.js'
 import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
@@ -1317,9 +1319,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <p v-if="filterNote" class="af-filter-note">{{ filterNote }}</p>
 
       <!-- 長押し・左スワイプの導線。どちらも見えない操作なので、一度使うまでは出しておく -->
-      <div v-if="!hiddenOnly && poolItems.length && ((!pickHinted && groups.length) || !swipeHinted)" class="af-pickhint">
-        <div v-if="!pickHinted && groups.length">品目を<b>長押し</b>すると、分類先をその場で選べます</div>
-        <div v-if="!swipeHinted">品目を<b>左にスワイプ</b>すると、非表示にします</div>
+      <div v-if="!hiddenOnly && poolItems.length && ((!pickHinted && groups.length && isHintShown('assign-longpress')) || (!swipeHinted && isHintShown('assign-swipe')))" class="af-pickhint">
+        <DismissibleHint v-if="!pickHinted && groups.length" id="assign-longpress">品目を<b>長押し</b>すると、分類先をその場で選べます</DismissibleHint>
+        <DismissibleHint v-if="!swipeHinted" id="assign-swipe">品目を<b>左にスワイプ</b>すると、非表示にします</DismissibleHint>
       </div>
 
       <div

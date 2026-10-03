@@ -13,9 +13,10 @@
  * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
 import { ref, computed, onUnmounted } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useStockView } from '../composables/useStockView.js'
-import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { registerInnerLayerCloser, showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
 import { completionBusy } from '../composables/useSession.js'
 import InventoryTable from './InventoryTable.vue'
 import ItemStockSheet from './ItemStockSheet.vue'
@@ -23,6 +24,12 @@ import { useMovements } from '../composables/useMovements.js'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
+import ItemCheckPage from './ItemCheckPage.vue'
+import HiddenItemsList from './HiddenItemsList.vue'
+import SortRecoCard from './SortRecoCard.vue'
+import { useHistory } from '../composables/useHistory.js'
+import { itemCheckRows, ITEM_CHECKS } from '../utils/itemCheck.js'
+import { isHintShown, dismissHint, snoozeHint } from '../composables/useHints.js'
 
 // embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
 const props = defineProps({
@@ -31,9 +38,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
-const { config } = useConfig()
+const { config, setAxisName } = useConfig()
+const { getSnapshots } = useHistory()
 const {
-  allItems, needsReorder, reorderCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
+  allItems, needsReorder, reorderCount, reorderSetCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
 } = useStockView()
 const { saveMovement, getAllMovements, voidMovement, restoreMovement, markMovementSynced } = useMovements()
 // 品目シートの明細は、取り消した記録も「取り消し済み」として見せる
@@ -59,8 +67,72 @@ function onRegister(item, { in: inQ = 0, out: outQ = 0 } = {}) {
 }
 
 const search = ref('')
-const onlyLow = ref(false)
-const itemFilter = computed(() => (onlyLow.value ? (item => needsReorder(item)) : null))
+
+// ── 絞り込み（User決定 2026-10-03：管理の「整える・確認」を在庫タブへ）──────────
+// すべて / 要補充（発注点を手で入れた品目だけ。1つも無ければチップごと出さない）/
+// 要確認（空欄・しばらく数えていない）/ 非表示（戻せる・取込で除外した行も）
+const filter = ref('all')   // 'all' | 'low' | 'check' | 'hidden'
+const checkMap = computed(() => new Map(itemCheckRows(config, { snapshots: _snaps.value }).map(r => [r.item, r])))
+const hiddenCount = computed(() => (config.hiddenItems ?? []).length)
+const excludedCount = computed(() => config.importExcluded?.total ?? 0)
+const chips = computed(() => {
+  const out = [{ key: 'all', label: 'すべて', n: allItems.value.length }]
+  if (reorderSetCount.value) out.push({ key: 'low', label: '要補充', n: reorderCount.value, warn: reorderCount.value > 0 })
+  out.push({ key: 'check', label: '要確認', n: checkMap.value.size, warn: checkMap.value.size > 0 })
+  if (hiddenCount.value || excludedCount.value) out.push({ key: 'hidden', label: '非表示', n: hiddenCount.value })
+  return out
+})
+// チップが消えた（発注点を全部外した等）ら「すべて」へ戻す
+const activeFilter = computed(() => (chips.value.some(c => c.key === filter.value) ? filter.value : 'all'))
+const itemFilter = computed(() => {
+  if (activeFilter.value === 'low') return item => needsReorder(item)
+  if (activeFilter.value === 'check') return item => checkMap.value.has(item)
+  return null
+})
+const CHECK_CHIP = Object.fromEntries(ITEM_CHECKS.map(c => [c.key, c.chip]))
+function checkLabel(item) {
+  const r = checkMap.value.get(item)
+  return r ? r.missing.map(k => CHECK_CHIP[k]).filter(Boolean).join('・') : ''
+}
+const checkOpen = ref(false)
+
+// ── 並び替えのおすすめ ─────────────────────────────
+// 名前の付いた並び替え（保管場所など）のうち、いちばん振り分けが進んでいるもので判断する
+const RECO_ID = 'reco-sort'
+const sortProgress = computed(() => {
+  const names = config.axisNames ?? ['', '']
+  const items = allItems.value
+  let best = null
+  for (const idx of [0, 1]) {
+    if (!(names[idx] || '').trim()) continue
+    const tags = (idx === 0 ? config.tagsA : config.tagsB) ?? {}
+    const assigned = items.reduce((n, it) => n + (tags[it]?.length ? 1 : 0), 0)
+    if (!best || assigned > best.assigned) best = { idx, name: names[idx], assigned }
+  }
+  return { best, total: items.length }
+})
+const recoStage = computed(() => {
+  const { best, total } = sortProgress.value
+  if (!total) return ''
+  if (!best || best.assigned === 0) return 'none'
+  return best.assigned < total ? 'half' : ''
+})
+const showReco = computed(() => !!recoStage.value && !locked.value && isHintShown(RECO_ID))
+function startSort() {
+  const best = sortProgress.value.best
+  let idx = best?.idx
+  if (idx == null) {
+    const names = config.axisNames ?? ['', '']
+    idx = !(names[0] || '').trim() ? 0 : 1
+    if (!(names[idx] || '').trim()) {
+      const name = (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '保管場所') || '').trim()
+      if (!name) return
+      if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return }
+    }
+  }
+  axisAssignInitial.value = idx
+  showAxisAssign.value = true
+}
 // サンプルの品目リスト（まだ自分のリストを持っていない）も「0件」として扱う。
 // サンプルを在庫として並べると、自分の店の品目と区別がつかない
 const isEmpty = computed(() => (config.order || []).length === 0 || !config.isCustom)
@@ -78,6 +150,7 @@ function closeForm() { form.value = null }
 // 端末の戻る操作は、ページを閉じる前に上のシートから閉じる（既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
   if (form.value) { closeForm(); return true }
+  if (checkOpen.value) { checkOpen.value = false; return true }
   if (detailTarget.value) { detailTarget.value = null; return true }
   return false
 }))
@@ -108,37 +181,66 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <div v-else class="sp-body">
       <input v-model="search" type="text" class="sp-search" placeholder="品目名で絞り込み" />
-      <p class="sp-hint">数字は<b>今の見込み</b>（直近の棚卸＋入庫−出庫）。正確な数は棚卸で確定します。</p>
+      <SortRecoCard
+        v-if="showReco"
+        :stage="recoStage"
+        :axis-name="sortProgress.best?.name || ''"
+        :assigned="sortProgress.best?.assigned || 0"
+        :total="sortProgress.total"
+        @start="startSort"
+        @later="snoozeHint(RECO_ID)"
+        @dismiss="dismissHint(RECO_ID)"
+      />
+      <DismissibleHint id="stock-basis" tag="p" class="sp-hint">数字は<b>今の見込み</b>（直近の棚卸＋入庫−出庫）。正確な数は棚卸で確定します。</DismissibleHint>
 
+      <div class="sp-chips" role="group" aria-label="絞り込み">
+        <button
+          v-for="c in chips" :key="c.key" type="button"
+          :class="['sp-chip', { on: activeFilter === c.key, warn: c.warn }]" :aria-pressed="activeFilter === c.key"
+          @click="filter = c.key"
+        >{{ c.label }}<span class="sp-chip-n">{{ c.n }}</span></button>
+      </div>
+
+      <template v-if="activeFilter === 'hidden'">
+        <HiddenItemsList :editable="!locked" />
+      </template>
+      <template v-else>
+      <DismissibleHint v-if="activeFilter === 'low'" id="stock-low" tag="p" class="sp-hint">
+        発注点を設定した {{ reorderSetCount }}品目のうち、見込みが発注点以下の品目です。
+      </DismissibleHint>
+      <div v-if="activeFilter === 'check'" class="sp-checkbar">
+        <span>空欄のある品目・しばらく数えていない品目です。直すと自動で外れます。</span>
+        <button v-if="!locked && checkMap.size" type="button" @click="checkOpen = true">まとめて直す ›</button>
+      </div>
       <InventoryTable
         :inventory="{}"
         :filled-count="0"
         :search-term="search"
         :item-filter="itemFilter"
         :can-manage-list="false"
+        :axis-editable="!locked"
         hide-amount
         hide-tap-continuous
         @tap="item => (detailTarget = item)"
       >
         <template #qty="{ row }">
-          <div :class="['sp-cell', { low: needsReorder(row.item), none: theoOf(row.item) == null }]">
-            <span class="sp-cell-basis">{{ needsReorder(row.item) ? '要補充' : (baseShort(row.item) || '棚卸なし') }}</span>
+          <div v-if="activeFilter === 'check'" class="sp-cell chk">
+            <span class="sp-cell-why">{{ checkLabel(row.item) }}</span>
+          </div>
+          <div v-else :class="['sp-cell', { low: needsReorder(row.item), none: theoOf(row.item) == null }]">
+            <span class="sp-cell-basis">{{ needsReorder(row.item) ? `要補充 ・ 発注点 ${config.reorderPoints?.[row.item]}` : (baseShort(row.item) || '棚卸なし') }}</span>
             <span class="sp-cell-val">
               <template v-if="theoOf(row.item) != null">{{ theoOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span></template>
               <template v-else>—</template>
             </span>
           </div>
         </template>
-        <template #filters>
-          <div class="sp-chips">
-            <button :class="['sp-chip', { on: !onlyLow }]" type="button" @click="onlyLow = false">すべて</button>
-            <button :class="['sp-chip', 'low', { on: onlyLow }]" type="button" @click="onlyLow = true">要補充 {{ reorderCount }}</button>
-          </div>
-        </template>
+        <template #filters><span></span></template>
         <template #progress>
-          <span class="progress">品目 <strong>{{ allItems.length }}</strong> ・ 要補充 <strong>{{ reorderCount }}</strong></span>
+          <span class="progress">品目 <strong>{{ allItems.length }}</strong><template v-if="reorderSetCount"> ・ 要補充 <strong>{{ reorderCount }}</strong></template></span>
         </template>
       </InventoryTable>
+      </template>
 
       <button v-if="!locked" class="sp-fab" type="button" aria-label="品目を追加" @click="openAdd">＋</button>
     </div>
@@ -164,6 +266,8 @@ onUnmounted(registerInnerLayerCloser(() => {
       @edit="openEdit"
       @close="detailTarget = null"
     />
+
+    <ItemCheckPage v-if="checkOpen" @close="checkOpen = false" />
 
     <ItemFormModal
       v-if="form"
@@ -195,13 +299,27 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp-hint { font-size: 11.5px; color: #94a3b8; margin: 0 2px 8px; line-height: 1.6; }
 .sp-hint b { color: #64748b; }
 
-.sp-chips { display: flex; gap: 6px; }
+.sp-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 12px 8px; padding: 2px 0; }
+.sp-chips::-webkit-scrollbar { display: none; }
 .sp-chip {
-  border: 1.5px solid #cbd5e1; background: #fff; color: #475569; border-radius: 16px;
-  padding: 5px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 36px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px;
+  padding: 0 11px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
-.sp-chip.on { border-color: var(--primary, #2563eb); color: var(--primary, #2563eb); background: #eff6ff; }
-.sp-chip.low.on { border-color: #f97316; color: #c2410c; background: #fff7ed; }
+.sp-chip-n { font-size: 11.5px; font-weight: 800; color: var(--text-muted); border-radius: 999px; padding: 0 6px; }
+.sp-chip.warn .sp-chip-n { background: #fef3c7; color: #a16207; }
+.sp-chip.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); box-shadow: inset 0 0 0 1px var(--primary); }
+.sp-checkbar {
+  display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 8px 10px; border-radius: 10px;
+  background: #fef9e7; color: #854d0e; font-size: 12px; line-height: 1.5;
+}
+.sp-checkbar span { flex: 1; }
+.sp-checkbar button {
+  flex: none; min-height: 36px; border: 1.5px solid #d97706; background: var(--surface); color: #a16207;
+  border-radius: 9px; padding: 0 10px; font-size: 12.5px; font-weight: 800; cursor: pointer;
+}
+.sp-cell.chk { border-color: #fcd34d; background: #fffbeb; min-width: 96px; max-width: 150px; }
+.sp-cell-why { font-size: 11px; font-weight: 700; color: #a16207; line-height: 1.35; text-align: center; white-space: normal; }
 
 /* 数量セル：数字に「何を元にした数か」を添える（素の数字だと実測か見込みか分からない） */
 .sp-cell {

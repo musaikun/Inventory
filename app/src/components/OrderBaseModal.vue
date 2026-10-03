@@ -6,6 +6,7 @@
  * 先に訊き、直近の在庫から「仮」の値を出す（services/assumedOrderBase）。
  * 仮の値は保存しない。実績が貯まれば自動で替わり、人が入れた値だけが残る。
  */
+import DismissibleHint from './DismissibleHint.vue'
 import { ref, computed } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { defaultStockDays, DEFAULT_LEAD_DAYS, DEFAULT_SAFETY_DAYS } from '../services/assumedOrderBase.js'
@@ -160,11 +161,11 @@ function resetReorder(item) { emit('setReorder', item, '') }
         <button type="button" class="ob-link" @click="editing = true">仮定を変える</button>
       </section>
 
-      <p class="ob-desc">
+      <DismissibleHint id="order-base" tag="p" class="ob-desc">
         <span class="ob-badge assumed">仮</span> は直近の在庫と仮定からの値で、棚卸や発注が重なると
         <span class="ob-badge actual">実績</span> に自動で替わります。数字を入れると
         <span class="ob-badge manual">手動</span> になり、自動では変わりません。
-      </p>
+      </DismissibleHint>
 
       <input v-model="query" type="search" class="ob-search" placeholder="品目名で探す" aria-label="品目名で探す" />
       <div class="ob-filters">

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from '../composables/useMovements.js'
 import { useMovementDraft } from '../composables/useMovementDraft.js'
@@ -169,7 +170,7 @@ function onSave() {
       <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')">📤 出庫</button>
       <div class="mv-tab-ind" :class="mode" :style="{ transform: `translateX(${tabIndex * 100}%)` }"></div>
     </div>
-    <div class="mv-swipe-hint">‹ スワイプで切替 ›</div>
+    <DismissibleHint id="movement-swipe" class="mv-swipe-hint">‹ スワイプで切替 ›</DismissibleHint>
 
     <div
       class="mv-scroll"
@@ -215,8 +216,8 @@ function onSave() {
       <!-- 品目検索。表の絞り込みへ渡す -->
       <input v-model="search" type="text" class="mv-search" placeholder="品目名で絞り込み" />
 
-      <div v-if="mode === 'in'" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</div>
-      <div v-else-if="mode === 'out'" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</div>
+      <DismissibleHint v-if="mode === 'in'" id="movement-in" class="mv-hint">納品分を入力。入数がある品目は「＋箱」でケース単位（バラに換算）。</DismissibleHint>
+      <DismissibleHint v-else-if="mode === 'out'" id="movement-out" class="mv-hint">使用・廃棄した数を個（バラ）で入力。</DismissibleHint>
       </div><!-- /.mv-controls-wrap -->
 
       <!-- 品目一覧。棚卸・発注とまったく同じ表を使う。行タップで数量シート -->

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import InventoryTable from './InventoryTable.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { snapshotViewConfig } from '../services/snapshotView.js'
@@ -219,7 +220,7 @@ function actionClass(action) {
         <!-- 参加者別 -->
         <div v-show="activeTab === 'participants'" :class="['panel panel-scroll', slideClass('participants')]">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
-          <p v-else class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</p>
+          <DismissibleHint v-else id="detail-person-tap" tag="p" class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</DismissibleHint>
           <div v-for="p in participants" :key="p.name" class="participant-section">
             <button
               class="participant-header"

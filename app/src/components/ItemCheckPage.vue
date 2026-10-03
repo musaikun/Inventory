@@ -5,6 +5,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
  * その場で埋める／非表示にする。設定済み品目一覧は確認専用なので、直す操作はこのページに分けている。
  */
 import { ref, computed } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { ITEM_CHECKS, itemCheckRows } from '../utils/itemCheck.js'
@@ -74,10 +75,10 @@ function hide(item) {
       <span class="ic-count">{{ allRows.length }}件</span>
     </header>
     <div class="ic-scroll">
-      <p class="ic-desc">
+      <DismissibleHint id="item-check" tag="p" class="ic-desc">
         入数・単位・単価・ジャンルが空の品目と、しばらく数えていない品目です。行を押すと、
         その場で埋めたり非表示にしたりできます。非表示の品目は数えていません。
-      </p>
+      </DismissibleHint>
 
       <div class="ic-chips">
         <button type="button" :class="['ic-chip', { on: filter === 'all' }]" @click="filter = 'all'">すべて {{ allRows.length }}</button>

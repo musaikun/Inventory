@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import InventoryTable from './InventoryTable.vue'
@@ -445,10 +446,10 @@ function onDownload() {
 
         <!-- 品目一覧 -->
         <div class="tab-panel tab-panel-items">
-          <p class="items-hint">
+          <DismissibleHint id="detail-item-tap" tag="p" class="items-hint">
             品目をタップすると、その品目の変更履歴が見られます<template v-if="sharedItems">。<span
               class="items-hint-shared">色つき</span>は複数人が変更した品目です</template>
-          </p>
+          </DismissibleHint>
           <InventoryTable
             :inventory="snapInventory"
             :filled-count="filledCount"
@@ -464,7 +465,7 @@ function onDownload() {
         <!-- 参加者別 -->
         <div class="tab-panel tab-panel-scroll">
           <div v-if="!hasParticipants" class="empty-msg">参加者情報がありません</div>
-          <p v-else class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</p>
+          <DismissibleHint v-else id="detail-person-tap" tag="p" class="participant-hint">担当者をタップすると、その人が入力した品目が出ます</DismissibleHint>
           <div v-for="p in participantStats" :key="p.id" class="participant-section">
             <button
               class="participant-header"

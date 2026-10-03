@@ -27,16 +27,19 @@ export function useStockView() {
     const v = Number(config.reorderPoints?.[item])
     return Number.isFinite(v) && v >= 0 ? v : null
   }
-  // 要補充判定: 発注点（手動、または仮定がある店では目安）があれば「理論在庫 ≤ 発注点」、無ければ「0以下」
+  // 要補充判定: 発注点を手で入れた品目だけ「理論在庫 ≤ 発注点」（User決定 2026-10-03）。
+  // 発注点の無い品目は、見込みが0でも要補充にしない（自動の仮・実績は発注点の画面の目安で、ここでは数えない）
   function needsReorder(item) {
+    const rp = reorderOf(item)
+    if (rp == null) return false
     const t = theoOf(item)
-    if (t == null) return false
-    const rp = baseOf(item).reorder?.value ?? null
-    return rp != null ? t <= rp : t <= 0
+    return t != null && t <= rp
   }
 
   // 要補充の件数 — 進捗表示用
   const reorderCount = computed(() => allItems.value.reduce((n, item) => n + (needsReorder(item) ? 1 : 0), 0))
+  // 発注点を手で入れた品目の数。0なら在庫タブに要補充のチップを出さない
+  const reorderSetCount = computed(() => allItems.value.reduce((n, item) => n + (reorderOf(item) != null ? 1 : 0), 0))
 
   // その品目に関わる直近の入出庫（新しい順・最大6件）
   function itemMovements(item) {
@@ -125,7 +128,7 @@ export function useStockView() {
   }
 
   return {
-    allItems, reorderOf, needsReorder, reorderCount, itemMovements, consumptionHintOf, storeReadiness,
+    allItems, reorderOf, needsReorder, reorderCount, reorderSetCount, itemMovements, consumptionHintOf, storeReadiness,
     schedOrderDays, reorderHorizon, baseOf, replenishOf, suggestedReorder, suggestBasisLabel,
     _snaps, _moves, stockMap, theoOf, unitOf, basisLabel, baseShort, lotOf,
   }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch, nextTick } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
@@ -48,6 +48,9 @@ const props = defineProps({
   // 表の上を左右にスワイプして並び替えのタブを切り替える（データ管理の設定済み品目一覧）。
   // 行の左スワイプ（非表示）と取り合うので、行を操作できない確認用の表でだけ使う
   swipeTabs:        { type: Boolean, default: false },
+  // 並び替えの追加（＋）・編集（✎）だけを許すか。null = canManageList に従う。
+  // ホームの在庫は行の操作（非表示など）はしないが、並び替えはここから整える（User決定 2026-10-03）
+  axisEditable:     { type: Boolean, default: null },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
@@ -72,6 +75,7 @@ const hiddenRows = computed(() => {
 })
 // リスト操作（並び替え・非表示・絞り込み）ができるか。ゲスト/読み取り専用は不可。
 const canManage = computed(() => props.canManageList && !props.readOnly)
+const canEditAxis = computed(() => (props.axisEditable ?? canManage.value) && !props.readOnly)
 // 非表示スワイプを開けるか。ホストは自分で隠し、ゲストは申請だけを出せる。
 // **申請は hide-item ではなく request-hide** を出す。同じイベントで区別を親に任せると、
 // 親が分岐を落としたときにゲストの端末だけが隠れて、次の config 同期で戻る形になる。
@@ -186,6 +190,10 @@ function expandAll() {
     expandedGroups[_gkey(row.label)] = true
   }
 }
+
+// 親の絞り込み（在庫タブの要補充・要確認など）に切り替えたら、当てはまる品目をすぐ見せる。
+// 閉じたグループの中に隠れていると、絞ったのに何も無いように見える
+watch(() => props.itemFilter, f => { if (f) nextTick(expandAll) })
 
 const hasExpanded = computed(() => {
   if (!_isGroupedMode.value) return false
@@ -777,13 +785,13 @@ function fmtYen(n) {
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="selectSort(opt.value)"
         >{{ opt.label }}<span
-            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canManage"
+            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canEditAxis"
             class="seg-edit"
             title="この並び替えのグループを編集"
             @click.stop="openAxisEdit(opt.value)"
           >✎</span></button>
         <button
-          v-if="canAddAxis && canManage"
+          v-if="canAddAxis && canEditAxis"
           class="seg-btn seg-add"
           title="場所・仕入先など、並び替えを追加"
           @click="onAddAxis"

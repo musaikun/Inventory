@@ -1,6 +1,7 @@
 <script setup>
 import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
@@ -557,7 +558,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
-      <span class="hc-key-hint">日付をタップで詳細</span>
+      <DismissibleHint id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
     </div>
 
     <!-- カレンダー（内スワイプで月移動・親のタブ切替へは伝播させない）-->
