@@ -13,7 +13,8 @@
     <title>タナオロ</title>
   </head>
   <body>
-    <div id="app"></div>
+    <!-- JS が読み込まれるまでの間も起動画面と同じ地色にする（白く光らない）。Vue がマウントで置き換える -->
+    <div id="app"><div style="position:fixed;inset:0;background:#061317"></div></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -74,6 +74,7 @@ import InventoryTable from './components/InventoryTable.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import DeleteAccountModal from './components/DeleteAccountModal.vue'
 import DeleteAccountPage from './components/DeleteAccountPage.vue'
+import StartupSplash from './components/StartupSplash.vue'
 import { isDeleteAccountRoute } from './utils/startupRoute.js'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
@@ -1276,6 +1277,12 @@ const sessionMode = ref('stock')
 // セッション種別に応じた主語（棚卸/発注）。UI文言・確認・トーストで共用。
 const actNoun = computed(() => sessionMode.value === 'order' ? '発注' : '棚卸')
 
+// ── 起動時の読み込み画面（StartupSplash）────────────────────────────────
+// 起動のたびに1回だけ出す。店舗のデータ（品目・履歴）を読み終えたら閉じる（最低1.6秒・最長6秒）。
+// 削除申請ページとテスト（vitest）では出さない。
+const showSplash = ref(import.meta.env.MODE !== 'test' && !isDeleteAccountRoute(window.location.search))
+const bootReady = ref(false)
+
 onMounted(async () => {
   initConnectivity()
   const params = new URLSearchParams(window.location.search)
@@ -1369,6 +1376,8 @@ onMounted(async () => {
       // ネットワークエラーは無視してローカルデータで継続
     }
   }
+
+  bootReady.value = true
 
   // 前回のアプリ終了時に残っていた未送信分を送り直す（DATA-002 Phase 2）。
   // バックフィルの後に置く: 履歴の差分送信で増えた分もまとめて片付く。
@@ -3206,6 +3215,7 @@ function dismissReview() {
 <template>
   <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
 
+    <StartupSplash v-if="showSplash" :ready="bootReady" @done="showSplash = false" />
     <ConnectionBanner />
 
     <!-- ── デスクトップ用サイドナビ（1024px 以上・ログイン済みのアプリ内画面のみ）── -->
