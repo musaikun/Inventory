@@ -95,3 +95,14 @@ describe('品目フォームの写真', () => {
     expect(cfg.config.images).toEqual({})
   })
 })
+
+describe('古い端末から届いた品目設定', () => {
+  it('images が無い config を受け取っても、手元の写真は消えない', async () => {
+    const { applyRemoteConfig } = await import('../composables/useConfig.js')
+    cfg.setItemImage('トマト', OLD)
+    applyRemoteConfig({ order: ['トマト', 'レタス'] })
+    expect(cfg.config.images).toEqual({ トマト: OLD })
+    applyRemoteConfig({ order: ['トマト'], images: {} })   // 新しい端末が外した
+    expect(cfg.config.images).toEqual({})
+  })
+})

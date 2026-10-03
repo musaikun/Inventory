@@ -116,6 +116,15 @@ export async function handleConfigGet(db, code) {
 // PUT /store/:code/config
 export async function handleConfigPut(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+  // 写真（images）を知らない古い端末（更新前の PWA）の保存で、写真の割り当てを消さない。
+  // 新しい端末は写真が0枚でも `images: {}` を送るので、キーが無いときだけ前の値を引き継ぐ。
+  if (body && typeof body === 'object' && !Array.isArray(body) && body.images === undefined) {
+    try {
+      const prev = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(code).first()
+      const prevImages = prev ? JSON.parse(prev.config_json)?.images : null
+      if (prevImages && typeof prevImages === 'object' && !Array.isArray(prevImages)) body = { ...body, images: prevImages }
+    } catch (_) { /* 前の値が読めなければそのまま保存する */ }
+  }
   const now = _now()
   await db.prepare(`
     INSERT INTO store_configs (shop_code, config_json, updated_at) VALUES (?, ?, ?)

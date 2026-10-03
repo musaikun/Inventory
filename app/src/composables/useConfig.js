@@ -280,7 +280,11 @@ export function applyRemoteConfig(cfg) {
   // ホストのリストで上書きされたあとに「取込を取り消す」とホスト側と食い違うため退避を捨てる
   _dropImportBackup()
   _validateLearnedAliases(cfg.order)
+  // 写真（images）を知らない古い端末から届いた config では、手元の写真の割り当てを消さない
+  // （新しい端末は0枚でも images: {} を送る。キーが無いのは古い端末だけ）
+  const keepImages = cfg.images === undefined ? config.images : null
   _assignConfigData(cfg)
+  if (keepImages && Object.keys(keepImages).length) config.images = keepImages
   _saveLocalOnly()
 }
 

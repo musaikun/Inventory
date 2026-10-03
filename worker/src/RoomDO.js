@@ -93,6 +93,18 @@ export function normalizeConfig(src = {}) {
   }
 }
 
+/**
+ * 写真（images）を知らない古い端末が送った config で、写真の割り当てを消さない。
+ * 新しい端末は写真を全部外しても `images: {}` を送るので、キーが無いのは古い端末だけ。
+ */
+export function keepImagesFromPrevious(next, src, prev) {
+  const has = src && typeof src.images === 'object' && src.images !== null && !Array.isArray(src.images)
+  if (!has && prev && typeof prev.images === 'object' && prev.images && !Array.isArray(prev.images)) {
+    next.images = prev.images
+  }
+  return next
+}
+
 export class RoomDO {
   constructor(state, env) {
     this.state = state
@@ -392,7 +404,8 @@ export class RoomDO {
       case 'config': {
         if (!this._isHost(ws)) return
         if (!Array.isArray(msg.order)) return
-        const stored = normalizeConfig(msg)   // 軸・非表示等を含む全フィールドを保存/中継
+        const prevCfg = await this.state.storage.get('config')
+        const stored = keepImagesFromPrevious(normalizeConfig(msg), msg, prevCfg)   // 軸・非表示等を含む全フィールドを保存/中継
         await this.state.storage.put('config', stored)
         // ゲスト全員に品目リスト更新を通知（ゲストには prices を落とす・S-G）
         this._broadcastPriceAware({ type: 'config_update', ...stored }, ws)
@@ -766,7 +779,7 @@ export class RoomDO {
 
           const c = msg.config
           if (c && Array.isArray(c.order) && c.order.length > 0) {
-            broadcastCfg = normalizeConfig(c)   // 軸・非表示等を含む全フィールド
+            broadcastCfg = keepImagesFromPrevious(normalizeConfig(c), c, await this.state.storage.get('config'))   // 軸・非表示等を含む全フィールド
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {

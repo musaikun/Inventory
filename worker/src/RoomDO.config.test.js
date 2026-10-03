@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeConfig } from './RoomDO.js'
+import { normalizeConfig, keepImagesFromPrevious } from './RoomDO.js'
 
 describe('normalizeConfig（config中継の全フィールド保持）', () => {
   it('軸・非表示を含む全フィールドを保持する', () => {
@@ -105,5 +105,17 @@ describe('normalizeConfig: 品目の画像', () => {
     expect(normalizeConfig({ images: { トマト: 'ABCD/' + 'a'.repeat(32) } }).images).toEqual({ トマト: 'ABCD/' + 'a'.repeat(32) })
     expect(normalizeConfig({ images: ['x'] }).images).toEqual({})
     expect(normalizeConfig({}).images).toEqual({})
+  })
+})
+
+describe('keepImagesFromPrevious: 古い端末の config で写真を消さない', () => {
+  const prev = { images: { トマト: 'ABCD/' + 'a'.repeat(32) } }
+  it('images キーが無い（古い端末）なら前の写真を引き継ぐ', () => {
+    const src = { order: ['トマト'] }
+    expect(keepImagesFromPrevious(normalizeConfig(src), src, prev).images).toEqual(prev.images)
+  })
+  it('新しい端末が送った images（空でも）はそのまま使う', () => {
+    const src = { order: ['トマト'], images: {} }
+    expect(keepImagesFromPrevious(normalizeConfig(src), src, prev).images).toEqual({})
   })
 })
