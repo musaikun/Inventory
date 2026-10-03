@@ -6,10 +6,10 @@ import StartupSplash from './StartupSplash.vue'
 let app, host
 afterEach(() => { app?.unmount(); host?.remove(); vi.useRealTimers() })
 
-async function mount(ready) {
+async function mount(ready, progress = ref(0)) {
   host = document.createElement('div'); document.body.appendChild(host)
   const done = vi.fn()
-  app = createApp({ render: () => h(StartupSplash, { ready: ready.value, onDone: done }) })
+  app = createApp({ render: () => h(StartupSplash, { ready: ready.value, progress: progress.value, onDone: done }) })
   app.mount(host)
   await nextTick()
   return done
@@ -36,5 +36,15 @@ describe('StartupSplash', () => {
     expect(done).not.toHaveBeenCalled()
     vi.advanceTimersByTime(3000 + 800)
     expect(done).toHaveBeenCalledTimes(1)
+  })
+
+  it('輪の長さは読み込みの進み具合に合わせる', async () => {
+    const progress = ref(0.4)
+    await mount(ref(false), progress)
+    const ring = host.querySelector('.ss-ring')
+    expect(Number(ring.style.strokeDashoffset)).toBeCloseTo(312)   // 520 × (1 − 0.4)
+    progress.value = 0.8
+    await nextTick()
+    expect(Number(ring.style.strokeDashoffset)).toBeCloseTo(104)
   })
 })

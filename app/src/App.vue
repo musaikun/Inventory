@@ -75,6 +75,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import DeleteAccountModal from './components/DeleteAccountModal.vue'
 import DeleteAccountPage from './components/DeleteAccountPage.vue'
 import StartupSplash from './components/StartupSplash.vue'
+import { STORAGE_KEYS } from './utils/storageKeys.js'
 import { isDeleteAccountRoute } from './utils/startupRoute.js'
 import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
@@ -1278,10 +1279,16 @@ const sessionMode = ref('stock')
 const actNoun = computed(() => sessionMode.value === 'order' ? '発注' : '棚卸')
 
 // ── 起動時の読み込み画面（StartupSplash）────────────────────────────────
-// 起動のたびに1回だけ出す。店舗のデータ（品目・履歴）を読み終えたら閉じる（最低1.6秒・最長6秒）。
+// アプリを開いたときに1回だけ出す。同じタブの再読み込みでは出さない（User 2026-10-03・sessionStorage）。
+// 輪は読み込みの進み具合（bootProgress）に合わせて伸び、店舗のデータを読み終えたら閉じる（最低1.6秒・最長6秒）。
 // 削除申請ページとテスト（vitest）では出さない。
-const showSplash = ref(import.meta.env.MODE !== 'test' && !isDeleteAccountRoute(window.location.search))
+function _splashAlreadyShown() {
+  try { return sessionStorage.getItem(STORAGE_KEYS.splashShown) === '1' } catch (_) { return false }
+}
+const showSplash = ref(import.meta.env.MODE !== 'test' && !isDeleteAccountRoute(window.location.search) && !_splashAlreadyShown())
+if (showSplash.value) { try { sessionStorage.setItem(STORAGE_KEYS.splashShown, '1') } catch (_) { /* 出せなくても動く */ } }
 const bootReady = ref(false)
+const bootProgress = ref(0.08)
 
 onMounted(async () => {
   initConnectivity()
@@ -1360,14 +1367,17 @@ onMounted(async () => {
     }
   }
 
-  // 既存の店舗コードがある場合は D1 からデータを読み込む
+  // 既存の店舗コードがある場合は D1 からデータを読み込む（起動画面の輪はこの進み具合で伸びる）
   if (shopCode.value) {
+    bootProgress.value = 0.2
     try {
       await loadStore(shopCode.value)
+      bootProgress.value = 0.4
       const [remoteConfig, remoteHistory] = await Promise.all([
-        loadConfigFromD1(),
-        loadHistoryFromD1(),
+        loadConfigFromD1().finally(() => { bootProgress.value = Math.max(bootProgress.value, 0.6) }),
+        loadHistoryFromD1().finally(() => { bootProgress.value = Math.max(bootProgress.value, 0.6) }),
       ])
+      bootProgress.value = 0.8
       if (remoteConfig?.order?.length && (!pendingSession.value?.id || config.isCustom)) {
         applyRemoteConfig(remoteConfig)
       }
@@ -1377,6 +1387,7 @@ onMounted(async () => {
     }
   }
 
+  bootProgress.value = 1
   bootReady.value = true
 
   // 前回のアプリ終了時に残っていた未送信分を送り直す（DATA-002 Phase 2）。
@@ -3215,7 +3226,7 @@ function dismissReview() {
 <template>
   <div id="app" :class="{ 'has-banner': _bannerActive, 'theme-order': sessionMode === 'order' && currentView === 'session' }">
 
-    <StartupSplash v-if="showSplash" :ready="bootReady" @done="showSplash = false" />
+    <StartupSplash v-if="showSplash" :ready="bootReady" :progress="bootProgress" @done="showSplash = false" />
     <ConnectionBanner />
 
     <!-- ── デスクトップ用サイドナビ（1024px 以上・ログイン済みのアプリ内画面のみ）── -->

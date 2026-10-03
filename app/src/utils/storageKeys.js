@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   master:           'inventory_master_v1',
   deviceId:         '_device_id',
   deviceName:       '_device_name',
+  splashShown:      'tanaoro_splash_shown',   // sessionStorage: このタブで起動画面を出したか（再読み込みでは出さない）
   syncSession:      '_sync_session_v1',
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
