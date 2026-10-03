@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.129.5 / 本番 Worker を GitHub Actions のボタンで deploy できるように
+
+User決定: セッションからは本番へ deploy できない（Cloudflare の認証が無い・Actions 起動は 403）。本番 Worker 用の手動ボタンを作る。
+- `.github/workflows/production-worker.yml`（workflow_dispatch のみ）: 確認欄に `deploy`・develop からのみ。
+  Worker/App のテスト → 本番 D1 の未適用マイグレーション（`scripts/migrate.sh`、DB_NAME=inventory-store）→ `wrangler deploy` → `/health` 確認。
+  認証は Pro Review と同じ `CLOUDFLARE_API_TOKEN`。本番 Pages（フロント）は触らない。
+- CLAUDE.md の本番デプロイの記述を更新（WEB-001 の方針変更：本番 Worker は User がボタンで実行）。
+- version: 0.129.4 → **0.129.5**。
+
 ## 2026-10-03 — version 0.129.4 / 写真の割り当てを古い端末の保存で消さない
 
 User報告: 登録した写真が品目一覧（棚卸画面）の左端に出ない。

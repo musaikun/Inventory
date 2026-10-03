@@ -1,0 +1,93 @@
+name: Deploy production Worker
+
+# 本番 Worker（inventory-sync）と本番 D1 の手動 deploy。**人がボタンを押したときだけ動く**。
+# 手元の `./scripts/deploy.sh backend` と同じ手順（テスト → 未適用マイグレーションだけ適用 → Worker）。
+#
+# User決定 2026-10-03: スマホからでも本番へ反映できるよう、Actions の「Run workflow」で実行する。
+# Claude Code のセッションは workflow_dispatch を起動できない（403）ので、勝手に本番が変わることはない。
+# フロント（本番 Pages）はここでは触らない。
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '本番の Worker と D1 を更新します。よければ deploy と入力'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-worker
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: d27afd2bc7f0a66b1275eb28d7b3d470
+
+jobs:
+  deploy:
+    name: Test, migrate, and deploy production Worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation and branch
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then
+            echo "::error::確認の入力が deploy ではないため中止しました"; exit 1
+          fi
+          if [ "${{ github.ref }}" != "refs/heads/develop" ]; then
+            echo "::error::develop ブランチから実行してください（今: ${{ github.ref }}）"; exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+
+      - name: Install and test Worker
+        working-directory: worker
+        run: |
+          npm ci
+          npm test
+
+      - name: Install and test App
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+
+      # 本番 D1 の未適用マイグレーションだけを当てる（scripts/migrate.sh はセンチネル方式で冪等）
+      - name: Apply pending D1 migrations (production)
+        env:
+          DB_NAME: inventory-store
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        run: ./scripts/migrate.sh
+
+      - name: Deploy production Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
+
+      - name: Check health
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsS https://inventory-sync.yuya-takaki.workers.dev/health; then echo; exit 0; fi
+            sleep 5
+          done
+          echo "::error::本番 Worker の /health が応答しません"; exit 1
+
+      - name: Summary
+        run: |
+          echo "本番 Worker = inventory-sync（更新済み）" >> $GITHUB_STEP_SUMMARY
+          echo "commit = ${GITHUB_SHA::7}" >> $GITHUB_STEP_SUMMARY
+          echo "App version（このcommitの値）= $(node -p "require('./app/package.json').version")" >> $GITHUB_STEP_SUMMARY

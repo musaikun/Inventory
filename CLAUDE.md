@@ -74,7 +74,9 @@ worker/src/
   - `develop` へ push → Worker/App test → App build → Pages preview
   - 固定URL: `https://develop.inventory-app-c40.pages.dev`
   - D1、Worker、本番Pagesは変更しない。preview frontendは本番Workerを参照する
-- **本番デプロイ**: 現在は自動workflowなし。公開判定と未解消事項は
+- **本番 Worker の deploy（手動ボタン・2026-10-03 User決定）**: GitHub Actions の `Deploy production Worker`（`.github/workflows/production-worker.yml`）を
+  develop で「Run workflow」→ 確認欄に `deploy`。テスト → 本番 D1 の未適用マイグレーション → Worker → /health。押すのは User（セッションからは起動不可）
+- **本番デプロイ（フロント）**: 自動workflowなし。公開判定と未解消事項は
   `docs/quality-foundation/web-release-readiness.md`を正とする
 - **デプロイ（手動・要事前確認）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
   - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ
