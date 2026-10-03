@@ -154,6 +154,15 @@ export async function restoreSession(sessionId) {
   return _api(`/store/${code}/sessions/${sessionId}/restore`, { method: 'POST' })
 }
 
+// POST /store/:code/sessions/purge-unfinished
+// 品目マスタの一括削除に合わせて、完了していない棚卸・発注（中断中・取り戻せる破棄）を完全に消す。
+// 失敗（未対応の古いサーバーを含む）は例外。呼び出し側は品目を消さずに止まる
+export async function purgeUnfinishedSessions() {
+  const code = shopCode.value
+  if (!code || !_token.value) throw new Error('ログインが必要です')
+  return _api(`/store/${code}/sessions/purge-unfinished`, { method: 'POST' })
+}
+
 // GET /store/:code/sessions/:id/lines
 // 端末に snapshot が無い完了済み棚卸の明細を D1 から読む（DATA-002 Phase 1 / R-001）。
 // 見つからない・他店舗のIDは 404 が返る。呼び出し側で握って従来の案内へ倒す。

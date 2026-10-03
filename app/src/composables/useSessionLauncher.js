@@ -7,7 +7,7 @@
 // 画面ごとに呼ぶ（呼ぶたびに独立した状態を持つ）。画面遷移（emit）は呼ぶ側の仕事で、
 // ここは「何が起きたか」を返すだけにする。
 import { ref, computed } from 'vue'
-import { getSessions, createSession, deleteSession, logout, getDiscardedSessions, restoreSession } from './useAuth.js'
+import { getSessions, createSession, deleteSession, logout, getDiscardedSessions, restoreSession, purgeUnfinishedSessions } from './useAuth.js'
 import { useConfig } from './useConfig.js'
 import { useHistory } from './useHistory.js'
 import { shopCode } from './useStore.js'
@@ -101,6 +101,29 @@ export function useSessionLauncher() {
       return null
     } finally {
       restoringId.value = null
+    }
+  }
+
+  /**
+   * 品目マスタの一括削除に合わせて、完了していない棚卸・発注（中断中・取り戻せる破棄）を
+   * サーバーで完全に消し、この端末の下書きも消す（User決定 2026-10-03）。
+   * @returns {string[]|null} 消したセッションID。null = 消せなかった（error に理由・品目は消さない）
+   */
+  async function purgeUnfinished() {
+    error.value = ''
+    try {
+      const res = await purgeUnfinishedSessions()
+      if (!res?.ok) throw new Error(res?.error || '消せませんでした')
+      const ids = Array.isArray(res.sessionIds) ? res.sessionIds : []
+      for (const id of ids) {
+        try { localStorage.removeItem(_DRAFT(id)); localStorage.removeItem(_ORDER_DRAFT(id)) } catch (_) { /* 下書きが残っても再開の入口は無い */ }
+      }
+      sessions.value = sessions.value.filter(s => s.status === 'completed')
+      discarded.value = []
+      return ids
+    } catch (e) {
+      error.value = e?.message || '消せませんでした'
+      return null
     }
   }
 
@@ -279,7 +302,7 @@ export function useSessionLauncher() {
     load, inProgressSessions, stockInProgress, orderInProgress,
     activeSession, otherActiveSessions, activeOrderSession, completedSessions,
     isLocked, stockAt, todayDone, startStock, startOrder, remove,
-    discarded, restoringId, loadDiscarded, restore,
+    discarded, restoringId, loadDiscarded, restore, purgeUnfinished,
     now, liveRoom, liveOrderRoom, pollRooms, startRoomPolling, stopRoomPolling, liveStatus, orderLiveStatus,
   }
 }

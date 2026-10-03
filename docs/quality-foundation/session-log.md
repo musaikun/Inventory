@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.134.1 / 品目マスタの一括削除で、完了していない棚卸・発注も消す
+
+User報告: セッションを破棄 → 品目マスタを一括削除しても、破棄したセッションの「元に戻す」が残る（中断中も残る）。User決定: 一括削除で一緒に完全に消す。
+- Worker: `POST /store/:code/sessions/purge-unfinished`（`handlePurgeUnfinished`）。完了していないセッション（中断中＋取り戻せる破棄）を関連の行
+  （inventory_lines・store_history・取込台帳・完了claim・操作ログ・discarded_sessions・store_inventory）ごと1つの batch で消す。完了済みには触れない。migration なし。
+- App: 一括削除は先にこれを呼び、**消せたときだけ品目を消す**（失敗・古い Worker では削除をやめて知らせる）。端末の下書きも消す。確認の文に件数を出す。
+- **本番 Worker の deploy が要る**（develop preview は本番 Worker を見るので、deploy までは一括削除が「消せなかった」で止まる）。Pro Review は自動。
+- 検証: Worker **629 passed**（+2）、App **2035 passed**（+2）、build 成功。ローカルの D1 で 中断中1件・破棄1件 → 消える・取り戻せない（410）を確認。
+- version: 0.134.0 → **0.134.1**。
+
 ## 2026-10-03 — version 0.134.0 / アプリ全体をアイコンの雰囲気（昼）に揃える
 
 User決定（モック https://claude.ai/artifact/9qsKkNApK91kH75uifZExi の「昼」・全画面）:

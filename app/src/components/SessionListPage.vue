@@ -187,6 +187,16 @@ function discardRemain(d) {
   return h > 0 ? `あと${h}時間` : `あと${Math.max(1, m)}分`
 }
 async function restoreDiscarded(d) { await launcher.restore(d) }
+// 品目マスタの一括削除。先に完了していない棚卸・発注をサーバーで消し、消せたときだけ品目を消す
+// （品目だけ消えて、古い数量のまま再開・取り戻しができる状態を作らない）
+async function onClearMaster(p) {
+  const ids = await launcher.purgeUnfinished()
+  if (!ids) {
+    window.alert(`中断中・破棄した棚卸と発注を消せなかったため、品目マスタの削除をやめました。\n通信を確認して、もう一度お試しください。（${launcher.error.value}）`)
+    return
+  }
+  emit('clearMaster', { ...p, purgedIds: ids })
+}
 const discardOpen = ref(false)
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
@@ -317,7 +327,8 @@ onUnmounted(registerInnerLayerCloser(() => {
       v-if="!loading && tab === 'dashboard'"
       :class="['home-panel', slideDir && `slide-${slideDir}`]"
       embedded
-      @clear-master="p => emit('clearMaster', p)"
+      :unfinished-count="launcher.inProgressSessions.value.length + discarded.length"
+      @clear-master="onClearMaster"
     >
       <template #extra>
         <div class="manage">

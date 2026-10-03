@@ -692,6 +692,37 @@ export async function purgeExpiredDiscarded(db, code, nowMs = Date.now()) {
   ])
 }
 
+/**
+ * 品目マスタの一括削除に合わせて、完了していない棚卸・発注（中断中と、取り戻せる破棄）を完全に消す
+ * （User決定 2026-10-03）。品目を消した後に古い数量のまま再開・取り戻しができると、
+ * もう無い品目の数が残って何が正しいか分からなくなる。完了済みの記録には触れない。
+ * @returns {{ ok: true, sessionIds: string[] }}
+ */
+export async function handlePurgeUnfinished(db, code) {
+  const rows = (await db.prepare(
+    "SELECT id FROM sessions WHERE shop_code = ? AND status <> 'completed'",
+  ).bind(code).all()).results ?? []
+  const target = "SELECT id FROM sessions WHERE shop_code = ? AND status <> 'completed'"
+  try {
+    await db.batch([
+      db.prepare(`DELETE FROM inventory_lines       WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code),
+      db.prepare(`DELETE FROM store_history         WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code),
+      db.prepare(`DELETE FROM import_batch_requests WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code),
+      db.prepare(`DELETE FROM session_completions   WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code),
+      db.prepare(`DELETE FROM session_audit         WHERE shop_code = ? AND session_id IN (${target})`).bind(code, code),
+      db.prepare('DELETE FROM discarded_sessions WHERE shop_code = ?').bind(code),
+      // 進行中の在庫（端末を変えて続きをするための控え）。完了していないものしか入らないので丸ごと消す
+      db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(code),
+      db.prepare("DELETE FROM sessions WHERE shop_code = ? AND status <> 'completed'").bind(code),
+    ])
+  } catch (e) {
+    console.error('[storeHandler] purge unfinished failed:', code, e?.message ?? e)
+    return { _status: 503, code: 'purge_failed', retryable: true, error: '中断中・破棄したセッションを消せませんでした' }
+  }
+  console.warn('[storeHandler] purged unfinished sessions (master cleared):', code, rows.length)
+  return { ok: true, sessionIds: rows.map(r => r.id) }
+}
+
 // GET /store/:code/sessions/discarded … 取り戻せる破棄（24時間以内・新しい順）
 export async function handleDiscardedList(db, code) {
   await purgeExpiredDiscarded(db, code).catch(() => {})

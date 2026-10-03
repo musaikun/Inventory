@@ -7,7 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleDiscardedList, handleSessionRestore,
+  handleDiscardedList, handlePurgeUnfinished, handleSessionRestore,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
@@ -366,6 +366,13 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           return resultResponse(await handleDiscardedList(env.DB, code), origin, allowedOrigin)
+        }
+        // POST /store/:code/sessions/purge-unfinished … 品目マスタの一括削除に合わせて、
+        // 完了していない棚卸・発注（中断中・取り戻せる破棄）を完全に消す（要認証）
+        if (subpath === '/sessions/purge-unfinished' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handlePurgeUnfinished(env.DB, code), origin, allowedOrigin)
         }
         // POST /store/:code/sessions/:id/restore … 破棄を取り消す（要認証）
         const restoreMatch = subpath.match(/^\/sessions\/([0-9a-f-]{36})\/restore$/)

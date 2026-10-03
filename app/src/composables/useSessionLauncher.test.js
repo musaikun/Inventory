@@ -14,6 +14,7 @@ const deleteSession = vi.fn(async () => ({}))
 const logout = vi.fn(async () => {})
 let discardedList = []
 let restoreImpl = async () => ({ ok: false })
+let purgeImpl = async () => ({ ok: true, sessionIds: [] })
 vi.mock('./useAuth.js', () => ({
   getSessions:   (...a) => getSessionsImpl(...a),
   createSession: (...a) => createSession(...a),
@@ -21,6 +22,7 @@ vi.mock('./useAuth.js', () => ({
   logout:        (...a) => logout(...a),
   getDiscardedSessions: async () => discardedList,
   restoreSession: (...a) => restoreImpl(...a),
+  purgeUnfinishedSessions: (...a) => purgeImpl(...a),
 }))
 vi.mock('./useSync.js', () => ({ fetchRoomStatus: vi.fn(async () => null) }))
 
@@ -37,6 +39,7 @@ beforeEach(async () => {
   sessionList = []
   discardedList = []
   restoreImpl = async () => ({ ok: false })
+  purgeImpl = async () => ({ ok: true, sessionIds: [] })
   getSessionsImpl = async () => sessionList
   const { useConfig } = await import('./useConfig.js')
   const cfg = useConfig(); cfg.setEmptyList(); cfg.addItem('トマト', 0, '', '個')
@@ -164,5 +167,32 @@ describe('useSessionLauncher', () => {
     restoreImpl = async () => { throw new Error('進行中の発注があります。完了するか破棄してから取り戻してください') }
     expect(await L.restore({ id: 'o1' })).toBeNull()
     expect(L.error.value).toContain('進行中の発注があります')
+  })
+})
+
+describe('品目マスタの一括削除に合わせて、完了していないセッションを消す', () => {
+  it('サーバーで消した中断中・破棄の下書きを端末からも消し、一覧から外す。完了済みは残る', async () => {
+    sessionList = [DONE_TODAY, ACTIVE_ORDER]
+    discardedList = [{ id: 'd1', type: 'stock', itemCount: 3, startedAt: iso(now), discardedAt: iso(now) }]
+    await L.load(); await L.loadDiscarded()
+    localStorage.setItem('inv_draft_d1', '{"inv":{}}')
+    localStorage.setItem('order_draft_ord_o1', '{}')
+    purgeImpl = async () => ({ ok: true, sessionIds: ['o1', 'd1'] })
+    expect(await L.purgeUnfinished()).toEqual(['o1', 'd1'])
+    expect(localStorage.getItem('inv_draft_d1')).toBeNull()
+    expect(localStorage.getItem('order_draft_ord_o1')).toBeNull()
+    expect(L.sessions.value.map(s => s.id)).toEqual(['today'])
+    expect(L.discarded.value).toEqual([])
+  })
+
+  it('消せなければ null を返し、一覧も下書きも変えない（品目は消さない）', async () => {
+    sessionList = [ACTIVE_ORDER]
+    await L.load()
+    localStorage.setItem('order_draft_ord_o1', '{}')
+    purgeImpl = async () => { throw new Error('通信できません') }
+    expect(await L.purgeUnfinished()).toBeNull()
+    expect(L.error.value).toContain('通信できません')
+    expect(L.sessions.value.map(s => s.id)).toEqual(['o1'])
+    expect(localStorage.getItem('order_draft_ord_o1')).toBe('{}')
   })
 })

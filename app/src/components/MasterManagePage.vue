@@ -14,7 +14,11 @@ import PdfGridSetup from './PdfGridSetup.vue'
 
 // embedded: ホームの「管理」タブに置くとき（管理とデータ管理を統合・User決定 2026-10-01）。
 // 見出しと戻るを出さず、品目データの下に #extra（発注の設定・各種設定など）を差し込む
-const props = defineProps({ embedded: { type: Boolean, default: false } })
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  // 完了していない棚卸・発注（中断中＋取り戻せる破棄）の件数。一括削除で一緒に消える
+  unfinishedCount: { type: Number, default: 0 },
+})
 const emit = defineEmits(['back', 'clear-master'])
 
 const { config, itemCount, exportConfigCSV } = useConfig()
@@ -69,7 +73,7 @@ const HELP = {
   import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
   delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
   stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
-  delete: '登録済みの品目をすべて削除します。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
+  delete: '登録済みの品目をすべて削除します。中断中・破棄した棚卸と発注（完了していないもの）も一緒に消え、元に戻せません。完了した記録は残ります。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
 function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
@@ -106,7 +110,10 @@ function onClear() {
   const note = resetAssign.value
     ? '\n振り分け（分類先の割り当て）の記憶も消去します。'
     : '\n（軸の名前・グループ定義・振り分けの記憶は残り、同じ品目を再登録すれば割り当ては復活します）'
-  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。${note}\nこの操作は取り消せません。本当に削除しますか？`)) return
+  const sessNote = props.unfinishedCount > 0
+    ? `\n中断中・破棄した棚卸と発注（${props.unfinishedCount}件）も消え、元に戻せなくなります。`
+    : ''
+  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。${note}${sessNote}\nこの操作は取り消せません。本当に削除しますか？`)) return
   emit('clear-master', { resetAssignments: resetAssign.value })
   delCode.value = ''
   resetAssign.value = false
@@ -158,7 +165,7 @@ function onClear() {
         </div>
         <div v-if="activeHelp === 'delete'" class="mm-help">{{ HELP.delete }}</div>
         <div class="mm-block-sub">
-          登録済みの品目をすべて削除します（軸の名前・グループ定義は残ります）。取り消せません。<br>
+          登録済みの品目をすべて削除します（軸の名前・グループ定義は残ります）。中断中・破棄した棚卸と発注も一緒に消えます。取り消せません。<br>
           削除するには店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入力してください。
         </div>
         <input class="mm-del-input" v-model="delCode" placeholder="店舗コードを入力" autocapitalize="characters" />

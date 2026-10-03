@@ -3094,6 +3094,10 @@ function onRequestHideItem(name) {
 
 // 品目マスタの一括削除（店舗コードゲートはページ側で確認済み）。軸は残す。
 function onClearMaster(opts = {}) {
+  // 完了していない棚卸・発注はサーバーで消し済み（SessionListPage）。この端末の参照と下書きも外す
+  const purged = Array.isArray(opts.purgedIds) ? opts.purgedIds : []
+  for (const id of purged) _clearDraft(id)
+  if (pendingSession.value?.id && purged.includes(pendingSession.value.id)) clearSession()
   setEmptyList({ resetAssignments: opts.resetAssignments === true })
   _persistConfigToD1()
   if (syncActive.value) broadcastConfig(_configPayload())

@@ -821,3 +821,43 @@ describe('入出庫 API（movements）', () => {
     expect(await handleMovementsGet(db, 'ZZZZZZ', 400)).toHaveLength(0)
   })
 })
+
+describe('品目マスタの一括削除に合わせて、完了していないセッションを消す', () => {
+  function recDb(rows = [{ id: 's-active' }, { id: 's-discarded' }], { fail = false } = {}) {
+    const batches = []
+    const prepare = sql => {
+      const s = sql.replace(/\s+/g, ' ').trim()
+      const st = { sql: s, args: [], bind(...a) { st.args = a; return st }, all: async () => ({ results: rows }) }
+      return st
+    }
+    return {
+      batches, prepare,
+      batch: async stmts => { if (fail) throw new Error('boom'); batches.push(stmts) ; return stmts.map(() => ({ meta: { changes: 1 } })) },
+    }
+  }
+
+  it('中断中と取り戻せる破棄を関連の行ごと1つのトランザクションで消し、完了済みには触れない', async () => {
+    const { handlePurgeUnfinished } = await import('./storeHandler.js')
+    const db = recDb()
+    const r = await handlePurgeUnfinished(db, 'ABCDEF')
+    expect(r).toEqual({ ok: true, sessionIds: ['s-active', 's-discarded'] })
+    expect(db.batches).toHaveLength(1)
+    const stmts = db.batches[0]
+    for (const t of ['inventory_lines', 'store_history', 'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'store_inventory', 'sessions']) {
+      expect(stmts.some(s => s.sql.startsWith(`DELETE FROM ${t} `)), t).toBe(true)
+    }
+    for (const s of stmts) {
+      expect(s.args.every(a => a === 'ABCDEF'), s.sql).toBe(true)      // 他店舗に触れない
+      if (/FROM (sessions|inventory_lines|store_history|session_audit|session_completions|import_batch_requests) /.test(s.sql)) {
+        expect(s.sql).toContain("status <> 'completed'")                 // 完了済みは残す
+      }
+    }
+  })
+
+  it('書き込めなければ 503（端末は品目を消さずに止まる）', async () => {
+    const { handlePurgeUnfinished } = await import('./storeHandler.js')
+    const r = await handlePurgeUnfinished(recDb([], { fail: true }), 'ABCDEF')
+    expect(r._status).toBe(503)
+    expect(r.code).toBe('purge_failed')
+  })
+})
