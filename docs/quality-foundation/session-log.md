@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.129.6 / 写真が壊れて表示される（CSP）を修正・写真の丸を最初から出す
+
+User報告（本番・スクショ）: 写真を付けた品目の丸が壊れた画像になる。写真が1枚も無いと no image の丸も出ない → 最初から出したい。
+- 原因: Pages の CSP（`app/public/_headers`）が `img-src 'self' data: blob:` だけで、写真を返す Worker（/img/...）の読み込みを止めていた。
+  ローカルの vite には CSP が無く、E2E では再現しなかった。
+- `img-src` に本番・Pro Review の Worker を追加。回帰テスト（legalPages.test）を追加。
+- `InventoryTable`: 写真が0枚でも、品目設定を持つ一覧（ホーム・棚卸・発注）では最初から丸の列を出す。完了済みの詳細・閲覧用・preview は従来どおり出さない。
+- 検証: App **2038 passed**、build 成功。
+- version: 0.129.5 → **0.129.6**。
+
 ## 2026-10-03 — version 0.129.5 / 本番 Worker の deploy は既存の手動ワークフローを使う
 
 User: セッションから本番 Worker を deploy できないか → できない（Cloudflare の認証が無い・Actions 起動は 403）。ボタン化を合意。

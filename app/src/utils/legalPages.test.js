@@ -37,6 +37,14 @@ describe('公開legalページ: 配信物としての存在と体裁', () => {
     expect(headers).not.toContain('posthog-assets')
   })
 
+  // 品目の写真は Worker の /img/... から <img> で読む。img-src に無いと画像が壊れて表示される
+  // （2026-10-03 本番で発生。ローカルの vite には CSP が無いため気付けなかった）
+  it('Pages CSPの img-src に写真を返す Worker（本番・Pro Review）が入っている', () => {
+    const imgSrc = read('app/public/_headers').match(/img-src([^;]*)/)?.[1] ?? ''
+    expect(imgSrc).toContain('https://inventory-sync.yuya-takaki.workers.dev')
+    expect(imgSrc).toContain('https://inventory-sync-pro-review.yuya-takaki.workers.dev')
+  })
+
   it.each(PUBLIC_PAGES)('%s が app/public にあり、Pages にそのまま配信される', (p) => {
     expect(exists(p)).toBe(true)
     expect(read(p).length).toBeGreaterThan(1000)

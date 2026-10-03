@@ -37,7 +37,7 @@ beforeEach(async () => {
 })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 
-const rowOf = name => [...host.querySelectorAll('tr')].find(tr => tr.querySelector('.td-item, td')?.textContent.includes(name) && tr.querySelector('.oq-box'))
+const rowOf = name => [...host.querySelectorAll('tr')].find(tr => tr.querySelector('.td-name, .td-item')?.textContent.includes(name) && tr.querySelector('.oq-box'))
 const val = (tr, cls) => tr.querySelector(`.${cls} .oq-val`).textContent.trim()
 const segBtn = label => [...host.querySelectorAll('.seg-btn')].find(b => b.textContent.trim() === label)
 

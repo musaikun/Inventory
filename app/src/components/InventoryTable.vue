@@ -448,11 +448,13 @@ const showOrderBy = computed(() => {
   return false
 })
 
-// 品目の画像（LINE のアイコンのような丸）。店舗に1枚も画像が無いうちは列ごと出さない
-// （全行に「no image」が並ぶだけになるため）。画像はタップで大きく見る。
+// 品目の画像（LINE のアイコンのような丸）。写真が1枚も無くても最初から「no image」の丸を出す
+// （User 2026-10-03：写真を付けられることが一覧から分かるように）。画像はタップで大きく見る。
+// 写真の割り当てを持たない一覧（完了済みの詳細・閲覧用・取込の確認）と preview では出さない。
 const hasImages = computed(() => {
+  if (props.preview) return false
   const m = config.value.images
-  return !!m && typeof m === 'object' && Object.keys(m).length > 0
+  return !!m && typeof m === 'object' && !Array.isArray(m)
 })
 const imageUrlOf = (item, v = 't') => itemImageUrl(config.value.images?.[item], v)
 const viewImage = ref(null)   // 大きく見ている品目
