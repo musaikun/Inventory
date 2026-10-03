@@ -93,7 +93,7 @@ describe('ホームの骨組み', () => {
     await click(btn(host.querySelector('.bnav'), '管理'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
     expect(host.querySelector('.mp-header')).toBeNull()
-    for (const label of ['取り込む', '発注日・締切', '発注基準', '各種設定', 'フィードバック']) {
+    for (const label of ['取り込む', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
       expect(host.querySelector('.mp').textContent).toContain(label)
     }
     // 入出庫（旧・仕入れ）の入口はホームの操作ボタンだけ。練習モードは管理に置かない

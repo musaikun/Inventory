@@ -68,6 +68,9 @@ const KIND_LABEL = { manual: '手動', assumed: '仮', actual: '実績', none: '
 const kindOf = (r) => KIND[r.reorder?.source] ?? 'none'
 
 const filter = ref('all')
+// 品目名で絞り込む（品目が多い店でも目的の品目へすぐ行けるように。品目シートから発注点を外したため、
+// 発注点を直す場所はここだけになった・User決定 2026-10-03）
+const query = ref('')
 const counts = computed(() => {
   const c = { all: props.rows.length, none: 0, assumed: 0 }
   for (const r of props.rows) {
@@ -79,8 +82,10 @@ const counts = computed(() => {
 })
 const groups = computed(() => {
   const out = new Map()
+  const q = query.value.trim()
   for (const r of props.rows) {
     if (filter.value !== 'all' && kindOf(r) !== filter.value) continue
+    if (q && !r.item.includes(q)) continue
     const g = r.category || '（ジャンルなし）'
     if (!out.has(g)) out.set(g, [])
     out.get(g).push(r)
@@ -96,7 +101,7 @@ function resetReorder(item) { emit('setReorder', item, '') }
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal-sheet ob-sheet" role="dialog" aria-modal="true">
       <div class="sheet-handle"></div>
-      <div class="sheet-title">発注基準を設定</div>
+      <div class="sheet-title">発注点を設定</div>
 
       <!-- 仮定 -->
       <section v-if="editing" class="ob-card">
@@ -161,6 +166,7 @@ function resetReorder(item) { emit('setReorder', item, '') }
         <span class="ob-badge manual">手動</span> になり、自動では変わりません。
       </p>
 
+      <input v-model="query" type="search" class="ob-search" placeholder="品目名で探す" aria-label="品目名で探す" />
       <div class="ob-filters">
         <button type="button" :class="['ob-chip', { on: filter === 'all' }]" @click="filter = 'all'">すべて {{ counts.all }}</button>
         <button type="button" :class="['ob-chip', { on: filter === 'none' }]" @click="filter = 'none'">未設定 {{ counts.none }}</button>
@@ -202,6 +208,7 @@ function resetReorder(item) { emit('setReorder', item, '') }
 </template>
 
 <style scoped>
+.ob-search { width: 100%; box-sizing: border-box; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 9px 12px; font-size: 15px; margin-bottom: 8px; }
 .ob-sheet { max-height: 90vh; overflow-y: auto; }
 .ob-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
 .ob-lead { font-size: 12.5px; color: #475569; line-height: 1.6; margin: 0 0 10px; }

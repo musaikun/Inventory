@@ -326,7 +326,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="manage">
           <div class="m-h">発注の設定</div>
           <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
-          <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注基準<small>要補充の判定に使う発注点・補充の目安</small></span><i>›</i></button>
+          <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
           <div class="m-h">その他</div>
           <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
           <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
