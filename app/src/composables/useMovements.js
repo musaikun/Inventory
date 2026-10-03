@@ -67,6 +67,14 @@ export function unreflectedOrders(orders = [], movements = [], sinceDays = 30) {
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 }
 
+export const MOVEMENT_RESTORE_WINDOW_MS = 24 * 60 * 60 * 1000   // 取り消しを元に戻せる期間（Worker と同じ）
+
+/** 取り消した入出庫を、まだ元に戻せるか */
+export function canRestoreMovement(m, now = Date.now()) {
+  const at = Date.parse(m?.deletedAt || '')
+  return Number.isFinite(at) && now - at <= MOVEMENT_RESTORE_WINDOW_MS
+}
+
 export function useMovements() {
   /**
    * 入出庫を記録する。qty>0 の行だけ保存。
@@ -93,12 +101,51 @@ export function useMovements() {
     return rec
   }
 
-  /** 全入出庫を新しい順（date desc, savedAt desc）で返す */
+  const _byNewest = (a, b) =>
+    (b.date || '').localeCompare(a.date || '') || (b.savedAt || '').localeCompare(a.savedAt || '')
+
+  /**
+   * 有効な入出庫を新しい順（date desc, savedAt desc）で返す。
+   * 取り消した入出庫（deletedAt）は含めない＝理論在庫・カレンダーの★・分析には数えない。
+   */
   function getMovements() {
     void _rev.value
-    return [...toRaw(_data.list)].sort((a, b) =>
-      (b.date || '').localeCompare(a.date || '') || (b.savedAt || '').localeCompare(a.savedAt || '')
-    )
+    return toRaw(_data.list).filter(m => !m.deletedAt).sort(_byNewest)
+  }
+
+  /** 取り消した入出庫も含めて返す（品目シートの日の明細で「取り消し済み」を見せる） */
+  function getAllMovements() {
+    void _rev.value
+    return [...toRaw(_data.list)].sort(_byNewest)
+  }
+
+  /**
+   * 入出庫を取り消す。記録は消さずに印を付ける（User決定 2026-10-03・migration 0019）。
+   * 返したレコードを saveMovementToD1 へ渡すとサーバーにも印が付く。
+   */
+  function voidMovement(id) {
+    const m = _data.list.find(x => x.id === id)
+    if (!m || m.deletedAt) return null
+    m.deletedAt = new Date().toISOString()
+    m.syncPending = true
+    _persist()
+    return toRaw(m)
+  }
+
+  /** 取り消しを元に戻す（取り消してから24時間以内）。戻せなければ null */
+  function restoreMovement(id, now = Date.now()) {
+    const m = _data.list.find(x => x.id === id)
+    if (!m || !m.deletedAt || !canRestoreMovement(m, now)) return null
+    m.deletedAt = null
+    m.syncPending = true
+    _persist()
+    return toRaw(m)
+  }
+
+  /** サーバーに届いた（取り消し・元に戻すの送信が済んだ） */
+  function markMovementSynced(id) {
+    const m = _data.list.find(x => x.id === id)
+    if (m && m.syncPending) { delete m.syncPending; _persist() }
   }
 
   /** 入出庫を削除 */
@@ -118,15 +165,26 @@ export function useMovements() {
     return removed
   }
 
-  /** D1 等から取得した入出庫配列をローカルへ反映（id で重複排除） */
+  /**
+   * D1 等から取得した入出庫配列をローカルへ反映（id で重複排除）。
+   * 既にある記録は、取り消しの印と登録した人だけサーバーに合わせる（別の端末での取り消しを反映）。
+   * この端末の取り消し・元に戻すがまだ届いていない記録（syncPending）は端末側を保つ。
+   */
   function applyRemoteMovements(movements) {
     if (!Array.isArray(movements)) return
-    const seen = new Set(_data.list.map(m => m.id))
+    const byId = new Map(_data.list.map(m => [m.id, m]))
     for (const m of movements) {
-      if (m?.id && !seen.has(m.id)) { _data.list.push(m); seen.add(m.id) }
+      if (!m?.id) continue
+      const cur = byId.get(m.id)
+      if (!cur) { _data.list.push(m); byId.set(m.id, m); continue }
+      if (!cur.syncPending && 'deletedAt' in m) cur.deletedAt = m.deletedAt ?? null
+      if (m.by && !cur.by) cur.by = m.by
     }
     _persist()
   }
 
-  return { saveMovement, getMovements, deleteMovement, deleteImportBatch, applyRemoteMovements }
+  return {
+    saveMovement, getMovements, getAllMovements, deleteMovement, deleteImportBatch, applyRemoteMovements,
+    voidMovement, restoreMovement, markMovementSynced,
+  }
 }

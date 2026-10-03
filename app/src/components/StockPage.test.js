@@ -133,6 +133,23 @@ describe('品目シートの入庫・出庫', () => {
     expect(today.textContent).toContain('−2')
   })
 
+  it('明細の「取り消す」で見込みから外れ、記録は「取り消し済み」で残り、「元に戻す」で戻る', async () => {
+    await mount()
+    await openSheet()
+    await type(host.querySelector('#is-in'), '5')
+    await click(host.querySelector('.is-reg'))
+    expect(host.querySelector('.is-val').textContent).toContain('5')
+    await click([...host.querySelectorAll('.is-act')].find(b => b.textContent === '取り消す'))
+    expect(host.querySelector('.is-val').textContent).toContain('—')   // 記録が無くなった
+    expect(host.querySelector('.is-ent.del').textContent).toContain('取り消し済み')
+    const { useMovements } = await import('../composables/useMovements.js')
+    expect(useMovements().getMovements()).toHaveLength(0)
+    expect(useMovements().getAllMovements()[0].deletedAt).toBeTruthy()
+    await click([...host.querySelectorAll('.is-act')].find(b => b.textContent === '元に戻す'))
+    expect(host.querySelector('.is-val').textContent).toContain('5')
+    expect(host.querySelector('.is-ent.del')).toBeNull()
+  })
+
   it('棚卸の最中は入出庫の欄を出さない', async () => {
     await mount({ stocktakeOpen: true })
     await openSheet()

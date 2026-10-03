@@ -638,16 +638,16 @@ function createMovementsMockD1() {
           const i = movements.findIndex(m => m.id === id && m.shop_code === shop)
           if (i >= 0) { movements.splice(i, 1); changes = 1 }
         } else if (s.startsWith('INSERT INTO movements')) {
-          const [id, shop_code, move_date, type, note, order_id, saved_at] = bound
+          const [id, shop_code, move_date, type, note, order_id, saved_at, deleted_at = null, created_by = ''] = bound
           const existing = movements.find(m => m.id === id)
           if (existing) {
             const ownerCondition = s.includes('WHERE movements.shop_code = excluded.shop_code')
             if (!ownerCondition || existing.shop_code === shop_code) {
-              Object.assign(existing, { move_date, type, note, order_id })
+              Object.assign(existing, { move_date, type, note, order_id, deleted_at, created_by: created_by || existing.created_by })
               changes = 1
             }
           } else {
-            movements.push({ id, shop_code, move_date, type, note, order_id, saved_at })
+            movements.push({ id, shop_code, move_date, type, note, order_id, saved_at, deleted_at, created_by })
             changes = 1
           }
         } else if (s.startsWith('INSERT INTO movement_lines')) {
@@ -663,20 +663,20 @@ function createMovementsMockD1() {
         return { success: true, meta: { changes } }
       },
       async first() {
-        if (s.startsWith('SELECT shop_code FROM movements WHERE id')) {
+        if (s.startsWith('SELECT shop_code FROM movements WHERE id') || s.startsWith('SELECT shop_code, deleted_at FROM movements WHERE id')) {
           const [id] = bound
           const m = movements.find(mv => mv.id === id)
-          return m ? { shop_code: m.shop_code } : null
+          return m ? { shop_code: m.shop_code, deleted_at: m.deleted_at ?? null } : null
         }
         return null
       },
       async all() {
-        if (s.startsWith('SELECT id, move_date, type, note, order_id, saved_at FROM movements')) {
+        if (s.startsWith('SELECT id, move_date, type, note, order_id, saved_at')) {
           const [shop, since] = bound
           const rows = movements
             .filter(m => m.shop_code === shop && m.move_date >= since)
             .sort((a, b) => b.move_date.localeCompare(a.move_date))
-            .map(m => ({ id: m.id, move_date: m.move_date, type: m.type, note: m.note, order_id: m.order_id, saved_at: m.saved_at }))
+            .map(m => ({ id: m.id, move_date: m.move_date, type: m.type, note: m.note, order_id: m.order_id, saved_at: m.saved_at, deleted_at: m.deleted_at ?? null, created_by: m.created_by ?? '' }))
           return { results: rows }
         }
         if (s.startsWith('SELECT movement_id, item, qty, unit FROM movement_lines')) {
@@ -709,6 +709,41 @@ function createMovementsMockD1() {
   }
   return { prepare, batch, _movements: movements, _lines: moveLines, _failBatchAt(i) { failAt = i } }
 }
+
+describe('入出庫の取り消しと元に戻す（migration 0019）', () => {
+  const code = 'ABCDEF'
+  const rec = { id: 'm_v', date: '2026-10-03', type: 'out', savedAt: '2026-10-03T01:00:00Z', by: '山田', lines: [{ item: '豆', qty: 2, unit: 'p' }] }
+
+  it('取り消しは記録を残して印を付け、登録した人も返す', async () => {
+    const db = createMovementsMockD1()
+    await handleMovementCreate(db, code, rec)
+    let got = await handleMovementsGet(db, code, 400)
+    expect(got[0].by).toBe('山田')
+    expect(got[0].deletedAt).toBeNull()
+    expect((await handleMovementCreate(db, code, { ...rec, deletedAt: '2026-10-03T02:00:00Z' })).ok).toBe(true)
+    got = await handleMovementsGet(db, code, 400)
+    expect(got).toHaveLength(1)
+    expect(got[0].deletedAt).toBeTruthy()
+    expect(got[0].lines).toHaveLength(1)
+    expect(got[0].by).toBe('山田')
+  })
+
+  it('24時間以内なら元に戻せる・過ぎたら 409', async () => {
+    const db = createMovementsMockD1()
+    await handleMovementCreate(db, code, { ...rec, deletedAt: 'x' })
+    expect((await handleMovementCreate(db, code, { ...rec, deletedAt: null })).ok).toBe(true)
+    expect((await handleMovementsGet(db, code, 400))[0].deletedAt).toBeNull()
+
+    await handleMovementCreate(db, code, { ...rec, deletedAt: 'x' })
+    const realNow = Date.now
+    Date.now = () => realNow() + 25 * 3600_000
+    try {
+      const res = await handleMovementCreate(db, code, { ...rec, deletedAt: null })
+      expect(res._status).toBe(409)
+      expect(res.code).toBe('restore_expired')
+    } finally { Date.now = realNow }
+  })
+})
 
 describe('入出庫 API（movements）', () => {
   const code = 'ABCDEF'

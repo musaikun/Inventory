@@ -48,3 +48,4 @@ apply_if_missing 0015_import_replay.sql      import_batch_requests
 apply_if_missing 0016_completion_claims.sql  session_completions
 apply_if_missing 0017_session_audit.sql      session_audit
 apply_if_missing 0018_discarded_sessions.sql discarded_sessions
+apply_if_missing 0019_movement_void.sql      idx_movements_deleted

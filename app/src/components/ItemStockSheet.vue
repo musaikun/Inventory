@@ -9,6 +9,7 @@
  * - 品目の情報（写真・単位・入数・ジャンル・単価・商品コード）と「直す」
  * - この品目だけの月カレンダー（入庫 +n／出庫 −n の2段・棚卸した日は「棚n」）と、日の明細
  * - 棚卸の最中は入出庫を止める（数え直しの最中に見込みを動かさない）
+ * - 明細の「取り消す」は記録を残して印を付ける。取り消してから24時間は「元に戻す」（migration 0019）
  * 発注点・目安・補充目標はここに出さない（発注点は管理タブへ移す）。
  */
 import { ref, computed } from 'vue'
@@ -16,6 +17,7 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { itemDayLog } from '../services/itemDayLog.js'
 import { itemImageUrl } from '../services/itemImages.js'
 import { localDateKey } from '../utils/localDate.js'
+import { canRestoreMovement } from '../composables/useMovements.js'
 
 const props = defineProps({
   item:      { type: String, required: true },
@@ -32,7 +34,7 @@ const props = defineProps({
   editable:  { type: Boolean, default: true },    // 品目の情報を直せる（完了の確定待ちでは false）
   stocktakeOpen: { type: Boolean, default: false }, // 棚卸の最中（入出庫を止める）
 })
-const emit = defineEmits(['register', 'edit', 'close'])
+const emit = defineEmits(['register', 'void', 'restore', 'edit', 'close'])
 useEscapeKey(() => emit('close'))
 
 const fmt = n => (Math.round(Number(n) * 1000) / 1000).toLocaleString('ja-JP')
@@ -83,6 +85,19 @@ const cells = computed(() => {
 const dayEntries = computed(() => log.value.entries[selDay.value] || [])
 const dayLabel = computed(() => { const [, m, d] = selDay.value.split('-').map(Number); return `${m}月${d}日` })
 const KIND = { in: '入庫', out: '出庫', st: '棚卸' }
+// 取り消せるのは品目シートで登録した1品目の記録だけ（納品取込などは入出庫ページで扱う）
+const canVoid = e => canInput.value && e.kind !== 'st' && !e.deleted && e.quick
+const canRestore = e => canInput.value && e.deleted && canRestoreMovement(e)
+function doVoid(e) {
+  emit('void', e.movementId)
+  done.value = ''
+  note.value = `${KIND[e.kind]} ${fmt(e.qty)}${e.unit || props.unit} を取り消しました（24時間以内なら元に戻せます）`
+}
+function doRestore(e) {
+  emit('restore', e.movementId)
+  note.value = `${KIND[e.kind]} ${fmt(e.qty)}${e.unit || props.unit} を元に戻しました`
+}
+const note = ref('')
 const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 </script>
 
@@ -127,6 +142,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
         </button>
       </template>
       <div v-if="done" class="is-done" role="status">登録しました（{{ done }}）。履歴カレンダーにも残ります</div>
+      <div v-if="note" class="is-done" role="status">{{ note }}</div>
 
       <section class="is-sec">
         <h3>品目の情報 <button v-if="editable" type="button" class="is-edit" @click="emit('edit')">直す</button></h3>
@@ -169,8 +185,11 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
             <span class="is-t">{{ e.time }}</span>
             <span>
               <span :class="['is-k', e.kind]">{{ KIND[e.kind] }} {{ e.kind === 'out' ? '−' : e.kind === 'in' ? '+' : '' }}{{ fmt(e.qty) }}{{ e.unit || unit }}</span>
-              <span v-if="e.by || e.deleted" class="is-who">{{ e.by }}{{ e.deleted ? '・取り消し済み' : '' }}</span>
+              <span v-if="e.by || e.deleted" class="is-who">{{ e.by }}{{ e.by && e.deleted ? '・' : '' }}{{ e.deleted ? '取り消し済み' : '' }}</span>
             </span>
+            <button v-if="canVoid(e)" type="button" class="is-act" @click="doVoid(e)">取り消す</button>
+            <button v-else-if="canRestore(e)" type="button" class="is-act restore" @click="doRestore(e)">元に戻す</button>
+            <span v-else></span>
           </div>
           <div v-if="!dayEntries.length" class="is-empty">この日の入庫・出庫・棚卸はありません</div>
         </div>
@@ -225,8 +244,10 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 .is-legend .l-in::before { background: #15803d; } .is-legend .l-out::before { background: #dc2626; } .is-legend .l-st::before { background: #7c3aed; }
 .is-day { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
 .is-dh { padding: 8px 10px; font-weight: 800; font-size: 13px; background: #f8fafc; }
-.is-ent { display: grid; grid-template-columns: 46px 1fr; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid #e2e8f0; font-size: 13px; }
-.is-ent.del { opacity: .55; } .is-ent.del .is-k { text-decoration: line-through; }
+.is-ent { display: grid; grid-template-columns: 46px 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid #e2e8f0; font-size: 13px; }
+.is-ent.del .is-t, .is-ent.del .is-k, .is-ent.del .is-who { opacity: .55; } .is-ent.del .is-k { text-decoration: line-through; }
+.is-act { border: 1px solid #e2e8f0; background: #fff; color: #64748b; border-radius: 8px; padding: 4px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.is-act.restore { color: var(--primary, #2563eb); border-color: var(--primary, #2563eb); }
 .is-t { color: #94a3b8; font-variant-numeric: tabular-nums; }
 .is-k { font-weight: 800; } .is-k.in { color: #15803d; } .is-k.out { color: #dc2626; } .is-k.st { color: #7c3aed; }
 .is-who { color: #94a3b8; font-size: 11px; margin-left: 6px; }

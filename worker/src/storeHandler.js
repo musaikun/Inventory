@@ -4,7 +4,7 @@ import { inventoryLineStatements } from './inventoryLines.js'
 import { _now, genUniqueShopCode } from './workerUtils.js'
 import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
-  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN,
+  MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN, MAX_MOVEMENT_BY_LEN, MOVEMENT_RESTORE_WINDOW_MS,
   MAX_ORDER_QTY, MAX_MOVEMENT_QTY, MAX_INVENTORY_QTY, MAX_UNIT_PRICE,
   MAX_ID_LEN, MAX_DEVICE_NAME_LEN, MAX_DEVICE_ID_LEN,
   MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_SNAPSHOT_LABELS, MAX_ENTRY_AT_MS,
@@ -1060,7 +1060,7 @@ export async function handleMovementsGet(db, code, sinceDays) {
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
 
   const heads = (await db.prepare(
-    'SELECT id, move_date, type, note, order_id, saved_at FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
+    'SELECT id, move_date, type, note, order_id, saved_at, deleted_at, created_by FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
   ).bind(code, since).all()).results ?? []
   if (heads.length === 0) return []
 
@@ -1084,6 +1084,8 @@ export async function handleMovementsGet(db, code, sinceDays) {
     note:    h.note ?? '',
     orderId: h.order_id ?? null,
     savedAt: h.saved_at,
+    deletedAt: h.deleted_at ?? null,      // 取り消し済み（理論在庫には数えない・24時間は元に戻せる）
+    by:      h.created_by || null,
     lines:   byMove[h.id] ?? [],
   }))
 }
@@ -1134,8 +1136,22 @@ export async function handleMovementCreate(db, code, body = {}) {
   // テナント境界: movements.id はグローバル PK。既存 id が別店舗のものなら拒否し、
   // 他店の入出庫ヘッダ（日付/種別/メモ/発注ID）を書き換えられないようにする。
   // 同一店舗の再送はこのチェックを通り、下の upsert で冪等に貼り直す。
-  const owner = await db.prepare('SELECT shop_code FROM movements WHERE id = ?').bind(moveId).first()
+  const owner = await db.prepare('SELECT shop_code, deleted_at FROM movements WHERE id = ?').bind(moveId).first()
   if (owner && owner.shop_code !== code) return { _status: 409, error: '保存できませんでした' }
+
+  // 取り消し（deletedAt あり）と元に戻す（deletedAt なし）。記録は消さずに印だけ付け外す（migration 0019）。
+  // 取り消した時刻はサーバーが決める（端末の時計に頼らない）。既に取り消し済みならその時刻を保つ。
+  // 元に戻せるのは取り消しから24時間以内（User決定 2026-10-03）。過ぎたら拒否する。
+  const wantVoid = body.deletedAt != null && body.deletedAt !== ''
+  let deletedAt = null
+  if (wantVoid) deletedAt = owner?.deleted_at || now
+  else if (owner?.deleted_at) {
+    const at = Date.parse(owner.deleted_at)
+    if (Number.isFinite(at) && Date.now() - at > MOVEMENT_RESTORE_WINDOW_MS) {
+      return { _status: 409, code: 'restore_expired', error: '取り消してから24時間を過ぎたため、元に戻せません' }
+    }
+  }
+  const createdBy = text(body.by, MAX_MOVEMENT_BY_LEN)
 
   // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
   // 明細を消してからヘッダを書いていたため、間で落ちると明細だけ消えた状態が残った。
@@ -1143,11 +1159,13 @@ export async function handleMovementCreate(db, code, body = {}) {
   // upsert に WHERE を足した。SELECT 後に別店舗が同じ id を作る競合で、
   // 他店のヘッダを上書きできてしまう隙間が残っていた（handleOrderCreate と同じ形へ揃える）。
   const headStmt = db.prepare(`
-    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id
+    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at, deleted_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id,
+      deleted_at = excluded.deleted_at,
+      created_by = CASE WHEN excluded.created_by <> '' THEN excluded.created_by ELSE movements.created_by END
     WHERE movements.shop_code = excluded.shop_code
-  `).bind(moveId, code, date, type, text(body.note, MAX_NOTE_LEN), linkedOrderId, body.savedAt ?? now)
+  `).bind(moveId, code, date, type, text(body.note, MAX_NOTE_LEN), linkedOrderId, body.savedAt ?? now, deletedAt, createdBy)
 
   const delStmt = db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(moveId, code)
 

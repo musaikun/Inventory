@@ -6,6 +6,15 @@
 // - 取り消した入出庫（deletedAt）は数に入れないが、明細には「取り消し済み」として残す
 import { findLine, linesOf } from '../utils/lineIndex.js'
 
+/**
+ * 品目シートでその場で登録した記録か（1品目だけ・発注紐付けなし・取込でない・メモなし）。
+ * 品目シートから取り消せるのはこれだけ（納品取込などの複数品目の記録は入出庫ページで扱う）。
+ * 全体の履歴カレンダーで同じ日の登録をまとめるときにも使う。
+ */
+export function isQuickMovement(m) {
+  return Array.isArray(m?.lines) && m.lines.length === 1 && !m.orderId && m.source !== 'import' && !m.note
+}
+
 function _time(iso) {
   const d = new Date(iso || '')
   if (isNaN(d)) return ''
@@ -35,7 +44,7 @@ export function itemDayLog(item, movements = [], snapshots = []) {
       if (!deleted) day(m.date)[kind] += q
       push(m.date, {
         key: `${m.id}:${kind}`, kind, qty: q, unit: l.unit || '', at: m.savedAt || '', time: _time(m.savedAt),
-        by: m.by || '', movementId: m.id, deleted, deletedAt: m.deletedAt || null,
+        by: m.by || '', movementId: m.id, deleted, deletedAt: m.deletedAt || null, quick: isQuickMovement(m),
       })
     }
   }

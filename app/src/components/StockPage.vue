@@ -35,7 +35,16 @@ const { config } = useConfig()
 const {
   allItems, needsReorder, reorderCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
 } = useStockView()
-const { saveMovement } = useMovements()
+const { saveMovement, getAllMovements, voidMovement, restoreMovement, markMovementSynced } = useMovements()
+// 品目シートの明細は、取り消した記録も「取り消し済み」として見せる
+const allMoves = computed(() => getAllMovements())
+async function _send(rec) {
+  if (!rec) return
+  if (await saveMovementToD1(rec)) markMovementSynced(rec.id)
+}
+// 取り消し・元に戻す（記録は消さずに印を付け外す。サーバーは保存と同じ経路で受け取る）
+function onVoid(id) { if (!locked.value && !props.stocktakeOpen) _send(voidMovement(id)) }
+function onRestore(id) { if (!locked.value && !props.stocktakeOpen) _send(restoreMovement(id)) }
 
 // 品目シートの入庫・出庫。両方に入れたら差し引かず、入庫1件・出庫1件として記録する（User決定 2026-10-03）。
 // 記録は入出庫ページと同じ形なので、理論在庫・履歴カレンダーにもそのまま反映される。
@@ -145,11 +154,13 @@ onUnmounted(registerInnerLayerCloser(() => {
       :category="config.categories?.[detailTarget] ?? ''"
       :code="config.codes?.[detailTarget] ?? ''"
       :image-ref="config.images?.[detailTarget] ?? ''"
-      :movements="_moves"
+      :movements="allMoves"
       :snapshots="_snaps"
       :editable="!locked"
       :stocktake-open="stocktakeOpen"
       @register="p => onRegister(detailTarget, p)"
+      @void="onVoid"
+      @restore="onRestore"
       @edit="openEdit"
       @close="detailTarget = null"
     />

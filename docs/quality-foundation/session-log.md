@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-03 — version 0.131.0 / 入出庫の取り消し（記録を残す・24時間は元に戻せる）と登録者（第2段・migration 0019）
+
+User決定: 削除は記録を残して印を付け、24時間は復元できる。取り消し分はD1に残す（24時間を過ぎても消さない・元に戻せなくなるだけ）。
+- **migration 0019**（`movements.deleted_at`・`created_by`・`idx_movements_deleted`）。`scripts/migrate.sh` に追加。Pro Review は push で自動適用。**本番は Production Backend の apply が必要**。
+- Worker `handleMovementCreate`: 保存と同じ経路で取り消し（`deletedAt` あり＝サーバー時刻で印）・元に戻す（なし）。元に戻すのは取り消しから24時間以内、過ぎたら 409 `restore_expired`。`by` を `created_by` に保存。
+  `handleMovementsGet` は取り消し済みも `deletedAt`・`by` 付きで返す。
+- App `useMovements`: `getMovements()` は有効な記録だけ（理論在庫・カレンダーの★・分析に取り消し分を数えない）、`getAllMovements()` は全件。
+  `voidMovement` / `restoreMovement`（24時間）/ `markMovementSynced`。`applyRemoteMovements` は既存記録の取り消し印と登録者をサーバーに合わせる（送信待ちは端末側を保つ）。
+- 品目シート: 明細の「取り消す」（品目シートで登録した1品目の記録だけ。納品取込などは入出庫ページで扱う）→「取り消し済み」で残る・24時間は「元に戻す」。棚卸の最中は出さない。
+- 検証: Worker **627 passed**（+2）、App **2047 passed**（+4）、ローカル Worker + D1（0019 適用）で 登録 → 取り消し → 元に戻す・登録者の往復を確認。build 成功。
+- version: 0.130.0 → **0.131.0**。
+
 ## 2026-10-03 — version 0.130.0 / ホームの品目シートを刷新：その場で入庫・出庫、品目ごとのカレンダー（第1段）
 
 User決定（モック https://claude.ai/artifact/P5U1PJ2K1yyooBYLbLPfGx で確認）:

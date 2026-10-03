@@ -1,4 +1,5 @@
 <script setup>
+import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -350,7 +351,7 @@ const selOrderTotal = computed(() => _sumRows(selectedOrderRows.value))
 // 品目シートでその場で登録した入出庫（1品目ずつの記録）は、同じ日・同じ種別なら1つにまとめ、
 // 品目ごとに数量を足して見せる（User決定 2026-10-03：同日に何度登録しても統合して表示）。
 // 納品取込・入出庫ページでまとめて入れた記録（複数品目・発注紐付け・取込）はそのまま。
-function _isQuick(m) { return Array.isArray(m?.lines) && m.lines.length === 1 && !m.orderId && m.source !== 'import' && !m.note }
+const _isQuick = isQuickMovement
 function _mergeQuick(list, type) {
   const quick = list.filter(_isQuick)
   if (quick.length < 2) return list
