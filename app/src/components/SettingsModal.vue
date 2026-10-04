@@ -1,4 +1,5 @@
 <script setup>
+import { useWeather, markWeatherAsked, disableWeather } from '../composables/useWeather.js'
 import { ref, computed } from 'vue'
 import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -40,6 +41,17 @@ const _show = (s) =>
   props.section === s ||
   (props.section === 'general' && (s === 'device' || s === 'push'))
 const _showGeneral = computed(() => props.section === 'all' || props.section === 'general')
+
+// カレンダーの天気（位置情報）。表示する・更新する・やめる
+const { state: weatherState, requestGeolocation } = useWeather()
+const weatherBusy = ref(false)
+const weatherError = ref('')
+async function onWeatherOn() {
+  weatherBusy.value = true; weatherError.value = ''
+  try { await requestGeolocation() } catch (_) { weatherError.value = '位置情報を取得できませんでした（端末の設定で位置情報を許可してください）' }
+  finally { weatherBusy.value = false; markWeatherAsked() }
+}
+function onWeatherOff() { disableWeather(); markWeatherAsked(); weatherError.value = '' }
 const sheetTitle = computed(() => ({
   import: '品目のインポート', device: '端末名', push: 'プッシュ通知', general: '各種設定',
 }[props.section] || '品目リスト設定'))
@@ -567,6 +579,20 @@ function onDownloadTemplate() {
         </div>
       </div>
 
+      <!-- カレンダーの天気（初めてカレンダーを開いたときに一度だけ訊く。変更はここから・User決定 2026-10-04） -->
+      <div v-if="_showGeneral" class="device-section">
+        <div class="device-label">カレンダーの天気</div>
+        <p class="cache-note">
+          <template v-if="weatherState.loc">表示中：{{ weatherState.loc.name || '現在地' }}</template>
+          <template v-else>表示していません</template>
+          <template v-if="weatherError"> ・ {{ weatherError }}</template>
+        </p>
+        <div class="wx-set">
+          <button class="cache-btn" :disabled="weatherBusy" @click="onWeatherOn">{{ weatherBusy ? '取得しています…' : weatherState.loc ? '現在地で更新' : '現在地で表示する' }}</button>
+          <button v-if="weatherState.loc" class="cache-btn" :disabled="weatherBusy" @click="onWeatherOff">表示しない</button>
+        </div>
+      </div>
+
       <!-- ✕ で消した操作の説明・おすすめを戻す（端末ごとの記憶） -->
       <div v-if="_showGeneral" class="device-section">
         <div class="device-label">操作の説明</div>
@@ -867,6 +893,7 @@ function onDownloadTemplate() {
 }
 .cache-btn:active { background: #edf5f7; }
 .cache-btn:disabled { opacity: 0.5; cursor: default; }
+.wx-set { display: flex; gap: 8px; }
 /* PRIV-001 analytics同意 */
 .analytics-note,
 .analytics-disabled-note {

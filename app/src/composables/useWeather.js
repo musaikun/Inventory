@@ -119,6 +119,19 @@ export function resetLocalData() {
   try { localStorage.removeItem(CACHE_KEY) } catch (_) {}
 }
 
+// ── 天気を表示するか一度だけ訊く（User決定 2026-10-04）─────────────────
+// カレンダーを初めて開いたときに訊き、許可してもしなくても以降は訊かない（変更は各種設定から）。
+// 端末ごと（位置と同じく、店舗を替えても端末の場所は同じ）
+const ASK_KEY = STORAGE_KEYS.weatherAsked
+function _readAsked() { try { return localStorage.getItem(ASK_KEY) === '1' } catch (_) { return true } }
+export const weatherAsk = reactive({ asked: _readAsked() })
+export function markWeatherAsked() {
+  weatherAsk.asked = true
+  try { localStorage.setItem(ASK_KEY, '1') } catch (_) {}
+}
+/** 天気の表示をやめる（位置と天気を消す）。各種設定から */
+export function disableWeather() { resetLocalData() }
+
 // 位置が既にあればアプリ起動時に更新（TTL内はスキップ）
 if (state.loc) fetchWeather()
 

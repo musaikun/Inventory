@@ -40,8 +40,10 @@ vi.mock('../composables/useAuth.js', () => ({
   storeName:       { value: 'テスト店' },
 }))
 vi.mock('../composables/useWeather.js', () => ({
-  useWeather: () => ({ state: { loc: null, weather: {}, loading: false, error: null } }),
+  useWeather: () => ({ state: { loc: null, weather: {}, loading: false, error: null }, requestGeolocation: vi.fn() }),
   requestGeolocation: vi.fn(),
+  weatherAsk: { asked: true },
+  markWeatherAsked: vi.fn(),
 }))
 
 let app = null

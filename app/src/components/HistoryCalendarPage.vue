@@ -3,9 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { getSessions, logout } from '../composables/useAuth.js'
 import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
 import LoadingSpinner from './LoadingSpinner.vue'
-import { useWeather, requestGeolocation } from '../composables/useWeather.js'
+import { useWeather } from '../composables/useWeather.js'
 import HistoryCalendar from './HistoryCalendar.vue'
 import TaskNews from './TaskNews.vue'
+import WeatherAsk from './WeatherAsk.vue'
 import { pullTasks, tasksOn } from '../composables/useTasks.js'
 import { localDateKey } from '../utils/localDate.js'
 
@@ -18,13 +19,8 @@ const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'viewSession', 'openUpgrade'])
 
 // 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
+// 表示するかは初めて開いたときに一度だけ訊き（WeatherAsk）、変更は各種設定から。ここには取得ボタンを出さない
 const { state: weatherState } = useWeather()
-const weatherBusy = ref(false)
-async function onEnableWeather() {
-  weatherBusy.value = true
-  try { await requestGeolocation() } catch (_) { /* 拒否/失敗は state.error に反映 */ }
-  finally { weatherBusy.value = false }
-}
 
 const sessions   = ref([])
 const loading    = ref(true)
@@ -85,18 +81,7 @@ const hiddenByPlanCount = computed(() =>
     <div class="hcp-scroll">
       <div v-if="error" class="hcp-error">{{ error }}</div>
 
-      <div class="wx-bar">
-        <template v-if="weatherState.loc">
-          <span class="wx-loc">🌤 天気表示中{{ weatherState.loading ? '（更新中…）' : '' }}</span>
-          <span class="wx-coord">📍 {{ weatherState.loc.name || `${weatherState.loc.lat}, ${weatherState.loc.lon}` }}</span>
-          <button class="wx-btn" :disabled="weatherBusy || weatherState.loading" @click="onEnableWeather">現在地で更新</button>
-        </template>
-        <template v-else>
-          <span class="wx-hint">天気・気温・降水をカレンダーに表示できます</span>
-          <button class="wx-btn primary" :disabled="weatherBusy" @click="onEnableWeather">{{ weatherBusy ? '取得中…' : '📍 現在地で天気を表示' }}</button>
-        </template>
-        <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
-      </div>
+      <WeatherAsk />
 
       <TaskNews />
       <button type="button" class="hcp-today" @click="openToday">
@@ -168,13 +153,6 @@ const hiddenByPlanCount = computed(() =>
   border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 10px;
 }
 
-.wx-bar { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.wx-hint, .wx-loc { font-size: 12px; color: #4c6a72; font-weight: 600; }
-.wx-coord { font-size: 11px; color: #0369a1; font-weight: 700; background: #ecfeff; border: 1px solid #bae6fd; border-radius: 8px; padding: 2px 8px; }
-.wx-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.wx-btn.primary { border-color: #38bdf8; background: #ecfeff; color: #0369a1; }
-.wx-btn:disabled { opacity: 0.5; cursor: default; }
-.wx-err { font-size: 11px; color: #dc2626; }
 
 .plan-limit-notice {
   flex-shrink: 0;
