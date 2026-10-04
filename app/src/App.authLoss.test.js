@@ -197,11 +197,9 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // 履歴カレンダーはレポートタブの一番上から開く独立した画面（2026-10-01）
-    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('レポート'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    for (let i = 0; i < 4; i++) await nextTick()
-    host.querySelector('.rt-hist')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    for (let i = 0; i < 8; i++) await nextTick()
+    // 履歴カレンダーは下部ナビの「カレンダー」タブ（2026-10-04）
+    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 12; i++) await nextTick()
     host.querySelector('.hc-cell.today')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 4; i++) await nextTick()
     const entry = host.querySelector('.hc-entry-stock')

@@ -3270,7 +3270,7 @@ function dismissReview() {
       @start-session="onSessionStart"
       @start-practice="onStartPractice"
       @resume-session="onSessionResume"
-      @open-history="openPage('history')"
+      @calendar-shown="() => { _loadOrderData(); _pullMovements() }"
       @delete-session="onDeleteSession"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"

@@ -112,15 +112,15 @@ describe('再読込しても同じページに留まる', () => {
   }, 20000)
 
   // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま
-  it('履歴カレンダー（レポートの一番上から開く独立した画面）', async () => {
+  it('カレンダータブ（履歴カレンダー）', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('レポート')))
-    await click(host.querySelector('.rt-hist'))
-    expect(view()).toBe('history')
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー')))
+    expect(host.querySelector('.hcp.embedded')).not.toBeNull()
 
     await reload()
-    expect(view()).toBe('history')
+    expect(view()).toBe('sessions')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('カレンダー')
     expect(host.querySelector('.hcp')).not.toBeNull()
   }, 20000)
 

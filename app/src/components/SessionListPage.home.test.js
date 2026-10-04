@@ -44,7 +44,7 @@ async function mountPage({ items = true } = {}) {
   events = []
   const on = name => (...a) => events.push([name, ...a])
   app = createApp(Page, {
-    onStartSession: on('startSession'), onResumeSession: on('resumeSession'), onOpenHistory: on('openHistory'),
+    onStartSession: on('startSession'), onResumeSession: on('resumeSession'), onCalendarShown: on('calendarShown'),
     onDeleteSession: on('deleteSession'), onOpenMaster: on('openMaster'), onOpenMovement: on('openMovement'),
     onStartPractice: on('startPractice'), onOpenFeedback: on('openFeedback'), onViewSession: on('viewSession'),
   })
@@ -66,11 +66,12 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン2つ（入出庫は品目シートで入れる）・下部ナビ（在庫／レポート／管理）', async () => {
+  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（在庫／カレンダー／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['在庫', 'レポート', '管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['在庫', 'カレンダー', 'レポート', '管理'])
+    expect(host.querySelector('.acts .st').textContent).toContain('並び替え')
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -81,12 +82,15 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.acts')).toBeNull()
   })
 
-  it('レポート・管理はホームのタブ。履歴カレンダーはレポートの一番上から開く', async () => {
+  it('カレンダー・レポート・管理はホームのタブ（履歴カレンダーはカレンダーのタブ）', async () => {
     await mountPage()
-    // レポート＝在庫分析（重ねて開かず、タブの中）
+    // カレンダー＝履歴カレンダー＋予定・やること。開いたら記録を取り込み直す
+    await click(btn(host.querySelector('.bnav'), 'カレンダー'))
+    expect(host.querySelector('.hcp.embedded')).not.toBeNull()
+    expect(events).toContainEqual(['calendarShown'])
+    // レポート＝在庫分析（重ねて開かず、タブの中）。履歴カレンダーの入口はもう無い
     await click(btn(host.querySelector('.bnav'), 'レポート'))
-    await click(host.querySelector('.rt-hist'))
-    expect(events).toContainEqual(['openHistory'])
+    expect(host.querySelector('.rt-hist')).toBeNull()
     expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
     expect(host.querySelector('.report-tab').textContent).not.toContain('直近の棚卸')   // 詳細で見られる情報は出さない
     // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）

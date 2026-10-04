@@ -1973,3 +1973,64 @@ export async function handleAuditGet(db, code, sessionId) {
     return []
   }
 }
+
+// ── カレンダーのやること（migration 0020・User決定 2026-10-04）──────────────────
+// 店で共有するTODO。消すときも行は残し deleted_at を立てる（他の端末へ「消した」を届けるため）。
+// 端末どうしで同じ1件を変えたら、updated_at の新しい方を残す。
+const TASK_BODY_MAX = 200
+const _TASK_ID = /^[\w-]{1,64}$/
+const _DATE = /^\d{4}-\d{2}-\d{2}$/
+function _short(v, n) { return typeof v === 'string' ? v.trim().slice(0, n) : '' }
+function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null }
+
+// GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの
+export async function handleTasksGet(db, code, sinceDays) {
+  const n = Number(sinceDays)
+  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 120
+  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const rows = (await db.prepare(`
+    SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, deleted_at, updated_at
+    FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL))
+    ORDER BY task_date DESC LIMIT 2000
+  `).bind(code, since).all()).results ?? []
+  return rows.map(r => ({
+    id: r.id, date: r.task_date, text: r.body,
+    createdBy: r.created_by ?? '', createdById: r.created_by_id ?? '', createdAt: r.created_at,
+    doneAt: r.done_at ?? null, doneBy: r.done_by ?? null, deletedAt: r.deleted_at ?? null, updatedAt: r.updated_at,
+  }))
+}
+
+/**
+ * POST /store/:code/tasks … 1件を作る・変える（完了・取り消し・削除も同じ経路）。
+ * @returns {{ ok: true, created: boolean, task?: object } | { _status: number, error: string }}
+ *   created = この要求で新しく作られた（通知を送る対象）
+ */
+export async function handleTaskUpsert(db, code, body = {}) {
+  if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
+  const id = typeof body.id === 'string' ? body.id : ''
+  const date = typeof body.date === 'string' ? body.date : ''
+  const text = _short(body.text, TASK_BODY_MAX)
+  const updatedAt = _iso(body.updatedAt) ?? _now()
+  if (!_TASK_ID.test(id) || !_DATE.test(date) || !text) {
+    return { _status: 400, code: 'invalid_task', error: 'やることの内容が正しくありません' }
+  }
+  const prev = await db.prepare('SELECT shop_code, updated_at FROM tasks WHERE id = ?').bind(id).first()
+  if (prev && prev.shop_code !== code) return { _status: 404, error: '見つかりません' }   // 他店舗のIDは存在を漏らさない
+  if (prev && prev.updated_at > updatedAt) return { ok: true, created: false, stale: true }   // こちらが古い（相手の変更を残す）
+  const t = {
+    id, date, text, updatedAt,
+    createdBy: _short(body.createdBy, 40), createdById: _short(body.createdById, 64),
+    createdAt: _iso(body.createdAt) ?? updatedAt,
+    doneAt: _iso(body.doneAt), doneBy: body.doneAt ? _short(body.doneBy, 40) : null,
+    deletedAt: _iso(body.deletedAt),
+  }
+  await db.prepare(`
+    INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, deleted_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      task_date = excluded.task_date, body = excluded.body, done_at = excluded.done_at, done_by = excluded.done_by,
+      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
+    WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
+  `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.deletedAt, t.updatedAt).run()
+  return { ok: true, created: !prev && !t.deletedAt, task: t }
+}

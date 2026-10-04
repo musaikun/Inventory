@@ -212,3 +212,26 @@ export async function handleCron(env) {
     })
   }
 }
+
+/**
+ * やることが追加されたことを、同じ店舗の他の端末へ知らせる（User決定 2026-10-04）。
+ * 追加した端末の購読（exceptEndpoint）には送らない。通知の許可を出していない端末には届かない。
+ */
+export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') {
+  if (!env.DB || !env.VAPID_PUBLIC_KEY) return
+  const { results: subs } = await env.DB.prepare(
+    'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ?',
+  ).bind(shopCode).all()
+  const who = task?.createdBy ? `${task.createdBy}さん` : 'だれか'
+  const [, m, d] = String(task?.date ?? '').split('-').map(Number)
+  const when = m && d ? `${m}/${d} ` : ''
+  for (const sub of (subs ?? [])) {
+    if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
+    await _send(env, sub, {
+      title: 'タナオロ',
+      body:  `${who}がやることを追加しました：${when}${task?.text ?? ''}`,
+      tag:   'task',
+      url:   '/',
+    })
+  }
+}

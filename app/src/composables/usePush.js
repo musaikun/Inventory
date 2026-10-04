@@ -94,3 +94,13 @@ export async function unsubscribePush() {
     pushLoading.value = false
   }
 }
+
+/** この端末の通知の購読先（無ければ空）。やることを追加したとき、自分の端末へは通知しないために使う */
+export async function ownPushEndpoint() {
+  if (!pushSupported) return ''
+  try {
+    const reg = await navigator.serviceWorker.getRegistration()
+    const sub = reg ? await reg.pushManager.getSubscription() : null
+    return sub?.endpoint ?? ''
+  } catch (_) { return '' }
+}

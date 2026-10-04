@@ -5,6 +5,9 @@ import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { useWeather, requestGeolocation } from '../composables/useWeather.js'
 import HistoryCalendar from './HistoryCalendar.vue'
+import TaskNews from './TaskNews.vue'
+import { pullTasks, tasksOn } from '../composables/useTasks.js'
+import { localDateKey } from '../utils/localDate.js'
 
 // 履歴カレンダー専用ページ。
 // 以前はホームのダッシュボードタブに埋まっていたが、日付を選ぶ・月を送る操作が
@@ -27,7 +30,13 @@ const sessions   = ref([])
 const loading    = ref(true)
 const error      = ref('')
 
-onMounted(_loadSessions)
+onMounted(() => { _loadSessions(); pullTasks() })
+
+// 「今日」の行：今日のやること（未完了）を短く見せ、押すと今日の詳細を開く
+const calRef = ref(null)
+const todayKey = localDateKey()
+const todayOpen = computed(() => tasksOn(todayKey).filter(t => !t.doneAt))
+function openToday() { calRef.value?.openDay(todayKey) }
 
 async function _loadSessions() {
   loading.value = true
@@ -89,9 +98,18 @@ const hiddenByPlanCount = computed(() =>
         <span v-if="weatherState.error" class="wx-err">{{ weatherState.error }}</span>
       </div>
 
+      <TaskNews />
+      <button type="button" class="hcp-today" @click="openToday">
+        <span class="hcp-today-l">今日</span>
+        <span class="hcp-today-t">{{ todayOpen.length ? todayOpen.map(t => t.text).join(' ・ ') : 'やることを追加する' }}</span>
+        <span v-if="todayOpen.length" class="hcp-today-n">{{ todayOpen.length }}件</span>
+        <span aria-hidden="true">›</span>
+      </button>
+
       <LoadingSpinner v-if="loading" />
       <HistoryCalendar
         v-else
+        ref="calRef"
         :sessions="visibleCompletedSessions"
         :weather="weatherState.weather"
         @view-session="s => emit('viewSession', s)"
@@ -137,6 +155,13 @@ const hiddenByPlanCount = computed(() =>
   padding: 14px; max-width: 620px; margin: 0 auto; width: 100%;
 }
 
+.hcp-today {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.hcp-today-l { flex: none; font-size: 11.5px; font-weight: 800; color: var(--primary); }
+.hcp-today-t { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcp-today-n { flex: none; font-size: 11.5px; font-weight: 800; color: #a16207; background: #fef3c7; border-radius: 999px; padding: 1px 8px; }
 .hcp-error {
   flex-shrink: 0;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;

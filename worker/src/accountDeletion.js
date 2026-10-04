@@ -83,6 +83,8 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM session_audit WHERE shop_code = ?').bind(shopCode),
     // 破棄して24時間取り戻せるセッション（migration 0018）
     db.prepare('DELETE FROM discarded_sessions WHERE shop_code = ?').bind(shopCode),
+    // カレンダーのやること（migration 0020）
+    db.prepare('DELETE FROM tasks WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ?').bind(shopCode),

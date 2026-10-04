@@ -1,13 +1,16 @@
 <script setup>
 /**
- * 下部ナビ（全画面共通・User決定 2026-10-01）。在庫／レポート／管理。
- * 履歴カレンダーはナビから外した（タブ送りのスワイプとカレンダーの月送りが重なる）。レポートの一番上から開く。
+ * 下部ナビ（全画面共通・User決定 2026-10-01）。在庫／カレンダー／レポート／管理。
+ * カレンダーは履歴カレンダーをタブにしたもの（User決定 2026-10-04）。日ごとに予定・やること・記録を並べる。
+ * バッジ: 他の端末が追加したやることがあれば「新着」、無ければ今日の未完了のやることの数。
  *
  * ホームではタブを切り替え、入出庫・棚卸の詳細などからはホームの該当タブへ移る。
  * 棚卸中・発注中の画面には出さない（下の「完了」と並び、押し間違えて途中で離れやすい）。
  * モーダル（取込の途中を含む）が出ているあいだも隠す。
  */
+import { computed } from 'vue'
 import { modalLayerCount } from '../composables/appMenuState.js'
+import { newTasks, todayOpenCount } from '../composables/useTasks.js'
 
 defineProps({ active: { type: String, default: null } })   // 'sessions' | 'report' | 'dashboard' | null
 const emit = defineEmits(['go'])
@@ -15,9 +18,11 @@ const emit = defineEmits(['go'])
 // アイコンは線画（アプリのアイコンの雰囲気に揃える・User決定 2026-10-03）
 const ITEMS = [
   { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
+  { tab: 'calendar',  label: 'カレンダー', d: ['M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z', 'M4 10h16M9 2v4M15 2v4'] },
   { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
   { tab: 'dashboard', label: '管理',     d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
 ]
+const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: true } : todayOpenCount.value ? { text: String(todayOpenCount.value), fresh: false } : null))
 </script>
 
 <template>
@@ -27,7 +32,7 @@ const ITEMS = [
       :class="{ on: active === it.tab }" type="button"
       :aria-current="active === it.tab ? 'page' : undefined"
       @click="emit('go', it.tab)"
-    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}</button>
+    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}<span v-if="it.tab === 'calendar' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
   </nav>
 </template>
 
@@ -44,5 +49,7 @@ const ITEMS = [
 .bnav button.on { color: var(--primary, #0e7490); font-weight: 800; }
 /* 選んでいるタブの上に、アイコンの光る輪の色の線 */
 .bnav-bar { position: absolute; top: -7px; width: 36px; height: 3px; border-radius: 3px; background: transparent; }
+.bnav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 18px; font-size: 10px; font-weight: 800; line-height: 16px; padding: 0 5px; border-radius: 999px; background: #c2410c; color: #fff; }
+.bnav-badge.fresh { background: var(--grad-btn); color: var(--on-grad); }
 .bnav button.on .bnav-bar { background: var(--grad-ring); box-shadow: 0 0 10px rgba(34, 211, 238, .55); }
 </style>

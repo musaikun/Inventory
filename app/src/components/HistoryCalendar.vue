@@ -1,4 +1,6 @@
 <script setup>
+import DayTasks from './DayTasks.vue'
+import { openTaskDates } from '../composables/useTasks.js'
 import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
@@ -318,6 +320,8 @@ function onListTap(r) {
 
 // その日のシートを開き、該当の記録まで送る（発注・入出庫は専用ページが無いのでここが詳細）
 const sheetEl = ref(null)
+// 外（カレンダータブの「今日」）からも日の詳細を開く
+defineExpose({ openDay: key => openDay(key) })
 function openDay(key, focus = '', recId = '') {
   if (!key) return
   viewYear.value = Number(key.slice(0, 4))
@@ -558,6 +562,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
+      <span class="hc-key-i"><span class="hc-task-key"></span>やること</span>
       <DismissibleHint id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
     </div>
 
@@ -591,6 +596,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
+            <span v-if="openTaskDates.has(cell.key)" class="hc-task-mark" title="やることあり"></span>
             <span v-if="cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
             <span v-if="cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
@@ -633,6 +639,9 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
         <div v-if="selectedWeather && selectedWeather.pop != null" class="hc-fact"><span class="hc-fact-k">降水</span><span class="hc-fact-v">{{ selectedWeather.pop }}%</span></div>
         <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
       </div>
+
+      <!-- 予定（発注日・締切）とやること（店で共有）-->
+      <DayTasks :date="selectedKey" />
 
       <!-- 日別メモ（内部イベント要因＋学習除外）-->
       <div class="hc-memo" data-sec="memo">
@@ -806,6 +815,9 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .dot-order { color: #f59e0b; }
 .dot-in    { color: #10b981; }
 .dot-out   { color: #ef4444; }
+/* やることのある日（未完了）：マスの下の中央の短い線 */
+.hc-task-mark { position: absolute; bottom: 2px; left: 50%; width: 14px; margin-left: -7px; height: 3px; border-radius: 3px; background: #d97706; }
+.hc-task-key { display: inline-block; width: 12px; height: 3px; border-radius: 3px; background: #d97706; }
 
 /* 横スワイプはこの要素が受け持つ（pan-y = 縦だけブラウザに任せる）。
    宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として

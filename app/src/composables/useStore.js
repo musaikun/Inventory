@@ -83,10 +83,11 @@ const _ENDPOINT = {
   snapshot:  { path: (code) => `/store/${code}/history`,    method: 'POST' },
   order:     { path: (code) => `/store/${code}/orders`,     method: 'POST' },
   movement:  { path: (code) => `/store/${code}/movements`,  method: 'POST' },
+  task:      { path: (code) => `/store/${code}/tasks`,      method: 'POST' },
 }
 const _LABEL = {
   config: '品目リスト', inventory: '棚卸データ', snapshot: '棚卸の明細',
-  order: '発注', movement: '入出庫',
+  order: '発注', movement: '入出庫', task: 'やること',
 }
 
 function _key(kind, code, resourceId) { return `${kind}:${code ?? ''}:${resourceId ?? ''}` }
@@ -102,7 +103,7 @@ function _resourceId(kind, payload) {
   if (kind === 'snapshot') {
     return payload?.sessionId ? String(payload.sessionId) : (payload?.date ?? '')
   }
-  if (kind === 'order' || kind === 'movement') return payload?.id ?? ''
+  if (kind === 'order' || kind === 'movement' || kind === 'task') return payload?.id ?? ''
   return ''
 }
 
@@ -632,6 +633,17 @@ export async function deleteMovementFromD1(id) {
   if (!shopCode.value || !BASE) return
   return _api(`/store/${shopCode.value}/movements/${id}`, { method: 'DELETE' })
     .catch(e => console.warn('[store] 入出庫削除失敗:', e.message))
+}
+
+// ── カレンダーのやること ──────────────────────────────────────────────────────
+export async function loadTasksFromD1(sinceDays = null) {
+  if (!shopCode.value) return null
+  const q = sinceDays ? `?sinceDays=${sinceDays}` : ''
+  return _api(`/store/${shopCode.value}/tasks${q}`).catch(() => null)
+}
+
+export async function saveTaskToD1(task) {
+  return (await _save('task', _resourceId('task', task), task)).ok
 }
 
 // ── アクティブルーム ──────────────────────────────────────────────────────────

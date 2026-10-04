@@ -7,7 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleDiscardedList, handlePurgeUnfinished, handleSessionRestore,
+  handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleSessionRestore,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
@@ -18,7 +18,7 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
-import { savePushSubscription, deletePushSubscription, handleCron } from './pushHandler.js'
+import { savePushSubscription, deletePushSubscription, handleCron, notifyTaskAdded } from './pushHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
   MAX_PDF_BYTES,
@@ -158,7 +158,7 @@ export async function purgeAccountRooms(rooms, shopCode) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // 検証環境だけ、失敗応答へ原因の要約を載せる（本番は DEBUG_ERRORS を設定しない）
     setDebugErrors(env.DEBUG_ERRORS === '1')
 
@@ -359,6 +359,27 @@ export default {
           // 作成できていないセッションを作成済みとして扱う（DATA-002 §4）。
           // `_status` は resultResponse が本文から取り除く。
           return resultResponse(await handleSessionCreate(env.DB, code, body), origin, allowedOrigin)
+        }
+
+        // GET/POST /store/:code/tasks … カレンダーのやること（要認証）
+        if (subpath === '/tasks' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return jsonResponse(await handleTasksGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
+        }
+        if (subpath === '/tasks' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const result = await handleTaskUpsert(env.DB, code, body)
+          // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
+          if (result?.created && result.task) {
+            const job = notifyTaskAdded(env, code, result.task, typeof body.pushEndpoint === 'string' ? body.pushEndpoint : '')
+              .catch(e => console.warn('[push] task notify failed:', e?.message ?? e))
+            if (ctx?.waitUntil) ctx.waitUntil(job)
+          }
+          const { task: _t, ...rest } = result ?? {}
+          return resultResponse(rest, origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション（要認証）

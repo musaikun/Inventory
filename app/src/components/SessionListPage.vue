@@ -1,11 +1,11 @@
 <script>
 import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'sessions' = 在庫（ホーム） / 'report' = レポート / 'dashboard' = 管理（履歴は独立した画面）
+// _persistedTab: 'sessions' = 在庫（ホーム） / 'calendar' = カレンダー / 'report' = レポート / 'dashboard' = 管理
 // 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
 const _TAB_KEY = 'tanaoro_home_tab'
 function _readTab() {
-  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'calendar', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
 }
 export const _persistedTab  = ref(_readTab())
 watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
@@ -48,6 +48,7 @@ import HomeFooterNav from './HomeFooterNav.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
 import SortTile from './SortTile.vue'
+import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import { completionBusy } from '../composables/useSession.js'
 import { APP_NAME } from '../appInfo.js'
 
@@ -56,7 +57,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'openHistory', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback', 'clearMaster'])
+const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback', 'clearMaster'])
 
 const { config, itemCount, setEmptyList } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
@@ -71,7 +72,9 @@ const tab = _persistedTab
 // レポート（在庫分析）と、データ管理を統合した管理を加えた（User決定 2026-10-01）。
 // 履歴カレンダーは下部ナビから外し、レポートの一番上から開く独立した画面にした。タブ送りのスワイプと
 // カレンダーの月送りのスワイプが重なって使いにくかった（User 2026-10-01）
-const TABS = ['sessions', 'report', 'dashboard']
+// カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる。
+// カレンダーのタブでは左右のスワイプを月送りだけにし、タブの切り替えは下のナビで行う
+const TABS = ['sessions', 'calendar', 'report', 'dashboard']
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 function goTab(next) {
   if (!TABS.includes(next) || next === tab.value) return
@@ -79,9 +82,11 @@ function goTab(next) {
   tab.value = next
 }
 const tabSwipe = useHorizontalSwipe({
-  onLeft:  () => goTab(TABS[TABS.indexOf(tab.value) + 1]),
-  onRight: () => goTab(TABS[TABS.indexOf(tab.value) - 1]),
+  onLeft:  () => { if (tab.value !== 'calendar') goTab(TABS[TABS.indexOf(tab.value) + 1]) },
+  onRight: () => { if (tab.value !== 'calendar') goTab(TABS[TABS.indexOf(tab.value) - 1]) },
 })
+// カレンダーを開いたら、発注・入出庫の記録を取り込み直す（App が受ける）
+watch(tab, t => { if (t === 'calendar') emit('calendarShown') }, { immediate: true })
 
 // セッションの一覧・開始・再開・破棄・ルーム状態（共通の部品）
 const launcher = useSessionLauncher()
@@ -314,9 +319,17 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </StockPage>
 
+    <!-- ── カレンダー（予定・やること・記録）── -->
+    <HistoryCalendarPage
+      v-if="!loading && tab === 'calendar'"
+      :class="['home-panel', slideDir && `slide-${slideDir}`]"
+      embedded
+      @view-session="s => emit('viewSession', s)"
+      @open-upgrade="r => emit('openUpgrade', r)"
+    />
+
     <!-- ── レポート（在庫分析）── -->
     <div v-if="!loading && tab === 'report'" :class="['report-tab', 'home-panel', slideDir && `slide-${slideDir}`]">
-      <button class="m-card rt-hist" type="button" @click="emit('openHistory')">📅<span>履歴カレンダー<small>棚卸・発注・入出庫の記録を日付から開く</small></span><i>›</i></button>
       <ManagerDashboard
         embedded :snapshots="dashboardSnapshots"
         :sessions="loading || error ? null : launcher.sessions.value"

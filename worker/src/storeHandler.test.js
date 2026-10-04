@@ -861,3 +861,70 @@ describe('品目マスタの一括削除に合わせて、完了していない�
     expect(r.code).toBe('purge_failed')
   })
 })
+
+describe('カレンダーのやること（tasks・migration 0020）', () => {
+  // tasks の1表だけを持つ小さな偽D1（このハンドラが使う SQL だけを解釈する）
+  function taskDb(rows = []) {
+    const table = new Map(rows.map(r => [r.id, { ...r }]))
+    const prepare = sql => {
+      const s = sql.replace(/\s+/g, ' ').trim()
+      const st = { args: [], bind(...a) { st.args = a; return st } }
+      st.first = async () => {
+        if (s.startsWith('SELECT shop_code, updated_at FROM tasks WHERE id = ?')) {
+          const r = table.get(st.args[0]); return r ? { shop_code: r.shop_code, updated_at: r.updated_at } : null
+        }
+        return null
+      }
+      st.run = async () => {
+        if (s.startsWith('INSERT INTO tasks')) {
+          const [id, shop, date, body, by, byId, createdAt, doneAt, doneBy, deletedAt, updatedAt] = st.args
+          const cur = table.get(id)
+          if (!cur) table.set(id, { id, shop_code: shop, task_date: date, body, created_by: by, created_by_id: byId, created_at: createdAt, done_at: doneAt, done_by: doneBy, deleted_at: deletedAt, updated_at: updatedAt })
+          else if (cur.shop_code === shop && cur.updated_at <= updatedAt) Object.assign(cur, { task_date: date, body, done_at: doneAt, done_by: doneBy, deleted_at: deletedAt, updated_at: updatedAt })
+        }
+        return { meta: { changes: 1 } }
+      }
+      st.all = async () => ({ results: [...table.values()].filter(r => r.shop_code === st.args[0]) })
+      return st
+    }
+    return { prepare, table }
+  }
+  const base = { id: 't_1', date: '2026-10-04', text: '冷凍庫の霜取り', createdBy: '高木', createdById: 'dev-1', createdAt: '2026-10-04T01:00:00.000Z', updatedAt: '2026-10-04T01:00:00.000Z' }
+
+  it('新しく作ったときだけ created（通知の対象）。同じIDの変更は created にならない', async () => {
+    const { handleTaskUpsert, handleTasksGet } = await import('./storeHandler.js')
+    const db = taskDb()
+    expect((await handleTaskUpsert(db, 'ABCDEF', base)).created).toBe(true)
+    const r2 = await handleTaskUpsert(db, 'ABCDEF', { ...base, doneAt: '2026-10-04T02:00:00Z', doneBy: '山田', updatedAt: '2026-10-04T02:00:00Z' })
+    expect(r2.created).toBe(false)
+    const list = await handleTasksGet(db, 'ABCDEF')
+    expect(list[0]).toMatchObject({ id: 't_1', text: '冷凍庫の霜取り', createdBy: '高木', doneBy: '山田' })
+  })
+
+  it('古い変更では上書きしない（新しい方を残す）', async () => {
+    const { handleTaskUpsert } = await import('./storeHandler.js')
+    const db = taskDb()
+    await handleTaskUpsert(db, 'ABCDEF', { ...base, text: '新しい', updatedAt: '2026-10-04T05:00:00Z' })
+    const r = await handleTaskUpsert(db, 'ABCDEF', { ...base, text: '古い', updatedAt: '2026-10-04T03:00:00Z' })
+    expect(r.stale).toBe(true)
+    expect(db.table.get('t_1').body).toBe('新しい')
+  })
+
+  it('他店舗のIDには触れない（存在も漏らさない）・中身が正しくなければ 400', async () => {
+    const { handleTaskUpsert } = await import('./storeHandler.js')
+    const db = taskDb([{ id: 't_1', shop_code: 'ZZZZZZ', body: 'x', updated_at: '2026-01-01T00:00:00Z' }])
+    expect((await handleTaskUpsert(db, 'ABCDEF', base))._status).toBe(404)
+    expect(db.table.get('t_1').body).toBe('x')
+    expect((await handleTaskUpsert(taskDb(), 'ABCDEF', { ...base, text: '  ' }))._status).toBe(400)
+    expect((await handleTaskUpsert(taskDb(), 'ABCDEF', { ...base, date: '10/4' }))._status).toBe(400)
+    expect((await handleTaskUpsert(taskDb(), 'ABCDEF', { ...base, id: 'a b' }))._status).toBe(400)
+  })
+
+  it('消したものも返す（他の端末へ「消した」を届ける）。消して作ったものは created にしない', async () => {
+    const { handleTaskUpsert, handleTasksGet } = await import('./storeHandler.js')
+    const db = taskDb()
+    const r = await handleTaskUpsert(db, 'ABCDEF', { ...base, deletedAt: '2026-10-04T01:00:00Z' })
+    expect(r.created).toBe(false)
+    expect((await handleTasksGet(db, 'ABCDEF'))[0].deletedAt).toBeTruthy()
+  })
+})
