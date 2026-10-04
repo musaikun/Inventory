@@ -1,6 +1,8 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
+import CountOrderSheet from './CountOrderSheet.vue'
+import { latestCountOrder, orderByCount } from '../services/countOrder.js'
 import { isHintShown } from '../composables/useHints.js'
 import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
@@ -15,7 +17,7 @@ const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
   addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderItemsInPlace,
-  setAxisName, clearAxis,
+  setAxisName, clearAxis, setItemOrder, axisLayoutSnapshot, restoreAxisLayout, applyCountPlaces,
 } = useConfig()
 const { getSnapshots } = useHistory()
 
@@ -1000,6 +1002,25 @@ function runUndo() {
 }
 watch(activeAxis, dismissUndo)
 
+// ── 前回の棚卸の数えた順で並べる（User決定 2026-10-04）────────────────
+// まだ振り分けていなければ場所を作る、振り分け済みなら各場所の中だけを並べ直す
+const countSource = computed(() => latestCountOrder(getSnapshots(), new Set(config.order)))
+const countMode = ref('')        // '' = 閉じている / 'create' / 'reorder'
+const axisHasAssignments = computed(() => {
+  const map = (activeAxis.value === 0 ? config.tagsA : config.tagsB) ?? {}
+  return Object.values(map).some(v => v?.length)
+})
+function openCountOrder() { countMode.value = axisHasAssignments.value ? 'reorder' : 'create' }
+function applyCountOrder(places) {
+  const src = countSource.value
+  if (!src) { countMode.value = ''; return }
+  const before = axisLayoutSnapshot(activeAxis.value)
+  if (places) applyCountPlaces(activeAxis.value, places)
+  setItemOrder(orderByCount(config.order, src.seqs))
+  countMode.value = ''
+  _offerUndo(places ? `${places.length}つの場所に分けて、数えた順に並べました` : '数えた順に並べ直しました', '', () => restoreAxisLayout(before))
+}
+
 // ── 分類先の1枚だけの操作（ホイール隣のレール）────────────────────
 // ⚙ の一括編集は「まとめて直す」場所。振り分けの途中で気づいた1枚は、ここで足す・消す。
 const addOpen = ref(false)
@@ -1146,6 +1167,7 @@ const groupDrag = useListDragReorder({
 // 戻るは常に「ひとつ前」へ返す。この画面の中にも段があるので、上から順に1段だけ畳む。
 //   開いているモーダル → 分類先を選ぶ → 振り分け済み → 一括編集 → 画面を閉じて元の画面（データ管理）へ
 onUnmounted(registerInnerLayerCloser(() => {
+  if (countMode.value)    { countMode.value = '';      return true }
   if (delTarget.value)    { cancelDelete();            return true }
   if (renameTarget.value) { closeRename();             return true }
   if (addOpen.value)      { closeAdd();                return true }
@@ -1237,6 +1259,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <button class="af-tab-edit" aria-label="グループの名前を変える" @click="openAxisPanel(activeAxis)">✎</button>
         <button v-if="freeAxisSlot >= 0" class="af-tab-add" aria-label="グループを追加" @click="openAxisPanel(-1)">＋</button>
       </div>
+      <button v-if="countSource" type="button" class="af-count-btn" @click="openCountOrder">
+        ⏱ {{ axisHasAssignments ? '前回の数えた順に並べ直す' : '前回の数えた順で場所を作る' }}
+      </button>
 
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
       <div
@@ -1621,6 +1646,13 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       </div>
     </div>
 
+    <CountOrderSheet
+      v-if="countMode && countSource"
+      :mode="countMode" :seqs="countSource.seqs" :date="countSource.snap.date"
+      :axis-name="namedAxes.find(a => a.index === activeAxis)?.name || ''"
+      @close="countMode = ''" @apply="applyCountOrder" @switch-create="countMode = 'create'"
+    />
+
     <!-- 取り消し（削除・非表示は戻せることをその場に出す）-->
     <transition name="af-flash">
       <div v-if="undoState" class="af-undobar">
@@ -1878,6 +1910,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-edit-add { width: 100%; border: 1.5px dashed var(--primary-border, #a5f3fc); background: #fff; color: var(--primary, #0e7490); border-radius: 12px; font-size: 14px; font-weight: 800; padding: 13px; cursor: pointer; }
 
 /* ── 確認・入力のダイアログ ──────────────────────────────────── */
+.af-count-btn {
+  flex: none; margin: 8px 12px 6px; min-height: 40px; border: 1px solid var(--primary-border, #a5f3fc); border-radius: 10px;
+  background: var(--primary-weak, #ecfeff); color: var(--primary, #0e7490); font-size: 13px; font-weight: 800; cursor: pointer;
+}
 .af-dialog-bg { position: fixed; inset: 0; z-index: 70; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 22px; }
 .af-dialog { width: 100%; max-width: 340px; background: #fff; border-radius: 16px; padding: 20px 18px 16px; box-shadow: 0 14px 40px rgba(0,0,0,0.28); text-align: center; }
 .af-dialog-title { font-size: 15px; font-weight: 800; color: #12303a; }

@@ -994,6 +994,69 @@ export function useConfig() {
     return true
   }
 
+  /** 品目全体の並びを置き換える（今の品目を過不足なく並べ替えたものだけ受ける） */
+  function setItemOrder(names) {
+    if (!Array.isArray(names) || names.length !== config.order.length) return false
+    const cur = new Set(config.order)
+    if (new Set(names).size !== names.length || names.some(n => !cur.has(n))) return false
+    config.order.splice(0, config.order.length, ...names)
+    _save()
+    return true
+  }
+
+  /** 並び替え1つ分の今の状態（元に戻す用） */
+  function axisLayoutSnapshot(axisIndex) {
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!list || !map) return null
+    return {
+      axisIndex,
+      order: [...config.order],
+      groups: [...list],
+      tags: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, [...v]])),
+    }
+  }
+  function restoreAxisLayout(snap) {
+    const list = _axisList(snap?.axisIndex), map = _axisMap(snap?.axisIndex)
+    if (!list || !map) return false
+    const cur = new Set(config.order)
+    // 戻すまでに増減した品目は、今の品目に合わせる
+    const order = snap.order.filter(n => cur.has(n))
+    for (const n of config.order) if (!order.includes(n)) order.push(n)
+    config.order.splice(0, config.order.length, ...order)
+    list.splice(0, list.length, ...snap.groups)
+    for (const k of Object.keys(map)) delete map[k]
+    for (const [k, v] of Object.entries(snap.tags)) if (cur.has(k)) map[k] = [...v]
+    for (const n of config.order) _syncArchive(snap.axisIndex, n)
+    _save()
+    return true
+  }
+
+  /**
+   * 数えた順で作った場所を、並び替え1つへまとめて入れる。
+   * places = [{ name, items }]（上から歩く順）。同じ品目が複数の場所にあれば両方に入れる。
+   * 場所の順は places の順、既にあった分類先はその後ろに残す。
+   */
+  function applyCountPlaces(axisIndex, places) {
+    const list = _axisList(axisIndex), map = _axisMap(axisIndex)
+    if (!list || !map || !Array.isArray(places)) return false
+    const cur = new Set(config.order)
+    const names = [...new Set(places.map(p => (p.name ?? '').trim()).filter(Boolean))]
+    list.splice(0, list.length, ...names, ...list.filter(g => !names.includes(g)))
+    const next = {}
+    for (const p of places) {
+      const g = (p.name ?? '').trim()
+      if (!g) continue
+      for (const it of p.items) {
+        if (!cur.has(it)) continue
+        next[it] = next[it] ?? []
+        if (!next[it].includes(g)) next[it].push(g)
+      }
+    }
+    for (const [it, gs] of Object.entries(next)) { map[it] = gs; _syncArchive(axisIndex, it) }
+    _save()
+    return true
+  }
+
   function setAxisGroupOrder(axisIndex, names) {
     const list = _axisList(axisIndex)
     if (!list || !Array.isArray(names)) return false
@@ -1204,6 +1267,10 @@ export function useConfig() {
     moveAxisGroupToTop,
     setAxisGroupOrder,
     reorderItemsInPlace,
+    setItemOrder,
+    axisLayoutSnapshot,
+    restoreAxisLayout,
+    applyCountPlaces,
     copyCategoriesToAxis,
     copyCategoryToAxis,
     setOrderSchedules,
