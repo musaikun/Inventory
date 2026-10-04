@@ -11,6 +11,7 @@ vi.mock('../utils/api.js', () => ({
 }))
 let sessionList = []
 let discardedList = []
+let restoreImpl = async () => ({ ok: false })
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
@@ -19,7 +20,7 @@ vi.mock('../composables/useAuth.js', () => ({
   deleteSession:   (...a) => deleteSession(...a),
   updateSession:   vi.fn(),
   getDiscardedSessions: vi.fn(async () => discardedList),
-  restoreSession:  vi.fn(async () => ({ ok: false })),
+  restoreSession:  (...a) => restoreImpl(...a),
   logout:          vi.fn(),
   isAuthenticated: { value: true },
   storeName:       { value: 'テスト店' },
@@ -151,11 +152,10 @@ describe('棚卸を始める', () => {
     expect(events).toContainEqual(['startSession', expect.objectContaining({ id: 'stk-new' }), 'stock', { room: false }])
   })
 
-  it('練習は開始シートの小さなリンクから', async () => {
+  it('開始シートに「練習してみる」は出さない', async () => {
     await mountPage()
     await click(host.querySelector('.act.stock'))
-    await click(btn(sheet(), '練習'))
-    expect(events).toContainEqual(['startPractice'])
+    expect(btn(sheet(), '練習')).toBeUndefined()
   })
 })
 
@@ -171,30 +171,27 @@ describe('発注を始める', () => {
 })
 
 describe('中断中のセッションと破棄', () => {
-  it('中断中の棚卸・発注は帯に出て、再開できる', async () => {
+  it('中断中は帯を出さず、棚卸・発注のボタンが「再開」になる', async () => {
     sessionList = [ACTIVE_STOCK, ACTIVE_ORDER]
     await mountPage()
-    const strips = [...host.querySelectorAll('.strip.pause')]
-    expect(strips.map(s => s.textContent)).toEqual([expect.stringContaining('棚卸（中断中）'), expect.stringContaining('発注（中断中）')])
-    await click(btn(strips[0], '再開'))
+    expect(host.querySelector('.strip')).toBeNull()
+    const stock = host.querySelector('.act.stock.resume')
+    expect(stock.textContent).toContain('棚卸を再開')
+    expect(stock.textContent).toContain('12品目')
+    expect(host.querySelector('.act.order.resume').textContent).toContain('発注を再開')
+    await click(stock)
     expect(events).toContainEqual(['resumeSession', ACTIVE_STOCK])
   })
 
-  it('中断中に「棚卸」を押すと、新しく始めずに再開か破棄を訊く', async () => {
+  it('棚卸の画面の ☰ から破棄してホームへ戻ると、件数を見せて確認する（ブラウザの確認は出さない）', async () => {
     sessionList = [ACTIVE_STOCK]
-    await mountPage()
-    await click(host.querySelector('.act.stock'))
-    expect(sheet().textContent).toContain('中断中の棚卸があります')
-    expect(btn(sheet(), 'ひとりで始める')).toBeUndefined()
-  })
-
-  it('⋯ から破棄：件数を見せて確認し、ブラウザの確認は出さない', async () => {
-    sessionList = [ACTIVE_STOCK]
-    await mountPage()
+    const { pendingDiscardId } = await import('../composables/appMenuState.js')
+    pendingDiscardId.value = 's1'
     const spy = vi.spyOn(window, 'confirm')
-    await click(host.querySelector('.strip.pause .strip-more'))
+    await mountPage()
     expect(sheet().textContent).toContain('この棚卸を破棄しますか？')
     expect(sheet().textContent).toContain('12品目')
+    expect(sheet().textContent).toContain('「棚卸」のボタンから元に戻して始められます')
     await click(btn(sheet(), '破棄する'))
     expect(spy).not.toHaveBeenCalled()
     expect(deleteSession).toHaveBeenCalledWith('s1', expect.anything())
@@ -203,8 +200,9 @@ describe('中断中のセッションと破棄', () => {
 
   it('破棄の確認で「やめる」なら何もしない', async () => {
     sessionList = [ACTIVE_ORDER]
+    const { pendingDiscardId } = await import('../composables/appMenuState.js')
+    pendingDiscardId.value = 'o1'
     await mountPage()
-    await click(host.querySelector('.strip.pause .strip-more'))
     expect(sheet().textContent).toContain('この発注を破棄しますか？')
     await click(btn(sheet(), 'やめる'))
     expect(deleteSession).not.toHaveBeenCalled()
@@ -213,26 +211,30 @@ describe('中断中のセッションと破棄', () => {
 })
 
 describe('破棄したセッション（24時間は元に戻せる）', () => {
-  const later = new Date(Date.now() + 3600_000 * 5).toISOString()
+  const later = new Date(Date.now() + 3600_000 * 16 + 60_000).toISOString()
   const d = (id, type = 'stock') => ({ id, type, itemCount: 3, startedAt: new Date().toISOString(), restorableUntil: later })
   const flushAll = async () => { for (let i = 0; i < 8; i++) await nextTick() }
 
-  it('1件なら帯をそのまま出す', async () => {
-    discardedList = [d('a')]
+  it('ホームの上には出さず、棚卸のボタンの開始シートから元に戻して始める（残り時間つき）', async () => {
+    discardedList = [d('a'), d('b', 'order')]
+    restoreImpl = async (id) => ({ ok: true, session: { id, type: 'stock', status: 'active', startedAt: new Date().toISOString() }, payload: {} })
     await mountPage(); await flushAll()
-    expect(host.querySelectorAll('.strip.discard')).toHaveLength(1)
-    expect(host.querySelector('.strip.discard').textContent).toContain('元に戻す')
+    expect(host.querySelector('.strip')).toBeNull()
+    await click(host.querySelector('.act.stock'))
+    const b = btn(sheet(), '↩︎')
+    expect(b.textContent).toContain('破棄した棚卸を元に戻して始める（あと16時間）')
+    expect(sheet().textContent).not.toContain('破棄した発注')
     discardedList = []
+    await click(b); await flushAll()
+    expect(events).toContainEqual(['resumeSession', expect.objectContaining({ id: 'a' })])
+    restoreImpl = async () => ({ ok: false })
   })
 
-  it('2件以上は1行にまとめ、押すと一覧が開く', async () => {
-    discardedList = [d('a'), d('b', 'order')]
+  it('破棄した発注は発注の開始シートに出る', async () => {
+    discardedList = [d('b', 'order')]
     await mountPage(); await flushAll()
-    const fold = host.querySelector('.strip.discard.fold')
-    expect(fold.textContent).toContain('破棄したセッション 2件')
-    expect(host.querySelectorAll('.strip.discard.inner')).toHaveLength(0)
-    await click(fold)
-    expect(host.querySelectorAll('.strip.discard.inner')).toHaveLength(2)
+    await click(host.querySelector('.act.order'))
+    expect(sheet().textContent).toContain('破棄した発注を元に戻して始める')
     discardedList = []
   })
 })

@@ -163,15 +163,14 @@ describe('セッションの ☰ から中断・破棄', () => {
   }
   async function openMenu() { await click(host.querySelector('.am-btn')) }
 
-  it('☰ の「中断してホームへ」でホームに戻り、中断中の帯が出る', async () => {
+  it('☰ の「中断してホームへ」でホームに戻り、棚卸のボタンが「再開」になる', async () => {
     await mountWithSessions()
     await click(host.querySelector('.act.stock'))
     await click(host.querySelector('.sh .bb.stock'))
     await openMenu()
     await click(button('中断してホームへ'))
     await flush(10)
-    expect(host.querySelector('.act.stock')).not.toBeNull()
-    expect(host.querySelector('.strip.pause')).not.toBeNull()
+    expect(host.querySelector('.act.stock.resume')?.textContent).toContain('棚卸を再開')
   }, 20000)
 
   it('☰ の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {

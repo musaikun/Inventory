@@ -170,7 +170,6 @@ async function startStockEmpty() {
   await startStock({ force: true })
 }
 function resumeSameDay() { const s = sameDay.value; closeSheet(); emit('resumeSession', s) }
-function startPractice() { closeSheet(); emit('startPractice') }
 
 async function startOrder({ room = false } = {}) {
   const s = await launcher.startOrder()
@@ -193,7 +192,13 @@ function discardRemain(d) {
   const h = Math.floor(ms / 3600_000), m = Math.floor((ms % 3600_000) / 60_000)
   return h > 0 ? `あと${h}時間` : `あと${Math.max(1, m)}分`
 }
-async function restoreDiscarded(d) { await launcher.restore(d) }
+// 破棄したものを元に戻して、そのまま続きから始める（開始シートから）
+const discardedStock = computed(() => discarded.value.filter(d => (d.type ?? 'stock') !== 'order'))
+const discardedOrder = computed(() => discarded.value.filter(d => d.type === 'order'))
+async function restoreAndResume(d) {
+  const s = await launcher.restore(d)
+  if (s) resume(s)
+}
 // 品目マスタの一括削除。先に完了していない棚卸・発注をサーバーで消し、消せたときだけ品目を消す
 // （品目だけ消えて、古い数量のまま再開・取り戻しができる状態を作らない）
 async function onClearMaster(p) {
@@ -204,7 +209,6 @@ async function onClearMaster(p) {
   }
   emit('clearMaster', { ...p, purgedIds: ids })
 }
-const discardOpen = ref(false)
 const discardTarget = computed(() => (sheet.value && typeof sheet.value === 'object' ? sheet.value.discard : null))
 const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '発注' : '棚卸'))
 
@@ -281,36 +285,20 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="home-top">
           <div v-if="error" class="home-err">{{ error }}</div>
 
-          <!-- 中断中のセッション（今日のやることより先） -->
-          <div v-if="activeSession" class="strip pause stock">
-            <span class="strip-t">⏸ 棚卸（中断中）<small>{{ _itemCount(activeSession) }}品目 ・ {{ _hm(activeSession.startedAt) }}〜</small></span>
-            <button class="strip-go" type="button" @click="resume(activeSession)">再開</button>
-            <button class="strip-more" type="button" aria-label="棚卸を破棄" :disabled="deletingId === activeSession.id" @click="askDiscard(activeSession)">⋯</button>
-          </div>
-          <div v-if="activeOrderSession" class="strip pause order">
-            <span class="strip-t">⏸ 発注（中断中）<small>{{ _itemCount(activeOrderSession) }}品目 ・ {{ _hm(activeOrderSession.startedAt) }}〜</small></span>
-            <button class="strip-go" type="button" @click="resume(activeOrderSession)">再開</button>
-            <button class="strip-more" type="button" aria-label="発注を破棄" :disabled="deletingId === activeOrderSession.id" @click="askDiscard(activeOrderSession)">⋯</button>
-          </div>
-          <!-- 破棄して24時間以内（元に戻せる）。過ぎるとサーバーが完全に消す。
-               2件以上は1行にまとめ、開くと一覧（User決定 2026-10-01） -->
-          <button v-if="discarded.length >= 2" class="strip discard fold" type="button" :aria-expanded="String(discardOpen)" @click="discardOpen = !discardOpen">
-            <span class="strip-t">🗑 破棄したセッション {{ discarded.length }}件<small>24時間以内なら元に戻せます</small></span>
-            <span class="strip-arrow">{{ discardOpen ? '▲' : '▼' }}</span>
-          </button>
-          <template v-if="discarded.length === 1 || discardOpen">
-            <div v-for="d in discarded" :key="d.id" :class="['strip', 'discard', { inner: discarded.length >= 2 }]">
-              <span class="strip-t">🗑 破棄した<span :class="['strip-kind', d.type === 'order' ? 'k-order' : 'k-stock']">{{ d.type === 'order' ? '発注' : '棚卸' }}</span><small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }}〜 ・ {{ discardRemain(d) }}で完全に消えます</small></span>
-              <button class="strip-go" type="button" :disabled="restoringId === d.id" @click="restoreDiscarded(d)">{{ restoringId === d.id ? '戻しています…' : '元に戻す' }}</button>
-            </div>
-          </template>
-
           <!-- 操作ボタン -->
           <div v-if="!empty" class="acts">
-            <button class="act stock" type="button" :disabled="startingKind === 'stock'" @click="openStockSheet">
+            <!-- 中断中があれば、ボタンそのものが「再開」になる（ホームの上に帯を出さない・User決定 2026-10-04）。
+                 やめるときは棚卸・発注の画面の ☰ から破棄する -->
+            <button v-if="activeSession" class="act stock resume" type="button" @click="resume(activeSession)">
+              <b>▶︎</b>棚卸を再開<small>{{ _itemCount(activeSession) }}品目 ・ {{ _hm(activeSession.startedAt) }}〜</small>
+            </button>
+            <button v-else class="act stock" type="button" :disabled="startingKind === 'stock'" @click="openStockSheet">
               <b>👥</b>{{ startingKind === 'stock' ? '開始中…' : '棚卸' }}
             </button>
-            <button class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
+            <button v-if="activeOrderSession" class="act order resume" type="button" @click="resume(activeOrderSession)">
+              <b>▶︎</b>発注を再開<small>{{ _itemCount(activeOrderSession) }}品目 ・ {{ _hm(activeOrderSession.startedAt) }}〜</small>
+            </button>
+            <button v-else class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
               <b>🧾</b>{{ startingKind === 'order' ? '開始中…' : '発注' }}
             </button>
             <SortTile :disabled="completionBusy" />
@@ -400,7 +388,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-t">中断中の棚卸があります</div>
           <div class="sh-s">{{ _hm(activeSession.startedAt) }} 開始 ・ {{ _itemCount(activeSession) }}品目入力済み</div>
           <button class="bb stock" type="button" @click="resume(activeSession)">▶︎<span>続きから再開</span></button>
-          <div class="note">やめる場合は、ホームの「中断中」の帯の ⋯ か、棚卸の画面の ☰ から破棄できます。</div>
+          <div class="note">やめる場合は、棚卸の画面の ☰ から破棄できます。</div>
         </template>
         <!-- 同じ日の2回目 -->
         <template v-else-if="sameDay">
@@ -423,8 +411,12 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="info"><div>前回<b>{{ lastStock || 'まだありません' }}</b></div><div>数える品目<b>{{ itemCount }}</b></div></div>
           <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStock()">👤<span>ひとりで始める<small>この端末だけで数える</small></span></button>
           <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })">👥<span>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <!-- 破棄して24時間以内の棚卸は、ここから元に戻して続きから始める（ホームの上に帯を出さない・User決定 2026-10-04） -->
+          <button
+            v-for="d in discardedStock" :key="d.id" class="bb restore" type="button"
+            :disabled="restoringId === d.id" @click="restoreAndResume(d)"
+          >↩︎<span>{{ restoringId === d.id ? '戻しています…' : `破棄した棚卸を元に戻して始める（${discardRemain(d)}）` }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }} 開始</small></span></button>
         </template>
-        <button class="sh-link" type="button" @click="startPractice">練習してみる（履歴に残りません） ›</button>
         <div v-if="error" class="home-err">{{ error }}</div>
       </div>
     </div>
@@ -437,7 +429,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-t">中断中の発注があります</div>
           <div class="sh-s">{{ _hm(activeOrderSession.startedAt) }} 開始 ・ {{ _itemCount(activeOrderSession) }}品目</div>
           <button class="bb order" type="button" @click="resume(activeOrderSession)">▶︎<span>続きから再開</span></button>
-          <div class="note">やめる場合は、ホームの「中断中」の帯の ⋯ か、発注の画面の ☰ から破棄できます。</div>
+          <div class="note">やめる場合は、発注の画面の ☰ から破棄できます。</div>
         </template>
         <template v-else>
           <div class="sh-t">発注を始める</div>
@@ -449,6 +441,10 @@ onUnmounted(registerInnerLayerCloser(() => {
           </div>
           <button class="bb order" type="button" :disabled="startingKind === 'order'" @click="startOrder()">🧾<span>ひとりで始める</span></button>
           <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })">👥<span>みんなで発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <button
+            v-for="d in discardedOrder" :key="d.id" class="bb restore" type="button"
+            :disabled="restoringId === d.id" @click="restoreAndResume(d)"
+          >↩︎<span>{{ restoringId === d.id ? '戻しています…' : `破棄した発注を元に戻して始める（${discardRemain(d)}）` }}<small>{{ d.itemCount }}品目 ・ {{ _hm(d.startedAt) }} 開始</small></span></button>
         </template>
         <div v-if="error" class="home-err">{{ error }}</div>
       </div>
@@ -461,7 +457,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="sh-t ng">この{{ discardKind }}を破棄しますか？</div>
         <div class="note red">
           <b>入力済みの {{ _itemCount(discardTarget) }}品目</b>と変更履歴を破棄します。履歴カレンダーには残りません。<br>
-          <b>24時間以内なら、ホームの「破棄した{{ discardKind }}」から元に戻せます。</b>過ぎると完全に消えます。
+          <b>24時間以内なら、ホームの「{{ discardKind }}」のボタンから元に戻して始められます。</b>過ぎると完全に消えます。
         </div>
         <div class="note blue">あとで続けるだけなら、破棄せずにそのまま置いておけます（「再開」で続きから）。</div>
         <div class="two">
@@ -492,26 +488,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .home-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 0; }
 .home-err { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 10px; }
 
-.strip { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 8px 10px; font-size: 13px; font-weight: 700; border: none; text-align: left; font-family: inherit; cursor: pointer; }
-.strip-t { flex: 1; min-width: 0; }
-.strip-t small { font-weight: 600; opacity: .85; margin-left: 4px; }
-.strip.today { background: #fff; border: 1px solid #d6e6ea; color: #1f3d45; }
-.strip.today b { color: #c2410c; }
-.strip-arrow { color: #7d969c; font-size: 18px; }
-.strip.pause.stock { background: #cffafe; color: #155e75; cursor: default; }
-.strip.pause.order { background: #ffedd5; color: #c2410c; cursor: default; }
-.strip.discard { background: #edf5f7; color: #3d5a62; cursor: default; border: 1px dashed #bfd6dc; }
-.strip.discard.fold { cursor: pointer; }
 /* 棚卸と発注を色で見分ける（ホームのボタンと同じ 青／オレンジ） */
-.strip-kind { font-weight: 800; }
-.strip-kind.k-stock { color: #0e7490; }
-.strip-kind.k-order { color: #ea580c; }
-.strip.discard.inner { margin-left: 14px; }
-.strip.discard .strip-go { background: #fff; color: #1f3d45; border: 1.5px solid #7d969c; }
-.strip-go { border: none; border-radius: 9px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #fff; cursor: pointer; }
-.stock .strip-go { background: #0e7490; }
-.order .strip-go { background: #ea580c; }
-.strip-more { border: none; background: none; font-size: 20px; font-weight: 800; color: inherit; padding: 0 4px; cursor: pointer; }
 
 .acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .act {
@@ -522,6 +499,10 @@ onUnmounted(registerInnerLayerCloser(() => {
 .act.stock { border-color: #67e8f9; color: #155e75; background: #ecfeff; }
 .act.order { border-color: #fdba74; color: #c2410c; background: #fff7ed; }
 .act:disabled { opacity: .6; cursor: default; }
+/* 中断中：ボタンそのものが「再開」 */
+.act.resume small { display: block; font-size: 10px; font-weight: 700; opacity: .85; margin-top: 1px; }
+.act.resume.stock { background: #cffafe; border-color: #22d3ee; }
+.act.resume.order { background: #ffedd5; border-color: #fb923c; }
 .act-badge { position: absolute; top: 5px; right: 8px; background: #059669; color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; }
 .act-dot { position: absolute; top: 8px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
 
@@ -565,6 +546,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .bb small { font-size: 11.5px; font-weight: 600; opacity: .85; }
 .bb:disabled { opacity: .6; cursor: default; }
 .bb.stock { background: #0e7490; color: #fff; border-color: #0e7490; }
+.bb.restore { border: 1.5px dashed #7d969c; background: #fff; color: #1f3d45; }
 .bb.stock-soft { background: #ecfeff; color: #155e75; border-color: #67e8f9; }
 .bb.order { background: #ea580c; color: #fff; border-color: #ea580c; }
 .bb.order-soft { background: #fff7ed; color: #c2410c; border-color: #fdba74; }
