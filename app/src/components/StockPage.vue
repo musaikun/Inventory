@@ -16,7 +16,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useStockView } from '../composables/useStockView.js'
-import { registerInnerLayerCloser, showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
+import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { completionBusy } from '../composables/useSession.js'
 import InventoryTable from './InventoryTable.vue'
 import ItemStockSheet from './ItemStockSheet.vue'
@@ -24,12 +24,12 @@ import { useMovements } from '../composables/useMovements.js'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
-import ItemCheckPage from './ItemCheckPage.vue'
 import HiddenItemsList from './HiddenItemsList.vue'
 import SortRecoCard from './SortRecoCard.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { itemCheckRows, ITEM_CHECKS } from '../utils/itemCheck.js'
-import { isHintShown, dismissHint, snoozeHint } from '../composables/useHints.js'
+import { isHintShown, dismissHint } from '../composables/useHints.js'
+import { useSortSetup } from '../composables/useSortSetup.js'
 
 // embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
 const props = defineProps({
@@ -38,7 +38,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
-const { config, setAxisName } = useConfig()
+const { config } = useConfig()
 const { getSnapshots } = useHistory()
 const {
   allItems, needsReorder, reorderCount, reorderSetCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
@@ -71,19 +71,20 @@ const search = ref('')
 // ── 絞り込み（User決定 2026-10-03：管理の「整える・確認」を在庫タブへ）──────────
 // すべて / 要補充（発注点を手で入れた品目だけ。1つも無ければチップごと出さない）/
 // 要確認（空欄・しばらく数えていない）/ 非表示（戻せる・取込で除外した行も）
-const filter = ref('all')   // 'all' | 'low' | 'check' | 'hidden'
+// 「すべて」のチップは置かない。何も選んでいない状態が「すべて」で、選んだチップをもう一度押すと外れる（User決定 2026-10-04）
+const filter = ref('')   // '' | 'low' | 'check' | 'hidden'
 const checkMap = computed(() => new Map(itemCheckRows(config, { snapshots: _snaps.value }).map(r => [r.item, r])))
 const hiddenCount = computed(() => (config.hiddenItems ?? []).length)
 const excludedCount = computed(() => config.importExcluded?.total ?? 0)
 const chips = computed(() => {
-  const out = [{ key: 'all', label: 'すべて', n: allItems.value.length }]
+  const out = []
   if (reorderSetCount.value) out.push({ key: 'low', label: '要補充', n: reorderCount.value, warn: reorderCount.value > 0 })
   out.push({ key: 'check', label: '要確認', n: checkMap.value.size, warn: checkMap.value.size > 0 })
   if (hiddenCount.value || excludedCount.value) out.push({ key: 'hidden', label: '非表示', n: hiddenCount.value })
   return out
 })
-// チップが消えた（発注点を全部外した等）ら「すべて」へ戻す
-const activeFilter = computed(() => (chips.value.some(c => c.key === filter.value) ? filter.value : 'all'))
+// チップが消えた（発注点を全部外した等）ら絞り込みを外す
+const activeFilter = computed(() => (chips.value.some(c => c.key === filter.value) ? filter.value : ''))
 const itemFilter = computed(() => {
   if (activeFilter.value === 'low') return item => needsReorder(item)
   if (activeFilter.value === 'check') return item => checkMap.value.has(item)
@@ -94,45 +95,13 @@ function checkLabel(item) {
   const r = checkMap.value.get(item)
   return r ? r.missing.map(k => CHECK_CHIP[k]).filter(Boolean).join('・') : ''
 }
-const checkOpen = ref(false)
 
-// ── 並び替えのおすすめ ─────────────────────────────
-// 名前の付いた並び替え（保管場所など）のうち、いちばん振り分けが進んでいるもので判断する
-const RECO_ID = 'reco-sort'
-const sortProgress = computed(() => {
-  const names = config.axisNames ?? ['', '']
-  const items = allItems.value
-  let best = null
-  for (const idx of [0, 1]) {
-    if (!(names[idx] || '').trim()) continue
-    const tags = (idx === 0 ? config.tagsA : config.tagsB) ?? {}
-    const assigned = items.reduce((n, it) => n + (tags[it]?.length ? 1 : 0), 0)
-    if (!best || assigned > best.assigned) best = { idx, name: names[idx], assigned }
-  }
-  return { best, total: items.length }
-})
-const recoStage = computed(() => {
-  const { best, total } = sortProgress.value
-  if (!total) return ''
-  if (!best || best.assigned === 0) return 'none'
-  return best.assigned < total ? 'half' : ''
-})
-const showReco = computed(() => !!recoStage.value && !locked.value && isHintShown(RECO_ID))
-function startSort() {
-  const best = sortProgress.value.best
-  let idx = best?.idx
-  if (idx == null) {
-    const names = config.axisNames ?? ['', '']
-    idx = !(names[0] || '').trim() ? 0 : 1
-    if (!(names[idx] || '').trim()) {
-      const name = (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '保管場所') || '').trim()
-      if (!name) return
-      if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return }
-    }
-  }
-  axisAssignInitial.value = idx
-  showAxisAssign.value = true
-}
+// ── 並び替えのおすすめ（はじめて使うときだけ大きく。以降はホームのタイルの中で見せる・User決定 2026-10-04）──
+const RECO_ID = 'reco-sort-intro'
+const { sortStage, openSort } = useSortSetup()
+const showReco = computed(() => sortStage.value === 'none' && !locked.value && isHintShown(RECO_ID))
+// 始める・あとで・✕ のどれでも、大きなおすすめは二度と出さない（並び替えのタイルは残る）
+function onRecoStart() { dismissHint(RECO_ID); openSort() }
 // サンプルの品目リスト（まだ自分のリストを持っていない）も「0件」として扱う。
 // サンプルを在庫として並べると、自分の店の品目と区別がつかない
 const isEmpty = computed(() => (config.order || []).length === 0 || !config.isCustom)
@@ -150,7 +119,6 @@ function closeForm() { form.value = null }
 // 端末の戻る操作は、ページを閉じる前に上のシートから閉じる（既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
   if (form.value) { closeForm(); return true }
-  if (checkOpen.value) { checkOpen.value = false; return true }
   if (detailTarget.value) { detailTarget.value = null; return true }
   return false
 }))
@@ -183,12 +151,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       <input v-model="search" type="text" class="sp-search" placeholder="品目名で絞り込み" />
       <SortRecoCard
         v-if="showReco"
-        :stage="recoStage"
-        :axis-name="sortProgress.best?.name || ''"
-        :assigned="sortProgress.best?.assigned || 0"
-        :total="sortProgress.total"
-        @start="startSort"
-        @later="snoozeHint(RECO_ID)"
+        @start="onRecoStart"
         @dismiss="dismissHint(RECO_ID)"
       />
       <DismissibleHint id="stock-basis" tag="p" class="sp-hint">数字は<b>今の見込み</b>（直近の棚卸＋入庫−出庫）。正確な数は棚卸で確定します。</DismissibleHint>
@@ -197,8 +160,8 @@ onUnmounted(registerInnerLayerCloser(() => {
         <button
           v-for="c in chips" :key="c.key" type="button"
           :class="['sp-chip', { on: activeFilter === c.key, warn: c.warn }]" :aria-pressed="activeFilter === c.key"
-          @click="filter = c.key"
-        >{{ c.label }}<span class="sp-chip-n">{{ c.n }}</span></button>
+          @click="filter = activeFilter === c.key ? '' : c.key"
+        >{{ c.label }}<span class="sp-chip-n">{{ c.n }}</span><span v-if="activeFilter === c.key" class="sp-chip-x" aria-hidden="true">✕</span></button>
       </div>
 
       <template v-if="activeFilter === 'hidden'">
@@ -208,19 +171,19 @@ onUnmounted(registerInnerLayerCloser(() => {
       <DismissibleHint v-if="activeFilter === 'low'" id="stock-low" tag="p" class="sp-hint">
         発注点を設定した {{ reorderSetCount }}品目のうち、見込みが発注点以下の品目です。
       </DismissibleHint>
-      <div v-if="activeFilter === 'check'" class="sp-checkbar">
-        <span>空欄のある品目・しばらく数えていない品目です。直すと自動で外れます。</span>
-        <button v-if="!locked && checkMap.size" type="button" @click="checkOpen = true">まとめて直す ›</button>
-      </div>
+      <DismissibleHint v-if="activeFilter === 'check'" id="stock-check" tag="p" class="sp-hint">
+        空欄のある品目・しばらく数えていない品目です。行をタップして品目シートの「直す」で埋めると、一覧から外れます。
+      </DismissibleHint>
       <InventoryTable
         :inventory="{}"
         :filled-count="0"
         :search-term="search"
         :item-filter="itemFilter"
         :can-manage-list="false"
-        :axis-editable="!locked"
+        :hidden-items="config.hiddenItems ?? []"
         hide-amount
         hide-tap-continuous
+        hide-header
         @tap="item => (detailTarget = item)"
       >
         <template #qty="{ row }">
@@ -236,9 +199,6 @@ onUnmounted(registerInnerLayerCloser(() => {
           </div>
         </template>
         <template #filters><span></span></template>
-        <template #progress>
-          <span class="progress">品目 <strong>{{ allItems.length }}</strong><template v-if="reorderSetCount"> ・ 要補充 <strong>{{ reorderCount }}</strong></template></span>
-        </template>
       </InventoryTable>
       </template>
 
@@ -309,15 +269,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp-chip-n { font-size: 11.5px; font-weight: 800; color: var(--text-muted); border-radius: 999px; padding: 0 6px; }
 .sp-chip.warn .sp-chip-n { background: #fef3c7; color: #a16207; }
 .sp-chip.on { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); box-shadow: inset 0 0 0 1px var(--primary); }
-.sp-checkbar {
-  display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 8px 10px; border-radius: 10px;
-  background: #fef9e7; color: #854d0e; font-size: 12px; line-height: 1.5;
-}
-.sp-checkbar span { flex: 1; }
-.sp-checkbar button {
-  flex: none; min-height: 36px; border: 1.5px solid #d97706; background: var(--surface); color: #a16207;
-  border-radius: 9px; padding: 0 10px; font-size: 12.5px; font-weight: 800; cursor: pointer;
-}
+.sp-chip-x { font-size: 11px; margin-left: 1px; }
 .sp-cell.chk { border-color: #fcd34d; background: #fffbeb; min-width: 96px; max-width: 150px; }
 .sp-cell-why { font-size: 11px; font-weight: 700; color: #a16207; line-height: 1.35; text-align: center; white-space: normal; }
 

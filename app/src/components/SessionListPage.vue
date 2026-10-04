@@ -47,6 +47,8 @@ import DataInspector from './DataInspector.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
+import SortTile from './SortTile.vue'
+import { completionBusy } from '../composables/useSession.js'
 import { APP_NAME } from '../appInfo.js'
 
 const props = defineProps({
@@ -306,6 +308,7 @@ onUnmounted(registerInnerLayerCloser(() => {
             <button class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
               <b>🧾</b>{{ startingKind === 'order' ? '開始中…' : '発注' }}
             </button>
+            <SortTile :disabled="completionBusy" />
           </div>
         </div>
       </template>
@@ -497,7 +500,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .order .strip-go { background: #ea580c; }
 .strip-more { border: none; background: none; font-size: 20px; font-weight: 800; color: inherit; padding: 0 4px; cursor: pointer; }
 
-.acts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .act {
   position: relative; background: #fff; border: 1.5px solid #d6e6ea; border-radius: 14px;
   padding: 9px 0 8px; font-size: 12.5px; font-weight: 800; color: #1f3d45; cursor: pointer; font-family: inherit;

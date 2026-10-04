@@ -46,10 +46,11 @@ afterEach(() => {
 })
 
 describe('要補充', () => {
-  it('発注点が1つも無ければチップを出さない', async () => {
+  it('発注点が1つも無ければチップを出さない。「すべて」のチップも無い', async () => {
     await mountPage()
-    expect(chip('すべて')).toBeTruthy()
+    expect(chip('すべて')).toBeUndefined()
     expect(chip('要補充')).toBeUndefined()
+    expect(chip('要確認')).toBeTruthy()
   })
 
   it('発注点を入れた品目だけを数え、件数を出す（発注点の無い品目は見込み0でも数えない）', async () => {
@@ -61,6 +62,10 @@ describe('要補充', () => {
     await click(chip('要補充'))
     expect(rowNames()).toEqual(['トマト'])
     expect(host.textContent).toContain('発注点を設定した 1品目のうち')
+    // もう一度押すと外れて、すべてに戻る
+    await click(chip('要補充'))
+    expect(rowNames()).toEqual(['トマト', '塩'])
+    expect(host.textContent).not.toContain('品目 2 ・')
   })
 })
 
@@ -73,24 +78,15 @@ describe('要確認', () => {
     expect(host.querySelector('.sp-cell-why').textContent).toContain('単位なし')
   })
 
-  it('「まとめて直す」で点検のページが開き、埋めると一覧から消える', async () => {
+  it('「まとめて直す」は無く、行をタップすると品目シートが開く', async () => {
     await mountPage()
     await click(chip('要確認'))
-    await click(btn(host, 'まとめて直す'))
-    const page = host.querySelector('.ic-page')
-    await click(page.querySelector('.ic-row-head'))
-    const inputs = page.querySelectorAll('.ic-input')
-    await type(inputs[0], 'kg')
-    await type(inputs[1], '1')
-    await type(inputs[2], '300')
-    await type(inputs[3], '調味料')
-    await click(btn(page, '保存'))
-    expect(cfg.config.units['塩']).toBe('kg')
-    expect(page.textContent).toContain('空欄のある品目はありません')
-    expect(chip('要確認').textContent).toContain('0')
+    expect(btn(host, 'まとめて直す')).toBeUndefined()
+    await click(host.querySelector('.item-row[data-item="塩"]'))
+    expect(host.querySelector('.is-sheet, [role="dialog"]')).toBeTruthy()
   })
 
-  it('しばらく数えていない品目は、点検のページでその場で非表示にできる', async () => {
+  it('しばらく数えていない品目も理由つきで出る', async () => {
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
     const s = (id, date, saltQty) => ({
       sessionId: id, date, savedAt: `${date}T01:00:00Z`,
@@ -103,12 +99,6 @@ describe('要確認', () => {
     await mountPage()
     await click(chip('要確認'))
     expect(host.querySelector('.sp-cell-why').textContent).toContain('しばらく数えていない')
-    await click(btn(host, 'まとめて直す'))
-    const row = host.querySelector('.ic-page .ic-row')
-    await click(row.querySelector('.ic-row-head'))
-    expect(row.textContent).toContain('最後に数えたのは 8/1')
-    await click(btn(row, '非表示にする'))
-    expect(cfg.config.hiddenItems).toContain('塩')
   })
 })
 
@@ -143,7 +133,7 @@ describe('非表示', () => {
   })
 })
 
-describe('並び替えのおすすめ', () => {
+describe('並び替えのおすすめ（はじめて使うときだけ大きく）', () => {
   const card = () => host.querySelector('.sr')
 
   it('並び替えが1つも無い店では、動きのあるカードを出す', async () => {
@@ -152,33 +142,26 @@ describe('並び替えのおすすめ', () => {
     expect(card().textContent).toContain('並び替えを始める')
   })
 
-  it('途中まで振り分けた店では、進み具合を出す。全部振り分けたら出さない', async () => {
+  it('1品目でも振り分けてあれば出さない', async () => {
     cfg.setAxisName(0, '保管場所')
     cfg.setItemTag('トマト', 0, '冷蔵庫')
     await mountPage()
-    expect(card().classList.contains('anim')).toBe(false)
-    expect(card().textContent).toContain('保管場所の振り分け 1 / 2')
-    cfg.setItemTag('塩', 0, '棚')
-    await tick()
     expect(card()).toBeNull()
   })
 
-  it('「あとで」は3日後にまた出し、✕ は二度と出さない（端末に覚える）', async () => {
+  it('「あとで」でも ✕ でも二度と出さない（端末に覚え、各種設定から戻せる）', async () => {
     const hints = await import('../composables/useHints.js')
     await mountPage()
     await click(btn(card(), 'あとで'))
     expect(card()).toBeNull()
-    expect(hints.isHintShown('reco-sort', Date.now() + 2 * 86400000)).toBe(false)
-    expect(hints.isHintShown('reco-sort', Date.now() + 4 * 86400000)).toBe(true)
+    expect(hints.isHintShown('reco-sort-intro', Date.now() + 365 * 86400000)).toBe(false)
     hints.restoreHints()
     await tick()
     await click(card().querySelector('.sr-x'))
     expect(card()).toBeNull()
-    expect(hints.isHintShown('reco-sort', Date.now() + 365 * 86400000)).toBe(false)
-    expect(hints.hiddenHintCount.value).toBe(1)
   })
 
-  it('「並び替えを始める」で名前を決めて振り分けのページを開く', async () => {
+  it('「並び替えを始める」で名前を決めて振り分けのページを開き、カードはもう出さない', async () => {
     const menu = await import('../composables/appMenuState.js')
     const prompt = vi.spyOn(window, 'prompt').mockReturnValue('保管場所')
     await mountPage()
@@ -186,7 +169,15 @@ describe('並び替えのおすすめ', () => {
     expect(cfg.config.axisNames[0]).toBe('保管場所')
     expect(menu.showAxisAssign.value).toBe(true)
     expect(menu.axisAssignInitial.value).toBe(0)
+    expect(card()).toBeNull()
     prompt.mockRestore()
+  })
+
+  it('ホームの表からは並び替えの追加（＋）・編集（✎）をしない（タイルから行う）', async () => {
+    cfg.setAxisName(0, '保管場所')
+    await mountPage()
+    expect(host.querySelector('.seg-add')).toBeNull()
+    expect(host.querySelector('.seg-edit')).toBeNull()
   })
 })
 
