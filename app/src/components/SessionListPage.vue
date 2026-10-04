@@ -470,16 +470,26 @@ onUnmounted(registerInnerLayerCloser(() => {
 </template>
 
 <style scoped>
-.home { min-height: 100vh; min-height: 100dvh; background: var(--bg, #edf5f7); --home-chrome: calc(112px + env(safe-area-inset-bottom)); }
+/* ホームは画面の高さぴったりの枠（ページそのものはスクロールしない・User 2026-10-04）。
+   見出しと下部ナビの間（.home-panels）だけが、中身が収まらないときにスクロールする。
+   以前は各タブが下に大きめの余白を持ち、中身が収まっていても少しだけスクロールして上が見切れた */
+.home {
+  height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg, #edf5f7); --bnav-h: calc(58px + env(safe-area-inset-bottom));
+}
 /* 横スワイプでタブを移る面。縦スクロールはブラウザに任せ、横だけこちらで受ける */
-.home-panels { touch-action: pan-y; }
+.home-panels {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  display: flex; flex-direction: column; padding-bottom: var(--bnav-h);
+}
+.home-panels > .home-panel { flex: 1 0 auto; }
 .home-panel.slide-l { animation: home-slide-l .22s ease-out; }
 .home-panel.slide-r { animation: home-slide-r .22s ease-out; }
 @keyframes home-slide-l { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
 @keyframes home-slide-r { from { transform: translateX(-24px); opacity: .4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .home-panel.slide-l, .home-panel.slide-r { animation: none; } }
 .home-head {
-  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px;
+  flex: none; z-index: 3; display: flex; align-items: center; gap: 8px;
   padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
 .home-logo { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 800; letter-spacing: .08em; color: #12303a; }
@@ -525,7 +535,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 
 /* レポートタブ */
-.report-tab { padding: 4px 6px calc(80px + env(safe-area-inset-bottom)); }
+.report-tab { padding: 4px 6px 8px; }
 
 .sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
 .sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }

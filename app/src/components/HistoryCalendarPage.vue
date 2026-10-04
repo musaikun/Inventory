@@ -113,7 +113,7 @@ const hiddenByPlanCount = computed(() =>
 /* この画面は1画面で完結させる（下にスクロールする余白を作らない）。
    高さを 100dvh に固定し、余った高さはカレンダー自身が吸う。
    → #app の padding-bottom(80px) も style.css 側で 0 にしてある */
-.hcp.embedded { height: calc(100dvh - var(--home-chrome, 112px)); }
+.hcp.embedded { height: auto; flex: 1 1 auto !important; min-height: 0; }
 .hcp {
   /* 下部ナビ（全画面共通）の分だけ縮める */
   height: calc(100dvh - var(--app-footer-h, 0px));

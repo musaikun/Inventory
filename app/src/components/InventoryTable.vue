@@ -50,6 +50,8 @@ const props = defineProps({
   swipeTabs:        { type: Boolean, default: false },
   // 連続入力・進捗のヘッダー行を出さない（ホームの在庫。件数はチップで出す・User決定 2026-10-04）
   hideHeader:       { type: Boolean, default: false },
+  // 表を親の高さいっぱいに広げ、枠の中だけでスクロールする（ホームの在庫。見出し行は上に残る・User 2026-10-04）
+  fillHeight:       { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
@@ -720,7 +722,7 @@ function fmtYen(n) {
 
 <template>
   <section
-    class="inventory-section" :class="{ 'inv-preview': preview }"
+    class="inventory-section" :class="{ 'inv-preview': preview, fill: fillHeight }"
     @touchstart.passive="tabSwipe.onTouchStart"
     @touchmove.passive="tabSwipe.onTouchMove"
     @touchend.passive="tabSwipe.onTouchEnd"
@@ -814,7 +816,8 @@ function fmtYen(n) {
       非表示 {{ hiddenSet.size }}件 ・ <strong>タップで管理</strong>
     </div>
 
-    <!-- テーブル -->
+    <!-- テーブル（fillHeight のときはこの枠の中だけでスクロール） -->
+    <div class="inv-scroll">
     <table
       :key="swipeTabs ? sortMode : undefined"
       :class="['inv-table', swipeTabs && tabSlide ? `tab-in-${tabSlide}` : '']"
@@ -1003,6 +1006,7 @@ function fmtYen(n) {
         </tr>
       </tfoot>
     </table>
+    </div>
 
     <!-- 非表示の確認ダイアログ（小さめ・中央）。ゲストは「申請」になる -->
     <div v-if="hideDialogItem" class="hide-dialog-overlay" @click.self="cancelHideDialog">
@@ -1050,6 +1054,14 @@ function fmtYen(n) {
 <style scoped>
 /* 表は横いっぱいに（棚卸・発注・ホームで同じ・User 2026-10-01）。左右の余白は 6px だけ */
 .inventory-section { padding: 0 6px; overflow-x: clip; }
+/* 親の高さいっぱい：表の見出し行だけを上に残し、行は枠の中でスクロール */
+.inventory-section.fill { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
+.inventory-section.fill .inv-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); margin-bottom: 8px;
+}
+.inventory-section.fill .inv-table { overflow: visible; box-shadow: none; border-radius: 0; }
+.inventory-section.fill .inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--primary-deep); }
 .inventory-section.inv-preview { padding: 0; }
 
 /* ── セクションヘッダー ── */

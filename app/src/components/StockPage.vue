@@ -184,6 +184,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         hide-amount
         hide-tap-continuous
         hide-header
+        fill-height
         @tap="item => (detailTarget = item)"
       >
         <template #qty="{ row }">
@@ -240,10 +241,13 @@ onUnmounted(registerInnerLayerCloser(() => {
 </template>
 
 <style scoped>
-.sp.embedded { min-height: 0; padding-bottom: 88px; }
+/* ホームでは枠（.home-panels）の高さいっぱい。上の段・検索・チップは固定で、表だけが枠の中でスクロール */
+.sp.embedded { min-height: 0; padding-bottom: 0; height: 100%; flex: 1 1 auto !important; display: flex; flex-direction: column; }
+.sp.embedded > .sp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 /* ホームでは下部ナビの上に出す */
 .sp-locked { margin: 0 12px 8px; padding: 9px 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
 .sp.embedded .sp-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
+.sp.embedded .sp-body > :not(.inventory-section) { flex: none; }
 .sp { min-height: 100vh; background: var(--bg, #edf5f7); padding-bottom: 96px; }
 .sp-header {
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;

@@ -326,7 +326,7 @@ function onClear() {
 
 <style scoped>
 .mp { min-height: 100vh; background: #f6fafb; }
-.mp.embedded { min-height: 0; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+.mp.embedded { min-height: 0; padding-bottom: 12px; }
 .mp-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px;
