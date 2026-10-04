@@ -223,30 +223,6 @@ const calSwipe = useVerticalSwipe({
 })
 const prevMonthLabel = computed(() => `${viewMonth.value === 0 ? 12 : viewMonth.value}月`)
 const nextMonthLabel = computed(() => `${viewMonth.value === 11 ? 1 : viewMonth.value + 2}月`)
-function goToday() {
-  viewYear.value = _now.getFullYear()
-  viewMonth.value = _now.getMonth()
-  selectedKey.value = todayKey
-}
-
-// 最も新しいデータのある日付
-const recentKey = computed(() => {
-  const keys = new Set()
-  for (const k of Object.keys(stockByDate.value)) keys.add(k)
-  for (const k of Object.keys(orderByDate.value)) keys.add(k)
-  for (const k of Object.keys(moveByDate.value)) keys.add(k)
-  const sorted = [...keys].sort((a, b) => b.localeCompare(a))
-  return sorted[0] || null
-})
-
-function goRecent() {
-  const k = recentKey.value
-  if (!k) return
-  viewYear.value = Number(k.slice(0, 4))
-  viewMonth.value = Number(k.slice(5, 7)) - 1
-  selectedKey.value = k
-}
-
 // ── 選択日 ─────────────────────────────────
 // 日をタップ → その日の詳細をモーダルで開く。カレンダーの下に敷くと、月のマスを
 // 見ながらでは読めず、スクロールすると選んだ日が画面の外へ出てしまう。
@@ -560,8 +536,6 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <button class="hc-nav-btn" type="button" aria-label="前の月" @click="prevMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
       <span class="hc-month">{{ monthLabel }}</span>
       <button class="hc-nav-btn" type="button" aria-label="次の月" @click="nextMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-      <button class="hc-today" @click="goToday">今日</button>
-      <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
 
     <!-- 星の読み方。切替ボタンではなく説明なので、押せる見た目にしない -->
@@ -810,10 +784,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; display: grid; place-items: center; padding: 0; }
 .hc-nav-btn:active { background: #ecfeff; }
 .hc-month { flex: 1; text-align: center; font-weight: 700; font-size: 16px; color: #1f2937; }
-.hc-today { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; flex-shrink: 0; }
-.hc-today:active { background: #ecfeff; }
 
-.hc-recent { border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 6px 2px; flex-shrink: 0; }
 
 /* 星の凡例。マスの星は色だけで種別を表すので、その対応をここで一度だけ示す */
 .hc-key { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: -2px 0 -2px; }
