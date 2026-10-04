@@ -72,8 +72,7 @@ const tab = _persistedTab
 // レポート（在庫分析）と、データ管理を統合した管理を加えた（User決定 2026-10-01）。
 // 履歴カレンダーは下部ナビから外し、レポートの一番上から開く独立した画面にした。タブ送りのスワイプと
 // カレンダーの月送りのスワイプが重なって使いにくかった（User 2026-10-01）
-// カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる。
-// カレンダーのタブでは左右のスワイプを月送りだけにし、タブの切り替えは下のナビで行う
+// カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる
 const TABS = ['sessions', 'calendar', 'report', 'dashboard']
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 function goTab(next) {
@@ -81,9 +80,10 @@ function goTab(next) {
   slideDir.value = TABS.indexOf(next) > TABS.indexOf(tab.value) ? 'l' : 'r'
   tab.value = next
 }
+// カレンダーの月は縦のスワイプで送るので、左右はどのタブでもタブの切り替え（User決定 2026-10-04）
 const tabSwipe = useHorizontalSwipe({
-  onLeft:  () => { if (tab.value !== 'calendar') goTab(TABS[TABS.indexOf(tab.value) + 1]) },
-  onRight: () => { if (tab.value !== 'calendar') goTab(TABS[TABS.indexOf(tab.value) - 1]) },
+  onLeft:  () => goTab(TABS[TABS.indexOf(tab.value) + 1]),
+  onRight: () => goTab(TABS[TABS.indexOf(tab.value) - 1]),
 })
 // カレンダーを開いたら、発注・入出庫の記録を取り込み直す（App が受ける）
 watch(tab, t => { if (t === 'calendar') emit('calendarShown') }, { immediate: true })

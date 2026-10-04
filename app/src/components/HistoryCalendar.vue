@@ -9,7 +9,7 @@ import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { useVerticalSwipe } from '../composables/useSwipe.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
@@ -190,31 +190,39 @@ function nextMonth() {
   else viewMonth.value++
 }
 
-// ── 指追従スワイプ ───────────────────────────────
-// ドラッグ中は指の移動量だけグリッドを動かし、離したらしきい値超で月移動・未満でスナップバック。
-const dragX = ref(0)
+// ── 指追従スワイプ（縦）───────────────────────────
+// 月は縦に送る（上へ払う＝次の月、下へ払う＝前の月）。左右のスワイプはタブの切り替えに残す
+// （カレンダーをタブにしたら、左右の月送りとタブ送りが重なった・User決定 2026-10-04）。
+// 縦に送れることは説明文ではなく見た目で示す: マスの上下に前後の月をのぞかせ、
+// ドラッグ中は指に合わせてグリッドが動き、引いた側の月が濃くなる。
+const dragY = ref(0)
 const dragging = ref(false)
 let _committed = false
 const dragStyle = computed(() => ({
-  transform: dragX.value ? `translateX(${dragX.value}px)` : '',
+  transform: dragY.value ? `translateY(${dragY.value * 0.6}px)` : '',
   transition: dragging.value ? 'none' : 'transform 0.2s ease',
 }))
-const calSwipe = useHorizontalSwipe({
-  threshold: 55,
-  onDrag: (dx) => {
-    if (dx === 0) {
-      // 指を離した瞬間。onLeft/onRight（コミット）が続けて呼ばれるかを microtask で確認。
+// のぞかせる月の濃さ（0〜1）。引いた側だけ濃くなる
+const peekPrev = computed(() => Math.min(1, Math.max(0, dragY.value / 60)))
+const peekNext = computed(() => Math.min(1, Math.max(0, -dragY.value / 60)))
+const calSwipe = useVerticalSwipe({
+  threshold: 50,
+  onDrag: (dy) => {
+    if (dy === 0) {
+      // 指を離した瞬間。onUp/onDown（コミット）が続けて呼ばれるかを microtask で確認。
       dragging.value = false
       _committed = false
-      queueMicrotask(() => { if (!_committed) dragX.value = 0 })  // 未コミットはスナップバック
+      queueMicrotask(() => { if (!_committed) dragY.value = 0 })  // 未コミットはスナップバック
     } else {
       dragging.value = true
-      dragX.value = dx
+      dragY.value = dy
     }
   },
-  onLeft:  () => { _committed = true; dragX.value = 0; nextMonth() },
-  onRight: () => { _committed = true; dragX.value = 0; prevMonth() },
+  onUp:   () => { _committed = true; dragY.value = 0; nextMonth() },
+  onDown: () => { _committed = true; dragY.value = 0; prevMonth() },
 })
+const prevMonthLabel = computed(() => `${viewMonth.value === 0 ? 12 : viewMonth.value}月`)
+const nextMonthLabel = computed(() => `${viewMonth.value === 11 ? 1 : viewMonth.value + 2}月`)
 function goToday() {
   viewYear.value = _now.getFullYear()
   viewMonth.value = _now.getMonth()
@@ -549,9 +557,9 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
     <template v-else>
     <div class="hc-nav">
-      <button class="hc-nav-btn" @click="prevMonth">‹</button>
+      <button class="hc-nav-btn" type="button" aria-label="前の月" @click="prevMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
       <span class="hc-month">{{ monthLabel }}</span>
-      <button class="hc-nav-btn" @click="nextMonth">›</button>
+      <button class="hc-nav-btn" type="button" aria-label="次の月" @click="nextMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
       <button class="hc-today" @click="goToday">今日</button>
       <button v-if="recentKey" class="hc-recent" @click="goRecent">最近 ›</button>
     </div>
@@ -566,14 +574,16 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <DismissibleHint id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
     </div>
 
-    <!-- カレンダー（内スワイプで月移動・親のタブ切替へは伝播させない）-->
+    <!-- カレンダー（縦のスワイプで月送り。左右はタブの切り替えへそのまま伝える）-->
     <div
       class="hc-cal"
-      @touchstart.stop.passive="calSwipe.onTouchStart"
-      @touchmove.stop.passive="calSwipe.onTouchMove"
-      @touchend.stop.passive="calSwipe.onTouchEnd"
-      @touchcancel.stop.passive="calSwipe.onTouchCancel"
+      @touchstart.passive="calSwipe.onTouchStart"
+      @touchmove.passive="calSwipe.onTouchMove"
+      @touchend.passive="calSwipe.onTouchEnd"
+      @touchcancel.passive="calSwipe.onTouchCancel"
     >
+      <!-- 前の月をのぞかせる（縦に送れることを見た目で示す。押しても前の月へ）-->
+      <button type="button" class="hc-peek top" :style="{ '--peek': peekPrev }" :aria-label="`前の月（${prevMonthLabel}）`" @click="prevMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg><span>{{ prevMonthLabel }}</span></button>
       <div class="hc-dow-row">
         <span v-for="(w, i) in WEEK" :key="w" :class="['hc-dow', { sun: i === 0, sat: i === 6 }]">{{ w }}</span>
       </div>
@@ -611,6 +621,8 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
         </div>
       </div>
       </div>
+      <!-- 次の月をのぞかせる -->
+      <button type="button" class="hc-peek bottom" :style="{ '--peek': peekNext }" :aria-label="`次の月（${nextMonthLabel}）`" @click="nextMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span>{{ nextMonthLabel }}</span></button>
     </div>
 
     </template>
@@ -795,7 +807,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-list-arrow { flex-shrink: 0; color: #bfd6dc; font-size: 16px; }
 
 .hc-nav { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
-.hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; }
+.hc-nav-btn { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; width: 34px; height: 34px; font-size: 18px; color: #4b5563; cursor: pointer; flex-shrink: 0; display: grid; place-items: center; padding: 0; }
 .hc-nav-btn:active { background: #ecfeff; }
 .hc-month { flex: 1; text-align: center; font-weight: 700; font-size: 16px; color: #1f2937; }
 .hc-today { border: 1.5px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; flex-shrink: 0; }
@@ -823,15 +835,25 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
    宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
    一緒に処理し、履歴が1つ余分に進む。この画面は戻るを履歴で受けているので、
    受け皿を横取りされてアプリごと閉じる。overscroll-behavior-x でも同じ操作を止める。 */
-.hc-cal { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #bfd6dc; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: pan-y; overscroll-behavior-x: contain; }
+.hc-cal { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; padding: 8px; border: 1.5px solid #bfd6dc; box-shadow: 0 2px 6px rgba(15,23,42,0.08); overflow: hidden; touch-action: none; overscroll-behavior: contain; }
 .hc-dow-row { flex-shrink: 0; display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
 
 /* 月移動のスライドアニメーション（キー変更で再マウント → 再生）*/
 .hc-weeks { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #dfe4ea; border-left: 1px solid #dfe4ea; border-radius: 8px; overflow: hidden; animation-duration: 0.22s; animation-timing-function: ease-out; }
 .hc-weeks.anim-next { animation-name: hcSlideNext; }
 .hc-weeks.anim-prev { animation-name: hcSlidePrev; }
-@keyframes hcSlideNext { from { transform: translateX(26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
-@keyframes hcSlidePrev { from { transform: translateX(-26%); opacity: 0.25; } to { transform: none; opacity: 1; } }
+/* 月は縦に送る：次の月は下から、前の月は上から入る */
+@keyframes hcSlideNext { from { transform: translateY(22%); opacity: 0.25; } to { transform: none; opacity: 1; } }
+@keyframes hcSlidePrev { from { transform: translateY(-22%); opacity: 0.25; } to { transform: none; opacity: 1; } }
+/* 前後の月のぞかせ：ふだんは薄く、その向きに引くと濃く大きくなる（--peek: 0〜1） */
+.hc-peek {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%;
+  height: calc(18px + var(--peek, 0) * 14px); border: none; background: none; cursor: pointer; font: inherit;
+  font-size: 11px; font-weight: 800; color: var(--primary); opacity: calc(0.38 + var(--peek, 0) * 0.62);
+  transition: height .2s ease, opacity .2s ease;
+}
+.hc-peek.top { margin: -4px 0 2px; }
+.hc-peek.bottom { margin: 2px 0 -4px; }
 .hc-dow { text-align: center; font-size: 11px; font-weight: 700; color: #9ca3af; padding: 4px 0; }
 .hc-dow.sun { color: #ef4444; }
 .hc-dow.sat { color: #0891b2; }
