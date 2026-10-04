@@ -101,6 +101,8 @@ describe('発注セッションの戻る', () => {
     expect(leave.textContent.trim()).toBe('🏠')
     expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
+    // 🏠 は「中断してホームへ／破棄」を訊く（☰ をやめた・2026-10-04）
+    await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
 
     expect(movementPage()).toBeNull()
     expect(host.querySelector('.act.order')).not.toBeNull()   // ホームに戻っている
@@ -115,6 +117,7 @@ describe('発注セッションの戻る', () => {
     const leave = host.querySelector('.home-btn')
     expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
+    await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
     expect(host.querySelector('.act.stock')).not.toBeNull()
   }, 20000)
 
@@ -161,24 +164,35 @@ describe('セッションの ☰ から中断・破棄', () => {
     cfg.addItem('トマト', 120, '野菜', '個')
     await flush()
   }
-  async function openMenu() { await click(host.querySelector('.am-btn')) }
+  // ☰ はやめた。🏠 が「中断してホームへ／この棚卸を破棄」を訊く（User決定 2026-10-04）
+  async function openLeave() { await click(host.querySelector('.home-btn')) }
+  const leaveBtn = label => [...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes(label))
 
-  it('☰ の「中断してホームへ」でホームに戻り、棚卸のボタンが「再開」になる', async () => {
+  it('ヘッダーに ☰ は無く、🏠 の「中断してホームへ」でホームに戻り、棚卸のボタンが「再開」になる', async () => {
     await mountWithSessions()
     await click(host.querySelector('.act.stock'))
     await click(host.querySelector('.sh .bb.stock'))
-    await openMenu()
-    await click(button('中断してホームへ'))
+    expect(host.querySelector('.am-btn')).toBeNull()
+    await openLeave()
+    await click(leaveBtn('中断してホームへ'))
     await flush(10)
     expect(host.querySelector('.act.stock.resume')?.textContent).toContain('棚卸を再開')
   }, 20000)
 
-  it('☰ の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {
+  it('ひとりの棚卸では大きな「ルームを作成」カードを出さず、見出しの小さな「みんなで」から作る', async () => {
     await mountWithSessions()
     await click(host.querySelector('.act.stock'))
     await click(host.querySelector('.sh .bb.stock'))
-    await openMenu()
-    await click(button('この棚卸を破棄'))
+    expect(host.querySelector('.room-cta')).toBeNull()
+    expect(host.querySelector('.app-header .room-mini')?.textContent).toContain('みんなで')
+  }, 20000)
+
+  it('🏠 の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {
+    await mountWithSessions()
+    await click(host.querySelector('.act.stock'))
+    await click(host.querySelector('.sh .bb.stock'))
+    await openLeave()
+    await click(leaveBtn('この棚卸を破棄'))
     await flush(10)
     expect(host.querySelector('.act.stock')).not.toBeNull()
     expect(host.querySelector('.sh').textContent).toContain('破棄')
@@ -187,7 +201,7 @@ describe('セッションの ☰ から中断・破棄', () => {
   }, 20000)
 
   // ルームを作らなくても、名前をタップしたときと同じ「担当者ごとの変更履歴」を見られる（User 2026-10-02）
-  it('ひとりの棚卸では ☰ の「自分の変更履歴」で自分の入力が見られる', async () => {
+  it('ひとりの棚卸では「N / M 件入力済み」を押すと自分の変更履歴が見られる', async () => {
     await mountWithSessions()
     await click(host.querySelector('.act.stock'))
     await click(host.querySelector('.sh .bb.stock'))
@@ -195,10 +209,8 @@ describe('セッションの ☰ から中断・破棄', () => {
     const { addLocalAuditEntry } = await import('./composables/useSync.js')
     addLocalAuditEntry({ id: 'local-1', ingredient: 'トマト', action: 'new', delta: 5, totalQty: 5, unit: '個', enteredBy: 'テスト', enteredById: deviceId, timestamp: Date.now() })
     await flush()
-    await openMenu()
-    const item = button('自分の変更履歴')
+    const item = host.querySelector('.progress-tap')
     expect(item).toBeTruthy()
-    expect(item.textContent).toContain('1')
     await click(item)
     await flush()
     expect(document.body.textContent).toContain('トマト')

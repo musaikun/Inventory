@@ -82,7 +82,6 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
-import AppMenu from './components/AppMenu.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
 import ItemFormModal from './components/ItemFormModal.vue'
@@ -1425,6 +1424,7 @@ function _closeTopLayer() {
   if (isBackBlocked())       { return true }
   if (showExitConfirm.value) { showExitConfirm.value = false; return true }   // 戻る＝キャンセル
   if (showMenu.value)        { showMenu.value = false;      return true }
+  if (leaveAsk.value)        { leaveAsk.value = false;      return true }
   // 表示中のモーダル（useEscapeKey で積まれる）を、最後に開いたものから1枚ずつ閉じる。
   // 画面ごとの戻り（ホームのタブ・独立ページ）より必ず先に見る（User報告 2026-10-01）
   if (consumeModalLayerBack()) return true
@@ -2203,7 +2203,16 @@ async function _resolveUnknownCompletion() {
 // （件数の表示・消す直前にサーバーの状態を確かめる）を開く。破棄の実装を1つに保つため。
 const canDiscardFromMenu = computed(() =>
   isAuthenticated.value && !practiceMode.value && !isCompleted.value && !!pendingSession.value?.id
-  && !(syncActive.value && !syncIsHost.value))
+  && !completionBusy.value && !(syncActive.value && !syncIsHost.value))
+// 🏠：中断してホームへ戻るか、この棚卸を破棄するかを訊く（☰ をやめて 🏠 に寄せた・User決定 2026-10-04）。
+// 破棄できない場面（ゲスト・練習・完了済み）は、これまでどおりそのままホームへ
+const leaveAsk = ref(false)
+function onHomeBtn() {
+  if (canDiscardFromMenu.value) { leaveAsk.value = true; return }
+  onGoHome()
+}
+function onLeavePause()   { leaveAsk.value = false; onGoHome() }
+function onLeaveDiscard() { leaveAsk.value = false; onDiscardFromMenu() }
 async function onDiscardFromMenu() {
   if (_blockedByCompletion()) return
   const id = pendingSession.value?.id
@@ -3337,7 +3346,7 @@ function dismissReview() {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onGoHome" :title="leaveSessionTitle">{{ leaveSessionIcon }}</button>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onHomeBtn" :title="leaveSessionTitle">{{ leaveSessionIcon }}</button>
           <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
         </div>
         <div class="header-right">
@@ -3353,26 +3362,11 @@ function dismissReview() {
           >
             <span class="sync-badge">🔗<span class="sync-count">{{ participantList.length }}</span></span>
           </button>
-          <!-- ハンバーガーメニュー（ルーム参加中のゲストには表示しない）-->
-          <div v-if="!(syncActive && !syncIsHost)" class="menu-wrap">
-            <AppMenu context="session">
-              <template #default="{ close }">
-                <button v-if="isAuthenticated" class="am-item" :disabled="completing" @click="close(); onGoHome()">
-                  <span class="am-ico">{{ practiceMode ? '🏠' : '⏸' }}</span> {{ practiceMode ? '練習を終了して戻る' : '中断してホームへ' }}
-                </button>
-                <button v-if="canDiscardFromMenu" class="am-item am-danger" :disabled="completing" @click="close(); onDiscardFromMenu()">
-                  <span class="am-ico">🗑</span> この{{ actNoun }}を破棄…
-                </button>
-                <!-- ひとりの棚卸でも、ルームで名前をタップしたときと同じ「担当者ごとの変更履歴」を見る（User 2026-10-02） -->
-                <button v-if="!syncActive" class="am-item" @click="close(); openMyHistory()">
-                  <span class="am-ico">📝</span> 自分の変更履歴<span v-if="myAuditCount" class="am-count">{{ myAuditCount }}</span>
-                </button>
-                <button v-if="hasBarcodedItems && !inputLocked" class="am-item" @click="close(); showBarcode = true">
-                  <span class="am-ico">📷</span> バーコードスキャン
-                </button>
-              </template>
-            </AppMenu>
-          </div>
+          <!-- ひとりで数えているとき、途中からスタッフを呼ぶ入口（大きなカードはやめて小さく・User決定 2026-10-04） -->
+          <button
+            v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
+            class="room-mini" type="button" @click="onCreateRoomFromMain" title="ルームを作成して、スタッフのスマホをつなぐ"
+          >👥 みんなで</button>
         </div>
       </header>
 
@@ -3400,20 +3394,6 @@ function dismissReview() {
           >{{ p.name }}<span v-if="p.isDone" class="chip-check"> ✓</span><span v-else-if="!p.present" class="chip-left"> ·退室</span></button>
         </div>
       </div>
-
-      <!-- ルーム作成 CTA（目玉機能・未同期時のみ）-->
-      <button
-        v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
-        class="room-cta"
-        @click="onCreateRoomFromMain"
-      >
-        <span class="room-cta-icon">👥</span>
-        <span class="room-cta-body">
-          <span class="room-cta-title">みんなで一緒に{{ actNoun }}する</span>
-          <span class="room-cta-sub">ルームを作成して、スタッフのスマホをつなぐ</span>
-        </span>
-        <span class="room-cta-action">ルームを作成 ＋</span>
-      </button>
 
       <!-- 棚卸完了バナー -->
       <div v-if="isCompleted" class="complete-banner">
@@ -3445,6 +3425,8 @@ function dismissReview() {
             @toggle="onVoiceButtonTap"
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
+          <!-- バーコードのある品目があるときだけ（☰ から移した・User決定 2026-10-04） -->
+          <button v-if="hasBarcodedItems && !inputLocked" class="search-btn barcode-btn" type="button" title="バーコードスキャン" aria-label="バーコードスキャン" @click="showBarcode = true">📷</button>
         </div>
 
         <!-- 品目編集フォーム（編集時のみ表示。追加は検索欄からの積み上げ登録が主動線） -->
@@ -3661,6 +3643,8 @@ function dismissReview() {
         ref="inventoryTableRef"
         :inventory="inventory"
         :filled-count="filledCount"
+        :progress-tappable="!syncActive && !practiceMode"
+        @progress-tap="openMyHistory"
         :read-only="inputLocked"
         :recount-flags="recountFlags"
         :typing-map="syncActive ? typingMap : null"
@@ -3802,6 +3786,20 @@ function dismissReview() {
 
     <!-- ── 名前設定モーダル（ルーム参加前） ── -->
     <!-- 終了確認。戻るで最後の1枚まで来たときだけ出る -->
+    <!-- 🏠：中断してホームへ ／ この棚卸を破棄（☰ の代わり） -->
+    <div v-if="leaveAsk" class="modal-overlay" @click.self="leaveAsk = false">
+      <div class="modal-sheet leave-sheet" role="dialog" aria-modal="true" :aria-label="`${actNoun}を離れる`">
+        <div class="sheet-handle"></div>
+        <button class="leave-btn" type="button" :disabled="completing" @click="onLeavePause">
+          <span class="leave-ico" aria-hidden="true">⏸</span><span>中断してホームへ<small>入力した数は残り、ホームの「{{ actNoun }}を再開」から続けられます</small></span>
+        </button>
+        <button class="leave-btn ng" type="button" :disabled="completing" @click="onLeaveDiscard">
+          <span class="leave-ico" aria-hidden="true">🗑</span><span>この{{ actNoun }}を破棄…<small>確認のあとで破棄します（24時間は元に戻せます）</small></span>
+        </button>
+        <button class="leave-cancel" type="button" @click="leaveAsk = false">キャンセル</button>
+      </div>
+    </div>
+
     <div v-if="showExitConfirm" class="name-modal-overlay exit-modal-overlay" @click.self="onCancelExit">
       <div class="name-modal-sheet" role="dialog" aria-modal="true" aria-label="アプリを終了しますか？">
         <div class="sheet-handle"></div>
@@ -3927,7 +3925,7 @@ function dismissReview() {
 
     <!-- フィードバックボタン（セッション画面で表示）。ホームでは右下の＋と開始シートに重なるので、管理タブのカードから開く -->
     <button
-      v-if="currentView === 'session'"
+      v-if="currentView === 'session' && !leaveAsk"
       class="feedback-fab"
       @click="openFeedback"
       title="フィードバックを送る"
@@ -4018,6 +4016,24 @@ function dismissReview() {
 </template>
 
 <style scoped>
+/* 🏠 の2択（中断してホームへ ／ 破棄） */
+.leave-sheet { display: grid; gap: 10px; padding-bottom: 20px; }
+.leave-btn {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 14px; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit;
+}
+.leave-btn span:last-child { display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 800; }
+.leave-btn small { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.leave-btn.ng { border-color: #fca5a5; color: #b91c1c; }
+.leave-btn:disabled { opacity: .6; cursor: default; }
+.leave-ico { flex: none; font-size: 20px; }
+.leave-cancel { min-height: 44px; border: none; background: none; color: var(--text-muted); font: inherit; font-size: 14px; cursor: pointer; }
+/* ひとりのときの「みんなで」（ルーム作成）。大きなカードの代わりに見出しの右に小さく */
+.room-mini {
+  flex: none; height: 34px; padding: 0 12px; border-radius: 999px; border: 1.5px solid rgba(255, 255, 255, .7);
+  background: rgba(255, 255, 255, .16); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap;
+}
+.barcode-btn { background: var(--surface); color: var(--primary); border: 1.5px solid var(--primary-border); font-size: 20px; }
 .pro-review-badge {
   position: fixed;
   top: 8px;

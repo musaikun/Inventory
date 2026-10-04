@@ -52,9 +52,11 @@ const props = defineProps({
   hideHeader:       { type: Boolean, default: false },
   // 表を親の高さいっぱいに広げ、枠の中だけでスクロールする（ホームの在庫。見出し行は上に残る・User 2026-10-04）
   fillHeight:       { type: Boolean, default: false },
+  // 「N / M 件入力済み」を押せるようにする（ひとりの棚卸で自分の変更履歴を開く。☰ から移した）
+  progressTappable: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide', 'progress-tap'])
 
 // 品目名の正規化はキャッシュする。1000品目の一覧では1打鍵ごとに全件を
 // normalize することになり、端末によっては入力が引っかかる。品目名は不変なので使い回せる。
@@ -743,7 +745,10 @@ function fmtYen(n) {
       <div class="header-right">
         <!-- 進捗。入力画面以外（在庫の閲覧など）は親が差し替える -->
         <slot name="progress" :filled="scopedFilled" :total="scopedTotal">
-          <span v-if="!preview" class="progress">
+          <button v-if="!preview && progressTappable" type="button" class="progress progress-tap" title="自分の変更履歴を見る" @click="emit('progress-tap')">
+            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '発注済み' : '入力済み' }}<span class="progress-more" aria-hidden="true">›</span>
+          </button>
+          <span v-else-if="!preview" class="progress">
             <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '発注済み' : '入力済み' }}
           </span>
         </slot>
@@ -1054,6 +1059,8 @@ function fmtYen(n) {
 <style scoped>
 /* 表は横いっぱいに（棚卸・発注・ホームで同じ・User 2026-10-01）。左右の余白は 6px だけ */
 .inventory-section { padding: 0 6px; overflow-x: clip; }
+.progress-tap { border: none; background: none; font: inherit; color: inherit; cursor: pointer; padding: 4px 2px; }
+.progress-more { margin-left: 4px; color: var(--primary); font-weight: 800; }
 /* 親の高さいっぱい：表の見出し行だけを上に残し、行は枠の中でスクロール */
 .inventory-section.fill { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
 .inventory-section.fill .inv-scroll {
