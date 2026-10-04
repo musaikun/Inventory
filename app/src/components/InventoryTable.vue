@@ -386,6 +386,30 @@ const rows = computed(() => {
         groupMap.get(k).push({ ...row, _grp: k })
       }
     }
+    // グループの中の並び（User 2026-10-04）
+    // - 並び替え（軸）: その並び替えで決めた順（振り分けの画面・数えた順）。無い品目は品目リストの順で後ろ
+    // - ジャンル: 商品コードがあればコード順、無い品目は品目リスト（取込ファイル）の順で後ろ
+    if (mode === 'axisA' || mode === 'axisB') {
+      const own = (mode === 'axisA' ? config.value.axisItemOrderA : config.value.axisItemOrderB) ?? []
+      const rank = new Map()
+      own.forEach((n, i) => { if (!rank.has(n)) rank.set(n, i) })
+      const base = own.length
+      for (const arr of groupMap.values()) {
+        arr.sort((a, b) => (rank.get(a.item) ?? base + (a.index === '*' ? 1e9 : a.index)) - (rank.get(b.item) ?? base + (b.index === '*' ? 1e9 : b.index)))
+      }
+    } else {
+      const code = r => { const c = r.code; return c == null || String(c).trim() === '' ? null : String(c) }
+      for (const arr of groupMap.values()) {
+        const pos = new Map(arr.map((r, i) => [r, i]))
+        arr.sort((a, b) => {
+          const ca = code(a), cb = code(b)
+          if (ca && cb) return ca.localeCompare(cb, 'ja', { numeric: true }) || pos.get(a) - pos.get(b)
+          if (ca) return -1
+          if (cb) return 1
+          return pos.get(a) - pos.get(b)
+        })
+      }
+    }
     // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
     // 軸は「振り分けページで定義したグループ順」を優先（未定義グループは末尾）
     const axisOrder = mode === 'axisA' ? (config.value.axisGroupsA ?? [])

@@ -1346,13 +1346,10 @@ onMounted(async () => {
         // 進行中セッション > 最後に見ていた独立ページ > ホーム、の順で行き先を決める。
         // セッションを先に見るのは、数えかけの棚卸へ戻せないほうが実害が大きいため。
         const resumePage = (pendingSession.value?.id && !isCompleted.value) ? null : _bootPage
+        // 入出庫の記録の画面は入口を外した（User 2026-10-04）。そこで閉じていてもホームへ
         currentView.value = (pendingSession.value?.id && !isCompleted.value)
           ? 'session'
-          : (resumePage?.view ?? 'sessions')
-        if (resumePage?.view === 'movement') {
-          movementTab.value = resumePage.tab
-          _pullMovements()
-        }
+          : (resumePage?.view && resumePage.view !== 'movement' ? resumePage.view : 'sessions')
         // リロード時もセッションの種類でテーマ（青=棚卸 / 橙=発注）を復元する
         sessionMode.value = pendingSession.value?.type === 'order' ? 'order' : 'stock'
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
@@ -3267,7 +3264,6 @@ function dismissReview() {
     <AuthPage
       v-if="currentView === 'auth'"
       @done="onAuthDone"
-      @skip="currentView = 'landing'"
     />
 
     <!-- ── セッション一覧 ── -->
@@ -3284,7 +3280,6 @@ function dismissReview() {
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="openPage('master')"
-      @open-movement="openMovement"
       @open-feedback="openFeedback"
       @view-session="onViewSession"
       @open-upgrade="reason => openUpgrade(reason)"

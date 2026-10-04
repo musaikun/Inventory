@@ -121,16 +121,12 @@ describe('発注セッションの戻る', () => {
     expect(host.querySelector('.act.stock')).not.toBeNull()
   }, 20000)
 
-  it('管理の「入出庫の記録」は入庫タブから開く。管理タブに「仕入れ」は無い（入口は1つ）', async () => {
+  it('管理タブに「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
     await mountApp()
     await seed()
     await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
-    await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes('入出庫の記録')))
-    expect(activeTab()).toContain('入庫')
-
-    await click(host.querySelector('.mv-back'))
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
-    expect([...host.querySelectorAll('.m-card')].some(b => b.textContent.includes('仕入れ'))).toBe(false)
+    const cards = [...host.querySelectorAll('.m-card')].map(b => b.textContent)
+    expect(cards.some(t => t.includes('入出庫の記録') || t.includes('仕入れ'))).toBe(false)
   }, 20000)
 })
 

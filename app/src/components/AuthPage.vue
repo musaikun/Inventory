@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { register, login } from '../composables/useAuth.js'
 
-const emit = defineEmits(['done', 'skip'])
+const emit = defineEmits(['done'])
 
 // 'login' | 'register'
 const tab = ref('login')
@@ -207,10 +207,6 @@ function onLoginPinInput(e) {
         </template>
       </template>
 
-      <!-- ゲストとして続行 -->
-      <button class="auth-skip" @click="emit('skip')">
-        ゲストとして参加する（認証不要）
-      </button>
     </div>
   </div>
 </template>
@@ -332,16 +328,6 @@ function onLoginPinInput(e) {
   font-size: 15px;
 }
 
-.auth-skip {
-  margin-top: 20px;
-  background: none;
-  border: none;
-  color: var(--text-muted, #4c6a72);
-  font-size: 13px;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 4px;
-}
 
 /* 登録完了 */
 .reg-success {

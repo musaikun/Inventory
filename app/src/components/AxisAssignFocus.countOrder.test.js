@@ -58,10 +58,12 @@ describe('数えた順で並べる', () => {
     expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', '冷凍庫', '棚'])
     expect(cfg.config.tagsA['卵']).toEqual(['冷蔵庫', '棚'])
     expect(cfg.config.tagsA['アイス']).toEqual(['冷凍庫'])
-    expect(cfg.config.order).toEqual(['牛乳', '卵', 'アイス', 'パスタ', '塩'])
+    expect(cfg.axisItemSequence(0)).toEqual(['牛乳', '卵', 'アイス', 'パスタ', '塩'])
+    // 品目全体の並び（ジャンルの中の順の元）は触らない
+    expect(cfg.config.order).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
     await click(btn('元に戻す'))
     expect(cfg.config.tagsA['卵']).toBeUndefined()
-    expect(cfg.config.order).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
+    expect(cfg.axisItemSequence(0)).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
   })
 
   it('振り分け済み: 割り当てはそのまま、並びだけを数えた順にする', async () => {
@@ -72,7 +74,8 @@ describe('数えた順で並べる', () => {
     await click(btn('前回の数えた順に並べ直す'))
     expect(host.textContent).toContain('各場所の中だけが数えた順')
     await click(btn('この順に並べ直す'))
-    expect(cfg.config.order).toEqual(['牛乳', '卵', '塩', 'アイス', 'パスタ'])
+    expect(cfg.axisItemSequence(0)).toEqual(['牛乳', '卵', '塩', 'アイス', 'パスタ'])
+    expect(cfg.config.order).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
     expect(cfg.config.tagsA['卵']).toEqual(['冷蔵庫'])
     expect(cfg.config.tagsA['牛乳']).toBeUndefined()
   })

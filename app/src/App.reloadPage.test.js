@@ -89,26 +89,12 @@ async function seedItems() {
 }
 
 describe('再読込しても同じページに留まる', () => {
-  it('仕入れ', async () => {
+  it('入出庫の記録の画面で閉じていても、開き直すとホーム（入口を外した・2026-10-04）', async () => {
+    localStorage.setItem('_last_page_v1', JSON.stringify({ view: 'movement', tab: 'out' }))
     await mountApp()
     await seedItems()
-    await click(button('管理')); await click(button('入出庫の記録'))
-    expect(view()).toBe('movement')
-
     await reload()
-    expect(view()).toBe('movement')
-  }, 20000)
-
-  it('仕入れはタブまで戻る', async () => {
-    await mountApp()
-    await seedItems()
-    await click(button('管理')); await click(button('入出庫の記録'))
-    await click(button('出庫'))
-    expect(host.querySelector('.mv-tab.on').textContent).toContain('出庫')
-
-    await reload()
-    expect(view()).toBe('movement')
-    expect(host.querySelector('.mv-tab.on').textContent).toContain('出庫')
+    expect(view()).toBe('sessions')
   }, 20000)
 
   // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま
@@ -139,10 +125,9 @@ describe('再読込しても同じページに留まる', () => {
   it('進行中セッションは保存ページより優先する', async () => {
     await mountApp()
     await seedItems()
-    await click(button('管理')); await click(button('入出庫の記録'))
-    expect(view()).toBe('movement')
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー')))
 
-    // 仕入れページに居るあいだに、別端末などで進行中の棚卸が残った状態を作る
+    // カレンダーを見ているあいだに、別端末などで進行中の棚卸が残った状態を作る
     localStorage.setItem('_pending_session_v1', JSON.stringify({
       id: 'sess-1', shopCode: 'STOREA', status: 'active',
       startedAt: new Date().toISOString(), itemCount: 0,
@@ -155,8 +140,6 @@ describe('再読込しても同じページに留まる', () => {
   it('ホームで再読込したらホームのまま', async () => {
     await mountApp()
     await seedItems()
-    await click(button('管理')); await click(button('入出庫の記録'))
-    await click(button('戻る'))
     expect(view()).toBe('sessions')
 
     await reload()

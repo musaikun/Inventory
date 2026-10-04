@@ -98,10 +98,12 @@ describe('ホームの骨組み', () => {
     await click(btn(host.querySelector('.bnav'), '管理'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
     expect(host.querySelector('.mp-header')).toBeNull()
-    for (const label of ['取り込む', '入出庫の記録', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
+    for (const label of ['取り込む', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
       expect(host.querySelector('.mp').textContent).toContain(label)
     }
-    // 入出庫（旧・仕入れ）の記録は管理から開く（その場の入出庫は品目シート）。練習モードは管理に置かない
+    // 入出庫の記録・記録の確認は置かない（User 2026-10-04。入出庫は品目シートでその場で）。練習モードも置かない
+    expect(host.querySelector('.manage').textContent).not.toContain('入出庫の記録')
+    expect(host.querySelector('.manage').textContent).not.toContain('記録の確認')
     expect(host.querySelector('.manage').textContent).not.toContain('仕入れ')
     expect(host.querySelector('.manage').textContent).not.toContain('練習')
   })
@@ -111,13 +113,6 @@ describe('ホームの骨組み', () => {
     await click(btn(host.querySelector('.bnav'), '管理'))
     await click(btn(host.querySelector('.manage'), '🎯'))
     expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
-  })
-
-  it('管理の「入出庫の記録」は入庫タブを開く', async () => {
-    await mountPage()
-    await click(btn(host.querySelector('.bnav'), '管理'))
-    await click(btn(host.querySelector('.manage'), '📥'))
-    expect(events).toContainEqual(['openMovement', 'in'])
   })
 })
 

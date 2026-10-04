@@ -85,6 +85,9 @@ export function normalizeConfig(src = {}) {
     tagsB:         src.tagsB         ?? {},
     axisGroupsA:   Array.isArray(src.axisGroupsA) ? src.axisGroupsA : [],
     axisGroupsB:   Array.isArray(src.axisGroupsB) ? src.axisGroupsB : [],
+    // 並び替え（軸）ごとの品目の並び。無い（古い端末）なら送らない＝受けた端末が今の並びから作る
+    ...(Array.isArray(src.axisItemOrderA) ? { axisItemOrderA: src.axisItemOrderA } : {}),
+    ...(Array.isArray(src.axisItemOrderB) ? { axisItemOrderB: src.axisItemOrderB } : {}),
     hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
     hiddenAuto:    Array.isArray(src.hiddenAuto) ? src.hiddenAuto : [],
     hiddenAt:      src.hiddenAt      ?? {},

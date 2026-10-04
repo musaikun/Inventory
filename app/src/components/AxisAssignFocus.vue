@@ -16,8 +16,8 @@ const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
 
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
-  addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderItemsInPlace,
-  setAxisName, clearAxis, setItemOrder, axisLayoutSnapshot, restoreAxisLayout, applyCountPlaces,
+  addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderAxisItems, axisItemSequence,
+  setAxisName, clearAxis, setAxisItemOrder, axisLayoutSnapshot, restoreAxisLayout, applyCountPlaces,
 } = useConfig()
 const { getSnapshots } = useHistory()
 
@@ -888,12 +888,12 @@ const showAssigned = ref(false)
 // 件数は畳んだ帯でも押せる。ここで面積を広げると、シートを閉じた後に品目一覧の
 // 位置が変わり、次に押す行を探し直すことになるので、回転だけ止めて開く。
 const assignedItems = computed(() =>
-  target.value ? config.order.filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
+  target.value ? axisItemSequence(activeAxis.value).filter(i => !hiddenSet.value.has(i) && itemGroups(i).includes(target.value)) : []
 )
 // ── 振り分け済みシートの並び替え ─────────────────────────────
-// 棚卸・発注カードの「分類先の中の並び」は config.order の順がそのまま出る。
+// 棚卸・発注カードの「分類先の中の並び」は、並び替えごとの品目の並び（axisItemOrderA/B）で出る。
 // ここで並べ替えると、その分類先の品目が今いる位置の集合へ新しい順で置き直される
-// （他の分類先の並びは動かない）。
+// （他の分類先の並びも、品目全体の並び＝ジャンル順の元も動かない）。
 const sheetListEl = ref(null)
 const sheetSorting = ref(false)     // 並び替えモードか
 const tapOrderOn = ref(false)       // その中の「タップ順で並べる」
@@ -902,9 +902,10 @@ const tapSeq = ref([])              // タップした順の品目名
 function _applyItemOrder(next) {
   const before = [...assignedItems.value]
   if (next.join('|') === before.join('|')) return
-  if (!reorderItemsInPlace(next)) return
+  const axis = activeAxis.value
+  if (!reorderAxisItems(axis, next)) return
   _offerUndo('並び順を変えました', `${target.value} の中の ${next.length} 件`, () => {
-    reorderItemsInPlace(before)
+    reorderAxisItems(axis, before)
     _showFlash('並び順を戻しました', '')
   })
 }
@@ -1016,7 +1017,7 @@ function applyCountOrder(places) {
   if (!src) { countMode.value = ''; return }
   const before = axisLayoutSnapshot(activeAxis.value)
   if (places) applyCountPlaces(activeAxis.value, places)
-  setItemOrder(orderByCount(config.order, src.seqs))
+  setAxisItemOrder(activeAxis.value, orderByCount(axisItemSequence(activeAxis.value), src.seqs))
   countMode.value = ''
   _offerUndo(places ? `${places.length}つの場所に分けて、数えた順に並べました` : '数えた順に並べ直しました', '', () => restoreAxisLayout(before))
 }

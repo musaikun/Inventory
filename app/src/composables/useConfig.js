@@ -57,6 +57,10 @@ const config = reactive({
   tagsB:          {},        // 品目 → 軸2のグループ名
   axisGroupsA:    [],        // 軸1の定義済みグループ名一覧（空グループも保持）
   axisGroupsB:    [],        // 軸2の定義済みグループ名一覧
+  // 並び替え（軸）ごとの品目の並び。分類先の中はこの順で出す（無い品目は order の順で後ろ）。
+  // order（取込ファイルの並び・手で足した品目はコード順の位置）は並び替えの操作で書き換えない
+  axisItemOrderA: [],
+  axisItemOrderB: [],
   hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
   hiddenAt:       {},        // 品目 → 非表示にした時刻(ISO)。一覧を「最後に隠した順」で出すために持つ
@@ -122,6 +126,8 @@ function _serializeConfigData() {
     tagsB:         config.tagsB,
     axisGroupsA:   config.axisGroupsA,
     axisGroupsB:   config.axisGroupsB,
+    axisItemOrderA: config.axisItemOrderA,
+    axisItemOrderB: config.axisItemOrderB,
     hiddenItems:   config.hiddenItems,
     hiddenAuto:    config.hiddenAuto,
     hiddenAt:      config.hiddenAt,
@@ -150,6 +156,12 @@ function _assignConfigData(src) {
   config.tagsB         = _normTags(src.tagsB)
   config.axisGroupsA   = Array.isArray(src.axisGroupsA) ? src.axisGroupsA : []
   config.axisGroupsB   = Array.isArray(src.axisGroupsB) ? src.axisGroupsB : []
+  // 以前は並び替えの操作で order そのものを書き換えていた。持っていない設定では、
+  // 振り分け済みの軸に限り今の order を軸の並びとして引き継ぐ（見えている並びを変えない）
+  const _seedAxisOrder = (v, tags) => Array.isArray(v) ? v.filter(n => typeof n === 'string')
+    : (Object.values(tags).some(x => x?.length) ? [...config.order] : [])
+  config.axisItemOrderA = _seedAxisOrder(src.axisItemOrderA, config.tagsA)
+  config.axisItemOrderB = _seedAxisOrder(src.axisItemOrderB, config.tagsB)
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
   config.hiddenAt      = src.hiddenAt      ?? {}
@@ -817,8 +829,8 @@ export function useConfig() {
     const names = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
     names[axisIndex] = ''
     config.axisNames = [names[0] ?? '', names[1] ?? '']
-    if (axisIndex === 0) { config.tagsA = {}; config.axisGroupsA = []; config.tagsArchiveA = {} }
-    else                 { config.tagsB = {}; config.axisGroupsB = []; config.tagsArchiveB = {} }
+    if (axisIndex === 0) { config.tagsA = {}; config.axisGroupsA = []; config.tagsArchiveA = {}; config.axisItemOrderA = [] }
+    else                 { config.tagsB = {}; config.axisGroupsB = []; config.tagsArchiveB = {}; config.axisItemOrderB = [] }
     _save()
     return true
   }
@@ -969,37 +981,52 @@ export function useConfig() {
   // names は displayGroups（定義済み＋孤立値）を許容し、定義済みの並び替えのみ反映。
   // 定義済みを過不足なく含まない場合は拒否。
   /**
-   * 品目の並び順（`config.order`）のうち、渡した品目の位置だけを入れ替える。
-   *
-   * 棚卸・発注カードの「グループの中の並び」は `config.order` の順がそのまま出る。
-   * 分類先の中だけを並べ替えたいとき、全体の並びを作り直させると他の分類先の並びまで
-   * 巻き添えになるので、**渡した品目が今いる位置の集合**へ、新しい順で置き直す。
-   * その分類先に属さない品目は1つも動かない。
+   * 並び替え（軸）の品目の並び。軸の並び → 残りは order の順。今ある品目だけ
+   */
+  function axisItemSequence(axisIndex) {
+    const own = (axisIndex === 0 ? config.axisItemOrderA : axisIndex === 1 ? config.axisItemOrderB : null) ?? []
+    const known = new Set(config.order)
+    const seq = [...new Set(own.filter(n => known.has(n)))]
+    const inSeq = new Set(seq)
+    for (const n of config.order) if (!inSeq.has(n)) seq.push(n)
+    return seq
+  }
+  function _setAxisItemOrder(axisIndex, seq) {
+    if (axisIndex === 0) config.axisItemOrderA = seq
+    else if (axisIndex === 1) config.axisItemOrderB = seq
+  }
+
+  /**
+   * 分類先の中の並びを変える。渡した品目が軸の並びで今いる位置の集合へ、新しい順で置き直す
+   * （他の分類先の並びは動かない）。品目全体の並び（order・ジャンル順の元）は触らない。
    *
    * @param {string[]} names 並べ替えたい品目を、新しい順で
    */
-  function reorderItemsInPlace(names) {
+  function reorderAxisItems(axisIndex, names) {
+    if (axisIndex !== 0 && axisIndex !== 1) return false
     if (!Array.isArray(names) || names.length < 2) return false
-    const known = new Set(config.order)
+    const seq = axisItemSequence(axisIndex)
+    const known = new Set(seq)
     const next = names.filter(n => known.has(n))
     if (next.length !== names.length || new Set(next).size !== next.length) return false
-    // 対象が今いる位置（昇順）。ここへ新しい順で入れ直す
+    const want = new Set(next)
     const slots = []
-    for (let i = 0; i < config.order.length; i++) {
-      if (next.includes(config.order[i])) slots.push(i)
-    }
-    if (slots.length !== next.length) return false
-    for (let i = 0; i < slots.length; i++) config.order[slots[i]] = next[i]
+    for (let i = 0; i < seq.length; i++) if (want.has(seq[i])) slots.push(i)
+    for (let i = 0; i < slots.length; i++) seq[slots[i]] = next[i]
+    _setAxisItemOrder(axisIndex, seq)
     _save()
     return true
   }
 
-  /** 品目全体の並びを置き換える（今の品目を過不足なく並べ替えたものだけ受ける） */
-  function setItemOrder(names) {
-    if (!Array.isArray(names) || names.length !== config.order.length) return false
-    const cur = new Set(config.order)
-    if (new Set(names).size !== names.length || names.some(n => !cur.has(n))) return false
-    config.order.splice(0, config.order.length, ...names)
+  /** 並び替え（軸）の品目の並びを置き換える（今ある品目だけ。足りない品目は order の順で後ろ） */
+  function setAxisItemOrder(axisIndex, names) {
+    if (axisIndex !== 0 && axisIndex !== 1) return false
+    if (!Array.isArray(names)) return false
+    const known = new Set(config.order)
+    const seq = [...new Set(names.filter(n => known.has(n)))]
+    const inSeq = new Set(seq)
+    for (const n of config.order) if (!inSeq.has(n)) seq.push(n)
+    _setAxisItemOrder(axisIndex, seq)
     _save()
     return true
   }
@@ -1010,7 +1037,7 @@ export function useConfig() {
     if (!list || !map) return null
     return {
       axisIndex,
-      order: [...config.order],
+      itemOrder: axisItemSequence(axisIndex),
       groups: [...list],
       tags: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, [...v]])),
     }
@@ -1019,10 +1046,7 @@ export function useConfig() {
     const list = _axisList(snap?.axisIndex), map = _axisMap(snap?.axisIndex)
     if (!list || !map) return false
     const cur = new Set(config.order)
-    // 戻すまでに増減した品目は、今の品目に合わせる
-    const order = snap.order.filter(n => cur.has(n))
-    for (const n of config.order) if (!order.includes(n)) order.push(n)
-    config.order.splice(0, config.order.length, ...order)
+    _setAxisItemOrder(snap.axisIndex, [...snap.itemOrder])
     list.splice(0, list.length, ...snap.groups)
     for (const k of Object.keys(map)) delete map[k]
     for (const [k, v] of Object.entries(snap.tags)) if (cur.has(k)) map[k] = [...v]
@@ -1266,8 +1290,9 @@ export function useConfig() {
     moveAxisGroup,
     moveAxisGroupToTop,
     setAxisGroupOrder,
-    reorderItemsInPlace,
-    setItemOrder,
+    axisItemSequence,
+    reorderAxisItems,
+    setAxisItemOrder,
     axisLayoutSnapshot,
     restoreAxisLayout,
     applyCountPlaces,

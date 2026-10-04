@@ -31,9 +31,6 @@ import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
-import { useMovementDraft } from '../composables/useMovementDraft.js'
-import { useMovements, unreflectedOrders } from '../composables/useMovements.js'
-import { useOrders } from '../composables/useOrders.js'
 import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderScheduleFocusId, pendingDiscardId } from '../composables/appMenuState.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import OrderBaseModal from './OrderBaseModal.vue'
@@ -43,7 +40,6 @@ import StockPage from './StockPage.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
-import DataInspector from './DataInspector.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
@@ -57,13 +53,10 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openMovement', 'openFeedback', 'clearMaster'])
+const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openFeedback', 'clearMaster'])
 
 const { config, itemCount, setEmptyList } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
-const { hasDraft: hasMovementDraft } = useMovementDraft()
-const { getMovements } = useMovements()
-const { getOrders } = useOrders()
 
 const tab = _persistedTab
 
@@ -145,9 +138,6 @@ const todaySchedules = computed(() => {
     .map(({ s, i }) => `${scheduleName(s, i)}${s.deadline ? `（${s.deadline}締切）` : ''}`)
 })
 
-// 入出庫ボタンのしるし（未記録の入力・入庫として未反映の発注）
-const unreflectedCount = computed(() => unreflectedOrders(getOrders(), getMovements(), 30).length)
-
 // ── シート ───────────────────────────────────────────────
 // null | 'stock' | 'order' | { discard: session }
 const sheet = ref(null)
@@ -221,7 +211,6 @@ const orderBaseRows = computed(() => allItems.value.map(item => ({
   item, category: config.categories?.[item] ?? '', ...baseOf(item),
 })))
 function openSchedule() { orderScheduleFocusId.value = null; showOrderSchedule.value = true }
-const showInspector = ref(false)   // 記録の確認（サーバーと端末の記録を並べる）
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 
@@ -247,7 +236,6 @@ async function onLogout() {
 
 // 端末の戻る操作は、ページを閉じる前にシートから閉じる
 onUnmounted(registerInnerLayerCloser(() => {
-  if (showInspector.value) { showInspector.value = false; return true }
   if (showOrderBase.value) { showOrderBase.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
   if (tab.value !== 'sessions') { goTab('sessions'); return true }
@@ -338,14 +326,9 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="manage">
           <div class="m-h">発注の設定</div>
           <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
-          <!-- 入出庫は品目シートでその場で入れる（User 2026-10-03）。発注の入庫反映・まとめて入力・記録の一覧はここから -->
-          <button class="m-card" type="button" @click="emit('openMovement', 'in')">📥<span>入出庫の記録<small>発注を入庫に反映・まとめて入力・記録の一覧</small></span>
-            <em v-if="unreflectedCount > 0" class="m-badge" :title="`入庫として未反映の発注 ${unreflectedCount}件`">{{ unreflectedCount }}</em>
-            <em v-else-if="hasMovementDraft" class="m-dot" title="記録していない入力があります"></em><i>›</i></button>
           <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
           <div class="m-h">その他</div>
           <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
-          <button class="m-card" type="button" @click="showInspector = true">🔎<span>記録の確認<small>サーバーと端末に残っている棚卸・発注の記録を一覧</small></span><i>›</i></button>
           <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
           <template v-if="otherActiveSessions.length">
             <div class="m-h">その他の未完了（古い）</div>
@@ -365,7 +348,6 @@ onUnmounted(registerInnerLayerCloser(() => {
     <!-- ── 下部ナビ（全画面共通の部品）── -->
     <HomeFooterNav :active="tab" @go="goTab" />
 
-    <DataInspector v-if="showInspector" @close="showInspector = false" />
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
     <OrderBaseModal
       v-if="showOrderBase"
@@ -525,8 +507,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 }
 .m-card span { flex: 1; font-size: 14.5px; font-weight: 800; color: #12303a; display: flex; flex-direction: column; gap: 2px; }
 .m-card small { font-size: 11.5px; font-weight: 600; color: #4c6a72; }
-.m-badge { font-style: normal; background: #059669; color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800; padding: 1px 7px; }
-.m-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
 .m-card i { font-style: normal; color: #7d969c; font-size: 18px; }
 .m-old { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #d6e6ea; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px; color: #1f3d45; }
 .m-old span { flex: 1; }

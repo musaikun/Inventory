@@ -33,11 +33,9 @@ const items = computed(() => {
       sub: props.practiceMode ? '履歴に残りません' : '入力を続ける',
     })
   }
-  // 並びは棚卸の順路に合わせる（棚卸 → 準備 → β機能）。
-  // 入出庫は初回公開の主導線ではないので最後・β表記にする。
+  // 並びは棚卸の順路に合わせる（棚卸 → 準備）。入出庫の記録の画面は入口を外した（User 2026-10-04。入出庫は品目シートで）
   list.push({ view: 'sessions', icon: '🏠', label: 'ホーム',     sub: '在庫・履歴・管理' })
   list.push({ view: 'master',   icon: '📚', label: '品目マスタ', sub: '棚卸の準備・リスト管理' })
-  list.push({ view: 'movement', icon: '📥', label: '入出庫',     sub: '入庫・出庫の記録' })
   return list
 })
 

@@ -266,10 +266,10 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
   it('設定 → 中の画面 の順に重なっても、戻るは上から1枚ずつ', async () => {
     await mountApp()
     await seedItems()
-    await openFromManage('記録の確認')
-    expect(document.body.querySelector('.di')).toBeTruthy()
+    await openFromManage('発注点')
+    expect(document.body.querySelector('.ob-sheet')).toBeTruthy()
     await deviceBack()
-    expect(document.body.querySelector('.di')).toBeNull()
+    expect(document.body.querySelector('.ob-sheet')).toBeNull()
     expect(activeTab()).toContain('管理')
   }, 20000)
 })

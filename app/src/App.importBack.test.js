@@ -70,23 +70,6 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-// 画面の再設計（2026-09-30）で、データ管理はホームの「管理」タブから開く。
-// 入出庫（旧・仕入れ）はホームの操作ボタンから開く（2026-10-01）
-async function openFromManage(el, label) {
-  const fire = async (node) => { node.dispatchEvent(new MouseEvent('click', { bubbles: true })); for (let i = 0; i < 8; i++) await nextTick() }
-  if (label === '入出庫') {
-    // 操作ボタンは自分の品目リストがあるときに出る
-    const { useConfig } = await import('./composables/useConfig.js')
-    const cfg = useConfig()
-    if (!cfg.config.isCustom) { cfg.setEmptyList(); cfg.addItem('トマト', 100, '野菜', '個') }
-    for (let i = 0; i < 4; i++) await nextTick()
-    label = '入出庫の記録'   // その場の入出庫は品目シート。記録の画面は管理から開く（2026-10-03）
-  }
-  const nav = [...el.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
-  if (nav) await fire(nav)
-  await fire([...el.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
-}
-
 describe('App の Back 制御は「閉じてはいけないモーダル」を最優先で見る', () => {
   it('guard 登録中は Back で画面が変わらず、戻る操作だけを消費する', async () => {
     const el = await mountApp()
@@ -134,60 +117,7 @@ describe('App の Back 制御は「閉じてはいけないモーダル」を最
   }, 15000)
 })
 
-describe('画面内の「戻る」も import中断guard を見る', () => {
-  // モーダルには focus trap が無いので、ポインタを overlay で塞いでも
-  // キーボードの Tab で背景の「‹ 戻る」へ到達して実行できる。
-  // そこで view が切り替わるとモーダルごと unmount され、確定していない
-  // importBatchId と計画を失う（履歴に別の取消導線が無い）。
-  //
-  // ページの判定は root class で行う（見出し文言はセッション一覧のカードにも出るため）。
-  //   .mp = MasterManagePage / .mv = MovementPage
-  function backButton(root) {
-    return [...root.querySelectorAll('button')].find(b => b.textContent.includes('戻る'))
-  }
-  async function clickEl(el) {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await flush(8)
-  }
-
-  async function openMovement(el) {
-    await openFromManage(el, '入出庫')
-    expect(el.querySelector('.mv')).not.toBeNull()
-  }
-
-  for (const [label, open, sel] of [
-    // データ管理はホームの「管理」タブになり、画面ごと切り替わる独立ページではなくなった（2026-10-01）
-    ['入出庫（MovementPage）',        openMovement, '.mv'],
-  ]) {
-    it(`${label}: guard中は画面内の戻るで画面が変わらない`, async () => {
-      const el = await mountApp()
-      await open(el)
-
-      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
-      const unregister = registerModalBackGuard(() => true)
-
-      const before = el.textContent
-      await clickEl(backButton(el))
-
-      // ページに留まる ＝ 子のモーダルも unmount されず、batchID と計画を保持できる
-      expect(el.querySelector(sel)).not.toBeNull()
-      expect(el.textContent).toBe(before)
-
-      unregister()
-    }, 15000)
-
-    it(`${label}: guard解除後は画面内の戻るで通常どおり戻れる`, async () => {
-      const el = await mountApp()
-      await open(el)
-
-      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
-      registerModalBackGuard(() => true)()   // 登録してすぐ解除
-
-      await clickEl(backButton(el))
-      expect(el.querySelector(sel)).toBeNull()
-    }, 15000)
-  }
-})
+// 画面内の「戻る」の guard は入出庫の記録の画面（MovementPage）で見ていたが、その入口を外した（User 2026-10-04）
 
 describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
   // サイドナビは背景に居る。モーダルに focus trap / inert が無いので、overlay が
@@ -205,14 +135,6 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
     })
   }
 
-  function navButton(root, label) {
-    return [...root.querySelectorAll('.dt-nav-item')].find(b => b.textContent.includes(label))
-  }
-  async function clickEl(el) {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await flush(8)
-  }
-
   afterEach(() => { delete window.matchMedia })
 
   it('デスクトップではサイドナビが出る（前提の確認）', async () => {
@@ -221,42 +143,5 @@ describe('DesktopNav（1024px以上）も import中断guard を見る', () => {
     expect(el.querySelector('.dt-nav-list')).not.toBeNull()
   }, 15000)
 
-  for (const [label, cardSel, pageSel, navLabel] of [
-    // データ管理はホームの「管理」タブになり、画面ごと切り替わる独立ページではなくなった（2026-10-01）
-    ['入出庫（MovementPage）',        '入出庫',      '.mv', 'ホーム'],
-  ]) {
-    it(`${label}: guard中はDesktopNavで画面が変わらない`, async () => {
-      mockDesktop()
-      const el = await mountApp()
-      await openFromManage(el, cardSel)
-      expect(el.querySelector(pageSel)).not.toBeNull()
-
-      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
-      const unregister = registerModalBackGuard(() => true)
-
-      // ナビの全項目を順に押しても、どこへも遷移しない
-      for (const btn of [...el.querySelectorAll('.dt-nav-item')]) {
-        if (btn.disabled) continue
-        await clickEl(btn)
-        expect(el.querySelector(pageSel), btn.textContent.trim()).not.toBeNull()
-      }
-
-      unregister()
-    }, 20000)
-
-    it(`${label}: guard解除後はDesktopNavで遷移できる`, async () => {
-      mockDesktop()
-      const el = await mountApp()
-      await openFromManage(el, cardSel)
-      expect(el.querySelector(pageSel)).not.toBeNull()
-
-      const { registerModalBackGuard } = await import('./composables/appMenuState.js')
-      registerModalBackGuard(() => true)()   // 登録してすぐ解除
-
-      const btn = navButton(el, navLabel)
-      expect(btn, `nav '${navLabel}' が見つからない`).toBeTruthy()
-      await clickEl(btn)
-      expect(el.querySelector(pageSel)).toBeNull()
-    }, 20000)
-  }
+  // 入出庫の記録の画面（MovementPage）は入口を外した（User 2026-10-04）
 })

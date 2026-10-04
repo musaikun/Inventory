@@ -2,7 +2,8 @@
 //   - 件数はタップで開く（長押しさせない）
 //   - 中の品目を、分類先の並べ替えと同じ手順（カードを長押し → 上下へ運ぶ）で並べ替えられる
 //   - 品目は分類先より数が多いので、上から順にタップするだけの簡易並べ替えも持つ
-// 並びの保存先は config.order。棚卸・発注カードの「分類先の中の並び」はこれがそのまま出る。
+// 並びの保存先は並び替えごとの品目の並び（axisItemOrderA/B）。棚卸・発注カードの「分類先の中の並び」はこれで出る。
+// 品目全体の並び（config.order＝取込ファイルの並び・ジャンルの中の順の元）は動かさない。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -212,8 +213,9 @@ describe('振り分け済みシート — 並び替え', () => {
     expect(rowOf('トマト').querySelector('.af-sheet-off')).toBeNull()
   })
 
-  it('カードを長押しして運ぶと config.order のその分類先の位置だけが入れ替わる', async () => {
+  it('カードを長押しして運ぶと その分類先の位置だけが入れ替わる。品目全体の並びは動かない', async () => {
     await mount()
+    const orderBefore = [...cfg.config.order]
     await openSheetViaChip()
     await click(btn('⇅ 並び替え'))
     await waitFor(() => host.querySelector('.af-sheet-handle'), '並び替えモード')
@@ -237,11 +239,13 @@ describe('振り分け済みシート — 並び替え', () => {
     pointer(list, 'pointerup', 40, 160, 11)
     await nextTick()
 
-    expect(cfg.config.order.filter(n => ['トマト', 'レタス', '人参'].includes(n)))
+    const seq = cfg.axisItemSequence(0)
+    expect(seq.filter(n => ['トマト', 'レタス', '人参'].includes(n)))
       .toEqual(['レタス', '人参', 'トマト'])
     // その分類先に居ない品目は1つも動かない
-    expect(cfg.config.order).toContain('豚バラ')
-    expect(cfg.config.order.length).toBe(5)
+    expect(seq).toContain('豚バラ')
+    expect(seq.length).toBe(5)
+    expect(cfg.config.order).toEqual(orderBefore)
   })
 
   it('掴むまでの間に指が流れたら並べ替えない', async () => {
@@ -305,7 +309,7 @@ describe('振り分け済みシート — タップ順の簡易並び替え', ()
     await tapPick('人参')
     await click(btn('この順で確定'))
 
-    expect(cfg.config.order.filter(n => ['トマト', 'レタス', '人参'].includes(n)))
+    expect(cfg.axisItemSequence(0).filter(n => ['トマト', 'レタス', '人参'].includes(n)))
       .toEqual(['人参', 'トマト', 'レタス'])
     expect(sheetNames()).toEqual(['人参', 'トマト', 'レタス'])
   })
@@ -322,7 +326,7 @@ describe('振り分け済みシート — タップ順の簡易並び替え', ()
     expect(sheetNames()).toEqual(['人参', 'トマト', 'レタス'])
 
     await click(host.querySelector('.af-undobar .af-undo-btn'))
-    expect(cfg.config.order.filter(n => ['トマト', 'レタス', '人参'].includes(n)))
+    expect(cfg.axisItemSequence(0).filter(n => ['トマト', 'レタス', '人参'].includes(n)))
       .toEqual(['トマト', 'レタス', '人参'])
   })
 
