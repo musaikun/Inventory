@@ -2,6 +2,14 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-05 — version 0.141.2 / 本番 apply の「通知の鍵」手順を直す
+
+User報告: Production Backend の apply が失敗。→ D1 の migration と Worker の deploy は成功し、失敗は「Set push notification keys」だけ（新しい経路 `PUT /push/prefs` は本番で応答する。`/api/push/vapid-key` は null のまま）。
+- 原因: 一時ファイル（拡張子なし）を `require()` で読んでいたため JSON が JS として解釈され失敗。鍵の値が空のまま `wrangler secret put` に流れた可能性がある。
+- 修正: 「ある・なし」は secret の一覧ではなく本番の `/api/push/vapid-key` の応答で見る（空の値が入っていても作り直せる）。鍵は `JSON.parse(readFileSync)` で読み、空なら止める。入れた後は最大30秒、応答に鍵が出るまで確かめる。
+- 検証: 鍵を作って読む部分をローカルで実行（公開鍵87文字・秘密鍵43文字、無い項目は exit 1）、workflow の YAML を読み込めることを確認。
+- version: 0.141.1 → **0.141.2**。
+
 ## 2026-10-05 — version 0.141.1 / カレンダーの印を整理
 
 User指示:

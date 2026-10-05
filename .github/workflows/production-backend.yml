@@ -167,8 +167,9 @@ jobs:
           command: deploy
 
       # 通知の鍵（VAPID）が本番に無いと、通知をONにできない（2026-10-05 に判明）。
-      # 無いときだけ作って Worker の secret に入れる。鍵はログに出さない。あれば何もしない
-      # （作り直すと、今まで ON にした端末の購読がすべて使えなくなるため）。
+      # 本番が鍵を返さないときだけ作って Worker の secret に入れる。鍵はログに出さない。
+      # 返しているときは何もしない（作り直すと、今まで ON にした端末の購読がすべて使えなくなるため）。
+      # 「ある・なし」は secret の一覧ではなく本番の応答で見る（空の値が入っていても「なし」と分かる）。
       - name: Set push notification keys (only if missing)
         if: inputs.step == 'apply'
         working-directory: worker
@@ -176,23 +177,29 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          npm ci --no-audit --no-fund
-          # 一覧が取れなければここで止める（取れないまま作ると、今の鍵を上書きしてしまう）
-          LIST=$(npx wrangler secret list)
-          if printf '%s' "$LIST" | grep -q '"VAPID_PUBLIC_KEY"'; then
+          BASE=https://inventory-sync.yuya-takaki.workers.dev
+          if curl -fsS "$BASE/api/push/vapid-key" | grep -q '"key":"'; then
             echo '通知の鍵は設定済み。変更しません。' >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
+          npm ci --no-audit --no-fund
           umask 077
           KEYS=$(mktemp)
           node -e "const wp=require('web-push');require('fs').writeFileSync(process.argv[1],JSON.stringify(wp.generateVAPIDKeys()))" "$KEYS"
-          node -e "process.stdout.write(require(process.argv[1]).publicKey)" "$KEYS" | npx wrangler secret put VAPID_PUBLIC_KEY
-          node -e "process.stdout.write(require(process.argv[1]).privateKey)" "$KEYS" | npx wrangler secret put VAPID_PRIVATE_KEY
+          # 鍵の片方を標準出力へ（空なら止める。空の鍵を secret に入れない）
+          key() { node -e "const k=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))[process.argv[2]];if(!k)process.exit(1);process.stdout.write(k)" "$KEYS" "$1"; }
+          PUB=$(key publicKey)
+          PRIV=$(key privateKey)
           rm -f "$KEYS"
+          printf '%s' "$PUB"  | npx wrangler secret put VAPID_PUBLIC_KEY
+          printf '%s' "$PRIV" | npx wrangler secret put VAPID_PRIVATE_KEY
           echo '通知の鍵を新しく作って設定しました。' >> $GITHUB_STEP_SUMMARY
-          sleep 5
-          curl -fsS https://inventory-sync.yuya-takaki.workers.dev/api/push/vapid-key | grep -q '"key":"' \
-            || { echo '鍵を入れたのに /api/push/vapid-key が空のままです' >&2; exit 1; }
+          for i in 1 2 3 4 5 6; do
+            sleep 5
+            curl -fsS "$BASE/api/push/vapid-key" | grep -q '"key":"' && exit 0
+          done
+          echo '鍵を入れたのに /api/push/vapid-key が空のままです' >&2
+          exit 1
 
       - name: Verify deployed Worker
         if: inputs.step == 'apply'
