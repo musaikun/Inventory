@@ -57,7 +57,7 @@ const testMsg = ref('')
 async function onTest() {
   testMsg.value = '送っています…'
   const r = await sendTestPush()
-  testMsg.value = r === '' ? '送りました。数秒で届きます' : r === 'server' ? '通知を送る準備がサーバーでまだできていません' : '送れませんでした。通信を確かめてください'
+  testMsg.value = r === '' ? '送りました。数秒で届きます' : r
 }
 
 const ROWS = [

@@ -177,15 +177,24 @@ async function _sendPrefs() {
   }
 }
 
-/** この端末へ試しの通知を送る。'' = 送った / それ以外は理由 */
+/**
+ * この端末へ試しの通知を送る。'' = 送った / それ以外は画面に出す理由。
+ * サーバーが理由を返したら（送り先の応答など）それをそのまま出す。原因の切り分けに使う
+ */
 export async function sendTestPush() {
   const code = shopCode.value
   const endpoint = await ownPushEndpoint()
-  if (!code || !endpoint) return 'failed'
+  if (!code || !endpoint) return 'この端末の通知の受け付けが見つかりません。一度OFFにして、もう一度ONにしてください'
   try {
     await apiFetch(`/store/${code}/push/test`, { method: 'POST', body: JSON.stringify({ endpoint }) })
     return ''
   } catch (e) {
-    return e?.status === 503 ? 'server' : 'failed'
+    if (e?.status === 404 || e?.status === 410) {
+      // サーバーにこの端末の受け付けが無い（消えた）。ONの表示を下ろして、ONにし直してもらう
+      pushSubscribed.value = false
+      try { localStorage.removeItem(_KEY) } catch (_) {}
+    }
+    if (e?.status && e?.message && !/^HTTP \d+$/.test(e.message)) return e.message
+    return '送れませんでした。通信を確かめてください'
   }
 }

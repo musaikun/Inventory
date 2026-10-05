@@ -1,4 +1,4 @@
-import webpush from 'web-push'
+import { sendWebPush } from './webPush.js'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
 import { normalizePrefs, parsePrefs, planNotifications, jstParts, SENT_KEEP_DAYS } from './pushPlan.js'
@@ -51,30 +51,28 @@ function _validatePushSubscription(sub) {
   return { endpoint, p256dh: keys.p256dh, auth: keys.auth }
 }
 
-function _initVapid(env) {
-  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return false
-  webpush.setVapidDetails(
-    env.VAPID_SUBJECT || 'mailto:support@tanaoro.com',
-    env.VAPID_PUBLIC_KEY,
-    env.VAPID_PRIVATE_KEY
-  )
-  return true
+function _vapid(env) {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return null
+  return { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:support@tanaoro.com' }
 }
 
+/**
+ * 1件送る。戻り値は送り先（FCM・Apple など）の HTTP 状態コード。送れなかったら 0。
+ * 404/410 は購読が消えている（アプリの削除・許可の取り消し）ので、こちらでも消す。
+ */
 async function _send(env, sub, payload) {
-  if (!_initVapid(env)) return false
+  const vapid = _vapid(env)
+  if (!vapid) return 0
   try {
-    await webpush.sendNotification(
-      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify(payload),
-      { TTL: 60 * 60 * 24 }
-    )
-    return true
-  } catch (err) {
-    if (err.statusCode === 404 || err.statusCode === 410) {
+    const status = await sendWebPush(sub, payload, vapid)
+    if (status === 404 || status === 410) {
       await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(sub.endpoint).run()
     }
-    return false
+    if (status >= 300) console.warn('[push] send rejected:', status, new URL(sub.endpoint).host)
+    return status
+  } catch (err) {
+    console.warn('[push] send failed:', err?.message ?? err)
+    return 0
   }
 }
 
@@ -143,8 +141,12 @@ export async function sendTestPush(env, shopCode, body) {
   const sub = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND endpoint = ?')
     .bind(shopCode, endpoint).first()
   if (!sub) return { _status: 404, code: 'not_subscribed', error: 'この端末は通知を受け取る設定になっていません' }
-  const ok = await _send(env, sub, { title: 'タナオロ', body: '通知のテストです。この端末で受け取れています🔔', tag: 'test', url: '/' })
-  return ok ? { ok: true } : { _status: 502, code: 'push_failed', error: '通知を送れませんでした' }
+  const status = await _send(env, sub, { title: 'タナオロ', body: '通知のテストです。この端末で受け取れています🔔', tag: 'test', url: '/' })
+  if (status >= 200 && status < 300) return { ok: true }
+  if (status === 404 || status === 410) {
+    return { _status: 410, code: 'subscription_gone', error: 'この端末の通知の受け付けが無効になっていました。もう一度ONにしてください' }
+  }
+  return { _status: 502, code: 'push_failed', error: `通知を送れませんでした（送り先の応答 ${status || 'なし'}）` }
 }
 
 export async function handleCron(env) {

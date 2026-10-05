@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-05 — version 0.141.5 / 通知の送信を Workers で動く形に（web-push をやめる）
+
+User報告: ONにはできたが、テストの通知で「送れませんでした。通信を確かめてください」。
+- 原因: Worker の送信に使っていた npm の `web-push` は Node の `crypto.createECDH`・`https` に頼り、Cloudflare Workers（nodejs_compat）では送れない。本番に VAPID 鍵が無かったため、送信はこれまで一度も走っておらず気づかなかった（やることの追加通知・月末通知も同じく届いていなかった）。
+- 修正: `worker/src/webPush.js` に WebCrypto だけの送信（RFC 8291 aes128gcm 暗号化・RFC 8292 VAPID の ES256 JWT）を書き、`pushHandler` の送信をこれに置き換えた。404/410 は購読を消す。テスト送信は送り先の応答コードを理由に載せ、端末側はサーバーの理由をそのまま出す（受け付けが消えていたら ON を下ろす）。`web-push` は鍵の生成（本番 apply の手順）とテストでだけ使う。
+- 検証: `webPush.test.js`（http_ece で復号・jws で JWT を検証・POST の見出し）、Worker 全件 pass。`wrangler dev --local`（workerd）で暗号化と JWT を作り、node の http_ece で復号できることを確認。App 全件 pass、build 成功。
+- 本番反映: Worker の変更なので User の `Production Backend` apply が必要（migration は無し）。
+- version: 0.141.4 → **0.141.5**。
+
 ## 2026-10-05 — version 0.141.4 / Service Worker が入らない（通知をONにできない）原因を直す
 
 User報告（Android・再起動後も）: 通知をONにすると「アプリの準備が終わっていませんでした」（0.141.3 で足した timeout-sw）。

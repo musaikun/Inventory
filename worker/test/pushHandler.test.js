@@ -3,15 +3,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import webpush from 'web-push'
+import { sendWebPush } from '../src/webPush.js'
 import { deletePushSubscription, handleCron, savePushSubscription } from '../src/pushHandler.js'
 
-vi.mock('web-push', () => ({
-  default: {
-    setVapidDetails: vi.fn(),
-    sendNotification: vi.fn().mockResolvedValue({}),
-  },
-}))
+// 送信そのもの（暗号化・VAPID）は src/webPush.test.js で確かめる。ここは何を誰に送るか
+vi.mock('../src/webPush.js', () => ({ sendWebPush: vi.fn(async () => 201) }))
 
 const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url))
 
@@ -124,13 +120,13 @@ describe('handleCron', () => {
       VAPID_PRIVATE_KEY: 'test-private-key',
     })
 
-    expect(webpush.sendNotification).toHaveBeenCalledTimes(1)
-    const payload = JSON.parse(webpush.sendNotification.mock.calls[0][1])
+    expect(sendWebPush).toHaveBeenCalledTimes(1)
+    const payload = sendWebPush.mock.calls[0][1]
     expect(payload.tag).toBe('stale-session')
 
     // 次の時間（毎時の cron）でも、同じ途中の棚卸には二度送らない
     await handleCron({ DB: current.db, VAPID_PUBLIC_KEY: 'test-public-key', VAPID_PRIVATE_KEY: 'test-private-key' })
-    expect(webpush.sendNotification).toHaveBeenCalledTimes(1)
+    expect(sendWebPush).toHaveBeenCalledTimes(1)
   })
 
   it('端末ごとの設定で送る（やることの前日・発注の締切）。オフの種類は送らない', async () => {
@@ -148,7 +144,7 @@ describe('handleCron', () => {
       .run(JSON.stringify({ orderSchedules: [{ id: 'v', name: '青果', days: [1], deadline: '15:00' }] }))
 
     await handleCron({ DB: current.db, VAPID_PUBLIC_KEY: 'k', VAPID_PRIVATE_KEY: 'k' })
-    const sent = webpush.sendNotification.mock.calls.map(c => [c[0].endpoint, JSON.parse(c[1]).body])
+    const sent = sendWebPush.mock.calls.map(c => [c[0].endpoint, c[1].body])
     expect(sent).toEqual([
       ['https://push.example/a', '明日のやること：霜取り'],
       ['https://push.example/a', '「青果」の発注の締切は 15:00 です（あと1時間）🧾'],
