@@ -18,7 +18,7 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
-import { savePushSubscription, deletePushSubscription, handleCron, notifyTaskAdded } from './pushHandler.js'
+import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded } from './pushHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
   MAX_PDF_BYTES,
@@ -327,6 +327,18 @@ export default {
           const result = request.method === 'POST'
             ? await savePushSubscription(env.DB, code, parsed.body)
             : await deletePushSubscription(env.DB, code, parsed.body?.endpoint)
+          return resultResponse(result, origin, allowedOrigin)
+        }
+
+        // PUT /store/:code/push/prefs … この端末の通知の設定 / POST /store/:code/push/test … 試しの通知
+        if ((subpath === '/push/prefs' && request.method === 'PUT') || (subpath === '/push/test' && request.method === 'POST')) {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const parsed = await _readJsonBodyWithLimit(request, MAX_PUSH_SUBSCRIPTION_BYTES)
+          if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
+          const result = subpath === '/push/prefs'
+            ? await savePushPrefs(env.DB, code, parsed.body)
+            : await sendTestPush(env, code, parsed.body)
           return resultResponse(result, origin, allowedOrigin)
         }
 

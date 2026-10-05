@@ -125,6 +125,7 @@ function createMockD1({ failTables = [] } = {}) {
       if (index >= 0) pushSubscriptions.splice(index, 1)
       return { success: true, meta: { changes: index >= 0 ? 1 : 0 } }
     }
+    if (s.startsWith('DELETE FROM push_sent')) return { success: true, meta: { changes: 0 } }
     if (s.startsWith('INSERT INTO store_configs')) {
       configs[args[0]] = args[1]
       return { success: true }

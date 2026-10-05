@@ -101,9 +101,9 @@ describe('handleCron', () => {
     })).resolves.toBeUndefined()
   })
 
-  it('active sessionは開始から24時間超・7日以内だけ再開通知する', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-07-25T03:00:00.000Z'))
+  it('active sessionは開始から24時間超・7日以内だけ再開通知する（選んだ時刻＝既定のJST 9時に、1回だけ）', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-25T00:00:00.000Z'))
     const current = createD1FromCurrentSchema()
     sqlite = current.sqlite
     sqlite.exec(`
@@ -127,6 +127,32 @@ describe('handleCron', () => {
     expect(webpush.sendNotification).toHaveBeenCalledTimes(1)
     const payload = JSON.parse(webpush.sendNotification.mock.calls[0][1])
     expect(payload.tag).toBe('stale-session')
+
+    // 次の時間（毎時の cron）でも、同じ途中の棚卸には二度送らない
+    await handleCron({ DB: current.db, VAPID_PUBLIC_KEY: 'test-public-key', VAPID_PRIVATE_KEY: 'test-private-key' })
+    expect(webpush.sendNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('端末ごとの設定で送る（やることの前日・発注の締切）。オフの種類は送らない', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T05:00:00.000Z'))   // JST 14:00（月曜）
+    const current = createD1FromCurrentSchema()
+    sqlite = current.sqlite
+    const prefs = JSON.stringify({ hour: 14, monthEnd: { on: false }, gap: { on: false }, stale: { on: false },
+      taskDay: { on: true, days: [1] }, orderDeadline: { on: true, mins: [60] } })
+    sqlite.prepare(`INSERT INTO stores (shop_code, created_at, updated_at) VALUES ('ABCDEF', '2026-07-25T03:00:00.000Z', '2026-07-25T03:00:00.000Z')`).run()
+    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json) VALUES ('ABCDEF', 'https://push.example/a', 'p', 'a', ?)`).run(prefs)
+    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json) VALUES ('ABCDEF', 'https://push.example/b', 'p', 'a', ?)`).run(JSON.stringify({ hour: 20 }))
+    sqlite.prepare(`INSERT INTO tasks (id, shop_code, task_date, body, created_at, updated_at) VALUES ('t1', 'ABCDEF', '2026-10-06', '霜取り', 'x', 'x')`).run()
+    sqlite.prepare(`INSERT INTO store_configs (shop_code, config_json, updated_at) VALUES ('ABCDEF', ?, 'x')`)
+      .run(JSON.stringify({ orderSchedules: [{ id: 'v', name: '青果', days: [1], deadline: '15:00' }] }))
+
+    await handleCron({ DB: current.db, VAPID_PUBLIC_KEY: 'k', VAPID_PRIVATE_KEY: 'k' })
+    const sent = webpush.sendNotification.mock.calls.map(c => [c[0].endpoint, JSON.parse(c[1]).body])
+    expect(sent).toEqual([
+      ['https://push.example/a', '明日のやること：霜取り'],
+      ['https://push.example/a', '「青果」の発注の締切は 15:00 です（あと1時間）🧾'],
+    ])
   })
 })
 

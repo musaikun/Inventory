@@ -50,3 +50,4 @@ apply_if_missing 0017_session_audit.sql      session_audit
 apply_if_missing 0018_discarded_sessions.sql discarded_sessions
 apply_if_missing 0019_movement_void.sql      idx_movements_deleted
 apply_if_missing 0020_tasks.sql              idx_tasks_date
+apply_if_missing 0021_push_prefs.sql         idx_push_sent_at

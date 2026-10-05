@@ -1,6 +1,7 @@
 import webpush from 'web-push'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
+import { normalizePrefs, parsePrefs, planNotifications, jstParts, SENT_KEEP_DAYS } from './pushPlan.js'
 
 const MAX_PUSH_ENDPOINT_CHARS = 2048
 
@@ -61,17 +62,19 @@ function _initVapid(env) {
 }
 
 async function _send(env, sub, payload) {
-  if (!_initVapid(env)) return
+  if (!_initVapid(env)) return false
   try {
     await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
       JSON.stringify(payload),
       { TTL: 60 * 60 * 24 }
     )
+    return true
   } catch (err) {
     if (err.statusCode === 404 || err.statusCode === 410) {
       await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(sub.endpoint).run()
     }
+    return false
   }
 }
 
@@ -87,15 +90,18 @@ export async function savePushSubscription(db, shopCode, sub) {
     return { _status: 409, code: 'subscription_conflict', error: 'このPush購読は別の店舗に登録されています' }
   }
 
+  // 通知の設定（端末ごと）。送られてこなければ今の設定を残す（古い端末は送らない）
+  const prefsJson = sub.prefs !== undefined ? JSON.stringify(normalizePrefs(sub.prefs)) : null
   const result = await db.prepare(`
-    INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(endpoint) DO UPDATE SET
       p256dh     = excluded.p256dh,
       auth       = excluded.auth,
+      prefs_json = COALESCE(excluded.prefs_json, push_subscriptions.prefs_json),
       updated_at = datetime('now')
     WHERE push_subscriptions.shop_code = excluded.shop_code
-  `).bind(shopCode, validated.endpoint, validated.p256dh, validated.auth).run()
+  `).bind(shopCode, validated.endpoint, validated.p256dh, validated.auth, prefsJson).run()
   if (Number(result?.meta?.changes ?? 1) === 0) {
     return { _status: 409, code: 'subscription_conflict', error: 'このPush購読は別の店舗に登録されています' }
   }
@@ -109,7 +115,36 @@ export async function deletePushSubscription(db, shopCode, endpoint) {
   }
   await db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ? AND endpoint = ?')
     .bind(shopCode, normalized).run()
+  await db.prepare('DELETE FROM push_sent WHERE endpoint = ? AND NOT EXISTS (SELECT 1 FROM push_subscriptions WHERE endpoint = ?)')
+    .bind(normalized, normalized).run()
   return { ok: true }
+}
+
+/** PUT /store/:code/push/prefs … この端末の通知の設定を変える（購読済みの端末だけ） */
+export async function savePushPrefs(db, shopCode, body) {
+  const endpoint = _normalizePushEndpoint(body?.endpoint)
+  if (!endpoint) return { _status: 400, code: 'invalid_subscription', error: 'Push購読情報が不正です' }
+  const prefs = normalizePrefs(body?.prefs)
+  const result = await db.prepare('UPDATE push_subscriptions SET prefs_json = ?, updated_at = datetime(\'now\') WHERE shop_code = ? AND endpoint = ?')
+    .bind(JSON.stringify(prefs), shopCode, endpoint).run()
+  if (Number(result?.meta?.changes ?? 0) === 0) {
+    return { _status: 404, code: 'not_subscribed', error: 'この端末は通知を受け取る設定になっていません' }
+  }
+  return { ok: true, prefs }
+}
+
+/** POST /store/:code/push/test … この端末へ試しの通知を1件送る */
+export async function sendTestPush(env, shopCode, body) {
+  const endpoint = _normalizePushEndpoint(body?.endpoint)
+  if (!endpoint) return { _status: 400, code: 'invalid_subscription', error: 'Push購読情報が不正です' }
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+    return { _status: 503, code: 'push_not_configured', error: '通知を送る準備がサーバーでできていません' }
+  }
+  const sub = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND endpoint = ?')
+    .bind(shopCode, endpoint).first()
+  if (!sub) return { _status: 404, code: 'not_subscribed', error: 'この端末は通知を受け取る設定になっていません' }
+  const ok = await _send(env, sub, { title: 'タナオロ', body: '通知のテストです。この端末で受け取れています🔔', tag: 'test', url: '/' })
+  return ok ? { ok: true } : { _status: 502, code: 'push_failed', error: '通知を送れませんでした' }
 }
 
 export async function handleCron(env) {
@@ -127,89 +162,73 @@ export async function handleCron(env) {
       error: error?.message ?? String(error),
     }))
   }
-  if (!env.VAPID_PUBLIC_KEY) return
-
-  const now  = new Date()
-  // JST = UTC+9
-  const jst  = new Date(now.getTime() + 9 * 3600 * 1000)
-  const jstDay   = jst.getUTCDate()
-  const jstMonth = jst.getUTCMonth() + 1
-  const jstYear  = jst.getUTCFullYear()
-
-  const lastDayOfMonth = new Date(jstYear, jstMonth, 0).getDate()
-  const isMonthEnd     = jstDay === lastDayOfMonth
-
-  const { results: subs } = await env.DB.prepare(`
-    SELECT ps.shop_code, ps.endpoint, ps.p256dh, ps.auth,
-           (SELECT MAX(ended_at) FROM sessions WHERE shop_code = ps.shop_code AND status = 'completed') AS last_completed_at,
-           s.created_at AS store_created_at
-    FROM push_subscriptions ps
-    LEFT JOIN stores s ON s.shop_code = ps.shop_code
-  `).all()
-
-  for (const sub of (subs ?? [])) {
-    if (isMonthEnd) {
-      await _send(env, sub, {
-        title: 'タナオロ',
-        body:  '本日が月末です。タナオロで棚卸を開始しましょう📋',
-        tag:   'month-end',
-        url:   '/',
-      })
-      continue
-    }
-
-    const lastAt      = sub.last_completed_at ? new Date(sub.last_completed_at) : null
-    const createdAt   = sub.store_created_at  ? new Date(sub.store_created_at)  : null
-    const daysSinceLast   = lastAt    ? Math.floor((now - lastAt)    / 86400000) : null
-    const daysSinceCreate = createdAt ? Math.floor((now - createdAt) / 86400000) : null
-
-    if (!lastAt && daysSinceCreate === 7) {
-      await _send(env, sub, {
-        title: 'タナオロ',
-        body:  'タナオロを試してみましょう✨ 品目リストがなくても今すぐ棚卸を始められます',
-        tag:   'onboarding',
-        url:   '/',
-      })
-      continue
-    }
-
-    if (daysSinceLast === 25) {
-      await _send(env, sub, {
-        title: 'タナオロ',
-        body:  '今月の棚卸はもうすぐです📋 タナオロで棚卸を始めましょう',
-        tag:   'reminder',
-        url:   '/',
-      })
-    } else if (daysSinceLast === 32) {
-      await _send(env, sub, {
-        title: 'タナオロ',
-        body:  '棚卸が遅れています⚠️ 前回から32日が経ちました',
-        tag:   'reminder',
-        url:   '/',
-      })
-    }
+  try {
+    await env.DB.prepare('DELETE FROM push_sent WHERE sent_at < datetime(\'now\', ?)').bind(`-${SENT_KEEP_DAYS} days`).run()
+  } catch (error) {
+    console.warn('[push] sent-mark cleanup failed:', error?.message ?? error)
   }
+  if (!env.VAPID_PUBLIC_KEY) return
+  try {
+    await sendScheduledPushes(env, new Date())
+  } catch (error) {
+    console.error('[push] scheduled send failed:', error?.message ?? error)
+  }
+}
 
-  // 途中セッション再開通知。
-  // D1 sessionsに最終操作時刻はないため、正として保存されるstarted_atを基準にする。
-  // 開始から24時間超・7日以内のactive sessionだけを対象にする。
-  const { results: stale } = await env.DB.prepare(`
-    SELECT s.shop_code, ps.endpoint, ps.p256dh, ps.auth
-    FROM sessions s
-    JOIN push_subscriptions ps ON ps.shop_code = s.shop_code
-    WHERE s.status = 'active'
-      AND s.deleted_at IS NULL
-      AND s.started_at < datetime('now', '-24 hours')
-      AND s.started_at > datetime('now', '-7 days')
-  `).all()
-
-  for (const row of (stale ?? [])) {
-    await _send(env, row, {
-      title: 'タナオロ',
-      body:  '棚卸が途中のままです🔖 続きからすぐ再開できます',
-      tag:   'stale-session',
-      url:   '/',
-    })
+/**
+ * 毎時の通知（User決定 2026-10-05）。端末ごとの設定（prefs_json）で、いま送るものを決めて送る。
+ * 同じ通知は push_sent の印で一度だけ。店舗のデータは、その店に今送るものがありそうなときだけ読む。
+ */
+export async function sendScheduledPushes(env, now) {
+  const db = env.DB
+  const t = jstParts(now)
+  const { results: rows } = await db.prepare(
+    'SELECT shop_code, endpoint, p256dh, auth, prefs_json FROM push_subscriptions',
+  ).all()
+  const byShop = new Map()
+  for (const r of rows ?? []) {
+    const prefs = parsePrefs(r.prefs_json)
+    if (prefs.hour !== t.hour && !prefs.orderDeadline.on) continue
+    if (!byShop.has(r.shop_code)) byShop.set(r.shop_code, [])
+    byShop.get(r.shop_code).push({ sub: r, prefs })
+  }
+  const until = new Date(Date.UTC(t.y, t.m - 1, t.d + 7)).toISOString().slice(0, 10)
+  for (const [shop, list] of byShop) {
+    const daily = list.some(x => x.prefs.hour === t.hour)
+    const order = list.some(x => x.prefs.orderDeadline.on)
+    let lastCompletedAt = null, staleSessionIds = [], openTasks = [], schedules = []
+    if (daily) {
+      const last = await db.prepare(
+        "SELECT MAX(ended_at) AS at FROM sessions WHERE shop_code = ? AND status = 'completed' AND type = 'stock' AND deleted_at IS NULL AND import_batch_id IS NULL",
+      ).bind(shop).first()
+      lastCompletedAt = last?.at ?? null
+      const { results: stale } = await db.prepare(`
+        SELECT id FROM sessions
+        WHERE shop_code = ? AND status = 'active' AND deleted_at IS NULL
+          AND started_at < datetime('now', '-24 hours') AND started_at > datetime('now', '-7 days')
+      `).bind(shop).all()
+      staleSessionIds = (stale ?? []).map(r => r.id)
+      const { results: tasks } = await db.prepare(`
+        SELECT task_date, body FROM tasks
+        WHERE shop_code = ? AND task_date >= ? AND task_date <= ? AND done_at IS NULL AND deleted_at IS NULL
+        ORDER BY created_at
+      `).bind(shop, t.key, until).all()
+      openTasks = (tasks ?? []).map(r => ({ date: r.task_date, text: r.body }))
+    }
+    if (order) {
+      const cfg = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(shop).first()
+      try { schedules = JSON.parse(cfg?.config_json ?? '{}')?.orderSchedules ?? [] } catch (_) { schedules = [] }
+      if (!Array.isArray(schedules)) schedules = []
+    }
+    for (const { sub, prefs } of list) {
+      const plan = planNotifications({ now, prefs, lastCompletedAt, staleSessionIds, openTasks, schedules })
+      for (const n of plan) {
+        const mark = await db.prepare('INSERT OR IGNORE INTO push_sent (endpoint, sent_key) VALUES (?, ?)')
+          .bind(sub.endpoint, n.key).run()
+        if (Number(mark?.meta?.changes ?? 0) === 0) continue   // もう送った
+        await _send(env, sub, n.payload)
+      }
+    }
   }
 }
 
@@ -220,13 +239,14 @@ export async function handleCron(env) {
 export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') {
   if (!env.DB || !env.VAPID_PUBLIC_KEY) return
   const { results: subs } = await env.DB.prepare(
-    'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ?',
+    'SELECT endpoint, p256dh, auth, prefs_json FROM push_subscriptions WHERE shop_code = ?',
   ).bind(shopCode).all()
   const who = task?.createdBy ? `${task.createdBy}さん` : 'だれか'
   const [, m, d] = String(task?.date ?? '').split('-').map(Number)
   const when = m && d ? `${m}/${d} ` : ''
   for (const sub of (subs ?? [])) {
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
+    if (!parsePrefs(sub.prefs_json).taskAdded.on) continue
     await _send(env, sub, {
       title: 'タナオロ',
       body:  `${who}がやることを追加しました：${when}${task?.text ?? ''}`,

@@ -87,6 +87,8 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM tasks WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),
+    // 送った通知の印（migration 0021）。購読より先に消す（端末で引くため）
+    db.prepare('DELETE FROM push_sent WHERE endpoint IN (SELECT endpoint FROM push_subscriptions WHERE shop_code = ?)').bind(shopCode),
     db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM auth_tokens WHERE shop_code = ?').bind(shopCode),

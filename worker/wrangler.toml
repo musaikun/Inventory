@@ -47,10 +47,9 @@ bucket_name = "inventory-images"
 tag = "v1"
 new_sqlite_classes = ["RoomDO"]
 
-# Cronトリガー（毎日JST 10:00 = UTC 01:00）
-# プッシュ通知の送信タイミング
+# Cronトリガー（毎時0分）。通知は端末ごとに選んだ時刻・発注の締切の前に送る（User決定 2026-10-05）
 [triggers]
-crons = ["0 1 * * *"]
+crons = ["0 * * * *"]
 
 # Pro機能確認専用。productionとはWorker、D1、Durable Objectsを分離する。
 # cronとVAPID secretsは継承しないため、review環境からPush通知は送らない。

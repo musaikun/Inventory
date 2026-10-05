@@ -1,12 +1,35 @@
 import { ref } from 'vue'
 import { shopCode } from './useStore.js'
 import { HTTP_BASE, apiFetch } from '../utils/api.js'
+import { normalizePrefs } from '../services/notifyPrefs.js'
 
 const _KEY = 'tanaoro_push_subscribed'
+const _PREFS_KEY = 'tanaoro_push_prefs'
 
 export const pushSubscribed = ref(localStorage.getItem(_KEY) === '1')
 export const pushLoading    = ref(false)
 export const pushSupported  = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+// ONにできなかった理由（画面に出す）。'' | 'blocked' | 'server' | 'failed'
+export const pushError      = ref('')
+
+function _loadPrefs() {
+  try { return normalizePrefs(JSON.parse(localStorage.getItem(_PREFS_KEY) || 'null')) } catch (_) { return normalizePrefs(null) }
+}
+/** この端末の通知の設定（受け取る種類・時刻）。サーバーにも同じものを置く */
+export const pushPrefs = ref(_loadPrefs())
+
+/** iPhone・iPad で、ホーム画面に追加せずブラウザで開いている（このときは通知を受け取れない） */
+export function isIosBrowserTab() {
+  const ua = navigator.userAgent || ''
+  const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1)
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true
+  return ios && !standalone
+}
+
+/** 通知の許可が端末側で拒否されている（もう一度ONを押しても許可を求められない） */
+export function isPushBlocked() {
+  return pushSupported && Notification.permission === 'denied'
+}
 
 function _urlBase64ToUint8Array(base64) {
   const pad = '='.repeat((4 - base64.length % 4) % 4)
@@ -18,12 +41,13 @@ function _urlBase64ToUint8Array(base64) {
 export async function subscribePush() {
   if (!pushSupported) return false
   pushLoading.value = true
+  pushError.value = ''
   try {
     const permission = await Notification.requestPermission()
-    if (permission !== 'granted') return false
+    if (permission !== 'granted') { pushError.value = 'blocked'; return false }
 
     const { key } = await apiFetch('/api/push/vapid-key')
-    if (!key) return false
+    if (!key) { pushError.value = 'server'; return false }
 
     const reg = await navigator.serviceWorker.ready
     const sub = await reg.pushManager.subscribe({
@@ -35,7 +59,7 @@ export async function subscribePush() {
     if (code) {
       await apiFetch(`/store/${code}/push/subscribe`, {
         method: 'POST',
-        body:   JSON.stringify(sub.toJSON()),
+        body:   JSON.stringify({ ...sub.toJSON(), prefs: pushPrefs.value }),
       })
     }
 
@@ -43,6 +67,7 @@ export async function subscribePush() {
     localStorage.setItem(_KEY, '1')
     return true
   } catch (_) {
+    pushError.value = 'failed'
     return false
   } finally {
     pushLoading.value = false
@@ -103,4 +128,40 @@ export async function ownPushEndpoint() {
     const sub = reg ? await reg.pushManager.getSubscription() : null
     return sub?.endpoint ?? ''
   } catch (_) { return '' }
+}
+
+let _prefsTimer = null
+/**
+ * 通知の設定を変える。端末に覚え、通知を受け取っている端末ならサーバーへも送る（続けて触っても1回にまとめる）。
+ */
+export function updatePushPrefs(next) {
+  pushPrefs.value = normalizePrefs(next)
+  try { localStorage.setItem(_PREFS_KEY, JSON.stringify(pushPrefs.value)) } catch (_) {}
+  if (!pushSubscribed.value) return
+  clearTimeout(_prefsTimer)
+  _prefsTimer = setTimeout(_sendPrefs, 600)
+}
+async function _sendPrefs() {
+  const code = shopCode.value
+  const endpoint = await ownPushEndpoint()
+  if (!code || !endpoint) return
+  try {
+    await apiFetch(`/store/${code}/push/prefs`, { method: 'PUT', body: JSON.stringify({ endpoint, prefs: pushPrefs.value }) })
+  } catch (e) {
+    // サーバーがこの購読を知らない（消えた・別の端末から解除した）ときは、もう一度購読し直す
+    if (e?.status === 404) await subscribePush()
+  }
+}
+
+/** この端末へ試しの通知を送る。'' = 送った / それ以外は理由 */
+export async function sendTestPush() {
+  const code = shopCode.value
+  const endpoint = await ownPushEndpoint()
+  if (!code || !endpoint) return 'failed'
+  try {
+    await apiFetch(`/store/${code}/push/test`, { method: 'POST', body: JSON.stringify({ endpoint }) })
+    return ''
+  } catch (e) {
+    return e?.status === 503 ? 'server' : 'failed'
+  }
 }

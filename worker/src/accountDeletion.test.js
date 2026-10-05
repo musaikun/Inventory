@@ -33,6 +33,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
     session_audit: [],           // 操作ログ（migration 0017）
     discarded_sessions: [],      // 破棄して24時間取り戻せるセッション（migration 0018）
     tasks: [],                   // カレンダーのやること（migration 0020）
+    push_sent: [],               // 送った通知の印（migration 0021）
     account_deletion_receipts: [],
   }
   let shouldFailBatch = failBatchOnce
@@ -106,6 +107,10 @@ function createMockD1({ failBatchOnce = false } = {}) {
       store.deletion_pending_at = pendingAt
       store.deletion_request_id = requestId
       return result(1)
+    }
+    if (s.startsWith('DELETE FROM push_sent WHERE endpoint IN (SELECT endpoint FROM push_subscriptions WHERE shop_code = ?)')) {
+      const eps = new Set(state.push_subscriptions.filter(r => r.shop_code === args[0]).map(r => r.endpoint))
+      return removeWhere(state.push_sent, row => eps.has(row.endpoint))
     }
     const shopDelete = s.match(/^DELETE FROM (\w+) WHERE shop_code = \?$/)
     if (shopDelete) {

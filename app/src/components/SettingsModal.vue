@@ -13,7 +13,7 @@ import {
   listRecipes, saveRecipe, deleteRecipe, suggestRecipeName,
 } from '../composables/importRecipes.js'
 import ItemImportPreviewModal from './ItemImportPreviewModal.vue'
-import { pushSubscribed, pushLoading, pushSupported, subscribePush, unsubscribePush } from '../composables/usePush.js'
+import NotifySettings from './NotifySettings.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { runBusy } from '../composables/useBusy.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
@@ -53,7 +53,7 @@ async function onWeatherOn() {
 }
 function onWeatherOff() { disableWeather(); markWeatherAsked(); weatherError.value = '' }
 const sheetTitle = computed(() => ({
-  import: '品目のインポート', device: '端末名', push: 'プッシュ通知', general: '各種設定',
+  import: '品目のインポート', device: '端末名', push: '通知', general: '各種設定',
 }[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)
@@ -563,20 +563,10 @@ function onDownloadTemplate() {
         </div>
       </div>
 
-      <!-- プッシュ通知 -->
-      <div v-if="pushSupported && _show('push')" class="notif-section">
-        <div class="device-label">棚卸リマインダー通知</div>
-        <div class="notif-row">
-          <span class="notif-desc">
-            {{ pushSubscribed ? '月末・棚卸リマインダーを受信します' : '棚卸のリマインダーを通知で受け取れます' }}
-          </span>
-          <button
-            class="notif-toggle"
-            :class="{ on: pushSubscribed }"
-            :disabled="pushLoading"
-            @click="pushSubscribed ? unsubscribePush() : subscribePush()"
-          >{{ pushSubscribed ? 'ON' : 'OFF' }}</button>
-        </div>
+      <!-- 通知（端末ごと。月末・やること・発注の締切など・User決定 2026-10-05） -->
+      <div v-if="_show('push')" class="notif-section">
+        <div class="device-label">通知</div>
+        <NotifySettings />
       </div>
 
       <!-- カレンダーの天気（初めてカレンダーを開いたときに一度だけ訊く。変更はここから・User決定 2026-10-04） -->
