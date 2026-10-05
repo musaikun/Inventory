@@ -5,7 +5,7 @@ import { createApp, h, nextTick } from 'vue'
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(), setAuthInvalidatedHandler: vi.fn() }))
 
 let app = null, host = null, api = null
-const tick = async () => { for (let i = 0; i < 4; i++) await nextTick() }
+const tick = async () => { for (let i = 0; i < 12; i++) await nextTick() }
 const click = async el => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
 const sw = label => host.querySelector(`.ns-sw[aria-label="${label}"]`)
 const itemOf = title => [...host.querySelectorAll('.ns-item')].find(i => i.querySelector('b').textContent === title)
@@ -13,7 +13,7 @@ const chip = (title, label) => [...itemOf(title).querySelectorAll('.ns-chip')].f
 
 const sub = { endpoint: 'https://push.example/me', toJSON: () => ({ endpoint: 'https://push.example/me', keys: { p256dh: 'p', auth: 'a' } }) }
 function pushEnv(permission = 'granted') {
-  const reg = { pushManager: { subscribe: vi.fn(async () => sub), getSubscription: vi.fn(async () => sub) } }
+  const reg = { active: {}, pushManager: { subscribe: vi.fn(async () => sub), getSubscription: vi.fn(async () => sub) } }
   Object.defineProperty(globalThis.navigator, 'serviceWorker', { value: { ready: Promise.resolve(reg), getRegistration: async () => reg }, configurable: true })
   vi.stubGlobal('PushManager', function PushManager() {})
   const N = function Notification() {}
@@ -49,6 +49,24 @@ describe('通知の設定', () => {
     expect(sw('この端末で通知を受け取る').getAttribute('aria-checked')).toBe('false')
   })
 
+  it('アプリの準備（Service Worker）が終わらないときは、止まらずに理由を出す。登録が無ければ登録し直す', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    pushEnv()
+    const register = vi.fn(async () => ({ active: null, pushManager: {} }))
+    Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+      value: { ready: new Promise(() => {}), getRegistration: async () => undefined, register }, configurable: true,
+    })
+    await mount()
+    api.mockImplementation(async path => (path === '/api/push/vapid-key' ? { key: 'BAAA' } : {}))
+    await click(sw('この端末で通知を受け取る'))
+    expect(host.querySelector('.ns-state').textContent).toContain('設定しています')
+    await vi.advanceTimersByTimeAsync(16000)
+    await tick()
+    expect(register).toHaveBeenCalled()
+    expect(host.querySelector('.ns-state.warn').textContent).toContain('一度閉じて開き直して')
+    expect(sw('この端末で通知を受け取る').getAttribute('aria-checked')).toBe('false')
+  })
+
   it('端末で通知がブロックされていると、その外し方を出す', async () => {
     pushEnv('denied')
     await mount()
@@ -61,6 +79,7 @@ describe('通知の設定', () => {
     await mount()
     api.mockImplementation(async path => (path === '/api/push/vapid-key' ? { key: 'BAAA' } : {}))
     await click(sw('この端末で通知を受け取る'))
+    await vi.advanceTimersByTimeAsync(0); await tick()
     const subCall = api.mock.calls.find(c => c[0] === '/store/ABCDEF/push/subscribe')
     expect(JSON.parse(subCall[1].body).prefs.monthEnd).toEqual({ on: true, days: [0, 1] })
     expect(host.querySelector('.ns-state').textContent).toContain('この端末で受け取ります')

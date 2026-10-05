@@ -2,6 +2,14 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-05 — version 0.141.3 / 通知のONが「設定しています…」のまま止まる
+
+User報告: 本番 apply 後（`/api/push/vapid-key` は鍵を返す）、通知をONにすると「設定しています…」から進まない。
+- 推定原因: `navigator.serviceWorker.ready` は Service Worker の登録が無い（または入れ替え・インストールに失敗した）と永久に返らない。各種設定の「キャッシュを削除」は登録を外すので、その後や更新の途中で起きうる。許可の確認・購読・通信にも上限が無かった。
+- 修正: 各段に時間の上限（許可60秒・準備15秒・購読20秒・通信15秒）。登録が無ければ `sw.js` を登録し直してから待つ。止まった段ごとに理由を出す（例「タナオロを一度閉じて開き直してから」）。解除も `ready` を待たない。
+- 検証: NotifySettings に「準備が終わらない」テストを追加、App 全件 pass、build 成功。実機での確認は User 待ち（どの理由が出るかで原因の段が分かる）。
+- version: 0.141.2 → **0.141.3**。
+
 ## 2026-10-05 — version 0.141.2 / 本番 apply の「通知の鍵」手順を直す
 
 User報告: Production Backend の apply が失敗。→ D1 の migration と Worker の deploy は成功し、失敗は「Set push notification keys」だけ（新しい経路 `PUT /push/prefs` は本番で応答する。`/api/push/vapid-key` は null のまま）。

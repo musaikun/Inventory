@@ -9,7 +9,7 @@ const _PREFS_KEY = 'tanaoro_push_prefs'
 export const pushSubscribed = ref(localStorage.getItem(_KEY) === '1')
 export const pushLoading    = ref(false)
 export const pushSupported  = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
-// ONにできなかった理由（画面に出す）。'' | 'blocked' | 'server' | 'failed'
+// ONにできなかった理由（画面に出す）。'' | 'blocked' | 'server' | 'failed' | 'timeout-<段>'
 export const pushError      = ref('')
 
 function _loadPrefs() {
@@ -38,36 +38,60 @@ function _urlBase64ToUint8Array(base64) {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
 }
 
+// どこかで返ってこないと「設定しています…」のまま止まる（User報告 2026-10-05）。
+// 各段に時間の上限を付け、止まった段を理由として出す。
+class _StepTimeout extends Error {
+  constructor(step) { super(`timeout:${step}`); this.step = step }
+}
+function _within(promise, ms, step) {
+  let t
+  return Promise.race([promise, new Promise((_, rej) => { t = setTimeout(() => rej(new _StepTimeout(step)), ms) })])
+    .finally(() => clearTimeout(t))
+}
+
+/**
+ * 通知に使う Service Worker の登録。`serviceWorker.ready` は登録が無いと永久に返らない
+ * （キャッシュの削除で登録を外した直後など）。無ければ登録し直してから待つ。
+ */
+async function _swRegistration() {
+  const sw = navigator.serviceWorker
+  let reg = await sw.getRegistration()
+  if (!reg) reg = await sw.register(`${import.meta.env.BASE_URL || '/'}sw.js`, { scope: import.meta.env.BASE_URL || '/' })
+  if (reg.active) return reg
+  return _within(sw.ready, 15000, 'sw')
+}
+
 export async function subscribePush() {
   if (!pushSupported) return false
   pushLoading.value = true
   pushError.value = ''
   try {
-    const permission = await Notification.requestPermission()
+    // 許可の確認は人が答えるまで待つ。出ないまま返らない端末があるので上限は長めに
+    const permission = await _within(Notification.requestPermission(), 60000, 'permission')
     if (permission !== 'granted') { pushError.value = 'blocked'; return false }
 
-    const { key } = await apiFetch('/api/push/vapid-key')
+    const { key } = await _within(apiFetch('/api/push/vapid-key'), 15000, 'network')
     if (!key) { pushError.value = 'server'; return false }
 
-    const reg = await navigator.serviceWorker.ready
-    const sub = await reg.pushManager.subscribe({
+    const reg = await _swRegistration()
+    const sub = await _within(reg.pushManager.subscribe({
       userVisibleOnly:      true,
       applicationServerKey: _urlBase64ToUint8Array(key),
-    })
+    }), 20000, 'subscribe')
 
     const code = shopCode.value
     if (code) {
-      await apiFetch(`/store/${code}/push/subscribe`, {
+      await _within(apiFetch(`/store/${code}/push/subscribe`, {
         method: 'POST',
         body:   JSON.stringify({ ...sub.toJSON(), prefs: pushPrefs.value }),
-      })
+      }), 15000, 'network')
     }
 
     pushSubscribed.value = true
     localStorage.setItem(_KEY, '1')
     return true
-  } catch (_) {
-    pushError.value = 'failed'
+  } catch (e) {
+    pushError.value = e instanceof _StepTimeout ? `timeout-${e.step}` : 'failed'
     return false
   } finally {
     pushLoading.value = false
@@ -98,8 +122,8 @@ export async function unsubscribePush() {
   if (!pushSupported) return false
   pushLoading.value = true
   try {
-    const reg = await navigator.serviceWorker.ready
-    const sub = await reg.pushManager.getSubscription()
+    const reg = await navigator.serviceWorker.getRegistration()
+    const sub = reg ? await reg.pushManager.getSubscription() : null
     if (sub) {
       const code = shopCode.value
       if (code) {
