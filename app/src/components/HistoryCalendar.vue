@@ -1,6 +1,6 @@
 <script setup>
 import DayTasks from './DayTasks.vue'
-import { openTaskDates } from '../composables/useTasks.js'
+import { openTaskCounts } from '../composables/useTasks.js'
 import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
@@ -372,20 +372,18 @@ const moveSections = computed(() => {
 const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
 const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
 
-// 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）
+// 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）。
+// 祝前日・給料日・五十日は出さない（User 2026-10-05。カレンダーの印と合わせて外した）
 const selectedFactors = computed(() => {
   if (!selectedKey.value) return []
   const f = dayFactors(selectedKey.value)
   const runLen = consecutiveOffLength(selectedKey.value)
   const chips = []
   if (f.holidayName) chips.push({ cls: 'holiday', label: `🎌 ${f.holidayName}` })
-  if (f.holidayEve)  chips.push({ cls: 'eve',     label: f.holidayEveKind === 'weekday' ? '🎏 祝前日（平日）' : '🎏 祝前日（休日）' })
   if (f.span)        chips.push({ cls: 'span',    label: f.span })
   else if (f.seasonBreak) chips.push({ cls: 'season', label: f.seasonBreak })
   else if (runLen >= 3)   chips.push({ cls: 'long', label: `${runLen}連休` })
-  if (f.payday)      chips.push({ cls: 'pay',     label: `💰 ${f.paydayLabel}給料日` })
   if (f.pension)     chips.push({ cls: 'pension', label: '👛 年金支給日' })
-  if (f.gotobi)      chips.push({ cls: 'gotobi',  label: '五十日' })
   if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
   if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
   return chips
@@ -544,7 +542,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
-      <span class="hc-key-i"><span class="hc-task-key"></span>やること</span>
+      <span class="hc-key-i"><span class="hc-task-key">1</span>やること</span>
       <DismissibleHint id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
     </div>
 
@@ -571,21 +569,17 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             today: cell && cell.isToday,
             selected: cell && cell.key === selectedKey,
             tappable: !!cell,
-            'eve-weekday': cell && !cell.run && cell.factors.holidayEveKind === 'weekday',
-            'eve-weekend': cell && !cell.run && cell.factors.holidayEveKind === 'weekend',
           }]"
           @click="cell && onCellTap(cell)"
         >
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
-            <span v-if="cell.factors.payday" class="hc-pay-mark" title="給料日">💰</span>
+            <span v-if="openTaskCounts.get(cell.key)" class="hc-task-mark" :title="`やること ${openTaskCounts.get(cell.key)}件`">{{ openTaskCounts.get(cell.key) }}</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
-            <span v-if="openTaskDates.has(cell.key)" class="hc-task-mark" title="やることあり"></span>
-            <span v-if="cell.factors.gotobi" class="hc-gotobi-mark" title="五十日"></span>
             <span v-if="cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
             <span v-if="cell.factors.holidayName" class="hc-hol-name">{{ cell.factors.holidayName }}</span>
-            <span v-if="dotCount(cell)" :class="['hc-dots', { 'dots-grid': dotCount(cell) === 4 }]">
+            <span v-if="dotCount(cell)" :class="['hc-dots', { 'dots-4': dotCount(cell) === 4 }]">
               <span v-if="cell.stock.length" class="dot dot-stock" title="棚卸"></span>
               <span v-if="cell.orders.length" class="dot dot-order" title="発注"></span>
               <span v-if="cell.moves.some(m => m.type === 'in')" class="dot dot-in" title="入庫"></span>
@@ -798,9 +792,14 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .dot-order { color: #f59e0b; }
 .dot-in    { color: #10b981; }
 .dot-out   { color: #ef4444; }
-/* やることのある日（未完了）：マスの下の中央の短い線 */
-.hc-task-mark { position: absolute; bottom: 2px; left: 50%; width: 14px; margin-left: -7px; height: 3px; border-radius: 3px; background: #d97706; }
-.hc-task-key { display: inline-block; width: 12px; height: 3px; border-radius: 3px; background: #d97706; }
+/* やることのある日（未完了）：マスの左上に件数の小さな印（User 2026-10-05。以前は下の短い線） */
+.hc-task-mark, .hc-task-key {
+  min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px; box-sizing: border-box;
+  background: #d97706; color: #fff; font-size: 8.5px; font-weight: 800; line-height: 12px; text-align: center;
+}
+/* 2桁の日付に重ならないよう、角に寄せて小さく */
+.hc-task-mark { position: absolute; top: 2px; left: 1px; }
+.hc-task-key { display: inline-block; }
 
 /* 横スワイプはこの要素が受け持つ（pan-y = 縦だけブラウザに任せる）。
    宣言しないと Android Chrome が同じ指の動きを『進む・戻る』のエッジ操作として
@@ -834,7 +833,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-week { flex: 1; min-height: 44px; max-height: 110px; display: grid; grid-template-columns: repeat(7, 1fr); }
 /* 高さは週の行から受け取る（aspect-ratio で決めると画面の高さに合わせられない）。
    overflow: hidden = 祝日名が狭いマスに収まらないとき隣へはみ出させずに切る。
-   マス内の目印（天気・給料日・メモ・五十日・連休の下線）はすべてこの枠の内側にある */
+   マス内の目印（天気・やること・メモ・連休の下線）はすべてこの枠の内側にある */
 .hc-cell { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 6px 1px 5px; border-right: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
 .hc-cell.empty { background: #fafbfc; }
 .hc-cell.tappable { cursor: pointer; }
@@ -846,9 +845,8 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-day.sat { color: #0891b2; }
 .hc-wx { position: absolute; top: 3px; right: 4px; font-size: 11px; line-height: 1; }
 /* マスの星は「その日に何をしたか」だけを示す（件数・金額は日をタップした詳細で読む）。
-   4つ揃う日だけ 2×2 に折り返し、3つまでは横1列に並べる */
+   4つでも横1列（User 2026-10-05）。4つの日だけ少し小さくして、狭いマスにも収める */
 .hc-dots { margin-top: auto; display: flex; gap: 3px; justify-content: center; }
-.hc-dots.dots-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 2px 3px; }
 /* セルの実績スターはゲーム風: 発光＋光沢＋3D回転（コインのように自軸で回る）＋わずかな点滅 */
 .hc-dots .dot {
   font-size: 15px;
@@ -862,6 +860,8 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-dots .dot:nth-child(2) { animation-delay: -0.65s, 0s; }
 .hc-dots .dot:nth-child(3) { animation-delay: -1.3s, 0s; }
 .hc-dots .dot:nth-child(4) { animation-delay: -1.95s, 0s; }
+.hc-dots.dots-4 { gap: 1px; }
+.hc-dots.dots-4 .dot { font-size: 10.5px; }
 @keyframes hcStarSpin { from { transform: perspective(100px) rotateY(0); } to { transform: perspective(100px) rotateY(360deg); } }
 @keyframes hcStarTwinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
 /* 注: 実績スターの回転は演出として常時再生する（端末の「視差効果を減らす」設定でも止めない） */
@@ -874,35 +874,28 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* 暦の需要要因レイヤー（帯＝背景・祝前日＝下線・給料日＝マーカー） */
+/* 暦の需要要因レイヤー（帯＝背景）。祝前日の下線・給料日・五十日の印はマスに出さない（User 2026-10-05） */
 .hc-cell.band-holiday:not(.today):not(.selected) { background: #fef2f2; }  /* 祝日 薄赤 */
 .hc-cell.band-span:not(.today):not(.selected)    { background: #f5f3ff; }  /* お盆・年末年始 薄紫 */
 .hc-cell.band-season:not(.today):not(.selected)  { background: #effdfa; }  /* 長期休暇 薄ティール */
 .hc-cell.band-long:not(.today):not(.selected)    { background: #fffbeb; }  /* 連休 薄アンバー */
-/* 祝前日: 平日は濃い下線（需要インパクト大）、休日(週末)は淡い下線 */
-.hc-cell.eve-weekday:not(.today):not(.selected) { box-shadow: inset 0 -3px 0 #f59e0b; }
-.hc-cell.eve-weekend:not(.today):not(.selected) { box-shadow: inset 0 -2px 0 #fde68a; }
 /* 連休（3連休以上）の連結アンダーライン。隣接セルと繋がり、連休の端を丸める */
 .hc-run { position: absolute; left: 0; right: 0; bottom: 1px; height: 4px; background: #ec4899; z-index: 1; }
 .hc-run.capL { left: 3px; border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
-.hc-pay-mark { position: absolute; top: 3px; left: 4px; font-size: 10px; line-height: 1; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
-.hc-gotobi-mark { position: absolute; bottom: 3px; left: 3px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
 /* 発注予定はマスの左端の帯。実績（★）と同じ形にすると「発注した日」と読めてしまうので、
    星ではなく帯にして、予定と実績を形で見分けられるようにする。色は発注の橙に揃える */
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
 .hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
 .hc-fchip.f-holiday { background: #fef2f2; color: #dc2626; }
-.hc-fchip.f-eve     { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-span    { background: #f5f3ff; color: #7c3aed; }
 .hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
 .hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
 .hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
 .hc-fchip.f-pension { background: #ecfeff; color: #155e75; }
-.hc-fchip.f-gotobi  { background: #ecfeff; color: #0e7490; }
 .hc-fchip.f-weekday { background: #edf5f7; color: #3d5a62; }
 
 /* この日の基本情報・比較 */

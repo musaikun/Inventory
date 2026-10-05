@@ -51,12 +51,14 @@ export function tasksOn(date) {
   return _data.list.filter(t => t.date === date && _alive(t)).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
 }
 
-/** やることがある日（未完了があるか）。カレンダーの点に使う */
-export const openTaskDates = computed(() => {
-  const s = new Set()
-  for (const t of _data.list) if (_alive(t) && !t.doneAt) s.add(t.date)
-  return s
+/** 日付 → まだ終わっていないやることの数。カレンダーの印に使う */
+export const openTaskCounts = computed(() => {
+  const m = new Map()
+  for (const t of _data.list) if (_alive(t) && !t.doneAt) m.set(t.date, (m.get(t.date) || 0) + 1)
+  return m
 })
+/** やることがある日（未完了があるか） */
+export const openTaskDates = computed(() => new Set(openTaskCounts.value.keys()))
 
 export function addTask(date, text) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
