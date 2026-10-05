@@ -2,6 +2,14 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-05 — version 0.141.4 / Service Worker が入らない（通知をONにできない）原因を直す
+
+User報告（Android・再起動後も）: 通知をONにすると「アプリの準備が終わっていませんでした」（0.141.3 で足した timeout-sw）。
+- 原因: `public/_redirects` の `/terms /terms.html 200`（privacy・support も）と、Pages の拡張子なし配信（`/terms.html` → `/terms` へ 308）が回り合い、`/terms` が無限リダイレクト（ERR_TOO_MANY_REDIRECTS）。Workbox のプリキャッシュが terms.html などを取れずにインストールが失敗し、Service Worker が一度も有効にならない。通知だけでなく、オフラインのキャッシュと更新の仕組みも止まっていた。develop preview を Chromium で開き、CDP の `workerErrorReported` で確認。
+- 修正: 3つの書き換えを削除（拡張子なしは Pages がそのまま配る）。規約類（privacy/terms/support.html）はプリキャッシュから外す。`legalPages.test.js` を「書き換えを置かない・プリキャッシュに入れない」に変更。
+- 検証: App 全件 pass、build（precache 18件、html は index.html のみ）。preview 反映後に Service Worker の有効化と /terms の 200 を確認する。
+- version: 0.141.3 → **0.141.4**。
+
 ## 2026-10-05 — version 0.141.3 / 通知のONが「設定しています…」のまま止まる
 
 User報告: 本番 apply 後（`/api/push/vapid-key` は鍵を返す）、通知をONにすると「設定しています…」から進まない。

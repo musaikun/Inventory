@@ -205,18 +205,25 @@ describe('アプリからの導線', () => {
 })
 
 describe('配信設定: 公開ページが SPA に飲まれない', () => {
-  it('_redirects の legal ルールが catch-all より前にある', () => {
+  // 以前は /terms → /terms.html の書き換えを置いていたが、Pages が /terms.html を /terms へ 308 で
+  // 返すため無限リダイレクトになり、Service Worker が入らなくなった（2026-10-05）。
+  // 拡張子なしの公開ページは Pages の静的配信に任せ、書き換えを置かない。
+  it('_redirects に公開ページの書き換えを置かない（Pages の拡張子なし配信と回り合うため）', () => {
     const lines = read('app/public/_redirects')
       .split('\n')
       .map(l => l.trim())
       .filter(l => l && !l.startsWith('#'))
-    const catchAll = lines.findIndex(l => l.startsWith('/*'))
-    expect(catchAll).toBeGreaterThan(-1)
+    expect(lines.some(l => l.startsWith('/*'))).toBe(true)
     for (const path of ['/privacy', '/terms', '/support']) {
-      const i = lines.findIndex(l => l.startsWith(path + ' '))
-      expect(i, `${path} のルールが必要`).toBeGreaterThan(-1)
-      expect(i, `${path} は catch-all より前に置く`).toBeLessThan(catchAll)
+      expect(lines.some(l => l.startsWith(path + ' ')), `${path} の書き換えは置かない`).toBe(false)
     }
+  })
+
+  it('公開ページはオフライン用のキャッシュに入れない（転送をはさむため。1件でも失敗すると SW が入らない）', () => {
+    const cfg = read('app/vite.config.js')
+    const m = cfg.match(/globIgnores:\s*\[(.*?)\]/s)
+    expect(m).toBeTruthy()
+    for (const f of ['privacy.html', 'terms.html', 'support.html']) expect(m[1]).toContain(f)
   })
 
   it('PWA の navigateFallback が公開ページを index.html へ倒さない', () => {

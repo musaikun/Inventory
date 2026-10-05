@@ -1,7 +1,6 @@
-# 公開legalページは拡張子なしでも到達できるようにする（Play Console へ登録する URL の揺れ対策）。
-# 末尾の SPA フォールバックより前に置くこと（上から順に評価される）。
-/privacy    /privacy.html    200
-/terms      /terms.html      200
-/support    /support.html    200
+# 公開legalページ（/privacy・/terms・/support）は Cloudflare Pages が拡張子なしで配る
+# （/terms.html は /terms へ 308）。ここで /terms → /terms.html と書き直すと、Pages の 308 と
+# 回り合って無限リダイレクトになり、オフライン用のキャッシュが作れず Service Worker が
+# 入らなくなる（通知をONにできなかった原因・2026-10-05）。ここには書かない。
 
 /*  /index.html  200

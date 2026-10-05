@@ -123,7 +123,9 @@ export default defineConfig({
         // workboxの既定上限2MBも超える。両方まとめて下の runtimeCaching で面倒を見る。
         // ファイル名は `src/utils/riveRuntime.js` に由来する（改名したらここも直す。
         // 外れてもプリキャッシュに載るだけで壊れない）。
-        globIgnores: ['**/riveRuntime-*.js', '**/og-image.png'],   // og-image は共有カード用（端末に持たない）
+        globIgnores: ['**/riveRuntime-*.js', '**/og-image.png', 'privacy.html', 'terms.html', 'support.html'],   // og-image は共有カード用。規約類は端末に持たない
+        // （Pages が /terms.html を /terms へ転送するので、取りに行くと転送をはさむ。
+        //   1件でも取れないと Service Worker が入らず、通知もオフラインも止まる）
         // 旧ビルドのプリキャッシュ（旧ハッシュ index-XXXX.css 等）を破棄。
         // これが無いと古いCSS/JS参照が残り 404 が発生し続ける。
         cleanupOutdatedCaches: true,
