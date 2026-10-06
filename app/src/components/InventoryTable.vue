@@ -1,11 +1,11 @@
 <script setup>
-import { ref, computed, reactive, watch, nextTick } from 'vue'
+import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
-import { showAxisAssign, axisAssignInitial } from '../composables/appMenuState.js'
+import { showAxisAssign, axisAssignInitial, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { itemImageUrl } from '../services/itemImages.js'
 import ItemImageViewer from './ItemImageViewer.vue'
 
@@ -253,6 +253,17 @@ const filterOpts = computed(() => props.orderMode
       { value: 'filled', label: '入力済み' },
       { value: 'empty',  label: '未入力' },
     ])
+
+// ── 表の最大化（PCのブラウザのタブのように・User 2026-10-06）────────────────
+// 見出し行の右端のボタンで、表だけを画面いっぱいに広げる／元に戻す。戻る操作・Esc でも戻る
+const maxed = ref(false)
+let _unregMaxBack = null
+watch(maxed, on => {
+  _unregMaxBack?.(); _unregMaxBack = null
+  if (on) _unregMaxBack = registerInnerLayerCloser(() => { if (!maxed.value) return false; maxed.value = false; return true })
+})
+onUnmounted(() => { _unregMaxBack?.() })
+function onMaxKey(e) { if (e.key === 'Escape' && maxed.value) { e.stopPropagation(); maxed.value = false } }
 
 // ── 行データ生成 ──────────────────────────────────────────────────────────────
 const rows = computed(() => {
@@ -748,7 +759,9 @@ function fmtYen(n) {
 
 <template>
   <section
-    class="inventory-section" :class="{ 'inv-preview': preview, fill: fillHeight }"
+    class="inventory-section" :class="{ 'inv-preview': preview, fill: fillHeight || maxed, maxed }"
+    :role="maxed ? 'dialog' : undefined" :aria-label="maxed ? '品目の表（最大化）' : undefined"
+    @keydown="onMaxKey"
     @touchstart.passive="tabSwipe.onTouchStart"
     @touchmove.passive="tabSwipe.onTouchMove"
     @touchend.passive="tabSwipe.onTouchEnd"
@@ -867,7 +880,20 @@ function fmtYen(n) {
         >
           <th v-if="hasImages" class="th-avatar" aria-label="写真"></th>
           <th v-if="hasCodes" class="th-code">商品コード</th>
-          <th><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</th>
+          <th class="th-name">
+            <span class="th-name-in">
+              <span><span v-if="_isGroupedMode" class="th-arrow">{{ hasAllExpanded ? '▼' : '▶' }}</span>品目</span>
+              <button
+                v-if="!preview" type="button" class="th-max"
+                :aria-label="maxed ? '表を元の大きさに戻す' : '表を画面いっぱいに広げる'"
+                :title="maxed ? '元の大きさに戻す' : '画面いっぱいに広げる'"
+                @click.stop="maxed = !maxed" @keydown.enter.stop @keydown.space.stop
+              >
+                <svg v-if="!maxed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>
+              </button>
+            </span>
+          </th>
           <th class="th-qty" :class="{ 'th-qty-order': orderMode }">{{
             preview ? ($slots.qty ? '設定' : _isHiddenMode ? '非表示日時' : '振り分け') : '数量' }}</th>
           <th v-if="showAmount" class="th-amount">金額</th>
@@ -1094,6 +1120,20 @@ function fmtYen(n) {
 .inventory-section.fill .inv-table { overflow: visible; box-shadow: none; border-radius: 0; }
 .inventory-section.fill .inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--primary-deep); }
 .inventory-section.inv-preview { padding: 0; }
+/* 最大化：表だけを画面いっぱいに（モーダル z-index:100 より下・ヘッダーやナビより上） */
+.inventory-section.maxed {
+  position: fixed; inset: 0; z-index: 90; background: var(--bg); min-height: 0;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) 6px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+.inventory-section.maxed .inv-scroll { margin-bottom: 0; }
+.th-name-in { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.th-max {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 24px; margin: -4px -2px -4px 0; border: none; border-radius: 6px;
+  background: rgba(255, 255, 255, .16); color: inherit; cursor: pointer;
+}
+.th-max:active { background: rgba(255, 255, 255, .3); }
+.th-max:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 
 /* ── セクションヘッダー ── */
 .section-header {
