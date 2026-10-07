@@ -75,6 +75,17 @@ body[data-view="guest-result"] #app,
 body[data-view="history"] #app,
 body[data-view="sessions"] #app { padding-bottom: 0; }
 
+/* 棚卸・発注の画面（session）も、ホームの在庫タブと同じく画面の高さに固定し、
+   品目の表だけを枠の中でスクロールさせる（User 2026-10-07）。見出し・帯・検索は上に残り、
+   合計と完了ボタン（.app-footer）は流れの一番下に置く（固定配置だと表の下が隠れる）。 */
+body[data-view="session"] #app {
+  height: 100dvh; padding-bottom: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+body[data-view="session"] #app > * { flex: none; }
+body[data-view="session"] #app > .inventory-section { flex: 1; min-height: 0; }
+body[data-view="session"] #app > .app-footer { position: static; }
+
 /* ── Header ── */
 .app-header {
   background: var(--primary);

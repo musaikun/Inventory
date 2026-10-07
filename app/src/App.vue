@@ -784,6 +784,8 @@ function onRestoreInventory(rows) {
 }
 
 const hasBarcodedItems = computed(() => Object.keys(config.codes ?? {}).length > 0)
+// 検索欄のバーコード（📷）ボタンは一旦隠す（User 2026-10-07。読み取り自体は残す）
+const BARCODE_BUTTON = false
 
 // ── Sync ───────────────────────────────────────────────────────────────────────
 const { state: syncState, isActive: syncActive, isHost: syncIsHost, participantList, createRoom, joinRoom, leaveRoom, dissolveRoom, unreadCount, auditLog } = useSync()
@@ -3469,7 +3471,7 @@ function dismissReview() {
           />
           <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
           <!-- バーコードのある品目があるときだけ（☰ から移した・User決定 2026-10-04） -->
-          <button v-if="hasBarcodedItems && !inputLocked" class="search-btn barcode-btn" type="button" title="バーコードスキャン" aria-label="バーコードスキャン" @click="showBarcode = true">📷</button>
+          <button v-if="BARCODE_BUTTON && hasBarcodedItems && !inputLocked" class="search-btn barcode-btn" type="button" title="バーコードスキャン" aria-label="バーコードスキャン" @click="showBarcode = true">📷</button>
         </div>
 
         <!-- 品目編集フォーム（編集時のみ表示。追加は検索欄からの積み上げ登録が主動線） -->
@@ -3684,6 +3686,7 @@ function dismissReview() {
 
       <InventoryTable
         ref="inventoryTableRef"
+        fill-height
         :inventory="inventory"
         :filled-count="filledCount"
         :progress-tappable="!syncActive && !practiceMode"
