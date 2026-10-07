@@ -67,6 +67,11 @@ export function overdueTasks(today = localDateKey()) {
 }
 export const overdueCount = computed(() => overdueTasks().length)
 
+/** 消していないやることすべて（やること画面の「これから」「完了」で日ごとにまとめる） */
+export const aliveTasks = computed(() => _data.list.filter(_alive))
+/** 自分に関係するもの: 自分が担当（特定の人）か、「全員」で自分がまだ印を付けていない／付けたもの */
+export function isForMe(t) { return isAssignedToMe(t) || t?.assign === 'all' }
+
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const _time = v => (typeof v === 'string' && TIME_RE.test(v) ? v : null)
 

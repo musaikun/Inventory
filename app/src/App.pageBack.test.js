@@ -170,8 +170,8 @@ describe('アプリを閉じる前に確認する', () => {
     expect(host.querySelector('.mp')).toBeTruthy()
 
     await deviceBack()
-    expect(view()).toBe('sessions')          // アプリを離れず、ホームの在庫タブへ
-    expect(activeTab()).toContain('在庫')
+    expect(view()).toBe('sessions')          // アプリを離れず、ホームのトップへ（トップを足した・2026-10-07）
+    expect(activeTab()).toContain('ホーム')
   }, 20000)
 })
 
@@ -234,7 +234,7 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
 })
 
 describe('戻るはひとつ前の画面へ返す', () => {
-  it('管理タブ（データ管理）→ 戻る は 在庫タブ', async () => {
+  it('管理タブ（データ管理）→ 戻る は トップ（ホーム）', async () => {
     await mountApp()
     await seedItems()
     await openFromManage('データ管理')
@@ -243,7 +243,7 @@ describe('戻るはひとつ前の画面へ返す', () => {
 
     await deviceBack()
     expect(view()).toBe('sessions')
-    expect(activeTab()).toContain('在庫')
+    expect(activeTab()).toContain('ホーム')
   }, 20000)
 
 })

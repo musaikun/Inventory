@@ -18,6 +18,7 @@ const emit = defineEmits(['go'])
 
 // アイコンは線画（アプリのアイコンの雰囲気に揃える・User決定 2026-10-03）
 const ALL_ITEMS = [
+  { tab: 'home',      label: 'ホーム',   d: ['M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'] },
   { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
   { tab: 'calendar',  label: 'カレンダー', d: ['M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z', 'M4 10h16M9 2v4M15 2v4'] },
   { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
@@ -35,7 +36,7 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
       :class="{ on: active === it.tab }" type="button"
       :aria-current="active === it.tab ? 'page' : undefined"
       @click="emit('go', it.tab)"
-    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}<span v-if="it.tab === 'calendar' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
+    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}<span v-if="it.tab === 'home' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
   </nav>
 </template>
 

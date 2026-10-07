@@ -23,7 +23,8 @@ const canRemove = computed(() => can('task.deleteOthers') || (isMyTask(t.value) 
 const people = computed(() => staffNames.value)
 const hasStaff = computed(() => people.value.length > 0)
 
-const checked = computed(() => (t.value.assign === 'all' ? isMarkedByMe(t.value) : !!t.value.doneAt))
+// 「全員」は自分の印。全員そろって完了したものは、自分が付けていなくても済みに見せる
+const checked = computed(() => (t.value.assign === 'all' ? isMarkedByMe(t.value) || !!t.value.doneAt : !!t.value.doneAt))
 const md = d => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}` }
 
 /** 担当の一言（行の下に出す） */
@@ -116,7 +117,6 @@ function save() {
 }
 .tr-chk.on { background: var(--grad-btn); border-color: transparent; }
 .tr-tm { flex: none; width: 40px; font-size: 12px; font-weight: 800; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.tr-tm:empty { width: 0; margin-right: -10px; }
 .tr-tm.late { color: #b91c1c; }
 .tr-tx { flex: 1; min-width: 0; overflow-wrap: anywhere; text-align: left; border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: default; }
 button.tr-tx { cursor: pointer; }

@@ -1,11 +1,11 @@
 <script>
 import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'sessions' = 在庫（ホーム） / 'calendar' = カレンダー / 'report' = レポート / 'dashboard' = 管理
+// _persistedTab: 'home' = トップ / 'sessions' = 在庫 / 'calendar' = カレンダー / 'report' = レポート / 'dashboard' = 管理
 // 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
 const _TAB_KEY = 'tanaoro_home_tab'
 function _readTab() {
-  try { const t = sessionStorage.getItem(_TAB_KEY); return ['sessions', 'calendar', 'report', 'dashboard'].includes(t) ? t : 'sessions' } catch (_) { return 'sessions' }
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['home', 'sessions', 'calendar', 'report', 'dashboard'].includes(t) ? t : 'home' } catch (_) { return 'home' }
 }
 export const _persistedTab  = ref(_readTab())
 watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
@@ -42,6 +42,8 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
+import HomeTop from './HomeTop.vue'
+import TodoPage from './TodoPage.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
 import SortTile from './SortTile.vue'
@@ -68,10 +70,13 @@ const tab = _persistedTab
 // カレンダーの月送りのスワイプが重なって使いにくかった（User 2026-10-01）
 // カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる
 // アルバイトには金額を見せないので、レポートのタブは飛ばす（段 2-3）
-const tabsNow = () => ['sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeMoney.value)
+// トップ（ホーム）を先頭に（User決定 2026-10-07）
+const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeMoney.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
+const todoOpen = ref(false)                    // トップから開く「やること」画面
 function goTab(next) {
   const tabs = tabsNow()
+  if (next === 'home') todoOpen.value = false
   if (!tabs.includes(next) || next === tab.value) return
   slideDir.value = tabs.indexOf(next) > tabs.indexOf(tab.value) ? 'l' : 'r'
   tab.value = next
@@ -133,6 +138,13 @@ const lastStock = computed(() => {
     if (!Number.isNaN(t.getTime()) && (!best || t > best)) best = t
   }
   return best ? _mdw(best) : null
+})
+// トップのショートカット: 今日が発注日か・いちばん早い締切
+const todayOrder = computed(() => {
+  const dow = new Date().getDay()
+  const list = (config.orderSchedules ?? []).filter(s => hasSchedule(s) && s.days.includes(dow))
+  const deadlines = list.map(s => s.deadline).filter(Boolean).sort()
+  return { isDay: list.length > 0, deadline: deadlines[0] || '' }
 })
 const todaySchedules = computed(() => {
   const dow = new Date().getDay()
@@ -259,14 +271,15 @@ async function onLogout() {
 onUnmounted(registerInnerLayerCloser(() => {
   if (showOrderBase.value) { showOrderBase.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
-  if (tab.value !== 'sessions') { goTab('sessions'); return true }
+  if (todoOpen.value) { todoOpen.value = false; return true }
+  if (tab.value !== 'home') { goTab('home'); return true }
   return false
 }))
 </script>
 
 <template>
   <div class="home">
-    <header class="home-head">
+    <header v-if="tab !== 'home'" class="home-head">
       <span class="home-logo"><AppMark :size="26" />{{ APP_NAME }}</span>
       <span class="home-store">{{ storeName || '' }}<small v-if="shopCode"> {{ shopCode }}</small></span>
     </header>
@@ -280,7 +293,28 @@ onUnmounted(registerInnerLayerCloser(() => {
       @touchend.passive="tabSwipe.onTouchEnd"
       @touchcancel.passive="tabSwipe.onTouchCancel"
     >
-    <!-- ── 在庫（ホーム）── -->
+    <!-- ── トップ（ホーム）とやること（User決定 2026-10-07）── -->
+    <div v-if="!loading && tab === 'home'" :class="['home-panel', 'top-panel', slideDir && `slide-${slideDir}`]">
+      <TodoPage v-if="todoOpen" @close="todoOpen = false" />
+      <HomeTop
+        v-else
+        :active-session="activeSession"
+        :active-order-session="activeOrderSession"
+        :stock-count="_itemCount(activeSession)"
+        :order-count="_itemCount(activeOrderSession)"
+        :is-order-day="todayOrder.isDay"
+        :order-deadline="todayOrder.deadline"
+        :reorder-count="stockRef?.reorderCount ?? 0"
+        :starting-kind="startingKind"
+        @go="goTab"
+        @stock="openStockSheet"
+        @order="openOrderSheet"
+        @resume="resume"
+        @open-todo="todoOpen = true"
+      />
+    </div>
+
+    <!-- ── 在庫 ── -->
     <StockPage
       v-show="!loading && tab === 'sessions'"
       :class="['home-panel', slideDir && `slide-${slideDir}`]"

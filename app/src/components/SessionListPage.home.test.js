@@ -15,7 +15,7 @@ let restoreImpl = async () => ({ ok: false })
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
-  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p,
+  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
   getSessions:     vi.fn(async () => sessionList),
   createSession:   (...a) => createSession(...a),
   deleteSession:   (...a) => deleteSession(...a),
@@ -72,11 +72,11 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（在庫／カレンダー／レポート／管理）', async () => {
+  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（ホーム／在庫／カレンダー／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['在庫', 'カレンダー', 'レポート', '管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', 'カレンダー', 'レポート', '管理'])
     expect(host.querySelector('.acts .st').textContent).toContain('並び替え')
   })
 
@@ -252,5 +252,31 @@ describe('レポートタブ（整理後）', () => {
     await click(host.querySelector('.dash-open'))
     expect(events.find(e => e[0] === 'viewSession')?.[1]?.id).toBe('s1')
     sessionList = []
+  })
+})
+
+describe('トップ（ホーム）とやること（User決定 2026-10-07）', () => {
+  it('開くとトップ。今日のやることの要約を押すと「やること」、戻ると閉じる。ショートカットで各タブへ', async () => {
+    const T = await import('../composables/useTasks.js')
+    const { localDateKey } = await import('../utils/localDate.js')
+    T.addTask('2000-01-02', '製氷機のフィルター交換')
+    T.addTask(localDateKey(), '野菜の検品', null, '11:00')
+    await mountPage()
+    expect(host.querySelector('.ht')).not.toBeNull()
+    expect(host.querySelector('.home-head')).toBeNull()          // トップは自前の見出し
+    const today = host.querySelector('.ht-today')
+    expect(today.textContent).toContain('期限切れ')
+    expect(today.textContent).toContain('11:00')
+    expect(today.textContent).toContain('0/1')
+    await click(today)
+    expect(host.querySelector('.tp')).not.toBeNull()
+    expect(host.querySelector('.tp-lh.late').textContent).toContain('期限切れ')
+    await click(host.querySelector('.tp-back'))
+    expect(host.querySelector('.tp')).toBeNull()
+    // ショートカットの「在庫」で在庫タブへ
+    const sc = [...host.querySelectorAll('.ht-sc')]
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', 'カレンダー', 'レポート', '管理'])
+    await click(sc[2])
+    expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
   })
 })
