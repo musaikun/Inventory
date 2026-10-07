@@ -330,3 +330,19 @@ export async function handleMe(db, request) {
   if (!ctx) return { _status: 401, error: '認証が必要です' }
   return { shopCode: ctx.shopCode, role: ctx.role, staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null }
 }
+
+/**
+ * 定期の掃除（毎時の cron）。プライバシーポリシーの保存期間と合わせる。
+ * - 暗証番号の失敗記録: 判定に使う期間（15分）を過ぎたもの
+ * - 招待: 期限（発行から10分）を過ぎて15分たったもの（使った・使わないに関わらず）
+ * - 開いていた記録（段 2-5）: 90日より古いもの（店ごとの書き込みでも消すが、使われなくなった店の分をここで）
+ */
+export async function cleanupStaffRecords(db, nowMs = Date.now(), retentionMs = 15 * 60_000) {
+  const cutoff = new Date(nowMs - retentionMs).toISOString()
+  const old = new Date(nowMs - 90 * 86400_000).toISOString()
+  await db.batch([
+    db.prepare('DELETE FROM staff_login_attempts WHERE attempted_at <= ?').bind(cutoff),
+    db.prepare('DELETE FROM staff_invites WHERE expires_at <= ?').bind(cutoff),
+    db.prepare('DELETE FROM work_sessions WHERE last_seen_at < ?').bind(old),
+  ])
+}

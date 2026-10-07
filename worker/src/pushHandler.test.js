@@ -30,5 +30,9 @@ describe('handleCron security retention', () => {
     expect(db.statements.some(sql => sql.startsWith('DELETE FROM stores'))).toBe(true)
     expect(db.statements).toContain('DELETE FROM login_attempts WHERE attempted_at <= ?')
     expect(db.statements).toContain('DELETE FROM ip_attempts WHERE attempted_at <= ?')
+    // スタッフの記録（暗証番号の失敗・招待・開いていた記録）も同じ cron で消す
+    expect(db.statements).toContain('DELETE FROM staff_login_attempts WHERE attempted_at <= ?')
+    expect(db.statements).toContain('DELETE FROM staff_invites WHERE expires_at <= ?')
+    expect(db.statements).toContain('DELETE FROM work_sessions WHERE last_seen_at < ?')
   })
 })

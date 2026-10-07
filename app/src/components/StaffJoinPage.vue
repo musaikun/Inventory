@@ -100,6 +100,7 @@ const digits = v => v.replace(/\D/g, '').slice(0, 6)
         <input id="sj-pin2" :value="pin2" class="sj-input" type="password" inputmode="numeric" maxlength="6" placeholder="●●●●●●"
           autocomplete="new-password" @input="pin2 = digits($event.target.value); $event.target.value = pin2" @keydown.enter="submit" />
         <p class="sj-hint">123456 や 000000 のような番号は使えません。次からは「店舗コード・名前・暗証番号」でログインします。</p>
+        <p class="sj-hint">記録には名前が残り、アプリを開いていた時間は管理者から見えます（<a href="./privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>）。</p>
         <p v-if="error" class="sj-err">{{ error }}</p>
         <button type="button" class="sj-btn pri" :disabled="busy" @click="submit">{{ busy ? '送っています…' : '参加を申請する' }}</button>
       </template>

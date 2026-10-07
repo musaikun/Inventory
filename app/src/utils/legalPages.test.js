@@ -79,7 +79,8 @@ describe('公開legalページ: 実装と一致しない記載が復活しない
   it.each([...ALL_HTML, ...LEGAL_DOCS])('%s に旧い保持期間・決済委託先・分析SDKの記載がない', (p) => {
     const text = read(p)
     // 旧policy: 操作ログ1年 / アクセスログ90日（実装は DO 24時間・失敗記録 最長約24時間15分）
-    expect(text).not.toContain('90日')
+    // 「90日」はアプリを開いていた時間（スタッフ機能・migration 0025）の保持期間としてだけ使う
+    expect(text.replaceAll('90日間。それより古い記録は削除します', '')).not.toContain('90日')
     expect(text).not.toContain('1年間')
     // Stripe は未実装。委託先として列挙しない（「利用していません」の言及だけ許容する）
     expect(text).not.toContain('Stripe, Inc.')
@@ -115,6 +116,15 @@ describe('公開legalページ: 実装事実の記載', () => {
     expect(text).toContain('単価')
     expect(text).toContain('合計金額')
     expect(text).toContain('ログインなしで3日間')
+  })
+
+  it.each(privacyCopies)('%s がスタッフ機能の名前・暗証番号と、管理者だけが見るアプリを開いていた時間を説明している', (p) => {
+    const text = read(p)
+    expect(text).toContain('スタッフの暗証番号（ハッシュ化）')
+    expect(text).toContain('アプリを開いていた時間（スタッフ機能）')
+    expect(text).toContain('見られるのは店舗の管理者とオーナーだけ')
+    expect(text).toContain('90日間。それより古い記録は削除します')
+    expect(text).toContain('（削除済み）')
   })
 
   it.each(privacyCopies)('%s が品目写真のR2保存と認証なし画像URLを説明している', (p) => {

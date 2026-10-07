@@ -296,3 +296,18 @@ describe('ログイン中と作業の記録（段 2-5）', () => {
     expect(g.people.find(p => p.id === 'dev-2').minutes).toBe(4)   // 3分20秒→3分 ＋ 0分→1分
   })
 })
+
+describe('定期の掃除', () => {
+  it('期限を過ぎた招待・暗証番号の失敗・90日より古い開いていた記録を消す', async () => {
+    const { cleanupStaffRecords } = await import('../src/staffHandler.js')
+    await handleStaffInvite(db, req(owner), code, { name: '田中', role: 'arbeit' })
+    sqlite.prepare("INSERT INTO staff_login_attempts (shop_code, staff_key, device_id, attempted_at) VALUES (?, 'x', 'd', '2000-01-01T00:00:00.000Z')").run(code)
+    sqlite.prepare("INSERT INTO work_sessions (id, shop_code, actor_id, name, started_at, last_seen_at) VALUES ('w1', ?, 'a', 'A', '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z')").run(code)
+    await cleanupStaffRecords(db, Date.now())
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM staff_invites').get().n).toBe(1)   // まだ期限内
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM staff_login_attempts').get().n).toBe(0)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM work_sessions').get().n).toBe(0)
+    await cleanupStaffRecords(db, Date.now() + 30 * 60_000)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM staff_invites').get().n).toBe(0)
+  })
+})

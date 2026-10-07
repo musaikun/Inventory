@@ -1,6 +1,7 @@
 import { sendWebPush } from './webPush.js'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
+import { cleanupStaffRecords } from './staffHandler.js'
 import { normalizePrefs, parsePrefs, planNotifications, jstParts, SENT_KEEP_DAYS } from './pushPlan.js'
 
 const MAX_PUSH_ENDPOINT_CHARS = 2048
@@ -163,6 +164,11 @@ export async function handleCron(env) {
       event: 'security-record-cleanup-failed',
       error: error?.message ?? String(error),
     }))
+  }
+  try {
+    await cleanupStaffRecords(env.DB)
+  } catch (error) {
+    console.warn('[staff] cleanup failed:', error?.message ?? error)
   }
   try {
     await env.DB.prepare('DELETE FROM push_sent WHERE sent_at < datetime(\'now\', ?)').bind(`-${SENT_KEEP_DAYS} days`).run()
