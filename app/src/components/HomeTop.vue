@@ -43,7 +43,6 @@ const hello = (() => {
   return 'おつかれさまです'
 })()
 const who = computed(() => currentStaff.value?.name || storedDeviceName.value || '')
-const initial = computed(() => (who.value || storeName.value || '・').slice(0, 1))
 
 const { state: weatherState } = useWeather()
 const today = localDateKey()
@@ -115,17 +114,20 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         </defs>
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="9" opacity=".55" :filter="`url(#${gid}-b)`" />
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.5" />
+        <!-- 輪の上を光が流れる（短い明るい線を輪に沿って回す） -->
+        <ellipse class="ht-spark" cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="#e0fdff" stroke-width="3.5" stroke-linecap="round" pathLength="100" :filter="`url(#${gid}-b)`" />
+        <ellipse class="ht-spark core" cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" pathLength="100" />
+        <!-- 重なったカードがゆっくり浮き沈みする（少しずつずらして） -->
         <g opacity=".85">
-          <rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2" />
-          <rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2" />
-          <rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2" />
+          <g class="ht-card c1"><rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2" /></g>
+          <g class="ht-card c2"><rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2" /></g>
+          <g class="ht-card c3"><rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2" /></g>
         </g>
       </svg>
       <div class="ht-top">
         <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.4" /></svg>
         <span class="ht-brand">{{ APP_NAME }}</span>
         <span v-if="storeName" class="ht-store">{{ storeName }}</span>
-        <span class="ht-av" aria-hidden="true">{{ initial }}</span>
       </div>
       <div class="ht-hi">
         <small>{{ dateLabel }}</small>
@@ -176,11 +178,24 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hero { position: relative; min-height: 236px; padding: 16px 18px 76px; color: #e6fbff; overflow: hidden;
   background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
 .ht-ring { position: absolute; right: -80px; top: 40px; opacity: .9; pointer-events: none; }
-.ht-glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none; }
+.ht-glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
+  animation: ht-breathe 5s ease-in-out infinite; }
+/* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める */
+.ht-spark { stroke-dasharray: 7 93; animation: ht-orbit 6s linear infinite; opacity: .9; }
+.ht-spark.core { opacity: 1; }
+.ht-card { transform-box: fill-box; transform-origin: center; animation: ht-float 4.8s ease-in-out infinite; }
+.ht-card.c2 { animation-delay: -1.6s; }
+.ht-card.c3 { animation-delay: -3.2s; }
+@keyframes ht-orbit { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes ht-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes ht-breathe { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) {
+  .ht-spark, .ht-card, .ht-glow { animation: none; }
+  .ht-spark { display: none; }
+}
 .ht-top { position: relative; display: flex; align-items: center; gap: 8px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
 .ht-store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-av { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #06222b; background: var(--grad-btn); }
 .ht-hi { position: relative; margin-top: 24px; }
 .ht-hi small { display: block; font-size: 12px; color: #9fd8e3; letter-spacing: .04em; }
 .ht-hi b { display: block; font-size: 23px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; line-height: 1.35; }
