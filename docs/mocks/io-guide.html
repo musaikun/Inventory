@@ -1,0 +1,232 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>入庫・出庫の案内 モック</title><style>
+  :root {
+    --primary: #0e7490; --deep: #155e75; --bg: #edf5f7; --surface: #fff; --text: #12303a; --muted: #4c6a72; --border: #d6e6ea;
+    --grad-btn: linear-gradient(90deg, #22d3ee, #34d399); --grad-ring: linear-gradient(90deg, #2563eb, #22d3ee 55%, #34d399);
+    --night: #06222b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #c9d8dd; color: var(--text); padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .lead { font-size: 13px; color: var(--muted); margin-bottom: 18px; max-width: 980px; line-height: 1.6; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: grid; gap: 8px; }
+  .cap { font-size: 14px; font-weight: 800; }
+  .cap small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; max-width: 360px; line-height: 1.5; }
+  .arrow { align-self: center; font-size: 13px; color: var(--muted); text-align: center; width: 120px; line-height: 1.5; }
+  .arrow b { display: block; font-size: 28px; color: var(--primary); }
+  .phone { width: 360px; height: 760px; background: var(--bg); border-radius: 30px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 34px rgba(0,0,0,.2); border: 6px solid #0b1f26; position: relative; }
+
+  /* ── ホーム ── */
+  .scroll { flex: 1; overflow: hidden; position: relative; }
+  .hero { position: relative; height: 250px; padding: 16px 18px; color: #e6fbff; overflow: hidden;
+    background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, var(--night) 100%); }
+  .hero svg.ring { position: absolute; right: -80px; top: 40px; opacity: .9; }
+  .hero .glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); }
+  .top { position: relative; display: flex; align-items: center; gap: 8px; }
+  .brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
+  .store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); }
+  .av { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--night); background: var(--grad-btn); }
+  .hi { position: relative; margin-top: 26px; }
+  .hi small { display: block; font-size: 12px; color: #9fd8e3; letter-spacing: .04em; }
+  .hi b { display: block; font-size: 24px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; }
+  .hi .wx { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
+  .today { position: relative; margin: -64px 14px 0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; }
+  .today .pr { flex: none; position: relative; width: 72px; height: 72px; }
+  .today .pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; line-height: 1.1; }
+  .today .pr span small { display: block; font-size: 9.5px; color: var(--muted); font-weight: 700; text-align: center; line-height: 1; }
+  .today .tx { flex: 1; min-width: 0; display: grid; gap: 4px; }
+  .today .tt { font-size: 13px; font-weight: 800; color: var(--muted); display: flex; justify-content: space-between; }
+  .today .tt i { font-style: normal; color: var(--primary); }
+  .today .ln { font-size: 13px; display: flex; gap: 6px; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .today .ln em { font-style: normal; font-weight: 800; font-size: 11px; flex: none; }
+  .today .ln.late em { color: #b91c1c; }
+  .today .ln.next em { color: var(--primary); }
+  .today .ln.mine { color: var(--primary); font-weight: 800; }
+  .pill { margin: 12px 14px 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; border: 1.5px solid #a5f3fc; font-size: 13px; }
+  .pill b { font-size: 13.5px; }
+  .pill small { color: var(--muted); font-size: 11.5px; }
+  .pill .go { margin-left: auto; font-size: 12.5px; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 6px 12px; border-radius: 999px; }
+  .pill.order { border-color: #fed7aa; }
+  .pill.order .go { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+  .sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--muted); }
+  .grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sc { position: relative; background: #fff; border-radius: 18px; padding: 14px 6px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .sc .ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
+  .sc.hot .ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
+  .sc.ord .ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
+  .sc b { font-size: 12.5px; display: block; }
+  .sc small { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .sc .bd { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
+  .bd.red { background: #fee2e2; color: #b91c1c; } .bd.cy { background: #cffafe; color: var(--deep); } .bd.or { background: #ffedd5; color: #c2410c; }
+
+  .nav { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border-top: 1px solid var(--border); }
+  .nav div { text-align: center; font-size: 10px; padding: 7px 0 12px; color: #7d969c; font-weight: 700; position: relative; }
+  .nav svg { display: block; margin: 0 auto 2px; }
+  .nav div.on { color: var(--primary); }
+  .nav div.on::before { content: ''; position: absolute; top: 0; left: 26%; right: 26%; height: 3px; border-radius: 3px; background: var(--grad-ring); }
+
+  /* ── やること ── */
+  .hd { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; background: #fff; }
+  .hd .back { color: var(--primary); font-weight: 800; font-size: 14px; }
+  .hd b { font-size: 17px; }
+  .hd .cnt { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .seg { flex: none; display: flex; gap: 6px; padding: 0 14px 10px; background: #fff; border-bottom: 1px solid var(--border); }
+  .seg span { font-size: 12.5px; font-weight: 800; padding: 7px 12px; border-radius: 999px; background: #f1f7f9; color: var(--muted); }
+  .seg span.on { background: var(--deep); color: #fff; }
+  .seg span.mine { margin-left: auto; background: #ecfeff; color: var(--primary); border: 1px solid #a5f3fc; }
+  .list { flex: 1; overflow: hidden; padding: 6px 12px; }
+  .lh { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 10px 4px 6px; display: flex; justify-content: space-between; }
+  .lh.late { color: #b91c1c; }
+  .box { background: #fff; border-radius: 16px; padding: 2px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .t { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #eef4f6; font-size: 14px; }
+  .t:first-child { border-top: none; }
+  .chk { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--primary); }
+  .chk.on { background: var(--grad-btn); border-color: transparent; color: #08323c; display: grid; place-items: center; font-size: 13px; font-weight: 900; }
+  .tm { flex: none; width: 40px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .tm.late { color: #b91c1c; }
+  .tx { flex: 1; min-width: 0; }
+  .tx small { display: block; font-size: 11px; color: var(--muted); }
+  .tx small.me { color: var(--primary); font-weight: 800; }
+  .t.mine { background: #ecfeff; margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .t.done .tx { color: var(--muted); text-decoration: line-through; }
+  .rep { font-size: 10px; font-weight: 800; color: #0369a1; background: #e0f2fe; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+  .fab { position: absolute; right: 18px; bottom: 74px; width: 56px; height: 56px; border-radius: 50%; background: var(--grad-btn); color: #08323c; font-size: 28px; font-weight: 400; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); }
+</style><style>
+  .sc .ic.act { color: var(--primary); }
+  .sc.mv .ic { color: #7c3aed; background: linear-gradient(145deg, #f5f3ff, #ede9fe); }
+  .hd2 { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #fff; border-bottom: 1px solid var(--border); }
+  .hd2 b { font-size: 15px; letter-spacing: .06em; }
+  .hd2 small { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .body2 { flex: 1; overflow: hidden; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
+  .slim { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #fff; border: 1.5px solid #a5f3fc; font-size: 12.5px; }
+  .slim .go { margin-left: auto; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+  .srch { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; font-size: 13px; color: #94a3b8; }
+  .chips { display: flex; gap: 6px; }
+  .chip { font-size: 12px; font-weight: 800; padding: 6px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--border); }
+  .chip.on { background: var(--deep); color: #fff; border-color: transparent; }
+  .tbl { background: #fff; border-radius: 14px; overflow: hidden; }
+  .tbl .th { background: var(--deep); color: #fff; font-size: 12px; font-weight: 800; display: grid; grid-template-columns: 1fr 90px; padding: 9px 12px; }
+  .tbl .tr { display: grid; grid-template-columns: 1fr 90px; padding: 9px 12px; border-top: 1px solid #eef4f6; font-size: 13px; }
+  .tbl .tr span:last-child { text-align: right; font-weight: 800; }
+  .ng { color: #b91c1c; }
+  .grp { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 6px 4px 0; }
+  .mc { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .mr { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-top: 1px solid #eef4f6; font-size: 13.5px; font-weight: 800; }
+  .mr:first-child { border-top: none; }
+  .mr span { flex: 1; display: grid; }
+  .mr small { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .mr i { font-style: normal; color: #94a3b8; }
+  .mr em { font-style: normal; font-size: 18px; width: 24px; text-align: center; }
+  .foot { text-align: center; font-size: 11.5px; color: var(--muted); padding-top: 4px; }
+  .foot b { color: #b91c1c; }
+  .seg2 { display: grid; grid-template-columns: 1fr 1fr; background: #e2eef1; border-radius: 12px; padding: 3px; }
+  .seg2 span { text-align: center; font-size: 13px; font-weight: 800; padding: 8px; border-radius: 10px; color: var(--muted); }
+  .seg2 span.on { background: #fff; color: #7c3aed; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fld { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+  .fld small { display: block; font-size: 10px; color: var(--muted); font-weight: 800; }
+  .ln2 { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 12px; padding: 9px 10px; font-size: 13.5px; }
+  .ln2 b { flex: 1; }
+  .ln2 .q { display: flex; align-items: center; gap: 6px; }
+  .ln2 .q span { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); display: grid; place-items: center; font-weight: 800; color: var(--muted); }
+  .ln2 .q strong { min-width: 44px; text-align: center; font-size: 15px; }
+  .ln2 small { color: var(--muted); font-size: 11px; }
+  .addl { border: 1.5px dashed #c4b5fd; border-radius: 12px; padding: 10px; text-align: center; color: #7c3aed; font-weight: 800; font-size: 13px; }
+  .save { margin-top: 4px; text-align: center; font-weight: 800; font-size: 15px; color: #fff; background: #7c3aed; border-radius: 12px; padding: 12px; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
+</style>
+<style>
+  .phone { position: relative; }
+  .dim { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+  .spot { position: absolute; z-index: 6; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(6,34,43,.55); pointer-events: none; }
+  .spot::after { content: ''; position: absolute; inset: -6px; border-radius: 18px; border: 2.5px solid #22d3ee; animation: ring 1.6s ease-out infinite; }
+  @keyframes ring { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.08); } }
+  .bub { position: absolute; z-index: 7; left: 16px; right: 16px; background: #fff; border-radius: 16px; padding: 12px 14px; box-shadow: 0 12px 30px rgba(0,0,0,.25); font-size: 13.5px; line-height: 1.55; }
+  .bub b { display: block; font-size: 14.5px; margin-bottom: 2px; }
+  .bub .st { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  .bub .st i { font-style: normal; margin-left: auto; color: var(--primary); font-weight: 800; }
+  .bub .dots { display: flex; gap: 4px; } .bub .dots span { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; } .bub .dots span.on { background: #22d3ee; width: 16px; border-radius: 3px; }
+  .bub::before { content: ''; position: absolute; width: 14px; height: 14px; background: #fff; transform: rotate(45deg); }
+  .bub.down::before { top: -7px; left: 40px; } .bub.up::before { bottom: -7px; left: 40px; }
+  .tap { position: absolute; z-index: 8; width: 34px; height: 34px; border-radius: 50%; background: rgba(34,211,238,.35); border: 2px solid #fff; box-shadow: 0 0 0 6px rgba(34,211,238,.25); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 150px; background: #fff; border-radius: 22px 22px 0 0; padding: 10px 16px; z-index: 4; box-shadow: 0 -8px 24px rgba(0,0,0,.15); }
+  .sh-handle { width: 40px; height: 4px; border-radius: 4px; background: #d6e6ea; margin: 0 auto 10px; }
+  .sh-head { display: flex; align-items: center; gap: 10px; }
+  .sh-av { width: 40px; height: 40px; border-radius: 50%; background: #eef4f6; display: grid; place-items: center; font-size: 9px; color: #94a3b8; }
+  .sh-head b { font-size: 17px; flex: 1; }
+  .sh-stock { margin-top: 12px; background: #f1f7f9; border-radius: 12px; padding: 10px 12px; }
+  .sh-stock small { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .sh-stock div { font-size: 22px; font-weight: 900; }
+  .sh-io { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .sh-io label { font-size: 12px; font-weight: 800; color: var(--muted); display: grid; gap: 4px; }
+  .sh-io .f { border: 2px solid var(--border); border-radius: 12px; padding: 10px; font-size: 20px; font-weight: 900; text-align: center; color: #94a3b8; }
+  .sh-io .f.on { border-color: #16a34a; color: #15803d; background: #f0fdf4; }
+  .sh-reg { margin-top: 12px; border-radius: 12px; background: #16a34a; color: #fff; text-align: center; padding: 11px; font-weight: 800; }
+  .sh-reg small { display: block; font-weight: 600; font-size: 11px; opacity: .9; }
+  .sh-sec { margin-top: 16px; font-size: 13px; font-weight: 800; color: var(--muted); }
+  .toast { position: absolute; z-index: 9; left: 20px; right: 20px; bottom: 90px; background: #0b3b48; color: #fff; border-radius: 14px; padding: 12px 14px; font-size: 13px; line-height: 1.55; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+  .toast b { color: #67e8f9; }
+</style>
+</head><body>
+<h1>入庫・出庫の案内 モック（2026-10-07）</h1>
+<p class="lead">ホームの「入庫・出庫」を押すと、在庫タブへ移って次に押す場所を光らせ、押されるのを待つ（自動では進めない）。周りは暗く、対象は明るく、輪がゆっくり脈打つ。「やめる」・戻る・対象以外を押すといつでも終わる。自分で1回記録できたら、次からは案内なしで在庫を開き、品目を探せる状態にするだけ。棚卸の途中は入庫・出庫できないので、そのときは理由を出して案内しない。</p>
+<div class="row"><div class="col"><div class="cap">① ホーム<small>「入庫・出庫」を押す</small></div><div class="phone"><div class="scroll"><div class="hero">
+          <div class="glow"></div>
+          <svg class="ring" width="300" height="230" viewBox="0 0 300 230" aria-hidden="true">
+            <defs>
+              <linearGradient id="rg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+              <filter id="bl"><feGaussianBlur stdDeviation="3"/></filter>
+            </defs>
+            <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="url(#rg)" stroke-width="9" opacity=".55" filter="url(#bl)"/>
+            <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="url(#rg)" stroke-width="3.5"/>
+            <g opacity=".85">
+              <rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2"/>
+              <rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2"/>
+              <rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2"/>
+            </g>
+          </svg>
+          <div class="top">
+            <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" stroke="url(#rg)" stroke-width="3.4"/></svg>
+            <span class="brand">タナオロ</span>
+            <span class="store">テスト店</span>
+            
+          </div>
+          <div class="hi">
+            <small>10月7日（水）</small>
+            <b>おはようございます、<br>佐藤さん</b>
+            <span class="wx">☀️ 22° ・ 渋谷区 ・ 降水 10%</span>
+          </div>
+        </div>
+
+        <div class="today">
+          <div class="pr">
+            <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+              <circle cx="36" cy="36" r="30" fill="none" stroke="#e2eef1" stroke-width="7"/>
+              <circle cx="36" cy="36" r="30" fill="none" stroke="url(#rg)" stroke-width="7" stroke-linecap="round" stroke-dasharray="94 188.5" transform="rotate(-90 36 36)"/>
+            </svg>
+            <span>3/6<small>完了</small></span>
+          </div>
+          <div class="tx">
+            <div class="tt">今日のやること<i>すべて見る ›</i></div>
+            <div class="ln late"><em>期限切れ</em>製氷機のフィルター交換</div>
+            <div class="ln next"><em>11:00</em><span class="mine">野菜の検品（あなた）</span></div>
+            <div class="ln next"><em>15:00</em>発注を送る</div>
+          </div>
+        </div>
+
+        <div class="pill"><span>▶</span><div><b>棚卸の途中</b><br><small>12/40 ・ 9:10〜</small></div><span class="go">続ける</span></div>
+<div class="sec">作業</div><div class="grid"><div class="sc "><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9zM7 5H5v15h14V5h-2"/><path d="M8 12l2.5 2.5L16 9"/></svg></div><b>棚卸する</b><small>数える</small></div><div class="sc ord"><span class="bd or">15:00</span><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div><b>発注する</b><small>今日が発注日</small></div><div class="sc mv"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg></div><b>入庫・出庫</b><small>品目を選んで</small></div><div class="sc "><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></div><b>品目を足す</b><small>1つずつ</small></div><div class="sc "><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/></svg></div><b>並び替える</b><small>保管場所</small></div><div class="sc "><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></div><b>取り込む</b><small>ファイルから</small></div></div></div><div class="nav"><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div><div class="spot" style="left:230px;top:405px;width:102px;height:106px"></div><div class="tap" style="left:264px;top:442px"></div></div></div><div class="col"><div class="cap">② 在庫タブ 1/3<small>検索と表を光らせて待つ</small></div><div class="phone"><div class="hd2"><b>在庫</b><small>40品目</small></div><div class="body2"><div class="srch">品目名で絞り込み</div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">要補充 3</span><span class="chip">要確認 5</span><span class="chip">非表示</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>見込み</span></div><div class="tr"><span>キャベツ</span><span class="ng">2玉</span></div><div class="tr"><span>牛乳</span><span class="">6本</span></div><div class="tr"><span>生クリーム</span><span class="ng">1本</span></div><div class="tr"><span>チーズ</span><span class="">2kg</span></div><div class="tr"><span>冷凍エビ</span><span class="">4袋</span></div><div class="tr"><span>アイス</span><span class="">12個</span></div><div class="tr"><span>パスタ</span><span class="">8袋</span></div><div class="tr"><span>トマト缶</span><span class="ng">2缶</span></div><div class="tr"><span>オリーブ油</span><span class="">3本</span></div><div class="tr"><span>小麦粉</span><span class="">5kg</span></div></div></div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div><div class="spot" style="left:12px;top:58px;width:324px;height:420px"></div><div class="bub up" style="top:492px"><b>入れる品目を選んでください</b>名前で探すか、表の行を押します。<div class="st"><span class="dots"><span class="on"></span><span class=""></span><span class=""></span></span><span>1/3</span><i>やめる ✕</i></div></div></div></div><div class="col"><div class="cap">③ 品目シート 2/3<small>品目を押すと開く。入庫・出庫の欄を光らせる</small></div><div class="phone"><div class="hd2"><b>在庫</b><small>40品目</small></div><div class="body2"><div class="srch">品目名で絞り込み</div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">要補充 3</span><span class="chip">要確認 5</span><span class="chip">非表示</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>見込み</span></div><div class="tr"><span>キャベツ</span><span class="ng">2玉</span></div><div class="tr"><span>牛乳</span><span class="">6本</span></div><div class="tr"><span>生クリーム</span><span class="ng">1本</span></div><div class="tr"><span>チーズ</span><span class="">2kg</span></div><div class="tr"><span>冷凍エビ</span><span class="">4袋</span></div><div class="tr"><span>アイス</span><span class="">12個</span></div><div class="tr"><span>パスタ</span><span class="">8袋</span></div><div class="tr"><span>トマト缶</span><span class="ng">2缶</span></div><div class="tr"><span>オリーブ油</span><span class="">3本</span></div><div class="tr"><span>小麦粉</span><span class="">5kg</span></div></div></div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div><div class="sheet"><div class="sh-handle"></div><div class="sh-head"><span class="sh-av">no<br>image</span><b>キャベツ</b><span>✕</span></div>
+<div class="sh-stock"><small>今の見込み（論理在庫）</small><div>2<small> 玉</small></div></div>
+<div class="sh-io"><label>入庫（増やす）<span class="f ">0</span></label><label>出庫（減らす）<span class="f">0</span></label></div>
+<div class="sh-sec">品目の情報</div><div class="sh-sec">この品目のカレンダー</div></div><div class="spot" style="left:12px;top:300px;width:324px;height:80px"></div><div class="bub down" style="top:396px"><b>納品なら「入庫」、廃棄なら「出庫」</b>押すと数字のパッドが出ます。数を入れて決めてください。<div class="st"><span class="dots"><span class=""></span><span class="on"></span><span class=""></span></span><span>2/3</span><i>やめる ✕</i></div></div></div></div><div class="col"><div class="cap">④ 登録 3/3<small>数を入れると「登録する」を光らせる</small></div><div class="phone"><div class="hd2"><b>在庫</b><small>40品目</small></div><div class="body2"><div class="srch">品目名で絞り込み</div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">要補充 3</span><span class="chip">要確認 5</span><span class="chip">非表示</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>見込み</span></div><div class="tr"><span>キャベツ</span><span class="ng">2玉</span></div><div class="tr"><span>牛乳</span><span class="">6本</span></div><div class="tr"><span>生クリーム</span><span class="ng">1本</span></div><div class="tr"><span>チーズ</span><span class="">2kg</span></div><div class="tr"><span>冷凍エビ</span><span class="">4袋</span></div><div class="tr"><span>アイス</span><span class="">12個</span></div><div class="tr"><span>パスタ</span><span class="">8袋</span></div><div class="tr"><span>トマト缶</span><span class="ng">2缶</span></div><div class="tr"><span>オリーブ油</span><span class="">3本</span></div><div class="tr"><span>小麦粉</span><span class="">5kg</span></div></div></div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div><div class="sheet"><div class="sh-handle"></div><div class="sh-head"><span class="sh-av">no<br>image</span><b>キャベツ</b><span>✕</span></div>
+<div class="sh-stock"><small>今の見込み（論理在庫）</small><div>2<small> 玉</small></div></div>
+<div class="sh-io"><label>入庫（増やす）<span class="f on">6</span></label><label>出庫（減らす）<span class="f">0</span></label></div><div class="sh-reg">登録する<small>入庫 +6　→　2 → 8玉</small></div>
+<div class="sh-sec">品目の情報</div><div class="sh-sec">この品目のカレンダー</div></div><div class="spot" style="left:12px;top:390px;width:324px;height:56px"></div><div class="bub down" style="top:460px"><b>「登録する」で記録</b>見込みが 2 → 8玉 になります。カレンダーにも残ります。<div class="st"><span class="dots"><span class=""></span><span class=""></span><span class="on"></span></span><span>3/3</span><i>やめる ✕</i></div></div></div></div><div class="col"><div class="cap">⑤ 終わり<small>記録できたら案内を閉じる（初回だけ）</small></div><div class="phone"><div class="hd2"><b>在庫</b><small>40品目</small></div><div class="body2"><div class="srch">品目名で絞り込み</div>
+<div class="chips"><span class="chip on">すべて</span><span class="chip">要補充 3</span><span class="chip">要確認 5</span><span class="chip">非表示</span></div>
+<div class="tbl"><div class="th"><span>品目</span><span>見込み</span></div><div class="tr"><span>キャベツ</span><span class="ng">2玉</span></div><div class="tr"><span>牛乳</span><span class="">6本</span></div><div class="tr"><span>生クリーム</span><span class="ng">1本</span></div><div class="tr"><span>チーズ</span><span class="">2kg</span></div><div class="tr"><span>冷凍エビ</span><span class="">4袋</span></div><div class="tr"><span>アイス</span><span class="">12個</span></div><div class="tr"><span>パスタ</span><span class="">8袋</span></div><div class="tr"><span>トマト缶</span><span class="ng">2缶</span></div><div class="tr"><span>オリーブ油</span><span class="">3本</span></div><div class="tr"><span>小麦粉</span><span class="">5kg</span></div></div></div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div><div class="toast"><b>入庫を記録しました</b>（キャベツ +6玉）<br>次からは案内なしで在庫を開き、品目を探せる状態にします。案内は「各種設定」から出し直せます。</div></div></div></div></body></html>
