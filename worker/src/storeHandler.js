@@ -1986,6 +1986,13 @@ export async function handleAuditGet(db, code, sessionId) {
 const TASK_BODY_MAX = 200
 const _TASK_ID = /^[\w-]{1,64}$/
 const _DATE = /^\d{4}-\d{2}-\d{2}$/
+export const TASK_ASSIGN = ['anyone', 'all', 'person', 'none']
+function _doneList(json) {
+  try {
+    const a = JSON.parse(json || '[]')
+    return Array.isArray(a) ? a.filter(x => x && typeof x.id === 'string').map(x => ({ id: x.id, name: String(x.name ?? ''), at: x.at ?? null })) : []
+  } catch (_) { return [] }
+}
 function _short(v, n) { return typeof v === 'string' ? v.trim().slice(0, n) : '' }
 function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null }
 
@@ -1995,7 +2002,8 @@ export async function handleTasksGet(db, code, sinceDays) {
   const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 120
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
   const rows = (await db.prepare(`
-    SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at
+    SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
+      assign_mode, assignee_id, assignee_name, done_list_json
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL))
     ORDER BY task_date DESC LIMIT 2000
   `).bind(code, since).all()).results ?? []
@@ -2004,6 +2012,10 @@ export async function handleTasksGet(db, code, sinceDays) {
     createdBy: r.created_by ?? '', createdById: r.created_by_id ?? '', createdAt: r.created_at,
     doneAt: r.done_at ?? null, doneBy: r.done_by ?? null, doneById: r.done_by_id ?? null,
     deletedAt: r.deleted_at ?? null, updatedAt: r.updated_at,
+    // 担当（段 2-4）。NULL は「誰でも」
+    assign: TASK_ASSIGN.includes(r.assign_mode) ? r.assign_mode : 'anyone',
+    assigneeId: r.assignee_id ?? null, assigneeName: r.assignee_name ?? null,
+    doneList: _doneList(r.done_list_json),
   }))
 }
 
@@ -2031,17 +2043,55 @@ export async function handleTaskUpsert(db, code, body = {}) {
     doneAt: _iso(body.doneAt), doneBy: body.doneAt ? _short(body.doneBy, 40) : null,
     doneById: body.doneAt ? (_short(body.doneById, 64) || null) : null,
     deletedAt: _iso(body.deletedAt),
+    assign: TASK_ASSIGN.includes(body.assign) ? body.assign : 'anyone',
   }
+  t.assigneeId   = t.assign === 'person' ? (_short(body.assigneeId, 64) || null) : null
+  t.assigneeName = t.assign === 'person' ? (_short(body.assigneeName, 40) || null) : null
+  if (t.assign === 'person' && !t.assigneeId) return { _status: 400, code: 'invalid_task', error: '担当の人を選んでください' }
+  // 「全員」の完了は印から決める（端末の送った完了の時刻は使わない）
+  if (t.assign === 'all') { t.doneAt = null; t.doneBy = null; t.doneById = null }
   // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
-    INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
+      assign_mode, assignee_id, assignee_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      task_date = excluded.task_date, body = excluded.body, done_at = excluded.done_at,
+      task_date = excluded.task_date, body = excluded.body,
+      assign_mode = excluded.assign_mode, assignee_id = excluded.assignee_id, assignee_name = excluded.assignee_name,
+      done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
       done_by_id = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by_id ELSE excluded.done_by_id END,
       deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
-  `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt).run()
+  `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
+    t.assign, t.assigneeId, t.assigneeName).run()
   return { ok: true, created: !prev && !t.deletedAt, task: t }
+}
+
+/**
+ * 「全員」のやることに自分の印を付ける・外す（段 2-4）。印は端末どうしで上書きし合わないよう、
+ * サーバーで今の一覧へ足し引きする（読んだ一覧が変わっていたら読み直す）。
+ * 承認済みのスタッフ全員の印がそろったら done_at を立てる（スタッフがいない店は誰か1人の印で完了）。
+ * @param {{ id: string, name: string }} actor 印を付ける人（スタッフ ID か端末 ID）
+ */
+export async function handleTaskMark(db, code, id, actor, done) {
+  if (!actor?.id) return { _status: 400, error: '誰の印か分かりません' }
+  for (let i = 0; i < 4; i++) {
+    const row = await db.prepare('SELECT assign_mode, done_list_json, deleted_at FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
+    if (!row || row.deleted_at) return { _status: 404, error: '見つかりません' }
+    if (row.assign_mode !== 'all') return { ok: true, skipped: true }
+    const now = _now()
+    let list = _doneList(row.done_list_json).filter(x => x.id !== actor.id)
+    if (done) list.push({ id: actor.id, name: _short(actor.name, 40), at: now })
+    const staff = (await db.prepare("SELECT id FROM staff WHERE shop_code = ? AND status = 'active'").bind(code).all()).results ?? []
+    const marked = new Set(list.map(x => x.id))
+    const complete = staff.length ? staff.every(st => marked.has(st.id)) : list.length > 0
+    const next = JSON.stringify(list)
+    const r = await db.prepare(`
+      UPDATE tasks SET done_list_json = ?, done_at = ?, updated_at = ?
+      WHERE id = ? AND shop_code = ? AND COALESCE(done_list_json, '') = ?
+    `).bind(next, complete ? now : null, now, id, code, row.done_list_json ?? '').run()
+    if (r?.meta?.changes === 1) return { ok: true, doneList: list, doneAt: complete ? now : null }
+  }
+  return { _status: 409, error: '同時に印が付きました。もう一度押してください' }
 }

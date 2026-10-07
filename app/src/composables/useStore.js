@@ -646,6 +646,14 @@ export async function saveTaskToD1(task) {
   return (await _save('task', _resourceId('task', task), task)).ok
 }
 
+/** 「全員」のやることに自分の印（段 2-4）。印はサーバーで合流させるので、保存の列を通さずその場で送る */
+export async function markTaskInD1(id, done, by, byId) {
+  if (!shopCode.value) return null
+  return _api(`/store/${shopCode.value}/tasks/${encodeURIComponent(id)}/mark`, {
+    method: 'POST', body: JSON.stringify({ done: !!done, by, byId }),
+  })
+}
+
 // ── アクティブルーム ──────────────────────────────────────────────────────────
 export async function updateActiveRoomInD1(roomCode) {
   if (!shopCode.value || !BASE) return

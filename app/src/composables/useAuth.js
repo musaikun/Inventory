@@ -156,6 +156,20 @@ export const createStaffInvite = (name, role) => _api(`/store/${shopCode.value}/
 export const revokeStaffInvite = id => _api(`/store/${shopCode.value}/staff/invites/${id}`, { method: 'DELETE' })
 export const staffAction       = (id, action, body = {}) => _api(`/store/${shopCode.value}/staff/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) })
 
+// 担当を選ぶための名前（承認済みのスタッフ。ログインしていれば誰でも・段 2-4）
+export const staffNames = ref([])
+let _namesAt = 0
+export async function loadStaffNames(force = false) {
+  if (!_token.value || !shopCode.value) { staffNames.value = []; return [] }
+  if (!force && Date.now() - _namesAt < 60_000) return staffNames.value
+  try {
+    const r = await _api(`/store/${shopCode.value}/staff/names`)
+    staffNames.value = Array.isArray(r?.staff) ? r.staff : []
+    _namesAt = Date.now()
+  } catch (_) { /* 取れなければ前のまま */ }
+  return staffNames.value
+}
+
 // POST /auth/logout
 export async function logout() {
   await _api('/auth/logout', { method: 'POST' }).catch(() => {})

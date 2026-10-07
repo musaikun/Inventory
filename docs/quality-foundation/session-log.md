@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-07 — version 0.147.0 / スタッフごとのログイン 段 2-4（やることの担当）
+
+- Worker: migration **0024**（tasks.assign_mode・assignee_id・assignee_name・done_list_json。印は idx_tasks_assignee）。
+  - 担当 = 誰でも（NULL も同じ・今まで通り）／全員／特定の人／未定。担当を変えるのは「やることを作る」権限。
+  - 「全員」の印は `POST /store/:code/tasks/:id/mark { done }` でサーバーが一覧へ足し引き（読み直して書く。端末どうしで上書きし合わない）。承認済みのスタッフ全員の印がそろったら done_at を立てる（スタッフがいない店は1人の印で完了）。端末が送る完了の時刻は「全員」では使わない。
+  - `GET /store/:code/staff/names`（ログインしていれば誰でも・承認済みの名前だけ）。
+  - スタッフの削除で担当の名前と「全員」の印の名前にも「（削除済み）」。
+- App: カレンダーのやることに担当の選択（追加のとき・作る権限のある人は後から変更）。行に「あなたの担当」「担当 山田」「全員 1/2（山田）」「担当未定」。「全員」のチェックは自分の印。スタッフがいない店では担当の選択を出さない。
+- 検証: Worker 658 pass（`staff.test.js` に 2-4: 印の合流・全員で完了・外すと未完了・アルバイトは担当を変えられない・削除で（削除済み））、App 全件 pass、build 成功。ローカルでオーナーが「全員」「山田」の担当で追加 → 山田の印で 1/2 → 佐藤の印で完了を確認。
+- 制限: 担当になった人への個別の通知はまだ（通知は端末単位）。
+- 本番: migration 0022〜0024 と Worker の apply が必要。
+- version: 0.146.0 → **0.147.0**。
+
 ## 2026-10-07 — version 0.146.0 / スタッフごとのログイン 段 2-2（「誰が」を本人へ）
 
 - Worker: migration **0023**（sessions.started_by/_id・completed_by/_id、tasks.done_by_id、movements.created_by_id。印は idx_sessions_started_by。`scripts/migrate.sh` に追加）。

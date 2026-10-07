@@ -207,3 +207,53 @@ describe('「誰が」を本人へ（段 2-2）', () => {
     expect(m.by).toBe('佐藤（削除済み）')
   })
 })
+
+describe('やることの担当（段 2-4）', () => {
+  it('全員: 一人ひとりの印をサーバーで合流し、全員そろったら完了。特定の人・担当の変更は作る権限', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const b = await joinAndApprove('佐藤', 'shain')
+    const call = (path, method, body, tok) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+
+    const names = await (await call(`/store/${code}/staff/names`, 'GET', null, a.token)).json()
+    expect(names.staff.map(x => x.name)).toEqual(['山田', '佐藤'])
+
+    const task = { id: 't_all1', date: '2026-10-07', text: '手洗いの確認', assign: 'all', updatedAt: '2026-10-07T01:00:00.000Z' }
+    expect((await call(`/store/${code}/tasks`, 'POST', task, b.token)).status).toBe(200)
+    // 端末が完了の時刻を送っても「全員」は印で決まる
+    await call(`/store/${code}/tasks`, 'POST', { ...task, doneAt: '2026-10-07T01:30:00.000Z', updatedAt: '2026-10-07T01:30:00.000Z' }, b.token)
+    const get = async () => (await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json()).find(t => t.id === 't_all1')
+    expect((await get()).doneAt).toBeNull()
+
+    expect((await call(`/store/${code}/tasks/t_all1/mark`, 'POST', { done: true, by: 'x', byId: 'y' }, a.token)).status).toBe(200)
+    let t = await get()
+    expect(t.doneList.map(x => x.name)).toEqual(['山田'])
+    expect(t.doneAt).toBeNull()
+    await call(`/store/${code}/tasks/t_all1/mark`, 'POST', { done: true }, b.token)
+    t = await get()
+    expect(t.doneList.map(x => x.name).sort()).toEqual(['佐藤', '山田'])
+    expect(t.doneAt).not.toBeNull()
+    await call(`/store/${code}/tasks/t_all1/mark`, 'POST', { done: false }, a.token)
+    t = await get()
+    expect(t.doneList.map(x => x.name)).toEqual(['佐藤'])
+    expect(t.doneAt).toBeNull()
+
+    // アルバイトは担当を変えられない（作る権限が無い）。社員は変えられる
+    // 印はサーバーの今の時刻で updated_at を進めるので、この後の変更はそれより新しい時刻で送る
+    const later = m => new Date(Date.now() + m * 60000).toISOString()
+    const person = { ...task, assign: 'person', assigneeId: a.staffId, assigneeName: '山田', updatedAt: later(1) }
+    expect((await call(`/store/${code}/tasks`, 'POST', person, a.token)).status).toBe(403)
+    expect((await call(`/store/${code}/tasks`, 'POST', person, b.token)).status).toBe(200)
+    expect((await get()).assigneeName).toBe('山田')
+    // アルバイトでも完了の印は付けられる
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...person, doneAt: later(2), updatedAt: later(2) }, a.token)).status).toBe(200)
+    expect((await get()).doneBy).toBe('山田')
+
+    await handleStaffAction(db, req(owner), code, a.staffId, 'delete')
+    expect((await get()).assigneeName).toBe('山田（削除済み）')
+  })
+})

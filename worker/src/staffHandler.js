@@ -67,6 +67,11 @@ async function _markDeletedInRecords(db, code, id, name, now) {
     db.prepare('UPDATE movements SET created_by = ? WHERE shop_code = ? AND created_by_id = ?').bind(label, code, id),
     db.prepare('UPDATE sessions SET started_by = ? WHERE shop_code = ? AND started_by_id = ?').bind(label, code, id),
     db.prepare('UPDATE sessions SET completed_by = ? WHERE shop_code = ? AND completed_by_id = ?').bind(label, code, id),
+    db.prepare('UPDATE tasks SET assignee_name = ?, updated_at = ? WHERE shop_code = ? AND assignee_id = ?').bind(label, now, code, id),
+    // 「全員」の印の名前（{"id":…,"name":…} の並びで保存している）
+    db.prepare(`UPDATE tasks SET done_list_json = replace(done_list_json, ?, ?), updated_at = ?
+      WHERE shop_code = ? AND instr(done_list_json, ?) > 0`)
+      .bind(`"id":${JSON.stringify(id)},"name":${JSON.stringify(name)}`, `"id":${JSON.stringify(id)},"name":${JSON.stringify(label)}`, now, code, `"id":${JSON.stringify(id)},`),
   ])
 }
 

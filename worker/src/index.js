@@ -7,7 +7,7 @@ import {
   handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleSessionRestore,
+  handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleTaskMark, handleSessionRestore,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
@@ -419,6 +419,14 @@ export default {
         }
 
         // ── スタッフの管理（段 2-1・管理者だけ。権限の確認は staffHandler の中）──
+        // GET /store/:code/staff/names … 担当を選ぶための名前（承認済みの人だけ。ログインしていれば誰でも・段 2-4）
+        if (subpath === '/staff/names' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const rows = (await env.DB.prepare("SELECT id, name FROM staff WHERE shop_code = ? AND status = 'active' ORDER BY created_at")
+            .bind(code).all()).results ?? []
+          return jsonResponse({ staff: rows.map(r => ({ id: r.id, name: r.name })) }, 200, origin, allowedOrigin)
+        }
         if (subpath === '/staff' && request.method === 'GET') {
           return resultResponse(await handleStaffList(env.DB, request, code), origin, allowedOrigin)
         }
@@ -507,9 +515,12 @@ export default {
           const body = await request.json().catch(() => ({}))
           // 新しく作る・消すは「やることを作る」権限。完了の印だけなら誰でも
           const prevTask = typeof body?.id === 'string'
-            ? await env.DB.prepare('SELECT deleted_at FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
+            ? await env.DB.prepare('SELECT deleted_at, assign_mode, assignee_id FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
             : null
-          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at)) {
+          // 担当を変えるのも「作る」側の操作（段 2-4）
+          const assignChanged = prevTask && ((prevTask.assign_mode ?? 'anyone') !== (body?.assign ?? 'anyone')
+            || (body?.assign === 'person' && (prevTask.assignee_id ?? '') !== (body?.assigneeId ?? '')))
+          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at) || assignChanged) {
             const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
             if (denyP) return denyP
           }
@@ -528,6 +539,16 @@ export default {
           }
           const { task: _t, ...rest } = result ?? {}
           return resultResponse(rest, origin, allowedOrigin)
+        }
+
+        // POST /store/:code/tasks/:id/mark … 「全員」のやることに自分の印（段 2-4。印は誰でも）
+        const taskMark = subpath.match(/^\/tasks\/([\w-]{1,64})\/mark$/)
+        if (taskMark && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, body)
+          return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done), origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション（要認証）

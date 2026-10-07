@@ -1,6 +1,9 @@
 // カレンダーの「やること」（店で共有するTODO・User決定 2026-10-04）。
 //
-// - 1件 = { id, date(YYYY-MM-DD), text, createdBy, createdById, createdAt, doneAt, doneBy, deletedAt, updatedAt }
+// - 1件 = { id, date(YYYY-MM-DD), text, createdBy, createdById, createdAt, doneAt, doneBy, deletedAt, updatedAt,
+//          assign, assigneeId, assigneeName, doneList }
+// - 担当（段 2-4）: assign = 'anyone'（誰でも・誰か1人が完了）/ 'all'（全員・一人ひとりが印）/ 'person'（特定の人）/ 'none'（未定）
+//   「全員」の印は端末どうしで上書きし合わないよう、サーバーの /mark で合流させる。完了（doneAt）はサーバーが決める
 // - 端末に置いて（localStorage）すぐ出し、サーバーへは保存の列（useStore の _save）で送る。
 //   他の端末の変更は loadTasksFromD1 で取り込み、同じ1件は updatedAt の新しい方を残す
 // - 消すときも行は残し deletedAt を立てる（他の端末へ「消した」を届けるため）
@@ -10,7 +13,7 @@ import { reactive, ref, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { localDateKey } from '../utils/localDate.js'
 import { deviceName, actorId } from './useDeviceId.js'
-import { loadTasksFromD1, saveTaskToD1 } from './useStore.js'
+import { loadTasksFromD1, saveTaskToD1, markTaskInD1 } from './useStore.js'
 import { ownPushEndpoint } from './usePush.js'
 
 export const TASK_TEXT_MAX = 200
@@ -60,7 +63,15 @@ export const openTaskCounts = computed(() => {
 /** やることがある日（未完了があるか） */
 export const openTaskDates = computed(() => new Set(openTaskCounts.value.keys()))
 
-export function addTask(date, text) {
+export const TASK_ASSIGNS = ['anyone', 'all', 'person', 'none']
+function _assignFields(a) {
+  const mode = TASK_ASSIGNS.includes(a?.mode) ? a.mode : 'anyone'
+  if (mode === 'person' && !a?.id) return { assign: 'anyone', assigneeId: null, assigneeName: null }
+  return { assign: mode, assigneeId: mode === 'person' ? a.id : null, assigneeName: mode === 'person' ? (a.name || '') : null }
+}
+
+/** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
+export function addTask(date, text, assign = null) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
   const now = _now()
@@ -68,6 +79,7 @@ export function addTask(date, text) {
     id: _uid(), date, text: body,
     createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
+    ..._assignFields(assign), doneList: [],
   }
   _data.list.push(t)
   _persist()
@@ -86,8 +98,32 @@ function _patch(id, fields) {
 export function toggleTask(id) {
   const t = _data.list.find(x => x.id === id)
   if (!t) return null
+  if (t.assign === 'all') { markTask(t); return t }
   return _patch(id, t.doneAt ? { doneAt: null, doneBy: null, doneById: null } : { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
 }
+
+/** 「全員」のやることで、自分が印を付けたか */
+export function isMarkedByMe(t) { return !!t?.doneList?.some(x => x.id === actorId()) }
+
+/** 「全員」の印を付ける・外す。まず画面に出し、サーバーの結果（完了したか）で揃える。届かなければ戻す */
+async function markTask(t) {
+  const before = [...(t.doneList || [])]
+  const done = !isMarkedByMe(t)
+  const me = actorId()
+  t.doneList = done ? [...before.filter(x => x.id !== me), { id: me, name: deviceName.value || '', at: _now() }] : before.filter(x => x.id !== me)
+  _persist()
+  try {
+    const r = await markTaskInD1(t.id, done, deviceName.value || '', me)
+    if (!r?.ok) throw new Error(r?.error || 'mark failed')
+    if (!r.skipped) { t.doneList = r.doneList ?? t.doneList; t.doneAt = r.doneAt ?? null }
+  } catch (_) {
+    t.doneList = before
+  }
+  _persist()
+}
+
+/** 担当を変える（作る権限のある人。段 2-4） */
+export function setTaskAssign(id, assign) { return _patch(id, _assignFields(assign)) }
 export function removeTask(id) { return _patch(id, { deletedAt: _now() }) }
 
 /** サーバーの一覧を取り込む（同じ1件は updatedAt の新しい方） */
@@ -134,6 +170,8 @@ export const todayOpenCount = computed(() => {
 })
 
 export function isMyTask(t) { return !!t && t.createdById === actorId() }
+/** 自分が担当のやること（特定の人で自分） */
+export function isAssignedToMe(t) { return t?.assign === 'person' && t.assigneeId === actorId() }
 
 // テスト用：保存先から読み直す
 export function _reloadTasks() { _load() }

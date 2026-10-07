@@ -33,7 +33,7 @@ vi.mock('../utils/api.js', () => ({
   setAuthInvalidatedHandler: vi.fn(),
 }))
 vi.mock('../composables/useAuth.js', () => ({
-  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p,
+  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
   getSessions:     vi.fn(async () => sessionsResponse),
   deleteSession:   (...a) => deleteSessionMock(...a),
   logout:          vi.fn(),
