@@ -4,9 +4,10 @@
  * - 進み具合（数えた品目／全品目）のバー、つないでいる人の丸
  * - ルームで誰かが数を入れるたびに、その1行（だれが・何を・いくつ）が上から流れて入る
  *   （棚卸の画面で出るポップの知らせと同じ中身。ホームは5秒ごとにルームの状態を読み直す）
+ * - 新しい変更が届いたら、棚卸の画面のポップと同じ文面（「山田: 「トマト」3個」）をカードの上に小さく出す
  * - 押すと続きから
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   kind:      { type: String, default: 'stock' },   // 'stock' | 'order'
@@ -52,10 +53,41 @@ function line(e) {
   }
 }
 const initial = n => (n || '・').slice(0, 1)
+
+// ── ポップ（新しい変更が届いたときだけ・User 2026-10-07）──
+// 最初に読んだ分は「もう見た」扱い。以降に増えた分のうち一番新しい1件を出し、ほかは「ほか N件」
+const pop = ref(null)      // { key, text, more }
+let _seen = null
+let _popT = null
+function popText(e) {
+  const who = e.by || '他のメンバー'
+  const q = `${e.qty ?? ''}${e.unit || ''}`
+  if (e.action === 'remove') return `${who}: 「${e.item}」を削除`
+  if (e.action === 'order_set') return `${who}: 「${e.item}」発注 ${q}`
+  if (e.action === 'order_clear') return `${who}: 「${e.item}」の発注を取り消し`
+  if (e.action === 'flag_recount') return `${who}: 「${e.item}」に数え直しの印`
+  if (e.action === 'unflag_recount') return `${who}: 「${e.item}」の印を外した`
+  return `${who}: 「${e.item}」${q}`
+}
+watch(() => props.live?.recent, list => {
+  if (!Array.isArray(list)) return            // まだ読めていない（ルームの状態を読む前）
+  const items = list
+  if (_seen === null) { _seen = new Set(items.map(e => e.id)); return }
+  const fresh = items.filter(e => !_seen.has(e.id))
+  for (const e of items) _seen.add(e.id)
+  if (!fresh.length) return
+  pop.value = { key: fresh[0].id, text: popText(fresh[0]), more: fresh.length - 1 }
+  clearTimeout(_popT)
+  _popT = setTimeout(() => { pop.value = null }, 2800)
+}, { immediate: true })
+onUnmounted(() => clearTimeout(_popT))
 </script>
 
 <template>
   <button type="button" :class="['lc', kind]" @click="emit('resume', session)">
+    <Transition name="lc-pop">
+      <span v-if="pop" :key="pop.key" class="lc-pop" role="status">{{ pop.text }}<small v-if="pop.more"> ほか{{ pop.more }}件</small></span>
+    </Transition>
     <span class="lc-head">
       <span class="lc-dot" aria-hidden="true"></span>
       <b>{{ label }}</b>
@@ -117,7 +149,19 @@ const initial = n => (n || '・').slice(0, 1)
 .lc-feed-leave-active { transition: opacity .3s; position: absolute; }
 .lc-feed-leave-to { opacity: 0; }
 .lc-feed-move { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+/* 新しい変更のポップ: カードの上の縁に小さく重ねて出し、少しして消える */
+.lc-pop { position: absolute; top: -13px; left: 14px; max-width: calc(100% - 28px); z-index: 2; padding: 5px 11px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 800; color: #fff; background: #0b3b48; box-shadow: 0 6px 16px rgba(6,34,43,.28);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.lc.order .lc-pop { background: #9a3412; }
+.lc-pop small { font-weight: 700; opacity: .8; }
+.lc-pop-enter-active { transition: transform .35s cubic-bezier(.2,.9,.3,1.3), opacity .25s; }
+.lc-pop-enter-from { transform: translateY(8px) scale(.9); opacity: 0; }
+.lc-pop-leave-active { transition: opacity .4s, transform .4s; }
+.lc-pop-leave-to { opacity: 0; transform: translateY(-6px); }
 @media (prefers-reduced-motion: reduce) {
+  .lc-pop-enter-active, .lc-pop-leave-active { transition: opacity .2s; }
+  .lc-pop-enter-from, .lc-pop-leave-to { transform: none; }
   .lc-dot { animation: none; }
   .lc-feed-enter-active, .lc-feed-move, .lc-bar i { transition: none; }
 }

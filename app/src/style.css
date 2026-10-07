@@ -85,6 +85,10 @@ body[data-view="session"] #app {
 body[data-view="session"] #app > * { flex: none; }
 body[data-view="session"] #app > .inventory-section { flex: 1; min-height: 0; }
 body[data-view="session"] #app > .app-footer { position: static; }
+/* 横幅を在庫タブと揃える（User 2026-10-07）: 縦の flex にすると #app が中身の幅に縮み、左右に数 px の隙間が出ていた。
+   検索の段の左右の余白も在庫タブ（12px）に合わせる（以前は 20px） */
+body[data-view="session"] #app { width: 100%; }
+body[data-view="session"] .voice-section { padding: 12px 12px 10px; }
 
 /* ── Header ── */
 .app-header {

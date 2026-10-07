@@ -23,11 +23,14 @@ describe('LiveSessionCard', () => {
     expect(host.querySelector('.lc-ev').textContent).toContain('山田')
     expect(host.querySelector('.lc-ev').textContent).toContain('トマト 3個')
     expect(host.querySelector('.lc-ev').textContent).toContain('2分前')
+    expect(host.querySelector('.lc-pop')).toBeNull()
     props.live = { ...props.live, recent: [
       { id: 'b', at: now, item: '牛乳', qty: 5, unit: '本', action: 'add', delta: 2, by: '佐藤' },
       ...props.live.recent,
     ] }
     await nextTick()
+    // 新しい変更が届いたら、棚卸の画面と同じ文面のポップが出る（最初に読んだ分では出ない）
+    expect(host.querySelector('.lc-pop').textContent).toContain('佐藤: 「牛乳」5本')
     const rows = [...host.querySelectorAll('.lc-ev')]
     expect(rows[0].textContent).toContain('佐藤')
     expect(rows[0].textContent).toContain('牛乳 5本（+2）')
