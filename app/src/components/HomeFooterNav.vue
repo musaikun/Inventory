@@ -8,6 +8,7 @@
  * 棚卸中・発注中の画面には出さない（下の「完了」と並び、押し間違えて途中で離れやすい）。
  * モーダル（取込の途中を含む）が出ているあいだも隠す。
  */
+import { canSeeMoney } from '../composables/useAuth.js'
 import { computed } from 'vue'
 import { modalLayerCount } from '../composables/appMenuState.js'
 import { newTasks, todayOpenCount } from '../composables/useTasks.js'
@@ -16,12 +17,14 @@ defineProps({ active: { type: String, default: null } })   // 'sessions' | 'repo
 const emit = defineEmits(['go'])
 
 // アイコンは線画（アプリのアイコンの雰囲気に揃える・User決定 2026-10-03）
-const ITEMS = [
+const ALL_ITEMS = [
   { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
   { tab: 'calendar',  label: 'カレンダー', d: ['M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z', 'M4 10h16M9 2v4M15 2v4'] },
   { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
   { tab: 'dashboard', label: '管理',     d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
 ]
+// アルバイトには金額を見せないので、レポートのタブも出さない（段 2-3）
+const ITEMS = computed(() => ALL_ITEMS.filter(it => it.tab !== 'report' || canSeeMoney.value))
 const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: true } : todayOpenCount.value ? { text: String(todayOpenCount.value), fresh: false } : null))
 </script>
 

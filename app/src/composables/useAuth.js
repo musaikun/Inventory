@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { shopCode } from './useStore.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { apiFetch as _api } from '../utils/api.js'
+import { can as canFor, PERMS } from '../services/permissions.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const _token     = ref(localStorage.getItem(STORAGE_KEYS.authToken)     ?? null)
@@ -20,6 +21,24 @@ export const currentRole     = computed(() => (_staff.value ? _staff.value.role 
 /** スタッフの管理ができるか（オーナーか管理者） */
 export const isAdmin         = computed(() => !_staff.value || _staff.value.role === 'admin')
 export const ROLE_LABELS     = { owner: 'オーナー', admin: '管理者', shain: '社員', arbeit: 'アルバイト' }
+/** この人がその操作をできるか（段 2-3。サーバーでも同じ表で確かめている） */
+export function can(perm) {
+  return canFor(currentRole.value, _staff.value?.grants ?? [], perm)
+}
+/** 金額（単価・在庫金額・レポート）を見られるか。アルバイトは見ない（User決定 2026-10-07） */
+export const canSeeMoney = computed(() => canFor(currentRole.value, _staff.value?.grants ?? [], 'money'))
+/** できない操作を押されたときの一言 */
+export function denyMessage(perm) {
+  return `この操作（${PERMS[perm] ?? perm}）は、管理者の許可が必要です`
+}
+/** 役割と足し引きをサーバーから取り直す（管理者が変えたら次に開いたとき反映） */
+export async function refreshMe() {
+  if (!_token.value) return
+  try {
+    const me = await _api('/auth/me')
+    if (me?.staff) { _staff.value = me.staff; localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(me.staff)) }
+  } catch (_) { /* 失効は api.js の 401 で扱う */ }
+}
 
 // 既存インストールの移行: dataOwner 未設定でもログイン中（shopCode あり）なら、
 // 現在のローカルデータはその店舗のものとみなしてマーカーを付ける。

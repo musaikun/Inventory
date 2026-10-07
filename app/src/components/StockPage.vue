@@ -13,6 +13,7 @@
  * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
 import { ref, computed, onUnmounted } from 'vue'
+import { can, denyMessage } from '../composables/useAuth.js'
 import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useStockView } from '../composables/useStockView.js'
@@ -114,7 +115,11 @@ const form = ref(null)           // null | { mode: 'add' } | { mode: 'edit', ite
 // 完了要求と端末の品目がずれた状態で確定させない＝完了は「確定するまで何も動かさない」
 const locked = computed(() => completionBusy.value)
 function openAdd()  { if (!locked.value) form.value = { mode: 'add' } }
-function openEdit() { if (!locked.value) form.value = { mode: 'edit', item: detailTarget.value } }
+function openEdit() {
+  if (locked.value) return
+  if (!can('item.edit')) { window.alert(denyMessage('item.edit')); return }
+  form.value = { mode: 'edit', item: detailTarget.value }
+}
 function closeForm() { form.value = null }
 // 品目を削除したら、シートも閉じて一言だけ知らせる
 const deletedMsg = ref('')
@@ -152,8 +157,8 @@ onUnmounted(registerInnerLayerCloser(() => {
       <div class="sp-empty-title">最初の品目を追加</div>
       <p class="sp-empty-sub">在庫を数える品目を登録します</p>
       <button class="sp-btn pri" type="button" @click="openAdd">＋ 1つずつ追加</button>
-      <button class="sp-btn sec" type="button" @click="emit('openMaster')">📄 ファイルからまとめて取込</button>
-      <button class="sp-link" type="button" @click="emit('startSession')">または、棚卸をしながら登録する ›</button>
+      <button v-if="can('item.admin')" class="sp-btn sec" type="button" @click="emit('openMaster')">📄 ファイルからまとめて取込</button>
+      <button v-if="can('stock.start')" class="sp-link" type="button" @click="emit('startSession')">または、棚卸をしながら登録する ›</button>
     </div>
 
     <div v-else class="sp-body">

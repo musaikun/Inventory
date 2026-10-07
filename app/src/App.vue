@@ -62,7 +62,7 @@ import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -1293,6 +1293,8 @@ const bootProgress = ref(0.08)
 
 onMounted(async () => {
   initConnectivity()
+  // スタッフの役割・足し引きを取り直す（管理者が変えたら次に開いたときに反映・段 2-3）
+  if (isAuthenticated.value) refreshMe()
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')
@@ -1792,6 +1794,9 @@ const completedAtDisplay = computed(() => {
 })
 
 async function onComplete() {
+  // 完了は役割で（段 2-3。サーバーでも止める）。数えるのは誰でもできるので、ここで初めて止まる
+  const finishPerm = sessionMode.value === 'order' ? 'order.finish' : 'stock.finish'
+  if (!practiceMode.value && !can(finishPerm)) { showToast(denyMessage(finishPerm), 3600, 'warning'); return }
   // 練習モード: 履歴に残さず終了
   if (practiceMode.value) {
     if (!confirm('練習を終了しますか？\n（結果は履歴に保存されません）')) return
@@ -3097,6 +3102,7 @@ function runHideUndo() {
 // silent: 呼び出し元が自前の通知（振り分け画面の取り消しバーなど）を出す場合、
 // 取り消しバーを重ねない。
 function onHideItem(name, opts = {}) {
+  if (!can('item.edit')) { showToast(denyMessage('item.edit'), 3200, 'warning'); return }
   hideItem(name)
   if (syncActive.value) broadcastConfig(_configPayload())
   // トーストではなく取り消しバーを出す。読むだけの通知と違い、押す先がある。
@@ -3685,7 +3691,7 @@ function dismissReview() {
         :hidden-items="config.hiddenItems"
         :order-map="sessionMode === 'order' ? orderDraft : null"
         :order-mode="sessionMode === 'order'"
-        :can-manage-list="!syncActive || syncIsHost"
+        :can-manage-list="(!syncActive || syncIsHost) && can('item.edit')"
         :can-request-hide="syncActive && !syncIsHost"
         v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"

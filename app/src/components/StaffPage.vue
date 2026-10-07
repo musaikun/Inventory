@@ -4,6 +4,7 @@
  * - 招待: 名前と役割を決めて出す → QR とリンク（10分・1回きり）。その場で読み取ってもらう
  * - 承認待ち: 承認／断る（招待を受けた人が名前と暗証番号を入れたもの）
  * - スタッフ: 役割の変更・停止／再開・暗証番号の失敗で止まったのを解除・削除（記録は「○○（削除済み）」で残る）
+ * - 個別の許可（段 2-3）: 役割に足す5つ。役割でもうできるものは出さない
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import QRCode from 'qrcode'
@@ -11,14 +12,15 @@ import {
   listStaff, createStaffInvite, revokeStaffInvite, staffAction, ROLE_LABELS, currentStaff,
 } from '../composables/useAuth.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { GRANT_KEYS, GRANT_PERMS, can as roleCan, normalizeGrants } from '../services/permissions.js'
 
 const emit = defineEmits(['close'])
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 
 const ROLES = [
-  { key: 'arbeit', label: 'アルバイト', note: '数える・発注数を入れる・やることを終える' },
-  { key: 'shain',  label: '社員',       note: 'アルバイト＋棚卸・発注の開始と完了・やることを作る' },
-  { key: 'admin',  label: '管理者',     note: '社員＋品目の管理・スタッフの管理' },
+  { key: 'arbeit', label: 'アルバイト', note: '数える・発注数を入れる・品目を足す・やることを終える（金額は見えない）' },
+  { key: 'shain',  label: '社員',       note: 'アルバイト＋棚卸・発注の開始と完了・品目を直す・金額を見る・やることを作る' },
+  { key: 'admin',  label: '管理者',     note: '社員＋品目の削除と取り込み・並び替え・発注点・スタッフの管理' },
 ]
 
 const staff = ref([])
@@ -100,6 +102,22 @@ async function act(s, action, body) {
 const confirmDel = ref('')
 const isMe = s => currentStaff.value?.id === s.id
 const roleLabel = r => ROLE_LABELS[r] ?? r
+
+const GRANT_LABELS = {
+  orderStart: '発注を始める',
+  orderFinish: '発注を確定・書き出す',
+  stock: '棚卸を始める・完了する',
+  task: 'やることを作る',
+  itemEdit: '品目を直す・並び替え・発注点',
+}
+/** その役割にまだ無い（足す意味がある）許可だけ */
+const grantChoices = role => GRANT_KEYS.filter(k => GRANT_PERMS[k].some(p => !roleCan(role, [], p)))
+const hasGrant = (s, k) => normalizeGrants(s.grants).includes(k)
+function toggleGrant(s, k) {
+  const now = normalizeGrants(s.grants)
+  const next = now.includes(k) ? now.filter(x => x !== k) : [...now, k]
+  act(s, 'grants', { grants: next })
+}
 </script>
 
 <template>
@@ -187,6 +205,12 @@ const roleLabel = r => ROLE_LABELS[r] ?? r
               <button type="button" class="sp2-mini danger" @click="confirmDel = ''; act(s, 'delete')">削除する</button>
             </span>
           </div>
+          <div v-if="!isMe(s) && grantChoices(s.role).length" class="sp2-grants" role="group" :aria-label="`${s.name}に足す許可`">
+            <span class="sp2-glabel">個別に許可:</span>
+            <button v-for="k in grantChoices(s.role)" :key="k" type="button"
+              :class="['sp2-chip', { on: hasGrant(s, k) }]" :aria-pressed="hasGrant(s, k)" :disabled="!!busy"
+              @click="toggleGrant(s, k)">{{ hasGrant(s, k) ? '✓ ' : '' }}{{ GRANT_LABELS[k] }}</button>
+          </div>
         </div>
         <p v-if="msg" class="sp2-err">{{ msg }}</p>
       </section>
@@ -249,4 +273,8 @@ const roleLabel = r => ROLE_LABELS[r] ?? r
 .sp2-left.over { color: #b91c1c; }
 .sp2-note { margin: 0; font-size: 12px; color: var(--text-muted, #4c6a72); line-height: 1.6; }
 .sp2-err { margin: 0; font-size: 13px; font-weight: 700; color: #b91c1c; }
+.sp2-grants { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sp2-glabel { font-size: 12px; font-weight: 700; color: var(--text-muted, #4c6a72); }
+.sp2-chip { min-height: 32px; padding: 0 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 999px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 12px; font-weight: 700; cursor: pointer; }
+.sp2-chip.on { border-color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); color: var(--primary, #0e7490); }
 </style>

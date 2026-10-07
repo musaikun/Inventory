@@ -1,6 +1,7 @@
 <script setup>
 import DayTasks from './DayTasks.vue'
 import OrderExportSheet from './OrderExportSheet.vue'
+import { canSeeMoney } from '../composables/useAuth.js'
 import { openTaskCounts } from '../composables/useTasks.js'
 import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
@@ -524,7 +525,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <span class="hc-list-date">{{ listDateLabel(r.key) }}</span>
             <span class="hc-list-kind"><span v-if="KIND_META[r.kind].dot" :class="['dot', KIND_META[r.kind].dot]"></span>{{ r.kind === 'memo' ? '📝 メモ' : KIND_META[r.kind].label }}</span>
             <span class="hc-list-info">{{ r.info }}</span>
-            <span v-if="r.amount != null" class="hc-list-amt">{{ fmtYen(r.amount) }}</span>
+            <span v-if="canSeeMoney && r.amount != null" class="hc-list-amt">{{ fmtYen(r.amount) }}</span>
             <span class="hc-list-arrow">›</span>
           </button>
         </template>
@@ -639,7 +640,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <template v-if="selectedStock.length">
         <div class="hc-sec-title" data-sec="stock">
           <span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）
-          <span v-if="selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
+          <span v-if="canSeeMoney && selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
         </div>
         <div
           v-for="r in selectedStockRows"
@@ -651,12 +652,12 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込 {{ _importedMd(r.s) }}</span>
             <span v-else class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
             <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
-            <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+            <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
             <span class="hc-entry-arrow">詳細 ›</span>
           </div>
           <div v-if="r.noData" class="hc-entry-warn">この端末に明細データが無いため、金額を計算できません</div>
-          <div v-else-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-          <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
+          <div v-else-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+          <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
         </div>
       </template>
 
@@ -665,7 +666,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
         <template v-for="sec in moveSections" :key="sec.type">
           <div class="hc-sec-title" :data-sec="sec.type">
             <span :class="['dot', sec.dot]"></span>{{ sec.label }}（{{ sec.rows.length }}件）
-            <span v-if="sec.total != null" class="hc-sec-total">{{ fmtYen(sec.total) }}</span>
+            <span v-if="canSeeMoney && sec.total != null" class="hc-sec-total">{{ fmtYen(sec.total) }}</span>
           </div>
           <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move" :data-rec="r.m.id">
             <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
@@ -673,11 +674,11 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
               <span v-else class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
               <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目<template v-if="r.m.merged">（{{ r.m.merged }}回の登録）</template></span>
               <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
-              <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+              <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
               <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>
             </div>
-            <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-            <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
+            <div v-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+            <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
             <div v-if="expanded[r.m.id]" class="hc-order-lines">
               <div v-for="l in r.m.lines" :key="l.item" class="hc-order-line">
                 <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
@@ -691,18 +692,18 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <template v-if="selectedOrders.length">
         <div class="hc-sec-title" data-sec="order">
           <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
-          <span v-if="selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
+          <span v-if="canSeeMoney && selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
         </div>
         <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order" :data-rec="r.o.id">
           <div class="hc-entry-main" @click="toggleOrder(r.o.id)">
             <span class="hc-order-sup">{{ r.o.supplier || '（未分類）' }}</span>
             <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
             <span v-if="importedOrderIds.has(r.o.id)" class="hc-ord-done">入庫済み</span>
-            <span :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
+            <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
             <span class="hc-entry-arrow">{{ expanded[r.o.id] ? '▲' : '▼' }}</span>
           </div>
-          <div v-if="r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-          <div v-else-if="r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
+          <div v-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
+          <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
           <div v-if="expanded[r.o.id]" class="hc-order-lines">
             <div v-for="l in r.o.lines" :key="l.item" class="hc-order-line">
               <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
@@ -714,7 +715,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
       <OrderExportSheet v-if="exportOrder" :order="exportOrder" @close="exportOrder = null" />
 
-      <div v-if="anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
+      <div v-if="canSeeMoney && anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
 
       <div
         v-if="!selectedStock.length && !selectedOrders.length && !selectedMoves.length"

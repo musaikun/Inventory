@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { useConfig } from './useConfig.js'
 import { showAxisAssign, axisAssignInitial } from './appMenuState.js'
+import { can, denyMessage } from './useAuth.js'
 
 export function useSortSetup() {
   const { config, setAxisName } = useConfig()
@@ -31,6 +32,7 @@ export function useSortSetup() {
 
   /** 振り分けの画面を開く。並び替えがまだ無ければ名前（既定は「保管場所」）を決めてから */
   function openSort() {
+    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
     let idx = sortProgress.value.best?.idx
     if (idx == null) {
       const names = config.axisNames ?? ['', '']

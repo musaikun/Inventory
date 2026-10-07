@@ -7,6 +7,7 @@ import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { isSupplyItem, normalize } from '../utils/itemMatcher.js'
 import { showAxisAssign, axisAssignInitial, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { itemImageUrl } from '../services/itemImages.js'
+import { canSeeMoney } from '../composables/useAuth.js'
 import ItemImageViewer from './ItemImageViewer.vue'
 
 const { config: liveConfig, setAxisName } = useConfig()
@@ -479,7 +480,7 @@ const hasPrices = computed(() =>
 const hasCodes = computed(() => false)
 
 // preview では金額列は出さない（数値なしの確認用途）
-const showAmount = computed(() => hasPrices.value && !props.preview && !props.hideAmount)
+const showAmount = computed(() => hasPrices.value && !props.preview && !props.hideAmount && canSeeMoney.value)   // アルバイトには金額を出さない（段 2-3）
 
 // 「誰が発注したか」は、2人以上が発注しているときだけ出す。
 // 1台で回している店ではどの行も同じ名前になり、狭い列で名前を削るだけの表示になる。

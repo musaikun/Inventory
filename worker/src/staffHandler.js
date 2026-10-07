@@ -10,6 +10,7 @@ import { _now } from './workerUtils.js'
 import { _hashPin, verifyPinHash, extractBearerToken } from './authHandler.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
 import { entitlement } from './entitlements.js'
+import { normalizeGrants, can } from './permissions.js'
 
 export const STAFF_ROLES = ['arbeit', 'shain', 'admin']
 export const INVITE_TTL_MS = 10 * 60 * 1000
@@ -46,11 +47,11 @@ export async function authContext(db, request) {
     WHERE a.token = ? AND a.expires_at > datetime('now')
   `).bind(token).first()
   if (!row?.shop_code || row.deleted_at || row.deletion_pending_at) return null
-  if (!row.staff_id) return { shopCode: row.shop_code, staffId: null, role: 'owner', name: null, isAdmin: true }
-  const st = await db.prepare('SELECT id, name, role, status FROM staff WHERE id = ? AND shop_code = ?')
+  if (!row.staff_id) return { shopCode: row.shop_code, staffId: null, role: 'owner', name: null, grants: [], isAdmin: true }
+  const st = await db.prepare('SELECT id, name, role, status, grants_json FROM staff WHERE id = ? AND shop_code = ?')
     .bind(row.staff_id, row.shop_code).first()
   if (!st || st.status !== 'active') return null
-  return { shopCode: row.shop_code, staffId: st.id, role: st.role, name: st.name, isAdmin: st.role === 'admin' }
+  return { shopCode: row.shop_code, staffId: st.id, role: st.role, name: st.name, grants: _grants(st), isAdmin: st.role === 'admin' }
 }
 
 async function _requireAdmin(db, request, code) {
@@ -60,9 +61,19 @@ async function _requireAdmin(db, request, code) {
   return { ctx }
 }
 
+function _grants(r) {
+  try { return normalizeGrants(JSON.parse(r?.grants_json || '[]')) } catch (_) { return [] }
+}
+const _me = st => ({ id: st.id, name: st.name, role: st.role, grants: _grants(st) })
+
+/** その人がその操作をできるか（オーナー・管理者は全部） */
+export function ctxCan(ctx, perm) {
+  return !!ctx && can(ctx.role, ctx.grants ?? [], perm)
+}
+
 function _staffView(r) {
   return {
-    id: r.id, name: r.name, role: r.role, status: r.status,
+    id: r.id, name: r.name, role: r.role, status: r.status, grants: _grants(r),
     createdAt: r.created_at, approvedAt: r.approved_at ?? null, lastSeenAt: r.last_seen_at ?? null,
   }
 }
@@ -133,7 +144,7 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
   if (deny) return deny
   const st = await db.prepare('SELECT * FROM staff WHERE id = ? AND shop_code = ?').bind(id, code).first()
   if (!st || st.status === 'deleted') return { _status: 404, error: 'スタッフが見つかりません' }
-  if (ctx.staffId && ctx.staffId === id && ['stop', 'delete', 'role'].includes(action)) {
+  if (ctx.staffId && ctx.staffId === id && ['stop', 'delete', 'role', 'grants'].includes(action)) {
     return { _status: 400, error: '自分自身は変えられません。オーナーか他の管理者に頼んでください' }
   }
   const now = _now()
@@ -165,6 +176,9 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
       await set('role = ?', role)
       break
     }
+    case 'grants':
+      await set('grants_json = ?', JSON.stringify(normalizeGrants(body?.grants)))
+      break
     default:
       return { _status: 404, error: 'Not found' }
   }
@@ -235,7 +249,7 @@ export async function handleStaffPending(db, key) {
   const token = await _issueToken(db, st.shop_code, st.id)
   return {
     status: 'active', token, shopCode: st.shop_code, storeName: store?.store_name ?? null,
-    staff: { id: st.id, name: st.name, role: st.role }, ...entitlement(store ?? {}),
+    staff: _me(st), ...entitlement(store ?? {}),
   }
 }
 
@@ -274,7 +288,7 @@ export async function handleStaffLogin(db, body) {
   const token = await _issueToken(db, shopCode, st.id)
   return {
     token, shopCode, storeName: store.store_name ?? null,
-    staff: { id: st.id, name: st.name, role: st.role }, ...entitlement(store),
+    staff: _me(st), ...entitlement(store),
   }
 }
 
@@ -292,5 +306,5 @@ export async function handleStaffUnlock(db, request, code, id) {
 export async function handleMe(db, request) {
   const ctx = await authContext(db, request)
   if (!ctx) return { _status: 401, error: '認証が必要です' }
-  return { shopCode: ctx.shopCode, role: ctx.role, staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role } : null }
+  return { shopCode: ctx.shopCode, role: ctx.role, staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null }
 }

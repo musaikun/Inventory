@@ -1,4 +1,5 @@
 <script setup>
+import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed, onUnmounted } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { categoryOrderOf } from '../services/snapshotView.js'
@@ -20,6 +21,12 @@ const props = defineProps({
   unfinishedCount: { type: Number, default: 0 },
 })
 const emit = defineEmits(['back', 'clear-master'])
+function _mayPick(kind) {
+  const perm = kind === 'import' ? 'item.admin' : 'money'
+  if (can(perm)) return true
+  window.alert(denyMessage(perm))
+  return false
+}
 
 const { config, itemCount, exportConfigCSV } = useConfig()
 const { getSnapshots, exportSnapshotCSV } = useHistory()
@@ -91,7 +98,11 @@ const deliveryRecipes  = computed(() => _recipeNames('delivery'))
 const stocktakeRecipes = computed(() => _recipeNames('stocktake'))
 
 const picker = ref('')   // '' | 'import' | 'export'
-function openPicker(kind) { activeHelp.value = ''; picker.value = kind }
+function openPicker(kind) {
+  // 取り込みは品目の管理（管理者）。書き出しは見るだけなので金額が見られる人なら可（段 2-3）
+  if (!_mayPick(kind)) return
+  activeHelp.value = ''; picker.value = kind
+}
 function closePicker()    { picker.value = ''; activeHelp.value = '' }
 // 選んだらシートは閉じる。取込はこの後それぞれの確認画面が開く
 function runPick(fn) { closePicker(); fn() }
@@ -106,6 +117,7 @@ const delCode = ref('')
 const resetAssign = ref(false)   // 振り分け（品目→分類先の割り当て）の記憶も消すか
 const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
 function onClear() {
+  if (!can('item.admin')) { window.alert(denyMessage('item.admin')); return }
   if (!canDelete.value) return
   const note = resetAssign.value
     ? '\n振り分け（分類先の割り当て）の記憶も消去します。'

@@ -9,6 +9,10 @@ import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
 import { tasksOn, addTask, toggleTask, removeTask, isMyTask, isNewTask, TASK_TEXT_MAX } from '../composables/useTasks.js'
+import { can } from '../composables/useAuth.js'
+// 作る・消すは役割で（段 2-3）。完了の印は誰でも。自分が作ったものは消せる
+const canCreate = () => can('task.create')
+const canRemove = t => can('task.deleteOthers') || (isMyTask(t) && can('task.create'))
 
 const props = defineProps({ date: { type: String, required: true } })   // YYYY-MM-DD
 const { config } = useConfig()
@@ -50,9 +54,9 @@ function onAdd() {
           <template v-if="t.doneAt"><template v-if="!isMyTask(t)"> ・ </template>{{ t.doneBy ? `${t.doneBy}さんが完了` : '完了' }}</template>
         </small>
       </span>
-      <button type="button" class="dt-del" :aria-label="`${t.text}を消す`" title="消す" @click="removeTask(t.id)">✕</button>
+      <button v-if="canRemove(t)" type="button" class="dt-del" :aria-label="`${t.text}を消す`" title="消す" @click="removeTask(t.id)">✕</button>
     </div>
-    <form class="dt-add" @submit.prevent="onAdd">
+    <form v-if="canCreate()" class="dt-add" @submit.prevent="onAdd">
       <input v-model="draft" type="text" :maxlength="TASK_TEXT_MAX" placeholder="やることを追加" aria-label="やることを追加" autocomplete="off" />
       <button type="submit" :disabled="!draft.trim()">追加</button>
     </form>

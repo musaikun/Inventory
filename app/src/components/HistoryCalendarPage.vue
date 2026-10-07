@@ -1,4 +1,5 @@
 <script setup>
+import { can } from '../composables/useAuth.js'
 import { ref, computed, onMounted } from 'vue'
 import { getSessions, logout } from '../composables/useAuth.js'
 import { isPro, FREE_HISTORY_COUNT, historyLimit } from '../utils/planLimits.js'
@@ -86,7 +87,7 @@ const hiddenByPlanCount = computed(() =>
       <TaskNews />
       <button type="button" class="hcp-today" @click="openToday">
         <span class="hcp-today-l">今日</span>
-        <span class="hcp-today-t">{{ todayOpen.length ? todayOpen.map(t => t.text).join(' ・ ') : 'やることを追加する' }}</span>
+        <span class="hcp-today-t">{{ todayOpen.length ? todayOpen.map(t => t.text).join(' ・ ') : (can('task.create') ? 'やることを追加する' : '今日のやることはありません') }}</span>
         <span v-if="todayOpen.length" class="hcp-today-n">{{ todayOpen.length }}件</span>
         <span aria-hidden="true">›</span>
       </button>

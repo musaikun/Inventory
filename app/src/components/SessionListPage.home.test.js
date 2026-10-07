@@ -15,6 +15,7 @@ let restoreImpl = async () => ({ ok: false })
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
+  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p,
   getSessions:     vi.fn(async () => sessionList),
   createSession:   (...a) => createSession(...a),
   deleteSession:   (...a) => deleteSession(...a),

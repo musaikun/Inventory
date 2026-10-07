@@ -19,6 +19,9 @@ import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyStaffJoin } from './pushHandler.js'
+import { authContext, ctxCan } from './staffHandler.js'
+import { PERMS } from './permissions.js'
+import { configChangePerms } from './configGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
@@ -88,6 +91,30 @@ async function _requireAuth(db, request, code, origin, allowedOrigin) {
   const authCode = await verifyAuth(db, request)
   if (authCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
   return null
+}
+
+/**
+ * 役割の権限を確かめる（段 2-3）。オーナー・管理者は全部できる。スタッフは役割＋足し引き。
+ * PIN の無い古い店舗（トークン無しで使える）は、これまで通りオーナーと同じに扱う。
+ */
+async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
+  const ctx = await authContext(db, request)
+  if (!ctx) {
+    const store = await db.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(code).first()
+    if (store && !store.pin_hash) return null
+    return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+  }
+  if (ctx.shopCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
+  const missing = (Array.isArray(perms) ? perms : [perms]).filter(p => !ctxCan(ctx, p))
+  if (!missing.length) return null
+  return jsonResponse({
+    code: 'forbidden', missing,
+    error: `この操作（${missing.map(p => PERMS[p] ?? p).join('・')}）はできません。管理者に許可してもらってください`,
+  }, 403, origin, allowedOrigin)
+}
+async function _sessionType(db, code, id) {
+  const row = await db.prepare('SELECT type FROM sessions WHERE id = ? AND shop_code = ?').bind(id, code).first()
+  return row?.type === 'order' ? 'order' : 'stock'
 }
 
 async function _readJsonBodyWithLimit(request, maxBytes) {
@@ -299,7 +326,17 @@ export default {
           return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          return resultResponse(await handleConfigPut(env.DB, code, await request.json()), origin, allowedOrigin)
+          const body = await request.json()
+          // 何を変えたかで要る権限を決める（品目の削除・単価・並び替え・発注の設定。足すだけなら誰でも）
+          const ctx = await authContext(env.DB, request)
+          if (ctx && !ctx.isAdmin && ctx.role !== 'owner') {
+            const need = configChangePerms(await handleConfigGet(env.DB, code) ?? {}, body)
+            if (need.length) {
+              const deny = await _requirePerm(env.DB, request, code, need, origin, allowedOrigin)
+              if (deny) return deny
+            }
+          }
+          return resultResponse(await handleConfigPut(env.DB, code, body), origin, allowedOrigin)
         }
         // GET/PUT /store/:code/inventory
         if (subpath === '/inventory' && request.method === 'GET') {
@@ -381,7 +418,7 @@ export default {
         if (invDel && request.method === 'DELETE') {
           return resultResponse(await handleStaffInviteRevoke(env.DB, request, code, invDel[1]), origin, allowedOrigin)
         }
-        const stAct = subpath.match(/^\/staff\/(st_[0-9a-f]{16})\/(approve|reject|stop|resume|delete|role|unlock)$/)
+        const stAct = subpath.match(/^\/staff\/(st_[0-9a-f]{16})\/(approve|reject|stop|resume|delete|role|grants|unlock)$/)
         if (stAct && request.method === 'POST') {
           const parsed = await _readJsonBodyWithLimit(request, 4096)
           const body = parsed.error ? {} : (parsed.body ?? {})
@@ -405,14 +442,14 @@ export default {
 
         // POST /store/:code/images … 品目の画像を保存（要認証・端末で圧縮済みの thumb / full）
         if (subpath === '/images' && request.method === 'POST') {
-          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          const deny = await _requirePerm(env.DB, request, code, 'item.edit', origin, allowedOrigin)
           if (deny) return deny
           return resultResponse(await handleImageUpload(env.IMAGES, code, request), origin, allowedOrigin)
         }
         // DELETE /store/:code/images/:id （要認証）
         const imageDelMatch = subpath.match(/^\/images\/([0-9a-f]{32})$/)
         if (imageDelMatch && request.method === 'DELETE') {
-          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          const deny = await _requirePerm(env.DB, request, code, 'item.edit', origin, allowedOrigin)
           if (deny) return deny
           return resultResponse(await handleImageDelete(env.IMAGES, code, imageDelMatch[1]), origin, allowedOrigin)
         }
@@ -427,6 +464,8 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
+          const denyP = await _requirePerm(env.DB, request, code, body?.type === 'order' ? 'order.start' : 'stock.start', origin, allowedOrigin)
+          if (denyP) return denyP
           // resultResponse を通す。jsonResponse(…, 200) だと handler の
           // `{ _status: 400, code:'invalid_type' }` が HTTP 200 で届き、client は
           // 作成できていないセッションを作成済みとして扱う（DATA-002 §4）。
@@ -444,6 +483,14 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
+          // 新しく作る・消すは「やることを作る」権限。完了の印だけなら誰でも
+          const prevTask = typeof body?.id === 'string'
+            ? await env.DB.prepare('SELECT deleted_at FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
+            : null
+          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at)) {
+            const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
+            if (denyP) return denyP
+          }
           const result = await handleTaskUpsert(env.DB, code, body)
           // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
           if (result?.created && result.task) {
@@ -466,6 +513,8 @@ export default {
         if (subpath === '/sessions/purge-unfinished' && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'item.admin', origin, allowedOrigin)
+          if (denyP) return denyP
           return resultResponse(await handlePurgeUnfinished(env.DB, code), origin, allowedOrigin)
         }
         // POST /store/:code/sessions/:id/restore … 破棄を取り消す（要認証）
@@ -473,6 +522,8 @@ export default {
         if (restoreMatch && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (denyP) return denyP
           return resultResponse(await handleSessionRestore(env.DB, code, restoreMatch[1]), origin, allowedOrigin)
         }
 
@@ -481,11 +532,15 @@ export default {
         if (sessMatch && request.method === 'PUT') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, (await _sessionType(env.DB, code, sessMatch[1])) === 'order' ? 'order.start' : 'stock.start', origin, allowedOrigin)
+          if (denyP) return denyP
           return resultResponse(await handleSessionUpdate(env.DB, code, sessMatch[1], await request.json()), origin, allowedOrigin)
         }
         if (sessMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (denyP) return denyP
           // 本文（取り戻すための下書き）は任意。無い・読めないときは空として扱う
           let body = {}
           try { const t = await request.text(); body = t ? JSON.parse(t) : {} } catch (_) { body = {} }
@@ -511,6 +566,8 @@ export default {
         if (importCreateMatch && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'item.admin', origin, allowedOrigin)
+          if (denyP) return denyP
           const body = await request.json().catch(() => null)
           if (body == null) {
             return jsonResponse({ error: 'リクエストの形式が不正です' }, 400, origin, allowedOrigin)
@@ -525,6 +582,8 @@ export default {
         if (importCancelMatch && request.method === 'DELETE') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'item.admin', origin, allowedOrigin)
+          if (denyP) return denyP
           return resultResponse(
             await handlePastImportCancel(env.DB, code, importCancelMatch[1]),
             origin, allowedOrigin,
@@ -536,6 +595,8 @@ export default {
         if (sessCompleteMatch && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, (await _sessionType(env.DB, code, sessCompleteMatch[1])) === 'order' ? 'order.finish' : 'stock.finish', origin, allowedOrigin)
+          if (denyP) return denyP
           return resultResponse(await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json()), origin, allowedOrigin)
         }
 

@@ -19,6 +19,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
 import { useInventory } from '../composables/useInventory.js'
+import { can, canSeeMoney } from '../composables/useAuth.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { findSimilarNames } from '../utils/itemMatcher.js'
 import { compressItemImage, uploadItemImage, deleteItemImage, itemImageUrl, canUploadItemImage } from '../services/itemImages.js'
@@ -253,7 +254,7 @@ function submit() {
           <input id="if-cat" v-model="category" class="if-input" maxlength="20" list="if-cats" placeholder="未設定" />
           <datalist id="if-cats"><option v-for="c in categoryOptions" :key="c" :value="c" /></datalist>
         </div>
-        <div>
+        <div v-if="canSeeMoney">
           <label class="if-label" for="if-price">単価（円）</label>
           <input id="if-price" v-model="price" class="if-input" type="number" min="0" inputmode="numeric" placeholder="任意" />
         </div>
@@ -270,7 +271,7 @@ function submit() {
 
       <!-- 削除（編集のときだけ。確認はこの中で） -->
       <template v-if="isEdit">
-        <button v-if="!delAsk" type="button" class="if-del-open" @click="delAsk = true">この品目を削除…</button>
+        <button v-if="!delAsk && can('item.admin')" type="button" class="if-del-open" @click="delAsk = true">この品目を削除…</button>
         <div v-else class="if-del" role="group" aria-label="品目の削除">
           <p v-if="countedNow" class="if-del-t">棚卸・発注の途中で数が入っています。終えてから削除してください。</p>
           <template v-else>

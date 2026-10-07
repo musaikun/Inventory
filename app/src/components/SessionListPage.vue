@@ -26,7 +26,7 @@ export const _showOrders    = ref(false)
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS } from '../composables/useAuth.js'
+import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeMoney } from '../composables/useAuth.js'
 import StaffPage from './StaffPage.vue'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
@@ -67,17 +67,19 @@ const tab = _persistedTab
 // 履歴カレンダーは下部ナビから外し、レポートの一番上から開く独立した画面にした。タブ送りのスワイプと
 // カレンダーの月送りのスワイプが重なって使いにくかった（User 2026-10-01）
 // カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる
-const TABS = ['sessions', 'calendar', 'report', 'dashboard']
+// アルバイトには金額を見せないので、レポートのタブは飛ばす（段 2-3）
+const tabsNow = () => ['sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeMoney.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 function goTab(next) {
-  if (!TABS.includes(next) || next === tab.value) return
-  slideDir.value = TABS.indexOf(next) > TABS.indexOf(tab.value) ? 'l' : 'r'
+  const tabs = tabsNow()
+  if (!tabs.includes(next) || next === tab.value) return
+  slideDir.value = tabs.indexOf(next) > tabs.indexOf(tab.value) ? 'l' : 'r'
   tab.value = next
 }
 // カレンダーの月は縦のスワイプで送るので、左右はどのタブでもタブの切り替え（User決定 2026-10-04）
 const tabSwipe = useHorizontalSwipe({
-  onLeft:  () => goTab(TABS[TABS.indexOf(tab.value) + 1]),
-  onRight: () => goTab(TABS[TABS.indexOf(tab.value) - 1]),
+  onLeft:  () => { const t = tabsNow(); goTab(t[t.indexOf(tab.value) + 1]) },
+  onRight: () => { const t = tabsNow(); goTab(t[t.indexOf(tab.value) - 1]) },
 })
 // カレンダーを開いたら、発注・入出庫の記録を取り込み直す（App が受ける）
 watch(tab, t => { if (t === 'calendar') emit('calendarShown') }, { immediate: true })
@@ -147,8 +149,17 @@ function closeSheet() { sheet.value = null; sameDay.value = null }
 
 const hasOwnList = computed(() => config.isCustom && itemCount.value > 0)
 
-function openStockSheet()  { sameDay.value = null; sheet.value = 'stock' }
-function openOrderSheet()  { sheet.value = 'order' }
+// できない操作は押した時点で止めて理由を出す（段 2-3。サーバーでも同じ表で止める）
+const denyNote = ref('')
+let _denyT = null
+function _allowed(perm) {
+  if (can(perm)) return true
+  denyNote.value = denyMessage(perm)
+  clearTimeout(_denyT); _denyT = setTimeout(() => { denyNote.value = '' }, 3200)
+  return false
+}
+function openStockSheet()  { if (!_allowed('stock.start')) return; sameDay.value = null; sheet.value = 'stock' }
+function openOrderSheet()  { if (!_allowed('order.start')) return; sheet.value = 'order' }
 
 async function startStock({ room = false, force = false } = {}) {
   const r = await launcher.startStock({ force })
@@ -167,8 +178,11 @@ async function startOrder({ room = false } = {}) {
   if (s) { closeSheet(); emit('startSession', s, 'order', { room }) }
 }
 
-function resume(session) { closeSheet(); emit('resumeSession', session) }
-function askDiscard(session) { sheet.value = { discard: session } }
+function resume(session) {
+  if (!_allowed(session?.type === 'order' ? 'order.start' : 'stock.start')) return
+  closeSheet(); emit('resumeSession', session)
+}
+function askDiscard(session) { if (!_allowed('stock.discard')) return; sheet.value = { discard: session } }
 async function confirmDiscard() {
   const s = sheet.value?.discard
   if (!s) return
@@ -187,12 +201,14 @@ function discardRemain(d) {
 const discardedStock = computed(() => discarded.value.filter(d => (d.type ?? 'stock') !== 'order'))
 const discardedOrder = computed(() => discarded.value.filter(d => d.type === 'order'))
 async function restoreAndResume(d) {
+  if (!_allowed('stock.discard')) return
   const s = await launcher.restore(d)
   if (s) resume(s)
 }
 // 品目マスタの一括削除。先に完了していない棚卸・発注をサーバーで消し、消せたときだけ品目を消す
 // （品目だけ消えて、古い数量のまま再開・取り戻しができる状態を作らない）
 async function onClearMaster(p) {
+  if (!_allowed('item.admin')) return
   const ids = await launcher.purgeUnfinished()
   if (!ids) {
     window.alert(`中断中・破棄した棚卸と発注を消せなかったため、品目マスタの削除をやめました。\n通信を確認して、もう一度お試しください。（${launcher.error.value}）`)
@@ -212,7 +228,10 @@ const showStaff = ref(false)   // スタッフの管理（段 2-1・管理者だ
 const orderBaseRows = computed(() => allItems.value.map(item => ({
   item, category: config.categories?.[item] ?? '', ...baseOf(item),
 })))
-function openSchedule() { orderScheduleFocusId.value = null; showOrderSchedule.value = true }
+function openSchedule() {
+  if (!_allowed('orderSettings')) return
+  orderScheduleFocusId.value = null; showOrderSchedule.value = true
+}
 const historyTick = ref(0)
 const dashboardSnapshots = computed(() => { void historyTick.value; return getSnapshots() })
 
@@ -326,13 +345,15 @@ onUnmounted(registerInnerLayerCloser(() => {
     >
       <template #extra>
         <div class="manage">
-          <div class="m-h">発注の設定</div>
+          <template v-if="can('orderSettings')">
+            <div class="m-h">発注の設定</div>
+            <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
+            <button class="m-card" type="button" @click="_allowed('orderSettings') && (showOrderBase = true)">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
+          </template>
           <template v-if="isAuthenticated && isAdmin">
             <div class="m-h">スタッフ</div>
-            <button class="m-card" type="button" @click="showStaff = true">👥<span>スタッフ<small>招待・承認・役割・停止（スタッフは自分の名前と暗証番号でログイン）</small></span><i>›</i></button>
+            <button class="m-card" type="button" @click="showStaff = true">👥<span>スタッフ<small>招待・承認・役割・停止・個別の許可（スタッフは自分の名前と暗証番号でログイン）</small></span><i>›</i></button>
           </template>
-          <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
-          <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
           <div class="m-h">その他</div>
           <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
           <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
@@ -350,6 +371,11 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </MasterManagePage>
     <StaffPage v-if="showStaff" @close="showStaff = false" />
+    <Teleport to="body">
+      <Transition name="toast">
+        <div v-if="denyNote" class="toast" data-type="warning" role="status">{{ denyNote }}</div>
+      </Transition>
+    </Teleport>
 
     </div><!-- /.home-panels -->
 

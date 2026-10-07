@@ -66,7 +66,7 @@ describe('招待 → 申請 → 承認', () => {
     await handleStaffAction(db, req(owner), code, j.staffId, 'approve')
     const p = await handleStaffPending(db, j.pendingKey)
     expect(p.status).toBe('active')
-    expect(p.staff).toEqual({ id: j.staffId, name: '山田', role: 'arbeit' })
+    expect(p.staff).toEqual({ id: j.staffId, name: '山田', role: 'arbeit', grants: [] })
     expect(await verifyAuthToken(db, p.token)).toBe(code)
     expect((await handleStaffPending(db, j.pendingKey)).status).toBe('gone')   // 2回目は渡さない
     expect((await handleMe(db, req(p.token))).role).toBe('arbeit')
@@ -122,5 +122,44 @@ describe('スタッフのログイン', () => {
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd1' })).token).toBeTruthy()   // 別の端末は止めない
     await handleStaffUnlock(db, req(owner), code, staffId)
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd2' })).token).toBeTruthy()
+  })
+})
+
+describe('役割と足し引き（段 2-3）', () => {
+  it('アルバイトは棚卸を始められない。足し引きで「棚卸」を足すと始められる', async () => {
+    const { can } = await import('../src/permissions.js')
+    const { ctxCan, authContext } = await import('../src/staffHandler.js')
+    const { staffId, token } = await joinAndApprove('山田', 'arbeit')
+    let ctx = await authContext(db, req(token))
+    expect(ctxCan(ctx, 'stock.start')).toBe(false)
+    expect(ctxCan(ctx, 'count')).toBe(true)
+    expect(ctxCan(ctx, 'money')).toBe(false)
+    await handleStaffAction(db, req(owner), code, staffId, 'grants', { grants: ['stock', 'bogus'] })
+    ctx = await authContext(db, req(token))
+    expect(ctx.grants).toEqual(['stock'])
+    expect(ctxCan(ctx, 'stock.start')).toBe(true)
+    expect(ctxCan(ctx, 'stock.discard')).toBe(false)
+    expect(can('shain', [], 'item.admin')).toBe(false)
+    expect(can('admin', [], 'item.admin')).toBe(true)
+  })
+})
+
+describe('サーバーで権限を守る（ルーター経由）', () => {
+  it('アルバイトは棚卸の開始・単価の変更ができず、品目を足すことはできる', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const { token } = await joinAndApprove('山田', 'arbeit')
+    const call = (path, method, body, tok = token) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    const start = await call(`/store/${code}/sessions`, 'POST', { type: 'stock' })
+    expect(start.status).toBe(403)
+    expect((await start.json()).error).toContain('棚卸を始める')
+    expect((await call(`/store/${code}/sessions`, 'POST', { type: 'stock' }, owner)).status).toBe(200)
+    const cfg = { order: ['トマト'], units: { トマト: '個' }, prices: { トマト: 100 } }
+    expect((await call(`/store/${code}/config`, 'PUT', cfg, owner)).status).toBe(200)
+    expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, prices: { トマト: 120 } })).status).toBe(403)
+    expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, order: ['トマト', 'なす'], units: { ...cfg.units, なす: '本' } })).status).toBe(200)
   })
 })
