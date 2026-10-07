@@ -23,7 +23,7 @@ import InventoryTable from './InventoryTable.vue'
 import ItemStockSheet from './ItemStockSheet.vue'
 import { useMovements } from '../composables/useMovements.js'
 import { saveMovementToD1 } from '../composables/useStore.js'
-import { deviceName } from '../composables/useDeviceId.js'
+import { deviceName, actorId } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
 import HiddenItemsList from './HiddenItemsList.vue'
 import SortRecoCard from './SortRecoCard.vue'
@@ -62,7 +62,7 @@ function onRegister(item, { in: inQ = 0, out: outQ = 0 } = {}) {
   const unit = unitOf(item)
   for (const [type, qty] of [['in', inQ], ['out', outQ]]) {
     if (!(qty > 0)) continue
-    const rec = saveMovement({ type, by: deviceName.value || '', lines: [{ item, qty, unit }] })
+    const rec = saveMovement({ type, by: deviceName.value || '', byId: actorId(), lines: [{ item, qty, unit }] })
     if (rec) saveMovementToD1(rec)
   }
 }

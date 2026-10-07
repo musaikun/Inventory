@@ -561,7 +561,7 @@ const PREV_CANDIDATE_LIMIT = 5
 // GET /store/:code/sessions
 export async function handleSessionsGet(db, code) {
   const rows = await db.prepare(`
-    SELECT id, shop_code, started_at, ended_at, status, item_count, type, import_batch_id
+    SELECT id, shop_code, started_at, ended_at, status, item_count, type, import_batch_id, started_by, completed_by
     FROM sessions WHERE shop_code = ? AND deleted_at IS NULL ORDER BY started_at DESC LIMIT 50
   `).bind(code).all()
   return rows.results.map(r => ({
@@ -575,6 +575,9 @@ export async function handleSessionsGet(db, code) {
     // 取込で作ったセッションだけが値を持つ。ended_at は「取り込んだ時刻」なので、
     // 履歴カレンダーはこれを見て started_at（実施日）のマスへ載せる。
     importBatchId: r.import_batch_id ?? null,
+    // 始めた人・完了した人（段 2-2。0023 より前のセッションは null）
+    startedBy:   r.started_by || null,
+    completedBy: r.completed_by || null,
   }))
 }
 
@@ -1117,6 +1120,7 @@ export async function handleMovementsGet(db, code, sinceDays) {
     savedAt: h.saved_at,
     deletedAt: h.deleted_at ?? null,      // 取り消し済み（理論在庫には数えない・24時間は元に戻せる）
     by:      h.created_by || null,
+    byId:    h.created_by_id || null,
     lines:   byMove[h.id] ?? [],
   }))
 }
@@ -1183,6 +1187,7 @@ export async function handleMovementCreate(db, code, body = {}) {
     }
   }
   const createdBy = text(body.by, MAX_MOVEMENT_BY_LEN)
+  const createdById = text(body.byId, MAX_DEVICE_ID_LEN)
 
   // ヘッダ・明細削除・明細追加を1つの batch（=1トランザクション）で書く（DATA-001）。
   // 明細を消してからヘッダを書いていたため、間で落ちると明細だけ消えた状態が残った。
@@ -1190,13 +1195,14 @@ export async function handleMovementCreate(db, code, body = {}) {
   // upsert に WHERE を足した。SELECT 後に別店舗が同じ id を作る競合で、
   // 他店のヘッダを上書きできてしまう隙間が残っていた（handleOrderCreate と同じ形へ揃える）。
   const headStmt = db.prepare(`
-    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at, deleted_at, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO movements (id, shop_code, move_date, type, note, order_id, saved_at, deleted_at, created_by, created_by_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET move_date = excluded.move_date, type = excluded.type, note = excluded.note, order_id = excluded.order_id,
       deleted_at = excluded.deleted_at,
-      created_by = CASE WHEN excluded.created_by <> '' THEN excluded.created_by ELSE movements.created_by END
+      created_by    = CASE WHEN excluded.created_by <> '' THEN excluded.created_by    ELSE movements.created_by    END,
+      created_by_id = CASE WHEN excluded.created_by <> '' THEN excluded.created_by_id ELSE movements.created_by_id END
     WHERE movements.shop_code = excluded.shop_code
-  `).bind(moveId, code, date, type, text(body.note, MAX_NOTE_LEN), linkedOrderId, body.savedAt ?? now, deletedAt, createdBy)
+  `).bind(moveId, code, date, type, text(body.note, MAX_NOTE_LEN), linkedOrderId, body.savedAt ?? now, deletedAt, createdBy, createdById || null)
 
   const delStmt = db.prepare('DELETE FROM movement_lines WHERE movement_id = ? AND shop_code = ?').bind(moveId, code)
 
@@ -1989,14 +1995,15 @@ export async function handleTasksGet(db, code, sinceDays) {
   const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 120
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
   const rows = (await db.prepare(`
-    SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, deleted_at, updated_at
+    SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL))
     ORDER BY task_date DESC LIMIT 2000
   `).bind(code, since).all()).results ?? []
   return rows.map(r => ({
     id: r.id, date: r.task_date, text: r.body,
     createdBy: r.created_by ?? '', createdById: r.created_by_id ?? '', createdAt: r.created_at,
-    doneAt: r.done_at ?? null, doneBy: r.done_by ?? null, deletedAt: r.deleted_at ?? null, updatedAt: r.updated_at,
+    doneAt: r.done_at ?? null, doneBy: r.done_by ?? null, doneById: r.done_by_id ?? null,
+    deletedAt: r.deleted_at ?? null, updatedAt: r.updated_at,
   }))
 }
 
@@ -2022,15 +2029,19 @@ export async function handleTaskUpsert(db, code, body = {}) {
     createdBy: _short(body.createdBy, 40), createdById: _short(body.createdById, 64),
     createdAt: _iso(body.createdAt) ?? updatedAt,
     doneAt: _iso(body.doneAt), doneBy: body.doneAt ? _short(body.doneBy, 40) : null,
+    doneById: body.doneAt ? (_short(body.doneById, 64) || null) : null,
     deletedAt: _iso(body.deletedAt),
   }
+  // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
-    INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, deleted_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      task_date = excluded.task_date, body = excluded.body, done_at = excluded.done_at, done_by = excluded.done_by,
+      task_date = excluded.task_date, body = excluded.body, done_at = excluded.done_at,
+      done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
+      done_by_id = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by_id ELSE excluded.done_by_id END,
       deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
-  `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.deletedAt, t.updatedAt).run()
+  `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt).run()
   return { ok: true, created: !prev && !t.deletedAt, task: t }
 }

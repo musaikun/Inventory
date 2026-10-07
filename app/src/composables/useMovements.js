@@ -81,7 +81,7 @@ export function useMovements() {
    * @param {object} opts { type: 'in'|'out', date, note, lines:[{item,qty,unit}] }
    * @returns {object|null} 保存したレコード（有効行が無ければ null）
    */
-  function saveMovement({ type = 'in', date = null, note = '', orderId = null, source = null, importBatchId = null, by = '', lines = [] } = {}) {
+  function saveMovement({ type = 'in', date = null, note = '', orderId = null, source = null, importBatchId = null, by = '', byId = '', lines = [] } = {}) {
     const cleanLines = _cleanLines(lines)
     if (cleanLines.length === 0) return null
     const rec = {
@@ -92,7 +92,8 @@ export function useMovements() {
       orderId: type !== 'out' && orderId ? orderId : null,
       source:  source || null,
       importBatchId: importBatchId || null,
-      by:      (by || '').trim() || null,   // 登録した端末の名前（品目シートの明細に出す）
+      by:      (by || '').trim() || null,   // 登録した人（スタッフは本人の名前・オーナーは端末名。品目シートの明細に出す）
+      byId:    byId || null,
       savedAt: new Date().toISOString(),
       lines:   cleanLines,
     }
@@ -178,7 +179,8 @@ export function useMovements() {
       const cur = byId.get(m.id)
       if (!cur) { _data.list.push(m); byId.set(m.id, m); continue }
       if (!cur.syncPending && 'deletedAt' in m) cur.deletedAt = m.deletedAt ?? null
-      if (m.by && !cur.by) cur.by = m.by
+      // 登録した人はサーバーが正（スタッフは本人の名前で刻まれ、削除すると「（削除済み）」が付く）
+      if (m.by && !cur.syncPending) { cur.by = m.by; if (m.byId) cur.byId = m.byId }
     }
     _persist()
   }

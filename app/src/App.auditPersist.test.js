@@ -19,7 +19,7 @@ vi.mock('./utils/api.js', () => ({
   HTTP_BASE: '',
   WS_BASE: '',
   apiFetch: vi.fn(async (path, options) => {
-    if (path.endsWith('/complete')) {
+    if (path.split('?')[0].endsWith('/complete')) {
       completeBodies.push(JSON.parse(options?.body ?? '{}'))
       return { ok: true, type: 'stock', snapshotSaved: true }
     }

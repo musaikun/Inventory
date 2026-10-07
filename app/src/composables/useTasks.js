@@ -4,12 +4,12 @@
 // - 端末に置いて（localStorage）すぐ出し、サーバーへは保存の列（useStore の _save）で送る。
 //   他の端末の変更は loadTasksFromD1 で取り込み、同じ1件は updatedAt の新しい方を残す
 // - 消すときも行は残し deletedAt を立てる（他の端末へ「消した」を届けるため）
-// - 「誰が」は今は端末名。自分の追加かどうかは端末ID（createdById）で見る（名前は重なることがある）
+// - 「誰が」はスタッフなら本人の名前、オーナーなら端末名（段 2-2）。自分のものかは ID（createdById＝スタッフ ID か端末 ID）で見る
 // - 新着: 他の端末が追加した、まだ確認していないもの。確認した時刻は端末ごとに覚える
 import { reactive, ref, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { localDateKey } from '../utils/localDate.js'
-import { deviceId, deviceName } from './useDeviceId.js'
+import { deviceName, actorId } from './useDeviceId.js'
 import { loadTasksFromD1, saveTaskToD1 } from './useStore.js'
 import { ownPushEndpoint } from './usePush.js'
 
@@ -66,7 +66,7 @@ export function addTask(date, text) {
   const now = _now()
   const t = {
     id: _uid(), date, text: body,
-    createdBy: deviceName.value || '', createdById: deviceId, createdAt: now,
+    createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
   }
   _data.list.push(t)
@@ -86,7 +86,7 @@ function _patch(id, fields) {
 export function toggleTask(id) {
   const t = _data.list.find(x => x.id === id)
   if (!t) return null
-  return _patch(id, t.doneAt ? { doneAt: null, doneBy: null } : { doneAt: _now(), doneBy: deviceName.value || '' })
+  return _patch(id, t.doneAt ? { doneAt: null, doneBy: null, doneById: null } : { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
 }
 export function removeTask(id) { return _patch(id, { deletedAt: _now() }) }
 
@@ -117,7 +117,7 @@ export const newTasks = computed(() => {
   const seen = _seenAt.value
   if (!seen) return []
   return _data.list
-    .filter(t => _alive(t) && t.createdById !== deviceId && (t.createdAt || '') > seen)
+    .filter(t => _alive(t) && t.createdById !== actorId() && (t.createdAt || '') > seen)
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
 })
 export function isNewTask(t) { return newTasks.value.some(x => x.id === t.id) }
@@ -133,7 +133,7 @@ export const todayOpenCount = computed(() => {
   return _data.list.filter(t => t.date === today && _alive(t) && !t.doneAt).length
 })
 
-export function isMyTask(t) { return t?.createdById === deviceId }
+export function isMyTask(t) { return !!t && t.createdById === actorId() }
 
 // テスト用：保存先から読み直す
 export function _reloadTasks() { _load() }

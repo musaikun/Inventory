@@ -877,10 +877,13 @@ describe('カレンダーのやること（tasks・migration 0020）', () => {
       }
       st.run = async () => {
         if (s.startsWith('INSERT INTO tasks')) {
-          const [id, shop, date, body, by, byId, createdAt, doneAt, doneBy, deletedAt, updatedAt] = st.args
+          const [id, shop, date, body, by, byId, createdAt, doneAt, doneBy, doneById, deletedAt, updatedAt] = st.args
           const cur = table.get(id)
-          if (!cur) table.set(id, { id, shop_code: shop, task_date: date, body, created_by: by, created_by_id: byId, created_at: createdAt, done_at: doneAt, done_by: doneBy, deleted_at: deletedAt, updated_at: updatedAt })
-          else if (cur.shop_code === shop && cur.updated_at <= updatedAt) Object.assign(cur, { task_date: date, body, done_at: doneAt, done_by: doneBy, deleted_at: deletedAt, updated_at: updatedAt })
+          if (!cur) table.set(id, { id, shop_code: shop, task_date: date, body, created_by: by, created_by_id: byId, created_at: createdAt, done_at: doneAt, done_by: doneBy, done_by_id: doneById, deleted_at: deletedAt, updated_at: updatedAt })
+          else if (cur.shop_code === shop && cur.updated_at <= updatedAt) {
+            const keep = cur.done_at != null && doneAt != null   // 完了した人は前のまま
+            Object.assign(cur, { task_date: date, body, done_at: doneAt, done_by: keep ? cur.done_by : doneBy, done_by_id: keep ? cur.done_by_id : doneById, deleted_at: deletedAt, updated_at: updatedAt })
+          }
         }
         return { meta: { changes: 1 } }
       }

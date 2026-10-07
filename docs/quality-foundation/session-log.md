@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-07 — version 0.146.0 / スタッフごとのログイン 段 2-2（「誰が」を本人へ）
+
+- Worker: migration **0023**（sessions.started_by/_id・completed_by/_id、tasks.done_by_id、movements.created_by_id。印は idx_sessions_started_by。`scripts/migrate.sh` に追加）。
+  - スタッフの記録はトークンの本人名と ID で刻む（画面が送る名前は使わない）。対象: セッションの開始・完了、やることの作成・完了、入出庫。オーナーと暗証番号なしの店は今まで通り端末名・端末 ID。
+  - 完了した人はクエリ（`/complete?by=&byId=`）で受ける（body は完了の再送照合に使うため変えない）。最初の完了だけ記録。
+  - 完了済みのやることに日付などの変更が来ても、完了した人は前のまま。
+  - スタッフの削除で、ID が一致する記録の名前を「名前（削除済み）」へ書き換える（やることは updated_at を進めて各端末へ届ける）。
+  - `GET /sessions` に startedBy・completedBy、`GET /tasks` に doneById、`GET /movements` に byId。
+- App: `useDeviceId` の `deviceName` を「スタッフなら本人の名前、オーナーなら端末名」にし（保存する端末名は `storedDeviceName`）、`actorId()` を追加。`useAuth` がログイン中のスタッフを渡す。やることの「自分の」判定は actorId。スタッフはルーム参加で名前を訊かない。設定の端末名はスタッフのとき「記録には○○と出ます」。カレンダーの日の詳細に始めた人・完了した人、入出庫に登録した人を出す。
+- 検証: Worker 657 pass（`staff.test.js` に 2-2 を追加: なりすましの名前を送っても本人名、完了した人、削除で（削除済み））、App 全件 pass、build 成功。ローカルで端末名「厨房iPad」の端末にスタッフでログイン → カレンダーでやることを追加 → サーバーの createdBy が本人名、削除後「（削除済み）」を確認。
+- 本番: migration 0022・0023 と Worker の apply が必要。
+- version: 0.145.0 → **0.146.0**。
+
 ## 2026-10-07 — version 0.145.0 / スタッフごとのログイン 段 2-3（役割の権限・金額を隠す・個別の許可5つ）
 
 - 権限の表を1か所に: `worker/src/permissions.js`（App は `app/src/services/permissions.js` に同じ中身）。役割 arbeit／shain／admin（オーナー＝全部）＋個別の許可5つ（発注を始める・発注を確定／書き出す・棚卸を始める／完了する・やることを作る・品目を直す＋並び替え＋発注点）。

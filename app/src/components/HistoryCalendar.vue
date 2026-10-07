@@ -357,6 +357,7 @@ function _mergeQuick(list, type) {
   const merged = {
     id: `quick-${type}-${quick[0].date}`, date: quick[0].date, type, note: '', merged: quick.length,
     savedAt: quick.map(m => m.savedAt || '').sort().pop(), lines: [...byItem.values()],
+    by: [...new Set(quick.map(m => m.by).filter(Boolean))].join('・'),
   }
   return [merged, ...list.filter(m => !_isQuick(m))]
 }
@@ -442,6 +443,14 @@ const selectedLabel = computed(() => {
   const dt = new Date(k + 'T00:00:00')
   return `${dt.getMonth() + 1}月${dt.getDate()}日（${WEEK[dt.getDay()]}）`
 })
+
+/** 始めた人・完了した人（段 2-2。同じ人なら1回だけ。0023 より前の記録は出さない） */
+function _whoLine(s) {
+  const a = s.startedBy || '', b = s.completedBy || ''
+  if (!a && !b) return ''
+  if (!a || a === b) return `${b || a}`
+  return b ? `始めた人 ${a} ・ 完了 ${b}` : `始めた人 ${a}`
+}
 
 function _stockItemCount(s) {
   const snap = getSnapshotBySessionId(s.id)
@@ -655,6 +664,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
             <span class="hc-entry-arrow">詳細 ›</span>
           </div>
+          <div v-if="_whoLine(r.s)" class="hc-entry-who">👤 {{ _whoLine(r.s) }}</div>
           <div v-if="r.noData" class="hc-entry-warn">この端末に明細データが無いため、金額を計算できません</div>
           <div v-else-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
           <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
@@ -677,6 +687,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
               <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
               <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>
             </div>
+            <div v-if="r.m.by" class="hc-entry-who">👤 {{ r.m.by }}</div>
             <div v-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
             <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
             <div v-if="expanded[r.m.id]" class="hc-order-lines">
@@ -945,6 +956,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-entry-imported { font-size: 10px; font-weight: 700; color: #3d5a62; background: #edf5f7; border: 1px solid #bfd6dc; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
 .hc-ord-done { font-size: 10px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
+.hc-entry-who { font-size: 11.5px; color: var(--text-muted, #4c6a72); padding: 0 12px 6px; }
 .hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 

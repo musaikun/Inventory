@@ -1,8 +1,9 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { shopCode } from './useStore.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { apiFetch as _api } from '../utils/api.js'
 import { can as canFor, PERMS } from '../services/permissions.js'
+import { setStaffIdentity, deviceName, actorId } from './useDeviceId.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const _token     = ref(localStorage.getItem(STORAGE_KEYS.authToken)     ?? null)
@@ -15,6 +16,8 @@ export const authToken       = computed(() => _token.value)
 export const storeName       = computed(() => _storeName.value)
 export const isAuthenticated = computed(() => !!_token.value)
 /** スタッフとしてのログイン（無ければ null＝オーナー） */
+// 記録の「誰が」を本人の名前にする（段 2-2。オーナーは端末名のまま）
+watch(_staff, s => setStaffIdentity(s), { immediate: true })
 export const currentStaff    = computed(() => _staff.value)
 /** 役割: 'owner' | 'admin' | 'shain' | 'arbeit' */
 export const currentRole     = computed(() => (_staff.value ? _staff.value.role : 'owner'))
@@ -190,7 +193,8 @@ export async function getSessions() {
 export async function createSession(type = 'stock') {
   const code = shopCode.value
   if (!code || !_token.value) throw new Error('認証が必要です')
-  return _api(`/store/${code}/sessions`, { method: 'POST', body: JSON.stringify({ type }) })
+  // by/byId は始めた人（オーナーの端末名。スタッフはサーバーがトークンの本人で刻む・段 2-2）
+  return _api(`/store/${code}/sessions`, { method: 'POST', body: JSON.stringify({ type, by: deviceName.value || '', byId: actorId() }) })
 }
 
 // PUT /store/:code/sessions/:id  { status, itemCount }
@@ -260,7 +264,9 @@ export async function getSessionLines(sessionId) {
 export async function completeSession(sessionId, body) {
   const code = shopCode.value
   if (!code || !_token.value || !sessionId) return
-  return _api(`/store/${code}/sessions/${sessionId}/complete`, {
+  // 完了した人（段 2-2）はクエリで渡す。body は再送の照合に使うので送ったものから変えない
+  const who = new URLSearchParams({ by: deviceName.value || '', byId: actorId() })
+  return _api(`/store/${code}/sessions/${sessionId}/complete?${who}`, {
     method: 'POST',
     body:   JSON.stringify(body ?? {}),
   })

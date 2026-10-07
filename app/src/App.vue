@@ -33,7 +33,7 @@ import {
   fetchRoomStatus, fetchRoomResult,
   captureSyncConnection, isSyncConnectionStale,
 } from './composables/useSync.js'
-import { deviceId, deviceName, setDeviceName } from './composables/useDeviceId.js'
+import { deviceId, deviceName, setDeviceName, staffIdentity } from './composables/useDeviceId.js'
 import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
@@ -255,6 +255,8 @@ function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
   pendingJoinType.value      = type === 'order' ? 'order' : 'stock'
   pendingName.value      = deviceName.value || ''
   pendingNameError.value = false
+  // スタッフは本人の名前で入る（名前を訊かない・段 2-2）
+  if (staffIdentity.value) { onConfirmName(); return }
   showNameModal.value    = true
 }
 
@@ -286,7 +288,7 @@ async function onConfirmName() {
     return
   }
   pendingNameError.value = false
-  setDeviceName(name)
+  if (!staffIdentity.value) setDeviceName(name)
   showNameModal.value   = false
   const code            = pendingJoinCode.value
   const joinSid         = pendingJoinSessionId.value

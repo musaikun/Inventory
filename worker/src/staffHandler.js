@@ -54,6 +54,22 @@ export async function authContext(db, request) {
   return { shopCode: row.shop_code, staffId: st.id, role: st.role, name: st.name, grants: _grants(st), isAdmin: st.role === 'admin' }
 }
 
+/**
+ * 削除したスタッフの記録を「山田（削除済み）」へ（段 2-2・User決定 2026-10-07）。
+ * やったことは残し、名前の後ろに印を付けるだけ。ID で結び付いた記録だけを書き換える。
+ * やることは updated_at を進め、各端末が次に取り直したときに新しい名前へ揃うようにする。
+ */
+async function _markDeletedInRecords(db, code, id, name, now) {
+  const label = `${name}（削除済み）`
+  await db.batch([
+    db.prepare('UPDATE tasks SET created_by = ?, updated_at = ? WHERE shop_code = ? AND created_by_id = ?').bind(label, now, code, id),
+    db.prepare('UPDATE tasks SET done_by = ?, updated_at = ? WHERE shop_code = ? AND done_by_id = ?').bind(label, now, code, id),
+    db.prepare('UPDATE movements SET created_by = ? WHERE shop_code = ? AND created_by_id = ?').bind(label, code, id),
+    db.prepare('UPDATE sessions SET started_by = ? WHERE shop_code = ? AND started_by_id = ?').bind(label, code, id),
+    db.prepare('UPDATE sessions SET completed_by = ? WHERE shop_code = ? AND completed_by_id = ?').bind(label, code, id),
+  ])
+}
+
 async function _requireAdmin(db, request, code) {
   const ctx = await authContext(db, request)
   if (!ctx || ctx.shopCode !== code) return { deny: { _status: 401, error: '認証が必要です' } }
@@ -169,6 +185,7 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
       break
     case 'delete':
       await set('status = ?, pin_hash = NULL, pending_key_hash = NULL, deleted_at = ?', 'deleted', now); await dropTokens()
+      await _markDeletedInRecords(db, code, id, st.name, now)
       break
     case 'role': {
       const role = STAFF_ROLES.includes(body?.role) ? body.role : null

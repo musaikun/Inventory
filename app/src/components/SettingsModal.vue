@@ -3,7 +3,7 @@ import { useWeather, markWeatherAsked, disableWeather } from '../composables/use
 import { ref, computed } from 'vue'
 import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
 import { useConfig } from '../composables/useConfig.js'
-import { deviceId, deviceName, setDeviceName } from '../composables/useDeviceId.js'
+import { deviceId, storedDeviceName, staffIdentity, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
@@ -194,7 +194,7 @@ function onUndoImport() {
 }
 
 // ── 端末名 ───────────────────────────────────────────────────────────────────
-const deviceNameInput = ref(deviceName.value)
+const deviceNameInput = ref(storedDeviceName.value)
 
 function saveDeviceName() {
   setDeviceName(deviceNameInput.value)
@@ -545,7 +545,10 @@ function onDownloadTemplate() {
       <!-- 端末名設定 -->
       <div v-if="_show('device')" class="device-section">
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
-        <div class="device-row">
+        <p v-if="staffIdentity" class="device-staff">
+          スタッフとしてログイン中のため、記録には <b>{{ staffIdentity.name }}</b> と出ます（端末名は使いません）
+        </p>
+        <div v-else class="device-row">
           <input
             v-model="deviceNameInput"
             type="text"
@@ -921,6 +924,7 @@ function onDownloadTemplate() {
 .info-val { font-size: 13px; font-weight: 700; color: var(--text); font-family: monospace; }
 
 /* 端末名設定 */
+.device-staff { margin: 4px 0 8px; font-size: 13px; color: var(--text-muted, #4c6a72); line-height: 1.6; }
 .device-section {
   margin-bottom: 16px;
   padding: 12px 14px;

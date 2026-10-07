@@ -163,3 +163,47 @@ describe('サーバーで権限を守る（ルーター経由）', () => {
     expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, order: ['トマト', 'なす'], units: { ...cfg.units, なす: '本' } })).status).toBe(200)
   })
 })
+
+describe('「誰が」を本人へ（段 2-2）', () => {
+  it('スタッフの記録はトークンの本人名で刻み、削除したら「（削除済み）」が付く', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const { token, staffId } = await joinAndApprove('佐藤', 'shain')
+    const call = (path, method, body, tok = token) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+
+    // 画面が別の名前を送っても、本人の名前になる
+    expect((await call(`/store/${code}/sessions`, 'POST', { type: 'stock', by: 'なりすまし', byId: 'dev-x' })).status).toBe(200)
+    // オーナーは端末名のまま
+    expect((await call(`/store/${code}/sessions`, 'POST', { type: 'order', by: '厨房', byId: 'dev-1' }, owner)).status).toBe(200)
+    const sessions = await (await call(`/store/${code}/sessions`, 'GET')).json()
+    expect(sessions.map(s => s.startedBy).sort()).toEqual(['佐藤', '厨房'])
+    // 完了した人もトークンの本人（クエリの名前は使わない）
+    const ord = sessions.find(s => s.type === 'order')
+    expect((await call(`/store/${code}/sessions/${ord.id}/complete?by=x&byId=y`, 'POST', { itemCount: 0 })).status).toBe(200)
+    expect((await (await call(`/store/${code}/sessions`, 'GET')).json()).find(s => s.id === ord.id).completedBy).toBe('佐藤')
+
+    const task = { id: 't_' + 'a'.repeat(16), date: '2026-10-07', text: '冷蔵庫の掃除', createdBy: 'だれか', createdById: 'dev-x', updatedAt: '2026-10-07T01:00:00.000Z' }
+    expect((await call(`/store/${code}/tasks`, 'POST', task)).status).toBe(200)
+    // オーナーが完了 → 完了した人は端末名。その後の日付の変更では完了した人は変わらない
+    await call(`/store/${code}/tasks`, 'POST', { ...task, doneAt: '2026-10-07T02:00:00.000Z', doneBy: '厨房', doneById: 'dev-1', updatedAt: '2026-10-07T02:00:00.000Z' }, owner)
+    await call(`/store/${code}/tasks`, 'POST', { ...task, date: '2026-10-08', doneAt: '2026-10-07T02:00:00.000Z', updatedAt: '2026-10-07T03:00:00.000Z' })
+    let [t] = await (await call(`/store/${code}/tasks`, 'GET')).json()
+    expect(t.createdBy).toBe('佐藤')
+    expect(t.createdById).toBe(staffId)
+    expect(t.doneBy).toBe('厨房')
+    expect(t.date).toBe('2026-10-08')
+
+    await call(`/store/${code}/movements`, 'POST', { type: 'in', date: '2026-10-07', by: 'なりすまし', lines: [{ item: 'トマト', qty: 1, unit: '個' }] })
+
+    await handleStaffAction(db, req(owner), code, staffId, 'delete')
+    ;[t] = await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json()
+    expect(t.createdBy).toBe('佐藤（削除済み）')
+    const s2 = await (await call(`/store/${code}/sessions`, 'GET', null, owner)).json()
+    expect(s2.map(s => s.startedBy).sort()).toEqual(['佐藤（削除済み）', '厨房'])
+    const [m] = await (await call(`/store/${code}/movements`, 'GET', null, owner)).json()
+    expect(m.by).toBe('佐藤（削除済み）')
+  })
+})

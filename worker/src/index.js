@@ -112,6 +112,16 @@ async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
     error: `この操作（${missing.map(p => PERMS[p] ?? p).join('・')}）はできません。管理者に許可してもらってください`,
   }, 403, origin, allowedOrigin)
 }
+/**
+ * 記録に刻む「誰が」（段 2-2）。スタッフはトークンの本人（画面から偽れない）、
+ * オーナーと暗証番号なしの古い店は、画面が送る端末名・端末 ID のまま。
+ */
+async function _actor(db, request, code, body) {
+  const ctx = await authContext(db, request)
+  if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true }
+  const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '')
+  return { name: str(body?.by, 40), id: str(body?.byId, 64), staff: false }
+}
 async function _sessionType(db, code, id) {
   const row = await db.prepare('SELECT type FROM sessions WHERE id = ? AND shop_code = ?').bind(id, code).first()
   return row?.type === 'order' ? 'order' : 'stock'
@@ -382,7 +392,10 @@ export default {
           return jsonResponse(await handleMovementsGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
         if (subpath === '/movements' && request.method === 'POST') {
-          return resultResponse(await handleMovementCreate(env.DB, code, await request.json()), origin, allowedOrigin)
+          const body = await request.json()
+          const who = await _actor(env.DB, request, code, body)
+          if (who.staff) { body.by = who.name; body.byId = who.id }
+          return resultResponse(await handleMovementCreate(env.DB, code, body), origin, allowedOrigin)
         }
         // DELETE /store/:code/movements/:id
         // 発注削除と同じく resultResponse を通す。ここだけ 200 固定だったため、
@@ -470,7 +483,16 @@ export default {
           // `{ _status: 400, code:'invalid_type' }` が HTTP 200 で届き、client は
           // 作成できていないセッションを作成済みとして扱う（DATA-002 §4）。
           // `_status` は resultResponse が本文から取り除く。
-          return resultResponse(await handleSessionCreate(env.DB, code, body), origin, allowedOrigin)
+          const created = await handleSessionCreate(env.DB, code, body)
+          if (!created?._status) {
+            const who = await _actor(env.DB, request, code, body)
+            if (who.name || who.id) {
+              await env.DB.prepare('UPDATE sessions SET started_by = ?, started_by_id = ? WHERE id = ? AND shop_code = ?')
+                .bind(who.name, who.id, created.id, code).run()
+              created.startedBy = who.name
+            }
+          }
+          return resultResponse(created, origin, allowedOrigin)
         }
 
         // GET/POST /store/:code/tasks … カレンダーのやること（要認証）
@@ -490,6 +512,12 @@ export default {
           if (!prevTask || (body?.deletedAt && !prevTask.deleted_at)) {
             const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
             if (denyP) return denyP
+          }
+          // スタッフは本人の名前で刻む（作った人・完了した人）
+          const who = await _actor(env.DB, request, code, {})
+          if (who.staff && body && typeof body === 'object') {
+            body.createdBy = who.name; body.createdById = who.id
+            if (body.doneAt) { body.doneBy = who.name; body.doneById = who.id }
           }
           const result = await handleTaskUpsert(env.DB, code, body)
           // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
@@ -597,7 +625,18 @@ export default {
           if (deny) return deny
           const denyP = await _requirePerm(env.DB, request, code, (await _sessionType(env.DB, code, sessCompleteMatch[1])) === 'order' ? 'order.finish' : 'stock.finish', origin, allowedOrigin)
           if (denyP) return denyP
-          return resultResponse(await handleSessionComplete(env.DB, code, sessCompleteMatch[1], await request.json()), origin, allowedOrigin)
+          const body = await request.json()
+          const done = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], body)
+          if (!done?._status) {
+            // 完了した人（最初に完了させた人だけ。同じ完了の再送では書き換えない）
+            const who = await _actor(env.DB, request, code, { by: url.searchParams.get('by'), byId: url.searchParams.get('byId') })
+            if (who.name || who.id) {
+              await env.DB.prepare(`UPDATE sessions SET completed_by = ?, completed_by_id = ?
+                WHERE id = ? AND shop_code = ? AND status = 'completed' AND completed_by IS NULL AND completed_by_id IS NULL`)
+                .bind(who.name, who.id, sessCompleteMatch[1], code).run()
+            }
+          }
+          return resultResponse(done, origin, allowedOrigin)
         }
 
         // /store/:code/sessions/:id/audit … 操作ログ（変更履歴・migration 0017、要認証）
