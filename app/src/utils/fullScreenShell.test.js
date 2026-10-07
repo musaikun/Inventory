@@ -35,9 +35,12 @@ describe('全画面シェルの下余白', () => {
     (view) => { expect(clearsFooterPadding(view)).toBe(true) },
   )
 
-  // session だけが .app-footer を持つ。ここを打ち消すとフッターが最後の行に被る。
-  it('session は打ち消さない', () => {
-    expect(clearsFooterPadding('session')).toBe(false)
+  // session も画面の高さに固定し、表だけをスクロールする（User 2026-10-07・v0.148.2）。
+  // そのときは .app-footer を固定配置にせず流れの一番下へ置くので、#app の下余白は要らない。
+  // 下余白を残したまま固定配置に戻すと、フッターが表の最後の行に被る。
+  it('session は打ち消し、フッターを流れの中に置く', () => {
+    expect(clearsFooterPadding('session')).toBe(true)
+    expect(/body\[data-view="session"\] #app > \.app-footer\s*\{[^}]*position:\s*static/.test(css)).toBe(true)
   })
 
   it('#app の footer 用 padding 自体は残っている', () => {

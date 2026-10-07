@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { shopCode } from './useStore.js'
 import { HTTP_BASE, apiFetch } from '../utils/api.js'
 import { normalizePrefs } from '../services/notifyPrefs.js'
+import { actorId } from './useDeviceId.js'
 
 const _KEY = 'tanaoro_push_subscribed'
 const _PREFS_KEY = 'tanaoro_push_prefs'
@@ -83,7 +84,8 @@ export async function subscribePush() {
     if (code) {
       await _within(apiFetch(`/store/${code}/push/subscribe`, {
         method: 'POST',
-        body:   JSON.stringify({ ...sub.toJSON(), prefs: pushPrefs.value }),
+        // byId: この端末が誰のものか（担当になった人へだけ送る通知に使う。スタッフはサーバーが本人で決める）
+        body:   JSON.stringify({ ...sub.toJSON(), prefs: pushPrefs.value, byId: actorId() }),
       }), 15000, 'network')
     }
 
@@ -165,12 +167,16 @@ export function updatePushPrefs(next) {
   clearTimeout(_prefsTimer)
   _prefsTimer = setTimeout(_sendPrefs, 600)
 }
+/** 起動時・ログインしている人が変わったとき: この端末が誰のものかをサーバーへ揃える（通知を受けている端末だけ） */
+export function syncPushOwner() {
+  if (pushSubscribed.value) _sendPrefs()
+}
 async function _sendPrefs() {
   const code = shopCode.value
   const endpoint = await ownPushEndpoint()
   if (!code || !endpoint) return
   try {
-    await apiFetch(`/store/${code}/push/prefs`, { method: 'PUT', body: JSON.stringify({ endpoint, prefs: pushPrefs.value }) })
+    await apiFetch(`/store/${code}/push/prefs`, { method: 'PUT', body: JSON.stringify({ endpoint, prefs: pushPrefs.value, byId: actorId() }) })
   } catch (e) {
     // サーバーがこの購読を知らない（消えた・別の端末から解除した）ときは、もう一度購読し直す
     if (e?.status === 404) await subscribePush()

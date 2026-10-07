@@ -69,10 +69,24 @@ describe('useTasks', () => {
     expect(T.tasksOn('2026-10-04')[0].text).toBe('新しい変更')
   })
 
-  it('今日の未完了の数（ナビのバッジ）', async () => {
+  it('今日の未完了の数（ナビのバッジ）。過ぎた日の終わっていないもの（期限切れ）も数える', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
-    T.addTask(localDateKey(), 'A'); const b = T.addTask(localDateKey(), 'B'); T.addTask('2000-01-01', '昔')
+    T.addTask(localDateKey(), 'A'); const b = T.addTask(localDateKey(), 'B'); T.addTask('2000-01-01', '昔'); T.addTask('2999-01-01', '先')
     T.toggleTask(b.id)
-    expect(T.todayOpenCount.value).toBe(1)
+    expect(T.todayOpenCount.value).toBe(2)
+    expect(T.overdueTasks().map(t => t.text)).toEqual(['昔'])
+  })
+
+  it('時刻の順に並び、時刻なしは後ろ。直すと日付・時刻・文面が変わる', async () => {
+    const a = T.addTask('2026-10-07', '時刻なし')
+    T.addTask('2026-10-07', '午後', null, '15:00')
+    T.addTask('2026-10-07', '朝', null, '09:00')
+    T.addTask('2026-10-07', '壊れた時刻', null, '25:00')
+    expect(T.tasksOn('2026-10-07').map(t => t.text)).toEqual(['朝', '午後', '時刻なし', '壊れた時刻'])
+    T.editTask(a.id, { text: '時刻あり', dueTime: '08:00' })
+    expect(T.tasksOn('2026-10-07')[0].text).toBe('時刻あり')
+    T.editTask(a.id, { date: '2026-10-08' })
+    expect(T.tasksOn('2026-10-08').map(t => t.text)).toEqual(['時刻あり'])
+    expect(T.editTask(a.id, { text: '  ' })).toBeNull()
   })
 })

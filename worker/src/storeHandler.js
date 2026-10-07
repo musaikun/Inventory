@@ -2003,7 +2003,7 @@ export async function handleTasksGet(db, code, sinceDays) {
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, done_list_json
+      assign_mode, assignee_id, assignee_name, done_list_json, due_time
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL))
     ORDER BY task_date DESC LIMIT 2000
   `).bind(code, since).all()).results ?? []
@@ -2016,6 +2016,7 @@ export async function handleTasksGet(db, code, sinceDays) {
     assign: TASK_ASSIGN.includes(r.assign_mode) ? r.assign_mode : 'anyone',
     assigneeId: r.assignee_id ?? null, assigneeName: r.assignee_name ?? null,
     doneList: _doneList(r.done_list_json),
+    dueTime: r.due_time ?? null,
   }))
 }
 
@@ -2044,6 +2045,8 @@ export async function handleTaskUpsert(db, code, body = {}) {
     doneById: body.doneAt ? (_short(body.doneById, 64) || null) : null,
     deletedAt: _iso(body.deletedAt),
     assign: TASK_ASSIGN.includes(body.assign) ? body.assign : 'anyone',
+    // その日の時刻（TODO 本格化 A）。'HH:MM' 以外は時刻なし
+    dueTime: typeof body.dueTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.dueTime) ? body.dueTime : null,
   }
   t.assigneeId   = t.assign === 'person' ? (_short(body.assigneeId, 64) || null) : null
   t.assigneeName = t.assign === 'person' ? (_short(body.assigneeName, 40) || null) : null
@@ -2053,10 +2056,10 @@ export async function handleTaskUpsert(db, code, body = {}) {
   // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
     INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      assign_mode, assignee_id, assignee_name, due_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      task_date = excluded.task_date, body = excluded.body,
+      task_date = excluded.task_date, body = excluded.body, due_time = excluded.due_time,
       assign_mode = excluded.assign_mode, assignee_id = excluded.assignee_id, assignee_name = excluded.assignee_name,
       done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
@@ -2064,7 +2067,7 @@ export async function handleTaskUpsert(db, code, body = {}) {
       deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
   `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
-    t.assign, t.assigneeId, t.assigneeName).run()
+    t.assign, t.assigneeId, t.assigneeName, t.dueTime).run()
   return { ok: true, created: !prev && !t.deletedAt, task: t }
 }
 

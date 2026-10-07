@@ -1,7 +1,9 @@
 // カレンダーの「やること」（店で共有するTODO・User決定 2026-10-04）。
 //
 // - 1件 = { id, date(YYYY-MM-DD), text, createdBy, createdById, createdAt, doneAt, doneBy, deletedAt, updatedAt,
-//          assign, assigneeId, assigneeName, doneList }
+//          assign, assigneeId, assigneeName, doneList, dueTime }
+// - 時刻（dueTime 'HH:MM'・TODO 本格化 A）: その日の中は時刻の順、時刻なしは後ろ
+// - 期限切れ: 日付が過ぎても終わっていないもの。今日の一覧の上に残す（繰り返し（B）は持ち越さない予定）
 // - 担当（段 2-4）: assign = 'anyone'（誰でも・誰か1人が完了）/ 'all'（全員・一人ひとりが印）/ 'person'（特定の人）/ 'none'（未定）
 //   「全員」の印は端末どうしで上書きし合わないよう、サーバーの /mark で合流させる。完了（doneAt）はサーバーが決める
 // - 端末に置いて（localStorage）すぐ出し、サーバーへは保存の列（useStore の _save）で送る。
@@ -49,10 +51,24 @@ async function _send(task) {
   return saveTaskToD1(pushEndpoint ? { ...task, pushEndpoint } : task)
 }
 
-/** その日のやること（追加した順） */
+const _byTime = (a, b) =>
+  (a.dueTime ? 0 : 1) - (b.dueTime ? 0 : 1) || (a.dueTime || '').localeCompare(b.dueTime || '') || (a.createdAt || '').localeCompare(b.createdAt || '')
+
+/** その日のやること（時刻の順、時刻なしは追加した順で後ろ） */
 export function tasksOn(date) {
-  return _data.list.filter(t => t.date === date && _alive(t)).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+  return _data.list.filter(t => t.date === date && _alive(t)).sort(_byTime)
 }
+
+/** 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から） */
+export function overdueTasks(today = localDateKey()) {
+  return _data.list
+    .filter(t => _alive(t) && !t.doneAt && t.date < today)
+    .sort((a, b) => a.date.localeCompare(b.date) || _byTime(a, b))
+}
+export const overdueCount = computed(() => overdueTasks().length)
+
+export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+const _time = v => (typeof v === 'string' && TIME_RE.test(v) ? v : null)
 
 /** 日付 → まだ終わっていないやることの数。カレンダーの印に使う */
 export const openTaskCounts = computed(() => {
@@ -71,7 +87,7 @@ function _assignFields(a) {
 }
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
-export function addTask(date, text, assign = null) {
+export function addTask(date, text, assign = null, dueTime = null) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
   const now = _now()
@@ -79,7 +95,7 @@ export function addTask(date, text, assign = null) {
     id: _uid(), date, text: body,
     createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
-    ..._assignFields(assign), doneList: [],
+    ..._assignFields(assign), doneList: [], dueTime: _time(dueTime),
   }
   _data.list.push(t)
   _persist()
@@ -120,6 +136,24 @@ async function markTask(t) {
     t.doneList = before
   }
   _persist()
+}
+
+/** 文面・日付・時刻を直す（作る権限のある人。TODO 本格化 A）。日付を変えると別の日へ移る */
+export function editTask(id, { text, date, dueTime } = {}) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t) return null
+  const fields = {}
+  if (text !== undefined) {
+    const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
+    if (!body) return null
+    fields.text = body
+  }
+  if (date !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+    fields.date = date
+  }
+  if (dueTime !== undefined) fields.dueTime = _time(dueTime)
+  return _patch(id, fields)
 }
 
 /** 担当を変える（作る権限のある人。段 2-4） */
@@ -166,7 +200,7 @@ export function markTasksSeen() {
 /** 今日の未完了のやることの数（ナビのバッジ） */
 export const todayOpenCount = computed(() => {
   const today = localDateKey()
-  return _data.list.filter(t => t.date === today && _alive(t) && !t.doneAt).length
+  return _data.list.filter(t => t.date <= today && _alive(t) && !t.doneAt).length   // 期限切れも含める
 })
 
 export function isMyTask(t) { return !!t && t.createdById === actorId() }

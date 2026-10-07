@@ -55,3 +55,4 @@ apply_if_missing 0022_staff.sql              idx_staff_login_attempts
 apply_if_missing 0023_actor.sql              idx_sessions_started_by
 apply_if_missing 0024_task_assign.sql        idx_tasks_assignee
 apply_if_missing 0025_presence.sql           idx_work_sessions_seen
+apply_if_missing 0026_task_time_push_actor.sql idx_push_actor

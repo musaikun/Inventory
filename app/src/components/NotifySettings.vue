@@ -68,6 +68,7 @@ const ROWS = [
   { group: 'やること（カレンダー）' },
   { key: 'taskDay', title: 'やることの日', sub: 'その日の何日前に知らせるか', days: true },
   { key: 'taskAdded', title: 'だれかがやることを追加したとき', sub: '自分が追加したものは知らせない' },
+  { key: 'taskAssigned', title: '自分が担当になったとき', sub: 'スタッフとしてログインしている端末だけ' },
   { group: '発注' },
   { key: 'orderDeadline', title: '発注の締切', sub: '「発注日・締切」で決めた締切の何時間前か', lead: true },
 ]

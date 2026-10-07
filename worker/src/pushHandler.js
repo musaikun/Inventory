@@ -77,7 +77,8 @@ async function _send(env, sub, payload) {
   }
 }
 
-export async function savePushSubscription(db, shopCode, sub) {
+/** @param {string} [actorId] この端末が誰のものか（スタッフ ID、オーナーは端末 ID。担当の通知に使う） */
+export async function savePushSubscription(db, shopCode, sub, actorId = null) {
   const validated = _validatePushSubscription(sub)
   if (!validated) {
     return { _status: 400, code: 'invalid_subscription', error: 'Push購読情報が不正です' }
@@ -92,15 +93,16 @@ export async function savePushSubscription(db, shopCode, sub) {
   // 通知の設定（端末ごと）。送られてこなければ今の設定を残す（古い端末は送らない）
   const prefsJson = sub.prefs !== undefined ? JSON.stringify(normalizePrefs(sub.prefs)) : null
   const result = await db.prepare(`
-    INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json, actor_id)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(endpoint) DO UPDATE SET
       p256dh     = excluded.p256dh,
       auth       = excluded.auth,
       prefs_json = COALESCE(excluded.prefs_json, push_subscriptions.prefs_json),
+      actor_id   = COALESCE(excluded.actor_id, push_subscriptions.actor_id),
       updated_at = datetime('now')
     WHERE push_subscriptions.shop_code = excluded.shop_code
-  `).bind(shopCode, validated.endpoint, validated.p256dh, validated.auth, prefsJson).run()
+  `).bind(shopCode, validated.endpoint, validated.p256dh, validated.auth, prefsJson, actorId || null).run()
   if (Number(result?.meta?.changes ?? 1) === 0) {
     return { _status: 409, code: 'subscription_conflict', error: 'このPush購読は別の店舗に登録されています' }
   }
@@ -120,12 +122,13 @@ export async function deletePushSubscription(db, shopCode, endpoint) {
 }
 
 /** PUT /store/:code/push/prefs … この端末の通知の設定を変える（購読済みの端末だけ） */
-export async function savePushPrefs(db, shopCode, body) {
+export async function savePushPrefs(db, shopCode, body, actorId = null) {
   const endpoint = _normalizePushEndpoint(body?.endpoint)
   if (!endpoint) return { _status: 400, code: 'invalid_subscription', error: 'Push購読情報が不正です' }
   const prefs = normalizePrefs(body?.prefs)
-  const result = await db.prepare('UPDATE push_subscriptions SET prefs_json = ?, updated_at = datetime(\'now\') WHERE shop_code = ? AND endpoint = ?')
-    .bind(JSON.stringify(prefs), shopCode, endpoint).run()
+  // 誰の端末か（スタッフが入れ替わった共有端末でも、設定を送るたびに今の人へ揃う）
+  const result = await db.prepare('UPDATE push_subscriptions SET prefs_json = ?, actor_id = COALESCE(?, actor_id), updated_at = datetime(\'now\') WHERE shop_code = ? AND endpoint = ?')
+    .bind(JSON.stringify(prefs), actorId || null, shopCode, endpoint).run()
   if (Number(result?.meta?.changes ?? 0) === 0) {
     return { _status: 404, code: 'not_subscribed', error: 'この端末は通知を受け取る設定になっていません' }
   }
@@ -244,16 +247,22 @@ export async function sendScheduledPushes(env, now) {
  * やることが追加されたことを、同じ店舗の他の端末へ知らせる（User決定 2026-10-04）。
  * 追加した端末の購読（exceptEndpoint）には送らない。通知の許可を出していない端末には届かない。
  */
+function _taskWhen(task) {
+  const [, m, d] = String(task?.date ?? '').split('-').map(Number)
+  return (m && d ? `${m}/${d}` : '') + (task?.dueTime ? ` ${task.dueTime}` : '') + (m && d ? ' ' : '')
+}
+
 export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') {
   if (!env.DB || !env.VAPID_PUBLIC_KEY) return
   const { results: subs } = await env.DB.prepare(
-    'SELECT endpoint, p256dh, auth, prefs_json FROM push_subscriptions WHERE shop_code = ?',
+    'SELECT endpoint, p256dh, auth, prefs_json, actor_id FROM push_subscriptions WHERE shop_code = ?',
   ).bind(shopCode).all()
   const who = task?.createdBy ? `${task.createdBy}さん` : 'だれか'
-  const [, m, d] = String(task?.date ?? '').split('-').map(Number)
-  const when = m && d ? `${m}/${d} ` : ''
+  const when = _taskWhen(task)
+  const assignee = task?.assign === 'person' ? task.assigneeId : null
   for (const sub of (subs ?? [])) {
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
+    if (assignee && sub.actor_id === assignee) continue   // 担当の人には notifyTaskAssigned が別に送る
     if (!parsePrefs(sub.prefs_json).taskAdded.on) continue
     await _send(env, sub, {
       title: 'タナオロ',
@@ -261,6 +270,19 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
       tag:   'task',
       url:   '/',
     })
+  }
+}
+
+/** 担当になった人の端末にだけ「あなたの担当」を送る（TODO 本格化 A）。端末が誰のものかは push_subscriptions.actor_id */
+export async function notifyTaskAssigned(env, shopCode, task, exceptEndpoint = '') {
+  if (!env.DB || !env.VAPID_PUBLIC_KEY || task?.assign !== 'person' || !task.assigneeId) return
+  const { results: subs } = await env.DB.prepare(
+    'SELECT endpoint, p256dh, auth, prefs_json FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
+  ).bind(shopCode, task.assigneeId).all()
+  for (const sub of (subs ?? [])) {
+    if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
+    if (!parsePrefs(sub.prefs_json).taskAssigned.on) continue
+    await _send(env, sub, { title: 'タナオロ', body: `あなたの担当になりました：${_taskWhen(task)}${task.text ?? ''}`, tag: 'task-assigned', url: '/' })
   }
 }
 

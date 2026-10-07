@@ -18,7 +18,7 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
-import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyStaffJoin } from './pushHandler.js'
+import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
@@ -414,7 +414,7 @@ export default {
           const parsed = await _readJsonBodyWithLimit(request, MAX_PUSH_SUBSCRIPTION_BYTES)
           if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
           const result = request.method === 'POST'
-            ? await savePushSubscription(env.DB, code, parsed.body)
+            ? await savePushSubscription(env.DB, code, parsed.body, (await _actor(env.DB, request, code, { byId: parsed.body?.byId })).id)
             : await deletePushSubscription(env.DB, code, parsed.body?.endpoint)
           return resultResponse(result, origin, allowedOrigin)
         }
@@ -475,7 +475,7 @@ export default {
           const parsed = await _readJsonBodyWithLimit(request, MAX_PUSH_SUBSCRIPTION_BYTES)
           if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
           const result = subpath === '/push/prefs'
-            ? await savePushPrefs(env.DB, code, parsed.body)
+            ? await savePushPrefs(env.DB, code, parsed.body, (await _actor(env.DB, request, code, { byId: parsed.body?.byId })).id)
             : await sendTestPush(env, code, parsed.body)
           return resultResponse(result, origin, allowedOrigin)
         }
@@ -534,12 +534,15 @@ export default {
           const body = await request.json().catch(() => ({}))
           // 新しく作る・消すは「やることを作る」権限。完了の印だけなら誰でも
           const prevTask = typeof body?.id === 'string'
-            ? await env.DB.prepare('SELECT deleted_at, assign_mode, assignee_id FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
+            ? await env.DB.prepare('SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
             : null
           // 担当を変えるのも「作る」側の操作（段 2-4）
           const assignChanged = prevTask && ((prevTask.assign_mode ?? 'anyone') !== (body?.assign ?? 'anyone')
             || (body?.assign === 'person' && (prevTask.assignee_id ?? '') !== (body?.assigneeId ?? '')))
-          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at) || assignChanged) {
+          // 文面・日付・時刻を直すのも「作る」側（TODO 本格化 A）
+          const edited = prevTask && ((prevTask.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
+            || (prevTask.task_date ?? '') !== (body?.date ?? '') || (prevTask.due_time ?? null) !== (body?.dueTime || null))
+          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at) || assignChanged || edited) {
             const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
             if (denyP) return denyP
           }
@@ -551,9 +554,18 @@ export default {
           }
           const result = await handleTaskUpsert(env.DB, code, body)
           // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
+          const except = typeof body.pushEndpoint === 'string' ? body.pushEndpoint : ''
           if (result?.created && result.task) {
-            const job = notifyTaskAdded(env, code, result.task, typeof body.pushEndpoint === 'string' ? body.pushEndpoint : '')
+            const job = notifyTaskAdded(env, code, result.task, except)
               .catch(e => console.warn('[push] task notify failed:', e?.message ?? e))
+            if (ctx?.waitUntil) ctx.waitUntil(job)
+          }
+          // 担当の人になった（新しく作った・担当を変えた）ときは、その人の端末にだけ知らせる
+          const newlyAssigned = result?.task?.assign === 'person' && !result.stale && !result.task.deletedAt
+            && (result.created || (prevTask && (prevTask.assign_mode !== 'person' || prevTask.assignee_id !== result.task.assigneeId)))
+          if (newlyAssigned) {
+            const job = notifyTaskAssigned(env, code, result.task, except)
+              .catch(e => console.warn('[push] task assign notify failed:', e?.message ?? e))
             if (ctx?.waitUntil) ctx.waitUntil(job)
           }
           const { task: _t, ...rest } = result ?? {}

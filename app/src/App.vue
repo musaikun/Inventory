@@ -64,6 +64,7 @@ import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
 import { startPresence } from './composables/usePresence.js'
+import { syncPushOwner } from './composables/usePush.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -1302,6 +1303,9 @@ onMounted(async () => {
   if (isAuthenticated.value) refreshMe()
   // アプリを開いている知らせ（管理者の「いま開いている」・段 2-5）
   startPresence()
+  // 通知を受けている端末が誰のものかを揃える（担当になった人への通知・TODO A）。ログインする人が変わったときも
+  syncPushOwner()
+  watch(() => staffIdentity.value?.id, () => syncPushOwner())
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')

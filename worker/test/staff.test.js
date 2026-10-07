@@ -311,3 +311,41 @@ describe('定期の掃除', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM staff_invites').get().n).toBe(0)
   })
 })
+
+describe('やることの時刻・直す・担当の通知先（TODO 本格化 A）', () => {
+  it('時刻を保存し、直すのは作る権限。通知の購読は誰の端末かを覚える', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const b = await joinAndApprove('佐藤', 'shain')
+    const call = (path, method, body, tok) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    const later = m => new Date(Date.now() + m * 60000).toISOString()
+    const task = { id: 't_time1', date: '2026-10-07', text: '野菜の検品', dueTime: '11:00', updatedAt: later(0) }
+    expect((await call(`/store/${code}/tasks`, 'POST', task, b.token)).status).toBe(200)
+    const get = async () => (await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json()).find(t => t.id === 't_time1')
+    expect((await get()).dueTime).toBe('11:00')
+    // 壊れた時刻は時刻なし
+    await call(`/store/${code}/tasks`, 'POST', { ...task, dueTime: '25:99', updatedAt: later(1) }, b.token)
+    expect((await get()).dueTime).toBeNull()
+    // アルバイトは文面・日付・時刻を直せない。完了の印は付けられる
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...task, dueTime: null, text: '野菜の検品（午後）', updatedAt: later(2) }, a.token)).status).toBe(403)
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...task, dueTime: null, date: '2026-10-08', updatedAt: later(2) }, a.token)).status).toBe(403)
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...task, dueTime: null, doneAt: later(3), updatedAt: later(3) }, a.token)).status).toBe(200)
+    expect((await get()).doneBy).toBe('山田')
+
+    // 通知の購読: スタッフはトークンの本人、オーナーは送った端末 ID
+    const sub = (ep, byId) => ({ endpoint: `https://fcm.googleapis.com/fcm/send/${ep}`, keys: { p256dh: 'B' + 'A'.repeat(86), auth: 'A'.repeat(22) }, byId })
+    const r1 = await call(`/store/${code}/push/subscribe`, 'POST', sub('a1', 'なりすまし'), a.token)
+    const r2 = await call(`/store/${code}/push/subscribe`, 'POST', sub('o1', 'dev-owner'), owner)
+    const rows = sqlite.prepare('SELECT endpoint, actor_id FROM push_subscriptions ORDER BY endpoint').all()
+    if (r1.status === 200) {
+      expect(rows.find(r => r.endpoint.endsWith('a1')).actor_id).toBe(a.staffId)
+      expect(rows.find(r => r.endpoint.endsWith('o1')).actor_id).toBe('dev-owner')
+    } else {
+      throw new Error(`subscribe failed ${r1.status} ${await r1.text()} / ${r2.status}`)
+    }
+  })
+})

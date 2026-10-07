@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-07 — version 0.149.0 / やること（TODO）本格化 A（直す・時刻・期限切れ・担当の人への通知）＋ CI の赤を直す
+
+User決定（2026-10-07）: TODO は A→B→C、繰り返しは持ち越さない、「今日」タブはモック（`docs/mocks/today-tab.html`・案1/案2）で判断。
+- Worker: migration **0026**（tasks.due_time、push_subscriptions.actor_id。印は idx_push_actor。`scripts/migrate.sh` に追加）。
+  - やることの時刻（'HH:MM' 以外は時刻なし）。文面・日付・時刻を直すのは「やることを作る」権限（アルバイトは 403、完了の印は付けられる）。
+  - 通知の購読と設定の保存で、端末が誰のものかを記録（スタッフはトークンの本人、オーナーは端末 ID）。担当の人になったとき（作成・担当の変更）はその人の端末にだけ `notifyTaskAssigned`（設定 taskAssigned・既定 ON）。その端末へは「追加しました」を重ねない。
+- App: `TaskRow.vue`（1件の行。チェック・直す（文面・日付・時刻・担当）・消す。期限切れでは日付を赤で）。DayTasks は TaskRow を使い、追加に時刻、今日を開くと「期限切れ」を上に。`useTasks` に `overdueTasks`・`editTask`・時刻の並び、ナビのバッジに期限切れも数える。通知の設定に「自分が担当になったとき」。起動時とログインする人が変わったときに、通知の端末の持ち主をサーバーへ揃える（`syncPushOwner`）。
+- **CI の赤**: 0.148.2（cbe1586）で `fullScreenShell.test.js` が古いレイアウト（session は下余白を残す）を固定していたため develop の CI が失敗し、プレビューが更新されていなかった（push 前に utils 側のテストを回していなかった）。新しい作り（session も下余白を外し、フッターは流れの中）に合わせて直した。
+- 検証: Worker 661 pass（`staff.test.js` に 時刻・直す権限・通知の端末の持ち主）、App 全件 pass（DayTasks に 直す・期限切れ、useTasks に 時刻の並び・直す・期限切れ）、build 成功。
+- 本番: migration 0026 と Worker の apply が必要。
+- version: 0.148.2 → **0.149.0**。
+
 ## 2026-10-07 — version 0.148.2 / 棚卸・発注の画面も表を固定・バーコードのボタンを隠す
 
 User 指示（2026-10-07）。

@@ -20,6 +20,7 @@ export const DEFAULT_PREFS = Object.freeze({
   stale:         { on: true },
   taskDay:       { on: true,  days: [0, 1] },
   taskAdded:     { on: true },
+  taskAssigned:  { on: true },
   orderDeadline: { on: false, mins: [60] },
 })
 
@@ -42,6 +43,7 @@ export function normalizePrefs(src) {
     stale:         { on: _bool(p.stale?.on, d.stale.on) },
     taskDay:       { on: _bool(p.taskDay?.on, d.taskDay.on), days: _pick(p.taskDay?.days, NOTIFY_DAY_OPTIONS, d.taskDay.days) },
     taskAdded:     { on: _bool(p.taskAdded?.on, d.taskAdded.on) },
+    taskAssigned:  { on: _bool(p.taskAssigned?.on, d.taskAssigned.on) },
     orderDeadline: { on: _bool(p.orderDeadline?.on, d.orderDeadline.on), mins: _pick(p.orderDeadline?.mins, ORDER_LEAD_OPTIONS, d.orderDeadline.mins) },
   }
 }
