@@ -366,6 +366,7 @@ onUnmounted(registerInnerLayerCloser(() => {
             </div>
           </template>
           <p v-if="isAuthenticated" class="m-who">ログイン中：{{ currentStaff ? `${currentStaff.name}（${ROLE_LABELS[currentStaff.role]}）` : 'オーナー' }}</p>
+          <p v-if="isAuthenticated && currentStaff" class="m-who-note">アプリを開いている時間は、管理者から見えます</p>
           <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
         </div>
       </template>
@@ -546,6 +547,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-old span { flex: 1; }
 .m-old-btn { border: 1.5px solid #bfd6dc; background: #fff; border-radius: 8px; padding: 5px 10px; font-weight: 800; font-size: 12px; cursor: pointer; }
 .m-old-btn.ng { border-color: #fca5a5; color: #b91c1c; }
+.m-who-note { margin: 4px 0 0; text-align: center; font-size: 11.5px; color: #7d969c; }
 .m-who { margin: 20px 0 0; text-align: center; font-size: 12.5px; color: #4c6a72; }
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 

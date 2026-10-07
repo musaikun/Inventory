@@ -143,8 +143,8 @@ function onClear() {
     <div class="mp-scroll">
       <!-- 取り込む / 書き出す。入口は1つずつにして、押してから種類を選ぶ。
            以前は5つの行が並んでいて、画面の最初に出るものが一番迷う場所になっていた。 -->
-      <div class="mm-card">
-        <div class="mm-row-wrap">
+      <div v-if="can('item.admin') || can('money')" class="mm-card">
+        <div v-if="can('item.admin')" class="mm-row-wrap">
           <button class="mm-row" @click="openPicker('import')">
             <span class="mm-row-ico">📥</span>
             <span class="mm-row-body">
@@ -154,7 +154,7 @@ function onClear() {
             <span class="mm-row-arrow">→</span>
           </button>
         </div>
-        <div class="mm-row-wrap">
+        <div v-if="can('money')" class="mm-row-wrap">
           <button class="mm-row" @click="openPicker('export')">
             <span class="mm-row-ico">📤</span>
             <span class="mm-row-body">
@@ -170,7 +170,7 @@ function onClear() {
       <slot name="extra" />
 
       <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
-      <div v-if="itemCount > 0" class="mm-block danger">
+      <div v-if="itemCount > 0 && can('item.admin')" class="mm-block danger">
         <div class="mm-block-head">
           <span class="mm-block-title danger">品目マスタを一括削除</span>
           <button class="mm-help-btn danger" :class="{ on: activeHelp === 'delete' }" @click="toggleHelp('delete')">?</button>

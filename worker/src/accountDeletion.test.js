@@ -35,6 +35,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
     tasks: [],                   // カレンダーのやること（migration 0020）
     push_sent: [],               // 送った通知の印（migration 0021）
     staff: [], staff_invites: [], staff_login_attempts: [],   // スタッフ（migration 0022）
+    work_sessions: [],   // 開いていた記録（migration 0025）
     account_deletion_receipts: [],
   }
   let shouldFailBatch = failBatchOnce

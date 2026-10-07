@@ -63,6 +63,7 @@ import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
+import { startPresence } from './composables/usePresence.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -1297,6 +1298,8 @@ onMounted(async () => {
   initConnectivity()
   // スタッフの役割・足し引きを取り直す（管理者が変えたら次に開いたときに反映・段 2-3）
   if (isAuthenticated.value) refreshMe()
+  // アプリを開いている知らせ（管理者の「いま開いている」・段 2-5）
+  startPresence()
   const params = new URLSearchParams(window.location.search)
   const roomCode   = params.get('room')
   const storeParam = params.get('store')

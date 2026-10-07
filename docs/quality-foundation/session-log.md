@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-07 — version 0.148.0 / スタッフごとのログイン 段 2-5（ログイン中・作業時間）
+
+- Worker: migration **0025**（work_sessions。印は idx_work_sessions_seen）、`presenceHandler.js`。
+  - `POST /store/:code/presence { state }`（ログインしていれば誰でも。スタッフは本人、オーナーは端末名・端末 ID）。前の知らせから5分以内なら同じ1回を延ばす。90日より古い行は消す。
+  - `GET /store/:code/presence?days=7`（権限 monitor＝管理者・オーナーだけ）: 人ごとに いま開いているか・最後に開いた時刻・期間の合計分、開いていた1回ずつ。
+  - アカウント削除で work_sessions も消す。
+  - 設計案（DO＋WebSocket）から、HTTP の知らせへ変えた（`docs/proposals.md` に記載）。
+- App: `usePresence.js`（画面が見えている間 90秒ごと、見えなくなる・閉じると off）。スタッフ画面に「ログイン中・作業時間」（7日／30日、押すと1回ずつ）。スタッフの管理タブに「アプリを開いている時間は、管理者から見えます」。アルバイトの管理タブで 取り込む（品目の管理）・書き出す（金額）・一括削除 を出さない（操作は 2-3 で止めてあった）。
+- 検証: Worker 659 pass（`staff.test.js` に 2-5: ルーター経由で本人・オーナー端末、スタッフは見られない 403、閉じるとオフライン、5分以内は同じ1回・空くと別の1回、合計分）、App 全件 pass、build 成功。ローカルでスタッフの端末を開いた状態でオーナーのスタッフ画面に「いま開いている」を確認。
+- 未対応: プライバシーポリシーへの追記（User 判断）。
+- 本番: migration 0022〜0025 と Worker の apply が必要。
+- version: 0.147.0 → **0.148.0**。
+
 ## 2026-10-07 — version 0.147.0 / スタッフごとのログイン 段 2-4（やることの担当）
 
 - Worker: migration **0024**（tasks.assign_mode・assignee_id・assignee_name・done_list_json。印は idx_tasks_assignee）。

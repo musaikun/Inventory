@@ -21,6 +21,7 @@ import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyStaffJoin } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
+import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { configChangePerms } from './configGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
@@ -419,6 +420,24 @@ export default {
         }
 
         // ── スタッフの管理（段 2-1・管理者だけ。権限の確認は staffHandler の中）──
+        // POST /store/:code/presence … アプリを開いている知らせ（90秒ごと・閉じるとき state:'off'。段 2-5）
+        if (subpath === '/presence' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const parsed = await _readJsonBodyWithLimit(request, 1024)
+          const body = parsed.error ? {} : (parsed.body ?? {})
+          const who = await _actor(env.DB, request, code, body)
+          return resultResponse(await handlePresenceBeat(env.DB, code, who, body?.state === 'off' ? 'off' : 'on'), origin, allowedOrigin)
+        }
+        // GET /store/:code/presence?days=7 … いま開いている人・開いていた記録（管理者だけ）
+        if (subpath === '/presence' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'monitor', origin, allowedOrigin)
+          if (denyP) return denyP
+          return jsonResponse(await handlePresenceGet(env.DB, code, url.searchParams.get('days')), 200, origin, allowedOrigin)
+        }
+
         // GET /store/:code/staff/names … 担当を選ぶための名前（承認済みの人だけ。ログインしていれば誰でも・段 2-4）
         if (subpath === '/staff/names' && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)

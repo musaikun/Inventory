@@ -154,6 +154,7 @@ export async function checkPendingJoin() {
 export const listStaff         = () => _api(`/store/${shopCode.value}/staff`)
 export const createStaffInvite = (name, role) => _api(`/store/${shopCode.value}/staff/invites`, { method: 'POST', body: JSON.stringify({ name, role }) })
 export const revokeStaffInvite = id => _api(`/store/${shopCode.value}/staff/invites/${id}`, { method: 'DELETE' })
+export const getPresence       = (days = 7) => _api(`/store/${shopCode.value}/presence?days=${days}`)   // 管理者だけ（段 2-5）
 export const staffAction       = (id, action, body = {}) => _api(`/store/${shopCode.value}/staff/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) })
 
 // 担当を選ぶための名前（承認済みのスタッフ。ログインしていれば誰でも・段 2-4）

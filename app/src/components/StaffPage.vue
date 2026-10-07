@@ -5,11 +5,12 @@
  * - 承認待ち: 承認／断る（招待を受けた人が名前と暗証番号を入れたもの）
  * - スタッフ: 役割の変更・停止／再開・暗証番号の失敗で止まったのを解除・削除（記録は「○○（削除済み）」で残る）
  * - 個別の許可（段 2-3）: 役割に足す5つ。役割でもうできるものは出さない
+ * - ログイン中・作業時間（段 2-5）: いまアプリを開いている人、最後に開いた時刻、直近7日／30日の開いていた時間
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import QRCode from 'qrcode'
 import {
-  listStaff, createStaffInvite, revokeStaffInvite, staffAction, ROLE_LABELS, currentStaff,
+  listStaff, createStaffInvite, revokeStaffInvite, staffAction, ROLE_LABELS, currentStaff, getPresence,
 } from '../composables/useAuth.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { GRANT_KEYS, GRANT_PERMS, can as roleCan, normalizeGrants } from '../services/permissions.js'
@@ -40,8 +41,30 @@ async function load() {
     }
   } catch (e) { loadError.value = e.message }
 }
+// ── ログイン中・作業時間（段 2-5）──
+const presence = ref(null)
+const presDays = ref(7)
+const openPerson = ref('')
+async function loadPresence() {
+  try { presence.value = await getPresence(presDays.value) } catch (_) { /* 次の読み直しで */ }
+}
+function setDays(d) { presDays.value = d; loadPresence() }
+const fmtMin = m => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`)
+function ago(iso) {
+  if (!iso) return 'まだ開いていません'
+  const m = Math.floor((now.value - new Date(iso).getTime()) / 60000)
+  if (m < 1) return '最後に開いたのは1分以内'
+  if (m < 60) return `最後に開いたのは${m}分前`
+  if (m < 24 * 60) return `最後に開いたのは${Math.floor(m / 60)}時間前`
+  return `最後に開いたのは${Math.floor(m / 1440)}日前`
+}
+const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
+const md = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}` }
+const sessionsOf = id => (presence.value?.sessions ?? []).filter(x => x.id === id)
+const whoRole = p => (p.owner ? 'オーナー（端末）' : `${roleLabel(p.role)}${p.status === 'stopped' ? '・停止中' : ''}`)
+
 let poll = null
-onMounted(() => { load(); poll = setInterval(load, 10000) })   // 承認待ちが届くのを拾う
+onMounted(() => { load(); loadPresence(); poll = setInterval(() => { load(); loadPresence() }, 10000) })   // 承認待ちが届くのを拾う
 onUnmounted(() => clearInterval(poll))
 
 const pending = computed(() => staff.value.filter(s => s.status === 'pending'))
@@ -215,6 +238,34 @@ function toggleGrant(s, k) {
         <p v-if="msg" class="sp2-err">{{ msg }}</p>
       </section>
 
+      <!-- ログイン中・作業時間（段 2-5。管理者だけ） -->
+      <section v-if="presence" class="sp2-card">
+        <div class="sp2-h sp2-hrow">
+          <span>ログイン中・作業時間</span>
+          <span class="sp2-days">
+            <button v-for="d in [7, 30]" :key="d" type="button" :class="['sp2-chip', { on: presDays === d }]" @click="setDays(d)">{{ d }}日</button>
+          </span>
+        </div>
+        <div v-for="p in presence.people" :key="p.id" class="sp2-pres">
+          <button type="button" class="sp2-pres-row" :aria-expanded="openPerson === p.id" @click="openPerson = openPerson === p.id ? '' : p.id">
+            <span :class="['sp2-dot', { on: p.online }]" aria-hidden="true"></span>
+            <span class="sp2-who"><b>{{ p.name }}</b><span>{{ whoRole(p) }}</span></span>
+            <span class="sp2-pres-r">
+              <b v-if="p.online" class="sp2-on">いま開いている<template v-if="p.onlineSince">（{{ hm(p.onlineSince) }}から）</template></b>
+              <span v-else>{{ ago(p.lastSeenAt) }}</span>
+              <small>{{ presDays }}日で {{ fmtMin(p.minutes) }}</small>
+            </span>
+          </button>
+          <div v-if="openPerson === p.id" class="sp2-pres-list">
+            <div v-for="x in sessionsOf(p.id)" :key="x.startedAt" class="sp2-pres-line">
+              <span>{{ md(x.startedAt) }}</span><span>{{ hm(x.startedAt) }}〜{{ x.online ? '' : hm(x.lastSeenAt) }}</span><span>{{ fmtMin(x.minutes) }}</span>
+            </div>
+            <p v-if="!sessionsOf(p.id).length" class="sp2-note">この{{ presDays }}日は開いていません</p>
+          </div>
+        </div>
+        <p class="sp2-note">アプリを開いている間を数えています（画面を消す・別のアプリにすると止まります）。スタッフには「管理者から見える」と伝えています。</p>
+      </section>
+
       <!-- 使われていない招待 -->
       <section v-if="invites.length" class="sp2-card">
         <div class="sp2-h">まだ使われていない招待</div>
@@ -273,6 +324,18 @@ function toggleGrant(s, k) {
 .sp2-left.over { color: #b91c1c; }
 .sp2-note { margin: 0; font-size: 12px; color: var(--text-muted, #4c6a72); line-height: 1.6; }
 .sp2-err { margin: 0; font-size: 13px; font-weight: 700; color: #b91c1c; }
+.sp2-hrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sp2-days { display: flex; gap: 4px; }
+.sp2-pres { border-top: 1px solid var(--border, #eef4f6); }
+.sp2-pres-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 0; border: none; background: none; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.sp2-pres-row .sp2-who { flex: 1; }
+.sp2-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
+.sp2-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
+.sp2-pres-r { display: grid; justify-items: end; font-size: 12px; color: var(--text-muted, #4c6a72); text-align: right; }
+.sp2-pres-r small { font-size: 11.5px; }
+.sp2-on { color: #15803d; font-size: 12.5px; }
+.sp2-pres-list { display: grid; gap: 2px; padding: 0 0 10px 20px; }
+.sp2-pres-line { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; font-size: 12.5px; color: var(--text, #12303a); font-variant-numeric: tabular-nums; }
 .sp2-grants { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sp2-glabel { font-size: 12px; font-weight: 700; color: var(--text-muted, #4c6a72); }
 .sp2-chip { min-height: 32px; padding: 0 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 999px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 12px; font-weight: 700; cursor: pointer; }

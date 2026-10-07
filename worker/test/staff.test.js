@@ -257,3 +257,42 @@ describe('やることの担当（段 2-4）', () => {
     expect((await get()).assigneeName).toBe('山田（削除済み）')
   })
 })
+
+describe('ログイン中と作業の記録（段 2-5）', () => {
+  it('知らせで開いている人が分かり、5分以上あくと別の1回。見られるのは管理者だけ', async () => {
+    const { handlePresenceBeat, handlePresenceGet } = await import('../src/presenceHandler.js')
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const call = (path, method, body, tok) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+
+    // ルーター経由: スタッフは本人、オーナーは端末名
+    expect((await call(`/store/${code}/presence`, 'POST', { by: 'x', byId: 'y' }, a.token)).status).toBe(200)
+    expect((await call(`/store/${code}/presence`, 'POST', { by: '厨房', byId: 'dev-1' }, owner)).status).toBe(200)
+    expect((await call(`/store/${code}/presence`, 'GET', null, a.token)).status).toBe(403)
+    const r = await (await call(`/store/${code}/presence`, 'GET', null, owner)).json()
+    const yamada = r.people.find(p => p.id === a.staffId)
+    expect(yamada).toMatchObject({ name: '山田', online: true })
+    expect(r.people.find(p => p.id === 'dev-1')).toMatchObject({ name: '厨房', owner: true, online: true })
+
+    // 閉じた知らせでオフライン。5分以内にまた開けば同じ1回、それより空けば別の1回
+    const t0 = Date.parse('2026-10-07T09:00:00.000Z')
+    const actor = { id: 'dev-2', name: 'ホール', staff: false }
+    await handlePresenceBeat(db, code, actor, 'on', t0)
+    await handlePresenceBeat(db, code, actor, 'on', t0 + 90_000)
+    await handlePresenceBeat(db, code, actor, 'off', t0 + 120_000)
+    let g = await handlePresenceGet(db, code, 7, t0 + 130_000)
+    expect(g.people.find(p => p.id === 'dev-2').online).toBe(false)
+    await handlePresenceBeat(db, code, actor, 'on', t0 + 200_000)
+    g = await handlePresenceGet(db, code, 7, t0 + 210_000)
+    expect(g.people.find(p => p.id === 'dev-2').online).toBe(true)
+    expect(g.sessions.filter(s => s.id === 'dev-2')).toHaveLength(1)
+    await handlePresenceBeat(db, code, actor, 'on', t0 + 20 * 60_000)
+    g = await handlePresenceGet(db, code, 7, t0 + 20 * 60_000)
+    expect(g.sessions.filter(s => s.id === 'dev-2')).toHaveLength(2)
+    expect(g.people.find(p => p.id === 'dev-2').minutes).toBe(4)   // 3分20秒→3分 ＋ 0分→1分
+  })
+})
