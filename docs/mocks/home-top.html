@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トップ画面 モック</title>
+<style>
+  :root {
+    --primary: #0e7490; --deep: #155e75; --bg: #edf5f7; --surface: #fff; --text: #12303a; --muted: #4c6a72; --border: #d6e6ea;
+    --grad-btn: linear-gradient(90deg, #22d3ee, #34d399); --grad-ring: linear-gradient(90deg, #2563eb, #22d3ee 55%, #34d399);
+    --night: #06222b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #c9d8dd; color: var(--text); padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .lead { font-size: 13px; color: var(--muted); margin-bottom: 18px; max-width: 980px; line-height: 1.6; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: grid; gap: 8px; }
+  .cap { font-size: 14px; font-weight: 800; }
+  .cap small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; max-width: 360px; line-height: 1.5; }
+  .arrow { align-self: center; font-size: 13px; color: var(--muted); text-align: center; width: 120px; line-height: 1.5; }
+  .arrow b { display: block; font-size: 28px; color: var(--primary); }
+  .phone { width: 360px; height: 760px; background: var(--bg); border-radius: 30px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 34px rgba(0,0,0,.2); border: 6px solid #0b1f26; position: relative; }
+
+  /* ── ホーム ── */
+  .scroll { flex: 1; overflow: hidden; position: relative; }
+  .hero { position: relative; height: 250px; padding: 16px 18px; color: #e6fbff; overflow: hidden;
+    background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, var(--night) 100%); }
+  .hero svg.ring { position: absolute; right: -80px; top: 40px; opacity: .9; }
+  .hero .glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); }
+  .top { position: relative; display: flex; align-items: center; gap: 8px; }
+  .brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
+  .store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); }
+  .av { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--night); background: var(--grad-btn); }
+  .hi { position: relative; margin-top: 26px; }
+  .hi small { display: block; font-size: 12px; color: #9fd8e3; letter-spacing: .04em; }
+  .hi b { display: block; font-size: 24px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; }
+  .hi .wx { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
+  .today { position: relative; margin: -64px 14px 0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; }
+  .today .pr { flex: none; position: relative; width: 72px; height: 72px; }
+  .today .pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; line-height: 1.1; }
+  .today .pr span small { display: block; font-size: 9.5px; color: var(--muted); font-weight: 700; text-align: center; line-height: 1; }
+  .today .tx { flex: 1; min-width: 0; display: grid; gap: 4px; }
+  .today .tt { font-size: 13px; font-weight: 800; color: var(--muted); display: flex; justify-content: space-between; }
+  .today .tt i { font-style: normal; color: var(--primary); }
+  .today .ln { font-size: 13px; display: flex; gap: 6px; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .today .ln em { font-style: normal; font-weight: 800; font-size: 11px; flex: none; }
+  .today .ln.late em { color: #b91c1c; }
+  .today .ln.next em { color: var(--primary); }
+  .today .ln.mine { color: var(--primary); font-weight: 800; }
+  .pill { margin: 12px 14px 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; border: 1.5px solid #a5f3fc; font-size: 13px; }
+  .pill b { font-size: 13.5px; }
+  .pill small { color: var(--muted); font-size: 11.5px; }
+  .pill .go { margin-left: auto; font-size: 12.5px; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 6px 12px; border-radius: 999px; }
+  .pill.order { border-color: #fed7aa; }
+  .pill.order .go { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+  .sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--muted); }
+  .grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sc { position: relative; background: #fff; border-radius: 18px; padding: 14px 6px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .sc .ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
+  .sc.hot .ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
+  .sc.ord .ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
+  .sc b { font-size: 12.5px; display: block; }
+  .sc small { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .sc .bd { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
+  .bd.red { background: #fee2e2; color: #b91c1c; } .bd.cy { background: #cffafe; color: var(--deep); } .bd.or { background: #ffedd5; color: #c2410c; }
+
+  .nav { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border-top: 1px solid var(--border); }
+  .nav div { text-align: center; font-size: 10px; padding: 7px 0 12px; color: #7d969c; font-weight: 700; position: relative; }
+  .nav svg { display: block; margin: 0 auto 2px; }
+  .nav div.on { color: var(--primary); }
+  .nav div.on::before { content: ''; position: absolute; top: 0; left: 26%; right: 26%; height: 3px; border-radius: 3px; background: var(--grad-ring); }
+
+  /* ── やること ── */
+  .hd { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; background: #fff; }
+  .hd .back { color: var(--primary); font-weight: 800; font-size: 14px; }
+  .hd b { font-size: 17px; }
+  .hd .cnt { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .seg { flex: none; display: flex; gap: 6px; padding: 0 14px 10px; background: #fff; border-bottom: 1px solid var(--border); }
+  .seg span { font-size: 12.5px; font-weight: 800; padding: 7px 12px; border-radius: 999px; background: #f1f7f9; color: var(--muted); }
+  .seg span.on { background: var(--deep); color: #fff; }
+  .seg span.mine { margin-left: auto; background: #ecfeff; color: var(--primary); border: 1px solid #a5f3fc; }
+  .list { flex: 1; overflow: hidden; padding: 6px 12px; }
+  .lh { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 10px 4px 6px; display: flex; justify-content: space-between; }
+  .lh.late { color: #b91c1c; }
+  .box { background: #fff; border-radius: 16px; padding: 2px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .t { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #eef4f6; font-size: 14px; }
+  .t:first-child { border-top: none; }
+  .chk { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--primary); }
+  .chk.on { background: var(--grad-btn); border-color: transparent; color: #08323c; display: grid; place-items: center; font-size: 13px; font-weight: 900; }
+  .tm { flex: none; width: 40px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .tm.late { color: #b91c1c; }
+  .tx { flex: 1; min-width: 0; }
+  .tx small { display: block; font-size: 11px; color: var(--muted); }
+  .tx small.me { color: var(--primary); font-weight: 800; }
+  .t.mine { background: #ecfeff; margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .t.done .tx { color: var(--muted); text-decoration: line-through; }
+  .rep { font-size: 10px; font-weight: 800; color: #0369a1; background: #e0f2fe; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+  .fab { position: absolute; right: 18px; bottom: 74px; width: 56px; height: 56px; border-radius: 50%; background: var(--grad-btn); color: #08323c; font-size: 28px; font-weight: 400; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); }
+</style>
+</head>
+<body>
+<h1>トップ画面とやること画面 モック（2026-10-07）</h1>
+<p class="lead">トップ＝アプリを開いて最初の画面。アイコンの「暗い地に光る輪」を上部に敷き、今日のやることの要約と、各画面へのショートカットを並べる。
+要約のカードを押すと「やること」画面へ。棚卸・発注は途中のときだけ帯で「続ける」、始めるのはショートカットから（在庫タブにも今の開始ボタンは残す想定）。</p>
+
+<div class="row">
+  <!-- ホーム -->
+  <div class="col">
+    <div class="cap">① トップ（ホーム）<small>暗い地に光る輪＋あいさつ。今日のやることの要約、途中の作業、ショートカット。</small></div>
+    <div class="phone">
+      <div class="scroll">
+        <div class="hero">
+          <div class="glow"></div>
+          <svg class="ring" width="300" height="230" viewBox="0 0 300 230" aria-hidden="true">
+            <defs>
+              <linearGradient id="rg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+              <filter id="bl"><feGaussianBlur stdDeviation="3"/></filter>
+            </defs>
+            <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="url(#rg)" stroke-width="9" opacity=".55" filter="url(#bl)"/>
+            <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="url(#rg)" stroke-width="3.5"/>
+            <g opacity=".85">
+              <rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2"/>
+              <rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2"/>
+              <rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2"/>
+            </g>
+          </svg>
+          <div class="top">
+            <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" stroke="url(#rg)" stroke-width="3.4"/></svg>
+            <span class="brand">タナオロ</span>
+            <span class="store">テスト店</span>
+            <span class="av">佐</span>
+          </div>
+          <div class="hi">
+            <small>10月7日（水）</small>
+            <b>おはようございます、<br>佐藤さん</b>
+            <span class="wx">☀️ 22° ・ 渋谷区 ・ 降水 10%</span>
+          </div>
+        </div>
+
+        <div class="today">
+          <div class="pr">
+            <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+              <circle cx="36" cy="36" r="30" fill="none" stroke="#e2eef1" stroke-width="7"/>
+              <circle cx="36" cy="36" r="30" fill="none" stroke="url(#rg)" stroke-width="7" stroke-linecap="round" stroke-dasharray="94 188.5" transform="rotate(-90 36 36)"/>
+            </svg>
+            <span>3/6<small>完了</small></span>
+          </div>
+          <div class="tx">
+            <div class="tt">今日のやること<i>すべて見る ›</i></div>
+            <div class="ln late"><em>期限切れ</em>製氷機のフィルター交換</div>
+            <div class="ln next"><em>11:00</em><span class="mine">野菜の検品（あなた）</span></div>
+            <div class="ln next"><em>15:00</em>発注を送る</div>
+          </div>
+        </div>
+
+        <div class="pill"><span>▶</span><div><b>棚卸の途中</b><br><small>12/40 ・ 9:10〜 佐藤</small></div><span class="go">続ける</span></div>
+
+        <div class="sec">ショートカット</div>
+        <div class="grid">
+          <div class="sc hot"><span class="bd cy">途中</span>
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9zM7 5H5v15h14V5h-2"/><path d="M8 12l2.5 2.5L16 9"/></svg></div>
+            <b>棚卸</b><small>数える</small></div>
+          <div class="sc ord"><span class="bd or">15:00</span>
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div>
+            <b>発注</b><small>今日が発注日</small></div>
+          <div class="sc"><span class="bd red">3</span>
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></div>
+            <b>在庫</b><small>要補充 3</small></div>
+          <div class="sc">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg></div>
+            <b>カレンダー</b><small>記録と予定</small></div>
+          <div class="sc">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div>
+            <b>レポート</b><small>金額・推移</small></div>
+          <div class="sc">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+            <b>管理</b><small>取込・スタッフ</small></div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><b>→</b>要約のカードを<br>押すと</div>
+
+  <!-- やること -->
+  <div class="col">
+    <div class="cap">② やること（TODO 管理）<small>今日／これから／完了。「自分の担当」で絞れる。期限切れは上に赤で。＋で追加（時刻・担当・繰り返し）。</small></div>
+    <div class="phone">
+      <div class="hd"><span class="back">‹ ホーム</span><b>やること</b><span class="cnt">残り 4</span></div>
+      <div class="seg"><span class="on">今日</span><span>これから</span><span>完了</span><span class="mine">自分の担当</span></div>
+      <div class="list">
+        <div class="lh late"><span>期限切れ</span><span>1</span></div>
+        <div class="box">
+          <div class="t"><span class="chk"></span><span class="tm late">10/6</span><span class="tx">製氷機のフィルター交換<small>担当 佐藤</small></span></div>
+        </div>
+        <div class="lh"><span>今日 ・ 10月7日（水）</span><span>3/6</span></div>
+        <div class="box">
+          <div class="t done"><span class="chk on">✓</span><span class="tm">9:00</span><span class="tx">開店前チェック<span class="rep">毎日</span><small>山田さんが完了</small></span></div>
+          <div class="t mine"><span class="chk"></span><span class="tm">11:00</span><span class="tx">野菜の検品<small class="me">あなたの担当</small></span></div>
+          <div class="t"><span class="chk"></span><span class="tm">15:00</span><span class="tx">発注を送る<small>担当 山田</small></span></div>
+          <div class="t"><span class="chk"></span><span class="tm"></span><span class="tx">手洗いの確認<span class="rep">毎日</span><small>全員 1/3（佐藤）</small></span></div>
+          <div class="t done"><span class="chk on">✓</span><span class="tm"></span><span class="tx">冷蔵庫の温度<span class="rep">毎日</span><small>佐藤さんが完了 ・ 3.2℃</small></span></div>
+          <div class="t done"><span class="chk on">✓</span><span class="tm"></span><span class="tx">ゴミ出し<small>田中さんが完了</small></span></div>
+        </div>
+        <div class="lh"><span>明日 ・ 10月8日（木）</span><span>2</span></div>
+        <div class="box">
+          <div class="t"><span class="chk"></span><span class="tm">10:00</span><span class="tx">業者の点検<small>担当未定</small></span></div>
+        </div>
+      </div>
+      <div class="fab">＋</div>
+      <div class="nav">
+        <div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10h16M9 2v4M15 2v4"/></svg>カレンダー</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
