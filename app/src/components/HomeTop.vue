@@ -14,6 +14,7 @@ import { storedDeviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
+import LiveSessionCard from './LiveSessionCard.vue'
 
 const props = defineProps({
   activeSession:      { type: Object, default: null },
@@ -24,6 +25,8 @@ const props = defineProps({
   isOrderDay:         { type: Boolean, default: false },
   reorderCount:       { type: Number, default: 0 },
   startingKind:       { type: String, default: null },
+  live:               { type: Object, default: null },   // 棚卸のルームの状態（このセッションのときだけ）
+  liveOrder:          { type: Object, default: null },
 })
 const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
 
@@ -148,12 +151,8 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </span>
     </button>
 
-    <button v-if="activeSession" type="button" class="ht-pill" @click="emit('resume', activeSession)">
-      <span aria-hidden="true">▶</span><span><b>棚卸の途中</b><small>{{ stockCount }}品目</small></span><span class="go">続ける</span>
-    </button>
-    <button v-if="activeOrderSession" type="button" class="ht-pill order" @click="emit('resume', activeOrderSession)">
-      <span aria-hidden="true">▶</span><span><b>発注の途中</b><small>{{ orderCount }}品目</small></span><span class="go">続ける</span>
-    </button>
+    <LiveSessionCard v-if="activeSession" kind="stock" :session="activeSession" :live="live" :count="stockCount" @resume="s => emit('resume', s)" />
+    <LiveSessionCard v-if="activeOrderSession" kind="order" :session="activeOrderSession" :live="liveOrder" :count="orderCount" @resume="s => emit('resume', s)" />
 
     <div class="ht-sec">ショートカット</div>
     <div class="ht-grid">
@@ -202,12 +201,6 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-ln.mine > span { color: var(--primary); font-weight: 800; }
 .ht-ln.none { color: var(--text-muted); }
 
-.ht-pill { width: calc(100% - 28px); margin: 12px 14px 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1.5px solid #a5f3fc; font: inherit; font-size: 13px; color: var(--text); text-align: left; cursor: pointer; }
-.ht-pill b { font-size: 13.5px; display: block; }
-.ht-pill small { color: var(--text-muted); font-size: 11.5px; }
-.ht-pill .go { margin-left: auto; font-size: 12.5px; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 6px 12px; border-radius: 999px; }
-.ht-pill.order { border-color: #fed7aa; }
-.ht-pill.order .go { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
 
 .ht-sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--text-muted); }
 .ht-grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

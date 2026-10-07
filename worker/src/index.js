@@ -811,6 +811,11 @@ export default {
           (action === 'status'   && request.method === 'GET')) {
         const res  = await room.fetch(request)
         const body = await res.json().catch(() => ({}))
+        // 最近の変更（品目名・数量・名前）は、この店にログインしている端末にだけ渡す
+        if (action === 'status' && body && 'recent' in body) {
+          const authCode = await verifyAuth(env.DB, request).catch(() => null)
+          if (authCode !== code) delete body.recent
+        }
         return jsonResponse(body, res.status, origin, allowedOrigin)
       }
     }

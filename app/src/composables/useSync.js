@@ -87,7 +87,10 @@ export async function dissolveRoomRemote(type = 'stock') {
 export async function fetchRoomStatus(code, type = 'stock') {
   if (!code || !HTTP_BASE) return null
   try {
-    const r = await fetch(`${HTTP_BASE}/room/${code}/status${_typeQuery(type)}`)
+    // ログインしている端末は鍵を付ける（最近の変更 recent はログインしている店の端末にだけ返る）
+    let token = null
+    try { token = localStorage.getItem(STORAGE_KEYS.authToken) } catch (_) {}
+    const r = await fetch(`${HTTP_BASE}/room/${code}/status${_typeQuery(type)}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
     if (!r.ok) return null
     return await r.json()
   } catch (_) { return null }

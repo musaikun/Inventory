@@ -701,6 +701,16 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
     expect(roomFetched).toBe(1)
   })
 
+  it('最近の変更（recent）は、その店にログインしている端末にだけ渡す', async () => {
+    env.ROOMS.get = () => ({ fetch: async () => new Response(JSON.stringify({ isActive: true, recent: [{ item: 'トマト', qty: 3 }] }), { status: 200 }) })
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const anon = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)).json()
+    expect(anon.isActive).toBe(true)
+    expect(anon.recent).toBeUndefined()
+    const authed = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`, { token: reg.token }), env)).json()
+    expect(authed.recent).toEqual([{ item: 'トマト', qty: 3 }])
+  })
+
   it('ルームプローブ失敗が IP 単位で記録される', async () => {
     await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
     expect(db._ipRows.filter(r => r.ip === '203.0.113.9' && r.kind === 'probe')).toHaveLength(1)

@@ -210,7 +210,17 @@ export class RoomDO {
       isHost: !!p.isHost,
       isDone: !!p.isDone,
     }))
+    // 最近の変更（ホームの進行中のカードに流す・User 2026-10-07）。末尾のチャンクだけ読む。
+    // 品目名・数量が入るので、Worker 側でログインしている店の端末にだけ渡す（index.js）
+    const tail = await this.state.storage.list({ prefix: AUDIT_PREFIX, reverse: true, limit: 1 })
+    let recent = []
+    for (const chunk of tail.values()) if (Array.isArray(chunk)) recent = chunk.slice(-6)
+    recent = recent.reverse().map(e => ({
+      id: e.id, at: e.timestamp, item: e.ingredient, qty: e.totalQty, unit: e.unit ?? '',
+      delta: e.delta ?? null, action: e.action ?? '', by: e.enteredBy ?? '',
+    }))
     return new Response(JSON.stringify({
+      recent,
       sessionId,
       isActive,
       itemCount:      Object.keys(inventory).length,

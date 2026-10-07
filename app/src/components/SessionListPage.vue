@@ -121,6 +121,10 @@ function _itemCount(session) {
   if (r?.isActive && session.id === r.sessionId && r.itemCount > 0) return r.itemCount
   return session.itemCount ?? 0
 }
+// トップの進行中のカード: そのセッションのルームが開いているときだけ、ルームの状態（人・最近の変更）を渡す
+function liveFor(room, session) {
+  return room?.isActive && session && room.sessionId === session.id ? room : null
+}
 const _WEEK = ['日', '月', '火', '水', '木', '金', '土']
 function _hm(iso) {
   const d = new Date(iso)
@@ -306,6 +310,8 @@ onUnmounted(registerInnerLayerCloser(() => {
         :order-deadline="todayOrder.deadline"
         :reorder-count="stockRef?.reorderCount ?? 0"
         :starting-kind="startingKind"
+        :live="liveFor(liveRoom, activeSession)"
+        :live-order="liveFor(launcher.liveOrderRoom.value, activeOrderSession)"
         @go="goTab"
         @stock="openStockSheet"
         @order="openOrderSheet"
