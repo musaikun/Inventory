@@ -257,3 +257,14 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
     })
   }
 }
+
+/** スタッフが参加を申請したことを、店の端末へ知らせる（管理者が承認するため・段 2-1） */
+export async function notifyStaffJoin(env, shopCode, name) {
+  if (!env.DB || !env.VAPID_PUBLIC_KEY) return
+  const { results: subs } = await env.DB.prepare(
+    'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ?',
+  ).bind(shopCode).all()
+  for (const sub of (subs ?? [])) {
+    await _send(env, sub, { title: 'タナオロ', body: `${name}さんがスタッフとして参加を申請しました。承認してください`, tag: 'staff-join', url: '/' })
+  }
+}

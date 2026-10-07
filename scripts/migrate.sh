@@ -51,3 +51,4 @@ apply_if_missing 0018_discarded_sessions.sql discarded_sessions
 apply_if_missing 0019_movement_void.sql      idx_movements_deleted
 apply_if_missing 0020_tasks.sql              idx_tasks_date
 apply_if_missing 0021_push_prefs.sql         idx_push_sent_at
+apply_if_missing 0022_staff.sql              idx_staff_login_attempts

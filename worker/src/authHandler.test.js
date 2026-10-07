@@ -49,12 +49,12 @@ function createMockD1() {
       }
       return { success: true }
     }
-    if (s.startsWith('SELECT shop_code FROM auth_tokens WHERE token')) {
+    if (s.startsWith('SELECT shop_code, staff_id FROM auth_tokens WHERE token')) {
       const t = tokens.find(t => t.token === args[0])
       if (!t) return null
       // expires_at > datetime('now') を時刻比較で再現
       if (new Date(t.expires_at).getTime() <= Date.now()) return null
-      return { shop_code: t.shop_code }
+      return { shop_code: t.shop_code, staff_id: t.staff_id ?? null }
     }
     // ── login_attempts（総当たり対策）──
     if (s.startsWith('SELECT COUNT(*) AS n FROM login_attempts')) {

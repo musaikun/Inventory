@@ -62,7 +62,7 @@ import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin } from './composables/useAuth.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
@@ -82,6 +82,7 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import OrderExportSheet from './components/OrderExportSheet.vue'
+import StaffJoinPage from './components/StaffJoinPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
@@ -1305,6 +1306,20 @@ onMounted(async () => {
     return
   }
 
+  // スタッフの招待（?join=…・段 2-1）。招待の鍵はすぐ URL から消す（履歴・共有に残さない）。
+  // 申請して承認を待っている端末も、ログインしていなければ待ちの画面へ戻す
+  const joinToken = params.get('join')
+  if (joinToken || (!isAuthenticated.value && pendingJoin())) {
+    staffJoinToken.value = joinToken || ''
+    if (joinToken) {
+      const u = new URL(window.location.href); u.searchParams.delete('join')
+      window.history.replaceState(window.history.state, '', u.pathname + (u.search ? u.search : '') + u.hash)
+    }
+    currentView.value = 'staff-join'
+    bootReady.value = true
+    return
+  }
+
   // ここで招待パラメータを消さない（→ _clearInviteParams のコメント）。
   // 消すのは参加が確定したとき（onConfirmName）と、結果ビューを閉じたとき。
   if (roomCode) {
@@ -1962,6 +1977,13 @@ async function _finishSession(completionCount, isHostInRoom) {
   _setNewSession(completedId)
   currentView.value  = 'sessions'
   if (finishedOrder) orderExport.value = finishedOrder
+}
+
+// スタッフの招待から参加する画面（段 2-1）
+const staffJoinToken = ref('')
+function onStaffJoined() {
+  currentView.value = 'sessions'
+  onAuthDone()
 }
 
 // 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く
@@ -3267,9 +3289,17 @@ function dismissReview() {
       PRO REVIEW · テストデータ
     </div>
 
+    <!-- ── スタッフの招待から参加（段 2-1） ── -->
+    <StaffJoinPage
+      v-if="currentView === 'staff-join'"
+      :token="staffJoinToken"
+      @done="onStaffJoined"
+      @cancel="currentView = 'auth'"
+    />
+
     <!-- ── 認証ページ ── -->
     <AuthPage
-      v-if="currentView === 'auth'"
+      v-else-if="currentView === 'auth'"
       @done="onAuthDone"
     />
 

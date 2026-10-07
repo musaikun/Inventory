@@ -18,7 +18,8 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
-import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded } from './pushHandler.js'
+import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyStaffJoin } from './pushHandler.js'
+import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
   MAX_PDF_BYTES,
@@ -210,6 +211,43 @@ export default {
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
         return resultResponse(result, origin, allowedOrigin)
       }
+      // ── スタッフ（段 2-1）。ログイン前の経路は IP 単位で総当たりを止める ──
+      if (path === '/auth/staff-login' && request.method === 'POST') {
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'login')) {
+          return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        const result = await handleStaffLogin(env.DB, await request.json().catch(() => ({})))
+        if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        return resultResponse(result, origin, allowedOrigin)
+      }
+      if (path === '/auth/me' && request.method === 'GET') {
+        return resultResponse(await handleMe(env.DB, request), origin, allowedOrigin)
+      }
+      if ((path === '/staff/invite' || path === '/staff/pending') && request.method === 'GET') {
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'login')) {
+          return jsonResponse({ error: '試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        const result = path === '/staff/invite'
+          ? await handleInviteInfo(env.DB, url.searchParams.get('token') ?? '')
+          : await handleStaffPending(env.DB, url.searchParams.get('key') ?? '')
+        if (result._status === 404) await recordIpFail(env.DB, ip, 'login')
+        return resultResponse(result, origin, allowedOrigin)
+      }
+      if (path === '/staff/join' && request.method === 'POST') {
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'login')) {
+          return jsonResponse({ error: '試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        const result = await handleStaffJoin(env.DB, await request.json().catch(() => ({})))
+        if (result._status === 404) await recordIpFail(env.DB, ip, 'login')
+        if (result.pendingKey) {
+          const job = notifyStaffJoin(env, result.shopCode, result.name).catch(e => console.warn('[push] staff join notify failed:', e?.message ?? e))
+          if (ctx?.waitUntil) ctx.waitUntil(job)
+        }
+        return resultResponse(result, origin, allowedOrigin)
+      }
       if (path === '/auth/logout' && request.method === 'POST') {
         return jsonResponse(await handleLogout(env.DB, request), 200, origin, allowedOrigin)
       }
@@ -327,6 +365,29 @@ export default {
           const result = request.method === 'POST'
             ? await savePushSubscription(env.DB, code, parsed.body)
             : await deletePushSubscription(env.DB, code, parsed.body?.endpoint)
+          return resultResponse(result, origin, allowedOrigin)
+        }
+
+        // ── スタッフの管理（段 2-1・管理者だけ。権限の確認は staffHandler の中）──
+        if (subpath === '/staff' && request.method === 'GET') {
+          return resultResponse(await handleStaffList(env.DB, request, code), origin, allowedOrigin)
+        }
+        if (subpath === '/staff/invites' && request.method === 'POST') {
+          const parsed = await _readJsonBodyWithLimit(request, 4096)
+          if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
+          return resultResponse(await handleStaffInvite(env.DB, request, code, parsed.body), origin, allowedOrigin)
+        }
+        const invDel = subpath.match(/^\/staff\/invites\/(inv_[0-9a-f]{16})$/)
+        if (invDel && request.method === 'DELETE') {
+          return resultResponse(await handleStaffInviteRevoke(env.DB, request, code, invDel[1]), origin, allowedOrigin)
+        }
+        const stAct = subpath.match(/^\/staff\/(st_[0-9a-f]{16})\/(approve|reject|stop|resume|delete|role|unlock)$/)
+        if (stAct && request.method === 'POST') {
+          const parsed = await _readJsonBodyWithLimit(request, 4096)
+          const body = parsed.error ? {} : (parsed.body ?? {})
+          const result = stAct[2] === 'unlock'
+            ? await handleStaffUnlock(env.DB, request, code, stAct[1])
+            : await handleStaffAction(env.DB, request, code, stAct[1], stAct[2], body)
           return resultResponse(result, origin, allowedOrigin)
         }
 

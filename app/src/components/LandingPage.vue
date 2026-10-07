@@ -54,9 +54,9 @@ async function onStart() {
       >
         <span class="lp-card-icon">📋</span>
         <span class="lp-card-body">
-          <span class="lp-card-title">ホストとして開始</span>
+          <span class="lp-card-title">ログイン・店舗の登録</span>
           <span class="lp-card-sub">
-            {{ loading ? '準備中...' : shopCode ? `店舗コード: ${shopCode}` : '棚卸作業を主導します' }}
+            {{ loading ? '準備中...' : shopCode ? `店舗コード: ${shopCode}` : 'オーナーもスタッフもここから' }}
           </span>
         </span>
         <span class="lp-card-arrow">›</span>

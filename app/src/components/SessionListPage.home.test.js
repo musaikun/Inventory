@@ -23,6 +23,10 @@ vi.mock('../composables/useAuth.js', () => ({
   restoreSession:  (...a) => restoreImpl(...a),
   logout:          vi.fn(),
   isAuthenticated: { value: true },
+  isAdmin:         { value: true },
+  currentStaff:    { value: null },
+  ROLE_LABELS:     { owner: 'オーナー', admin: '管理者', shain: '社員', arbeit: 'アルバイト' },
+  listStaff: vi.fn(async () => ({ staff: [], invites: [] })), createStaffInvite: vi.fn(), revokeStaffInvite: vi.fn(), staffAction: vi.fn(),
   storeName:       { value: 'テスト店' },
 }))
 vi.mock('../composables/useSync.js', () => ({ fetchRoomStatus: vi.fn(async () => null) }))

@@ -24,7 +24,7 @@ async function _deriveBits(pin, salt, iterations) {
 }
 
 // 新形式ハッシュを生成する（登録・透過移行で使用）
-async function _hashPin(pin) {
+export async function _hashPin(pin) {
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const hash = await _deriveBits(pin, salt, PBKDF2_ITERATIONS)
   return `pbkdf2$${PBKDF2_ITERATIONS}$${_b64(salt)}$${_b64(hash)}`
@@ -140,7 +140,8 @@ export async function handleLogin(db, body) {
   // 単一ホストセッション: 既存トークンを全て無効化してから新トークンを発行する。
   // これにより、同じ店舗を別端末/別ブラウザからログインすると前の端末は失効し、
   // 複数ホストが同一セッションを同時に開始/再開して整合性が壊れるのを防ぐ。
-  await db.prepare('DELETE FROM auth_tokens WHERE shop_code = ?').bind(shopCode).run()
+  // スタッフのトークン（staff_id あり・段 2-1）は消さない。オーナーのログインでスタッフが追い出されないように
+  await db.prepare('DELETE FROM auth_tokens WHERE shop_code = ? AND staff_id IS NULL').bind(shopCode).run()
 
   const token   = _genToken()
   const now     = _now()
@@ -167,9 +168,14 @@ export async function handleLogout(db, request) {
 export async function verifyAuthToken(db, token) {
   if (!token) return null
   const row = await db.prepare(
-    "SELECT shop_code FROM auth_tokens WHERE token = ? AND expires_at > datetime('now')"
+    "SELECT shop_code, staff_id FROM auth_tokens WHERE token = ? AND expires_at > datetime('now')"
   ).bind(token).first()
   if (!row?.shop_code) return null
+  // スタッフのトークンは、その人が使える状態（承認済み・停止でも削除でもない）のときだけ有効
+  if (row.staff_id) {
+    const st = await db.prepare('SELECT status FROM staff WHERE id = ? AND shop_code = ?').bind(row.staff_id, row.shop_code).first()
+    if (st?.status !== 'active') return null
+  }
   const store = await db.prepare(
     'SELECT deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?'
   ).bind(row.shop_code).first()

@@ -26,7 +26,8 @@ export const _showOrders    = ref(false)
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { isAuthenticated, storeName, logout } from '../composables/useAuth.js'
+import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS } from '../composables/useAuth.js'
+import StaffPage from './StaffPage.vue'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -207,6 +208,7 @@ const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '�
 const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
 const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
+const showStaff = ref(false)   // スタッフの管理（段 2-1・管理者だけ）
 const orderBaseRows = computed(() => allItems.value.map(item => ({
   item, category: config.categories?.[item] ?? '', ...baseOf(item),
 })))
@@ -325,6 +327,10 @@ onUnmounted(registerInnerLayerCloser(() => {
       <template #extra>
         <div class="manage">
           <div class="m-h">発注の設定</div>
+          <template v-if="isAuthenticated && isAdmin">
+            <div class="m-h">スタッフ</div>
+            <button class="m-card" type="button" @click="showStaff = true">👥<span>スタッフ<small>招待・承認・役割・停止（スタッフは自分の名前と暗証番号でログイン）</small></span><i>›</i></button>
+          </template>
           <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
           <button class="m-card" type="button" @click="showOrderBase = true">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
           <div class="m-h">その他</div>
@@ -338,10 +344,12 @@ onUnmounted(registerInnerLayerCloser(() => {
               <button type="button" class="m-old-btn ng" :disabled="deletingId === s.id" @click="askDiscard(s)">破棄</button>
             </div>
           </template>
+          <p v-if="isAuthenticated" class="m-who">ログイン中：{{ currentStaff ? `${currentStaff.name}（${ROLE_LABELS[currentStaff.role]}）` : 'オーナー' }}</p>
           <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
         </div>
       </template>
     </MasterManagePage>
+    <StaffPage v-if="showStaff" @close="showStaff = false" />
 
     </div><!-- /.home-panels -->
 
@@ -512,6 +520,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-old span { flex: 1; }
 .m-old-btn { border: 1.5px solid #bfd6dc; background: #fff; border-radius: 8px; padding: 5px 10px; font-weight: 800; font-size: 12px; cursor: pointer; }
 .m-old-btn.ng { border-color: #fca5a5; color: #b91c1c; }
+.m-who { margin: 20px 0 0; text-align: center; font-size: 12.5px; color: #4c6a72; }
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 
 /* レポートタブ */

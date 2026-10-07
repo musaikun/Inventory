@@ -1,11 +1,36 @@
 <script setup>
 import { ref } from 'vue'
-import { register, login } from '../composables/useAuth.js'
+import { register, login, staffLogin } from '../composables/useAuth.js'
+import { deviceId } from '../composables/useDeviceId.js'
 
 const emit = defineEmits(['done'])
 
-// 'login' | 'register'
+// 'login' | 'staff' | 'register'
 const tab = ref('login')
+
+// ── スタッフとしてログイン（段 2-1・店舗コード＋名前＋6桁の暗証番号）──────────
+const stCode    = ref(localStorage.getItem('_last_staff_code') ?? '')
+const stName    = ref(localStorage.getItem('_last_staff_name') ?? '')
+const stPin     = ref('')
+const stError   = ref('')
+const stLoading = ref(false)
+async function onStaffLogin() {
+  stError.value = ''
+  const code = stCode.value.trim().toUpperCase()
+  if (!code || !stName.value.trim()) { stError.value = '店舗コードと名前を入れてください'; return }
+  if (!/^\d{6}$/.test(stPin.value)) { stError.value = '暗証番号は6桁の数字です'; return }
+  stLoading.value = true
+  try {
+    await staffLogin(code, stName.value.trim(), stPin.value, deviceId)
+    try { localStorage.setItem('_last_staff_code', code); localStorage.setItem('_last_staff_name', stName.value.trim()) } catch (_) {}
+    emit('done')
+  } catch (e) {
+    stError.value = e.message
+    stPin.value = ''
+  } finally {
+    stLoading.value = false
+  }
+}
 
 // ── 新規登録 ────────────────────────────────────────────────────────────────
 const regStoreName   = ref('')
@@ -100,6 +125,11 @@ function onLoginPinInput(e) {
         >ログイン</button>
         <button
           class="auth-tab"
+          :class="{ active: tab === 'staff' }"
+          @click="tab = 'staff'"
+        >スタッフ</button>
+        <button
+          class="auth-tab"
           :class="{ active: tab === 'register' }"
           @click="tab = 'register'"
         >新規登録</button>
@@ -139,6 +169,25 @@ function onLoginPinInput(e) {
           >
             {{ loginLoading ? 'ログイン中...' : 'ログイン' }}
           </button>
+        </div>
+      </template>
+
+      <!-- スタッフとしてログイン -->
+      <template v-else-if="tab === 'staff'">
+        <div class="auth-form">
+          <label class="form-label" for="st-code">店舗コード</label>
+          <input id="st-code" v-model="stCode" type="text" class="form-input" placeholder="例：ABCDEF" maxlength="8" autocomplete="off"
+            @input="stCode = stCode.toUpperCase().replace(/[^A-Z]/g, '')" />
+          <label class="form-label" for="st-name">名前（参加したときの名前）</label>
+          <input id="st-name" v-model="stName" type="text" class="form-input" placeholder="例：山田" maxlength="30" autocomplete="username" />
+          <label class="form-label" for="st-pin">暗証番号（6桁）</label>
+          <input id="st-pin" v-model="stPin" type="password" inputmode="numeric" class="form-input" placeholder="●●●●●●" maxlength="6"
+            autocomplete="current-password" @input="stPin = stPin.replace(/\D/g, '').slice(0, 6)" @keydown.enter="onStaffLogin" />
+          <div v-if="stError" class="form-error">{{ stError }}</div>
+          <button class="btn btn-primary auth-submit" :disabled="stLoading" @click="onStaffLogin">
+            {{ stLoading ? 'ログイン中...' : 'スタッフとしてログイン' }}
+          </button>
+          <p class="auth-staff-note">はじめての人は、管理者から招待（QRコードかリンク）を受け取ってください。</p>
         </div>
       </template>
 
@@ -212,6 +261,7 @@ function onLoginPinInput(e) {
 </template>
 
 <style scoped>
+.auth-staff-note { margin: 10px 0 0; font-size: 12px; color: #4c6a72; line-height: 1.6; text-align: center; }
 .auth-page {
   min-height: 100dvh;
   display: flex;

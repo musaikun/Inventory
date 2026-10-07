@@ -33,6 +33,8 @@ export const STORAGE_KEYS = {
   rejectedSaves:    '_rejected_saves_v1',  // サーバーに拒否された保存（リロードしても事実を消さない）
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
+  authStaff:        '_auth_staff',      // スタッフとしてログインしているとき { id, name, role }（無ければオーナー）
+  staffJoin:        '_staff_join',      // 参加を申請して承認を待っている { pendingKey, shopCode, storeName, name }
   deleteRequestId:  '_delete_account_request_id',  // アカウント削除の in-flight requestId（成功/中止で消す・再試行では同じ値）
   tapContinuous:    'inv_tap_continuous',
   orders:           'inventory_orders_v1',

@@ -6,10 +6,20 @@ import { apiFetch as _api } from '../utils/api.js'
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const _token     = ref(localStorage.getItem(STORAGE_KEYS.authToken)     ?? null)
 const _storeName = ref(localStorage.getItem(STORAGE_KEYS.authStoreName) ?? null)
+// スタッフとしてログインしているとき { id, name, role }。null ならオーナー（今の店舗ログイン）
+function _readStaff() { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.authStaff) || 'null') } catch (_) { return null } }
+const _staff = ref(_readStaff())
 
 export const authToken       = computed(() => _token.value)
 export const storeName       = computed(() => _storeName.value)
 export const isAuthenticated = computed(() => !!_token.value)
+/** スタッフとしてのログイン（無ければ null＝オーナー） */
+export const currentStaff    = computed(() => _staff.value)
+/** 役割: 'owner' | 'admin' | 'shain' | 'arbeit' */
+export const currentRole     = computed(() => (_staff.value ? _staff.value.role : 'owner'))
+/** スタッフの管理ができるか（オーナーか管理者） */
+export const isAdmin         = computed(() => !_staff.value || _staff.value.role === 'admin')
+export const ROLE_LABELS     = { owner: 'オーナー', admin: '管理者', shain: '社員', arbeit: 'アルバイト' }
 
 // 既存インストールの移行: dataOwner 未設定でもログイン中（shopCode あり）なら、
 // 現在のローカルデータはその店舗のものとみなしてマーカーを付ける。
@@ -39,8 +49,11 @@ function _ensureAccountData(code) {
   } catch (_) {}
 }
 
-function _setAuth(token, code, name) {
+function _setAuth(token, code, name, staff = null) {
   _ensureAccountData(code)   // 別アカウントへ切り替わるなら先にローカルを掃除する
+  _staff.value     = staff
+  if (staff) localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(staff))
+  else localStorage.removeItem(STORAGE_KEYS.authStaff)
   _token.value     = token
   _storeName.value = name ?? null
   shopCode.value   = code
@@ -50,6 +63,8 @@ function _setAuth(token, code, name) {
 }
 
 function _clearAuth() {
+  _staff.value     = null
+  localStorage.removeItem(STORAGE_KEYS.authStaff)
   _token.value     = null
   _storeName.value = null
   shopCode.value   = ''
@@ -77,6 +92,47 @@ export async function login(code, pin) {
   _setAuth(data.token, data.shopCode, data.storeName)
   return data
 }
+
+// ── スタッフ（段 2-1）────────────────────────────────────────────
+// POST /auth/staff-login  { shopCode, name, pin, deviceId }
+export async function staffLogin(code, name, pin, deviceId) {
+  const data = await _api('/auth/staff-login', {
+    method: 'POST',
+    body:   JSON.stringify({ shopCode: code, name, pin, deviceId }),
+  })
+  _setAuth(data.token, data.shopCode, data.storeName, data.staff)
+  return data
+}
+/** 招待の中身（店の名前・名前・役割・期限） */
+export function getInvite(token) { return _api(`/staff/invite?token=${encodeURIComponent(token)}`) }
+/** 招待から参加を申請する。承認を待つ鍵を端末に覚える */
+export async function joinAsStaff(token, name, pin) {
+  const data = await _api('/staff/join', { method: 'POST', body: JSON.stringify({ token, name, pin }) })
+  const pending = { pendingKey: data.pendingKey, shopCode: data.shopCode, storeName: data.storeName, name: data.name }
+  try { localStorage.setItem(STORAGE_KEYS.staffJoin, JSON.stringify(pending)) } catch (_) {}
+  return pending
+}
+export function pendingJoin() { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.staffJoin) || 'null') } catch (_) { return null } }
+export function forgetPendingJoin() { try { localStorage.removeItem(STORAGE_KEYS.staffJoin) } catch (_) {} }
+/** 承認を待つ。承認されたらそのままログインして 'active' を返す */
+export async function checkPendingJoin() {
+  const p = pendingJoin()
+  if (!p) return 'none'
+  const data = await _api(`/staff/pending?key=${p.pendingKey}`)
+  if (data.status === 'active' && data.token) {
+    _setAuth(data.token, data.shopCode, data.storeName, data.staff)
+    forgetPendingJoin()
+  } else if (data.status !== 'pending') {
+    forgetPendingJoin()
+  }
+  return data.status
+}
+
+// スタッフの管理（管理者）
+export const listStaff         = () => _api(`/store/${shopCode.value}/staff`)
+export const createStaffInvite = (name, role) => _api(`/store/${shopCode.value}/staff/invites`, { method: 'POST', body: JSON.stringify({ name, role }) })
+export const revokeStaffInvite = id => _api(`/store/${shopCode.value}/staff/invites/${id}`, { method: 'DELETE' })
+export const staffAction       = (id, action, body = {}) => _api(`/store/${shopCode.value}/staff/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) })
 
 // POST /auth/logout
 export async function logout() {
