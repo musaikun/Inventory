@@ -88,6 +88,8 @@ export function normalizeConfig(src = {}) {
     // 並び替え（軸）ごとの品目の並び。無い（古い端末）なら送らない＝受けた端末が今の並びから作る
     ...(Array.isArray(src.axisItemOrderA) ? { axisItemOrderA: src.axisItemOrderA } : {}),
     ...(Array.isArray(src.axisItemOrderB) ? { axisItemOrderB: src.axisItemOrderB } : {}),
+    // 削除した品目名（次の取込で聞くため）。無い（古い端末）なら送らない
+    ...(Array.isArray(src.deletedItems) ? { deletedItems: src.deletedItems } : {}),
     hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
     hiddenAuto:    Array.isArray(src.hiddenAuto) ? src.hiddenAuto : [],
     hiddenAt:      src.hiddenAt      ?? {},

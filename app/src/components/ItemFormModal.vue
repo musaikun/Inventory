@@ -18,6 +18,7 @@
  */
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
+import { useInventory } from '../composables/useInventory.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { findSimilarNames } from '../utils/itemMatcher.js'
 import { compressItemImage, uploadItemImage, deleteItemImage, itemImageUrl, canUploadItemImage } from '../services/itemImages.js'
@@ -31,10 +32,11 @@ const props = defineProps({
   context:         { type: String, default: 'home' },  // 'home' | 'session' | 'request'
 })
 // added(name) / saved(name) / request({ name, unit, category }) / unhide(name) / use-existing(name)
-const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing'])
+const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing', 'deleted'])
 useEscapeKey(() => close())
 
-const { config, addItem, patchItem, setEmptyList, setItemImage } = useConfig()
+const { config, addItem, patchItem, setEmptyList, setItemImage, removeConfigItem, hideItem } = useConfig()
+const { inventory } = useInventory()
 const isEdit = computed(() => props.mode === 'edit')
 
 const name     = ref(props.initialName || '')
@@ -131,6 +133,24 @@ function _popAdded(n) {
   _popTimer = setTimeout(() => { addedPop.value = '' }, 2200)
 }
 onBeforeUnmount(() => clearTimeout(_popTimer))
+
+// ── 1件削除（User決定 2026-10-07）──────────────────────────────
+// どの品目でも消せる。取り込んだことのある品目だけ「次の取込で聞く」ことと、非表示も選べることを添える。
+// 棚卸・発注の途中で数が入っている品目は、途中の記録が宙に浮くので消させない。
+const delAsk = ref(false)
+const isImported = computed(() => isEdit.value && !(config.manualItems ?? []).includes(props.item))
+const countedNow = computed(() => isEdit.value && inventory[props.item] != null)
+function confirmDelete() {
+  if (countedNow.value) return
+  const ref0 = config.images?.[props.item]
+  if (!removeConfigItem(props.item)) return
+  if (ref0) deleteItemImage(ref0).catch(() => {})
+  emit('deleted', props.item)
+}
+function hideInstead() {
+  hideItem(props.item)
+  emit('saved', props.item)
+}
 
 function onNameInput() { error.value = ''; confirmedSimilar.value = '' }
 
@@ -248,7 +268,27 @@ function submit() {
       <div v-if="error" class="if-err">{{ error }}</div>
       <div v-if="added.length" class="if-added" role="status">✓ 追加しました：{{ added.slice(0, 3).join('・') }}<span v-if="added.length > 3"> ほか{{ added.length - 3 }}件</span></div>
 
-      <div class="if-acts">
+      <!-- 削除（編集のときだけ。確認はこの中で） -->
+      <template v-if="isEdit">
+        <button v-if="!delAsk" type="button" class="if-del-open" @click="delAsk = true">この品目を削除…</button>
+        <div v-else class="if-del" role="group" aria-label="品目の削除">
+          <p v-if="countedNow" class="if-del-t">棚卸・発注の途中で数が入っています。終えてから削除してください。</p>
+          <template v-else>
+            <p class="if-del-t">「{{ item }}」を削除しますか？過去の棚卸・発注の記録はそのまま残ります。</p>
+            <p v-if="isImported" class="if-del-n">
+              取り込んだ品目です。取込元のファイルにも残っていると、次に取り込むときに「前に削除した品目」として入れるかどうかを聞きます。
+              棚卸に出したくないだけなら、<b>非表示</b>がおすすめです（いつでも戻せます）。
+            </p>
+          </template>
+          <div class="if-del-acts">
+            <button type="button" class="if-btn sec" @click="delAsk = false">やめる</button>
+            <button v-if="isImported && !countedNow" type="button" class="if-btn sec" @click="hideInstead">非表示にする</button>
+            <button v-if="!countedNow" type="button" class="if-btn danger" @click="confirmDelete">削除する</button>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="!delAsk" class="if-acts">
         <button class="if-btn sec" type="button" @click="close">{{ added.length ? '完了' : single ? 'キャンセル' : '閉じる' }}</button>
         <button class="if-btn pri" type="button" :disabled="!canSave || imgBusy" @click="submit">
           {{ isEdit ? '保存'
@@ -263,6 +303,13 @@ function submit() {
 </template>
 
 <style scoped>
+.if-del-open { display: block; margin: 14px auto 0; min-height: 40px; border: none; background: none; color: #b91c1c; font-size: 13px; font-weight: 700; cursor: pointer; }
+.if-del { margin-top: 14px; padding: 12px; border-radius: 12px; background: #fef2f2; border: 1px solid #fecaca; display: grid; gap: 8px; }
+.if-del-t { margin: 0; font-size: 14px; font-weight: 800; color: #7f1d1d; line-height: 1.5; }
+.if-del-n { margin: 0; font-size: 12.5px; color: #7f1d1d; line-height: 1.6; }
+.if-del-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.if-del-acts .if-btn { flex: 1 1 auto; }
+.if-btn.danger { background: #dc2626; color: #fff; border: none; }
 .if-sheet { max-height: 92vh; overflow-y: auto; }
 .if-title { font-size: 17px; font-weight: 800; color: #12303a; margin-bottom: 6px; }
 .if-label { display: block; font-size: 12px; font-weight: 700; color: #3d5a62; margin: 10px 0 4px; }

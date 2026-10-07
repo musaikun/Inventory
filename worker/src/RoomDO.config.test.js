@@ -13,6 +13,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
       axisGroupsA: ['冷蔵', '常温'],
       axisGroupsB: ['八百屋'],
       axisItemOrderA: ['トマト'],
+      deletedItems: ['なす'],
       hiddenItems: ['レタス'],
       reorderPoints: { トマト: 5 },
       replenishTargets: { トマト: 12 },
@@ -36,6 +37,7 @@ describe('normalizeConfig（config中継の全フィールド保持）', () => {
     // 並び替えごとの品目の並び。古い端末が送らなければ載せない（受けた端末が作る）
     expect(out.axisItemOrderA).toEqual(['トマト'])
     expect('axisItemOrderB' in out).toBe(false)
+    expect(out.deletedItems).toEqual(['なす'])
     expect(out.hiddenItems).toEqual(['レタス'])
     expect(out.order).toEqual(['トマト'])
     expect(out.isCustom).toBe(true)

@@ -81,6 +81,7 @@ import SyncModal from './components/SyncModal.vue'
 import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
+import OrderExportSheet from './components/OrderExportSheet.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
@@ -1951,6 +1952,8 @@ async function _finishSession(completionCount, isHostInRoom) {
   }
 
   _clearDraft(completedId)
+  // 発注を終えたら、そのまま業者へ送れるよう書き出しを開く（User決定 2026-10-07）
+  const finishedOrder = req.type !== COMPLETION_STOCK ? (getOrders().find(o => o.id === _orderId()) ?? null) : null
   // **端末側の確定がすべて終わってから**、保存してある完了要求を捨てる（再レビュー §1）。
   // API 成功だけで消すと、履歴 commit の前に端末が落ちたときに送った内容を復元できない。
   ackCompletionFinalized(completedId)
@@ -1958,7 +1961,11 @@ async function _finishSession(completionCount, isHostInRoom) {
   showToast(`${actNoun.value}を完了しました ✓`, 3000, 'success')
   _setNewSession(completedId)
   currentView.value  = 'sessions'
+  if (finishedOrder) orderExport.value = finishedOrder
 }
+
+// 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く
+const orderExport = ref(null)
 
 
 // 完了をサーバーへ書けなかったときの通知（DATA-001）。
@@ -3834,6 +3841,7 @@ function dismissReview() {
 
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
+    <OrderExportSheet v-if="orderExport" :order="orderExport" title="発注を業者へ送る" @close="orderExport = null" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
     <AxisAssignFocus
       v-if="showAxisAssign"

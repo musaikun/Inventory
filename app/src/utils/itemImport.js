@@ -525,6 +525,9 @@ export function buildImportPlan(parsed, current, opts = {}) {
     itemLimit   = Infinity,     // Free プランの品目上限（Pro は Infinity）
     axisNameMax = 10,
     aliasPolicy = ALIAS_KEEP_EXISTING,
+    // 前に削除した品目（config.deletedItems）を入れ直すか。既定は入れない（User決定 2026-10-07）。
+    // 削除は取込元ファイルとは別に決めたことなので、黙って復活させない。プレビューで選び直せる
+    restoreDeleted = false,
   } = opts
 
   const isMerge = mode !== IMPORT_MODE_REPLACE
@@ -535,7 +538,10 @@ export function buildImportPlan(parsed, current, opts = {}) {
   const existingSet   = new Set(existingOrder)
 
   // 追加候補。マージでは既存に無い品目だけが「追加」になる。
-  const incoming = rows.map(r => r.name)
+  const deletedSet = new Set(Array.isArray(current.deletedItems) ? current.deletedItems : [])
+  const deletedSkipped = restoreDeleted ? [] : rows.map(r => r.name).filter(n => deletedSet.has(n) && !existingSet.has(n))
+  const skipSet = new Set(deletedSkipped)
+  const incoming = rows.map(r => r.name).filter(n => !skipSet.has(n))
   const newNames = isMerge ? incoming.filter(n => !existingSet.has(n)) : incoming
 
   // Free 上限。マージでは既存品目を絶対に削らず、入り切らない分だけを truncated として返す。
@@ -672,6 +678,8 @@ export function buildImportPlan(parsed, current, opts = {}) {
       metaRows:       parsed.metaRows ?? [],
       // 同名・別コード。「重複」に混ぜると、別商品が消えたことに気づけない
       codeCollisions: parsed.codeCollisions ?? [],
+      // 前に削除したので入れなかった品目（restoreDeleted で入れ直せる）
+      deletedSkipped,
       truncatedNames: parsed.truncatedNames ?? [],
       aliasConflicts,
       categoryCodeChanges,

@@ -26,6 +26,8 @@ import {
 
 export { IMPORT_MODE_MERGE, IMPORT_MODE_REPLACE, ALIAS_KEEP_EXISTING, ALIAS_TAKEOVER }
 
+// 削除した品目名を覚える上限（古い方から忘れる）
+const DELETED_CAP = 500
 const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
 
@@ -61,6 +63,8 @@ const config = reactive({
   // order（取込ファイルの並び・手で足した品目はコード順の位置）は並び替えの操作で書き換えない
   axisItemOrderA: [],
   axisItemOrderB: [],
+  // 削除した品目名（新しい順・上限あり）。次の取込で黙って復活させないために覚える（User決定 2026-10-07）
+  deletedItems:   [],
   hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
   hiddenAuto:     [],        // hiddenItems のうち「前回まで未入力」で自動非表示にしたもの（由来マーカー）
   hiddenAt:       {},        // 品目 → 非表示にした時刻(ISO)。一覧を「最後に隠した順」で出すために持つ
@@ -128,6 +132,7 @@ function _serializeConfigData() {
     axisGroupsB:   config.axisGroupsB,
     axisItemOrderA: config.axisItemOrderA,
     axisItemOrderB: config.axisItemOrderB,
+    deletedItems:  config.deletedItems,
     hiddenItems:   config.hiddenItems,
     hiddenAuto:    config.hiddenAuto,
     hiddenAt:      config.hiddenAt,
@@ -162,6 +167,7 @@ function _assignConfigData(src) {
     : (Object.values(tags).some(x => x?.length) ? [...config.order] : [])
   config.axisItemOrderA = _seedAxisOrder(src.axisItemOrderA, config.tagsA)
   config.axisItemOrderB = _seedAxisOrder(src.axisItemOrderB, config.tagsB)
+  config.deletedItems   = Array.isArray(src.deletedItems) ? src.deletedItems.filter(n => typeof n === 'string').slice(0, DELETED_CAP) : []
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
   config.hiddenAt      = src.hiddenAt      ?? {}
@@ -310,10 +316,11 @@ function _pruneArchive() {
 }
 
 // 取込計画の共通オプション（Free は品目上限つき、Pro は無制限）
-function _planOptions(mode, aliasPolicy = ALIAS_KEEP_EXISTING) {
+function _planOptions(mode, aliasPolicy = ALIAS_KEEP_EXISTING, restoreDeleted = false) {
   return {
     mode,
     aliasPolicy,
+    restoreDeleted,
     itemLimit:   itemLimit(),
     axisNameMax: AXIS_NAME_MAX,
   }
@@ -361,6 +368,9 @@ function _applyImportPlan(plan) {
   config.axisNames     = [plan.axisNames[0] ?? '', plan.axisNames[1] ?? '']
   config.manualItems   = plan.manualItems
   config.importExcluded = importExcludedRecord(plan.summary)
+  // 取り込んで戻した品目は「削除した」から外す
+  const inPlan = new Set(plan.order)
+  config.deletedItems = (config.deletedItems ?? []).filter(n => !inPlan.has(n))
 
   // 復元した割り当てを再びアーカイブへ記憶（取込をまたいで復元できるように）
   for (const nm of plan.order) {
@@ -438,8 +448,8 @@ export function useConfig() {
    * 画面はこの計画をプレビューへ出し、**同じ計画オブジェクト**を applyImportPlan へ渡す。
    * プレビューと取込で解析・計画を2回作らないので、両者がずれる余地が無い。
    */
-  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy, keepMeta = false, splitByCode = false } = {}) {
-    return buildImportPlan(parseItemCSV(csvText, { keepMeta, splitByCode }), config, _planOptions(mode, aliasPolicy))
+  function planCSVImport(csvText, { mode = IMPORT_MODE_MERGE, aliasPolicy, keepMeta = false, splitByCode = false, restoreDeleted = false } = {}) {
+    return buildImportPlan(parseItemCSV(csvText, { keepMeta, splitByCode }), config, _planOptions(mode, aliasPolicy, restoreDeleted))
   }
 
   /** loadFromCSV の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */
@@ -670,6 +680,7 @@ export function useConfig() {
     if (!n || config.order.includes(n)) return false
     if (!canAddItem(config.order.length)) return false
     config.order.push(n)
+    config.deletedItems = (config.deletedItems ?? []).filter(x => x !== n)   // 手で入れ直したら「削除した」から外す
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     if (category?.trim()) config.categories[n] = category.trim()
     if (unit?.trim())     config.units[n]       = unit.trim()
@@ -1163,6 +1174,13 @@ export function useConfig() {
     }
     const mi = config.manualItems.indexOf(name)
     if (mi >= 0) config.manualItems.splice(mi, 1)
+    for (const k of ['hiddenItems', 'hiddenAuto']) {
+      const i = (config[k] ?? []).indexOf(name)
+      if (i >= 0) config[k].splice(i, 1)
+    }
+    // 別名（辞書）でこの品目を指していたものも外す
+    for (const [alias, target] of Object.entries(config.dictionary ?? {})) if (target === name) delete config.dictionary[alias]
+    config.deletedItems = [name, ...(config.deletedItems ?? []).filter(n => n !== name)].slice(0, DELETED_CAP)
     _save()
     return true
   }
@@ -1180,14 +1198,14 @@ export function useConfig() {
   /** loadFromCSVMapped の取込計画（config は変更しない） */
   function planMappedImport(csvText, mapping, opts = {}) {
     const { mode = IMPORT_MODE_MERGE, aliasPolicy, hasHeader, headerRow, headerNamed,
-            keepMeta = false, splitByCode = false } = opts
+            keepMeta = false, splitByCode = false, restoreDeleted = false } = opts
     const parsed = parseMappedCSV(csvText, mapping, {
       keepMeta, splitByCode,
       ...(hasHeader   !== undefined ? { hasHeader }   : {}),
       ...(headerRow   !== undefined ? { headerRow }   : {}),
       ...(headerNamed !== undefined ? { headerNamed } : {}),
     })
-    return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy))
+    return buildImportPlan(parsed, config, _planOptions(mode, aliasPolicy, restoreDeleted))
   }
 
   /** loadFromCSVMapped の取込前プレビュー（件数と差分だけ必要な呼び出し元向け） */

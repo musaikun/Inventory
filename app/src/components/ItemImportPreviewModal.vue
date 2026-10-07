@@ -63,6 +63,8 @@ const keepMeta         = ref(false)
 // 同名・別コードの行を、名前にコードを付けて別々に登録するか。
 // 帳票が品目名を印字幅で切り詰めるせいで、サイズ違いの別商品が同じ名前になる。
 const splitByCode      = ref(false)
+// 前に削除した品目を入れ直すか。既定は入れない（削除は取込元と別に決めたことなので黙って戻さない）
+const restoreDeleted   = ref(false)
 
 const isMapped  = computed(() => props.origin === 'mapped')
 const isReplace = computed(() => mode.value === IMPORT_MODE_REPLACE)
@@ -78,6 +80,7 @@ const preview = computed(() => {
       aliasPolicy: aliasPolicy.value ?? ALIAS_KEEP_EXISTING,
       keepMeta: keepMeta.value,
       splitByCode: splitByCode.value,
+      restoreDeleted: restoreDeleted.value,
     }
     const plan = isMapped.value
       ? planMappedImport(props.csvText, props.mapping, {
@@ -154,6 +157,7 @@ const metaRows        = computed(() => summary.value?.metaRows ?? preview.value.
 const metaSample      = computed(() => cap(metaRows.value))
 const codeCollisions  = computed(() => summary.value?.codeCollisions ?? preview.value.codeCollisions ?? [])
 const collisionSample = computed(() => cap(codeCollisions.value))
+const deletedSkipped  = computed(() => summary.value?.deletedSkipped ?? [])
 const truncatedNames  = computed(() => summary.value?.truncatedNames ?? [])
 const categoryCodeChanges = computed(() => cap(summary.value?.categoryCodeChanges))
 const axisNameChanges = computed(() => summary.value?.axisNameChanges ?? [])
@@ -308,6 +312,21 @@ async function onConfirm() {
           <label class="alias-opt">
             <input type="radio" :value="ALIAS_TAKEOVER" v-model="aliasPolicy" />
             ファイルの指定を優先する（別名をあとの行の品目へ付け替える）
+          </label>
+        </div>
+
+        <!-- 前に削除した品目。既定で入れず、ここで選び直せる（User決定 2026-10-07） -->
+        <div v-if="deletedSkipped.length || restoreDeleted" class="warn unread-warn deleted-warn">
+          <p class="warn-title">
+            {{ restoreDeleted ? '前に削除した品目も入れます' : `前に削除した品目が${deletedSkipped.length}件あるので、入れません` }}
+          </p>
+          <ul v-if="!restoreDeleted" class="name-list">
+            <li v-for="n in deletedSkipped.slice(0, 8)" :key="n">{{ n }}</li>
+            <li v-if="deletedSkipped.length > 8" class="more">ほか{{ deletedSkipped.length - 8 }}件</li>
+          </ul>
+          <label class="meta-opt">
+            <input type="checkbox" v-model="restoreDeleted" />
+            前に削除した品目も入れる
           </label>
         </div>
 

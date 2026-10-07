@@ -116,6 +116,15 @@ const locked = computed(() => completionBusy.value)
 function openAdd()  { if (!locked.value) form.value = { mode: 'add' } }
 function openEdit() { if (!locked.value) form.value = { mode: 'edit', item: detailTarget.value } }
 function closeForm() { form.value = null }
+// 品目を削除したら、シートも閉じて一言だけ知らせる
+const deletedMsg = ref('')
+let _delT = null
+function onItemDeleted(name) {
+  form.value = null; detailTarget.value = null
+  deletedMsg.value = `「${name}」を削除しました`
+  clearTimeout(_delT); _delT = setTimeout(() => { deletedMsg.value = '' }, 2600)
+}
+onUnmounted(() => clearTimeout(_delT))
 // 端末の戻る操作は、ページを閉じる前に上のシートから閉じる（既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
   if (form.value) { closeForm(); return true }
@@ -236,7 +245,13 @@ onUnmounted(registerInnerLayerCloser(() => {
       :item="form.item || ''"
       @saved="closeForm"
       @close="closeForm"
+      @deleted="onItemDeleted"
     />
+    <Teleport to="body">
+      <Transition name="toast">
+        <div v-if="deletedMsg" class="toast" data-type="success" role="status">{{ deletedMsg }}</div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 

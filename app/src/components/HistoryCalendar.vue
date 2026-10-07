@@ -1,5 +1,6 @@
 <script setup>
 import DayTasks from './DayTasks.vue'
+import OrderExportSheet from './OrderExportSheet.vue'
 import { openTaskCounts } from '../composables/useTasks.js'
 import { isQuickMovement } from '../services/itemDayLog.js'
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
@@ -27,6 +28,7 @@ const props = defineProps({
   weather:  { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['view-session'])
+const exportOrder = ref(null)   // 書き出しを開いている発注
 
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders } = useOrders()
@@ -705,9 +707,12 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
             <div v-for="l in r.o.lines" :key="l.item" class="hc-order-line">
               <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
             </div>
+            <button type="button" class="hc-order-export" @click.stop="exportOrder = r.o">📤 業者へ送る（品目名と数量を書き出す）</button>
           </div>
         </div>
       </template>
+
+      <OrderExportSheet v-if="exportOrder" :order="exportOrder" @close="exportOrder = null" />
 
       <div v-if="anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
 
@@ -943,6 +948,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
 
 .hc-order-lines { border-top: 1px solid #f3f4f6; }
+.hc-order-export { display: block; width: calc(100% - 24px); margin: 8px 12px 10px; min-height: 40px; border: 1px solid var(--primary-border, #a5f3fc); border-radius: 10px; background: var(--primary-weak, #ecfeff); color: var(--primary, #0e7490); font-size: 13px; font-weight: 800; cursor: pointer; }
 .hc-order-line { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #f6fafb; }
 
 .hc-empty { padding: 20px; text-align: center; color: #9ca3af; font-size: 13px; }
