@@ -72,7 +72,7 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 | camera映像・barcode | barcode scan | 端末内のZXing/browser処理 | barcode入力 | 任意・permission | upload/server保存なし | 端末内処理だけならnot collected。`BarcodeScanner.vue` |
 | microphone音声・認識結果 | 音声入力 | Web Speech API実装依存、認識結果はApp入力へ | 音声入力 | 任意・permission | App側は録音保存なし。browser/OSによるremote speech processing有無はTWA実機で確定が必要 | Audio候補。`useVoice.js` |
 | PDF/Excel/CSV内容 | 利用者がfile選択 | 現行App importは端末内parse。正規化された業務dataはD1保存 | 一括入力 | 任意 | 原fileのserver保存なし。正規化dataはaccount削除まで | file自体は現行UIではnot collected、入力結果は業務data。`usePdfImporter.js`、`PdfImporterModal.vue` |
-| `/pdf`へ送ったPDF | App外から認証済みWorker APIを直接利用した場合 | Workerで一時parse | PDF解析 | dormant endpoint | 永続保存なし、5MB制限 | endpointを残すならFiles/Documentsの収集候補。現行App未使用。`worker/src/index.js`、`pdfParser.js` |
+| ~~`/pdf`へ送ったPDF~~（2026-10-08 endpoint削除） | App外から認証済みWorker APIを直接利用した場合 | Workerで一時parse | PDF解析 | dormant endpoint | 永続保存なし、5MB制限 | endpointを残すならFiles/Documentsの収集候補。現行App未使用。`worker/src/index.js`、`pdfParser.js` |
 | IP・失敗種別・時刻 | login/room/PDF失敗時 | D1 `ip_attempts` / `login_attempts` | abuse防止 | 自動 | 判定窓15分。期限切れrowを日次cronで全体cleanupし、実保持は最長約24時間15分 | collected / security。`rateLimiter.js`、`pushHandler.js` |
 | platform access/error log | Worker実行、error | Cloudflare platform | security/運用 | 自動 | `console.error`はあるが、現行`wrangler.toml`にobservabilityの明示設定なし | collected候補。OPS-001でdashboardの有効/無効・plan・payloadを確認 |
 | analytics custom events / feedback自由記述 | App内call site | 送信しない | — | — | `posthog-js`を除去し、`track()`を常時no-op化。旧PostHog localStorageだけをcleanup | 現行公開buildではnot collected。`analytics.js`、`analytics.test.js` |
@@ -148,7 +148,7 @@ Workers Paidで30日。D-020で現行accountをFree planと確定した。復元
 | DS-04 | `login_attempts` / `ip_attempts`を15分の判定窓後の日次cronでcleanup。platform logは別確認 | Codex Worker / User OPS | **code・cron test済み**。Workers LogsはUserが有効化済み、Free保持3日を公式再確認。閲覧担当・payload/masking・alert待ち |
 | DS-05 | D1の本番planとTime Travel期間を確認し、復元後再削除runbookを作る | User/OPS、Codex文書 | **Free / 7日をD-020で確定**。[runbook作成済み](d1-recovery-runbook.md)。maintenance・外部削除ledger待ち。本番0010/0011未適用 |
 | DS-06 | microphoneのTWA実機挙動と外部処理を確認 | User実機、Codex申告反映 | device/browser/build情報 + network観測 |
-| DS-07 | dormant `/pdf` endpointを削除するか公開機能として申告するか決定 | User決定、Codex Worker lane | code/testまたはpolicy |
+| DS-07 | ✅ 2026-10-08 削除（User決定）。dormant `/pdf` endpointを削除するか公開機能として申告するか決定 | User決定、Codex Worker lane | code/testまたはpolicy |
 | DS-08 | privacy/terms/supportの確定HTTPS URLと統一contactを決め、公開routeとアプリ導線へ反映 | User決定、Claude Code（PLAY-004） | **ページ・導線はCC実装・Codex対象review済み（2026-07-26）**: `app/public/{privacy,terms,support}.html`、Landing/設定/削除ページから相対リンク。**残: canonical host/contactのUser決定、terms正本同期、実機確認** |
 | DS-09 | Stripe未実装状態に合わせlegal文面を直すか、将来機能として明確化 | User決定、Claude Code文面 | **CC対応済み（2026-07-26）**: privacyは委託先からStripe/PostHogを削除し「現在利用していません」と明記。termsの第4条を「無料提供・決済機能なし」へ改定。`legalPages.test.js`で再発を固定 |
 | DS-10 | Play Console Data SafetyをUserとCodexが独立照合 | User + Codex | console回答export / screenshot |
@@ -186,7 +186,7 @@ Claude Codeからの証拠補足（2026-07-26 / PLAY-004前半・コード確認
 
 ### User
 
-- security log保持・閲覧担当・alert、`/pdf`存廃を決める。
+- security log保持・閲覧担当・alert を決める（`/pdf`は2026-10-08削除）。
 - 本番D1 plan、canonical host、公式support contactを確定する。
 - TWA実機のmicrophone/権限と最終URLを確認し、Play Console回答をCodexと照合する。
 

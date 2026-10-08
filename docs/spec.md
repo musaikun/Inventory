@@ -26,13 +26,13 @@
 
 | 領域 | `develop@49227ff`の実装 | 公開前のknown gap |
 |---|---|---|
-| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/push/`/pdf`はstrict Bearer | [SEC-005](quality-foundation/tasks/SEC-005.md): 登録rate limit/bot対策なし（無認証legacy `/store/create`は2026-10-08廃止） |
+| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
 | account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0018までのD1業務dataとtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
 | ホーム/画面 | 共通下部ナビは在庫・レポート・管理の3タブ。履歴はレポート先頭から開く独立画面。レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |
 | session | 棚卸/発注を開始・中断・再開・完了。完了済みは削除不可。進行中の破棄は24時間`discarded_sessions`へ保持し、同種の別sessionが無ければ復元できる | productionでは0018適用後にWorker、Appの順で更新する |
 | 入出庫 | localStorage cacheに即時保存し、`GET/POST/DELETE /store/:code/movements*`でD1へ保存。auth後と画面表示時にremoteをid mergeする。real-time WS同期は行わない | 実D1・別端末のrelease確認はWEB-07 |
-| PDF | 現行App UIは`pdfjs-dist`でclient解析。Worker `POST /pdf`も残るがAppからの呼出しはない。endpointはactive Bearer必須、5 MiB上限、IP 30回/15分で制限 | endpointを公開面として残すかは[PLAY-003](quality-foundation/tasks/PLAY-003.md) / WEB-001で確定する |
+| PDF | App UIは`pdfjs-dist`で端末内解析だけ。Worker `POST /pdf`は2026-10-08に廃止（User決定・DS-07） | — |
 | plan/trial | 通常登録は`plan=free`。trial/Stripe処理はない。`DEFAULT_LIMITS_ENFORCED=false`のため、2台・150品目・履歴3回の固定上限は現在無効 | 規約・画面・Workerと同じ説明であることをWEB-06で確認 |
 | 棚卸履歴 | sessionIdをidentityとして`sessions`、`inventory_lines`、`store_history`を完了APIの1 batchで保存。別端末はlines/history/audit APIから復元する | release candidateの実D1・別browser確認はWEB-07 |
 | 共有結果 | 完了から3日間、店舗code + session UUIDのURLを知る人へ、数量、単価、小計、合計、参加者、操作履歴を読み取り専用で表示 | URL共有範囲とprivacy説明をWEB-09〜10で確認 |
@@ -332,10 +332,10 @@ session-view（入力中）
 **API の正は `docs/api-design.md`**（認証区分・リクエスト/レスポンス形式を含む）。
 主な系統: `/auth/*`（認証）、`/store/:code/*`（config・inventory・history・sessions・orders・imports・
 push/subscribe・sessions/:id/complete・audit・discarded・restore）、`/room/:code/*`（ws・status・dissolve・result）、
-`/pdf`、`/health`。
+`/health`（`/pdf`は2026-10-08廃止）。
 
-認証は3段階: Bearer必須（sessions、push、`/pdf`）／ソフト認証（PIN設定店舗のみ同店舗Bearer必須 =
-`verifyStoreAccess`）／無認証（resultはURLが鍵＋IPレート制限）。`/pdf`は5 MiBとIP 30回/15分でも制限する。
+認証は3段階: Bearer必須（sessions、push）／ソフト認証（PIN設定店舗のみ同店舗Bearer必須 =
+`verifyStoreAccess`）／無認証（resultはURLが鍵＋IPレート制限）。
 
 ---
 
@@ -380,7 +380,6 @@ cd worker && npx wrangler deploy
 |------|------|---------|
 | 入出庫はlocal cache + D1だが本番0010未適用 | repository実装は端末間取得に対応するが、production schemaでは利用不可 | WEB-001でmigration preflight・適用・smoke |
 | PIN 忘れ時の復旧手段がない | 完全ロックアウト（連絡先を保持していない） | リカバリーコード or メールを検討（C-07） |
-| `/pdf`はguard済みだが現行App未使用 | 不要な公開endpointならattack surfaceが残る | PLAY-003 / WEB-001で存廃を決定 |
 | CSPあり・tokenはlocalStorage平文 | XSS成立時のtoken漏洩riskは残る | production responseでCSPをsmokeし、XSS対策を継続 |
 | Google OAuth 未対応 | PIN 管理が必要 | Phase 2 候補 |
 | App.vue 3,400行 | 同期バグ混入率 | R-01 分割（専用セッション推奨） |

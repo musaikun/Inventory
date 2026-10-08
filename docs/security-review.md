@@ -38,7 +38,7 @@
 | 優先 | Gap / release影響 | 追跡先 |
 |---|---|---|
 | P0 | canonicalとrelease candidateを固定し、productionの許可/拒否Originを対象SHA付きで再確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
-| P1 | `/auth/register`にrate limit/bot対策がない（legacy `/store/create`は2026-10-08廃止） | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
+| P1 | `/auth/register`のbot対策がない（IPごと1時間5回の制限とlegacy `/store/create`廃止は2026-10-08実装） | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
 | P1 | 共有resultは無認証URLで金額を含む。UI・privacy・運用説明を一致させ、URL漏洩時の扱いをrelease確認する | [`DOC-002`](quality-foundation/tasks/DOC-002.md) / WEB-09〜10 |
 | P1 | 品目写真readは認証なしで、推測困難なURLをaccess境界とする。production R2 binding、別店舗upload/delete拒否、URL漏洩、account削除後404を実環境で確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-09〜10 |
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
@@ -167,7 +167,9 @@ App全test、Worker test、browser/remote probeは未実行。remote事実は202
   許可 Origin を個別反映。Origin 無し（同一/WS/S2S）は許可。wrangler.toml を本番ドメインに設定。
 - **テスト**: `index.test.js` — 許可/拒否/なりすまし/カンマ区切り/403 の6ケース。
 
-### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）
+### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）→ 2026-10-08 endpointごと廃止
+- **2026-10-08**: User決定（DS-07）で`/pdf`と`worker/src/pdfParser.js`、Workerの`pdfjs-dist`依存を削除した。
+  `pdfjs-dist` 5.6系の既知の脆弱性（GHSA-hq66-cqwq-w95j）をサーバー側に持たない。以下は当時の記録。
 - **対策**: ①IPレート制限（kind='pdf'・15分/30回）②認証必須 ③サイズ上限5MB
   （Content-Length＋arrayBuffer.byteLength）。重い処理前に安価なゲートで弾く順序。
   現行クライアントはPDFをローカル解析するため本EPは未使用だがDoS面を塞ぐため強化。

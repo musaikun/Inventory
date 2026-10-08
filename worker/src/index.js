@@ -1,5 +1,4 @@
 import { RoomDO } from './RoomDO.js'
-import { parsePdfFile } from './pdfParser.js'
 import {
   handleStoreGet,
   handleConfigGet,   handleConfigPut,
@@ -27,7 +26,6 @@ import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMon
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
-  MAX_PDF_BYTES,
   MAX_PUSH_SUBSCRIPTION_BYTES,
 } from './constants.js'
 export { RoomDO }
@@ -247,6 +245,12 @@ export default {
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
+        // 店舗の量産を止める（SEC-005）。成否に関わらず IP ごとに数える（1時間に5回まで）
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'register')) {
+          return jsonResponse({ code: 'rate_limited', error: '登録の回数が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        await recordIpFail(env.DB, ip, 'register')
         return resultResponse(await handleRegister(
           env.DB,
           await request.json(),
@@ -754,35 +758,9 @@ export default {
       return jsonResponse({ key: env.VAPID_PUBLIC_KEY || null }, 200, origin, allowedOrigin)
     }
 
-    // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
-    if (path === '/pdf' && request.method === 'POST') {
-      // S-D: 経済的DoS対策。①IPレート制限 → ②認証必須 → ③サイズ上限 の順で
-      // 重い pdfjs 実行の前に安価なゲートで弾く。
-      const ip = clientIp(request)
-      if (await isIpBlocked(env.DB, ip, 'pdf')) {
-        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
-      }
-      // このエンドポイントは重い処理なので、成否に関わらず1回として計上（総回数を抑制）
-      await recordIpFail(env.DB, ip, 'pdf')
-
-      const authCode = await verifyAuth(env.DB, request)
-      if (!authCode) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
-
-      const declared = Number(request.headers.get('Content-Length') ?? '')
-      if (Number.isFinite(declared) && declared > MAX_PDF_BYTES) {
-        return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
-      }
-      try {
-        const buf = await request.arrayBuffer()
-        if (buf.byteLength > MAX_PDF_BYTES) {
-          return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
-        }
-        const result = await parsePdfFile(buf)
-        return jsonResponse(result, 200, origin, allowedOrigin)
-      } catch (e) {
-        return jsonResponse({ error: e.message }, 500, origin, allowedOrigin)
-      }
-    }
+    // POST /pdf（サーバーでのPDF解析）は廃止した（User決定 2026-10-08・DS-07）。
+    // App は端末内の pdfjs で解析しており、呼び出しは無かった。Worker に pdfjs を置かないことで、
+    // 細工したPDFを解析させる経路（pdfjs-dist の既知の脆弱性を含む）そのものを無くす。
 
     // ── 完了後ゲスト閲覧（無認証・URLが鍵）────────────────────────────────────
     // GET /room/:code/result?s=<sessionId> — D1 スナップショットから金額抜きの結果を返す
@@ -876,8 +854,9 @@ export default {
 
     } catch (e) {
       // 未処理の例外でも必ずCORSヘッダー付きでエラーを返す
+      // 内部の例外メッセージ（SQL・テーブル名・ライブラリの文言）は利用者へ返さない。log にだけ残す
       console.error('[Worker] Unhandled error:', request.method, path, e?.message ?? e)
-      return jsonResponse({ error: e?.message ?? 'Internal server error' }, 500, origin, allowedOrigin)
+      return jsonResponse({ code: 'internal_error', error: 'サーバーでエラーが発生しました。しばらく待ってから再度お試しください' }, 500, origin, allowedOrigin)
     }
   },
 

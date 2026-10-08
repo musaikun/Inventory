@@ -2,6 +2,17 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.6 / /pdf 廃止・登録のレート制限・店舗コードの乱数・500の文言
+
+セキュリティ確認の続き（User 指示）。
+- `/pdf` を廃止（User決定・DS-07）: route、`worker/src/pdfParser.js`、Worker の `pdfjs-dist` 依存を削除。Worker の `npm audit --omit=dev` は 0 件。Worker バンドル 288 KiB（dry-run）。
+- SEC-005 を Codex から引き取り（User 指示）: `/auth/register` に IP ごと1時間5回（成否を問わず計上・429 `rate_limited`）。保持期間に登録の窓を含めた。残りは bot 対策の要否（User判断）。
+- 店舗コード: `Math.random` → `crypto.getRandomValues`（240以上を棄却して偏りなし）。
+- 想定外の例外の 500 は `internal_error` と定型文だけ返す（内部メッセージは log のみ）。
+- docs: api-design / spec / security-review / data-safety（DS-07 済み）/ privacy-retention / PLAY-003 / SEC-005 / task-list。
+- 検証: Worker 41 files / 676 passed（新しい乱数・レート制限の単体テストは修正前で 5 件失敗。index.test の登録制限・500 文言の2件は、旧 index.js が削除した pdfParser を読み込むため旧コードでは実行できない）、`wrangler deploy --dry-run` 成功、App build 成功。
+- version: 0.152.5 → **0.152.6**。
+
 ## 2026-10-08 — version 0.152.5 / スタッフ権限を古いAPIでも守る・/store/create 廃止
 
 セキュリティ確認の続き（User 依頼）。設計判断は `docs/proposals.md`（2026-10-08）でPM判断待ち。

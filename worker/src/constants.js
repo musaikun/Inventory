@@ -9,9 +9,13 @@ export const ACCOUNT_DELETION_INTERNAL_HEADER = 'account-delete-v1'
 // ── IP rate limit (cross-store brute force / room code probing) ──────────────
 export const IP_RATE_WINDOW_MS = 15 * 60 * 1000
 export const IP_MAX_FAILS      = 30
+// 新規登録（/auth/register）は成否に関わらず IP ごとに数える（店舗の量産・登録濫用対策・SEC-005）。
+// 1店舗が登録するのは1回きりなので、同じ回線から1時間に5回までで普通の使い方には足りる。
+export const REGISTER_WINDOW_MS  = 60 * 60 * 1000
+export const REGISTER_MAX_PER_IP = 5
 // login_attempts / ip_attempts はレート制限窓を超えて保持しない。
 // global cleanupは日次cronのため、実際の削除は窓終了後の次回cron（最長約24時間15分）となる。
-export const SECURITY_ATTEMPT_RETENTION_MS = Math.max(LOGIN_WINDOW_MS, IP_RATE_WINDOW_MS)
+export const SECURITY_ATTEMPT_RETENTION_MS = Math.max(LOGIN_WINDOW_MS, IP_RATE_WINDOW_MS, REGISTER_WINDOW_MS)
 
 // ── Payload ───────────────────────────────────────────────────────────────────
 // **UTF-8 のバイト数**で判定する（DATA-002 第2セッション）。
@@ -200,5 +204,4 @@ export const MAX_MOVEMENT_BY_LEN = 40               // 入出庫を登録した�
 export const MOVEMENT_RESTORE_WINDOW_MS = 24 * 60 * 60 * 1000   // 取り消した入出庫を元に戻せる期間（User決定 2026-10-03）
 export const MAX_SUPPLIER_LEN    = 100              // 発注の仕入先・軸名
 export const MAX_ID_LEN          = 64               // client採番ID（order/movement）
-export const MAX_PDF_BYTES        = 5 * 1024 * 1024  // /pdf 受付の上限（5MB・経済的DoS対策 S-D）
 export const MAX_STORE_NAME_LEN  = 50
