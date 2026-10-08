@@ -711,6 +711,21 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
     expect(authed.recent).toEqual([{ item: 'トマト', qty: 3 }])
   })
 
+  it('sessionId（参加の鍵）は店舗コードだけでは読めない。ログイン端末か、同じIDを持つリンクにだけ返す', async () => {
+    const sid = '6f1c2a3e-9b7d-4c1e-8a2f-0d5e4b3c2a10'
+    env.ROOMS.get = () => ({ fetch: async () => new Response(JSON.stringify({ isActive: true, sessionId: sid }), { status: 200 }) })
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const anon = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)).json()
+    expect(anon.isActive).toBe(true)
+    expect(anon.sessionId).toBeUndefined()
+    const wrong = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status?s=other`), env)).json()
+    expect(wrong.sessionId).toBeUndefined()
+    const link = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status?s=${sid}`), env)).json()
+    expect(link.sessionId).toBe(sid)
+    const authed = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`, { token: reg.token }), env)).json()
+    expect(authed.sessionId).toBe(sid)
+  })
+
   it('ルームプローブ失敗が IP 単位で記録される', async () => {
     await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
     expect(db._ipRows.filter(r => r.ip === '203.0.113.9' && r.kind === 'probe')).toHaveLength(1)

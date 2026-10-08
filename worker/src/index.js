@@ -811,10 +811,17 @@ export default {
           (action === 'status'   && request.method === 'GET')) {
         const res  = await room.fetch(request)
         const body = await res.json().catch(() => ({}))
-        // 最近の変更（品目名・数量・名前）は、この店にログインしている端末にだけ渡す
-        if (action === 'status' && body && 'recent' in body) {
+        // 最近の変更（品目名・数量・名前）と sessionId は、この店にログインしている端末にだけ渡す。
+        // sessionId はゲスト参加の鍵（joinSessionId）と完了結果リンクの鍵を兼ねるため、
+        // 店舗コードだけで読めると招待リンク無しでルームへ入れてしまう。
+        // 未ログインの端末には、リンクで同じ ID を既に持っている（?s= が一致する）ときだけ返す。
+        if (action === 'status' && body && typeof body === 'object') {
           const authCode = await verifyAuth(env.DB, request).catch(() => null)
-          if (authCode !== code) delete body.recent
+          if (authCode !== code) {
+            delete body.recent
+            const s = url.searchParams.get('s')
+            if (!s || s !== body.sessionId) delete body.sessionId
+          }
         }
         return jsonResponse(body, res.status, origin, allowedOrigin)
       }

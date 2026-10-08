@@ -265,7 +265,7 @@ function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
 // セッションID付きリンク（?store=CODE&s=SID）の入口
 // まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
 async function _enterStoreLink(code, sessionId, type = 'stock') {
-  const status = await fetchRoomStatus(code, type).catch(() => null)
+  const status = await fetchRoomStatus(code, type, sessionId).catch(() => null)
   if (status?.isActive && status.sessionId === sessionId) {
     _askNameAndJoin(code, sessionId, type)   // ライブ中: ルームに参加（鍵を渡す）
     return
@@ -670,7 +670,7 @@ async function _reconnectToRoom(session) {
   try {
     // まず GET /status で確認（ルームを作らない）。ライブで同一セッションの時だけ復帰接続する。
     // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
-    const status = await fetchRoomStatus(shopCode.value, rtype).catch(() => null)
+    const status = await fetchRoomStatus(shopCode.value, rtype, session.id).catch(() => null)
     if (!(status?.isActive && status.sessionId === session.id)) {
       _restoreDraft(session.id)   // ライブルーム無し → 作らずオフライン継続
       return

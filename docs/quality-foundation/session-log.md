@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.4 / ルームの status から参加の鍵（sessionId）を外す
+
+セキュリティ確認で発見（User 依頼で修正）。`GET /room/:code/status` は認証なしで呼べ、`sessionId` をそのまま返していた。`sessionId` はゲスト参加の鍵（`joinSessionId`）と完了結果リンク（`/room/:code/result?s=`）の鍵を兼ねるため、店舗コードを知っていれば招待リンク無しで進行中のルームへ入れ、直近の完了結果（在庫金額を含む）も読めた。
+- Worker（`index.js`）: status は、この店にログインしている端末か、`?s=` が今のセッションIDと一致する要求にだけ `sessionId` を返す。`recent` と同じ判定に揃えた。
+- App: `fetchRoomStatus(code, type, sessionId)` で `?s=` を付ける。招待リンクの入口（`_enterStoreLink`）と再開時の復帰（`_reconnectToRoom`）が持っている ID を渡す。
+- 検証: Worker 39 files / 663 passed（新テストは修正前のコードで失敗を確認）、App 208 files / 2090 passed、build 成功。
+- 本番: Worker の apply が済むまで効かない。旧 Worker でも新 App は動く（`?s=` は無視されるだけ）。
+- version: 0.152.3 → **0.152.4**。
+
 ## 2026-10-07 — version 0.152.3 / 入庫・出庫の案内のモック
 
 User決定: 入出庫は今の形（品目シート）のまま。ホームの「入庫・出庫」から在庫タブへ移り、次に押す場所を光らせて**押されるのを待つ**（自動で品目を開かない）。自分で1回記録できたら次から案内は出さない。まず入出庫だけ。
