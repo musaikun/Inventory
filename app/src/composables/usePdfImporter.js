@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx'
 import { toCSVRow } from '../utils/csvParse.js'
 import { parseGenericTable } from '../utils/pdfTableParser.js'
 import { parseSpreadsheetInWorker } from '../utils/spreadsheetWorkerClient.js'
+import { pdfDocumentOptions } from '../utils/pdfjsOptions.js'
 export { assertSpreadsheetFile } from '../utils/spreadsheetImport.js'
 
 // pdfjs-dist は PDF インポート時のみ動的ロード（初期バンドルから除外）
@@ -342,7 +343,7 @@ function parsePdfPageRotated(items) {
 export async function parsePdfFile(arrayBuffer, { onProgress, signal } = {}) {
   // PDF は端末内で解析する（外部送信なし）。仕入情報を外に出さないためサーバー送信は行わない。
   const pdfjsLib    = await _getPdfjs()
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), cMapUrl: _cMapUrl(), cMapPacked: true })
+  const loadingTask = pdfjsLib.getDocument(pdfDocumentOptions(new Uint8Array(arrayBuffer), _cMapUrl()))
   const timeoutId   = setTimeout(() => loadingTask.destroy(), 40000)
 
   let pdf

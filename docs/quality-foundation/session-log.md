@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.8 / PDF を開く設定を明示・依存の更新
+
+セキュリティ確認の続き（User 指示）。
+- `pdfjs-dist` 5.6.205 の GHSA-hq66-cqwq-w95j: 前提（PDF内スクリプトを有効にした注釈レイヤー・スクリプトを許す CSP）に App は当たらない。6 系は対応ブラウザが Safari 18 / Chrome 125 以上になるため据え置き、判断は `proposals.md` へ（User判断待ち）。
+- `app/src/utils/pdfjsOptions.js`（新規）: `getDocument` の設定を共通化し `isEvalSupported:false`・`enableXfa:false` を明示。取込（usePdfImporter）と元の紙の表示（PdfPageViewer）が使う。`pdfjsOptions.test.js` で使い方と CSP を固定。
+- `npm audit fix`（互換範囲）: vue 3.5.32→3.5.43、nanoid、source-map-js、postcss、dompurify。`npm audit fix` が pdfjs-dist を 5.7.284 に上げたが、5.7 も同じ範囲で得るものが無いので 5.6.205 に戻した。App の `npm audit --omit=dev` は pdfjs-dist の 1 件だけ。
+- 検証: App 209 files / 2096 passed、build 成功、`vite preview` を Chromium（390px）で開いてトップ表示・console error なし。
+- version: 0.152.7 → **0.152.8**。
+
 ## 2026-10-08 — version 0.152.7 / ロック済みの履歴を API から書き換えさせない
 
 セキュリティ確認の続き（User 指示）。画面ではロック済み（新しい棚卸の完了で確定した）記録の訂正を止めていたが、`POST /store/:code/history` は丸ごと upsert で、トークンがあれば確定した数量・在庫金額を書き換えられた。

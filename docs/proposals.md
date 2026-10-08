@@ -30,6 +30,18 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 - [2026-08](quality-foundation/archive/proposals-2026-08.md)
 - [2026-07](quality-foundation/archive/proposals-2026-07.md)
 
+## 2026-10-08: App の PDF.js（pdfjs-dist）は 5.6 のまま据え置く（提案元: User依頼のセキュリティ確認 / Claude Code）
+
+- **概要**: `pdfjs-dist` 5.6.205 は既知の脆弱性 GHSA-hq66-cqwq-w95j（細工したPDFでスクリプト実行、修正は 6.2.108）の範囲にあるが、今は 6 系へ上げない。
+  代わりに、脆弱性の前提に当たらないことをテストで固定し、PDF を開く設定を明示した（`app/src/utils/pdfjsOptions.js`）。
+- **背景・根拠**: 公開情報では前提が「`enableScripting` 有効（pdf.js ビューアの既定）」と「スクリプトを許す CSP」。回避策は「`enableScripting` を false にするか CSP を設定する」。
+  App は canvas への描画と文字の取り出しだけで、注釈レイヤー・PDF内スクリプト・ビューア部品を使わない。公開 CSP は `script-src 'self' 'wasm-unsafe-eval'`（inline・eval 不可）。
+  一方 6.0 で対応ブラウザが **Safari 18 / Chrome 125 以上**に上がり（pdf.js #21152）、iOS 17 以前の端末で PDF 取込が動かなくなりうる。
+- **影響範囲 / 実装状況**: 実装済み（v0.152.8）。`getDocument` は `pdfDocumentOptions`（`isEvalSupported:false`・`enableXfa:false`）だけを通す。
+  `pdfjsOptions.test.js` が「getDocument は共通設定だけ」「AnnotationLayer / enableScripting / pdf_viewer を使わない」「CSP が inline・eval を許さない」を固定。
+  Worker 側の pdfjs は `/pdf` 廃止で削除済み。ほかの依存の指摘（vue 3.5.43 / nanoid / source-map-js / dompurify）は互換範囲で更新した。
+- **PM判断（User）**: ⬜ 6 系へ上げる時期（PDF取込の対象を iOS 18 以上に絞ってよいか）
+
 ## 2026-10-08: スタッフ権限を古いAPIでもサーバーで守る（金額・削除）（提案元: User依頼のセキュリティ確認 / Claude Code）
 
 - **概要**: 段 2-3 の役割の権限を、権限チェックの無かった古い API（config / history / orders / movements）にも効かせる。
