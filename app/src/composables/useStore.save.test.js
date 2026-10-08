@@ -54,6 +54,22 @@ describe('useStore D1保存の状態と再送', () => {
     vi.useRealTimers()
   })
 
+  it('確定済みの棚卸への保存（409 snapshot_locked）は再送せず、理由のコードを返す', async () => {
+    const store = await freshStore()
+    store.shopCode.value = 'ABCDEF'
+    let posted = 0
+    vi.stubGlobal('fetch', async () => {
+      posted++
+      return { ok: false, status: 409, json: async () => ({ code: 'snapshot_locked', error: 'この棚卸は確定済みのため訂正できません' }) }
+    })
+    const r = await store.saveSnapshotToD1({ date: '2026-10-01', sessionId: 's1', items: [] })
+    expect(r.ok).toBe(false)
+    expect(r.rejected).toEqual({ status: 409, code: 'snapshot_locked' })
+    expect(store.pendingCount.value).toBe(0)
+    await store.retryPendingSaves()
+    expect(posted).toBe(1)
+  })
+
   it('アカウント境界では旧店舗の未送信queueを破棄する', async () => {
     vi.useFakeTimers()
     const store = await freshStore()

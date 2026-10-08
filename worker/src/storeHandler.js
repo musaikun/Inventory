@@ -203,6 +203,7 @@ export function historySnapshotStatement(db, code, snapshot, now) {
       ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
         SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
             updated_at = excluded.updated_at, revision = excluded.revision
+        WHERE json_extract(store_history.snapshot_json, '$.locked') IS NOT 1
     `).bind(code, sessionId, date, json, now, now, code)
   }
   return db.prepare(`
@@ -211,6 +212,7 @@ export function historySnapshotStatement(db, code, snapshot, now) {
     ON CONFLICT(shop_code, snapshot_date) WHERE session_id IS NULL DO UPDATE
       SET snapshot_json = excluded.snapshot_json,
           updated_at = excluded.updated_at, revision = excluded.revision
+      WHERE json_extract(store_history.snapshot_json, '$.locked') IS NOT 1
   `).bind(code, date, json, now, now, code)
 }
 
@@ -307,6 +309,16 @@ export function readStampResult(result) {
   return { serverRevision: row.revision ?? 0, serverSavedAt: row.updated_at ?? row.created_at ?? null }
 }
 
+// 記録の中身（日付と、品目・数量・単位の並び）が同じか。金額は比べない
+// （金額を見られない人の端末は金額を持たず、保存時にサーバーの値から戻している）。
+function _sameRecord(a, b) {
+  const core = s => JSON.stringify([
+    s?.date ?? null,
+    (Array.isArray(s?.items) ? s.items : []).map(it => [it?.item ?? null, it?.qty ?? null, it?.unit ?? '']),
+  ])
+  return core(a) === core(b)
+}
+
 // POST /store/:code/history
 // 過去取込・訂正など、棚卸完了以外の経路から1件保存する。
 // 棚卸完了は handleSessionComplete が同じ batch で書くので、こちらを使わない。
@@ -320,6 +332,19 @@ export async function handleHistoryPost(db, code, body) {
 
   const sessionId = parseClientId(body?.sessionId)
   if (sessionId === undefined) return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
+
+  // 恒久ロック済み（新しい棚卸の完了で確定した）記録は書き換えさせない。画面では止めているが、
+  // API を直接呼べば数量も在庫金額も書き換えられた。正当に届くのは、ロックの送り直し（中身が同じ）だけ。
+  // 中身が同じなら書かずに今の版を返す（参加者・変更履歴などを差し替えさせない）。
+  // 下の upsert にも同じ条件を入れてあり、この確認と書き込みの間にロックされても上書きしない。
+  const existing = await handleHistoryGetOne(db, code, { sessionId, date })
+  if (existing?.locked === true) {
+    if (!_sameRecord(existing, body)) {
+      return { _status: 409, code: 'snapshot_locked', retryable: false, error: 'この棚卸は確定済みのため訂正できません' }
+    }
+    const stamp = readStampResult({ results: [await historyStampStatement(db, code, { sessionId, date }).first()].filter(Boolean) })
+    if (stamp) return { ok: true, sessionId, date, ...stamp, unchanged: true }
+  }
 
   // 保存と revision の読み戻しを同じ batch（=1トランザクション）へ入れる（§5）。
   let results

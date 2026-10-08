@@ -124,7 +124,7 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
+const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, dropLocalEdit, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
 // ── Orders（発注支援）────────────────────────────────────────────────────────────
 const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
@@ -368,10 +368,20 @@ async function _syncHistoryFromD1(remoteHistory) {
 // ack は**送った版にだけ**効かせる（localRev）。送信中に同じセッションの新しい訂正が
 // 作られていた場合、この応答でそれを「サーバー確認済み」にすると、一度も送っていない
 // 版が未送信キューとバックフィルの対象から外れて黙って消える。
+//
+// サーバーが「確定済み（ロック済み）のため訂正できない」（409 snapshot_locked）と返したら、
+// 端末の訂正を捨ててサーバーの版を読み直す。dirty のままだと、端末だけが違う数量を見せ続け、
+// 起動のたびにバックフィルが送っては拒否されるのを繰り返す。戻り値はこのときだけ 'locked'。
 async function _pushSnapshot(snap) {
   const { dirty, synced, localRev, ...payload } = snap
-  const { ok, result } = await saveSnapshotToD1(payload)
+  const { ok, result, rejected } = await saveSnapshotToD1(payload)
   if (ok) markSnapshotSynced(snap.sessionId ?? snap.date, result, localRev ?? null)
+  if (!ok && rejected?.code === 'snapshot_locked') {
+    dropLocalEdit(snap.sessionId ?? snap.date)
+    const remote = await loadHistoryFromD1().catch(() => null)
+    if (Array.isArray(remote)) applyRemoteHistory(remote)
+    return 'locked'
+  }
   return ok
 }
 
@@ -635,7 +645,13 @@ async function onViewSession(session) {
 async function onSnapshotPatched(snap) {
   detailSnapshot.value = snap
   const saved = await _pushSnapshot(snap)
-  if (!saved) showToast('訂正はこの端末に保存しました。接続が戻ると自動で送信します', 4000, 'warning')
+  if (saved === 'locked') {
+    // 別の端末で新しい棚卸が完了し、この棚卸は確定済みになっていた。訂正は捨て、サーバーの版を見せる
+    detailSnapshot.value = getSnapshotBySessionId(snap.sessionId) ?? detailSnapshot.value
+    showToast('この棚卸は確定済みのため、訂正は保存されませんでした', 4000, 'warning')
+  } else if (!saved) {
+    showToast('訂正はこの端末に保存しました。接続が戻ると自動で送信します', 4000, 'warning')
+  }
 }
 
 // セッション一覧から「再開」

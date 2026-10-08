@@ -488,6 +488,25 @@ export function useHistory() {
     return snap
   }
 
+  /**
+   * 端末でだけ持っている訂正を捨て、次にサーバーの版を受け取ったら必ずそれで置き換える。
+   * サーバーが「確定済み（ロック済み）のため訂正できない」と拒否したときに使う。
+   * dirty のままだと、リモートで潰されず、バックフィルが送っては拒否されるのを繰り返す。
+   * サーバー値（revision / 保存時刻）を外し synced にすると、_remoteWins でリモートが勝つ。
+   */
+  function dropLocalEdit(key) {
+    if (!key) return null
+    const snap = _data[String(key)] ?? getSnapshotBySessionId(key)
+    if (!snap) return null
+    delete snap.serverRevision
+    delete snap.serverSavedAt
+    snap.dirty  = false
+    snap.synced = true
+    snap.localRev = _nextLocalRev()
+    _persist()
+    return snap
+  }
+
   /** ローカルストレージからスナップショットを削除（D1削除に対応）。key = sessionId または日付 */
   function deleteSnapshotLocal(key) {
     deleteSnapshot(key)
@@ -550,5 +569,5 @@ export function useHistory() {
     return { ...snap, items: snap.items.map(i => ({ ...i })) }
   }
 
-  return { buildSnapshot, commitSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, markSnapshotSynced, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
+  return { buildSnapshot, commitSnapshot, snapshotKey, importPastSnapshot, deleteImportBatchLocal, getImportBatch, applyRemoteHistory, markSnapshotSynced, dropLocalEdit, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, getEntryLogs, deleteSnapshot, exportSnapshotCSV, patchSnapshotItems, lockOtherSnapshots }
 }

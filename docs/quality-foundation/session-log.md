@@ -2,6 +2,14 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.7 / ロック済みの履歴を API から書き換えさせない
+
+セキュリティ確認の続き（User 指示）。画面ではロック済み（新しい棚卸の完了で確定した）記録の訂正を止めていたが、`POST /store/:code/history` は丸ごと upsert で、トークンがあれば確定した数量・在庫金額を書き換えられた。
+- Worker（`handleHistoryPost`）: 既存がロック済みなら、日付と品目・数量・単位が変わる保存は 409 `snapshot_locked`（retryable:false）。同じ中身の送り直しは書かずに今の revision を返す（`unchanged:true`、参加者などの差し替えも防ぐ）。upsert の `DO UPDATE` にも `json_extract(... '$.locked') IS NOT 1` を入れ、確認と書き込みの間にロックされても上書きしない。
+- App: 保存が permanent で拒否されたときに `rejected: { status, code }` を返す（useStore）。`_pushSnapshot` は `snapshot_locked` なら `dropLocalEdit` で端末の訂正を捨ててサーバーの版を読み直す（dirty のままだとバックフィルが送っては拒否されるのを繰り返す）。訂正画面では「確定済みのため保存されませんでした」。
+- 検証: Worker 42 files / 682 passed（新 `test/historyLock.sqlite.test.js` は修正前で 5/6 失敗）、App 208 files / 2092 passed、build 成功。
+- version: 0.152.6 → **0.152.7**。
+
 ## 2026-10-08 — version 0.152.6 / /pdf 廃止・登録のレート制限・店舗コードの乱数・500の文言
 
 セキュリティ確認の続き（User 指示）。

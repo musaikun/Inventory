@@ -196,7 +196,7 @@ D1 データベース                               ← データを取る
 | GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/inventory` | `{ inventory, recountFlags, sessionId, savedAt }` | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/history` | — | `[ { ...snapshot, sessionId, serverRevision, serverSavedAt }, ... ]`（最新50件） | ソフト† |
-| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok, sessionId, date, serverRevision, serverSavedAt }` / 400 | ソフト† |
+| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok, sessionId, date, serverRevision, serverSavedAt }` / 400 / 409 `snapshot_locked`（ロック済みの記録は日付・品目・数量・単位を変えられない。同じ中身の送り直しは書かずに`unchanged:true`） | ソフト† |
 | DELETE | `/store/:code/history/:key` | — | `{ ok, removed }` / 400 / 503 | ソフト† |
 | PUT | `/store/:code/room` | `{ roomCode }` | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/orders` | — | `[ order, ... ]` | ソフト† |
