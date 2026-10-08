@@ -26,7 +26,7 @@
 
 | 領域 | `develop@49227ff`の実装 | 公開前のknown gap |
 |---|---|---|
-| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/push/`/pdf`はstrict Bearer | [SEC-005](quality-foundation/tasks/SEC-005.md): 登録rate limit/bot対策なし、無認証legacy `/store/create`が残る |
+| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/push/`/pdf`はstrict Bearer | [SEC-005](quality-foundation/tasks/SEC-005.md): 登録rate limit/bot対策なし（無認証legacy `/store/create`は2026-10-08廃止） |
 | account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0018までのD1業務dataとtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
 | ホーム/画面 | 共通下部ナビは在庫・レポート・管理の3タブ。履歴はレポート先頭から開く独立画面。レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |

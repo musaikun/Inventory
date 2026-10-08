@@ -38,7 +38,7 @@
 | 優先 | Gap / release影響 | 追跡先 |
 |---|---|---|
 | P0 | canonicalとrelease candidateを固定し、productionの許可/拒否Originを対象SHA付きで再確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
-| P1 | `/auth/register`にrate limit/bot対策がなく、legacy `/store/create`も無認証で店舗を作成できる | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
+| P1 | `/auth/register`にrate limit/bot対策がない（legacy `/store/create`は2026-10-08廃止） | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
 | P1 | 共有resultは無認証URLで金額を含む。UI・privacy・運用説明を一致させ、URL漏洩時の扱いをrelease確認する | [`DOC-002`](quality-foundation/tasks/DOC-002.md) / WEB-09〜10 |
 | P1 | 品目写真readは認証なしで、推測困難なURLをaccess境界とする。production R2 binding、別店舗upload/delete拒否、URL漏洩、account削除後404を実環境で確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-09〜10 |
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |

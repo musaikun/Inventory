@@ -29,7 +29,7 @@
 | `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
 | `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
-| `POST /store/create` | PINなしlegacy store codeを作る旧経路 | 不要。廃止/保護をSEC-005で未解消 |
+| ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
 
 `DELETE /auth/account`は棚卸/発注の2 Durable Objectsと店舗prefixのR2品目写真をpurgeし、D1の
@@ -102,7 +102,7 @@ PLAY-003 / WEB-001で未決です。
 
 | Task | API上の未解消事項 |
 |---|---|
-| [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
+| [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止（legacy `/store/create`は2026-10-08廃止済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
 | [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0018までの適用、E2E/smoke |
 
@@ -190,7 +190,6 @@ D1 データベース                               ← データを取る
 
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
-| POST | `/store/create` | — | `{ shopCode }` | 不要（PIN必須化と合わせ廃止検討・監査②） |
 | GET | `/store/:code` | — | `{ shopCode, activeRoom, plan, isPro, inTrial:false, trialEndsAt:null, ... }` / 404 | 不要 |
 | GET | `/store/:code/config` | — | 設定オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | ソフト† |
@@ -208,6 +207,11 @@ D1 データベース                               ← データを取る
 
 > † **ソフト認証**（`verifyStoreAccess`・S-02）: PIN設定済み店舗は Bearer 必須。
 > レガシー（PIN未設定）店舗は店舗コードのみで許可（後方互換・S-C の残課題）。
+> スタッフのトークンでは役割の権限も見る（2026-10-08）。`money`（金額を見る）の無い人には
+> config の`prices`を`{}`、history・`/sessions/:id/lines`の単価・小計・在庫金額を`null`にして返し、
+> その人からのconfig PUT・history POSTでは金額を採らずサーバーの前の値から戻す（数量を訂正した品目の小計と
+> 在庫金額は、サーバーの単価で計算し直す）。完了（`/sessions/:id/complete`）の単価は店のconfigから取る。
+> `DELETE /history/:key`・`/orders/:id`・`/movements/:id`は`stock.discard`が要る。
 > Push購読はレガシー例外を適用しないstrict認証。endpointは公開HTTPS、鍵はPush API / RFC 8291形式、
 > 同一endpointを別店舗へ付け替える操作は409で拒否する。
 

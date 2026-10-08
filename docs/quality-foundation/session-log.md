@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.5 / スタッフ権限を古いAPIでも守る・/store/create 廃止
+
+セキュリティ確認の続き（User 依頼）。設計判断は `docs/proposals.md`（2026-10-08）でPM判断待ち。
+- 金額（`money`）の無い人: `GET /config` は `prices: {}`、`GET /history` と `/sessions/:id/lines` は単価・小計・在庫金額を null。
+  その人の `PUT /config` は単価を採らず前の値を残す。`POST /history`（訂正・ロック）は金額をサーバーの版から戻し、訂正した品目は単価×数量で計算し直す。
+  完了（`/sessions/:id/complete`）の単価は店の config から取る。実装は `worker/src/moneyGuard.js`。
+- `DELETE /history/:key`・`/orders/:id`・`/movements/:id` に `stock.discard`。
+- `/store/create` を廃止（route・`handleStoreCreate`・App の未使用 `createStore`）。SEC-005 の残りは登録の rate limit / bot 対策。
+- 既存テストの書き換え: staff.test.js（アルバイトの単価変更は 403 → 無視して 200）、index.test.js（PIN の無い店を直接入れる）。
+- 検証: Worker 40 files / 671 passed（新 `test/staffMoney.test.js` は修正前のコードで 7/8 失敗）、App 208 files / 2090 passed、build 成功。
+- 本番: Worker の apply が済むまで効かない。
+- version: 0.152.4 → **0.152.5**（origin/develop は 0.152.3。0.152.4 はこのブランチの前の push）。
+
 ## 2026-10-08 — version 0.152.4 / ルームの status から参加の鍵（sessionId）を外す
 
 セキュリティ確認で発見（User 依頼で修正）。`GET /room/:code/status` は認証なしで呼べ、`sessionId` をそのまま返していた。`sessionId` はゲスト参加の鍵（`joinSessionId`）と完了結果リンク（`/room/:code/result?s=`）の鍵を兼ねるため、店舗コードを知っていれば招待リンク無しで進行中のルームへ入れ、直近の完了結果（在庫金額を含む）も読めた。

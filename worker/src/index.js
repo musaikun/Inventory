@@ -1,10 +1,10 @@
 import { RoomDO } from './RoomDO.js'
 import { parsePdfFile } from './pdfParser.js'
 import {
-  handleStoreCreate, handleStoreGet,
+  handleStoreGet,
   handleConfigGet,   handleConfigPut,
   handleInventoryGet, handleInventoryPut,
-  handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
+  handleHistoryGet,  handleHistoryGetOne, handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleTaskMark, handleSessionRestore,
@@ -23,6 +23,7 @@ import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { configChangePerms } from './configGuard.js'
+import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
@@ -122,6 +123,19 @@ async function _actor(db, request, code, body) {
   if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true }
   const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '')
   return { name: str(body?.by, 40), id: str(body?.byId, 64), staff: false }
+}
+/**
+ * 金額（単価・小計・在庫金額）を見られるか（段 2-3 の money）。オーナー・管理者・社員は見られる。
+ * PIN の無い古い店舗（トークン無しで使える）は、これまで通りオーナーと同じに扱う。
+ * 呼ぶのは店舗の認証を通った後。それでもトークンが読めない・店が違うときは見せない側に倒す。
+ */
+async function _canSeeMoney(db, request, code) {
+  const ctx = await authContext(db, request)
+  if (!ctx) {
+    const store = await db.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(code).first()
+    return !!store && !store.pin_hash
+  }
+  return ctx.shopCode === code && ctxCan(ctx, 'money')
 }
 async function _sessionType(db, code, id) {
   const row = await db.prepare('SELECT type FROM sessions WHERE id = ? AND shop_code = ?').bind(id, code).first()
@@ -306,11 +320,9 @@ export default {
     if (!env.DB) {
       // D1 未設定の場合はスキップ（既存機能に影響しない）
     } else {
-      // POST /store/create
-      if (path === '/store/create' && request.method === 'POST') {
-        const result = await handleStoreCreate(env.DB)
-        return jsonResponse(result, 200, origin, allowedOrigin)
-      }
+      // POST /store/create（PIN の無い店舗を認証なしで作る旧経路）は廃止した。
+      // 店舗は /auth/register（PIN 必須）でだけ作る。旧経路は誰でも無制限に店を作れ、
+      // できた店は店舗コードだけで全データを読み書きできた。
 
       // /store/:code/*
       const storeMatch = path.match(/^\/store\/([A-Z]{4,8})(\/.*)?$/i)
@@ -334,14 +346,19 @@ export default {
         }
         // GET/PUT /store/:code/config
         if (subpath === '/config' && request.method === 'GET') {
-          return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
+          const cfg = await handleConfigGet(env.DB, code) ?? {}
+          const money = await _canSeeMoney(env.DB, request, code)
+          return jsonResponse(money ? cfg : stripConfigMoney(cfg), 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          const body = await request.json()
+          let body = await request.json()
           // 何を変えたかで要る権限を決める（品目の削除・単価・並び替え・発注の設定。足すだけなら誰でも）
           const ctx = await authContext(env.DB, request)
           if (ctx && !ctx.isAdmin && ctx.role !== 'owner') {
-            const need = configChangePerms(await handleConfigGet(env.DB, code) ?? {}, body)
+            const prev = await handleConfigGet(env.DB, code) ?? {}
+            // 金額を見られない人の端末には単価を渡していない。送られてきた単価は採らず、前の値を残す
+            if (!ctxCan(ctx, 'money')) body = restoreConfigMoney(prev, body)
+            const need = configChangePerms(prev, body)
             if (need.length) {
               const deny = await _requirePerm(env.DB, request, code, need, origin, allowedOrigin)
               if (deny) return deny
@@ -358,16 +375,26 @@ export default {
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
-          return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
+          const list = await handleHistoryGet(env.DB, code)
+          const money = await _canSeeMoney(env.DB, request, code)
+          return jsonResponse(money ? list : list.map(stripSnapshotMoney), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
-          return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
+          let body = await request.json()
+          // 金額を見られない人の端末は金額を落とした版を持っている（訂正・ロックで丸ごと送り直してくる）。
+          // そのまま書くと在庫金額が消えるので、サーバーにある版から金額を戻す
+          if (!(await _canSeeMoney(env.DB, request, code))) {
+            body = restoreSnapshotMoney(await handleHistoryGetOne(env.DB, code, body), body)
+          }
+          return resultResponse(await handleHistoryPost(env.DB, code, body), origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:key （key = sessionId または legacy日付）
         // resultResponse を通す＝ハンドラの 400/503 をそのままHTTPステータスへ出す。
         // jsonResponse(…, 200) では失敗が成功として届き、client が再試行できない。
         const histDateMatch = subpath.match(/^\/history\/([\w-]{1,64})$/)
         if (histDateMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), origin, allowedOrigin)
         }
         // PUT /store/:code/room
@@ -385,6 +412,8 @@ export default {
         // DELETE /store/:code/orders/:id
         const orderDelMatch = subpath.match(/^\/orders\/([\w-]{1,64})$/)
         if (orderDelMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleOrderDelete(env.DB, code, orderDelMatch[1]), origin, allowedOrigin)
         }
 
@@ -404,6 +433,8 @@ export default {
         // client は削除できていないものを削除済みとして扱っていた。
         const moveDelMatch = subpath.match(/^\/movements\/([\w-]{1,64})$/)
         if (moveDelMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleMovementDelete(env.DB, code, moveDelMatch[1]), origin, allowedOrigin)
         }
 
@@ -634,7 +665,9 @@ export default {
         if (sessLinesMatch && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return resultResponse(await handleSessionLinesGet(env.DB, code, sessLinesMatch[1]), origin, allowedOrigin)
+          const lines = await handleSessionLinesGet(env.DB, code, sessLinesMatch[1])
+          const money = await _canSeeMoney(env.DB, request, code)
+          return resultResponse(money ? lines : stripLinesMoney(lines), origin, allowedOrigin)
         }
 
         // ── 過去棚卸の取込（IMPORT-001）─────────────────────────────────────
@@ -678,7 +711,14 @@ export default {
           const denyP = await _requirePerm(env.DB, request, code, (await _sessionType(env.DB, code, sessCompleteMatch[1])) === 'order' ? 'order.finish' : 'stock.finish', origin, allowedOrigin)
           if (denyP) return denyP
           const body = await request.json()
+          // 金額を見られない人の端末は単価を持っていない。完了の単価は店の品目リスト（サーバー）から取る。
+          // 端末の値（空）で完了すると、その棚卸の在庫金額が記録されない
+          const money = await _canSeeMoney(env.DB, request, code)
+          if (!money && body && typeof body === 'object') {
+            body.prices = { ...((await handleConfigGet(env.DB, code))?.prices ?? {}) }
+          }
           const done = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], body)
+          if (!money && done && !done._status && 'totalValue' in done) done.totalValue = null
           if (!done?._status) {
             // 完了した人（最初に完了させた人だけ。同じ完了の再送では書き換えない）
             const who = await _actor(env.DB, request, code, { by: url.searchParams.get('by'), byId: url.searchParams.get('byId') })

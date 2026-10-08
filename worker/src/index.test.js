@@ -449,8 +449,10 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('レガシー店舗（PIN未設定）の config PUT はトークン無しでも 200', async () => {
-    const created = await (await worker.fetch(makeReq('POST', '/store/create'), env)).json()
-    const res = await worker.fetch(makeReq('PUT', `/store/${created.shopCode}/config`, { body: { items: [] } }), env)
+    // PIN の無い店舗を作る旧経路（/store/create）は廃止したので、既存の店として直接入れる
+    const now = new Date().toISOString()
+    await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)').bind('LEGACY', now, now).run()
+    const res = await worker.fetch(makeReq('PUT', '/store/LEGACY/config', { body: { items: [] } }), env)
     expect(res.status).toBe(200)
   })
 

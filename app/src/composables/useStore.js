@@ -508,14 +508,6 @@ async function _sendOnce({ kind, code, resourceId, payload, rev, generation, ide
   }
 }
 
-// ── 店舗コード 発行 ────────────────────────────────────────────────────────────
-export async function createStore() {
-  const { shopCode: code } = await _api('/store/create', { method: 'POST' })
-  shopCode.value = code
-  localStorage.setItem(STORAGE_KEYS.shopCode, code)
-  return code
-}
-
 // ── 店舗コード 確認・読み込み ──────────────────────────────────────────────────
 export async function loadStore(code) {
   const store = await _api(`/store/${code}`)

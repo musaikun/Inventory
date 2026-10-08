@@ -1,7 +1,7 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
 import { inventoryLineStatements } from './inventoryLines.js'
-import { _now, genUniqueShopCode } from './workerUtils.js'
+import { _now } from './workerUtils.js'
 import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN, MAX_MOVEMENT_BY_LEN, MOVEMENT_RESTORE_WINDOW_MS,
@@ -89,15 +89,6 @@ function _tooLarge(body) {
   return jsonByteLength(body) > MAX_PAYLOAD_BYTES
 }
 
-// POST /store/create
-export async function handleStoreCreate(db) {
-  const code = await genUniqueShopCode(db)
-  const now  = _now()
-  await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)')
-    .bind(code, now, now).run()
-  return { shopCode: code }
-}
-
 // GET /store/:code
 export async function handleStoreGet(db, code) {
   const row = await db.prepare(
@@ -169,6 +160,18 @@ export async function handleHistoryGet(db, code) {
       serverSavedAt:  r.updated_at ?? r.created_at,
     }
   })
+}
+
+// POST /history で上書きされる1件（同じ鍵の行）を読む。無ければ null。
+// 鍵は historySnapshotStatement と同じ（sessionId があれば session_id、無ければ日付の legacy 行）。
+export async function handleHistoryGetOne(db, code, snapshot) {
+  const sessionId = parseClientId(snapshot?.sessionId) ?? null
+  const row = sessionId
+    ? await db.prepare('SELECT snapshot_json FROM store_history WHERE shop_code = ? AND session_id = ?').bind(code, sessionId).first()
+    : await db.prepare('SELECT snapshot_json FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL')
+      .bind(code, snapshot?.date || _now().slice(0, 10)).first()
+  if (!row?.snapshot_json) return null
+  try { return JSON.parse(row.snapshot_json) } catch (_) { return null }
 }
 
 // store_history の revision は「同じ店舗の最大値 + 1」。
