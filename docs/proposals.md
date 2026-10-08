@@ -54,8 +54,7 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
   - 履歴の訂正・ロック（丸ごと POST）は、金額を前の版から戻す。数量を訂正した品目の小計と在庫金額はサーバーの単価で計算し直す（端末の訂正と同じ式）。
   - 棚卸の完了（`/sessions/:id/complete`）は、金額の無い人なら単価を店の config から取る（以前は端末の単価を使い、その端末が単価を持たないと在庫金額が記録されない）。応答の `totalValue` は null にする。
   - `DELETE /history/:key`・`/orders/:id`・`/movements/:id` は `stock.discard`（棚卸・発注を破棄する・戻す）を要求。orders / movements の削除は App から呼ばれていない。
-- **残り（今回は触っていない）**: ルーム（DO）はホストに単価を含む config を渡す。金額の無い人が、オーナーの始めた棚卸をホストとして再開すると単価が届きうる。
-  ロック済みの履歴を API で書き換えることも止めていない（画面では止めている）。
+- **残り → 同日対応**: ルーム（DO）のホストへの単価は v0.152.9 で、ロック済み履歴の書き換えは v0.152.7 で塞いだ（session-log 参照）。
 - **影響範囲 / 実装状況**: 実装済み（v0.152.5）。`worker/src/moneyGuard.js`（新規）、`worker/src/index.js`、`storeHandler.js`（`handleHistoryGetOne`、`handleStoreCreate` 削除）、
   App の未使用 `createStore` 削除。テスト `worker/test/staffMoney.test.js`（修正前のコードで 7/8 失敗を確認）。docs: api-design / security-review / spec / SEC-005。
 - **PM判断**: ⬜未トリアージ

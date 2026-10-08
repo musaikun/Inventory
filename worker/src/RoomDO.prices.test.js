@@ -3,7 +3,7 @@ import { RoomDO } from './RoomDO.js'
 
 // S-G: ゲスト端末に単価（原価）を渡さないことを検証する。
 // config_update / joined / session_started の config.prices（および config_update の
-// トップレベル prices）が、ゲスト宛の送信では空になる。
+// トップレベル prices）が、ゲスト宛の送信では取り除かれる（空で送ると手元の単価を上書きさせるため）。
 
 function makeState(wsList) {
   const store = new Map()
@@ -30,12 +30,12 @@ function makeWs(att) {
 }
 
 describe('S-G: ゲストへ単価を渡さない', () => {
-  it('_stripPricesForGuest はトップレベル prices と config.prices を空にする', () => {
+  it('_stripPricesForGuest はトップレベル prices と config.prices を取り除く', () => {
     const room = new RoomDO(makeState([]), {})
     const a = room._stripPricesForGuest({ type: 'config_update', prices: { トマト: 100 }, order: ['トマト'] })
-    expect(a.prices).toEqual({})
+    expect('prices' in a).toBe(false)
     const b = room._stripPricesForGuest({ type: 'session_started', config: { prices: { トマト: 100 }, order: ['トマト'] } })
-    expect(b.config.prices).toEqual({})
+    expect('prices' in b.config).toBe(false)
     expect(b.config.order).toEqual(['トマト'])  // 単価以外は保持
   })
 
@@ -45,7 +45,7 @@ describe('S-G: ゲストへ単価を渡さない', () => {
     const room  = new RoomDO(makeState([host, guest]), {})
     room._broadcastPriceAware({ type: 'config_update', prices: { トマト: 100 }, order: ['トマト'] })
     expect(host._sent[0].prices).toEqual({ トマト: 100 })
-    expect(guest._sent[0].prices).toEqual({})
+    expect(guest._sent[0].prices).toBeUndefined()
   })
 
   it('config メッセージ処理: ゲストへの config_update は prices が空', async () => {
@@ -56,7 +56,7 @@ describe('S-G: ゲストへ単価を渡さない', () => {
     await room._handleMessage(host, { type: 'config', order: ['トマト'], prices: { トマト: 100 } })
     const cu = guest._sent.find(m => m.type === 'config_update')
     expect(cu).toBeTruthy()
-    expect(cu.prices).toEqual({})
+    expect(cu.prices).toBeUndefined()
     expect(cu.order).toEqual(['トマト'])
     // 保存側（DO storage）には単価は残る（ホストは後で受け取れる）
     expect(room.state._store.get('config').prices).toEqual({ トマト: 100 })

@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.9 / ルームでも金額を見られないホストに単価を渡さない・ゲスト宛ては単価を「送らない」
+
+セキュリティ確認の続き（User 指示）。
+- RoomDO: ホストの join に毎回付く D1 トークンで人を確かめ、金額（`money`）の無いスタッフなら attachment に `noMoney`。そのホストへの joined・config_update・session_started は単価を落とす。そのホストが送る config / session_start の単価は採らず、DO の前の値を残す。トークンで人が分からないときは PIN の無い古い店だけ見せる（D1 障害は見せない側）。D1 の無い環境は従来どおり。
+- ゲスト宛ての単価は `{}` ではなく**キーごと取り除く**。App の `applyRemoteConfig` は prices が無ければ手元の単価を残す（`prices: {}` の明示はサーバーの「単価なし」として消す）。以前は、オーナーの2台目がゲストで入ると手元の単価が空になり、その端末の次の config 保存（丸ごと PUT）で店の単価が消えていた（以前からの不具合）。
+- テスト: `worker/test/roomMoney.test.js`（新規・修正前で 4/5 失敗）、`RoomDO.prices.test.js` を「取り除く」へ更新、`app/src/composables/useConfig.remotePrices.test.js`（新規・修正前で 1/3 失敗）。
+- 検証: Worker 43 files / 687 passed、`wrangler deploy --dry-run` 成功、App 210 files / 2099 passed、build 成功。
+- version: 0.152.8 → **0.152.9**。
+
 ## 2026-10-08 — version 0.152.8 / PDF を開く設定を明示・依存の更新
 
 セキュリティ確認の続き（User 指示）。

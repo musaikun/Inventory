@@ -301,8 +301,13 @@ export function applyRemoteConfig(cfg) {
   // 写真（images）を知らない古い端末から届いた config では、手元の写真の割り当てを消さない
   // （新しい端末は0枚でも images: {} を送る。キーが無いのは古い端末だけ）
   const keepImages = cfg.images === undefined ? config.images : null
+  // 単価が届かない（ルームが金額を見られない人の分だけでなく、ゲスト宛てには常に落とす）ときは
+  // 手元の単価を残す。空で上書きすると、オーナーの2台目がゲストで入った後の保存で店の単価が消える。
+  // 「単価なし」を伝えるときはサーバーが prices: {} を明示する（GET /config）。
+  const keepPrices = cfg.prices === undefined ? config.prices : null
   _assignConfigData(cfg)
   if (keepImages && Object.keys(keepImages).length) config.images = keepImages
+  if (keepPrices) config.prices = keepPrices
   _saveLocalOnly()
 }
 

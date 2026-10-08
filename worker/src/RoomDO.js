@@ -6,6 +6,7 @@ import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
+import { authContext, ctxCan } from './staffHandler.js'
 
 // 監査ログのチャンクキー。ゼロ埋めして key の昇順＝時系列順にする。
 const AUDIT_PREFIX = 'audit:'
@@ -391,7 +392,10 @@ export class RoomDO {
           }
         }
 
-        ws.serializeAttachment({ joined: true, deviceId, deviceName, isHost: isVerifiedHost })
+        // 金額を見られないスタッフがホストのときは、ホストにも単価を渡さない（段 2-3 の money）。
+        // 判定はホストの join に毎回付く D1 トークン。ゲストはもとから単価を落としている。
+        const noMoney = isVerifiedHost && !(await this._hostSeesMoney(await this.state.storage.get('shopCode'), msg.authToken))
+        ws.serializeAttachment({ joined: true, deviceId, deviceName, isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
 
         const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -410,8 +414,8 @@ export class RoomDO {
           isSessionActive: isActive, sessionId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
         }
-        // ゲストには単価を渡さない（S-G）。ホスト検証済みのみ全量。
-        ws.send(JSON.stringify(isVerifiedHost ? joinedMsg : this._stripPricesForGuest(joinedMsg)))
+        // ゲストには単価を渡さない（S-G）。ホスト検証済みで金額を見られる人だけ全量。
+        ws.send(JSON.stringify(isVerifiedHost && !noMoney ? joinedMsg : this._stripPricesForGuest(joinedMsg)))
         this._broadcast({ type: 'participants', list: this._getParticipants() }, ws)
         break
       }
@@ -421,6 +425,8 @@ export class RoomDO {
         if (!Array.isArray(msg.order)) return
         const prevCfg = await this.state.storage.get('config')
         const stored = keepImagesFromPrevious(normalizeConfig(msg), msg, prevCfg)   // 軸・非表示等を含む全フィールドを保存/中継
+        // 金額を見られないホストの端末は単価を持っていない。送られた単価は採らず、前の値を残す
+        if (this._noMoney(ws)) stored.prices = { ...(prevCfg?.prices ?? {}) }
         await this.state.storage.put('config', stored)
         // ゲスト全員に品目リスト更新を通知（ゲストには prices を落とす・S-G）
         this._broadcastPriceAware({ type: 'config_update', ...stored }, ws)
@@ -794,7 +800,9 @@ export class RoomDO {
 
           const c = msg.config
           if (c && Array.isArray(c.order) && c.order.length > 0) {
-            broadcastCfg = keepImagesFromPrevious(normalizeConfig(c), c, await this.state.storage.get('config'))   // 軸・非表示等を含む全フィールド
+            const prevCfg = await this.state.storage.get('config')
+            broadcastCfg = keepImagesFromPrevious(normalizeConfig(c), c, prevCfg)   // 軸・非表示等を含む全フィールド
+            if (this._noMoney(ws)) broadcastCfg.prices = { ...(prevCfg?.prices ?? {}) }   // 単価は前の値（上の config と同じ）
             puts.push(this.state.storage.put('config', broadcastCfg))
           }
         } else {
@@ -989,23 +997,35 @@ export class RoomDO {
   }
 
   // ゲストには単価（原価）を渡さない（S-G）。config_update はトップレベル prices、
-  // joined/session_started は config.prices に入るため、両方を空にしたコピーを返す。
+  // joined/session_started は config.prices に入るため、両方を**取り除いた**コピーを返す。
+  // 空（{}）で送ると、受け取った端末は「単価が全部消えた」と読んで手元の単価を上書きする。
+  // オーナーの2台目がゲストで入ると、その端末の次の保存で店の単価が消えていた。
+  // キーが無ければ App は手元の単価を残す（useConfig.applyRemoteConfig）。
   _stripPricesForGuest(msg) {
     const out = { ...msg }
-    if (out.prices) out.prices = {}
-    if (out.config && out.config.prices) out.config = { ...out.config, prices: {} }
+    if ('prices' in out) delete out.prices
+    if (out.config && typeof out.config === 'object' && 'prices' in out.config) {
+      const { prices: _drop, ...rest } = out.config
+      out.config = rest
+    }
     return out
   }
 
-  // 単価を含みうるメッセージのブロードキャスト。ホストには全量、ゲストには prices を落として送る。
+  // 単価を含みうるメッセージのブロードキャスト。金額を見られるホストには全量、
+  // ゲストと金額を見られないホストには prices を落として送る。
   _broadcastPriceAware(msg, exclude = null) {
     const full  = JSON.stringify(msg)
     const guest = JSON.stringify(this._stripPricesForGuest(msg))
     for (const ws of this.state.getWebSockets()) {
       if (ws === exclude || !this._isJoined(ws)) continue
-      const isHost = this._isHost(ws)
-      try { ws.send(isHost ? full : guest) } catch (_) {}
+      const seesPrices = this._isHost(ws) && !this._noMoney(ws)
+      try { ws.send(seesPrices ? full : guest) } catch (_) {}
     }
+  }
+
+  // 金額を見られないスタッフのホストか（join で決めて attachment に持つ。休止から戻っても残る）
+  _noMoney(ws) {
+    return ws.deserializeAttachment()?.noMoney === true
   }
 
   _isJoined(ws) {
@@ -1030,6 +1050,27 @@ export class RoomDO {
     } catch (e) {
       console.error('[RoomDO] store protection lookup failed (fail-closed):', e?.message ?? e)
       return true
+    }
+  }
+
+  /**
+   * ホストが金額（単価）を見られるか（段 2-3 の money）。
+   * トークンで人が分かれば役割で決める（オーナー・管理者・社員は見られる）。
+   * 人が分からないとき（トークンなし・失効）は、PIN の無い古い店（役割が無い）だけ見せる。
+   * D1 の無い環境（開発・単体テスト）は従来どおり見せる。D1 障害は見せない側へ倒す。
+   */
+  async _hostSeesMoney(shopCode, rawToken) {
+    if (!shopCode || !this.env?.DB) return true
+    try {
+      const token = String(rawToken ?? '').slice(0, MAX_TOKEN_LEN)
+      const ctx = token
+        ? await authContext(this.env.DB, new Request('https://internal/', { headers: { Authorization: `Bearer ${token}` } }))
+        : null
+      if (ctx && ctx.shopCode === shopCode) return ctxCan(ctx, 'money')
+      return !(await this._isStoreProtected(shopCode))
+    } catch (e) {
+      console.error('[RoomDO] host money check failed (hide prices):', e?.message ?? e)
+      return false
     }
   }
 
