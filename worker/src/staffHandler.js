@@ -7,7 +7,7 @@
  * - 停止・削除はその人のトークンを即座に消す。削除は行と名前を残し（記録の「○○（削除済み）」用）、暗証番号を消す
  */
 import { _now } from './workerUtils.js'
-import { _hashPin, verifyPinHash, extractBearerToken } from './authHandler.js'
+import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys } from './authHandler.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
 import { entitlement } from './entitlements.js'
 import { normalizeGrants, can } from './permissions.js'
@@ -44,8 +44,8 @@ export async function authContext(db, request) {
   const row = await db.prepare(`
     SELECT a.shop_code, a.staff_id, s.deleted_at, s.deletion_pending_at
     FROM auth_tokens a JOIN stores s ON s.shop_code = a.shop_code
-    WHERE a.token = ? AND a.expires_at > datetime('now')
-  `).bind(token).first()
+    WHERE a.token IN (?, ?) AND a.expires_at > datetime('now')
+  `).bind(...await tokenKeys(token)).first()
   if (!row?.shop_code || row.deleted_at || row.deletion_pending_at) return null
   if (!row.staff_id) return { shopCode: row.shop_code, staffId: null, role: 'owner', name: null, grants: [], isAdmin: true }
   const st = await db.prepare('SELECT id, name, role, status, grants_json FROM staff WHERE id = ? AND shop_code = ?')
@@ -104,7 +104,7 @@ async function _issueToken(db, shopCode, staffId) {
   const now = _now()
   const expires = new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString()
   await db.prepare('INSERT INTO auth_tokens (token, shop_code, expires_at, created_at, staff_id) VALUES (?, ?, ?, ?, ?)')
-    .bind(token, shopCode, expires, now, staffId).run()
+    .bind(await tokenHash(token), shopCode, expires, now, staffId).run()
   return token
 }
 

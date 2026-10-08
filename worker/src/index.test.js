@@ -25,7 +25,7 @@ function createMockD1({ failTables = [] } = {}) {
     }
 
     if (s.startsWith('SELECT') && s.includes('FROM auth_tokens')) {
-      const t = tokens.find(t => t.token === args[0])
+      const t = tokens.find(t => t.token === args[0] || t.token === args[1])   // token IN (ハッシュ, 生)
       if (!t || new Date(t.expires_at).getTime() <= Date.now()) return null
       return { shop_code: t.shop_code }
     }
@@ -82,7 +82,7 @@ function createMockD1({ failTables = [] } = {}) {
       return { success: true }
     }
     if (s.startsWith('DELETE FROM auth_tokens WHERE token')) {
-      const i = tokens.findIndex(t => t.token === args[0])
+      const i = tokens.findIndex(t => t.token === args[0] || t.token === args[1])
       if (i >= 0) tokens.splice(i, 1)
       return { success: true }
     }

@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-08 — version 0.152.10 / ログイントークンを D1 にハッシュで保存
+
+セキュリティ確認の続き（User 指示）。以前は `auth_tokens.token` に生のトークンを保存しており、D1 の中身が漏れるとそのまま Bearer に使えた。
+- `authHandler.tokenHash`（`h1:` + SHA-256 の16進）で保存。登録・ログイン・スタッフ発行（`staffHandler._issueToken`）。照合（verifyAuthToken・authContext・削除の本人確認・logout）は `token IN (ハッシュ, 生)`。生で保存した旧トークンは失効（30日）まで使える。マイグレーション無し。
+- 送られた値が `h1:` で始まるときは旧形式として引かない（引くと漏れた保存値をそのまま Bearer に使えた。テストで発見）。
+- **ロールバック注意**: Worker をこの版より前へ戻すと、この版以降に発行したトークンは引けず再ログインが要る（WEB-10 の rollback 手順に含める）。
+- テスト: `authHandler.test.js`（保存値がハッシュ・旧形式は使える・保存値では入れない）、`test/tokenHash.sqlite.test.js`（新規・実 SQLite と router）。修正前で 3 件失敗。モック3つを `IN (?, ?)` に合わせた。
+- 検証: Worker 44 files / 691 passed、`wrangler deploy --dry-run` 成功、App build 成功。
+- version: 0.152.9 → **0.152.10**。
+
 ## 2026-10-08 — version 0.152.9 / ルームでも金額を見られないホストに単価を渡さない・ゲスト宛ては単価を「送らない」
 
 セキュリティ確認の続き（User 指示）。

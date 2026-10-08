@@ -1,4 +1,4 @@
-import { extractBearerToken, verifyPinHash } from './authHandler.js'
+import { extractBearerToken, verifyPinHash, tokenKeys } from './authHandler.js'
 import {
   ACCOUNT_DELETION_RETENTION_MS,
   LOGIN_MAX_FAILS,
@@ -41,8 +41,8 @@ async function loadDeletionIdentity(db, token) {
            s.deletion_request_id, s.deleted_at
     FROM auth_tokens t
     JOIN stores s ON s.shop_code = t.shop_code
-    WHERE t.token = ? AND t.expires_at > datetime('now')
-  `).bind(token).first()
+    WHERE t.token IN (?, ?) AND t.expires_at > datetime('now')
+  `).bind(...await tokenKeys(token)).first()
 }
 
 async function checkPinRateLimit(db, shopCode, nowMs) {

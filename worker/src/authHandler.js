@@ -51,6 +51,25 @@ export async function verifyPinHash(shopCode, pin, storedHash) {
   return { ok: legacy === storedHash, needsRehash: true }
 }
 
+// ── トークンの保存形 ────────────────────────────────────────────────────────────
+// D1 にはトークンのハッシュだけを置く（"h1:" + SHA-256 の16進）。DB の中身が漏れても、
+// そのまま Bearer に使える値は出ない。トークンは 24 バイトの乱数なので、遅いハッシュは要らない。
+// この変更より前に生のまま保存したトークン（30日で失効）も引けるよう、照合は2つの鍵で行う。
+export async function tokenHash(token) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token)))
+  return 'h1:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+/**
+ * `WHERE token IN (?, ?)` に渡す鍵（ハッシュ・旧形式の生）。
+ * 送られてきた値が保存形（"h1:..."）なら旧形式としては引かない。引くと、漏れた DB の
+ * ハッシュ値をそのまま Bearer に使えてしまう。発行するトークンは16進だけなので "h1:" で始まらない。
+ */
+export async function tokenKeys(token) {
+  const t = String(token)
+  const hash = await tokenHash(t)
+  return [hash, t.startsWith('h1:') ? hash : t]
+}
+
 function _genToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)))
     .map(b => b.toString(16).padStart(2, '0')).join('')
@@ -81,7 +100,7 @@ export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
 
   await db.prepare(
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(token, code, expires, now).run()
+  ).bind(await tokenHash(token), code, expires, now).run()
 
   return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan }) }
 }
@@ -149,7 +168,7 @@ export async function handleLogin(db, body) {
 
   await db.prepare(
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(token, shopCode, expires, now).run()
+  ).bind(await tokenHash(token), shopCode, expires, now).run()
 
   return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store) }
 }
@@ -158,7 +177,7 @@ export async function handleLogin(db, body) {
 export async function handleLogout(db, request) {
   const token = extractBearerToken(request)
   if (token) {
-    await db.prepare('DELETE FROM auth_tokens WHERE token = ?').bind(token).run()
+    await db.prepare('DELETE FROM auth_tokens WHERE token IN (?, ?)').bind(...await tokenKeys(token)).run()
   }
   return { ok: true }
 }
@@ -168,8 +187,8 @@ export async function handleLogout(db, request) {
 export async function verifyAuthToken(db, token) {
   if (!token) return null
   const row = await db.prepare(
-    "SELECT shop_code, staff_id FROM auth_tokens WHERE token = ? AND expires_at > datetime('now')"
-  ).bind(token).first()
+    "SELECT shop_code, staff_id FROM auth_tokens WHERE token IN (?, ?) AND expires_at > datetime('now')"
+  ).bind(...await tokenKeys(token)).first()
   if (!row?.shop_code) return null
   // スタッフのトークンは、その人が使える状態（承認済み・停止でも削除でもない）のときだけ有効
   if (row.staff_id) {
