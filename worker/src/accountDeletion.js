@@ -91,6 +91,7 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM push_sent WHERE endpoint IN (SELECT endpoint FROM push_subscriptions WHERE shop_code = ?)').bind(shopCode),
     db.prepare('DELETE FROM push_subscriptions WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode),
+    db.prepare('DELETE FROM login_devices WHERE shop_code = ?').bind(shopCode),
     // スタッフ（migration 0022）。アカウントを消すときは名前も残さない
     db.prepare('DELETE FROM staff WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM staff_invites WHERE shop_code = ?').bind(shopCode),

@@ -18,7 +18,7 @@ import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
 import { securityEvent } from './securityLog.js'
-import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin } from './pushHandler.js'
+import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin, notifyLoginLocked } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
@@ -268,8 +268,16 @@ export default {
         const body = await request.json()
         const result = await handleLogin(env.DB, body)
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        const shop = String(body?.shopCode ?? '').toUpperCase().slice(0, 8)
         if (result._status === 401 || result._status === 429) {
-          securityEvent(result._status === 429 ? 'login_locked' : 'login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
+          securityEvent(result._status === 429 ? 'login_locked' : 'login_failed', { ip, shop })
+        }
+        // 鍵の無い端末の失敗で上限に達した瞬間だけ、店主の端末へ知らせる（いつもの端末からは入れることも）
+        if (result.lockedNow) {
+          delete result.lockedNow
+          securityEvent('login_lock_started', { ip, shop })
+          const job = notifyLoginLocked(env, shop).catch(e => console.warn('[push] login locked notify failed:', e?.message ?? e))
+          if (ctx?.waitUntil) ctx.waitUntil(job); else await job
         }
         return resultResponse(result, origin, allowedOrigin)
       }

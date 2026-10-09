@@ -95,6 +95,19 @@ function _clearAuth() {
   localStorage.removeItem(STORAGE_KEYS.shopCode)
 }
 
+// 信頼済み端末の鍵（店舗ごと）。読めない・壊れているときは鍵なしとして扱う
+function _loginDeviceKey(code) {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.loginDevice) || '{}')?.[code] || '' } catch (_) { return '' }
+}
+function _saveLoginDeviceKey(code, key) {
+  if (!code || !key) return
+  try {
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEYS.loginDevice) || '{}') || {}
+    all[code] = key
+    localStorage.setItem(STORAGE_KEYS.loginDevice, JSON.stringify(all))
+  } catch (_) {}
+}
+
 // POST /auth/register  { storeName?, pin }
 export async function register(storeNameVal, pin) {
   const data = await _api('/auth/register', {
@@ -102,16 +115,19 @@ export async function register(storeNameVal, pin) {
     body:   JSON.stringify({ storeName: storeNameVal, pin }),
   })
   _setAuth(data.token, data.shopCode, data.storeName)
+  _saveLoginDeviceKey(data.shopCode, data.deviceKey)
   return data
 }
 
-// POST /auth/login  { shopCode, pin }
+// POST /auth/login  { shopCode, pin, deviceKey? }
 export async function login(code, pin) {
+  const key = _loginDeviceKey(String(code ?? '').toUpperCase().trim())
   const data = await _api('/auth/login', {
     method: 'POST',
-    body:   JSON.stringify({ shopCode: code, pin }),
+    body:   JSON.stringify({ shopCode: code, pin, ...(key ? { deviceKey: key } : {}) }),
   })
   _setAuth(data.token, data.shopCode, data.storeName)
+  _saveLoginDeviceKey(data.shopCode, data.deviceKey)
   return data
 }
 

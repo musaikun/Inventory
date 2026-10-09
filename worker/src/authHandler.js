@@ -102,7 +102,60 @@ export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(await tokenHash(token), code, expires, now).run()
 
-  return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan }) }
+  const deviceKey = await _issueLoginDevice(db, code, null)
+  return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan }), ...(deviceKey ? { deviceKey } : {}) }
+}
+
+// ── 信頼済み端末（PIN の締め出し対策・0027）─────────────────────────────────────
+// 一度ログインに成功した端末には鍵を渡し、次のログインで送ってもらう。鍵を持つ端末の失敗は
+// その端末の分だけで数え、鍵の無い端末の失敗は今までどおり店舗全体でまとめて止める。
+// 第三者が PIN をまちがえ続けても、店主のいつもの端末は締め出されない。総当たりへの強さは変わらない。
+// 鍵は auth_tokens と同じく SHA-256 で保存する。表が無い（0027 未適用）ときは鍵なしと同じに倒す。
+const MAX_LOGIN_DEVICES = 20
+
+async function _knownDeviceHash(db, shopCode, rawKey) {
+  const key = typeof rawKey === 'string' ? rawKey.slice(0, 128) : ''
+  if (!key) return null
+  try {
+    const h = await tokenHash(key)
+    const row = await db.prepare('SELECT 1 AS x FROM login_devices WHERE shop_code = ? AND key_hash = ?').bind(shopCode, h).first()
+    return row ? h : null
+  } catch (_) { return null }
+}
+
+// ログインに成功した端末の鍵を記録して返す（知っている端末なら同じ鍵）。失敗してもログインは止めない
+async function _issueLoginDevice(db, shopCode, knownHash, knownKey = '') {
+  const now = _now()
+  try {
+    if (knownHash) {
+      await db.prepare('UPDATE login_devices SET last_used_at = ? WHERE shop_code = ? AND key_hash = ?').bind(now, shopCode, knownHash).run()
+      return knownKey
+    }
+    const key = _genToken()
+    await db.prepare('INSERT INTO login_devices (shop_code, key_hash, created_at, last_used_at) VALUES (?, ?, ?, ?)')
+      .bind(shopCode, await tokenHash(key), now, now).run()
+    await db.prepare(`DELETE FROM login_devices WHERE shop_code = ? AND key_hash NOT IN (
+      SELECT key_hash FROM login_devices WHERE shop_code = ? ORDER BY last_used_at DESC LIMIT ${MAX_LOGIN_DEVICES})`).bind(shopCode, shopCode).run()
+    return key
+  } catch (e) {
+    console.error('[auth] login device issue failed (continue):', e?.message ?? e)
+    return ''
+  }
+}
+
+// 直近の失敗回数。鍵のある端末はその端末の分、鍵の無い端末は鍵の無い失敗をまとめて数える。
+// 0027 未適用（列が無い）なら従来どおり店舗全体で数える。
+async function _recentLoginFails(db, shopCode, deviceHash) {
+  const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
+  try {
+    const row = deviceHash
+      ? await db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND device_key_hash = ? AND attempted_at > ?').bind(shopCode, deviceHash, since).first()
+      : await db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND device_key_hash IS NULL AND attempted_at > ?').bind(shopCode, since).first()
+    return row?.n ?? 0
+  } catch (_) {
+    const row = await db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?').bind(shopCode, since).first()
+    return row?.n ?? 0
+  }
 }
 
 // POST /auth/login  body: { shopCode, pin }
@@ -120,14 +173,14 @@ export async function handleLogin(db, body) {
   }
   if (!store.pin_hash)  return { _status: 401, error: 'このアカウントはPINが未設定です。新規登録してください。' }
 
-  // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）
+  // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）。
+  // 信頼済み端末（0027）はその端末の失敗だけで数える。第三者の失敗で店主が締め出されないように。
   // フェイルオープン: login_attempts が読めなくてもログイン自体は止めない
+  const deviceHash = await _knownDeviceHash(db, shopCode, body.deviceKey)
+  let fails = 0
   try {
-    const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
-    const fails = await db.prepare(
-      'SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?'
-    ).bind(shopCode, since).first()
-    if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) {
+    fails = await _recentLoginFails(db, shopCode, deviceHash)
+    if (fails >= LOGIN_MAX_FAILS) {
       return { _status: 429, error: 'ログイン試行が多すぎます。15分ほど待ってから再度お試しください' }
     }
   } catch (e) {
@@ -136,10 +189,14 @@ export async function handleLogin(db, body) {
 
   const { ok, needsRehash } = await verifyPinHash(shopCode, pin, store.pin_hash)
   if (!ok) {
-    await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
-      .bind(shopCode, _now()).run().catch(e =>
-        console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
-    return { _status: 401, error: 'PINが正しくありません' }
+    const now = _now()
+    await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at, device_key_hash) VALUES (?, ?, ?)')
+      .bind(shopCode, now, deviceHash).run().catch(() =>
+        db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)').bind(shopCode, now).run())
+      .catch(e => console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
+    // 鍵の無い端末の失敗でちょうど上限に達した＝ここから15分、新しい端末からは入れない。店主へ知らせる（router）
+    const lockedNow = !deviceHash && fails + 1 === LOGIN_MAX_FAILS
+    return { _status: 401, error: 'PINが正しくありません', ...(lockedNow ? { lockedNow: true } : {}) }
   }
 
   // 透過移行: 旧 SHA-256 / 低反復のハッシュを現行 PBKDF2 へ更新する（失敗しても続行）
@@ -152,9 +209,13 @@ export async function handleLogin(db, body) {
     }
   }
 
-  // 成功: 失敗履歴をクリア
-  await db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run().catch(e =>
-    console.error('[auth] login_attempts clear failed (fail-open):', e?.message ?? e))
+  // 成功: 同じ側（この端末／鍵の無い端末）の失敗履歴だけをクリアする。
+  // 店主がいつもの端末で入っても、第三者の失敗の数え直しにはしない。
+  await (deviceHash
+    ? db.prepare('DELETE FROM login_attempts WHERE shop_code = ? AND device_key_hash = ?').bind(shopCode, deviceHash).run()
+    : db.prepare('DELETE FROM login_attempts WHERE shop_code = ? AND device_key_hash IS NULL').bind(shopCode).run()
+  ).catch(() => db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run())
+    .catch(e => console.error('[auth] login_attempts clear failed (fail-open):', e?.message ?? e))
 
   // 単一ホストセッション: 既存トークンを全て無効化してから新トークンを発行する。
   // これにより、同じ店舗を別端末/別ブラウザからログインすると前の端末は失効し、
@@ -170,7 +231,8 @@ export async function handleLogin(db, body) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(await tokenHash(token), shopCode, expires, now).run()
 
-  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store) }
+  const deviceKey = await _issueLoginDevice(db, shopCode, deviceHash, deviceHash ? body.deviceKey : '')
+  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store), ...(deviceKey ? { deviceKey } : {}) }
 }
 
 // POST /auth/logout

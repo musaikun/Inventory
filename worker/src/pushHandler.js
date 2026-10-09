@@ -286,6 +286,26 @@ export async function notifyTaskAssigned(env, shopCode, task, exceptEndpoint = '
   }
 }
 
+/**
+ * PIN の誤りが続き、新しい端末からのログインを止めたことを、店主・管理者の端末へ知らせる（0027）。
+ * スタッフ（管理者以外）の端末には送らない。オーナーの端末は actor_id が端末 ID（staff に無い）。
+ */
+export async function notifyLoginLocked(env, shopCode) {
+  if (!env.DB || !env.VAPID_PUBLIC_KEY) return
+  const { results: subs } = await env.DB.prepare(`
+    SELECT p.endpoint, p.p256dh, p.auth FROM push_subscriptions p
+    WHERE p.shop_code = ? AND NOT EXISTS (
+      SELECT 1 FROM staff s WHERE s.shop_code = p.shop_code AND s.id = p.actor_id AND s.role != 'admin')
+  `).bind(shopCode).all()
+  for (const sub of (subs ?? [])) {
+    await _send(env, sub, {
+      title: 'タナオロ',
+      body: 'PINの誤りが5回続いたため、新しい端末からのログインを15分止めています。いつも使っている端末からはログインできます',
+      tag: 'login-locked', url: '/',
+    })
+  }
+}
+
 /** スタッフが参加を申請したことを、店の端末へ知らせる（管理者が承認するため・段 2-1） */
 export async function notifyStaffJoin(env, shopCode, name) {
   if (!env.DB || !env.VAPID_PUBLIC_KEY) return

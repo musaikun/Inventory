@@ -32,6 +32,9 @@ export const STORAGE_KEYS = {
   pendingSaves:     '_pending_saves_v1',  // D1へ未送信の保存（再起動をまたいで再送するため端末に残す）
   rejectedSaves:    '_rejected_saves_v1',  // サーバーに拒否された保存（リロードしても事実を消さない）
   authToken:        '_auth_token',
+  // 信頼済み端末の鍵 { 店舗コード: 鍵 }。ログイン時に送ると、PIN の失敗をこの端末の分だけで数えてもらえる
+  // （第三者の失敗で店主が締め出されない・Worker 0027）。ログアウトでは消さない。アカウント削除で消す
+  loginDevice:      '_login_device_v1',
   authStoreName:    '_auth_store_name',
   authStaff:        '_auth_staff',      // スタッフとしてログインしているとき { id, name, role }（無ければオーナー）
   staffJoin:        '_staff_join',      // 参加を申請して承認を待っている { pendingKey, shopCode, storeName, name }

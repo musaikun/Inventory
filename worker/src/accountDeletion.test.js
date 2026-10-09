@@ -17,6 +17,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
     stores: [],
     auth_tokens: [],
     login_attempts: [],
+    login_devices: [],           // 信頼済み端末（migration 0027）
     store_configs: [],
     store_inventory: [],
     store_history: [],
@@ -211,6 +212,7 @@ async function seedAccount(db, { shopCode = 'STOREA', pin = '1234', token = 'tok
   })
   db._state.auth_tokens.push({ token, shop_code: shopCode, expires_at: future })
   db._state.login_attempts.push({ shop_code: shopCode, attempted_at: '2026-01-01T00:00:00.000Z' })
+  db._state.login_devices.push({ shop_code: shopCode, key_hash: `h1:${shopCode}`, created_at: '2026-01-01T00:00:00.000Z', last_used_at: '2026-01-01T00:00:00.000Z' })
   for (const table of [
     'store_configs', 'store_inventory', 'store_history', 'sessions', 'inventory_lines',
     'item_par_levels', 'push_subscriptions', 'orders', 'order_lines', 'movements', 'movement_lines',
@@ -337,7 +339,7 @@ describe('PLAY-001: account deletion', () => {
     expect(purgeRooms).toHaveBeenCalledOnce()
     expect(purgeRooms).toHaveBeenCalledWith(first.shopCode)
     for (const table of [
-      'auth_tokens', 'login_attempts', 'store_configs', 'store_inventory', 'store_history',
+      'auth_tokens', 'login_attempts', 'login_devices', 'store_configs', 'store_inventory', 'store_history',
       'sessions', 'inventory_lines', 'item_par_levels', 'push_subscriptions', 'orders',
       'order_lines', 'movements', 'movement_lines',
       'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'tasks',

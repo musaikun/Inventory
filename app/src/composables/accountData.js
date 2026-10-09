@@ -87,5 +87,7 @@ export function clearDeletedAccountLocalData() {
 // 片方が例外になっても、もう片方の消去は必ず試みる。
 export function clearDeviceLocalData() {
   try { resetDeviceId() } catch (_) {}
+  // 信頼済み端末の鍵（サーバー側は削除で消える）。残すと削除済みの店舗コードが端末に残る
+  try { localStorage.removeItem(STORAGE_KEYS.loginDevice) } catch (_) {}
   try { resetWeather() }  catch (_) {}
 }

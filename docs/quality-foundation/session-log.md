@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-09 — version 0.152.12 / PIN の締め出し対策（信頼済み端末）と、締め出しの店主への通知
+
+User 指示（弱点を詰める・推奨順の2つ目）。店舗ごとの「15分に5回の失敗」で、店舗コードを知る第三者が PIN を5回まちがえるだけで店主も15分ログインできなかった。
+- migration **0027**（`login_devices`、`login_attempts.device_key_hash`、印 `idx_login_attempts_device`）。`migrate.sh` に追加。**本番では Worker 更新と一緒に適用が要る**（未適用でも Worker は従来どおり店舗全体で数えて動く＝テストで確認）。
+- Worker（`authHandler`）: 登録・ログインに成功した端末へ鍵を渡す（D1 はハッシュ、店舗あたり最新20台）。鍵を持つ端末の失敗はその端末の分だけ、鍵の無い端末（偽の鍵も）の失敗は店舗全体でまとめて数える。成功時は同じ側の失敗だけ消す（店主が入っても第三者の失敗は数え直さない）。総当たりへの強さは変わらない。
+- 鍵の無い端末の失敗が上限に達した瞬間だけ、店主と管理者の端末へプッシュ通知（`notifyLoginLocked`、スタッフの端末には送らない）。ログに `login_lock_started`。
+- App（`useAuth`）: ログインで店舗ごとの鍵を送り、返った鍵を `_login_device_v1` に覚える。ログアウトでは消さず、アカウント削除の端末データ消去で消す。アカウント削除（Worker）は `login_devices` も消す。
+- 気づいたこと: 店舗 PIN を変更する機能が無い（`security-review.md` の既知 gap に P2 で追加）。
+- テスト: `worker/test/loginDevices.test.js`（新規・修正前で 4/4 失敗、0027 未適用でも動くことを含め5件）、`app/src/composables/useAuth.loginDevice.test.js`（新規4件）、`accountDeletion.test.js` に login_devices。
+- 検証: Worker 48 files / 705 passed、`wrangler deploy --dry-run` 成功、App 211 files / 2103 passed、build 成功。
+- version: 0.152.11 → **0.152.12**。
+
 ## 2026-10-09 — version 0.152.11 / セキュリティイベントのログ・sinceDays の既定が1日になっていた不具合
 
 User 指示（弱点を詰める・推奨順）。OPS-001 を Codex から引き取り。

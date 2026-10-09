@@ -14,7 +14,7 @@
 | 境界 | 現行実装 | 根拠 |
 |---|---|---|
 | PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、login成功時は同店舗の既存tokenを失効。2026-10-08からD1にはtokenのSHA-256（`h1:`）だけを保存し、生で保存した旧tokenは失効まで併用で照合（保存値そのものは照合に使わない）。**Workerを2026-10-08以前の版へ戻すと、それ以降に発行したtokenは無効になり再ログインが要る** | [`authHandler.js`](../worker/src/authHandler.js) |
-| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗、登録はIP単位1時間5回（成否を問わず）。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
+| 総当たり | 店舗単位15分5失敗（2026-10-09から、ログインに成功したことのある端末＝信頼済み端末はその端末の失敗だけで数え、鍵の無い端末の失敗は店舗全体で数える。第三者の失敗で店主が締め出されない。上限に達したら店主・管理者の端末へ通知）、IP単位15分30失敗、登録はIP単位1時間5回（成否を問わず）。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
 | HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/pushはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
 | WebSocket | Workerがactive店舗をD1確認してからDOへ転送。join前はping以外を遮断し、PIN設定店舗のhost再発行は同店舗Bearer必須。D1障害・binding欠落は503/auth失敗で閉じる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js) |
 | guest data | 進行中WSのguest configから単価を除去し（キーごと。2026-10-08から金額を見られないスタッフのhostにも）、未参加socketにはbroadcastしない。金額（`money`）の無いスタッフにはHTTPでも単価・在庫金額を返さない。完了後の共有resultはUser判断により単価・小計・合計金額を含む。店舗code + session UUIDのURLを知る人が3日間閲覧できる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`room-url-design.md`](room-url-design.md) |
@@ -39,6 +39,7 @@
 |---|---|---|
 | P0 | canonicalとrelease candidateを固定し、productionの許可/拒否Originを対象SHA付きで再確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
 | P1 | `/auth/register`のbot対策がない（IPごと1時間5回の制限とlegacy `/store/create`廃止は2026-10-08実装） | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
+| P2 | 店舗PINを変更する機能が無い。漏れた疑いがあっても変えられない（4桁PIN自体の強さも含め要検討） | 未起票（2026-10-09） |
 | P1 | 共有resultは無認証URLで金額を含む。UI・privacy・運用説明を一致させ、URL漏洩時の扱いをrelease確認する | [`DOC-002`](quality-foundation/tasks/DOC-002.md) / WEB-09〜10 |
 | P1 | 品目写真readは認証なしで、推測困難なURLをaccess境界とする。production R2 binding、別店舗upload/delete拒否、URL漏洩、account削除後404を実環境で確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-09〜10 |
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
