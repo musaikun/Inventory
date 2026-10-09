@@ -197,8 +197,10 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // 履歴カレンダーは下部ナビの「カレンダー」タブ（2026-10-04）
-    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // 履歴カレンダーは下部ナビの「日誌」タブの「月」（2026-10-09。以前は「カレンダー」タブ）
+    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 6; i++) await nextTick()
+    ;[...host.querySelectorAll('.jp-views button')].find(b => b.textContent.includes('月'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 12; i++) await nextTick()
     host.querySelector('.hc-cell.today')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 4; i++) await nextTick()

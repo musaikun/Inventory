@@ -60,4 +60,5 @@ export const STORAGE_KEYS = {
   hints:            '_hints_v1',
   tasks:            'inventory_tasks_v1',  // カレンダーのやること（店で共有・サーバーと同期）
   tasksSeen:        '_tasks_seen_v1',      // この端末で他の人の追加を最後に確認した時刻（端末ごと）
+  journalHours:     '_journal_hours_v1',   // 日誌の「1日」で見せる時間帯 { from, to }（端末ごと・営業時間に合わせる）
 }

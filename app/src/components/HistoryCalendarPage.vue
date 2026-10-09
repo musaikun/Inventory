@@ -16,7 +16,8 @@ import { localDateKey } from '../utils/localDate.js'
 // タブのスワイプと競合し、カレンダーを見る目的で来た人が余分な導線を通っていた。
 // ここでは「日付から履歴を開く」ことだけを行う。
 // embedded: ホームの「履歴」タブに置くとき。見出しと戻るを出さず、高さはホームの見出しと下部ナビを除いた分
-const props = defineProps({ embedded: { type: Boolean, default: false } })
+// inJournal: 日誌の「月」として置くとき（2026-10-09）。今日の行・新着の知らせ・カレンダー／一覧の切り替えは日誌側にあるので出さない
+const props = defineProps({ embedded: { type: Boolean, default: false }, inJournal: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'viewSession', 'openUpgrade'])
 
 // 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
@@ -84,8 +85,8 @@ const hiddenByPlanCount = computed(() =>
 
       <WeatherAsk />
 
-      <TaskNews />
-      <button type="button" class="hcp-today" @click="openToday">
+      <TaskNews v-if="!inJournal" />
+      <button v-if="!inJournal" type="button" class="hcp-today" @click="openToday">
         <span class="hcp-today-l">今日</span>
         <span class="hcp-today-t">{{ todayOpen.length ? todayOpen.map(t => t.text).join(' ・ ') : (can('task.create') ? 'やることを追加する' : '今日のやることはありません') }}</span>
         <span v-if="todayOpen.length" class="hcp-today-n">{{ todayOpen.length }}件</span>
@@ -98,6 +99,7 @@ const hiddenByPlanCount = computed(() =>
         ref="calRef"
         :sessions="visibleCompletedSessions"
         :weather="weatherState.weather"
+        :calendar-only="inJournal"
         @view-session="s => emit('viewSession', s)"
       />
 

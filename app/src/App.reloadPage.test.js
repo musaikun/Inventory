@@ -98,15 +98,17 @@ describe('再読込しても同じページに留まる', () => {
   }, 20000)
 
   // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま
-  it('カレンダータブ（履歴カレンダー）', async () => {
+  it('日誌タブ（以前のカレンダー）。見え方（月）も再読み込みで残る', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
+    expect(host.querySelector('.jp')).not.toBeNull()
+    await click([...host.querySelectorAll('.jp-views button')].find(b => b.textContent.includes('月')))
     expect(host.querySelector('.hcp.embedded')).not.toBeNull()
 
     await reload()
     expect(view()).toBe('sessions')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('カレンダー')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
     expect(host.querySelector('.hcp')).not.toBeNull()
   }, 20000)
 
@@ -125,9 +127,9 @@ describe('再読込しても同じページに留まる', () => {
   it('進行中セッションは保存ページより優先する', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('カレンダー')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
 
-    // カレンダーを見ているあいだに、別端末などで進行中の棚卸が残った状態を作る
+    // 日誌を見ているあいだに、別端末などで進行中の棚卸が残った状態を作る
     localStorage.setItem('_pending_session_v1', JSON.stringify({
       id: 'sess-1', shopCode: 'STOREA', status: 'active',
       startedAt: new Date().toISOString(), itemCount: 0,

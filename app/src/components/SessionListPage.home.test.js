@@ -72,11 +72,11 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（ホーム／在庫／カレンダー／レポート／管理）', async () => {
+  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（ホーム／在庫／日誌／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', 'カレンダー', 'レポート', '管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '管理'])
     expect(host.querySelector('.acts .st').textContent).toContain('並び替え')
   })
 
@@ -88,10 +88,12 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.acts')).toBeNull()
   })
 
-  it('カレンダー・レポート・管理はホームのタブ（履歴カレンダーはカレンダーのタブ）', async () => {
+  it('日誌・レポート・管理はホームのタブ（履歴カレンダーは日誌の「月」）', async () => {
     await mountPage()
-    // カレンダー＝履歴カレンダー＋予定・やること。開いたら記録を取り込み直す
-    await click(btn(host.querySelector('.bnav'), 'カレンダー'))
+    // 日誌＝やること・予定・記録。開いたら記録を取り込み直す。月で今までのカレンダー
+    await click(btn(host.querySelector('.bnav'), '日誌'))
+    expect(host.querySelector('.jp')).not.toBeNull()
+    await click(btn(host.querySelector('.jp-views'), '月'))
     expect(host.querySelector('.hcp.embedded')).not.toBeNull()
     expect(events).toContainEqual(['calendarShown'])
     // レポート＝在庫分析（重ねて開かず、タブの中）。履歴カレンダーの入口はもう無い
@@ -256,7 +258,7 @@ describe('レポートタブ（整理後）', () => {
 })
 
 describe('トップ（ホーム）とやること（User決定 2026-10-07）', () => {
-  it('開くとトップ。今日のやることの要約を押すと「やること」、戻ると閉じる。ショートカットで各タブへ', async () => {
+  it('開くとトップ。今日のやることの要約を押すと日誌のリスト。ショートカットで各タブへ', async () => {
     const T = await import('../composables/useTasks.js')
     const { localDateKey } = await import('../utils/localDate.js')
     T.addTask('2000-01-02', '製氷機のフィルター交換')
@@ -268,14 +270,14 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     expect(today.textContent).toContain('期限切れ')
     expect(today.textContent).toContain('11:00')
     expect(today.textContent).toContain('0/1')
+    // 押すと日誌のリスト（やること）。期限切れが上に
     await click(today)
-    expect(host.querySelector('.tp')).not.toBeNull()
-    expect(host.querySelector('.tp-lh.late').textContent).toContain('期限切れ')
-    await click(host.querySelector('.tp-back'))
-    expect(host.querySelector('.tp')).toBeNull()
+    expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
+    expect(host.querySelector('.jp-lh.late').textContent).toContain('期限切れ')
+    await click(btn(host.querySelector('.bnav'), 'ホーム'))
     // ショートカットの「在庫」で在庫タブへ
     const sc = [...host.querySelectorAll('.ht-sc')]
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', 'カレンダー', 'レポート', '管理'])
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', '管理'])
     await click(sc[2])
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
   })

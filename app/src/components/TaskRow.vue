@@ -121,7 +121,7 @@ function save() {
 .tr-tx { flex: 1; min-width: 0; overflow-wrap: anywhere; text-align: left; border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: default; }
 button.tr-tx { cursor: pointer; }
 .tr-tx small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-.tr-sub-tm { font-size: 11px; font-weight: 800; color: var(--text-muted); }
+.tr-sub-tm { margin-left: 6px; font-size: 11px; font-weight: 800; color: var(--text-muted); }
 .tr.done .tr-tx { color: var(--text-muted); text-decoration: line-through; }
 .tr.done .tr-tx small { text-decoration: none; }
 small.tr-assign { font-weight: 800; color: var(--primary, #0e7490); }

@@ -27,6 +27,8 @@ import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFa
 const props = defineProps({
   sessions: { type: Array, default: () => [] }, // 完了済み棚卸セッション
   weather:  { type: Object, default: () => ({}) },
+  // 日誌の「月」として置くとき（2026-10-09）: 日誌に「リスト」「記録」があるので、カレンダー／一覧の切り替えは出さない
+  calendarOnly: { type: Boolean, default: false },
 })
 const emit = defineEmits(['view-session'])
 const exportOrder = ref(null)   // 書き出しを開いている発注
@@ -513,7 +515,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
 <template>
   <div class="hc">
-    <div class="hc-mode" role="tablist" aria-label="表示の切り替え">
+    <div v-if="!calendarOnly" class="hc-mode" role="tablist" aria-label="表示の切り替え">
       <button type="button" role="tab" :aria-selected="viewMode === 'cal'" :class="['hc-mode-btn', { on: viewMode === 'cal' }]" @click="viewMode = 'cal'">カレンダー</button>
       <button type="button" role="tab" :aria-selected="viewMode === 'list'" :class="['hc-mode-btn', { on: viewMode === 'list' }]" @click="viewMode = 'list'">一覧</button>
     </div>

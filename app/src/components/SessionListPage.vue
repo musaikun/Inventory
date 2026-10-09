@@ -43,11 +43,10 @@ import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import HomeTop from './HomeTop.vue'
-import TodoPage from './TodoPage.vue'
+import JournalPage, { journalView } from './JournalPage.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
 import SortTile from './SortTile.vue'
-import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import { completionBusy } from '../composables/useSession.js'
 import { APP_NAME } from '../appInfo.js'
 
@@ -73,10 +72,10 @@ const tab = _persistedTab
 // トップ（ホーム）を先頭に（User決定 2026-10-07）
 const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeMoney.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
-const todoOpen = ref(false)                    // トップから開く「やること」画面
+// トップの「今日のやること」→ 日誌のリスト
+function openJournalList() { journalView.value = 'list'; goTab('calendar') }
 function goTab(next) {
   const tabs = tabsNow()
-  if (next === 'home') todoOpen.value = false
   if (!tabs.includes(next) || next === tab.value) return
   slideDir.value = tabs.indexOf(next) > tabs.indexOf(tab.value) ? 'l' : 'r'
   tab.value = next
@@ -275,7 +274,6 @@ async function onLogout() {
 onUnmounted(registerInnerLayerCloser(() => {
   if (showOrderBase.value) { showOrderBase.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
-  if (todoOpen.value) { todoOpen.value = false; return true }
   if (tab.value !== 'home') { goTab('home'); return true }
   return false
 }))
@@ -283,7 +281,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 
 <template>
   <div class="home">
-    <header v-if="tab !== 'home'" class="home-head">
+    <header v-if="tab !== 'home' && tab !== 'calendar'" class="home-head">
       <span class="home-logo"><AppMark :size="26" />{{ APP_NAME }}</span>
       <span class="home-store">{{ storeName || '' }}<small v-if="shopCode"> {{ shopCode }}</small></span>
     </header>
@@ -299,9 +297,7 @@ onUnmounted(registerInnerLayerCloser(() => {
     >
     <!-- ── トップ（ホーム）とやること（User決定 2026-10-07）── -->
     <div v-if="!loading && tab === 'home'" :class="['home-panel', 'top-panel', slideDir && `slide-${slideDir}`]">
-      <TodoPage v-if="todoOpen" @close="todoOpen = false" />
       <HomeTop
-        v-else
         :active-session="activeSession"
         :active-order-session="activeOrderSession"
         :stock-count="_itemCount(activeSession)"
@@ -316,7 +312,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         @stock="openStockSheet"
         @order="openOrderSheet"
         @resume="resume"
-        @open-todo="todoOpen = true"
+        @open-todo="openJournalList"
       />
     </div>
 
@@ -356,11 +352,10 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </StockPage>
 
-    <!-- ── カレンダー（予定・やること・記録）── -->
-    <HistoryCalendarPage
+    <!-- ── 日誌（やること・予定・記録。以前のカレンダー・User決定 2026-10-09）── -->
+    <JournalPage
       v-if="!loading && tab === 'calendar'"
       :class="['home-panel', slideDir && `slide-${slideDir}`]"
-      embedded
       @view-session="s => emit('viewSession', s)"
       @open-upgrade="r => emit('openUpgrade', r)"
     />

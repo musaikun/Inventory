@@ -20,7 +20,8 @@ const emit = defineEmits(['go'])
 const ALL_ITEMS = [
   { tab: 'home',      label: 'ホーム',   d: ['M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'] },
   { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
-  { tab: 'calendar',  label: 'カレンダー', d: ['M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z', 'M4 10h16M9 2v4M15 2v4'] },
+  // 日誌（やること・予定・記録。以前のカレンダー・User決定 2026-10-09）
+  { tab: 'calendar',  label: '日誌',     d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
   { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
   { tab: 'dashboard', label: '管理',     d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
 ]
