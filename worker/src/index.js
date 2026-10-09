@@ -1,10 +1,9 @@
 import { RoomDO } from './RoomDO.js'
-import { parsePdfFile } from './pdfParser.js'
 import {
-  handleStoreCreate, handleStoreGet,
+  handleStoreGet,
   handleConfigGet,   handleConfigPut,
   handleInventoryGet, handleInventoryPut,
-  handleHistoryGet,  handleHistoryPost, handleHistoryDelete,
+  handleHistoryGet,  handleHistoryGetOne, handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
   handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleTaskMark, handleSessionRestore,
@@ -18,15 +17,16 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
+import { securityEvent } from './securityLog.js'
 import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { configChangePerms } from './configGuard.js'
+import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
 import {
   ACCOUNT_DELETION_INTERNAL_HEADER,
-  MAX_PDF_BYTES,
   MAX_PUSH_SUBSCRIPTION_BYTES,
 } from './constants.js'
 export { RoomDO }
@@ -108,6 +108,7 @@ async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
   if (ctx.shopCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
   const missing = (Array.isArray(perms) ? perms : [perms]).filter(p => !ctxCan(ctx, p))
   if (!missing.length) return null
+  securityEvent('perm_denied', { shop: code, role: ctx.role, missing, path: new URL(request.url).pathname, method: request.method })
   return jsonResponse({
     code: 'forbidden', missing,
     error: `この操作（${missing.map(p => PERMS[p] ?? p).join('・')}）はできません。管理者に許可してもらってください`,
@@ -122,6 +123,19 @@ async function _actor(db, request, code, body) {
   if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true }
   const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '')
   return { name: str(body?.by, 40), id: str(body?.byId, 64), staff: false }
+}
+/**
+ * 金額（単価・小計・在庫金額）を見られるか（段 2-3 の money）。オーナー・管理者・社員は見られる。
+ * PIN の無い古い店舗（トークン無しで使える）は、これまで通りオーナーと同じに扱う。
+ * 呼ぶのは店舗の認証を通った後。それでもトークンが読めない・店が違うときは見せない側に倒す。
+ */
+async function _canSeeMoney(db, request, code) {
+  const ctx = await authContext(db, request)
+  if (!ctx) {
+    const store = await db.prepare('SELECT pin_hash FROM stores WHERE shop_code = ?').bind(code).first()
+    return !!store && !store.pin_hash
+  }
+  return ctx.shopCode === code && ctxCan(ctx, 'money')
 }
 async function _sessionType(db, code, id) {
   const row = await db.prepare('SELECT type FROM sessions WHERE id = ? AND shop_code = ?').bind(id, code).first()
@@ -233,6 +247,12 @@ export default {
     // ── 認証 API ──────────────────────────────────────────────────────────────
     if (env.DB) {
       if (path === '/auth/register' && request.method === 'POST') {
+        // 店舗の量産を止める（SEC-005）。成否に関わらず IP ごとに数える（1時間に5回まで）
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'register')) {
+          return jsonResponse({ code: 'rate_limited', error: '登録の回数が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        await recordIpFail(env.DB, ip, 'register')
         return resultResponse(await handleRegister(
           env.DB,
           await request.json(),
@@ -245,8 +265,12 @@ export default {
         if (await isIpBlocked(env.DB, ip, 'login')) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
-        const result = await handleLogin(env.DB, await request.json())
+        const body = await request.json()
+        const result = await handleLogin(env.DB, body)
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401 || result._status === 429) {
+          securityEvent(result._status === 429 ? 'login_locked' : 'login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
+        }
         return resultResponse(result, origin, allowedOrigin)
       }
       // ── スタッフ（段 2-1）。ログイン前の経路は IP 単位で総当たりを止める ──
@@ -255,8 +279,12 @@ export default {
         if (await isIpBlocked(env.DB, ip, 'login')) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
-        const result = await handleStaffLogin(env.DB, await request.json().catch(() => ({})))
+        const body = await request.json().catch(() => ({}))
+        const result = await handleStaffLogin(env.DB, body)
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401 || result._status === 429) {
+          securityEvent(result._status === 429 ? 'staff_login_locked' : 'staff_login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
+        }
         return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/me' && request.method === 'GET') {
@@ -306,11 +334,9 @@ export default {
     if (!env.DB) {
       // D1 未設定の場合はスキップ（既存機能に影響しない）
     } else {
-      // POST /store/create
-      if (path === '/store/create' && request.method === 'POST') {
-        const result = await handleStoreCreate(env.DB)
-        return jsonResponse(result, 200, origin, allowedOrigin)
-      }
+      // POST /store/create（PIN の無い店舗を認証なしで作る旧経路）は廃止した。
+      // 店舗は /auth/register（PIN 必須）でだけ作る。旧経路は誰でも無制限に店を作れ、
+      // できた店は店舗コードだけで全データを読み書きできた。
 
       // /store/:code/*
       const storeMatch = path.match(/^\/store\/([A-Z]{4,8})(\/.*)?$/i)
@@ -334,14 +360,19 @@ export default {
         }
         // GET/PUT /store/:code/config
         if (subpath === '/config' && request.method === 'GET') {
-          return jsonResponse(await handleConfigGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
+          const cfg = await handleConfigGet(env.DB, code) ?? {}
+          const money = await _canSeeMoney(env.DB, request, code)
+          return jsonResponse(money ? cfg : stripConfigMoney(cfg), 200, origin, allowedOrigin)
         }
         if (subpath === '/config' && request.method === 'PUT') {
-          const body = await request.json()
+          let body = await request.json()
           // 何を変えたかで要る権限を決める（品目の削除・単価・並び替え・発注の設定。足すだけなら誰でも）
           const ctx = await authContext(env.DB, request)
           if (ctx && !ctx.isAdmin && ctx.role !== 'owner') {
-            const need = configChangePerms(await handleConfigGet(env.DB, code) ?? {}, body)
+            const prev = await handleConfigGet(env.DB, code) ?? {}
+            // 金額を見られない人の端末には単価を渡していない。送られてきた単価は採らず、前の値を残す
+            if (!ctxCan(ctx, 'money')) body = restoreConfigMoney(prev, body)
+            const need = configChangePerms(prev, body)
             if (need.length) {
               const deny = await _requirePerm(env.DB, request, code, need, origin, allowedOrigin)
               if (deny) return deny
@@ -358,16 +389,26 @@ export default {
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
-          return jsonResponse(await handleHistoryGet(env.DB, code), 200, origin, allowedOrigin)
+          const list = await handleHistoryGet(env.DB, code)
+          const money = await _canSeeMoney(env.DB, request, code)
+          return jsonResponse(money ? list : list.map(stripSnapshotMoney), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
-          return resultResponse(await handleHistoryPost(env.DB, code, await request.json()), origin, allowedOrigin)
+          let body = await request.json()
+          // 金額を見られない人の端末は金額を落とした版を持っている（訂正・ロックで丸ごと送り直してくる）。
+          // そのまま書くと在庫金額が消えるので、サーバーにある版から金額を戻す
+          if (!(await _canSeeMoney(env.DB, request, code))) {
+            body = restoreSnapshotMoney(await handleHistoryGetOne(env.DB, code, body), body)
+          }
+          return resultResponse(await handleHistoryPost(env.DB, code, body), origin, allowedOrigin)
         }
         // DELETE /store/:code/history/:key （key = sessionId または legacy日付）
         // resultResponse を通す＝ハンドラの 400/503 をそのままHTTPステータスへ出す。
         // jsonResponse(…, 200) では失敗が成功として届き、client が再試行できない。
         const histDateMatch = subpath.match(/^\/history\/([\w-]{1,64})$/)
         if (histDateMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleHistoryDelete(env.DB, code, histDateMatch[1]), origin, allowedOrigin)
         }
         // PUT /store/:code/room
@@ -385,6 +426,8 @@ export default {
         // DELETE /store/:code/orders/:id
         const orderDelMatch = subpath.match(/^\/orders\/([\w-]{1,64})$/)
         if (orderDelMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleOrderDelete(env.DB, code, orderDelMatch[1]), origin, allowedOrigin)
         }
 
@@ -404,6 +447,8 @@ export default {
         // client は削除できていないものを削除済みとして扱っていた。
         const moveDelMatch = subpath.match(/^\/movements\/([\w-]{1,64})$/)
         if (moveDelMatch && request.method === 'DELETE') {
+          const deny = await _requirePerm(env.DB, request, code, 'stock.discard', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleMovementDelete(env.DB, code, moveDelMatch[1]), origin, allowedOrigin)
         }
 
@@ -634,7 +679,9 @@ export default {
         if (sessLinesMatch && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return resultResponse(await handleSessionLinesGet(env.DB, code, sessLinesMatch[1]), origin, allowedOrigin)
+          const lines = await handleSessionLinesGet(env.DB, code, sessLinesMatch[1])
+          const money = await _canSeeMoney(env.DB, request, code)
+          return resultResponse(money ? lines : stripLinesMoney(lines), origin, allowedOrigin)
         }
 
         // ── 過去棚卸の取込（IMPORT-001）─────────────────────────────────────
@@ -678,7 +725,14 @@ export default {
           const denyP = await _requirePerm(env.DB, request, code, (await _sessionType(env.DB, code, sessCompleteMatch[1])) === 'order' ? 'order.finish' : 'stock.finish', origin, allowedOrigin)
           if (denyP) return denyP
           const body = await request.json()
+          // 金額を見られない人の端末は単価を持っていない。完了の単価は店の品目リスト（サーバー）から取る。
+          // 端末の値（空）で完了すると、その棚卸の在庫金額が記録されない
+          const money = await _canSeeMoney(env.DB, request, code)
+          if (!money && body && typeof body === 'object') {
+            body.prices = { ...((await handleConfigGet(env.DB, code))?.prices ?? {}) }
+          }
           const done = await handleSessionComplete(env.DB, code, sessCompleteMatch[1], body)
+          if (!money && done && !done._status && 'totalValue' in done) done.totalValue = null
           if (!done?._status) {
             // 完了した人（最初に完了させた人だけ。同じ完了の再送では書き換えない）
             const who = await _actor(env.DB, request, code, { by: url.searchParams.get('by'), byId: url.searchParams.get('byId') })
@@ -714,35 +768,9 @@ export default {
       return jsonResponse({ key: env.VAPID_PUBLIC_KEY || null }, 200, origin, allowedOrigin)
     }
 
-    // ── PDF テキスト抽出 ──────────────────────────────────────────────────────
-    if (path === '/pdf' && request.method === 'POST') {
-      // S-D: 経済的DoS対策。①IPレート制限 → ②認証必須 → ③サイズ上限 の順で
-      // 重い pdfjs 実行の前に安価なゲートで弾く。
-      const ip = clientIp(request)
-      if (await isIpBlocked(env.DB, ip, 'pdf')) {
-        return jsonResponse({ error: 'アクセスが多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
-      }
-      // このエンドポイントは重い処理なので、成否に関わらず1回として計上（総回数を抑制）
-      await recordIpFail(env.DB, ip, 'pdf')
-
-      const authCode = await verifyAuth(env.DB, request)
-      if (!authCode) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
-
-      const declared = Number(request.headers.get('Content-Length') ?? '')
-      if (Number.isFinite(declared) && declared > MAX_PDF_BYTES) {
-        return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
-      }
-      try {
-        const buf = await request.arrayBuffer()
-        if (buf.byteLength > MAX_PDF_BYTES) {
-          return jsonResponse({ error: 'ファイルサイズが大きすぎます（上限5MB）' }, 413, origin, allowedOrigin)
-        }
-        const result = await parsePdfFile(buf)
-        return jsonResponse(result, 200, origin, allowedOrigin)
-      } catch (e) {
-        return jsonResponse({ error: e.message }, 500, origin, allowedOrigin)
-      }
-    }
+    // POST /pdf（サーバーでのPDF解析）は廃止した（User決定 2026-10-08・DS-07）。
+    // App は端末内の pdfjs で解析しており、呼び出しは無かった。Worker に pdfjs を置かないことで、
+    // 細工したPDFを解析させる経路（pdfjs-dist の既知の脆弱性を含む）そのものを無くす。
 
     // ── 完了後ゲスト閲覧（無認証・URLが鍵）────────────────────────────────────
     // GET /room/:code/result?s=<sessionId> — D1 スナップショットから金額抜きの結果を返す
@@ -811,10 +839,17 @@ export default {
           (action === 'status'   && request.method === 'GET')) {
         const res  = await room.fetch(request)
         const body = await res.json().catch(() => ({}))
-        // 最近の変更（品目名・数量・名前）は、この店にログインしている端末にだけ渡す
-        if (action === 'status' && body && 'recent' in body) {
+        // 最近の変更（品目名・数量・名前）と sessionId は、この店にログインしている端末にだけ渡す。
+        // sessionId はゲスト参加の鍵（joinSessionId）と完了結果リンクの鍵を兼ねるため、
+        // 店舗コードだけで読めると招待リンク無しでルームへ入れてしまう。
+        // 未ログインの端末には、リンクで同じ ID を既に持っている（?s= が一致する）ときだけ返す。
+        if (action === 'status' && body && typeof body === 'object') {
           const authCode = await verifyAuth(env.DB, request).catch(() => null)
-          if (authCode !== code) delete body.recent
+          if (authCode !== code) {
+            delete body.recent
+            const s = url.searchParams.get('s')
+            if (!s || s !== body.sessionId) delete body.sessionId
+          }
         }
         return jsonResponse(body, res.status, origin, allowedOrigin)
       }
@@ -829,8 +864,10 @@ export default {
 
     } catch (e) {
       // 未処理の例外でも必ずCORSヘッダー付きでエラーを返す
+      // 内部の例外メッセージ（SQL・テーブル名・ライブラリの文言）は利用者へ返さない。log にだけ残す
       console.error('[Worker] Unhandled error:', request.method, path, e?.message ?? e)
-      return jsonResponse({ error: e?.message ?? 'Internal server error' }, 500, origin, allowedOrigin)
+      securityEvent('internal_error', { method: request.method, path })
+      return jsonResponse({ code: 'internal_error', error: 'サーバーでエラーが発生しました。しばらく待ってから再度お試しください' }, 500, origin, allowedOrigin)
     }
   },
 

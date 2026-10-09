@@ -159,7 +159,9 @@ describe('サーバーで権限を守る（ルーター経由）', () => {
     expect((await call(`/store/${code}/sessions`, 'POST', { type: 'stock' }, owner)).status).toBe(200)
     const cfg = { order: ['トマト'], units: { トマト: '個' }, prices: { トマト: 100 } }
     expect((await call(`/store/${code}/config`, 'PUT', cfg, owner)).status).toBe(200)
-    expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, prices: { トマト: 120 } })).status).toBe(403)
+    // 単価は金額を見られない人からは採らない（端末には単価を渡していない）。前の単価のまま残る
+    expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, prices: { トマト: 120 } })).status).toBe(200)
+    expect((await (await call(`/store/${code}/config`, 'GET', null, owner)).json()).prices).toEqual({ トマト: 100 })
     expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, order: ['トマト', 'なす'], units: { ...cfg.units, なす: '本' } })).status).toBe(200)
   })
 })

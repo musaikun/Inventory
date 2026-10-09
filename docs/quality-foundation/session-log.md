@@ -2,11 +2,89 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
-## 2026-10-09 — version 0.152.4 / やること（ToDo とカレンダーを統合）のモック
+## 2026-10-09 — version 0.152.12 / やること（ToDo とカレンダーを統合）のモック
 
 User 指示: ToDo とカレンダーを統合。やることのリストを基本に、カレンダー（月）と1日（時間別）でも見られる。実行した棚卸・発注・入出庫がやることに記録として並び、そこから詳細を見返せる。入出庫の案内（0.152.3 のモック）は後回し。
 - `docs/mocks/todo-calendar.html`（＋`.png`）: 下のナビ「カレンダー」→「やること」。① リスト（期限切れ → 今日 → 明日以降、やることと記録が時刻順に混ざる、すべて／やること／記録・自分の担当）② 月（日ごとの印と残りの数、押した日の中身）③ 1日（時刻なし＋時間の帯、棚卸は長さ、今の線）④ 記録を押す（棚卸の要約 → すべての明細、そこからやることを足す）。User の確認待ち。
-- version: 0.152.3 → **0.152.4**（docs のみ）。
+- version: 0.152.11 → **0.152.12**（docs のみ）。
+
+## 2026-10-09 — version 0.152.11 / セキュリティイベントのログ・sinceDays の既定が1日になっていた不具合
+
+User 指示（弱点を詰める・推奨順）。OPS-001 を Codex から引き取り。
+- `worker/src/securityLog.js`（新規）: `{"evt":"security","type":...}` の1行 JSON。項目は allowlist、IP は /24・/48 まで。出す場所: ログイン失敗・締め出し（店主・スタッフ）、IP の計上と上限（rateLimiter）、権限の拒否（`_requirePerm`）、確定済み履歴の書き換え拒否、ルームのホスト認証失敗、想定外の 500。type と警報の目安は `tasks/OPS-001.md`。
+- `wrangler.toml` に `[observability]`（有効・全件）。最初 `account_id` より前に置いて TOML の表へ取り込んでしまい、dry-run の警告で気づいて直した。
+- **不具合修正（develop の CI を赤にしていた）**: 発注・入出庫・やることの GET は `?sinceDays=` が無いと `Number(null)=0` が「1日」へ丸められ、App（付けずに呼ぶ）には直近1日ぶんしか返っていなかった。別の端末では前日より前の入出庫・発注・完了したやることがサーバーから取れない。`_sinceDate` で「指定なし・数でない」を既定（400日／120日）に。`staff.test.js` の3件は日付が変わって（10/9）この不具合で落ちていた。回帰テスト `test/sinceDays.sqlite.test.js` は今日から30日前で作る（修正前で 3/3 失敗）。
+- 検証: Worker 47 files / 700 passed、`wrangler deploy --dry-run` 成功（警告なし）、App build 成功。
+- version: 0.152.10 → **0.152.11**。
+
+## 2026-10-08 — version 0.152.10 / ログイントークンを D1 にハッシュで保存
+
+セキュリティ確認の続き（User 指示）。以前は `auth_tokens.token` に生のトークンを保存しており、D1 の中身が漏れるとそのまま Bearer に使えた。
+- `authHandler.tokenHash`（`h1:` + SHA-256 の16進）で保存。登録・ログイン・スタッフ発行（`staffHandler._issueToken`）。照合（verifyAuthToken・authContext・削除の本人確認・logout）は `token IN (ハッシュ, 生)`。生で保存した旧トークンは失効（30日）まで使える。マイグレーション無し。
+- 送られた値が `h1:` で始まるときは旧形式として引かない（引くと漏れた保存値をそのまま Bearer に使えた。テストで発見）。
+- **ロールバック注意**: Worker をこの版より前へ戻すと、この版以降に発行したトークンは引けず再ログインが要る（WEB-10 の rollback 手順に含める）。
+- テスト: `authHandler.test.js`（保存値がハッシュ・旧形式は使える・保存値では入れない）、`test/tokenHash.sqlite.test.js`（新規・実 SQLite と router）。修正前で 3 件失敗。モック3つを `IN (?, ?)` に合わせた。
+- 検証: Worker 44 files / 691 passed、`wrangler deploy --dry-run` 成功、App build 成功。
+- version: 0.152.9 → **0.152.10**。
+
+## 2026-10-08 — version 0.152.9 / ルームでも金額を見られないホストに単価を渡さない・ゲスト宛ては単価を「送らない」
+
+セキュリティ確認の続き（User 指示）。
+- RoomDO: ホストの join に毎回付く D1 トークンで人を確かめ、金額（`money`）の無いスタッフなら attachment に `noMoney`。そのホストへの joined・config_update・session_started は単価を落とす。そのホストが送る config / session_start の単価は採らず、DO の前の値を残す。トークンで人が分からないときは PIN の無い古い店だけ見せる（D1 障害は見せない側）。D1 の無い環境は従来どおり。
+- ゲスト宛ての単価は `{}` ではなく**キーごと取り除く**。App の `applyRemoteConfig` は prices が無ければ手元の単価を残す（`prices: {}` の明示はサーバーの「単価なし」として消す）。以前は、オーナーの2台目がゲストで入ると手元の単価が空になり、その端末の次の config 保存（丸ごと PUT）で店の単価が消えていた（以前からの不具合）。
+- テスト: `worker/test/roomMoney.test.js`（新規・修正前で 4/5 失敗）、`RoomDO.prices.test.js` を「取り除く」へ更新、`app/src/composables/useConfig.remotePrices.test.js`（新規・修正前で 1/3 失敗）。
+- 検証: Worker 43 files / 687 passed、`wrangler deploy --dry-run` 成功、App 210 files / 2099 passed、build 成功。
+- version: 0.152.8 → **0.152.9**。
+
+## 2026-10-08 — version 0.152.8 / PDF を開く設定を明示・依存の更新
+
+セキュリティ確認の続き（User 指示）。
+- `pdfjs-dist` 5.6.205 の GHSA-hq66-cqwq-w95j: 前提（PDF内スクリプトを有効にした注釈レイヤー・スクリプトを許す CSP）に App は当たらない。6 系は対応ブラウザが Safari 18 / Chrome 125 以上になるため据え置き、判断は `proposals.md` へ（User判断待ち）。
+- `app/src/utils/pdfjsOptions.js`（新規）: `getDocument` の設定を共通化し `isEvalSupported:false`・`enableXfa:false` を明示。取込（usePdfImporter）と元の紙の表示（PdfPageViewer）が使う。`pdfjsOptions.test.js` で使い方と CSP を固定。
+- `npm audit fix`（互換範囲）: vue 3.5.32→3.5.43、nanoid、source-map-js、postcss、dompurify。`npm audit fix` が pdfjs-dist を 5.7.284 に上げたが、5.7 も同じ範囲で得るものが無いので 5.6.205 に戻した。App の `npm audit --omit=dev` は pdfjs-dist の 1 件だけ。
+- 検証: App 209 files / 2096 passed、build 成功、`vite preview` を Chromium（390px）で開いてトップ表示・console error なし。
+- version: 0.152.7 → **0.152.8**。
+
+## 2026-10-08 — version 0.152.7 / ロック済みの履歴を API から書き換えさせない
+
+セキュリティ確認の続き（User 指示）。画面ではロック済み（新しい棚卸の完了で確定した）記録の訂正を止めていたが、`POST /store/:code/history` は丸ごと upsert で、トークンがあれば確定した数量・在庫金額を書き換えられた。
+- Worker（`handleHistoryPost`）: 既存がロック済みなら、日付と品目・数量・単位が変わる保存は 409 `snapshot_locked`（retryable:false）。同じ中身の送り直しは書かずに今の revision を返す（`unchanged:true`、参加者などの差し替えも防ぐ）。upsert の `DO UPDATE` にも `json_extract(... '$.locked') IS NOT 1` を入れ、確認と書き込みの間にロックされても上書きしない。
+- App: 保存が permanent で拒否されたときに `rejected: { status, code }` を返す（useStore）。`_pushSnapshot` は `snapshot_locked` なら `dropLocalEdit` で端末の訂正を捨ててサーバーの版を読み直す（dirty のままだとバックフィルが送っては拒否されるのを繰り返す）。訂正画面では「確定済みのため保存されませんでした」。
+- 検証: Worker 42 files / 682 passed（新 `test/historyLock.sqlite.test.js` は修正前で 5/6 失敗）、App 208 files / 2092 passed、build 成功。
+- version: 0.152.6 → **0.152.7**。
+
+## 2026-10-08 — version 0.152.6 / /pdf 廃止・登録のレート制限・店舗コードの乱数・500の文言
+
+セキュリティ確認の続き（User 指示）。
+- `/pdf` を廃止（User決定・DS-07）: route、`worker/src/pdfParser.js`、Worker の `pdfjs-dist` 依存を削除。Worker の `npm audit --omit=dev` は 0 件。Worker バンドル 288 KiB（dry-run）。
+- SEC-005 を Codex から引き取り（User 指示）: `/auth/register` に IP ごと1時間5回（成否を問わず計上・429 `rate_limited`）。保持期間に登録の窓を含めた。残りは bot 対策の要否（User判断）。
+- 店舗コード: `Math.random` → `crypto.getRandomValues`（240以上を棄却して偏りなし）。
+- 想定外の例外の 500 は `internal_error` と定型文だけ返す（内部メッセージは log のみ）。
+- docs: api-design / spec / security-review / data-safety（DS-07 済み）/ privacy-retention / PLAY-003 / SEC-005 / task-list。
+- 検証: Worker 41 files / 676 passed（新しい乱数・レート制限の単体テストは修正前で 5 件失敗。index.test の登録制限・500 文言の2件は、旧 index.js が削除した pdfParser を読み込むため旧コードでは実行できない）、`wrangler deploy --dry-run` 成功、App build 成功。
+- version: 0.152.5 → **0.152.6**。
+
+## 2026-10-08 — version 0.152.5 / スタッフ権限を古いAPIでも守る・/store/create 廃止
+
+セキュリティ確認の続き（User 依頼）。設計判断は `docs/proposals.md`（2026-10-08）でPM判断待ち。
+- 金額（`money`）の無い人: `GET /config` は `prices: {}`、`GET /history` と `/sessions/:id/lines` は単価・小計・在庫金額を null。
+  その人の `PUT /config` は単価を採らず前の値を残す。`POST /history`（訂正・ロック）は金額をサーバーの版から戻し、訂正した品目は単価×数量で計算し直す。
+  完了（`/sessions/:id/complete`）の単価は店の config から取る。実装は `worker/src/moneyGuard.js`。
+- `DELETE /history/:key`・`/orders/:id`・`/movements/:id` に `stock.discard`。
+- `/store/create` を廃止（route・`handleStoreCreate`・App の未使用 `createStore`）。SEC-005 の残りは登録の rate limit / bot 対策。
+- 既存テストの書き換え: staff.test.js（アルバイトの単価変更は 403 → 無視して 200）、index.test.js（PIN の無い店を直接入れる）。
+- 検証: Worker 40 files / 671 passed（新 `test/staffMoney.test.js` は修正前のコードで 7/8 失敗）、App 208 files / 2090 passed、build 成功。
+- 本番: Worker の apply が済むまで効かない。
+- version: 0.152.4 → **0.152.5**（origin/develop は 0.152.3。0.152.4 はこのブランチの前の push）。
+
+## 2026-10-08 — version 0.152.4 / ルームの status から参加の鍵（sessionId）を外す
+
+セキュリティ確認で発見（User 依頼で修正）。`GET /room/:code/status` は認証なしで呼べ、`sessionId` をそのまま返していた。`sessionId` はゲスト参加の鍵（`joinSessionId`）と完了結果リンク（`/room/:code/result?s=`）の鍵を兼ねるため、店舗コードを知っていれば招待リンク無しで進行中のルームへ入れ、直近の完了結果（在庫金額を含む）も読めた。
+- Worker（`index.js`）: status は、この店にログインしている端末か、`?s=` が今のセッションIDと一致する要求にだけ `sessionId` を返す。`recent` と同じ判定に揃えた。
+- App: `fetchRoomStatus(code, type, sessionId)` で `?s=` を付ける。招待リンクの入口（`_enterStoreLink`）と再開時の復帰（`_reconnectToRoom`）が持っている ID を渡す。
+- 検証: Worker 39 files / 663 passed（新テストは修正前のコードで失敗を確認）、App 208 files / 2090 passed、build 成功。
+- 本番: Worker の apply が済むまで効かない。旧 Worker でも新 App は動く（`?s=` は無視されるだけ）。
+- version: 0.152.3 → **0.152.4**。
 
 ## 2026-10-07 — version 0.152.3 / 入庫・出庫の案内のモック
 

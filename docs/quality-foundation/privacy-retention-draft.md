@@ -76,7 +76,7 @@ Web Speech APIはTWA実機で外部音声処理の有無を確定後、必要な
 - 公式support contactをVAPID、privacy、terms、Play listingで統一
 - 端末ID・端末名・位置情報/cacheの自動削除実装と公開文面の切替
 - Workers Logsの保持期間・閲覧担当・payload/masking（Free planとLogs有効化はD-020で確定済み）
-- dormant `/pdf` endpointの存廃
+- ~~dormant `/pdf` endpointの存廃~~ → 2026-10-08削除（DS-07）
 - TWA/Web Speechの実機処理
 - providerを「共有なし」の例外として扱う契約根拠
 

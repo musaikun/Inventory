@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess, tokenHash } from './authHandler.js'
 
 // ── 最小限の D1 モック（authHandler が使うクエリだけ解釈する）──────────────────
 function createMockD1() {
@@ -39,7 +39,8 @@ function createMockD1() {
       return { success: true }
     }
     if (s.startsWith('DELETE FROM auth_tokens WHERE token')) {
-      const i = tokens.findIndex(t => t.token === args[0])
+      // WHERE token IN (?, ?)（ハッシュ・旧形式の生）
+      const i = tokens.findIndex(t => t.token === args[0] || t.token === args[1])
       if (i >= 0) tokens.splice(i, 1)
       return { success: true }
     }
@@ -50,7 +51,7 @@ function createMockD1() {
       return { success: true }
     }
     if (s.startsWith('SELECT shop_code, staff_id FROM auth_tokens WHERE token')) {
-      const t = tokens.find(t => t.token === args[0])
+      const t = tokens.find(t => t.token === args[0] || t.token === args[1])
       if (!t) return null
       // expires_at > datetime('now') を時刻比較で再現
       if (new Date(t.expires_at).getTime() <= Date.now()) return null
@@ -150,7 +151,23 @@ describe('authHandler', () => {
     expect(res.shopCode).toBe(reg.shopCode)
     // 単一セッション: 有効トークンは常に最新の1つだけ
     expect(db._tokens).toHaveLength(1)
-    expect(db._tokens[0].token).toBe(res.token)
+    // 保存しているのはハッシュ（DB が漏れても使えない）。生のトークンは返したものだけ
+    expect(db._tokens[0].token).toBe(await tokenHash(res.token))
+    expect(db._tokens[0].token).not.toContain(res.token)
+  })
+
+  it('生のまま保存していた旧トークンも、失効までは使え、ログアウトで消せる', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    db._tokens.push({ token: 'legacy-raw-token', shop_code: reg.shopCode, expires_at: new Date(Date.now() + 86_400_000).toISOString() })
+    expect(await verifyAuth(db, reqWithToken('legacy-raw-token'))).toBe(reg.shopCode)
+    await handleLogout(db, reqWithToken('legacy-raw-token'))
+    expect(await verifyAuth(db, reqWithToken('legacy-raw-token'))).toBeNull()
+  })
+
+  it('ハッシュそのものを Bearer に使っても通らない（漏れた DB の値では入れない）', async () => {
+    const reg = await handleRegister(db, { pin: '1234' })
+    expect(await verifyAuth(db, reqWithToken(await tokenHash(reg.token)))).toBeNull()
+    expect(await verifyAuth(db, reqWithToken(reg.token))).toBe(reg.shopCode)
   })
 
   // 別端末ログインで前の端末のトークンが失効する（ホスト1台制限の核心）

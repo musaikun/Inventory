@@ -161,3 +161,21 @@ describe('完了スナップショットはサーバー成功後にだけ端末�
     expect(h.commitSnapshot(null)).toBeNull()
   })
 })
+
+describe('dropLocalEdit（確定済みで拒否された訂正を捨てる）', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  it('端末の訂正（dirty）を捨て、同じ revision のサーバー版でも置き換わる', async () => {
+    const h = await freshHistory()
+    h.applyRemoteHistory([snap({ serverRevision: 7, items: [{ item: 'トマト', qty: 1 }] })])
+    h.patchSnapshotItems(S1, { トマト: { qty: 99 } })
+    expect(qtyOf(h)).toBe(99)
+    // dirty のままでは、サーバーの版で潰れない
+    h.applyRemoteHistory([snap({ serverRevision: 7, items: [{ item: 'トマト', qty: 1 }] })])
+    expect(qtyOf(h)).toBe(99)
+
+    h.dropLocalEdit(S1)
+    h.applyRemoteHistory([snap({ serverRevision: 7, items: [{ item: 'トマト', qty: 1 }] })])
+    expect(qtyOf(h)).toBe(1)
+  })
+})

@@ -124,7 +124,7 @@ const {
 } = useInventory()
 
 // ── History ────────────────────────────────────────────────────────────────────
-const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
+const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, dropLocalEdit, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
 // ── Orders（発注支援）────────────────────────────────────────────────────────────
 const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
@@ -265,7 +265,7 @@ function _askNameAndJoin(code, joinSessionId = null, type = 'stock') {
 // セッションID付きリンク（?store=CODE&s=SID）の入口
 // まずライブ参加を試み、対象セッションが非アクティブなら完了結果を読み取り専用で表示する。
 async function _enterStoreLink(code, sessionId, type = 'stock') {
-  const status = await fetchRoomStatus(code, type).catch(() => null)
+  const status = await fetchRoomStatus(code, type, sessionId).catch(() => null)
   if (status?.isActive && status.sessionId === sessionId) {
     _askNameAndJoin(code, sessionId, type)   // ライブ中: ルームに参加（鍵を渡す）
     return
@@ -368,10 +368,20 @@ async function _syncHistoryFromD1(remoteHistory) {
 // ack は**送った版にだけ**効かせる（localRev）。送信中に同じセッションの新しい訂正が
 // 作られていた場合、この応答でそれを「サーバー確認済み」にすると、一度も送っていない
 // 版が未送信キューとバックフィルの対象から外れて黙って消える。
+//
+// サーバーが「確定済み（ロック済み）のため訂正できない」（409 snapshot_locked）と返したら、
+// 端末の訂正を捨ててサーバーの版を読み直す。dirty のままだと、端末だけが違う数量を見せ続け、
+// 起動のたびにバックフィルが送っては拒否されるのを繰り返す。戻り値はこのときだけ 'locked'。
 async function _pushSnapshot(snap) {
   const { dirty, synced, localRev, ...payload } = snap
-  const { ok, result } = await saveSnapshotToD1(payload)
+  const { ok, result, rejected } = await saveSnapshotToD1(payload)
   if (ok) markSnapshotSynced(snap.sessionId ?? snap.date, result, localRev ?? null)
+  if (!ok && rejected?.code === 'snapshot_locked') {
+    dropLocalEdit(snap.sessionId ?? snap.date)
+    const remote = await loadHistoryFromD1().catch(() => null)
+    if (Array.isArray(remote)) applyRemoteHistory(remote)
+    return 'locked'
+  }
   return ok
 }
 
@@ -635,7 +645,13 @@ async function onViewSession(session) {
 async function onSnapshotPatched(snap) {
   detailSnapshot.value = snap
   const saved = await _pushSnapshot(snap)
-  if (!saved) showToast('訂正はこの端末に保存しました。接続が戻ると自動で送信します', 4000, 'warning')
+  if (saved === 'locked') {
+    // 別の端末で新しい棚卸が完了し、この棚卸は確定済みになっていた。訂正は捨て、サーバーの版を見せる
+    detailSnapshot.value = getSnapshotBySessionId(snap.sessionId) ?? detailSnapshot.value
+    showToast('この棚卸は確定済みのため、訂正は保存されませんでした', 4000, 'warning')
+  } else if (!saved) {
+    showToast('訂正はこの端末に保存しました。接続が戻ると自動で送信します', 4000, 'warning')
+  }
 }
 
 // セッション一覧から「再開」
@@ -670,7 +686,7 @@ async function _reconnectToRoom(session) {
   try {
     // まず GET /status で確認（ルームを作らない）。ライブで同一セッションの時だけ復帰接続する。
     // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
-    const status = await fetchRoomStatus(shopCode.value, rtype).catch(() => null)
+    const status = await fetchRoomStatus(shopCode.value, rtype, session.id).catch(() => null)
     if (!(status?.isActive && status.sessionId === session.id)) {
       _restoreDraft(session.id)   // ライブルーム無し → 作らずオフライン継続
       return

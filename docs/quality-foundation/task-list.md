@@ -21,9 +21,9 @@ Stripe、trial、TWA、Google Play提出は引き続き保留し、D-021以前�
 | WEB-001 | P0 | 進行中 | Codex | 公開契約・独立採点基盤を更新中。production変更はWEB-01のUser判断待ち | [WEB-001.md](tasks/WEB-001.md) |
 | PLAY-002 | P0 | レビュー待ち | User | code review済み。canonicalと実機確認待ち | [PLAY-002.md](tasks/PLAY-002.md) |
 | PLAY-003 | P1 | 保留 | Codex | canonical/release candidate確定後にWeb最終照合 | [PLAY-003.md](tasks/PLAY-003.md) |
-| OPS-001 | P1 | 保留 | Codex | 事前調査済み。最小observability・構造化log・互換日確認 | [OPS-001.md](tasks/OPS-001.md) |
+| OPS-001 | P1 | レビュー待ち | Claude Code | セキュリティイベントの構造化log・masking・observability設定は実装済み（2026-10-09、User指示で Codex から引き取り）。警報の通知先・privacy文面はUser判断、互換日更新は未着手 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
-| SEC-005 | P1 | 未着手 | Codex | 公開登録とlegacy店舗作成の濫用防止 | [SEC-005.md](tasks/SEC-005.md) |
+| SEC-005 | P1 | レビュー待ち | Claude Code | 登録のIPレート制限・legacy店舗作成の廃止は実装済み（2026-10-08、User指示で Codex から引き取り）。bot対策の要否はUser判断 | [SEC-005.md](tasks/SEC-005.md) |
 | TEST-002 | P1 | 保留 | Codex | package分離済み、critical integration/E2Eが残る | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、

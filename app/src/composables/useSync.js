@@ -84,13 +84,18 @@ export async function dissolveRoomRemote(type = 'stock') {
 }
 
 // ルームの現在状態を取得（退室中ホストがゲストのライブ品目数を一覧表示するため）
-export async function fetchRoomStatus(code, type = 'stock') {
+// sessionId を渡すと、未ログインの端末でもそのIDが今のセッションと一致するときだけ status.sessionId が返る。
+export async function fetchRoomStatus(code, type = 'stock', sessionId = null) {
   if (!code || !HTTP_BASE) return null
   try {
-    // ログインしている端末は鍵を付ける（最近の変更 recent はログインしている店の端末にだけ返る）
+    // ログインしている端末は鍵を付ける（recent と sessionId はログインしている店の端末にだけ返る）
     let token = null
     try { token = localStorage.getItem(STORAGE_KEYS.authToken) } catch (_) {}
-    const r = await fetch(`${HTTP_BASE}/room/${code}/status${_typeQuery(type)}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+    const params = new URLSearchParams()
+    if (type === 'order') params.set('type', 'order')
+    if (sessionId) params.set('s', sessionId)
+    const qs = params.toString()
+    const r = await fetch(`${HTTP_BASE}/room/${code}/status${qs ? `?${qs}` : ''}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
     if (!r.ok) return null
     return await r.json()
   } catch (_) { return null }

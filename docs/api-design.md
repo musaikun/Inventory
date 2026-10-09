@@ -25,11 +25,11 @@
 
 | Method / path | 現行contract | Auth |
 |---|---|---|
-| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。rate limit/bot対策は未実装 |
+| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
 | `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
 | `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
-| `POST /store/create` | PINなしlegacy store codeを作る旧経路 | 不要。廃止/保護をSEC-005で未解消 |
+| ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
 
 `DELETE /auth/account`は棚卸/発注の2 Durable Objectsと店舗prefixのR2品目写真をpurgeし、D1の
@@ -82,11 +82,11 @@ production D1の適用状態は固定値として断定せず、release前のrea
 | `GET /room/:code/result?s=:sessionId` | 指定した完了結果を3日間返す。数量、単価、小計、合計金額、参加者別金額、前回比較に必要な直前候補を含む。共有URLを受け取った人は店舗の在庫金額を閲覧できる | 無認証。店舗code + session UUIDのURLが鍵 + IP probe制限 |
 | `GET /img/:code/:id/:t\|f` | R2の一覧用thumbまたは拡大用fullを返す。1年immutable cache。共有結果には現在画像参照を含めない | 無認証。店舗code + 推測困難な128-bit image idがURLの鍵 |
 | `GET /api/push/vapid-key` | `{key}` | 不要 |
-| `POST /pdf` | raw PDFを解析。active Bearer、宣言/実byteとも5 MiB以下 | Bearer + IP 30回/15分。全試行を計上 |
 | `GET /health` | text `OK` | 不要 |
 
-現行AppのPDF UIは`pdfjs-dist`によるclient解析で、`/pdf`を呼びません。endpointの存廃は
-PLAY-003 / WEB-001で未決です。
+`POST /pdf`（サーバーでのPDF解析）は2026-10-08に廃止しました（User決定・DS-07）。AppのPDF取込は
+`pdfjs-dist`による端末内の解析だけです。想定外の例外の500は`{ code:'internal_error' }`と定型文だけを返し、
+内部のメッセージはlogにだけ残します。
 
 ### Plan / trial
 
@@ -102,7 +102,7 @@ PLAY-003 / WEB-001で未決です。
 
 | Task | API上の未解消事項 |
 |---|---|
-| [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`の濫用防止と`/store/create`の廃止/保護 |
+| [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
 | [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0018までの適用、E2E/smoke |
 
@@ -190,14 +190,13 @@ D1 データベース                               ← データを取る
 
 | メソッド | パス | リクエスト | レスポンス | 認証 |
 |---|---|---|---|---|
-| POST | `/store/create` | — | `{ shopCode }` | 不要（PIN必須化と合わせ廃止検討・監査②） |
 | GET | `/store/:code` | — | `{ shopCode, activeRoom, plan, isPro, inTrial:false, trialEndsAt:null, ... }` / 404 | 不要 |
 | GET | `/store/:code/config` | — | 設定オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/config` | 設定オブジェクト | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/inventory` | — | 在庫オブジェクト / `{}` | ソフト† |
 | PUT | `/store/:code/inventory` | `{ inventory, recountFlags, sessionId, savedAt }` | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/history` | — | `[ { ...snapshot, sessionId, serverRevision, serverSavedAt }, ... ]`（最新50件） | ソフト† |
-| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok, sessionId, date, serverRevision, serverSavedAt }` / 400 | ソフト† |
+| POST | `/store/:code/history` | スナップショット（`{ date, ... }`） | `{ ok, sessionId, date, serverRevision, serverSavedAt }` / 400 / 409 `snapshot_locked`（ロック済みの記録は日付・品目・数量・単位を変えられない。同じ中身の送り直しは書かずに`unchanged:true`） | ソフト† |
 | DELETE | `/store/:code/history/:key` | — | `{ ok, removed }` / 400 / 503 | ソフト† |
 | PUT | `/store/:code/room` | `{ roomCode }` | `{ ok: true }` | ソフト† |
 | GET | `/store/:code/orders` | — | `[ order, ... ]` | ソフト† |
@@ -208,6 +207,11 @@ D1 データベース                               ← データを取る
 
 > † **ソフト認証**（`verifyStoreAccess`・S-02）: PIN設定済み店舗は Bearer 必須。
 > レガシー（PIN未設定）店舗は店舗コードのみで許可（後方互換・S-C の残課題）。
+> スタッフのトークンでは役割の権限も見る（2026-10-08）。`money`（金額を見る）の無い人には
+> config の`prices`を`{}`、history・`/sessions/:id/lines`の単価・小計・在庫金額を`null`にして返し、
+> その人からのconfig PUT・history POSTでは金額を採らずサーバーの前の値から戻す（数量を訂正した品目の小計と
+> 在庫金額は、サーバーの単価で計算し直す）。完了（`/sessions/:id/complete`）の単価は店のconfigから取る。
+> `DELETE /history/:key`・`/orders/:id`・`/movements/:id`は`stock.discard`が要る。
 > Push購読はレガシー例外を適用しないstrict認証。endpointは公開HTTPS、鍵はPush API / RFC 8291形式、
 > 同一endpointを別店舗へ付け替える操作は409で拒否する。
 
@@ -329,7 +333,6 @@ D1 データベース                               ← データを取る
 | POST | `/room/:code/dissolve` | 残存ルームの掃除 |
 | GET | `/room/:code/result?s=...` | 完了後ゲスト閲覧（無認証・URLが鍵・単価/小計/合計を含む → `room-url-design.md`） |
 | GET | `/api/push/vapid-key` | プッシュ公開鍵 |
-| POST | `/pdf` | PDFから品目テキスト抽出。**active Bearer必須・5 MiB・IP 30回/15分**（現行Appは未使用） |
 | GET | `/health` | 死活監視 |
 
 > 補足：リアルタイム同期だけ「HTTP（一往復）」ではなく「WebSocket（つなぎっぱなし）」を使う。

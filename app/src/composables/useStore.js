@@ -497,7 +497,8 @@ async function _sendOnce({ kind, code, resourceId, payload, rev, generation, ide
     if (cls === 'permanent') {
       _reject(kind, code, resourceId, err)
       _settle()
-      return { ok: false, result: null }
+      // 呼び出し側が拒否の理由で分岐できるように返す（例: 確定済みの棚卸 snapshot_locked）
+      return { ok: false, result: null, rejected: { status: err?.status ?? null, code: err?.code ?? null } }
     }
     if (cls === 'auth') _authBlocked = true
     _enqueue(kind, code, resourceId, rev, payload)
@@ -506,14 +507,6 @@ async function _sendOnce({ kind, code, resourceId, payload, rev, generation, ide
     _scheduleRetry()
     return { ok: false, result: null }
   }
-}
-
-// ── 店舗コード 発行 ────────────────────────────────────────────────────────────
-export async function createStore() {
-  const { shopCode: code } = await _api('/store/create', { method: 'POST' })
-  shopCode.value = code
-  localStorage.setItem(STORAGE_KEYS.shopCode, code)
-  return code
 }
 
 // ── 店舗コード 確認・読み込み ──────────────────────────────────────────────────

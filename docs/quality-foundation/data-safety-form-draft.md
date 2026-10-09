@@ -11,8 +11,8 @@
 
 - 対象はGoogle Playへ提出するタナオロの公開build。
 - 第三者analyticsは使用しない。`posthog-js`は依存から除去し、analytics callは送信しない実装とした。
-- 現行Appのfile importは端末内でparseし、原fileをserverへ送信しない。Appから未使用のWorker `/pdf`
-  endpointはこの回答の対象外とするが、公開前に削除または別途申告を決める。
+- 現行Appのfile importは端末内でparseし、原fileをserverへ送信しない。Appから未使用だったWorker `/pdf`
+  endpointは2026-10-08に削除した（DS-07）。
 - camera映像・barcodeは端末内処理で、serverへ送信しない。
 - microphoneはWeb Speech APIのTWA実機挙動を確認するまで最終回答しない。
 - account削除成功時は、業務data・認証情報に加えて端末ID・端末名・天気の位置情報とcacheも端末から削除する。
@@ -76,7 +76,7 @@ Play Consoleの選択肢に合う場合、棚卸品目名、数量、価格、�
 - [x] `DS-05`: D-020のFree plan / D1 Time Travel 7日と復元runbookを公式仕様・公開privacyへ反映
 - [ ] `DS-04`: Workers Logs有効化・Free保持3日は確認済み。閲覧担当・payload/masking・alertを確定
 - [ ] `DS-06`: TWA実機でmicrophone処理とnetworkを確認
-- [ ] `DS-07`: dormant `/pdf` endpointの存廃を確定
+- [x] `DS-07`: dormant `/pdf` endpointは削除（User決定 2026-10-08）
 - [ ] `DS-08`: privacy / terms / supportのHTTPS URLと統一contactを公開
 - [ ] Cloudflare、Open-Meteo、BigDataCloud、Push serviceのprovider/共有例外を契約・policyで確認
 - [ ] 公開buildのnetworkでPostHog requestがなく、HTTPS/WSS以外のdata送信がないことを確認

@@ -51,8 +51,8 @@ function createMockD1({ failBatchOnce = false } = {}) {
       return row ? { request_id: row.request_id, completed_at: row.completed_at } : null
     }
     if (s.includes('FROM auth_tokens t JOIN stores s')) {
-      const token = state.auth_tokens.find(row =>
-        row.token === args[0] && new Date(row.expires_at).getTime() > Date.now())
+      const token = state.auth_tokens.find(row =>   // token IN (ハッシュ, 生)
+        (row.token === args[0] || row.token === args[1]) && new Date(row.expires_at).getTime() > Date.now())
       if (!token) return null
       const store = state.stores.find(row => row.shop_code === token.shop_code)
       if (!store) return null

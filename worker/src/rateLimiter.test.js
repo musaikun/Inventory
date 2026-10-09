@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { clientIp, isIpBlocked, recordIpFail, cleanupExpiredSecurityRecords } from './rateLimiter.js'
-import { IP_MAX_FAILS, SECURITY_ATTEMPT_RETENTION_MS } from './constants.js'
+import { IP_MAX_FAILS, SECURITY_ATTEMPT_RETENTION_MS, REGISTER_MAX_PER_IP, REGISTER_WINDOW_MS } from './constants.js'
 
 function createMockD1() {
   const rows = []
@@ -92,6 +92,27 @@ describe('isIpBlocked / recordIpFail', () => {
     for (let i = 0; i < IP_MAX_FAILS; i++) await recordIpFail(db, '1.2.3.4', 'login')
     expect(await isIpBlocked(db, '1.2.3.4', 'probe')).toBe(false)
     expect(await isIpBlocked(db, '1.2.3.4', 'login')).toBe(true)
+  })
+
+  it('register は既定より少ない回数・長い窓（1時間）で止める', async () => {
+    expect(REGISTER_MAX_PER_IP).toBeLessThan(IP_MAX_FAILS)
+    // 30分前の登録も1時間の窓の内側なので数える（既定の15分窓なら数えない）
+    db._rows.push({ ip: '1.2.3.4', kind: 'register', attempted_at: new Date(Date.now() - 30 * 60 * 1000).toISOString() })
+    for (let i = 0; i < REGISTER_MAX_PER_IP - 2; i++) await recordIpFail(db, '1.2.3.4', 'register')
+    expect(await isIpBlocked(db, '1.2.3.4', 'register')).toBe(false)
+    await recordIpFail(db, '1.2.3.4', 'register')
+    expect(db._rows.filter(r => r.kind === 'register')).toHaveLength(REGISTER_MAX_PER_IP)   // 30分前の行は掃除されない
+    expect(await isIpBlocked(db, '1.2.3.4', 'register')).toBe(true)
+  })
+
+  it('register の記録は1時間を過ぎたら数えない', async () => {
+    const old = new Date(Date.now() - REGISTER_WINDOW_MS - 60_000).toISOString()
+    for (let i = 0; i < REGISTER_MAX_PER_IP; i++) db._rows.push({ ip: '1.2.3.4', kind: 'register', attempted_at: old })
+    expect(await isIpBlocked(db, '1.2.3.4', 'register')).toBe(false)
+  })
+
+  it('保持期間は register の窓（1時間）を含む', () => {
+    expect(SECURITY_ATTEMPT_RETENTION_MS).toBeGreaterThanOrEqual(REGISTER_WINDOW_MS)
   })
 
   it('recordIpFail は窓の外の古い行を掃除する', async () => {

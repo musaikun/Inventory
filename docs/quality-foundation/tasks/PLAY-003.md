@@ -25,7 +25,7 @@
   削除失敗、logout、account切替では保持する境界も一致した。Cloudflare公式でD1 Time Travel Free 7日、
   Workers Logs Free 3日を再確認した。対象5 files / 81 tests、App全体58 files / 502 tests、
   App production build、`git diff --check`が成功した。
-- W1の残り: 公開URL/contact、`/pdf`存廃、Workers Logsの閲覧担当・payload masking・alert、
+- W1の残り: 公開URL/contact、`/pdf`存廃（2026-10-08削除で解消）、Workers Logsの閲覧担当・payload masking・alert、
   provider共有例外、0010/0011適用承認、公開build networkを確定する。
 - A1へ保留: TWA microphone、Play Data Safety formのConsole最終照合。
 - 完了条件:

@@ -34,6 +34,7 @@
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { toReadingCoords } from '../utils/pdfTableParser.js'
+import { pdfDocumentOptions } from '../utils/pdfjsOptions.js'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
@@ -100,7 +101,7 @@ onMounted(async () => {
   try {
     _pdfjsLib = await getPdfjs()
     const data = new Uint8Array(await props.file.arrayBuffer())
-    _pdf = await _pdfjsLib.getDocument({ data, cMapUrl: cMapUrl(), cMapPacked: true }).promise
+    _pdf = await _pdfjsLib.getDocument(pdfDocumentOptions(data, cMapUrl())).promise
     pageCount.value = _pdf.numPages
 
     // 全ページのテキスト。**読み方向へそろえた座標**で渡す（回転した帳票をここで吸収する）。

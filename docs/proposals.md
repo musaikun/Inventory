@@ -30,6 +30,35 @@ PMがトリアージし、採否と恒久docsへの反映先を「PM判断」欄
 - [2026-08](quality-foundation/archive/proposals-2026-08.md)
 - [2026-07](quality-foundation/archive/proposals-2026-07.md)
 
+## 2026-10-08: App の PDF.js（pdfjs-dist）は 5.6 のまま据え置く（提案元: User依頼のセキュリティ確認 / Claude Code）
+
+- **概要**: `pdfjs-dist` 5.6.205 は既知の脆弱性 GHSA-hq66-cqwq-w95j（細工したPDFでスクリプト実行、修正は 6.2.108）の範囲にあるが、今は 6 系へ上げない。
+  代わりに、脆弱性の前提に当たらないことをテストで固定し、PDF を開く設定を明示した（`app/src/utils/pdfjsOptions.js`）。
+- **背景・根拠**: 公開情報では前提が「`enableScripting` 有効（pdf.js ビューアの既定）」と「スクリプトを許す CSP」。回避策は「`enableScripting` を false にするか CSP を設定する」。
+  App は canvas への描画と文字の取り出しだけで、注釈レイヤー・PDF内スクリプト・ビューア部品を使わない。公開 CSP は `script-src 'self' 'wasm-unsafe-eval'`（inline・eval 不可）。
+  一方 6.0 で対応ブラウザが **Safari 18 / Chrome 125 以上**に上がり（pdf.js #21152）、iOS 17 以前の端末で PDF 取込が動かなくなりうる。
+- **影響範囲 / 実装状況**: 実装済み（v0.152.8）。`getDocument` は `pdfDocumentOptions`（`isEvalSupported:false`・`enableXfa:false`）だけを通す。
+  `pdfjsOptions.test.js` が「getDocument は共通設定だけ」「AnnotationLayer / enableScripting / pdf_viewer を使わない」「CSP が inline・eval を許さない」を固定。
+  Worker 側の pdfjs は `/pdf` 廃止で削除済み。ほかの依存の指摘（vue 3.5.43 / nanoid / source-map-js / dompurify）は互換範囲で更新した。
+- **PM判断（User）**: ⬜ 6 系へ上げる時期（PDF取込の対象を iOS 18 以上に絞ってよいか）
+
+## 2026-10-08: スタッフ権限を古いAPIでもサーバーで守る（金額・削除）（提案元: User依頼のセキュリティ確認 / Claude Code）
+
+- **概要**: 段 2-3 の役割の権限を、権限チェックの無かった古い API（config / history / orders / movements）にも効かせる。
+  金額（`money`）の無い人には単価・小計・在庫金額を落として返し、その人からの保存では金額をサーバーの前の値から戻す。
+  あわせて未使用の `/store/create`（PIN の無い店舗を認証なしで作る）を廃止した。
+- **背景・根拠**: 金額は画面で隠していただけで、アルバイトのトークンで `GET /store/:code/config` や `/history` を直接呼べば単価・在庫金額が読めた。
+  履歴・発注・入出庫の削除も役割を見ていなかった。新しいセッション系 API は既に `_requirePerm` で守っている。
+- **判断したこと（PM確認したい点）**:
+  - 金額の無い人が config で単価を送ってきたら、**403 ではなく無視**（前の単価を残して 200）。その人の端末は単価を持っていないので、丸ごと PUT は常に「単価が空」になる。403 にすると品目を足す（誰でもできる）が通らなくなる。既存テスト（staff.test.js の単価変更 403）はこの挙動へ書き換えた。
+  - 履歴の訂正・ロック（丸ごと POST）は、金額を前の版から戻す。数量を訂正した品目の小計と在庫金額はサーバーの単価で計算し直す（端末の訂正と同じ式）。
+  - 棚卸の完了（`/sessions/:id/complete`）は、金額の無い人なら単価を店の config から取る（以前は端末の単価を使い、その端末が単価を持たないと在庫金額が記録されない）。応答の `totalValue` は null にする。
+  - `DELETE /history/:key`・`/orders/:id`・`/movements/:id` は `stock.discard`（棚卸・発注を破棄する・戻す）を要求。orders / movements の削除は App から呼ばれていない。
+- **残り → 同日対応**: ルーム（DO）のホストへの単価は v0.152.9 で、ロック済み履歴の書き換えは v0.152.7 で塞いだ（session-log 参照）。
+- **影響範囲 / 実装状況**: 実装済み（v0.152.5）。`worker/src/moneyGuard.js`（新規）、`worker/src/index.js`、`storeHandler.js`（`handleHistoryGetOne`、`handleStoreCreate` 削除）、
+  App の未使用 `createStore` 削除。テスト `worker/test/staffMoney.test.js`（修正前のコードで 7/8 失敗を確認）。docs: api-design / security-review / spec / SEC-005。
+- **PM判断**: ⬜未トリアージ
+
 ## 2026-10-07: やること（TODO）の本格化と「今日」タブ（提案元: User相談 / Claude Code）
 
 - **概要**: やることを毎日の業務の入口にする。A（直す・時刻・期限切れの持ち越し・担当の人への通知）→ B（繰り返し・チェックリスト）→ C（記録付き＝温度・メモ・写真。衛生管理の記録）の順。

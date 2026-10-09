@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-
-vi.mock('./pdfParser.js', () => ({ parsePdfFile: async () => ({}) }))
+import { describe, it, expect, beforeEach } from 'vitest'
 
 import worker from './index.js'
 
@@ -27,7 +25,7 @@ function createMockD1({ failTables = [] } = {}) {
     }
 
     if (s.startsWith('SELECT') && s.includes('FROM auth_tokens')) {
-      const t = tokens.find(t => t.token === args[0])
+      const t = tokens.find(t => t.token === args[0] || t.token === args[1])   // token IN (ハッシュ, 生)
       if (!t || new Date(t.expires_at).getTime() <= Date.now()) return null
       return { shop_code: t.shop_code }
     }
@@ -84,7 +82,7 @@ function createMockD1({ failTables = [] } = {}) {
       return { success: true }
     }
     if (s.startsWith('DELETE FROM auth_tokens WHERE token')) {
-      const i = tokens.findIndex(t => t.token === args[0])
+      const i = tokens.findIndex(t => t.token === args[0] || t.token === args[1])
       if (i >= 0) tokens.splice(i, 1)
       return { success: true }
     }
@@ -315,6 +313,32 @@ describe('Worker ルーティング（特性テスト）', () => {
     expect(body.token).toBeTruthy()
   })
 
+  it('POST /auth/register は同じ IP から1時間に5回まで（6回目は 429・別の IP は通る）', async () => {
+    for (let i = 0; i < 4; i++) {
+      const ok = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.50' }), env)
+      expect(ok.status).toBe(200)
+    }
+    // 失敗（PIN 不正）も1回に数える。数えないと、不正な要求を投げ続けて窓を探れる
+    const bad = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '12' }, ip: '203.0.113.50' }), env)
+    expect(bad.status).toBe(400)
+    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.50' }), env)
+    expect(res.status).toBe(429)
+    expect((await res.json()).code).toBe('rate_limited')
+    expect(db._ipRows.filter(r => r.ip === '203.0.113.50' && r.kind === 'register')).toHaveLength(5)
+    const other = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.51' }), env)
+    expect(other.status).toBe(200)
+  })
+
+  it('想定外の例外では、内部のエラーメッセージを返さない（500・定型文）', async () => {
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    env.ROOMS.get = () => ({ fetch: async () => { throw new Error('D1_ERROR: no such table: secret_internal_table') } })
+    const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('internal_error')
+    expect(JSON.stringify(body)).not.toContain('secret_internal_table')
+  })
+
   it('Pro Review envの登録店舗はplan=proになる', async () => {
     env.DEFAULT_STORE_PLAN = 'pro'
     const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)
@@ -449,8 +473,10 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('レガシー店舗（PIN未設定）の config PUT はトークン無しでも 200', async () => {
-    const created = await (await worker.fetch(makeReq('POST', '/store/create'), env)).json()
-    const res = await worker.fetch(makeReq('PUT', `/store/${created.shopCode}/config`, { body: { items: [] } }), env)
+    // PIN の無い店舗を作る旧経路（/store/create）は廃止したので、既存の店として直接入れる
+    const now = new Date().toISOString()
+    await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)').bind('LEGACY', now, now).run()
+    const res = await worker.fetch(makeReq('PUT', '/store/LEGACY/config', { body: { items: [] } }), env)
     expect(res.status).toBe(200)
   })
 
@@ -711,6 +737,21 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
     expect(authed.recent).toEqual([{ item: 'トマト', qty: 3 }])
   })
 
+  it('sessionId（参加の鍵）は店舗コードだけでは読めない。ログイン端末か、同じIDを持つリンクにだけ返す', async () => {
+    const sid = '6f1c2a3e-9b7d-4c1e-8a2f-0d5e4b3c2a10'
+    env.ROOMS.get = () => ({ fetch: async () => new Response(JSON.stringify({ isActive: true, sessionId: sid }), { status: 200 }) })
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const anon = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)).json()
+    expect(anon.isActive).toBe(true)
+    expect(anon.sessionId).toBeUndefined()
+    const wrong = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status?s=other`), env)).json()
+    expect(wrong.sessionId).toBeUndefined()
+    const link = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status?s=${sid}`), env)).json()
+    expect(link.sessionId).toBe(sid)
+    const authed = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`, { token: reg.token }), env)).json()
+    expect(authed.sessionId).toBe(sid)
+  })
+
   it('ルームプローブ失敗が IP 単位で記録される', async () => {
     await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
     expect(db._ipRows.filter(r => r.ip === '203.0.113.9' && r.kind === 'probe')).toHaveLength(1)
@@ -889,49 +930,14 @@ describe('S-E: 許可外 Origin のリクエストは 403', () => {
   })
 })
 
-// ── S-D: /pdf の認証・サイズ上限・レート制限 ──────────────────────────────────
-describe('S-D: /pdf エンドポイントのガード', () => {
-  function pdfReq({ token, contentLength, bytes = 10, ip } = {}) {
-    const buf = new ArrayBuffer(bytes)
-    return {
-      method: 'POST', url: 'https://api.test/pdf',
-      headers: { get: (h) => {
-        if (h === 'Authorization' && token) return `Bearer ${token}`
-        if (h === 'CF-Connecting-IP')       return ip ?? '198.51.100.7'
-        if (h === 'Content-Length')         return contentLength != null ? String(contentLength) : null
-        return null
-      } },
-      json: async () => ({}),
-      arrayBuffer: async () => buf,
-    }
-  }
-
-  it('認証なしは 401', async () => {
-    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
-    const res = await worker.fetch(pdfReq({}), env)
-    expect(res.status).toBe(401)
-  })
-
-  it('Content-Length が上限超過なら 413（本体を読む前に弾く）', async () => {
+// ── /pdf は廃止（User決定 2026-10-08・DS-07）。認証済みでも PDF を受け付けない ─────────
+describe('/pdf の廃止', () => {
+  it('認証ありでも 404（サーバーで PDF を解析しない）', async () => {
     const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
     const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 6 * 1024 * 1024 }), env)
-    expect(res.status).toBe(413)
-  })
-
-  it('認証あり・小さいPDFは 200（parsePdfFile はモック）', async () => {
-    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 1000, bytes: 1000 }), env)
-    expect(res.status).toBe(200)
-  })
-
-  it('IPレート制限: 上限超過で 429', async () => {
-    const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    // ip_attempts を pdf kind で上限まで積む（IP_MAX_FAILS=30）
-    for (let i = 0; i < 30; i++) db._ipRows.push({ ip: '198.51.100.7', kind: 'pdf', attempted_at: new Date().toISOString() })
-    const res = await worker.fetch(pdfReq({ token: reg.token, contentLength: 1000 }), env)
-    expect(res.status).toBe(429)
+    const res = await worker.fetch(new Request('https://api.test/pdf', {
+      method: 'POST', headers: { Authorization: `Bearer ${reg.token}` }, body: new Uint8Array(1000),
+    }), env)
+    expect(res.status).toBe(404)
   })
 })

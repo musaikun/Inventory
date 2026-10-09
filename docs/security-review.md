@@ -13,13 +13,13 @@
 
 | 境界 | 現行実装 | 根拠 |
 |---|---|---|
-| PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、login成功時は同店舗の既存tokenを失効 | [`authHandler.js`](../worker/src/authHandler.js) |
-| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
+| PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、login成功時は同店舗の既存tokenを失効。2026-10-08からD1にはtokenのSHA-256（`h1:`）だけを保存し、生で保存した旧tokenは失効まで併用で照合（保存値そのものは照合に使わない）。**Workerを2026-10-08以前の版へ戻すと、それ以降に発行したtokenは無効になり再ログインが要る** | [`authHandler.js`](../worker/src/authHandler.js) |
+| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗、登録はIP単位1時間5回（成否を問わず）。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
 | HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/pushはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
 | WebSocket | Workerがactive店舗をD1確認してからDOへ転送。join前はping以外を遮断し、PIN設定店舗のhost再発行は同店舗Bearer必須。D1障害・binding欠落は503/auth失敗で閉じる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js) |
-| guest data | 進行中WSのguest configから単価を除去し、未参加socketにはbroadcastしない。完了後の共有resultはUser判断により単価・小計・合計金額を含む。店舗code + session UUIDのURLを知る人が3日間閲覧できる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`room-url-design.md`](room-url-design.md) |
+| guest data | 進行中WSのguest configから単価を除去し（キーごと。2026-10-08から金額を見られないスタッフのhostにも）、未参加socketにはbroadcastしない。金額（`money`）の無いスタッフにはHTTPでも単価・在庫金額を返さない。完了後の共有resultはUser判断により単価・小計・合計金額を含む。店舗code + session UUIDのURLを知る人が3日間閲覧できる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`room-url-design.md`](room-url-design.md) |
 | account削除 | Bearer + PIN + 店舗code + UUID requestId。削除中は通常accessを遮断し、stock/order DOの接続・alarm・storageを破棄後、D1関連data/tokenをbatch削除。匿名receipt/tombstoneは7日 | [account deletion contract](quality-foundation/account-deletion-contract.md)、[`accountDeletion.js`](../worker/src/accountDeletion.js) |
-| payload / Push | config/inventory/history/order/movementは約1MB guard。Pushはstrict auth、8KiB、HTTPS endpoint/key形式、owner境界。PDFはauth、5MiB、IP rate limit | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`pushHandler.js`](../worker/src/pushHandler.js) |
+| payload / Push | config/inventory/history/order/movementは約1MB guard。Pushはstrict auth、8KiB、HTTPS endpoint/key形式、owner境界。`/pdf`は2026-10-08廃止 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`pushHandler.js`](../worker/src/pushHandler.js) |
 | 品目写真 | upload/deleteはstrict同店舗Bearer。thumb 64KiB/full 700KiB、JPEG/WebPの実byteを検証し、非公開R2へ保存。readは`<store>/<128-bit id>/<variant>`を鍵とする無認証URLで1年cache。account削除は店舗prefixをpurgeする | [`imageHandler.js`](../worker/src/imageHandler.js)、[`imageHandler.test.js`](../worker/src/imageHandler.test.js) |
 | browser policy | Pages sourceにCSP、`nosniff`、frame拒否、referrer/permission policyがある。scriptはself、接続先はWorker、weather、PostHog EUへ限定 | [`_headers`](../app/public/_headers) |
 | PostHog | SDKは3つのbuild条件（enabled/key/EU host）と明示同意が揃う場合だけ遅延初期化し、custom event/property allowlistを二重検証。自動capture/replay/error/logはoff | [`analytics.js`](../app/src/utils/analytics.js)、[`PRIV-001`](quality-foundation/tasks/PRIV-001.md) |
@@ -38,13 +38,14 @@
 | 優先 | Gap / release影響 | 追跡先 |
 |---|---|---|
 | P0 | canonicalとrelease candidateを固定し、productionの許可/拒否Originを対象SHA付きで再確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-02 |
-| P1 | `/auth/register`にrate limit/bot対策がなく、legacy `/store/create`も無認証で店舗を作成できる | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
+| P1 | `/auth/register`のbot対策がない（IPごと1時間5回の制限とlegacy `/store/create`廃止は2026-10-08実装） | [`SEC-005`](quality-foundation/tasks/SEC-005.md) / WEB-05 |
 | P1 | 共有resultは無認証URLで金額を含む。UI・privacy・運用説明を一致させ、URL漏洩時の扱いをrelease確認する | [`DOC-002`](quality-foundation/tasks/DOC-002.md) / WEB-09〜10 |
 | P1 | 品目写真readは認証なしで、推測困難なURLをaccess境界とする。production R2 binding、別店舗upload/delete拒否、URL漏洩、account削除後404を実環境で確認していない | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-09〜10 |
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
 | P1 | DATA-001/002・IMPORT-001の原子性/履歴修正は完了したが、release candidateの実D1・別browser確認は未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-07 |
 | P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
 | P1 | production migrationは0018までpreflightが必要。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P2 | Appの`pdfjs-dist` 5.6.205は既知の脆弱性（GHSA-hq66-cqwq-w95j、修正は6.2.108）の範囲。前提（PDF内スクリプトを有効にした注釈レイヤー、スクリプトを許すCSP）にAppは当たらず、`pdfjsOptions.test.js`で固定。6系は対応ブラウザがSafari 18 / Chrome 125以上でPDF取込の対象端末が減るため、上げる時期はUser判断（2026-10-08 `proposals.md`） | `proposals.md` |
 | P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |
 
 本更新ではlegal page契約test（59件）とApp production buildを実行して成功した。
@@ -167,7 +168,9 @@ App全test、Worker test、browser/remote probeは未実行。remote事実は202
   許可 Origin を個別反映。Origin 無し（同一/WS/S2S）は許可。wrangler.toml を本番ドメインに設定。
 - **テスト**: `index.test.js` — 許可/拒否/なりすまし/カンマ区切り/403 の6ケース。
 
-### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）
+### S-D ✅ /pdf のガード（経済的DoS対策）（2026-07-21）→ 2026-10-08 endpointごと廃止
+- **2026-10-08**: User決定（DS-07）で`/pdf`と`worker/src/pdfParser.js`、Workerの`pdfjs-dist`依存を削除した。
+  `pdfjs-dist` 5.6系の既知の脆弱性（GHSA-hq66-cqwq-w95j）をサーバー側に持たない。以下は当時の記録。
 - **対策**: ①IPレート制限（kind='pdf'・15分/30回）②認証必須 ③サイズ上限5MB
   （Content-Length＋arrayBuffer.byteLength）。重い処理前に安価なゲートで弾く順序。
   現行クライアントはPDFをローカル解析するため本EPは未使用だがDoS面を塞ぐため強化。

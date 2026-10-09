@@ -1,7 +1,8 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
 import { inventoryLineStatements } from './inventoryLines.js'
-import { _now, genUniqueShopCode } from './workerUtils.js'
+import { _now } from './workerUtils.js'
+import { securityEvent } from './securityLog.js'
 import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN, MAX_MOVEMENT_BY_LEN, MOVEMENT_RESTORE_WINDOW_MS,
@@ -89,15 +90,6 @@ function _tooLarge(body) {
   return jsonByteLength(body) > MAX_PAYLOAD_BYTES
 }
 
-// POST /store/create
-export async function handleStoreCreate(db) {
-  const code = await genUniqueShopCode(db)
-  const now  = _now()
-  await db.prepare('INSERT INTO stores (shop_code, created_at, updated_at) VALUES (?, ?, ?)')
-    .bind(code, now, now).run()
-  return { shopCode: code }
-}
-
 // GET /store/:code
 export async function handleStoreGet(db, code) {
   const row = await db.prepare(
@@ -171,6 +163,18 @@ export async function handleHistoryGet(db, code) {
   })
 }
 
+// POST /history で上書きされる1件（同じ鍵の行）を読む。無ければ null。
+// 鍵は historySnapshotStatement と同じ（sessionId があれば session_id、無ければ日付の legacy 行）。
+export async function handleHistoryGetOne(db, code, snapshot) {
+  const sessionId = parseClientId(snapshot?.sessionId) ?? null
+  const row = sessionId
+    ? await db.prepare('SELECT snapshot_json FROM store_history WHERE shop_code = ? AND session_id = ?').bind(code, sessionId).first()
+    : await db.prepare('SELECT snapshot_json FROM store_history WHERE shop_code = ? AND snapshot_date = ? AND session_id IS NULL')
+      .bind(code, snapshot?.date || _now().slice(0, 10)).first()
+  if (!row?.snapshot_json) return null
+  try { return JSON.parse(row.snapshot_json) } catch (_) { return null }
+}
+
 // store_history の revision は「同じ店舗の最大値 + 1」。
 // upsert のたびに採番し直すので、同じ行を上書きしても必ず増える。
 // D1 の書き込みは1データベース1直列なので、この式で採番の衝突は起きない。
@@ -200,6 +204,7 @@ export function historySnapshotStatement(db, code, snapshot, now) {
       ON CONFLICT(shop_code, session_id) WHERE session_id IS NOT NULL DO UPDATE
         SET snapshot_json = excluded.snapshot_json, snapshot_date = excluded.snapshot_date,
             updated_at = excluded.updated_at, revision = excluded.revision
+        WHERE json_extract(store_history.snapshot_json, '$.locked') IS NOT 1
     `).bind(code, sessionId, date, json, now, now, code)
   }
   return db.prepare(`
@@ -208,6 +213,7 @@ export function historySnapshotStatement(db, code, snapshot, now) {
     ON CONFLICT(shop_code, snapshot_date) WHERE session_id IS NULL DO UPDATE
       SET snapshot_json = excluded.snapshot_json,
           updated_at = excluded.updated_at, revision = excluded.revision
+      WHERE json_extract(store_history.snapshot_json, '$.locked') IS NOT 1
   `).bind(code, date, json, now, now, code)
 }
 
@@ -304,6 +310,16 @@ export function readStampResult(result) {
   return { serverRevision: row.revision ?? 0, serverSavedAt: row.updated_at ?? row.created_at ?? null }
 }
 
+// 記録の中身（日付と、品目・数量・単位の並び）が同じか。金額は比べない
+// （金額を見られない人の端末は金額を持たず、保存時にサーバーの値から戻している）。
+function _sameRecord(a, b) {
+  const core = s => JSON.stringify([
+    s?.date ?? null,
+    (Array.isArray(s?.items) ? s.items : []).map(it => [it?.item ?? null, it?.qty ?? null, it?.unit ?? '']),
+  ])
+  return core(a) === core(b)
+}
+
 // POST /store/:code/history
 // 過去取込・訂正など、棚卸完了以外の経路から1件保存する。
 // 棚卸完了は handleSessionComplete が同じ batch で書くので、こちらを使わない。
@@ -317,6 +333,20 @@ export async function handleHistoryPost(db, code, body) {
 
   const sessionId = parseClientId(body?.sessionId)
   if (sessionId === undefined) return { _status: 400, code: 'invalid_id', error: 'セッションIDの形式が不正です' }
+
+  // 恒久ロック済み（新しい棚卸の完了で確定した）記録は書き換えさせない。画面では止めているが、
+  // API を直接呼べば数量も在庫金額も書き換えられた。正当に届くのは、ロックの送り直し（中身が同じ）だけ。
+  // 中身が同じなら書かずに今の版を返す（参加者・変更履歴などを差し替えさせない）。
+  // 下の upsert にも同じ条件を入れてあり、この確認と書き込みの間にロックされても上書きしない。
+  const existing = await handleHistoryGetOne(db, code, { sessionId, date })
+  if (existing?.locked === true) {
+    if (!_sameRecord(existing, body)) {
+      securityEvent('snapshot_locked', { shop: code })
+      return { _status: 409, code: 'snapshot_locked', retryable: false, error: 'この棚卸は確定済みのため訂正できません' }
+    }
+    const stamp = readStampResult({ results: [await historyStampStatement(db, code, { sessionId, date }).first()].filter(Boolean) })
+    if (stamp) return { ok: true, sessionId, date, ...stamp, unchanged: true }
+  }
 
   // 保存と revision の読み戻しを同じ batch（=1トランザクション）へ入れる（§5）。
   let results
@@ -902,12 +932,19 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
 // ── 発注 API ───────────────────────────────────────────────────────────────────
 // 発注レコードの正は D1。学習（曜日別・適正在庫）はクライアントが order_lines から算出する。
 
+// GET の `?sinceDays=` から「この日以降」を作る（1〜1000日）。
+// 指定が無い・数でないときは既定の日数。`Number(null)` は 0 なので、そのまま数として扱うと
+// 「指定なし」が「1日」へ丸められ、App（sinceDays を付けずに呼ぶ）には直近1日ぶんしか返らなかった。
+function _sinceDate(sinceDays, defaultDays) {
+  const n = sinceDays == null || sinceDays === '' ? NaN : Number(sinceDays)
+  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : defaultDays
+  return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+}
+
 // GET /store/:code/orders?sinceDays=400
 // 直近 sinceDays 日ぶんの発注レコードを新しい順で返す（クライアントの applyRemoteOrders 用）。
 export async function handleOrdersGet(db, code, sinceDays) {
-  const n     = Number(sinceDays)
-  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 400)
 
   const heads = (await db.prepare(
     'SELECT id, order_date, supplier, axis, session_id, saved_at FROM orders WHERE shop_code = ? AND order_date >= ? ORDER BY order_date DESC LIMIT 1000'
@@ -1089,9 +1126,7 @@ export async function handleOrderDelete(db, code, id) {
 // GET /store/:code/movements?sinceDays=400
 // 直近 sinceDays 日ぶんの入出庫レコードを新しい順で返す（クライアントの applyRemoteMovements 用）。
 export async function handleMovementsGet(db, code, sinceDays) {
-  const n     = Number(sinceDays)
-  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 400)
 
   const heads = (await db.prepare(
     'SELECT id, move_date, type, note, order_id, saved_at, deleted_at, created_by FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
@@ -1998,9 +2033,7 @@ function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) 
 
 // GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの
 export async function handleTasksGet(db, code, sinceDays) {
-  const n = Number(sinceDays)
-  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 120
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
       assign_mode, assignee_id, assignee_name, done_list_json, due_time
