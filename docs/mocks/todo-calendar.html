@@ -1,0 +1,284 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>やること（カレンダー統合） モック</title><style>
+  :root {
+    --primary: #0e7490; --deep: #155e75; --bg: #edf5f7; --surface: #fff; --text: #12303a; --muted: #4c6a72; --border: #d6e6ea;
+    --grad-btn: linear-gradient(90deg, #22d3ee, #34d399); --grad-ring: linear-gradient(90deg, #2563eb, #22d3ee 55%, #34d399);
+    --night: #06222b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #c9d8dd; color: var(--text); padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .lead { font-size: 13px; color: var(--muted); margin-bottom: 18px; max-width: 980px; line-height: 1.6; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: grid; gap: 8px; }
+  .cap { font-size: 14px; font-weight: 800; }
+  .cap small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; max-width: 360px; line-height: 1.5; }
+  .arrow { align-self: center; font-size: 13px; color: var(--muted); text-align: center; width: 120px; line-height: 1.5; }
+  .arrow b { display: block; font-size: 28px; color: var(--primary); }
+  .phone { width: 360px; height: 760px; background: var(--bg); border-radius: 30px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 34px rgba(0,0,0,.2); border: 6px solid #0b1f26; position: relative; }
+
+  /* ── ホーム ── */
+  .scroll { flex: 1; overflow: hidden; position: relative; }
+  .hero { position: relative; height: 250px; padding: 16px 18px; color: #e6fbff; overflow: hidden;
+    background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, var(--night) 100%); }
+  .hero svg.ring { position: absolute; right: -80px; top: 40px; opacity: .9; }
+  .hero .glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); }
+  .top { position: relative; display: flex; align-items: center; gap: 8px; }
+  .brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
+  .store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); }
+  .av { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--night); background: var(--grad-btn); }
+  .hi { position: relative; margin-top: 26px; }
+  .hi small { display: block; font-size: 12px; color: #9fd8e3; letter-spacing: .04em; }
+  .hi b { display: block; font-size: 24px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; }
+  .hi .wx { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
+  .today { position: relative; margin: -64px 14px 0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; }
+  .today .pr { flex: none; position: relative; width: 72px; height: 72px; }
+  .today .pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; line-height: 1.1; }
+  .today .pr span small { display: block; font-size: 9.5px; color: var(--muted); font-weight: 700; text-align: center; line-height: 1; }
+  .today .tx { flex: 1; min-width: 0; display: grid; gap: 4px; }
+  .today .tt { font-size: 13px; font-weight: 800; color: var(--muted); display: flex; justify-content: space-between; }
+  .today .tt i { font-style: normal; color: var(--primary); }
+  .today .ln { font-size: 13px; display: flex; gap: 6px; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .today .ln em { font-style: normal; font-weight: 800; font-size: 11px; flex: none; }
+  .today .ln.late em { color: #b91c1c; }
+  .today .ln.next em { color: var(--primary); }
+  .today .ln.mine { color: var(--primary); font-weight: 800; }
+  .pill { margin: 12px 14px 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; border: 1.5px solid #a5f3fc; font-size: 13px; }
+  .pill b { font-size: 13.5px; }
+  .pill small { color: var(--muted); font-size: 11.5px; }
+  .pill .go { margin-left: auto; font-size: 12.5px; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 6px 12px; border-radius: 999px; }
+  .pill.order { border-color: #fed7aa; }
+  .pill.order .go { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+  .sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--muted); }
+  .grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sc { position: relative; background: #fff; border-radius: 18px; padding: 14px 6px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .sc .ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
+  .sc.hot .ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
+  .sc.ord .ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
+  .sc b { font-size: 12.5px; display: block; }
+  .sc small { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .sc .bd { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
+  .bd.red { background: #fee2e2; color: #b91c1c; } .bd.cy { background: #cffafe; color: var(--deep); } .bd.or { background: #ffedd5; color: #c2410c; }
+
+  .nav { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border-top: 1px solid var(--border); }
+  .nav div { text-align: center; font-size: 10px; padding: 7px 0 12px; color: #7d969c; font-weight: 700; position: relative; }
+  .nav svg { display: block; margin: 0 auto 2px; }
+  .nav div.on { color: var(--primary); }
+  .nav div.on::before { content: ''; position: absolute; top: 0; left: 26%; right: 26%; height: 3px; border-radius: 3px; background: var(--grad-ring); }
+
+  /* ── やること ── */
+  .hd { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; background: #fff; }
+  .hd .back { color: var(--primary); font-weight: 800; font-size: 14px; }
+  .hd b { font-size: 17px; }
+  .hd .cnt { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .seg { flex: none; display: flex; gap: 6px; padding: 0 14px 10px; background: #fff; border-bottom: 1px solid var(--border); }
+  .seg span { font-size: 12.5px; font-weight: 800; padding: 7px 12px; border-radius: 999px; background: #f1f7f9; color: var(--muted); }
+  .seg span.on { background: var(--deep); color: #fff; }
+  .seg span.mine { margin-left: auto; background: #ecfeff; color: var(--primary); border: 1px solid #a5f3fc; }
+  .list { flex: 1; overflow: hidden; padding: 6px 12px; }
+  .lh { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 10px 4px 6px; display: flex; justify-content: space-between; }
+  .lh.late { color: #b91c1c; }
+  .box { background: #fff; border-radius: 16px; padding: 2px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .t { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #eef4f6; font-size: 14px; }
+  .t:first-child { border-top: none; }
+  .chk { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--primary); }
+  .chk.on { background: var(--grad-btn); border-color: transparent; color: #08323c; display: grid; place-items: center; font-size: 13px; font-weight: 900; }
+  .tm { flex: none; width: 40px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .tm.late { color: #b91c1c; }
+  .tx { flex: 1; min-width: 0; }
+  .tx small { display: block; font-size: 11px; color: var(--muted); }
+  .tx small.me { color: var(--primary); font-weight: 800; }
+  .t.mine { background: #ecfeff; margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .t.done .tx { color: var(--muted); text-decoration: line-through; }
+  .rep { font-size: 10px; font-weight: 800; color: #0369a1; background: #e0f2fe; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+  .fab { position: absolute; right: 18px; bottom: 74px; width: 56px; height: 56px; border-radius: 50%; background: var(--grad-btn); color: #08323c; font-size: 28px; font-weight: 400; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); }
+</style><style>
+  .sc .ic.act { color: var(--primary); }
+  .sc.mv .ic { color: #7c3aed; background: linear-gradient(145deg, #f5f3ff, #ede9fe); }
+  .hd2 { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #fff; border-bottom: 1px solid var(--border); }
+  .hd2 b { font-size: 15px; letter-spacing: .06em; }
+  .hd2 small { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .body2 { flex: 1; overflow: hidden; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
+  .slim { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #fff; border: 1.5px solid #a5f3fc; font-size: 12.5px; }
+  .slim .go { margin-left: auto; font-weight: 800; color: #08323c; background: var(--grad-btn); padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+  .srch { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; font-size: 13px; color: #94a3b8; }
+  .chips { display: flex; gap: 6px; }
+  .chip { font-size: 12px; font-weight: 800; padding: 6px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--border); }
+  .chip.on { background: var(--deep); color: #fff; border-color: transparent; }
+  .tbl { background: #fff; border-radius: 14px; overflow: hidden; }
+  .tbl .th { background: var(--deep); color: #fff; font-size: 12px; font-weight: 800; display: grid; grid-template-columns: 1fr 90px; padding: 9px 12px; }
+  .tbl .tr { display: grid; grid-template-columns: 1fr 90px; padding: 9px 12px; border-top: 1px solid #eef4f6; font-size: 13px; }
+  .tbl .tr span:last-child { text-align: right; font-weight: 800; }
+  .ng { color: #b91c1c; }
+  .grp { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 6px 4px 0; }
+  .mc { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .mr { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-top: 1px solid #eef4f6; font-size: 13.5px; font-weight: 800; }
+  .mr:first-child { border-top: none; }
+  .mr span { flex: 1; display: grid; }
+  .mr small { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .mr i { font-style: normal; color: #94a3b8; }
+  .mr em { font-style: normal; font-size: 18px; width: 24px; text-align: center; }
+  .foot { text-align: center; font-size: 11.5px; color: var(--muted); padding-top: 4px; }
+  .foot b { color: #b91c1c; }
+  .seg2 { display: grid; grid-template-columns: 1fr 1fr; background: #e2eef1; border-radius: 12px; padding: 3px; }
+  .seg2 span { text-align: center; font-size: 13px; font-weight: 800; padding: 8px; border-radius: 10px; color: var(--muted); }
+  .seg2 span.on { background: #fff; color: #7c3aed; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fld { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+  .fld small { display: block; font-size: 10px; color: var(--muted); font-weight: 800; }
+  .ln2 { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 12px; padding: 9px 10px; font-size: 13.5px; }
+  .ln2 b { flex: 1; }
+  .ln2 .q { display: flex; align-items: center; gap: 6px; }
+  .ln2 .q span { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); display: grid; place-items: center; font-weight: 800; color: var(--muted); }
+  .ln2 .q strong { min-width: 44px; text-align: center; font-size: 15px; }
+  .ln2 small { color: var(--muted); font-size: 11px; }
+  .addl { border: 1.5px dashed #c4b5fd; border-radius: 12px; padding: 10px; text-align: center; color: #7c3aed; font-weight: 800; font-size: 13px; }
+  .save { margin-top: 4px; text-align: center; font-weight: 800; font-size: 15px; color: #fff; background: #7c3aed; border-radius: 12px; padding: 12px; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
+</style>
+<style>
+  .phone { position: relative; }
+  .dim { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+  .spot { position: absolute; z-index: 6; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(6,34,43,.55); pointer-events: none; }
+  .spot::after { content: ''; position: absolute; inset: -6px; border-radius: 18px; border: 2.5px solid #22d3ee; animation: ring 1.6s ease-out infinite; }
+  @keyframes ring { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.08); } }
+  .bub { position: absolute; z-index: 7; left: 16px; right: 16px; background: #fff; border-radius: 16px; padding: 12px 14px; box-shadow: 0 12px 30px rgba(0,0,0,.25); font-size: 13.5px; line-height: 1.55; }
+  .bub b { display: block; font-size: 14.5px; margin-bottom: 2px; }
+  .bub .st { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  .bub .st i { font-style: normal; margin-left: auto; color: var(--primary); font-weight: 800; }
+  .bub .dots { display: flex; gap: 4px; } .bub .dots span { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; } .bub .dots span.on { background: #22d3ee; width: 16px; border-radius: 3px; }
+  .bub::before { content: ''; position: absolute; width: 14px; height: 14px; background: #fff; transform: rotate(45deg); }
+  .bub.down::before { top: -7px; left: 40px; } .bub.up::before { bottom: -7px; left: 40px; }
+  .tap { position: absolute; z-index: 8; width: 34px; height: 34px; border-radius: 50%; background: rgba(34,211,238,.35); border: 2px solid #fff; box-shadow: 0 0 0 6px rgba(34,211,238,.25); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 150px; background: #fff; border-radius: 22px 22px 0 0; padding: 10px 16px; z-index: 4; box-shadow: 0 -8px 24px rgba(0,0,0,.15); }
+  .sh-handle { width: 40px; height: 4px; border-radius: 4px; background: #d6e6ea; margin: 0 auto 10px; }
+  .sh-head { display: flex; align-items: center; gap: 10px; }
+  .sh-av { width: 40px; height: 40px; border-radius: 50%; background: #eef4f6; display: grid; place-items: center; font-size: 9px; color: #94a3b8; }
+  .sh-head b { font-size: 17px; flex: 1; }
+  .sh-stock { margin-top: 12px; background: #f1f7f9; border-radius: 12px; padding: 10px 12px; }
+  .sh-stock small { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .sh-stock div { font-size: 22px; font-weight: 900; }
+  .sh-io { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .sh-io label { font-size: 12px; font-weight: 800; color: var(--muted); display: grid; gap: 4px; }
+  .sh-io .f { border: 2px solid var(--border); border-radius: 12px; padding: 10px; font-size: 20px; font-weight: 900; text-align: center; color: #94a3b8; }
+  .sh-io .f.on { border-color: #16a34a; color: #15803d; background: #f0fdf4; }
+  .sh-reg { margin-top: 12px; border-radius: 12px; background: #16a34a; color: #fff; text-align: center; padding: 11px; font-weight: 800; }
+  .sh-reg small { display: block; font-weight: 600; font-size: 11px; opacity: .9; }
+  .sh-sec { margin-top: 16px; font-size: 13px; font-weight: 800; color: var(--muted); }
+  .toast { position: absolute; z-index: 9; left: 20px; right: 20px; bottom: 90px; background: #0b3b48; color: #fff; border-radius: 14px; padding: 12px 14px; font-size: 13px; line-height: 1.55; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+  .toast b { color: #67e8f9; }
+</style>
+<style>
+.top { flex: none; background: #fff; padding: 12px 14px 10px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
+.top-r { display: flex; align-items: center; gap: 8px; }
+.top-r b { font-size: 17px; } .top-r small { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 700; }
+.vw { display: grid; grid-template-columns: repeat(3,1fr); background: #e9f2f4; border-radius: 12px; padding: 3px; }
+.vw span { text-align: center; font-size: 12.5px; font-weight: 800; padding: 7px; border-radius: 10px; color: var(--muted); }
+.vw span.on { background: #fff; color: var(--deep); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.flt { display: flex; gap: 6px; } .flt span { font-size: 11.5px; font-weight: 800; padding: 5px 10px; border-radius: 999px; background: #f1f7f9; color: var(--muted); }
+.flt span.on { background: var(--deep); color: #fff; } .flt span.me { margin-left: auto; background: #ecfeff; color: var(--primary); border: 1px solid #a5f3fc; }
+.lst { flex: 1; overflow: hidden; padding: 4px 12px 80px; }
+.lh { font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--muted); padding: 10px 4px 6px; display: flex; justify-content: space-between; }
+.lh.late { color: #b91c1c; }
+.box { background: #fff; border-radius: 16px; padding: 0 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.t { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #eef4f6; font-size: 13.5px; }
+.t:first-child { border-top: none; }
+.chk { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--primary); }
+.chk.on { background: var(--grad-btn); border-color: transparent; color: #08323c; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
+.tm { flex: none; width: 38px; font-size: 11.5px; font-weight: 800; color: var(--muted); }
+.tm.late { color: #b91c1c; }
+.tx { flex: 1; min-width: 0; } .tx small { display: block; font-size: 10.5px; color: var(--muted); }
+.t.done .tx > span { color: var(--muted); text-decoration: line-through; }
+.mine { background: #ecfeff; margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+.rec { flex: none; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 13px; }
+.rec.st { background: #cffafe; } .rec.or { background: #ffedd5; } .rec.in { background: #dcfce7; } .rec.out { background: #fee2e2; }
+.t.r .tx > span { font-weight: 700; }
+.t.r i { font-style: normal; color: #94a3b8; }
+.tag { font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; margin-left: 4px; vertical-align: 1px; }
+.tag.rep { color: #0369a1; background: #e0f2fe; } .tag.auto { color: #6b7280; background: #f1f5f9; }
+.fab2 { position: absolute; right: 18px; bottom: 74px; width: 54px; height: 54px; border-radius: 50%; background: var(--grad-btn); color: #08323c; font-size: 26px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); }
+.mh { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px; font-weight: 800; font-size: 15px; }
+.mh span { color: var(--muted); font-size: 18px; }
+.wk, .mg { display: grid; grid-template-columns: repeat(7,1fr); text-align: center; }
+.wk span { font-size: 10px; font-weight: 800; color: var(--muted); padding: 4px 0; }
+.mg div { height: 44px; border-top: 1px solid #eef4f6; font-size: 12px; font-weight: 700; padding-top: 3px; position: relative; }
+.mg div.o { color: #cbd5e1; } .mg div.sel { background: #ecfeff; border-radius: 10px; outline: 2px solid var(--primary); }
+.mg div.td b { background: var(--deep); color: #fff; border-radius: 50%; padding: 1px 5px; }
+.mk { display: flex; justify-content: center; gap: 2px; margin-top: 3px; font-size: 8px; }
+.dd { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.dd.tk { background: #f97316; } .dd.st { background: #0e7490; } .dd.or { background: #ea580c; outline: 1px solid #fff; } .dd.in { background: #16a34a; }
+.cnt { position: absolute; top: 2px; right: 3px; font-size: 8.5px; font-weight: 800; color: #c2410c; }
+.mcal { background: #fff; border-radius: 16px; padding: 4px 8px 8px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.lg { display: flex; gap: 10px; font-size: 10px; color: var(--muted); padding: 6px 4px; }
+.tl { position: relative; background: #fff; border-radius: 16px; padding: 4px 8px 4px 46px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.hr { position: relative; height: 44px; border-top: 1px solid #eef4f6; }
+.hr span { position: absolute; left: -40px; top: -7px; font-size: 10px; color: var(--muted); font-weight: 700; width: 34px; text-align: right; }
+.ev { position: absolute; left: 0; right: 0; border-radius: 9px; padding: 4px 8px; font-size: 11.5px; font-weight: 800; overflow: hidden; }
+.ev small { display: block; font-weight: 600; font-size: 10px; opacity: .85; }
+.ev.st { background: #cffafe; color: #155e75; border-left: 4px solid #0e7490; }
+.ev.task { background: #fff7ed; color: #9a3412; border-left: 4px solid #f97316; }
+.ev.task.done { opacity: .55; text-decoration: line-through; }
+.ev.in { background: #dcfce7; color: #166534; border-left: 4px solid #16a34a; }
+.ev.plan { background: repeating-linear-gradient(45deg,#fff7ed,#fff7ed 6px,#ffedd5 6px,#ffedd5 12px); color: #c2410c; border-left: 4px dashed #ea580c; }
+.now { position: absolute; left: -6px; right: 0; height: 2px; background: #ef4444; }
+.now::before { content: ''; position: absolute; left: -4px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; }
+.allday { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0 8px; }
+.allday span { font-size: 11px; font-weight: 800; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }
+.sheetx { position: absolute; left: 0; right: 0; bottom: 0; top: 120px; background: #fff; border-radius: 22px 22px 0 0; padding: 10px 16px; z-index: 4; box-shadow: 0 -8px 24px rgba(0,0,0,.15); display: grid; gap: 10px; align-content: start; }
+.dimx { position: absolute; inset: 0; background: rgba(6,34,43,.4); z-index: 3; }
+.shh { width: 40px; height: 4px; border-radius: 4px; background: #d6e6ea; margin: 0 auto; }
+.dt { display: flex; align-items: center; gap: 10px; } .dt b { font-size: 17px; flex: 1; } .dt small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.kp { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+.kp div { background: #f1f7f9; border-radius: 12px; padding: 8px 10px; } .kp small { font-size: 10px; color: var(--muted); font-weight: 800; display: block; } .kp b { font-size: 17px; }
+.ppl { display: flex; gap: 6px; flex-wrap: wrap; } .ppl span { font-size: 11.5px; font-weight: 800; background: #ecfeff; color: var(--primary); border-radius: 999px; padding: 4px 10px; }
+.pv { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.pv div { display: flex; justify-content: space-between; padding: 7px 10px; font-size: 12.5px; border-top: 1px solid #eef4f6; } .pv div:first-child { border-top: none; background: #f6fafb; font-weight: 800; color: var(--muted); font-size: 11px; }
+.btnx { text-align: center; font-weight: 800; color: #08323c; background: var(--grad-btn); border-radius: 12px; padding: 11px; }
+.btnx.sec { background: #fff; border: 1px solid var(--border); color: var(--text); }
+</style></head><body>
+<h1>やること（ToDo とカレンダーを統合） モック（2026-10-09）</h1>
+<p class="lead">下のナビの「カレンダー」を「やること」にする。やることのリストが基本で、同じ中身を「月」「1日（時間別）」でも見られる。実行した棚卸・発注・入出庫は記録として自動で並び（チェック欄の代わりに種類の印）、押すと詳細を見返せる。「すべて／やること／記録」で絞れる。発注日・締切などの予定（自動）も同じ並びに入る。</p>
+<div class="row">
+<div class="col"><div class="cap">① リスト（基本）<small>期限切れ → 今日（時刻の順）→ 明日以降。やること（チェック）と記録（印・›）が時刻順に混ざる</small></div><div class="phone"><div class="top"><div class="top-r"><b>やること</b><small>残り 4</small></div><div class="vw"><span class="on">リスト</span><span class="">月</span><span class="">1日</span></div><div class="flt"><span class="on">すべて</span><span>やること</span><span>記録</span><span class="me">自分の担当</span></div></div><div class="lst">
+<div class="lh late"><span>期限切れ</span><span>1</span></div>
+<div class="box"><div class="t"><span class="chk"></span><span class="tm late">10/8</span><span class="tx"><span>製氷機のフィルター交換</span><small>担当 佐藤</small></span></div></div>
+<div class="lh"><span>今日 ・ 10月9日（木）</span><span>やること 3/6 ・ 記録 3</span></div>
+<div class="box">
+<div class="t done"><span class="chk on">✓</span><span class="tm">9:00</span><span class="tx"><span>開店前チェック</span><span class="tag rep">毎日</span><small>山田さんが完了</small></span></div>
+
+<div class="t r"><span class="rec st">📦</span><span class="tm">9:10</span><span class="tx"><span>棚卸 完了 ・ 40品目</span><small>9:10〜10:20 ・ 佐藤・山田 ・ ¥312,400</small></span><i>›</i></div>
+<div class="t mine"><span class="chk"></span><span class="tm">11:00</span><span class="tx"><span>野菜の検品</span><small style="color:var(--primary);font-weight:800">あなたの担当</small></span></div>
+<div class="t r"><span class="rec in">📥</span><span class="tm">11:02</span><span class="tx"><span>入庫 3品目</span><small>キャベツ +6・トマト +24・牛乳 +12 ・ 山田</small></span><i>›</i></div>
+<div class="t"><span class="chk"></span><span class="tm">15:00</span><span class="tx"><span>発注を送る</span><small>担当 山田 ・ 発注の締切</small></span></div>
+<div class="t r"><span class="rec or">🧾</span><span class="tm">15:12</span><span class="tx"><span>発注 確定 ・ 2社 8品目</span><small>○○青果・△△乳業 ・ 山田</small></span><i>›</i></div>
+<div class="t"><span class="chk"></span><span class="tm"></span><span class="tx"><span>手洗いの確認</span><span class="tag rep">毎日</span><small>全員 1/3</small></span></div>
+</div>
+<div class="lh"><span>明日 ・ 10月10日（金）</span><span>2</span></div>
+<div class="box"><div class="t"><span class="chk"></span><span class="tm">10:00</span><span class="tx"><span>業者の点検</span><small>担当未定</small></span></div></div>
+</div><div class="fab2">＋</div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>やること</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div></div></div>
+<div class="col"><div class="cap">② 月<small>日ごとの印（やること・棚卸・発注・入出庫）と残りの数。押した日の中身を下に出す</small></div><div class="phone"><div class="top"><div class="top-r"><b>やること</b><small>残り 4</small></div><div class="vw"><span class="">リスト</span><span class="on">月</span><span class="">1日</span></div></div><div class="lst"><div class="mcal"><div class="mh"><span>‹</span>2026年10月<span>›</span></div><div class="wk"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div><div class="mg"><div class="o"></div><div class="o"></div><div class="o"></div><div class=""><b>1</b><div class="mk"><span class="dd st"></span></div></div><div class=""><b>2</b><div class="mk"></div></div><div class=""><b>3</b><div class="mk"><span class="dd in"></span></div></div><div class=""><b>4</b><div class="mk"></div></div><div class=""><b>5</b><div class="mk"></div></div><div class=""><b>6</b><div class="mk"><span class="dd or"></span><span class="dd tk"></span></div></div><div class=""><b>7</b><div class="mk"></div></div><div class=""><b>8</b><span class="cnt">1</span><div class="mk"><span class="dd tk"></span></div></div><div class="sel td"><b>9</b><span class="cnt">4</span><div class="mk"><span class="dd st"></span><span class="dd in"></span><span class="dd or"></span><span class="dd tk"></span></div></div><div class=""><b>10</b><span class="cnt">2</span><div class="mk"><span class="dd tk"></span></div></div><div class=""><b>11</b><div class="mk"></div></div><div class=""><b>12</b><div class="mk"></div></div><div class=""><b>13</b><div class="mk"><span class="dd or"></span></div></div><div class=""><b>14</b><div class="mk"></div></div><div class=""><b>15</b><div class="mk"></div></div><div class=""><b>16</b><div class="mk"></div></div><div class=""><b>17</b><span class="cnt">1</span><div class="mk"><span class="dd tk"></span></div></div><div class=""><b>18</b><div class="mk"></div></div><div class=""><b>19</b><div class="mk"></div></div><div class=""><b>20</b><div class="mk"></div></div><div class=""><b>21</b><div class="mk"></div></div><div class=""><b>22</b><div class="mk"></div></div><div class=""><b>23</b><div class="mk"></div></div><div class=""><b>24</b><div class="mk"></div></div><div class=""><b>25</b><div class="mk"></div></div><div class=""><b>26</b><div class="mk"></div></div><div class=""><b>27</b><div class="mk"></div></div><div class=""><b>28</b><div class="mk"></div></div><div class=""><b>29</b><div class="mk"></div></div><div class=""><b>30</b><div class="mk"></div></div><div class=""><b>31</b><span class="cnt">1</span><div class="mk"><span class="dd st"></span><span class="dd tk"></span></div></div><div class="o"></div></div>
+<div class="lg"><span><span class="dd tk"></span> やること</span><span><span class="dd st"></span> 棚卸</span><span><span class="dd or"></span> 発注</span><span><span class="dd in"></span> 入出庫</span><span style="margin-left:auto;color:#c2410c;font-weight:800">数＝残り</span></div></div>
+<div class="lh"><span>10月9日（木） ・ 押した日</span><span>リストで見る ›</span></div>
+<div class="box"><div class="t mine"><span class="chk"></span><span class="tm">11:00</span><span class="tx"><span>野菜の検品</span></span></div>
+<div class="t r"><span class="rec st">📦</span><span class="tm">9:10</span><span class="tx"><span>棚卸 完了 ・ 40品目</span><small>9:10〜10:20 ・ 佐藤・山田 ・ ¥312,400</small></span><i>›</i></div></div>
+</div><div class="fab2">＋</div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>やること</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div></div></div>
+<div class="col"><div class="cap">③ 1日（時間別）<small>時刻つきは時間の帯に、時刻なしは上の「時刻なし」に。棚卸は始め〜終わりの長さで。赤い線が今</small></div><div class="phone"><div class="top"><div class="top-r"><b>やること</b><small>残り 4</small></div><div class="vw"><span class="">リスト</span><span class="">月</span><span class="on">1日</span></div><div class="top-r" style="justify-content:space-between"><span style="color:var(--muted)">‹</span><b style="font-size:14px">10月9日（木） 今日</b><span style="color:var(--muted)">›</span></div></div><div class="lst">
+<div class="lh"><span>時刻なし</span></div><div class="allday"><span>☐ 手洗いの確認（全員 1/3）</span><span>☐ 製氷機のフィルター交換（期限切れ）</span></div>
+<div class="tl"><div class="hr"><span>8:00</span></div><div class="hr"><span>9:00</span></div><div class="hr"><span>10:00</span></div><div class="hr"><span>11:00</span></div><div class="hr"><span>12:00</span></div><div class="hr"><span>13:00</span></div><div class="hr"><span>14:00</span></div><div class="hr"><span>15:00</span></div><div class="hr"><span>16:00</span></div><div style="position:absolute;left:46px;right:8px;top:4px">
+<div class="ev task done" style="top:46.0px;height:20px">✓ 9:00 開店前チェック</div>
+<div class="ev st" style="top:75.33333333333334px;height:29.333333333333336px">📦 棚卸 完了 40品目<small>9:10〜10:20 ・ 佐藤・山田</small></div>
+<div class="ev task" style="top:134.0px;height:20px;right:96px">11:00 野菜の検品（あなた）</div>
+<div class="ev in" style="top:134.0px;height:20px;left:auto;width:90px">📥 11:02 入庫</div>
+<div class="ev plan" style="top:302.0px;height:22px;right:96px">15:00 発注の締切</div>
+<div class="ev task" style="top:326.0px;height:20px;right:96px">15:00 発注を送る</div>
+<div class="ev st" style="top:302.0px;height:44px;left:auto;width:90px;background:#ffedd5;color:#9a3412;border-left-color:#ea580c">🧾 15:12 発注確定</div>
+<div class="now" style="top:249.33333333333334px"></div></div></div>
+</div><div class="fab2">＋</div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>やること</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div></div></div>
+<div class="col"><div class="cap">④ 記録を押す<small>棚卸の要約（品目・金額・前回から・参加者・明細の一部）→ すべての明細へ。そこからやることも足せる</small></div><div class="phone"><div class="top"><div class="top-r"><b>やること</b><small>残り 4</small></div><div class="vw"><span class="on">リスト</span><span class="">月</span><span class="">1日</span></div></div><div class="lst"></div><div class="dimx"></div><div class="sheetx"><div class="shh"></div>
+<div class="dt"><span class="rec st" style="width:40px;height:40px;font-size:20px">📦</span><b>棚卸 完了<small>10月9日（木） 9:10〜10:20（1時間10分）</small></b><span>✕</span></div>
+<div class="kp"><div><small>品目</small><b>40</b></div><div><small>在庫金額</small><b>¥312,400</b></div><div><small>前回から</small><b style="color:#b91c1c">−4.2%</b></div></div>
+<div class="ppl"><span>佐藤 24品目</span><span>山田 16品目</span></div>
+<div class="pv"><div><span>品目</span><span>数量</span></div><div><span>キャベツ</span><span>2玉</span></div><div><span>牛乳</span><span>6本</span></div><div><span>生クリーム</span><span>1本</span></div><div><span>チーズ</span><span>2kg</span></div><div><span>…ほか 36品目</span><span></span></div></div>
+<div class="btnx">すべての明細・変更の記録を見る</div>
+<div class="btnx sec">この棚卸に「やること」を足す（例：差が大きい品目を確認）</div>
+</div><div class="nav"><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>ホーム</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>在庫</div><div class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>やること</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>レポート</div><div class=""><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>管理</div></div></div></div>
+</div></body></html>
