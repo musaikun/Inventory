@@ -7,6 +7,7 @@ import {
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
+import { securityEvent } from './securityLog.js'
 
 // 監査ログのチャンクキー。ゼロ埋めして key の昇順＝時系列順にする。
 const AUDIT_PREFIX = 'audit:'
@@ -323,6 +324,7 @@ export class RoomDO {
               isVerifiedHost = true
               newHostToken   = token
             } else {
+              securityEvent('room_host_auth_failed', { shop: shopCode, reason: protectedStore ? (authOk ? 'host_present' : 'no_valid_token') : 'host_present' })
               ws.send(JSON.stringify({ type: 'error', code: 'auth_failed' }))
               ws.close(1008, 'Host authentication failed')
               return

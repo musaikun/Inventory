@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-09 — version 0.152.11 / セキュリティイベントのログ・sinceDays の既定が1日になっていた不具合
+
+User 指示（弱点を詰める・推奨順）。OPS-001 を Codex から引き取り。
+- `worker/src/securityLog.js`（新規）: `{"evt":"security","type":...}` の1行 JSON。項目は allowlist、IP は /24・/48 まで。出す場所: ログイン失敗・締め出し（店主・スタッフ）、IP の計上と上限（rateLimiter）、権限の拒否（`_requirePerm`）、確定済み履歴の書き換え拒否、ルームのホスト認証失敗、想定外の 500。type と警報の目安は `tasks/OPS-001.md`。
+- `wrangler.toml` に `[observability]`（有効・全件）。最初 `account_id` より前に置いて TOML の表へ取り込んでしまい、dry-run の警告で気づいて直した。
+- **不具合修正（develop の CI を赤にしていた）**: 発注・入出庫・やることの GET は `?sinceDays=` が無いと `Number(null)=0` が「1日」へ丸められ、App（付けずに呼ぶ）には直近1日ぶんしか返っていなかった。別の端末では前日より前の入出庫・発注・完了したやることがサーバーから取れない。`_sinceDate` で「指定なし・数でない」を既定（400日／120日）に。`staff.test.js` の3件は日付が変わって（10/9）この不具合で落ちていた。回帰テスト `test/sinceDays.sqlite.test.js` は今日から30日前で作る（修正前で 3/3 失敗）。
+- 検証: Worker 47 files / 700 passed、`wrangler deploy --dry-run` 成功（警告なし）、App build 成功。
+- version: 0.152.10 → **0.152.11**。
+
 ## 2026-10-08 — version 0.152.10 / ログイントークンを D1 にハッシュで保存
 
 セキュリティ確認の続き（User 指示）。以前は `auth_tokens.token` に生のトークンを保存しており、D1 の中身が漏れるとそのまま Bearer に使えた。

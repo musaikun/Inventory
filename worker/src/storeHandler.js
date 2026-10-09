@@ -2,6 +2,7 @@
 
 import { inventoryLineStatements } from './inventoryLines.js'
 import { _now } from './workerUtils.js'
+import { securityEvent } from './securityLog.js'
 import {
   MAX_PAYLOAD_BYTES, RESULT_WINDOW_DAYS, MAX_SESSION_LINES, MAX_LINES_PER_REQUEST,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_NOTE_LEN, MAX_SUPPLIER_LEN, MAX_MOVEMENT_BY_LEN, MOVEMENT_RESTORE_WINDOW_MS,
@@ -340,6 +341,7 @@ export async function handleHistoryPost(db, code, body) {
   const existing = await handleHistoryGetOne(db, code, { sessionId, date })
   if (existing?.locked === true) {
     if (!_sameRecord(existing, body)) {
+      securityEvent('snapshot_locked', { shop: code })
       return { _status: 409, code: 'snapshot_locked', retryable: false, error: 'この棚卸は確定済みのため訂正できません' }
     }
     const stamp = readStampResult({ results: [await historyStampStatement(db, code, { sessionId, date }).first()].filter(Boolean) })
@@ -930,12 +932,19 @@ export async function handleSessionUpdate(db, code, sessionId, body) {
 // ── 発注 API ───────────────────────────────────────────────────────────────────
 // 発注レコードの正は D1。学習（曜日別・適正在庫）はクライアントが order_lines から算出する。
 
+// GET の `?sinceDays=` から「この日以降」を作る（1〜1000日）。
+// 指定が無い・数でないときは既定の日数。`Number(null)` は 0 なので、そのまま数として扱うと
+// 「指定なし」が「1日」へ丸められ、App（sinceDays を付けずに呼ぶ）には直近1日ぶんしか返らなかった。
+function _sinceDate(sinceDays, defaultDays) {
+  const n = sinceDays == null || sinceDays === '' ? NaN : Number(sinceDays)
+  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : defaultDays
+  return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+}
+
 // GET /store/:code/orders?sinceDays=400
 // 直近 sinceDays 日ぶんの発注レコードを新しい順で返す（クライアントの applyRemoteOrders 用）。
 export async function handleOrdersGet(db, code, sinceDays) {
-  const n     = Number(sinceDays)
-  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 400)
 
   const heads = (await db.prepare(
     'SELECT id, order_date, supplier, axis, session_id, saved_at FROM orders WHERE shop_code = ? AND order_date >= ? ORDER BY order_date DESC LIMIT 1000'
@@ -1117,9 +1126,7 @@ export async function handleOrderDelete(db, code, id) {
 // GET /store/:code/movements?sinceDays=400
 // 直近 sinceDays 日ぶんの入出庫レコードを新しい順で返す（クライアントの applyRemoteMovements 用）。
 export async function handleMovementsGet(db, code, sinceDays) {
-  const n     = Number(sinceDays)
-  const days  = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 400
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 400)
 
   const heads = (await db.prepare(
     'SELECT id, move_date, type, note, order_id, saved_at, deleted_at, created_by FROM movements WHERE shop_code = ? AND move_date >= ? ORDER BY move_date DESC LIMIT 1000'
@@ -2026,9 +2033,7 @@ function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) 
 
 // GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの
 export async function handleTasksGet(db, code, sinceDays) {
-  const n = Number(sinceDays)
-  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 1000) : 120
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+  const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
       assign_mode, assignee_id, assignee_name, done_list_json, due_time

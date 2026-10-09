@@ -17,6 +17,7 @@ import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAcces
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
+import { securityEvent } from './securityLog.js'
 import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
@@ -107,6 +108,7 @@ async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
   if (ctx.shopCode !== code) return jsonResponse({ error: '認証が必要です' }, 401, origin, allowedOrigin)
   const missing = (Array.isArray(perms) ? perms : [perms]).filter(p => !ctxCan(ctx, p))
   if (!missing.length) return null
+  securityEvent('perm_denied', { shop: code, role: ctx.role, missing, path: new URL(request.url).pathname, method: request.method })
   return jsonResponse({
     code: 'forbidden', missing,
     error: `この操作（${missing.map(p => PERMS[p] ?? p).join('・')}）はできません。管理者に許可してもらってください`,
@@ -263,8 +265,12 @@ export default {
         if (await isIpBlocked(env.DB, ip, 'login')) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
-        const result = await handleLogin(env.DB, await request.json())
+        const body = await request.json()
+        const result = await handleLogin(env.DB, body)
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401 || result._status === 429) {
+          securityEvent(result._status === 429 ? 'login_locked' : 'login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
+        }
         return resultResponse(result, origin, allowedOrigin)
       }
       // ── スタッフ（段 2-1）。ログイン前の経路は IP 単位で総当たりを止める ──
@@ -273,8 +279,12 @@ export default {
         if (await isIpBlocked(env.DB, ip, 'login')) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
-        const result = await handleStaffLogin(env.DB, await request.json().catch(() => ({})))
+        const body = await request.json().catch(() => ({}))
+        const result = await handleStaffLogin(env.DB, body)
         if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401 || result._status === 429) {
+          securityEvent(result._status === 429 ? 'staff_login_locked' : 'staff_login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
+        }
         return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/me' && request.method === 'GET') {
@@ -856,6 +866,7 @@ export default {
       // 未処理の例外でも必ずCORSヘッダー付きでエラーを返す
       // 内部の例外メッセージ（SQL・テーブル名・ライブラリの文言）は利用者へ返さない。log にだけ残す
       console.error('[Worker] Unhandled error:', request.method, path, e?.message ?? e)
+      securityEvent('internal_error', { method: request.method, path })
       return jsonResponse({ code: 'internal_error', error: 'サーバーでエラーが発生しました。しばらく待ってから再度お試しください' }, 500, origin, allowedOrigin)
     }
   },

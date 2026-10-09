@@ -2,7 +2,15 @@ name = "inventory-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
+
 account_id = "d27afd2bc7f0a66b1275eb28d7b3d470"
+
+# Workers Logs（OPS-001）。Dashboard で有効化済みだった設定を、deploy で上書きされないよう明示する。
+# セキュリティ上の出来事は securityLog.js が {"evt":"security","type":...} の1行 JSON で出す
+# （IP は下位を伏せる・トークン/PIN/本文は書かない）。検索と警報の条件は docs/quality-foundation/tasks/OPS-001.md。
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 
 [vars]
