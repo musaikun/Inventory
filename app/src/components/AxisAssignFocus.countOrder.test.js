@@ -4,7 +4,8 @@ import { createApp, h, nextTick } from 'vue'
 
 let app = null, host = null, cfg = null
 const tick = async () => { for (let i = 0; i < 3; i++) await nextTick() }
-async function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
+// 一括の操作は「ぐるぐる」を描いてから動く（次の描画を待つ）ので、少し待つ
+async function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(); await new Promise(r => setTimeout(r, 40)); await tick() }
 async function type(el, v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick() }
 const btn = label => [...host.querySelectorAll('button')].find(b => b.textContent.trim().includes(label))
 
@@ -110,6 +111,21 @@ describe('数えた順で並べる', () => {
 })
 
 describe('まだ分けていない品目をまとめる', () => {
+  it('処理の間は「まとめています…」を出し、連打しても1回だけ', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    await mount()
+    await click(btn('「その他」へ'))
+    const opt = host.querySelector('.af-rest-opt.pri')
+    opt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    opt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await tick()
+    expect(host.querySelector('.af-busy').textContent).toContain('まとめています')
+    await new Promise(r => setTimeout(r, 40)); await tick()
+    expect(host.querySelector('.af-busy')).toBeNull()
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', 'その他'])
+    expect(host.querySelector('.af-undobar').textContent).toContain('5品目')
+  })
+
   it('残りを「その他」へまとめて完了にできる。元に戻せる', async () => {
     cfg.addAxisGroup(0, '冷蔵庫')
     cfg.setItemTag('卵', 0, '冷蔵庫')
@@ -118,6 +134,7 @@ describe('まだ分けていない品目をまとめる', () => {
     await click(host.querySelector('.af-rest-opt.pri'))
     expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', 'その他'])
     for (const n of ['塩', '牛乳', 'アイス', 'パスタ']) expect(cfg.config.tagsA[n]).toEqual(['その他'])
+    expect(host.querySelector('.af-busy')).toBeNull()
     expect(host.textContent).toContain('全部できました')
     expect(host.querySelector('.af-rest-btn')).toBeNull()
     await click(btn('元に戻す'))
@@ -134,7 +151,7 @@ describe('まだ分けていない品目をまとめる', () => {
     const { default: Focus } = await import('./AxisAssignFocus.vue')
     host = document.createElement('div'); document.body.appendChild(host)
     const hidden = []
-    app = createApp({ render: () => h(Focus, { initialAxis: 0, onHideItem: i => hidden.push(i) }) })
+    app = createApp({ render: () => h(Focus, { initialAxis: 0, onHideItems: list => hidden.push(...list) }) })
     app.mount(host); await tick()
     await click(host.querySelector('.af-rest-btn'))
     const opt = [...host.querySelectorAll('.af-rest-opt')][1]

@@ -12,11 +12,11 @@ import { useLongPressPick } from '../composables/useLongPressPick.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ initialAxis: { type: Number, default: 0 } })
-const emit = defineEmits(['close', 'hide-item', 'unhide-item'])
+const emit = defineEmits(['close', 'hide-item', 'unhide-item', 'hide-items', 'unhide-items'])
 
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
-  addItemToGroup, removeItemFromGroup, setAxisGroupOrder, reorderAxisItems, axisItemSequence,
+  addItemToGroup, addItemsToGroup, removeItemFromGroup, setAxisGroupOrder, reorderAxisItems, axisItemSequence,
   setAxisName, clearAxis, setAxisItemOrder, axisLayoutSnapshot, restoreAxisLayout, applyCountPlaces,
 } = useConfig()
 const { getSnapshots } = useHistory()
@@ -1047,6 +1047,9 @@ const movedMarks = ref({})
 watch(activeAxis, () => { movedMarks.value = {} })
 
 function applyCountOrder(places) {
+  return withBusy('並べ直しています…', () => _applyCountOrder(places))
+}
+function _applyCountOrder(places) {
   const src = countSource.value
   if (!src) { countMode.value = ''; return }
   const preview = places ? null : countPreview.value
@@ -1055,7 +1058,7 @@ function applyCountOrder(places) {
   setAxisItemOrder(activeAxis.value, orderByCount(axisItemSequence(activeAxis.value), src.seqs))
   countMode.value = ''
   if (places) {
-    _offerUndo(`${places.length}つの場所に分けて、数えた順に並べました`, '', () => restoreAxisLayout(before), { sticky: true })
+    _offerUndo(`${places.length}つの場所に分けて、数えた順に並べました`, '', () => withBusy('元に戻しています…', () => restoreAxisLayout(before)), { sticky: true })
     return
   }
   const marks = {}
@@ -1067,10 +1070,10 @@ function applyCountOrder(places) {
   }
   movedMarks.value = marks
   const where = (preview?.changed ?? []).map(c => c.group).join('・')
-  _offerUndo(`数えた順に並べ直しました（${Object.keys(marks).length}品目）`, where, () => {
+  _offerUndo(`数えた順に並べ直しました（${Object.keys(marks).length}品目）`, where, () => withBusy('元に戻しています…', () => {
     restoreAxisLayout(before)
     movedMarks.value = {}
-  }, { sticky: true })
+  }), { sticky: true })
 }
 
 // ── 見出しの ⋯（振り分け済みの店では、数えた順の並べ直しをここへ下げる）──
@@ -1084,7 +1087,21 @@ const REST_GROUP = 'その他'
 const restOpen = ref(false)
 const restItems = computed(() => visibleOrder.value.filter(i => itemGroups(i).length === 0))
 const restUnused = computed(() => restItems.value.filter(i => isUnmeasured(i)))
+// 何百品目もあると数秒かかる。押した直後に「まとめています…」を出して描かせてから
+// 処理し、その間はボタンを押せなくする（連打での誤操作を防ぐ・User報告 2026-10-10）
+const busy = ref('')
+const _paint = () => new Promise(r => (typeof requestAnimationFrame === 'function'
+  ? requestAnimationFrame(() => setTimeout(r, 0)) : setTimeout(r, 0)))
+async function withBusy(label, fn) {
+  if (busy.value) return
+  busy.value = label
+  try { await nextTick(); await _paint(); fn() } finally { busy.value = '' }
+}
+
 function restToOther({ hideUnused = false } = {}) {
+  return withBusy('まとめています…', () => _restToOther(hideUnused))
+}
+function _restToOther(hideUnused) {
   const axis = activeAxis.value
   const before = axisLayoutSnapshot(axis)
   const hide = hideUnused ? [...restUnused.value] : []
@@ -1092,15 +1109,17 @@ function restToOther({ hideUnused = false } = {}) {
   const toOther = restItems.value.filter(i => !hideSet.has(i))
   if (toOther.length) {
     addAxisGroup(axis, REST_GROUP)
-    for (const i of toOther) addItemToGroup(axis, i, REST_GROUP)
+    addItemsToGroup(axis, toOther, REST_GROUP)
   }
-  for (const i of hide) emit('hide-item', i)
+  if (hide.length) emit('hide-items', hide)
   restOpen.value = false
   const msg = [toOther.length && `${toOther.length}品目を「${REST_GROUP}」にまとめました`, hide.length && `${hide.length}品目を非表示にしました`]
     .filter(Boolean).join('・')
   _offerUndo(msg, 'あとから1つずつ別の場所へ移せます', () => {
-    restoreAxisLayout(before)
-    for (const i of hide) emit('unhide-item', i)
+    withBusy('元に戻しています…', () => {
+      restoreAxisLayout(before)
+      if (hide.length) emit('unhide-items', hide)
+    })
   }, { sticky: true })
 }
 
@@ -1756,16 +1775,21 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <div class="af-rest" role="dialog" aria-modal="true" aria-label="まだ分けていない品目をまとめる">
         <div class="af-dialog-title">まだ分けていない {{ restItems.length }}品目</div>
         <p class="af-rest-p">今は扱っていない品目が混ざっていても、ここでまとめれば振り分けを完了にできます。あとから1つずつ別の場所へ移せます。</p>
-        <button type="button" class="af-rest-opt pri" @click="restToOther()">
+        <button type="button" class="af-rest-opt pri" :disabled="!!busy" @click="restToOther()">
           <b>📦 「{{ REST_GROUP }}」にまとめる（{{ restItems.length }}品目）</b>
           <small>数える品目のまま、棚卸の一覧の最後にまとまります<template v-if="!groups.includes(REST_GROUP)">。「{{ REST_GROUP }}」の場所を作ります</template></small>
         </button>
-        <button v-if="restUnused.length" type="button" class="af-rest-opt" @click="restToOther({ hideUnused: true })">
+        <button v-if="restUnused.length" type="button" class="af-rest-opt" :disabled="!!busy" @click="restToOther({ hideUnused: true })">
           <b>🙈 直近3回数えていない {{ restUnused.length }}品目は非表示にする</b>
           <small>棚卸にも出なくなります<template v-if="restItems.length > restUnused.length">。残り{{ restItems.length - restUnused.length }}品目は「{{ REST_GROUP }}」へ</template></small>
         </button>
-        <button type="button" class="af-rest-cancel" @click="restOpen = false">やめる</button>
+        <button type="button" class="af-rest-cancel" :disabled="!!busy" @click="restOpen = false">やめる</button>
       </div>
+    </div>
+
+    <!-- 待ち時間のぐるぐる。何百品目の一括操作の間は画面ごと押せなくする -->
+    <div v-if="busy" class="af-busy" role="status" aria-live="polite">
+      <div class="af-busy-box"><span class="af-spin" aria-hidden="true"></span>{{ busy }}</div>
     </div>
 
     <!-- 取り消し（削除・非表示は戻せることをその場に出す）-->
@@ -1825,6 +1849,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 .af-rest-opt b { font-size: 14px; }
 .af-rest-opt small { font-size: 11.5px; color: #4c6a72; line-height: 1.5; }
 .af-rest-opt.pri { border-color: #22d3ee; background: #ecfeff; }
+.af-busy { position: fixed; inset: 0; z-index: 90; background: rgba(15, 23, 42, .25); display: grid; place-items: center; }
+.af-busy-box { display: flex; align-items: center; gap: 10px; background: #fff; color: #12303a; border-radius: 14px; padding: 14px 18px; font-size: 14px; font-weight: 800; box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
+.af-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #cde3e8; border-top-color: var(--primary, #0e7490); animation: af-spin .8s linear infinite; }
+@keyframes af-spin { to { transform: rotate(360deg); } }
+.af-rest-opt:disabled, .af-rest-cancel:disabled { opacity: .5; cursor: default; }
 .af-item-moved { flex-shrink: 0; margin-left: 6px; font-size: 10.5px; font-weight: 900; padding: 1px 6px; border-radius: 999px; background: #fef3c7; color: #b45309; }
 
 /* ── 分類先ホイール ─────────────────────────────────────────────

@@ -1130,6 +1130,23 @@ export function useConfig() {
     return true
   }
 
+  // 何品目もまとめて1グループへ入れる（保存は1回。1件ずつだと600品目で数秒固まる・User報告 2026-10-10）
+  function addItemsToGroup(axisIndex, items, group) {
+    const map = _axisMap(axisIndex), arch = _archiveMap(axisIndex)
+    const g = (group ?? '').trim()
+    if (!map || !arch || !g || !Array.isArray(items)) return 0
+    const known = new Set(config.order)
+    let n = 0
+    for (const item of items) {
+      if (!known.has(item)) continue
+      const arr = Array.isArray(map[item]) ? [...map[item]] : []
+      if (arr.includes(g)) continue
+      arr.push(g); map[item] = arr; arch[item] = [...arr]; n++
+    }
+    if (n) { _pruneArchive(); _save() }
+    return n
+  }
+
   // 1品目を1グループから外す（空になれば「その他」）
   function removeItemFromGroup(axisIndex, item, group) {
     const map = _axisMap(axisIndex)
@@ -1256,6 +1273,31 @@ export function useConfig() {
     config.hiddenAt[name] = new Date().toISOString()
     _save()
   }
+  // まとめて隠す・戻す（保存は1回）
+  function hideItems(names) {
+    const now = new Date().toISOString()
+    const hidden = new Set(config.hiddenItems)
+    let n = 0
+    for (const name of names ?? []) {
+      if (!name) continue
+      if (!hidden.has(name)) { config.hiddenItems.push(name); hidden.add(name) }
+      const j = config.hiddenAuto.indexOf(name); if (j >= 0) config.hiddenAuto.splice(j, 1)
+      config.hiddenAt[name] = now; n++
+    }
+    if (n) _save()
+    return n
+  }
+  function unhideItems(names) {
+    const drop = new Set(names ?? [])
+    if (!drop.size) return 0
+    const before = config.hiddenItems.length + config.hiddenAuto.length
+    config.hiddenItems = config.hiddenItems.filter(n => !drop.has(n))
+    config.hiddenAuto = config.hiddenAuto.filter(n => !drop.has(n))
+    for (const n of drop) delete config.hiddenAt[n]
+    const changed = before - config.hiddenItems.length - config.hiddenAuto.length
+    if (changed) _save()
+    return changed
+  }
   function unhideItem(name) {
     const i = config.hiddenItems.indexOf(name)
     const j = config.hiddenAuto.indexOf(name)
@@ -1274,6 +1316,8 @@ export function useConfig() {
     activeItemCount,
     hideItem,
     unhideItem,
+    hideItems,
+    unhideItems,
     serializeConfigData: _serializeConfigData,
     setItemImage,
     learnedAliasCount,
@@ -1309,6 +1353,7 @@ export function useConfig() {
     restoreAxisGroup,
     assignItemsToGroup,
     addItemToGroup,
+    addItemsToGroup,
     removeItemFromGroup,
     moveAxisGroup,
     moveAxisGroupToTop,

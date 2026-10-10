@@ -112,7 +112,7 @@ const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true })
 const proReviewBuild = isProReviewEnvironment()
 
 // ── Config（動的品目リスト）────────────────────────────────────────────────────
-const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, setEmptyList, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, serializeConfigData } = useConfig()
+const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleData, setEmptyList, snapshotConfig, restoreConfigSnapshot, addItem, updateConfigItem, removeConfigItem, setItemCategory, setItemExtras, setItemTag, hideItem, unhideItem, hideItems, unhideItems, serializeConfigData } = useConfig()
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
@@ -3135,6 +3135,14 @@ function onHideItem(name, opts = {}) {
   // トーストではなく取り消しバーを出す。読むだけの通知と違い、押す先がある。
   if (!opts.silent) _offerHideUndo(name)
 }
+// 何品目もまとめて（振り分けの「残りをまとめる」）。保存と同期は1回
+function onHideItems(names) {
+  if (!can('item.edit')) { showToast(denyMessage('item.edit'), 3200, 'warning'); return }
+  if (hideItems(names) && syncActive.value) broadcastConfig(_configPayload())
+}
+function onUnhideItems(names) {
+  if (unhideItems(names) && syncActive.value) broadcastConfig(_configPayload())
+}
 function onUnhideItem(name) {
   unhideItem(name)
   if (syncActive.value) broadcastConfig(_configPayload())
@@ -3913,6 +3921,8 @@ function dismissReview() {
       @close="showAxisAssign = false"
       @hide-item="onHideItem($event, { silent: true })"
       @unhide-item="onUnhideItem"
+      @hide-items="onHideItems"
+      @unhide-items="onUnhideItems"
     />
     <SyncModal      v-if="showSync"     :is-inventory-completed="isCompleted" :auto-create="syncAutoCreate" :room-type="sessionMode === 'order' ? 'order' : 'stock'" @close="showSync = false; syncAutoCreate = false" @newSession="onSyncNewSession" @view-member="openMemberHistory" />
     <MemberHistoryModal v-if="memberHistoryTarget" :participant="memberHistoryTarget" :audit-log="auditLog" :editable="!inputLocked" @edit-item="onMemberHistoryEdit" @close="memberHistoryTarget = null" />
