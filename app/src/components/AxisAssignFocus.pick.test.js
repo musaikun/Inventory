@@ -183,3 +183,15 @@ describe('AxisAssignFocus — 品目を長押しして分類先を選ぶ', () =>
     expect(picker()).toBeNull()
   })
 })
+
+describe('文字を選ばせない（User報告 2026-10-10）', () => {
+  it('画面の文字は選択を始めない。入力欄は選べる', async () => {
+    await mount()
+    const ev = new Event('selectstart', { bubbles: true, cancelable: true })
+    host.querySelector('.af-item').dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    const ev2 = new Event('selectstart', { bubbles: true, cancelable: true })
+    host.querySelector('.af-search').dispatchEvent(ev2)
+    expect(ev2.defaultPrevented).toBe(false)
+  })
+})

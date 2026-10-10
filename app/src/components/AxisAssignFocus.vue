@@ -823,6 +823,7 @@ function openPick(item, row) {
   resetSwipe()
   stopWheelAtNearest()
   pickStyle.value = pickAnchorStyle(row)
+  try { window.getSelection?.()?.removeAllRanges() } catch (_) {}   // 長押しで始まりかけた文字選択を消す
   pickItem.value = item
   nextTick(() => pickEl.value?.querySelector('.af-pick-opt')?.focus())
 }
@@ -1076,6 +1077,16 @@ function _applyCountOrder(places) {
   }), { sticky: true })
 }
 
+// この画面では文字を選ばせない（長押しで分類先を選ぶと、文字選択が始まってしまう・User報告 2026-10-10）。
+// CSS の user-select だけでは Android Chrome が近くの文字を選びに行くので、選択の開始そのものを止める。
+// 名前を打つ欄（検索・分類先の名前など）だけは選べるまま
+function onSelectStart(e) {
+  const t = e.target
+  const el = t?.nodeType === 1 ? t : t?.parentElement
+  if (el?.closest?.('input, textarea, [contenteditable="true"]')) return
+  e.preventDefault()
+}
+
 // ── 見出しの ⋯（振り分け済みの店では、数えた順の並べ直しをここへ下げる）──
 const moreOpen = ref(false)
 
@@ -1324,7 +1335,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 </script>
 
 <template>
-  <div class="af">
+  <div class="af" @selectstart="onSelectStart">
     <header class="af-head">
       <button class="af-back" @click="emit('close')">‹ 閉じる</button>
       <span class="af-title">{{ axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
@@ -1811,7 +1822,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 </template>
 
 <style scoped>
-.af { position: fixed; inset: 0; z-index: 60; background: #f6fafb; display: flex; flex-direction: column; overflow: hidden; }
+.af { position: fixed; inset: 0; z-index: 60; background: #f6fafb; display: flex; flex-direction: column; overflow: hidden;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.af input, .af textarea { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 .af-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea; flex-shrink: 0; }
 .af-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; }
 .af-title { font-size: 16px; font-weight: 800; color: #12303a; }
