@@ -134,26 +134,26 @@ describe('AxisAssignFocus — 品目を長押しして分類先を選ぶ', () =>
     expect(cfg.config.tagsA['トマト']).toBeUndefined()
   })
 
-  it('既に入っている分類先は上に出て、押すと外れる', async () => {
+  it('並びはホイールと同じ順で固定。入っている分類先は ✓ で、押すと外れる', async () => {
     cfg.addItemToGroup(0, 'トマト', '常温棚')
     await mount()
     const el = await longPress('トマト')
     await release(el)
     vi.advanceTimersByTime(500)
-    expect(optNames()[0]).toBe('常温棚')
+    expect(optNames()).toEqual(['冷蔵庫', '冷凍庫', '常温棚'])
     expect(optOf('常温棚').getAttribute('aria-pressed')).toBe('true')
     await click(optOf('常温棚'))
     expect(cfg.config.tagsA['トマト'] ?? []).toEqual([])
   })
 
-  it('同じジャンルの品目が集まっている分類先を上へ出す', async () => {
-    // 野菜（レタス）が常温棚に居る。トマトも野菜なので、常温棚を先に見せる。
+  it('同じジャンルの品目が集まっている分類先は印で見せる（並びは動かさない）', async () => {
+    // 野菜（レタス）が常温棚に居る。トマトも野菜なので、常温棚に印を付ける。
     cfg.addItemToGroup(0, 'レタス', '常温棚')
     await mount()
     const el = await longPress('トマト')
     await release(el)
     vi.advanceTimersByTime(500)
-    expect(optNames()[0]).toBe('常温棚')
+    expect(optNames()).toEqual(['冷蔵庫', '冷凍庫', '常温棚'])
     expect(optOf('常温棚').querySelector('.af-pick-why').textContent).toContain('野菜')
     // ジャンルが違う豚バラには推さない
     await click(host.querySelector('.af-pick-close'))

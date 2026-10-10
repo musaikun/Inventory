@@ -732,7 +732,7 @@ const {
 // 運んでいる最中に分類先を作り直す（ホイール→カード）ことになり、指の下で
 // 落とし先が生まれる。20件近い分類先はどのみち1画面に並ばないので、
 // ドラッグ中のスクロールまで要る。長押し＋タップならどれも要らない。
-const PICK_HINT_MAX = 3      // ジャンルからの推測を何件まで上へ出すか
+const PICK_HINT_MAX = 3      // ジャンルからの推測の印を何件まで付けるか（並びは動かさない）
 const PICK_RECENT_MAX = 5    // 直近に使った分類先を何件覚えるか
 const PICK_MIN_H = 120       // 行の上下どちらに出しても、これだけは高さを取る
 const PICK_GAP = 6
@@ -766,11 +766,9 @@ function genreHint(item) {
   return Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([g]) => g)
 }
 
-// 並び順がこの機能の速さの本体。上から
-//   1. いま入っている分類先（＝ここで外せる）
-//   2. 同じジャンルの品目が集まっている分類先
-//   3. 直近に使った分類先
-//   4. 残りはホイールと同じ順（覚えた位置が崩れない）
+// 並びは**ホイールと同じ順で固定**（User要望 2026-10-10）。以前は「入っている → 同じジャンルが
+// 多い → 直近」を上へ寄せていたが、開くたびに並びが変わり、覚えた位置で押せなかった。
+// 寄せる代わりに、入っている分類先は ✓、ジャンルの推測・直近は印（why）で見せる。
 const pickOptions = computed(() => {
   const item = pickItem.value
   if (!item) return []
@@ -791,9 +789,6 @@ const pickOptions = computed(() => {
       why: mine.has(g) ? '' : hintSet.has(g) ? (cat ? `${cat}が多い` : 'よく使う') : recentSet.has(g) ? '直近' : '',
     })
   }
-  for (const g of itemGroups(item)) push(g)
-  for (const g of hint) push(g)
-  for (const g of recentGroups.value) push(g)
   for (const g of groups.value) push(g)
   return out
 })
