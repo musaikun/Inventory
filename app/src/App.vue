@@ -2084,7 +2084,7 @@ function onUndone() {
 }
 
 /**
- * 棚卸セッションを離れてホームへ返す。**「セッション」タブのメイン画面**で開く。
+ * 棚卸セッションを離れてホームへ返す。**ホームタブ**で開く（開始もホームのショートカットから・User決定 2026-10-10）。
  *
  * ホームのタブ（_persistedTab）と在庫分析 overlay はモジュール側に持っていて画面を跨いで残る。
  * ダッシュボードタブを見てから棚卸へ入ると、戻ったときもそこへ出てしまい、
@@ -2101,7 +2101,7 @@ function _goHomeMain() {
     currentView.value = 'landing'
     return
   }
-  homeTab.value = 'sessions'
+  homeTab.value = 'home'
   dashboardOpen.value = false
   ordersOpen.value = false
   currentView.value = 'sessions'
@@ -3990,13 +3990,6 @@ function dismissReview() {
       </div>
     </Transition>
 
-    <!-- フィードバックボタン（セッション画面で表示）。ホームでは右下の＋と開始シートに重なるので、管理タブのカードから開く -->
-    <button
-      v-if="currentView === 'session' && !leaveAsk"
-      class="feedback-fab"
-      @click="openFeedback"
-      title="フィードバックを送る"
-    >💬</button>
 
     <!-- フィードバックモーダル -->
     <div v-if="showFeedback" class="feedback-overlay" @click.self="showFeedback = false">
@@ -4762,32 +4755,6 @@ function dismissReview() {
 .onboard-leave-active { transition: opacity 0.25s ease; }
 .onboard-enter-from,
 .onboard-leave-to     { opacity: 0; }
-
-/* ── フィードバック FAB ── */
-.feedback-fab {
-  position: fixed;
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-  right: 16px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  box-shadow: 0 3px 12px rgba(14, 116, 144, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 800;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.feedback-fab:active {
-  transform: scale(0.92);
-  box-shadow: 0 1px 6px rgba(14, 116, 144, 0.25);
-}
 
 /* ── フィードバック / レビュー モーダル ── */
 .feedback-overlay {

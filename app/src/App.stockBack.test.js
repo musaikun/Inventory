@@ -62,7 +62,7 @@ async function browserBack() {
 }
 
 const inSession   = () => !!host.querySelector('.home-btn')
-const onHomeMain  = () => !!host.querySelector('.home-top .sc')    // 在庫タブ上部の並び替えカード
+const onHomeMain  = () => !!host.querySelector('.ht-grid')         // ホームタブのショートカット
 // 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
 const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
 // ホームのタブに居なければ、下のナビの「ホーム」へ移ってから押す
@@ -105,7 +105,7 @@ afterEach(() => {
 })
 
 describe('棚卸セッションでブラウザの戻る', () => {
-  it('ホームのメイン画面（在庫タブ）へ戻る', async () => {
+  it('ホームタブへ戻る（開始もホームから・User決定 2026-10-10）', async () => {
     await mountApp()
     await startStockSession()
 
@@ -113,10 +113,10 @@ describe('棚卸セッションでブラウザの戻る', () => {
 
     expect(inSession()).toBe(false)
     expect(onHomeMain()).toBe(true)
-    expect(homeTabName()).toContain('在庫')
+    expect(homeTabName()).toContain('ホーム')
   }, 20000)
 
-  it('管理タブを見てから始めても、戻ると在庫タブに出る', async () => {
+  it('管理タブを見てから始めても、戻るとホームタブに出る', async () => {
     await mountApp()
     const list = await import('./components/SessionListPage.vue')
 
@@ -132,8 +132,8 @@ describe('棚卸セッションでブラウザの戻る', () => {
     await browserBack()
 
     expect(onHomeMain()).toBe(true)
-    expect(homeTabName()).toContain('在庫')
-    expect(list._persistedTab.value).toBe('sessions')
+    expect(homeTabName()).toContain('ホーム')
+    expect(list._persistedTab.value).toBe('home')
   }, 20000)
 
   it('在庫分析を開いたまま棚卸へ入っても、1回の戻るでホームへ抜ける', async () => {
