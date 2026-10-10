@@ -46,7 +46,7 @@ import HomeTop from './HomeTop.vue'
 import JournalPage, { journalView } from './JournalPage.vue'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
-import SortTile from './SortTile.vue'
+import SortCard from './SortCard.vue'
 import { completionBusy } from '../composables/useSession.js'
 import { APP_NAME } from '../appInfo.js'
 
@@ -330,24 +330,8 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="home-top">
           <div v-if="error" class="home-err">{{ error }}</div>
 
-          <!-- 操作ボタン -->
-          <div v-if="!empty" class="acts">
-            <!-- 中断中があれば、ボタンそのものが「再開」になる（ホームの上に帯を出さない・User決定 2026-10-04）。
-                 やめるときは棚卸・発注の画面の ☰ から破棄する -->
-            <button v-if="activeSession" class="act stock resume" type="button" @click="resume(activeSession)">
-              <b>▶︎</b>棚卸を再開<small>{{ _itemCount(activeSession) }}品目 ・ {{ _hm(activeSession.startedAt) }}〜</small>
-            </button>
-            <button v-else class="act stock" type="button" :disabled="startingKind === 'stock'" @click="openStockSheet">
-              <b>👥</b>{{ startingKind === 'stock' ? '開始中…' : '棚卸' }}
-            </button>
-            <button v-if="activeOrderSession" class="act order resume" type="button" @click="resume(activeOrderSession)">
-              <b>▶︎</b>発注を再開<small>{{ _itemCount(activeOrderSession) }}品目 ・ {{ _hm(activeOrderSession.startedAt) }}〜</small>
-            </button>
-            <button v-else class="act order" type="button" :disabled="startingKind === 'order'" @click="openOrderSheet">
-              <b>🧾</b>{{ startingKind === 'order' ? '開始中…' : '発注' }}
-            </button>
-            <SortTile :disabled="completionBusy" />
-          </div>
+          <!-- 棚卸・発注の開始はホームだけ。ここは並び替えの入口（User決定 2026-10-10） -->
+          <SortCard v-if="!empty" :disabled="completionBusy" />
         </div>
       </template>
     </StockPage>
@@ -550,23 +534,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 .home-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 0; }
 .home-err { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 10px; }
 
-/* 棚卸と発注を色で見分ける（ホームのボタンと同じ 青／オレンジ） */
-
-.acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.act {
-  position: relative; background: #fff; border: 1.5px solid #d6e6ea; border-radius: 14px;
-  padding: 9px 0 8px; font-size: 12.5px; font-weight: 800; color: #1f3d45; cursor: pointer; font-family: inherit;
-}
-.act b { display: block; font-size: 22px; margin-bottom: 2px; }
-.act.stock { border-color: #67e8f9; color: #155e75; background: #ecfeff; }
-.act.order { border-color: #fdba74; color: #c2410c; background: #fff7ed; }
-.act:disabled { opacity: .6; cursor: default; }
-/* 中断中：ボタンそのものが「再開」 */
-.act.resume small { display: block; font-size: 10px; font-weight: 700; opacity: .85; margin-top: 1px; }
-.act.resume.stock { background: #cffafe; border-color: #22d3ee; }
-.act.resume.order { background: #ffedd5; border-color: #fb923c; }
-.act-badge { position: absolute; top: 5px; right: 8px; background: #059669; color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; }
-.act-dot { position: absolute; top: 8px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
 
 .manage { padding: 0 0 12px; }
 .m-h { font-size: 12px; font-weight: 800; color: #4c6a72; margin: 14px 2px 6px; }

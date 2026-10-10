@@ -27,7 +27,10 @@ async function mount(initialAxis = 0) {
 const btn    = (t) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(t))
 const dialog = () => host.querySelector('.af-axis-dialog')
 const input  = () => host.querySelector('.af-axis-dialog .af-dialog-input')
-const tabs   = () => [...host.querySelectorAll('.af-tab')].map(b => b.textContent.trim())
+// 分け方のタブは外した（User決定 2026-10-10）。見出しが「○○の並び替え」、もう一方へは切り替えボタン
+const title  = () => host.querySelector('.af-title').textContent.trim()
+const edit   = () => host.querySelector('.af-title-edit')
+const sw     = () => host.querySelector('.af-switch-btn')
 // ダイアログの決定ボタン。画面には「＋ グループを作る」も出ているので、文言で拾わない
 const ok     = () => dialog().querySelector('.af-dialog-ok')
 
@@ -70,7 +73,7 @@ describe('グループが1つも無いとき', () => {
 
     expect(cfg.config.axisNames[0]).toBe('保管場所')
     expect(dialog()).toBeNull()
-    expect(tabs()).toEqual(['保管場所'])
+    expect(title()).toBe('保管場所の並び替え')
   })
 
   it('名前が空のままでは作れない', async () => {
@@ -81,21 +84,21 @@ describe('グループが1つも無いとき', () => {
 })
 
 describe('グループの名前', () => {
-  it('タブの✎から変えられる', async () => {
+  it('見出しの✎から変えられる', async () => {
     cfg.setAxisName(0, '保管場所')
     await mount()
-    await click(host.querySelector('.af-tab-edit'))
+    await click(edit())
     await type(input(), '置き場')
     await click(ok())
     expect(cfg.config.axisNames[0]).toBe('置き場')
-    expect(tabs()).toEqual(['置き場'])
+    expect(title()).toBe('置き場の並び替え')
   })
 
   it('もう一方と同じ名前は付けられず、理由がその場に出る', async () => {
     cfg.setAxisName(0, '保管場所')
     cfg.setAxisName(1, '仕入先')
     await mount()
-    await click(host.querySelector('.af-tab-edit'))
+    await click(edit())
     await type(input(), '仕入先')
     await click(ok())
 
@@ -111,25 +114,21 @@ describe('グループの名前', () => {
 })
 
 describe('グループの追加と削除', () => {
-  it('空きがあるときだけ＋が出る（グループは2つまで）', async () => {
+  it('空きがあるときだけ「＋ 分け方を追加」、2つあれば「⇄ もう一方に切り替える」', async () => {
     cfg.setAxisName(0, '保管場所')
     await mount()
-    expect(host.querySelector('.af-tab-add')).not.toBeNull()
+    expect(sw().textContent).toContain('分け方を追加')
 
-    await click(host.querySelector('.af-tab-add'))
+    await click(sw())
     await type(input(), '仕入先')
     await click(ok())
     expect(cfg.config.axisNames).toEqual(['保管場所', '仕入先'])
-    expect(host.querySelector('.af-tab-add')).toBeNull()
-  })
-
-  it('作った直後は、そのグループに切り替わっている', async () => {
-    cfg.setAxisName(0, '保管場所')
-    await mount()
-    await click(host.querySelector('.af-tab-add'))
-    await type(input(), '仕入先')
-    await click(ok())
-    expect(host.querySelector('.af-tab.on').textContent.trim()).toBe('仕入先')
+    // 作った直後は、その分け方に切り替わっている
+    expect(title()).toBe('仕入先の並び替え')
+    expect(sw().textContent).toContain('保管場所に切り替える')
+    await click(sw())
+    expect(title()).toBe('保管場所の並び替え')
+    expect(host.querySelector('.af-tab')).toBeNull()
   })
 
   it('削除は、何が外れるかを言ってから', async () => {
@@ -140,7 +139,7 @@ describe('グループの追加と削除', () => {
     let asked = ''
     globalThis.confirm = (m) => { asked = m; return true }
 
-    await click(host.querySelector('.af-tab-edit'))
+    await click(edit())
     await click(btn('このグループを削除'))
 
     expect(asked).toContain('振り分けもすべて外れます')
@@ -152,7 +151,7 @@ describe('グループの追加と削除', () => {
     cfg.setAxisName(0, '保管場所')
     await mount()
     globalThis.confirm = () => false
-    await click(host.querySelector('.af-tab-edit'))
+    await click(edit())
     await click(btn('このグループを削除'))
     expect(cfg.config.axisNames[0]).toBe('保管場所')
   })

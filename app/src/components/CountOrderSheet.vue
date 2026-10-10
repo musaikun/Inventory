@@ -5,7 +5,9 @@
  * - mode 'create'（まだ振り分けていない）: 数えた順に品目を並べ、人が区切って場所を作る。
  *   複数人なら担当者ごとの順で、人の切れ目は最初から区切っておく。
  *   区切りは時間では決めない。品目をタップ →「ここから別の場所にする」
- * - mode 'reorder'（振り分け済み）: 割り当てはそのまま、各場所の中だけを数えた順にする
+ * - mode 'reorder'（振り分け済み）: 割り当てはそのまま、各場所の中だけを数えた順にする。
+ *   押す前に、場所ごとの「今 → 後」を変わる場所だけ見せる（動く品目に色）。変わらなければ押せない
+ *   （User要望 2026-10-10: 何が変わったか分からない・押し間違えても気づかない を防ぐ）
  * 実際の書き換えと「元に戻す」は親（AxisAssignFocus）が行う。
  */
 import { ref, reactive, computed } from 'vue'
@@ -16,6 +18,7 @@ const props = defineProps({
   seqs:     { type: Array,  required: true },     // countSequences の戻り値
   date:     { type: String, default: '' },        // YYYY-MM-DD
   axisName: { type: String, default: '' },
+  preview:  { type: Object, default: null },        // reorder: { changed: [{ group, before, after, moved }], same: [] }
 })
 const emit = defineEmits(['close', 'apply', 'switch-create'])
 
@@ -59,15 +62,19 @@ function apply() {
     </header>
 
     <div v-if="mode === 'reorder'" class="co-body">
-      <section class="co-card">
-        <b class="co-card-t">{{ dateLabel }}に数えた順に並べ直します</b>
-        <p class="co-card-p">
-          「{{ axisName }}」の分け方はそのままで、各場所の中だけが数えた順になります。
-          {{ dateLabel }}に数えていない品目は、各場所の末尾に今の順のまま残ります。
-        </p>
-        <p class="co-card-n">数えた品目 {{ countedTotal }}<template v-if="team">（{{ seqs.length }}人）</template></p>
-        <button type="button" class="co-go" @click="apply">この順に並べ直す</button>
+      <p class="co-lock">✓ どの品目がどの場所に入っているかは<b>変わりません</b>。場所の中の順番だけが、{{ dateLabel }}に数えた順になります。</p>
+      <p class="co-card-n">数えた品目 {{ countedTotal }}<template v-if="team">（{{ seqs.length }}人）</template> ・ 数えていない品目は各場所の末尾に今の順のまま</p>
+      <section v-for="c in preview?.changed ?? []" :key="c.group" class="co-cmp">
+        <div class="co-cmp-h"><b>{{ c.group }}</b><small>{{ c.moved }}品目が動く</small></div>
+        <div class="co-cmp-cols"><span>今</span><span></span><span>並べ直した後</span></div>
+        <div v-for="(x, k) in c.after" :key="k" class="co-cmp-r">
+          <span>{{ c.before[k] }}</span><span class="co-ar" aria-hidden="true">→</span>
+          <span :class="{ mv: c.before[k] !== x }">{{ x }}</span>
+        </div>
       </section>
+      <p v-if="preview?.same?.length" class="co-same">{{ preview.same.join('・') }} は今と同じ順です</p>
+      <button v-if="preview?.changed?.length" type="button" class="co-go" @click="apply">{{ preview.changed.length }}つの場所を並べ直す</button>
+      <button v-else type="button" class="co-go" disabled>今と同じ順です（変わる場所はありません）</button>
       <button type="button" class="co-alt" @click="emit('switch-create')">場所の分け方から作り直す（今の振り分けは上書き）</button>
     </div>
 
@@ -119,10 +126,20 @@ function apply() {
 .co-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .co-body > * { flex: none; }
 .co-hint { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-muted, #4c6a72); }
-.co-card { display: grid; gap: 10px; padding: 14px; border-radius: 14px; border: 1.5px solid #22d3ee; background: var(--surface, #fff); }
-.co-card-t { font-size: 15px; color: var(--text, #12303a); }
-.co-card-p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-muted, #4c6a72); }
 .co-card-n { margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted, #4c6a72); }
+.co-lock { margin: 0; font-size: 12.5px; line-height: 1.6; color: #047857; background: #ecfdf5; border-radius: 10px; padding: 8px 10px; }
+.co-cmp { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 12px; overflow: hidden; }
+.co-cmp-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 7px 10px; background: #f1f8fa; }
+.co-cmp-h b { font-size: 13.5px; color: var(--text, #12303a); }
+.co-cmp-h small { font-size: 11.5px; font-weight: 800; color: #b45309; }
+.co-cmp-cols, .co-cmp-r { display: grid; grid-template-columns: 1fr 18px 1fr; gap: 4px; padding: 3px 10px; align-items: center; }
+.co-cmp-cols { font-size: 10.5px; font-weight: 800; color: #7d969c; }
+.co-cmp-r { font-size: 13px; color: var(--text, #12303a); }
+.co-cmp-r span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-cmp-r .mv { background: #fef3c7; border-radius: 5px; padding: 1px 5px; font-weight: 800; }
+.co-ar { color: #94a3b8; text-align: center; }
+.co-same { margin: 0; font-size: 12px; color: var(--text-muted, #4c6a72); }
+.co-go:disabled { background: #e2e8f0; color: #7d969c; cursor: default; }
 .co-alt { align-self: center; min-height: 40px; border: none; background: none; color: var(--text-muted, #4c6a72); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
 .co-grp { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; overflow: hidden; }
 .co-grp-h { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #dbeafe; }

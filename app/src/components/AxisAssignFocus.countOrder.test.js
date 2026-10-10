@@ -66,17 +66,82 @@ describe('数えた順で並べる', () => {
     expect(cfg.axisItemSequence(0)).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
   })
 
-  it('振り分け済み: 割り当てはそのまま、並びだけを数えた順にする', async () => {
+  it('振り分け済み: 入口は見出しの ⋯ の中。変わる場所だけ 今→後 を見せ、割り当てはそのまま並びだけ変える', async () => {
     await seedHistory([a('牛乳', 1), a('卵', 2), a('塩', 3)])
     cfg.addAxisGroup(0, '冷蔵庫')
     cfg.setItemTag('卵', 0, '冷蔵庫')
     await mount()
+    expect(btn('前回の数えた順')).toBeUndefined()          // 主役のボタンには出さない
+    await click(host.querySelector('.af-more'))
     await click(btn('前回の数えた順に並べ直す'))
-    expect(host.textContent).toContain('各場所の中だけが数えた順')
-    await click(btn('この順に並べ直す'))
+    expect(host.textContent).toContain('変わりません')
+    // 冷蔵庫（卵だけ）は変わらない。まだ分けていない品目は「その他」として見せる
+    const cmps = [...host.querySelectorAll('.co-cmp')]
+    expect(cmps.map(c => c.querySelector('.co-cmp-h b').textContent)).toEqual(['その他'])
+    expect([...cmps[0].querySelectorAll('.co-cmp-r .mv')].map(e => e.textContent)).toEqual(['牛乳', '塩'])
+    expect(host.querySelector('.co-same').textContent).toContain('冷蔵庫')
+    await click(btn('1つの場所を並べ直す'))
     expect(cfg.axisItemSequence(0)).toEqual(['牛乳', '卵', '塩', 'アイス', 'パスタ'])
     expect(cfg.config.order).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
     expect(cfg.config.tagsA['卵']).toEqual(['冷蔵庫'])
+    expect(cfg.config.tagsA['牛乳']).toBeUndefined()
+    // 動いた品目に印。元に戻すは数秒で消えない
+    const mark = name => host.querySelector(`.af-item[data-item="${name}"] .af-item-moved`)?.textContent
+    expect(mark('牛乳')).toContain('↑')
+    expect(mark('塩')).toContain('↓')
+    expect(mark('卵')).toBeUndefined()
+    await new Promise(r => setTimeout(r, 0))
+    expect(host.querySelector('.af-undobar').textContent).toContain('2品目')
+    await click(btn('元に戻す'))
+    expect(cfg.axisItemSequence(0)).toEqual(['塩', '卵', '牛乳', 'アイス', 'パスタ'])
+    expect(mark('牛乳')).toBeUndefined()
+  })
+
+  it('もう数えた順になっていれば押せない', async () => {
+    await seedHistory([a('塩', 1), a('卵', 2)])
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.setItemTag('卵', 0, '冷蔵庫')
+    await mount()
+    await click(host.querySelector('.af-more'))
+    await click(btn('前回の数えた順に並べ直す'))
+    expect(host.querySelectorAll('.co-cmp').length).toBe(0)
+    expect(btn('今と同じ順です').disabled).toBe(true)
+  })
+})
+
+describe('まだ分けていない品目をまとめる', () => {
+  it('残りを「その他」へまとめて完了にできる。元に戻せる', async () => {
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.setItemTag('卵', 0, '冷蔵庫')
+    await mount()
+    await click(btn('残り4品目を「その他」へ'))
+    await click(host.querySelector('.af-rest-opt.pri'))
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫', 'その他'])
+    for (const n of ['塩', '牛乳', 'アイス', 'パスタ']) expect(cfg.config.tagsA[n]).toEqual(['その他'])
+    expect(host.textContent).toContain('全部できました')
+    expect(host.querySelector('.af-rest-btn')).toBeNull()
+    await click(btn('元に戻す'))
+    expect(cfg.config.axisGroupsA).toEqual(['冷蔵庫'])
+    expect(cfg.config.tagsA['塩']).toBeUndefined()
+  })
+
+  it('直近3回数えていない品目は非表示、残りは「その他」も選べる', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    const snap = (id, d) => ({ sessionId: id, date: d, savedAt: `${d}T01:00:00Z`, items: ['塩', '卵', '牛乳', 'アイス', 'パスタ'].map(item => ({ item, qty: ['塩', '卵'].includes(item) ? 1 : null })) })
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({ s1: snap('s1', '2026-10-01') }))
+    cfg.addAxisGroup(0, '冷蔵庫')
+    cfg.setItemTag('卵', 0, '冷蔵庫')
+    const { default: Focus } = await import('./AxisAssignFocus.vue')
+    host = document.createElement('div'); document.body.appendChild(host)
+    const hidden = []
+    app = createApp({ render: () => h(Focus, { initialAxis: 0, onHideItem: i => hidden.push(i) }) })
+    app.mount(host); await tick()
+    await click(host.querySelector('.af-rest-btn'))
+    const opt = [...host.querySelectorAll('.af-rest-opt')][1]
+    expect(opt.textContent).toContain('3品目は非表示')
+    await click(opt)
+    expect(hidden).toEqual(['牛乳', 'アイス', 'パスタ'])
+    expect(cfg.config.tagsA['塩']).toEqual(['その他'])
     expect(cfg.config.tagsA['牛乳']).toBeUndefined()
   })
 })

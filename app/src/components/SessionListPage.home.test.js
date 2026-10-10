@@ -62,6 +62,8 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await nextTick() }
 async function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
 const btn = (root, label) => [...root.querySelectorAll('button')].find(b => b.textContent.includes(label))
 const sheet = () => host.querySelector('.sh')
+// 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
+const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
 
 beforeEach(() => {
   localStorage.clear(); sessionStorage.clear()
@@ -72,12 +74,14 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('表・操作ボタン2つ＋並び替え（入出庫は品目シートで入れる）・下部ナビ（ホーム／在庫／日誌／レポート／管理）', async () => {
+  it('在庫タブは表＋並び替えカード（棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／在庫／日誌／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
-    expect([...host.querySelectorAll('.acts .act')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['👥棚卸', '🧾発注'])
+    expect(host.querySelector('.sp .act')).toBeNull()
+    expect(host.querySelector('.home-top .sc').textContent).toContain('並び替え')
+    expect(shortcut('棚卸')).toBeTruthy()
+    expect(shortcut('発注')).toBeTruthy()
     expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '管理'])
-    expect(host.querySelector('.acts .st').textContent).toContain('並び替え')
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -85,7 +89,7 @@ describe('ホームの骨組み', () => {
     useConfig().resetToDefault?.()
     await mountPage({ items: false })
     expect(host.textContent).toContain('最初の品目を追加')
-    expect(host.querySelector('.acts')).toBeNull()
+    expect(host.querySelector('.home-top .sc')).toBeNull()
   })
 
   it('日誌・レポート・管理はホームのタブ（履歴カレンダーは日誌の「月」）', async () => {
@@ -126,7 +130,7 @@ describe('ホームの骨組み', () => {
 describe('棚卸を始める', () => {
   it('開始シートで「ひとりで／みんなで」を選ぶ。みんなではルームを作る印を付けて開始する', async () => {
     await mountPage()
-    await click(host.querySelector('.act.stock'))
+    await click(shortcut('棚卸'))
     expect(sheet().textContent).toContain('棚卸を始める')
     await click(btn(sheet(), 'みんなで始める'))
     expect(events).toContainEqual(['startSession', expect.objectContaining({ id: 'stk-new' }), 'stock', { room: true }])
@@ -136,7 +140,7 @@ describe('棚卸を始める', () => {
     sessionList = [DONE_TODAY]
     await mountPage()
     const spy = vi.spyOn(window, 'confirm')
-    await click(host.querySelector('.act.stock'))
+    await click(shortcut('棚卸'))
     await click(btn(sheet(), 'ひとりで始める'))
     expect(spy).not.toHaveBeenCalled()
     expect(createSession).not.toHaveBeenCalled()
@@ -148,7 +152,7 @@ describe('棚卸を始める', () => {
   it('同じ日でも「別の棚卸として新しく始める」を選べば新しく作る', async () => {
     sessionList = [DONE_TODAY]
     await mountPage()
-    await click(host.querySelector('.act.stock'))
+    await click(shortcut('棚卸'))
     await click(btn(sheet(), 'ひとりで始める'))
     await click(btn(sheet(), '別の棚卸として新しく始める'))
     expect(events).toContainEqual(['startSession', expect.objectContaining({ id: 'stk-new' }), 'stock', { room: false }])
@@ -156,7 +160,7 @@ describe('棚卸を始める', () => {
 
   it('開始シートに「練習してみる」は出さない', async () => {
     await mountPage()
-    await click(host.querySelector('.act.stock'))
+    await click(shortcut('棚卸'))
     expect(btn(sheet(), '練習')).toBeUndefined()
   })
 })
@@ -164,7 +168,7 @@ describe('棚卸を始める', () => {
 describe('発注を始める', () => {
   it('開始シートで「記録のみ（仕入先へ送信しない）」を一度はっきり言う', async () => {
     await mountPage()
-    await click(host.querySelector('.act.order'))
+    await click(shortcut('発注'))
     expect(sheet().textContent).toContain('仕入先へは送信されません')
     await click(btn(sheet(), 'ひとりで始める'))
     expect(createSession).toHaveBeenCalledWith('order')
@@ -173,14 +177,13 @@ describe('発注を始める', () => {
 })
 
 describe('中断中のセッションと破棄', () => {
-  it('中断中は帯を出さず、棚卸・発注のボタンが「再開」になる', async () => {
+  it('中断中は帯を出さず、ホームの棚卸・発注が「途中」になり、押すと再開する', async () => {
     sessionList = [ACTIVE_STOCK, ACTIVE_ORDER]
     await mountPage()
     expect(host.querySelector('.strip')).toBeNull()
-    const stock = host.querySelector('.act.stock.resume')
-    expect(stock.textContent).toContain('棚卸を再開')
-    expect(stock.textContent).toContain('12品目')
-    expect(host.querySelector('.act.order.resume').textContent).toContain('発注を再開')
+    const stock = shortcut('棚卸')
+    expect(stock.textContent).toContain('途中 12品目')
+    expect(shortcut('発注').textContent).toContain('途中')
     await click(stock)
     expect(events).toContainEqual(['resumeSession', ACTIVE_STOCK])
   })
@@ -222,7 +225,7 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
     restoreImpl = async (id) => ({ ok: true, session: { id, type: 'stock', status: 'active', startedAt: new Date().toISOString() }, payload: {} })
     await mountPage(); await flushAll()
     expect(host.querySelector('.strip')).toBeNull()
-    await click(host.querySelector('.act.stock'))
+    await click(shortcut('棚卸'))
     const b = btn(sheet(), '↩︎')
     expect(b.textContent).toContain('破棄した棚卸を元に戻して始める（あと16時間）')
     expect(sheet().textContent).not.toContain('破棄した発注')
@@ -235,7 +238,7 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
   it('破棄した発注は発注の開始シートに出る', async () => {
     discardedList = [d('b', 'order')]
     await mountPage(); await flushAll()
-    await click(host.querySelector('.act.order'))
+    await click(shortcut('発注'))
     expect(sheet().textContent).toContain('破棄した発注を元に戻して始める')
     discardedList = []
   })

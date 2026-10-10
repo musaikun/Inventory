@@ -81,6 +81,10 @@ function dropAxis(idx) {
   closeAxisPanel()
 }
 
+// 見ている並び替えの名前と、もう一方（見出しの「⇄ 切り替える」。タブは外した・User決定 2026-10-10）
+const axisName  = computed(() => namedAxes.value.find(a => a.index === activeAxis.value)?.name || '')
+const otherAxis = computed(() => namedAxes.value.find(a => a.index !== activeAxis.value) || null)
+
 const tagMap  = computed(() => activeAxis.value === 0 ? (config.tagsA ?? {}) : (config.tagsB ?? {}))
 const defined = computed(() => activeAxis.value === 0 ? (config.axisGroupsA ?? []) : (config.axisGroupsB ?? []))
 const groups  = computed(() => {
@@ -989,10 +993,12 @@ function unassign(item) {
 const undoState = ref(null)     // { msg, sub, undo }
 const UNDO_MS = 9000
 let _undoT = null
-function _offerUndo(msg, sub, undo) {
-  undoState.value = { msg, sub, undo }
+// sticky: 数秒で消さず、ページを出る（か次の操作で置き換わる）まで残す。
+// 気づかないうちに並びが変わっていた、を防ぐ（数えた順の並べ直し・残りをまとめる）
+function _offerUndo(msg, sub, undo, { sticky = false } = {}) {
+  undoState.value = { msg, sub, undo, sticky }
   clearTimeout(_undoT)
-  _undoT = setTimeout(() => { undoState.value = null }, UNDO_MS)
+  if (!sticky) _undoT = setTimeout(() => { undoState.value = null }, UNDO_MS)
 }
 function dismissUndo() { clearTimeout(_undoT); undoState.value = null }
 function runUndo() {
@@ -1011,15 +1017,91 @@ const axisHasAssignments = computed(() => {
   const map = (activeAxis.value === 0 ? config.tagsA : config.tagsB) ?? {}
   return Object.values(map).some(v => v?.length)
 })
-function openCountOrder() { countMode.value = axisHasAssignments.value ? 'reorder' : 'create' }
+function openCountOrder() { moreOpen.value = false; countMode.value = axisHasAssignments.value ? 'reorder' : 'create' }
+
+/**
+ * 振り分け済みで並べ直すときの「今 → 後」。場所ごとに、順番の変わる場所だけを出す
+ * （User要望 2026-10-10: 何が変わったか分からない・押し間違えても気づかない を防ぐ）。
+ * まだどこにも入っていない品目は、一覧での見え方と同じく「その他」として扱う。
+ */
+const countPreview = computed(() => {
+  if (countMode.value !== 'reorder' || !countSource.value) return null
+  const before = axisItemSequence(activeAxis.value)
+  const after = orderByCount(before, countSource.value.seqs)
+  const groupsOf = i => (itemGroups(i).length ? itemGroups(i) : [REST_GROUP])
+  const names = [...groups.value]
+  if (!names.includes(REST_GROUP)) names.push(REST_GROUP)
+  const changed = [], same = []
+  for (const g of names) {
+    const inG = i => !hiddenSet.value.has(i) && groupsOf(i).includes(g)
+    const b = before.filter(inG), a = after.filter(inG)
+    if (!b.length) continue
+    const moved = a.filter((x, k) => b[k] !== x).length
+    if (moved) changed.push({ group: g, before: b, after: a, moved }); else same.push(g)
+  }
+  return { changed, same }
+})
+
+// 並べ直した品目の印（↑前へ・↓後へ）。ページを出るか、元に戻すまで残す
+const movedMarks = ref({})
+watch(activeAxis, () => { movedMarks.value = {} })
+
 function applyCountOrder(places) {
   const src = countSource.value
   if (!src) { countMode.value = ''; return }
+  const preview = places ? null : countPreview.value
   const before = axisLayoutSnapshot(activeAxis.value)
   if (places) applyCountPlaces(activeAxis.value, places)
   setAxisItemOrder(activeAxis.value, orderByCount(axisItemSequence(activeAxis.value), src.seqs))
   countMode.value = ''
-  _offerUndo(places ? `${places.length}つの場所に分けて、数えた順に並べました` : '数えた順に並べ直しました', '', () => restoreAxisLayout(before))
+  if (places) {
+    _offerUndo(`${places.length}つの場所に分けて、数えた順に並べました`, '', () => restoreAxisLayout(before), { sticky: true })
+    return
+  }
+  const marks = {}
+  for (const c of preview?.changed ?? []) {
+    c.after.forEach((x, k) => {
+      const was = c.before.indexOf(x)
+      if (was !== k && !marks[x]) marks[x] = k < was ? 'up' : 'down'
+    })
+  }
+  movedMarks.value = marks
+  const where = (preview?.changed ?? []).map(c => c.group).join('・')
+  _offerUndo(`数えた順に並べ直しました（${Object.keys(marks).length}品目）`, where, () => {
+    restoreAxisLayout(before)
+    movedMarks.value = {}
+  }, { sticky: true })
+}
+
+// ── 見出しの ⋯（振り分け済みの店では、数えた順の並べ直しをここへ下げる）──
+const moreOpen = ref(false)
+
+// ── まだ分けていない品目をまとめる（User要望 2026-10-10）─────────────
+// 大きな店では、今は扱っていない品目もリストに残っている。振り分ける必要は無いのに、
+// 残っていると振り分けが完了にならない。残りを「その他」へまとめて完了にできるようにする。
+// 数えもしない品目は非表示も選べる（非表示は進捗の数に入らない）。
+const REST_GROUP = 'その他'
+const restOpen = ref(false)
+const restItems = computed(() => visibleOrder.value.filter(i => itemGroups(i).length === 0))
+const restUnused = computed(() => restItems.value.filter(i => isUnmeasured(i)))
+function restToOther({ hideUnused = false } = {}) {
+  const axis = activeAxis.value
+  const before = axisLayoutSnapshot(axis)
+  const hide = hideUnused ? [...restUnused.value] : []
+  const hideSet = new Set(hide)
+  const toOther = restItems.value.filter(i => !hideSet.has(i))
+  if (toOther.length) {
+    addAxisGroup(axis, REST_GROUP)
+    for (const i of toOther) addItemToGroup(axis, i, REST_GROUP)
+  }
+  for (const i of hide) emit('hide-item', i)
+  restOpen.value = false
+  const msg = [toOther.length && `${toOther.length}品目を「${REST_GROUP}」にまとめました`, hide.length && `${hide.length}品目を非表示にしました`]
+    .filter(Boolean).join('・')
+  _offerUndo(msg, 'あとから1つずつ別の場所へ移せます', () => {
+    restoreAxisLayout(before)
+    for (const i of hide) emit('unhide-item', i)
+  }, { sticky: true })
 }
 
 // ── 分類先の1枚だけの操作（ホイール隣のレール）────────────────────
@@ -1226,7 +1308,16 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   <div class="af">
     <header class="af-head">
       <button class="af-back" @click="emit('close')">‹ 閉じる</button>
-      <span class="af-title">{{ namedAxes.find(a => a.index === activeAxis)?.name || '振り分け' }}</span>
+      <span class="af-title">{{ axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
+      <button v-if="axisName" class="af-title-edit" aria-label="分け方の名前を変える・消す" @click="openAxisPanel(activeAxis)">✎</button>
+      <button
+        v-if="axisName && countSource && axisHasAssignments" class="af-more" aria-label="その他の操作"
+        :aria-expanded="moreOpen ? 'true' : 'false'" @click="moreOpen = !moreOpen"
+      >⋯</button>
+      <div v-if="moreOpen" class="af-more-back" @click="moreOpen = false"></div>
+      <div v-if="moreOpen" class="af-more-menu" role="menu">
+        <button type="button" role="menuitem" @click="openCountOrder">⏱ 前回の数えた順に並べ直す…</button>
+      </div>
     </header>
 
     <!-- 進捗バー -->
@@ -1238,6 +1329,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <span class="af-prog-pct">{{ progressPct }}%</span>
       </div>
       <div class="af-prog-bar"><div class="af-prog-fill" :class="{ done: allDone }" :style="{ width: progressPct + '%' }"></div></div>
+      <!-- 残りをまとめる・もう一方の分け方へ（タブは外した・User決定 2026-10-10） -->
+      <div v-if="axisName" class="af-prog-acts">
+        <button v-if="restItems.length && !allDone" type="button" class="af-rest-btn" @click="restOpen = true">
+          残り{{ restItems.length }}品目を「{{ REST_GROUP }}」へ…
+        </button>
+        <button v-if="otherAxis" type="button" class="af-switch-btn" @click="activeAxis = otherAxis.index">⇄ {{ otherAxis.name }}に切り替える</button>
+        <button v-else-if="freeAxisSlot >= 0" type="button" class="af-switch-btn add" @click="openAxisPanel(-1)">＋ 分け方を追加</button>
+      </div>
     </div>
 
     <!-- グループが1つも無いとき。ここで作れる（管理画面へ往復させない） -->
@@ -1254,14 +1353,10 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     </div>
 
     <template v-else>
-      <!-- グループのタブ。名前の変更・追加もここから（使う場所で設定まで済ませる） -->
-      <div class="af-tabs">
-        <button v-for="a in namedAxes" :key="a.index" :class="['af-tab', { on: activeAxis === a.index }]" @click="activeAxis = a.index">{{ a.name }}</button>
-        <button class="af-tab-edit" aria-label="グループの名前を変える" @click="openAxisPanel(activeAxis)">✎</button>
-        <button v-if="freeAxisSlot >= 0" class="af-tab-add" aria-label="グループを追加" @click="openAxisPanel(-1)">＋</button>
-      </div>
-      <button v-if="countSource" type="button" class="af-count-btn" @click="openCountOrder">
-        ⏱ {{ axisHasAssignments ? '前回の数えた順に並べ直す' : '前回の数えた順で場所を作る' }}
+      <!-- 分け方のタブは外した（入口は在庫タブの並び替えカード）。もう一方へは小さな切り替えで -->
+      <!-- まだ振り分けていない並び替えでは主役の入口。振り分け済みなら見出しの ⋯ の中へ下げる -->
+      <button v-if="countSource && !axisHasAssignments" type="button" class="af-count-btn" @click="openCountOrder">
+        ⏱ 前回の数えた順で場所を作る
       </button>
 
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
@@ -1379,6 +1474,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               >
                 <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
                 <span class="af-item-name">{{ item }}</span>
+                <span v-if="movedMarks[item]" :class="['af-item-moved', movedMarks[item]]">{{ movedMarks[item] === 'up' ? '↑ 前へ' : '↓ 後へ' }}</span>
                 <span v-if="isNew(item)" class="af-item-new">新規</span>
                 <span v-else-if="isUnmeasured(item)" class="af-item-unused"><i>直近3回</i>未計測</span>
                 <span v-if="itemGroups(item).length" class="af-item-tags">
@@ -1409,6 +1505,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           >
             <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
             <span class="af-item-name">{{ item }}</span>
+            <span v-if="movedMarks[item]" :class="['af-item-moved', movedMarks[item]]">{{ movedMarks[item] === 'up' ? '↑ 前へ' : '↓ 後へ' }}</span>
             <span v-if="isNew(item)" class="af-item-new">新規</span>
             <span v-else-if="isUnmeasured(item)" class="af-item-unused"><i>直近3回</i>未計測</span>
             <span v-if="itemGroups(item).length" class="af-item-tags">
@@ -1609,7 +1706,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
               class="af-sheet-item-name" @click="tapOrderPick(item)"
             >{{ item }}</button>
             <button v-else-if="sheetSorting" class="af-sheet-item-name as-text">{{ item }}</button>
-            <button v-else class="af-sheet-item-name" @click="locate(item)">{{ item }}</button>
+            <button v-else class="af-sheet-item-name" @click="locate(item)">{{ item }}<span v-if="movedMarks[item]" :class="['af-item-moved', movedMarks[item]]">{{ movedMarks[item] === 'up' ? '↑' : '↓' }}</span></button>
             <template v-if="!sheetSorting">
               <button class="af-sheet-off" @click="unassign(item)">外す</button>
               <button class="af-sheet-item-go" @click="locate(item)">確認 ›</button>
@@ -1650,9 +1747,26 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <CountOrderSheet
       v-if="countMode && countSource"
       :mode="countMode" :seqs="countSource.seqs" :date="countSource.snap.date"
-      :axis-name="namedAxes.find(a => a.index === activeAxis)?.name || ''"
+      :axis-name="axisName" :preview="countPreview"
       @close="countMode = ''" @apply="applyCountOrder" @switch-create="countMode = 'create'"
     />
+
+    <!-- まだ分けていない品目をまとめる -->
+    <div v-if="restOpen" class="af-dialog-bg af-rest-bg" @click.self="restOpen = false">
+      <div class="af-rest" role="dialog" aria-modal="true" aria-label="まだ分けていない品目をまとめる">
+        <div class="af-dialog-title">まだ分けていない {{ restItems.length }}品目</div>
+        <p class="af-rest-p">今は扱っていない品目が混ざっていても、ここでまとめれば振り分けを完了にできます。あとから1つずつ別の場所へ移せます。</p>
+        <button type="button" class="af-rest-opt pri" @click="restToOther()">
+          <b>📦 「{{ REST_GROUP }}」にまとめる（{{ restItems.length }}品目）</b>
+          <small>数える品目のまま、棚卸の一覧の最後にまとまります<template v-if="!groups.includes(REST_GROUP)">。「{{ REST_GROUP }}」の場所を作ります</template></small>
+        </button>
+        <button v-if="restUnused.length" type="button" class="af-rest-opt" @click="restToOther({ hideUnused: true })">
+          <b>🙈 直近3回数えていない {{ restUnused.length }}品目は非表示にする</b>
+          <small>棚卸にも出なくなります<template v-if="restItems.length > restUnused.length">。残り{{ restItems.length - restUnused.length }}品目は「{{ REST_GROUP }}」へ</template></small>
+        </button>
+        <button type="button" class="af-rest-cancel" @click="restOpen = false">やめる</button>
+      </div>
+    </div>
 
     <!-- 取り消し（削除・非表示は戻せることをその場に出す）-->
     <transition name="af-flash">
@@ -1692,9 +1806,26 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
    0件のときはこの1枚だけが座る（空の円筒を見せない） */
 .af-gcard.add { border-style: dashed; background: #f6fafb; justify-content: center; }
 .af-gadd { font-size: 15px; font-weight: 800; color: var(--primary, #0e7490); }
-.af-tabs { display: flex; gap: 6px; padding: 10px 14px 0; flex-shrink: 0; }
-.af-tab { flex: 1; border: 1px solid #d6e6ea; background: #fff; color: #4c6a72; border-radius: 10px; padding: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
-.af-tab.on { background: var(--primary, #0e7490); color: #fff; border-color: var(--primary, #0e7490); }
+.af-head { position: relative; }
+.af-title-edit { flex-shrink: 0; width: 30px; height: 30px; border: 1px solid #bfd6dc; background: #fff; color: var(--primary, #0e7490); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.af-more { margin-left: auto; flex-shrink: 0; width: 34px; height: 30px; border: 1px solid #bfd6dc; background: #fff; color: #3d5a62; border-radius: 8px; font-size: 16px; font-weight: 900; cursor: pointer; }
+.af-more-back { position: fixed; inset: 0; z-index: 4; }
+.af-more-menu { position: absolute; right: 12px; top: calc(100% + 4px); z-index: 5; background: #fff; border: 1px solid #d6e6ea; border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); padding: 4px; }
+.af-more-menu button { display: block; width: 100%; text-align: left; border: none; background: none; padding: 10px 12px; font-size: 13.5px; font-weight: 700; color: #12303a; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.af-more-menu button:active { background: #edf5f7; }
+.af-prog-acts { display: flex; gap: 8px; margin-top: 8px; }
+.af-prog-acts:empty { display: none; }
+.af-switch-btn { margin-left: auto; flex-shrink: 0; min-height: 36px; border: 1px solid #bfd6dc; background: #fff; color: var(--primary, #0e7490); border-radius: 999px; padding: 0 12px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.af-rest-btn { flex: 1; min-width: 0; min-height: 36px; border: 1.5px dashed var(--primary, #0e7490); background: #ecfeff; color: var(--primary, #0e7490); border-radius: 10px; font-size: 12.5px; font-weight: 800; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; }
+.af-dialog-bg.af-rest-bg { align-items: flex-end; padding: 0; }
+.af-rest-cancel { min-height: 42px; border: 1px solid #d6e6ea; background: #fff; color: #4c6a72; border-radius: 11px; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.af-rest { width: 100%; max-width: 520px; background: #fff; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+.af-rest-p { margin: 0; font-size: 12.5px; color: #4c6a72; line-height: 1.6; }
+.af-rest-opt { display: grid; gap: 3px; text-align: left; border: 1.5px solid #d6e6ea; background: #fff; border-radius: 12px; padding: 10px 12px; font: inherit; color: #12303a; cursor: pointer; }
+.af-rest-opt b { font-size: 14px; }
+.af-rest-opt small { font-size: 11.5px; color: #4c6a72; line-height: 1.5; }
+.af-rest-opt.pri { border-color: #22d3ee; background: #ecfeff; }
+.af-item-moved { flex-shrink: 0; margin-left: 6px; font-size: 10.5px; font-weight: 900; padding: 1px 6px; border-radius: 999px; background: #fef3c7; color: #b45309; }
 
 /* ── 分類先ホイール ─────────────────────────────────────────────
    横スワイプの取り合いを避けるため、指のジェスチャは touch-action で最初から
@@ -1857,8 +1988,6 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 /* ── 分類先の一括編集 ─────────────────────────────────────────
    つまみ（⋮⋮）を掴んでいる間だけ行が動く。行そのものを掴ませると縦スクロールと
    取り合いになり、並べ替えのつもりが画面ごと流れる。 */
-.af-tab-edit, .af-tab-add { flex-shrink: 0; border: 1px solid #bfd6dc; background: #fff; color: #3d5a62;
-  border-radius: 9px; padding: 6px 11px; font-size: 13px; font-weight: 800; cursor: pointer; }
 .af-empty-t { font-size: 16px; font-weight: 800; color: #12303a; margin-bottom: 6px; }
 .af-empty-n { font-size: 12.5px; line-height: 1.65; color: #4c6a72; margin: 0 0 14px; }
 .af-empty-n b { color: #12303a; }

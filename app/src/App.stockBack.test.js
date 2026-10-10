@@ -62,7 +62,15 @@ async function browserBack() {
 }
 
 const inSession   = () => !!host.querySelector('.home-btn')
-const onHomeMain  = () => !!host.querySelector('.act.stock')       // ホームの操作ボタン「棚卸」
+const onHomeMain  = () => !!host.querySelector('.home-top .sc')    // 在庫タブ上部の並び替えカード
+// 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
+const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
+// ホームのタブに居なければ、下のナビの「ホーム」へ移ってから押す
+async function goShortcut(label) {
+  if (!shortcut(label)) await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('ホーム')))
+  return shortcut(label)
+}
+
 const homeTabName = () => host.querySelector('.bnav button.on')?.textContent.trim()
 
 async function startStockSession() {
@@ -72,7 +80,7 @@ async function startStockSession() {
   cfg.addItem('トマト', 120, '野菜', '個')
   await flush()
 
-  await click(host.querySelector('.act.stock'))          // 開始シートを開く
+  await click(await goShortcut('棚卸'))          // 開始シートを開く
   await click(host.querySelector('.sh .bb.stock'))       // ひとりで始める
   expect(inSession()).toBe(true)
 }

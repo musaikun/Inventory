@@ -133,47 +133,8 @@ describe('非表示', () => {
   })
 })
 
-describe('並び替えのおすすめ（はじめて使うときだけ大きく）', () => {
-  const card = () => host.querySelector('.sr')
-
-  it('並び替えが1つも無い店では、動きのあるカードを出す', async () => {
-    await mountPage()
-    expect(card().classList.contains('anim')).toBe(true)
-    expect(card().textContent).toContain('並び替えを始める')
-  })
-
-  it('1品目でも振り分けてあれば出さない', async () => {
-    cfg.setAxisName(0, '保管場所')
-    cfg.setItemTag('トマト', 0, '冷蔵庫')
-    await mountPage()
-    expect(card()).toBeNull()
-  })
-
-  it('「あとで」でも ✕ でも二度と出さない（端末に覚え、各種設定から戻せる）', async () => {
-    const hints = await import('../composables/useHints.js')
-    await mountPage()
-    await click(btn(card(), 'あとで'))
-    expect(card()).toBeNull()
-    expect(hints.isHintShown('reco-sort-intro', Date.now() + 365 * 86400000)).toBe(false)
-    hints.restoreHints()
-    await tick()
-    await click(card().querySelector('.sr-x'))
-    expect(card()).toBeNull()
-  })
-
-  it('「並び替えを始める」で名前を決めて振り分けのページを開き、カードはもう出さない', async () => {
-    const menu = await import('../composables/appMenuState.js')
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('保管場所')
-    await mountPage()
-    await click(btn(card(), '並び替えを始める'))
-    expect(cfg.config.axisNames[0]).toBe('保管場所')
-    expect(menu.showAxisAssign.value).toBe(true)
-    expect(menu.axisAssignInitial.value).toBe(0)
-    expect(card()).toBeNull()
-    prompt.mockRestore()
-  })
-
-  it('ホームの表からは並び替えの追加（＋）・編集（✎）をしない（タイルから行う）', async () => {
+describe('並び替え', () => {
+  it('ホームの表からは並び替えの追加（＋）・編集（✎）をしない（上の並び替えカードから行う）', async () => {
     cfg.setAxisName(0, '保管場所')
     await mountPage()
     expect(host.querySelector('.seg-add')).toBeNull()

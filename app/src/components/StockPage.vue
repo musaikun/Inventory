@@ -26,11 +26,8 @@ import { saveMovementToD1 } from '../composables/useStore.js'
 import { deviceName, actorId } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
 import HiddenItemsList from './HiddenItemsList.vue'
-import SortRecoCard from './SortRecoCard.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { itemCheckRows, ITEM_CHECKS } from '../utils/itemCheck.js'
-import { isHintShown, dismissHint } from '../composables/useHints.js'
-import { useSortSetup } from '../composables/useSortSetup.js'
 
 // embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
 const props = defineProps({
@@ -97,12 +94,6 @@ function checkLabel(item) {
   return r ? r.missing.map(k => CHECK_CHIP[k]).filter(Boolean).join('・') : ''
 }
 
-// ── 並び替えのおすすめ（はじめて使うときだけ大きく。以降はホームのタイルの中で見せる・User決定 2026-10-04）──
-const RECO_ID = 'reco-sort-intro'
-const { sortStage, openSort } = useSortSetup()
-const showReco = computed(() => sortStage.value === 'none' && !locked.value && isHintShown(RECO_ID))
-// 始める・あとで・✕ のどれでも、大きなおすすめは二度と出さない（並び替えのタイルは残る）
-function onRecoStart() { dismissHint(RECO_ID); openSort() }
 // サンプルの品目リスト（まだ自分のリストを持っていない）も「0件」として扱う。
 // サンプルを在庫として並べると、自分の店の品目と区別がつかない
 const isEmpty = computed(() => (config.order || []).length === 0 || !config.isCustom)
@@ -163,11 +154,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <div v-else class="sp-body">
       <input v-model="search" type="text" class="sp-search" placeholder="品目名で絞り込み" />
-      <SortRecoCard
-        v-if="showReco"
-        @start="onRecoStart"
-        @dismiss="dismissHint(RECO_ID)"
-      />
       <DismissibleHint id="stock-basis" tag="p" class="sp-hint">数字は<b>今の見込み</b>（直近の棚卸＋入庫−出庫）。正確な数は棚卸で確定します。</DismissibleHint>
 
       <div class="sp-chips" role="group" aria-label="絞り込み">

@@ -20,6 +20,14 @@ vi.mock('./utils/analytics.js', () => ({
 let app = null
 let host = null
 
+// 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
+const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
+// ホームのタブに居なければ、下のナビの「ホーム」へ移ってから押す
+async function goShortcut(label) {
+  if (!shortcut(label)) await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('ホーム')))
+  return shortcut(label)
+}
+
 async function flush(n = 6) {
   for (let i = 0; i < n; i++) await nextTick()
 }
@@ -59,7 +67,7 @@ const activeTab = () => host.querySelector('.mv-tab.on')?.textContent.trim()
 
 // ホームの操作ボタン「発注」→ 開始シート →「ひとりで始める」
 async function startOrderSession() {
-  await click(host.querySelector('.act.order'))
+  await click(await goShortcut('発注'))
   expect(host.querySelector('.sh').textContent).toContain('仕入先へは送信されません')   // 記録のみであることを開始前に言う
   await click(host.querySelector('.sh .bb.order'))
 }
@@ -105,20 +113,20 @@ describe('発注セッションの戻る', () => {
     await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
 
     expect(movementPage()).toBeNull()
-    expect(host.querySelector('.act.order')).not.toBeNull()   // ホームに戻っている
+    expect(host.querySelector('.bnav')).not.toBeNull()   // ホームに戻っている
   }, 20000)
 
   it('棚卸セッションもホームへ返る', async () => {
     await mountApp()
     await seed()
-    await click(host.querySelector('.act.stock'))
+    await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
 
     const leave = host.querySelector('.home-btn')
     expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
     await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
-    expect(host.querySelector('.act.stock')).not.toBeNull()
+    expect(host.querySelector('.bnav')).not.toBeNull()
   }, 20000)
 
   it('管理タブに「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
@@ -166,18 +174,18 @@ describe('セッションの ☰ から中断・破棄', () => {
 
   it('ヘッダーに ☰ は無く、🏠 の「中断してホームへ」でホームに戻り、棚卸のボタンが「再開」になる', async () => {
     await mountWithSessions()
-    await click(host.querySelector('.act.stock'))
+    await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
     expect(host.querySelector('.am-btn')).toBeNull()
     await openLeave()
     await click(leaveBtn('中断してホームへ'))
     await flush(10)
-    expect(host.querySelector('.act.stock.resume')?.textContent).toContain('棚卸を再開')
+    expect((await goShortcut('棚卸'))?.textContent).toContain('途中')
   }, 20000)
 
   it('ひとりの棚卸では大きな「ルームを作成」カードを出さず、見出しの小さな「みんなで」から作る', async () => {
     await mountWithSessions()
-    await click(host.querySelector('.act.stock'))
+    await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
     expect(host.querySelector('.room-cta')).toBeNull()
     expect(host.querySelector('.app-header .room-mini')?.textContent).toContain('みんなで')
@@ -185,12 +193,12 @@ describe('セッションの ☰ から中断・破棄', () => {
 
   it('🏠 の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {
     await mountWithSessions()
-    await click(host.querySelector('.act.stock'))
+    await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
     await openLeave()
     await click(leaveBtn('この棚卸を破棄'))
     await flush(10)
-    expect(host.querySelector('.act.stock')).not.toBeNull()
+    expect(host.querySelector('.bnav')).not.toBeNull()
     expect(host.querySelector('.sh').textContent).toContain('破棄')
     const deletes = apiFetchMock.mock.calls.filter(([, o]) => o?.method === 'DELETE')
     expect(deletes).toHaveLength(0)
@@ -199,7 +207,7 @@ describe('セッションの ☰ から中断・破棄', () => {
   // ルームを作らなくても、名前をタップしたときと同じ「担当者ごとの変更履歴」を見られる（User 2026-10-02）
   it('ひとりの棚卸では「N / M 件入力済み」を押すと自分の変更履歴が見られる', async () => {
     await mountWithSessions()
-    await click(host.querySelector('.act.stock'))
+    await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
     const { deviceId } = await import('./composables/useDeviceId.js')
     const { addLocalAuditEntry } = await import('./composables/useSync.js')
