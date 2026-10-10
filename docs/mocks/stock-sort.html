@@ -62,6 +62,21 @@
   .dlg h3 { font-size:14px; } .dlg .in { height:38px; border:1px solid var(--border); border-radius:9px; padding:0 10px; display:flex; align-items:center; font-size:13px; }
   .dlg .btns { display:flex; justify-content:flex-end; gap:8px; } .dlg .btns span { font-size:12.5px; font-weight:800; padding:8px 14px; border-radius:9px; border:1px solid var(--border); } .dlg .btns .ok { background:var(--grad-btn); border:none; }
   .dlg .del { font-size:12px; color:#b91c1c; font-weight:800; border-top:1px solid var(--border); padding-top:10px; }
+  .swr { display:flex; justify-content:flex-end; } .sw { font-size:11.5px; font-weight:800; color:var(--primary); border:1px solid var(--border); background:#fff; border-radius:999px; padding:5px 11px; }
+  .pool .bulk { width:100%; text-align:center; border:1.5px dashed var(--primary); color:var(--primary); font-weight:800; background:var(--weak); padding:7px; border-radius:9px; font-size:12px; }
+  .menu { font-size:11px; color:var(--muted); text-align:center; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:18px 18px 0 0; padding:14px; display:grid; gap:9px; box-shadow:0 -8px 24px rgba(0,0,0,.18); }
+  .sheet h3 { font-size:14.5px; } .sheet p { font-size:11.5px; color:var(--muted); line-height:1.55; }
+  .opt { border:1.5px solid var(--border); border-radius:12px; padding:9px 11px; display:grid; gap:2px; } .opt b { font-size:13px; } .opt small { font-size:11px; color:var(--muted); line-height:1.45; }
+  .opt.pri { border-color:#22d3ee; background:var(--weak); }
+  .go { height:40px; border-radius:11px; background:var(--grad-btn); color:#053b45; font-weight:900; font-size:13.5px; display:grid; place-items:center; }
+  .go.off { background:#e2e8f0; color:#94a3b8; }
+  .cmp { border:1px solid var(--border); border-radius:10px; overflow:hidden; } .cmp-h { background:#f1f8fa; font-size:11.5px; font-weight:900; color:var(--deep); padding:5px 9px; display:flex; justify-content:space-between; } .cmp-h small { color:#b45309; font-weight:800; }
+  .cmp-r { display:grid; grid-template-columns:1fr 18px 1fr; font-size:11.5px; padding:3px 9px; align-items:center; } .cmp-r .ar { color:#94a3b8; text-align:center; } .cmp-r .mv { background:#fef3c7; border-radius:5px; padding:1px 5px; font-weight:800; }
+  .same { font-size:11px; color:var(--muted); padding:5px 9px; border-top:1px solid #eef4f6; }
+  .lock { font-size:11px; color:#047857; background:#ecfdf5; border-radius:8px; padding:6px 8px; line-height:1.5; }
+  .moved { outline:2px solid #f59e0b; } .tag { font-size:9.5px; color:#b45309; font-weight:900; }
+  .ubar { position:absolute; left:10px; right:10px; bottom:12px; background:#0b1f26; color:#e6fbff; border-radius:12px; padding:10px 12px; font-size:12px; display:flex; align-items:center; gap:8px; } .ubar b { margin-left:auto; color:#67e8f9; }
 </style></head><body>
 <h1>在庫タブ：並び替えの入口を1つにまとめる</h1>
 <p class="lead">棚卸・発注の開始はホームだけにする（確定）。空いた在庫タブの上部を「並び替え」カードにして、作ってある分け方をボタンで並べる。押すとその分け方の並び替えページへ直行する。
@@ -129,15 +144,17 @@
 <div class="phone">
   <div class="af-hd"><span class="bk">‹ 戻る</span><span class="tt">保管場所の並び替え <span class="ed">✎</span></span><span class="dn">完了</span></div>
   <div class="body" style="padding-top:10px">
-    <div class="removed">外すもの：<span class="gone">保管場所｜仕入先</span> のタブ・タブの <span class="gone">＋</span></div>
+    <div class="removed">外すもの：<span class="gone">保管場所｜仕入先</span> のタブ・タブの <span class="gone">＋</span>（切り替えは右上の小さなボタンに）</div>
+    <div class="swr"><span class="sw">⇄ 仕入先に切り替える</span></div>
     <div class="af-prog">32 / 40 品目 <div class="bar"><span style="width:80%"></span></div></div>
-    <div class="af-cnt">⏱ 前回の数えた順に並べ直す</div>
     <div class="cols">
       <div class="cl"><b>冷蔵庫</b><span>鶏もも</span><span>牛乳</span><span>卵</span><span>バター</span></div>
       <div class="cl"><b>冷凍庫</b><span>えび</span><span>ポテト</span><span>アイス</span></div>
       <div class="cl"><b>乾物棚</b><span>米</span><span>パスタ</span><span>小麦粉</span><span>砂糖</span></div>
     </div>
-    <div class="pool"><b>まだ分けていない 8</b><span>玉ねぎ</span><span>人参</span><span>醤油</span><span>みりん</span><span>…</span></div>
+    <div class="pool"><b>まだ分けていない 8</b><span>玉ねぎ</span><span>人参</span><span>醤油</span><span>みりん</span><span>…</span>
+      <span class="bulk">残り8品目を「その他」へまとめる</span></div>
+    <div class="menu">⋯ その他の操作：⏱ 前回の数えた順に並べ直す</div>
   </div>
 </div></div>
 
@@ -151,6 +168,58 @@
     <div class="btns"><span>やめる</span><span class="ok">保存</span></div>
     <div class="del">🗑 この分け方を消す（振り分けもなくなります）</div>
   </div></div>
+</div></div>
+
+</div>
+<h1 style="margin-top:30px">追加：使っていない品目の逃がし先・数えた順で並べ直すときの確認</h1>
+<p class="lead">⑤ 未振り分けが残っていても完了にできるよう、残りをまとめて「その他」へ入れる（数える品目のまま、一覧の最後にまとまる）。数えもしない品目は非表示も選べる（非表示は完了の数に入らない）。<br>
+⑥⑦ 「前回の数えた順に並べ直す」は振り分け済みの店では主役のボタンから外して ⋯ の中へ。押すと<b>場所ごとに 今→後 を見せ、変わる場所だけ</b>を出す。変わらなければ押せない。分け方（どの場所に入っているか）は変えないと明記。終わったら動いた品目に印を付け、ページを出るまで「元に戻す」を残す。</p>
+<div class="row">
+
+<div class="col"><div class="cap">⑤ 残りをまとめる<small>まだ分けていない品目の欄の下のボタンから</small></div>
+<div class="phone">
+  <div class="af-hd"><span class="bk">‹ 戻る</span><span class="tt">保管場所の並び替え <span class="ed">✎</span></span><span class="dn">完了</span></div>
+  <div class="dim" style="place-items:end stretch"><div class="sheet">
+    <h3>まだ分けていない 8品目</h3>
+    <p>今は扱っていない品目が混ざっていても、ここでまとめれば振り分けを完了にできます。あとから1つずつ別の場所へ移せます。</p>
+    <div class="opt pri"><b>📦 「その他」にまとめる（8品目）</b><small>数える品目のまま、棚卸の一覧の最後にまとまります。「その他」が無ければ作ります</small></div>
+    <div class="opt"><b>🙈 直近3回数えていない 5品目は非表示にする</b><small>棚卸にも出なくなります。残り3品目は「その他」へ</small></div>
+    <div class="go">「その他」にまとめる</div>
+  </div></div>
+</div></div>
+
+<div class="col"><div class="cap">⑥ 数えた順で並べ直す前の確認<small>変わる場所だけ・動く品目に色。分け方は変わらない</small></div>
+<div class="phone">
+  <div class="af-hd"><span class="bk">‹ やめる</span><span class="tt">10/3の数えた順</span></div>
+  <div class="body" style="padding-top:10px;gap:8px">
+    <div class="lock">✓ どの品目がどの場所に入っているかは<b>変わりません</b>。場所の中の順番だけが変わります。</div>
+    <div class="cmp"><div class="cmp-h">冷蔵庫 <small>3品目が動く</small></div>
+      <div class="cmp-r"><span>鶏もも</span><span class="ar">→</span><span class="mv">卵</span></div>
+      <div class="cmp-r"><span>牛乳</span><span class="ar">→</span><span>牛乳</span></div>
+      <div class="cmp-r"><span>卵</span><span class="ar">→</span><span class="mv">バター</span></div>
+      <div class="cmp-r"><span>バター</span><span class="ar">→</span><span class="mv">鶏もも</span></div>
+    </div>
+    <div class="cmp"><div class="cmp-h">乾物棚 <small>2品目が動く</small></div>
+      <div class="cmp-r"><span>米</span><span class="ar">→</span><span class="mv">パスタ</span></div>
+      <div class="cmp-r"><span>パスタ</span><span class="ar">→</span><span class="mv">米</span></div>
+    </div>
+    <div class="same">冷凍庫・その他 は今と同じ順です</div>
+    <div class="go">2つの場所を並べ直す</div>
+    <div class="menu">変わる場所がなければ <span class="go off" style="display:inline-grid;height:26px;padding:0 10px;font-size:11px">今と同じ順です</span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">⑦ 並べ直したあと<small>動いた品目に印。ページを出るまで元に戻せる（数秒で消えない）</small></div>
+<div class="phone">
+  <div class="af-hd"><span class="bk">‹ 戻る</span><span class="tt">保管場所の並び替え <span class="ed">✎</span></span><span class="dn">完了</span></div>
+  <div class="body" style="padding-top:10px">
+    <div class="cols">
+      <div class="cl"><b>冷蔵庫</b><span class="moved">卵 <i class="tag">↑</i></span><span>牛乳</span><span class="moved">バター <i class="tag">↑</i></span><span class="moved">鶏もも <i class="tag">↓</i></span></div>
+      <div class="cl"><b>冷凍庫</b><span>えび</span><span>ポテト</span><span>アイス</span></div>
+      <div class="cl"><b>乾物棚</b><span class="moved">パスタ <i class="tag">↑</i></span><span class="moved">米 <i class="tag">↓</i></span><span>小麦粉</span><span>砂糖</span></div>
+    </div>
+  </div>
+  <div class="ubar">数えた順に並べ直しました（5品目） <b>元に戻す</b></div>
 </div></div>
 
 </div></body></html>
