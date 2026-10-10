@@ -1,0 +1,108 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>やることの済み・レポート モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea;
+    --grad-btn:linear-gradient(90deg,#22d3ee,#34d399); --weak:#ecfeff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1100px; line-height:1.6; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; }
+  .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; height:720px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .hd { display:flex; align-items:center; gap:8px; padding:14px 14px 8px; font-weight:900; font-size:16px; }
+  .hd small { margin-left:auto; font-size:11px; color:var(--muted); font-weight:700; }
+  .body { flex:1; overflow:hidden; padding:0 12px; display:grid; align-content:start; gap:10px; }
+  .search { height:38px; border-radius:10px; border:1px solid var(--border); background:#fff; padding:0 12px; font-size:13px; color:#94a3b8; display:flex; align-items:center; }
+  
+  .hd { justify-content:space-between; }
+  .seg { display:flex; gap:4px; background:#dbe9ed; border-radius:10px; padding:3px; }
+  .seg span { flex:1; text-align:center; font-size:12.5px; font-weight:800; padding:6px 0; border-radius:8px; color:var(--muted); }
+  .seg span.on { background:#fff; color:var(--primary); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .views { display:flex; gap:6px; font-size:11.5px; font-weight:800; } .views span { padding:4px 10px; border-radius:999px; background:#fff; border:1px solid var(--border); color:var(--muted); } .views span.on { background:var(--primary); color:#fff; border-color:transparent; }
+  .sub { display:flex; justify-content:space-between; align-items:center; }
+  .mine { font-size:11.5px; font-weight:800; padding:4px 10px; border-radius:999px; border:1px solid var(--border); background:#fff; color:var(--muted); }
+  .lh { display:flex; justify-content:space-between; font-size:12px; font-weight:900; color:var(--deep); padding:2px 4px; }
+  .box { background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .tr { display:flex; gap:9px; align-items:center; padding:8px 9px; border-top:1px solid #eef4f6; font-size:13px; } .tr:first-child { border-top:none; }
+  .chk { flex:none; width:24px; height:24px; border-radius:7px; background:var(--grad-btn); color:#053b45; font-weight:900; font-size:12px; display:grid; place-items:center; }
+  .tx { flex:1; min-width:0; } .tx b { display:block; font-weight:700; color:var(--muted); text-decoration:line-through; } .tx small { display:block; font-size:10.5px; color:var(--muted); margin-top:1px; }
+  .tag { flex:none; font-size:10px; font-weight:900; padding:2px 7px; border-radius:999px; } .tag.ok { background:#dcfce7; color:#047857; } .tag.late { background:#fee2e2; color:#b91c1c; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; }
+  /* レポート */
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:12px; display:grid; gap:10px; }
+  .card-h { display:flex; justify-content:space-between; align-items:center; font-weight:900; font-size:14px; }
+  .per { display:flex; gap:4px; } .per span { font-size:10.5px; font-weight:800; padding:3px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted); } .per span.on { background:var(--deep); color:#fff; border-color:transparent; }
+  .kpis { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .kpi { background:#f6fbfc; border-radius:10px; padding:8px 10px; display:grid; gap:2px; } .kpi small { font-size:10.5px; color:var(--muted); font-weight:700; } .kpi b { font-size:22px; font-variant-numeric:tabular-nums; } .kpi b i { font-style:normal; font-size:12px; color:var(--muted); margin-left:2px; } .kpi em { font-style:normal; font-size:10.5px; color:var(--muted); }
+  .bar { height:7px; border-radius:9px; background:#d6e6ea; overflow:hidden; display:flex; } .bar span { height:100%; } .b-ok { background:#22c55e; } .b-late { background:#f59e0b; } .b-miss { background:#ef4444; }
+  .leg { display:flex; gap:10px; font-size:10.5px; color:var(--muted); } .leg i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:3px; vertical-align:middle; }
+  .alert { display:flex; align-items:center; gap:8px; background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:8px 10px; font-size:12px; color:#991b1b; font-weight:700; } .alert span:last-child { margin-left:auto; color:#b91c1c; }
+  .alert.warn { background:#fffbeb; border-color:#fde68a; color:#92400e; } .alert.warn span:last-child { color:#b45309; }
+  .ppl { display:grid; gap:6px; } .pp { display:grid; grid-template-columns:62px 1fr 34px; align-items:center; gap:8px; font-size:12px; } .pp .pb { height:8px; background:#e2eef1; border-radius:9px; overflow:hidden; } .pp .pb span { display:block; height:100%; background:#38bdf8; } .pp b { text-align:right; font-variant-numeric:tabular-nums; }
+  .sec { font-size:11.5px; font-weight:900; color:var(--deep); }
+  .spark { display:flex; align-items:flex-end; gap:3px; height:44px; } .spark span { flex:1; border-radius:3px 3px 0 0; background:#a5f3fc; } .spark span.lo { background:#fca5a5; }
+  .axis { display:flex; justify-content:space-between; font-size:9.5px; color:var(--muted); }
+  .nav { height:58px; background:#fff; border-top:1px solid var(--border); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--muted); font-weight:700; }
+  .nav span { display:grid; place-items:center; gap:1px; } .nav span.on { color:var(--primary); } .nav b { font-size:17px; }
+  .body { overflow:hidden; }
+</style></head><body>
+<h1>やること：済みの確認・レポート</h1>
+<p class="lead">① 日誌のリストを「やること｜済み｜記録」の3つに。済みは直近30日に終えたものを終えた日ごと（新しい日から）。誰が・いつ・期限から遅れたかを1行で。チェックを外せば未完了に戻る。<br>
+② レポートタブに「やること」のまとまり。期間は今週／今月／30日。完了率（期限内・遅れて完了・未完了）、残っている期限切れと担当未定（押すと日誌へ）、人ごとの完了件数（順位は付けず件数だけ・名前の順）、日ごとの完了率。</p>
+<div class="row">
+
+<div class="col"><div class="cap">① 日誌 › 済み<small>完了日ごと。期限内は緑、遅れは「2日遅れ」。全員のやることは何人そろったか</small></div>
+<div class="phone">
+  <div class="hd" style="display:flex">業務日誌<div class="views"><span class="on">リスト</span><span>月</span><span>1日</span></div></div>
+  <div class="body">
+    <div class="sub"><div class="seg" style="flex:1;margin-right:8px"><span>やること</span><span class="on">済み</span><span>記録</span></div><span class="mine">自分の担当</span></div>
+    <div class="lh"><span>今日 ・ 10月10日（土）</span><span>3件</span></div>
+    <div class="box">
+      <div class="tr"><span class="chk">✓</span><span class="tx"><b>製氷機のフィルター交換</b><small>高木さんが 14:20 に完了 ・ 期限 10/10 15:00</small></span><span class="tag ok">期限内</span></div>
+      <div class="tr"><span class="chk">✓</span><span class="tx"><b>冷蔵庫の温度チェック</b><small>全員 4/4人（高木・山田・佐藤・鈴木）</small></span><span class="tag ok">期限内</span></div>
+      <div class="tr"><span class="chk">✓</span><span class="tx"><b>油の交換</b><small>山田さんが 11:05 に完了 ・ 期限 10/8</small></span><span class="tag late">2日遅れ</span></div>
+    </div>
+    <div class="lh"><span>昨日 ・ 10月9日（金）</span><span>2件</span></div>
+    <div class="box">
+      <div class="tr"><span class="chk">✓</span><span class="tx"><b>月末棚卸の段取り共有</b><small>佐藤さんが 18:40 に完了</small></span><span class="tag ok">期限内</span></div>
+      <div class="tr"><span class="chk">✓</span><span class="tx"><b>B食品へ見積り依頼</b><small>あなたが 09:12 に完了</small></span><span class="tag ok">期限内</span></div>
+    </div>
+    <div class="lh"><span>10月7日（水）</span><span>1件</span></div>
+    <div class="box"><div class="tr"><span class="chk">✓</span><span class="tx"><b>排水溝の清掃</b><small>鈴木さんが 22:30 に完了</small></span><span class="tag ok">期限内</span></div></div>
+    <div class="note">✓ を外すと未完了に戻り「やること」へ。表示は直近30日まで（それより前は月の画面から）</div>
+  </div>
+  <div class="nav"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span class="on"><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span><b>⚙</b>管理</span></div>
+</div></div>
+
+<div class="col"><div class="cap">② レポート › やること<small>今あるレポート（金額・推移）の下に足す。見られるのは今と同じく管理する人だけ</small></div>
+<div class="phone">
+  <div class="hd" style="display:flex">レポート</div>
+  <div class="body">
+    <div class="card">
+      <div class="card-h">☑ やること<div class="per"><span>今週</span><span class="on">今月</span><span>30日</span></div></div>
+      <div class="kpis">
+        <div class="kpi"><small>完了率</small><b>86<i>%</i></b><em>期限が来た 42件のうち 36件</em></div>
+        <div class="kpi"><small>期限内に完了</small><b>74<i>%</i></b><em>31件（遅れて完了 5件）</em></div>
+      </div>
+      <div class="bar"><span class="b-ok" style="width:74%"></span><span class="b-late" style="width:12%"></span><span class="b-miss" style="width:14%"></span></div>
+      <div class="leg"><span><i class="b-ok"></i>期限内 31</span><span><i class="b-late"></i>遅れて完了 5</span><span><i class="b-miss"></i>未完了 6</span></div>
+      <div class="alert"><span>⚠ 期限切れのまま 6件</span><span>日誌で見る ›</span></div>
+      <div class="alert warn"><span>担当未定 3件</span><span>日誌で見る ›</span></div>
+      <div class="sec">日ごとの完了率</div>
+      <div class="spark"><span style="height:90%"></span><span style="height:100%"></span><span style="height:70%"></span><span class="lo" style="height:35%"></span><span style="height:100%"></span><span style="height:80%"></span><span style="height:95%"></span><span style="height:60%"></span><span style="height:100%"></span><span style="height:85%"></span></div>
+      <div class="axis"><span>10/1</span><span>10/10</span></div>
+      <div class="sec">人ごとの完了（名前の順・順位は付けない）</div>
+      <div class="ppl">
+        <div class="pp"><span>佐藤</span><span class="pb"><span style="width:55%"></span></span><b>11</b></div>
+        <div class="pp"><span>鈴木</span><span class="pb"><span style="width:40%"></span></span><b>8</b></div>
+        <div class="pp"><span>高木</span><span class="pb"><span style="width:60%"></span></span><b>12</b></div>
+        <div class="pp"><span>山田</span><span class="pb"><span style="width:25%"></span></span><b>5</b></div>
+      </div>
+      <div class="note">「全員」のやることは、印を付けた人それぞれに1件。担当がいても完了の印を付けた人で数える</div>
+    </div>
+  </div>
+  <div class="nav"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span><b>☑</b>日誌</span><span class="on"><b>📈</b>レポート</span><span><b>⚙</b>管理</span></div>
+</div></div>
+
+</div></body></html>
