@@ -2,6 +2,16 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-12 — version 0.154.6 / App.vue の段階分割（REF-001 段0〜3）
+
+- User指示: App.vue のリファクタリングに着手。調査（責務と依存の実測）は [`tasks/REF-001.md`](tasks/REF-001.md)。
+- 挙動は変えずに切り出し: トースト → `useToast.js`＋`AppToast.vue`／オンボーディング・フィードバック・レビュー促進 →
+  `appPrompts.js`＋`OnboardingGuide.vue`・`FeedbackPrompts.vue`／発注の参考値 → `useOrderHints.js`（テスト追加）。
+  デッドコード（未使用 import・`myAuditCount`・`.am-count`・`.active-room-notice*`）を削除。App.vue 4898 → 4379行。
+- テスト: `useOrderHints.test.js` 5件追加。App 全件 2112 pass、build 成功。Worker は無変更。
+- 次: 段4（下書き・D1 永続化）。セッション画面・入口・ライフサイクルは「表がホーム」の再設計が落ち着くまで保留。
+- version: 0.154.5 → **0.154.6**。
+
 ## 2026-10-10 — version 0.154.5 / やることの「済み」とレポートのモック
 
 - User要望: 完了済みのやることを確認したい・レポートにやることの集計を載せたい。

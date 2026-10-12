@@ -1,6 +1,6 @@
 # 横断改善タスクボード
 
-最終更新: 2026-10-01
+最終更新: 2026-10-12
 
 **このファイルが状態の正本です。** 状態・優先度・担当を変えるときは、まずここを更新します。
 根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下の各タスクファイルにあります。
@@ -42,6 +42,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 |---|---:|---|---|---|---|
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
+| REF-001 | P2 | 進行中 | Claude Code | App.vue の段階分割。段0〜3（デッドコード・トースト・問いかけ・発注の参考値）完了、段4以降は未着手 | [REF-001.md](tasks/REF-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
 | UI-004 | P2 | レビュー待ち | User | Rive試作・公開準備をec4adcaでcommit、リモート95f2b25と統合検証済み。Editorでの見た目判断待ち。素材書き出しはプラン制限、Web/実機確認は未完了 | [UI-004.md](tasks/UI-004.md) |
 | UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-13（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段・0件の案内）を目視待ち | [UI-003.md](tasks/UI-003.md) |
@@ -94,7 +95,6 @@ Pro Reviewは2026-08-23にD1 `0016`、専用Worker、Pages `develop@4add746`（A
 
 | ID | P | 状態 | 担当 | 概要 |
 |---|---:|---|---|---|
-| REF-001 | P2 | 保留 | 未割当 | 大型コンポーネントと composable を段階分割 |
 | PERF-001 | P2 | 保留 | 未割当 | フロント bundle を分割 |
 | SEC-006 | P2 | 保留 | 未割当 | 店舗コード・PIN・保存トークンを再評価 |
 | CFG-001 | P2 | 保留 | 未割当 | Claude Code の古い hook/command を可搬化 |

@@ -9,17 +9,11 @@
 
 `DOC-001`は2026-08-04にP1へ変更し、[DOC-001.md](DOC-001.md)へ移しました。
 
+`REF-001`は2026-10-12に進行中へ変更し、[REF-001.md](REF-001.md)へ移しました。
+
 > `DATA-002`（履歴検索とDO/D1の成長時設計）は 2026-08-01 に **P1へ変更**し、
 > 実使用バグ（R-001 / F-001〜F-004）を統合したため、このファイルではなく
 > [`DATA-002.md`](DATA-002.md) にあります。
-
----
-
-## REF-001 — 大型コンポーネントと composable を段階分割
-
-- 対象候補: `App.vue`、`SessionListPage.vue`、`InventoryTable.vue`、`ConfirmModal.vue`、
-  `useConfig.js`、`useSync.js`、`RoomDO.js`。
-- 完了条件: 先に責務と既存テスト境界を可視化し、挙動を変えない小さい差分で分割する。
 
 ---
 

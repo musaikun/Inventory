@@ -22,7 +22,7 @@ import {
   broadcastOrderUpdate, broadcastOrderRemove,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
-  broadcastConflictNotify, dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
+  dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
   markMessagesRead, addLocalAuditEntry, clearAuditLog, mergeAuditLog, setAuditEntryCallback, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
@@ -49,17 +49,12 @@ import { categoryOrderOf } from './services/snapshotView.js'
 import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
+import { useOrderHints } from './composables/useOrderHints.js'
 import { useMovements } from './composables/useMovements.js'
-import { useDayNotes } from './composables/useDayNotes.js'
-import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
-import { orderBaseFor } from './services/orderBase.js'
-import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
 import { saveLastPage, readLastPage } from './services/lastPage.js'
 import {
   queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue, loadAuditFromD1,
 } from './composables/useAuditSync.js'
-import { weekdayOrderHistory } from './services/orderItemHistory.js'
-import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
@@ -93,6 +88,15 @@ import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
+import AppToast from './components/AppToast.vue'
+import OnboardingGuide from './components/OnboardingGuide.vue'
+import FeedbackPrompts from './components/FeedbackPrompts.vue'
+import {
+  showOnboarding, offerOnboarding, dismissOnboarding,
+  showFeedback, openFeedback,
+  showReview, checkReviewPrompt, dismissReview,
+} from './composables/appPrompts.js'
+import { showToast } from './composables/useToast.js'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
 import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeModalLayerBack, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
@@ -127,58 +131,15 @@ const {
 const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, dropLocalEdit, deleteSnapshotLocal, getSnapshots, getSnapshotBySessionId, lockOtherSnapshots } = useHistory()
 
 // ── Orders（発注支援）────────────────────────────────────────────────────────────
-const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
+const { upsertOrder, getOrders, applyRemoteOrders } = useOrders()
 // 進行中発注の下書き（品目→行）。セッション単位で 1 発注レコードに集約して D1 へ。
 const orderDraft = ref({})
 function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
 // 発注の日付・曜日学習の「今日」。UTC だと日本時間の朝9時まで前日になり、完了した発注が昨日のマスに入っていた
 function _todayStr() { return localDateKey() }
-
-// この品目・今日の曜日の適正在庫（学習不足なら null）。
-// 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
-const { isExcluded: _isDateExcluded } = useDayNotes()
-function _parLevelFor(item) {
-  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date))
-  return calcParLevel(events, item, weekdayOf(_todayStr()))
-}
-// 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
-const { getMovements, applyRemoteMovements } = useMovements()
-function _theoStockFor(item) {
-  return theoreticalStock(item, getSnapshots(), getMovements())
-}
-// 補充目標（発注してここまで戻す水準）と、その根拠。
-// 発注点はトリガーであって目標ではないので、目標は別に決める（services/orderBase）。
-// 学習（適正在庫）が貯まらない部分利用でも、発注点さえ入っていれば推奨が出る。
-// 発注間隔・発注曜日は「店舗としていつ発注が入るか」で決まる。スケジュールが複数あっても
-// 品目とスケジュールの紐付けはまだ無いので、全スケジュールの曜日の和集合で扱う。
-function _orderHorizonDays() {
-  return orderIntervalDays(config.orderSchedules)
-}
-function _replenishFor(item) {
-  return orderBaseFor(item, {
-    reorderPoints: config.reorderPoints ?? {}, replenishTargets: config.replenishTargets ?? {},
-    assumptions: config.orderAssumptions ?? null, category: config.categories?.[item] ?? '',
-    snapshots: getSnapshots(), orders: getOrders(), movements: getMovements(),
-    orderDays: allOrderDays(config.orderSchedules), horizonDays: _orderHorizonDays(),
-    parLevel: _parLevelFor(item),
-  }).target
-}
-
-// 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
-function _lastWeekQtyFor(item) {
-  const wd = weekdayOf(_todayStr())
-  let best = null
-  for (const o of getOrders()) {
-    if (weekdayOf(o.date) !== wd) continue
-    const line = (o.lines || []).find(l => l.item === item)
-    if (line && (!best || o.date > best.date)) best = { date: o.date, qty: line.qty }
-  }
-  return best ? best.qty : null
-}
-// 品目×同曜の発注履歴（前週・先月・直近中央値・推移）。当日分は除外。
-function _weekdayHistoryFor(item) {
-  return weekdayOrderHistory(getOrders(), item, weekdayOf(_todayStr()), { window: 6, before: _todayStr() })
-}
+// 数量入力に添える参考値（適正在庫・前週同曜・理論在庫・補充目標）
+const { orderHintsFor } = useOrderHints()
+const { applyRemoteMovements } = useMovements()
 
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
@@ -730,7 +691,6 @@ function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
 // ルームを作らずに数えているときの「自分の変更履歴」。記録（_localAudit）はこの端末の id で残る
 function _myIdentity() { return { id: deviceId, name: deviceName.value || '名前未設定', isMe: true } }
 function openMyHistory() { memberHistoryTarget.value = _myIdentity() }
-const myAuditCount = computed(() => auditLog.filter(e => (e.enteredById ? e.enteredById === deviceId : e.enteredBy === (deviceName.value || '名前未設定'))).length)
 // メンバー履歴の品目タップ → その品目の数量編集モーダルを開く
 function onMemberHistoryEdit(ingredient) {
   if (inputLocked.value || !ingredient) return
@@ -1995,7 +1955,7 @@ async function _finishSession(completionCount, isHostInRoom) {
     }
   } else {
     track('session_completed', { item_count: completionCount, mode: 'solo' })
-    _checkReviewPrompt()
+    checkReviewPrompt()
   }
 
   _clearDraft(completedId)
@@ -2339,21 +2299,6 @@ const sessionElapsed = computed(() => {
   return m > 0 ? `${h}時間${m}分` : `${h}時間`
 })
 
-// ── Toast ──────────────────────────────────────────────────────────────────────
-// type: 'default' | 'success' | 'error' | 'warning' | 'join' | 'leave' | 'update'
-const toastMsg  = ref('')
-const toastType = ref('default')
-const toastShow = ref(false)
-let   toastTimer = null
-
-function showToast(msg, duration = 2600, type = 'default') {
-  clearTimeout(toastTimer)
-  toastMsg.value  = msg
-  toastType.value = type
-  toastShow.value = true
-  toastTimer = setTimeout(() => (toastShow.value = false), duration)
-}
-
 // ── チャットモーダル ───────────────────────────────────────────────────────────
 const showChat = ref(false)
 watch(showChat, (val) => { if (val) markMessagesRead() })
@@ -2622,6 +2567,7 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
   const configCategory = config.categories?.[ingredient]
   const isOrder = sessionMode.value === 'order'
   const draft   = orderDraft.value[ingredient]
+  const hints   = isOrder ? orderHintsFor(ingredient) : null
   confirmState.value = {
     ingredient,
     qty:            isOrder ? (draft?.stock ?? qty ?? inventory[ingredient]?.qty ?? null) : qty,
@@ -2634,12 +2580,12 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     isNew:          !!opts.isNew,
     orderMode:      isOrder,
     orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
-    parLevel:       isOrder ? _parLevelFor(ingredient) : null,
-    lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
-    weekdayHistory: isOrder ? _weekdayHistoryFor(ingredient) : null,
+    parLevel:       isOrder ? hints.parLevel : null,
+    lastWeekQty:    isOrder ? hints.lastWeekQty : null,
+    weekdayHistory: isOrder ? hints.weekdayHistory : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
-    theoStock:      isOrder ? _theoStockFor(ingredient) : null,
-    replenish:      isOrder ? _replenishFor(ingredient) : null,
+    theoStock:      isOrder ? hints.theoStock : null,
+    replenish:      isOrder ? hints.replenish : null,
   }
   if (syncActive.value) {
     broadcastTyping(ingredient, true)
@@ -3216,91 +3162,13 @@ function doExport() {
   showToast('CSVを保存しました', 2600, 'success')
 }
 
+// ── 初回オンボーディング（はじめて棚卸画面に入ったとき。中身は composables/appPrompts.js）──
+watch(() => currentView.value, (v) => { if (v === 'session') offerOnboarding() })
+
 // ── Date ───────────────────────────────────────────────────────────────────────
 const dateStr = new Date().toLocaleDateString('ja-JP', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
 })
-
-// ── 初回オンボーディング ────────────────────────────────────────────────────────
-const _ONBOARD_KEY   = 'tanaoro_onboarded'
-const showOnboarding = ref(false)
-
-watch(() => currentView.value, (v) => {
-  if (v === 'session' && !localStorage.getItem(_ONBOARD_KEY)) {
-    showOnboarding.value = true
-  }
-})
-
-function dismissOnboarding() {
-  showOnboarding.value = false
-  localStorage.setItem(_ONBOARD_KEY, '1')
-}
-
-// ── フィードバック ─────────────────────────────────────────────────────────────
-const showFeedback      = ref(false)
-const feedbackText      = ref('')
-const feedbackSent      = ref(false)
-
-function openFeedback() {
-  feedbackText.value = ''
-  feedbackSent.value = false
-  showFeedback.value = true
-  track('feedback_opened')
-}
-
-function submitFeedback() {
-  const text = feedbackText.value.trim()
-  if (!text) return
-  track('feedback_submitted', { text })
-  feedbackSent.value = true
-  setTimeout(() => { showFeedback.value = false }, 2000)
-}
-
-// ── レビュー促進（3回目完了後） ────────────────────────────────────────────────
-const _COMPLETED_KEY = 'tanaoro_completed_count'
-const _REVIEW_KEY    = 'tanaoro_review_prompted'
-const showReview     = ref(false)
-const reviewRating   = ref(0)
-const reviewStep     = ref('rating') // 'rating' | 'thanks' | 'feedback'
-const reviewFeedback = ref('')
-
-function _checkReviewPrompt() {
-  if (localStorage.getItem(_REVIEW_KEY)) return
-  const count = parseInt(localStorage.getItem(_COMPLETED_KEY) || '0', 10) + 1
-  localStorage.setItem(_COMPLETED_KEY, String(count))
-  if (count >= 3) {
-    reviewRating.value   = 0
-    reviewStep.value     = 'rating'
-    reviewFeedback.value = ''
-    showReview.value     = true
-    track('review_prompt_shown', { completed_count: count })
-  }
-}
-
-function onReviewRate(star) {
-  reviewRating.value = star
-  if (star >= 4) {
-    reviewStep.value = 'thanks'
-    track('review_rated', { stars: star, positive: true })
-    localStorage.setItem(_REVIEW_KEY, '1')
-  } else {
-    reviewStep.value = 'feedback'
-    track('review_rated', { stars: star, positive: false })
-  }
-}
-
-function submitReviewFeedback() {
-  const text = reviewFeedback.value.trim()
-  if (text) track('review_feedback_submitted', { stars: reviewRating.value, text })
-  localStorage.setItem(_REVIEW_KEY, '1')
-  showReview.value = false
-}
-
-function dismissReview() {
-  localStorage.setItem(_REVIEW_KEY, '1')
-  showReview.value = false
-  track('review_dismissed')
-}
 </script>
 
 <template>
@@ -3858,8 +3726,6 @@ function dismissReview() {
 
     </template>
 
-    <!-- ── 名前設定モーダル（ルーム参加前） ── -->
-    <!-- 終了確認。戻るで最後の1枚まで来たときだけ出る -->
     <!-- 🏠：中断してホームへ ／ この棚卸を破棄（☰ の代わり） -->
     <div v-if="leaveAsk" class="modal-overlay" @click.self="leaveAsk = false">
       <div class="modal-sheet leave-sheet" role="dialog" aria-modal="true" :aria-label="`${actNoun}を離れる`">
@@ -3874,6 +3740,7 @@ function dismissReview() {
       </div>
     </div>
 
+    <!-- 終了確認。戻るで最後の1枚まで来たときだけ出る -->
     <div v-if="showExitConfirm" class="name-modal-overlay exit-modal-overlay" @click.self="onCancelExit">
       <div class="name-modal-sheet" role="dialog" aria-modal="true" aria-label="アプリを終了しますか？">
         <div class="sheet-handle"></div>
@@ -3886,6 +3753,7 @@ function dismissReview() {
       </div>
     </div>
 
+    <!-- ── 名前設定モーダル（ルーム参加前） ── -->
     <div v-if="showNameModal" class="name-modal-overlay" @click.self="onCancelNameModal">
       <div class="name-modal-sheet">
         <div class="sheet-handle"></div>
@@ -3956,127 +3824,13 @@ function dismissReview() {
     </Transition>
 
     <!-- トースト（画面の上・弾むように出る）-->
-    <Transition name="toast">
-      <div v-if="toastShow" class="toast" :data-type="toastType">{{ toastMsg }}</div>
-    </Transition>
+    <AppToast />
 
     <!-- 初回オンボーディング -->
-    <Transition name="onboard">
-      <div v-if="showOnboarding" class="onboard-overlay" @click.self="dismissOnboarding">
-        <div class="onboard-card">
-          <div class="onboard-title">タナオロの使い方</div>
-          <ol class="onboard-steps">
-            <li class="onboard-step">
-              <span class="onboard-icon">🎤</span>
-              <div>
-                <strong>音声ボタンをタップ</strong>
-                <p>「豚バラ 3キロ」「卵 2パック」と話すだけ</p>
-              </div>
-            </li>
-            <li class="onboard-step">
-              <span class="onboard-icon">✓</span>
-              <div>
-                <strong>数量を確認して登録</strong>
-                <p>品目が自動で認識されます。数値を確認してタップ</p>
-              </div>
-            </li>
-            <li class="onboard-step">
-              <span class="onboard-icon">📋</span>
-              <div>
-                <strong>品目がない場合は追加</strong>
-                <p>「＋ 品目を追加」フォームからその場で登録できます</p>
-              </div>
-            </li>
-            <li class="onboard-step">
-              <span class="onboard-icon">🔗</span>
-              <div>
-                <strong>複数端末で同時入力</strong>
-                <p>🔗ボタンからルームを作成、QRコードで仲間を招待</p>
-              </div>
-            </li>
-          </ol>
-          <button class="onboard-btn" @click="dismissOnboarding">はじめる</button>
-        </div>
-      </div>
-    </Transition>
+    <OnboardingGuide />
 
-
-    <!-- フィードバックモーダル -->
-    <div v-if="showFeedback" class="feedback-overlay" @click.self="showFeedback = false">
-      <div class="feedback-sheet">
-        <div class="sheet-handle"></div>
-        <div class="feedback-title">フィードバック</div>
-        <template v-if="!feedbackSent">
-          <p class="feedback-desc">ご意見・ご要望・不具合などをお聞かせください</p>
-          <textarea
-            v-model="feedbackText"
-            class="feedback-textarea"
-            placeholder="例：〇〇の操作がわかりにくかった、△△の機能が欲しい"
-            rows="5"
-            autofocus
-          ></textarea>
-          <div class="feedback-actions">
-            <button class="btn btn-secondary" @click="showFeedback = false">キャンセル</button>
-            <button class="btn btn-primary" :disabled="!feedbackText.trim()" @click="submitFeedback">送信</button>
-          </div>
-        </template>
-        <div v-else class="feedback-thanks">
-          <div class="feedback-thanks-icon">✓</div>
-          <div class="feedback-thanks-text">ありがとうございます！</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- レビュー促進モーダル -->
-    <div v-if="showReview" class="feedback-overlay" @click.self="dismissReview">
-      <div class="feedback-sheet">
-        <div class="sheet-handle"></div>
-
-        <!-- 評価ステップ -->
-        <template v-if="reviewStep === 'rating'">
-          <div class="feedback-title">タナオロはいかがですか？</div>
-          <p class="feedback-desc">3回目の棚卸が完了しました。使い心地を教えてください。</p>
-          <div class="review-stars">
-            <button
-              v-for="s in 5"
-              :key="s"
-              class="review-star"
-              :class="{ filled: s <= reviewRating }"
-              @click="onReviewRate(s)"
-            >★</button>
-          </div>
-          <button class="feedback-skip" @click="dismissReview">あとで</button>
-        </template>
-
-        <!-- 高評価 ありがとう -->
-        <template v-else-if="reviewStep === 'thanks'">
-          <div class="feedback-title">ありがとうございます！</div>
-          <div class="review-thanks-stars">
-            <span v-for="s in reviewRating" :key="s" class="review-star-filled">★</span>
-          </div>
-          <p class="feedback-desc">ご愛用いただき、誠にありがとうございます。</p>
-          <div class="feedback-actions">
-            <button class="btn btn-primary" @click="showReview = false">閉じる</button>
-          </div>
-        </template>
-
-        <!-- 低評価 → フィードバック -->
-        <template v-else>
-          <div class="feedback-title">改善点を教えてください</div>
-          <p class="feedback-desc">より良いアプリにするために、ご意見をお聞かせください。</p>
-          <textarea
-            v-model="reviewFeedback"
-            class="feedback-textarea"
-            placeholder="使いにくかった点、欲しい機能など"
-            rows="4"
-          ></textarea>
-          <div class="feedback-actions">
-            <button class="btn btn-secondary" @click="dismissReview">スキップ</button>
-            <button class="btn btn-primary" @click="submitReviewFeedback">送信</button>
-          </div>
-        </template>
-      </div>
-    </div>
+    <!-- フィードバック・レビュー促進 -->
+    <FeedbackPrompts />
 
     <!-- 取込・書き出し・読み込みのあいだの表示。どの画面・どのモーダルの中から始めても
          ここ1つが受けるので、経路ごとに旗を立てずに済む（立て忘れが起きない）。 -->
@@ -4314,47 +4068,6 @@ function dismissReview() {
   color: #b45309;
   white-space: nowrap;
   flex-shrink: 0;
-}
-
-/* ── 進行中ルーム案内 ── */
-.active-room-notice {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1500;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 24px;
-}
-
-.active-room-notice-body {
-  background: #fff;
-  border-radius: 20px 20px 16px 16px;
-  padding: 24px 20px 20px;
-  width: 100%;
-  max-width: 480px;
-  margin: 0 12px;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
-}
-
-.active-room-notice-title {
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-
-.active-room-notice-code {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-family: 'SF Mono', 'Menlo', monospace;
-  margin-bottom: 18px;
-}
-
-.active-room-notice-actions {
-  display: flex;
-  gap: 10px;
 }
 
 /* ── バナー内メッセージボタン ── */
@@ -4642,7 +4355,6 @@ function dismissReview() {
 .item-req-approved { background: #f0fdf4; border-color: #86efac; color: #166534; }
 .item-req-go { margin-left: auto; background: #16a34a !important; color: #fff !important; border-color: #16a34a !important; font-weight: 800; }
 .item-req-go + .item-req-pending-cancel { margin-left: 4px; }
-.am-count { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #ecfeff; color: #3730a3; font-size: 12px; font-weight: 800; text-align: center; }
 .item-req-fold, .item-req-fold-guest {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
 }
@@ -4663,236 +4375,5 @@ function dismissReview() {
   color: var(--primary-bright);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-}
-
-/* ── 初回オンボーディング ── */
-.onboard-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.72);
-  backdrop-filter: blur(4px);
-  z-index: 5000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.onboard-card {
-  background: #fff;
-  border-radius: 20px;
-  padding: 28px 24px 24px;
-  width: 100%;
-  max-width: 400px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  animation: onboardIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes onboardIn {
-  from { transform: scale(0.88) translateY(20px); opacity: 0; }
-  to   { transform: scale(1)    translateY(0);    opacity: 1; }
-}
-
-.onboard-title {
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--text);
-  text-align: center;
-  margin-bottom: 22px;
-  letter-spacing: -0.02em;
-}
-
-.onboard-steps {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.onboard-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-}
-
-.onboard-icon {
-  font-size: 22px;
-  width: 38px;
-  height: 38px;
-  background: #f0f6ff;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.onboard-step strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 2px;
-}
-
-.onboard-step p {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0;
-  line-height: 1.5;
-}
-
-.onboard-btn {
-  width: 100%;
-  padding: 15px;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 14px;
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
-  letter-spacing: 0.02em;
-  -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s;
-}
-.onboard-btn:active { opacity: 0.85; }
-
-.onboard-enter-active { transition: opacity 0.2s ease; }
-.onboard-leave-active { transition: opacity 0.25s ease; }
-.onboard-enter-from,
-.onboard-leave-to     { opacity: 0; }
-
-/* ── フィードバック / レビュー モーダル ── */
-.feedback-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 3500;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.feedback-sheet {
-  background: #fff;
-  border-radius: 20px 20px 0 0;
-  padding: 20px 20px calc(32px + env(safe-area-inset-bottom, 0px));
-  width: 100%;
-  max-width: 480px;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
-  animation: slideUp 0.25s ease;
-}
-
-.feedback-title {
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--text);
-  margin-bottom: 6px;
-  text-align: center;
-}
-
-.feedback-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  text-align: center;
-  margin: 0 0 16px;
-  line-height: 1.5;
-}
-
-.feedback-textarea {
-  width: 100%;
-  padding: 12px 14px;
-  font-size: 15px;
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  outline: none;
-  resize: none;
-  font-family: inherit;
-  color: var(--text);
-  background: var(--bg);
-  box-sizing: border-box;
-  margin-bottom: 14px;
-  -webkit-appearance: none;
-  line-height: 1.5;
-}
-.feedback-textarea:focus { border-color: var(--primary); }
-
-.feedback-actions {
-  display: flex;
-  gap: 10px;
-}
-.feedback-actions .btn { flex: 1; padding: 14px; font-size: 15px; }
-
-.feedback-skip {
-  display: block;
-  margin: 12px auto 0;
-  background: none;
-  border: none;
-  font-size: 13px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 6px 12px;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.feedback-thanks {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px 0 8px;
-  gap: 10px;
-}
-.feedback-thanks-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #d1fae5;
-  color: #065f46;
-  font-size: 26px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.feedback-thanks-text {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-/* ── レビュー星 ── */
-.review-stars {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin: 8px 0 20px;
-}
-.review-star {
-  font-size: 38px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #d1d5db;
-  transition: color 0.15s, transform 0.1s;
-  -webkit-tap-highlight-color: transparent;
-  line-height: 1;
-  padding: 4px;
-}
-.review-star.filled { color: #f59e0b; }
-.review-star:active  { transform: scale(1.2); }
-
-.review-thanks-stars {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin: 8px 0 12px;
-}
-.review-star-filled {
-  font-size: 28px;
-  color: #f59e0b;
 }
 </style>
