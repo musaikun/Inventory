@@ -6,7 +6,7 @@
 // 原因は auditLog がメモリにしか無かったこと。下書き（inv_draft_<id>）には
 // 在庫と稼働時間しか入れておらず、
 //   ・再開（onSessionResume）は clearAuditLog() のあと下書きから戻すものが無い
-//   ・再読込は _restoreDraft を通らない（在庫は useInventory 側の保存から戻る）
+//   ・再読込は restoreDraft を通らない（在庫は useInventory 側の保存から戻る）
 // のどちらの経路でも、そこまでの履歴が落ちて完了スナップショットにも入らなかった。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'

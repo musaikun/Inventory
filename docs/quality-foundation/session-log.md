@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-12 — version 0.154.7 / App.vue の段階分割（REF-001 段4）
+
+- User指示: 段4へ進む。セッション下書き（localStorage）→ `useSessionDraft.js`、進行中在庫の D1 永続化 → `useInventoryPersistence.js`。
+  挙動は変えない（移した本体は元と diff で同一を確認）。いつ保存・復元・削除するかは App に残した。App.vue 4379 → 4251行。
+- テスト: `useSessionDraft.test.js` 7件・`useInventoryPersistence.test.js` 6件を追加。移した先を壊すと App のテスト4件が落ちることも確認。
+  App 全件 2125 pass、build 成功。Worker は無変更。
+- 次: 残りの大きな塊（セッション画面・入口・ライフサイクル・sync 配線）は「表がホーム」の再設計待ち。戻るボタンの登録型化は User 判断。
+- version: 0.154.6 → **0.154.7**。
+
 ## 2026-10-12 — version 0.154.6 / App.vue の段階分割（REF-001 段0〜3）
 
 - User指示: App.vue のリファクタリングに着手。調査（責務と依存の実測）は [`tasks/REF-001.md`](tasks/REF-001.md)。

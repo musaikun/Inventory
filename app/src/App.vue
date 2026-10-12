@@ -2,7 +2,7 @@
 import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag } from './composables/useInventory.js'
 import { localDateKey } from './utils/localDate.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
@@ -23,7 +23,7 @@ import {
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
   broadcastSessionEnd, broadcastSessionStart, broadcastRecountFlag,
   dismissConflict, broadcastTyping, typingMap, lockedIngredients, broadcastMessage,
-  markMessagesRead, addLocalAuditEntry, clearAuditLog, mergeAuditLog, setAuditEntryCallback, restoreSession,
+  markMessagesRead, addLocalAuditEntry, clearAuditLog, setAuditEntryCallback, restoreSession,
   getSavedGuestSession, discardSavedSession,
   hasHostToken, dissolveRoomRemote,
   broadcastItemAddRequest, broadcastItemAddResponse, dismissItemAddRequest,
@@ -38,7 +38,7 @@ import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
   loadHistoryFromD1, loadConfigFromD1, updateActiveRoomInD1,
-  saveInventoryToD1, loadInventoryFromD1, saveState,
+  saveState,
   saveOrderToD1, loadOrdersFromD1,
   loadMovementsFromD1, resumePendingSaves, pendingCount, rejectedSaves,
   noteAuthInvalidated, clearAuthBlock, queuePendingSave,
@@ -50,10 +50,12 @@ import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useOrderHints } from './composables/useOrderHints.js'
+import { useSessionDraft } from './composables/useSessionDraft.js'
+import { useInventoryPersistence } from './composables/useInventoryPersistence.js'
 import { useMovements } from './composables/useMovements.js'
 import { saveLastPage, readLastPage } from './services/lastPage.js'
 import {
-  queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue, loadAuditFromD1,
+  queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue,
 } from './composables/useAuditSync.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
@@ -624,10 +626,10 @@ async function onSessionResume(session) {
   reset()
   clearAuditLog()
   practiceMode.value = false
-  activeTimer.start()   // 下書きに保存済み稼働時間があれば _restoreDraft が resume() で継続する
+  activeTimer.start()   // 下書きに保存済み稼働時間があれば restoreDraft が resume() で継続する
   resumeSession(session)
   // 別端末で記録された変更履歴を取り込む（この端末の下書きには無い）
-  _restoreAuditFromD1(session.id).catch(() => {})
+  restoreAuditFromD1(session.id).catch(() => {})
   await _startSessionView()
   if (sessionMode.value === 'order') { await _loadOrderData(); _restoreOrderDraft() }
   if (shopCode.value && !syncActive.value) {
@@ -635,7 +637,7 @@ async function onSessionResume(session) {
     await _reconnectToRoom(session)
   } else {
     // 店舗コードなし: 下書きから在庫を復元
-    _restoreDraft(session.id)
+    restoreDraft(session.id)
   }
 }
 
@@ -649,7 +651,7 @@ async function _reconnectToRoom(session) {
     // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
     const status = await fetchRoomStatus(shopCode.value, rtype, session.id).catch(() => null)
     if (!(status?.isActive && status.sessionId === session.id)) {
-      _restoreDraft(session.id)   // ライブルーム無し → 作らずオフライン継続
+      restoreDraft(session.id)   // ライブルーム無し → 作らずオフライン継続
       return
     }
     // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
@@ -662,12 +664,12 @@ async function _reconnectToRoom(session) {
       // 別セッションのルーム or 非アクティブ: 乗っ取らず即退出し、下書きでオフライン継続
       setExpectedSessionId(null)
       leaveRoom()
-      _restoreDraft(session.id)
+      restoreDraft(session.id)
     }
   } catch (_) {
     setExpectedSessionId(null)
     // 接続失敗（オフライン等）: 下書きから在庫を復元してオフライン継続
-    _restoreDraft(session.id)
+    restoreDraft(session.id)
   }
 }
 
@@ -1188,7 +1190,7 @@ setAccountResetHandler(() => {
  *
  * いまは
  *   1. 未送信キューを失効時点の shopCode へ紐付けて端末へ書く（noteAuthInvalidated）
- *   2. 作業中の入力を同じセッションの下書きとして書く（_saveDraft）
+ *   2. 作業中の入力を同じセッションの下書きとして書く（saveDraft）
  *   3. その後でローカルの認証状態を捨てる
  * とし、同じ店舗へ再ログインしたときだけ 1 の再送と 2 の復元が走る。
  * 別店舗へログインした場合は useAuth の accountReset が旧店舗ぶんをまとめて捨てる。
@@ -1196,7 +1198,7 @@ setAccountResetHandler(() => {
 setAuthInvalidatedHandler(() => {
   const lostShop = noteAuthInvalidated(shopCode.value)
   _flushDebouncedSavesToQueue(lostShop)
-  _saveDraft(pendingSession.value?.id)
+  saveDraft(pendingSession.value?.id)
   if (syncActive.value) { _hostCompletedLeave = true; leaveRoom() }
   clearAuthLocal()
   // pendingSession / 入力値は残す。同じ店舗へ戻れば同じセッションを完了し直せる。
@@ -1359,9 +1361,9 @@ onMounted(async () => {
         sessionMode.value = pendingSession.value?.type === 'order' ? 'order' : 'stock'
         // 進行中セッションがあれば D1 から在庫を復旧（端末紛失・キャッシュ消去対策）
         if (pendingSession.value?.id && !isCompleted.value) {
-          _restoreDraftAudit(pendingSession.value.id)
-          _restoreAuditFromD1(pendingSession.value.id).catch(() => {})
-          _restoreInventoryFromD1().catch(() => {})
+          restoreDraftAudit(pendingSession.value.id)
+          restoreAuditFromD1(pendingSession.value.id).catch(() => {})
+          restoreInventoryFromD1().catch(() => {})
           if (sessionMode.value === 'order') _loadOrderData().then(_restoreOrderDraft)
         }
       }
@@ -1577,7 +1579,8 @@ const guestLocked = computed(() => syncActive.value && !syncIsHost.value && gues
 const inputLocked = computed(() => isCompleted.value || guestLocked.value || completionBusy.value)
 
 // ── セッション単位の在庫下書き保存（セッション切り替え時のデータ消失防止）────────
-const _DRAFT_PREFIX = 'inv_draft_'
+// 下書きの形と戻し方は composables/useSessionDraft.js。いつ保存・復元・削除するかはここで決める。
+const { saveDraft, restoreDraft, restoreDraftAudit, clearDraft } = useSessionDraft({ activeTimer })
 const _ORDER_DRAFT_PREFIX = 'order_draft_'
 
 // 発注下書きを localStorage から復元（発注セッション再開時）
@@ -1588,90 +1591,12 @@ function _restoreOrderDraft() {
   } catch (_) { orderDraft.value = {} }
 }
 
-function _saveDraft(sessionId) {
-  if (!sessionId) return
-  if (Object.keys(inventory).length === 0 && auditLog.length === 0) return
-  try {
-    localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({
-      inv:      { ...inventory },
-      activeMs: activeTimer.activeMs.value,
-      // 変更履歴はメモリにしか無い。下書きに入れておかないと、退室・再読込のたびに
-      // そこまでの履歴が消え、完了時のスナップショットにも入らない。
-      audit:    [...auditLog],
-    }))
-  } catch (_) {}
-}
-
-/**
- * 完了済みセッションを開き直したときの復元。
- *
- * 完了すると下書きは消える（`_clearDraft`）。同じ日の2回目の棚卸を「続きから」にする以上、
- * **完了したときの姿へ戻す**必要がある。スナップショットは sessionId で引けて、
- * 数量・変更履歴・稼働時間・誰が入れたかを全部持っているので、そこから戻す。
- *
- * 戻さないと、続きのはずが空の在庫と 0 分から始まり、完了したときに前の記録を
- * 上書きしてしまう（スナップショットは sessionId が正本キーなので、同じ枠に入る）。
- */
-function _restoreFromSnapshot(sessionId) {
-  const snap = getSnapshotBySessionId(sessionId)
-  if (!snap) return false
-  if (typeof snap.activeMs === 'number') activeTimer.resume(snap.activeMs)
-  mergeAuditLog(snap.auditLog)
-  // 「誰が・いつ」は participants 側にしか無い。ここで品目へ引き直す
-  const by = new Map()
-  for (const p of snap.participants ?? []) {
-    for (const it of p.items ?? []) by.set(it.item, { name: p.name, at: it.at })
-  }
-  for (const it of snap.items ?? []) {
-    if (it?.qty === null || it?.qty === undefined) continue
-    const a = by.get(it.item)
-    applyRemoteUpdate(it.item, it.qty, it.unit ?? '', a?.name ?? '', a?.at ?? snap.savedAt)
-  }
-  return true
-}
-
-function _restoreDraft(sessionId) {
-  if (!sessionId) return
-  try {
-    const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
-    // 下書きが無い＝完了済みを開き直した。完了したときの姿へ戻す
-    if (!raw) { _restoreFromSnapshot(sessionId); return }
-    const saved = JSON.parse(raw)
-    // 新形式 { inv, activeMs } と旧形式（フラットな inventory）の両対応
-    const inv = saved.inv ?? saved
-    if (typeof saved.activeMs === 'number') activeTimer.resume(saved.activeMs)
-    // 変更履歴を先に戻す。applyRemoteUpdate は auditLog を触らないので二重にはならない。
-    mergeAuditLog(saved.audit)
-    for (const [ingredient, entry] of Object.entries(inv)) {
-      if (!entry || typeof entry.qty === 'undefined') continue
-      applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
-    }
-  } catch (_) {}
-}
-
-// 変更履歴だけを下書きから戻す。
-// 起動時（再読込）は在庫を useInventory 側の保存から戻すので _restoreDraft を通らない。
-// auditLog はメモリにしか無いため、ここで戻さないと再読込のたびに履歴が空になる。
-function _restoreDraftAudit(sessionId) {
-  if (!sessionId) return
-  try {
-    const raw = localStorage.getItem(_DRAFT_PREFIX + sessionId)
-    if (!raw) return
-    mergeAuditLog(JSON.parse(raw)?.audit)
-  } catch (_) {}
-}
-
-function _clearDraft(sessionId) {
-  if (!sessionId) return
-  try { localStorage.removeItem(_DRAFT_PREFIX + sessionId) } catch (_) {}
-}
-
 // セッション削除時は対応するスナップショット（分析データ）も削除する。
 // 残しておくと在庫分析の対象として選べてしまうため、履歴からも消す。
 function onDeleteSession(sessionId) {
   // 完了要求の対象を、結果が出る前に破棄させない
   if (sessionId && sessionId === pendingSession.value?.id && _blockedByCompletion()) return
-  _clearDraft(sessionId)
+  clearDraft(sessionId)
   if (!sessionId) return
   // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   const snap = getSnapshotBySessionId(sessionId)
@@ -1689,38 +1614,14 @@ watch(filledCount, (count) => {
   // 在庫変更のたびに下書きをローカル保存（ブラウザクラッシュ時の保護）
   clearTimeout(_draftSaveTimer)
   _draftSaveTimer = setTimeout(() => {
-    if (pendingSession.value?.id) _saveDraft(pendingSession.value.id)
+    if (pendingSession.value?.id) saveDraft(pendingSession.value.id)
   }, 2000)
 })
 
 // ── 進行中在庫の D1 永続化（端末紛失・キャッシュ消去からの復旧用）─────────────────
-// デバウンス保存。同期中はホストのみ書き込み（競合回避）、ソロは本人が書き込む。
-// 数量編集（品目数が変わらない更新）も捕捉するため inventory/recountFlags を deep watch。
-let _invD1Timer    = null
-let _invD1LastSave = 0
-function _inventoryPayload() {
-  return {
-    inventory:    { ...inventory },
-    recountFlags: { ...recountFlags },
-    sessionId:    pendingSession.value?.id ?? null,
-    savedAt:      Date.now(),
-  }
-}
-function _flushInventoryToD1() {
-  _invD1Timer    = null
-  _invD1LastSave = Date.now()
-  saveInventoryToD1(_inventoryPayload())
-}
-function _persistInventoryToD1() {
-  if (!shopCode.value || isCompleted.value) return
-  if (currentView.value !== 'session') return
-  if (syncActive.value && !syncIsHost.value) return
-  clearTimeout(_invD1Timer)
-  // 連続入力で3秒デバウンスが永遠にリセットされても、最大30秒で必ず保存
-  if (Date.now() - _invD1LastSave > 30000) { _flushInventoryToD1(); return }
-  _invD1Timer = setTimeout(_flushInventoryToD1, 3000)
-}
-watch([inventory, recountFlags], _persistInventoryToD1, { deep: true })
+// デバウンス保存と復旧は composables/useInventoryPersistence.js。棚卸画面にいる間だけ保存する。
+const { flushInventoryToQueue, restoreAuditFromD1, restoreInventoryFromD1 } =
+  useInventoryPersistence({ isEditing: () => currentView.value === 'session' })
 
 /**
  * 認証失効の瞬間に、まだ送っていないデバウンス中の変更を未送信キューへ確定する
@@ -1740,36 +1641,7 @@ function _flushDebouncedSavesToQueue(code) {
     _configSaveTimer = null
     queuePendingSave('config', _configPayload(), { shopCode: code })
   }
-  if (_invD1Timer) {
-    clearTimeout(_invD1Timer)
-    _invD1Timer = null
-    queuePendingSave('inventory', _inventoryPayload(), { shopCode: code })
-  }
-}
-
-// 起動・セッション再開時に D1 から進行中在庫を復旧（ローカルが空 or D1 が新しい場合のみ）
-/**
- * 進行中セッションの変更履歴を D1 から取り込む（migration 0017）。
- *
- * これが「別の端末が入っても確認できる」経路。DO はルームの生存期間しか持たず、
- * 端末の下書きは1台にしか無いので、別端末で開いたときはここからしか復元できない。
- * 既にある分とは id で突き合わせて統合する（重複しない）。
- */
-async function _restoreAuditFromD1(sessionId) {
-  if (!sessionId || !shopCode.value) return
-  mergeAuditLog(await loadAuditFromD1(sessionId))
-}
-
-async function _restoreInventoryFromD1() {
-  if (!shopCode.value || isCompleted.value) return
-  const remote = await loadInventoryFromD1()
-  if (!remote?.inventory) return
-  // 別セッションのデータは無視（新規セッション開始後に旧データを読み込まない）
-  if (remote.sessionId && pendingSession.value?.id && remote.sessionId !== pendingSession.value.id) return
-  const localNewest = Object.values(inventory).reduce((m, e) => Math.max(m, e.updatedAt ?? 0), 0)
-  if (Object.keys(inventory).length === 0 || (remote.savedAt ?? 0) > localNewest) {
-    applyPersistedInventory(remote.inventory, remote.recountFlags)
-  }
+  flushInventoryToQueue(code)
 }
 
 // ── セッション管理 ─────────────────────────────────────────────────────────────
@@ -1958,7 +1830,7 @@ async function _finishSession(completionCount, isHostInRoom) {
     checkReviewPrompt()
   }
 
-  _clearDraft(completedId)
+  clearDraft(completedId)
   // 発注を終えたら、そのまま業者へ送れるよう書き出しを開く（User決定 2026-10-07）
   const finishedOrder = req.type !== COMPLETION_STOCK ? (getOrders().find(o => o.id === _orderId()) ?? null) : null
   // **端末側の確定がすべて終わってから**、保存してある完了要求を捨てる（再レビュー §1）。
@@ -2142,7 +2014,7 @@ async function onGoHome() {
       ackCompletionFinalized(completedId)
     }
   } else {
-    _saveDraft(pendingSession.value?.id)
+    saveDraft(pendingSession.value?.id)
     const marked = await markSessionActive(filledCount.value)
     // 応答を待つ間にアカウント・セッションが切り替わった。いまの画面を閉じない
     // （旧店舗の結果で現在のセッションを clear すると入力が行き場を失う）。
@@ -2172,7 +2044,7 @@ async function onGoHome() {
  * このセッションへの再開だけが通る（`_blockedByCompletion`）。
  */
 function _leaveUnresolvedSession() {
-  _saveDraft(pendingSession.value?.id)
+  saveDraft(pendingSession.value?.id)
   if (continuousMode.value) onForceStop()
   if (syncActive.value) leaveRoom()
   showSync.value = false
@@ -3118,7 +2990,7 @@ function onRequestHideItem(name) {
 function onClearMaster(opts = {}) {
   // 完了していない棚卸・発注はサーバーで消し済み（SessionListPage）。この端末の参照と下書きも外す
   const purged = Array.isArray(opts.purgedIds) ? opts.purgedIds : []
-  for (const id of purged) _clearDraft(id)
+  for (const id of purged) clearDraft(id)
   if (pendingSession.value?.id && purged.includes(pendingSession.value.id)) clearSession()
   setEmptyList({ resetAssignments: opts.resetAssignments === true })
   _persistConfigToD1()
