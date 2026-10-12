@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-12 — version 0.154.9 / 担当の変更（D-029）・テストの見直し 段2〜4（TEST-003）
+
+- User決定（D-029）: Claude Code が実装・テスト・文書を主として進める。Codex は全体を俯瞰して評価と改善点を挙げる立場へ。
+  D-009 を置換。`decisions.md`・`working-agreement.md` を更新。
+- TEST-003 段2: `AxisAssignFocus.groups.test.js` を偽の時計（rAF・performance・setTimeout。Date は本物）に。30秒→約3秒、検出力は同じ。
+- 段3: `worker/test/accountDeletionCoverage.sqlite.test.js`（shop_code を持つ全テーブルをスキーマから拾って削除を確認）、
+  `src/validate.test.js`、`src/moneyGuard.test.js`。手書きモックの既存テストは削除漏れを見逃すことを確認した。
+- 段4: `app/src/test-support/appHarness.js`。戻る系の App テスト6本の準備を共通化（件数そのまま・1170→997行）。
+- 見つかったこと（User判断）: 0018 以降のテーブルに削除中の店への INSERT を止めるトリガーが無い（直すなら migration 0027）。
+  空白だけの数量が 0 として通る（`parseQty(' ')`）。詳細は [`tasks/TEST-003.md`](tasks/TEST-003.md)。
+- テスト: App 2125 pass（114秒・前は134秒）、Worker 730 pass、build 成功。
+- version: 0.154.8 → **0.154.9**。
+
 ## 2026-10-12 — version 0.154.8 / docs を migration 0026 まで再同期（DOC-003）・権限表の一致テスト（TEST-003 段1）
 
 - User指示: Docs とテストの見直し。調査結果は [`tasks/DOC-003.md`](tasks/DOC-003.md)・[`tasks/TEST-003.md`](tasks/TEST-003.md)。

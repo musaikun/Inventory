@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { nextTick } from 'vue'
+import { warmApp, resetSignedIn, stubStoreApi, mountApp as mountTestApp, teardownApp } from './test-support/appHarness.js'
 
 // IMPORT-001: 閉じてはいけないモーダル（過去棚卸取込の結果不明・取消必須）が開いている
 // あいだ、Android/PWA・ブラウザの「戻る」でも画面を切り替えないことを App 側で固定する。
@@ -22,7 +23,6 @@ vi.mock('./utils/analytics.js', () => ({
   resetAnalytics: vi.fn(),
 }))
 
-let app = null
 let host = null
 
 async function flush(n = 4) {
@@ -30,21 +30,8 @@ async function flush(n = 4) {
 }
 
 async function mountApp() {
-  window.history.replaceState({}, '', '/')
-  const { default: App } = await import('./App.vue')
-  apiFetchMock.mockImplementation(path => {
-    if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
-    if (typeof path === 'string' && (path.endsWith('/sessions') || path.endsWith('/history'))) {
-      return Promise.resolve([])
-    }
-    return Promise.resolve({})
-  })
-
-  host = document.createElement('div')
-  document.body.appendChild(host)
-  app = createApp(App)
-  app.mount(host)
-  await flush()
+  stubStoreApi(apiFetchMock)
+  host = await mountTestApp('/', { ticks: 4 })
   return host
 }
 
@@ -52,22 +39,15 @@ function pressBrowserBack() {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
-beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+beforeAll(warmApp)
 
 beforeEach(() => {
-  vi.resetModules()
-  localStorage.clear(); sessionStorage.clear()
-  localStorage.setItem('_auth_token', 'tok-1')
-  localStorage.setItem('_auth_store_name', 'A店')
-  localStorage.setItem('_shop_code', 'STOREA')
+  resetSignedIn()
 })
 
 afterEach(() => {
-  if (app) { app.unmount(); app = null }
-  if (host) { host.remove(); host = null }
-  window.history.replaceState({}, '', '/')
-  vi.restoreAllMocks()
-  vi.clearAllMocks()
+  teardownApp()
+  host = null
 })
 
 describe('App の Back 制御は「閉じてはいけないモーダル」を最優先で見る', () => {

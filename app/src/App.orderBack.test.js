@@ -3,7 +3,7 @@
 // 画面の再設計（2026-09-30）で、発注はホームの操作ボタンから始めるようになった。
 // 以前は「仕入れ」の発注タブからしか始められず、戻る先も発注タブだった。今は棚卸と同じくホームへ返す。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { flush, click, warmApp, resetSignedIn, stubStoreApi, mountApp as mountTestApp, unmountApp, teardownApp } from './test-support/appHarness.js'
 
 const { apiFetchMock } = vi.hoisted(() => ({ apiFetchMock: vi.fn() }))
 
@@ -17,7 +17,6 @@ vi.mock('./utils/analytics.js', () => ({
   initAnalytics: vi.fn(), track: vi.fn(), resetAnalytics: vi.fn(),
 }))
 
-let app = null
 let host = null
 
 // 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
@@ -28,39 +27,14 @@ async function goShortcut(label) {
   return shortcut(label)
 }
 
-async function flush(n = 6) {
-  for (let i = 0; i < n; i++) await nextTick()
-}
 
 async function mountApp() {
-  window.history.replaceState({}, '', '/')
-  const { default: App } = await import('./App.vue')
-  apiFetchMock.mockImplementation((path, opts = {}) => {
-    if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
-    if (path === '/store/STOREA/sessions' && opts.method === 'POST') {
-      return Promise.resolve({
-        id: 'ord-1', type: 'order', status: 'active', startedAt: new Date().toISOString(),
-      })
-    }
-    if (typeof path === 'string' && (path.endsWith('/sessions') || path.endsWith('/history'))) {
-      return Promise.resolve([])
-    }
-    return Promise.resolve({})
-  })
-
-  host = document.createElement('div')
-  document.body.appendChild(host)
-  app = createApp(App)
-  app.mount(host)
-  await flush()
+  stubStoreApi(apiFetchMock, { createdSession: { id: 'ord-1', type: 'order', status: 'active' } })
+  host = await mountTestApp('/')
   return host
 }
 
 const button = (label) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
-async function click(el) {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await flush()
-}
 
 const movementPage = () => host.querySelector('.mv')
 const activeTab = () => host.querySelector('.mv-tab.on')?.textContent.trim()
@@ -72,22 +46,15 @@ async function startOrderSession() {
   await click(host.querySelector('.sh .bb.order'))
 }
 
-beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+beforeAll(warmApp)
 
 beforeEach(() => {
-  vi.resetModules()
-  localStorage.clear(); sessionStorage.clear()
-  localStorage.setItem('_auth_token', 'tok-1')
-  localStorage.setItem('_auth_store_name', 'A店')
-  localStorage.setItem('_shop_code', 'STOREA')
+  resetSignedIn()
 })
 
 afterEach(() => {
-  if (app) { app.unmount(); app = null }
-  if (host) { host.remove(); host = null }
-  window.history.replaceState({}, '', '/')
-  vi.restoreAllMocks()
-  vi.clearAllMocks()
+  teardownApp()
+  host = null
 })
 
 describe('発注セッションの戻る', () => {
@@ -143,8 +110,6 @@ describe('発注セッションの戻る', () => {
 describe('セッションの ☰ から中断・破棄', () => {
   let created = []
   async function mountWithSessions() {
-    window.history.replaceState({}, '', '/')
-    const { default: App } = await import('./App.vue')
     created = []
     apiFetchMock.mockImplementation((path, opts = {}) => {
       if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
@@ -157,11 +122,7 @@ describe('セッションの ☰ から中断・破棄', () => {
       if (typeof path === 'string' && path.endsWith('/history')) return Promise.resolve([])
       return Promise.resolve({})
     })
-    host = document.createElement('div')
-    document.body.appendChild(host)
-    app = createApp(App)
-    app.mount(host)
-    await flush()
+    host = await mountTestApp('/')
     const { useConfig } = await import('./composables/useConfig.js')
     const cfg = useConfig()
     cfg.setEmptyList()

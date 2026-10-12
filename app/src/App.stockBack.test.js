@@ -6,7 +6,7 @@
 //   - overlay を開いたまま棚卸へ入る → セッション画面での戻るが overlay 側に食われる
 // が起きていた。棚卸から戻る先は常に**ホームの「セッション」タブ**（主導線）にする。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { flush, click, warmApp, resetSignedIn, stubStoreApi, mountApp as mountTestApp, unmountApp, teardownApp } from './test-support/appHarness.js'
 
 const { apiFetchMock } = vi.hoisted(() => ({ apiFetchMock: vi.fn() }))
 
@@ -20,41 +20,15 @@ vi.mock('./utils/analytics.js', () => ({
   initAnalytics: vi.fn(), track: vi.fn(), resetAnalytics: vi.fn(),
 }))
 
-let app = null
 let host = null
 
-async function flush(n = 6) {
-  for (let i = 0; i < n; i++) await nextTick()
-}
 
 async function mountApp() {
-  window.history.replaceState({}, '', '/')
-  const { default: App } = await import('./App.vue')
-  apiFetchMock.mockImplementation((path, opts = {}) => {
-    if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
-    if (path === '/store/STOREA/sessions' && opts.method === 'POST') {
-      return Promise.resolve({
-        id: 'stk-1', type: 'stock', status: 'active', startedAt: new Date().toISOString(),
-      })
-    }
-    if (typeof path === 'string' && (path.endsWith('/sessions') || path.endsWith('/history'))) {
-      return Promise.resolve([])
-    }
-    return Promise.resolve({})
-  })
-
-  host = document.createElement('div')
-  document.body.appendChild(host)
-  app = createApp(App)
-  app.mount(host)
-  await flush()
+  stubStoreApi(apiFetchMock, { createdSession: { id: 'stk-1', type: 'stock', status: 'active' } })
+  host = await mountTestApp('/')
   return host
 }
 
-async function click(el) {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await flush()
-}
 
 async function browserBack() {
   window.dispatchEvent(new PopStateEvent('popstate'))
@@ -85,23 +59,16 @@ async function startStockSession() {
   expect(inSession()).toBe(true)
 }
 
-beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+beforeAll(warmApp)
 
 beforeEach(() => {
-  vi.resetModules()
-  localStorage.clear(); sessionStorage.clear()
-  localStorage.setItem('_auth_token', 'tok-1')
-  localStorage.setItem('_auth_store_name', 'A店')
-  localStorage.setItem('_shop_code', 'STOREA')
+  resetSignedIn()
   localStorage.setItem('tanaoro_onboarded', '1')   // 初回オンボーディングに戻るを食わせない
 })
 
 afterEach(() => {
-  if (app) { app.unmount(); app = null }
-  if (host) { host.remove(); host = null }
-  window.history.replaceState({}, '', '/')
-  vi.restoreAllMocks()
-  vi.clearAllMocks()
+  teardownApp()
+  host = null
 })
 
 describe('棚卸セッションでブラウザの戻る', () => {

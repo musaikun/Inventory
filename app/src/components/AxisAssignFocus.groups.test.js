@@ -42,7 +42,7 @@ const pointer  = (el, type, x, y, pointerId = 1) => {
 const HOLD_WAIT_MS = 300
 const grab = async (handle, x, y, pointerId = 1) => {
   pointer(handle, 'pointerdown', x, y, pointerId)
-  await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+  await vi.advanceTimersByTimeAsync(HOLD_WAIT_MS)
 }
 const touchPointer = (el, type, x, y, timeStamp, pointerId = 1) => {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y })
@@ -67,15 +67,20 @@ async function type(el, value) {
   el.dispatchEvent(new Event('input'))
   await nextTick()
 }
-// 慣性で止まるまでフレームを送る（ホイールは rAF で減速して枠へ吸い付く）
+// 慣性で止まるまでフレームを送る（ホイールは rAF で減速して枠へ吸い付く）。
+// 時計は偽物（beforeEach）。1コマ＝16ms を待たずに進めるので、60コマでも一瞬で終わる
 async function settle(n = 60) {
   for (let i = 0; i < n; i++) {
-    await new Promise(r => (globalThis.requestAnimationFrame || setTimeout)(r))
+    vi.advanceTimersToNextFrame()
     await nextTick()
   }
 }
 
 beforeEach(async () => {
+  // rAF・performance.now・setTimeout を偽の時計にする（ホイールの慣性と長押しを実時間で待たない）。
+  // Date は本物のまま。Vue は「listener を付けた時刻と同じ時刻のイベント」を捨てるので、
+  // Date を止めると新しく出た入力欄への input が無視される
+  vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'] })
   localStorage.clear()
   vi.resetModules()
   const { useConfig } = await import('../composables/useConfig.js')
@@ -87,6 +92,7 @@ beforeEach(async () => {
   await nextTick()
 })
 afterEach(() => {
+  vi.useRealTimers()
   app?.unmount(); host?.remove()
   app = null; host = null
   if (originalElementsFromPoint) {
@@ -826,7 +832,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.setPointerCapture).not.toHaveBeenCalled()
 
-    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    await vi.advanceTimersByTimeAsync(HOLD_WAIT_MS)
     expect(row.classList.contains('drag')).toBe(true)
     expect(list.setPointerCapture).toHaveBeenCalledWith(51)
     pointer(list, 'pointerup', 20, 28, 51)
@@ -842,7 +848,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
 
     pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 28, 52)
     pointer(list, 'pointermove', 20, 90, 52)          // 持ち切る前に動いた
-    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    await vi.advanceTimersByTimeAsync(HOLD_WAIT_MS)
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.setPointerCapture).not.toHaveBeenCalled()
   })
@@ -861,7 +867,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
     pointer(row, 'pointerdown', 20, 200, 61)
     pointer(list, 'pointermove', 20, 180, 61)
     pointer(list, 'pointermove', 20, 160, 61)
-    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    await vi.advanceTimersByTimeAsync(HOLD_WAIT_MS)
 
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.setPointerCapture).not.toHaveBeenCalled()
@@ -879,7 +885,7 @@ describe('AxisAssignFocus — ⚙ の一括編集', () => {
 
     pointer(row.querySelector('.af-ehandle'), 'pointerdown', 20, 28, 53)
     pointer(list, 'pointerup', 20, 28, 53)
-    await new Promise(r => setTimeout(r, HOLD_WAIT_MS))
+    await vi.advanceTimersByTimeAsync(HOLD_WAIT_MS)
     expect(row.classList.contains('drag')).toBe(false)
     expect(list.setPointerCapture).not.toHaveBeenCalled()
   })

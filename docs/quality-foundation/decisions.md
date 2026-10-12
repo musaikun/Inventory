@@ -78,7 +78,7 @@
 ## D-009 — Codex / Claude Codeの主担当を分離する
 
 - 日付: 2026-07-25
-- 状態: 採用
+- 状態: 置換（2026-10-12 → [D-029](#d-029--claude-code-を主担当にしcodex-は全体の評価と改善点の提示へ移る)）
 - Codex: Worker、D1、DO、認証・認可、削除backend、tenant境界、CI、security/data test。
 - Claude Code: 登録・削除UI/UX、再認証画面、privacy/terms表示、外部削除page、store画像。
 - 共同: API contract、Data Safety、integration、相互review。
@@ -415,3 +415,19 @@
   - 進め方や優先順位に不明点があり、選択によって結果が変わる場合は、その時点でUserへ確認する。
 - 適用: [`tasks/DOC-002.md`](tasks/DOC-002.md)で、release-critical文書、現行仕様、
   手動回帰、履歴整理の順に再同期する。
+
+## D-029 — Claude Code を主担当にし、Codex は全体の評価と改善点の提示へ移る
+
+- 日付: 2026-10-12
+- 状態: 採用（D-009の分担を置換）
+- 決定者: User
+- 背景: Codex の稼働が少なくなった。実装・検証・文書の更新を止めないため、担当を寄せる。
+- 判断:
+  - **Claude Code** が実装・テスト・文書の更新を主として進める。D-009 で Codex の担当だった領域
+    （Worker・D1・DO・認証・認可・CI・security/data test）も含む。
+  - **Codex** はプロジェクトを俯瞰し、全体の評価と改善点を挙げる立場になる（[`EVAL-001`](tasks/EVAL-001.md) の系統）。
+    評価・改善点は Claude Code が `task-list.md` へタスクとして取り込み、優先度を User と決める。
+  - `task-list.md` で担当が Codex のタスクは、Claude Code が着手するときに担当を書き換えて引き継ぐ
+    （進行中の記録は `tasks/<ID>.md` に残したまま続ける）。
+- 変わらないもの: production deploy・本番 migration・`main` への統合は User の明示依頼が要る（D-022 の範囲は develop への push だけ）。
+

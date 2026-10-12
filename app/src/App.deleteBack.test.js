@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { nextTick } from 'vue'
+import { warmApp, resetSignedIn, stubStoreApi, mountApp as mountTestApp, teardownApp } from './test-support/appHarness.js'
 
 // PLAY-002: App の Android/PWA Back 制御と削除モーダルの実結合を固定する。
 // 公開削除ページはモーダル表示 state がローカルなため、App の showDeleteAccount だけでは
@@ -18,27 +19,11 @@ vi.mock('./utils/analytics.js', () => ({
   resetAnalytics: vi.fn(),
 }))
 
-let app = null
 let host = null
 
 async function mountApp(search = '/?delete-account') {
-  window.history.replaceState({}, '', search)
-  const { default: App } = await import('./App.vue')
-  apiFetchMock.mockImplementation(path => {
-    if (path === '/store/STOREA') {
-      return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
-    }
-    if (typeof path === 'string' && (path.endsWith('/sessions') || path.endsWith('/history'))) {
-      return Promise.resolve([])
-    }
-    return Promise.resolve({})
-  })
-
-  host = document.createElement('div')
-  document.body.appendChild(host)
-  app = createApp(App)
-  app.mount(host)
-  await flush()
+  stubStoreApi(apiFetchMock)
+  host = await mountTestApp(search, { ticks: 4 })
   return host
 }
 
@@ -61,12 +46,6 @@ function button(root, label) {
   return [...root.querySelectorAll('button')].find(el => el.textContent.includes(label))
 }
 
-function seedAuthenticatedAccount() {
-  localStorage.setItem('_auth_token', 'tok-1')
-  localStorage.setItem('_auth_store_name', 'A店')
-  localStorage.setItem('_shop_code', 'STOREA')
-}
-
 async function openDeleteModal(el) {
   await click(button(el, 'アカウント削除に進む'))
   return el.querySelector('[role="dialog"]')
@@ -86,20 +65,15 @@ function pressBrowserBack() {
 // 初回 import は transform とモジュール評価で数秒かかる。test 本体でこれを払うと
 // 環境が混み合ったときに 5 秒へ届く。hook（既定 10 秒）で払い、直後に registry を
 // 捨てることで、各 test は毎回まっさらなモジュール状態から軽く始められる。
-beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+beforeAll(warmApp)
 
 beforeEach(() => {
-  vi.resetModules()
-  localStorage.clear(); sessionStorage.clear()
-  seedAuthenticatedAccount()
+  resetSignedIn()
 })
 
 afterEach(() => {
-  if (app) { app.unmount(); app = null }
-  if (host) { host.remove(); host = null }
-  window.history.replaceState({}, '', '/')
-  vi.restoreAllMocks()
-  vi.clearAllMocks()
+  teardownApp()
+  host = null
 })
 
 describe('App の削除モーダル Back 制御', () => {

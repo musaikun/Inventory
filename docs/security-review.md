@@ -49,6 +49,7 @@
 | P1 | DATA-001/002・IMPORT-001の原子性/履歴修正は完了したが、release candidateの実D1・別browser確認は未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-07 |
 | P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
 | P1 | production migrationは0026までpreflightが必要（0022〜0026はスタッフ・権限・見守りの土台）。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P2 | 0011の「削除中・削除済みの店へはINSERTできない」トリガーが、0018以降のテーブル（`discarded_sessions`・`tasks`・`staff`系3つ・`work_sessions`）に無い。ルーターは削除中の店のtoken・APIを止めているので多重防御の欠け。直すならmigration 0027 | [`TEST-003`](quality-foundation/tasks/TEST-003.md) |
 | P2 | スタッフのlogin失敗の端末単位制限は、bodyの`deviceId`を送る側が決めるため、変えれば数え直しになる。総当たりの上限はIP単位（15分30失敗）が担う。6桁PIN（弱い並びは拒否）に対して十分か、店舗×名前単位の上限を足すかはUser/PM判断 | [`DOC-003`](quality-foundation/tasks/DOC-003.md) |
 | P2 | Appの`pdfjs-dist` 5.6.205は既知の脆弱性（GHSA-hq66-cqwq-w95j、修正は6.2.108）の範囲。前提（PDF内スクリプトを有効にした注釈レイヤー、スクリプトを許すCSP）にAppは当たらず、`pdfjsOptions.test.js`で固定。6系は対応ブラウザがSafari 18 / Chrome 125以上でPDF取込の対象端末が減るため、上げる時期はUser判断（2026-10-08 `proposals.md`） | `proposals.md` |
 | P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |

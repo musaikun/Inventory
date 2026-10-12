@@ -6,7 +6,7 @@
 //   ・進行中セッションは保存ページより優先する（数えかけの棚卸へ戻せないほうが実害が大きい）
 //   ・仕入れはタブまで戻す
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { flush, click, warmApp, resetSignedIn, stubStoreApi, mountApp as mountTestApp, unmountApp, teardownApp } from './test-support/appHarness.js'
 
 const { apiFetchMock } = vi.hoisted(() => ({ apiFetchMock: vi.fn() }))
 
@@ -20,64 +20,36 @@ vi.mock('./utils/analytics.js', () => ({
   initAnalytics: vi.fn(), track: vi.fn(), resetAnalytics: vi.fn(),
 }))
 
-let app = null
 let host = null
 
-async function flush(n = 6) {
-  for (let i = 0; i < n; i++) await nextTick()
-}
 
 async function mountApp() {
-  window.history.replaceState({}, '', '/')
-  const { default: App } = await import('./App.vue')
-  apiFetchMock.mockImplementation((path) => {
-    if (path === '/store/STOREA') return Promise.resolve({ shopCode: 'STOREA', activeRoom: null })
-    if (typeof path === 'string' && (path.endsWith('/sessions') || path.endsWith('/history'))) {
-      return Promise.resolve([])
-    }
-    return Promise.resolve({})
-  })
-
-  host = document.createElement('div')
-  document.body.appendChild(host)
-  app = createApp(App)
-  app.mount(host)
-  await flush()
+  stubStoreApi(apiFetchMock)
+  host = await mountTestApp('/')
   return host
 }
 
 // 実際の再読込に相当: 同じ localStorage のまま App を作り直す
 async function reload() {
-  app.unmount(); host.remove()
-  app = null; host = null
+  unmountApp()
+  host = null
   vi.resetModules()
   return mountApp()
 }
 
 const button = (label) => [...host.querySelectorAll('button')].find(b => b.textContent.includes(label))
-async function click(el) {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await flush()
-}
 
 const view = () => document.body.dataset.view
 
-beforeAll(async () => { await import('./App.vue'); vi.resetModules() })
+beforeAll(warmApp)
 
 beforeEach(() => {
-  vi.resetModules()
-  localStorage.clear(); sessionStorage.clear()
-  localStorage.setItem('_auth_token', 'tok-1')
-  localStorage.setItem('_auth_store_name', 'A店')
-  localStorage.setItem('_shop_code', 'STOREA')
+  resetSignedIn()
 })
 
 afterEach(() => {
-  if (app) { app.unmount(); app = null }
-  if (host) { host.remove(); host = null }
-  window.history.replaceState({}, '', '/')
-  vi.restoreAllMocks()
-  vi.clearAllMocks()
+  teardownApp()
+  host = null
 })
 
 async function seedItems() {
