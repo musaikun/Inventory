@@ -4,7 +4,7 @@
 担当: Codex
 状態: code対応・回答draft作成済み、DS-02整合完了、実環境/公開前 gate の確認待ち
 役割: W1のprivacy/data flow根拠。Play Console回答はA1までdraftとして扱う
-最新repository照合: 2026-10-02 / `develop@49227ff`（各証拠行の過去commitは履歴として保持）
+最新repository照合: 2026-10-12 / `develop@8e37bae`（スタッフ・見守り・やること・通知の行はDOC-003で追記。各証拠行の過去commitは履歴として保持）
 
 ## 2026-10-02 現行差分
 
@@ -67,6 +67,13 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 | 端末ID（Device or other IDs） | browserで生成 | localStorage、DO、他参加者への同期event | 再接続・参加者識別・監査 | 自動 | account削除成功時に保存値を消去しmemory上は別IDへ交換。次回起動で新IDを保存。logout/account切替では保持。DOはaccount削除時にpurge | collected / app functionality, fraud/security候補。`useDeviceId.js`、`accountData.js`、`useSync.js`、`RoomDO.js` |
 | chat自由記述（Other user-generated content） | 同期roomで利用者入力 | Durable Objects、同室参加者 | collaboration | 任意 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | collected / app functionality。`ChatModal.vue`、`RoomDO.js` |
 | 操作audit | 同期room操作 | Durable Objects、同室参加者 | 変更者表示・監査 | 主機能利用時 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | app interactions / user content候補。`RoomDO.js` |
+| スタッフの名前・役割・暗証番号hash（Personal info候補）| 管理者の招待からスタッフが申請・管理者が承認（migration 0022） | Worker / D1 `staff`、同じ店舗のスタッフ・管理者の画面 | 本人としてのlogin、権限、記録の「誰が」 | スタッフ機能を使う店だけ | 暗証番号はPBKDF2 hash。停止・削除でtoken即時失効、削除は名前だけ「（削除済み）」で残し暗証番号を消す。account削除で全削除 | `staffHandler.js`、privacy policy 2026-10-07 |
+| 招待・承認待ちの鍵 | 管理者が発行 | D1 `staff_invites`（SHA-256だけ） | スタッフの追加 | 任意 | 10分で無効、期限後15分で毎時cronが削除。account削除で全削除 | `staffHandler.js` `cleanupStaffRecords` |
+| スタッフlogin失敗（名前・端末ID・時刻） | 暗証番号の失敗 | D1 `staff_login_attempts` | 総当たり防止 | 自動 | 判定窓15分、過ぎたら毎時cronが削除。成功時・管理者の解除で消す | `staffHandler.js` |
+| 記録の「誰が」（スタッフ名・ID、オーナーは端末名・端末ID） | session開始・完了、やること、入出庫（migration 0023） | D1 `sessions` / `tasks` / `movements`、同じ店舗の画面 | 誰がやったかの表示 | 主機能利用時 | 業務dataと同じ。スタッフ削除で名前を「（削除済み）」へ書き換え | `index.js` `_actor` |
+| アプリを開いていた時間（見守り） | ログイン中に約90秒ごと（migration 0025） | D1 `work_sessions`、オーナー・管理者の画面 | 在席・作業時間の確認 | スタッフ機能・自動 | 90日で削除。account削除で全削除。スタッフ画面に「管理者から見える」と表示 | `presenceHandler.js`、privacy policy 2026-10-07 |
+| やること（内容・担当・完了の印） | 利用者入力（migration 0020・0024・0026） | D1 `tasks`、同じ店舗の画面、Push本文 | 店のTODO共有 | 任意 | 消すときは`deleted_at`を立てて残す。account削除で全削除 | `storeHandler.js` `handleTaskUpsert` |
+| 通知の設定・送った印 | 端末ごとに選択（migration 0021・0026） | D1 `push_subscriptions.prefs_json` / `actor_id`、`push_sent` | 通知の種類・時刻、二度送らない | 任意 | 購読解除・account削除で削除 | `pushHandler.js`、`pushPlan.js` |
 | Push endpoint・P-256 key・auth secret（Device or other IDs） | 通知を許可・購読 | browser push service、Worker、D1 | 通知 | 任意 | unsubscribe/account削除/失効検知までD1保持。message TTLは24時間 | collected / app functionality, developer communications。`usePush.js`、`pushHandler.js` |
 | 緯度・経度・地名（Precise location） | 「現在地で天気」を利用 | localStorage、Open-Meteo、BigDataCloud | 天気・地名表示 | 任意・permission | account削除成功時に位置・cacheとmemory stateを消去。logout/account切替では保持。天気cache TTLは再取得判定1時間 | collected。第三者共有は例外条件確認。`useWeather.js`、`accountData.js` |
 | camera映像・barcode | barcode scan | 端末内のZXing/browser処理 | barcode入力 | 任意・permission | upload/server保存なし | 端末内処理だけならnot collected。`BarcodeScanner.vue` |

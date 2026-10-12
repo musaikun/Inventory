@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-12 — version 0.154.8 / docs を migration 0026 まで再同期（DOC-003）・権限表の一致テスト（TEST-003 段1）
+
+- User指示: Docs とテストの見直し。調査結果は [`tasks/DOC-003.md`](tasks/DOC-003.md)・[`tasks/TEST-003.md`](tasks/TEST-003.md)。
+- TEST-003 段1: `worker/test/permissionsParity.test.js`（App と Worker の権限表を定数・`can()` 全組み合わせ・足し引きで突き合わせる）。
+  両ファイルのコメントに「テストで突き合わせる」とあったのに、そのテストが無かった。片方を崩すと落ちることを確認。
+- DOC-003: migration 0019〜0026（スタッフ・権限・やること・在席・通知設定・入出庫の取り消し・操作者）を api-design・security-review・
+  spec・sync-spec・web-release-readiness（適用順・rollback）・削除契約・data flow監査・各入口へ反映。存在しないファイル参照も修正。
+  オーナーのloginで失効するのはオーナーtokenだけ（スタッフのtokenは残る）に訂正。
+- 判断待ち: スタッフlogin失敗の端末単位制限は端末IDの付け替えで数え直しになる（IP単位の制限が上限）。security-review P2 に記載。
+- テスト: Worker 706 pass（48 files）、App 2125 pass、build 成功。
+- version: 0.154.7 → **0.154.8**。
+
 ## 2026-10-12 — version 0.154.7 / App.vue の段階分割（REF-001 段4）
 
 - User指示: 段4へ進む。セッション下書き（localStorage）→ `useSessionDraft.js`、進行中在庫の D1 永続化 → `useInventoryPersistence.js`。

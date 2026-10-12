@@ -5,7 +5,7 @@
 | Status | **Current baseline**。W1 Web Free版の同期・認可境界。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
 | Role | App / Worker / Durable Objects / D1の責務と、実装済み境界・既知gapを結ぶ現行仕様 |
 | Source of truth | [`useSync.js`](../app/src/composables/useSync.js)、[`RoomDO.js`](../worker/src/RoomDO.js)、[`index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、migration、関連test |
-| Last verified | **2026-10-02 / `develop@49227ff`**（repository baseline。production反映済みを意味しない） |
+| Last verified | **2026-10-12 / `develop@8e37bae`**（repository baseline。production反映済みを意味しない）。スタッフのhostと金額はDOC-003で追記 |
 
 ## 現行baseline
 
@@ -34,6 +34,10 @@
    明示確認できたlegacy店舗だけ、従来のtopology判定を使う。
 4. guestはactive sessionと一致する`joinSessionId`が必要。host-only操作はconfig、dissolve、
    session start/end、conflict lock、品目追加応答。単価を含みうるconfigはguest宛てに除去する。
+5. スタッフのtoken（migration 0022）でhostとして参加した場合、そのスタッフの役割に`money`が無ければ、hostにも単価を渡さない
+   （joinのたびにD1のtokenで判定し、判定できないD1障害は渡さない側へ倒す。`RoomDO._hostSeesMoney`）。
+   RoomDOが役割で判定するのはこの金額だけで、session開始・完了・破棄などの権限はHTTP API側（[API設計書](api-design.md)の
+   perm表記）で判定する。
 
 根拠testは[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js)、
 [`RoomDO.hostAuth.test.js`](../worker/src/RoomDO.hostAuth.test.js)、

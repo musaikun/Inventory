@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath } from 'node:url'
 
 // ユニットテスト専用設定（PWAプラグインは読み込まない）。
-// app/ と worker/ の *.test.js を対象にする。
+// app/src の *.test.js を対象にする（worker/ のテストは worker/ で別に回す。TEST-002）。
 // vue プラグインは .vue をマウントするコンポーネントテスト用（ビルドと同じ既存依存）。
 export default defineConfig({
   plugins: [vue()],

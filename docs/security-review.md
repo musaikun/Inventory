@@ -5,7 +5,7 @@
 | Status | **Current security baseline**。W1 Web Free版は未公開判定 |
 | Role | 実装済みsecurity境界と、Web公開前に閉じるgapの台帳。公開可否は[Web release gate](quality-foundation/web-release-readiness.md)を正とする |
 | Source of truth | Worker/App code、migration、関連test、[task board](quality-foundation/task-list.md)、[decisions](quality-foundation/decisions.md) |
-| Last verified | **2026-10-02 / `develop@49227ff`**（repository baseline。production状態はrelease前に再probeする） |
+| Last verified | **2026-10-12 / `develop@8e37bae`**（repository baseline。production状態はrelease前に再probeする）。スタッフのログイン・権限・見守り（migration 0022〜0026）はDOC-003で追記 |
 
 ## 現行baseline
 
@@ -13,9 +13,13 @@
 
 | 境界 | 現行実装 | 根拠 |
 |---|---|---|
-| PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、login成功時は同店舗の既存tokenを失効。2026-10-08からD1にはtokenのSHA-256（`h1:`）だけを保存し、生で保存した旧tokenは失効まで併用で照合（保存値そのものは照合に使わない）。**Workerを2026-10-08以前の版へ戻すと、それ以降に発行したtokenは無効になり再ログインが要る** | [`authHandler.js`](../worker/src/authHandler.js) |
-| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗、登録はIP単位1時間5回（成否を問わず）。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
-| HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/pushはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
+| PIN / token | 新規PINはPBKDF2-SHA-256（100,000反復・random salt）。旧SHA-256はlogin成功時に移行。Bearer tokenは30日、オーナーのlogin成功時は同店舗のオーナーtokenを失効（スタッフのtokenは残す）。スタッフの暗証番号は6桁で、同じ数字・連番・くり返しを拒否し、店舗PINと同じPBKDF2で保存する。2026-10-08からD1にはtokenのSHA-256（`h1:`）だけを保存し、生で保存した旧tokenは失効まで併用で照合（保存値そのものは照合に使わない）。**Workerを2026-10-08以前の版へ戻すと、それ以降に発行したtokenは無効になり再ログインが要る** | [`authHandler.js`](../worker/src/authHandler.js) |
+| 総当たり | 店舗単位15分5失敗、IP単位15分30失敗、登録はIP単位1時間5回（成否を問わず）。スタッフのloginは店舗×名前×端末IDで15分5失敗（管理者が解除できる）とIP単位の失敗制限を併用し、店・名前・暗証番号のどれが違っても同じ401を返す。招待の照会・申請・承認待ちの照会も404をIP失敗として数える。rate-limit table障害は補助制御としてfail-openだが、認証・店舗存在・host権限のD1照会はfail-closed | [`constants.js`](../worker/src/constants.js)、[`rateLimiter.js`](../worker/src/rateLimiter.js)、D-015 |
+| HTTP tenant境界 | PIN設定店舗のconfig/inventory/history/room/orders/movementsは同店舗Bearerを要求。sessions/push/tasks/presenceはstrict auth。order ownerは事前確認とconditional upsertで越境更新を拒否 | [`index.js`](../worker/src/index.js)、[`storeHandler.js`](../worker/src/storeHandler.js) |
+| 役割と権限 | tokenは`owner`（店舗login）とスタッフ（`arbeit` / `shain` / `admin`＋人ごとの足し引き）に分かれ、開始・完了・破棄・品目の削除や取込・写真・並び替え・発注設定・やることの作成・見守りをサーバーが役割で判定して403で拒否する（拒否は`perm_denied`のsecurity eventに残す）。config PUTは前の設定との差分から要る権限を決める。スタッフの管理（招待・承認・停止・削除・役割）はオーナーと管理者だけで、管理者は自分自身を止める・消す・変えることはできない。停止・削除・断るはそのスタッフのtokenを即座に消し、承認前・停止中のtokenは無効。App/Workerの権限表の一致は`permissionsParity.test.js`で確かめる | [`permissions.js`](../worker/src/permissions.js)、[`staffHandler.js`](../worker/src/staffHandler.js)、[`configGuard.js`](../worker/src/configGuard.js)、[`staff.test.js`](../worker/test/staff.test.js) |
+| 招待 | 1人ずつ・10分・1回きり（条件付きUPDATEで同時の2回目を拒否）。招待tokenと承認待ちの鍵は192bit乱数で、D1にはSHA-256だけを保存し、生の値は発行時の応答で1回だけ返す。承認後のtokenも申請した端末へ1回だけ渡す | [`staffHandler.js`](../worker/src/staffHandler.js)、[`staff.test.js`](../worker/test/staff.test.js) |
+| 誰が（actor） | スタッフのtokenで書いた記録（session開始・完了、やること、入出庫、在席、Push購読）は、サーバーがtokenから本人の名前とIDを刻み、画面から送られた名前を使わない。オーナーは従来どおり端末名（自己申告） | [`index.js`](../worker/src/index.js) `_actor` |
+| 見守り（在席） | アプリを開いている間の知らせ（90秒ごと）を`work_sessions`に残し、`monitor`の権限（オーナー・管理者）だけが見られる。スタッフの画面には「管理者から見える」と出す。90日より古い記録は毎時のcronと書き込み時に消し、account削除で全部消す | [`presenceHandler.js`](../worker/src/presenceHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[privacy policy](legal/privacy-policy.md)（2026-10-07改定で記載・保存期間90日） |
 | WebSocket | Workerがactive店舗をD1確認してからDOへ転送。join前はping以外を遮断し、PIN設定店舗のhost再発行は同店舗Bearer必須。D1障害・binding欠落は503/auth失敗で閉じる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`RoomDO.joinAuth.test.js`](../worker/src/RoomDO.joinAuth.test.js) |
 | guest data | 進行中WSのguest configから単価を除去し（キーごと。2026-10-08から金額を見られないスタッフのhostにも）、未参加socketにはbroadcastしない。金額（`money`）の無いスタッフにはHTTPでも単価・在庫金額を返さない。完了後の共有resultはUser判断により単価・小計・合計金額を含む。店舗code + session UUIDのURLを知る人が3日間閲覧できる | [`RoomDO.js`](../worker/src/RoomDO.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`room-url-design.md`](room-url-design.md) |
 | account削除 | Bearer + PIN + 店舗code + UUID requestId。削除中は通常accessを遮断し、stock/order DOの接続・alarm・storageを破棄後、D1関連data/tokenをbatch削除。匿名receipt/tombstoneは7日 | [account deletion contract](quality-foundation/account-deletion-contract.md)、[`accountDeletion.js`](../worker/src/accountDeletion.js) |
@@ -44,7 +48,8 @@
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
 | P1 | DATA-001/002・IMPORT-001の原子性/履歴修正は完了したが、release candidateの実D1・別browser確認は未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-07 |
 | P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
-| P1 | production migrationは0018までpreflightが必要。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P1 | production migrationは0026までpreflightが必要（0022〜0026はスタッフ・権限・見守りの土台）。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
+| P2 | スタッフのlogin失敗の端末単位制限は、bodyの`deviceId`を送る側が決めるため、変えれば数え直しになる。総当たりの上限はIP単位（15分30失敗）が担う。6桁PIN（弱い並びは拒否）に対して十分か、店舗×名前単位の上限を足すかはUser/PM判断 | [`DOC-003`](quality-foundation/tasks/DOC-003.md) |
 | P2 | Appの`pdfjs-dist` 5.6.205は既知の脆弱性（GHSA-hq66-cqwq-w95j、修正は6.2.108）の範囲。前提（PDF内スクリプトを有効にした注釈レイヤー、スクリプトを許すCSP）にAppは当たらず、`pdfjsOptions.test.js`で固定。6系は対応ブラウザがSafari 18 / Chrome 125以上でPDF取込の対象端末が減るため、上げる時期はUser判断（2026-10-08 `proposals.md`） | `proposals.md` |
 | P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |
 

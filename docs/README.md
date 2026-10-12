@@ -1,6 +1,6 @@
 # ドキュメント案内
 
-最終整理: 2026-10-02 / 実装照合基準: `develop@49227ff` / App `0.129.1`
+最終整理: 2026-10-02 / 実装照合基準: `develop@49227ff` / App `0.129.1`（現行仕様・API・security・release gateは2026-10-12 / `develop@8e37bae` / migration 0026まで[DOC-003](quality-foundation/tasks/DOC-003.md)で追記）
 
 このファイルを `docs/` 全体の唯一の総合索引とします。公開目標は
 **Web Free版を安全に公開できる状態にすること**です。ただし**2026-09-30 から当面は、機能の不足と

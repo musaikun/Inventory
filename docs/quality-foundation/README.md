@@ -67,4 +67,6 @@ Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-r
 - 状態・担当は[task board](task-list.md)、公開blockerは[Web公開準備](web-release-readiness.md)を正とし、
   このREADMEへ複製しません。
 - [`DOC-002`](tasks/DOC-002.md)でApp `0.129.1` / migration `0018`までの現行実装へ文書を再同期済みです。
+- [`DOC-003`](tasks/DOC-003.md)で migration `0019`〜`0026`（スタッフ・権限・やること・在席・通知設定・入出庫の取り消し）を
+  API・security・spec・同期仕様・release gate・削除契約・data flow監査へ追記しました（2026-10-12 / `develop@8e37bae`）。
 - 2026-10-02にUserがproduction Workerだけのdeployを承認。D1 migrationとPages deployは対象外です。

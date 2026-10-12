@@ -5,7 +5,7 @@
 | **Status** | 現行W1 baseline（既知の未解消事項を含む） |
 | **Role** | Web Free版の機能・architecture・data境界を説明するdeveloper向けoverview |
 | **Source of truth** | [App code](../app/src/)、[Worker code](../worker/src/)、[D1 migrations](../worker/migrations/)、採用済み[decisions](quality-foundation/decisions.md) |
-| **Last verified** | 2026-10-02 / `develop@49227ff`（App 0.129.1・migration 0018まで） |
+| **Last verified** | 2026-10-12 / `develop@8e37bae`（App 0.154.5・migration 0026まで。0019〜0026の分はDOC-003で追記） |
 
 この文書はrelease可否の正本ではありません。Web公開判定は
 [Web公開準備](quality-foundation/web-release-readiness.md)、endpoint契約は
@@ -24,20 +24,24 @@
 
 ## 現行W1 code baseline
 
-| 領域 | `develop@49227ff`の実装 | 公開前のknown gap |
+| 領域 | `develop@8e37bae`の実装 | 公開前のknown gap |
 |---|---|---|
-| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
-| account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0018までのD1業務dataとtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
-| ホーム/画面 | 共通下部ナビは在庫・レポート・管理の3タブ。履歴はレポート先頭から開く独立画面。レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
+| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗のオーナーtokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
+| account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0026までのD1業務data（スタッフ・招待・やること・在席・通知の記録を含む）とtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
+| ホーム/画面 | 共通下部ナビはホーム・在庫・日誌・レポート・管理の5タブ（`money`の無い役割にはレポートを出さない）。棚卸・発注の開始はホームから。在庫タブは品目・在庫の表と並び替えの入口、日誌はやること・予定・記録、レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し・スタッフ等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |
-| session | 棚卸/発注を開始・中断・再開・完了。完了済みは削除不可。進行中の破棄は24時間`discarded_sessions`へ保持し、同種の別sessionが無ければ復元できる | productionでは0018適用後にWorker、Appの順で更新する |
-| 入出庫 | localStorage cacheに即時保存し、`GET/POST/DELETE /store/:code/movements*`でD1へ保存。auth後と画面表示時にremoteをid mergeする。real-time WS同期は行わない | 実D1・別端末のrelease確認はWEB-07 |
+| session | 棚卸/発注を開始・中断・再開・完了。完了済みは削除不可。進行中の破棄は24時間`discarded_sessions`へ保持し、同種の別sessionが無ければ復元できる | productionでは未適用のmigration（0026まで）を適用後にWorker、Appの順で更新する |
+| 入出庫 | localStorage cacheに即時保存し、`GET/POST/DELETE /store/:code/movements*`でD1へ保存。auth後と画面表示時にremoteをid mergeする。real-time WS同期は行わない。取り消しは印を付けて残し、24時間以内なら元に戻せる。記録した人を残す（migration 0019・0023） | 実D1・別端末のrelease確認はWEB-07 |
+| スタッフ・権限 | 管理者が1人ずつ招待（10分・1回きり）→ スタッフが名前と6桁の暗証番号で申請 → 管理者が承認、以降は店舗code＋名前＋暗証番号でlogin。役割は管理者・社員・アルバイト＋人ごとの足し引きで、開始・完了・破棄・品目の削除や取込・並び替え・発注設定・やることの作成・金額の表示・見守りをサーバーが判定する。スタッフの記録は「誰が」をサーバーが本人で刻む（migration 0022〜0024） | スタッフlogin失敗の端末単位制限は端末IDの付け替えで数え直しになる（IP単位の制限が上限）。[security review](security-review.md) |
+| やること（日誌） | 店で共有するTODO。日付・時刻・担当（誰でも／全員／特定の人／未定）を持ち、作る・直す・消すは`task.create`、完了の印は誰でも。追加と担当の割り当てはPushで知らせる（migration 0020・0024・0026） | — |
+| 通知 | 端末ごとに種類（月末の棚卸・しばらく棚卸していない・途中の棚卸・やることの日・やることの追加・発注の締切）と時刻を選び、毎時のcronが送る。送った印を`push_sent`に残して二度送らない（migration 0021） | VAPID鍵とcronのproduction設定はrelease前に確認 |
+| 見守り | アプリを開いている間90秒ごとに知らせ、オーナー・管理者だけが「いま開いている人」と開いていた記録（90日）を見られる（migration 0025） | — |
 | PDF | App UIは`pdfjs-dist`で端末内解析だけ。Worker `POST /pdf`は2026-10-08に廃止（User決定・DS-07） | — |
 | plan/trial | 通常登録は`plan=free`。trial/Stripe処理はない。`DEFAULT_LIMITS_ENFORCED=false`のため、2台・150品目・履歴3回の固定上限は現在無効 | 規約・画面・Workerと同じ説明であることをWEB-06で確認 |
 | 棚卸履歴 | sessionIdをidentityとして`sessions`、`inventory_lines`、`store_history`を完了APIの1 batchで保存。別端末はlines/history/audit APIから復元する | release candidateの実D1・別browser確認はWEB-07 |
 | 共有結果 | 完了から3日間、店舗code + session UUIDのURLを知る人へ、数量、単価、小計、合計、参加者、操作履歴を読み取り専用で表示 | URL共有範囲とprivacy説明をWEB-09〜10で確認 |
 
-repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0018、Pages routing、
+repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0026、Pages routing、
 CORS、smokeを含むproduction状態はrelease candidateの対象SHAで再検証し、
 [Web公開準備](quality-foundation/web-release-readiness.md)だけで判定します。
 
@@ -154,24 +158,28 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0018）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0026）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
 | `stores` | 店舗・認証・プラン・削除状態 | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。削除中は`deletion_pending_at` / `deletion_request_id`、完了後は7日匿名tombstone |
-| `auth_tokens` | Bearer トークン（30日有効） | ログインごとに発行。`stores` とは分離 |
-| `sessions` | 棚卸/発注セッション | `type`でstock/orderを区別。statusは`active`/`completed`（旧`incomplete`は後方互換）。破棄中は`deleted_at`を持つ |
+| `auth_tokens` | Bearer トークン（30日有効） | ログインごとに発行。`stores` とは分離。D1にはSHA-256だけ。`staff_id`がNULLならオーナー（0022） |
+| `sessions` | 棚卸/発注セッション | `type`でstock/orderを区別。statusは`active`/`completed`（旧`incomplete`は後方互換）。破棄中は`deleted_at`を持つ。始めた人・完了した人（`started_by(_id)` / `completed_by(_id)`・0023） |
 | `store_history` | 完了スナップショット | 最新50件。R2アーカイブ移行が将来課題（db-design-v2） |
 | `inventory_lines` | 1品目1行の時系列（分析用） | db-design-v2 Step 1 |
 | `orders` | 発注レコード | v0.48 |
-| `movements` / `movement_lines` | 入出庫レコード | 0010 |
+| `movements` / `movement_lines` | 入出庫レコード | 0010。取り消しの印`deleted_at`と記録した人（0019・0023） |
 | `login_attempts` / `ip_attempts` | レート制限 | フェイルオープン実装 |
-| `push_subscriptions` | プッシュ通知購読 | |
+| `push_subscriptions` | プッシュ通知購読 | 端末ごとの通知の設定`prefs_json`（0021）と、誰の端末か`actor_id`（0026） |
+| `push_sent` | 送った通知の印（毎時のcronで二度送らない） | 0021 |
 | `account_deletion_receipts` | 削除再送の冪等receipt | account識別子なし、7日後cron削除（0011） |
 | `import_batch_requests` | 過去棚卸取込の要求台帳（応答喪失からの再送判定） | 0015 |
 | `session_completions` | 棚卸完了のclaim（確定は最初の1要求だけ） | 0016 |
 | `session_audit` | session単位の操作履歴。entry idで冪等 | 0017 |
 | `discarded_sessions` | 破棄時刻と復元用下書きを24時間保持 | 0018。期限後は関連dataごとpurge |
+| `tasks` | 店で共有する「やること」 | 0020。担当・全員の印（0024）、時刻（0026）、完了した人のID（0023）。消すときは`deleted_at`を立てて残す |
+| `staff` / `staff_invites` / `staff_login_attempts` | スタッフ（役割・足し引き・暗証番号のハッシュ・状態）、招待（tokenのハッシュ・10分）、暗証番号の失敗 | 0022。削除したスタッフは行と名前を残し暗証番号を消す |
+| `work_sessions` | アプリを開いていた1回ごとの記録（見守り） | 0025。90日で消す |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）
 

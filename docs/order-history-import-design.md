@@ -27,7 +27,7 @@
 
 | 概念 | 実体（ファイル） | 状態 |
 |---|---|---|
-| PDFレシピ（複数保存・指紋で自動判定） | `composables/pdfProfiles.js`（`matchProfile`/`saveProfile`）＋ `components/PdfColumnMapper.vue` | ✅ |
+| 取込レシピ（複数保存・指紋で自動判定。PDF・CSV・Excel共通） | `composables/importRecipes.js`（`matchRecipe`/`matchPdfGridRecipe`/`fingerprintPdf`）＋ `components/PdfGridSetup.vue`・`ImportMapper.vue`（旧 `pdfProfiles.js`・PDFの手動列指定は v0.118.2 までに置き換え） | ✅ |
 | PDF表パーサ（汎用・座標） | `utils/pdfTableParser.js`（旧 `usePdfImporter` の単一レイアウトを一般化） | ✅ |
 | CSV列マッピング取込 | `composables/useConfig.js`（`loadFromCSVMapped`）＋ `components/ImportMapper.vue` | ✅ |
 | 名寄せ（入力→品目候補） | `utils/itemMatcher.js`（`findCandidates`）＋辞書3層（`dictionary`/`learnedAliases`/`masterDict`） | ✅ |

@@ -35,7 +35,7 @@ app/src/
     ImportBuildPreview.vue  # 組み上がる棚卸カードの全画面プレビュー
     PdfGridSetup.vue        # PDFを表に均す画面（枚数を訊き、組んだ表を人がその場で直す）
     PdfPageViewer.vue       # PDFの描画・ページ送り・拡大（元の紙を見せる共通部品）
-    PdfColumnMapper.vue     # 紙の上で直接列を指定する（表に組み立てられない紙の逃げ道）
+    PdfImporterModal.vue    # PDF/Excel取込の入口（PDFは表に均して列指定へ、読めないExcelも列指定へ渡す）
   utils/
     storageKeys.js          # localStorageキー一元管理
     importText.js           # 取込の文字の読み方（見出しの正規化・品目でない行の判定）
@@ -45,6 +45,8 @@ worker/src/
   RoomDO.js                 # Durable Object（WS・在庫・auditLog）
   storeHandler.js           # 店舗データ・D1 クエリ
   authHandler.js            # 店舗認証
+  staffHandler.js           # スタッフの招待・承認・ログイン・管理（token→役割は authContext）
+  permissions.js            # 役割と権限の表（app/src/services/permissions.js と同じ中身・parity test あり）
 ```
 
 ## 開発ルール

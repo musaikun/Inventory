@@ -1,6 +1,6 @@
 /**
  * 役割と権限（段 2-3・User決定 2026-10-07。表は docs/proposals.md）。
- * **app/src/services/permissions.js と同じ中身**にする（片方を変えたら両方を変える。テストで突き合わせる）。
+ * **app/src/services/permissions.js と同じ中身**にする（片方を変えたら両方を変える。worker/test/permissionsParity.test.js で突き合わせる）。
  *
  * 役割: owner（店を登録した人）/ admin（管理者）/ shain（社員）/ arbeit（アルバイト）
  * 足し引き（人ごと・grants）: その役割に無い権限だけを足す

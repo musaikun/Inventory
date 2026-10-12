@@ -4,8 +4,8 @@
 |---|---|
 | **Status** | 現行W1 API baseline（known gapを併記） |
 | **Role** | Web Free版で実装済みのHTTP/WebSocket境界を一覧化する派生仕様 |
-| **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`imageHandler.js`](../worker/src/imageHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
-| **Last verified** | 2026-10-02 / `develop@49227ff`（App 0.129.1・migration 0018まで。production適用状態はrelease前preflightが正） |
+| **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`imageHandler.js`](../worker/src/imageHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[`staffHandler.js`](../worker/src/staffHandler.js)、[`permissions.js`](../worker/src/permissions.js)、[`moneyGuard.js`](../worker/src/moneyGuard.js)、[`presenceHandler.js`](../worker/src/presenceHandler.js)、[`pushHandler.js`](../worker/src/pushHandler.js)、[migrations](../worker/migrations/) |
+| **Last verified** | 2026-10-12 / `develop@8e37bae`（App 0.154.5・migration 0026まで。production適用状態はrelease前preflightが正）。スタッフ・権限・やること・在席・通知設定・入出庫の取り消しはDOC-003で追記 |
 
 実装と矛盾する場合は上記code/migrationを優先します。account削除の詳細は
 [account deletion contract](quality-foundation/account-deletion-contract.md)、公開可否は
@@ -20,13 +20,31 @@
   設定不一致と旧production Workerは[WEB-001](quality-foundation/tasks/WEB-001.md)で未解消。
 - Bearerは`Authorization: Bearer <token>`。token有効期間は30日で、削除中/削除済みstoreは無効。
 - 「soft auth」はPIN設定storeで同店舗Bearer必須、PIN未設定legacy storeだけcodeで許可する。
+- tokenは2種類（migration 0022）。**オーナー**は店舗code+PINの`/auth/login`で得る（`auth_tokens.staff_id`がNULL）。
+  **スタッフ**は`/auth/staff-login`か招待の承認で得る（`staff_id`付き）。スタッフのtokenは本人が`active`の間だけ有効で、
+  停止・削除・断るでそのtokenを即座に消す。
+- 下の表で「perm:`x`」と書いた操作は、tokenの役割（`owner` / `admin` / `shain` / `arbeit`）と人ごとの足し引き（grants）で
+  判定し、足りなければ403 `{ code:'forbidden', missing:[...] }`を返す。オーナーと管理者は全権限。PIN未設定のlegacy store
+  （tokenなしで使える店）はオーナーと同じに扱う。権限表は[`worker/src/permissions.js`](../worker/src/permissions.js)が正で、
+  Appの`app/src/services/permissions.js`と同じ中身であることを`worker/test/permissionsParity.test.js`で確かめる。
+- **金額**: `money`の無い役割（既定ではアルバイト）には、config GETの`prices`を`{}`、履歴・完了明細・完了応答の単価・小計・
+  合計を`null`にして返す。そのtokenからの保存（config PUT・history POST）では、送られた単価を採らず前の値を残す
+  （[`moneyGuard.js`](../worker/src/moneyGuard.js)）。棚卸ルームのWebSocketでも、金額を見られないスタッフがhostなら単価を渡さない。
+- **誰が（actor）**: スタッフのtokenで書いた記録（session開始・完了、やること、入出庫、在席、Push購読）は、サーバーがtokenから
+  本人の名前とstaff IDを刻み、bodyの`by` / `byId`は使わない（画面から名前を偽れない・migration 0023）。オーナーとlegacy storeは
+  従来どおりbodyの端末名・端末ID。スタッフを削除すると、IDで結び付いた記録の名前を「○○（削除済み）」へ書き換える。
 
 ### 認証・account
 
 | Method / path | 現行contract | Auth |
 |---|---|---|
 | `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
-| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
+| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの**オーナーtoken**を全失効（スタッフのtokenは残す） | 不要。store/IP単位の失敗制限あり |
+| `POST /auth/staff-login` | `{ shopCode, name, pin, deviceId }` → `{ token, shopCode, storeName, staff, ...entitlement }`。名前は全角半角（NFKC）・大文字小文字・空白の揺れを同一視。承認待ちは403 `pending`、停止中は403 `stopped`。店・名前・PINのどれが違っても同じ401 | 不要。店舗×名前×端末IDで15分5失敗（超過429・管理者が`unlock`で解除）＋IP単位の失敗制限（`/auth/login`と共有） |
+| `GET /auth/me` | `{ shopCode, role, staff: { id, name, role, grants } \| null }`。役割の取り直し用 | Bearer（無効なら401） |
+| `GET /staff/invite?token=` | 有効な招待の`{ storeName, shopCode, name, role, expiresAt }`。期限切れ・使用済み・取消・削除中の店は404 `invite_invalid` | 不要。tokenは48桁hex（192bit・D1にはSHA-256だけ）。404をIP失敗として数える |
+| `POST /staff/join` | `{ token, name, pin }` → `{ pendingKey, shopCode, storeName, name, staffId }`。PINは6桁で、同じ数字・連番・くり返しは400 `weak_pin`。店内で名前が重なれば409 `name_taken`。招待は条件付きUPDATEで1回きり。管理者の端末へPush | 不要。IP失敗制限（404を数える） |
+| `GET /staff/pending?key=` | 承認待ちの端末が結果を聞く。`{ status:'pending' }`、承認後は1回だけ`{ status:'active', token, staff, ... }`（受け取ったら鍵を消す）。断られた・停止は`{ status }`、鍵が無ければ`{ status:'gone' }` | 不要。keyは48桁hex。IP失敗制限 |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
 | `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
 | ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
@@ -42,28 +60,41 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 
 | Method / path | 主なbody / response | Auth |
 |---|---|---|
-| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard | soft |
+| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard。GETは`money`の無い役割に`prices:{}`で返す。PUTは前の設定との差分で要る権限を決める（既存品目を消す=`item.admin`、既存品目の情報・非表示=`item.edit`、並び替え・分類先=`sort`、発注日・締切・発注点・仮定=`orderSettings`。品目を足すだけなら不要。[`configGuard.js`](../worker/src/configGuard.js)） | soft＋差分に応じたperm |
 | `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは1 MB（UTF-8 byte）guard | soft |
-| `POST /store/:code/images` | `multipart/form-data`の`thumb`（64 KiB以下）と`full`（700 KiB以下）をJPEG/WebPとして検証し、非公開R2へ保存して128-bit乱数の`id`を返す | strict同store Bearer |
-| `DELETE /store/:code/images/:id` | 同店舗prefixのthumb/fullをR2から削除。`id`は32桁hexのみ | strict同store Bearer |
-| `GET/POST /store/:code/history` | GETは新しい順50件で各行に`serverRevision` / `serverSavedAt`を含む。POSTは`{ok,sessionId,date,serverRevision,serverSavedAt}`。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012）。revisionは保存のたびに`shop_code`内の最大値+1（migration 0014） | soft |
-| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。sessionId指定では**対応する取込台帳の行も同じbatchで消す**（削除済み取込をreplayが「保存済み」と誤回答しないため）。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft |
+| `POST /store/:code/images` | `multipart/form-data`の`thumb`（64 KiB以下）と`full`（700 KiB以下）をJPEG/WebPとして検証し、非公開R2へ保存して128-bit乱数の`id`を返す | strict同store Bearer＋perm:`item.edit` |
+| `DELETE /store/:code/images/:id` | 同店舗prefixのthumb/fullをR2から削除。`id`は32桁hexのみ | strict同store Bearer＋perm:`item.edit` |
+| `GET/POST /store/:code/history` | GETは新しい順50件で各行に`serverRevision` / `serverSavedAt`を含む。POSTは`{ok,sessionId,date,serverRevision,serverSavedAt}`。sessionIdを持つ行は`(shop_code, session_id)`で一意、持たないlegacy行は日付で一意（migration 0012）。revisionは保存のたびに`shop_code`内の最大値+1（migration 0014）。GETは`money`の無い役割に金額を`null`で返し、そのtokenのPOSTは金額を保存済みの値から戻す | soft |
+| `DELETE /store/:code/history/:key` | `key`はsessionId（現行）または日付（legacy行）。日付指定では`session_id IS NULL`の行だけを消し、同日の別sessionを巻き込まない。sessionId指定では**対応する取込台帳の行も同じbatchで消す**（削除済み取込をreplayが「保存済み」と誤回答しないため）。`{ok,removed}`を返し、失敗は503 `history_delete_failed` | soft＋perm:`stock.discard` |
 | `PUT /store/:code/room` | `{ roomCode }`でactive roomを更新 | soft |
 | `GET/POST /store/:code/orders` | `sinceDays`は1〜1000日、default 400。header + lines | soft |
-| `DELETE /store/:code/orders/:id` | header/linesを1 batchで削除。不在/他storeは404 `order_not_found`、rollbackは503 `order_delete_failed`（retryable） | soft |
-| `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,lines[] }`。`type`は`in` / `out`必須（不正値は400 `invalid_type`）、`orderId`の形式不正も400。positive qty行をD1へ保存。GETはdefault 400日、最大1000件 | soft |
-| `DELETE /store/:code/movements/:id` | header/linesを1 batchで削除。不在/他storeは404 `movement_not_found`、rollbackは503 `movement_delete_failed`（retryable）。**HTTP statusで返す**（旧実装は常に200） | soft |
-| `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成。**不正な`type`はHTTP 400 `invalid_type`**（旧実装はrouterが200で包み直していた）。省略時のdefaultは`stock` | strict同store Bearer |
-| `PUT /store/:code/sessions/:uuid` | `active` / `incomplete`への更新だけ。**`completed`への遷移はこのAPIでは行わない**（409 `use_complete_endpoint`・書込み0件）。`completed`からの巻き戻しも409 `session_completed`。`completed`→`completed`は何も変えず冪等に200。不在/他storeは404 | strict同store Bearer |
-| `DELETE /store/:code/sessions/:uuid` | 完了済みは409 `session_completed`で拒否。進行中だけを破棄し、`sessions.deleted_at`と`discarded_sessions`へ下書きを保存する。24時間以内は復元可能で、期限後は関連明細・履歴・取込台帳・完了claim・auditとともに完全削除。任意bodyの`draft`を復元用に保持する（migration 0018） | strict同store Bearer |
+| `DELETE /store/:code/orders/:id` | header/linesを1 batchで削除。不在/他storeは404 `order_not_found`、rollbackは503 `order_delete_failed`（retryable） | soft＋perm:`stock.discard` |
+| `GET/POST /store/:code/movements` | `{ id?,date?,type,note?,orderId?,savedAt?,deletedAt?,by?,byId?,lines[] }`。`type`は`in` / `out`必須（不正値は400 `invalid_type`）、`orderId`の形式不正も400。positive qty行をD1へ保存。**取り消しは消さずに印を付ける**（migration 0019）: `deletedAt`を付けて送ると`deleted_at`をサーバー時刻で立て、付けずに送り直すと元に戻る。戻せるのは取り消しから24時間以内で、過ぎると409 `restore_expired`。登録した人（`created_by` / `created_by_id`）を残す。GETはdefault 400日、最大1000件で、取り消し済みも`deletedAt`付きで返す（理論在庫などは`deletedAt`の無い行だけを数える） | soft |
+| `DELETE /store/:code/movements/:id` | header/linesを1 batchで**物理削除**（通常の取り消しは上のPOST）。不在/他storeは404 `movement_not_found`、rollbackは503 `movement_delete_failed`（retryable）。**HTTP statusで返す**（旧実装は常に200） | soft＋perm:`stock.discard` |
+| `GET/POST /store/:code/sessions` | 一覧または`type`が`stock` / `order`のbodyで作成。**不正な`type`はHTTP 400 `invalid_type`**（旧実装はrouterが200で包み直していた）。省略時のdefaultは`stock`。作成時に始めた人（`started_by` / `started_by_id`・migration 0023）を刻む | strict同store Bearer＋perm:`stock.start`（`order`は`order.start`） |
+| `PUT /store/:code/sessions/:uuid` | `active` / `incomplete`への更新だけ。**`completed`への遷移はこのAPIでは行わない**（409 `use_complete_endpoint`・書込み0件）。`completed`からの巻き戻しも409 `session_completed`。`completed`→`completed`は何も変えず冪等に200。不在/他storeは404 | strict同store Bearer＋perm:`stock.start`（発注sessionは`order.start`） |
+| `DELETE /store/:code/sessions/:uuid` | 完了済みは409 `session_completed`で拒否。進行中だけを破棄し、`sessions.deleted_at`と`discarded_sessions`へ下書きを保存する。24時間以内は復元可能で、期限後は関連明細・履歴・取込台帳・完了claim・auditとともに完全削除。任意bodyの`draft`を復元用に保持する（migration 0018） | strict同store Bearer＋perm:`stock.discard` |
 | `GET /store/:code/sessions/discarded` | 24時間以内に破棄したセッションを新しい順で返す。取得時に期限切れを関連dataごとpurgeする | strict同store Bearer |
-| `POST /store/:code/sessions/:uuid/restore` | 破棄を取り消して中断中へ戻し、保存した下書きを返す。同じ種類の別の進行中sessionがあれば409 `active_exists`、期限切れは410 `discard_expired` | strict同store Bearer |
-| `POST /store/:code/sessions/:uuid/complete` | **`sessions.type`で契約が分かれる**（下記「§3.1 棚卸完了API」）。`stock`は`{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,type:'stock',date,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。`order`は`{ itemCount }` → `{ok,sessionId,type:'order',itemCount,snapshotSaved:false}`で`store_history`を書かない。**確定できるのは最初の1要求だけ**。同一intentの再送は保存済み結果（`replay:true`）、内容の違う再送は409 `completion_intent_conflict`。intentの同一性は**保存するcanonical snapshot全体**（`savedAt` / `activeMs`を除く）で判定する。棚卸日は`takenAt`ひとつで決まり、`snapshot.date`が違えば400 `snapshot_date_mismatch` | strict同store Bearer |
-| `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さない | strict同store Bearer |
+| `POST /store/:code/sessions/:uuid/restore` | 破棄を取り消して中断中へ戻し、保存した下書きを返す。同じ種類の別の進行中sessionがあれば409 `active_exists`、期限切れは410 `discard_expired` | strict同store Bearer＋perm:`stock.discard` |
+| `POST /store/:code/sessions/purge-unfinished` | 品目マスタの一括削除に合わせて、完了していない棚卸・発注（中断中・取り戻せる破棄）を関連dataごと完全に消す | strict同store Bearer＋perm:`item.admin` |
+| `POST /store/:code/sessions/:uuid/complete` | **`sessions.type`で契約が分かれる**（下記「§3.1 棚卸完了API」）。`stock`は`{ inventory, prices, takenAt?, snapshot }` → `{ok,sessionId,type:'stock',date,itemCount,totalValue,snapshotSaved:true,serverRevision,serverSavedAt}`。`order`は`{ itemCount }` → `{ok,sessionId,type:'order',itemCount,snapshotSaved:false}`で`store_history`を書かない。**確定できるのは最初の1要求だけ**。同一intentの再送は保存済み結果（`replay:true`）、内容の違う再送は409 `completion_intent_conflict`。intentの同一性は**保存するcanonical snapshot全体**（`savedAt` / `activeMs`を除く）で判定する。棚卸日は`takenAt`ひとつで決まり、`snapshot.date`が違えば400 `snapshot_date_mismatch`。完了した人（`completed_by` / `completed_by_id`）を最初の1回だけ刻む。`money`の無い役割には応答の金額を`null`で返す | strict同store Bearer＋perm:`stock.finish`（発注sessionは`order.finish`） |
+| `GET /store/:code/sessions/:uuid/lines` | 完了済み棚卸の明細を`inventory_lines`から返す。`session_id`と`shop_code`の両方で絞り、他store/不在はどちらも404。単価・在庫金額を含むためguestには出さず、`money`の無い役割には金額を`null`で返す | strict同store Bearer |
 | `GET/POST /store/:code/sessions/:uuid/audit` | migration 0017の`session_audit`へ操作履歴を追記・取得する。POSTはentry idで冪等、GETは同一店舗のsessionに限定 | strict同store Bearer |
-| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
-| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
-| `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
+| `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer＋perm:`item.admin` |
+| `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer＋perm:`item.admin` |
+| `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}`。POSTは誰の端末か（`actor_id`・スタッフはtokenの本人、オーナーはbodyの`byId`）を残す（migration 0026） | strict同store Bearer |
+| `PUT /store/:code/push/prefs` | `{ endpoint, prefs, byId? }` → `{ ok, prefs }`。その端末の通知の種類と時刻（月末の棚卸・しばらく棚卸していない・途中の棚卸・やることの日・やることの追加・発注の締切）を`push_subscriptions.prefs_json`へ保存し、`actor_id`を今の人へ揃える（migration 0021）。購読が無ければ404 `not_subscribed`。8 KiB以下 | strict同store Bearer |
+| `POST /store/:code/push/test` | `{ endpoint }`の端末へ試しの通知を1件送る。VAPID未設定は503 `push_not_configured`、購読が無効なら410 `subscription_gone` | strict同store Bearer |
+| `GET /store/:code/tasks?sinceDays=` | 店で共有する「やること」（migration 0020・0024・0026）。default 120日ぶんと、日付に関わらず未完了・未削除のもの（最大2000件）。`{ id, date, text, dueTime, assign, assigneeId, assigneeName, doneList, createdBy, doneAt, doneBy, deletedAt, updatedAt, ... }` | strict同store Bearer |
+| `POST /store/:code/tasks` | 1件のupsert。`id`は端末が作り、`date`はYYYY-MM-DD、`text`は200文字まで（不正は400 `invalid_task`）。`updatedAt`が新しい方を残し、古ければ`{ stale:true }`で書かない。他店舗のidは404。**新しく作る・消す・担当を変える・文面/日付/時刻を直す**にはperm:`task.create`、完了の印だけなら誰でも。新しく作ったら他の端末へ、担当（`assign:'person'`）になった人の端末へはその人にだけPush | strict同store Bearer（内容により`task.create`） |
+| `POST /store/:code/tasks/:id/mark` | `{ done }`。「全員」（`assign:'all'`）のやることに自分の印を付け外す。印の一覧はサーバーが合流させ、承認済みスタッフ全員がそろったら（スタッフがいない店は誰か1人で）`done_at`を立てる。`all`以外は`{ skipped:true }` | strict同store Bearer |
+| `POST /store/:code/presence` | `{ state:'on'\|'off', by?, byId? }`。アプリを開いている間90秒ごとに送る（閉じるときは`off`）。前の知らせから5分以内なら同じ1回を延ばし、空いたら別の1回として`work_sessions`へ残す（migration 0025）。90日より古い行は消す。1 KiB以下 | strict同store Bearer |
+| `GET /store/:code/presence?days=` | いま開いている人（最後の知らせから150秒以内で`off`が無い）と、1〜90日（default 7）の開いていた記録。削除済みスタッフは記録がある場合だけ「（削除済み）」で出す | strict同store Bearer＋perm:`monitor` |
+| `GET /store/:code/staff/names` | 担当を選ぶための承認済みスタッフ`{ staff:[{ id, name }] }` | strict同store Bearer |
+| `GET /store/:code/staff` | スタッフ（断った人を除く）と、まだ使われていない招待の一覧 | オーナーか管理者だけ（403） |
+| `POST /store/:code/staff/invites` | `{ name, role }`（`arbeit` / `shain` / `admin`）→ `{ invite: { id, name, role, expiresAt, token } }`。招待は10分・1回きりで、生のtokenはこの応答でだけ返す。4 KiB以下 | オーナーか管理者だけ |
+| `DELETE /store/:code/staff/invites/:id` | 招待を取り消す | オーナーか管理者だけ |
+| `POST /store/:code/staff/:id/:action` | `approve` / `reject` / `stop` / `resume` / `delete` / `role`（`{ role }`）/ `grants`（`{ grants:[...] }`）/ `unlock`（暗証番号の失敗の解除）。停止・削除・断るはその人のtokenを即座に消し、削除は行と名前を残して暗証番号を消す。管理者は自分自身を止める・消す・役割や足し引きを変えることはできない（400） | オーナーか管理者だけ |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
 GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
@@ -104,7 +135,8 @@ production D1の適用状態は固定値として断定せず、release前のrea
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0018までの適用、E2E/smoke |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0026までの適用、E2E/smoke |
+| [DOC-003](quality-foundation/tasks/DOC-003.md) | スタッフのログイン失敗の端末単位制限は、bodyの`deviceId`を変えると数え直しになる（総当たりの上限はIP単位の失敗制限が担う）。仕様として受け入れるかはUser/PM判断 |
 
 ### 将来A1（現行APIではない）
 
