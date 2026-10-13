@@ -64,14 +64,11 @@ function completed(id, date) {
   return { id, status: 'completed', type: 'stock', startedAt: iso(date, 9), endedAt: iso(date) }
 }
 
-// その日のマスをタップして詳細モーダルを開く（詳細はタップで開く・最初は出ていない）
-async function openDay(root, dateKey) {
+// その日のマス
+function cellOf(root, dateKey) {
   const [y, m, d] = dateKey.split('-').map(Number)
   const firstDow = new Date(y, m - 1, 1).getDay()
-  const cell = root.querySelectorAll('.hc-weeks .hc-cell')[firstDow + d - 1]
-  cell.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  return root.querySelector('.hc-day-sheet')
+  return root.querySelectorAll('.hc-weeks .hc-cell')[firstDow + d - 1]
 }
 
 describe('HistoryCalendarPage', () => {
@@ -130,16 +127,18 @@ describe('HistoryCalendarPage', () => {
     sessionsResponse = [{ id: 's1', status: 'completed', type: 'stock', startedAt: at, endedAt: at }]
     const root = await mountPage()
 
-    const sheet = await openDay(root, _localDate(justAfterMidnight))
-    expect(sheet.querySelector('.hc-entry-stock')).not.toBeNull()
+    expect(cellOf(root, _localDate(justAfterMidnight)).querySelector('.dot-stock')).not.toBeNull()
   })
 
-  it('履歴から記録は消せない（削除ボタンを出さない）', async () => {
+  it('日付を押すとモーダルは開かず、その日を pickDay で渡す（日誌の「1日」へ）。記録は消せない', async () => {
     sessionsResponse = [completed('s1', TODAY)]
-    const root = await mountPage()
-    const sheet = await openDay(root, TODAY)
-    expect(sheet.querySelector('.hc-entry-stock')).not.toBeNull()
-    expect(sheet.querySelector('.hc-entry-del')).toBeNull()
+    const picked = []
+    const root = await mountPage({ onPickDay: k => picked.push(k) })
+    cellOf(root, TODAY).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(picked).toEqual([TODAY])
+    expect(document.querySelector('.modal-overlay')).toBeNull()
+    expect(root.querySelector('.hc-entry-del')).toBeNull()
     expect(deleteSessionMock).not.toHaveBeenCalled()
   })
 })

@@ -40,10 +40,6 @@ function cellOf(root, dateKey) {
   return root.querySelectorAll('.hc-weeks .hc-cell')[firstDow + d - 1]
 }
 
-async function tapDay(root, dateKey) {
-  cellOf(root, dateKey).dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-}
 
 beforeEach(() => {
   localStorage.clear()
@@ -57,62 +53,56 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('日別メモ', () => {
-  it('定型チップは置かず、自由記述と学習除外だけにする', async () => {
-    const root = await mountCal()
-    await tapDay(root, '2026-09-15')
+describe('日別メモ（日誌の「1日」で書く。以前は月の日の詳細）', () => {
+  async function mountDay(date) {
+    const { default: JournalDay } = await import('./JournalDay.vue')
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp(JournalDay, { date })
+    app.mount(host)
+    for (let i = 0; i < 4; i++) await nextTick()
+    return host
+  }
+  async function openMemo(root) {
+    root.querySelector('.jd-sum .memo').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 3; i++) await nextTick()
+    return document.querySelector('.jd-sheet')
+  }
+  async function write(sheet, text) {
+    const ta = sheet.querySelector('.jd-memo')
+    ta.value = text
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    ;[...sheet.querySelectorAll('button')].find(b => b.textContent.trim() === '保存').click()
+    for (let i = 0; i < 3; i++) await nextTick()
+  }
 
-    const memo = root.querySelector('.hc-memo')
-    expect(memo).not.toBeNull()
-    expect(memo.querySelectorAll('.hc-memo-tag').length).toBe(0)
+  it('定型チップは置かず、自由記述と学習除外だけにする', async () => {
+    const sheet = await openMemo(await mountDay('2026-09-15'))
     for (const t of ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']) {
-      expect([...memo.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
+      expect([...sheet.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
     }
-    expect(memo.querySelector('.hc-memo-text')).not.toBeNull()
-    expect(memo.querySelector('.hc-memo-excl')).not.toBeNull()
+    expect(sheet.querySelector('.jd-memo')).not.toBeNull()
+    expect(sheet.querySelector('.jd-excl input[type=checkbox]')).not.toBeNull()
   })
 
   it('新しいメモには本文を保存し、タグは追加しない', async () => {
-    const root = await mountCal()
-    await tapDay(root, '2026-09-15')
-
-    const ta = root.querySelector('.hc-memo-text')
-    ta.value = '近隣で花火大会'
-    ta.dispatchEvent(new Event('input', { bubbles: true }))
-    await nextTick()
-    root.querySelector('.hc-memo-save').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await nextTick()
-
+    await write(await openMemo(await mountDay('2026-09-15')), '近隣で花火大会')
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
     expect(saved['2026-09-15'].text).toBe('近隣で花火大会')
     expect(saved['2026-09-15'].tags).toEqual([])
   })
 
-  it('既存メモを書き直しても以前のタグと学習除外を失わず、別の日にはタグを持ち越さない', async () => {
+  it('既存メモを書き直しても以前のタグと学習除外を失わない', async () => {
     localStorage.setItem(STORAGE_KEYS.dayNotes, JSON.stringify({
       '2026-09-15': { text: '以前の記録', tags: ['貸切'], excluded: true },
     }))
-    const root = await mountCal()
-    await tapDay(root, '2026-09-15')
-
-    const ta = root.querySelector('.hc-memo-text')
-    ta.value = '貸切の詳細を追記'
-    ta.dispatchEvent(new Event('input', { bubbles: true }))
-    await nextTick()
-    root.querySelector('.hc-memo-save').click()
-    await nextTick()
-
-    let saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
+    const root = await mountDay('2026-09-15')
+    expect(root.querySelector('.jd-sum .memo').textContent).toContain('以前の記録')
+    await write(await openMemo(root), '貸切の詳細を追記')
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
     expect(saved['2026-09-15']).toEqual({ text: '貸切の詳細を追記', tags: ['貸切'], excluded: true })
-
-    root.querySelector('.hc-day-close').click()
-    await nextTick()
-    await tapDay(root, '2026-09-16')
-    root.querySelector('.hc-memo-save').click()
-    await nextTick()
-    saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
     expect(saved['2026-09-16']).toBeUndefined()
-    expect(saved['2026-09-15'].tags).toEqual(['貸切'])
   })
 })
 
@@ -131,12 +121,9 @@ describe('発注スケジュールの予定は出さない', () => {
     expect(root.querySelector('.hc-plan-key')).toBeNull()
     expect(root.querySelector('.hc-key').textContent).not.toContain('発注予定')
 
-    await tapDay(root, '2026-09-22')       // 発注曜日として設定した火曜
-    expect(root.querySelector('.hc-day-sheet .hc-plan')).toBeNull()
-    expect(root.querySelector('.hc-day-sheet').textContent).not.toContain('発注予定')
   })
 
-  it('実際の発注（★）はそのまま出る（予定を消しただけ）', async () => {
+  it('実際の発注（ドット）はそのまま出る（予定を消しただけ）', async () => {
     seedSchedule()
     const root = await mountCal()
     expect(root.querySelector('.hc-key').textContent).toContain('発注')

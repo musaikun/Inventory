@@ -1,7 +1,7 @@
-// カレンダーの読み方（マスの星・祝日名・凡例）と、日をタップして開く詳細モーダルの回帰。
+// カレンダーの読み方（マスのドット・祝日名・凡例）と、日をタップしたときの回帰。
 //
 // マスは「その日に何をしたか」だけを星で示す。件数・金額をマスに書くと、
-// 6行×7列の一覧が数字で埋まって暦として読めなくなるため、詳細は日をタップして読む。
+// 6行×7列の一覧が数字で埋まって暦として読めなくなるため、詳細は日をタップして日誌の「1日」で読む。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
@@ -112,78 +112,10 @@ describe('HistoryCalendar マスの読み方', () => {
   })
 })
 
-describe('HistoryCalendar 日の詳細モーダル', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-  })
-  afterEach(() => {
-    if (app)  { app.unmount(); app = null }
-    if (host) { host.remove();  host = null }
-    vi.useRealTimers()
-    vi.resetModules()
-  })
-
-  it('開いた直後は詳細を出さない（カレンダーだけを見せる）', async () => {
-    const root = await mountCal(seedAllKinds())
-    expect(root.querySelector('.hc-day-sheet')).toBeNull()
-  })
-
-  it('日をタップするとその日の詳細がモーダルで開き、✕で閉じる', async () => {
-    const root = await mountCal(seedAllKinds())
-    await tapDay(root, DAY)
-
-    const sheet = root.querySelector('.modal-overlay .hc-day-sheet')
-    expect(sheet).not.toBeNull()
-    expect(sheet.textContent).toContain('9月5日')
-    expect(sheet.textContent).toContain('棚卸')
-    expect(sheet.textContent).toContain('発注')
-
-    sheet.querySelector('.hc-sheet-close').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await nextTick()
-    expect(root.querySelector('.hc-day-sheet')).toBeNull()
-  })
-
-  it('記録の無い日でも開ける（暦の条件を読むため）', async () => {
-    const root = await mountCal(seedAllKinds())
-    await tapDay(root, '2026-09-06')
-    expect(root.querySelector('.hc-day-sheet').textContent).toContain('この日はアプリの記録はありません')
-  })
-
-  it('棚卸の行から確認ページへ渡し、そのときモーダルは畳む', async () => {
-    const sessions = seedAllKinds()
-    const { default: HistoryCalendar } = await import('./HistoryCalendar.vue')
-    const seen = []
-    host = document.createElement('div')
-    document.body.appendChild(host)
-    app = createApp(HistoryCalendar, { sessions, onViewSession: (s) => seen.push(s) })
-    app.mount(host)
-    for (let i = 0; i < 4; i++) await nextTick()
-
-    await tapDay(host, DAY)
-    host.querySelector('.hc-entry-stock').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await nextTick()
-
-    expect(seen.map(s => s.id)).toEqual(['s1'])
-    expect(host.querySelector('.hc-day-sheet')).toBeNull()
-  })
-
-  it('端末の戻るは、画面ではなくモーダルを1枚閉じる', async () => {
-    const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
-    const root = await mountCal(seedAllKinds())
-
-    expect(consumeInnerLayerBack()).toBe(false)   // 何も開いていない＝画面側へ渡す
-    await tapDay(root, DAY)
-    expect(consumeInnerLayerBack()).toBe(true)    // モーダルを閉じて戻るを消費
-    await nextTick()
-    expect(root.querySelector('.hc-day-sheet')).toBeNull()
-    expect(consumeInnerLayerBack()).toBe(false)
-  })
-})
 
 // 品目シートで1品目ずつ登録した入出庫は、同じ日・同じ種別なら1つにまとめて見せる（User決定 2026-10-03）
-describe('HistoryCalendar 品目シートの入出庫をまとめる', () => {
+
+describe('HistoryCalendar 日をタップ', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -196,22 +128,16 @@ describe('HistoryCalendar 品目シートの入出庫をまとめる', () => {
     vi.resetModules()
   })
 
-  it('同じ日の1品目ずつの入庫は1件にまとめ、品目ごとに数量を足す', async () => {
-    localStorage.setItem(STORAGE_KEYS.config, JSON.stringify({ order: ['豆', '牛乳'] }))
-    localStorage.setItem(STORAGE_KEYS.movements, JSON.stringify([
-      { id: 'q1', date: DAY, type: 'in', savedAt: `${DAY}T01:00:00.000Z`, lines: [{ item: '豆', qty: 2, unit: 'p' }] },
-      { id: 'q2', date: DAY, type: 'in', savedAt: `${DAY}T02:00:00.000Z`, lines: [{ item: '豆', qty: 3, unit: 'p' }] },
-      { id: 'q3', date: DAY, type: 'in', savedAt: `${DAY}T03:00:00.000Z`, lines: [{ item: '牛乳', qty: 1, unit: '本' }] },
-      { id: 'd1', date: DAY, type: 'in', savedAt: `${DAY}T04:00:00.000Z`, orderId: 'o9', lines: [{ item: '豆', qty: 10, unit: 'p' }] },
-    ]))
-    const root = await mountCal()
-    await tapDay(root, DAY)
-    const entries = [...document.querySelectorAll('.hc-entry-move')]
-    expect(entries.length).toBe(2)   // まとめた1件 ＋ 発注からの入庫1件
-    expect(entries[0].textContent).toContain('2品目（3回の登録）')
-    entries[0].querySelector('.hc-entry-main').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await nextTick()
-    const lines = [...entries[0].querySelectorAll('.hc-order-line')].map(l => l.textContent.replace(/\s/g, ''))
-    expect(lines.sort()).toEqual(['牛乳1本', '豆5p'])
+  it('モーダルは開かず、その日を pick-day で渡す（日誌の「1日」へ。記録の無い日も）', async () => {
+    const picked = []
+    const { default: HistoryCalendar } = await import('./HistoryCalendar.vue')
+    host = document.createElement('div'); document.body.appendChild(host)
+    app = createApp(HistoryCalendar, { sessions: seedAllKinds(), onPickDay: k => picked.push(k) })
+    app.mount(host)
+    for (let i = 0; i < 4; i++) await nextTick()
+    await tapDay(host, DAY)
+    await tapDay(host, '2026-09-09')
+    expect(picked).toEqual([DAY, '2026-09-09'])
+    expect(document.querySelector('.modal-overlay')).toBeNull()
   })
 })

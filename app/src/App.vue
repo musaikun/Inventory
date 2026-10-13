@@ -85,6 +85,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import OrderExportSheet from './components/OrderExportSheet.vue'
 import StaffJoinPage from './components/StaffJoinPage.vue'
+import { journalView, journalDate } from './components/JournalPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
@@ -847,6 +848,13 @@ function onFooterGo(tab) {
   if (isBackBlocked()) return
   homeTab.value = tab
   currentView.value = 'sessions'
+}
+
+// 履歴の画面の月で日付を押した → 日誌のその日の「1日」へ（User決定 2026-10-13。以前は日の詳細のモーダル）
+function onHistoryPickDay(date) {
+  journalDate.value = date
+  journalView.value = 'day'
+  onFooterGo('calendar')
 }
 
 // サイドナビからの画面遷移。棚卸画面からの離脱は保存・確認を伴うため onGoHome を通す。
@@ -3378,6 +3386,7 @@ function dismissReview() {
       @back="onPageBack"
       @view-session="onViewSession"
       @open-upgrade="reason => openUpgrade(reason)"
+      @pick-day="onHistoryPickDay"
     />
 
 

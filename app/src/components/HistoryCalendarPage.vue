@@ -17,7 +17,7 @@ import { localDateKey } from '../utils/localDate.js'
 // ここでは「日付から履歴を開く」ことだけを行う。
 // embedded: ホームの「履歴」タブに置くとき。見出しと戻るを出さず、高さはホームの見出しと下部ナビを除いた分
 // inJournal: 日誌の「月」として置くとき（2026-10-09）。今日の行・新着の知らせ・カレンダー／一覧の切り替えは日誌側にあるので出さない。
-//   日付を押すとモーダルではなく pickDay（日誌の「1日」へ。2026-10-13）
+// 日付を押すとモーダルではなく pickDay（日誌の「1日」へ。日誌の中も外も・2026-10-13）
 const props = defineProps({ embedded: { type: Boolean, default: false }, inJournal: { type: Boolean, default: false } })
 const emit = defineEmits(['back', 'viewSession', 'openUpgrade', 'pickDay'])
 
@@ -31,11 +31,10 @@ const error      = ref('')
 
 onMounted(() => { _loadSessions(); pullTasks() })
 
-// 「今日」の行：今日のやること（未完了）を短く見せ、押すと今日の詳細を開く
-const calRef = ref(null)
+// 「今日」の行：今日のやること（未完了）を短く見せ、押すと日誌の今日の「1日」へ
 const todayKey = localDateKey()
 const todayOpen = computed(() => tasksOn(todayKey).filter(t => !t.doneAt))
-function openToday() { calRef.value?.openDay(todayKey) }
+function openToday() { emit('pickDay', todayKey) }
 
 async function _loadSessions() {
   loading.value = true
@@ -97,11 +96,9 @@ const hiddenByPlanCount = computed(() =>
       <LoadingSpinner v-if="loading" />
       <HistoryCalendar
         v-else
-        ref="calRef"
         :sessions="visibleCompletedSessions"
         :weather="weatherState.weather"
         :calendar-only="inJournal"
-        :pick-only="inJournal"
         @view-session="s => emit('viewSession', s)"
         @pick-day="k => emit('pickDay', k)"
       />

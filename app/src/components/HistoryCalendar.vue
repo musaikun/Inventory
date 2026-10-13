@@ -1,10 +1,7 @@
 <script setup>
-import DayTasks from './DayTasks.vue'
-import OrderExportSheet from './OrderExportSheet.vue'
 import { canSeeMoney } from '../composables/useAuth.js'
 import { openTaskCounts } from '../composables/useTasks.js'
-import { isQuickMovement } from '../services/itemDayLog.js'
-import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -12,7 +9,6 @@ import { useMovements } from '../composables/useMovements.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { useVerticalSwipe } from '../composables/useSwipe.js'
-import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
 // 日付ベースの履歴カレンダー。棚卸（青）と発注（橙）を同じ月グリッドに並べ、
@@ -29,11 +25,8 @@ const props = defineProps({
   weather:  { type: Object, default: () => ({}) },
   // 日誌の「月」として置くとき（2026-10-09）: 日誌に「リスト」「記録」があるので、カレンダー／一覧の切り替えは出さない
   calendarOnly: { type: Boolean, default: false },
-  // 日誌の「月」（2026-10-13）: 日付を押してもモーダルは開かず、その日を pick-day で渡す（日誌の「1日」へ移る）
-  pickOnly: { type: Boolean, default: false },
 })
 const emit = defineEmits(['view-session', 'pick-day'])
-const exportOrder = ref(null)   // 書き出しを開いている発注
 
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders } = useOrders()
@@ -231,30 +224,12 @@ const calSwipe = useVerticalSwipe({
 const prevMonthLabel = computed(() => `${viewMonth.value === 0 ? 12 : viewMonth.value}月`)
 const nextMonthLabel = computed(() => `${viewMonth.value === 11 ? 1 : viewMonth.value + 2}月`)
 // ── 選択日 ─────────────────────────────────
-// 日をタップ → その日の詳細をモーダルで開く。カレンダーの下に敷くと、月のマスを
-// 見ながらでは読めず、スクロールすると選んだ日が画面の外へ出てしまう。
+// 日をタップ → その日を pick-day で渡す（日誌の「1日」へ移る。User決定 2026-10-13）。
+// 以前はその日の詳細をモーダルで開いていた。メモ・天気・記録・業者へ送るは1日へ移した
 const selectedKey = ref(null)
-const dayOpen = ref(false)
 function onCellTap(cell) {
   selectedKey.value = cell.key
-  if (props.pickOnly) { emit('pick-day', cell.key); return }
-  // 記録の有無に関わらず、どの日でも詳細を開ける（暦・比較を確認するため）
-  dayOpen.value = true
-}
-function closeDay() { dayOpen.value = false }
-
-// 端末の戻るは「開いている最上位を1枚だけ閉じる」。App の _closeTopLayer より先にここが見る
-// （登録しないと、モーダルを開いたまま戻ったとき履歴カレンダー画面ごと閉じてしまう）。
-onUnmounted(registerInnerLayerCloser(() => {
-  if (!dayOpen.value) return false
-  closeDay()
-  return true
-}))
-
-// 棚卸の確認ページへ移る。モーダルは畳んでから渡す（戻ったときに開いたままにしない）
-function onViewSession(s) {
-  closeDay()
-  emit('view-session', s)
+  emit('pick-day', cell.key)
 }
 
 // 今日のやること（自動）は出さない（User決定 2026-10-01。ホームも履歴も）。services/calendarTodos は残す
@@ -307,156 +282,11 @@ function listDateLabel(k) {
 }
 function onListTap(r) {
   if (r.kind === 'stock') { emit('view-session', r.s); return }
-  openDay(r.key, r.kind, r.recId)
+  emit('pick-day', r.key)
 }
 
-// その日のシートを開き、該当の記録まで送る（発注・入出庫は専用ページが無いのでここが詳細）
-const sheetEl = ref(null)
-// 外（カレンダータブの「今日」）からも日の詳細を開く
-defineExpose({ openDay: key => openDay(key) })
-function openDay(key, focus = '', recId = '') {
-  if (!key) return
-  viewYear.value = Number(key.slice(0, 4))
-  viewMonth.value = Number(key.slice(5, 7)) - 1
-  selectedKey.value = key
-  dayOpen.value = true
-  if (recId) expanded[recId] = true
-  if (!focus) return
-  nextTick(() => {
-    const el = sheetEl.value?.querySelector(recId ? `[data-rec="${recId}"]` : `[data-sec="${focus}"]`)
-      || sheetEl.value?.querySelector(`[data-sec="${focus}"]`)
-    el?.scrollIntoView?.({ block: 'start' })
-  })
-}
-
-const selectedStock  = computed(() => (selectedKey.value ? stockByDate.value[selectedKey.value] || [] : []))
-const selectedOrders = computed(() => (selectedKey.value ? orderByDate.value[selectedKey.value] || [] : []))
-
-const selectedStockRows = computed(() => selectedStock.value.map(s => ({ s, ..._stockValue(s) })))
-const selectedOrderRows = computed(() => selectedOrders.value.map(o => ({ o, ..._orderValue(o) })))
-// 入庫として取り込み済みの発注 id（納品済みバッジ用）
-const importedOrderIds = computed(() => new Set(getMovements().map(m => m.orderId).filter(Boolean)))
-function _sumRows(rows) {
-  let t = 0
-  let has = false
-  for (const r of rows) if (r.amount != null) { t += r.amount; has = true }
-  return has ? t : null
-}
-const selStockTotal = computed(() => _sumRows(selectedStockRows.value))
-const selOrderTotal = computed(() => _sumRows(selectedOrderRows.value))
-
-// 品目シートでその場で登録した入出庫（1品目ずつの記録）は、同じ日・同じ種別なら1つにまとめ、
-// 品目ごとに数量を足して見せる（User決定 2026-10-03：同日に何度登録しても統合して表示）。
-// 納品取込・入出庫ページでまとめて入れた記録（複数品目・発注紐付け・取込）はそのまま。
-const _isQuick = isQuickMovement
-function _mergeQuick(list, type) {
-  const quick = list.filter(_isQuick)
-  if (quick.length < 2) return list
-  const byItem = new Map()
-  for (const m of quick) {
-    const l = m.lines[0]
-    const cur = byItem.get(l.item)
-    if (cur) cur.qty = Math.round((cur.qty + Number(l.qty)) * 1000) / 1000
-    else byItem.set(l.item, { item: l.item, qty: Number(l.qty), unit: l.unit || '' })
-  }
-  const merged = {
-    id: `quick-${type}-${quick[0].date}`, date: quick[0].date, type, note: '', merged: quick.length,
-    savedAt: quick.map(m => m.savedAt || '').sort().pop(), lines: [...byItem.values()],
-    by: [...new Set(quick.map(m => m.by).filter(Boolean))].join('・'),
-  }
-  return [merged, ...list.filter(m => !_isQuick(m))]
-}
-const selectedMoves = computed(() => (selectedKey.value ? moveByDate.value[selectedKey.value] || [] : []))
-// 入庫/出庫のセクション定義（rows: 金額付き、_orderValue は lines を持つレコード共通で使える）
-const moveSections = computed(() => {
-  const mk = (type, label, icon, dot) => {
-    const rows = _mergeQuick(selectedMoves.value.filter(m => m.type === type), type).map(m => ({ m, ..._orderValue(m) }))
-    return { type, label, icon, dot, rows, total: _sumRows(rows) }
-  }
-  return [
-    mk('in', '入庫', '📥', 'dot-in'),
-    mk('out', '出庫', '📤', 'dot-out'),
-  ].filter(s => s.rows.length)
-})
-const anyEstimated = computed(() => selOrderTotal.value != null || moveSections.value.some(s => s.total != null))
-const selectedWeather = computed(() => (selectedKey.value ? props.weather[selectedKey.value] || null : null))
-
-// 選択日の暦の需要要因 → 詳細パネルのチップ用（該当するものだけ）。
-// 祝前日・給料日・五十日は出さない（User 2026-10-05。カレンダーの印と合わせて外した）
-const selectedFactors = computed(() => {
-  if (!selectedKey.value) return []
-  const f = dayFactors(selectedKey.value)
-  const runLen = consecutiveOffLength(selectedKey.value)
-  const chips = []
-  if (f.holidayName) chips.push({ cls: 'holiday', label: `🎌 ${f.holidayName}` })
-  if (f.span)        chips.push({ cls: 'span',    label: f.span })
-  else if (f.seasonBreak) chips.push({ cls: 'season', label: f.seasonBreak })
-  else if (runLen >= 3)   chips.push({ cls: 'long', label: `${runLen}連休` })
-  if (f.pension)     chips.push({ cls: 'pension', label: '👛 年金支給日' })
-  if (f.monthEnd)    chips.push({ cls: 'pay',     label: '月末' })
-  if (!chips.length) chips.push({ cls: 'weekday', label: '平日' })
-  return chips
-})
-
-// ── 日別メモ（内部イベント要因＋学習除外）───────────────────
-// 記録するのは自由記述と学習除外の2つだけ。定型チップ（貸切・イベント…）は置かない。
-// 選べる言葉を先に並べると、その日に実際に起きたことではなく**用意された言葉のどれか**を
-// 選ぶ記録になる。読み返して意味があるのは店の言葉で書いた1行のほう。
-const { getNote, hasNote, setNote, noteDates } = useDayNotes()
-const memoText = ref('')
-// 決め打ちのチップ（貸切・イベント等）は廃止した。以前のメモに保存されている tags は
-// 上書き保存で消さないよう、読んだものをそのまま持ち回るだけにする。
-const memoTags = ref([])
-const memoExcluded = ref(false)
-watch(selectedKey, (k) => {
-  const n = k ? getNote(k) : null
-  memoText.value = n?.text || ''
-  memoTags.value = n?.tags ? [...n.tags] : []
-  memoExcluded.value = !!n?.excluded
-}, { immediate: true })
-function saveMemo() {
-  if (!selectedKey.value) return
-  setNote(selectedKey.value, { text: memoText.value, tags: memoTags.value, excluded: memoExcluded.value })
-}
-
-const selDate = computed(() => (selectedKey.value ? new Date(selectedKey.value + 'T12:00:00') : null))
-
-// 曜日・週の情報（第N週・第N○曜日）
-const selWeekInfo = computed(() => {
-  const d = selDate.value
-  if (!d) return null
-  const day = d.getDate()
-  return { weekday: d.getDay(), weekOfMonth: Math.ceil(day / 7), nth: Math.ceil(day / 7) }
-})
-
-// 直近の棚卸から選択日までの経過日数
-const selDaysSinceStock = computed(() => {
-  if (!selectedKey.value) return null
-  let best = null
-  for (const s of props.sessions) {
-    const k = _stockKey(s)
-    if (k && k <= selectedKey.value && (!best || k > best)) best = k
-  }
-  if (!best) return null
-  const days = Math.round((new Date(selectedKey.value) - new Date(best)) / 86400000)
-  return { date: best, days }
-})
-
-const selectedLabel = computed(() => {
-  const k = selectedKey.value
-  if (!k) return ''
-  const dt = new Date(k + 'T00:00:00')
-  return `${dt.getMonth() + 1}月${dt.getDate()}日（${WEEK[dt.getDay()]}）`
-})
-
-/** 始めた人・完了した人（段 2-2。同じ人なら1回だけ。0023 より前の記録は出さない） */
-function _whoLine(s) {
-  const a = s.startedBy || '', b = s.completedBy || ''
-  if (!a && !b) return ''
-  if (!a || a === b) return `${b || a}`
-  return b ? `始めた人 ${a} ・ 完了 ${b}` : `始めた人 ${a}`
-}
-
+// 日別メモ（書くのは日誌の1日）。マスの印と一覧に使う
+const { getNote, hasNote, noteDates } = useDayNotes()
 function _stockItemCount(s) {
   const snap = getSnapshotBySessionId(s.id)
   if (snap) return snap.items.filter(i => i.qty != null).length
@@ -495,24 +325,9 @@ function fmtYen(v) {
   return v == null ? '' : `¥${v.toLocaleString()}`
 }
 
-const UNPRICED_MAX = 8
-function _fmtUnpriced(list) {
-  if (list.length <= UNPRICED_MAX) return list.join('、')
-  return `${list.slice(0, UNPRICED_MAX).join('、')} 他${list.length - UNPRICED_MAX}品目`
-}
-
-function _timeLabel(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-}
-
 onMounted(() => {
   selectedKey.value = todayKey
 })
-
-const expanded = reactive({})
-function toggleOrder(id) { expanded[id] = !expanded[id] }
 // 記録（棚卸・入出庫・発注）はここから消さない。完了した棚卸が誤操作で丸ごと消えた（User報告 2026-09-30）
 </script>
 
@@ -560,7 +375,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
       <span class="hc-key-i"><span class="hc-task-key">1</span>やること</span>
-      <DismissibleHint v-if="!pickOnly" id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
+      <DismissibleHint id="calendar-tap-day" tag="span" class="hc-key-hint">日付をタップでその日へ</DismissibleHint>
     </div>
 
     <!-- カレンダー（縦のスワイプで月送り。左右はタブの切り替えへそのまま伝える）-->
@@ -612,137 +427,6 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 
     </template>
 
-    <!-- 選択日の詳細。日付をタップしたときだけ開く（カレンダーの下には敷かない）-->
-    <div v-if="dayOpen && selectedKey" class="modal-overlay" @click.self="closeDay">
-    <div ref="sheetEl" class="modal-sheet hc-day-sheet">
-      <div class="sheet-handle"></div>
-      <div class="hc-sheet-head">
-        <span class="hc-sheet-date">{{ selectedLabel }}</span>
-        <span v-if="selectedWeather" class="hc-sheet-wx">
-          {{ selectedWeather.icon }} {{ selectedWeather.label }}
-          <template v-if="selectedWeather.tempHi != null">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</template>
-          <template v-if="selectedWeather.pop != null"> ☔{{ selectedWeather.pop }}%</template>
-        </span>
-        <button class="hc-sheet-close" @click="closeDay">✕</button>
-      </div>
-      <div v-if="selectedFactors.length" class="hc-sheet-factors">
-        <span v-for="(c, i) in selectedFactors" :key="i" :class="['hc-fchip', 'f-' + c.cls]">{{ c.label }}</span>
-      </div>
-
-      <!-- この日の基本情報 -->
-      <div v-if="selWeekInfo" class="hc-facts">
-        <div class="hc-fact"><span class="hc-fact-k">週</span><span class="hc-fact-v">第{{ selWeekInfo.weekOfMonth }}週 ・ 第{{ selWeekInfo.nth }}{{ WEEK[selWeekInfo.weekday] }}曜</span></div>
-        <div v-if="selectedWeather && selectedWeather.tempHi != null" class="hc-fact"><span class="hc-fact-k">気温</span><span class="hc-fact-v">{{ selectedWeather.tempHi }}° / {{ selectedWeather.tempLo }}°</span></div>
-        <div v-if="selectedWeather && selectedWeather.pop != null" class="hc-fact"><span class="hc-fact-k">降水</span><span class="hc-fact-v">{{ selectedWeather.pop }}%</span></div>
-        <div v-if="selDaysSinceStock" class="hc-fact"><span class="hc-fact-k">前回棚卸</span><span class="hc-fact-v">{{ selDaysSinceStock.days === 0 ? 'この日' : `${selDaysSinceStock.days}日前` }}</span></div>
-      </div>
-
-      <!-- 予定（発注日・締切）とやること（店で共有）-->
-      <DayTasks :date="selectedKey" />
-
-      <!-- 日別メモ（内部イベント要因＋学習除外）-->
-      <div class="hc-memo" data-sec="memo">
-        <textarea v-model="memoText" class="hc-memo-text" rows="2" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
-        <label class="hc-memo-excl">
-          <input type="checkbox" v-model="memoExcluded" />
-          この日を発注学習から除外（貸切・イベント等の異常日）
-        </label>
-        <button class="hc-memo-save" type="button" @click="saveMemo">メモを保存</button>
-      </div>
-
-      <!-- 棚卸 -->
-      <template v-if="selectedStock.length">
-        <div class="hc-sec-title" data-sec="stock">
-          <span class="dot dot-stock"></span>棚卸（{{ selectedStock.length }}件）
-          <span v-if="canSeeMoney && selStockTotal != null" class="hc-sec-total">{{ fmtYen(selStockTotal) }}</span>
-        </div>
-        <div
-          v-for="r in selectedStockRows"
-          :key="r.s.id"
-          class="hc-entry hc-entry-stock"
-          @click="onViewSession(r.s)"
-        >
-          <div class="hc-entry-main">
-            <span v-if="_isImported(r.s)" class="hc-entry-imported" title="取り込んだ記録">取込 {{ _importedMd(r.s) }}</span>
-            <span v-else class="hc-entry-time">{{ _timeLabel(r.s.endedAt ?? r.s.startedAt) }}</span>
-            <span class="hc-entry-info">📦 {{ _stockItemCount(r.s) }}品目</span>
-            <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-            <span class="hc-entry-arrow">詳細 ›</span>
-          </div>
-          <div v-if="_whoLine(r.s)" class="hc-entry-who">👤 {{ _whoLine(r.s) }}</div>
-          <div v-if="r.noData" class="hc-entry-warn">この端末に明細データが無いため、金額を計算できません</div>
-          <div v-else-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-          <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
-        </div>
-      </template>
-
-      <!-- 入庫 / 出庫 -->
-      <template v-if="moveSections.length">
-        <template v-for="sec in moveSections" :key="sec.type">
-          <div class="hc-sec-title" :data-sec="sec.type">
-            <span :class="['dot', sec.dot]"></span>{{ sec.label }}（{{ sec.rows.length }}件）
-            <span v-if="canSeeMoney && sec.total != null" class="hc-sec-total">{{ fmtYen(sec.total) }}</span>
-          </div>
-          <div v-for="r in sec.rows" :key="r.m.id" class="hc-entry hc-entry-move" :data-rec="r.m.id">
-            <div class="hc-entry-main" @click="toggleOrder(r.m.id)">
-              <span v-if="r.m.source === 'import'" class="hc-entry-imported" title="取り込んだ記録">取込</span>
-              <span v-else class="hc-entry-time">{{ _timeLabel(r.m.savedAt) }}</span>
-              <span class="hc-entry-info">{{ sec.icon }} {{ r.m.lines.length }}品目<template v-if="r.m.merged">（{{ r.m.merged }}回の登録）</template></span>
-              <span v-if="r.m.note" class="hc-move-note">{{ r.m.note }}</span>
-              <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-              <span class="hc-entry-arrow">{{ expanded[r.m.id] ? '▲' : '▼' }}</span>
-            </div>
-            <div v-if="r.m.by" class="hc-entry-who">👤 {{ r.m.by }}</div>
-            <div v-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-            <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
-            <div v-if="expanded[r.m.id]" class="hc-order-lines">
-              <div v-for="l in r.m.lines" :key="l.item" class="hc-order-line">
-                <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
-              </div>
-            </div>
-          </div>
-        </template>
-      </template>
-
-      <!-- 発注 -->
-      <template v-if="selectedOrders.length">
-        <div class="hc-sec-title" data-sec="order">
-          <span class="dot dot-order"></span>発注（{{ selectedOrders.length }}件）
-          <span v-if="canSeeMoney && selOrderTotal != null" class="hc-sec-total">{{ fmtYen(selOrderTotal) }}</span>
-        </div>
-        <div v-for="r in selectedOrderRows" :key="r.o.id" class="hc-entry hc-entry-order" :data-rec="r.o.id">
-          <div class="hc-entry-main" @click="toggleOrder(r.o.id)">
-            <span class="hc-order-sup">{{ r.o.supplier || '（未分類）' }}</span>
-            <span class="hc-entry-info">🧾 {{ r.o.lines.length }}品目</span>
-            <span v-if="importedOrderIds.has(r.o.id)" class="hc-ord-done">入庫済み</span>
-            <span v-if="canSeeMoney" :class="['hc-entry-amt', { none: r.amount == null }]">{{ r.amount != null ? fmtYen(r.amount) : '金額なし' }}</span>
-            <span class="hc-entry-arrow">{{ expanded[r.o.id] ? '▲' : '▼' }}</span>
-          </div>
-          <div v-if="canSeeMoney && r.amount == null" class="hc-entry-warn">単価が未登録のため、金額はありません</div>
-          <div v-else-if="canSeeMoney && r.unpriced.length" class="hc-entry-warn">単価未登録で金額に含まれない品目: {{ _fmtUnpriced(r.unpriced) }}</div>
-          <div v-if="expanded[r.o.id]" class="hc-order-lines">
-            <div v-for="l in r.o.lines" :key="l.item" class="hc-order-line">
-              <span>{{ l.item }}</span><span>{{ l.qty }}{{ l.unit }}</span>
-            </div>
-            <button type="button" class="hc-order-export" @click.stop="exportOrder = r.o">📤 業者へ送る（品目名と数量を書き出す）</button>
-          </div>
-        </div>
-      </template>
-
-      <OrderExportSheet v-if="exportOrder" :order="exportOrder" @close="exportOrder = null" />
-
-      <div v-if="canSeeMoney && anyEstimated" class="hc-est-note">※ 発注・入出庫の金額は品目マスタの現在の単価による概算です</div>
-
-      <div
-        v-if="!selectedStock.length && !selectedOrders.length && !selectedMoves.length"
-        class="hc-empty"
-      >
-        この日はアプリの記録はありません
-      </div>
-
-      <button class="btn btn-secondary hc-day-close" @click="closeDay">閉じる</button>
-    </div>
-    </div>
   </div>
 </template>
 
@@ -904,67 +588,5 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
-/* 発注予定はマスの左端の帯。実績（ドット）と同じ形にすると「発注した日」と読めてしまうので、
-   星ではなく帯にして、予定と実績を形で見分けられるようにする。色は発注の橙に揃える */
-
-.hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
-.hc-fchip { font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
-.hc-fchip.f-holiday { background: #fef2f2; color: #dc2626; }
-.hc-fchip.f-span    { background: #f5f3ff; color: #7c3aed; }
-.hc-fchip.f-season  { background: #effdfa; color: #0f766e; }
-.hc-fchip.f-long    { background: #fffbeb; color: #b45309; }
-.hc-fchip.f-pay     { background: #ecfdf5; color: #047857; }
-.hc-fchip.f-pension { background: #ecfeff; color: #155e75; }
-.hc-fchip.f-weekday { background: #edf5f7; color: #3d5a62; }
-
-/* この日の基本情報・比較 */
-.hc-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; }
-.hc-fact { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
-.hc-fact-k { color: #7d969c; font-weight: 700; flex-shrink: 0; min-width: 48px; }
-.hc-fact-v { color: #1f3d45; font-weight: 600; }
-
-/* 発注予定（詳細モーダル）*/
-
-/* 日別メモ */
-.hc-memo { background: #fafaf9; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.hc-memo-text { width: 100%; box-sizing: border-box; border: 1px solid #d6e6ea; border-radius: 8px; padding: 7px 9px; font-size: 13px; resize: vertical; font-family: inherit; }
-.hc-memo-excl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #3d5a62; margin: 7px 0; cursor: pointer; }
-.hc-memo-excl input { width: 16px; height: 16px; }
-.hc-memo-save { border: none; background: var(--primary); color: #fff; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 800; cursor: pointer; }
-
-/* 選択日の詳細。枠・余白・せり上がりは共通の .modal-sheet（style.css）に任せる */
-.hc-day-close { width: 100%; margin-top: 12px; }
-.hc-sheet-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
-.hc-sheet-date { font-weight: 700; font-size: 15px; color: #1f2937; }
-.hc-sheet-wx { font-size: 12px; color: #6b7280; }
-.hc-sheet-close { margin-left: auto; border: none; background: none; font-size: 15px; color: #9ca3af; cursor: pointer; padding: 2px 6px; }
-
-.hc-sec-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #6b7280; margin: 10px 0 6px; }
-.hc-sec-title:first-of-type { margin-top: 2px; }
-.hc-sec-total { margin-left: auto; font-size: 13px; font-weight: 800; color: #1f2937; }
-
-.hc-entry { border: 1px solid #eef0f2; border-radius: 10px; margin-bottom: 6px; overflow: hidden; }
-.hc-entry-stock { cursor: pointer; }
-.hc-entry-stock:active { background: #ecfeff; }
-.hc-entry-main { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
-.hc-entry-time { font-size: 12px; color: #6b7280; flex-shrink: 0; }
-.hc-order-sup { font-size: 14px; font-weight: 700; color: #374151; }
-.hc-entry-info { font-size: 13px; color: #4b5563; }
-.hc-entry-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: #1f2937; flex-shrink: 0; white-space: nowrap; }
-.hc-entry-amt.none { font-size: 11px; font-weight: 600; color: #9ca3af; }
-.hc-entry-arrow { font-size: 12px; color: #9ca3af; flex-shrink: 0; }
-.hc-entry-order .hc-entry-main,
-.hc-entry-move .hc-entry-main { cursor: pointer; }
-.hc-move-note { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-entry-imported { font-size: 10px; font-weight: 700; color: #3d5a62; background: #edf5f7; border: 1px solid #bfd6dc; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
-.hc-ord-done { font-size: 10px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 7px; flex-shrink: 0; }
-.hc-entry-who { font-size: 11.5px; color: var(--text-muted, #4c6a72); padding: 0 12px 6px; }
-.hc-entry-warn { font-size: 11px; color: #b45309; background: #fffbeb; border-top: 1px solid #fde68a; padding: 6px 12px; line-height: 1.5; }
-.hc-est-note { font-size: 10.5px; color: #9ca3af; margin: 2px 0 4px; }
-
-.hc-order-lines { border-top: 1px solid #f3f4f6; }
-.hc-order-export { display: block; width: calc(100% - 24px); margin: 8px 12px 10px; min-height: 40px; border: 1px solid var(--primary-border, #a5f3fc); border-radius: 10px; background: var(--primary-weak, #ecfeff); color: var(--primary, #0e7490); font-size: 13px; font-weight: 800; cursor: pointer; }
-.hc-order-line { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #f6fafb; }
-
 .hc-empty { padding: 20px; text-align: center; color: #9ca3af; font-size: 13px; }
 </style>

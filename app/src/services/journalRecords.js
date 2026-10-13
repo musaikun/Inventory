@@ -52,7 +52,8 @@ export function mergeMovements(moves = []) {
       }
     }
     for (const m of alive.filter(x => x.type === type && !isQuickMovement(x))) {
-      const t = _ms(m.savedAt) ?? 0
+      // 取込の savedAt は「取り込んだ時刻」。その日の時刻として帯に置くと別の時刻になるので、時刻なしにする
+      const t = m.source === 'import' ? null : (_ms(m.savedAt) ?? 0)
       out.push({ moves: [m], first: t, last: t })
     }
   }

@@ -15,12 +15,13 @@ const NOW = new Date(2026, 8, 20, 10, 0, 0)   // 2026-09-20（日）
 let app = null
 let host = null
 let viewed = []
+let pickedDays = []
 
 async function mountCal(sessions = []) {
   const { default: HistoryCalendar } = await import('./HistoryCalendar.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
-  app = createApp(HistoryCalendar, { sessions, onViewSession: s => viewed.push(s) })
+  app = createApp(HistoryCalendar, { sessions, onViewSession: s => viewed.push(s), onPickDay: k => pickedDays.push(k) })
   app.mount(host)
   for (let i = 0; i < 4; i++) await nextTick()
   return host
@@ -46,6 +47,7 @@ function seed() {
 beforeEach(() => {
   localStorage.clear()
   viewed = []
+  pickedDays = []
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
 })
@@ -79,12 +81,12 @@ describe('一覧（業務ごとに日付を探す）', () => {
     expect(rows()[0]).toContain('貸切')
   })
 
-  it('棚卸の行は詳細ページへ、それ以外はその日のシートへ', async () => {
+  it('棚卸の行は詳細ページへ、それ以外はその日（日誌の「1日」）へ', async () => {
     const root = await mountCal(seed())
     await click(btn('一覧'))
     await click([...root.querySelectorAll('.hc-list-row')].find(r => r.textContent.includes('棚卸')))
     expect(viewed.map(s => s.id)).toEqual(['s1'])
     await click([...root.querySelectorAll('.hc-list-row')].find(r => r.textContent.includes('出庫')))
-    expect(root.querySelector('.hc-day-sheet').textContent).toContain('9月12日')
+    expect(pickedDays).toEqual(['2026-09-12'])
   })
 })

@@ -52,6 +52,17 @@ const dateLabel = computed(() => {
   const d = new Date(props.date + 'T00:00:00')
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEK[d.getDay()]}）`
 })
+// 固定した上の段の高さ（「今日中」の数をその下に貼りつけるため）
+const headEl = ref(null)
+const headH = ref(0)
+let _ro = null
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined' || !headEl.value) return
+  _ro = new ResizeObserver(() => { headH.value = headEl.value?.offsetHeight || 0 })
+  _ro.observe(headEl.value)
+})
+onUnmounted(() => _ro?.disconnect())
+const untimedRecords = computed(() => props.records.filter(r => r.at == null))
 const isToday = computed(() => props.date === localDateKey())
 const picking = ref(false)
 function pickDate(k) { picking.value = false; emit('update:date', k) }
@@ -178,7 +189,9 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 </script>
 
 <template>
-  <div class="jd">
+  <div class="jd" :style="{ '--jd-head-h': headH + 'px' }">
+    <!-- 日付と要約は上に固定（スクロールしても今どの日かが分かる・User 2026-10-13） -->
+    <div ref="headEl" class="jd-head">
     <div class="jd-nav">
       <button type="button" class="jd-step" aria-label="前の日" @click="shift(-1)">‹</button>
       <button type="button" class="jd-date" aria-label="日付を選ぶ" @click="picking = true">{{ dateLabel }}<small v-if="isToday">今日</small></button>
@@ -192,6 +205,12 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
       <span v-if="wx" class="wx">{{ wx.icon }}<template v-if="wx.tempHi != null"> {{ wx.tempHi }}°/{{ wx.tempLo }}°</template></span>
       <span v-for="c in dayChips" :key="c" class="fc">{{ c }}</span>
       <button type="button" :class="['memo', { has: note?.text || note?.excluded }]" @click="openMemo">📝 {{ note?.text ? note.text : (note?.excluded ? '学習から除外' : 'メモ') }}</button>
+    </div>
+    </div>
+
+    <!-- 時刻の無い記録（取込など）は帯に置けないので上にまとめる -->
+    <div v-if="untimedRecords.length" class="jd-box">
+      <RecordRow v-for="r in untimedRecords" :key="r.key" :rec="r" @view-session="s => emit('view-session', s)" />
     </div>
 
     <div :class="['jd-tl', { lane: untimed.length }]" :style="{ height: height + 16 + 'px' }">
@@ -262,6 +281,8 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 
 <style scoped>
 .jd { display: grid; gap: 10px; padding: 8px 12px 96px; }
+.jd-head { position: sticky; top: var(--jp-top-h, 0px); z-index: 2; display: grid; gap: 8px; margin: -8px -12px 0; padding: 8px 12px 8px; background: var(--bg); }
+.jd-box { background: var(--surface); border-radius: 16px; padding: 0 10px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 .jd-nav { display: flex; align-items: center; gap: 6px; }
 .jd-step { flex: none; width: 40px; height: 38px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 18px; font-weight: 900; color: var(--text-muted); cursor: pointer; }
 .jd-date { flex: 1; min-width: 0; height: 38px; border: none; border-radius: 10px; background: #e9f2f4; font: inherit; font-size: 15px; font-weight: 900; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
@@ -278,7 +299,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 /* 今日中の列: 全時間をまたぐ灰色の縞。残りの数は上に貼りつき、スクロールしても見える */
 .jd-lane { position: absolute; left: 48px; width: 34px; top: 4px; bottom: 4px; padding: 0; border: 1px solid #cbd5e1; border-radius: 9px; cursor: pointer;
   background: repeating-linear-gradient(180deg, #e2e8f0, #e2e8f0 10px, #e9eef3 10px, #e9eef3 20px); z-index: 1; }
-.jd-lane-n { position: sticky; top: calc(var(--jp-top-h, 0px) + 6px); display: block; margin: 3px 2px 0; background: #475569; color: #fff; border-radius: 6px;
+.jd-lane-n { position: sticky; top: calc(var(--jp-top-h, 0px) + var(--jd-head-h, 0px) + 6px); display: block; margin: 3px 2px 0; background: #475569; color: #fff; border-radius: 6px;
   font-size: 8.5px; font-weight: 900; line-height: 1.2; padding: 4px 0; text-align: center; letter-spacing: -.04em; }
 .jd-lane-n b { display: block; font-size: 15px; letter-spacing: 0; }
 .jd-tl.lane .jd-lanes { left: 88px; }

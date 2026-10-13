@@ -77,7 +77,7 @@ describe('HistoryCalendar 取込データの星', () => {
     expect(cellOf(root, PAST).querySelector('.dot-in')).not.toBeNull()
   })
 
-  it('取込の行は、取り込んだ時刻ではなく「取込」と示す', async () => {
+  it('取込は、取り込んだ時刻ではなく「取込」と示す（1日の帯には置かない）', async () => {
     // 取込の savedAt / endedAt は取り込んだ日時。その日の時刻として出すと、
     // 実施日のシートに別の日の時刻が並ぶ。
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
@@ -94,13 +94,29 @@ describe('HistoryCalendar 取込データの星', () => {
       id: 'imp1', status: 'completed', type: 'stock', importBatchId: 'b1',
       startedAt: `${PAST}T00:00:00.000Z`, endedAt: NOW.toISOString(),
     }])
-    cellOf(root, PAST).dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await nextTick()
+    expect(cellOf(root, PAST).querySelector('.dot-stock')).not.toBeNull()
+    expect(cellOf(root, PAST).querySelector('.dot-in')).not.toBeNull()
 
-    const sheet = root.querySelector('.hc-day-sheet')
-    expect(sheet.textContent).toContain('9月5日')
-    expect(sheet.querySelectorAll('.hc-entry-imported').length).toBe(2)   // 棚卸・入庫
-    expect(sheet.querySelector('.hc-entry-time')).toBeNull()
+    // その日は日誌の「1日」で読む。取込は帯（時刻）に置かず、上に「取込」として並べる
+    const { stockRecords, mergeMovements } = await import('../services/journalRecords.js')
+    const { useHistory } = await import('../composables/useHistory.js')
+    const { useMovements } = await import('../composables/useMovements.js')
+    const records = [
+      ...stockRecords([{ id: 'imp1', status: 'completed', importBatchId: 'b1', startedAt: `${PAST}T00:00:00.000Z`, endedAt: NOW.toISOString() }], useHistory().getSnapshotBySessionId),
+      ...mergeMovements(useMovements().getMovements().filter(m => m.date === PAST)),
+    ]
+    expect(records.every(r => r.at == null)).toBe(true)
+    app.unmount(); host.remove()
+    const { default: JournalDay } = await import('./JournalDay.vue')
+    host = document.createElement('div'); document.body.appendChild(host)
+    app = createApp(JournalDay, { date: PAST, records })
+    app.mount(host)
+    for (let i = 0; i < 4; i++) await nextTick()
+    const box = host.querySelector('.jd-box')
+    expect(box.querySelectorAll('.rr')).toHaveLength(2)
+    expect(box.textContent).toContain('取り込んだ記録')
+    expect(box.textContent).toContain('取込')
+    expect(host.querySelector('.jd-ev')).toBeNull()
   })
 
   it('取り込んだ出庫は、出庫日のマスに星が出る', async () => {

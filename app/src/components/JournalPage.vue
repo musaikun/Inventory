@@ -7,6 +7,8 @@ function _readView() {
 }
 export const journalView = ref(_readView())
 watch(journalView, v => { try { sessionStorage.setItem(_VIEW_KEY, v) } catch (_) {} })
+// 「1日」で見ている日。外（履歴の画面の月）からもこの日を指定して開く
+export const journalDate = ref('')
 </script>
 
 <script setup>
@@ -38,7 +40,8 @@ const emit = defineEmits(['viewSession', 'openUpgrade'])
 
 const today = localDateKey()
 const view = journalView
-const dayDate = ref(today)
+const dayDate = journalDate
+if (!dayDate.value) dayDate.value = today
 
 // ── 材料 ──
 const sessions = ref([])
