@@ -218,7 +218,13 @@ export function applyRemoteTasks(remote) {
 
 export async function pullTasks() {
   const list = await loadTasksFromD1()
-  if (Array.isArray(list)) applyRemoteTasks(list)
+  if (Array.isArray(list)) {
+    applyRemoteTasks(list)
+    // サーバーに無い「いつか」は送り直す。いつかに対応する前の Worker は日付なしを 400 で断り、
+    // 断られた保存は捨てられるので、端末にだけ残ったままになる（2026-10-13）
+    const onServer = new Set(list.map(r => r?.id))
+    for (const t of _data.list) if (t.date === '' && !onServer.has(t.id)) _send({ ...t })
+  }
   return Array.isArray(list)
 }
 

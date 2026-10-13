@@ -128,4 +128,16 @@ describe('useTasks', () => {
     expect(T.somedayTasks.value[0].dueTime).toBeNull()
     expect(T.addTask('10/20', 'x')).toBeNull()
   })
+
+  it('サーバーに無い「いつか」は、読み込みのときに送り直す（断られて捨てられた分を戻す）', async () => {
+    const t = T.addTask('', 'メニュー表の作り直し')
+    await flush(); saved.length = 0
+    remote = []
+    await T.pullTasks(); await flush()
+    expect(saved.map(x => x.id)).toEqual([t.id])
+    saved.length = 0
+    remote = [{ ...t }]
+    await T.pullTasks(); await flush()
+    expect(saved).toEqual([])
+  })
 })
