@@ -15,7 +15,7 @@ watch(journalView, v => { try { sessionStorage.setItem(_VIEW_KEY, v) } catch (_)
  * 以前の「カレンダー」タブと「やること」画面をまとめた。
  * - リスト: 「やること」（期限切れ → 今日 → これから）・「済み」（直近30日に終えたやること。終えた日ごと）・
  *   「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
- * - 月: 今までのカレンダー（日ごとの印・その日の詳細）
+ * - 月: 今までのカレンダー（日ごとの印）。日付を押すとその日の「1日」へ（日の詳細のモーダルは廃止・2026-10-13）
  * - 1日: 時間別（JournalDay）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -87,6 +87,30 @@ const doneGroups = computed(() => {
   const since = localDateKey(new Date(Date.now() - 29 * 86400_000))
   return doneTaskGroups(since).map(g => ({ date: g.date, items: _mine(g.items) })).filter(g => g.items.length)
 })
+// 日付選びのドット: 日 → その日にあったこと（月のカレンダーと同じ色）
+const markMap = computed(() => {
+  const m = new Map()
+  const on = (d, k) => { if (!d) return; (m.get(d) ?? m.set(d, {}).get(d))[k] = true }
+  for (const s of completedStock.value) on(stockDateKey(s, getSnapshotBySessionId(s.id)), 'stock')
+  for (const o of getOrders()) on(o.date, 'order')
+  for (const mv of getMovements()) if (!mv.deletedAt) on(mv.date, mv.type === 'out' ? 'out' : 'in')
+  for (const t of aliveTasks.value) on(t.date, 'task')
+  return m
+})
+const marksOf = d => markMap.value.get(d) || {}
+function openDay(d) { dayDate.value = d; view.value = 'day' }
+
+// 上の帯（sticky）の高さ。1日の「今日中」の数をその下に貼りつけるため
+const topEl = ref(null)
+const topH = ref(0)
+let _ro = null
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined' || !topEl.value) return
+  _ro = new ResizeObserver(() => { topH.value = topEl.value?.offsetHeight || 0 })
+  _ro.observe(topEl.value)
+})
+onUnmounted(() => _ro?.disconnect())
+
 const remaining = computed(() => late.value.length + todays.value.filter(t => !t.doneAt).length)
 // 記録: 直近30日を新しい日から（その日の中は時刻の順）
 const recordGroups = computed(() => {
@@ -117,8 +141,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 </script>
 
 <template>
-  <div class="jp">
-    <div class="jp-top">
+  <div class="jp" :style="{ '--jp-top-h': topH + 'px' }">
+    <div ref="topEl" class="jp-top">
       <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small></div>
       <div class="jp-views" role="tablist" aria-label="見え方">
         <button v-for="v in [['list', 'リスト'], ['month', '月'], ['day', '1日']]" :key="v[0]" type="button" role="tab"
@@ -177,10 +201,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       class="jp-month" embedded in-journal
       @view-session="s => emit('viewSession', s)"
       @open-upgrade="r => emit('openUpgrade', r)"
+      @pick-day="openDay"
     />
 
     <!-- 1日（時間別） -->
-    <JournalDay v-else v-model:date="dayDate" :records="recordsOn(dayDate)" @view-session="s => emit('viewSession', s)" />
+    <JournalDay v-else v-model:date="dayDate" :records="recordsOn(dayDate)" :marks="marksOf" @view-session="s => emit('viewSession', s)" @add="openAdd" />
 
     <button v-if="canCreate && view !== 'month'" type="button" class="jp-fab" aria-label="やることを追加" @click="openAdd">＋</button>
 

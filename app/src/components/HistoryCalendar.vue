@@ -15,7 +15,7 @@ import { useVerticalSwipe } from '../composables/useSwipe.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { dayFactors, isOffDay, consecutiveOffLength } from '../services/demandFactors.js'
 
-// 日付ベースの履歴カレンダー。棚卸(🔵)と発注(🟠)を同じ月グリッドに並べ、
+// 日付ベースの履歴カレンダー。棚卸（青）と発注（橙）を同じ月グリッドに並べ、
 // **実際に起きたことだけを出す**（発注スケジュールの「予定」は出さない ── 予定は
 // 後から変えられるので、過去のマスに今の設定を重ねると「その日が発注日だった」という
 // 嘘になる。これから何をするかは仕入れ管理の画面の仕事）。
@@ -29,8 +29,10 @@ const props = defineProps({
   weather:  { type: Object, default: () => ({}) },
   // 日誌の「月」として置くとき（2026-10-09）: 日誌に「リスト」「記録」があるので、カレンダー／一覧の切り替えは出さない
   calendarOnly: { type: Boolean, default: false },
+  // 日誌の「月」（2026-10-13）: 日付を押してもモーダルは開かず、その日を pick-day で渡す（日誌の「1日」へ移る）
+  pickOnly: { type: Boolean, default: false },
 })
-const emit = defineEmits(['view-session'])
+const emit = defineEmits(['view-session', 'pick-day'])
 const exportOrder = ref(null)   // 書き出しを開いている発注
 
 const { getSnapshotBySessionId } = useHistory()
@@ -172,7 +174,7 @@ const weeks = computed(() => {
   return out
 })
 
-// マスに出る星の数（棚卸/発注/入庫/出庫）。4つのとき 2×2 に折り返す。
+// マスに出るドットの数（棚卸/発注/入庫/出庫）。4つのとき 2×2 に折り返す。
 function dotCount(cell) {
   if (!cell) return 0
   let n = 0
@@ -234,8 +236,9 @@ const nextMonthLabel = computed(() => `${viewMonth.value === 11 ? 1 : viewMonth.
 const selectedKey = ref(null)
 const dayOpen = ref(false)
 function onCellTap(cell) {
-  // 記録の有無に関わらず、どの日でも詳細を開ける（暦・比較を確認するため）
   selectedKey.value = cell.key
+  if (props.pickOnly) { emit('pick-day', cell.key); return }
+  // 記録の有無に関わらず、どの日でも詳細を開ける（暦・比較を確認するため）
   dayOpen.value = true
 }
 function closeDay() { dayOpen.value = false }
@@ -550,14 +553,14 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
       <button class="hc-nav-btn" type="button" aria-label="次の月" @click="nextMonth"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
 
-    <!-- 星の読み方。切替ボタンではなく説明なので、押せる見た目にしない -->
+    <!-- ドットの読み方。切替ボタンではなく説明なので、押せる見た目にしない -->
     <div class="hc-key">
       <span class="hc-key-i"><span class="dot dot-stock"></span>棚卸</span>
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
       <span class="hc-key-i"><span class="hc-task-key">1</span>やること</span>
-      <DismissibleHint id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
+      <DismissibleHint v-if="!pickOnly" id="calendar-tap" tag="span" class="hc-key-hint">日付をタップで詳細</DismissibleHint>
     </div>
 
     <!-- カレンダー（縦のスワイプで月送り。左右はタブの切り替えへそのまま伝える）-->
@@ -804,13 +807,12 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-key-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #4c6a72; }
 .hc-key-hint { margin-left: auto; font-size: 11px; font-weight: 600; color: #7d969c; }
 
-/* 実績マーカーは★（星）。glyphで描画（Safariの clip-path+transform 不具合を回避）。色は種別ごと */
-.dot { display: inline-block; font-size: 10px; line-height: 1; color: #7d969c; }
-.dot::before { content: '★'; display: block; }
-.dot-stock { color: #0891b2; }
-.dot-order { color: #f59e0b; }
-.dot-in    { color: #10b981; }
-.dot-out   { color: #ef4444; }
+/* 実績マーカーは種別ごとの色の光るドット（User 2026-10-13。以前は回転する★）。日誌の1日・日付選びと同じ色 */
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; color: #7d969c; flex: none; }
+.dot-stock { color: #0e7490; }
+.dot-order { color: #ea580c; }
+.dot-in    { color: #16a34a; }
+.dot-out   { color: #dc2626; }
 /* やることのある日（未完了）：マスの左上に件数の小さな印（User 2026-10-05。以前は下の短い線） */
 .hc-task-mark, .hc-task-key {
   min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px; box-sizing: border-box;
@@ -866,24 +868,22 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 /* マスの星は「その日に何をしたか」だけを示す（件数・金額は日をタップした詳細で読む）。
    4つでも横1列（User 2026-10-05）。4つの日だけ少し小さくして、狭いマスにも収める */
 .hc-dots { margin-top: auto; display: flex; gap: 3px; justify-content: center; }
-/* セルの実績スターはゲーム風: 発光＋光沢＋3D回転（コインのように自軸で回る）＋わずかな点滅 */
+/* マスのドットは光らせる（外側にぼかした同じ色）。ゆっくり明滅して「実績がある日」を目立たせる */
 .hc-dots .dot {
-  font-size: 15px;
-  filter: drop-shadow(0 0 2px currentColor);
-  text-shadow: 0 -0.5px 0 rgba(255,255,255,0.85), 0 1px 1px rgba(0,0,0,0.25);
-  transform-style: preserve-3d;
-  animation: hcStarSpin 2.6s linear infinite, hcStarTwinkle 2.4s ease-in-out infinite;
-  will-change: transform, opacity;
+  width: 8px; height: 8px;
+  box-shadow: 0 0 3px 1px currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55);
+  animation: hcDotGlow 2.4s ease-in-out infinite;
 }
-/* 複数の星は位相をずらして波打つように回す */
-.hc-dots .dot:nth-child(2) { animation-delay: -0.65s, 0s; }
-.hc-dots .dot:nth-child(3) { animation-delay: -1.3s, 0s; }
-.hc-dots .dot:nth-child(4) { animation-delay: -1.95s, 0s; }
-.hc-dots.dots-4 { gap: 1px; }
-.hc-dots.dots-4 .dot { font-size: 10.5px; }
-@keyframes hcStarSpin { from { transform: perspective(100px) rotateY(0); } to { transform: perspective(100px) rotateY(360deg); } }
-@keyframes hcStarTwinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
-/* 注: 実績スターの回転は演出として常時再生する（端末の「視差効果を減らす」設定でも止めない） */
+.hc-dots .dot:nth-child(2) { animation-delay: -0.6s; }
+.hc-dots .dot:nth-child(3) { animation-delay: -1.2s; }
+.hc-dots .dot:nth-child(4) { animation-delay: -1.8s; }
+.hc-dots.dots-4 { gap: 2px; }
+.hc-dots.dots-4 .dot { width: 6.5px; height: 6.5px; }
+@keyframes hcDotGlow {
+  0%, 100% { box-shadow: 0 0 2px 0 currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55); }
+  50%      { box-shadow: 0 0 5px 2px currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55); }
+}
+@media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
 
 /* 祝日名。日付のすぐ下に小さく1行で置く。2行にすると星の位置を押し下げてしまうので、
    入り切らない名前（勤労感謝の日など・狭い端末）は末尾を … で切る */
@@ -904,7 +904,7 @@ function toggleOrder(id) { expanded[id] = !expanded[id] }
 .hc-run.capR { right: 3px; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .hc-day.hol { color: #dc2626; font-weight: 700; }
 .hc-note-mark { position: absolute; bottom: 2px; right: 3px; font-size: 9px; line-height: 1; }
-/* 発注予定はマスの左端の帯。実績（★）と同じ形にすると「発注した日」と読めてしまうので、
+/* 発注予定はマスの左端の帯。実績（ドット）と同じ形にすると「発注した日」と読めてしまうので、
    星ではなく帯にして、予定と実績を形で見分けられるようにする。色は発注の橙に揃える */
 
 .hc-sheet-factors { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }

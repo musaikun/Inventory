@@ -2,15 +2,17 @@
 /**
  * 日誌の「記録」1件（棚卸・発注・入出庫。User決定 2026-10-09）。
  * - 棚卸: 始め〜終わり・実働（中断の回数）・人・金額（見られる人だけ）。押すと棚卸の詳細へ
- * - 発注・入出庫: 押すと品目と数を開く
+ * - 発注・入出庫: 押すと品目と数を開く。発注は仕入先ごとに業者へ送る（書き出す）こともできる（月のモーダルから移した・2026-10-13）
  */
 import { ref, computed } from 'vue'
 import { canSeeMoney } from '../composables/useAuth.js'
 import { fmtHm, fmtDuration } from '../services/journalRecords.js'
+import OrderExportSheet from './OrderExportSheet.vue'
 
 const props = defineProps({ rec: { type: Object, required: true } })
 const emit = defineEmits(['view-session'])
 const open = ref(false)
+const exportOrder = ref(null)
 
 const ICON = { stock: '📦', order: '🧾', in: '📥', out: '📤' }
 const r = computed(() => props.rec)
@@ -50,7 +52,11 @@ function onTap() {
         <span>{{ l.item }}<small v-if="l.supplier"> {{ l.supplier }}</small></span>
         <span>{{ rec.kind === 'out' ? '−' : rec.kind === 'in' ? '+' : '' }}{{ l.qty }}{{ l.unit || '' }}</span>
       </div>
+      <button v-for="o in rec.orders || []" :key="o.id" type="button" class="rr-export" @click="exportOrder = o">
+        📤 {{ o.supplier ? `${o.supplier}へ送る` : '業者へ送る' }}（品目名と数量を書き出す）
+      </button>
     </div>
+    <OrderExportSheet v-if="exportOrder" :order="exportOrder" @close="exportOrder = null" />
   </div>
 </template>
 
@@ -67,5 +73,6 @@ function onTap() {
 .rr-go { flex: none; color: #94a3b8; font-size: 12px; }
 .rr-lines { padding: 0 6px 10px 84px; display: grid; gap: 3px; }
 .rr-line { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rr-export { justify-self: start; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--primary); font: inherit; font-size: 12px; font-weight: 800; padding: 6px 10px; cursor: pointer; }
 .rr-line small { color: var(--text-muted); font-size: 10.5px; }
 </style>

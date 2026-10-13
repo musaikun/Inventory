@@ -1,7 +1,11 @@
 <script setup>
 /**
  * 日誌の「1日」（時間別。User決定 2026-10-09・モック docs/mocks/journal.html）。
- * - 時刻のあるやること・予定（発注の締切）・記録を時間の帯に。時刻の無いやることは上の「時刻なし」
+ * - 時刻のあるやること・予定（発注の締切）・記録を時間の帯に
+ * - 時刻の無いやることは「今日中」。帯の左に灰色の列を全時間に通し、残りの数を上に貼りつける（押すと一覧。
+ *   以前は上に小さく並べただけで「やることが無い」ように見えた・User 2026-10-13）
+ * - 上は「‹ 日付 ›」と要約。日付を押すと月カレンダー（DayPickerSheet）で過去の日もすぐ選べる
+ * - 天気・祝日・日別メモ（発注学習の除外）もここで（月の日の詳細のモーダルを廃止して移した・2026-10-13）
  * - 棚卸は始め〜終わりの長さで左の列に。操作が5分以上なかった区間は「中断」として薄く
  * - 表示する時間帯は端末ごとに変えられる（営業時間に合わせる）。帯の外の出来事があれば広げて見せる
  * - 押すと: やること → その場で完了・直す（TaskRow）、棚卸 → 詳細、発注・入出庫 → 品目と数
@@ -9,7 +13,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TaskRow from './TaskRow.vue'
 import RecordRow from './RecordRow.vue'
+import DayPickerSheet from './DayPickerSheet.vue'
 import { tasksOn, isMarkedByMe } from '../composables/useTasks.js'
+import { can } from '../composables/useAuth.js'
+import { useWeather } from '../composables/useWeather.js'
+import { useDayNotes } from '../composables/useDayNotes.js'
+import { dayFactors, consecutiveOffLength } from '../services/demandFactors.js'
 import { useConfig } from '../composables/useConfig.js'
 import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
 import { fmtHm, fmtDuration } from '../services/journalRecords.js'
@@ -20,8 +29,9 @@ import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 const props = defineProps({
   date:    { type: String, required: true },      // YYYY-MM-DD
   records: { type: Array, default: () => [] },     // その日の記録（journalRecords）
+  marks:   { type: Function, default: () => ({}) }, // 日 → { stock, order, in, out, task }（日付選びのドット）
 })
-const emit = defineEmits(['update:date', 'view-session'])
+const emit = defineEmits(['update:date', 'view-session', 'add'])
 
 // ── 表示する時間帯（端末ごと）──
 function _readHours() {
@@ -40,8 +50,11 @@ function saveHours(from, to) {
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const dateLabel = computed(() => {
   const d = new Date(props.date + 'T00:00:00')
-  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEK[d.getDay()]}）${props.date === localDateKey() ? ' 今日' : ''}`
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEK[d.getDay()]}）`
 })
+const isToday = computed(() => props.date === localDateKey())
+const picking = ref(false)
+function pickDate(k) { picking.value = false; emit('update:date', k) }
 function shift(n) {
   const d = new Date(props.date + 'T00:00:00'); d.setDate(d.getDate() + n)
   emit('update:date', localDateKey(d))
@@ -53,6 +66,34 @@ const dayStart = computed(() => new Date(props.date + 'T00:00:00').getTime())
 const minOf = ms => (ms - dayStart.value) / 60000
 const tasks = computed(() => tasksOn(props.date))
 const untimed = computed(() => tasks.value.filter(t => !t.dueTime))
+const _checked = t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt)
+const untimedLeft = computed(() => untimed.value.filter(t => !_checked(t)).length)
+const tasksDone = computed(() => tasks.value.filter(_checked).length)
+const untimedOpen = ref(false)
+
+// この日のこと（天気・祝日・連休・日別メモ）
+const { state: weatherState } = useWeather()
+const wx = computed(() => weatherState.weather?.[props.date] || null)
+const dayChips = computed(() => {
+  const f = dayFactors(props.date)
+  const out = []
+  if (f.holidayName) out.push(`🎌 ${f.holidayName}`)
+  if (f.span) out.push(f.span)
+  else if (f.seasonBreak) out.push(f.seasonBreak)
+  else { const n = consecutiveOffLength(props.date); if (n >= 3) out.push(`${n}連休`) }
+  return out
+})
+const { getNote, setNote } = useDayNotes()
+const note = computed(() => getNote(props.date))
+const memoOpen = ref(false)
+const memoText = ref(''), memoExcluded = ref(false)
+function openMemo() {
+  memoText.value = note.value?.text || ''; memoExcluded.value = !!note.value?.excluded; memoOpen.value = true
+}
+function saveMemo() {
+  setNote(props.date, { text: memoText.value, tags: note.value?.tags ? [...note.value.tags] : [], excluded: memoExcluded.value })
+  memoOpen.value = false
+}
 const plans = computed(() => {
   const d = new Date(props.date + 'T00:00:00')
   return (config.orderSchedules || []).map((s, i) => (isOrderDay(s, d) && s.deadline ? { key: `plan-${i}`, name: scheduleName(s, i), time: s.deadline } : null)).filter(Boolean)
@@ -119,6 +160,9 @@ const picked = ref(null)   // { task } | { rec }
 onUnmounted(registerInnerLayerCloser(() => {
   if (picked.value) { picked.value = null; return true }
   if (editHours.value) { editHours.value = false; return true }
+  if (untimedOpen.value) { untimedOpen.value = false; return true }
+  if (memoOpen.value) { memoOpen.value = false; return true }
+  if (picking.value) { picking.value = false; return true }
   return false
 }))
 function pick(x) {
@@ -128,25 +172,37 @@ function pick(x) {
 }
 const fromOpts = Array.from({ length: 24 }, (_, i) => i)
 const hf = ref(hours.value.from), ht = ref(hours.value.to)
+function closeSheet() { picked.value = null; editHours.value = false; untimedOpen.value = false; memoOpen.value = false }
+function addUntimed() { untimedOpen.value = false; emit('add') }
 function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; editHours.value = true }
 </script>
 
 <template>
   <div class="jd">
     <div class="jd-nav">
-      <button type="button" aria-label="前の日" @click="shift(-1)">‹</button>
-      <b>{{ dateLabel }}</b>
-      <button type="button" aria-label="次の日" @click="shift(1)">›</button>
+      <button type="button" class="jd-step" aria-label="前の日" @click="shift(-1)">‹</button>
+      <button type="button" class="jd-date" aria-label="日付を選ぶ" @click="picking = true">{{ dateLabel }}<small v-if="isToday">今日</small></button>
+      <button type="button" class="jd-step" aria-label="次の日" @click="shift(1)">›</button>
+      <button v-if="!isToday" type="button" class="jd-today" @click="emit('update:date', localDateKey())">今日へ</button>
+    </div>
+    <div class="jd-sum">
+      <span class="t">やること <b>{{ tasksDone }}/{{ tasks.length }}</b></span>
+      <span>記録 <b>{{ records.length }}</b></span>
+      <span v-if="plans.length">締切 <b>{{ plans.length }}</b></span>
+      <span v-if="wx" class="wx">{{ wx.icon }}<template v-if="wx.tempHi != null"> {{ wx.tempHi }}°/{{ wx.tempLo }}°</template></span>
+      <span v-for="c in dayChips" :key="c" class="fc">{{ c }}</span>
+      <button type="button" :class="['memo', { has: note?.text || note?.excluded }]" @click="openMemo">📝 {{ note?.text ? note.text : (note?.excluded ? '学習から除外' : 'メモ') }}</button>
     </div>
 
-    <div v-if="untimed.length" class="jd-allday">
-      <span class="jd-h">時刻なし</span>
-      <button v-for="t in untimed" :key="t.id" type="button" :class="['jd-chip', { done: t.doneAt }]" @click="picked = { task: t }">
-        {{ t.doneAt ? '✓' : '☐' }} {{ t.text }}
-      </button>
-    </div>
-
-    <div class="jd-tl" :style="{ height: height + 16 + 'px' }">
+    <div :class="['jd-tl', { lane: untimed.length }]" :style="{ height: height + 16 + 'px' }">
+      <!-- button だと中身が縦の中央に寄り、数を上に貼りつけられない（sticky が効かない）ので div で押せるようにする -->
+      <div
+        v-if="untimed.length" class="jd-lane" role="button" tabindex="0"
+        :aria-label="`今日中のやること ${untimed.length}件（残り${untimedLeft}）`"
+        @click="untimedOpen = true" @keydown.enter.prevent="untimedOpen = true" @keydown.space.prevent="untimedOpen = true"
+      >
+        <span class="jd-lane-n">今日中<b>{{ untimedLeft }}</b>/{{ untimed.length }}</span>
+      </div>
       <div v-for="m in hourMarks" :key="m" class="jd-hr" :style="{ top: top(m) + 8 + 'px' }"><span>{{ m / 60 }}:00</span></div>
       <div class="jd-lanes">
         <button
@@ -165,9 +221,24 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
     <button type="button" class="jd-hours" @click="openHours">表示する時間 {{ hours.from }}:00〜{{ hours.to }}:00 ✎</button>
 
     <Teleport to="body">
-      <div v-if="picked || editHours" class="jd-sheet-bg" @click.self="picked = null; editHours = false">
+      <DayPickerSheet v-if="picking" :date="date" :marks="marks" @pick="pickDate" @close="picking = false" />
+      <div v-if="picked || editHours || untimedOpen || memoOpen" class="jd-sheet-bg" @click.self="closeSheet">
         <div class="jd-sheet" role="dialog">
-          <template v-if="editHours">
+          <template v-if="untimedOpen">
+            <div class="jd-sheet-h"><b>今日中のやること</b><small>残り {{ untimedLeft }} / {{ untimed.length }}</small></div>
+            <div class="jd-list"><TaskRow v-for="t in untimed" :key="t.id" :task="t" /></div>
+            <button v-if="can('task.create')" type="button" class="jd-add" @click="addUntimed">＋ 今日中のやることを追加</button>
+          </template>
+          <template v-else-if="memoOpen">
+            <b>{{ dateLabel }}のメモ</b>
+            <textarea v-model="memoText" class="jd-memo" rows="3" placeholder="この日のメモ（貸切・近隣イベント・メニュー変更 など）"></textarea>
+            <label class="jd-excl"><input v-model="memoExcluded" type="checkbox" /> この日を発注学習から除外（貸切・イベント等の異常日）</label>
+            <div class="jd-row end">
+              <button type="button" class="jd-mini" @click="memoOpen = false">やめる</button>
+              <button type="button" class="jd-save" @click="saveMemo">保存</button>
+            </div>
+          </template>
+          <template v-else-if="editHours">
             <b>表示する時間（この端末）</b>
             <p class="jd-note">店の営業時間に合わせてください。時間外の予定や記録があれば、その日だけ広げて出します。</p>
             <div class="jd-row">
@@ -181,8 +252,8 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
             </div>
           </template>
           <TaskRow v-else-if="picked.task" :task="picked.task" />
-          <RecordRow v-else-if="picked.rec" :rec="picked.rec" />
-          <button v-if="!editHours" type="button" class="jd-mini wide" @click="picked = null">閉じる</button>
+          <RecordRow v-else-if="picked.rec" :rec="picked.rec" @view-session="s => { picked = null; emit('view-session', s) }" />
+          <button v-if="picked || untimedOpen" type="button" class="jd-mini wide" @click="closeSheet">閉じる</button>
         </div>
       </div>
     </Teleport>
@@ -191,13 +262,32 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 
 <style scoped>
 .jd { display: grid; gap: 10px; padding: 8px 12px 96px; }
-.jd-nav { display: flex; align-items: center; justify-content: space-between; }
-.jd-nav b { font-size: 15px; }
-.jd-nav button { width: 40px; height: 36px; border: none; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; }
-.jd-allday { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.jd-h { font-size: 11px; font-weight: 800; color: var(--text-muted); margin-right: 2px; }
-.jd-chip { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; font-weight: 700; color: var(--text); cursor: pointer; }
-.jd-chip.done { color: var(--text-muted); text-decoration: line-through; }
+.jd-nav { display: flex; align-items: center; gap: 6px; }
+.jd-step { flex: none; width: 40px; height: 38px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 18px; font-weight: 900; color: var(--text-muted); cursor: pointer; }
+.jd-date { flex: 1; min-width: 0; height: 38px; border: none; border-radius: 10px; background: #e9f2f4; font: inherit; font-size: 15px; font-weight: 900; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.jd-date::after { content: '▾'; font-size: 10px; color: var(--text-muted); }
+.jd-date small { font-size: 10.5px; color: var(--primary); background: #cffafe; padding: 1px 7px; border-radius: 999px; }
+.jd-today { flex: none; border: none; background: none; font: inherit; font-size: 12px; font-weight: 800; color: var(--primary); padding: 0 4px; cursor: pointer; }
+.jd-sum { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11.5px; font-weight: 800; }
+.jd-sum > * { padding: 4px 9px; border-radius: 999px; background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+.jd-sum b { color: var(--text); }
+.jd-sum .t { background: #fff7ed; color: #9a3412; border-color: #fed7aa; } .jd-sum .t b { color: #9a3412; }
+.jd-sum .fc { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.jd-sum .memo { font: inherit; font-size: 11.5px; font-weight: 800; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jd-sum .memo.has { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+/* 今日中の列: 全時間をまたぐ灰色の縞。残りの数は上に貼りつき、スクロールしても見える */
+.jd-lane { position: absolute; left: 48px; width: 34px; top: 4px; bottom: 4px; padding: 0; border: 1px solid #cbd5e1; border-radius: 9px; cursor: pointer;
+  background: repeating-linear-gradient(180deg, #e2e8f0, #e2e8f0 10px, #e9eef3 10px, #e9eef3 20px); z-index: 1; }
+.jd-lane-n { position: sticky; top: calc(var(--jp-top-h, 0px) + 6px); display: block; margin: 3px 2px 0; background: #475569; color: #fff; border-radius: 6px;
+  font-size: 8.5px; font-weight: 900; line-height: 1.2; padding: 4px 0; text-align: center; letter-spacing: -.04em; }
+.jd-lane-n b { display: block; font-size: 15px; letter-spacing: 0; }
+.jd-tl.lane .jd-lanes { left: 88px; }
+.jd-sheet-h { display: flex; justify-content: space-between; align-items: baseline; }
+.jd-sheet-h small { font-size: 12px; color: var(--text-muted); font-weight: 700; }
+.jd-list { max-height: 50vh; overflow-y: auto; }
+.jd-add { border: 1px dashed var(--border); border-radius: 10px; background: none; padding: 10px; font: inherit; font-size: 13px; font-weight: 800; color: var(--primary); cursor: pointer; }
+.jd-memo { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical; }
+.jd-excl { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); }
 .jd-tl { position: relative; background: var(--surface); border-radius: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); margin-top: 6px; }
 .jd-hr { position: absolute; left: 44px; right: 8px; border-top: 1px solid #eef4f6; }
 .jd-hr span { position: absolute; left: -40px; top: -7px; width: 34px; text-align: right; font-size: 10px; font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }

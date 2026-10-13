@@ -90,7 +90,7 @@ export function mergeOrders(orders = []) {
     return {
       key: `order-${list[0].sessionId || list[0].id}`, kind: 'order', at: Number.isFinite(at) ? at : null, end: null,
       title: `発注 ${suppliers.length > 1 ? `${suppliers.length}社 ` : ''}${lines.length}品目`,
-      by: '', note: suppliers.join('・'), lines, sessionId: list[0].sessionId ?? null,
+      by: '', note: suppliers.join('・'), lines, sessionId: list[0].sessionId ?? null, orders: list,
     }
   })
 }

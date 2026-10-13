@@ -16,9 +16,10 @@ import { localDateKey } from '../utils/localDate.js'
 // タブのスワイプと競合し、カレンダーを見る目的で来た人が余分な導線を通っていた。
 // ここでは「日付から履歴を開く」ことだけを行う。
 // embedded: ホームの「履歴」タブに置くとき。見出しと戻るを出さず、高さはホームの見出しと下部ナビを除いた分
-// inJournal: 日誌の「月」として置くとき（2026-10-09）。今日の行・新着の知らせ・カレンダー／一覧の切り替えは日誌側にあるので出さない
+// inJournal: 日誌の「月」として置くとき（2026-10-09）。今日の行・新着の知らせ・カレンダー／一覧の切り替えは日誌側にあるので出さない。
+//   日付を押すとモーダルではなく pickDay（日誌の「1日」へ。2026-10-13）
 const props = defineProps({ embedded: { type: Boolean, default: false }, inJournal: { type: Boolean, default: false } })
-const emit = defineEmits(['back', 'viewSession', 'openUpgrade'])
+const emit = defineEmits(['back', 'viewSession', 'openUpgrade', 'pickDay'])
 
 // 天気（Open-Meteo・任意）。位置情報許可でカレンダーに気温・降水・天気を表示。
 // 表示するかは初めて開いたときに一度だけ訊き（WeatherAsk）、変更は各種設定から。ここには取得ボタンを出さない
@@ -100,7 +101,9 @@ const hiddenByPlanCount = computed(() =>
         :sessions="visibleCompletedSessions"
         :weather="weatherState.weather"
         :calendar-only="inJournal"
+        :pick-only="inJournal"
         @view-session="s => emit('viewSession', s)"
+        @pick-day="k => emit('pickDay', k)"
       />
 
       <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">

@@ -44,7 +44,7 @@ describe('日誌', () => {
     expect(host.querySelector('.rr-lines').textContent).toContain('+24個')
   })
 
-  it('1日: 時刻のあるやることは時間の帯、時刻なしは上に。記録も帯に。表示する時間は端末に覚える', async () => {
+  it('1日: 時刻のあるやることは時間の帯、時刻なしは「今日中」の列に。記録も帯に。表示する時間は端末に覚える', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     T.addTask(localDateKey(), '野菜の検品', null, '11:00')
@@ -54,7 +54,12 @@ describe('日誌', () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     await click(btn('1日', host.querySelector('.jp-views')))
-    expect(host.querySelector('.jd-allday').textContent).toContain('手洗いの確認')
+    // 時刻なしは「今日中」の列（残りの数）。押すと一覧
+    expect(host.querySelector('.jd-lane').textContent).toContain('今日中1/1')
+    expect(host.querySelector('.jd-sum').textContent).toContain('やること 0/2')
+    await click(host.querySelector('.jd-lane'))
+    expect(document.body.querySelector('.jd-sheet').textContent).toContain('手洗いの確認')
+    await click(btn('閉じる', document.body))
     const evs = [...host.querySelectorAll('.jd-ev')].map(e => e.textContent)
     expect(evs.some(t => t.includes('11:00 野菜の検品'))).toBe(true)
     expect(evs.some(t => t.includes('出庫 1品目'))).toBe(true)
@@ -94,5 +99,46 @@ describe('日誌', () => {
     await click(btn('やること', host.querySelector('.jp-flt')))
     expect(host.querySelector('.jp-lh.late').textContent).toContain('期限切れ')
     expect(host.textContent).toContain('油の交換')
+  })
+
+  it('1日: 日付を押すと月カレンダーで選べる（その日にあったことのドット）。日別メモもここで', async () => {
+    const T = await import('../composables/useTasks.js')
+    T.addTask('2026-09-15', '冷蔵庫の点検')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(btn('1日', host.querySelector('.jp-views')))
+    await click(host.querySelector('.jd-date'))
+    const dp = document.body.querySelector('.dp')
+    // 2026年9月まで戻る
+    const { localDateKey } = await import('../utils/localDate.js')
+    const now = new Date(localDateKey() + 'T00:00:00')
+    const back = (now.getFullYear() - 2026) * 12 + now.getMonth() - 8
+    for (let i = 0; i < back; i++) await click(dp.querySelector('[aria-label="前の月"]'))
+    const cell = dp.querySelector('[aria-label="2026-09-15"]')
+    expect(cell.querySelector('.k-task')).not.toBeNull()
+    await click(cell)
+    expect(document.body.querySelector('.dp')).toBeNull()
+    expect(host.querySelector('.jd-date').textContent).toContain('9月15日')
+    expect(host.querySelector('.jd-lane').textContent).toContain('今日中')
+    // 日別メモ（発注学習の除外）
+    await click(host.querySelector('.jd-sum .memo'))
+    const ta = document.body.querySelector('.jd-memo')
+    ta.value = '貸切'; ta.dispatchEvent(new Event('input')); await tick()
+    await click(btn('保存', document.body))
+    expect(host.querySelector('.jd-sum .memo').textContent).toContain('貸切')
+    await click(btn('今日へ', host))
+    expect(host.querySelector('.jd-date').textContent).toContain('今日')
+  })
+
+  it('月: 日付を押すとモーダルではなく、その日の「1日」へ', async () => {
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(btn('月', host.querySelector('.jp-views')))
+    await new Promise(r => setTimeout(r, 0)); await tick()
+    const cell = [...host.querySelectorAll('.hc-cell.tappable')].find(c => c.querySelector('.hc-day')?.textContent.trim() === '1')
+    await click(cell)
+    expect(document.body.querySelector('.modal-overlay')).toBeNull()
+    expect(host.querySelector('.jp-views .on').textContent).toBe('1日')
+    expect(host.querySelector('.jd-date').textContent).toMatch(/月1日/)
   })
 })
