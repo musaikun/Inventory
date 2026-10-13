@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // 発注・入出庫の「その日」はローカル日付。UTC の日付を使うと、日本時間 0:00〜9:00 の記録が前日になる。
 // どのタイムゾーンでも通るように、期待値は端末のローカル時刻で組み立てる（TZ=Asia/Tokyo で不具合が再現する）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'

@@ -40,7 +40,7 @@
 | WEB-01 | canonical URL・contact | 実際に200で配信するhostと正式問い合わせ先を決定し、legal・削除URL・supportを同期 | User |
 | WEB-02 | production origin / CORS | 2026-10-02に`develop@49227ff`のWorkerをproductionへdeployし、許可Origin `inventory-app-c40.pages.dev`のCORS headerと未知Originの403を実probe済み。canonical確定後、その最終Originでも再確認して完了とする | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
-| WEB-04 | D1 migration | production schemaをread-only preflightし、未適用の**0009〜0026**をUser承認後に番号順で適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加、0015〜0018は新規table中心でrollback手順を持つ。0019〜0026は列・table・indexの追加だけだが、**0022を戻すときはスタッフのtokenを消す**（旧Workerはスタッフのtokenをオーナーと同じに扱う）。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
+| WEB-04 | D1 migration | production schemaをread-only preflightし、未適用の**0009〜0027**をUser承認後に番号順で適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加、0015〜0018は新規table中心でrollback手順を持つ。0019〜0026は列・table・indexの追加だけだが、**0022を戻すときはスタッフのtokenを消す**（旧Workerはスタッフのtokenをオーナーと同じに扱う）。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | plan境界 | 現行Appどおり2台・150品目・履歴3回の固定上限を無効とし、規約・公開画面・通常App・Workerが同じ説明になることを確認。将来再導入するときはserver enforcementを別タスクで実装 | User / Codex |
 | WEB-07 | 取込・履歴・data integrity | DATA-001/002・IMPORT-001の実装とCodex独立reviewは完了。release candidateで実D1・別browser・取込主経路を確認して通過判定する | Codex |
@@ -60,7 +60,7 @@ WEB-01〜03で対象resourceとSHAを固定して再probeします。
 - [ ] Cloudflare Pages上で`/privacy`、`/terms`、`/support`がredirect loopせず、最終200本文とCSPを返す
 - [x] account削除のWorker/D1/DO/client処理とBack/a11y回帰testがある
 - [x] 品目写真の認証付き登録・削除、画像形式/size検証、private R2 binding、account削除時purgeの回帰testがある
-- [x] `migrate.sh`は0001〜0026を列挙し、列挙testがある（production適用状態はrelease前preflightで確定する）
+- [x] `migrate.sh`は0001〜0027を列挙し、列挙testがある（production適用状態はrelease前preflightで確定する）
 - [x] production dependency auditは直近記録で0件。spreadsheet parserに隔離・上限・timeout testがある
 - [x] develop CIはNode 24でWorker/App test、App build、preview deployに成功
 - [x] 2026-10-02にWorker Version `29f6cb30-9dd2-49b7-8eab-34b4c6892ee9`をproductionへdeployし、health 200、許可OriginのCORS header、未知Origin 403、存在しない画像ID 404を実probeした
@@ -87,12 +87,12 @@ WEB-01〜03で対象resourceとSHAを固定して再probeします。
    `session_completions`（0016）、`session_audit`（0017）、`discarded_sessions`（0018）、
    `idx_movements_deleted`（0019）、`idx_tasks_date`（0020）、`idx_push_sent_at`（0021）、
    `idx_staff_login_attempts`（0022）、`idx_sessions_started_by`（0023）、`idx_tasks_assignee`（0024）、
-   `idx_work_sessions_seen`（0025）、`idx_push_actor`（0026）。
+   `idx_work_sessions_seen`（0025）、`idx_push_actor`（0026）、`trg_work_sessions_active_insert`（0027）。
    あわせて**既存の取込バッチ件数**を read-only で数える（切替境界の判断材料）:
    `SELECT COUNT(*) AS n FROM sessions WHERE import_batch_id IS NOT NULL`。
    **0012を適用する前に、D1 Time Travelの保持期間内であることを必ず確認する**
    （`DROP TABLE store_history`を含み、適用後は戻せない）。
-4. 0009 → 0010 → … → 0018 → 0019 → … → 0026 を**この順で**適用し、
+4. 0009 → 0010 → … → 0018 → 0019 → … → 0027 を**この順で**適用し、
    各段階で table / column / index / trigger を read-only 確認する。
    `scripts/migrate.sh`はsentinel方式で未適用ぶんだけを当てるため、
    途中まで適用済みの本番へ再実行しても二重適用にならない。
@@ -117,8 +117,9 @@ WEB-01〜03で対象resourceとSHAを固定して再probeします。
    | 0024 | `tasks.assign_mode` / `assignee_id` / `assignee_name` / `done_list_json`列 + index | 可（旧Workerでは全員・特定の担当が「誰でも」に見える） |
    | 0025 | `work_sessions` table + index | 可（`DROP TABLE work_sessions`） |
    | 0026 | `tasks.due_time`、`push_subscriptions.actor_id`列 + `idx_push_actor` | 可（旧Workerは新しい列を読まない） |
+   | 0027 | 0018以降のtable（`discarded_sessions`・`tasks`・`staff`系3つ・`work_sessions`）へ、削除中・削除済みの店へのINSERTを止めるtrigger | 可（`DROP TRIGGER`。旧Workerはtriggerの有無に依存しない） |
 
-   後方互換: 0013〜0026はいずれも既存行の意味を変えない（追加列はNULL＝従来の動き。0024のNULLは「誰でも」）。0014適用前の履歴行は
+   後方互換: 0013〜0027はいずれも既存行の意味を変えない（追加列はNULL＝従来の動き。0024のNULLは「誰でも」）。0014適用前の履歴行は
    `revision = id` / `updated_at = created_at` でバックフィルされる。
 
 ### migration → Worker deploy の切替境界

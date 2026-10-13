@@ -18,12 +18,11 @@ const NO_SHOP_CODE = {
   push_sent: '送った通知の印。endpoint経由で消す（下で確認）',
 }
 
-// 0011 の「削除中・削除済みの店へは書けない」トリガーを持たないテーブル（2026-10-12時点）。
-// 0018 以降に足したテーブルに付いていない。付けるかどうかは TEST-003 で User 判断待ち。
-// ここに無いテーブルが増えたら、トリガーを付けるか、ここへ理由つきで足す。
+// 0011 の「削除中・削除済みの店へは書けない」トリガーを持たないテーブル。
+// 0018 以降のテーブルには 0027 で付けた。新しいテーブルを足したら、同じトリガーを付けるか、
+// ここへ理由つきで足す。
 const NO_ACTIVE_TRIGGER = new Set([
   'stores',                 // 店そのもの
-  'discarded_sessions', 'tasks', 'staff', 'staff_invites', 'staff_login_attempts', 'work_sessions',
 ])
 
 let h
@@ -32,7 +31,7 @@ const columns = t => h.rows(`PRAGMA table_info(${t})`)
 const shopTables = () => tables().filter(t => columns(t).some(c => c.name === 'shop_code'))
 
 /** どのテーブルにも入る1行を、スキーマから組み立てて入れる（親テーブルの主キーは引き継ぐ） */
-function seedRow(table, code, parents) {
+function seedRow(table, code, parents, suffix = '') {
   const fks = h.rows(`PRAGMA foreign_key_list(${table})`)
   const cols = [], vals = []
   for (const c of columns(table)) {
@@ -41,7 +40,7 @@ function seedRow(table, code, parents) {
     if (c.name === 'shop_code') v = code
     else if (fk) v = fk.table === 'stores' ? code : parents[fk.table]
     else if (c.pk && /INT/i.test(c.type)) continue          // 自動採番
-    else if (c.pk || c.notnull) v = /INT/i.test(c.type) ? 1 : /REAL/i.test(c.type) ? 1 : `${table}-${c.name}-${code}`
+    else if (c.pk || c.notnull) v = /INT/i.test(c.type) ? 1 : /REAL/i.test(c.type) ? 1 : `${table}-${c.name}-${code}${suffix}`
     else continue
     cols.push(c.name); vals.push(v)
   }
@@ -102,6 +101,17 @@ describe('account削除: 店のデータを持つ全テーブル', () => {
     // 送った通知の印は endpoint で消す
     expect(h.rows('SELECT * FROM push_sent WHERE endpoint = ?', seeded.target.endpoint)).toEqual([])
     expect(h.rows('SELECT * FROM push_sent WHERE endpoint = ?', seeded.other.endpoint)).toHaveLength(1)
+  })
+
+  it('削除中の店へは、どのテーブルにも新しい行を書けない', () => {
+    h.sqlite.prepare('UPDATE stores SET deletion_pending_at = ? WHERE shop_code = ?').run('2026-10-13T00:00:00.000Z', target.shopCode)
+    const parents = {}
+    for (const t of shopTables().filter(t => t !== 'stores')) {
+      for (const f of h.rows(`PRAGMA foreign_key_list(${t})`)) {
+        if (f.table !== 'stores') parents[f.table] = h.rows(`SELECT ${f.to} AS id FROM ${f.table} WHERE shop_code = ? LIMIT 1`, target.shopCode)[0].id
+      }
+      expect(() => seedRow(t, target.shopCode, parents, '-2'), t).toThrow(/account_inactive/)
+    }
   })
 
   it('削除中・削除済みの店へ書けないトリガーは、決めた例外を除く全テーブルにある', () => {

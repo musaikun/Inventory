@@ -22,9 +22,11 @@
 | 2 | 遅いテストを偽の時計に（`AxisAssignFocus.groups.test.js` 30秒→約3秒） | 完了 2026-10-12 |
 | 3 | account削除の全テーブル網羅（`worker/test/accountDeletionCoverage.sqlite.test.js`）、`validate.js`・`moneyGuard.js` の直接テスト。presence は `test/staff.test.js` が結合で通しているので足さない | 完了 2026-10-12 |
 | 4 | App テストの準備を共通化（`app/src/test-support/appHarness.js`）。形が同じだった戻る系6本（pageBack・orderBack・stockBack・reloadPage・importBack・deleteBack）を移した | 完了 2026-10-12 |
-| 次の候補 | 残り8本（complete・authLoss・auditPersist・hideUndo・hideRequest・guestBack・inviteUrl・deleteRoute）は useSync のモックや店舗 ABCDEF の作り方がそれぞれ違うので、そろえる価値を見てから。DOM を使わない純粋なテストを `node` 環境で回す（App 全体の時間の大半は jsdom の準備：環境 196秒・テスト本体 77秒） | 未着手 |
+| 5 | `services/`・`utils/` のテストを `node` 環境で回す（vitest の projects で node / dom に分ける）。DOM が要る7本はファイル先頭に `// @vitest-environment jsdom` | 完了 2026-10-13 |
+| 6 | 0018以降のテーブルに削除中の店へのINSERTを止めるtrigger（migration 0027）。空白だけの数量を0にしない（`validate.js`） | 完了 2026-10-13 |
+| 次の候補 | 残りのApp 8本（complete・authLoss・auditPersist・hideUndo・hideRequest・guestBack・inviteUrl・deleteRoute）は useSync のモックや店舗 ABCDEF の作り方がそれぞれ違うので、そろえる価値を見てから | 未着手 |
 
-## 見つかったこと（User 判断）
+## 見つかったこと（2026-10-13 に User 了承「たのむ」で段6として対応済み）
 
 - **削除中の店への書き込みを止めるトリガーが、0018 以降のテーブルに無い**。0011 は業務テーブルごとに
   「削除中・削除済みの店へは INSERT できない」トリガーを付け、0015〜0017 も同じ形で足していたが、
@@ -52,3 +54,13 @@
   `validate.test.js` 13件、`moneyGuard.test.js` 8件。
 - 段4: 6本のテスト件数は移行前後で同じ（34件）、1170行→997行。
 - App 216 files / 2125 tests pass（114秒。移行前は134秒）、build 成功。Worker 51 files / 730 tests pass。
+
+## 検証（段5・6）
+
+- 段5: 同じ機械で旧設定・新設定を交互に2回ずつ。全体 約155秒 → 約124秒、jsdom の準備（合計）260秒 → 183秒。216 files / 2125 tests は同じ。
+  `services/`・`utils/` の70本のうち、node で落ちた7本（lastPage・pastImportPlan・analytics・api・localDate・masterImportWarning・planLimits）だけ jsdom を指定した。
+- 段6: migration 0027 を外すと `accountDeletionCoverage` の2件（削除中の店へはどのテーブルにも書けない・全テーブルにtriggerがある）が落ち、戻すと通る。
+  `scripts/migrate.sh` に sentinel `trg_work_sessions_active_insert` を足した（列挙testが通る）。
+  本番 preflight（`scripts/preflight-prod.sh`）の sentinel が 0017 で止まっていたので 0018〜0027 を足し、migrate.sh と一致することを `migrationScript.test.js` に加えた。`validate.test.js` に空白のケースを追加。
+- Worker 51 files / 731 tests、App 216 files / 2125 tests、build 成功。
+- **本番 D1 への 0027 の適用は未実施**（Production Backend の preflight → apply を User が押す）。

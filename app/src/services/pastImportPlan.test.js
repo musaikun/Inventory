@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * IMPORT-001 — 過去棚卸取込の計画・確定・取消（client側）。
  *

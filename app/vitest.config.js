@@ -22,8 +22,23 @@ export default defineConfig({
     __BUILD_SHA__:   JSON.stringify('testsha'),
   },
   test: {
-    environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.js'],
+    // DOM を使わない純粋な計算（services/・utils/）は node で回す。jsdom の準備はファイルごとに
+    // 約1秒かかり、App 全体のテスト時間の大半を占めていた（TEST-003）。
+    // services/・utils/ で DOM（localStorage・window など）が要るテストは、ファイル先頭に
+    // `// @vitest-environment jsdom` を書く（書き忘れると ReferenceError で落ちるので気づける）。
+    projects: [
+      {
+        extends: true,
+        test: { name: 'node', environment: 'node', include: ['src/services/**/*.test.js', 'src/utils/**/*.test.js'] },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom', environment: 'jsdom', include: ['src/**/*.test.js'],
+          exclude: ['src/services/**/*.test.js', 'src/utils/**/*.test.js'],
+        },
+      },
+    ],
   },
 })

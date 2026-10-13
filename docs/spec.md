@@ -41,7 +41,7 @@
 | 棚卸履歴 | sessionIdをidentityとして`sessions`、`inventory_lines`、`store_history`を完了APIの1 batchで保存。別端末はlines/history/audit APIから復元する | release candidateの実D1・別browser確認はWEB-07 |
 | 共有結果 | 完了から3日間、店舗code + session UUIDのURLを知る人へ、数量、単価、小計、合計、参加者、操作履歴を読み取り専用で表示 | URL共有範囲とprivacy説明をWEB-09〜10で確認 |
 
-repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0026、Pages routing、
+repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0027、Pages routing、
 CORS、smokeを含むproduction状態はrelease candidateの対象SHAで再検証し、
 [Web公開準備](quality-foundation/web-release-readiness.md)だけで判定します。
 
@@ -158,7 +158,7 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0026）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0027。0027は削除中の店へのINSERTを止めるtriggerを0018以降のtableへ足しただけ）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|

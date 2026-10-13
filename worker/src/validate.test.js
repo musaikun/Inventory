@@ -41,16 +41,18 @@ describe('数量', () => {
   it('数値と数値の文字列は範囲内なら通す', () => {
     expect(parseQty(0, range)).toBe(0)
     expect(parseQty('2.5', range)).toBe(2.5)
+    expect(parseQty(' 3 ', range)).toBe(3)                        // 前後の空白は数値として読む
     expect(parseQty(1000, range)).toBe(1000)
   })
   it('空・NaN・Infinity・範囲外・真偽値・配列は 0 に丸めず拒否する', () => {
-    for (const v of ['', null, undefined, 'abc', NaN, Infinity, -Infinity, -0.1, 1000.1, true, false, [], [3]]) {
+    for (const v of ['', ' ', '\t\n', null, undefined, 'abc', NaN, Infinity, -Infinity, -0.1, 1000.1, true, false, [], [3]]) {
       expect(parseQty(v, range), String(v)).toBeNull()
     }
   })
   it('任意の数値は、未指定なら null、指定されて不正なら undefined', () => {
     expect(parseOptionalNumber(null, range)).toBeNull()
     expect(parseOptionalNumber('', range)).toBeNull()
+    expect(parseOptionalNumber('  ', range)).toBeNull()           // 空白だけは「未指定」（0 にしない）
     expect(parseOptionalNumber('12', range)).toBe(12)
     expect(parseOptionalNumber('abc', range)).toBeUndefined()
     expect(parseOptionalNumber(-1, range)).toBeUndefined()
@@ -67,6 +69,7 @@ describe('列挙値・件数', () => {
   })
   it('件数は0以上の整数だけ', () => {
     expect(parseCount(null, 10)).toBeNull()
+    expect(parseCount(' ', 10)).toBeNull()                         // 空白だけは「未指定」（0 にしない）
     expect(parseCount('3', 10)).toBe(3)
     expect(parseCount(0, 10)).toBe(0)
     for (const v of [-1, 1.5, 11, 'abc', Infinity]) expect(parseCount(v, 10), String(v)).toBeUndefined()

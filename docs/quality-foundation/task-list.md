@@ -43,7 +43,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
 | DOC-003 | P1 | レビュー待ち | Claude Code | migration 0019〜0026と新APIをAPI・security・spec・同期・release gate・削除契約・data flowへ反映済み（2026-10-12）。スタッフlogin失敗の端末単位制限はUser/PM判断。WEB-001.md・test-cases.mdは未反映 | [DOC-003.md](tasks/DOC-003.md) |
-| TEST-003 | P2 | レビュー待ち | Claude Code | テストの見直し。段1〜4（権限表の一致・遅いテスト30秒→3秒・削除の全テーブル網羅・validate/moneyGuard・App準備の共通化）完了。削除中の店へのトリガー欠け（0018以降）と空白の数量はUser判断 | [TEST-003.md](tasks/TEST-003.md) |
+| TEST-003 | P2 | レビュー待ち | Claude Code | テストの見直し。段1〜6完了（権限表の一致・遅いテスト30秒→3秒・削除の全テーブル網羅・validate/moneyGuard・App準備の共通化・純粋テストをnodeで・migration 0027のtrigger・空白の数量）。0027の本番適用はUser | [TEST-003.md](tasks/TEST-003.md) |
 | REF-001 | P2 | 進行中 | Claude Code | App.vue の段階分割。段0〜4（デッドコード・トースト・問いかけ・発注の参考値・下書きとD1保存）完了。残りは再設計待ち・User判断 | [REF-001.md](tasks/REF-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
 | UI-004 | P2 | レビュー待ち | User | Rive試作・公開準備をec4adcaでcommit、リモート95f2b25と統合検証済み。Editorでの見た目判断待ち。素材書き出しはプラン制限、Web/実機確認は未完了 | [UI-004.md](tasks/UI-004.md) |

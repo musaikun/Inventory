@@ -12,6 +12,10 @@ import {
   D1_MAX_BOUND_PARAMS,
 } from './constants.js'
 
+// 空白だけの文字列は「空」と同じに扱う。`Number(' ') === 0` なので、そのままだと
+// 何も入っていない欄が数量0（在庫0）として通っていた。
+const _blank = v => typeof v === 'string' && v.trim() === ''
+
 /** ISO日付（YYYY-MM-DD）として妥当か。実在しない日付（2026-02-30）も弾く。 */
 export function isValidDate(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
@@ -47,7 +51,7 @@ export function parseClientId(v) {
  * @param {{ min: number, max: number }} range
  */
 export function parseQty(v, { min, max }) {
-  if (v === '' || v == null || typeof v === 'boolean') return null
+  if (v == null || _blank(v) || typeof v === 'boolean') return null
   if (Array.isArray(v)) return null
   const n = Number(v)
   if (!Number.isFinite(n)) return null      // NaN / Infinity / -Infinity
@@ -60,7 +64,7 @@ export function parseQty(v, { min, max }) {
  * 指定されていて非有限・範囲外なら undefined（=拒否）を返す。
  */
 export function parseOptionalNumber(v, { min, max }) {
-  if (v == null || v === '') return null
+  if (v == null || _blank(v)) return null
   const n = Number(v)
   if (!Number.isFinite(n)) return undefined
   if (n < min || n > max) return undefined
@@ -81,7 +85,7 @@ export function parseEnum(v, allowed) {
  * 旧実装は `typeof === 'number'` 以外を黙って 0 にしていた。
  */
 export function parseCount(v, max) {
-  if (v == null || v === '') return null
+  if (v == null || _blank(v)) return null
   const n = Number(v)
   if (!Number.isInteger(n) || n < 0 || n > max) return undefined
   return n

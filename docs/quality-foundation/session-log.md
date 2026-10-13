@@ -2,6 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-13 — version 0.154.10 / 削除中の店へのtrigger（migration 0027）・空白の数量・純粋テストをnodeで（TEST-003 段5・6）
+
+- User了承（「たのむ」）: TEST-003 で見つけた2点を直し、テストの実行時間を詰める。
+- migration 0027: `discarded_sessions`・`tasks`・`staff`・`staff_invites`・`staff_login_attempts`・`work_sessions` に、
+  0011 と同じ「削除中・削除済みの店へは INSERT できない」trigger。`scripts/migrate.sh` に sentinel。**本番適用は未実施（User）**。
+- `worker/src/validate.js`: 空白だけの文字列を「空」と同じに扱う（`Number(' ') === 0` で数量0として通っていた）。
+- App の vitest を projects で node / dom に分け、`services/`・`utils/` を node で回す。約155秒 → 約124秒（同じ機械で交互に計測）。
+- docs: release gate の適用順・rollback表、spec、security-review（gap を解消済みへ）、削除契約を 0027 まで。
+- `scripts/preflight-prod.sh`（本番 preflight）の確認用 sentinel が 0017 で止まっていた。0018〜0027 を足し、migrate.sh と同じ並びであることを `migrationScript.test.js` で確かめる。
+- テスト: Worker 731 pass、App 2125 pass、build 成功。
+- 残り: スタッフlogin失敗の端末単位制限（店×名前の上限を足すか）は User 判断のまま。
+- version: 0.154.9 → **0.154.10**。
+
 ## 2026-10-12 — version 0.154.9 / 担当の変更（D-029）・テストの見直し 段2〜4（TEST-003）
 
 - User決定（D-029）: Claude Code が実装・テスト・文書を主として進める。Codex は全体を俯瞰して評価と改善点を挙げる立場へ。

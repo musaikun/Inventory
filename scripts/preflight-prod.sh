@@ -31,7 +31,9 @@ q "適用済みsentinel（scripts/migrate.sh と同じ並び）" \
      'push_subscriptions','idx_sessions_shop_type','orders','idx_stores_plan',
      'idx_movement_lines_item','trg_movement_lines_active_insert','idx_history_session',
      'idx_sessions_import_batch','idx_history_revision','import_batch_requests',
-     'session_completions','session_audit'
+     'session_completions','session_audit','discarded_sessions','idx_movements_deleted',
+     'idx_tasks_date','idx_push_sent_at','idx_staff_login_attempts','idx_sessions_started_by',
+     'idx_tasks_assignee','idx_work_sessions_seen','idx_push_actor','trg_work_sessions_active_insert'
    ) ORDER BY name"
 
 q "データ量（0012は store_history を作り直すため、行数を控えておく）" \

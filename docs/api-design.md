@@ -135,7 +135,7 @@ production D1の適用状態は固定値として断定せず、release前のrea
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0026までの適用、E2E/smoke |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0027までの適用、E2E/smoke |
 | [DOC-003](quality-foundation/tasks/DOC-003.md) | スタッフのログイン失敗の端末単位制限は、bodyの`deviceId`を変えると数え直しになる（総当たりの上限はIP単位の失敗制限が担う）。仕様として受け入れるかはUser/PM判断 |
 
 ### 将来A1（現行APIではない）

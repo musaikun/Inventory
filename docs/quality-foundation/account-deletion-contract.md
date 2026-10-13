@@ -4,7 +4,7 @@
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
 最新照合: 2026-10-12 / `develop@8e37bae`（0019〜0026の対象はDOC-003で追記）
-状態: code/testはmigration 0026まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
+状態: code/testはmigration 0027まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
 
 ## 目的
 
@@ -67,7 +67,8 @@ Success / replay:
 2. 有効token、case-sensitiveな店舗code confirmation、現在PINを照合する。PIN失敗は
    loginと共通の `login_attempts` に記録し、15分5回で429にする。
 3. `stores.deletion_pending_at` と `deletion_request_id` を設定する。通常token、store API、
-   store参照、room gateを遮断し、0011のtriggerでaccount子dataの新規INSERTも拒否する。
+   store参照、room gateを遮断し、0011（以降0012・0015〜0017・0027で同じ形を追加）のtriggerでaccount子dataの新規INSERTも拒否する。
+   店のdataを持つ全tableにこのtriggerがあることと、削除後に行が残らないことは`worker/test/accountDeletionCoverage.sqlite.test.js`で確かめる。
 4. Worker内部から `X-Inventory-Internal-Action: account-delete-v1` を付け、棚卸用・発注用の
    2つのDurable Objectをcloseする。互換日を考慮してalarmを消し、storageを `deleteAll()` する。
    同時に非公開R2の`<shopCode>/` prefixを列挙し、品目写真をすべて削除する。
