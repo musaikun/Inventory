@@ -26,7 +26,7 @@
 
 | 領域 | `develop@8e37bae`の実装 | 公開前のknown gap |
 |---|---|---|
-| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗のオーナーtokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
+| 認証 | `/auth/register`で6桁PIN（弱い並びは拒否・D-030）をPBKDF2保存し30日Bearerを発行。以前に4桁で登録した店は4桁で入れるが、入った時点で6桁への変更を求める（`POST /auth/pin`・migration 0029）。`/auth/login`成功時は同店舗のオーナーtokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
 | account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0026までのD1業務data（スタッフ・招待・やること・在席・通知の記録を含む）とtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
 | ホーム/画面 | 共通下部ナビはホーム・在庫・日誌・レポート・管理の5タブ（`money`の無い役割にはレポートを出さない）。棚卸・発注の開始はホームから。在庫タブは品目・在庫の表と並び替えの入口、日誌はやること・予定・記録、レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し・スタッフ等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |
@@ -41,7 +41,7 @@
 | 棚卸履歴 | sessionIdをidentityとして`sessions`、`inventory_lines`、`store_history`を完了APIの1 batchで保存。別端末はlines/history/audit APIから復元する | release candidateの実D1・別browser確認はWEB-07 |
 | 共有結果 | 完了から3日間、店舗code + session UUIDのURLを知る人へ、数量、単価、小計、合計、参加者、操作履歴を読み取り専用で表示 | URL共有範囲とprivacy説明をWEB-09〜10で確認 |
 
-repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0028、Pages routing、
+repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0029、Pages routing、
 CORS、smokeを含むproduction状態はrelease candidateの対象SHAで再検証し、
 [Web公開準備](quality-foundation/web-release-readiness.md)だけで判定します。
 
@@ -158,11 +158,11 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0028。0027は削除中の店へのINSERTを止めるtriggerを0018以降のtableへ足しただけ、0028は暗証番号の試行回数とロック）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0029。0027は削除中の店へのINSERTを止めるtriggerを0018以降のtableへ足しただけ、0028は暗証番号の試行回数とロック、0029はオーナーPINの桁数）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
-| `stores` | 店舗・認証・プラン・削除状態 | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。削除中は`deletion_pending_at` / `deletion_request_id`、完了後は7日匿名tombstone |
+| `stores` | 店舗・認証・プラン・削除状態 | `pin_hash` は **PBKDF2**（100,000反復・ランダムsalt、旧SHA-256からログイン時に透過移行）。`pin_digits`（0029）が NULL の店は以前の4桁で、6桁への変更を求める。削除中は`deletion_pending_at` / `deletion_request_id`、完了後は7日匿名tombstone |
 | `auth_tokens` | Bearer トークン（30日有効） | ログインごとに発行。`stores` とは分離。D1にはSHA-256だけ。`staff_id`がNULLならオーナー（0022） |
 | `sessions` | 棚卸/発注セッション | `type`でstock/orderを区別。statusは`active`/`completed`（旧`incomplete`は後方互換）。破棄中は`deleted_at`を持つ。始めた人・完了した人（`started_by(_id)` / `completed_by(_id)`・0023） |
 | `store_history` | 完了スナップショット | 最新50件。R2アーカイブ移行が将来課題（db-design-v2） |

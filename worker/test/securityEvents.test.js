@@ -22,7 +22,7 @@ describe('セキュリティイベント', () => {
   it('ログイン失敗・締め出しを、店舗と伏せた IP つきで残す（PIN は残さない）', async () => {
     const h = createD1()
     const env = { DB: h.db, ALLOWED_ORIGIN: '' }
-    const reg = await handleRegister(h.db, { pin: '1234' })
+    const reg = await handleRegister(h.db, { pin: '582941' })
     const ev = events()
     for (let i = 0; i < 6; i++) await worker.fetch(post('/auth/login', { shopCode: reg.shopCode, pin: '9999' }), env)
     expect(ev.filter(e => e.type === 'login_failed')).toHaveLength(5)
@@ -33,7 +33,7 @@ describe('セキュリティイベント', () => {
   it('権限の拒否（perm_denied）を、役割と足りない権限つきで残す', async () => {
     const h = createD1()
     const env = { DB: h.db, ALLOWED_ORIGIN: '' }
-    const reg = await handleRegister(h.db, { pin: '1234' })
+    const reg = await handleRegister(h.db, { pin: '582941' })
     const own = new Request('https://w/', { headers: { Authorization: `Bearer ${reg.token}` } })
     const { invite } = await handleStaffInvite(h.db, own, reg.shopCode, { name: '山田', role: 'arbeit' })
     const j = await handleStaffJoin(h.db, { token: invite.token, name: '山田', pin: '284713' })
@@ -49,7 +49,7 @@ describe('セキュリティイベント', () => {
     const h = createD1()
     const env = { DB: h.db, ALLOWED_ORIGIN: '' }
     const ev = events()
-    for (let i = 0; i < 6; i++) await worker.fetch(post('/auth/register', { pin: '1234' }, { ip: '198.51.100.20' }), env)
+    for (let i = 0; i < 6; i++) await worker.fetch(post('/auth/register', { pin: '582941' }, { ip: '198.51.100.20' }), env)
     expect(ev.filter(e => e.type === 'ip_attempt' && e.kind === 'register')).toHaveLength(5)
     expect(ev.find(e => e.type === 'ip_blocked')).toMatchObject({ kind: 'register', ip: '198.51.100.x' })
   })

@@ -34,7 +34,7 @@ const post = (path, body, ip) => new Request(`https://worker.example${path}`, {
 beforeEach(async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})   // security event のログを黙らせる
   h = createD1()
-  reg = await handleRegister(h.db, { storeName: '本店', pin: '1234' })
+  reg = await handleRegister(h.db, { storeName: '本店', pin: '582941' })
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -85,11 +85,11 @@ describe('① 数十回程度で攻撃コストが急激に上がる', () => {
 
   it('オーナーのログインも同じ: 5回まちがえると正しいPINでも止まり、切れたら入れて回数は消える', async () => {
     for (let i = 0; i < 5; i++) expect((await handleLogin(h.db, { shopCode: reg.shopCode, pin: '0000' }))._status).toBe(401)
-    const locked = await handleLogin(h.db, { shopCode: reg.shopCode, pin: '1234' })
+    const locked = await handleLogin(h.db, { shopCode: reg.shopCode, pin: '582941' })
     expect(locked._status).toBe(429)
     expect(locked.error).toMatch(/あと\d+分/)
     h.sqlite.prepare('UPDATE login_guard SET locked_until = ? WHERE account_key = ?').run(Date.now() - 1, OWNER_ACCOUNT)
-    expect((await handleLogin(h.db, { shopCode: reg.shopCode, pin: '1234' })).token).toBeTruthy()
+    expect((await handleLogin(h.db, { shopCode: reg.shopCode, pin: '582941' })).token).toBeTruthy()
     expect(h.rows('SELECT * FROM login_guard WHERE account_key = ?', OWNER_ACCOUNT)).toEqual([])
   })
 })
@@ -111,7 +111,7 @@ describe('② IP を変えても ③ API を直接叩いても、同じアカウ
     for (let i = 0; i < 5; i++) {
       expect((await worker.fetch(post('/auth/login', { shopCode: reg.shopCode, pin: '0000' }, `198.51.100.${i}`), env)).status).toBe(401)
     }
-    expect((await worker.fetch(post('/auth/login', { shopCode: reg.shopCode, pin: '1234' }, '203.0.113.200'), env)).status).toBe(429)
+    expect((await worker.fetch(post('/auth/login', { shopCode: reg.shopCode, pin: '582941' }, '203.0.113.200'), env)).status).toBe(429)
   })
 })
 
@@ -128,7 +128,7 @@ describe('同時リクエストで上限をすり抜けない', () => {
   it('1つの IP から別々の店へ50件を同時に送っても、IP の上限（30）を超えて確かめない', async () => {
     const env = { DB: h.db, ALLOWED_ORIGIN: '' }
     const res = await Promise.all(Array.from({ length: 50 }, (_, i) =>
-      worker.fetch(post('/auth/login', { shopCode: `ZZ${String(i).padStart(4, 'A')}`, pin: '1234' }, '203.0.113.9'), env)))
+      worker.fetch(post('/auth/login', { shopCode: `ZZ${String(i).padStart(4, 'A')}`, pin: '582941' }, '203.0.113.9'), env)))
     const statuses = res.map(r => r.status)
     expect(statuses.filter(s => s === 429)).toHaveLength(20)
     expect(statuses.filter(s => s === 401)).toHaveLength(30)

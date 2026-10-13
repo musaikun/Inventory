@@ -40,15 +40,16 @@
 
 | Method / path | 現行contract | Auth |
 |---|---|---|
-| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
-| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの**オーナーtoken**を全失効（スタッフのtokenは残す） | 不要。アカウント単位の段階的なロック（`login_guard`・migration 0028）: 確かめる前に1回ぶんを1つのUPSERTで数え（同時に送ってもすり抜けない）、5回ごとに15分→30分→…→24時間（上限）と倍に止める。7日あいたら数え直し、正しいPINで消える。IPと端末IDは鍵にしない。ほかにIP単位の失敗制限（下記） |
+| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは**6桁**で、同じ数字だけ・連番・くり返しは400 `weak_pin`（スタッフと同じ決まり・`pinPolicy.js`・D-030）。PBKDF2で保存し、`stores.pin_digits = 6`（migration 0029） | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
+| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtokenと`pinUpgradeRequired`。2026-10-13より前に4桁で登録した店（`pin_digits`がNULL）は4桁のまま入れるが`pinUpgradeRequired:true`を返し、Appは6桁へ変えるまで閉じられない画面を出す。成功時は同storeの**オーナーtoken**を全失効（スタッフのtokenは残す） | 不要。アカウント単位の段階的なロック（`login_guard`・migration 0028）: 確かめる前に1回ぶんを1つのUPSERTで数え（同時に送ってもすり抜けない）、5回ごとに15分→30分→…→24時間（上限）と倍に止める。7日あいたら数え直し、正しいPINで消える。IPと端末IDは鍵にしない。ほかにIP単位の失敗制限（下記） |
 | `POST /auth/staff-login` | `{ shopCode, name, pin, deviceId }` → `{ token, shopCode, storeName, staff, ...entitlement }`。名前は全角半角（NFKC）・大文字小文字・空白の揺れを同一視。承認待ちは403 `pending`、停止中は403 `stopped`。店・名前・PINのどれが違っても同じ401 | 不要。名前ごとにアカウント単位の段階的なロック（`login_guard`・migration 0028）: 確かめる前に1回ぶんを1つのUPSERTで数え（同時に送ってもすり抜けない）、5回ごとに15分→30分→…→24時間（上限）と倍に止める。7日あいたら数え直し、正しいPINで消える。IPと端末IDは鍵にしない（店にいない名前も同じに数え、ロックの出方で名前の有無が分からない）。管理者が`unlock`で解除できる。ほかにIP単位の失敗制限（`/auth/login`と共有） |
-| `GET /auth/me` | `{ shopCode, role, staff: { id, name, role, grants } \| null }`。役割の取り直し用 | Bearer（無効なら401） |
+| `GET /auth/me` | `{ shopCode, role, staff: { id, name, role, grants } \| null, pinUpgradeRequired? }`。役割の取り直し用。オーナーには`pinUpgradeRequired`（4桁のままか）も返す | Bearer（無効なら401） |
+| `POST /auth/pin` | `{ currentPin, newPin }` → `{ ok, pinUpgradeRequired:false }`。オーナーのPINを6桁へ変える。新しいPINの決まり（400 `weak_pin`）、同じPIN（400 `same_pin`）を先に確かめ、今のPINの確認はloginと同じ段階的なロックに載せる（401 `wrong_pin`・429）。変えたら`pin_digits = 6`にし、**この端末以外のオーナーtokenを消す**（スタッフのtokenは残す）。1 KiB以下 | オーナーのBearerだけ（スタッフは403） |
 | `GET /staff/invite?token=` | 有効な招待の`{ storeName, shopCode, name, role, expiresAt }`。期限切れ・使用済み・取消・削除中の店は404 `invite_invalid` | 不要。tokenは48桁hex（192bit・D1にはSHA-256だけ）。404をIP失敗として数える |
 | `POST /staff/join` | `{ token, name, pin }` → `{ pendingKey, shopCode, storeName, name, staffId }`。PINは6桁で、同じ数字・連番・くり返しは400 `weak_pin`。店内で名前が重なれば409 `name_taken`。招待は条件付きUPDATEで1回きり。管理者の端末へPush | 不要。IP失敗制限（404を数える） |
 | `GET /staff/pending?key=` | 承認待ちの端末が結果を聞く。`{ status:'pending' }`、承認後は1回だけ`{ status:'active', token, staff, ... }`（受け取ったら鍵を消す）。断られた・停止は`{ status }`、鍵が無ければ`{ status:'gone' }` | 不要。keyは48桁hex。IP失敗制限 |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
-| `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
+| `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN（6桁。まだ変えていない店は4桁）、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
 | ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
 
@@ -137,8 +138,8 @@ production D1の適用状態は固定値として断定せず、release前のrea
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0028までの適用、E2E/smoke |
-| [SEC-006](quality-foundation/tasks/backlog.md) | オーナーのPINは4桁（1万通り）。アカウント単位のロックで1年に試せるのは約1,900回まで減ったが、それでも当たる見込みは約19%/年。6桁以上にするかはUser判断 |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0029までの適用、E2E/smoke |
+| [SEC-007](quality-foundation/tasks/SEC-007.md) | 以前に4桁で登録した店は、オーナーが次にログインする（またはAppを開く）まで4桁のまま。tokenは30日なので、開かない店はそれ以上残る。4桁でのloginをいつ止めるか（期限を決めて全店へ知らせる）はUser判断 |
 
 ### 将来A1（現行APIではない）
 

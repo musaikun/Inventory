@@ -31,7 +31,7 @@ const req = token => new Request('https://w.test/', { headers: token ? { Authori
 let owner, code, env
 beforeEach(async () => {
   db = makeDb()
-  const r = await handleRegister(db, { storeName: '本店', pin: '1234' })
+  const r = await handleRegister(db, { storeName: '本店', pin: '582941' })
   owner = r.token; code = r.shopCode
   env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
 })

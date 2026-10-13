@@ -16,8 +16,8 @@ const req = token => new Request('https://w.test/', { headers: { Authorization: 
 describe('トークンの保存形', () => {
   it('登録・ログイン・スタッフのトークンは、どれもハッシュで保存する', async () => {
     const h = createD1()
-    const reg = await handleRegister(h.db, { pin: '1234' })
-    const login = await handleLogin(h.db, { shopCode: reg.shopCode, pin: '1234' })
+    const reg = await handleRegister(h.db, { pin: '582941' })
+    const login = await handleLogin(h.db, { shopCode: reg.shopCode, pin: '582941' })
     const { invite } = await handleStaffInvite(h.db, req(login.token), reg.shopCode, { name: '山田', role: 'arbeit' })
     const j = await handleStaffJoin(h.db, { token: invite.token, name: '山田', pin: '284713' })
     await handleStaffAction(h.db, req(login.token), reg.shopCode, j.staffId, 'approve')

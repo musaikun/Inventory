@@ -3,6 +3,7 @@
 import { _now, genUniqueShopCode } from './workerUtils.js'
 import { TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
 import { reserveLoginAttempt, clearLoginGuard, lockedMessage, OWNER_ACCOUNT } from './loginGuard.js'
+import { pinProblem, needsPinUpgrade, PIN_DIGITS } from './pinPolicy.js'
 import { entitlement } from './entitlements.js'
 
 // ── PIN ハッシュ（PBKDF2・ランダムsalt）─────────────────────────────────────────
@@ -84,9 +85,11 @@ export function extractBearerToken(request) {
 // POST /auth/register  body: { storeName?, pin }
 // defaultPlan='pro' は分離されたPro Review Workerだけで指定する。
 export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
-  const pin       = String(body.pin ?? '').replace(/\D/g, '').slice(0, 4)
+  const pin       = String(body.pin ?? '').replace(/\D/g, '')
   const storeName = String(body.storeName ?? '').trim().slice(0, MAX_STORE_NAME_LEN)
-  if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
+  // 6桁で、同じ数字だけ・連番・くり返しは使わせない（スタッフと同じ決まり・pinPolicy.js・D-030）
+  const bad = pinProblem(pin)
+  if (bad) return { _status: 400, code: 'weak_pin', error: bad }
 
   const code    = await genUniqueShopCode(db)
   const pinHash = await _hashPin(pin)
@@ -96,8 +99,8 @@ export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
   const plan    = defaultPlan === 'pro' ? 'pro' : 'free'
 
   await db.prepare(
-    'INSERT INTO stores (shop_code, store_name, pin_hash, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(code, storeName || null, pinHash, plan, now, now).run()
+    'INSERT INTO stores (shop_code, store_name, pin_hash, plan, created_at, updated_at, pin_digits) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(code, storeName || null, pinHash, plan, now, now, PIN_DIGITS).run()
 
   await db.prepare(
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
@@ -112,7 +115,7 @@ export async function handleLogin(db, body) {
   const pin      = String(body.pin      ?? '').replace(/\D/g, '')
 
   const store = await db.prepare(
-    'SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?'
+    'SELECT shop_code, store_name, pin_hash, plan, created_at, deleted_at, deletion_pending_at, pin_digits FROM stores WHERE shop_code = ?'
   ).bind(shopCode).first()
 
   if (!store)           return { _status: 401, error: '店舗コードが見つかりません' }
@@ -163,7 +166,54 @@ export async function handleLogin(db, body) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(await tokenHash(token), shopCode, expires, now).run()
 
-  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store) }
+  // 以前に4桁で登録した店は、6桁への変更を求める（アプリは変えるまで閉じられない画面を出す・D-030）
+  return { token, shopCode, storeName: store.store_name ?? null, pinUpgradeRequired: needsPinUpgrade(store.pin_digits), ...entitlement(store) }
+}
+
+/**
+ * POST /auth/pin { currentPin, newPin } … オーナーの PIN を変える（6桁へ・D-030）。
+ *
+ * - オーナーの token だけ（スタッフの暗証番号はこの経路では変えない）
+ * - 新しい PIN は先に決まり（pinPolicy）を確かめる。今の PIN の確認はログインと同じ段階的なロックに載せる
+ *   （token を持っていれば PIN を総当たりできる、という抜け道を作らない）
+ * - 変えたら、この端末以外のオーナーの token を消す（4桁が知られていた場合に、相手のログインを切る）
+ */
+export async function handleOwnerPinChange(db, request, body = {}) {
+  const token = extractBearerToken(request)
+  if (!token) return { _status: 401, error: '認証が必要です' }
+  const keys = await tokenKeys(token)
+  const row = await db.prepare(`
+    SELECT a.shop_code, a.staff_id, s.pin_hash, s.deleted_at, s.deletion_pending_at
+    FROM auth_tokens a JOIN stores s ON s.shop_code = a.shop_code
+    WHERE a.token IN (?, ?) AND a.expires_at > datetime('now')
+  `).bind(...keys).first()
+  if (!row?.shop_code || row.deleted_at || row.deletion_pending_at) return { _status: 401, error: '認証が必要です' }
+  if (row.staff_id) return { _status: 403, code: 'forbidden', error: 'PIN を変えられるのはオーナーだけです' }
+  if (!row.pin_hash) return { _status: 400, error: 'このアカウントはPINが未設定です' }
+
+  const currentPin = String(body.currentPin ?? '').replace(/\D/g, '')
+  const newPin     = String(body.newPin ?? '').replace(/\D/g, '')
+  const bad = pinProblem(newPin)
+  if (bad) return { _status: 400, code: 'weak_pin', error: bad }
+  if (newPin === currentPin) return { _status: 400, code: 'same_pin', error: '今と同じPINです。別の6桁にしてください' }
+
+  const code = row.shop_code
+  const guard = await reserveLoginAttempt(db, code, OWNER_ACCOUNT)
+  if (!guard.ok) return { _status: 429, error: lockedMessage(guard.lockedUntil) }
+  const { ok } = await verifyPinHash(code, currentPin, row.pin_hash)
+  if (!ok) {
+    await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
+      .bind(code, _now()).run().catch(e => console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
+    return { _status: 401, code: 'wrong_pin', error: '今のPINが正しくありません' }
+  }
+  await clearLoginGuard(db, code, OWNER_ACCOUNT)
+  await db.batch([
+    db.prepare('UPDATE stores SET pin_hash = ?, pin_digits = ?, updated_at = ? WHERE shop_code = ?')
+      .bind(await _hashPin(newPin), PIN_DIGITS, _now(), code),
+    db.prepare('DELETE FROM auth_tokens WHERE shop_code = ? AND staff_id IS NULL AND token NOT IN (?, ?)')
+      .bind(code, ...keys),
+  ])
+  return { ok: true, pinUpgradeRequired: false }
 }
 
 // POST /auth/logout

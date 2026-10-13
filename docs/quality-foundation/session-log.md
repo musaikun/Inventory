@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-13 — version 0.156.0 / オーナー PIN を6桁へ（SEC-007・D-030 追記）
+
+- User指示: オーナーPINも6桁にして進める。
+- Worker: `pinPolicy.js`（6桁・弱い並び不可、スタッフと共通）。登録は6桁だけ。migration 0029 `stores.pin_digits`（NULL＝以前の4桁）。
+  4桁の店はログインできるが `pinUpgradeRequired` を返す（login・/auth/me）。`POST /auth/pin` で6桁へ変える
+  （今のPINの確認は段階的なロックに載る・変えたら他の端末のオーナー token を消す）。account削除の再認証は6桁と以前の4桁。
+- App: 登録・ログイン・削除の PIN 欄を6桁に（ログインと削除は4桁も可）。`PinUpgradeModal`（閉じられない）を App に置き、変えたら消える。
+  375px で描画を確認（`docs/mocks/pin-upgrade-375.png`）。
+- テスト: `ownerPin.sqlite.test.js` 10件、`PinUpgradeModal.test.js` 5件。既存テストの登録PINを6桁へ。App 2130・Worker 752 pass、build 成功。
+- 残り（User判断）: 4桁でのログインを止める期限。本番D1への 0027〜0029 の適用。
+- version: 0.155.0 → **0.156.0**（認証の仕様変更のため minor）。
+
 ## 2026-10-13 — version 0.155.0 / 暗証番号の総当たり対策を合格ライン（D-030）へ（SEC-007）
 
 - User決定（D-030）: ①数十回で攻撃コストが急に上がる ②IPを変えても突破できない ③API直叩きでも同じ ④店のスタッフ3〜10人の同時利用に影響しない。

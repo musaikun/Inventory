@@ -13,7 +13,7 @@ import {
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
 import { handlePastImportCreate, handlePastImportCancel } from './pastImport.js'
-import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess, handleOwnerPinChange } from './authHandler.js'
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail, reserveIpAttempt } from './rateLimiter.js'
@@ -290,6 +290,15 @@ export default {
         if (result._status === 401 || result._status === 429) {
           securityEvent(result._status === 429 ? 'staff_login_locked' : 'staff_login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
         }
+        return resultResponse(result, origin, allowedOrigin)
+      }
+      // POST /auth/pin … オーナーの PIN を変える（6桁へ・D-030）
+      if (path === '/auth/pin' && request.method === 'POST') {
+        const parsed = await _readJsonBodyWithLimit(request, 1024)
+        if (parsed.error) return resultResponse(parsed.error, origin, allowedOrigin)
+        const result = await handleOwnerPinChange(env.DB, request, parsed.body ?? {})
+        if (result._status === 401 && result.code === 'wrong_pin') securityEvent('pin_change_failed', { ip: clientIp(request) })
+        if (result.ok) securityEvent('pin_changed', { ip: clientIp(request) })
         return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/me' && request.method === 'GET') {

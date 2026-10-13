@@ -32,7 +32,7 @@ const req = token => new Request('https://w.test/', { headers: token ? { Authori
 let owner, code
 beforeEach(async () => {
   db = makeDb()
-  const r = await handleRegister(db, { storeName: '本店', pin: '1234' })
+  const r = await handleRegister(db, { storeName: '本店', pin: '582941' })
   owner = r.token; code = r.shopCode
 })
 afterEach(() => sqlite?.close())
@@ -106,7 +106,7 @@ describe('権限と停止', () => {
 
   it('オーナーがログインし直しても、スタッフは追い出されない', async () => {
     const { token } = await joinAndApprove()
-    await handleLogin(db, { shopCode: code, pin: '1234' })
+    await handleLogin(db, { shopCode: code, pin: '582941' })
     expect(await verifyAuthToken(db, token)).toBe(code)
     expect(await verifyAuthToken(db, owner)).toBeNull()   // オーナーの古いトークンは今まで通り1つだけ
   })

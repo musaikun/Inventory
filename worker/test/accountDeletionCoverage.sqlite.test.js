@@ -71,8 +71,8 @@ describe('account削除: 店のデータを持つ全テーブル', () => {
   let target, other, seeded
   beforeEach(async () => {
     h = createD1()
-    target = await handleRegister(h.db, { storeName: '本店', pin: '1234' })
-    other  = await handleRegister(h.db, { storeName: '支店', pin: '5678' })
+    target = await handleRegister(h.db, { storeName: '本店', pin: '582941' })
+    other  = await handleRegister(h.db, { storeName: '支店', pin: '693027' })
     seeded = { target: seedAll(target.shopCode), other: seedAll(other.shopCode) }
   })
 
@@ -85,7 +85,7 @@ describe('account削除: 店のデータを持つ全テーブル', () => {
     const before = Object.fromEntries(shopTables().map(t => [t, count(t, other.shopCode)]))
 
     const req = new Request('https://w.test/auth/account', { headers: { Authorization: `Bearer ${target.token}` } })
-    const res = await handleAccountDelete(h.db, req, { requestId: REQUEST_ID, pin: '1234', confirmation: target.shopCode }, async () => {})
+    const res = await handleAccountDelete(h.db, req, { requestId: REQUEST_ID, pin: '582941', confirmation: target.shopCode }, async () => {})
     expect(res._status ?? 200).toBe(200)
 
     for (const t of shopTables()) {

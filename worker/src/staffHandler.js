@@ -12,6 +12,7 @@ import { TOKEN_EXPIRY_MS } from './constants.js'
 import { reserveLoginAttempt, clearLoginGuard, lockedMessage, staffAccount, cleanupLoginGuardStatement } from './loginGuard.js'
 import { entitlement } from './entitlements.js'
 import { normalizeGrants, can } from './permissions.js'
+import { pinProblem, needsPinUpgrade } from './pinPolicy.js'
 
 export const STAFF_ROLES = ['arbeit', 'shain', 'admin']
 export const INVITE_TTL_MS = 10 * 60 * 1000
@@ -25,15 +26,8 @@ async function _sha256(s) {
 const _normName = s => String(s ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, NAME_MAX)
 const _nameKey = s => _normName(s).toLowerCase()
 
-/** 6桁の暗証番号として使えるか。同じ数字の並び・連番などは使わせない */
-export function pinProblem(pin) {
-  if (!/^\d{6}$/.test(pin)) return '暗証番号は6桁の数字で入れてください'
-  if (/^(\d)\1{5}$/.test(pin)) return '同じ数字だけの暗証番号は使えません'
-  const asc = '01234567890', desc = '09876543210'
-  if (asc.includes(pin) || desc.includes(pin)) return '連続した数字の暗証番号は使えません'
-  if (/^(\d\d\d)\1$/.test(pin) || /^(\d\d)\1\1$/.test(pin)) return '同じ並びのくり返しは使えません'
-  return ''
-}
+// 暗証番号の決まりはオーナーと共通（pinPolicy.js）。ここからも出しておく（既存の呼び出し・テスト用）
+export { pinProblem }
 
 /**
  * トークンから「誰か」を引く。オーナー（staff_id なし）は role='owner'。
@@ -322,7 +316,12 @@ export async function handleStaffUnlock(db, request, code, id) {
 export async function handleMe(db, request) {
   const ctx = await authContext(db, request)
   if (!ctx) return { _status: 401, error: '認証が必要です' }
-  return { shopCode: ctx.shopCode, role: ctx.role, staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null }
+  if (ctx.staffId) {
+    return { shopCode: ctx.shopCode, role: ctx.role, staff: { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } }
+  }
+  // オーナー: 以前に4桁で登録した店なら、6桁への変更を求める（D-030）
+  const store = await db.prepare('SELECT pin_digits FROM stores WHERE shop_code = ?').bind(ctx.shopCode).first()
+  return { shopCode: ctx.shopCode, role: ctx.role, staff: null, pinUpgradeRequired: needsPinUpgrade(store?.pin_digits) }
 }
 
 /**

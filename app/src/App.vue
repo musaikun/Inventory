@@ -59,7 +59,7 @@ import {
 } from './composables/useAuditSync.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe, pinUpgradeRequired } from './composables/useAuth.js'
 import { startPresence } from './composables/usePresence.js'
 import { syncPushOwner } from './composables/usePush.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
@@ -93,6 +93,7 @@ import BusyOverlay from './components/BusyOverlay.vue'
 import AppToast from './components/AppToast.vue'
 import OnboardingGuide from './components/OnboardingGuide.vue'
 import FeedbackPrompts from './components/FeedbackPrompts.vue'
+import PinUpgradeModal from './components/PinUpgradeModal.vue'
 import {
   showOnboarding, offerOnboarding, dismissOnboarding,
   showFeedback, openFeedback,
@@ -3707,6 +3708,9 @@ const dateStr = new Date().toLocaleDateString('ja-JP', {
     <!-- 取込・書き出し・読み込みのあいだの表示。どの画面・どのモーダルの中から始めても
          ここ1つが受けるので、経路ごとに旗を立てずに済む（立て忘れが起きない）。 -->
     <BusyOverlay />
+
+    <!-- 以前に4桁で登録した店のオーナーは、続ける前に6桁へ（閉じられない・D-030）-->
+    <PinUpgradeModal v-if="pinUpgradeRequired" @done="showToast('PINを6桁にしました', 2600, 'success')" />
 
   </div>
 </template>

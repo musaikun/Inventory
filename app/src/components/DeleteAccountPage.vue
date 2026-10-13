@@ -33,7 +33,7 @@ function onCodeInput(e) {
   code.value = v
 }
 function onPinInput(e) {
-  const v = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const v = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = v
   pin.value = v
 }
@@ -41,7 +41,7 @@ function onPinInput(e) {
 async function onLogin() {
   loginError.value = ''
   if (!code.value) { loginError.value = '店舗コードを入力してください'; return }
-  if (!/^\d{4}$/.test(pin.value)) { loginError.value = 'PINは4桁の数字で入力してください'; return }
+  if (!/^(\d{4}|\d{6})$/.test(pin.value)) { loginError.value = 'PINは6桁（以前に登録した店は4桁）の数字で入力してください'; return }
   loginLoading.value = true
   try {
     await login(code.value, pin.value)
@@ -106,10 +106,10 @@ function onDeleted() {
             id="dap-code" class="dap-input" type="text" inputmode="text"
             :value="code" @input="onCodeInput" maxlength="8" placeholder="例：ABCDEF" autocomplete="off"
           />
-          <label class="dap-label" for="dap-pin">PIN（4桁）</label>
+          <label class="dap-label" for="dap-pin">PIN（6桁。以前に登録した店は4桁）</label>
           <input
             id="dap-pin" class="dap-input" type="password" inputmode="numeric"
-            :value="pin" @input="onPinInput" maxlength="4" placeholder="●●●●" autocomplete="off"
+            :value="pin" @input="onPinInput" maxlength="6" placeholder="●●●●●●" autocomplete="off"
           />
           <div v-if="loginError" class="dap-error" role="alert">{{ loginError }}</div>
           <button class="dap-btn dap-btn-primary" :disabled="loginLoading" @click="onLogin">

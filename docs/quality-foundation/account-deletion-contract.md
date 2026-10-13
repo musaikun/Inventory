@@ -4,7 +4,7 @@
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
 最新照合: 2026-10-12 / `develop@8e37bae`（0019〜0026の対象はDOC-003で追記）
-状態: code/testはmigration 0028まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
+状態: code/testはmigration 0029まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
 
 ## 目的
 
@@ -34,7 +34,7 @@ Body:
 ```
 
 - `requestId`: 削除画面を開いた時点で1回だけ生成し、再試行でも同じ値を使う。
-- `pin`: 現在の4桁PIN。Bearer tokenだけでは削除しない。
+- `pin`: 現在のPIN（6桁。2026-10-13より前に登録してまだ変えていない店は4桁）。Bearer tokenだけでは削除しない。
 - `confirmation`: 認証tokenの店舗codeを大文字のままcase-sensitiveで完全一致させる。
 
 Success / replay:

@@ -42,7 +42,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 |---|---:|---|---|---|---|
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
-| SEC-007 | P1 | レビュー待ち | Claude Code | 暗証番号の総当たり対策を合格ライン（D-030）へ。アカウント単位の段階的ロック（migration 0028）・同時送信対策・IP は失敗だけ数える。オーナー4桁PINはSEC-006でUser判断 | [SEC-007.md](tasks/SEC-007.md) |
+| SEC-007 | P1 | レビュー待ち | Claude Code | 暗証番号の総当たり対策を合格ライン（D-030）へ。アカウント単位の段階的ロック（0028）・同時送信対策・IPは失敗だけ数える・オーナーPINも6桁（0029・4桁の店はログイン時に変更を求める）。4桁ログインを止める期限はUser判断 | [SEC-007.md](tasks/SEC-007.md) |
 | DOC-003 | P1 | レビュー待ち | Claude Code | migration 0019〜0026と新APIをAPI・security・spec・同期・release gate・削除契約・data flowへ反映済み（2026-10-12）。スタッフlogin失敗の端末単位制限はUser/PM判断。WEB-001.md・test-cases.mdは未反映 | [DOC-003.md](tasks/DOC-003.md) |
 | TEST-003 | P2 | レビュー待ち | Claude Code | テストの見直し。段1〜6完了（権限表の一致・遅いテスト30秒→3秒・削除の全テーブル網羅・validate/moneyGuard・App準備の共通化・純粋テストをnodeで・migration 0027のtrigger・空白の数量）。0027の本番適用はUser | [TEST-003.md](tasks/TEST-003.md) |
 | REF-001 | P2 | 進行中 | Claude Code | App.vue の段階分割。段0〜4（デッドコード・トースト・問いかけ・発注の参考値・下書きとD1保存）完了。残りは再設計待ち・User判断 | [REF-001.md](tasks/REF-001.md) |

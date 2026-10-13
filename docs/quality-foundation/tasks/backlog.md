@@ -26,7 +26,7 @@
 
 ## SEC-006 — 店舗コード・PIN・保存トークンを再評価
 
-- 対象: `Math.random` の店舗コード、4桁 PIN、D1 と localStorage の bearer/host token。
+- 対象: `Math.random` の店舗コード、D1 と localStorage の bearer/host token（オーナーPINは2026-10-13に6桁化・段階的なロックを入れた → [SEC-007](SEC-007.md)）。
 - 完了条件: 脅威 model を作り、Web Crypto、試行制限、rotation、失効、保存方式の改善順を決める。
 - 関連: `docs/proposals.md`（2026-07-28）のアカウント登録拡張提案が、PIN復旧トークンの要件と
   4桁PINとの強度差をこのタスクの脅威モデルで判定することを求めている（PM未トリアージ）。

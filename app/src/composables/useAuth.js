@@ -19,6 +19,10 @@ export const isAuthenticated = computed(() => !!_token.value)
 // 記録の「誰が」を本人の名前にする（段 2-2。オーナーは端末名のまま）
 watch(_staff, s => setStaffIdentity(s), { immediate: true })
 export const currentStaff    = computed(() => _staff.value)
+// オーナー PIN が以前の4桁のままか（D-030）。true の間、App は6桁へ変える画面（PinUpgradeModal）を閉じさせない。
+// ログインの応答と /auth/me（起動時）でサーバーが決める。スタッフでは常に false
+const _pinUpgrade = ref(false)
+export const pinUpgradeRequired = computed(() => !_staff.value && _pinUpgrade.value)
 /** 役割: 'owner' | 'admin' | 'shain' | 'arbeit' */
 export const currentRole     = computed(() => (_staff.value ? _staff.value.role : 'owner'))
 /** スタッフの管理ができるか（オーナーか管理者） */
@@ -40,6 +44,7 @@ export async function refreshMe() {
   try {
     const me = await _api('/auth/me')
     if (me?.staff) { _staff.value = me.staff; localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(me.staff)) }
+    _pinUpgrade.value = !me?.staff && me?.pinUpgradeRequired === true
   } catch (_) { /* 失効は api.js の 401 で扱う */ }
 }
 
@@ -85,6 +90,7 @@ function _setAuth(token, code, name, staff = null) {
 }
 
 function _clearAuth() {
+  _pinUpgrade.value = false
   _staff.value     = null
   localStorage.removeItem(STORAGE_KEYS.authStaff)
   _token.value     = null
@@ -102,6 +108,7 @@ export async function register(storeNameVal, pin) {
     body:   JSON.stringify({ storeName: storeNameVal, pin }),
   })
   _setAuth(data.token, data.shopCode, data.storeName)
+  _pinUpgrade.value = false
   return data
 }
 
@@ -112,6 +119,18 @@ export async function login(code, pin) {
     body:   JSON.stringify({ shopCode: code, pin }),
   })
   _setAuth(data.token, data.shopCode, data.storeName)
+  _pinUpgrade.value = data.pinUpgradeRequired === true
+  return data
+}
+
+// POST /auth/pin  { currentPin, newPin } … オーナーの PIN を6桁へ変える（D-030）。
+// 変えるとサーバーはこの端末以外のオーナーのログインを切る
+export async function changeOwnerPin(currentPin, newPin) {
+  const data = await _api('/auth/pin', {
+    method: 'POST',
+    body:   JSON.stringify({ currentPin, newPin }),
+  })
+  _pinUpgrade.value = false
   return data
 }
 

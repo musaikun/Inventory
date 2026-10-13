@@ -58,3 +58,4 @@ apply_if_missing 0025_presence.sql           idx_work_sessions_seen
 apply_if_missing 0026_task_time_push_actor.sql idx_push_actor
 apply_if_missing 0027_active_insert_triggers.sql trg_work_sessions_active_insert
 apply_if_missing 0028_login_guard.sql          idx_login_guard_last
+apply_if_missing 0029_owner_pin_digits.sql    idx_stores_pin_digits

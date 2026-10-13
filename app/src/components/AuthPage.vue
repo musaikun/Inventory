@@ -42,8 +42,9 @@ const regResult      = ref(null) // { shopCode }
 
 async function onRegister() {
   regError.value = ''
-  if (!/^\d{4}$/.test(regPin.value)) {
-    regError.value = 'PINは4桁の数字で入力してください'
+  // 6桁（同じ数字だけ・連番・くり返しはサーバーが断り、理由を返す・D-030）
+  if (!/^\d{6}$/.test(regPin.value)) {
+    regError.value = 'PINは6桁の数字で入力してください'
     return
   }
   if (regPin.value !== regPinConfirm.value) {
@@ -62,7 +63,7 @@ async function onRegister() {
 }
 
 function onPinInput(e, target) {
-  const val = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const val = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = val
   if (target === 'pin')    regPin.value        = val
   if (target === 'confirm') regPinConfirm.value = val
@@ -81,8 +82,9 @@ async function onLogin() {
     loginError.value = '店舗コードを入力してください'
     return
   }
-  if (!/^\d{4}$/.test(loginPin.value)) {
-    loginError.value = 'PINは4桁の数字で入力してください'
+  // 6桁。以前に4桁で登録した店は4桁で入り、入った直後に6桁へ変える（PinUpgradeModal）
+  if (!/^(\d{4}|\d{6})$/.test(loginPin.value)) {
+    loginError.value = 'PINは6桁（以前に登録した店は4桁）の数字で入力してください'
     return
   }
   loginLoading.value = true
@@ -103,7 +105,7 @@ function onLoginCodeInput(e) {
 }
 
 function onLoginPinInput(e) {
-  const val = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const val = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = val
   loginPin.value = val
 }
@@ -149,15 +151,15 @@ function onLoginPinInput(e) {
             autocomplete="off"
           />
 
-          <label class="form-label">PIN（4桁）</label>
+          <label class="form-label">PIN（6桁。以前に登録した店は4桁）</label>
           <input
             type="password"
             inputmode="numeric"
             class="form-input"
-            placeholder="●●●●"
+            placeholder="●●●●●●"
             :value="loginPin"
             @input="onLoginPinInput"
-            maxlength="4"
+            maxlength="6"
           />
 
           <div v-if="loginError" class="form-error">{{ loginError }}</div>
@@ -221,26 +223,27 @@ function onLoginPinInput(e) {
               maxlength="50"
             />
 
-            <label class="form-label">PIN（4桁の数字）</label>
+            <label class="form-label">PIN（6桁の数字）</label>
             <input
               type="password"
               inputmode="numeric"
               class="form-input"
-              placeholder="●●●●"
+              placeholder="●●●●●●"
               :value="regPin"
               @input="onPinInput($event, 'pin')"
-              maxlength="4"
+              maxlength="6"
             />
+            <p class="form-hint">同じ数字だけ（111111）・連番（123456）・くり返し（121212）は使えません</p>
 
             <label class="form-label">PIN（確認）</label>
             <input
               type="password"
               inputmode="numeric"
               class="form-input"
-              placeholder="●●●●"
+              placeholder="●●●●●●"
               :value="regPinConfirm"
               @input="onPinInput($event, 'confirm')"
-              maxlength="4"
+              maxlength="6"
             />
 
             <div v-if="regError" class="form-error">{{ regError }}</div>
@@ -360,6 +363,12 @@ function onLoginPinInput(e) {
 
 .form-input:focus {
   border-color: var(--primary, var(--primary-bright));
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
 }
 
 .form-error {
