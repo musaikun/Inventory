@@ -89,4 +89,26 @@ describe('useTasks', () => {
     expect(T.tasksOn('2026-10-08').map(t => t.text)).toEqual(['時刻あり'])
     expect(T.editTask(a.id, { text: '  ' })).toBeNull()
   })
+
+  it('済み: 終えた日ごと・新しい日から。消したもの・まだのもの・範囲より前は出さない。期限から何日遅れたか', () => {
+    const at = (d, hm) => new Date(`${d}T${hm}:00`).toISOString()
+    T.applyRemoteTasks([
+      { id: 'a', date: '2026-10-10', dueTime: '15:00', text: 'フィルター', doneAt: at('2026-10-10', '14:20'), updatedAt: '1' },
+      { id: 'b', date: '2026-10-08', text: '油の交換', doneAt: at('2026-10-10', '11:05'), updatedAt: '1' },
+      { id: 'c', date: '2026-10-09', text: '見積り', doneAt: at('2026-10-09', '09:12'), updatedAt: '1' },
+      { id: 'd', date: '2026-10-09', text: '消した', doneAt: at('2026-10-09', '10:00'), deletedAt: 'x', updatedAt: '1' },
+      { id: 'e', date: '2026-10-09', text: 'まだ', doneAt: null, updatedAt: '1' },
+      { id: 'f', date: '2026-09-01', text: '古い', doneAt: at('2026-09-01', '10:00'), updatedAt: '1' },
+      { id: 'g', date: '2026-10-09', dueTime: '10:00', text: '時刻過ぎ', doneAt: at('2026-10-09', '10:30'), updatedAt: '1' },
+    ])
+    const g = T.doneTaskGroups('2026-09-11')
+    expect(g.map(x => x.date)).toEqual(['2026-10-10', '2026-10-09'])
+    expect(g[0].items.map(x => x.id)).toEqual(['a', 'b'])
+    expect(g[1].items.map(x => x.id)).toEqual(['g', 'c'])
+    const L = id => T.doneLateness(g.flatMap(x => x.items).find(x => x.id === id))
+    expect(L('a')).toEqual({ late: false, days: 0 })
+    expect(L('b')).toEqual({ late: true, days: 2 })
+    expect(L('c')).toEqual({ late: false, days: 0 })
+    expect(L('g')).toEqual({ late: true, days: 0 })
+  })
 })

@@ -72,6 +72,32 @@ export const aliveTasks = computed(() => _data.list.filter(_alive))
 /** 自分に関係するもの: 自分が担当（特定の人）か、「全員」で自分がまだ印を付けていない／付けたもの */
 export function isForMe(t) { return isAssignedToMe(t) || t?.assign === 'all' }
 
+/**
+ * 済み: since（YYYY-MM-DD）以降に終えたもの。終えた日（端末の日付）ごと・新しい日から、その日の中も新しい順。
+ * 「全員」は全員がそろって完了したもの（doneAt）だけ
+ */
+export function doneTaskGroups(since) {
+  const m = new Map()
+  for (const t of _data.list) {
+    if (!_alive(t) || !t.doneAt) continue
+    const d = localDateKey(new Date(t.doneAt))
+    if (d < since) continue
+    ;(m.get(d) ?? m.set(d, []).get(d)).push(t)
+  }
+  return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([date, items]) => ({ date, items: items.sort((a, b) => b.doneAt.localeCompare(a.doneAt)) }))
+}
+
+/** 期限から遅れて終えたか。期限は日付（時刻があればその時刻、なければその日の終わり）。days は日付の差（同じ日に時刻を過ぎたら 0） */
+export function doneLateness(t) {
+  if (!t?.doneAt) return null
+  const done = new Date(t.doneAt)
+  const due = new Date(`${t.date}T${t.dueTime || '23:59'}:59`)
+  if (done <= due) return { late: false, days: 0 }
+  const day = k => Date.UTC(...k.split('-').map((n, i) => Number(n) - (i === 1 ? 1 : 0)))
+  return { late: true, days: Math.round((day(localDateKey(done)) - day(t.date)) / 86400_000) }
+}
+
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const _time = v => (typeof v === 'string' && TIME_RE.test(v) ? v : null)
 

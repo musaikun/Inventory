@@ -13,17 +13,19 @@ watch(journalView, v => { try { sessionStorage.setItem(_VIEW_KEY, v) } catch (_)
 /**
  * 日誌（業務日誌）。やること・予定・記録をひとつに（User決定 2026-10-09・モック docs/mocks/journal.html）。
  * 以前の「カレンダー」タブと「やること」画面をまとめた。
- * - リスト: 「やること」（期限切れ → 今日 → これから）と「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
+ * - リスト: 「やること」（期限切れ → 今日 → これから）・「済み」（直近30日に終えたやること。終えた日ごと）・
+ *   「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
  * - 月: 今までのカレンダー（日ごとの印・その日の詳細）
  * - 1日: 時間別（JournalDay）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TaskRow from './TaskRow.vue'
+import DoneTaskRow from './DoneTaskRow.vue'
 import RecordRow from './RecordRow.vue'
 import JournalDay from './JournalDay.vue'
 import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import TaskNews from './TaskNews.vue'
-import { tasksOn, overdueTasks, aliveTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -59,7 +61,7 @@ function recordsOn(date) {
 }
 
 // ── リスト ──
-const listMode = ref('todo')     // todo | records
+const listMode = ref('todo')     // todo | done | records
 const mineOnly = ref(false)
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 function dayLabel(d) {
@@ -79,6 +81,11 @@ const laterGroups = computed(() => {
   const m = new Map()
   for (const t of _mine(aliveTasks.value.filter(t => t.date > today && t.date <= until))) (m.get(t.date) ?? m.set(t.date, []).get(t.date)).push(t)
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, items]) => ({ date, items: items.sort(_time) }))
+})
+// 済み: 直近30日に終えたものを終えた日ごと（新しい日から）
+const doneGroups = computed(() => {
+  const since = localDateKey(new Date(Date.now() - 29 * 86400_000))
+  return doneTaskGroups(since).map(g => ({ date: g.date, items: _mine(g.items) })).filter(g => g.items.length)
 })
 const remaining = computed(() => late.value.length + todays.value.filter(t => !t.doneAt).length)
 // 記録: 直近30日を新しい日から（その日の中は時刻の順）
@@ -119,10 +126,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       </div>
       <div v-if="view === 'list'" class="jp-flt">
         <button type="button" :class="{ on: listMode === 'todo' }" :aria-pressed="listMode === 'todo'" @click="listMode = 'todo'">やること</button>
+        <button type="button" :class="{ on: listMode === 'done' }" :aria-pressed="listMode === 'done'" @click="listMode = 'done'">済み</button>
         <button type="button" :class="{ on: listMode === 'records' }" :aria-pressed="listMode === 'records'" @click="listMode = 'records'">
           記録<template v-if="todayRecordCount"> {{ todayRecordCount }}</template>
         </button>
-        <button v-if="listMode === 'todo'" type="button" :class="['mine', { on: mineOnly }]" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">自分の担当</button>
+        <button v-if="listMode !== 'records'" type="button" :class="['mine', { on: mineOnly }]" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">自分の担当</button>
       </div>
     </div>
 
@@ -142,6 +150,16 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}</span></div>
         <div class="jp-box"><TaskRow v-for="t in g.items" :key="t.id" :task="t" /></div>
       </template>
+    </div>
+
+    <!-- リスト: 済み（終えた日ごと。✓ を外すと「やること」へ戻る） -->
+    <div v-else-if="view === 'list' && listMode === 'done'" class="jp-list">
+      <template v-for="g in doneGroups" :key="g.date">
+        <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}件</span></div>
+        <div class="jp-box"><DoneTaskRow v-for="t in g.items" :key="t.id" :task="t" /></div>
+      </template>
+      <p v-if="!doneGroups.length" class="jp-empty solo">{{ mineOnly ? 'この30日に終えた自分の担当はありません' : 'この30日に終えたやることはありません' }}</p>
+      <p v-else class="jp-empty solo">表示は直近30日まで（それより前は「月」から）</p>
     </div>
 
     <!-- リスト: 記録（別の枠） -->
