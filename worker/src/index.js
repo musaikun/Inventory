@@ -16,7 +16,7 @@ import { handlePastImportCreate, handlePastImportCancel } from './pastImport.js'
 import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
-import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
+import { clientIp, isIpBlocked, recordIpFail, reserveIpAttempt } from './rateLimiter.js'
 import { securityEvent } from './securityLog.js'
 import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPush, handleCron, notifyTaskAdded, notifyTaskAssigned, notifyStaffJoin } from './pushHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
@@ -260,14 +260,17 @@ export default {
         ), origin, allowedOrigin)
       }
       if (path === '/auth/login' && request.method === 'POST') {
-        // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。店舗単位制限は handleLogin 内）
+        // IP単位の横断制限（店舗コードを変えながらの総当たりを塞ぐ。アカウント単位の段階的なロックは handleLogin 内）。
+        // 確かめる前に1回ぶんを数え（同時に送っても上限を超えない）、失敗でなければ数から外す（店の Wi-Fi 対策）
         const ip = clientIp(request)
-        if (await isIpBlocked(env.DB, ip, 'login')) {
+        const ipSlot = await reserveIpAttempt(env.DB, ip, 'login')
+        if (ipSlot.blocked) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
         const body = await request.json()
         const result = await handleLogin(env.DB, body)
-        if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401) ipSlot.failed()
+        else await ipSlot.release()
         if (result._status === 401 || result._status === 429) {
           securityEvent(result._status === 429 ? 'login_locked' : 'login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
         }
@@ -276,12 +279,14 @@ export default {
       // ── スタッフ（段 2-1）。ログイン前の経路は IP 単位で総当たりを止める ──
       if (path === '/auth/staff-login' && request.method === 'POST') {
         const ip = clientIp(request)
-        if (await isIpBlocked(env.DB, ip, 'login')) {
+        const ipSlot = await reserveIpAttempt(env.DB, ip, 'login')
+        if (ipSlot.blocked) {
           return jsonResponse({ error: 'ログイン試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
         }
         const body = await request.json().catch(() => ({}))
         const result = await handleStaffLogin(env.DB, body)
-        if (result._status === 401) await recordIpFail(env.DB, ip, 'login')
+        if (result._status === 401) ipSlot.failed()
+        else await ipSlot.release()
         if (result._status === 401 || result._status === 429) {
           securityEvent(result._status === 429 ? 'staff_login_locked' : 'staff_login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
         }

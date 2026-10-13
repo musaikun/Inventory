@@ -4,7 +4,7 @@
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
 最新照合: 2026-10-12 / `develop@8e37bae`（0019〜0026の対象はDOC-003で追記）
-状態: code/testはmigration 0027まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
+状態: code/testはmigration 0028まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
 
 ## 目的
 
@@ -93,6 +93,7 @@ DO/R2削除またはD1 batchが失敗した場合は `503 retryable` とし、�
 | `tasks`（やること・migration 0020） | 物理削除。内容・担当・完了した人を持つ業務dataとして扱う |
 | `push_subscriptions`, `push_sent` | 物理削除し、以後のPush送信を停止（送った通知の印も消す・migration 0021） |
 | `staff`, `staff_invites`, `staff_login_attempts`（migration 0022） | 物理削除。スタッフの名前・役割・暗証番号のハッシュ、招待、失敗記録 |
+| `login_guard`（暗証番号の試行回数とロック・migration 0028） | 物理削除 |
 | `work_sessions`（見守り・migration 0025） | 物理削除。誰がいつアプリを開いていたかの記録 |
 | `auth_tokens`, `login_attempts` | 物理削除、全token失効 |
 | `stores` | 店名・PIN hash・plan・active roomを消去したtombstoneを7日保持後に物理削除 |

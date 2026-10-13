@@ -149,7 +149,7 @@
 ### Wave 2.6 — Web Free版 production readiness ★現在地
 
 1. canonical/contact、Pages routing、CORS、production deploy/rollbackを固定
-2. production D1をpreflightして0027まで適用、登録濫用、plan文面、履歴data integrityを確認
+2. production D1をpreflightして0028まで適用、登録濫用、plan文面、履歴data integrityを確認
 3. observability、critical E2E、production smoke、User承認
 4. 詳細は[Web公開準備](quality-foundation/web-release-readiness.md)
 

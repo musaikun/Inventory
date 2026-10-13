@@ -74,6 +74,10 @@ function createMockD1() {
       }
       return { success: true }
     }
+    // ── login_guard（アカウント単位の段階的なロック）── ここでは常に通す。
+    // ロックの振る舞いは実SQLで test/loginGuard.sqlite.test.js が確かめる
+    if (s.startsWith('INSERT INTO login_guard')) return { fails: 1, locked_until: null }
+    if (s.startsWith('DELETE FROM login_guard')) return { success: true }
     throw new Error('Unhandled SQL in mock: ' + s)
   }
 
@@ -278,22 +282,7 @@ describe('authHandler', () => {
   })
 
   // ── 総当たり対策（ログイン回数制限）─────────────────────────────────────────
-  it('PINを5回間違えると6回目は429でブロックされる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
-    for (let i = 0; i < 5; i++) {
-      const r = await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
-      expect(r._status).toBe(401)
-    }
-    const blocked = await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
-    expect(blocked._status).toBe(429)
-  })
-
-  it('ブロック中は正しいPINでも429（解除は時間経過のみ）', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
-    for (let i = 0; i < 5; i++) await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
-    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
-    expect(res._status).toBe(429)
-  })
+  // 5回ごとのロックと段階的な延長・同時リクエスト・IP は test/loginGuard.sqlite.test.js（実SQL）
 
   it('ログイン成功で失敗履歴がクリアされる', async () => {
     const reg = await handleRegister(db, { pin: '1234' })

@@ -32,7 +32,7 @@
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |
 | session | 棚卸/発注を開始・中断・再開・完了。完了済みは削除不可。進行中の破棄は24時間`discarded_sessions`へ保持し、同種の別sessionが無ければ復元できる | productionでは未適用のmigration（0026まで）を適用後にWorker、Appの順で更新する |
 | 入出庫 | localStorage cacheに即時保存し、`GET/POST/DELETE /store/:code/movements*`でD1へ保存。auth後と画面表示時にremoteをid mergeする。real-time WS同期は行わない。取り消しは印を付けて残し、24時間以内なら元に戻せる。記録した人を残す（migration 0019・0023） | 実D1・別端末のrelease確認はWEB-07 |
-| スタッフ・権限 | 管理者が1人ずつ招待（10分・1回きり）→ スタッフが名前と6桁の暗証番号で申請 → 管理者が承認、以降は店舗code＋名前＋暗証番号でlogin。役割は管理者・社員・アルバイト＋人ごとの足し引きで、開始・完了・破棄・品目の削除や取込・並び替え・発注設定・やることの作成・金額の表示・見守りをサーバーが判定する。スタッフの記録は「誰が」をサーバーが本人で刻む（migration 0022〜0024） | スタッフlogin失敗の端末単位制限は端末IDの付け替えで数え直しになる（IP単位の制限が上限）。[security review](security-review.md) |
+| スタッフ・権限 | 管理者が1人ずつ招待（10分・1回きり）→ スタッフが名前と6桁の暗証番号で申請 → 管理者が承認、以降は店舗code＋名前＋暗証番号でlogin。役割は管理者・社員・アルバイト＋人ごとの足し引きで、開始・完了・破棄・品目の削除や取込・並び替え・発注設定・やることの作成・金額の表示・見守りをサーバーが判定する。スタッフの記録は「誰が」をサーバーが本人で刻む（migration 0022〜0024） | 暗証番号の総当たりは、名前（オーナーは店）ごとの段階的なロック（migration 0028）で止める。オーナーPINが4桁のままなのはSEC-006。[security review](security-review.md) |
 | やること（日誌） | 店で共有するTODO。日付・時刻・担当（誰でも／全員／特定の人／未定）を持ち、作る・直す・消すは`task.create`、完了の印は誰でも。追加と担当の割り当てはPushで知らせる（migration 0020・0024・0026） | — |
 | 通知 | 端末ごとに種類（月末の棚卸・しばらく棚卸していない・途中の棚卸・やることの日・やることの追加・発注の締切）と時刻を選び、毎時のcronが送る。送った印を`push_sent`に残して二度送らない（migration 0021） | VAPID鍵とcronのproduction設定はrelease前に確認 |
 | 見守り | アプリを開いている間90秒ごとに知らせ、オーナー・管理者だけが「いま開いている人」と開いていた記録（90日）を見られる（migration 0025） | — |
@@ -41,7 +41,7 @@
 | 棚卸履歴 | sessionIdをidentityとして`sessions`、`inventory_lines`、`store_history`を完了APIの1 batchで保存。別端末はlines/history/audit APIから復元する | release candidateの実D1・別browser確認はWEB-07 |
 | 共有結果 | 完了から3日間、店舗code + session UUIDのURLを知る人へ、数量、単価、小計、合計、参加者、操作履歴を読み取り専用で表示 | URL共有範囲とprivacy説明をWEB-09〜10で確認 |
 
-repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0027、Pages routing、
+repositoryのCORS実装とallowlistは現行Pages hostを含みます。ただしmigration 0028、Pages routing、
 CORS、smokeを含むproduction状態はrelease candidateの対象SHAで再検証し、
 [Web公開準備](quality-foundation/web-release-readiness.md)だけで判定します。
 
@@ -158,7 +158,7 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0027。0027は削除中の店へのINSERTを止めるtriggerを0018以降のtableへ足しただけ）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0028。0027は削除中の店へのINSERTを止めるtriggerを0018以降のtableへ足しただけ、0028は暗証番号の試行回数とロック）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
@@ -178,7 +178,8 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 | `session_audit` | session単位の操作履歴。entry idで冪等 | 0017 |
 | `discarded_sessions` | 破棄時刻と復元用下書きを24時間保持 | 0018。期限後は関連dataごとpurge |
 | `tasks` | 店で共有する「やること」 | 0020。担当・全員の印（0024）、時刻（0026）、完了した人のID（0023）。消すときは`deleted_at`を立てて残す |
-| `staff` / `staff_invites` / `staff_login_attempts` | スタッフ（役割・足し引き・暗証番号のハッシュ・状態）、招待（tokenのハッシュ・10分）、暗証番号の失敗 | 0022。削除したスタッフは行と名前を残し暗証番号を消す |
+| `staff` / `staff_invites` / `staff_login_attempts` | スタッフ（役割・足し引き・暗証番号のハッシュ・状態）、招待（tokenのハッシュ・10分）、旧・暗証番号の失敗（0028以降は書かない） | 0022。削除したスタッフは行と名前を残し暗証番号を消す |
+| `login_guard` | 暗証番号の試行回数とロック（店×オーナー、店×スタッフの名前）。IP・端末IDは持たない | 0028。最後の試行から7日で消す |
 | `work_sessions` | アプリを開いていた1回ごとの記録（見守り） | 0025。90日で消す |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）

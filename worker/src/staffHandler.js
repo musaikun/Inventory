@@ -3,12 +3,13 @@
  *
  * - 管理者（オーナー＝今の店舗ログイン、または role=admin のスタッフ）が1人ずつ招待を出す（10分・1回きり）
  * - スタッフは招待から名前と6桁の暗証番号を入れて申請 → 管理者が承認 → 申請した端末がそのままログインする
- * - 以降は「店舗コード＋名前＋暗証番号」でログイン（失敗は 店舗×名前×端末 で15分に5回まで）
+ * - 以降は「店舗コード＋名前＋暗証番号」でログイン（失敗は 店舗×名前 ごとに5回ずつ、15分→…→24時間と長く止める・loginGuard.js）
  * - 停止・削除はその人のトークンを即座に消す。削除は行と名前を残し（記録の「○○（削除済み）」用）、暗証番号を消す
  */
 import { _now } from './workerUtils.js'
 import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys } from './authHandler.js'
-import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
+import { TOKEN_EXPIRY_MS } from './constants.js'
+import { reserveLoginAttempt, clearLoginGuard, lockedMessage, staffAccount, cleanupLoginGuardStatement } from './loginGuard.js'
 import { entitlement } from './entitlements.js'
 import { normalizeGrants, can } from './permissions.js'
 
@@ -280,32 +281,25 @@ export async function handleStaffLogin(db, body) {
   const shopCode = String(body?.shopCode ?? '').toUpperCase().trim()
   const name = _normName(body?.name)
   const pin = String(body?.pin ?? '').replace(/\D/g, '')
-  const device = String(body?.deviceId ?? '').slice(0, 64) || 'unknown'
   const generic = { _status: 401, error: '店舗コード・名前・暗証番号を確かめてください' }
   if (!shopCode || !name || !pin) return generic
   const store = await _storeInfo(db, shopCode)
   if (!store || store.deleted_at || store.deletion_pending_at) return generic
   const key = _nameKey(name)
-  const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
-  const fails = await db.prepare(
-    'SELECT COUNT(*) AS n FROM staff_login_attempts WHERE shop_code = ? AND staff_key = ? AND device_id = ? AND attempted_at > ?',
-  ).bind(shopCode, key, device, since).first()
-  if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) {
-    return { _status: 429, error: '暗証番号を5回まちがえたため、15分止めています。急ぎのときは管理者に解除してもらってください' }
+  // 確かめる前に1回ぶんを数える。数えるのは「店×名前」だけ（端末IDや IP を変えても数え直さない）。
+  // 店にいない名前でも同じように数える（ロックの出方で名前の有無が分からないように）
+  const guard = await reserveLoginAttempt(db, shopCode, staffAccount(key))
+  if (!guard.ok) {
+    return { _status: 429, error: `${lockedMessage(guard.lockedUntil)}。急ぎのときは管理者に解除してもらってください` }
   }
   const { results } = await db.prepare("SELECT * FROM staff WHERE shop_code = ? AND status IN ('active','stopped','pending')").bind(shopCode).all()
   const st = (results ?? []).find(r => _nameKey(r.name) === key)
-  const fail = async () => {
-    await db.prepare('INSERT INTO staff_login_attempts (shop_code, staff_key, device_id, attempted_at) VALUES (?, ?, ?, ?)')
-      .bind(shopCode, key, device, _now()).run().catch(() => {})
-    return generic
-  }
-  if (!st || !st.pin_hash) return fail()
+  if (!st || !st.pin_hash) return generic
   const { ok } = await verifyPinHash(shopCode, pin, st.pin_hash)
-  if (!ok) return fail()
+  if (!ok) return generic
+  await clearLoginGuard(db, shopCode, staffAccount(key))
   if (st.status === 'pending') return { _status: 403, code: 'pending', error: 'まだ管理者の承認を待っています' }
   if (st.status === 'stopped') return { _status: 403, code: 'stopped', error: 'このアカウントは止められています。管理者に確かめてください' }
-  await db.prepare('DELETE FROM staff_login_attempts WHERE shop_code = ? AND staff_key = ? AND device_id = ?').bind(shopCode, key, device).run().catch(() => {})
   await db.prepare('UPDATE staff SET last_seen_at = ? WHERE id = ?').bind(_now(), st.id).run().catch(() => {})
   const token = await _issueToken(db, shopCode, st.id)
   return {
@@ -320,7 +314,7 @@ export async function handleStaffUnlock(db, request, code, id) {
   if (deny) return deny
   const st = await db.prepare('SELECT name FROM staff WHERE id = ? AND shop_code = ?').bind(id, code).first()
   if (!st) return { _status: 404, error: 'スタッフが見つかりません' }
-  await db.prepare('DELETE FROM staff_login_attempts WHERE shop_code = ? AND staff_key = ?').bind(code, _nameKey(st.name)).run()
+  await clearLoginGuard(db, code, staffAccount(_nameKey(st.name)))
   return { ok: true }
 }
 
@@ -333,7 +327,8 @@ export async function handleMe(db, request) {
 
 /**
  * 定期の掃除（毎時の cron）。プライバシーポリシーの保存期間と合わせる。
- * - 暗証番号の失敗記録: 判定に使う期間（15分）を過ぎたもの
+ * - 暗証番号の失敗記録（旧 staff_login_attempts）: 判定に使う期間（15分）を過ぎたもの
+ * - 暗証番号の試行回数とロック（login_guard・オーナーとスタッフ）: 最後の試行から7日たち、ロックも切れたもの
  * - 招待: 期限（発行から10分）を過ぎて15分たったもの（使った・使わないに関わらず）
  * - 開いていた記録（段 2-5）: 90日より古いもの（店ごとの書き込みでも消すが、使われなくなった店の分をここで）
  */
@@ -344,5 +339,6 @@ export async function cleanupStaffRecords(db, nowMs = Date.now(), retentionMs = 
     db.prepare('DELETE FROM staff_login_attempts WHERE attempted_at <= ?').bind(cutoff),
     db.prepare('DELETE FROM staff_invites WHERE expires_at <= ?').bind(cutoff),
     db.prepare('DELETE FROM work_sessions WHERE last_seen_at < ?').bind(old),
+    cleanupLoginGuardStatement(db, nowMs),
   ])
 }

@@ -49,6 +49,43 @@ export async function recordIpFail(db, ip, kind) {
   }
 }
 
+/**
+ * 暗証番号のログイン用: 確かめる**前**に1回ぶんを数え、上限なら何も通さない（1つの文なので、同時に送っても
+ * 上限を超えない）。成功したら release() で数から外す。店の Wi-Fi では全員が同じグローバル IP になるため、
+ * 数えるのは失敗だけにする（正しくログインした人数では止まらない）。失敗なら failed() で記録を残す。
+ * 表が無い・D1 障害のときは数えずに通す（フェイルオープン・D-015）。
+ */
+export async function reserveIpAttempt(db, ip, kind) {
+  const noop = { blocked: false, release: async () => {}, failed: () => {} }
+  try {
+    const { windowMs, max } = _limit(kind)
+    const nowMs = Date.now()
+    const row = await db.prepare(`
+      INSERT INTO ip_attempts (ip, kind, attempted_at)
+      SELECT ?1, ?2, ?3
+      WHERE (SELECT COUNT(*) FROM ip_attempts WHERE ip = ?1 AND kind = ?2 AND attempted_at > ?4) < ?5
+      RETURNING rowid AS id`)
+      .bind(ip, kind, new Date(nowMs).toISOString(), new Date(nowMs - windowMs).toISOString(), max)
+      .first()
+    if (!row) {
+      securityEvent('ip_blocked', { ip, kind })
+      return { ...noop, blocked: true }
+    }
+    return {
+      blocked: false,
+      async release() {
+        try { await db.prepare('DELETE FROM ip_attempts WHERE rowid = ?').bind(row.id).run() } catch (e) {
+          console.error('[rateLimiter] release failed:', e?.message ?? e)
+        }
+      },
+      failed() { securityEvent('ip_attempt', { ip, kind }) },
+    }
+  } catch (e) {
+    console.error('[rateLimiter] reserveIpAttempt failed (fail-open):', e?.message ?? e)
+    return noop
+  }
+}
+
 // 全account/IPの期限切れsecurity recordを日次cronから削除する。
 // per-key cleanupだけでは、そのkeyが再利用されない場合に古いrowが残り続けるため必要。
 export async function cleanupExpiredSecurityRecords(db, now = _now()) {

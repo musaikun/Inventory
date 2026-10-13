@@ -95,6 +95,7 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM staff WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM staff_invites WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM staff_login_attempts WHERE shop_code = ?').bind(shopCode),
+    db.prepare('DELETE FROM login_guard WHERE shop_code = ?').bind(shopCode),   // 暗証番号の試行回数とロック（migration 0028）
     // 開いていた記録（migration 0025）
     db.prepare('DELETE FROM work_sessions WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM auth_tokens WHERE shop_code = ?').bind(shopCode),

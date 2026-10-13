@@ -19,6 +19,8 @@
 - repositoryのCORSはOriginをallowlist照合し、許可外を403でfail-closedにする。ただし実Pages hostとの
   設定不一致と旧production Workerは[WEB-001](quality-foundation/tasks/WEB-001.md)で未解消。
 - Bearerは`Authorization: Bearer <token>`。token有効期間は30日で、削除中/削除済みstoreは無効。
+- 暗証番号のlogin（`/auth/login`・`/auth/staff-login`）のIP単位の制限は、確かめる前に1回ぶんを1つの文で数え（同時に送っても上限30を超えない）、
+  失敗でなければ数から外す（店のWi-Fiでは全員が同じIPになるため、成功は数えない）。
 - 「soft auth」はPIN設定storeで同店舗Bearer必須、PIN未設定legacy storeだけcodeで許可する。
 - tokenは2種類（migration 0022）。**オーナー**は店舗code+PINの`/auth/login`で得る（`auth_tokens.staff_id`がNULL）。
   **スタッフ**は`/auth/staff-login`か招待の承認で得る（`staff_id`付き）。スタッフのtokenは本人が`active`の間だけ有効で、
@@ -39,8 +41,8 @@
 | Method / path | 現行contract | Auth |
 |---|---|---|
 | `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
-| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの**オーナーtoken**を全失効（スタッフのtokenは残す） | 不要。store/IP単位の失敗制限あり |
-| `POST /auth/staff-login` | `{ shopCode, name, pin, deviceId }` → `{ token, shopCode, storeName, staff, ...entitlement }`。名前は全角半角（NFKC）・大文字小文字・空白の揺れを同一視。承認待ちは403 `pending`、停止中は403 `stopped`。店・名前・PINのどれが違っても同じ401 | 不要。店舗×名前×端末IDで15分5失敗（超過429・管理者が`unlock`で解除）＋IP単位の失敗制限（`/auth/login`と共有） |
+| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの**オーナーtoken**を全失効（スタッフのtokenは残す） | 不要。アカウント単位の段階的なロック（`login_guard`・migration 0028）: 確かめる前に1回ぶんを1つのUPSERTで数え（同時に送ってもすり抜けない）、5回ごとに15分→30分→…→24時間（上限）と倍に止める。7日あいたら数え直し、正しいPINで消える。IPと端末IDは鍵にしない。ほかにIP単位の失敗制限（下記） |
+| `POST /auth/staff-login` | `{ shopCode, name, pin, deviceId }` → `{ token, shopCode, storeName, staff, ...entitlement }`。名前は全角半角（NFKC）・大文字小文字・空白の揺れを同一視。承認待ちは403 `pending`、停止中は403 `stopped`。店・名前・PINのどれが違っても同じ401 | 不要。名前ごとにアカウント単位の段階的なロック（`login_guard`・migration 0028）: 確かめる前に1回ぶんを1つのUPSERTで数え（同時に送ってもすり抜けない）、5回ごとに15分→30分→…→24時間（上限）と倍に止める。7日あいたら数え直し、正しいPINで消える。IPと端末IDは鍵にしない（店にいない名前も同じに数え、ロックの出方で名前の有無が分からない）。管理者が`unlock`で解除できる。ほかにIP単位の失敗制限（`/auth/login`と共有） |
 | `GET /auth/me` | `{ shopCode, role, staff: { id, name, role, grants } \| null }`。役割の取り直し用 | Bearer（無効なら401） |
 | `GET /staff/invite?token=` | 有効な招待の`{ storeName, shopCode, name, role, expiresAt }`。期限切れ・使用済み・取消・削除中の店は404 `invite_invalid` | 不要。tokenは48桁hex（192bit・D1にはSHA-256だけ）。404をIP失敗として数える |
 | `POST /staff/join` | `{ token, name, pin }` → `{ pendingKey, shopCode, storeName, name, staffId }`。PINは6桁で、同じ数字・連番・くり返しは400 `weak_pin`。店内で名前が重なれば409 `name_taken`。招待は条件付きUPDATEで1回きり。管理者の端末へPush | 不要。IP失敗制限（404を数える） |
@@ -135,8 +137,8 @@ production D1の適用状態は固定値として断定せず、release前のrea
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0027までの適用、E2E/smoke |
-| [DOC-003](quality-foundation/tasks/DOC-003.md) | スタッフのログイン失敗の端末単位制限は、bodyの`deviceId`を変えると数え直しになる（総当たりの上限はIP単位の失敗制限が担う）。仕様として受け入れるかはUser/PM判断 |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0028までの適用、E2E/smoke |
+| [SEC-006](quality-foundation/tasks/backlog.md) | オーナーのPINは4桁（1万通り）。アカウント単位のロックで1年に試せるのは約1,900回まで減ったが、それでも当たる見込みは約19%/年。6桁以上にするかはUser判断 |
 
 ### 将来A1（現行APIではない）
 

@@ -93,11 +93,26 @@ function createMockD1({ failTables = [] } = {}) {
       const [ip, kind, since] = args
       return { n: ipRows.filter(r => r.ip === ip && r.kind === kind && r.attempted_at > since).length }
     }
+    // 暗証番号のログイン: 上限未満なら1回ぶんを数えて rowid を返す（reserveIpAttempt）
+    if (s.startsWith('INSERT INTO ip_attempts (ip, kind, attempted_at) SELECT')) {
+      const [ip, kind, at, since, max] = args
+      if (ipRows.filter(r => r.ip === ip && r.kind === kind && r.attempted_at > since).length >= max) return null
+      ipRows.push({ id: ipRows.length + 1, ip, kind, attempted_at: at })
+      return { id: ipRows.length }
+    }
     if (s.startsWith('INSERT INTO ip_attempts')) {
       ipRows.push({ ip: args[0], kind: args[1], attempted_at: args[2] })
       return { success: true }
     }
+    if (s.startsWith('DELETE FROM ip_attempts WHERE rowid')) {
+      const i = ipRows.findIndex(r => r.id === args[0])
+      if (i >= 0) ipRows.splice(i, 1)
+      return { success: true }
+    }
     if (s.startsWith('DELETE FROM ip_attempts')) return { success: true }
+    // アカウント単位のロック（loginGuard）。ここでは常に通す（振る舞いは loginGuard.sqlite.test.js）
+    if (s.startsWith('INSERT INTO login_guard')) return { fails: 1, locked_until: null }
+    if (s.startsWith('DELETE FROM login_guard')) return { success: true }
     if (s.startsWith('SELECT shop_code FROM push_subscriptions WHERE endpoint')) {
       const row = pushSubscriptions.find(item => item.endpoint === args[0])
       return row ? { shop_code: row.shop_code } : null
@@ -834,11 +849,11 @@ describe('障害境界（レート制限はfail-open、店舗認可はfail-close
     expect(roomFetched).toBe(0)
   })
 
-  it('login_attempts / ip_attempts が無くても正しい PIN でログインできる', async () => {
+  it('login_attempts / ip_attempts / login_guard が無くても正しい PIN でログインできる', async () => {
     const db  = createMockD1()
     const env = makeEnv(db)
     const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    db._failTables.push('login_attempts', 'ip_attempts')
+    db._failTables.push('login_attempts', 'ip_attempts', 'login_guard')
     const res = await worker.fetch(makeReq('POST', '/auth/login', {
       body: { shopCode: reg.shopCode, pin: '1234' },
     }), env)

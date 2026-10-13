@@ -1,7 +1,8 @@
 // ── 認証（店舗アカウント登録・ログイン・トークン検証）────────────────────────
 
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
+import { TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
+import { reserveLoginAttempt, clearLoginGuard, lockedMessage, OWNER_ACCOUNT } from './loginGuard.js'
 import { entitlement } from './entitlements.js'
 
 // ── PIN ハッシュ（PBKDF2・ランダムsalt）─────────────────────────────────────────
@@ -120,22 +121,13 @@ export async function handleLogin(db, body) {
   }
   if (!store.pin_hash)  return { _status: 401, error: 'このアカウントはPINが未設定です。新規登録してください。' }
 
-  // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）
-  // フェイルオープン: login_attempts が読めなくてもログイン自体は止めない
-  try {
-    const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
-    const fails = await db.prepare(
-      'SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?'
-    ).bind(shopCode, since).first()
-    if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) {
-      return { _status: 429, error: 'ログイン試行が多すぎます。15分ほど待ってから再度お試しください' }
-    }
-  } catch (e) {
-    console.error('[auth] login_attempts check failed (fail-open):', e?.message ?? e)
-  }
+  // 確かめる前に1回ぶんを数える。ロック中は正しいPINでも429（5回ごとに 15分→…→24時間・loginGuard.js）
+  const guard = await reserveLoginAttempt(db, shopCode, OWNER_ACCOUNT)
+  if (!guard.ok) return { _status: 429, error: lockedMessage(guard.lockedUntil) }
 
   const { ok, needsRehash } = await verifyPinHash(shopCode, pin, store.pin_hash)
   if (!ok) {
+    // login_attempts は account削除の再認証（PINの失敗回数）が見るので、従来どおり残す
     await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
       .bind(shopCode, _now()).run().catch(e =>
         console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
@@ -152,9 +144,10 @@ export async function handleLogin(db, body) {
     }
   }
 
-  // 成功: 失敗履歴をクリア
+  // 成功: 失敗履歴とロックをクリア
   await db.prepare('DELETE FROM login_attempts WHERE shop_code = ?').bind(shopCode).run().catch(e =>
     console.error('[auth] login_attempts clear failed (fail-open):', e?.message ?? e))
+  await clearLoginGuard(db, shopCode, OWNER_ACCOUNT)
 
   // 単一ホストセッション: 既存トークンを全て無効化してから新トークンを発行する。
   // これにより、同じ店舗を別端末/別ブラウザからログインすると前の端末は失効し、

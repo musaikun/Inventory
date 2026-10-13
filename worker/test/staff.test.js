@@ -113,15 +113,31 @@ describe('権限と停止', () => {
 })
 
 describe('スタッフのログイン', () => {
-  it('店舗コード・名前・暗証番号で入れる。5回まちがえたらその端末からは15分止め、管理者が解除できる', async () => {
+  it('店舗コード・名前・暗証番号で入れる。5回まちがえたらその名前は端末を変えても止まり、管理者が解除できる', async () => {
     const { staffId } = await joinAndApprove()
     const ok = await handleStaffLogin(db, { shopCode: code.toLowerCase(), name: '山田', pin: '284713', deviceId: 'd1' })
     expect(ok.token).toBeTruthy()
-    for (let i = 0; i < 5; i++) expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '000001', deviceId: 'd2' }))._status).toBe(401)
-    expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd2' }))._status).toBe(429)
-    expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd1' })).token).toBeTruthy()   // 別の端末は止めない
+    // 端末IDを毎回変えても（API を直接叩いても）数え直さない
+    for (let i = 0; i < 5; i++) expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '000001', deviceId: `d${i + 2}` }))._status).toBe(401)
+    const locked = await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd1' })
+    expect(locked._status).toBe(429)                     // 正しい暗証番号でも、いつもの端末でも止まる
+    expect(locked.error).toMatch(/あと\d+分/)
+    expect((await handleStaffLogin(db, { shopCode: code, name: ' やまだ ', pin: '284713', deviceId: 'd9' }))._status).toBe(401)   // 別の名前は別に数える
     await handleStaffUnlock(db, req(owner), code, staffId)
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd2' })).token).toBeTruthy()
+  })
+
+  it('同じ店の他のスタッフは、だれかの失敗やロックの影響を受けない（同じ Wi-Fi・同時でも）', async () => {
+    const a = await joinAndApprove('山田', 'arbeit', '284713')
+    const b = await joinAndApprove('佐藤', 'arbeit', '395824')
+    for (let i = 0; i < 5; i++) await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '000001', deviceId: 'x' })
+    const both = await Promise.all([
+      handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'a' }),
+      handleStaffLogin(db, { shopCode: code, name: '佐藤', pin: '395824', deviceId: 'b' }),
+    ])
+    expect(both[0]._status).toBe(429)
+    expect(both[1].token).toBeTruthy()
+    expect(a.staffId).not.toBe(b.staffId)
   })
 })
 

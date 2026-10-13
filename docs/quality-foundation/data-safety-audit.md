@@ -69,7 +69,7 @@ Claude Codeが修正した。Codexの独立再reviewでは、削除時のみ`_da
 | 操作audit | 同期room操作 | Durable Objects、同室参加者 | 変更者表示・監査 | 主機能利用時 | 最大200件。room dissolve/account削除/24時間inactivityで削除 | app interactions / user content候補。`RoomDO.js` |
 | スタッフの名前・役割・暗証番号hash（Personal info候補）| 管理者の招待からスタッフが申請・管理者が承認（migration 0022） | Worker / D1 `staff`、同じ店舗のスタッフ・管理者の画面 | 本人としてのlogin、権限、記録の「誰が」 | スタッフ機能を使う店だけ | 暗証番号はPBKDF2 hash。停止・削除でtoken即時失効、削除は名前だけ「（削除済み）」で残し暗証番号を消す。account削除で全削除 | `staffHandler.js`、privacy policy 2026-10-07 |
 | 招待・承認待ちの鍵 | 管理者が発行 | D1 `staff_invites`（SHA-256だけ） | スタッフの追加 | 任意 | 10分で無効、期限後15分で毎時cronが削除。account削除で全削除 | `staffHandler.js` `cleanupStaffRecords` |
-| スタッフlogin失敗（名前・端末ID・時刻） | 暗証番号の失敗 | D1 `staff_login_attempts` | 総当たり防止 | 自動 | 判定窓15分、過ぎたら毎時cronが削除。成功時・管理者の解除で消す | `staffHandler.js` |
+| 暗証番号の試行回数とロック（オーナー／スタッフの名前・回数・時刻） | 暗証番号のlogin（migration 0028） | D1 `login_guard` | 総当たり防止（段階的なロック） | 自動 | 最後の試行から7日、ロック中は切れるまで。正しいPINで即削除、毎時cronで期限切れを削除。account削除で全削除。IP・端末IDは持たない（旧`staff_login_attempts`は書かなくなり15分で消える） | `loginGuard.js`、privacy policy 2026-10-13 |
 | 記録の「誰が」（スタッフ名・ID、オーナーは端末名・端末ID） | session開始・完了、やること、入出庫（migration 0023） | D1 `sessions` / `tasks` / `movements`、同じ店舗の画面 | 誰がやったかの表示 | 主機能利用時 | 業務dataと同じ。スタッフ削除で名前を「（削除済み）」へ書き換え | `index.js` `_actor` |
 | アプリを開いていた時間（見守り） | ログイン中に約90秒ごと（migration 0025） | D1 `work_sessions`、オーナー・管理者の画面 | 在席・作業時間の確認 | スタッフ機能・自動 | 90日で削除。account削除で全削除。スタッフ画面に「管理者から見える」と表示 | `presenceHandler.js`、privacy policy 2026-10-07 |
 | やること（内容・担当・完了の印） | 利用者入力（migration 0020・0024・0026） | D1 `tasks`、同じ店舗の画面、Push本文 | 店のTODO共有 | 任意 | 消すときは`deleted_at`を立てて残す。account削除で全削除 | `storeHandler.js` `handleTaskUpsert` |
