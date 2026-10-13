@@ -2031,15 +2031,17 @@ function _doneList(json) {
 function _short(v, n) { return typeof v === 'string' ? v.trim().slice(0, n) : '' }
 function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null }
 
-// GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの
+// GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの。
+// 「いつか」（日付なし＝task_date ''）は、終わっていないものと N日以内に終えた・消したもの（2026-10-13）
 export async function handleTasksGet(db, code, sinceDays) {
   const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
       assign_mode, assignee_id, assignee_name, done_list_json, due_time
-    FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL))
+    FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
+      OR (task_date = '' AND updated_at >= ?))
     ORDER BY task_date DESC LIMIT 2000
-  `).bind(code, since).all()).results ?? []
+  `).bind(code, since, since).all()).results ?? []
   return rows.map(r => ({
     id: r.id, date: r.task_date, text: r.body,
     createdBy: r.created_by ?? '', createdById: r.created_by_id ?? '', createdAt: r.created_at,
@@ -2061,10 +2063,11 @@ export async function handleTasksGet(db, code, sinceDays) {
 export async function handleTaskUpsert(db, code, body = {}) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const id = typeof body.id === 'string' ? body.id : ''
-  const date = typeof body.date === 'string' ? body.date : ''
+  const date = typeof body.date === 'string' ? body.date : null
   const text = _short(body.text, TASK_BODY_MAX)
   const updatedAt = _iso(body.updatedAt) ?? _now()
-  if (!_TASK_ID.test(id) || !_DATE.test(date) || !text) {
+  // 日付は YYYY-MM-DD か ''（いつか＝日付を決めていない・2026-10-13）
+  if (!_TASK_ID.test(id) || !(date === '' || _DATE.test(date)) || !text) {
     return { _status: 400, code: 'invalid_task', error: 'やることの内容が正しくありません' }
   }
   const prev = await db.prepare('SELECT shop_code, updated_at FROM tasks WHERE id = ?').bind(id).first()

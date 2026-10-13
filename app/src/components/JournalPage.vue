@@ -19,6 +19,8 @@ export const journalDate = ref('')
  *   「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
  * - 月: 今までのカレンダー（日ごとの印）。日付を押すとその日の「1日」へ（日の詳細のモーダルは廃止・2026-10-13）
  * - 1日: 時間別（JournalDay）
+ * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）
+ * - いつか（日付なし）はリストの「やること」の一番下にたたんで置く（月・1日・残りの数には出さない）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TaskRow from './TaskRow.vue'
@@ -27,7 +29,7 @@ import RecordRow from './RecordRow.vue'
 import JournalDay from './JournalDay.vue'
 import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import TaskNews from './TaskNews.vue'
-import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -114,6 +116,8 @@ onMounted(() => {
 })
 onUnmounted(() => _ro?.disconnect())
 
+const someday = computed(() => _mine(somedayTasks.value))
+const somedayOpen = ref(false)
 const remaining = computed(() => late.value.length + todays.value.filter(t => !t.doneAt).length)
 // 記録: 直近30日を新しい日から（その日の中は時刻の順）
 const recordGroups = computed(() => {
@@ -130,15 +134,15 @@ const todayRecordCount = computed(() => recordsOn(today).length)
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone')
+const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
 const people = computed(() => staffNames.value)
 function openAdd() {
-  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; adding.value = true
+  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; adding.value = true
 }
 function submitAdd() {
   const v = fWho.value
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
-  if (addTask(fDate.value, fText.value, assign, fTime.value || null)) adding.value = false
+  if (addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null))) adding.value = false
 }
 onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; adding.value = false; return true }))
 </script>
@@ -147,10 +151,6 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
   <div class="jp" :style="{ '--jp-top-h': topH + 'px' }">
     <div ref="topEl" class="jp-top">
       <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small></div>
-      <div class="jp-views" role="tablist" aria-label="見え方">
-        <button v-for="v in [['list', 'リスト'], ['month', '月'], ['day', '1日']]" :key="v[0]" type="button" role="tab"
-          :aria-selected="view === v[0]" :class="{ on: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
-      </div>
       <div v-if="view === 'list'" class="jp-flt">
         <button type="button" :class="{ on: listMode === 'todo' }" :aria-pressed="listMode === 'todo'" @click="listMode = 'todo'">やること</button>
         <button type="button" :class="{ on: listMode === 'done' }" :aria-pressed="listMode === 'done'" @click="listMode = 'done'">済み</button>
@@ -176,6 +176,12 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       <template v-for="g in laterGroups" :key="g.date">
         <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}</span></div>
         <div class="jp-box"><TaskRow v-for="t in g.items" :key="t.id" :task="t" /></div>
+      </template>
+      <template v-if="someday.length">
+        <button type="button" class="jp-lh jp-someday" :aria-expanded="somedayOpen" @click="somedayOpen = !somedayOpen">
+          <span>いつか {{ somedayOpen ? '▲' : '▼' }}</span><span>{{ someday.length }}</span>
+        </button>
+        <div v-if="somedayOpen" class="jp-box"><TaskRow v-for="t in someday" :key="t.id" :task="t" /></div>
       </template>
     </div>
 
@@ -210,6 +216,12 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
     <!-- 1日（時間別） -->
     <JournalDay v-else v-model:date="dayDate" :records="recordsOn(dayDate)" :marks="marksOf" @view-session="s => emit('viewSession', s)" @add="openAdd" />
 
+    <!-- リスト／月／1日の切り替え。下のナビのすぐ上（親指が届く） -->
+    <div class="jp-views" role="tablist" aria-label="見え方">
+      <button v-for="v in [['list', 'リスト'], ['month', '月'], ['day', '1日']]" :key="v[0]" type="button" role="tab"
+        :aria-selected="view === v[0]" :class="{ on: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
+    </div>
+
     <button v-if="canCreate && view !== 'month'" type="button" class="jp-fab" aria-label="やることを追加" @click="openAdd">＋</button>
 
     <Teleport to="body">
@@ -217,10 +229,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="submitAdd">
           <b class="jp-sheet-t">やることを追加</b>
           <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" placeholder="例：製氷機のフィルター交換" aria-label="やること" class="jp-in" />
-          <div class="jp-row">
+          <div v-if="!fSomeday" class="jp-row">
             <label>日付<input v-model="fDate" type="date" class="jp-in" /></label>
             <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
           </div>
+          <label class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
           <label v-if="people.length">担当
             <select v-model="fWho" class="jp-in">
               <option value="anyone">誰でも</option>
@@ -231,7 +244,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
           </label>
           <div class="jp-row end">
             <button type="button" class="jp-mini" @click="adding = false">やめる</button>
-            <button type="submit" class="jp-save" :disabled="!fText.trim() || !fDate">追加</button>
+            <button type="submit" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)">追加</button>
           </div>
         </form>
       </div>
@@ -245,23 +258,29 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 .jp-title { display: flex; align-items: baseline; gap: 8px; }
 .jp-title b { font-size: 17px; letter-spacing: .04em; }
 .jp-title small { margin-left: auto; font-size: 12px; color: var(--text-muted); font-weight: 700; }
-.jp-views { display: grid; grid-template-columns: repeat(3, 1fr); background: #e9f2f4; border-radius: 12px; padding: 3px; }
-.jp-views button { border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 800; padding: 7px; border-radius: 10px; color: var(--text-muted); cursor: pointer; }
-.jp-views button.on { background: var(--surface); color: var(--primary-deep); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.jp-views {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 6;
+  width: calc(100% - 24px); max-width: 576px; display: grid; grid-template-columns: repeat(3, 1fr);
+  background: #e9f2f4; border: 1px solid var(--border); border-radius: 14px; padding: 3px; box-shadow: 0 -2px 10px rgba(6,34,43,.08);
+}
+.jp-views button { border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; min-height: 40px; border-radius: 11px; color: var(--text-muted); cursor: pointer; }
+.jp-views button.on { background: var(--surface); color: var(--primary-deep); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .jp-flt { display: flex; gap: 6px; }
 .jp-flt button { border: none; font: inherit; font-size: 12px; font-weight: 800; padding: 6px 11px; border-radius: 999px; background: #f1f7f9; color: var(--text-muted); cursor: pointer; }
 .jp-flt button.on { background: var(--primary-deep); color: #fff; }
 .jp-flt button.mine { margin-left: auto; background: var(--primary-weak, #ecfeff); color: var(--primary); border: 1px solid #a5f3fc; }
 .jp-flt button.mine.on { background: var(--primary); color: #fff; border-color: transparent; }
-.jp-list { padding: 4px 12px 96px; }
+.jp-list { padding: 4px 12px 150px; }
+.jp-someday { width: 100%; border: none; background: none; font: inherit; font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted); cursor: pointer; }
+.jp-chk { display: flex !important; grid-template-columns: none; align-items: center; gap: 6px; font-size: 13px !important; color: var(--text) !important; }
 .jp-lh { font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted); padding: 12px 4px 6px; display: flex; justify-content: space-between; }
 .jp-lh.late { color: #b91c1c; }
 .jp-box { background: var(--surface); border-radius: 16px; padding: 0 10px; box-shadow: 0 1px 4px rgba(0,0,0,.05); overflow: hidden; }
 .jp-box > :first-child { border-top: none; }
 .jp-empty { margin: 0; padding: 12px 4px; font-size: 13px; color: var(--text-muted); }
 .jp-empty.solo { padding: 28px 8px; text-align: center; line-height: 1.6; }
-.jp-month { flex: 1; }
-.jp-fab { position: fixed; right: max(18px, calc(50% - 300px + 18px)); bottom: calc(76px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--grad-btn); color: #08323c; font-size: 28px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); cursor: pointer; z-index: 20; }
+.jp-month { flex: 1; padding-bottom: 54px; }
+.jp-fab { position: fixed; right: max(18px, calc(50% - 300px + 18px)); bottom: calc(124px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--grad-btn); color: #08323c; font-size: 28px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); cursor: pointer; z-index: 20; }
 .jp-sheet-bg { position: fixed; inset: 0; z-index: 120; background: rgba(6,34,43,.4); display: flex; align-items: flex-end; justify-content: center; }
 .jp-sheet { width: 100%; max-width: 600px; background: var(--surface); border-radius: 20px 20px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
 .jp-sheet-t { font-size: 16px; }

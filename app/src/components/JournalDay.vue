@@ -280,7 +280,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 </template>
 
 <style scoped>
-.jd { display: grid; gap: 10px; padding: 8px 12px 96px; }
+.jd { display: grid; gap: 10px; padding: 8px 12px 150px; }
 .jd-head { position: sticky; top: var(--jp-top-h, 0px); z-index: 2; display: grid; gap: 8px; margin: -8px -12px 0; padding: 8px 12px 8px; background: var(--bg); }
 .jd-box { background: var(--surface); border-radius: 16px; padding: 0 10px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 .jd-nav { display: flex; align-items: center; gap: 6px; }

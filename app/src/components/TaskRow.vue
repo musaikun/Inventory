@@ -10,6 +10,7 @@ import {
   toggleTask, removeTask, editTask, setTaskAssign, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX,
 } from '../composables/useTasks.js'
 import { can, staffNames } from '../composables/useAuth.js'
+import { localDateKey } from '../utils/localDate.js'
 
 const props = defineProps({
   task: { type: Object, required: true },
@@ -42,16 +43,17 @@ const assignNote = computed(() => {
 
 // ── 直す ──
 const editing = ref(false)
-const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone')
+const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
 const _fromTask = x => (x.assign === 'person' ? `p:${x.assigneeId}` : (x.assign || 'anyone'))
 function openEdit() {
   if (!canEdit.value) return
-  fText.value = t.value.text; fDate.value = t.value.date; fTime.value = t.value.dueTime || ''; fWho.value = _fromTask(t.value)
+  fText.value = t.value.text; fDate.value = t.value.date || localDateKey(); fTime.value = t.value.dueTime || ''; fWho.value = _fromTask(t.value)
+  fSomeday.value = t.value.date === ''
   editing.value = true
 }
 function save() {
-  if (!fText.value.trim() || !fDate.value) return
-  editTask(t.value.id, { text: fText.value, date: fDate.value, dueTime: fTime.value || null })
+  if (!fText.value.trim() || (!fSomeday.value && !fDate.value)) return
+  editTask(t.value.id, fSomeday.value ? { text: fText.value, date: '' } : { text: fText.value, date: fDate.value, dueTime: fTime.value || null })
   if (fWho.value !== _fromTask(t.value)) {
     const v = fWho.value
     const assign = v.startsWith('p:')
@@ -86,11 +88,12 @@ function save() {
 
   <form v-else class="tr-edit" @submit.prevent="save">
     <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" aria-label="やること" class="tr-in wide" />
-    <div class="tr-edit-row">
+    <div v-if="!fSomeday" class="tr-edit-row">
       <label class="tr-lb">日付<input v-model="fDate" type="date" class="tr-in" /></label>
       <label class="tr-lb">時刻<input v-model="fTime" type="time" class="tr-in" /></label>
       <button v-if="fTime" type="button" class="tr-mini" @click="fTime = ''">時刻なし</button>
     </div>
+    <label class="tr-some"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
     <label v-if="hasStaff" class="tr-lb">担当
       <select v-model="fWho" class="tr-in">
         <option value="anyone">誰でも</option>
@@ -102,7 +105,7 @@ function save() {
     </label>
     <div class="tr-edit-row end">
       <button type="button" class="tr-mini" @click="editing = false">やめる</button>
-      <button type="submit" class="tr-save" :disabled="!fText.trim() || !fDate">保存</button>
+      <button type="submit" class="tr-save" :disabled="!fText.trim() || (!fSomeday && !fDate)">保存</button>
     </div>
   </form>
 </template>
@@ -134,6 +137,7 @@ small.tr-assign.none { color: #b45309; }
 .tr-lb { display: grid; gap: 2px; font-size: 11px; font-weight: 800; color: var(--text-muted); }
 .tr-in { min-height: 38px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; font: inherit; font-size: 14px; background: var(--surface); color: var(--text); }
 .tr-in.wide { width: 100%; }
+.tr-some { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); }
 .tr-mini { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 700; padding: 0 10px; cursor: pointer; }
 .tr-save { min-height: 36px; border: none; border-radius: 8px; background: var(--grad-btn); color: var(--on-grad); font-weight: 800; padding: 0 16px; cursor: pointer; }
 .tr-save:disabled { opacity: .5; }

@@ -894,6 +894,15 @@ describe('カレンダーのやること（tasks・migration 0020）', () => {
   }
   const base = { id: 't_1', date: '2026-10-04', text: '冷凍庫の霜取り', createdBy: '高木', createdById: 'dev-1', createdAt: '2026-10-04T01:00:00.000Z', updatedAt: '2026-10-04T01:00:00.000Z' }
 
+  it('「いつか」（日付なし）も保存できる。日付の形が違うものは断る', async () => {
+    const { handleTaskUpsert } = await import('./storeHandler.js')
+    const db = taskDb()
+    expect((await handleTaskUpsert(db, 'ABCDEF', { ...base, id: 't_s', date: '' })).ok).toBe(true)
+    expect(db.table.get('t_s').task_date).toBe('')
+    expect((await handleTaskUpsert(db, 'ABCDEF', { ...base, id: 't_x', date: '10/4' }))._status).toBe(400)
+    expect((await handleTaskUpsert(db, 'ABCDEF', { ...base, id: 't_y', date: undefined }))._status).toBe(400)
+  })
+
   it('新しく作ったときだけ created（通知の対象）。同じIDの変更は created にならない', async () => {
     const { handleTaskUpsert, handleTasksGet } = await import('./storeHandler.js')
     const db = taskDb()

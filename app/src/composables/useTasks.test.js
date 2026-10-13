@@ -111,4 +111,21 @@ describe('useTasks', () => {
     expect(L('c')).toEqual({ late: false, days: 0 })
     expect(L('g')).toEqual({ late: true, days: 0 })
   })
+
+  it('いつか（日付なし）: 保存できて、期限切れ・その日・バッジには数えない。日付を入れればその日へ', async () => {
+    const t = T.addTask('', 'メニュー表の作り直し', null, '10:00')
+    expect(t).toMatchObject({ date: '', dueTime: null })
+    expect(T.somedayTasks.value.map(x => x.id)).toEqual([t.id])
+    expect(T.overdueTasks('2026-10-13')).toEqual([])
+    expect(T.todayOpenCount.value).toBe(0)
+    expect(T.openTaskCounts.value.size).toBe(0)
+    T._reloadTasks()
+    expect(T.somedayTasks.value).toHaveLength(1)                    // 端末に残る
+    T.editTask(t.id, { date: '2026-10-20', dueTime: '09:00' })
+    expect(T.somedayTasks.value).toHaveLength(0)
+    expect(T.tasksOn('2026-10-20').map(x => x.dueTime)).toEqual(['09:00'])
+    T.editTask(t.id, { date: '' })
+    expect(T.somedayTasks.value[0].dueTime).toBeNull()
+    expect(T.addTask('10/20', 'x')).toBeNull()
+  })
 })

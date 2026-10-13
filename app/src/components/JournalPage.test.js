@@ -141,4 +141,27 @@ describe('日誌', () => {
     expect(host.querySelector('.jp-views .on').textContent).toBe('1日')
     expect(host.querySelector('.jd-date').textContent).toMatch(/月1日/)
   })
+
+  it('いつか: 追加で「いつか」を選ぶと日付なしで、リストの一番下にたたんで出る。切り替えは下の帯', async () => {
+    const T = await import('../composables/useTasks.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    expect(host.querySelector('.jp-top .jp-views')).toBeNull()      // 上のタブではない
+    expect(host.querySelector('.jp > .jp-views')).not.toBeNull()
+    await click(host.querySelector('.jp-fab'))
+    const form = document.body.querySelector('.jp-sheet')
+    const text = form.querySelector('input[type=text]')
+    text.value = 'メニュー表の作り直し'; text.dispatchEvent(new Event('input'))
+    const chk = form.querySelector('.jp-chk input')
+    chk.checked = true; chk.dispatchEvent(new Event('change')); await tick()
+    expect(form.querySelector('input[type=date]')).toBeNull()
+    form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()
+    expect(T.somedayTasks.value.map(t => t.text)).toEqual(['メニュー表の作り直し'])
+    expect(host.querySelector('.jp-title small').textContent).toBe('残り 0')
+    const head = host.querySelector('.jp-someday')
+    expect(head.textContent).toContain('いつか')
+    expect(host.textContent).not.toContain('メニュー表の作り直し')    // たたんである
+    await click(head)
+    expect(host.textContent).toContain('メニュー表の作り直し')
+  })
 })

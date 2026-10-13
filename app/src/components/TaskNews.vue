@@ -15,7 +15,7 @@ const groups = computed(() => {
   }
   return [...by.entries()].map(([who, items]) => ({ who, items }))
 })
-const md = d => { const [, m, dd] = String(d).split('-').map(Number); return m && dd ? `${m}/${dd}` : '' }
+const md = d => { if (d === '') return 'いつか'; const [, m, dd] = String(d).split('-').map(Number); return m && dd ? `${m}/${dd}` : '' }
 </script>
 
 <template>

@@ -248,6 +248,7 @@ export async function sendScheduledPushes(env, now) {
  * 追加した端末の購読（exceptEndpoint）には送らない。通知の許可を出していない端末には届かない。
  */
 function _taskWhen(task) {
+  if (task?.date === '') return 'いつか '   // 日付を決めていないやること
   const [, m, d] = String(task?.date ?? '').split('-').map(Number)
   return (m && d ? `${m}/${d}` : '') + (task?.dueTime ? ` ${task.dueTime}` : '') + (m && d ? ' ' : '')
 }
