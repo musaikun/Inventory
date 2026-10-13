@@ -164,4 +164,20 @@ describe('日誌', () => {
     await click(head)
     expect(host.textContent).toContain('メニュー表の作り直し')
   })
+
+  it('1日: 長くて中断の多い棚卸も、始め〜終わりを1本につなげ、中断はその中に重ねる', async () => {
+    const at = hm => new Date(`2026-08-31T${hm}:00`).getTime()
+    const pauses = [['11:05', '11:20'], ['12:10', '12:30'], ['13:00', '13:02'], ['13:30', '13:50'], ['15:20', '16:02']].map(([f, t]) => ({ from: at(f), to: at(t), ms: at(t) - at(f) }))
+    const rec = { key: 'stock-s1', kind: 'stock', at: at('10:35'), end: at('16:20'), pauses, activeMs: 4 * 3600_000, title: '棚卸', session: { id: 's1' } }
+    const { default: JournalDay } = await import('./JournalDay.vue')
+    await mount(JournalDay, { date: '2026-08-31', records: [rec] })
+    const blocks = host.querySelectorAll('.jd-ev.stock')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].querySelector('.jd-stock-t').textContent).toContain('棚卸 10:35〜16:20')
+    expect(blocks[0].querySelector('.jd-stock-t').textContent).toContain('中断5回 1時間39分')
+    const ps = blocks[0].querySelectorAll('.jd-pause')
+    expect(ps).toHaveLength(5)
+    expect(ps[2].textContent).toBe('')                 // 2分の中断は文字なし
+    expect(ps[4].textContent).toBe('中断 42分')
+  })
 })

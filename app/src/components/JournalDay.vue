@@ -126,20 +126,21 @@ const PX = 48 / 60   // 1分 = 0.8px（1時間 48px）
 const top = m => (m - range.value.from) * PX
 const hourMarks = computed(() => { const a = []; for (let m = range.value.from; m <= range.value.to; m += 60) a.push(m); return a })
 
-// 左の列: 棚卸（作業と中断の区間）
-const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' && r.at != null).flatMap(r => {
-  const segs = []
-  let cur = r.at
-  for (const p of r.pauses ?? []) {
-    if (p.from > cur) segs.push({ kind: 'work', from: cur, to: p.from })
-    segs.push({ kind: 'pause', from: p.from, to: p.to })
-    cur = p.to
+// 左の列: 棚卸。始め〜終わりを1本につなげて、中断はその中に薄い縞で重ねる
+// （区間ごとに分けると、長くて中断の多い棚卸で短い区間が重なり合って読めなかった・User 2026-10-13）
+const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' && r.at != null).map(r => {
+  const end = r.end ?? r.at
+  const h = Math.max(22, (end - r.at) / 60000 * PX)
+  const pauseMs = (r.pauses ?? []).reduce((n, p) => n + (p.to - p.from), 0)
+  return {
+    key: r.key, rec: r, top: top(minOf(r.at)), h,
+    label: `📦 棚卸 ${fmtHm(r.at)}〜${r.end != null ? fmtHm(r.end) : ''}`,
+    sub: [r.activeMs != null ? `実働 ${fmtDuration(r.activeMs)}` : '', r.pauses?.length ? `中断${r.pauses.length}回 ${fmtDuration(pauseMs)}` : ''].filter(Boolean).join(' ・ '),
+    pauses: (r.pauses ?? []).map((p, i) => {
+      const ph = (p.to - p.from) / 60000 * PX
+      return { key: i, top: (p.from - r.at) / 60000 * PX, h: ph, label: ph >= 16 ? `中断 ${fmtDuration(p.to - p.from)}` : '' }
+    }),
   }
-  segs.push({ kind: 'work', from: cur, to: r.end ?? cur })
-  return segs.map((s, i) => ({
-    key: `${r.key}-${i}`, rec: r, kind: s.kind, top: top(minOf(s.from)), h: Math.max(18, (s.to - s.from) / 60000 * PX),
-    label: s.kind === 'pause' ? `中断 ${fmtDuration(s.to - s.from)}` : (i === 0 ? `📦 棚卸 ${fmtHm(r.at)}〜` : '📦 棚卸（続き）'),
-  }))
 }))
 
 // 右の列: やること・予定・発注・入出庫（重なったら下へずらす）
@@ -224,10 +225,15 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
       </div>
       <div v-for="m in hourMarks" :key="m" class="jd-hr" :style="{ top: top(m) + 8 + 'px' }"><span>{{ m / 60 }}:00</span></div>
       <div class="jd-lanes">
-        <button
-          v-for="b in stockBlocks" :key="b.key" type="button" :class="['jd-ev', 'stock', b.kind]"
-          :style="{ top: b.top + 'px', height: b.h + 'px' }" @click="emit('view-session', b.rec.session)"
-        >{{ b.label }}</button>
+        <!-- button だと中身が縦の中央に寄るので div（見出しは上に置きたい） -->
+        <div
+          v-for="b in stockBlocks" :key="b.key" class="jd-ev stock" role="button" tabindex="0"
+          :style="{ top: b.top + 'px', height: b.h + 'px' }" :aria-label="`${b.label} ${b.sub}`"
+          @click="emit('view-session', b.rec.session)" @keydown.enter.prevent="emit('view-session', b.rec.session)"
+        >
+          <span v-for="p in b.pauses" :key="p.key" class="jd-pause" :style="{ top: p.top + 'px', height: p.h + 'px' }" aria-hidden="true">{{ p.label }}</span>
+          <span class="jd-stock-t" aria-hidden="true">{{ b.label }}<small v-if="b.sub">{{ b.sub }}</small></span>
+        </div>
         <button
           v-for="x in rightItems" :key="x.key" type="button" :class="['jd-ev', 'right', x.type, { done: x.done }]"
           :style="{ top: x.top + 'px' }" @click="pick(x)"
@@ -314,9 +320,13 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 .jd-hr span { position: absolute; left: -40px; top: -7px; width: 34px; text-align: right; font-size: 10px; font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .jd-lanes { position: absolute; left: 50px; right: 8px; top: 8px; bottom: 0; }
 .jd-ev { position: absolute; border: none; font: inherit; text-align: left; cursor: pointer; border-radius: 8px; padding: 3px 7px; font-size: 11.5px; font-weight: 800; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.jd-ev.stock { left: 0; width: 36%; white-space: normal; }
-.jd-ev.stock.work { background: #cffafe; color: #155e75; border-left: 4px solid #0e7490; }
-.jd-ev.stock.pause { background: repeating-linear-gradient(0deg,#f8fafc,#f8fafc 4px,#eef4f6 4px,#eef4f6 8px); color: #64748b; border-left: 4px dotted #94a3b8; font-weight: 700; }
+.jd-ev.stock { left: 0; width: 36%; white-space: normal; padding: 0; background: #cffafe; color: #155e75; border-left: 4px solid #0e7490; }
+/* 中断はブロックの中に薄い縞で重ねる（短いものは文字なし） */
+.jd-pause { position: absolute; left: 0; right: 0; overflow: hidden; display: flex; align-items: center; padding-left: 6px; font-size: 10.5px; font-weight: 700; color: #64748b;
+  background: repeating-linear-gradient(135deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px); border-top: 1px dashed #94a3b8; border-bottom: 1px dashed #94a3b8; box-sizing: border-box; }
+/* 見出しは上に1回だけ（始め〜終わり・実働・中断）。中断の縞に重なっても読めるよう地を敷く */
+.jd-stock-t { position: relative; z-index: 1; display: block; margin: 2px; padding: 2px 5px; border-radius: 6px; background: rgba(207,250,254,.94); font-size: 11.5px; font-weight: 800; line-height: 1.3; }
+.jd-stock-t small { display: block; font-size: 10px; font-weight: 700; color: #0e7490; }
 .jd-ev.right { left: calc(36% + 6px); right: 0; height: 22px; }
 .jd-ev.task { background: #fff7ed; color: #9a3412; border-left: 4px solid #f97316; }
 .jd-ev.task.done { opacity: .55; text-decoration: line-through; }
