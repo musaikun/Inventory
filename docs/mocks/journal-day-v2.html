@@ -1,0 +1,190 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>日誌 1日 改 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea;
+    --grad-btn:linear-gradient(90deg,#22d3ee,#34d399); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; }
+  .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; height:720px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .top { background:#fff; padding:12px 14px 10px; border-bottom:1px solid var(--border); display:grid; gap:9px; }
+  .ttl { display:flex; align-items:baseline; font-weight:900; font-size:16px; } .ttl small { margin-left:auto; font-size:11px; color:var(--muted); }
+  .views { display:grid; grid-template-columns:repeat(3,1fr); background:#e9f2f4; border-radius:12px; padding:3px; }
+  .views span { text-align:center; font-size:12px; font-weight:800; padding:6px; border-radius:10px; color:var(--muted); } .views span.on { background:#fff; color:var(--deep); box-shadow:0 1px 3px rgba(0,0,0,.1); }
+  /* 月 */
+  .mh { display:flex; justify-content:space-between; align-items:center; padding:10px 14px 4px; font-weight:900; font-size:15px; } .mh span { color:var(--muted); font-size:18px; }
+  .wk { display:grid; grid-template-columns:repeat(7,1fr); padding:0 8px; font-size:10px; color:var(--muted); text-align:center; font-weight:800; }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; padding:4px 8px; }
+  .d { background:#fff; border-radius:9px; height:62px; padding:4px 3px; font-size:11px; font-weight:800; display:grid; align-content:start; gap:2px; position:relative; }
+  .d.o { background:transparent; color:#9fb4ba; }
+  .d.today { outline:2px solid var(--primary); }
+  .d.tap { background:#cffafe; box-shadow:0 0 0 3px #22d3ee; }
+  .dots { display:flex; gap:2px; flex-wrap:wrap; } .dots i { width:6px; height:6px; border-radius:50%; } .i-s{background:#0e7490}.i-o{background:#ea580c}.i-m{background:#16a34a}.i-t{background:#f97316}.i-x{background:#ef4444}
+  .finger { position:absolute; right:-6px; bottom:-8px; font-size:22px; }
+  .arrow { font-size:12px; font-weight:800; color:var(--primary); text-align:center; padding:8px; }
+  .legend { display:flex; gap:8px; flex-wrap:wrap; padding:6px 14px; font-size:10px; color:var(--muted); } .legend i { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:3px; vertical-align:middle; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; margin:8px 12px; }
+  /* 1日 */
+  .datebar { display:flex; align-items:center; gap:6px; }
+  .datebar .nav { width:34px; height:34px; border-radius:10px; border:1px solid var(--border); display:grid; place-items:center; color:var(--muted); font-weight:900; }
+  .datebar .dt { flex:1; height:34px; border-radius:10px; background:#f1f7f9; display:flex; align-items:center; justify-content:center; gap:6px; font-weight:900; font-size:14px; }
+  .datebar .dt small { font-size:10px; color:var(--primary); background:#cffafe; padding:1px 6px; border-radius:999px; }
+  .datebar .dt::after { content:'▾'; font-size:10px; color:var(--muted); }
+  .datebar .today { font-size:11px; font-weight:800; color:var(--primary); padding:0 6px; }
+  .sum { display:flex; gap:6px; font-size:11px; font-weight:800; }
+  .sum span { padding:4px 8px; border-radius:999px; background:#f1f7f9; color:var(--muted); } .sum b { color:var(--text); }
+  .sum .t { background:#fff7ed; color:#9a3412; } .sum .t b { color:#9a3412; }
+  .tl { position:relative; flex:1; overflow:hidden; background:#fff; }
+  .hr { position:absolute; left:40px; right:6px; border-top:1px solid #eef4f6; } .hr span { position:absolute; left:-36px; top:-7px; width:30px; text-align:right; font-size:9.5px; color:var(--muted); font-weight:700; }
+  .now { position:absolute; left:40px; right:6px; border-top:2px solid #ef4444; } .now::before { content:''; position:absolute; left:-4px; top:-5px; width:8px; height:8px; border-radius:50%; background:#ef4444; }
+  /* 今日中の列（全時間をまたぐ） */
+  .lane { position:absolute; left:44px; width:32px; top:0; bottom:0; background:repeating-linear-gradient(180deg,#e2e8f0,#e2e8f0 10px,#e9eef3 10px,#e9eef3 20px); border-radius:8px; border:1px solid #cbd5e1; }
+  .lane .stick { position:sticky; top:6px; margin:6px 2px 0; background:#475569; color:#fff; border-radius:6px; text-align:center; font-size:8.5px; letter-spacing:-.05em; font-weight:900; line-height:1.15; padding:5px 0; }
+  .lane .stick b { display:block; font-size:15px; }
+  .lane .vt { writing-mode:vertical-rl; font-size:10.5px; font-weight:800; color:#475569; margin:8px auto 0; letter-spacing:.15em; }
+  .ev { position:absolute; border-radius:8px; padding:3px 7px; font-size:11px; font-weight:800; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .ev.stock { left:80px; width:78px; background:#cffafe; color:#155e75; border-left:4px solid #0e7490; white-space:normal; }
+  .ev.pause { left:80px; width:78px; background:repeating-linear-gradient(0deg,#f8fafc,#f8fafc 4px,#eef4f6 4px,#eef4f6 8px); color:#64748b; border-left:4px dotted #94a3b8; }
+  .ev.r { left:164px; right:6px; height:22px; }
+  .ev.task { background:#fff7ed; color:#9a3412; border-left:4px solid #f97316; } .ev.task.done { opacity:.55; text-decoration:line-through; }
+  .ev.plan { background:repeating-linear-gradient(45deg,#fff7ed,#fff7ed 6px,#ffedd5 6px,#ffedd5 12px); color:#c2410c; border-left:4px dashed #ea580c; }
+  .ev.in { background:#dcfce7; color:#166534; border-left:4px solid #16a34a; }
+  .ev.order { background:#ffedd5; color:#9a3412; border-left:4px solid #ea580c; }
+  .fab { position:absolute; right:14px; bottom:72px; width:52px; height:52px; border-radius:50%; background:var(--grad-btn); display:grid; place-items:center; font-size:26px; color:#08323c; box-shadow:0 8px 20px rgba(14,116,144,.35); }
+  .navb { height:58px; background:#fff; border-top:1px solid var(--border); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--muted); font-weight:700; flex:none; }
+  .navb span { display:grid; place-items:center; gap:1px; } .navb span.on { color:var(--primary); } .navb b { font-size:17px; }
+  /* シート */
+  .dim { position:absolute; inset:0; background:rgba(6,34,43,.4); display:flex; align-items:flex-end; }
+  .sheet { width:100%; background:#fff; border-radius:20px 20px 0 0; padding:14px 14px 18px; display:grid; gap:8px; }
+  .sheet-h { display:flex; justify-content:space-between; align-items:center; font-weight:900; font-size:15px; } .sheet-h small { font-size:11px; color:var(--muted); font-weight:700; }
+  .tr { display:flex; gap:9px; align-items:center; padding:8px 4px; border-top:1px solid #eef4f6; font-size:13px; } .tr:first-of-type { border-top:none; }
+  .chk { flex:none; width:26px; height:26px; border-radius:8px; border:2px solid var(--primary); display:grid; place-items:center; font-size:12px; font-weight:900; } .chk.on { background:var(--grad-btn); border-color:transparent; }
+  .tx { flex:1; } .tx small { display:block; font-size:10.5px; color:var(--muted); } .tr.dn .tx b { color:var(--muted); text-decoration:line-through; font-weight:700; } .tx b { font-weight:700; }
+  .add { border:1px dashed var(--border); border-radius:10px; padding:9px; text-align:center; font-size:12.5px; font-weight:800; color:var(--primary); }
+  /* 日付選び */
+  .mini { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .mini .w { font-size:10px; text-align:center; color:var(--muted); font-weight:800; }
+  .mini .c { height:38px; border-radius:9px; display:grid; place-items:center; align-content:center; font-size:12.5px; font-weight:800; gap:2px; }
+  .mini .c.o { color:#c4d2d6; } .mini .c.sel { background:var(--primary); color:#fff; } .mini .c.td { outline:2px solid var(--primary); }
+  .mini .c .dots i { width:5px; height:5px; }
+  .mh2 { display:flex; justify-content:space-between; align-items:center; font-weight:900; } .mh2 span { color:var(--muted); font-size:16px; padding:0 8px; }
+  .chips { display:flex; gap:6px; } .chips span { flex:1; text-align:center; font-size:11.5px; font-weight:800; padding:7px 0; border-radius:10px; border:1px solid var(--border); color:var(--deep); }
+  /* 詳細（下のシート・記録） */
+  .rec-l { display:flex; justify-content:space-between; font-size:12.5px; padding:5px 2px; border-top:1px solid #eef4f6; } .rec-l b { font-variant-numeric:tabular-nums; }
+  .btn { text-align:center; font-weight:800; font-size:13px; padding:10px; border-radius:10px; background:var(--grad-btn); color:#08323c; }
+</style></head><body>
+<h1>日誌：月→1日・日付選び・今日中の列</h1>
+<p class="lead">
+① 月の日付を押すと、その日の「1日」へ移る（今までの日の詳細のモーダル＝やることの追加・記録の確認は廃止。すべて1日でできる）。<br>
+② 1日の上は「‹ 日付 ›」と要約（やること・記録・発注の締切）。日付を押すと小さな月カレンダーが開き、印の付いた日を選んで飛べる（過去も）。<br>
+③ 時刻なしのやることは「今日中」と呼び、帯の左に灰色の列を全時間に通す。上に残りの数を貼りつけ（スクロールしても見える）、押すと一覧。<br>
+④ 帯の出来事を押すと下に詳細（やること＝完了・直す、棚卸＝詳細へ、入出庫・発注＝品目と数）。＋ はその日の日付で追加。
+</p>
+<div class="row">
+
+<!-- ① 月 -->
+<div class="col"><div class="cap">① 月：日付を押すと1日へ<small>モーダルは出さない。印は今のまま（棚卸・発注・入出庫・やること・やり残し）</small></div>
+<div class="phone">
+  <div class="top"><div class="ttl">業務日誌<small>残り 4</small></div><div class="views"><span>リスト</span><span class="on">月</span><span>1日</span></div></div>
+  <div class="mh"><span>‹</span>2026年10月<span>›</span></div>
+  <div class="wk"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+  <div class="cal">
+    <div class="d o">27</div><div class="d o">28</div><div class="d o">29</div><div class="d o">30</div>
+    <div class="d">1<div class="dots"><i class="i-s"></i><i class="i-o"></i></div></div><div class="d">2<div class="dots"><i class="i-m"></i></div></div><div class="d">3</div>
+    <div class="d">4<div class="dots"><i class="i-t"></i></div></div><div class="d">5<div class="dots"><i class="i-o"></i><i class="i-m"></i></div></div><div class="d">6</div><div class="d">7<div class="dots"><i class="i-x"></i></div></div><div class="d">8<div class="dots"><i class="i-o"></i></div></div><div class="d">9<div class="dots"><i class="i-m"></i><i class="i-t"></i></div></div><div class="d">10<div class="dots"><i class="i-s"></i></div></div>
+    <div class="d">11</div><div class="d tap">12<div class="dots"><i class="i-s"></i><i class="i-m"></i><i class="i-t"></i></div><span class="finger">👆</span></div><div class="d today">13<div class="dots"><i class="i-t"></i><i class="i-o"></i></div></div><div class="d">14<div class="dots"><i class="i-t"></i></div></div><div class="d">15</div><div class="d">16<div class="dots"><i class="i-o"></i></div></div><div class="d">17</div>
+    <div class="d">18</div><div class="d">19</div><div class="d">20</div><div class="d">21</div><div class="d">22</div><div class="d">23</div><div class="d">24</div>
+  </div>
+  <div class="legend"><span><i class="i-s"></i>棚卸</span><span><i class="i-o"></i>発注</span><span><i class="i-m"></i>入出庫</span><span><i class="i-t"></i>やること</span><span><i class="i-x"></i>やり残し</span></div>
+  <div class="arrow">↓ 押すと「1日」タブの 10月12日 へ</div>
+  <div class="note">今までの「その日の詳細」モーダル（やることの追加・記録の一覧）は日誌の月では出さない。履歴の画面（日誌の外）の月は今のまま</div>
+  <div style="flex:1"></div>
+  <div class="navb"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span class="on"><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span><b>⚙</b>管理</span></div>
+</div></div>
+
+<!-- ② 1日 -->
+<div class="col"><div class="cap">② 1日：要約と「今日中」の列<small>左の灰色の列が全時間を通る＝時刻なしのやることがある。上の「残り2/3」はスクロールしても貼りついたまま</small></div>
+<div class="phone">
+  <div class="top">
+    <div class="views"><span>リスト</span><span>月</span><span class="on">1日</span></div>
+    <div class="datebar"><span class="nav">‹</span><span class="dt">10月12日（月）</span><span class="nav">›</span><span class="today">今日へ</span></div>
+    <div class="sum"><span class="t">やること <b>2/5</b></span><span>記録 <b>3</b></span><span>締切 <b>1</b></span></div>
+  </div>
+  <div class="tl">
+    <div class="hr" style="top:10px"><span>9:00</span></div><div class="hr" style="top:58px"><span>10:00</span></div><div class="hr" style="top:106px"><span>11:00</span></div><div class="hr" style="top:154px"><span>12:00</span></div><div class="hr" style="top:202px"><span>13:00</span></div><div class="hr" style="top:250px"><span>14:00</span></div><div class="hr" style="top:298px"><span>15:00</span></div><div class="hr" style="top:346px"><span>16:00</span></div><div class="hr" style="top:394px"><span>17:00</span></div>
+    <div class="lane"><div class="stick">今日中<b>2</b>/3</div><div class="vt">今日中のやること</div></div>
+    <div class="ev stock" style="top:30px;height:50px">📦 棚卸 9:25〜</div>
+    <div class="ev pause" style="top:82px;height:22px">中断 25分</div>
+    <div class="ev stock" style="top:106px;height:34px">📦 棚卸（続き）</div>
+    <div class="ev r task done" style="top:58px">10:00 野菜の検品</div>
+    <div class="ev r in" style="top:118px">11:15 入庫 2品目（山田）</div>
+    <div class="ev r task" style="top:178px">12:30 ランチ前の仕込み確認</div>
+    <div class="ev r plan" style="top:298px">15:00 発注の締切（A食品）</div>
+    <div class="ev r order" style="top:322px">15:10 発注 12品目</div>
+    <div class="now" style="top:262px"></div>
+  </div>
+  <div class="fab">＋</div>
+  <div class="navb"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span class="on"><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span><b>⚙</b>管理</span></div>
+</div></div>
+
+<!-- ③ 今日中の一覧 -->
+<div class="col"><div class="cap">③ 灰色の列を押す：今日中の一覧<small>その場で完了・直す（今の TaskRow と同じ）。ここからも追加できる（時刻なしで）</small></div>
+<div class="phone">
+  <div class="top">
+    <div class="views"><span>リスト</span><span>月</span><span class="on">1日</span></div>
+    <div class="datebar"><span class="nav">‹</span><span class="dt">10月12日（月）</span><span class="nav">›</span><span class="today">今日へ</span></div>
+    <div class="sum"><span class="t">やること <b>2/5</b></span><span>記録 <b>3</b></span><span>締切 <b>1</b></span></div>
+  </div>
+  <div class="tl"><div class="lane"><div class="stick">今日中<b>2</b>/3</div></div></div>
+  <div class="dim"><div class="sheet">
+    <div class="sheet-h">今日中のやること<small>残り 2 / 3</small></div>
+    <div class="tr"><span class="chk"></span><span class="tx"><b>製氷機のフィルター交換</b><small>担当 高木</small></span></div>
+    <div class="tr"><span class="chk"></span><span class="tx"><b>排水溝の清掃</b><small>誰でも</small></span></div>
+    <div class="tr dn"><span class="chk on">✓</span><span class="tx"><b>トイレットペーパー補充</b><small>佐藤さんが 10:40 に完了</small></span></div>
+    <div class="add">＋ 今日中のやることを追加</div>
+  </div></div>
+</div></div>
+
+<!-- ④ 日付選び -->
+<div class="col"><div class="cap">④ 日付を押す：月カレンダーで選ぶ<small>印のある日がひと目で分かる。月は ‹ › で戻れる。「今日」「昨日」「先週の同じ曜日」は一押し</small></div>
+<div class="phone">
+  <div class="top">
+    <div class="views"><span>リスト</span><span>月</span><span class="on">1日</span></div>
+    <div class="datebar"><span class="nav">‹</span><span class="dt">10月12日（月）</span><span class="nav">›</span><span class="today">今日へ</span></div>
+  </div>
+  <div class="tl"></div>
+  <div class="dim"><div class="sheet">
+    <div class="mh2"><span>‹</span>2026年10月<span>›</span></div>
+    <div class="mini">
+      <span class="w">日</span><span class="w">月</span><span class="w">火</span><span class="w">水</span><span class="w">木</span><span class="w">金</span><span class="w">土</span>
+      <span class="c o">27</span><span class="c o">28</span><span class="c o">29</span><span class="c o">30</span><span class="c">1<span class="dots"><i class="i-s"></i><i class="i-o"></i></span></span><span class="c">2<span class="dots"><i class="i-m"></i></span></span><span class="c">3</span>
+      <span class="c">4<span class="dots"><i class="i-t"></i></span></span><span class="c">5<span class="dots"><i class="i-o"></i></span></span><span class="c">6</span><span class="c">7<span class="dots"><i class="i-x"></i></span></span><span class="c">8<span class="dots"><i class="i-o"></i></span></span><span class="c">9<span class="dots"><i class="i-m"></i></span></span><span class="c">10<span class="dots"><i class="i-s"></i></span></span>
+      <span class="c">11</span><span class="c sel">12</span><span class="c td">13<span class="dots"><i class="i-t"></i></span></span><span class="c">14<span class="dots"><i class="i-t"></i></span></span><span class="c">15</span><span class="c">16<span class="dots"><i class="i-o"></i></span></span><span class="c">17</span>
+      <span class="c">18</span><span class="c">19</span><span class="c">20</span><span class="c">21</span><span class="c">22</span><span class="c">23</span><span class="c">24</span>
+    </div>
+    <div class="chips"><span>今日</span><span>昨日</span><span>先週の同じ曜日</span></div>
+  </div></div>
+</div></div>
+
+<!-- ⑤ 詳細 -->
+<div class="col"><div class="cap">⑤ 帯の出来事を押す：下に詳細<small>今の1日と同じ。記録の確認はここで（モーダル廃止の代わり）。棚卸は「詳細を見る」で今の棚卸の詳細へ</small></div>
+<div class="phone">
+  <div class="top">
+    <div class="views"><span>リスト</span><span>月</span><span class="on">1日</span></div>
+    <div class="datebar"><span class="nav">‹</span><span class="dt">10月12日（月）</span><span class="nav">›</span><span class="today">今日へ</span></div>
+    <div class="sum"><span class="t">やること <b>2/5</b></span><span>記録 <b>3</b></span><span>締切 <b>1</b></span></div>
+  </div>
+  <div class="tl"><div class="lane"><div class="stick">今日中<b>2</b>/3</div></div></div>
+  <div class="dim"><div class="sheet">
+    <div class="sheet-h">📦 棚卸 9:25〜10:40<small>作業 50分 ・ 中断 25分</small></div>
+    <div class="rec-l"><span>品目</span><b>214</b></div>
+    <div class="rec-l"><span>在庫金額</span><b>¥482,300</b></div>
+    <div class="rec-l"><span>数えた人</span><b>高木・山田</b></div>
+    <div class="btn">詳細を見る</div>
+  </div></div>
+</div></div>
+
+</div></body></html>
