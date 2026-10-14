@@ -178,7 +178,7 @@ describe('「誰が」を本人へ（段 2-2）', () => {
 
     // 画面が別の名前を送っても、本人の名前になる
     expect((await call(`/store/${code}/sessions`, 'POST', { type: 'stock', by: 'なりすまし', byId: 'dev-x' })).status).toBe(200)
-    // オーナーは端末名のまま
+    // オーナーは1人（ID 'owner'）。名前が未定なら最初に送った端末名で決まる（2026-10-14）
     expect((await call(`/store/${code}/sessions`, 'POST', { type: 'order', by: '厨房', byId: 'dev-1' }, owner)).status).toBe(200)
     const sessions = await (await call(`/store/${code}/sessions`, 'GET')).json()
     expect(sessions.map(s => s.startedBy).sort()).toEqual(['佐藤', '厨房'])
@@ -189,14 +189,15 @@ describe('「誰が」を本人へ（段 2-2）', () => {
 
     const task = { id: 't_' + 'a'.repeat(16), date: '2026-10-07', text: '冷蔵庫の掃除', createdBy: 'だれか', createdById: 'dev-x', updatedAt: '2026-10-07T01:00:00.000Z' }
     expect((await call(`/store/${code}/tasks`, 'POST', task)).status).toBe(200)
-    // オーナーが完了 → 完了した人は端末名。その後の日付の変更では完了した人は変わらない
+    // オーナーが完了 → 完了した人はオーナーの名前。完了したものは作った人でも直せない（2026-10-14）
     await call(`/store/${code}/tasks`, 'POST', { ...task, doneAt: '2026-10-07T02:00:00.000Z', doneBy: '厨房', doneById: 'dev-1', updatedAt: '2026-10-07T02:00:00.000Z' }, owner)
-    await call(`/store/${code}/tasks`, 'POST', { ...task, date: '2026-10-08', doneAt: '2026-10-07T02:00:00.000Z', updatedAt: '2026-10-07T03:00:00.000Z' })
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...task, date: '2026-10-08', doneAt: '2026-10-07T02:00:00.000Z', updatedAt: '2026-10-07T03:00:00.000Z' })).status).toBe(403)
     let [t] = await (await call(`/store/${code}/tasks`, 'GET')).json()
     expect(t.createdBy).toBe('佐藤')
     expect(t.createdById).toBe(staffId)
     expect(t.doneBy).toBe('厨房')
-    expect(t.date).toBe('2026-10-08')
+    expect(t.doneById).toBe('owner')
+    expect(t.date).toBe('2026-10-07')
 
     await call(`/store/${code}/movements`, 'POST', { type: 'in', date: '2026-10-07', by: 'なりすまし', lines: [{ item: 'トマト', qty: 1, unit: '個' }] })
 
@@ -222,7 +223,8 @@ describe('やることの担当（段 2-4）', () => {
     }), env, { waitUntil() {} })
 
     const names = await (await call(`/store/${code}/staff/names`, 'GET', null, a.token)).json()
-    expect(names.staff.map(x => x.name)).toEqual(['山田', '佐藤'])
+    expect(names.staff.map(x => x.name)).toEqual(['オーナー', '山田', '佐藤'])   // オーナーも担当に入れられる（先頭）
+    expect(names.staff[0]).toMatchObject({ id: 'owner', owner: true })
 
     const task = { id: 't_all1', date: '2026-10-07', text: '手洗いの確認', assign: 'all', updatedAt: '2026-10-07T01:00:00.000Z' }
     expect((await call(`/store/${code}/tasks`, 'POST', task, b.token)).status).toBe(200)
@@ -244,7 +246,7 @@ describe('やることの担当（段 2-4）', () => {
     expect(t.doneList.map(x => x.name)).toEqual(['佐藤'])
     expect(t.doneAt).toBeNull()
 
-    // アルバイトは担当を変えられない（作る権限が無い）。社員は変えられる
+    // アルバイトは担当を変えられない（作った人でも管理者でもない）。作った社員は変えられる
     // 印はサーバーの今の時刻で updated_at を進めるので、この後の変更はそれより新しい時刻で送る
     const later = m => new Date(Date.now() + m * 60000).toISOString()
     const person = { ...task, assign: 'person', assigneeId: a.staffId, assigneeName: '山田', updatedAt: later(1) }
@@ -271,14 +273,14 @@ describe('ログイン中と作業の記録（段 2-5）', () => {
       body: body ? JSON.stringify(body) : undefined,
     }), env, { waitUntil() {} })
 
-    // ルーター経由: スタッフは本人、オーナーは端末名
+    // ルーター経由: スタッフは本人、オーナーは1人（ID 'owner'・名前は最初の端末名）
     expect((await call(`/store/${code}/presence`, 'POST', { by: 'x', byId: 'y' }, a.token)).status).toBe(200)
     expect((await call(`/store/${code}/presence`, 'POST', { by: '厨房', byId: 'dev-1' }, owner)).status).toBe(200)
     expect((await call(`/store/${code}/presence`, 'GET', null, a.token)).status).toBe(403)
     const r = await (await call(`/store/${code}/presence`, 'GET', null, owner)).json()
     const yamada = r.people.find(p => p.id === a.staffId)
     expect(yamada).toMatchObject({ name: '山田', online: true })
-    expect(r.people.find(p => p.id === 'dev-1')).toMatchObject({ name: '厨房', owner: true, online: true })
+    expect(r.people.find(p => p.id === 'owner')).toMatchObject({ name: '厨房', owner: true, online: true })
 
     // 閉じた知らせでオフライン。5分以内にまた開けば同じ1回、それより空けば別の1回
     const t0 = Date.parse('2026-10-07T09:00:00.000Z')
@@ -338,16 +340,122 @@ describe('やることの時刻・直す・担当の通知先（TODO 本格化 A
     expect((await call(`/store/${code}/tasks`, 'POST', { ...task, dueTime: null, doneAt: later(3), updatedAt: later(3) }, a.token)).status).toBe(200)
     expect((await get()).doneBy).toBe('山田')
 
-    // 通知の購読: スタッフはトークンの本人、オーナーは送った端末 ID
+    // 通知の購読: スタッフはトークンの本人、オーナーは 'owner'（どの端末でも）
     const sub = (ep, byId) => ({ endpoint: `https://fcm.googleapis.com/fcm/send/${ep}`, keys: { p256dh: 'B' + 'A'.repeat(86), auth: 'A'.repeat(22) }, byId })
     const r1 = await call(`/store/${code}/push/subscribe`, 'POST', sub('a1', 'なりすまし'), a.token)
     const r2 = await call(`/store/${code}/push/subscribe`, 'POST', sub('o1', 'dev-owner'), owner)
     const rows = sqlite.prepare('SELECT endpoint, actor_id FROM push_subscriptions ORDER BY endpoint').all()
     if (r1.status === 200) {
       expect(rows.find(r => r.endpoint.endsWith('a1')).actor_id).toBe(a.staffId)
-      expect(rows.find(r => r.endpoint.endsWith('o1')).actor_id).toBe('dev-owner')
+      expect(rows.find(r => r.endpoint.endsWith('o1')).actor_id).toBe('owner')
     } else {
       throw new Error(`subscribe failed ${r1.status} ${await r1.text()} / ${r2.status}`)
     }
+  })
+})
+
+describe('オーナーを1人にまとめる（User決定 2026-10-14）', () => {
+  it('端末 ID で記録したオーナーの「誰が」を初回に owner へ寄せ、名前は店に1つ。名前を変えると過去の記録もそろう', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const call = (path, method, body, tok = owner) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    // 以前の Worker が書いた記録（オーナーのスマホ・PC の端末 ID と、スタッフ）
+    const ins = sqlite.prepare(`INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, updated_at, assign_mode, done_list_json)
+      VALUES (?, ?, '2026-10-01', ?, ?, ?, '2026-10-01T00:00:00Z', ?, ?, ?, '2026-10-01T00:00:00Z', ?, ?)`)
+    ins.run('t_old1', code, 'スマホで作った', '無才', 'dev-phone', '2026-10-01T01:00:00Z', 'PC', 'dev-pc', 'anyone', null)
+    ins.run('t_old2', code, 'スタッフが作った', '山田', a.staffId, null, null, null, 'all',
+      JSON.stringify([{ id: 'dev-phone', name: '無才', at: 'x' }, { id: 'dev-pc', name: 'PC', at: 'y' }, { id: a.staffId, name: '山田', at: 'z' }]))
+    sqlite.prepare("INSERT INTO work_sessions (id, shop_code, actor_id, staff_id, name, started_at, last_seen_at) VALUES ('w1', ?, 'dev-pc', NULL, 'PC', '2026-10-13T00:00:00Z', '2026-10-13T00:10:00Z')").run(code)
+
+    // オーナーの最初のアクセスで寄せる。名前は送った端末名
+    expect((await call(`/store/${code}/presence`, 'POST', { by: '無才', byId: 'dev-phone' })).status).toBe(200)
+    const tasks = await (await call(`/store/${code}/tasks`, 'GET')).json()
+    const t1 = tasks.find(t => t.id === 't_old1'), t2 = tasks.find(t => t.id === 't_old2')
+    expect(t1).toMatchObject({ createdById: 'owner', createdBy: '無才', doneById: 'owner', doneBy: '無才' })
+    expect(t2.createdById).toBe(a.staffId)
+    expect(t2.doneList.map(x => x.id)).toEqual(['owner', a.staffId])   // 端末ごとの印は1つに
+    expect((await (await call('/auth/me', 'GET')).json()).owner).toEqual({ id: 'owner', name: '無才' })
+    const pres = await (await call(`/store/${code}/presence`, 'GET')).json()
+    expect(pres.people.filter(p => p.owner)).toHaveLength(1)
+
+    // 名前を変えられるのはオーナーだけ。変えると過去の記録・担当の名前もそろう
+    expect((await call(`/store/${code}/owner-name`, 'PUT', { name: '店長' }, a.token)).status).toBe(403)
+    expect((await call(`/store/${code}/owner-name`, 'PUT', { name: '山田' })).status).toBe(409)   // スタッフと同じ名前は不可
+    expect((await call(`/store/${code}/owner-name`, 'PUT', { name: '店長' })).status).toBe(200)
+    const after = await (await call(`/store/${code}/tasks`, 'GET')).json()
+    expect(after.find(t => t.id === 't_old1')).toMatchObject({ createdBy: '店長', doneBy: '店長' })
+    expect(after.find(t => t.id === 't_old2').doneList[0].name).toBe('店長')
+    const names = await (await call(`/store/${code}/staff/names`, 'GET', null, a.token)).json()
+    expect(names.staff[0]).toMatchObject({ id: 'owner', name: '店長' })
+  })
+})
+
+describe('やることの権限（User決定 2026-10-14）', () => {
+  async function setup() {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const b = await joinAndApprove('佐藤', 'shain')
+    const c = await joinAndApprove('鈴木', 'shain')
+    const call = (path, method, body, tok) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    let n = 0
+    const later = () => new Date(Date.now() + (++n) * 1000).toISOString()
+    const get = async id => (await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json()).find(t => t.id === id)
+    const post = (t, tok) => call(`/store/${code}/tasks`, 'POST', { ...t, updatedAt: later() }, tok)
+    return { a, b, c, call, later, get, post }
+  }
+
+  it('直す・消すのは未完了の間だけ、作った人と管理者。他の社員は他人のものを消せない。完了したものは誰も消せない', async () => {
+    const { a, b, c, get, post, later } = await setup()
+    const t = { id: 't_r1', date: '2026-10-14', text: '霜取り' }
+    expect((await post(t, b.token)).status).toBe(200)
+    expect((await post({ ...t, text: '霜取り（冷凍庫）' }, c.token)).status).toBe(403)   // 他の社員は直せない
+    expect((await post({ ...t, deletedAt: later() }, c.token)).status).toBe(403)         // 他の社員は消せない
+    expect((await post({ ...t, text: '霜取り（冷凍庫）' }, b.token)).status).toBe(200)  // 作った人は直せる
+    expect((await post({ ...t, text: '霜取り（冷凍庫）', dueTime: '10:00' }, owner)).status).toBe(200)   // 管理者も
+    // 完了したら固める（作った人・管理者でも直せない・消せない）
+    expect((await post({ ...t, text: '霜取り（冷凍庫）', dueTime: '10:00', doneAt: later() }, a.token)).status).toBe(200)
+    expect((await post({ ...t, text: 'x', dueTime: '10:00', doneAt: later() }, b.token)).status).toBe(403)
+    expect((await post({ ...t, text: '霜取り（冷凍庫）', dueTime: '10:00', doneAt: later(), deletedAt: later() }, owner)).status).toBe(403)
+    expect((await get('t_r1')).deletedAt).toBeNull()
+  })
+
+  it('完了は担当の人（管理者は代わりに）。取り消しは完了した本人がその日のうち、ほかは管理者。その日の付け直しは元の時刻', async () => {
+    const { a, b, c, get, post } = await setup()
+    const t = { id: 't_r2', date: '2026-10-14', text: '検品', assign: 'person', assigneeId: a.staffId, assigneeName: '山田' }
+    expect((await post(t, b.token)).status).toBe(200)
+    expect((await post({ ...t, doneAt: new Date().toISOString() }, c.token)).status).toBe(403)   // 担当でない
+    expect((await post({ ...t, doneAt: new Date().toISOString() }, a.token)).status).toBe(200)
+    const first = (await get('t_r2')).doneAt
+    expect((await post({ ...t, doneAt: null }, b.token)).status).toBe(403)   // 完了した本人でも管理者でもない
+    expect((await post({ ...t, doneAt: null }, a.token)).status).toBe(200)   // 本人・その日のうち
+    expect((await get('t_r2')).prevDoneAt).toBe(first)
+    await new Promise(r => setTimeout(r, 5))
+    expect((await post({ ...t, doneAt: new Date().toISOString() }, a.token)).status).toBe(200)
+    expect((await get('t_r2')).doneAt).toBe(first)                            // 付け直しは元の時刻
+    // 前の日の完了は本人でも取り消せない。管理者は差し戻せる（元の時刻は残さない）
+    sqlite.prepare("UPDATE tasks SET done_at = '2026-10-01T03:00:00.000Z' WHERE id = 't_r2'").run()
+    expect((await post({ ...t, doneAt: null }, a.token)).status).toBe(403)
+    expect((await post({ ...t, doneAt: null }, owner)).status).toBe(200)
+    expect((await get('t_r2')).prevDoneAt).toBeNull()
+  })
+
+  it('「全員」の自分の印は付けた日のうちだけ外せる', async () => {
+    const { a, b, call, get, post } = await setup()
+    const t = { id: 't_r3', date: '2026-10-14', text: '手洗い', assign: 'all' }
+    expect((await post(t, b.token)).status).toBe(200)
+    await call(`/store/${code}/tasks/t_r3/mark`, 'POST', { done: true }, a.token)
+    expect((await call(`/store/${code}/tasks/t_r3/mark`, 'POST', { done: false }, a.token)).status).toBe(200)
+    await call(`/store/${code}/tasks/t_r3/mark`, 'POST', { done: true }, a.token)
+    const list = (await get('t_r3')).doneList.map(x => ({ ...x, at: '2026-10-01T00:00:00.000Z' }))
+    sqlite.prepare('UPDATE tasks SET done_list_json = ? WHERE id = ?').run(JSON.stringify(list), 't_r3')
+    expect((await call(`/store/${code}/tasks/t_r3/mark`, 'POST', { done: false }, a.token)).status).toBe(403)
   })
 })

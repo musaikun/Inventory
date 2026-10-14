@@ -26,7 +26,7 @@ describe('やることの行・1日の締切', () => {
     expect(host.querySelector('.jd-sum').textContent).toContain('締切 1')
   })
 
-  it('完了・消す・文面を押して直す。他の端末の追加には名前が出る', async () => {
+  it('完了・消す・文面を押して直す（完了したものは直せない・消せない）。他の端末の追加には名前が出る', async () => {
     const T = await import('../composables/useTasks.js')
     T.applyRemoteTasks([{ id: 'x', date: '2026-10-05', text: '業者の点検', createdBy: '山田', createdById: 'other', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }])
     const mine = T.addTask('2026-10-05', '野菜の検品', null, '11:00')
@@ -37,8 +37,6 @@ describe('やることの行・1日の締切', () => {
     app = createApp({ render: () => list.ids.map(id => T.tasksOn('2026-10-05').find(t => t.id === id)).filter(Boolean).map(t => h(TaskRow, { task: t, key: t.id })) })
     app.mount(host); await tick()
     expect(host.textContent).toContain('山田さんが追加')
-    await click(host.querySelectorAll('.tr-chk')[1])
-    expect(host.querySelectorAll('.tr.done').length).toBe(1)
     await click(host.querySelectorAll('.tr-tx')[1])
     const form = host.querySelector('.tr-edit')
     const text = form.querySelector('input[type=text]')
@@ -47,9 +45,14 @@ describe('やることの行・1日の締切', () => {
     time.value = '14:00'; time.dispatchEvent(new Event('input')); await tick()
     form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()
     expect(T.tasksOn('2026-10-05').find(t => t.id === mine.id)).toMatchObject({ text: '野菜の検品（午後）', dueTime: '14:00' })
-    const dels = host.querySelectorAll('.tr-del')
-    await click(dels[dels.length - 1])
-    expect(T.tasksOn('2026-10-05').map(t => t.id)).toEqual(['x'])
+    // 完了したら固める: 直す・消すのボタンは出さない
+    await click(host.querySelectorAll('.tr-chk')[1])
+    expect(host.querySelectorAll('.tr.done').length).toBe(1)
+    expect(host.querySelectorAll('.tr')[1].querySelector('.tr-del')).toBeNull()
+    expect(host.querySelectorAll('.tr')[1].querySelector('button.tr-tx')).toBeNull()
+    // 未完了のもの（他の端末が作ったもの）はオーナー＝管理者なので消せる
+    await click(host.querySelectorAll('.tr')[0].querySelector('.tr-del'))
+    expect(T.tasksOn('2026-10-05').map(t => t.id)).toEqual([mine.id])
   })
 })
 

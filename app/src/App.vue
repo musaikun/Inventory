@@ -425,6 +425,7 @@ async function _pullAccountConfig() {
 // 認証後にセッション一覧へ
 async function onAuthDone() {
   currentView.value = 'sessions'
+  refreshMe()   // 役割・オーナーの名前（店に1つ）を取り直す
   // 401 で止めていた再送を解除する（DATA-001 §2）。送るのは現在の店舗ぶんだけなので、
   // 別店舗へログインした場合に旧店舗の未送信データは送られない。
   // 別アカウントなら useAuth の accountReset が先に旧店舗ぶんを破棄している。

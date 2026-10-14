@@ -24,7 +24,7 @@ export const PERMS = {
   sort:             '並び替え（振り分け）',
   orderSettings:    '発注日・締切・発注点',
   'task.create':    'やることを作る',
-  'task.deleteOthers': '他の人のやることを消す',
+  'task.deleteOthers': '他の人のやることを消す（管理者だけ。User決定 2026-10-14）',
   money:            '金額（単価・在庫金額・レポート）を見る',
   staff:            'スタッフの管理',
   monitor:          'ログイン中・作業時間などの見守り',
@@ -32,7 +32,7 @@ export const PERMS = {
 
 const ARBEIT = ['count', 'order.draft', 'move', 'item.add', 'task.complete']
 const SHAIN = [...ARBEIT, 'stock.start', 'stock.finish', 'stock.discard', 'order.start', 'order.finish',
-  'item.edit', 'task.create', 'task.deleteOthers', 'money']
+  'item.edit', 'task.create', 'money']
 const BASE = {
   arbeit: new Set(ARBEIT),
   shain:  new Set(SHAIN),

@@ -22,6 +22,8 @@ import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPu
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
+import { OWNER_ID, ensureOwnerUnified, setOwnerName } from './ownerHandler.js'
+import { taskWriteCheck } from './taskWrite.js'
 import { configChangePerms } from './configGuard.js'
 import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
@@ -120,9 +122,14 @@ async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
  */
 async function _actor(db, request, code, body) {
   const ctx = await authContext(db, request)
-  if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true }
+  if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true, admin: ctx.isAdmin, ctx }
   const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '')
-  return { name: str(body?.by, 40), id: str(body?.byId, 64), staff: false }
+  // オーナーはどの端末でも ID 'owner'（User決定 2026-10-14）。初回は既存の記録を寄せ、名前が無ければ端末名で決める
+  if (ctx && ctx.shopCode === code) {
+    const name = ctx.name || await ensureOwnerUnified(db, code, str(body?.by, 40))
+    return { name, id: OWNER_ID, staff: false, admin: true, ctx }
+  }
+  return { name: str(body?.by, 40), id: str(body?.byId, 64), staff: false, admin: false, ctx: null }
 }
 /**
  * 金額（単価・小計・在庫金額）を見られるか（段 2-3 の money）。オーナー・管理者・社員は見られる。
@@ -489,7 +496,22 @@ export default {
           if (deny) return deny
           const rows = (await env.DB.prepare("SELECT id, name FROM staff WHERE shop_code = ? AND status = 'active' ORDER BY created_at")
             .bind(code).all()).results ?? []
-          return jsonResponse({ staff: rows.map(r => ({ id: r.id, name: r.name })) }, 200, origin, allowedOrigin)
+          // オーナーも担当に入れられる（先頭。User決定 2026-10-14）
+          const ownerName = (await env.DB.prepare('SELECT owner_name FROM stores WHERE shop_code = ?').bind(code).first().catch(() => null))?.owner_name
+          const people = [{ id: OWNER_ID, name: ownerName || 'オーナー', owner: true }, ...rows.map(r => ({ id: r.id, name: r.name }))]
+          return jsonResponse({ staff: people }, 200, origin, allowedOrigin)
+        }
+        // PUT /store/:code/owner-name { name } … オーナーの名前を変える（オーナー本人だけ。過去の記録の名前もそろえる）
+        if (subpath === '/owner-name' && request.method === 'PUT') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const ctx = await authContext(env.DB, request)
+          if (!ctx || ctx.shopCode !== code || ctx.role !== 'owner') {
+            return jsonResponse({ code: 'forbidden', error: 'オーナーの名前はオーナーだけが変えられます' }, 403, origin, allowedOrigin)
+          }
+          const body = await request.json().catch(() => ({}))
+          await ensureOwnerUnified(env.DB, code, body?.name)
+          return resultResponse(await setOwnerName(env.DB, code, body?.name), origin, allowedOrigin)
         }
         if (subpath === '/staff' && request.method === 'GET') {
           return resultResponse(await handleStaffList(env.DB, request, code), origin, allowedOrigin)
@@ -577,27 +599,28 @@ export default {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
-          // 新しく作る・消すは「やることを作る」権限。完了の印だけなら誰でも
           const prevTask = typeof body?.id === 'string'
-            ? await env.DB.prepare('SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time FROM tasks WHERE id = ? AND shop_code = ?').bind(body.id, code).first()
+            ? await env.DB.prepare(`SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time, created_by_id, done_at, done_by_id,
+                prev_done_at, prev_done_by_id FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
             : null
-          // 担当を変えるのも「作る」側の操作（段 2-4）
-          const assignChanged = prevTask && ((prevTask.assign_mode ?? 'anyone') !== (body?.assign ?? 'anyone')
-            || (body?.assign === 'person' && (prevTask.assignee_id ?? '') !== (body?.assigneeId ?? '')))
-          // 文面・日付・時刻を直すのも「作る」側（TODO 本格化 A）
-          const edited = prevTask && ((prevTask.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
-            || (prevTask.task_date ?? '') !== (body?.date ?? '') || (prevTask.due_time ?? null) !== (body?.dueTime || null))
-          if (!prevTask || (body?.deletedAt && !prevTask.deleted_at) || assignChanged || edited) {
+          // 誰が（スタッフは本人・オーナーは 'owner'）。作った人・完了した人はサーバーが刻む
+          const who = await _actor(env.DB, request, code, { by: body?.createdBy })
+          let keepPrev = null
+          if (!prevTask) {
+            // 新しく作るのは「やることを作る」権限
             const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
             if (denyP) return denyP
+          } else {
+            const r = taskWriteCheck(prevTask, body, who, ctxCan)
+            if (r.stale) return resultResponse({ ok: true, created: false, stale: true }, origin, allowedOrigin)
+            if (r.deny) return jsonResponse({ code: 'task_forbidden', error: r.deny }, 403, origin, allowedOrigin)
+            keepPrev = r.keepPrev
           }
-          // スタッフは本人の名前で刻む（作った人・完了した人）
-          const who = await _actor(env.DB, request, code, {})
-          if (who.staff && body && typeof body === 'object') {
-            body.createdBy = who.name; body.createdById = who.id
-            if (body.doneAt) { body.doneBy = who.name; body.doneById = who.id }
+          if (who.ctx && body && typeof body === 'object') {
+            if (!prevTask) { body.createdBy = who.name; body.createdById = who.id }
+            if (body.doneAt && !prevTask?.done_at) { body.doneBy = who.name; body.doneById = who.id }
           }
-          const result = await handleTaskUpsert(env.DB, code, body)
+          const result = await handleTaskUpsert(env.DB, code, body, keepPrev)
           // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
           const except = typeof body.pushEndpoint === 'string' ? body.pushEndpoint : ''
           if (result?.created && result.task) {
@@ -624,7 +647,7 @@ export default {
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
           const who = await _actor(env.DB, request, code, body)
-          return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done), origin, allowedOrigin)
+          return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション（要認証）

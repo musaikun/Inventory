@@ -2,17 +2,19 @@
 /**
  * 済みのやること1件の行（日誌のリスト「済み」。モック docs/mocks/task-report.html ①）。
  * - 誰が・いつ完了したか、期限内か何日遅れか。「全員」は何人そろったか
- * - ✓ を外すと未完了に戻る（「全員」は自分が印を付けたときだけ外せる）
+ * - ✓ を外すと未完了に戻る。外せるのは完了した人がその日のうち、それ以降は管理者（User決定 2026-10-14）。
+ *   「全員」は自分の印を付けた日のうちだけ
  */
 import { computed } from 'vue'
-import { toggleTask, isMarkedByMe, doneLateness } from '../composables/useTasks.js'
+import { toggleTask, doneLateness, canToggleTask, toggleDenyReason, isMarkedByMe } from '../composables/useTasks.js'
 import { staffNames } from '../composables/useAuth.js'
-import { actorId } from '../composables/useDeviceId.js'
+import { isMeId } from '../composables/useDeviceId.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
 const t = computed(() => props.task)
 
-const canUndo = computed(() => t.value.assign !== 'all' || isMarkedByMe(t.value))
+// 「全員」は自分が印を付けたものだけ（付けていない人が押すと印を足すことになる）
+const canUndo = computed(() => (t.value.assign !== 'all' || isMarkedByMe(t.value)) && canToggleTask(t.value))
 const hm = iso => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 const md = d => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}` }
 const lateness = computed(() => doneLateness(t.value))
@@ -21,10 +23,10 @@ const note = computed(() => {
   const x = t.value
   if (x.assign === 'all') {
     const names = (x.doneList || []).map(y => y.name).filter(Boolean)
-    const need = Math.max(staffNames.value.length, names.length, 1)
+    const need = Math.max(staffNames.value.filter(p => !p.owner).length, names.length, 1)
     return `全員 ${names.length}/${need}人${names.length ? `（${names.join('・')}）` : ''}`
   }
-  const who = x.doneById && x.doneById === actorId() ? 'あなた' : `${x.doneBy || 'だれか'}さん`
+  const who = isMeId(x.doneById) ? 'あなた' : `${x.doneBy || 'だれか'}さん`
   const due = x.dueTime || lateness.value?.late ? ` ・ 期限 ${md(x.date)}${x.dueTime ? ` ${x.dueTime}` : ''}` : ''
   return `${who}が ${hm(x.doneAt)} に完了${due}`
 })
@@ -39,6 +41,7 @@ const tag = computed(() => {
   <div class="dt">
     <button
       type="button" class="dt-chk" aria-pressed="true" :disabled="!canUndo"
+      :title="toggleDenyReason(t) || undefined"
       :aria-label="canUndo ? `${t.text}を未完了に戻す` : `${t.text}は完了`" @click="toggleTask(t.id)"
     >✓</button>
     <span class="dt-tx"><b>{{ t.text }}</b><small>{{ note }}</small></span>

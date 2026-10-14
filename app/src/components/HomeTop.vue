@@ -10,7 +10,7 @@
 import { computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
 import { currentStaff, storeName, canSeeMoney } from '../composables/useAuth.js'
-import { storedDeviceName } from '../composables/useDeviceId.js'
+import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
@@ -42,7 +42,7 @@ const hello = (() => {
   if (h >= 11 && h < 17) return 'こんにちは'
   return 'おつかれさまです'
 })()
-const who = computed(() => currentStaff.value?.name || storedDeviceName.value || '')
+const who = computed(() => deviceName.value || '')
 
 const { state: weatherState } = useWeather()
 const today = localDateKey()

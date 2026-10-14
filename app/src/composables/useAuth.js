@@ -3,7 +3,7 @@ import { shopCode } from './useStore.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { apiFetch as _api } from '../utils/api.js'
 import { can as canFor, PERMS } from '../services/permissions.js'
-import { setStaffIdentity, deviceName, actorId } from './useDeviceId.js'
+import { setStaffIdentity, setOwnerIdentity, deviceName, actorId } from './useDeviceId.js'
 
 // ── モジュールスコープ シングルトン ───────────────────────────────────────────
 const _token     = ref(localStorage.getItem(STORAGE_KEYS.authToken)     ?? null)
@@ -11,6 +11,8 @@ const _storeName = ref(localStorage.getItem(STORAGE_KEYS.authStoreName) ?? null)
 // スタッフとしてログインしているとき { id, name, role }。null ならオーナー（今の店舗ログイン）
 function _readStaff() { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.authStaff) || 'null') } catch (_) { return null } }
 const _staff = ref(_readStaff())
+// オーナーの名前（店に1つ・どの端末でも同じ。User決定 2026-10-14）。サーバーで決まるまでは ''
+const _ownerName = ref(localStorage.getItem(STORAGE_KEYS.authOwnerName) ?? '')
 
 export const authToken       = computed(() => _token.value)
 export const storeName       = computed(() => _storeName.value)
@@ -18,6 +20,19 @@ export const isAuthenticated = computed(() => !!_token.value)
 /** スタッフとしてのログイン（無ければ null＝オーナー） */
 // 記録の「誰が」を本人の名前にする（段 2-2。オーナーは端末名のまま）
 watch(_staff, s => setStaffIdentity(s), { immediate: true })
+// オーナー（ログイン中・スタッフでない）は ID 'owner' の1人
+watch([_token, _staff, _ownerName], ([tok, st, name]) => setOwnerIdentity(tok && !st ? { name } : null), { immediate: true })
+export const ownerName = computed(() => _ownerName.value)
+function _setOwnerName(n) {
+  _ownerName.value = n || ''
+  try { if (n) localStorage.setItem(STORAGE_KEYS.authOwnerName, n); else localStorage.removeItem(STORAGE_KEYS.authOwnerName) } catch (_) {}
+}
+/** オーナーの名前を変える（オーナーだけ・管理画面）。過去の記録の名前もサーバーでそろえる */
+export async function updateOwnerName(name) {
+  const r = await _api(`/store/${shopCode.value}/owner-name`, { method: 'PUT', body: JSON.stringify({ name }) })
+  if (r?.name) { _setOwnerName(r.name); _namesAt = 0 }
+  return r
+}
 export const currentStaff    = computed(() => _staff.value)
 /** 役割: 'owner' | 'admin' | 'shain' | 'arbeit' */
 export const currentRole     = computed(() => (_staff.value ? _staff.value.role : 'owner'))
@@ -40,6 +55,7 @@ export async function refreshMe() {
   try {
     const me = await _api('/auth/me')
     if (me?.staff) { _staff.value = me.staff; localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(me.staff)) }
+    if (me?.owner) _setOwnerName(me.owner.name || '')
   } catch (_) { /* 失効は api.js の 401 で扱う */ }
 }
 
@@ -73,6 +89,7 @@ function _ensureAccountData(code) {
 
 function _setAuth(token, code, name, staff = null) {
   _ensureAccountData(code)   // 別アカウントへ切り替わるなら先にローカルを掃除する
+  _setOwnerName('')          // オーナーの名前は refreshMe で取り直す
   _staff.value     = staff
   if (staff) localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(staff))
   else localStorage.removeItem(STORAGE_KEYS.authStaff)
@@ -85,6 +102,7 @@ function _setAuth(token, code, name, staff = null) {
 }
 
 function _clearAuth() {
+  _setOwnerName('')
   _staff.value     = null
   localStorage.removeItem(STORAGE_KEYS.authStaff)
   _token.value     = null

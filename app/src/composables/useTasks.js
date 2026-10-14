@@ -15,7 +15,9 @@
 import { reactive, ref, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { localDateKey } from '../utils/localDate.js'
-import { deviceName, actorId } from './useDeviceId.js'
+import { deviceName, actorId, isMeId } from './useDeviceId.js'
+import { isAdmin, can } from './useAuth.js'
+import * as R from '../services/taskRights.js'
 import { loadTasksFromD1, saveTaskToD1, markTaskInD1 } from './useStore.js'
 import { ownPushEndpoint } from './usePush.js'
 
@@ -161,22 +163,45 @@ function _patch(id, fields) {
   _send({ ...t })
   return t
 }
+// ── 権限（User決定 2026-10-14・規則は services/taskRights.js。サーバーも同じ規則で確かめる）──
+const _dayLocal = iso => (iso ? localDateKey(new Date(iso)) : '')
+function _me() { return { id: actorId(), admin: isAdmin.value, canCreate: can('task.create') } }
+/** 完了の印を押せるか（未完了なら付ける、完了なら取り消す。「全員」は自分の印） */
+export function canToggleTask(t) {
+  if (!t || t.deletedAt) return false
+  if (t.assign === 'all') return isMarkedByMe(t) ? R.canUnmark({ doneList: (t.doneList || []).map(x => (isMeId(x.id) ? { ...x, id: actorId() } : x)) }, _me(), localDateKey(), _dayLocal) : true
+  return t.doneAt ? R.canUndo(t, _me(), localDateKey(), _dayLocal) : R.canComplete(t, _me())
+}
+/** 文面・日付・時刻・担当を直せるか（未完了の間だけ、作った人と管理者） */
+export function canEditTask(t) { return R.canEdit(t, _me()) }
+/** 消せるか（未完了の間だけ、作った人と管理者。完了したものは誰も消せない） */
+export function canRemoveTask(t) { return R.canRemove(t, _me()) }
+/** 押せないときの一言 */
+export function toggleDenyReason(t) {
+  if (!t || canToggleTask(t)) return ''
+  if (t.assign === 'all' || t.doneAt) return '完了を取り消せるのは、完了した人がその日のうちだけです（それ以降は管理者）'
+  return '担当の人だけが完了にできます'
+}
+
 export function toggleTask(id) {
   const t = _data.list.find(x => x.id === id)
-  if (!t) return null
+  if (!t || !canToggleTask(t)) return null
   if (t.assign === 'all') { markTask(t); return t }
-  return _patch(id, t.doneAt ? { doneAt: null, doneBy: null, doneById: null } : { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
+  const me = _me()
+  if (t.doneAt) return _patch(id, { doneAt: null, doneBy: null, doneById: null, ...R.undoKeep(t, me) })
+  // その日のうちに取り消した本人が付け直したら、元の完了時刻に戻す
+  return _patch(id, { doneAt: R.redoDoneAt(t, me, _now(), localDateKey(), _dayLocal), doneBy: deviceName.value || '', doneById: me.id, prevDoneAt: null, prevDoneById: null })
 }
 
 /** 「全員」のやることで、自分が印を付けたか */
-export function isMarkedByMe(t) { return !!t?.doneList?.some(x => x.id === actorId()) }
+export function isMarkedByMe(t) { return !!t?.doneList?.some(x => isMeId(x.id)) }
 
 /** 「全員」の印を付ける・外す。まず画面に出し、サーバーの結果（完了したか）で揃える。届かなければ戻す */
 async function markTask(t) {
   const before = [...(t.doneList || [])]
   const done = !isMarkedByMe(t)
   const me = actorId()
-  t.doneList = done ? [...before.filter(x => x.id !== me), { id: me, name: deviceName.value || '', at: _now() }] : before.filter(x => x.id !== me)
+  t.doneList = done ? [...before.filter(x => !isMeId(x.id)), { id: me, name: deviceName.value || '', at: _now() }] : before.filter(x => !isMeId(x.id))
   _persist()
   try {
     const r = await markTaskInD1(t.id, done, deviceName.value || '', me)
@@ -191,7 +216,7 @@ async function markTask(t) {
 /** 文面・日付・時刻を直す（作る権限のある人。TODO 本格化 A）。日付を変えると別の日へ移る */
 export function editTask(id, { text, date, dueTime } = {}) {
   const t = _data.list.find(x => x.id === id)
-  if (!t) return null
+  if (!t || !canEditTask(t)) return null
   const fields = {}
   if (text !== undefined) {
     const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
@@ -208,8 +233,14 @@ export function editTask(id, { text, date, dueTime } = {}) {
 }
 
 /** 担当を変える（作る権限のある人。段 2-4） */
-export function setTaskAssign(id, assign) { return _patch(id, _assignFields(assign)) }
-export function removeTask(id) { return _patch(id, { deletedAt: _now() }) }
+export function setTaskAssign(id, assign) {
+  const t = _data.list.find(x => x.id === id)
+  return t && canEditTask(t) ? _patch(id, _assignFields(assign)) : null
+}
+export function removeTask(id) {
+  const t = _data.list.find(x => x.id === id)
+  return t && canRemoveTask(t) ? _patch(id, { deletedAt: _now() }) : null
+}
 
 /** サーバーの一覧を取り込む（同じ1件は updatedAt の新しい方） */
 export function applyRemoteTasks(remote) {
@@ -244,7 +275,7 @@ export const newTasks = computed(() => {
   const seen = _seenAt.value
   if (!seen) return []
   return _data.list
-    .filter(t => _alive(t) && t.createdById !== actorId() && (t.createdAt || '') > seen)
+    .filter(t => _alive(t) && !isMeId(t.createdById) && (t.createdAt || '') > seen)
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
 })
 export function isNewTask(t) { return newTasks.value.some(x => x.id === t.id) }
@@ -260,9 +291,9 @@ export const todayOpenCount = computed(() => {
   return _data.list.filter(t => t.date && t.date <= today && _alive(t) && !t.doneAt).length   // 期限切れも含める
 })
 
-export function isMyTask(t) { return !!t && t.createdById === actorId() }
+export function isMyTask(t) { return !!t && isMeId(t.createdById) }
 /** 自分が担当のやること（特定の人で自分） */
-export function isAssignedToMe(t) { return t?.assign === 'person' && t.assigneeId === actorId() }
+export function isAssignedToMe(t) { return t?.assign === 'person' && isMeId(t.assigneeId) }
 
 // テスト用：保存先から読み直す
 export function _reloadTasks() { _load() }

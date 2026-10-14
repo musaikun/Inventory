@@ -1,0 +1,55 @@
+// やることの書き込みを、今の1件と見比べて確かめる（User決定 2026-10-14・規則は taskRights.js）。
+// 画面で押せなくしているだけでは、古い端末や画面を通らない書き込みを止められないので、サーバーでも同じ規則で見る。
+import { canComplete, canUndo, canEdit, canRemove, redoDoneAt, undoKeep } from './taskRights.js'
+
+/** 「その日」は日本時間の日付（店は日本。端末の日付とは日付が変わる前後だけずれうる） */
+export const dayJst = iso => {
+  const t = Date.parse(iso || '')
+  return Number.isFinite(t) ? new Date(t + 9 * 3600_000).toISOString().slice(0, 10) : ''
+}
+
+const _task = r => ({
+  assign: r.assign_mode ?? 'anyone', assigneeId: r.assignee_id ?? null, createdById: r.created_by_id ?? '',
+  doneAt: r.done_at ?? null, doneById: r.done_by_id ?? null, deletedAt: r.deleted_at ?? null,
+  prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null,
+})
+
+/**
+ * @param {object} row  今の1件（tasks の行）
+ * @param {object} body 端末が送った1件（必要なら doneAt をここで直す）
+ * @param {{ id: string, admin?: boolean, ctx?: object|null }} who 書く人（ctx が無い＝PIN の無い古い店舗はオーナー扱い）
+ * @param {(ctx: object, perm: string) => boolean} ctxCan
+ * @returns {{ stale?: true, deny?: string, keepPrev?: { prevDoneAt: string|null, prevDoneById: string|null }|null }}
+ */
+export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISOString()) {
+  if (row.deleted_at) return { stale: true }   // 消したものへの遅れた書き込みは捨てる
+  const me = { id: who.id, admin: !!who.admin || !who.ctx, canCreate: who.ctx ? ctxCan(who.ctx, 'task.create') : true }
+  const t = _task(row)
+  const wasDone = !!t.doneAt
+  if (body?.deletedAt) {
+    if (!canRemove(t, me)) return { deny: wasDone ? '完了したやることは消せません' : 'このやることを消せるのは、作った人と管理者だけです' }
+    return { keepPrev: null }
+  }
+  // 担当を変える・文面・日付・時刻を直す
+  const assignChanged = (row.assign_mode ?? 'anyone') !== (body?.assign ?? 'anyone')
+    || (body?.assign === 'person' && (row.assignee_id ?? '') !== (body?.assigneeId ?? ''))
+  const edited = (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
+    || (row.task_date ?? '') !== (body?.date ?? '') || (row.due_time ?? null) !== (body?.dueTime || null)
+  if ((assignChanged || edited) && !canEdit(t, me)) {
+    return { deny: wasDone ? '完了したやることは直せません' : 'このやることを直せるのは、作った人と管理者だけです' }
+  }
+  if (t.assign === 'all') return { keepPrev: null }   // 「全員」の完了は印（/mark）で決まる
+  const wantDone = !!body?.doneAt
+  const today = dayJst(nowIso)
+  if (wantDone && !wasDone) {
+    if (!canComplete(t, me)) return { deny: 'このやることを完了にできるのは、担当の人と管理者だけです' }
+    body.doneAt = redoDoneAt(t, me, nowIso, today, dayJst)   // その日のうちの付け直しは元の時刻
+    return { keepPrev: { prevDoneAt: null, prevDoneById: null } }
+  }
+  if (!wantDone && wasDone) {
+    if (!canUndo(t, me, today, dayJst)) return { deny: '完了を取り消せるのは、完了した人がその日のうちだけです（それ以降は管理者）' }
+    return { keepPrev: undoKeep(t, me) }
+  }
+  if (wasDone) body.doneAt = t.doneAt   // 完了のまま: 完了の時刻は変えない
+  return { keepPrev: null }
+}

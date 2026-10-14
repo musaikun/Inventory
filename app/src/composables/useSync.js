@@ -1,5 +1,5 @@
 import { reactive, computed, ref, watch } from 'vue'
-import { deviceId, deviceName } from './useDeviceId.js'
+import { deviceId, deviceName, actorId } from './useDeviceId.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { HTTP_BASE, WS_BASE as WORKER_URL } from '../utils/api.js'
 import { shopCode } from './useStore.js'
@@ -988,6 +988,7 @@ function _connect(code) {
         type:       'join',
         deviceId,
         deviceName: deviceName.value || '名前未設定',
+        actorId:    actorId(),   // 同じ人の別の端末（オーナーのスマホと PC）を名前の重なりで断らないため
         role:       isHostMode ? 'host' : 'guest',
         // authToken = D1認証トークン。PIN設定店舗のホスト権限（再）発行時に
         // DO 側で照合し、店舗コードを知るだけの第三者による乗っ取りを防ぐ。

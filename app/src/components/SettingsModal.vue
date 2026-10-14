@@ -3,7 +3,7 @@ import { useWeather, markWeatherAsked, disableWeather } from '../composables/use
 import { ref, computed } from 'vue'
 import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
 import { useConfig } from '../composables/useConfig.js'
-import { deviceId, storedDeviceName, staffIdentity, setDeviceName } from '../composables/useDeviceId.js'
+import { deviceId, storedDeviceName, staffIdentity, ownerIdentity, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
 import PdfImporterModal from './PdfImporterModal.vue'
@@ -547,6 +547,10 @@ function onDownloadTemplate() {
         <div class="device-label">端末名（マルチデバイス同期の準備）</div>
         <p v-if="staffIdentity" class="device-staff">
           スタッフとしてログイン中のため、記録には <b>{{ staffIdentity.name }}</b> と出ます（端末名は使いません）
+        </p>
+        <!-- オーナーは1人・名前は店に1つ（User決定 2026-10-14）。ここでは変えない（管理 › スタッフでオーナー本人だけ） -->
+        <p v-else-if="ownerIdentity" class="device-staff">
+          オーナーとしてログイン中のため、どの端末でも記録には <b>{{ ownerIdentity.name || 'オーナー' }}</b> と出ます。名前は「管理 › スタッフ」で変えられます
         </p>
         <div v-else class="device-row">
           <input

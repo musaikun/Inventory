@@ -2,14 +2,18 @@
 /**
  * やること1件の行（カレンダーの日の詳細・今日の画面で共通。TODO 本格化 A）。
  * - チェックで完了（「全員」は自分の印）、✕ で消す
- * - 作る権限のある人は、文面を押すと直せる（文面・日付・時刻・担当）。日付を変えると別の日へ移る
+ * - 文面を押すと直せる（文面・日付・時刻・担当）。日付を変えると別の日へ移る
+ * - できる人は services/taskRights.js（User決定 2026-10-14）: 完了は担当の人、取り消しは完了した人がその日のうち、
+ *   直す・消すは未完了の間だけ作った人と管理者。押せないものはボタンを出さない・薄くする
  * - showDate: 期限切れの一覧では時刻の代わりに日付を赤で出す
  */
 import { ref, computed } from 'vue'
 import {
   toggleTask, removeTask, editTask, setTaskAssign, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX,
+  canToggleTask, canEditTask, canRemoveTask, toggleDenyReason,
 } from '../composables/useTasks.js'
-import { can, staffNames } from '../composables/useAuth.js'
+import { staffNames } from '../composables/useAuth.js'
+import { isMeId } from '../composables/useDeviceId.js'
 import { localDateKey } from '../utils/localDate.js'
 
 const props = defineProps({
@@ -18,11 +22,13 @@ const props = defineProps({
 })
 const t = computed(() => props.task)
 
-// 作る・直す・消すは役割で（段 2-3）。完了の印は誰でも。自分が作ったものは消せる
-const canEdit = computed(() => can('task.create'))
-const canRemove = computed(() => can('task.deleteOthers') || (isMyTask(t.value) && can('task.create')))
+const canEdit = computed(() => canEditTask(t.value))
+const canRemove = computed(() => canRemoveTask(t.value))
+const canToggle = computed(() => canToggleTask(t.value))
+// 担当の候補（先頭はオーナー）。自分には「（自分）」を付ける
 const people = computed(() => staffNames.value)
-const hasStaff = computed(() => people.value.length > 0)
+const hasStaff = computed(() => people.value.some(p => !p.owner))
+const personLabel = p => `${p.name}${isMeId(p.id) ? '（自分）' : ''}`
 
 // 「全員」は自分の印。全員そろって完了したものは、自分が付けていなくても済みに見せる
 const checked = computed(() => (t.value.assign === 'all' ? isMarkedByMe(t.value) || !!t.value.doneAt : !!t.value.doneAt))
@@ -34,7 +40,7 @@ const assignNote = computed(() => {
   if (x.assign === 'none') return '担当未定'
   if (x.assign === 'person') return isAssignedToMe(x) ? 'あなたの担当' : `担当 ${x.assigneeName || '（名前なし）'}`
   if (x.assign === 'all') {
-    const need = Math.max(people.value.length, 1)
+    const need = Math.max(people.value.filter(p => !p.owner).length, 1)   // 「全員」はスタッフ全員（オーナーは数えない）
     const names = (x.doneList || []).map(y => y.name).filter(Boolean)
     return `全員 ${Math.min(names.length, need)}/${need}${names.length ? `（${names.join('・')}）` : ''}`
   }
@@ -68,7 +74,8 @@ function save() {
 <template>
   <div v-if="!editing" :class="['tr', { done: t.doneAt, fresh: isNewTask(t), mine: isAssignedToMe(t) && !t.doneAt }]">
     <button
-      type="button" :class="['tr-chk', { on: checked }]" :aria-pressed="checked ? 'true' : 'false'"
+      type="button" :class="['tr-chk', { on: checked }]" :aria-pressed="checked ? 'true' : 'false'" :disabled="!canToggle"
+      :title="toggleDenyReason(t) || undefined"
       :aria-label="`${t.text}を${checked ? '未完了に戻す' : '完了にする'}`" @click="toggleTask(t.id)"
     >{{ checked ? '✓' : '' }}</button>
     <span v-if="showDate" class="tr-tm late">{{ md(t.date) }}</span>
@@ -99,7 +106,7 @@ function save() {
         <option value="anyone">誰でも</option>
         <option value="all">全員</option>
         <option value="none">未定</option>
-        <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}</option>
+        <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ personLabel(p) }}</option>
         <option v-if="t.assign === 'person' && !people.some(p => p.id === t.assigneeId)" :value="`p:${t.assigneeId}`">{{ t.assigneeName }}</option>
       </select>
     </label>
@@ -119,6 +126,7 @@ function save() {
   color: var(--on-grad); font-size: 14px; font-weight: 900; cursor: pointer; padding: 0; display: grid; place-items: center;
 }
 .tr-chk.on { background: var(--grad-btn); border-color: transparent; }
+.tr-chk:disabled { cursor: default; opacity: .45; }
 .tr-tm { flex: none; width: 40px; font-size: 12px; font-weight: 800; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .tr-tm.late { color: #b91c1c; }
 .tr-tx { flex: 1; min-width: 0; overflow-wrap: anywhere; text-align: left; border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: default; }

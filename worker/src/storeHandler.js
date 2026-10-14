@@ -1,5 +1,7 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
+import { canUnmark } from './taskRights.js'
+import { dayJst } from './taskWrite.js'
 import { inventoryLineStatements } from './inventoryLines.js'
 import { _now } from './workerUtils.js'
 import { securityEvent } from './securityLog.js'
@@ -2037,7 +2039,7 @@ export async function handleTasksGet(db, code, sinceDays) {
   const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, done_list_json, due_time
+      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
       OR (task_date = '' AND updated_at >= ?))
     ORDER BY task_date DESC LIMIT 2000
@@ -2052,6 +2054,8 @@ export async function handleTasksGet(db, code, sinceDays) {
     assigneeId: r.assignee_id ?? null, assigneeName: r.assignee_name ?? null,
     doneList: _doneList(r.done_list_json),
     dueTime: r.due_time ?? null,
+    // その日のうちに取り消した元の完了（同じ人が付け直したら元の時刻へ・2026-10-14）
+    prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null,
   }))
 }
 
@@ -2060,7 +2064,7 @@ export async function handleTasksGet(db, code, sinceDays) {
  * @returns {{ ok: true, created: boolean, task?: object } | { _status: number, error: string }}
  *   created = この要求で新しく作られた（通知を送る対象）
  */
-export async function handleTaskUpsert(db, code, body = {}) {
+export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const id = typeof body.id === 'string' ? body.id : ''
   const date = typeof body.date === 'string' ? body.date : null
@@ -2100,10 +2104,14 @@ export async function handleTaskUpsert(db, code, body = {}) {
       done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
       done_by_id = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by_id ELSE excluded.done_by_id END,
-      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
+      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at,
+      prev_done_at    = CASE WHEN ? = 1 THEN ? ELSE tasks.prev_done_at END,
+      prev_done_by_id = CASE WHEN ? = 1 THEN ? ELSE tasks.prev_done_by_id END
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
   `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
-    t.assign, t.assigneeId, t.assigneeName, t.dueTime).run()
+    t.assign, t.assigneeId, t.assigneeName, t.dueTime,
+    keepPrev ? 1 : 0, keepPrev?.prevDoneAt ?? null, keepPrev ? 1 : 0, keepPrev?.prevDoneById ?? null).run()
+  if (keepPrev) { t.prevDoneAt = keepPrev.prevDoneAt; t.prevDoneById = keepPrev.prevDoneById }
   return { ok: true, created: !prev && !t.deletedAt, task: t }
 }
 
@@ -2113,13 +2121,19 @@ export async function handleTaskUpsert(db, code, body = {}) {
  * 承認済みのスタッフ全員の印がそろったら done_at を立てる（スタッフがいない店は誰か1人の印で完了）。
  * @param {{ id: string, name: string }} actor 印を付ける人（スタッフ ID か端末 ID）
  */
-export async function handleTaskMark(db, code, id, actor, done) {
+export async function handleTaskMark(db, code, id, actor, done, { admin = false } = {}) {
   if (!actor?.id) return { _status: 400, error: '誰の印か分かりません' }
   for (let i = 0; i < 4; i++) {
     const row = await db.prepare('SELECT assign_mode, done_list_json, deleted_at FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
     if (!row || row.deleted_at) return { _status: 404, error: '見つかりません' }
     if (row.assign_mode !== 'all') return { ok: true, skipped: true }
     const now = _now()
+    // 自分の印を外せるのは、付けた日のうちだけ（管理者はいつでも・User決定 2026-10-14）
+    if (!done && !canUnmark({ doneList: _doneList(row.done_list_json) }, { id: actor.id, admin }, dayJst(now), dayJst)) {
+      if (_doneList(row.done_list_json).some(x => x.id === actor.id)) {
+        return { _status: 403, code: 'task_forbidden', error: '印を外せるのは、付けた日のうちだけです（それ以降は管理者）' }
+      }
+    }
     let list = _doneList(row.done_list_json).filter(x => x.id !== actor.id)
     if (done) list.push({ id: actor.id, name: _short(actor.name, 40), at: now })
     const staff = (await db.prepare("SELECT id FROM staff WHERE shop_code = ? AND status = 'active'").bind(code).all()).results ?? []

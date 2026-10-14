@@ -2,6 +2,21 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-14 — version 0.159.0 / オーナーを1人にまとめる・やることの権限を固める
+
+User決定:
+- オーナーはどの端末でも1人（ID `owner`）、名前は店に1つ。名前はオーナー本人だけが「管理 › スタッフ」で変える（変えたら過去の記録の名前もそろえる）。端末名はオーナーの記録には使わない。
+- やること: 完了したら記録として固める。取り消しは完了した本人が**その日のうち**、それ以降は管理者（オーナー・管理者）だけ。その日の付け直しは元の完了時刻。直す（文面・日付・時刻・担当）は未完了の間だけ作った人と管理者。消すは未完了の間だけ作った人と管理者（「他の人のやることを消す」は管理者だけ）。**完了したものは誰も消せない**。完了の印は担当の人（管理者は代わりに）。
+
+実装:
+- Worker: migration `0027_owner_identity.sql`（stores.owner_name / owner_unified_at、tasks.prev_done_at / prev_done_by_id。印 idx_tasks_created_by・migrate.sh に追加）。`ownerHandler.js`: 店ごとに初回のオーナーのアクセスで、スタッフでない「誰が」（オーナーの端末 ID）を tasks / movements / sessions / work_sessions / push_subscriptions と「全員」の印で `owner` へ寄せ、名前が無ければその端末名で決める。`PUT /store/:code/owner-name`（オーナーだけ・スタッフと同名は不可）。`/auth/me` に owner、`/staff/names` の先頭にオーナー。`_actor` はオーナーを `owner` に。
+- 権限: `taskRights.js`（worker と app で同じ中身・テストで突き合わせ）。`taskWrite.js` でやることの書き込みを今の1件と見比べて断る（403 task_forbidden）。「全員」の自分の印も付けた日のうちだけ外せる。「その日」はサーバーでは日本時間。`permissions.js` の社員から task.deleteOthers を外した。
+- 同期ルーム: 同じ人（actorId が同じ）の別の端末は同じ名前でも断らない。
+- App: `actorId()` はオーナーなら `owner`（`isMeId` で以前の端末 ID も自分）。オーナーの名前は `/auth/me` から。TaskRow / DoneTaskRow は押せないボタンを出さない・薄くする。担当の候補にオーナー、自分に「（自分）」。「全員」の人数はスタッフだけ。設定の端末名はオーナーには説明だけ。スタッフ画面にオーナーの名前の変更。
+- テスト: Worker `test/staff.test.js`（寄せ・名前の変更・権限・取り消し・付け直し・印）、App `taskRights.test.js`・`useTasks.test.js`・`TaskNews.test.js`。App 214 / 2114、Worker 47 / 705 pass、build 成功。
+- **要 User**: Production Backend（preflight → apply）。migration 0027 が当たる。
+- version: 0.158.4 → **0.159.0**。
+
 ## 2026-10-14 — version 0.158.4 / 月のドットを光らせない
 
 - User決定: 実施した業務（棚卸・発注・入庫・出庫）のドットは光らせない。`HistoryCalendar` の発光・明滅をやめ、色の丸だけに。日付選び（`DayPickerSheet`）のドットの発光も外した。build 成功、components のテスト pass。

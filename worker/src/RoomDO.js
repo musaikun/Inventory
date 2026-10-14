@@ -283,6 +283,8 @@ export class RoomDO {
       case 'join': {
         const deviceId   = String(msg.deviceId   ?? '').trim().slice(0, MAX_DEVICE_ID_LEN)
         const deviceName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
+        // 誰か（スタッフ ID・オーナーは 'owner'）。同じ人の別の端末を「名前が重なった」と断らないために使う
+        const actorId    = String(msg.actorId    ?? '').trim().slice(0, MAX_DEVICE_ID_LEN)
         const role       = msg.role === 'host' ? 'host' : 'guest'
 
         if (!deviceId) {
@@ -364,12 +366,14 @@ export class RoomDO {
           return
         }
 
-        // 端末名重複チェック（同じ deviceId のセッション復帰は除外）
+        // 端末名重複チェック（同じ deviceId のセッション復帰は除外）。
+        // 同じ人（actorId が同じ＝オーナーのスマホと PC など）は同じ名前でよい（2026-10-14）
         if (deviceName) {
           const existingNames = new Set(
             this.state.getWebSockets()
               .filter(w => w !== ws && this._isJoined(w))
               .filter(w => w.deserializeAttachment()?.deviceId !== deviceId)
+              .filter(w => !actorId || w.deserializeAttachment()?.actorId !== actorId)
               .map(w => w.deserializeAttachment()?.deviceName)
               .filter(Boolean)
           )
@@ -397,7 +401,7 @@ export class RoomDO {
         // 金額を見られないスタッフがホストのときは、ホストにも単価を渡さない（段 2-3 の money）。
         // 判定はホストの join に毎回付く D1 トークン。ゲストはもとから単価を落としている。
         const noMoney = isVerifiedHost && !(await this._hostSeesMoney(await this.state.storage.get('shopCode'), msg.authToken))
-        ws.serializeAttachment({ joined: true, deviceId, deviceName, isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
+        ws.serializeAttachment({ joined: true, deviceId, deviceName, ...(actorId ? { actorId } : {}), isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
 
         const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -714,9 +718,11 @@ export class RoomDO {
       case 'rename': {
         const newName = String(msg.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
         if (newName) {
+          const myActor = ws.deserializeAttachment()?.actorId
           const existingNames = new Set(
             this.state.getWebSockets()
               .filter(w => w !== ws)
+              .filter(w => !myActor || w.deserializeAttachment()?.actorId !== myActor)
               .map(w => w.deserializeAttachment()?.deviceName)
               .filter(Boolean)
           )

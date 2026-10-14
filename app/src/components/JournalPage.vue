@@ -37,6 +37,7 @@ import { useMovements } from '../composables/useMovements.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
 import { localDateKey } from '../utils/localDate.js'
+import { isMeId } from '../composables/useDeviceId.js'
 
 const emit = defineEmits(['viewSession', 'openUpgrade'])
 
@@ -234,12 +235,12 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
           </div>
           <label class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
-          <label v-if="people.length">担当
+          <label v-if="people.some(p => !p.owner)">担当
             <select v-model="fWho" class="jp-in">
               <option value="anyone">誰でも</option>
               <option value="all">全員</option>
               <option value="none">未定</option>
-              <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}</option>
+              <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}{{ isMeId(p.id) ? '（自分）' : '' }}</option>
             </select>
           </label>
           <div class="jp-row end">

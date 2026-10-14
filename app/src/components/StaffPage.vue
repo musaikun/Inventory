@@ -6,11 +6,14 @@
  * - スタッフ: 役割の変更・停止／再開・暗証番号の失敗で止まったのを解除・削除（記録は「○○（削除済み）」で残る）
  * - 個別の許可（段 2-3）: 役割に足す5つ。役割でもうできるものは出さない
  * - ログイン中・作業時間（段 2-5）: いまアプリを開いている人、最後に開いた時刻、直近7日／30日の開いていた時間
+ * - オーナーの名前（User決定 2026-10-14）: どの端末でも1人・名前は店に1つ。変えられるのはオーナー本人だけ（ここだけ）。
+ *   変えると過去の記録の名前もそろう
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import QRCode from 'qrcode'
 import {
   listStaff, createStaffInvite, revokeStaffInvite, staffAction, ROLE_LABELS, currentStaff, getPresence,
+  ownerName, updateOwnerName,
 } from '../composables/useAuth.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { GRANT_KEYS, GRANT_PERMS, can as roleCan, normalizeGrants } from '../services/permissions.js'
@@ -23,6 +26,18 @@ const ROLES = [
   { key: 'shain',  label: '社員',       note: 'アルバイト＋棚卸・発注の開始と完了・品目を直す・金額を見る・やることを作る' },
   { key: 'admin',  label: '管理者',     note: '社員＋品目の削除と取り込み・並び替え・発注点・スタッフの管理' },
 ]
+
+// オーナーの名前（オーナー本人だけが変えられる）
+const ownerEditing = ref(false)
+const ownerInput = ref('')
+const ownerError = ref('')
+function editOwner() { ownerInput.value = ownerName.value; ownerError.value = ''; ownerEditing.value = true }
+async function saveOwner() {
+  const n = ownerInput.value.trim()
+  if (!n) { ownerError.value = '名前を入れてください'; return }
+  if (!confirm(`オーナーの名前を「${n}」にします。過去の記録（作った人・完了した人など）の名前も変わります。よろしいですか？`)) return
+  try { await updateOwnerName(n); ownerEditing.value = false; loadPresence() } catch (e) { ownerError.value = e?.message || '変えられませんでした' }
+}
 
 const staff = ref([])
 const invites = ref([])
@@ -207,7 +222,19 @@ function toggleGrant(s, k) {
       <section class="sp2-card">
         <div class="sp2-h">スタッフ（{{ members.length + 1 }}）</div>
         <div class="sp2-item">
-          <div class="sp2-who"><b>オーナー</b><span>店を登録した人・外せません</span></div>
+          <div class="sp2-who"><b>{{ ownerName || 'オーナー' }}</b><span>オーナー・店を登録した人・外せません</span></div>
+          <template v-if="!currentStaff">
+            <div v-if="ownerEditing" class="sp2-owner">
+              <input v-model="ownerInput" class="sp2-input" maxlength="40" aria-label="オーナーの名前" />
+              <p class="sp2-note">どの端末から開いても、この名前で記録されます。変えると過去の記録の名前も変わります。</p>
+              <p v-if="ownerError" class="sp2-err">{{ ownerError }}</p>
+              <div class="sp2-row">
+                <button type="button" class="sp2-btn sec" @click="ownerEditing = false">やめる</button>
+                <button type="button" class="sp2-btn pri" @click="saveOwner">名前を変える</button>
+              </div>
+            </div>
+            <button v-else type="button" class="sp2-btn sec" @click="editOwner">名前を変える</button>
+          </template>
         </div>
         <div v-for="s in members" :key="s.id" class="sp2-item">
           <div class="sp2-who">
@@ -290,6 +317,7 @@ function toggleGrant(s, k) {
 .sp2-card { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; padding: 12px; display: grid; gap: 8px; }
 .sp2-card.pend { border-color: #f59e0b; background: #fffbeb; }
 .sp2-h { font-size: 13px; font-weight: 800; color: var(--text-muted, #4c6a72); }
+.sp2-owner { display: grid; gap: 6px; width: 100%; }
 .sp2-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border, #eef4f6); }
 .sp2-item:first-of-type { border-top: none; }
 .sp2-who { display: grid; min-width: 0; }

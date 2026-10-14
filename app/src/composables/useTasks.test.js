@@ -29,13 +29,15 @@ describe('useTasks', () => {
     expect(T.addTask('2026-10-04', '   ')).toBeNull()
   })
 
-  it('完了・消すも同じ経路で送る。消したものは一覧と点から外れる', async () => {
+  it('完了・消すも同じ経路で送る。完了したものは消せない。消したものは一覧と点から外れる', async () => {
     const t = T.addTask('2026-10-05', '点検')
     expect(T.openTaskDates.value.has('2026-10-05')).toBe(true)
     T.toggleTask(t.id)
     expect(T.tasksOn('2026-10-05')[0].doneAt).toBeTruthy()
     expect(T.tasksOn('2026-10-05')[0].doneBy).toBe('高木')
     expect(T.openTaskDates.value.has('2026-10-05')).toBe(false)
+    expect(T.removeTask(t.id)).toBeNull()                 // 完了したものは誰も消せない
+    T.toggleTask(t.id)                                    // その日のうちなら本人が取り消せる
     T.removeTask(t.id)
     expect(T.tasksOn('2026-10-05')).toEqual([])
     await flush()
@@ -139,5 +141,16 @@ describe('useTasks', () => {
     remote = [{ ...t }]
     await T.pullTasks(); await flush()
     expect(saved).toEqual([])
+  })
+
+  it('その日のうちに取り消して付け直すと、元の完了時刻に戻る（2026-10-14）', async () => {
+    const t = T.addTask('2026-10-05', '点検')
+    T.toggleTask(t.id)
+    const first = T.tasksOn('2026-10-05')[0].doneAt
+    T.toggleTask(t.id)
+    expect(T.tasksOn('2026-10-05')[0]).toMatchObject({ doneAt: null, prevDoneAt: first })
+    await new Promise(r => setTimeout(r, 5))
+    T.toggleTask(t.id)
+    expect(T.tasksOn('2026-10-05')[0]).toMatchObject({ doneAt: first, prevDoneAt: null })
   })
 })

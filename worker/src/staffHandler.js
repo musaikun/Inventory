@@ -42,12 +42,13 @@ export async function authContext(db, request) {
   const token = extractBearerToken(request)
   if (!token) return null
   const row = await db.prepare(`
-    SELECT a.shop_code, a.staff_id, s.deleted_at, s.deletion_pending_at
+    SELECT a.shop_code, a.staff_id, s.deleted_at, s.deletion_pending_at, s.owner_name
     FROM auth_tokens a JOIN stores s ON s.shop_code = a.shop_code
     WHERE a.token IN (?, ?) AND a.expires_at > datetime('now')
   `).bind(...await tokenKeys(token)).first()
   if (!row?.shop_code || row.deleted_at || row.deletion_pending_at) return null
-  if (!row.staff_id) return { shopCode: row.shop_code, staffId: null, role: 'owner', name: null, grants: [], isAdmin: true }
+  // オーナーはどの端末でも1人（ID 'owner'・名前は店に1つ。User決定 2026-10-14）
+  if (!row.staff_id) return { shopCode: row.shop_code, staffId: null, role: 'owner', name: row.owner_name || null, grants: [], isAdmin: true }
   const st = await db.prepare('SELECT id, name, role, status, grants_json FROM staff WHERE id = ? AND shop_code = ?')
     .bind(row.staff_id, row.shop_code).first()
   if (!st || st.status !== 'active') return null
@@ -328,7 +329,12 @@ export async function handleStaffUnlock(db, request, code, id) {
 export async function handleMe(db, request) {
   const ctx = await authContext(db, request)
   if (!ctx) return { _status: 401, error: '認証が必要です' }
-  return { shopCode: ctx.shopCode, role: ctx.role, staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null }
+  return {
+    shopCode: ctx.shopCode, role: ctx.role,
+    staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null,
+    // オーナーは1人（ID 'owner'・名前は店に1つ。User決定 2026-10-14）。名前が未定なら null
+    owner: ctx.staffId ? null : { id: 'owner', name: ctx.name || null },
+  }
 }
 
 /**

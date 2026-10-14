@@ -41,16 +41,30 @@ export const staffIdentity = ref(_readStaff())
 export function setStaffIdentity(staff) { staffIdentity.value = staff?.id ? { id: staff.id, name: staff.name } : null }
 
 /**
- * 記録に出す「誰が」。スタッフなら本人の名前、オーナーなら端末名（段 2-2）。
+ * オーナーとしてログインしているとき { name }（User決定 2026-10-14）。useAuth が入れる。
+ * オーナーはどの端末でも1人（ID 'owner'・名前は店に1つ）。以前は端末ごとに別の人になっていた。
+ */
+export const OWNER_ID = 'owner'
+export const ownerIdentity = ref(null)
+export function setOwnerIdentity(owner) { ownerIdentity.value = owner ? { name: owner.name || '' } : null }
+
+/**
+ * 記録に出す「誰が」。スタッフなら本人の名前、オーナーならオーナーの名前（未定なら端末名）。
  * 書き込みは端末名の変更（setDeviceName と同じ）。
  */
 export const deviceName = computed({
-  get: () => staffIdentity.value?.name || storedDeviceName.value,
+  get: () => staffIdentity.value?.name || ownerIdentity.value?.name || storedDeviceName.value,
   set: v => { storedDeviceName.value = v },
 })
 
-/** 「誰が」の ID。スタッフならスタッフ ID、オーナーなら端末 ID */
-export function actorId() { return staffIdentity.value?.id || deviceId }
+/** 「誰が」の ID。スタッフならスタッフ ID、オーナーなら 'owner'（ログインしていない古い店舗は端末 ID） */
+export function actorId() { return staffIdentity.value?.id || (ownerIdentity.value ? OWNER_ID : deviceId) }
+
+/** その ID が自分か。オーナーは以前の端末 ID で記録したものも自分（サーバーが寄せる前の手元の記録） */
+export function isMeId(id) {
+  if (!id) return false
+  return id === actorId() || (!!ownerIdentity.value && id === deviceId)
+}
 
 /** 端末名を更新して永続化 */
 export function setDeviceName(name) {
