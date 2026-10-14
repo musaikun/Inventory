@@ -123,7 +123,7 @@ describe('棚卸セッションでブラウザの戻る', () => {
     // ホームで管理タブへ切り替えてから棚卸を開始する
     list._persistedTab.value = 'dashboard'
     await flush()
-    expect(homeTabName()).toContain('管理')
+    expect(homeTabName()).toContain('設定')
     list._persistedTab.value = 'sessions'
     await flush()
     await startStockSession()

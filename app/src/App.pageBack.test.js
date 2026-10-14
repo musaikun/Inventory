@@ -92,7 +92,7 @@ async function seedItems() {
 // 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
 // データ管理は「管理」タブそのものになった（2026-10-01）
 async function openFromManage(label) {
-  const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理'))
+  const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定'))
   if (nav) await click(nav)
   if (label === 'データ管理') return
   await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
@@ -239,7 +239,7 @@ describe('戻るはひとつ前の画面へ返す', () => {
     await seedItems()
     await openFromManage('データ管理')
     expect(host.querySelector('.mp')).toBeTruthy()
-    expect(activeTab()).toContain('管理')
+    expect(activeTab()).toContain('設定')
 
     await deviceBack()
     expect(view()).toBe('sessions')
@@ -259,7 +259,7 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
 
     await deviceBack()
     expect(host.querySelector('.modal-overlay')).toBeNull()
-    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('設定')
     expect(host.querySelector('.manage')).toBeTruthy()
   }, 20000)
 
@@ -270,6 +270,6 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
     expect(document.body.querySelector('.ob-sheet')).toBeTruthy()
     await deviceBack()
     expect(document.body.querySelector('.ob-sheet')).toBeNull()
-    expect(activeTab()).toContain('管理')
+    expect(activeTab()).toContain('設定')
   }, 20000)
 })

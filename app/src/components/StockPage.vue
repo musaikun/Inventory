@@ -148,8 +148,9 @@ onUnmounted(registerInnerLayerCloser(() => {
       <div class="sp-empty-title">最初の品目を追加</div>
       <p class="sp-empty-sub">在庫を数える品目を登録します</p>
       <button class="sp-btn pri" type="button" @click="openAdd">＋ 1つずつ追加</button>
+      <!-- ファイルは押したその場でファイル選択を開く（管理へ移さない）。棚卸しながら登録も同じ大きさのカードに（2026-10-14） -->
       <button v-if="can('item.admin')" class="sp-btn sec" type="button" @click="emit('openMaster')">📄 ファイルからまとめて取込</button>
-      <button v-if="can('stock.start')" class="sp-link" type="button" @click="emit('startSession')">または、棚卸をしながら登録する ›</button>
+      <button v-if="can('stock.start')" class="sp-btn sec" type="button" @click="emit('startSession')">👥 棚卸をしながら登録する</button>
     </div>
 
     <div v-else class="sp-body">

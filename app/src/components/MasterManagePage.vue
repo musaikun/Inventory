@@ -1,116 +1,27 @@
 <script setup>
 import { can, denyMessage } from '../composables/useAuth.js'
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
-import { categoryOrderOf } from '../services/snapshotView.js'
-import { useHistory } from '../composables/useHistory.js'
 import { shopCode } from '../composables/useStore.js'
-import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
-import { useDataImport } from '../composables/useDataImport.js'
-import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
-import DeliveryImportModal from './DeliveryImportModal.vue'
-import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
-import RowMapperModal from './RowMapperModal.vue'
-import PdfGridSetup from './PdfGridSetup.vue'
 
-// embedded: ホームの「管理」タブに置くとき（管理とデータ管理を統合・User決定 2026-10-01）。
-// 見出しと戻るを出さず、品目データの下に #extra（発注の設定・各種設定など）を差し込む
+// embedded: ホームの「設定」タブに置くとき（以前の「管理」・User決定 2026-10-14）。
+// 見出しと戻るを出さず、#extra（発注の設定・各種設定など）の下に品目の一括削除を置く。
+// 取り込む・書き出すはホームへ移した（DataPort.vue）
 const props = defineProps({
   embedded: { type: Boolean, default: false },
   // 完了していない棚卸・発注（中断中＋取り戻せる破棄）の件数。一括削除で一緒に消える
   unfinishedCount: { type: Number, default: 0 },
 })
 const emit = defineEmits(['back', 'clear-master'])
-function _mayPick(kind) {
-  const perm = kind === 'import' ? 'item.admin' : 'money'
-  if (can(perm)) return true
-  window.alert(denyMessage(perm))
-  return false
-}
 
-const { config, itemCount, exportConfigCSV } = useConfig()
-const { getSnapshots, exportSnapshotCSV } = useHistory()
+const { itemCount } = useConfig()
 
-// ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
-const {
-  showDeliveryModal, deliveryCsv, deliveryFilename, importCtx, existingMovements,
-  openDeliveryFromFile, closeDelivery, onDeliveryImported, downloadDeliveryTemplate,
-  showStocktakeModal, stocktakePlan, stocktakeFilename,
-  rowMapper, closeRowMapper, applyRowMapping, mapDeliveryColumns,
-  pdfSetup, closePdfSetup, applyPdfSetup,
-  askRecipe, recipeName, savedRecipe, recipes, confirmSaveRecipe, dismissRecipe,
-  openStocktakeFromFile, closeStocktake, setStocktakeResolution,
-  confirmStocktakeImport, undoStocktakeImport,
-} = useDataImport()
-
-const deliveryFileInput  = ref(null)
-const stocktakeFileInput = ref(null)
-function pickDelivery()  { deliveryFileInput.value?.click() }
-function pickStocktake() { stocktakeFileInput.value?.click() }
-function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
-function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
-
-function _download(text, filename) {
-  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(a.href)
-}
-// CSVの組み立ては同期で、品目が多いと数百ms止まる。止まっている間は旗を立てても
-// 描画されないので、多いときだけ先に描いてから始める（少ないときに待たせないため）。
-function exportMasterCsv() {
-  if (itemCount.value === 0) { alert('出力する品目がありません。'); return }
-  return runBusy('書き出し中…', () => {
-    _download(exportConfigCSV(), `品目マスタ_${new Date().toISOString().slice(0, 10)}.csv`)
-  }, { paintFirst: itemCount.value >= HEAVY_ROWS })
-}
-function exportLatestSnapshotCsv() {
-  const snap = getSnapshots()[0]
-  if (!snap) { alert('棚卸の履歴がまだありません。'); return }
-  return runBusy('書き出し中…', () => {
-    _download(exportSnapshotCSV(snap, { categoryOrder: categoryOrderOf(config) }), `棚卸結果_${snap.date}.csv`)
-  }, { paintFirst: (snap.items ?? []).length >= HEAVY_ROWS })
-}
-const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
-
-// ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
+// ── ヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
-  import: 'CSV・Excel・PDFファイルから品目を一括登録・更新します。品目名が一致するものは上書き、無いものは追加され、ファイルに載っていない品目はそのまま残ります。取り込む前に追加・更新・除外の件数と差分を確認できます。ファイルの内容だけにする「全入れ替え」も確認画面から選べます。',
-  delivery: '過去の納品履歴（CSV・Excel）を入庫として一括取り込みます。「種別」列に出庫（出荷・廃棄・ロス・返品）とある行は出庫として記録します。取込前に品目への対応づけ・重複チェックを確認できます。同じファイルを二度入れても二重になりません。取り込んだ日は履歴カレンダーに星が出ます。',
-  stocktake: '過去の棚卸結果（日付つきCSV）を実行済みの棚卸として取り込みます。納品と両方を入れると、消費量・適正在庫・発注の理論値が過去に遡って算出されます。',
   delete: '登録済みの品目をすべて削除します。中断中・破棄した棚卸と発注（完了していないもの）も一緒に消え、元に戻せません。完了した記録は残ります。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
 }
 const activeHelp = ref('')
 function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
-
-// ── 取り込む / 書き出す（押してから種類を選ぶ）──────────────
-// 入口を1つずつにしたので、種類の選択はここで受ける。
-// 入口に「何を覚えているか」を出す。名前が読めないと、どのファイルを入れる場所なのか
-// 分からず、結局はじめての入口へ戻ってしまう
-const _recipeNames = (kind) => {
-  const names = (recipes.value ?? []).filter(r => (r.for ?? 'items') === kind).map(r => r.name)
-  if (!names.length) return ''
-  return names.length <= 2 ? names.join('・') : `${names.slice(0, 2).join('・')} ほか${names.length - 2}件`
-}
-const deliveryRecipes  = computed(() => _recipeNames('delivery'))
-const stocktakeRecipes = computed(() => _recipeNames('stocktake'))
-
-const picker = ref('')   // '' | 'import' | 'export'
-function openPicker(kind) {
-  // 取り込みは品目の管理（管理者）。書き出しは見るだけなので金額が見られる人なら可（段 2-3）
-  if (!_mayPick(kind)) return
-  activeHelp.value = ''; picker.value = kind
-}
-function closePicker()    { picker.value = ''; activeHelp.value = '' }
-// 選んだらシートは閉じる。取込はこの後それぞれの確認画面が開く
-function runPick(fn) { closePicker(); fn() }
-// 戻るは、この画面を閉じる前にシートを閉じる（独自実装せず既存の段に乗せる）
-onUnmounted(registerInnerLayerCloser(() => {
-  if (picker.value) { closePicker(); return true }
-  return false
-}))
 
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
 const delCode = ref('')
@@ -141,32 +52,7 @@ function onClear() {
     </header>
 
     <div class="mp-scroll">
-      <!-- 取り込む / 書き出す。入口は1つずつにして、押してから種類を選ぶ。
-           以前は5つの行が並んでいて、画面の最初に出るものが一番迷う場所になっていた。 -->
-      <div v-if="can('item.admin') || can('money')" class="mm-card">
-        <div v-if="can('item.admin')" class="mm-row-wrap">
-          <button class="mm-row" @click="openPicker('import')">
-            <span class="mm-row-ico">📥</span>
-            <span class="mm-row-body">
-              <span class="mm-row-title">取り込む</span>
-              <span class="mm-row-sub">品目リスト／過去の納品／過去の棚卸（CSV・Excel・PDF）</span>
-            </span>
-            <span class="mm-row-arrow">→</span>
-          </button>
-        </div>
-        <div v-if="can('money')" class="mm-row-wrap">
-          <button class="mm-row" @click="openPicker('export')">
-            <span class="mm-row-ico">📤</span>
-            <span class="mm-row-body">
-              <span class="mm-row-title">書き出す</span>
-              <span class="mm-row-sub">品目リスト／棚卸結果（CSV）</span>
-            </span>
-            <span class="mm-row-arrow">↓</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 管理タブに置いたときの、品目データ以外の項目（発注の設定・各種設定など） -->
+      <!-- 設定タブの項目（発注の設定・各種設定など） -->
       <slot name="extra" />
 
       <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
@@ -186,153 +72,6 @@ function onClear() {
       </div>
     </div>
 
-    <!-- 取り込む / 書き出す の種類を選ぶ -->
-    <div v-if="picker" class="mm-pick-back" @click.self="closePicker">
-      <div class="mm-pick" role="dialog" aria-modal="true" :aria-label="picker === 'import' ? '取り込む種類を選ぶ' : '書き出す種類を選ぶ'">
-        <div class="mm-pick-head">
-          <span class="mm-pick-title">{{ picker === 'import' ? '何を取り込みますか？' : '何を書き出しますか？' }}</span>
-          <button class="mm-pick-close" aria-label="閉じる" @click="closePicker">✕</button>
-        </div>
-
-        <template v-if="picker === 'import'">
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(() => settingsSection = 'import')">
-              <span class="mm-row-ico">📋</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">品目リスト</span>
-                <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
-              </span>
-              <span class="mm-help-btn" :class="{ on: activeHelp === 'import' }" @click.stop="toggleHelp('import')">?</span>
-              <span class="mm-row-arrow">→</span>
-            </button>
-            <div v-if="activeHelp === 'import'" class="mm-help">{{ HELP.import }}</div>
-          </div>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(pickDelivery)">
-              <span class="mm-row-ico">🧾</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">過去の納品</span>
-                <span class="mm-row-sub">
-                  CSV・Excel・PDF から（既定は入庫・種別列で出庫も）
-                  <template v-if="deliveryRecipes">・覚えている読み方: {{ deliveryRecipes }}</template>
-                </span>
-              </span>
-              <span class="mm-help-btn" :class="{ on: activeHelp === 'delivery' }" @click.stop="toggleHelp('delivery')">?</span>
-              <span class="mm-row-arrow">→</span>
-            </button>
-            <div v-if="activeHelp === 'delivery'" class="mm-help">
-              {{ HELP.delivery }}
-              <button class="mm-tmpl-link" @click="downloadDeliveryTemplate">テンプレCSVをダウンロード</button>
-            </div>
-          </div>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(pickStocktake)">
-              <span class="mm-row-ico">🧮</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">過去の棚卸</span>
-                <span class="mm-row-sub">
-                  CSV・Excel・PDF から。消費・適正在庫・発注の理論値に必要
-                  <template v-if="stocktakeRecipes">・覚えている読み方: {{ stocktakeRecipes }}</template>
-                </span>
-              </span>
-              <span class="mm-help-btn" :class="{ on: activeHelp === 'stocktake' }" @click.stop="toggleHelp('stocktake')">?</span>
-              <span class="mm-row-arrow">→</span>
-            </button>
-            <div v-if="activeHelp === 'stocktake'" class="mm-help">{{ HELP.stocktake }}</div>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(exportMasterCsv)">
-              <span class="mm-row-ico">📋</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">品目リスト</span>
-                <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
-              </span>
-              <span class="mm-row-arrow">↓</span>
-            </button>
-          </div>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(exportLatestSnapshotCsv)">
-              <span class="mm-row-ico">🧮</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">棚卸結果</span>
-                <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
-              </span>
-              <span class="mm-row-arrow">↓</span>
-            </button>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <!-- 取込ファイル入力（常設・非表示）-->
-    <!-- 拡張子だけだと、iOSやAndroidのpickerがCSV/Excelを候補に出せないことがある。MIMEも併記する -->
-    <input ref="deliveryFileInput" type="file" accept=".csv,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onDeliveryFile" />
-    <input ref="stocktakeFileInput" type="file" accept=".csv,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="mm-hidden-file" @change="onStocktakeFile" />
-
-    <PastStocktakeImportModal
-      v-if="showStocktakeModal && stocktakePlan"
-      :plan="stocktakePlan"
-      :filename="stocktakeFilename"
-      :confirm-import="confirmStocktakeImport"
-      :undo-import="undoStocktakeImport"
-      @resolve="({ date, resolution }) => setStocktakeResolution(date, resolution)"
-      @close="closeStocktake"
-    />
-
-    <DeliveryImportModal
-      v-if="showDeliveryModal"
-      :csv-text="deliveryCsv"
-      :filename="deliveryFilename"
-      :ctx="importCtx"
-      :existing-movements="existingMovements()"
-      @imported="onDeliveryImported"
-      @map-columns="mapDeliveryColumns"
-      @close="closeDelivery"
-    />
-
-    <!-- 自動で読み取れなかったファイルの受け皿（納品・棚卸で共通）-->
-    <!-- 紙の納品書・棚卸表。表に均してから、CSV・Excel とまったく同じ経路へ合流する -->
-    <PdfGridSetup
-      v-if="pdfSetup"
-      :file="pdfSetup.file"
-      :pages="pdfSetup.pages"
-      :initial="pdfSetup.initial"
-      @ready="applyPdfSetup"
-      @close="closePdfSetup"
-    />
-
-    <!-- 取り込めたあとで、この読み方に名前を付けて覚える。訊くのは**取り込んだ後**
-         （合っていたと分かる前に名前を付けさせても、何に名前を付けているのか分からない） -->
-    <div v-if="askRecipe" class="mm-rec-back" @click.self="dismissRecipe">
-      <div class="mm-rec" role="dialog" aria-modal="true" aria-label="読み方を保存">
-        <div class="mm-rec-t">この読み方を覚えますか？</div>
-        <p class="mm-rec-n">
-          同じ形のファイルなら、次からは問いが出ません。
-          <span v-if="askRecipe.filename" class="mm-rec-f">{{ askRecipe.filename }}</span>
-        </p>
-        <input v-model="recipeName" class="mm-rec-in" type="text" placeholder="読み方の名前" maxlength="40" />
-        <div class="mm-rec-btns">
-          <button class="btn btn-secondary" @click="dismissRecipe">覚えない</button>
-          <button class="btn btn-primary" @click="confirmSaveRecipe">覚える</button>
-        </div>
-      </div>
-    </div>
-    <div v-else-if="savedRecipe" class="mm-rec-done">✓ 読み方「{{ savedRecipe }}」を覚えました</div>
-
-    <RowMapperModal
-      v-if="rowMapper"
-      :kind="rowMapper.kind"
-      :csv-text="rowMapper.csvText"
-      :filename="rowMapper.filename"
-      :title="rowMapper.title"
-      :message="rowMapper.message"
-      :fields="rowMapper.fields"
-      @apply="applyRowMapping"
-      @close="closeRowMapper"
-    />
   </div>
 </template>
 

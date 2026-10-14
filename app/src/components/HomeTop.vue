@@ -4,13 +4,13 @@
  * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
  * - 棚卸・発注が途中なら「続ける」の帯
- * - ショートカット: 棚卸／発注／在庫／カレンダー／レポート／管理（下のナビと同じ行き先＋始める）。
+ * - ショートカット: 棚卸／発注／在庫／日誌／レポート／スタッフ／取り込む／書き出す／設定（下のナビと同じ行き先＋始める）。
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import { computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
-import { currentStaff, storeName, canSeeMoney, isAuthenticated, isAdmin } from '../composables/useAuth.js'
+import { currentStaff, storeName, canSeeMoney, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
@@ -102,8 +102,11 @@ const shortcuts = computed(() => [
     badge: joinWaiting.value ? { text: String(joinWaiting.value), kind: 'red' } : null, hot: !!joinWaiting.value,
     d: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M2 21v-1a6 6 0 0 1 12 0v1', 'M16 3.5a4 4 0 0 1 0 7M22 21v-1a6 6 0 0 0-4-5.6'],
   }] : []),
-  { key: 'dashboard', label: '管理', sub: '取込・設定',
-    d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
+  // 取り込む・書き出す（管理から移した・User決定 2026-10-14）
+  ...(can('item.admin') ? [{ key: 'import', label: '取り込む', sub: '品目・納品・棚卸', d: ['M12 3v12', 'M7 10l5 5 5-5', 'M4 19h16'] }] : []),
+  ...(can('money') ? [{ key: 'export', label: '書き出す', sub: '品目・棚卸結果', d: ['M12 15V3', 'M7 8l5-5 5 5', 'M4 19h16'] }] : []),
+  { key: 'dashboard', label: '設定', sub: '発注・端末・通知',
+    d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
 ])
 function onShortcut(k) {
   if (k === 'stock') { props.activeSession ? emit('resume', props.activeSession) : emit('stock'); return }

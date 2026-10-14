@@ -1,6 +1,6 @@
 <script setup>
 import { useWeather, markWeatherAsked, disableWeather } from '../composables/useWeather.js'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
 import { useConfig } from '../composables/useConfig.js'
 import { deviceId, storedDeviceName, staffIdentity, ownerIdentity, setDeviceName } from '../composables/useDeviceId.js'
@@ -19,7 +19,7 @@ import { runBusy } from '../composables/useBusy.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
 import { isAuthenticated } from '../composables/useAuth.js'
-import { showDeleteAccount } from '../composables/appMenuState.js'
+import { showDeleteAccount, pendingImportFile } from '../composables/appMenuState.js'
 import {
   ANALYTICS_ENABLED,
   ANALYTICS_RETENTION_DAYS,
@@ -334,6 +334,11 @@ function onMapperImported({ mapping, csvText, headerRow, headerNamed, recipeShap
 }
 
 function onFileChange(e) { handleFile(e.target.files[0]) }
+// 品目が0件の画面で先に選んだファイル（その場でファイル選択を開く・2026-10-14）。開いたらそのまま読み込む
+onMounted(() => {
+  const f = pendingImportFile.value
+  if (f && props.section === 'import') { pendingImportFile.value = null; handleFile(f) }
+})
 function onDrop(e)       { dragging.value = false; handleFile(e.dataTransfer.files[0]) }
 // 保存した読み方の入口。通る道は同じで、当たらなかったときに理由を出せるようにするだけ。
 function onRecipeFileChange(e) { handleFile(e.target.files[0], { fromRecipe: true }) }

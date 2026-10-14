@@ -19,7 +19,8 @@ export const journalDate = ref('')
  *   「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
  * - 月: 今までのカレンダー（日ごとの印）。日付を押すとその日の「1日」へ（日の詳細のモーダルは廃止・2026-10-13）
  * - 1日: 時間別（JournalDay）
- * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）
+ * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）。
+ *   左右のスワイプでも切り替える（下のタブのスワイプをやめて空いた・User決定 2026-10-14。月の月送りは縦のまま）
  * - いつか（日付なし）はリストの「やること」の一番下にたたんで置く（月・1日・残りの数には出さない）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -38,11 +39,22 @@ import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
 import { localDateKey } from '../utils/localDate.js'
 import { isMeId } from '../composables/useDeviceId.js'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
 const emit = defineEmits(['viewSession', 'openUpgrade'])
 
 const today = localDateKey()
 const view = journalView
+// 左へ払う＝次（リスト → 月 → 1日）、右へ払う＝前
+const VIEWS = ['list', 'month', 'day']
+const viewSlide = ref('')
+function stepView(n) {
+  const i = VIEWS.indexOf(view.value) + n
+  if (i < 0 || i >= VIEWS.length) return
+  viewSlide.value = n > 0 ? 'l' : 'r'
+  view.value = VIEWS[i]
+}
+const viewSwipe = useHorizontalSwipe({ onLeft: () => stepView(1), onRight: () => stepView(-1), threshold: 60 })
 const dayDate = journalDate
 if (!dayDate.value) dayDate.value = today
 
@@ -149,7 +161,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 </script>
 
 <template>
-  <div class="jp" :style="{ '--jp-top-h': topH + 'px' }">
+  <div
+    :class="['jp', viewSlide && `slide-${viewSlide}`]" :style="{ '--jp-top-h': topH + 'px' }"
+    @touchstart.passive="viewSwipe.onTouchStart" @touchmove.passive="viewSwipe.onTouchMove"
+    @touchend.passive="viewSwipe.onTouchEnd" @touchcancel.passive="viewSwipe.onTouchCancel"
+  >
     <div ref="topEl" class="jp-top">
       <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small></div>
       <div v-if="view === 'list'" class="jp-flt">

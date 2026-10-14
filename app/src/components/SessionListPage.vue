@@ -29,17 +29,17 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeMoney } from '../composables/useAuth.js'
 import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
+import DataPort from './DataPort.vue'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
-import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderScheduleFocusId, pendingDiscardId } from '../composables/appMenuState.js'
+import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderScheduleFocusId, pendingDiscardId, pendingImportFile } from '../composables/appMenuState.js'
 import OrderScheduleModal from './OrderScheduleModal.vue'
 import OrderBaseModal from './OrderBaseModal.vue'
 import { useStockView } from '../composables/useStockView.js'
 import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 import StockPage from './StockPage.vue'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
@@ -63,7 +63,7 @@ const { getSnapshots, deleteSnapshotLocal } = useHistory()
 
 const tab = _persistedTab
 
-// ── 下部ナビのタブ（在庫 → 履歴 → レポート → 管理）。左右のスワイプでも移る ──
+// ── 下部ナビのタブ（ホーム → 在庫 → 日誌 → レポート → 設定）。押して移る（左右のスワイプはやめた・2026-10-14） ──
 // 履歴は以前は別ページで、開くと下部ナビが消えた（User 2026-09-30）。ホームのタブにした。
 // レポート（在庫分析）と、データ管理を統合した管理を加えた（User決定 2026-10-01）。
 // 履歴カレンダーは下部ナビから外し、レポートの一番上から開く独立した画面にした。タブ送りのスワイプと
@@ -81,11 +81,6 @@ function goTab(next) {
   slideDir.value = tabs.indexOf(next) > tabs.indexOf(tab.value) ? 'l' : 'r'
   tab.value = next
 }
-// カレンダーの月は縦のスワイプで送るので、左右はどのタブでもタブの切り替え（User決定 2026-10-04）
-const tabSwipe = useHorizontalSwipe({
-  onLeft:  () => { const t = tabsNow(); goTab(t[t.indexOf(tab.value) + 1]) },
-  onRight: () => { const t = tabsNow(); goTab(t[t.indexOf(tab.value) - 1]) },
-})
 // カレンダーを開いたら、発注・入出庫の記録を取り込み直す（App が受ける）
 watch(tab, t => { if (t === 'calendar') emit('calendarShown') }, { immediate: true })
 
@@ -242,6 +237,27 @@ const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
 // スタッフの管理（段 2-1・管理者だけ）。ホームのカードと参加申請のやることから開く（2026-10-14・管理から移した）
 const showStaff = staffPageOpen
+
+// ── 取り込む・書き出す・品目ファイル（User決定 2026-10-14）──
+const portRef = ref(null)
+const itemFileInput = ref(null)
+/** 品目が0件の画面の「ファイルからまとめて取込」: 管理へ移さず、その場でファイル選択を開く（押した操作の中で開く） */
+function pickItemFile() {
+  if (!_allowed('item.admin')) return
+  itemFileInput.value?.click()
+}
+function onItemFile(e) {
+  const f = e.target.files?.[0]
+  e.target.value = ''
+  if (!f) return
+  pendingImportFile.value = f
+  settingsSection.value = 'import'
+}
+function onHomeGo(k) {
+  if (k === 'staff') showStaff.value = true
+  else if (k === 'import' || k === 'export') portRef.value?.open(k)
+  else goTab(k)
+}
 const orderBaseRows = computed(() => allItems.value.map(item => ({
   item, category: config.categories?.[item] ?? '', ...baseOf(item),
 })))
@@ -290,13 +306,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <LoadingSpinner v-if="loading" />
 
-    <div
-      class="home-panels"
-      @touchstart.passive="tabSwipe.onTouchStart"
-      @touchmove.passive="tabSwipe.onTouchMove"
-      @touchend.passive="tabSwipe.onTouchEnd"
-      @touchcancel.passive="tabSwipe.onTouchCancel"
-    >
+    <!-- 下のタブは押して切り替える（左右のスワイプでは変えない。横のスワイプは各画面の中で使う・User決定 2026-10-14） -->
+    <div class="home-panels">
     <!-- ── トップ（ホーム）とやること（User決定 2026-10-07）── -->
     <div v-if="!loading && tab === 'home'" :class="['home-panel', 'top-panel', slideDir && `slide-${slideDir}`]">
       <HomeTop
@@ -310,7 +321,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         :starting-kind="startingKind"
         :live="liveFor(liveRoom, activeSession)"
         :live-order="liveFor(launcher.liveOrderRoom.value, activeOrderSession)"
-        @go="k => (k === 'staff' ? (showStaff = true) : goTab(k))"
+        @go="onHomeGo"
         @stock="openStockSheet"
         @order="openOrderSheet"
         @resume="resume"
@@ -325,7 +336,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       ref="stockRef"
       embedded
       :stocktake-open="!!activeSession"
-      @open-master="emit('openMaster')"
+      @open-master="pickItemFile"
       @start-session="startStockEmpty"
     >
       <template #top="{ empty }">
@@ -389,6 +400,14 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
     </MasterManagePage>
     <StaffPage v-if="showStaff" @close="showStaff = false" />
+    <!-- 取り込む・書き出す（ホームのカードから。管理から移した・2026-10-14） -->
+    <DataPort ref="portRef" />
+    <!-- 品目リストのファイル選択（品目が0件の画面から、その場で開く） -->
+    <input
+      ref="itemFileInput" type="file" class="item-file-input" hidden
+      accept=".csv,.txt,.pdf,.xlsx,.xls,text/csv,text/comma-separated-values,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+      @change="onItemFile"
+    />
     <Teleport to="body">
       <Transition name="toast">
         <div v-if="denyNote" class="toast" data-type="warning" role="status">{{ denyNote }}</div>
@@ -437,7 +456,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-t">品目がまだありません</div>
           <div class="sh-s">数えながら、その場で品目を登録できます。</div>
           <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStockEmpty">👥<span>数えながら登録して始める</span></button>
-          <button class="bb" type="button" @click="closeSheet(); emit('openMaster')">📄<span>ファイルから品目を取り込む</span></button>
+          <button class="bb" type="button" @click="closeSheet(); pickItemFile()">📄<span>ファイルから品目を取り込む</span></button>
         </template>
         <template v-else>
           <div class="sh-t">棚卸を始める</div>

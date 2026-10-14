@@ -132,7 +132,7 @@ describe('発注セッションの戻る', () => {
   it('管理タブに「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
     await mountApp()
     await seed()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定')))
     const cards = [...host.querySelectorAll('.m-card')].map(b => b.textContent)
     expect(cards.some(t => t.includes('入出庫の記録') || t.includes('仕入れ'))).toBe(false)
   }, 20000)

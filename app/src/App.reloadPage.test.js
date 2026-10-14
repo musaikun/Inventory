@@ -116,12 +116,12 @@ describe('再読込しても同じページに留まる', () => {
     await mountApp()
     await seedItems()
     // データ管理はホームの「管理」タブそのもの（2026-10-01）
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('管理')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定')))
     expect(host.querySelector('.mp')).toBeTruthy()
 
     await reload()
     expect(view()).toBe('sessions')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('管理')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('設定')
   }, 20000)
 
   it('進行中セッションは保存ページより優先する', async () => {

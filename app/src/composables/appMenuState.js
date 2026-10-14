@@ -3,6 +3,12 @@ import { ref } from 'vue'
 // ハンバーガーメニューから開く「設定」の対象セクション。
 // null = 閉じている / 'all' | 'import' | 'device' | 'push' | 'general'
 export const settingsSection = ref(null)
+/**
+ * 品目リストの取込で、先に選んでおいたファイル（User決定 2026-10-14）。
+ * 品目が0件の画面の「ファイルからまとめて取込」は、管理へ移さずその場でファイル選択を開く。
+ * 選んだファイルをここに置いて品目のインポート（SettingsModal）を開くと、そのまま読み込みに入る
+ */
+export const pendingImportFile = ref(null)
 
 // 振り分けページ（AxisAssignFocus）をアプリ全体で開く
 export const showAxisAssign  = ref(false)

@@ -49,7 +49,7 @@ describe('品目が0件', () => {
     expect(host.textContent).toContain('最初の品目を追加')
     await click(btn('📄 ファイルからまとめて取込'))
     expect(events.openMaster).toBe(1)
-    await click(btn('または、棚卸をしながら登録する'))
+    await click(btn('👥 棚卸をしながら登録する'))
     expect(events.startSession).toBe(1)
     await click(btn('＋ 1つずつ追加'))
     expect(host.querySelector('[aria-label="品目を追加"][role="dialog"]')).not.toBeNull()

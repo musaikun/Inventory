@@ -64,30 +64,43 @@ afterEach(() => {
   app = null; host = null
 })
 
-describe('データ管理 — 取り込む / 書き出す', () => {
-  it('入口は「取り込む」「書き出す」の2つだけ', async () => {
+describe('取り込む / 書き出す（ホームのカードから開く・管理から移した 2026-10-14）', () => {
+  // DataPort をホームのカードと同じく open(kind) で開く
+  let port = null
+  async function mountPort() {
+    const { default: DataPort } = await import('./DataPort.vue')
+    const { h, ref } = await import('vue')
+    const r = ref(null)
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    app = createApp({ render: () => h(DataPort, { ref: r }) })
+    app.mount(host)
+    await nextTick()
+    port = r.value
+  }
+
+  it('設定（以前の管理）には取り込む・書き出すの入口を置かない', async () => {
     await mountPage()
-    expect(topRows()).toEqual(['取り込む', '書き出す'])
-    expect(sheet()).toBeNull()
+    expect(topRows()).toEqual([])
   })
 
-  it('「取り込む」を押すと、種類（品目リスト・過去の納品・過去の棚卸）を選べる', async () => {
-    await mountPage()
-    await click([...host.querySelectorAll('.mm-row')].find(b => b.textContent.includes('取り込む')))
-    expect(sheet()).toBeTruthy()
+  it('「取り込む」で、種類（品目リスト・過去の納品・過去の棚卸）を選べる', async () => {
+    await mountPort()
+    expect(sheet()).toBeNull()
+    port.open('import'); await nextTick()
     expect(sheetRows()).toEqual(['品目リスト', '過去の納品', '過去の棚卸'])
   })
 
-  it('「書き出す」を押すと、品目リストと棚卸結果を選べる', async () => {
-    await mountPage()
-    await click([...host.querySelectorAll('.mm-row')].find(b => b.textContent.includes('書き出す')))
+  it('「書き出す」で、品目リストと棚卸結果を選べる', async () => {
+    await mountPort()
+    port.open('export'); await nextTick()
     expect(sheetRows()).toEqual(['品目リスト', '棚卸結果'])
   })
 
   it('戻る操作は、画面を閉じる前にシートを閉じる', async () => {
     const { consumeInnerLayerBack } = await import('../composables/appMenuState.js')
-    await mountPage()
-    await click([...host.querySelectorAll('.mm-row')].find(b => b.textContent.includes('取り込む')))
+    await mountPort()
+    port.open('import'); await nextTick()
     expect(consumeInnerLayerBack()).toBe(true)
     await nextTick()
     expect(sheet()).toBeNull()

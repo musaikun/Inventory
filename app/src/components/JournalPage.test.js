@@ -181,4 +181,21 @@ describe('日誌', () => {
     expect(ps[2].textContent).toBe('')                 // 2分の中断は文字なし
     expect(ps[4].textContent).toBe('中断 42分')
   })
+
+  it('左右のスワイプでリスト・月・1日を切り替える（2026-10-14）', async () => {
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const jp = host.querySelector('.jp')
+    const swipe = async dx => {
+      const t = (x) => ({ changedTouches: [{ clientX: x, clientY: 300 }] })
+      const ev = (type, x) => { const e = new Event(type, { bubbles: true }); Object.assign(e, t(x)); jp.dispatchEvent(e) }
+      ev('touchstart', 200); ev('touchmove', 200 + dx / 2); ev('touchmove', 200 + dx); ev('touchend', 200 + dx); await tick()
+    }
+    const on = () => host.querySelector('.jp-views .on').textContent
+    expect(on()).toBe('リスト')
+    await swipe(-120); expect(on()).toBe('月')
+    await swipe(-120); expect(on()).toBe('1日')
+    await swipe(-120); expect(on()).toBe('1日')      // 端で止まる
+    await swipe(120);  expect(on()).toBe('月')
+  })
 })

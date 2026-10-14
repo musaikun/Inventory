@@ -81,7 +81,7 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.home-top .sc').textContent).toContain('並び替え')
     expect(shortcut('棚卸')).toBeTruthy()
     expect(shortcut('発注')).toBeTruthy()
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '管理'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '設定'])
   })
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -106,10 +106,10 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
     expect(host.querySelector('.report-tab').textContent).not.toContain('直近の棚卸')   // 詳細で見られる情報は出さない
     // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）
-    await click(btn(host.querySelector('.bnav'), '管理'))
+    await click(btn(host.querySelector('.bnav'), '設定'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
     expect(host.querySelector('.mp-header')).toBeNull()
-    for (const label of ['取り込む', '発注日・締切', '発注点', '各種設定', 'フィードバック']) {
+    for (const label of ['発注日・締切', '発注点', '各種設定', 'フィードバック']) {   // 取り込む・書き出すはホームへ（2026-10-14）
       expect(host.querySelector('.mp').textContent).toContain(label)
     }
     // 入出庫の記録・記録の確認は置かない（User 2026-10-04。入出庫は品目シートでその場で）。練習モードも置かない
@@ -121,7 +121,7 @@ describe('ホームの骨組み', () => {
 
   it('管理タブから発注基準・発注日の設定を開ける', async () => {
     await mountPage()
-    await click(btn(host.querySelector('.bnav'), '管理'))
+    await click(btn(host.querySelector('.bnav'), '設定'))
     await click(btn(host.querySelector('.manage'), '🎯'))
     expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
   })
@@ -281,7 +281,7 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     // ショートカットの「在庫」で在庫タブへ
     const sc = [...host.querySelectorAll('.ht-sc')]
     // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', 'スタッフ', '管理'])
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', 'スタッフ', '取り込む', '書き出す', '設定'])
     await click(sc[2])
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
     expect(host.querySelector('.manage')?.textContent ?? '').not.toContain('招待・承認')   // 管理には置かない
