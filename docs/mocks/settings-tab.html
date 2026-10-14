@@ -1,0 +1,115 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>設定タブ モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1100px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; height:740px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; }
+  .hd { background:#fff; padding:14px 16px 10px; border-bottom:1px solid var(--border); font-weight:900; font-size:17px; }
+  .body { flex:1; overflow:hidden; padding:4px 12px 12px; }
+  .sec { font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--muted); padding:12px 4px 6px; }
+  .box { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .it { display:flex; align-items:center; gap:10px; padding:11px 12px; border-top:1px solid #eef4f6; font-size:13.5px; }
+  .it:first-child { border-top:none; }
+  .ic { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-size:15px; background:#ecfeff; flex:none; }
+  .tx { flex:1; min-width:0; } .tx b { display:block; font-weight:700; } .tx small { display:block; font-size:11px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .val { font-size:12px; color:var(--muted); font-weight:700; }
+  .ar { color:#94a3b8; font-weight:900; }
+  .tg { width:40px; height:24px; border-radius:999px; background:#22c55e; position:relative; flex:none; } .tg::after { content:''; position:absolute; right:3px; top:3px; width:18px; height:18px; border-radius:50%; background:#fff; }
+  .tg.off { background:#cbd5e1; } .tg.off::after { left:3px; right:auto; }
+  .danger .tx b { color:#b91c1c; } .danger .ic { background:#fef2f2; }
+  .who { font-size:12px; color:var(--muted); text-align:center; padding:10px 0 4px; }
+  .out { margin-top:6px; text-align:center; font-weight:800; color:#b91c1c; font-size:13.5px; background:#fff; border-radius:14px; padding:12px; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .nav { height:58px; background:#fff; border-top:1px solid var(--border); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--muted); font-weight:700; flex:none; }
+  .nav span { display:grid; place-items:center; gap:1px; } .nav span.on { color:var(--primary); } .nav b { font-size:17px; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; margin-top:10px; }
+</style></head><body>
+<h1>設定タブ（以前の「管理」）</h1>
+<p class="lead">
+「各種設定」の中に隠れていたものを、設定タブに直接並べる。まとまりは<b>お店 → 発注 → 品目 → この端末 → アカウント → サポート</b>。
+押すとその項目だけのシート（今の各種設定の中身）が開く。オン・オフだけのもの（通知・天気・匿名の利用状況）はその場で切り替える。<br>
+見えるものは権限で変える（スタッフ・発注の設定・品目の削除は持っている人だけ）。危ない操作（全品目の削除・アカウントの削除）はそれぞれのまとまりの一番下に赤で。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">上のほう<small>お店・発注・品目</small></div>
+<div class="phone">
+  <div class="hd">設定</div>
+  <div class="body">
+    <div class="sec">お店</div>
+    <div class="box">
+      <div class="it"><span class="ic">🏪</span><span class="tx"><b>店名</b><small>本店</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">👤</span><span class="tx"><b>オーナーの名前</b><small>どの端末でもこの名前で記録</small></span><span class="val">無才</span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">👥</span><span class="tx"><b>スタッフ</b><small>招待・承認・役割（ホームにもあります）</small></span><span class="ar">›</span></div>
+    </div>
+    <div class="sec">発注</div>
+    <div class="box">
+      <div class="it"><span class="ic">🗓</span><span class="tx"><b>発注日・締切</b><small>発注する曜日と締切の時刻</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">🎯</span><span class="tx"><b>発注点</b><small>この数以下で「要補充」</small></span><span class="ar">›</span></div>
+    </div>
+    <div class="sec">品目</div>
+    <div class="box">
+      <div class="it"><span class="ic">📗</span><span class="tx"><b>覚えている読み方</b><small>取り込みで保存した読み方（3件）</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">↩️</span><span class="tx"><b>取り込みを取り消す</b><small>直前の品目の取り込みの前に戻す</small></span><span class="ar">›</span></div>
+      <div class="it danger"><span class="ic">🗑</span><span class="tx"><b>全品目を削除</b><small>店舗コードを入れて削除・取り消せません</small></span><span class="ar">›</span></div>
+    </div>
+  </div>
+  <div class="nav"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span class="on"><b>⚙</b>設定</span></div>
+</div></div>
+
+<div class="col"><div class="cap">下のほう<small>この端末・アカウント・サポート</small></div>
+<div class="phone">
+  <div class="hd">設定</div>
+  <div class="body">
+    <div class="sec">この端末</div>
+    <div class="box">
+      <div class="it"><span class="ic">🔔</span><span class="tx"><b>通知</b><small>やること・発注の締切・月末</small></span><span class="tg"></span></div>
+      <div class="it"><span class="ic">☀️</span><span class="tx"><b>カレンダーの天気</b><small>位置情報から気温・降水</small></span><span class="tg off"></span></div>
+      <div class="it"><span class="ic">💡</span><span class="tx"><b>消した説明を戻す</b><small>2件</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">🧹</span><span class="tx"><b>表示の不具合をリセット</b><small>データは消えません</small></span><span class="ar">›</span></div>
+    </div>
+    <div class="sec">アカウント</div>
+    <div class="box">
+      <div class="it"><span class="ic">📊</span><span class="tx"><b>匿名の利用状況の共有</b><small>品目・数量・位置は送りません</small></span><span class="tg off"></span></div>
+      <div class="it danger"><span class="ic">⚠️</span><span class="tx"><b>アカウントの削除</b><small>すべてのデータを削除・元に戻せません</small></span><span class="ar">›</span></div>
+    </div>
+    <div class="sec">サポート</div>
+    <div class="box">
+      <div class="it"><span class="ic">💬</span><span class="tx"><b>フィードバックを送る</b><small>不具合・要望を開発者へ</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">📄</span><span class="tx"><b>規約・プライバシー・サポート</b></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">ℹ️</span><span class="tx"><b>アプリ情報</b></span><span class="val">v0.161.0</span></div>
+    </div>
+    <div class="who">ログイン中：無才（オーナー）</div>
+    <div class="out">ログアウト</div>
+  </div>
+  <div class="nav"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span class="on"><b>⚙</b>設定</span></div>
+</div></div>
+
+<div class="col"><div class="cap">スタッフ（アルバイト）が見たとき<small>権限の無いまとまりは出さない</small></div>
+<div class="phone">
+  <div class="hd">設定</div>
+  <div class="body">
+    <div class="sec">この端末</div>
+    <div class="box">
+      <div class="it"><span class="ic">🔔</span><span class="tx"><b>通知</b><small>あなたの担当・やること</small></span><span class="tg"></span></div>
+      <div class="it"><span class="ic">☀️</span><span class="tx"><b>カレンダーの天気</b></span><span class="tg off"></span></div>
+      <div class="it"><span class="ic">💡</span><span class="tx"><b>消した説明を戻す</b></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">🧹</span><span class="tx"><b>表示の不具合をリセット</b></span><span class="ar">›</span></div>
+    </div>
+    <div class="sec">サポート</div>
+    <div class="box">
+      <div class="it"><span class="ic">💬</span><span class="tx"><b>フィードバックを送る</b></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">📄</span><span class="tx"><b>規約・プライバシー・サポート</b></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">ℹ️</span><span class="tx"><b>アプリ情報</b></span><span class="val">v0.161.0</span></div>
+    </div>
+    <div class="who">ログイン中：山田（アルバイト）<br>アプリを開いている時間は、管理者から見えます</div>
+    <div class="out">ログアウト</div>
+    <div class="note">「端末名」はなくす（スタッフは自分の名前・オーナーは店に1つの名前で記録するので、使い道が無くなった）</div>
+  </div>
+  <div class="nav"><span><b>⌂</b>ホーム</span><span><b>📦</b>在庫</span><span><b>☑</b>日誌</span><span><b>📈</b>レポート</span><span class="on"><b>⚙</b>設定</span></div>
+</div></div>
+
+</div></body></html>
