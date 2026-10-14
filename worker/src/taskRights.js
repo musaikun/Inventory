@@ -7,6 +7,7 @@
  * - 付け直し: その日のうちに取り消した本人が付け直したら、元の完了時刻に戻す
  * - 文面・日付・時刻・担当を直す: 未完了の間だけ、作った人（やることを作る権限があるとき）と管理者
  * - 消す: 未完了の間だけ、作った人（同上）と管理者。完了したものは誰も消せない
+ * - アプリが自動で作ったやること（kind あり・参加申請など）は、人の手では完了・取り消し・直す・消すができない
  * 管理者 = オーナーと管理者（役割 admin）
  *
  * @typedef {{ id: string, admin: boolean, canCreate: boolean }} Me
@@ -17,14 +18,14 @@ const _done = t => !!t?.doneAt
 
 /** 完了の印を付けられるか（「全員」は各自の印なので別） */
 export function canComplete(t, me) {
-  if (!t || t.deletedAt || _done(t)) return false
+  if (!t || t.deletedAt || t.kind || _done(t)) return false
   if (t.assign === 'person') return t.assigneeId === me.id || me.admin
   return true
 }
 
 /** 完了を取り消せるか。本人はその日のうち、管理者はいつでも */
 export function canUndo(t, me, today, dayOf) {
-  if (!t || t.deletedAt || !_done(t)) return false
+  if (!t || t.deletedAt || t.kind || !_done(t)) return false
   if (me.admin) return true
   return !!t.doneById && t.doneById === me.id && dayOf(t.doneAt) === today
 }
@@ -38,7 +39,7 @@ export function canUnmark(t, me, today, dayOf) {
 
 /** 文面・日付・時刻・担当を直せるか */
 export function canEdit(t, me) {
-  if (!t || t.deletedAt || _done(t)) return false
+  if (!t || t.deletedAt || t.kind || _done(t)) return false
   return me.admin || (t.createdById === me.id && me.canCreate)
 }
 

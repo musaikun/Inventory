@@ -5,6 +5,7 @@
  * - 文面を押すと直せる（文面・日付・時刻・担当）。日付を変えると別の日へ移る
  * - できる人は services/taskRights.js（User決定 2026-10-14）: 完了は担当の人、取り消しは完了した人がその日のうち、
  *   直す・消すは未完了の間だけ作った人と管理者。押せないものはボタンを出さない・薄くする
+ * - 参加申請のやること（kind 'staff_join'）は、押すとスタッフの画面を開く。承認・お断りで自動で完了
  * - showDate: 期限切れの一覧では時刻の代わりに日付を赤で出す
  */
 import { ref, computed } from 'vue'
@@ -14,6 +15,8 @@ import {
 } from '../composables/useTasks.js'
 import { staffNames } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
+import { isAdmin } from '../composables/useAuth.js'
+import { openStaffPage } from '../composables/staffNav.js'
 import { localDateKey } from '../utils/localDate.js'
 
 const props = defineProps({
@@ -25,6 +28,8 @@ const t = computed(() => props.task)
 const canEdit = computed(() => canEditTask(t.value))
 const canRemove = computed(() => canRemoveTask(t.value))
 const canToggle = computed(() => canToggleTask(t.value))
+const isJoin = computed(() => t.value.kind === 'staff_join')
+function onText() { if (isJoin.value) { if (isAdmin.value) openStaffPage() } else openEdit() }
 // 担当の候補（先頭はオーナー）。自分には「（自分）」を付ける
 const people = computed(() => staffNames.value)
 const hasStaff = computed(() => people.value.some(p => !p.owner))
@@ -81,11 +86,12 @@ function save() {
     <span v-if="showDate" class="tr-tm late">{{ md(t.date) }}</span>
     <span v-else class="tr-tm">{{ t.dueTime || '' }}</span>
     <component
-      :is="canEdit ? 'button' : 'span'" :type="canEdit ? 'button' : undefined" class="tr-tx"
-      :aria-label="canEdit ? `${t.text}を直す` : undefined" @click="openEdit"
+      :is="canEdit || (isJoin && isAdmin) ? 'button' : 'span'" :type="canEdit || (isJoin && isAdmin) ? 'button' : undefined" class="tr-tx"
+      :aria-label="isJoin ? (isAdmin ? 'スタッフの画面を開く' : undefined) : (canEdit ? `${t.text}を直す` : undefined)" @click="onText"
     >{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
       <small v-if="assignNote" :class="['tr-assign', t.assign, { me: isAssignedToMe(t) }]">{{ assignNote }}</small>
-      <small v-if="!isMyTask(t) || (t.doneAt && t.assign !== 'all')">
+      <small v-if="isJoin && !t.doneAt">{{ isAdmin ? '押すとスタッフの画面を開きます。承認・お断りで自動で完了します' : '管理者が承認・お断りすると自動で完了します' }}</small>
+      <small v-if="!isJoin && (!isMyTask(t) || (t.doneAt && t.assign !== 'all'))">
         <template v-if="!isMyTask(t)">{{ t.createdBy || 'だれか' }}さんが追加<template v-if="isNewTask(t)"> ・ 新着</template></template>
         <template v-if="t.doneAt && t.assign !== 'all'"><template v-if="!isMyTask(t)"> ・ </template>{{ t.doneBy ? `${t.doneBy}さんが完了` : '完了' }}</template>
       </small>

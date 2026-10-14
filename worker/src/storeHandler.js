@@ -2039,7 +2039,7 @@ export async function handleTasksGet(db, code, sinceDays) {
   const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id
+      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
       OR (task_date = '' AND updated_at >= ?))
     ORDER BY task_date DESC LIMIT 2000
@@ -2056,6 +2056,8 @@ export async function handleTasksGet(db, code, sinceDays) {
     dueTime: r.due_time ?? null,
     // その日のうちに取り消した元の完了（同じ人が付け直したら元の時刻へ・2026-10-14）
     prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null,
+    // アプリが自動で作ったやること（'staff_join' ＝ 参加申請。人の手では完了・直す・消すができない）
+    kind: r.kind ?? null, refId: r.ref_id ?? null,
   }))
 }
 

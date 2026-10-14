@@ -75,4 +75,21 @@ describe('知らせとバッジ', () => {
     vi.useRealTimers()
     expect(host.querySelector('.tn')).toBeNull()
   })
+
+describe('参加申請のやること（User決定 2026-10-14）', () => {
+  it('手では完了にできず、押すとスタッフの画面を開く。ホームに承認待ちの数', async () => {
+    const T = await import('../composables/useTasks.js')
+    T.applyRemoteTasks([{ id: 't_join_st_1', date: '2026-10-14', text: '山田さんから参加の申請がありました。承認するか決めてください', kind: 'staff_join', refId: 'st_1',
+      assign: 'person', assigneeId: 'owner', assigneeName: '店長', createdBy: 'タナオロ', createdById: 'system', createdAt: '2026-10-14T00:00:00Z', updatedAt: '1' }])
+    const t = T.tasksOn('2026-10-14')[0]
+    const { default: TaskRow } = await import('./TaskRow.vue')
+    await mount(TaskRow, { task: t })
+    expect(host.querySelector('.tr-chk').disabled).toBe(true)
+    expect(host.querySelector('.tr-del')).toBeNull()
+    expect(T.toggleTask(t.id)).toBeNull()
+    const nav = await import('../composables/staffNav.js')
+    await click(host.querySelector('button.tr-tx'))
+    expect(nav.staffPageOpen.value).toBe(true)
+  })
+})
 })

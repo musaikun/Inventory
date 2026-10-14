@@ -4,12 +4,14 @@
  * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
  * - 棚卸・発注が途中なら「続ける」の帯
- * - ショートカット: 棚卸／発注／在庫／カレンダー／レポート／管理（下のナビと同じ行き先＋始める）
+ * - ショートカット: 棚卸／発注／在庫／カレンダー／レポート／管理（下のナビと同じ行き先＋始める）。
+ *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import { computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
-import { currentStaff, storeName, canSeeMoney } from '../composables/useAuth.js'
+import { currentStaff, storeName, canSeeMoney, isAuthenticated, isAdmin } from '../composables/useAuth.js'
+import { aliveTasks } from '../composables/useTasks.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
@@ -78,6 +80,9 @@ const preview = computed(() => {
   ].slice(0, 3)
 })
 
+// 承認待ち（参加申請のやることのうち、まだ決まっていないもの）
+const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
+
 // ── ショートカット ──
 const shortcuts = computed(() => [
   { key: 'stock', label: '棚卸', sub: props.activeSession ? `途中 ${props.stockCount}品目` : '数える', hot: !!props.activeSession,
@@ -92,6 +97,11 @@ const shortcuts = computed(() => [
   { key: 'calendar', label: '日誌', sub: 'やること・記録',
     d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
   ...(canSeeMoney.value ? [{ key: 'report', label: 'レポート', sub: '金額・推移', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
+  ...(isAuthenticated.value && isAdmin.value ? [{
+    key: 'staff', label: 'スタッフ', sub: joinWaiting.value ? `承認待ち ${joinWaiting.value}` : '招待・承認・役割',
+    badge: joinWaiting.value ? { text: String(joinWaiting.value), kind: 'red' } : null, hot: !!joinWaiting.value,
+    d: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M2 21v-1a6 6 0 0 1 12 0v1', 'M16 3.5a4 4 0 0 1 0 7M22 21v-1a6 6 0 0 0-4-5.6'],
+  }] : []),
   { key: 'dashboard', label: '管理', sub: '取込・設定',
     d: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'] },
 ])

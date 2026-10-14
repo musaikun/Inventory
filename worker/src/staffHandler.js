@@ -6,6 +6,7 @@
  * - 以降は「店舗コード＋名前＋暗証番号」でログイン（失敗は 店舗×名前×端末 で15分に5回まで）
  * - 停止・削除はその人のトークンを即座に消す。削除は行と名前を残し（記録の「○○（削除済み）」用）、暗証番号を消す
  */
+import { createJoinTask, resolveJoinTask } from './staffJoinTask.js'
 import { _now } from './workerUtils.js'
 import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys } from './authHandler.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
@@ -76,6 +77,17 @@ async function _markDeletedInRecords(db, code, id, name, now) {
   ])
 }
 
+// 管理者（店長）は店に1人（User決定 2026-10-14）。承認待ち・停止中・まだ使われていない招待も数える
+const _ADMIN_TAKEN = { _status: 409, code: 'admin_taken', error: '管理者は店に1人です。今の管理者を別の役割にしてから選んでください' }
+async function _adminTaken(db, code, exceptId = '') {
+  const st = await db.prepare("SELECT id FROM staff WHERE shop_code = ? AND role = 'admin' AND status IN ('active','stopped','pending') AND id != ? LIMIT 1")
+    .bind(code, exceptId).first()
+  if (st) return true
+  const inv = await db.prepare("SELECT id FROM staff_invites WHERE shop_code = ? AND role = 'admin' AND used_at IS NULL AND expires_at > ? LIMIT 1")
+    .bind(code, _now()).first()
+  return !!inv
+}
+
 async function _requireAdmin(db, request, code) {
   const ctx = await authContext(db, request)
   if (!ctx || ctx.shopCode !== code) return { deny: { _status: 401, error: '認証が必要です' } }
@@ -140,6 +152,7 @@ export async function handleStaffInvite(db, request, code, body) {
   const role = STAFF_ROLES.includes(body?.role) ? body.role : null
   if (!name) return { _status: 400, error: '名前を入れてください' }
   if (!role) return { _status: 400, error: '役割を選んでください' }
+  if (role === 'admin' && await _adminTaken(db, code)) return _ADMIN_TAKEN
   const token = _rand(24)
   const id = 'inv_' + _rand(8)
   const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString()
@@ -172,14 +185,18 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
   const now = _now()
   const set = (sql, ...args) => db.prepare(`UPDATE staff SET ${sql}, updated_at = ? WHERE id = ? AND shop_code = ?`).bind(...args, now, id, code).run()
   const dropTokens = () => db.prepare('DELETE FROM auth_tokens WHERE staff_id = ?').bind(id).run()
+  const actor = ctx.staffId ? { id: ctx.staffId, name: ctx.name } : { id: 'owner', name: ctx.name || 'オーナー' }
   switch (action) {
     case 'approve':
       if (st.status !== 'pending') return { _status: 409, error: '承認待ちではありません' }
+      if (st.role === 'admin' && await _adminTaken(db, code, id)) return _ADMIN_TAKEN
       await set('status = ?, approved_at = ?, approved_by = ?', 'active', now, ctx.staffId ?? 'owner')
+      await resolveJoinTask(db, code, id, st.name, '承認しました', actor)
       break
     case 'reject':
       if (st.status !== 'pending') return { _status: 409, error: '承認待ちではありません' }
       await set('status = ?, pin_hash = NULL, pending_key_hash = NULL', 'rejected')
+      await resolveJoinTask(db, code, id, st.name, 'お断りしました', actor)
       break
     case 'stop':
       if (st.status !== 'active') return { _status: 409, error: '使える状態ではありません' }
@@ -192,10 +209,12 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
     case 'delete':
       await set('status = ?, pin_hash = NULL, pending_key_hash = NULL, deleted_at = ?', 'deleted', now); await dropTokens()
       await _markDeletedInRecords(db, code, id, st.name, now)
+      if (st.status === 'pending') await resolveJoinTask(db, code, id, st.name, '取り消しました', actor)
       break
     case 'role': {
       const role = STAFF_ROLES.includes(body?.role) ? body.role : null
       if (!role) return { _status: 400, error: '役割を選んでください' }
+      if (role === 'admin' && await _adminTaken(db, code, id)) return _ADMIN_TAKEN
       await set('role = ?', role)
       break
     }
@@ -255,7 +274,9 @@ export async function handleStaffJoin(db, body) {
     INSERT INTO staff (id, shop_code, name, role, pin_hash, status, pending_key_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
   `).bind(id, inv.shop_code, name, inv.role, await _hashPin(pin), await _sha256(pendingKey), now, now).run()
-  return { pendingKey, shopCode: inv.shop_code, storeName: store.store_name ?? null, name, staffId: id }
+  // 管理者（いなければオーナー）のやることにする（User決定 2026-10-14）
+  const assignee = await createJoinTask(db, inv.shop_code, id, name).catch(() => null)
+  return { pendingKey, shopCode: inv.shop_code, storeName: store.store_name ?? null, name, staffId: id, assigneeId: assignee?.id ?? null }
 }
 
 /**

@@ -11,7 +11,7 @@ export const dayJst = iso => {
 const _task = r => ({
   assign: r.assign_mode ?? 'anyone', assigneeId: r.assignee_id ?? null, createdById: r.created_by_id ?? '',
   doneAt: r.done_at ?? null, doneById: r.done_by_id ?? null, deletedAt: r.deleted_at ?? null,
-  prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null,
+  prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null, kind: r.kind ?? null,
 })
 
 /**
@@ -26,6 +26,7 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
   const me = { id: who.id, admin: !!who.admin || !who.ctx, canCreate: who.ctx ? ctxCan(who.ctx, 'task.create') : true }
   const t = _task(row)
   const wasDone = !!t.doneAt
+  if (t.kind) return { deny: 'このやることは、スタッフの画面で承認・お断りすると自動で完了します' }
   if (body?.deletedAt) {
     if (!canRemove(t, me)) return { deny: wasDone ? '完了したやることは消せません' : 'このやることを消せるのは、作った人と管理者だけです' }
     return { keepPrev: null }

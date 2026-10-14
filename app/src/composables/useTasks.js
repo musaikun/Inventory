@@ -179,6 +179,7 @@ export function canRemoveTask(t) { return R.canRemove(t, _me()) }
 /** 押せないときの一言 */
 export function toggleDenyReason(t) {
   if (!t || canToggleTask(t)) return ''
+  if (t.kind === 'staff_join') return 'スタッフの画面で承認・お断りすると自動で完了します'
   if (t.assign === 'all' || t.doneAt) return '完了を取り消せるのは、完了した人がその日のうちだけです（それ以降は管理者）'
   return '担当の人だけが完了にできます'
 }

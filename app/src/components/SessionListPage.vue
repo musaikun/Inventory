@@ -28,6 +28,7 @@ export const _showOrders    = ref(false)
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeMoney } from '../composables/useAuth.js'
 import StaffPage from './StaffPage.vue'
+import { staffPageOpen } from '../composables/staffNav.js'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
 import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -239,7 +240,8 @@ const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '�
 const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
 const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
-const showStaff = ref(false)   // スタッフの管理（段 2-1・管理者だけ）
+// スタッフの管理（段 2-1・管理者だけ）。ホームのカードと参加申請のやることから開く（2026-10-14・管理から移した）
+const showStaff = staffPageOpen
 const orderBaseRows = computed(() => allItems.value.map(item => ({
   item, category: config.categories?.[item] ?? '', ...baseOf(item),
 })))
@@ -308,7 +310,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         :starting-kind="startingKind"
         :live="liveFor(liveRoom, activeSession)"
         :live-order="liveFor(launcher.liveOrderRoom.value, activeOrderSession)"
-        @go="goTab"
+        @go="k => (k === 'staff' ? (showStaff = true) : goTab(k))"
         @stock="openStockSheet"
         @order="openOrderSheet"
         @resume="resume"
@@ -368,10 +370,6 @@ onUnmounted(registerInnerLayerCloser(() => {
             <div class="m-h">発注の設定</div>
             <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
             <button class="m-card" type="button" @click="_allowed('orderSettings') && (showOrderBase = true)">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
-          </template>
-          <template v-if="isAuthenticated && isAdmin">
-            <div class="m-h">スタッフ</div>
-            <button class="m-card" type="button" @click="showStaff = true">👥<span>スタッフ<small>招待・承認・役割・停止・個別の許可（スタッフは自分の名前と暗証番号でログイン）</small></span><i>›</i></button>
           </template>
           <div class="m-h">その他</div>
           <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>

@@ -57,3 +57,4 @@ apply_if_missing 0024_task_assign.sql        idx_tasks_assignee
 apply_if_missing 0025_presence.sql           idx_work_sessions_seen
 apply_if_missing 0026_task_time_push_actor.sql idx_push_actor
 apply_if_missing 0027_owner_identity.sql    idx_tasks_created_by
+apply_if_missing 0028_task_kind.sql         idx_tasks_kind

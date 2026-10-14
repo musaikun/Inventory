@@ -1,3 +1,4 @@
+import { JOIN_KIND, joinTaskText, responsibleAdmin } from './staffJoinTask.js'
 import { sendWebPush } from './webPush.js'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
@@ -178,6 +179,11 @@ export async function handleCron(env) {
   } catch (error) {
     console.warn('[push] sent-mark cleanup failed:', error?.message ?? error)
   }
+  try {
+    await remindJoinTasks(env)
+  } catch (error) {
+    console.warn('[push] join reminder failed:', error?.message ?? error)
+  }
   if (!env.VAPID_PUBLIC_KEY) return
   try {
     await sendScheduledPushes(env, new Date())
@@ -287,13 +293,40 @@ export async function notifyTaskAssigned(env, shopCode, task, exceptEndpoint = '
   }
 }
 
-/** スタッフが参加を申請したことを、店の端末へ知らせる（管理者が承認するため・段 2-1） */
-export async function notifyStaffJoin(env, shopCode, name) {
+/**
+ * スタッフが参加を申請したことを、受け持つ人（管理者・いなければオーナー）の端末にだけ知らせる。
+ * 以前は店の全端末へ送っていて、承認できないスタッフにも届いていた（User決定 2026-10-14）
+ */
+export async function notifyStaffJoin(env, shopCode, name, assigneeId = null) {
   if (!env.DB || !env.VAPID_PUBLIC_KEY) return
+  const to = assigneeId || (await responsibleAdmin(env.DB, shopCode)).id
   const { results: subs } = await env.DB.prepare(
-    'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ?',
-  ).bind(shopCode).all()
+    'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
+  ).bind(shopCode, to).all()
   for (const sub of (subs ?? [])) {
-    await _send(env, sub, { title: 'タナオロ', body: `${name}さんがスタッフとして参加を申請しました。承認してください`, tag: 'staff-join', url: '/' })
+    await _send(env, sub, { title: 'タナオロ', body: joinTaskText(name), tag: 'staff-join', url: '/' })
   }
+}
+
+/**
+ * 参加申請のやることが1日たっても終わっていなければ、担当へもう一度知らせる（その後も1日ごと）。
+ * 毎時の cron から呼ぶ。担当の端末が無ければ知らせた印だけ付ける
+ */
+export async function remindJoinTasks(env, nowMs = Date.now()) {
+  const due = new Date(nowMs - 24 * 3600_000).toISOString()
+  const rows = (await env.DB.prepare(`
+    SELECT id, shop_code, assignee_id, body FROM tasks
+    WHERE kind = ? AND done_at IS NULL AND deleted_at IS NULL AND COALESCE(reminded_at, created_at) <= ? LIMIT 50
+  `).bind(JOIN_KIND, due).all()).results ?? []
+  for (const t of rows) {
+    await env.DB.prepare('UPDATE tasks SET reminded_at = ? WHERE id = ?').bind(new Date(nowMs).toISOString(), t.id).run()
+    if (!env.VAPID_PUBLIC_KEY) continue
+    const { results: subs } = await env.DB.prepare(
+      'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
+    ).bind(t.shop_code, t.assignee_id).all()
+    for (const sub of (subs ?? [])) {
+      await _send(env, sub, { title: 'タナオロ', body: `まだ決まっていません：${t.body}`, tag: `staff-join-${t.id}`, url: '/' })
+    }
+  }
+  return rows.length
 }

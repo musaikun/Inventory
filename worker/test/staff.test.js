@@ -192,7 +192,8 @@ describe('「誰が」を本人へ（段 2-2）', () => {
     // オーナーが完了 → 完了した人はオーナーの名前。完了したものは作った人でも直せない（2026-10-14）
     await call(`/store/${code}/tasks`, 'POST', { ...task, doneAt: '2026-10-07T02:00:00.000Z', doneBy: '厨房', doneById: 'dev-1', updatedAt: '2026-10-07T02:00:00.000Z' }, owner)
     expect((await call(`/store/${code}/tasks`, 'POST', { ...task, date: '2026-10-08', doneAt: '2026-10-07T02:00:00.000Z', updatedAt: '2026-10-07T03:00:00.000Z' })).status).toBe(403)
-    let [t] = await (await call(`/store/${code}/tasks`, 'GET')).json()
+    const mine = list => list.find(x => x.id === task.id)   // 参加申請のやること（自動）も並ぶので id で選ぶ
+    let t = mine(await (await call(`/store/${code}/tasks`, 'GET')).json())
     expect(t.createdBy).toBe('佐藤')
     expect(t.createdById).toBe(staffId)
     expect(t.doneBy).toBe('厨房')
@@ -202,7 +203,7 @@ describe('「誰が」を本人へ（段 2-2）', () => {
     await call(`/store/${code}/movements`, 'POST', { type: 'in', date: '2026-10-07', by: 'なりすまし', lines: [{ item: 'トマト', qty: 1, unit: '個' }] })
 
     await handleStaffAction(db, req(owner), code, staffId, 'delete')
-    ;[t] = await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json()
+    t = mine(await (await call(`/store/${code}/tasks`, 'GET', null, owner)).json())
     expect(t.createdBy).toBe('佐藤（削除済み）')
     const s2 = await (await call(`/store/${code}/sessions`, 'GET', null, owner)).json()
     expect(s2.map(s => s.startedBy).sort()).toEqual(['佐藤（削除済み）', '厨房'])
@@ -457,5 +458,51 @@ describe('やることの権限（User決定 2026-10-14）', () => {
     const list = (await get('t_r3')).doneList.map(x => ({ ...x, at: '2026-10-01T00:00:00.000Z' }))
     sqlite.prepare('UPDATE tasks SET done_list_json = ? WHERE id = ?').run(JSON.stringify(list), 't_r3')
     expect((await call(`/store/${code}/tasks/t_r3/mark`, 'POST', { done: false }, a.token)).status).toBe(403)
+  })
+})
+
+describe('参加申請を管理者のやることに（User決定 2026-10-14）', () => {
+  it('申請で管理者（いなければオーナー）の担当のやることを作り、承認・お断りで自動で完了。人の手では触れない。管理者は1人', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const call = (path, method, body, tok = owner) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    const tasks = async () => (await (await call(`/store/${code}/tasks`, 'GET')).json()).filter(t => t.kind === 'staff_join')
+    // 管理者がいない → オーナーの担当
+    const admin = await joinAndApprove('店長', 'admin')
+    let [t] = await tasks()
+    expect(t).toMatchObject({ assign: 'person', assigneeId: 'owner', text: '店長さんの参加申請：承認しました', refId: admin.staffId })
+    expect(t.doneAt).not.toBeNull()
+    // 管理者がいる → 管理者の担当。人の手では完了・消すができない
+    const { invite } = await handleStaffInvite(db, req(owner), code, { name: '山田', role: 'arbeit' })
+    const j = await handleStaffJoin(db, { token: invite.token, name: '山田', pin: '284713' })
+    t = (await tasks()).find(x => x.refId === j.staffId)
+    expect(t).toMatchObject({ assigneeId: admin.staffId, assigneeName: '店長', text: '山田さんから参加の申請がありました。承認するか決めてください', doneAt: null })
+    const later = new Date(Date.now() + 60000).toISOString()
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...t, doneAt: later, updatedAt: later }, admin.token)).status).toBe(403)
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...t, deletedAt: later, updatedAt: later })).status).toBe(403)
+    // 断ったら自動で完了（断った人で）
+    await handleStaffAction(db, req(admin.token), code, j.staffId, 'reject')
+    t = (await tasks()).find(x => x.refId === j.staffId)
+    expect(t).toMatchObject({ text: '山田さんの参加申請：お断りしました', doneBy: '店長', doneById: admin.staffId })
+    // 管理者は1人: 2人目の招待・役割の変更は断る
+    expect((await handleStaffInvite(db, req(owner), code, { name: '副店長', role: 'admin' }))._status).toBe(409)
+    const b = await joinAndApprove('佐藤', 'shain')
+    expect((await handleStaffAction(db, req(owner), code, b.staffId, 'role', { role: 'admin' }))._status).toBe(409)
+    await handleStaffAction(db, req(owner), code, admin.staffId, 'role', { role: 'shain' })
+    expect((await handleStaffAction(db, req(owner), code, b.staffId, 'role', { role: 'admin' })).staff.role).toBe('admin')
+  })
+
+  it('1日たっても決まっていなければ、もう一度知らせる印を付ける（その後も1日ごと）', async () => {
+    const { remindJoinTasks } = await import('../src/pushHandler.js')
+    const { invite } = await handleStaffInvite(db, req(owner), code, { name: '山田', role: 'arbeit' })
+    await handleStaffJoin(db, { token: invite.token, name: '山田', pin: '284713' })
+    const env = { DB: db }
+    expect(await remindJoinTasks(env, Date.now())).toBe(0)
+    expect(await remindJoinTasks(env, Date.now() + 25 * 3600_000)).toBe(1)
+    expect(await remindJoinTasks(env, Date.now() + 26 * 3600_000)).toBe(0)
+    expect(await remindJoinTasks(env, Date.now() + 50 * 3600_000)).toBe(1)
   })
 })

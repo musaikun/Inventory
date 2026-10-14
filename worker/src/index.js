@@ -316,7 +316,7 @@ export default {
         const result = await handleStaffJoin(env.DB, await request.json().catch(() => ({})))
         if (result._status === 404) await recordIpFail(env.DB, ip, 'login')
         if (result.pendingKey) {
-          const job = notifyStaffJoin(env, result.shopCode, result.name).catch(e => console.warn('[push] staff join notify failed:', e?.message ?? e))
+          const job = notifyStaffJoin(env, result.shopCode, result.name, result.assigneeId).catch(e => console.warn('[push] staff join notify failed:', e?.message ?? e))
           if (ctx?.waitUntil) ctx.waitUntil(job)
         }
         return resultResponse(result, origin, allowedOrigin)
@@ -601,7 +601,7 @@ export default {
           const body = await request.json().catch(() => ({}))
           const prevTask = typeof body?.id === 'string'
             ? await env.DB.prepare(`SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time, created_by_id, done_at, done_by_id,
-                prev_done_at, prev_done_by_id FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
+                prev_done_at, prev_done_by_id, kind FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
             : null
           // 誰が（スタッフは本人・オーナーは 'owner'）。作った人・完了した人はサーバーが刻む
           const who = await _actor(env.DB, request, code, { by: body?.createdBy })

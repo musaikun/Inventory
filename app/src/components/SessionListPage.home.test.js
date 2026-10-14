@@ -280,8 +280,10 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     await click(btn(host.querySelector('.bnav'), 'ホーム'))
     // ショートカットの「在庫」で在庫タブへ
     const sc = [...host.querySelectorAll('.ht-sc')]
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', '管理'])
+    // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', 'スタッフ', '管理'])
     await click(sc[2])
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
+    expect(host.querySelector('.manage')?.textContent ?? '').not.toContain('招待・承認')   // 管理には置かない
   })
 })

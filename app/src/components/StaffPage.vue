@@ -137,6 +137,9 @@ async function act(s, action, body) {
   catch (e) { msg.value = e.message }
   finally { busy.value = '' }
 }
+// 管理者（店長）は店に1人（User決定 2026-10-14）。いる・招待中なら、ほかの人は管理者にできない
+const adminNow = computed(() => staff.value.find(st => st.role === 'admin' && ['active', 'stopped', 'pending'].includes(st.status))
+  || invites.value.find(i => i.role === 'admin'))
 const confirmDel = ref('')
 const isMe = s => currentStaff.value?.id === s.id
 const roleLabel = r => ROLE_LABELS[r] ?? r
@@ -190,9 +193,9 @@ function toggleGrant(s, k) {
           <label class="sp2-label" for="inv-name">名前（店で呼んでいる名前）</label>
           <input id="inv-name" v-model="invName" class="sp2-input" maxlength="30" placeholder="例：山田" />
           <div class="sp2-label">役割</div>
-          <label v-for="r in ROLES" :key="r.key" :class="['sp2-role', { on: invRole === r.key }]">
-            <input v-model="invRole" type="radio" :value="r.key" />
-            <span><b>{{ r.label }}</b><small>{{ r.note }}</small></span>
+          <label v-for="r in ROLES" :key="r.key" :class="['sp2-role', { on: invRole === r.key, off: r.key === 'admin' && adminNow }]">
+            <input v-model="invRole" type="radio" :value="r.key" :disabled="r.key === 'admin' && !!adminNow" />
+            <span><b>{{ r.label }}</b><small>{{ r.key === 'admin' && adminNow ? `管理者は店に1人です（今は${adminNow.name}さん）` : r.note }}</small></span>
           </label>
           <p v-if="invError" class="sp2-err">{{ invError }}</p>
           <div class="sp2-row">
@@ -243,7 +246,7 @@ function toggleGrant(s, k) {
           </div>
           <div v-if="!isMe(s)" class="sp2-acts">
             <select :value="s.role" :aria-label="`${s.name}の役割`" :disabled="!!busy" @change="act(s, 'role', { role: $event.target.value })">
-              <option v-for="r in ROLES" :key="r.key" :value="r.key">{{ r.label }}</option>
+              <option v-for="r in ROLES" :key="r.key" :value="r.key" :disabled="r.key === 'admin' && !!adminNow && adminNow.id !== s.id">{{ r.label }}{{ r.key === 'admin' && adminNow && adminNow.id !== s.id ? '（1人まで）' : '' }}</option>
             </select>
             <button v-if="s.status === 'active'" type="button" class="sp2-mini" :disabled="!!busy" @click="act(s, 'stop')">停止</button>
             <button v-else type="button" class="sp2-mini" :disabled="!!busy" @click="act(s, 'resume')">再開</button>
@@ -332,6 +335,7 @@ function toggleGrant(s, k) {
 .sp2-label { font-size: 12.5px; font-weight: 700; color: #3d5a62; }
 .sp2-input { width: 100%; box-sizing: border-box; border: 1.5px solid #bfd6dc; border-radius: 10px; padding: 11px 12px; font-size: 16px; }
 .sp2-role { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 10px; cursor: pointer; }
+.sp2-role.off { opacity: .55; cursor: default; }
 .sp2-role.on { border-color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); }
 .sp2-role span { display: grid; }
 .sp2-role b { font-size: 14px; }
