@@ -503,7 +503,7 @@ onMounted(() => {
 .hc-key-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #4c6a72; }
 .hc-key-hint { margin-left: auto; font-size: 11px; font-weight: 600; color: #7d969c; }
 
-/* 実績マーカーは種別ごとの色の光るドット（User 2026-10-13。以前は回転する★）。日誌の1日・日付選びと同じ色 */
+/* 実績マーカーは種別ごとの色のドット（User 2026-10-13。以前は回転する★。光らせるのは 10-14 にやめた）。日付選びと同じ色 */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; color: #7d969c; flex: none; }
 .dot-stock { color: #0e7490; }
 .dot-order { color: #ea580c; }
@@ -566,22 +566,10 @@ onMounted(() => {
 /* マスの星は「その日に何をしたか」だけを示す（件数・金額は日をタップした詳細で読む）。
    4つでも横1列（User 2026-10-05）。4つの日だけ少し小さくして、狭いマスにも収める */
 .hc-dots { margin-top: auto; display: flex; gap: 3px; justify-content: center; }
-/* マスのドットは光らせる（外側にぼかした同じ色）。ゆっくり明滅して「実績がある日」を目立たせる */
-.hc-dots .dot {
-  width: 8px; height: 8px;
-  box-shadow: 0 0 3px 1px currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55);
-  animation: hcDotGlow 2.4s ease-in-out infinite;
-}
-.hc-dots .dot:nth-child(2) { animation-delay: -0.6s; }
-.hc-dots .dot:nth-child(3) { animation-delay: -1.2s; }
-.hc-dots .dot:nth-child(4) { animation-delay: -1.8s; }
+/* マスのドットは光らせない・動かさない（User 2026-10-14。一時は光って明滅していた） */
+.hc-dots .dot { width: 8px; height: 8px; }
 .hc-dots.dots-4 { gap: 2px; }
 .hc-dots.dots-4 .dot { width: 6.5px; height: 6.5px; }
-@keyframes hcDotGlow {
-  0%, 100% { box-shadow: 0 0 2px 0 currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55); }
-  50%      { box-shadow: 0 0 5px 2px currentColor, inset 0 -1px 1px rgba(0,0,0,.18), inset 0 1px 1px rgba(255,255,255,.55); }
-}
-@media (prefers-reduced-motion: reduce) { .hc-dots .dot { animation: none; } }
 
 /* 祝日名。日付のすぐ下に小さく1行で置く。2行にすると星の位置を押し下げてしまうので、
    入り切らない名前（勤労感謝の日など・狭い端末）は末尾を … で切る */

@@ -82,7 +82,7 @@ const ago = n => localDateKey(new Date(Date.now() - n * 86400_000))
 .dp-c.td { box-shadow: inset 0 0 0 2px var(--primary); }
 .dp-c.sel { background: var(--primary); color: #fff; }
 .dp-dots { display: flex; gap: 2px; height: 5px; }
-.dp-dots i { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 2px currentColor; background: currentColor; }
+.dp-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .k-stock { color: #0e7490; } .k-order { color: #ea580c; } .k-in { color: #16a34a; } .k-out { color: #dc2626; } .k-task { color: #f59e0b; }
 .dp-c.sel .dp-dots i { color: #fff; }
 .dp-quick { display: flex; gap: 6px; }
