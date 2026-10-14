@@ -115,6 +115,17 @@ export const openTaskCounts = computed(() => {
   for (const t of _data.list) if (_alive(t) && !t.doneAt && t.date) m.set(t.date, (m.get(t.date) || 0) + 1)
   return m
 })
+/** 日付 → { total: その日のやることの数, open: まだ終わっていない数 }。月のマスの件数と状態に使う（2026-10-14） */
+export const taskDayStats = computed(() => {
+  const m = new Map()
+  for (const t of _data.list) {
+    if (!_alive(t) || !t.date) continue
+    const s = m.get(t.date) ?? m.set(t.date, { total: 0, open: 0 }).get(t.date)
+    s.total++
+    if (!t.doneAt) s.open++
+  }
+  return m
+})
 /** やることがある日（未完了があるか） */
 export const openTaskDates = computed(() => new Set(openTaskCounts.value.keys()))
 

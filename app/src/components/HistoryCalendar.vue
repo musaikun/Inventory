@@ -1,6 +1,6 @@
 <script setup>
 import { canSeeMoney } from '../composables/useAuth.js'
-import { openTaskCounts } from '../composables/useTasks.js'
+import { taskDayStats } from '../composables/useTasks.js'
 import { ref, computed, onMounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
@@ -227,6 +227,16 @@ const nextMonthLabel = computed(() => `${viewMonth.value === 11 ? 1 : viewMonth.
 // 日をタップ → その日を pick-day で渡す（日誌の「1日」へ移る。User決定 2026-10-13）。
 // 以前はその日の詳細をモーダルで開いていた。メモ・天気・記録・業者へ送るは1日へ移した
 const selectedKey = ref(null)
+
+// やることの印: その日の件数。色で状態（橙＝残りあり・赤＝過ぎた日のやり残し・緑＝全部済み）。
+// 以前は未完了の数だけを出していたので、済んだものは数に入らず「何件あっても①」に見えた（User 2026-10-14）
+function taskMark(key) {
+  const s = taskDayStats.value.get(key)
+  if (!s) return null
+  const state = s.open === 0 ? 'done' : key < todayKey ? 'late' : 'open'
+  const title = state === 'done' ? `やること ${s.total}件（すべて済み）` : `やること ${s.total}件（残り${s.open}${state === 'late' ? '・やり残し' : ''}）`
+  return { n: s.total, state, title }
+}
 function onCellTap(cell) {
   selectedKey.value = cell.key
   emit('pick-day', cell.key)
@@ -374,7 +384,9 @@ onMounted(() => {
       <span class="hc-key-i"><span class="dot dot-order"></span>発注</span>
       <span class="hc-key-i"><span class="dot dot-in"></span>入庫</span>
       <span class="hc-key-i"><span class="dot dot-out"></span>出庫</span>
-      <span class="hc-key-i"><span class="hc-task-key">1</span>やること</span>
+      <span class="hc-key-i"><span class="hc-task-key open">2</span>やること</span>
+      <span class="hc-key-i"><span class="hc-task-key late">2</span>やり残し</span>
+      <span class="hc-key-i"><span class="hc-task-key done">2</span>済み</span>
       <DismissibleHint id="calendar-tap-day" tag="span" class="hc-key-hint">日付をタップでその日へ</DismissibleHint>
     </div>
 
@@ -406,7 +418,7 @@ onMounted(() => {
         >
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
-            <span v-if="openTaskCounts.get(cell.key)" class="hc-task-mark" :title="`やること ${openTaskCounts.get(cell.key)}件`">{{ openTaskCounts.get(cell.key) }}</span>
+            <span v-if="taskMark(cell.key)" :class="['hc-task-mark', taskMark(cell.key).state]" :title="taskMark(cell.key).title">{{ taskMark(cell.key).n }}</span>
             <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
             <span v-if="cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
             <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
@@ -497,11 +509,13 @@ onMounted(() => {
 .dot-order { color: #ea580c; }
 .dot-in    { color: #16a34a; }
 .dot-out   { color: #dc2626; }
-/* やることのある日（未完了）：マスの左上に件数の小さな印（User 2026-10-05。以前は下の短い線） */
+/* やることのある日：マスの左上にその日の件数。色で状態（橙＝残りあり・赤＝やり残し・緑＝全部済み。User 2026-10-14） */
 .hc-task-mark, .hc-task-key {
-  min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px; box-sizing: border-box;
-  background: #d97706; color: #fff; font-size: 8.5px; font-weight: 800; line-height: 12px; text-align: center;
+  min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; box-sizing: border-box;
+  background: #d97706; color: #fff; font-size: 9px; font-weight: 800; line-height: 13px; text-align: center;
 }
+.hc-task-mark.late, .hc-task-key.late { background: #dc2626; }
+.hc-task-mark.done, .hc-task-key.done { background: #16a34a; }
 /* 2桁の日付に重ならないよう、角に寄せて小さく */
 .hc-task-mark { position: absolute; top: 2px; left: 1px; }
 .hc-task-key { display: inline-block; }

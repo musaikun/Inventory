@@ -81,6 +81,9 @@ const _checked = t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.
 const untimedLeft = computed(() => untimed.value.filter(t => !_checked(t)).length)
 const tasksDone = computed(() => tasks.value.filter(_checked).length)
 const untimedOpen = ref(false)
+// 時刻なしの呼び名: 今日は「今日中」、ほかの日は「終日」
+const laneName = computed(() => (isToday.value ? '今日中' : '終日'))
+const laneLate = computed(() => untimedLeft.value > 0 && props.date < localDateKey())
 
 // この日のこと（天気・祝日・連休・日別メモ）
 const { state: weatherState } = useWeather()
@@ -146,7 +149,7 @@ const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' 
 // 右の列: やること・予定・発注・入出庫（重なったら下へずらす）
 const rightItems = computed(() => {
   const list = [
-    ...tasks.value.filter(t => t.dueTime).map(t => ({ key: t.id, type: 'task', m: toMin(t.dueTime), task: t, label: `${t.dueTime} ${t.text}`, done: t.assign === 'all' ? (isMarkedByMe(t) || !!t.doneAt) : !!t.doneAt })),
+    ...tasks.value.filter(t => t.dueTime).map(t => ({ key: t.id, type: 'task', m: toMin(t.dueTime), task: t, label: `${t.dueTime} ${t.text}`, done: _checked(t), late: !t.doneAt && props.date < localDateKey() })),
     ...plans.value.map(p => ({ key: p.key, type: 'plan', m: toMin(p.time), label: `${p.time} 発注の締切（${p.name}）` })),
     ...props.records.filter(r => r.kind !== 'stock' && r.at != null).map(r => ({ key: r.key, type: r.kind, m: minOf(r.at), rec: r, label: `${fmtHm(r.at)} ${r.title}` })),
   ].sort((a, b) => a.m - b.m)
@@ -217,11 +220,11 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
     <div :class="['jd-tl', { lane: untimed.length }]" :style="{ height: height + 16 + 'px' }">
       <!-- button だと中身が縦の中央に寄り、数を上に貼りつけられない（sticky が効かない）ので div で押せるようにする -->
       <div
-        v-if="untimed.length" class="jd-lane" role="button" tabindex="0"
-        :aria-label="`今日中のやること ${untimed.length}件（残り${untimedLeft}）`"
+        v-if="untimed.length" :class="['jd-lane', { done: !untimedLeft, late: laneLate }]" role="button" tabindex="0"
+        :aria-label="`${laneName}のやること ${untimed.length}件（残り${untimedLeft}）`"
         @click="untimedOpen = true" @keydown.enter.prevent="untimedOpen = true" @keydown.space.prevent="untimedOpen = true"
       >
-        <span class="jd-lane-n">今日中<b>{{ untimedLeft }}</b>/{{ untimed.length }}</span>
+        <span class="jd-lane-n">{{ laneName }}<b>{{ untimedLeft }}</b>/{{ untimed.length }}</span>
       </div>
       <div v-for="m in hourMarks" :key="m" class="jd-hr" :style="{ top: top(m) + 8 + 'px' }"><span>{{ m / 60 }}:00</span></div>
       <div class="jd-lanes">
@@ -235,7 +238,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
           <span class="jd-stock-t" aria-hidden="true">{{ b.label }}<small v-if="b.sub">{{ b.sub }}</small></span>
         </div>
         <button
-          v-for="x in rightItems" :key="x.key" type="button" :class="['jd-ev', 'right', x.type, { done: x.done }]"
+          v-for="x in rightItems" :key="x.key" type="button" :class="['jd-ev', 'right', x.type, { done: x.done, late: x.late }]"
           :style="{ top: x.top + 'px' }" @click="pick(x)"
         >{{ x.done ? '✓ ' : '' }}{{ x.label }}</button>
       </div>
@@ -250,9 +253,9 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
       <div v-if="picked || editHours || untimedOpen || memoOpen" class="jd-sheet-bg" @click.self="closeSheet">
         <div class="jd-sheet" role="dialog">
           <template v-if="untimedOpen">
-            <div class="jd-sheet-h"><b>今日中のやること</b><small>残り {{ untimedLeft }} / {{ untimed.length }}</small></div>
+            <div class="jd-sheet-h"><b>{{ laneName }}のやること</b><small>残り {{ untimedLeft }} / {{ untimed.length }}</small></div>
             <div class="jd-list"><TaskRow v-for="t in untimed" :key="t.id" :task="t" /></div>
-            <button v-if="can('task.create')" type="button" class="jd-add" @click="addUntimed">＋ 今日中のやることを追加</button>
+            <button v-if="can('task.create')" type="button" class="jd-add" @click="addUntimed">＋ {{ laneName }}のやることを追加</button>
           </template>
           <template v-else-if="memoOpen">
             <b>{{ dateLabel }}のメモ</b>
@@ -302,12 +305,16 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 .jd-sum .fc { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 .jd-sum .memo { font: inherit; font-size: 11.5px; font-weight: 800; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jd-sum .memo.has { background: #fffbeb; color: #92400e; border-color: #fde68a; }
-/* 今日中の列: 全時間をまたぐ灰色の縞。残りの数は上に貼りつき、スクロールしても見える */
-.jd-lane { position: absolute; left: 48px; width: 34px; top: 4px; bottom: 4px; padding: 0; border: 1px solid #cbd5e1; border-radius: 9px; cursor: pointer;
-  background: repeating-linear-gradient(180deg, #e2e8f0, #e2e8f0 10px, #e9eef3 10px, #e9eef3 20px); z-index: 1; }
-.jd-lane-n { position: sticky; top: calc(var(--jp-top-h, 0px) + var(--jd-head-h, 0px) + 6px); display: block; margin: 3px 2px 0; background: #475569; color: #fff; border-radius: 6px;
+/* 時刻なし（今日中・終日）の列: 全時間をまたぐ縞。時刻ありのやること（橙の帯）と同じ色の仲間にして、
+   同じ「やること」に見せる（以前は灰色で別物に見えた・User 2026-10-14）。残りの数は上に貼りつく。
+   全部済みは薄く、過ぎた日のやり残しは赤 */
+.jd-lane { position: absolute; left: 48px; width: 34px; top: 4px; bottom: 4px; padding: 0; border: 1px solid #fdba74; border-left: 4px solid #f97316; border-radius: 9px; cursor: pointer;
+  background: repeating-linear-gradient(180deg, #fff7ed, #fff7ed 10px, #ffedd5 10px, #ffedd5 20px); z-index: 1; box-sizing: border-box; }
+.jd-lane.done { opacity: .55; }
+.jd-lane-n { position: sticky; top: calc(var(--jp-top-h, 0px) + var(--jd-head-h, 0px) + 6px); display: block; margin: 3px 1px 0; background: #c2410c; color: #fff; border-radius: 6px;
   font-size: 8.5px; font-weight: 900; line-height: 1.2; padding: 4px 0; text-align: center; letter-spacing: -.04em; }
 .jd-lane-n b { display: block; font-size: 15px; letter-spacing: 0; }
+.jd-lane.late .jd-lane-n { background: #dc2626; }
 .jd-tl.lane .jd-lanes { left: 88px; }
 .jd-sheet-h { display: flex; justify-content: space-between; align-items: baseline; }
 .jd-sheet-h small { font-size: 12px; color: var(--text-muted); font-weight: 700; }
@@ -330,6 +337,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 .jd-ev.right { left: calc(36% + 6px); right: 0; height: 22px; }
 .jd-ev.task { background: #fff7ed; color: #9a3412; border-left: 4px solid #f97316; }
 .jd-ev.task.done { opacity: .55; text-decoration: line-through; }
+.jd-ev.task.late { background: #fef2f2; color: #b91c1c; border-left-color: #dc2626; }   /* 過ぎた日のやり残し（時刻なしの列と同じ赤） */
 .jd-ev.plan { background: repeating-linear-gradient(45deg,#fff7ed,#fff7ed 6px,#ffedd5 6px,#ffedd5 12px); color: #c2410c; border-left: 4px dashed #ea580c; }
 .jd-ev.order { background: #ffedd5; color: #9a3412; border-left: 4px solid #ea580c; }
 .jd-ev.in { background: #dcfce7; color: #166534; border-left: 4px solid #16a34a; }

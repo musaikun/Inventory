@@ -119,7 +119,8 @@ describe('日誌', () => {
     await click(cell)
     expect(document.body.querySelector('.dp')).toBeNull()
     expect(host.querySelector('.jd-date').textContent).toContain('9月15日')
-    expect(host.querySelector('.jd-lane').textContent).toContain('今日中')
+    expect(host.querySelector('.jd-lane').textContent).toContain('終日1/1')   // 今日以外は「終日」。過ぎた日の残りは赤
+    expect(host.querySelector('.jd-lane').classList.contains('late')).toBe(true)
     // 日別メモ（発注学習の除外）
     await click(host.querySelector('.jd-sum .memo'))
     const ta = document.body.querySelector('.jd-memo')
