@@ -10,7 +10,7 @@
  */
 import { computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
-import { currentStaff, storeName, canSeeMoney, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
+import { currentStaff, storeName, canSeeReport, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
@@ -96,7 +96,7 @@ const shortcuts = computed(() => [
     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
   { key: 'calendar', label: '日誌', sub: 'やること・記録',
     d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
-  ...(canSeeMoney.value ? [{ key: 'report', label: 'レポート', sub: '金額・推移', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
+  ...(canSeeReport.value ? [{ key: 'report', label: 'レポート', sub: '金額・推移', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
   ...(isAuthenticated.value && isAdmin.value ? [{
     key: 'staff', label: 'スタッフ', sub: joinWaiting.value ? `承認待ち ${joinWaiting.value}` : '招待・承認・役割',
     badge: joinWaiting.value ? { text: String(joinWaiting.value), kind: 'red' } : null, hot: !!joinWaiting.value,
@@ -104,7 +104,7 @@ const shortcuts = computed(() => [
   }] : []),
   // 取り込む・書き出す（管理から移した・User決定 2026-10-14）
   ...(can('item.admin') ? [{ key: 'import', label: '取り込む', sub: '品目・納品・棚卸', d: ['M12 3v12', 'M7 10l5 5 5-5', 'M4 19h16'] }] : []),
-  ...(can('money') ? [{ key: 'export', label: '書き出す', sub: '品目・棚卸結果', d: ['M12 15V3', 'M7 8l5-5 5 5', 'M4 19h16'] }] : []),
+  ...(can('item.admin') ? [{ key: 'export', label: '書き出す', sub: '品目・棚卸結果', d: ['M12 15V3', 'M7 8l5-5 5 5', 'M4 19h16'] }] : []),
   { key: 'dashboard', label: '設定', sub: '発注・端末・通知',
     d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
 ])

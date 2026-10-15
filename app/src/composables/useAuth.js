@@ -45,6 +45,8 @@ export function can(perm) {
 }
 /** 金額（単価・在庫金額・レポート）を見られるか。アルバイトは見ない（User決定 2026-10-07） */
 export const canSeeMoney = computed(() => canFor(currentRole.value, _staff.value?.grants ?? [], 'money'))
+/** レポート・過去の履歴を見られるか（「レポート・分析・証跡」のまとまり。User決定 2026-10-15。以前は金額と同じ） */
+export const canSeeReport = computed(() => canFor(currentRole.value, _staff.value?.grants ?? [], 'report'))
 /** できない操作を押されたときの一言 */
 export function denyMessage(perm) {
   return `この操作（${PERMS[perm] ?? perm}）は、管理者の許可が必要です`
@@ -173,6 +175,8 @@ export const listStaff         = () => _api(`/store/${shopCode.value}/staff`)
 export const createStaffInvite = (name, role) => _api(`/store/${shopCode.value}/staff/invites`, { method: 'POST', body: JSON.stringify({ name, role }) })
 export const revokeStaffInvite = id => _api(`/store/${shopCode.value}/staff/invites/${id}`, { method: 'DELETE' })
 export const getPresence       = (days = 7) => _api(`/store/${shopCode.value}/presence?days=${days}`)   // 管理者だけ（段 2-5）
+/** その人の作業時間とやったこと（ほかのスタッフの使用履歴・2026-10-15） */
+export const getStaffActivity  = (id, days = 30) => _api(`/store/${shopCode.value}/staff/${encodeURIComponent(id)}/activity?days=${days}`)
 export const staffAction       = (id, action, body = {}) => _api(`/store/${shopCode.value}/staff/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) })
 
 // 担当を選ぶための名前（承認済みのスタッフ。ログインしていれば誰でも・段 2-4）

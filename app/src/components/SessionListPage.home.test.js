@@ -15,7 +15,7 @@ let restoreImpl = async () => ({ ok: false })
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
-  can: () => true, canSeeMoney: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
+  can: () => true, canSeeMoney: { value: true }, canSeeReport: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
   getSessions:     vi.fn(async () => sessionList),
   createSession:   (...a) => createSession(...a),
   deleteSession:   (...a) => deleteSession(...a),
@@ -82,7 +82,7 @@ describe('ホームの骨組み', () => {
     expect(shortcut('棚卸')).toBeTruthy()
     expect(shortcut('発注')).toBeTruthy()
     expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '設定'])
-  })
+  }, 20_000)   // ファイルの最初のテストで、全件を並べて走らせると読み込みに5秒を超えることがある
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
     const { useConfig } = await import('../composables/useConfig.js')

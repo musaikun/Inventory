@@ -20,14 +20,14 @@ export async function responsibleAdmin(db, code) {
   return { id: OWNER_ID, name: st?.owner_name || 'オーナー' }
 }
 
-/** 申請のやることを作る（同じ申請で2つ作らない） */
+/** 申請のやることを作る（同じ申請で2つ作らない）。管理者だけに見せる（visibility 'admins'・2026-10-15） */
 export async function createJoinTask(db, code, staffId, name) {
   const who = await responsibleAdmin(db, code)
   const now = _now()
   await db.prepare(`
     INSERT OR IGNORE INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, updated_at,
-      assign_mode, assignee_id, assignee_name, kind, ref_id)
-    VALUES (?, ?, ?, ?, 'タナオロ', 'system', ?, ?, 'person', ?, ?, ?, ?)
+      assign_mode, assignee_id, assignee_name, kind, ref_id, visibility)
+    VALUES (?, ?, ?, ?, 'タナオロ', 'system', ?, ?, 'person', ?, ?, ?, ?, 'admins')
   `).bind(`t_join_${staffId}`, code, _dayJst(), joinTaskText(name), now, now, who.id, who.name, JOIN_KIND, staffId).run()
   return who
 }

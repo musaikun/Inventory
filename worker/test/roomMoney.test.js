@@ -33,6 +33,8 @@ async function staffToken(name, role) {
   const { invite } = await handleStaffInvite(db, req(owner), code, { name, role })
   const j = await handleStaffJoin(db, { token: invite.token, name, pin: '284713' })
   await handleStaffAction(db, req(owner), code, j.staffId, 'approve')
+  // 金額は「在庫管理」に入る（2026-10-15）。金額を見られない人＝在庫管理をオフにした人
+  if (role === 'arbeit') await handleStaffAction(db, req(owner), code, j.staffId, 'grants', { groups: ['tasks'] })
   return (await handleStaffPending(db, j.pendingKey)).token
 }
 function makeWs() {

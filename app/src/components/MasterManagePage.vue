@@ -28,7 +28,7 @@ const delCode = ref('')
 const resetAssign = ref(false)   // 振り分け（品目→分類先の割り当て）の記憶も消すか
 const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
 function onClear() {
-  if (!can('item.admin')) { window.alert(denyMessage('item.admin')); return }
+  if (!can('item.purge')) { window.alert(denyMessage('item.purge')); return }
   if (!canDelete.value) return
   const note = resetAssign.value
     ? '\n振り分け（分類先の割り当て）の記憶も消去します。'
@@ -56,7 +56,7 @@ function onClear() {
       <slot name="extra" />
 
       <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
-      <div v-if="itemCount > 0 && can('item.admin')" class="mm-block danger">
+      <div v-if="itemCount > 0 && can('item.purge')" class="mm-block danger">
         <div class="mm-block-head">
           <span class="mm-block-title danger">品目マスタを一括削除</span>
           <button class="mm-help-btn danger" :class="{ on: activeHelp === 'delete' }" @click="toggleHelp('delete')">?</button>

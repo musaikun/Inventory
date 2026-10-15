@@ -37,11 +37,14 @@ beforeEach(async () => {
 })
 afterEach(() => sqlite?.close())
 
-async function staffToken(name, role, grants = null) {
+// 権限は人ごとの4つのまとまり（2026-10-15）。金額は「在庫管理」に入るので、
+// 「金額を見られない人」は在庫管理をオフにした人（ここではアルバイトの既定をタスク管理だけにする）
+async function staffToken(name, role, groups = null) {
   const { invite } = await handleStaffInvite(db, req(owner), code, { name, role })
   const j = await handleStaffJoin(db, { token: invite.token, name, pin: '284713' })
   await handleStaffAction(db, req(owner), code, j.staffId, 'approve')
-  if (grants) await handleStaffAction(db, req(owner), code, j.staffId, 'grants', { grants })
+  const g = groups ?? (role === 'arbeit' ? ['tasks'] : null)
+  if (g) await handleStaffAction(db, req(owner), code, j.staffId, 'grants', { groups: g })
   return (await handleStaffPending(db, j.pendingKey)).token
 }
 const call = (path, method, body, tok) => worker.fetch(new Request(`https://w.test${path}`, {
@@ -140,13 +143,14 @@ describe('履歴の金額', () => {
 })
 
 describe('棚卸の完了と明細', () => {
-  it('金額を見られない人が完了しても、単価は店の品目リストから取って在庫金額を記録する', async () => {
+  // 金額は在庫管理に入った（2026-10-15）ので、棚卸を完了できる人は金額も見られる（端末が単価を持っている）
+  it('在庫管理の人が完了すると、在庫金額を記録し本人にも返す', async () => {
     await call(`/store/${code}/config`, 'PUT', cfg, owner)
-    const lead = await staffToken('山田', 'arbeit', ['stock'])   // アルバイト＋棚卸を任された人
+    const lead = await staffToken('山田', 'arbeit', ['inventory'])   // 在庫管理（金額を含む）の人
     const started = await json(await call(`/store/${code}/sessions`, 'POST', { type: 'stock' }, lead))
     const body = {
       inventory: { トマト: { qty: 3, unit: '個' }, なす: { qty: 2, unit: '本' } },
-      prices: {},   // 端末は単価を持っていない
+      prices: { トマト: 100, なす: 80 },
       takenAt: '2026-10-07',
       snapshot: { date: '2026-10-07', sessionId: started.id, items: [
         { item: 'トマト', qty: 3, unit: '個', unitPrice: null, subtotal: null },
@@ -155,12 +159,8 @@ describe('棚卸の完了と明細', () => {
     }
     const res = await call(`/store/${code}/sessions/${started.id}/complete`, 'POST', body, lead)
     expect(res.status).toBe(200)
-    expect((await res.json()).totalValue).toBeNull()   // 本人には金額を返さない
+    expect((await res.json()).totalValue).toBe(460)   // 在庫管理の人には金額も返す
     expect(sqlite.prepare('SELECT total_value FROM sessions WHERE id = ?').get(started.id).total_value).toBe(460)
-
-    const mine = await json(await call(`/store/${code}/sessions/${started.id}/lines`, 'GET', null, lead))
-    expect(mine.totalValue).toBeNull()
-    expect(mine.lines.every(l => l.unitPrice === null && l.subtotal === null)).toBe(true)
     const full = await json(await call(`/store/${code}/sessions/${started.id}/lines`, 'GET', null, owner))
     expect(full.totalValue).toBe(460)
     expect(full.lines.map(l => [l.item, l.unitPrice, l.subtotal])).toEqual([['トマト', 100, 300], ['なす', 80, 160]])

@@ -26,7 +26,7 @@ export const _showOrders    = ref(false)
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeMoney } from '../composables/useAuth.js'
+import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport } from '../composables/useAuth.js'
 import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
 import DataPort from './DataPort.vue'
@@ -71,7 +71,7 @@ const tab = _persistedTab
 // カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる
 // アルバイトには金額を見せないので、レポートのタブは飛ばす（段 2-3）
 // トップ（ホーム）を先頭に（User決定 2026-10-07）
-const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeMoney.value)
+const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeReport.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
 function openJournalList() { journalView.value = 'list'; goTab('calendar') }

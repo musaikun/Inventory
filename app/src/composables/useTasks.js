@@ -139,7 +139,8 @@ function _assignFields(a) {
 }
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
-export function addTask(date, text, assign = null, dueTime = null) {
+/** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
+export function addTask(date, text, assign = null, dueTime = null, { visibility = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
   const now = _now()
@@ -148,6 +149,7 @@ export function addTask(date, text, assign = null, dueTime = null) {
     createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
     ..._assignFields(assign), doneList: [], dueTime: date ? _time(dueTime) : null,
+    visibility: visibility === 'admins' && isAdmin.value ? 'admins' : null,
   }
   _data.list.push(t)
   _persist()
@@ -215,7 +217,7 @@ async function markTask(t) {
 }
 
 /** 文面・日付・時刻を直す（作る権限のある人。TODO 本格化 A）。日付を変えると別の日へ移る */
-export function editTask(id, { text, date, dueTime } = {}) {
+export function editTask(id, { text, date, dueTime, visibility } = {}) {
   const t = _data.list.find(x => x.id === id)
   if (!t || !canEditTask(t)) return null
   const fields = {}
@@ -230,6 +232,7 @@ export function editTask(id, { text, date, dueTime } = {}) {
     if (date === '') fields.dueTime = null   // いつかに時刻は持たせない
   }
   if (dueTime !== undefined && fields.date !== '') fields.dueTime = _time(dueTime)
+  if (visibility !== undefined && isAdmin.value) fields.visibility = visibility === 'admins' ? 'admins' : null
   return _patch(id, fields)
 }
 

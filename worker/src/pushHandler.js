@@ -228,6 +228,7 @@ export async function sendScheduledPushes(env, now) {
       const { results: tasks } = await db.prepare(`
         SELECT task_date, body FROM tasks
         WHERE shop_code = ? AND task_date >= ? AND task_date <= ? AND done_at IS NULL AND deleted_at IS NULL
+          AND visibility IS NULL   -- 管理者だけのやることは、店の全端末へのまとめの通知には入れない（2026-10-15）
         ORDER BY created_at
       `).bind(shop, t.key, until).all()
       openTasks = (tasks ?? []).map(r => ({ date: r.task_date, text: r.body }))
@@ -267,8 +268,11 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
   const who = task?.createdBy ? `${task.createdBy}さん` : 'だれか'
   const when = _taskWhen(task)
   const assignee = task?.assign === 'person' ? task.assigneeId : null
+  // 管理者だけのやること（2026-10-15）はオーナーと管理者の端末にだけ
+  const admins = task?.visibility === 'admins' ? await _adminActorIds(env.DB, shopCode) : null
   for (const sub of (subs ?? [])) {
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
+    if (admins && !admins.has(sub.actor_id)) continue
     if (assignee && sub.actor_id === assignee) continue   // 担当の人には notifyTaskAssigned が別に送る
     if (!parsePrefs(sub.prefs_json).taskAdded.on) continue
     await _send(env, sub, {
@@ -278,6 +282,12 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
       url:   '/',
     })
   }
+}
+
+/** オーナーと管理者（役割 admin）の「誰が」（push_subscriptions.actor_id） */
+async function _adminActorIds(db, shopCode) {
+  const rows = (await db.prepare("SELECT id FROM staff WHERE shop_code = ? AND role = 'admin' AND status = 'active'").bind(shopCode).all()).results ?? []
+  return new Set(['owner', ...rows.map(r => r.id)])
 }
 
 /** 担当になった人の端末にだけ「あなたの担当」を送る（TODO 本格化 A）。端末が誰のものかは push_subscriptions.actor_id */

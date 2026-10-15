@@ -2035,15 +2035,16 @@ function _iso(v) { return typeof v === 'string' && !Number.isNaN(Date.parse(v)) 
 
 // GET /store/:code/tasks?sinceDays=N … N日前以降の日付のやること（消したものも含む）と、まだ終わっていない古いもの。
 // 「いつか」（日付なし＝task_date ''）は、終わっていないものと N日以内に終えた・消したもの（2026-10-13）
-export async function handleTasksGet(db, code, sinceDays) {
+export async function handleTasksGet(db, code, sinceDays, { admin = true } = {}) {
   const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id
+      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id, visibility
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
       OR (task_date = '' AND updated_at >= ?))
+      AND (visibility IS NULL OR ? = 1)
     ORDER BY task_date DESC LIMIT 2000
-  `).bind(code, since, since).all()).results ?? []
+  `).bind(code, since, since, admin ? 1 : 0).all()).results ?? []   // 管理者だけのやることは管理者にだけ（2026-10-15）
   return rows.map(r => ({
     id: r.id, date: r.task_date, text: r.body,
     createdBy: r.created_by ?? '', createdById: r.created_by_id ?? '', createdAt: r.created_at,
@@ -2058,6 +2059,7 @@ export async function handleTasksGet(db, code, sinceDays) {
     prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null,
     // アプリが自動で作ったやること（'staff_join' ＝ 参加申請。人の手では完了・直す・消すができない）
     kind: r.kind ?? null, refId: r.ref_id ?? null,
+    visibility: r.visibility === 'admins' ? 'admins' : null,
   }))
 }
 
@@ -2089,6 +2091,8 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
     assign: TASK_ASSIGN.includes(body.assign) ? body.assign : 'anyone',
     // その日の時刻（TODO 本格化 A）。'HH:MM' 以外は時刻なし
     dueTime: typeof body.dueTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.dueTime) ? body.dueTime : null,
+    // 'admins' ＝ オーナーと管理者だけに見せる（2026-10-15。付けられるのは管理者だけ・ルーターで確かめる）
+    visibility: body.visibility === 'admins' ? 'admins' : null,
   }
   t.assigneeId   = t.assign === 'person' ? (_short(body.assigneeId, 64) || null) : null
   t.assigneeName = t.assign === 'person' ? (_short(body.assigneeName, 40) || null) : null
@@ -2098,10 +2102,10 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
   // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
     INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, due_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      assign_mode, assignee_id, assignee_name, due_time, visibility)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      task_date = excluded.task_date, body = excluded.body, due_time = excluded.due_time,
+      task_date = excluded.task_date, body = excluded.body, due_time = excluded.due_time, visibility = excluded.visibility,
       assign_mode = excluded.assign_mode, assignee_id = excluded.assignee_id, assignee_name = excluded.assignee_name,
       done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
@@ -2111,7 +2115,7 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
       prev_done_by_id = CASE WHEN ? = 1 THEN ? ELSE tasks.prev_done_by_id END
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
   `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
-    t.assign, t.assigneeId, t.assigneeName, t.dueTime,
+    t.assign, t.assigneeId, t.assigneeName, t.dueTime, t.visibility,
     keepPrev ? 1 : 0, keepPrev?.prevDoneAt ?? null, keepPrev ? 1 : 0, keepPrev?.prevDoneById ?? null).run()
   if (keepPrev) { t.prevDoneAt = keepPrev.prevDoneAt; t.prevDoneById = keepPrev.prevDoneById }
   return { ok: true, created: !prev && !t.deletedAt, task: t }
@@ -2126,8 +2130,8 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
 export async function handleTaskMark(db, code, id, actor, done, { admin = false } = {}) {
   if (!actor?.id) return { _status: 400, error: '誰の印か分かりません' }
   for (let i = 0; i < 4; i++) {
-    const row = await db.prepare('SELECT assign_mode, done_list_json, deleted_at FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
-    if (!row || row.deleted_at) return { _status: 404, error: '見つかりません' }
+    const row = await db.prepare('SELECT assign_mode, done_list_json, deleted_at, visibility FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
+    if (!row || row.deleted_at || (row.visibility === 'admins' && !admin)) return { _status: 404, error: '見つかりません' }
     if (row.assign_mode !== 'all') return { ok: true, skipped: true }
     const now = _now()
     // 自分の印を外せるのは、付けた日のうちだけ（管理者はいつでも・User決定 2026-10-14）

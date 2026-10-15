@@ -12,6 +12,7 @@ const _task = r => ({
   assign: r.assign_mode ?? 'anyone', assigneeId: r.assignee_id ?? null, createdById: r.created_by_id ?? '',
   doneAt: r.done_at ?? null, doneById: r.done_by_id ?? null, deletedAt: r.deleted_at ?? null,
   prevDoneAt: r.prev_done_at ?? null, prevDoneById: r.prev_done_by_id ?? null, kind: r.kind ?? null,
+  visibility: r.visibility === 'admins' ? 'admins' : null,
 })
 
 /**
@@ -26,6 +27,8 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
   const me = { id: who.id, admin: !!who.admin || !who.ctx, canCreate: who.ctx ? ctxCan(who.ctx, 'task.create') : true }
   const t = _task(row)
   const wasDone = !!t.doneAt
+  // 管理者だけのやることは、管理者以外からは無いものとして扱う（2026-10-15）
+  if (t.visibility === 'admins' && !me.admin) return { deny: '見つかりません' }
   if (t.kind) return { deny: 'このやることは、スタッフの画面で承認・お断りすると自動で完了します' }
   if (body?.deletedAt) {
     if (!canRemove(t, me)) return { deny: wasDone ? '完了したやることは消せません' : 'このやることを消せるのは、作った人と管理者だけです' }
@@ -34,7 +37,9 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
   // 担当を変える・文面・日付・時刻を直す
   const assignChanged = (row.assign_mode ?? 'anyone') !== (body?.assign ?? 'anyone')
     || (body?.assign === 'person' && (row.assignee_id ?? '') !== (body?.assigneeId ?? ''))
-  const edited = (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
+  const visChanged = (t.visibility === 'admins') !== (body?.visibility === 'admins')
+  if (visChanged && !me.admin) return { deny: '「管理者だけ」にできるのは管理者だけです' }
+  const edited = visChanged || (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
     || (row.task_date ?? '') !== (body?.date ?? '') || (row.due_time ?? null) !== (body?.dueTime || null)
   if ((assignChanged || edited) && !canEdit(t, me)) {
     return { deny: wasDone ? '完了したやることは直せません' : 'このやることを直せるのは、作った人と管理者だけです' }

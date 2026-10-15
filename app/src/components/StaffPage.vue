@@ -1,47 +1,44 @@
 <script setup>
 /**
- * スタッフの管理（段 2-1・User決定 2026-10-07。管理者だけ）。
- * - 招待: 名前と役割を決めて出す → QR とリンク（10分・1回きり）。その場で読み取ってもらう
- * - 承認待ち: 承認／断る（招待を受けた人が名前と暗証番号を入れたもの）
- * - スタッフ: 役割の変更・停止／再開・暗証番号の失敗で止まったのを解除・削除（記録は「○○（削除済み）」で残る）
- * - 個別の許可（段 2-3）: 役割に足す5つ。役割でもうできるものは出さない
- * - ログイン中・作業時間（段 2-5）: いまアプリを開いている人、最後に開いた時刻、直近7日／30日の開いていた時間
- * - オーナーの名前（User決定 2026-10-14）: どの端末でも1人・名前は店に1つ。変えられるのはオーナー本人だけ（ここだけ）。
- *   変えると過去の記録の名前もそろう
+ * スタッフの管理（段 2-1・管理者だけ。User決定 2026-10-15 で作り直し・モック docs/mocks/staff-page-v2.html）。
+ * - 一覧: スタッフと「ログイン中・作業時間」をひとつに。いま開いている人を上、名前の横に緑の点、作業時間（7日／30日）
+ * - 招待（QR とリンク・10分・1回きり）、承認待ちは一覧の上でその場で承認／断る
+ * - 人を押すとその人の画面: 権限（4つのまとまりのスイッチ）・肩書き・作業時間とやったこと・停止／ロック解除／削除
+ *   スタッフの管理と全品目・アカウントの削除は管理者だけ（切り替えられない）。管理者・自分の権限は変えられない
+ * - オーナーの名前（User決定 2026-10-14）: オーナーの画面で、オーナー本人だけが変えられる。変えると過去の記録もそろう
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import QRCode from 'qrcode'
 import {
   listStaff, createStaffInvite, revokeStaffInvite, staffAction, ROLE_LABELS, currentStaff, getPresence,
-  ownerName, updateOwnerName,
+  ownerName, updateOwnerName, getStaffActivity,
 } from '../composables/useAuth.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
-import { GRANT_KEYS, GRANT_PERMS, can as roleCan, normalizeGrants } from '../services/permissions.js'
+import { groupsOf } from '../services/permissions.js'
 
 const emit = defineEmits(['close'])
-onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 
+// 肩書き（表示だけ）と管理者（店に1人・すべての権限とスタッフの管理）
 const ROLES = [
-  { key: 'arbeit', label: 'アルバイト', note: '数える・発注数を入れる・品目を足す・やることを終える（金額は見えない）' },
-  { key: 'shain',  label: '社員',       note: 'アルバイト＋棚卸・発注の開始と完了・品目を直す・金額を見る・やることを作る' },
-  { key: 'admin',  label: '管理者',     note: '社員＋品目の削除と取り込み・並び替え・発注点・スタッフの管理' },
+  { key: 'arbeit', label: 'アルバイト', note: '肩書きだけ。できることは招待のあとで人ごとに決めます（最初は在庫管理とタスク管理）' },
+  { key: 'shain',  label: '社員',       note: '肩書きだけ。できることは招待のあとで人ごとに決めます（最初は在庫管理とタスク管理）' },
+  { key: 'admin',  label: '管理者',     note: '店に1人。すべての権限と、スタッフの招待・権限の付与' },
 ]
+// 権限の4つのまとまり（User決定 2026-10-15）
+const GROUPS = [
+  { key: 'inventory', label: '在庫管理', note: '数える・入出庫・発注・棚卸の開始と完了・ルームを作る・並び替え・金額を見る' },
+  { key: 'tasks',     label: 'タスク管理', note: 'やることを作る（完了の印は誰でも）' },
+  { key: 'data',      label: 'データの更新', note: '品目の取り込み・書き出し・品目の情報を直す・発注日と発注点' },
+  { key: 'report',    label: 'レポート・分析・証跡', note: 'レポート・過去の履歴・ほかのスタッフの使用履歴' },
+]
+const GROUP_SHORT = { inventory: '在庫管理', tasks: 'タスク', data: 'データ', report: 'レポート' }
 
-// オーナーの名前（オーナー本人だけが変えられる）
-const ownerEditing = ref(false)
-const ownerInput = ref('')
-const ownerError = ref('')
-function editOwner() { ownerInput.value = ownerName.value; ownerError.value = ''; ownerEditing.value = true }
-async function saveOwner() {
-  const n = ownerInput.value.trim()
-  if (!n) { ownerError.value = '名前を入れてください'; return }
-  if (!confirm(`オーナーの名前を「${n}」にします。過去の記録（作った人・完了した人など）の名前も変わります。よろしいですか？`)) return
-  try { await updateOwnerName(n); ownerEditing.value = false; loadPresence() } catch (e) { ownerError.value = e?.message || '変えられませんでした' }
-}
-
+// ── 読み込み（10秒ごとに承認待ち・ログイン中を拾う）──
 const staff = ref([])
 const invites = ref([])
 const loadError = ref('')
+const presence = ref(null)
+const presDays = ref(7)
 async function load() {
   try {
     const r = await listStaff()
@@ -51,40 +48,56 @@ async function load() {
     // 出していた招待が使われたら（一覧から消えたら）QR を閉じ、承認待ちへ目を向けてもらう
     if (issued.value && !invites.value.some(i => i.id === issued.value.id)) {
       const used = staff.value.some(st => st.status === 'pending' && st.name === issued.value.name)
-      inviteNotice.value = used ? `${issued.value.name}さんが参加を申請しました。下の「承認待ち」で承認してください` : ''
+      inviteNotice.value = used ? `${issued.value.name}さんが参加を申請しました。上の承認待ちで承認してください` : ''
       issued.value = null
     }
   } catch (e) { loadError.value = e.message }
 }
-// ── ログイン中・作業時間（段 2-5）──
-const presence = ref(null)
-const presDays = ref(7)
-const openPerson = ref('')
 async function loadPresence() {
   try { presence.value = await getPresence(presDays.value) } catch (_) { /* 次の読み直しで */ }
 }
 function setDays(d) { presDays.value = d; loadPresence() }
-const fmtMin = m => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`)
-function ago(iso) {
-  if (!iso) return 'まだ開いていません'
-  const m = Math.floor((now.value - new Date(iso).getTime()) / 60000)
-  if (m < 1) return '最後に開いたのは1分以内'
-  if (m < 60) return `最後に開いたのは${m}分前`
-  if (m < 24 * 60) return `最後に開いたのは${Math.floor(m / 60)}時間前`
-  return `最後に開いたのは${Math.floor(m / 1440)}日前`
-}
-const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
-const md = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}` }
-const sessionsOf = id => (presence.value?.sessions ?? []).filter(x => x.id === id)
-const whoRole = p => (p.owner ? 'オーナー（端末）' : `${roleLabel(p.role)}${p.status === 'stopped' ? '・停止中' : ''}`)
-
 let poll = null
-onMounted(() => { load(); loadPresence(); poll = setInterval(() => { load(); loadPresence() }, 10000) })   // 承認待ちが届くのを拾う
+onMounted(() => { load(); loadPresence(); poll = setInterval(() => { load(); loadPresence() }, 10000) })
 onUnmounted(() => clearInterval(poll))
+
+const now = ref(Date.now())
+let clock = null
+onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
+onUnmounted(() => clearInterval(clock))
 
 const pending = computed(() => staff.value.filter(s => s.status === 'pending'))
 const members = computed(() => staff.value.filter(s => s.status === 'active' || s.status === 'stopped'))
 const deleted = computed(() => staff.value.filter(s => s.status === 'deleted'))
+const roleLabel = r => ROLE_LABELS[r] ?? r
+const isMe = s => currentStaff.value?.id === s.id
+
+// 一覧の行: オーナー＋スタッフ。ログイン中・作業時間をくっつけ、いま開いている人を上に
+const presOf = id => (presence.value?.people ?? []).find(p => p.id === id) ?? null
+const rows = computed(() => {
+  const owner = { id: 'owner', name: ownerName.value || presOf('owner')?.name || 'オーナー', role: 'owner', status: 'active', owner: true }
+  return [owner, ...members.value].map(s => {
+    const p = presOf(s.id)
+    return { ...s, online: !!p?.online, onlineSince: p?.onlineSince ?? null, lastSeenAt: p?.lastSeenAt ?? null, minutes: p?.minutes ?? 0 }
+  }).sort((a, b) => (b.online - a.online) || (a.owner ? -1 : b.owner ? 1 : 0) || (b.lastSeenAt || '').localeCompare(a.lastSeenAt || ''))
+})
+function summary(s) {
+  if (s.owner) return 'すべての権限'
+  if (s.role === 'admin') return 'すべての権限・スタッフの管理'
+  const g = s.groups ?? groupsOf(s.role, s.grants)
+  return g.length ? g.map(k => GROUP_SHORT[k]).join('・') : '権限なし（やることの完了だけ）'
+}
+const initial = n => String(n || '?').trim().slice(0, 1)
+const fmtMin = m => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`)
+const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
+const md = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}` }
+function ago(iso) {
+  if (!iso) return 'まだ開いていません'
+  const m = Math.floor((now.value - new Date(iso).getTime()) / 60000)
+  if (m < 60) return m < 1 ? '1分以内' : `${m}分前`
+  if (m < 24 * 60) return `${Math.floor(m / 60)}時間前`
+  return m < 48 * 60 ? '昨日' : `${Math.floor(m / 1440)}日前`
+}
 
 // ── 招待 ──
 const inviteOpen = ref(false)
@@ -93,10 +106,6 @@ const invRole = ref('arbeit')
 const invError = ref('')
 const issued = ref(null)    // { id, name, role, expiresAt, url, qr }
 const inviteNotice = ref('')
-const now = ref(Date.now())
-let clock = null
-onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => clearInterval(clock))
 const left = computed(() => {
   if (!issued.value) return ''
   const ms = new Date(issued.value.expiresAt).getTime() - now.value
@@ -127,8 +136,11 @@ async function shareUrl() {
 }
 const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 async function revoke(inv) { await revokeStaffInvite(inv.id).catch(() => {}); if (issued.value?.id === inv.id) issued.value = null; load() }
+// 管理者（店長）は店に1人（User決定 2026-10-14）
+const adminNow = computed(() => staff.value.find(st => st.role === 'admin' && ['active', 'stopped', 'pending'].includes(st.status))
+  || invites.value.find(i => i.role === 'admin'))
 
-// ── スタッフの操作 ──
+// ── 操作 ──
 const busy = ref('')
 const msg = ref('')
 async function act(s, action, body) {
@@ -137,62 +149,97 @@ async function act(s, action, body) {
   catch (e) { msg.value = e.message }
   finally { busy.value = '' }
 }
-// 管理者（店長）は店に1人（User決定 2026-10-14）。いる・招待中なら、ほかの人は管理者にできない
-const adminNow = computed(() => staff.value.find(st => st.role === 'admin' && ['active', 'stopped', 'pending'].includes(st.status))
-  || invites.value.find(i => i.role === 'admin'))
-const confirmDel = ref('')
-const isMe = s => currentStaff.value?.id === s.id
-const roleLabel = r => ROLE_LABELS[r] ?? r
 
-const GRANT_LABELS = {
-  orderStart: '発注を始める',
-  orderFinish: '発注を確定・書き出す',
-  stock: '棚卸を始める・完了する',
-  task: 'やることを作る',
-  itemEdit: '品目を直す・並び替え・発注点',
+// ── 人の画面 ──
+const selId = ref('')
+const sel = computed(() => rows.value.find(r => r.id === selId.value) ?? null)
+const tab = ref('work')       // work | actions
+const activity = ref(null)
+const actError = ref('')
+const confirmDel = ref(false)
+async function openPerson(id) {
+  selId.value = id; tab.value = 'work'; activity.value = null; actError.value = ''; confirmDel.value = false; msg.value = ''
+  try { activity.value = await getStaffActivity(id, 30) } catch (e) { actError.value = e.message }
 }
-/** その役割にまだ無い（足す意味がある）許可だけ */
-const grantChoices = role => GRANT_KEYS.filter(k => GRANT_PERMS[k].some(p => !roleCan(role, [], p)))
-const hasGrant = (s, k) => normalizeGrants(s.grants).includes(k)
-function toggleGrant(s, k) {
-  const now = normalizeGrants(s.grants)
-  const next = now.includes(k) ? now.filter(x => x !== k) : [...now, k]
-  act(s, 'grants', { grants: next })
+const canEditPerms = computed(() => sel.value && !sel.value.owner && sel.value.role !== 'admin' && !isMe(sel.value))
+const groupsSel = computed(() => (sel.value && !sel.value.owner ? (sel.value.groups ?? groupsOf(sel.value.role, sel.value.grants)) : []))
+const hasGroup = k => !sel.value || sel.value.owner || sel.value.role === 'admin' || groupsSel.value.includes(k)
+function toggleGroup(k) {
+  if (!canEditPerms.value) return
+  const cur = groupsSel.value
+  act(sel.value, 'grants', { groups: cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k] })
 }
+// 作業時間（日ごと）・やったこと（日ごと）
+const weekMin = computed(() => (activity.value?.work ?? []).filter(w => now.value - Date.parse(w.startedAt) < 7 * 86400_000).reduce((n, w) => n + w.minutes, 0))
+const WEEK = ['日', '月', '火', '水', '木', '金', '土']
+const dayHead = iso => {
+  const d = new Date(iso), t = new Date(now.value)
+  const same = (a, b) => a.toDateString() === b.toDateString()
+  const y = new Date(now.value - 86400_000)
+  return `${same(d, t) ? '今日 ・ ' : same(d, y) ? '昨日 ・ ' : ''}${d.getMonth() + 1}月${d.getDate()}日（${WEEK[d.getDay()]}）`
+}
+const actionGroups = computed(() => {
+  const out = []
+  for (const a of activity.value?.actions ?? []) {
+    const h = dayHead(a.at)
+    if (!out.length || out[out.length - 1].head !== h) out.push({ head: h, items: [] })
+    out[out.length - 1].items.push(a)
+  }
+  return out
+})
+const ACT_ICON = { stock: '📦', order: '🧾', in: '📥', out: '📤', task: '＋', done: '✓' }
+const maxMin = computed(() => Math.max(60, ...(activity.value?.work ?? []).map(w => w.minutes)))
+
+// オーナーの名前（オーナー本人だけが変えられる）
+const ownerEditing = ref(false)
+const ownerInput = ref('')
+const ownerError = ref('')
+function editOwner() { ownerInput.value = ownerName.value; ownerError.value = ''; ownerEditing.value = true }
+async function saveOwner() {
+  const n = ownerInput.value.trim()
+  if (!n) { ownerError.value = '名前を入れてください'; return }
+  if (!confirm(`オーナーの名前を「${n}」にします。過去の記録（作った人・完了した人など）の名前も変わります。よろしいですか？`)) return
+  try { await updateOwnerName(n); ownerEditing.value = false; loadPresence() } catch (e) { ownerError.value = e?.message || '変えられませんでした' }
+}
+
+// 戻る: 人の画面 → 一覧 → 閉じる
+function back() { if (selId.value) { selId.value = ''; ownerEditing.value = false } else emit('close') }
+onUnmounted(registerInnerLayerCloser(() => { back(); return true }))
+watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value = '' })
 </script>
 
 <template>
   <div class="sp2">
     <header class="sp2-head">
-      <button type="button" class="sp2-back" @click="emit('close')">‹ 戻る</button>
-      <span class="sp2-title">スタッフ</span>
+      <button type="button" class="sp2-back" @click="back">‹ {{ sel ? 'スタッフ' : '戻る' }}</button>
+      <span class="sp2-title">{{ sel ? sel.name : 'スタッフ' }}</span>
     </header>
-    <div class="sp2-body">
+
+    <!-- 一覧 -->
+    <div v-if="!sel" class="sp2-body">
       <p v-if="loadError" class="sp2-err">{{ loadError }}</p>
 
       <!-- 招待 -->
-      <section class="sp2-card">
-        <template v-if="issued">
-          <div class="sp2-issued">
-            <b>{{ issued.name }}さん（{{ roleLabel(issued.role) }}）への招待</b>
-            <img :src="issued.qr" alt="招待のQRコード" class="sp2-qr" width="200" height="200" />
-            <span :class="['sp2-left', { over: left === '期限切れ' }]">{{ left }}</span>
-            <p class="sp2-note">スタッフのスマホのカメラで読み取ってもらってください。10分で使えなくなり、1回使うと使えなくなります。</p>
-            <div class="sp2-row">
-              <button v-if="canShare" type="button" class="sp2-btn sec" @click="shareUrl">リンクを送る</button>
-              <button type="button" class="sp2-btn sec" @click="copyUrl">リンクをコピー</button>
-            </div>
-            <p v-if="copied" class="sp2-note">{{ copied }}</p>
-            <div class="sp2-row">
-              <button type="button" class="sp2-btn sec" @click="issued = null">閉じる</button>
-              <button type="button" class="sp2-btn danger-sec" @click="revoke(issued)">この招待を取り消す</button>
-            </div>
+      <section v-if="issued || inviteOpen" class="sp2-card">
+        <div v-if="issued" class="sp2-issued">
+          <b>{{ issued.name }}さん（{{ roleLabel(issued.role) }}）への招待</b>
+          <img :src="issued.qr" alt="招待のQRコード" class="sp2-qr" width="200" height="200" />
+          <span :class="['sp2-left', { over: left === '期限切れ' }]">{{ left }}</span>
+          <p class="sp2-note">スタッフのスマホのカメラで読み取ってもらってください。10分で使えなくなり、1回使うと使えなくなります。</p>
+          <div class="sp2-row">
+            <button v-if="canShare" type="button" class="sp2-btn sec" @click="shareUrl">リンクを送る</button>
+            <button type="button" class="sp2-btn sec" @click="copyUrl">リンクをコピー</button>
           </div>
-        </template>
-        <template v-else-if="inviteOpen">
+          <p v-if="copied" class="sp2-note">{{ copied }}</p>
+          <div class="sp2-row">
+            <button type="button" class="sp2-btn sec" @click="issued = null">閉じる</button>
+            <button type="button" class="sp2-btn danger-sec" @click="revoke(issued)">この招待を取り消す</button>
+          </div>
+        </div>
+        <template v-else>
           <label class="sp2-label" for="inv-name">名前（店で呼んでいる名前）</label>
           <input id="inv-name" v-model="invName" class="sp2-input" maxlength="30" placeholder="例：山田" />
-          <div class="sp2-label">役割</div>
+          <div class="sp2-label">肩書き</div>
           <label v-for="r in ROLES" :key="r.key" :class="['sp2-role', { on: invRole === r.key, off: r.key === 'admin' && adminNow }]">
             <input v-model="invRole" type="radio" :value="r.key" :disabled="r.key === 'admin' && !!adminNow" />
             <span><b>{{ r.label }}</b><small>{{ r.key === 'admin' && adminNow ? `管理者は店に1人です（今は${adminNow.name}さん）` : r.note }}</small></span>
@@ -203,109 +250,139 @@ function toggleGrant(s, k) {
             <button type="button" class="sp2-btn pri" @click="issue">招待を出す</button>
           </div>
         </template>
-        <template v-else>
-          <p v-if="inviteNotice" class="sp2-notice" role="status">{{ inviteNotice }}</p>
-          <button type="button" class="sp2-btn pri wide" @click="inviteOpen = true; inviteNotice = ''">＋ スタッフを招待する</button>
-        </template>
       </section>
+      <template v-else>
+        <p v-if="inviteNotice" class="sp2-notice" role="status">{{ inviteNotice }}</p>
+        <button type="button" class="sp2-btn pri wide" @click="inviteOpen = true; inviteNotice = ''">＋ スタッフを招待する</button>
+      </template>
 
-      <!-- 承認待ち -->
-      <section v-if="pending.length" class="sp2-card pend">
-        <div class="sp2-h">承認待ち（{{ pending.length }}）</div>
-        <div v-for="s in pending" :key="s.id" class="sp2-item">
-          <div class="sp2-who"><b>{{ s.name }}</b><span>{{ roleLabel(s.role) }}</span></div>
-          <div class="sp2-row">
-            <button type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(s, 'reject')">断る</button>
-            <button type="button" class="sp2-btn pri" :disabled="!!busy" @click="act(s, 'approve')">承認する</button>
-          </div>
-        </div>
-      </section>
+      <!-- 承認待ち（その場で） -->
+      <div v-for="s in pending" :key="s.id" class="sp2-pend">
+        <b>{{ s.name }}さんから参加の申請<small>{{ roleLabel(s.role) }}</small></b>
+        <button type="button" class="sp2-mini" :disabled="!!busy" @click="act(s, 'reject')">断る</button>
+        <button type="button" class="sp2-mini pri" :disabled="!!busy" @click="act(s, 'approve')">承認</button>
+      </div>
 
-      <!-- スタッフ -->
-      <section class="sp2-card">
-        <div class="sp2-h">スタッフ（{{ members.length + 1 }}）</div>
-        <div class="sp2-item">
-          <div class="sp2-who"><b>{{ ownerName || 'オーナー' }}</b><span>オーナー・店を登録した人・外せません</span></div>
-          <template v-if="!currentStaff">
-            <div v-if="ownerEditing" class="sp2-owner">
-              <input v-model="ownerInput" class="sp2-input" maxlength="40" aria-label="オーナーの名前" />
-              <p class="sp2-note">どの端末から開いても、この名前で記録されます。変えると過去の記録の名前も変わります。</p>
-              <p v-if="ownerError" class="sp2-err">{{ ownerError }}</p>
-              <div class="sp2-row">
-                <button type="button" class="sp2-btn sec" @click="ownerEditing = false">やめる</button>
-                <button type="button" class="sp2-btn pri" @click="saveOwner">名前を変える</button>
-              </div>
-            </div>
-            <button v-else type="button" class="sp2-btn sec" @click="editOwner">名前を変える</button>
-          </template>
-        </div>
-        <div v-for="s in members" :key="s.id" class="sp2-item">
-          <div class="sp2-who">
-            <b>{{ s.name }}<template v-if="isMe(s)">（自分）</template></b>
-            <span>{{ roleLabel(s.role) }}<em v-if="s.status === 'stopped'" class="sp2-stop">停止中</em></span>
-          </div>
-          <div v-if="!isMe(s)" class="sp2-acts">
-            <select :value="s.role" :aria-label="`${s.name}の役割`" :disabled="!!busy" @change="act(s, 'role', { role: $event.target.value })">
-              <option v-for="r in ROLES" :key="r.key" :value="r.key" :disabled="r.key === 'admin' && !!adminNow && adminNow.id !== s.id">{{ r.label }}{{ r.key === 'admin' && adminNow && adminNow.id !== s.id ? '（1人まで）' : '' }}</option>
-            </select>
-            <button v-if="s.status === 'active'" type="button" class="sp2-mini" :disabled="!!busy" @click="act(s, 'stop')">停止</button>
-            <button v-else type="button" class="sp2-mini" :disabled="!!busy" @click="act(s, 'resume')">再開</button>
-            <button type="button" class="sp2-mini" :disabled="!!busy" title="暗証番号を5回まちがえて止まったのを解除" @click="act(s, 'unlock')">ロック解除</button>
-            <button v-if="confirmDel !== s.id" type="button" class="sp2-mini danger" :disabled="!!busy" @click="confirmDel = s.id">削除</button>
-            <span v-else class="sp2-confirm">
-              記録は「{{ s.name }}（削除済み）」で残ります
-              <button type="button" class="sp2-mini" @click="confirmDel = ''">やめる</button>
-              <button type="button" class="sp2-mini danger" @click="confirmDel = ''; act(s, 'delete')">削除する</button>
-            </span>
-          </div>
-          <div v-if="!isMe(s) && grantChoices(s.role).length" class="sp2-grants" role="group" :aria-label="`${s.name}に足す許可`">
-            <span class="sp2-glabel">個別に許可:</span>
-            <button v-for="k in grantChoices(s.role)" :key="k" type="button"
-              :class="['sp2-chip', { on: hasGrant(s, k) }]" :aria-pressed="hasGrant(s, k)" :disabled="!!busy"
-              @click="toggleGrant(s, k)">{{ hasGrant(s, k) ? '✓ ' : '' }}{{ GRANT_LABELS[k] }}</button>
-          </div>
-        </div>
-        <p v-if="msg" class="sp2-err">{{ msg }}</p>
-      </section>
-
-      <!-- ログイン中・作業時間（段 2-5。管理者だけ） -->
-      <section v-if="presence" class="sp2-card">
-        <div class="sp2-h sp2-hrow">
-          <span>ログイン中・作業時間</span>
-          <span class="sp2-days">
-            <button v-for="d in [7, 30]" :key="d" type="button" :class="['sp2-chip', { on: presDays === d }]" @click="setDays(d)">{{ d }}日</button>
+      <!-- スタッフ（ログイン中・作業時間をひとつに） -->
+      <div class="sp2-sec">
+        <span>スタッフ {{ rows.length }}人</span>
+        <span class="sp2-seg">
+          <button v-for="d in [7, 30]" :key="d" type="button" :class="{ on: presDays === d }" :aria-pressed="presDays === d" @click="setDays(d)">{{ d }}日</button>
+        </span>
+      </div>
+      <div class="sp2-box">
+        <button v-for="s in rows" :key="s.id" type="button" class="sp2-p" @click="openPerson(s.id)">
+          <span class="sp2-av">{{ initial(s.name) }}<i :class="{ on: s.online }"></i></span>
+          <span class="sp2-tx">
+            <b>{{ s.name }}<template v-if="isMe(s)">（自分）</template><span :class="['sp2-rl', { adm: s.role === 'admin' }]">{{ s.owner ? 'オーナー' : roleLabel(s.role) }}</span><em v-if="s.status === 'stopped'" class="sp2-stop">停止中</em></b>
+            <small>{{ summary(s) }}</small>
           </span>
-        </div>
-        <div v-for="p in presence.people" :key="p.id" class="sp2-pres">
-          <button type="button" class="sp2-pres-row" :aria-expanded="openPerson === p.id" @click="openPerson = openPerson === p.id ? '' : p.id">
-            <span :class="['sp2-dot', { on: p.online }]" aria-hidden="true"></span>
-            <span class="sp2-who"><b>{{ p.name }}</b><span>{{ whoRole(p) }}</span></span>
-            <span class="sp2-pres-r">
-              <b v-if="p.online" class="sp2-on">いま開いている<template v-if="p.onlineSince">（{{ hm(p.onlineSince) }}から）</template></b>
-              <span v-else>{{ ago(p.lastSeenAt) }}</span>
-              <small>{{ presDays }}日で {{ fmtMin(p.minutes) }}</small>
-            </span>
-          </button>
-          <div v-if="openPerson === p.id" class="sp2-pres-list">
-            <div v-for="x in sessionsOf(p.id)" :key="x.startedAt" class="sp2-pres-line">
-              <span>{{ md(x.startedAt) }}</span><span>{{ hm(x.startedAt) }}〜{{ x.online ? '' : hm(x.lastSeenAt) }}</span><span>{{ fmtMin(x.minutes) }}</span>
-            </div>
-            <p v-if="!sessionsOf(p.id).length" class="sp2-note">この{{ presDays }}日は開いていません</p>
-          </div>
-        </div>
-        <p class="sp2-note">アプリを開いている間を数えています（画面を消す・別のアプリにすると止まります）。スタッフには「管理者から見える」と伝えています。</p>
-      </section>
+          <span class="sp2-rt">
+            <b v-if="s.online" class="sp2-on">開いている</b><template v-else>{{ ago(s.lastSeenAt) }}<br></template>{{ presDays }}日で {{ fmtMin(s.minutes) }}
+          </span>
+          <span class="sp2-ar" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <p v-if="msg" class="sp2-err">{{ msg }}</p>
 
       <!-- 使われていない招待 -->
-      <section v-if="invites.length" class="sp2-card">
-        <div class="sp2-h">まだ使われていない招待</div>
-        <div v-for="i in invites" :key="i.id" class="sp2-item">
-          <div class="sp2-who"><b>{{ i.name }}</b><span>{{ roleLabel(i.role) }}</span></div>
-          <button type="button" class="sp2-mini" @click="revoke(i)">取り消す</button>
+      <template v-if="invites.length">
+        <div class="sp2-sec"><span>まだ使われていない招待</span></div>
+        <div class="sp2-box">
+          <div v-for="i in invites" :key="i.id" class="sp2-p static">
+            <span class="sp2-tx"><b>{{ i.name }}</b><small>{{ roleLabel(i.role) }}</small></span>
+            <button type="button" class="sp2-mini" @click="revoke(i)">取り消す</button>
+          </div>
         </div>
-      </section>
+      </template>
+      <p class="sp2-note">アプリを開いている間を数えています（画面を消す・別のアプリにすると止まります）。スタッフには「管理者から見える」と伝えています。<template v-if="deleted.length">削除済み {{ deleted.length }}人（記録には名前が残っています）。</template></p>
+    </div>
 
-      <p v-if="deleted.length" class="sp2-note">削除済み {{ deleted.length }}人（記録には名前が残っています）</p>
+    <!-- 人の画面: 権限・作業時間・やったこと -->
+    <div v-else class="sp2-body">
+      <div class="sp2-whocard">
+        <span class="sp2-av big">{{ initial(sel.name) }}<i :class="{ on: sel.online }"></i></span>
+        <span class="sp2-tx">
+          <b>{{ sel.name }}</b>
+          <small>{{ sel.owner ? 'オーナー・店を登録した人' : roleLabel(sel.role) }}<template v-if="sel.approvedAt"> ・ {{ md(sel.approvedAt) }} から</template> ・ {{ sel.online ? 'いま開いている' : `最後に開いたのは${ago(sel.lastSeenAt)}` }}</small>
+        </span>
+      </div>
+
+      <!-- オーナーの名前（オーナー本人だけ） -->
+      <template v-if="sel.owner && !currentStaff">
+        <div v-if="ownerEditing" class="sp2-card">
+          <input v-model="ownerInput" class="sp2-input" maxlength="40" aria-label="オーナーの名前" />
+          <p class="sp2-note">どの端末から開いても、この名前で記録されます。変えると過去の記録の名前も変わります。</p>
+          <p v-if="ownerError" class="sp2-err">{{ ownerError }}</p>
+          <div class="sp2-row">
+            <button type="button" class="sp2-btn sec" @click="ownerEditing = false">やめる</button>
+            <button type="button" class="sp2-btn pri" @click="saveOwner">名前を変える</button>
+          </div>
+        </div>
+        <button v-else type="button" class="sp2-btn sec wide" @click="editOwner">オーナーの名前を変える</button>
+      </template>
+
+      <!-- 権限 -->
+      <div class="sp2-sec">
+        <span>権限</span>
+        <label v-if="!sel.owner && !isMe(sel)" class="sp2-title-sel">肩書き
+          <select :value="sel.role" :disabled="!!busy" :aria-label="`${sel.name}の肩書き`" @change="act(sel, 'role', { role: $event.target.value })">
+            <option v-for="r in ROLES" :key="r.key" :value="r.key" :disabled="r.key === 'admin' && !!adminNow && adminNow.id !== sel.id">{{ r.label }}{{ r.key === 'admin' && adminNow && adminNow.id !== sel.id ? '（1人まで）' : '' }}</option>
+          </select>
+        </label>
+      </div>
+      <div class="sp2-box">
+        <div v-for="g in GROUPS" :key="g.key" class="sp2-perm">
+          <span class="sp2-tx"><b>{{ g.label }}</b><small>{{ g.note }}</small></span>
+          <button
+            type="button" role="switch" :class="['sp2-sw', { on: hasGroup(g.key) }]" :aria-checked="hasGroup(g.key)"
+            :aria-label="`${g.label}`" :disabled="!canEditPerms || !!busy" @click="toggleGroup(g.key)"
+          ></button>
+        </div>
+        <div class="sp2-lock">🔒 スタッフの招待・権限の付与、全品目・アカウントの削除は管理者だけ（切り替えられません）<template v-if="sel.owner || sel.role === 'admin'">。オーナーと管理者はすべての権限を持っています</template><template v-else-if="isMe(sel)">。自分の権限は変えられません</template></div>
+      </div>
+      <p v-if="msg" class="sp2-err">{{ msg }}</p>
+
+      <!-- 作業時間 / やったこと -->
+      <div class="sp2-tabs" role="tablist">
+        <button type="button" role="tab" :aria-selected="tab === 'work'" :class="{ on: tab === 'work' }" @click="tab = 'work'">作業時間</button>
+        <button type="button" role="tab" :aria-selected="tab === 'actions'" :class="{ on: tab === 'actions' }" @click="tab = 'actions'">やったこと</button>
+      </div>
+      <p v-if="actError" class="sp2-err">{{ actError }}</p>
+      <div v-else-if="!activity" class="sp2-note">読み込み中…</div>
+      <div v-else-if="tab === 'work'" class="sp2-box">
+        <div class="sp2-dh">今週 {{ fmtMin(weekMin) }}</div>
+        <div v-for="w in activity.work" :key="w.startedAt" class="sp2-act">
+          <time>{{ md(w.startedAt) }}</time>
+          <span class="sp2-tx">{{ hm(w.startedAt) }}〜{{ hm(w.lastSeenAt) }}（{{ fmtMin(w.minutes) }}）<span class="sp2-bar"><i :style="{ width: Math.min(100, w.minutes / maxMin * 100) + '%' }"></i></span></span>
+        </div>
+        <p v-if="!activity.work.length" class="sp2-note pad">この30日は開いていません</p>
+      </div>
+      <div v-else class="sp2-box">
+        <template v-for="g in actionGroups" :key="g.head">
+          <div class="sp2-dh">{{ g.head }}</div>
+          <div v-for="(a, i) in g.items" :key="g.head + i" class="sp2-act">
+            <time>{{ hm(a.at) }}</time><span class="sp2-k" aria-hidden="true">{{ ACT_ICON[a.kind] || '・' }}</span>
+            <span class="sp2-tx">{{ a.text }}<small v-if="a.sub">{{ a.sub }}</small></span>
+          </div>
+        </template>
+        <p v-if="!actionGroups.length" class="sp2-note pad">この30日の記録はありません</p>
+      </div>
+
+      <!-- 停止・ロック解除・削除 -->
+      <div v-if="!sel.owner && !isMe(sel)" class="sp2-foot">
+        <button v-if="sel.status === 'active'" type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'stop')">停止</button>
+        <button v-else type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'resume')">再開</button>
+        <button type="button" class="sp2-btn sec" :disabled="!!busy" title="暗証番号を5回まちがえて止まったのを解除" @click="act(sel, 'unlock')">ロック解除</button>
+        <button v-if="!confirmDel" type="button" class="sp2-btn danger-sec" :disabled="!!busy" @click="confirmDel = true">削除</button>
+      </div>
+      <div v-if="confirmDel" class="sp2-card danger">
+        <p class="sp2-note">{{ sel.name }}さんを削除します。ログインできなくなり、記録は「{{ sel.name }}（削除済み）」で残ります。</p>
+        <div class="sp2-row">
+          <button type="button" class="sp2-btn sec" @click="confirmDel = false">やめる</button>
+          <button type="button" class="sp2-btn danger-sec" @click="confirmDel = false; act(sel, 'delete').then(() => { selId = '' })">削除する</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -372,4 +449,56 @@ function toggleGrant(s, k) {
 .sp2-glabel { font-size: 12px; font-weight: 700; color: var(--text-muted, #4c6a72); }
 .sp2-chip { min-height: 32px; padding: 0 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 999px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 12px; font-weight: 700; cursor: pointer; }
 .sp2-chip.on { border-color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); color: var(--primary, #0e7490); }
+
+/* ── 作り直し（2026-10-15）── */
+.sp2-sec { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted, #4c6a72); padding: 4px 4px 0; }
+.sp2-seg { display: flex; gap: 4px; }
+.sp2-seg button { min-height: 30px; padding: 0 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 999px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 12px; font-weight: 800; cursor: pointer; }
+.sp2-seg button.on { background: var(--primary-deep, #155e75); color: #fff; border-color: transparent; }
+.sp2-box { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; overflow: hidden; }
+.sp2-p { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: none; border-top: 1px solid var(--border, #eef4f6); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.sp2-p:first-child { border-top: none; }
+.sp2-p.static { cursor: default; }
+.sp2-av { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; background: #e2eef1; color: var(--primary-deep, #155e75); display: grid; place-items: center; font-weight: 900; font-size: 15px; }
+.sp2-av.big { width: 48px; height: 48px; font-size: 19px; }
+.sp2-av i { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid #fff; background: #cbd5e1; }
+.sp2-av i.on { background: #22c55e; }
+.sp2-tx { flex: 1; min-width: 0; display: grid; }
+.sp2-tx b { font-size: 14.5px; color: var(--text, #12303a); }
+.sp2-tx small { font-size: 11.5px; color: var(--text-muted, #4c6a72); line-height: 1.45; margin-top: 1px; }
+.sp2-rl { font-size: 10.5px; font-weight: 800; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border, #d6e6ea); color: var(--text-muted, #4c6a72); margin-left: 6px; vertical-align: 1px; }
+.sp2-rl.adm { border-color: var(--primary, #0e7490); color: var(--primary, #0e7490); }
+.sp2-rt { flex: none; text-align: right; font-size: 11.5px; color: var(--text-muted, #4c6a72); line-height: 1.45; }
+.sp2-rt .sp2-on { display: block; font-size: 12px; }
+.sp2-ar { flex: none; color: #94a3b8; font-weight: 900; }
+.sp2-pend { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 12px; background: #fffbeb; }
+.sp2-pend b { flex: 1; font-size: 13.5px; display: grid; } .sp2-pend b small { font-size: 11px; color: #92400e; font-weight: 700; }
+.sp2-mini.pri { border: none; background: var(--primary, #0e7490); color: #fff; }
+.sp2-whocard { display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; }
+.sp2-whocard .sp2-tx b { font-size: 17px; }
+.sp2-title-sel { display: flex; align-items: center; gap: 6px; letter-spacing: 0; }
+.sp2-title-sel select { min-height: 32px; border: 1px solid var(--border, #d6e6ea); border-radius: 8px; background: var(--surface, #fff); font-size: 12.5px; font-weight: 700; color: var(--text, #12303a); padding: 0 6px; }
+.sp2-perm { display: flex; align-items: center; gap: 12px; padding: 12px; border-top: 1px solid var(--border, #eef4f6); }
+.sp2-perm:first-child { border-top: none; }
+.sp2-sw { position: relative; flex: none; width: 46px; height: 28px; border-radius: 999px; border: none; background: #cbd5e1; cursor: pointer; padding: 0; transition: background .15s; }
+.sp2-sw::after { content: ''; position: absolute; left: 3px; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s; }
+.sp2-sw.on { background: var(--primary, #0e7490); }
+.sp2-sw.on::after { left: 21px; }
+.sp2-sw:disabled { cursor: default; opacity: .55; }
+.sp2-lock { font-size: 11.5px; color: var(--text-muted, #4c6a72); padding: 9px 12px 11px; border-top: 1px solid var(--border, #eef4f6); background: #f8fafc; line-height: 1.55; }
+.sp2-tabs { display: flex; background: #e2eef1; border-radius: 10px; padding: 3px; }
+.sp2-tabs button { flex: 1; min-height: 36px; border: none; background: none; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 800; color: var(--text-muted, #4c6a72); cursor: pointer; }
+.sp2-tabs button.on { background: var(--surface, #fff); color: var(--primary-deep, #155e75); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.sp2-dh { font-size: 11px; font-weight: 800; color: var(--text-muted, #4c6a72); padding: 8px 12px 4px; background: #f8fafc; border-top: 1px solid var(--border, #eef4f6); }
+.sp2-dh:first-child { border-top: none; }
+.sp2-act { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-top: 1px solid var(--border, #eef4f6); font-size: 13px; }
+.sp2-dh + .sp2-act { border-top: none; }
+.sp2-act time { flex: none; width: 42px; font-size: 12px; font-weight: 800; color: var(--text-muted, #4c6a72); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.sp2-k { flex: none; width: 20px; text-align: center; }
+.sp2-bar { display: block; height: 6px; border-radius: 9px; background: #e2eef1; overflow: hidden; margin-top: 5px; }
+.sp2-bar i { display: block; height: 100%; background: #38bdf8; }
+.sp2-note.pad { padding: 12px; }
+.sp2-foot { display: flex; gap: 8px; }
+.sp2-foot .sp2-btn { flex: 1; }
+.sp2-card.danger { border-color: #fecaca; background: #fff7f7; }
 </style>

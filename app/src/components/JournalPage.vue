@@ -31,7 +31,7 @@ import JournalDay from './JournalDay.vue'
 import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import TaskNews from './TaskNews.vue'
 import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
-import { can, staffNames, loadStaffNames, getSessions } from '../composables/useAuth.js'
+import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
@@ -147,15 +147,15 @@ const todayRecordCount = computed(() => recordsOn(today).length)
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
+const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fAdmins = ref(false)
 const people = computed(() => staffNames.value)
 function openAdd() {
-  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; adding.value = true
+  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; fAdmins.value = false; adding.value = true
 }
 function submitAdd() {
   const v = fWho.value
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
-  if (addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null))) adding.value = false
+  if (addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility: fAdmins.value ? 'admins' : null })) adding.value = false
 }
 onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; adding.value = false; return true }))
 </script>
@@ -251,6 +251,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
           </div>
           <label class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
+          <!-- 管理者だけに見せる（面談・給与・クレームなど。ほかのスタッフの端末には届かない・2026-10-15） -->
+          <label v-if="isAdmin" class="jp-chk"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
           <label v-if="people.some(p => !p.owner)">担当
             <select v-model="fWho" class="jp-in">
               <option value="anyone">誰でも</option>

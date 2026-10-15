@@ -38,6 +38,7 @@ describe('セキュリティイベント', () => {
     const { invite } = await handleStaffInvite(h.db, own, reg.shopCode, { name: '山田', role: 'arbeit' })
     const j = await handleStaffJoin(h.db, { token: invite.token, name: '山田', pin: '284713' })
     await handleStaffAction(h.db, own, reg.shopCode, j.staffId, 'approve')
+    await handleStaffAction(h.db, own, reg.shopCode, j.staffId, 'grants', { groups: ['tasks'] })   // 在庫管理オフ
     const staff = (await handleStaffPending(h.db, j.pendingKey)).token
     const ev = events()
     const res = await worker.fetch(post(`/store/${reg.shopCode}/sessions`, { type: 'stock' }, { token: staff }), env)

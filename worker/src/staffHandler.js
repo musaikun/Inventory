@@ -11,7 +11,7 @@ import { _now } from './workerUtils.js'
 import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys } from './authHandler.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
 import { entitlement } from './entitlements.js'
-import { normalizeGrants, can } from './permissions.js'
+import { normalizeGroups, groupsOf, can, DEFAULT_GROUPS } from './permissions.js'
 
 export const STAFF_ROLES = ['arbeit', 'shain', 'admin']
 export const INVITE_TTL_MS = 10 * 60 * 1000
@@ -96,7 +96,8 @@ async function _requireAdmin(db, request, code) {
 }
 
 function _grants(r) {
-  try { return normalizeGrants(JSON.parse(r?.grants_json || '[]')) } catch (_) { return [] }
+  // 新しい形 { v: 2, groups } はそのまま、以前の形（足し引きの配列）は配列のまま渡す（permissions.groupsOf が読み替える）
+  try { const g = JSON.parse(r?.grants_json || '[]'); return g && typeof g === 'object' ? g : [] } catch (_) { return [] }
 }
 const _me = st => ({ id: st.id, name: st.name, role: st.role, grants: _grants(st) })
 
@@ -107,7 +108,7 @@ export function ctxCan(ctx, perm) {
 
 function _staffView(r) {
   return {
-    id: r.id, name: r.name, role: r.role, status: r.status, grants: _grants(r),
+    id: r.id, name: r.name, role: r.role, status: r.status, grants: _grants(r), groups: groupsOf(r.role, _grants(r)),
     createdAt: r.created_at, approvedAt: r.approved_at ?? null, lastSeenAt: r.last_seen_at ?? null,
   }
 }
@@ -215,11 +216,13 @@ export async function handleStaffAction(db, request, code, id, action, body = {}
       const role = STAFF_ROLES.includes(body?.role) ? body.role : null
       if (!role) return { _status: 400, error: '役割を選んでください' }
       if (role === 'admin' && await _adminTaken(db, code, id)) return _ADMIN_TAKEN
-      await set('role = ?', role)
+      // 肩書き（社員・アルバイト）を変えてもできることは変えない: 今のまとまりを新しい形で残す
+      await set('role = ?, grants_json = ?', role, JSON.stringify(normalizeGroups(groupsOf(st.role, _grants(st)))))
       break
     }
     case 'grants':
-      await set('grants_json = ?', JSON.stringify(normalizeGrants(body?.grants)))
+      // 人ごとの4つのまとまり（User決定 2026-10-15）
+      await set('grants_json = ?', JSON.stringify(normalizeGroups(body?.groups)))
       break
     default:
       return { _status: 404, error: 'Not found' }
@@ -271,9 +274,10 @@ export async function handleStaffJoin(db, body) {
   const pendingKey = _rand(24)
   const now = _now()
   await db.prepare(`
-    INSERT INTO staff (id, shop_code, name, role, pin_hash, status, pending_key_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-  `).bind(id, inv.shop_code, name, inv.role, await _hashPin(pin), await _sha256(pendingKey), now, now).run()
+    INSERT INTO staff (id, shop_code, name, role, pin_hash, status, pending_key_hash, created_at, updated_at, grants_json)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+  `).bind(id, inv.shop_code, name, inv.role, await _hashPin(pin), await _sha256(pendingKey), now, now,
+    JSON.stringify(normalizeGroups(DEFAULT_GROUPS))).run()   // 招待した人は在庫管理とタスク管理がオン（User決定 2026-10-15）
   // 管理者（いなければオーナー）のやることにする（User決定 2026-10-14）
   const assignee = await createJoinTask(db, inv.shop_code, id, name).catch(() => null)
   return { pendingKey, shopCode: inv.shop_code, storeName: store.store_name ?? null, name, staffId: id, assigneeId: assignee?.id ?? null }

@@ -16,6 +16,7 @@ import {
 import { staffNames } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
 import { isAdmin } from '../composables/useAuth.js'
+// 🔒 管理者だけのやること（visibility 'admins'・2026-10-15）
 import { openStaffPage } from '../composables/staffNav.js'
 import { localDateKey } from '../utils/localDate.js'
 
@@ -54,17 +55,19 @@ const assignNote = computed(() => {
 
 // ── 直す ──
 const editing = ref(false)
-const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
+const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fAdmins = ref(false)
 const _fromTask = x => (x.assign === 'person' ? `p:${x.assigneeId}` : (x.assign || 'anyone'))
 function openEdit() {
   if (!canEdit.value) return
   fText.value = t.value.text; fDate.value = t.value.date || localDateKey(); fTime.value = t.value.dueTime || ''; fWho.value = _fromTask(t.value)
   fSomeday.value = t.value.date === ''
+  fAdmins.value = t.value.visibility === 'admins'
   editing.value = true
 }
 function save() {
   if (!fText.value.trim() || (!fSomeday.value && !fDate.value)) return
-  editTask(t.value.id, fSomeday.value ? { text: fText.value, date: '' } : { text: fText.value, date: fDate.value, dueTime: fTime.value || null })
+  const vis = isAdmin.value ? { visibility: fAdmins.value ? 'admins' : null } : {}
+  editTask(t.value.id, fSomeday.value ? { text: fText.value, date: '', ...vis } : { text: fText.value, date: fDate.value, dueTime: fTime.value || null, ...vis })
   if (fWho.value !== _fromTask(t.value)) {
     const v = fWho.value
     const assign = v.startsWith('p:')
@@ -88,7 +91,7 @@ function save() {
     <component
       :is="canEdit || (isJoin && isAdmin) ? 'button' : 'span'" :type="canEdit || (isJoin && isAdmin) ? 'button' : undefined" class="tr-tx"
       :aria-label="isJoin ? (isAdmin ? 'スタッフの画面を開く' : undefined) : (canEdit ? `${t.text}を直す` : undefined)" @click="onText"
-    >{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
+    ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること">🔒</span> </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
       <small v-if="assignNote" :class="['tr-assign', t.assign, { me: isAssignedToMe(t) }]">{{ assignNote }}</small>
       <small v-if="isJoin && !t.doneAt">{{ isAdmin ? '押すとスタッフの画面を開きます。承認・お断りで自動で完了します' : '管理者が承認・お断りすると自動で完了します' }}</small>
       <small v-if="!isJoin && (!isMyTask(t) || (t.doneAt && t.assign !== 'all'))">
@@ -107,6 +110,7 @@ function save() {
       <button v-if="fTime" type="button" class="tr-mini" @click="fTime = ''">時刻なし</button>
     </div>
     <label class="tr-some"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
+    <label v-if="isAdmin" class="tr-some"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
     <label v-if="hasStaff" class="tr-lb">担当
       <select v-model="fWho" class="tr-in">
         <option value="anyone">誰でも</option>
@@ -151,6 +155,7 @@ small.tr-assign.none { color: #b45309; }
 .tr-lb { display: grid; gap: 2px; font-size: 11px; font-weight: 800; color: var(--text-muted); }
 .tr-in { min-height: 38px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; font: inherit; font-size: 14px; background: var(--surface); color: var(--text); }
 .tr-in.wide { width: 100%; }
+.tr-lock { font-size: 12px; }
 .tr-some { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); }
 .tr-mini { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 700; padding: 0 10px; cursor: pointer; }
 .tr-save { min-height: 36px; border: none; border-radius: 8px; background: var(--grad-btn); color: var(--on-grad); font-weight: 800; padding: 0 16px; cursor: pointer; }

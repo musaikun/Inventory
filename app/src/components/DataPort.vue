@@ -18,7 +18,7 @@ import RowMapperModal from './RowMapperModal.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 
 function _mayPick(kind) {
-  const perm = kind === 'import' ? 'item.admin' : 'money'
+  const perm = 'item.admin'   // 取り込み・書き出しは「データの更新」（User決定 2026-10-15）
   if (can(perm)) return true
   window.alert(denyMessage(perm))
   return false

@@ -24,6 +24,7 @@ import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { OWNER_ID, ensureOwnerUnified, setOwnerName } from './ownerHandler.js'
 import { taskWriteCheck } from './taskWrite.js'
+import { handleStaffActivity } from './activityHandler.js'
 import { configChangePerms } from './configGuard.js'
 import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
 import { handleStaffList, handleStaffInvite, handleStaffInviteRevoke, handleStaffAction, handleInviteInfo, handleStaffJoin, handleStaffPending, handleStaffLogin, handleStaffUnlock, handleMe } from './staffHandler.js'
@@ -501,6 +502,15 @@ export default {
           const people = [{ id: OWNER_ID, name: ownerName || 'オーナー', owner: true }, ...rows.map(r => ({ id: r.id, name: r.name }))]
           return jsonResponse({ staff: people }, 200, origin, allowedOrigin)
         }
+        // GET /store/:code/staff/:id/activity?days=30 … その人の作業時間とやったこと（ほかのスタッフの使用履歴の権限）
+        const actMatch = subpath.match(/^\/staff\/([\w-]{1,64})\/activity$/)
+        if (actMatch && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const denyP = await _requirePerm(env.DB, request, code, 'monitor', origin, allowedOrigin)
+          if (denyP) return denyP
+          return jsonResponse(await handleStaffActivity(env.DB, code, actMatch[1], url.searchParams.get('days')), 200, origin, allowedOrigin)
+        }
         // PUT /store/:code/owner-name { name } … オーナーの名前を変える（オーナー本人だけ。過去の記録の名前もそろえる）
         if (subpath === '/owner-name' && request.method === 'PUT') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
@@ -593,7 +603,8 @@ export default {
         if (subpath === '/tasks' && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          return jsonResponse(await handleTasksGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
+          const ctxT = await authContext(env.DB, request)
+          return jsonResponse(await handleTasksGet(env.DB, code, url.searchParams.get('sinceDays'), { admin: !ctxT || !!ctxT.isAdmin }), 200, origin, allowedOrigin)
         }
         if (subpath === '/tasks' && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
@@ -601,15 +612,18 @@ export default {
           const body = await request.json().catch(() => ({}))
           const prevTask = typeof body?.id === 'string'
             ? await env.DB.prepare(`SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time, created_by_id, done_at, done_by_id,
-                prev_done_at, prev_done_by_id, kind FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
+                prev_done_at, prev_done_by_id, kind, visibility FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
             : null
           // 誰が（スタッフは本人・オーナーは 'owner'）。作った人・完了した人はサーバーが刻む
           const who = await _actor(env.DB, request, code, { by: body?.createdBy })
           let keepPrev = null
           if (!prevTask) {
-            // 新しく作るのは「やることを作る」権限
+            // 新しく作るのは「やることを作る」権限。「管理者だけ」のやることは管理者だけ
             const denyP = await _requirePerm(env.DB, request, code, 'task.create', origin, allowedOrigin)
             if (denyP) return denyP
+            if (body?.visibility === 'admins' && who.ctx && !who.admin) {
+              return jsonResponse({ code: 'task_forbidden', error: '「管理者だけ」にできるのは管理者だけです' }, 403, origin, allowedOrigin)
+            }
           } else {
             const r = taskWriteCheck(prevTask, body, who, ctxCan)
             if (r.stale) return resultResponse({ ok: true, created: false, stale: true }, origin, allowedOrigin)
@@ -661,7 +675,8 @@ export default {
         if (subpath === '/sessions/purge-unfinished' && request.method === 'POST') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
-          const denyP = await _requirePerm(env.DB, request, code, 'item.admin', origin, allowedOrigin)
+          // 全品目の削除と一緒に呼ばれる。全品目の削除は管理者だけ（User決定 2026-10-15）
+          const denyP = await _requirePerm(env.DB, request, code, 'item.purge', origin, allowedOrigin)
           if (denyP) return denyP
           return resultResponse(await handlePurgeUnfinished(env.DB, code), origin, allowedOrigin)
         }

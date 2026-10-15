@@ -66,7 +66,7 @@ describe('招待 → 申請 → 承認', () => {
     await handleStaffAction(db, req(owner), code, j.staffId, 'approve')
     const p = await handleStaffPending(db, j.pendingKey)
     expect(p.status).toBe('active')
-    expect(p.staff).toEqual({ id: j.staffId, name: '山田', role: 'arbeit', grants: [] })
+    expect(p.staff).toEqual({ id: j.staffId, name: '山田', role: 'arbeit', grants: { v: 2, groups: ['inventory', 'tasks'] } })   // 招待した人は在庫管理とタスク管理
     expect(await verifyAuthToken(db, p.token)).toBe(code)
     expect((await handleStaffPending(db, j.pendingKey)).status).toBe('gone')   // 2回目は渡さない
     expect((await handleMe(db, req(p.token))).role).toBe('arbeit')
@@ -125,30 +125,41 @@ describe('スタッフのログイン', () => {
   })
 })
 
-describe('役割と足し引き（段 2-3）', () => {
-  it('アルバイトは棚卸を始められない。足し引きで「棚卸」を足すと始められる', async () => {
-    const { can } = await import('../src/permissions.js')
+describe('権限は人ごとの4つのまとまり（User決定 2026-10-15）', () => {
+  it('招待した人は在庫管理（金額を含む）とタスク管理。まとまりを切り替えるとできることが変わる。肩書きを変えても変わらない', async () => {
+    const { can, groupsOf } = await import('../src/permissions.js')
     const { ctxCan, authContext } = await import('../src/staffHandler.js')
     const { staffId, token } = await joinAndApprove('山田', 'arbeit')
     let ctx = await authContext(db, req(token))
-    expect(ctxCan(ctx, 'stock.start')).toBe(false)
-    expect(ctxCan(ctx, 'count')).toBe(true)
-    expect(ctxCan(ctx, 'money')).toBe(false)
-    await handleStaffAction(db, req(owner), code, staffId, 'grants', { grants: ['stock', 'bogus'] })
+    for (const p of ['count', 'stock.start', 'order.finish', 'sort', 'money', 'task.create']) expect(ctxCan(ctx, p)).toBe(true)
+    for (const p of ['item.admin', 'report', 'monitor', 'staff', 'item.purge']) expect(ctxCan(ctx, p)).toBe(false)
+    await handleStaffAction(db, req(owner), code, staffId, 'grants', { groups: ['data', 'report', 'bogus'] })
     ctx = await authContext(db, req(token))
-    expect(ctx.grants).toEqual(['stock'])
-    expect(ctxCan(ctx, 'stock.start')).toBe(true)
-    expect(ctxCan(ctx, 'stock.discard')).toBe(false)
-    expect(can('shain', [], 'item.admin')).toBe(false)
-    expect(can('admin', [], 'item.admin')).toBe(true)
+    expect(ctx.grants).toEqual({ v: 2, groups: ['data', 'report'] })
+    expect(ctxCan(ctx, 'stock.start')).toBe(false)
+    expect(ctxCan(ctx, 'item.admin')).toBe(true)
+    expect(ctxCan(ctx, 'monitor')).toBe(true)
+    expect(ctxCan(ctx, 'task.complete')).toBe(true)   // 完了の印は誰でも
+    // 肩書きを社員にしても、できることは変わらない
+    await handleStaffAction(db, req(owner), code, staffId, 'role', { role: 'shain' })
+    ctx = await authContext(db, req(token))
+    expect(groupsOf(ctx.role, ctx.grants)).toEqual(['data', 'report'])
+    // スタッフの管理・全品目の削除は管理者だけ
+    expect(can('shain', { v: 2, groups: ['inventory', 'tasks', 'data', 'report'] }, 'staff')).toBe(false)
+    expect(can('admin', [], 'item.purge')).toBe(true)
+    // 以前の形（足し引きの配列）は役割から読み替える
+    expect(groupsOf('arbeit', [])).toEqual(['inventory'])
+    expect(groupsOf('arbeit', ['task', 'itemEdit'])).toEqual(['inventory', 'tasks', 'data'])
+    expect(groupsOf('shain', [])).toEqual(['inventory', 'tasks', 'data', 'report'])
   })
 })
 
 describe('サーバーで権限を守る（ルーター経由）', () => {
-  it('アルバイトは棚卸の開始・単価の変更ができず、品目を足すことはできる', async () => {
+  it('在庫管理をオフにした人は棚卸の開始・単価の変更ができない', async () => {
     const worker = (await import('../src/index.js')).default
     const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
-    const { token } = await joinAndApprove('山田', 'arbeit')
+    const { token, staffId } = await joinAndApprove('山田', 'arbeit')
+    await handleStaffAction(db, req(owner), code, staffId, 'grants', { groups: ['tasks'] })
     const call = (path, method, body, tok = token) => worker.fetch(new Request(`https://w.test${path}`, {
       method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
       body: body ? JSON.stringify(body) : undefined,
@@ -162,7 +173,6 @@ describe('サーバーで権限を守る（ルーター経由）', () => {
     // 単価は金額を見られない人からは採らない（端末には単価を渡していない）。前の単価のまま残る
     expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, prices: { トマト: 120 } })).status).toBe(200)
     expect((await (await call(`/store/${code}/config`, 'GET', null, owner)).json()).prices).toEqual({ トマト: 100 })
-    expect((await call(`/store/${code}/config`, 'PUT', { ...cfg, order: ['トマト', 'なす'], units: { ...cfg.units, なす: '本' } })).status).toBe(200)
   })
 })
 
@@ -504,5 +514,54 @@ describe('参加申請を管理者のやることに（User決定 2026-10-14）'
     expect(await remindJoinTasks(env, Date.now() + 25 * 3600_000)).toBe(1)
     expect(await remindJoinTasks(env, Date.now() + 26 * 3600_000)).toBe(0)
     expect(await remindJoinTasks(env, Date.now() + 50 * 3600_000)).toBe(1)
+  })
+})
+
+describe('管理者だけのやること（User決定 2026-10-15）', () => {
+  it('管理者だけが付けられ、ほかのスタッフには一覧に出ない・書けない。参加申請のやることも管理者だけ', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const call = (path, method, body, tok = owner) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    const later = m => new Date(Date.now() + m * 60000).toISOString()
+    const secret = { id: 't_sec1', date: '2026-10-15', text: '山田さんと面談', visibility: 'admins', updatedAt: later(0) }
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...secret, id: 't_sec0' }, a.token)).status).toBe(403)   // スタッフは付けられない
+    expect((await call(`/store/${code}/tasks`, 'POST', secret)).status).toBe(200)
+    const ids = async tok => (await (await call(`/store/${code}/tasks`, 'GET', null, tok)).json()).map(t => t.id)
+    expect(await ids(owner)).toContain('t_sec1')
+    expect(await ids(a.token)).not.toContain('t_sec1')
+    expect(await ids(a.token)).not.toContain(`t_join_${a.staffId}`)   // 参加申請のやることも見えない
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...secret, doneAt: later(1), updatedAt: later(1) }, a.token)).status).toBe(403)
+    // 「みんな」のやることをスタッフが「管理者だけ」にはできない
+    const open = { id: 't_open1', date: '2026-10-15', text: '掃除', updatedAt: later(2) }
+    expect((await call(`/store/${code}/tasks`, 'POST', open, a.token)).status).toBe(200)
+    expect((await call(`/store/${code}/tasks`, 'POST', { ...open, visibility: 'admins', updatedAt: later(3) }, a.token)).status).toBe(403)
+  })
+})
+
+describe('スタッフの行動の記録（User決定 2026-10-15）', () => {
+  it('棚卸を始めた・入庫・やることの作成と完了を新しい順に。見られるのは使用履歴の権限がある人', async () => {
+    const worker = (await import('../src/index.js')).default
+    const env = { DB: db, ALLOWED_ORIGIN: 'http://localhost:5199' }
+    const a = await joinAndApprove('山田', 'arbeit')
+    const call = (path, method, body, tok = owner) => worker.fetch(new Request(`https://w.test${path}`, {
+      method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', Origin: 'http://localhost:5199' },
+      body: body ? JSON.stringify(body) : undefined,
+    }), env, { waitUntil() {} })
+    expect((await call(`/store/${code}/sessions`, 'POST', { type: 'stock' }, a.token)).status).toBe(200)
+    await call(`/store/${code}/movements`, 'POST', { type: 'in', date: '2026-10-15', lines: [{ item: 'キャベツ', qty: 6, unit: '玉' }, { item: 'トマト', qty: 2, unit: '個' }] }, a.token)
+    const now = new Date().toISOString()
+    await call(`/store/${code}/tasks`, 'POST', { id: 't_act1', date: '2026-10-15', text: '油の交換', updatedAt: now }, a.token)
+    await call(`/store/${code}/tasks`, 'POST', { id: 't_act1', date: '2026-10-15', text: '油の交換', doneAt: now, updatedAt: new Date(Date.now() + 1000).toISOString() }, a.token)
+    await call(`/store/${code}/presence`, 'POST', {}, a.token)
+    expect((await call(`/store/${code}/staff/${a.staffId}/activity`, 'GET', null, a.token)).status).toBe(403)
+    const r = await (await call(`/store/${code}/staff/${a.staffId}/activity`, 'GET')).json()
+    expect(r.work).toHaveLength(1)
+    const texts = r.actions.map(x => x.text)
+    expect(texts).toEqual(expect.arrayContaining(['棚卸を始めた', '入庫 2品目', 'やること「油の交換」を作成', '「油の交換」を完了']))
+    expect(r.actions.find(x => x.kind === 'in').sub).toBe('キャベツ ほか')
   })
 })
