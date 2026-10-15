@@ -38,7 +38,6 @@ const staff = ref([])
 const invites = ref([])
 const loadError = ref('')
 const presence = ref(null)
-const presDays = ref(7)
 async function load() {
   try {
     const r = await listStaff()
@@ -54,9 +53,9 @@ async function load() {
   } catch (e) { loadError.value = e.message }
 }
 async function loadPresence() {
-  try { presence.value = await getPresence(presDays.value) } catch (_) { /* 次の読み直しで */ }
+  // 一覧はいま開いているか・最後に使った日時だけ（合計時間は出さない。User決定 2026-10-15）
+  try { presence.value = await getPresence(1) } catch (_) { /* 次の読み直しで */ }
 }
-function setDays(d) { presDays.value = d; loadPresence() }
 let poll = null
 onMounted(() => { load(); loadPresence(); poll = setInterval(() => { load(); loadPresence() }, 10000) })
 onUnmounted(() => clearInterval(poll))
@@ -78,7 +77,7 @@ const rows = computed(() => {
   const owner = { id: 'owner', name: ownerName.value || presOf('owner')?.name || 'オーナー', role: 'owner', status: 'active', owner: true }
   return [owner, ...members.value].map(s => {
     const p = presOf(s.id)
-    return { ...s, online: !!p?.online, onlineSince: p?.onlineSince ?? null, lastSeenAt: p?.lastSeenAt ?? null, minutes: p?.minutes ?? 0 }
+    return { ...s, online: !!p?.online, onlineSince: p?.onlineSince ?? null, lastSeenAt: p?.lastSeenAt ?? null }
   }).sort((a, b) => (b.online - a.online) || (a.owner ? -1 : b.owner ? 1 : 0) || (b.lastSeenAt || '').localeCompare(a.lastSeenAt || ''))
 })
 function summary(s) {
@@ -92,11 +91,13 @@ const fmtMin = m => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}
 const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
 const md = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}` }
 function ago(iso) {
-  if (!iso) return 'まだ開いていません'
+  if (!iso) return 'まだ使っていません'
   const m = Math.floor((now.value - new Date(iso).getTime()) / 60000)
   if (m < 60) return m < 1 ? '1分以内' : `${m}分前`
-  if (m < 24 * 60) return `${Math.floor(m / 60)}時間前`
-  return m < 48 * 60 ? '昨日' : `${Math.floor(m / 1440)}日前`
+  const d = new Date(iso), t = new Date(now.value)
+  if (d.toDateString() === t.toDateString()) return `今日 ${hm(iso)}`
+  if (d.toDateString() === new Date(now.value - 86400_000).toDateString()) return `昨日 ${hm(iso)}`
+  return `${md(iso)} ${hm(iso)}`
 }
 
 // ── 招待 ──
@@ -153,13 +154,23 @@ async function act(s, action, body) {
 // ── 人の画面 ──
 const selId = ref('')
 const sel = computed(() => rows.value.find(r => r.id === selId.value) ?? null)
-const tab = ref('work')       // work | actions
+const tab = ref('work')       // work（使った日） | actions
 const activity = ref(null)
+const actDays = ref(30)      // 直近30日。「もっと見る」で残している90日まで
+const openDay = ref('')
 const actError = ref('')
 const confirmDel = ref(false)
 async function openPerson(id) {
   selId.value = id; tab.value = 'work'; activity.value = null; actError.value = ''; confirmDel.value = false; msg.value = ''
+  actDays.value = 30; openDay.value = ''
   try { activity.value = await getStaffActivity(id, 30) } catch (e) { actError.value = e.message }
+}
+async function moreDays() {
+  const id = selId.value
+  try {
+    const r = await getStaffActivity(id, 90)
+    if (selId.value === id) { activity.value = r; actDays.value = 90 }
+  } catch (e) { actError.value = e.message }
 }
 const canEditPerms = computed(() => sel.value && !sel.value.owner && sel.value.role !== 'admin' && !isMe(sel.value))
 const groupsSel = computed(() => (sel.value && !sel.value.owner ? (sel.value.groups ?? groupsOf(sel.value.role, sel.value.grants)) : []))
@@ -169,8 +180,7 @@ function toggleGroup(k) {
   const cur = groupsSel.value
   act(sel.value, 'grants', { groups: cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k] })
 }
-// 作業時間（日ごと）・やったこと（日ごと）
-const weekMin = computed(() => (activity.value?.work ?? []).filter(w => now.value - Date.parse(w.startedAt) < 7 * 86400_000).reduce((n, w) => n + w.minutes, 0))
+// 使った日（1日1行にまとめ、押すと開いた回ごと）・やったこと（日ごと）
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const dayHead = iso => {
   const d = new Date(iso), t = new Date(now.value)
@@ -188,7 +198,22 @@ const actionGroups = computed(() => {
   return out
 })
 const ACT_ICON = { stock: '📦', order: '🧾', in: '📥', out: '📤', task: '＋', done: '✓' }
-const maxMin = computed(() => Math.max(60, ...(activity.value?.work ?? []).map(w => w.minutes)))
+const workDays = computed(() => {
+  const map = new Map()
+  for (const w of activity.value?.work ?? []) {
+    const key = new Date(w.startedAt).toDateString()
+    if (!map.has(key)) map.set(key, { key, head: dayHead(w.startedAt), first: w.startedAt, last: w.lastSeenAt, minutes: 0, runs: [] })
+    const d = map.get(key)
+    if (w.startedAt < d.first) d.first = w.startedAt
+    if (w.lastSeenAt > d.last) d.last = w.lastSeenAt
+    d.minutes += w.minutes
+    d.runs.push(w)
+  }
+  return [...map.values()]
+    .map(d => ({ ...d, runs: d.runs.sort((a, b) => a.startedAt.localeCompare(b.startedAt)) }))
+    .sort((a, b) => b.first.localeCompare(a.first))
+})
+const toggleDay = k => { openDay.value = openDay.value === k ? '' : k }
 
 // オーナーの名前（オーナー本人だけが変えられる）
 const ownerEditing = ref(false)
@@ -263,13 +288,8 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
         <button type="button" class="sp2-mini pri" :disabled="!!busy" @click="act(s, 'approve')">承認</button>
       </div>
 
-      <!-- スタッフ（ログイン中・作業時間をひとつに） -->
-      <div class="sp2-sec">
-        <span>スタッフ {{ rows.length }}人</span>
-        <span class="sp2-seg">
-          <button v-for="d in [7, 30]" :key="d" type="button" :class="{ on: presDays === d }" :aria-pressed="presDays === d" @click="setDays(d)">{{ d }}日</button>
-        </span>
-      </div>
+      <!-- スタッフ（いま使用中・最後に使った日時をひとつに） -->
+      <div class="sp2-sec"><span>スタッフ {{ rows.length }}人</span></div>
       <div class="sp2-box">
         <button v-for="s in rows" :key="s.id" type="button" class="sp2-p" @click="openPerson(s.id)">
           <span class="sp2-av">{{ initial(s.name) }}<i :class="{ on: s.online }"></i></span>
@@ -278,7 +298,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
             <small>{{ summary(s) }}</small>
           </span>
           <span class="sp2-rt">
-            <b v-if="s.online" class="sp2-on">開いている</b><template v-else>{{ ago(s.lastSeenAt) }}<br></template>{{ presDays }}日で {{ fmtMin(s.minutes) }}
+            <b v-if="s.online" class="sp2-on">● いま使用中</b><template v-else>{{ ago(s.lastSeenAt) }}</template>
           </span>
           <span class="sp2-ar" aria-hidden="true">›</span>
         </button>
@@ -304,7 +324,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
         <span class="sp2-av big">{{ initial(sel.name) }}<i :class="{ on: sel.online }"></i></span>
         <span class="sp2-tx">
           <b>{{ sel.name }}</b>
-          <small>{{ sel.owner ? 'オーナー・店を登録した人' : roleLabel(sel.role) }}<template v-if="sel.approvedAt"> ・ {{ md(sel.approvedAt) }} から</template> ・ {{ sel.online ? 'いま開いている' : `最後に開いたのは${ago(sel.lastSeenAt)}` }}</small>
+          <small>{{ sel.owner ? 'オーナー・店を登録した人' : roleLabel(sel.role) }}<template v-if="sel.approvedAt"> ・ {{ md(sel.approvedAt) }} から</template> ・ {{ sel.online ? 'いま使用中' : `最後に使ったのは${ago(sel.lastSeenAt)}` }}</small>
         </span>
       </div>
 
@@ -345,18 +365,24 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
 
       <!-- 作業時間 / やったこと -->
       <div class="sp2-tabs" role="tablist">
-        <button type="button" role="tab" :aria-selected="tab === 'work'" :class="{ on: tab === 'work' }" @click="tab = 'work'">作業時間</button>
+        <button type="button" role="tab" :aria-selected="tab === 'work'" :class="{ on: tab === 'work' }" @click="tab = 'work'">使った日</button>
         <button type="button" role="tab" :aria-selected="tab === 'actions'" :class="{ on: tab === 'actions' }" @click="tab = 'actions'">やったこと</button>
       </div>
       <p v-if="actError" class="sp2-err">{{ actError }}</p>
       <div v-else-if="!activity" class="sp2-note">読み込み中…</div>
       <div v-else-if="tab === 'work'" class="sp2-box">
-        <div class="sp2-dh">今週 {{ fmtMin(weekMin) }}</div>
-        <div v-for="w in activity.work" :key="w.startedAt" class="sp2-act">
-          <time>{{ md(w.startedAt) }}</time>
-          <span class="sp2-tx">{{ hm(w.startedAt) }}〜{{ hm(w.lastSeenAt) }}（{{ fmtMin(w.minutes) }}）<span class="sp2-bar"><i :style="{ width: Math.min(100, w.minutes / maxMin * 100) + '%' }"></i></span></span>
-        </div>
-        <p v-if="!activity.work.length" class="sp2-note pad">この30日は開いていません</p>
+        <template v-for="d in workDays" :key="d.key">
+          <button type="button" class="sp2-day" :aria-expanded="openDay === d.key" @click="toggleDay(d.key)">
+            <span class="sp2-tx"><b>{{ d.head }}</b><small>{{ hm(d.first) }}〜{{ hm(d.last) }} ・ 計{{ fmtMin(d.minutes) }} ・ {{ d.runs.length }}回</small></span>
+            <span class="sp2-ar" aria-hidden="true">{{ openDay === d.key ? '⌃' : '⌄' }}</span>
+          </button>
+          <div v-if="openDay === d.key" class="sp2-runs">
+            <div v-for="w in d.runs" :key="w.startedAt" class="sp2-run">{{ hm(w.startedAt) }}〜{{ hm(w.lastSeenAt) }}<span>{{ fmtMin(w.minutes) }}</span></div>
+          </div>
+        </template>
+        <p v-if="!workDays.length" class="sp2-note pad">この{{ actDays }}日は使っていません</p>
+        <p class="sp2-note pad">アプリを開いていた時間です（5分操作がないと区切ります）。勤務時間とは一致しません</p>
+        <button v-if="actDays < 90" type="button" class="sp2-more" @click="moreDays">もっと見る（90日まで）</button>
       </div>
       <div v-else class="sp2-box">
         <template v-for="g in actionGroups" :key="g.head">
@@ -366,7 +392,8 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
             <span class="sp2-tx">{{ a.text }}<small v-if="a.sub">{{ a.sub }}</small></span>
           </div>
         </template>
-        <p v-if="!actionGroups.length" class="sp2-note pad">この30日の記録はありません</p>
+        <p v-if="!actionGroups.length" class="sp2-note pad">この{{ actDays }}日の記録はありません</p>
+        <button v-if="actDays < 90" type="button" class="sp2-more" @click="moreDays">もっと見る（90日まで）</button>
       </div>
 
       <!-- 停止・ロック解除・削除 -->
@@ -452,9 +479,6 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
 
 /* ── 作り直し（2026-10-15）── */
 .sp2-sec { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted, #4c6a72); padding: 4px 4px 0; }
-.sp2-seg { display: flex; gap: 4px; }
-.sp2-seg button { min-height: 30px; padding: 0 10px; border: 1px solid var(--border, #d6e6ea); border-radius: 999px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 12px; font-weight: 800; cursor: pointer; }
-.sp2-seg button.on { background: var(--primary-deep, #155e75); color: #fff; border-color: transparent; }
 .sp2-box { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; overflow: hidden; }
 .sp2-p { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: none; border-top: 1px solid var(--border, #eef4f6); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .sp2-p:first-child { border-top: none; }
@@ -495,8 +519,12 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
 .sp2-dh + .sp2-act { border-top: none; }
 .sp2-act time { flex: none; width: 42px; font-size: 12px; font-weight: 800; color: var(--text-muted, #4c6a72); font-variant-numeric: tabular-nums; padding-top: 1px; }
 .sp2-k { flex: none; width: 20px; text-align: center; }
-.sp2-bar { display: block; height: 6px; border-radius: 9px; background: #e2eef1; overflow: hidden; margin-top: 5px; }
-.sp2-bar i { display: block; height: 100%; background: #38bdf8; }
+.sp2-day { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; border-top: 1px solid var(--border, #eef4f6); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.sp2-day:first-child { border-top: none; }
+.sp2-day .sp2-tx b { font-size: 13.5px; }
+.sp2-runs { background: #f8fafc; padding: 4px 12px 8px 24px; }
+.sp2-run { display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0; font-variant-numeric: tabular-nums; color: var(--text-muted, #4c6a72); }
+.sp2-more { display: block; width: 100%; min-height: 40px; border: none; border-top: 1px solid var(--border, #eef4f6); background: none; color: var(--primary, #0e7490); font-weight: 800; font-size: 13px; cursor: pointer; }
 .sp2-note.pad { padding: 12px; }
 .sp2-foot { display: flex; gap: 8px; }
 .sp2-foot .sp2-btn { flex: 1; }
