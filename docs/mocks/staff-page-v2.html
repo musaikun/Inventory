@@ -1,0 +1,122 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>スタッフ画面 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1150px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .hd { background:#fff; padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .hd .bk { color:var(--primary); font-weight:800; font-size:13px; } .hd b { font-size:16px; }
+  .body { flex:1; overflow:hidden; padding:6px 12px 12px; }
+  .sec { display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--muted); padding:12px 4px 6px; }
+  .seg { display:flex; gap:3px; } .seg span { font-size:10.5px; padding:3px 8px; border-radius:999px; border:1px solid var(--border); background:#fff; } .seg span.on { background:var(--deep); color:#fff; border-color:transparent; }
+  .box { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .inv { display:flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(90deg,#22d3ee,#34d399); color:#08323c; font-weight:900; font-size:14px; padding:12px; border-radius:12px; margin-top:6px; }
+  .pend { background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:8px; font-size:13px; margin-top:10px; }
+  .pend b { flex:1; } .pend span { font-size:12px; font-weight:800; padding:6px 10px; border-radius:8px; } .pend .ok { background:var(--primary); color:#fff; } .pend .ng { border:1px solid var(--border); background:#fff; }
+  .p { display:flex; align-items:center; gap:10px; padding:11px 12px; border-top:1px solid #eef4f6; }
+  .p:first-child { border-top:none; }
+  .av { width:34px; height:34px; border-radius:50%; background:#e2eef1; display:grid; place-items:center; font-weight:900; color:var(--deep); position:relative; flex:none; font-size:14px; }
+  .av i { position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%; border:2px solid #fff; background:#cbd5e1; }
+  .av i.on { background:#22c55e; }
+  .tx { flex:1; min-width:0; } .tx b { display:block; font-size:14px; } .tx small { display:block; font-size:11px; color:var(--muted); margin-top:1px; }
+  .rl { font-size:10px; font-weight:800; padding:2px 7px; border-radius:6px; border:1px solid var(--border); color:var(--muted); margin-left:6px; vertical-align:2px; }
+  .rl.adm { border-color:#0e7490; color:#0e7490; }
+  .rt { text-align:right; font-size:11px; color:var(--muted); line-height:1.4; } .rt b { display:block; color:#15803d; font-size:11px; } .ar { color:#94a3b8; font-weight:900; margin-left:4px; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; margin-top:10px; }
+  /* 詳細 */
+  .who { background:#fff; border-radius:14px; padding:14px; display:flex; gap:12px; align-items:center; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .who .av { width:46px; height:46px; font-size:18px; }
+  .who .tx b { font-size:17px; } .who .tx small { font-size:12px; }
+  .perm { display:flex; align-items:center; gap:12px; padding:12px; border-top:1px solid #eef4f6; }
+  .perm:first-child { border-top:none; }
+  .perm .tx b { font-size:14px; } .perm .tx small { font-size:11px; line-height:1.45; white-space:normal; }
+  .sw { width:44px; height:26px; border-radius:999px; background:#0e7490; position:relative; flex:none; }
+  .sw::after { content:''; position:absolute; right:3px; top:3px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+  .sw.off { background:#cbd5e1; } .sw.off::after { left:3px; right:auto; }
+  .fixed { font-size:11px; font-weight:800; color:var(--muted); background:#f1f5f9; border-radius:6px; padding:3px 8px; flex:none; }
+  .lock { font-size:11px; color:var(--muted); padding:8px 12px 10px; border-top:1px solid #eef4f6; background:#f8fafc; line-height:1.5; }
+  .tabs { display:flex; background:#e2eef1; border-radius:10px; padding:3px; margin-top:12px; } .tabs span { flex:1; text-align:center; font-size:12.5px; font-weight:800; padding:7px; border-radius:8px; color:var(--muted); } .tabs span.on { background:#fff; color:var(--deep); box-shadow:0 1px 3px rgba(0,0,0,.1); }
+  .act { display:flex; gap:10px; padding:9px 12px; border-top:1px solid #eef4f6; font-size:12.5px; align-items:flex-start; }
+  .act:first-child { border-top:none; } .act time { flex:none; width:42px; color:var(--muted); font-weight:800; font-variant-numeric:tabular-nums; font-size:11.5px; padding-top:1px; }
+  .act .k { flex:none; width:20px; text-align:center; } .act small { display:block; font-size:10.5px; color:var(--muted); }
+  .dh { font-size:10.5px; font-weight:800; color:var(--muted); padding:8px 12px 4px; background:#f8fafc; border-top:1px solid #eef4f6; }
+  .dh:first-child { border-top:none; }
+  .foot { display:flex; gap:8px; margin-top:12px; } .foot span { flex:1; text-align:center; font-size:12.5px; font-weight:800; padding:10px; border-radius:10px; background:#fff; border:1px solid var(--border); } .foot .del { color:#b91c1c; border-color:#fecaca; }
+  .bar { height:6px; border-radius:9px; background:#e2eef1; overflow:hidden; margin-top:4px; } .bar i { display:block; height:100%; background:#38bdf8; }
+</style></head><body>
+<h1>スタッフ画面：一覧と作業中をひとつに・押すと権限と行動の記録</h1>
+<p class="lead">
+① 一覧は「いま開いている人」を上に、ログイン中は名前の横の緑の点で。作業時間（7日／30日）も行に出す。以前の「スタッフ」と「ログイン中・作業時間」の2つの枠をまとめた。<br>
+② 人を押すと、その人の画面。上に<b>権限</b>：4つのまとまりをスイッチで（チップをやめて、行ごとに何ができるかを書く）。スタッフの管理と、全品目・アカウントの削除は管理者だけ（固定・切り替え不可）。<br>
+③ 下の<b>行動の記録</b>：開いていた時間と、やったこと（棚卸・発注・入出庫・やることの完了・作成）を日ごとに。「作業時間」と「やったこと」を切り替える。<br>
+停止・削除・暗証番号のロック解除は一番下。管理者自身の行は権限を変えられない（オーナーか別の手段で）。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">① スタッフの一覧<small>作業中（緑）が上。権限の要約・今週の作業時間</small></div>
+<div class="phone">
+  <div class="hd"><span class="bk">‹ 戻る</span><b>スタッフ</b></div>
+  <div class="body">
+    <div class="inv">＋ スタッフを招待する</div>
+    <div class="pend"><b>佐藤さんから参加の申請</b><span class="ng">断る</span><span class="ok">承認</span></div>
+    <div class="sec"><span>スタッフ 4人</span><span class="seg"><span class="on">7日</span><span>30日</span></span></div>
+    <div class="box">
+      <div class="p"><span class="av">無<i class="on"></i></span><span class="tx"><b>無才<span class="rl">オーナー</span></b><small>すべての権限</small></span><span class="rt"><b>開いている</b>7日で 8時間</span></div>
+      <div class="p"><span class="av">高<i class="on"></i></span><span class="tx"><b>高木<span class="rl adm">管理者</span></b><small>すべての権限・スタッフの管理</small></span><span class="rt"><b>開いている</b>7日で 21時間</span><span class="ar">›</span></div>
+      <div class="p"><span class="av">山<i></i></span><span class="tx"><b>山田<span class="rl">アルバイト</span></b><small>在庫管理・タスク管理</small></span><span class="rt">2時間前<br>7日で 6時間</span><span class="ar">›</span></div>
+      <div class="p"><span class="av">鈴<i></i></span><span class="tx"><b>鈴木<span class="rl">社員</span></b><small>在庫管理・タスク・データ・レポート</small></span><span class="rt">昨日<br>7日で 14時間</span><span class="ar">›</span></div>
+    </div>
+    <div class="note">肩書き（アルバイト・社員）は表示だけ。できることは人ごとの権限で決まる</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">② 人を押す：権限<small>スイッチで切り替え。何ができるかを行ごとに書く</small></div>
+<div class="phone">
+  <div class="hd"><span class="bk">‹ スタッフ</span><b>山田</b></div>
+  <div class="body">
+    <div class="who"><span class="av">山<i></i></span><span class="tx"><b>山田</b><small>アルバイト ・ 10/7 から ・ 最後に開いたのは2時間前</small></span></div>
+    <div class="sec"><span>権限</span><span>肩書き：アルバイト ▾</span></div>
+    <div class="box">
+      <div class="perm"><span class="tx"><b>在庫管理</b><small>数える・入出庫・発注・棚卸の開始と完了・ルームを作る・並び替え・金額を見る</small></span><span class="sw"></span></div>
+      <div class="perm"><span class="tx"><b>タスク管理</b><small>やることを作る（完了の印は誰でも）</small></span><span class="sw"></span></div>
+      <div class="perm"><span class="tx"><b>データの更新</b><small>品目の取り込み・書き出し・品目の情報を直す</small></span><span class="sw off"></span></div>
+      <div class="perm"><span class="tx"><b>レポート・分析・証跡</b><small>レポート・過去の履歴・ほかのスタッフの使用履歴</small></span><span class="sw off"></span></div>
+      <div class="lock">🔒 スタッフの招待・権限の付与、全品目・アカウントの削除は管理者だけ（切り替えられません）</div>
+    </div>
+    <div class="tabs"><span class="on">作業時間</span><span>やったこと</span></div>
+    <div class="box" style="margin-top:8px">
+      <div class="dh">今週 6時間10分</div>
+      <div class="act"><time>10/14</time><span class="tx">17:02〜19:40<div class="bar"><i style="width:70%"></i></div></span></div>
+      <div class="act"><time>10/12</time><span class="tx">11:30〜13:05<div class="bar"><i style="width:42%"></i></div></span></div>
+    </div>
+    <div class="foot"><span>停止</span><span>ロック解除</span><span class="del">削除</span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">③ やったこと<small>棚卸・発注・入出庫・やることを日ごとに（新しい順）</small></div>
+<div class="phone">
+  <div class="hd"><span class="bk">‹ スタッフ</span><b>山田</b></div>
+  <div class="body">
+    <div class="who"><span class="av">山<i></i></span><span class="tx"><b>山田</b><small>アルバイト ・ 10/7 から</small></span></div>
+    <div class="tabs"><span>作業時間</span><span class="on">やったこと</span></div>
+    <div class="box" style="margin-top:8px">
+      <div class="dh">今日 ・ 10月14日（火）</div>
+      <div class="act"><time>19:30</time><span class="k">📦</span><span class="tx">棚卸を完了<small>214品目</small></span></div>
+      <div class="act"><time>17:05</time><span class="k">📦</span><span class="tx">棚卸を始めた</span></div>
+      <div class="act"><time>16:40</time><span class="k">✓</span><span class="tx">「製氷機のフィルター交換」を完了</span></div>
+      <div class="dh">10月12日（日）</div>
+      <div class="act"><time>12:50</time><span class="k">📥</span><span class="tx">入庫 3品目<small>キャベツ +6玉 ほか</small></span></div>
+      <div class="act"><time>11:40</time><span class="k">🧾</span><span class="tx">発注を確定<small>A食品 12品目</small></span></div>
+      <div class="act"><time>11:31</time><span class="k">＋</span><span class="tx">やること「油の交換」を作成</span></div>
+      <div class="dh">10月10日（金）</div>
+      <div class="act"><time>18:10</time><span class="k">📤</span><span class="tx">出庫 1品目<small>牛乳 −1本</small></span></div>
+    </div>
+    <div class="note">直近30日まで。品目の数の打ち込み（1つずつ）は棚卸ごとの詳細で見る（ここには出さない）</div>
+  </div>
+</div></div>
+
+</div></body></html>
