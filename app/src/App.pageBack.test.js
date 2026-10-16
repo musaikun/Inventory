@@ -95,7 +95,7 @@ async function openFromManage(label) {
   const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定'))
   if (nav) await click(nav)
   if (label === 'データ管理') return
-  await click([...host.querySelectorAll('.m-card')].find(b => b.textContent.includes(label)))
+  await click([...host.querySelectorAll('.m-card, .sl-it')].find(b => b.textContent.includes(label)))
 }
 const activeTab = () => host.querySelector('.bnav button.on')?.textContent ?? ''
 describe('アプリを閉じる前に確認する', () => {
@@ -249,12 +249,12 @@ describe('戻るはひとつ前の画面へ返す', () => {
 })
 
 // モーダルが出ているときの戻るは、まずモーダルを閉じる（共通・User報告 2026-10-01）。
-// 以前はホームの管理タブで各種設定を開いて戻ると、設定は開いたまま裏のタブが在庫へ戻った。
+// 以前はホームの設定タブで1項目を開いて戻ると、設定は開いたまま裏のタブが在庫へ戻った。
 describe('モーダルが出ているときの戻るは、まずモーダルを閉じる', () => {
-  it('管理タブで各種設定を開いて戻る → 設定だけが閉じ、管理タブのまま', async () => {
+  it('設定タブで1項目を開いて戻る → 設定だけが閉じ、管理タブのまま', async () => {
     await mountApp()
     await seedItems()
-    await openFromManage('各種設定')
+    await openFromManage('表示の不具合をリセット')
     expect(host.querySelector('.modal-overlay')).toBeTruthy()
 
     await deviceBack()

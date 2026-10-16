@@ -2,6 +2,23 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-16 — version 0.163.0 / 設定タブを並べ直す・通知はONで全部・時刻は自動
+
+User決定:
+- 「各種設定」の中に隠れていたものを設定タブに直接並べる（モック `docs/mocks/settings-tab.html`）。お店 → 発注 → 品目 → この端末 → アカウント → サポート。押すとその項目だけのシート。
+- 通知は「この端末で通知を受け取る」1つ。ONにしたら全部届く（月末の棚卸 前日・当日／しばらく棚卸していない 35日／途中のままの棚卸／やることの日 前日・当日／だれかがやることを追加／自分が担当／発注の締切 1時間前）。種類・日数・時刻は選ばない。
+- 日付で知らせる通知の時刻は自動: その人がいつもその日に最初にアプリを開く時刻（スマホのロック解除はWebアプリからは知れない）。
+- 端末名はなくす（ログインしていない以前の端末にだけ残す）。店名は設定から変えられる（オーナーと管理者）。
+
+実装:
+- Worker `pushPlan.js`: `normalizePrefs` は端末の設定を読まずいつも全部ON（hour だけ引数）。`usualHour(startedAts)`: JST の日ごとの最初に開いた時刻の中央値の「時」、3日分未満は null → 9時。`pushHandler.sendScheduledPushes`: 店ごとに work_sessions 直近28日から人ごとの時刻を出し、購読の actor_id で当てる。やること追加・担当の通知の種類オフの判定を外した。
+- Worker: `PUT /store/:code/store-name`（オーナーと管理者・空は400）、`/auth/me` に storeName。
+- App: `NotifySettings.vue` はスイッチ1つ＋届くものの一覧（`NOTIFY_LIST`）。`usePush` の設定の保存・送信をやめた（形だけ送る）。`SettingsList.vue`（設定タブの中身・店名とオーナーの名前はその場で直す・権限で出し分け）、`SettingsModal` は1項目ずつのシート（weather / hints / cache / info / analytics / legal / account）。`MasterManagePage` に bottom の差し込み口（全品目の削除は「品目」の見出しで間に）。`useAuth.updateStoreName`、`refreshMe` で店名を取り直す。
+- 「覚えている読み方」「取り込みを取り消す」は取り込みの画面のまま（設定タブには出していない）。
+- テスト: Worker（全部ON・usualHour・cron で人ごとの時刻・店名）、App（NotifySettings・SettingsList・ホームの設定タブ・戻る）。390px で確認（`docs/mocks/settings-tab-impl.png`）。
+- **要 User**: Production Backend（通知の時刻と店名の変更は Worker の deploy 後。migration なし）。
+- version: 0.162.2 → **0.163.0**。
+
 ## 2026-10-16 — version 0.162.2 / スタッフの「停止」「ロック解除」をわかる形に
 
 User決定: 「停止」は「ログインを止める」（戻すは「ログインを戻す」）にし、押すと一言確かめる（いま開いている端末からも出される・記録と権限は残る・辞めた人は削除）。「ロック解除」は暗証番号を5回まちがえて止まっているときだけ、残りの分と一緒に出す。

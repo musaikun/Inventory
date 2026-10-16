@@ -56,6 +56,7 @@ function onClear() {
       <slot name="extra" />
 
       <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
+      <div v-if="embedded && itemCount > 0 && can('item.purge')" class="mm-sec">品目</div>
       <div v-if="itemCount > 0 && can('item.purge')" class="mm-block danger">
         <div class="mm-block-head">
           <span class="mm-block-title danger">品目マスタを一括削除</span>
@@ -70,6 +71,8 @@ function onClear() {
         <label class="mm-del-reset"><input type="checkbox" v-model="resetAssign" />振り分け（分類先の割り当て）の記憶も消す</label>
         <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
       </div>
+      <!-- 設定タブの下のほう（この端末・アカウント・サポート・ログアウト） -->
+      <slot name="bottom" />
     </div>
 
   </div>
@@ -86,6 +89,7 @@ function onClear() {
 .mp-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
 .mp-title { font-size: 16px; font-weight: 800; color: #12303a; }
 .mp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); }
+.mm-sec { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; color: #4c6a72; padding: 14px 4px 6px; }
 .mp-scroll { padding: 14px; max-width: 620px; margin: 0 auto; }
 
 .mm-row {

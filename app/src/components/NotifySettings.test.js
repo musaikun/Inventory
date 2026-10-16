@@ -1,4 +1,4 @@
-// 通知の設定（User決定 2026-10-05）。ONにできない理由を出し、種類ごとの設定を端末とサーバーへ送る。
+// 通知の設定（User決定 2026-10-05 → 2026-10-16）。ONにできない理由を出す。ONにしたら全部届く。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -8,8 +8,6 @@ let app = null, host = null, api = null
 const tick = async () => { for (let i = 0; i < 12; i++) await nextTick() }
 const click = async el => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
 const sw = label => host.querySelector(`.ns-sw[aria-label="${label}"]`)
-const itemOf = title => [...host.querySelectorAll('.ns-item')].find(i => i.querySelector('b').textContent === title)
-const chip = (title, label) => [...itemOf(title).querySelectorAll('.ns-chip')].find(c => c.textContent === label)
 
 const sub = { endpoint: 'https://push.example/me', toJSON: () => ({ endpoint: 'https://push.example/me', keys: { p256dh: 'p', auth: 'a' } }) }
 function pushEnv(permission = 'granted') {
@@ -73,7 +71,7 @@ describe('通知の設定', () => {
     expect(host.querySelector('.ns-state.warn').textContent).toContain('ブロックされています')
   })
 
-  it('ONにすると設定ごと購読を送り、変えた設定はサーバーへ送る', async () => {
+  it('ONにすると購読を送る。ONなら全部届き、選ぶ所は無い', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     pushEnv()
     await mount()
@@ -84,17 +82,10 @@ describe('通知の設定', () => {
     expect(JSON.parse(subCall[1].body).prefs.monthEnd).toEqual({ on: true, days: [0, 1] })
     expect(host.querySelector('.ns-state').textContent).toContain('この端末で受け取ります')
 
-    await click(chip('月末の棚卸', '3日前'))
-    await click(sw('発注の締切'))
-    await click(chip('発注の締切', '2時間前'))
-    vi.advanceTimersByTime(700)
-    await tick(); await tick()
-    const put = api.mock.calls.filter(c => c[0] === '/store/ABCDEF/push/prefs')
-    expect(put.length).toBe(1)
-    const sent = JSON.parse(put[0][1].body)
-    expect(sent.endpoint).toBe('https://push.example/me')
-    expect(sent.prefs.monthEnd.days).toEqual([0, 1, 3])
-    expect(sent.prefs.orderDeadline).toEqual({ on: true, mins: [60, 120] })
-    expect(JSON.parse(localStorage.getItem('tanaoro_push_prefs')).orderDeadline.on).toBe(true)
+    // 種類・日数・時刻を選ぶ所は無い。届くものを並べるだけ（User決定 2026-10-16）
+    expect(host.querySelectorAll('.ns-sw')).toHaveLength(1)
+    expect(host.querySelector('select')).toBeNull()
+    expect(host.textContent).toContain('発注の締切（1時間前）')
+    expect(host.textContent).toContain('いつもアプリを最初に開く時刻ごろ')
   })
 })

@@ -1,19 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import { normalizePrefs, planNotifications, DEFAULT_PREFS } from './pushPlan.js'
+import { normalizePrefs, planNotifications, usualHour } from './pushPlan.js'
 
 // JST の 'YYYY-MM-DD HH:00' を UTC の Date に
 const jst = (s) => new Date(new Date(s.replace(' ', 'T') + ':00+09:00').getTime())
-const P = (over = {}) => normalizePrefs({ ...DEFAULT_PREFS, ...over })
+const P = (over = {}) => ({ ...normalizePrefs(null), ...over })   // 計画の関数は形さえ合えば何でも受け取る
 const keys = r => r.map(x => x.key)
 
 describe('normalizePrefs', () => {
-  it('壊れた値は既定へ、選べない日・時間は落とす', () => {
-    const p = normalizePrefs({ hour: 25, monthEnd: { on: 'x', days: [1, 2, 7, 7] }, gap: { days: 3 }, orderDeadline: { on: true, mins: [30, 120] } })
+  it('ONにしたら全部届く。端末から来た設定は読まない。時刻だけ人ごと（User決定 2026-10-16）', () => {
+    const p = normalizePrefs({ hour: 20, monthEnd: { on: false }, orderDeadline: { on: false } })
     expect(p.hour).toBe(9)
-    expect(p.monthEnd).toEqual({ on: true, days: [1, 7] })
-    expect(p.gap.days).toBe(35)
-    expect(p.orderDeadline).toEqual({ on: true, mins: [120] })
-    expect(normalizePrefs(null)).toEqual(normalizePrefs(DEFAULT_PREFS))
+    expect(p.monthEnd).toEqual({ on: true, days: [0, 1] })
+    expect(p.gap).toEqual({ on: true, days: 35 })
+    expect(p.orderDeadline).toEqual({ on: true, mins: [60] })
+    expect([p.stale.on, p.taskDay.on, p.taskAdded.on, p.taskAssigned.on]).toEqual([true, true, true, true])
+    expect(normalizePrefs(null, 7).hour).toBe(7)
+    expect(normalizePrefs(null, 30).hour).toBe(9)
+  })
+})
+
+describe('usualHour（いつも最初に開く時刻）', () => {
+  it('日ごとの最初に開いた時刻の真ん中の「時」。3日分に満たなければ null', () => {
+    // JST 9:40 / 9:10（同じ日の 15:00 は数えない）/ 10:20
+    const at = ['2026-10-01T00:40:00Z', '2026-10-02T00:10:00Z', '2026-10-02T06:00:00Z', '2026-10-03T01:20:00Z']
+    expect(usualHour(at)).toBe(9)
+    expect(usualHour(at.slice(0, 3))).toBeNull()
+    // JST の日付で分ける（UTC 23:30 は JST 翌日 8:30）
+    expect(usualHour(['2026-10-01T23:30:00Z', '2026-10-02T23:30:00Z', '2026-10-03T23:30:00Z'])).toBe(8)
+    expect(usualHour([])).toBeNull()
   })
 })
 
@@ -52,6 +66,6 @@ describe('planNotifications', () => {
     expect(planNotifications({ now: jst('2026-10-05 14:00'), prefs, schedules })[0].payload.body).toBe('「青果」の発注の締切は 15:30 です（あと1時間30分）🧾')
     expect(keys(planNotifications({ now: jst('2026-10-05 12:00'), prefs, schedules }))).toEqual(['ord:2026-10-05:a:180'])
     expect(planNotifications({ now: jst('2026-10-06 14:00'), prefs, schedules })).toEqual([])   // 火曜
-    expect(planNotifications({ now: jst('2026-10-05 14:00'), prefs: P(), schedules })).toEqual([])   // 既定はオフ
+    expect(keys(planNotifications({ now: jst('2026-10-05 14:00'), prefs: P(), schedules }))).toEqual(['ord:2026-10-05:a:60'])   // 既定でON・1時間前
   })
 })

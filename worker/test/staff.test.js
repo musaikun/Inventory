@@ -406,6 +406,12 @@ describe('オーナーを1人にまとめる（User決定 2026-10-14）', () => 
     expect(after.find(t => t.id === 't_old2').doneList[0].name).toBe('店長')
     const names = await (await call(`/store/${code}/staff/names`, 'GET', null, a.token)).json()
     expect(names.staff[0]).toMatchObject({ id: 'owner', name: '店長' })
+
+    // 店名はオーナーと管理者だけが変えられ、ほかの端末は /auth/me で拾う（2026-10-16）
+    expect((await call(`/store/${code}/store-name`, 'PUT', { name: '二号店' }, a.token)).status).toBe(403)
+    expect((await call(`/store/${code}/store-name`, 'PUT', { name: '  ' })).status).toBe(400)
+    expect((await (await call(`/store/${code}/store-name`, 'PUT', { name: ' 二号店 ' })).json()).storeName).toBe('二号店')
+    expect((await (await call('/auth/me', 'GET', null, a.token)).json()).storeName).toBe('二号店')
   })
 })
 

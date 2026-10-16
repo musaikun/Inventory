@@ -26,7 +26,8 @@ export const _showOrders    = ref(false)
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport } from '../composables/useAuth.js'
+import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName } from '../composables/useAuth.js'
+import SettingsList from './SettingsList.vue'
 import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
 import DataPort from './DataPort.vue'
@@ -377,14 +378,12 @@ onUnmounted(registerInnerLayerCloser(() => {
     >
       <template #extra>
         <div class="manage">
-          <template v-if="can('orderSettings')">
-            <div class="m-h">発注の設定</div>
-            <button class="m-card" type="button" @click="openSchedule">🗓<span>発注日・締切<small>発注する曜日と締切の時刻（今日の帯・発注の開始に出ます）</small></span><i>›</i></button>
-            <button class="m-card" type="button" @click="_allowed('orderSettings') && (showOrderBase = true)">🎯<span>発注点<small>品目ごとの発注点（この数以下で「要補充」）</small></span><i>›</i></button>
-          </template>
-          <div class="m-h">その他</div>
-          <button class="m-card" type="button" @click="settingsSection = 'general'">⚙️<span>各種設定<small>端末名・通知・アプリ情報</small></span><i>›</i></button>
-          <button class="m-card" type="button" @click="emit('openFeedback')">💬<span>フィードバックを送る<small>不具合・要望を開発者へ</small></span><i>›</i></button>
+          <SettingsList part="top" @schedule="openSchedule" @order-base="_allowed('orderSettings') && (showOrderBase = true)" />
+        </div>
+      </template>
+      <template #bottom>
+        <div class="manage">
+          <SettingsList part="bottom" @feedback="emit('openFeedback')" />
           <template v-if="otherActiveSessions.length">
             <div class="m-h">その他の未完了（古い）</div>
             <div v-for="s in otherActiveSessions" :key="s.id" class="m-old">
@@ -393,7 +392,7 @@ onUnmounted(registerInnerLayerCloser(() => {
               <button type="button" class="m-old-btn ng" :disabled="deletingId === s.id" @click="askDiscard(s)">破棄</button>
             </div>
           </template>
-          <p v-if="isAuthenticated" class="m-who">ログイン中：{{ currentStaff ? `${currentStaff.name}（${ROLE_LABELS[currentStaff.role]}）` : 'オーナー' }}</p>
+          <p v-if="isAuthenticated" class="m-who">ログイン中：{{ currentStaff ? `${currentStaff.name}（${ROLE_LABELS[currentStaff.role]}）` : `${ownerName || 'オーナー'}（オーナー）` }}</p>
           <p v-if="isAuthenticated && currentStaff" class="m-who-note">アプリを開いている時間は、管理者から見えます</p>
           <button v-if="isAuthenticated" class="m-logout" type="button" @click="onLogout">ログアウト</button>
         </div>

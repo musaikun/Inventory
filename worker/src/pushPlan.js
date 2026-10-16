@@ -13,39 +13,54 @@ export const ORDER_LEAD_OPTIONS = [60, 120, 180]     // 発注の締切の何分
 export const GAP_MIN = 7
 export const GAP_MAX = 90
 
+/**
+ * 通知は「受け取る」をONにしたら全部届く（User決定 2026-10-16）。種類ごとのオン・オフ、日数・時刻の選択はなくした。
+ * 月末の棚卸は前日と当日、しばらく棚卸していないのは35日、発注の締切は1時間前。
+ * 日付で知らせる通知の時刻（hour）は、その人がいつもその日に最初にアプリを開く時刻（usualHour）。記録が無ければ9時。
+ * 以前の端末が送ってくる設定（prefs_json）は読まない（形だけ残す）
+ */
+export const DEFAULT_HOUR = 9
 export const DEFAULT_PREFS = Object.freeze({
-  hour: 9,
-  monthEnd:      { on: true,  days: [0, 1] },
-  gap:           { on: true,  days: 35 },
+  hour: DEFAULT_HOUR,
+  monthEnd:      { on: true, days: [0, 1] },
+  gap:           { on: true, days: 35 },
   stale:         { on: true },
-  taskDay:       { on: true,  days: [0, 1] },
+  taskDay:       { on: true, days: [0, 1] },
   taskAdded:     { on: true },
   taskAssigned:  { on: true },
-  orderDeadline: { on: false, mins: [60] },
+  orderDeadline: { on: true, mins: [60] },
 })
 
-const _bool = (v, d) => (typeof v === 'boolean' ? v : d)
-const _pick = (arr, allowed, d) => {
-  if (!Array.isArray(arr)) return [...d]
-  return [...new Set(arr.map(Number).filter(n => allowed.includes(n)))].sort((a, b) => a - b)
+/** いつも同じ設定（hour だけ人ごとに変わる） */
+export function normalizePrefs(_src, hour = DEFAULT_HOUR) {
+  const d = DEFAULT_PREFS
+  return {
+    hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : DEFAULT_HOUR,
+    monthEnd: { ...d.monthEnd, days: [...d.monthEnd.days] }, gap: { ...d.gap }, stale: { ...d.stale },
+    taskDay: { ...d.taskDay, days: [...d.taskDay.days] }, taskAdded: { ...d.taskAdded }, taskAssigned: { ...d.taskAssigned },
+    orderDeadline: { ...d.orderDeadline, mins: [...d.orderDeadline.mins] },
+  }
 }
 
-/** 端末から来た設定・保存してある設定を、決まった形にそろえる（壊れた値は既定へ） */
-export function normalizePrefs(src) {
-  const p = src && typeof src === 'object' && !Array.isArray(src) ? src : {}
-  const d = DEFAULT_PREFS
-  const hour = Number.isInteger(p.hour) && p.hour >= 0 && p.hour <= 23 ? p.hour : d.hour
-  const gapDays = Number(p.gap?.days)
-  return {
-    hour,
-    monthEnd:      { on: _bool(p.monthEnd?.on, d.monthEnd.on), days: _pick(p.monthEnd?.days, NOTIFY_DAY_OPTIONS, d.monthEnd.days) },
-    gap:           { on: _bool(p.gap?.on, d.gap.on), days: Number.isInteger(gapDays) && gapDays >= GAP_MIN && gapDays <= GAP_MAX ? gapDays : d.gap.days },
-    stale:         { on: _bool(p.stale?.on, d.stale.on) },
-    taskDay:       { on: _bool(p.taskDay?.on, d.taskDay.on), days: _pick(p.taskDay?.days, NOTIFY_DAY_OPTIONS, d.taskDay.days) },
-    taskAdded:     { on: _bool(p.taskAdded?.on, d.taskAdded.on) },
-    taskAssigned:  { on: _bool(p.taskAssigned?.on, d.taskAssigned.on) },
-    orderDeadline: { on: _bool(p.orderDeadline?.on, d.orderDeadline.on), mins: _pick(p.orderDeadline?.mins, ORDER_LEAD_OPTIONS, d.orderDeadline.mins) },
+/**
+ * いつもその日に最初にアプリを開く時刻（JST の時）。開いた記録（work_sessions の started_at）から、
+ * 日ごとの最初の時刻をとり、その真ん中（中央値）の「時」。3日分に満たなければ null（既定の9時）
+ * 例: 9:40・9:10・10:20 に最初に開く人 → 9時（いつも開く前後に届く）
+ */
+export const USUAL_MIN_DAYS = 3
+export function usualHour(startedAts) {
+  const first = new Map()
+  for (const iso of startedAts ?? []) {
+    const ms = Date.parse(iso || '')
+    if (!Number.isFinite(ms)) continue
+    const j = new Date(ms + 9 * 3600 * 1000)
+    const key = j.toISOString().slice(0, 10)
+    const min = j.getUTCHours() * 60 + j.getUTCMinutes()
+    if (!first.has(key) || first.get(key) > min) first.set(key, min)
   }
+  if (first.size < USUAL_MIN_DAYS) return null
+  const mins = [...first.values()].sort((a, b) => a - b)
+  return Math.floor(mins[Math.floor((mins.length - 1) / 2)] / 60)
 }
 
 export function parsePrefs(json) {

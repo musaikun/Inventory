@@ -5,6 +5,8 @@
 // 名前は店に1つ（stores.owner_name）。名前は管理画面からだけ変え、変えたら過去の記録の名前もそろえる。
 // 既存の記録（スタッフの ID でない「誰が」＝オーナーの端末 ID）は、店ごとに初回のアクセスで 'owner' へ寄せる。
 
+import { MAX_STORE_NAME_LEN } from './constants.js'
+
 export const OWNER_ID = 'owner'
 const NAME_MAX = 40
 const _now = () => new Date().toISOString()
@@ -100,3 +102,12 @@ export async function ensureOwnerUnified(db, code, fallbackName = '') {
   await db.prepare('UPDATE stores SET owner_unified_at = ? WHERE shop_code = ?').bind(now, code).run()
   return name
 }
+
+/** 店名を変える（オーナーと管理者・User決定 2026-10-16）。空にはできない */
+export async function setStoreName(db, code, name) {
+  const n = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_STORE_NAME_LEN)
+  if (!n) return { _status: 400, error: '店名を入れてください' }
+  await db.prepare('UPDATE stores SET store_name = ?, updated_at = ? WHERE shop_code = ?').bind(n, _now(), code).run()
+  return { ok: true, storeName: n }
+}
+

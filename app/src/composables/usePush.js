@@ -5,7 +5,6 @@ import { normalizePrefs } from '../services/notifyPrefs.js'
 import { actorId } from './useDeviceId.js'
 
 const _KEY = 'tanaoro_push_subscribed'
-const _PREFS_KEY = 'tanaoro_push_prefs'
 
 export const pushSubscribed = ref(localStorage.getItem(_KEY) === '1')
 export const pushLoading    = ref(false)
@@ -13,11 +12,9 @@ export const pushSupported  = 'serviceWorker' in navigator && 'PushManager' in w
 // ONにできなかった理由（画面に出す）。'' | 'blocked' | 'server' | 'failed' | 'timeout-<段>'
 export const pushError      = ref('')
 
-function _loadPrefs() {
-  try { return normalizePrefs(JSON.parse(localStorage.getItem(_PREFS_KEY) || 'null')) } catch (_) { return normalizePrefs(null) }
-}
-/** この端末の通知の設定（受け取る種類・時刻）。サーバーにも同じものを置く */
-export const pushPrefs = ref(_loadPrefs())
+/** 通知の設定（いつも全部。形だけサーバーへ送る・2026-10-16） */
+export const pushPrefs = ref(normalizePrefs())
+try { localStorage.removeItem('tanaoro_push_prefs') } catch (_) {}
 
 /** iPhone・iPad で、ホーム画面に追加せずブラウザで開いている（このときは通知を受け取れない） */
 export function isIosBrowserTab() {
@@ -156,17 +153,6 @@ export async function ownPushEndpoint() {
   } catch (_) { return '' }
 }
 
-let _prefsTimer = null
-/**
- * 通知の設定を変える。端末に覚え、通知を受け取っている端末ならサーバーへも送る（続けて触っても1回にまとめる）。
- */
-export function updatePushPrefs(next) {
-  pushPrefs.value = normalizePrefs(next)
-  try { localStorage.setItem(_PREFS_KEY, JSON.stringify(pushPrefs.value)) } catch (_) {}
-  if (!pushSubscribed.value) return
-  clearTimeout(_prefsTimer)
-  _prefsTimer = setTimeout(_sendPrefs, 600)
-}
 /** 起動時・ログインしている人が変わったとき: この端末が誰のものかをサーバーへ揃える（通知を受けている端末だけ） */
 export function syncPushOwner() {
   if (pushSubscribed.value) _sendPrefs()

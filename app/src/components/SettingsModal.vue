@@ -30,17 +30,19 @@ import pkg from '../../package.json'
 
 const props = defineProps({
   isGuest: Boolean,
-  section: { type: String, default: 'all' }, // 'all'|'import'|'axis'|'device'|'push'|'general'
+  // 'all'|'import'|'axis'|'general'（以前のまとめ）| 設定タブの1項目ずつ: 'device'|'push'|'weather'|'hints'|'cache'|'info'|'analytics'|'legal'|'account'
+  section: { type: String, default: 'all' },
   canRestore: { type: Boolean, default: false }, // 進行中セッション中のみ「結果CSVから復元」を出す
 })
 const emit = defineEmits(['close', 'openUpgrade', 'restoreInventory'])
 useEscapeKey(() => emit('close'))
 
+// 設定タブから1項目ずつ開く（User決定 2026-10-16）。'general' は以前の「各種設定」（全部）
+const _GENERAL = ['device', 'push', 'weather', 'hints', 'cache', 'info', 'analytics', 'legal', 'account']
 const _show = (s) =>
   props.section === 'all' ||
   props.section === s ||
-  (props.section === 'general' && (s === 'device' || s === 'push'))
-const _showGeneral = computed(() => props.section === 'all' || props.section === 'general')
+  (props.section === 'general' && _GENERAL.includes(s))
 
 // カレンダーの天気（位置情報）。表示する・更新する・やめる
 const { state: weatherState, requestGeolocation } = useWeather()
@@ -54,6 +56,8 @@ async function onWeatherOn() {
 function onWeatherOff() { disableWeather(); markWeatherAsked(); weatherError.value = '' }
 const sheetTitle = computed(() => ({
   import: '品目のインポート', device: '端末名', push: '通知', general: '各種設定',
+  weather: 'カレンダーの天気', hints: '操作の説明', cache: '表示の不具合をリセット', info: 'アプリ情報',
+  analytics: '匿名の利用状況の共有', legal: '規約・プライバシー・サポート', account: 'アカウントの削除',
 }[props.section] || '品目リスト設定'))
 
 const restoreInput = ref(null)
@@ -582,7 +586,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- カレンダーの天気（初めてカレンダーを開いたときに一度だけ訊く。変更はここから・User決定 2026-10-04） -->
-      <div v-if="_showGeneral" class="device-section">
+      <div v-if="_show('weather')" class="device-section">
         <div class="device-label">カレンダーの天気</div>
         <p class="cache-note">
           <template v-if="weatherState.loc">表示中：{{ weatherState.loc.name || '現在地' }}</template>
@@ -596,7 +600,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- ✕ で消した操作の説明・おすすめを戻す（端末ごとの記憶） -->
-      <div v-if="_showGeneral" class="device-section">
+      <div v-if="_show('hints')" class="device-section">
         <div class="device-label">操作の説明</div>
         <p class="cache-note">✕ で消した説明や「あとで」にしたおすすめを、この端末でもう一度表示します。</p>
         <button class="cache-btn" :disabled="!hiddenHintCount" @click="restoreHints">
@@ -605,7 +609,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- 表示キャッシュの削除（安全版・業務データは消えません） -->
-      <div v-if="_showGeneral" class="device-section">
+      <div v-if="_show('cache')" class="device-section">
         <div class="device-label">表示の不具合をリセット</div>
         <p class="cache-note">アプリの表示が古い・崩れる・更新が反映されないときに使います。<b>設定・品目・発注点・履歴などのデータは消えません。</b></p>
         <button class="cache-btn" :disabled="clearingCache" @click="clearAppCache">
@@ -615,12 +619,12 @@ function onDownloadTemplate() {
       </div>
 
       <!-- アプリ情報 -->
-      <div v-if="_showGeneral" class="device-section app-info">
+      <div v-if="_show('info')" class="device-section app-info">
         <div class="device-label">アプリ情報</div>
         <div class="info-row"><span class="info-key">バージョン</span><span class="info-val">v{{ appVersion }}<template v-if="buildSha"> ({{ buildSha }})</template></span></div>
       </div>
 
-      <div v-if="_showGeneral" class="device-section analytics-section">
+      <div v-if="_show('analytics')" class="device-section analytics-section">
         <div class="device-label">匿名の利用状況の共有</div>
         <p class="analytics-note">
           セッションの開始・完了、追加方法、音声機能の利用、レビュー評価だけをPostHog EUへ送信し、
@@ -645,7 +649,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- 法的情報・サポート（公開静的ページ。同じ配信元なので相対URLで到達できる）-->
-      <div v-if="_showGeneral" class="device-section legal-section">
+      <div v-if="_show('legal')" class="device-section legal-section">
         <div class="device-label">法的情報・サポート</div>
         <a class="legal-link" href="./privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>
         <a class="legal-link" href="./terms.html" target="_blank" rel="noopener">利用規約</a>
@@ -658,7 +662,7 @@ function onDownloadTemplate() {
       </div>
 
       <!-- アカウント削除（認証済みのみ・ゲスト非表示）-->
-      <div v-if="_showGeneral && isAuthenticated && !props.isGuest" class="danger-section">
+      <div v-if="_show('account') && isAuthenticated && !props.isGuest" class="danger-section">
         <div class="danger-label">アカウントの削除</div>
         <p class="danger-note">
           店舗アカウントと、品目・棚卸・発注・入出庫・履歴・設定などのすべてのデータを削除します。

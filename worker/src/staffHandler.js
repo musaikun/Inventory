@@ -385,6 +385,8 @@ export async function handleMe(db, request) {
     staff: ctx.staffId ? { id: ctx.staffId, name: ctx.name, role: ctx.role, grants: ctx.grants } : null,
     // オーナーは1人（ID 'owner'・名前は店に1つ。User決定 2026-10-14）。名前が未定なら null
     owner: ctx.staffId ? null : { id: 'owner', name: ctx.name || null },
+    // 店名は別の端末から変わることがある（2026-10-16）
+    storeName: (await _storeInfo(db, ctx.shopCode))?.store_name ?? null,
   }
 }
 

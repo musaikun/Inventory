@@ -28,6 +28,16 @@ function _setOwnerName(n) {
   try { if (n) localStorage.setItem(STORAGE_KEYS.authOwnerName, n); else localStorage.removeItem(STORAGE_KEYS.authOwnerName) } catch (_) {}
 }
 /** オーナーの名前を変える（オーナーだけ・管理画面）。過去の記録の名前もサーバーでそろえる */
+function _setStoreName(n) {
+  _storeName.value = n || null
+  try { localStorage.setItem(STORAGE_KEYS.authStoreName, n || '') } catch (_) {}
+}
+/** 店名を変える（オーナーと管理者・2026-10-16） */
+export async function updateStoreName(name) {
+  const r = await _api(`/store/${shopCode.value}/store-name`, { method: 'PUT', body: JSON.stringify({ name }) })
+  if (r?.storeName) _setStoreName(r.storeName)
+  return r
+}
 export async function updateOwnerName(name) {
   const r = await _api(`/store/${shopCode.value}/owner-name`, { method: 'PUT', body: JSON.stringify({ name }) })
   if (r?.name) { _setOwnerName(r.name); _namesAt = 0 }
@@ -58,6 +68,7 @@ export async function refreshMe() {
     const me = await _api('/auth/me')
     if (me?.staff) { _staff.value = me.staff; localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(me.staff)) }
     if (me?.owner) _setOwnerName(me.owner.name || '')
+    if (typeof me?.storeName === 'string') _setStoreName(me.storeName)
   } catch (_) { /* 失効は api.js の 401 で扱う */ }
 }
 

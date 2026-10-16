@@ -25,7 +25,7 @@ vi.mock('../composables/useAuth.js', () => ({
   logout:          vi.fn(),
   isAuthenticated: { value: true },
   isAdmin:         { value: true },
-  currentStaff:    { value: null },
+  currentStaff:    { value: null }, ownerName: { value: '無才' }, storeName: { value: '本店' }, updateStoreName: vi.fn(), updateOwnerName: vi.fn(),
   ROLE_LABELS:     { owner: 'オーナー', admin: '管理者', shain: '社員', arbeit: 'アルバイト' },
   listStaff: vi.fn(async () => ({ staff: [], invites: [] })), createStaffInvite: vi.fn(), revokeStaffInvite: vi.fn(), staffAction: vi.fn(),
   storeName:       { value: 'テスト店' },
@@ -109,9 +109,11 @@ describe('ホームの骨組み', () => {
     await click(btn(host.querySelector('.bnav'), '設定'))
     expect(host.querySelector('.mp.embedded')).not.toBeNull()
     expect(host.querySelector('.mp-header')).toBeNull()
-    for (const label of ['発注日・締切', '発注点', '各種設定', 'フィードバック']) {   // 取り込む・書き出すはホームへ（2026-10-14）
+    // 「各種設定」の中身を直接並べる（2026-10-16）
+    for (const label of ['発注日・締切', '発注点', '通知', 'カレンダーの天気', '表示の不具合をリセット', 'フィードバック', 'アプリ情報']) {
       expect(host.querySelector('.mp').textContent).toContain(label)
     }
+    expect(host.querySelector('.mp').textContent).not.toContain('各種設定')
     // 入出庫の記録・記録の確認は置かない（User 2026-10-04。入出庫は品目シートでその場で）。練習モードも置かない
     expect(host.querySelector('.manage').textContent).not.toContain('入出庫の記録')
     expect(host.querySelector('.manage').textContent).not.toContain('記録の確認')
@@ -122,7 +124,7 @@ describe('ホームの骨組み', () => {
   it('管理タブから発注基準・発注日の設定を開ける', async () => {
     await mountPage()
     await click(btn(host.querySelector('.bnav'), '設定'))
-    await click(btn(host.querySelector('.manage'), '🎯'))
+    await click(btn(host.querySelector('.manage'), '発注点'))
     expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
   })
 })

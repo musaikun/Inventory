@@ -129,16 +129,21 @@ describe('handleCron', () => {
     expect(sendWebPush).toHaveBeenCalledTimes(1)
   })
 
-  it('端末ごとの設定で送る（やることの前日・発注の締切）。オフの種類は送らない', async () => {
+  it('ONの端末には全部送る。日付の通知は、その人がいつも最初に開く時刻に（記録が無ければ9時）', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-05T05:00:00.000Z'))   // JST 14:00（月曜）
     const current = createD1FromCurrentSchema()
     sqlite = current.sqlite
-    const prefs = JSON.stringify({ hour: 14, monthEnd: { on: false }, gap: { on: false }, stale: { on: false },
-      taskDay: { on: true, days: [1] }, orderDeadline: { on: true, mins: [60] } })
     sqlite.prepare(`INSERT INTO stores (shop_code, created_at, updated_at) VALUES ('ABCDEF', '2026-07-25T03:00:00.000Z', '2026-07-25T03:00:00.000Z')`).run()
-    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json) VALUES ('ABCDEF', 'https://push.example/a', 'p', 'a', ?)`).run(prefs)
-    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json) VALUES ('ABCDEF', 'https://push.example/b', 'p', 'a', ?)`).run(JSON.stringify({ hour: 20 }))
+    // 以前の端末が送ってきた「やることの日はオフ」は読まない
+    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, prefs_json, actor_id) VALUES ('ABCDEF', 'https://push.example/a', 'p', 'a', ?, 'st_a')`)
+      .run(JSON.stringify({ taskDay: { on: false } }))
+    sqlite.prepare(`INSERT INTO push_subscriptions (shop_code, endpoint, p256dh, auth, actor_id) VALUES ('ABCDEF', 'https://push.example/b', 'p', 'a', 'owner')`).run()
+    // st_a はいつも JST 14時台に最初に開く。owner は記録なし（9時）
+    for (const d of ['2026-10-01', '2026-10-02', '2026-10-03']) {
+      sqlite.prepare(`INSERT INTO work_sessions (shop_code, actor_id, name, started_at, last_seen_at) VALUES ('ABCDEF', 'st_a', '山田', ?, ?)`)
+        .run(`${d}T05:10:00.000Z`, `${d}T06:00:00.000Z`)
+    }
     sqlite.prepare(`INSERT INTO tasks (id, shop_code, task_date, body, created_at, updated_at) VALUES ('t1', 'ABCDEF', '2026-10-06', '霜取り', 'x', 'x')`).run()
     sqlite.prepare(`INSERT INTO store_configs (shop_code, config_json, updated_at) VALUES ('ABCDEF', ?, 'x')`)
       .run(JSON.stringify({ orderSchedules: [{ id: 'v', name: '青果', days: [1], deadline: '15:00' }] }))
@@ -148,6 +153,7 @@ describe('handleCron', () => {
     expect(sent).toEqual([
       ['https://push.example/a', '明日のやること：霜取り'],
       ['https://push.example/a', '「青果」の発注の締切は 15:00 です（あと1時間）🧾'],
+      ['https://push.example/b', '「青果」の発注の締切は 15:00 です（あと1時間）🧾'],
     ])
   })
 })

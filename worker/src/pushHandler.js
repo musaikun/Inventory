@@ -3,7 +3,7 @@ import { sendWebPush } from './webPush.js'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
 import { cleanupStaffRecords } from './staffHandler.js'
-import { normalizePrefs, parsePrefs, planNotifications, jstParts, SENT_KEEP_DAYS } from './pushPlan.js'
+import { normalizePrefs, planNotifications, usualHour, DEFAULT_HOUR, jstParts, SENT_KEEP_DAYS } from './pushPlan.js'
 
 const MAX_PUSH_ENDPOINT_CHARS = 2048
 
@@ -200,17 +200,18 @@ export async function sendScheduledPushes(env, now) {
   const db = env.DB
   const t = jstParts(now)
   const { results: rows } = await db.prepare(
-    'SELECT shop_code, endpoint, p256dh, auth, prefs_json FROM push_subscriptions',
+    'SELECT shop_code, endpoint, p256dh, auth, actor_id FROM push_subscriptions',
   ).all()
   const byShop = new Map()
   for (const r of rows ?? []) {
-    const prefs = parsePrefs(r.prefs_json)
-    if (prefs.hour !== t.hour && !prefs.orderDeadline.on) continue
     if (!byShop.has(r.shop_code)) byShop.set(r.shop_code, [])
-    byShop.get(r.shop_code).push({ sub: r, prefs })
+    byShop.get(r.shop_code).push({ sub: r })
   }
   const until = new Date(Date.UTC(t.y, t.m - 1, t.d + 7)).toISOString().slice(0, 10)
   for (const [shop, list] of byShop) {
+    // 日付で知らせる通知の時刻は、その人がいつも最初にアプリを開く時刻（User決定 2026-10-16）
+    const hours = await _usualHours(db, shop, now)
+    for (const x of list) x.prefs = normalizePrefs(null, hours.get(x.sub.actor_id) ?? DEFAULT_HOUR)
     const daily = list.some(x => x.prefs.hour === t.hour)
     const order = list.some(x => x.prefs.orderDeadline.on)
     let lastCompletedAt = null, staleSessionIds = [], openTasks = [], schedules = []
@@ -250,6 +251,25 @@ export async function sendScheduledPushes(env, now) {
   }
 }
 
+/** 店の人ごとの「いつも最初に開く時刻」（直近28日の開いた記録から） */
+async function _usualHours(db, shop, now) {
+  const since = new Date(now.getTime() - 28 * 86400_000).toISOString()
+  const { results } = await db.prepare(
+    'SELECT actor_id, started_at FROM work_sessions WHERE shop_code = ? AND started_at >= ?',
+  ).bind(shop, since).all()
+  const by = new Map()
+  for (const r of results ?? []) {
+    if (!by.has(r.actor_id)) by.set(r.actor_id, [])
+    by.get(r.actor_id).push(r.started_at)
+  }
+  const out = new Map()
+  for (const [id, list] of by) {
+    const h = usualHour(list)
+    if (h !== null) out.set(id, h)
+  }
+  return out
+}
+
 /**
  * やることが追加されたことを、同じ店舗の他の端末へ知らせる（User決定 2026-10-04）。
  * 追加した端末の購読（exceptEndpoint）には送らない。通知の許可を出していない端末には届かない。
@@ -274,7 +294,6 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
     if (admins && !admins.has(sub.actor_id)) continue
     if (assignee && sub.actor_id === assignee) continue   // 担当の人には notifyTaskAssigned が別に送る
-    if (!parsePrefs(sub.prefs_json).taskAdded.on) continue
     await _send(env, sub, {
       title: 'タナオロ',
       body:  `${who}がやることを追加しました：${when}${task?.text ?? ''}`,
@@ -298,7 +317,6 @@ export async function notifyTaskAssigned(env, shopCode, task, exceptEndpoint = '
   ).bind(shopCode, task.assigneeId).all()
   for (const sub of (subs ?? [])) {
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
-    if (!parsePrefs(sub.prefs_json).taskAssigned.on) continue
     await _send(env, sub, { title: 'タナオロ', body: `あなたの担当になりました：${_taskWhen(task)}${task.text ?? ''}`, tag: 'task-assigned', url: '/' })
   }
 }

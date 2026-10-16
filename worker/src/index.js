@@ -22,7 +22,7 @@ import { savePushSubscription, deletePushSubscription, savePushPrefs, sendTestPu
 import { authContext, ctxCan } from './staffHandler.js'
 import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
-import { OWNER_ID, ensureOwnerUnified, setOwnerName } from './ownerHandler.js'
+import { OWNER_ID, ensureOwnerUnified, setOwnerName, setStoreName } from './ownerHandler.js'
 import { taskWriteCheck } from './taskWrite.js'
 import { handleStaffActivity } from './activityHandler.js'
 import { configChangePerms } from './configGuard.js'
@@ -522,6 +522,17 @@ export default {
           const body = await request.json().catch(() => ({}))
           await ensureOwnerUnified(env.DB, code, body?.name)
           return resultResponse(await setOwnerName(env.DB, code, body?.name), origin, allowedOrigin)
+        }
+        // PUT /store/:code/store-name { name } … 店名を変える（オーナーと管理者）
+        if (subpath === '/store-name' && request.method === 'PUT') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const ctx = await authContext(env.DB, request)
+          if (!ctx || ctx.shopCode !== code || !['owner', 'admin'].includes(ctx.role)) {
+            return jsonResponse({ code: 'forbidden', error: '店名はオーナーと管理者だけが変えられます' }, 403, origin, allowedOrigin)
+          }
+          const body = await request.json().catch(() => ({}))
+          return resultResponse(await setStoreName(env.DB, code, body?.name), origin, allowedOrigin)
         }
         if (subpath === '/staff' && request.method === 'GET') {
           return resultResponse(await handleStaffList(env.DB, request, code), origin, allowedOrigin)
