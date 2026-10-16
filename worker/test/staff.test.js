@@ -120,7 +120,11 @@ describe('スタッフのログイン', () => {
     for (let i = 0; i < 5; i++) expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '000001', deviceId: 'd2' }))._status).toBe(401)
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd2' }))._status).toBe(429)
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd1' })).token).toBeTruthy()   // 別の端末は止めない
+    // 一覧には止まっていることと、解ける時刻（15分後）が出る
+    const until = (await handleStaffList(db, req(owner), code)).staff.find(s => s.id === staffId).lockedUntil
+    expect(Date.parse(until) - Date.now()).toBeGreaterThan(14 * 60_000)
     await handleStaffUnlock(db, req(owner), code, staffId)
+    expect((await handleStaffList(db, req(owner), code)).staff.find(s => s.id === staffId).lockedUntil).toBeNull()
     expect((await handleStaffLogin(db, { shopCode: code, name: '山田', pin: '284713', deviceId: 'd2' })).token).toBeTruthy()
   })
 })

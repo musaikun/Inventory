@@ -72,4 +72,24 @@ describe('スタッフ画面', () => {
     await click([...host.querySelectorAll('.sp2-p')].find(p => p.textContent.includes('無才')))
     expect([...host.querySelectorAll('.sp2-sw')].every(b => b.disabled && b.getAttribute('aria-checked') === 'true')).toBe(true)
   })
+
+  it('ロック解除は止まっているときだけ。ログインを止めるときは一言確かめる', async () => {
+    staffList[0].lockedUntil = new Date(Date.now() + 12 * 60_000).toISOString()
+    const { default: StaffPage } = await import('./StaffPage.vue')
+    host = document.createElement('div'); document.body.appendChild(host)
+    app = createApp(StaffPage); app.mount(host); await tick()
+    expect(host.querySelector('.sp2-p .sp2-stop').textContent).toBe('ロック中')
+    await click([...host.querySelectorAll('.sp2-p')].find(p => p.textContent.includes('山田')))
+    expect(host.querySelector('.sp2-lockwarn').textContent).toContain('あと12分')
+    staffList = staffList.map(s => ({ ...s, lockedUntil: null }))   // 解除のあと読み直すと止まりは消えている
+    await click(host.querySelector('.sp2-lockwarn button'))
+    expect(staffAction).toHaveBeenLastCalledWith('st_a', 'unlock', undefined)
+    expect(host.querySelector('.sp2-lockwarn')).toBeNull()
+
+    await click([...host.querySelectorAll('.sp2-foot button')].find(b => b.textContent === 'ログインを止める'))
+    expect(staffAction).not.toHaveBeenCalledWith('st_a', 'stop', undefined)
+    expect(host.textContent).toContain('記録と権限は残り')
+    await click([...host.querySelectorAll('.sp2-btn')].find(b => b.textContent === '止める'))
+    expect(staffAction).toHaveBeenLastCalledWith('st_a', 'stop', undefined)
+  })
 })

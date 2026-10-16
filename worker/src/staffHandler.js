@@ -139,10 +139,36 @@ export async function handleStaffList(db, request, code) {
   const { results: invites } = await db.prepare(
     "SELECT id, name, role, expires_at, created_at FROM staff_invites WHERE shop_code = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC",
   ).bind(code, _now()).all()
+  const locks = await _lockedUntil(db, code)
   return {
-    staff: (staff ?? []).map(_staffView),
+    staff: (staff ?? []).map(r => ({ ..._staffView(r), lockedUntil: locks.get(_nameKey(r.name)) ?? null })),
     invites: (invites ?? []).map(i => ({ id: i.id, name: i.name, role: i.role, expiresAt: i.expires_at })),
   }
+}
+
+/**
+ * 暗証番号の失敗で止まっている人と、止まりが解ける時刻（名前の鍵 → ISO）。
+ * 失敗は端末ごとに数えるので、どれかの端末で LOGIN_MAX_FAILS 回に達していれば止まっている。
+ * 解けるのは、新しいほうから数えて LOGIN_MAX_FAILS 回目の失敗が窓から外れたとき
+ */
+async function _lockedUntil(db, code, nowMs = Date.now()) {
+  const since = new Date(nowMs - LOGIN_WINDOW_MS).toISOString()
+  const { results } = await db.prepare(
+    'SELECT staff_key, device_id, attempted_at FROM staff_login_attempts WHERE shop_code = ? AND attempted_at > ? ORDER BY attempted_at DESC',
+  ).bind(code, since).all()
+  const byDev = new Map()
+  for (const r of results ?? []) {
+    const k = r.staff_key + '\u0000' + r.device_id
+    if (!byDev.has(k)) byDev.set(k, { key: r.staff_key, at: [] })
+    byDev.get(k).at.push(r.attempted_at)
+  }
+  const out = new Map()
+  for (const { key, at } of byDev.values()) {
+    if (at.length < LOGIN_MAX_FAILS) continue
+    const until = new Date(Date.parse(at[LOGIN_MAX_FAILS - 1]) + LOGIN_WINDOW_MS).toISOString()
+    if (!out.has(key) || out.get(key) < until) out.set(key, until)
+  }
+  return out
 }
 
 /** POST /store/:code/staff/invites { name, role } … 招待を出す（生の鍵はこの応答でだけ返す） */

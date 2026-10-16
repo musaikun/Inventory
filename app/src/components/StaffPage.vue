@@ -3,7 +3,7 @@
  * スタッフの管理（段 2-1・管理者だけ。User決定 2026-10-15 で作り直し・モック docs/mocks/staff-page-v2.html）。
  * - 一覧: スタッフと「ログイン中・作業時間」をひとつに。いま開いている人を上、名前の横に緑の点、作業時間（7日／30日）
  * - 招待（QR とリンク・10分・1回きり）、承認待ちは一覧の上でその場で承認／断る
- * - 人を押すとその人の画面: 権限（4つのまとまりのスイッチ）・肩書き・作業時間とやったこと・停止／ロック解除／削除
+ * - 人を押すとその人の画面: 権限（4つのまとまりのスイッチ）・肩書き・使った日とやったこと・ログインを止める／戻す・削除（ロック解除は暗証番号で止まっているときだけ）
  *   スタッフの管理と全品目・アカウントの削除は管理者だけ（切り替えられない）。管理者・自分の権限は変えられない
  * - オーナーの名前（User決定 2026-10-14）: オーナーの画面で、オーナー本人だけが変えられる。変えると過去の記録もそろう
  */
@@ -160,8 +160,14 @@ const actDays = ref(30)      // 直近30日。「もっと見る」で残して�
 const openDay = ref('')
 const actError = ref('')
 const confirmDel = ref(false)
+const confirmStop = ref(false)
+// 暗証番号を5回まちがえて止まっている（残りの分。0 以下なら解けている）
+const lockLeft = computed(() => {
+  const u = sel.value?.lockedUntil
+  return u ? Math.ceil((Date.parse(u) - now.value) / 60000) : 0
+})
 async function openPerson(id) {
-  selId.value = id; tab.value = 'work'; activity.value = null; actError.value = ''; confirmDel.value = false; msg.value = ''
+  selId.value = id; tab.value = 'work'; activity.value = null; actError.value = ''; confirmDel.value = false; confirmStop.value = false; msg.value = ''
   actDays.value = 30; openDay.value = ''
   try { activity.value = await getStaffActivity(id, 30) } catch (e) { actError.value = e.message }
 }
@@ -294,7 +300,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
         <button v-for="s in rows" :key="s.id" type="button" class="sp2-p" @click="openPerson(s.id)">
           <span class="sp2-av">{{ initial(s.name) }}<i :class="{ on: s.online }"></i></span>
           <span class="sp2-tx">
-            <b>{{ s.name }}<template v-if="isMe(s)">（自分）</template><span :class="['sp2-rl', { adm: s.role === 'admin' }]">{{ s.owner ? 'オーナー' : roleLabel(s.role) }}</span><em v-if="s.status === 'stopped'" class="sp2-stop">停止中</em></b>
+            <b>{{ s.name }}<template v-if="isMe(s)">（自分）</template><span :class="['sp2-rl', { adm: s.role === 'admin' }]">{{ s.owner ? 'オーナー' : roleLabel(s.role) }}</span><em v-if="s.status === 'stopped'" class="sp2-stop">ログイン停止中</em><em v-else-if="s.lockedUntil && Date.parse(s.lockedUntil) > now" class="sp2-stop">ロック中</em></b>
             <small>{{ summary(s) }}</small>
           </span>
           <span class="sp2-rt">
@@ -326,6 +332,12 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
           <b>{{ sel.name }}</b>
           <small>{{ sel.owner ? 'オーナー・店を登録した人' : roleLabel(sel.role) }}<template v-if="sel.approvedAt"> ・ {{ md(sel.approvedAt) }} から</template> ・ {{ sel.online ? 'いま使用中' : `最後に使ったのは${ago(sel.lastSeenAt)}` }}</small>
         </span>
+      </div>
+
+      <!-- 暗証番号の失敗で止まっているときだけ -->
+      <div v-if="lockLeft > 0" class="sp2-lockwarn">
+        <span>⚠ 暗証番号を5回まちがえて止まっています（あと{{ lockLeft }}分で自動で解けます）</span>
+        <button type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'unlock')">解除する</button>
       </div>
 
       <!-- オーナーの名前（オーナー本人だけ） -->
@@ -396,12 +408,19 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
         <button v-if="actDays < 90" type="button" class="sp2-more" @click="moreDays">もっと見る（90日まで）</button>
       </div>
 
-      <!-- 停止・ロック解除・削除 -->
+      <!-- ログインを止める／戻す・削除 -->
       <div v-if="!sel.owner && !isMe(sel)" class="sp2-foot">
-        <button v-if="sel.status === 'active'" type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'stop')">停止</button>
-        <button v-else type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'resume')">再開</button>
-        <button type="button" class="sp2-btn sec" :disabled="!!busy" title="暗証番号を5回まちがえて止まったのを解除" @click="act(sel, 'unlock')">ロック解除</button>
+        <button v-if="sel.status === 'active'" type="button" class="sp2-btn sec" :disabled="!!busy" @click="confirmStop = true">ログインを止める</button>
+        <button v-else type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'resume')">ログインを戻す</button>
         <button v-if="!confirmDel" type="button" class="sp2-btn danger-sec" :disabled="!!busy" @click="confirmDel = true">削除</button>
+      </div>
+      <p v-if="!sel.owner && sel.status === 'stopped'" class="sp2-note">ログインを止めています。記録と権限はそのままで、「ログインを戻す」でいつでも使えます</p>
+      <div v-if="confirmStop" class="sp2-card">
+        <p class="sp2-note">{{ sel.name }}さんのログインを止めます。いま開いている端末からも出されます。記録と権限は残り、いつでも戻せます（辞めた人は「削除」）。</p>
+        <div class="sp2-foot">
+          <button type="button" class="sp2-btn sec" @click="confirmStop = false">やめる</button>
+          <button type="button" class="sp2-btn" :disabled="!!busy" @click="confirmStop = false; act(sel, 'stop')">止める</button>
+        </div>
       </div>
       <div v-if="confirmDel" class="sp2-card danger">
         <p class="sp2-note">{{ sel.name }}さんを削除します。ログインできなくなり、記録は「{{ sel.name }}（削除済み）」で残ります。</p>
@@ -430,6 +449,8 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
 .sp2-who { display: grid; min-width: 0; }
 .sp2-who b { font-size: 15px; color: var(--text, #12303a); }
 .sp2-who span { font-size: 12px; color: var(--text-muted, #4c6a72); }
+.sp2-lockwarn { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; font-size: 13px; font-weight: 700; }
+.sp2-lockwarn span { flex: 1; }
 .sp2-stop { font-style: normal; margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: #fee2e2; color: #b91c1c; font-weight: 800; }
 .sp2-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sp2-acts select { min-height: 34px; border: 1px solid var(--border, #d6e6ea); border-radius: 8px; background: var(--surface, #fff); font-size: 13px; padding: 0 6px; }
