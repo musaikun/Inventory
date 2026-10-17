@@ -36,6 +36,8 @@ function button(label) {
 const shown = () => host.querySelector('.qty-display').textContent.trim()
 const basis = () => host.querySelector('.basis-toggle')
 const onOrder = () => basis().classList.contains('order')
+// トグルのうち、いま打っている側（2026-10-17）
+const active = () => basis().querySelector('.basis-seg.on b').textContent
 const chip = label =>
   [...host.querySelectorAll('.hint-ref')].find(b => b.textContent.trim().startsWith(label))
 
@@ -57,6 +59,7 @@ afterEach(() => {
   app?.unmount(); host?.remove()
   app = null; host = null
   vi.resetModules()
+  localStorage.removeItem('tanaoro_order_basis')
 })
 
 describe('ConfirmModal — 発注モードの推奨', () => {
@@ -154,10 +157,10 @@ describe('打つ欄はひとつ', () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' }, orderLot: 12 })
     await typeStock(8)
     expect(shown()).toBe('8')
-    expect(basis().textContent).toContain('在庫')
+    expect(active()).toBe('在庫')
 
     basis().click(); await nextTick()
-    expect(basis().textContent).toContain('発注')
+    expect(active()).toBe('発注')
     expect(shown(), '発注数はまだ0（推奨は自動で入らない）').toBe('0')
 
     await type(2)
@@ -195,13 +198,13 @@ describe('打つ場所が動かない', () => {
   // 欄を1つにして貼り付けをやめたので、その役目は上の欄そのものが果たす。
   it('打っている値は常に上の欄に出ており、切り替えても失われない', async () => {
     await mount({ targetLevel: 14, orderLot: 12 })
-    expect(basis().textContent).toContain('発注')
+    expect(active()).toBe('発注')
 
     await type(3)
     expect(shown()).toBe('3')
 
     await typeStock(9)                       // 在庫は任意。切り替えて打つ
-    expect(basis().textContent).toContain('在庫')
+    expect(active()).toBe('在庫')
     expect(shown()).toBe('9')
 
     basis().click(); await nextTick()
@@ -216,4 +219,24 @@ describe('打つ場所が動かない', () => {
     expect(button('発注 3口 を確定')).not.toBeUndefined()
   })
 
+})
+
+describe('発注数／在庫の切替（User決定 2026-10-17）', () => {
+  it('トグルで両方を見せ、いま打っている側だけ色が付く。切り替えたら次に開いてもそのまま', async () => {
+    await mount({ targetLevel: 14 })
+    expect([...basis().querySelectorAll('.basis-seg b')].map(b => b.textContent)).toEqual(['発注', '在庫'])
+    expect(active()).toBe('発注')
+    expect(basis().getAttribute('aria-checked')).toBe('true')
+    basis().click(); await nextTick()
+    expect(active()).toBe('在庫')
+    expect(host.querySelector('.qty-display.is-stock'), '在庫を打っている間は欄の色も変わる').not.toBeNull()
+
+    app.unmount(); host.remove()
+    await mount({ targetLevel: 14 })
+    expect(active(), '次の品目でも在庫のまま').toBe('在庫')
+    basis().click(); await nextTick()
+    app.unmount(); host.remove()
+    await mount({ targetLevel: 14 })
+    expect(active()).toBe('発注')
+  })
 })

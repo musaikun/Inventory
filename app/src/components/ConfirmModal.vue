@@ -4,6 +4,7 @@ import NumPad from './NumPad.vue'
 import { suggestOrder, roundUpExcess } from '../services/orderSuggestion.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 const props = defineProps({
   ingredient:      { type: String,  required: true },
@@ -113,8 +114,11 @@ function orderStep(delta) {
 //
 // 初期は発注数。発注セッションは発注数を入れる場所（User判断 2026-09-28）。
 // 以前は在庫が先で、打った数が在庫に入ったまま「保留」で完了し、発注が1件も
-// 記録されない事故が起きた（180品目ぶん）。在庫は単位の枠の ⇄ で任意に入れる。
-const orderFocus = ref('order')
+// 記録されない事故が起きた（180品目ぶん）。在庫は単位の位置の切替で任意に入れる。
+// 切り替えたら、切り替え直すまで次の品目・次の発注でもそのまま（端末ごと・User決定 2026-10-17）。
+// その代わり切替はトグルにして、いまどちらを打っているかを常に色で見せる（上の事故の再発を防ぐ）
+const _loadBasis = () => { try { return localStorage.getItem(STORAGE_KEYS.orderBasis) === 'stock' ? 'stock' : 'order' } catch (_) { return 'order' } }
+const orderFocus = ref(_loadBasis())
 // 入数の外側の単位名は持っていない（config の lotSizes は "24本" のように内側だけ）。
 // 入数が1なら発注単位＝棚卸単位なのでその名前を使い、まとめて頼む形のときは
 // 数え方だけを示す「口」を置く。名前を持たせるかは提案箱で PM 判断待ち。
@@ -127,6 +131,7 @@ const displayQty = computed(() => {
 })
 function toggleOrderBasis() {
   orderFocus.value = orderFocus.value === 'order' ? 'stock' : 'order'
+  try { localStorage.setItem(STORAGE_KEYS.orderBasis, orderFocus.value) } catch (_) {}
 }
 
 // 学習値（推奨・前週）をタップして発注数にセット（そこから微調整できる）
@@ -575,7 +580,7 @@ function saveEdit() {
            「在庫／発注」の切替を兼ねる。打つ欄を2つ並べると、どちらへ入るのかを
            毎回画面から読み取らせることになる。 -->
       <div class="qty-row">
-        <div :class="['qty-display', { error: hasError, filled: displayQty !== '—' }]">
+        <div :class="['qty-display', { error: hasError, filled: displayQty !== '—', 'is-stock': orderMode && !editingOrder }]">
           {{ displayQty }}
         </div>
         <!-- 発注：何を打っているかを単位の位置で示し、タップで入れ替える -->
@@ -584,12 +589,13 @@ function saveEdit() {
           class="basis-toggle"
           :class="{ order: editingOrder }"
           type="button"
+          role="switch"
+          :aria-checked="editingOrder ? 'true' : 'false'"
           @click="toggleOrderBasis"
           :aria-label="editingOrder ? '発注数を入力中。タップで在庫へ' : '在庫を入力中。タップで発注数へ'"
         >
-          <span class="basis-what">{{ editingOrder ? '発注' : '在庫' }}</span>
-          <span class="basis-unit">{{ editingOrder ? lotUnitLabel : (unit || '—') }}</span>
-          <span class="select-arrow">⇄</span>
+          <span :class="['basis-seg', { on: editingOrder }]"><b>発注</b><small>{{ lotUnitLabel }}</small></span>
+          <span :class="['basis-seg', 'stock', { on: !editingOrder }]"><b>在庫</b><small>{{ unit || '—' }}</small></span>
         </button>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
         <div v-else-if="!unitEditable" class="unit-locked-badge">
@@ -1178,21 +1184,26 @@ function saveEdit() {
 /* 何を打っているかを単位の位置で示す。欄を2つ並べない代わりに、ここで入れ替える */
 .basis-toggle {
   flex-shrink: 0;
-  display: flex; align-items: center; gap: 5px;
-  font-family: inherit; font-size: 13px; font-weight: 800;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--primary-weak);
-  color: var(--primary);
-  border: 1.5px solid var(--primary-border);
+  display: flex; gap: 2px;
+  padding: 3px; border-radius: 12px;
+  background: #e2eef1;
+  border: none;
+  font-family: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.basis-toggle.order { background: var(--primary); border-color: var(--primary); color: #fff; }
+.basis-seg {
+  display: grid; justify-items: center; gap: 1px;
+  min-width: 48px; padding: 6px 8px; border-radius: 9px;
+  color: var(--text-muted);
+}
+.basis-seg b { font-size: 13px; font-weight: 800; }
+.basis-seg small { font-size: 10.5px; font-weight: 700; opacity: 0.85; }
+.basis-seg.on { background: var(--primary); color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+/* 在庫を打っているときは色を変える（発注のつもりで在庫を打ち続ける事故を防ぐ） */
+.basis-seg.stock.on { background: #d97706; }
+.qty-display.is-stock { box-shadow: 0 0 0 2px #f59e0b; background: #fffbeb; }
 .basis-toggle:active { opacity: 0.85; }
-.basis-what { font-size: 11px; opacity: 0.85; }
-/* ⇄ はボタンの中に並べる（select 用の絶対配置のままだと、ボタンの外へ出ていた） */
-.basis-toggle .select-arrow { position: static; transform: none; color: inherit; }
-.basis-unit { font-size: 14px; }
 
 .hint-history {
   font-family: inherit;
