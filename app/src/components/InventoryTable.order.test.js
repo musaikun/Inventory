@@ -88,20 +88,23 @@ describe('発注と在庫を1つの枠に名前付きで出す', () => {
 })
 
 describe('発注の入力状況で絞り込む', () => {
-  it('発注済み／未発注で絞る（在庫を入れただけの品目は未入力）', async () => {
-    // プロントワッフルは在庫4があるが発注していない
+  it('確認済み／未確認で絞る。発注数か在庫のどちらかが入っていれば確認済み（User決定 2026-10-17）', async () => {
+    // プロントワッフルは在庫4があるが発注していない → 確認済み
     await mount({ 新: { orderQty: 1, unit: '個', lot: 1 } })
-    segBtn('発注済み').click(); await nextTick()
-    expect(host.querySelectorAll('.oq-box').length).toBe(1)
-    expect(rowOf('新')).toBeTruthy()
-
-    segBtn('未発注').click(); await nextTick()
+    segBtn('確認済み').click(); await nextTick()
     expect(host.querySelectorAll('.oq-box').length).toBe(2)
-    expect(rowOf('新')).toBeUndefined()
+    expect(rowOf('プロントワッフル')).toBeTruthy()
+
+    segBtn('未確認').click(); await nextTick()
+    expect(host.querySelectorAll('.oq-box').length).toBe(1)
+    expect(rowOf('ふんわりバームクーヘンD')).toBeTruthy()
   })
 
-  it('進捗は発注数を入れた品目の数', async () => {
+  it('進捗は、発注数か在庫か発注なし（0）のどれかが入った品目の数', async () => {
     await mount({ 新: { orderQty: 1 } })
-    expect(host.querySelector('.progress').textContent.replace(/\s+/g, '')).toBe('1/3件発注済み')
+    expect(host.querySelector('.progress').textContent.replace(/\s+/g, '')).toBe('2/3件確認済み')
+    app.unmount(); host.remove()
+    await mount({ 新: { orderQty: 1 } }, ['ふんわりバームクーヘンD'])
+    expect(host.querySelector('.progress').textContent.replace(/\s+/g, '')).toBe('3/3件確認済み')
   })
 })

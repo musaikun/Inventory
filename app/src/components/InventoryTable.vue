@@ -223,8 +223,9 @@ const hasAllExpanded = computed(() => {
 const _noneSet = computed(() => new Set(props.orderNone ?? []))
 const _orderedZero = item => _noneSet.value.has(item) && !(Number(props.orderMap?.[item]?.orderQty) > 0)
 function _isFilled(item) {
-  // 発注なしで確定した品目も「決めた」ので入力済み（0 と出す・2026-10-17）
-  if (props.orderMode) return Number(props.orderMap?.[item]?.orderQty) > 0 || _orderedZero(item)
+  // 発注は「発注数か在庫のどちらかが入っていれば確認済み」（User決定 2026-10-17。2026-09-29 の「発注数だけ」を置き換え）。
+  // 発注なしで確定（0）も確認済み
+  if (props.orderMode) return Number(props.orderMap?.[item]?.orderQty) > 0 || _orderedZero(item) || props.inventory[item] != null
   return props.inventory[item] != null
 }
 
@@ -250,8 +251,8 @@ const catRealStats = computed(() => {
 const filterOpts = computed(() => props.orderMode
   ? [
       { value: 'all',    label: 'すべて' },
-      { value: 'filled', label: '発注済み' },
-      { value: 'empty',  label: '未発注' },
+      { value: 'filled', label: '確認済み' },
+      { value: 'empty',  label: '未確認' },
     ]
   : [
       { value: 'all',    label: 'すべて' },
@@ -735,7 +736,7 @@ const scopedTotal = computed(() => {
 
 const scopedFilled = computed(() => {
   const src = props.orderMode
-    ? [...Object.entries(props.orderMap || {}).filter(([, d]) => Number(d?.orderQty) > 0), ...[..._noneSet.value].filter(_orderedZero).map(n => [n])]
+    ? config.value.order.filter(_isFilled).map(n => [n])
     : Object.entries(props.inventory)
   return src.filter(([item]) => {
     if (props.categoryScope === 'food')   return !_isSupply(item)
@@ -788,10 +789,10 @@ function fmtYen(n) {
         <!-- 進捗。入力画面以外（在庫の閲覧など）は親が差し替える -->
         <slot name="progress" :filled="scopedFilled" :total="scopedTotal">
           <button v-if="!preview && progressTappable" type="button" class="progress progress-tap" title="自分の変更履歴を見る" @click="emit('progress-tap')">
-            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '発注済み' : '入力済み' }}<span class="progress-more" aria-hidden="true">›</span>
+            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '確認済み' : '入力済み' }}<span class="progress-more" aria-hidden="true">›</span>
           </button>
           <span v-else-if="!preview" class="progress">
-            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '発注済み' : '入力済み' }}
+            <strong>{{ scopedFilled }}</strong> / {{ scopedTotal }} 件{{ orderMode ? '確認済み' : '入力済み' }}
           </span>
         </slot>
       </div>
@@ -1052,8 +1053,8 @@ function fmtYen(n) {
         <tr v-if="visibleItemCount === 0" class="empty-row">
           <td :colspan="totalCols" class="empty-cell">
             <template v-if="config.order.length === 0">上のフォームから品目を追加してください</template>
-            <template v-else-if="filterMode === 'filled'">{{ orderMode ? '発注済みの品目がありません' : '入力済みの品目がありません' }}</template>
-            <template v-else-if="filterMode === 'empty'">{{ orderMode ? 'すべての品目に発注数が入っています' : 'すべての品目が入力済みです 🎉' }}</template>
+            <template v-else-if="filterMode === 'filled'">{{ orderMode ? '確認済みの品目がありません' : '入力済みの品目がありません' }}</template>
+            <template v-else-if="filterMode === 'empty'">{{ orderMode ? 'すべての品目を確認しました 🎉' : 'すべての品目が入力済みです 🎉' }}</template>
             <template v-else>品目がありません</template>
           </td>
         </tr>
