@@ -153,6 +153,10 @@ function _buildRow({ line, cols, spec, headers }) {
     const r = num(spec.categoryCode, '分類コード')
     if (r.value !== undefined) row.categoryCode = r.value
   }
+  if (spec.hidden !== undefined && spec.hidden >= 0) {
+    // このアプリの書き出しの「非表示」列（○ で非表示・空欄で表示）。2026-10-17
+    row.hidden = String(_cellAt(cols, spec.hidden) ?? '').trim() !== ''
+  }
   if (spec.reorderPoint !== undefined && spec.reorderPoint >= 0) {
     const r = num(spec.reorderPoint, '発注点', { max: IMPORT_MAX_REORDER_POINT })
     // 発注点列があるとき、空欄は「解除」を意味する。undefined（列なし）と区別して null にする。
@@ -337,6 +341,29 @@ export function parseItemCSV(csvText, { keepMeta = false, splitByCode = false } 
  * @param {object} [opts]
  * @param {boolean} [opts.hasHeader=true] false なら1行目もデータ行として扱う（ヘッダ無しファイル）
  */
+/**
+ * このアプリが書き出した品目リストか（services/exportBuild.js の itemHeaders）。
+ * そうなら列の対応を見出しの名前で返す（問いなしで取り込める）。違えば null。
+ * 金額なしで書き出したもの（単価の列が無い）・非表示の列が無いものも当てる。
+ * 並び替えの2列は「入数」の直後の2列（名前は店の軸名なので位置で決める）
+ */
+export const OWN_ITEM_HEADERS = ['品目名', '単位', 'カテゴリ', 'エイリアス', '商品コード', '分類コード', '前月実績', '入数', '発注点']
+export function ownItemMapping(csvText) {
+  const { rows, error } = tokenizeCSV(csvText)
+  if (error || !rows.length) return null
+  const h = rows[0].cols.map(c => String(c ?? '').trim())
+  if (h[0] !== '品目名' || !OWN_ITEM_HEADERS.every(k => h.includes(k))) return null
+  const at = k => { const i = h.indexOf(k); return i >= 0 ? i : null }
+  const lot = at('入数'), reorder = at('発注点')
+  const axisA = lot + 1 < reorder ? lot + 1 : null
+  const axisB = lot + 2 < reorder ? lot + 2 : null
+  return {
+    name: 0, unit: at('単位'), price: at('単価'), category: at('カテゴリ'), code: at('商品コード'),
+    categoryCode: at('分類コード'), prevMonth: at('前月実績'), lotSize: lot, axisA, axisB,
+    reorderPoint: reorder, hidden: at('非表示'),
+  }
+}
+
 export function parseMappedCSV(csvText, mapping = {}, opts = {}) {
   const nameCol = mapping.name
   if (nameCol === null || nameCol === undefined) throw new Error('品目名列を選択してください')
@@ -365,9 +392,12 @@ export function parseMappedCSV(csvText, mapping = {}, opts = {}) {
   ]
 
   const spec = { name: nameCol }
-  for (const k of ['unit', 'price', 'category', 'code', 'lotSize', 'prevMonth', 'axisA', 'axisB']) {
+  // reorderPoint・categoryCode・hidden は、このアプリの品目リスト（ownItemMapping）から来たときだけ入る
+  for (const k of ['unit', 'price', 'category', 'code', 'lotSize', 'prevMonth', 'axisA', 'axisB', 'reorderPoint', 'categoryCode', 'hidden']) {
     if (mapping[k] != null && mapping[k] >= 0) spec[k] = mapping[k]
   }
+  parsed.hasReorderColumn = spec.reorderPoint !== undefined
+  parsed.hasHiddenColumn  = spec.hidden !== undefined
 
   _collectRows({
     records: records.slice(headerRow + 1),
@@ -612,6 +642,17 @@ export function buildImportPlan(parsed, current, opts = {}) {
     if (row.tagsB !== undefined) fileTagsB[row.name] = row.tagsB
   }
 
+  // 非表示の列があるファイルだけ、非表示を置き直す（○ で非表示・空欄で表示。ファイルに無い品目はそのまま）
+  const hiddenNow = new Set(current.hiddenItems ?? [])
+  const hide = [], unhide = []
+  if (parsed.hasHiddenColumn) {
+    for (const row of rows) {
+      if (!orderSet.has(row.name) || row.hidden === undefined) continue
+      if (row.hidden && !hiddenNow.has(row.name)) hide.push(row.name)
+      if (!row.hidden && hiddenNow.has(row.name)) unhide.push(row.name)
+    }
+  }
+
   // 分類コードはカテゴリ単位（品目単位の差分に出ないので、別立てで見せる）
   for (const [category, code] of Object.entries(next.categoryCodes)) {
     const before = current.categoryCodes?.[category]
@@ -666,7 +707,9 @@ export function buildImportPlan(parsed, current, opts = {}) {
     restoredTags,
     manualItems: (current.manualItems ?? []).filter(n => orderSet.has(n)),
     hasReorderColumn: parsed.hasReorderColumn,
+    hide, unhide,
     summary: {
+      hiddenChanges: { hide: hide.length, unhide: unhide.length },
       added, updated, unchanged, removed, truncated,
       skipped:        parsed.skipped,
       errors:         parsed.errors ?? [],

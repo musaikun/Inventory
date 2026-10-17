@@ -6,6 +6,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { deviceId, storedDeviceName, staffIdentity, ownerIdentity, setDeviceName } from '../composables/useDeviceId.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { assertSpreadsheetFile, downloadItemTemplate, excelToCsv } from '../composables/usePdfImporter.js'
+import { ownItemMapping } from '../utils/itemImport.js'
 import PdfImporterModal from './PdfImporterModal.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 import ImportMapper from './ImportMapper.vue'
@@ -317,6 +318,13 @@ async function openMapper(file, { fromRecipe = false } = {}) {
     mapperPdf.value          = null
     mapperPdfPages.value     = []
     mapperExpectRecipe.value = fromRecipe
+    // このアプリが書き出した品目リストなら、列を選ぶ問いを出さずに確認画面へ（2026-10-17）
+    const own = ownItemMapping(mapperCsvText.value)
+    if (own) {
+      openPreview({ origin: 'mapped', csvText: mapperCsvText.value, mapping: own, headerRow: 0, headerNamed: true, filename: file.name })
+      status.value = null
+      return
+    }
     showMapper.value         = true
     status.value             = null
   } catch (err) {

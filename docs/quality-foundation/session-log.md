@@ -2,6 +2,17 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-17 — version 0.164.0 / 書き出すを作り直す（種類・いつ・形式・Excel）
+
+User決定（モック `docs/mocks/export-v2.html`）: 品目リストはこのアプリの形で出し、そのまま取り込めること。非表示の品目は選んだときだけ。棚卸結果は「いつ・何回分」。数えていない品目も非表示でなければ出す。金額は入れる・入れないを選ぶ。形式は Excel / CSV。発注の記録・入出庫の記録も書き出す。分類で絞るは置かない。「並べ方」は1つのブックの中の話（1枚＝品目×日付／1回ずつ＝シートを分ける）。
+- `services/exportBuild.js`（表を組み立てる・純粋関数）: buildItemRows / buildStocktakeSheets（wide・each）/ buildOrderRows / buildMovementRows / periodRange。棚卸は いまの品目の並び → 棚卸にだけある品目。いま非表示の品目は、選んだ回で数えていたときだけ出す。
+- `utils/exportFile.js`: CSV（BOM・同じ見出しのシートはつなげる＝1回ずつの CSV は日付の列で続ける）／ Excel（SheetJS を動的 import・シートごと・数は数のまま・= で始まる文字は止める・列幅）。
+- `components/ExportSheet.vue`: 種類 → 棚卸は「直近1回／直近3回／今年／選ぶ」＋一覧のチェック、発注・入出庫は「今月／先月／直近3か月／日付を選ぶ」→ 形式（前に選んだものを端末に覚える `STORAGE_KEYS.exportFormat`）→ 並べ方（2回以上）→ 非表示・金額。金額を見る権限が無い人は切り替えを出さず金額なし。`DataPort` の書き出しはこれに置き換え（`exportConfigCSV` は残置・未使用）。
+- 取り込み: `itemImport.ownItemMapping` でこのアプリの品目リスト（見出しの名前）と分かれば、`SettingsModal.openMapper` は列を選ぶ問いを飛ばして確認画面へ。`parseMappedCSV` は発注点・分類コード・非表示の列も読む。非表示の列があれば `plan.hide / unhide` で非表示を置き直す（確認画面に件数）。取り込み直しても単価・発注点・並び替え・非表示が戻ることをテストで固定（金額なしで出したものは単価を消さない）。
+- Excel の取り込みは最初のシートだけ読むので、「過去の棚卸にそのまま入れられます」は1回分か CSV の1回ずつのときだけ出す。
+- テスト: `exportBuild.test.js`・`exportFile.test.js`・`ExportSheet.test.js`、`MasterManagePage.dataScreen.test.js`。App 2135 pass、build 成功。390px で確認（`docs/mocks/export-v2-impl.png`）。
+- version: 0.163.2 → **0.164.0**。
+
 ## 2026-10-17 — version 0.163.2 / モック: 書き出すの作り直し
 
 User決定: 品目リストはこのアプリの形で出し、そのまま取り込めること（取り込んだ元ファイルと同じ形は、画像・PDF由来で叶えられないので作らない）。非表示の品目を入れるかは選ぶ。棚卸結果は「いつ・何回分」を選ぶ。数えていない品目は非表示でなければ出す。金額は入れる・入れないを選ぶ。形式は Excel / CSV。発注の記録・入出庫の記録の書き出しを足す。分類で絞るは置かない（案）。

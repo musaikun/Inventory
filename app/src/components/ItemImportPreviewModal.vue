@@ -437,6 +437,11 @@ async function onConfirm() {
           </div>
         </div>
 
+        <!-- このアプリの品目リスト（非表示の列あり）から: 非表示を置き直す（2026-10-17） -->
+        <p v-if="summary.hiddenChanges && (summary.hiddenChanges.hide || summary.hiddenChanges.unhide)" class="policy-note">
+          「非表示」の列のとおりに、<template v-if="summary.hiddenChanges.hide"><b>{{ summary.hiddenChanges.hide }}品目を非表示</b></template><template v-if="summary.hiddenChanges.hide && summary.hiddenChanges.unhide">・</template><template v-if="summary.hiddenChanges.unhide"><b>{{ summary.hiddenChanges.unhide }}品目を表示</b></template>にします。
+        </p>
+
         <!-- 発注点をどう扱うか。実装（列の有無で決まる）と同じ文言にする -->
         <p class="policy-note">
           <template v-if="summary.reorderPointsFromFile">

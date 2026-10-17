@@ -44,6 +44,7 @@ export const STORAGE_KEYS = {
   dayNotes:         'inventory_day_notes_v1',  // 日別メモ（内部イベント・学習除外フラグ）
   pdfProfiles:      'inventory_pdf_profiles_v1',  // PDF列マッピングのレシピ保存（旧・移行元）
   importRecipes:    'inventory_import_recipes_v1', // 取込レシピ（CSV/Excel/PDF共通）
+  exportFormat:     'tanaoro_export_format',     // 書き出しの形式（xlsx / csv）。前に選んだものを既定に（端末ごと）
   dataOwner:        '_data_owner',   // localStorage の業務データが属する店舗コード（アカウント分離用）
   // 天気連携（端末固有・アカウント切替でも保持＝端末の物理位置は店舗が変わっても同じ）。
   // 業務データではないため accountData の全消去対象には含めない。

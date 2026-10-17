@@ -373,6 +373,15 @@ function _applyImportPlan(plan) {
   config.axisNames     = [plan.axisNames[0] ?? '', plan.axisNames[1] ?? '']
   config.manualItems   = plan.manualItems
   config.importExcluded = importExcludedRecord(plan.summary)
+  // このアプリの品目リスト（非表示の列あり）を取り込んだときだけ、非表示を置き直す（2026-10-17）
+  if (plan.hide?.length || plan.unhide?.length) {
+    const now = new Date().toISOString()
+    const drop = new Set(plan.unhide ?? [])
+    config.hiddenItems = (config.hiddenItems ?? []).filter(n => !drop.has(n))
+    config.hiddenAuto = (config.hiddenAuto ?? []).filter(n => !drop.has(n))
+    for (const n of drop) delete config.hiddenAt[n]
+    for (const n of plan.hide ?? []) { if (!config.hiddenItems.includes(n)) config.hiddenItems.push(n); config.hiddenAt[n] = now }
+  }
   // 取り込んで戻した品目は「削除した」から外す
   const inPlan = new Set(plan.order)
   config.deletedItems = (config.deletedItems ?? []).filter(n => !inPlan.has(n))

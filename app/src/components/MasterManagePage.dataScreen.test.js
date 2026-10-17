@@ -91,10 +91,10 @@ describe('取り込む / 書き出す（ホームのカードから開く・管�
     expect(sheetRows()).toEqual(['品目リスト', '過去の納品', '過去の棚卸'])
   })
 
-  it('「書き出す」で、品目リストと棚卸結果を選べる', async () => {
+  it('「書き出す」で、品目リスト・棚卸結果・発注の記録・入出庫の記録を選べる（2026-10-17）', async () => {
     await mountPort()
     port.open('export'); await nextTick()
-    expect(sheetRows()).toEqual(['品目リスト', '棚卸結果'])
+    expect(rowTitles('.ex .ex-tx b')).toEqual(['品目リスト', '棚卸結果', '発注の記録', '入出庫の記録'])
   })
 
   it('戻る操作は、画面を閉じる前にシートを閉じる', async () => {

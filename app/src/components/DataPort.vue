@@ -1,20 +1,17 @@
 <script setup>
 /**
  * 取り込む・書き出す（User決定 2026-10-14: 管理からホームへ移した）。
- * 入口は1つずつにして、押してから種類を選ぶ（品目リスト／過去の納品／過去の棚卸、書き出しは品目リスト／棚卸結果）。
+ * 入口は1つずつにして、押してから種類を選ぶ（品目リスト／過去の納品／過去の棚卸）。書き出しは ExportSheet.vue。
  * ホームのカードから open('import' | 'export') で開く。取込の確認画面・列指定・PDF・読み方の保存もここに持つ
  */
 import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed, onUnmounted } from 'vue'
-import { useConfig } from '../composables/useConfig.js'
-import { categoryOrderOf } from '../services/snapshotView.js'
-import { useHistory } from '../composables/useHistory.js'
 import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useDataImport } from '../composables/useDataImport.js'
-import { runBusy, HEAVY_ROWS } from '../composables/useBusy.js'
 import DeliveryImportModal from './DeliveryImportModal.vue'
 import PastStocktakeImportModal from './PastStocktakeImportModal.vue'
 import RowMapperModal from './RowMapperModal.vue'
+import ExportSheet from './ExportSheet.vue'
 import PdfGridSetup from './PdfGridSetup.vue'
 
 function _mayPick(kind) {
@@ -24,8 +21,6 @@ function _mayPick(kind) {
   return false
 }
 
-const { config, itemCount, exportConfigCSV } = useConfig()
-const { getSnapshots, exportSnapshotCSV } = useHistory()
 
 // ── 過去データ取込（納品・棚卸）＋ 書き出し ─────────────────────
 const {
@@ -45,31 +40,6 @@ function pickDelivery()  { deliveryFileInput.value?.click() }
 function pickStocktake() { stocktakeFileInput.value?.click() }
 function onDeliveryFile(e)  { const f = e.target.files?.[0]; e.target.value = ''; openDeliveryFromFile(f) }
 function onStocktakeFile(e) { const f = e.target.files?.[0]; e.target.value = ''; openStocktakeFromFile(f) }
-
-function _download(text, filename) {
-  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(a.href)
-}
-// CSVの組み立ては同期で、品目が多いと数百ms止まる。止まっている間は旗を立てても
-// 描画されないので、多いときだけ先に描いてから始める（少ないときに待たせないため）。
-function exportMasterCsv() {
-  if (itemCount.value === 0) { alert('出力する品目がありません。'); return }
-  return runBusy('書き出し中…', () => {
-    _download(exportConfigCSV(), `品目マスタ_${new Date().toISOString().slice(0, 10)}.csv`)
-  }, { paintFirst: itemCount.value >= HEAVY_ROWS })
-}
-function exportLatestSnapshotCsv() {
-  const snap = getSnapshots()[0]
-  if (!snap) { alert('棚卸の履歴がまだありません。'); return }
-  return runBusy('書き出し中…', () => {
-    _download(exportSnapshotCSV(snap, { categoryOrder: categoryOrderOf(config) }), `棚卸結果_${snap.date}.csv`)
-  }, { paintFirst: (snap.items ?? []).length >= HEAVY_ROWS })
-}
-const latestSnapshotDate = computed(() => getSnapshots()[0]?.date ?? null)
 
 // ── 各セクションのヘルプ（「?」で開閉） ─────────────────────────
 const HELP = {
@@ -113,10 +83,12 @@ defineExpose({ open: openPicker })
 <template>
   <div class="mp-port">
     <!-- 取り込む / 書き出す の種類を選ぶ -->
-    <div v-if="picker" class="mm-pick-back" @click.self="closePicker">
-      <div class="mm-pick" role="dialog" aria-modal="true" :aria-label="picker === 'import' ? '取り込む種類を選ぶ' : '書き出す種類を選ぶ'">
+    <!-- 書き出す（種類・いつ・形式を選ぶ。2026-10-17） -->
+    <ExportSheet v-if="picker === 'export'" @close="closePicker" />
+    <div v-if="picker === 'import'" class="mm-pick-back" @click.self="closePicker">
+      <div class="mm-pick" role="dialog" aria-modal="true" aria-label="取り込む種類を選ぶ">
         <div class="mm-pick-head">
-          <span class="mm-pick-title">{{ picker === 'import' ? '何を取り込みますか？' : '何を書き出しますか？' }}</span>
+          <span class="mm-pick-title">何を取り込みますか？</span>
           <button class="mm-pick-close" aria-label="閉じる" @click="closePicker">✕</button>
         </div>
 
@@ -168,28 +140,6 @@ defineExpose({ open: openPicker })
           </div>
         </template>
 
-        <template v-else>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(exportMasterCsv)">
-              <span class="mm-row-ico">📋</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">品目リスト</span>
-                <span class="mm-row-sub">現在の品目マスタ（CSV・{{ itemCount }}件）</span>
-              </span>
-              <span class="mm-row-arrow">↓</span>
-            </button>
-          </div>
-          <div class="mm-row-wrap">
-            <button class="mm-row" @click="runPick(exportLatestSnapshotCsv)">
-              <span class="mm-row-ico">🧮</span>
-              <span class="mm-row-body">
-                <span class="mm-row-title">棚卸結果</span>
-                <span class="mm-row-sub">{{ latestSnapshotDate ? `直近の入力済み（${latestSnapshotDate}）` : '履歴がまだありません' }}</span>
-              </span>
-              <span class="mm-row-arrow">↓</span>
-            </button>
-          </div>
-        </template>
       </div>
     </div>
 
