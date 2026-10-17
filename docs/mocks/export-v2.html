@@ -1,0 +1,167 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>書き出し モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; height:740px; background:rgba(11,31,38,.45); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .sheet { background:var(--bg); border-radius:20px 20px 0 0; max-height:92%; display:flex; flex-direction:column; }
+  .grab { width:40px; height:4px; border-radius:9px; background:#b8cdd3; margin:8px auto 2px; }
+  .sh { display:flex; align-items:center; gap:8px; padding:8px 16px 10px; }
+  .sh b { flex:1; font-size:16px; font-weight:900; } .sh .x { color:var(--muted); font-size:18px; } .sh .bk { color:var(--primary); font-weight:800; font-size:14px; }
+  .body { overflow:hidden; padding:0 12px 12px; display:grid; gap:10px; }
+  .box { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .it { display:flex; align-items:center; gap:10px; padding:12px; border-top:1px solid #eef4f6; font-size:13.5px; }
+  .it:first-child { border-top:none; }
+  .ic { width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:16px; background:#ecfeff; flex:none; }
+  .tx { flex:1; min-width:0; } .tx b { display:block; font-weight:800; } .tx small { display:block; font-size:11.5px; color:var(--muted); margin-top:2px; line-height:1.4; }
+  .ar { color:#94a3b8; font-weight:900; }
+  .lab { font-size:11.5px; font-weight:800; color:var(--muted); letter-spacing:.04em; padding:2px 4px 0; }
+  .seg { display:flex; background:#fff; border-radius:12px; padding:3px; gap:3px; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .seg span { flex:1; text-align:center; padding:9px 0; border-radius:9px; font-size:13px; font-weight:800; color:var(--muted); }
+  .seg span.on { background:var(--deep); color:#fff; }
+  .seg span small { display:block; font-size:10px; font-weight:600; opacity:.85; }
+  .tg { width:44px; height:26px; border-radius:999px; background:var(--primary); position:relative; flex:none; } .tg::after { content:''; position:absolute; right:3px; top:3px; width:20px; height:20px; border-radius:50%; background:#fff; }
+  .tg.off { background:#cbd5e1; } .tg.off::after { left:3px; right:auto; }
+  .note { font-size:11.5px; color:var(--muted); line-height:1.6; padding:0 4px; }
+  .ok { font-size:11.5px; color:#166534; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:8px 10px; line-height:1.55; }
+  .go { background:var(--primary); color:#fff; text-align:center; font-weight:900; font-size:15px; border-radius:14px; padding:14px; }
+  .go small { display:block; font-weight:600; font-size:11px; opacity:.9; margin-top:2px; }
+  .ck { width:22px; height:22px; border-radius:7px; border:2px solid #b8cdd3; flex:none; display:grid; place-items:center; font-size:13px; color:#fff; font-weight:900; }
+  .ck.on { background:var(--primary); border-color:var(--primary); }
+  .num { font-size:12px; color:var(--muted); font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+  .more { text-align:center; color:var(--primary); font-weight:800; font-size:12.5px; padding:10px; border-top:1px solid #eef4f6; }
+  .quick { display:flex; gap:6px; flex-wrap:wrap; }
+  .quick span { border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 11px; font-size:12px; font-weight:800; color:var(--text); }
+  .quick span.on { background:var(--deep); color:#fff; border-color:transparent; }
+  .xl { width:520px; background:#fff; border-radius:10px; box-shadow:0 12px 34px rgba(0,0,0,.2); overflow:hidden; font-size:12px; }
+  .xl .tab { background:#1d6f42; color:#fff; font-weight:800; padding:8px 12px; font-size:12px; }
+  .xl table { border-collapse:collapse; width:100%; }
+  .xl td, .xl th { border:1px solid #d9d9d9; padding:4px 6px; text-align:right; white-space:nowrap; }
+  .xl th { background:#f2f2f2; font-weight:700; text-align:center; }
+  .xl td:first-child, .xl td:nth-child(2) { text-align:left; }
+  .xl tr.sum td { font-weight:800; background:#fafafa; }
+  .xl .sheets { display:flex; gap:2px; background:#f2f2f2; padding:4px 8px; font-size:11px; }
+  .xl .sheets span { padding:3px 10px; background:#fff; border-radius:4px 4px 0 0; } .xl .sheets span.on { font-weight:800; color:#1d6f42; }
+  .call { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; max-width:340px; }
+</style></head><body>
+<h1>書き出す（作り直し）</h1>
+<p class="lead">
+ホームの「書き出す」→ 種類を選ぶ → その種類のシートで<b>最初に聞くのは「いつ・何回分」と「形式」だけ</b>。ほかは既定のまま下に並べ、1つずつオン・オフ。<br>
+品目リストは<b>このアプリの形</b>で出し、そのまま「取り込む」に入れると問いなしで読める（読み方を当てる必要がない）。分類で絞る機能は置かない（Excel のフィルタで足りる）。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">① 種類を選ぶ<small>発注の記録・入出庫の記録を足す（今は取り込めるのに書き出せない）</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="sh"><b>何を書き出しますか？</b><span class="x">✕</span></div>
+  <div class="body">
+    <div class="box">
+      <div class="it"><span class="ic">📋</span><span class="tx"><b>品目リスト</b><small>品目・単位・単価・分類・発注点など。このアプリにそのまま取り込めます</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">📦</span><span class="tx"><b>棚卸結果</b><small>いつの棚卸か・何回分かを選べます</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">🧾</span><span class="tx"><b>発注の記録</b><small>期間・業者ごとの発注数</small></span><span class="ar">›</span></div>
+      <div class="it"><span class="ic">📥</span><span class="tx"><b>入出庫の記録</b><small>期間の入庫（納品）・出庫</small></span><span class="ar">›</span></div>
+    </div>
+    <p class="note">金額を見る権限が無い人には、金額の列は出しません。</p>
+  </div>
+</div></div></div>
+
+<div class="col"><div class="cap">② 品目リスト<small>このアプリの形で。非表示の品目を入れるかだけ選ぶ</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="sh"><span class="bk">‹</span><b>品目リスト</b><span class="x">✕</span></div>
+  <div class="body">
+    <div class="lab">形式</div>
+    <div class="seg"><span class="on">Excel<small>.xlsx</small></span><span>CSV<small>.csv</small></span></div>
+    <div class="box">
+      <div class="it"><span class="tx"><b>非表示の品目も入れる</b><small>入れると「非表示」の列に ○ が付きます。取り込み直すと非表示のまま戻ります</small></span><span class="tg off"></span></div>
+      <div class="it"><span class="tx"><b>金額（単価）を入れる</b><small>業者に渡すときは外せます</small></span><span class="tg"></span></div>
+    </div>
+    <div class="ok">✓ このファイルは「取り込む › 品目リスト」にそのまま入れられます（列を選ぶ問いは出ません）。<br>品目名・単位・単価・分類・別名・商品コード・入数・発注点・並び順</div>
+    <div class="go">書き出す<small>184品目（非表示の12品目は入れない）</small></div>
+  </div>
+</div></div></div>
+
+<div class="col"><div class="cap">③ 棚卸結果<small>いつ・何回分。数えていない品目も（非表示でなければ）出す</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="sh"><span class="bk">‹</span><b>棚卸結果</b><span class="x">✕</span></div>
+  <div class="body">
+    <div class="lab">いつの棚卸</div>
+    <div class="quick"><span class="on">直近1回</span><span>直近3回</span><span>今年</span><span>選ぶ</span></div>
+    <div class="box">
+      <div class="it"><span class="ck on">✓</span><span class="tx"><b>10/31（金） 月末</b><small>184品目・未入力 6</small></span><span class="num">¥482,300</span></div>
+      <div class="it"><span class="ck">　</span><span class="tx"><b>9/30（火） 月末</b><small>181品目</small></span><span class="num">¥455,120</span></div>
+      <div class="it"><span class="ck">　</span><span class="tx"><b>8/31（日） 月末</b><small>179品目</small></span><span class="num">¥501,880</span></div>
+      <div class="more">もっと前を見る</div>
+    </div>
+    <div class="lab">形式</div>
+    <div class="seg"><span class="on">Excel<small>.xlsx</small></span><span>CSV<small>.csv</small></span></div>
+    <div class="box">
+      <div class="it"><span class="tx"><b>金額（単価・在庫金額）を入れる</b><small>分類ごとの小計と合計も付きます</small></span><span class="tg"></span></div>
+    </div>
+    <div class="go">書き出す<small>10/31 の1回分</small></div>
+  </div>
+</div></div></div>
+
+<div class="col"><div class="cap">③' 何回分か選んだとき<small>2回以上 → 品目×日付の横並びで1枚（比べやすい）</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="sh"><span class="bk">‹</span><b>棚卸結果</b><span class="x">✕</span></div>
+  <div class="body">
+    <div class="lab">いつの棚卸</div>
+    <div class="quick"><span>直近1回</span><span class="on">直近3回</span><span>今年</span><span>選ぶ</span></div>
+    <div class="box">
+      <div class="it"><span class="ck on">✓</span><span class="tx"><b>10/31（金） 月末</b><small>184品目・未入力 6</small></span><span class="num">¥482,300</span></div>
+      <div class="it"><span class="ck on">✓</span><span class="tx"><b>9/30（火） 月末</b><small>181品目</small></span><span class="num">¥455,120</span></div>
+      <div class="it"><span class="ck on">✓</span><span class="tx"><b>8/31（日） 月末</b><small>179品目</small></span><span class="num">¥501,880</span></div>
+      <div class="more">もっと前を見る</div>
+    </div>
+    <div class="lab">並べ方</div>
+    <div class="seg"><span class="on">横に並べて1枚<small>品目×日付</small></span><span>回ごとに分ける<small>Excelはシート・CSVはファイル</small></span></div>
+    <div class="box">
+      <div class="it"><span class="tx"><b>金額（単価・在庫金額）を入れる</b></span><span class="tg"></span></div>
+    </div>
+    <div class="go">書き出す<small>3回分（8/31〜10/31）</small></div>
+  </div>
+</div></div></div>
+
+<div class="col"><div class="cap">④ 発注の記録・入出庫の記録<small>期間で選ぶ（棚卸と違って回ではなく日付の幅）</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="sh"><span class="bk">‹</span><b>発注の記録</b><span class="x">✕</span></div>
+  <div class="body">
+    <div class="lab">期間</div>
+    <div class="quick"><span class="on">今月</span><span>先月</span><span>直近3か月</span><span>日付を選ぶ</span></div>
+    <p class="note">10/1〜10/17 ・ 発注 9回・ 業者 4</p>
+    <div class="lab">形式</div>
+    <div class="seg"><span class="on">Excel<small>.xlsx</small></span><span>CSV<small>.csv</small></span></div>
+    <div class="box">
+      <div class="it"><span class="tx"><b>金額を入れる</b><small>単価・発注金額</small></span><span class="tg"></span></div>
+    </div>
+    <p class="note">1行＝発注1回の品目1つ（日付・業者・品目・数量・単位・単価・金額・発注した人）。</p>
+    <div class="go">書き出す<small>今月の9回分</small></div>
+  </div>
+</div></div></div>
+
+<div class="col"><div class="cap">③' の中身（Excel）<small>未入力は空欄で出す（非表示の品目は出さない）。下に合計</small></div>
+<div class="xl">
+  <div class="tab">棚卸結果_2026-08〜10.xlsx</div>
+  <table>
+    <tr><th>品目名</th><th>分類</th><th>単位</th><th>単価</th><th>8/31</th><th>9/30</th><th>10/31</th><th>10/31 金額</th></tr>
+    <tr><td>キャベツ</td><td>野菜</td><td>玉</td><td>180</td><td>12</td><td>9</td><td>14</td><td>2,520</td></tr>
+    <tr><td>玉ねぎ</td><td>野菜</td><td>kg</td><td>220</td><td>8.5</td><td>10</td><td>7</td><td>1,540</td></tr>
+    <tr><td>豚バラ</td><td>肉</td><td>kg</td><td>1,280</td><td>6</td><td>5.5</td><td></td><td></td></tr>
+    <tr><td>生ビール樽</td><td>ドリンク</td><td>本</td><td>9,800</td><td>3</td><td>4</td><td>3</td><td>29,400</td></tr>
+    <tr class="sum"><td>合計</td><td></td><td></td><td></td><td>¥501,880</td><td>¥455,120</td><td>¥482,300</td><td>482,300</td></tr>
+  </table>
+  <div class="sheets"><span class="on">棚卸結果</span></div>
+</div>
+<div class="call">「回ごとに分ける」にすると、1回ずつ今と同じ形（日付・コード・品目・分類・単位・入数・前月・数量・単価・在庫金額）で出る。これはそのまま「取り込む › 過去の棚卸」に入れられる。</div>
+</div>
+
+</div></body></html>
