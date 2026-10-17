@@ -384,11 +384,12 @@ function onPrimary() {
 // 確定の文言。棚卸と発注で同じ位置・同じ大きさに置き、言葉だけを変える。
 const primaryLabel = computed(() => {
   if (props.isNew)       return '新規登録'
-  if (hasDuplicate.value) return '上書き'
+  // 発注は在庫が入っていても発注数で言う（在庫ありで「上書き」になり、発注なしで確定が消えていた・User報告 2026-10-17）
   if (props.orderMode) {
     if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
     return '発注なしで確定'
   }
+  if (hasDuplicate.value) return '上書き'
   return '確定'
 })
 
@@ -555,7 +556,7 @@ function saveEdit() {
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate && !isEdit" class="dup-warn">
-        ⚠️ 入力済み：{{ existing.qty }}{{ existing.unit }}
+        ⚠️ {{ orderMode ? '在庫 入力済み' : '入力済み' }}：{{ existing.qty }}{{ existing.unit }}
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
       </div>
 
@@ -690,7 +691,8 @@ function saveEdit() {
       <template v-else>
         <!-- 既に誰かが入れている時の「足す」。確定の仲間なので確定の側へ寄せ、
              キャンセル・後で・確定の3つ並びは崩さない。 -->
-        <button v-if="hasDuplicate" class="btn btn-primary btn-add" @click="submit(true)" type="button">
+        <!-- 発注数を打っているときは出さない（在庫に足す操作なので、発注のつもりで押すと在庫が変わる） -->
+        <button v-if="hasDuplicate && !editingOrder" class="btn btn-primary btn-add" @click="submit(true)" type="button">
           {{ addLabel }}
         </button>
         <div :class="['actions', orderMode ? 'two-col' : 'three-col']">
@@ -708,7 +710,7 @@ function saveEdit() {
 
       <!-- ひとつ前の状態に戻す（入力済みの場合のみ） -->
       <button
-        v-if="hasDuplicate && !isEdit"
+        v-if="hasDuplicate && !isEdit && !editingOrder"
         class="btn-undo-entry"
         @click="handleRevert"
         type="button"

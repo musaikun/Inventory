@@ -240,3 +240,19 @@ describe('発注数／在庫の切替（User決定 2026-10-17）', () => {
     expect(active()).toBe('発注')
   })
 })
+
+describe('在庫が入っている品目の発注（User報告 2026-10-17）', () => {
+  it('在庫が入っていても、発注数を打つ前は「発注なしで確定」。在庫に足す・戻すは発注数を打つ間は出さない', async () => {
+    await mount({ targetLevel: 14, existing: { qty: 4, unit: '個' } })
+    expect(active()).toBe('発注')
+    expect(button('発注なしで確定')).not.toBeUndefined()
+    expect(button('上書き')).toBeUndefined()
+    expect(host.querySelector('.btn-add')).toBeNull()
+    expect(host.querySelector('.btn-undo-entry')).toBeNull()
+    expect(host.querySelector('.dup-warn').textContent).toContain('在庫 入力済み')
+    await type(2)
+    expect(button('発注 2口 を確定')).not.toBeUndefined()
+    basis().click(); await nextTick()
+    expect(host.querySelector('.btn-undo-entry'), '在庫を打つ側では戻せる').not.toBeNull()
+  })
+})
