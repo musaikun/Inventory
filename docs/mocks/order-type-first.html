@@ -1,0 +1,93 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>発注 先に打つ モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --green:#16a34a; --amber:#d97706; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1300px; line-height:1.7; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:320px; line-height:1.5; }
+  .phone { width:320px; height:680px; background:rgba(11,31,38,.45); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); }
+  .sheet { background:#fff; border-radius:20px 20px 0 0; padding:10px 14px 16px; display:grid; gap:10px; }
+  .grab { width:40px; height:4px; border-radius:9px; background:#cbd5e1; margin:0 auto; }
+  .head { background:#ecfeff; border-radius:14px; padding:10px; text-align:center; }
+  .head b { font-size:17px; color:var(--deep); }
+  .facts { display:flex; justify-content:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .facts span { font-size:11px; font-weight:800; padding:3px 8px; border-radius:999px; background:#fff; border:1px solid var(--border); color:var(--muted); }
+  .facts span.rec { color:var(--primary); border-color:#a5f3fc; }
+  .disp { border:2px solid var(--primary); border-radius:14px; height:64px; display:flex; align-items:center; justify-content:center; font-size:34px; font-weight:900; }
+  .disp.empty { color:#94a3b8; border-color:var(--border); font-size:26px; }
+  .disp.order { border-color:var(--green); background:#f0fdf4; }
+  .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .pad span { height:42px; border-radius:10px; background:#f6fafb; border:1px solid var(--border); display:grid; place-items:center; font-weight:800; font-size:18px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .btn { border-radius:12px; padding:12px 6px; text-align:center; font-weight:900; font-size:15px; }
+  .btn small { display:block; font-size:10.5px; font-weight:700; opacity:.85; margin-top:2px; }
+  .btn.order { background:var(--green); color:#fff; }
+  .btn.stock { background:#fff; color:var(--amber); border:2px solid #fdba74; }
+  .btn.none { background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; }
+  .btn.dim { opacity:.35; }
+  .hint { font-size:11.5px; color:var(--muted); text-align:center; line-height:1.5; }
+  .step { font-size:12px; font-weight:800; color:var(--amber); background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:6px 10px; text-align:center; }
+  .chips { display:flex; gap:6px; justify-content:center; }
+  .chips span { font-size:12px; font-weight:800; padding:6px 10px; border-radius:999px; border:1px solid #a5f3fc; color:var(--primary); background:#ecfeff; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; max-width:320px; }
+</style></head><body>
+<h1>発注：先に打って、何の数かは後で選ぶ</h1>
+<p class="lead">
+トグルをなくす。品目を開いたら、まず数字を打つ。打った数が「発注数」か「在庫」かは、下の2つのボタンで選ぶ。<br>
+発注数が分かる品目 → <b>打つ → 発注</b>（2手）。分からない品目 → <b>数えた在庫を打つ → 在庫 → 推奨が入った発注の問い → 発注 / 発注なし</b>。<br>
+在庫は強制しない（迷ったときの道具）。迷ったときだけ打たれた在庫は、そのまま分析にも使う。上の小さな札に「前回・推奨・理論在庫」を出し、在庫を打たずに決められる品目を増やす。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">① 開いたところ<small>打つ欄だけ。トグルは無い。何も打たずに「発注なし」も押せる</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="head"><b>キャベツ</b>
+    <div class="facts"><span>前回 3口</span><span class="rec">推奨 2口</span><span>理論在庫 約5玉</span></div>
+  </div>
+  <div class="disp empty">数を打つ</div>
+  <div class="pad"><span>7</span><span>8</span><span>9</span><span>4</span><span>5</span><span>6</span><span>1</span><span>2</span><span>3</span><span>C</span><span>0</span><span>⌫</span></div>
+  <div class="two"><div class="btn order dim">発注<small>数を打つと押せる</small></div><div class="btn stock dim">在庫<small>数を打つと押せる</small></div></div>
+  <div class="btn none">発注なしで確定</div>
+</div></div></div>
+
+<div class="col"><div class="cap">② 3 と打った<small>同じ「3」を、発注にするか在庫にするかをここで選ぶ</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="head"><b>キャベツ</b>
+    <div class="facts"><span>前回 3口</span><span class="rec">推奨 2口</span><span>理論在庫 約5玉</span></div>
+  </div>
+  <div class="disp">3</div>
+  <div class="pad"><span>7</span><span>8</span><span>9</span><span>4</span><span>5</span><span>6</span><span>1</span><span>2</span><span>3</span><span>C</span><span>0</span><span>⌫</span></div>
+  <div class="two"><div class="btn order">発注 3口<small>これで決まり → 次へ</small></div><div class="btn stock">在庫 3玉<small>数えた数 → 発注を決める</small></div></div>
+  <p class="hint">発注数が分かるときは左。迷うときは数えて右</p>
+</div></div></div>
+
+<div class="col"><div class="cap">③ 「在庫 3玉」を押した<small>そのまま発注の問いへ。推奨が欄に入っている。押すだけ</small></div>
+<div class="phone"><div class="sheet">
+  <div class="grab"></div>
+  <div class="head"><b>キャベツ</b>
+    <div class="facts"><span>在庫 3玉 ✓</span><span>前回 3口</span></div>
+  </div>
+  <div class="step">在庫 3玉 → 発注はいくつ？</div>
+  <div class="disp order">2</div>
+  <div class="chips"><span>推奨 2口</span><span>前回 3口</span><span>同曜の中央 2口</span></div>
+  <div class="pad"><span>7</span><span>8</span><span>9</span><span>4</span><span>5</span><span>6</span><span>1</span><span>2</span><span>3</span><span>C</span><span>0</span><span>⌫</span></div>
+  <div class="two"><div class="btn none">発注なし</div><div class="btn order">発注 2口<small>→ 次へ</small></div></div>
+</div></div></div>
+
+<div class="col"><div class="cap">④ 一覧<small>どちらの道でも、その品目は「確認済み」。在庫を打った品目だけ在庫も残る</small></div>
+<div class="phone" style="justify-content:flex-start;background:var(--bg)">
+  <div style="padding:14px 10px;display:grid;gap:6px">
+    <div style="background:#155e75;color:#fff;border-radius:12px 12px 0 0;padding:10px 12px;font-weight:800;font-size:13px;display:flex;justify-content:space-between"><span>品目</span><span>発注 ｜ 在庫</span></div>
+    <div style="background:#fff;padding:10px 12px;display:flex;justify-content:space-between;font-size:14px"><span>キャベツ</span><span><b style="color:#16a34a">2口</b> ｜ <span style="color:#0369a1">3玉</span></span></div>
+    <div style="background:#fff;padding:10px 12px;display:flex;justify-content:space-between;font-size:14px"><span>玉ねぎ</span><span><b style="color:#16a34a">1口</b> ｜ <span style="color:#94a3b8">—</span></span></div>
+    <div style="background:#fff;padding:10px 12px;display:flex;justify-content:space-between;font-size:14px"><span>豚バラ</span><span><b style="color:#475569">0</b> ｜ <span style="color:#94a3b8">—</span></span></div>
+    <div style="background:#fff;padding:10px 12px;display:flex;justify-content:space-between;font-size:14px;color:#94a3b8"><span>にんじん</span><span>— ｜ —</span></div>
+  </div>
+  <div class="note" style="margin:6px 10px">玉ねぎ＝発注数が分かって即決（在庫は打っていない）。キャベツ＝迷ったので数えてから決めた。</div>
+</div></div>
+
+</div></body></html>
