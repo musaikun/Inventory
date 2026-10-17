@@ -697,7 +697,7 @@ const kanaRealStats = computed(() => {
     const grp = _kanaGroup(item)
     if (!map[grp]) map[grp] = { total: 0, filled: 0 }
     map[grp].total++
-    if (props.inventory[item] != null) map[grp].filled++
+    if (_isFilled(item)) map[grp].filled++
   }
   return map
 })
@@ -718,7 +718,7 @@ function _axisStats(tagMap) {
     for (const grp of groups) {
       if (!map[grp]) map[grp] = { total: 0, filled: 0 }
       map[grp].total++
-      if (props.inventory[item] != null) map[grp].filled++
+      if (_isFilled(item)) map[grp].filled++
     }
   }
   return map
