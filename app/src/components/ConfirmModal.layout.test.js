@@ -171,11 +171,18 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
     expect(events.cancel).toBe(1)
   })
 
-  it('既に誰かが入れている時も、3つ並びは崩さず「足す」を別に出す', async () => {
+  it('既に誰かが入れている時も、3つ並びは崩さず「足す」を別に出す。入力済みの数と打つ数は分ける（2026-10-17）', async () => {
     await mount({ existing: { qty: 12, unit: '本' } })
 
     expect(actionLabels()).toEqual(['キャンセル', '後で', '上書き'])
-    expect(host.querySelector('.btn-add'), '足すは3つ並びの外に出る').not.toBeNull()
+    expect(host.querySelector('.qty-display').textContent.trim(), '打つ欄は空から').toBe('—')
+    expect(host.querySelector('.dup-warn').textContent).toContain('12本')
+    expect(host.querySelector('.btn-add'), '打つまでは足すを出さない').toBeNull()
+    expect(button('上書き').disabled, '打つまでは上書きもできない').toBe(true)
+
+    button('3').click(); await nextTick()
+    expect(button('3本 に上書き')).not.toBeUndefined()
+    expect(host.querySelector('.btn-add').textContent, '足すは3つ並びの外に出る').toContain('＋3 足す（12 → 15本）')
   })
 
   // 貼り付けたままだと影の帯が常に出て、見出しのシートとキーのシートが重なって見える

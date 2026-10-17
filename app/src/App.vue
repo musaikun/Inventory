@@ -2647,7 +2647,8 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
   const draft   = orderDraft.value[ingredient]
   confirmState.value = {
     ingredient,
-    qty:            isOrder ? (draft?.stock ?? qty ?? inventory[ingredient]?.qty ?? null) : qty,
+    // 入力済みの在庫は欄に入れない（入力済みとして別に出す。開いただけで「足す」に見えた・2026-10-17）
+    qty:            qty,
     unit:           configUnit || unit || '',
     unitLocked:     !!configUnit,
     category:       configCategory || '',

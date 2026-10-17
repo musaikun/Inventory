@@ -322,12 +322,16 @@ function handleRevert() {
 // ── 重複 ───────────────────────────────────────────────────────────────────────
 const hasDuplicate = computed(() => props.existing !== null)
 
-const addLabel = computed(() => {
-  if (!hasDuplicate.value) return ''
+// 入力済みの数と、いま打った数は分けて扱う（User報告 2026-10-17: 開いただけで「10 を追加」に見えた）。
+// 打つ欄は空から始め、打った数で「上書き」か「足す」かを選ぶ。打つまでは足すを出さない
+const typedQty = computed(() => {
   const q = parseFloat(qty.value)
-  if (isNaN(q)) return '追加'
-  const sum = Math.round((props.existing.qty + q) * 10000) / 10000
-  return `追加 (→${sum}${unit.value})`
+  return qty.value === '' || isNaN(q) ? null : q
+})
+const addLabel = computed(() => {
+  if (!hasDuplicate.value || typedQty.value === null) return ''
+  const sum = Math.round((props.existing.qty + typedQty.value) * 10000) / 10000
+  return `＋${typedQty.value} 足す（${props.existing.qty} → ${sum}${unit.value}）`
 })
 
 // ── 送信 ───────────────────────────────────────────────────────────────────────
@@ -389,7 +393,7 @@ const primaryLabel = computed(() => {
     if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
     return '発注なしで確定'
   }
-  if (hasDuplicate.value) return '上書き'
+  if (hasDuplicate.value) return typedQty.value === null ? '上書き' : `${typedQty.value}${unit.value} に上書き`
   return '確定'
 })
 
@@ -556,8 +560,9 @@ function saveEdit() {
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate && !isEdit" class="dup-warn">
-        ⚠️ {{ orderMode ? '在庫 入力済み' : '入力済み' }}：{{ existing.qty }}{{ existing.unit }}
+        {{ orderMode ? '在庫 入力済み' : '入力済み' }}：<b>{{ existing.qty }}{{ existing.unit }}</b>
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
+        <small v-if="!orderMode" class="dup-hint">打った数で上書きするか、足すかを選べます</small>
       </div>
 
       <!-- 変更履歴。開く操作はヒント行のチップが持つ -->
@@ -692,7 +697,7 @@ function saveEdit() {
         <!-- 既に誰かが入れている時の「足す」。確定の仲間なので確定の側へ寄せ、
              キャンセル・後で・確定の3つ並びは崩さない。 -->
         <!-- 発注数を打っているときは出さない（在庫に足す操作なので、発注のつもりで押すと在庫が変わる） -->
-        <button v-if="hasDuplicate && !editingOrder" class="btn btn-primary btn-add" @click="submit(true)" type="button">
+        <button v-if="addLabel && !orderMode" class="btn btn-primary btn-add" @click="submit(true)" type="button">
           {{ addLabel }}
         </button>
         <div :class="['actions', orderMode ? 'two-col' : 'three-col']">
@@ -704,7 +709,7 @@ function saveEdit() {
             type="button"
             title="いま数えられない。あとで数える一覧に入れる"
           >後で</button>
-          <button class="btn btn-success" @click="onPrimary" type="button">{{ primaryLabel }}</button>
+          <button class="btn btn-success" :disabled="!orderMode && hasDuplicate && typedQty === null" @click="onPrimary" type="button">{{ primaryLabel }}</button>
         </div>
       </template>
 
@@ -868,6 +873,7 @@ function saveEdit() {
   margin-bottom: 10px;
 }
 
+.dup-hint { display: block; font-size: 11.5px; font-weight: 600; color: #854d0e; margin-top: 2px; }
 .dup-entered-by {
   font-weight: 700;
   color: var(--primary);
@@ -1095,6 +1101,8 @@ function saveEdit() {
 .btn-later:active { background: #ffedd5; }
 /* 既に入っている時の「足す」。3つ並びの上に置く */
 .btn-add { width: 100%; margin-top: 10px; }
+/* 入力済みで、まだ打っていないときの上書き（押せない）*/
+.actions .btn-success:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-undo-entry {
   display: block;
