@@ -1003,7 +1003,7 @@ function fmtYen(n) {
                 :class="['oq-box', { filled: orderMap?.[row.item]?.orderQty > 0, zero: _orderedZero(row.item) }]"
                 :title="orderMap?.[row.item]?.by ? `${orderMap[row.item].by} が発注` : undefined"
               >
-                <span class="oq-cell oq-order">
+                <span :class="['oq-cell', 'oq-order', { on: orderMap?.[row.item]?.orderQty > 0, zero: _orderedZero(row.item) }]">
                   <span class="oq-label">発注</span>
                   <span class="oq-val">
                     <template v-if="orderMap?.[row.item]?.orderQty > 0">{{ orderMap[row.item].orderQty }}<span class="qty-unit">{{ _orderUnit(row) }}</span></template>
@@ -1013,7 +1013,7 @@ function fmtYen(n) {
                   <span v-if="showOrderBy && orderMap?.[row.item]?.by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
                 </span>
                 <span class="oq-sep" aria-hidden="true"></span>
-                <span class="oq-cell oq-stock">
+                <span :class="['oq-cell', 'oq-stock', { on: row.entry !== null }]">
                   <span class="oq-label">在庫</span>
                   <span class="oq-val">
                     <template v-if="row.entry !== null">{{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span></template>
@@ -1682,10 +1682,11 @@ button.row-avatar { cursor: zoom-in; }
   justify-content: center;
 }
 
+/* 入力済みの欄は、行の淡い緑より一段濃くして、欄そのものが色で分かるように（User 2026-10-17） */
 .qty-display.filled {
-  color: var(--success);
-  border-color: #86efac;
-  background: #f0fdf4;
+  color: #047857;
+  border-color: #22c55e;
+  background: #dcfce7;
 }
 
 .qty-unit {
@@ -1792,13 +1793,17 @@ button.row-avatar { cursor: zoom-in; }
 /* 発注と在庫を1つの枠に。発注が主（大きく・緑）、在庫は参考（小さく・灰） */
 .oq-box {
   display: inline-flex; align-items: stretch;
-  border: 1.5px solid var(--border); border-radius: 8px; background: #f6fafb;
+  border: 1.5px solid var(--border); border-radius: 8px; background: #fff;
   padding: 3px 0; min-width: 112px;
 }
-.oq-box.filled { border-color: #86efac; background: #f0fdf4; }
-/* 発注なしで確定（0）: 入力済みだが発注はしない。緑ほど目立たせず、未入力の — とは分ける */
-.oq-box.zero { border-color: #cbd5e1; background: #f1f5f9; }
-.oq-box.zero .oq-order .oq-val { color: #475569; }
+.oq-box.filled { border-color: #22c55e; }
+/* 入れた欄だけ色を付ける（発注＝緑・在庫＝水色・発注なし＝灰）。行の淡い緑と見分けられる濃さに（User 2026-10-17） */
+.oq-cell.on, .oq-cell.zero { border-radius: 6px; margin: 0 3px; }
+.oq-order.on { background: #dcfce7; }
+.oq-order.zero { background: #e2e8f0; }
+.oq-order.zero .oq-val { color: #475569; }
+.oq-stock.on { background: #e0f2fe; }
+.oq-stock.on .oq-val { color: #0369a1; }
 .oq-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 0 8px; min-width: 48px; }
 .oq-label { font-size: 9.5px; font-weight: 700; color: var(--text-muted); line-height: 1.2; }
 .oq-val { font-size: 16px; font-weight: 800; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
