@@ -184,6 +184,45 @@ function toggleGroup(row) {
 }
 function isGroupExpanded(row) { return !!expandedGroups[_gkey(row.label)] }
 
+// ── 開いているジャンルの帯を上に固定（User決定 2026-10-17）────────────────
+// 見出しの下へ隠れた「開いている」グループの帯を、表の見出しのすぐ下に重ねて出す。
+// 次のグループの帯が下から来たら、その分だけ押し上げる（連絡先アプリの「あ・か・さ」と同じ）。
+const scrollRef = ref(null)
+const theadH = ref(0)
+const stuck = ref(null)   // { row, push }
+const STUCK_H = 38        // 帯の高さ（押し上げの目安）
+let _stickRaf = 0
+function _computeStuck() {
+  _stickRaf = 0
+  const el = scrollRef.value
+  if (!el || !(props.fillHeight || maxed.value) || props.preview || !_isGroupedMode.value) { stuck.value = null; return }
+  const top = el.getBoundingClientRect().top
+  theadH.value = el.querySelector('thead')?.getBoundingClientRect().height ?? 0
+  const line = top + theadH.value
+  const heads = [...el.querySelectorAll('tr.group-header-row')]
+  let cur = -1
+  for (let i = 0; i < heads.length; i++) {
+    if (heads[i].getBoundingClientRect().top < line - 1) cur = i
+    else break
+  }
+  const row = cur >= 0 ? rows.value.find(r => r.type === 'group-header' && r.label === heads[cur].dataset.glabel) : null
+  if (!row || !isGroupExpanded(row)) { stuck.value = null; return }
+  const next = heads[cur + 1]
+  const gap = next ? next.getBoundingClientRect().top - line : Infinity
+  stuck.value = { row, push: Math.min(0, gap - STUCK_H) }
+}
+function onScrollStick() { if (!_stickRaf) _stickRaf = requestAnimationFrame(_computeStuck) }
+async function closeStuck() {
+  const row = stuck.value?.row
+  if (!row) return
+  toggleGroup(row)
+  await nextTick()
+  const el = scrollRef.value
+  const head = el?.querySelector(`tr.group-header-row[data-glabel="${CSS.escape(row.label)}"]`)
+  if (el && head) el.scrollTop += head.getBoundingClientRect().top - el.getBoundingClientRect().top - theadH.value
+  _computeStuck()
+}
+
 function collapseAll() {
   const prefix = _effectiveSort.value + SEP
   Object.keys(expandedGroups).forEach(k => { if (k.startsWith(prefix)) delete expandedGroups[k] })
@@ -625,6 +664,10 @@ function onRowKeydown(e, item) {
   }
 }
 
+// 開閉・並べ方・中身が変わったら、固定する帯を選び直す
+watch([rows, maxed, () => props.fillHeight], () => nextTick(_computeStuck), { deep: false })
+onUnmounted(() => { if (_stickRaf) cancelAnimationFrame(_stickRaf) })
+
 defineExpose({ getNextVisibleItem, getPrevVisibleItem })
 
 const pendingDelete = ref(null)  // 削除確認中の品目名
@@ -865,7 +908,24 @@ function fmtYen(n) {
     </div>
 
     <!-- テーブル（fillHeight のときはこの枠の中だけでスクロール） -->
-    <div class="inv-scroll">
+    <div ref="scrollRef" class="inv-scroll" @scroll.passive="onScrollStick">
+    <!-- 開いているジャンルの帯を、表の見出しのすぐ下に固定する（User決定 2026-10-17）。
+         いま見ている（見出しの下へ隠れた）開いたグループの帯だけ。次の開いた帯が来たら押し上げて入れ替わる。
+         押すとそのグループを閉じ、閉じた帯の位置へ戻る。枠の中でスクロールするとき（棚卸・発注）だけ -->
+    <div v-if="stuck" class="stuck-wrap" :style="{ top: theadH + 'px' }">
+      <div class="stuck-band" :style="{ transform: `translateY(${stuck.push}px)` }" role="button" tabindex="0"
+        :aria-label="`${stuck.row.label}を閉じる`" @click="closeStuck" @keydown.enter.prevent="closeStuck">
+        <div class="cat-info-row">
+          <span class="cat-arrow">▼</span>
+          <span class="cat-label">{{ stuck.row.label }}</span>
+          <span class="cat-badge">{{ stuck.row.filled }}<span class="cat-badge-sep">/</span>{{ stuck.row.count }}</span>
+        </div>
+        <div class="cat-progress-track">
+          <div class="cat-progress-fill" :class="{ complete: stuck.row.filled === stuck.row.count && stuck.row.count > 0 }"
+            :style="{ width: (stuck.row.count > 0 ? stuck.row.filled / stuck.row.count * 100 : 0) + '%' }"></div>
+        </div>
+      </div>
+    </div>
     <table
       :key="swipeTabs ? sortMode : undefined"
       :class="['inv-table', swipeTabs && tabSlide ? `tab-in-${tabSlide}` : '']"
@@ -912,7 +972,7 @@ function fmtYen(n) {
         <template v-for="(row, rowIdx) in rows" :key="row.type === 'group-header' ? `__g__${row.label}` : `${rowIdx}_${row.item}`">
 
           <!-- グループヘッダー行（クリックでアコーディオン開閉・ジャンル/五十音共通） -->
-          <tr v-if="row.type === 'group-header'" class="group-header-row" @click="toggleGroup(row)">
+          <tr v-if="row.type === 'group-header'" class="group-header-row" :data-glabel="row.label" @click="toggleGroup(row)">
             <td :colspan="totalCols" class="group-header-cell">
               <div class="cat-info-row">
                 <span class="cat-arrow">{{ isGroupExpanded(row) ? '▼' : '▶' }}</span>
@@ -1127,6 +1187,16 @@ function fmtYen(n) {
 .inventory-section.fill .inv-table { overflow: visible; box-shadow: none; border-radius: 0; }
 .inventory-section.fill .inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--primary-deep); }
 .inventory-section.inv-preview { padding: 0; }
+/* 開いているジャンルの帯を見出しの下に固定（高さ0の箱を貼り付け、帯はその上に重ねる＝行を押し下げない） */
+/* 帯の高さぶんの窓を貼り付け、行の上に重ねる（下の負の余白で行を押し下げない）。
+   押し上げられた帯は窓の上端＝表の見出しの下端で切る（表の見出しの上へは出さない） */
+.stuck-wrap { position: sticky; z-index: 3; height: 38px; margin-bottom: -38px; overflow: hidden; pointer-events: none; }
+.stuck-wrap .stuck-band { pointer-events: auto; }
+.stuck-band {
+  position: absolute; left: 0; right: 0; top: 0;
+  background: #f6fafb; border-left: 3px solid var(--primary); padding: 8px 14px 0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12); cursor: pointer; user-select: none;
+}
 /* 最大化：表だけを画面いっぱいに（モーダル z-index:100 より下・ヘッダーやナビより上） */
 .inventory-section.maxed {
   position: fixed; inset: 0; z-index: 90; background: var(--bg); min-height: 0;
