@@ -33,6 +33,7 @@ const props = defineProps({
   tapContinuous:    { type: Boolean, default: false },
   preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
+  orderNone:        { type: Array,   default: null },  // 発注セッション: 「発注なしで確定」した品目（0 と出す・入力済みに数える）
   orderMode:        { type: Boolean, default: false }, // 発注セッションか（発注チップ表示の切替）
   // ── 入出庫（棚卸・発注と同じ一覧を使うための調整。既定はすべて従来動作 ──
   noteMap:          { type: Object,  default: null },  // { 品目: 補足文字列 } を行のヒント欄へ出す（理論在庫など）
@@ -219,8 +220,11 @@ const hasAllExpanded = computed(() => {
 
 // 「入力済み」の意味。棚卸＝在庫を入れた／発注＝発注数を入れた（在庫は任意の参考値）。
 // 発注で在庫を数えても「入力済み」に数えると、発注していない品目が済みに見える（User報告 2026-09-29）。
+const _noneSet = computed(() => new Set(props.orderNone ?? []))
+const _orderedZero = item => _noneSet.value.has(item) && !(Number(props.orderMap?.[item]?.orderQty) > 0)
 function _isFilled(item) {
-  if (props.orderMode) return Number(props.orderMap?.[item]?.orderQty) > 0
+  // 発注なしで確定した品目も「決めた」ので入力済み（0 と出す・2026-10-17）
+  if (props.orderMode) return Number(props.orderMap?.[item]?.orderQty) > 0 || _orderedZero(item)
   return props.inventory[item] != null
 }
 
@@ -731,7 +735,7 @@ const scopedTotal = computed(() => {
 
 const scopedFilled = computed(() => {
   const src = props.orderMode
-    ? Object.entries(props.orderMap || {}).filter(([, d]) => Number(d?.orderQty) > 0)
+    ? [...Object.entries(props.orderMap || {}).filter(([, d]) => Number(d?.orderQty) > 0), ...[..._noneSet.value].filter(_orderedZero).map(n => [n])]
     : Object.entries(props.inventory)
   return src.filter(([item]) => {
     if (props.categoryScope === 'food')   return !_isSupply(item)
@@ -996,13 +1000,14 @@ function fmtYen(n) {
                    数字だけを2か所に置くと、どちらが発注でどちらが在庫か一瞬読めなかった（User報告 2026-09-29）。 -->
               <div
                 v-if="orderMode && !preview"
-                :class="['oq-box', { filled: orderMap?.[row.item]?.orderQty > 0 }]"
+                :class="['oq-box', { filled: orderMap?.[row.item]?.orderQty > 0, zero: _orderedZero(row.item) }]"
                 :title="orderMap?.[row.item]?.by ? `${orderMap[row.item].by} が発注` : undefined"
               >
                 <span class="oq-cell oq-order">
                   <span class="oq-label">発注</span>
                   <span class="oq-val">
                     <template v-if="orderMap?.[row.item]?.orderQty > 0">{{ orderMap[row.item].orderQty }}<span class="qty-unit">{{ _orderUnit(row) }}</span></template>
+                    <template v-else-if="_orderedZero(row.item)">0<span class="qty-unit">{{ _orderUnit(row) }}</span></template>
                     <template v-else>—</template>
                   </span>
                   <span v-if="showOrderBy && orderMap?.[row.item]?.by" class="order-qty-by">{{ orderMap[row.item].by }}</span>
@@ -1791,6 +1796,9 @@ button.row-avatar { cursor: zoom-in; }
   padding: 3px 0; min-width: 112px;
 }
 .oq-box.filled { border-color: #86efac; background: #f0fdf4; }
+/* 発注なしで確定（0）: 入力済みだが発注はしない。緑ほど目立たせず、未入力の — とは分ける */
+.oq-box.zero { border-color: #cbd5e1; background: #f1f5f9; }
+.oq-box.zero .oq-order .oq-val { color: #475569; }
 .oq-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 0 8px; min-width: 48px; }
 .oq-label { font-size: 9.5px; font-weight: 700; color: var(--text-muted); line-height: 1.2; }
 .oq-val { font-size: 16px; font-weight: 800; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }

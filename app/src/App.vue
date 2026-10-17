@@ -131,6 +131,16 @@ const { buildSnapshot, commitSnapshot, applyRemoteHistory, markSnapshotSynced, d
 const { upsertOrder, getOrders, getLearningEvents, applyRemoteOrders } = useOrders()
 // 進行中発注の下書き（品目→行）。セッション単位で 1 発注レコードに集約して D1 へ。
 const orderDraft = ref({})
+// 「発注なしで確定」した品目（この発注で、発注しないと決めた）。一覧で 0 と出す（User報告 2026-10-17: 未入力に見えた）。
+// 発注の記録・完了の件数には入れない（発注数>0 だけが発注）
+const orderNone = ref([])
+const _ORDER_NONE_PREFIX = 'order_none_'
+function _setOrderNone(item, on) {
+  const has = orderNone.value.includes(item)
+  if (on === has) return
+  orderNone.value = on ? [...orderNone.value, item] : orderNone.value.filter(n => n !== item)
+  try { localStorage.setItem(_ORDER_NONE_PREFIX + _orderId(), JSON.stringify(orderNone.value)) } catch (_) {}
+}
 function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.value.id}` : `ord_${shopCode.value || 'local'}` }
 // 発注の日付・曜日学習の「今日」。UTC だと日本時間の朝9時まで前日になり、完了した発注が昨日のマスに入っていた
 function _todayStr() { return localDateKey() }
@@ -1635,6 +1645,10 @@ function _restoreOrderDraft() {
     const raw = localStorage.getItem(_ORDER_DRAFT_PREFIX + _orderId())
     orderDraft.value = raw ? dropHeldLines(JSON.parse(raw) || {}) : {}
   } catch (_) { orderDraft.value = {} }
+  try {
+    const none = JSON.parse(localStorage.getItem(_ORDER_NONE_PREFIX + _orderId()) || '[]')
+    orderNone.value = Array.isArray(none) ? none.filter(n => !orderDraft.value[n]) : []
+  } catch (_) { orderNone.value = [] }
 }
 
 function _saveDraft(sessionId) {
@@ -2766,6 +2780,7 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
   if (orderQty > 0) draft[ingredient] = { orderQty, stock: stock ?? null, unit, lot, by: deviceName.value || '' }
   else delete draft[ingredient]
   orderDraft.value = draft
+  _setOrderNone(ingredient, !(orderQty > 0))
   // ルーム接続中は発注数を全端末へ同期（在庫とは別チャネル）。
   if (syncActive.value) {
     if (orderQty > 0) broadcastOrderUpdate(ingredient, orderQty, unit, lot, deviceName.value || '名前未設定')
@@ -2779,11 +2794,13 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
 // リモートからの発注数更新: 下書きへ反映（localStorage のみ保存。D1 は発信元が書く）。
 function applyRemoteOrderUpdate(ingredient, orderQty, unit, lot, by) {
   orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty, unit, lot, by })
+  if (Number(orderQty) > 0) _setOrderNone(ingredient, false)
   _persistOrderDraftLocal()
   _upsertOrderRecord()
 }
 
 function applyRemoteOrderRemove(ingredient) {
+  _setOrderNone(ingredient, true)   // ほかの端末で「発注なしで確定」した
   if (!orderDraft.value[ingredient]) return
   orderDraft.value = applyOrderLine(orderDraft.value, ingredient, { orderQty: 0 })
   _persistOrderDraftLocal()
@@ -3736,6 +3753,7 @@ function dismissReview() {
         :manual-items="config.manualItems"
         :hidden-items="config.hiddenItems"
         :order-map="sessionMode === 'order' ? orderDraft : null"
+        :order-none="sessionMode === 'order' ? orderNone : null"
         :order-mode="sessionMode === 'order'"
         :can-manage-list="(!syncActive || syncIsHost) && can('item.edit')"
         :can-request-hide="syncActive && !syncIsHost"

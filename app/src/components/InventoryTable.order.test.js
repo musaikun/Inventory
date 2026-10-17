@@ -10,7 +10,7 @@ import { createApp, h, nextTick } from 'vue'
 
 let app = null, host = null, cfg
 
-async function mount(orderMap) {
+async function mount(orderMap, orderNone = null) {
   const { default: Table } = await import('./InventoryTable.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -19,7 +19,7 @@ async function mount(orderMap) {
       inventory: { プロントワッフル: { qty: 4, unit: '個' } },
       filledCount: 1,
       configSource: cfg.config,
-      orderMap, orderMode: true, hideAmount: true,
+      orderMap, orderNone, orderMode: true, hideAmount: true,
     }),
   })
   app.mount(host)
@@ -70,6 +70,15 @@ describe('発注と在庫を1つの枠に名前付きで出す', () => {
     app.unmount(); host.remove()
     await mount({ 新: { orderQty: 1, by: 'A' }, プロントワッフル: { orderQty: 2, by: 'B' } })
     expect(host.querySelectorAll('.order-qty-by').length).toBe(2)
+  })
+
+  it('「発注なしで確定」した行は 0 と出し、入力済みに数える（未入力の — と分ける・2026-10-17）', async () => {
+    await mount({ 新: { orderQty: 2, unit: '個', lot: 1 } }, ['プロントワッフル'])
+    const tr = rowOf('プロントワッフル')
+    expect(val(tr, 'oq-order')).toBe('0個')
+    expect(tr.querySelector('.oq-box').classList.contains('zero')).toBe(true)
+    expect(tr.querySelector('.oq-box').classList.contains('filled')).toBe(false)
+    expect(val(rowOf('ふんわりバームクーヘンD'), 'oq-order')).toBe('—')
   })
 
   it('「保留」は出さない（2026-09-28 廃止）', async () => {
