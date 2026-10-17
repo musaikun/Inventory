@@ -843,6 +843,32 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(completeBodies[0].order.lines).toHaveLength(1)
   })
 
+  it('発注: 在庫だけ入って発注数が未入力の品目は、完了時に「すべて発注なしで確定」するか訊く（User決定 2026-10-17）', async () => {
+    localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
+      トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
+    }))
+    const now = Date.now()
+    await mountApp({
+      session: { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-09T00:00:00Z', status: 'active', itemCount: 0, type: 'order' },
+      inventory: { トマト: { qty: 3, unit: '個', updatedAt: now }, キャベツ: { qty: 5, unit: '玉', updatedAt: now } },
+    })
+    // キャンセル → 完了しない
+    const ask = vi.fn(() => false)
+    vi.stubGlobal('confirm', ask)
+    await clickComplete()
+    expect(ask.mock.calls[0][0]).toContain('発注数が未入力の品目が 1件')
+    expect(ask.mock.calls[0][0]).toContain('キャベツ')
+    expect(completeCalls).toBe(0)
+    // OK → キャベツは発注なし（0）にして完了。確認は1回だけ
+    const ok = vi.fn(() => true)
+    vi.stubGlobal('confirm', ok)
+    await clickComplete()
+    expect(ok).toHaveBeenCalledTimes(1)
+    expect(completeCalls).toBe(1)
+    expect(JSON.parse(localStorage.getItem('order_none_ord_sess-2'))).toEqual(['キャベツ'])
+    expect(completeBodies[0].order.lines.map(l => l.item)).toEqual(['トマト'])
+  })
+
   it('棚卸で明細が組み立てられない場合は完了APIを呼ばない', async () => {
     // 在庫が空のまま session_ended が届く（ゲスト在庫が同期されていない等）
     await mountApp({ inventory: {} })

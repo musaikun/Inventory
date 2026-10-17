@@ -135,6 +135,14 @@ const orderDraft = ref({})
 // 発注の記録・完了の件数には入れない（発注数>0 だけが発注）
 const orderNone = ref([])
 const _ORDER_NONE_PREFIX = 'order_none_'
+/** 発注: 在庫は入っているが、発注数も「発注なし」も決めていない品目（完了時に訊く） */
+function _stockOnlyUndecided() {
+  const none = new Set(orderNone.value)
+  const rank = new Map((config.order ?? []).map((n, i) => [n, i]))
+  return Object.keys(inventory)
+    .filter(item => inventory[item] != null && !(Number(orderDraft.value[item]?.orderQty) > 0) && !none.has(item))
+    .sort((a, b) => (rank.get(a) ?? 1e9) - (rank.get(b) ?? 1e9))
+}
 function _setOrderNone(item, on) {
   const has = orderNone.value.includes(item)
   if (on === has) return
@@ -1881,7 +1889,16 @@ async function onComplete() {
   const confirmMsg = isHostInRoom
     ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
-  if (!confirm(confirmMsg)) return
+  // 発注: 在庫は入れたが発注数を決めていない品目は、まとめて「発注なしで確定」にしてよいか訊く（User決定 2026-10-17）
+  const undecided = isOrderMode ? _stockOnlyUndecided() : []
+  if (undecided.length) {
+    const names = undecided.slice(0, 3).join('、') + (undecided.length > 3 ? ` ほか${undecided.length - 3}件` : '')
+    if (!confirm(`在庫は入っていて、発注数が未入力の品目が ${undecided.length}件 あります（${names}）。\nすべて「発注なしで確定」にして${actNoun.value}を完了しますか？\n（キャンセルで戻って発注数を入れられます）${isHostInRoom ? '\nゲストへ完了通知を送り、ルームを閉鎖します。' : ''}`)) return
+    for (const item of undecided) {
+      _setOrderNone(item, true)
+      if (syncActive.value) broadcastOrderRemove(item)
+    }
+  } else if (!confirm(confirmMsg)) return
 
   // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は
   // ここにしかない。合流した2本目が同じ後片付けを走らせないよう、入口でも締める。
