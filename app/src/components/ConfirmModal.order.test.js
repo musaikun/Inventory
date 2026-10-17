@@ -99,10 +99,11 @@ describe('ConfirmModal — 発注モードの推奨', () => {
     await typeStock(8)
     expect(chip('推奨'), '参考としては出す').not.toBeUndefined()
     expect(onOrder(), '打っているのは在庫のまま').toBe(false)
-    expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
+    expect(button('在庫 8'), '在庫の側では在庫の言葉で確定').not.toBeUndefined()
 
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')                 // 切り替えても推奨は入らない
+    expect(button('発注なしで確定'), '確定しても0のまま').not.toBeUndefined()
   })
 
   it('推奨はタップで採用でき、そこから直せる', async () => {
@@ -120,10 +121,9 @@ describe('ConfirmModal — 発注モードの推奨', () => {
   it('足りていれば発注しない', async () => {
     await mount({ replenish: { value: 24, source: 'reorder', basis: 'x' } })
     await typeStock(24)
-    expect(button('発注なしで確定')).not.toBeUndefined()
-
     basis().click(); await nextTick()
     expect(orderValue()).toBe('0')
+    expect(button('発注なしで確定')).not.toBeUndefined()
   })
 
   it('補充目標が無ければ推奨を出さず、発注点を入れるよう案内する', async () => {
@@ -254,5 +254,30 @@ describe('在庫が入っている品目の発注（User報告 2026-10-17）', (
     expect(button('発注 2口 を確定')).not.toBeUndefined()
     basis().click(); await nextTick()
     expect(host.querySelector('.btn-undo-entry'), '在庫を打つ側では戻せる').not.toBeNull()
+  })
+})
+
+describe('在庫の側の確定（User 2026-10-17）', () => {
+  it('トグルを在庫にすると「在庫を確定」。打つまでは押せず、発注数に触れていなければ在庫だけを確定する', async () => {
+    const events = await mount({ targetLevel: 14, unit: '個' })
+    basis().click(); await nextTick()
+    const primary = () => host.querySelector('.actions .btn-success')
+    expect(primary().textContent.trim()).toBe('在庫を確定')
+    expect(primary().disabled).toBe(true)
+    await type(8)
+    expect(primary().textContent.trim()).toMatch(/^在庫 8.* を確定$/)
+    primary().click(); await nextTick()
+    expect(events.confirm[0]).toMatchObject({ stock: 8, orderQty: 0, stockOnly: true })
+  })
+
+  it('発注数も打ってから在庫に切り替えたら、両方を確定する', async () => {
+    const events = await mount({ targetLevel: 14, unit: '個', orderLot: 1 })
+    await type(2)
+    basis().click(); await nextTick()
+    await type(8)
+    const primary = host.querySelector('.actions .btn-success')
+    expect(primary.textContent.trim()).toMatch(/^在庫 8.*・発注 2.* を確定$/)
+    primary.click(); await nextTick()
+    expect(events.confirm[0]).toMatchObject({ stock: 8, orderQty: 2, stockOnly: false })
   })
 })

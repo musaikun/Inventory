@@ -2767,7 +2767,7 @@ function _applyConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
 }
 
 // 発注確定: 在庫を（入力があれば）反映し、発注下書きへ集約して D1 に保存する。
-function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
+function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot, stockOnly = false }) {
   // 在庫入力があれば棚卸同様に反映（表に表示・同期）
   if (stock != null && Number.isFinite(stock)) {
     setItem(ingredient, stock, unit, false, deviceName.value || '名前未設定')
@@ -2775,6 +2775,8 @@ function _applyOrderConfirm({ ingredient, stock, orderQty, unit, lot }) {
     if (syncActive.value) broadcastUpdate(ingredient, stock, unit, deviceName.value || '名前未設定', false)
     else _localAudit(ingredient, inventory[ingredient] ? 'overwrite' : 'new', stock, stock, unit)
   }
+  // 在庫だけを確定した（発注数に触れていない）: 発注は決めていないので下書きも「発注なし」も変えない（2026-10-17）
+  if (stockOnly) return 'saved'
   // 発注下書きを更新。発注数0は「発注しない」＝下書きから外す（保留は廃止 2026-09-28）。
   // 数えた在庫は上の setItem で在庫として残る。
   const draft = { ...orderDraft.value }

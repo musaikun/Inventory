@@ -366,6 +366,8 @@ function _orderPayload() {
     orderMode:  true,
     stock:      stock == null || isNaN(stock) ? null : stock,
     orderQty:   effectiveOrderQty.value ?? 0,
+    // 在庫の側で在庫だけを確定した（発注数には触れていない）。発注は決めていないので「発注なし」にしない（2026-10-17）
+    stockOnly:  !editingOrder.value && !orderTouched.value,
     unit:       unit.value.trim(),
     lot:        props.orderLot,
     isNew:      props.isNew,
@@ -390,6 +392,12 @@ const primaryLabel = computed(() => {
   if (props.isNew)       return '新規登録'
   // 発注は在庫が入っていても発注数で言う（在庫ありで「上書き」になり、発注なしで確定が消えていた・User報告 2026-10-17）
   if (props.orderMode) {
+    // 在庫の側にいるときは在庫の言葉で（トグルを切り替えると文言も変わる・User 2026-10-17）
+    if (!editingOrder.value) {
+      if (typedQty.value === null) return '在庫を確定'
+      const stock = `在庫 ${typedQty.value}${unit.value}`
+      return effectiveOrderQty.value > 0 ? `${stock}・発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定` : `${stock} を確定`
+    }
     if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
     return '発注なしで確定'
   }
@@ -709,7 +717,7 @@ function saveEdit() {
             type="button"
             title="いま数えられない。あとで数える一覧に入れる"
           >後で</button>
-          <button class="btn btn-success" :disabled="!orderMode && hasDuplicate && typedQty === null" @click="onPrimary" type="button">{{ primaryLabel }}</button>
+          <button class="btn btn-success" :disabled="(!orderMode && hasDuplicate && typedQty === null) || (orderMode && !editingOrder && typedQty === null && !orderTouched)" @click="onPrimary" type="button">{{ primaryLabel }}</button>
         </div>
       </template>
 
