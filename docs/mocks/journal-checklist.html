@@ -1,0 +1,187 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>チェック表 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1500px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:330px; line-height:1.5; min-height:36px; }
+  .phone { width:330px; height:700px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); position:relative; }
+  .top { background:#fff; padding:12px 14px 10px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:16px; font-weight:900; }
+  .top b { flex:1; text-align:center; }
+  .top span { color:var(--primary); font-weight:900; font-size:14px; }
+  .sum { font-size:11px; color:var(--muted); text-align:center; padding:4px 0 6px; background:#fff; }
+  .body { flex:1; overflow:hidden; padding:12px; display:grid; gap:10px; align-content:start; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:12px; display:grid; gap:6px; }
+  .card h3 { font-size:15px; display:flex; align-items:center; gap:6px; }
+  .card h3 em { font-style:normal; margin-left:auto; font-size:11px; color:var(--primary); font-weight:800; }
+  .meta { font-size:12px; color:var(--muted); display:flex; flex-wrap:wrap; gap:4px 10px; }
+  .pill { font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; background:#ecfeff; color:var(--deep); }
+  .pill.off { background:#f1f5f9; color:#64748b; }
+  .add { border:2px dashed #a5f3fc; border-radius:14px; padding:12px; text-align:center; color:var(--primary); font-weight:900; font-size:14px; background:#fff; }
+  .sample { font-size:12px; color:var(--muted); text-align:center; }
+  .sample b { color:var(--primary); }
+  /* 編集 */
+  label.f { font-size:12px; font-weight:800; color:var(--muted); display:grid; gap:4px; }
+  .in { background:#fff; border:1px solid var(--border); border-radius:10px; padding:9px 10px; font-size:14px; color:var(--text); font-weight:700; }
+  .items { display:grid; gap:4px; }
+  .it { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:8px 10px; font-size:14px; }
+  .it .h { color:#94a3b8; font-size:14px; letter-spacing:-2px; }
+  .it .x { margin-left:auto; color:#94a3b8; font-size:13px; }
+  .it.new { border-style:dashed; color:var(--primary); font-weight:800; }
+  .seg { display:flex; gap:4px; flex-wrap:wrap; }
+  .seg span { font-size:12px; font-weight:800; padding:6px 10px; border-radius:9px; background:#fff; border:1px solid var(--border); color:var(--muted); }
+  .seg span.on { background:var(--primary); border-color:var(--primary); color:#fff; }
+  .save { margin-top:auto; background:var(--primary); color:#fff; text-align:center; font-weight:900; font-size:15px; border-radius:12px; padding:13px; }
+  /* 1日 */
+  .allday { background:#fff; border-bottom:2px solid var(--border); padding:6px 10px 8px; display:grid; gap:5px; box-shadow:0 3px 6px -4px rgba(0,0,0,.2); }
+  .allday-h { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#c2410c; }
+  .allday-h em { font-style:normal; color:var(--muted); font-weight:700; margin-left:auto; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; padding:5px 9px; border-radius:9px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; }
+  .chip i { width:14px; height:14px; border-radius:4px; border:2px solid #fb923c; background:#fff; flex:none; }
+  .chip.list { background:#eef2ff; border-color:#a5b4fc; color:#3730a3; }
+  .chip.list i { border:none; width:auto; height:auto; font-style:normal; font-size:11px; }
+  .chip.list b { font-size:11px; background:#3730a3; color:#fff; border-radius:999px; padding:1px 6px; }
+  .grid { flex:1; overflow:hidden; position:relative; background:#fff; }
+  .hr { display:flex; height:48px; border-top:1px solid #eef4f6; }
+  .hr span { width:44px; font-size:10px; color:var(--muted); text-align:right; padding:2px 6px 0 0; flex:none; }
+  .ev { position:absolute; left:52px; right:10px; border-radius:8px; padding:5px 8px; font-size:12px; font-weight:700; display:flex; gap:6px; align-items:center; }
+  .ev.task { background:#ecfeff; border-left:4px solid var(--primary); color:var(--deep); }
+  .ev.list { background:#eef2ff; border-left:4px solid #6366f1; color:#3730a3; }
+  .ev.list.done { background:#f0fdf4; border-left-color:#22c55e; color:#166534; }
+  .ev b { margin-left:auto; font-size:11px; background:#3730a3; color:#fff; border-radius:999px; padding:1px 7px; }
+  .ev.done b { background:#22c55e; }
+  .bar { height:4px; border-radius:2px; background:#e0e7ff; overflow:hidden; } .bar i { display:block; height:100%; background:#6366f1; }
+  /* シート */
+  .dim { position:absolute; inset:0; background:rgba(15,23,42,.35); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:18px 18px 0 0; box-shadow:0 -8px 24px rgba(0,0,0,.2); padding:12px 14px 16px; display:grid; gap:6px; }
+  .sh-h { display:flex; align-items:baseline; gap:8px; } .sh-h b { font-size:16px; } .sh-h em { font-style:normal; margin-left:auto; font-size:12px; color:var(--muted); font-weight:700; }
+  .li { display:flex; align-items:center; gap:10px; font-size:14px; padding:10px 0; border-top:1px solid #eef4f6; }
+  .li i { width:22px; height:22px; border-radius:6px; border:2px solid #6366f1; flex:none; display:grid; place-items:center; font-style:normal; color:#fff; font-size:13px; font-weight:900; }
+  .li.done i { background:#22c55e; border-color:#22c55e; }
+  .li.done .t { color:#94a3b8; text-decoration:line-through; }
+  .li.skip i { background:#e2e8f0; border-color:#cbd5e1; color:#64748b; }
+  .li.skip .t { color:#64748b; }
+  .li small { margin-left:auto; color:var(--muted); font-size:11px; text-align:right; line-height:1.3; }
+  .li .nb { margin-left:auto; font-size:11px; font-weight:800; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:3px 7px; }
+  .pop { position:absolute; right:14px; background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,.18); padding:10px; width:230px; display:grid; gap:6px; font-size:12px; }
+  .pop b { font-size:13px; }
+  .pop .in { font-size:12px; padding:7px 8px; color:#94a3b8; font-weight:400; }
+  .pop .ok { background:#475569; color:#fff; text-align:center; font-weight:900; border-radius:9px; padding:8px; }
+  /* 記録 */
+  .rec { background:#fff; border:1px solid var(--border); border-radius:12px; padding:10px 12px; display:grid; gap:4px; font-size:13px; }
+  .rec .r1 { display:flex; gap:8px; align-items:center; font-weight:800; }
+  .rec .r1 em { font-style:normal; margin-left:auto; font-size:11px; padding:2px 8px; border-radius:999px; }
+  .ok-t { background:#dcfce7; color:#166534; } .ng-t { background:#fee2e2; color:#b91c1c; }
+  .rec .r2 { font-size:11px; color:var(--muted); line-height:1.5; }
+  .rec .r2 s { color:#b91c1c; text-decoration:none; font-weight:800; }
+  .tag { position:absolute; top:8px; right:8px; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; color:#fff; background:var(--primary); }
+  .note { font-size:12px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:8px 10px; line-height:1.6; max-width:1500px; margin-top:16px; }
+</style></head><body>
+<h1>チェック表（中の項目 ＋ 繰り返し）</h1>
+<p class="lead">
+やることに<b>中の項目（2段まで）</b>と<b>繰り返し</b>を足したもの。チェック表は店ごと（店舗コードごと）に持ち、作る・直すのは管理者（やることを作れる権限）。<br>
+1日の画面では親1件だけを「退店チェック 2/4」で出す。時刻があれば時間の目盛り、なければ終日の帯。押すとシートで項目に✓。項目ごとに「今日はなし」（理由は任意）。担当は親単位（誰でも／全員／特定の人）。終わらなかった日は持ち越さず、記録に「未完了」で残す。
+</p>
+<div class="row">
+
+<!-- ① 一覧 -->
+<div class="col"><div class="cap">① チェック表の一覧（日誌の中）<small>店で使っている表。押すと直す。止める（お休み）もできる</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><span>‹ 戻る</span><b>チェック表</b><span style="width:42px"></span></div>
+  <div class="body">
+    <div class="card"><h3>☀ 開店チェック <em>直す ›</em></h3>
+      <div class="meta"><span class="pill">毎日 9:00</span><span>誰でも</span><span>5項目</span></div></div>
+    <div class="card"><h3>🌙 退店チェック <em>直す ›</em></h3>
+      <div class="meta"><span class="pill">毎日 22:00</span><span>誰でも</span><span>4項目</span></div></div>
+    <div class="card"><h3>🧽 週末の大掃除 <em>直す ›</em></h3>
+      <div class="meta"><span class="pill">土・日</span><span>時刻なし</span><span>全員</span><span>6項目</span></div></div>
+    <div class="card"><h3>📦 月初の備品確認 <em>直す ›</em></h3>
+      <div class="meta"><span class="pill">毎月1日</span><span>山田</span><span>8項目</span></div></div>
+    <div class="card" style="opacity:.6"><h3>🎄 年末の準備 <em>直す ›</em></h3>
+      <div class="meta"><span class="pill off">お休み中</span><span>3項目</span></div></div>
+    <div class="add">＋ チェック表を作る</div>
+    <div class="sample">見本から作る：<b>開店チェック</b> ・ <b>退店チェック</b></div>
+  </div>
+</div></div>
+
+<!-- ② 作る・直す -->
+<div class="col"><div class="cap">② 作る・直す<small>名前・項目（並べ替え・消す）・繰り返し・時刻・担当。今の「やること」の追加と同じ並び</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><span>‹</span><b>退店チェック</b><span style="width:14px"></span></div>
+  <div class="body" style="display:flex;flex-direction:column;gap:10px">
+    <label class="f">名前<div class="in">🌙 退店チェック</div></label>
+    <label class="f">項目（長押しで並べ替え）
+      <div class="items">
+        <div class="it"><span class="h">⋮⋮</span>ガスの元栓<span class="x">✕</span></div>
+        <div class="it"><span class="h">⋮⋮</span>ショーケース電源<span class="x">✕</span></div>
+        <div class="it"><span class="h">⋮⋮</span>カップウォーマー電源<span class="x">✕</span></div>
+        <div class="it"><span class="h">⋮⋮</span>ダスター漂白<span class="x">✕</span></div>
+        <div class="it new">＋ 項目を足す</div>
+      </div></label>
+    <label class="f">繰り返し<div class="seg"><span>なし</span><span class="on">毎日</span><span>曜日</span><span>毎月◯日</span></div></label>
+    <label class="f">時刻<div class="seg"><span>なし（終日）</span><span class="on">22:00</span></div></label>
+    <label class="f">担当<div class="seg"><span class="on">誰でも</span><span>全員</span><span>人を選ぶ</span></div></label>
+    <div class="save">保存（あすの分から）</div>
+  </div>
+</div></div>
+
+<!-- ③ 1日 -->
+<div class="col"><div class="cap">③ 1日の画面<small>親1件で「2/4」。時刻ありは目盛り、なしは終日の帯（紫の札＝チェック表）。済めば緑</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><span>‹</span><b>10月25日（土）今日 ▾</b><span>›</span></div>
+  <div class="sum">やること 1/3 ・ チェック表 1/3</div>
+  <div class="allday">
+    <div class="allday-h">終日・時刻なし <em>2 / 2 残り</em></div>
+    <div class="chips">
+      <span class="chip list"><i>☑</i>週末の大掃除 <b>2/6</b></span>
+      <span class="chip"><i></i>発注書の提出</span>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="hr" style="height:36px"><span>9:00</span></div><div class="hr" style="height:36px"><span>10:00</span></div><div class="hr" style="height:36px"><span>11:00</span></div><div class="hr" style="height:36px"><span>12:00</span></div><div class="hr" style="height:36px"><span>13:00</span></div><div class="hr" style="height:36px"><span>14:00</span></div><div class="hr" style="height:36px"><span>15:00</span></div><div class="hr" style="height:36px"><span>16:00</span></div><div class="hr" style="height:36px"><span>17:00</span></div><div class="hr" style="height:36px"><span>18:00</span></div><div class="hr" style="height:36px"><span>19:00</span></div><div class="hr" style="height:36px"><span>20:00</span></div><div class="hr" style="height:36px"><span>21:00</span></div><div class="hr" style="height:36px"><span>22:00</span></div>
+    <div class="ev list done" style="top:4px;height:26px">☀ 開店チェック<b>5/5 済</b></div>
+    <div class="ev task" style="top:76px;height:26px">11:00 野菜の検品</div>
+    <div class="ev list" style="top:472px;height:26px">🌙 退店チェック<b>2/4</b></div>
+  </div>
+</div></div>
+
+<!-- ④ ✓を付けるシート -->
+<div class="col"><div class="cap">④ 押すとシート：項目に✓<small>誰がいつ付けたかを項目ごとに残す。「今日はなし」は理由を任意で（押すと小窓）</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><span>‹</span><b>10月25日（土）今日 ▾</b><span>›</span></div>
+  <div class="grid"></div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="sh-h"><b>🌙 退店チェック</b><em>22:00 ・ 誰でも</em></div>
+    <div class="bar"><i style="width:50%"></i></div>
+    <div class="li done"><i>✓</i><span class="t">ガスの元栓</span><small>佐藤<br>22:04</small></div>
+    <div class="li done"><i>✓</i><span class="t">ショーケース電源</span><small>佐藤<br>22:05</small></div>
+    <div class="li"><i></i><span class="t">カップウォーマー電源</span><span class="nb">今日はなし</span></div>
+    <div class="li"><i></i><span class="t">ダスター漂白</span><span class="nb" style="border-color:#475569;color:#475569;background:#f1f5f9">今日はなし ▾</span></div>
+  </div>
+  <div class="pop" style="top:190px"><b>「ダスター漂白」を今日はなしに</b><div class="in">理由（なくてもよい）例：漂白剤切れ</div><div class="ok">今日はなしにする</div></div>
+</div></div>
+
+<!-- ⑤ 記録 -->
+<div class="col"><div class="cap">⑤ 記録（チェック表を開く → 記録）<small>日ごとに1行。未完了は持ち越さず、ここに赤で残る。今日はなしは理由つき</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><span>‹</span><b>退店チェックの記録</b><span style="width:14px"></span></div>
+  <div class="body">
+    <div class="rec"><div class="r1">10/24（金）<em class="ok-t">済 4/4</em></div><div class="r2">佐藤 22:03〜22:09</div></div>
+    <div class="rec"><div class="r1">10/23（木）<em class="ok-t">済（なし1）</em></div><div class="r2">鈴木 22:10〜22:14 ・ 今日はなし：ダスター漂白（漂白剤切れ）</div></div>
+    <div class="rec"><div class="r1">10/22（水）<em class="ng-t">未完了 3/4</em></div><div class="r2">山田 22:20〜 ・ <s>未：カップウォーマー電源</s></div></div>
+    <div class="rec"><div class="r1">10/21（火）<em class="ok-t">済 4/4</em></div><div class="r2">佐藤 22:01〜22:06</div></div>
+    <div class="rec"><div class="r1">10/20（月）<em class="ok-t">済 4/4</em></div><div class="r2">鈴木 22:12〜22:15</div></div>
+    <div class="rec"><div class="r1">10/19（日）<em class="ng-t">手つかず 0/4</em></div><div class="r2"><s>だれも開いていない</s></div></div>
+  </div>
+</div></div>
+
+</div>
+<p class="note">
+決めたこと：「今日はなし」を付ける（理由は任意）／担当は親単位。<br>
+確認したいこと：① 作る・直すのは管理者だけでよいか（スタッフは✓を付けるだけ）　② 表を直したとき、今日の分にも反映するか（案は「あすの分から」。途中まで✓した今日の記録を崩さないため）　③ 「今日はなし」を済みとして数えるか（案：数える。⑤の10/23は「済（なし1）」）
+</p>
+</body></html>
