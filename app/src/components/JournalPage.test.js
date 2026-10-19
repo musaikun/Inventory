@@ -156,7 +156,7 @@ describe('日誌', () => {
     const chk = form.querySelector('.jp-chk input')
     chk.checked = true; chk.dispatchEvent(new Event('change')); await tick()
     expect(form.querySelector('input[type=date]')).toBeNull()
-    form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()
+    await click(btn('みんなに見せて追加', form))
     expect(T.somedayTasks.value.map(t => t.text)).toEqual(['メニュー表の作り直し'])
     expect(host.querySelector('.jp-title small').textContent).toBe('残り 0')
     const head = host.querySelector('.jp-someday')
@@ -180,6 +180,26 @@ describe('日誌', () => {
     expect(ps).toHaveLength(5)
     expect(ps[2].textContent).toBe('')                 // 2分の中断は文字なし
     expect(ps[4].textContent).toBe('中断 42分')
+  })
+
+  it('管理者は追加のたびに「みんなに見せて追加」「管理者だけで追加」を選ぶ（チェックの付け忘れ・付けすぎを防ぐ・2026-10-19）', async () => {
+    const T = await import('../composables/useTasks.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const add = async (text, label) => {
+      await click(host.querySelector('.jp-fab'))
+      const form = document.body.querySelector('.jp-sheet')
+      expect(form.textContent).not.toContain('管理者だけに見せる')   // チェックは無い
+      const input = form.querySelector('input[type=text]')
+      input.value = text; input.dispatchEvent(new Event('input')); await tick()
+      form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()
+      expect(document.body.querySelector('.jp-sheet'), 'Enter では決めない（どちらに見せるか選ばせる）').not.toBeNull()
+      await click(btn(label, form))
+    }
+    await add('面談の準備', '管理者だけで追加')
+    await add('冷蔵庫の掃除', 'みんなに見せて追加')
+    const vis = Object.fromEntries(T.aliveTasks.value.map(t => [t.text, t.visibility ?? null]))
+    expect(vis).toEqual({ 面談の準備: 'admins', 冷蔵庫の掃除: null })
   })
 
   it('左右のスワイプでリスト・月・1日を切り替える（2026-10-14）', async () => {

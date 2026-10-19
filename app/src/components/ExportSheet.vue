@@ -216,7 +216,7 @@ defineExpose({ open })
             <button type="button" class="ex-sw" role="switch" :aria-checked="includeHidden" aria-label="非表示の品目も入れる" @click="includeHidden = !includeHidden"></button>
           </div>
           <div v-if="mayMoney" class="ex-it">
-            <span class="ex-tx"><b>{{ kind === 'items' ? '金額（単価）を入れる' : kind === 'stock' ? '金額（単価・在庫金額）を入れる' : '金額（単価・金額）を入れる' }}</b><small>{{ kind === 'stock' ? '合計も付きます' : '業者に渡すときは外せます' }}</small></span>
+            <span class="ex-tx"><b>{{ kind === 'items' ? '金額（単価）を入れる' : kind === 'stock' ? '金額（単価・在庫金額）を入れる' : '金額（単価・金額）を入れる' }}</b><small v-if="kind === 'stock'">合計も付きます</small></span>
             <button type="button" class="ex-sw" role="switch" :aria-checked="money" aria-label="金額を入れる" @click="money = !money"></button>
           </div>
           <p v-else class="ex-note pad">金額は入りません（金額を見る権限がありません）</p>

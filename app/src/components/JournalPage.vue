@@ -147,15 +147,17 @@ const todayRecordCount = computed(() => recordsOn(today).length)
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fAdmins = ref(false)
+const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
 const people = computed(() => staffNames.value)
 function openAdd() {
-  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; fAdmins.value = false; adding.value = true
+  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; adding.value = true
 }
-function submitAdd() {
+// 管理者は追加のたびに「みんなに見せる／管理者だけ」を選ぶ（User決定 2026-10-19）。
+// チェックの付け忘れで全員に見えたり、気にしすぎて見せたいのに隠したりしないように、追加のボタンを2つにする
+function submitAdd(adminsOnly = false) {
   const v = fWho.value
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
-  if (addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility: fAdmins.value ? 'admins' : null })) adding.value = false
+  if (addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility: adminsOnly ? 'admins' : null })) adding.value = false
 }
 onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; adding.value = false; return true }))
 </script>
@@ -243,7 +245,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 
     <Teleport to="body">
       <div v-if="adding" class="jp-sheet-bg" @click.self="adding = false">
-        <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="submitAdd">
+        <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="!isAdmin && submitAdd(false)">
           <b class="jp-sheet-t">やることを追加</b>
           <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" placeholder="例：製氷機のフィルター交換" aria-label="やること" class="jp-in" />
           <div v-if="!fSomeday" class="jp-row">
@@ -251,8 +253,6 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
           </div>
           <label class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
-          <!-- 管理者だけに見せる（面談・給与・クレームなど。ほかのスタッフの端末には届かない・2026-10-15） -->
-          <label v-if="isAdmin" class="jp-chk"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
           <label v-if="people.some(p => !p.owner)">担当
             <select v-model="fWho" class="jp-in">
               <option value="anyone">誰でも</option>
@@ -263,7 +263,12 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
           </label>
           <div class="jp-row end">
             <button type="button" class="jp-mini" @click="adding = false">やめる</button>
-            <button type="submit" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)">追加</button>
+            <button v-if="!isAdmin" type="submit" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)">追加</button>
+          </div>
+          <!-- 管理者: 誰に見せるかを追加のたびに選ぶ（管理者だけ＝面談・給与・クレームなど。ほかのスタッフの端末には届かない） -->
+          <div v-if="isAdmin" class="jp-add2">
+            <button type="button" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)" @click="submitAdd(false)">みんなに見せて追加</button>
+            <button type="button" class="jp-save admins" :disabled="!fText.trim() || (!fSomeday && !fDate)" @click="submitAdd(true)">🔒 管理者だけで追加</button>
           </div>
         </form>
       </div>
@@ -272,6 +277,9 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 </template>
 
 <style scoped>
+.jp-add2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.jp-add2 .jp-save { width: 100%; min-height: 46px; }
+.jp-save.admins { background: #475569; color: #fff; }
 .jp { position: relative; display: flex; flex-direction: column; min-height: 100%; background: var(--bg); }
 .jp-top { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: 12px 14px 10px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
 .jp-title { display: flex; align-items: baseline; gap: 8px; }
