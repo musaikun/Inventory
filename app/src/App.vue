@@ -4011,18 +4011,26 @@ function dismissReview() {
         <div class="onboard-card">
           <div class="onboard-title">タナオロの使い方</div>
           <ol class="onboard-steps">
+            <!-- 声で数えるは推さない（User決定 2026-10-19）。みんなで同時に数えるを先に -->
             <li class="onboard-step">
-              <span class="onboard-icon">🎤</span>
+              <span class="onboard-icon">👥</span>
               <div>
-                <strong>音声ボタンをタップ</strong>
-                <p>「豚バラ 3キロ」「卵 2パック」と話すだけ</p>
+                <strong>みんなで同時に数える</strong>
+                <p>「みんなで始める」のQRで仲間のスマホをつなぐ。入れた数はすぐ全員の画面にそろいます</p>
+              </div>
+            </li>
+            <li class="onboard-step">
+              <span class="onboard-icon">📦</span>
+              <div>
+                <strong>場所ごとに手分け</strong>
+                <p>冷蔵庫・冷凍庫など、担当の場所を開いて上から数えます。誰かが入力中の品目は黄色</p>
               </div>
             </li>
             <li class="onboard-step">
               <span class="onboard-icon">✓</span>
               <div>
-                <strong>数量を確認して登録</strong>
-                <p>品目が自動で認識されます。数値を確認してタップ</p>
+                <strong>品目を押して数を打つ</strong>
+                <p>確定すると次の品目が開きます</p>
               </div>
             </li>
             <li class="onboard-step">
@@ -4030,13 +4038,6 @@ function dismissReview() {
               <div>
                 <strong>品目がない場合は追加</strong>
                 <p>「＋ 品目を追加」フォームからその場で登録できます</p>
-              </div>
-            </li>
-            <li class="onboard-step">
-              <span class="onboard-icon">🔗</span>
-              <div>
-                <strong>複数端末で同時入力</strong>
-                <p>🔗ボタンからルームを作成、QRコードで仲間を招待</p>
               </div>
             </li>
           </ol>
