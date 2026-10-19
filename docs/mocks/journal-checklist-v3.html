@@ -1,0 +1,193 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>毎日のチェック v3 モック</title><!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>毎日のチェック v2 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --in:#4f46e5; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1500px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:330px; line-height:1.5; min-height:54px; }
+  .phone { width:330px; height:700px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); position:relative; }
+  .tag { position:absolute; top:8px; right:8px; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; color:#fff; background:var(--primary); z-index:5; }
+  .top { background:#fff; padding:12px 14px 8px; border-bottom:1px solid var(--border); display:grid; gap:8px; }
+  .title { display:flex; align-items:baseline; gap:8px; } .title b { font-size:17px; } .title small { margin-left:auto; margin-right:34px; font-size:12px; color:var(--muted); font-weight:700; }
+  .flt { display:flex; gap:6px; } .flt span { font-size:12px; font-weight:800; padding:5px 11px; border-radius:999px; background:#f1f7f9; color:var(--muted); } .flt span.on { background:var(--deep); color:#fff; }
+  .body { flex:1; overflow:hidden; padding:10px 12px; display:grid; gap:8px; align-content:start; }
+  .lh { font-size:11px; font-weight:900; letter-spacing:.06em; color:var(--muted); display:flex; align-items:center; padding:4px 4px 0; }
+  .lh em { margin-left:auto; font-style:normal; color:var(--in); font-weight:900; font-size:12px; letter-spacing:0; }
+  /* 毎日のチェックのカード */
+  .ck { background:#fff; border-radius:16px; border:1px solid #c7d2fe; padding:11px 12px; display:grid; gap:7px; box-shadow:0 2px 6px rgba(79,70,229,.08); }
+  .ck-h { display:flex; align-items:center; gap:8px; }
+  .ck-h .ic { font-size:22px; }
+  .ck-h b { font-size:15.5px; } .ck-h small { display:block; font-size:11.5px; color:var(--muted); font-weight:700; }
+  .ck-h .st { margin-left:auto; font-size:12px; font-weight:900; padding:4px 9px; border-radius:999px; background:#eef2ff; color:#3730a3; white-space:nowrap; }
+  .ck-h .st.now { background:#fff7ed; color:#c2410c; }
+  .ck-h .st.ok { background:#dcfce7; color:#166534; }
+  .bar { height:7px; border-radius:4px; background:#e0e7ff; overflow:hidden; } .bar i { display:block; height:100%; background:var(--in); }
+  .ck.ok { border-color:#86efac; } .ck.ok .bar i { background:#22c55e; }
+  .week { white-space:nowrap; display:flex; align-items:center; gap:5px; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .week span { width:20px; height:20px; border-radius:6px; display:grid; place-items:center; font-size:10px; font-weight:900; color:#fff; }
+  .week .y { background:#22c55e; } .week .n { background:#fca5a5; } .week .t { background:#fff; border:2px dashed #a5b4fc; color:#4f46e5; } .week .o { background:#e2e8f0; color:#94a3b8; }
+  .week em { margin-left:auto; font-style:normal; }
+  .go { background:var(--in); color:#fff; text-align:center; font-weight:900; font-size:14px; border-radius:11px; padding:10px; }
+  .ck.ok .go { background:#f0fdf4; color:#166534; border:1px solid #86efac; }
+  .task { background:#fff; border-radius:14px; padding:2px 12px; }
+  .tr { display:flex; align-items:center; gap:10px; padding:10px 0; font-size:14px; border-top:1px solid #eef4f6; } .tr:first-child { border-top:none; }
+  .tr i { width:20px; height:20px; border-radius:6px; border:2px solid #fb923c; }
+  .setlink { text-align:center; font-size:12.5px; font-weight:800; color:var(--in); padding:4px; }
+  /* はじめて */
+  .first { background:#fff; border:2px dashed #a5b4fc; border-radius:16px; padding:14px; display:grid; gap:9px; text-align:center; }
+  .first .big { font-size:30px; }
+  .first b { font-size:16px; } .first p { font-size:12.5px; color:var(--muted); line-height:1.6; }
+  .samp { display:grid; gap:7px; }
+  .samp div { display:flex; align-items:center; gap:8px; border:1px solid #c7d2fe; background:#eef2ff; border-radius:12px; padding:10px 12px; text-align:left; font-size:13px; font-weight:800; color:#3730a3; }
+  .samp div small { display:block; font-size:11px; font-weight:600; color:var(--muted); }
+  .samp div em { margin-left:auto; font-style:normal; font-size:12px; background:var(--in); color:#fff; padding:5px 9px; border-radius:9px; white-space:nowrap; }
+  .own { font-size:13px; font-weight:800; color:var(--in); }
+  /* チェック中 */
+  .runtop { background:var(--in); color:#fff; padding:14px 16px 12px; display:grid; gap:6px; }
+  .runtop .x { display:flex; align-items:center; font-size:13px; font-weight:800; opacity:.9; }
+  .runtop .x span:last-child { margin-left:auto; }
+  .runtop b { font-size:20px; }
+  .runtop .bar { background:rgba(255,255,255,.3); } .runtop .bar i { background:#fff; }
+  .runtop small { font-size:12px; opacity:.9; }
+  .items { flex:1; padding:8px 12px; display:grid; gap:8px; align-content:start; }
+  .it { background:#fff; border-radius:14px; padding:14px; display:flex; align-items:center; gap:12px; font-size:16px; font-weight:800; border:2px solid transparent; }
+  .it i { width:30px; height:30px; border-radius:9px; border:3px solid #a5b4fc; display:grid; place-items:center; font-style:normal; color:#fff; font-size:17px; flex:none; }
+  .it.done { color:#94a3b8; } .it.done i { background:#22c55e; border-color:#22c55e; } .it.done s { text-decoration:line-through; }
+  .it small { margin-left:auto; font-size:11px; color:var(--muted); font-weight:700; text-align:right; }
+  .it.next { border-color:var(--in); box-shadow:0 4px 12px rgba(79,70,229,.18); }
+  .it .nb { white-space:nowrap; flex:none; margin-left:auto; font-size:11px; font-weight:800; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:4px 7px; }
+  .done-all { margin:0 12px 14px; background:#dcfce7; color:#166534; border-radius:14px; padding:12px; text-align:center; font-weight:900; font-size:14px; }
+  /* 設定 */
+  .set { background:#fff; border-radius:14px; border:1px solid var(--border); padding:11px 12px; display:grid; gap:4px; }
+  .set .h { display:flex; align-items:center; gap:8px; font-weight:900; font-size:14.5px; } .set .h em { margin-left:auto; font-style:normal; font-size:12px; color:var(--in); }
+  .set .m { font-size:12px; color:var(--muted); }
+  .set .m b { color:#3730a3; background:#eef2ff; border-radius:999px; padding:1px 8px; font-size:11px; margin-right:4px; }
+  .when { background:#fff; border-radius:14px; border:1px solid var(--border); padding:12px; display:grid; gap:8px; }
+  .when .q { font-size:13px; font-weight:900; }
+  .seg { display:flex; flex-wrap:wrap; gap:5px; } .seg span { font-size:12.5px; font-weight:800; padding:7px 11px; border-radius:10px; border:1px solid var(--border); color:var(--muted); background:#fff; }
+  .seg span.on { background:var(--in); border-color:var(--in); color:#fff; }
+  .sentence { background:#eef2ff; color:#3730a3; border-radius:12px; padding:10px 12px; font-size:13.5px; font-weight:800; line-height:1.6; }
+  .note { font-size:12px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:8px 10px; line-height:1.7; max-width:1500px; margin-top:16px; }
+
+  .x { position:absolute; top:8px; right:10px; width:26px; height:26px; border-radius:50%; background:#f1f5f9; color:#64748b; display:grid; place-items:center; font-weight:900; font-size:13px; }
+  .first { position:relative; }
+  .entry { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid #c7d2fe; border-radius:12px; padding:9px 12px; font-size:13px; font-weight:800; color:#3730a3; }
+  .entry em { margin-left:auto; font-style:normal; font-size:12px; background:#eef2ff; border-radius:999px; padding:3px 10px; }
+  .entry.glow { box-shadow:0 0 0 4px rgba(99,102,241,.35), 0 0 18px rgba(99,102,241,.5); }
+  .ghost { position:absolute; left:40px; right:40px; top:150px; height:120px; border:2px dashed #a5b4fc; border-radius:16px; background:rgba(238,242,255,.7); transform:scale(.55); transform-origin:top center; opacity:.6; }
+  .ghost2 { position:absolute; left:90px; right:90px; top:118px; height:40px; border:2px dashed #a5b4fc; border-radius:12px; background:rgba(238,242,255,.5); opacity:.5; }
+  .arrow { position:absolute; left:160px; top:150px; font-size:26px; color:#6366f1; font-weight:900; }
+  .toast { position:absolute; left:16px; right:16px; top:170px; background:#1e1b4b; color:#fff; border-radius:12px; padding:11px 13px; font-size:13px; font-weight:800; line-height:1.5; box-shadow:0 8px 20px rgba(0,0,0,.25); }
+  .toast small { display:block; font-weight:600; opacity:.8; font-size:11.5px; }
+  .slots { display:flex; gap:6px; flex-wrap:wrap; }
+  .slot { flex:1; min-width:78px; border-radius:11px; padding:7px 6px; text-align:center; font-size:12px; font-weight:900; border:1px solid #c7d2fe; background:#fff; color:#3730a3; line-height:1.35; }
+  .slot small { display:block; font-size:10.5px; font-weight:700; }
+  .slot.ok { background:#dcfce7; border-color:#86efac; color:#166534; }
+  .slot.ng { background:#fee2e2; border-color:#fca5a5; color:#b91c1c; }
+  .slot.now { background:var(--in); border-color:var(--in); color:#fff; box-shadow:0 4px 10px rgba(79,70,229,.3); }
+  .slot.later { background:#f8fafc; color:#94a3b8; border-style:dashed; }
+  .tchips { display:flex; flex-wrap:wrap; gap:6px; }
+  .tchips span { font-size:13px; font-weight:900; padding:7px 10px; border-radius:10px; background:var(--in); color:#fff; }
+  .tchips span.add { background:#fff; color:var(--in); border:1px dashed #a5b4fc; }
+</style></head><body>
+</head><body>
+<h1>毎日のチェック：作らない店には×で消せる ／ 1日に何回も</h1>
+<p class="lead">
+User決定: 名前は「毎日のチェック」、置き場所は日誌のリストの一番上、「1日」の画面は今のまま。<br>
+① 作れる人（管理者）にだけ「作りましょう」のカード。②×を押すと、カードが縮んで上の小さな入口に吸い込まれ、「ここからいつでも作れます」と出て消える（端末ごとに覚える。各種設定の「消した説明を戻す」でまた出る）。③ 以後は小さな入口だけ。<br>
+④ 1日に何回もやるもの（冷蔵庫の温度など）は、時刻を複数持てる。カードに回ごとの札（済み・今・これから・抜け）。⑤ 設定で時刻を足すだけ。数値・基準・一人ずつはHACCPを決めてから。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">① はじめて（管理者だけに出る）<small>右上の×で消せる。スタッフには出さない</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 2</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="lh">毎日のチェック</div>
+    <div class="first">
+      <span class="x">✕</span>
+      <div class="big">☑</div>
+      <b>毎日のチェックを作りましょう</b>
+      <p>開店・退店のように、毎日同じことを確かめる表です。ここに毎日出て、誰がいつ✓したか残ります。</p>
+      <div class="samp">
+        <div><span style="flex:1">☀ 開店チェック<small>手洗い・冷蔵庫の温度・釣り銭 など5つ</small></span><em>これで始める</em></div>
+        <div><span style="flex:1">🌙 退店チェック<small>ガスの元栓・電源・ダスター漂白 など5つ</small></span><em>これで始める</em></div>
+      </div>
+      <div class="own">＋ 自分で作る</div>
+    </div>
+    <div class="lh">今日 ・ 10月20日（火）<em style="color:var(--muted)">0/2</em></div>
+    <div class="task"><div class="tr"><i></i>手洗いの確認</div><div class="tr"><i></i>製氷機のフィルター交換</div></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">② ×を押すと（1秒ほどの動き）<small>カードが縮みながら上の入口へ → 入口が光る → 「ここからいつでも作れます」が2秒出て消える</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 2</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="entry glow">☑ 毎日のチェック<em>＋ 作る</em></div>
+    <div class="lh">今日 ・ 10月20日（火）<em style="color:var(--muted)">0/2</em></div>
+    <div class="task"><div class="tr"><i></i>手洗いの確認</div><div class="tr"><i></i>製氷機のフィルター交換</div></div>
+  </div>
+  <div class="ghost"></div><div class="ghost2"></div><div class="arrow" style="top:96px;left:150px">↑</div>
+  <div class="toast" style="top:230px">☝ 毎日のチェックは、ここからいつでも作れます<small>開店・退店・掃除など、毎日同じことを確かめるときに</small></div>
+</div></div>
+
+<div class="col"><div class="cap">③ そのあと<small>小さな入口が1行だけ。押すと一覧・作る。日誌の邪魔にならない</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 2</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="entry">☑ 毎日のチェック<em>＋ 作る</em></div>
+    <div class="lh">今日 ・ 10月20日（火）<em style="color:var(--muted)">0/2</em></div>
+    <div class="task"><div class="tr"><i></i>手洗いの確認</div><div class="tr"><i></i>製氷機のフィルター交換</div></div>
+    <div class="lh">明日 ・ 10月21日（水）<em style="color:var(--muted)">1</em></div>
+    <div class="task"><div class="tr"><i></i>発注書の提出</div></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">④ 1日に何回も（冷蔵庫の温度など）<small>回ごとの札。今の回を強く、抜けた回は赤。押すとその回の✓。カードの数は「今日 1/3回」</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 3</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="lh">毎日のチェック ・ 今日<em>1 / 2 済み</em></div>
+    <div class="ck">
+      <div class="ck-h"><span class="ic">🧊</span><div><b>冷蔵庫の温度確認</b><small>毎日 10:00・15:00・21:00 ・ 誰でも</small></div><span class="st now">今日 1/3回</span></div>
+      <div class="slots">
+        <div class="slot ok">10:00<small>✓ 佐藤 10:04</small></div>
+        <div class="slot now">15:00<small>今やる</small></div>
+        <div class="slot later">21:00<small>これから</small></div>
+      </div>
+      <div class="go">15:00 の回を始める</div>
+    </div>
+    <div class="ck ok">
+      <div class="ck-h"><span class="ic">☀</span><div><b>開店チェック</b><small>毎日 9:00 ・ 誰でも</small></div><span class="st ok">✓ 済み 9:12</span></div>
+      <div class="bar"><i style="width:100%"></i></div>
+    </div>
+    <div class="setlink">⚙ 毎日のチェックを設定</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">⑤ 設定：時刻を足すだけ<small>時刻が2つ以上なら「1日3回」。文も「毎日 10:00・15:00・21:00 に」</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>‹ 冷蔵庫の温度確認</b></div></div>
+  <div class="body">
+    <div class="sentence">🧊 冷蔵庫の温度確認は<br><u>毎日</u> <u>10:00・15:00・21:00</u>（1日3回）に、<u>誰でも</u> チェックする</div>
+    <div class="when"><div class="q">いつ</div>
+      <div class="seg"><span class="on">毎日</span><span>曜日を選ぶ</span><span>毎月◯日</span><span>1回だけ</span></div>
+      <div class="q" style="margin-top:4px">時刻</div>
+      <div class="tchips"><span>10:00 ✕</span><span>15:00 ✕</span><span>21:00 ✕</span><span class="add">＋ 時刻</span></div>
+      <div class="m">時刻なし＝その日のうちならいつでも</div>
+    </div>
+    <div class="when"><div class="q">誰が</div><div class="seg"><span class="on">誰でも</span><span>人を決める</span></div></div>
+    <div class="when"><div class="q">確かめること（2）</div>
+      <div class="m" style="font-size:13px;line-height:1.9">1. 冷蔵庫（10℃以下か）<br>2. 冷凍庫（-15℃以下か）<br><span style="color:#9a3412">※ 温度を数字で残す・基準外の対応はHACCPのときに</span></div>
+    </div>
+  </div>
+</div></div>
+
+</div>
+<p class="note">
+確認したいこと：① ×のあとの入口「☑ 毎日のチェック ＋作る」の位置（リストの一番上）でよいか　② 1日に何回もの「抜けた回」（21:00の回を誰もやらずに日付が変わった）は、記録で赤く残すだけでよいか（通知は後で）
+</p>
+</body></html>
