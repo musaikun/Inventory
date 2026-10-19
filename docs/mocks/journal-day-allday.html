@@ -1,0 +1,129 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>1日 終日の帯 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:330px; line-height:1.5; }
+  .phone { width:330px; height:700px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); position:relative; }
+  .datebar { background:#fff; padding:12px 14px 8px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .datebar b { flex:1; text-align:center; font-size:16px; }
+  .datebar span { color:var(--primary); font-weight:900; }
+  .sum { font-size:11px; color:var(--muted); text-align:center; padding:4px 0 6px; background:#fff; }
+  /* 案: 終日の帯（ヘッダーに固定） */
+  .allday { background:#fff; border-bottom:2px solid var(--border); padding:6px 10px 8px; display:grid; gap:5px; box-shadow:0 3px 6px -4px rgba(0,0,0,.2); }
+  .allday-h { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#c2410c; }
+  .allday-h em { font-style:normal; color:var(--muted); font-weight:700; margin-left:auto; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; padding:5px 9px; border-radius:9px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; }
+  .chip i { width:14px; height:14px; border-radius:4px; border:2px solid #fb923c; background:#fff; flex:none; }
+  .chip.done { background:#f1f5f9; border-color:#cbd5e1; color:#94a3b8; text-decoration:line-through; }
+  .chip.done i { background:#22c55e; border-color:#22c55e; }
+  .chip.late { background:#fef2f2; border-color:#fca5a5; color:#b91c1c; }
+  .chip.late i { border-color:#ef4444; }
+  .chip.more { background:#fff; border-style:dashed; color:var(--primary); border-color:#a5f3fc; }
+  .grid { flex:1; overflow:hidden; position:relative; background:#fff; }
+  .hr { display:flex; height:48px; border-top:1px solid #eef4f6; }
+  .hr span { width:44px; font-size:10px; color:var(--muted); text-align:right; padding:2px 6px 0 0; flex:none; }
+  .ev { position:absolute; left:52px; right:10px; border-radius:8px; padding:5px 8px; font-size:12px; font-weight:700; }
+  .ev.task { background:#ecfeff; border-left:4px solid var(--primary); color:var(--deep); }
+  .ev.stock { background:#f0fdf4; border-left:4px solid #16a34a; color:#166534; }
+  .ev.mv { background:#fef9c3; border-left:4px solid #ca8a04; color:#854d0e; }
+  /* 今: 縦の帯 */
+  .lane { position:absolute; left:52px; width:30px; top:0; bottom:0; background:#fff7ed; border-right:2px solid #fdba74; writing-mode:vertical-rl; font-size:11px; font-weight:800; color:#c2410c; display:flex; align-items:center; justify-content:center; letter-spacing:.2em; }
+  .now .ev { left:90px; }
+  .tag { position:absolute; top:8px; right:8px; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; color:#fff; }
+  .tag.old { background:#64748b; } .tag.new { background:var(--primary); }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; max-width:330px; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:18px 18px 0 0; box-shadow:0 -8px 24px rgba(0,0,0,.2); padding:12px 14px 18px; display:grid; gap:8px; }
+  .sheet b { font-size:15px; }
+  .li { display:flex; align-items:center; gap:8px; font-size:13px; padding:8px 0; border-top:1px solid #eef4f6; }
+  .li i { width:18px; height:18px; border-radius:5px; border:2px solid #fb923c; flex:none; }
+  .li.done { color:#94a3b8; text-decoration:line-through; } .li.done i { background:#22c55e; border-color:#22c55e; }
+  .li small { margin-left:auto; color:var(--muted); font-size:11px; }
+  .dim { position:absolute; inset:0; background:rgba(15,23,42,.35); }
+</style></head><body>
+<h1>日誌「1日」：時刻の無いやること（今日中・終日）を上に固定</h1>
+<p class="lead">
+今は時刻の無いやることが、時間の目盛りの左に<b>縦の帯</b>（「今日中」）として入っている。案では、日付の帯のすぐ下に<b>「終日」の帯</b>として横に並べ、<b>時間の目盛りをスクロールしても上に残る</b>（カレンダーアプリの終日予定と同じ）。<br>
+帯の中はやることを小さな札で並べ、押すと完了の印。多いときは2行まで出して「＋N件」。押すと一覧（シート）で全部。期限切れ（前の日から残っているもの）は赤。済みは灰色で取り消し線。時間の目盛りは横幅を全部使える。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">今<small>時刻の無いやることは左の縦の帯。押すと一覧。時間の目盛りの幅が狭くなる</small></div>
+<div class="phone now"><span class="tag old">今</span>
+  <div class="datebar"><span>‹</span><b>10月20日（火）今日 ▾</b><span>›</span></div>
+  <div class="sum">やること 1/5 ・ 入出庫 2 ・ 棚卸 1</div>
+  <div class="grid">
+    <div class="lane">今日中 4</div>
+    <div class="hr"><span>9:00</span></div><div class="hr"><span>10:00</span></div><div class="hr"><span>11:00</span></div><div class="hr"><span>12:00</span></div><div class="hr"><span>13:00</span></div><div class="hr"><span>14:00</span></div><div class="hr"><span>15:00</span></div><div class="hr"><span>16:00</span></div><div class="hr"><span>17:00</span></div><div class="hr"><span>18:00</span></div><div class="hr"><span>19:00</span></div><div class="hr"><span>20:00</span></div>
+    <div class="ev mv" style="top:30px;height:22px">入庫 3品目</div>
+    <div class="ev task" style="top:100px;height:26px">11:00 野菜の検品</div>
+    <div class="ev stock" style="top:250px;height:90px">棚卸 14:10〜15:50</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">案：終日の帯を上に固定<small>日付の下に横の帯。スクロールしても残る。時間の目盛りは幅いっぱい</small></div>
+<div class="phone"><span class="tag new">案</span>
+  <div class="datebar"><span>‹</span><b>10月20日（火）今日 ▾</b><span>›</span></div>
+  <div class="sum">やること 1/5 ・ 入出庫 2 ・ 棚卸 1</div>
+  <div class="allday">
+    <div class="allday-h">終日・時刻なし <em>3 / 4 残り</em></div>
+    <div class="chips">
+      <span class="chip late"><i></i>発注書の提出（昨日から）</span>
+      <span class="chip"><i></i>手洗いの確認</span>
+      <span class="chip"><i></i>製氷機のフィルター交換</span>
+      <span class="chip done"><i></i>冷蔵庫の温度記録</span>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="hr"><span>9:00</span></div><div class="hr"><span>10:00</span></div><div class="hr"><span>11:00</span></div><div class="hr"><span>12:00</span></div><div class="hr"><span>13:00</span></div><div class="hr"><span>14:00</span></div><div class="hr"><span>15:00</span></div><div class="hr"><span>16:00</span></div><div class="hr"><span>17:00</span></div><div class="hr"><span>18:00</span></div>
+    <div class="ev mv" style="top:30px;height:22px">入庫 3品目</div>
+    <div class="ev task" style="top:100px;height:26px">11:00 野菜の検品</div>
+    <div class="ev stock" style="top:250px;height:90px">棚卸 14:10〜15:50</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">案：多いとき<small>2行まで出して「＋N件」。済みは後ろへ。帯の高さは増えすぎない</small></div>
+<div class="phone"><span class="tag new">案</span>
+  <div class="datebar"><span>‹</span><b>10月20日（火）今日 ▾</b><span>›</span></div>
+  <div class="sum">やること 2/9 ・ 入出庫 2</div>
+  <div class="allday">
+    <div class="allday-h">終日・時刻なし <em>7 / 8 残り</em></div>
+    <div class="chips">
+      <span class="chip late"><i></i>発注書の提出（昨日から）</span>
+      <span class="chip"><i></i>手洗いの確認</span>
+      <span class="chip"><i></i>製氷機のフィルター交換</span>
+      <span class="chip"><i></i>レジ締め</span>
+      <span class="chip more">＋4件</span>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="hr"><span>9:00</span></div><div class="hr"><span>10:00</span></div><div class="hr"><span>11:00</span></div><div class="hr"><span>12:00</span></div><div class="hr"><span>13:00</span></div><div class="hr"><span>14:00</span></div><div class="hr"><span>15:00</span></div><div class="hr"><span>16:00</span></div><div class="hr"><span>17:00</span></div>
+    <div class="ev task" style="top:100px;height:26px">11:00 野菜の検品</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">案：「＋4件」か帯の見出しを押す<small>全部をシートで。ここで完了・直す・消す（今の一覧と同じ）</small></div>
+<div class="phone"><span class="tag new">案</span>
+  <div class="datebar"><span>‹</span><b>10月20日（火）今日 ▾</b><span>›</span></div>
+  <div class="grid"></div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <b>終日・時刻なし（8件）</b>
+    <div class="li"><i></i>発注書の提出<small style="color:#b91c1c">昨日から</small></div>
+    <div class="li"><i></i>手洗いの確認</div>
+    <div class="li"><i></i>製氷機のフィルター交換<small>山田</small></div>
+    <div class="li"><i></i>レジ締め</div>
+    <div class="li"><i></i>ゴミ出し</div>
+    <div class="li"><i></i>メニューの差し替え</div>
+    <div class="li"><i></i>釣り銭の準備</div>
+    <div class="li done"><i></i>冷蔵庫の温度記録<small>9:12 済み</small></div>
+  </div>
+</div></div>
+
+</div>
+<p class="note" style="margin-top:16px;max-width:900px">確認したいこと：① 帯の札を押したら、その場で完了の印（今の時刻の帯と同じ）でよいか、それとも押すとシートが開くだけにするか　② 「今日中」と「終日」は同じ帯でよいか（今は時刻なし＝今日中）</p>
+</body></html>
