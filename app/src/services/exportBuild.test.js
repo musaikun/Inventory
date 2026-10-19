@@ -46,6 +46,20 @@ describe('品目リスト', () => {
     }
   })
 
+  it('並びはジャンル順（取り込み元の分類コードを優先）→ 商品コード順。自分で並び替えた順・グループには寄せない（2026-10-19）', () => {
+    const c = {
+      ...config(),
+      order: ['豚バラ', 'C品', 'キャベツ', 'A品', 'B品'],   // 画面で並び替えた順
+      categories: { 豚バラ: '肉', キャベツ: '野菜', A品: '野菜', B品: '野菜', C品: '肉' },
+      categoryCodes: { 野菜: 10, 肉: 20 },
+      codes: { A品: '003', キャベツ: '001', B品: '002', C品: '010', 豚バラ: '005' },
+      tagsA: { 豚バラ: ['冷凍'], キャベツ: ['冷蔵'] }, hiddenItems: [],
+    }
+    expect(buildItemRows(c).slice(1).map(r => r[0])).toEqual(['キャベツ', 'B品', 'A品', '豚バラ', 'C品'])
+    const snap = { date: '2026-10-31', items: [{ item: '豚バラ', qty: 1 }, { item: 'キャベツ', qty: 2 }] }
+    expect(buildStocktakeSheets([snap], c, { money: false })[0].rows.slice(1).map(r => r[2])).toEqual(['キャベツ', 'B品', 'A品', '豚バラ', 'C品'])
+  })
+
   it('ほかの形のファイルは、このアプリの形とみなさない', () => {
     expect(ownItemMapping('品目名,単位,単価\nキャベツ,玉,180')).toBeNull()
     expect(ownItemMapping('商品名,単位\nキャベツ,玉')).toBeNull()

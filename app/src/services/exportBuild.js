@@ -2,6 +2,7 @@
  * 書き出す中身（表）を組み立てる（User決定 2026-10-17・モック docs/mocks/export-v2.html）。
  * ここは表（行の配列）を返すだけ。ファイル（CSV / Excel）にするのは utils/exportFile.js。
  *
+ * - 並びはどれもジャンル順 → 商品コード順（ジャンルの順は取り込み元の分類コードを優先）
  * - 品目リスト: このアプリの形。そのまま「取り込む › 品目リスト」に入れると問いなしで読める
  *   （見出しの名前で列を決める。utils/itemImport.js の ownItemMapping）。非表示の品目は選んだときだけ（「非表示」の列に ○）
  * - 棚卸結果: 選んだ回。2回以上は「横に並べて1枚（品目×日付）」か「回ごと」。
@@ -10,7 +11,17 @@
  * 金額は money=false なら列ごと出さない（金額を見る権限が無い人は、呼び出し側でいつも false）
  */
 
+import { sortByCategoryAndCode, categoryOrderOf } from './snapshotView.js'
+
 export const HIDDEN_MARK = '○'
+
+/**
+ * 書き出す並び（User決定 2026-10-19）: ジャンル順 → 商品コード順。ジャンルの順は取り込み元の分類コードを優先
+ * （categoryOrderOf）。コードの無い品目は品目リストの順で後ろ。画面で自分で並び替えた順・並び替え①②のグループには寄せない
+ */
+function _exportOrder(names, config, categories = config.categories ?? {}, codes = config.codes ?? {}) {
+  return sortByCategoryAndCode(names, { categories, codes, categoryOrder: categoryOrderOf(config) })
+}
 
 const _axis = (config, i) => config.axisNames?.[i] || (i === 0 ? '並び替え①' : '並び替え②')
 
@@ -33,7 +44,7 @@ export function buildItemRows(config, { money = true, includeHidden = false } = 
     aliases.get(target).push(alias)
   }
   const rows = [itemHeaders(config, { money, includeHidden })]
-  for (const item of config.order ?? []) {
+  for (const item of _exportOrder(config.order ?? [], config)) {
     const isHidden = hidden.has(item)
     if (isHidden && !includeHidden) continue
     const cat = config.categories?.[item] ?? ''
@@ -61,7 +72,7 @@ export function buildItemRows(config, { money = true, includeHidden = false } = 
 const _md = date => { const [, m, d] = String(date).split('-').map(Number); return m && d ? `${m}/${d}` : String(date) }
 
 /**
- * 出す品目の並び: いまの品目の並び → 棚卸にだけある品目（棚卸の並び）。
+ * 出す品目の並び: ジャンル順 → 商品コード順（_exportOrder）。
  * いま非表示の品目は、選んだ回のどれかで数えていたときだけ出す
  */
 function _stockNames(snaps, config) {
@@ -79,7 +90,14 @@ function _stockNames(snaps, config) {
   const add = n => { if (!seen.has(n) && (!hidden.has(n) || counted.has(n))) { seen.add(n); out.push(n) } }
   for (const n of config.order ?? []) add(n)
   for (const n of inSnap) add(n)
-  return out
+  // 棚卸にだけある品目は、その棚卸のジャンル・コードで並べる
+  const categories = { ...(config.categories ?? {}) }, codes = { ...(config.codes ?? {}) }
+  for (const s of snaps) for (const it of s.items ?? []) {
+    if (!it?.item) continue
+    if (categories[it.item] == null && it.category) categories[it.item] = it.category
+    if (codes[it.item] == null && it.code) codes[it.item] = it.code
+  }
+  return _exportOrder(out, config, categories, codes)
 }
 const _itemMap = snap => {
   const m = new Map()
