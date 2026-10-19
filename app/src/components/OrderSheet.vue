@@ -3,8 +3,10 @@
  * 発注の1品目（User決定 2026-10-17・モック docs/mocks/order-type-first.html）。
  * トグルをやめ、「先に打って、何の数かは後で選ぶ」。
  *   発注数が分かる品目 → 打つ →「発注 N」（2手）
- *   分からない品目     → 数えた在庫を打つ →「在庫 N」→ 発注はいくつ？（参考の数を押すだけ）→「発注 M」/「発注なし」
+ *   分からない品目     → 数えた在庫を打つ →「在庫 N」＝あとで決める（在庫だけ残して次へ・User決定 2026-10-19）。
+ *                        あとで開き直すと、在庫と参考の数（推奨など）が出るので、押して「発注」
  *   頼まない品目       →「発注なしで確定」（1手）
+ *   完了するとき、発注数が決まっていない品目は「すべて発注なし（0）で保存しますか？」と訊く（App）
  * 在庫は強制しない（迷ったときの道具。打たれた分だけ分析にも使う）。
  * 参考の数（services/orderRefs.js）は何から出た数かを添え、欄へは自動で入れない。
  * いつもと桁が違う発注数（同じ曜日の平均の3倍以上か3分の1以下）は、確定の前に1回だけ訊く。
@@ -36,9 +38,7 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel', 'navigate'])
 
 const lotLabel = computed(() => (props.orderLot > 1 ? '口' : (props.unit || '')))
-const step = ref('type')   // type: 数を打つ / decide: 在庫を入れた → 発注はいくつ？
-const typed = ref(props.initialTyped != null ? String(props.initialTyped) : '')   // いま打っている数（type でも decide でも同じ欄）
-const stock = ref(null)    // decide で決まった在庫
+const typed = ref(props.initialTyped != null ? String(props.initialTyped) : '')   // いま打っている数
 const confirmUnusual = ref(null)   // { qty, usual } いつもと違う数の確認中
 
 const typedNum = computed(() => {
@@ -48,21 +48,20 @@ const typedNum = computed(() => {
 const isInt = computed(() => typedNum.value !== null && Number.isInteger(typedNum.value))
 const refs = computed(() => orderRefs(props.orders, props.ingredient, props.today, {
   target: props.target, lot: props.orderLot,
-  stock: step.value === 'decide' ? stock.value : props.existingStock,
+  stock: props.existingStock,
 }))
 
 // ── テンキー ──
 function digit(d) { confirmUnusual.value = null; typed.value = typed.value === '0' ? d : typed.value + d }
-function dot() { if (step.value === 'type' && !typed.value.includes('.')) typed.value = (typed.value || '0') + '.' }
+function dot() { if (!typed.value.includes('.')) typed.value = (typed.value || '0') + '.' }
 function back() { confirmUnusual.value = null; typed.value = typed.value.slice(0, -1) }
 function clear() { confirmUnusual.value = null; typed.value = '' }
 function useRef(r) { confirmUnusual.value = null; typed.value = String(r.qty) }
 
 // ── 送る ──
-const _payload = (orderQty, { stockOnly = false } = {}) => ({
+const _payload = (orderQty, { stock = null, stockOnly = false } = {}) => ({
   ingredient: props.ingredient, orderMode: true,
-  stock: step.value === 'decide' ? stock.value : null,
-  orderQty, stockOnly, unit: props.unit, lot: props.orderLot,
+  stock, orderQty, stockOnly, unit: props.unit, lot: props.orderLot,
 })
 function chooseOrder(force = false) {
   if (!isInt.value) return
@@ -71,20 +70,14 @@ function chooseOrder(force = false) {
   if (odd) { confirmUnusual.value = { qty: q, usual: odd.usual }; return }
   emit('confirm', _payload(q))
 }
+// 在庫を入れた＝発注はあとで決める（発注の下書きも「発注なし」も変えない・User決定 2026-10-19）
 function chooseStock() {
   if (typedNum.value === null || typedNum.value < 0) return
-  stock.value = typedNum.value
-  typed.value = ''
-  confirmUnusual.value = null
-  step.value = 'decide'
+  emit('confirm', _payload(0, { stock: typedNum.value, stockOnly: true }))
 }
 function chooseNone() { emit('confirm', _payload(0)) }
-// 在庫だけ入れて、発注はあとで決める（発注の下書きも「発注なし」も変えない）
-function stockOnly() { emit('confirm', _payload(0, { stockOnly: true })) }
-function navigate(dir) {
-  // 在庫を入れたあとなら、その在庫だけは残して移る。打ちかけの数は捨てる（何の数か決めていない）
-  emit('navigate', step.value === 'decide' ? { dir, ..._payload(0, { stockOnly: true }) } : { dir, skip: true })
-}
+// 打ちかけの数は捨てて移る（何の数か決めていない）
+function navigate(dir) { emit('navigate', { dir, skip: true }) }
 
 // ── PCキーボード ──
 function onKey(e) {
@@ -100,8 +93,8 @@ const coach = ref(null)
 const COACH_STEPS = [
   { caption: 'まず数を打ちます（発注数でも、数えた在庫でも）' },
   { caption: '発注数が分かっていれば「発注」を押して、次の品目へ' },
-  { caption: '迷ったら、数えた在庫を打って「在庫」' },
-  { caption: '「発注はいくつ？」に変わります。参考の数を押すか打って「発注」。頼まないなら「発注なし」' },
+  { caption: '迷ったら、数えた在庫を打って「在庫」。発注はあとで決めます' },
+  { caption: 'あとで開くと、在庫と参考の数（推奨など）が出ます。押して「発注」' },
 ]
 </script>
 
@@ -122,27 +115,19 @@ const COACH_STEPS = [
         <div class="os-facts">
           <span v-if="initialOrderQty > 0" class="os-fact now">いまの発注 {{ initialOrderQty }}{{ lotLabel }}</span>
           <span v-else-if="decidedNone" class="os-fact now">いまは発注なし</span>
-          <span v-if="step === 'decide'" class="os-fact stock">在庫 {{ stock }}{{ unit }} ✓</span>
-          <span v-else-if="existingStock != null" class="os-fact">在庫 {{ existingStock }}{{ unit }}</span>
-          <span v-if="refs.last" class="os-fact">前回 {{ refs.last.qty }}{{ lotLabel }}</span>
-          <span v-if="step === 'type' && refs.recommend" class="os-fact rec">推奨 {{ refs.recommend.qty }}{{ lotLabel }}</span>
-          <span v-if="step === 'type' && theoStock && existingStock == null" class="os-fact" :title="'直近の棚卸と入出庫から'">理論在庫 約{{ theoStock.qty }}{{ unit }}</span>
+          <span v-if="existingStock != null" class="os-fact stock">在庫 {{ existingStock }}{{ unit }} ✓</span>
+          <span v-else-if="theoStock" class="os-fact" :title="'直近の棚卸と入出庫から'">理論在庫 約{{ theoStock.qty }}{{ unit }}</span>
           <span v-if="orderLot > 1" class="os-fact">1口 = {{ orderLot }}{{ unit }}</span>
         </div>
       </div>
 
-      <div v-if="step === 'decide'" class="os-step">在庫 {{ stock }}{{ unit }} → 発注はいくつ？</div>
+      <div :class="['os-disp', { empty: typed === '' }]">{{ typed === '' ? '数を打つ' : typed }}</div>
 
-      <div :class="['os-disp', { empty: typed === '', order: step === 'decide' && typed !== '' }]">
-        {{ typed === '' ? (step === 'decide' ? '発注数を打つ' : '数を打つ') : typed }}
-      </div>
-
-      <!-- 発注はいくつ？: 参考の数（押すと入る。自動では入れない） -->
-      <div v-if="step === 'decide'" class="os-refs">
+      <!-- 参考の数（押すと入る。自動では入れない）。推奨は在庫が入っていて、補充目標が分かるときだけ -->
+      <div v-if="refs.refs.length" class="os-refs">
         <button v-for="r in refs.refs" :key="r.key" type="button" :class="['os-ref', r.key]" @click="useRef(r)">
           {{ r.label }}{{ lotLabel }}<small>{{ r.sub }}</small>
         </button>
-        <p v-if="!refs.refs.length" class="os-noref">まだ参考にできる記録がありません</p>
       </div>
 
       <div v-if="confirmUnusual" class="os-warn" role="alert">
@@ -153,43 +138,36 @@ const COACH_STEPS = [
         </div>
       </div>
 
-      <NumPad :integer="step === 'decide'" @digit="digit" @dot="dot" @backspace="back" @clear="clear" />
+      <NumPad @digit="digit" @dot="dot" @backspace="back" @clear="clear" />
 
       <!-- 打った数を「発注」か「在庫」かここで選ぶ -->
-      <div v-if="step === 'type'" class="os-two">
+      <div class="os-two">
         <button type="button" class="os-btn order" :disabled="!isInt" @click="chooseOrder()">
           {{ typedNum === null ? '発注' : `発注 ${typedNum}${lotLabel}` }}
           <small>{{ typedNum === null ? '数を打つと押せる' : isInt ? 'これで決まり → 次へ' : '発注は整数で' }}</small>
         </button>
         <button type="button" class="os-btn stock" :disabled="typedNum === null" @click="chooseStock">
           {{ typedNum === null ? '在庫' : `在庫 ${typedNum}${unit}` }}
-          <small>{{ typedNum === null ? '数を打つと押せる' : '数えた数 → 発注を決める' }}</small>
-        </button>
-      </div>
-      <div v-else class="os-two">
-        <button type="button" class="os-btn none" @click="chooseNone">発注なし</button>
-        <button type="button" class="os-btn order" :disabled="!isInt || typedNum <= 0" @click="chooseOrder()">
-          {{ typedNum ? `発注 ${typedNum}${lotLabel}` : '発注' }}<small>→ 次へ</small>
+          <small>{{ typedNum === null ? '数を打つと押せる' : '数えた数 → 発注はあとで' }}</small>
         </button>
       </div>
 
       <div class="os-foot">
         <button type="button" class="os-link" @click="emit('cancel')">キャンセル</button>
-        <button v-if="step === 'type' && typed === ''" type="button" class="os-btn none wide" @click="chooseNone">発注なしで確定</button>
-        <button v-if="step === 'decide'" type="button" class="os-link" @click="stockOnly">発注はあとで</button>
+        <button v-if="typed === ''" type="button" class="os-btn none wide" @click="chooseNone">発注なしで確定</button>
       </div>
 
       <CoachDemo ref="coach" id="coach-order-type-first" title="発注の入れ方" :steps="COACH_STEPS">
         <template #scene="{ step: s }">
           <div class="cs">
             <div class="cs-name">キャベツ</div>
+            <div v-if="s === 3" class="cs-chips"><span class="cs-st">在庫 3玉 ✓</span></div>
             <div :class="['cs-disp', { order: s === 3 }]">{{ s === 3 ? '2' : '3' }}</div>
             <div v-if="s === 3" class="cs-chips"><span class="cs-tap">推奨 2口</span><span>前回 3口</span></div>
-            <div v-if="s < 3" class="cs-two">
-              <span :class="['cs-b', 'o', { hit: s === 1 }]">発注 3口</span>
-              <span :class="['cs-b', 's', { hit: s === 2 }]">在庫 3玉</span>
+            <div class="cs-two">
+              <span :class="['cs-b', 'o', { hit: s === 1 || s === 3 }]">発注 {{ s === 3 ? 2 : 3 }}口</span>
+              <span :class="['cs-b', 's', { hit: s === 2 }]">在庫 {{ s === 3 ? 2 : 3 }}玉</span>
             </div>
-            <div v-else class="cs-two"><span class="cs-b n">発注なし</span><span class="cs-b o hit">発注 2口</span></div>
             <span v-if="s === 0" class="cs-finger f0">👆</span>
             <span v-if="s === 1" class="cs-finger f1">👆</span>
             <span v-if="s === 2" class="cs-finger f2">👆</span>
@@ -215,15 +193,12 @@ const COACH_STEPS = [
 .os-fact.rec { color: var(--primary, #0e7490); border-color: #a5f3fc; }
 .os-fact.now { color: #047857; border-color: #86efac; }
 .os-fact.stock { color: #0369a1; border-color: #7dd3fc; }
-.os-step { font-size: 13px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 6px 10px; text-align: center; }
 .os-disp { border: 2px solid var(--primary, #0e7490); border-radius: 12px; min-height: 60px; display: grid; place-items: center; font-size: 32px; font-weight: 900; color: var(--text, #12303a); font-variant-numeric: tabular-nums; }
 .os-disp.empty { border-color: var(--border, #d6e6ea); color: #94a3b8; font-size: 20px; }
-.os-disp.order { border-color: #16a34a; background: #f0fdf4; }
 .os-refs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .os-ref { display: grid; justify-items: center; border: 1px solid #a5f3fc; background: #ecfeff; color: var(--primary, #0e7490); border-radius: 12px; padding: 6px 10px; font-size: 13px; font-weight: 800; cursor: pointer; }
 .os-ref small { font-size: 10px; font-weight: 600; color: var(--text-muted, #4c6a72); }
 .os-ref.rec { border-color: var(--primary, #0e7490); }
-.os-noref { margin: 0; font-size: 12px; color: var(--text-muted, #4c6a72); }
 .os-warn { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; border-radius: 12px; padding: 10px; font-size: 13px; font-weight: 700; display: grid; gap: 8px; }
 .os-warn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .os-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -244,6 +219,7 @@ const COACH_STEPS = [
 .cs-chips { display: flex; gap: 6px; justify-content: center; }
 .cs-chips span { font-size: 11px; font-weight: 800; padding: 4px 8px; border-radius: 999px; border: 1px solid #a5f3fc; background: #ecfeff; color: var(--primary, #0e7490); }
 .cs-chips .cs-tap { outline: 3px solid #fbbf24; }
+.cs-chips .cs-st { color: #0369a1; border-color: #7dd3fc; background: #fff; }
 .cs-two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cs-b { border-radius: 10px; padding: 10px 4px; text-align: center; font-weight: 900; font-size: 13px; transition: transform .2s, box-shadow .2s; }
 .cs-b.o { background: #16a34a; color: #fff; }
@@ -254,7 +230,7 @@ const COACH_STEPS = [
 .cs-finger.f0 { left: 58%; top: 46px; }
 .cs-finger.f1 { left: 18%; bottom: -6px; }
 .cs-finger.f2 { right: 18%; bottom: -6px; }
-.cs-finger.f3 { left: 30%; top: 74px; }
+.cs-finger.f3 { left: 47%; top: 116px; }
 @keyframes cs-tap { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px) scale(.92); } }
 @media (prefers-reduced-motion: reduce) { .cs-finger { animation: none; } .cs-b { transition: none; } }
 </style>

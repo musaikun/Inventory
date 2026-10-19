@@ -135,13 +135,14 @@ const orderDraft = ref({})
 // 発注の記録・完了の件数には入れない（発注数>0 だけが発注）
 const orderNone = ref([])
 const _ORDER_NONE_PREFIX = 'order_none_'
-/** 発注: 在庫は入っているが、発注数も「発注なし」も決めていない品目（完了時に訊く） */
-function _stockOnlyUndecided() {
+/**
+ * 発注: 発注数も「発注なし」も決めていない品目（完了時に「すべて発注なし（0）で保存しますか？」と訊く・User決定 2026-10-19）。
+ * 在庫だけ入れた品目（＝あとで決める）も、まだ開いていない品目も入る。非表示の品目は入れない
+ */
+function _orderUndecided() {
   const none = new Set(orderNone.value)
-  const rank = new Map((config.order ?? []).map((n, i) => [n, i]))
-  return Object.keys(inventory)
-    .filter(item => inventory[item] != null && !(Number(orderDraft.value[item]?.orderQty) > 0) && !none.has(item))
-    .sort((a, b) => (rank.get(a) ?? 1e9) - (rank.get(b) ?? 1e9))
+  const hidden = new Set(config.hiddenItems ?? [])
+  return (config.order ?? []).filter(item => !hidden.has(item) && !(Number(orderDraft.value[item]?.orderQty) > 0) && !none.has(item))
 }
 function _setOrderNone(item, on) {
   const has = orderNone.value.includes(item)
@@ -1874,15 +1875,15 @@ async function onComplete() {
   const confirmMsg = isHostInRoom
     ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
-  // 発注: 在庫は入れたが発注数を決めていない品目は、まとめて「発注なしで確定」にしてよいか訊く（User決定 2026-10-17）
-  const undecided = isOrderMode ? _stockOnlyUndecided() : []
+  // 発注: 発注数を決めていない品目（在庫だけ入れた品目を含む）は、まとめて発注なし（0）で保存してよいか訊く（User決定 2026-10-19）
+  const undecided = isOrderMode ? _orderUndecided() : []
   if (undecided.length) {
+    const stockOnly = undecided.filter(i => inventory[i] != null).length
     const names = undecided.slice(0, 3).join('、') + (undecided.length > 3 ? ` ほか${undecided.length - 3}件` : '')
-    if (!confirm(`在庫は入っていて、発注数が未入力の品目が ${undecided.length}件 あります（${names}）。\nすべて「発注なしで確定」にして${actNoun.value}を完了しますか？\n（キャンセルで戻って発注数を入れられます）${isHostInRoom ? '\nゲストへ完了通知を送り、ルームを閉鎖します。' : ''}`)) return
-    for (const item of undecided) {
-      _setOrderNone(item, true)
-      if (syncActive.value) broadcastOrderRemove(item)
-    }
+    if (!confirm(`発注数が未入力の品目が ${undecided.length}件 あります（${names}）${stockOnly ? `\nうち在庫だけ入力 ${stockOnly}件` : ''}\nすべて発注なし（0）で登録して保存しますか？\n（キャンセルで戻って発注数を入れられます）${isHostInRoom ? '\nゲストへ完了通知を送り、ルームを閉鎖します。' : ''}`)) return
+    // 完了と同時に閉じるので、ルームの端末へ1件ずつは送らない（発注の記録には発注数>0 だけが載る）
+    orderNone.value = [...new Set([...orderNone.value, ...undecided])]
+    try { localStorage.setItem(_ORDER_NONE_PREFIX + _orderId(), JSON.stringify(orderNone.value)) } catch (_) {}
   } else if (!confirm(confirmMsg)) return
 
   // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は

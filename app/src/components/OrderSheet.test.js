@@ -42,26 +42,21 @@ describe('発注：先に打って、何の数かは後で選ぶ', () => {
     expect(events.confirm).toEqual([{ ingredient: 'キャベツ', orderMode: true, stock: null, orderQty: 3, stockOnly: false, unit: '玉', lot: 1 }])
   })
 
-  it('迷う品目: 在庫 → 発注はいくつ？（参考の数は押すと入る。自動では入れない）→ 発注', async () => {
-    await mount({ target: { value: 8, source: 'manual' } })
+  it('迷う品目: 在庫を打って「在庫」＝在庫だけ残して、発注はあとで（発注はいくつ？は出さない）', async () => {
+    await mount()
     await type(5)
     await press('在庫 5玉')
-    expect(host.querySelector('.os-step').textContent).toContain('在庫 5玉 → 発注はいくつ？')
-    expect(host.querySelector('.os-disp').textContent.trim()).toBe('発注数を打つ')
+    expect(events.confirm).toEqual([{ ingredient: 'キャベツ', orderMode: true, stock: 5, orderQty: 0, stockOnly: true, unit: '玉', lot: 1 }])
+  })
+
+  it('あとで開き直すと、在庫と参考の数が出る（押すと入る・自動では入れない）→ 発注', async () => {
+    await mount({ target: { value: 8, source: 'manual' }, existingStock: 5 })
+    expect(host.querySelector('.os-facts').textContent).toContain('在庫 5玉')
+    expect(host.querySelector('.os-disp').textContent.trim()).toBe('数を打つ')
     expect([...host.querySelectorAll('.os-ref')].map(b => b.textContent)).toEqual(['推奨 3玉目標 8 − 在庫 5', '前回 2玉10/13'])
     await press('推奨 3')
     await press('発注 3玉')
-    expect(events.confirm[0]).toMatchObject({ stock: 5, orderQty: 3, stockOnly: false })
-  })
-
-  it('在庫のあと「発注なし」「発注はあとで」', async () => {
-    await mount()
-    await type(5); await press('在庫 5玉'); await press('発注なし')
-    expect(events.confirm[0]).toMatchObject({ stock: 5, orderQty: 0, stockOnly: false })
-    app.unmount(); host.remove()
-    await mount()
-    await type(5); await press('在庫 5玉'); await press('発注はあとで')
-    expect(events.confirm[0]).toMatchObject({ stock: 5, orderQty: 0, stockOnly: true })
+    expect(events.confirm[0]).toMatchObject({ stock: null, orderQty: 3, stockOnly: false })
   })
 
   it('何も打たずに「発注なしで確定」（1手）', async () => {

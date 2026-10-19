@@ -843,7 +843,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(completeBodies[0].order.lines).toHaveLength(1)
   })
 
-  it('発注: 在庫だけ入って発注数が未入力の品目は、完了時に「すべて発注なしで確定」するか訊く（User決定 2026-10-17）', async () => {
+  it('発注: 発注数が未入力の品目（在庫だけの品目も、開いていない品目も）は、完了時に「すべて発注なし（0）で保存しますか？」と訊く（User決定 2026-10-19）', async () => {
     localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
       トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
     }))
@@ -852,20 +852,26 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
       session: { id: 'sess-2', shopCode: 'ABCDEF', startedAt: '2026-08-09T00:00:00Z', status: 'active', itemCount: 0, type: 'order' },
       inventory: { トマト: { qty: 3, unit: '個', updatedAt: now }, キャベツ: { qty: 5, unit: '玉', updatedAt: now } },
     })
+    const { useConfig } = await import('./composables/useConfig.js')
+    const cfg = useConfig()
+    for (const n of ['トマト', 'キャベツ', '玉ねぎ']) cfg.addItem(n, 0, '', '個')
+    await settle()
+    const expected = ['キャベツ', '玉ねぎ']   // キャベツ＝在庫だけ・玉ねぎ＝開いていない
     // キャンセル → 完了しない
     const ask = vi.fn(() => false)
     vi.stubGlobal('confirm', ask)
     await clickComplete()
-    expect(ask.mock.calls[0][0]).toContain('発注数が未入力の品目が 1件')
-    expect(ask.mock.calls[0][0]).toContain('キャベツ')
+    expect(ask.mock.calls[0][0]).toContain(`発注数が未入力の品目が ${expected.length}件`)
+    expect(ask.mock.calls[0][0]).toContain('うち在庫だけ入力 1件')
+    expect(ask.mock.calls[0][0]).toContain('すべて発注なし（0）で登録して保存しますか？')
     expect(completeCalls).toBe(0)
-    // OK → キャベツは発注なし（0）にして完了。確認は1回だけ
+    // OK → 発注なし（0）にして完了。確認は1回だけ。発注の記録は発注数>0 だけ
     const ok = vi.fn(() => true)
     vi.stubGlobal('confirm', ok)
     await clickComplete()
     expect(ok).toHaveBeenCalledTimes(1)
     expect(completeCalls).toBe(1)
-    expect(JSON.parse(localStorage.getItem('order_none_ord_sess-2'))).toEqual(['キャベツ'])
+    expect(JSON.parse(localStorage.getItem('order_none_ord_sess-2'))).toEqual(expected)
     expect(completeBodies[0].order.lines.map(l => l.item)).toEqual(['トマト'])
   })
 
