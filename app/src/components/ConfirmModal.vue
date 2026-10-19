@@ -1,10 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
-import { suggestOrder, roundUpExcess } from '../services/orderSuggestion.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
-import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 const props = defineProps({
   ingredient:      { type: String,  required: true },
@@ -30,15 +28,6 @@ const props = defineProps({
   existingTagsB:   { type: Array,  default: () => [] }, // 軸2の既存値（候補）
   canPrev:         { type: Boolean, default: false }, // 前の品目へ移動可能
   canNext:         { type: Boolean, default: false }, // 次の品目へ移動可能
-  orderMode:       { type: Boolean, default: false }, // 発注セッション: qty=現在在庫 + 発注数入力
-  parLevel:        { type: Number,  default: null },  // 適正在庫（null=学習不足）
-  // 補充目標（発注してここまで戻す）と根拠。{ value, source, basis } | null
-  replenish:       { type: Object,  default: null },
-  orderLot:        { type: Number,  default: 1 },     // 入数（数値）
-  lastWeekQty:     { type: Number,  default: null },  // 前週同曜日の発注数
-  weekdayHistory:  { type: Object,  default: null },  // 品目×同曜の発注履歴 { lastWeek, lastMonth, median, values, samples, count }
-  initialOrderQty: { type: Number,  default: null },  // 発注数の初期値（再開時）
-  theoStock:       { type: Object,  default: null },  // 理論在庫 { qty, baseQty, baseDate, inQty, outQty }
 })
 
 // 検索で開いた品目が非表示中なら、名前に印を付ける（表には居ない品目を数えている、と分かるように）
@@ -52,8 +41,8 @@ const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-sa
 const unitEditable = computed(() => props.isEdit || !props.unitLocked)
 
 // 見出し。通常の数量入力だけは持たない（すぐ下に品目名が出るので重複する）。
-// 見出しを持つのは編集と新規登録だけ。棚卸も発注も、すぐ下に品目名が出るので重複する。
-// 発注であることは、単位の位置の「在庫／発注」と確定ボタンの文言が示す。
+// 見出しを持つのは編集と新規登録だけ。すぐ下に品目名が出るので重複する。
+// 発注は別の画面（OrderSheet.vue・2026-10-17）。
 const sheetTitle = computed(() => {
   if (props.isEdit) return '品目を編集'
   if (props.isNew)  return '新しい品目を登録'
@@ -76,111 +65,6 @@ const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
 const unit     = ref(props.initialUnit ?? '')
 const hasError = ref(false)
 
-// ── 発注モード（qty = 現在在庫 / 別に発注数を持つ）─────────────────────────────
-const orderQty     = ref(props.initialOrderQty)   // null=未編集（推奨に追従）
-const orderTouched = ref(props.initialOrderQty != null)
-
-// 現在在庫から算出した推奨発注数。
-// 目標は補充目標（replenish）＝ 手動 > 学習値 > 発注点＋推定消費 > 発注点×2 の順で決まる。
-// 発注点そのものを目標にすると補充直後にまた発注点を割るため、目標は別に受け取る。
-const targetLevel = computed(() => props.replenish?.value ?? props.parLevel ?? null)
-const suggested = computed(() => {
-  if (!props.orderMode || targetLevel.value == null) return null
-  const stock = qty.value === '' ? null : parseFloat(qty.value)
-  if (stock == null || isNaN(stock)) return null
-  return suggestOrder(targetLevel.value, stock, props.orderLot)
-})
-// 入数の切り上げで目標を大きく超える量（在庫単位）。0 = 知らせるほどではない
-const suggestedExcess = computed(() => {
-  if (!suggested.value) return 0
-  return roundUpExcess(targetLevel.value, parseFloat(qty.value), props.orderLot)
-})
-
-// 実際に確定される発注数。発注数は必ず人が入力する（推奨は参考として出すだけで、
-// 自動では入れない）。未入力＝0。推奨・前週の chip はタップで発注数へ入る。
-const effectiveOrderQty = computed(() => {
-  if (orderTouched.value && orderQty.value != null) return Math.max(0, orderQty.value)
-  return 0
-})
-
-function orderStep(delta) {
-  orderQty.value     = Math.max(0, (effectiveOrderQty.value ?? 0) + delta)
-  orderTouched.value = true
-  orderFocus.value   = 'order'
-}
-
-// 発注モードで NumPad/プリセットが編集する対象。
-// 'stock' = 現在在庫（棚卸単位・小数OK）／'order' = 発注数（入数単位・整数）
-//
-// 初期は発注数。発注セッションは発注数を入れる場所（User判断 2026-09-28）。
-// 以前は在庫が先で、打った数が在庫に入ったまま「保留」で完了し、発注が1件も
-// 記録されない事故が起きた（180品目ぶん）。在庫は単位の位置の切替で任意に入れる。
-// 切り替えたら、切り替え直すまで次の品目・次の発注でもそのまま（端末ごと・User決定 2026-10-17）。
-// その代わり切替はトグルにして、いまどちらを打っているかを常に色で見せる（上の事故の再発を防ぐ）
-const _loadBasis = () => { try { return localStorage.getItem(STORAGE_KEYS.orderBasis) === 'stock' ? 'stock' : 'order' } catch (_) { return 'order' } }
-const orderFocus = ref(_loadBasis())
-// 入数の外側の単位名は持っていない（config の lotSizes は "24本" のように内側だけ）。
-// 入数が1なら発注単位＝棚卸単位なのでその名前を使い、まとめて頼む形のときは
-// 数え方だけを示す「口」を置く。名前を持たせるかは提案箱で PM 判断待ち。
-const lotUnitLabel = computed(() => (props.orderLot > 1 ? '口' : (unit.value || '')))
-
-// 上の欄がいま何を映しているか。打つ欄は1つで、単位の位置の切替で入れ替える。
-const displayQty = computed(() => {
-  if (editingOrder.value) return String(effectiveOrderQty.value)
-  return qty.value !== '' ? qty.value : '—'
-})
-function toggleOrderBasis() {
-  orderFocus.value = orderFocus.value === 'order' ? 'stock' : 'order'
-  try { localStorage.setItem(STORAGE_KEYS.orderBasis, orderFocus.value) } catch (_) {}
-}
-
-// 学習値（推奨・前週）をタップして発注数にセット（そこから微調整できる）
-function setOrderQty(v) {
-  if (v == null || isNaN(v)) return
-  orderQty.value     = Math.max(0, Math.round(v))
-  orderTouched.value = true
-  orderFocus.value   = 'order'   // 参考値を選んだら、上の欄を発注数へ切り替える
-}
-
-// 品目×同曜の発注履歴（前週・先月・中央値・ミニ推移）
-const WD = ['日', '月', '火', '水', '木', '金', '土']
-const orderWeekdayLabel = computed(() => {
-  const s = props.weekdayHistory?.lastWeek?.date || props.weekdayHistory?.samples?.[0]?.date
-  return s ? WD[new Date(s + 'T12:00:00').getDay()] : WD[new Date().getDay()]
-})
-// スパークライン: 値を 8..100% の高さへ正規化
-const spark = computed(() => {
-  const vals = props.weekdayHistory?.values ?? []
-  if (!vals.length) return []
-  const max = Math.max(...vals, 1)
-  return vals.map(v => Math.max(8, Math.round((v / max) * 100)))
-})
-
-// ── 理論在庫（直近棚卸＋入出庫の導出値）──────────────────────────────────────
-// タップでプリフィルできるが、自動入力はしない（在庫入力は独立した観測値として
-// ズレ検出・学習品質に使うため、意図した採用だけを許す）。
-function _md(dateStr) {
-  const [, m, d] = String(dateStr || '').split('-').map(Number)
-  return m && d ? `${m}/${d}` : ''
-}
-const theoBasis = computed(() => {
-  const t = props.theoStock
-  if (!t) return ''
-  const parts = [t.baseDate ? `${_md(t.baseDate)}棚卸 ${t.baseQty}` : '棚卸実績なし']
-  if (t.inQty)  parts.push(`＋入庫${t.inQty}`)
-  if (t.outQty) parts.push(`−出庫${t.outQty}`)
-  return parts.join(' ')
-})
-function useTheoStock() {
-  qty.value = String(props.theoStock.qty)
-  hasError.value = false
-}
-// 入力値と理論在庫のズレは**出さない**（User報告 2026-09-05）。
-// 数量表示とテンキーの上にあったため、1文字打つたびに行が出入りし、
-// 文字数によっては2行になって、下のテンキーが指の下で動いていた。
-// 「打っている最中に画面が動く」ことの代償が、ズレを知らせる価値を上回る。
-// ズレを見せるなら、入力が終わったあと（確定後の一覧や在庫タブ）に置く。
-
 // ── 単位ドロップダウン ─────────────────────────────────────────────────────────
 const unitCustom    = ref(!!props.initialUnit && !UNIT_OPTIONS.includes(props.initialUnit))
 const unitCustomRef = ref(null)
@@ -198,17 +82,7 @@ function onUnitChange(v) {
 const category = ref(props.initialCategory ?? '')
 
 // ── テンキー入力 ───────────────────────────────────────────────────────────────
-// 発注数フォーカス中か（NumPad/プリセットの編集対象が発注数）
-const editingOrder = computed(() => props.orderMode && orderFocus.value === 'order')
-
 function numpadDigit(d) {
-  if (editingOrder.value) {
-    const cur  = orderTouched.value && orderQty.value != null ? String(orderQty.value) : ''
-    const next = cur === '0' ? d : cur + d
-    orderQty.value     = Math.min(999999, parseInt(next, 10) || 0)  // 発注は整数
-    orderTouched.value = true
-    return
-  }
   const s = String(qty.value)
   if (s === '0') qty.value = d
   else           qty.value = s + d
@@ -216,29 +90,16 @@ function numpadDigit(d) {
 }
 
 function numpadDot() {
-  if (editingOrder.value) return   // 発注は整数のみ（小数点なし）
   const s = String(qty.value)
   if (!s.includes('.')) qty.value = (s || '0') + '.'
 }
 
 function numpadBack() {
-  if (editingOrder.value) {
-    const cur  = orderTouched.value && orderQty.value != null ? String(orderQty.value) : ''
-    const next = cur.length <= 1 ? '' : cur.slice(0, -1)
-    orderQty.value     = next === '' ? 0 : parseInt(next, 10)
-    orderTouched.value = true
-    return
-  }
   const s = String(qty.value)
   qty.value = s.length <= 1 ? '' : s.slice(0, -1)
 }
 
 function numpadClear() {
-  if (editingOrder.value) {
-    orderQty.value     = 0
-    orderTouched.value = true
-    return
-  }
   qty.value      = ''
   hasError.value = false
 }
@@ -263,15 +124,10 @@ onMounted(()   => document.addEventListener('keydown', handleKeydown))
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 
 // ── プリセット数量ボタン ───────────────────────────────────────────────────────
-const PRESETS       = [0.1, 0.5, 1, 5, 10]  // 在庫: 小数を含む加算
-const ORDER_PRESETS = [-1, 1, 5, 10]        // 発注: 整数の増減（微調整）
-
-// 発注数フォーカス時は整数プリセット、在庫入力時は従来のプリセット。
-const activePresets = computed(() => (editingOrder.value ? ORDER_PRESETS : PRESETS))
+const PRESETS = [0.1, 0.5, 1, 5, 10]  // 小数を含む加算
 function presetLabel(n) { return n < 0 ? `−${Math.abs(n)}` : `+${n}` }
 
 function addPreset(n) {
-  if (editingOrder.value) { orderStep(n); return }  // 発注数の微調整
   const current  = parseFloat(qty.value) || 0
   const result   = Math.round((current + n) * 10000) / 10000
   qty.value      = String(result)
@@ -358,54 +214,20 @@ function submit(isAdd) {
   })
 }
 
-// 発注モードの送信ペイロード（在庫は任意・発注数は推奨/手入力）
-function _orderPayload() {
-  const stock = qty.value === '' ? null : parseFloat(qty.value)
-  return {
-    ingredient: props.ingredient,
-    orderMode:  true,
-    stock:      stock == null || isNaN(stock) ? null : stock,
-    orderQty:   effectiveOrderQty.value ?? 0,
-    // 在庫の側で在庫だけを確定した（発注数には触れていない）。発注は決めていないので「発注なし」にしない（2026-10-17）
-    stockOnly:  !editingOrder.value && !orderTouched.value,
-    unit:       unit.value.trim(),
-    lot:        props.orderLot,
-    isNew:      props.isNew,
-  }
-}
-
-function submitOrder() {
-  const stock = qty.value === '' ? null : parseFloat(qty.value)
-  if (stock !== null && (isNaN(stock) || stock < 0)) { hasError.value = true; return }
-  hasError.value = false
-  emit('confirm', _orderPayload())
-}
 
 // アクションボタン/Enter の主送信（モードで分岐）
 function onPrimary() {
-  if (props.orderMode) submitOrder()
-  else                 submit(false)
+  submit(false)
 }
 
-// 確定の文言。棚卸と発注で同じ位置・同じ大きさに置き、言葉だけを変える。
+// 確定の文言。
 const primaryLabel = computed(() => {
   if (props.isNew)       return '新規登録'
-  // 発注は在庫が入っていても発注数で言う（在庫ありで「上書き」になり、発注なしで確定が消えていた・User報告 2026-10-17）
-  if (props.orderMode) {
-    // 在庫の側にいるときは在庫の言葉で（トグルを切り替えると文言も変わる・User 2026-10-17）
-    if (!editingOrder.value) {
-      if (typedQty.value === null) return '在庫を確定'
-      const stock = `在庫 ${typedQty.value}${unit.value}`
-      return effectiveOrderQty.value > 0 ? `${stock}・発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定` : `${stock} を確定`
-    }
-    if (effectiveOrderQty.value > 0) return `発注 ${effectiveOrderQty.value}${lotUnitLabel.value} を確定`
-    return '発注なしで確定'
-  }
   if (hasDuplicate.value) return typedQty.value === null ? '上書き' : `${typedQty.value}${unit.value} に上書き`
   return '確定'
 })
 
-// 「後で」= いま数えられない。あとで数える印を付けて閉じる（棚卸のみ。発注には保留を置かない）
+// 「後で」= いま数えられない。あとで数える印を付けて閉じる
 // 前回のテストで「あとで数える」が使われなかったのは、抜ける瞬間（▶・キャンセル）に
 // この道が無く、印が画面の上の飾りに見えていたため。決める場所と同じ行へ置く。
 function deferItem() {
@@ -417,13 +239,6 @@ function deferItem() {
 
 // 前後の品目へ移動（現在の入力を保存してから移動先を開く。空欄=変更なしで移動）
 function navigate(dir) {
-  if (props.orderMode) {
-    const stock = qty.value === '' ? null : parseFloat(qty.value)
-    if (stock !== null && (isNaN(stock) || stock < 0)) { hasError.value = true; return }
-    hasError.value = false
-    emit('navigate', { dir, ..._orderPayload() })
-    return
-  }
   const empty = qty.value === '' || qty.value == null
   const q = empty ? null : parseFloat(qty.value)
   if (q !== null && (isNaN(q) || q < 0)) { hasError.value = true; return }
@@ -535,27 +350,7 @@ function saveEdit() {
           <span v-if="isFlagged && !isEdit" class="hint-chip hint-flag">🔖 あとで数える</span>
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
-          <!-- 発注の参考値。専用の塊を持たず、棚卸と同じこの1行に入れる。
-               タップした値は発注数へ入り、上の欄がそのまま発注の表示へ切り替わる。 -->
-          <template v-if="orderMode">
-            <button v-if="theoStock" class="hint-chip hint-ref" type="button" :title="theoBasis" @click="useTheoStock">
-              理論在庫 {{ theoStock.qty }}{{ unit }}
-            </button>
-            <span
-              class="hint-chip hint-ref flat"
-              :title="targetLevel == null ? '在庫タブで発注点を入れると、そこから推奨を出せます' : ''"
-            >補充目標 {{ targetLevel != null ? `${targetLevel}${unit}` : '未設定' }}<template v-if="replenish?.source === 'assumed'">（仮）</template></span>
-            <button v-if="suggested != null" class="hint-chip hint-ref" type="button" :title="replenish?.basis || ''" @click="setOrderQty(suggested)">
-              推奨 {{ suggested }}{{ lotUnitLabel }}<template v-if="suggestedExcess">（切り上げで +{{ suggestedExcess }}{{ unit }} 余ります）</template>
-            </button>
-            <button v-if="weekdayHistory?.lastWeek" class="hint-chip hint-ref" type="button" @click="setOrderQty(weekdayHistory.lastWeek.qty)">
-              前週 {{ weekdayHistory.lastWeek.qty }}{{ lotUnitLabel }}
-            </button>
-            <button v-if="weekdayHistory?.median != null" class="hint-chip hint-ref" type="button" @click="setOrderQty(weekdayHistory.median)">
-              中央値 {{ weekdayHistory.median }}{{ lotUnitLabel }}
-            </button>
-          </template>
-          <span v-if="!orderMode && category" class="hint-chip hint-genre">{{ category }} 🔒</span>
+          <span v-if="category" class="hint-chip hint-genre">{{ category }} 🔒</span>
           <button
             v-if="itemHistory.length > 0 && !isEdit"
             class="hint-chip hint-history"
@@ -568,9 +363,9 @@ function saveEdit() {
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate && !isEdit" class="dup-warn">
-        {{ orderMode ? '在庫 入力済み' : '入力済み' }}：<b>{{ existing.qty }}{{ existing.unit }}</b>
+        入力済み：<b>{{ existing.qty }}{{ existing.unit }}</b>
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
-        <small v-if="!orderMode" class="dup-hint">打った数で上書きするか、足すかを選べます</small>
+        <small class="dup-hint">打った数で上書きするか、足すかを選べます</small>
       </div>
 
       <!-- 変更履歴。開く操作はヒント行のチップが持つ -->
@@ -590,29 +385,13 @@ function saveEdit() {
         </div>
       </div>
 
-      <!-- 数量表示 + 単位。棚卸と発注で同じ1つの欄。発注では単位の枠が
-           「在庫／発注」の切替を兼ねる。打つ欄を2つ並べると、どちらへ入るのかを
-           毎回画面から読み取らせることになる。 -->
+      <!-- 数量表示 + 単位 -->
       <div class="qty-row">
-        <div :class="['qty-display', { error: hasError, filled: displayQty !== '—', 'is-stock': orderMode && !editingOrder }]">
-          {{ displayQty }}
+        <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
+          {{ qty !== '' ? qty : '—' }}
         </div>
-        <!-- 発注：何を打っているかを単位の位置で示し、タップで入れ替える -->
-        <button
-          v-if="orderMode"
-          class="basis-toggle"
-          :class="{ order: editingOrder }"
-          type="button"
-          role="switch"
-          :aria-checked="editingOrder ? 'true' : 'false'"
-          @click="toggleOrderBasis"
-          :aria-label="editingOrder ? '発注数を入力中。タップで在庫へ' : '在庫を入力中。タップで発注数へ'"
-        >
-          <span :class="['basis-seg', { on: editingOrder }]"><b>発注</b><small>{{ lotUnitLabel }}</small></span>
-          <span :class="['basis-seg', 'stock', { on: !editingOrder }]"><b>在庫</b><small>{{ unit || '—' }}</small></span>
-        </button>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
-        <div v-else-if="!unitEditable" class="unit-locked-badge">
+        <div v-if="!unitEditable" class="unit-locked-badge">
           {{ unit }}<span class="unit-lock-icon">🔒</span>
         </div>
         <div v-else class="select-wrap unit-select-wrap">
@@ -627,7 +406,7 @@ function saveEdit() {
 
       <!-- 単位：その他（手入力）-->
       <input
-        v-if="unitEditable && unitCustom && !orderMode"
+        v-if="unitEditable && unitCustom"
         ref="unitCustomRef"
         type="text"
         v-model="unit"
@@ -672,10 +451,10 @@ function saveEdit() {
         </datalist>
       </div>
 
-      <!-- プリセットボタン（発注数フォーカス時は整数の増減）-->
+      <!-- プリセットボタン -->
       <div class="preset-row">
         <button
-          v-for="n in activePresets"
+          v-for="n in PRESETS"
           :key="n"
           class="preset-btn"
           @click="addPreset(n)"
@@ -683,47 +462,40 @@ function saveEdit() {
         >{{ presetLabel(n) }}</button>
       </div>
 
-      <!-- テンキーと確定は、シートの下に貼り付けたまま動かさない。
-           発注セッションではシートが画面より高くなる（学習値・同曜実績・根拠）ので、
-           キーの一部が画面外に出る。そこを押すとブラウザが「押された要素を見せる」ために
-           シートをスクロールし、**キー全体が指の下でずれる**。次の一打が別のキーに当たる。
-           打つ場所が動かないことを、参考情報を全部見せることより優先する。 -->
       <!-- 棚卸と同じ。1枚に収まるので貼り付けない。貼り付けると影の帯が常に出て、
            見出しのシートとテンキーのシートが重なって見える。 -->
       <div class="keypad-dock">
-      <!-- テンキー（発注数フォーカス時は小数点なし）-->
-      <NumPad :integer="editingOrder" @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
+      <!-- テンキー -->
+      <NumPad @digit="numpadDigit" @dot="numpadDot" @backspace="numpadBack" @clear="numpadClear" />
 
       <!-- アクションボタン -->
       <div v-if="isEdit" class="actions">
         <button class="btn btn-secondary" @click="$emit('cancel')">キャンセル</button>
         <button class="btn btn-success" @click="saveEdit">保存</button>
       </div>
-      <!-- 棚卸と発注で同じ並び。「後で」を確定の隣に、同じ大きさで置く。
+      <!-- 「後で」を確定の隣に、同じ大きさで置く。
            数えられない／決められない品目から抜ける道は、ここにしか無い。 -->
       <template v-else>
         <!-- 既に誰かが入れている時の「足す」。確定の仲間なので確定の側へ寄せ、
              キャンセル・後で・確定の3つ並びは崩さない。 -->
-        <!-- 発注数を打っているときは出さない（在庫に足す操作なので、発注のつもりで押すと在庫が変わる） -->
-        <button v-if="addLabel && !orderMode" class="btn btn-primary btn-add" @click="submit(true)" type="button">
+        <button v-if="addLabel" class="btn btn-primary btn-add" @click="submit(true)" type="button">
           {{ addLabel }}
         </button>
-        <div :class="['actions', orderMode ? 'two-col' : 'three-col']">
+        <div class="actions three-col">
           <button class="btn btn-secondary" @click="$emit('cancel')" type="button">キャンセル</button>
           <button
-            v-if="!orderMode"
             class="btn btn-later"
             @click="deferItem"
             type="button"
             title="いま数えられない。あとで数える一覧に入れる"
           >後で</button>
-          <button class="btn btn-success" :disabled="(!orderMode && hasDuplicate && typedQty === null) || (orderMode && !editingOrder && typedQty === null && !orderTouched)" @click="onPrimary" type="button">{{ primaryLabel }}</button>
+          <button class="btn btn-success" :disabled="hasDuplicate && typedQty === null" @click="onPrimary" type="button">{{ primaryLabel }}</button>
         </div>
       </template>
 
       <!-- ひとつ前の状態に戻す（入力済みの場合のみ） -->
       <button
-        v-if="hasDuplicate && !isEdit && !editingOrder"
+        v-if="hasDuplicate && !isEdit"
         class="btn-undo-entry"
         @click="handleRevert"
         type="button"
@@ -740,16 +512,6 @@ function saveEdit() {
   background: var(--surface);
   margin: 0 -20px -40px;
   padding: 8px 20px calc(40px + env(safe-area-inset-bottom));
-}
-/* 貼り付けが要るのは、シートが画面より高いときだけ。通常の数量入力は
-   低頻度の行をたたんで1枚に収まったので、ここは普通に流す。貼り付けたままだと
-   影の帯が常に出て、1枚の紙が2つに割れて見える。
-   発注はまだ参考情報でシートが伸びるため、そちらだけ貼り付けを残す。 */
-.keypad-dock.stuck {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  box-shadow: 0 -8px 16px -12px rgba(15, 23, 42, 0.35);
 }
 
 .typing-user-banner {
@@ -850,12 +612,6 @@ function saveEdit() {
   margin-top: 6px;
 }
 
-.ref-sug { background: var(--primary); color: #fff; border-color: var(--primary); }
-.ref-last.tappable { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
-
-/* 発注数の目安。読むだけの行なので、入力欄には見せない（枠も影も持たせない） */
-
-/* 品目×同曜の発注実績 */
 
 /* NumPad が編集中の欄を示すバッジ・枠 */
 .qty-display { transition: box-shadow 0.12s; }
@@ -1095,10 +851,6 @@ function saveEdit() {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
 }
-.actions.two-col {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-}
 /* 「後で」。キャンセル（灰）とも確定（緑）とも違う三つ目の道だと分かる色にする。
    あとで数える印の色（#f97316 系）と揃え、一覧に出る🔖と結び付ける。 */
 .btn-later {
@@ -1186,42 +938,7 @@ function saveEdit() {
 /* ヒント行のチップ。ジャンル・履歴・フラグはここに集める */
 .hint-flag  { background: #fff7ed; color: #9a3412; }
 .hint-genre { background: #f0fdf4; color: var(--success); }
-/* 発注の参考値。押せるものは棚卸のヒントと同じ大きさで、押せると分かる縁を持たせる */
-.hint-ref {
-  font-family: inherit;
-  padding: 6px 10px;
-  background: var(--primary-weak);
-  color: var(--primary);
-  border: 1px solid var(--primary-border);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.hint-ref:active { background: var(--primary-soft); }
-.hint-ref.flat { border-style: dashed; cursor: default; }
 
-/* 何を打っているかを単位の位置で示す。欄を2つ並べない代わりに、ここで入れ替える */
-.basis-toggle {
-  flex-shrink: 0;
-  display: flex; gap: 2px;
-  padding: 3px; border-radius: 12px;
-  background: #e2eef1;
-  border: none;
-  font-family: inherit;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.basis-seg {
-  display: grid; justify-items: center; gap: 1px;
-  min-width: 48px; padding: 6px 8px; border-radius: 9px;
-  color: var(--text-muted);
-}
-.basis-seg b { font-size: 13px; font-weight: 800; }
-.basis-seg small { font-size: 10.5px; font-weight: 700; opacity: 0.85; }
-.basis-seg.on { background: var(--primary); color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
-/* 在庫を打っているときは色を変える（発注のつもりで在庫を打ち続ける事故を防ぐ） */
-.basis-seg.stock.on { background: #d97706; }
-.qty-display.is-stock { box-shadow: 0 0 0 2px #f59e0b; background: #fffbeb; }
-.basis-toggle:active { opacity: 0.85; }
 
 .hint-history {
   font-family: inherit;

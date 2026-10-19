@@ -30,7 +30,6 @@ const props = defineProps({
   // ゲストが「非表示にしてほしい」とホストへ申請できるか。並び替えや絞り込みは開けない
   // （リストの正はホスト側にあるため、ゲストが直接変えられるものは増やさない）。
   canRequestHide:   { type: Boolean, default: false },
-  tapContinuous:    { type: Boolean, default: false },
   preview:          { type: Boolean, default: false }, // 品目マスタ確認用: 数量欄に振り分け先を表示・入力/進捗なし
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
   orderNone:        { type: Array,   default: null },  // 発注セッション: 「発注なしで確定」した品目（0 と出す・入力済みに数える）
@@ -38,7 +37,6 @@ const props = defineProps({
   // ── 入出庫（棚卸・発注と同じ一覧を使うための調整。既定はすべて従来動作 ──
   noteMap:          { type: Object,  default: null },  // { 品目: 補足文字列 } を行のヒント欄へ出す（理論在庫など）
   hideAmount:       { type: Boolean, default: false }, // 金額列を出さない（在庫金額ではない画面用）
-  hideTapContinuous:{ type: Boolean, default: false }, // 「連続入力」トグルを出さない（未対応の画面用）
   searchTerm:       { type: String,  default: '' },    // 品目名の絞り込み（空=絞り込みなし）
   // 親が持つ絞り込み条件（filters スロットと対で使う）。null = 内蔵フィルターを使う
   itemFilter:       { type: Function, default: null },
@@ -58,7 +56,7 @@ const props = defineProps({
   progressTappable: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'update:tapContinuous', 'hide-item', 'unhide-item', 'request-hide', 'progress-tap'])
+const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'hide-item', 'unhide-item', 'request-hide', 'progress-tap'])
 
 // 品目名の正規化はキャッシュする。1000品目の一覧では1打鍵ごとに全件を
 // normalize することになり、端末によっては入力が引っかかる。品目名は不変なので使い回せる。
@@ -818,16 +816,8 @@ function fmtYen(n) {
   >
     <!-- ヘッダー行（連続入力も進捗も出さない画面＝ホームの在庫では行ごと出さない） -->
     <div v-if="!hideHeader" class="section-header">
-      <button
-        v-if="!readOnly && !hideTapContinuous"
-        :class="['tap-continuous-toggle', { active: tapContinuous }]"
-        @click="emit('update:tapContinuous', !tapContinuous)"
-        title="ONにすると、品目をタップして入力した後、自動で次の品目の入力画面が開きます（音声・文字検索は対象外）"
-      >
-        <span class="tc-track"><span class="tc-knob"></span></span>
-        連続入力
-      </button>
-      <div v-else></div>
+      <!-- 連続入力は常にON（User決定 2026-10-17・トグルは外した） -->
+      <div></div>
       <div class="header-right">
         <!-- 進捗。入力画面以外（在庫の閲覧など）は親が差し替える -->
         <slot name="progress" :filled="scopedFilled" :total="scopedTotal">
@@ -1220,41 +1210,6 @@ function fmtYen(n) {
   padding: 14px 4px 10px;
 }
 
-.tap-continuous-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  padding: 4px 2px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.tap-continuous-toggle.active { color: var(--primary); }
-.tc-track {
-  width: 34px;
-  height: 20px;
-  border-radius: 10px;
-  background: #bfd6dc;
-  position: relative;
-  transition: background 0.18s;
-  flex-shrink: 0;
-}
-.tap-continuous-toggle.active .tc-track { background: var(--primary); }
-.tc-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-  transition: transform 0.18s;
-}
-.tap-continuous-toggle.active .tc-knob { transform: translateX(14px); }
 
 .header-right {
   display: flex;

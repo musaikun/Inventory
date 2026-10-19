@@ -183,7 +183,6 @@ onUnmounted(registerInnerLayerCloser(() => {
         :can-manage-list="false"
         :hidden-items="config.hiddenItems ?? []"
         hide-amount
-        hide-tap-continuous
         hide-header
         fill-height
         @tap="item => (detailTarget = item)"

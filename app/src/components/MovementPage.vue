@@ -228,7 +228,6 @@ function onSave() {
         :search-term="search"
         :can-manage-list="false"
         hide-amount
-        hide-tap-continuous
         @tap="onRowTap"
       />
      </div>

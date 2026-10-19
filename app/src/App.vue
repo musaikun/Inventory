@@ -58,7 +58,6 @@ import { saveLastPage, readLastPage } from './services/lastPage.js'
 import {
   queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue, loadAuditFromD1,
 } from './composables/useAuditSync.js'
-import { weekdayOrderHistory } from './services/orderItemHistory.js'
 import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
@@ -70,6 +69,7 @@ import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
 import VoiceButton from './components/VoiceButton.vue'
+import OrderSheet from './components/OrderSheet.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import CandidateModal from './components/CandidateModal.vue'
 import InventoryTable from './components/InventoryTable.vue'
@@ -183,21 +183,6 @@ function _replenishFor(item) {
   }).target
 }
 
-// 前週同曜日の発注数（参考表示用）。同曜日で最も新しい発注行の qty。
-function _lastWeekQtyFor(item) {
-  const wd = weekdayOf(_todayStr())
-  let best = null
-  for (const o of getOrders()) {
-    if (weekdayOf(o.date) !== wd) continue
-    const line = (o.lines || []).find(l => l.item === item)
-    if (line && (!best || o.date > best.date)) best = { date: o.date, qty: line.qty }
-  }
-  return best ? best.qty : null
-}
-// 品目×同曜の発注履歴（前週・先月・直近中央値・推移）。当日分は除外。
-function _weekdayHistoryFor(item) {
-  return weekdayOrderHistory(getOrders(), item, weekdayOf(_todayStr()), { window: 6, before: _todayStr() })
-}
 
 // ── 稼働時間タイマー（アイドル5分で一時停止し、棚卸の実働時間のみ計測）──────────
 const activeTimer = useActiveTimer()
@@ -2575,10 +2560,10 @@ function onCandidateCreate() {
 }
 
 // ── タップ連続入力（品目タップで確定→自動で次の品目を開く。音声/文字検索は対象外）──
-const tapContinuous = ref(localStorage.getItem('inv_tap_continuous') === '1')
-watch(tapContinuous, v => {
-  try { localStorage.setItem('inv_tap_continuous', v ? '1' : '0') } catch (_) {}
-})
+// 連続入力は常にON（User決定 2026-10-17）。表を上から順に回る作業なので、確定したら次の品目を開く。
+// 1品目だけ直したいときは、次に開いた品目でキャンセルすれば止まる
+const tapContinuous = true
+try { localStorage.removeItem(STORAGE_KEYS.tapContinuous) } catch (_) {}
 
 // ── Voice（連続入力がデフォルト動作）─────────────────────────────────────────
 const continuousMode = ref(false)
@@ -2675,9 +2660,6 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     isNew:          !!opts.isNew,
     orderMode:      isOrder,
     orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
-    parLevel:       isOrder ? _parLevelFor(ingredient) : null,
-    lastWeekQty:    isOrder ? _lastWeekQtyFor(ingredient) : null,
-    weekdayHistory: isOrder ? _weekdayHistoryFor(ingredient) : null,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
     theoStock:      isOrder ? _theoStockFor(ingredient) : null,
     replenish:      isOrder ? _replenishFor(ingredient) : null,
@@ -2714,7 +2696,7 @@ function _finishConfirmNav(source) {
     confirmState.value = null
     const next = _tapNextItem
     _tapNextItem = null
-    if (tapContinuous.value && next && !inputLocked.value) {
+    if (tapContinuous && next && !inputLocked.value) {
       nextTick(() => _openTableConfirm(next))
       return
     }
@@ -2884,7 +2866,8 @@ function onConfirmNavigate({ dir, ...payload }) {
   if (!current || !table) return
   const target = dir === 'prev' ? table.getPrevVisibleItem(current) : table.getNextVisibleItem(current)
   if (!target) return   // 端: 移動しない
-  const apply = payload.orderMode ? _applyOrderConfirm(payload) : _applyConfirm(payload)
+  // skip: 何も決めずに移る（発注で、打ちかけの数が何の数か決まっていない）
+  const apply = payload.skip ? 'saved' : payload.orderMode ? _applyOrderConfirm(payload) : _applyConfirm(payload)
   if (apply === 'blocked') return   // 競合等: 現在のモーダルを維持
   _openTableConfirm(target)
 }
@@ -3777,7 +3760,6 @@ function dismissReview() {
         :order-mode="sessionMode === 'order'"
         :can-manage-list="(!syncActive || syncIsHost) && can('item.edit')"
         :can-request-hide="syncActive && !syncIsHost"
-        v-model:tap-continuous="tapContinuous"
         @update="onTableUpdate"
         @remove="item => { removeItem(item); if (syncActive) broadcastRemove(item) }"
         @tap="onTableTap"
@@ -3800,8 +3782,30 @@ function dismissReview() {
       @use-existing="onSessionItemUseExisting"
       @close="onSessionItemFormClose"
     />
+    <!-- 発注の1品目は「先に打って、何の数かは後で選ぶ」（User決定 2026-10-17） -->
+    <OrderSheet
+        v-if="confirmState && confirmState.orderMode"
+        :key="'o_' + confirmState.ingredient"
+        :ingredient="confirmState.ingredient"
+        :unit="confirmState.unit"
+        :order-lot="confirmState.orderLot ?? 1"
+        :orders="getOrders()"
+        :today="_todayStr()"
+        :target="confirmState.replenish"
+        :theo-stock="confirmState.theoStock"
+        :existing-stock="inventory[confirmState.ingredient]?.qty ?? null"
+        :initial-order-qty="confirmState.initialOrderQty"
+        :initial-typed="confirmState.qty"
+        :decided-none="orderNone.includes(confirmState.ingredient)"
+        :can-prev="confirmCanPrev"
+        :can-next="confirmCanNext"
+        :typing-user="syncActive ? (typingMap[confirmState.ingredient]?.name ?? null) : null"
+        @confirm="onConfirm"
+        @navigate="onConfirmNavigate"
+        @cancel="onCancelConfirm"
+      />
     <ConfirmModal
-        v-if="confirmState"
+        v-else-if="confirmState"
         :key="confirmState.ingredient"
         :ingredient="confirmState.ingredient"
         :initial-qty="confirmState.qty"
@@ -3826,14 +3830,6 @@ function dismissReview() {
         :typing-user="syncActive ? (typingMap[confirmState.ingredient]?.name ?? null) : null"
         :can-prev="confirmCanPrev"
         :can-next="confirmCanNext"
-        :order-mode="!!confirmState.orderMode"
-        :par-level="confirmState.parLevel"
-        :replenish="confirmState.replenish"
-        :order-lot="confirmState.orderLot ?? 1"
-        :last-week-qty="confirmState.lastWeekQty"
-        :weekday-history="confirmState.weekdayHistory"
-        :initial-order-qty="confirmState.initialOrderQty"
-        :theo-stock="confirmState.theoStock"
         @confirm="onConfirm"
         @navigate="onConfirmNavigate"
         @cancel="onCancelConfirm"

@@ -115,11 +115,6 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
     expect(host.querySelector('.history-list')).not.toBeNull()
   })
 
-  it('発注ではジャンルのチップを出さない（発注中に読む情報ではない）', async () => {
-    await mount({ orderMode: true, initialCategory: '野菜' })
-    expect(chips().some(t => t.includes('野菜'))).toBe(false)
-  })
-
   it('テンキーと確定は1つの塊のまま（打つ場所が動かない仕掛けを壊さない）', async () => {
     await mount()
     const dock = host.querySelector('.keypad-dock')
@@ -130,13 +125,9 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
 
   // 前回のテストで「あとで数える」が使われなかったのは、抜ける瞬間（▶・キャンセル）に
   // その道が無く、印が画面の上の飾りに見えていたため。決める場所と同じ行へ置く。
-  it('棚卸は キャンセル / 後で / 確定、発注は キャンセル / 確定（保留は廃止）', async () => {
+  it('棚卸は キャンセル / 後で / 確定（発注は OrderSheet.vue）', async () => {
     await mount()
     expect(actionLabels()).toEqual(['キャンセル', '後で', '確定'])
-    app.unmount(); host.remove(); vi.resetModules()
-
-    await mount({ orderMode: true })
-    expect(actionLabels()).toEqual(['キャンセル', '発注なしで確定'])
   })
 
   it('棚卸の「後で」は、あとで数える印を付けて閉じる', async () => {
@@ -187,23 +178,8 @@ describe('ConfirmModal — 数量シートは1枚に収める', () => {
 
   // 貼り付けたままだと影の帯が常に出て、見出しのシートとキーのシートが重なって見える
   // （User報告 2026-09-07）。棚卸も発注も1枚に収めたので、どちらも貼り付けない。
-  it('棚卸も発注も貼り付けない', async () => {
+  it('貼り付けない', async () => {
     await mount()
     expect(host.querySelector('.keypad-dock').classList.contains('stuck')).toBe(false)
-    app.unmount(); host.remove(); vi.resetModules()
-
-    await mount({ orderMode: true })
-    expect(host.querySelector('.keypad-dock').classList.contains('stuck')).toBe(false)
-  })
-
-  it('発注も棚卸と同じ骨格（見出し無し・欄は1つ・専用の塊を持たない）', async () => {
-    await mount({ orderMode: true, replenish: { value: 24, source: 'reorder', basis: 'x' } })
-
-    expect(host.querySelector('.sheet-title'), '見出しは持たない').toBeNull()
-    expect(host.querySelectorAll('.qty-display').length, '打つ欄は1つ').toBe(1)
-    expect(host.querySelector('.order-block'), '発注専用の塊は無い').toBeNull()
-    expect(host.querySelector('.dock-now'), 'キーの上の別表示も無い').toBeNull()
-    // 参考値は棚卸と同じヒント行に入る
-    expect(host.querySelector('.name-hints .hint-ref')).not.toBeNull()
   })
 })
