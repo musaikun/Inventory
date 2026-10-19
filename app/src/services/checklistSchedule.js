@@ -1,9 +1,10 @@
 /**
- * チェック表の「どの日に出すか」と「その日の進み具合」（User決定 2026-10-19・モック docs/mocks/journal-checklist.html）。
+ * 毎日のチェックの「どの日に出すか」と「その日の進み具合」（User決定 2026-10-19・モック docs/mocks/journal-checklist-v3.html）。
  * - 繰り返し: none（start_date の日だけ）/ daily / weekly（曜日 '0,3'）/ monthly（日 '31'。月に無い日は月末）
+ * - 1日に何回も: dueTimes（'HH:MM' の配列）。回ごとに別の記録（slot＝'HH:MM'。時刻なしは ''）
  * - start_date より前の日は、記録（run）のある日だけ出す（繰り返しを変えても、過去の「手つかず」を作り直さない）
  * - お休み中・消した表は、記録のある日だけ出す
- * - その日の項目は記録があれば記録の写し、無ければ今の表（表を直しても✓を付けた日は崩れない）
+ * - その回の項目は記録があれば記録の写し、無ければ今の表（表を直しても✓を付けた回は崩れない）
  * - 済み＝全部の項目が ✓ か「今日はなし」（「今日はなし」も済みに数える・User決定 2026-10-19）
  */
 import { localDateKey } from '../utils/localDate.js'
@@ -27,12 +28,15 @@ export function scheduledOn(cl, date) {
   return date === cl.startDate
 }
 
-export const runKey = (id, date) => `${id}|${date}`
+/** 1日の回（時刻の順）。時刻なしは [''] */
+export function slotsOf(cl) {
+  const t = Array.isArray(cl?.dueTimes) ? cl.dueTimes.filter(Boolean) : []
+  return t.length ? [...t].sort() : ['']
+}
 
-/** ある表のある日の様子。出さない日なら null */
-export function dayRun(cl, runs, date) {
-  const run = runs?.[runKey(cl.id, date)] ?? null
-  if (!run && !scheduledOn(cl, date)) return null
+export const runKey = (id, date, slot = '') => `${id}|${date}|${slot}`
+
+function _slotRun(cl, run, date, slot) {
   const items = run?.items?.length ? run.items : (cl.items ?? [])
   const marks = run?.marks ?? {}
   let done = 0, skip = 0
@@ -43,17 +47,50 @@ export function dayRun(cl, runs, date) {
   }
   const total = items.length
   const filled = done + skip
+  const ats = Object.values(marks).map(m => m?.at).filter(Boolean).sort()
   return {
-    cl, date, items, marks, done, skip, total, filled,
+    cl, date, slot, items, marks, done, skip, total, filled,
     complete: total > 0 && filled >= total,
     started: filled > 0,
+    lastAt: ats[ats.length - 1] ?? null,
   }
 }
 
-/** その日に出す表（時刻の順。時刻なしは後ろ） */
+/** ある表のある日の、ある回。出さない日・回なら null */
+export function dayRun(cl, runs, date, slot = '') {
+  const run = runs?.[runKey(cl.id, date, slot)] ?? null
+  if (!run && !(scheduledOn(cl, date) && slotsOf(cl).includes(slot))) return null
+  return _slotRun(cl, run, date, slot)
+}
+
+/**
+ * ある表のある日（全部の回）。出さない日なら null
+ * 今の時刻の回に加えて、時刻を変える前に✓を付けた回も記録から出す
+ */
+export function dayChecklist(cl, runs, date) {
+  const prefix = `${cl.id}|${date}|`
+  const fromRuns = Object.keys(runs ?? {}).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length))
+  const planned = scheduledOn(cl, date) ? slotsOf(cl) : []
+  const keys = [...new Set([...planned, ...fromRuns])].sort()
+  if (!keys.length) return null
+  const slots = keys.map(s => _slotRun(cl, runs?.[runKey(cl.id, date, s)] ?? null, date, s))
+  const doneSlots = slots.filter(s => s.complete).length
+  return {
+    cl, date, slots,
+    timed: slots.some(s => s.slot),
+    doneSlots, totalSlots: slots.length,
+    complete: doneSlots === slots.length,
+    started: slots.some(s => s.started),
+    filled: slots.reduce((n, s) => n + s.filled, 0),
+    total: slots.reduce((n, s) => n + s.total, 0),
+  }
+}
+
+/** その日に出す表（最初の回の時刻の順。時刻なしは後ろ） */
 export function checklistsOn(lists, runs, date) {
-  return (lists ?? []).map(cl => dayRun(cl, runs, date)).filter(Boolean)
-    .sort((a, b) => (a.cl.dueTime || '99').localeCompare(b.cl.dueTime || '99') || a.cl.name.localeCompare(b.cl.name))
+  const first = r => r.slots[0]?.slot || '99'
+  return (lists ?? []).map(cl => dayChecklist(cl, runs, date)).filter(Boolean)
+    .sort((a, b) => first(a).localeCompare(first(b)) || a.cl.name.localeCompare(b.cl.name))
 }
 
 /**
@@ -65,16 +102,44 @@ export function checklistHistory(cl, runs, { today = localDateKey(), days = 60 }
   const d = _d(today)
   for (let i = 0; i < days; i++) {
     const date = localDateKey(d)
-    const r = dayRun(cl, runs, date)
+    const r = dayChecklist(cl, runs, date)
     if (r) {
       const status = r.complete ? 'done' : date === today ? 'open' : r.started ? 'partial' : 'none'
-      const ats = Object.values(r.marks).map(m => m?.at).filter(Boolean).sort()
-      const names = [...new Set(Object.values(r.marks).map(m => m?.by).filter(Boolean))]
+      const marks = r.slots.flatMap(s => Object.values(s.marks))
+      const ats = marks.map(m => m?.at).filter(Boolean).sort()
+      const names = [...new Set(marks.map(m => m?.by).filter(Boolean))]
       out.push({ ...r, status, from: ats[0] ?? null, to: ats[ats.length - 1] ?? null, names })
     }
     d.setDate(d.getDate() - 1)
   }
   return out
+}
+
+/**
+ * この7日（古い日から）: 'y' 済み / 'n' やり残し / 't' 今日でまだ / 'o' 予定なし
+ */
+export function weekMarks(cl, runs, today = localDateKey()) {
+  const out = []
+  const d = _d(today)
+  d.setDate(d.getDate() - 6)
+  for (let i = 0; i < 7; i++) {
+    const date = localDateKey(d)
+    const r = dayChecklist(cl, runs, date)
+    out.push({ date, mark: !r ? 'o' : r.complete ? 'y' : date === today ? 't' : 'n' })
+    d.setDate(d.getDate() + 1)
+  }
+  return out
+}
+
+/**
+ * 今やる回: まだ済んでいない回のうち、時刻を過ぎた最後の回。無ければ次の回
+ * （時刻なしの回は、いつでも「今」）
+ */
+export function currentSlot(day, nowHm) {
+  const open = day.slots.filter(s => !s.complete)
+  if (!open.length) return null
+  const passed = open.filter(s => !s.slot || s.slot <= nowHm)
+  return passed.length ? passed[passed.length - 1] : open[0]
 }
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
@@ -85,4 +150,9 @@ export function repeatLabel(cl) {
   if (cl.repeat === 'monthly') return `毎月${cl.repeatDays}日`
   const [, m, dd] = String(cl.startDate).split('-').map(Number)
   return m ? `${m}/${dd}だけ` : '1回'
+}
+/** 「毎日 10:00・15:00・21:00」 */
+export function whenLabel(cl) {
+  const t = slotsOf(cl).filter(Boolean)
+  return `${repeatLabel(cl)}${t.length ? ` ${t.join('・')}` : ''}`
 }

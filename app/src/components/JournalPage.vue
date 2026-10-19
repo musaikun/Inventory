@@ -22,7 +22,7 @@ export const journalDate = ref('')
  * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）。
  *   左右のスワイプでも切り替える（下のタブのスワイプをやめて空いた・User決定 2026-10-14。月の月送りは縦のまま）
  * - いつか（日付なし）はリストの「やること」の一番下にたたんで置く（月・1日・残りの数には出さない）
- * - チェック表（2026-10-19）: 上の「☑ チェック表」で一覧・作る・記録。今日の分はリストの今日の枠の頭に出し、押すと✓のシート
+ * - 毎日のチェック（2026-10-19）: リストの一番上（DailyChecks）。今日の分を大きなカードで、押すと全画面で✓。設定・記録は ChecklistsPage
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TaskRow from './TaskRow.vue'
@@ -32,6 +32,7 @@ import JournalDay from './JournalDay.vue'
 import HistoryCalendarPage from './HistoryCalendarPage.vue'
 import TaskNews from './TaskNews.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
+import DailyChecks from './DailyChecks.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import { pullChecklists, checklistsForDay } from '../composables/useChecklists.js'
 import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
@@ -138,9 +139,9 @@ const somedayOpen = ref(false)
 const todayLists = computed(() => (mineOnly.value ? [] : checklistsForDay(today)))
 const remaining = computed(() => late.value.length + todays.value.filter(t => !t.doneAt).length + todayLists.value.filter(r => !r.complete).length)
 
-// ── チェック表 ──
-const clPage = ref(null)     // { historyOf } で開いている
-const clRun = ref(null)      // { cl, date } の✓のシート
+// ── 毎日のチェック ──
+const clPage = ref(null)     // { historyOf?, create? } で開いている
+const clRun = ref(null)      // { cl, date, slot } の✓の画面
 function openClHistory(cl) { clRun.value = null; clPage.value = { historyOf: cl } }
 // 記録: 直近30日を新しい日から（その日の中は時刻の順）
 const recordGroups = computed(() => {
@@ -179,9 +180,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
     @touchend.passive="viewSwipe.onTouchEnd" @touchcancel.passive="viewSwipe.onTouchCancel"
   >
     <div ref="topEl" class="jp-top">
-      <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small>
-        <button type="button" class="jp-cl" @click="clPage = { historyOf: null }">☑ チェック表</button>
-      </div>
+      <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small></div>
       <div v-if="view === 'list'" class="jp-flt">
         <button type="button" :class="{ on: listMode === 'todo' }" :aria-pressed="listMode === 'todo'" @click="listMode = 'todo'">やること</button>
         <button type="button" :class="{ on: listMode === 'done' }" :aria-pressed="listMode === 'done'" @click="listMode = 'done'">済み</button>
@@ -194,6 +193,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 
     <!-- リスト: やること -->
     <div v-if="view === 'list' && listMode === 'todo'" class="jp-list">
+      <DailyChecks @open-run="x => clRun = x" @settings="clPage = {}" @create="clPage = { create: true }" />
       <TaskNews />
       <template v-if="late.length">
         <div class="jp-lh late"><span>期限切れ</span><span>{{ late.length }}</span></div>
@@ -201,11 +201,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       </template>
       <div class="jp-lh"><span>{{ dayLabel(today) }}</span><span>{{ todayDone }}/{{ todays.length }}</span></div>
       <div class="jp-box">
-        <button v-for="r in todayLists" :key="r.cl.id" type="button" :class="['jp-clrow', { done: r.complete }]" @click="clRun = { cl: r.cl, date: today }">
-          <span>☑ {{ r.cl.dueTime ? `${r.cl.dueTime} ` : '' }}{{ r.cl.name }}</span><b>{{ r.filled }}/{{ r.total }}{{ r.complete ? ' 済' : '' }}</b>
-        </button>
         <TaskRow v-for="t in todays" :key="t.id" :task="t" />
-        <p v-if="!todays.length && !todayLists.length" class="jp-empty">{{ mineOnly ? '今日の自分の担当はありません' : '今日のやることはありません' }}</p>
+        <p v-if="!todays.length" class="jp-empty">{{ mineOnly ? '今日の自分の担当はありません' : '今日のやることはありません' }}</p>
       </div>
       <template v-for="g in laterGroups" :key="g.date">
         <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}</span></div>
@@ -258,8 +255,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 
     <button v-if="canCreate && view !== 'month'" type="button" class="jp-fab" aria-label="やることを追加" @click="openAdd">＋</button>
 
-    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || 'list'" :history-of="clPage.historyOf" @close="clPage = null" @open-run="x => clRun = x" />
-    <ChecklistRunSheet v-if="clRun" :cl="clRun.cl" :date="clRun.date" @close="clRun = null" @history="openClHistory" />
+    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" />
+    <ChecklistRunSheet v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" @close="clRun = null" @history="openClHistory" />
     <Teleport to="body">
       <div v-if="adding" class="jp-sheet-bg" @click.self="adding = false">
         <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="!isAdmin && submitAdd(false)">
@@ -302,10 +299,6 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 .jp-title { display: flex; align-items: baseline; gap: 8px; }
 .jp-title b { font-size: 17px; letter-spacing: .04em; }
 .jp-title small { margin-left: auto; font-size: 12px; color: var(--text-muted); font-weight: 700; }
-.jp-cl { border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
-.jp-clrow { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 48px; border: none; border-top: 1px solid #eef4f6; background: none; font: inherit; font-size: 14px; font-weight: 800; color: #3730a3; text-align: left; cursor: pointer; padding: 0 2px; }
-.jp-clrow b { margin-left: auto; font-size: 12px; background: #3730a3; color: #fff; border-radius: 999px; padding: 2px 8px; }
-.jp-clrow.done { color: #166534; } .jp-clrow.done b { background: #22c55e; }
 .jp-views {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 6;
   width: calc(100% - 24px); max-width: 576px; display: grid; grid-template-columns: repeat(3, 1fr);

@@ -1,4 +1,4 @@
--- 0030: チェック表（中の項目＋繰り返し・User決定 2026-10-19・モック docs/mocks/journal-checklist.html）
+-- 0030: 毎日のチェック（中の項目＋繰り返し＋1日に何回も・User決定 2026-10-19・モック docs/mocks/journal-checklist-v3.html）
 --
 -- 背景:
 --   開店チェック・退店チェックのような「項目のあるやること」を、繰り返しで毎日（曜日・毎月N日）出す。
@@ -10,11 +10,12 @@
 --     repeat_mode  'none'（1回きり）/ 'daily' / 'weekly' / 'monthly'
 --     repeat_days  weekly: 曜日（0=日〜6=土）のカンマ区切り / monthly: 日（1〜31。月に無い日は月末）
 --     start_date   none: その日 / 繰り返し: 予定を数え始める日（繰り返しを変えた日。以前の日は記録のある日だけ出す）
---     due_time     'HH:MM' か NULL（終日）
+--     due_times    'HH:MM' のカンマ区切り（1日に何回も。冷蔵庫の温度 10:00,15:00,21:00 など）か NULL（終日）
 --     assign_mode  'anyone' / 'person'（assignee_id・assignee_name）
 --     paused       1 ＝ お休み（今日から先に出さない。記録は残る）
 --     deleted_at   消した印（他の端末へ「消した」を届けるため行は残す）
---   checklist_runs … 1行＝あるチェック表の、ある日の記録
+--   checklist_runs … 1行＝あるチェック表の、ある日の、ある回の記録
+--     run_slot     回（'HH:MM'。時刻なしは ''）
 --     items_json   その日の項目（最初の✓のときのひな形の写し。あとで表を直しても、その日の記録は崩れない）
 --     marks_json   { 項目 id: { s: 'done'|'skip', by, byId, at, reason? } }。時刻はサーバーが刻む
 --   idx_checklist_runs_date … 店舗×日付で引く（このマイグレーションの印）
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS checklists (
   repeat_mode   TEXT NOT NULL DEFAULT 'none',
   repeat_days   TEXT,
   start_date    TEXT NOT NULL,
-  due_time      TEXT,
+  due_times     TEXT,
   assign_mode   TEXT NOT NULL DEFAULT 'anyone',
   assignee_id   TEXT,
   assignee_name TEXT,
@@ -45,9 +46,10 @@ CREATE TABLE IF NOT EXISTS checklist_runs (
   shop_code     TEXT NOT NULL,
   checklist_id  TEXT NOT NULL,
   run_date      TEXT NOT NULL,
+  run_slot      TEXT NOT NULL DEFAULT '',
   items_json    TEXT NOT NULL,
   marks_json    TEXT NOT NULL DEFAULT '{}',
   updated_at    TEXT NOT NULL,
-  PRIMARY KEY (shop_code, checklist_id, run_date)
+  PRIMARY KEY (shop_code, checklist_id, run_date, run_slot)
 );
 CREATE INDEX IF NOT EXISTS idx_checklist_runs_date ON checklist_runs (shop_code, run_date);

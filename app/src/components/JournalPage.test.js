@@ -225,59 +225,91 @@ describe('日誌', () => {
     await swipe(-120); expect(on()).toBe('1日')      // 端で止まる
     await swipe(120);  expect(on()).toBe('月')
   })
-  it('チェック表: 今日の分がリストと「1日」に出る。時刻ありは時間の帯、なしは上の帯。押すと✓のシートで✓・今日はなし', async () => {
+  it('毎日のチェック: リストの一番上に今日の分のカード。押すと全画面で✓・今日はなし。「1日」では時刻の回は時間の帯、時刻なしは上の帯', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
     const items = [{ id: 'a', text: 'ガスの元栓' }, { id: 'b', text: 'ダスター漂白' }]
     localStorage.setItem(STORAGE_KEYS.checklists, JSON.stringify({ lists: [
-      { id: 'c1', name: '退店チェック', items, repeat: 'daily', startDate: '2026-01-01', dueTime: '22:00', assign: 'anyone' },
-      { id: 'c2', name: '週末の大掃除', items, repeat: 'daily', startDate: '2026-01-01', dueTime: null, assign: 'anyone' },
+      { id: 'c1', name: '退店チェック', items, repeat: 'daily', startDate: '2026-01-01', dueTimes: ['22:00'], assign: 'anyone' },
+      { id: 'c2', name: '週末の大掃除', items, repeat: 'daily', startDate: '2026-01-01', dueTimes: [], assign: 'anyone' },
+      { id: 'c3', name: '冷蔵庫の温度', items, repeat: 'daily', startDate: '2026-01-01', dueTimes: ['00:00', '23:59'], assign: 'anyone' },
     ], runs: {} }))
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
-    const rows = [...host.querySelectorAll('.jp-clrow')].map(r => r.textContent)
-    expect(rows[0]).toContain('22:00 退店チェック')
-    expect(rows[0]).toContain('0/2')
-    await click(btn('1日', host.querySelector('.jp-views')))
-    expect(host.querySelector('.jd-sum').textContent).toContain('チェック表 0/2')
-    expect(host.querySelector('.jd-band .jd-chip.list').textContent).toContain('週末の大掃除')
-    const ev = [...host.querySelectorAll('.jd-ev.list')].find(e => e.textContent.includes('退店チェック'))
-    expect(ev.textContent).toContain('0/2')
-    await click(ev)
-    const sheet = document.body.querySelector('.cr')
-    expect(sheet.textContent).toContain('ガスの元栓')
-    await click(sheet.querySelector('.cr-box'))
-    expect(sheet.querySelector('.cr-li.done').textContent).toContain('高木')
-    await click(btn('今日はなし', sheet))
-    const reason = sheet.querySelector('.cr-pop input')
+    const cards = [...host.querySelectorAll('.dc-card')]
+    expect(cards.map(c => c.querySelector('.dc-name b').textContent)).toEqual(['冷蔵庫の温度', '退店チェック', '週末の大掃除'])
+    expect(cards[0].querySelectorAll('.dc-slot')).toHaveLength(2)       // 1日に何回も＝回ごとの札
+    expect(cards[0].querySelectorAll('.dc-w')).toHaveLength(7)          // この7日
+    expect(cards[1].textContent).toContain('毎日 22:00')
+    await click(cards[1].querySelector('.dc-go'))
+    const run = document.body.querySelector('.cr')
+    expect(run.textContent).toContain('ガスの元栓')
+    expect(run.textContent).toContain('22:00の回')
+    await click(run.querySelector('.cr-box'))
+    expect(run.querySelector('.cr-li.done').textContent).toContain('高木')
+    await click(btn('今日はなし', run))
+    const reason = run.querySelector('.cr-pop input')
     reason.value = '漂白剤切れ'; reason.dispatchEvent(new Event('input')); await tick()
-    await click(btn('今日はなしにする', sheet))
-    expect(sheet.querySelector('.cr-li.skip').textContent).toContain('漂白剤切れ')
+    await click(btn('今日はなしにする', run))
+    expect(run.querySelector('.cr-li.skip').textContent).toContain('漂白剤切れ')
+    expect(run.querySelector('.cr-msg').textContent).toContain('済みました')
     const { markChecklistInD1 } = await import('../composables/useStore.js')
-    expect(markChecklistInD1).toHaveBeenLastCalledWith('c1', localDateKey(), expect.objectContaining({ itemId: 'b', state: 'skip', reason: '漂白剤切れ' }))
-    await click(btn('閉じる', sheet))
-    // 「今日はなし」も済みに数える
-    expect([...host.querySelectorAll('.jd-ev.list')].find(e => e.textContent.includes('退店チェック')).classList.contains('done')).toBe(true)
-    expect(host.querySelector('.jd-sum').textContent).toContain('チェック表 1/2')
+    expect(markChecklistInD1).toHaveBeenLastCalledWith('c1', localDateKey(), expect.objectContaining({ slot: '22:00', itemId: 'b', state: 'skip', reason: '漂白剤切れ' }))
+    await click(btn('閉じる', run))
+    expect(host.querySelectorAll('.dc-card')[1].classList.contains('ok')).toBe(true)   // 「今日はなし」も済み
+    // 1日
+    await click(btn('1日', host.querySelector('.jp-views')))
+    expect(host.querySelector('.jd-sum').textContent).toContain('毎日のチェック 1/3')
+    expect(host.querySelector('.jd-band .jd-chip.list').textContent).toContain('週末の大掃除')
+    const evs = [...host.querySelectorAll('.jd-ev.list')].map(e => e.textContent)
+    expect(evs.filter(t => t.includes('冷蔵庫の温度'))).toHaveLength(2)
+    expect(evs.find(t => t.includes('退店チェック'))).toContain('2/2')
   })
 
-  it('チェック表: 管理者は見本から作れる。記録に今日の途中が出る', async () => {
+  it('毎日のチェック: まだ無い店の管理者には「作りましょう」。見本を押すだけで始まる', async () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
-    await click(btn('チェック表', host.querySelector('.jp-title')))
-    const page = document.body.querySelector('.cp')
-    expect(page.textContent).toContain('まだチェック表はありません')
-    await click(btn('退店チェック', page))
-    const names = [...page.querySelectorAll('.cp-it input')].map(i => i.value)
-    expect(names).toContain('ガスの元栓')
-    await click(btn('時刻を決める', page))
-    const t = page.querySelector('input[type="time"]')
-    t.value = '22:00'; t.dispatchEvent(new Event('input')); await tick()
-    await click(btn('保存', page))
+    const first = host.querySelector('.dc-first')
+    expect(first.textContent).toContain('毎日のチェックを作りましょう')
+    await click(btn('これで始める', first))
     const { saveChecklistToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '🌙 退店チェック', repeat: 'daily', dueTime: '22:00' }))
-    expect(page.querySelector('.cp-card').textContent).toContain('毎日 22:00')
-    await click(btn('記録', page.querySelector('.cp-card')))
-    expect(page.querySelector('.cp-rec').textContent).toContain('途中 0/5')
+    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '☀ 開店チェック', repeat: 'daily', dueTimes: [] }))
+    expect(host.querySelector('.dc-first')).toBeNull()
+    expect(host.querySelector('.dc-card').textContent).toContain('開店チェック')
+  })
+
+  it('毎日のチェック: ×で消すと入口の1行になり「ここからいつでも作れます」。消したことは覚える', async () => {
+    vi.useFakeTimers()
+    try {
+      const { default: JournalPage } = await import('./JournalPage.vue')
+      await mount(JournalPage)
+      await click(host.querySelector('.dc-x'))
+      expect(host.querySelector('.dc-first.leaving')).not.toBeNull()
+      vi.advanceTimersByTime(500); await tick()
+      expect(host.querySelector('.dc-first')).toBeNull()
+      expect(host.querySelector('.dc-entry.glow').textContent).toContain('＋ 作る')
+      expect(host.querySelector('.dc-toast').textContent).toContain('ここからいつでも作れます')
+      vi.advanceTimersByTime(3000); await tick()
+      expect(host.querySelector('.dc-toast')).toBeNull()
+      const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+      expect(localStorage.getItem(STORAGE_KEYS.hints)).toContain('daily-check-intro')
+      // 入口から作る
+      await click(host.querySelector('.dc-entry'))
+      const page = document.body.querySelector('.cp')
+      await click(btn('自分で作る', page))
+      const name = page.querySelector('input[type="text"]')
+      name.value = '冷蔵庫の温度'; name.dispatchEvent(new Event('input')); await tick()
+      const item = page.querySelector('.cp-it input')
+      item.value = '冷蔵庫'; item.dispatchEvent(new Event('input')); await tick()
+      for (const t of ['15:00', '10:00']) {
+        const ti = page.querySelector('input[aria-label="足す時刻"]')
+        ti.value = t; ti.dispatchEvent(new Event('input')); await tick()
+        await click(btn('時刻を足す', page))
+      }
+      expect(page.querySelector('.cp-sentence').textContent).toContain('毎日 10:00・15:00（1日2回）に')
+      await click(btn('保存', page))
+      const { saveChecklistToD1 } = await import('../composables/useStore.js')
+      expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '冷蔵庫の温度', dueTimes: ['10:00', '15:00'] }))
+    } finally { vi.useRealTimers() }
   })
 })

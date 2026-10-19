@@ -6,7 +6,7 @@
  *   （以前は時間の目盛りの左に縦の列。User決定 2026-10-19・モック docs/mocks/journal-day-allday.html）。
  *   やることの札は押すとその場で完了、チェック表の札は押すと✓のシート。見出しを押すと全部の一覧。
  *   今日は、前の日から残っているやることも赤で入れる。済みは後ろへ。多いときは「＋N件」
- * - チェック表（2026-10-19）: 時刻のあるものは時間の目盛りに「退店チェック 2/4」で、無いものは帯に
+ * - 毎日のチェック（2026-10-19）: 時刻のある回は時間の目盛りに「22:00 退店チェック 2/4」で、時刻なしは帯に（1日に何回もの表は回ごと）
  * - 上は「‹ 日付 ›」と要約。日付を押すと月カレンダー（DayPickerSheet）で過去の日もすぐ選べる
  * - 天気・祝日・日別メモ（発注学習の除外）もここで（月の日の詳細のモーダルを廃止して移した・2026-10-13）
  * - 棚卸は始め〜終わりの長さで左の列に。操作が5分以上なかった区間は「中断」として薄く
@@ -89,9 +89,9 @@ const bandAll = computed(() => {
       const late = !done && (t.date < props.date || pastDay.value)
       return { key: t.id, type: 'task', task: t, label: t.date < props.date ? `${t.text}（${md(t.date)}から）` : t.text, done, late, rank: late ? 0 : done ? 2 : 1 }
     }),
-    ...lists.value.filter(r => !r.cl.dueTime).map(r => ({
-      key: `cl-${r.cl.id}`, type: 'list', run: r, label: r.cl.name, n: `${r.filled}/${r.total}`,
-      done: r.complete, late: !r.complete && pastDay.value, rank: !r.complete && pastDay.value ? 0 : r.complete ? 2 : 1,
+    ...lists.value.flatMap(r => r.slots.filter(x => !x.slot)).map(x => ({
+      key: `cl-${x.cl.id}`, type: 'list', run: x, label: x.cl.name, n: `${x.filled}/${x.total}`,
+      done: x.complete, late: !x.complete && pastDay.value, rank: !x.complete && pastDay.value ? 0 : x.complete ? 2 : 1,
     })),
   ]
   return chips.sort((a, b) => a.rank - b.rank)
@@ -102,15 +102,15 @@ const bandMore = computed(() => bandAll.value.length - bandChips.value.length)
 const bandLeft = computed(() => bandAll.value.filter(c => !c.done).length)
 function tapChip(c) {
 
-  if (c.type === 'list') { openRun(c.run.cl); return }
+  if (c.type === 'list') { openRun(c.run.cl, c.run.slot); return }
   // やることはその場で完了・取り消し。押せないもの（担当の人だけ・承認で自動完了など）は1件のシートで理由を見せる
   if (canToggleTask(c.task)) toggleTask(c.task.id)
   else picked.value = { task: c.task }
 }
 
-// チェック表の✓のシート
-const runOpen = ref(null)   // 表
-function openRun(cl) { untimedOpen.value = false; runOpen.value = cl }
+// 毎日のチェックの✓の画面（回ごと）
+const runOpen = ref(null)   // { cl, slot }
+function openRun(cl, slot = '') { untimedOpen.value = false; runOpen.value = { cl, slot } }
 function runHistory(cl) { runOpen.value = null; emit('checklist-history', cl) }
 
 // この日のこと（天気・祝日・連休・日別メモ）
@@ -147,7 +147,7 @@ const range = computed(() => {
   let from = hours.value.from * 60, to = hours.value.to * 60
   const mins = [
     ...tasks.value.filter(t => t.dueTime).map(t => toMin(t.dueTime)),
-    ...lists.value.filter(r => r.cl.dueTime).map(r => toMin(r.cl.dueTime)),
+    ...lists.value.flatMap(r => r.slots.filter(x => x.slot).map(x => toMin(x.slot))),
     ...plans.value.map(p => toMin(p.time)),
     ...props.records.filter(r => r.at != null).flatMap(r => [minOf(r.at), minOf(r.end ?? r.at) + 30]),
   ]
@@ -179,7 +179,7 @@ const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' 
 const rightItems = computed(() => {
   const list = [
     ...tasks.value.filter(t => t.dueTime).map(t => ({ key: t.id, type: 'task', m: toMin(t.dueTime), task: t, label: `${t.dueTime} ${t.text}`, done: _checked(t), late: !t.doneAt && props.date < localDateKey() })),
-    ...lists.value.filter(r => r.cl.dueTime).map(r => ({ key: `cl-${r.cl.id}`, type: 'list', m: toMin(r.cl.dueTime), run: r, label: `${r.cl.dueTime} ${r.cl.name}`, n: `${r.filled}/${r.total}`, done: r.complete, late: !r.complete && pastDay.value })),
+    ...lists.value.flatMap(r => r.slots.filter(x => x.slot)).map(x => ({ key: `cl-${x.cl.id}-${x.slot}`, type: 'list', m: toMin(x.slot), run: x, label: `${x.slot} ${x.cl.name}`, n: `${x.filled}/${x.total}`, done: x.complete, late: !x.complete && pastDay.value })),
     ...plans.value.map(p => ({ key: p.key, type: 'plan', m: toMin(p.time), label: `${p.time} 発注の締切（${p.name}）` })),
     ...props.records.filter(r => r.kind !== 'stock' && r.at != null).map(r => ({ key: r.key, type: r.kind, m: minOf(r.at), rec: r, label: `${fmtHm(r.at)} ${r.title}` })),
   ].sort((a, b) => a.m - b.m)
@@ -213,7 +213,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 }))
 function pick(x) {
   if (x.type === 'task') picked.value = { task: x.task }
-  else if (x.type === 'list') openRun(x.run.cl)
+  else if (x.type === 'list') openRun(x.run.cl, x.run.slot)
   else if (x.rec?.kind === 'stock') emit('view-session', x.rec.session)
   else if (x.rec) picked.value = { rec: x.rec }
 }
@@ -236,7 +236,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
     </div>
     <div class="jd-sum">
       <span class="t">やること <b>{{ tasksDone }}/{{ tasks.length }}</b></span>
-      <span v-if="lists.length" class="cl">チェック表 <b>{{ listsDone }}/{{ lists.length }}</b></span>
+      <span v-if="lists.length" class="cl">毎日のチェック <b>{{ listsDone }}/{{ lists.length }}</b></span>
       <span>記録 <b>{{ records.length }}</b></span>
       <span v-if="plans.length">締切 <b>{{ plans.length }}</b></span>
       <span v-if="wx" class="wx">{{ wx.icon }}<template v-if="wx.tempHi != null"> {{ wx.tempHi }}°/{{ wx.tempLo }}°</template></span>
@@ -290,13 +290,13 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 
     <Teleport to="body">
       <DayPickerSheet v-if="picking" :date="date" :marks="marks" @pick="pickDate" @close="picking = false" />
-      <ChecklistRunSheet v-if="runOpen" :cl="runOpen" :date="date" @close="runOpen = null" @history="runHistory" />
+      <ChecklistRunSheet v-if="runOpen" :cl="runOpen.cl" :slot="runOpen.slot" :date="date" @close="runOpen = null" @history="runHistory" />
       <div v-if="picked || editHours || untimedOpen || memoOpen" class="jd-sheet-bg" @click.self="closeSheet">
         <div class="jd-sheet" role="dialog">
           <template v-if="untimedOpen">
             <div class="jd-sheet-h"><b>終日・時刻なし</b><small>残り {{ bandLeft }} / {{ bandAll.length }}</small></div>
             <div class="jd-list">
-              <button v-for="c in bandAll.filter(x => x.type === 'list')" :key="c.key" type="button" :class="['jd-clrow', { done: c.done, late: c.late }]" @click="openRun(c.run.cl)">
+              <button v-for="c in bandAll.filter(x => x.type === 'list')" :key="c.key" type="button" :class="['jd-clrow', { done: c.done, late: c.late }]" @click="openRun(c.run.cl, c.run.slot)">
                 <span>☑ {{ c.label }}</span><b>{{ c.n }}{{ c.done ? ' 済' : '' }}</b>
               </button>
               <TaskRow v-for="t in untimed" :key="t.id" :task="t" :show-date="t.date < date" />

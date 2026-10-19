@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark, cleanItems, cleanDays } from './checklistHandler.js'
+import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark, cleanItems, cleanDays, cleanTimes } from './checklistHandler.js'
 
 // 使う SQL だけを解く小さな D1 の代わり
 function fakeDb() {
@@ -14,7 +14,7 @@ function fakeDb() {
         if (s.startsWith('SELECT shop_code, updated_at')) return state.checklists.find(r => r.id === args[0]) ?? null
         if (s.startsWith('SELECT items_json, assign_mode')) return state.checklists.find(r => r.id === args[0] && r.shop_code === args[1]) ?? null
         if (s.startsWith('SELECT items_json, marks_json FROM checklist_runs')) {
-          return state.runs.find(r => r.shop_code === args[0] && r.checklist_id === args[1] && r.run_date === args[2]) ?? null
+          return state.runs.find(r => r.shop_code === args[0] && r.checklist_id === args[1] && r.run_date === args[2] && r.run_slot === args[3]) ?? null
         }
         throw new Error('unknown first: ' + s)
       },
@@ -25,7 +25,7 @@ function fakeDb() {
       },
       async run() {
         if (s.startsWith('INSERT INTO checklists')) {
-          const k = ['id', 'shop_code', 'name', 'items_json', 'repeat_mode', 'repeat_days', 'start_date', 'due_time', 'assign_mode',
+          const k = ['id', 'shop_code', 'name', 'items_json', 'repeat_mode', 'repeat_days', 'start_date', 'due_times', 'assign_mode',
             'assignee_id', 'assignee_name', 'paused', 'created_by', 'created_by_id', 'created_at', 'updated_at', 'deleted_at']
           const row = Object.fromEntries(k.map((x, i) => [x, args[i]]))
           const i = state.checklists.findIndex(r => r.id === row.id)
@@ -34,14 +34,14 @@ function fakeDb() {
           return { meta: { changes: 1 } }
         }
         if (s.startsWith('UPDATE checklist_runs')) {
-          const r = state.runs.find(x => x.shop_code === args[2] && x.checklist_id === args[3] && x.run_date === args[4] && x.marks_json === args[5])
+          const r = state.runs.find(x => x.shop_code === args[2] && x.checklist_id === args[3] && x.run_date === args[4] && x.run_slot === args[5] && x.marks_json === args[6])
           if (!r) return { meta: { changes: 0 } }
           r.marks_json = args[0]; r.updated_at = args[1]
           return { meta: { changes: 1 } }
         }
         if (s.startsWith('INSERT INTO checklist_runs')) {
-          if (state.runs.some(x => x.shop_code === args[0] && x.checklist_id === args[1] && x.run_date === args[2])) return { meta: { changes: 0 } }
-          state.runs.push({ shop_code: args[0], checklist_id: args[1], run_date: args[2], items_json: args[3], marks_json: args[4], updated_at: args[5] })
+          if (state.runs.some(x => x.shop_code === args[0] && x.checklist_id === args[1] && x.run_date === args[2] && x.run_slot === args[3])) return { meta: { changes: 0 } }
+          state.runs.push({ shop_code: args[0], checklist_id: args[1], run_date: args[2], run_slot: args[3], items_json: args[4], marks_json: args[5], updated_at: args[6] })
           return { meta: { changes: 1 } }
         }
         throw new Error('unknown run: ' + s)
@@ -53,7 +53,7 @@ function fakeDb() {
 }
 
 const base = {
-  id: 'cl_close', name: '退店チェック', repeat: 'daily', startDate: '2026-10-01', dueTime: '22:00',
+  id: 'cl_close', name: '退店チェック', repeat: 'daily', startDate: '2026-10-01', dueTimes: ['22:00'],
   items: [{ id: 'i1', text: 'ガスの元栓' }, { id: 'i2', text: 'ショーケース電源' }],
 }
 const NOW = '2026-10-20T13:00:00.000Z'   // 日本時間 22:00
@@ -66,6 +66,22 @@ describe('チェック表', () => {
     expect(cleanDays('monthly', 31)).toBe('31')
     expect(cleanDays('monthly', 0)).toBeNull()
     expect(cleanDays('daily', [1])).toBeNull()
+    expect(cleanTimes(['21:00', '10:00', '10:00', '25:00', ''])).toBe('10:00,21:00')
+    expect(cleanTimes([])).toBeNull()
+  })
+
+  it('1日に何回も: 回ごとに別の記録', async () => {
+    const db = fakeDb()
+    await handleChecklistUpsert(db, 'S1', { ...base, dueTimes: ['10:00', '15:00'] })
+    const who = { id: 'st1', name: '佐藤' }
+    const a = await handleChecklistMark(db, 'S1', 'cl_close', '2026-10-20', { slot: '10:00', itemId: 'i1', state: 'done' }, who, { nowIso: NOW })
+    const b = await handleChecklistMark(db, 'S1', 'cl_close', '2026-10-20', { slot: '15:00', itemId: 'i2', state: 'done' }, who, { nowIso: NOW })
+    expect(a.run).toMatchObject({ slot: '10:00', marks: { i1: { s: 'done' } } })
+    expect(b.run.marks.i1).toBeUndefined()
+    expect(db.state.runs).toHaveLength(2)
+    expect((await handleChecklistMark(db, 'S1', 'cl_close', '2026-10-20', { slot: '9:00', itemId: 'i1', state: 'done' }, who, { nowIso: NOW }))._status).toBe(400)
+    const got = await handleChecklistsGet(db, 'S1', 120)
+    expect(got.runs.map(r => r.slot).sort()).toEqual(['10:00', '15:00'])
   })
 
   it('作る・読む。名前や項目が無ければ断る', async () => {
@@ -75,7 +91,7 @@ describe('チェック表', () => {
     const r = await handleChecklistUpsert(db, 'S1', base, { id: 'owner', name: '店長' })
     expect(r).toMatchObject({ ok: true, created: true })
     const got = await handleChecklistsGet(db, 'S1', 120)
-    expect(got.checklists[0]).toMatchObject({ name: '退店チェック', repeat: 'daily', dueTime: '22:00', createdBy: '店長', items: base.items })
+    expect(got.checklists[0]).toMatchObject({ name: '退店チェック', repeat: 'daily', dueTimes: ['22:00'], createdBy: '店長', items: base.items })
     // 他店舗の ID は見つからない扱い
     expect((await handleChecklistUpsert(db, 'S2', base))._status).toBe(404)
   })

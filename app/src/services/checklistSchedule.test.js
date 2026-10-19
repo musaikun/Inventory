@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { scheduledOn, dayRun, checklistsOn, checklistHistory, repeatLabel, runKey } from './checklistSchedule.js'
+import { scheduledOn, dayRun, dayChecklist, checklistsOn, checklistHistory, repeatLabel, whenLabel, runKey, weekMarks, currentSlot } from './checklistSchedule.js'
 
 const items = [{ id: 'a', text: 'ガスの元栓' }, { id: 'b', text: 'ダスター漂白' }]
-const cl = (o = {}) => ({ id: 'c1', name: '退店チェック', items, repeat: 'daily', repeatDays: null, startDate: '2026-10-01', dueTime: null, ...o })
+const cl = (o = {}) => ({ id: 'c1', name: '退店チェック', items, repeat: 'daily', repeatDays: null, startDate: '2026-10-01', dueTimes: [], ...o })
 
 describe('チェック表の予定', () => {
   it('繰り返しごとに出す日', () => {
@@ -27,7 +27,7 @@ describe('チェック表の予定', () => {
   })
 
   it('その日の表は時刻の順（時刻なしは後ろ）', () => {
-    const list = [cl({ id: 'x', name: '終日', dueTime: null }), cl({ id: 'y', name: '退店', dueTime: '22:00' }), cl({ id: 'z', name: '開店', dueTime: '09:00' })]
+    const list = [cl({ id: 'x', name: '終日' }), cl({ id: 'y', name: '退店', dueTimes: ['22:00'] }), cl({ id: 'z', name: '開店', dueTimes: ['09:00'] })]
     expect(checklistsOn(list, {}, '2026-10-20').map(r => r.cl.name)).toEqual(['開店', '退店', '終日'])
   })
 
@@ -49,5 +49,26 @@ describe('チェック表の予定', () => {
     expect(repeatLabel(cl({ repeat: 'weekly', repeatDays: '6,0' }))).toBe('土・日')
     expect(repeatLabel(cl({ repeat: 'monthly', repeatDays: '1' }))).toBe('毎月1日')
     expect(repeatLabel(cl({ repeat: 'none', startDate: '2026-12-30' }))).toBe('12/30だけ')
+    expect(whenLabel(cl({ dueTimes: ['21:00', '10:00'] }))).toBe('毎日 10:00・21:00')
+  })
+
+  it('1日に何回も: 回ごとの進み具合・今やる回・この7日', () => {
+    const c = cl({ dueTimes: ['10:00', '15:00', '21:00'], startDate: '2026-10-10' })
+    const runs = {
+      [runKey('c1', '2026-10-20', '10:00')]: { items, marks: { a: { s: 'done' }, b: { s: 'done' } } },
+      [runKey('c1', '2026-10-19', '10:00')]: { items, marks: { a: { s: 'done' }, b: { s: 'done' } } },
+      [runKey('c1', '2026-10-19', '15:00')]: { items, marks: { a: { s: 'done' }, b: { s: 'skip' } } },
+      [runKey('c1', '2026-10-19', '21:00')]: { items, marks: { a: { s: 'done' }, b: { s: 'done' } } },
+    }
+    const d = dayChecklist(c, runs, '2026-10-20')
+    expect([d.doneSlots, d.totalSlots, d.complete]).toEqual([1, 3, false])
+    expect(currentSlot(d, '16:30').slot).toBe('15:00')
+    expect(currentSlot(d, '09:00').slot).toBe('15:00')
+    expect(dayChecklist(c, runs, '2026-10-19').complete).toBe(true)
+    expect(weekMarks(c, runs, '2026-10-20').map(w => w.mark)).toEqual(['n', 'n', 'n', 'n', 'n', 'y', 't'])
+    // 時刻を変えても、前の時刻で✓した回は記録から出る
+    const moved = cl({ dueTimes: ['11:00'], startDate: '2026-10-10' })
+    expect(dayChecklist(moved, runs, '2026-10-19').slots.map(x => x.slot)).toEqual(['10:00', '11:00', '15:00', '21:00'])
+    expect(dayRun(c, runs, '2026-10-20', '09:00')).toBeNull()
   })
 })
