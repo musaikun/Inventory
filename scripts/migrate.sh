@@ -59,3 +59,4 @@ apply_if_missing 0026_task_time_push_actor.sql idx_push_actor
 apply_if_missing 0027_owner_identity.sql    idx_tasks_created_by
 apply_if_missing 0028_task_kind.sql         idx_tasks_kind
 apply_if_missing 0029_task_visibility.sql   idx_tasks_visibility
+apply_if_missing 0030_checklists.sql          idx_checklist_runs_date

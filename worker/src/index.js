@@ -24,6 +24,7 @@ import { PERMS } from './permissions.js'
 import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { OWNER_ID, ensureOwnerUnified, setOwnerName, setStoreName } from './ownerHandler.js'
 import { taskWriteCheck } from './taskWrite.js'
+import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark } from './checklistHandler.js'
 import { handleStaffActivity } from './activityHandler.js'
 import { configChangePerms } from './configGuard.js'
 import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
@@ -673,6 +674,31 @@ export default {
           const body = await request.json().catch(() => ({}))
           const who = await _actor(env.DB, request, code, body)
           return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
+        }
+
+        // チェック表（User決定 2026-10-19・migration 0030）。読むのは店の誰でも、作る・直すのは管理者だけ、✓は誰でも（担当の人がいれば担当と管理者）
+        if (subpath === '/checklists' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleChecklistsGet(env.DB, code, url.searchParams.get('sinceDays')), origin, allowedOrigin)
+        }
+        if (subpath === '/checklists' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, { by: body?.createdBy, byId: body?.createdById })
+          if (who.ctx && !who.admin) {
+            return jsonResponse({ code: 'checklist_forbidden', error: 'チェック表を作る・直すのは管理者だけです' }, 403, origin, allowedOrigin)
+          }
+          return resultResponse(await handleChecklistUpsert(env.DB, code, body, who), origin, allowedOrigin)
+        }
+        const clMark = subpath.match(/^\/checklists\/([\w-]{1,64})\/runs\/(\d{4}-\d{2}-\d{2})\/mark$/)
+        if (clMark && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, body)
+          return resultResponse(await handleChecklistMark(env.DB, code, clMark[1], clMark[2], body, who, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
 
         // GET /store/:code/sessions/discarded … 24時間以内に破棄した（取り戻せる）セッション（要認証）

@@ -647,6 +647,22 @@ export async function markTaskInD1(id, done, by, byId) {
   })
 }
 
+// ── チェック表（2026-10-19）。表を作る・直すのは管理者で、その場で送る（保存の列は通さない）──────────────
+export async function loadChecklistsFromD1(sinceDays = null) {
+  if (!shopCode.value) return null
+  const q = sinceDays ? `?sinceDays=${sinceDays}` : ''
+  return _api(`/store/${shopCode.value}/checklists${q}`).catch(() => null)
+}
+export async function saveChecklistToD1(cl) {
+  if (!shopCode.value) throw new Error('店舗にログインしていません')
+  return _api(`/store/${shopCode.value}/checklists`, { method: 'POST', body: JSON.stringify(cl) })
+}
+/** 項目に✓・「今日はなし」・外す（state null）。印はサーバーで合流させる */
+export async function markChecklistInD1(id, date, body) {
+  if (!shopCode.value) throw new Error('店舗にログインしていません')
+  return _api(`/store/${shopCode.value}/checklists/${encodeURIComponent(id)}/runs/${date}/mark`, { method: 'POST', body: JSON.stringify(body) })
+}
+
 // ── アクティブルーム ──────────────────────────────────────────────────────────
 export async function updateActiveRoomInD1(roomCode) {
   if (!shopCode.value || !BASE) return

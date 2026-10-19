@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(async () => ({})), setAuthInvalidatedHandler: vi.fn() }))
-vi.mock('../composables/useStore.js', async (orig) => ({ ...(await orig()), saveTaskToD1: vi.fn(async () => true), loadTasksFromD1: vi.fn(async () => []), saveMovementToD1: vi.fn(async () => true) }))
+vi.mock('../composables/useStore.js', async (orig) => ({ ...(await orig()), saveTaskToD1: vi.fn(async () => true), loadTasksFromD1: vi.fn(async () => []), saveMovementToD1: vi.fn(async () => true),
+  saveChecklistToD1: vi.fn(async () => ({ ok: true })), markChecklistInD1: vi.fn(async () => ({ ok: true })), loadChecklistsFromD1: vi.fn(async () => null) }))
 
 let app = null, host = null
 const tick = async () => { for (let i = 0; i < 6; i++) await nextTick() }
@@ -44,7 +45,7 @@ describe('日誌', () => {
     expect(host.querySelector('.rr-lines').textContent).toContain('+24個')
   })
 
-  it('1日: 時刻のあるやることは時間の帯、時刻なしは「今日中」の列に。記録も帯に。表示する時間は端末に覚える', async () => {
+  it('1日: 時刻のあるやることは時間の帯、時刻なしは上の「終日・時刻なし」の帯に（押すとその場で完了）。記録も帯に。表示する時間は端末に覚える', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     T.addTask(localDateKey(), '野菜の検品', null, '11:00')
@@ -54,10 +55,16 @@ describe('日誌', () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     await click(btn('1日', host.querySelector('.jp-views')))
-    // 時刻なしは「今日中」の列（残りの数）。押すと一覧
-    expect(host.querySelector('.jd-lane').textContent).toContain('今日中1/1')
+    // 時刻なしは日付の下の帯（残りの数）。札を押すとその場で完了、見出しを押すと一覧
+    const band = host.querySelector('.jd-head .jd-band')
+    expect(band.textContent).toContain('終日・時刻なし')
+    expect(band.textContent).toContain('1 / 1 残り')
     expect(host.querySelector('.jd-sum').textContent).toContain('やること 0/2')
-    await click(host.querySelector('.jd-lane'))
+    await click([...band.querySelectorAll('.jd-chip')].find(c => c.textContent.includes('手洗いの確認')))
+    expect(host.querySelector('.jd-chip.task.done')).not.toBeNull()
+    expect(host.querySelector('.jd-sum').textContent).toContain('やること 1/2')
+    expect(host.querySelector('.jd-band').textContent).toContain('0 / 1 残り')
+    await click(host.querySelector('.jd-band-h'))
     expect(document.body.querySelector('.jd-sheet').textContent).toContain('手洗いの確認')
     await click(btn('閉じる', document.body))
     const evs = [...host.querySelectorAll('.jd-ev')].map(e => e.textContent)
@@ -119,8 +126,8 @@ describe('日誌', () => {
     await click(cell)
     expect(document.body.querySelector('.dp')).toBeNull()
     expect(host.querySelector('.jd-date').textContent).toContain('9月15日')
-    expect(host.querySelector('.jd-lane').textContent).toContain('終日1/1')   // 今日以外は「終日」。過ぎた日の残りは赤
-    expect(host.querySelector('.jd-lane').classList.contains('late')).toBe(true)
+    const late = host.querySelector('.jd-band .jd-chip.late')   // 過ぎた日の残りは赤
+    expect(late.textContent).toContain('冷蔵庫の点検')
     // 日別メモ（発注学習の除外）
     await click(host.querySelector('.jd-sum .memo'))
     const ta = document.body.querySelector('.jd-memo')
@@ -217,5 +224,60 @@ describe('日誌', () => {
     await swipe(-120); expect(on()).toBe('1日')
     await swipe(-120); expect(on()).toBe('1日')      // 端で止まる
     await swipe(120);  expect(on()).toBe('月')
+  })
+  it('チェック表: 今日の分がリストと「1日」に出る。時刻ありは時間の帯、なしは上の帯。押すと✓のシートで✓・今日はなし', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    const items = [{ id: 'a', text: 'ガスの元栓' }, { id: 'b', text: 'ダスター漂白' }]
+    localStorage.setItem(STORAGE_KEYS.checklists, JSON.stringify({ lists: [
+      { id: 'c1', name: '退店チェック', items, repeat: 'daily', startDate: '2026-01-01', dueTime: '22:00', assign: 'anyone' },
+      { id: 'c2', name: '週末の大掃除', items, repeat: 'daily', startDate: '2026-01-01', dueTime: null, assign: 'anyone' },
+    ], runs: {} }))
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const rows = [...host.querySelectorAll('.jp-clrow')].map(r => r.textContent)
+    expect(rows[0]).toContain('22:00 退店チェック')
+    expect(rows[0]).toContain('0/2')
+    await click(btn('1日', host.querySelector('.jp-views')))
+    expect(host.querySelector('.jd-sum').textContent).toContain('チェック表 0/2')
+    expect(host.querySelector('.jd-band .jd-chip.list').textContent).toContain('週末の大掃除')
+    const ev = [...host.querySelectorAll('.jd-ev.list')].find(e => e.textContent.includes('退店チェック'))
+    expect(ev.textContent).toContain('0/2')
+    await click(ev)
+    const sheet = document.body.querySelector('.cr')
+    expect(sheet.textContent).toContain('ガスの元栓')
+    await click(sheet.querySelector('.cr-box'))
+    expect(sheet.querySelector('.cr-li.done').textContent).toContain('高木')
+    await click(btn('今日はなし', sheet))
+    const reason = sheet.querySelector('.cr-pop input')
+    reason.value = '漂白剤切れ'; reason.dispatchEvent(new Event('input')); await tick()
+    await click(btn('今日はなしにする', sheet))
+    expect(sheet.querySelector('.cr-li.skip').textContent).toContain('漂白剤切れ')
+    const { markChecklistInD1 } = await import('../composables/useStore.js')
+    expect(markChecklistInD1).toHaveBeenLastCalledWith('c1', localDateKey(), expect.objectContaining({ itemId: 'b', state: 'skip', reason: '漂白剤切れ' }))
+    await click(btn('閉じる', sheet))
+    // 「今日はなし」も済みに数える
+    expect([...host.querySelectorAll('.jd-ev.list')].find(e => e.textContent.includes('退店チェック')).classList.contains('done')).toBe(true)
+    expect(host.querySelector('.jd-sum').textContent).toContain('チェック表 1/2')
+  })
+
+  it('チェック表: 管理者は見本から作れる。記録に今日の途中が出る', async () => {
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(btn('チェック表', host.querySelector('.jp-title')))
+    const page = document.body.querySelector('.cp')
+    expect(page.textContent).toContain('まだチェック表はありません')
+    await click(btn('退店チェック', page))
+    const names = [...page.querySelectorAll('.cp-it input')].map(i => i.value)
+    expect(names).toContain('ガスの元栓')
+    await click(btn('時刻を決める', page))
+    const t = page.querySelector('input[type="time"]')
+    t.value = '22:00'; t.dispatchEvent(new Event('input')); await tick()
+    await click(btn('保存', page))
+    const { saveChecklistToD1 } = await import('../composables/useStore.js')
+    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '🌙 退店チェック', repeat: 'daily', dueTime: '22:00' }))
+    expect(page.querySelector('.cp-card').textContent).toContain('毎日 22:00')
+    await click(btn('記録', page.querySelector('.cp-card')))
+    expect(page.querySelector('.cp-rec').textContent).toContain('途中 0/5')
   })
 })

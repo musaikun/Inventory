@@ -2,6 +2,21 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-19 — version 0.167.0 / チェック表（中の項目＋繰り返し）と、日誌「1日」の終日の帯
+
+User決定（モック journal-checklist / journal-day-allday を見て「あなたの案で」）:
+- 時刻の無いやることは、時間の目盛りの左の縦の列をやめ、日付の下の「終日・時刻なし」の帯に札で並べる（上に固定）。札を押すとその場で完了。「今日中」と「終日」は同じ帯。
+- チェック表: 作る・直すのは管理者だけ（スタッフは✓だけ）／直した表は、まだ✓を付けていない日から効く／「今日はなし」（理由は任意）を済みに数える／担当は親単位（誰でも・人）。
+
+実装:
+- Worker: `migrations/0030_checklists.sql`（checklists・checklist_runs）、`checklistHandler.js`（GET/POST `/store/:code/checklists`、POST `/checklists/:id/runs/:date/mark`）。✓の時刻はサーバーが刻む。先の日は不可。外せるのは付けた人がその日のうち（管理者はいつでも）。その日の最初の✓で項目を写す（あとで表を直しても崩れない）。印は marks_json を比べて読み直す。`scripts/migrate.sh`・アカウント削除に追加。
+- App: `services/checklistSchedule.js`（出す日・進み具合・記録）、`composables/useChecklists.js`（写しは localStorage・表の保存と✓はその場で送り、断られたら戻して知らせる）、`ChecklistsPage.vue`（一覧・見本から作る・作る/直す・お休み・消す・記録60日）、`ChecklistRunSheet.vue`（✓・今日はなし）。`JournalDay.vue`（帯・時刻ありの表は時間の目盛りに「2/4」）、`JournalPage.vue`（上に「☑ チェック表」・今日の枠の頭に今日の表・残りの数に含める）。
+- 「全員」の担当・管理者だけに見せる表・通知は今回入れていない（後で）。
+- DoD: 空状態あり／storageKeys 登録／アカウント切替で消去／D1 永続化／マイグレーション追加／エラーは日本語で画面に出す。オフライン中の✓は送れずに戻る（保存の列には載せていない）。
+- テスト: worker 716 pass（checklistHandler.test.js）、app JournalPage 11 pass・checklistSchedule 5 pass、全体 2126+ pass、build 成功。ハーネスで1日・✓のシート・一覧・直す・記録を目視。
+- **本番は migration 0030 の適用（Production Backend）が必要**。適用まではチェック表の保存がエラーになる。
+- version: 0.166.5 → **0.167.0**。
+
 ## 2026-10-19 — version 0.166.5 / モック: チェック表（中の項目＋繰り返し）（未実装）
 
 User決定: HACCPは未定。先に、やることに中の項目（2段まで）と繰り返しを足した「チェック表」を作る。「今日はなし」を付ける（理由は任意）、担当は親単位。

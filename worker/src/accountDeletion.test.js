@@ -33,6 +33,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
     session_audit: [],           // 操作ログ（migration 0017）
     discarded_sessions: [],      // 破棄して24時間取り戻せるセッション（migration 0018）
     tasks: [],                   // カレンダーのやること（migration 0020）
+    checklists: [], checklist_runs: [],   // チェック表（migration 0030）
     push_sent: [],               // 送った通知の印（migration 0021）
     staff: [], staff_invites: [], staff_login_attempts: [],   // スタッフ（migration 0022）
     work_sessions: [],   // 開いていた記録（migration 0025）
@@ -215,7 +216,7 @@ async function seedAccount(db, { shopCode = 'STOREA', pin = '1234', token = 'tok
     'store_configs', 'store_inventory', 'store_history', 'sessions', 'inventory_lines',
     'item_par_levels', 'push_subscriptions', 'orders', 'order_lines', 'movements', 'movement_lines',
     // 取込台帳・完了claimも店舗の業務dataなので削除範囲に入る（DATA-002 §6）
-    'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'tasks',
+    'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'tasks', 'checklists', 'checklist_runs',
   ]) {
     db._state[table].push({ shop_code: shopCode, id: `${table}-${shopCode}` })
   }
@@ -340,7 +341,7 @@ describe('PLAY-001: account deletion', () => {
       'auth_tokens', 'login_attempts', 'store_configs', 'store_inventory', 'store_history',
       'sessions', 'inventory_lines', 'item_par_levels', 'push_subscriptions', 'orders',
       'order_lines', 'movements', 'movement_lines',
-      'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'tasks',
+      'import_batch_requests', 'session_completions', 'session_audit', 'discarded_sessions', 'tasks', 'checklists', 'checklist_runs',
     ]) {
       expect(db._state[table].some(row => row.shop_code === first.shopCode), table).toBe(false)
       expect(db._state[table].some(row => row.shop_code === 'STOREB'), table).toBe(true)
