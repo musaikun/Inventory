@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark, cleanItems, cleanDays, cleanTimes } from './checklistHandler.js'
+import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark, cleanItems, cleanDays, cleanTimes, WHOLE } from './checklistHandler.js'
 
 // 使う SQL だけを解く小さな D1 の代わり
 function fakeDb() {
@@ -65,9 +65,21 @@ describe('チェック表', () => {
     expect(cleanDays('weekly', [])).toBeNull()
     expect(cleanDays('monthly', 31)).toBe('31')
     expect(cleanDays('monthly', 0)).toBeNull()
+    expect(cleanDays('monthly', ['15', 1, 'L', 40])).toBe('1,15,L')
+    expect(cleanDays('monthly', 'L')).toBe('L')
     expect(cleanDays('daily', [1])).toBeNull()
     expect(cleanTimes(['21:00', '10:00', '10:00', '25:00', ''])).toBe('10:00,21:00')
     expect(cleanTimes([])).toBeNull()
+  })
+
+  it('項目なしのルーティン: 全体を1つの印で済ませる', async () => {
+    const db = fakeDb()
+    await handleChecklistUpsert(db, 'S1', { ...base, id: 'r1', name: '発注書の提出', items: [], repeat: 'monthly', repeatDays: [1], dueTimes: [] })
+    const who = { id: 'st1', name: '佐藤' }
+    expect((await handleChecklistMark(db, 'S1', 'r1', '2026-10-20', { itemId: 'i1', state: 'done' }, who, { nowIso: NOW }))._status).toBe(404)
+    const r = await handleChecklistMark(db, 'S1', 'r1', '2026-10-20', { itemId: WHOLE, state: 'done' }, who, { nowIso: NOW })
+    expect(r.run.marks[WHOLE]).toMatchObject({ s: 'done', by: '佐藤' })
+    expect(r.run.items).toEqual([])
   })
 
   it('1日に何回も: 回ごとに別の記録', async () => {
@@ -86,7 +98,7 @@ describe('チェック表', () => {
 
   it('作る・読む。名前や項目が無ければ断る', async () => {
     const db = fakeDb()
-    expect((await handleChecklistUpsert(db, 'S1', { ...base, items: [] }))._status).toBe(400)
+    expect((await handleChecklistUpsert(db, 'S1', { ...base, name: '' }))._status).toBe(400)
     expect((await handleChecklistUpsert(db, 'S1', { ...base, repeat: 'weekly' }))._status).toBe(400)
     const r = await handleChecklistUpsert(db, 'S1', base, { id: 'owner', name: '店長' })
     expect(r).toMatchObject({ ok: true, created: true })

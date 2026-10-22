@@ -6,7 +6,7 @@
  *   （以前は時間の目盛りの左に縦の列。User決定 2026-10-19・モック docs/mocks/journal-day-allday.html）。
  *   やることの札は押すとその場で完了、チェック表の札は押すと✓のシート。見出しを押すと全部の一覧。
  *   今日は、前の日から残っているやることも赤で入れる。済みは後ろへ。多いときは「＋N件」
- * - 毎日のチェック（2026-10-19）: 時刻のある回は時間の目盛りに「22:00 退店チェック 2/4」で、時刻なしは帯に（1日に何回もの表は回ごと）
+ * - ルーティン（2026-10-19・2026-10-22 改名）: 時刻のある回は時間の目盛りに「22:00 🔁 退店チェック 2/4」で、時刻なしは帯に🔁つきで（1日に何回もの表は回ごと）。項目なしの1件は札を押すとその場で済む
  * - 上は「‹ 日付 ›」と要約。日付を押すと月カレンダー（DayPickerSheet）で過去の日もすぐ選べる
  * - 天気・祝日・日別メモ（発注学習の除外）もここで（月の日の詳細のモーダルを廃止して移した・2026-10-13）
  * - 棚卸は始め〜終わりの長さで左の列に。操作が5分以上なかった区間は「中断」として薄く
@@ -19,7 +19,8 @@ import RecordRow from './RecordRow.vue'
 import DayPickerSheet from './DayPickerSheet.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import { tasksOn, overdueTasks, isMarkedByMe, toggleTask, canToggleTask } from '../composables/useTasks.js'
-import { checklistsForDay } from '../composables/useChecklists.js'
+import { checklistsForDay, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
+import { isSimple, WHOLE } from '../services/checklistSchedule.js'
 import { can } from '../composables/useAuth.js'
 import { useWeather } from '../composables/useWeather.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
@@ -90,7 +91,7 @@ const bandAll = computed(() => {
       return { key: t.id, type: 'task', task: t, label: t.date < props.date ? `${t.text}（${md(t.date)}から）` : t.text, done, late, rank: late ? 0 : done ? 2 : 1 }
     }),
     ...lists.value.flatMap(r => r.slots.filter(x => !x.slot)).map(x => ({
-      key: `cl-${x.cl.id}`, type: 'list', run: x, label: x.cl.name, n: `${x.filled}/${x.total}`,
+      key: `cl-${x.cl.id}`, type: 'list', run: x, label: `🔁 ${x.cl.name}`, n: isSimple(x.cl) ? '' : `${x.filled}/${x.total}`,
       done: x.complete, late: !x.complete && pastDay.value, rank: !x.complete && pastDay.value ? 0 : x.complete ? 2 : 1,
     })),
   ]
@@ -102,13 +103,23 @@ const bandMore = computed(() => bandAll.value.length - bandChips.value.length)
 const bandLeft = computed(() => bandAll.value.filter(c => !c.done).length)
 function tapChip(c) {
 
-  if (c.type === 'list') { openRun(c.run.cl, c.run.slot); return }
+  if (c.type === 'list') {
+    // 項目なしのルーティンは、やることと同じくその場で済ませる
+    if (isSimple(c.run.cl)) { toggleSimple(c.run); return }
+    openRun(c.run.cl, c.run.slot); return
+  }
   // やることはその場で完了・取り消し。押せないもの（担当の人だけ・承認で自動完了など）は1件のシートで理由を見せる
   if (canToggleTask(c.task)) toggleTask(c.task.id)
   else picked.value = { task: c.task }
 }
 
-// 毎日のチェックの✓の画面（回ごと）
+async function toggleSimple(x) {
+  const m = x.marks[WHOLE]
+  if (!canMarkChecklist(x.cl) || (m && !canUnmark(m)) || props.date > localDateKey()) { openRun(x.cl, x.slot); return }   // 押せないときは画面で理由を見せる
+  try { await markChecklistItem(x.cl, props.date, x.slot, WHOLE, m ? null : 'done') } catch (_) { openRun(x.cl, x.slot) }
+}
+
+// ルーティンの✓の画面（回ごと）
 const runOpen = ref(null)   // { cl, slot }
 function openRun(cl, slot = '') { untimedOpen.value = false; runOpen.value = { cl, slot } }
 function runHistory(cl) { runOpen.value = null; emit('checklist-history', cl) }
@@ -179,7 +190,7 @@ const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' 
 const rightItems = computed(() => {
   const list = [
     ...tasks.value.filter(t => t.dueTime).map(t => ({ key: t.id, type: 'task', m: toMin(t.dueTime), task: t, label: `${t.dueTime} ${t.text}`, done: _checked(t), late: !t.doneAt && props.date < localDateKey() })),
-    ...lists.value.flatMap(r => r.slots.filter(x => x.slot)).map(x => ({ key: `cl-${x.cl.id}-${x.slot}`, type: 'list', m: toMin(x.slot), run: x, label: `${x.slot} ${x.cl.name}`, n: `${x.filled}/${x.total}`, done: x.complete, late: !x.complete && pastDay.value })),
+    ...lists.value.flatMap(r => r.slots.filter(x => x.slot)).map(x => ({ key: `cl-${x.cl.id}-${x.slot}`, type: 'list', m: toMin(x.slot), run: x, label: `${x.slot} 🔁 ${x.cl.name}`, n: isSimple(x.cl) ? '' : `${x.filled}/${x.total}`, done: x.complete, late: !x.complete && pastDay.value })),
     ...plans.value.map(p => ({ key: p.key, type: 'plan', m: toMin(p.time), label: `${p.time} 発注の締切（${p.name}）` })),
     ...props.records.filter(r => r.kind !== 'stock' && r.at != null).map(r => ({ key: r.key, type: r.kind, m: minOf(r.at), rec: r, label: `${fmtHm(r.at)} ${r.title}` })),
   ].sort((a, b) => a.m - b.m)
@@ -213,7 +224,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 }))
 function pick(x) {
   if (x.type === 'task') picked.value = { task: x.task }
-  else if (x.type === 'list') openRun(x.run.cl, x.run.slot)
+  else if (x.type === 'list') { if (isSimple(x.run.cl)) toggleSimple(x.run); else openRun(x.run.cl, x.run.slot) }
   else if (x.rec?.kind === 'stock') emit('view-session', x.rec.session)
   else if (x.rec) picked.value = { rec: x.rec }
 }
@@ -236,7 +247,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
     </div>
     <div class="jd-sum">
       <span class="t">やること <b>{{ tasksDone }}/{{ tasks.length }}</b></span>
-      <span v-if="lists.length" class="cl">毎日のチェック <b>{{ listsDone }}/{{ lists.length }}</b></span>
+      <span v-if="lists.length" class="cl">ルーティン <b>{{ listsDone }}/{{ lists.length }}</b></span>
       <span>記録 <b>{{ records.length }}</b></span>
       <span v-if="plans.length">締切 <b>{{ plans.length }}</b></span>
       <span v-if="wx" class="wx">{{ wx.icon }}<template v-if="wx.tempHi != null"> {{ wx.tempHi }}°/{{ wx.tempLo }}°</template></span>
@@ -253,7 +264,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
           v-for="c in bandChips" :key="c.key" type="button" :class="['jd-chip', c.type, { done: c.done, late: c.late }]"
           :aria-pressed="c.type === 'task' ? c.done : undefined" @click="tapChip(c)"
         >
-          <i aria-hidden="true">{{ c.type === 'list' ? '☑' : '' }}</i><span>{{ c.label }}</span><b v-if="c.n">{{ c.n }}</b>
+          <i v-if="c.type !== 'list'" aria-hidden="true"></i><span>{{ c.label }}</span><b v-if="c.n">{{ c.n }}</b>
         </button>
         <button v-if="bandMore" type="button" class="jd-chip more" @click="untimedOpen = true">＋{{ bandMore }}件</button>
       </div>

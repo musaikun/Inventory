@@ -1,7 +1,8 @@
 <script setup>
 /**
- * 毎日のチェックの一覧・作る/直す・記録（全画面・User決定 2026-10-19・モック docs/mocks/journal-checklist-v3.html ⑤）。
- * - 一覧: 店で使っている表。見本（開店・退店）は押すだけで始まる。お休み中は薄く
+ * ルーティンの一覧・作る/直す・記録（全画面・User決定 2026-10-19 / 2026-10-22・モック docs/mocks/journal-routine.html ③④）。
+ * - 一覧: 毎日・毎週・毎月・1回だけに分けて並べる。「1つだけ」か「◯項目」か。見本は押すだけで始まる。お休み中は薄く
+ * - 中の項目は任意（なし＝押せば済む1件、あり＝チェック表）。毎月は複数の日・月末も選べる
  * - 作る・直す（管理者だけ）: 上に「毎日 22:00 に、誰でも チェックする」と文で出す。名前・いつ（なし／毎日／曜日／毎月◯日）・
  *   時刻（いくつでも＝1日に何回も。冷蔵庫の温度など）・誰が（誰でも／人）・確かめること（並べ替え・消す）
  *   直した表は、まだ✓を付けていない日から効く（今日すでに✓を付けた分は前の項目のまま）
@@ -15,7 +16,7 @@ import {
 } from '../composables/useChecklists.js'
 import { staffNames } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
-import { checklistHistory, whenLabel, slotsOf } from '../services/checklistSchedule.js'
+import { checklistHistory, whenLabel, slotsOf, repeatKind, isSimple, monthDaysLabel } from '../services/checklistSchedule.js'
 import { localDateKey } from '../utils/localDate.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
@@ -32,12 +33,14 @@ const target = ref(props.historyOf)
 const err = ref('')
 const busy = ref(false)
 const lists = computed(() => [...checklists.value].sort((a, b) => (a.paused ? 1 : 0) - (b.paused ? 1 : 0) || (slotsOf(a)[0] || '99').localeCompare(slotsOf(b)[0] || '99')))
+const GROUPS = [['daily', '毎日'], ['weekly', '毎週'], ['monthly', '毎月'], ['none', '1回だけ']]
+const groups = computed(() => GROUPS.map(([k, label]) => ({ k, label, items: lists.value.filter(cl => repeatKind(cl) === k) })).filter(g => g.items.length))
 const people = computed(() => staffNames.value)
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 
 // ── 作る・直す ──
 const f = ref(null)
-function _blank() { return { id: null, name: '', items: [{ id: newItemId(), text: '' }], repeat: 'daily', weekdays: [], monthDay: 1, startDate: localDateKey(), times: [], who: 'anyone', paused: false } }
+function _blank() { return { id: null, name: '', items: [], repeat: 'daily', weekdays: [], monthDays: ['1'], startDate: localDateKey(), times: [], who: 'anyone', paused: false } }
 function openNew() { f.value = _blank(); timeDraft.value = ''; err.value = ''; view.value = 'edit' }
 async function useSample(sample) {
   busy.value = true; err.value = ''
@@ -47,7 +50,7 @@ function openEdit(cl) {
   f.value = {
     id: cl.id, name: cl.name, items: cl.items.map(x => ({ ...x })), repeat: cl.repeat,
     weekdays: cl.repeat === 'weekly' ? String(cl.repeatDays ?? '').split(',').filter(Boolean).map(Number) : [],
-    monthDay: cl.repeat === 'monthly' ? Number(cl.repeatDays) || 1 : 1,
+    monthDays: cl.repeat === 'monthly' ? String(cl.repeatDays ?? '1').split(',').filter(Boolean) : ['1'],
     startDate: cl.repeat === 'none' ? cl.startDate : localDateKey(),
     times: slotsOf(cl).filter(Boolean), who: cl.assign === 'person' ? `p:${cl.assigneeId}` : 'anyone', paused: !!cl.paused,
   }
@@ -71,17 +74,24 @@ const sentence = computed(() => {
   const x = f.value
   if (!x) return ''
   const when = x.repeat === 'daily' ? '毎日' : x.repeat === 'weekly' ? (x.weekdays.length ? `毎週 ${x.weekdays.map(d => WEEK[d]).join('・')}曜` : '毎週（曜日を選ぶ）')
-    : x.repeat === 'monthly' ? `毎月${x.monthDay}日` : `${Number(x.startDate.slice(5, 7))}/${Number(x.startDate.slice(8))}だけ`
+    : x.repeat === 'monthly' ? (x.monthDays.length ? `毎月${monthDaysLabel(x.monthDays.join(','))}` : '毎月（日を選ぶ）') : `${Number(x.startDate.slice(5, 7))}/${Number(x.startDate.slice(8))}だけ`
   const at = x.times.length ? ` ${x.times.join('・')}${x.times.length > 1 ? `（1日${x.times.length}回）` : ''}に` : '（時刻なし）'
   const pid = x.who.startsWith('p:') ? x.who.slice(2) : null
   const who = pid ? `${people.value.find(p => p.id === pid)?.name || ''}が` : '誰でも'
-  return { name: x.name.trim() || 'このチェック', when, at, who }
+  return { name: x.name.trim() || 'このルーティン', when, at, who, verb: x.items.some(it => it.text.trim()) ? 'チェックする' : 'やる' }
 })
+// 毎月の日（複数・月末も）
+const dayDraft = ref('1')
+const _mdSort = a => [...new Set(a)].sort((x, y) => (x === 'L' ? 99 : Number(x)) - (y === 'L' ? 99 : Number(y)))
+function addMonthDay() { f.value.monthDays = _mdSort([...f.value.monthDays, dayDraft.value]) }
+function removeMonthDay(d) { f.value.monthDays = f.value.monthDays.filter(x => x !== d) }
+function toggleMonthEnd() { f.value.monthDays = f.value.monthDays.includes('L') ? f.value.monthDays.filter(x => x !== 'L') : _mdSort([...f.value.monthDays, 'L']) }
 function toggleDay(d) { const w = f.value.weekdays; f.value.weekdays = w.includes(d) ? w.filter(x => x !== d) : [...w, d].sort() }
 const canSave = computed(() => {
   const x = f.value
-  if (!x || !x.name.trim() || !x.items.some(it => it.text.trim())) return false
+  if (!x || !x.name.trim()) return false   // 項目は任意（なし＝押せば済む1件）
   if (x.repeat === 'weekly' && !x.weekdays.length) return false
+  if (x.repeat === 'monthly' && !x.monthDays.length) return false
   return true
 })
 async function save() {
@@ -92,7 +102,7 @@ async function save() {
   try {
     await saveChecklist({
       id: x.id, name: x.name, items: x.items, repeat: x.repeat,
-      repeatDays: x.repeat === 'weekly' ? x.weekdays.join(',') : x.repeat === 'monthly' ? String(x.monthDay) : null,
+      repeatDays: x.repeat === 'weekly' ? x.weekdays.join(',') : x.repeat === 'monthly' ? x.monthDays.join(',') : null,
       startDate: x.repeat === 'none' ? x.startDate : undefined,
       dueTimes: x.times,
       assign: pid ? 'person' : 'anyone', assigneeId: pid, assigneeName: pid ? (people.value.find(p => p.id === pid)?.name || '') : null,
@@ -118,6 +128,7 @@ const md = date => { const d = new Date(date + 'T00:00:00'); return `${d.getMont
 const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
 // 1日に何回もの表は回の数（済み 2/3回）、1回の表は項目の数
 function badge(h) {
+  if (isSimple(h.cl) && h.totalSlots === 1) return h.status === 'done' ? '済' : h.status === 'open' ? 'まだ' : 'やっていない'
   const n = h.totalSlots > 1 ? `${h.doneSlots}/${h.totalSlots}回` : `${h.filled}/${h.total}`
   if (h.status === 'done') { const skip = h.slots.reduce((k, s) => k + s.skip, 0); return h.totalSlots > 1 ? `済 ${n}` : skip ? `済（なし${skip}）` : `済 ${n}` }
   return `${h.status === 'open' ? '途中' : h.status === 'none' ? '手つかず' : '未完了'} ${n}`
@@ -134,7 +145,7 @@ function back() {
 if (props.editOf) openEdit(props.editOf)
 else if (props.create) openNew()
 onUnmounted(registerInnerLayerCloser(() => { back(); return true }))
-const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.name || '毎日のチェックを直す' : '毎日のチェックを作る') : view.value === 'history' ? `${target.value?.name ?? ''}の記録` : '毎日のチェック'))
+const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.name || 'ルーティンを直す' : 'ルーティンを作る') : view.value === 'history' ? `${target.value?.name ?? ''}の記録` : 'ルーティン'))
 </script>
 
 <template>
@@ -148,8 +159,10 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 
       <!-- ① 一覧 -->
       <div v-if="view === 'list'" class="cp-body">
-        <p class="cp-lead">開店・退店のように、毎日同じことを確かめる表です。日誌の一番上に今日の分が出て、誰がいつ✓したか残ります。</p>
-        <div v-for="cl in lists" :key="cl.id" :class="['cp-card', { off: cl.paused }]">
+        <p class="cp-lead">毎日・毎週・毎月の決まった仕事です。日誌の一番上に今日の分が出て、誰がいつ済ませたか残ります。</p>
+        <template v-for="g in groups" :key="g.k">
+        <div class="cp-grp">{{ g.label }}</div>
+        <div v-for="cl in g.items" :key="cl.id" :class="['cp-card', { off: cl.paused }]">
           <div class="cp-card-h"><b>{{ cl.name }}</b>
             <button v-if="canEditChecklists" type="button" class="cp-link" @click="openEdit(cl)">直す ›</button>
           </div>
@@ -158,11 +171,12 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
             <span v-if="!cl.paused && slotsOf(cl).length > 1">1日{{ slotsOf(cl).length }}回</span>
             <span v-else-if="!cl.paused && !slotsOf(cl)[0]">時刻なし</span>
             <span>{{ cl.assign === 'person' ? cl.assigneeName : '誰でも' }}</span>
-            <span>{{ cl.items.length }}項目</span>
+            <span>{{ isSimple(cl) ? '1つだけ' : `${cl.items.length}項目` }}</span>
             <button type="button" class="cp-link" @click="openHistory(cl)">記録</button>
           </div>
         </div>
-        <p v-if="!lists.length" class="cp-empty">まだ毎日のチェックはありません</p>
+        </template>
+        <p v-if="!lists.length" class="cp-empty">まだルーティンはありません</p>
         <template v-if="canEditChecklists">
           <button type="button" class="cp-add" @click="openNew()">＋ 自分で作る</button>
           <div class="cp-samp">
@@ -178,28 +192,38 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 
       <!-- ② 作る・直す -->
       <form v-else-if="view === 'edit' && f" class="cp-body" @submit.prevent="save">
-        <p class="cp-sentence"><b>{{ sentence.name }}</b>は<br><u>{{ sentence.when }}</u><u>{{ sentence.at }}</u>、<u>{{ sentence.who }}</u> チェックする</p>
-        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：🌙 退店チェック" /></label>
-        <div class="cp-f">確かめること
+        <p class="cp-sentence"><b>{{ sentence.name }}</b>は<br><u>{{ sentence.when }}</u><u>{{ sentence.at }}</u>、<u>{{ sentence.who }}</u> {{ sentence.verb }}</p>
+        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：🌙 退店チェック／発注書の提出" /></label>
+        <div class="cp-f">確かめること（任意）
+          <p v-if="!f.items.length" class="cp-none-items">なし ＝ 押せば済む1件。項目を足すとチェック表になります</p>
           <div v-for="(it, i) in f.items" :key="it.id" class="cp-it">
             <input v-model="it.text" type="text" :maxlength="CL_ITEM_MAX" class="cp-in" :placeholder="`項目 ${i + 1}`" :aria-label="`項目 ${i + 1}`" />
             <button type="button" class="cp-ic" :disabled="i === 0" aria-label="上へ" @click="moveItem(i, -1)">↑</button>
             <button type="button" class="cp-ic" :disabled="i === f.items.length - 1" aria-label="下へ" @click="moveItem(i, 1)">↓</button>
-            <button type="button" class="cp-ic" :disabled="f.items.length === 1" aria-label="消す" @click="f.items.splice(i, 1)">✕</button>
+            <button type="button" class="cp-ic" aria-label="消す" @click="f.items.splice(i, 1)">✕</button>
           </div>
           <button type="button" class="cp-add small" :disabled="f.items.length >= CL_ITEMS_MAX" @click="addItem">＋ 項目を足す</button>
         </div>
         <div class="cp-f">いつ
           <div class="cp-seg">
-            <button v-for="r in [['daily', '毎日'], ['weekly', '曜日を選ぶ'], ['monthly', '毎月◯日'], ['none', '1回だけ']]" :key="r[0]" type="button"
+            <button v-for="r in [['daily', '毎日'], ['weekly', '曜日'], ['monthly', '毎月'], ['none', '1回だけ']]" :key="r[0]" type="button"
               :class="{ on: f.repeat === r[0] }" :aria-pressed="f.repeat === r[0]" @click="f.repeat = r[0]">{{ r[1] }}</button>
           </div>
           <div v-if="f.repeat === 'weekly'" class="cp-seg days">
             <button v-for="(w, d) in WEEK" :key="d" type="button" :class="{ on: f.weekdays.includes(d) }" :aria-pressed="f.weekdays.includes(d)" @click="toggleDay(d)">{{ w }}</button>
           </div>
-          <label v-else-if="f.repeat === 'monthly'" class="cp-inline">毎月
-            <select v-model.number="f.monthDay" class="cp-in sm"><option v-for="n in 31" :key="n" :value="n">{{ n }}</option></select>日（無い月は月末）
-          </label>
+          <template v-else-if="f.repeat === 'monthly'">
+            <div class="cp-times">
+              <button v-for="d in f.monthDays" :key="d" type="button" class="cp-time" :aria-label="`${d === 'L' ? '月末' : d + '日'}を外す`" @click="removeMonthDay(d)">{{ d === 'L' ? '月末' : `${d}日` }} ✕</button>
+              <span v-if="!f.monthDays.length" class="cp-none">日を選んでください</span>
+            </div>
+            <div class="cp-inline">
+              <select v-model="dayDraft" class="cp-in sm" aria-label="足す日"><option v-for="n in 31" :key="n" :value="String(n)">{{ n }}日</option></select>
+              <button type="button" class="cp-addt" @click="addMonthDay">＋ 日を足す</button>
+              <button type="button" :class="['cp-addt', { on: f.monthDays.includes('L') }]" :aria-pressed="f.monthDays.includes('L')" @click="toggleMonthEnd">月末</button>
+            </div>
+            <small class="cp-none">その月に無い日（31日など）は月末に</small>
+          </template>
           <label v-else-if="f.repeat === 'none'" class="cp-inline">日付<input v-model="f.startDate" type="date" class="cp-in sm" /></label>
         </div>
         <div class="cp-f">時刻（いくつでも。1日に何回も見るものは時刻を足す）
@@ -286,6 +310,9 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 .cp-row { display: flex; gap: 8px; }
 .cp-mini { flex: 1; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
 .cp-mini.danger { color: #b91c1c; border-color: #fecaca; }
+.cp-grp { font-size: 11px; font-weight: 900; letter-spacing: .06em; color: var(--text-muted); padding: 6px 4px 0; }
+.cp-none-items { margin: 0; font-size: 12.5px; color: var(--text-muted); font-weight: 700; border: 1px dashed #a5b4fc; border-radius: 10px; padding: 10px; text-align: center; }
+.cp-addt.on { background: #4f46e5; color: #fff; border-style: solid; }
 .cp-sentence { margin: 0; background: #eef2ff; color: #3730a3; border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 800; line-height: 1.7; }
 .cp-sentence u { text-decoration-color: #a5b4fc; text-underline-offset: 3px; }
 .cp-times { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

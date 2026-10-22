@@ -6,9 +6,9 @@
 --
 -- 変更:
 --   checklists … 1行＝1つのチェック表（ひな形）。店ごと。作る・直すのは管理者だけ（ルーターで確かめる）
---     items_json   項目 [{ id, text }]（並びのまま）
+--     items_json   項目 [{ id, text }]（並びのまま）。空＝項目なしのルーティン（押せば済む1件・印の項目 id は '_'）
 --     repeat_mode  'none'（1回きり）/ 'daily' / 'weekly' / 'monthly'
---     repeat_days  weekly: 曜日（0=日〜6=土）のカンマ区切り / monthly: 日（1〜31。月に無い日は月末）
+--     repeat_days  weekly: 曜日（0=日〜6=土）のカンマ区切り / monthly: 日（1〜31。月に無い日は月末。'L'＝月末）のカンマ区切り
 --     start_date   none: その日 / 繰り返し: 予定を数え始める日（繰り返しを変えた日。以前の日は記録のある日だけ出す）
 --     due_times    'HH:MM' のカンマ区切り（1日に何回も。冷蔵庫の温度 10:00,15:00,21:00 など）か NULL（終日）
 --     assign_mode  'anyone' / 'person'（assignee_id・assignee_name）

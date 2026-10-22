@@ -1,15 +1,18 @@
 <script setup>
 /**
- * 日誌のリストの一番上「毎日のチェック」（User決定 2026-10-19・モック docs/mocks/journal-checklist-v2.html・v3.html）。
- * - 今日の分を大きなカードで: 進み具合・時刻・この7日の✓（毎日やるものだと分かる）・「チェックを始める」
- *   1日に何回もの表は回ごとの札（済み・今・まだ・これから）。札を押すとその回
+ * 日誌のリストの一番上「ルーティン」（毎日・毎週・毎月の決まった仕事。User決定 2026-10-19 → 2026-10-22 に
+ * 「毎日のチェック」から改名・モック docs/mocks/journal-routine.html）。
+ * - 増えても日誌の上が長くならないように（User決定 2026-10-22）:
+ *   出すのは今日の分だけ／済んだものは「済み N」にたたむ／大きなカードは中に項目のある表だけ、項目なしは押せば済む1行／
+ *   今日は出ない毎週・毎月のものは「これから」の1行
+ * - 項目のある表のカード: 進み具合・時刻・この7日の✓・「チェックを始める」。1日に何回もの表は回ごとの札（済み・今・まだ・これから）
  * - まだ1つも無い店: 管理者にだけ「作りましょう」のカード（見本を押すだけで始まる）。
  *   ×で消すと、カードが縮んで上の入口へ吸い込まれ、「ここからいつでも作れます」と出て終わる（端末ごとに覚える・useHints）
  * - 以後は入口の1行だけ（押すと一覧・作る）。スタッフで表が1つも無いときは何も出さない
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { checklists, checklistRuns, checklistsForDay, canEditChecklists, startFromSample, CHECKLIST_SAMPLES } from '../composables/useChecklists.js'
-import { weekMarks, currentSlot, whenLabel } from '../services/checklistSchedule.js'
+import { checklists, checklistRuns, checklistsForDay, canEditChecklists, startFromSample, markChecklistItem, canMarkChecklist, canUnmark, CHECKLIST_SAMPLES } from '../composables/useChecklists.js'
+import { weekMarks, currentSlot, repeatLabel, repeatKind, slotsOf, isSimple, upcoming, WHOLE } from '../services/checklistSchedule.js'
 import { isHintShown, dismissHint } from '../composables/useHints.js'
 import { localDateKey } from '../utils/localDate.js'
 
@@ -25,6 +28,31 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(_t1); clearTimeout(_t2) }
 
 const days = computed(() => checklistsForDay(today))
 const doneCount = computed(() => days.value.filter(r => r.complete).length)
+// まだのもの: 項目のある表（と1日に何回もの1件）はカード、項目なしの1回は1行
+const openCards = computed(() => days.value.filter(r => !r.complete && (!isSimple(r.cl) || r.totalSlots > 1)))
+const openRows = computed(() => days.value.filter(r => !r.complete && isSimple(r.cl) && r.totalSlots === 1))
+const doneList = computed(() => days.value.filter(r => r.complete))
+const doneOpen = ref(false)
+const later = computed(() => upcoming(checklists.value, today, { skip: new Set(days.value.map(r => r.cl.id)) }))
+const WEEK = ['日', '月', '火', '水', '木', '金', '土']
+const md = k => { const d = new Date(k + 'T00:00:00'); const diff = Math.round((d - new Date(today + 'T00:00:00')) / 86400000); return diff < 7 ? WEEK[d.getDay()] : `${d.getMonth() + 1}/${d.getDate()}` }
+/** 札: 毎日／毎週 土・日／毎月1日（色は種類ごと） */
+const badge = cl => ({ cls: repeatKind(cl), text: cl.repeat === 'weekly' ? `毎週 ${repeatLabel(cl)}` : repeatLabel(cl) })
+const sub = (cl) => {
+  const t = slotsOf(cl).filter(Boolean)
+  return [t.length > 1 ? `1日${t.length}回` : t[0] || '', isSimple(cl) ? '' : `${cl.items.length}項目`, who(cl)].filter(Boolean).join(' ・ ')
+}
+const lastMark = r => r.slots.flatMap(s => Object.values(s.marks)).filter(m => m?.at).sort((a, b) => a.at.localeCompare(b.at)).pop()
+// 項目なしの1件は、その場で済み・取り消し
+const rowErr = ref('')
+async function toggleRow(r) {
+  rowErr.value = ''
+  const s = r.slots[0]
+  const m = s.marks[WHOLE]
+  if (!canMarkChecklist(r.cl)) { rowErr.value = 'このルーティンを済ませられるのは、担当の人と管理者だけです'; return }
+  if (m && !canUnmark(m)) { rowErr.value = '取り消せるのは、済ませた人がその日のうちだけです（それ以降は管理者）'; return }
+  try { await markChecklistItem(r.cl, today, s.slot, WHOLE, m ? null : 'done') } catch (e) { rowErr.value = e?.message || '保存できませんでした' }
+}
 const hasAny = computed(() => checklists.value.length > 0)
 const admin = computed(() => canEditChecklists.value)
 const showIntro = computed(() => admin.value && !hasAny.value && isHintShown(INTRO_HINT))
@@ -80,12 +108,12 @@ function closeIntro() {
 </script>
 
 <template>
-  <section class="dc" aria-label="毎日のチェック">
-    <template v-if="days.length">
-      <div class="dc-lh"><span>毎日のチェック ・ 今日</span><em>{{ doneCount }} / {{ days.length }} 済み</em></div>
-      <div v-for="r in days" :key="r.cl.id" :class="['dc-card', { ok: r.complete }]">
+  <section class="dc" aria-label="ルーティン">
+    <template v-if="days.length || later.length">
+      <div class="dc-lh"><span>ルーティン ・ 今日</span><em v-if="days.length">{{ doneCount }} / {{ days.length }} 済み</em></div>
+      <div v-for="r in openCards" :key="r.cl.id" class="dc-card">
         <button type="button" class="dc-h" @click="open(r)">
-          <span class="dc-name"><b>{{ r.cl.name }}</b><small>{{ whenLabel(r.cl) }} ・ {{ who(r.cl) }}</small></span>
+          <span class="dc-name"><b>{{ r.cl.name }}</b><small><i :class="['dc-b', badge(r.cl).cls]">{{ badge(r.cl).text }}</i>{{ sub(r.cl) }}</small></span>
           <span :class="['dc-st', status(r).cls]">{{ status(r).text }}</span>
         </button>
         <div v-if="r.totalSlots > 1" class="dc-slots">
@@ -98,16 +126,35 @@ function closeIntro() {
           <span class="dc-wl">この7日</span>
           <span v-for="w in week(r)" :key="w.date" :class="['dc-w', w.mark]" :title="w.date">{{ WEEK_TXT[w.mark] }}</span>
         </div>
-        <button v-if="!r.complete" type="button" class="dc-go" @click="open(r)">{{ goLabel(r) }}</button>
+        <button type="button" class="dc-go" @click="open(r)">{{ goLabel(r) }}</button>
       </div>
-      <button type="button" class="dc-set" @click="emit('settings')">⚙ 毎日のチェックを設定</button>
+      <div v-if="openRows.length" class="dc-rows">
+        <button v-for="r in openRows" :key="r.cl.id" type="button" class="dc-row" :aria-label="`${r.cl.name}を済ませる`" @click="toggleRow(r)">
+          <i class="dc-ck" aria-hidden="true"></i>
+          <span class="dc-name"><b>{{ r.cl.name }}</b><small><i :class="['dc-b', badge(r.cl).cls]">{{ badge(r.cl).text }}</i>{{ sub(r.cl) }}</small></span>
+          <em class="dc-today">今日</em>
+        </button>
+      </div>
+      <p v-if="rowErr" class="dc-err" role="alert">{{ rowErr }}</p>
+      <button v-if="doneList.length" type="button" class="dc-done-h" :aria-expanded="doneOpen" @click="doneOpen = !doneOpen">
+        ✓ 済み {{ doneList.length }} {{ doneOpen ? '▲' : '▼' }}
+      </button>
+      <div v-if="doneOpen && doneList.length" class="dc-rows">
+        <button v-for="r in doneList" :key="r.cl.id" type="button" class="dc-row ok" @click="isSimple(r.cl) && r.totalSlots === 1 ? toggleRow(r) : open(r, r.slots[0].slot)">
+          <i class="dc-ck" aria-hidden="true">✓</i>
+          <span class="dc-name"><b>{{ r.cl.name }}</b><small>{{ lastMark(r)?.by }} {{ lastMark(r) ? hm(lastMark(r).at) : '' }}</small></span>
+          <em class="dc-today ok">済み</em>
+        </button>
+      </div>
+      <p v-if="later.length" class="dc-later">これから：<template v-for="(x, i) in later" :key="x.cl.id"><template v-if="i"> ・ </template><b>{{ md(x.date) }}</b> {{ x.cl.name }}</template></p>
+      <button type="button" class="dc-set" @click="emit('settings')">⚙ ルーティンを設定</button>
     </template>
 
     <div v-else-if="showIntro" :class="['dc-first', { leaving }]">
       <button type="button" class="dc-x" aria-label="閉じる（あとで上の入口から作れます）" @click="closeIntro">✕</button>
-      <div class="dc-big" aria-hidden="true">☑</div>
-      <b>毎日のチェックを作りましょう</b>
-      <p>開店・退店のように、毎日同じことを確かめる表です。ここに毎日出て、誰がいつ✓したか残ります。</p>
+      <div class="dc-big" aria-hidden="true">🔁</div>
+      <b>ルーティンを作りましょう</b>
+      <p>毎日・毎週・毎月の決まった仕事です。開店チェックのような表も、「毎月1日に発注書」のような1つだけの仕事も。ここに出て、誰がいつ済ませたか残ります。</p>
       <div class="dc-samp">
         <div v-for="s in CHECKLIST_SAMPLES" :key="s.name" class="dc-samp-i">
           <span><b>{{ s.name }}</b><small>{{ s.summary }}</small></span>
@@ -120,9 +167,9 @@ function closeIntro() {
 
     <template v-else-if="hasAny || admin">
       <button type="button" :class="['dc-entry', { glow }]" @click="emit('settings')">
-        ☑ 毎日のチェック<em>{{ !hasAny ? '＋ 作る' : '今日はなし ・ 設定 ›' }}</em>
+        🔁 ルーティン<em>{{ !hasAny ? '＋ 作る' : '今日はなし ・ 設定 ›' }}</em>
       </button>
-      <div v-if="toast" class="dc-toast" role="status">☝ 毎日のチェックは、ここからいつでも作れます<small>開店・退店・掃除など、毎日同じことを確かめるときに</small></div>
+      <div v-if="toast" class="dc-toast" role="status">☝ ルーティンは、ここからいつでも作れます<small>毎日・毎週・毎月の決まった仕事に</small></div>
     </template>
   </section>
 </template>
@@ -157,6 +204,20 @@ function closeIntro() {
 .dc-w.y { background: #22c55e; } .dc-w.n { background: #fca5a5; } .dc-w.o { background: #e2e8f0; }
 .dc-w.t { background: var(--surface); border: 2px dashed #a5b4fc; color: #4f46e5; }
 .dc-go { min-height: 44px; border: none; border-radius: 11px; background: #4f46e5; color: #fff; font: inherit; font-size: 14px; font-weight: 900; cursor: pointer; }
+.dc-name small { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.dc-b { font-style: normal; font-size: 10.5px; font-weight: 900; color: #fff; background: #4f46e5; border-radius: 6px; padding: 1px 6px; }
+.dc-b.weekly { background: #0e7490; } .dc-b.monthly { background: #c2410c; } .dc-b.none { background: #64748b; }
+.dc-rows { background: var(--surface); border: 1px solid #c7d2fe; border-radius: 14px; padding: 0 12px; }
+.dc-row { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 54px; border: none; border-top: 1px solid #eef2ff; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; padding: 6px 0; }
+.dc-row:first-child { border-top: none; }
+.dc-ck { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 3px solid #a5b4fc; box-sizing: border-box; display: grid; place-items: center; font-style: normal; color: #fff; font-size: 14px; font-weight: 900; }
+.dc-row.ok .dc-ck { background: #22c55e; border-color: #22c55e; }
+.dc-row.ok b { color: #94a3b8; text-decoration: line-through; }
+.dc-today { flex: none; font-style: normal; font-size: 11px; font-weight: 900; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; }
+.dc-today.ok { background: #dcfce7; color: #166534; }
+.dc-done-h { justify-self: start; border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #166534; padding: 2px 4px; cursor: pointer; }
+.dc-later { margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); padding: 0 4px; }
+.dc-later b { color: #3730a3; }
 .dc-set { justify-self: center; border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #4f46e5; padding: 4px 8px; cursor: pointer; }
 .dc-first { position: relative; background: var(--surface); border: 2px dashed #a5b4fc; border-radius: 16px; padding: 14px; display: grid; gap: 9px; text-align: center; transform-origin: top center; transition: transform .45s ease-in, opacity .45s ease-in; }
 .dc-first.leaving { transform: translateY(-20px) scale(.12, .08); opacity: 0; }

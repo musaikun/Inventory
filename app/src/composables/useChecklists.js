@@ -1,4 +1,5 @@
-// 毎日のチェック（中の項目＋繰り返し＋1日に何回も・User決定 2026-10-19・モック docs/mocks/journal-checklist-v3.html）。
+// ルーティン（毎日・毎週・毎月の決まった仕事。中の項目は任意＋1日に何回も・User決定 2026-10-19 / 2026-10-22・モック docs/mocks/journal-routine.html）。
+// 以前の名前は「毎日のチェック」（コードの名前は checklist のまま）。
 //
 // - 表は店ごと（サーバーが正）。作る・直す・お休み・消すのは管理者だけで、その場で送る（届かなければ戻して知らせる）
 // - ✓・「今日はなし」は誰でも（担当の人がいれば担当と管理者）。まず画面に出し、サーバーの結果（記録の1日分）で揃える
@@ -66,7 +67,7 @@ export const canEditChecklists = computed(() => isAdmin.value)
  * @returns {Promise<object>} 保存した表。届かなければ投げる（画面で知らせる）
  */
 export async function saveChecklist(fields) {
-  if (!isAdmin.value) throw new Error('チェック表を作る・直すのは管理者だけです')
+  if (!isAdmin.value) throw new Error('ルーティンを作る・直すのは管理者だけです')
   const prev = fields.id ? _data.lists.find(x => x.id === fields.id) : null
   const today = localDateKey()
   const schedChanged = !prev || prev.repeat !== fields.repeat || (prev.repeatDays ?? null) !== (fields.repeatDays ?? null)
@@ -82,7 +83,7 @@ export async function saveChecklist(fields) {
     createdBy: prev?.createdBy ?? (deviceName.value || ''), createdById: prev?.createdById ?? actorId(),
     updatedAt: _now(),
   }
-  if (!cl.name || !cl.items.length) throw new Error('名前と項目を入れてください')
+  if (!cl.name) throw new Error('名前を入れてください')   // 項目なし＝押せば済む1件
   return _send(cl, prev)
 }
 async function _send(cl, prev) {
@@ -103,23 +104,25 @@ async function _send(cl, prev) {
 }
 export function setChecklistPaused(id, paused) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !isAdmin.value) return Promise.reject(new Error('チェック表を直すのは管理者だけです'))
+  if (!prev || !isAdmin.value) return Promise.reject(new Error('ルーティンを直すのは管理者だけです'))
   return _send({ ...prev, paused: !!paused, updatedAt: _now() }, prev)
 }
 export function removeChecklist(id) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !isAdmin.value) return Promise.reject(new Error('チェック表を消すのは管理者だけです'))
+  if (!prev || !isAdmin.value) return Promise.reject(new Error('ルーティンを消すのは管理者だけです'))
   return _send({ ...prev, deletedAt: _now(), updatedAt: _now() }, prev)
 }
 
 /** 見本（開店・退店）。押すだけで毎日の表になる（あとで直せる） */
 export const CHECKLIST_SAMPLES = [
-  { name: '☀ 開店チェック', summary: '手洗い・冷蔵庫の温度・釣り銭 など5つ', items: ['手洗い・身だしなみ', '冷蔵庫・冷凍庫の温度', '釣り銭の準備', '客席・トイレの清掃', '食材の受け取り・検品'] },
-  { name: '🌙 退店チェック', summary: 'ガスの元栓・電源・ダスター漂白 など5つ', items: ['ガスの元栓', 'ショーケース電源', 'カップウォーマー電源', 'ダスター漂白', '戸締まり・消灯'] },
+  { name: '☀ 開店チェック', summary: '毎日 ・ 手洗い・冷蔵庫の温度・釣り銭 など5つ', items: ['手洗い・身だしなみ', '冷蔵庫・冷凍庫の温度', '釣り銭の準備', '客席・トイレの清掃', '食材の受け取り・検品'] },
+  { name: '🌙 退店チェック', summary: '毎日 ・ ガスの元栓・電源・ダスター漂白 など5つ', items: ['ガスの元栓', 'ショーケース電源', 'カップウォーマー電源', 'ダスター漂白', '戸締まり・消灯'] },
+  { name: '🧽 週末の大掃除', summary: '毎週 土・日 ・ 換気扇・グリストラップ など5つ', repeat: 'weekly', repeatDays: '0,6', items: ['換気扇', 'グリストラップ', '冷蔵庫の中', '床', 'エアコンのフィルター'] },
+  { name: '📄 月初の発注書の提出', summary: '毎月1日 ・ 押せば済む1件', repeat: 'monthly', repeatDays: '1', items: [] },
 ]
 /** 見本をそのまま毎日の表にする */
 export function startFromSample(sample) {
-  return saveChecklist({ name: sample.name, items: sample.items.map(text => ({ id: newItemId(), text })), repeat: 'daily', repeatDays: null, dueTimes: [], assign: 'anyone' })
+  return saveChecklist({ name: sample.name, items: sample.items.map(text => ({ id: newItemId(), text })), repeat: sample.repeat ?? 'daily', repeatDays: sample.repeatDays ?? null, dueTimes: [], assign: 'anyone' })
 }
 
 // ── ✓ ──
@@ -141,7 +144,7 @@ export function canUnmark(mark) {
  */
 export async function markChecklistItem(cl, date, slot, itemId, state, reason = '') {
   if (date > localDateKey()) throw new Error('その日になってから✓を付けてください')
-  if (!canMarkChecklist(cl)) throw new Error('このチェック表に✓を付けられるのは、担当の人と管理者だけです')
+  if (!canMarkChecklist(cl)) throw new Error('このルーティンに✓を付けられるのは、担当の人と管理者だけです')
   const key = runKey(cl.id, date, slot)
   const before = _data.runs[key] ?? null
   const items = before?.items?.length ? before.items : cl.items

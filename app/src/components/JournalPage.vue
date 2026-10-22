@@ -22,7 +22,7 @@ export const journalDate = ref('')
  * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）。
  *   左右のスワイプでも切り替える（下のタブのスワイプをやめて空いた・User決定 2026-10-14。月の月送りは縦のまま）
  * - いつか（日付なし）はリストの「やること」の一番下にたたんで置く（月・1日・残りの数には出さない）
- * - 毎日のチェック（2026-10-19）: リストの一番上（DailyChecks）。今日の分を大きなカードで、押すと全画面で✓。設定・記録は ChecklistsPage
+ * - ルーティン（2026-10-19・2026-10-22 改名）: リストの一番上（DailyChecks）。設定・記録は ChecklistsPage。「＋」の「🔁 繰り返す」からも作れる（管理者）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TaskRow from './TaskRow.vue'
@@ -34,7 +34,8 @@ import TaskNews from './TaskNews.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
 import DailyChecks from './DailyChecks.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
-import { pullChecklists, checklistsForDay } from '../composables/useChecklists.js'
+import { pullChecklists, checklistsForDay, saveChecklist, canEditChecklists } from '../composables/useChecklists.js'
+import { monthDaysLabel } from '../services/checklistSchedule.js'
 import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
@@ -139,7 +140,7 @@ const somedayOpen = ref(false)
 const todayLists = computed(() => (mineOnly.value ? [] : checklistsForDay(today)))
 const remaining = computed(() => late.value.length + todays.value.filter(t => !t.doneAt).length + todayLists.value.filter(r => !r.complete).length)
 
-// ── 毎日のチェック ──
+// ── ルーティン ──
 const clPage = ref(null)     // { historyOf?, create? } で開いている
 const clRun = ref(null)      // { cl, date, slot } の✓の画面
 function openClHistory(cl) { clRun.value = null; clPage.value = { historyOf: cl } }
@@ -161,10 +162,38 @@ const adding = ref(false)
 const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
 const people = computed(() => staffNames.value)
 function openAdd() {
-  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false; adding.value = true
+  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
+  fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
 }
 // 管理者は追加のたびに「みんなに見せる／管理者だけ」を選ぶ（User決定 2026-10-19）。
 // チェックの付け忘れで全員に見えたり、気にしすぎて見せたいのに隠したりしないように、追加のボタンを2つにする
+// 🔁 繰り返す（管理者・User決定 2026-10-22）: 選ぶとルーティンになる。ふだんはボタン1つにたたんで、1回きりの追加を邪魔しない
+const fRepeatOpen = ref(false), fRepeat = ref('none'), fWeekdays = ref([]), fMonthDays = ref(['1']), fDayDraft = ref('1'), fErr = ref(''), fBusy = ref(false)
+const repeating = computed(() => fRepeat.value !== 'none')
+const _mdSort = a => [...new Set(a)].sort((x, y) => (x === 'L' ? 99 : Number(x)) - (y === 'L' ? 99 : Number(y)))
+function toggleWeekday(d) { fWeekdays.value = fWeekdays.value.includes(d) ? fWeekdays.value.filter(x => x !== d) : [...fWeekdays.value, d].sort() }
+function addMonthDay() { fMonthDays.value = _mdSort([...fMonthDays.value, fDayDraft.value]) }
+function toggleMonthEnd() { fMonthDays.value = fMonthDays.value.includes('L') ? fMonthDays.value.filter(x => x !== 'L') : _mdSort([...fMonthDays.value, 'L']) }
+const repeatNote = computed(() => {
+  const w = fRepeat.value === 'daily' ? '毎日' : fRepeat.value === 'weekly' ? (fWeekdays.value.length ? `毎週 ${fWeekdays.value.map(d => WEEK[d]).join('・')}` : '') : (fMonthDays.value.length ? `毎月${monthDaysLabel(fMonthDays.value.join(','))}` : '')
+  return w ? `🔁 ${w}のルーティンになります。中の項目（チェック表）はあとから足せます` : '🔁 曜日・日を選んでください'
+})
+const canAddRepeat = computed(() => fText.value.trim() && (fRepeat.value === 'daily' || (fRepeat.value === 'weekly' && fWeekdays.value.length) || (fRepeat.value === 'monthly' && fMonthDays.value.length)))
+async function submitRoutine() {
+  if (!canAddRepeat.value || fBusy.value) return
+  const v = fWho.value
+  const pid = v.startsWith('p:') ? v.slice(2) : null
+  fBusy.value = true; fErr.value = ''
+  try {
+    await saveChecklist({
+      name: fText.value, items: [], repeat: fRepeat.value,
+      repeatDays: fRepeat.value === 'weekly' ? fWeekdays.value.join(',') : fRepeat.value === 'monthly' ? fMonthDays.value.join(',') : null,
+      dueTimes: fTime.value ? [fTime.value] : [],
+      assign: pid ? 'person' : 'anyone', assigneeId: pid, assigneeName: pid ? (people.value.find(p => p.id === pid)?.name || '') : null,
+    })
+    adding.value = false
+  } catch (e) { fErr.value = e?.message || '保存できませんでした' } finally { fBusy.value = false }
+}
 function submitAdd(adminsOnly = false) {
   const v = fWho.value
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
@@ -262,11 +291,28 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="!isAdmin && submitAdd(false)">
           <b class="jp-sheet-t">やることを追加</b>
           <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" placeholder="例：製氷機のフィルター交換" aria-label="やること" class="jp-in" />
-          <div v-if="!fSomeday" class="jp-row">
-            <label>日付<input v-model="fDate" type="date" class="jp-in" /></label>
+          <div v-if="!fSomeday || repeating" class="jp-row">
+            <label v-if="!repeating">日付<input v-model="fDate" type="date" class="jp-in" /></label>
             <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
           </div>
-          <label class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
+          <label v-if="!repeating" class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
+          <button v-if="canEditChecklists && !fRepeatOpen" type="button" class="jp-rep-open" @click="fRepeatOpen = true">🔁 繰り返す</button>
+          <div v-if="fRepeatOpen" class="jp-rep">
+            <div class="jp-seg">
+              <button v-for="r in [['none', 'しない'], ['daily', '毎日'], ['weekly', '曜日'], ['monthly', '毎月']]" :key="r[0]" type="button"
+                :class="{ on: fRepeat === r[0] }" :aria-pressed="fRepeat === r[0]" @click="fRepeat = r[0]">{{ r[1] }}</button>
+            </div>
+            <div v-if="fRepeat === 'weekly'" class="jp-seg">
+              <button v-for="(w, d) in WEEK" :key="d" type="button" :class="{ on: fWeekdays.includes(d) }" :aria-pressed="fWeekdays.includes(d)" @click="toggleWeekday(d)">{{ w }}</button>
+            </div>
+            <div v-if="fRepeat === 'monthly'" class="jp-seg">
+              <button v-for="d in fMonthDays" :key="d" type="button" class="on" @click="fMonthDays = fMonthDays.filter(x => x !== d)">{{ d === 'L' ? '月末' : `${d}日` }} ✕</button>
+              <select v-model="fDayDraft" class="jp-in jp-sm" aria-label="足す日"><option v-for="n in 31" :key="n" :value="String(n)">{{ n }}日</option></select>
+              <button type="button" @click="addMonthDay">＋ 日</button>
+              <button type="button" :class="{ on: fMonthDays.includes('L') }" @click="toggleMonthEnd">月末</button>
+            </div>
+            <p v-if="repeating" class="jp-rep-note">{{ repeatNote }}</p>
+          </div>
           <label v-if="people.some(p => !p.owner)">担当
             <select v-model="fWho" class="jp-in">
               <option value="anyone">誰でも</option>
@@ -275,12 +321,17 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
               <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}{{ isMeId(p.id) ? '（自分）' : '' }}</option>
             </select>
           </label>
-          <div class="jp-row end">
+          <p v-if="fErr" class="jp-err" role="alert">{{ fErr }}</p>
+          <div v-if="repeating" class="jp-row end">
+            <button type="button" class="jp-mini" @click="adding = false">やめる</button>
+            <button type="button" class="jp-save" :disabled="!canAddRepeat || fBusy" @click="submitRoutine">🔁 ルーティンとして追加</button>
+          </div>
+          <div v-else class="jp-row end">
             <button type="button" class="jp-mini" @click="adding = false">やめる</button>
             <button v-if="!isAdmin" type="submit" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)">追加</button>
           </div>
           <!-- 管理者: 誰に見せるかを追加のたびに選ぶ（管理者だけ＝面談・給与・クレームなど。ほかのスタッフの端末には届かない） -->
-          <div v-if="isAdmin" class="jp-add2">
+          <div v-if="isAdmin && !repeating" class="jp-add2">
             <button type="button" class="jp-save" :disabled="!fText.trim() || (!fSomeday && !fDate)" @click="submitAdd(false)">みんなに見せて追加</button>
             <button type="button" class="jp-save admins" :disabled="!fText.trim() || (!fSomeday && !fDate)" @click="submitAdd(true)">🔒 管理者だけで追加</button>
           </div>
@@ -291,6 +342,14 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 </template>
 
 <style scoped>
+.jp-rep-open { justify-self: start; border: 1px dashed #a5b4fc; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.jp-rep { display: grid; gap: 6px; background: #f5f7ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px; }
+.jp-seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.jp-seg button { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 7px 10px; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--text-muted); cursor: pointer; }
+.jp-seg button.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.jp-sm { width: auto !important; min-height: 36px !important; font-size: 13px !important; }
+.jp-rep-note { margin: 0; font-size: 12px; font-weight: 700; color: #3730a3; line-height: 1.5; }
+.jp-err { margin: 0; font-size: 12.5px; color: #b91c1c; font-weight: 700; }
 .jp-add2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .jp-add2 .jp-save { width: 100%; min-height: 46px; }
 .jp-save.admins { background: #475569; color: #fff; }

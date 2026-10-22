@@ -676,7 +676,7 @@ export default {
           return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
 
-        // チェック表（User決定 2026-10-19・migration 0030）。読むのは店の誰でも、作る・直すのは管理者だけ、✓は誰でも（担当の人がいれば担当と管理者）
+        // ルーティン（チェック表。User決定 2026-10-19・2026-10-22・migration 0030）。読むのは店の誰でも、作る・直すのは管理者だけ、✓は誰でも（担当の人がいれば担当と管理者）
         if (subpath === '/checklists' && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
@@ -688,7 +688,7 @@ export default {
           const body = await request.json().catch(() => ({}))
           const who = await _actor(env.DB, request, code, { by: body?.createdBy, byId: body?.createdById })
           if (who.ctx && !who.admin) {
-            return jsonResponse({ code: 'checklist_forbidden', error: 'チェック表を作る・直すのは管理者だけです' }, 403, origin, allowedOrigin)
+            return jsonResponse({ code: 'checklist_forbidden', error: 'ルーティンを作る・直すのは管理者だけです' }, 403, origin, allowedOrigin)
           }
           return resultResponse(await handleChecklistUpsert(env.DB, code, body, who), origin, allowedOrigin)
         }

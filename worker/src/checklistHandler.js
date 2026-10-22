@@ -1,6 +1,7 @@
 // 毎日のチェック（中の項目＋繰り返し＋1日に何回も・User決定 2026-10-19・migration 0030・モック docs/mocks/journal-checklist-v3.html）。
 //
 // - ひな形（checklists）は店ごと。作る・直す・消すのは管理者だけ（ルーターで確かめる）
+// - ルーティン（2026-10-22）: 中の項目は任意。項目なし＝押せば済む1件（印の項目 id は '_'）
 // - 日・回ごとの✓（checklist_runs）は、その回の最初の✓でひな形の項目を写して作る。回は 'HH:MM'（時刻なしは ''）。あとで表を直しても、その日の記録は崩れない
 // - ✓・「今日はなし」の時刻はサーバーが刻む（端末の時計は使わない）。外せるのは付けた人がその日のうち（管理者はいつでも）
 // - 印は端末どうしで上書きし合わないよう、読んだ marks_json が変わっていたら読み直す（やることの「全員」の印と同じ）
@@ -42,7 +43,10 @@ export function cleanTimes(v) {
   return out.length ? out.join(',') : null
 }
 
-/** 繰り返しの日: weekly は曜日（0〜6）のカンマ区切り、monthly は日（1〜31）。合わなければ null */
+/** 項目なしのルーティンの印に使う項目 id */
+export const WHOLE = '_'
+
+/** 繰り返しの日: weekly は曜日（0〜6）、monthly は日（1〜31・月末は 'L'）のカンマ区切り。合わなければ null */
 export function cleanDays(mode, v) {
   if (mode === 'weekly') {
     const days = [...new Set((Array.isArray(v) ? v : String(v ?? '').split(',')).filter(x => x !== '' && x != null).map(Number))]
@@ -50,8 +54,10 @@ export function cleanDays(mode, v) {
     return days.length ? days.join(',') : null
   }
   if (mode === 'monthly') {
-    const n = Number(Array.isArray(v) ? v[0] : v)
-    return Number.isInteger(n) && n >= 1 && n <= 31 ? String(n) : null
+    const raw = (Array.isArray(v) ? v : String(v ?? '').split(',')).map(x => String(x).trim()).filter(Boolean)
+    const days = [...new Set(raw.filter(x => /^\d{1,2}$/.test(x)).map(Number).filter(n => n >= 1 && n <= 31))].sort((a, b) => a - b)
+    const out = [...days.map(String), ...(raw.includes('L') ? ['L'] : [])]
+    return out.length ? out.join(',') : null
   }
   return null
 }
@@ -97,8 +103,8 @@ export async function handleChecklistUpsert(db, code, body = {}, who = {}) {
   const repeatDays = cleanDays(repeat, body.repeatDays)
   const startDate = typeof body.startDate === 'string' && _DATE.test(body.startDate) ? body.startDate : ''
   const deletedAt = _iso(body.deletedAt)
-  if (!_ID.test(id) || !name || !startDate || (!items.length && !deletedAt)) {
-    return { _status: 400, code: 'invalid_checklist', error: 'チェック表の内容が正しくありません（名前と項目を入れてください）' }
+  if (!_ID.test(id) || !name || !startDate) {
+    return { _status: 400, code: 'invalid_checklist', error: 'ルーティンの内容が正しくありません（名前を入れてください）' }
   }
   if ((repeat === 'weekly' || repeat === 'monthly') && !repeatDays) {
     return { _status: 400, code: 'invalid_checklist', error: '繰り返す曜日・日を選んでください' }
@@ -151,13 +157,14 @@ export async function handleChecklistMark(db, code, id, date, body = {}, who = {
   const cl = await db.prepare('SELECT items_json, assign_mode, assignee_id, deleted_at FROM checklists WHERE id = ? AND shop_code = ?').bind(id, code).first()
   if (!cl || cl.deleted_at) return { _status: 404, error: '見つかりません' }
   if (cl.assign_mode === 'person' && cl.assignee_id !== who.id && !admin) {
-    return { _status: 403, code: 'checklist_forbidden', error: 'このチェック表に✓を付けられるのは、担当の人と管理者だけです' }
+    return { _status: 403, code: 'checklist_forbidden', error: 'このルーティンに✓を付けられるのは、担当の人と管理者だけです' }
   }
   for (let i = 0; i < 4; i++) {
     const run = await db.prepare('SELECT items_json, marks_json FROM checklist_runs WHERE shop_code = ? AND checklist_id = ? AND run_date = ? AND run_slot = ?')
       .bind(code, id, date, slot).first()
     const items = run ? cleanItems(_json(run.items_json, [])) : cleanItems(_json(cl.items_json, []))
-    if (!items.some(x => x.id === itemId)) return { _status: 404, error: '項目が見つかりません' }
+    // 項目なしのルーティンは、全体を1つの印（'_'）で済ませる
+    if (!(items.length ? items.some(x => x.id === itemId) : itemId === WHOLE)) return { _status: 404, error: '項目が見つかりません' }
     const marks = run ? _json(run.marks_json, {}) : {}
     const cur = marks[itemId]
     if (!state) {
