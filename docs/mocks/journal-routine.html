@@ -1,0 +1,206 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ルーティン モック</title><!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>毎日のチェック v2 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --in:#4f46e5; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1500px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:330px; line-height:1.5; min-height:54px; }
+  .phone { width:330px; height:700px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); position:relative; }
+  .tag { position:absolute; top:8px; right:8px; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; color:#fff; background:var(--primary); z-index:5; }
+  .top { background:#fff; padding:12px 14px 8px; border-bottom:1px solid var(--border); display:grid; gap:8px; }
+  .title { display:flex; align-items:baseline; gap:8px; } .title b { font-size:17px; } .title small { margin-left:auto; margin-right:34px; font-size:12px; color:var(--muted); font-weight:700; }
+  .flt { display:flex; gap:6px; } .flt span { font-size:12px; font-weight:800; padding:5px 11px; border-radius:999px; background:#f1f7f9; color:var(--muted); } .flt span.on { background:var(--deep); color:#fff; }
+  .body { flex:1; overflow:hidden; padding:10px 12px; display:grid; gap:8px; align-content:start; }
+  .lh { font-size:11px; font-weight:900; letter-spacing:.06em; color:var(--muted); display:flex; align-items:center; padding:4px 4px 0; }
+  .lh em { margin-left:auto; font-style:normal; color:var(--in); font-weight:900; font-size:12px; letter-spacing:0; }
+  /* 毎日のチェックのカード */
+  .ck { background:#fff; border-radius:16px; border:1px solid #c7d2fe; padding:11px 12px; display:grid; gap:7px; box-shadow:0 2px 6px rgba(79,70,229,.08); }
+  .ck-h { display:flex; align-items:center; gap:8px; }
+  .ck-h .ic { font-size:22px; }
+  .ck-h b { font-size:15.5px; } .ck-h small { display:block; font-size:11.5px; color:var(--muted); font-weight:700; }
+  .ck-h .st { margin-left:auto; font-size:12px; font-weight:900; padding:4px 9px; border-radius:999px; background:#eef2ff; color:#3730a3; white-space:nowrap; }
+  .ck-h .st.now { background:#fff7ed; color:#c2410c; }
+  .ck-h .st.ok { background:#dcfce7; color:#166534; }
+  .bar { height:7px; border-radius:4px; background:#e0e7ff; overflow:hidden; } .bar i { display:block; height:100%; background:var(--in); }
+  .ck.ok { border-color:#86efac; } .ck.ok .bar i { background:#22c55e; }
+  .week { white-space:nowrap; display:flex; align-items:center; gap:5px; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .week span { width:20px; height:20px; border-radius:6px; display:grid; place-items:center; font-size:10px; font-weight:900; color:#fff; }
+  .week .y { background:#22c55e; } .week .n { background:#fca5a5; } .week .t { background:#fff; border:2px dashed #a5b4fc; color:#4f46e5; } .week .o { background:#e2e8f0; color:#94a3b8; }
+  .week em { margin-left:auto; font-style:normal; }
+  .go { background:var(--in); color:#fff; text-align:center; font-weight:900; font-size:14px; border-radius:11px; padding:10px; }
+  .ck.ok .go { background:#f0fdf4; color:#166534; border:1px solid #86efac; }
+  .task { background:#fff; border-radius:14px; padding:2px 12px; }
+  .tr { display:flex; align-items:center; gap:10px; padding:10px 0; font-size:14px; border-top:1px solid #eef4f6; } .tr:first-child { border-top:none; }
+  .tr i { width:20px; height:20px; border-radius:6px; border:2px solid #fb923c; }
+  .setlink { text-align:center; font-size:12.5px; font-weight:800; color:var(--in); padding:4px; }
+  /* はじめて */
+  .first { background:#fff; border:2px dashed #a5b4fc; border-radius:16px; padding:14px; display:grid; gap:9px; text-align:center; }
+  .first .big { font-size:30px; }
+  .first b { font-size:16px; } .first p { font-size:12.5px; color:var(--muted); line-height:1.6; }
+  .samp { display:grid; gap:7px; }
+  .samp div { display:flex; align-items:center; gap:8px; border:1px solid #c7d2fe; background:#eef2ff; border-radius:12px; padding:10px 12px; text-align:left; font-size:13px; font-weight:800; color:#3730a3; }
+  .samp div small { display:block; font-size:11px; font-weight:600; color:var(--muted); }
+  .samp div em { margin-left:auto; font-style:normal; font-size:12px; background:var(--in); color:#fff; padding:5px 9px; border-radius:9px; white-space:nowrap; }
+  .own { font-size:13px; font-weight:800; color:var(--in); }
+  /* チェック中 */
+  .runtop { background:var(--in); color:#fff; padding:14px 16px 12px; display:grid; gap:6px; }
+  .runtop .x { display:flex; align-items:center; font-size:13px; font-weight:800; opacity:.9; }
+  .runtop .x span:last-child { margin-left:auto; }
+  .runtop b { font-size:20px; }
+  .runtop .bar { background:rgba(255,255,255,.3); } .runtop .bar i { background:#fff; }
+  .runtop small { font-size:12px; opacity:.9; }
+  .items { flex:1; padding:8px 12px; display:grid; gap:8px; align-content:start; }
+  .it { background:#fff; border-radius:14px; padding:14px; display:flex; align-items:center; gap:12px; font-size:16px; font-weight:800; border:2px solid transparent; }
+  .it i { width:30px; height:30px; border-radius:9px; border:3px solid #a5b4fc; display:grid; place-items:center; font-style:normal; color:#fff; font-size:17px; flex:none; }
+  .it.done { color:#94a3b8; } .it.done i { background:#22c55e; border-color:#22c55e; } .it.done s { text-decoration:line-through; }
+  .it small { margin-left:auto; font-size:11px; color:var(--muted); font-weight:700; text-align:right; }
+  .it.next { border-color:var(--in); box-shadow:0 4px 12px rgba(79,70,229,.18); }
+  .it .nb { white-space:nowrap; flex:none; margin-left:auto; font-size:11px; font-weight:800; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:4px 7px; }
+  .done-all { margin:0 12px 14px; background:#dcfce7; color:#166534; border-radius:14px; padding:12px; text-align:center; font-weight:900; font-size:14px; }
+  /* 設定 */
+  .set { background:#fff; border-radius:14px; border:1px solid var(--border); padding:11px 12px; display:grid; gap:4px; }
+  .set .h { display:flex; align-items:center; gap:8px; font-weight:900; font-size:14.5px; } .set .h em { margin-left:auto; font-style:normal; font-size:12px; color:var(--in); }
+  .set .m { font-size:12px; color:var(--muted); }
+  .set .m b { color:#3730a3; background:#eef2ff; border-radius:999px; padding:1px 8px; font-size:11px; margin-right:4px; }
+  .when { background:#fff; border-radius:14px; border:1px solid var(--border); padding:12px; display:grid; gap:8px; }
+  .when .q { font-size:13px; font-weight:900; }
+  .seg { display:flex; flex-wrap:wrap; gap:5px; } .seg span { font-size:12.5px; font-weight:800; padding:7px 11px; border-radius:10px; border:1px solid var(--border); color:var(--muted); background:#fff; }
+  .seg span.on { background:var(--in); border-color:var(--in); color:#fff; }
+  .sentence { background:#eef2ff; color:#3730a3; border-radius:12px; padding:10px 12px; font-size:13.5px; font-weight:800; line-height:1.6; }
+  .note { font-size:12px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:8px 10px; line-height:1.7; max-width:1500px; margin-top:16px; }
+
+  .rl { background:#fff; border-radius:14px; border:1px solid #c7d2fe; padding:4px 12px; }
+  .rr { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #eef2ff; font-size:14px; font-weight:800; }
+  .rr:first-child { border-top:none; }
+  .rr i { width:24px; height:24px; border-radius:7px; border:3px solid #a5b4fc; flex:none; font-style:normal; display:grid; place-items:center; color:#fff; font-size:13px; }
+  .rr.ok i { background:#22c55e; border-color:#22c55e; } .rr.ok b { color:#94a3b8; text-decoration:line-through; }
+  .rr small { display:block; font-size:11px; color:var(--muted); font-weight:700; }
+  .rr em { margin-left:auto; font-style:normal; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; white-space:nowrap; }
+  .rr.ok em { background:#dcfce7; color:#166534; }
+  .when2 { display:inline-block; font-size:11px; font-weight:900; color:#fff; background:#4f46e5; border-radius:6px; padding:1px 6px; margin-right:4px; }
+  .when2.w { background:#0e7490; } .when2.m { background:#c2410c; }
+  .later { font-size:12px; color:var(--muted); font-weight:700; padding:2px 4px; }
+  .later b { color:#3730a3; }
+  .slots { display:flex; gap:6px; } .slot { flex:1; border-radius:10px; padding:5px 4px; text-align:center; font-size:12px; font-weight:900; border:1px solid #c7d2fe; color:#3730a3; line-height:1.3; }
+  .slot small { display:block; font-size:10px; font-weight:700; }
+  .slot.ok { background:#dcfce7; border-color:#86efac; color:#166534; } .slot.now { background:#4f46e5; color:#fff; border-color:#4f46e5; } .slot.lt { background:#f8fafc; color:#94a3b8; border-style:dashed; }
+  .sheet2 { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:20px 20px 0 0; padding:14px 14px 18px; display:grid; gap:9px; box-shadow:0 -8px 24px rgba(0,0,0,.2); }
+  .dim { position:absolute; inset:0; background:rgba(15,23,42,.35); }
+  .lab { font-size:11.5px; font-weight:800; color:var(--muted); display:grid; gap:4px; }
+  .in { border:1px solid var(--border); border-radius:10px; padding:9px 10px; font-size:14px; font-weight:700; color:var(--text); background:#fff; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .hint { font-size:11.5px; background:#eef2ff; color:#3730a3; border-radius:10px; padding:8px 10px; line-height:1.55; font-weight:700; }
+  .btn2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; } .btn2 span { text-align:center; padding:11px; border-radius:11px; font-weight:900; font-size:13px; }
+  .grp { font-size:11px; font-weight:900; color:var(--muted); letter-spacing:.06em; padding:6px 4px 0; }
+  .chipsS { display:flex; flex-wrap:wrap; gap:6px; } .chipsS span { font-size:12px; font-weight:800; padding:6px 10px; border-radius:999px; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; }
+  .empty { border:1px dashed #a5b4fc; border-radius:10px; padding:10px; text-align:center; font-size:12.5px; color:var(--muted); font-weight:700; line-height:1.5; }
+  .band { background:#fff; border:1px solid var(--border); border-radius:14px; padding:6px 8px 8px; display:grid; gap:5px; }
+  .band-h { font-size:11px; font-weight:900; color:#c2410c; display:flex; } .band-h em { margin-left:auto; font-style:normal; color:var(--muted); }
+  .bchips { display:flex; flex-wrap:wrap; gap:5px; } .bc { font-size:12px; font-weight:800; padding:5px 9px; border-radius:9px; border:1px solid #fdba74; background:#fff7ed; color:#9a3412; }
+  .bc.r { border-color:#a5b4fc; background:#eef2ff; color:#3730a3; }
+</style></head><body>
+</head><body>
+<h1>「毎日のチェック」→「ルーティン」：毎日・毎週・毎月の決まった仕事</h1>
+<p class="lead">
+「毎日の」と付いていると、曜日・毎月◯日を選べることに気づかれない。また開店チェックのような「中に項目がある表」に見えて、<b>「毎月1日に発注書を出す」のような1つだけの繰り返し</b>に使えると分からない。<br>
+案：名前を<b>「ルーティン」</b>に。中の項目は<b>任意</b>（なし＝押せば済む1件、あり＝チェック表）。<b>やることの「＋」からも「繰り返す」を選ぶだけ</b>で作れる。カードには「毎日／毎週 土・日／毎月1日」を色つきで大きく。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap">① 日誌のリスト：一番上に「ルーティン・今日」<small>項目ありは大きなカード、項目なしは押せば済む行。今日はない毎週・毎月のものは「これから」に1行で</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 4</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="lh">ルーティン ・ 今日<em>2 / 4 済み</em></div>
+    <div class="ck ok">
+      <div class="ck-h"><span class="ic">☀</span><div><b>開店チェック</b><small><span class="when2">毎日</span>9:00 ・ 5項目</small></div><span class="st ok">✓ 済み 9:12</span></div>
+      <div class="bar"><i style="width:100%"></i></div>
+    </div>
+    <div class="ck">
+      <div class="ck-h"><span class="ic">🧊</span><div><b>冷蔵庫の温度</b><small><span class="when2">毎日</span>1日3回 ・ 2項目</small></div><span class="st now">今日 1/3回</span></div>
+      <div class="slots"><div class="slot ok">10:00<small>✓ 佐藤</small></div><div class="slot now">15:00<small>今やる</small></div><div class="slot lt">21:00<small>これから</small></div></div>
+    </div>
+    <div class="rl">
+      <div class="rr ok"><i>✓</i><div><b>ゴミ出し</b><small><span class="when2">毎日</span>鈴木 8:40</small></div><em>済み</em></div>
+      <div class="rr"><i></i><div><b>発注書の提出</b><small><span class="when2 m">毎月1日</span>店長</small></div><em>今日</em></div>
+    </div>
+    <div class="later">これから：<b>土</b> 週末の大掃除 ・ <b>11/1</b> 備品の確認</div>
+    <div class="setlink">⚙ ルーティンを設定</div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">② やることの「＋」に「繰り返す」<small>選ぶとルーティンになる。毎月なら日、曜日なら曜日をその場で</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b><small>残り 4</small></div></div>
+  <div class="body" style="opacity:.4"><div class="rl" style="height:200px"></div></div>
+  <div class="dim"></div>
+  <div class="sheet2">
+    <b style="font-size:16px">やることを追加</b>
+    <div class="in">発注書の提出</div>
+    <div class="lab">繰り返す
+      <div class="seg"><span>しない</span><span>毎日</span><span>曜日</span><span class="on">毎月</span></div>
+    </div>
+    <div class="lab">何日<div class="seg"><span class="on">1日 ▾</span><span>＋ 日を足す</span><span>月末</span></div></div>
+    <div class="row2"><div class="lab">時刻<div class="in">なし</div></div><div class="lab">担当<div class="in">店長</div></div></div>
+    <div class="hint">🔁 毎月1日のルーティンになります。中の項目（チェック表）はあとから足せます</div>
+    <div class="btn2"><span style="background:#f1f5f9;color:#475569">やめる</span><span style="background:#4f46e5;color:#fff">追加</span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">③ ルーティンの一覧：毎日・毎週・毎月で分ける<small>「1つだけ」か「◯項目」かも出す。見本は押すだけで始まる</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>‹ ルーティン</b></div></div>
+  <div class="body">
+    <div class="grp">毎日</div>
+    <div class="set"><div class="h">☀ 開店チェック<em>直す ›</em></div><div class="m"><b>9:00</b>5項目 ・ 誰でも</div></div>
+    <div class="set"><div class="h">🧊 冷蔵庫の温度<em>直す ›</em></div><div class="m"><b>1日3回</b>2項目 ・ 誰でも</div></div>
+    <div class="set"><div class="h">ゴミ出し<em>直す ›</em></div><div class="m"><b>時刻なし</b>1つだけ ・ 鈴木</div></div>
+    <div class="grp">毎週</div>
+    <div class="set"><div class="h">🧽 週末の大掃除<em>直す ›</em></div><div class="m"><b>土・日</b>6項目 ・ 誰でも</div></div>
+    <div class="grp">毎月</div>
+    <div class="set"><div class="h">発注書の提出<em>直す ›</em></div><div class="m"><b>1日</b>1つだけ ・ 店長</div></div>
+    <div class="set"><div class="h">📦 備品の確認<em>直す ›</em></div><div class="m"><b>月末</b>8項目 ・ 山田</div></div>
+    <div class="own" style="text-align:center">＋ ルーティンを作る</div>
+    <div class="chipsS"><span>見本：開店</span><span>退店</span><span>週末の掃除</span><span>月初の発注書</span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">④ 作る・直す：項目は「任意」<small>なしなら押せば済む1件。「＋項目」でチェック表になる</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>‹ 発注書の提出</b></div></div>
+  <div class="body">
+    <div class="sentence">発注書の提出は<br><u>毎月1日</u>（時刻なし）に、<u>店長が</u> やる</div>
+    <div class="lab">名前<div class="in">発注書の提出</div></div>
+    <div class="when"><div class="q">いつ</div>
+      <div class="seg"><span>毎日</span><span>曜日</span><span class="on">毎月</span><span>1回だけ</span></div>
+      <div class="seg"><span class="on">1日</span><span>＋ 日を足す</span></div>
+      <div class="q" style="margin-top:4px">時刻</div><div class="seg"><span class="on">なし</span><span>＋ 時刻</span></div>
+    </div>
+    <div class="when"><div class="q">誰が</div><div class="seg"><span>誰でも</span><span class="on">店長</span></div></div>
+    <div class="when"><div class="q">確かめること（任意）</div>
+      <div class="empty">なし ＝ 押せば済む1件<br><b style="color:#4f46e5">＋ 項目を足す（チェック表にする）</b></div>
+    </div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap">⑤ 「1日」の画面：ルーティンは🔁つき<small>終日の帯・時間の目盛りに、やることと並んで出る</small></div>
+<div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>11月1日（日）</b><small>今日</small></div></div>
+  <div class="body">
+    <div class="band">
+      <div class="band-h">終日・時刻なし<em>3 / 3 残り</em></div>
+      <div class="bchips"><span class="bc r">🔁 発注書の提出</span><span class="bc r">🔁 ゴミ出し</span><span class="bc r">🔁 備品の確認 0/8</span><span class="bc">手洗いの確認</span></div>
+    </div>
+    <div class="set" style="border-left:4px solid #6366f1"><div class="m"><b>9:00</b>🔁 ☀ 開店チェック ・ 0/5</div></div>
+    <div class="set" style="border-left:4px solid #6366f1"><div class="m"><b>10:00</b>🔁 🧊 冷蔵庫の温度 ・ 0/2</div></div>
+    <div class="set" style="border-left:4px solid #f97316"><div class="m"><b style="background:#fff7ed;color:#9a3412">11:00</b>野菜の検品</div></div>
+  </div>
+</div></div>
+
+</div>
+<p class="note">
+確認したいこと：① 名前は「ルーティン」でよいか　② 毎月は「1日・15日」のように複数の日、「月末」も選べるようにするか（案：する）　③ 項目なしのルーティンも、やらなかった日は記録に赤で残すか（案：残す）
+</p>
+</body></html>
