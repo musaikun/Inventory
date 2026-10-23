@@ -1,0 +1,132 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>ホームの「数える順を整える」カード</title><style>
+:root{--bg:#eef5f7;--text:#0f2a33;--muted:#5b7280;--teal:#0e7490;--grad:linear-gradient(90deg,#22d3ee,#34d399);--line:#d6e6eb}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;background:#d7dee8;color:var(--text);padding:24px}
+h1{font-size:20px;margin-bottom:4px}.lead{font-size:13px;color:#475569;margin-bottom:18px;max-width:1500px;line-height:1.7}
+.row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}.col{display:grid;gap:8px}
+.cap{font-size:14px;font-weight:800}.cap small{display:block;font-weight:400;color:#475569;font-size:12px;max-width:330px;line-height:1.5;min-height:54px}
+.phone{width:330px;height:700px;background:var(--bg);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;border:6px solid #0b1f26;box-shadow:0 12px 34px rgba(0,0,0,.2);position:relative}
+.tag{position:absolute;top:8px;right:8px;font-size:11px;font-weight:900;padding:3px 8px;border-radius:999px;color:#fff;background:#f97316;z-index:5}
+.hero{background:radial-gradient(120% 90% at 90% 10%,#0f4c5c,#06222b 70%);color:#fff;padding:16px 16px 70px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:900;font-size:15px}.brand i{width:20px;height:12px;border:3px solid #22d3ee;border-radius:50%;transform:rotate(-15deg)}
+.brand span{font-size:10px;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:2px 8px;font-weight:800}
+.hi{margin-top:14px;font-size:11px;color:#a5d8e3}.hi b{display:block;font-size:22px;color:#fff;margin-top:4px;line-height:1.3}
+.body{margin-top:-58px;padding:0 12px;display:grid;gap:10px}
+.today{background:#fff;border-radius:18px;padding:12px;display:flex;gap:12px;align-items:center;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.pr{width:54px;height:54px;border-radius:50%;background:conic-gradient(#22d3ee 0 33%,#e2eef2 0);display:grid;place-items:center;flex:none}
+.pr span{width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:13px;font-weight:900}
+.today div{display:grid;gap:3px;font-size:11.5px}.today div b{font-size:12.5px;color:var(--muted)}.today em{font-style:normal;color:var(--teal);font-weight:800}
+.sec{font-size:10.5px;font-weight:800;letter-spacing:.1em;color:var(--muted);padding:4px 4px 0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sc{background:#fff;border-radius:16px;padding:12px 4px 10px;display:grid;justify-items:center;gap:4px;font-size:12px;font-weight:900}
+.sc i{width:36px;height:36px;border-radius:12px;background:#e0f7fb;display:grid;place-items:center;font-style:normal;font-size:16px}
+.sc small{font-size:9.5px;color:var(--muted);font-weight:700}
+.nav{margin-top:auto;display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);padding:8px 0 12px;font-size:9.5px;font-weight:800;color:var(--muted)}.nav span.on{color:var(--teal)}
+/* 提案カード */
+.sort{position:relative;background:linear-gradient(135deg,#ecfeff,#f0fdf4);border:1.5px solid #67e8f9;border-radius:18px;padding:12px 12px 12px;display:grid;gap:8px;box-shadow:0 0 0 4px rgba(34,211,238,.12),0 6px 18px rgba(14,116,144,.12)}
+.sort .x{position:absolute;top:8px;right:10px;font-size:12px;color:#94a3b8;font-weight:900}
+.sort .k{font-size:10px;font-weight:900;color:#0e7490;letter-spacing:.08em}
+.sort b.t{font-size:15px;line-height:1.35;padding-right:18px}
+.sort p{font-size:11.5px;color:#36515c;line-height:1.55}
+.demo{height:40px;position:relative;background:#fff;border-radius:10px;border:1px solid #cdeef4;overflow:hidden}
+.demo i{position:absolute;width:9px;height:9px;border-radius:3px;animation:go 3.2s ease-in-out infinite alternate}
+@keyframes go{0%,25%{left:var(--x0);top:var(--y0)}75%,100%{left:var(--x1);top:var(--y1)}}
+.demo .lab{position:absolute;bottom:2px;font-size:8.5px;font-weight:800;color:#64748b}
+.cta{display:flex;gap:8px;align-items:center}
+.btn{flex:1;text-align:center;background:var(--grad);color:#06323c;font-weight:900;font-size:13px;border-radius:12px;padding:10px}
+.btn.sub{flex:none;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:11.5px;padding:10px 10px}
+.bar{height:6px;background:#dbeef2;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;width:75%;background:var(--grad)}
+.meta{display:flex;justify-content:space-between;font-size:11px;font-weight:800;color:var(--muted)}
+.chips{display:flex;gap:5px;flex-wrap:wrap}.chips span{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;background:#fff;border:1px solid #cdeef4;color:#0e7490}.chips span.ok{background:#dcfce7;border-color:#86efac;color:#166534}.chips span.no{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.done{background:#fff;border-radius:18px;padding:12px;display:grid;gap:8px;border:1.5px solid #86efac;box-shadow:0 6px 18px rgba(22,101,52,.1);position:relative}
+.done .x{position:absolute;top:8px;right:10px;font-size:12px;color:#94a3b8;font-weight:900}
+.done .k{font-size:10px;font-weight:900;color:#16a34a;letter-spacing:.08em}
+.stat{display:flex;gap:6px}.stat div{flex:1;background:#f0fdf4;border-radius:10px;padding:6px;text-align:center}.stat b{display:block;font-size:16px}.stat small{font-size:9.5px;color:var(--muted);font-weight:700}
+.walk{display:grid;grid-template-columns:1fr 1fr;gap:6px}.walk div{background:#f8fafc;border-radius:10px;padding:6px 8px;font-size:10px;color:var(--muted);font-weight:700;display:grid;gap:4px}
+.walk svg{width:100%;height:46px}
+.toast{position:absolute;left:12px;right:12px;bottom:66px;background:#0f2a33;color:#fff;border-radius:14px;padding:10px 12px;font-size:12px;font-weight:800;line-height:1.5;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.toast small{display:block;font-weight:600;color:#a5d8e3;font-size:10.5px}
+.toast:after{content:'';position:absolute;bottom:-7px;left:72px;border:7px solid transparent;border-top-color:#0f2a33;border-bottom:0}
+.navglow{color:var(--teal)!important;text-shadow:0 0 8px #67e8f9}
+.note{font-size:12px;background:#fff7ed;border:1px dashed #fb923c;color:#9a3412;border-radius:8px;padding:8px 10px;line-height:1.7;max-width:1500px;margin-top:16px}
+</style></head><body>
+<h1>ホームに「数える順を整える」カード（整っていない間だけ・棚卸の直後に1回）</h1>
+<p class="lead">並び替えは在庫タブに行かないと気づけない。ホームの「今日のやること」の下に、<b>まだ整っていない店にだけ</b>カードを出す。整ったら消える。×で閉じたら在庫タブの場所を知らせて終わり。<br>
+もう1つは、<b>棚卸が終わってホームに戻った最初の1回だけ</b>、かかった時間と一緒に「場所の順に並べると歩かずに済む」と見せる（一番効く時）。名前は表の見た目の並び替えと区別して「数える順を整える」。</p>
+<div class="row">
+
+<div class="col"><div class="cap">① まだ振り分けていない店<small>今日のやることの下に光るカード。ばらばらの点が棚ごとにそろう小さな動き。押すと保管場所の振り分け画面へ直行</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="hero"><div class="brand"><i></i>タナオロ<span>テスト店</span></div><div class="hi">10月23日（金）<b>こんにちは、<br>佐藤さん</b></div></div>
+<div class="body">
+ <div class="today"><div class="pr"><span>1/3</span></div><div><b>今日のやること</b><span><em>11:00</em> 野菜の検品</span><span>手洗いの確認</span></div></div>
+ <div class="sort"><span class="x">✕</span><span class="k">⏱ 棚卸を早くする</span><b class="t">数える順を、店の棚の順に整えましょう</b>
+  <div class="demo" id="demo1"></div>
+  <p>冷蔵庫 → 冷凍庫 → 乾物棚のように、歩く順で並びます。次の棚卸から、その順で数えられます。</p>
+  <div class="cta"><span class="btn">保管場所で分ける</span><span class="btn sub">あとで</span></div>
+ </div>
+ <div class="sec">ショートカット</div>
+ <div class="grid"><div class="sc"><i>📋</i>棚卸<small>数える</small></div><div class="sc"><i>🧾</i>発注<small>発注数を入れる</small></div><div class="sc"><i>📦</i>在庫<small>見込みと品目</small></div></div>
+</div>
+<div class="nav"><span class="on">ホーム</span><span>在庫</span><span>日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<div class="col"><div class="cap">② 途中の店<small>どこまで分けたかの進み具合。分けていない品目の数と、できた棚。押すと続きから</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="hero"><div class="brand"><i></i>タナオロ<span>テスト店</span></div><div class="hi">10月23日（金）<b>こんにちは、<br>佐藤さん</b></div></div>
+<div class="body">
+ <div class="today"><div class="pr"><span>1/3</span></div><div><b>今日のやること</b><span><em>11:00</em> 野菜の検品</span><span>手洗いの確認</span></div></div>
+ <div class="sort"><span class="x">✕</span><span class="k">⏱ 数える順を整える ・ 途中</span><b class="t">あと 10 品目で、棚の順にそろいます</b>
+  <div class="bar"><i></i></div>
+  <div class="meta"><span>保管場所</span><span>30 / 40 品目</span></div>
+  <div class="chips"><span class="ok">冷蔵庫 12</span><span class="ok">冷凍庫 8</span><span class="ok">乾物棚 10</span><span class="no">未分類 10</span></div>
+  <div class="cta"><span class="btn">続ける</span></div>
+ </div>
+ <div class="sec">ショートカット</div>
+ <div class="grid"><div class="sc"><i>📋</i>棚卸<small>数える</small></div><div class="sc"><i>🧾</i>発注<small>発注数を入れる</small></div><div class="sc"><i>📦</i>在庫<small>見込みと品目</small></div></div>
+</div>
+<div class="nav"><span class="on">ホーム</span><span>在庫</span><span>日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<div class="col"><div class="cap">③ 棚卸が終わってホームに戻った最初の1回<small>かかった時間と品目数。まだ整っていない店にだけ「棚の順にすると行ったり来たりが減る」。整っている店には時間だけの「おつかれさま」（押すと詳細）</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="hero"><div class="brand"><i></i>タナオロ<span>テスト店</span></div><div class="hi">10月23日（金）<b>おつかれさまでした、<br>佐藤さん</b></div></div>
+<div class="body">
+ <div class="done"><span class="x">✕</span><span class="k">✓ 棚卸が終わりました</span>
+  <div class="stat"><div><b>32分</b><small>かかった時間</small></div><div><b>40</b><small>品目</small></div><div><b>3人</b><small>で数えた</small></div></div>
+  <b style="font-size:14px;line-height:1.4">次は、棚の順に数えませんか？</b>
+  <div class="walk">
+   <div>今：品目の登録順<svg viewBox="0 0 100 46"><rect x="4" y="6" width="22" height="34" rx="4" fill="#e0f2fe"/><rect x="39" y="6" width="22" height="34" rx="4" fill="#ede9fe"/><rect x="74" y="6" width="22" height="34" rx="4" fill="#fef3c7"/><polyline points="15,14 85,20 50,26 15,30 85,34 50,38" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+   <div>整えると：棚の順<svg viewBox="0 0 100 46"><rect x="4" y="6" width="22" height="34" rx="4" fill="#e0f2fe"/><rect x="39" y="6" width="22" height="34" rx="4" fill="#ede9fe"/><rect x="74" y="6" width="22" height="34" rx="4" fill="#fef3c7"/><polyline points="15,12 15,36 50,36 50,12 85,12 85,36" fill="none" stroke="#16a34a" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+  </div>
+  <div class="cta"><span class="btn">保管場所で分ける</span><span class="btn sub">あとで</span></div>
+ </div>
+ <div class="sec">ショートカット</div>
+ <div class="grid"><div class="sc"><i>📋</i>棚卸<small>数える</small></div><div class="sc"><i>🧾</i>発注<small>発注数を入れる</small></div><div class="sc"><i>📦</i>在庫<small>見込みと品目</small></div></div>
+</div>
+<div class="nav"><span class="on">ホーム</span><span>在庫</span><span>日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<div class="col"><div class="cap">④ ×で閉じたとき／整ったあと<small>×: カードが縮んで下の「在庫」へ吸い込まれ、「在庫タブからいつでも」と出て終わり（ルーティンと同じ）。整ったらカードは出ない（ホームはいつもの形）</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="hero"><div class="brand"><i></i>タナオロ<span>テスト店</span></div><div class="hi">10月23日（金）<b>こんにちは、<br>佐藤さん</b></div></div>
+<div class="body">
+ <div class="today"><div class="pr"><span>1/3</span></div><div><b>今日のやること</b><span><em>11:00</em> 野菜の検品</span><span>手洗いの確認</span></div></div>
+ <div class="sec">ショートカット</div>
+ <div class="grid"><div class="sc"><i>📋</i>棚卸<small>数える</small></div><div class="sc"><i>🧾</i>発注<small>発注数を入れる</small></div><div class="sc"><i>📦</i>在庫<small>見込みと品目</small></div></div>
+</div>
+<div class="toast">☝ 数える順は「在庫」タブの上からいつでも整えられます<small>×で閉じたカードは、この端末では出しません</small></div>
+<div class="nav"><span class="on">ホーム</span><span class="navglow">在庫</span><span>日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+</div>
+<p class="note">決めてほしいこと：<br>
+① 出すのは「まだ整っていない間だけ」（整ったら消える・×で閉じたら端末ごとに覚える）でよいか<br>
+② ③の「棚卸の直後に1回」を入れるか。整っている店には時間だけの「おつかれさま」を出すか、何も出さないか<br>
+③ 名前を「数える順を整える」にするか（在庫タブのカードの見出し「並び替え」もそろえて変える）<br>
+④ カードを出すのは管理者だけか（振り分けられるのは管理者だけ。スタッフには出さない案）</p>
+<script>
+const cols=['#38bdf8','#a78bfa','#fbbf24'],X=[[8,6],[26,26],[44,8],[60,24],[78,12],[14,26],[52,2],[70,22],[88,4]]
+for(const id of ['demo1']){const d=document.getElementById(id);[0,1,2,0,1,2,0,1,2].forEach((c,i)=>{const e=document.createElement('i');const row=Math.floor(i/3);e.style.cssText=`background:${cols[c]};--x0:${X[i][0]}%;--y0:${X[i][1]}px;--x1:${10+c*33+row*7}%;--y1:${8+row*0}px`;e.style.setProperty('--y1',`${6+row*0}px`);e.style.setProperty('--x1',`${8+c*33+row*6}%`);d.appendChild(e)});['冷蔵庫','冷凍庫','乾物棚'].forEach((t,c)=>{const s=document.createElement('span');s.className='lab';s.style.left=`${8+c*33}%`;s.textContent=t;d.appendChild(s)})}
+</script>
+</body></html>
