@@ -1,0 +1,181 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>進行中のやること モック</title><!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>毎日のチェック v2 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --in:#4f46e5; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1500px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:330px; line-height:1.5; min-height:54px; }
+  .phone { width:330px; height:700px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); position:relative; }
+  .tag { position:absolute; top:8px; right:8px; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; color:#fff; background:var(--primary); z-index:5; }
+  .top { background:#fff; padding:12px 14px 8px; border-bottom:1px solid var(--border); display:grid; gap:8px; }
+  .title { display:flex; align-items:baseline; gap:8px; } .title b { font-size:17px; } .title small { margin-left:auto; margin-right:34px; font-size:12px; color:var(--muted); font-weight:700; }
+  .flt { display:flex; gap:6px; } .flt span { font-size:12px; font-weight:800; padding:5px 11px; border-radius:999px; background:#f1f7f9; color:var(--muted); } .flt span.on { background:var(--deep); color:#fff; }
+  .body { flex:1; overflow:hidden; padding:10px 12px; display:grid; gap:8px; align-content:start; }
+  .lh { font-size:11px; font-weight:900; letter-spacing:.06em; color:var(--muted); display:flex; align-items:center; padding:4px 4px 0; }
+  .lh em { margin-left:auto; font-style:normal; color:var(--in); font-weight:900; font-size:12px; letter-spacing:0; }
+  /* 毎日のチェックのカード */
+  .ck { background:#fff; border-radius:16px; border:1px solid #c7d2fe; padding:11px 12px; display:grid; gap:7px; box-shadow:0 2px 6px rgba(79,70,229,.08); }
+  .ck-h { display:flex; align-items:center; gap:8px; }
+  .ck-h .ic { font-size:22px; }
+  .ck-h b { font-size:15.5px; } .ck-h small { display:block; font-size:11.5px; color:var(--muted); font-weight:700; }
+  .ck-h .st { margin-left:auto; font-size:12px; font-weight:900; padding:4px 9px; border-radius:999px; background:#eef2ff; color:#3730a3; white-space:nowrap; }
+  .ck-h .st.now { background:#fff7ed; color:#c2410c; }
+  .ck-h .st.ok { background:#dcfce7; color:#166534; }
+  .bar { height:7px; border-radius:4px; background:#e0e7ff; overflow:hidden; } .bar i { display:block; height:100%; background:var(--in); }
+  .ck.ok { border-color:#86efac; } .ck.ok .bar i { background:#22c55e; }
+  .week { white-space:nowrap; display:flex; align-items:center; gap:5px; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .week span { width:20px; height:20px; border-radius:6px; display:grid; place-items:center; font-size:10px; font-weight:900; color:#fff; }
+  .week .y { background:#22c55e; } .week .n { background:#fca5a5; } .week .t { background:#fff; border:2px dashed #a5b4fc; color:#4f46e5; } .week .o { background:#e2e8f0; color:#94a3b8; }
+  .week em { margin-left:auto; font-style:normal; }
+  .go { background:var(--in); color:#fff; text-align:center; font-weight:900; font-size:14px; border-radius:11px; padding:10px; }
+  .ck.ok .go { background:#f0fdf4; color:#166534; border:1px solid #86efac; }
+  .task { background:#fff; border-radius:14px; padding:2px 12px; }
+  .tr { display:flex; align-items:center; gap:10px; padding:10px 0; font-size:14px; border-top:1px solid #eef4f6; } .tr:first-child { border-top:none; }
+  .tr i { width:20px; height:20px; border-radius:6px; border:2px solid #fb923c; }
+  .setlink { text-align:center; font-size:12.5px; font-weight:800; color:var(--in); padding:4px; }
+  /* はじめて */
+  .first { background:#fff; border:2px dashed #a5b4fc; border-radius:16px; padding:14px; display:grid; gap:9px; text-align:center; }
+  .first .big { font-size:30px; }
+  .first b { font-size:16px; } .first p { font-size:12.5px; color:var(--muted); line-height:1.6; }
+  .samp { display:grid; gap:7px; }
+  .samp div { display:flex; align-items:center; gap:8px; border:1px solid #c7d2fe; background:#eef2ff; border-radius:12px; padding:10px 12px; text-align:left; font-size:13px; font-weight:800; color:#3730a3; }
+  .samp div small { display:block; font-size:11px; font-weight:600; color:var(--muted); }
+  .samp div em { margin-left:auto; font-style:normal; font-size:12px; background:var(--in); color:#fff; padding:5px 9px; border-radius:9px; white-space:nowrap; }
+  .own { font-size:13px; font-weight:800; color:var(--in); }
+  /* チェック中 */
+  .runtop { background:var(--in); color:#fff; padding:14px 16px 12px; display:grid; gap:6px; }
+  .runtop .x { display:flex; align-items:center; font-size:13px; font-weight:800; opacity:.9; }
+  .runtop .x span:last-child { margin-left:auto; }
+  .runtop b { font-size:20px; }
+  .runtop .bar { background:rgba(255,255,255,.3); } .runtop .bar i { background:#fff; }
+  .runtop small { font-size:12px; opacity:.9; }
+  .items { flex:1; padding:8px 12px; display:grid; gap:8px; align-content:start; }
+  .it { background:#fff; border-radius:14px; padding:14px; display:flex; align-items:center; gap:12px; font-size:16px; font-weight:800; border:2px solid transparent; }
+  .it i { width:30px; height:30px; border-radius:9px; border:3px solid #a5b4fc; display:grid; place-items:center; font-style:normal; color:#fff; font-size:17px; flex:none; }
+  .it.done { color:#94a3b8; } .it.done i { background:#22c55e; border-color:#22c55e; } .it.done s { text-decoration:line-through; }
+  .it small { margin-left:auto; font-size:11px; color:var(--muted); font-weight:700; text-align:right; }
+  .it.next { border-color:var(--in); box-shadow:0 4px 12px rgba(79,70,229,.18); }
+  .it .nb { white-space:nowrap; flex:none; margin-left:auto; font-size:11px; font-weight:800; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:4px 7px; }
+  .done-all { margin:0 12px 14px; background:#dcfce7; color:#166534; border-radius:14px; padding:12px; text-align:center; font-weight:900; font-size:14px; }
+  /* 設定 */
+  .set { background:#fff; border-radius:14px; border:1px solid var(--border); padding:11px 12px; display:grid; gap:4px; }
+  .set .h { display:flex; align-items:center; gap:8px; font-weight:900; font-size:14.5px; } .set .h em { margin-left:auto; font-style:normal; font-size:12px; color:var(--in); }
+  .set .m { font-size:12px; color:var(--muted); }
+  .set .m b { color:#3730a3; background:#eef2ff; border-radius:999px; padding:1px 8px; font-size:11px; margin-right:4px; }
+  .when { background:#fff; border-radius:14px; border:1px solid var(--border); padding:12px; display:grid; gap:8px; }
+  .when .q { font-size:13px; font-weight:900; }
+  .seg { display:flex; flex-wrap:wrap; gap:5px; } .seg span { font-size:12.5px; font-weight:800; padding:7px 11px; border-radius:10px; border:1px solid var(--border); color:var(--muted); background:#fff; }
+  .seg span.on { background:var(--in); border-color:var(--in); color:#fff; }
+  .sentence { background:#eef2ff; color:#3730a3; border-radius:12px; padding:10px 12px; font-size:13.5px; font-weight:800; line-height:1.6; }
+  .note { font-size:12px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:8px 10px; line-height:1.7; max-width:1500px; margin-top:16px; }
+
+  .pg { background:#fff; border:1px solid #fde68a; border-radius:14px; padding:10px 12px; display:grid; gap:6px; }
+  .pg-h { display:flex; align-items:center; gap:8px; } .pg-h b { font-size:14.5px; flex:1; }
+  .stt { font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; white-space:nowrap; }
+  .stt.go { background:#fef3c7; color:#92400e; } .stt.wait { background:#e0e7ff; color:#3730a3; } .stt.done { background:#dcfce7; color:#166534; }
+  .pg-m { font-size:11.5px; color:var(--muted); font-weight:700; display:flex; gap:8px; flex-wrap:wrap; }
+  .pg-m .stale { color:#b91c1c; background:#fee2e2; border-radius:6px; padding:0 6px; }
+  .pg-last { font-size:12px; color:#334155; background:#f8fafc; border-radius:8px; padding:5px 8px; line-height:1.45; }
+  .pg-last small { color:var(--muted); font-weight:700; }
+  .mini-bar { height:5px; border-radius:3px; background:#fef3c7; overflow:hidden; } .mini-bar i { display:block; height:100%; background:#f59e0b; }
+  .task { background:#fff; border-radius:14px; padding:2px 12px; }
+  .tr { display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13.5px; border-top:1px solid #eef4f6; } .tr:first-child { border-top:none; }
+  .tr i { width:20px; height:20px; border-radius:6px; border:2px solid #fb923c; }
+  .fold { font-size:12px; font-weight:800; color:#4f46e5; padding:0 4px; }
+  .sheet2 { position:absolute; left:0; right:0; bottom:0; top:70px; background:#fff; border-radius:20px 20px 0 0; padding:14px; display:grid; gap:9px; align-content:start; box-shadow:0 -8px 24px rgba(0,0,0,.2); overflow:hidden; }
+  .dim { position:absolute; inset:0; background:rgba(15,23,42,.35); }
+  .seg2 { display:flex; gap:4px; } .seg2 span { flex:1; text-align:center; font-size:12.5px; font-weight:800; padding:7px 4px; border-radius:9px; border:1px solid var(--border); color:var(--muted); }
+  .seg2 span.on.go { background:#f59e0b; border-color:#f59e0b; color:#fff; } .seg2 span.on.wait { background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font-size:12.5px; } .kv dt { color:var(--muted); font-weight:800; } .kv dd { margin:0; font-weight:800; }
+  .steps { display:grid; gap:2px; } .st { display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; } .st i { width:18px; height:18px; border-radius:5px; border:2px solid #f59e0b; flex:none; font-style:normal; color:#fff; font-size:11px; display:grid; place-items:center; }
+  .st.ok i { background:#22c55e; border-color:#22c55e; } .st.ok span { color:#94a3b8; text-decoration:line-through; }
+  .tl { display:grid; gap:0; border-left:2px solid #fde68a; margin-left:6px; padding-left:10px; }
+  .tl div { font-size:12.5px; padding:4px 0; position:relative; line-height:1.4; } .tl div::before { content:''; position:absolute; left:-15px; top:9px; width:8px; height:8px; border-radius:50%; background:#f59e0b; }
+  .tl small { display:block; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .compose { display:flex; gap:6px; } .compose .in2 { flex:1; border:1px solid var(--border); border-radius:10px; padding:9px; font-size:13px; color:#94a3b8; } .compose b { background:#f59e0b; color:#fff; border-radius:10px; padding:9px 12px; font-size:13px; }
+  .qa { display:flex; flex-wrap:wrap; gap:5px; } .qa span { font-size:12px; font-weight:800; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:#fff; color:#334155; }
+  .qa span.on { background:#4f46e5; color:#fff; border-color:#4f46e5; } .qa span.ok { background:#16a34a; color:#fff; border-color:#16a34a; }
+  .lab { font-size:11.5px; font-weight:800; color:var(--muted); display:grid; gap:4px; }
+  .in { border:1px solid var(--border); border-radius:10px; padding:9px 10px; font-size:14px; font-weight:700; color:var(--text); background:#fff; }
+  .band { background:#fff; border:1px solid var(--border); border-radius:14px; padding:6px 8px 8px; display:grid; gap:5px; }
+  .band-h { font-size:11px; font-weight:900; color:#c2410c; display:flex; } .band-h em { margin-left:auto; font-style:normal; color:var(--muted); }
+  .bchips { display:flex; flex-wrap:wrap; gap:5px; } .bc { font-size:12px; font-weight:800; padding:5px 9px; border-radius:9px; border:1px solid #fdba74; background:#fff7ed; color:#9a3412; }
+  .bc.p { border-color:#fcd34d; background:#fffbeb; color:#92400e; }
+  .hint { font-size:11.5px; background:#fffbeb; color:#92400e; border-radius:10px; padding:8px 10px; line-height:1.55; font-weight:700; }
+</style></head><body>
+</head><body>
+<h1>進行中のやること：何日もかかる仕事を、止めずに・引き継げるように</h1>
+<p class="lead">
+製氷機の修理・新メニューの準備・新人の受け入れのように、1日で終わらないやることは、今は「期限切れのまま残る」か「日付を何度も変える」になる。<br>
+案：やることに<b>状態（まだ／進行中／待ち／済み）</b>と<b>経過（時刻と人つきの1行メモ）</b>を持たせる。日付は期限ではなく<b>「次に見る日」</b>。日誌のリストに<b>「進行中」の枠</b>を作り、最後の経過と<b>止まっている日数</b>を出す。手順（小さなチェック）は任意。カンバンは使わない。
+</p>
+<div class="row"><div class="col"><div class="cap">① 日誌のリスト：今日の下に「進行中」<small>次に見る日・最後の経過・止まっている日数。待ちは紫、止まっていると赤</small></div><div class="phone"><span class="tag">案</span><div class="top"><div class="title"><b>業務日誌</b><small>残り 5</small></div><div class="flt"><span class="on">やること</span><span>済み</span><span>記録</span></div></div>
+  <div class="body">
+    <div class="fold">🔁 ルーティン 今日 3/4 ▼</div>
+    <div class="lh">今日 ・ 10月23日（金）<em style="color:var(--muted)">0/2</em></div>
+    <div class="task"><div class="tr"><i></i>手洗いの確認</div><div class="tr"><i></i>野菜の検品</div></div>
+    <div class="lh">進行中<em style="color:#92400e">3</em></div>
+    <div class="pg">
+      <div class="pg-h"><b>製氷機の修理</b><span class="stt wait">待ち：業者の見積もり</span></div>
+      <div class="pg-last">10/23 業者に電話。見積もりは明後日 <small>佐藤</small></div>
+      <div class="pg-m"><span>次に見る 10/25（日）</span><span>担当 佐藤</span></div>
+    </div>
+    <div class="pg">
+      <div class="pg-h"><b>新メニューの準備</b><span class="stt go">進行中</span></div>
+      <div class="mini-bar"><i style="width:50%"></i></div>
+      <div class="pg-last">試作OK。原価を出す <small>山田 10/22</small></div>
+      <div class="pg-m"><span>手順 2/4</span><span>期限 11/1</span><span>担当 山田</span></div>
+    </div>
+    <div class="pg">
+      <div class="pg-h"><b>新人の受け入れ準備</b><span class="stt go">進行中</span></div>
+      <div class="pg-last">制服のサイズを聞いた <small>鈴木 10/18</small></div>
+      <div class="pg-m"><span class="stale">5日 動きなし</span><span>担当 鈴木</span></div>
+    </div>
+  </div></div></div><div class="col"><div class="cap">② 押すと：状態・経過・手順<small>経過は1行ずつ、時刻と人つきで残る。ここを見れば引き継ぎがいらない</small></div><div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b></div></div><div class="dim"></div>
+  <div class="sheet2">
+    <b style="font-size:17px">製氷機の修理</b>
+    <div class="seg2"><span>まだ</span><span>進行中</span><span class="on wait">待ち</span><span>済み</span></div>
+    <div class="in" style="font-size:12.5px">待っているもの：業者の見積もり</div>
+    <dl class="kv"><dt>次に見る</dt><dd>10/25（日）</dd><dt>期限</dt><dd>なし</dd><dt>担当</dt><dd>佐藤</dd></dl>
+    <div class="lab">手順（任意）</div>
+    <div class="steps"><div class="st ok"><i>✓</i><span>業者に連絡</span></div><div class="st"><i></i><span>見積もりを決める</span></div><div class="st"><i></i><span>修理日を決める</span></div></div>
+    <div class="lab">経過</div>
+    <div class="tl">
+      <div>業者に電話。見積もりは明後日<small>10/23 14:10 佐藤</small></div>
+      <div>氷の出が悪い。音がする<small>10/21 21:40 鈴木（作った人）</small></div>
+    </div>
+    <div class="compose"><span class="in2">経過を書く…</span><b>送る</b></div>
+  </div></div></div><div class="col"><div class="cap">③ 経過を書いたついでに<small>「待ちにする／済みにする」と「次に見る日」をその場で。考えずに押せる</small></div><div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b></div></div><div class="dim"></div>
+  <div class="sheet2" style="top:300px">
+    <b style="font-size:15px">製氷機の修理：経過</b>
+    <div class="in" style="font-size:13px">見積もり3万円。11/2に修理に来る</div>
+    <div class="lab">このあと</div>
+    <div class="qa"><span>このまま</span><span class="on">待ちにする：修理の日</span><span class="ok">済みにする</span></div>
+    <div class="lab">次に見る日</div>
+    <div class="qa"><span>明日</span><span>3日後</span><span>1週間後</span><span class="on">11/2 ▾</span></div>
+    <div style="background:#f59e0b;color:#fff;text-align:center;font-weight:900;border-radius:11px;padding:11px">送る</div>
+  </div></div></div><div class="col"><div class="cap">④ 「次に見る日」に日誌へ出る<small>その日の終日の帯に⏳で。期限ではないので、過ぎても赤くたまらない</small></div><div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>10月25日（日）</b><small>次の日</small></div></div>
+  <div class="body">
+    <div class="band">
+      <div class="band-h">終日・時刻なし<em>3 / 3 残り</em></div>
+      <div class="bchips"><span class="bc p">⏳ 製氷機の修理（見積もり待ち）</span><span class="bc">ゴミ袋の補充</span><span class="bc" style="border-color:#a5b4fc;background:#eef2ff;color:#3730a3">🔁 ゴミ出し</span></div>
+    </div>
+    <div class="hint">⏳ は進行中のもの。押すと②の画面。見たら経過を1行書くか、次に見る日をずらす</div>
+  </div></div></div><div class="col"><div class="cap">⑤ 追加：「何日かかかる」を選ぶ<small>日付の代わりに「次に見る日」。手順はあとからでも</small></div><div class="phone"><span class="tag">案</span>
+  <div class="top"><div class="title"><b>業務日誌</b></div></div><div class="dim"></div>
+  <div class="sheet2" style="top:260px">
+    <b style="font-size:16px">やることを追加</b>
+    <div class="in">新人の受け入れ準備</div>
+    <div class="qa"><span>今日・日付を決める</span><span class="on">⏳ 何日かかかる（進行中）</span></div>
+    <div class="lab">次に見る日<div class="qa"><span>明日</span><span class="on">3日後</span><span>1週間後</span><span>日付 ▾</span></div></div>
+    <div class="lab">期限（あれば）<div class="in" style="color:#94a3b8">なし</div></div>
+    <div class="lab">担当<div class="in">鈴木</div></div>
+    <div style="background:#f59e0b;color:#fff;text-align:center;font-weight:900;border-radius:11px;padding:11px">進行中として追加</div>
+  </div></div></div></div>
+<p class="note">確認したいこと：① 「待ち」を状態に入れてよいか（案：入れる。待っているものを一言）　② 何日動きがなければ赤くするか（案：5日。店ごとに変えない）　③ 進行中を作れるのは、やることを作れる人と同じでよいか（案：同じ）</p>
+</body></html>
