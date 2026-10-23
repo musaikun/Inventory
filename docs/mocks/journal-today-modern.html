@@ -1,0 +1,102 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>今日の画面 モダン案</title><style>
+:root{--bg:#f4f6fb;--text:#0f172a;--muted:#64748b;--line:#e2e8f0;--in:#4f46e5;--am:#f59e0b;--gr:#22c55e;--rd:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;background:#d7dee8;color:var(--text);padding:24px}
+h1{font-size:20px;margin-bottom:4px}.lead{font-size:13px;color:#475569;margin-bottom:18px;max-width:1500px;line-height:1.7}
+.row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}.col{display:grid;gap:8px}
+.cap{font-size:14px;font-weight:800}.cap small{display:block;font-weight:400;color:#475569;font-size:12px;max-width:330px;line-height:1.5;min-height:54px}
+.phone{width:330px;height:700px;background:var(--bg);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;border:6px solid #0b1f26;box-shadow:0 12px 34px rgba(0,0,0,.2);position:relative}
+.tag{position:absolute;top:8px;right:8px;font-size:11px;font-weight:900;padding:3px 8px;border-radius:999px;color:#fff;background:#0e7490;z-index:5}
+.hd{padding:14px 16px 6px;display:flex;align-items:center;gap:12px}
+.hd h2{font-size:20px;letter-spacing:.02em}.hd small{display:block;font-size:11.5px;color:var(--muted);font-weight:700}
+.big{width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--in) 0 58%,#e0e7ff 0);display:grid;place-items:center;margin-left:auto}
+.big span{width:40px;height:40px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font-size:12px;font-weight:900}
+.tabs{display:flex;gap:6px;padding:4px 16px 8px}.tabs span{font-size:12px;font-weight:800;padding:6px 12px;border-radius:999px;background:#fff;color:var(--muted);box-shadow:0 1px 2px rgba(0,0,0,.05)}.tabs span.on{background:var(--text);color:#fff}
+.body{flex:1;overflow:hidden;padding:4px 0 10px;display:grid;gap:12px;align-content:start}
+.sec{display:flex;align-items:baseline;padding:0 16px;gap:6px}.sec b{font-size:13px}.sec em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700}.sec a{margin-left:auto;font-size:11.5px;color:var(--in);font-weight:800}
+.rings{display:flex;gap:12px;overflow:hidden;padding:2px 16px}
+.rg{flex:none;width:62px;display:grid;justify-items:center;gap:4px;text-align:center}
+.rg .c{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;position:relative}
+.rg .c span{width:48px;height:48px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:21px}
+.rg .t{font-size:10.5px;font-weight:800;line-height:1.2;color:#334155;max-width:62px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.rg .b{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);font-size:8.5px;font-weight:900;color:#fff;border-radius:6px;padding:1px 5px;white-space:nowrap}
+.b.d{background:var(--in)}.b.w{background:#0e7490}.b.m{background:#c2410c}
+.rg.ok .c span{background:#f0fdf4}.rg.ok .t{color:#94a3b8}
+.rg.more .c{background:#fff;border:2px dashed #cbd5e1}.rg.more .c span{background:none;font-size:13px;font-weight:900;color:var(--muted)}
+.cards{display:flex;gap:10px;overflow:hidden;padding:2px 16px 4px}
+.pc{flex:none;width:210px;background:#fff;border-radius:18px;padding:12px;display:grid;gap:7px;box-shadow:0 6px 16px rgba(15,23,42,.08);position:relative;overflow:hidden}
+.pc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px}
+.pc.go::before{background:var(--am)}.pc.wait::before{background:var(--in)}.pc.stale::before{background:var(--rd)}
+.pc-h{display:flex;align-items:center;gap:8px}.pc-h b{font-size:14px;flex:1;line-height:1.3}
+.ring2{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none}.ring2 span{width:26px;height:26px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:900}
+.pill{justify-self:start;font-size:10.5px;font-weight:900;padding:2px 8px;border-radius:999px}
+.pill.go{background:#fef3c7;color:#92400e}.pill.wait{background:#e0e7ff;color:#3730a3}.pill.stale{background:#fee2e2;color:#b91c1c}
+.pc-l{font-size:11.5px;color:#475569;line-height:1.45}.pc-f{font-size:10.5px;color:var(--muted);font-weight:700;display:flex;gap:6px}
+.av{width:18px;height:18px;border-radius:50%;background:#cbd5e1;color:#fff;font-size:10px;font-weight:900;display:grid;place-items:center}
+.list{margin:0 16px;background:#fff;border-radius:18px;padding:2px 14px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.it{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #f1f5f9;font-size:14px;font-weight:700}.it:first-child{border-top:none}
+.it i{width:22px;height:22px;border-radius:7px;border:2px solid #cbd5e1;flex:none}
+.it small{margin-left:auto;font-size:11px;color:var(--muted);font-weight:800}
+.it .tm{font-size:11px;font-weight:900;color:#0e7490;background:#ecfeff;border-radius:6px;padding:1px 6px}
+.it.r i{border-color:#a5b4fc}.it .ic{font-size:12px}
+.fold{margin:0 16px;font-size:12px;font-weight:800;color:#16a34a}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 0 0;padding:16px;display:grid;gap:10px;box-shadow:0 -10px 30px rgba(0,0,0,.18)}
+.dim{position:absolute;inset:0;background:rgba(15,23,42,.35)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 6px;padding:2px 4px}
+.grid .rg{width:auto}
+.kanb{display:grid;gap:10px;padding:0 16px}
+.vc{background:#fff;border-radius:18px;padding:12px 14px;display:grid;gap:8px;box-shadow:0 6px 16px rgba(15,23,42,.07);position:relative;overflow:hidden}
+.vc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px}.vc.go::before{background:var(--am)}.vc.wait::before{background:var(--in)}.vc.stale::before{background:var(--rd)}
+.steps{display:flex;gap:4px}.steps i{flex:1;height:5px;border-radius:3px;background:#e2e8f0}.steps i.ok{background:var(--am)}
+.seg{display:flex;background:#e2e8f0;border-radius:12px;padding:3px;margin:0 16px}.seg span{flex:1;text-align:center;font-size:12px;font-weight:800;padding:7px;border-radius:9px;color:var(--muted)}.seg span.on{background:#fff;color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.note{font-size:12px;background:#fff7ed;border:1px dashed #fb923c;color:#9a3412;border-radius:8px;padding:8px 10px;line-height:1.7;max-width:1500px;margin-top:16px}
+</style></head><body>
+<h1>日誌の「今日」を作り直す：種類ごとに“形”を変えて、重なっても長くならない</h1>
+<p class="lead">今はルーティン・今日のやること・進行中が同じ縦のリストに積まれ、月末×週末×毎日が重なると画面がとても長くなる。<br>
+案：<b>種類ごとに形を変える</b>。ルーティンは<b>リングの丸</b>を横に1段（スマホのストーリーのように）、進行中は<b>横に流れるカード</b>（今日見るものだけ）、1回きりのやることだけを<b>リスト</b>に。いくつ重なっても高さは3段のまま。全部を見たいときは「すべて」。進行中は専用のタブに縦のカードで。</p>
+<div class="row"><div class="col"><div class="cap">① 新しい「今日」：形で3種類を分ける<small>ルーティン＝丸（リング）を横に並べる／進行中＝横に流れるカード／1回きりのやること＝リスト。上に今日ぜんぶの進み具合</small></div>
+<div class="phone"><span class="tag">案</span><div class="hd"><div><h2>今日</h2><small>10月31日（土）・やること 12 のうち 7 済み</small></div><div class="big"><span>7/12</span></div></div><div class="tabs"><span class="on">今日</span><span>進行中 3</span><span>済み</span><span>記録</span></div><div class="body">
+ <div class="sec"><b>🔁 ルーティン</b><em>4 / 9</em><a>すべて ›</a></div><div class="rings"><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 66%,#e2e8f0 0)"><span>🧊</span><i class="b d">1日3回</i></div><div class="t">冷蔵庫の温度</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🌙</span><i class="b d">毎日</i></div><div class="t">退店チェック</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 25%,#e2e8f0 0)"><span>📦</span><i class="b m">月末</i></div><div class="t">備品の確認</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🧾</span><i class="b m">月末</i></div><div class="t">月末の締め</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 40%,#e2e8f0 0)"><span>🧽</span><i class="b w">土・日</i></div><div class="t">週末の大掃除</div></div><div class="rg more"><div class="c"><span>＋4</span></div><div class="t">ほか</div></div></div>
+ <div class="sec"><b>⏳ 進行中</b><em>今日見る 2</em><a>すべて 3 ›</a></div>
+<div class="cards">
+ <div class="pc wait"><div class="pc-h"><b>製氷機の修理</b><div class="ring2" style="background:conic-gradient(var(--in) 0 33%,#e2e8f0 0)"><span>1/3</span></div></div>
+  <span class="pill wait">待ち・業者の見積もり</span><div class="pc-l">10/23 業者に電話。見積もりは明後日</div><div class="pc-f"><span class="av">佐</span>次に見る：今日</div></div>
+ <div class="pc go"><div class="pc-h"><b>新メニューの準備</b><div class="ring2" style="background:conic-gradient(var(--am) 0 50%,#e2e8f0 0)"><span>2/4</span></div></div>
+  <span class="pill go">進行中・期限 11/1</span><div class="pc-l">試作OK。原価を出す</div><div class="pc-f"><span class="av">山</span>2日前</div></div>
+</div>
+ <div class="sec"><b>✓ やること</b><em>0 / 3</em></div><div class="list">
+ <div class="it"><i></i>手洗いの確認<small>誰でも</small></div>
+ <div class="it"><i></i><span class="tm">15:00</span>野菜の検品<small>鈴木</small></div>
+ <div class="it"><i></i>製氷機のフィルター交換<small>佐藤</small></div>
+</div>
+ <div class="fold">✓ 済み 7 ▼</div>
+</div></div></div><div class="col"><div class="cap">② 月末×週末×毎日が重なっても<small>丸が増えるだけで、画面の高さは1段のまま。「すべて」で全部を格子に。済んだものは後ろへ・緑のリング</small></div>
+<div class="phone"><span class="tag">案</span><div class="hd"><div><h2>今日</h2><small>10月31日（土）・やること 12 のうち 7 済み</small></div><div class="big"><span>7/12</span></div></div><div class="tabs"><span class="on">今日</span><span>進行中 3</span><span>済み</span><span>記録</span></div><div class="body">
+ <div class="dim" style="z-index:3"></div>
+ <div class="sheet" style="z-index:4;top:150px">
+  <div style="display:flex;align-items:baseline"><b style="font-size:17px">🔁 今日のルーティン</b><em style="margin-left:auto;font-style:normal;font-size:12px;color:var(--muted);font-weight:800">6 残り / 9</em></div>
+  <div style="display:flex;gap:6px;align-items:flex-start"><span class="pill wait" style="background:#eef2ff">毎日 4</span><span class="pill" style="background:#ccfbf1;color:#115e59">毎週 2</span><span class="pill" style="background:#ffedd5;color:#9a3412">月末 3</span></div>
+  <div class="grid"><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 66%,#e2e8f0 0)"><span>🧊</span><i class="b d">1日3回</i></div><div class="t">冷蔵庫の温度</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🌙</span><i class="b d">毎日</i></div><div class="t">退店チェック</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 25%,#e2e8f0 0)"><span>📦</span><i class="b m">月末</i></div><div class="t">備品の確認</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🧾</span><i class="b m">月末</i></div><div class="t">月末の締め</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 40%,#e2e8f0 0)"><span>🧽</span><i class="b w">土・日</i></div><div class="t">週末の大掃除</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🗑</span><i class="b d">毎日</i></div><div class="t">ゴミ出し</div></div><div class="rg ok"><div class="c" style="background:conic-gradient(var(--gr) 0 100%,#e2e8f0 0)"><span>✓</span><i class="b d">毎日</i></div><div class="t">開店チェック</div></div><div class="rg ok"><div class="c" style="background:conic-gradient(var(--gr) 0 100%,#e2e8f0 0)"><span>✓</span><i class="b m">毎月1日</i></div><div class="t">発注書</div></div><div class="rg ok"><div class="c" style="background:conic-gradient(var(--gr) 0 100%,#e2e8f0 0)"><span>✓</span><i class="b w">土</i></div><div class="t">床の洗浄</div></div></div>
+  <div style="font-size:11.5px;color:var(--muted);font-weight:700;text-align:center">丸を押すと✓の画面。項目なしは押すだけで済む</div>
+ </div>
+</div></div></div><div class="col"><div class="cap">③ 「進行中」タブ：止まり・待ち・進行中で並べる<small>カンバンの代わりに、縦に積むカード。手順のバー・担当・最後の経過・次に見る日。止まっているものが一番上</small></div>
+<div class="phone"><span class="tag">案</span>
+ <div class="hd"><div><h2>進行中</h2><small>3件 ・ 待ち 1 ・ 止まり 1</small></div></div>
+ <div class="tabs"><span>今日</span><span class="on">進行中 3</span><span>済み</span><span>記録</span></div>
+ <div class="body">
+ <div class="seg"><span class="on">すべて</span><span>自分の</span><span>待ち</span></div>
+ <div class="kanb">
+  <div class="vc stale"><div class="pc-h"><b>新人の受け入れ準備</b><span class="pill stale">5日 止まり</span></div><div class="steps"><i class="ok"></i><i></i><i></i></div><div class="pc-l">制服のサイズを聞いた</div><div class="pc-f"><span class="av">鈴</span>10/18 ・ 次に見る：過ぎた</div></div>
+  <div class="vc wait"><div class="pc-h"><b>製氷機の修理</b><span class="pill wait">待ち・見積もり</span></div><div class="steps"><i class="ok" style="background:var(--in)"></i><i></i><i></i></div><div class="pc-l">業者に電話。見積もりは明後日</div><div class="pc-f"><span class="av">佐</span>10/23 ・ 次に見る：今日</div></div>
+  <div class="vc go"><div class="pc-h"><b>新メニューの準備</b><span class="pill go">期限 11/1</span></div><div class="steps"><i class="ok"></i><i class="ok"></i><i></i><i></i></div><div class="pc-l">試作OK。原価を出す</div><div class="pc-f"><span class="av">山</span>10/29 ・ 次に見る：11/2</div></div>
+  <div style="text-align:center;font-size:12.5px;font-weight:800;color:var(--am)">＋ 進行中のやることを追加</div>
+ </div></div>
+</div></div><div class="col"><div class="cap">④ ふつうの日（静か）<small>進行中で今日見るものが無ければ、その段は1行に縮む。何も無い段は出さない</small></div>
+<div class="phone"><span class="tag">案</span><div class="hd"><div><h2>今日</h2><small>10月27日（火）・やること 5 のうち 1 済み</small></div><div class="big" style="background:conic-gradient(var(--in) 0 20%,#e0e7ff 0)"><span>1/5</span></div></div><div class="tabs"><span class="on">今日</span><span>進行中 3</span><span>済み</span><span>記録</span></div><div class="body">
+ <div class="sec"><b>🔁 ルーティン</b><em>1 / 3</em><a>すべて ›</a></div><div class="rings"><div class="rg ok"><div class="c" style="background:conic-gradient(var(--gr) 0 100%,#e2e8f0 0)"><span>✓</span><i class="b d">毎日</i></div><div class="t">開店チェック</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🌙</span><i class="b d">毎日</i></div><div class="t">退店チェック</div></div><div class="rg"><div class="c" style="background:conic-gradient(var(--in) 0 0%,#e2e8f0 0)"><span>🗑</span><i class="b d">毎日</i></div><div class="t">ゴミ出し</div></div></div>
+ <div class="sec"><b>⏳ 進行中</b><em>今日見るものはなし ・ 3件 進行中</em><a>›</a></div>
+ <div class="sec"><b>✓ やること</b><em>0 / 2</em></div>
+ <div class="list"><div class="it"><i></i>手洗いの確認<small>誰でも</small></div><div class="it"><i></i><span class="tm">15:00</span>野菜の検品<small>鈴木</small></div></div>
+</div></div></div></div>
+<p class="note">確認したいこと：① 日誌の上のタブを「今日／進行中／済み／記録」にしてよいか（今の「やること」を「今日」に）　② ルーティンの丸の並びは「まだ → 済み」の順でよいか（時刻のあるものは時刻順）　③ 「1日」「月」の見え方は今のまま</p>
+</body></html>
