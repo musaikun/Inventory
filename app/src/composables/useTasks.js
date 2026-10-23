@@ -12,13 +12,15 @@
 // - 消すときも行は残し deletedAt を立てる（他の端末へ「消した」を届けるため）
 // - 「誰が」はスタッフなら本人の名前、オーナーなら端末名（段 2-2）。自分のものかは ID（createdById＝スタッフ ID か端末 ID）で見る
 // - 新着: 他の端末が追加した、まだ確認していないもの。確認した時刻は端末ごとに覚える
+// - 進行中（2026-10-23・migration 0031）: progress = 'doing' | 'waiting'。日付は「次に見る日」（期限切れにしない）。
+//   waitNote（何を待つか）・deadline（本当の期限）・steps（小さな手順）・lastNote（最後の経過）。経過は別の表で足していくだけ
 import { reactive, ref, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { localDateKey } from '../utils/localDate.js'
 import { deviceName, actorId, isMeId } from './useDeviceId.js'
 import { isAdmin, can } from './useAuth.js'
 import * as R from '../services/taskRights.js'
-import { loadTasksFromD1, saveTaskToD1, markTaskInD1 } from './useStore.js'
+import { loadTasksFromD1, saveTaskToD1, markTaskInD1, loadTaskNotesFromD1, addTaskNoteToD1 } from './useStore.js'
 import { ownPushEndpoint } from './usePush.js'
 
 export const TASK_TEXT_MAX = 200
@@ -64,10 +66,10 @@ export function tasksOn(date) {
   return _data.list.filter(t => t.date === date && _alive(t)).sort(_byTime)
 }
 
-/** 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から） */
+/** 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は「次に見る日」なので入れない */
 export function overdueTasks(today = localDateKey()) {
   return _data.list
-    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today)
+    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress)
     .sort((a, b) => a.date.localeCompare(b.date) || _byTime(a, b))
 }
 export const overdueCount = computed(() => overdueTasks().length)
@@ -140,7 +142,7 @@ function _assignFields(a) {
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
 /** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
-export function addTask(date, text, assign = null, dueTime = null, { visibility = null } = {}) {
+export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
   const now = _now()
@@ -150,6 +152,7 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
     ..._assignFields(assign), doneList: [], dueTime: date ? _time(dueTime) : null,
     visibility: visibility === 'admins' && isAdmin.value ? 'admins' : null,
+    ...(PROGRESS.includes(progress) ? { progress, waitNote: null, deadline: _DATE_RE.test(deadline || '') ? deadline : null, steps: [], lastNote: null } : {}),
   }
   _data.list.push(t)
   _persist()
@@ -298,6 +301,58 @@ export const todayOpenCount = computed(() => {
 export function isMyTask(t) { return !!t && isMeId(t.createdById) }
 /** 自分が担当のやること（特定の人で自分） */
 export function isAssignedToMe(t) { return t?.assign === 'person' && isMeId(t.assigneeId) }
+
+// ── 進行中（2026-10-23）──
+export const PROGRESS = ['doing', 'waiting']
+export const STALE_DAYS = 5
+/** 進行中・待ちのもの（まだ済んでいない） */
+export const progressTasks = computed(() => _data.list.filter(t => _alive(t) && !t.doneAt && t.progress))
+/** 今日見るもの: 次に見る日が今日か、もう過ぎた */
+export function dueProgress(today = localDateKey()) { return progressTasks.value.filter(t => t.date && t.date <= today) }
+/** 最後に動いた日からの日数（経過・状態の変更・作った日のうち新しいもの） */
+export function idleDays(t, now = Date.now()) {
+  const last = [t?.lastNote?.at, t?.updatedAt, t?.createdAt].filter(Boolean).sort().pop()
+  return last ? Math.floor((now - Date.parse(last)) / 86400_000) : 0
+}
+export const isStale = t => !!t?.progress && !t.doneAt && idleDays(t) >= STALE_DAYS
+/** 進み具合を変えられるか（担当の人・作った人・管理者。サーバーも同じ規則） */
+export function canProgress(t) { return !!t && !t.doneAt && !t.deletedAt && (R.canEdit(t, _me()) || R.canComplete(t, _me())) }
+/**
+ * 状態・待っているもの・次に見る日・期限・手順を変える
+ * @param {{ progress?: 'doing'|'waiting', waitNote?: string|null, date?: string, deadline?: string|null, steps?: object[] }} f
+ */
+export function updateProgress(id, f = {}) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t || !canProgress(t)) return null
+  const fields = {}
+  if (f.progress !== undefined && PROGRESS.includes(f.progress)) fields.progress = f.progress
+  if (f.waitNote !== undefined) fields.waitNote = String(f.waitNote ?? '').trim().slice(0, 60) || null
+  if (f.date !== undefined && _DATE_RE.test(f.date)) fields.date = f.date
+  if (f.deadline !== undefined) fields.deadline = _DATE_RE.test(f.deadline || '') ? f.deadline : null
+  if (f.steps !== undefined) fields.steps = (f.steps ?? []).filter(x => x?.id && String(x.text ?? '').trim()).slice(0, 20).map(x => ({ id: x.id, text: String(x.text).trim().slice(0, 100), done: !!x.done }))
+  return _patch(id, fields)
+}
+/** 済みにする（進行中から） */
+export function finishProgress(id) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t || !canProgress(t)) return null
+  return _patch(id, { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
+}
+export const newStepId = () => 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+/** 経過を読む（新しい順） */
+export async function loadNotes(id) {
+  const r = await loadTaskNotesFromD1(id)
+  return Array.isArray(r?.notes) ? r.notes : []
+}
+/** 経過を書く（時刻と人はサーバーが刻む）。最後の経過をすぐカードに出す */
+export async function addNote(id, body) {
+  const text = String(body ?? '').trim().slice(0, 300)
+  if (!text) throw new Error('経過を入れてください')
+  const r = await addTaskNoteToD1(id, { body: text, by: deviceName.value || '', byId: actorId() })
+  const t = _data.list.find(x => x.id === id)
+  if (t && r?.note) { t.lastNote = { body: r.note.body, by: r.note.by, at: r.note.at }; _persist() }
+  return r?.note ?? null
+}
 
 // テスト用：保存先から読み直す
 export function _reloadTasks() { _load() }

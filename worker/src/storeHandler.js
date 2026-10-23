@@ -2039,7 +2039,8 @@ export async function handleTasksGet(db, code, sinceDays, { admin = true } = {})
   const since = _sinceDate(sinceDays, 120)
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id, visibility
+      assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id, visibility,
+      progress, wait_note, deadline, steps_json, last_note, last_note_by, last_note_at
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
       OR (task_date = '' AND updated_at >= ?))
       AND (visibility IS NULL OR ? = 1)
@@ -2060,7 +2061,22 @@ export async function handleTasksGet(db, code, sinceDays, { admin = true } = {})
     // アプリが自動で作ったやること（'staff_join' ＝ 参加申請。人の手では完了・直す・消すができない）
     kind: r.kind ?? null, refId: r.ref_id ?? null,
     visibility: r.visibility === 'admins' ? 'admins' : null,
+    // 進行中（migration 0031）: 日付は「次に見る日」
+    progress: TASK_PROGRESS.includes(r.progress) ? r.progress : null,
+    waitNote: r.wait_note ?? null, deadline: r.deadline ?? null, steps: _steps(r.steps_json),
+    lastNote: r.last_note ? { body: r.last_note, by: r.last_note_by ?? '', at: r.last_note_at ?? null } : null,
   }))
+}
+
+export const TASK_PROGRESS = ['doing', 'waiting']
+const STEPS_MAX = 20
+/** 小さな手順 [{ id, text, done }] */
+function _steps(v) {
+  let a = v
+  if (typeof v === 'string') { try { a = JSON.parse(v) } catch (_) { return [] } }
+  if (!Array.isArray(a)) return []
+  return a.filter(x => x && typeof x.id === 'string' && /^[\w-]{1,64}$/.test(x.id) && typeof x.text === 'string' && x.text.trim())
+    .slice(0, STEPS_MAX).map(x => ({ id: x.id, text: x.text.trim().slice(0, 100), done: !!x.done }))
 }
 
 /**
@@ -2093,6 +2109,11 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
     dueTime: typeof body.dueTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.dueTime) ? body.dueTime : null,
     // 'admins' ＝ オーナーと管理者だけに見せる（2026-10-15。付けられるのは管理者だけ・ルーターで確かめる）
     visibility: body.visibility === 'admins' ? 'admins' : null,
+    // 進行中（migration 0031）
+    progress: TASK_PROGRESS.includes(body.progress) ? body.progress : null,
+    waitNote: _short(body.waitNote, 60) || null,
+    deadline: typeof body.deadline === 'string' && _DATE.test(body.deadline) ? body.deadline : null,
+    steps: _steps(body.steps),
   }
   t.assigneeId   = t.assign === 'person' ? (_short(body.assigneeId, 64) || null) : null
   t.assigneeName = t.assign === 'person' ? (_short(body.assigneeName, 40) || null) : null
@@ -2102,10 +2123,11 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
   // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
     INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, due_time, visibility)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      assign_mode, assignee_id, assignee_name, due_time, visibility, progress, wait_note, deadline, steps_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       task_date = excluded.task_date, body = excluded.body, due_time = excluded.due_time, visibility = excluded.visibility,
+      progress = excluded.progress, wait_note = excluded.wait_note, deadline = excluded.deadline, steps_json = excluded.steps_json,
       assign_mode = excluded.assign_mode, assignee_id = excluded.assignee_id, assignee_name = excluded.assignee_name,
       done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
@@ -2116,6 +2138,7 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
   `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
     t.assign, t.assigneeId, t.assigneeName, t.dueTime, t.visibility,
+    t.progress, t.waitNote, t.deadline, t.steps.length ? JSON.stringify(t.steps) : null,
     keepPrev ? 1 : 0, keepPrev?.prevDoneAt ?? null, keepPrev ? 1 : 0, keepPrev?.prevDoneById ?? null).run()
   if (keepPrev) { t.prevDoneAt = keepPrev.prevDoneAt; t.prevDoneById = keepPrev.prevDoneById }
   return { ok: true, created: !prev && !t.deletedAt, task: t }
@@ -2153,4 +2176,33 @@ export async function handleTaskMark(db, code, id, actor, done, { admin = false 
     if (r?.meta?.changes === 1) return { ok: true, doneList: list, doneAt: complete ? now : null }
   }
   return { _status: 409, error: '同時に印が付きました。もう一度押してください' }
+}
+
+/**
+ * 進行中のやることの経過（migration 0031）。足していくだけで直さない（証跡）。時刻と人はサーバーが刻む。
+ * 書けるのは、そのやることが見える人なら誰でも（引き継ぎのため）。最後の経過はやることの行にも写す（カードにすぐ出す）
+ */
+export async function handleTaskNoteAdd(db, code, id, body = {}, who = {}, { admin = false, nowIso = _now() } = {}) {
+  const text = _short(body.body, 300)
+  if (!text) return { _status: 400, error: '経過を入れてください' }
+  if (!who?.id) return { _status: 400, error: '誰の書き込みか分かりません' }
+  const row = await db.prepare('SELECT deleted_at, visibility FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
+  if (!row || row.deleted_at || (row.visibility === 'admins' && !admin)) return { _status: 404, error: '見つかりません' }
+  const noteId = 'n_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  const by = _short(who.name, 40)
+  await db.batch([
+    db.prepare('INSERT INTO task_notes (id, shop_code, task_id, body, by_name, by_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(noteId, code, id, text, by, who.id, nowIso),
+    db.prepare('UPDATE tasks SET last_note = ?, last_note_by = ?, last_note_at = ? WHERE id = ? AND shop_code = ?')
+      .bind(text, by, nowIso, id, code),
+  ])
+  return { ok: true, note: { id: noteId, body: text, by, byId: who.id, at: nowIso } }
+}
+
+export async function handleTaskNotesGet(db, code, id, { admin = false } = {}) {
+  const row = await db.prepare('SELECT deleted_at, visibility FROM tasks WHERE id = ? AND shop_code = ?').bind(id, code).first()
+  if (!row || (row.visibility === 'admins' && !admin)) return { _status: 404, error: '見つかりません' }
+  const rows = (await db.prepare('SELECT id, body, by_name, by_id, created_at FROM task_notes WHERE shop_code = ? AND task_id = ? ORDER BY created_at DESC LIMIT 200')
+    .bind(code, id).all()).results ?? []
+  return { ok: true, notes: rows.map(r => ({ id: r.id, body: r.body, by: r.by_name, byId: r.by_id, at: r.created_at })) }
 }

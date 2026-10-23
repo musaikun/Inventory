@@ -89,3 +89,34 @@ describe('ルーティンの予定', () => {
     expect(dayRun(c, runs, '2026-10-20', '09:00')).toBeNull()
   })
 })
+
+import { dayStatus, statusStats, lastDays, monthDays } from './checklistSchedule.js'
+describe('ルーティンの記録の色', () => {
+  const items = [{ id: 'a', text: 'ガスの元栓' }, { id: 'b', text: 'ダスター漂白' }]
+  const c = { id: 'c1', name: '退店', items, repeat: 'daily', startDate: '2026-10-01', dueTimes: [] }
+  const runs = {
+    'c1|2026-10-18|': { items, marks: { a: { s: 'done' }, b: { s: 'done' } } },
+    'c1|2026-10-19|': { items, marks: { a: { s: 'done' } } },
+  }
+  it('やった・途中・抜け・今日・先の日・予定なし', () => {
+    expect(dayStatus(c, runs, '2026-10-18', '2026-10-21')).toBe('y')
+    expect(dayStatus(c, runs, '2026-10-19', '2026-10-21')).toBe('p')
+    expect(dayStatus(c, runs, '2026-10-20', '2026-10-21')).toBe('n')
+    expect(dayStatus(c, runs, '2026-10-21', '2026-10-21')).toBe('t')
+    expect(dayStatus(c, runs, '2026-10-22', '2026-10-21')).toBe('f')
+    expect(dayStatus(c, runs, '2026-09-30', '2026-10-21')).toBe('o')
+  })
+  it('やった率は過ぎた予定の日だけで数える', () => {
+    const s = statusStats(c, runs, lastDays(4, '2026-10-21'), '2026-10-21')
+    expect(s).toMatchObject({ y: 1, p: 1, n: 1, total: 3, rate: 33 })
+  })
+  it('1日に何回も: 1回でも抜けたら途中', () => {
+    const m = { ...c, dueTimes: ['10:00', '15:00'] }
+    const r2 = { 'c1|2026-10-19|10:00': { items, marks: { a: { s: 'done' }, b: { s: 'done' } } } }
+    expect(dayStatus(m, r2, '2026-10-19', '2026-10-21')).toBe('p')
+  })
+  it('月の日', () => {
+    const m = monthDays(2026, 9)
+    expect([m.days.length, m.days[0], m.firstDow]).toEqual([31, '2026-10-01', 4])
+  })
+})

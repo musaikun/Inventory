@@ -8,6 +8,12 @@ export const dayJst = iso => {
   return Number.isFinite(t) ? new Date(t + 9 * 3600_000).toISOString().slice(0, 10) : ''
 }
 
+const _stepsOf = v => {
+  let a = v
+  if (typeof v === 'string') { try { a = JSON.parse(v) } catch (_) { a = [] } }
+  return Array.isArray(a) ? a.map(x => [String(x?.id ?? ''), String(x?.text ?? '').trim(), !!x?.done]) : []
+}
+
 const _task = r => ({
   assign: r.assign_mode ?? 'anyone', assigneeId: r.assignee_id ?? null, createdById: r.created_by_id ?? '',
   doneAt: r.done_at ?? null, doneById: r.done_by_id ?? null, deletedAt: r.deleted_at ?? null,
@@ -39,10 +45,19 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
     || (body?.assign === 'person' && (row.assignee_id ?? '') !== (body?.assigneeId ?? ''))
   const visChanged = (t.visibility === 'admins') !== (body?.visibility === 'admins')
   if (visChanged && !me.admin) return { deny: '「管理者だけ」にできるのは管理者だけです' }
+  // 進行中（2026-10-23）: 状態・待っているもの・次に見る日（日付）・期限・手順は、完了にできる人（担当・誰でも）も変えられる
+  const progressTask = !!(row.progress || body?.progress)
+  const dateChanged = (row.task_date ?? '') !== (body?.date ?? '')
   const edited = visChanged || (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
-    || (row.task_date ?? '') !== (body?.date ?? '') || (row.due_time ?? null) !== (body?.dueTime || null)
+    || (dateChanged && !progressTask) || (row.due_time ?? null) !== (body?.dueTime || null)
   if ((assignChanged || edited) && !canEdit(t, me)) {
     return { deny: wasDone ? '完了したやることは直せません' : 'このやることを直せるのは、作った人と管理者だけです' }
+  }
+  const progressChanged = progressTask && (dateChanged || (row.progress ?? null) !== (body?.progress ?? null)
+    || (row.wait_note ?? null) !== (body?.waitNote || null) || (row.deadline ?? null) !== (body?.deadline || null)
+    || JSON.stringify(_stepsOf(row.steps_json)) !== JSON.stringify(_stepsOf(body?.steps)))
+  if (progressChanged && !canEdit(t, me) && !canComplete(t, me)) {
+    return { deny: '進み具合を変えられるのは、担当の人・作った人・管理者だけです' }
   }
   if (t.assign === 'all') return { keepPrev: null }   // 「全員」の完了は印（/mark）で決まる
   const wantDone = !!body?.doneAt

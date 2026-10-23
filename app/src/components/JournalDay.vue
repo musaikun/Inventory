@@ -18,7 +18,8 @@ import TaskRow from './TaskRow.vue'
 import RecordRow from './RecordRow.vue'
 import DayPickerSheet from './DayPickerSheet.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
-import { tasksOn, overdueTasks, isMarkedByMe, toggleTask, canToggleTask } from '../composables/useTasks.js'
+import ProgressSheet from './ProgressSheet.vue'
+import { tasksOn, overdueTasks, isMarkedByMe, toggleTask, canToggleTask, dueProgress } from '../composables/useTasks.js'
 import { checklistsForDay, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { isSimple, WHOLE } from '../services/checklistSchedule.js'
 import { can } from '../composables/useAuth.js'
@@ -81,11 +82,13 @@ const md = d => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}
 
 // 終日・時刻なしの帯: 今日は前の日から残っているやることも（赤）。並びは 期限切れ → 残り → 済み
 const pastDay = computed(() => props.date < localDateKey())
-const lateTasks = computed(() => (isToday.value ? overdueTasks(props.date) : []))
+// 進行中（⏳）は期限切れにしない。今日は、次に見る日を過ぎたものも出す
+const lateTasks = computed(() => (isToday.value ? [...overdueTasks(props.date), ...dueProgress(props.date).filter(t => t.date < props.date)] : []))
 const untimed = computed(() => [...lateTasks.value, ...tasks.value.filter(t => !t.dueTime)])
 const bandAll = computed(() => {
   const chips = [
     ...untimed.value.map(t => {
+      if (t.progress) return { key: t.id, type: 'prog', task: t, label: `⏳ ${t.text}${t.progress === 'waiting' ? `（待ち${t.waitNote ? `・${t.waitNote}` : ''}）` : ''}`, done: false, late: false, rank: 1 }
       const done = _checked(t)
       const late = !done && (t.date < props.date || pastDay.value)
       return { key: t.id, type: 'task', task: t, label: t.date < props.date ? `${t.text}（${md(t.date)}から）` : t.text, done, late, rank: late ? 0 : done ? 2 : 1 }
@@ -102,7 +105,7 @@ const bandChips = computed(() => (bandAll.value.length > BAND_MAX + 1 ? bandAll.
 const bandMore = computed(() => bandAll.value.length - bandChips.value.length)
 const bandLeft = computed(() => bandAll.value.filter(c => !c.done).length)
 function tapChip(c) {
-
+  if (c.type === 'prog') { untimedOpen.value = false; progOpen.value = c.task; return }
   if (c.type === 'list') {
     // 項目なしのルーティンは、やることと同じくその場で済ませる
     if (isSimple(c.run.cl)) { toggleSimple(c.run); return }
@@ -121,6 +124,7 @@ async function toggleSimple(x) {
 
 // ルーティンの✓の画面（回ごと）
 const runOpen = ref(null)   // { cl, slot }
+const progOpen = ref(null)  // 進行中のやること
 function openRun(cl, slot = '') { untimedOpen.value = false; runOpen.value = { cl, slot } }
 function runHistory(cl) { runOpen.value = null; emit('checklist-history', cl) }
 
@@ -264,7 +268,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
           v-for="c in bandChips" :key="c.key" type="button" :class="['jd-chip', c.type, { done: c.done, late: c.late }]"
           :aria-pressed="c.type === 'task' ? c.done : undefined" @click="tapChip(c)"
         >
-          <i v-if="c.type !== 'list'" aria-hidden="true"></i><span>{{ c.label }}</span><b v-if="c.n">{{ c.n }}</b>
+          <i v-if="c.type === 'task'" aria-hidden="true"></i><span>{{ c.label }}</span><b v-if="c.n">{{ c.n }}</b>
         </button>
         <button v-if="bandMore" type="button" class="jd-chip more" @click="untimedOpen = true">＋{{ bandMore }}件</button>
       </div>
@@ -301,6 +305,7 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 
     <Teleport to="body">
       <DayPickerSheet v-if="picking" :date="date" :marks="marks" @pick="pickDate" @close="picking = false" />
+      <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
       <ChecklistRunSheet v-if="runOpen" :cl="runOpen.cl" :slot="runOpen.slot" :date="date" @close="runOpen = null" @history="runHistory" />
       <div v-if="picked || editHours || untimedOpen || memoOpen" class="jd-sheet-bg" @click.self="closeSheet">
         <div class="jd-sheet" role="dialog">
@@ -310,7 +315,10 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
               <button v-for="c in bandAll.filter(x => x.type === 'list')" :key="c.key" type="button" :class="['jd-clrow', { done: c.done, late: c.late }]" @click="openRun(c.run.cl, c.run.slot)">
                 <span>☑ {{ c.label }}</span><b>{{ c.n }}{{ c.done ? ' 済' : '' }}</b>
               </button>
-              <TaskRow v-for="t in untimed" :key="t.id" :task="t" :show-date="t.date < date" />
+              <button v-for="c in bandAll.filter(x => x.type === 'prog')" :key="c.key" type="button" class="jd-clrow prog" @click="tapChip(c)">
+                <span>{{ c.label }}</span><b>›</b>
+              </button>
+              <TaskRow v-for="t in untimed.filter(x => !x.progress)" :key="t.id" :task="t" :show-date="t.date < date" />
             </div>
             <button v-if="can('task.create')" type="button" class="jd-add" @click="addUntimed">＋ 時刻なしのやることを追加</button>
           </template>
@@ -384,6 +392,8 @@ function openHours() { hf.value = hours.value.from; ht.value = hours.value.to; e
 .jd-chip.more { background: var(--surface); border-style: dashed; border-color: #a5f3fc; color: var(--primary); }
 .jd-clrow { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 46px; border: none; border-bottom: 1px solid #eef4f6; background: none; font: inherit; font-size: 14px; font-weight: 800; color: #3730a3; text-align: left; cursor: pointer; padding: 0 4px; }
 .jd-clrow b { margin-left: auto; font-size: 12px; }
+.jd-chip.prog { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.jd-clrow.prog { color: #92400e; }
 .jd-clrow.done { color: #166534; } .jd-clrow.late { color: #b91c1c; }
 .jd-sheet-h { display: flex; justify-content: space-between; align-items: baseline; }
 .jd-sheet-h small { font-size: 12px; color: var(--text-muted); font-weight: 700; }

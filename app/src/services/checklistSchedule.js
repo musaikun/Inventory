@@ -188,3 +188,41 @@ export function whenLabel(cl) {
   const t = slotsOf(cl).filter(Boolean)
   return `${cl?.repeat === 'weekly' ? '毎週 ' : ''}${repeatLabel(cl)}${t.length ? ` ${t.join('・')}` : ''}`
 }
+
+/**
+ * 記録の色（User決定 2026-10-23・モック docs/mocks/routine-records.html）
+ * 'y' やった（全部の項目・全部の回）/ 'p' 途中で終わり（一部だけ・1日に何回もで抜けた回がある）/ 'n' 抜け（何もしていない）/
+ * 't' 今日でまだ / 'f' 先の日（予定あり）/ 'o' 予定なし
+ */
+export function dayStatus(cl, runs, date, today = localDateKey()) {
+  const r = dayChecklist(cl, runs, date)
+  if (!r) return 'o'
+  if (r.complete) return 'y'
+  if (date > today) return 'f'
+  if (date === today) return 't'
+  return r.started || r.doneSlots > 0 ? 'p' : 'n'
+}
+
+/** 期間の数え（今日と先の日は数えない）: やった・途中・抜け・やった率（予定の日がなければ null） */
+export function statusStats(cl, runs, dates, today = localDateKey()) {
+  const c = { y: 0, p: 0, n: 0 }
+  for (const d of dates) { const s = dayStatus(cl, runs, d, today); if (s in c && d < today) c[s]++ }
+  const total = c.y + c.p + c.n
+  return { ...c, total, rate: total ? Math.round(c.y / total * 100) : null }
+}
+
+/** today までの n 日（古い順） */
+export function lastDays(n, today = localDateKey()) {
+  const out = []
+  const d = _d(today)
+  d.setDate(d.getDate() - (n - 1))
+  for (let i = 0; i < n; i++) { out.push(localDateKey(d)); d.setDate(d.getDate() + 1) }
+  return out
+}
+
+/** その月の日（YYYY-MM-DD の配列）と、1日の曜日 */
+export function monthDays(year, month) {
+  const last = new Date(year, month + 1, 0).getDate()
+  const days = Array.from({ length: last }, (_, i) => localDateKey(new Date(year, month, i + 1)))
+  return { days, firstDow: new Date(year, month, 1).getDay() }
+}

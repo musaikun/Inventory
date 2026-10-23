@@ -6,7 +6,7 @@ import {
   handleHistoryGet,  handleHistoryGetOne, handleHistoryPost, handleHistoryDelete,
   handleRoomUpdate,
   handleSessionsGet, handleSessionCreate, handleSessionUpdate, handleSessionDelete,
-  handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleTaskMark, handleSessionRestore,
+  handleDiscardedList, handlePurgeUnfinished, handleTasksGet, handleTaskUpsert, handleTaskMark, handleTaskNoteAdd, handleTaskNotesGet, handleSessionRestore,
   handleSessionComplete, handleSessionLinesGet, handleRoomResult,
   handleAuditAppend, handleAuditGet, setDebugErrors,
   handleOrdersGet, handleOrderCreate, handleOrderDelete,
@@ -624,7 +624,7 @@ export default {
           const body = await request.json().catch(() => ({}))
           const prevTask = typeof body?.id === 'string'
             ? await env.DB.prepare(`SELECT deleted_at, assign_mode, assignee_id, body, task_date, due_time, created_by_id, done_at, done_by_id,
-                prev_done_at, prev_done_by_id, kind, visibility FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
+                prev_done_at, prev_done_by_id, kind, visibility, progress, wait_note, deadline, steps_json FROM tasks WHERE id = ? AND shop_code = ?`).bind(body.id, code).first()
             : null
           // 誰が（スタッフは本人・オーナーは 'owner'）。作った人・完了した人はサーバーが刻む
           const who = await _actor(env.DB, request, code, { by: body?.createdBy })
@@ -664,6 +664,20 @@ export default {
           }
           const { task: _t, ...rest } = result ?? {}
           return resultResponse(rest, origin, allowedOrigin)
+        }
+
+        // GET/POST /store/:code/tasks/:id/notes … 進行中のやることの経過（migration 0031・足していくだけ。書けるのは見える人なら誰でも）
+        const taskNotes = subpath.match(/^\/tasks\/([\w-]{1,64})\/notes$/)
+        if (taskNotes && (request.method === 'GET' || request.method === 'POST')) {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          if (request.method === 'GET') {
+            const ctxN = await authContext(env.DB, request)
+            return resultResponse(await handleTaskNotesGet(env.DB, code, taskNotes[1], { admin: !ctxN || !!ctxN.isAdmin }), origin, allowedOrigin)
+          }
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, body)
+          return resultResponse(await handleTaskNoteAdd(env.DB, code, taskNotes[1], body, who, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
 
         // POST /store/:code/tasks/:id/mark … 「全員」のやることに自分の印（段 2-4。印は誰でも）

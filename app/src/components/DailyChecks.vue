@@ -2,21 +2,22 @@
 /**
  * 日誌のリストの一番上「ルーティン」（毎日・毎週・毎月の決まった仕事。User決定 2026-10-19 → 2026-10-22 に
  * 「毎日のチェック」から改名・モック docs/mocks/journal-routine.html）。
- * - 増えても日誌の上が長くならないように（User決定 2026-10-22）:
- *   出すのは今日の分だけ／済んだものは「済み N」にたたむ／大きなカードは中に項目のある表だけ、項目なしは押せば済む1行／
- *   今日は出ない毎週・毎月のものは「これから」の1行
- * - 項目のある表のカード: 進み具合・時刻・この7日の✓・「チェックを始める」。1日に何回もの表は回ごとの札（済み・今・まだ・これから）
+ * - 今日の分をリングの丸で横に1段（2026-10-23・モック docs/mocks/journal-today-modern.html）。毎日・曜日・月末が重なっても
+ *   丸が増えるだけで高さは変わらない。まだ → 済みの順（時刻のあるものは時刻順）。リングは進み具合、下の札は「毎日／土・日／月末／1日3回」
+ *   丸を押すと: 項目なしの1件はその場で済む・取り消し、ほかは✓の画面（今やる回）
+ * - 「すべて」で格子のシート: 内訳（毎日・毎週・毎月）・全部の丸・これから・記録へ
  * - まだ1つも無い店: 管理者にだけ「作りましょう」のカード（見本を押すだけで始まる）。
  *   ×で消すと、カードが縮んで上の入口へ吸い込まれ、「ここからいつでも作れます」と出て終わる（端末ごとに覚える・useHints）
  * - 以後は入口の1行だけ（押すと一覧・作る）。スタッフで表が1つも無いときは何も出さない
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { checklists, checklistRuns, checklistsForDay, canEditChecklists, startFromSample, markChecklistItem, canMarkChecklist, canUnmark, CHECKLIST_SAMPLES } from '../composables/useChecklists.js'
-import { weekMarks, currentSlot, repeatLabel, repeatKind, slotsOf, isSimple, upcoming, WHOLE } from '../services/checklistSchedule.js'
+import { checklists, checklistsForDay, canEditChecklists, startFromSample, markChecklistItem, canMarkChecklist, canUnmark, CHECKLIST_SAMPLES } from '../composables/useChecklists.js'
+import { currentSlot, repeatLabel, repeatKind, isSimple, upcoming, WHOLE } from '../services/checklistSchedule.js'
 import { isHintShown, dismissHint } from '../composables/useHints.js'
 import { localDateKey } from '../utils/localDate.js'
+import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
-const emit = defineEmits(['open-run', 'settings', 'create'])
+const emit = defineEmits(['open-run', 'settings', 'create', 'records'])
 const INTRO_HINT = 'daily-check-intro'
 
 const today = localDateKey()
@@ -28,21 +29,25 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(_t1); clearTimeout(_t2) }
 
 const days = computed(() => checklistsForDay(today))
 const doneCount = computed(() => days.value.filter(r => r.complete).length)
-// まだのもの: 項目のある表（と1日に何回もの1件）はカード、項目なしの1回は1行
-const openCards = computed(() => days.value.filter(r => !r.complete && (!isSimple(r.cl) || r.totalSlots > 1)))
-const openRows = computed(() => days.value.filter(r => !r.complete && isSimple(r.cl) && r.totalSlots === 1))
-const doneList = computed(() => days.value.filter(r => r.complete))
-const doneOpen = ref(false)
 const later = computed(() => upcoming(checklists.value, today, { skip: new Set(days.value.map(r => r.cl.id)) }))
+// リング: まだ（時刻の順のまま）→ 済み
+const ordered = computed(() => [...days.value.filter(r => !r.complete), ...days.value.filter(r => r.complete)])
+const pct = r => (r.complete ? 100 : r.totalSlots > 1 ? Math.round(r.doneSlots / r.totalSlots * 100) : r.total ? Math.round(r.filled / r.total * 100) : 0)
+const _emojiRe = /^(\p{Extended_Pictographic}(\uFE0F)?)/u
+const icon = cl => cl.name.match(_emojiRe)?.[1] ?? cl.name.slice(0, 1)
+const label = cl => cl.name.replace(_emojiRe, '').trim()
+const _wdays = cl => String(cl.repeatDays ?? '').split(',').filter(Boolean).length
+// 札は丸の幅に収める（曜日が4つ以上なら「週5日」）
+const ringBadge = r => (r.totalSlots > 1 ? `1日${r.totalSlots}回` : r.cl.repeat === 'monthly' ? repeatLabel(r.cl).replace('毎月', '')
+  : r.cl.repeat === 'weekly' && _wdays(r.cl) > 3 ? `週${_wdays(r.cl)}日` : repeatLabel(r.cl))
+onUnmounted(registerInnerLayerCloser(() => { if (!allOpen.value) return false; allOpen.value = false; return true }))
+function tapRing(r) { if (isSimple(r.cl) && r.totalSlots === 1) toggleRow(r); else open(r) }
+const allOpen = ref(false)
+const counts = computed(() => ({ daily: days.value.filter(r => r.cl.repeat === 'daily').length, weekly: days.value.filter(r => r.cl.repeat === 'weekly').length, monthly: days.value.filter(r => r.cl.repeat === 'monthly').length }))
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
+/** 札の色（種類ごと） */
+const badge = cl => ({ cls: repeatKind(cl) })
 const md = k => { const d = new Date(k + 'T00:00:00'); const diff = Math.round((d - new Date(today + 'T00:00:00')) / 86400000); return diff < 7 ? WEEK[d.getDay()] : `${d.getMonth() + 1}/${d.getDate()}` }
-/** 札: 毎日／毎週 土・日／毎月1日（色は種類ごと） */
-const badge = cl => ({ cls: repeatKind(cl), text: cl.repeat === 'weekly' ? `毎週 ${repeatLabel(cl)}` : repeatLabel(cl) })
-const sub = (cl) => {
-  const t = slotsOf(cl).filter(Boolean)
-  return [t.length > 1 ? `1日${t.length}回` : t[0] || '', isSimple(cl) ? '' : `${cl.items.length}項目`, who(cl)].filter(Boolean).join(' ・ ')
-}
-const lastMark = r => r.slots.flatMap(s => Object.values(s.marks)).filter(m => m?.at).sort((a, b) => a.at.localeCompare(b.at)).pop()
 // 項目なしの1件は、その場で済み・取り消し
 const rowErr = ref('')
 async function toggleRow(r) {
@@ -57,34 +62,10 @@ const hasAny = computed(() => checklists.value.length > 0)
 const admin = computed(() => canEditChecklists.value)
 const showIntro = computed(() => admin.value && !hasAny.value && isHintShown(INTRO_HINT))
 
-const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
-const who = cl => (cl.assign === 'person' ? cl.assigneeName || '担当' : '誰でも')
-function status(r) {
-  if (r.complete) { const last = r.slots.map(s => s.lastAt).filter(Boolean).sort().pop(); return { cls: 'ok', text: `✓ 済み${last ? ` ${hm(last)}` : ''}` } }
-  if (r.totalSlots > 1) return { cls: 'now', text: `今日 ${r.doneSlots}/${r.totalSlots}回` }
-  const s = r.slots[0]
-  if (!s.started && s.slot && s.slot > nowHm.value) return { cls: '', text: `${s.slot}から` }
-  return { cls: 'now', text: `${r.filled}/${r.total}` }
-}
-function slotState(r, s) {
-  if (s.complete) return { cls: 'ok', sub: `✓ ${Object.values(s.marks).map(m => m?.by).filter(Boolean)[0] ?? ''} ${s.lastAt ? hm(s.lastAt) : ''}`.trim() }
-  const cur = currentSlot(r, nowHm.value)
-  if (cur?.slot === s.slot) return { cls: 'now', sub: s.started ? `途中 ${s.filled}/${s.total}` : '今やる' }
-  if (s.slot && s.slot <= nowHm.value) return { cls: 'late', sub: s.started ? `途中 ${s.filled}/${s.total}` : 'まだ' }
-  return { cls: 'later', sub: 'これから' }
-}
-function goLabel(r) {
-  const cur = currentSlot(r, nowHm.value)
-  if (r.totalSlots > 1) return `${cur.slot} の回を始める`
-  return r.started ? 'チェックを続ける' : 'チェックを始める'
-}
 function open(r, slot = null) {
   const s = slot ?? currentSlot(r, nowHm.value)?.slot ?? r.slots[0].slot
   emit('open-run', { cl: r.cl, date: today, slot: s })
 }
-const week = r => weekMarks(r.cl, checklistRuns.value, today)
-const WEEK_TXT = { y: '✓', n: '✕', t: '今', o: '' }
-
 // ── はじめて ──
 const err = ref('')
 const busy = ref(false)
@@ -110,44 +91,19 @@ function closeIntro() {
 <template>
   <section class="dc" aria-label="ルーティン">
     <template v-if="days.length || later.length">
-      <div class="dc-lh"><span>ルーティン ・ 今日</span><em v-if="days.length">{{ doneCount }} / {{ days.length }} 済み</em></div>
-      <div v-for="r in openCards" :key="r.cl.id" class="dc-card">
-        <button type="button" class="dc-h" @click="open(r)">
-          <span class="dc-name"><b>{{ r.cl.name }}</b><small><i :class="['dc-b', badge(r.cl).cls]">{{ badge(r.cl).text }}</i>{{ sub(r.cl) }}</small></span>
-          <span :class="['dc-st', status(r).cls]">{{ status(r).text }}</span>
-        </button>
-        <div v-if="r.totalSlots > 1" class="dc-slots">
-          <button v-for="s in r.slots" :key="s.slot" type="button" :class="['dc-slot', slotState(r, s).cls]" @click="open(r, s.slot)">
-            {{ s.slot || '時刻なし' }}<small>{{ slotState(r, s).sub }}</small>
-          </button>
-        </div>
-        <div v-else class="dc-bar"><i :style="{ width: (r.total ? Math.round(r.filled / r.total * 100) : 0) + '%' }"></i></div>
-        <div class="dc-week" aria-label="この7日">
-          <span class="dc-wl">この7日</span>
-          <span v-for="w in week(r)" :key="w.date" :class="['dc-w', w.mark]" :title="w.date">{{ WEEK_TXT[w.mark] }}</span>
-        </div>
-        <button type="button" class="dc-go" @click="open(r)">{{ goLabel(r) }}</button>
-      </div>
-      <div v-if="openRows.length" class="dc-rows">
-        <button v-for="r in openRows" :key="r.cl.id" type="button" class="dc-row" :aria-label="`${r.cl.name}を済ませる`" @click="toggleRow(r)">
-          <i class="dc-ck" aria-hidden="true"></i>
-          <span class="dc-name"><b>{{ r.cl.name }}</b><small><i :class="['dc-b', badge(r.cl).cls]">{{ badge(r.cl).text }}</i>{{ sub(r.cl) }}</small></span>
-          <em class="dc-today">今日</em>
+      <div class="dc-lh"><span>🔁 ルーティン</span><em v-if="days.length">{{ doneCount }} / {{ days.length }}</em><button type="button" class="dc-all" @click="allOpen = true">すべて ›</button></div>
+      <div v-if="days.length" class="dc-rings" role="list">
+        <button v-for="r in ordered" :key="r.cl.id" type="button" role="listitem" :class="['dc-ring', { ok: r.complete }]"
+          :aria-label="`${r.cl.name} ${r.complete ? '済み' : `${pct(r)}%`}`" @click="tapRing(r)">
+          <span class="dc-c" :style="{ background: `conic-gradient(${r.complete ? '#22c55e' : '#4f46e5'} 0 ${pct(r)}%, #e2e8f0 0)` }">
+            <span class="dc-ic">{{ r.complete ? '✓' : icon(r.cl) }}</span>
+            <i :class="['dc-rb', badge(r.cl).cls]">{{ ringBadge(r) }}</i>
+          </span>
+          <span class="dc-rn">{{ label(r.cl) }}</span>
         </button>
       </div>
+      <p v-else class="dc-later">今日はなし。これから：<template v-for="(x, i) in later" :key="x.cl.id"><template v-if="i"> ・ </template><b>{{ md(x.date) }}</b> {{ x.cl.name }}</template></p>
       <p v-if="rowErr" class="dc-err" role="alert">{{ rowErr }}</p>
-      <button v-if="doneList.length" type="button" class="dc-done-h" :aria-expanded="doneOpen" @click="doneOpen = !doneOpen">
-        ✓ 済み {{ doneList.length }} {{ doneOpen ? '▲' : '▼' }}
-      </button>
-      <div v-if="doneOpen && doneList.length" class="dc-rows">
-        <button v-for="r in doneList" :key="r.cl.id" type="button" class="dc-row ok" @click="isSimple(r.cl) && r.totalSlots === 1 ? toggleRow(r) : open(r, r.slots[0].slot)">
-          <i class="dc-ck" aria-hidden="true">✓</i>
-          <span class="dc-name"><b>{{ r.cl.name }}</b><small>{{ lastMark(r)?.by }} {{ lastMark(r) ? hm(lastMark(r).at) : '' }}</small></span>
-          <em class="dc-today ok">済み</em>
-        </button>
-      </div>
-      <p v-if="later.length" class="dc-later">これから：<template v-for="(x, i) in later" :key="x.cl.id"><template v-if="i"> ・ </template><b>{{ md(x.date) }}</b> {{ x.cl.name }}</template></p>
-      <button type="button" class="dc-set" @click="emit('settings')">⚙ ルーティンを設定</button>
     </template>
 
     <div v-else-if="showIntro" :class="['dc-first', { leaving }]">
@@ -171,6 +127,32 @@ function closeIntro() {
       </button>
       <div v-if="toast" class="dc-toast" role="status">☝ ルーティンは、ここからいつでも作れます<small>毎日・毎週・毎月の決まった仕事に</small></div>
     </template>
+
+    <Teleport to="body">
+      <div v-if="allOpen" class="dc-sheet-bg" @click.self="allOpen = false">
+        <div class="dc-sheet" role="dialog" aria-label="今日のルーティン">
+          <div class="dc-sh"><b>🔁 今日のルーティン</b><em>{{ days.length - doneCount }} 残り / {{ days.length }}</em></div>
+          <div class="dc-cnt">
+            <span v-if="counts.daily" class="daily">毎日 {{ counts.daily }}</span><span v-if="counts.weekly" class="weekly">毎週 {{ counts.weekly }}</span><span v-if="counts.monthly" class="monthly">毎月 {{ counts.monthly }}</span>
+          </div>
+          <div class="dc-grid">
+            <button v-for="r in ordered" :key="r.cl.id" type="button" :class="['dc-ring', { ok: r.complete }]" @click="tapRing(r)">
+              <span class="dc-c" :style="{ background: `conic-gradient(${r.complete ? '#22c55e' : '#4f46e5'} 0 ${pct(r)}%, #e2e8f0 0)` }">
+                <span class="dc-ic">{{ r.complete ? '✓' : icon(r.cl) }}</span>
+                <i :class="['dc-rb', badge(r.cl).cls]">{{ ringBadge(r) }}</i>
+              </span>
+              <span class="dc-rn">{{ label(r.cl) }}</span>
+            </button>
+          </div>
+          <p v-if="later.length" class="dc-later">これから：<template v-for="(x, i) in later" :key="x.cl.id"><template v-if="i"> ・ </template><b>{{ md(x.date) }}</b> {{ x.cl.name }}</template></p>
+          <p class="dc-hint">丸を押すと✓の画面。項目なしは押すだけで済む</p>
+          <div class="dc-sbtn">
+            <button type="button" @click="allOpen = false; emit('records')">📅 記録を見る</button>
+            <button type="button" @click="allOpen = false; emit('settings')">⚙ 設定</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -218,6 +200,28 @@ function closeIntro() {
 .dc-done-h { justify-self: start; border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #166534; padding: 2px 4px; cursor: pointer; }
 .dc-later { margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); padding: 0 4px; }
 .dc-later b { color: #3730a3; }
+.dc-all { margin-left: 8px; border: none; background: none; font: inherit; font-size: 12px; font-weight: 800; color: #4f46e5; cursor: pointer; padding: 0; letter-spacing: 0; }
+.dc-lh em { margin-left: 6px !important; color: var(--text-muted) !important; }
+.dc-lh .dc-all { margin-left: auto; }
+.dc-rings { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.dc-rings::-webkit-scrollbar { display: none; }
+.dc-ring { flex: none; width: 66px; display: grid; justify-items: center; gap: 5px; border: none; background: none; padding: 0; font: inherit; cursor: pointer; color: var(--text); }
+.dc-c { position: relative; width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; }
+.dc-ic { width: 50px; height: 50px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 22px; font-weight: 900; color: #4f46e5; }
+.dc-ring.ok .dc-ic { background: #f0fdf4; color: #16a34a; }
+.dc-rb { position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 9px; font-weight: 900; color: #fff; background: #4f46e5; border-radius: 6px; padding: 1px 5px; white-space: nowrap; max-width: 76px; overflow: hidden; text-overflow: ellipsis; }
+.dc-rb.weekly { background: #0e7490; } .dc-rb.monthly { background: #c2410c; } .dc-rb.none { background: #64748b; }
+.dc-rn { max-width: 66px; font-size: 10.5px; font-weight: 800; line-height: 1.2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #334155; }
+.dc-ring.ok .dc-rn { color: #94a3b8; }
+.dc-sheet-bg { position: fixed; inset: 0; z-index: 121; background: rgba(15,23,42,.38); display: flex; align-items: flex-end; justify-content: center; }
+.dc-sheet { width: 100%; max-width: 600px; max-height: 86vh; overflow-y: auto; background: var(--surface); border-radius: 24px 24px 0 0; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 12px; box-sizing: border-box; }
+.dc-sh { display: flex; align-items: baseline; } .dc-sh b { font-size: 17px; } .dc-sh em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 800; color: var(--text-muted); }
+.dc-cnt { display: flex; gap: 6px; } .dc-cnt span { font-size: 11px; font-weight: 900; padding: 3px 9px; border-radius: 999px; background: #eef2ff; color: #3730a3; }
+.dc-cnt .weekly { background: #ccfbf1; color: #115e59; } .dc-cnt .monthly { background: #ffedd5; color: #9a3412; }
+.dc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 6px; justify-items: center; }
+.dc-hint { margin: 0; font-size: 11.5px; color: var(--text-muted); font-weight: 700; text-align: center; }
+.dc-sbtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dc-sbtn button { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font: inherit; font-size: 13.5px; font-weight: 800; color: var(--text); cursor: pointer; }
 .dc-set { justify-self: center; border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #4f46e5; padding: 4px 8px; cursor: pointer; }
 .dc-first { position: relative; background: var(--surface); border: 2px dashed #a5b4fc; border-radius: 16px; padding: 14px; display: grid; gap: 9px; text-align: center; transform-origin: top center; transition: transform .45s ease-in, opacity .45s ease-in; }
 .dc-first.leaving { transform: translateY(-20px) scale(.12, .08); opacity: 0; }

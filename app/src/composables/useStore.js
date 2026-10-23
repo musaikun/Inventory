@@ -663,6 +663,16 @@ export async function markChecklistInD1(id, date, body) {
   return _api(`/store/${shopCode.value}/checklists/${encodeURIComponent(id)}/runs/${date}/mark`, { method: 'POST', body: JSON.stringify(body) })
 }
 
+/** 進行中のやることの経過（2026-10-23）。足していくだけなので、その場で送る */
+export async function loadTaskNotesFromD1(id) {
+  if (!shopCode.value) return null
+  return _api(`/store/${shopCode.value}/tasks/${encodeURIComponent(id)}/notes`).catch(() => null)
+}
+export async function addTaskNoteToD1(id, body) {
+  if (!shopCode.value) throw new Error('店舗にログインしていません')
+  return _api(`/store/${shopCode.value}/tasks/${encodeURIComponent(id)}/notes`, { method: 'POST', body: JSON.stringify(body) })
+}
+
 // ── アクティブルーム ──────────────────────────────────────────────────────────
 export async function updateActiveRoomInD1(roomCode) {
   if (!shopCode.value || !BASE) return
