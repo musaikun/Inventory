@@ -5,6 +5,8 @@ import { createApp, h, nextTick } from 'vue'
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(async () => ({})), setAuthInvalidatedHandler: vi.fn() }))
 vi.mock('../composables/useStore.js', async (orig) => ({ ...(await orig()), saveTaskToD1: vi.fn(async () => true), loadTasksFromD1: vi.fn(async () => []), saveMovementToD1: vi.fn(async () => true),
   saveChecklistToD1: vi.fn(async () => ({ ok: true })), markChecklistInD1: vi.fn(async () => ({ ok: true })), loadChecklistsFromD1: vi.fn(async () => null),
+  loadHandoffsFromD1: vi.fn(async () => null), addHandoffToD1: vi.fn(async b => ({ ok: true, handoff: { ...b, reads: [], createdAt: new Date().toISOString() } })),
+  actHandoffInD1: vi.fn(async () => ({ ok: true })),
   loadTaskNotesFromD1: vi.fn(async () => []), addTaskNoteToD1: vi.fn(async (id, n) => ({ ok: true, note: { id: 'n1', body: n.body, by: n.by, at: new Date().toISOString() } })) }))
 
 let app = null, host = null
@@ -136,7 +138,7 @@ describe('日誌（お店のカレンダー・2026-10-25）', () => {
     await mount(JournalPage)
     const nw = host.querySelector('.jp-new')
     expect(nw.textContent).toContain('まだ何もありません')
-    expect(nw.querySelectorAll('button')).toHaveLength(2)
+    expect([...nw.querySelectorAll('button')].map(b => b.textContent)).toEqual(['✓やること', '🔁ルーティン', '📣申し送り'])
     expect(host.querySelector('.jp-fab')).toBeNull()
     app.unmount(); host.remove()
     vi.resetModules()
@@ -366,5 +368,84 @@ describe('日誌（お店のカレンダー・2026-10-25）', () => {
     await click(chip)
     expect(document.body.querySelector('.ps')).not.toBeNull()
     expect(T.progressTasks.value[0].doneAt).toBeFalsy()
+  })
+  it('申し送り 📣 伝える: 書くとその日の上に出る。ほかの人のものは［確認］で読んだ人が残り、たたむ', async () => {
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.handoffs, JSON.stringify([
+      { id: 'h0', kind: 'tell', body: 'トマトの入荷が明日に', by: '山田', byId: 'st-y', reads: [], createdAt: new Date(Date.now() - 3600_000).toISOString() },
+    ]))
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    expect(host.querySelector('.jp-new')).toBeNull()               // 申し送りがあれば何もない店ではない
+    const it0 = host.querySelector('.hb-i')
+    expect(it0.textContent).toContain('トマトの入荷が明日に')
+    expect(it0.textContent).toContain('山田')
+    await click(it0.querySelector('.hb-read'))
+    const { actHandoffInD1, addHandoffToD1 } = await import('../composables/useStore.js')
+    expect(actHandoffInD1).toHaveBeenCalledWith('h0', 'read')
+    expect(host.querySelector('.hb-i')).toBeNull()                 // 読んだらたたむ
+    expect(host.querySelector('.hb-fold').textContent).toContain('✓ 1')
+    // 書く
+    await click(host.querySelector('[aria-label="申し送り"]'))
+    const sheet = document.body.querySelector('.hs')
+    expect(btn('伝える', sheet)).not.toBeUndefined()
+    const ta = sheet.querySelector('textarea')
+    ta.value = '貸切の片付けは済み'; ta.dispatchEvent(new Event('input')); await tick()
+    await click(sheet.querySelector('.hs-go'))
+    await tick()
+    expect(addHandoffToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'tell', body: '貸切の片付けは済み', by: '高木' }))
+    expect(document.body.querySelector('.hs')).toBeNull()
+    expect(host.querySelector('.hb-i').textContent).toContain('貸切の片付けは済み')
+    expect(host.querySelector('.hb-i .hb-read')).toBeNull()       // 自分のものに［確認］は無い
+  })
+
+  it('申し送り 🙏 頼む: 相手といつを選ぶと、その人のやることになる（🙏 の印・「✓ やることへ」）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    T.addTask(localDateKey(), 'x')
+    const A = await import('../composables/useAuth.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    A.staffNames.value = [{ id: 'st-s', name: '佐藤' }]
+    await click(host.querySelector('[aria-label="申し送り"]'))
+    const sheet = document.body.querySelector('.hs')
+    await click(btn('頼む', sheet))
+    const ta = sheet.querySelector('textarea')
+    ta.value = '製氷機のフィルター交換'; ta.dispatchEvent(new Event('input')); await tick()
+    await click(btn('佐藤', sheet))
+    await click(btn('今日', sheet))
+    expect(sheet.querySelector('.hs-go').textContent).toBe('佐藤さんに頼む')
+    await click(sheet.querySelector('.hs-go'))
+    await tick()
+    const t = T.aliveTasks.value.find(x => x.text === '製氷機のフィルター交換')
+    expect(t).toMatchObject({ date: localDateKey(), assign: 'person', assigneeId: 'st-s', assigneeName: '佐藤' })
+    const { addHandoffToD1 } = await import('../composables/useStore.js')
+    expect(addHandoffToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'ask', toId: 'st-s', toName: '佐藤', taskId: t.id }))
+    expect(host.querySelector('.hb-i').textContent).toContain('→ 佐藤')
+    expect(host.querySelector('.hb-i .hb-ok').textContent).toContain('やることへ')
+    const row = [...host.querySelectorAll('.jp-box .tr')].find(r => r.textContent.includes('製氷機のフィルター交換'))
+    expect(row.textContent).toContain('🙏')
+  })
+
+  it('申し送り: 伝えられたことを押して「やることにする」。自分の今日のやることになる', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+    localStorage.setItem(STORAGE_KEYS.handoffs, JSON.stringify([
+      { id: 'h1', kind: 'tell', body: '扉のパッキンが浮いてる', by: '山田', byId: 'st-y', reads: [], createdAt: new Date().toISOString() },
+    ]))
+    const T = await import('../composables/useTasks.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(host.querySelector('.hb-tx'))
+    await click(btn('やることにする', host.querySelector('.hb-menu')))
+    const sheet = document.body.querySelector('.hs')
+    expect(sheet.querySelector('textarea').value).toBe('扉のパッキンが浮いてる')
+    await click(sheet.querySelector('.hs-go'))
+    await tick()
+    const t = T.aliveTasks.value.find(x => x.text === '扉のパッキンが浮いてる')
+    expect(t).toMatchObject({ date: localDateKey(), assign: 'person' })
+    const { actHandoffInD1 } = await import('../composables/useStore.js')
+    expect(actHandoffInD1).toHaveBeenCalledWith('h1', 'task', { taskId: t.id })
+    expect(host.querySelector('.hb-i .hb-ok').textContent).toContain('やることへ')
   })
 })

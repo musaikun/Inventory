@@ -25,6 +25,7 @@ import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { OWNER_ID, ensureOwnerUnified, setOwnerName, setStoreName } from './ownerHandler.js'
 import { taskWriteCheck } from './taskWrite.js'
 import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark } from './checklistHandler.js'
+import { handleHandoffsGet, handleHandoffAdd, handleHandoffRead, handleHandoffTask, handleHandoffDelete } from './handoffHandler.js'
 import { handleStaffActivity } from './activityHandler.js'
 import { configChangePerms } from './configGuard.js'
 import { stripConfigMoney, restoreConfigMoney, stripSnapshotMoney, stripLinesMoney, restoreSnapshotMoney } from './moneyGuard.js'
@@ -678,6 +679,28 @@ export default {
           const body = await request.json().catch(() => ({}))
           const who = await _actor(env.DB, request, code, body)
           return resultResponse(await handleTaskNoteAdd(env.DB, code, taskNotes[1], body, who, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
+        }
+
+        // 申し送り（User決定 2026-10-25・migration 0032）。📣 伝える／🙏 頼む。読む・書く・確認は店の誰でも、消すのは書いた人と管理者
+        if (subpath === '/handoffs' && (request.method === 'GET' || request.method === 'POST')) {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          if (request.method === 'GET') return resultResponse(await handleHandoffsGet(env.DB, code, url.searchParams.get('sinceDays')), origin, allowedOrigin)
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, body)
+          return resultResponse(await handleHandoffAdd(env.DB, code, body, who), origin, allowedOrigin)
+        }
+        const handoffAct = subpath.match(/^\/handoffs\/([\w-]{1,64})\/(read|task|delete)$/)
+        if (handoffAct && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, body)
+          const [, id, act] = handoffAct
+          const r = act === 'read' ? await handleHandoffRead(env.DB, code, id, who)
+            : act === 'task' ? await handleHandoffTask(env.DB, code, id, body)
+            : await handleHandoffDelete(env.DB, code, id, who, { admin: !!who.admin || !who.ctx })
+          return resultResponse(r, origin, allowedOrigin)
         }
 
         // POST /store/:code/tasks/:id/mark … 「全員」のやることに自分の印（段 2-4。印は誰でも）

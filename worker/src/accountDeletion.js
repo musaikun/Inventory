@@ -89,6 +89,8 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     db.prepare('DELETE FROM checklist_runs WHERE shop_code = ?').bind(shopCode),
     // やることの経過（migration 0031）
     db.prepare('DELETE FROM task_notes WHERE shop_code = ?').bind(shopCode),
+    // 申し送り（migration 0032）
+    db.prepare('DELETE FROM handoffs WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM checklists WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),

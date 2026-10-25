@@ -21,6 +21,8 @@ import JournalDay from './JournalDay.vue'
 import JournalWeek from './JournalWeek.vue'
 import RoutineRow from './RoutineRow.vue'
 import DaySlip from './DaySlip.vue'
+import HandoffBlock from './HandoffBlock.vue'
+import HandoffSheet from './HandoffSheet.vue'
 import LiveSessionCard from './LiveSessionCard.vue'
 import TaskNews from './TaskNews.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
@@ -39,6 +41,7 @@ import { useConfig } from '../composables/useConfig.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
 import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
+import { pullHandoffs, handoffs, handoffOfTask } from '../composables/useHandoffs.js'
 import { localDateKey } from '../utils/localDate.js'
 import { isMeId } from '../composables/useDeviceId.js'
 
@@ -61,11 +64,12 @@ const isToday = computed(() => date.value === today)
 // 時間で見る（JournalDay）
 const timeOpen = ref(false)
 const slipOpen = ref(false)
+const hs = ref(null)   // 申し送りを書く { convert }
 
 // ── 材料 ──
 const sessions = ref([])
 onMounted(async () => {
-  pullTasks(); pullChecklists(); loadStaffNames()
+  pullTasks(); pullChecklists(); pullHandoffs(); loadStaffNames()
   try { sessions.value = await getSessions() } catch (_) { sessions.value = [] }
 })
 const { getSnapshotBySessionId } = useHistory()
@@ -142,7 +146,7 @@ const progList = computed(() => [...progressTasks.value].sort((a, b) => _rank(a)
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
 // 何もない店（はじめて）と、何もない日
-const brandNew = computed(() => !aliveTasks.value.length && !checklists.value.length && !completedStock.value.length && !getOrders().length && !getMovements().length)
+const brandNew = computed(() => !aliveTasks.value.length && !checklists.value.length && !handoffs.value.length && !completedStock.value.length && !getOrders().length && !getMovements().length)
 // これから（何もない日・7日先まで・4件）: やること・毎週/毎月のルーティン・発注日
 const ahead = computed(() => {
   const out = []
@@ -226,6 +230,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       <div class="jp-title">
         <b>{{ title }}</b>
         <button v-if="!isToday" type="button" class="jp-tb" @click="date = today">今日</button>
+        <button v-if="canCreate" type="button" class="jp-tb" aria-label="申し送り" @click="hs = { convert: null }">📣</button>
         <button type="button" :class="['jp-tb', { on: timeOpen }]" :aria-pressed="timeOpen" :aria-label="timeOpen ? 'リストで見る' : '時間で見る'" @click="timeOpen = !timeOpen">{{ timeOpen ? '≡' : '🕒' }}</button>
         <button v-if="checklists.length || canEditChecklists" type="button" class="jp-tb" aria-label="ルーティン" @click="clPage = {}">🔁</button>
       </div>
@@ -243,6 +248,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         <div class="jp-new-b">
           <button v-if="canCreate" type="button" class="main" @click="openAdd()"><em>✓</em>やること</button>
           <button v-if="canEditChecklists" type="button" @click="clPage = {}"><em>🔁</em>ルーティン</button>
+          <button v-if="canCreate" type="button" @click="hs = { convert: null }"><em>📣</em>申し送り</button>
         </div>
       </div>
 
@@ -252,6 +258,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <i v-if="c.av" class="jp-av">{{ c.av }}</i>{{ c.label }}<em>{{ c.n }}</em>
           </button>
         </div>
+
+        <HandoffBlock :date="date" :who="who" @convert="h => hs = { convert: h }" />
 
         <template v-if="isToday">
           <LiveSessionCard v-if="activeSession" kind="stock" :session="activeSession" :live="live" :count="stockCount" @resume="s => emit('resume', s)" />
@@ -267,7 +275,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
           <div class="jp-box">
             <template v-for="x in rows" :key="x.key">
               <RoutineRow v-if="x.type === 'list'" :day="x.day" :date="date" @open-run="v => clRun = v" />
-              <TaskRow v-else :task="x.task" :show-date="!!x.late" />
+              <TaskRow v-else :task="x.task" :show-date="!!x.late" :mark="handoffOfTask.has(x.task.id) ? '🙏' : ''" />
             </template>
           </div>
         </template>
@@ -299,6 +307,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 
     <DaySlip v-if="slipOpen" :date="date" :tasks="[...(isToday ? late : []), ...dayTasks]" :lists="dayLists" :records="recordsOn(date)"
       @close="slipOpen = false" @time="slipOpen = false; timeOpen = true" @view-session="s => emit('viewSession', s)" @open-run="v => { slipOpen = false; clRun = v }" />
+    <HandoffSheet v-if="hs" :convert="hs.convert" @close="hs = null" />
     <Teleport to="body">
       <div v-if="progAllOpen" class="jp-sheet-bg" @click.self="progAllOpen = false">
         <div class="jp-sheet jp-progall" role="dialog" aria-label="進行中">

@@ -61,3 +61,4 @@ apply_if_missing 0028_task_kind.sql         idx_tasks_kind
 apply_if_missing 0029_task_visibility.sql   idx_tasks_visibility
 apply_if_missing 0030_checklists.sql          idx_checklist_runs_date
 apply_if_missing 0031_task_progress.sql       idx_task_notes_task
+apply_if_missing 0032_handoffs.sql           idx_handoffs_created

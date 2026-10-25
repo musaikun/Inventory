@@ -2,6 +2,15 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-25 — version 0.172.0 / 日誌の申し送り（📣 伝える／🙏 頼む）
+
+User決定（モック journal-calendar-v3/v4）: 申し送りは報告だけのことも、やってほしいこともある → 書く人が選ぶ。
+- サーバー: **migration 0032 `handoffs`**（kind tell/ask・to_id/to_name・task_id・reads_json）。`scripts/migrate.sh` 番兵 idx_handoffs_created。`handoffHandler.js`: GET/POST `/store/:code/handoffs`（直近14日）、POST `/handoffs/:id/read|task|delete`。読む・書く・確認は店の誰でも、消すのは書いた人と管理者。同じ id の再送は1件。アカウント削除で handoffs も消す。
+- アプリ: `useHandoffs`（写し・pull・tell・ask＝やることを作って task_id を付ける・handoffToTask・read・remove）、`HandoffBlock`（その日の上。前の日と当日の分。［確認］・「✓ やることへ」・読んだ📣はたたむ・押すと「やることにする／消す」）、`HandoffSheet`（📣 伝える／🙏 頼む・だれに・いつ・⏳・ボタンに「佐藤さんに頼む」）。上に📣ボタン、何もない店の入口にも。申し送りから作ったやることは 🙏 の印（TaskRow `mark`）。
+- 検証: app vitest 2151 pass・worker 726 pass・build OK・ローカル wrangler で add/再送/ask/read/task/他人の削除403/未ログイン401 を確認・ハーネスで目視。
+- **本番未適用: migration 0030（ルーティン）・0031（進行中）・0032（申し送り）。User が「Production Backend (D1 + Worker)」を実行する必要あり。**
+- version: 0.171.0 → **0.172.0**。
+
 ## 2026-10-25 — version 0.171.0 / 日誌＝お店のカレンダー（第1段: 週の帯・担当者・伝票）
 
 User決定（モック journal-calendar-v4）: 日誌はカレンダー。週の帯→下に引くと月・日を押すとその日の中身。持ち場は不要で担当者で絞る。棚卸・発注は途中のときだけ。説明文は置かずボタンと絵で。「これから」に発注日を残す。

@@ -15,6 +15,7 @@ import { resetLocalData as resetOrders }    from './useOrders.js'
 import { resetLocalData as resetMovements } from './useMovements.js'
 import { resetLocalData as resetTasks } from './useTasks.js'
 import { resetLocalData as resetChecklists } from './useChecklists.js'
+import { resetLocalData as resetHandoffs } from './useHandoffs.js'
 import { resetLocalData as resetMovementDraft } from './useMovementDraft.js'
 import { resetLocalData as resetDayNotes }  from './useDayNotes.js'
 import { resetLocalData as resetHistory }   from './useHistory.js'
@@ -37,6 +38,7 @@ export function clearLocalAccountData() {
     resetMovements,
     resetTasks,
     resetChecklists,
+    resetHandoffs,
     resetMovementDraft,
     resetDayNotes,
     resetHistory,

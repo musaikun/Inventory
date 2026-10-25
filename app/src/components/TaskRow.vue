@@ -23,6 +23,7 @@ import { localDateKey } from '../utils/localDate.js'
 const props = defineProps({
   task: { type: Object, required: true },
   showDate: { type: Boolean, default: false },
+  mark: { type: String, default: '' },   // 文面の前の印（申し送りから作ったものは 🙏）
 })
 const t = computed(() => props.task)
 
@@ -91,7 +92,7 @@ function save() {
     <component
       :is="canEdit || (isJoin && isAdmin) ? 'button' : 'span'" :type="canEdit || (isJoin && isAdmin) ? 'button' : undefined" class="tr-tx"
       :aria-label="isJoin ? (isAdmin ? 'スタッフの画面を開く' : undefined) : (canEdit ? `${t.text}を直す` : undefined)" @click="onText"
-    ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること">🔒</span> </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
+    ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること">🔒</span> </template><template v-if="mark">{{ mark }} </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
       <small v-if="assignNote" :class="['tr-assign', t.assign, { me: isAssignedToMe(t) }]">{{ assignNote }}</small>
       <small v-if="isJoin && !t.doneAt">{{ isAdmin ? '押すとスタッフの画面を開きます。承認・お断りで自動で完了します' : '管理者が承認・お断りすると自動で完了します' }}</small>
       <small v-if="!isJoin && (!isMyTask(t) || (t.doneAt && t.assign !== 'all'))">
