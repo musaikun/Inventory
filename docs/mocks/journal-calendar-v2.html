@@ -1,0 +1,275 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>日誌カレンダー 第2案</title><style>
+:root{--bg:#f4f6f8;--text:#10262e;--muted:#64748b;--line:#e2e8f0;--teal:#0e7490;--gr:#22c55e;--ye:#f59e0b;--rd:#ef4444;--paper:#fffdf7;
+--hall:#2563eb;--kit:#16a34a;--cln:#0891b2;--ofc:#9333ea}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;background:#d7dee8;color:var(--text);padding:24px}
+h1{font-size:20px;margin-bottom:4px}.lead{font-size:13px;color:#475569;margin-bottom:18px;max-width:1500px;line-height:1.7}
+.row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;max-width:1500px}.col{display:grid;gap:8px}
+.cap{font-size:14px;font-weight:800}.cap small{display:block;font-weight:400;color:#475569;font-size:12px;max-width:340px;line-height:1.5;min-height:72px}
+.phone{width:340px;height:720px;background:var(--bg);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;border:6px solid #0b1f26;box-shadow:0 12px 34px rgba(0,0,0,.2);position:relative}
+.tag{position:absolute;bottom:64px;left:8px;font-size:11px;font-weight:900;padding:3px 8px;border-radius:999px;color:#fff;background:#f97316;z-index:9}
+.nav{margin-top:auto;display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);padding:8px 0 12px;font-size:9.5px;font-weight:800;color:var(--muted);position:relative;z-index:3}.nav span.on{color:var(--teal)}
+.fab{position:absolute;right:16px;bottom:72px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#34d399);display:grid;place-items:center;font-size:26px;color:#06323c;box-shadow:0 8px 18px rgba(14,116,144,.35);z-index:4}
+/* 上 */
+.top{background:#fff;padding:12px 12px 6px;border-bottom:1px solid var(--line)}
+.th{display:flex;align-items:center;gap:8px}.th b{font-size:19px}.th small{font-size:11px;color:var(--muted);font-weight:700}
+.th .r{margin-left:auto;display:flex;gap:6px}.th .r span{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;background:#f1f5f9;color:var(--teal)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:8px}
+.wk div{text-align:center;font-size:9.5px;font-weight:800;color:var(--muted);display:grid;gap:3px;padding:4px 0 5px;border-radius:12px}
+.wk div b{font-size:14px;color:var(--text)}.wk div i{height:4px;margin:0 9px;border-radius:2px;background:#eef2f6;display:block}
+.wk div.on{background:#0f2a33;color:#a5d8e3}.wk div.on b{color:#fff}
+.wk div.sun b{color:#dc2626}.wk div.sat b{color:#2563eb}.wk div.off{opacity:.45}
+.wk em{font-style:normal;font-size:9px;line-height:1;height:9px}
+.pull{width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:6px auto 0}
+.pullt{font-size:9px;color:#94a3b8;text-align:center;font-weight:700;margin-top:2px}
+.areas{display:flex;gap:5px;padding:8px 12px 2px;overflow:hidden}
+.areas span{flex:none;font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;background:#fff;border:1px solid var(--line);color:#475569;display:flex;align-items:center;gap:4px}
+.areas span i{width:7px;height:7px;border-radius:50%}
+.areas span.on{background:#0f2a33;color:#fff;border-color:#0f2a33}
+.body{flex:1;overflow:hidden;padding:6px 12px;display:grid;gap:8px;align-content:start}
+/* 申し送り */
+.hand{background:#fffbeb;border:1px solid #fde68a;border-radius:14px;padding:8px 10px;display:grid;gap:3px}
+.hand b{font-size:11px;color:#92400e;display:flex;gap:6px}.hand b small{margin-left:auto;font-weight:700;color:#b45309}
+.hand p{font-size:12px;color:#78350f;font-weight:700;line-height:1.45}
+.sumr{display:flex;gap:8px;align-items:center;font-size:11px;font-weight:800;color:var(--muted);padding:0 2px}
+.mini{width:26px;height:26px;border-radius:50%;display:grid;place-items:center}.mini span{width:19px;height:19px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font-size:8px;font-weight:900;color:var(--text)}
+.sumr a{margin-left:auto;color:var(--teal)}
+/* リスト */
+.list{background:#fff;border-radius:16px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.it{display:flex;align-items:center;gap:9px;padding:9px 0;border-top:1px solid #f1f5f9}.it:first-child{border-top:none}
+.ck{width:22px;height:22px;border-radius:7px;border:2px solid #cbd5e1;flex:none;display:grid;place-items:center;font-size:12px;color:#fff;font-weight:900}
+.ck.ok{background:var(--gr);border-color:var(--gr)}.ck.r{border-radius:50%}.ck.part{border-color:var(--ye)}
+.tx{flex:1;display:grid;gap:2px;min-width:0}.tx b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tx small{font-size:10.5px;color:var(--muted);font-weight:700;display:flex;gap:5px;align-items:center}
+.ar{font-size:9.5px;font-weight:900;border-radius:5px;padding:0 5px;color:#fff}
+.ar.h{background:var(--hall)}.ar.k{background:var(--kit)}.ar.c{background:var(--cln)}.ar.o{background:var(--ofc)}
+.avs{display:flex}.av{width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:900;display:grid;place-items:center;border:2px solid #fff;margin-left:-6px}
+.av.a{background:#0e7490}.av.b{background:#d97706}.av.c{background:#7c3aed}.av.d{background:#db2777}
+.cnt{font-size:11px;font-weight:900;color:var(--muted);min-width:24px;text-align:right}
+.it.done b{color:#94a3b8;text-decoration:line-through}
+.it.late b{color:#b91c1c}
+.lh{font-size:10.5px;font-weight:900;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between;padding:2px 4px 0}
+.biz{display:flex;gap:8px}
+.bz{flex:1;background:#ecfeff;border-radius:14px;padding:8px 10px;display:grid;gap:2px;font-size:11px;font-weight:800;color:#155e75}
+.bz b{font-size:13px;color:var(--text)}.bz small{font-size:10px;color:var(--muted);font-weight:700}
+.bz.or{background:#fff7ed;color:#9a3412}
+.prog{display:flex;gap:8px;overflow:hidden}
+.pc{flex:none;width:190px;background:#fff;border-radius:14px;padding:8px 10px 8px 13px;position:relative;overflow:hidden;display:grid;gap:3px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.pc:before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ye)}.pc.w:before{background:#4f46e5}
+.pc b{font-size:12.5px}.pc small{font-size:10px;font-weight:800;color:#92400e}.pc.w small{color:#3730a3}
+/* 月 */
+.mcal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:6px}
+.mcal .w{text-align:center;font-size:9px;font-weight:800;color:var(--muted)}
+.mc{height:44px;border-radius:9px;background:#f8fafc;padding:3px 4px;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.mc .n{font-size:10.5px;font-weight:800}.mc .ic{position:absolute;right:3px;top:3px;font-size:10px}
+.mc .st{margin-top:auto;height:4px;border-radius:2px;background:#eef2f6}.mc .st i{display:block;height:100%;border-radius:2px}
+.mc.y .st i{background:var(--gr);width:100%}.mc.p .st i{background:var(--ye);width:60%}.mc.x .st i{background:var(--rd);width:35%}
+.mc.off{background:repeating-linear-gradient(135deg,#f1f5f9 0 4px,#e9eef3 4px 8px)}.mc.off .n{color:#94a3b8}
+.mc.fut .due{font-size:7.5px;font-weight:900;color:#c2410c;border:1px dashed #fdba74;border-radius:4px;padding:0 2px;align-self:flex-start;margin-top:1px}
+.mc.today{box-shadow:0 0 0 2px var(--teal)}.mc.sel{box-shadow:0 0 0 2px #0f172a;background:#fff}
+.mc .busy{position:absolute;left:0;right:0;top:0;height:2.5px;background:linear-gradient(90deg,#fb923c,#f43f5e)}
+.mc.b{background:none}
+.pulse{display:flex;gap:8px;align-items:center;font-size:10.5px;font-weight:800;color:#334155;margin-top:6px}
+.pulse .bar{flex:1;display:flex;height:7px;border-radius:4px;overflow:hidden;gap:2px}
+/* 伝票 */
+.dim{position:absolute;inset:0;background:rgba(15,23,42,.35);z-index:5}
+.slip{position:absolute;left:10px;right:10px;bottom:58px;top:120px;background:var(--paper);border-radius:16px 16px 6px 6px;z-index:6;display:flex;flex-direction:column;box-shadow:0 -10px 30px rgba(0,0,0,.2);overflow:hidden}
+.slip:after{content:'';position:absolute;left:0;right:0;bottom:0;height:8px;background:radial-gradient(circle at 6px 8px,#cbd5e1 4px,transparent 4.5px) 0 0/12px 8px repeat-x}
+.grab{width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:7px auto 2px}
+.sh{padding:6px 14px 8px;display:flex;align-items:center;gap:10px;border-bottom:1.5px dashed #d6d3c4}
+.sh b{font-size:17px}.sh small{display:block;font-size:10.5px;color:var(--muted);font-weight:700}
+.ring{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;margin-left:auto;flex:none}.ring span{width:36px;height:36px;border-radius:50%;background:var(--paper);display:grid;place-items:center;font-size:11px;font-weight:900}
+.sb{padding:8px 14px;display:grid;gap:8px;overflow:hidden;font-size:12px}
+.slh{font-size:10px;font-weight:900;letter-spacing:.1em;color:#8a8270;display:flex;justify-content:space-between}
+.ln{display:flex;align-items:center;gap:7px;font-weight:700}.ln small{margin-left:auto;font-size:10.5px;color:var(--muted);font-weight:700;white-space:nowrap}.ln.ng{color:#b91c1c}
+.ln i{font-style:normal;width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:10px;flex:none;border:1.5px solid #cbd5e1}.ln i.ok{background:var(--gr);border-color:var(--gr);color:#fff}.ln i.ng{border-color:var(--rd);color:var(--rd)}
+.areaSum{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.areaSum div{background:#fff;border-radius:8px;padding:4px;text-align:center;font-size:9.5px;font-weight:800;color:var(--muted)}.areaSum b{display:block;font-size:12px;color:var(--text)}
+.rec{display:flex;gap:8px;align-items:flex-start;font-weight:700}.rec em{font-style:normal;font-size:14px}.rec div{display:grid;gap:1px}.rec small{font-size:10.5px;color:var(--muted)}
+.sf{margin-top:auto;display:flex;gap:6px;padding:8px 12px 14px;border-top:1.5px dashed #d6d3c4}
+.sf span{flex:1;text-align:center;font-size:11.5px;font-weight:900;border-radius:10px;padding:9px 4px;background:#fff;border:1px solid var(--line);color:#334155}
+.sf span.p{background:linear-gradient(90deg,#22d3ee,#34d399);border:none;color:#06323c}
+/* 流れ */
+.tg{display:flex;background:#e2e8f0;border-radius:10px;padding:2px;margin-left:auto}.tg span{font-size:10.5px;font-weight:800;padding:5px 9px;border-radius:8px;color:var(--muted)}.tg span.on{background:#fff;color:var(--text)}
+.ph{border-radius:14px;padding:7px 9px;display:grid;gap:5px;position:relative}
+.ph h4{font-size:11px;font-weight:900;display:flex;gap:6px;align-items:center}.ph h4 small{font-weight:700;color:var(--muted);font-size:10px}.ph h4 em{margin-left:auto;font-style:normal;font-size:10px}
+.ph.pre{background:#fff7ed}.ph.lunch{background:#fefce8}.ph.idle{background:#f1f5f9}.ph.din{background:#eef2ff}.ph.close{background:#f0fdfa}
+.ph.now{box-shadow:0 0 0 2px #f97316}.ph.now:before{content:'いま';position:absolute;right:8px;top:-8px;background:#f97316;color:#fff;font-size:9px;font-weight:900;border-radius:999px;padding:1px 6px}
+.chip{display:flex;gap:6px;align-items:center;background:#fff;border-radius:9px;padding:5px 7px;font-size:11.5px;font-weight:700}
+.chip .ck{width:15px;height:15px;border-radius:5px;font-size:9px;border-width:1.5px}
+.chip small{margin-left:auto;color:var(--muted);font-size:10px;font-weight:800}.chip.st{background:#ecfeff;color:#155e75}.chip.ng{color:#b91c1c}
+/* 詳細 */
+.dtop{background:#fff;padding:12px 14px 10px;display:grid;gap:7px;border-bottom:1px solid var(--line)}
+.dtop .bk{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--teal)}.dtop .bk em{margin-left:auto;font-style:normal;font-size:10.5px;background:#fef3c7;color:#92400e;border-radius:999px;padding:2px 8px;font-weight:900}
+.dtop h3{font-size:18px}
+.kv{display:grid;grid-template-columns:52px 1fr;gap:5px 8px;font-size:11.5px;font-weight:700;align-items:center}.kv dt{color:var(--muted)}
+.cl{background:#fff;border-radius:14px;padding:2px 10px}
+.cl .it{padding:7px 0}.cl .ck{width:19px;height:19px;font-size:10px}.cl b{font-size:12.5px}
+.tabs2{display:flex;gap:14px;font-size:12px;font-weight:800;color:var(--muted);padding:0 4px}.tabs2 span.on{color:var(--teal);border-bottom:2px solid var(--teal);padding-bottom:3px}
+.tl{display:grid;gap:7px}
+.cm{display:flex;gap:7px}.cm .av{margin:0;flex:none;border:none}
+.cm div{background:#fff;border-radius:4px 12px 12px 12px;padding:6px 9px;font-size:11.5px;font-weight:600;line-height:1.45;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.cm div small{display:block;font-size:9.5px;color:var(--muted);font-weight:800}
+.cm.sys div{background:#ecfdf5;color:#166534;font-weight:800}
+.inbar{margin:0 12px 8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 10px;font-size:12px;color:#94a3b8;display:flex}.inbar b{margin-left:auto;color:var(--teal)}
+/* 追加 */
+.qa{position:absolute;left:0;right:0;bottom:0;top:70px;background:#fff;border-radius:22px 22px 0 0;z-index:6;padding:12px 14px 16px;display:grid;gap:9px;align-content:start;box-shadow:0 -10px 30px rgba(0,0,0,.2)}
+.qh{display:flex;font-size:13px;font-weight:800;color:var(--muted)}.qh b{margin:0 auto;color:var(--text);font-size:15px}.qh em{font-style:normal;color:var(--teal)}
+.inp{border:1.5px solid #67e8f9;border-radius:12px;padding:10px;font-size:14px;font-weight:700;color:#334155}
+.qlab{font-size:10.5px;font-weight:900;color:var(--muted);letter-spacing:.06em}
+.pills{display:flex;gap:5px;flex-wrap:wrap}.pills span{font-size:11px;font-weight:800;border-radius:999px;padding:5px 10px;background:#f1f5f9;color:#475569}.pills span.on{background:#0f2a33;color:#fff}
+.pills span.h.on{background:var(--hall)}.pills span.k.on{background:var(--kit)}
+.qcl{border:1px dashed #cbd5e1;border-radius:12px;padding:6px 10px;display:grid;gap:5px;font-size:12px;font-weight:700;color:#475569}.qcl span{display:flex;gap:7px;align-items:center}.qcl span i{width:14px;height:14px;border:1.5px solid #cbd5e1;border-radius:4px}.qcl .add{color:var(--teal)}
+.note2{font-size:12px;background:#fff7ed;border:1px dashed #fb923c;color:#9a3412;border-radius:8px;padding:10px 12px;line-height:1.8;max-width:1500px;margin-top:16px}
+</style></head><body>
+<h1>日誌カレンダー 第2案：週の帯＋その日のリスト／持ち場／申し送り／伝票／営業の流れ</h1>
+<p class="lead">開くと<b>週の帯とその日のリスト</b>（帯を下に引くと月）。リストの上で<b>持ち場</b>（ホール・キッチン・清掃・事務）を絞る。その日の一番上に<b>申し送り</b>。棚卸・発注は「業務」として必ず出す（在庫の軸）。日のまとめは<b>伝票</b>で、日報として送れる。時間で見るときは<b>営業の流れ</b>。やること・ルーティン・進行中の詳細は<b>✓とコメントを1画面</b>に。下のナビ（ホーム・在庫・日誌…）は変えない。</p>
+<div class="row">
+
+<!-- ① 日 -->
+<div class="col"><div class="cap">① 日誌を開くと：週の帯＋今日のリスト<small>帯は日ごとに済み具合の線（緑・黄・赤）と📦🧾。持ち場で絞る。上に申し送り。棚卸・発注は「業務」の2枚。ルーティン（○）・やること（□）は時刻の順に1本のリスト。進行中は横に流れる札</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b><small>☀ 22°</small><div class="r"><span>今日</span><span>🔍</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i style="background:var(--gr)"></i><em></em></div><div>月<b>19</b><i style="background:var(--gr)"></i><em>🧾</em></div><div>火<b>20</b><i style="background:var(--ye)"></i><em></em></div><div class="off">水<b>21</b><i></i><em>定休</em></div><div>木<b>22</b><i style="background:var(--gr)"></i><em>🧾</em></div><div class="on">金<b>23</b><i style="background:var(--ye)"></i><em>📦</em></div><div class="sat">土<b>24</b><i></i><em></em></div></div>
+ <div class="pull"></div><div class="pullt">下に引くと月</div></div>
+<div class="areas"><span class="on">すべて 12</span><span><i style="background:var(--hall)"></i>ホール</span><span><i style="background:var(--kit)"></i>キッチン</span><span><i style="background:var(--cln)"></i>清掃</span><span>👤 自分</span></div>
+<div class="body">
+ <div class="hand"><b>📣 申し送り<small>昨日 23:10 山田</small></b><p>トマトの入荷が明日に遅れます。ランチのサラダは代わりにキャベツで。</p></div>
+ <div class="sumr"><span class="mini" style="background:conic-gradient(var(--ye) 0 58%,#e2e8f0 0)"><span>7/12</span></span>済み 7 ・ 残り 5<a>伝票 ›</a></div>
+ <div class="biz"><div class="bz">📦 棚卸<b>済み 16:15</b><small>合計 5時間40分</small></div><div class="bz or">🧾 発注<b>2社 済み</b><small>酒屋は 明日〆</small></div></div>
+ <div class="list">
+  <div class="it done"><span class="ck r ok">✓</span><div class="tx"><b>☀ 開店チェック</b><small><span class="ar h">ホール</span>9:00 ・ 6/6</small></div><div class="avs"><span class="av a">高</span></div></div>
+  <div class="it done"><span class="ck ok">✓</span><div class="tx"><b>野菜の検品</b><small><span class="ar k">キッチン</span>11:00</small></div><div class="avs"><span class="av b">山</span></div></div>
+  <div class="it"><span class="ck r part"></span><div class="tx"><b>🌡 冷蔵庫の温度</b><small><span class="ar k">キッチン</span>1日3回 ・ 次 21:00</small></div><span class="cnt">2/3</span></div>
+  <div class="it late"><span class="ck"></span><div class="tx"><b>製氷機フィルター交換</b><small><span class="ar k">キッチン</span>今日まで</small></div><div class="avs"><span class="av c">佐</span></div></div>
+  <div class="it"><span class="ck"></span><div class="tx"><b>テーブル配置（貸切 12名）</b><small><span class="ar h">ホール</span>19:00</small></div><div class="avs"><span class="av a">高</span><span class="av d">田</span></div></div>
+ </div>
+ <div class="lh"><span>⏳ 進行中</span><span>すべて 3 ›</span></div>
+ <div class="prog"><div class="pc"><b>エアコンの修理</b><small>進行中 ・ 手順 1/3</small></div><div class="pc w"><b>看板の張り替え</b><small>待ち ・ デザイン案</small></div></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ② 月 -->
+<div class="col"><div class="cap">② 帯を下に引くと月<small>マスは済み具合の線1本＋大きな業務のアイコン1つ。先の日は「発注〆」「棚卸」を点線、混みそうな日は上に細い線。日を押すと下のリストがその日に変わる。上に引くと週に戻る</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>2026年10月</b><div class="r"><span>今日</span><span>‹ ›</span></div></div>
+ <div class="pulse">今月<div class="bar"><i style="flex:16;background:var(--gr)"></i><i style="flex:3;background:var(--ye)"></i><i style="flex:2;background:var(--rd)"></i><i style="flex:8;background:#e2e8f0"></i></div>16日 全部済み</div>
+ <div class="mcal" id="m"></div>
+ <div class="pull"></div><div class="pullt">上に引くと週</div></div>
+<div class="body">
+ <div class="lh"><span>10/30（金）・ 予定</span><span>3件</span></div>
+ <div class="list">
+  <div class="it"><span class="ck"></span><div class="tx"><b>🎉 貸切 20名 19時〜</b><small><span class="ar h">ホール</span>ディナー</small></div></div>
+  <div class="it"><span class="ck"></span><div class="tx"><b>🚚 酒屋 納品</b><small><span class="ar k">キッチン</span>仕込み</small></div></div>
+  <div class="it"><span class="ck r"></span><div class="tx"><b>🧾 酒屋 発注〆</b><small>発注日</small></div></div>
+ </div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ③ 伝票 -->
+<div class="col"><div class="cap">③ 「伝票 ›」でその日のまとめ<small>レシートの1枚。申し送りを先頭、やり残しは赤。持ち場ごとの済み具合、棚卸・発注・入出庫。そのまま「📤 日報で送る」（LINE などへ画像・文字で）</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b></div></div>
+<div class="dim"></div>
+<div class="slip"><div class="grab"></div>
+ <div class="sh"><div><b>10/23（金）の伝票</b><small>☀ 22° ・ 祝前日 ・ 高木・山田・佐藤</small></div><div class="ring" style="background:conic-gradient(var(--ye) 0 75%,#e7e5dc 0)"><span>9/12</span></div></div>
+ <div class="sb">
+  <div class="hand"><b>📣 申し送り（明日へ）<small>22:40 高木</small></b><p>製氷機のフィルターは明日の朝いちで。貸切の片付けは済み。</p></div>
+  <div class="slh"><span>持ち場</span><span>9 / 12</span></div>
+  <div class="areaSum"><div>ホール<b>4/4</b></div><div>キッチン<b style="color:#b45309">3/5</b></div><div>清掃<b>2/2</b></div><div>事務<b style="color:#b91c1c">0/1</b></div></div>
+  <div class="slh"><span>やり残し</span><span>3</span></div>
+  <div class="ln ng"><i class="ng">!</i>製氷機フィルター交換<small>キッチン ・ 佐藤</small></div>
+  <div class="ln ng"><i class="ng">!</i>🌙 退店チェック 5/6<small>ガスの元栓</small></div>
+  <div class="slh"><span>業務</span><span></span></div>
+  <div class="rec"><em>📦</em><div>棚卸 10:35〜16:15<small>合計 5時間40分 ・ 中断12回 2時間35分 ・ 3人</small></div></div>
+  <div class="rec"><em>🧾</em><div>発注 2社<small>八百屋 ・ 魚屋 ・ 15:20 高木</small></div></div>
+  <div class="rec"><em>📥</em><div>入庫 5品目 ・ 📤 出庫 2<small>キャベツ・トマト ほか</small></div></div>
+ </div>
+ <div class="sf"><span>📣 申し送り</span><span>🕒 営業の流れ</span><span class="p">📤 日報で送る</span></div>
+</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ④ 流れ -->
+<div class="col"><div class="cap">④ 時間で見る＝営業の流れ<small>右上の切り替えで「リスト／流れ」。仕込み・ランチ・アイドル・ディナー・締めの枠に置く（区切りは店の営業時間から）。持ち場の絞りもそのまま効く（ここではキッチン）</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b><div class="tg"><span>リスト</span><span class="on">流れ</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i style="background:var(--gr)"></i></div><div>月<b>19</b><i style="background:var(--gr)"></i></div><div>火<b>20</b><i style="background:var(--ye)"></i></div><div class="off">水<b>21</b><i></i></div><div>木<b>22</b><i style="background:var(--gr)"></i></div><div class="on">金<b>23</b><i style="background:var(--ye)"></i></div><div class="sat">土<b>24</b><i></i></div></div></div>
+<div class="areas"><span>すべて</span><span><i style="background:var(--hall)"></i>ホール</span><span class="on"><i style="background:#fff"></i>キッチン 5</span><span><i style="background:var(--cln)"></i>清掃</span></div>
+<div class="body">
+ <div class="ph pre"><h4>🔪 仕込み <small>9:00〜11:00</small><em>2/2</em></h4>
+  <div class="chip"><span class="ck ok">✓</span>野菜の検品<small>11:04 山田</small></div>
+  <div class="chip"><span class="ck ok">✓</span>🌡 冷蔵庫の温度（1回目）<small>10:02</small></div></div>
+ <div class="ph lunch"><h4>🍱 ランチ <small>11:00〜14:00</small><em>1/1</em></h4>
+  <div class="chip"><span class="ck ok">✓</span>🌡 冷蔵庫の温度（2回目）<small>13:58</small></div></div>
+ <div class="ph idle"><h4>☕ アイドル <small>14:00〜17:00</small><em>0/1</em></h4>
+  <div class="chip st"><span class="ck ok">✓</span>📦 棚卸 10:35〜16:15<small>業務</small></div>
+  <div class="chip ng"><span class="ck"></span>製氷機フィルター交換<small>佐藤</small></div></div>
+ <div class="ph din now"><h4>🍶 ディナー <small>17:00〜22:00</small><em>0/1</em></h4>
+  <div class="chip"><span class="ck"></span>🌡 冷蔵庫の温度（3回目）<small>21:00</small></div></div>
+ <div class="ph close"><h4>🌙 締め <small>22:00〜</small><em>—</em></h4></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ⑤ 詳細 -->
+<div class="col"><div class="cap">⑤ 押すと詳細：✓とコメントを1画面<small>ルーティン・やること・進行中で同じ形。上に持ち場・担当・時間帯、中にチェックリスト（誰がいつ✓）、下にコメント（経過）。✓や「今日はなし」も自動で1行残る</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="dtop"><div class="bk">‹ 10/23（金）<em>途中 5/6</em></div><h3>🌙 退店チェック</h3>
+ <dl class="kv"><dt>持ち場</dt><dd><span class="ar h">ホール</span> <span class="ar k">キッチン</span></dd><dt>担当</dt><dd class="avs" style="padding-left:6px"><span class="av a">高</span><span class="av b">山</span></dd><dt>いつ</dt><dd>🔁 毎日 ・ 締め 22:00</dd></dl></div>
+<div class="body">
+ <div class="cl">
+  <div class="it done"><span class="ck ok">✓</span><div class="tx"><b>レジ締め</b></div><small style="font-size:10px;color:var(--muted);font-weight:800">高 22:05</small></div>
+  <div class="it done"><span class="ck ok">✓</span><div class="tx"><b>ダスター漂白</b></div><small style="font-size:10px;color:var(--muted);font-weight:800">山 22:12</small></div>
+  <div class="it done"><span class="ck ok">✓</span><div class="tx"><b>冷蔵庫の扉</b></div><small style="font-size:10px;color:var(--muted);font-weight:800">山 22:14</small></div>
+  <div class="it"><span class="ck"></span><div class="tx"><b>ガスの元栓</b></div><small style="font-size:10px;color:#b91c1c;font-weight:800">まだ</small></div>
+ </div>
+ <div class="tabs2"><span class="on">コメント 3</span><span>この表の記録</span></div>
+ <div class="tl">
+  <div class="cm"><span class="av b">山</span><div><small>山田 22:14</small>冷蔵庫の扉のパッキンが少し浮いてます</div></div>
+  <div class="cm sys"><span class="av a">高</span><div><small>高木 22:20</small>✓ 3つ済み ・「ガスの元栓」は最後に</div></div>
+  <div class="cm"><span class="av a">高</span><div><small>高木 22:21</small>パッキンは明日の申し送りに入れました</div></div>
+ </div>
+</div>
+<div class="inbar">コメントを書く<b>送る</b></div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ⑥ 追加 -->
+<div class="col"><div class="cap">⑥ ＋（日の長押し）で追加<small>名前 → 持ち場 → 担当 → いつ（時間帯でも時刻でも）。繰り返す・何日かかかる・チェックリストは任意。種類（業者・メンテ・貸切…）は名前の頭の絵で自動に</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b></div></div>
+<div class="dim" style="background:rgba(15,23,42,.25)"></div>
+<div class="qa">
+ <div class="qh">キャンセル<b>やることを追加</b><em>追加</em></div>
+ <div class="inp">冷蔵庫の中身の整理</div>
+ <div class="qlab">持ち場</div><div class="pills"><span class="h">ホール</span><span class="k on">キッチン</span><span>清掃</span><span>事務</span><span>＋</span></div>
+ <div class="qlab">担当</div><div class="pills"><span>誰でも</span><span>全員</span><span class="on">山田</span><span>佐藤</span><span>高木</span></div>
+ <div class="qlab">いつ ・ 10/24（土）</div><div class="pills"><span>終日</span><span>仕込み</span><span>ランチ</span><span class="on">アイドル</span><span>ディナー</span><span>締め</span><span>🕒 時刻</span></div>
+ <div class="pills"><span>🔁 繰り返す</span><span>⏳ 何日かかかる</span><span>🔒 管理者だけ</span></div>
+ <div class="qlab">チェックリスト（任意）</div>
+ <div class="qcl"><span><i></i>賞味期限の確認</span><span><i></i>古い食材の廃棄</span><span class="add">＋ 項目を足す</span></div>
+</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+</div>
+<p class="note2">決めてほしいこと：<br>
+① 持ち場の名前（ホール・キッチン・清掃・事務を最初に用意し、店ごとに足す・消す）。1つのやることに持ち場は複数OK<br>
+② 申し送りは「その日のメモ」を兼ねる（今の日別メモを申し送りに改名。発注の学習から外す印はそのまま）<br>
+③ 今の「今日／進行中／済み／記録」のタブは無くす：今日＝①、進行中＝①の札と「すべて ›」、済み・記録＝③の伝票<br>
+④ 「📤 日報で送る」は、まず文字（LINE などに貼れる）。画像は後から<br>
+⑤ 時間帯（仕込み〜締め）の区切りは、店の営業時間の設定から自動で作り、管理で直せる</p>
+<script>
+const st={1:'y',2:'y',3:'p',5:'y',6:'y',7:'y',8:'x',9:'y',10:'y',12:'y',13:'p',14:'y',15:'y',16:'y',17:'x',19:'y',20:'p',22:'y',23:'p'}
+const ic={1:'📦',8:'🧾',15:'🧾',19:'🧾',22:'🧾',23:'📦'},off={4:1,11:1,18:0,21:1,25:1},busy={9:1,10:1,30:1,31:1},due={29:'発注〆',31:'棚卸',30:'貸切'}
+const m=document.getElementById('m');let h='';['日','月','火','水','木','金','土'].forEach(w=>h+=`<span class="w">${w}</span>`);for(let i=0;i<4;i++)h+='<div class="mc b"></div>'
+for(let d=1;d<=31;d++){let c='mc',x=`<span class="n">${d}</span>`;if(busy[d])x+='<span class="busy"></span>'
+if(off[d])c+=' off';else if(d>23){c+=' fut';if(due[d])x+=`<span class="due">${due[d]}</span>`}else{if(st[d])c+=' '+st[d];if(ic[d])x+=`<span class="ic">${ic[d]}</span>`;x+='<span class="st"><i></i></span>'}
+if(d===23)c+=' today';if(d===30)c+=' sel';h+=`<div class="${c}">${x}</div>`}m.innerHTML=h
+</script>
+</body></html>
