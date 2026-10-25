@@ -111,11 +111,22 @@ export function stockRecords(sessions = [], snapshotOf = () => null) {
     return {
       key: `stock-${s.id}`, kind: 'stock', at: span.from, end: span.to, pauses: span.pauses,
       activeMs: snap?.activeMs ?? span.activeMs,
+      pauseMs: span.pauses.reduce((n, p) => n + p.ms, 0),
       title: `棚卸 完了 ・ ${items}品目`, items, imported,
       by: people.map(p => p.name).join('・'), people,
       total: snap?.totalValue ?? null, session: s,
     }
   })
+}
+
+/**
+ * 棚卸の時間の一言: 「合計 5時間40分 ・ 中断12回 2時間35分」（User決定 2026-10-25）。
+ * 端末1台の操作時間（activeMs）は全員の作業と合わず紛らわしいので出さない。合計＝始め〜終わり
+ */
+export function stockTimeLabel(r) {
+  if (r?.imported || r?.at == null || r?.end == null) return ''
+  const n = r.pauses?.length ?? 0
+  return [`合計 ${fmtDuration(r.end - r.at)}`, n ? `中断${n}回 ${fmtDuration(r.pauseMs ?? r.pauses.reduce((s, p) => s + (p.to - p.from), 0))}` : ''].filter(Boolean).join(' ・ ')
 }
 
 /** 1日の記録を時刻の順に（時刻の無いもの＝取込などは最後） */

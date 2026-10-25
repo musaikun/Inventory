@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { workSpans, mergeMovements, mergeOrders, stockRecords, stockDateKey, sortRecords, fmtDuration, PAUSE_MS } from './journalRecords.js'
+import { workSpans, mergeMovements, mergeOrders, stockRecords, stockDateKey, sortRecords, fmtDuration, stockTimeLabel, PAUSE_MS } from './journalRecords.js'
 
 const T = (h, m = 0) => new Date(2026, 9, 9, h, m).getTime()
 
@@ -13,6 +13,13 @@ describe('日誌の記録（User決定 2026-10-09）', () => {
     expect(s.activeMs).toBe(3 * 3600_000 - (29 + 40 + 40 + 10 + 55) * 60000)
     expect(workSpans(null, null, [T(9), T(9, 3)]).pauses).toEqual([])
     expect(PAUSE_MS).toBe(300000)
+  })
+
+  it('棚卸の時間は「合計（始め〜終わり）・中断の回数と時間」。端末の操作時間（実働）は出さない', () => {
+    const r = { at: T(10, 35), end: T(16, 15), pauses: [{}, {}], pauseMs: 155 * 60000, activeMs: 25 * 60000 }
+    expect(stockTimeLabel(r)).toBe('合計 5時間40分 ・ 中断2回 2時間35分')
+    expect(stockTimeLabel({ ...r, pauses: [], pauseMs: 0 })).toBe('合計 5時間40分')
+    expect(stockTimeLabel({ ...r, imported: true })).toBe('')
   })
 
   it('品目シートの入出庫は、同じ種類で30分以内の続きを1件にまとめ、品目ごとに数を足す', () => {

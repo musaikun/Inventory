@@ -183,7 +183,8 @@ describe('日誌', () => {
     const blocks = host.querySelectorAll('.jd-ev.stock')
     expect(blocks).toHaveLength(1)
     expect(blocks[0].querySelector('.jd-stock-t').textContent).toContain('棚卸 10:35〜16:20')
-    expect(blocks[0].querySelector('.jd-stock-t').textContent).toContain('中断5回 1時間39分')
+    expect(blocks[0].querySelector('.jd-stock-t').textContent).toContain('合計 5時間45分 ・ 中断5回 1時間39分')
+    expect(blocks[0].textContent).not.toContain('実働')
     const ps = blocks[0].querySelectorAll('.jd-pause')
     expect(ps).toHaveLength(5)
     expect(ps[2].textContent).toBe('')                 // 2分の中断は文字なし

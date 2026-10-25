@@ -28,7 +28,7 @@ import { useDayNotes } from '../composables/useDayNotes.js'
 import { dayFactors, consecutiveOffLength } from '../services/demandFactors.js'
 import { useConfig } from '../composables/useConfig.js'
 import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
-import { fmtHm, fmtDuration } from '../services/journalRecords.js'
+import { fmtHm, fmtDuration, stockTimeLabel } from '../services/journalRecords.js'
 import { localDateKey } from '../utils/localDate.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -178,11 +178,10 @@ const hourMarks = computed(() => { const a = []; for (let m = range.value.from; 
 const stockBlocks = computed(() => props.records.filter(r => r.kind === 'stock' && r.at != null).map(r => {
   const end = r.end ?? r.at
   const h = Math.max(22, (end - r.at) / 60000 * PX)
-  const pauseMs = (r.pauses ?? []).reduce((n, p) => n + (p.to - p.from), 0)
   return {
     key: r.key, rec: r, top: top(minOf(r.at)), h,
     label: `📦 棚卸 ${fmtHm(r.at)}〜${r.end != null ? fmtHm(r.end) : ''}`,
-    sub: [r.activeMs != null ? `実働 ${fmtDuration(r.activeMs)}` : '', r.pauses?.length ? `中断${r.pauses.length}回 ${fmtDuration(pauseMs)}` : ''].filter(Boolean).join(' ・ '),
+    sub: stockTimeLabel(r),
     pauses: (r.pauses ?? []).map((p, i) => {
       const ph = (p.to - p.from) / 60000 * PX
       return { key: i, top: (p.from - r.at) / 60000 * PX, h: ph, label: ph >= 16 ? `中断 ${fmtDuration(p.to - p.from)}` : '' }

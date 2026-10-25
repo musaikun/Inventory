@@ -6,7 +6,7 @@
  */
 import { ref, computed } from 'vue'
 import { canSeeMoney } from '../composables/useAuth.js'
-import { fmtHm, fmtDuration } from '../services/journalRecords.js'
+import { fmtHm, stockTimeLabel } from '../services/journalRecords.js'
 import OrderExportSheet from './OrderExportSheet.vue'
 
 const props = defineProps({ rec: { type: Object, required: true } })
@@ -22,7 +22,7 @@ const sub = computed(() => {
   if (x.kind === 'stock') {
     if (x.imported) parts.push('取り込んだ記録')
     else if (x.at != null && x.end != null) parts.push(`${fmtHm(x.at)}〜${fmtHm(x.end)}`)
-    if (x.activeMs != null && !x.imported) parts.push(`実働 ${fmtDuration(x.activeMs)}${x.pauses?.length ? `（中断${x.pauses.length}回）` : ''}`)
+    if (stockTimeLabel(x)) parts.push(stockTimeLabel(x))
     if (x.by) parts.push(x.by)
     if (canSeeMoney.value && x.total != null) parts.push(`¥${Math.round(x.total).toLocaleString('ja-JP')}`)
   } else {
