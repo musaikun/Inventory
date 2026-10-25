@@ -1,0 +1,235 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>日誌カレンダー 第3案</title><style>
+:root{--bg:#f4f6f8;--text:#10262e;--muted:#64748b;--line:#e2e8f0;--teal:#0e7490;--gr:#22c55e;--ye:#f59e0b;--rd:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;background:#d7dee8;color:var(--text);padding:24px}
+h1{font-size:20px;margin-bottom:4px}.lead{font-size:13px;color:#475569;margin-bottom:18px;max-width:1500px;line-height:1.7}
+.row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;max-width:1500px}.col{display:grid;gap:8px}
+.cap{font-size:14px;font-weight:800}.cap small{display:block;font-weight:400;color:#475569;font-size:12px;max-width:340px;line-height:1.5;min-height:72px}
+.phone{width:340px;height:740px;background:var(--bg);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;border:6px solid #0b1f26;box-shadow:0 12px 34px rgba(0,0,0,.2);position:relative}
+.tag{position:absolute;bottom:64px;left:8px;font-size:11px;font-weight:900;padding:3px 8px;border-radius:999px;color:#fff;background:#f97316;z-index:9}
+.nav{margin-top:auto;display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);padding:8px 0 12px;font-size:9.5px;font-weight:800;color:var(--muted);position:relative;z-index:3}.nav span.on{color:var(--teal)}
+.fab{position:absolute;right:16px;bottom:72px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#34d399);display:grid;place-items:center;font-size:26px;color:#06323c;box-shadow:0 8px 18px rgba(14,116,144,.35);z-index:4}
+.top{background:#fff;padding:12px 12px 6px;border-bottom:1px solid var(--line)}
+.th{display:flex;align-items:center;gap:8px}.th b{font-size:19px}.th small{font-size:11px;color:var(--muted);font-weight:700}
+.th .r{margin-left:auto;display:flex;gap:6px}.th .r span{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;background:#f1f5f9;color:var(--teal)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:8px}
+.wk div{text-align:center;font-size:9.5px;font-weight:800;color:var(--muted);display:grid;gap:3px;padding:4px 0 5px;border-radius:12px}
+.wk div b{font-size:14px;color:var(--text)}.wk div i{height:4px;margin:0 9px;border-radius:2px;background:#eef2f6;display:block}
+.wk div.on{background:#0f2a33;color:#a5d8e3}.wk div.on b{color:#fff}
+.wk div.sun b{color:#dc2626}.wk div.sat b{color:#2563eb}.wk div.off{opacity:.45}
+.wk em{font-style:normal;font-size:9px;line-height:1;height:9px}
+.pull{width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:6px auto 0}
+.ppl{display:flex;gap:6px;padding:8px 12px 2px;overflow:hidden}
+.ppl span{flex:none;font-size:11.5px;font-weight:800;border-radius:999px;padding:3px 10px 3px 3px;background:#fff;border:1px solid var(--line);color:#475569;display:flex;align-items:center;gap:5px}
+.ppl span.t{padding:5px 10px}
+.ppl span em{font-style:normal;font-size:10px;color:var(--muted)}
+.ppl span.on{background:#0f2a33;color:#fff;border-color:#0f2a33}.ppl span.on em{color:#a5d8e3}
+.ppl .av{margin:0;border:none;width:20px;height:20px}
+.body{flex:1;overflow:hidden;padding:6px 12px;display:grid;gap:8px;align-content:start}
+.av{width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:900;display:grid;place-items:center;border:2px solid #fff;margin-left:-6px;flex:none}
+.av.a{background:#0e7490}.av.b{background:#d97706}.av.c{background:#7c3aed}.av.d{background:#db2777}.av.n{background:#cbd5e1}
+.avs{display:flex;padding-left:6px}
+/* 申し送り */
+.hand{background:#fffbeb;border:1px solid #fde68a;border-radius:14px;padding:8px 10px;display:grid;gap:6px}
+.hh{font-size:11px;font-weight:900;color:#92400e;display:flex;gap:6px}.hh small{margin-left:auto;font-weight:700;color:#b45309}
+.hm{display:grid;gap:4px;background:#fff;border-radius:10px;padding:7px 8px}
+.hm .k{font-size:9.5px;font-weight:900;border-radius:5px;padding:0 5px;align-self:start;justify-self:start}
+.hm .k.rep{background:#e0f2fe;color:#075985}.hm .k.ask{background:#fce7f3;color:#9d174d}
+.hm p{font-size:12px;font-weight:700;color:#3f3a2e;line-height:1.45}
+.hm .f{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);font-weight:800}
+.hm .f .btn{margin-left:auto;font-size:10.5px;font-weight:900;color:#fff;background:#0e7490;border-radius:999px;padding:3px 9px}
+.hm .f .ok{margin-left:auto;color:#16a34a}
+.hm .to{font-size:10.5px;font-weight:900;color:#9d174d;background:#fdf2f8;border-radius:7px;padding:3px 7px}
+.sumr{display:flex;gap:8px;align-items:center;font-size:11px;font-weight:800;color:var(--muted);padding:0 2px}
+.mini{width:26px;height:26px;border-radius:50%;display:grid;place-items:center}.mini span{width:19px;height:19px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font-size:8px;font-weight:900;color:var(--text)}
+.sumr a{margin-left:auto;color:var(--teal)}
+.biz{display:flex;gap:8px}
+.bz{flex:1;background:#ecfeff;border-radius:14px;padding:8px 10px;display:grid;gap:2px;font-size:11px;font-weight:800;color:#155e75}
+.bz b{font-size:13px;color:var(--text)}.bz small{font-size:10px;color:var(--muted);font-weight:700}
+.bz.or{background:#fff7ed;color:#9a3412}.bz.live{box-shadow:inset 0 0 0 1.5px #22d3ee}.bz.live b:after{content:' ●';color:#06b6d4;font-size:10px}
+.lh{font-size:10.5px;font-weight:900;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between;padding:2px 4px 0}
+.list{background:#fff;border-radius:16px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.it{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid #f1f5f9}.it:first-child{border-top:none}
+.ck{width:22px;height:22px;border-radius:7px;border:2px solid #cbd5e1;flex:none;display:grid;place-items:center;font-size:12px;color:#fff;font-weight:900}
+.ck.ok{background:var(--gr);border-color:var(--gr)}.ck.r{border-radius:50%}.ck.part{border-color:var(--ye)}
+.tx{flex:1;display:grid;gap:2px;min-width:0}.tx b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tx small{font-size:10.5px;color:var(--muted);font-weight:700}
+.cnt{font-size:11px;font-weight:900;color:var(--muted)}
+.it.done b{color:#94a3b8;text-decoration:line-through}.it.late b{color:#b91c1c}
+.from{font-size:9.5px;font-weight:900;color:#9d174d;background:#fdf2f8;border-radius:5px;padding:0 4px;margin-right:3px}
+.prog{display:flex;gap:8px;overflow:hidden}
+.pc{flex:none;width:190px;background:#fff;border-radius:14px;padding:8px 10px 8px 13px;position:relative;overflow:hidden;display:grid;gap:3px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.pc:before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ye)}.pc.w:before{background:#4f46e5}
+.pc b{font-size:12.5px}.pc small{font-size:10px;font-weight:800;color:#92400e}.pc.w small{color:#3730a3}
+/* 空 */
+.empty{background:#fff;border-radius:18px;padding:16px 14px;display:grid;gap:8px;justify-items:center;text-align:center}
+.empty .ill{font-size:40px;line-height:1}
+.empty b{font-size:15px}.empty p{font-size:11.5px;color:var(--muted);line-height:1.6;font-weight:600}
+.starts{display:grid;gap:6px;width:100%}
+.st{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:9px 10px;text-align:left}
+.st em{font-style:normal;font-size:18px;width:28px;text-align:center}.st div{display:grid;gap:1px;flex:1}.st div b{font-size:12.5px}.st div small{font-size:10px;color:var(--muted);font-weight:700}
+.st i{font-style:normal;color:var(--teal);font-weight:900}
+.st.main{background:#ecfeff;border-color:#a5f3fc}
+.quiet{background:#fff;border-radius:16px;padding:12px;display:grid;gap:6px;text-align:center}
+.quiet b{font-size:14px}.quiet small{font-size:11px;color:var(--muted);font-weight:700}
+.next{background:#fff;border-radius:14px;padding:8px 10px;display:grid;gap:5px}
+.next .lnn{display:flex;gap:8px;font-size:11.5px;font-weight:700;align-items:center}.next .lnn em{font-style:normal;font-size:10px;font-weight:900;color:#c2410c;border:1px dashed #fdba74;border-radius:5px;padding:0 4px;min-width:42px;text-align:center}
+.ghost{border:1.5px dashed #cbd5e1;border-radius:14px;padding:10px;font-size:11.5px;font-weight:800;color:var(--muted);text-align:center}
+/* シート */
+.dim{position:absolute;inset:0;background:rgba(15,23,42,.3);z-index:5}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;z-index:6;padding:12px 14px 16px;display:grid;gap:9px;box-shadow:0 -10px 30px rgba(0,0,0,.2)}
+.qh{display:flex;font-size:13px;font-weight:800;color:var(--muted)}.qh b{margin:0 auto;color:var(--text);font-size:15px}.qh em{font-style:normal;color:var(--teal)}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.seg span{border:1.5px solid var(--line);border-radius:14px;padding:8px;display:grid;gap:2px;font-size:12.5px;font-weight:900}.seg span small{font-size:10px;color:var(--muted);font-weight:700}
+.seg span.on{border-color:#ec4899;background:#fdf2f8;color:#9d174d}
+.inp{border:1.5px solid #67e8f9;border-radius:12px;padding:10px;font-size:13.5px;font-weight:700;color:#334155;min-height:60px;line-height:1.5}
+.qlab{font-size:10.5px;font-weight:900;color:var(--muted);letter-spacing:.06em}
+.pills{display:flex;gap:5px;flex-wrap:wrap}.pills span{font-size:11px;font-weight:800;border-radius:999px;padding:5px 10px;background:#f1f5f9;color:#475569}.pills span.on{background:#0f2a33;color:#fff}
+.hint{font-size:11px;background:#fdf2f8;border-radius:10px;padding:8px 10px;color:#9d174d;font-weight:700;line-height:1.5}
+.go{display:flex;gap:8px}.go span{flex:1;text-align:center;border-radius:12px;padding:11px;font-size:13px;font-weight:900;background:linear-gradient(90deg,#22d3ee,#34d399);color:#06323c}
+.note2{font-size:12px;background:#fff7ed;border:1px dashed #fb923c;color:#9a3412;border-radius:8px;padding:10px 12px;line-height:1.8;max-width:1500px;margin-top:16px}
+</style></head><body>
+<h1>日誌カレンダー 第3案：担当者で見る／申し送り（報告・お願い）／やることがある日・何もない日</h1>
+<p class="lead">持ち場はやめて<b>担当者で絞る</b>（人の丸と残りの数）。週の帯は下に引くと月。開いた形は「申し送り → 棚卸・発注 → 今日のやること（ルーティン○・チェックリスト・やること□）→ 進行中」。<br>
+<b>申し送り</b>は書く人が選ぶ：<b>📣 報告</b>（読むだけ。「確認しました」で誰が読んだか残る）／<b>🙏 お願い</b>（担当といつを付けると、その人のやることになる）。報告も、読んだ人が後から「やることにする」でタスクにできる。</p>
+<div class="row">
+
+<!-- ① あり -->
+<div class="col"><div class="cap">① やることがある日（すべて）<small>人の丸に残りの数。申し送りは報告とお願いが並ぶ（お願いは「→ 佐藤さんのやること」になっている）。棚卸は今やっている途中なら水色の●。リストはルーティン○・やること□を時刻の順に。担当の顔つき</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b><small>☀ 22°</small><div class="r"><span>今日</span><span>🔍</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i style="background:var(--gr)"></i><em></em></div><div>月<b>19</b><i style="background:var(--gr)"></i><em>🧾</em></div><div>火<b>20</b><i style="background:var(--ye)"></i><em></em></div><div class="off">水<b>21</b><i></i><em>定休</em></div><div>木<b>22</b><i style="background:var(--gr)"></i><em>🧾</em></div><div class="on">金<b>23</b><i style="background:var(--ye)"></i><em>📦</em></div><div class="sat">土<b>24</b><i></i><em></em></div></div>
+ <div class="pull"></div></div>
+<div class="ppl"><span class="on t">すべて <em>5</em></span><span><i class="av a">高</i>自分 <em>2</em></span><span><i class="av b">山</i>山田 <em>1</em></span><span><i class="av c">佐</i>佐藤 <em>2</em></span><span><i class="av n">？</i>未定 <em>0</em></span></div>
+<div class="body">
+ <div class="hand"><div class="hh">📣 申し送り（昨日から）<small>2件</small></div>
+  <div class="hm"><span class="k rep">📣 報告</span><p>トマトの入荷が明日に遅れます。ランチのサラダはキャベツで。</p><div class="f"><i class="av b" style="margin:0;width:18px;height:18px;font-size:9px">山</i>山田 22:40 ・ 読んだ 2人<span class="btn">確認しました</span></div></div>
+  <div class="hm"><span class="k ask">🙏 お願い</span><p>製氷機のフィルターを朝いちで交換してください。</p><span class="to">→ 佐藤さんのやること（今日・仕込み）</span></div>
+ </div>
+ <div class="biz"><div class="bz live">📦 棚卸<b>いま途中</b><small>28 / 40品目 ・ 3人</small></div><div class="bz or">🧾 発注<b>2社 済み</b><small>酒屋は 明日〆</small></div></div>
+ <div class="sumr"><span class="mini" style="background:conic-gradient(var(--ye) 0 58%,#e2e8f0 0)"><span>7/12</span></span>今日のやること 済み 7 ・ 残り 5<a>伝票 ›</a></div>
+ <div class="list">
+  <div class="it done"><span class="ck r ok">✓</span><div class="tx"><b>☀ 開店チェック</b><small>9:00 ・ 6/6</small></div><div class="avs"><span class="av a">高</span></div></div>
+  <div class="it"><span class="ck"></span><div class="tx"><b><span class="from">申し送り</span>製氷機フィルター交換</b><small>仕込み</small></div><div class="avs"><span class="av c">佐</span></div></div>
+  <div class="it"><span class="ck r part"></span><div class="tx"><b>🌡 冷蔵庫の温度</b><small>1日3回 ・ 次 21:00</small></div><span class="cnt">2/3</span></div>
+  <div class="it"><span class="ck"></span><div class="tx"><b>テーブル配置（貸切 12名）</b><small>19:00</small></div><div class="avs"><span class="av a">高</span><span class="av d">田</span></div></div>
+ </div>
+ <div class="lh"><span>⏳ 進行中</span><span>すべて 3 ›</span></div>
+ <div class="prog"><div class="pc"><b>エアコンの修理</b><small>進行中 ・ 手順 1/3</small></div><div class="pc w"><b>看板の張り替え</b><small>待ち ・ デザイン案</small></div></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ② 担当で絞る -->
+<div class="col"><div class="cap">② 人を押すと、その人のやることだけ<small>週の帯の線もその人の済み具合に変わる。棚卸・発注はその人が関わったときだけ。「未定」を押すと担当の振り忘れが見える</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b><small>佐藤さん</small><div class="r"><span>今日</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i style="background:var(--gr)"></i><em></em></div><div>月<b>19</b><i style="background:var(--gr)"></i><em></em></div><div>火<b>20</b><i style="background:var(--rd)"></i><em></em></div><div class="off">水<b>21</b><i></i><em>定休</em></div><div>木<b>22</b><i style="background:var(--gr)"></i><em></em></div><div class="on">金<b>23</b><i style="background:var(--ye)"></i><em>📦</em></div><div class="sat">土<b>24</b><i></i><em></em></div></div>
+ <div class="pull"></div></div>
+<div class="ppl"><span class="t">すべて <em>5</em></span><span><i class="av a">高</i>自分 <em>2</em></span><span><i class="av b">山</i>山田 <em>1</em></span><span class="on"><i class="av c">佐</i>佐藤 <em>2</em></span><span><i class="av n">？</i>未定 <em>0</em></span></div>
+<div class="body">
+ <div class="hand"><div class="hh">📣 佐藤さんへの申し送り<small>1件</small></div>
+  <div class="hm"><span class="k ask">🙏 お願い</span><p>製氷機のフィルターを朝いちで交換してください。</p><div class="f"><i class="av b" style="margin:0;width:18px;height:18px;font-size:9px">山</i>山田 22:40 から<span class="ok">✓ やることにしました</span></div></div>
+ </div>
+ <div class="biz"><div class="bz live">📦 棚卸<b>いま途中</b><small>佐藤さん 9品目 数えた</small></div></div>
+ <div class="list">
+  <div class="it"><span class="ck"></span><div class="tx"><b><span class="from">申し送り</span>製氷機フィルター交換</b><small>仕込み ・ 山田さんから</small></div></div>
+  <div class="it done"><span class="ck ok">✓</span><div class="tx"><b>魚の検品</b><small>10:30</small></div></div>
+  <div class="it"><span class="ck r"></span><div class="tx"><b>🗑 ゴミ出し</b><small>毎日 ・ 締め</small></div></div>
+ </div>
+ <div class="lh"><span>⏳ 佐藤さんの進行中</span><span>1</span></div>
+ <div class="prog"><div class="pc"><b>エアコンの修理</b><small>進行中 ・ 手順 1/3 ・ 業者待ち</small></div></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ③ 申し送りを書く -->
+<div class="col"><div class="cap">③ 申し送りを書く（＋ か、締めのとき）<small>まず「報告／お願い」を選ぶ。お願いは担当といつを付ける → その人の次の日のやることになる。宛先を付けない報告は全員へ</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b></div></div>
+<div class="dim"></div>
+<div class="sheet">
+ <div class="qh">やめる<b>申し送り</b><em>送る</em></div>
+ <div class="seg"><span>📣 報告<small>伝えるだけ・読んだ人が残る</small></span><span class="on">🙏 お願い<small>やることになる</small></span></div>
+ <div class="inp">冷蔵庫の扉のパッキンが浮いています。業者に連絡をお願いします</div>
+ <div class="qlab">だれに</div><div class="pills"><span>誰でも</span><span>山田</span><span class="on">佐藤</span><span>高木</span></div>
+ <div class="qlab">いつ</div><div class="pills"><span class="on">明日（土）</span><span>仕込み</span><span>次の出勤日</span><span>📅 日付</span></div>
+ <div class="pills"><span>⏳ 何日かかかる（進行中）</span></div>
+ <div class="hint">🙏 佐藤さんの 10/24（土）のやることになります。済んだら高木さんに知らせます</div>
+ <div class="go"><span>送る</span></div>
+</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ④ 何もない（はじめて） -->
+<div class="col"><div class="cap">④ まだ何もない店（はじめて）<small>週の帯はそのまま（線は灰）。真ん中に「日誌でできること」を3つだけ。棚卸・発注のカードは「次の予定」を出す（品目があれば、ここから始められる）</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b><small>☀ 22°</small><div class="r"><span>今日</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i></i><em></em></div><div>月<b>19</b><i></i><em></em></div><div>火<b>20</b><i></i><em></em></div><div>水<b>21</b><i></i><em></em></div><div>木<b>22</b><i></i><em></em></div><div class="on">金<b>23</b><i></i><em></em></div><div class="sat">土<b>24</b><i></i><em></em></div></div>
+ <div class="pull"></div></div>
+<div class="body">
+ <div class="empty"><div class="ill">🗓</div><b>日誌は、お店の1日のカレンダーです</b><p>やること・毎日の決まった仕事・申し送りをここに。<br>誰がいつ済ませたかが残ります。</p>
+  <div class="starts">
+   <div class="st main"><em>✓</em><div><b>今日のやることを入れる</b><small>例：製氷機のフィルター交換</small></div><i>＋</i></div>
+   <div class="st"><em>🔁</em><div><b>毎日の決まった仕事（ルーティン）</b><small>見本：開店・退店チェック、ゴミ出し</small></div><i>›</i></div>
+   <div class="st"><em>📣</em><div><b>申し送りを書く</b><small>次の人への報告・お願い</small></div><i>›</i></div>
+  </div></div>
+ <div class="biz"><div class="bz">📦 棚卸<b>まだ</b><small>ホームから始める</small></div><div class="bz or">🧾 発注<b>発注日 未設定</b><small>設定すると予定に出る</small></div></div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ⑤ 今日だけ何もない -->
+<div class="col"><div class="cap">⑤ 使っている店の、何もない日<small>大きな空白にせず1行で「今日はなし」。代わりに「これから」（近い予定・発注〆・棚卸）を出す。申し送りも無ければ枠ごと出さない</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月24日（土）</b><small>☁ 19°</small><div class="r"><span>今日</span></div></div>
+ <div class="wk"><div class="sun">日<b>18</b><i style="background:var(--gr)"></i><em></em></div><div>月<b>19</b><i style="background:var(--gr)"></i><em>🧾</em></div><div>火<b>20</b><i style="background:var(--ye)"></i><em></em></div><div class="off">水<b>21</b><i></i><em>定休</em></div><div>木<b>22</b><i style="background:var(--gr)"></i><em>🧾</em></div><div>金<b>23</b><i style="background:var(--gr)"></i><em>📦</em></div><div class="on sat">土<b>24</b><i></i><em></em></div></div>
+ <div class="pull"></div></div>
+<div class="ppl"><span class="on t">すべて <em>0</em></span><span><i class="av a">高</i>自分 <em>0</em></span><span><i class="av b">山</i>山田 <em>0</em></span><span><i class="av c">佐</i>佐藤 <em>0</em></span></div>
+<div class="body">
+ <div class="quiet"><b>☕ 今日のやることはありません</b><small>ルーティンも今日はお休み</small></div>
+ <div class="biz"><div class="bz">📦 棚卸<b>次は 10/31</b><small>月末の棚卸</small></div><div class="bz or">🧾 発注<b>次は 10/26（月）</b><small>八百屋・魚屋</small></div></div>
+ <div class="lh"><span>これから</span><span>月を見る ›</span></div>
+ <div class="next">
+  <div class="lnn"><em>26 月</em>🧾 八百屋・魚屋 発注〆</div>
+  <div class="lnn"><em>29 木</em>🧾 酒屋 発注〆</div>
+  <div class="lnn"><em>30 金</em>🎉 貸切 20名 19時〜</div>
+  <div class="lnn"><em>31 土</em>📦 月末の棚卸 ・ 📄 発注書の提出</div>
+ </div>
+ <div class="ghost">＋ 今日のやること ・ 📣 申し送り</div>
+</div>
+<div class="fab">＋</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+<!-- ⑥ 受け取った報告をやることに -->
+<div class="col"><div class="cap">⑥ 報告を読んだ人が「やることにする」<small>報告を長押し（か「…」）で「やることにする」。担当といつを選ぶだけ。元の申し送りに「→ やることになりました」と残る</small></div>
+<div class="phone"><span class="tag">案</span>
+<div class="top"><div class="th"><b>10月23日（金）</b></div></div>
+<div class="body" style="padding-top:10px">
+ <div class="hand"><div class="hh">📣 申し送り（昨日から）</div>
+  <div class="hm"><span class="k rep">📣 報告</span><p>冷蔵庫の扉のパッキンが少し浮いてます</p><div class="f"><i class="av b" style="margin:0;width:18px;height:18px;font-size:9px">山</i>山田 22:14 ・ 読んだ 高木</div></div>
+ </div>
+</div>
+<div class="dim"></div>
+<div class="sheet">
+ <div class="qh">やめる<b>やることにする</b><em></em></div>
+ <div class="inp" style="min-height:0">冷蔵庫の扉のパッキン（業者に連絡）</div>
+ <div class="qlab">だれが</div><div class="pills"><span>誰でも</span><span>山田</span><span>佐藤</span><span class="on">高木（自分）</span></div>
+ <div class="qlab">いつ</div><div class="pills"><span class="on">今日</span><span>明日</span><span>📅 日付</span><span>⏳ 何日かかかる</span></div>
+ <div class="hint" style="background:#ecfeff;color:#155e75">山田さんの報告から作ったことが残ります（やることの詳細に「申し送りから」）</div>
+ <div class="go"><span>やることにする</span></div>
+</div>
+<div class="nav"><span>ホーム</span><span>在庫</span><span class="on">日誌</span><span>レポート</span><span>管理</span></div>
+</div></div>
+
+</div>
+<p class="note2">決めてほしいこと：<br>
+① 人の並びは「すべて・自分・（その日に担当がある人）・未定」。担当のない人は出さない<br>
+② 申し送りは前の日の分＋今日書いた分を出し、全員が「確認しました」を押したら小さくたたむ（記録には残る）<br>
+③ お願いの「いつ」に「次の出勤日」を入れるか（シフトの情報がないので、今は「明日」「日付」だけにする案もある）<br>
+④ 何もない店（④）は管理者・スタッフ共通でよいか（スタッフには「ルーティン」の行を出さない）<br>
+⑤ 何もない日（⑤）の「これから」は7日先まで・4件まで</p>
+</body></html>
