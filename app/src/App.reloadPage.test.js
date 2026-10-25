@@ -98,18 +98,16 @@ describe('再読込しても同じページに留まる', () => {
   }, 20000)
 
   // 履歴はホームの下部ナビのタブになった（2026-09-30）。再読み込みしても履歴タブのまま
-  it('日誌タブ（以前のカレンダー）。見え方（月）も再読み込みで残る', async () => {
+  it('日誌タブ（お店のカレンダー）も再読み込みで残る', async () => {
     await mountApp()
     await seedItems()
     await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
-    expect(host.querySelector('.jp')).not.toBeNull()
-    await click([...host.querySelectorAll('.jp-views button')].find(b => b.textContent.includes('月')))
-    expect(host.querySelector('.hcp.embedded')).not.toBeNull()
+    expect(host.querySelector('.jp .jw')).not.toBeNull()
 
     await reload()
     expect(view()).toBe('sessions')
     expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
-    expect(host.querySelector('.hcp')).not.toBeNull()
+    expect(host.querySelector('.jp .jw')).not.toBeNull()
   }, 20000)
 
   it('管理タブ（データ管理）', async () => {

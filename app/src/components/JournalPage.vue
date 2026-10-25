@@ -1,75 +1,66 @@
 <script>
-import { ref, watch } from 'vue'
-// 日誌の見え方（リスト／月／1日）。タブ内で覚える。トップの「今日のやること」からはリストで開く
-const _VIEW_KEY = 'tanaoro_journal_view'
-function _readView() {
-  try { const v = sessionStorage.getItem(_VIEW_KEY); return ['list', 'month', 'day'].includes(v) ? v : 'list' } catch (_) { return 'list' }
-}
-export const journalView = ref(_readView())
-watch(journalView, v => { try { sessionStorage.setItem(_VIEW_KEY, v) } catch (_) {} })
-// 「1日」で見ている日。外（履歴の画面の月）からもこの日を指定して開く
+import { ref } from 'vue'
+// 日誌で見ている日（外＝ホームや棚卸の詳細からもこの日を指定して開く）。'' は今日
 export const journalDate = ref('')
 </script>
 
 <script setup>
 /**
- * 日誌（業務日誌）。やること・予定・記録をひとつに（User決定 2026-10-09・モック docs/mocks/journal.html）。
- * 以前の「カレンダー」タブと「やること」画面をまとめた。
- * - リスト: 「やること」（期限切れ → 今日 → これから）・「済み」（直近30日に終えたやること。終えた日ごと）・
- *   「記録」（実行した棚卸・発注・入出庫。日ごと・新しい日から）を別の枠に
- * - 月: 今までのカレンダー（日ごとの印）。日付を押すとその日の「1日」へ（日の詳細のモーダルは廃止・2026-10-13）
- * - 1日: 時間別（JournalDay）
- * - リスト／月／1日の切り替えは下のナビのすぐ上の帯（親指が届く・User決定 2026-10-13。以前は上のタブ）。
- *   左右のスワイプでも切り替える（下のタブのスワイプをやめて空いた・User決定 2026-10-14。月の月送りは縦のまま）
- * - いつか（日付なし）はリストの「やること」の一番下にたたんで置く（月・1日・残りの数には出さない）
- * - 「今日」（2026-10-23・モック docs/mocks/journal-today-modern.html）: 上に今日ぜんぶの進み具合のリング。種類ごとに形を変える
- *   （ルーティン＝リングの丸を横に1段・進行中＝今日見るものを横に流れるカード・1回きりのやること＝リスト）。重なっても長くならない
- * - 進行中（2026-10-23・モック docs/mocks/journal-inprogress.html）: 「進行中」タブに縦のカード（止まり → 待ち → 進行中）。押すと ProgressSheet
- * - 記録タブの上に「ルーティンの記録」（色で抜けた日を見る・RoutineRecords）
- * - ルーティン（2026-10-19・2026-10-22 改名）: リストの一番上（DailyChecks）。設定・記録は ChecklistsPage。「＋」の「🔁 繰り返す」からも作れる（管理者）
+ * 日誌（業務日誌）＝お店のカレンダー（User決定 2026-10-25・モック docs/mocks/journal-calendar-v4.html）。
+ * - 上に週の帯（下に引くと月・JournalWeek）。日を押すとその日の中身
+ * - 担当者で絞る（すべて・自分・その日に担当がある人・未定。数は残り）
+ * - 中身: 棚卸・発注の途中（今日だけ）→ その日のまとめ（済みのリング・伝票 ›）→ ルーティン○とやること□を時刻の順に1本 → 進行中（今日だけ）
+ * - 何もない店は3つのボタンだけ、何もない日は「☕ 今日はなし」と「これから」（7日先まで・4件）
+ * - 伝票（DaySlip）: その日のやり残し・済み・記録・メモ。🕒 時間で見る（JournalDay）・📤 日報で送る
+ * - 画面の中の説明文は置かない（ボタンと絵で伝える・User 2026-10-25）
+ * 以前の「リスト／月／1日」の切り替えと「今日／進行中／済み／記録」のタブはやめた
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import TaskRow from './TaskRow.vue'
-import DoneTaskRow from './DoneTaskRow.vue'
-import RecordRow from './RecordRow.vue'
 import JournalDay from './JournalDay.vue'
-import HistoryCalendarPage from './HistoryCalendarPage.vue'
+import JournalWeek from './JournalWeek.vue'
+import RoutineRow from './RoutineRow.vue'
+import DaySlip from './DaySlip.vue'
+import LiveSessionCard from './LiveSessionCard.vue'
 import TaskNews from './TaskNews.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
-import DailyChecks from './DailyChecks.vue'
 import ProgressCard from './ProgressCard.vue'
 import ProgressSheet from './ProgressSheet.vue'
 import RoutineRecords from './RoutineRecords.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import { pullChecklists, checklistsForDay, saveChecklist, canEditChecklists, checklists } from '../composables/useChecklists.js'
-import { monthDaysLabel } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, aliveTasks, doneTaskGroups, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX, progressTasks, dueProgress, isStale } from '../composables/useTasks.js'
+import { monthDaysLabel, upcoming } from '../services/checklistSchedule.js'
+import { tasksOn, overdueTasks, aliveTasks, somedayTasks, addTask, isForMe, pullTasks, TASK_TEXT_MAX, progressTasks, dueProgress, isStale } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
+import { useConfig } from '../composables/useConfig.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
+import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
 import { localDateKey } from '../utils/localDate.js'
 import { isMeId } from '../composables/useDeviceId.js'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
 
-const emit = defineEmits(['viewSession', 'openUpgrade'])
+const props = defineProps({
+  // 棚卸・発注の途中（ホームと同じ。今日を見ているときだけカードを出す）
+  activeSession: { type: Object, default: null },
+  activeOrderSession: { type: Object, default: null },
+  live: { type: Object, default: null },
+  liveOrder: { type: Object, default: null },
+  stockCount: { type: Number, default: 0 },
+  orderCount: { type: Number, default: 0 },
+})
+const emit = defineEmits(['viewSession', 'openUpgrade', 'resume'])
 
 const today = localDateKey()
-const view = journalView
-// 左へ払う＝次（リスト → 月 → 1日）、右へ払う＝前
-const VIEWS = ['list', 'month', 'day']
-const viewSlide = ref('')
-function stepView(n) {
-  const i = VIEWS.indexOf(view.value) + n
-  if (i < 0 || i >= VIEWS.length) return
-  viewSlide.value = n > 0 ? 'l' : 'r'
-  view.value = VIEWS[i]
-}
-const viewSwipe = useHorizontalSwipe({ onLeft: () => stepView(1), onRight: () => stepView(-1), threshold: 60 })
-const dayDate = journalDate
-if (!dayDate.value) dayDate.value = today
+const date = journalDate
+if (!date.value) date.value = today
+watch(date, v => { if (!v) date.value = today })
+const isToday = computed(() => date.value === today)
+// 時間で見る（JournalDay）
+const timeOpen = ref(false)
+const slipOpen = ref(false)
 
 // ── 材料 ──
 const sessions = ref([])
@@ -80,114 +71,111 @@ onMounted(async () => {
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders } = useOrders()
 const { getMovements } = useMovements()
+const { config } = useConfig()
 const completedStock = computed(() => sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order'))
 /** その日の記録（棚卸・発注・入出庫）を時刻の順に */
-function recordsOn(date) {
-  const ss = completedStock.value.filter(s => stockDateKey(s, getSnapshotBySessionId(s.id)) === date)
+function recordsOn(d) {
+  const ss = completedStock.value.filter(s => stockDateKey(s, getSnapshotBySessionId(s.id)) === d)
   return sortRecords([
     ...stockRecords(ss, getSnapshotBySessionId),
-    ...mergeOrders(getOrders().filter(o => o.date === date)),
-    ...mergeMovements(getMovements().filter(m => m.date === date)),
+    ...mergeOrders(getOrders().filter(o => o.date === d)),
+    ...mergeMovements(getMovements().filter(m => m.date === d)),
   ])
 }
+const stockDays = computed(() => new Set(completedStock.value.map(s => stockDateKey(s, getSnapshotBySessionId(s.id)))))
+const orderDays = computed(() => new Set(getOrders().map(o => o.date)))
+const _orderPlans = d => (config.orderSchedules || []).map((s, i) => (isOrderDay(s, new Date(d + 'T12:00:00')) ? scheduleName(s, i) : null)).filter(Boolean)
 
-// ── リスト ──
-const listMode = ref('todo')     // todo（今日）| progress（進行中）| done | records
-const mineOnly = ref(false)
-const WEEK = ['日', '月', '火', '水', '木', '金', '土']
-function dayLabel(d) {
-  const dt = new Date(d + 'T00:00:00')
-  const tomorrow = localDateKey(new Date(Date.now() + 86400_000))
-  const yesterday = localDateKey(new Date(Date.now() - 86400_000))
-  const head = d === today ? '今日' : d === tomorrow ? '明日' : d === yesterday ? '昨日' : ''
-  return `${head ? `${head} ・ ` : ''}${dt.getMonth() + 1}月${dt.getDate()}日（${WEEK[dt.getDay()]}）`
+// ── その日の中身 ──
+const _plain = d => tasksOn(d).filter(t => !t.progress)
+/** 週の帯・月のマス: 済み具合と大きな業務の印 */
+function dayInfo(d) {
+  const ts = _plain(d)
+  const ls = checklistsForDay(d)
+  const total = ts.length + ls.length
+  const done = ts.filter(t => t.doneAt).length + ls.filter(r => r.complete).length
+  const icon = stockDays.value.has(d) ? '📦' : orderDays.value.has(d) ? '🧾' : (d > today && _orderPlans(d).length ? '🧾' : '')
+  const st = !total || d > today ? '' : done === total ? 'y' : d === today ? (done ? 'p' : 't') : (done ? 'p' : 'x')
+  return { st, icon, plan: d > today && _orderPlans(d).length ? '発注' : '' }
 }
-const _mine = list => (mineOnly.value ? list.filter(isForMe) : list)
-const _time = (a, b) => (a.dueTime || '99').localeCompare(b.dueTime || '99') || (a.createdAt || '').localeCompare(b.createdAt || '')
-const late = computed(() => _mine(overdueTasks(today)))
-const todays = computed(() => _mine(tasksOn(today).filter(t => !t.progress)))   // 進行中は横のカードへ
-const todayDone = computed(() => todays.value.filter(t => t.doneAt).length)
-const laterGroups = computed(() => {
-  const until = localDateKey(new Date(Date.now() + 60 * 86400_000))
-  const m = new Map()
-  for (const t of _mine(aliveTasks.value.filter(t => t.date > today && t.date <= until && !t.progress))) (m.get(t.date) ?? m.set(t.date, []).get(t.date)).push(t)
-  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, items]) => ({ date, items: items.sort(_time) }))
+// 担当者で絞る: all | me | none | p:<id>
+const who = ref('all')
+const _taskOf = (t, w) => (w === 'all' ? true : w === 'me' ? isForMe(t) : w === 'none' ? t.assign === 'none' : t.assign === 'person' && t.assigneeId === w.slice(2))
+const _listOf = (r, w) => (w === 'all' ? true : w === 'me' ? r.cl.assign === 'person' && isMeId(r.cl.assigneeId) : w === 'none' ? false : r.cl.assign === 'person' && r.cl.assigneeId === w.slice(2))
+const late = computed(() => (isToday.value ? overdueTasks(today) : []))
+const dayTasks = computed(() => _plain(date.value))
+const dayLists = computed(() => checklistsForDay(date.value))
+// 人の並び: すべて・自分・その日に担当がある人・未定（数は残り）
+const people = computed(() => staffNames.value)
+const chips = computed(() => {
+  const ts = [...late.value, ...dayTasks.value]
+  const left = (w) => ts.filter(t => !t.doneAt && _taskOf(t, w)).length + dayLists.value.filter(r => !r.complete && _listOf(r, w)).length
+  const ids = new Map()
+  for (const t of ts) if (t.assign === 'person' && t.assigneeId && !isMeId(t.assigneeId)) ids.set(t.assigneeId, t.assigneeName || '')
+  for (const r of dayLists.value) if (r.cl.assign === 'person' && r.cl.assigneeId && !isMeId(r.cl.assigneeId)) ids.set(r.cl.assigneeId, r.cl.assigneeName || '')
+  const out = [{ key: 'all', label: 'すべて', n: left('all') }, { key: 'me', label: '自分', n: left('me'), me: true }]
+  for (const [id, name] of ids) out.push({ key: `p:${id}`, label: name || '担当', n: left(`p:${id}`), av: (name || '?').slice(0, 1) })
+  if (ts.some(t => t.assign === 'none')) out.push({ key: 'none', label: '未定', n: left('none') })
+  return out
 })
-// 済み: 直近30日に終えたものを終えた日ごと（新しい日から）
-const doneGroups = computed(() => {
-  const since = localDateKey(new Date(Date.now() - 29 * 86400_000))
-  return doneTaskGroups(since).map(g => ({ date: g.date, items: _mine(g.items) })).filter(g => g.items.length)
+watch(date, () => { if (!chips.value.some(c => c.key === who.value)) who.value = 'all' })
+// 1本のリスト: 期限切れ → 時刻の順（時刻なしは後ろ）。ルーティン○とやること□をまぜる
+const rows = computed(() => {
+  const w = who.value
+  const out = [
+    ...late.value.filter(t => _taskOf(t, w)).map(t => ({ key: t.id, type: 'task', task: t, late: true, sort: '' })),
+    ...dayTasks.value.filter(t => _taskOf(t, w)).map(t => ({ key: t.id, type: 'task', task: t, sort: t.dueTime || '~' })),
+    ...dayLists.value.filter(r => _listOf(r, w)).map(r => ({ key: `cl-${r.cl.id}`, type: 'list', day: r, sort: r.slots.find(x => x.slot)?.slot || '~' })),
+  ]
+  return out.sort((a, b) => (a.late ? 0 : 1) - (b.late ? 0 : 1) || (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
 })
-// 日付選びのドット: 日 → その日にあったこと（月のカレンダーと同じ色）
-const markMap = computed(() => {
-  const m = new Map()
-  const on = (d, k) => { if (!d) return; (m.get(d) ?? m.set(d, {}).get(d))[k] = true }
-  for (const s of completedStock.value) on(stockDateKey(s, getSnapshotBySessionId(s.id)), 'stock')
-  for (const o of getOrders()) on(o.date, 'order')
-  for (const mv of getMovements()) if (!mv.deletedAt) on(mv.date, mv.type === 'out' ? 'out' : 'in')
-  for (const t of aliveTasks.value) on(t.date, 'task')
-  return m
-})
-const marksOf = d => markMap.value.get(d) || {}
-function openDay(d) { dayDate.value = d; view.value = 'day' }
-
-// 上の帯（sticky）の高さ。1日の「今日中」の数をその下に貼りつけるため
-const topEl = ref(null)
-const topH = ref(0)
-let _ro = null
-onMounted(() => {
-  if (typeof ResizeObserver === 'undefined' || !topEl.value) return
-  _ro = new ResizeObserver(() => { topH.value = topEl.value?.offsetHeight || 0 })
-  _ro.observe(topEl.value)
-})
-onUnmounted(() => _ro?.disconnect())
-
-const someday = computed(() => _mine(somedayTasks.value))
+const dayTotal = computed(() => rows.value.length)
+const dayDone = computed(() => rows.value.filter(x => (x.type === 'task' ? x.task.doneAt : x.day.complete)).length)
+const remaining = computed(() => late.value.length + dayTasks.value.filter(t => !t.doneAt).length + dayLists.value.filter(r => !r.complete).length)
+const someday = computed(() => (isToday.value ? somedayTasks.value.filter(t => _taskOf(t, who.value)) : []))
 const somedayOpen = ref(false)
-const todayLists = computed(() => (mineOnly.value ? [] : checklistsForDay(today)))
-// 進行中: 今日見るもの（次に見る日が今日か過ぎた）は「今日」の横のカード、全部は「進行中」タブ（止まり → 待ち → 進行中）
-const progDue = computed(() => _mine(dueProgress(today)))
+// 進行中（今日だけ）: 次に見る日が来たもの。全部は「›」のシート（止まり → 待ち → 進行中）
+const progDue = computed(() => (isToday.value ? dueProgress(today).filter(t => _taskOf(t, who.value)) : []))
 const _rank = t => (isStale(t) ? 0 : t.progress === 'waiting' ? 1 : 2)
-const progFilter = ref('all')   // all | mine | waiting
-const progList = computed(() => progressTasks.value
-  .filter(t => progFilter.value === 'mine' ? isForMe(t) : progFilter.value === 'waiting' ? t.progress === 'waiting' : true)
-  .sort((a, b) => _rank(a) - _rank(b) || (a.date || '').localeCompare(b.date || '')))
-const progOpen = ref(null)   // 開いている進行中のやること
+const progAllOpen = ref(false)
+const progList = computed(() => [...progressTasks.value].sort((a, b) => _rank(a) - _rank(b) || (a.date || '').localeCompare(b.date || '')))
+const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
-// 今日ぜんぶの進み具合（ルーティン・今日見る進行中・今日と期限切れのやること）
-const todayTotal = computed(() => todayLists.value.length + progDue.value.length + todays.value.length + late.value.length)
-const todayDoneAll = computed(() => todayLists.value.filter(r => r.complete).length + todays.value.filter(t => t.doneAt).length)
-const todayPct = computed(() => (todayTotal.value ? Math.round(todayDoneAll.value / todayTotal.value * 100) : 0))
-const remaining = computed(() => todayTotal.value - todayDoneAll.value)
+// 何もない店（はじめて）と、何もない日
+const brandNew = computed(() => !aliveTasks.value.length && !checklists.value.length && !completedStock.value.length && !getOrders().length && !getMovements().length)
+// これから（何もない日・7日先まで・4件）: やること・毎週/毎月のルーティン・発注日
+const ahead = computed(() => {
+  const out = []
+  const from = new Date(date.value + 'T00:00:00')
+  for (let i = 1; i <= 7; i++) {
+    const d = localDateKey(new Date(from.getFullYear(), from.getMonth(), from.getDate() + i))
+    for (const t of _plain(d)) out.push({ key: t.id, date: d, icon: '✓', text: t.text })
+    for (const n of _orderPlans(d)) out.push({ key: `o-${d}-${n}`, date: d, icon: '🧾', text: n })
+  }
+  for (const x of upcoming(checklists.value, date.value, { days: 7, limit: 4 })) out.push({ key: `c-${x.cl.id}`, date: x.date, icon: '🔁', text: x.cl.name })
+  return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 4)
+})
+const WEEK = ['日', '月', '火', '水', '木', '金', '土']
+const md = k => { const d = new Date(k + 'T00:00:00'); return `${d.getDate()} ${WEEK[d.getDay()]}` }
+const title = computed(() => { const d = new Date(date.value + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）` })
 
 // ── ルーティン ──
 const clPage = ref(null)     // { historyOf?, create? } で開いている
 const clRun = ref(null)      // { cl, date, slot } の✓の画面
 function openClHistory(cl) { clRun.value = null; recOpen.value = { focus: cl } }
-// 記録: 直近30日を新しい日から（その日の中は時刻の順）
-const recordGroups = computed(() => {
-  const out = []
-  for (let i = 0; i < 30; i++) {
-    const d = localDateKey(new Date(Date.now() - i * 86400_000))
-    const recs = recordsOn(d)
-    if (recs.length) out.push({ date: d, recs })
-  }
-  return out
-})
-const todayRecordCount = computed(() => recordsOn(today).length)
+const marksOf = d => { const i = dayInfo(d); return { task: !!i.st, stock: i.icon === '📦', order: i.icon === '🧾' } }
 
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
 const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
-const people = computed(() => staffNames.value)
 // ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付の代わりに「次に見る日」と、任意の期限
 const fProg = ref(false), fNext = ref(''), fDeadline = ref('')
 const _plus = n => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + n); return localDateKey(d) }
 const NEXT_PICKS = [['明日', 1], ['3日後', 3], ['1週間後', 7]]
 function openAdd(progress = false) {
   fProg.value = progress === true; fNext.value = _plus(1); fDeadline.value = ''
-  fText.value = ''; fDate.value = view.value === 'day' ? dayDate.value : today; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
+  fText.value = ''; fDate.value = date.value < today ? today : date.value; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
   fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
 }
 // 管理者は追加のたびに「みんなに見せる／管理者だけ」を選ぶ（User決定 2026-10-19）。
@@ -233,108 +221,93 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 </script>
 
 <template>
-  <div
-    :class="['jp', viewSlide && `slide-${viewSlide}`]" :style="{ '--jp-top-h': topH + 'px' }"
-    @touchstart.passive="viewSwipe.onTouchStart" @touchmove.passive="viewSwipe.onTouchMove"
-    @touchend.passive="viewSwipe.onTouchEnd" @touchcancel.passive="viewSwipe.onTouchCancel"
-  >
-    <div ref="topEl" class="jp-top">
-      <div class="jp-title"><b>業務日誌</b><small>残り {{ remaining }}</small></div>
-      <div v-if="view === 'list'" class="jp-flt">
-        <button type="button" :class="{ on: listMode === 'todo' }" :aria-pressed="listMode === 'todo'" @click="listMode = 'todo'">今日</button>
-        <button type="button" :class="{ on: listMode === 'progress' }" :aria-pressed="listMode === 'progress'" @click="listMode = 'progress'">進行中<b v-if="progressTasks.length" class="jp-tn">{{ progressTasks.length }}</b></button>
-        <button type="button" :class="{ on: listMode === 'done' }" :aria-pressed="listMode === 'done'" @click="listMode = 'done'">済み</button>
-        <button type="button" :class="{ on: listMode === 'records' }" :aria-pressed="listMode === 'records'" @click="listMode = 'records'">
-          記録<template v-if="todayRecordCount"> {{ todayRecordCount }}</template>
-        </button>
-        <button v-if="listMode === 'todo' || listMode === 'done'" type="button" :class="['mine', { on: mineOnly }]" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">自分の担当</button>
+  <div class="jp">
+    <div class="jp-top">
+      <div class="jp-title">
+        <b>{{ title }}</b>
+        <button v-if="!isToday" type="button" class="jp-tb" @click="date = today">今日</button>
+        <button type="button" :class="['jp-tb', { on: timeOpen }]" :aria-pressed="timeOpen" :aria-label="timeOpen ? 'リストで見る' : '時間で見る'" @click="timeOpen = !timeOpen">{{ timeOpen ? '≡' : '🕒' }}</button>
+        <button v-if="checklists.length || canEditChecklists" type="button" class="jp-tb" aria-label="ルーティン" @click="clPage = {}">🔁</button>
       </div>
+      <JournalWeek v-model="date" :today="today" :info="dayInfo" />
     </div>
 
-    <!-- リスト: やること -->
-    <div v-if="view === 'list' && listMode === 'todo'" class="jp-list">
-      <div v-if="todayTotal" class="jp-sum">
-        <div><b>今日</b><small>{{ dayLabel(today).replace('今日 ・ ', '') }} ・ {{ todayTotal }} のうち {{ todayDoneAll }} 済み</small></div>
-        <span class="jp-ring" :style="{ background: `conic-gradient(#4f46e5 0 ${todayPct}%, #e0e7ff 0)` }"><i>{{ todayDoneAll }}/{{ todayTotal }}</i></span>
+    <!-- 時間で見る（今の「1日」） -->
+    <JournalDay v-if="timeOpen" v-model:date="date" :records="recordsOn(date)" :marks="marksOf" @view-session="s => emit('viewSession', s)" @add="openAdd" @checklist-history="openClHistory" />
+
+    <div v-else class="jp-list">
+      <!-- 何もない店 -->
+      <div v-if="brandNew" class="jp-new">
+        <div class="jp-new-ic" aria-hidden="true">🗓</div>
+        <b>まだ何もありません</b>
+        <div class="jp-new-b">
+          <button v-if="canCreate" type="button" class="main" @click="openAdd()"><em>✓</em>やること</button>
+          <button v-if="canEditChecklists" type="button" @click="clPage = {}"><em>🔁</em>ルーティン</button>
+        </div>
       </div>
-      <DailyChecks @open-run="x => clRun = x" @settings="clPage = {}" @create="clPage = { create: true }" @records="recOpen = { focus: null }" />
-      <template v-if="progressTasks.length">
-        <div class="jp-lh2"><b>⏳ 進行中</b><em>{{ progDue.length ? `今日見る ${progDue.length}` : `今日見るものはなし ・ ${progressTasks.length}件 進行中` }}</em>
-          <button type="button" class="jp-all" @click="listMode = 'progress'">すべて {{ progressTasks.length }} ›</button></div>
-        <div v-if="progDue.length" class="jp-cards"><ProgressCard v-for="t in progDue" :key="t.id" :task="t" @open="progOpen = t" /></div>
+
+      <template v-else>
+        <div v-if="chips.length > 2 || who !== 'all'" class="jp-ppl" role="group" aria-label="担当者">
+          <button v-for="c in chips" :key="c.key" type="button" :class="{ on: who === c.key }" :aria-pressed="who === c.key" @click="who = c.key">
+            <i v-if="c.av" class="jp-av">{{ c.av }}</i>{{ c.label }}<em>{{ c.n }}</em>
+          </button>
+        </div>
+
+        <template v-if="isToday">
+          <LiveSessionCard v-if="activeSession" kind="stock" :session="activeSession" :live="live" :count="stockCount" @resume="s => emit('resume', s)" />
+          <LiveSessionCard v-if="activeOrderSession" kind="order" :session="activeOrderSession" :live="liveOrder" :count="orderCount" @resume="s => emit('resume', s)" />
+          <TaskNews />
+        </template>
+
+        <template v-if="rows.length">
+          <button type="button" class="jp-sumr" @click="slipOpen = true">
+            <span class="jp-ring" :style="{ background: `conic-gradient(${dayDone === dayTotal ? '#22c55e' : '#f59e0b'} 0 ${Math.round(dayDone / dayTotal * 100)}%, #e2e8f0 0)` }"><i>{{ dayDone }}/{{ dayTotal }}</i></span>
+            <span class="jp-sumt">{{ isToday ? '今日' : title }}</span><em>伝票 ›</em>
+          </button>
+          <div class="jp-box">
+            <template v-for="x in rows" :key="x.key">
+              <RoutineRow v-if="x.type === 'list'" :day="x.day" :date="date" @open-run="v => clRun = v" />
+              <TaskRow v-else :task="x.task" :show-date="!!x.late" />
+            </template>
+          </div>
+        </template>
+        <template v-else>
+          <button type="button" class="jp-quiet" @click="slipOpen = true">☕ {{ isToday ? '今日' : 'この日' }}はなし</button>
+          <template v-if="ahead.length && date >= today">
+            <div class="jp-lh"><span>これから</span></div>
+            <div class="jp-box jp-ahead">
+              <button v-for="a in ahead" :key="a.key" type="button" @click="date = a.date"><em>{{ md(a.date) }}</em>{{ a.icon }} {{ a.text }}</button>
+            </div>
+          </template>
+        </template>
+
+        <template v-if="someday.length">
+          <button type="button" class="jp-lh jp-someday" :aria-expanded="somedayOpen" @click="somedayOpen = !somedayOpen">
+            <span>いつか {{ somedayOpen ? '▲' : '▼' }}</span><span>{{ someday.length }}</span>
+          </button>
+          <div v-if="somedayOpen" class="jp-box"><TaskRow v-for="t in someday" :key="t.id" :task="t" /></div>
+        </template>
+
+        <template v-if="isToday && progressTasks.length">
+          <div class="jp-lh"><span>⏳ 進行中</span><button type="button" class="jp-all" @click="progAllOpen = true">{{ progressTasks.length }} ›</button></div>
+          <div v-if="progDue.length" class="jp-cards"><ProgressCard v-for="t in progDue" :key="t.id" :task="t" @open="progOpen = t" /></div>
+        </template>
       </template>
-      <TaskNews />
-      <template v-if="late.length">
-        <div class="jp-lh late"><span>期限切れ</span><span>{{ late.length }}</span></div>
-        <div class="jp-box"><TaskRow v-for="t in late" :key="t.id" :task="t" show-date /></div>
-      </template>
-      <div class="jp-lh"><span>{{ dayLabel(today) }}</span><span>{{ todayDone }}/{{ todays.length }}</span></div>
-      <div class="jp-box">
-        <TaskRow v-for="t in todays" :key="t.id" :task="t" />
-        <p v-if="!todays.length" class="jp-empty">{{ mineOnly ? '今日の自分の担当はありません' : '今日のやることはありません' }}</p>
+    </div>
+
+    <button v-if="canCreate && !brandNew" type="button" class="jp-fab" aria-label="やることを追加" @click="openAdd()">＋</button>
+
+    <DaySlip v-if="slipOpen" :date="date" :tasks="[...(isToday ? late : []), ...dayTasks]" :lists="dayLists" :records="recordsOn(date)"
+      @close="slipOpen = false" @time="slipOpen = false; timeOpen = true" @view-session="s => emit('viewSession', s)" @open-run="v => { slipOpen = false; clRun = v }" />
+    <Teleport to="body">
+      <div v-if="progAllOpen" class="jp-sheet-bg" @click.self="progAllOpen = false">
+        <div class="jp-sheet jp-progall" role="dialog" aria-label="進行中">
+          <div class="jp-ph"><b>⏳ 進行中</b><button type="button" class="jp-mini" @click="progAllOpen = false">閉じる</button></div>
+          <div class="jp-vcards"><ProgressCard v-for="t in progList" :key="t.id" :task="t" wide @open="progAllOpen = false; progOpen = t" /></div>
+          <button v-if="canCreate" type="button" class="jp-addp" @click="progAllOpen = false; openAdd(true)">＋ ⏳</button>
+        </div>
       </div>
-      <template v-for="g in laterGroups" :key="g.date">
-        <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}</span></div>
-        <div class="jp-box"><TaskRow v-for="t in g.items" :key="t.id" :task="t" /></div>
-      </template>
-      <template v-if="someday.length">
-        <button type="button" class="jp-lh jp-someday" :aria-expanded="somedayOpen" @click="somedayOpen = !somedayOpen">
-          <span>いつか {{ somedayOpen ? '▲' : '▼' }}</span><span>{{ someday.length }}</span>
-        </button>
-        <div v-if="somedayOpen" class="jp-box"><TaskRow v-for="t in someday" :key="t.id" :task="t" /></div>
-      </template>
-    </div>
-
-    <!-- リスト: 進行中（縦に積むカード・止まり → 待ち → 進行中） -->
-    <div v-else-if="view === 'list' && listMode === 'progress'" class="jp-list">
-      <div class="jp-seg" role="group" aria-label="しぼる">
-        <button v-for="f in [['all', 'すべて'], ['mine', '自分の'], ['waiting', '待ち']]" :key="f[0]" type="button" :class="{ on: progFilter === f[0] }" :aria-pressed="progFilter === f[0]" @click="progFilter = f[0]">{{ f[1] }}</button>
-      </div>
-      <div class="jp-vcards"><ProgressCard v-for="t in progList" :key="t.id" :task="t" wide @open="progOpen = t" /></div>
-      <p v-if="!progList.length" class="jp-empty solo">進行中のやることはありません。何日もかかる仕事（修理・準備など）は「＋」から「⏳ 何日かかかる」で</p>
-      <button v-if="canCreate" type="button" class="jp-addp" @click="openAdd(true)">＋ 進行中のやることを追加</button>
-    </div>
-
-    <!-- リスト: 済み（終えた日ごと。✓ を外すと「やること」へ戻る） -->
-    <div v-else-if="view === 'list' && listMode === 'done'" class="jp-list">
-      <template v-for="g in doneGroups" :key="g.date">
-        <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.items.length }}件</span></div>
-        <div class="jp-box"><DoneTaskRow v-for="t in g.items" :key="t.id" :task="t" /></div>
-      </template>
-      <p v-if="!doneGroups.length" class="jp-empty solo">{{ mineOnly ? 'この30日に終えた自分の担当はありません' : 'この30日に終えたやることはありません' }}</p>
-      <p v-else class="jp-empty solo">表示は直近30日まで（それより前は「月」から）</p>
-    </div>
-
-    <!-- リスト: 記録（別の枠） -->
-    <div v-else-if="view === 'list'" class="jp-list">
-      <button v-if="checklists.length" type="button" class="jp-rec" @click="recOpen = { focus: null }">📅 ルーティンの記録<small>抜けた日・やった日を色で</small><em>›</em></button>
-      <template v-for="g in recordGroups" :key="g.date">
-        <div class="jp-lh"><span>{{ dayLabel(g.date) }}</span><span>{{ g.recs.length }}件</span></div>
-        <div class="jp-box"><RecordRow v-for="r in g.recs" :key="r.key" :rec="r" @view-session="s => emit('viewSession', s)" /></div>
-      </template>
-      <p v-if="!recordGroups.length" class="jp-empty solo">この30日の記録はありません（棚卸・発注・入出庫をすると、ここに残ります）</p>
-    </div>
-
-    <!-- 月（今までのカレンダー） -->
-    <HistoryCalendarPage
-      v-else-if="view === 'month'"
-      class="jp-month" embedded in-journal
-      @view-session="s => emit('viewSession', s)"
-      @open-upgrade="r => emit('openUpgrade', r)"
-      @pick-day="openDay"
-    />
-
-    <!-- 1日（時間別） -->
-    <JournalDay v-else v-model:date="dayDate" :records="recordsOn(dayDate)" :marks="marksOf" @view-session="s => emit('viewSession', s)" @add="openAdd" @checklist-history="openClHistory" />
-
-    <!-- リスト／月／1日の切り替え。下のナビのすぐ上（親指が届く） -->
-    <div class="jp-views" role="tablist" aria-label="見え方">
-      <button v-for="v in [['list', 'リスト'], ['month', '月'], ['day', '1日']]" :key="v[0]" type="button" role="tab"
-        :aria-selected="view === v[0]" :class="{ on: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
-    </div>
-
-    <button v-if="canCreate && view !== 'month'" type="button" class="jp-fab" aria-label="やることを追加" @click="openAdd(view === 'list' && listMode === 'progress')">＋</button>
-
+    </Teleport>
     <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" />
     <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
@@ -420,39 +393,44 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 .jp-add2 .jp-save { width: 100%; min-height: 46px; }
 .jp-save.admins { background: #475569; color: #fff; }
 .jp { position: relative; display: flex; flex-direction: column; min-height: 100%; background: var(--bg); }
-.jp-top { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: 12px 14px 10px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
-.jp-title { display: flex; align-items: baseline; gap: 8px; }
-.jp-title b { font-size: 17px; letter-spacing: .04em; }
+.jp-top { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: 10px 12px 2px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+.jp-title { display: flex; align-items: center; gap: 8px; }
+.jp-title b { font-size: 19px; letter-spacing: .04em; }
 .jp-title small { margin-left: auto; font-size: 12px; color: var(--text-muted); font-weight: 700; }
-.jp-views {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 6;
-  width: calc(100% - 24px); max-width: 576px; display: grid; grid-template-columns: repeat(3, 1fr);
-  background: #e9f2f4; border: 1px solid var(--border); border-radius: 14px; padding: 3px; box-shadow: 0 -2px 10px rgba(6,34,43,.08);
-}
-.jp-views button { border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; min-height: 40px; border-radius: 11px; color: var(--text-muted); cursor: pointer; }
-.jp-views button.on { background: var(--surface); color: var(--primary-deep); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-.jp-flt { display: flex; gap: 6px; }
-.jp-flt button { border: none; font: inherit; font-size: 12px; font-weight: 800; padding: 6px 11px; border-radius: 999px; background: #f1f7f9; color: var(--text-muted); cursor: pointer; }
-.jp-flt button.on { background: var(--primary-deep); color: #fff; }
-.jp-flt button.mine { margin-left: auto; background: var(--primary-weak, #ecfeff); color: var(--primary); border: 1px solid #a5f3fc; }
-.jp-flt button.mine.on { background: var(--primary); color: #fff; border-color: transparent; }
-.jp-list { padding: 4px 12px 150px; }
+.jp-list { padding: 4px 12px 150px; display: grid; gap: 8px; align-content: start; }
+.jp-tb { border: none; background: #f1f5f9; border-radius: 999px; min-width: 36px; height: 32px; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
+.jp-title b { margin-right: auto; }
+.jp-tb.on { background: #0f2a33; color: #fff; }
+.jp-ppl { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0 2px; scrollbar-width: none; }
+.jp-ppl button { flex: none; display: flex; align-items: center; gap: 5px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 11px 4px 5px; font: inherit; font-size: 12.5px; font-weight: 800; color: #475569; cursor: pointer; min-height: 32px; }
+.jp-ppl button:not(:has(.jp-av)) { padding-left: 11px; }
+.jp-ppl button em { font-style: normal; font-size: 11px; color: var(--text-muted); }
+.jp-ppl button.on { background: #0f2a33; color: #fff; border-color: #0f2a33; } .jp-ppl button.on em { color: #a5d8e3; }
+.jp-av { width: 22px; height: 22px; border-radius: 50%; background: #0e7490; color: #fff; font-style: normal; font-size: 10.5px; font-weight: 900; display: grid; place-items: center; }
+.jp-sumr { display: flex; align-items: center; gap: 8px; border: none; background: none; font: inherit; padding: 6px 2px 0; cursor: pointer; color: var(--text-muted); font-weight: 800; font-size: 13px; }
+.jp-sumr em { margin-left: auto; font-style: normal; color: var(--primary, #0e7490); font-size: 12.5px; }
+.jp-ring { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
+.jp-ring i { width: 26px; height: 26px; border-radius: 50%; background: var(--bg); display: grid; place-items: center; font-style: normal; font-size: 9px; font-weight: 900; color: var(--text); }
+.jp-quiet { border: none; background: var(--surface); border-radius: 16px; padding: 16px; font: inherit; font-size: 15px; font-weight: 800; color: var(--text); cursor: pointer; margin-top: 8px; }
+.jp-ahead { display: grid; padding: 4px 10px; }
+.jp-ahead button { display: flex; align-items: center; gap: 10px; border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--text); text-align: left; padding: 8px 0; cursor: pointer; border-top: 1px solid #eef4f6; }
+.jp-ahead button:first-child { border-top: none; }
+.jp-ahead em { font-style: normal; font-size: 11px; font-weight: 900; color: #c2410c; border: 1px dashed #fdba74; border-radius: 6px; padding: 1px 6px; min-width: 46px; text-align: center; }
+.jp-new { background: var(--surface); border-radius: 18px; padding: 22px 16px; display: grid; gap: 12px; justify-items: center; margin-top: 12px; }
+.jp-new-ic { font-size: 42px; line-height: 1; } .jp-new b { font-size: 16px; }
+.jp-new-b { display: flex; gap: 8px; width: 100%; }
+.jp-new-b button { flex: 1; display: grid; gap: 4px; justify-items: center; border: 1px solid var(--border); background: #f8fafc; border-radius: 14px; padding: 14px 4px; font: inherit; font-size: 13px; font-weight: 900; color: var(--text); cursor: pointer; }
+.jp-new-b button em { font-style: normal; font-size: 22px; }
+.jp-new-b button.main { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+.jp-progall { max-height: 86vh; overflow-y: auto; }
+.jp-ph { display: flex; align-items: center; justify-content: space-between; }
 .jp-someday { width: 100%; border: none; background: none; font: inherit; font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted); cursor: pointer; }
 .jp-chk { display: flex !important; grid-template-columns: none; align-items: center; gap: 6px; font-size: 13px !important; color: var(--text) !important; }
-.jp-tn { margin-left: 4px; font-size: 11px; background: #fef3c7; color: #92400e; border-radius: 999px; padding: 0 6px; }
-.jp-sum { display: flex; align-items: center; gap: 12px; margin: 10px 2px 4px; padding: 12px 14px; border-radius: 18px; background: linear-gradient(135deg, #eef2ff, #f5f3ff); }
-.jp-sum > div { flex: 1; display: grid; gap: 2px; } .jp-sum b { font-size: 18px; } .jp-sum small { font-size: 12px; color: var(--text-muted); font-weight: 700; }
-.jp-ring { flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; }
-.jp-ring i { width: 42px; height: 42px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 900; color: #3730a3; }
-.jp-lh2 { display: flex; align-items: baseline; gap: 8px; padding: 14px 4px 8px; } .jp-lh2 b { font-size: 14px; }
-.jp-lh2 em { flex: 1; font-style: normal; font-size: 11.5px; color: var(--text-muted); font-weight: 700; }
 .jp-all { border: none; background: none; color: #4f46e5; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; padding: 2px 0; }
 .jp-cards { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 12px; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .jp-cards > * { scroll-snap-align: start; }
 .jp-vcards { display: grid; gap: 10px; padding-top: 10px; }
 .jp-addp { width: 100%; margin-top: 12px; min-height: 44px; border: 1.5px dashed #c7d2fe; border-radius: 14px; background: #f5f7ff; color: #3730a3; font: inherit; font-weight: 800; cursor: pointer; }
-.jp-rec { width: 100%; margin-top: 10px; display: flex; align-items: center; gap: 8px; text-align: left; border: none; border-radius: 14px; padding: 12px 14px; background: #ecfdf5; color: #065f46; font: inherit; font-weight: 800; cursor: pointer; }
-.jp-rec small { flex: 1; font-size: 11.5px; font-weight: 700; color: #047857; } .jp-rec em { font-style: normal; }
 .jp-kind button { flex: 1; }
 .jp-prog { display: grid; gap: 6px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 8px; }
 .jp-prog-l { font-size: 12px; font-weight: 800; color: #92400e; }
@@ -463,8 +441,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 .jp-box > :first-child { border-top: none; }
 .jp-empty { margin: 0; padding: 12px 4px; font-size: 13px; color: var(--text-muted); }
 .jp-empty.solo { padding: 28px 8px; text-align: center; line-height: 1.6; }
-.jp-month { flex: 1; padding-bottom: 54px; }
-.jp-fab { position: fixed; right: max(18px, calc(50% - 300px + 18px)); bottom: calc(124px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--grad-btn); color: #08323c; font-size: 28px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); cursor: pointer; z-index: 20; }
+.jp-fab { position: fixed; right: max(18px, calc(50% - 300px + 18px)); bottom: calc(76px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--grad-btn); color: #08323c; font-size: 28px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); cursor: pointer; z-index: 20; }
 .jp-sheet-bg { position: fixed; inset: 0; z-index: 120; background: rgba(6,34,43,.4); display: flex; align-items: flex-end; justify-content: center; }
 .jp-sheet { width: 100%; max-width: 600px; background: var(--surface); border-radius: 20px 20px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
 .jp-sheet-t { font-size: 16px; }

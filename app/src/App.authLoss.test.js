@@ -197,13 +197,11 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // 履歴カレンダーは下部ナビの「日誌」タブの「月」（2026-10-09。以前は「カレンダー」タブ）
+    // 日誌（お店のカレンダー・2026-10-25）の今日を「🕒 時間で見る」。棚卸の帯から詳細へ
     ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    for (let i = 0; i < 6; i++) await nextTick()
-    ;[...host.querySelectorAll('.jp-views button')].find(b => b.textContent.includes('月'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 12; i++) await nextTick()
-    // 月の日付を押すと、その日の「1日」へ（2026-10-13。以前は日の詳細のモーダル）。棚卸の帯から詳細へ
-    host.querySelector('.hc-cell.today')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 0))
+    host.querySelector('[aria-label="時間で見る"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
     const entry = host.querySelector('.jd-ev.stock')
     entry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
