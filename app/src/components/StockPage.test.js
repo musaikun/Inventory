@@ -112,6 +112,15 @@ describe('一覧と品目シート', () => {
     await click(btn('保存'))
     expect(cfg.config.units['Pスライスベーコン']).toBe('袋')
   })
+
+  it('品目シートから非表示にできる（棚卸のセッションの外でも・User決定 2026-10-26）', async () => {
+    await mount()
+    const row = [...host.querySelectorAll('tr')].find(tr => tr.textContent.includes('Pスライスベーコン') && tr.querySelector('.sp-cell'))
+    await click(row.querySelector('td'))
+    await click(btn('非表示にする'))
+    expect(cfg.config.hiddenItems).toContain('Pスライスベーコン')
+    expect(document.body.textContent).toContain('「Pスライスベーコン」を非表示にしました')
+  })
 })
 
 // 品目シートで入庫・出庫をその場で登録する（User決定 2026-10-03）

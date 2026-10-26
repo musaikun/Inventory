@@ -5,7 +5,7 @@
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
  * - 連絡（店のトーク・User決定 2026-10-26）: 未読の数と新しいメッセージ2件。押すと連絡の画面（TalkPage）
  * - 棚卸・発注が途中なら「続ける」の帯
- * - ショートカット: 棚卸／発注／在庫／日誌／レポート／スタッフ／取り込む／書き出す／設定（下のナビと同じ行き先＋始める）。
+ * - ショートカット: 棚卸／発注／数える順／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
@@ -20,6 +20,7 @@ import { APP_NAME } from '../appInfo.js'
 import LiveSessionCard from './LiveSessionCard.vue'
 import TalkPage from './TalkPage.vue'
 import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
+import { useSortSetup } from '../composables/useSortSetup.js'
 
 const props = defineProps({
   activeSession:      { type: Object, default: null },
@@ -100,31 +101,43 @@ const preview = computed(() => {
 const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
 
 // ── ショートカット ──
+const { sortStage, sortProgress, axesProgress, freeSlot, openSort, openSortAxis, addSortAxis } = useSortSetup()
+const sortLeft = computed(() => {
+  const { best, total } = sortProgress.value
+  return sortStage.value === '' ? 0 : total - (best?.assigned ?? 0)
+})
+const sheet = ref('')   // '' | 'sort' | 'data'（カードから開く2択の板）
+function pickSheet(fn) { sheet.value = ''; fn() }
 const shortcuts = computed(() => [
-  { key: 'stock', label: '棚卸', sub: props.activeSession ? `途中 ${props.stockCount}品目` : '数える', hot: !!props.activeSession,
+  { key: 'stock', label: '棚卸', hot: !!props.activeSession,
     badge: props.activeSession ? { text: '途中', kind: 'cy' } : null,
     d: ['M9 4h6v3H9zM7 5H5v15h14V5h-2', 'M8 12l2.5 2.5L16 9'] },
-  { key: 'order', label: '発注', sub: props.activeOrderSession ? `途中 ${props.orderCount}品目` : (props.isOrderDay ? '今日が発注日' : '発注数を入れる'), ord: true,
+  { key: 'order', label: '発注', ord: true,
     badge: props.activeOrderSession ? { text: '途中', kind: 'or' } : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
-  { key: 'sessions', label: '在庫', sub: props.reorderCount ? `要補充 ${props.reorderCount}` : '見込みと品目',
+  // 数える順（並び替え）。在庫タブから移した。振り分けが終わるまで残りの数を出して光らせる（User決定 2026-10-26）
+  ...(can('sort') ? [{ key: 'sort', label: '数える順', hot: sortLeft.value > 0,
+    badge: sortStage.value === 'none' ? { text: 'まだ', kind: 'cy' } : sortLeft.value > 0 ? { text: `あと${sortLeft.value}`, kind: 'cy' } : null,
+    d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
+  { key: 'sessions', label: '在庫',
     badge: props.reorderCount ? { text: String(props.reorderCount), kind: 'red' } : null,
     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
-  { key: 'calendar', label: '日誌', sub: 'やること・記録',
+  { key: 'calendar', label: '日誌',
     d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
-  ...(canSeeReport.value ? [{ key: 'report', label: 'レポート', sub: '金額・推移', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
+  ...(canSeeReport.value ? [{ key: 'report', label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
   ...(isAuthenticated.value && isAdmin.value ? [{
-    key: 'staff', label: 'スタッフ', sub: joinWaiting.value ? `承認待ち ${joinWaiting.value}` : '招待・承認・役割',
+    key: 'staff', label: 'スタッフ',
     badge: joinWaiting.value ? { text: String(joinWaiting.value), kind: 'red' } : null, hot: !!joinWaiting.value,
     d: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M2 21v-1a6 6 0 0 1 12 0v1', 'M16 3.5a4 4 0 0 1 0 7M22 21v-1a6 6 0 0 0-4-5.6'],
   }] : []),
-  // 取り込む・書き出す（管理から移した・User決定 2026-10-14）
-  ...(can('item.admin') ? [{ key: 'import', label: '取り込む', sub: '品目・納品・棚卸', d: ['M12 3v12', 'M7 10l5 5 5-5', 'M4 19h16'] }] : []),
-  ...(can('item.admin') ? [{ key: 'export', label: '書き出す', sub: '品目・棚卸結果', d: ['M12 15V3', 'M7 8l5-5 5 5', 'M4 19h16'] }] : []),
-  { key: 'dashboard', label: '設定', sub: '発注・端末・通知',
+  // 取り込む・書き出すは1枚の「データ」にまとめ、押すと2択（数える順を入れて9枚に収める・User決定 2026-10-26）
+  ...(can('item.admin') ? [{ key: 'data', label: 'データ', d: ['M8 4v12', 'M4 12l4 4 4-4', 'M16 20V8', 'M12 12l4-4 4 4'] }] : []),
+  { key: 'dashboard', label: '設定',
     d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
 ])
 function onShortcut(k) {
+  if (k === 'sort') { axesProgress.value.length ? (sheet.value = 'sort') : openSort(); return }
+  if (k === 'data') { sheet.value = 'data'; return }
   if (k === 'stock') { props.activeSession ? emit('resume', props.activeSession) : emit('stock'); return }
   if (k === 'order') { props.activeOrderSession ? emit('resume', props.activeOrderSession) : emit('order'); return }
   emit('go', k)
@@ -211,9 +224,29 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <span class="ht-ic" aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path v-for="d in s.d" :key="d" :d="d" /></svg>
         </span>
-        <b>{{ s.label }}</b><small>{{ s.sub }}</small>
+        <b>{{ s.label }}</b>
       </button>
     </div>
+
+    <Teleport to="body">
+      <div v-if="sheet" class="ht-sh-bg" @click.self="sheet = ''">
+        <section class="ht-sh" :aria-label="sheet === 'sort' ? '数える順' : 'データ'">
+          <div class="ht-sh-h"><b>{{ sheet === 'sort' ? '数える順' : 'データ' }}</b><button type="button" aria-label="閉じる" @click="sheet = ''">✕</button></div>
+          <template v-if="sheet === 'sort'">
+            <button v-for="a in axesProgress" :key="a.idx" type="button" class="ht-sh-b" @click="pickSheet(() => openSortAxis(a.idx))">
+              <b>{{ a.name }}</b>
+              <span class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (a.total ? a.assigned / a.total * 100 : 0) + '%' }"></span></span>
+              <small :class="{ ok: a.assigned >= a.total }">{{ a.assigned >= a.total ? 'そろっています' : `${a.assigned} / ${a.total} 品目` }}</small>
+            </button>
+            <button v-if="freeSlot >= 0" type="button" class="ht-sh-b add" @click="pickSheet(() => addSortAxis())"><b>＋ 分け方を追加</b></button>
+          </template>
+          <template v-else>
+            <button type="button" class="ht-sh-b" @click="pickSheet(() => emit('go', 'import'))"><b>取り込む</b><small>品目・納品・棚卸</small></button>
+            <button type="button" class="ht-sh-b" @click="pickSheet(() => emit('go', 'export'))"><b>書き出す</b><small>品目・棚卸結果</small></button>
+          </template>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -280,7 +313,18 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-sc.hot .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
 .ht-sc.ord .ht-ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
 .ht-sc b { font-size: 12.5px; display: block; }
-.ht-sc small { display: block; font-size: 10px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-sh-bg { position: fixed; inset: 0; z-index: 60; background: rgba(6,34,43,.42); display: flex; align-items: flex-end; }
+.ht-sh { width: 100%; box-sizing: border-box; background: var(--surface, #fff); border-radius: 22px 22px 0 0; padding: 14px 16px calc(22px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+.ht-sh-h { display: flex; align-items: center; }
+.ht-sh-h b { flex: 1; font-size: 16px; }
+.ht-sh-h button { border: none; background: none; font-size: 16px; color: var(--text-muted); cursor: pointer; min-width: 40px; min-height: 40px; }
+.ht-sh-b { display: grid; gap: 4px; text-align: left; border: none; border-radius: 14px; background: #f2fafc; padding: 14px; font: inherit; color: var(--text); cursor: pointer; }
+.ht-sh-b b { font-size: 15px; }
+.ht-sh-b small { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
+.ht-sh-b small.ok { color: #17663a; }
+.ht-sh-b.add { background: none; border: 1.5px dashed #9ccfdb; color: #0b5f73; }
+.ht-sh-bar { height: 6px; border-radius: 3px; background: #dbeef2; overflow: hidden; }
+.ht-sh-bar span { display: block; height: 100%; background: #0e7490; }
 .ht-bd { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
 .ht-bd.red { background: #fee2e2; color: #b91c1c; }
 .ht-bd.cy { background: #cffafe; color: var(--primary-deep); }

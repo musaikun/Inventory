@@ -35,7 +35,7 @@ const props = defineProps({
   editable:  { type: Boolean, default: true },    // 品目の情報を直せる（完了の確定待ちでは false）
   stocktakeOpen: { type: Boolean, default: false }, // 棚卸の最中（入出庫を止める）
 })
-const emit = defineEmits(['register', 'void', 'restore', 'edit', 'close'])
+const emit = defineEmits(['register', 'void', 'restore', 'edit', 'hide', 'close'])
 useEscapeKey(() => emit('close'))
 
 const fmt = n => (Math.round(Number(n) * 1000) / 1000).toLocaleString('ja-JP')
@@ -160,7 +160,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
       <div v-if="note" class="is-done" role="status">{{ note }}</div>
 
       <section class="is-sec">
-        <h3>品目の情報 <button v-if="editable" type="button" class="is-edit" @click="emit('edit')">直す</button></h3>
+        <h3>品目の情報 <span v-if="editable" class="is-acts"><button type="button" class="is-edit sub" @click="emit('hide')">非表示にする</button><button type="button" class="is-edit" @click="emit('edit')">直す</button></span></h3>
         <div class="is-info">
           <div><small>単位</small><b>{{ unit || '—' }}</b></div>
           <div><small>入数</small><b>{{ lot || '—' }}</b></div>
@@ -250,6 +250,8 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 .is-done { background: #f0fdf4; color: #15803d; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }
 .is-sec { display: grid; gap: 6px; }
 .is-sec h3 { margin: 0; font-size: 13px; color: #4c6a72; display: flex; justify-content: space-between; align-items: center; }
+.is-acts { display: flex; gap: 6px; }
+.is-edit.sub { border-color: #c9d6db; color: #4c6a72; }
 .is-edit { border: 1.5px solid var(--primary, #0e7490); color: var(--primary, #0e7490); background: #fff; border-radius: 8px; padding: 3px 10px; font-weight: 800; font-size: 12px; cursor: pointer; }
 .is-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .is-info div { background: #f6fafb; border-radius: 10px; padding: 7px 8px; min-width: 0; }

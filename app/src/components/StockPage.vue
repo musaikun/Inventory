@@ -36,7 +36,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
-const { config } = useConfig()
+const { config, hideItem } = useConfig()
 const { getSnapshots } = useHistory()
 const {
   allItems, needsReorder, reorderCount, reorderSetCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
@@ -112,6 +112,16 @@ function openEdit() {
   form.value = { mode: 'edit', item: detailTarget.value }
 }
 function closeForm() { form.value = null }
+// セッションの外でも隠せるように（以前は棚卸の一覧のスワイプだけ・User決定 2026-10-26）
+function onHide() {
+  if (locked.value) return
+  if (!can('item.edit')) { window.alert(denyMessage('item.edit')); return }
+  const name = detailTarget.value
+  hideItem(name)
+  detailTarget.value = null
+  deletedMsg.value = `「${name}」を非表示にしました`
+  clearTimeout(_delT); _delT = setTimeout(() => { deletedMsg.value = '' }, 2600)
+}
 // 品目を削除したら、シートも閉じて一言だけ知らせる
 const deletedMsg = ref('')
 let _delT = null
@@ -225,6 +235,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       @void="onVoid"
       @restore="onRestore"
       @edit="openEdit"
+      @hide="onHide"
       @close="detailTarget = null"
     />
 

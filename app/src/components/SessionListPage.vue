@@ -49,8 +49,6 @@ import JournalPage, { journalDate } from './JournalPage.vue'
 import { localDateKey } from '../utils/localDate.js'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
-import SortCard from './SortCard.vue'
-import { completionBusy } from '../composables/useSession.js'
 import { APP_NAME } from '../appInfo.js'
 
 const props = defineProps({
@@ -344,9 +342,6 @@ onUnmounted(registerInnerLayerCloser(() => {
       <template #top="{ empty }">
         <div class="home-top">
           <div v-if="error" class="home-err">{{ error }}</div>
-
-          <!-- 棚卸・発注の開始はホームだけ。ここは並び替えの入口（User決定 2026-10-10） -->
-          <SortCard v-if="!empty" :disabled="completionBusy" />
         </div>
       </template>
     </StockPage>

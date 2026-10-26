@@ -74,11 +74,12 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('在庫タブは表＋並び替えカード（棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／在庫／日誌／レポート／管理）', async () => {
+  it('在庫タブは表だけ（並び替えはホームの「数える順」・棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／在庫／日誌／レポート／管理）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect(host.querySelector('.sp .act')).toBeNull()
-    expect(host.querySelector('.home-top .sc').textContent).toContain('並び替え')
+    expect(host.querySelector('.home-top .sc')).toBeNull()
+    expect(shortcut('数える順')).toBeTruthy()
     expect(shortcut('棚卸')).toBeTruthy()
     expect(shortcut('発注')).toBeTruthy()
     expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '日誌', 'レポート', '設定'])
@@ -183,7 +184,7 @@ describe('中断中のセッションと破棄', () => {
     await mountPage()
     expect(host.querySelector('.strip')).toBeNull()
     const stock = shortcut('棚卸')
-    expect(stock.textContent).toContain('途中 12品目')
+    expect(stock.querySelector('.ht-bd').textContent).toBe('途中')
     expect(shortcut('発注').textContent).toContain('途中')
     await click(stock)
     expect(events).toContainEqual(['resumeSession', ACTIVE_STOCK])
@@ -282,8 +283,9 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     // ショートカットの「在庫」で在庫タブへ
     const sc = [...host.querySelectorAll('.ht-sc')]
     // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '在庫', '日誌', 'レポート', 'スタッフ', '取り込む', '書き出す', '設定'])
-    await click(sc[2])
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '数える順', '在庫', '日誌', 'レポート', 'スタッフ', 'データ', '設定'])
+    expect(host.querySelector('.ht-sc small')).toBeNull()   // 説明文は出さない（User決定 2026-10-26）
+    await click(sc[3])
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
     expect(host.querySelector('.manage')?.textContent ?? '').not.toContain('招待・承認')   // 管理には置かない
   })
