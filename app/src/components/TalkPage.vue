@@ -2,7 +2,8 @@
 /**
  * 連絡（店のトーク・User決定 2026-10-26・キャンバス「日誌カレンダー」③）。ホームの「連絡」カードから開く。
  * - 新しいものが下。日の区切り（昨日・今日・m/d）と「ここから未読」の線
- * - 吹き出しを押すと: ［タスク化］［確認］（ほかの人のもの）・読んだ人・消す（書いた人と管理者）
+ * - 吹き出しを押すと: ［タスク化］［確認］（ほかの人のもの）・消す（書いた人と管理者）
+ * - 「既読 N」を押すと、誰が読んだか（時刻つき）と、まだの人（LINE WORKS のように・User決定 2026-10-26）
  * - タスク化したメッセージには「タスクになりました ・ 担当 ・ 済み／進行中／期限 m/d」の札。直後は［取り消す］
  */
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
@@ -11,7 +12,8 @@ import {
   handoffs, pullHandoffs, tellHandoff, readHandoff, removeHandoff, undoHandoffTask, isReadByMe, isMine, canRemoveHandoff, HANDOFF_BODY_MAX,
 } from '../composables/useHandoffs.js'
 import { aliveTasks, pullTasks } from '../composables/useTasks.js'
-import { storeName, can } from '../composables/useAuth.js'
+import { storeName, can, staffNames, loadStaffNames } from '../composables/useAuth.js'
+import { isMeId } from '../composables/useDeviceId.js'
 import { localDateKey } from '../utils/localDate.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
@@ -30,6 +32,19 @@ const listEl = ref(null)
 async function toBottom() { await nextTick(); if (listEl.value) listEl.value.scrollTop = listEl.value.scrollHeight }
 onMounted(async () => { pullTasks(); await pullHandoffs(); toBottom(); timer = setInterval(pullHandoffs, 30000) })
 onMounted(toBottom)
+onMounted(() => { loadStaffNames() })
+// 既読の一覧（押した「既読 N」のメッセージ）
+const readsOf = ref(null)
+const readList = computed(() => {
+  const h = readsOf.value
+  if (!h) return { read: [], unread: [] }
+  const read = [...(h.reads ?? [])].sort((a, b) => (a.at || '').localeCompare(b.at || ''))
+  const ids = new Set(read.map(r => r.id))
+  // まだの人: 店の人（書いた人は除く）で、読んだ人に無い人
+  const unread = staffNames.value.filter(p => p.id !== h.byId && !ids.has(p.id) && !(isMeId(p.id) && isMeId(h.byId)))
+  return { read, unread }
+})
+const _at = iso => { if (!iso) return ''; const d = new Date(iso); const k = localDateKey(d); return `${k === today ? '' : `${d.getMonth() + 1}/${d.getDate()} `}${_hm(iso)}` }
 onUnmounted(() => clearInterval(timer))
 
 const taskOf = computed(() => new Map(aliveTasks.value.map(t => [t.id, t])))
@@ -75,7 +90,7 @@ function onTasked(x) {
 }
 async function doUndo() { const x = undo.value; undo.value = null; if (x) await undoHandoffTask({ ...x.message, taskId: x.task.id }, x.task.id) }
 onUnmounted(() => clearTimeout(undoTimer))
-onUnmounted(registerInnerLayerCloser(() => { if (tasking.value) return false; emit('close'); return true }))
+onUnmounted(registerInnerLayerCloser(() => { if (tasking.value) return false; if (readsOf.value) { readsOf.value = null; return true } emit('close'); return true }))
 </script>
 
 <template>
@@ -97,12 +112,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (tasking.value) return false; em
               <span v-if="!x.mine" class="tk-name">{{ x.h.by }}</span>
               <button type="button" :class="['tk-bub', { open: open === x.h.id }]" :aria-expanded="open === x.h.id" @click="open = open === x.h.id ? null : x.h.id">{{ x.h.body }}</button>
               <span v-if="x.chip" :class="['tk-chip', { done: x.chip.done }]">✓ {{ x.chip.text }}</span>
-              <span class="tk-meta">{{ x.h.createdAt ? _hm(x.h.createdAt) : '' }}<template v-if="x.h.reads?.length"> ・ 既読 {{ x.h.reads.length }}</template><template v-if="x.h.pending"> ・ 送信中</template></span>
+              <span class="tk-meta">{{ x.h.createdAt ? _hm(x.h.createdAt) : '' }}<template v-if="x.h.pending"> ・ 送信中</template><button v-if="x.h.reads?.length" type="button" class="tk-read" :aria-label="`既読 ${x.h.reads.length}人。押すと誰が読んだか`" @click="readsOf = x.h">既読 {{ x.h.reads.length }}</button></span>
               <div v-if="open === x.h.id" class="tk-menu">
                 <button v-if="!x.h.taskId && canWrite" type="button" class="main" @click="tasking = x.h">タスク化</button>
                 <button v-if="!x.mine && !isReadByMe(x.h)" type="button" @click="readHandoff(x.h)">確認</button>
                 <button v-if="canRemoveHandoff(x.h)" type="button" class="del" @click="del(x.h)">消す</button>
-                <span v-if="x.h.reads?.length" class="tk-readers">読んだ人：{{ x.h.reads.map(r => r.name).filter(Boolean).join('・') }}</span>
               </div>
             </div>
           </div>
@@ -115,6 +129,19 @@ onUnmounted(registerInnerLayerCloser(() => { if (tasking.value) return false; em
         <textarea v-model="draft" rows="1" :maxlength="HANDOFF_BODY_MAX" placeholder="メッセージ" aria-label="メッセージ"></textarea>
         <button type="submit" aria-label="送る" :disabled="!draft.trim() || busy">➤</button>
       </form>
+    </div>
+    <div v-if="readsOf" class="tk-rbg" @click.self="readsOf = null">
+      <section class="tk-rs" role="dialog" aria-label="既読">
+        <div class="tk-rs-h"><b>既読 {{ readList.read.length }}</b><span v-if="readList.unread.length">未読 {{ readList.unread.length }}</span><button type="button" aria-label="閉じる" @click="readsOf = null">✕</button></div>
+        <p class="tk-rs-q">{{ readsOf.body }}</p>
+        <ul class="tk-rs-l">
+          <li v-for="r in readList.read" :key="r.id"><i>{{ (r.name || '?').slice(0, 1) }}</i><b>{{ r.name || '名前なし' }}</b><small>{{ _at(r.at) }}</small></li>
+        </ul>
+        <template v-if="readList.unread.length">
+          <span class="tk-rs-lab">まだ</span>
+          <ul class="tk-rs-l un"><li v-for="p in readList.unread" :key="p.id"><i>{{ (p.name || '?').slice(0, 1) }}</i><b>{{ p.name }}</b></li></ul>
+        </template>
+      </section>
     </div>
     <TalkTaskSheet v-if="tasking" :message="tasking" @close="tasking = null" @done="onTasked" />
   </Teleport>
@@ -147,7 +174,21 @@ onUnmounted(registerInnerLayerCloser(() => { if (tasking.value) return false; em
 .tk-menu button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid #c9d6db; background: var(--surface); font: inherit; font-size: 13px; font-weight: 800; color: var(--text); cursor: pointer; }
 .tk-menu button.main { border: none; background: var(--primary, #0e7490); color: #fff; font-weight: 900; }
 .tk-menu button.del { color: #b91c1c; }
-.tk-readers { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
+.tk-read { margin-left: 6px; border: none; background: none; padding: 4px 2px; font: inherit; font-size: 10.5px; font-weight: 800; color: #0e7490; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.tk-rbg { position: fixed; inset: 0; z-index: 125; background: rgba(6,34,43,.4); display: flex; align-items: flex-end; justify-content: center; }
+.tk-rs { width: 100%; max-width: 600px; max-height: 70vh; overflow-y: auto; background: var(--surface); border-radius: 20px 20px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+.tk-rs-h { display: flex; align-items: center; gap: 10px; }
+.tk-rs-h b { font-size: 16px; }
+.tk-rs-h span { font-size: 13px; font-weight: 800; color: var(--text-muted); }
+.tk-rs-h button { margin-left: auto; border: none; background: none; font-size: 16px; color: var(--text-muted); cursor: pointer; padding: 6px; }
+.tk-rs-q { margin: 0; padding: 8px 10px; border-radius: 10px; background: #f4f7f8; font-size: 12.5px; color: #3d545d; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tk-rs-lab { font-size: 11px; font-weight: 900; color: var(--text-muted); letter-spacing: .08em; }
+.tk-rs-l { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tk-rs-l li { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid #eef4f6; }
+.tk-rs-l i { width: 30px; height: 30px; border-radius: 50%; background: #0e7490; color: #fff; font-style: normal; font-size: 12px; font-weight: 900; display: grid; place-items: center; }
+.tk-rs-l.un i { background: #cbd5e1; }
+.tk-rs-l b { flex: 1; font-size: 14px; }
+.tk-rs-l small { font-size: 12px; font-weight: 700; color: var(--text-muted); }
 .tk-undo { margin: 0 12px 8px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #0f2a33; color: #fff; font-size: 13.5px; font-weight: 800; }
 .tk-undo button { margin-left: auto; border: none; background: none; color: #67e8f9; font: inherit; font-weight: 900; cursor: pointer; }
 .tk-err { margin: 0 12px 8px; font-size: 12.5px; color: #b91c1c; font-weight: 700; }

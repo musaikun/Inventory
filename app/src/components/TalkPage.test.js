@@ -110,4 +110,22 @@ describe('連絡', () => {
     expect(actHandoffInD1).toHaveBeenLastCalledWith('d', 'task', { taskId: byText['エアコンの修理'].id, clear: true })
     expect(tk.querySelectorAll('.tk-chip')).toHaveLength(3)
   })
+  it('「既読 N」を押すと、誰がいつ読んだかと、まだの人（LINE WORKS のように）', async () => {
+    await seed([{ id: 'h1', kind: 'tell', body: 'トマトの入荷が明日に', by: '山田', byId: 'st-y',
+      reads: [{ id: 'st-s', name: '佐藤', at: new Date().toISOString() }], createdAt: ago(1) }])
+    const A = await import('../composables/useAuth.js')
+    const { default: TalkPage } = await import('./TalkPage.vue')
+    await mount(TalkPage)
+    A.staffNames.value = [{ id: 'st-y', name: '山田' }, { id: 'st-s', name: '佐藤' }, { id: 'st-k', name: '鈴木' }]
+    await tick()
+    const tk = document.body.querySelector('.tk')
+    await click(tk.querySelector('.tk-read'))
+    const rs = document.body.querySelector('.tk-rs')
+    expect(rs.querySelector('.tk-rs-h').textContent).toContain('既読 1')
+    expect(rs.querySelector('.tk-rs-h').textContent).toContain('未読 1')
+    expect([...rs.querySelectorAll('.tk-rs-l:not(.un) b')].map(b => b.textContent)).toEqual(['佐藤'])
+    expect([...rs.querySelectorAll('.tk-rs-l.un b')].map(b => b.textContent)).toEqual(['鈴木'])   // 書いた山田は入れない
+    await click(rs.querySelector('[aria-label="閉じる"]'))
+    expect(document.body.querySelector('.tk-rs')).toBeNull()
+  })
 })
