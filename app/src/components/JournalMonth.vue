@@ -3,6 +3,7 @@
  * 日誌を開いた最初の画面＝月のカレンダーを画面いっぱいに（User決定 2026-10-26・モック キャンバス「日誌カレンダー」①）。
  * 1マスに出すのは 日付・祝日の名前・大きな業務の札2つまで（棚卸・発注・予定。先の日は点線）・下の帯1本（緑＝全部済み・黄＝一部・赤＝やり残し）。
  * 前後の月の日は薄く。押した日は pick(date, { col, row, rows }) で知らせる（そのマスから広がる）
+ * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
  * info(date) → { st: 'y'|'p'|'x'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
  */
 import { ref, computed, watch } from 'vue'
@@ -23,9 +24,16 @@ const _d = k => new Date(k + 'T00:00:00')
 const ym = ref({ y: 0, m: 0 })
 function _sync() { const d = _d(props.focus || props.today); ym.value = { y: d.getFullYear(), m: d.getMonth() } }
 _sync()
-watch(() => props.focus, _sync)
-function step(n) { const d = new Date(ym.value.y, ym.value.m + n, 1); ym.value = { y: d.getFullYear(), m: d.getMonth() } }
-function goToday() { const d = _d(props.today); ym.value = { y: d.getFullYear(), m: d.getMonth() } }
+watch(() => props.focus, v => { if (v) { const d = _d(v); _go(d.getFullYear(), d.getMonth()) } })
+const slide = ref('')   // 'next' | 'prev'
+function _go(y, m) {
+  const n = (y - ym.value.y) * 12 + (m - ym.value.m)
+  if (!n) return
+  slide.value = n > 0 ? 'next' : 'prev'
+  ym.value = { y, m }
+}
+function step(n) { const d = new Date(ym.value.y, ym.value.m + n, 1); _go(d.getFullYear(), d.getMonth()) }
+function goToday() { const d = _d(props.today); _go(d.getFullYear(), d.getMonth()) }
 const isThisMonth = computed(() => { const d = _d(props.today); return d.getFullYear() === ym.value.y && d.getMonth() === ym.value.m })
 
 const cells = computed(() => {
@@ -58,7 +66,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
       <button type="button" class="jm-nav" aria-label="ルーティンの設定" @click="emit('settings')">🔁</button>
     </header>
     <div class="jm-w"><span v-for="(w, i) in WEEK" :key="w" :class="{ sun: i === 0, sat: i === 6 }">{{ w }}</span></div>
-    <div class="jm-grid" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(0, 1fr))` }">
+    <div :key="`${ym.y}-${ym.m}`" :class="['jm-grid', slide && `slide-${slide}`]" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(0, 1fr))` }">
       <button
         v-for="c in cells" :key="c.key" type="button"
         :class="['jm-c', { out: !c.inMonth, sun: c.sun, sat: c.sat, today: c.key === today, sel: c.key === selected }]"
@@ -87,6 +95,12 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
 .jm-w span { text-align: center; font-size: 11px; font-weight: 800; color: var(--text-muted); }
 .jm-w .sun { color: #c62828; } .jm-w .sat { color: #1d4ed8; }
 .jm-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: #e3ecef; }
+.jm-grid.slide-next { animation: jmNext .26s cubic-bezier(.2,.8,.2,1); }
+.jm-grid.slide-prev { animation: jmPrev .26s cubic-bezier(.2,.8,.2,1); }
+@keyframes jmNext { from { transform: translateX(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes jmPrev { from { transform: translateX(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .jm-grid.slide-next, .jm-grid.slide-prev { animation: none; } }
+.jm { overflow: hidden; }
 .jm-c { border: none; margin: 0; padding: 4px 3px 5px; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface); color: var(--text); }
 .jm-c.out { background: #f7fafb; }
 .jm-c.sel { background: #e6f5f8; }

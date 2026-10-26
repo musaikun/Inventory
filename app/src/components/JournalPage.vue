@@ -23,17 +23,15 @@ import RoutineRecords from './RoutineRecords.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import { pullChecklists, checklistsForDay, saveChecklist, canEditChecklists, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, TASK_TEXT_MAX, dueProgress, toggleTask, canToggleTask } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
-import { useConfig } from '../composables/useConfig.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
-import { isOrderDay, scheduleName } from '../services/orderScheduleUtil.js'
 import { localDateKey } from '../utils/localDate.js'
 import { isMeId } from '../composables/useDeviceId.js'
 
@@ -68,7 +66,6 @@ onMounted(async () => {
 const { getSnapshotBySessionId } = useHistory()
 const { getOrders } = useOrders()
 const { getMovements } = useMovements()
-const { config } = useConfig()
 const { getNote, setNote } = useDayNotes()
 const completedStock = computed(() => sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order'))
 /** その日の記録（棚卸・発注・入出庫）を時刻の順に */
@@ -82,7 +79,6 @@ function recordsOn(d) {
 }
 const stockDays = computed(() => new Set(completedStock.value.map(s => stockDateKey(s, getSnapshotBySessionId(s.id)))))
 const orderDays = computed(() => new Set(getOrders().map(o => o.date)))
-const _isOrderPlan = d => (config.orderSchedules || []).some(s => isOrderDay(s, new Date(d + 'T12:00:00')))
 const _plain = d => tasksOn(d).filter(t => !t.progress)
 
 /** 月のマス: 済み具合の帯と札（棚卸・発注・メモ。先の日は予定を点線） */
@@ -95,8 +91,8 @@ function dayInfo(d) {
   const fut = d > today
   const tags = []
   if (stockDays.value.has(d) || (d === today && props.activeSession)) tags.push({ label: '棚卸', kind: 'stock' })
+  // 発注スケジュール（発注日の予定）はカレンダーに出さない（User決定 2026-10-26）。実際にした発注だけ
   if (orderDays.value.has(d) || (d === today && props.activeOrderSession)) tags.push({ label: '発注', kind: 'order' })
-  else if (fut && _isOrderPlan(d)) tags.push({ label: '発注', kind: 'order', future: true })
   const note = getNote(d)?.text
   if (note) tags.push({ label: note.slice(0, 8), kind: 'plan', future: fut })
   return { st, tags }
@@ -114,10 +110,13 @@ const timeline = computed(() => {
     date: d, today, tasks: _plain(d), lists: checklistsForDay(d), records: recordsOn(d), live,
     late: isToday ? overdueTasks(today) : [], carry: isToday ? carriedTasks(today) : [], progress: isToday ? dueProgress(today) : [],
     note: getNote(d)?.text || '', someday: isToday ? somedayTasks.value : [],
-    plans: (config.orderSchedules || []).map((s, i) => (isOrderDay(s, new Date(d + 'T12:00:00')) && s.deadline ? { name: scheduleName(s, i), time: s.deadline } : null)).filter(Boolean),
   })
 })
 const picked = ref(null)     // 直す: やること1件（TaskRow を出す）
+// 備考: 直せない担当の人も書き足せる（直せる人は TaskRow の「直す」で）
+const pNote = ref('')
+watch(picked, t => { pNote.value = t?.note || '' })
+function savePickedNote() { if (picked.value) setTaskNote(picked.value.id, pNote.value); picked.value = null }
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
 const memoOpen = ref(false), memoText = ref(''), memoExcluded = ref(false)
@@ -163,13 +162,14 @@ onUnmounted(registerInnerLayerCloser(() => {
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false)
+const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fNote = ref(''), fNoteOpen = ref(false)
 // ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付の代わりに「次に見る日」と、任意の期限
 const fProg = ref(false), fNext = ref(''), fDeadline = ref('')
 const _plus = n => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + n); return localDateKey(d) }
 const NEXT_PICKS = [['明日', 1], ['3日後', 3], ['1週間後', 7]]
 function openAdd(progress = false) {
   fProg.value = progress === true; fNext.value = _plus(1); fDeadline.value = ''
+  fNote.value = ''; fNoteOpen.value = false
   fText.value = ''; fDate.value = !date.value || date.value < today ? today : date.value; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
   fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
 }
@@ -208,8 +208,8 @@ function submitAdd(adminsOnly = false) {
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
   const visibility = adminsOnly ? 'admins' : null
   const ok = fProg.value
-    ? addTask(fNext.value, fText.value, assign, null, { visibility, progress: 'doing', deadline: fDeadline.value || null })
-    : addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility })
+    ? addTask(fNext.value, fText.value, assign, null, { visibility, progress: 'doing', deadline: fDeadline.value || null, note: fNote.value })
+    : addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility, note: fNote.value })
   if (ok) adding.value = false
 }
 onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; adding.value = false; return true }))
@@ -227,7 +227,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
       <div v-if="picked" class="jp-sheet-bg" @click.self="picked = null">
         <div class="jp-sheet" role="dialog" aria-label="やること">
           <TaskRow :task="picked" :show-date="picked.date < (date || today)" />
-          <button type="button" class="jp-mini" @click="picked = null">閉じる</button>
+          <template v-if="canNoteTask(picked) && !canEditTask(picked)">
+            <label>備考<textarea v-model="pNote" rows="2" :maxlength="TASK_NOTE_MAX" class="jp-in jp-memo" placeholder="細かいこと・手順・連絡先など"></textarea></label>
+            <div class="jp-row end"><button type="button" class="jp-mini" @click="picked = null">閉じる</button><button type="button" class="jp-save" @click="savePickedNote">保存</button></div>
+          </template>
+          <button v-else type="button" class="jp-mini" @click="picked = null">閉じる</button>
         </div>
       </div>
       <div v-if="memoOpen" class="jp-sheet-bg" @click.self="memoOpen = false">
@@ -248,6 +252,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="!isAdmin && submitAdd(false)">
           <b class="jp-sheet-t">やることを追加</b>
           <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" placeholder="例：製氷機のフィルター交換" aria-label="やること" class="jp-in" />
+          <textarea v-if="fNoteOpen && !repeating" v-model="fNote" rows="2" :maxlength="TASK_NOTE_MAX" aria-label="備考" placeholder="備考（細かいこと・手順・連絡先など）" class="jp-in jp-memo"></textarea>
+          <button v-else-if="!repeating" type="button" class="jp-rep-open" @click="fNoteOpen = true">＋ 備考</button>
           <div v-if="!repeating" class="jp-seg jp-kind" role="group" aria-label="やることの種類">
             <button type="button" :class="{ on: !fProg }" :aria-pressed="!fProg" @click="fProg = false">今日・日付を決める</button>
             <button type="button" :class="{ on: fProg }" :aria-pressed="fProg" @click="fProg = true">⏳ 何日かかかる（進行中）</button>

@@ -3,10 +3,13 @@
  * 押した日のマスが広がって、その日の中身をタイムラインで見せる（User決定 2026-10-26・モック キャンバス「日誌カレンダー」①）。
  * 上: 日付・曜日・ひとこと・済みのリング・前後の日。時刻のないものは「終日」、ほかは縦の線に時刻の順。今日は「いま」の線
  * 丸を押すと済む（押せるものだけ）、行を押すと中身（✓の画面・直す・進行中・棚卸の詳細）。右下の＋でこの日に追加
+ * 棚卸は区間（キャンバス⑤）: 縦の線の横に帯（中断は斜線）、開始・中断・再開・終了の小さな行。中断が4回を超えたら1行にたたむ。
+ * かぶった業務には「棚卸の最中／棚卸の中断中」の札
  * 見せるだけの部品。行の組み立ては services/dayTimeline.js、押したあとは親（JournalPage）
  */
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { fmtDuration } from '../services/journalRecords.js'
 
 const props = defineProps({
   date: { type: String, required: true },
@@ -41,7 +44,25 @@ const _tick = () => { const n = new Date(); nowHm.value = `${String(n.getHours()
 onMounted(() => { _tick(); timer = setInterval(_tick, 60000) })
 onUnmounted(() => clearInterval(timer))
 // 「いま」の線は、いまの時刻を過ぎた最後の行の下
-const nowAfter = computed(() => (isToday.value ? tl.value.timed.reduce((n, x, i) => (x.time <= nowHm.value ? i : n), -1) : -2))
+// 中断が多い棚卸（4回を超える）は、開いていなければ中断・再開の行を隠し、開始の下に1行
+const FOLD_OVER = 4
+const openSpans = ref(new Set())
+function toggleSpan(k) { const n = new Set(openSpans.value); n.has(k) ? n.delete(k) : n.add(k); openSpans.value = n }
+const rows = computed(() => {
+  const counts = new Map(tl.value.timed.filter(x => x.ev === 'end').map(x => [x.span, x.pauseCount || 0]))
+  const out = []
+  for (const x of tl.value.timed) {
+    const folded = x.span && counts.get(x.span) > FOLD_OVER && !openSpans.value.has(x.span)
+    if (folded && (x.ev === 'pause' || x.ev === 'resume')) continue
+    out.push(x)
+    if (x.ev === 'start' && counts.get(x.span) > FOLD_OVER) {
+      const end = tl.value.timed.find(z => z.span === x.span && z.ev === 'end')
+      out.push({ key: `${x.span}-fold`, time: x.time, fold: x.span, open: !folded, band: 'solid', title: `中断 ${counts.get(x.span)}回（${fmtDuration(end?.pauseMs ?? 0)}）` })
+    }
+  }
+  return out
+})
+const nowAfter = computed(() => (isToday.value ? rows.value.reduce((n, x, i) => (x.time <= nowHm.value ? i : n), -1) : -2))
 const DOT = { done: '✓', missed: '!', todo: '', live: '', plan: '', info: '' }
 const canCheck = x => (x.ref.type === 'task' || x.ref.type === 'list') && x.state !== 'plan'
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
@@ -71,24 +92,32 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <div v-for="x in tl.allDay" :key="x.key" :class="['dt-ad', x.state, x.ref.type]">
           <button type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button>
           <button type="button" class="dt-ct" @click="emit('open', x)">
-            <b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small>
+            <b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small><small v-if="x.note" class="dt-note">📝 {{ x.note }}</small>
           </button>
           <span :class="['dt-k', x.kind]">{{ x.kind }}</span>
         </div>
       </div>
 
-      <template v-for="(x, i) in tl.timed" :key="x.key">
-        <div class="dt-row" :style="{ animationDelay: `${0.1 + i * 0.03}s` }">
-          <span class="dt-tm">{{ x.time.replace(/^0/, '') }}</span>
-          <div class="dt-rail"><button type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button></div>
-          <button type="button" :class="['dt-card', x.state]" @click="emit('open', x)">
+      <template v-for="(x, i) in rows" :key="x.key">
+        <div :class="['dt-row', { ev: x.ev || x.fold }]" :style="{ animationDelay: `${0.1 + i * 0.03}s` }">
+          <span class="dt-tm">{{ i > 0 && rows[i - 1].time === x.time ? '' : x.time.replace(/^0/, '') }}</span>
+          <span :class="['dt-band', x.band]" aria-hidden="true"></span>
+          <div class="dt-rail">
+            <span v-if="x.ev || x.fold" :class="['dt-evdot', x.ev]"></span>
+            <button v-else type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button>
+          </div>
+          <button v-if="x.fold" type="button" class="dt-fold" :aria-expanded="x.open" @click="toggleSpan(x.fold)">{{ x.title }} {{ x.open ? '▲' : '▼' }}</button>
+          <button v-else-if="x.ev" type="button" :class="['dt-ev', x.ev]" @click="emit('open', x)"><b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small></button>
+          <button v-else type="button" :class="['dt-card', x.state]" @click="emit('open', x)">
             <span class="dt-l1"><span :class="['dt-k', x.kind]">{{ x.kind }}</span><b>{{ x.title }}</b></span>
             <small v-if="x.sub">{{ x.sub }}</small>
+            <small v-if="x.note" class="dt-note">📝 {{ x.note }}</small>
+            <span v-if="x.during" class="dt-during">{{ x.during }}</span>
           </button>
         </div>
         <div v-if="i === nowAfter" class="dt-now"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
       </template>
-      <div v-if="isToday && nowAfter === -1 && tl.timed.length" class="dt-now first"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
+      <div v-if="isToday && nowAfter === -1 && rows.length" class="dt-now first"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
 
       <p v-if="empty" class="dt-empty">この日はなし</p>
     </div>
@@ -122,8 +151,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-ct { flex: 1; min-width: 0; border: none; background: none; font: inherit; text-align: left; cursor: pointer; padding: 2px 0; display: grid; gap: 1px; color: var(--text); }
 .dt-ct b, .dt-card b { font-size: 13.5px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
 .dt-ct small, .dt-card small { font-size: 11px; font-weight: 700; color: var(--text-muted); }
-.dt-row { display: flex; gap: 6px; align-items: flex-start; animation: dtIn .3s both ease-out; }
-.dt-tm { width: 38px; flex: none; padding-top: 11px; font-size: 12px; font-weight: 800; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.dt-row { display: flex; gap: 4px; align-items: flex-start; animation: dtIn .3s both ease-out; }
+.dt-tm { width: 36px; flex: none; padding-top: 11px; font-size: 12px; font-weight: 800; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
 .dt-rail { width: 26px; flex: none; position: relative; display: flex; justify-content: center; align-self: stretch; }
 .dt-rail::before { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: #dde8ec; }
 .dt-dot { position: relative; z-index: 1; flex: none; width: 24px; height: 24px; margin-top: 7px; box-sizing: border-box; border-radius: 50%; border: 2px solid #9fb3ba; background: #fff; color: #fff; display: grid; place-items: center; font: inherit; font-size: 11px; font-weight: 900; cursor: pointer; padding: 0; }
@@ -147,6 +176,22 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-k.入庫, .dt-k.出庫 { background: #e8f5ec; color: #1f6b3a; }
 .dt-k.進行中 { background: #fff1d6; color: #8a4b00; }
 .dt-k.メモ { background: #efe9fd; color: #5b33b6; }
+.dt-note { white-space: pre-wrap; color: #5b4a1e !important; background: #fffbeb; border-radius: 6px; padding: 2px 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dt-band { width: 8px; flex: none; align-self: stretch; }
+.dt-band.start { border-radius: 3px 3px 0 0; } .dt-band.end { border-radius: 0 0 3px 3px; }
+.dt-band.solid { background: #2aa6bf; }
+.dt-band.hatch { background: repeating-linear-gradient(135deg, #b9e3ec 0 3px, #fff 3px 6px); box-shadow: inset 0 0 0 1px #9ccfdb; }
+.dt-band.start { background: linear-gradient(transparent 0 14px, #2aa6bf 14px); }
+.dt-band.end { background: linear-gradient(#2aa6bf 0 14px, transparent 14px); }
+.dt-row.ev .dt-tm { padding-top: 5px; }
+.dt-evdot { position: relative; z-index: 1; margin-top: 8px; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: #2aa6bf; border: 2px solid #2aa6bf; }
+.dt-evdot.pause { background: #fff; }
+.dt-ev { flex: 1; min-width: 0; border: none; background: none; font: inherit; text-align: left; cursor: pointer; display: grid; gap: 1px; padding: 4px 0 8px; color: #0b5f73; }
+.dt-ev b { font-size: 12px; font-weight: 900; }
+.dt-ev small { font-size: 10.5px; font-weight: 700; color: #3d6a76; }
+.dt-ev.pause { color: #3d6a76; }
+.dt-fold { flex: 1; margin: 2px 0 8px; border: 1px dashed #9ccfdb; border-radius: 10px; background: #f2fafc; font: inherit; text-align: left; padding: 6px 10px; cursor: pointer; font-size: 12px; font-weight: 800; color: #0b5f73; }
+.dt-during { justify-self: start; font-size: 10px; font-weight: 900; color: #0b5f73; background: #e0f4f8; border-radius: 6px; padding: 1px 6px; }
 .dt-now { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
 .dt-now span { width: 38px; text-align: right; font-size: 11px; font-weight: 900; color: #e0457b; }
 .dt-now i { width: 10px; height: 10px; border-radius: 50%; background: #e0457b; margin-left: 8px; flex: none; }

@@ -50,6 +50,8 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
   const dateChanged = (row.task_date ?? '') !== (body?.date ?? '')
   const edited = visChanged || (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
     || (dateChanged && !progressTask) || (row.due_time ?? null) !== (body?.dueTime || null)
+    // 期限つきのやること（連絡のタスク化・2026-10-26）の期限は、文面と同じく作った人と管理者
+    || (!progressTask && (row.deadline ?? null) !== (body?.deadline || null))
   if ((assignChanged || edited) && !canEdit(t, me)) {
     return { deny: wasDone ? '完了したやることは直せません' : 'このやることを直せるのは、作った人と管理者だけです' }
   }
@@ -58,6 +60,11 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
     || JSON.stringify(_stepsOf(row.steps_json)) !== JSON.stringify(_stepsOf(body?.steps)))
   if (progressChanged && !canEdit(t, me) && !canComplete(t, me)) {
     return { deny: '進み具合を変えられるのは、担当の人・作った人・管理者だけです' }
+  }
+  // 備考（2026-10-26）: 完了にできる人（担当・誰でも）も書き足せる
+  const noteChanged = (row.note ?? null) !== (String(body?.note ?? '').trim().slice(0, 500) || null)
+  if (noteChanged && !canEdit(t, me) && !canComplete(t, me)) {
+    return { deny: '備考を書けるのは、担当の人・作った人・管理者だけです' }
   }
   if (t.assign === 'all') return { keepPrev: null }   // 「全員」の完了は印（/mark）で決まる
   const wantDone = !!body?.doneAt

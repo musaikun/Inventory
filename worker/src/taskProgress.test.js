@@ -60,3 +60,16 @@ describe('進行中のやること: 経過', () => {
     expect((await handleTaskNoteAdd(db, 'S1', 't3', { body: 'x' }, who, { admin: true })).ok).toBe(true)
   })
 })
+
+describe('備考（migration 0033・2026-10-26）', () => {
+  it('担当の人も備考を書き足せる。担当でない人は断る', () => {
+    const r = row({ progress: null, note: null })
+    expect(taskWriteCheck(r, body({ progress: null, note: '業者の電話 03-xxxx' }), staff('st1'), () => false).deny).toBeUndefined()
+    expect(taskWriteCheck(r, body({ progress: null, note: 'x' }), staff('st9'), () => false).deny).toMatch('備考')
+  })
+  it('期限つきのやることの期限を直せるのは、作った人と管理者だけ', () => {
+    const r = row({ progress: null, deadline: '2026-10-28' })
+    expect(taskWriteCheck(r, body({ progress: null, deadline: '2026-10-30' }), staff('st1'), () => false).deny).toBeTruthy()
+    expect(taskWriteCheck(r, body({ progress: null, deadline: '2026-10-30' }), { id: 'owner', admin: true, ctx: { role: 'owner' } }, () => true).deny).toBeUndefined()
+  })
+})

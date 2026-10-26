@@ -24,6 +24,7 @@ import { loadTasksFromD1, saveTaskToD1, markTaskInD1, loadTaskNotesFromD1, addTa
 import { ownPushEndpoint } from './usePush.js'
 
 export const TASK_TEXT_MAX = 200
+export const TASK_NOTE_MAX = 500
 
 const _data = reactive({ list: [] })
 const _seenAt = ref('')
@@ -151,7 +152,7 @@ function _assignFields(a) {
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
 /** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
-export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null } = {}) {
+export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
   const now = _now()
@@ -164,6 +165,8 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     ...(PROGRESS.includes(progress) ? { progress, waitNote: null, steps: [], lastNote: null } : {}),
     // 期限（進行中の本当の期限・期限つきのやること）
     ...(_DATE_RE.test(deadline || '') ? { deadline } : {}),
+    // 備考（2026-10-26）
+    ...(String(note ?? '').trim() ? { note: String(note).trim().slice(0, TASK_NOTE_MAX) } : {}),
   }
   _data.list.push(t)
   _persist()
@@ -248,6 +251,14 @@ export function editTask(id, { text, date, dueTime, visibility } = {}) {
   if (dueTime !== undefined && fields.date !== '') fields.dueTime = _time(dueTime)
   if (visibility !== undefined && isAdmin.value) fields.visibility = visibility === 'admins' ? 'admins' : null
   return _patch(id, fields)
+}
+
+/** 備考（2026-10-26）: 直せる人（作った人・管理者）と、完了にできる人（担当・誰でも）が書ける */
+export function canNoteTask(t) { return !!t && !t.deletedAt && !t.kind && (R.canEdit(t, _me()) || R.canComplete(t, _me())) }
+export function setTaskNote(id, note) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t || !canNoteTask(t)) return null
+  return _patch(id, { note: String(note ?? '').trim().slice(0, TASK_NOTE_MAX) || null })
 }
 
 /** 担当を変える（作る権限のある人。段 2-4） */

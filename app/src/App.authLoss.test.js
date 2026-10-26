@@ -203,7 +203,7 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     await new Promise(r => setTimeout(r, 0))
     host.querySelector(`.jm-c[aria-label^="${TODAY}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
-    const entry = [...host.querySelectorAll('.dt-card')].find(c => c.textContent.includes('棚卸'))
+    const entry = [...host.querySelectorAll('.dt-card, .dt-ev')].find(c => c.textContent.includes('棚卸'))
     entry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
     return entry

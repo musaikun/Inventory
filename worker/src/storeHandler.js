@@ -2040,7 +2040,7 @@ export async function handleTasksGet(db, code, sinceDays, { admin = true } = {})
   const rows = (await db.prepare(`
     SELECT id, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
       assign_mode, assignee_id, assignee_name, done_list_json, due_time, prev_done_at, prev_done_by_id, kind, ref_id, visibility,
-      progress, wait_note, deadline, steps_json, last_note, last_note_by, last_note_at
+      progress, wait_note, deadline, steps_json, last_note, last_note_by, last_note_at, note
     FROM tasks WHERE shop_code = ? AND (task_date >= ? OR (done_at IS NULL AND deleted_at IS NULL)
       OR (task_date = '' AND updated_at >= ?))
       AND (visibility IS NULL OR ? = 1)
@@ -2063,7 +2063,7 @@ export async function handleTasksGet(db, code, sinceDays, { admin = true } = {})
     visibility: r.visibility === 'admins' ? 'admins' : null,
     // 進行中（migration 0031）: 日付は「次に見る日」
     progress: TASK_PROGRESS.includes(r.progress) ? r.progress : null,
-    waitNote: r.wait_note ?? null, deadline: r.deadline ?? null, steps: _steps(r.steps_json),
+    waitNote: r.wait_note ?? null, deadline: r.deadline ?? null, steps: _steps(r.steps_json), note: r.note ?? null,
     lastNote: r.last_note ? { body: r.last_note, by: r.last_note_by ?? '', at: r.last_note_at ?? null } : null,
   }))
 }
@@ -2114,6 +2114,8 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
     waitNote: _short(body.waitNote, 60) || null,
     deadline: typeof body.deadline === 'string' && _DATE.test(body.deadline) ? body.deadline : null,
     steps: _steps(body.steps),
+    // 備考（migration 0033）
+    note: _short(body.note, 500) || null,
   }
   t.assigneeId   = t.assign === 'person' ? (_short(body.assigneeId, 64) || null) : null
   t.assigneeName = t.assign === 'person' ? (_short(body.assigneeName, 40) || null) : null
@@ -2123,11 +2125,11 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
   // 完了済みのまま別の変更（日付など）が来たら、完了した人は前のまま（変えた人で上書きしない）
   await db.prepare(`
     INSERT INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, done_at, done_by, done_by_id, deleted_at, updated_at,
-      assign_mode, assignee_id, assignee_name, due_time, visibility, progress, wait_note, deadline, steps_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      assign_mode, assignee_id, assignee_name, due_time, visibility, progress, wait_note, deadline, steps_json, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       task_date = excluded.task_date, body = excluded.body, due_time = excluded.due_time, visibility = excluded.visibility,
-      progress = excluded.progress, wait_note = excluded.wait_note, deadline = excluded.deadline, steps_json = excluded.steps_json,
+      progress = excluded.progress, wait_note = excluded.wait_note, deadline = excluded.deadline, steps_json = excluded.steps_json, note = excluded.note,
       assign_mode = excluded.assign_mode, assignee_id = excluded.assignee_id, assignee_name = excluded.assignee_name,
       done_at = CASE WHEN excluded.assign_mode = 'all' THEN tasks.done_at ELSE excluded.done_at END,
       done_by    = CASE WHEN tasks.done_at IS NOT NULL AND excluded.done_at IS NOT NULL THEN tasks.done_by    ELSE excluded.done_by    END,
@@ -2138,7 +2140,7 @@ export async function handleTaskUpsert(db, code, body = {}, keepPrev = null) {
     WHERE tasks.shop_code = excluded.shop_code AND tasks.updated_at <= excluded.updated_at
   `).bind(t.id, code, t.date, t.text, t.createdBy, t.createdById, t.createdAt, t.doneAt, t.doneBy, t.doneById, t.deletedAt, t.updatedAt,
     t.assign, t.assigneeId, t.assigneeName, t.dueTime, t.visibility,
-    t.progress, t.waitNote, t.deadline, t.steps.length ? JSON.stringify(t.steps) : null,
+    t.progress, t.waitNote, t.deadline, t.steps.length ? JSON.stringify(t.steps) : null, t.note,
     keepPrev ? 1 : 0, keepPrev?.prevDoneAt ?? null, keepPrev ? 1 : 0, keepPrev?.prevDoneById ?? null).run()
   if (keepPrev) { t.prevDoneAt = keepPrev.prevDoneAt; t.prevDoneById = keepPrev.prevDoneById }
   return { ok: true, created: !prev && !t.deletedAt, task: t }

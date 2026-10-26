@@ -10,7 +10,7 @@
  */
 import { ref, computed } from 'vue'
 import {
-  toggleTask, removeTask, editTask, setTaskAssign, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX,
+  toggleTask, removeTask, editTask, setTaskAssign, setTaskNote, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX, TASK_NOTE_MAX,
   canToggleTask, canEditTask, canRemoveTask, toggleDenyReason,
 } from '../composables/useTasks.js'
 import { staffNames } from '../composables/useAuth.js'
@@ -56,13 +56,14 @@ const assignNote = computed(() => {
 
 // ── 直す ──
 const editing = ref(false)
-const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fAdmins = ref(false)
+const fText = ref(''), fDate = ref(''), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fAdmins = ref(false), fNote = ref('')
 const _fromTask = x => (x.assign === 'person' ? `p:${x.assigneeId}` : (x.assign || 'anyone'))
 function openEdit() {
   if (!canEdit.value) return
   fText.value = t.value.text; fDate.value = t.value.date || localDateKey(); fTime.value = t.value.dueTime || ''; fWho.value = _fromTask(t.value)
   fSomeday.value = t.value.date === ''
   fAdmins.value = t.value.visibility === 'admins'
+  fNote.value = t.value.note || ''
   editing.value = true
 }
 function save() {
@@ -76,6 +77,7 @@ function save() {
       : { mode: v }
     setTaskAssign(t.value.id, assign)
   }
+  if ((fNote.value.trim() || null) !== (t.value.note || null)) setTaskNote(t.value.id, fNote.value)
   editing.value = false
 }
 </script>
@@ -93,6 +95,7 @@ function save() {
       :is="canEdit || (isJoin && isAdmin) ? 'button' : 'span'" :type="canEdit || (isJoin && isAdmin) ? 'button' : undefined" class="tr-tx"
       :aria-label="isJoin ? (isAdmin ? 'スタッフの画面を開く' : undefined) : (canEdit ? `${t.text}を直す` : undefined)" @click="onText"
     ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること">🔒</span> </template><template v-if="mark">{{ mark }} </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
+      <small v-if="t.note" class="tr-note">📝 {{ t.note }}</small>
       <small v-if="assignNote" :class="['tr-assign', t.assign, { me: isAssignedToMe(t) }]">{{ assignNote }}</small>
       <small v-if="isJoin && !t.doneAt">{{ isAdmin ? '押すとスタッフの画面を開きます。承認・お断りで自動で完了します' : '管理者が承認・お断りすると自動で完了します' }}</small>
       <small v-if="!isJoin && (!isMyTask(t) || (t.doneAt && t.assign !== 'all'))">
@@ -111,6 +114,7 @@ function save() {
       <button v-if="fTime" type="button" class="tr-mini" @click="fTime = ''">時刻なし</button>
     </div>
     <label class="tr-some"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
+    <label class="tr-lb">備考<textarea v-model="fNote" rows="2" :maxlength="TASK_NOTE_MAX" class="tr-in tr-note-in" placeholder="細かいこと・手順・連絡先など"></textarea></label>
     <label v-if="isAdmin" class="tr-some"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
     <label v-if="hasStaff" class="tr-lb">担当
       <select v-model="fWho" class="tr-in">
@@ -129,6 +133,8 @@ function save() {
 </template>
 
 <style scoped>
+.tr-note { display: block; white-space: pre-wrap; color: #5b4a1e !important; background: #fffbeb; border-radius: 6px; padding: 2px 6px; margin-top: 3px; }
+.tr-note-in { min-height: 56px; padding: 6px 8px; resize: vertical; }
 .tr { display: flex; align-items: center; gap: 10px; padding: 8px 6px; font-size: 14px; color: var(--text); border-top: 1px solid var(--border); }
 .tr.fresh { background: #fff7ed; }
 .tr.mine { background: var(--primary-weak, #ecfeff); }

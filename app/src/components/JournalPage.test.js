@@ -208,17 +208,49 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(host.querySelector(`.jm-c[aria-label^="${today}"] .tag.plan`).textContent).toBe('近隣で花火大会')
   })
 
-  it('発注日の締切は、その日のタイムラインに予定で出る（数には入れない）', async () => {
+  it('発注スケジュール（発注日の予定）はカレンダーにもタイムラインにも出さない', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const { useConfig } = await import('../composables/useConfig.js')
     const k = n => localDateKey(new Date(Date.now() + n * 86400_000))
-    const dow = new Date(k(1) + 'T12:00:00').getDay()
-    useConfig().config.orderSchedules = [{ id: 's1', name: '昼の仕入先', days: [dow], deadline: '14:00' }]
+    useConfig().config.orderSchedules = [{ id: 's1', name: '昼の仕入先', days: [0, 1, 2, 3, 4, 5, 6], deadline: '14:00' }]
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
+    expect(host.querySelector('.jm .tag.order')).toBeNull()
     const dt = await openDay(k(1))
-    expect(dt.querySelector('.dt-row').textContent).toContain('発注の締切（昼の仕入先）')
-    expect(dt.querySelector('.dt-ring')).toBeNull()
+    expect(dt.textContent).not.toContain('発注の締切')
+  })
+
+  it('月を送ると横に滑る（次の月は slide-next、前の月は slide-prev）', async () => {
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(host.querySelector('[aria-label="次の月"]'))
+    expect(host.querySelector('.jm-grid').classList.contains('slide-next')).toBe(true)
+    await click(host.querySelector('[aria-label="前の月"]'))
+    expect(host.querySelector('.jm-grid').classList.contains('slide-prev')).toBe(true)
+  })
+
+  it('備考: 追加のときに書け（＋ 備考）、タイムラインの行に📝で出る。担当の人も書き足せる', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await openDay(localDateKey())
+    await click(host.querySelector('.dt-fab'))
+    const form = document.body.querySelector('.jp-sheet')
+    const text = form.querySelector('input[aria-label="やること"]')
+    text.value = '製氷機の点検'; text.dispatchEvent(new Event('input')); await tick()
+    await click(btn('備考', form))
+    const note = form.querySelector('textarea[aria-label="備考"]')
+    note.value = '業者 03-1234-5678'; note.dispatchEvent(new Event('input')); await tick()
+    await click(btn('みんなに見せて追加', form))
+    const t = T.aliveTasks.value.find(x => x.text === '製氷機の点検')
+    expect(t.note).toBe('業者 03-1234-5678')
+    const { saveTaskToD1 } = await import('../composables/useStore.js')
+    expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ note: '業者 03-1234-5678' }))
+    expect(host.querySelector('.dt .dt-note').textContent).toContain('業者 03-1234-5678')
+    // 直す（作った人）: TaskRow の備考
+    expect(T.setTaskNote(t.id, '業者に連絡済み')).toBeTruthy()
+    expect(T.aliveTasks.value.find(x => x.id === t.id).note).toBe('業者に連絡済み')
   })
 
   it('ルーティン: 月の🔁から見本で始める。「＋」の「🔁 繰り返す」でも作れる', async () => {
@@ -244,5 +276,21 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await click(btn('毎日', form))
     await click(btn('ルーティンとして追加', form))
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ゴミ出し', items: [], repeat: 'daily' }))
+  })
+  it('棚卸の中断が4回を超えたら1行にたたむ（押すと開く）。帯は斜線のまま', async () => {
+    const at = hm => new Date(`2026-10-20T${hm}:00`).getTime()
+    const ps = [['11:05', '11:20'], ['12:10', '12:30'], ['13:00', '13:02'], ['13:30', '13:50'], ['15:20', '16:02']].map(([f, t]) => ({ from: at(f), to: at(t) }))
+    const { buildDayTimeline } = await import('../services/dayTimeline.js')
+    const tl = buildDayTimeline({ date: '2026-10-20', today: '2026-10-26', records: [{ key: 's', kind: 'stock', at: at('10:35'), end: at('16:20'), pauses: ps, title: '棚卸 完了 ・ 40品目' }], tasks: [{ id: 'v', text: '野菜の検品', dueTime: '11:10', doneAt: 'x' }] })
+    const { default: DayTimeline } = await import('./DayTimeline.vue')
+    await mount(DayTimeline, { date: '2026-10-20', today: '2026-10-26', timeline: tl })
+    const fold = host.querySelector('.dt-fold')
+    expect(fold.textContent).toContain('中断 5回（1時間39分）')
+    expect(host.querySelectorAll('.dt-ev.pause')).toHaveLength(0)
+    expect([...host.querySelectorAll('.dt-band')].some(b => b.classList.contains('hatch'))).toBe(true)   // 中断中の検品の横は斜線
+    expect(host.querySelector('.dt-during').textContent).toBe('棚卸の中断中')
+    await click(fold)
+    expect(host.querySelectorAll('.dt-ev.pause')).toHaveLength(5)
+    expect(host.querySelector('.dt-ev.end').textContent).toContain('合計 5時間45分 ・ 中断5回 1時間39分')
   })
 })

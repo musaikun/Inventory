@@ -26,25 +26,36 @@ describe('日誌のタイムライン（User決定 2026-10-26）', () => {
     expect([tl.done, tl.count]).toEqual([1, 5])
   })
 
-  it('過ぎた日の残りは赤（missed）、先の日は予定（plan）。発注の締切は今日と先の日だけ、数に入れない', () => {
-    const t = { id: 't', text: '点検', dueTime: '10:00' }
-    expect(buildDayTimeline({ date: '2026-10-20', today: '2026-10-26', tasks: [t] }).timed[0].state).toBe('missed')
-    const fut = buildDayTimeline({ date: '2026-10-28', today: '2026-10-26', tasks: [t], plans: [{ name: '酒屋', time: '14:00' }] })
-    expect(fut.timed.map(x => [x.time, x.title, x.state])).toEqual([['10:00', '点検', 'plan'], ['14:00', '発注の締切（酒屋）', 'plan']])
+  it('過ぎた日の残りは赤（missed）、先の日は予定（plan・数に入れない）。備考は行に付く', () => {
+    const t = { id: 't', text: '点検', dueTime: '10:00', note: '業者 03-1234' }
+    const past = buildDayTimeline({ date: '2026-10-20', today: '2026-10-26', tasks: [t] })
+    expect(past.timed[0]).toMatchObject({ state: 'missed', note: '業者 03-1234' })
+    const fut = buildDayTimeline({ date: '2026-10-28', today: '2026-10-26', tasks: [t] })
+    expect(fut.timed.map(x => [x.time, x.title, x.state])).toEqual([['10:00', '点検', 'plan']])
     expect(fut.count).toBe(0)
-    expect(buildDayTimeline({ date: '2026-10-20', today: '2026-10-26', plans: [{ name: '酒屋', time: '14:00' }] }).timed).toEqual([])
   })
 
-  it('棚卸の記録は合計と中断。取り込んだ記録は時刻が無いので終日', () => {
+  it('棚卸は区間: 開始・中断・再開・終了の行と帯。かぶった業務に「最中／中断中」。取り込んだ記録は時刻が無いので終日', () => {
     const tl = buildDayTimeline({
       date: '2026-10-20', today: '2026-10-26',
+      tasks: [{ id: 'a', text: '野菜の検品', dueTime: '11:10', doneAt: 'x' }, { id: 'b', text: '発注の確認', dueTime: '13:40', doneAt: 'x' }, { id: 'c', text: '退店', dueTime: '22:00', doneAt: 'x' }],
       records: [
-        { key: 's1', kind: 'stock', at: at('10:35'), end: at('16:15'), pauses: [{}, {}], pauseMs: 155 * 60000, title: '棚卸 完了 ・ 40品目', by: '高木・山田' },
+        { key: 's1', kind: 'stock', at: at('10:35'), end: at('16:15'), pauses: [{ from: at('11:05'), to: at('11:20') }, { from: at('12:10'), to: at('12:30') }], title: '棚卸 完了 ・ 40品目', by: '高木・山田' },
         { key: 's2', kind: 'stock', at: null, end: null, imported: true, title: '棚卸 完了 ・ 10品目' },
       ],
     })
-    expect(tl.timed[0].sub).toBe('合計 5時間40分 ・ 中断2回 2時間35分 ・ 高木・山田')
+    expect(tl.timed.map(x => [x.time, x.ev || x.title, x.band || ''])).toEqual([
+      ['10:35', 'start', 'start'], ['11:05', 'pause', 'hatch'], ['11:10', '野菜の検品', 'hatch'], ['11:20', 'resume', 'solid'],
+      ['12:10', 'pause', 'hatch'], ['12:30', 'resume', 'solid'], ['13:40', '発注の確認', 'solid'], ['16:15', 'end', 'end'], ['22:00', '退店', ''],
+    ])
+    expect(tl.timed.find(x => x.title === '野菜の検品').during).toBe('棚卸の中断中')
+    expect(tl.timed.find(x => x.title === '発注の確認').during).toBe('棚卸の最中')
+    expect(tl.timed.find(x => x.title === '退店').during).toBeUndefined()
+    const end = tl.timed.find(x => x.ev === 'end')
+    expect(end).toMatchObject({ title: '棚卸 完了 ・ 40品目', sub: '合計 5時間40分 ・ 中断2回 35分', pauseCount: 2, pauseMs: 35 * 60000 })
+    expect(tl.timed[1]).toMatchObject({ title: '中断 15分', sub: '11:05〜11:20' })
     expect(tl.allDay.map(x => x.title)).toEqual(['棚卸 完了 ・ 10品目'])
+    expect(tl.count).toBe(3)                                         // 棚卸の行は数えない
   })
 
   it('期限つきのやることは「期限 m/d」。進行中・いつか・メモも終日（いつか・メモは数に入れない）', () => {
