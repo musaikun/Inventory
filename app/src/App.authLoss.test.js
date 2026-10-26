@@ -197,13 +197,13 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     localStorage.setItem(STORAGE_KEYS.dataOwner, 'ABCDEF')
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
-    // 日誌（お店のカレンダー・2026-10-25）の今日を「🕒 時間で見る」。棚卸の帯から詳細へ
+    // 日誌（月のカレンダー・2026-10-26）の今日を押してタイムライン。棚卸の行から詳細へ
     ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 12; i++) await nextTick()
     await new Promise(r => setTimeout(r, 0))
-    host.querySelector('[aria-label="時間で見る"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    host.querySelector(`.jm-c[aria-label^="${TODAY}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
-    const entry = host.querySelector('.jd-ev.stock')
+    const entry = [...host.querySelectorAll('.dt-card')].find(c => c.textContent.includes('棚卸'))
     entry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 8; i++) await nextTick()
     return entry

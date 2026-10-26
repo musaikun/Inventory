@@ -66,11 +66,20 @@ export function tasksOn(date) {
   return _data.list.filter(t => t.date === date && _alive(t)).sort(_byTime)
 }
 
-/** 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は「次に見る日」なので入れない */
+/**
+ * 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は「次に見る日」なので入れない。
+ * 期限つき（deadline・連絡のタスク化 2026-10-26）は期限を過ぎてから
+ */
 export function overdueTasks(today = localDateKey()) {
   return _data.list
-    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress)
+    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress && (!t.deadline || t.deadline < today))
     .sort((a, b) => a.date.localeCompare(b.date) || _byTime(a, b))
+}
+/** 期限つきで、前の日に作ってまだ期限の来ていないもの（今日の「終日」に「期限 m/d」で出す） */
+export function carriedTasks(today = localDateKey()) {
+  return _data.list
+    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress && t.deadline && t.deadline >= today)
+    .sort((a, b) => a.deadline.localeCompare(b.deadline) || _byTime(a, b))
 }
 export const overdueCount = computed(() => overdueTasks().length)
 
@@ -152,7 +161,9 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
     ..._assignFields(assign), doneList: [], dueTime: date ? _time(dueTime) : null,
     visibility: visibility === 'admins' && isAdmin.value ? 'admins' : null,
-    ...(PROGRESS.includes(progress) ? { progress, waitNote: null, deadline: _DATE_RE.test(deadline || '') ? deadline : null, steps: [], lastNote: null } : {}),
+    ...(PROGRESS.includes(progress) ? { progress, waitNote: null, steps: [], lastNote: null } : {}),
+    // 期限（進行中の本当の期限・期限つきのやること）
+    ...(_DATE_RE.test(deadline || '') ? { deadline } : {}),
   }
   _data.list.push(t)
   _persist()

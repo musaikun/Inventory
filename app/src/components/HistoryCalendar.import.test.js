@@ -97,7 +97,7 @@ describe('HistoryCalendar 取込データの星', () => {
     expect(cellOf(root, PAST).querySelector('.dot-stock')).not.toBeNull()
     expect(cellOf(root, PAST).querySelector('.dot-in')).not.toBeNull()
 
-    // その日は日誌の「1日」で読む。取込は帯（時刻）に置かず、上に「取込」として並べる
+    // その日は日誌のタイムラインで読む。取込は時刻に置かず、終日に並べる
     const { stockRecords, mergeMovements } = await import('../services/journalRecords.js')
     const { useHistory } = await import('../composables/useHistory.js')
     const { useMovements } = await import('../composables/useMovements.js')
@@ -106,17 +106,10 @@ describe('HistoryCalendar 取込データの星', () => {
       ...mergeMovements(useMovements().getMovements().filter(m => m.date === PAST)),
     ]
     expect(records.every(r => r.at == null)).toBe(true)
-    app.unmount(); host.remove()
-    const { default: JournalDay } = await import('./JournalDay.vue')
-    host = document.createElement('div'); document.body.appendChild(host)
-    app = createApp(JournalDay, { date: PAST, records })
-    app.mount(host)
-    for (let i = 0; i < 4; i++) await nextTick()
-    const box = host.querySelector('.jd-box')
-    expect(box.querySelectorAll('.rr')).toHaveLength(2)
-    expect(box.textContent).toContain('取り込んだ記録')
-    expect(box.textContent).toContain('取込')
-    expect(host.querySelector('.jd-ev')).toBeNull()
+    const { buildDayTimeline } = await import('../services/dayTimeline.js')
+    const tl = buildDayTimeline({ date: PAST, today: '2999-01-01', records })
+    expect(tl.allDay).toHaveLength(2)
+    expect(tl.timed).toHaveLength(0)
   })
 
   it('取り込んだ出庫は、出庫日のマスに星が出る', async () => {

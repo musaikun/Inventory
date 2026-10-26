@@ -102,12 +102,12 @@ describe('再読込しても同じページに留まる', () => {
     await mountApp()
     await seedItems()
     await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
-    expect(host.querySelector('.jp .jw')).not.toBeNull()
+    expect(host.querySelector('.jp .jm')).not.toBeNull()
 
     await reload()
     expect(view()).toBe('sessions')
     expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
-    expect(host.querySelector('.jp .jw')).not.toBeNull()
+    expect(host.querySelector('.jp .jm')).not.toBeNull()
   }, 20000)
 
   it('管理タブ（データ管理）', async () => {

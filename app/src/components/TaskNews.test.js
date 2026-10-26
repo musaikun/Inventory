@@ -17,15 +17,6 @@ beforeEach(() => { localStorage.clear(); vi.resetModules(); localStorage.setItem
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 
 describe('やることの行・1日の締切', () => {
-  it('発注日の曜日には1日の帯に締切が出る', async () => {
-    const { useConfig } = await import('../composables/useConfig.js')
-    useConfig().config.orderSchedules = [{ id: 's1', name: '昼の仕入先', days: [0], deadline: '14:00' }]   // 日曜
-    const { default: JournalDay } = await import('./JournalDay.vue')
-    await mount(JournalDay, { date: '2026-10-04' })   // 日曜
-    expect(host.querySelector('.jd-ev.plan').textContent).toContain('14:00 発注の締切（昼の仕入先）')
-    expect(host.querySelector('.jd-sum').textContent).toContain('締切 1')
-  })
-
   it('完了・消す・文面を押して直す（完了したものは直せない・消せない）。他の端末の追加には名前が出る', async () => {
     const T = await import('../composables/useTasks.js')
     T.applyRemoteTasks([{ id: 'x', date: '2026-10-05', text: '業者の点検', createdBy: '山田', createdById: 'other', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }])

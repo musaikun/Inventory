@@ -53,23 +53,24 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('日別メモ（日誌の「1日」で書く。以前は月の日の詳細）', () => {
+describe('日別メモ（日誌のその日のタイムラインで書く。以前は「1日」・その前は月の日の詳細）', () => {
   async function mountDay(date) {
-    const { default: JournalDay } = await import('./JournalDay.vue')
+    const { default: JournalPage, journalDate } = await import('./JournalPage.vue')
+    journalDate.value = date
     host = document.createElement('div')
     document.body.appendChild(host)
-    app = createApp(JournalDay, { date })
+    app = createApp(JournalPage)
     app.mount(host)
-    for (let i = 0; i < 4; i++) await nextTick()
+    for (let i = 0; i < 6; i++) await nextTick()
     return host
   }
   async function openMemo(root) {
-    root.querySelector('.jd-sum .memo').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    ;(root.querySelector('.dt [aria-label="メモ"]') || root.querySelector('.dt-ad.note .dt-ct')).dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 3; i++) await nextTick()
-    return document.querySelector('.jd-sheet')
+    return document.querySelector('.jp-sheet')
   }
   async function write(sheet, text) {
-    const ta = sheet.querySelector('.jd-memo')
+    const ta = sheet.querySelector('.jp-memo')
     ta.value = text
     ta.dispatchEvent(new Event('input', { bubbles: true }))
     await nextTick()
@@ -82,8 +83,8 @@ describe('日別メモ（日誌の「1日」で書く。以前は月の日の詳
     for (const t of ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']) {
       expect([...sheet.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
     }
-    expect(sheet.querySelector('.jd-memo')).not.toBeNull()
-    expect(sheet.querySelector('.jd-excl input[type=checkbox]')).not.toBeNull()
+    expect(sheet.querySelector('.jp-memo')).not.toBeNull()
+    expect(sheet.querySelector('.jp-excl input[type=checkbox]')).not.toBeNull()
   })
 
   it('新しいメモには本文を保存し、タグは追加しない', async () => {
@@ -98,7 +99,7 @@ describe('日別メモ（日誌の「1日」で書く。以前は月の日の詳
       '2026-09-15': { text: '以前の記録', tags: ['貸切'], excluded: true },
     }))
     const root = await mountDay('2026-09-15')
-    expect(root.querySelector('.jd-sum .memo').textContent).toContain('以前の記録')
+    expect(root.querySelector('.dt-ad.note').textContent).toContain('以前の記録')
     await write(await openMemo(root), '貸切の詳細を追記')
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
     expect(saved['2026-09-15']).toEqual({ text: '貸切の詳細を追記', tags: ['貸切'], excluded: true })

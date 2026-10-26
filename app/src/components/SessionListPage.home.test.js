@@ -97,7 +97,7 @@ describe('ホームの骨組み', () => {
     // 日誌＝お店のカレンダー（2026-10-25）。開いたら記録を取り込み直す
     await click(btn(host.querySelector('.bnav'), '日誌'))
     expect(host.querySelector('.jp')).not.toBeNull()
-    expect(host.querySelector('.jp .jw')).not.toBeNull()
+    expect(host.querySelector('.jp .jm')).not.toBeNull()
     expect(events).toContainEqual(['calendarShown'])
     // レポート＝在庫分析（重ねて開かず、タブの中）。履歴カレンダーの入口はもう無い
     await click(btn(host.querySelector('.bnav'), 'レポート'))
@@ -274,10 +274,10 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     expect(today.textContent).toContain('期限切れ')
     expect(today.textContent).toContain('11:00')
     expect(today.textContent).toContain('0/1')
-    // 押すと日誌の今日。期限切れが上に（赤い日付）
+    // 押すと日誌の今日のタイムライン。期限切れは終日に赤で
     await click(today)
     expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
-    expect(host.querySelector('.jp-box .tr .tr-tm.late')).not.toBeNull()
+    expect(host.querySelector('.dt .dt-ad.missed')).not.toBeNull()
     await click(btn(host.querySelector('.bnav'), 'ホーム'))
     // ショートカットの「在庫」で在庫タブへ
     const sc = [...host.querySelectorAll('.ht-sc')]
