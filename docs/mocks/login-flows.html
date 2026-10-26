@@ -1,0 +1,153 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログイン導線 モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --b2b:#4338ca; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; } h2 { font-size:16px; margin:26px 0 10px; }
+  h2 .tag { font-size:11px; color:#fff; background:var(--primary); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; } h2 .tag.b2b { background:var(--b2b); }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:8px; max-width:1150px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:300px; line-height:1.5; }
+  .phone { width:300px; height:620px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; }
+  .body { flex:1; padding:22px 18px; display:flex; flex-direction:column; gap:10px; }
+  .logo { font-size:22px; font-weight:900; text-align:center; margin-top:10px; } .sub { font-size:12.5px; color:var(--muted); text-align:center; line-height:1.6; }
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px; font-weight:800; padding:13px; border-radius:12px; background:#fff; border:1px solid var(--border); }
+  .btn.pri { background:var(--primary); color:#fff; border-color:transparent; } .btn.b2b { background:var(--b2b); color:#fff; border-color:transparent; }
+  .btn.g::before { content:'G'; font-weight:900; color:#ea4335; }
+  .card { background:#fff; border-radius:14px; padding:14px; box-shadow:0 1px 4px rgba(0,0,0,.05); display:grid; gap:4px; }
+  .card b { font-size:15px; } .card small { font-size:12px; color:var(--muted); line-height:1.5; }
+  .card.on { outline:2px solid var(--primary); } .card.b2b { outline:2px solid var(--b2b); }
+  .in { background:#fff; border:1px solid var(--border); border-radius:10px; padding:11px 12px; font-size:13.5px; color:#94a3b8; }
+  .lbl { font-size:11.5px; font-weight:800; color:var(--muted); margin-bottom:-6px; }
+  .or { text-align:center; font-size:11px; color:var(--muted); }
+  .link { text-align:center; font-size:12.5px; color:var(--primary); font-weight:700; }
+  .faint { font-size:11.5px; color:var(--muted); text-align:center; line-height:1.5; }
+  .names { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; } .names span { background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 0; text-align:center; font-size:13px; font-weight:800; } .names span.on { border-color:var(--primary); color:var(--primary); }
+  .pin { display:flex; gap:6px; justify-content:center; } .pin i { width:28px; height:34px; border-radius:8px; background:#fff; border:1px solid var(--border); }
+  .li { display:flex; justify-content:space-between; align-items:center; background:#fff; padding:11px 12px; border-top:1px solid #eef4f6; font-size:13px; } .li small { color:var(--muted); font-size:11px; }
+  .list { border-radius:12px; overflow:hidden; } .list .li:first-child { border-top:none; }
+  .st { font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:6px; } .st.ok { background:#dcfce7; color:#15803d; } .st.wait { background:#fef3c7; color:#92400e; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; }
+  .hd { font-size:15px; font-weight:900; }
+</style></head><body>
+<h1>ログインの見直し：個人店（BtoC）と企業（BtoB）の導線</h1>
+<p class="lead">
+今は入口が「ログイン／スタッフ／新規登録」の3タブで、どれも<b>店舗コード＋暗証番号</b>。忘れたら戻れず、1人で複数店舗も持てない。<br>
+案：<b>人は「アカウント」（Google かメール）で入る</b>。店舗コードは画面から裏へ回し、スタッフ招待のときだけ使う。
+スタッフ（アルバイト）はアカウント不要のまま、<b>名前＋6桁の暗証番号</b>（今の仕組み）。企業は<b>本部が店舗と店長を配る</b>。
+</p>
+
+<h2>共通の入口</h2>
+<div class="row">
+<div class="col"><div class="cap">⓪ 最初の画面<small>「何をしたいか」で分ける。3タブをやめる。招待で来た人はこの画面を通らない</small></div>
+<div class="phone"><div class="body">
+  <div class="logo">タナオロ</div><div class="sub">飲食店の棚卸を、声で速く</div>
+  <div class="card on"><b>自分の店で使いはじめる</b><small>無料・1分で登録（個人店）</small></div>
+  <div class="card"><b>ログイン</b><small>オーナー・店長・本部の方</small></div>
+  <div class="card"><b>店の端末でスタッフとして入る</b><small>名前と暗証番号</small></div>
+  <div style="flex:1"></div>
+  <div class="link">複数店舗・法人でのご利用 ›</div>
+</div></div></div>
+
+<div class="col"><div class="cap">① ログイン<small>Google かメール。店舗コードは聞かない。複数の店に属していれば次に店を選ぶ</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">ログイン</div>
+  <div class="btn g">Google で続ける</div>
+  <div class="or">または</div>
+  <div class="lbl">メールアドレス</div><div class="in">you@example.com</div>
+  <div class="btn pri">ログイン用のリンクを送る</div>
+  <div class="faint">パスワードは使いません。届いたリンクを押すと入れます</div>
+  <div style="flex:1"></div>
+  <div class="link">店舗コードと暗証番号で入る（以前の方式）›</div>
+</div></div></div>
+
+<div class="col"><div class="cap">② 店を選ぶ<small>1つだけなら出さずにそのまま入る。本部の人は全店が並ぶ</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">どの店に入りますか</div>
+  <div class="list">
+    <div class="li"><span><b>渋谷店</b><br><small>店長</small></span>›</div>
+    <div class="li"><span><b>新宿店</b><br><small>管理者</small></span>›</div>
+    <div class="li"><span><b>本部（全店の一覧）</b><br><small>本部管理者</small></span>›</div>
+  </div>
+  <div class="faint">次からは最後に入った店で開きます</div>
+</div></div></div>
+
+<div class="col"><div class="cap">③ 店の端末でスタッフ切替<small>端末が覚えている店のスタッフが並ぶ。店舗コードは入れない（今は毎回入れている）</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">渋谷店のスタッフ</div>
+  <div class="names"><span>山田</span><span class="on">佐藤</span><span>鈴木</span><span>田中</span><span>高橋</span><span>＋</span></div>
+  <div class="lbl" style="margin-top:8px">佐藤さんの暗証番号</div>
+  <div class="pin"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div style="flex:1"></div>
+  <div class="faint">自分のスマホで初めて入る人は、管理者から招待を受け取ってください</div>
+</div></div></div>
+</div>
+
+<h2><span class="tag">BtoC</span>個人店：自分で登録してすぐ使う</h2>
+<div class="row">
+<div class="col"><div class="cap">C-1 店の名前<small>聞くのは店名だけ。暗証番号を決めさせない</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">店の名前</div>
+  <div class="in" style="color:var(--text)">居酒屋 たなか</div>
+  <div class="faint">あとで変えられます</div>
+  <div style="flex:1"></div>
+  <div class="btn pri">次へ</div>
+</div></div></div>
+
+<div class="col"><div class="cap">C-2 アカウントを作る<small>Google かメール。これが「忘れても戻れる」鍵になる</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">アカウントを作る</div>
+  <div class="sub" style="text-align:left">機種変更や、別の端末から入るときに使います</div>
+  <div class="btn g">Google で続ける</div>
+  <div class="or">または</div>
+  <div class="in">you@example.com</div>
+  <div class="btn">メールで続ける</div>
+  <div style="flex:1"></div>
+  <div class="faint">利用規約とプライバシーポリシーに同意して続けます</div>
+</div></div></div>
+
+<div class="col"><div class="cap">C-3 そのまま使いはじめる<small>登録完了画面で店舗コードを見せない（今は「控えてください」と出している）。品目0件の画面へ</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">居酒屋 たなか</div>
+  <div class="card"><b>最初の品目を追加</b><small>1つずつ／ファイルから／棚卸しながら</small></div>
+  <div class="card"><b>スタッフを招く</b><small>あとでもできます</small></div>
+  <div style="flex:1"></div>
+  <div class="note">既存の「店舗コード＋4桁PIN」の店は、ログイン後に「アカウントをつなぐ」を案内（任意→一定期間後に必須）</div>
+</div></div></div>
+</div>
+
+<h2><span class="tag b2b">BtoB</span>企業（多店舗）：本部が店と人を配る</h2>
+<div class="row">
+<div class="col"><div class="cap">B-1 本部の招待を受ける<small>契約は運営が受け、本部管理者へメールで招待（最初はセルフ契約にしない）</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">株式会社〇〇 の本部に招待されています</div>
+  <div class="sub" style="text-align:left">役割：本部管理者／契約：30店舗まで</div>
+  <div class="btn g">Google で参加</div>
+  <div class="btn">メールで参加</div>
+  <div style="flex:1"></div>
+  <div class="faint">招待は本人のメール宛て・7日で無効</div>
+</div></div></div>
+
+<div class="col"><div class="cap">B-2 店舗をまとめて作る<small>店名の一覧（貼り付け／CSV）。店舗コードは自動・本部は見なくてよい</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">店舗（3 / 30）</div>
+  <div class="list">
+    <div class="li"><span><b>渋谷店</b><br><small>店長 山本</small></span><span class="st ok">利用中</span></div>
+    <div class="li"><span><b>新宿店</b><br><small>店長 招待中</small></span><span class="st wait">招待中</span></div>
+    <div class="li"><span><b>池袋店</b><br><small>店長 未設定</small></span><span class="st wait">未設定</span></div>
+  </div>
+  <div class="btn b2b">＋ 店舗をまとめて追加</div>
+  <div style="flex:1"></div>
+  <div class="note">本部の品目を全店へ配る・全店の在庫金額を並べる、は次の段</div>
+</div></div></div>
+
+<div class="col"><div class="cap">B-3 店長を招く<small>店長はメールで招待→アカウントで入る→店ではその店の管理者。スタッフの招待は今の仕組みのまま</small></div>
+<div class="phone"><div class="body">
+  <div class="hd">新宿店の店長を招く</div>
+  <div class="lbl">店長のメールアドレス</div><div class="in">tencho@example.co.jp</div>
+  <div class="btn b2b">招待を送る</div>
+  <div style="flex:1"></div>
+  <div class="faint">店長 → スタッフ（名前＋暗証番号）は個人店と同じ</div>
+</div></div></div>
+</div>
+</body></html>
