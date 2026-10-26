@@ -1,9 +1,9 @@
-// 申し送り（User決定 2026-10-25・モック docs/mocks/journal-calendar-v4.html・サーバー migration 0032）。
+// 連絡（ホームのトーク・User決定 2026-10-26・キャンバス「日誌カレンダー」②〜④。サーバーは申し送りの表 migration 0032）。
+// 以前の「申し送り」（2026-10-25・日誌の上の欄）を作り直した。日誌には出さない。
 //
-// - 📣 伝える（tell）: 読むだけ。「確認」で誰が読んだかが残る
-// - 🙏 頼む（ask）: 相手といつを付けると、その人のやることになる（やることを作って、その id を申し送りに付ける）
-// - 伝えたことも「やることにする」でやることにできる（1つだけ）
-// - 日誌のその日に出すのは、前の日と当日に書いたもの（新しい順）
+// - メッセージ（kind 'tell'）を書く。「確認」で誰が読んだかが残る
+// - タスク化: メッセージからやることを作る（本日中・日付・期限・進行中）。やることの id をメッセージに付ける（1つだけ）。取り消せる
+// - 以前の「🙏 頼む」（kind 'ask'）は、タスク化したメッセージとして見せる
 // - サーバーが正。端末には写し（localStorage）を置いて、開いたときすぐ出す
 import { reactive, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
@@ -93,13 +93,28 @@ export async function askHandoff({ body, to = null, date, progress = false }) {
 }
 
 /** 📣 を「やることにする」 */
-export async function handoffToTask(h, { body, to = null, date, progress = false }) {
-  const t = addTask(date, String(body || h.body).trim().slice(0, HANDOFF_BODY_MAX), to ? { mode: 'person', id: to.id, name: to.name } : { mode: 'anyone' }, null, progress ? { progress: 'doing' } : {})
+/**
+ * タスク化
+ * @param {{ body?: string, to?: { id, name } | null, date: string, deadline?: string | null, progress?: boolean }} p
+ */
+export async function handoffToTask(h, { body, to = null, date, deadline = null, progress = false }) {
+  const t = addTask(date, String(body || h.body).trim().slice(0, HANDOFF_BODY_MAX), to ? { mode: 'person', id: to.id, name: to.name } : { mode: 'anyone' }, null,
+    { ...(progress ? { progress: 'doing' } : {}), ...(deadline ? { deadline } : {}) })
   if (!t) throw new Error('やることを作れませんでした')
   _put({ ...h, taskId: t.id })
   try { const r = await actHandoffInD1(h.id, 'task', { taskId: t.id }); if (r?.handoff) _put(r.handoff) } catch (_) { /* やることは残す。次に読んだときに揃う */ }
   return t
 }
+
+/** タスク化の取り消し（直後の「取り消す」）: やることを消して、メッセージから外す */
+export async function undoHandoffTask(h, taskId) {
+  removeTask(taskId)
+  _put({ ...h, taskId: null })
+  try { const r = await actHandoffInD1(h.id, 'task', { taskId, clear: true }); if (r?.handoff) _put(r.handoff) } catch (_) { /* 次に読んだときに揃う */ }
+}
+
+/** 未読: ほかの人のメッセージで、自分がまだ「確認」していないもの */
+export const unreadHandoffs = computed(() => _data.list.filter(h => !isMine(h) && !isReadByMe(h)))
 
 /** 「確認」 */
 export async function readHandoff(h) {

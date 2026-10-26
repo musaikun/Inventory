@@ -22,6 +22,7 @@ function fakeDb() {
         if (!r || r.reads_json !== a[3]) return { meta: { changes: 0 } }
         r.reads_json = a[0]; return { meta: { changes: 1 } }
       }
+      if (s.startsWith('UPDATE handoffs SET task_id = NULL')) { const r = find(a[0], a[1]); if (r && r.task_id === a[2]) { r.task_id = null; return { meta: { changes: 1 } } } return { meta: { changes: 0 } } }
       if (s.startsWith('UPDATE handoffs SET task_id')) { const r = find(a[1], a[2]); if (r && !r.task_id) { r.task_id = a[0]; return { meta: { changes: 1 } } } return { meta: { changes: 0 } } }
       if (s.startsWith('UPDATE handoffs SET deleted_at')) { find(a[1], a[2]).deleted_at = a[0]; return { meta: { changes: 1 } } }
       return { meta: { changes: 0 } }
@@ -54,6 +55,10 @@ describe('申し送り', () => {
     expect(db.rows[1].to_id).toBeNull()                       // 伝えるだけのものに相手は付けない
     expect((await handleHandoffTask(db, 'S1', 'h2', { taskId: 't9' })).handoff.taskId).toBe('t9')
     expect((await handleHandoffTask(db, 'S1', 'h2', { taskId: 't10' })).handoff.taskId).toBe('t9')
+    // 取り消す: 付いている id が同じときだけ外れ、外れたらまた付けられる
+    expect((await handleHandoffTask(db, 'S1', 'h2', { taskId: 't10', clear: true })).handoff.taskId).toBe('t9')
+    expect((await handleHandoffTask(db, 'S1', 'h2', { taskId: 't9', clear: true })).handoff.taskId).toBeNull()
+    expect((await handleHandoffTask(db, 'S1', 'h2', { taskId: 't11' })).handoff.taskId).toBe('t11')
   })
 
   it('空・種類なしは断る。消せるのは書いた人と管理者。消したものは出さない。直近の日数だけ返す', async () => {

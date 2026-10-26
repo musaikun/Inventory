@@ -184,6 +184,11 @@ export async function handleCron(env) {
   } catch (error) {
     console.warn('[push] join reminder failed:', error?.message ?? error)
   }
+  try {
+    await remindStaleProgress(env)
+  } catch (error) {
+    console.warn('[push] stale progress reminder failed:', error?.message ?? error)
+  }
   if (!env.VAPID_PUBLIC_KEY) return
   try {
     await sendScheduledPushes(env, new Date())
@@ -334,6 +339,46 @@ export async function notifyStaffJoin(env, shopCode, name, assigneeId = null) {
   for (const sub of (subs ?? [])) {
     await _send(env, sub, { title: 'タナオロ', body: joinTaskText(name), tag: 'staff-join', url: '/' })
   }
+}
+
+/**
+ * 進行中のやることが止まっていたら知らせる（User決定 2026-10-26。次に見る日を選ばない代わり）。
+ * 動き（作った・直した・経過を書いた）から 3日で担当の人（いなければ作った人）、5日で管理者へ。
+ * 「待ち」は相手を待っているので 5日・8日。動きがあればまた数え直す（reminded_at が最後の動きより前なら未通知）。
+ * 毎時の cron から呼ぶ。端末が無ければ知らせた印だけ付ける
+ */
+export const STALE_DAYS = { doing: [3, 5], waiting: [5, 8] }
+export async function remindStaleProgress(env, nowMs = Date.now()) {
+  const DAY = 86400_000
+  const since = new Date(nowMs - STALE_DAYS.doing[0] * DAY).toISOString()
+  const rows = (await env.DB.prepare(`
+    SELECT id, shop_code, body, progress, assign_mode, assignee_id, created_by_id, created_at, updated_at, last_note_at, reminded_at FROM tasks
+    WHERE progress IS NOT NULL AND done_at IS NULL AND deleted_at IS NULL
+      AND MAX(created_at, COALESCE(updated_at, ''), COALESCE(last_note_at, '')) <= ? LIMIT 100
+  `).bind(since).all()).results ?? []
+  let sent = 0
+  for (const t of rows) {
+    const last = [t.created_at, t.updated_at, t.last_note_at].filter(Boolean).sort().pop()
+    const lastMs = Date.parse(last)
+    const [d1, d2] = STALE_DAYS[t.progress] ?? STALE_DAYS.doing
+    const idle = (nowMs - lastMs) / DAY
+    const want = idle >= d2 ? 2 : idle >= d1 ? 1 : 0
+    const remMs = t.reminded_at ? Date.parse(t.reminded_at) : null
+    const done = remMs == null || remMs < lastMs ? 0 : remMs < lastMs + d2 * DAY ? 1 : 2
+    if (want <= done) continue
+    await env.DB.prepare('UPDATE tasks SET reminded_at = ? WHERE id = ? AND shop_code = ?').bind(new Date(nowMs).toISOString(), t.id, t.shop_code).run()
+    sent++
+    if (!env.VAPID_PUBLIC_KEY) continue
+    const to = want === 2 ? (await responsibleAdmin(env.DB, t.shop_code)).id : (t.assign_mode === 'person' && t.assignee_id ? t.assignee_id : t.created_by_id)
+    if (!to) continue
+    const { results: subs } = await env.DB.prepare(
+      'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
+    ).bind(t.shop_code, to).all()
+    for (const sub of (subs ?? [])) {
+      await _send(env, sub, { title: 'タナオロ', body: `${Math.floor(idle)}日 動きがありません：${t.body}`, tag: `stale-${t.id}`, url: '/' })
+    }
+  }
+  return sent
 }
 
 /**

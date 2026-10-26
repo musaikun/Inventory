@@ -3,12 +3,13 @@
  * トップ（ホーム）。アプリを開いて最初の画面（User決定 2026-10-07・モック docs/mocks/home-top.html）。
  * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
+ * - 連絡（店のトーク・User決定 2026-10-26）: 未読の数と新しいメッセージ2件。押すと連絡の画面（TalkPage）
  * - 棚卸・発注が途中なら「続ける」の帯
  * - ショートカット: 棚卸／発注／在庫／日誌／レポート／スタッフ／取り込む／書き出す／設定（下のナビと同じ行き先＋始める）。
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
-import { computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
 import { currentStaff, storeName, canSeeReport, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
@@ -17,6 +18,8 @@ import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
 import LiveSessionCard from './LiveSessionCard.vue'
+import TalkPage from './TalkPage.vue'
+import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
 
 const props = defineProps({
   activeSession:      { type: Object, default: null },
@@ -32,7 +35,20 @@ const props = defineProps({
 })
 const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
 
-onMounted(() => { pullTasks() })
+onMounted(() => { pullTasks(); pullHandoffs() })
+
+// ── 連絡 ──
+const talkOpen = ref(false)
+const talkPreview = computed(() => {
+  const unread = unreadHandoffs.value
+  return (unread.length ? unread : handoffs.value).slice(0, 2)   // 新しい順
+})
+const _hmAgo = iso => {
+  const d = new Date(iso)
+  const day = localDateKey(d)
+  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+  return day === localDateKey() ? hm : day === localDateKey(new Date(Date.now() - 86400_000)) ? `昨日 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
+}
 
 // ── あいさつ ──
 const now = new Date()
@@ -166,6 +182,21 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </span>
     </button>
 
+    <button type="button" :class="['ht-talk', { unread: unreadHandoffs.length }]" aria-label="連絡を開く" @click="talkOpen = true">
+      <span class="ht-talk-h">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z" /></svg>
+        <b>連絡</b>
+        <em v-if="unreadHandoffs.length">未読 {{ unreadHandoffs.length }}</em>
+        <i>›</i>
+      </span>
+      <span v-for="h in talkPreview" :key="h.id" class="ht-talk-m">
+        <span class="av">{{ (h.by || '?').slice(0, 1) }}</span>
+        <span class="tx"><small>{{ h.by }} ・ {{ _hmAgo(h.createdAt) }}</small>{{ h.body }}</span>
+      </span>
+      <span v-if="!talkPreview.length" class="ht-talk-none">まだありません</span>
+    </button>
+    <TalkPage v-if="talkOpen" @close="talkOpen = false" />
+
     <LiveSessionCard v-if="activeSession" kind="stock" :session="activeSession" :live="live" :count="stockCount" @resume="s => emit('resume', s)" />
     <LiveSessionCard v-if="activeOrderSession" kind="order" :session="activeOrderSession" :live="liveOrder" :count="orderCount" @resume="s => emit('resume', s)" />
 
@@ -214,6 +245,17 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 23px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
+.ht-talk { position: relative; z-index: 1; width: calc(100% - 28px); margin: 12px 14px 0; border: 2px solid transparent; border-radius: 20px; background: var(--surface); box-shadow: 0 8px 22px rgba(6,34,43,.1); padding: 12px 14px; display: grid; gap: 8px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.ht-talk.unread { border-color: #f2c94c; }
+.ht-talk-h { display: flex; align-items: center; gap: 8px; color: #b7791f; }
+.ht-talk-h b { flex: 1; font-size: 15px; color: var(--text); }
+.ht-talk-h em { font-style: normal; font-size: 11.5px; font-weight: 900; color: #fff; background: #d9480f; border-radius: 999px; padding: 2px 9px; }
+.ht-talk-h i { font-style: normal; color: var(--primary, #0e7490); font-weight: 800; }
+.ht-talk-m { display: flex; gap: 10px; align-items: flex-start; }
+.ht-talk-m .av { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #b45309; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
+.ht-talk-m .tx { display: grid; gap: 1px; min-width: 0; font-size: 13.5px; font-weight: 700; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.ht-talk-m .tx small { display: block; font-size: 11px; font-weight: 800; color: var(--text-muted); }
+.ht-talk-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
 .ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
   background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; cursor: pointer; }
 .ht-pr { flex: none; position: relative; width: 72px; height: 72px; }

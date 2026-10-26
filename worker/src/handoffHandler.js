@@ -74,13 +74,17 @@ export async function handleHandoffRead(db, code, id, who = {}, { nowIso = _now(
   return { _status: 409, error: 'もう一度押してください' }
 }
 
-/** 「やることにする」: 作ったやることの id を付ける（1つだけ。先に付いていればそのまま） */
+/**
+ * タスク化（連絡のメッセージ → やること・User決定 2026-10-26）: 作ったやることの id を付ける（1つだけ。先に付いていればそのまま）。
+ * clear: true は「取り消す」。付いている id が同じときだけ外す
+ */
 export async function handleHandoffTask(db, code, id, body = {}) {
   const taskId = typeof body.taskId === 'string' && _ID.test(body.taskId) ? body.taskId : null
   if (!taskId) return { _status: 400, error: 'やることが分かりません' }
   const row = await _alive(db, code, id)
   if (!row) return { _status: 404, error: '見つかりません' }
-  if (!row.task_id) await db.prepare('UPDATE handoffs SET task_id = ? WHERE shop_code = ? AND id = ? AND task_id IS NULL').bind(taskId, code, id).run()
+  if (body.clear === true) await db.prepare('UPDATE handoffs SET task_id = NULL WHERE shop_code = ? AND id = ? AND task_id = ?').bind(code, id, taskId).run()
+  else if (!row.task_id) await db.prepare('UPDATE handoffs SET task_id = ? WHERE shop_code = ? AND id = ? AND task_id IS NULL').bind(taskId, code, id).run()
   const after = await _alive(db, code, id)
   return { ok: true, handoff: _row(after) }
 }
