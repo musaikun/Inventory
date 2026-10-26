@@ -5,6 +5,7 @@
  * バッジ: 他の端末が追加したやることがあれば「新着」、無ければ今日の未完了のやることの数。
  *
  * ホームではタブを切り替え、入出庫・棚卸の詳細などからはホームの該当タブへ移る。
+ * 選んでいるタブは、アイコンそのものを光らせる（後ろにやわらかい光・線に光の縁。User決定 2026-10-26。以前はアイコンの上に線）。
  * 棚卸中・発注中の画面には出さない（下の「完了」と並び、押し間違えて途中で離れやすい）。
  * モーダル（取込の途中を含む）が出ているあいだも隠す。
  */
@@ -38,7 +39,7 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
       :class="{ on: active === it.tab }" type="button"
       :aria-current="active === it.tab ? 'page' : undefined"
       @click="emit('go', it.tab)"
-    ><i class="bnav-bar" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg>{{ it.label }}<span v-if="it.tab === 'home' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
+    ><span class="bnav-ic"><i class="bnav-glow" aria-hidden="true"></i><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg></span>{{ it.label }}<span v-if="it.tab === 'home' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
   </nav>
 </template>
 
@@ -53,9 +54,14 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
   border: none; background: none; font-size: 11px; font-weight: 700; color: #7d969c; cursor: pointer; font-family: inherit;
 }
 .bnav button.on { color: var(--primary, #0e7490); font-weight: 800; }
-/* 選んでいるタブの上に、アイコンの光る輪の色の線 */
-.bnav-bar { position: absolute; top: -7px; width: 36px; height: 3px; border-radius: 3px; background: transparent; }
+/* 選んでいるタブは、アイコンそのものを光らせる（アプリのアイコンの光る輪の色） */
+.bnav-ic { position: relative; display: grid; place-items: center; width: 40px; height: 26px; }
+.bnav-ic svg { position: relative; transition: filter .2s, transform .2s; }
+.bnav-glow { position: absolute; inset: -4px 0; border-radius: 50%; opacity: 0; transition: opacity .2s;
+  background: radial-gradient(closest-side, rgba(34, 211, 238, .38), rgba(52, 211, 153, .16) 60%, transparent); }
+.bnav button.on .bnav-glow { opacity: 1; }
+.bnav button.on .bnav-ic svg { transform: scale(1.08); filter: drop-shadow(0 0 3px rgba(34, 211, 238, .95)) drop-shadow(0 0 8px rgba(34, 211, 238, .55)); }
+@media (prefers-reduced-motion: reduce) { .bnav-ic svg, .bnav-glow { transition: none; } }
 .bnav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 18px; font-size: 10px; font-weight: 800; line-height: 16px; padding: 0 5px; border-radius: 999px; background: #c2410c; color: #fff; }
 .bnav-badge.fresh { background: var(--grad-btn); color: var(--on-grad); }
-.bnav button.on .bnav-bar { background: var(--grad-ring); box-shadow: 0 0 10px rgba(34, 211, 238, .55); }
 </style>
