@@ -1731,13 +1731,21 @@ function onDeleteSession(sessionId) {
   if (!sessionId) return
   // この端末で開いていた棚卸を破棄したなら、手元の数も捨てる。残すと「途中で数が入っている」と
   // 品目の削除が止まり、次の棚卸にも混ざる（User報告 2026-10-27）
+  // ホームへ戻ると pendingSession は外れるが数は残るので、セッションを開いていなければ（＝ホームで破棄）手元の数も捨てる。
+  // 再開は reset() してから下書き／D1 から戻すので、ここで捨てても失わない。
   if (sessionId === pendingSession.value?.id) { clearSession(); reset(); clearAuditLog() }
+  else if (!pendingSession.value?.id && !isCompleted.value) { reset(); clearAuditLog() }
   // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   const snap = getSnapshotBySessionId(sessionId)
   if (snap) {
     deleteSnapshotLocal(sessionId)
     deleteSnapshotFromD1(sessionId).catch(() => {})
   }
+}
+// ホームで、続きのある棚卸がサーバーに1つも無いのに手元に途中の数が残っていたら捨てる（前の版で破棄した端末を直す）
+function onNoOpenStock() {
+  if (pendingSession.value?.id || isCompleted.value || !Object.keys(inventory).length) return
+  reset(); clearAuditLog()
 }
 
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
@@ -3390,6 +3398,7 @@ function dismissReview() {
       @resume-session="onSessionResume"
       @calendar-shown="() => { _loadOrderData(); _pullMovements() }"
       @delete-session="onDeleteSession"
+      @no-open-stock="onNoOpenStock"
       @back="currentView = 'landing'"
       @open-settings="settingsSection = 'import'"
       @open-master="openPage('master')"

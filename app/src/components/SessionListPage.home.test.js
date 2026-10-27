@@ -51,7 +51,7 @@ async function mountPage({ items = true, props = {} } = {}) {
   const on = name => (...a) => events.push([name, ...a])
   app = createApp(Page, {
     onStartSession: on('startSession'), onResumeSession: on('resumeSession'), onCalendarShown: on('calendarShown'),
-    onDeleteSession: on('deleteSession'), onOpenMaster: on('openMaster'), onOpenMovement: on('openMovement'),
+    onDeleteSession: on('deleteSession'), onNoOpenStock: on('noOpenStock'), onOpenMaster: on('openMaster'), onOpenMovement: on('openMovement'),
     onStartPractice: on('startPractice'), onOpenFeedback: on('openFeedback'), onViewSession: on('viewSession'),
     ...props,
   })
@@ -262,11 +262,14 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
     restoreImpl = async () => ({ ok: false })
   })
 
-  it('この端末で開いていた棚卸がもう破棄されていたら、手元の数を捨てさせる（User報告 2026-10-27）', async () => {
-    discardedList = [d('a')]
-    await mountPage({ props: { liveSessionId: 'a' } }); await flushAll()
-    expect(events).toContainEqual(['deleteSession', 'a'])
-    discardedList = []
+  it('続きのある棚卸がサーバーに無ければ、手元に残った途中の数を捨てさせる（User報告 2026-10-27）', async () => {
+    sessionList = []
+    await mountPage(); await flushAll()
+    expect(events).toContainEqual(['noOpenStock'])
+    app.unmount(); host.remove(); app = null
+    sessionList = [ACTIVE_STOCK]
+    await mountPage(); await flushAll()
+    expect(events).not.toContainEqual(['noOpenStock'])
   })
 
   it('破棄した発注は発注の開始シートに出る', async () => {

@@ -57,7 +57,7 @@ const props = defineProps({
   liveSessionId:  { type: String, default: null },
   newSessionId:   { type: String, default: null },
 })
-const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openFeedback', 'clearMaster'])
+const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'noOpenStock', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openFeedback', 'clearMaster'])
 
 const { config, itemCount, setEmptyList, removeItemsAddedIn, restoreAddedItems } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
@@ -93,7 +93,10 @@ const {
 } = launcher
 
 onMounted(async () => {
-  if (await launcher.load() === 'unauthorized') { emit('back'); return }
+  const loaded = await launcher.load()
+  if (loaded === 'unauthorized') { emit('back'); return }
+  // 続きのある棚卸が1つも無ければ、手元に残った途中の数を捨てさせる（品目の削除が止まらないように・User報告 2026-10-27）
+  if (loaded === 'ok' && !launcher.sessions.value.some(s => s.status !== 'completed' && (s.type ?? 'stock') === 'stock')) emit('noOpenStock')
   launcher.startRoomPolling()
   // 棚卸中・発注中の ☰「破棄」から戻ってきた：その場で破棄の確認を開く
   const id = pendingDiscardId.value
@@ -228,12 +231,6 @@ function _dropItemsOf(id) {
   if (!out.length) return
   try { localStorage.setItem(_DROP_KEY(id), JSON.stringify({ at: Date.now(), items: out })) } catch (_) {}
 }
-// この端末が開いていた棚卸が、もう破棄されていた（別の端末・前の版で破棄した）なら、手元の数を捨てさせる。
-// 残ると品目の削除が「途中で数が入っている」で止まる（User報告 2026-10-27）
-watch(discarded, list => {
-  const id = props.liveSessionId
-  if (id && list.some(d => d.id === id)) emit('deleteSession', id)
-})
 // 元に戻せる期間（24時間）を過ぎた取り置きは捨てる
 onMounted(() => {
   try {
