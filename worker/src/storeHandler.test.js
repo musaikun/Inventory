@@ -652,7 +652,7 @@ function createMovementsMockD1() {
           }
         } else if (s.startsWith('INSERT INTO movement_lines')) {
           const { rows, fixed, ownerId, ownerShop } =
-            _expandRows(s, bound, ['item', 'qty', 'unit'])
+            _expandRows(s, bound, ['item', 'qty', 'unit', 'lot_date', 'lot_kind'])
           if (movements.some(m => m.id === ownerId && m.shop_code === ownerShop)) {
             for (const r of rows) {
               moveLines.push({ movement_id: ownerId, shop_code: ownerShop, move_date: fixed[0], ...r })
@@ -679,11 +679,11 @@ function createMovementsMockD1() {
             .map(m => ({ id: m.id, move_date: m.move_date, type: m.type, note: m.note, order_id: m.order_id, saved_at: m.saved_at, deleted_at: m.deleted_at ?? null, created_by: m.created_by ?? '' }))
           return { results: rows }
         }
-        if (s.startsWith('SELECT movement_id, item, qty, unit FROM movement_lines')) {
+        if (s.startsWith('SELECT movement_id, item, qty, unit, lot_date, lot_kind FROM movement_lines')) {
           const [shop, since] = bound
           const rows = moveLines
             .filter(l => l.shop_code === shop && l.move_date >= since)
-            .map(l => ({ movement_id: l.movement_id, item: l.item, qty: l.qty, unit: l.unit }))
+            .map(l => ({ movement_id: l.movement_id, item: l.item, qty: l.qty, unit: l.unit, lot_date: l.lot_date ?? null, lot_kind: l.lot_kind ?? null }))
           return { results: rows }
         }
         return { results: [] }
@@ -768,6 +768,27 @@ describe('入出庫 API（movements）', () => {
     expect(got[0].orderId).toBe('o_1')
     expect(got[0].lines).toHaveLength(2)
     expect(got[0].lines.find(l => l.item === 'トマト').qty).toBe(12)
+  })
+
+  it('入庫の日付（期限・買った日）を行ごとに保存して返す（migration 0034）', async () => {
+    const db = createMovementsMockD1()
+    await handleMovementCreate(db, code, { id: 'm_lot', date: '2026-10-27', type: 'in', lines: [
+      { item: '牛乳', qty: 3, unit: '本', lotDate: '2026-11-02', lotKind: 'exp' },
+      { item: '米', qty: 1, unit: '袋', lotDate: '2026-10-27', lotKind: '?' },
+      { item: '塩', qty: 1, unit: '袋' },
+    ] })
+    const lines = (await handleMovementsGet(db, code, 400))[0].lines
+    expect(lines.find(l => l.item === '牛乳')).toMatchObject({ lotDate: '2026-11-02', lotKind: 'exp' })
+    expect(lines.find(l => l.item === '米')).toMatchObject({ lotDate: '2026-10-27', lotKind: 'buy' })
+    expect(lines.find(l => l.item === '塩').lotDate).toBeUndefined()
+  })
+
+  it('入庫の日付が崩れていたら 400・出庫の日付は捨てる', async () => {
+    const db = createMovementsMockD1()
+    const bad = await handleMovementCreate(db, code, { id: 'm_bad', type: 'in', lines: [{ item: '牛乳', qty: 1, lotDate: '11/2', lotKind: 'exp' }] })
+    expect(bad._status).toBe(400)
+    await handleMovementCreate(db, code, { id: 'm_o', type: 'out', lines: [{ item: '牛乳', qty: 1, lotDate: '2026-11-02', lotKind: 'exp' }] })
+    expect((await handleMovementsGet(db, code, 400))[0].lines[0].lotDate).toBeUndefined()
   })
 
   it('出庫は発注紐付け（orderId）を持たない', async () => {

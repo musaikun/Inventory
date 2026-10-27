@@ -167,6 +167,37 @@ describe('品目シートの入庫・出庫', () => {
     expect(host.querySelector('.is-ent.del')).toBeNull()
   })
 
+  it('入庫に期限を入れると、残っている日付と一覧の「期限」に出る（User決定 2026-10-27）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const d = new Date(); d.setDate(d.getDate() + 2)
+    const exp = localDateKey(d)
+    await mount()
+    await openSheet()
+    await padEnter('#is-in', 3)
+    await click(btn('期限がある'))
+    expect(host.querySelector('.is-reg').disabled, '期限の日が無いと登録できない').toBe(true)
+    await type(host.querySelector('input[aria-label="期限"]'), exp)
+    await click(host.querySelector('.is-reg'))
+    const { useMovements } = await import('../composables/useMovements.js')
+    expect(useMovements().getMovements()[0].lines[0]).toMatchObject({ lotDate: exp, lotKind: 'exp' })
+    expect(host.querySelector('.is-date.soon').textContent).toContain('期限 あと2日')
+    await click(host.querySelector('.is-x'))
+    expect(btn('期限').textContent).toContain('1')
+    expect(host.querySelector('.sp-cell.exp-soon').textContent).toContain('期限 あと2日')
+  })
+
+  it('期限なしは買った日（既定は今日）を入庫に持たせる', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    await mount()
+    await openSheet()
+    await padEnter('#is-in', 2)
+    await click(host.querySelector('.is-reg'))
+    const { useMovements } = await import('../composables/useMovements.js')
+    expect(useMovements().getMovements()[0].lines[0]).toMatchObject({ lotDate: localDateKey(), lotKind: 'buy' })
+    expect(host.querySelector('.is-dates').textContent).toContain('購入')
+    expect([...host.querySelectorAll('.sp-chip')].some(c => c.textContent.startsWith('期限')), '買った日だけなら期限のチップは出ない').toBe(false)
+  })
+
   it('棚卸の最中は入出庫の欄を出さない', async () => {
     await mount({ stocktakeOpen: true })
     await openSheet()

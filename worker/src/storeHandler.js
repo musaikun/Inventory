@@ -1136,7 +1136,7 @@ export async function handleMovementsGet(db, code, sinceDays) {
   if (heads.length === 0) return []
 
   const lineRows = (await db.prepare(
-    'SELECT movement_id, item, qty, unit FROM movement_lines WHERE shop_code = ? AND move_date >= ?'
+    'SELECT movement_id, item, qty, unit, lot_date, lot_kind FROM movement_lines WHERE shop_code = ? AND move_date >= ?'
   ).bind(code, since).all()).results ?? []
 
   const byMove = {}
@@ -1145,6 +1145,8 @@ export async function handleMovementsGet(db, code, sinceDays) {
       item: l.item,
       qty:  l.qty,
       unit: l.unit ?? '',
+      // 入庫の日付（期限・買った日。migration 0034）。入れていない行には付けない
+      ...(l.lot_date ? { lotDate: l.lot_date, lotKind: l.lot_kind === 'exp' ? 'exp' : 'buy' } : {}),
     })
   }
 
@@ -1193,7 +1195,14 @@ export async function handleMovementCreate(db, code, body = {}) {
     if (!item) continue
     const qty = parseQty(l?.qty, { min: Number.MIN_VALUE, max: MAX_MOVEMENT_QTY })
     if (qty === null) return { _status: 400, code: 'invalid_qty', error: `数量が不正です: ${item}` }
-    clean.push({ item, qty, unit: text(l?.unit, MAX_UNIT_LEN) })
+    // 入庫の日付（期限・買った日。migration 0034）。出庫は持たない。形の崩れた日付は拒否する
+    let lotDate = null, lotKind = null
+    if (type === 'in' && l?.lotDate != null && l.lotDate !== '') {
+      if (!isValidDate(l.lotDate)) return { _status: 400, code: 'invalid_date', error: `日付の形式が不正です: ${item}` }
+      lotDate = l.lotDate
+      lotKind = l.lotKind === 'exp' ? 'exp' : 'buy'
+    }
+    clean.push({ item, qty, unit: text(l?.unit, MAX_UNIT_LEN), lotDate, lotKind })
   }
   if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
 
@@ -1246,13 +1255,13 @@ export async function handleMovementCreate(db, code, body = {}) {
   // 明細は複数行を1文へまとめる（D1の queries/invocation 対策・constants.js 参照）。
   // 持ち主の確認は JOIN 元の movements 絞り込みが担う。
   const lineStmts = chunk(clean, MOVEMENT_ROWS_PER_STATEMENT).map(group => {
-    const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit'])
+    const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'lotDate', 'lotKind'])
     const binds = [date, now]
-    for (const l of group) binds.push(l.item, l.qty, l.unit)
+    for (const l of group) binds.push(l.item, l.qty, l.unit, l.lotDate, l.lotKind)
     binds.push(moveId, code)
     return db.prepare(`
-      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, created_at)
-      SELECT m.id, m.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ?
+      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, lot_date, lot_kind, created_at)
+      SELECT m.id, m.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ${col.lotDate}, ${col.lotKind}, ?
       FROM movements m, (VALUES ${values}) v
       WHERE m.id = ? AND m.shop_code = ?
     `).bind(...binds)

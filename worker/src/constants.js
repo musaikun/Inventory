@@ -103,7 +103,7 @@ export function rowsPerStatement(perRow, fixed) {
 //   takenAt(1) + id(1) + shop(1) + fingerprint(1) = 4
 export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 4)   // item,qty,unit,price,value ／ takenAt,id,shop,claim = 19
 export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 4)   // item,qty,unit,stock,lot,post,excluded ／ date,createdAt,id,shop = 13
-export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(3, 4)   // item,qty,unit ／ date,createdAt,id,shop = 32
+export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(5, 4)   // item,qty,unit,lotDate,lotKind ／ date,createdAt,id,shop = 19
 
 // 操作ログ（migration 0017）。1行が持ち主（shop_code / session_id）を自分で持つので、
 // 文ごとの固定パラメータは createdAt の1個だけ。

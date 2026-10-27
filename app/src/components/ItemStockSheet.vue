@@ -10,6 +10,7 @@
  * - この品目だけの月カレンダー（入庫 +n／出庫 −n の2段・棚卸した日は「棚n」）と、日の明細
  * - 棚卸の最中は入出庫を止める（数え直しの最中に見込みを動かさない）
  * - 明細の「取り消す」は記録を残して印を付ける。取り消してから24時間は「元に戻す」（migration 0019）
+ * - 入庫に日付（期限のあるものは期限・ないものは買った日）。入庫1回ごとに別の束として残りを出す（User決定 2026-10-27）
  * 発注点・目安・補充目標はここに出さない（発注点は管理タブへ移す）。
  */
 import { ref, computed } from 'vue'
@@ -19,6 +20,7 @@ import { itemImageUrl } from '../services/itemImages.js'
 import { localDateKey } from '../utils/localDate.js'
 import { canRestoreMovement } from '../composables/useMovements.js'
 import MovementQtyModal from './MovementQtyModal.vue'
+import { expiryOf, expiryLabel } from '../services/stockDates.js'
 
 const props = defineProps({
   item:      { type: String, required: true },
@@ -35,6 +37,8 @@ const props = defineProps({
   editable:  { type: Boolean, default: true },    // 品目の情報を直せる（完了の確定待ちでは false）
   stocktakeOpen: { type: Boolean, default: false }, // 棚卸の最中（入出庫を止める）
   origin:    { type: String, default: '' },        // 登録の由来（手入力 10/27・取り込み など）
+  dates:     { type: Array, default: () => [] },    // 残っている束（services/stockDates.js の stockDatesOf・古い順）
+  dateKind:  { type: String, default: 'buy' },      // 入庫の日付の既定（'exp' 期限 | 'buy' 買った日）
 })
 const emit = defineEmits(['register', 'void', 'restore', 'edit', 'hide', 'close'])
 useEscapeKey(() => emit('close'))
@@ -65,12 +69,34 @@ function onPad(v) {
   else if (pad.value === 'out') outQty.value = v > 0 ? String(v) : ''
   pad.value = null
 }
+// ── 入庫の日付（期限・買った日）─────────────
+// 期限のあるものは期限、ないものは買った日。既定はこの品目で最後に使った種類・買った日は今日
+const lotKind = ref(props.dateKind === 'exp' ? 'exp' : 'buy')
+const buyDate = ref(localDateKey())
+const expDate = ref('')
+const lotDate = computed(() => (lotKind.value === 'exp' ? expDate.value : buyDate.value))
+const needExp = computed(() => inN.value > 0 && lotKind.value === 'exp' && !expDate.value)
+const canRegister = computed(() => showRegister.value && !needExp.value)
+const _md = key => { const [, m, d] = key.split('-').map(Number); return `${m}/${d}` }
+const dateRows = computed(() => props.dates.map((d, i) => {
+  const e = d.kind === 'exp' ? expiryOf([d]) : null
+  return {
+    key: `${d.movementId || 'none'}-${i}`,
+    label: !d.date ? '日付なし（以前からの分）' : d.kind === 'exp' ? `${_md(d.date)} 期限` : `${_md(d.date)} 購入`,
+    sub: e ? expiryLabel(e) : '',
+    level: e?.level || '',
+    qty: d.qty,
+  }
+}))
+
 function register() {
-  if (!showRegister.value) return
+  if (!canRegister.value) return
   const payload = { in: inN.value, out: outN.value }
+  if (payload.in && lotDate.value) { payload.lotDate = lotDate.value; payload.lotKind = lotKind.value }
   emit('register', payload)
   done.value = [payload.in ? `入庫 +${fmt(payload.in)}` : '', payload.out ? `出庫 −${fmt(payload.out)}` : ''].filter(Boolean).join('・')
   inQty.value = ''; outQty.value = ''
+  expDate.value = ''; buyDate.value = localDateKey()
   selDay.value = localDateKey()
   month.value = _monthOf(selDay.value)
 }
@@ -142,6 +168,14 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
         <div v-if="basis" class="is-basis">{{ basis }}</div>
       </div>
 
+      <section v-if="dateRows.length && dates.some(d => d.date)" class="is-dates" aria-label="残っている日付">
+        <div class="is-lbl">残っている日付 <small>古いものから使ったとみなします</small></div>
+        <div v-for="r in dateRows" :key="r.key" :class="['is-date', r.level]">
+          <span>{{ r.label }}<small v-if="r.sub">{{ r.sub }}</small></span>
+          <b>{{ fmt(r.qty) }}<small>{{ unit }}</small></b>
+        </div>
+      </section>
+
       <div v-if="stocktakeOpen" class="is-locked" role="status">棚卸の最中は、ここで入庫・出庫できません。棚卸が終わると使えます。</div>
       <template v-else-if="editable">
         <div class="is-io">
@@ -152,7 +186,16 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
             <button id="is-out" type="button" :class="['is-field', { on: outN > 0 }]" @click="pad = 'out'">{{ outN > 0 ? fmt(outN) : '0' }}</button>
           </label>
         </div>
-        <button v-if="showRegister" class="is-reg" type="button" @click="register">
+        <div v-if="inN > 0" class="is-lotd">
+          <div class="is-kind" role="radiogroup" aria-label="入庫の日付">
+            <button type="button" role="radio" :aria-checked="lotKind === 'exp'" :class="{ on: lotKind === 'exp' }" @click="lotKind = 'exp'">期限がある</button>
+            <button type="button" role="radio" :aria-checked="lotKind === 'buy'" :class="{ on: lotKind === 'buy' }" @click="lotKind = 'buy'">期限なし（買った日）</button>
+          </div>
+          <label v-if="lotKind === 'exp'" class="is-dl">期限<input v-model="expDate" type="date" aria-label="期限" /></label>
+          <label v-else class="is-dl">買った日<input v-model="buyDate" type="date" aria-label="買った日" /></label>
+          <div v-if="needExp" class="is-need">期限の日を入れてください</div>
+        </div>
+        <button v-if="showRegister" class="is-reg" type="button" :disabled="!canRegister" @click="register">
           登録する
           <small>{{ [inN ? `入庫 +${fmt(inN)}` : '', outN ? `出庫 −${fmt(outN)}` : ''].filter(Boolean).join(' ・ ') }}　→　{{ theo != null ? fmt(theo) : 0 }} → {{ fmt(after) }}{{ unit }}</small>
         </button>
@@ -254,6 +297,21 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 .is-io label.in .is-field.on { border-color: #15803d; background: #f0fdf4; }
 .is-io label.out .is-field.on { border-color: #dc2626; background: #fef2f2; }
 .is-reg { border: none; border-radius: 12px; padding: 13px; font-size: 16px; font-weight: 800; background: var(--btn-bg, #0e7490); color: var(--btn-fg, #fff); cursor: pointer; }
+.is-reg:disabled { opacity: .45; cursor: default; }
+.is-dates { display: grid; gap: 4px; }
+.is-lbl small { font-weight: 600; color: #7d969c; margin-left: 4px; }
+.is-date { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #f6fafb; border-radius: 10px; padding: 7px 10px; font-size: 13px; font-weight: 700; color: #1f3d45; }
+.is-date small { display: block; font-size: 11px; font-weight: 700; color: #7d969c; }
+.is-date b small { display: inline; margin-left: 2px; }
+.is-date.soon { background: #fffbeb; } .is-date.soon small { color: #b45309; }
+.is-date.over { background: #fef2f2; } .is-date.over small, .is-date.over span { color: #dc2626; }
+.is-lotd { display: grid; gap: 6px; background: #f0fdf4; border-radius: 12px; padding: 9px 10px; }
+.is-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.is-kind button { border: 1.5px solid #c9d6db; background: #fff; color: #4c6a72; border-radius: 9px; padding: 8px 4px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.is-kind button.on { border-color: #15803d; color: #15803d; box-shadow: inset 0 0 0 1px #15803d; }
+.is-dl { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800; color: #15803d; }
+.is-dl input { font-size: 16px; padding: 6px 8px; border: 1.5px solid #c9d6db; border-radius: 9px; background: #fff; color: #0b2229; }
+.is-need { font-size: 12px; font-weight: 700; color: #b45309; }
 .is-reg small { display: block; font-size: 12px; font-weight: 600; opacity: .9; margin-top: 2px; }
 .is-done { background: #f0fdf4; color: #15803d; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }
 .is-sec { display: grid; gap: 6px; }

@@ -10,6 +10,7 @@
  *   （仕入れの在庫タブと同じ計算＝composables/useStockView）。何を元にした数かを添える
  * - ここでは在庫数を書き換えない。数を変えるのは棚卸（実測）か入出庫の記録だけ
  *   （一覧で書き換えられると、見込みの根拠も発注の推奨も崩れる）
+ * - 入庫の日付（期限・買った日）から、期限が近い・切れた品目を一覧に出す（User決定 2026-10-27）
  * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
 import { ref, computed, onUnmounted } from 'vue'
@@ -28,6 +29,7 @@ import ItemFormModal from './ItemFormModal.vue'
 import HiddenItemsList from './HiddenItemsList.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { itemCheckRows, ITEM_CHECKS } from '../utils/itemCheck.js'
+import { stockDatesOf, expiryOf, expiryLabel, lastDateKind } from '../services/stockDates.js'
 
 // embedded: ホーム（SessionListPage）の中に置くとき。見出しと戻るを出さず、上の段は #top スロットで差し込む
 const props = defineProps({
@@ -54,12 +56,14 @@ function onRestore(id) { if (!locked.value && !props.stocktakeOpen) _send(restor
 
 // 品目シートの入庫・出庫。両方に入れたら差し引かず、入庫1件・出庫1件として記録する（User決定 2026-10-03）。
 // 記録は入出庫ページと同じ形なので、理論在庫・履歴カレンダーにもそのまま反映される。
-function onRegister(item, { in: inQ = 0, out: outQ = 0 } = {}) {
+// 入庫には日付（期限・買った日）を行に持たせる（User決定 2026-10-27）
+function onRegister(item, { in: inQ = 0, out: outQ = 0, lotDate = '', lotKind = '' } = {}) {
   if (locked.value || props.stocktakeOpen) return
   const unit = unitOf(item)
   for (const [type, qty] of [['in', inQ], ['out', outQ]]) {
     if (!(qty > 0)) continue
-    const rec = saveMovement({ type, by: deviceName.value || '', byId: actorId(), lines: [{ item, qty, unit }] })
+    const line = type === 'in' && lotDate ? { item, qty, unit, lotDate, lotKind } : { item, qty, unit }
+    const rec = saveMovement({ type, by: deviceName.value || '', byId: actorId(), lines: [line] })
     if (rec) saveMovementToD1(rec)
   }
 }
@@ -70,13 +74,24 @@ const search = ref('')
 // すべて / 要補充（発注点を手で入れた品目だけ。1つも無ければチップごと出さない）/
 // 要確認（空欄・しばらく数えていない）/ 非表示（戻せる・取込で除外した行も）
 // 「すべて」のチップは置かない。何も選んでいない状態が「すべて」で、選んだチップをもう一度押すと外れる（User決定 2026-10-04）
-const filter = ref('')   // '' | 'low' | 'check' | 'hidden'
+const filter = ref('')   // '' | 'low' | 'exp' | 'check' | 'hidden'
+// 期限: 残っている束のいちばん近い期限が3日以内・切れた品目（期限を入れた入庫が無ければチップごと出さない）
+const expiryMap = computed(() => {
+  const out = new Map()
+  for (const item of allItems.value) {
+    const e = expiryOf(stockDatesOf(item, _moves.value, theoOf(item)))
+    if (e && e.level !== 'ok') out.set(item, e)
+  }
+  return out
+})
+function expiryText(item) { return expiryLabel(expiryMap.value.get(item)) }
 const checkMap = computed(() => new Map(itemCheckRows(config, { snapshots: _snaps.value }).map(r => [r.item, r])))
 const hiddenCount = computed(() => (config.hiddenItems ?? []).length)
 const excludedCount = computed(() => config.importExcluded?.total ?? 0)
 const chips = computed(() => {
   const out = []
   if (reorderSetCount.value) out.push({ key: 'low', label: '要補充', n: reorderCount.value, warn: reorderCount.value > 0 })
+  if (expiryMap.value.size) out.push({ key: 'exp', label: '期限', n: expiryMap.value.size, warn: true })
   out.push({ key: 'check', label: '要確認', n: checkMap.value.size, warn: checkMap.value.size > 0 })
   if (hiddenCount.value || excludedCount.value) out.push({ key: 'hidden', label: '非表示', n: hiddenCount.value })
   return out
@@ -85,6 +100,7 @@ const chips = computed(() => {
 const activeFilter = computed(() => (chips.value.some(c => c.key === filter.value) ? filter.value : ''))
 const itemFilter = computed(() => {
   if (activeFilter.value === 'low') return item => needsReorder(item)
+  if (activeFilter.value === 'exp') return item => expiryMap.value.has(item)
   if (activeFilter.value === 'check') return item => checkMap.value.has(item)
   return null
 })
@@ -191,6 +207,9 @@ onUnmounted(registerInnerLayerCloser(() => {
       <DismissibleHint v-if="activeFilter === 'low'" id="stock-low" tag="p" class="sp-hint">
         発注点を設定した {{ reorderSetCount }}品目のうち、見込みが発注点以下の品目です。
       </DismissibleHint>
+      <DismissibleHint v-if="activeFilter === 'exp'" id="stock-exp" tag="p" class="sp-hint">
+        入庫のときに入れた期限が3日以内・切れた品目です。残りは古い入庫から使ったとみなして出しています。
+      </DismissibleHint>
       <DismissibleHint v-if="activeFilter === 'check'" id="stock-check" tag="p" class="sp-hint">
         空欄のある品目・しばらく数えていない品目です。行をタップして品目シートの「直す」で埋めると、一覧から外れます。
       </DismissibleHint>
@@ -210,8 +229,8 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div v-if="activeFilter === 'check'" class="sp-cell chk">
             <span class="sp-cell-why">{{ checkLabel(row.item) }}</span>
           </div>
-          <div v-else :class="['sp-cell', { low: needsReorder(row.item), none: theoOf(row.item) == null }]">
-            <span class="sp-cell-basis">{{ needsReorder(row.item) ? `要補充 ・ 発注点 ${config.reorderPoints?.[row.item]}` : (baseShort(row.item) || '棚卸なし') }}</span>
+          <div v-else :class="['sp-cell', { low: needsReorder(row.item), none: theoOf(row.item) == null, [`exp-${expiryMap.get(row.item)?.level}`]: expiryMap.has(row.item) }]">
+            <span class="sp-cell-basis">{{ expiryMap.has(row.item) ? expiryText(row.item) : needsReorder(row.item) ? `要補充 ・ 発注点 ${config.reorderPoints?.[row.item]}` : (baseShort(row.item) || '棚卸なし') }}</span>
             <span class="sp-cell-val">
               <template v-if="theoOf(row.item) != null">{{ theoOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span></template>
               <template v-else>—</template>
@@ -241,6 +260,8 @@ onUnmounted(registerInnerLayerCloser(() => {
       :editable="!locked"
       :stocktake-open="stocktakeOpen"
       :origin="originOf(detailTarget)"
+      :dates="stockDatesOf(detailTarget, _moves, theoOf(detailTarget))"
+      :date-kind="lastDateKind(detailTarget, _moves)"
       @register="p => onRegister(detailTarget, p)"
       @void="onVoid"
       @restore="onRestore"
@@ -314,6 +335,10 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp-cell.low { border-color: #fdba74; background: #fff7ed; }
 .sp-cell.low .sp-cell-basis, .sp-cell.low .sp-cell-val { color: #c2410c; }
 .sp-cell.none .sp-cell-val { color: #bfd6dc; }
+.sp-cell.exp-soon { border-color: #fcd34d; background: #fffbeb; }
+.sp-cell.exp-soon .sp-cell-basis { color: #b45309; }
+.sp-cell.exp-over { border-color: #fca5a5; background: #fef2f2; }
+.sp-cell.exp-over .sp-cell-basis { color: #dc2626; }
 
 .sp-fab {
   position: fixed; right: max(16px, calc(50vw - 320px)); bottom: calc(20px + env(safe-area-inset-bottom));

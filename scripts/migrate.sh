@@ -63,3 +63,4 @@ apply_if_missing 0030_checklists.sql          idx_checklist_runs_date
 apply_if_missing 0031_task_progress.sql       idx_task_notes_task
 apply_if_missing 0032_handoffs.sql           idx_handoffs_created
 apply_if_missing 0033_task_note.sql          idx_tasks_note
+apply_if_missing 0034_movement_lot_date.sql   idx_movement_lines_lot

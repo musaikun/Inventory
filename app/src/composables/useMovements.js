@@ -4,7 +4,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { effectiveLot } from '../services/lot.js'
 
 // 入出庫レコード（フロー）。発注(useOrders)と同型の別倉庫。
-// 1レコード = { id, date, type: 'in'|'out', note, savedAt, orderId, source, importBatchId, lines:[{ item, qty, unit }] }
+// 1レコード = { id, date, type: 'in'|'out', note, savedAt, orderId, source, importBatchId, lines:[{ item, qty, unit, lotDate?, lotKind? }] }
 // orderId       = 発注からの納品取込で作られた入庫の場合、その発注レコードの id。
 // source        = 'import' なら過去履歴の一括取込由来（手入力と区別）。既定 null。
 // importBatchId = 取込単位のID（一括取消・再取込の追跡）。既定 null。
@@ -44,7 +44,11 @@ function _uid() { return 'm_' + Date.now().toString(36) + Math.random().toString
 
 function _cleanLines(lines) {
   return (lines || [])
-    .map(l => ({ item: l.item, qty: Number(l.qty), unit: l.unit || '' }))
+    .map(l => ({
+      item: l.item, qty: Number(l.qty), unit: l.unit || '',
+      // 入庫の日付（期限・買った日。services/stockDates.js）。入れた行だけ持つ
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(l.lotDate || '') ? { lotDate: l.lotDate, lotKind: l.lotKind === 'exp' ? 'exp' : 'buy' } : {}),
+    }))
     .filter(l => l.item && Number.isFinite(l.qty) && l.qty > 0)
 }
 
