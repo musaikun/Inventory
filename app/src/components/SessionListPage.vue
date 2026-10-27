@@ -228,6 +228,12 @@ function _dropItemsOf(id) {
   if (!out.length) return
   try { localStorage.setItem(_DROP_KEY(id), JSON.stringify({ at: Date.now(), items: out })) } catch (_) {}
 }
+// この端末が開いていた棚卸が、もう破棄されていた（別の端末・前の版で破棄した）なら、手元の数を捨てさせる。
+// 残ると品目の削除が「途中で数が入っている」で止まる（User報告 2026-10-27）
+watch(discarded, list => {
+  const id = props.liveSessionId
+  if (id && list.some(d => d.id === id)) emit('deleteSession', id)
+})
 // 元に戻せる期間（24時間）を過ぎた取り置きは捨てる
 onMounted(() => {
   try {

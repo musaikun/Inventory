@@ -37,7 +37,7 @@ const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-e
 useEscapeKey(() => close())
 
 const { config, addItem, patchItem, setEmptyList, setItemImage, removeConfigItem, hideItem } = useConfig()
-const { inventory } = useInventory()
+const { inventory, completedAt } = useInventory()
 const isEdit = computed(() => props.mode === 'edit')
 
 const name     = ref(props.initialName || '')
@@ -140,7 +140,7 @@ onBeforeUnmount(() => clearTimeout(_popTimer))
 // 棚卸・発注の途中で数が入っている品目は、途中の記録が宙に浮くので消させない。
 const delAsk = ref(false)
 const isImported = computed(() => isEdit.value && !(config.manualItems ?? []).includes(props.item))
-const countedNow = computed(() => isEdit.value && inventory[props.item] != null)
+const countedNow = computed(() => isEdit.value && !completedAt.value && inventory[props.item] != null)   // 完了済みの数は「途中」ではない
 function confirmDelete() {
   if (countedNow.value) return
   const ref0 = config.images?.[props.item]

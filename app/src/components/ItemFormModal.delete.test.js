@@ -57,6 +57,17 @@ describe('品目の1件削除', () => {
     expect(btn('削除する')).toBeUndefined()
     delete useInventory().inventory['にんじん']
   })
+
+  it('完了した棚卸の数は「途中」ではないので消せる（User報告 2026-10-27）', async () => {
+    const { useInventory } = await import('../composables/useInventory.js')
+    const inv = useInventory()
+    inv.inventory['にんじん'] = { qty: 3, unit: '本' }
+    inv.completedAt.value = new Date().toISOString()
+    await mount('にんじん')
+    await click(btn('この品目を削除…'))
+    expect(btn('削除する')).toBeTruthy()
+    delete inv.inventory['にんじん']; inv.completedAt.value = null
+  })
 })
 
 describe('削除した品目と次の取込', () => {

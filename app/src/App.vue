@@ -1729,6 +1729,9 @@ function onDeleteSession(sessionId) {
   if (sessionId && sessionId === pendingSession.value?.id && _blockedByCompletion()) return
   _clearDraft(sessionId)
   if (!sessionId) return
+  // この端末で開いていた棚卸を破棄したなら、手元の数も捨てる。残すと「途中で数が入っている」と
+  // 品目の削除が止まり、次の棚卸にも混ざる（User報告 2026-10-27）
+  if (sessionId === pendingSession.value?.id) { clearSession(); reset(); clearAuditLog() }
   // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   const snap = getSnapshotBySessionId(sessionId)
   if (snap) {

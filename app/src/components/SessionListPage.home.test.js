@@ -39,7 +39,7 @@ const ACTIVE_STOCK = { id: 's1', type: 'stock', status: 'active', startedAt: iso
 const ACTIVE_ORDER = { id: 'o1', type: 'order', status: 'active', startedAt: iso(new Date(now - 600_000)), itemCount: 3 }
 
 let app = null, host = null, events
-async function mountPage({ items = true } = {}) {
+async function mountPage({ items = true, props = {} } = {}) {
   const { useConfig } = await import('../composables/useConfig.js')
   const cfg = useConfig()
   cfg.setEmptyList()
@@ -53,6 +53,7 @@ async function mountPage({ items = true } = {}) {
     onStartSession: on('startSession'), onResumeSession: on('resumeSession'), onCalendarShown: on('calendarShown'),
     onDeleteSession: on('deleteSession'), onOpenMaster: on('openMaster'), onOpenMovement: on('openMovement'),
     onStartPractice: on('startPractice'), onOpenFeedback: on('openFeedback'), onViewSession: on('viewSession'),
+    ...props,
   })
   app.mount(host)
   for (let i = 0; i < 6; i++) await nextTick()
@@ -259,6 +260,13 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
     await click(b); await flushAll()
     expect(events).toContainEqual(['resumeSession', expect.objectContaining({ id: 'a' })])
     restoreImpl = async () => ({ ok: false })
+  })
+
+  it('この端末で開いていた棚卸がもう破棄されていたら、手元の数を捨てさせる（User報告 2026-10-27）', async () => {
+    discardedList = [d('a')]
+    await mountPage({ props: { liveSessionId: 'a' } }); await flushAll()
+    expect(events).toContainEqual(['deleteSession', 'a'])
+    discardedList = []
   })
 
   it('破棄した発注は発注の開始シートに出る', async () => {
