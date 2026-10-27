@@ -44,7 +44,7 @@ describe('ホームのショートカット', () => {
     await mountTop()
     const c = card('数える順')
     expect(c.querySelector('.ht-bd').textContent).toBe('あと3')
-    expect(c.classList.contains('hot')).toBe(true)
+    expect(c.classList.contains('hot')).toBe(false)   // 光らせない（棚卸の中断中と紛れる・User決定 2026-10-27）
     await click(c)
     expect(document.body.querySelector('.ht-sh').textContent).toContain('1 / 4 品目')
     const { showAxisAssign, axisAssignInitial } = await import('../composables/appMenuState.js')

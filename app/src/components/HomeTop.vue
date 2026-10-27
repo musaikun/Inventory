@@ -3,7 +3,7 @@
  * トップ（ホーム）。アプリを開いて最初の画面（User決定 2026-10-07・モック docs/mocks/home-top.html）。
  * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
- * - 連絡（店のトーク・User決定 2026-10-26）: 未読の数と新しいメッセージ2件。押すと連絡の画面（TalkPage）
+ * - 掲示板（以前の「連絡」のトーク・User決定 2026-10-27）: 新しい貼り紙の数と、貼り紙2枚を付箋のように。押すと掲示板（BoardPage）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
  * - ショートカット: 棚卸／発注／数える順／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
@@ -18,7 +18,7 @@ import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
-import TalkPage from './TalkPage.vue'
+import BoardPage from './BoardPage.vue'
 import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
 
@@ -36,17 +36,19 @@ const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
 
 onMounted(() => { pullTasks(); pullHandoffs() })
 
-// ── 連絡 ──
-const talkOpen = ref(false)
-const talkPreview = computed(() => {
-  const unread = unreadHandoffs.value
-  return (unread.length ? unread : handoffs.value).slice(0, 2)   // 新しい順
+// ── 掲示板 ──
+const boardOpen = ref(false)
+// 掲示板に出ているもの（タスクにして終わったものは外れる）。まだ見ていないものを先に2枚
+const boardPreview = computed(() => {
+  const done = new Set(aliveTasks.value.filter(t => t.doneAt).map(t => t.id))
+  const on = handoffs.value.filter(h => !(h.taskId && done.has(h.taskId)))
+  const fresh = on.filter(h => unreadHandoffs.value.includes(h))
+  return { fresh: fresh.length, list: [...fresh, ...on.filter(h => !fresh.includes(h))].slice(0, 2).map((h, i) => ({ h, fresh: fresh.includes(h), rot: i ? 1.5 : -2 })) }
 })
-const _hmAgo = iso => {
+const _ago = iso => {
   const d = new Date(iso)
   const day = localDateKey(d)
-  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
-  return day === localDateKey() ? hm : day === localDateKey(new Date(Date.now() - 86400_000)) ? `昨日 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
+  return day === localDateKey() ? `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` : day === localDateKey(new Date(Date.now() - 86400_000)) ? '昨日' : `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 // ── あいさつ ──
@@ -118,8 +120,8 @@ const shortcuts = computed(() => [
   { key: 'order', label: '発注', ord: true, run: !!props.activeOrderSession, live: orderLive.value,
     badge: props.activeOrderSession ? _runBadge(orderLive.value, 'or') : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
-  // 数える順（並び替え）。在庫タブから移した。振り分けが終わるまで残りの数を出して光らせる（User決定 2026-10-26）
-  ...(can('sort') ? [{ key: 'sort', label: '数える順', hot: sortLeft.value > 0,
+  // 数える順（並び替え）。在庫タブから移した。振り分けが終わるまで残りの数を出す（光らせると棚卸の中断中と紛れるので印だけ・User決定 2026-10-27）
+  ...(can('sort') ? [{ key: 'sort', label: '数える順',
     badge: sortStage.value === 'none' ? { text: 'まだ', kind: 'cy' } : sortLeft.value > 0 ? { text: `あと${sortLeft.value}`, kind: 'cy' } : null,
     d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
   { key: 'sessions', label: '在庫',
@@ -198,20 +200,22 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </span>
     </button>
 
-    <button type="button" :class="['ht-talk', { unread: unreadHandoffs.length }]" aria-label="連絡を開く" @click="talkOpen = true">
-      <span class="ht-talk-h">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z" /></svg>
-        <b>連絡</b>
-        <em v-if="unreadHandoffs.length">未読 {{ unreadHandoffs.length }}</em>
+    <button type="button" class="ht-bd-card" aria-label="掲示板を開く" @click="boardOpen = true">
+      <span class="ht-bdc-h">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="3" width="13" height="15" rx="3" transform="skewY(-8)" /><rect x="4" y="7" width="13" height="15" rx="3" transform="skewY(-8)" /></svg>
+        <b>掲示板</b>
+        <em v-if="boardPreview.fresh">新しい {{ boardPreview.fresh }}</em>
         <i>›</i>
       </span>
-      <span v-for="h in talkPreview" :key="h.id" class="ht-talk-m">
-        <span class="av">{{ (h.by || '?').slice(0, 1) }}</span>
-        <span class="tx"><small>{{ h.by }} ・ {{ _hmAgo(h.createdAt) }}</small>{{ h.body }}</span>
+      <span v-if="boardPreview.list.length" class="ht-bdc-g">
+        <span v-for="n in boardPreview.list" :key="n.h.id" :class="['ht-bdc-n', { fresh: n.fresh }]" :style="{ transform: `rotate(${n.rot}deg)` }">
+          <span class="b">{{ n.h.body }}</span>
+          <small>{{ n.h.by }} ・ {{ _ago(n.h.createdAt) }}</small>
+        </span>
       </span>
-      <span v-if="!talkPreview.length" class="ht-talk-none">まだありません</span>
+      <span v-else class="ht-bdc-none">まだ貼り紙はありません</span>
     </button>
-    <TalkPage v-if="talkOpen" @close="talkOpen = false" />
+    <BoardPage v-if="boardOpen" @close="boardOpen = false" />
 
 
     <div class="ht-sec">ショートカット</div>
@@ -281,17 +285,19 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 23px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
-.ht-talk { position: relative; z-index: 1; width: calc(100% - 28px); margin: 12px 14px 0; border: 2px solid transparent; border-radius: 20px; background: var(--surface); box-shadow: 0 8px 22px rgba(6,34,43,.1); padding: 12px 14px; display: grid; gap: 8px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
-.ht-talk.unread { border-color: #f2c94c; }
-.ht-talk-h { display: flex; align-items: center; gap: 8px; color: #b7791f; }
-.ht-talk-h b { flex: 1; font-size: 15px; color: var(--text); }
-.ht-talk-h em { font-style: normal; font-size: 11.5px; font-weight: 900; color: #fff; background: #d9480f; border-radius: 999px; padding: 2px 9px; }
-.ht-talk-h i { font-style: normal; color: var(--primary, #0e7490); font-weight: 800; }
-.ht-talk-m { display: flex; gap: 10px; align-items: flex-start; }
-.ht-talk-m .av { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #b45309; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
-.ht-talk-m .tx { display: grid; gap: 1px; min-width: 0; font-size: 13.5px; font-weight: 700; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.ht-talk-m .tx small { display: block; font-size: 11px; font-weight: 800; color: var(--text-muted); }
-.ht-talk-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
+.ht-bd-card { position: relative; z-index: 1; width: calc(100% - 28px); margin: 12px 14px 0; border: none; border-radius: 20px; background: var(--surface); box-shadow: 0 8px 22px rgba(6,34,43,.1); padding: 12px 14px 16px; display: grid; gap: 12px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.ht-bdc-h { display: flex; align-items: center; gap: 8px; color: var(--primary, #0e7490); }
+.ht-bdc-h b { flex: 1; font-size: 15px; color: var(--text); }
+.ht-bdc-h em { font-style: normal; font-size: 11.5px; font-weight: 900; color: #06323c; background: linear-gradient(90deg, #67e8f9, #6ee7b7); border-radius: 999px; padding: 2px 9px; }
+.ht-bdc-h i { font-style: normal; font-weight: 800; }
+.ht-bdc-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 2px 4px 0; }
+.ht-bdc-n { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-height: 76px; padding: 10px 10px 8px; border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 6px 14px rgba(6,34,43,.13), 0 1px 2px rgba(6,34,43,.08); }
+.ht-bdc-n.fresh { padding-top: 13px; box-shadow: 0 0 0 1.5px rgba(34,211,238,.5), 0 8px 18px rgba(14,116,144,.2); }
+.ht-bdc-n.fresh::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, #2563eb, #22d3ee, #34d399); box-shadow: 0 0 10px #22d3ee; }
+.ht-bdc-n .b { font-size: 12.5px; font-weight: 700; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ht-bdc-n small { margin-top: auto; font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
+.ht-bdc-n.fresh small { color: var(--primary, #0e7490); }
+.ht-bdc-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
 .ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
   background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; cursor: pointer; }
 .ht-pr { flex: none; position: relative; width: 72px; height: 72px; }
