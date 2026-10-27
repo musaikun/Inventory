@@ -10,10 +10,10 @@ const tick = async () => { for (let i = 0; i < 6; i++) await nextTick() }
 async function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick() }
 const card = label => [...host.querySelectorAll('.ht-sc')].find(b => b.querySelector('b').textContent === label)
 const sheetBtn = label => [...document.body.querySelectorAll('.ht-sh button')].find(b => b.textContent.includes(label))
-async function mountTop() {
+async function mountTop(props = {}) {
   const { default: HomeTop } = await import('./HomeTop.vue')
   host = document.createElement('div'); document.body.appendChild(host)
-  app = createApp({ render: () => h(HomeTop, { onGo: k => events.push(k) }) }); app.mount(host); await tick()
+  app = createApp({ render: () => h(HomeTop, { onGo: k => events.push(k), ...props }) }); app.mount(host); await tick()
 }
 async function seedItems(tagged) {
   const { useConfig } = await import('../composables/useConfig.js')
@@ -58,5 +58,17 @@ describe('ホームのショートカット', () => {
     await mountTop()
     expect(card('数える順').querySelector('.ht-bd')).toBeNull()
     expect(card('数える順').classList.contains('hot')).toBe(false)
+  })
+
+  it('始まっている棚卸: だれかがルームにいれば「進行中」で輪が回る。いなければ「中断中」（User決定 2026-10-27）', async () => {
+    const session = { id: 's1', type: 'stock', status: 'active', startedAt: new Date().toISOString() }
+    await mountTop({ activeSession: session, live: { isActive: true, sessionId: 's1', participants: [{ name: '佐藤' }] } })
+    expect(card('棚卸').querySelector('.ht-bd').textContent).toBe('進行中')
+    expect(card('棚卸').querySelector('.ht-spin')).not.toBeNull()
+    app.unmount(); host.remove()
+    await mountTop({ activeSession: session, live: { isActive: true, sessionId: 's1', participants: [] } })
+    expect(card('棚卸').querySelector('.ht-bd').textContent).toBe('中断中')
+    expect(card('棚卸').querySelector('.ht-spin')).toBeNull()
+    expect(card('棚卸').getAttribute('aria-label')).toBe('棚卸（中断中）を続ける')
   })
 })

@@ -4,7 +4,8 @@
  * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
  * - 連絡（店のトーク・User決定 2026-10-26）: 未読の数と新しいメッセージ2件。押すと連絡の画面（TalkPage）
- * - 棚卸・発注が途中なら「続ける」の帯
+ * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
+ *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
  * - ショートカット: 棚卸／発注／数える順／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
@@ -17,7 +18,6 @@ import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
-import LiveSessionCard from './LiveSessionCard.vue'
 import TalkPage from './TalkPage.vue'
 import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
@@ -25,13 +25,11 @@ import { useSortSetup } from '../composables/useSortSetup.js'
 const props = defineProps({
   activeSession:      { type: Object, default: null },
   activeOrderSession: { type: Object, default: null },
-  stockCount:         { type: Number, default: 0 },    // 途中の棚卸の数えた品目
-  orderCount:         { type: Number, default: 0 },
   orderDeadline:      { type: String, default: '' },   // 今日が発注日なら締切（'' は発注日でない）
   isOrderDay:         { type: Boolean, default: false },
   reorderCount:       { type: Number, default: 0 },
   startingKind:       { type: String, default: null },
-  live:               { type: Object, default: null },   // 棚卸のルームの状態（このセッションのときだけ）
+  live:               { type: Object, default: null },   // 棚卸のルームの状態（このセッションのときだけ）。人がいれば「進行中」
   liveOrder:          { type: Object, default: null },
 })
 const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
@@ -108,12 +106,17 @@ const sortLeft = computed(() => {
 })
 const sheet = ref('')   // '' | 'sort' | 'data'（カードから開く2択の板）
 function pickSheet(fn) { sheet.value = ''; fn() }
+// 始まっている棚卸・発注: だれかがルームに入っていれば進行中、いなければ中断中
+const _inRoom = room => (room?.participants?.length ?? 0) > 0
+const stockLive = computed(() => !!props.activeSession && _inRoom(props.live))
+const orderLive = computed(() => !!props.activeOrderSession && _inRoom(props.liveOrder))
+const _runBadge = (live, kind) => ({ text: live ? '進行中' : '中断中', kind: live ? `${kind} live` : kind })
 const shortcuts = computed(() => [
-  { key: 'stock', label: '棚卸', hot: !!props.activeSession,
-    badge: props.activeSession ? { text: '途中', kind: 'cy' } : null,
+  { key: 'stock', label: '棚卸', run: !!props.activeSession, live: stockLive.value,
+    badge: props.activeSession ? _runBadge(stockLive.value, 'cy') : null,
     d: ['M9 4h6v3H9zM7 5H5v15h14V5h-2', 'M8 12l2.5 2.5L16 9'] },
-  { key: 'order', label: '発注', ord: true,
-    badge: props.activeOrderSession ? { text: '途中', kind: 'or' } : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
+  { key: 'order', label: '発注', ord: true, run: !!props.activeOrderSession, live: orderLive.value,
+    badge: props.activeOrderSession ? _runBadge(orderLive.value, 'or') : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
   // 数える順（並び替え）。在庫タブから移した。振り分けが終わるまで残りの数を出して光らせる（User決定 2026-10-26）
   ...(can('sort') ? [{ key: 'sort', label: '数える順', hot: sortLeft.value > 0,
@@ -210,18 +213,18 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
     </button>
     <TalkPage v-if="talkOpen" @close="talkOpen = false" />
 
-    <LiveSessionCard v-if="activeSession" kind="stock" :session="activeSession" :live="live" :count="stockCount" @resume="s => emit('resume', s)" />
-    <LiveSessionCard v-if="activeOrderSession" kind="order" :session="activeOrderSession" :live="liveOrder" :count="orderCount" @resume="s => emit('resume', s)" />
 
     <div class="ht-sec">ショートカット</div>
     <div class="ht-grid">
       <button
-        v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord }]"
+        v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live }]"
+        :aria-label="s.run ? `${s.label}（${s.badge.text}）を続ける` : undefined"
         :disabled="(s.key === 'stock' && startingKind === 'stock') || (s.key === 'order' && startingKind === 'order')"
         @click="onShortcut(s.key)"
       >
         <span v-if="s.badge" :class="['ht-bd', s.badge.kind]">{{ s.badge.text }}</span>
         <span class="ht-ic" aria-hidden="true">
+          <template v-if="s.live"><i class="ht-halo"></i><i class="ht-spin"></i></template>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path v-for="d in s.d" :key="d" :d="d" /></svg>
         </span>
         <b>{{ s.label }}</b>
@@ -312,6 +315,19 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
 .ht-sc.hot .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
 .ht-sc.ord .ht-ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
+/* 始まっている棚卸・発注: 光る（中断中は止まったまま、進行中は外の輪が回って後ろが脈打つ） */
+.ht-ic { position: relative; }
+.ht-ic svg { position: relative; }
+.ht-sc.run .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
+.ht-sc.ord.run .ht-ic { background: linear-gradient(145deg, #ea580c, #9a3412); box-shadow: 0 0 0 2px rgba(251,146,60,.35), 0 6px 14px rgba(234,88,12,.35); }
+.ht-halo { position: absolute; inset: -9px; border-radius: 20px; background: radial-gradient(closest-side, rgba(34,211,238,.55), rgba(52,211,153,.2) 65%, transparent); animation: ht-pulse 1.8s ease-in-out infinite; }
+.ht-spin { position: absolute; inset: -5px; border-radius: 18px; padding: 2px; background: conic-gradient(from 0deg, transparent 0 55%, #22d3ee 75%, #34d399 90%, transparent);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: ht-spin 2.4s linear infinite; }
+.ht-sc.ord .ht-halo { background: radial-gradient(closest-side, rgba(251,146,60,.55), rgba(251,191,36,.2) 65%, transparent); }
+.ht-sc.ord .ht-spin { background: conic-gradient(from 0deg, transparent 0 55%, #fb923c 75%, #fbbf24 90%, transparent); }
+@keyframes ht-pulse { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+@keyframes ht-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ht-halo, .ht-spin { animation: none; } }
 .ht-sc b { font-size: 12.5px; display: block; }
 .ht-sh-bg { position: fixed; inset: 0; z-index: 60; background: rgba(6,34,43,.42); display: flex; align-items: flex-end; }
 .ht-sh { width: 100%; box-sizing: border-box; background: var(--surface, #fff); border-radius: 22px 22px 0 0; padding: 14px 16px calc(22px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
@@ -325,8 +341,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-sh-b.add { background: none; border: 1.5px dashed #9ccfdb; color: #0b5f73; }
 .ht-sh-bar { height: 6px; border-radius: 3px; background: #dbeef2; overflow: hidden; }
 .ht-sh-bar span { display: block; height: 100%; background: #0e7490; }
-.ht-bd { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
+.ht-bd { position: absolute; z-index: 2; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
 .ht-bd.red { background: #fee2e2; color: #b91c1c; }
 .ht-bd.cy { background: #cffafe; color: var(--primary-deep); }
 .ht-bd.or { background: #ffedd5; color: #c2410c; }
+.ht-bd.cy.live { background: #0e7490; color: #fff; }
+.ht-bd.or.live { background: #ea580c; color: #fff; }
 </style>

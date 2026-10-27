@@ -180,7 +180,7 @@ describe('セッションの ☰ から中断・破棄', () => {
     await openLeave()
     await click(leaveBtn('中断してホームへ'))
     await flush(10)
-    expect((await goShortcut('棚卸'))?.textContent).toContain('途中')
+    expect((await goShortcut('棚卸'))?.textContent).toContain('中断中')
   }, 20000)
 
   it('ひとりの棚卸では大きな「ルームを作成」カードを出さず、見出しの小さな「みんなで」から作る', async () => {

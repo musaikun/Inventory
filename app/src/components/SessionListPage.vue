@@ -347,8 +347,6 @@ onUnmounted(registerInnerLayerCloser(() => {
       <HomeTop
         :active-session="activeSession"
         :active-order-session="activeOrderSession"
-        :stock-count="_itemCount(activeSession)"
-        :order-count="_itemCount(activeOrderSession)"
         :is-order-day="todayOrder.isDay"
         :order-deadline="todayOrder.deadline"
         :reorder-count="stockRef?.reorderCount ?? 0"

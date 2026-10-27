@@ -180,13 +180,15 @@ describe('発注を始める', () => {
 })
 
 describe('中断中のセッションと破棄', () => {
-  it('中断中は帯を出さず、ホームの棚卸・発注が「途中」になり、押すと再開する', async () => {
+  it('中断中は帯を出さず、ホームの棚卸・発注が「中断中」になり、押すと再開する', async () => {
     sessionList = [ACTIVE_STOCK, ACTIVE_ORDER]
     await mountPage()
     expect(host.querySelector('.strip')).toBeNull()
     const stock = shortcut('棚卸')
-    expect(stock.querySelector('.ht-bd').textContent).toBe('途中')
-    expect(shortcut('発注').textContent).toContain('途中')
+    expect(stock.querySelector('.ht-bd').textContent).toBe('中断中')   // だれもルームにいない
+    expect(stock.querySelector('.ht-spin')).toBeNull()
+    expect(shortcut('発注').textContent).toContain('中断中')
+    expect(host.querySelector('.lc')).toBeNull()   // 進行中の大きなカードは出さない（User決定 2026-10-27）
     await click(stock)
     expect(events).toContainEqual(['resumeSession', ACTIVE_STOCK])
   })
